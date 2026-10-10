@@ -69,6 +69,24 @@ CT_STG_MAX_KB     equ 32            ; the largest file Chart reads. Its
                                      ; for the instance's whole life, and it
                                      ; stays the ceiling (SPEC.md 82.14)
 CT_NAMEMAX equ 12                   ; 8.3 name, no NUL
+; THE STAGING CLAIM'S LAYOUT (SPEC.md 82.14). The file is read at CT_FOFF and
+; the series are collected BELOW it, in the same transient claim, because
+; nothing in them outlives the read except the scaled words - which
+; ct_finalize copies out into ct_w2vals/ct_wvals before the claim goes back.
+; They were 800 bytes of the package's own bss, resident for the instance's
+; whole life, to hold data that is live for one callback.
+CT_FOFF     equ 1024                    ; the file; a multiple of 16, which
+                                        ; OSAPI_FILE_READ requires of BX
+CT_A_TROW   equ 0                       ; CH_MAXBARS words: series one's rows
+CT_A_TVAL   equ CT_A_TROW + CH_MAXBARS*2    ; ...and its values, as DOUBLES
+CT_A_T2VAL  equ CT_A_TVAL + CH_MAXBARS*8    ; series two's values (in the
+                                            ; file's order: nothing sorts it)
+CT_A_W      equ CT_A_T2VAL + CH_MAXBARS*8   ; ch_scale's words, series two
+                                            ; then one - ct_w2vals' order
+CT_A_END    equ CT_A_W + CH_MAXBARS*4
+%if CT_A_END > CT_FOFF
+    %error "the series no longer fit below the staged file"
+%endif
 CT_WIN_W   equ 260                  ; a little margin around the CH_W x
 CT_WIN_H   equ 200                  ; CH_H canvas
 ; The temp arrays hold the KEPT SERIES, not the scanned candidates - see
@@ -449,8 +467,8 @@ ct_load_show:
 ; -----------------------------------------------------------------------------
 ; ct_stage - read [ct_name] into a claim SIZED TO IT, held only until the
 ; caller's callback returns (SPEC.md 82.14).
-; out: CF=0: ES:0 = the file's bytes, CX = how many, [ct_stgseg] = the claim
-;            to give back (0 = none taken: the file is empty)
+; out: CF=0: ES = [ct_stgseg], the claim to give back, with the file's bytes
+;            at ES:CT_FOFF and CX of them, and the series' arrays below
 ;      CF=1: SI = the toast to show; nothing is held
 ; clobbers AX, DX, SI
 ;
@@ -458,8 +476,8 @@ ct_load_show:
 ; directory entry BEFORE any data I/O, leaves the buffer alone, and answers
 ; DX = the KB the read needs - the UNPACKED size, so a compressed file is
 ; sized right without this code knowing it is one (os88api.inc,
-; SPEC.md 20.14.6.3). An empty file answers CF=0 with nothing read, which is
-; also exactly right. The second read is then one more walk of a directory
+; SPEC.md 20.14.6.3). An empty file answers CF=0 and DX = 0, and still gets
+; the one KB the series live in. The second read is then one more walk of a directory
 ; the first just walked, and the hintless-file sniff it repeats is answered
 ; out of SPEC.md 18.95's track cache.
 ;
@@ -469,29 +487,32 @@ ct_load_show:
 ; -----------------------------------------------------------------------------
 ct_stage:
     push bx
-    xor bx, bx
-    mov [ct_stgseg], bx
     push ds                             ; ES:BX = DS:0 with a capacity of 0:
     pop es                              ; the probe, which writes nothing
+    xor bx, bx
     xor cx, cx
     xor dx, dx
     mov si, ct_name
     call OSAPI_FILE_READ
-    jnc .got                            ; an empty file: AX = 0 bytes
+    jnc .claim                          ; an empty file: DX:AX = 0 bytes
     cmp ax, FERR_BIG
     jne .rerr
     cmp dx, CT_STG_MAX_KB
     ja .rerr
-    mov ax, dx                          ; AX = the KB it needs, and the claim
-    call OSAPI_MEM_CLAIM                ; leaves AX alone (every slot preserves
-    mov si, ct_s_nomem                  ; all but its outputs)
-    jc .out
+.claim:
+    mov ax, dx                          ; AX = the KB the file needs, plus
+    inc ax                              ; the one under CT_FOFF for the series
+    call OSAPI_MEM_CLAIM                ; - and the claim leaves AX alone
+    mov si, ct_s_nomem                  ; (every slot preserves all but its
+    jc .out                             ; outputs)
     mov [ct_stgseg], dx
     mov es, dx
-    mov ch, al                          ; CX = KB * 1024 - AX <= 32, so it
-    xor cl, cl                          ; fits a word
+    dec ax
+    mov ch, al                          ; CX = the file's KB * 1024: AX <= 32,
+    xor cl, cl                          ; so it fits a word
     shl cx, 1
     shl cx, 1
+    mov bx, CT_FOFF
     xor dx, dx
     mov si, ct_name
     call OSAPI_FILE_READ
@@ -524,8 +545,16 @@ ct_read_by_ext:
     push dx
     push di
     push es
-    call ct_stage                       ; ES:0 = the file, CX = its length
+    call ct_stage                       ; ES:CT_FOFF = the file, CX bytes
     jc .out
+    add cx, CT_FOFF                     ; CX = where the readers stop
+    xor dx, dx                          ; both series start empty: ct_t2cnt
+    mov [ct_tcnt], dx                   ; is written only inside ct_record, so
+    mov [ct_t2cnt], dx                  ; zeroing just ct_tcnt carried the
+                                        ; PREVIOUS file's second column into
+                                        ; this one's chart. ct_mincol and
+                                        ; ct_mincol2 need nothing: a count of
+                                        ; zero is what ct_record tests first
     mov di, ct_name
 .end:
     cmp byte [di], 0
@@ -549,9 +578,7 @@ ct_read_by_ext:
 .go:
     call ax
     mov dx, [ct_stgseg]                 ; ...and the staging goes back before
-    or dx, dx                           ; the callback returns (0: an empty
-    jz .out                             ; file took none; CF=0 from the OR)
-    call OSAPI_MEM_FREE
+    call OSAPI_MEM_FREE                 ; the callback returns
     clc
 .out:
     pop es
@@ -802,7 +829,9 @@ ct_i32_dbl:
 ; series one, because ct_finalize sorts by it, and the doubles of both. A
 ; column word per cell went (every cell of a series is in ct_mincol by
 ; construction), and so did series two's rows, which nothing ever read - it is
-; drawn in the order the file gave it, exactly as before.
+; drawn in the order the file gave it, exactly as before. And what is kept is
+; kept in the STAGING claim, at ES:CT_A_* (ES is that claim for as long as a
+; reader runs), not in the package's bss: none of it outlives the read.
 ; -----------------------------------------------------------------------------
 ct_record:
     push cx
@@ -842,7 +871,7 @@ ct_record:
     mov [ct_t2cnt], cx
     mov cl, 3
     shl di, cl
-    add di, ct_t2val                    ; DI = &ct_t2val[old count]
+    add di, CT_A_T2VAL                  ; ES:DI = series two's [old count]
     jmp .store
 .newcol:                                ; CX = series one's count. The old
     jcxz .nodemote                      ; series becomes the second one rather
@@ -852,14 +881,14 @@ ct_record:
     mov [ct_t2cnt], cx
     shl cx, 1                           ; four words a double
     shl cx, 1
-    mov si, ct_tval
-    mov di, ct_t2val
-    push es                             ; ES is the staged FILE while a reader
-    push ds                             ; runs
-    pop es
+    mov si, CT_A_TVAL
+    mov di, CT_A_T2VAL
+    push ds                             ; both arrays are in the staging claim
+    push es
+    pop ds
     cld
     rep movsw
-    pop es
+    pop ds
     pop ax
 .nodemote:
     mov [ct_mincol], ax
@@ -873,13 +902,17 @@ ct_record:
     inc cx
     mov [ct_tcnt], cx
     shl di, 1
-    mov [ct_trow + di], bx
+    mov [es:CT_A_TROW + di], bx
     shl di, 1
     shl di, 1
-    add di, ct_tval                     ; DI = &ct_tval[old count]
+    add di, CT_A_TVAL                   ; ES:DI = series one's [old count]
 .store:
-    mov si, ch_dbl
-    call ch_sc_copy8
+    mov si, ch_dbl                      ; DS:SI -> ES:DI, the eight bytes
+    cld
+    movsw
+    movsw
+    movsw
+    movsw
 .out:
     pop di
     pop si
@@ -889,19 +922,19 @@ ct_record:
 ; -----------------------------------------------------------------------------
 ; ct_finalize - the shared last step for all three readers: sort series one by
 ; row ascending, IN PLACE, then scale both series' doubles into the words the
-; drawing runs on. Clobbers DI.
+; drawing runs on, and copy those words - the only thing the read leaves
+; behind - out of the staging claim into ct_w2vals/ct_wvals.
+; in: ES = the staging claim. out: ES = DS. Clobbers DI.
 ;
 ; ct_record already keeps only the lowest column (and caps it at CH_MAXBARS),
-; so all this has left to do is order it - and it orders ct_trow/ct_tval where
+; so all this has left to do is order it - and it orders the rows and doubles where
 ; they stand. It used to copy them into a second set of arrays (ct_vrow,
 ; ct_vals: 400 bytes) to sort the copy, which bought nothing: nothing reads
 ; the unsorted order afterwards. The sort is the same insertion sort, stable,
 ; so the order it produces is the same.
 ;
-; ct_wvals SHARES ct_trow's bytes (see the bss): the rows are dead once the
-; sort is done, and the scaled words are written after it. A read that never
-; reaches a reader (the file would not stage) touches neither, so the chart on
-; screen and the words it was drawn from stay together.
+; A read that never reaches a reader (the file would not stage) never gets
+; here, so the chart on screen and the words it was drawn from stay together.
 ; -----------------------------------------------------------------------------
 ct_finalize:
     push ax
@@ -918,23 +951,23 @@ ct_finalize:
 .inner:
     or si, si
     jz .outernext
-    mov ax, [ct_trow + si]
-    mov bx, [ct_trow + si - 2]
+    mov ax, [es:CT_A_TROW + si]
+    mov bx, [es:CT_A_TROW + si - 2]
     cmp ax, bx
     jae .outernext
-    mov [ct_trow + si], bx
-    mov [ct_trow + si - 2], ax
+    mov [es:CT_A_TROW + si], bx
+    mov [es:CT_A_TROW + si - 2], ax
     push si                             ; and the eight bytes that belong with
     push cx                             ; the row, swapped the same way. The
     shl si, 1                           ; sort's OUTER index lives in CX -
     shl si, 1                           ; counting the four words in it reset
-    add si, ct_tval                     ; the outer walk after every swap
+    add si, CT_A_TVAL                   ; the outer walk after every swap
     lea di, [si - 8]
     mov cx, 4
 .swap8:
-    mov ax, [si]
-    xchg ax, [di]
-    mov [si], ax
+    mov ax, [es:si]
+    xchg ax, [es:di]
+    mov [es:si], ax
     inc si
     inc si
     inc di
@@ -953,15 +986,26 @@ ct_finalize:
     ; SERIES TWO FIRST, so [ch_e10] is left holding SERIES ONE's exponent -
     ; that is the one the value axis is labelled from, and the second series
     ; is drawn against its own ch_max2 with no scale of its own.
-    mov dx, ds
-    mov si, ct_t2val
-    mov di, ct_w2vals
+    mov dx, es                          ; ch_scale wants both arrays in DX
+    mov si, CT_A_T2VAL
+    mov di, CT_A_W
     mov cx, [ct_t2cnt]
     call ch_scale
-    mov si, ct_tval
-    mov di, ct_wvals
+    mov si, CT_A_TVAL
+    mov di, CT_A_W + CH_MAXBARS*2
     mov cx, [ct_tcnt]
     call ch_scale
+    mov si, CT_A_W                      ; ...and the words, both series in one
+    mov di, ct_w2vals                   ; move: ct_wvals follows ct_w2vals as
+    mov cx, CH_MAXBARS * 2              ; series one follows series two here.
+    push ds                             ; Past a count the words are stale -
+    push es                             ; and were before: ch_draw reads only
+    pop ds                              ; the count
+    pop es
+    cld
+    rep movsw
+    push es
+    pop ds
     pop si
     pop dx
     pop cx
@@ -1027,19 +1071,8 @@ ct_rkdec:
     ret
 
 ; -----------------------------------------------------------------------------
-; ct_reset_series - both series' collection state, zeroed. Every reader
-; calls this first: ct_t2cnt/ct_mincol2 are written only inside ct_record,
-; so a reader that zeroed just ct_tcnt carried the PREVIOUS file's second
-; column into this one's chart. Preserves everything.
-; -----------------------------------------------------------------------------
-ct_reset_series:
-    mov word [ct_tcnt], 0
-    mov word [ct_t2cnt], 0
-    mov word [ct_mincol2], 0
-    ret
-
-; -----------------------------------------------------------------------------
-; ct_read_biff - in: ES:0 = the staged file, CX = its length.
+; ct_read_biff - in: ES:CT_FOFF = the staged file, CX = where it ends;
+; both series empty (ct_read_by_ext).
 ; Walks real [opcode:word][length:word] BIFF record headers; on an RK cell
 ; record (0x027E: row,col,xf,rk_lo,rk_hi, 10 bytes) decodes the value via
 ; ct_rkdec, on a NUMBER record (0x0203: row,col,xf and eight bytes of
@@ -1056,8 +1089,7 @@ ct_read_biff:
     push bx
     push dx
     push si
-    call ct_reset_series
-    xor si, si
+    mov si, CT_FOFF
 .rechdr:
     mov ax, si
     add ax, 4
@@ -1124,7 +1156,8 @@ ct_read_biff:
     jmp ct_finalize
 
 ; -----------------------------------------------------------------------------
-; ct_read_sylk - in: ES:0 = the staged file, CX = its length.
+; ct_read_sylk - in: ES:CT_FOFF = the staged file, CX = where it ends;
+; both series empty (ct_read_by_ext).
 ; Line-oriented: any line shaped "C;<tokens>" is a candidate cell record.
 ; Tokens are order-independent, ';'-separated, 1-based X (col)/Y (row)/K
 ; (value) - real SYLK's own C-record grammar. Only a line carrying an
@@ -1139,9 +1172,8 @@ ct_read_sylk:
     push dx
     push si
     push di
-    call ct_reset_series
     mov di, cx                          ; di = end offset
-    xor si, si
+    mov si, CT_FOFF
 .lineloop:
     cmp si, di
     jae .done
@@ -1334,7 +1366,7 @@ ct_difskipline:
 ct_is_bot_line:
     push ax
     push bx
-    lea bx, [si+3]                      ; SI < DI <= 32KB: this cannot wrap
+    lea bx, [si+3]                      ; SI < DI <= 33KB: this cannot wrap
     cmp bx, di
     ja .no
     cmp word [es:si], 'BO'
@@ -1359,7 +1391,8 @@ ct_is_bot_line:
     ret
 
 ; -----------------------------------------------------------------------------
-; ct_read_dif - in: ES:0 = the staged file, CX = its length.
+; ct_read_dif - in: ES:CT_FOFF = the staged file, CX = where it ends;
+; both series empty (ct_read_by_ext).
 ; Skips the header STRUCTURALLY - unlike Sheet's own closed-loop DIF
 ; reader, which safely assumes its own writer's fixed 12-line header, this
 ; reads files it did not write, so it scans line by line for the first
@@ -1380,9 +1413,8 @@ ct_read_dif:
     push dx                             ; and the one caller, ct_read_by_ext,
     push si                             ; banks it
     push di
-    call ct_reset_series
     mov di, cx                          ; di = end offset
-    xor si, si
+    mov si, CT_FOFF
 .hdrscan:
     cmp si, di
     jae .done                           ; no BOT anywhere: no data
@@ -1538,13 +1570,14 @@ ct_s_noval:    db 'No numeric data found.', 0
 ; =============================================================================
 ; bss (loader-zeroed, SPEC.md 21 step 5)
 ; =============================================================================
-    OS88_BSS 1171
+    OS88_BSS 531
     OS88_IMAGE_END
 
 ct_chartseg equ os88_image_end + 0  ; word: the offscreen canvas claim
 ct_stgseg   equ ct_chartseg + 2     ; word: the file being read's staging
-                                     ; claim, 0 when none - held only inside
-                                     ; ct_read_by_ext (SPEC.md 82.14)
+                                     ; claim - meaningful only inside
+                                     ; ct_read_by_ext, which frees it before
+                                     ; it returns (SPEC.md 82.14)
 ct_name     equ ct_stgseg + 2       ; 13: the charted file's 8.3 name
 ct_tcnt     equ ct_name + 13        ; word: how many cells series one holds -
 ct_valcnt   equ ct_tcnt             ; ...which IS the count charted: every
@@ -1552,16 +1585,16 @@ ct_valcnt   equ ct_tcnt             ; ...which IS the count charted: every
                                      ; a read the two cannot differ, and the
                                      ; separate word only ever copied this one
 ct_mincol   equ ct_tcnt + 2         ; word: series one's column
-ct_trow     equ ct_mincol + 2       ; CH_MAXBARS words: series one's rows, for
-                                     ; ct_finalize's sort, and then...
-ct_wvals    equ ct_trow             ; ...ch_scale's output for series one: the
-                                     ; signed words the drawing reads, plus
-                                     ; [ch_e10] to say what they mean. The rows
-                                     ; are dead once the sort is done, and the
-                                     ; words are written after it (ct_finalize)
-ct_tval     equ ct_trow + CH_MAXBARS*2  ; CH_MAXBARS DOUBLES: series one's
-                                     ; values, sorted in place
-ct_ntxt     equ ct_tval + CH_MAXBARS*8  ; CT_NTXT_MAX+1: ct_esatof's DS copy
+ct_w2vals   equ ct_mincol + 2       ; CH_MAXBARS words: ch_scale's output for
+                                     ; series two, and...
+ct_wvals    equ ct_w2vals + CH_MAXBARS*2    ; ...for series one: the signed
+                                     ; words the drawing reads, plus [ch_e10]
+                                     ; to say what they mean. ONE move fills
+                                     ; both (ct_finalize), so they stay in
+                                     ; this order and adjacent. The rows and
+                                     ; doubles they come from live in the
+                                     ; staging claim (CT_A_*)
+ct_ntxt     equ ct_wvals + CH_MAXBARS*2 ; CT_NTXT_MAX+1: ct_esatof's DS copy
                                      ; of one number out of the staged file -
                                      ; and ct_expdlg's export name, a moment
                                      ; when no read is running
@@ -1659,11 +1692,8 @@ ch_l2sy        equ ch_l2sx + 2
 ch_l2err       equ ch_l2sy + 2
 ch_l2e2        equ ch_l2err + 2
 ct_mincol2  equ ch_l2e2 + 2         ; the SECOND series' column...
-ct_t2cnt    equ ct_mincol2 + 2      ; ...how many cells it has...
-ct_t2val    equ ct_t2cnt + 2        ; ...and its values, as DOUBLES (in the
-                                     ; file's order: nothing sorts series two)
-ct_w2vals   equ ct_t2val + CH_MAXBARS * 8   ; ch_scale's output for it
-ct_wantcol  equ ct_w2vals + CH_MAXBARS * 2  ; word: 0 = chart the lowest
+ct_t2cnt    equ ct_mincol2 + 2      ; ...and how many cells it has
+ct_wantcol  equ ct_t2cnt + 2        ; word: 0 = chart the lowest
                                              ; column, else the 1-based column
                                              ; Data > Column asked for
 fp_as             equ ct_wantcol + 2   ; --- os88fp.inc's caller-declared

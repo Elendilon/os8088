@@ -121586,6 +121586,8 @@ rather than two renderings that agree by inspection.
 
 The 118-byte BMP header and palette are written into the buffer **once at
 startup** and never rebuilt; the writer stages whatever is already there.
+(CHART.O88 does not even stage it: it turns the canvas's rows over in place,
+writes the canvas itself and turns them back - §82.14.)
 
 ### 82.1.1 The interior the picture does not cover (#142)
 
@@ -122111,6 +122113,45 @@ in any of the charts tested up to that point, because both need data the
 earlier tests did not have — a second column, and rows arriving out of order.
 The fixture that caught the sort is a SYLK file whose rows are written 4, 1, 3,
 2; it charts 40, 30, 15, 5.
+
+### 82.14 What CHART.O88 holds, and for how long
+
+**An open Chart holds one claim: the 19KB canvas.** Everything else it reads
+or writes is held for exactly one callback (apps size pass 1; it held 51KB of
+heap and 1,832 bytes of bss before it, and holds 19KB and 531).
+
+- **A read claims what that file needs, and gives it back before the callback
+  returns.** `ct_stage` asks `OSAPI_FILE_READ` with a capacity of zero first:
+  `FERR_BIG` is decided from the directory entry before any data I/O and
+  answers `DX` = the KB the read needs, the unpacked size of a compressed file,
+  so the claim is sized without the package knowing what kind of file it is.
+  The claim is that plus one KB, the file lands at `CT_FOFF` (1024) and the
+  series are collected below it - rows, both series' doubles and `ch_scale`'s
+  words (`CT_A_*`) - because none of that outlives the read: `ct_finalize`
+  copies the scaled words into `ct_w2vals`/`ct_wvals` and `ct_read_by_ext`
+  frees the claim. `CT_STG_MAX_KB` = 32 is the fixed claim this replaced, kept
+  as the ceiling, so the set of files Chart opens is unchanged; a heap that
+  cannot fund the read says *Not enough memory.* where the fixed claim made
+  the whole package refuse to launch.
+- **An export claims nothing.** The canvas already is the BMP - header and
+  palette at 0, pixels after - except that BMP keeps its rows bottom-up and
+  `OSAPI_GFX_BLIT4` wants them top-down. `ct_expdlg` turns the rows over in
+  place (`ct_flip`, its own inverse), writes the canvas with one
+  `OSAPI_FILE_WRITE` and turns them back. Nothing can paint the canvas in
+  between, because `ct_paint` runs on the UI task and the export is a callback
+  on it; the file is byte-identical to `ch_bmp_write`'s, which Sheet still
+  uses, staging through the `sh_stgseg` it holds for its own file I/O.
+- **Series one is sorted where it stands.** `ct_finalize` used to copy it into
+  a second pair of arrays to sort the copy; nothing ever read the unsorted
+  order. Series two is drawn in the file's order and always was, so its rows
+  were never stored for any reason, and every cell of a series is in
+  `ct_mincol` by construction, so neither is a column word per cell.
+
+**The export name is not `ct_name`.** `ct_name` is the file being charted and
+Data > Column (§82.12) reads it again; the export used to copy the Save
+dialog's answer over it, so a column choice after an export parsed `CHART.BMP`
+as SYLK and said *No data in that column.* The export name is staged in
+`ct_ntxt`, `ct_esatof`'s scratch, which no read is using at that moment.
 
 ## 83. Text input for packages (`apps/os88line.inc`, `apps/os88text.inc`)
 
