@@ -54,7 +54,7 @@ try:
     from unicorn.x86_const import UC_X86_INS_IN, UC_X86_INS_OUT, \
         UC_X86_REG_SP, UC_X86_REG_CS, UC_X86_REG_DS, UC_X86_REG_ES, \
         UC_X86_REG_SS, UC_X86_REG_IP, UC_X86_REG_AX, UC_X86_REG_BX, \
-        UC_X86_REG_CX, UC_X86_REG_DX
+        UC_X86_REG_CX, UC_X86_REG_DX, UC_X86_REG_EFLAGS
 except ImportError:
     print("SKIP: the unicorn module is not installed (pip install unicorn)")
     sys.exit(0)
@@ -496,13 +496,203 @@ def leg_sb(tmp):
               DEFVEC[1].to_bytes(2, "little"), "the SB line's old vector saved")
 
 
+# =============================================================================
+# leg kern - the kernel's two PicoMEM checks
+# =============================================================================
+def kslice(tmp):
+    """kernel/disk.inc's dsk_fdd_pmemu and dsk_fdd_park_x, cut out as they ship."""
+    src = open(os.path.join(ROOT, "kernel", "disk.inc")).read().splitlines()
+    out = []
+
+    def cut(start, stop):
+        i = next(n for n, l in enumerate(src) if l.startswith(start))
+        j = next(n for n in range(i + 1, len(src)) if stop(src[n]))
+        out.extend(src[i:j])
+    cut("dsk_fdd_pmemu:", lambda l: l.startswith("%endif"))
+    cut("dsk_fdd_park_x:", lambda l: l.startswith("%endif"))
+    with open(os.path.join(tmp, "kslice.inc"), "w") as f:
+        f.write("\n".join(out) + "\n")
+
+
+def leg_kern(tmp):
+    kslice(tmp)
+    image, syms = assemble(tmp, os.path.join(HERE, "picomem", "khx.asm"),
+                           [tmp], "khx")
+    for pm, attr in ((True, (0x80, 0x81)), (True, (0x80, 0x00)), (False, None)):
+        print("kern: %s" % ("PicoMEM, floppy attributes %02X %02X" % attr
+                            if pm else "no PicoMEM in the machine"))
+        st = {"ramp": 0x91, "pmw": 0}
+
+        def inb(p):
+            if pm and p == 0x2A3:
+                st["ramp"] = (st["ramp"] + 1) & 0xFF
+                return st["ramp"]
+            return 0x5A                 # a stale bus byte: it never counts
+
+        def int13(box):
+            mu = box.mu
+            if mu.reg_read(UC_X86_REG_AX) == 0x6000 and \
+                    mu.reg_read(UC_X86_REG_DX) == 0x1234:
+                mu.reg_write(UC_X86_REG_BX, BIOS)
+                mu.reg_write(UC_X86_REG_DX, 0xAA55)
+        box = Box(image, syms, inb, lambda p, v: None, int13)
+        if pm:                          # the card's config, 16KB above it
+            box.put((BIOS + 0x400) * 16 + 0xB2, bytes(attr))
+        for unit in (0, 1):
+            box.go("entry_emu%d" % unit)
+            served = box.w("res_flags") & 1 == 0
+            want = bool(pm and attr[unit] & 0x80)
+            check(served == want, "unit %d %s by the card" % (
+                unit, "served" if want else "NOT served"))
+        if not pm:
+            check(box.int13_calls == 0, "no PicoMEM: no int 13h AX=6000h")
+        # Restart: a PicoMEM machine warm-resets; any other parks and int 19h's
+        box.put(0xFFFF0, b"\xf4")      # the reset vector: stop there
+        calls = []
+        box.mu.hook_add(UC_HOOK_INTR, lambda uc, n, ud: calls.append(n))
+        box.put(0x472, b"\0\0")
+        box.go("entry_park")
+        ip = box.mu.reg_read(UC_X86_REG_IP)
+        cs = box.mu.reg_read(UC_X86_REG_CS)
+        flag = int.from_bytes(box.lin(0x472, 2), "little")
+        if pm:
+            check(cs * 16 + ip in (0xFFFF0, 0xFFFF1) and flag == 0x1234,
+                  "Restart warm-resets (1234h at 0040:0072, FFFF:0000) - "
+                  "CS:IP %04X:%04X flag %04X" % (cs, ip, flag))
+            check(0x19 not in calls and 0x13 not in calls,
+                  "...with no park and no int 19h (ints %s)" % calls)
+        else:
+            check(flag == 0 and 0x19 in calls and calls.count(0x13) == 2,
+                  "Restart parks both claimed units and int 19h's as before "
+                  "(ints %s, flag %04X)" % (calls, flag))
+
+
+# =============================================================================
+# leg mouse - USBMOUSE.DRV's PicoMEM backend (SPEC.md 9.12.7)
+# =============================================================================
+DSEG = 0x2000                   # where the model loads the driver
+FEED = 0x0060 * 16 + 0x0449     # OSAPI_MOUSE_FEED's cell: KERNEL_SEG:0449h
+
+
+def leg_mouse(tmp):
+    image, syms = assemble(tmp, os.path.join(ROOT, "drivers", "usbmouse",
+                                             "usbmouse.asm"),
+                           [os.path.join(ROOT, "drivers", "usbmouse"),
+                            os.path.join(ROOT, "drivers"),
+                            os.path.join(ROOT, "apps")], "um")
+    for pm in (True, False):
+        print("mouse: %s" % ("no CH375, a PicoMEM on IRQ 7" if pm else
+                             "neither a CH375 nor a PicoMEM"))
+        st = {"ramp": 0x10, "fn": [], "feeds": [], "chained": 0}
+        mu = Uc(UC_ARCH_X86, UC_MODE_16)
+        mu.mem_map(0, 0x100000)
+        mu.mem_write(DSEG * 16, image)
+        mu.mem_write(FEED, b"\xcb")             # retf
+        mu.mem_write(0x700, b"\xcf")            # the vector we chain to: iret
+        mu.mem_write(0x33 * 4, (0x0700).to_bytes(2, "little") + bytes(2))
+        # far call to the header's dispatcher (+12: `call bp / retf`) with BP
+        # = the entry, as drv_call does, then stop
+        stub = b"\xbd" + syms["um_entry"].to_bytes(2, "little") + \
+            b"\x9a" + (12).to_bytes(2, "little") + \
+            DSEG.to_bytes(2, "little") + b"\xf4"
+        mu.mem_write(0x500, stub)
+        # int 33h AX=0060h as the card's IRQ does it, then stop - dispatched
+        # through the IVT by hand (pushf; call far [cs:00CCh]), unicorn
+        # treating `int` as a hook rather than a vector
+        mu.mem_write(0x520, b"\x9c\x2e\xff\x1e\xcc\x00\xf4")
+
+        def hin(uc, port, size, ud):
+            if pm and port == 0x2A3:
+                st["ramp"] = (st["ramp"] + 1) & 0xFF
+                return st["ramp"]
+            return 0xFF
+
+        def hint(uc, n, ud):
+            if n != 0x13:
+                return
+            ax, dx = uc.reg_read(UC_X86_REG_AX), uc.reg_read(UC_X86_REG_DX)
+            if pm and dx == 0x1234 and ax >> 8 == 0x60:
+                st["fn"].append(ax & 0xFF)
+                if ax == 0x6000:
+                    uc.reg_write(UC_X86_REG_BX, BIOS)
+                    uc.reg_write(UC_X86_REG_CX, 0x0700)
+                    uc.reg_write(UC_X86_REG_DX, 0xAA55)
+
+        def hcode(uc, addr, size, ud):
+            if addr == FEED:
+                sx = lambda r: r - 0x10000 if r & 0x8000 else r
+                st["feeds"].append((sx(uc.reg_read(UC_X86_REG_AX)),
+                                    sx(uc.reg_read(UC_X86_REG_BX)),
+                                    uc.reg_read(UC_X86_REG_CX) & 0xFF,
+                                    uc.reg_read(UC_X86_REG_DS)))
+            elif addr == 0x700:
+                st["chained"] += 1
+            elif uc.mem_read(addr, 1) == b"\xf4":
+                uc.emu_stop()
+        mu.hook_add(UC_HOOK_INSN, hin, None, 1, 0, UC_X86_INS_IN)
+        mu.hook_add(UC_HOOK_INSN, lambda *a: None, None, 1, 0, UC_X86_INS_OUT)
+        mu.hook_add(UC_HOOK_INTR, hint)
+        mu.hook_add(UC_HOOK_CODE, hcode)
+
+        def run(at, regs={}):
+            for r in (UC_X86_REG_CS, UC_X86_REG_DS, UC_X86_REG_ES,
+                      UC_X86_REG_SS):
+                mu.reg_write(r, DSEG if r == UC_X86_REG_DS else 0)
+            mu.reg_write(UC_X86_REG_SP, 0x7000)
+            for r, v in regs.items():
+                mu.reg_write(r, v)
+            mu.emu_start(at, 0xFFFFF, count=1_000_000)
+        vec = lambda: (int.from_bytes(mu.mem_read(0xCC, 2), "little"),
+                       int.from_bytes(mu.mem_read(0xCE, 2), "little"))
+
+        run(0x500, {UC_X86_REG_AX: 0})              # DRVV_ATTACH
+        cf = mu.reg_read(UC_X86_REG_EFLAGS) & 1
+        if not pm:
+            check(cf == 1 and mu.reg_read(UC_X86_REG_AX) & 0xFF == 5,
+                  "refused DRVE_HW (5), as with no CH375 before: CF=%d AL=%d"
+                  % (cf, mu.reg_read(UC_X86_REG_AX) & 0xFF))
+            check(not st["fn"] and vec() == (0x700, 0),
+                  "no PicoMEM call made and int 33h untouched")
+            continue
+        check(cf == 0, "attached")
+        check(st["fn"] == [0x00, 0x10], "PM BIOS detect then mouse ON (%s)"
+              % ["%02Xh" % f for f in st["fn"]])
+        check(vec() == (syms["um_pm33"], DSEG), "int 33h is the driver's")
+
+        def report(btn, dx, dy):
+            run(0x520, {UC_X86_REG_AX: 0x0060, UC_X86_REG_DX: btn,
+                        UC_X86_REG_BX: dx & 0xFFFF, UC_X86_REG_CX: dy & 0xFFFF})
+        report(1, 10, -6)
+        report(1, 3, 1)
+        # 10,-6 halves to 5,-3 exactly; 3,1 to 1,0 carrying 1 and 1
+        check(st["feeds"][:2] == [(5, -3, 1, DSEG), (1, 0, 1, DSEG)],
+              "two reports fed halved with the carry, left down, DS = the "
+              "driver's for the fence: %s" % st["feeds"][:2])
+        n = len(st["feeds"])
+        report(1, 0, 0)
+        check(len(st["feeds"]) == n, "a report that changes nothing is not fed")
+        run(0x520, {UC_X86_REG_AX: 0x0000})
+        check(st["chained"] == 1, "any other int 33h function is chained")
+        st["fn"].clear()
+        run(0x500, {UC_X86_REG_AX: 1})              # DRVV_DETACH
+        check(st["fn"] == [0x11], "detach turns the card's mouse OFF (%s)"
+              % ["%02Xh" % f for f in st["fn"]])
+        check(st["feeds"][-1:] and st["feeds"][-1][:3] == (0, 0, 0),
+              "...releases the held button")
+        check(vec() == (0x700, 0), "...and gives int 33h back")
+
+
 def main():
-    legs = sys.argv[1:] or ["ne", "sb"]
+    legs = sys.argv[1:] or ["ne", "sb", "kern", "mouse"]
     with tempfile.TemporaryDirectory() as tmp:
         if "ne" in legs:
             leg_ne(tmp)
         if "sb" in legs:
             leg_sb(tmp)
+        if "kern" in legs:
+            leg_kern(tmp)
+        if "mouse" in legs:
+            leg_mouse(tmp)
     if FAILS:
         print("picomem: FAIL (%d)" % len(FAILS))
         return 1

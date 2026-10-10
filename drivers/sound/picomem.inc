@@ -1,8 +1,9 @@
 ; =============================================================================
 ; os8088 - SOUND.DRV, the PicoMEM tier (SPEC.md 34.10)
 ;
-; Built only by `make PICOMEM=1`. Without the knob not one byte of this file
-; is assembled and SOUND.DRV is byte-identical to the shipped one.
+; In every SOUND.DRV since SPEC.md 34.10.3; `make NOPICOMEM=1` builds the
+; driver without one byte of this file. On a machine with no card it costs two
+; reads of 2A3h at attach and no heap (the driver claims 7 KB either way).
 ;
 ; WHAT THIS IS FOR. The PicoMEM is a Raspberry Pi Pico on an ISA card that
 ; emulates, among much else, an AdLib at 388h and a Sound Blaster 2.0. Neither

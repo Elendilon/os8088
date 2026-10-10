@@ -11958,7 +11958,11 @@ SOAK = [
         "the multiplexer's vector. Broken on purpose: the old ne2000.inc "
         "reproduces the field report (tx counted, rx never) and the probe "
         "before the CR test accepts the empty slot as aaaaaaaaaaaa; the "
-        "sbl_f_irqdisc skip taken out fails 11 checks",
+        "sbl_f_irqdisc skip taken out fails 11 checks. Two more legs: the "
+        "KERNEL's B: check (SPEC.md 18.97.6) and Restart's warm reset on a "
+        "PicoMEM (18.100.1), cut out of disk.inc - 8 checks fail with both "
+        "broken; and USBMOUSE.DRV's PicoMEM backend (9.12.7) driven whole: "
+        "attach, reports fed through int 33h AX=0060h, chaining, detach",
         needs=("nasm", "unicorn")),
     Row("ethernet", "soak", py("tests/ethernet.py"), 40.0,
         "SPEC.md 72.9: ETHER.DRV up before the first paint off a SYSTEM.CFG "

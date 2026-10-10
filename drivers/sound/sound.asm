@@ -1465,9 +1465,9 @@ opl_init:
 
 %ifdef PICOMEM
 %include "picomem.inc"          ; ...and the PicoMEM's side of getting one to
-                                ; exist at all (SPEC.md 34.10). `make PICOMEM=1`
-                                ; only; without the knob this driver is
-                                ; byte-identical to the shipped one
+                                ; exist at all (SPEC.md 34.10). In by default;
+                                ; `make NOPICOMEM=1` is the driver without it
+                                ; (SPEC.md 34.10.3)
 %endif
 
 ; =============================================================================

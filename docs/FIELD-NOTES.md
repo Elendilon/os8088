@@ -3409,7 +3409,7 @@ setting is needed - and the boot partition of an installed machine (a video
 disk is one partition) is handed to the driver too, `OSAPI_VOL_TAKE`, and
 given back to the BIOS when the driver goes. `tests/hdtake.py` is the gate.
 
-## 66. PicoMEM: the Sound Blaster plays nothing, and the NE2000 transmits but never receives - no DHCP (OPEN — the network is FIXED and confirmed on a 1.x and a 2.x; the Sound Blaster fix awaits the field: SPEC.md 34.10.1, 34.10.2, 72.2)
+## 66. PicoMEM: the Sound Blaster plays nothing, and the NE2000 transmits but never receives - no DHCP (OPEN — the network is FIXED on a 1.x and a 2.x and the SB on the 2.x; the 1.x's SB, B:, Restart and the USB mouse await the field: SPEC.md 34.10, 72.2, 18.97.6, 18.100.1, 9.12.7)
 
 Two machines, two cards: a **286 with a PicoMEM 1.x** and **5150 #2 with a
 PicoMEM 2.x** (docs/FIELD-MACHINES.md). On both, `ETHER.DRV` found the card,
@@ -3468,6 +3468,25 @@ devices holds (`CMDERR_PORTUSED`), and we only ever asked for 220h. On DOS the
 230h, 250h, 260h on `PORTUSED` alone (SPEC.md 34.10.2), and `tests/picomem.py`
 carries the card as its page showed it - the code before this asks for 220h
 once and gives up.
+
+**The SB is FIXED and confirmed on the 2.x** (Tracker playing through it) - so
+the tier is in every `SOUND.DRV` now (SPEC.md 34.10.3: two port reads and no
+heap on a machine without the card). The 1.x's SB waits on that card's
+firmware update. Three more reports came with it, all fixed in code and
+awaiting the field:
+
+- **B: never appeared with an image mounted on it** - the boot probe asks the
+  FDC about TRACK 0 and a PicoMEM floppy is not on the FDC. The card is asked
+  first now, its own `FDDn_Attribute` bit 7 (SPEC.md 18.97.6), `kern_big`.
+- **Chip -> Restart never came back** while Ctrl-Alt-Del did. On a PicoMEM
+  Restart warm-resets through the ROM as Ctrl-Alt-Del does, so POST re-runs
+  the card's option ROM (SPEC.md 18.100.1). Not root-caused - no emulator has
+  the card - so the fix takes the path the field showed working.
+- **The card's USB mouse** is `USBMOUSE.DRV`'s second backend (SPEC.md
+  9.12.7): tick **USB Mouse** on the Drivers page (or `make picomemtest`'s
+  disks, which want it), with the card's USB host and mouse enabled in its own
+  setup. Its reports reach us through the card's IRQ, so the IRQ 7 jumper
+  matters here too.
 
 What to send back for the sound: whether Audio or Tracker plays through the
 Sound Blaster. **On the 2.x, the DMA jumper must be on 1.** If the
