@@ -152,6 +152,11 @@
     CC_PARTS_BEGIN 1
       OS88_PART OP_ASSET
     CC_PARTS_END
+_a2_opbase equ op_base              ; the carve's CLAIM base, which apple2.c
+                                    ; shrinks to the main ROM once the
+                                    ; CHARGEN is decoded (APPLE2-SPEC 1.5):
+                                    ; os88_part_seg answers the part, which
+                                    ; sits the run's head slack above it
 
 %include "apple2.gen.asm"           ; the compiled C, found through -I build/
 

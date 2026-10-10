@@ -1,7 +1,7 @@
 /* ============================================================================
  * os8088 - apps/apple2/apple2.c    APPLE2: an Apple II Plus, written in C
  *
- * A windowed 48K Apple II Plus as an os8088 package: a 6502 in a 64KB heap
+ * A windowed 48K Apple II Plus as an os8088 package: a 6502 in a 52KB heap
  * claim, Applesoft BASIC and the Autostart Monitor read from a ROM PART
  * inside APPLE2.O88, the II+'s four soft-switch display modes composed into
  * 1bpp bands and blitted into a window, and - from wave 5 - a foreign video
@@ -120,7 +120,7 @@ void  os88_onfile(int mode, const char *name,
  * core loads and stores it with no frame: this is the C's view of the same
  * bytes and the field order IS the layout (APPLE2-SPEC section 4.1). */
 struct a2_mach {
-    unsigned ramseg;                        /* the 64KB RAM claim */
+    unsigned ramseg;                        /* the 52KB RAM claim */
     unsigned romseg;                        /* the ROM PART's base segment */
     unsigned pc;
     unsigned a, x, y, s, p;
@@ -282,12 +282,31 @@ unsigned char a2_chr[512];
 #define A2_SCR_WATLO 0x32                   /* the watch range: the LIVE */
 #define A2_SCR_WATHI 0x34                   /*   display page */
 
+/* THE RAM CLAIM IS 52KB AND NOT 64 (APPLE2-SPEC section 3.1). The claim is
+ * the Apple's address space biased at offset 0, but only TWO stretches of it
+ * are ever addressed through the RAM segment: the 48K at $0000-$BFFF and the
+ * core's scratch page at $CF00-$CFFF. Every read at or above $C000 goes to
+ * the soft-switch ladder, the slot space's $FF or the ROM PART (a2cpu.inc's
+ * a2_rd_bx); every write there is dropped or called out (a2_wr_bx, a2_wr);
+ * the fetch is bounded at $C000 and re-biases onto the ROM part above $CFFF
+ * (a2_rebias_go). So $D000-$FFFF of a 64KB claim was 12,288 bytes of heap
+ * nothing ever touched. The claim ends at the scratch page's last byte. */
+#define A2_RAMKB     ((A2_SCR_BASE + 0x100) / 1024)    /* 52 */
+
 /* --- the ROM part (section 1.4, 1.5) -------------------------------------- */
 #define A2_ROM_PART   0
 #define A2_ROM_MAIN   0x0000                /* 12,288 bytes: $D000-$FFFF */
 #define A2_ROM_CHRGEN 0x3000                /*  2,048 bytes: the II+ chargen */
 #define A2_ROM_DISK2  0x3800                /*    256 bytes: the P5 boot ROM */
 #define A2_ROM_SIZE   14848
+/* ...and what of it stays after os88_main: the main ROM alone (section 1.5).
+ * THE DISK II FOLLOW-UP MOVES THIS to A2_ROM_DISK2 + 256 - the P5 ROM is the
+ * one tail byte a running machine would read again. */
+#define A2_ROM_KEEP   A2_ROM_CHRGEN
+/* The parts carve's claim BASE (apps/os88parts.inc's op_base, aliased in
+ * apple2.asm): os88_part_seg answers the PART, which sits the run's head
+ * slack above it, and OSAPI_MEM_REGROW takes the claim. */
+extern unsigned a2_opbase;
 /* Block $C0 of the character generator is the NORMAL form of all 64 glyphs
  * and its bit 7 carries nothing, so `& 0x7F` is the whole decode - which is
  * a2_chargen's job. Blocks $40, $80 and $C0 are byte-identical and block $00
@@ -2280,10 +2299,11 @@ void *os88_main(void)
     int wh, i, j;
 
     /* --- the claims (APPLE2-SPEC section 3.1) ----------------------------- */
-    a2_m.ramseg = os88_mem_claim(64);       /* the Apple's address space is its
-                                             * own segment */
+    a2_m.ramseg = os88_mem_claim(A2_RAMKB); /* the Apple's address space is its
+                                             * own segment, up to the scratch
+                                             * page's last byte */
     if (a2_m.ramseg == 0) {
-        a2_refuse_kb("APPLE2: 64K, ");
+        a2_refuse_kb("APPLE2: 52K, ");
         return 0;
     }
     /* THE ROM IS A PART AND IT IS ALREADY HERE (section 1.5, SPEC.md 20.12).
@@ -2315,6 +2335,19 @@ void *os88_main(void)
      * driven QMP run and not a registered test row, which is what the wave's
      * done_when asked for. */
     a2_chargen(a2_chr, a2_m.romseg, A2_CHR_BLOCK, sizeof(a2_chr));
+    /* ...AND THE CARVE GIVES BACK WHAT THE DECODE HAS JUST MADE DEAD
+     * (APPLE2-SPEC section 1.5). Past A2_ROM_KEEP the part is the CHARGEN -
+     * a2_chr holds everything any composer reads of it from here on - the P5
+     * ROM no slot maps yet (section 14) and the pad, so a shrink in place
+     * (SPEC.md 50.3.1 path 1, which cannot move the base) hands 2,560 bytes
+     * and the KB rounding over them back to the heap: a 15KB carve becomes
+     * 12KB, or 13 where the run starts half a cluster up. The claim's BASE
+     * is the carve's and not the part's (a run starts on a cluster boundary,
+     * SPEC.md 20.12.2), so the size kept is the head slack plus the main ROM.
+     * A refusal leaves the claim as it was, which is only the old cost. */
+    os88_mem_regrow(a2_opbase,
+                    (int)(((a2_m.romseg - a2_opbase) * 16u + A2_ROM_KEEP
+                           + 1023u) >> 10));
     for (i = 0; i < 128; i++) {
         j = 0;
         if (i & 0x01) j |= 0x40;
