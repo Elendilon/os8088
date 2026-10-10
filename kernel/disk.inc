@@ -8619,6 +8619,32 @@ dkf_dsk_vol_slot:    call dsk_vol_slot_x
 ; handed back on the next boot rather than lost on every restart after. int 11h
 ; claims it afresh each boot; park what int 11h claims.
 ; -----------------------------------------------------------------------------
+; DSK_PMEM_WARM <not-a-picomem> - the PicoMEM warm reset (SPEC.md 18.100.1),
+; written ONCE and expanded twice: here, and in kern_dos's kd_leave
+; (kerndos/kdentry.inc), which hands the machine to the ROM by the same
+; `int 19h` and so hangs on a PicoMEM the same way. The caller has IF = 0
+; (the ramp is stateful: nobody between reads). Reads the card's counting
+; register at 2A3h, which a machine without one fails on its second read
+; having written nothing (dsk_fdd_pmemu's ramp, SPEC.md 18.97.6): then it
+; jumps to %1 with AX, CX, DX spent. On a PicoMEM it does not come back - CX
+; is 0 out of a whole ramp, so ES:0472h IS 0040:0072h, the ROM's warm-boot
+; flag (skip the RAM test), and then the reset vector.
+%macro DSK_PMEM_WARM 1
+    mov dx, 0x2A3
+    in  al, dx
+    mov ah, al
+    mov cx, 8
+%%pm:
+    in  al, dx
+    inc ah
+    cmp al, ah
+    jne %1
+    loop %%pm
+    mov es, cx
+    mov word [es:0x472], 0x1234
+    jmp 0xFFFF:0x0000
+%endmacro
+
 %ifndef NO_FDDPARK
 %ifndef KD_BUILD
 dsk_fdd_park_x:
@@ -8631,25 +8657,13 @@ dsk_fdd_park_x:
     ; and the park with it: POST resets the FDC itself. The test is the card's
     ; counting register at 2A3h, which a machine without one fails on its
     ; second read having written nothing (dsk_fdd_pmemu's ramp, SPEC.md 18.97.6)
-    mov dx, 0x2A3
     pushf
     cli                         ; the ramp is stateful: nobody between reads
-    in  al, dx
-    mov ah, al
-    mov cx, 8
-.pm:
-    in  al, dx
-    inc ah
-    cmp al, ah
-    jne .park
-    loop .pm
-    mov es, cx                  ; CX = 0 out of a whole ramp, so ES:0472h IS
-    mov word [es:0x472], 0x1234 ; 0040:0072h, the ROM's warm-boot flag: skip
-    jmp 0xFFFF:0x0000           ; the RAM test. IF = 0 from the cli above to
-                                ; the reset vector, and the pushf'd word goes
-                                ; with the rest of the stack (tools/stkbalance
-                                ; ends a path at a far jump to a literal
-                                ; address; kernel size pass 11, -5)
+    DSK_PMEM_WARM .park         ; IF = 0 from the cli to the reset vector, and
+                                ; the pushf'd word goes with the rest of the
+                                ; stack (tools/stkbalance ends a path at a far
+                                ; jump to a literal address; kernel size pass
+                                ; 11, -5)
 .park:
     popf
     mov cl, [fdd_dbg_eqp]       ; drives int 11h claimed (0..4), banked by

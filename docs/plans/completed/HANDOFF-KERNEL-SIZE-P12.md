@@ -57,7 +57,7 @@ kern_big's `.cold` had crossed two rungs since pass 10's bless (KERN_SIZE
 | kern_small `.text` / `.bss` / `.cold` | 32,022 / 3,073 / 23,479 | 31,830 / 3,067 / 22,549 | -192 / -6 / -930 |
 | kern_small `KERN_SIZE` | 63,488 | **62,976** | **-512** |
 | kern_emu resident / `KERN_SIZE` | 92,872 / 98,816 | 92,596 / 98,304 | -276 / -512 |
-| `kerndos.bin` | 33,243 | 32,799 | -444 |
+| `kerndos.bin` | 33,243 | 32,831 | -412 (-444, then +32 for §3.2's fix) |
 
 Loadable images (UNPACKED image, which is what lives in RAM; the shipped
 file is LZ4-packed):
@@ -177,12 +177,17 @@ teardown far-called there; the USB mouse's packets would be refused. The row
 counts `DRVC_MAX` now and `tests/drvmove.py` checks all seven. **Found by
 reading; not reproduced** - no row moves `EMS.DRV`.
 
-### 3.2 Leaving a DOS program on a PicoMEM machine (NOT fixed: the owner's call)
+### 3.2 Leaving a DOS program on a PicoMEM machine (FIXED on the owner's word)
 
-`kerndos/kdentry.inc`'s `kd_leave` ends in `int 19h` with no PicoMEM check,
-which is the path SPEC.md 18.100.1 fixed for the desktop's Restart. It
-plausibly hangs the same way. ~35 bytes of the DOS program; no field report
-and nothing here can test it.
+`kerndos/kdentry.inc`'s `kd_leave` ended in `int 19h` with no PicoMEM check,
+which is the path SPEC.md 18.100.1 fixed for the desktop's Restart, so it
+plausibly hung the same way. Found by reading in this pass and left for the
+owner, who asked for it at the close: the ramp and the warm reset are now
+`DSK_PMEM_WARM` in `kernel/disk.inc`, one source expanded by both
+`dsk_fdd_park_x` and `kd_leave`. `kerndos.bin` +32 (32,799 -> 32,831), the
+kernel's sections +0 (its image differs only in `mov dx, 0x2A3` moving after
+`pushf`/`cli`). No emulator here has the card, so the success path is the
+field's to confirm, as the desktop's was.
 
 ### 3.3 Behaviour changes taken on purpose
 

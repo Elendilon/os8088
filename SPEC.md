@@ -37174,6 +37174,18 @@ controller itself. Everything before it — the drivers' detaches, the text
 mode, the unhook — is unchanged, and a machine without the card reads 2A3h
 twice and parks and `int 19h`s exactly as before.
 
+**Leaving a DOS program takes the same path** (§96.40.2). `kern_dos`'s
+`kd_leave` ends in the same `int 19h` and so would hang the same way, so it
+expands the same ramp — `DSK_PMEM_WARM` in `kernel/disk.inc`, one source for
+both assemblies — between the exit message and its park: on a PicoMEM the
+warm reset, anywhere else a fall-through to the park and the `int 19h` on
+`KDL_UNIT` with IF back on. It costs `DOS.O88`'s kern_dos part 32 bytes and
+the kernel none. The exit code `kd_bda` posts at `0040:00F0` survives POST
+only where the BIOS leaves the intra-application area alone; a machine that
+restarts without it is the trade. Found by reading (kernel size pass 11) and
+taken on the owner's word; no emulator here has the card, so like the
+desktop's it is the field's to confirm.
+
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
 The data floppy (drive B:) is a standard **FAT12** volume — mountable and

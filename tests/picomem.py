@@ -502,7 +502,8 @@ def leg_sb(tmp):
 # leg kern - the kernel's two PicoMEM checks
 # =============================================================================
 def kslice(tmp):
-    """kernel/disk.inc's dsk_fdd_pmemu and dsk_fdd_park_x, cut out as they ship."""
+    """kernel/disk.inc's dsk_fdd_pmemu and dsk_fdd_park_x (and the DSK_PMEM_WARM
+    macro the park expands), cut out as they ship."""
     src = open(os.path.join(ROOT, "kernel", "disk.inc")).read().splitlines()
     out = []
 
@@ -510,6 +511,9 @@ def kslice(tmp):
         i = next(n for n, l in enumerate(src) if l.startswith(start))
         j = next(n for n in range(i + 1, len(src)) if stop(src[n]))
         out.extend(src[i:j])
+    # the ramp both restarts expand (the desktop's and kern_dos's kd_leave)
+    cut("%macro DSK_PMEM_WARM", lambda l: l.startswith("%endmacro"))
+    out.append("%endmacro")
     cut("dsk_fdd_pmemu:", lambda l: l.startswith("%endif"))
     cut("dsk_fdd_park_x:", lambda l: l.startswith("%endif"))
     with open(os.path.join(tmp, "kslice.inc"), "w") as f:
