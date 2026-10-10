@@ -1500,7 +1500,7 @@ VIDDEF += -DNO_FDDPARK
 endif
 
 # MSELOFF=1 compiles SPEC.md 22.27's MULTI-SELECT out of the Disk window: no
-# Ctrl/Shift click, no Shift+arrows, no rubber band, and Cut/Copy/Paste/Delete
+# Ctrl/Shift click, no Shift+arrows, no drag select, and Cut/Copy/Paste/Delete
 # on one entry only - the kern_big file manager before it. SBDRAGOFF's shape:
 # it ships ON, and this arm exists to be diffed against - kernsize's sum
 # between the two is what the feature COSTS, and the knob build is the one

@@ -442,61 +442,67 @@ FCPBODY fcp_paste
 ; re-list it does makes every index meaningless. So the set is copied, at the
 ; Cut or Copy, into ONE 1KB purgeable claim of 16-byte records, each the
 ; operation record's own (type word, 13-byte 8.3 name) pair (fm_mw_rec).
-; Record 0 is ALSO written into the clipboard's own single record, so a paste
-; of a list starts exactly as a paste of one entry does, and this code only
-; runs the entries AFTER it. kern_big only: FM_MSEL is never set with FCP_MOD.
+; Record 0 is ALSO the clipboard's own single record (fm_armset arms it with
+; fcp_arm), so a paste of a list starts exactly as a paste of one entry does,
+; and this code only runs the records AFTER it - from the last one down,
+; which is one counter and not two; a listing is sorted, so the order of the
+; writes is not seen. kern_big only: FM_MSEL is never set with FCP_MOD.
 ;
 ; [fcp_lseg] = the claim (MEM_P_FLIST's one naming word, 0 = none or purged),
-; [fcp_lcnt] = its records (0 = the clipboard is a single entry),
-; [fcp_lnxt] = the next record a running paste takes.
+; [fcp_lcnt] = its records, in BYTES - 16 a record (0 = the clipboard is a
+; single entry) - and during a paste the records still to run, plus one.
 ; =============================================================================
 
 ; fcp_lbegin - a paste is starting: is it a LIST's? The clipboard is spent
-; whatever the verb (cleared on paste), the next record is 1, and THIS TASK'S
-; PURGE FLOOR goes up to the list's own rank (SPEC.md 50.6.6), so the copy
-; buffer each entry claims cannot shed the list being walked. out: CF = 1 =
-; the list was purged before the paste - an empty clipboard. AX..DI preserved
+; whatever the verb (cleared on paste), and THIS TASK'S PURGE FLOOR goes up
+; to the list's own rank (SPEC.md 50.6.6), so the copy buffer each entry
+; claims cannot shed the list being walked. out: CF = 1 = the list was
+; purged before the paste - an empty clipboard. DX clobbered
 fcp_lbegin:
     cmp word [fcp_lcnt], 0
     je .ret                     ; (CF = 0, the `cmp`'s equal)
-    mov byte [fcp_cbop], FCP_NONE
-    cmp word [fcp_lseg], 0
-    je .gone
-    mov word [fcp_lnxt], 1
-    push ax
-    mov ah, [sch_cur]           ; OSAPI_MEM_FLOOR's one store, for this task
-    mov al, MEM_PG_MED
-    mov [mem_pg_fl], ax
-    pop ax                      ; CF = 0 still: the `cmp` against 0
+    mov [fcp_cbop], ch          ; FCP_NONE: fcp_paste's CH (asserted there)
+    cmp word [fcp_lseg], 1      ; CF = 1 exactly when it was purged - and the
+    jc .ret                     ; stale count goes at the next arm's lfree
+    mov dh, [sch_cur]           ; OSAPI_MEM_FLOOR's one store, for this task
+    mov dl, MEM_PG_MED          ; (DX is fcp_paste's banked scratch)
+    mov [mem_pg_fl], dx         ; CF = 0 still: the `cmp`
 .ret:
-    ret
-.gone:
-    FCPX fcp_lfree
-    stc
     ret
 
 ; fcp_lnext - an entry of a list paste has ended with AL = FCPS_*: run the
 ; next, for as long as each one ends DONE. A question pauses the list with
 ; it; a failure or a stop ends it, and it is said once (SPEC.md 59).
 ; clobbers: fcp_run's free set - both callers banked it
+%if FCP_COPY != FCP_CUT - 1
+  %error "files.inc's fm_dgarm makes FCP_COPY out of FCP_CUT with one dec"
+%endif
+%if FCPS_DONE != 0 || FCPS_ASK != 1 || FCPS_ERR != 2
+  %error "fcp_lnext splits FCPS_* three ways with one compare against ASK"
+%endif
 fcp_lnext:
     cmp word [fcp_lcnt], 0
-    je .ret                     ; a single entry, or the door's
-    cmp al, FCPS_ASK
-    je .ret
-    cmp al, FCPS_DONE           ; (FERR_EXIST - the folder it came from - is
-    jne .stop                   ; a DONE, and the list goes on)
-    mov ax, [fcp_lnxt]
-    cmp ax, [fcp_lcnt]
-    jae .end
-    inc word [fcp_lnxt]
+    je .ret                     ; a single entry
+    cmp al, FCPS_ASK            ; below it DONE (FERR_EXIST - the folder it
+    je .ret                     ; came from - is a DONE, and the list goes
+    jnc .stop                   ; on), above it ERR
+    cmp word [fcp_lseg], 1      ; purged UNDER the paste - another task's
+    jc .stop                    ; claim, while a question was up: it ends
+    sub word [fcp_lcnt], 16
+    jz .stop                    ; record 0 was the clipboard's: AL = DONE
+    mov si, [fcp_lcnt]
+    push es
+    push ds
+    pop es
     mov di, fcp_type            ; the operation's own record, which [fcp_all],
-    FCPX fcp_lget               ; the source and the target outlive
-    jc .end
+    mov cx, 15                  ; the source and the target outlive
+    push ds
+    mov ds, [fcp_lseg]
+    rep movsb
+    pop ds
+    pop es
     call fcp_run2
     jmp short fcp_lnext
-.end:
-    mov al, FCPS_DONE
 .stop:
     FCPX fcp_lend
 .ret:
@@ -863,9 +869,6 @@ FCPBODY fcp_answer
     jmp fcp_x5
 %if FCPS_DONE != 0
   %error "fcp_answer's stop reports FCPS_DONE out of the AL = 0 it tested"
-%endif
-%if FCPS_DONE != 0 || FCPS_ERR != 2
-  %error "files.inc's delete of a set makes FCPS_ERR/FCPS_DONE with sbb/and (22.27)"
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -1969,8 +1972,7 @@ fcp_cbname: resb 13             ; ...and 8.3 display name, COPIED
 
 %ifdef FM_MSEL
 fcp_lseg:   resw 1              ; THE LIST (SPEC.md 22.27): its claim...
-fcp_lcnt:   resw 1              ; ...its records, 0 = a single entry...
-fcp_lnxt:   resw 1              ; ...and the next one a paste takes
+fcp_lcnt:   resw 1              ; ...and its records x 16, 0 = a single entry
 %endif
 fcp_busy:   resb 1              ; 1 = an operation is running or suspended
 fcp_started: resb 1             ; 1 = fcp_step is past its first step
@@ -2024,8 +2026,8 @@ fcp_cwd:    resw 1              ; ...its folder...
 fcp_type:   resw 1              ; ...its SPEC.md 19 type word...
 fcp_name:   resb 13             ; ...and its 8.3 name
 %ifdef FM_MSEL
-%if fcp_cbname != fcp_cbtype+2 || fcp_name != fcp_type+2
-  %error "fcp_lget writes a TYPE word and the 13-byte NAME after it"
+%if fcp_name != fcp_type+2
+  %error "fcp_lnext writes a TYPE word and the 13-byte NAME after it"
 %endif
 %endif
 %if $ - fcp_op != FCP_CBSZ
@@ -2362,43 +2364,12 @@ fcp_lfree:
     xor dx, dx
     mov [fcp_lcnt], dx
     xchg dx, [fcp_lseg]         ; the word is 0 BEFORE the block is freed, so
-    or dx, dx                   ; it never names a freed one
-    jz .none
-    mov bx, MEM_P_FLIST
-    call mem_free_x
-.none:
-    pop dx
+    mov bx, MEM_P_FLIST         ; it never names a freed one - and a 0 is
+    call mem_free_x             ; mem_find_own's refusal, so no list at all
+    pop dx                      ; needs no test of its own
     pop bx
     ret
 
-; fcp_lget - list record AX into the (type word, 13-byte name) pair at DI -
-; [fcp_cbtype] for the clipboard, [fcp_type] for the operation: the two
-; records are one shape (FCP_CBSZ). out: CF = 1 = the list was purged
-; clobbers: AX, flags
-fcp_lget:
-    push cx
-    push si
-    push di
-    push es
-    mov si, ax
-    mov cl, 4
-    shl si, cl
-    mov ax, [fcp_lseg]
-    cmp ax, 1                   ; CF = 1 exactly when it is 0
-    jc .out
-    push ds
-    push ds
-    pop es                      ; ES = the kernel's segment...
-    mov ds, ax                  ; ...DS = the list's
-    mov cx, 15                  ; the record IS the pair (fm_mw_rec)
-    rep movsb
-    pop ds                      ; (CF = 0: the `cmp` above)
-.out:
-    pop es
-    pop di
-    pop si
-    pop cx
-    ret
 %endif
 
 section .text

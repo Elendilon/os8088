@@ -12,8 +12,9 @@ band left behind or drawn twice is caught as well as a wrong bit.
      row clicked;
   3. Shift+Down extends the run, Shift+Up takes it back;
   4. a plain click collapses to one row; Ctrl+A selects everything;
-  5. a RUBBER BAND dragged from right of the name column selects the rows it
-     touches - and nothing else;
+  5. a DRAG SELECT from right of the name column selects the run of rows from
+     where it started to where the pointer is, down or up - and nothing else;
+     a press there that does not move selects that row alone;
   6. Copy of a two-entry set, Up, Paste: both land in B:\\, and the list is
      CLEARED on paste (the clipboard empty, its claim freed);
   7. dragging one member of a set onto a folder MOVES the whole set, and a
@@ -21,8 +22,11 @@ band left behind or drawn twice is caught as well as a wrong bit.
   8. Delete on a set asks about "2 items", and the second Delete removes both.
 
 VERIFIED TO FAIL: built `make MSELOFF=1` the first Ctrl+click is an ordinary
-click and leg 1 is red; taking fm_mset's fm_mdiff out leaves the bits right
-and the glass wrong, which only the band checks see.
+click and leg 1 is red; with fm_ondrag's FM_BBAND dispatch taken out, the
+four drag-select checks of leg 5 are red and nothing else is - and a drag
+select sampled before fm_mto entered the bitmap left the bits right and the
+glass wrong (the anchor row's band XORed off), which only the band checks
+saw.
 """
 import os
 import sys
@@ -163,14 +167,23 @@ with os88ui.boot(os.path.join(BUILD, "os8088-360.img"),
     state(ui, blk, w, fit, list(range(n)), "Ctrl+A")
     click(ui, w, 0)
 
-    # --- 5: the rubber band ---------------------------------------------------
+    # --- 5: the drag select, from right of the name column -------------------
     x0, y0 = ui.row_xy(w, 1)
     x1, y1 = ui.row_xy(w, 3)
     ui.mo.drag(w.x + 1 + 200, y0, w.x + 1 + 230, y1, settle=0)
     ui.settle()
-    state(ui, blk, w, fit, [1, 2, 3], "a band over rows 1..3")
-    check("no outline left behind",
-          bands(ui, w, fit) == [1, 2, 3])
+    state(ui, blk, w, fit, [1, 2, 3], "a drag select down rows 1..3")
+    ui.mo.drag(w.x + 1 + 200, y1, w.x + 1 + 200, y0 - geom.FM_ROW_H,
+               settle=0)
+    ui.settle()
+    state(ui, blk, w, fit, [0, 1, 2, 3], "a drag select UP rows 3..0")
+    click(ui, w, 2, x=200)
+    check("a press right of the names that does not move selects that row",
+          bits(ui, blk) == [] and word(ui, blk, geom.FS_SEL) == 2
+          and bands(ui, w, fit) == [2],
+          "(bits %r, sel %04X, bands %r)" % (bits(ui, blk),
+                                             word(ui, blk, geom.FS_SEL),
+                                             bands(ui, w, fit)))
     click(ui, w, 0)
 
     # --- 6: Copy a set, Up, Paste ---------------------------------------------
@@ -189,7 +202,7 @@ with os88ui.boot(os.path.join(BUILD, "os8088-360.img"),
     held(ui, "ControlLeft", lambda: click(ui, w, i2))
     held(ui, "ControlLeft", lambda: (m.key("KeyC"), ui.settle()))
     check("Copy put a LIST of two on the clipboard",
-          ui._word("fcp_lcnt") == 2 and ui._word("fcp_lseg") != 0
+          ui._word("fcp_lcnt") == 2 * 16 and ui._word("fcp_lseg") != 0
           and ui._byte("fcp_cbop") == 1,
           "(lcnt %d, lseg %04X, op %d)" % (ui._word("fcp_lcnt"),
                                           ui._word("fcp_lseg"),
@@ -201,10 +214,10 @@ with os88ui.boot(os.path.join(BUILD, "os8088-360.img"),
         ui._wait(lambda: n1 in names(ui, w) and n2 in names(ui, w),
                  "both copies in B:\\", 120.0)
     except os88ui.UIError:
-        print("  DIAG: root %r toast %r err %d busy %d lcnt %d lnxt %d "
+        print("  DIAG: root %r toast %r err %d busy %d lcnt %d "
               "op %d floor %02X" % (names(ui, w), ui.toast(),
                                     ui._byte("fcp_err"), ui._byte("fcp_busy"),
-                                    ui._word("fcp_lcnt"), ui._word("fcp_lnxt"),
+                                    ui._word("fcp_lcnt"),
                                     ui._byte("fcp_cbop"),
                                     ui._byte("mem_pg_floor")))
         raise

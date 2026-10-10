@@ -1,10 +1,11 @@
 # Multi-select in the Disk window — the plan, and what it came to
 
-**Status: BUILT, all three waves (SPEC.md 22.27 is the contract).** This file
-is the design record. §A below is what the build MEASURED and where it left
-the plan; everything after it is the plan as it was costed before a line was
-written, kept because its estimates were wrong by a factor of two and the
-reasons are worth having.
+**Status: BUILT, all three waves (SPEC.md 22.27 is the contract), and SIZED
+DOWN: 1,418 -> 797 resident bytes (§A.1).** This file is the design record.
+§A below is what the build MEASURED and where it left the plan, §A.1 the size
+pass that took it under the 800 the owner then set; everything after it is
+the plan as it was costed before a line was written, kept because its
+estimates were wrong by a factor of two and the reasons are worth having.
 
 ## A. What it came to
 
@@ -63,6 +64,105 @@ set, a Ctrl+drag copy and Delete of a set. RED against `MSELOFF=1`.
 **Not covered by that row:** the cross-drive copy (two Disk windows on two
 drives), Esc at an overwrite question part-way through a list, the icon
 view's band, and the chooser's opt-out - each was read, none was driven.
+
+## A.1 The size pass: 1,418 -> 797
+
+The owner's brief: **under 800 bytes, without losing some form of drag
+select; clicking or dragging an entry by its SIZE column is not required.**
+Measured the same way as §A - `kernsize`'s section figures, `MSELOFF=1`
+against the shipped arm, at one commit - and broken down by symbol span off
+the NASM listing of both arms.
+
+| | before | after |
+|---|---|---|
+| `.cold` | +1,327 | **+739** |
+| `.text` | +25 | **+13** |
+| `.bss` | +66 | **+45** |
+| **resident** | **1,418** | **797** |
+| `KERN_SIZE` against `MSELOFF=1` | +1,024 (two cold rungs) | +512 (one) |
+
+`kern_small` and `MSELOFF=1` both still assemble byte-identical to the kernel
+the branch was cut from (`af9e326^`), checked by assembling all three.
+
+**Every feature survived.** Ctrl+click, Shift+click, Shift+arrows, Ctrl+A,
+the right-click on a set, Cut/Copy/Paste of a set as a purgeable list cleared
+on paste, Delete of a set with its "N items"/"+contents" line, a drag of a
+set, Ctrl+drag copies and a drop on another drive copies. **One gesture
+changed form and two changed detail**, each stated in SPEC.md 22.27:
+
+- **The rubber band is a DRAG SELECT.** It was a rectangle with an XOR
+  outline, tracked by its own loop with its geometry clamped in two axes and
+  two views (~400 bytes). It is now the RUN from the pressed row to the row
+  under the pointer - Shift+click's own routine, `fm_mto` - drawn live from
+  the window's existing `W_ONDRAG` (SPEC.md 13.8.1): the press arms
+  `FM_BBAND` in `os88ui_armw` and the release's `os88ui_fire` spends it, so
+  there is no tracking loop, no outline (the bands are the feedback) and no
+  per-view geometry at all (~60 bytes). A press right of the names on a row
+  SELECTS that row and is the anchor; one off the entries clears and the
+  first entry reached is.
+- **A right-click with a set up keeps it wherever the press lands** (it kept
+  it only on a member) and shows an entry's menu, which acts on the set.
+- **A plain click on a set member** goes through the ordinary click after
+  the collapse rather than stamping itself, so its double-click window is
+  the ordinary one's.
+
+**What paid for it, largest first:**
+
+1. **The band** (above): ~340 bytes.
+2. **The diff's target is a RUN, not a bitmap.** With the rectangle gone
+   every target any gesture has is one run, so `fm_mnew` (8 bytes of `.bss`),
+   `fm_mclr` and `fm_mrun`'s bit-setting loop are replaced by an `lo <= i <=
+   hi` test inside `fm_mset`; the draw-only walk `fm_lsel_bar` needs is the
+   reversed run, so there is no flag either.
+3. **The single selection's band code BECAME the multi-selection's.** A
+   click's 22.2 pair of bands, a plain arrow's (22.26) and a right-click's
+   were all an "old band off, new band on" the diff already does, so on this
+   build each is `fm_menter` + `fm_mone` and the base code is `%ifndef
+   FM_MSEL`. That deleted the plain-click-on-a-set, plain-arrow-on-a-set and
+   right-click-on-a-set special cases with it (`fm_mrclk`, 40 bytes, is
+   gone). The arrow draws its new selection BEFORE the view follows, and the
+   scroll's lift and relay carry it.
+4. **Delete of a set rides the single Delete.** It went through `fcp_goto`,
+   a write batch and `fm_paste_res`; it now uses the single Delete's own
+   `fmv_sync_x` and `.verdict`/`.bcast`, and the single Delete's file-or-
+   folder dispatch IS the walk's callee `fm_mw_del`. The batch was not buying
+   anything: a delete finds its name on the disk, and each one's sync only
+   marks and owes. That needed `fmv_sync_x` to keep the bits, and it does so
+   with a sentinel instead of banking eight bytes: it stores `FM_MKEEP` in
+   `FS_SEL` across the re-list (it restores `FS_SEL` after it anyway) and
+   `fmv_store` skips the zero on seeing it - 24 bytes became 9. **A sync that
+   lands in the ROOT** (the folder was deleted under it) **empties the bits**:
+   they would name the root's entries, and a set Delete then walks them by
+   index. The old code had that hazard in its banking too, and its Delete
+   happened to dodge it through `fcp_goto`.
+5. **The list.** Record 0 is armed by `fcp_arm` itself (a first walk that
+   stops at the first member), so the clipboard needs no field-by-field copy;
+   `fcp_lget` is gone, its one remaining caller inlining the move; the paste
+   walks the records from the LAST down, so `fcp_lnxt` is gone (a listing is
+   sorted, so the write order is not seen); `fcp_lcnt` counts BYTES, so
+   neither end shifts; `fm_ftype` sits in front of `fm_onam` on this build so
+   a record is one 15-byte move; `fcp_lfree` hands a 0 straight to
+   `mem_free_x`, whose `mem_find_own` already refuses one; and `fcp_lbegin`
+   answers a list purged before its paste with one `cmp [fcp_lseg], 1`,
+   leaving the stale count to the next arm's free. A list purged UNDER a
+   paste - another task's claim while a question is up, which the floor
+   (being this task's) does not stop - ends it through `fcp_lend`, so the
+   floor still comes down; the first cut of this pass returned instead and
+   would have left the UI task's floor raised.
+6. **The Shift anchor is ONE byte**, `fm_anch`, not one a block: only the
+   front window takes a gesture (5 bytes of `.bss`), and `fm_mto` - which now
+   enters the bitmap itself - validates it against the window's `FS_N`.
+7. Smaller: `fm_dgarm`'s Ctrl test makes `FCP_COPY` with a `dec`; `fm_hit`
+   answers 0FFFFh on a miss, which the drag select and the right-click hand
+   straight to `fm_mone`, and in the LIST view leaves DI = the x it was handed,
+   which the drag-select test reads instead of banking DX; `fm_armset` sits
+   beside `fm_c_clip` so both jumps to it are short; the paste's purge floor is
+   stored through DX, `fcp_paste`'s banked scratch.
+
+**Gate:** `tests/msel.py` - every leg green, the band leg rewritten for the
+drag select (down, up, and a press that does not move). RED against a build
+with `fm_ondrag`'s `FM_BBAND` dispatch taken out, on the four drag-select
+checks and nothing else.
 
 ---
 
