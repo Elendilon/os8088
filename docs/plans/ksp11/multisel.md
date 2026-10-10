@@ -32,6 +32,23 @@ inside `%ifdef FM_MSEL`, so big minus MSELOFF at one commit is still the
 feature's price - and that the arm ASSEMBLES (it caught one short jump that
 only fits with the feature in: batch 1's `jmp .owedcf`).
 
+## Tip
+
+| | text | bss | cold | resident | KERN_SIZE | vs base |
+|---|---:|---:|---:|---:|---:|---:|
+| kern_big | 43,428 | 5,190 | 37,864 | **92,416** | 97,792 | **-79** |
+| kern_small | 32,022 | 3,073 | 23,468 | **61,431** | 63,488 | **-11** |
+| kern_emu | 43,687 | 5,190 | 37,982 | 92,793 | 98,816 | -79 |
+| MSELOFF=1 | 43,415 | 5,145 | 37,167 | 91,661 | 97,280 | -37 |
+| **feature** | +13 | +45 | +697 | **755** | +512 | **-42** |
+
+All of it is `.cold`: of kern_big's -79, **42 are the feature's own bytes**
+and 37 are shared code (fm_onkey_x, fm_edit_commit, fm_draw_status) that the
+other two kernels see too. No driver or module image changed: filecp.inc is
+untouched (FILECP.DRV is byte-identical on kern_small). kern_big's cold rung
+uncrossed at batch 1 (75 -> 74 steps, `KERN_SIZE` -512) - the merge's
+business, not a design input.
+
 ## TAKEN
 
 ### Batch 1
@@ -202,12 +219,42 @@ Batch 4: **kern_big 92,420 -> 92,416 (-4)**. **The feature is 755** (cold
 
 ## Defects
 
-(none yet)
+None found. (Read for one and not found: a click's miss in a chooser
+reaching `.newsel` with fm_hit's 0FFFFh is exactly `.clear`'s old store; a
+second `fm_menter` inside `fm_mset` WOULD have been one - the drag select's
+anchor - which is why `fm_mto` enters at `.nm`.)
 
 ## Cross-file list
 
-(none yet)
+* **CLAUDE.md**, the `MSELOFF=1` knob row: "its **797 resident bytes**" ->
+  755, and "it assembles **byte-identical** to the kernel before the
+  feature" is no longer true (see "MSELOFF=1 and byte-identical" above;
+  SPEC.md 22.27 now says so). Not edited here: CLAUDE.md is the
+  coordinator's.
+* docs/plans/completed/MULTISELECT-PLAN.md's status line still says "797";
+  SPEC.md 22.27 is the live figure and points at this note.
 
 ## Rows run
 
-(batch 1: see below)
+Gates after every batch: `make -j2` (fast tier 61/61), kern_small
+(`make BUILD=build/smallk KERN_SMALL=1`), `make BUILD=build/msoff MSELOFF=1`
+(assembles), `tools/stkbalance.py kernel/kernel.asm kernel/*.inc` (0
+unbalanced, identical counts at base and tip bar one entry walked);
+`make emu` at the tip; `checkdocs` 0 problems.
+
+Soak rows on MartyPC, through `tools/os88soak.py start -k ...` (lane 2), all
+green, none red:
+
+* after batch 1 (22 rows): msel, fmcommit, fcpcopy, fmarrows, shedrelist,
+  deskitem, icoclip, fdlgchoose, fdlgchsmall, fdlgdrop, fdlggrey, fdlgsmall,
+  fdlgup, fmbtn, fmrefuse, fmthumb, fmtreach, fmtlow, fcpapi, fcproom,
+  clipkeep, clipgrow.
+* after batch 2 (10): msel, fmcommit, fcpcopy, fmtreach, fmtlow, fdlgchoose,
+  diskclone (the clone prompts' status lines), deskitem, fmarrows,
+  fdlgchsmall.
+* after batch 3 (5): msel, fdlgchoose, fcpcopy, fmarrows, clipkeep.
+* after batch 4 (5): msel, fmarrows, fmthumb, fdlgchoose, shedrelist.
+
+Not driven by any row: the module swap prompt's status line (moved, its code
+unchanged) and Esc at an overwrite question part-way through a list paste
+(MULTISELECT-PLAN §A says the same of the feature itself).
