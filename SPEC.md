@@ -48001,9 +48001,12 @@ wrap-safe difference is at least `FM_DBLCLK` and the click only re-stamps.
 
 ### 22.27 Multi-select (`kern_big`)
 
+**What it costs: 1,418 resident bytes** (`.cold` 1,327, `.text` 25, `.bss`
+66), measured against `make MSELOFF=1`.
+
 A Disk window can hold **more than one selected entry**, and Cut, Copy,
 Paste, Delete and a drag act on all of them. The design record, with what
-was weighed and refused, is docs/plans/MULTISELECT-PLAN.md; `make MSELOFF=1`
+was weighed and refused, is docs/plans/completed/MULTISELECT-PLAN.md; `make MSELOFF=1`
 compiles the whole of it out, and that build is byte-identical to the kernel
 before it. `kern_small` has none of it, for 22.26's reason: there the copy
 engine is `FILECP.DRV`, so every operation on a set would ask for the system

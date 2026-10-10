@@ -16,7 +16,8 @@ band left behind or drawn twice is caught as well as a wrong bit.
      touches - and nothing else;
   6. Copy of a two-entry set, Up, Paste: both land in B:\\, and the list is
      CLEARED on paste (the clipboard empty, its claim freed);
-  7. dragging one member of a set onto a folder MOVES the whole set;
+  7. dragging one member of a set onto a folder MOVES the whole set, and a
+     Ctrl+drag onto '..' COPIES - the source is still there afterwards;
   8. Delete on a set asks about "2 items", and the second Delete removes both.
 
 VERIFIED TO FAIL: built `make MSELOFF=1` the first Ctrl+click is an ordinary
@@ -233,6 +234,33 @@ with os88ui.boot(os.path.join(BUILD, "os8088-360.img"),
     blk = ui._fsblk(w)
     got = names(ui, w)
     check("...into GAMES", n1 in got and n2 in got, "(%r)" % got)
+
+    # --- 7b: Ctrl+drag is a COPY: the source stays ---------------------------
+    # B:\APPS's CALC.O88 Ctrl+dragged onto its '..' row: a copy into B:\
+    w = ui.path("B:/APPS")
+    ui.settle()
+    rows = ui.listing(w)
+    up = [i for i, (_n, t) in enumerate(rows) if t == 3]
+    src = [i for i, (nm, _t) in enumerate(rows) if nm == n1]
+    if up and src and max(up[0], src[0]) < fit:
+        ax_, ay_ = ui.row_xy(w, src[0])
+        ux_, uy_ = ui.row_xy(w, up[0])
+        held(ui, "ControlLeft", lambda: ui.mo.drag(ax_, ay_, ux_, uy_,
+                                                    settle=0))
+        ui.settle()
+        check("Ctrl+drag left the source where it was", n1 in names(ui, w),
+              "(%r)" % names(ui, w))
+        w = ui.path("B:/")
+        ui.settle()
+        check("...and put a COPY in B:\\", n1 in names(ui, w),
+              "(%r)" % names(ui, w))
+    else:
+        check("'..' and %s both on screen in B:\\APPS" % n1, False,
+              "(%r)" % rows)
+    w = ui.path("B:/GAMES")
+    ui.settle()
+    blk = ui._fsblk(w)
+    got = names(ui, w)
 
     # --- 8: Delete the set ----------------------------------------------------
     k1 = got.index(n1)

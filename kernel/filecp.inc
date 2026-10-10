@@ -440,9 +440,8 @@ FCPBODY fcp_paste
 ; A clipboard has to hold NAMES, for 22.3's reason: Copy, go up a folder in
 ; the same window, Paste is the commonest shape of the gesture, and the
 ; re-list it does makes every index meaningless. So the set is copied, at the
-; Cut or Copy, into ONE 1KB purgeable claim of 16-byte records - an entry's
-; 16-byte name field as the window's cache holds it, with its SPEC.md 19 type
-; in byte 15 (a display name is 12 characters and a NUL, so 13..15 are free).
+; Cut or Copy, into ONE 1KB purgeable claim of 16-byte records, each the
+; operation record's own (type word, 13-byte 8.3 name) pair (fm_mw_rec).
 ; Record 0 is ALSO written into the clipboard's own single record, so a paste
 ; of a list starts exactly as a paste of one entry does, and this code only
 ; runs the entries AFTER it. kern_big only: FM_MSEL is never set with FCP_MOD.
@@ -864,6 +863,9 @@ FCPBODY fcp_answer
     jmp fcp_x5
 %if FCPS_DONE != 0
   %error "fcp_answer's stop reports FCPS_DONE out of the AL = 0 it tested"
+%endif
+%if FCPS_DONE != 0 || FCPS_ERR != 2
+  %error "files.inc's delete of a set makes FCPS_ERR/FCPS_DONE with sbb/and (22.27)"
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -2388,12 +2390,9 @@ fcp_lget:
     push ds
     pop es                      ; ES = the kernel's segment...
     mov ds, ax                  ; ...DS = the list's
-    mov al, [si+15]
-    xor ah, ah                  ; (CF = 0)
-    stosw
-    mov cx, 13
+    mov cx, 15                  ; the record IS the pair (fm_mw_rec)
     rep movsb
-    pop ds
+    pop ds                      ; (CF = 0: the `cmp` above)
 .out:
     pop es
     pop di

@@ -479,6 +479,7 @@ KNOBS = [
     ("nouiblock",   ["NOUIBLOCK=1"]),
     ("nocurdisk",   ["NOCURDISK=1"]),
     ("nofddpark",   ["NOFDDPARK=1"]),
+    ("mseloff",     ["MSELOFF=1"]),
     ("vgadirty",    ["VGADIRTY=1"]),
     ("dljunk",      ["DLJUNK=0x61"], "boot360.bin"),
 ]

@@ -3507,10 +3507,8 @@ fm_onclick_x:
 .mctrl:                         ; Ctrl: THIS row in or out, one band
     call fm_menter
     xchg ax, dx                 ; AX = the index
-    push bx
-    call fm_mbit
+    call fm_mbit                ; (BX is spent: nothing below reads it)
     xor [bx+di+FS_MSEL], ch
-    pop bx
     call fm_sel_bar
     mov [di+FS_ANCH], al        ; ...and the next Shift run starts here
     jmp short .mfoc
@@ -4995,29 +4993,14 @@ fm_arm_sel:
     jmp fm_nw_none              ; - and a no-op draws nothing (22.13)
 %ifdef FM_MSEL
 .mdel:
-    xor dx, dx                  ; DX = the entries it will delete
-    mov [fm_odir], dl
-    xor ax, ax
-.mc:
-    cmp ax, [di+FS_N]
-    jae .mcd
-    push ax
-    call fm_misin
-    jz .mn
-    call fmv_gdtype             ; CF = 1 a file, ZF = 1 a folder, '..' above
-    ja .mn                      ; '..' is not in the folder (19.5)
-    jb .mf
-    mov byte [fm_odir], 1       ; a folder among them: '+contents'
-.mf:
-    inc dx
-.mn:
-    pop ax
-    inc ax
-    jmp short .mc
-.mcd:
-    or dx, dx
+    xor dx, dx                  ; DL = the entries it will delete, DH = a
+    mov bx, fm_mw_cnt           ; folder among them
+    call fm_mwalk
+    or dl, dl
     jz .none                    ; nothing but '..': a no-op
-    xchg ax, dx
+    mov [fm_odir], dh           ; ...'+contents' on the line
+    mov al, dl
+    cbw
     mov di, fm_onam             ; fm_onam is what the line SAYS: '5 items'
     call fm_utoa
     mov si, fm_s_items
@@ -6565,37 +6548,11 @@ fm_edit_commit:
     call fcp_goto               ; CF = 1 with AX = FERR_*
     jc .bad
     mov byte [dskw_batch], 1    ; one deferred remount for the whole set
-    xor ax, ax
-.dl:
-    cmp ax, [di+FS_N]
-    jae .dend
-    push ax
-    call fm_misin
-    jz .dn
-    call fm_stage_onam          ; fm_onam + [fm_odir] + [fm_ftype]
-    cmp word [fm_ftype], 3
-    je .dn                      ; '..' is not in the folder
-    mov si, fm_onam
-    cmp byte [fm_odir], 0
-    je .dfile
-    call dskw_rmtree
-    jmp short .dck
-.dfile:
-    call dskw_delete_x
-.dck:
-    jc .derr
-.dn:
-    pop ax
-    inc ax
-    jmp short .dl
-.derr:
-    pop bx                      ; (the index)
+    mov bx, fm_mw_del
+    call fm_mwalk               ; CF = 1 with AX = FERR_* at the first failure
     mov [fcp_err], al
-    mov al, FCPS_ERR
-    jmp short .dfin
-.dend:
-    mov al, FCPS_DONE
-.dfin:
+    sbb al, al                  ; FCPS_ERR on a failure, FCPS_DONE otherwise
+    and al, FCPS_ERR
     mov byte [dskw_batch], 0    ; the batch ends and its marks are made
     call dskw_sync_x            ; (fcp_unbatch's two lines: that one is the
                                 ; copy engine's, an image on kern_small)...
@@ -6752,11 +6709,6 @@ fm_band:
     mov dx, [fm_pressy]
     call fm_dgwait              ; the same wait a drag starts with
     jc .out
-    mov cx, [fm_pressx]
-    mov dx, [fm_pressy]
-    call fm_bqclamp             ; the band's fixed corner, inside the rows
-    mov [fm_pressx], cx
-    mov [fm_pressy], dx
     mov di, [fm_vp]
     call fm_menter              ; the selection it starts from is the bits
     mov [fm_dgwin], si
@@ -6768,44 +6720,16 @@ fm_band:
 .ret:
     ret
 
-; fm_bqclamp - CX = x, DX = y, both absolute, clamped into the row area:
-; x across the row band (content left .. the scroll bar's gutter), y over the
-; WHOLE rows that fit
-fm_bqclamp:
-    push ax
-    mov ax, [fm_cx]
-    cmp cx, ax
-    jge .x1
-    mov cx, ax
-.x1:
-    mov ax, [fm_rgt]
-    sub ax, 15                  ; fm_sel_bar's right edge
-    cmp cx, ax
-    jle .x2
-    mov cx, ax
-.x2:
-    mov ax, [fm_cy]
-    add ax, FM_ROW_Y0
-    cmp dx, ax
-    jge .y1
-    mov dx, ax
-.y1:
-    mov ax, [fm_cy]
-    add ax, [fm_listb]
-    dec ax
-    cmp dx, ax
-    jle .y2
-    mov dx, ax
-.y2:
-    pop ax
-    ret
-
-; fm_bqcell - CX = x, DX = y (absolute, clamped) -> AX = the visible row,
-; DX = the column (0 in the list). CX clobbered
+; fm_bqcell - CX = x, DX = y, both absolute and ANYWHERE -> AX = the visible
+; row and DX the column (0 in the list), each clamped into the grid: a band
+; that leaves the rows selects to their edge. CX clobbered
 fm_bqcell:
     mov ax, dx
     sub ax, [fm_cy]
     sub ax, FM_ROW_Y0
+    jns .y
+    xor ax, ax                  ; above the rows: the first
+.y:
     push cx
     call fm_rowdiv              ; AX = the row; CX, DX clobbered
     pop cx
@@ -6820,6 +6744,9 @@ fm_bqcell:
     push ax
     xchg ax, cx
     sub ax, [fm_cx]
+    jns .x
+    xor ax, ax                  ; left of the content: the first
+.x:
     call fm_div80               ; AX = the column; CX, DX clobbered
     cmp ax, [fm_cols]
     jb .col
@@ -6860,7 +6787,6 @@ fm_bqmove:
     call fm_layout
     mov cx, [mouse_x]
     mov dx, [mouse_y]
-    call fm_bqclamp
     mov [fm_dgx], cx
     mov [fm_dgy], dx
     call fm_bqcell
@@ -6882,9 +6808,7 @@ fm_bqmove:
     mov [fm_bqc0], dx
     mov [fm_bqc1], cx
     mov di, [fm_vp]
-    push bx
     call fm_mclr
-    pop bx
 .row:
     cmp ax, bx
     ja .set
@@ -8278,10 +8202,19 @@ fm_draw_licon:
 ; -----------------------------------------------------------------------------
 fm_lsel_bar:                    ; ...the band of [fm_lsel], the mirror's own
 %ifdef FM_MSEL
-    call fm_mdraw               ; ...OR, with a multi-selection up, every band
-    jz .one                     ; of it (SPEC.md 22.27): the three callers -
-    ret                         ; the painter, the scroll's lift and its relay
-.one:                           ; - each mean "the whole selection"
+    push di                     ; ...OR, with a multi-selection up, every band
+    mov di, [fm_vp]             ; of it (SPEC.md 22.27): the three callers -
+    call fm_many                ; the painter, the scroll's lift and its relay
+    jz .one                     ; - each mean "the whole selection". A diff
+    call fm_mclr                ; against an EMPTY target with DL = 0 is every
+    push dx                     ; set band, the bits left alone
+    xor dl, dl
+    call fm_mdiff
+    pop dx
+    pop di
+    ret
+.one:
+    pop di
 %endif
     mov ax, [fm_lsel]           ; selection - five callers' first line (AX
 fm_sel_bar:                     ; comes back holding it)
@@ -8326,17 +8259,22 @@ fm_sel_bar:                     ; comes back holding it)
 ; THE MULTI-SELECTION (SPEC.md 22.27) - kern_big's, `make MSELOFF=1` takes it
 ; out. FS_MSEL is a bitmap over directory indices and is EMPTY while the
 ; selection is the single FS_SEL it always was, so every single-selection path
-; above and below runs exactly as it did; a gesture that wants more than one
-; entry ENTERS the bitmap (fm_menter) and from then on the bitmap is the whole
-; selection and FS_SEL only the focus. Every change is drawn as a DIFF -
-; fm_mset inverts the band of each index whose bit changes and no other - so
-; nothing that stays selected is drawn twice (PERFORMANCE.md rule 2).
-; Every routine here takes DI = the window's state block and the layout
-; current, and preserves every register it does not name.
+; runs exactly as it did; a gesture that wants more than one entry ENTERS the
+; bitmap (fm_menter) and from then on the bitmap is the whole selection and
+; FS_SEL only the focus. Every change is drawn as a DIFF - fm_mset inverts the
+; band of each index whose bit changes and no other - so nothing that stays
+; selected is drawn twice (PERFORMANCE.md rule 2). Every routine here takes
+; DI = the window's state block with the layout current, and preserves every
+; register it does not name.
 ; =============================================================================
 
 ; fm_mbit - AX = an index -> BX = its byte in a bitmap, CH = its bit. CL
-; clobbered
+; clobbered. fm_misin is its question - ZF = 0 when AX is in DI's set - for
+; an AX the caller has ALREADY bounded by FS_N; BX and CX clobbered
+fm_misin:
+    call fm_mbit
+    test [bx+di+FS_MSEL], ch
+    ret
 fm_mbit:
     mov bx, ax
     mov cl, 3
@@ -8357,20 +8295,15 @@ fm_many:
     pop ax
     ret
 
-; fm_misin - ZF = 0 when AX is in DI's bitmap; an index past the listing is
-; not (ZF = 1). BX and CX clobbered
-fm_misin:
-    cmp ax, [di+FS_N]
-    jae .no
-    call fm_mbit
-    test [bx+di+FS_MSEL], ch
+; fm_mclr - fm_mnew emptied; fm_mzero - DI's bitmap emptied WITHOUT drawing,
+; for a caller whose window is repainted anyway (fmv_store) or whose bands
+; are already off (fm_mone)
+fm_mclr:
+    push di
+    mov di, fm_mnew - FS_MSEL
+    call fm_mzero
+    pop di
     ret
-.no:
-    cmp ax, ax
-    ret
-
-; fm_mzero - empty DI's bitmap WITHOUT drawing: for a caller whose window is
-; repainted anyway (fmv_store), or whose bands are already off (fm_mone)
 fm_mzero:
     push ax
     xor ax, ax
@@ -8382,11 +8315,11 @@ fm_mzero:
     ret
 
 ; fm_mrange - fm_mnew = the run of indices from AX to DX, either order,
-; clipped to the listing (an index past it - 0FFFFh, "none" - draws no run
-; beyond what is listed). AX, BX, CX and DX clobbered
+; clipped to the listing (0FFFFh, "none", is past it). fm_mrun ADDS the run
+; to fm_mnew as it stands. AX, BX, CX and DX clobbered
 fm_mrange:
     call fm_mclr
-fm_mrun:                        ; ...or ADDED to fm_mnew as it stands
+fm_mrun:
     cmp ax, dx
     jbe .lo
     xchg ax, dx                 ; AX = the low end, DX the high
@@ -8402,36 +8335,17 @@ fm_mrun:                        ; ...or ADDED to fm_mnew as it stands
 .done:
     ret
 
-; fm_mclr - fm_mnew emptied. BX clobbered
-fm_mclr:
-    xor bx, bx
-    mov [fm_mnew], bx
-    mov [fm_mnew+2], bx
-    mov [fm_mnew+4], bx
-    mov [fm_mnew+6], bx
-    ret
-
-; fm_mset - MAKE the selection fm_mnew: invert the band of every index whose
-; bit differs, then take the bitmap. fm_mdiff is the first half alone, and
-; fm_mdraw (below) is it against an empty target, which draws the whole set
+; fm_mset - MAKE the selection fm_mnew: fm_mdiff with DL = 1. fm_mdiff
+; inverts the band of every index whose bit differs between DI's bitmap and
+; fm_mnew, and with DL non-zero flips that bit too, so the bitmap BECOMES the
+; target; with DL = 0 and an empty target it draws the whole set and leaves
+; the bits alone, which is what fm_lsel_bar wants
 fm_mset:
+    push dx
+    mov dl, 1
     call fm_mdiff
-    push si
-    push di
-    push cx
-    push es
-    push ds
-    pop es
-    mov si, fm_mnew
-    add di, FS_MSEL
-    mov cx, 4
-    rep movsw
-    pop es
-    pop cx
-    pop di
-    pop si
+    pop dx
     ret
-
 fm_mdiff:
     push ax
     push bx
@@ -8443,9 +8357,12 @@ fm_mdiff:
     call fm_mbit
     mov cl, [bx+di+FS_MSEL]
     xor cl, [bx+fm_mnew]
-    test cl, ch
+    and cl, ch
     jz .n
     call fm_sel_bar             ; range- and visibility-checked by itself
+    or dl, dl
+    jz .n
+    xor [bx+di+FS_MSEL], cl
 .n:
     inc ax
     jmp short .l
@@ -8455,26 +8372,9 @@ fm_mdiff:
     pop ax
     ret
 
-; fm_mdraw - every band of the acting window's multi-selection, XORed: on for
-; the painter and the scroll's relay, off for its lift. ZF = 1 = there is
-; none, nothing drawn, and the single band is the caller's to draw
-fm_mdraw:
-    push di
-    mov di, [fm_vp]
-    call fm_many
-    jz .out
-    push bx
-    call fm_mclr                ; an empty target: every set bit differs
-    call fm_mdiff
-    pop bx
-    or di, di                   ; ZF = 0: a block is never at offset 0
-.out:
-    pop di
-    ret
-
 ; fm_menter - enter the bitmap from a single selection: the focus becomes its
 ; first bit - its band is already on the glass, so nothing is drawn - and the
-; Shift anchor. A no-op once a multi-selection is up
+; Shift anchor. A no-op once a set is up
 fm_menter:
     call fm_many
     jnz .out
@@ -8494,10 +8394,9 @@ fm_menter:
 .out:
     ret
 
-; fm_mone - COLLAPSE a multi-selection to the single entry AX (0FFFFh: to
-; nothing): the bands that go are inverted, AX's stays or comes on, and the
-; window is single again with FS_SEL = AX - exactly the state a plain click
-; leaves. AX preserved
+; fm_mone - COLLAPSE a set to the single entry AX (0FFFFh: to nothing): the
+; bands that go are inverted, AX's stays or comes on, and the window is single
+; again with FS_SEL = AX - exactly what a plain click leaves. AX preserved
 fm_mone:
     push ax
     push bx
@@ -8505,15 +8404,13 @@ fm_mone:
     push dx
     mov dx, ax
     call fm_mrange              ; {AX}, or {} past the listing
-    call fm_mdiff
+    call fm_mdiff               ; (whatever DL is: the bits go next anyway)
     call fm_mzero
-    mov [di+FS_SEL], dx
-    mov [fm_lsel], dx
     pop dx
     pop cx
     pop bx
     pop ax
-    ret
+    jmp short fm_mfocus.set
 
 ; fm_mfocus - AX = the new focus; an EMPTIED set leaves nothing selected,
 ; because an empty bitmap means FS_SEL IS the selection, and that row's band
@@ -8525,6 +8422,78 @@ fm_mfocus:
 .set:
     mov [di+FS_SEL], ax
     mov [fm_lsel], ax
+    ret
+
+; fm_mods - the BIOS's shift state (0040:0017): AL bit 2 = Ctrl, bits 0-1 =
+; Shift, and nothing else. A Standard File chooser picks ONE file, so in its
+; block (DI) no modifier is seen at all. AH clobbered
+fm_mods:
+    push ds
+    xor ax, ax
+    mov ds, ax
+    mov al, [0x417]
+    pop ds
+    cmp di, [fdlg_blk]
+    jne .k
+    xor al, al
+.k:
+    and al, 7
+    ret
+
+; fm_mwalk - call BX for every entry of DI's set but '..' (19.5), with AX =
+; its index and fm_onam / [fm_odir] / [fm_ftype] staged out of THIS window's
+; cache. Stops at the first CF = 1 and answers it, with the callee's AX; CF =
+; 0 when the walk ends. The callee may clobber AX, CX and SI. Copy's list,
+; Delete's count and Delete itself are its three callees
+fm_mwalk:
+    xor ax, ax
+.l:
+    cmp ax, [di+FS_N]
+    jae .out
+    push ax
+    push bx
+    call fm_misin
+    pop bx
+    jz .n
+    call fm_stage_onam
+    cmp word [fm_ftype], 3
+    je .n
+    call bx
+    jc .stop
+.n:
+    pop ax
+    inc ax
+    jmp short .l
+.stop:
+    pop cx
+.out:
+    ret
+
+fm_mw_cnt:                      ; Delete's count: DL entries, DH = a folder
+    inc dx                      ; among them (the line's '+contents')
+    or dh, [fm_odir]            ; (`or` clears CF)
+    ret
+
+fm_mw_del:                      ; Delete itself, by NAME
+    mov si, fm_onam
+    cmp byte [fm_odir], 0
+    je .file
+    jmp dskw_rmtree             ; a folder AND everything under it (18.6)
+.file:
+    jmp dskw_delete_x
+
+fm_mw_rec:                      ; Copy's list: record [fcp_lcnt] at ES:16n is
+    push di                     ; the operation record's own (type word,
+    mov di, [fcp_lcnt]          ; 13-byte name) - filecp.inc's fcp_lget
+    mov cl, 4                   ; copies it back whole
+    shl di, cl                  ; (CF = 0: n < 64)
+    mov ax, [fm_ftype]
+    stosw
+    mov si, fm_onam
+    mov cx, 13
+    rep movsb
+    pop di
+    inc word [fcp_lcnt]         ; (`inc` leaves CF alone)
     ret
 
 ; fm_armset - put the acting window's whole SET on the clipboard, as THE
@@ -8548,31 +8517,8 @@ fm_armset:
     mov [fcp_lseg], dx
     mov es, dx
     mov di, [fm_vp]
-    xor ax, ax
-.walk:
-    cmp ax, [di+FS_N]
-    jae .done
-    push ax
-    call fm_misin
-    jz .next
-    call fmv_get_dir            ; SI -> the entry, out of THIS window's cache
-    cmp byte [si+16], 3
-    je .next                    ; '..' is a way out of the folder (19.5)
-    push di
-    mov di, [fcp_lcnt]
-    mov cl, 4
-    shl di, cl
-    mov cx, 15                  ; the name field to its fifteenth byte...
-    rep movsb
-    mov al, [si+1]              ; ...and the type in the sixteenth
-    stosb
-    pop di
-    inc word [fcp_lcnt]
-.next:
-    pop ax
-    inc ax
-    jmp short .walk
-.done:
+    mov bx, fm_mw_rec
+    call fm_mwalk
     cmp word [fcp_lcnt], 0
     jne .some
     call fcp_lfree
@@ -8585,8 +8531,8 @@ fm_armset:
     mov [fcp_cbdrv], al
     mov ax, [di+FS_CWD]
     mov [fcp_cbcwd], ax
-    xor ax, ax                  ; record 0 is the clipboard's own entry
-    mov di, fcp_cbtype
+    xor ax, ax                  ; record 0 IS the clipboard's own entry, so a
+    mov di, fcp_cbtype          ; paste of a list starts as a paste of one
     call fcp_lget
     pop ax
     mov [fcp_cbop], al          ; (CF = 0 from fcp_lget)
@@ -8599,23 +8545,22 @@ fm_armset:
 ; is held. in: AL = FCP_CUT, BX = the pressed index. out: fcp_arm's CF
 fm_dgarm:
     push di
-    push cx
     mov di, [fm_vp]
     push ax
     call fm_mods
-    mov cl, al
+    test al, 4
     pop ax
-    test cl, 4
     jz .op
     mov al, FCP_COPY
 .op:
     push ax
     push bx
+    push cx
     xchg ax, bx                 ; AX = the index
     call fm_misin               ; ZF = 0: the press is on the set
+    pop cx
     pop bx
     pop ax
-    pop cx
     pop di
     jnz fm_armset
     jmp fcp_arm
@@ -8627,39 +8572,28 @@ fm_dgarm:
 fm_mrclk:
     mov byte [fm_mrc], 0
     pushf
-    push ax
-    jnc .row
-    mov ax, 0FFFFh
-.row:
     call fm_many
     jz .out
-    mov byte [fm_mrc], 1
+    inc byte [fm_mrc]
+    popf
+    pushf
+    push ax
+    jc .off                     ; not on a row: the set goes
     push bx
     push cx
     call fm_misin
     pop cx
     pop bx
-    jnz .out
+    jnz .keep
+    jmp short .one
+.off:
+    mov ax, 0FFFFh
+.one:
     call fm_mone
-.out:
+.keep:
     pop ax
+.out:
     popf
-    ret
-
-; fm_mods - the BIOS's shift state (0040:0017): AL bit 2 = Ctrl, bits 0-1 =
-; Shift, and nothing else. A Standard File chooser picks ONE file, so in its
-; block (DI) no modifier is seen at all. AH clobbered
-fm_mods:
-    push ds
-    xor ax, ax
-    mov ds, ax
-    mov al, [0x417]
-    pop ds
-    cmp di, [fdlg_blk]
-    jne .k
-    xor al, al
-.k:
-    and al, 7
     ret
 %endif
 

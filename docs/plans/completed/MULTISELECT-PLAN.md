@@ -1,10 +1,77 @@
-# Multi-select in the Disk window — a costed plan
+# Multi-select in the Disk window — the plan, and what it came to
 
-**Status: PLAN. Nothing is built.** Branch `multi-select`, cut from
+**Status: BUILT, all three waves (SPEC.md 22.27 is the contract).** This file
+is the design record. §A below is what the build MEASURED and where it left
+the plan; everything after it is the plan as it was costed before a line was
+written, kept because its estimates were wrong by a factor of two and the
+reasons are worth having.
+
+## A. What it came to
+
+**1,418 resident bytes on `kern_big`** - `.cold` +1,327, `.text` +25, `.bss`
++66 - against the plan's ESTIMATE of ~680. `kern_small` is byte-identical,
+and `make MSELOFF=1` assembles byte-identical to the kernel the branch was cut
+from (both checked by re-assembling `f8ba8eb3`'s source at the same build
+number). Measured by `kernsize` against the `MSELOFF=1` arm and broken down
+by symbol span from the NASM listing:
+
+| wave | what | bytes (code + data) |
+|---|---|---|
+| 1 | the bitmap, Ctrl/Shift click, Shift+arrows, Ctrl+A, right-click, drawing | ~560 (54 of them `.bss`: nine bytes a block x 5, `fm_mnew`, `fm_mrc`) |
+| 2 | the rubber band | ~340 |
+| 3 | Cut/Copy/Paste of a set, Delete of a set, drag of a set, Ctrl+drag, cross-drive copy | ~520 |
+
+The `.cold` rung CROSSED twice (73 -> 75 steps of 512, `KERN_SIZE` 97,280 ->
+98,304): the rung had 494 bytes of slack and the feature is 1,327.
+
+**The owner's four decisions** (all three waves; band from right of the name
+column; Ctrl+drag copies, plus a drop on another DRIVE copies "if it is ~50
+bytes or less" - it was **7**; the list in its own heap reservation,
+purgeable at MED and cleared on paste) are all built as stated.
+
+**Why the estimate was half the truth.** Not the assembler: the listing has
+seven more out-of-range conditional jumps than the base (21 bytes). It was
+the per-routine scaffolding the estimate did not count - every helper banks
+the registers its callers rely on, the band needs its geometry clamped in two
+axes and computed in two views, and the paste needs its list protected from
+its own copy buffer (the purge floor) and from a second arm while it is
+suspended. One size pass took 138 bytes back: Copy, Delete's count and
+Delete itself now share one iterator over the set (`fm_mwalk`), the band
+lost its separate clamp routine, the bitmap is updated in place by the same
+diff that draws it (`fm_mdiff` with DL), and the list's records are the
+operation record's own shape so `fcp_lget` is one string move.
+
+**What it changed from the plan:**
+
+- **The list is cleared on paste, Copy as well as Cut** (the owner's call), so
+  the plan's Copy-owns/paste-borrows ownership is gone: a paste spends the
+  clipboard at its start and frees the list at its end.
+- **Purgeable, not movable.** The plan proposed a movable 1KB claim; the
+  owner chose purgeable at MED, which needs no proc - and which needed the
+  purge FLOOR during a paste, because otherwise the copy buffer that each
+  entry claims is exactly the claimant that would shed the list.
+- **Delete walks through `fcp_goto`, not `fmv_sync_x`** - as planned - and
+  ends through `fm_paste_res`, the paste's own end, rather than a second copy
+  of "re-list what changed, say a failure, repaint those windows".
+- **The band's outline is not clamped** to the row area; only the selection
+  arithmetic is (`fm_bqcell`). The outline follows the pointer the way the
+  drag ghost always has.
+
+**Gate:** `tests/msel.py` (soak, `-k msel`), 32 s on MartyPC: every gesture
+checked on `FS_MSEL` and on the glass, then Copy/Paste of a set, a drag of a
+set, a Ctrl+drag copy and Delete of a set. RED against `MSELOFF=1`.
+**Not covered by that row:** the cross-drive copy (two Disk windows on two
+drives), Esc at an overwrite question part-way through a list, the icon
+view's band, and the chooser's opt-out - each was read, none was driven.
+
+---
+
+# The plan as it was costed
+
+**Status when written: PLAN.** Branch `multi-select`, cut from
 `elendilon` at `f8ba8eb3`. Every byte figure below is an **ESTIMATE**, counted
-by instruction from the shapes the existing code already uses, and none has
-been assembled. Measured `kernsize` numbers replace them wave by wave, with
-the A/B against a `MSELOFF=1` knob (§9).
+by instruction from the shapes the existing code already uses, and none had
+been assembled - §A above is what they turned out to be.
 
 The ask, in the owner's words: Ctrl+click to add and remove single entries,
 Shift+click for the run between the first selected entry and the clicked one,
