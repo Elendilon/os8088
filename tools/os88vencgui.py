@@ -430,6 +430,20 @@ def avg_choices(share):
     return ["auto"] + ([share] if share else [])
 
 
+def layer_disk_of(lprof):
+    """--layer-disk as a chosen --layer-profile fills it: that machine's own
+    disk, the bytes a second the encode budgets the layer for when the field
+    is left empty (98.1.9) - so the field shows the number that will be used
+    and can be changed from it. "" for no profile, or one with no disk"""
+    lprof = (lprof or "").strip()
+    if not lprof:
+        return ""
+    d = V.PROFILES.get(V.profile_name(lprof), {}).get("disk")
+    if d is None:
+        return ""
+    return "%d" % d if float(d).is_integer() else "%g" % d
+
+
 def choice_lines(f, current=""):
     """(value, what it is, is it the one chosen) for a choice field, in
     the field's own order: what its "?" shows (os88venc.CHOICE_HELP)"""
@@ -1405,6 +1419,8 @@ class App(object):
                 self.apply_audio()
             elif f["dest"] == "spk_style":
                 self.apply_style()
+            elif f["dest"] == "layer_profile":
+                self.apply_layer()
             top.destroy()
         for i, (c, what, on) in enumerate(choice_lines(f, v.get()), 1):
             b = ttk.Button(fr, text=c, width=14,
@@ -1450,6 +1466,7 @@ class App(object):
         self.mkdisk = tk.BooleanVar(value=False)
         self.disksize = tk.StringVar(value=DISK_LABELS[0])
         self.diskpicked = False         # ...a person's choice, kept
+        self.layerfill = ""             # what apply_layer last filled in
         self._build()
         self.apply_target()
         self.update_groups()
@@ -1886,6 +1903,23 @@ class App(object):
             self.vars[k].set(v)
         self.imply_disk()
 
+    def apply_layer(self):
+        """The layer's profile changed by hand: its disk is filled into
+        Layer disk (layer_disk_of), which is what the encode would use for an
+        empty one anyway. A number typed there by hand is replaced, as the
+        base's Disk is when the profile changes; clearing the profile clears
+        the field only while it still holds what a profile filled, since a
+        Layer disk alone is a layer on THIS machine with a faster disk"""
+        ld = self.vars.get("layer_disk")
+        if ld is None:
+            return
+        new = layer_disk_of(self.vars["layer_profile"].get())
+        if new:
+            ld.set(new)
+        elif ld.get().strip() == self.layerfill:
+            ld.set("")
+        self.layerfill = new
+
     def apply_audio(self):
         """The sound changed by hand: the SPEAKER plays at 5,512 Hz
         (os88venc.SPK_RATE), so choosing it sets the rate to that, and
@@ -1937,6 +1971,9 @@ class App(object):
             elif f["dest"] == "audio":
                 w.bind("<<ComboboxSelected>>",
                        lambda e: self.apply_audio())
+            elif f["dest"] == "layer_profile":
+                w.bind("<<ComboboxSelected>>",
+                       lambda e: self.apply_layer())
             elif f["dest"] == "spk_style":
                 w.bind("<<ComboboxSelected>>",
                        lambda e: self.apply_style())

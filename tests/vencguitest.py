@@ -274,6 +274,19 @@ def options_leg():
         if got != want or imp != ("" if prof == "lossless" else "auto"):
             bad.append("--avg on %s%s: the list %r (want %r), implied %r"
                        % (prof, " Live" if live else "", got, want, imp))
+    # A LAYER PROFILE FILLS LAYER DISK (98.1.9): with the field empty the
+    # encode budgets the layer for that profile's own disk, and the window
+    # shows that number when the profile is chosen - the base's Disk for the
+    # same profile, an old name as its new, nothing for none or lossless
+    for lp in sorted(V.PROFILES) + ["286", ""]:
+        got = G.layer_disk_of(lp)
+        want = V.implied(None, None, V.profile_name(lp))["disk"] if lp \
+            else ""
+        if got != want:
+            bad.append("--layer-profile %r fills Layer disk with %r, not "
+                       "its disk %r" % (lp, got, want))
+    if not G.layer_disk_of("286-fast"):
+        bad.append("--layer-profile 286-fast fills no Layer disk")
     # THE PROFILES' RENAME (98.2.3, options version 15): a record a version-14
     # encoder wrote names the OLD profiles, and must read as the new ones -
     # the field's files were made then. And the command line takes an old

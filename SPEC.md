@@ -158815,11 +158815,17 @@ XMS BANK and PREFILL.
   that profile prices the base's records as IT decodes them and holds its
   budget, so a CGA file for a 5150 carries a layer for a 286 - the same
   canvas, the format being the base's. Not with the speaker's sound, whose
-  share is the base machine's.
+  share is the base machine's. The encoder's window fills **Layer disk**
+  with that profile's disk when one is chosen - the number an empty field
+  would be budgeted for anyway, shown so it can be changed from - replacing
+  what was there, as the base's Disk is replaced by its profile; clearing
+  the profile clears the field only while it still holds what a profile
+  filled, because a Layer disk alone is a layer for THIS machine's CPU on a
+  faster disk.
 
 **BANKED AND LAYERED, CHOSEN AT THE PLAY** (2026-10-09): one file for a
 286 and a 486 - the base made for the 286 with its `--bank` and
-`--prefill`, the layer for the 486 (`--layer-profile 486`) - and the player
+`--prefill`, the layer for the 486 (`--layer-profile 486-dx2-66`) - and the player
 decides which machine it is on:
 - **The yardstick is the play's own work.** The encoder models key 0's
   decode on both machines and writes the two times in the header. At a
