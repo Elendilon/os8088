@@ -203,3 +203,99 @@ usbmouse` 6/6 ok. No row opens a capture stream, so the input arm of
 
 `soak -k picomem -k usbmouse` ok (the picomem `mouse` leg drives the whole
 PicoMEM backend: attach, reports through int 33h, chaining, detach).
+
+## Tip
+
+| | base | tip | delta |
+|---|---:|---:|---:|
+| kern_big `.cold` | 37,943 | 37,938 | -5 |
+| **kern_big resident** | 92,495 | **92,490** | **-5** |
+| kern_big `.ovlw` (boot only) | 5,086 | 5,075 | -11 (window spare 34 -> 45) |
+| kern_small `.cold` | 23,479 | 23,474 | -5 |
+| **kern_small resident** | 61,442 | **61,437** | **-5** |
+| kern_small `.ovl` / `.ovlw` | 2,076 / 1,480 | same | 0 |
+| kern_emu `.cold` / `.ovlw` | 38,061 / 5,086 | 38,056 / 5,075 | -5 / -11 |
+| kern_dos (`kerndos.bin`) | 33,243 | 33,183 | -60 |
+| SOUND.DRV image+bss | 7,122 | 6,972 | -150 (7 KB claim either way) |
+| ETHER.DRV image+bss | 16,896 | 16,888 | -8 (17 KB) |
+| USBMOUSE.DRV image+bss | 1,410 | 1,396 | -14 (2 KB) |
+
+`KERN_SIZE` does not move (98,304 / 63,488) and no rung moves: the cold rung
+stays 50 bytes into its 75th step on kern_big. The concept's kernel cost is
+now `.cold` +35 on both kernels (from +40) and `.ovlw` +74 on kern_big (from
++85); its driver cost +341 in SOUND.DRV (from +485), +110 in ETHER.DRV (from
++118) and +245 in USBMOUSE.DRV (from +259).
+
+## REFUSED
+
+* **Caching "is there a PicoMEM" at boot in a `.bss` byte**, so the park reads
+  one byte instead of running the ramp (~-10 resident a kernel, net of the
+  byte). It needs a detection in the boot overlay on BOTH kernels, ~25 bytes
+  each (kern_big's blob is full, so its `.ovlw` - 45 spare - and kern_small's
+  window half, 56), a new unconditional 2A3h read at every kern_small boot
+  where today there is none, and the answer goes stale across a hibernate
+  image resumed on another machine - stale "no card" being exactly the
+  `int 19h` hang 18.100.1 exists to avoid.
+* **Warm-resetting EVERY machine** (the park's `int 13h` loop and `int 19h`
+  gone, ~-50 resident a kernel): a behaviour change on every machine, POST on
+  every Restart. The owner's call, not a size pass's.
+* **One ramp for the park (`.cold`) and `dsk_fdd_pmemu` (`.ovlw`)**: a far
+  call each way; resident grows ~+5 to save ~20 boot-only bytes.
+* **`ne_probe`'s CR test through a direct `in al, dx`** (~-10 of ETHER.DRV):
+  the test's whole argument is the stale byte an EMPTY 8088 slot answers,
+  which is the last instruction byte the prefetcher fetched - through `ne_in`
+  its `ret` (C3h); inline, the following bytes include a compare's immediate
+  equal to the very value tested for. Only the field can say the inline form
+  still refuses an empty slot.
+* **The park's ramp as `mov cx, dx`** (675 reads, -1): a longer `cli`, and a
+  claim about the card's counter past 256 reads nobody has checked.
+* **The card's line checked by `shr` alone** (-3 more): on a 286 the count is
+  masked to five bits, so a garbage CH of 23h/25h/27h... would pass as 3/5/7.
+  The `test al, F8h` stays.
+* **`je .spur` short in `sbl_isr`**: four layouts assembled, every one puts
+  `.direct` or `.eoi` 2-5 bytes past a short jump on the common path.
+* **`sbl_isr`'s output and input half-swaps as one body** (~-20): a rewrite of
+  the block-IRQ path resting on `sbl_valid` holding only 0 and 1. Not the
+  concept's, and not a hunk to change without a capture row.
+* **`um_pmdetach`'s vector restore by `movsw`** (-2 net once SI/DI are saved
+  for the detach contract): not worth DF and two saves.
+
+## DEFECTS
+
+None fixed. **One finding for the owner, by reading, NOT fixed**:
+`kerndos/kdentry.inc`'s `kd_leave` ends in its own park and `int 19h` with no
+PicoMEM check - the path SPEC.md 18.100.1 fixed for the desktop's Restart
+(`int 19h` into a card whose devices are as the session left them never came
+back on the field 5150). Leaving a DOS program under kern_dos on a PicoMEM
+machine is plausibly the same hang. Not fixed: no field report, no emulator
+has the card, and the check costs bytes of the DOS program (~35, the park's
+own shape).
+
+## CROSS-FILE
+
+* `kerndos/kdentry.inc`'s `kd_leave` on a PicoMEM (DEFECTS, above).
+* The 2A3h ramp is now written four times - `dsk_fdd_park_x` (`.cold`),
+  `dsk_fdd_pmemu` (`.ovlw`, kern_big), SOUND.DRV's `pm_init` and
+  USBMOUSE.DRV's `um_pmattach` - and cannot be shared across the
+  kernel/driver boundary without a published cell (six bytes of ABI for ~20).
+
+## ROWS
+
+* `make -j2`, `make -j2 small`, `make emu`, the fast tier 61/61 after every
+  batch; `kerndos.bin` assembles in every `make`.
+* `tools/stkbalance.py` over the kernel (the fast tier's file list): 0
+  unbalanced, base and tip; over SOUND.DRV's six files and USBMOUSE.DRV: 0
+  both. ETHER.DRV walked alone reports `eth_dropall`'s tail into `inet.inc`
+  at base and tip alike (a file-list artefact). `tools/stkdepth.py
+  drivers/ether/ether.asm --check`: all 12 dropped saves still hold.
+* `tests/unit/t_stkbalance.py` 25/25, with the two new fixtures.
+* Soak rows, all ok: `picomem` (x3), `sndplay`, `covoxdrv`, `covoxauto`,
+  `covoxnolpt`, `usbmouse` (x2), `midiracksb`, `fddpark` (the probe's moved
+  call and the park on a machine without the card, MartyPC).
+* Not run: `ethernet` (QEMU) - QEMU's ne2k_isa answers a doubled PROM, so
+  `eth_word` is 1 and `ne_memok` is never reached there; the CR test it does
+  reach is unchanged. `ne_memok` is driven by `tests/picomem.py`'s `ne` leg
+  against the PicoMEM's NE2000 and a genuine NE1000 model, frames byte-exact.
+* No emulator in the tree has a PicoMEM. Every success path above is proved
+  by `tests/picomem.py` (unicorn, the shipped source, a model of the card) and,
+  for SOUND.DRV's attach, the 4,322-scenario A/B described in batch 2.
