@@ -1807,7 +1807,9 @@ dsk_xfer:
     call dsk_flrec              ; ...and the WHOLE transfer, for the cloner's
 %endif                          ; toast (SPEC.md 18.99.10)
     cmp ah, 0x03
-    je .fail                    ; write-protected: retrying cannot help
+    je .wpfail                  ; write-protected: retrying cannot help (ZF=1
+                                ; rides to a `jbe .fail` below, which takes it:
+                                ; .fail itself is out of a byte's reach)
 %ifndef KD_BUILD                ; **A FAILING DISK SAYS SO** (SPEC.md 12.8.3.2).
     dec byte [sch_lock]         ; FPG_WARM counts sectors MOVED and a retry
     push cx                     ; moves none, so a one-sector read failing on
@@ -1841,6 +1843,7 @@ dsk_xfer:
     ; 512 bytes, not the seven good ones beside it. The retry unit widened
     ; with the transfer, so the fallback is what keeps ageing media readable.
     cmp word [dsk_run], 1
+.wpfail:
     jbe .fail                   ; already per-sector: unrecoverable
     mov word [dsk_run], 1
     mov bp, 3

@@ -1885,7 +1885,10 @@ dskw_rbody:
     mov [dskw_uz], ax                   ; below: R = U - P BORROWS, and a
     mov [dskw_uzhi], dx                 ; borrowed R is past the megabyte
     cmp word [dskw_src], 0
-    jne .czbad                          ; a compressed file expands into a
+    jne .czjae                          ; a compressed file expands into a
+                                        ; (CF=0 out of a compare with 0, so
+                                        ; the `jae .czbad` below takes it:
+                                        ; .czbad is out of a byte's reach)
                                         ; PARAGRAPH-ALIGNED buffer: lz_decomp_x
                                         ; wants DI = 0 (SPEC.md 20.13.3), the
                                         ; SDK says so, and R's own low nibble
@@ -1935,6 +1938,7 @@ dskw_rbody:
     sbb dx, [dskw_lenhi]        ; the writer can never overtake the reader
                                 ; (SPEC.md 20.14.2) - and 0 for a plain file
     cmp dx, 0x10
+.czjae:
     jae .czbad                  ; R past a megabyte, which is what a hint
                                 ; smaller than its file comes out as, and not
                                 ; an address in this machine either way - the
@@ -2607,10 +2611,41 @@ dskw_read_at_x:
 
     cmp byte [dsk_vkind], DVK_FILE
     jne .fatat
-    jmp .fsat                   ; a REDIRECTED volume (SPEC.md 62.9): the
-                                ; driver serves any offset, so BOTH of this
-                                ; routine's cluster-alignment preconditions
-                                ; simply do not arise
+    ; --- a REDIRECTED volume: STAT to a handle, then READAT (62.9.1) --------
+    ; dskw_stat_x is redirected too, so this could have fallen through to the
+    ; code above and got the right handle and size out of it - and then walked
+    ; a cluster chain that does not exist. The branch is here rather than
+    ; after the stat because everything between them is FAT arithmetic.
+.fsat:
+    call dskw_fsstat            ; SI = the name -> AX = the handle, DX:CX =
+    jc .out                     ; size; a folder is refused FERR_PROT, as
+                                ; everywhere else
+    mov bx, [dwr_buf]           ; AX is still the handle
+    mov dx, es                  ; DX:BX = the buffer, ES being the caller's
+    mov cx, [dwr_cap]           ; and DX not carrying it into the driver
+    mov si, [dwr_off]           ; DI:SI = the 32-bit offset, and a driver is
+    mov di, [dwr_off+2]         ; free to answer 0 for "at or past the end"
+    mov bp, FSV_READAT
+    call drv_fs_call              ; -> DX:AX = the bytes delivered
+    jmp short .out              ; CF and DX:AX are already the answer
+
+    ; --- the answers, ABOVE the FAT body so its refusals reach them short ---
+.eof:
+    xor ax, ax
+    xor dx, dx
+    jmp short .out
+.badarg:
+    mov ax, FERR_NAME           ; a bad ARGUMENT, and FERR_NAME is this API's
+    stc                         ; word for that (SPEC.md 20.3)
+.err:
+.out:
+    pop bp
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
 .fatat:
     call dskw_clbytes           ; AX = bytes per cluster on this volume
     mov [dwr_clb], ax
@@ -2688,7 +2723,7 @@ dskw_read_at_x:
     jcxz .atclus                ; nothing above has touched
 .skip:
     call dsk_next_clus_x    ; AX = the next cluster; CF=1 = the
-    jc .corrupt                 ; chain ended before the size said it would
+    jc .rdend                   ; chain ended before the size said it would
     loop .skip                  ; ...and a link outside [2, dsk_maxclus] is
                                 ; refused by whatever reads it next: the next
                                 ; pass's dsk_next_clus_x, or dsk_read_chain_x's
@@ -2715,48 +2750,14 @@ dskw_read_at_x:
     pop ax
     mov bx, [dwr_buf]
     call dsk_read_chain_x
-    jc .ioerr
-    mov ax, [dwr_take]
-    xor dx, dx                  ; (`xor` clears CF: the answer)
-    jmp short .out
-.eof:
-    xor ax, ax
-    xor dx, dx
-    jmp short .out
-.badarg:
-    mov ax, FERR_NAME           ; a bad ARGUMENT, and FERR_NAME is this API's
-    jmp short .fail             ; word for that (SPEC.md 20.3)
-.corrupt:
-.ioerr:
+.rdend:                         ; CF=1 = the chain ended early or the read
+    mov ax, [dwr_take]          ; failed, FERR_IO both (`mov` keeps CF)
+    mov dx, 0
+    jnc .rdout
     mov ax, FERR_IO
-.fail:
-    stc
-.err:
-.out:
-    pop bp
-    pop di
-    pop si
-    pop cx
-    pop bx
-    ret
+.rdout:
+    jmp .out                    ; (up past the FAT body: not a byte's reach)
 
-    ; --- a REDIRECTED volume: STAT to a handle, then READAT (62.9.1) --------
-    ; dskw_stat_x is redirected too, so this could have fallen through to the
-    ; code above and got the right handle and size out of it - and then walked
-    ; a cluster chain that does not exist. The branch is here rather than
-    ; after the stat because everything between them is FAT arithmetic.
-.fsat:
-    call dskw_fsstat            ; SI = the name -> AX = the handle, DX:CX =
-    jc .out                     ; size; a folder is refused FERR_PROT, as
-                                ; everywhere else
-    mov bx, [dwr_buf]           ; AX is still the handle
-    mov dx, es                  ; DX:BX = the buffer, ES being the caller's
-    mov cx, [dwr_cap]           ; and DX not carrying it into the driver
-    mov si, [dwr_off]           ; DI:SI = the 32-bit offset, and a driver is
-    mov di, [dwr_off+2]         ; free to answer 0 for "at or past the end"
-    mov bp, FSV_READAT
-    call drv_fs_call              ; -> DX:AX = the bytes delivered
-    jmp short .out              ; CF and DX:AX are already the answer
 
 ;
 ; -----------------------------------------------------------------------------
