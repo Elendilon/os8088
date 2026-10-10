@@ -355,10 +355,13 @@ SUGGEST = {"rate": ["", "22050", "11025", "8000", "5512"],
            "owe": ["", "0", "1.6"],
            # FREE MEMORY TO PLAY (98.2.1.3.1): rings of 8, 10 and 12 slots
            "memory": ["", "309", "373", "437"],
-           # THE XMS BANK (98.3.18.2): what a 1, 2, 4 or 8 MB machine has
-           # left once the player's reserve for others is taken; the prefill
-           # in seconds of the disk, or the whole bank
-           "bank": ["", "768", "1792", "3840", "7936"],
+           # THE XMS BANK (98.3.18.2): 128 KB under a pool of 1, 3, 7 and
+           # 15 MB - the player takes the WHOLE pool (98.3.18.2.1), and a
+           # 4 MB board is ~3 MB of XMS once 640 KB of base memory, the
+           # HMA and a shadowed BIOS are off it, so 1 and 3 MB are a 286's
+           # common pools; the prefill in seconds of the disk, or the whole
+           # bank
+           "bank": ["", "896", "2944", "7040", "15232"],
            "prefill": ["", "5", "10", "30", "all"]}
 # a free-text option that NAMES A FILE the encode writes: a Browse... beside
 # it, a Save dialog of that type, started beside the .V88 under its name

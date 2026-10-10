@@ -71,9 +71,9 @@
     OS88_DOCGLYPH8_END
 
 VP_CHUNK    equ 32768               ; a ring slot, and a READ_SEQ call
-VP_XRES     equ 256                 ; THE BANK (docs/plans/VIDEO-XMS-PLAN.md
-                                    ; 4.6): the pool's KB it leaves to others
-VP_XBMIN    equ 128                 ; ...and the least worth taking, KB
+VP_XBMIN    equ 128                 ; THE BANK (98.3.18.2): the least worth
+                                    ; taking, KB - and the WHOLE pool is taken,
+                                    ; none left to others (98.3.18.2.1)
 VP_EFAST    equ 15                  ; THE EMS FRAME'S SPEED (98.3.18.8), in
 VP_ESLOW    equ 40                  ; tenths of RAM's time: EMS first and in
                                     ; place to 1.5x, a bank with copies to 4x
@@ -3950,9 +3950,9 @@ vp_xopen:
     pop ax
     ret
 .bank:                              ; THE FILE DOES NOT FIT: a BANK, a FIFO
-    sub ax, VP_XRES                 ; of chunks ahead of the ring (VIDEO-XMS-
-    jbe .out                        ; PLAN 4): the pool less what it leaves
-    cmp word [vp_lybkb], 0          ; others - and with a LAYER's bank asked
+                                    ; of chunks ahead of the ring (VIDEO-XMS-
+                                    ; PLAN 4): the WHOLE pool (98.3.18.2.1)
+    cmp word [vp_lybkb], 0          ; - and with a LAYER's bank asked
     je .bnl                         ; for besides, no more than the base's
     mov cx, [vp_hxb]                ; own ask, so the layer's has the rest
     jcxz .bnl                       ; (98.1.9)
@@ -4578,7 +4578,7 @@ vp_erate:
     ret
 
 ; vp_eopen - SI = the file's KB, one over: the bank in EMS - the board's
-; free pages less VP_XRES's worth, no more than the file in whole slots, at
+; free pages (98.3.18.2.1), no more than the file in whole slots, at
 ; least VP_XBMIN's; and the frame's quarters 0 and 1 for its window.
 ; Clobbers AX, BX, CX, DX
 vp_eopen:
@@ -4586,8 +4586,6 @@ vp_eopen:
     mov bx, (DRVC_EMS << 8) | EMSV_CAPS
     call OSAPI_DRV_CALL
     jc .out
-    sub ax, VP_XRES / 16            ; (the reserve, as XMS's: in pages)
-    jbe .out
     pop si                          ; (CAPS answered the quarters in SI)
     push si
     mov cx, si                      ; THE FILE in whole slots, one over
@@ -9100,7 +9098,7 @@ vp_lyget:
     ret                             ; hold is still drawn)
 
 ; vp_lyxopen - a file's open, after the base's bank: THE LAYER's XMS BANK
-; out of what the pool has left - the header's ask, or that less VP_XRES
+; out of what the pool has left - the header's ask, or all that is left
 ; if it is less, in whole slots, two at least. The base's bank came first,
 ; held to its own ask where the file asks for both. None on an EMS-only
 ; machine. Every register kept
@@ -9118,8 +9116,6 @@ vp_lyxopen:
     call OSAPI_XMEM_CAPS            ; AX = the pool's KB (and DX:CX, BL
     pop bx                          ; its other answers)
     mov cx, [vp_lybkb]
-    sub ax, VP_XRES
-    jbe .out
     cmp ax, cx
     jbe .t
     mov ax, cx

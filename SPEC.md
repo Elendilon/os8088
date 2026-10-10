@@ -159170,8 +159170,8 @@ encoded exactly as it would be alone, and the gate asserts it.
   every slot the heap offers, so a claim after it found nothing; this order
   is the whole fix.)
 - **Its XMS BANK is taken at the file's open** (`vp_lyxopen`), AHEAD of the
-  base's bank, which takes what the pool has left: the header's ask, or the
-  pool less `VP_XRES`, in whole slots. A bounce slot is claimed beside the
+  base's bank, which takes what the pool has left: the header's ask, or all
+  that is left, in whole slots (98.3.18.2.1). A bounce slot is claimed beside the
   conventional ones. The reader's order is FIFO: a slot the hook let go is
   fed from the bank's head if it holds anything (`vp_lydrain`, every pass of
   the loop, disk or no disk), else read straight off the disk; with every
@@ -163352,8 +163352,7 @@ the bank's size instead. A machine with no pool is unchanged: the bank is
 never taken.
 
 **The block** (`vp_xopen`'s `.bank`, when `OSAPI_XMEM_CAPS` answers less
-than the file's KB): the pool less `VP_XRES` = 256 KB left for anyone else,
-cut to whole 32 KB slots, halved in slots until `OSAPI_XMEM_ALLOC` takes it
+than the file's KB): the WHOLE pool (98.3.18.2.1), cut to whole 32 KB slots, halved in slots until `OSAPI_XMEM_ALLOC` takes it
 and refused below `VP_XBMIN` = 128 KB. `[vp_xbank]` is 1 and `[vp_xon]` too,
 with nothing of the FILE held - `[vp_xhave]` and `[vp_xfull]` are zeroed, so
 `vp_xin`, `vp_xrdat` and `vp_canlive` all answer no. There is no timer: a
@@ -163402,6 +163401,30 @@ the bank held between them is still right, and the play dies past the
 bank's end. Broken on purpose - `vp_bstep` out of the reader's loop, the
 bank stays empty; `vp_bfill`'s head left unmoved, the play errors at frame
 100 - `vidbank` FAILS.
+
+##### 98.3.18.2.1 The whole pool, none kept back (2026-10-10)
+
+**The bank left `VP_XRES` = 256 KB of the pool to anyone else** (VIDEO-XMS-
+PLAN 4.6), on XMS and EMS both, and for the layer's bank too. It bought
+nothing anyone used and cost every play: a file encoded for the bank a
+machine has - the owner's `--bank 2600` on a 286 whose 4 MB board is
+~2.8 MB of XMS - found 256 KB less than it asked for and said **Low
+memory** every time, its bursts spending a bucket a ninth shallower than
+the encode priced. The player commands the machine while it plays; a
+program that wants the memory can have it when the video is closed. So
+each bank takes the pool whole, in whole slots, and `VP_XRES` is gone.
+
+The encoder's window suggests banks 128 KB under a pool of 1, 3, 7 and 15
+MB - **896, 2,944, 7,040 and 15,232 KB** - where it suggested 256 under 1,
+2, 4 and 8. A 4 MB board is ~3 MB of XMS once 640 KB of base memory, the
+HMA and a shadowed BIOS are off it, so 1 and 3 MB are a 286's common
+pools and 4 MB was never one. The 128 is the margin for the pool's own
+round-down and a driver's handle, not a reserve. A base bank and a layer
+bank share the one pool - the base's first, held to its ask, the layer's
+from what is left - so on a 3 MB machine the two together want 2,944.
+
+`vidbank` asserts it: QEMU's `-m 2` pool is banked whole, 26 slots where
+the reserve left 18.
 
 ##### 98.3.18.3 The prefill, and what the file asks
 
@@ -163537,7 +163560,7 @@ keeps XMS. **...and only when the board is as fast as RAM** (98.3.18.8): a
 slow board loses to XMS whatever the CPU.
 
 - **The block** (`vp_eopen`, `vp_xopen`'s `.ems`): `EMSV_CAPS`' free pages
-  less `VP_XRES`'s 256 KB, no more than the file in whole 32 KB slots (an
+  - all of them (98.3.18.2.1) - no more than the file in whole 32 KB slots (an
   EMS bank has no whole-file hold to prefer, so a file that fits is banked
   whole), at least `VP_XBMIN`'s 128 KB, halved in slots until `EMSV_ALLOC`
   takes it; and the frame's quarters 0 and 1 (`EMSV_FRAME`), a 32 KB window

@@ -33,6 +33,9 @@ LEG swap (the instrument is tests/vidxms.py's, a disk swap):
   7. released, the play must NOT reach the end: what neither held is the
      blank disk's. That is what says the swap bites.
 
+Step 1 also asserts the bank is the WHOLE pool (98.3.18.2.1): 26 slots,
+where the 256 KB VP_XRES kept back for others left 18 - put back, it FAILS.
+
 VERIFIED TO FAIL: with `call vp_bstep` taken out of the reader's loop the
 bank stays empty (step 2), and with vp_bfill's head left unmoved step 3's
 picture differs.
@@ -238,6 +241,11 @@ def main():
             bad.append("the bank is %d slots, %d bytes held"
                        % (bn, rd("vp_xhave")))
         print("   the bank: %d slots, %d KB" % (bn, bn * 32))
+        # THE WHOLE POOL (98.3.18.2.1): -m 2's is banked in 26 slots; the
+        # 256 KB once kept back for others left 18
+        if bn < 26:
+            bad.append("the bank is %d slots of the pool's 26: some of it "
+                       "was kept back" % bn)
 
         def screen():
             raw = q.read(0xA0000 + row0, WB * H)
