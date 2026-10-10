@@ -2161,12 +2161,9 @@ dskw_xclus:
     jc .ioerr
     ret                         ; CF = 0 from the `jc`
 
-; tests/dskwstage.py breakpoints each pipeline's staging arm BY NAME, and the
-; two arms are one now: the names stay, on the one address. A write call
-; reaches it only for a write and a read call only for a read, so a count per
-; call still says which pipeline staged
-dskw_wdata.stg equ dskw_xclus.stg
-dskw_rdata.stg equ dskw_xclus.stg
+; tests/dskwstage.py breakpoints the staging arm BY NAME, dskw_xclus.stg: a
+; write call reaches it only for a write and a read call only for a read, so
+; a count per call still says which pipeline staged
 
 ; -----------------------------------------------------------------------------
 ; dskw_czexp - expand the compressed file dskw_rdata just delivered
