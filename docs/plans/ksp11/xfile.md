@@ -18,6 +18,20 @@ kernsize's blessed-baseline "+N").
 
 `kern_dos` (`build/kerndos.bin`): 33,114 bytes.
 
+## TIP
+
+| | text | bss | cold | lowbss | vgabuf | resident | vs start |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| kern_big | 43,369 | 5,154 | 37,841 | 5,598 | 336 | **92,298** | **-21** |
+| kern_small | 31,830 | 3,067 | 22,603 | 2,868 | 0 | **60,368** | **-564** |
+| kern_emu (`make emu` at the tip) | 43,628 | 5,154 | 37,959 | 5,598 | 336 | 92,675 | kern_big's routines, the same -21 |
+
+`.ovl`/`.ovlw` unchanged on both; `KERN_SIZE` unchanged (97,792 / 62,976) -
+no rung moved, which is not the question. `kern_dos`: kerndos.bin 33,114 ->
+**32,799 (-315)**. Modules: DOCK.DRV -12 (kern_big); on kern_small CTRL.DRV
+4,490 -> 4,406, FDLG.DRV 1,246 -> 1,232, CLONE.DRV 7,196 -> 7,184
+(os88mod's file sizes). No driver image touched.
+
 ## TAKEN
 
 ### batch 1 - kern_small: the redirector and driver-volume arms the first gate left (small -403; big byte-identical; kern_dos -301)
@@ -173,3 +187,67 @@ Left alone on purpose: `xm_release_rec` is a bare `ret` on kern_small and
 `xmem.inc`'s note says the three teardown sites are unconditional so a
 fourth cannot forget one, and that argument is about the kernel that HAS the
 body. Not taken; 9 bytes.
+
+## ITEM 3 - the relaxed jumps NOT taken (and why)
+
+At the tip the listing scan finds 83 on kern_big and 30 on kern_small (89
+and 31 at the start). By file, outside `files.inc`/`filecp.inc`:
+
+| where | jumps | why left |
+|---|---|---|
+| `vga12.inc` adapter dispatch: `jne sw_fill`, `sw_spans`, `sw_fill_gray`, `sw_fill_pat`, `sw_xor_fill` x2, `sw_save`, `sw_restore` (kern_big) | 8 | the far target is `softgfx.inc`; any short spelling is a relay (2 + 3 = 5, no saving) except a SHARED one at `gfx_xor_fill_raw`/`vga_xor_fill_vram` (-3) - and that costs the 1bpp path +12 clocks per call to save VGA 12. 1bpp is the target machine: refused. `sw_save`/`sw_restore` are the cursor's, inside IRQ4: not touched at all |
+| `vga12.inc` `gfx_blit4`: `jb .run`, `jnz .row` (both kernels) | 2 | the per-RUN and per-ROW loop of the blit. Relaxed costs +3 clocks a looping run; making it short means hoisting ~70 bytes out of the hottest loop in the primitive. A speed job for its own pass, not a size one |
+| `vga12.inc` `gfx_blit4`: `jne .hkforce`, `jc .cut` (kern_big); `jc .percol` (kern_small, `gfx_blit1`) | 3 | multi-display paths; a re-layout is -1 at best around `NOBLITCUT` |
+| `font.inc` `font_run_x`: `je .planar`, `jne .cells` x2, `jz .out`, `jne .rmu` | 5 | `font_run` may not get slower (the brief); every re-layout moves its per-run prologue |
+| `wm.inc` `wm_hit` `je .none`, `wm_dmg_wins` `jae .draw`, `wm_tpen_*` `je thm_t*` x2, `jnz .none` | 5 | the caption agent's refusals (`ksp11/caption.md`), re-checked: unchanged |
+| `mouse.inc` `mou_p2_init` `je .none`, `jc .quit` x3; `disk.inc` `dsk_fdd_probe` `jc .nordy` | 5 | `.ovlw`, boot only: no resident byte. A relay for the three `jc .quit` is -6 of `.ovlw` if somebody wants it |
+| `loader.inc` `ld_pkg_byname` `jz ld_run_name_x` (kern_big) | 1 | moving the routine beside `ld_run_name_x` relaxes `ld_pkg_start`'s `jz ld_pkg_byname` instead: 0 net |
+| `apps/os88ui.inc` `os88ui_btn` `jae .out` | 1 | in ~20 package images and the kernel; no relay site short of `.out` without OS88UI_BOWN |
+| modules - CLONE (`clone.inc` 1, `compress.inc` 7), HIBER (`hiber.inc` 15, `hbstub.inc` 1), CTRL/FORMAT (`driver.inc` 3, `shutdown.inc` 2), `desksc.inc` 3, FDLG (`fdlg.inc` 1, kern_small) | 33 | module images, no resident byte; not swept. `hiber.inc`'s `.b1`..`.b6` and `hbm_*` dispatch ladders are the largest (~45 bytes of HIBER.DRV) |
+| `boot2.asm` `jne boot2_entry.rerun` | 1 | the boot blob, given back at the end of kmain |
+
+## DEFECTS
+
+None found.
+
+## CROSS-FILE
+
+* **multisel - `kernel/filecp.inc`**: six `cmp byte [dsk_vkind], DVK_FILE`
+  arms (lines ~1018, 1191, 1318, 1513, 1739, 2189) are unreachable on
+  kern_small by the same chain as batch 1 (SPEC.md 62.9.2.3), and so is
+  `drv_fs_call`'s one remaining kern_small caller (2223, `fcp_` chdir) and
+  `FCPX drv_fs_has` (1322). `%ifdef OS88_REDIR` round each (FILECP.DRV
+  bytes on kern_small, plus the resident ones at 2189/2223, which sit in
+  `.cold` there). Not touched: your file.
+* **multisel / coordinator - `kernel/memory.inc`**: line ~3959's `call
+  drv_owns_seg_x` (the compactor's IVT test) is `stc / ret` on kern_small;
+  OS88_COMPACT is kern_big's anyway, so check whether that site is even
+  assembled there before spending time on it. And `osapi_mem_movable_x` /
+  `mmf_mem_movable` call the `stc / ret` stub too - the cell has to stay.
+* **multisel - `kernel/files.inc`**: line ~1227's `call mem_movable_x` is a
+  refusal on kern_small, the shape batch 4 took in `disk.inc`.
+* `tools/stkbalance.py` now counts `osapi_desk_item_x` as "defined twice"
+  (9 -> 10): it is desk.inc's on kern_big and a label in driver.inc's stub
+  block on kern_small, and the walker reads both arms of a `%if`. Harmless.
+
+## ROWS RUN (all on this branch's own build, MartyPC unless named)
+
+* After batch 1: `smallboot`, `small128`, `smalllaunch`, `fdlgsmall`,
+  `fcpsmall`, `fdlgchsmall`, `dispclose-small`, `deskclipsmall`, `kerndos`,
+  `kdos`, `kdhdd`, `kdcwd` - 12 ok. `tmsmall` and `deskitem` FAILED in that
+  run, both with os88sym's *"the map describes a DIFFERENT kernel"*: I had
+  edited `kernel/` sources while the rows ran (the symbol reader assembles
+  the SOURCE). Re-run on a frozen tree below, both green.
+* After batch 2: `tmsmall`, `deskitem`, `drvup`, `drvmove`, `lzdrv`, `ems`,
+  `rdmount`, `dockmodule`, `dockpos`, `dockmark`, `gfxpoints`, `gfxptsmall`,
+  `dispblit`, `paint1blit`, `toastbar`, `dispreboot`, `uiblock`, `small128`
+  - **18/18 ok**.
+* After batch 3: `smallboot`, `small128`, `smalllaunch`, `fcpsmall`,
+  `fdlgsmall`, `dispclose-small`, `tmsmall`, `deskclipsmall`, `fdlgchsmall`,
+  `fdlgdrop`, `appsmall`, `smallreq`, `deskitem` - **13/13 ok**.
+* After batch 4: `smallboot`, `small128`, `smalllaunch`, `tmsmall`,
+  `kerndos`, `kdos`, `kdhdd`, `kdcwd`, `kdreturn` - **9/9 ok**.
+* Gates at every batch: `make -j2` (fast tier 61/61), `make -j2 small`,
+  `make emu` at the tip, `checkdocs`; `tests/unit/t_stkbalance.py` 27/27;
+  `tools/stkbalance.py kernel/kernel.asm kernel/*.inc` **0 unbalanced at
+  start and tip** (3,899 entries both), the suite's `stkbalance` row green.
