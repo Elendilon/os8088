@@ -1015,8 +1015,10 @@ fcp_step:
 fcp_relink:
     FCPX fcp_gosrc              ; the source entry, raw
     jc .no
+%ifdef OS88_REDIR               ; (kern_small: SPEC.md 62.9.2.3)
     cmp byte [dsk_vkind], DVK_FILE
     je .no                      ; A REDIRECTED VOLUME DECLINES THIS WHOLE
+%endif
                                 ; PATH (SPEC.md 62.9.7). Everything below is
                                 ; raw directory SLOTS - dskw_ent_store into
                                 ; [dskw_fsec]/[dskw_foff], the 0x00
@@ -1187,6 +1189,7 @@ fcp_scan:
     mov al, [fcp_drv]
     mov bx, FD(FCP_FSRC)
     FCPX fcp_goto
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
     jc .fsio
     cmp byte [dsk_vkind], DVK_FILE
     jne .fatwalk
@@ -1213,6 +1216,9 @@ fcp_scan:
     or ax, ax
     jnz .fsio                   ; (near jumps: .end and .ioerr are both out
     jmp .end                    ; of a conditional's short range from here)
+%else                           ; ...and without a redirected arm the refusal
+    jnc .fatwalk                ; is the one jump over its own relay (kernel
+%endif                          ; size pass 11)
 .fsio:
     jmp .ioerr
 
@@ -1315,6 +1321,7 @@ fcp_mkroot:
     ; that moved nothing. Asked HERE and not in fcp_scan because it is one
     ; probe per paste instead of one per entry, and because it comes before
     ; the destination folder is made rather than after.
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
     cmp byte [dsk_vkind], DVK_FILE
     jne .dest
     push bp
@@ -1322,13 +1329,16 @@ fcp_mkroot:
     FCPX drv_fs_has
     pop bp
     jc .noenum
+%endif
 .dest:
     FCPX fcp_godst
     jc .out
     mov si, fcp_name
     jmp short fcp_ensure        ; ...whose CF is this routine's answer
+%ifdef OS88_REDIR
 .noenum:
     mov ax, FERR_PROT           ; the same honest refusal dskw_rmbody gives
+%endif
 .out:                           ; for the same absence (SPEC.md 62.10.4.5).
     ret                         ; CF is still set by the `jc` that got here
 
@@ -1510,6 +1520,7 @@ fcp_rdnext:
     mov [fcp_rgot], ax          ; stored BEFORE the test, so a finished file
     or ax, ax                   ; leaves the 0 that .done reports
     jz .done                    ; the file is finished: 0 bytes says so
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
     cmp byte [dsk_vkind], DVK_FILE
     jne .fatread
 
@@ -1534,6 +1545,7 @@ fcp_rdnext:
     jmp short .done
 .jio:
     jmp .io
+%endif
 
 .fatread:
     mov ax, [fcp_rgot]
@@ -1736,6 +1748,7 @@ fcp_xfer:
     ; refused by drv_fs_call exactly as it is for any absent verb, so the
     ; fall-through below is the whole error path and this can never be worse
     ; than not trying (SPEC.md 62.9.8).
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
     cmp byte [dsk_vkind], DVK_FILE
     jne .stream
     mov al, [fcp_drv]
@@ -1749,6 +1762,7 @@ fcp_xfer:
     FCPX drv_fs_call
     pop bp
     jnc .fin
+%endif
 .stream:
     mov si, fcp_fname           ; open the streaming read, in the CURRENT
     FCPX dskw_stat_x            ; directory: BX = first cluster, DX:CX = size
@@ -2186,8 +2200,10 @@ fcp_goto:
                                 ; between folders of one mounted volume with no
                                 ; I/O is what this routine is FOR. DX is banked
                                 ; at the top and .full re-loads DL anyway
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
     cmp byte [dsk_vkind], DVK_FILE
     je .fsgo                    ; a REDIRECTED volume: below
+%endif
     or bx, bx
     jz .quiet                   ; 0 is the root, always legal
     cmp bx, 2
@@ -2216,6 +2232,7 @@ fcp_goto:
     ; The range checks go with it: that word is an OPAQUE HANDLE (SPEC.md
     ; 62.9.1), `>= 2` rejects the first folder such a driver ever hands out,
     ; and [dsk_maxclus] belongs to the last FAT volume mounted.
+%ifdef OS88_REDIR
 .fsgo:
     push bp
     mov ax, bx                  ; the handle, or 0 for the root
@@ -2224,6 +2241,7 @@ fcp_goto:
     pop bp
     jc .bad
     jmp short .quiet
+%endif
 .full:
     mov dl, al
     mov ax, bx

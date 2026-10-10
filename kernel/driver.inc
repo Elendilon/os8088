@@ -5283,16 +5283,13 @@ drv_pkg_disp:
 
 section .cold
 
-; --- the dispatchers: nothing is published, so every verb refuses -----------
-; CF = 1 with AX = 0 is drv_svc_none's contract and every caller already reads
-; it (SPEC.md 62.9.1's table): "no driver of this class, or it publishes no
-; table, or the cell for this verb is 0".
-drv_svc_none:
-drv_fs_call:
-drv_blk_call_x:
-    xor ax, ax
-    stc
-    ret
+; --- the dispatchers: GONE from this build (kernel size pass 11) -----------
+; drv_svc_none / drv_fs_call / drv_blk_call_x were one `xor ax, ax / stc /
+; ret` - "no driver of this class" (SPEC.md 62.9.1) - and every caller of
+; them here was a redirected or driver-volume arm, which SPEC.md 62.9.2.3
+; gates out of this build: dsk_xfer's .drv, the FAT read bodies' FSV_* arms,
+; and FILECP.DRV's five. A reader added on kern_small now fails to ASSEMBLE
+; rather than calling a refusal, which is the answer the arm wanted anyway.
 ; (drv_svc_call_x and kernel.asm's thunk to it are gone from this build:
 ; their one caller here was snd_release_inst's DSV_RELINST, which is
 ; OS88_DRIVERS's now - kernel size pass 11. The stub was a `retf` and NOT the
@@ -5314,18 +5311,10 @@ section .cold
 ; (drv_cls_fp / drv_cls_svc have no caller here: their two in disk.inc are
 ; OS88_DRIVERS's - the fence and dsk_xfer's DVK_DRV arm - kernel size pass 11)
 
-; ...and the two that answer WITHOUT touching AX, which are ONE BODY: two
-; labels over one `stc`/`ret`, the pair above's shape (kernel size pass 10,
-; -2). drv_fs_has is the unambiguous form of the dispatchers' refusal - CF = 1
-; means "drv_fs_call would refuse" - and every register is preserved, which
-; `ret` after `stc` already is. drv_owns_seg: no segment belongs to a driver,
-; because there is no driver - CF = 1 is the live body's "no" (it falls out
-; of drv_row_ix_of's own refusal).
-drv_fs_has:
-drv_owns_seg_x:
-osapi_vol_fence:                ; ...and disk.inc's: the caller is no published
-    stc                         ; driver, because none can be (osapi_desk_item
-    ret                         ; takes its package arm; kernel size pass 11)
+; (...and so are drv_fs_has, drv_owns_seg_x and osapi_vol_fence, one `stc /
+; ret` that said "no driver": FILECP.DRV's FSV_ENUM probe, mem_sum_kb's
+; driver-buffer test and the volume slots' fence were their last callers, and
+; each is gated or stated - kernel size pass 11)
 
 ; --- the lifecycle: hooks kmain calls unconditionally -----------------------
 ; Gating the CALL SITES would put %ifdefs into the boot sequence to say

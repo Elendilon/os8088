@@ -251,3 +251,24 @@ None found.
   `make emu` at the tip, `checkdocs`; `tests/unit/t_stkbalance.py` 27/27;
   `tools/stkbalance.py kernel/kernel.asm kernel/*.inc` **0 unbalanced at
   start and tip** (3,899 entries both), the suite's `stkbalance` row green.
+
+## ROUND 2 - the cross-file list, after multisel merged (small -43; FILECP.DRV -166; big byte-identical)
+
+Merged `kernel-size-p11` (which carries this branch and `ksp11-multisel`),
+`make` once. Start of round 2, measured: kern_big 92,219 (text 43,369 · bss
+5,154 · cold 37,762), kern_small 60,357 (31,830 · 3,067 · 22,592),
+FILECP.DRV 1,936, FDLG.DRV 1,232, kerndos.bin 32,799.
+
+| item | kern_small |
+|---|---|
+| `filecp.inc`'s six redirected arms, `%ifdef OS88_REDIR`: `fcp_relink`'s decline, `fcp_scan`'s FSV_ENUM arm (the FAT path now enters with one `jnc .fatwalk` over its own `.fsio` relay - one jump where the compare and taken `jne` were), `fcp_mkroot`'s FSV_ENUM probe (`FCPX drv_fs_has`) and `.noenum`, `fcp_rdnext`'s FSV_READAT arm, `fcp_xfer`'s FSV_COPY attempt, and the resident `.fsgo` FSV_CHDIR arm (`call drv_fs_call`) | FILECP.DRV 1,936 -> **1,770**; resident `.cold` -21 |
+| `mem_sum_kb`'s driver-buffer test (`push bx / mov bx, [owner] / call drv_owns_seg_x / pop bx / jc .scan` after `je .take`) is a fixed "skip" on kern_small -> `jne .scan` | -11 |
+| `fm_fmt_ok`'s `cmp byte [bx+DV_KIND], DVK_BIOS / jne .no` (`files.inc`, every row BIOS), `%ifdef OS88_DRIVERS` | -6 |
+| driver.inc's last two refusal bodies, `drv_svc_none`/`drv_fs_call`/`drv_blk_call_x` (4) and `drv_fs_has`/`drv_owns_seg_x`/`osapi_vol_fence` (2): no caller left on kern_small, so a future redirected arm there fails to assemble instead of calling a refusal | -6 |
+
+`files.inc`'s `call mem_movable_x` (~1227) was already `%ifndef KERN_SMALL`
+(multisel's), nothing to take. kern_small: cold 22,592 -> 22,549 =
+**resident 60,357 -> 60,314 (-43)**; kernsize attributes -44 by file, the
+extra byte being alignment. kern_big byte-identical (listing builds
+`cmp`'d). FDLG.DRV and kerndos.bin unchanged (filecp.inc is not in kern_dos;
+the disk-side code did not move). SPEC.md 62.9.2.3 and 51.0.2 say so.

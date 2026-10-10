@@ -85572,7 +85572,8 @@ have to be read together.
 
 **The volume slots a driver mounts through are stubs too** (kernel size pass
 11): `OSAPI_VOL_ADD`, `_DEL` and `_MOUNT` are `stc / retf`, `OSAPI_FS_ENT`
-`xor ax,ax / stc / retf` and `osapi_vol_fence` itself `stc / ret`, because
+`xor ax,ax / stc / retf` and `osapi_vol_fence` itself was `stc / ret` until
+its last caller went (kernel size pass 11's second round), because
 the fence walks the PUBLISHED classes and none can be published here, so
 every one of them refused every caller already. The bodies behind them -
 `dsk_vol_add`, `dsk_vol_del`, `dsk_vol_drop_drv_x`, the take - go with them,
@@ -96373,9 +96374,12 @@ behind them. **`kern_small` −331 resident** for those, and `kern_dos` - which
 defines neither symbol and has §96.44.9's fence - drops the same arms. Where
 a removed arm sat between an entry and its FAT path, the build without it
 takes a `jmp short` over the arm's relays, which is cheaper than the compare
-and taken branch it replaces. What is still assembled is `filecp.inc`'s six
-sites, in `FILECP.DRV` (a module there); `fdlg.inc`'s two, in `FDLG.DRV`, went
-with the rest.
+and taken branch it replaces. `fdlg.inc`'s two, in `FDLG.DRV`, went with
+the rest, and a second round took `filecp.inc`'s six (`FILECP.DRV` 1,936 ->
+1,770 bytes, and its resident chdir arm). With them went the last readers of
+the refusing dispatchers `drv_fs_call`/`drv_svc_none`/`drv_blk_call_x` and
+`drv_fs_has`, so those stubs are gone from this build: a redirected arm
+added here later fails to assemble instead of calling a refusal.
 
 #### 62.9.3 The branch sites, and the order to build them in
 

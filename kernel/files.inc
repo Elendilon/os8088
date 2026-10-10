@@ -5060,8 +5060,10 @@ fm_fmt_ok:
     mov bl, [di+FS_DRV]
     call dsk_vol_row_x
     jc .no
+%ifdef OS88_DRIVERS             ; (kern_small: every row is BIOS)
     cmp byte [bx+DV_KIND], DVK_BIOS
     jne .no                     ; a driver-backed volume: its own driver owns
+%endif
     test byte [bx+DV_UNIT], 0x80    ; formatting it (SPEC.md 52.2), and this
     jz .out                     ; module cannot reach its geometry at all -
 .no:                            ; and a `test` leaves CF = 0, the yes
