@@ -24623,9 +24623,14 @@ payoff now — being at the door, it covers `fsx_mode` too.
 entered from the same hold has not had one, so a package that repaints its
 window through a region and then calls `OSAPI_FSX_RUN` clips the teardown to
 its own window: `[fpg_on]` goes to 0 and the bar stays on the glass for good.
-Audio did exactly that (§86.21.2). The rule for a package is the one Tracker
-and the Video Player already keep: **disarm with `OSAPI_WM_CLIP_CLEAR` when
-the window is drawn**. The kernel does not do it for the caller - clearing a
+Audio did exactly that (§86.21.2), and so did the Video Player: `vp_srun`
+draws the buttons and the box through the window's region before an
+in-window play, and a play from a KEY reads that key's record first, in the
+same hold - so the widget was up, the teardown clipped, and the bar frozen
+for the whole play (2026-10-10, the owner's Hercules; `vidwin` step 6). The
+rule for a package is the one Tracker keeps and the player now does, at the
+bracket's door: **disarm with `OSAPI_WM_CLIP_CLEAR` when the window is
+drawn**. The kernel does not do it for the caller - clearing a
 region the app armed at the door would change what a same-mode bracket's
 first frame is clipped to, for every bracket in the tree, to cover one
 package's omission.

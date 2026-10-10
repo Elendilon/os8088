@@ -9364,6 +9364,12 @@ vp_srun:
     je .go                          ; the rows between are left behind (the
     call vp_pposter                 ; owner's report)
 .go:
+    call OSAPI_WM_CLIP_CLEAR        ; THE BRACKET'S DOOR PAYS OFF THE WIDGET
+                                    ; under whatever region is armed (SPEC.md
+                                    ; 12.8.5.2): a play from a key reads its
+                                    ; record first, in this hold, and the
+                                    ; window's region above would leave the
+                                    ; bar frozen behind the teardown
     mov byte [vp_exitr], VPX_STOP
     mov bx, [vp_win]
     mov ax, vp_main
