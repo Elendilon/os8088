@@ -417,7 +417,7 @@ one disk swap away — SPEC.md 22.26 drew the same line for the same reason.
   §1). `m.flicker()` measures a Shift+click across a screenful: the
   claim to test is that the rows that did not change have **zero** transient
   pixels.
-- SPEC.md gains §22.27 with wave 1, written before the code (CLAUDE.md).
+- SPEC.md gains a new subsection of 22 (the next free number after 22.26) with wave 1, written before the code (CLAUDE.md).
   docs/HEAP-CLAIMS.md gains the `MEM_K_FLIST` row with wave 3.
 
 ## 10. For the owner to decide
