@@ -34311,6 +34311,42 @@ What it buys: the installer's copy has **no size limit left in it**,
 system-file path is exercised on a machine that has plenty of heap — which
 is every machine here, and is why that path had never run.
 
+#### 18.4.4.2 `READ_AT` takes whole SECTORS on `kern_big` (2026-10-10)
+
+**18.4.4's rule was a cluster, and a cluster is not a fixed size.** A hard
+disk's FAT16 takes the smallest cluster that keeps its count in range
+(52.3) - 8 KB past 256 MB, 16 KB past 512 MB, 32 KB to 2 GB - so a package
+reading a few bytes in the middle of a file read the cluster round them:
+the Video Player's keyframe of 60 KB needed 72 KB at 8 KB clusters, over
+the one 64 KB read it is held to, and a file made for a 286 on a 512 MB
+partition had no seek and no poster (98.1.7.6). A 1.8 KB sound lead
+cost 64 KB of disk and of RAM on a 2 GB volume.
+
+**On `kern_big` the offset and the capacity are each a whole number of
+SECTORS.** Nothing else moves: the read is still one `dsk_read_chain` call,
+which already ends mid-cluster on a file's last one, and now STARTS
+mid-cluster on its first - `dskw_read_at` hands it the sectors the offset is
+into its cluster in `[dsk_csk]`, the walk counts them as read (so the run's
+length and its last cluster come out exactly as the cluster read's), and the
+first run's flush starts that many sectors in and moves that many fewer. It
+is spent once a call, in the flush and never per cluster, and is cleared on
+every way out so no other caller's chain can inherit it. A chunk still ends
+where the next one starts - at a sector rather than a cluster - and a
+cluster-aligned caller is served exactly as before.
+
+**`READ_SEQ`'s cursor is a cache of the cluster after the last one read**,
+which a read ending mid-cluster would make one link wrong. The wrapper
+leaves the cursor COLD when the new offset is not a cluster's start, so the
+next call walks from the name; every streaming caller in the tree reads
+whole clusters and never pays it, and the end of a file - whose last chunk
+is short - costs one stat.
+
+`kern_small` keeps the cluster rule, byte-identical: the 128 KB machine has
+floppies, whose clusters are 1 KB at most. A package that wants sectors asks
+for them - one `READ_AT` of a file's second sector, refused `FERR_NAME` by a
+kernel that wants clusters - which is what `VIDEO.O88` does (98.1.7.6).
+**56 resident bytes** (`.cold` +55, `.bss` +1); `vidkeyclus` is the gate.
+
 ### 18.4.5 `OSAPI_FILE_DFREE` does no disk I/O, and that is not the same as cheap
 
 The slot has always said "no disk I/O", and `dskw_dfree` has always been
@@ -158860,6 +158896,36 @@ system floppy on the Hercules 5150 - Play starts a session, the
 rendition's block lands byte for byte across two calls, frames are drawn.
 Broken on purpose (the player before it) it FAILS with the damaged-file
 sentence.
+
+##### 98.1.7.6 A read in SECTORS - a seek on any volume (2026-10-10)
+
+**A key is checked against one 64 KB read and that read was CLUSTERS**:
+the record and a cluster less a byte either side (98.1.7.5), so the largest
+key a file could carry was `VP_KMAXREC`'s 61,440 on clusters up to 4 KB,
+57,345 on 8 KB, 49,153 on 16 KB and 32,769 on 32 KB - and the check is the
+file's LARGEST key, so one past it dropped the whole table: no seek, no
+poster. The encoder leaves a key out against the 2 KB clusters of every
+disk it makes (`KEY_CLB`), which the owner's own 512 MB partition is not:
+an encode for `286-fast` with a key of 60,845 bytes answered every Left and
+Right with "No seeking".
+
+**`vp_rdat` reads in a GRANULE, `[vp_rgb]`**, and on a kernel whose
+`READ_AT` takes sectors (18.4.4.2) the granule is 512 - asked once at open,
+on a volume whose clusters are past 1 KB, with one read of the header's
+second sector. A key's read is then its record and less than a sector
+either side on every volume, `VP_KMAXREC` binds on all of them, and
+`vp_spankb`, `vp_bkkb`, `vp_bkrd` and `vp_ldstored` size what `vp_rdat`
+reads by the same granule. The STREAM is unchanged - `READ_SEQ` reads whole
+clusters from the one under its start, and `[vp_clb]` stays what positions
+it. On `kern_small`, or an older kernel, the granule is the cluster and
+98.1.7.5's limits stand. 35 bytes of `VIDEO.O88`.
+
+`vidkeyclus` is the gate: `vidbigclus`'s 32 KB-cluster disk with a VGA8
+clip whose keys are 39 KB - past a cluster read's 32,769 there and inside
+it at 16 KB, so the row tests exactly the cluster. It opens with its keys
+and its poster, a Right in the full screen reads a key 20 KB into its
+cluster and the record is the file's byte for byte, and the play goes on
+from it.
 
 #### 98.1.8 Sound ahead of the picture (`AHEAD`)
 

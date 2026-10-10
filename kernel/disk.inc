@@ -7319,6 +7319,10 @@ dsk_read_chain_x:
     ; cluster but the final one is taken WHOLE, so no gap can hide inside one
     ; - and a cluster is a word on any volume where an LBA stopped being. The
     ; LBA is asked for once, at the flush, where the transfer is.
+%ifndef KERN_SMALL
+    add dl, [dsk_csk]           ; READ_AT's sectors into the first cluster
+    adc dh, 0                   ; (18.4.4.2): walked as read, not moved
+%endif
     mov si, ax                  ; SI = current cluster
     xor cx, cx                  ; CX = run_len (0 = no pending run)
     xor di, di                  ; DI = the run's FIRST CLUSTER (dead while 0)
@@ -7370,6 +7374,11 @@ dsk_read_chain_x:
 .done2:                         ; ...and where the redirected read above joins,
     clc                         ; having stored its handle already
 .fin:
+%ifndef KERN_SMALL
+    mov byte [dsk_csk], 0       ; (a refusal before it was spent: the next
+                                ; caller's chain starts at its cluster's start;
+                                ; `mov` leaves CF alone)
+%endif
     call ct_fpg_end             ; preserves CF, so it sits either side of the
                                 ; clc without comment (SPEC.md 12.8) - and a
                                 ; failed read owes the bar back exactly as a
@@ -7393,6 +7402,16 @@ dsk_read_chain_x:
     DSK_C2LBA                   ; - preserved. DI was range-checked when the
                                 ; run began, so this cannot refuse, and its
                                 ; high word is armed (18.7.5)
+%ifndef KERN_SMALL
+    add al, [dsk_csk]           ; THE FIRST RUN starts that many sectors in
+    adc ah, 0                   ; and is that many shorter (18.4.4.2) - the
+  %ifdef OS88_BIGVOL            ; walk counted them as read - and only the
+    adc word [dsk_lbahi], 0     ; first: the byte is spent here, once a run
+  %endif                        ; and never a cluster
+    sub cl, [dsk_csk]
+    sbb ch, 0
+    mov byte [dsk_csk], 0
+%endif
 %ifndef KERN_SMALL
     cmp byte [dsk_chwr], 0      ; THE ONE DIRECTION-SPECIFIC INSTRUCTION in
     jne .flwr                   ; this whole routine (SPEC.md 18.4.7.1)
@@ -9362,6 +9381,8 @@ dsk_maxclus:  resw 1            ; CountOfClusters+1 = highest valid cluster
 dsk_chain_end: resw 1           ; dsk_read_chain: the last cluster it touched,
                                 ; so a chunked read can resume (SPEC.md 18)
 %ifndef KERN_SMALL
+dsk_csk:      resb 1            ; READ_AT's sectors into the first cluster,
+                                ; until the first run's flush (18.4.4.2)
 dsk_chwr:     resb 1            ; ...and which way it is moving (SPEC.md
                                 ; 18.4.7.1). Zero is a READ, which is what
                                 ; .bss already is and what every existing

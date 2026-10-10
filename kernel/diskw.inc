@@ -2647,14 +2647,18 @@ dskw_read_at_x:
     cmp ax, cx
     jae .eof
 .inrange:
+%ifdef KERN_SMALL
     mov cx, [dwr_clb]           ; a POWER OF TWO (mount rule 2: spc is), so
     dec cx                      ; each remainder below is a mask - dskw_wabody's
-    test [dwr_off], cx          ; test - where it was two `div`s (-6, and
-    jnz .badarg                 ; ~300 cycles a call). The offset must land on
-    test [dwr_cap], cx          ; a cluster boundary, and so must the capacity,
-    jnz .badarg                 ; or a chunk would not end where the next one
-    mov ax, [dwr_cap]           ; starts. (Only the offset's LOW word can carry
-    test ax, ax                 ; a remainder: the mask is under 65,536.)
+%else                           ; test - where it was two `div`s (-6, and
+    mov cx, 511                 ; ~300 cycles a call). kern_big's are whole
+%endif                          ; SECTORS (18.4.4.2), kern_small's CLUSTERS
+    test [dwr_off], cx          ; - the rule this was written to, and a 32 KB
+    jnz .badarg                 ; cluster then made a 1.8 KB read cost 64 KB
+    test [dwr_cap], cx          ; of disk and of RAM. A chunk must end where
+    jnz .badarg                 ; the next one starts. (Only the offset's LOW
+    mov ax, [dwr_cap]           ; word can carry a remainder: the mask is
+    test ax, ax                 ; under 65,536.)
     jz .badarg                  ; a capacity under one cluster reads nothing
 
     mov ax, [dwr_sz]            ; take = min(size - offset, capacity)
@@ -2677,6 +2681,11 @@ dskw_read_at_x:
     mov ax, [dwr_off]
     mov dx, [dwr_off+2]
     div word [dwr_clb]          ; AX = clusters to skip
+%ifndef KERN_SMALL
+    mov cl, 9                   ; ...and DX the bytes into the one it lands
+    shr dx, cl                  ; in: its SECTORS, which dsk_read_chain skips
+    mov [dsk_csk], dl           ; in that cluster alone (18.4.4.2)
+%endif
     mov cx, ax
 %ifdef DSK_STREAM
     or di, di                   ; ...ONE, from a HOT READ_SEQ cursor's
@@ -2835,7 +2844,13 @@ dwf_dskw_read_seq:
     push ax                     ; ...otherwise it is trusted under THIS
     mov ax, [dsk_chain_end]     ; snapshot, on this volume: the LAST cluster
     mov [dwr_c+RSQ_CUR], ax     ; read, whose one FAT link is the next call's
-    mov ax, [dsk_mgen]          ; whole walk (READ_AT's own, above). The size
+    mov ax, [dwr_clb]           ; whole walk (READ_AT's own, above) - unless
+    dec ax                      ; the read ENDED MID-CLUSTER, which a whole
+    test [dwr_c+FSEQ_OFF], ax   ; sector allows (18.4.4.2): the next offset
+    mov ax, 0                   ; is still in that cluster, so the cursor is
+    jnz .cold                   ; left cold and the next call walks from the
+    mov ax, [dsk_mgen]          ; name. The size
+.cold:
     mov [dwr_c+RSQ_GEN], ax     ; is already in the cursor: [dwr_sz] IS its
     mov al, [disk_drive]        ; field on kern_big, stored by READ_AT from
     mov [dwr_c+RSQ_VOL], al     ; the stat, whichever way it answered. After a
