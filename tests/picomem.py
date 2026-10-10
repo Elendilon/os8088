@@ -16,6 +16,9 @@ and the shipped src/rom/pmbios.bin's multiplexer, disassembled).
           8-bit) over the NE2000's packet memory, 32KB from 0x4000 - writes
           below it dropped, reads FFh. Must come out on the NE2000 map
           (ring 0x46..0x80) and move every frame byte for byte;
+        * an EMPTY slot on a floating 8088 bus, answering AAh from the data
+          window and C3h from the registers - what a 5150 showed as an
+          NE2000 at AAAAAAAAAAAA. Must be REFUSED;
         * a genuine NE1000: 8KB at 0x2000. Must KEEP the NE1000 map
           (0x26..0x40) - the fix may not move a real card.
   sb  SOUND.DRV's PicoMEM attach (tests/picomem/sbhx.asm %includes
@@ -342,6 +345,22 @@ def leg_ne(tmp):
                 break
         check(not bad, "broadcast, unicast and 30 x 900 bytes round the ring "
               "arrive intact%s" % ((" - " + bad[0]) if bad else ""))
+
+    # AN EMPTY SLOT. An 8088's undriven bus answers with a byte it carried a
+    # moment before - an instruction the prefetcher fetched, or what the last
+    # store wrote - so which byte depends on bus timing this model cannot
+    # reproduce. It takes the shape the FIELD showed instead (FIELD-NOTES 66):
+    # the data window answering AAh (`stosb`, and the byte each stosb then
+    # writes back) and the register file a byte with bit 7 set (C3h, `ret`),
+    # which passed RST and the PROM tests as an NE2000 at AAAAAAAAAAAA.
+    print("ne: an empty slot (the floating 8088 bus the 5150 showed)")
+    box = Box(image, syms,
+              lambda p: (0xAA if p - 0x300 >= 0x10 else 0xC3)
+              if 0x300 <= p < 0x320 else 0xFF,
+              lambda p, v: None)
+    box.go(0x100)
+    check(box.w("res_flags") & 1 == 1, "an empty slot is NOT a card (probe "
+          "CF=%d, MAC %s)" % (box.w("res_flags") & 1, box.rd("eth_mac", 6).hex()))
 
 
 # =============================================================================

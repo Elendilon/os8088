@@ -11950,11 +11950,13 @@ SOAK = [
         "SHIPS, under unicorn against a model of the card written from its "
         "firmware - ETHER.DRV's probe must put the PicoMEM's NE2000 (8-bit "
         "PROM, 16KB-up memory) on the NE2000 map and LEAVE a real NE1000 on "
-        "its own, with frames byte-exact round the ring; SOUND.DRV's PicoMEM "
+        "its own, with frames byte-exact round the ring, and REFUSE an empty "
+        "slot that answers AAh/C3h off a floating 8088 bus; SOUND.DRV's PicoMEM "
         "attach must learn the card's own IRQ, never offer it, keep it "
         "unmasked, and hook the SB without the F2h probe that used to take "
         "the multiplexer's vector. Broken on purpose: the old ne2000.inc "
-        "reproduces the field report (tx counted, rx never); the "
+        "reproduces the field report (tx counted, rx never) and the probe "
+        "before the CR test accepts the empty slot as aaaaaaaaaaaa; the "
         "sbl_f_irqdisc skip taken out fails 11 checks",
         needs=("nasm", "unicorn")),
     Row("ethernet", "soak", py("tests/ethernet.py"), 40.0,

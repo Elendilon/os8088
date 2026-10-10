@@ -395,6 +395,33 @@ ne_probe:
     mov si, ne_t_setup                  ; stopped, byte-wide, monitoring
     call ne_outs                        ; and in loopback (ne_t_setup)
 
+    ; --- CR READS BACK WHAT WAS WRITTEN, ON TWO PAGES (SPEC.md 72.2) ---------
+    ; An EMPTY port on an 8088 does not float to FFh: it answers with the last
+    ; byte the bus carried, which is an instruction byte the prefetcher just
+    ; fetched - `stosb` (AAh) after the PROM loop's `in`, `ret` (C3h) after
+    ; ne_in's. C3h has RST's bit set and AAh pairs with itself, so a slot with
+    ; NOTHING in it passed both tests above as an NE2000 at AAAAAAAAAAAA (a
+    ; 5150 with a PicoMEM 2.x, docs/FIELD-NOTES.md 66) - and, being first in
+    ; eth_bases, hid the real card further down the list. The command
+    ; register is the one an 8390 always reads back, and two DIFFERENT values
+    ; through the same `ne_in` cannot both match one stale bus byte.
+    mov al, NE_CR
+    call ne_in
+    cmp al, NE_STP | NE_RD_ABORT
+    jne .nocr
+    mov ax, ((NE_PAGE1 | NE_STP | NE_RD_ABORT) << 8) | NE_CR
+    call ne_out
+    mov al, NE_CR
+    call ne_in
+    mov bl, al
+    mov ax, ((NE_STP | NE_RD_ABORT) << 8) | NE_CR
+    call ne_out                         ; page 0 again, whatever came back
+    cmp bl, NE_PAGE1 | NE_STP | NE_RD_ABORT
+    je  .cr
+.nocr:
+    jmp .none
+.cr:
+
     mov ax, 32                          ; the PROM: 32 bytes at card address 0
     xor bx, bx
     mov di, eth_rxb             ; (the receive frame as SCRATCH: nothing is

@@ -3437,6 +3437,27 @@ it configured without probing (SPEC.md 34.10.1).
 2026-10-10). The Sound Blaster is still untested there - that card's firmware
 has to be updated first - and it stays behind `PICOMEM=1` until it is.
 
+**The 5150's PicoMEM 2.x, first run of the fix** (jumpers IRQ 3 and 5, DMA 1):
+the Ethernet page said `Ne2000` at address **`AAAAAAAAAAAA`**, tx counting, no
+rx, no address; the Sound Blaster tier red. Two separate findings:
+
+- **The `Ne2000` was an EMPTY SLOT.** `AAh` is the opcode of the `stosb` after
+  the PROM loop's `in` - on an 8088 an undriven port answers with a byte the
+  bus just carried - so the probe accepted the first base in `eth_bases` with
+  nothing in it and never reached the card. Fixed: the command register must
+  read back on two pages (SPEC.md 72.2). Whether the card is THEN found depends
+  on it being up: the PicoMEM's own boot screen names its NE2000 port and its
+  Wi-Fi state.
+- **The SB is refused by the FIRMWARE, before any of our code matters.**
+  `CMD_SBOnOff` answers `CMDERR_NOIRQ` whenever the card detected no IRQ of
+  its own, and the 2.x firmware notes say for PM2-6-21-26: *"PicoMEM IRQ is
+  still hard coded, Jumper on IRQ7 is mandatory"* - with jumpers on 3 and 5
+  only, there is none. PM2-10-4-26 makes the line configurable (`IRQ` in
+  `config.txt`) and also first implements the SB's IRQ/DMA command. So: a
+  jumper on IRQ 7 as well (the card's own line; 3 and 5 stay for the SB and
+  the NE2000), or the newer firmware with the line set in `config.txt`. The
+  PicoMEM's boot screen shows the IRQ it found, and it must not read 0.
+
 What to send back for the sound: whether Audio or Tracker plays through the
 Sound Blaster. **On the 2.x, the DMA jumper must be on 1.** If the
 1.x still plays nothing, the PicoMEM's IRQ jumper number and the line the

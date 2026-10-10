@@ -109568,6 +109568,20 @@ test and nothing about it changes; a card that holds neither keeps the NE1000
 map it always had. The Ethernet page then names it `Ne2000`, which is what it
 is.
 
+**And an EMPTY slot is not a card, which on an 8088 has to be tested rather
+than assumed.** An undriven ISA port does not read FFh there: it answers with
+a byte the bus carried a moment before — a prefetched instruction byte, or the
+one the last store wrote — so the PROM loop's `in al, dx` / `stosb` reads
+`AAh` thirty-two times (pairs that agree: an "NE2000") and a register read can
+land on `C3h` (`ret`, RST's bit set). A 5150 with a PicoMEM 2.x showed exactly
+that: an `Ne2000` at the first base in `eth_bases`, address `AAAAAAAAAAAA`,
+transmits counted and nothing received — and because the empty slot came
+first, the real card further down the list was never asked. So `ne_probe` now
+requires the command register to read back what was written on TWO pages
+(`21h`, then `61h`): every 8390 does, and one stale bus byte cannot match two
+different values through the same `ne_in`. `tests/picomem.py` carries that
+slot as a third card and the probe before this accepts it as `aaaaaaaaaaaa`.
+
 Three things break silently and each has a rule:
 
 - **The register file is paged.** PSTART, RCR and ISR are page 0; PAR0..5 and
