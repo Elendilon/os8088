@@ -996,8 +996,10 @@ zf_reloc:
 ; the old one is released before the new one is claimed rather than both
 ; having to fit at once.
 ;
-; It does not touch zwin's scrollback claim: that is another module's state
-; (zbss.inc 4), and zw_setup reuses it.
+; IT FREES THE SCROLLBACK TOO, and that is a fix: this used to say zwin's
+; claim was left alone because "zw_setup reuses it" - and zw_setup zeroes
+; [zw_sbseg] and claims afresh, so every story opened after the first leaked
+; the previous one's scrollback (24KB, or 8) until the window closed.
 ; -----------------------------------------------------------------------------
 zi_free_all:
     push ax
@@ -1026,7 +1028,7 @@ zi_free_all:
     ret
 
 zi_claims:
-    dw zf_sseg, zf_stkseg, zi_savseg, zi_undoseg
+    dw zf_sseg, zf_stkseg, zi_savseg, zi_undoseg, zw_sbseg
 zi_claims_end:
 
 ; =============================================================================

@@ -36,6 +36,7 @@
                                               ;   (zx_boot zeroes it and zf_err
                                               ;   as one word: keep them paired)
 %define zf_err        (os88_image_end + 22)   ; byte: a fatal ZERR_*
+%define zf_showabout  (os88_image_end + 23)   ; byte: the About card is up
 
 ; --- 2. The story image and its header (zmem.inc) ----------------------------
 ; Every one of these except zf_sseg/zf_skb/zf_slen is a word read straight out

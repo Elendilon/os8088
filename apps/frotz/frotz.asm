@@ -237,8 +237,10 @@ zf_entry:
 
     mov si, zf_menus
     call OSAPI_MENU_SET             ; preserves every register AND the flags
-    mov si, zf_about
-    call OSAPI_ABOUT_SET
+    mov si, zf_abouth               ; the HANDLER (SPEC.md 12.2). This passed the
+    call OSAPI_ABOUT_SET            ; string 'Frotz' for as long as the app had
+                                    ; existed, so About Frotz far-called five
+                                    ; letters as code
     mov al, 1
     call OSAPI_WM_SIZABLE           ; re-wrap on drag
     push cx                         ; ...and the floor is DECLARED now (SPEC.md
@@ -540,6 +542,8 @@ zf_onkey:
     push dx
     push di
 
+    call zf_unabout                 ; a key that takes the About card down
+    jc .out                         ; does nothing else
     cmp byte [zf_state], ZFS_RUN
     jne .out
 
@@ -580,6 +584,8 @@ zf_onclick:
     push bx
     push cx
     push dx
+    call zf_unabout                 ; ...and so does a click
+    jc .out
     cmp byte [zf_state], ZFS_RUN
     jne .out
 %ifdef OS88UI_SBDRAG
@@ -762,7 +768,26 @@ zf_abouth:
     add dx, ZF_LEAD
     jmp .loop
 .done:
+    mov byte [zf_showabout], 1      ; the next key or click repaints the story
     jmp zf_pop5
+
+; -----------------------------------------------------------------------------
+; zf_unabout - take the About card down, if it is up
+; in:  SI = window ptr; gfx lock held (a key or click callback)
+; out: CF = 1 it was up, and this event was spent repainting what it covered;
+;      clobbers AL
+; -----------------------------------------------------------------------------
+zf_unabout:
+    cmp byte [zf_showabout], 0      ; CF = 0 whatever the byte is
+    je .out
+    mov byte [zf_showabout], 0
+    mov al, CWHITE                  ; zf_paint wants the content white, which
+    call OSAPI_SET_COLOR            ; is what the kernel hands a W_PAINT
+    call zw_clear
+    call zf_paint
+    stc
+.out:
+    ret
 
 ; =============================================================================
 ; zf_splash - the no-story screen
@@ -826,8 +851,6 @@ zf_m_story:  db 'Story', 0
 zf_i_story:  dw zf_it_script
 zf_it_script: db 'Transcript', 0
 
-
-zf_about:    db 'Frotz', 0
 
 zf_abt_lines:
     dw zf_a1, zf_a2, zf_a3, zf_a4, zf_a5, zf_a6, zf_a7, zf_a8, 0
