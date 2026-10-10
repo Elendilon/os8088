@@ -37,9 +37,14 @@ which is ~280 bytes away. Base: resident 2,990, padding 82, run 692. Tip:
 resident 2,843 + 222 of attach-only routines moved into the padding, 8 bytes
 of padding left, run 510.
 
-The kernel is unchanged in size on both builds by the EMS half (one
+**The kernel: 0 bytes on both builds from this branch's own work** (one
 constant's VALUE, `DRVM_IMG_EMS` 2 -> 1, in `kernel/driver.inc`'s table:
-`tests/unit/t_drvmem.py` checks it against the built image).
+`tests/unit/t_drvmem.py` checks it against the built image) - measured at
+`bacea172`, before the merge, kern_big text 43,428 / bss 5,190 / cold
+37,943 exactly the base. After merging `ksp11-voltake` (`e08873ce`) the tip
+is voltake's kernel: kern_big text 43,411, bss 5,154, cold 37,941, lowbss
+5,598, vgabuf 336 = 92,440 resident; kern_small text 32,016, bss 3,069, cold
+23,049, lowbss 2,868 = 61,002.
 
 ## TAKEN
 
@@ -96,11 +101,26 @@ it today.
 
 ## Defects found
 
+None. (The relaxed jumps in `hd_svc` and `hd_xfer_ide` are size, not
+behaviour.)
+
+## Merge with ksp11-voltake
+
+`OSAPI_VOL_TAKE` is retired: a take is `OSAPI_VOL_ADD` with DX != 0, DL the
+index `OSAPI_VOL_AT` answered. On this branch that made the take and the add
+ONE call in `hd_mount_one` - DX = 0 or DL = `hd_kvol`'s index, `hd_kvol`
+asked once, and the take skipping `OSAPI_VOL_MOUNT` (DX is preserved by the
+slot: `dsk_vol_add` banks it and the take arm never writes it). The
+coordinator's second note - the kernel reads only `[SI + DSV_PKGCALL]` of
+EMS.DRV's table now - is taken above (-36).
+
 ## Cross-file list (for the coordinator)
 
 * `kernel/driver.inc` `DRVM_IMG_EMS equ 2` -> `1` (voltake's file, a value
   in `drv_memk`'s table, no size change): the image is 1 KB now and
-  `t_drvmem` fails without it.
+  `t_drvmem` fails without it. Already on this branch; merged cleanly.
+* Contract relied on in voltake's routine: `OSAPI_VOL_ADD` preserves DX on
+  both arms (`hd_mount_one` tests it after the call to skip the mount).
 
 ## Rows run
 
@@ -110,3 +130,7 @@ it today.
 * `tools/stkbalance.py` over hdd.asm, hdcom.inc, mount.inc, hdtool.inc, ems.asm: 0 unbalanced at base and tip.
 * `instdeep`, `instassoc`, `hibernate`, `hibernatedrv`, `viddisk`,
   `viddiskcpu` - 6/6 ok.
+* After the voltake merge and the one-cell table: `hdtake`, `hdtakeboot`,
+  `hdtakeblank`, `hdboot`, `hddcp`, `ems`, `videms` - 7/7 ok.
+* Gates: `make -j2` (fast 61/61), `make -j2 small`, `checkdocs` - green at
+  the tip.
