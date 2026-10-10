@@ -22,7 +22,7 @@ sections (not kernsize's blessed-baseline "+N").
 
 ### batch 1 - the concept's own hunks (big -30: text -18, cold -12; small -18: text -6, cold -12)
 
-* **`OSAPI_VOL_TAKE` (slot 0x0467) is gone: a take is `OSAPI_VOL_ADD` with
+* **`OSAPI_VOL_TAKE` (cell 0x0467) is gone: a take is `OSAPI_VOL_ADD` with
   DX != 0.** DX was "RESERVED, pass 0" in main's driver SDK since SPEC.md
   22.6 retired the listing claim it carried, and every caller in the tree
   (HDD, NET, RAMDISK) passes 0, so a non-zero DX is free to mean something.
