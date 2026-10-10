@@ -11,10 +11,18 @@ Figures are `tools/kernsize.py --json`'s sections, bytes, ASSEMBLED.
 
 | | base `2a05e31f` | tip | delta |
 |---|---:|---:|---:|
-| kern_big `.text` / `.bss` / `.cold` | 43,428 / 5,190 / 37,943 | (see below) | |
-| kern_big resident | 92,495 | | |
-| kern_small `.text` / `.bss` / `.cold` | 32,022 / 3,073 / 23,479 | | |
-| kern_small resident | 61,442 | | |
+| kern_big `.text` / `.bss` / `.cold` | 43,428 / 5,190 / 37,943 | 43,419 / 5,190 / 37,864 | -9 / 0 / -79 |
+| kern_big resident | 92,495 | **92,407** | **-88** |
+| kern_big `KERN_SIZE` | 98,304 | **97,792** | **-512** (the cold rung, 55 bytes into its 75th step at the base, uncrossed) |
+| kern_big `.ovl` / `.ovlw` | 2,471 / 5,086 | 2,471 / 5,086 | 0 |
+| kern_small `.text` / `.bss` / `.cold` | 32,022 / 3,073 / 23,479 | 32,022 / 3,073 / 23,422 | 0 / 0 / -57 |
+| kern_small resident | 61,442 | **61,385** | **-57** |
+| kern_small `KERN_SIZE` | 63,488 | 63,488 | 0 |
+| kern_emu (`make emu` at the tip) | | `.text` 43,678 `.bss` 5,190 `.cold` 37,982, `KERN_SIZE` 98,816 | assembles; every change here is kern_big's and reaches it unchanged |
+| drivers, `FTPD.O88` | | | 0 (no driver or package source touched) |
+
+`kern_dos` (which includes `disk.inc` and `diskw.inc`, and has `DSK_STREAM`)
+assembles in every `make`.
 
 ## Why ftp-speed cost kern_big twice what it cost kern_small, and why it touched ui.inc and vga12.inc
 
@@ -68,9 +76,32 @@ walks the used run). Once per allocation, not hot by the brief's list.
 | `gfx_unlock`'s banked test moved to the bank | -7 text, +5 cold | `dws_hswap` clears `[dws_keep]` whichever way it swaps, so the unlock asks one word. A hold that hopped off its volume and BACK within one wake now commits at the next unlock where it used to stay - safe direction, rare case; SPEC.md 18.4.9.3 says so |
 | the wake arm's stores | -2 text | `inc`/`dec byte [dws_inwk]` for `mov 1`/`mov 0`: `.bss` is zero at boot (SPEC.md 2.5) and a nested wake reads 2, which commits |
 
-### 3. Relaxed jumps (pass 10's leftover)
+### 3. Relaxed jumps, pass 10's leftover (kern_big .cold -15, kern_small .cold -15)
 
-See batch 3 below.
+| item | bytes | note |
+|---|---:|---|
+| `dsk_xfer`'s write-protect `je .fail` | -3 | lands on the `jbe .fail` after the retry loop, which ZF=1 takes. +16 cycles on the write-protect failure only; the per-sector and per-run paths are untouched |
+| `dskw_rbody`'s `jne .czbad` | -3 | lands on the `jae .czbad` under `.fits`: a compare with 0 leaves CF=0 |
+| `dskw_read_at_x` | -9 | the redirected arm and the answers moved ABOVE the FAT body (`jz .badarg`, `jc .err` reach backwards short, `jmp .fsat` gone); the short-chain and failed-read exits share one tail (`mov ax, [dwr_take] / mov dx, 0 / jnc / mov ax, FERR_IO`), so the skip loop's `jc` stays short too. Same answers on every path |
+
+`dsk_fdd_probe`'s relaxed `jc .nordy` is in `.ovlw` (boot only): left.
+`ui.inc`'s two (`jne .evloop`, `jz .posted_done`) and `vga12.inc`'s twelve (kern_big)
+are other owners' and were not looked at.
+
+### 4. A row for the DMA bounce (0 kernel bytes)
+
+`tests/dskwstage.py` grew three legs after its five cases: B0 makes BNC.TST,
+B1 rewrites its first cluster through `dskw_write_at_x` from a buffer 0xF0
+short of a 64KB page, B2 reads it whole through `dskw_read_at_x` into a
+straddling buffer with `[dsk_rah_busy]` = 1. `dsk_xfer.bounce` and
+`.unbounce` must fire exactly once per leg, ES must come back the caller's,
+and BNC.TST is checked in the guest and off the flushed floppy. Every
+file-layer case asserts the bounce fired ZERO times (the control). **Broken on
+purpose twice**: the write's copy into `dsk_secbuf` out (B2 and the host read
+red), the read's copy out to the caller out (B2 red, poison at byte 0). The
+row runs 13.8s and declared 120: `secs` is 15 now. The row breakpoints
+`dskw_xclus.stg` by name, so `diskw.inc`'s two `equ` aliases are gone (0
+bytes; ksp10/disk.md cross-file 2).
 
 ## REFUSED
 
@@ -84,6 +115,53 @@ See batch 3 below.
 
 ## Defects found
 
+None. One observation that is not a defect: `tests/ftpkeep.py` failed ONCE
+at its third leg's setup (`drive C: has no desktop zone`, `dispcp.open_drive`
+straight after `make test`) with legs 1 and 2 green, and passed whole on the
+re-run - its `launch` paces the boot with fixed host sleeps (`settle` is
+`time.sleep(2.0)`), which a box running six agents shortens in guest terms
+(docs/plans/SOAK-PARALLEL.md 1). Cross-file, below.
+
 ## Cross-file
 
+* `tests/ftpkeep.py`'s `launch`/`settle` are host sleeps (docs/WRITING-TESTS.md's
+  `time.sleep` failure); the flake above is that shape. Not registered in
+  the suite (`t_registry.py` exempts it: QEMU with ETHFWD=1), so it is
+  nobody's gate today.
+* **Shared-file hunks, for the merge**: in `disk.inc` this branch touches
+  only `dsk_xfer`'s write-protect `je` and a label on its `jbe .fail` (the
+  retry block), and `dsk_vol_del`'s `%ifdef DSK_STREAM` head; in `ui.inc` the
+  wake arm's two `dws_inwk` lines; in `vga12.inc` `gfx_unlock`'s
+  `[dws_keep]` compare. voltake and picomem share `disk.inc`.
+* `ui.inc`'s two relaxed jumps (`jne .evloop`, `jz .posted_done`) are in the
+  file but not in this concept's hunks; not looked at.
+* SPEC.md 18.4.9.3's cost paragraph and 18.4.10's now carry pass 11's
+  figures; nothing else in the tree quotes `dskw_alloc16` (the
+  `tests/unit/t_asmrules.py` and `tests/suite.py` prose naming
+  `dskw_wdata.stg` is history and was left).
+
 ## Rows run
+
+All on the branch tip's build (MartyPC unless named), one invocation:
+
+| row | result |
+|---|---|
+| `wseq` (FAT16 allocation on an XT-IDE volume, 12.5 MB) | ok 257s |
+| `wseqfull` (the volume FILLS: the scan's full-volume exit) | ok 125s |
+| `wsequnclosed` (gfx_unlock's commit is the only commit) | ok 126s |
+| `wseqdeleted` (`dws_gate`'s commit) | ok 71s |
+| `czseq` (the bank across hops - `dws_hswap` now clears the verdict) | ok 163s |
+| `czseqlose` (the poisoned hold) | ok 56s |
+| `dskwstage` (staging, and now the transfer's bounce: B0-B2) | ok 12.5s, then 13.8s with the B legs |
+| `rdcz` (`dskw_rbody`'s compressed arm, redirected) | ok 79s |
+| `lzfile` (compressed reads, `.czjae`) | ok 25s |
+| `fcpcopy` (FAT12 allocation and the write path) | ok 52s |
+| `shedrelist` | ok 22s |
+| `tests/ftpkeep.py` (QEMU, hard-disk boot: KEEP/CKPT) | legs 1-2 green then a setup flake at leg 3 (above); re-run **all four legs green**: KEPT 3,107 disk writes against PLAIN 3,665 for 192 chunks (2.91 a chunk, gate 1.5), the cut leaves 32 KB + 4 checkpoints exactly, fsck clean |
+
+Gates: `make -j2` and the fast tier (61/61) after every batch, `make -j2
+small`, `make emu`; `tools/stkbalance.py` over `disk.inc`, `diskw.inc`,
+`ui.inc`, `vga12.inc`, base against tip: 15 unbalanced paths both sides (the
+same 15), 654 -> 653 entries walked (`dskw_alloc16` gone). No relaxed `jcc`
+left in `disk.inc`/`diskw.inc` on either kernel but `.ovlw`'s `jc .nordy`
+(checked off a `nasm -l` listing for the `7x 03 E9` pair).

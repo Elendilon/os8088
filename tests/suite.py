@@ -7500,7 +7500,7 @@ SOAK = [
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
         "and puts the default kernel back, both seam orientations",
         needs=("marty",), serial=True),
-    Row("dskwstage", "soak", py("tests/dskwstage.py"), 120.0,
+    Row("dskwstage", "soak", py("tests/dskwstage.py"), 15.0,
         "SPEC.md 18.4.2.1: does the DMA STAGING arm run, and does it move the "
         "RIGHT bytes? dskw_runadd's third answer - CF=0 with CX != 0, `not "
         "one sector fits this DMA page` - fell through into a shared "
