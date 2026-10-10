@@ -50778,8 +50778,12 @@ where the two builds before this one cost +1,493. kern_small is byte-identical. 
 Deliberately minimal, to prove the SDK surface and the no-icon fallback:
 `OS88_HEADER 'HELLO', entry` (no icon flag — the Disk window must show
 `ico_app16` for it), one window "Hello" 240×90 at (200,150), paint =
-two centered lines: "Hello from a" / ".o88 package!", no onkey, no
-onclick, no bss. Entry: wm_create, return BX/CF. Prefix `hl_`.
+two centered lines: "Hello from a" / ".o88 package!", no onkey. It grew
+§12.2's File menu (Greeting / About, which page the two lines are) and
+§20.5.1's About card since, so its W_ONCLICK is the card's dismissal and
+nothing else, and its bss is two bytes: the page and the card's flag. Its
+window title and its bar label are ONE string. Entry: wm_create, return
+BX/CF. Prefix `hl_`.
 **It no longer ships on any floppy** (§27.0) — it is the SDK's worked
 example, and it is built rather than carried.
 
