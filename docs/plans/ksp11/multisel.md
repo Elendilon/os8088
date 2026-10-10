@@ -88,6 +88,21 @@ text 13, bss 45). kern_big `KERN_SIZE` 98,304 -> 97,792: the cold rung (55
 bytes into its 75th step at the base) uncrossed - the merge's business, not a
 design input.
 
+### Batch 2
+
+* **fm_hit's miss** (concept): `jnc .ret` over the miss arm, the `cmc`'s
+  miss falling into it (its `stc` a no-op there), instead of `jc .none / ret`.
+  **-1**, kern_big only.
+* **fm_draw_status: the swap prompt past the exit** (shared code, not the
+  concept's). The ladder's `js .fs_st_space` and `je .fs_st_del` were both
+  relaxed; with the 48-byte swap block moved out of the middle they are short,
+  and so are the replace question's and the prompt's `jmp .fs_stat` - while
+  the ladder's `je .fs_st_swap` relaxes in its place (+3). **kern_big -5,
+  kern_small -4.**
+
+Batch 2: **kern_big 92,433 -> 92,427 (-6)**, kern_small 61,435 -> 61,431
+(-4), MSELOFF 91,666 -> 91,661 (-5). **The feature is 766.**
+
 ## REFUSED
 
 * **One global bitmap instead of eight bytes a block** (`.bss` 40 -> 9). Only
@@ -110,6 +125,21 @@ design input.
 * **`fm_mods`'s chooser test at the call sites** instead of in the body: the
   chooser reaches the modifier read through the shared `.ment` path and
   `fm_dgarm`, so the test would be written twice.
+* **The bitmap in the VIEW cache instead of `.bss`** (each cached entry's
+  16-byte name field has bytes 13-15 spare, so a selection bit per entry would
+  cost no `.bss` at all: -40). Every access then loads ES from `[fm_vseg]` and
+  takes a 32-byte stride, "any bit set" becomes a 64-entry scan or a count
+  byte a block, and `fmv_sync_x`'s in-place re-list REWRITES the cache - so
+  the bits would have to be banked across it again, which is exactly the
+  24-byte code the second size pass replaced with the 9-byte `FM_MKEEP`
+  sentinel. Estimated +40..+60 of code for -40 of `.bss`.
+* **fm_editkey's relaxed `je .swap`** (shared, -3 if fixed): the 70-byte
+  swap block can go nowhere that does not push `.confirm`, `.replace` or
+  `.clone` out of the ladder's reach instead.
+* **fcp_xfer's relaxed `jc .jerr`** (-1 at best, `jnc / pop es / ret`):
+  skips `fcp_undo` on the first stream's refusal, which is only right if
+  `[fcp_made]` is provably 0 there; an error path, and FILECP.DRV on
+  kern_small, so kern_big only.
 * **fcp_lbegin's floor store through `mmf_osapi_mem_floor`** (OSAPI_MEM_FLOOR's
   own far body): built, -2 as `push cs / call`, which os88ovlchk refuses twice
   over - the walk's model files `fcp_lbegin` as `.modp`, and `push cs` in

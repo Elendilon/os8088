@@ -3810,12 +3810,12 @@ fm_hit:
     cmp ax, [fm_lnf]            ; past THIS window's listing: CF = 1 from
     cmc                         ; the `cmp` means INSIDE it, so flip it
 %ifdef FM_MSEL
-    jc .none
-    ret
+    jnc .ret
 .none:                          ; ...and a miss is AX = 0FFFFh, "no entry",
     stc                         ; which the drag select and the right-click
     sbb ax, ax                  ; hand straight to fm_mone (SPEC.md 22.27)
-%else
+.ret:                           ; (the `cmc`'s miss falls in: its stc is a
+%else                           ; no-op there)
     ret
 .none:
     stc
@@ -8887,8 +8887,7 @@ fm_draw_status:
     call fm_scat                ; (which stores the NUL fm_staty2 draws to)
     call fm_staty2              ; ...and line two, the answers, where every
     mov si, fm_s_repk           ; other status line goes
-    jmp .fs_stat                ; NEAR: the format question below sits between
-                                ; here and .fs_stat
+    jmp short .fs_stat          ; (short since the swap prompt moved out)
     ; "Format A: as 720K?" over "Spc=size  Enter=yes  Esc=no" (SPEC.md 22.12),
     ; the replace question's own two-line shape. The SIZE is the point of
     ; naming it: dskw_fmt_probe cannot always tell 360K media from
@@ -8907,42 +8906,6 @@ fm_draw_status:
     mov al, 1                   ; other status line goes
     call dskw_fmt_line
     jmp .fs_stat_drawn
-.fs_st_swap:
-    ; The swap prompt (SPEC.md 2.8.5): the row above says which disk is wanted
-    ; and the status line says the keys, which is the format question's own
-    ; two-line shape. [fm_fmtstep] picks the first line, so one mode does both
-    ; halves and no ladder in this file gained a second value to know about.
-    cmp byte [fm_fmtstep], 0
-    je .fs_swap0
-    mov al, 3                   ; (both arms' line 3)
-    cmp byte [fm_swapwho], 0    ; step 1 names the disk the OPERATION is about,
-    jne .fs_swapc               ; and BOTH images are loaded by the time it is
-                                ; up - step 0 is the one that exists because
-    call dskw_fmt_line          ; they are not (SPEC.md 2.8.6). Each says it
-    jmp short .fs_swaprow       ; out of its own strings
-.fs_swapc:
-                                ; ...and the clone's is its source disk, which
-    mov dl, CLV_LINE            ; is the same line CLS_SRC uses (SPEC.md
-    call clo_call               ; 22.21.4). Both leave DI on the NUL, exactly
-    jmp short .fs_swaprow       ; as fm_scat would have
-.fs_swap0:
-    mov si, fm_s_swap1
-    call fm_scat
-    mov si, fm_s_swapd          ; ...the drive letter, stamped
-.fs_swapl:
-    call fm_scat
-.fs_swaprow:                    ; every arrival has stored its NUL: fm_scat,
-    call fm_staty2              ; dskw_fmt_line (its refusal too) and clo_line
-    mov si, fm_s_swapk
-    jmp .fs_stat
-
-    ; The clone's prompts (SPEC.md 22.21.1), in the two-line shape the replace
-    ; question and the format confirmation already use. Which one is up is
-    ; CL_STEP, inside the cloner's own claim, so this branch is the same six
-    ; instructions whichever it is - and CLONE.DRV is loaded by construction,
-    ; the prompt having been armed after mod_need and dropped with
-    ; fm_edit_end. fm_cloline is what covers the case where construction did
-    ; not hold after all.
 .fs_st_clone:
     xor al, al                  ; line one, in the row area
     call fm_cloline             ; ...and an EMPTY line, never the previous
@@ -8997,6 +8960,46 @@ fm_draw_status:
     call fm_stat_line
 .fs_done:
     jmp kretc_di
+
+    ; THE SWAP PROMPT IS PAST THE EXIT (kernel size pass 11): in line it
+    ; put Delete's and the space line's arms out of the ladder's short
+    ; jumps. Only the ladder enters it, and its own exits jump back
+.fs_st_swap:
+    ; The swap prompt (SPEC.md 2.8.5): the row above says which disk is wanted
+    ; and the status line says the keys, which is the format question's own
+    ; two-line shape. [fm_fmtstep] picks the first line, so one mode does both
+    ; halves and no ladder in this file gained a second value to know about.
+    cmp byte [fm_fmtstep], 0
+    je .fs_swap0
+    mov al, 3                   ; (both arms' line 3)
+    cmp byte [fm_swapwho], 0    ; step 1 names the disk the OPERATION is about,
+    jne .fs_swapc               ; and BOTH images are loaded by the time it is
+                                ; up - step 0 is the one that exists because
+    call dskw_fmt_line          ; they are not (SPEC.md 2.8.6). Each says it
+    jmp short .fs_swaprow       ; out of its own strings
+.fs_swapc:
+                                ; ...and the clone's is its source disk, which
+    mov dl, CLV_LINE            ; is the same line CLS_SRC uses (SPEC.md
+    call clo_call               ; 22.21.4). Both leave DI on the NUL, exactly
+    jmp short .fs_swaprow       ; as fm_scat would have
+.fs_swap0:
+    mov si, fm_s_swap1
+    call fm_scat
+    mov si, fm_s_swapd          ; ...the drive letter, stamped
+.fs_swapl:
+    call fm_scat
+.fs_swaprow:                    ; every arrival has stored its NUL: fm_scat,
+    call fm_staty2              ; dskw_fmt_line (its refusal too) and clo_line
+    mov si, fm_s_swapk
+    jmp .fs_stat
+
+    ; The clone's prompts (SPEC.md 22.21.1), in the two-line shape the replace
+    ; question and the format confirmation already use. Which one is up is
+    ; CL_STEP, inside the cloner's own claim, so this branch is the same six
+    ; instructions whichever it is - and CLONE.DRV is loaded by construction,
+    ; the prompt having been armed after mod_need and dropped with
+    ; fm_edit_end. fm_cloline is what covers the case where construction did
+    ; not hold after all.
 
 ; -----------------------------------------------------------------------------
 ; fm_stat_line - draw fm_hdrbuf at (content x + 8, DX), truncated to the
