@@ -2955,45 +2955,42 @@ dwf_dskw_write_seq:
     or al, WSQF_IN              ; bits: WSQF_HOT is the door's
     mov [dws_flg], al
     jcxz .close                 ; a CLOSE: the commit, and nothing more
+.hot:
     cmp di, [dsk_mgen]          ; the token still names the record...
     jne .cold
     call dws_ours.vol           ; ...on this volume
     jne .cold
+    jcxz .ckpt                  ; (a CHECKPOINT's way here, below)
     or byte [dws_flg], WSQF_HOT
     jmp short .go
 .close:                         ; A CHECKPOINT (18.4.9.3) is a close whose
-    test byte [dws_flg], WSQF_CKPT  ; token survives it: the commit stamps the
-    jz .cold                    ; record (WSQF_IN), so after it the record
-    cmp di, [dsk_mgen]          ; names the file exactly as the disk does and
-    jne .cold                   ; the next call may start a NEW hold from it,
-    call dws_ours.vol           ; hot. Only for a HOT token: then the pending
-    jne .cold                   ; hold, if any, is this stream's and nobody's
-    call dws_commit             ; else (every other write moved [dsk_mgen])
+    test al, WSQF_CKPT          ; token survives it: the commit stamps the
+    jnz .hot                    ; record (WSQF_IN), so after it the record
+.cold:                          ; names the file exactly as the disk does and
+    call dws_commit             ; the next call may start a NEW hold from it,
+    jc .out                     ; hot - for a HOT token only, the pending hold
+    jcxz .out                   ; then being this stream's and nobody's else
+.go:                            ; (every other write moved [dsk_mgen]). A cold
+    mov al, [dws_flg]           ; one is a plain close: a hold ends before a
+    and al, WSQF_SYS            ; file is looked up again, its size being the
+    mov [dskw_syswr], al        ; lookup's answer, and a close's answer is the
+    call dskw_append_x          ; commit's (AX = 0 when nothing was held).
+    jc .out                     ; WSQF_SYS is [dskw_syswr], which dskw_wrp
+    mov al, [dws_flg]           ; clears on the way out - set on EVERY call,
+    and al, WSQF_KEEP           ; so none can leak into the next write. DI as
+    jz .keep                    ; it was on a refusal: the record is untouched
+    push bx                     ; MAY THE HOLD OUTLIVE A WAKE (18.4.9.3)? Only
+    mov bl, [disk_drive]        ; on a FIXED disk: a floppy can be taken out
+    call dsk_vol_fixed_x        ; between two callbacks, which is the whole
+    pop bx                      ; reason a hold ends with the callback that
+.keep:                          ; made it. AL = 1 fixed, 0 removable - and the
+    mov [dws_keep], al          ; written volume has a row, so no CF; were it
+    xor ax, ax                  ; ever CF=1, AL = WSQF_KEEP is not 1 either
+    jmp short .tok              ; the append's answer, which AL just spent
+.ckpt:
+    call dws_commit             ; the checkpoint: AX = 0 out of the commit
     jc .out
-    mov di, [dsk_mgen]          ; AX = 0 out of the commit
-    jmp short .out
-.cold:
-    call dws_commit             ; a hold ends before a file is looked up
-    jc .out                     ; again: its size IS the lookup's answer - and
-    jcxz .out                   ; a close's answer is the commit's (AX = 0
-.go:                            ; when nothing was held)
-    mov al, [dws_flg]           ; WSQF_SYS is [dskw_syswr], which dskw_wrp
-    and al, WSQF_SYS            ; clears on the way out - set on EVERY call,
-    mov [dskw_syswr], al        ; so none can leak into the next write
-    call dskw_append_x
-    jc .out                     ; DI as it was: the record is untouched too
-    test byte [dws_flg], WSQF_KEEP  ; MAY THE HOLD OUTLIVE A WAKE (18.4.9.3)?
-    jz .keep                    ; Only on a FIXED disk: a floppy can be taken
-    push bx                     ; out between two callbacks, which is the whole
-    mov bl, [disk_drive]        ; reason a hold ends with the callback that
-    call dsk_vol_fixed_x        ; made it. AL = 1 fixed, 0 removable
-    pop bx
-    jnc .keep1
-.keep:
-    xor al, al
-.keep1:
-    mov [dws_keep], al
-    xor ax, ax                  ; the append's answer, which AL just spent
+.tok:
     mov di, [dsk_mgen]          ; THE TOKEN: what the call left (`mov`: CF
 .out:                           ; stays the answer)
     mov byte [dws_flg], 0       ; `mov`: CF stays the answer
@@ -3163,7 +3160,13 @@ dws_hret:
 ; dws_hswap - exchange the live dirty pair with the bank: EMPTY (0xFFFF, 0)
 ; is what each side is left holding, so one routine banks and restores.
 ; out: CF=0. clobbers: AX
+;
+; EITHER WAY THE HOLD STOPS BEING KEPT (SPEC.md 18.4.9.3): a bank is the one a
+; shed can poison, so a WSEQF_KEEP hold whose dirt has been banked since its
+; last write commits at the next UI-task unlock, wake or not - and gfx_unlock
+; asks one word for it instead of two. The next write sets the verdict again
 dws_hswap:
+    mov byte [dws_keep], 0
     mov ax, [dsk_fatd0]
     xchg ax, [dws_hd0]
     mov [dsk_fatd0], ax

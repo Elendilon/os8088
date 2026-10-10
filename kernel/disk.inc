@@ -2802,15 +2802,13 @@ dsk_vol_add:
 ; -----------------------------------------------------------------------------
 dsk_vol_del:
 %ifdef DSK_STREAM
-    cmp byte [dws_hold], 0      ; A HOLD ON THE VOLUME GOING AWAY ENDS FIRST
-    je .nohold                  ; (SPEC.md 18.4.9.3): a WSEQF_KEEP hold can be
-    cmp al, [dws_vol]           ; pending when a callback unloads a driver,
-    jne .nohold                 ; and dsk_fatw_drop below would take its FAT
-    push ax                     ; edits with the window. Committed while the
-    call dws_commit             ; driver still serves the volume
-    pop ax
-.nohold:
-%endif
+    cmp al, [dws_vol]           ; A HOLD ON THE VOLUME GOING AWAY ENDS FIRST
+    jne .nohold                 ; (SPEC.md 18.4.9.3): a WSEQF_KEEP hold can be
+    push ax                     ; pending when a callback unloads a driver,
+    call dws_commit             ; and dsk_fatw_drop below would take its FAT
+    pop ax                      ; edits with the window. Committed while the
+.nohold:                        ; driver still serves the volume. [dws_vol]
+%endif                          ; may be stale: dws_commit asks [dws_hold]
     call dsk_bpb_bank_zap       ; the volume TABLE moved: a banked head names a
                                 ; row, and a row can be re-used by another
                                 ; partition, or the same one re-formatted
