@@ -86648,8 +86648,11 @@ taken through the BIOS, describes rung 1 too and was left as it is. The
 short single-shot rows above the ceilings (READ_AT, READ_SEQ by chunk size)
 are whole PIT ticks over eight reads and moved both ways by one or two
 ticks; the ceilings are the averaged rows and the ones the encoder prices.
-The rung-1 loop before this change was never put through VIDDISK, so its
-~15% is the arithmetic above and not a measurement. The field result is
+The rung-1 loop before this change was not put through VIDDISK R; VIDDISK C
+(docs/plans/DISK-CPU-PLAN.md 7.5) has since timed both loops on the same
+machine, per sector with interrupts off: **`rep insw` 226 us, the old loop
+469 us** (0.88 against 1.83 us a word), so at 384 KB/s the old loop cost
+**18.7%** of the 286 - the ~15% above was arithmetic and low. The field result is
 the plays: the sound-ahead file above, unchanged and not re-encoded, went
 from 312 stalls and 433 late to **361 of 361 drawn, 0 stalls, 0 late, 274
 ticks of 273, `Lead 5 at f84`, the speaker never dry**, and the same video

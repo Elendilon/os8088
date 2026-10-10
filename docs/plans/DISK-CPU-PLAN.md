@@ -443,8 +443,50 @@ price (`in`/`stosw`/`loop`, which closes 52.1.2's "~15%, arithmetic"), the
 drive's wait for DRQ and a command's first-sector latency; then 4 MB of
 32 KB READ_SEQ calls against 4 MB of the bench's own 64-sector commands,
 interrupts on, whose difference is the kernel's and HDD.DRV's CPU on the
-real machine. Parts 1 and 2 predict that difference at ~7-9% of the
-transfer; the photograph decides it.
+real machine. Parts 1 and 2 predicted that difference at ~7-9% of the
+transfer.
+
+**MEASURED on the owner's 16 MHz AMD 286 (2026-10-10, VDCPU.TXT; the
+drive taken by rung 1, 17 sectors and 12 heads).** Per sector, PIT-timed with
+interrupts off, each span net of one PIT read (8.73 us on this board):
+
+| | per sector | per word | per KB |
+|---|---|---|---|
+| `rep insw`, 256 words | **226 us** | 0.88 us, ~14 clocks | 452 us |
+| `in`/`stosw`/`loop` (rung 1 before 52.1.2) | **469 us** | 1.83 us, ~29 clocks | 938 us |
+| the wait for DRQ after the first, with `rep insw` | 319 us | | |
+| a command's first DRQ (seek and turn) | ~1.0-1.6 ms | | |
+
+And streamed, interrupts on, 4 MB each: **32 KB READ_SEQ calls 42.91 ms a
+call (764 KB/s); the bench's own 64-sector commands 40.34 ms (812 KB/s).**
+
+What it says:
+
+- **The DRIVE binds this machine with the hook idle, not the CPU.** A sector
+  is ready every ~545 us (226 moving it, 319 waiting for the next): ~940 KB/s
+  off the media, and the reader is polling for most of every sector. VIDDISK
+  R's 0% ceiling, 774 KB/s in the same session, is that rate less our share.
+- **The old loop is MEASURED now: 2.08x `rep insw`**, 243 us more a sector,
+  so at the 384 KB/s the field files stream at it cost **18.7% of the CPU** -
+  more than 52.1.2's ~15% of arithmetic. That is the stall the Lead 1 card
+  showed.
+- **Our own CPU is 2.57 ms a 32 KB call, 6.0% of a stream at 0%** - ~80 us a
+  KB, ~1,285 clocks, against the transfer's 452 us. The census's 4,900
+  instructions a call come to ~8.4 clocks each on this board (its RAM has
+  wait states, VIDBENCH's 12-29%), which is above the 4-6 the estimate
+  assumed: ~15% of the reader's CPU where 7.4 said 7-9%. At the 75% row,
+  where the reader has a quarter of the machine, that is ~2.4% of all of it
+  and ~10% of what the reader gets - the most a CPU round on this path could
+  give back, and only if all of it went.
+- **Re-measured tick-quantised:** method T over 128 calls is ~100 ticks, so
+  each per-call figure is good to ~0.4 ms and the difference to ~0.6.
+
+**The verdict for the 286: no further round.** The bus floor is 61% of a
+32 KB read's time-to-ready on this drive and none of it is ours; the drive's
+pace is the binding term at low decode load; and the whole of our share,
+spent perfectly, is worth ~10% of the reader's slice at the 75% row. The
+8088's two rows in 7.6 are where CPU a KB was worth bytes, and the cheaper
+one is built.
 
 ### 7.6 The candidates, priced against 7.4
 
