@@ -135033,7 +135033,8 @@ a user takes to it, on the disk the faces are already on.
 The left side of the window lists every family `ty_scan` found in the system
 volume's `FONTS/` directory. The selected row names the one face open in
 `os88type.inc`; moving the selection with Up/Down or clicking another row
-closes that face and opens the new one. A launch document selects the matching
+closes that face and opens the new one — in that order, so one face claim is
+held and never two (§90.10). A launch document selects the matching
 8.3 name before the first paint. The application deliberately does not keep
 all ten face files open: `TY_MAXFACE` is the number of concurrently useful
 faces in a typesetting application, not a catalogue-size limit, and a viewer
@@ -135055,14 +135056,19 @@ graphics lock and therefore may update the selected index and post a wake, but
 may not turn the floppy; the wake opens the face on the UI task after the
 window is visible, then takes the lock only for the repaint. A missing system
 `FONTS/` directory leaves the built-in face active and an explicit status line
-instead of preventing the package from opening.
+instead of preventing the package from opening, and so does a face that will
+not open: the specimen is lettered in the built-in face under
+`<Family>  Open failed`, which is `ty_open`'s own answer to every refusal
+(§6.4). Choosing that row again reads the face again.
 
 ### 90.2 Testing
 
 `tests/fontview.py` boots the 360 KB system disk under MartyPC, walks through
 the file manager to `FONTS/`, and double-clicks `CHARTER.F88`. It asserts that
 the association made a new FONT VIEWER window, the launch name selected and
-opened Charter, the catalogue count equals the ten `.F88` directory entries,
+opened Charter — the row the viewer's OWN catalogue (`ty_fnames`) gives
+`CHARTER.F88`, so a launch that fell back to row 0 fails — the catalogue count
+equals the ten `.F88` directory entries,
 typed bytes and Backspace change the specimen, and both Down and a mouse click
 finish a deferred face load with no error. The row is `fontview` in the soak
 tier — and it reaches the viewer the way a user does, through `SYSTEM/FONTS/`
@@ -135165,7 +135171,7 @@ handler and calls `os88ui_about`, which arms the clip itself because
 through `os88ui_about_d`, which does not re-arm and so keeps that paint's
 damage rect.
 
-`[fv_abon]` is the flag, one byte on the end of `FV_BSS_OWN`. `fv_abdismiss`
+`[fv_abon]` is the flag, one byte of `FV_BSS_OWN`. `fv_abdismiss`
 is called at the **head** of both `fv_onkey` and `fv_onclick` and answers
 `CF = 1` when it took a card down, so the keystroke that dismisses is not also
 typed into the specimen and the click that dismisses is not also a catalogue
@@ -135176,6 +135182,58 @@ divider, and `fv_redraw` is the one routine that puts all three back.
 The include is `OS88UI_ABOUT` + `OS88UI_NOBTN` — the card is the only control
 this package takes, and without the opt-out it would carry `os88ui_glyph`'s
 116 bytes for a button nothing calls.
+
+### 90.10 The first apps size pass
+
+The region claim is image + bss and the runtime claims are `os88type.inc`'s,
+so all three were measured (`build/fontview.o88`, `make` with the default
+`PKGZ=lz4`):
+
+| | before | after |
+|---|---|---|
+| image | 4,857 | **4,509** (-348, -7.2%) |
+| bss | 1,984 | **2,030** (+46) |
+| image + bss | 6,841 | **6,539** (-302, -4.4%) — still a 7 KB claim |
+| file (LZ4) | 3,736 | **3,615** (-121, -3.2%) |
+| face claims | 8 KB, and 16 KB for the length of every face read | **8 KB**, never two |
+| pre-shift cache | 12 KB | 12 KB |
+
+**What moved.** The package's own code went 1,243 bytes to ~950, with no
+change of picture: relative coordinates throughout, added at the one call that
+needs them (`fv_abs`, `fv_sysline`), a shared pop epilogue entered by a near
+`jmp` (no stack), the launch name and its catalogue match inline in the entry
+proc, callbacks banking only the registers they change, and a row y that
+advances by `FV_ROWH` instead of being multiplied out per row. Four bytes
+whose first value is not zero — `[fv_loaded]`, `[fv_pending]`, `[fv_error]`,
+`[fv_textlen]` — are IMAGE bytes now rather than fifteen bytes of entry code,
+and the specimen is the LAST thing in the image, so its 62-byte zero tail is
+the head of the bss the loader zeroes (SPEC.md 20.2) rather than bytes on a
+disk. The launch name shares `fv_line`: it is read before the window exists
+and dead from the first paint. `FV_PAD` keeps `[fv_win]` and `ty_bandbuf`
+EVEN, where the band had always landed and the window words had not.
+
+**The face is closed BEFORE the next one is opened** (`fv_onwake`), face 0
+standing in across the read: opening first held two `TY_FACE_KB` = 8 KB
+claims for the length of a floppy read. The one visible consequence is the
+refusal path in §90.1 — the specimen under `Open failed` is the built-in face,
+where it used to be whichever face happened to be open before.
+
+**Verified on the glass**: the window's pixels, read off a CGA
+`os8088_5150_cga_gla` through `vram()` at nine states (launch, typed,
+Backspace, Down, Up twice, a row click, the About card, its dismissal, an
+emptied specimen), are identical before and after — 0 differing pixels in each.
+
+**Why the claim stayed at 7 KB.** 2,936 bytes of the image and 1,966 of the
+bss are `os88type.inc`, which a package cannot shrink from outside: the band
+is `TY_STRIDE` × `TY_BROWS` = 1,472 bytes for a 720-pixel line where this
+package composes a 480-pixel one (62 bytes a row would do: 992), and eight of
+its routines (`ty_hit`, `ty_width`, `ty_widthn`, `ty_put`, `ty_advof`,
+`ty_famn`, `ty_getasc`, `ty_getlead`, 183 bytes) are never reached here. An
+overridable stride and an opt-out for the measuring half would take this
+package to a 6 KB claim. The runtime claims are larger than the region and
+also the library's: `ty_open` claims 8 KB for a face the shipped set holds in
+1.1–1.7 KB, and `ty_cache` claims 12 KB, sized for 16 rows, for faces of 8, 12
+and 14.
 
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 
