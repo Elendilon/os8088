@@ -2306,7 +2306,7 @@ SOAK = [
         "and it is at or above $0D00, below which the core's `romseg - "
         "($D000 >> 4)` fetch bias underflows silently; the carve is SHRUNK "
         "to the main ROM once the chargen is decoded and the RAM claim is "
-        "52KB, both read out of mem_tab (APPLE2-SPEC 1.5, 3.1); two 16-byte "
+        "49KB, both read out of mem_tab (APPLE2-SPEC 1.5, 3.1); two 16-byte "
         "windows of the main ROM in the guest and the decoded chargen equal "
         "build/apple2-rom/APPLE2.ROM - including the main ROM's LAST SIXTEEN "
         "BYTES, because a carve one sector short reads perfectly at the "

@@ -27,7 +27,7 @@ without it has been measured, and the wave that measured it is named.
 ### 1.1 The port
 
 `apps/apple2/`, package name **`APPLE2`**, is a **windowed 48K Apple II
-Plus**: a 6502 running in a 52KB heap claim, Applesoft BASIC and the Autostart
+Plus**: a 6502 running in a 49KB heap claim, Applesoft BASIC and the Autostart
 Monitor read from a ROM **part** inside `APPLE2.O88`, the four II+
 soft-switch display modes composed into 1bpp bands and blitted with
 `OSAPI_GFX_BLIT1`, and a **foreign video mode** at full screen
@@ -230,22 +230,22 @@ unconditionally.
 
 | claim | size | contents |
 |---|---|---|
-| RAM | `os88_mem_claim(A2_RAMKB)` - **52KB**, 53,248 bytes | the Apple's address space biased at offset 0, flat, one segment, ending at the scratch page's last byte. Only `$0000-$BFFF` is ever RAM to the emulated machine |
+| RAM | `os88_mem_claim(A2_RAMKB)` - **49KB**, 50,176 bytes | the Apple's address space biased at offset 0, flat, one segment, ending at the scratch page's last byte (`$C1FF`). Only `$0000-$BFFF` is ever RAM to the emulated machine |
 | ROM | `op_load`'s carve - 14,848 bytes, **shrunk to 12,288** once `os88_main` has decoded the CHARGEN (section 1.5) | the ROM PART, section 1.4's layout, claimed and read before `os88_main` runs; `os88_part_seg(0)` is its base |
 
-**THE RAM CLAIM STOPS AT `$CFFF` AND THAT IS ARITHMETIC** (apps size pass 1;
+**THE RAM CLAIM STOPS AT `$C1FF` AND THAT IS ARITHMETIC** (apps size pass 1;
 it was `os88_mem_claim(64)` until then). The RAM segment is addressed in two
 stretches and no others: the 48K at `$0000-$BFFF`, and the core's scratch page
-at `$CF00` (section 3.3). Every read at or above `$C000` goes to the soft
+at `$C100` (section 3.3). Every read at or above `$C000` goes to the soft
 switches, the slot space's `$FF` or the ROM part (`a2_rd_bx`); every write
 there is called out or dropped (`a2_wr_bx`, `a2_wr`); the fetch is bounded at
 `$C000` and re-biases onto the ROM part above `$CFFF` (`a2_rebias_go`); and
 every C-side mover is bounded below `$C000` (`A2_PROGTOP`, the text and hi-res
-pages). So `$D000-$FFFF` of a 64KB claim was **12,288 bytes of heap nothing
-ever touched**. `hosttest/a2uitest.c` now refuses a C-side access at or above
+pages). So `$C200-$FFFF` of a 64KB claim was **15,872 bytes of heap nothing
+ever touched**: the claim is `A2_RAMKB` = 49, the KB that holds `$C1FF`. `hosttest/a2uitest.c` now refuses a C-side access at or above
 `$C000` rather than answering it out of a 64KB array, and `tests/apple2part.py`
 reads the claim's size out of `mem_tab`. The refusal toast says
-`APPLE2: 52K, 384K free`.
+`APPLE2: 49K, 384K free`.
 
 Launch is **defined by the claims succeeding**. The refusal sentence quotes
 what was asked and `os88_mem_largest_kb()`.
@@ -276,8 +276,8 @@ test first. The write fence moves from the C64's `$D000` down to `$C000`.
 
 ### 3.3 The core's scratch - in the emulated machine, never in bss
 
-The core's hot scratch is **256 bytes at `$CF00-$CFFF` of the RAM claim** -
-its last page, which is where the 52KB claim ends (section 3.1) -
+The core's hot scratch is **256 bytes at `$C100-$C1FF` of the RAM claim** -
+its last page, which is where the 49KB claim ends (section 3.1) -
 on `C64-SPEC §3.5`'s mechanism and for its reason.
 
 **It has ZERO stated deviations**, which is strictly cleaner than the C64's
@@ -290,7 +290,7 @@ harness cases are deleted rather than transcribed.
 `a2_rebias_go` never biases `$C000-$CFFF` to RAM: PC in that range leaves the
 region marked "always re-bias" and every byte comes back through `a2_rd_bx`, so
 a fetch at `$C030` clicks the speaker exactly as a read there does, a fetch at
-`$C100` gets `$FF`, and **`JMP $CF00` finds `$FF` and not the countdown**. A
+`$C100` gets `$FF`, and **`JMP $C110` finds `$FF` and not the countdown**. A
 core that biased the region to RAM for the fetch alone would make the whole
 page executable, and that is `a2cputest` row 7 with its negative control -
 which is the shipping text's own `$C000` compare moved to `$D000` at runtime
@@ -299,9 +299,21 @@ poke at the scratch would not survive to the first fetch.
 
 **The condition that makes this safe is stated here because it is the thing
 that can stop being true.** It holds only while nothing models a **Language
-Card** and no card claims `$C800-$CFFF` expansion ROM. Both are refused by
-this port (section 10.4). A future wave that adds either **must move the
-scratch first**.
+Card**, no card claims **slot 1's ROM at `$C100-$C1FF`** and none claims
+`$C800-$CFFF` expansion ROM. All are refused by this port (section 10.4). A
+future wave that adds one **must move the scratch first** - and the claim
+moves with it, since it ends at the scratch page's last byte.
+
+**`$C100` AND NOT `$CF00` SINCE APPS SIZE PASS 1.** Both pages are slot space
+to the emulated machine - read as `$FF`, written nowhere, fetched through
+`a2_rd_bx` - so the move changes no answer a program can get; it moves the
+claim's last byte from `$CFFF` to `$C1FF`, which is 52KB to 49KB. Every core
+access to the page is a 16-bit displacement either way, so no instruction
+changed length: the shipping image differs from the `$CF00` one in exactly 91
+displacement high bytes (`$CF` to `$C1`) and the three characters of the
+refusal's figure. `make a2cputest` rows 3, 4 and 7 probe `$C130` (the page's
+"wrote" byte, which the run itself sets), `$C1F0` (its spare tail) and
+`$C110`/`$C124` (code planted in it, and the countdown).
 
 **NASM gotcha, carried over:** `[bx + 0xCF00]` is refused under `-w+error`, so
 `A2_SCR_DISP equ A2_SCR_BASE - 0x10000` exists and is what the core

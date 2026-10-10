@@ -79,7 +79,7 @@ _a2_rd16:
 ; $BFFF is soft switches, slot space or ROM, and a write to any of it is
 ; DROPPED here - the core's own write ladder calls out to a2io.c for
 ; $C000-$C0FF before it ever reaches this routine. That is also what makes
-; the core's scratch at $CF00 safe with ZERO stated deviations
+; the core's scratch at $C100 safe with ZERO stated deviations
 ; (section 3.3), where the C64 needed two.
 ; -----------------------------------------------------------------------------
 _a2_wr:

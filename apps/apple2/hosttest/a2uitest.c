@@ -753,7 +753,7 @@ int os88_clip_get_seg(unsigned seg, unsigned off, unsigned cap)
  * THE CLAIMS - the Apple's 64KB and the ROM part
  * ========================================================================*/
 #define H_RAMSEG 0x2000u
-#define H_RAMKB  52                     /* A2_RAMKB, checked against it below
+#define H_RAMKB  49                     /* A2_RAMKB, checked against it below
                                          * the #include (section 3.1) */
 #define H_ROMSEG 0x1000u                /* >= A2_ROM_MINSEG (0x0D00), which
                                          * the package guards for */
@@ -1048,7 +1048,7 @@ static unsigned char h_scr[256];        /* the core's scratch page, which on
 /* THE CLAIM IS A2_RAMKB AND NOT 64 (APPLE2-SPEC section 3.1): on the machine
  * every byte the C reaches through the RAM segment is in $0000-$BFFF, and the
  * scratch page above it is h_scr here. A C-side access at or above $C000 is
- * an access the 52KB claim may not cover - $D000 up is somebody else's heap -
+ * an access the 49KB claim may not cover - $C200 up is somebody else's heap -
  * so the model refuses it rather than answering out of a 64KB array. */
 static unsigned h_ra(unsigned a, unsigned n)
 {

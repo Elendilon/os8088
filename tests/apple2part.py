@@ -31,7 +31,7 @@ SIX ASSERTIONS, and the last two are this package's rather than the C64's:
   5. THE CLAIMS ARE THE SIZES APPLE2-SPEC 1.5 AND 3.1 GIVE THEM, read out
      of the kernel's own `mem_tab`: the parts carve SHRUNK to the head slack
      plus the 12,288-byte main ROM once the CHARGEN is decoded, and the RAM
-     claim 52KB - `$0000-$CFFF`, the 48K and the core's scratch page. Then
+     claim 49KB - `$0000-$C1FF`, the 48K and the core's scratch page. Then
      TWO WINDOWS OF THE MAIN ROM read out of the guest equal
      `build/apple2-rom/APPLE2.ROM` byte for byte - the first bytes and the
      LAST SIXTEEN of the main ROM, because a carve one sector short reads
@@ -88,7 +88,7 @@ ROM_LEN = 14848                         # APPLE2-SPEC 1.4's fixed layout
 AM_RAMSEG, AM_ROMSEG, AM_PC = 0, 2, 4   # apps/apple2/a2cpu.inc's record
 A2_ROM_MINSEG = 0x0D00                  # $D000 >> 4 - below it the fetch bias
 A2_ROM_KEEP = 0x3000                    # what of the part os88_main keeps
-A2_RAMKB = 52                           # apple2.c's RAM claim, $0000-$CFFF
+A2_RAMKB = 49                           # apple2.c's RAM claim, $0000-$C1FF
 MEM_MAX = os88geom.MEM_MAX
 MC_SIZE = os88geom.MC_SIZE
                                         # underflows (apple2.c)
@@ -232,7 +232,7 @@ def run():
         if claims.get(ramseg) != A2_RAMKB * 64:
             fails.append(
                 "the RAM claim at %04X is %s paragraphs and APPLE2-SPEC 3.1 "
-                "makes it %dKB: $0000-$CFFF, the 48K and the scratch page"
+                "makes it %dKB: $0000-$C1FF, the 48K and the scratch page"
                 % (ramseg, claims.get(ramseg), A2_RAMKB))
 
         for off, what in ((0x0000, "Applesoft's first bytes at $D000"),

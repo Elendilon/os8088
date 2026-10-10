@@ -1,7 +1,7 @@
 /* ============================================================================
  * os8088 - apps/apple2/apple2.c    APPLE2: an Apple II Plus, written in C
  *
- * A windowed 48K Apple II Plus as an os8088 package: a 6502 in a 52KB heap
+ * A windowed 48K Apple II Plus as an os8088 package: a 6502 in a 49KB heap
  * claim, Applesoft BASIC and the Autostart Monitor read from a ROM PART
  * inside APPLE2.O88, the II+'s four soft-switch display modes composed into
  * 1bpp bands and blitted into a window, and - from wave 5 - a foreign video
@@ -120,7 +120,7 @@ void  os88_onfile(int mode, const char *name,
  * core loads and stores it with no frame: this is the C's view of the same
  * bytes and the field order IS the layout (APPLE2-SPEC section 4.1). */
 struct a2_mach {
-    unsigned ramseg;                        /* the 52KB RAM claim */
+    unsigned ramseg;                        /* the 49KB RAM claim */
     unsigned romseg;                        /* the ROM PART's base segment */
     unsigned pc;
     unsigned a, x, y, s, p;
@@ -274,7 +274,7 @@ unsigned a2_fsx_key(void);              /* the polled int 16h: 0xFFFF for
 unsigned char a2_chr[512];
 
 /* --- the core's scratch, as the C reads it (section 3.3) ------------------ */
-#define A2_SCR_BASE  0xCF00
+#define A2_SCR_BASE  0xC100
 #define A2_SCR_DIRTY 0x00                   /* 32 bytes: the page bitmap */
 #define A2_SCR_WLO   0x2C                   /* the write window */
 #define A2_SCR_WHI   0x2E
@@ -285,13 +285,17 @@ unsigned char a2_chr[512];
 /* THE RAM CLAIM IS 52KB AND NOT 64 (APPLE2-SPEC section 3.1). The claim is
  * the Apple's address space biased at offset 0, but only TWO stretches of it
  * are ever addressed through the RAM segment: the 48K at $0000-$BFFF and the
- * core's scratch page at $CF00-$CFFF. Every read at or above $C000 goes to
+ * core's scratch page at $C100-$C1FF. Every read at or above $C000 goes to
  * the soft-switch ladder, the slot space's $FF or the ROM PART (a2cpu.inc's
  * a2_rd_bx); every write there is dropped or called out (a2_wr_bx, a2_wr);
  * the fetch is bounded at $C000 and re-biases onto the ROM part above $CFFF
  * (a2_rebias_go). So $D000-$FFFF of a 64KB claim was 12,288 bytes of heap
- * nothing ever touched. The claim ends at the scratch page's last byte. */
-#define A2_RAMKB     ((A2_SCR_BASE + 0x100) / 1024)    /* 52 */
+ * nothing ever touched. The claim ends at the scratch page's last byte -
+ * and the scratch is at $C100, the first page above the soft switches, so
+ * that last byte is $C1FF and the claim is 49KB rather than the 52 it was
+ * with the page at $CF00 (a2cpu.inc's A2_SCR_BASE says why the two are the
+ * same page to the emulated machine). */
+#define A2_RAMKB     ((A2_SCR_BASE + 0x100 + 1023) / 1024)     /* 49 */
 
 /* --- the ROM part (section 1.4, 1.5) -------------------------------------- */
 #define A2_ROM_PART   0
@@ -2349,7 +2353,7 @@ void *os88_main(void)
                                              * own segment, up to the scratch
                                              * page's last byte */
     if (a2_m.ramseg == 0) {
-        a2_refuse_kb("APPLE2: 52K, ");
+        a2_refuse_kb("APPLE2: 49K, ");
         return 0;
     }
     /* THE ROM IS A PART AND IT IS ALREADY HERE (section 1.5, SPEC.md 20.12).
