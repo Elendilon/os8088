@@ -86946,7 +86946,12 @@ an XT-IDE ROM, 15.4% of pulses lost while the ring refills; files made for a
   partition of an installed machine is still recognised as the KERNEL'S
   (§52.10.3.1) and never mounted a second time, and `DSV_GEOM` (`hd_geom`,
   §87.5), so a hibernate image on such a drive is still one the resume
-  stub can read through the ROM - it is the same disk.
+  stub can read through the ROM - it is the same disk. **Since kernel size
+  pass 11 every row the ROM reads carries it there, a BIOS row too**
+  (`HD_ABI_VER` 5), and rung 0's own int 13h asks by it: so both questions
+  are one load and a zero test, and the pairing at attach can park the IDE
+  unit in the BIOS row's `HDD_UNIT` (and the port in `HDD_BASE`) with the
+  BIOS read in `hd_twins` still finding its drive.
 - **The geometry is the BIOS's** - the one the partition table was written
   against - told to the drive with `91h INITIALIZE DEVICE PARAMETERS`
   before the proving read, as every IDE row's is.
@@ -86991,7 +86996,10 @@ given back to the BIOS intact, ticked again and taken again. Broken on
 purpose - the take skipped, or the give-back - it goes red at B1, or at B3
 with the system volume freed. +180 bytes of `HDD.DRV`'s image (3,584 ->
 3,764 with 16 of bss, inside the 4 KB claim it already took), all of it in
-the attach-only run that `hd_mbr` is laid over and the 180 bytes past it.
+the attach-only run that `hd_mbr` is laid over and the 180 bytes past it -
+**and back to 3,584 in kernel size pass 11**, `hd_twins` 164 -> 123 bytes
+and it and `hd_at_geom` moved out into the padding `hd_mbr`'s `align 512`
+spends on zeros, so the run is under 512 again (`docs/plans/ksp11/drivers.md`).
 
 #### 52.1.2 Rung 1 reads with `rep insw` (2026-10-10)
 

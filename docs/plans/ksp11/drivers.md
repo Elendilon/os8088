@@ -20,6 +20,22 @@ quoted beside it.
 | `EMS.DRV` image (`build/ems.bin`) | 1,208 | 704 | **-504** |
 | `EMS.DRV` claim | 2 KB | **1 KB** | **-1 KB** |
 | `EMS.DRV` file (LZ4) | 815 | 675 | -140 |
+| `HDD.DRV` image (`build/hdd.bin`) | 3,764 | 3,584 | **-180** |
+| `HDD.DRV` claim | 4 KB | 4 KB | 0 |
+| `HDD.DRV` file (LZ4) | 3,276 | 3,151 | -125 |
+| `HDDTOOL.DRV` image | 16,995 | 16,995 | 0 (`hd_kvol` -8 lands in its own `align 512` pad) |
+| `HDDTOOL.DRV` file | 13,752 | 13,735 | -17 |
+
+**HDD.DRV's image is at its floor.** It is the resident (everything before
+`hd_mbr`), padded to a 512 boundary, then `hd_mbr`'s 512 bytes - laid over
+the attach/READY-only code (SPEC.md 52.13.6). So the image is
+`3,072 + max(512, run)` while the resident stays under 3,072: the incoming
+52.1.1 code had pushed the run 180 bytes past 512, and that 180 is what came
+back. A resident byte saved below that only widens the padding - slack for
+the next feature, not image - and 3 KB would need the resident under 2,560,
+which is ~280 bytes away. Base: resident 2,990, padding 82, run 692. Tip:
+resident 2,843 + 222 of attach-only routines moved into the padding, 8 bytes
+of padding left, run 510.
 
 The kernel is unchanged in size on both builds by the EMS half (one
 constant's VALUE, `DRVM_IMG_EMS` 2 -> 1, in `kernel/driver.inc`'s table:
@@ -44,7 +60,39 @@ the handle on success and is 0 now (no caller reads it: `apps/video`'s two
 FREE sites and `tests/emstest`'s one). MAP still keeps CX and DX, which
 `vp_emap` steps through.
 
+### HDD.DRV
+
+| item | bytes |
+|---|---:|
+| `HDD_BIOS` is the int 13h drive on EVERY row the ROM reads - a BIOS row's too (`hd_at_bios` +3) - and rung 0's `hd_chs_regs` and reset ask it rather than `HDD_UNIT`. So `hd_kvol` and `hd_geom` are one load and a zero test (no kind test), and the pairing at attach parks the IDE unit in the BIOS row's `HDD_UNIT` (port in `HDD_BASE`) with the BIOS read still finding its drive. `HD_ABI_VER` 4 -> 5 (a version-4 tool's `hd_kvol` would not know a BIOS row by it). `tests/hdtake.py --blank` asserts the restored row is unit 80h, `HDD_BIOS` 80h, base 0 | `hd_kvol` -16 (both images), `hd_geom` -10, attach -1 |
+| `hd_twins` rewritten on that: no field put back before the BIOS read, the IDE read finds unit and port in place, CX = 1 kept from the claim for both reads, one restore tail | 164 -> **123** |
+| `hd_twins` and `hd_at_geom` MOVED into the padding before `hd_mbr` (the slot `hd_at_dup`/`hd_at_new` were moved to for the same reason); `hd_at_bios`'s `jmp short` to `hd_at_geom` becomes near (+1) | run -142 |
+| `hd_at_ident` reads IDENTIFY's seven words with `rep insw` (the rung is CPU_286-only, as `hd_xfer_ide`'s read already relies on) | run -2 |
+| `hd_mount`'s take: `[hd_take]` gone. `hd_mount_one` asks `hd_kvol` itself (CF = 0 only on a drive rung 1 took - hd_mount skips any other), and `hd_mount` skips a kernel volume unless the row is IDE; DI is the device row through the whole loop (every callee keeps it). The take's tail shares the add's `inc [hd_nmnt]` | ~-23 resident, 1 state byte |
+| `hd_ide_wait`/`hd_ide_drq`: ONE tail. Every way in arrives with CF = 0 (off a `test` or an unborrowed compare), so failure is `cmc` and ready is `pop`/`pop`/`ret` - one instruction (`clc`) LESS on the per-sector DRQ path; drq jumps into wait's tail | -10 |
+| `hd_svc` (the tool's door, pre-squash code): a jump table where twelve compares were, nine of whose `je`s were relaxed 5-byte pairs | -33 |
+| `hd_xfer_ide`'s relaxed `ja .fail` -> `ja hd_xfer_fail4` (short, backwards; per command) | -3 |
+
+Hot path: the rung-1 sector loop (`.sector` .. `jnz .sector`) is unchanged
+instruction for instruction except `hd_ide_drq`'s exit, which loses the
+`clc` (2 clocks on a 286, 2 on an 8088) - `rep insw` and the write loop are
+untouched.
+
+Behaviour change outside the hot path: `hd_svc_mount`/HSV_VOLOF (the
+tool's mount) on a partition the KERNEL already carries now hands it over
+(the take) where it used to add a second volume on the same sectors; the
+installer refuses that partition as a target (52.10.4.1), so no path reaches
+it today.
+
 ## REFUSED
+
+* `hd_xfer_ide`'s relaxed `jz .run` (3 bytes): 13 bytes of the command
+  prologue would have to go (two `lea`s, a word `mov` of the cylinder, the
+  head test reordered, the read/write opcode computed) to bring it in range -
+  per-command code in the transfer, all of it bytes the padding would just
+  absorb. Not worth the risk at a zero image delta.
+* Moving `hd_services` (34) into the padding too: it does not fit the 8
+  bytes left, and the run is already under 512.
 
 ## Defects found
 
@@ -57,3 +105,8 @@ FREE sites and `tests/emstest`'s one). MAP still keeps CX and DX, which
 ## Rows run
 
 * `ems`, `emspico`, `videms`, `videmshyb` - ok (MartyPC, 4/4).
+* `hdtake`, `hdtakeboot`, `hdtakeblank` (QEMU, rung 1), `hdboot`, `hdsize`,
+  `hdmap`, `hddcp`, `hdnoclaim`, `cpnameshdd` - 9/9 ok.
+* `tools/stkbalance.py` over hdd.asm, hdcom.inc, mount.inc, hdtool.inc, ems.asm: 0 unbalanced at base and tip.
+* `instdeep`, `instassoc`, `hibernate`, `hibernatedrv`, `viddisk`,
+  `viddiskcpu` - 6/6 ok.

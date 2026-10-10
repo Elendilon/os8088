@@ -303,10 +303,11 @@ hd_part_ent:
 ;
 ; **Only a drive the BIOS knows can be it.** The kernel's transport there is
 ; int 13h (rung 0), so a drive reached only through the task file is not the
-; drive the adoption named, and has no int 13h number to offer. An IDE row
-; TAKEN from the BIOS (SPEC.md 52.1.1) is the exception and keeps the number
-; in HDD_BIOS, so it is asked by that: the boot partition of an installed
-; machine stays the kernel's, and is never mounted a second time.
+; drive the adoption named, and has no int 13h number to offer. HDD_BIOS is
+; that number on every row that has one - a BIOS row, and an IDE row TAKEN
+; from the BIOS (SPEC.md 52.1.1) - so it is asked by that alone: the boot
+; partition of an installed machine stays the kernel's, and is never mounted
+; a second time.
 ; -----------------------------------------------------------------------------
 hd_kvol:
     push bx
@@ -314,29 +315,17 @@ hd_kvol:
     push dx
     push di
     call hd_dev_row
-    mov dl, [di+HDD_UNIT]       ; the int 13h drive, and the partition base as
-    cmp byte [di+HDD_KIND], HDK_BIOS
-    je .rom
-    mov dl, [di+HDD_BIOS]       ; ...or the one a drive rung 1 TOOK from the
-    or dl, dl                   ; BIOS still answers as (52.1.1): the kernel
-    jz .no                      ; may have booted from it
-.rom:
-    mov cx, [si+HP_LBA]         ; the kernel keeps it: 32 bits, high word in BX
-    mov bx, [si+HP_LBA+2]
-    call OSAPI_VOL_AT           ; preserves everything but AL
-    jc .no
+    mov dl, [di+HDD_BIOS]       ; the int 13h drive - a BIOS row's, or the one
+    cmp dl, 1                   ; a drive rung 1 TOOK still answers as
+    jc .out                     ; (52.1.1); none (CF = 1 off 0 - 1) is no
+    mov cx, [si+HP_LBA]         ; ...and the partition base as the kernel
+    mov bx, [si+HP_LBA+2]       ; keeps it: 32 bits, high word in BX
+    call OSAPI_VOL_AT           ; CF, AL; preserves everything else
+.out:
     pop di
     pop dx
     pop cx
     pop bx
-    clc
-    ret
-.no:
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    stc
     ret
 
 ; -----------------------------------------------------------------------------

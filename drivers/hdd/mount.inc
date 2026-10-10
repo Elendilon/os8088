@@ -59,20 +59,18 @@ hd_mount:
     mov al, [hd_sel]            ; ...or by the KERNEL, which adopted the
     call hd_kvol                ; partition it booted from before we were
     jc .mount                   ; loaded at all (SPEC.md 52.10.3). Mounting it
-    mov al, [hd_sel]            ; (hd_kvol answered in AL)
-    call hd_dev_row             ; ...unless rung 1 TOOK this drive from the
-    cmp byte [di+HDD_BIOS], 0   ; BIOS (52.1.1): then the kernel's volume is
-    je .have                    ; handed to us as it is, OSAPI_VOL_TAKE in
-    inc byte [hd_take]          ; hd_mount_one where it would add one
-    call hd_mount_one
-    dec byte [hd_take]
-    jmp short .next
-.mount:
                                 ; again is a second icon on the same sectors.
                                 ; It is hdcom.inc's and takes the DEVICE as an
                                 ; argument, because the installer asks the
                                 ; same question of a device of its own
                                 ; (SPEC.md 52.10.4.1)
+    cmp byte [di+HDD_KIND], HDK_IDE ; ...unless rung 1 TOOK this drive from
+    jne .have                   ; the BIOS (52.1.1) - the one IDE row hd_kvol
+                                ; can say yes about: then the kernel's volume
+                                ; is handed to us as it is, by hd_mount_one,
+                                ; which asks hd_kvol again (DI is the row
+                                ; throughout this loop)
+.mount:
     call hd_mount_one
     jmp short .next
 .have:
@@ -114,6 +112,9 @@ hd_mount:
 ; out: [hd_nmnt] incremented on success; [hd_msg] set on a failure
 ; clobbers: flags
 ;
+; DI = THE DEVICE ROW as well, for the take below: hd_mount's loop and
+; hd_svc_mount both hold it.
+;
 ; NO LISTING CLAIM (SPEC.md 22.6). This used to claim 6KB and hand it over
 ; with the volume, so that the partition listed more entries than the kernel's
 ; own floor gave a floppy; the floor is the same cap for every volume now, so
@@ -152,9 +153,10 @@ hd_mount_one:
 .secs:                          ; OSAPI_VOL_ADD's CX: say 'unknown', which
     mov [bx+HDV_SECS], ax       ; the kernel's rule 13 accepts (SPEC.md 18.7.5)
 
-    cmp byte [hd_take], 0
-    jne .take
     mov cx, ax                  ; = [bx+HDV_SECS]
+    mov al, [hd_sel]            ; THE KERNEL'S ALREADY? Only on a drive rung
+    call hd_kvol                ; 1 took (hd_mount skips it on any other):
+    jnc .take                   ; then it is handed over, not added
     mov al, [bx+HDV_VOLH]       ; our own handle IS the row index
     xor dx, dx                  ; no donated listing claim: the kernel's own
                                 ; buffers, which is every volume now (22.6)
@@ -166,6 +168,7 @@ hd_mount_one:
     call OSAPI_VOL_MOUNT        ; that was here existed because the movable
                                 ; declaration passed its proc through AX
     jc .badvol
+.counted:
     inc byte [hd_nmnt]
     jmp short .out
 .badvol:
@@ -182,8 +185,7 @@ hd_mount_one:
     jc .novol
     mov [bx+HDV_VOL], al
     mov byte [bx+HDV_USED], 1
-    inc byte [hd_nmnt]
-    jmp short .out
+    jmp short .counted
 .novol:
     mov byte [bx+HDV_USED], 0
 .full:
