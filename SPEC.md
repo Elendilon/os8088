@@ -162708,6 +162708,13 @@ Broken on purpose - `vp_bstep`'s test out - it reaches 13, and a single look
 had read 0: a chunk banked is handed straight back by the next fill, so the
 copies run while the count looks empty. +53 bytes.
 
+**The encoder will not make one for the speaker** (2026-10-10): with
+`--audio speaker`, `--bank`, any `--layer-*` and `--xms` are refused, since
+each budgets XMS copies the player will not make - a bank's depth the disk
+never has, a layer the play never reads. The window greys the XMS bank and
+Layer groups and Live's Xms with that reason (`_nospk`), so its command line
+carries none of them; `vencgui` and `videnc` check both halves.
+
 ##### 98.3.18.6 The bank in expanded memory
 
 **With `EMS.DRV` answering (SPEC.md 107) and no XMS pool - or an XMS pool

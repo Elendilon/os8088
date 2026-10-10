@@ -321,6 +321,14 @@ def main():
               % (pa.box, pa.detail, pa.screen))
         if (pa.box, pa.detail, pa.screen) != ("640x480", "2x1", "320x240"):
             bad.append("W*H was not taken as WxH")
+        # --- 3a': --audio speaker refuses a bank, a layer and Live from XMS
+        # (98.3.18.5): the player makes no XMS copy under the speaker
+        for extra in (["--bank", "2048"], ["--layer-disk", "600000"]):
+            try:
+                run("spkx", "--preset", "herc-spk", "--end", "1", *extra)
+                bad.append("--audio speaker took %s" % extra[0])
+            except vid.V88Error:
+                print("   --audio speaker refuses %s" % extra[0])
         # --- 3b: --avg auto (98.2.1.5) - the per-frame ceiling on a profile
         # with a disk curve, the profile's own average on one without, and
         # the record holds the SHARE it came to, never the word

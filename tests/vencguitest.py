@@ -174,7 +174,12 @@ def groups_leg():
             ("vga4", {"flip": "1", "screen": "640x400"}, "--flip",
              True),
             ("cga4", {"spk_pulses": "2"}, "--spk-pulses", False),
-            ("herc-spk", {"spk_pulses": "2"}, "--spk-pulses", True)):
+            ("herc-spk", {"spk_pulses": "2"}, "--spk-pulses", True),
+            # NOTHING IN XMS UNDER THE SPEAKER (98.3.18.5): a bank and a
+            # layer are greyed there, and kept with a card's sound
+            ("herc-spk", {"bank": "2048"}, "--bank", False),
+            ("herc-spk", {"layer_disk": "600000"}, "--layer-disk", False),
+            ("modex", {"bank": "2048"}, "--bank", True)):
         v = G.form_start()
         v.update(G.target_fill(tgt(pre), 30.0))
         v.update(sets)

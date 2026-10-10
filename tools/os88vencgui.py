@@ -214,6 +214,17 @@ def _bank(c):
                 "%s." % ("Live" if c["live"] else "held whole in memory"))
     if c["profile"] == "lossless":
         return "The lossless profile has no disk budget for a bank to deepen."
+    return _nospk(c)
+
+
+def _nospk(c):
+    """NOTHING IN XMS UNDER THE SPEAKER (98.3.18.5): the bank, the layer and
+    Live from XMS all ride XMS copies, and the player makes none while the
+    speaker's interrupts are its clock"""
+    if c["audio"] == "speaker":
+        return ("The sound is the PC speaker, whose clock is one interrupt a "
+                "sample - and an XMS copy holds interrupts off, so the "
+                "player reads the disk instead and makes none.")
     return None
 
 
@@ -315,7 +326,7 @@ FIELD_WHEN = {
     "This is the pattern dither's, and Comp dither is diffuse.",
     "levels_mix": lambda c: None if c["comp_dither"] == "pattern" else
     "This is the pattern dither's, and Comp dither is diffuse.",
-    "xms": lambda c: None if c["live"] else
+    "xms": lambda c: _nospk(c) if c["live"] else
     "This makes a LIVE file streamed from XMS, and Live is not chosen.",
     "rate": lambda c: None if c["audio"] != "none" else
     "The file has no sound.",

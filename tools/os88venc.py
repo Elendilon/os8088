@@ -4521,6 +4521,16 @@ def _encode(a, keep, tick, readers):
     pd = PRESET_DEFAULTS.get(None if a.live else a.preset, {})
     audio = a.audio or pd.get("audio") or prof["audio"]
     spk = audio == "speaker"
+    if spk and (getattr(a, "bank", None) or getattr(a, "layer_disk", None)
+                or getattr(a, "layer_profile", None) or a.xms):
+        # NOTHING IN XMS UNDER THE SPEAKER (98.3.18.5): its clock is one
+        # interrupt a sample and every XMS copy holds them off, so the player
+        # reads the disk instead - a bank or a layer budgeted here would be
+        # disk the play never has
+        raise vid.V88Error("--audio speaker: no --bank, --layer-* or --xms - "
+                           "the player makes no XMS copy under the speaker's "
+                           "clock (SPEC.md 98.3.18.5), so the file would be "
+                           "made for disk it never gets")
     if spk:                             # PCM8, at a rate the speaker plays
         audio = "pcm8"
         r = a.rate or pd.get("rate") or SPK_RATE
