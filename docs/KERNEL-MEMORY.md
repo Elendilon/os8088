@@ -248,10 +248,10 @@ had added.
   "big": {
     "boot2": 2265,
     "bootmax": 191488,
-    "bss": 5154,
+    "bss": 5155,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 37762,
+    "cold": 37817,
     "coldpara": 2368,
     "fatpara": 288,
     "imgpara": 3040,
@@ -271,16 +271,16 @@ had added.
   "emu": {
     "boot2": 2265,
     "bootmax": 191488,
-    "bss": 5154,
+    "bss": 5155,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 37880,
-    "coldpara": 2368,
+    "cold": 37935,
+    "coldpara": 2400,
     "fatpara": 288,
     "imgpara": 3072,
-    "kend": 6240,
+    "kend": 6272,
     "kseg": 96,
-    "ksize": 98304,
+    "ksize": 98816,
     "lowbss": 5598,
     "lowpara": 384,
     "minramkb": 196,
@@ -681,14 +681,14 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 29,090 | 35.9% |
+| the file system, end to end | 29,145 | 35.9% |
 | the window system and its furniture | 22,156 | 27.3% |
-| drawing: adapters, primitives, glyphs, icons | 12,948 | 16.0% |
+| drawing: adapters, primitives, glyphs, icons | 12,948 | 15.9% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 8,032 | 9.9% |
 | the kernel proper: API table, heap, scheduler, events | 7,111 | 8.8% |
 | the three built-in kinds | 1,442 | 1.8% |
 | the Control Panel | 352 | 0.4% |
-| **total** | **81,131** | |
+| **total** | **81,186** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -696,9 +696,9 @@ there and nowhere else.
 |---|---:|---:|---:|---:|---:|---:|
 | `wm.inc` — the window manager (§11) | 9,145 | 140 | **9,285** | 1,132 | — | — |
 | `files.inc` — the Disk window (§22) | 1,118 | 8,052 | **9,170** | 583 | — | — |
-| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 371 | 6,132 | **6,503** | 415 | — | — |
+| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 371 | 6,168 | **6,539** | 416 | — | — |
 | `vga12.inc` — the VGA planar primitives (§5) | 5,232 | 1,095 | **6,327** | 40 | 526 | — |
-| `diskw.inc` — the FAT write path (§18.4–18.6) | 24 | 4,956 | **4,980** | 180 | — | — |
+| `diskw.inc` — the FAT write path (§18.4–18.6) | 24 | 4,975 | **4,999** | 180 | — | — |
 | `mouse.inc` — serial mouse and the cursor (§9) | 3,845 | — | **3,845** | 107 | 128 | — |
 | `memory.inc` — the claim heap (§50) | 268 | 2,528 | **2,796** | 24 | 324 | — |
 | `menu.inc` — the menu bar and pull-downs (§12) | 2,545 | 165 | **2,710** | 172 | 84 | — |
@@ -747,7 +747,7 @@ there and nowhere else.
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
 | `dockmod.inc` — `DOCK.DRV`, the Advanced Dock runtime (§30.5), an on-demand module on `kern_big` | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 2,197 | 171 | **2,368** | — | — | 434 |
-| **total** | **43,369** | **37,762** | **81,131** | **5,154** | **5,598** | **2,265** |
+| **total** | **43,369** | **37,817** | **81,186** | **5,155** | **5,598** | **2,265** |
 <!-- END generated table -->
 
 ### Reading it
