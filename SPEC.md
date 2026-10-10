@@ -118175,6 +118175,10 @@ MartyPC's 8088.
 
 #### 77.50.2 The STOR stage is 32 KB on a 286 or better, and 8 KB on an 8088
 
+**§77.50.3 reverses the 8088 half**: the 5150 A/B has been taken and 32 KB
+won there by 1.73x, so the tier below is gone and every CPU claims the
+stage. What follows is the reasoning as it stood.
+
 A 32 KB stage was MEASURED AND REFUSED on the 5150 twice (§77.21, §77.24):
 no gain, and every silence on the data connection four times longer. Both
 readings were taken against a server whose commits cost over a second each -
@@ -118193,6 +118197,50 @@ writes at the drive's rate - what is left above it is `net` and `idle`,
 which a larger stage makes no better (FTPDK32's `idle` is the higher of the
 two). `-DFD_NOBIG` pins the 8 KB stage; `make ftpspeed`'s three arms all
 pin theirs, so no arm changes under the CPU it runs on.
+
+#### 77.50.3 ...and on an 8088 too: the A/B §77.50.2 said was owed
+
+The owner's first run of it, on the pc5150 86Box profile (ST-225 on an
+ST11M), 1,474,560 bytes to C:, the fourth split line in each:
+
+| arm | rate | `disk` | commits | a commit | `net` |
+|---|---|---|---|---|---|
+| FTPDK8 - kept, 8 KB | 71 s, 20,768 B/s | 34,722 | 181 | 192 ms | 31,210 |
+| FTPDK32 - kept, 32 KB | 41 s, **35,964 B/s** | 10,910 | 46 | 237 ms | 29,601 |
+
+**That FTPDK8 reading was the SESSION's and not the code's.** A bisect on
+the same profile, booted clean with HDD.DRV and ETHER.DRV mounted and the
+old file deleted first, read every arm where it should be:
+
+| system disk | server | rate | `disk` | a commit |
+|---|---|---|---|---|
+| A: the base, `eb1be37` | FTPDOLD, the pre-branch plain 8 KB | 31,373 B/s | 13,656 | 75 ms |
+| C: now, `2a0c848` | FTPDOLD | 32,055 B/s | 13,017 | 72 ms |
+| B: this branch before its merge, `c7617cc` | FTPDK8 | 34,292 B/s | 10,336 | 57 ms |
+| C: now | FTPDK8 | 34,292 B/s | 10,045 | 55 ms |
+| C: now | FTPDK32, kept 32 KB | **39,852 B/s** | 6,692 | 145 ms (46 commits) |
+
+So no kernel regressed - A and C carry the old server at the same rate, B
+and C the new one - and on an 8088 the kept 8 KB stream is ~7% faster than
+the per-chunk commit, `disk` 13.0 -> 10.0 s, the commit 72 -> 55 ms. `net`
+is ~30.4 s in every row, so the stack is the larger half on this machine
+and the disk the smaller. The first session's 192 ms a commit is not
+explained; what differed in it is not known, and the max commit there was
+880 ms against 122-191 here.
+
+**And the 32 KB stage is the 8088's too**: clean, it is 39,852 B/s - 16%
+over the kept 8 KB stream and 25% over the per-chunk server it replaced, the
+drive's 6.7 s against 10.0 s for the same bytes. So the CPU tier is gone:
+every machine claims the 32 KB STOR stage, and a refused claim is the 8 KB
+server.
+
+These ran with FTPD's Setup **Root** set to `C:\`, so where each arm was
+launched from did not decide what it served (§77.12); without that setting it
+serves the folder it was launched from (§77.6), and only a fixed disk takes
+`WSEQF_KEEP` (§18.4.9.3).
+§77.21/§77.24's refusals were taken against commits costing a second each
+and a 1 KB receive window, and neither holds on the kept stream: the data
+connection's longest silence in every row above is `gap 0s`.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 
