@@ -7816,6 +7816,19 @@ SOAK = [
         "open, because a move shuts that window. VERIFIED RED with .selmove's "
         "FS_CLKT store taken out (the Audio Player launched on one click).",
         needs=("marty",), serial=True),
+    Row("msel", "soak", py("tests/msel.py"), 40.0,
+        "SPEC.md 22.27: MULTI-SELECT in a Disk window (kern_big). Ctrl+click "
+        "adds and removes one entry, Shift+click takes the run from the "
+        "anchor, Shift+Down/Up extend and retract it, a plain click collapses "
+        "to one row, Ctrl+A takes every entry and a rubber band from right of "
+        "the name column takes the rows it touches - each checked on FS_MSEL "
+        "AND on the glass, which catches a band drawn twice or left behind. "
+        "Then the set's operations: Copy of two, Up, Paste lands both and "
+        "the list is cleared on paste with the purge floor back down; a drag "
+        "of one member moves both into a folder; Delete asks about '2 items' "
+        "and the confirming press removes exactly those two. VERIFIED RED "
+        "against `make MSELOFF=1` (the first Ctrl+click is a plain click).",
+        needs=("marty",), serial=True),
     Row("fdlgchoose", "soak", py("tests/fdlgchoose.py"), 120.0,
         "SPEC.md 38: the Standard File chooser end to end, through Note "
         "Pad's own File > Open and Save As - a first Open on MEDIA (38.10) "

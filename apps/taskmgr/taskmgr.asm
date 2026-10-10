@@ -1371,6 +1371,7 @@ tm_s_tasc:  db 'Assoc', 0
 tm_s_tclip: db 'Clipbrd', 0
 tm_s_twsav: db 'WinSave', 0
 tm_s_tdirw: db 'DirRead', 0
+tm_s_tflst: db 'FileClp', 0
 tm_s_tico:  db 'Icons', 0        ; the machine-wide icon store (SPEC.md 25.9),
                                 ; one row per DISTINCT body. It is claimed at
                                 ; the first mount that harvests one and lives
@@ -1435,6 +1436,7 @@ tm_ktab:
     dw MEM_K_FONT,  tm_s_tfont
     dw MEM_K_SC,    tm_s_tsc
     dw MEM_P_DIRW,  tm_s_tdirw
+    dw MEM_P_FLIST, tm_s_tflst
     dw MEM_P_ICO,   tm_s_tico
     dw 0
 

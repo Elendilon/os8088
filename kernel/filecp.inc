@@ -274,6 +274,12 @@ fcpx_go:                        ; ovlchk: builds its own far frame
 ; package, a folder - is fair game.
 ; -----------------------------------------------------------------------------
 FCPBODY fcp_arm
+%ifdef FM_MSEL
+    cmp byte [fcp_busy], 0      ; ONE entry on the clipboard ends any LIST
+    jne .keepl                  ; (SPEC.md 22.27) - unless a paste is walking
+    FCPX fcp_lfree              ; it, which then frees it itself
+.keepl:
+%endif
 
     push ax
     push bx
@@ -404,6 +410,10 @@ FCPBODY fcp_paste
     jne .keep                   ; a Cut is spent by its paste - however that
     mov [fcp_cbop], ch          ; paste ends - and a Copy stays, so it can
 .keep:                          ; be pasted again. It USED to be spent in
+%ifdef FM_MSEL
+    call fcp_lbegin             ; a LIST (SPEC.md 22.27): spent by its paste
+    jc .empty                   ; whatever the verb - or purged already
+%endif
                                 ; fcp_stop, at the end; here, at the start, is
                                 ; the same moment as far as anything that
                                 ; reads the clipboard can tell, and it keeps
@@ -412,6 +422,9 @@ FCPBODY fcp_paste
                                 ; that was not this operation's
     mov [fcp_all], ch
     call fcp_run
+%ifdef FM_MSEL
+    call fcp_lnext              ; ...and the list's other entries after it
+%endif
     jmp short .out
 %if FCP_NONE != 0 || FCP_CBSZ > 255
   %error "fcp_paste writes FCP_NONE and a zero [fcp_all] out of CH = FCP_CBSZ >> 8"
@@ -420,6 +433,77 @@ FCPBODY fcp_paste
     mov al, FCPS_DONE           ; nothing on the clipboard is not an error,
 .out:                           ; it is a menu item that does nothing
     jmp fcp_x5
+
+%ifdef FM_MSEL
+; =============================================================================
+; THE LIST (SPEC.md 22.27) - a Cut or Copy of a whole multi-selection.
+; A clipboard has to hold NAMES, for 22.3's reason: Copy, go up a folder in
+; the same window, Paste is the commonest shape of the gesture, and the
+; re-list it does makes every index meaningless. So the set is copied, at the
+; Cut or Copy, into ONE 1KB purgeable claim of 16-byte records - an entry's
+; 16-byte name field as the window's cache holds it, with its SPEC.md 19 type
+; in byte 15 (a display name is 12 characters and a NUL, so 13..15 are free).
+; Record 0 is ALSO written into the clipboard's own single record, so a paste
+; of a list starts exactly as a paste of one entry does, and this code only
+; runs the entries AFTER it. kern_big only: FM_MSEL is never set with FCP_MOD.
+;
+; [fcp_lseg] = the claim (MEM_P_FLIST's one naming word, 0 = none or purged),
+; [fcp_lcnt] = its records (0 = the clipboard is a single entry),
+; [fcp_lnxt] = the next record a running paste takes.
+; =============================================================================
+
+; fcp_lbegin - a paste is starting: is it a LIST's? The clipboard is spent
+; whatever the verb (cleared on paste), the next record is 1, and THIS TASK'S
+; PURGE FLOOR goes up to the list's own rank (SPEC.md 50.6.6), so the copy
+; buffer each entry claims cannot shed the list being walked. out: CF = 1 =
+; the list was purged before the paste - an empty clipboard. AX..DI preserved
+fcp_lbegin:
+    cmp word [fcp_lcnt], 0
+    je .ret                     ; (CF = 0, the `cmp`'s equal)
+    mov byte [fcp_cbop], FCP_NONE
+    cmp word [fcp_lseg], 0
+    je .gone
+    mov word [fcp_lnxt], 1
+    push ax
+    mov ah, [sch_cur]           ; OSAPI_MEM_FLOOR's one store, for this task
+    mov al, MEM_PG_MED
+    mov [mem_pg_fl], ax
+    pop ax                      ; CF = 0 still: the `cmp` against 0
+.ret:
+    ret
+.gone:
+    FCPX fcp_lfree
+    stc
+    ret
+
+; fcp_lnext - an entry of a list paste has ended with AL = FCPS_*: run the
+; next, for as long as each one ends DONE. A question pauses the list with
+; it; a failure or a stop ends it, and it is said once (SPEC.md 59).
+; clobbers: fcp_run's free set - both callers banked it
+fcp_lnext:
+    cmp word [fcp_lcnt], 0
+    je .ret                     ; a single entry, or the door's
+    cmp al, FCPS_ASK
+    je .ret
+    cmp al, FCPS_DONE           ; (FERR_EXIST - the folder it came from - is
+    jne .stop                   ; a DONE, and the list goes on)
+    mov ax, [fcp_lnxt]
+    cmp ax, [fcp_lcnt]
+    jae .end
+    inc word [fcp_lnxt]
+    mov di, fcp_type            ; the operation's own record, which [fcp_all],
+    FCPX fcp_lget               ; the source and the target outlive
+    jc .end
+    call fcp_run2
+    jmp short fcp_lnext
+.end:
+    mov al, FCPS_DONE
+.stop:
+    FCPX fcp_lend
+.ret:
+    ret
+
+%endif
 
 ; -----------------------------------------------------------------------------
 ; fcp_run - run the operation the record describes (module-internal)
@@ -764,12 +848,18 @@ FCPBODY fcp_answer
 .yes:                           ; the answer itself is their 'yes'
     mov [fcp_ovw], al           ; the pending file may be replaced
     call fcp_step
+%ifdef FM_MSEL
+    call fcp_lnext              ; a list carries on past the answered entry
+%endif
     jmp short .out
 .idle:
     mov al, FCPS_DONE
     jmp short .out
 .stop:                          ; a stop is not a failure: what was already
     call fcp_stop               ; copied stays, and the line says so
+%ifdef FM_MSEL
+    FCPX fcp_lend               ; ...and a stop stops the whole LIST
+%endif
 .out:
     jmp fcp_x5
 %if FCPS_DONE != 0
@@ -1875,6 +1965,11 @@ fcp_cbname: resb 13             ; ...and 8.3 display name, COPIED
   %error "the clipboard record is not FCP_CBSZ bytes - fcp_paste copies it as one"
 %endif
 
+%ifdef FM_MSEL
+fcp_lseg:   resw 1              ; THE LIST (SPEC.md 22.27): its claim...
+fcp_lcnt:   resw 1              ; ...its records, 0 = a single entry...
+fcp_lnxt:   resw 1              ; ...and the next one a paste takes
+%endif
 fcp_busy:   resb 1              ; 1 = an operation is running or suspended
 fcp_started: resb 1             ; 1 = fcp_step is past its first step
 fcp_all:    resb 1              ; 1 = 'replace all' was answered
@@ -1926,6 +2021,11 @@ fcp_drv:    resb 1              ; the entry's drive - the source drive of the
 fcp_cwd:    resw 1              ; ...its folder...
 fcp_type:   resw 1              ; ...its SPEC.md 19 type word...
 fcp_name:   resb 13             ; ...and its 8.3 name
+%ifdef FM_MSEL
+%if fcp_cbname != fcp_cbtype+2 || fcp_name != fcp_type+2
+  %error "fcp_lget writes a TYPE word and the 13-byte NAME after it"
+%endif
+%endif
 %if $ - fcp_op != FCP_CBSZ
   %error "the operation record is not FCP_CBSZ bytes - fcp_paste copies it as one"
 %endif
@@ -2242,6 +2342,64 @@ fcp_pfail:
     ret                               ; "the nearest true thing" (SPEC.md 2.8.1)
 
 
+%endif
+
+%ifdef FM_MSEL
+; THE LIST'S RESIDENT HALF (SPEC.md 22.27): reached from files.inc's arm and
+; delete as well as from the bodies above, so it is .cold in the walk's model
+; too - FM_MSEL is kern_big's alone and never meets FCP_MOD.
+section .cold
+; fcp_lend - a list paste is over: the floor it raised comes down, and the
+; list goes. fcp_lfree is the second half alone (an arm replacing a list, a
+; purged one). AX and every other register preserved
+fcp_lend:
+    mov byte [mem_pg_floor], MEM_LVL_TOP
+fcp_lfree:
+    push bx
+    push dx
+    xor dx, dx
+    mov [fcp_lcnt], dx
+    xchg dx, [fcp_lseg]         ; the word is 0 BEFORE the block is freed, so
+    or dx, dx                   ; it never names a freed one
+    jz .none
+    mov bx, MEM_P_FLIST
+    call mem_free_x
+.none:
+    pop dx
+    pop bx
+    ret
+
+; fcp_lget - list record AX into the (type word, 13-byte name) pair at DI -
+; [fcp_cbtype] for the clipboard, [fcp_type] for the operation: the two
+; records are one shape (FCP_CBSZ). out: CF = 1 = the list was purged
+; clobbers: AX, flags
+fcp_lget:
+    push cx
+    push si
+    push di
+    push es
+    mov si, ax
+    mov cl, 4
+    shl si, cl
+    mov ax, [fcp_lseg]
+    cmp ax, 1                   ; CF = 1 exactly when it is 0
+    jc .out
+    push ds
+    push ds
+    pop es                      ; ES = the kernel's segment...
+    mov ds, ax                  ; ...DS = the list's
+    mov al, [si+15]
+    xor ah, ah                  ; (CF = 0)
+    stosw
+    mov cx, 13
+    rep movsb
+    pop ds
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    ret
 %endif
 
 section .text

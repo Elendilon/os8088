@@ -497,6 +497,18 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %endif
 %endif
 
+; SPEC.md 22.27's MULTI-SELECT in the Disk window is kern_big's and SHIPS -
+; `make MSELOFF=1` compiles it out, SBDRAGOFF's shape one block up and for the
+; same file-order reason: files.inc and filecp.inc both test it, and the symbol
+; is made here, above every %include. kern_small has none of it: there the
+; copy engine is FILECP.DRV, so every operation on a set would ask for the
+; system disk anyway (SPEC.md 22.26 drew the same line for the arrows).
+%ifdef KERN_BIG
+  %ifndef MSELOFF
+    %define FM_MSEL 1
+  %endif
+%endif
+
 ; GFX_VGA - does this build drive a VGA at all? (docs/plans/MONO-RECLAIM-PLAN.md 2)
 ;
 ; kern_big does. kern_small DOES NOT, and that is a product decision rather
