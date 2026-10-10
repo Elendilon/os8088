@@ -5317,8 +5317,9 @@ drv_cls_svc_x:
 ; of drv_row_ix_of's own refusal).
 drv_fs_has:
 drv_owns_seg_x:
-    stc
-    ret
+osapi_vol_fence:                ; ...and disk.inc's: the caller is no published
+    stc                         ; driver, because none can be (osapi_desk_item
+    ret                         ; takes its package arm; kernel size pass 11)
 
 ; --- the lifecycle: four hooks kmain and ui.inc call unconditionally --------
 ; Gating the CALL SITES would put four %ifdefs into the boot sequence to say
@@ -5363,7 +5364,10 @@ dvf_drv_owns_seg:
     retf
 osapi_drv_cfg_x:
 osapi_drv_dlg_x:
-    stc
+osapi_vol_add_x:                ; ...and the three fenced volume slots (SPEC.md
+osapi_vol_del_x:                ; 51.8), whose fence refuses every caller here:
+osapi_vol_mount_x:              ; CF = 1 is what each answered, AL untouched
+    stc                         ; (kernel size pass 11)
     retf
 
 ; ...and "what is this class holding" (SPEC.md 51.12), which on a machine with
@@ -5371,7 +5375,10 @@ osapi_drv_dlg_x:
 ; refusal states it rather than leaving the caller's register looking like a
 ; figure - and it is the only one now, the count having gone (51.12.3).
 osapi_drv_classk_x:
-    xor ax, ax
+%ifndef OS88_REDIR
+osapi_fs_ent_x:                 ; ...and OSAPI_FS_ENT, legal only inside an
+%endif                          ; FSV_LIST that cannot happen here: AX = 0, CF
+    xor ax, ax                  ; = 1 is its own refusal (kernel size pass 11)
     stc
     retf
 

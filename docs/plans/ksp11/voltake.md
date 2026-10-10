@@ -60,9 +60,49 @@ sections (not kernsize's blessed-baseline "+N").
 At batch 1: kern_big text 43,410, bss 5,190, cold 37,931 -> resident
 92,465 (-30); kern_small text 32,016, cold 23,467 -> 61,424 (-18).
 
+### batch 2 - kern_small: the driver-volume plumbing is stubs (small -422: cold -418, bss -4; big byte-identical)
+
+Not the concept's own hunks but the code around them, in the same two
+files (secondary, per the brief).
+* On kern_small `osapi_vol_fence` walks `drv_cls_fp_x`, whose whole body
+  there is `xor di,di / stc / ret`: no class is ever published, so the fence
+  refuses every caller for the life of the machine, and everything behind it
+  is code the IP cannot reach. Gated `%ifdef OS88_DRIVERS`: `osapi_vol_fence`,
+  `osapi_vol_add_x` (with the take), `osapi_vol_del_x`, `osapi_vol_mount_x`,
+  `dsk_vol_add`, `dsk_vol_del`, `dsk_vol_drop_drv_x`, `dsk_vcls`; and
+  `%ifdef OS88_REDIR` `osapi_fs_ent_x`, `dsk_fslist`, `dsk_fsn` (the FSV_LIST
+  arm that raises `[dsk_fslist]` is OS88_REDIR already).
+* The cells keep their offsets (SPEC.md 20.4) and point at driver.inc's
+  existing kern_small stubs, which give the same answers: the three fenced
+  slots on `osapi_drv_cfg_x`'s `stc / retf` (AL untouched, as the fence's
+  refusal left it), `osapi_fs_ent_x` on `osapi_drv_classk_x`'s `xor ax,ax /
+  stc / retf` (its own `.no`), `osapi_vol_fence` on `drv_fs_has`'s `stc /
+  ret` in `.cold` - the section `osapi_desk_item_x`, its other caller, is in.
+  No new bytes for any stub: they are labels on bodies already there.
+* `osapi_vol_at_x`'s DV_BUNIT arm (a TAKEN row) is `%ifdef OS88_DRIVERS`:
+  no driver, no take, every kern_small row is BIOS or free (-7 of the 418).
+* Verified kern_big is byte-identical (two archive copies of the tree, HEAD
+  and HEAD + this batch, built side by side and `cmp`'d).
+* SPEC.md 51.0.2 says so.
+
+At batch 2: kern_small text 32,016, bss 3,069, cold 23,049 -> resident
+61,002 (-440 from base). kern_big unchanged at 92,465.
+
 ## REFUSED
 
 ## DEFECTS
+
+* **`mem_rr_tab` relocated five class segments of seven** (`93287205`,
+  its own commit, 0 bytes). `MEM_RR_ROW drv_fseg, 5, 4` walked drv_fseg ..
+  drv_fseg5; DRVC_POINT (6, on main since the CH375 mouse) and DRVC_EMS (7,
+  this merge) were appended without it, so a driver image that MOVES
+  (SPEC.md 66.6.3) left drv_fseg6/7 naming the old segment. EMS.DRV hooks no
+  vector, so `mem_can_move` lets it move: after that compaction every
+  OSAPI_DRV_CALL to it - and xm_release_rec's EMSV_GONE at every instance
+  teardown - far-calls PKG_DISP in freed memory; the USB mouse's packets are
+  refused by osapi_mou_feed's segment fence. The row counts DRVC_MAX now.
+  tests/drvmove.py's stale-word check names drv_fseg6/7 and all seven rows.
+  Found by reading; NOT reproduced (no row moves EMS.DRV or USBMOUSE.DRV).
 
 ## CROSS-FILE
 

@@ -85519,6 +85519,18 @@ rather than derived, because deriving them would hide the fact that makes
 them fragile — they are positions in a table one `%ifdef` above, and the two
 have to be read together.
 
+**The volume slots a driver mounts through are stubs too** (kernel size pass
+11): `OSAPI_VOL_ADD`, `_DEL` and `_MOUNT` are `stc / retf`, `OSAPI_FS_ENT`
+`xor ax,ax / stc / retf` and `osapi_vol_fence` itself `stc / ret`, because
+the fence walks the PUBLISHED classes and none can be published here, so
+every one of them refused every caller already. The bodies behind them -
+`dsk_vol_add`, `dsk_vol_del`, `dsk_vol_drop_drv_x`, the take - go with them,
+as does `osapi_vol_at`'s arm for a TAKEN row (§52.1.1), which no row can be:
+-418 of `.cold` and -4 of `.bss`, `kern_big` byte-identical. `OSAPI_VOL_AT`
+itself stays, unfenced and live: it is the question an installer asks of
+the kernel's own boot volume. `osapi_desk_item`, the fence's other caller,
+takes its package arm as it always did.
+
 ### 51.1 A driver is a package that is not an application
 
 Same 32-byte header, same `org 0`, same paragraph-aligned heap claim, same

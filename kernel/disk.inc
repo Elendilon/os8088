@@ -2662,13 +2662,18 @@ osapi_vol_at_x:
     mov di, dsk_vbase           ; ...whose stride is 4 and not DV_SIZE: the
 .scan:                          ; base is a side table indexed by VOLUME
     cmp byte [si+DV_KIND], DVK_BIOS ; a free row is 0xFF, so this drops it too
+%ifdef OS88_DRIVERS
     jne .took
     cmp [si+DV_UNIT], dl
     jmp short .unit
 .took:
     cmp [si+DV_BUNIT], dl       ; ...or a row a driver TOOK (52.1.1): still
 .unit:                          ; the partition the kernel booted from, and
-    jne .next                   ; its base still in dsk_vbase
+%else                           ; its base still in dsk_vbase. (No driver, no
+    jne .next                   ; take: kern_small's rows are BIOS or free)
+    cmp [si+DV_UNIT], dl
+%endif
+    jne .next
     cmp [di], cx                ; the base, low word...
     jne .next
     cmp [di+2], bx              ; ...and high
@@ -2686,6 +2691,15 @@ osapi_vol_at_x:
     pop bx
     retf
 
+%ifdef OS88_DRIVERS            ; ...AND THE THREE ROUTINES THAT ADD AND DROP A
+                                ; DRIVER'S ROW are not on kern_small at all:
+                                ; their only callers are the fenced slots
+                                ; below and drv_release, and with no driver
+                                ; layer (SPEC.md 51.0) the fence refuses
+                                ; every caller for the life of the machine -
+                                ; so the slots are driver.inc's `stc / retf`
+                                ; stubs there and these are code nothing can
+                                ; reach (kernel size pass 11)
 ; -----------------------------------------------------------------------------
 ; dsk_vol_add - register a driver-backed volume (osapi_vol_add, SPEC.md 18.7)
 ; in:  AL = the driver's own volume handle, CX = the volume's sector count,
@@ -2887,6 +2901,7 @@ dsk_vol_drop_drv_x:
     jb .next
     jmp kretc_cx
 
+%endif                          ; OS88_DRIVERS
 %endif                          ; KD_BUILD
 ; dsk_list_floor and dsk_list_pick lived here, and SPEC.md 22.6 deleted both.
 ; There were two homes for a listing - the `.lowbss` floor, and the claim a
@@ -2914,6 +2929,10 @@ dsk_vol_drop_drv_x:
                                 ; through, which are reachable only via the
                                 ; API table - and since 96.44.6 kern_dos has
                                 ; no table at all
+%ifdef OS88_DRIVERS            ; (kern_small: driver.inc's stubs - the fence
+                                ; is `stc / ret` and the three fenced slots
+                                ; `stc / retf`, the answer this code gives
+                                ; there anyway, kernel size pass 11)
 ; -----------------------------------------------------------------------------
 ; osapi_vol_fence - is the caller the published disk driver? (internal)
 ; in:  ES = the caller's segment (the slot's X stub, or the caller's own DS)
@@ -3004,6 +3023,11 @@ osapi_vol_add_x:
     mov al, dl                  ; driver's from this store on. AL = the index,
     jmp short .tout             ; CF = 0 still from the equal compare
 
+%endif                          ; OS88_DRIVERS
+%ifdef OS88_REDIR               ; (kern_small: [dsk_fslist] is raised only by
+                                ; the OS88_REDIR arm of disk_mount, so this
+                                ; refuses every call there - driver.inc's
+                                ; `xor ax, ax / stc / retf` is the same answer)
 ; -----------------------------------------------------------------------------
 ; osapi_fs_ent - slot 0x02D9 (X: ES = the caller's segment), SPEC.md 62.9.1
 ; in:  ES:SI -> a DSK_DE_SIZE-byte staged SPEC.md 19.1 entry, in the DRIVER's
@@ -3071,6 +3095,8 @@ osapi_fs_ent_x:
     stc
     jmp short .out
 
+%endif                          ; OS88_REDIR
+%ifdef OS88_DRIVERS
 ; -----------------------------------------------------------------------------
 ; osapi_vol_del - slot 0x01FE (X).  in AL = volume index
 ; -----------------------------------------------------------------------------
@@ -3104,6 +3130,7 @@ osapi_vol_mount_x:
     pop bx                      ; arrives with the carry it returns (`pop`
 .nofence:                       ; writes no flag)
     retf
+%endif                          ; OS88_DRIVERS
 
 ; -----------------------------------------------------------------------------
 ; osapi_vol_paint - slot 0x0288: repaint the desktop's drive zones
@@ -9321,8 +9348,10 @@ dsk_fattype:  resb 1            ; 0 = FAT12, 1 = FAT16 (SPEC.md 19)
 dsk_fatwn:    resw 1            ; ...and how many are resident. On a floppy
                                 ; this is the whole FAT and the window never
                                 ; moves - the degenerate case, byte for byte
+%ifdef OS88_DRIVERS
 dsk_vcls:     resb 1            ; the class osapi_vol_fence matched, for
                                 ; dsk_vol_add to stamp into DV_CLASS
+%endif
 dsk_vkind:    resb 1            ; the mounted volume's DVK_* (SPEC.md 18.7):
                                 ; its TRANSPORT, which is what dsk_xfer needs
 dsk_vflop:    resb 1            ; ...and whether it is a FLOPPY, which is what
@@ -9332,6 +9361,7 @@ dsk_vflop:    resb 1            ; ...and whether it is a FLOPPY, which is what
                                 ; FAT, and rule 10 caps a floppy's at 9
 dsk_vsecs:    resw 1            ; ...and the sector count its driver declared,
                                 ; which is rule 13's replacement
+%ifdef OS88_REDIR
 dsk_fslist:   resb 1            ; --- a REDIRECTED volume's mount (SPEC.md
                                 ; 62.9.1) --- 1 = we are inside FSV_LIST, and
                                 ; that is the whole gate on OSAPI_FS_ENT: an
@@ -9342,6 +9372,7 @@ dsk_fsn:      resw 1            ; how many entries have been appended, parent
                                 ; link included. THE KERNEL COUNTS, because
                                 ; the count is disk_nfiles' and a driver has
                                 ; no business holding it
+%endif
 dsk_fsup:     resw 1            ; the current folder's PARENT handle, answered
                                 ; by FSV_CHDIR and spent by dsk_up_open.
                                 ; Opaque: only the driver knows what it means,
