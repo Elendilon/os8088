@@ -88,6 +88,37 @@ files (secondary, per the brief).
 At batch 2: kern_small text 32,016, bss 3,069, cold 23,049 -> resident
 61,002 (-440 from base). kern_big unchanged at 92,465.
 
+### batch 3 - DRVC_EMS keeps no table copy (big -25: text +1, bss -36, cold +10; small and emu as their arms)
+
+* **The .bss +38 was EMS's owner word and a 36-byte copy of its service
+  table - for ONE word.** EMS.DRV publishes DSV_PKGCALL and nothing else
+  (`em_svc` is 34 zero bytes and the door), and every other reader of a
+  class copy - the Control Panel page walks (DSV_CPNAME, DSV_CPCLOSE), a
+  volume's DSV_BLK, snd.inc's fixed class-1 offsets - finds nothing in it.
+  `drv_publish` now puts EMS's DSV_PKGCALL in **drv_fptr7's OFFSET half**,
+  which nothing reads for this class (`drv_pkg_disp` far-calls through class
+  1's PKG_DISP for every class, and the memory relocation walks the segment
+  halves), written before the segment publishes it. `drv_pkg_call_x` reads
+  it there (`ja .ems` after the DRVC_POINT test). `drv_cls_svc_x` goes back
+  to its pre-EMS `cmp al, DRVC_POINT / cmc / jc` (both no-copy classes are
+  the last two, asserted). `drv_svc` is `DSV_SIZE*(DRVC_MAX-3)`.
+  - No length check on the publish read: a DRVC_EMS driver is new, so it
+    cannot be a pre-PKGCALL driver with a short table - which is the only
+    thing DRV_H_DSV's test guards against - and EMS.DRV's table is full.
+  - Faster on every class: `drv_pkg_call_x` loses `cmp al, DRVC_MAX / ja`
+    and `cmp al, DRVC_POINT-1 / jb / dec` from the copy classes' path (two
+    compare-and-branch pairs, ~16 cycles, on every ETHER socket verb), and
+    EMS skips the class arithmetic and the byte `mul` (~70 cycles) for one
+    `mov bp, [drv_fptr7]`.
+  - SPEC.md 107.1 and 107.5 say so; 107.1's "inst_rel_rec calls the EMS
+    door" corrected to xm_release_rec (it has a fourth caller).
+* kern_small and kern_emu: the change is inside the live driver block, so
+  kern_small is byte-identical (built side by side, `cmp`'d) and kern_emu is
+  kern_big's arithmetic.
+
+At batch 3: kern_big text 43,411, bss 5,154, cold 37,941 -> resident
+92,440 (-55 from base). kern_small unchanged at 61,002 (-440).
+
 ## REFUSED
 
 ## DEFECTS

@@ -170418,10 +170418,14 @@ is reached by OUT and needs no CPU above an 8088.
 ### 107.1 What the kernel carries
 
 - **A class, `DRVC_EMS` = 7** (`apps/os88api.inc`), appended after
-  `DRVC_POINT` because a class number is ABI. It has a publication slot and a
-  copy of its service table; `DRVC_POINT` remains the one class with no copy,
-  and the class-to-copy arithmetic (`drv_cls_svc_x`, `drv_pkg_call_x`) skips
-  it as it skips the retired class 3.
+  `DRVC_POINT` because a class number is ABI. It has a publication slot and,
+  like `DRVC_POINT`, **no copy of its service table**: its one cell is
+  `DSV_PKGCALL`, and `drv_publish` puts that word in `drv_fptr7`'s OFFSET
+  half - which nothing reads for this class, `drv_pkg_disp` taking class
+  1's `PKG_DISP` for every far call - where `drv_pkg_call_x` reads it. So
+  `drv_cls_svc_x` refuses the two last classes by one `>= DRVC_POINT` test,
+  as it did before EMS. (It shipped for one cycle with a 36-byte copy for
+  that one word, and kernel size pass 11 took the copy out.)
 - **A row, `EMS.DRV`, "EMS"**, on `kern_big` and `kern_emu`, SYSTEM.CFG
   **bit 7** on both, **not wanted by default** (§51.3): attach writes to
   I/O ports, and on a machine without a board at that address they are
@@ -170432,8 +170436,10 @@ is reached by OUT and needs no CPU above an 8088.
   `inst_caller`'s answer (§34.3): the instance slot, or 0xFF for the kernel,
   a driver or the UI task outside a package callback. EMS ownership is keyed
   on it, because a package's SEGMENT can move under compaction (§66).
-- **A dead instance's pages are returned.** `inst_rel_rec` - the teardown
-  that releases an instance's sound grants and XMS blocks - calls the EMS
+- **A dead instance's pages are returned.** `xm_release_rec` - the
+  teardown that releases an instance's XMS blocks, entered from
+  `inst_rel_rec`'s tail after the sound grants and from `ld_unreserve`'s
+  abort sweep - calls the EMS
   class's package door with verb `EMSV_GONE` and `ES = KERNEL_SEG`, which no
   package can send (its calls arrive with its own segment in ES).
 
@@ -170516,6 +170522,14 @@ against this one:
 
 113 resident bytes on every `kern_big` machine, board or none - the estimate
 in VIDEO-XMS-PLAN 10.5 was 95-100, short by the teardown call's banking.
+
+**Kernel size pass 11 took 30 bytes of it back**: the 36-byte table copy (the
+door is `drv_fptr7`'s offset half now, 107.1; `.bss` -36, `drv_publish` +10
+of `.cold`, `drv_pkg_call_x` +1 and no longer multiplies for EMS), and the
+teardown converting the record once for the EMS door and the XMEM dispatch
+(`.text` -5). A defect came out with it: `mem_rr_tab` relocated five class
+segments of seven, so a compaction that MOVED `EMS.DRV` left `drv_fseg7`
+naming freed memory (§66.6.3; the row counts `DRVC_MAX` now).
 
 ### 107.6 Not done
 

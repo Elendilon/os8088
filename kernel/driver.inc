@@ -159,12 +159,14 @@ DRVC_POINT  equ 6               ; a POINTING DEVICE the kernel does not
                                 ; APPENDED, never slotted into the retired 3:
                                 ; a class number is ABI (DRVC_RETIRED3 above)
 DRVC_EMS    equ 7               ; EXPANDED MEMORY: a LIM EMS board's page
-                                ; registers (SPEC.md 107). A real class with
-                                ; a copied table, because its door is
-                                ; DSV_PKGCALL. AFTER DRVC_POINT, which keeps
-                                ; no copy: the class->copy index skips it as
-                                ; it skips the retired 3 (drv_cls_svc_x,
-                                ; drv_pkg_call_x)
+                                ; registers (SPEC.md 107). A real class, and
+                                ; like DRVC_POINT it keeps NO COPY of its
+                                ; table: its one cell is DSV_PKGCALL, and
+                                ; drv_publish puts that in drv_fptr7's OFFSET
+                                ; half, which nothing else reads for this
+                                ; class (drv_pkg_disp reads class 1's). A copy
+                                ; was 36 bytes of .bss for that one word
+                                ; (kernel size pass 11)
 EMSV_GONE   equ 8               ; ...and the one EMS verb the kernel sends:
                                 ; an instance is torn down (SPEC.md 107.1,
                                 ; xm_release_rec). Mirrored from os88api.inc
@@ -995,8 +997,12 @@ drv_fptr6:   dw PKG_DISP
 drv_fseg6:   dw 0               ; class 6 (DRVC_POINT). osapi_mou_feed's
                                 ; fence reads this segment word by name
                                 ; (SPEC.md 9.12.1)
-drv_fptr7:   dw PKG_DISP
-drv_fseg7:   dw 0               ; class 7 (DRVC_EMS, SPEC.md 107)
+drv_fptr7:   dw PKG_DISP        ; ...EXCEPT HERE: class 7 (DRVC_EMS, SPEC.md
+drv_fseg7:   dw 0               ; 107) has no copied table, so drv_publish
+                                ; puts its DSV_PKGCALL in this offset half and
+                                ; drv_pkg_call_x reads it from here - the far
+                                ; call itself still goes through PKG_DISP
+                                ; (drv_pkg_disp takes class 1's offset)
 
 drv_cfgname: db 'SYSTEM.CFG', 0
 drv_sysname: db 'KERNEL.SYS', 0 ; what makes a disk THE system disk (19.6): the
@@ -1411,12 +1417,9 @@ drv_cls_svc_x:
     push ax
     call drv_cls_idx            ; ...same: CF = 1 on a refusal, and `pop`
     jc .out                     ; writes no flag
-    cmp al, DRVC_POINT          ; ...and the class with no copy: CF = 1 AT
-    jb .pt                      ; it, and the one class past it, DRVC_EMS,
-    stc                         ; is compacted past it too. (The `jb` comes
-    je .out                     ; FIRST: `stc` would be the CF it tested)
-    dec di
-.pt:
+    cmp al, DRVC_POINT          ; ...and the two classes with no copy, which
+    cmc                         ; are the last two (DRVC_POINT, DRVC_EMS):
+    jc .out                     ; CF = 1 below, so complemented CF = 1 AT or past
     cmp al, DRVC_RETIRED3       ; class 3 has no drv_svc slot: the index is
     jbe .lo                     ; COMPACTED past it (drv_fptr/drv_owner are
     dec di                      ; not - a class number is shipped ABI)
@@ -2548,7 +2551,7 @@ drv_cp_class_x:
     cmp al, DRVC_RETIRED3       ; ...whose compacted slot IS class 4's, so a
     je .skip                    ; walk that visits it counts ETHER.DRV twice
     call drv_cls_svc_x
-    jc .skip                    ; DRVC_POINT keeps no copy: past it, to EMS
+    jc .skip                    ; DRVC_POINT and DRVC_EMS keep no copy
     cmp word [di+DSV_CPNAME], 0
     je .skip
     cmp bl, bh
@@ -3144,8 +3147,13 @@ drv_publish:
     push di
     mov al, [bx+DRVR_CLASS]
     call drv_cls_svc_x            ; DI = this CLASS's copy, not the one copy
-    jc .owner                   ; DRVC_POINT keeps no copy, and still has an
-                                ; owner and a dispatcher (drv_cls_svc)
+    jnc .tab                    ; DRVC_POINT and DRVC_EMS keep no copy, and
+    cmp al, DRVC_EMS            ; still have an owner and a dispatcher
+    jne .owner                  ; (drv_cls_svc) - and EMS's door, DSV_PKGCALL,
+    mov ax, [es:si+DSV_PKGCALL] ; goes in its far pointer's OFFSET half,
+    mov [drv_fptr7], ax         ; before the segment below publishes it. Its
+    jmp short .owner            ; table is always full length (ems.asm)
+.tab:
     push di                     ; every cell is published as 0 FIRST, so a
     xor ax, ax                  ; cell the driver's table stops short of is
     mov cx, DSV_SIZE / 2        ; refused by every consumer's `or bp, bp / jz`
@@ -4728,9 +4736,9 @@ drv_dlg_name: resb 14           ; the caller's default name, staged out of its
 drv_owner:  resw DRVC_MAX       ; per class: the row whose services are
                                 ; published, or 0. Class 1 is index 0
 %if DRVC_EMS != DRVC_MAX || DRVC_POINT + 1 != DRVC_EMS
-%error "driver: the class->copy index skips DRVC_POINT and then DRVC_EMS is the last copy (drv_cls_svc_x, drv_pkg_call_x)"
+%error "driver: drv_cls_svc_x refuses by `>= DRVC_POINT`, so the two classes with no copy are the last two (drv_pkg_call_x)"
 %endif
-drv_svc:    resb DSV_SIZE*(DRVC_MAX-2) ; ...and a copy of each one's table, so
+drv_svc:    resb DSV_SIZE*(DRVC_MAX-3) ; ...and a copy of each one's table, so
                                 ; every `[drv_svc+DSV_*]` in snd.inc still
                                 ; names the SOUND driver's and did not change
 drv_svc_end:
@@ -5134,23 +5142,20 @@ drv_pkg_call_x:
     mov al, bh
     cmp al, 1
     jb .none
-    cmp al, DRVC_MAX
-    ja .none
     cmp al, DRVC_POINT          ; DRVC_POINT has no drv_svc slot (drv_cls_svc_x
-    je .none                    ; refuses it too)
-    dec ax                      ; AL >= 1, so AH is not touched
-    cmp al, DRVC_RETIRED3       ; ...the same compaction, inline
+    je .none                    ; refuses it too)...
+    ja .ems                     ; ...nor has DRVC_EMS, whose door is kept in
+    dec ax                      ; its far pointer instead. AL >= 1, so AH is
+    cmp al, DRVC_RETIRED3       ; not touched. The same compaction, inline
     jb .lo
     dec ax                      ; ...and AL >= 3 here
-    cmp al, DRVC_POINT - 1      ; ...and past DRVC_POINT: DRVC_EMS's copy is
-    jb .lo                      ; the one after DRVC_FILE's
-    dec ax
 .lo:
-    mov ah, DSV_SIZE            ; AL <= 4: the BYTE multiply, which leaves DX
+    mov ah, DSV_SIZE            ; AL <= 3: the BYTE multiply, which leaves DX
     mul ah                      ; alone - two bytes and ~70 cycles where the
     xchg ax, di                 ; word one with DX banked round it was eight
                                 ; and ~150 (kernel size pass 9)
     mov bp, [di+drv_svc+DSV_PKGCALL]    ; BP = the driver's near proc...
+.door:
     or bp, bp
     jz .none                    ; ...and 0 is THE FENCE: not published, so not
                                 ; reachable. HDD.DRV lands here
@@ -5210,6 +5215,10 @@ drv_pkg_call_x:
     pop bp
     pop ds
     ret
+.ems:                           ; DRVC_EMS and anything past it: the door is
+    cmp al, DRVC_EMS            ; drv_fptr7's OFFSET half (drv_publish), and
+    mov bp, [drv_fptr7]         ; its segment is still the fence below
+    je .door
 .none:
     pop ax
     pop di
