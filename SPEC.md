@@ -117617,9 +117617,11 @@ Two defects the photographs show, both fixed:
   Both brackets close before it now.
 
 **`max` is one commit of ~1.55 s in all three arms**, and nothing in the
-three arms differs about it, so it is the first commit - the CREATE, which
-replaced the previous run's 720 KB file. 17% of a 720 KB transfer, under 2%
-of a 12 MB one. Not yet bisected.
+three arms differs about it, so it is the first commit. It is NOT a replace -
+the owner deleted the previous file before each run - it is the first
+free-cluster search after a mount on a nearly full disk, which walked every
+used cluster at three calls each. §18.4.10 is the fix: 4,489 ms -> 286 ms on
+MartyPC's 8088.
 
 #### 77.50.2 The STOR stage is 32 KB on a 286 or better, and 8 KB on an 8088
 
