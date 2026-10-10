@@ -3141,9 +3141,6 @@ CS_SWOOPHI equ 900              ; DOWN from the top in sink
                                    ; one toast from the next (88.13.8)
     ZBUF  cs_setbuf, CS_SETFSZ     ; the settings file, as it sits on the disk
     ZBYTE cs_setread               ; ...read once (88.13.9)
-    ZWORD cs_sdclus                ; where we were standing before it
-    ZBYTE cs_sddrv
-    ZBUF  cs_sdfind, OSAPI_FIND_SZ
     ZWORD cs_pwl                   ; a window's edges while it is
     ZWORD cs_pwr                   ; being resolved (88.9.5)
     ZBYTE cs_pfirst                 ; bit n: page n has never had its ground

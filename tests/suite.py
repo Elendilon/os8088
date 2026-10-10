@@ -9573,6 +9573,17 @@ SOAK = [
         "the worker far-calls the old driver and no frame is ever drawn. "
         "Needs `make pxsmove`.",
         needs=("marty",), serial=True, wants=("build/pxsmove360.img",)),
+    Row("appdata", "soak", py("tests/appdata.py"), 30.0,
+        "SPEC.md 19.9.1: what apps/os88data.inc's SYSTEM\\APPDATA visit COSTS, "
+        "on PIXELSTEIN's two files. The loads at entry walk with "
+        "OSAPI_FILE_GOTO_QM and never OSAPI_FILE_GOTO (the display remount "
+        "that made Tank's score save ~6 s, docs/plans/NAV-COST-PLAN.md) and "
+        "read the floppy at most twice; every save is FILE_GOTO-free, and "
+        "every save after the first is ONE SECTOR written - WRITE_AT's "
+        "INSIDE arm. Kernel breakpoints and the floppy controller's own "
+        "counters, with the motor left to stop before each save. Broken on "
+        "purpose with the in-place arm cut: saves 2-4 write 6 sectors each.",
+        needs=("marty",)),
     Row("pxsstate", "soak", py("tests/pxsstate.py"), 70.0,
         "SPEC.md 97.13: PIXELSTEIN's seven states in BOTH worlds, walked by "
         "the keys a player presses and the world's own clocks (a guard's "

@@ -13336,8 +13336,9 @@ pt_arg:
 ; EVERY Paint launch ran the launch-document load. With no document pt_name is
 ; the empty string a zeroed bss holds, and an empty name is exactly what
 ; dskw_name83 refuses - so an ordinary double-click on PAINT.O88 answered
-; FERR_NAME and toasted 'Bad file name', with OSAPI_FILE_GOTO having quietly
-; moved the machine to A: root (drive 0, cluster 0) on the way past. A gate
+; FERR_NAME and toasted 'Bad file name', with the OSAPI_FILE_GOTO this was
+; then having quietly moved the machine to A: root (drive 0, cluster 0) on
+; the way past. A gate
 ; the ROUTINE holds cannot be left behind by the next caller that moves - and
 ; the call site has now moved a second time, which is the whole argument.
 ; -----------------------------------------------------------------------------
@@ -13355,8 +13356,19 @@ pt_argload:
     mov byte [pt_argp], 0           ; once, whatever happens below
     mov dx, [pt_argclus]
     mov bl, [pt_argdrv]
-    call OSAPI_FILE_GOTO            ; the folder it was opened from
-    jc .out                         ; unlistable: pt_load would only fail
+    call OSAPI_FILE_GOTO_QM         ; the folder it was opened from -
+    jc .out                         ; QUIETLY, and the instance with us, so
+                                    ; pt_load's by-name read resolves there.
+                                    ; Nothing here lists the folder, so the
+                                    ; remount's scan, sort and icon harvest
+                                    ; were ~0.5 s of floppy for no reader
+                                    ; (docs/plans/NAV-COST-PLAN.md, SPEC.md
+                                    ; 19.9.1). CF=1 moved NOTHING: pt_load
+                                    ; would find pt_name in Paint's own folder,
+                                    ; a same-named stranger, so refuse. SI is
+                                    ; loaded after the call and the rest are
+                                    ; banked (QM's AX, a redirected volume's
+                                    ; CX, SI and DI - SPEC.md 62.9.1)
     mov si, pt_name                 ; pt_load reads the name from SI, not from
     call pt_load                    ; the buffer - ...and this is the dialog's
                                     ; own load

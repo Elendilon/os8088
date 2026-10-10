@@ -2505,8 +2505,9 @@ sc_tabw:
 ; in:  -
 ; out: the dropdown's items and its count set; preserves all registers
 ;
-; ONCE, and lazily. ty_scan is four remounts and two listings - a couple of
-; seconds on the target - so it runs the first time somebody opens this combo
+; ONCE, and lazily. ty_scan walks the system disk's SYSTEM/FONTS and lists it
+; - quiet stands now (os88type.inc), but still floppy reads of the folder and
+; a header read per face on the target - so it runs the first time somebody opens this combo
 ; and never again. A person who never opens it pays nothing, which is the same
 ; bargain SPEC.md 6.2 strikes with a directory of faces nobody picks from.
 ;
@@ -7171,7 +7172,8 @@ sc_save:
     call sc_stghold             ; ES = the staging claim, or a toast and out
     jc .out
     call sc_goto                ; the folder this document belongs to, if the
-                                ; volume has been moved since (SPEC.md 19.2)
+    jc .err                     ; volume has been moved since (SPEC.md 19.2);
+                                ; CF = we are not there, so write nothing
     call sc_isrtf               ; a .RTF name is the user naming a FORMAT,
     jnc .rtf                    ; and it is the one extension Save honours
     mov bp, SCM_DOCIMG          ; the whole Word file - FIB, text, FKPs,
@@ -7294,6 +7296,8 @@ sc_load:
     jc .nomem
     mov [sc_stgseg], dx
     call sc_goto                ; the folder dance on the way in
+    jc .err                     ; ...and a refusal, not a read of sc_name in
+                                ; whatever folder we were left standing in
     mov es, [sc_stgseg]
     xor bx, bx                  ; ES:BX = staging, DX:CX its capacity
     mov cx, SC_LSTGKB * 1024
@@ -9606,41 +9610,58 @@ sc_ondlg:
 
 ; -----------------------------------------------------------------------------
 ; sc_goto - put the volume back in this document's folder (SPEC.md 19.2)
-; out: nothing; preserves all registers
+; out: CF=0 and every register preserved; CF=1 = could not stand there, AX =
+;      FERR_* and every other register preserved - NOTHING MOVED, so the
+;      caller must not go on to resolve sc_name (it would find it, or a
+;      stranger of the same name, in the folder we were already in)
 ;
-; **THE KERNEL DOES THIS NOW, and this routine is kept as a no-op that costs
-; two compares** (SPEC.md 19.2.1). A file name used to resolve in the ONE
-; global current directory shared by every Disk window and by the file
-; dialog: right after Save As it still named the folder the user picked -
-; which is why saving into a folder worked - but by the next Save anything
-; that navigated had moved it, and the write landed in the root. Four
-; packages each carried their own copy of the six lines below, which is what
-; eventually said the kernel owed the feature rather than the SDK owing an
-; example. An instance owns its directory now, so OSAPI_FILE_HERE answers
-; this document's folder and the OSAPI_FILE_GOTO below never fires.
+; The kernel keeps an instance in its own folder now (SPEC.md 19.2.1), so
+; once a Save As has committed somewhere OSAPI_FILE_HERE answers that folder
+; and this is two compares. **It is NOT a no-op, though, and this comment
+; once said it was**: an instance is SEEDED at the folder its PACKAGE came
+; out of, while sc_arg copies a launch document's ARG folder into sc_dir. So
+; the first load of a document double-clicked in any other folder is exactly
+; the case where HERE and sc_dir disagree and the move below fires.
 ;
-; It stays because the slots keep their contract (SPEC.md 20.8 rule 4) and
-; because a remount was always skipped when the volume was already there -
-; which is now every time. Deleting it would be correct and would also delete
-; the record of why it was ever needed.
+; It moves with OSAPI_FILE_GOTO_QM, not OSAPI_FILE_GOTO: the next thing done
+; is a by-name read or write, which resolves through the raw directory
+; sectors, and nothing here shows the folder - so the remount's scan, sort and
+; per-file icon harvest were ~0.5 s of floppy bought for no reader
+; (docs/plans/NAV-COST-PLAN.md, SPEC.md 19.9.1). QM moves the instance with
+; it, which is what makes the next file cell resolve there.
+;
+; The two differ on FAILURE and that is why CF is an output now: a failed
+; GOTO left the volume at the root with the write gate shut, so the file call
+; after it refused on its own; a failed QM moves nothing, so the caller has to
+; refuse. CX, SI and DI are banked because on a redirected volume QM reaches
+; the driver's FSV_CHDIR and those three are the driver's (SPEC.md 62.9.1).
 ; -----------------------------------------------------------------------------
 sc_goto:
     push ax
     push bx
+    push cx
     push dx
+    push si
+    push di
     cmp byte [sc_dirok], 0
-    je .out                     ; never saved anywhere in particular
+    je .out                     ; never saved anywhere in particular (CF=0)
     call OSAPI_FILE_HERE
     cmp dx, [sc_dir]
     jne .move
     cmp bl, [sc_drv]
-    je .out
+    je .out                     ; already there (equal: CF=0)
 .move:
     mov dx, [sc_dir]
     mov bl, [sc_drv]
-    call OSAPI_FILE_GOTO        ; CF = it could not be listed; the file call
-.out:                           ; that follows will say so in its own words
+    call OSAPI_FILE_GOTO_QM     ; quiet, and the instance follows
+    jnc .out
+    mov bx, sp                  ; CF=1: the FERR_* replaces the banked AX -
+    mov [ss:bx+10], ax          ; a mov touches no flag, so CF rides out
+.out:
+    pop di
+    pop si
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -20280,7 +20301,7 @@ sc_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
 ;      everything else, which is also what keeps rule 1 to code alone.
 ;
 ; Loading is the shape drivers/hdd/hdtool.inc uses (SPEC.md 52.11) and it
-; needs no kernel byte: OSAPI_FILE_HERE / _GOTO to reach the package's own
+; needs no kernel byte: OSAPI_FILE_HERE / _GOTO_QM to reach the package's own
 ; folder, OSAPI_MEM_CLAIM for the image, OSAPI_FILE_READ to fill it. A
 ; refusal - no heap, or the disk swapped for one without SCRIBE.OVL - is an
 ; ordinary path: the feature says what is missing and the document is
@@ -20344,9 +20365,21 @@ sc_ovload:
     call OSAPI_FILE_HERE            ; where the USER is, to be put back
     mov [sc_ovwas], dx
     mov [sc_ovwdr], bl
-    mov dx, [sc_ovdir]              ; ...and off to where we were launched
-    mov bl, [sc_ovdrv]
-    call OSAPI_FILE_GOTO
+    mov dx, [sc_ovdir]              ; ...and off to where we were launched -
+    mov bl, [sc_ovdrv]              ; QUIETLY: a by-name read is all this
+    call OSAPI_FILE_GOTO_QM         ; stand is for, so the listing remount's
+                                    ; scan, sort and icon harvest were ~0.5 s
+                                    ; of floppy for no reader (docs/plans/
+                                    ; NAV-COST-PLAN.md, SPEC.md 19.9.1). CX,
+                                    ; SI and DI are banked above, which is
+                                    ; what a redirected volume's FSV_CHDIR
+                                    ; may spend (SPEC.md 62.9.1)
+    jc .nogo                        ; and this IS read now: the old GOTO's CF
+                                    ; went unread because its failure shut the
+                                    ; write gate at the root and the read
+                                    ; below refused on its own; QM's failure
+                                    ; moves NOTHING, and the read would look
+                                    ; for SCRIBE.OVL in the user's folder
     mov ax, SC_OVKB
     call OSAPI_MEM_CLAIM
     jc .nomem
@@ -20380,6 +20413,10 @@ sc_ovload:
 .ok:
     clc
     ret
+.nogo:
+    mov ax, sc_m_noovl              ; the launch folder could not be reached -
+    jmp short .unbank               ; on a swapped disk it is not there - and
+                                    ; nothing moved, so nothing to put back
 .noread:
     mov dx, [sc_ovseg]              ; the claim goes back: a half-loaded
     call OSAPI_MEM_FREE             ; module is worse than none
@@ -20390,6 +20427,7 @@ sc_ovload:
     mov ax, sc_e_nomem
 .fail:
     call sc_ovback
+.unbank:
     pop es
     pop di
     pop si
@@ -20404,14 +20442,29 @@ sc_ovload:
     ret
 
 ; sc_ovback - put the volume back where the user left it. Preserves all.
+; The same quiet stand as the way out, and for the same reason: the next
+; thing that resolves a name is a by-name file cell, never a listing. A
+; failure is not answered here and needs no answer - nothing moved, so the
+; instance is still in the launch folder, and every later Save goes through
+; sc_goto, which compares and stands in the document's own folder first.
+; AX, CX, SI and DI are banked for GOTO_QM's answer and its redirected-volume
+; clobbers (SPEC.md 62.9.1); the flags are the caller's to lose.
 sc_ovback:
+    push ax
     push bx
+    push cx
     push dx
+    push si
+    push di
     mov dx, [sc_ovwas]
     mov bl, [sc_ovwdr]
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_QM
+    pop di
+    pop si
     pop dx
+    pop cx
     pop bx
+    pop ax
     ret
 
 ; sc_ovbind - stamp this package's segment into every vector. Preserves all.

@@ -953,6 +953,10 @@ vp_open:
     call vp_pfree                   ; the last file's poster, and its keys
     call vp_rfree                   ; ...and its loaded block
     call vp_xfree                   ; ...and its hold in XMS (98.3.18)
+    push di
+    mov di, vp_rdcur                ; ...and vp_rdat's cursor, which names no
+    call os88_rseq_new              ; file and would trust the last one's
+    pop di
     xor ax, ax
     mov [vp_nkeys], ax
     mov [vp_kekb], ax               ; a keyless file reserves no entry read
@@ -3753,6 +3757,19 @@ vp_zero:
 ; The buffer holds SI + CX rounded up to a cluster, which vp_spankb bounds.
 ; out: CF=0 SI = where the offset landed; CF=1 the disk failed, or the file
 ; stops short of them
+;
+; THE DISK ARM IS os88_rseq (apps/os88rseq.inc, SPEC.md 18.4.8.1) ON ITS OWN
+; CURSOR, [vp_rdcur], and not OSAPI_FILE_READ_AT: READ_AT re-walks the chain
+; from the front on every call, so vp_ldstored's 32 KB pieces of a block up to
+; 1 MB walked a chain that grew with every piece - and so did this routine's
+; own two or three calls for a wide span. A read that carries on from where
+; the last one stopped walks one link a cluster; any other offset re-seeds the
+; cursor, which is the walk READ_AT made anyway, so no caller pays more. The
+; cursor is NOT the stream's: vp_cur, vp_xcur and vp_lycur belong to the ring,
+; the hold and the layers, and a block can load while any of them is live.
+; It names no file, so vp_open starts it cold for every file. The HELD arm
+; (vp_xrdat) still comes first - a copy out of XMS beats any disk read - and
+; on kern_small the helper makes READ_AT's own call
 vp_rdat:
     push ax
     push bx
@@ -3799,7 +3816,10 @@ vp_rdat:
     mov cx, di
     xor bx, bx
     mov si, vp_name
-    call OSAPI_FILE_READ_AT         ; DX:AX = the bytes delivered
+    push di
+    mov di, vp_rdcur
+    call os88_rseq                  ; DX:AX = the bytes delivered
+    pop di
     pop cx
     pop bx
     pop si
@@ -3841,6 +3861,8 @@ vp_rdat:
     pop bx
     pop ax
     ret
+
+%include "os88rseq.inc"            ; os88_rseq, vp_rdat's disk arm
 
 ; vp_spankb - CX = bytes at any offset: AX = the KB vp_rdat's read of them
 ; can take - CX and a cluster less a byte, rounded up to whole clusters
@@ -7010,7 +7032,10 @@ vp_fits:
 
 ; vp_ldstored - BX = a STORED block's fields, [vp_ldseg] its claim: read in
 ; whole clusters from the one under its start, 32 KB a call (vp_rdat's
-; bound), each piece where it belongs - then the whole moved down by the
+; bound), each piece where it belongs and each one starting where the last
+; ended, so vp_rdat's cursor walks the chain ONCE for the block rather than
+; once a piece from the front (READ_AT's cost, which this paid until
+; docs/plans/NAV-COST-PLAN.md's sweep) - then the whole moved down by the
 ; start's place in its cluster, a forward copy (the source is above the
 ; destination) stepped 32 KB at a time across the segments. Any size under
 ; 1 MB (98.1.7.1). CF=1 the disk failed. Clobbers AX, CX, DX, SI, DI
@@ -16120,6 +16145,7 @@ vp_ptk0:      dw 0                  ; the tick it paused at
 vp_ptk:       dw 0                  ; ticks paused, this play
 vp_fsi:       times FSI_SIZE db 0
 vp_cur:       times FSEQ_SIZE db 0
+vp_rdcur:     times FSEQ_SIZE db 0  ; vp_rdat's own (os88_rseq), never the stream's
 vp_xcur:      times FSEQ_SIZE db 0  ; THE HOLD (98.3.18): its loader's cursor,
 vp_xbase:     dd 0                  ; the block's token,
 vp_xcap:      dd 0                  ; its bytes (a KB over the file),
