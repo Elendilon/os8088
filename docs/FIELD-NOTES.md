@@ -3409,7 +3409,7 @@ setting is needed - and the boot partition of an installed machine (a video
 disk is one partition) is handed to the driver too, `OSAPI_VOL_TAKE`, and
 given back to the BIOS when the driver goes. `tests/hdtake.py` is the gate.
 
-## 66. PicoMEM: the Sound Blaster plays nothing, and the NE2000 transmits but never receives - no DHCP (OPEN — the network is FIXED and confirmed on a PicoMEM 1.x; the Sound Blaster fix awaits the field: SPEC.md 34.10.1, 72.2)
+## 66. PicoMEM: the Sound Blaster plays nothing, and the NE2000 transmits but never receives - no DHCP (OPEN — the network is FIXED and confirmed on a 1.x and a 2.x; the Sound Blaster fix awaits the field: SPEC.md 34.10.1, 34.10.2, 72.2)
 
 Two machines, two cards: a **286 with a PicoMEM 1.x** and **5150 #2 with a
 PicoMEM 2.x** (docs/FIELD-MACHINES.md). On both, `ETHER.DRV` found the card,
@@ -3457,6 +3457,17 @@ rx, no address; the Sound Blaster tier red. Two separate findings:
   jumper on IRQ 7 as well (the card's own line; 3 and 5 stay for the SB and
   the NE2000), or the newer firmware with the line set in `config.txt`. The
   PicoMEM's boot screen shows the IRQ it found, and it must not read 0.
+
+**Second run on the 2.x, IRQ 7 jumpered as well** (the card's page: `IRQ: 7
+All IRQ: 3 5 7`, NE2000 at 320h IRQ 3): **the Ethernet WORKS** - DHCP address
+and all - because the probe no longer stops at the empty 300h and reaches 320h.
+**The SB was still refused, and the card's Devices page said why**: `CMS >
+Port: 220-22F`. The firmware refuses an SB base another of its emulated
+devices holds (`CMDERR_PORTUSED`), and we only ever asked for 220h. On DOS the
+`BLASTER` variable names a free port; here `pm_snd_on` now walks 220h, 240h,
+230h, 250h, 260h on `PORTUSED` alone (SPEC.md 34.10.2), and `tests/picomem.py`
+carries the card as its page showed it - the code before this asks for 220h
+once and gives up.
 
 What to send back for the sound: whether Audio or Tracker plays through the
 Sound Blaster. **On the 2.x, the DMA jumper must be on 1.** If the

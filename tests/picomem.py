@@ -396,8 +396,11 @@ def leg_sb(tmp):
     image, syms = assemble(tmp, os.path.join(HERE, "picomem", "sbhx.asm"),
                            [os.path.join(ROOT, "drivers", "sound"), tmp],
                            "sbhx")
-    for pmirq in (7, 5, None):
-        print("sb: %s" % ("PicoMEM on IRQ %d" % pmirq if pmirq else
+    # (the card's own IRQ, CMS on 220h) - the second is the 5150's 2.x as its
+    # own Devices page showed it, CMS holding 220h-22Fh (SPEC.md 34.10.2)
+    for pmirq, cms in ((7, False), (7, True), (5, False), (None, False)):
+        print("sb: %s" % (("PicoMEM on IRQ %d%s" % (pmirq, ", CMS on 220h"
+                           if cms else "")) if pmirq else
                           "no PicoMEM in the machine"))
         st = {"pic": 0xFF, "ramp": 0x37, "args": [0, 0], "cmds": [],
               "pmw": 0}
@@ -429,6 +432,9 @@ def leg_sb(tmp):
                 ans = 0
                 if v == 0x77 and (arg & 0xFF) == pmirq:
                     ans = 1         # dev_sbdsp_set_irq_dma refuses BV_IRQ
+                if v == 0x78 and arg > 1 and cms and \
+                        0x220 >> 3 <= arg >> 3 <= 0x22F >> 3:
+                    ans = 0x10      # dev_sbdsp_install: CMDERR_PORTUSED
                 st["args"] = [ans & 0xFF, ans >> 8]
 
         def int13(box):
@@ -466,6 +472,10 @@ def leg_sb(tmp):
               "the SB (offered %s)" % offered)
         check(box.b("pm_irq") == sb_irq, "the SB took IRQ %d" % box.b("pm_irq"))
         check(st["pic"] & (1 << pmirq) == 0, "the card's line is UNMASKED")
+        want = 0x240 if cms else 0x220
+        check(box.w("pm_sbport") == want, "the DSP installed at %03Xh (want "
+              "%03Xh; asked %s)" % (box.w("pm_sbport"), want,
+                                    ["%03X" % a for c, a in st["cmds"] if c == 0x78]))
 
         box.go("entry_disc")
         cell = lambda n: (int.from_bytes(box.lin((8 + n) * 4, 2), "little"),

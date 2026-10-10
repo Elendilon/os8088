@@ -61937,7 +61937,8 @@ a fifth wants). Here the ordering is not arranged, it is structural:
 **The configuration is very nearly forced, which is why it asks the user
 nothing.** DMA is channel 1 because `sb.inc` programs channel 1 and no other
 (§34.5, binding — channel 2 is the floppy's). The port is 220h because that is
-the head of `sbl_bases` and every later entry costs another reset scan. That
+the head of `sbl_bases` and every later entry costs another reset scan — unless
+the card's CMS emulation holds it, which §34.10.2 covers. That
 leaves the IRQ, and the card is the only thing that knows which lines are
 free: `dev_sbdsp_set_irq_dma` refuses its own multiplexed line, so the
 candidates are offered in `sb.inc`'s own order (7, 5, 3 — less IRQ 2, which
@@ -62062,6 +62063,21 @@ no other (§34.5), so that jumper must be on **1**. And a 2.x cannot DMA from
 memory it is itself emulating — a ring in PicoMEM-provided conventional RAM
 would be silent there. Neither is detectable from software, so both are
 setup facts rather than code.
+
+#### 34.10.2 220h may be the card's CMS, so the port is walked
+
+**The second field run on the 2.x reached the DSP command and was refused
+there**: the PicoMEM's own Devices page listed **CMS at 220h-22Fh**, and
+`dev_sbdsp_install` refuses a base another emulated device holds
+(`CMDERR_PORTUSED`, 10h; the firmware's port table is in 8-byte blocks and the
+DSP takes two). On DOS the `BLASTER` variable names a port and the user picks
+one that is free; nothing here asks the user, so `pm_snd_on` walks
+`pm_sbports` — `PM_SB_PORT` (220h), then 240h, 230h, 250h, 260h, which is
+`sbl_bases`' own order less 210h (PMINIT does not offer it) — and moves on
+**only** on `PORTUSED`: a missing IRQ, memory or mixer is the same answer at
+every port. Whatever base is taken is one `sbl_f_probe` finds by its own scan,
+so nothing downstream learns the port from here; `[pm_sbport]` records it for
+the reader of a dump.
 
 ### 34.11 PCM through the speaker, in a bracket — `OSAPI_FSX_SPK` and `apps/os88spk.inc` (`kern_big`)
 
