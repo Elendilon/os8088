@@ -111,11 +111,11 @@ build for assembled references to the stub block's labels).
 
 | item | kern_small |
 |---|---|
-| `OSAPI_FILE_WRITE_SYS` / `_APPEND_SYS` (`api_file_sysc`): the fence (`dvf_drv_owns_seg`, `stc / retf` here) refused every caller, so both cells are `.refuse`'s answer alone - `mov ax, FERR_PROT / stc / retf`, the registers `.refuse` restored untouched; `[api_sysfp]` goes with them | text |
+| `OSAPI_FILE_WRITE_SYS` / `_APPEND_SYS` (`api_file_sysc`): the fence (`dvf_drv_owns_seg`, `stc / retf` here) refused every caller, so both cells are `.refuse`'s answer alone - `mov ax, FERR_PROT / stc / retf`, the registers `.refuse` restored untouched; `[api_sysfp]` goes with them | text -60 |
 | `api_file_find`'s fence: `call far` + `sbb al, al` + `inc al` was always AL = 0 (CF is dsk_find's output, never its input - the routine's own note) -> `xor al, al` | text -7 |
 | kernel.asm's `drv_svc_call` thunk (6) and the `drv_svc_call_x` stub (4): no caller left after batch 1's `snd_release_inst` | text -6, cold -4 |
 | `ui_cmd_reboot`'s `call COLD_SEG:drv_shutdown_x` and `app_close_win`'s `drv_cp_closed_x` (resident far calls to a `retf`): gated. kmain's `drv_notice_x` call stays - kmain is boot overlay, so its site costs no resident byte, and the stub comment's readability argument still holds there | text -10 |
-| `cp_drv_gone_x` (its one caller, `drv_release`, is OS88_DRIVERS's) and the `drv_cp_class_x` stub it called | cold |
+| `cp_drv_gone_x` (its one caller, `drv_release`, is OS88_DRIVERS's) and the `drv_cp_class_x` stub it called | cold -24 |
 | the `dvf_drv_owns_seg` stub (no caller left) | cold -2 |
 | `osapi_desk_item_x`'s own `stc / retf` -> a label on the stub block's `stc / retf` (the volume slots') | cold -2 |
 
@@ -154,3 +154,22 @@ Counts are 8088 clocks from PERFORMANCE.md Part 2's table, fetch ignored.
   parity of every `.bss` word after `ui.inc`'s block, which costs a 286 a
   wait state on whichever hot words land odd, and keeping parity with a pad
   is 0 bytes.
+
+### batch 4 - kern_small: two relocation procs for a kernel that moves nothing (small -39; big byte-identical; kern_dos -14)
+
+`mem_movable_x` is `stc / ret` without `OS88_COMPACT` (SPEC.md 66.0), and a
+listing scan for resident calls to refusal-only bodies found two declarations
+still assembled on kern_small: the read-ahead cache's (`mov ax,
+dsk_rah_reloc` / `call`, after its claim) and the icon store's (`mov ax,
+ico_reloc / mov bx, MEM_P_ICO / push dx / call / pop dx`), and with them the
+two procs, 11 bytes of `.text` each and named by nothing else. All four
+gated `OS88_COMPACT`: text -22, cold -17 = **resident 60,407 -> 60,368**.
+Nothing after either call reads its CF or AX (`dsk_rah_flush` takes no
+input; the icon path falls into `.have`, which pops BX). `kern_dos` defines
+no `OS88_COMPACT` either: kerndos.bin 32,813 -> 32,799.
+
+Left alone on purpose: `xm_release_rec` is a bare `ret` on kern_small and
+`ld_unreserve` still far-calls it through `cw_xm_release_rec` (5 + 4 bytes);
+`xmem.inc`'s note says the three teardown sites are unconditional so a
+fourth cannot forget one, and that argument is about the kernel that HAS the
+body. Not taken; 9 bytes.

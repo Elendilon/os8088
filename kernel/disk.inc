@@ -6235,12 +6235,14 @@ section .text                   ; **.text AND NOT .cold**, and nothing static
                                 ; reaching a desktop at all, because mem_unblob
                                 ; compacts at the end of kmain and the window
                                 ; is the first thing it moves
-dsk_rah_reloc:
+%ifdef OS88_COMPACT             ; (kern_small and kern_dos move nothing,
+dsk_rah_reloc:                  ; SPEC.md 66.0: no proc to declare)
     cmp bx, [dsk_rah_seg]
     jne .out
     mov [dsk_rah_seg], dx
 .out:
     ret
+%endif
 section .cold                   ; ...and back, or every routine below joins it
 
 ; -----------------------------------------------------------------------------
@@ -6409,6 +6411,7 @@ dsk_rah_want:
                                 ; off its own floor test for exactly that
                                 ; reason; the order here makes it structural
     mov [dsk_rah_seg], dx
+%ifdef OS88_COMPACT             ; (kern_small: mem_movable is `stc / ret`)
     mov ax, dsk_rah_reloc       ; ...AND MOVABLE (§66.2, §50.6.7), asc_reloc's
     call mem_movable_x          ; shape and for its reason: this claim is taken
                                 ; at a MOUNT, so after a shed it comes back
@@ -6418,6 +6421,7 @@ dsk_rah_want:
                                 ; LBAs and not addresses, and a fill in flight
                                 ; is already pinned by mem_in_xfer. BX is still
                                 ; MEM_P_DIRW - mem_claim preserves it
+%endif
     call dsk_rah_flush          ; ...and it holds nothing yet. THE ONLY place
                                 ; that is established: .bss arrives at whatever
                                 ; -f bin left there, and dsk_rah_serve would
@@ -7907,6 +7911,7 @@ ico_need:
     jc .out                     ; CF = 1 is the refusal, as it arrives
     mov [ico_seg], dx
     mov byte [ico_n], 0
+%ifdef OS88_COMPACT             ; (kern_small: nothing moves, SPEC.md 66.0)
     mov ax, ico_reloc
     mov bx, MEM_P_ICO
     push dx                     ; ...and a refusal here only PINS it, which is
@@ -7915,6 +7920,7 @@ ico_need:
                                 ; banked across it rather than re-read out of
                                 ; [ico_seg], which is two bytes and asks
                                 ; nothing about what that routine does to DX
+%endif
 .have:
     mov es, dx
     clc
@@ -8186,12 +8192,14 @@ section .text                   ; ...AND THE KERNEL SEGMENT FOR BOTH OF THESE
 ; is what a jump into the middle of an unrelated routine looks like from
 ; outside. assoc.inc's asc_reloc is in `.text` for exactly this reason.
 ; -----------------------------------------------------------------------------
+%ifdef OS88_COMPACT
 ico_reloc:
     cmp bx, [ico_seg]
     jne .out
     mov [ico_seg], dx
 .out:
     ret
+%endif
 
 ico_seg:    dw 0                ; the store's claim, 0 = none (refused, or no
                                 ; listing has wanted a body yet)
