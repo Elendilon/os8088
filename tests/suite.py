@@ -11372,6 +11372,16 @@ SOAK = [
         "sum) it FAILS with 'This .V88 is damaged'",
         needs=("marty", "nasm", "mtools"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidkeyclus", "soak", py("tests/vidkeyclus.py"), 120.0,
+        "SPEC.md 18.4.4.2, 98.1.7.6: a STREAMED .V88 keeps its seek and its "
+        "poster on a FAT16 C: with 32 KB clusters - vidbigclus's disk, a VGA8 "
+        "clip whose 39 KB keys a cluster-granular read refused there. "
+        "[vp_rgb] is a sector, every key is kept, a Right in the full screen "
+        "reads a key 20 KB into its cluster byte for byte, and the play goes "
+        "on from it. Broken on purpose (the player's probe taken out, or "
+        "dsk_read_chain's first-run skip) it FAILS",
+        needs=("marty", "nasm", "mtools"), serial=True,
+        wants=("build/video.o88",)),
     Row("vencgui", "soak", py("tests/vencguitest.py"), 90.0,
         "SPEC.md 98.2.8: the encoder's WINDOW without a window "
         "(tools/os88vencgui.py): every os88venc option on a tab with a "

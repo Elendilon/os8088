@@ -46,6 +46,7 @@ VOK_LOWMEM  equ 7                   ; the ring short of the stream's
 VOK_SNDON   equ 8                   ; ...and on again
 VOK_SNDNX   equ 9                   ; ...from the next play (no key to seek)
 VOK_BUF     equ 10                  ; the bank's prefill (98.3.18.3)
+VOK_BIGKEY  equ 11                  ; no seek: keys past one read here
 VOM_1       equ 1                   ; the renderers
 VOM_2       equ 2
 VOM_8       equ 3
@@ -270,8 +271,12 @@ vo_update:
     mov si, vo_s_roff
 .s3:
     cmp al, VOK_NOKEY
-    jne .s35
+    jne .s34
     mov si, vo_s_nokey
+.s34:
+    cmp al, VOK_BIGKEY
+    jne .s35
+    mov si, vo_s_bigkey
 .s35:
     cmp al, VOK_LOWMEM
     jne .s4
@@ -1348,7 +1353,8 @@ vo_s_roff:    db 'Repeat off', 0
 vo_s_soff:    db 'Sound off', 0
 vo_s_son:     db 'Sound on', 0
 vo_s_snx:     db 'Next play', 0
-vo_s_nokey:   db 'No seeking', 0
+vo_s_nokey:   db 'Seek: no keyframes', 0
+vo_s_bigkey:  db 'Seek: keys too big', 0
 vo_s_lowmem:  db 'Low memory', 0    ; (VO_MAXC: eighteen at most)
 vo_mode:      db 0                  ; the renderer, 0 none
 vo_rows:      dw VO_ROWS            ; the box's rows of the canvas (TEXT's 1),
