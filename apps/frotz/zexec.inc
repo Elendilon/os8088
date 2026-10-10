@@ -66,8 +66,10 @@ ZX_STKBYTES equ ZI_STKKB * 1024
 
 ; What a halt reports. A %define expands at the use site but NASM still reads
 ; this file top to bottom, so these have to precede zx_bad.
-%define zx_raw     (os88_image_end + ZEXEC_SLACK + 412)  ; byte: the opcode BYTE
-%define zx_seglim  (os88_image_end + ZEXEC_SLACK + 414)  ; word: last valid ES
+%define zx_raw     (os88_image_end + ZEXEC_SLACK + 78)   ; byte: the opcode BYTE,
+                                    ; and +79 is never written: zx_report reads
+                                    ; the pair as a word
+%define zx_seglim  (os88_image_end + ZEXEC_SLACK + 80)   ; word: last valid ES
 
 ; --- call frame layout, in the [zf_stkseg] claim ------------------------------
 ; One frame, then its locals, then its evaluation stack. Standard 6.3.1/6.3.2:
@@ -81,11 +83,12 @@ ZXF_NLOC    equ 7                   ; byte: locals in this frame
 ZXF_ARGC    equ 8                   ; word: arguments supplied (@check_arg_count)
 ZXF_LOC     equ 10                  ; the locals start here
 
-; --- private bss, out of ZEXEC_SLACK (512 bytes; 82 used) --------------------
+; --- private bss, out of ZEXEC_SLACK (84 bytes, all used: +76 is zf_sdelta, ---
+; --- +78/+80 zx_raw/zx_seglim above, +82 ZXTRACE's zxt_n) --------------------
 %define zx_op       (os88_image_end + ZEXEC_SLACK + 0)   ; byte: opcode number
-%define zx_booted   (os88_image_end + ZEXEC_SLACK + 1)   ; byte: zx_boot has run
+                                                         ; +1: free
 %define zx_seen     (os88_image_end + ZEXEC_SLACK + 2)   ; byte: last [zf_state]
-%define zx_msg      (os88_image_end + ZEXEC_SLACK + 4)   ; word: the halt message
+                                                         ; +4: free
 %define zx_ra_l     (os88_image_end + ZEXEC_SLACK + 6)   ; word: routine address
 %define zx_ra_h     (os88_image_end + ZEXEC_SLACK + 8)   ; word
 %define zx_rp_l     (os88_image_end + ZEXEC_SLACK + 10)  ; word: return address
@@ -173,12 +176,14 @@ zx_boot:
     push es
     mov es, [zf_stkseg]
     xor bx, bx
-    mov word [es:bx+ZXF_PREV], 0xFFFF
-    mov word [es:bx+ZXF_PCL], 0
-    mov word [es:bx+ZXF_PCH], 0
-    mov byte [es:bx+ZXF_STORE], 0xFF
-    mov byte [es:bx+ZXF_NLOC], 0
-    mov word [es:bx+ZXF_ARGC], 0
+    mov ax, 0xFFFF
+    mov [es:bx+ZXF_PREV], ax        ; no caller
+    mov [es:bx+ZXF_STORE], al       ; discard the result
+    inc ax
+    mov [es:bx+ZXF_NLOC], al
+    mov [es:bx+ZXF_PCL], ax
+    mov [es:bx+ZXF_PCH], ax
+    mov [es:bx+ZXF_ARGC], ax
     pop es
 
     ; The highest segment the PC may legally hold: base + (length >> 4). A word
@@ -196,13 +201,13 @@ zx_boot:
     add ax, [zf_sseg]
     mov [zx_seglim], ax
 
-    mov word [zf_fp], 0
+    xor ax, ax
+    mov [zf_fp], ax
+    mov [zf_nlocals], al
+    mov [zf_dead], ax               ; zf_dead and zf_err, side by side
+    mov [zf_rndseq], ax             ; Standard 2.4: "random" at every restart
+    mov [zf_rndctr], ax
     mov word [zf_sp], ZXF_LOC
-    mov byte [zf_nlocals], 0
-    mov byte [zf_dead], 0
-    mov byte [zf_err], 0
-    mov word [zf_rndseq], 0         ; Standard 2.4: "random" at every restart
-    mov word [zf_rndctr], 0
     call zx_seedclock
 
     cmp byte [zf_ver], 6
@@ -226,14 +231,8 @@ zx_boot:
 %ifdef ZXTRACE
     call zx_diag
 %endif
-    mov byte [zx_booted], 1
     pop es
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop5
 
 ; -----------------------------------------------------------------------------
 ; zx_seedclock - put the generator into "random" state (Standard 2.4)
@@ -629,8 +628,7 @@ zx_getvar:
     add bx, [zf_gvar]
     mov ax, bx
     pop bx
-    call zm_gw16
-    ret
+    jmp zm_gw16
 
 ; -----------------------------------------------------------------------------
 ; zx_getvar_i - read a variable, INDIRECTLY (variable 0 reads in place)
@@ -796,7 +794,17 @@ zx_pop:
 ; zx_storeres - fetch this instruction's store byte and put a result in it
 ; in:  BX = the value; ES:SI = the PC, on the store byte (Standard 4.6)
 ; out: PC advanced one byte; preserves all registers
+;
+; Two more doors, for the two shapes a handler's last line almost always has:
+; zx_storeax stores AX (BX := AX on the way in) and zx_store0 stores 0 (AX
+; and BX := 0). Every caller TAIL-JUMPS to one of the three, so a handler ends
+; in one jump instead of `mov bx, ax / call zx_storeres / ret`: 26 handlers,
+; two bytes each, and one call/ret pair less on every result an opcode stores.
 ; -----------------------------------------------------------------------------
+zx_store0:
+    xor ax, ax
+zx_storeax:
+    mov bx, ax
 zx_storeres:
     push ax
     mov al, [es:si]
@@ -875,12 +883,10 @@ zx_branch:
 ; Two shorthands: almost every branch opcode ends in one of these.
 zx_bt:
     stc
-    call zx_branch
-    ret
+    jmp zx_branch
 zx_bf:
     clc
-    call zx_branch
-    ret
+    jmp zx_branch
 
 ; -----------------------------------------------------------------------------
 ; zx_jrel - move the PC by a signed byte count
@@ -1107,29 +1113,6 @@ zx_call:
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; zx_ret - pop the current frame and return a value
-; in:  AX = the return value
-; out: ES:SI = the caller's PC; preserves every register but ES:SI
-;
-; Standard 6.3.2 makes this cheap: everything the routine pushed is discarded
-; by setting the stack pointer back to the frame base, so there is no unwind
-; loop and no way for a routine to leak stack into its caller.
-; -----------------------------------------------------------------------------
-; zx_inimage - is DX:AX inside the story image?
-; out: CF=0 yes; preserves every register
-zx_inimage:
-    cmp dx, [zf_slen_h]
-    jb .ok
-    ja .no
-    cmp ax, [zf_slen_l]
-    jb .ok
-.no:
-    stc
-    ret
-.ok:
-    clc
-    ret
 
 zx_ret:
     push ax
@@ -1167,7 +1150,7 @@ zx_ret:
     ; has been overwritten sends the interpreter to an address with no story
     ; at it, and the halt that follows names an innocent opcode several
     ; instructions later; caught HERE it names the return itself.
-    call zx_inimage
+    call zm_inimg
     jc .badret
     call zm_seek
     mov al, [zx_tmp3]
@@ -1204,20 +1187,8 @@ zx_ret:
 ; out: nothing; preserves all registers. The worker prints it and parks.
 ; -----------------------------------------------------------------------------
 zx_halt:
-    push bx
-    mov [zf_err], al
-    mov bl, al
-    sub bl, ZXE_BASE
-    cmp bl, ZXE_COUNT
-    jb .known
-    xor bl, bl
-.known:
-    xor bh, bh
-    shl bx, 1
-    mov bx, [zx_msgs + bx]
-    mov [zx_msg], bx
-    pop bx
-    ret
+    mov [zf_err], al                ; zx_report reads the reason back out of
+    ret                             ; this; nothing else is needed
 
 ; The decoder's two "no such opcode" arms land here. They are jumped to from
 ; zx_step, so the `ret` returns to zx_run, which sees [zf_err] and stops.
@@ -1236,8 +1207,7 @@ zx_lost:
     mov [zx_badpc_l], ax
     mov [zx_badpc_h], dx
     mov al, ZXE_BADOP
-    call zx_halt
-    ret
+    jmp zx_halt
 
 zx_bad:
     push ax
@@ -1250,99 +1220,122 @@ zx_bad:
     pop dx
     pop ax
     mov al, ZXE_BADOP
-    call zx_halt
-    ret
+    jmp zx_halt
 
 
 ; -----------------------------------------------------------------------------
 ; zx_report - put the halt reason on screen
 ; in:  [zf_err] set; the gfx lock NOT held
-; out: nothing; preserves all registers
+; out: nothing; clobbers AX/BX/CX/SI/DI - zx_worker, its one caller, holds
+;      nothing across it, and the six pushes that used to be here sat on top
+;      of the deepest chain the worker has (zw_notice's, SPEC.md 8.7.4). Only
+;      ES is kept, because every callee is handed the ES we were, as it always
+;      was.
+;
+; The sentence is COMPOSED: "[Frotz: " + the reason + " - the story has
+; stopped.]", into zi_line - the typed-line buffer, which nothing reads while
+; the VM is halted - and then said in one zw_notice, so the screen and the
+; harness's wire see exactly the one string they always did. Eight whole
+; sentences used to be stored, seven of them sharing thirty-five bytes.
 ; -----------------------------------------------------------------------------
 zx_report:
-    push ax
-    push si
+    push es
     call OSAPI_GFX_LOCK
-    mov al, [zf_err]
-    sub al, ZXE_BASE
+    cld
+    push ds
+    pop es                          ; ES:DI = the sentence, for stosb
+    mov di, zi_line
+    mov si, zx_m_pre
+    call zx_cat                     ; "[Frotz: "
+    mov si, zx_m_post + 3           ; "the story has stopped.]" - an [zf_err]
+    mov al, [zf_err]                ; that is not one of ours (a failed
+    sub al, ZXE_BASE                ; restart's ZERR_*) has no reason to give
     cmp al, ZXE_COUNT
-    jb .ours
-    mov si, zx_m_other
-    jmp short .say
-.ours:
-    mov si, [zx_msg]
-    or si, si
-    jnz .say
-    mov si, zx_m_other
-.say:
+    jae .last
+    mov cl, al                      ; the reason is the CL'th string of the
+    mov si, zx_reasons              ; table: step over CL of them
+.skip:
+    or cl, cl
+    jz .found
+.sk1:
+    lodsb
+    or al, al
+    jnz .sk1
+    dec cl
+    jmp short .skip
+.found:
+    call zx_cat
+    mov si, zx_m_post
+.last:
+    call zx_cat
+    mov si, zi_line
+    pop es
     push es
     call zw_notice
-    pop es
     ; An unknown opcode says WHICH and WHERE. Without that the reader is sent
     ; to a disassembler to find out what stopped, which defeats the point of
     ; stopping cleanly rather than executing wild (SPEC.md 47).
     cmp byte [zf_err], ZXE_BADOP
     jne .nodetail
-    mov si, zx_m_opat
-    push es
+    mov bx, zx_detail               ; label, then the word it is followed by
+.dl:
+    mov si, [bx]
+    or si, si
+    jz .dend
+    pop es                          ; each callee gets the ES we were given,
+    push es                         ; as it always did
     call zt_puts
     pop es
-    mov al, [zx_badop]
-    xor ah, ah
-    call zx_hex
-    mov si, zx_m_raw                ; the opcode BYTE too: 0x05 alone is five
-    push es                         ; different instructions and the form is
-    call zt_puts                    ; the only thing that separates them
-    pop es
-    mov al, [zx_raw]
-    xor ah, ah
-    call zx_hex
-    mov si, zx_m_at
     push es
-    call zt_puts
-    pop es
-    mov ax, [zx_badpc_h]
-    call zx_hex
-    mov ax, [zx_badpc_l]
-    call zx_hex
-    mov si, zx_m_seg
-    push es
-    call zt_puts
-    pop es
-    mov ax, [zx_badseg]
-    call zx_hex
-    mov si, zx_m_base
-    push es
-    call zt_puts
-    pop es
-    mov ax, [zf_sseg]
-    call zx_hex
+    mov si, [bx+2]
+    mov ax, [si]                    ; [zx_badop] and [zx_raw] are BYTES with a
+    call zx_hex                     ; spare zero above them, so a word reads
+    add bx, 4                       ; them as the 00xx they print as
+    jmp short .dl
+.dend:
     mov al, 13
-    push es
     call zt_putc
-    pop es
 .nodetail:
     call OSAPI_GFX_UNLOCK
-    pop si
-    pop ax
+    pop es
     ret
 
-zx_msgs:
-    dw zx_m_badop, zx_m_div0, zx_m_ustack, zx_m_ostack
-    dw zx_m_locals, zx_m_ret, zx_m_frame
-zx_m_badop:  db '[Frotz: unknown opcode - the story has stopped.]', 0
-zx_m_div0:   db '[Frotz: division by zero - the story has stopped.]', 0
-zx_m_ustack: db '[Frotz: stack underflow - the story has stopped.]', 0
-zx_m_ostack: db '[Frotz: stack overflow - the story has stopped.]', 0
+; zx_cat - DS:SI's NUL string onto ES:DI, NUL and all; DI ends ON the NUL
+zx_cat:
+    lodsb
+    stosb
+    or al, al
+    jnz zx_cat
+    dec di
+    ret
+
+; What the detail line prints, in order. "at 0x" is two words, high then low,
+; so the low one's label is the empty string at the end of zx_m_at.
+zx_detail:
+    dw zx_m_opat, zx_badop
+    dw zx_m_raw,  zx_raw
+    dw zx_m_at,   zx_badpc_h
+    dw zx_m_at + 6, zx_badpc_l
+    dw zx_m_seg,  zx_badseg
+    dw zx_m_base, zf_sseg
+    dw 0
+
+; ZXE_BADOP .. ZXE_FRAME, in that order - zx_report counts its way in
+zx_reasons:
+    db 'unknown opcode', 0
+    db 'division by zero', 0
+    db 'stack underflow', 0
+    db 'stack overflow', 0
+    db 'bad routine header', 0
+    db 'return with no caller', 0
+    db 'bad stack frame', 0
+zx_m_pre:    db '[Frotz: ', 0
+zx_m_post:   db ' - the story has stopped.]', 0
 zx_m_opat:   db '  opcode 0x', 0
 zx_m_raw:    db ' byte 0x', 0
 zx_m_at:     db ' at 0x', 0
 zx_m_seg:    db ' es=', 0
 zx_m_base:   db ' story=', 0
-zx_m_locals: db '[Frotz: bad routine header - the story has stopped.]', 0
-zx_m_ret:    db '[Frotz: return with no caller - the story has stopped.]', 0
-zx_m_frame:  db '[Frotz: bad stack frame - the story has stopped.]', 0
-zx_m_other:  db '[Frotz: the story has stopped.]', 0
 
 ; =============================================================================
 ; Arithmetic helpers
@@ -1506,45 +1499,38 @@ zxo_test:                           ; 2OP:7  test bitmap flags ?(label)
 zxo_or:                             ; 2OP:8  or a b -> (result)
     mov bx, [zf_ops]
     or bx, [zf_ops+2]
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxo_and:                            ; 2OP:9  and a b -> (result)
     mov bx, [zf_ops]
     and bx, [zf_ops+2]
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxo_test_attr:                      ; 2OP:10 test_attr object attribute ?(label)
     mov ax, [zf_ops]
     mov bl, byte [zf_ops+2]
     call zo_attr                    ; out CF = the bit, which IS the condition
-    call zx_branch
-    ret
+    jmp zx_branch
 
 zxo_set_attr:                       ; 2OP:11 set_attr object attribute
     mov ax, [zf_ops]
     mov bl, byte [zf_ops+2]
-    call zo_attr_set
-    ret
+    jmp zo_attr_set
 
 zxo_clear_attr:                     ; 2OP:12 clear_attr object attribute
     mov ax, [zf_ops]
     mov bl, byte [zf_ops+2]
-    call zo_attr_clr
-    ret
+    jmp zo_attr_clr
 
 zxo_store:                          ; 2OP:13 store (variable) value
     mov al, byte [zf_ops]
     mov bx, [zf_ops+2]
-    call zx_setvar                  ; indirect (Standard 6.3.4)
-    ret
+    jmp zx_setvar                  ; indirect (Standard 6.3.4)
 
 zxo_insert_obj:                     ; 2OP:14 insert_obj object destination
     mov ax, [zf_ops]
     mov bx, [zf_ops+2]
-    call zo_insert
-    ret
+    jmp zo_insert
 
 zxo_loadw:                          ; 2OP:15 loadw array word-index -> (result)
     ; The sum wraps at 16 bits, which is what every interpreter does and what
@@ -1554,79 +1540,62 @@ zxo_loadw:                          ; 2OP:15 loadw array word-index -> (result)
     shl ax, 1
     add ax, [zf_ops]
     call zm_gw16
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxo_loadb:                          ; 2OP:16 loadb array byte-index -> (result)
     mov ax, [zf_ops+2]
     add ax, [zf_ops]
     call zm_gb16
     xor ah, ah
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxo_get_prop:                       ; 2OP:17 get_prop object property -> (result)
     mov ax, [zf_ops]
     mov bl, byte [zf_ops+2]
     call zo_getprop
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxo_get_prop_addr:                  ; 2OP:18 get_prop_addr obj prop -> (result)
     mov ax, [zf_ops]
     mov bl, byte [zf_ops+2]
     call zo_propaddr
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxo_get_next_prop:                  ; 2OP:19 get_next_prop obj prop -> (result)
     mov ax, [zf_ops]
     mov bl, byte [zf_ops+2]
     call zo_nextprop                ; out AL
     xor ah, ah
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxo_add:                            ; 2OP:20 add a b -> (result)
     mov bx, [zf_ops]
     add bx, [zf_ops+2]
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxo_sub:                            ; 2OP:21 sub a b -> (result)
     mov bx, [zf_ops]
     sub bx, [zf_ops+2]
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxo_mul:                            ; 2OP:22 mul a b -> (result)
     mov ax, [zf_ops]
     mov bx, [zf_ops+2]
     imul bx                         ; DX:AX; the Standard keeps the low word
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxo_div:                            ; 2OP:23 div a b -> (result) - signed
     mov ax, [zf_ops]
     mov bx, [zf_ops+2]
     call zx_sdiv
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxo_mod:                            ; 2OP:24 mod a b -> (result) - signed
     mov ax, [zf_ops]
     mov bx, [zf_ops+2]
     call zx_sdiv
     mov bx, dx
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxo_call_2s:                        ; 2OP:25 call_2s routine arg1 -> (result)
     mov al, [es:si]                 ; the store byte comes BEFORE the jump
@@ -1639,8 +1608,7 @@ zxo_call_2s:                        ; 2OP:25 call_2s routine arg1 -> (result)
     call zm_unpack
     pop bx
     mov cx, 1
-    call zx_call
-    ret
+    jmp zx_call
 
 zxo_call_2n:                        ; 2OP:26 call_2n routine arg1
     mov ax, [zf_ops]
@@ -1648,8 +1616,7 @@ zxo_call_2n:                        ; 2OP:26 call_2n routine arg1
     call zm_unpack
     mov cx, 1
     mov bl, 0xFF                    ; the result is discarded
-    call zx_call
-    ret
+    jmp zx_call
 
 zxo_set_colour:                     ; 2OP:27 set_colour foreground background
     ; Honoured on VGA, ignored on the 1bpp adapters by zwin (FROTZ-PLAN 5.1):
@@ -1685,13 +1652,11 @@ zxo_throw:                          ; 2OP:28 throw value stack-frame
     mov [zf_nlocals], al
     pop es
     mov ax, [zf_ops]
-    call zx_ret
-    ret
+    jmp zx_ret
 .badframe:
     pop es
     mov al, ZXE_FRAME
-    call zx_halt
-    ret
+    jmp zx_halt
 
 ; =============================================================================
 ; 1OP opcodes
@@ -1727,23 +1692,18 @@ zxo_get_child:                      ; 1OP:130 get_child obj -> (result) ?(label)
 zxo_get_parent:                     ; 1OP:131 get_parent object -> (result)
     mov ax, [zf_ops]
     call zo_parent
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxo_get_prop_len:                   ; 1OP:132 get_prop_len prop-addr -> (result)
     mov ax, [zf_ops]
     or ax, ax
     jnz .real
-    xor bx, bx                      ; Standard 15: get_prop_len 0 must give 0
-    call zx_storeres
-    ret
+    ; Standard 15: get_prop_len 0 must give 0
+    jmp zx_store0
 .real:
     xor dx, dx
     call zo_proplen
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxo_inc:                            ; 1OP:133 inc (variable)
     mov al, byte [zf_ops]
@@ -1752,8 +1712,7 @@ zxo_inc:                            ; 1OP:133 inc (variable)
     inc ax
     mov bx, ax
     pop ax
-    call zx_setvar
-    ret
+    jmp zx_setvar
 
 zxo_dec:                            ; 1OP:134 dec (variable)
     mov al, byte [zf_ops]
@@ -1762,8 +1721,7 @@ zxo_dec:                            ; 1OP:134 dec (variable)
     dec ax
     mov bx, ax
     pop ax
-    call zx_setvar
-    ret
+    jmp zx_setvar
 
 zxo_print_addr:                     ; 1OP:135 print_addr byte-address-of-string
     mov ax, [zf_ops]
@@ -1784,13 +1742,11 @@ zxo_call_1s:                        ; 1OP:136 call_1s routine -> (result)
     call zm_unpack
     pop bx
     xor cx, cx
-    call zx_call
-    ret
+    jmp zx_call
 
 zxo_remove_obj:                     ; 1OP:137 remove_obj object
     mov ax, [zf_ops]
-    call zo_remove
-    ret
+    jmp zo_remove
 
 zxo_print_obj:                      ; 1OP:138 print_obj object
     mov ax, [zf_ops]
@@ -1802,16 +1758,14 @@ zxo_print_obj:                      ; 1OP:138 print_obj object
 
 zxo_ret:                            ; 1OP:139 ret value
     mov ax, [zf_ops]
-    call zx_ret
-    ret
+    jmp zx_ret
 
 zxo_jump:                           ; 1OP:140 jump ?(label)
     ; Not a branch opcode: the operand IS the offset, and it is signed
     ; (Standard 4.7.2's arithmetic applies here too).
     mov bx, [zf_ops]
     sub bx, 2
-    call zx_jrel
-    ret
+    jmp zx_jrel
 
 zxo_print_paddr:                    ; 1OP:141 print_paddr packed-addr-of-string
     mov ax, [zf_ops]
@@ -1825,9 +1779,7 @@ zxo_print_paddr:                    ; 1OP:141 print_paddr packed-addr-of-string
 zxo_load:                           ; 1OP:142 load (variable) -> (result)
     mov al, byte [zf_ops]
     call zx_getvar_i                ; indirect (Standard 6.3.4)
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxo_not1:                           ; 1OP:143 - two opcodes at one number
     ; @not until v4; from v5 the slot is @call_1n and @not moved to VAR:248.
@@ -1835,16 +1787,14 @@ zxo_not1:                           ; 1OP:143 - two opcodes at one number
     jae .call1n
     mov bx, [zf_ops]
     not bx
-    call zx_storeres
-    ret
+    jmp zx_storeres
 .call1n:
     mov ax, [zf_ops]
     mov bl, 0
     call zm_unpack
     xor cx, cx
     mov bl, 0xFF
-    call zx_call
-    ret
+    jmp zx_call
 
 ; =============================================================================
 ; 0OP opcodes
@@ -1852,13 +1802,11 @@ zxo_not1:                           ; 1OP:143 - two opcodes at one number
 
 zxo_rtrue:                          ; 0OP:176
     mov ax, 1
-    call zx_ret
-    ret
+    jmp zx_ret
 
 zxo_rfalse:                         ; 0OP:177
     xor ax, ax
-    call zx_ret
-    ret
+    jmp zx_ret
 
 zxo_print:                          ; 0OP:178 print (literal-string)
     ; Standard 4.8: the text is inline and execution continues after the word
@@ -1868,8 +1816,7 @@ zxo_print:                          ; 0OP:178 print (literal-string)
     push es
     call zt_print_ret ; out DX:AX = the address after the string
     pop es
-    call zm_seek
-    ret
+    jmp zm_seek
 
 zxo_print_ret:                      ; 0OP:179 print_ret (literal-string)
     call zm_pcaddr
@@ -1881,8 +1828,7 @@ zxo_print_ret:                      ; 0OP:179 print_ret (literal-string)
     call zt_putc
     pop es
     mov ax, 1
-    call zx_ret
-    ret
+    jmp zx_ret
 
 zxo_nop:                            ; 0OP:180
     ret
@@ -1915,8 +1861,7 @@ zxo_save0:                          ; 0OP:181 save - three different opcodes
     jz .st
     xor bx, bx
 .st:
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxo_restore0:                       ; 0OP:182 restore - the mirror of the above
     cmp byte [zf_ver], 5
@@ -1943,8 +1888,7 @@ zxo_restore0:                       ; 0OP:182 restore - the mirror of the above
     jz .st
     xor bx, bx
 .st:
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxo_restart:                        ; 0OP:183 restart
     ; There is no resident pristine copy of the story (FROTZ-PLAN 3), so a
@@ -1963,18 +1907,15 @@ zxo_restart:                        ; 0OP:183 restart
 
 zxo_ret_popped:                     ; 0OP:184 ret_popped
     call zx_pop
-    call zx_ret
-    ret
+    jmp zx_ret
 
 zxo_pop_catch:                      ; 0OP:185 pop (v1-4) / catch (v5+)
     cmp byte [zf_ver], 5
     jae .catch
-    call zx_pop                     ; the value is thrown away
-    ret
+    jmp zx_pop                     ; the value is thrown away
 .catch:
     mov bx, [zf_fp]                 ; Standard 6.5: a frame index @throw takes
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxo_quit:                           ; 0OP:186 quit
     mov byte [zf_dead], 1
@@ -2006,9 +1947,17 @@ zxo_show_status:                    ; 0OP:188 show_status
     ret
 
 zxo_verify:                         ; 0OP:189 verify ?(label)
+    ; zx_verify YIELDS, every 4KB, and the story may MOVE while it does (the
+    ; compactor parks us at OSAPI_TASK_ALIVE, SPEC.md 66.5.9). So the PC goes
+    ; out through [zf_pcseg]/[zf_pcoff] - which zf_reloc keeps current - and
+    ; comes back the same way, rather than as an ES saved on the stack that a
+    ; move leaves pointing at the claim's OLD home. It used to come back as
+    ; exactly that, and the branch byte below was then read out of memory the
+    ; story no longer owned. None of the three touches the flags.
+    call zx_spill
     call zx_verify
-    call zx_branch
-    ret
+    call zx_load
+    jmp zx_branch
 
 zxo_piracy:                         ; 0OP:191 piracy ?(label)
     ; Standard 15: "interpreters are asked to branch on true". This copy is
@@ -2017,7 +1966,8 @@ zxo_piracy:                         ; 0OP:191 piracy ?(label)
 
 ; -----------------------------------------------------------------------------
 ; zx_verify - checksum the story against its header (Standard 11.1.1.4)
-; in:  the gfx lock held.  out: CF = 1 if they agree; preserves all registers
+; in:  the gfx lock held.  out: CF = 1 if they agree; clobbers AX/BX/CX/DX/SI/
+;      DI/ES - the one caller reloads the PC from bss after it (zxo_verify)
 ;
 ; The sum runs from $40 to the LENGTH IN THE HEADER, not to the end of the
 ; file: some story files are padded to a page boundary and many Infocom ones
@@ -2028,65 +1978,48 @@ zxo_piracy:                         ; 0OP:191 piracy ?(label)
 ; half a megabyte of `mov`/`add` is ~2s on a 4.77MHz 8088 - so it drops the
 ; lock every 4KB, which is ~16ms of work, well inside one 55ms tick, and calls
 ; zi_yield there so the desktop and the clock keep running through it.
+;
+; ES:SI walks the story itself and is renormalised after every chunk, so SI
+; never passes $9000; DX:AX counts down what is left. zi_yield repairs the ES
+; it is handed if the compactor slid the story meanwhile (zio.inc), which is
+; why nothing here is re-derived from an address after a yield.
 ; -----------------------------------------------------------------------------
 zx_verify:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-    push si
-    push es
-    mov word [zx_sum], 0
-    mov word [zx_tmp0], 0x40        ; the running address, low
-    mov word [zx_tmp1], 0           ; ...and high
+    mov ax, 0x40
+    xor dx, dx
+    call zm_addr                    ; ES:SI = story + $40
     mov ax, [zf_slen_l]
     mov dx, [zf_slen_h]
     sub ax, 0x40
     sbb dx, 0
     js .fail                        ; a length under $40 is not a story
-    mov [zx_tmp2], ax               ; bytes remaining, low
-    mov [zx_tmp3], dx               ; ...and high
-.chunk:
-    mov ax, [zx_tmp2]
-    or ax, [zx_tmp3]
-    jz .done
-    mov cx, 0x1000
-    cmp word [zx_tmp3], 0
-    jne .full
-    cmp [zx_tmp2], cx
-    jae .full
-    mov cx, [zx_tmp2]
-.full:
-    mov ax, [zx_tmp0]
-    mov dx, [zx_tmp1]
-    call zm_addr                    ; ES:SI = the chunk, and NOT the PC
-    mov di, [zx_sum]
+    xor di, di                      ; DI = the sum
     xor bh, bh
+.chunk:
+    mov cx, 0x1000
+    or dx, dx
+    jnz .full
+    cmp ax, cx
+    jae .full
+    mov cx, ax                      ; the last, short chunk...
+    jcxz .done                      ; ...or nothing left at all
+.full:
+    sub ax, cx
+    sbb dx, 0
 .byte:
     mov bl, [es:si]
     inc si
     add di, bx
     loop .byte
-    mov [zx_sum], di
-    ; advance and give the machine back
-    mov ax, [zx_tmp0]
-    mov dx, [zx_tmp1]
-    mov cx, 0x1000
-    cmp word [zx_tmp3], 0
-    jne .step
-    cmp [zx_tmp2], cx
-    jae .step
-    mov cx, [zx_tmp2]
-.step:
+    push ax
+    mov ax, si                      ; move SI's whole paragraphs into ES
+    mov cl, 4
+    shr ax, cl
+    mov cx, es
     add ax, cx
-    adc dx, 0
-    mov [zx_tmp0], ax
-    mov [zx_tmp1], dx
-    mov ax, [zx_tmp2]
-    sub ax, cx
-    mov [zx_tmp2], ax
-    sbb word [zx_tmp3], 0
+    mov es, ax
+    and si, 15
+    pop ax
     call zx_unlock
     call zi_yield                   ; OSAPI_TASK_ALIVE + a yield, lock free
     call zx_lock
@@ -2094,20 +2027,12 @@ zx_verify:
 .done:
     mov ax, 0x1C                    ; header word 9: the file's own checksum
     call zm_gw16
-    cmp ax, [zx_sum]
+    cmp ax, di
     jne .fail
     stc
-    jmp short .out
+    ret
 .fail:
     clc
-.out:
-    pop es
-    pop si
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; =============================================================================
@@ -2130,8 +2055,7 @@ zxo_call:                           ; VAR:224 call / call_vs -> (result)
     jz .noargs
     dec cx                          ; operand 0 is the routine, not an argument
 .noargs:
-    call zx_call
-    ret
+    jmp zx_call
 
 zxo_call_vn:                        ; VAR:249 call_vn / VAR:250 call_vn2
     mov ax, [zf_ops]
@@ -2144,30 +2068,26 @@ zxo_call_vn:                        ; VAR:249 call_vn / VAR:250 call_vn2
     dec cx
 .noargs:
     mov bl, 0xFF
-    call zx_call
-    ret
+    jmp zx_call
 
 zxo_storew:                         ; VAR:225 storew array word-index value
     mov ax, [zf_ops+2]
     shl ax, 1
     add ax, [zf_ops]
     mov bx, [zf_ops+4]
-    call zm_pw16
-    ret
+    jmp zm_pw16
 
 zxo_storeb:                         ; VAR:226 storeb array byte-index value
     mov ax, [zf_ops+2]
     add ax, [zf_ops]
     mov bl, byte [zf_ops+4]
-    call zm_pb16
-    ret
+    jmp zm_pb16
 
 zxo_put_prop:                       ; VAR:227 put_prop object property value
     mov ax, [zf_ops]
     mov bl, byte [zf_ops+2]
     mov cx, [zf_ops+4]
-    call zo_putprop
-    ret
+    jmp zo_putprop
 
 zxo_read:                           ; VAR:228 sread (v1-4) / aread (v5+)
     ; Standard 15 read. Everything about the two buffers - lower-casing, the
@@ -2235,22 +2155,16 @@ zxo_random:                         ; VAR:231 random range -> (result)
     ja .seed
     mov [zf_rndseq], ax             ; the predictable sequence
     mov word [zf_rndctr], 0
-    xor bx, bx
-    call zx_storeres
-    ret
+    jmp zx_store0
 .seed:
     mov [zf_rndlo], ax
     mov word [zf_rndhi], 0
     mov word [zf_rndseq], 0
-    xor bx, bx
-    call zx_storeres
-    ret
+    jmp zx_store0
 .clock:
     call zx_seedclock
     mov word [zf_rndseq], 0
-    xor bx, bx
-    call zx_storeres
-    ret
+    jmp zx_store0
 .draw:
     mov cx, ax                      ; CX = the range, 1..32767
     cmp word [zf_rndseq], 0
@@ -2266,22 +2180,18 @@ zxo_random:                         ; VAR:231 random range -> (result)
     jbe .have
     mov ax, cx                      ; never answer outside the asked range
 .have:
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 .real:
     call zx_rand16
     xor dx, dx
     div cx                          ; DX = 0..range-1
     inc dx
     mov bx, dx
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxo_push:                           ; VAR:232 push value
     mov ax, [zf_ops]
-    call zx_push
-    ret
+    jmp zx_push
 
 zxo_pull:                           ; VAR:233 pull (variable) / v6 pull stack
     cmp byte [zf_ver], 6
@@ -2289,8 +2199,7 @@ zxo_pull:                           ; VAR:233 pull (variable) / v6 pull stack
     call zx_pop
     mov bx, ax
     mov al, byte [zf_ops]
-    call zx_setvar                  ; indirect (Standard 6.3.4)
-    ret
+    jmp zx_setvar                  ; indirect (Standard 6.3.4)
 .v6:
     cmp byte [zf_opn], 1
     jb .own
@@ -2305,14 +2214,10 @@ zxo_pull:                           ; VAR:233 pull (variable) / v6 pull stack
     shl ax, 1
     add ax, [zf_ops]
     call zm_gw16
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 .own:
     call zx_pop
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxo_split_window:                   ; VAR:234 split_window lines
     call zx_v6
@@ -2394,8 +2299,7 @@ zxo_get_cursor:                     ; VAR:240 get_cursor array
     pop bx
     mov ax, [zf_ops]
     add ax, 2
-    call zm_pw16
-    ret
+    jmp zm_pw16
 
 zxo_set_text_style:                 ; VAR:241 set_text_style style
     ; NAME CLASH, and it is real: zbss.inc already owns `zw_style` as the byte
@@ -2458,9 +2362,7 @@ zxo_read_char:                      ; VAR:246 read_char 1 time routine -> (resul
     pop ax
     call zx_load
     xor ah, ah
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxo_scan_table:                     ; VAR:247 scan_table x table len form
     mov ax, [zf_ops+6]
@@ -2500,8 +2402,7 @@ zxo_scan_table:                     ; VAR:247 scan_table x table len form
 zxo_notv:                           ; VAR:248 not value -> (result), v5+
     mov bx, [zf_ops]
     not bx
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxo_tokenise:                       ; VAR:251 tokenise text parse dict flag
     mov ax, [zf_ops]
@@ -2764,12 +2665,9 @@ zxe_save:                           ; EXT:0  save table bytes name -> (result)
     jz .st
     xor bx, bx
 .st:
-    call zx_storeres
-    ret
+    jmp zx_storeres
 .aux:
-    xor bx, bx
-    call zx_storeres
-    ret
+    jmp zx_store0
 
 zxe_restore:                        ; EXT:1  restore table bytes name -> (result)
     cmp byte [zf_opn], 0
@@ -2790,12 +2688,9 @@ zxe_restore:                        ; EXT:1  restore table bytes name -> (result
     jz .st
     xor bx, bx
 .st:
-    call zx_storeres
-    ret
+    jmp zx_storeres
 .aux:
-    xor bx, bx
-    call zx_storeres
-    ret
+    jmp zx_store0
 
 zxe_log_shift:                      ; EXT:2  log_shift number places -> (result)
     mov ax, [zf_ops]
@@ -2818,9 +2713,7 @@ zxe_log_shift:                      ; EXT:2  log_shift number places -> (result)
 .rok:
     shr ax, cl
 .st:
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxe_art_shift:                      ; EXT:3  art_shift number places -> (result)
     mov ax, [zf_ops]
@@ -2843,9 +2736,7 @@ zxe_art_shift:                      ; EXT:3  art_shift number places -> (result)
 .rok:
     sar ax, cl                      ; the sign is shifted on down, not zeros
 .st:
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxe_set_font:                       ; EXT:4  set_font font -> (result)
     ; There is exactly one font in this kernel (SPEC.md 6: 8x8, copied out of
@@ -2859,13 +2750,10 @@ zxe_set_font:                       ; EXT:4  set_font font -> (result)
     je .cur
     cmp ax, 4
     je .cur
-    xor bx, bx
-    call zx_storeres
-    ret
+    jmp zx_store0
 .cur:
     mov bx, 1
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxe_draw_picture:                   ; EXT:5  draw_picture picture-number y x
     mov ax, [zf_ops]
@@ -2933,8 +2821,7 @@ zxe_set_margins:                    ; EXT:8  set_margins left right window
     pop es
     pop ax
     mov al, ah
-    call zx6_unsel
-    ret
+    jmp zx6_unsel
 
 zxe_save_undo:                      ; EXT:9  save_undo -> (result)
     ; The snapshot claim is optional (FROTZ-PLAN 3: a story that loses UNDO on
@@ -2946,8 +2833,7 @@ zxe_save_undo:                      ; EXT:9  save_undo -> (result)
     jnc .st
     xor bx, bx
 .st:
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxe_restore_undo:                   ; EXT:10 restore_undo -> (result)
     call zx_spill
@@ -2962,8 +2848,7 @@ zxe_restore_undo:                   ; EXT:10 restore_undo -> (result)
     jz .st
     xor bx, bx
 .st:
-    call zx_storeres
-    ret
+    jmp zx_storeres
 
 zxe_print_unicode:                  ; EXT:11 print_unicode char-number
     ; The font draws 32..126 and nothing else (SPEC.md 6), so a code above 255
@@ -2991,12 +2876,9 @@ zxe_check_unicode:                  ; EXT:12 check_unicode char -> (result)
     cmp ax, 126
     ja .no
     mov bx, 3
-    call zx_storeres
-    ret
+    jmp zx_storeres
 .no:
-    xor bx, bx
-    call zx_storeres
-    ret
+    jmp zx_store0
 
 zxe_set_true_colour:                ; EXT:13 set_true_colour fg bg [window]
     ; 15-bit RGB against a 16-entry palette that is black and white on two
@@ -3016,8 +2898,7 @@ zxe_move_window:                    ; EXT:16 move_window window y x
     pop es
     pop ax
     mov al, ah
-    call zx6_unsel
-    ret
+    jmp zx6_unsel
 
 zxe_window_size:                    ; EXT:17 window_size window y x
     mov al, byte [zf_ops]
@@ -3030,8 +2911,7 @@ zxe_window_size:                    ; EXT:17 window_size window y x
     pop es
     pop ax
     mov al, ah
-    call zx6_unsel
-    ret
+    jmp zx6_unsel
 
 zxe_window_style:                   ; EXT:18 window_style window flags operation
     mov al, byte [zf_ops]
@@ -3044,8 +2924,7 @@ zxe_window_style:                   ; EXT:18 window_style window flags operation
     pop es
     pop ax
     mov al, ah
-    call zx6_unsel
-    ret
+    jmp zx6_unsel
 
 zxe_get_wind_prop:                  ; EXT:19 get_wind_prop window prop -> (result)
     mov al, byte [zf_ops]
@@ -3053,9 +2932,7 @@ zxe_get_wind_prop:                  ; EXT:19 get_wind_prop window prop -> (resul
     push es
     call zw6_getprop ; out AX
     pop es
-    mov bx, ax
-    call zx_storeres
-    ret
+    jmp zx_storeax
 
 zxe_scroll_window:                  ; EXT:20 scroll_window window pixels
     mov al, byte [zf_ops]
@@ -3067,8 +2944,7 @@ zxe_scroll_window:                  ; EXT:20 scroll_window window pixels
     pop es
     pop ax
     mov al, ah
-    call zx6_unsel
-    ret
+    jmp zx6_unsel
 
 zxe_pop_stack:                      ; EXT:21 pop_stack items stack
     cmp byte [zf_opn], 2
@@ -3079,8 +2955,7 @@ zxe_pop_stack:                      ; EXT:21 pop_stack items stack
     add ax, [zf_ops]
     mov bx, ax
     mov ax, [zf_ops+2]
-    call zm_pw16
-    ret
+    jmp zm_pw16
 .own:
     mov cx, [zf_ops]
     jcxz .out
@@ -3114,8 +2989,7 @@ zxe_read_mouse:                     ; EXT:22 read_mouse array
     mov ax, [zf_ops]                ; word 3 is the menu word; no story menus
     add ax, 6
     xor bx, bx
-    call zm_pw16
-    ret
+    jmp zm_pw16
 
 zxe_mouse_window:                   ; EXT:23 mouse_window window
     ; Confines the mouse to one window. The kernel owns the pointer and there
@@ -3189,9 +3063,8 @@ zxe_picture_table:                  ; EXT:28 picture_table table
     ret
 
 zxe_buffer_screen:                  ; EXT:29 buffer_screen mode -> (result)
-    xor bx, bx                      ; 0 = we do not buffer the screen
-    call zx_storeres
-    ret
+    ; 0 = we do not buffer the screen
+    jmp zx_store0
 
 ; =============================================================================
 ; The dispatch tables (Standard 14)
@@ -3321,12 +3194,7 @@ zx_diag:
     call zt_putc
     pop es
     pop es
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop5
 
 ; AL as two hex digits.
 zx_hex2:
@@ -3409,7 +3277,7 @@ zx_hex:
 ; whole question when a story halts before printing anything.
 ZXT_N equ 14
 ZXT_MASK equ 0x0FFF
-%define zxt_n (os88_image_end + ZEXEC_SLACK + 400)   ; word, inside our slack
+%define zxt_n (os88_image_end + ZEXEC_SLACK + 82)    ; word, inside our range
 zx_trace:
     push ax
     push bx
@@ -3455,11 +3323,6 @@ zx_trace:
     pop es
 .out:
     pop es
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop5
 
 %endif

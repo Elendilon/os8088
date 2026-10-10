@@ -384,6 +384,32 @@ zf_copyname:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; zf_pop7 .. zf_pop3 - ONE shared epilogue for the procs that push in the
+; house order (ax, bx, cx, dx, si, di, es) and pop it back: a proc that saved
+; the last N of those ends `jmp zf_popN` instead of N pops and a ret. Forty-odd
+; procs end this way, so the ladder is written once instead of forty times.
+;
+; A JUMP, NOT A CALL: it costs no stack, so no worker's deepest chain gets a
+; byte deeper (SPEC.md 8.7.4), and pops do not touch the flags, so a CF the
+; proc returns survives it. It costs a jump (15 clocks) on the way out, which
+; is why ONLY THE COLD PROCS take it - the dispatch, the memory reads, the
+; text decoder and the per-character output keep their own pops.
+; -----------------------------------------------------------------------------
+zf_pop7:
+    pop es
+zf_pop6:
+    pop di
+zf_pop5:
+    pop si
+zf_pop4:
+    pop dx
+zf_pop3:
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; =============================================================================
 ; zf_paint - W_PAINT (SPEC.md 11)
 ; in:  SI = window ptr; the gfx lock is HELD and the content is already white
@@ -395,7 +421,7 @@ zf_copyname:
 ;
 ;   no story        the splash: what this is, and how to open one
 ;   loading         a one-line notice; zi_load owns the screen
-;   running         zw_paint / zw6_paint repaints from the scrollback
+;   running         zw_paint repaints from the scrollback
 ; =============================================================================
 ; -----------------------------------------------------------------------------
 ; zf_onwake - W_ONWAKE: open the story we were launched on (SPEC.md 54.10/74.1)
@@ -456,11 +482,7 @@ zf_paint:
 .done:
     pop si
     pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop4
 
 ; -----------------------------------------------------------------------------
 ; zf_hire - make sure this instance owns its worker, and say nothing when it
@@ -544,11 +566,7 @@ zf_onkey:
     call zw_scrollpage
 .out:
     pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop4
 
 ; =============================================================================
 ; zf_onclick - W_ONCLICK
@@ -576,11 +594,7 @@ zf_onclick:
 %endif
     call zw_click
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop4
 
 %ifdef OS88UI_SBDRAG
 ; -----------------------------------------------------------------------------
@@ -626,11 +640,7 @@ zf_onup:
     call OSAPI_WM_TIMER
     call zw_sbcommit                ; the release COMMITS, unconditionally
 zf_sbd_out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop4
 %endif
 
 ; =============================================================================
@@ -752,13 +762,7 @@ zf_abouth:
     add dx, ZF_LEAD
     jmp .loop
 .done:
-    mov byte [zf_showabout], 1      ; the next key or click repaints the story
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop5
 
 ; =============================================================================
 ; zf_splash - the no-story screen
@@ -792,12 +796,7 @@ zf_splash:
     add dx, ZF_LEAD
     jmp .loop
 .done:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop5
 
 ; =============================================================================
 ; Data: the window template, the menu set, the strings
@@ -826,6 +825,7 @@ zf_it_rest:  db 'Restore Game...', 0
 zf_m_story:  db 'Story', 0
 zf_i_story:  dw zf_it_script
 zf_it_script: db 'Transcript', 0
+
 
 zf_about:    db 'Frotz', 0
 

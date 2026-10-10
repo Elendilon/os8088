@@ -381,8 +381,7 @@ zi_wd:
     mov al, dl
     stosb
     pop ax
-    call zi_ww
-    ret
+    jmp zi_ww
 
 ; -----------------------------------------------------------------------------
 ; zi_rw / zi_rd - read a big-endian word / dword out of the staging buffer
@@ -398,8 +397,7 @@ zi_rw:
 zi_rd:
     call zi_rw
     mov dx, ax
-    call zi_rw
-    ret
+    jmp zi_rw
 
 ; -----------------------------------------------------------------------------
 ; zi_scmp - compare story bytes against staged bytes
@@ -535,7 +533,7 @@ zi_reload:
     push si
     push es
     mov byte [zf_reqres], ZRES_FAIL
-    call zm_dynlen                  ; AX = [zf_static]
+    mov ax, [zf_static]             ; the length of dynamic memory
     or ax, ax
     jz .done
     mov cx, ax
@@ -552,12 +550,7 @@ zi_reload:
 .done:
     mov byte [zf_req], ZREQ_NONE    ; last: the worker is watching this byte
     pop es
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop5
 
 ; -----------------------------------------------------------------------------
 ; zi_restart - @restart's worker half (WORKER)
@@ -670,16 +663,14 @@ zi_dlg_story:
     pop cx
     cmp cx, ax
     ja .toobig
-    call zi_load
-    ret
+    jmp zi_load
 .nofile:
     mov si, zi_m_nofile
     jmp short .say
 .toobig:
     mov si, zi_m_toobig
 .say:
-    call zw_notice
-    ret
+    jmp zw_notice
 
 ; -----------------------------------------------------------------------------
 ; zi_dlg_save - the worker staged it; write it
@@ -816,11 +807,17 @@ zi_load:
     mov word [zf_fp], 0FFFFh        ; no frame yet; zx_run pushes the dummy one
 
     ; The staging buffer holds a whole Quetzal image: dynamic memory, the
-    ; frame chain, and about forty bytes of chunk headers.
-    call zm_dynlen                  ; AX = [zf_static]
+    ; frame chain, and fifty-two bytes of chunk headers and pads. The chain is
+    ; never longer in Quetzal than in our own stack - eight bytes of frame
+    ; header against our ten - so dynamic memory + ZI_STKKB + 52 bytes is the
+    ; most a save can be, and ONE more KB covers the 52 with 972 to spare.
+    ; The undo snapshot is twelve bytes of registers + dynamic memory + the
+    ; stack as it stands, which the same figure covers. It was + 2 KB, which
+    ; was a whole KB of every running story's heap, twice.
+    mov ax, [zf_static]             ; the length of dynamic memory
     mov [zi_dyn], ax
     call zi_kbof
-    add ax, ZI_STKKB + 2
+    add ax, ZI_STKKB + 1
     mov [zi_savkb], ax
     call OSAPI_MEM_CLAIM
     jc .nosave
@@ -844,8 +841,6 @@ zi_load:
     mov ax, zf_reloc            ; one word too, and NOT a file target - a
     call OSAPI_MEM_MOVABLE      ; snapshot is a memory copy (Standard 6.1.2)
     pop ax
-    mov ax, [zi_savkb]
-    mov [zi_undokb], ax
     jmp short .win
 .noundo:
     mov si, zi_m_noundo
@@ -1006,36 +1001,33 @@ zf_reloc:
 ; -----------------------------------------------------------------------------
 zi_free_all:
     push ax
+    push bx
     push dx
-    mov dx, [zf_sseg]
+    push si
+    cld
+    mov si, zi_claims
+.claim:
+    lodsw                           ; AX = the word that names one claim
+    xchg ax, bx
+    xor dx, dx
+    xchg dx, [bx]                   ; DX = its segment; the word is 0 now
     or dx, dx
-    jz .nostory
+    jz .none
     call OSAPI_MEM_FREE
-    mov word [zf_sseg], 0
-.nostory:
-    mov dx, [zf_stkseg]
-    or dx, dx
-    jz .nostack
-    call OSAPI_MEM_FREE
-    mov word [zf_stkseg], 0
-.nostack:
-    mov dx, [zi_savseg]
-    or dx, dx
-    jz .nosave
-    call OSAPI_MEM_FREE
-    mov word [zi_savseg], 0
-.nosave:
-    mov dx, [zi_undoseg]
-    or dx, dx
-    jz .noundo
-    call OSAPI_MEM_FREE
-    mov word [zi_undoseg], 0
-.noundo:
+.none:
+    cmp si, zi_claims_end
+    jb .claim
     mov byte [zi_undook], 0
     call zp_free                    ; the art goes back with the story that
-    pop dx                          ; named it, or opening a second one keeps
-    pop ax                          ; the first one's claim for ever
+    pop si                          ; named it, or opening a second one keeps
+    pop dx                          ; the first one's claim for ever
+    pop bx
+    pop ax
     ret
+
+zi_claims:
+    dw zf_sseg, zf_stkseg, zi_savseg, zi_undoseg
+zi_claims_end:
 
 ; =============================================================================
 ; THE WORKER SIDE: INPUT
@@ -1337,12 +1329,7 @@ zi_commit:
     xor dl, dl
     call zd_tokenise
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop5
 
 ; =============================================================================
 ; THE WORKER SIDE: SAVED GAMES
@@ -1525,20 +1512,12 @@ zi_save:
     call zw_notice
     stc
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop7
 
 ; A separate proc only so the CF that zi_request produces survives the pops.
 zi_ask_save:
     mov al, ZREQ_SAVE
-    call zi_request
-    ret
+    jmp zi_request
 
 ; -----------------------------------------------------------------------------
 ; zi_scpy - copy story bytes into the staging buffer
@@ -1710,11 +1689,7 @@ zi_wframe:
     mov bx, [zi_ebase]
     call zi_wwords
 
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop4
 
 ; -----------------------------------------------------------------------------
 ; zi_wwords - CX words off the Z-stack at BX, big-endian, to ES:DI
@@ -1772,13 +1747,7 @@ zi_restore:
 .ok:
     clc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop6
 
 ; -----------------------------------------------------------------------------
 ; zi_parse - walk the IFF container and find the chunks
@@ -1791,10 +1760,11 @@ zi_restore:
 ; ends the walk instead of addressing memory we were not given.
 ; -----------------------------------------------------------------------------
 zi_parse:
-    mov word [zi_umoff], 0
-    mov word [zi_umlen], 0
-    mov word [zi_skoff], 0
-    mov word [zi_sklen], 0
+    xor ax, ax
+    mov [zi_umoff], ax
+    mov [zi_umlen], ax
+    mov [zi_skoff], ax
+    mov [zi_sklen], ax
     mov ax, [zi_savlen_l]
     cmp word [zi_savlen_h], 0
     je .havelen
@@ -1945,18 +1915,12 @@ zi_apply:
     mov cx, [zi_umlen]
     cmp cx, [zf_static]
     jne .wrong                      ; a UMem body is dynamic memory exactly
-    mov si, [zi_umoff]
+    mov si, [zi_umoff]              ; DS:SI = the staged image
     xor di, di
-    push ds
-    push es
-    pop ds                          ; DS:SI = the staged image
-    mov ax, [zf_sseg - 0]
-    pop ds                          ; (restored below; see the reload)
     push es
     mov es, [zf_sseg]               ; ES:DI = dynamic memory
     push ds
-    mov ax, [zi_savseg]
-    mov ds, ax
+    mov ds, [zi_savseg]
     rep movsb
     pop ds
     pop es
@@ -1995,10 +1959,12 @@ zi_rstks:
     mov ax, si
     add ax, [zi_sklen]
     mov [zi_end], ax
-    mov word [zf_sp], 0
-    mov word [zf_fp], 0FFFFh
-    mov byte [zf_nlocals], 0
-    mov word [zi_cur], 0FFFFh       ; the previous frame's base
+    xor ax, ax
+    mov [zf_sp], ax
+    mov [zf_nlocals], al
+    dec ax
+    mov [zf_fp], ax
+    mov [zi_cur], ax                ; the previous frame's base
 .frame:
     mov ax, si
     add ax, 8
@@ -2164,13 +2130,7 @@ zi_save_undo:
     pop es
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop6
 
 ; -----------------------------------------------------------------------------
 ; zi_restore_undo - worker: @restore_undo
@@ -2231,13 +2191,7 @@ zi_restore_undo:
     pop es
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop6
 
 ; -----------------------------------------------------------------------------
 ; zi_stkcpy - CX bytes of Z-stack -> ES:DI
@@ -2382,9 +2336,9 @@ zi_script_open:
     jc .no
     mov [zi_scrseg], dx
 .ok:
-    mov word [zi_scrlen], 0
-    mov byte [zi_scrfull], 0
-    clc
+    xor ax, ax                      ; (CF = 0)
+    mov [zi_scrlen], ax
+    mov [zi_scrfull], al
     jmp short .out
 .no:
     stc
@@ -2463,12 +2417,7 @@ zi_script_flush:
                                     ; the whole transcript every time
 .out:
     pop es                          ; back to KERNEL_SEG for the caller's
-    pop si                          ; [es:bx+W_*] reads
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop5                 ; [es:bx+W_*] reads
 
 zi_scrname:  db 'SCRIPT.TXT', 0
 zi_m_scrfull: db 'Transcript full - it stops here.', 0
@@ -2588,14 +2537,7 @@ zi_openpend:
     mov si, zi_m_notfound
     call zw_notice
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp zf_pop7
 
 zi_m_notfound: db 'That story is not on this disk.', 0
 
