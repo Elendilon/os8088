@@ -20,7 +20,7 @@ somebody types the knob by hand:
     `REDRAWFULL=`, `HEAPCOMPACT=`, `FDDPROBE=`, `SNAPAUDIT=`, `BOOTPROF=`,
     `MOUIDSLOW=`, `TRACKRUN=`, `QUANTUM=`,
     `SBDRAGOFF=`/`SBRATE=`/`SBRATE286=`/`SBIDLE=`,
-    `DIRW1=`, `PICOMEM=`, `BOOTMARK=`/`BOOTHALT=`/`BOOTSTOP=`, `NOPS2=`,
+    `DIRW1=`, `NOPICOMEM=`, `BOOTMARK=`/`BOOTHALT=`/`BOOTSTOP=`, `NOPS2=`,
     `BAND=`, `TITLESNAP=`, `SPLSTARS=`, `NOUNAL=`,
     `NOFLUSHR=`, `FATWGATE=`, `FDDSLOW=`.
     Each one is
@@ -147,7 +147,7 @@ NOWASTE = ["NOOVLCHK=1", "NOKERNSIZE=1"]
 # its own because it is a whole second tree (its own drivers, its own Control
 # Panel), and the rows below that say `boot360.bin` are the ones whose %ifdef
 # arms are in the BOOT SECTOR. A knob that reaches only a DRIVER or a PACKAGE
-# names that file: a `kernel.bin` row for PICOMEM assembled a kernel the knob
+# names that file: a `kernel.bin` row for PICOMEM (now NOPICOMEM) assembled a kernel the knob
 # never touches and reported the sound driver's arm alive.
 #
 # THIS TABLE IS THE VALUE EACH KNOB NEEDS, not the roster: main() reads the
@@ -180,11 +180,14 @@ KNOBS = [
     ("fddprobe",    ["FDDPROBE=0"]),
     ("snapaudit",   ["SNAPAUDIT=1"]),
     ("dirw1",       ["DIRW1=1"]),
-    # PICOMEM= reaches SOUND.DRV and nothing else (SNDDEF), so the target is
-    # the driver: this row built kernel.bin for a year and assembled no arm.
-    # PM_BASE/PM_SB_PORT are only read under it, so one row takes all three.
-    ("picomem",     ["PICOMEM=1"], "sound.drv"),
-    ("picomem-ports", ["PICOMEM=1", "PM_BASE=0x2A0", "PM_SB_PORT=0x220"],
+    # NOPICOMEM= reaches SOUND.DRV and nothing else (SNDDEF), so the target
+    # is the driver: the row built kernel.bin for a year and assembled no arm.
+    # The tier is the DEFAULT now (SPEC.md 34.10.3), so the arm this keeps
+    # assembling is the driver WITHOUT it. PM_BASE/PM_SB_PORT are read only
+    # with the tier in, which is the plain build, so their row sets nothing
+    # else.
+    ("nopicomem",   ["NOPICOMEM=1"], "sound.drv"),
+    ("picomem-ports", ["PM_BASE=0x2A0", "PM_SB_PORT=0x220"],
      "sound.drv"),
     ("bootprof",    ["BOOTPROF=1"]),
     ("mouidslow",   ["MOUIDSLOW=1"]),

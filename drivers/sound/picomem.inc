@@ -1,8 +1,9 @@
 ; =============================================================================
 ; os8088 - SOUND.DRV, the PicoMEM tier (SPEC.md 34.10)
 ;
-; Built only by `make PICOMEM=1`. Without the knob not one byte of this file
-; is assembled and SOUND.DRV is byte-identical to the shipped one.
+; In every SOUND.DRV since SPEC.md 34.10.3; `make NOPICOMEM=1` builds the
+; driver without one byte of this file. On a machine with no card it costs two
+; reads of 2A3h at attach and no heap (the driver claims 7 KB either way).
 ;
 ; WHAT THIS IS FOR. The PicoMEM is a Raspberry Pi Pico on an ISA card that
 ; emulates, among much else, an AdLib at 388h and a Sound Blaster 2.0. Neither
@@ -40,10 +41,12 @@
 ; nothing. DMA is channel 1 because sb.inc programs channel 1 and no other
 ; (SPEC.md 34.5, binding - channel 2 is the floppy's). The port is 220h
 ; because that is the head of sbl_bases and every later entry costs another
-; reset scan. That leaves the IRQ, and the card is the only thing that knows
-; which lines are free: dev_sbdsp_set_irq_dma refuses its own line, so the
-; candidates are offered in sb.inc's own order and the first the firmware
-; accepts is the one taken. Nothing here is a guess that could have been a
+; reset scan - unless the card's own CMS emulation already holds 220h-22Fh,
+; when the firmware answers PORTUSED and the next of sbl_bases' order is
+; asked instead (SPEC.md 34.10.2). That leaves the IRQ, and the card is the
+; only thing that knows which lines are free: dev_sbdsp_set_irq_dma refuses
+; its own line, so the candidates are offered in sb.inc's own order and the
+; first the firmware accepts is the one taken. Nothing here is a guess that could have been a
 ; question.
 ;
 ; SAFETY, and the reason this may ship enabled on a machine with no PicoMEM
@@ -117,6 +120,8 @@ PMC_RESET    equ 0x00           ; clear an error and go back to READY
 PMC_ADLIB    equ 0x73           ; 0 = off, 1 = on at 388h
 PMC_SBIRQDMA equ 0x77           ; low byte = IRQ, high byte = DMA
 PMC_SBONOFF  equ 0x78           ; 0 = off, 1 = default port, else the port
+PM_E_PORTUSED equ 0x10          ; CMDERR_PORTUSED: another emulated device
+                                ; holds that port block (pm_lib.h)
 
 PM_TESTN     equ 100            ; ramp reads the test register must answer
 PM_POLLN     equ 256            ; status reads between two clock checks
@@ -351,7 +356,7 @@ pm_sb_off:
 ; -----------------------------------------------------------------------------
 ; pm_snd_on - install the AdLib and the Sound Blaster on a card we have found
 ; in:  [pm_base] set
-; out: CF = 0 the DSP is up at PM_SB_PORT; CF = 1 it is not
+; out: CF = 0 the DSP is up at [pm_sbport]; CF = 1 it is not
 ; clobbers: AX, flags
 ;
 ; The AdLib goes first and its answer is not read. The firmware's verb returns
@@ -392,12 +397,23 @@ pm_snd_on:
                                 ; F2h stubs would take the multiplexer's own
                                 ; vector (header), so sbl_f_irqdisc skips the
                                 ; probe and takes this line when [pm_up]
-    mov al, PMC_SBONOFF
-    mov bx, PM_SB_PORT
-    call pm_cmd
-    jc .no
+    mov si, pm_sbports          ; THE PORT, AND IT IS NOT ALWAYS 220h
+.port:                          ; (SPEC.md 34.10.2): the card's CMS emulation
+    mov bx, [si]                ; sits on 220h-22Fh when it is enabled, and
+    or bx, bx                   ; the firmware refuses a port another of its
+    jz .no                      ; devices holds. PMINIT is TOLD a port by the
+    mov al, PMC_SBONOFF         ; BLASTER variable; we walk sb.inc's own scan
+    call pm_cmd                 ; order instead, so whichever base is taken
+    jc .no                      ; is one sbl_f_probe finds next
+    cmp ax, PM_E_PORTUSED
+    jne .ans                    ; only "that port is taken" is worth another
+    inc si                      ; base - _NOIRQ, _MEM_ERR and _AMIX_FAIL are
+    inc si                      ; the same answer at any port
+    jmp short .port
+.ans:
     or ax, ax
-    jnz .no                     ; CMDERR_PORTUSED, _NOIRQ, _MEM_ERR, _AMIX_FAIL
+    jnz .no
+    mov [pm_sbport], bx
     pop si
     pop bx
     clc
@@ -494,6 +510,7 @@ pm_init:
     mov byte [pm_irq], 0
     mov byte [pm_up], 0
     mov byte [pm_pmirq], 0
+    mov word [pm_sbport], 0
     mov dx, PM_BASE
     call pm_porttest
     jc .out                     ; no card: nothing has been written anywhere
@@ -542,5 +559,9 @@ pm_irqs:    db 7, 5, 3, 0       ; sb.inc's own candidate order, less IRQ 2:
                                 ; is the one a card is least likely to own
 pm_base:    dw 0                ; the card's command port, 0 = no card found
 pm_pmirq:   db 0                ; the card's OWN (multiplexer) IRQ, 0 = unknown
+pm_sbport:  dw 0                ; the base the DSP was installed at, 0 = none
+pm_sbports: dw PM_SB_PORT, 0x240, 0x230, 0x250, 0x260, 0
+                                ; PM_SB_PORT first, then sbl_bases' order less
+                                ; 210h, which PMINIT does not offer either
 pm_irq:     db 0                ; the line the firmware accepted, 0 = none
 pm_up:      db 0                ; 1 = we turned the DSP on and owe an undo

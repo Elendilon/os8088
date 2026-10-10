@@ -15735,6 +15735,89 @@ release; plug a flash drive and expect the worker to leave it alone; and the
 same in poll mode with `INT#` dead.
 
 
+#### 9.12.7 The PicoMEM's USB mouse — the same driver, a second backend
+
+A PicoMEM (§34.10) has a USB host of its own — a 1.x through an OTG adapter, a
+2.x through its USB-A socket — and on DOS its mouse is driven by PMMOUSE, a
+CuteMouse clone. **What reaches the PC is not the USB**: the card's BIOS
+multiplexer (§34.10.1) loads one HID report — `DX` the buttons, `BX` dx and
+`CX` dy, signed, positive dy down — and does `int 33h` with **`AX = 0060h`**, a
+private function PMMOUSE answers, from inside the card's IRQ handler (IF = 0,
+its EOI already sent). That is a USB mouse arriving by a different road, so it
+is `USBMOUSE.DRV`'s second backend and not a new driver: same class, same row,
+same `SYSTEM.CFG` bit 6, same `OSAPI_MOUSE_FEED`, same halving and carry.
+
+- **Attach** tries the CH375 first, exactly as before. Only when `CHECK_EXIST`
+  is not echoed does it ask for a PicoMEM, in the order §34.10's safety rule
+  fixes: port 2A3h must count across eight reads before any PicoMEM function
+  of `int 13h` is asked anything, those being undefined elsewhere. Then PM
+  BIOS function 0 (detect; it also re-hooks the card's IRQ if its vector was
+  taken) must answer `DX = AA55h` with **`CH` ≠ 0** — the card's own IRQ, without
+  which no report can ever arrive, so attach refuses `DRVE_HW` rather than
+  mount a mouse that will never move. Then the card's line is opened if its
+  vector is still the BIOS's (§34.10.1's rule, `pm_bios`'s code), `int 33h` is
+  hooked — answering `0060h` and chaining every other function to the vector
+  it found — and **only then** does function 10h turn the card's mouse on.
+- **THE HOOK GOES IN BEFORE THE ENABLE, and the other order FROZE THE
+  MACHINE** (docs/FIELD-NOTES.md 66). It is what PMMOUSE does and what this
+  driver first shipped, and it is wrong for a reason in the card's firmware:
+  every USB report sets the card's "report waiting" flag whether the mouse is
+  enabled or not, and the enable is consulted only when deciding to raise the
+  IRQ. So a mouse that has moved at all since power-on is an IRQ raised the
+  instant function 10h returns, delivered through whatever `int 33h` holds —
+  on a 5150, 0000:0000, which is the vector table executed as code. Ticking
+  USB Mouse in the Control Panel on a 2.x stopped the 5150 dead every time.
+  A report that lands between the hook and the enable is harmless: the feed's
+  fence refuses it, this driver not yet being `DRVC_POINT`'s published one.
+- **No worker.** `DRVV_READY` spawns nothing: the report arrives by interrupt.
+  `um_pm33` writes it into `um_buf` in the boot report's layout and calls
+  `um_report`, which feeds it as it feeds a CH375's — from the card's IRQ
+  rather than a task, which `OSAPI_MOUSE_FEED` allows for the reason §9.12.1
+  gives for the worker: the feed puts the `cur_move` chain on `mou_pstack`
+  whatever stack it arrived on, and nothing that uses that stack can be
+  running, both mouse ISRs and the feed itself being IF = 0 throughout.
+- **Detach** turns the card's mouse **off first** (function 11h), so no report
+  can arrive after the image is freed; feeds a release if a button is down;
+  and restores `int 33h` only if the vector is still ours — a program that
+  hooked over us restores to us later, and with the card's mouse off nothing
+  will call it.
+
+**Inside the DOS box (§96.10) the USB mouse does not move.** The box banks
+the vector table and points `int 33h` at its own `dos_int33` for the length of
+its bracket, so the card's `0060h` reaches the box and not this driver; the
+bank puts our vector back at the end. Nothing breaks, and a DOS program sees
+the pointer the box translates from the kernel's own state — which the card's
+reports are not reaching while it runs.
+
+**Confirmed on a PicoMEM 2.x** (5150 #2, IRQ 7 jumper, 2026-10-10): ticked on
+the Drivers page, the driver loads and the pointer moves. The 1.x, whose mouse
+comes through an OTG adapter on the same backend, is untested.
+
+**A card jumpered to IRQ 3 on a machine with a COM2 UART is a known gap.**
+`OSAPI_MOUSE_FEED` settles the mouse contest with `[mou_line]` = `MOU_P2LINE`
+(on no serial line), and `mou_hotplug`'s retire then masks every serial
+port's line that is not the winner's - IRQ 3 for COM2 among them, which would
+be the card's own line and silence the mouse, the network's receive and the
+Sound Blaster with it. Neither field card is on 3 (the 2.x takes 7, the
+highest jumpered); the fix would be the feed passing the backend's line,
+which is a kernel change for a configuration nobody here has.
+
+What it costs: `USBMOUSE.DRV` 1,151 → **1,410** bytes, **2 KB claimed either
+way**, nothing resident, and on a machine with no CH375 and no PicoMEM two
+reads of 2A3h at attach. `tests/picomem.py`'s `mouse` leg runs the driver
+itself against a model of the card's BIOS and IRQ: attach, `int 33h` already
+ours at the moment function 10h is called, the card's line opened and no
+other, two reports fed halved with the carry, a still report not fed, another
+`int 33h` function chained, and the detach's off — while the vector is still
+ours — release and restore.
+
+**Not done.** The card's USB host and mouse must be enabled in its own setup
+(PMMOUSE needs the same). A DOS program in the DOS box (§96) that hooks
+`int 33h` takes the card's reports with it while it runs, so the pointer is
+the program's there, as it would be under DOS with PMMOUSE replaced. And like
+the CH375 backend, **not verified on the card itself** — the model is written
+from the card's ROM and firmware, which is what the first field run checks.
+
 ### 9.13 A program may TAKE the mouse's IRQ, and a driver takes it back
 
 A DOS program inside an fsx bracket owns the machine (§53.7), and that
@@ -36079,6 +36162,33 @@ not be the one that pays for the change. §18.97.2's tier rule, §18.97.3's ST0
 evidence and §18.97.4's absence test are all untouched — this moves *when* the
 motor spins, not *what is concluded*.
 
+### 18.97.6 A PicoMEM's floppy is not on the FDC, so the card is asked instead
+
+**Drive B: never appeared on a PicoMEM machine with an image mounted on it**,
+and the Control Panel's force made it work perfectly — so the drive was real
+and the verdict was wrong. The PicoMEM emulates a floppy through its `int 13h`
+hook and updates the equipment word to match; there is no drive on the
+controller behind it, so §18.97's TRACK 0 question has no carriage to answer
+it and the probe proved the drive absent every time.
+
+`dsk_fdd_pmemu` asks the card first, in the boot overlay with the probe, and
+only in three steps that each wait on the one before: port 2A3h must COUNT
+across eight reads (the card's test register; an empty 8088 bus answers a stale
+byte that repeats, §72.2), then `int 13h` AX=6000h DX=1234h — the PicoMEM
+BIOS's own detect, undefined anywhere else, which is why it waits on the ramp —
+must answer DX=AA55h with its segment in BX, and then the card's configuration
+struct 16KB above that segment must have **bit 7 of `FDDn_Attribute` (+B2h per
+unit)** set, which is the BIOS's own "serve this unit from an image" test in
+its `int 13h` hook, checked in both the 1.x and the 2.x ROM. Then the probe
+keeps the unit without touching a port. A PicoMEM floppy slot with NO image
+mounted passes to the physical drive, its attribute says so, and that unit is
+probed exactly as before; a machine without the card reads 2A3h twice and
+nothing else. It is the probe's own rule applied once more: it can only ever
+keep what int 11h claimed. **`kern_big` only**: the boot overlay's window half has ~90 bytes
+spare there and 30 on `kern_small`, whose blob has the room but would put one
+routine in a different section per build; a PicoMEM-emulated B: on the 128KB
+machine keeps the Control Panel's force.
+
 ### 18.98 The third and fourth floppy — a row, and nothing else
 
 The IBM 5.25" Diskette Drive Adapter has an **external 37-pin D connector**
@@ -36872,6 +36982,22 @@ the emulator agrees with the machine that reported this before either arm is
 read. Row 3 is the claim, and it needs both columns: TRK0 set on one arm alone
 says only that *something* parked the head. `make NOFDDPARK=1` assembles byte
 for byte identical to the kernel before this section.
+
+#### 18.100.1 …except on a PicoMEM, which is warm-reset instead
+
+**On a 5150 with a PicoMEM 2.x, Chip -> Restart never came back** and needed a
+power cycle, while Ctrl-Alt-Del from the desktop booted every time. The two
+differ in POST: Ctrl-Alt-Del is the ROM's warm reset (`1234h` at `0040:0072`,
+then the reset vector), which runs the card's option ROM again, and `int 19h`
+boots straight into a card whose emulated floppies, sound and network are as
+the session left them. Which of those the card objects to is not known — no
+emulator here has one — so the fix takes the path the field showed working
+rather than guessing at the state: `dsk_fdd_park_x` reads the card's counting
+register at 2A3h first, and on a PicoMEM sets the warm-boot flag and jumps to
+`FFFF:0000` with interrupts off. The park goes with it, POST resetting the
+controller itself. Everything before it — the drivers' detaches, the text
+mode, the unhook — is unchanged, and a machine without the card reads 2A3h
+twice and parks and `int 19h`s exactly as before.
 
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
@@ -62003,7 +62129,7 @@ again.
   builder and the clip engine are the clip library's now, §34.4.) Far code keeps DS = KERNEL_SEG, so it reads its data from `.text`
   (§33 rule 2).
 
-### 34.10 The PicoMEM tier — `make PICOMEM=1`
+### 34.10 The PicoMEM tier — in `SOUND.DRV` by default, `NOPICOMEM=1` without
 
 The PicoMEM is a Raspberry Pi Pico on an ISA card that emulates, among much
 else, an AdLib at 388h and a Sound Blaster 2.0. **Neither answers until
@@ -62011,7 +62137,9 @@ something tells the card to install them**, and on DOS that something is
 `PMINIT.EXE`. So a PicoMEM machine booted os8088 with a sound card in it that
 could not be found: the Drivers page said `No Hardware`, and it was telling
 the truth about a machine that had one. `drivers/sound/picomem.inc` is
-os8088's side of that conversation, built only by `make PICOMEM=1`.
+os8088's side of that conversation. It was built only by `make PICOMEM=1`
+until it had worked on both card generations; §34.10.3 is why it is now in
+every `SOUND.DRV` and `make NOPICOMEM=1` is the A/B.
 
 **The Sound Blaster is off after every reset, and that is the firmware's
 deliberate choice rather than a bug to work around.** `PM_Audio_OnOff`, which
@@ -62040,7 +62168,8 @@ a fifth wants). Here the ordering is not arranged, it is structural:
 **The configuration is very nearly forced, which is why it asks the user
 nothing.** DMA is channel 1 because `sb.inc` programs channel 1 and no other
 (§34.5, binding — channel 2 is the floppy's). The port is 220h because that is
-the head of `sbl_bases` and every later entry costs another reset scan. That
+the head of `sbl_bases` and every later entry costs another reset scan — unless
+the card's CMS emulation holds it, which §34.10.2 covers. That
 leaves the IRQ, and the card is the only thing that knows which lines are
 free: `dev_sbdsp_set_irq_dma` refuses its own multiplexed line, so the
 candidates are offered in `sb.inc`'s own order (7, 5, 3 — less IRQ 2, which
@@ -62058,12 +62187,14 @@ Six things are load-bearing:
   the last, which is the card's test register counting. An empty ISA bus
   floats to FFh and fails on the second read. **Not one byte is written
   anywhere until that has passed.**
-- **There is deliberately no `int 13h` AH=60h detect**, which is how `PMINIT`
-  finds the card. It is the documented way to learn a base port this code
-  would otherwise assume — but `pmbios/pm_hw.asm` assigns `PM_BasePort 0x2A0`
-  and nothing makes it a variable, so the call buys one constant we already
-  know in exchange for issuing an undefined `int 13h` function on every
-  machine that does *not* have a PicoMEM.
+- **The `int 13h` AH=60h detect is not the DETECTION, and must never become
+  it.** It is how `PMINIT` finds the card, and on a machine with no PicoMEM it
+  is an undefined `int 13h` function - so it is asked only once the ramp has
+  proved the card is there, for the one fact the ramp cannot give: the card's
+  own IRQ (§34.10.1, rule 1). The base port it would also report is a
+  constant, `pmbios/pm_hw.asm`'s `PM_BasePort 0x2A0`. Every later PicoMEM
+  caller in the tree - `USBMOUSE.DRV` (§9.12.7) and the kernel's B: and
+  Restart checks (§18.97.6, §18.100.1) - keeps the same order.
 - **The argument and the answer are two explicit byte accesses, never `out
   dx, ax`.** Word I/O splits differently on the two CPUs this OS runs on — an
   8088 always makes two byte cycles at `dx` and `dx+1`, an 8086 makes a single
@@ -62099,11 +62230,11 @@ any disk moves. Verified on a cycle-accurate 8088 with a real AdLib and a real
 Sound Blaster and no PicoMEM (`os8088_xt_vga_sb`): both builds bring
 `drv_tab` row 0 up loaded with `DRVE_OK`, and the desktop is **0 differing
 bytes of 921,600** between them — so the tier is inert on a machine without
-the card and disturbs nothing on a machine with an ordinary one. A plain
-`make` produces a byte-identical `sound.bin` to the one that shipped before
-this existed (md5 `3d96ac86…`).
+the card and disturbs nothing on a machine with an ordinary one. (Those were
+the figures when the tier was a knob; §34.10.3 has today's.)
 
-**What is NOT verified here, and cannot be: the success path.** No emulator in
+**What was NOT verified here, and could not be: the success path** — until
+the field ran it (§34.10.1, §34.10.2, docs/FIELD-NOTES.md 66). No emulator in
 this tree has a PicoMEM in it, so every measurement above is of the branch
 where `pm_porttest` refuses. Whether the card accepts the IRQ offered, whether
 `opl_probe` then finds the OPL2 the firmware installs beside the DSP, and
@@ -62139,7 +62270,7 @@ swapped, its request arrived at a stub, the stub took it as the SB's, and
 `sbl_isr` was hooked onto the PicoMEM's line for the session. No block was
 ever copied and the card was never acknowledged.
 
-Three rules now, all in the `PICOMEM` build:
+Three rules now, all in the tier:
 
 1. **The line is learned, and kept live.** After `pm_porttest` has seen the
    ramp, `pm_bios` makes PMINIT's own detect — `int 13h` AX=6000h DX=1234h,
@@ -62165,6 +62296,50 @@ no other (§34.5), so that jumper must be on **1**. And a 2.x cannot DMA from
 memory it is itself emulating — a ring in PicoMEM-provided conventional RAM
 would be silent there. Neither is detectable from software, so both are
 setup facts rather than code.
+
+#### 34.10.2 220h may be the card's CMS, so the port is walked
+
+**The second field run on the 2.x reached the DSP command and was refused
+there**: the PicoMEM's own Devices page listed **CMS at 220h-22Fh**, and
+`dev_sbdsp_install` refuses a base another emulated device holds
+(`CMDERR_PORTUSED`, 10h; the firmware's port table is in 8-byte blocks and the
+DSP takes two). On DOS the `BLASTER` variable names a port and the user picks
+one that is free; nothing here asks the user, so `pm_snd_on` walks
+`pm_sbports` — `PM_SB_PORT` (220h), then 240h, 230h, 250h, 260h, which is
+`sbl_bases`' own order less 210h (PMINIT does not offer it) — and moves on
+**only** on `PORTUSED`: a missing IRQ, memory or mixer is the same answer at
+every port. Whatever base is taken is one `sbl_f_probe` finds by its own scan,
+so nothing downstream learns the port from here; `[pm_sbport]` records it for
+the reader of a dump.
+
+#### 34.10.3 Why it is the default: two port reads and no heap
+
+**Confirmed on both cards** — a PicoMEM 1.x in a 286 (network) and a 2.x in a
+5150 (network, and the Sound Blaster playing through Tracker) — so the tier
+moved from `make PICOMEM=1` into the plain build. What it costs a machine
+**without** the card is the question that decided it, and both halves are
+small enough to state exactly:
+
+- **Time.** `pm_porttest` reads 2A3h and compares the next read against the
+  first plus one. An empty 8088 bus answers a stale byte that REPEATS (§72.2),
+  any other card a value that does not count, so it leaves on the second read:
+  two `in`s and a handful of instructions at attach, microseconds, and no write
+  to any port. Nothing else in the tier runs.
+- **Heap.** A driver's claim is its image in whole KB. `SOUND.DRV` is 6,637
+  bytes without the tier and **7,122** with it (+485: 455 of routines and
+  tables in `picomem.inc`, the rest call sites and `sbl_f_irqdisc`'s skip) —
+  **7 KB either way**, with 46 bytes left before the eighth. Making the
+  attach-only code go away after attach was looked at and buys nothing today:
+  the driver without the tier already needs the seventh KB, so a 7,122-byte
+  image that dropped its ~470 attach-time bytes would still claim 7. The
+  attach-time zeroed state (`sbl_zb`..`sbl_ze`) is 65 bytes, far too small to
+  overlay the code on. So the margin is the real number to watch: the next
+  ~46 bytes added to the driver cross the rung, and that crossing will be
+  charged to whoever is standing there, not to this tier.
+
+The disk cost is the compressed difference in `SOUND.DRV`, a few hundred
+bytes on every system disk. `make NOPICOMEM=1` builds the driver as it was;
+`tests/unit/t_buildmatrix.py`'s `nopicomem` row keeps that arm assembling.
 
 ### 34.11 PCM through the speaker, in a bracket — `OSAPI_FSX_SPK` and `apps/os88spk.inc` (`kern_big`)
 
@@ -109670,6 +109845,20 @@ nothing else, every transfer staying byte-wide. A real NE1000 passes the first
 test and nothing about it changes; a card that holds neither keeps the NE1000
 map it always had. The Ethernet page then names it `Ne2000`, which is what it
 is.
+
+**And an EMPTY slot is not a card, which on an 8088 has to be tested rather
+than assumed.** An undriven ISA port does not read FFh there: it answers with
+a byte the bus carried a moment before — a prefetched instruction byte, or the
+one the last store wrote — so the PROM loop's `in al, dx` / `stosb` reads
+`AAh` thirty-two times (pairs that agree: an "NE2000") and a register read can
+land on `C3h` (`ret`, RST's bit set). A 5150 with a PicoMEM 2.x showed exactly
+that: an `Ne2000` at the first base in `eth_bases`, address `AAAAAAAAAAAA`,
+transmits counted and nothing received — and because the empty slot came
+first, the real card further down the list was never asked. So `ne_probe` now
+requires the command register to read back what was written on TWO pages
+(`21h`, then `61h`): every 8390 does, and one stale bus byte cannot match two
+different values through the same `ne_in`. `tests/picomem.py` carries that
+slot as a third card and the probe before this accepts it as `aaaaaaaaaaaa`.
 
 Three things break silently and each has a rule:
 

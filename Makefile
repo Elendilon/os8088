@@ -597,27 +597,31 @@ ifneq ($(INSTCHUNK),)
 DRVDEF += -DHIW_KMAXKB=32
 endif
 
-# PICOMEM=1 builds SOUND.DRV with the PicoMEM tier in it (SPEC.md 34.10): the
-# card's AdLib and Sound Blaster 2.0 are installed at attach, three
-# instructions ahead of the probe that has to find them, which is what
-# PMINIT.EXE does for DOS. It is a MAKE OPTION and not a default because the
-# PicoMEM is one specific ISA card, and a machine without one should not carry
-# code for it - so a plain `make` produces a byte-identical SOUND.DRV to the
-# one that shipped before this existed, which is asserted rather than claimed
-# (see `make picomem-check` below).
+# THE PICOMEM TIER IS IN SOUND.DRV BY DEFAULT (SPEC.md 34.10, 34.10.3), and
+# NOPICOMEM=1 is the A/B that builds the driver without it. The card's AdLib
+# and Sound Blaster 2.0 are installed at attach, three instructions ahead of
+# the probe that has to find them, which is what PMINIT.EXE does for DOS.
+#
+# It was a MAKE OPTION (PICOMEM=1) for as long as nobody had a card it had
+# worked on. What made it a default is what it costs a machine WITHOUT one:
+# two reads of port 2A3h at attach (pm_porttest fails on the second, an empty
+# 8088 bus answering a stale byte that repeats rather than counts), not one
+# write - and NO HEAP: SOUND.DRV is 6,637 bytes without the tier and 7,122
+# with it, and both claim 7 KB (SPEC.md 34.10.3 has the margin).
 #
 # It touches the SOUND DRIVER only. The kernel is byte-identical either way,
-# and so is every other driver, package and image on the disk.
+# which is why NOPICOMEM is exempt from -DKERN_KNOB below, NOHEDGE's shape.
 #
 # PM_BASE and PM_SB_PORT override the two addresses. Neither is a choice on
 # today's firmware - pmbios/pm_hw.asm assigns PM_BasePort 0x2A0 and nothing
-# makes it a variable, and 220h is the head of sb.inc's scan order - so they
+# makes it a variable, and 220h is the head of sb.inc's scan order (with the
+# others walked when the card's CMS holds it, SPEC.md 34.10.2) - so they
 # exist for the day one of those stops being true and not as a setting anybody
 # is expected to reach for. There is no IRQ knob on purpose: only the card
 # knows which lines are free, so the driver offers sb.inc's own candidates and
 # takes the first the firmware accepts. There is no DMA knob either, because
 # there is no DMA choice - sb.inc programs channel 1 and no other.
-ifneq ($(PICOMEM),)
+ifeq ($(NOPICOMEM),)
 SNDDEF += -DPICOMEM
 ifneq ($(PM_BASE),)
 SNDDEF += -DPM_BASE=$(PM_BASE)
@@ -1932,7 +1936,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              KFZ DIRW1 INSTRO KEEPH STRAD DIRTYRAM HEAPCOMPACT HEAPPARK HEAPPARKLK FDDPROBE FDDABSENT REDRAWFULL NOSPLIT NOSEAMCUT NOFDMEDIA NOSUOCCL SNDSNIFF RAMKB DRAGCACHE FATWNONE FATWGATE \
                              SNAPAUDIT SCROLLROW QUANTUM GFXAUDIT \
                              CURFIX \
-                             FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
+                             FONT INSTCHUNK NOPICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              BOOTPROF STKDIAG BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG MOUROUND KBDDIAG DOSRMARK FDDSLOW TRACKRUN NOHDCYL HDCYLPROBE SBDRAGOFF SBRATE SBRATE286 SBIDLE \
                              ETHPROF FTPDSLOW FTPDBG \
                              KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP FONTSLOW SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL LDDIAG DRVDIAG BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOLIVESND VPDIAG NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOATPLAIN NOATCX NOATRESPAN NOATFETCH NOATCELL NOATTAIL NOATONE NOATSU NOCURDISK NOFDDPARK MSELOFF NOKDKBD VGADIRTY DLJUNK DPTROM COMPRESS NOKZIP,\
@@ -1961,12 +1965,12 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
 # kern_emu carrying -DKERN_KNOB would SKIP guard 1 (the KERN_BUDGET footprint
 # check), so the one build that adds a feature would be the one build nothing
 # measured.
-ifneq ($(filter-out KERN_SMALL=% KERN_EMU=% NOHEDGE=% NOLIVESND=% VPDIAG=% NOATBLIT1=% NOATFAST=% NOATWALK=% NOATSBAR=% NOATROW=% NOATBLANK=% NOATPLAIN=% NOATCX=% NOATRESPAN=% NOATFETCH=% NOATCELL=% NOATTAIL=% NOATONE=% NOATSU=%,$(KNOBS)),)
+ifneq ($(filter-out KERN_SMALL=% KERN_EMU=% NOHEDGE=% NOPICOMEM=% NOLIVESND=% VPDIAG=% NOATBLIT1=% NOATFAST=% NOATWALK=% NOATSBAR=% NOATROW=% NOATBLANK=% NOATPLAIN=% NOATCX=% NOATRESPAN=% NOATFETCH=% NOATCELL=% NOATTAIL=% NOATONE=% NOATSU=%,$(KNOBS)),)
 VIDDEF += -DKERN_KNOB
 endif
 
 # EVERY KNOB IN $(KNOBS) IS IN THIS STAMP TOO, and the seven that were not are
-# what this note is for: BOOTDIAG, PICOMEM, PM_BASE, PM_SB_PORT, ETHPROF,
+# what this note is for: BOOTDIAG, PICOMEM (NOPICOMEM now), PM_BASE, PM_SB_PORT, ETHPROF,
 # FTPDSLOW and FTPDBG. Six of them own a stamp of their own further down
 # ($(SNDSTAMP), $(ETHSTAMP), $(FTPDSTAMP)), so the .bin each one shapes did
 # rebuild - what did NOT was the KERNEL, and the kernel is not neutral about
@@ -1998,7 +2002,7 @@ endif
 # `make` believes is current, and every image shipped from it wrong. The
 # knob roster above still carries NOKZIP, because that is what somebody asks
 # for and what a knob build has to announce.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOFDMEDIA),-nfm$(NOFDMEDIA))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KERN_EMU),-emu$(KERN_EMU))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(MOUROUND),-mrd$(MOUROUND))$(if $(KBDDIAG),-kbd$(KBDDIAG))$(if $(DOSRMARK),-drm$(DOSRMARK))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(NOHDCYL),-nhc$(NOHDCYL))$(if $(HDCYLPROBE),-hcp$(HDCYLPROBE))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(SBRATE286),-sbr2$(SBRATE286))$(if $(SBIDLE),-sbi$(SBIDLE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(FONTSLOW),-fsw$(FONTSLOW))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(LDDIAG),-ldd$(LDDIAG))$(if $(DRVDIAG),-drd$(DRVDIAG))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(NOFDDPARK),-nfp$(NOFDDPARK))$(if $(MSELOFF),-mso$(MSELOFF))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PICOMEM),-pm$(PICOMEM))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(DPTROM),-dpr$(DPTROM))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))-cmp$(LZFMTS)$(if $(KZIP),-kz)
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOFDMEDIA),-nfm$(NOFDMEDIA))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KERN_EMU),-emu$(KERN_EMU))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(MOUROUND),-mrd$(MOUROUND))$(if $(KBDDIAG),-kbd$(KBDDIAG))$(if $(DOSRMARK),-drm$(DOSRMARK))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(NOHDCYL),-nhc$(NOHDCYL))$(if $(HDCYLPROBE),-hcp$(HDCYLPROBE))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(SBRATE286),-sbr2$(SBRATE286))$(if $(SBIDLE),-sbi$(SBIDLE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(FONTSLOW),-fsw$(FONTSLOW))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(LDDIAG),-ldd$(LDDIAG))$(if $(DRVDIAG),-drd$(DRVDIAG))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(NOFDDPARK),-nfp$(NOFDDPARK))$(if $(MSELOFF),-mso$(MSELOFF))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(DPTROM),-dpr$(DPTROM))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))-cmp$(LZFMTS)$(if $(KZIP),-kz)
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \
@@ -3532,20 +3536,20 @@ $(BUILD)/fontview.bin: apps/fontview/fontview.asm apps/os88api.inc \
 $(BUILD)/fontview.o88: $(BUILD)/fontview.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/fontview.bin -o $@
 
-# ...AND A STAMP FILE, for exactly VIDSTAMP's and DSSTAMP's reason. PICOMEM,
+# ...AND A STAMP FILE, for exactly VIDSTAMP's and DSSTAMP's reason. NOPICOMEM,
 # PM_BASE and PM_SB_PORT change the command line and no source, so without
-# this `make PICOMEM=1` after a plain build saw an up-to-date sound.bin and
+# this `make NOPICOMEM=1` after a plain build saw an up-to-date sound.bin and
 # rebuilt NOTHING - and the failure is the quiet one, because a driver with no
 # PicoMEM tier in it is exactly what a machine with no PicoMEM in it looks
 # like. The disk would have come out identical to the one that did not work.
-SNDSTAMP := $(BUILD)/.sound-$(if $(PICOMEM),pm$(PICOMEM),def)$(if $(PM_BASE),-b$(PM_BASE))$(if $(PM_SB_PORT),-s$(PM_SB_PORT))
+SNDSTAMP := $(BUILD)/.sound-$(if $(NOPICOMEM),nopm,pm)$(if $(PM_BASE),-b$(PM_BASE))$(if $(PM_SB_PORT),-s$(PM_SB_PORT))
 
 $(BUILD)/sound.bin: drivers/sound/sound.asm drivers/sound/sb.inc drivers/sound/mpu.inc drivers/sound/covox.inc \
                     drivers/sound/picomem.inc drivers/sound/sndpkg.inc \
                     drivers/os88drv.inc apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(SNDDEF) -I drivers/sound/ -I drivers/ -I apps/ \
 		-o $@ drivers/sound/sound.asm
-	@echo "sound:  $(call FILESIZE,$@) bytes$(if $(PICOMEM), (PicoMEM),)"
+	@echo "sound:  $(call FILESIZE,$@) bytes$(if $(NOPICOMEM), (no PicoMEM),)"
 
 $(BUILD)/sound.bin: $(SNDSTAMP)
 $(SNDSTAMP): | $(BUILD)
@@ -4530,19 +4534,19 @@ covoxtest: $(BUILD)/covoxsys720.img $(BUILD)/covoxsys360.img
 	@echo "covoxtest: build/covoxsys720.img - SOUND.DRV wanted, the Covox tier"
 	@echo "           set. Run it with: python3 tests/covox.py --arm <arm>"
 
-# PICOMEMTEST - the PicoMEM field disks (SPEC.md 34.10.1, 72.2): covoxtest's
-# shape, with 'DW' = bit 0 (SOUND.DRV) | bit 4 (ETHER.DRV) so both drivers
-# attach before the first paint on a machine nobody has to click through.
-# 720KB for the 286 with a PicoMEM 1.x, 360KB for the 5150 with a 2.x. It is
-# MEANINGLESS without PICOMEM=1 - a stock SOUND.DRV never asks the card for
-# its Sound Blaster - so it refuses rather than shipping a disk that tests
-# nothing; build it in a tree of its own, since PICOMEM is a stamped knob:
-#     make BUILD=build/pm PICOMEM=1 picomemtest
+# PICOMEMTEST - the PicoMEM field disks (SPEC.md 34.10.1, 72.2, 9.12.7):
+# covoxtest's shape, with 'DW' = bit 0 (SOUND.DRV) | bit 4 (ETHER.DRV) |
+# bit 6 (USBMOUSE.DRV, whose second backend is the card's USB mouse) so all
+# three attach before the first paint on a machine nobody has to click through.
+# 720KB for the 286 with a PicoMEM 1.x, 360KB for the 5150 with a 2.x. The
+# tier is in SOUND.DRV by default now, so these are the shipped kernel and
+# drivers plus that SYSTEM.CFG; NOPICOMEM=1 would make them test nothing, so
+# it refuses.
 $(BUILD)/pmcfg/system.cfg: | $(BUILD)
 	@mkdir -p $(BUILD)/pmcfg
 	python3 -c "import sys; sys.stdout.buffer.write(b'O88CFG\0\0' + \
 	  (3).to_bytes(2,'little') + b'DW' + bytes([1,2]) + \
-	  ((1 << 0) | (1 << 4)).to_bytes(2,'little') + b'\0\0')" > $@
+	  ((1 << 0) | (1 << 4) | (1 << 6)).to_bytes(2,'little') + b'\0\0')" > $@
 
 $(BUILD)/pmsys720.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/pmcfg/system.cfg tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 \
@@ -4558,11 +4562,11 @@ $(BUILD)/pmsys360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(
 
 .PHONY: picomemtest
 picomemtest: $(BUILD)/pmsys720.img $(BUILD)/pmsys360.img
-ifeq ($(PICOMEM),)
-	$(error picomemtest needs PICOMEM=1: make BUILD=build/pm PICOMEM=1 picomemtest)
+ifneq ($(NOPICOMEM),)
+	$(error picomemtest is meaningless with NOPICOMEM=1: SOUND.DRV would not ask the card for anything)
 endif
 	@echo "picomemtest: build/pmsys720.img (286, PicoMEM 1.x) and pmsys360.img"
-	@echo "             (5150, PicoMEM 2.x) - SOUND.DRV and ETHER.DRV wanted."
+	@echo "             (5150, PicoMEM 2.x) - SOUND, ETHER and USB MOUSE wanted."
 
 # MRWTTEST - the WAVETABLE gate's apps disk (SPEC.md 105.8.6): MIDIRACK.O88
 # with tools/os88midbank.py's SYNTHETIC bank beside it - computed waveforms,

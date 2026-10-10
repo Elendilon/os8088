@@ -161,7 +161,7 @@ VGA-plus-mono pairing.
 | memory | **640 KB**: 256 KB on the board, 384 KB on an ISA expansion card |
 | keyboard | a generic AT keyboard through an **AT→XT adapter** — not a Model F. Worth knowing before any §9.6/§9.7 scancode result is read off it |
 | video | **PVGA1A-JK, 256 KB** (Western Digital / Paradise) as primary, **plus the Hercules GB101 from 5150 #1** when a run needs two cards |
-| the modern card | a **Picomem 2.x**: drive A and B (360 KB), a hard disk, an AdLib, a Sound Blaster, an NE2000 and EMS. `make PICOMEM=1` brings its sound up at attach (§34.10); its **DMA jumper must be on 1** (§34.10.1), and `make BUILD=build/pm PICOMEM=1 picomemtest` is its system disk with both drivers wanted (docs/FIELD-NOTES.md 66) |
+| the modern card | a **Picomem 2.x**: drive A and B (360 KB), a hard disk, an AdLib, a Sound Blaster, an NE2000 and EMS. `SOUND.DRV` brings its sound up at attach (§34.10); its **DMA jumper must be on 1** and a jumper on **IRQ 7** too (§34.10.1, the card's own line on PM2-6-21-26), and `make picomemtest` is its system disk with both drivers wanted (docs/FIELD-NOTES.md 66) |
 | **audio questions go here** | 5150 #1 has no sound card. For a mixer question the answer is worth having: what §45.9's XT mode spends is CPU, and this is a stock 4.77 MHz 8088 — the Picomem replaces the *storage*, not the processor. What is the card's rather than a real one's is the DSP and its DMA, so a delivered-audio ratio taken here is a statement about that emulation; the CPU cost underneath it is genuine |
 | period | **no.** Every storage timing here is the Picomem's — **nothing from here goes into PERFORMANCE.md Part 2** |
 
@@ -334,6 +334,17 @@ drive's icon.
 `mouse found 0` here is the rule above: nothing was plugged in.
 
 ---
+
+## The PicoMEM 1.x's 286 — `Elendilon/os8088`'s
+
+**One of the owner's 286s carries a PicoMEM 1.x; which one has not been
+recorded** - ask before attributing a result to the Victory above or to any
+other. What is known: its disk is a 720 KB one, `make picomemtest`'s
+`build/pmsys720.img` (SOUND, ETHER and USB MOUSE wanted at boot); the card's
+network WORKS on the os8088 build of 2026-10-10; and its Sound Blaster and USB
+mouse are untested, waiting on the card being pulled for its firmware update.
+docs/FIELD-NOTES.md 66's *What is left: the 1.x* is the checklist for that
+day, written to need nothing else.
 
 ## The 86Box IBM PC 5150 — `vm/pc5150`, and where the bug reports come from
 

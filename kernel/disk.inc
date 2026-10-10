@@ -8528,7 +8528,8 @@ dkf_dsk_vol_slot:    call dsk_vol_slot_x
 ; -----------------------------------------------------------------------------
 ; dsk_fdd_park_x - FAR: recalibrate every claimed floppy head to track 0.
 ; in:  nothing;  out: DOES NOT RETURN - the `int 0x19` at its tail is the
-;      last instruction of the GUI.  clobbers: AX, CX, DX, ES, flags
+;      last instruction of the GUI, or on a PicoMEM machine the warm reset
+;      at its head.  clobbers: AX, CX, DX, ES, flags
 ;
 ; EVERY UNIT THE EQUIPMENT WORD CLAIMED, not every unit with a volume row - so
 ; a drive §18.97.2 wrongly retired, which has no row, is still recalibrated and
@@ -8537,6 +8538,35 @@ dkf_dsk_vol_slot:    call dsk_vol_slot_x
 ; -----------------------------------------------------------------------------
 %ifndef NO_FDDPARK
 dsk_fdd_park_x:
+    ; --- A PICOMEM IS WARM-RESET, NOT int 19h'd (SPEC.md 18.100.1) ----------
+    ; On a PicoMEM machine `int 19h` boots into a card whose emulated devices
+    ; are as this session left them - and the field machine never came back
+    ; from it, where the ROM's own warm reset (Ctrl-Alt-Del: 1234h at
+    ; 0040:0072, then the reset vector) runs POST, which runs the card's
+    ; option ROM, and boots every time. So that is what Restart does there,
+    ; and the park with it: POST resets the FDC itself. The test is the card's
+    ; counting register at 2A3h, which a machine without one fails on its
+    ; second read having written nothing (dsk_fdd_pmemu's ramp, SPEC.md 18.97.6)
+    mov dx, 0x2A3
+    pushf
+    cli                         ; the ramp is stateful: nobody between reads
+    in  al, dx
+    mov ah, al
+    mov cx, 8
+.pm:
+    in  al, dx
+    inc ah
+    cmp al, ah
+    jne .park
+    loop .pm
+    popf                        ; balanced for the walker (tools/stkbalance),
+    cli                         ; then IF = 0 from here to the reset vector
+    mov ax, 0x40
+    mov es, ax
+    mov word [es:0x72], 0x1234  ; the ROM's warm-boot flag: skip the RAM test
+    jmp 0xFFFF:0x0000
+.park:
+    popf
     mov cl, [fdd_dbg_eqp]       ; drives int 11h claimed (0..4), banked by
                                 ; desk_init before anything contested it (§57.5)
 .unit:
@@ -8615,6 +8645,83 @@ FDD_MOTORW   equ 12              ; ticks (~660ms) for the motor line to take
 FDD_SELW     equ 4000            ; a short settle after the select reaches the
                                  ; cable, before ST3 means anything
 
+%ifdef KERN_BIG
+; -----------------------------------------------------------------------------
+; dsk_fdd_pmemu - does a PicoMEM serve floppy unit AL from an image?
+; (SPEC.md 18.97.6)
+; in:  AL = the unit (0..3)
+; out: CF = 0 yes; CF = 1 no, or no PicoMEM. Every register preserved.
+;
+; THREE QUESTIONS, EACH ONLY ASKED IF THE ONE BEFORE ANSWERED. Port 2A3h is
+; the card's test register and counts one up per read - a ramp nothing else
+; on an ISA bus produces, and an EMPTY 8088 bus answers a stale byte that
+; repeats rather than counts (SPEC.md 72.2) - so a machine without the card
+; leaves after two reads and writes nothing. Only then int 13h AX=6000h
+; DX=1234h, the PicoMEM BIOS's own detect (undefined on any other machine,
+; which is why it waits on the ramp), answers BX = its segment; and the
+; card's configuration struct sits 16KB above that, FDDn_Attribute at +B2h
+; per unit, BIT 7 meaning "the PicoMEM disk code serves this drive"
+; (pmbios/pm_vars.asm; its order is the config file's, so the card keeps it).
+; Units 2 and 3 have no attribute and answer no.
+;
+; KERN_BIG ONLY, beside its caller in the window half. kern_big's blob is full
+; and its `.ovlw` had ~90 bytes; kern_small's `.ovlw` has 30 (the two guards at
+; the foot of kernel.asm), and putting the body in its blob instead makes the
+; one routine live in a different section per build, which tools/os88ovlchk.py
+; - reading the source as kern_small lays it out - rightly cannot follow. A
+; PicoMEM-emulated B: on the 128KB machine keeps the Control Panel's force
+; (SPEC.md 18.97.6).
+; -----------------------------------------------------------------------------
+dsk_fdd_pmemu:
+    push ax
+    push bx
+    push cx
+    push dx
+    push es
+    cmp al, 2
+    jae .no
+    mov bl, al                  ; the unit, through int 13h's clobbers
+    mov dx, 0x2A3
+    pushf
+    cli                         ; the ramp is stateful: nobody between reads
+    in  al, dx
+    mov ah, al
+    mov cx, 8
+.ramp:
+    in  al, dx
+    inc ah
+    cmp al, ah
+    jne .noramp
+    loop .ramp
+    popf
+    push bx
+    mov ax, 0x6000
+    mov dx, 0x1234
+    int 0x13
+    pop ax                      ; AL = the unit again
+    cmp dx, 0xAA55
+    jne .no
+    add bx, 0x400               ; +16KB: the card's shared RAM
+    mov es, bx
+    mov bl, al
+    xor bh, bh
+    test byte [es:bx+0xB2], 0x80
+    jz  .no
+    clc
+    jmp short .out
+.noramp:
+    popf
+.no:
+    stc
+.out:
+    pop es
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif                          ; KERN_BIG
+
 ; -----------------------------------------------------------------------------
 ; dsk_fdd_probe - is unit 1 really there? (SPEC.md 18.97)
 ; in:  nothing
@@ -8685,6 +8792,13 @@ dsk_fdd_probe:
 %endif
     ret
 .real:
+%endif
+%ifdef KERN_BIG
+    call dsk_fdd_pmemu          ; A PICOMEM'S IMAGE IS NOT ON THE FDC (SPEC.md
+    jc  .fdc                    ; 18.97.6): the card serves the unit through
+    mov al, 1                   ; its int 13h hook, so there is no carriage
+    ret                         ; to ask about TRACK 0 - keep it, unasked
+.fdc:
 %endif
     push bx
     mov [fdd_unit], al          ; SPEC.md 18.98: which unit. It was unit 1 by

@@ -11967,12 +11967,19 @@ SOAK = [
         "SHIPS, under unicorn against a model of the card written from its "
         "firmware - ETHER.DRV's probe must put the PicoMEM's NE2000 (8-bit "
         "PROM, 16KB-up memory) on the NE2000 map and LEAVE a real NE1000 on "
-        "its own, with frames byte-exact round the ring; SOUND.DRV's PicoMEM "
+        "its own, with frames byte-exact round the ring, and REFUSE an empty "
+        "slot that answers AAh/C3h off a floating 8088 bus; SOUND.DRV's PicoMEM "
         "attach must learn the card's own IRQ, never offer it, keep it "
-        "unmasked, and hook the SB without the F2h probe that used to take "
+        "unmasked, step past 220h when the card's CMS holds it, and hook "
+        "the SB without the F2h probe that used to take "
         "the multiplexer's vector. Broken on purpose: the old ne2000.inc "
-        "reproduces the field report (tx counted, rx never); the "
-        "sbl_f_irqdisc skip taken out fails 11 checks",
+        "reproduces the field report (tx counted, rx never) and the probe "
+        "before the CR test accepts the empty slot as aaaaaaaaaaaa; the "
+        "sbl_f_irqdisc skip taken out fails 11 checks. Two more legs: the "
+        "KERNEL's B: check (SPEC.md 18.97.6) and Restart's warm reset on a "
+        "PicoMEM (18.100.1), cut out of disk.inc - 8 checks fail with both "
+        "broken; and USBMOUSE.DRV's PicoMEM backend (9.12.7) driven whole: "
+        "attach, reports fed through int 33h AX=0060h, chaining, detach",
         needs=("nasm", "unicorn")),
     Row("ethernet", "soak", py("tests/ethernet.py"), 40.0,
         "SPEC.md 72.9: ETHER.DRV up before the first paint off a SYSTEM.CFG "
