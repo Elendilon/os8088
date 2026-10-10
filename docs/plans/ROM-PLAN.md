@@ -13,8 +13,8 @@
 >   MartyPC's GLaBIOS 5150 (`tests/romsmall.py`):
 >   * the ROM is adopted;
 >   * `.cold` runs from F401;
->   * the floor falls 24.5KB, which is **86.5KB of heap on a 128KB machine
->     against 62.5**;
+>   * the floor falls by the cold rung - 23.0KB at build 387 - which is
+>     **87.5KB of heap on a 128KB machine against 64.5**;
 >   * modules are re-pointed on load;
 >   * a ROM one byte away is refused.
 >
@@ -24,22 +24,24 @@
 > * **W3:** `ROM_COLD` on every kernel; `make rom` cuts both ROMs
 >   (`rom-big`, `rom-small`). Measured on a CGA 5150 and on the VGA XT, both
 >   GLaBIOS (`tests/rombig.py`):
->   * the floor falls **37.5KB** on both adapters: 1880 -> 0F20 on CGA, and
->     18A0 -> 0F40 on VGA, where the planar decoder's buffers move down into
+>   * the floor falls **37.0KB** on both adapters at build 387: 1820 -> 0EE0
+>     on CGA, and 1840 -> 0F00 on VGA, where the planar decoder's buffers move down into
 >     the bottom of the dead cold rung;
 >   * the decoder, driven by a dithered Paint canvas off the byte grid,
 >     decodes all 182 rows on 0F20 with the ROM, on 1880 without, and draws
 >     the same screen to the byte;
 >   * a ROM one byte away is refused.
 >
->   It costs **+47 resident bytes** on kern_big (`.text` +4, `.cold` +43),
->   against `NO_ROM_COLD`, which assembles byte-identical to the tree before
->   it. The window has **1,632 bytes** to spare (3.6's ~2KB, measured).
+>   It cost **+47 resident bytes** on kern_big at build 364 (`.text` +4,
+>   `.cold` +43), against `NO_ROM_COLD`, which assembles byte-identical to the
+>   tree before it; SPEC.md 2.10.4 carries today's figure. The window had
+>   **1,632 bytes** to spare then (3.6's ~2KB, measured).
 >
 > * **W4:** whatever room `.cold` and the tail leave holds module images,
 >   greedily in `tools/os88rom.py`'s `PRIORITY` order, and on kern_small one
 >   package. At build 364 kern_small's ROM holds FDLG, FILECP, CTRL, the small
->   Task Manager and FORMAT (642 bytes spare); kern_big's holds FORMAT (323).
+>   Task Manager and FORMAT (2,915 bytes spare at build 387); kern_big's
+>   holds FORMAT (590).
 >   Measured on the 128KB machine with the system disk swapped out of A:
 >   (`tests/romnodisk.py`): a Save As chooser, the Control Panel and the Task
 >   Manager all open from the ROM, and all three refuse without it. +34
@@ -70,8 +72,13 @@
 >    `kmain_o`'s first instruction far-calls it in `.ovlw`. In `.boot2` it
 >    cost four kern_small knob kernels their build, because a knob gives the
 >    loader's slack to the overlay; in `.ovl` it did not fit kern_big, which
->    had 27 bytes to spare. `rom_patch` keeps every register itself so the
->    doorbell stays at 46 bytes.
+>    had 27 bytes to spare. It is 28 bytes now plus a 3-byte call (header
+>    format 2, SPEC.md 2.10.1): rung by `dsk_boot_from_x` on its way out,
+>    through a far pointer in the header, with `rom_patch` keeping every
+>    register and finding the blob itself. Its first `.ovlw` shape was 46,
+>    and the re-cut onto the next `elendilon` left kern_big's `.ovlw` 34
+>    bytes - 12 short - while a 5-byte call from `kmain_o` broke the
+>    `BOOTMARK=1` knob's `.ovl`, so nothing of it is in `.ovl` now.
 > 6. **The ROM tool assembles with PASS 2's defines.** `.ovl` names a
 >    stage-2 label through CS (`and al, [cs:b2_cylok]`), so on kern_big the
 >    first-pass placeholders moved one byte of `.ovl` and the tool refused
@@ -1032,7 +1039,7 @@ The order follows from them.
 | **W0** | Section 3.3's nine `jbe` → `je`. Section 3.2's eight `push cs` calls and the two stores, so `.cold` names no segment of its own. `os88romfix.py`'s "inside `.cold` = 0" as a fast row | −8 resident | Correct on today's machines, removes a latent ordering assumption, and every later wave stands on it |
 | **W1** | First section 1.7's socket-check ROM, which proves the two boards before any kernel code is involved. Then `make rom`: section 1.3's option-ROM image (header, 32KB length byte, init, stub, two balance bytes, the GLaBIOS `55AA` check). It emits `U28.BIN`–`U32.BIN` and the 40KB whole. Plus a MartyPC `"custom"` ROM row at 0xF4000 | 0 resident | The harness every later wave is tested on. First milestone: the init's POST line, and the stub catching a boot with no disk, on GLaBIOS in the container and on the 5150 |
 | **W2** | **BUILT:** Option A on `kern_small` (section 3.4): the ladder reorder, `.cold` as the last block run, the probe and the far call in `.boot2`, the patcher and lists in the ROM tail, `mem_floor_ax`'s ROM arm, the `mod_need` hook, and the key in the hibernate header | **+16–23 `.cold`** without the ROM; **−24,576** with it | The biggest relative gain (+38% heap at 128KB) on the kernel with the most room in the window. The floor machine already has its gate (`tests/small128.py`), and every row in the suite is a with-and-without A/B for free |
-| **W3** | **BUILT:** Option A on `kern_big`, plus `kernsize`'s `rom` line (a report: `tools/os88rom.py` is the guard) | **+47** without; **−38,400** with | The same code with a tighter window |
+| **W3** | **BUILT:** Option A on `kern_big`, plus `kernsize`'s `rom` line (a report: `tools/os88rom.py` is the guard) | **+47** without at build 364, **+67** with W4 at build 387 (SPEC.md 2.10.4); **−37,888** with | The same code with a tighter window |
 | **W4** | **BUILT, as copies:** `kern_small`'s modules and the Task Manager image (section 3.7), `mod_need`'s ROM arm, `ui_sys_open`'s | **+34 `.text`** on kern_small, **+35 `.cold`** on both (itself in ROM) | Save As with the system disk out, on a one-drive machine - measured, `tests/romnodisk.py` |
 | W5 | `CROM=1` (section 3.5), only if Option A meets something on the iron that a matched pair would not | — | Kept as the fallback, not the plan |
 | W6 | `kern_big`'s form 2, if a second ROM window ever appears | ~50–100 `.cold` | |

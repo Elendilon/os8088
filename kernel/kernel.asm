@@ -473,8 +473,8 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endif
 ROM_SEG     equ 0xF400          ; U28's base: the window's header paragraph
 ROM_COLDSEG equ ROM_SEG + 1     ; ...and `.cold` one paragraph above it
-ROM_FMT     equ 1               ; the header's +10, as tools/os88rom.py writes
-ROM_KIND_KERNEL equ 2           ; ...and its +11: boot/osrom.asm's kinds
+ROM_FMT     equ 2               ; the header's +8, as tools/os88rom.py writes
+ROM_KIND_KERNEL equ 2           ; ...and its +9: boot/osrom.asm's kinds
 ; ...and what AL asks [rom_mfp], the ROM's one door after adoption
 ; (SPEC.md 2.10.4, 2.10.5). BX = a mod_tab ROW for the first three
 ROMF_SIZE   equ 0               ; out CF=0 AX = the image's bytes, if it has it
@@ -5698,16 +5698,22 @@ section .ovlw
 ; -----------------------------------------------------------------------------
 ; rom_adopt - hand the kernel to the ROM's own adapter, if there is a ROM
 ; (docs/plans/ROM-PLAN.md 3.4.3, SPEC.md 2.10.4)
-; in:  DS = KERNEL_SEG, [spl_fseg] = the blob (stage 2 published it), the
-;      kernel expanded and NOTHING of `.cold` run yet - which is kmain_o's
-;      first instruction on both loaders
-; out: nothing; preserves every register (the ROM's rom_patch keeps the rest)
+; in:  DS = KERNEL_SEG, the kernel expanded and NOTHING of `.cold` run yet -
+;      which is where dsk_boot_from_x rings it (kmain_o's first call), on
+;      both loaders; NEAR-called, the two being one `.ovlw` segment
+; out: nothing; clobbers BX and the flags (dsk_boot_from_x pops its own BX
+;      straight after; the ROM's rom_patch keeps the rest, and reads the
+;      blob's segment out of [spl_fseg] itself)
 ;
 ; IN THE WINDOW HALF OF THE OVERLAY, and that was the third home tried. In
 ; stage 2's `.boot2` it cost four kern_small knob builds their loader share;
-; in `.ovl` it did not fit kern_big at all (27 bytes spare). `.ovlw` has room
-; on both, is dead by the first mount - this runs before anything mounts -
-; and is reached by a far call whose segment is a constant (OVWCALL).
+; in `.ovl` it did not fit kern_big at all. `.ovlw` is dead by the first
+; mount - this runs before anything mounts - and is reached by a far call
+; from dsk_boot_from_x, its neighbour in `.ovlw`. It is 28 bytes because it
+; was 46 and kern_big's `.ovlw` then had 34 to spare: the one register it
+; uses is its caller's to restore, and the far pointer it calls through sits
+; in the header itself (ROM_FMT 2). Its call is 3 more, in `.ovlw` too: a call
+; from kmain_o was 5 bytes of `.ovl`, which the BOOTMARK knob does not have.
 ;
 ; This is only the doorbell: an os8088 kernel ROM at F4000 in this header
 ; format. Everything that decides whether it is THIS kernel's - `.cold` byte
@@ -5718,33 +5724,20 @@ section .ovlw
 ; -----------------------------------------------------------------------------
 rom_adopt:
     push ds
-    push ax
-    push bx
-    mov ax, [spl_fseg]          ; AX = the blob, for `.ovl`'s list
     mov bx, ROM_SEG
     mov ds, bx
     cmp word [6], 'OS'          ; an os8088 ROM at F4000 (the BIOS has
     jne .no                     ; already proved it is an option ROM: 55 AA
-    cmp word [8], '88'          ; and a checksum)...
-    jne .no
-    cmp word [10], ROM_FMT | (ROM_KIND_KERNEL << 8)
-    jne .no                     ; ...in this format, carrying a kernel
-    mov bx, [12]                ; the identity block
-    call far [bx+24]            ; CF = 1: not ours, and nothing was touched
+    cmp word [8], ROM_FMT | (ROM_KIND_KERNEL << 8)  ; and a checksum), in this
+    jne .no                     ; format, carrying a kernel
+    call far [10]               ; rom_patch; CF = 1: not ours, nothing touched
 .no:
-    pop bx
-    pop ax
     pop ds
-    retf
+    ret
 section .ovl
 %endif
 
 kmain_o:
-%ifdef ROM_COLD
-    OVWCALL  rom_adopt          ; FIRST: nothing of `.cold` has run yet (ROM-PLAN
-                                ; 3.4.3) - and it preserves every register, DL
-                                ; and BX:CX's handoff below included
-%endif
     OVWCALL  dsk_boot_from_x    ; WHICH VOLUME DID WE COME OFF? (SPEC.md
                                 ; 52.10.3) DL and BX:CX are the boot sector's
                                 ; handoff and nothing above touches them - the

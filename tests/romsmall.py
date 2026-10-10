@@ -24,7 +24,8 @@ BIOS 5150 #2, the ROM testbed, runs - docs/FIELD-MACHINES.md):
      negative control - a ROM that is not this kernel's must be no ROM
      (docs/WRITING-TESTS.md 1).
   D. the 128KB floor machine with the ROM: a desktop, and [mem_base] =
-     COLD_RAM - 24.5KB more heap than tests/small128.py's machine has.
+     COLD_RAM - the cold rung's worth more heap than tests/small128.py's
+     machine has (23.0KB at build 387; the test prints it).
 
     make small && python3 tests/romsmall.py
 """

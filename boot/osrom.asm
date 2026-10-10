@@ -4,7 +4,8 @@
 ; The ROM window is the five spare 8KB sockets of an IBM 5150, U28-U32, which
 ; decode F4000-FDFFF. tools/os88rom.py lays the window out as ONE option ROM:
 ;
-;   F4000  55 AA 40  jmp near rom_init  'OS88'  fmt  kind  id  bal1     16 bytes
+;   F4000  55 AA 40  jmp near rom_init  'OS'  fmt  kind  dd rom_patch  bal1 0
+;          (16 bytes; ROM_FMT 2 - the kernel's doorbell calls the dword at +10)
 ;   F4010  the payload: the kernel's `.cold` (segment F401), or the
 ;          socket-check pattern
 ;     ...  0xFF fill
@@ -63,10 +64,12 @@ SOCK_N          equ 5
     org TAIL_AT
 
 ; --- the identity block, FIRST in the tail ------------------------------------
-; The header's word at +12 points here. It is what a kernel's probe reads
-; (ROM-PLAN 3.4.3), so its layout is versioned by the header's fmt byte and
-; os88rom.py writes the fields it knows only after assembly (the key, the
-; payload's length) into the zeros left for them.
+; The header's jmp to rom_init lands 32 bytes past it, which is how a tool
+; finds it. Format 1 also pointed the header at it and the kernel's doorbell
+; read +24 here; format 2 put that far pointer in the header itself, so this
+; block is for tools (ROM-PLAN 3.4.3). os88rom.py writes the fields it knows
+; only after assembly (the payload's length and place) into the zeros left
+; for them.
 rom_id:
     db 'OS88ROM', 0             ; +0  a second signature, past the payload
     db ROM_KIND                 ; +8
@@ -75,7 +78,8 @@ rom_id:
     dw 0                        ; +12 payload length (tool)
     dw 0                        ; +14 tail length (tool)
     times 8 db 0                ; +16 the KEY (tool; kernel ROMs only)
-    dw rom_patch                ; +24 the patcher's entry (kernel ROMs)
+    dw rom_patch                ; +24 the patcher's entry, which the tool
+                                ; copies into the header's +10
     dw 0                        ; +26 reserved
     times 4 db 0                ; +28 reserved
 %if $ - rom_id != 32
@@ -274,12 +278,13 @@ rom_sock_check:
 ;   RT_PKGOFF RT_PKGLEN           the one package it may hold, and its name,
 ;   rt_pkgname                    which ROMF_PKG matches (SPEC.md 2.10.5)
 ;   RT_MFP                        rom_mfp's offset in the kernel's `.text`
+;   RT_FSEG                       spl_fseg's, where the blob's segment is
 ; =============================================================================
 %include ROMTAB
 
 ; --- rom_patch - adopt the kernel expanded at RT_KSEG, or say no -------------
-; in:  AX = the blob's segment; far-called from the boot overlay's
-;      rom_adopt, kmain_o's first instruction, before a byte of `.cold` has run
+; in:  nothing; far-called through the header's +10 by the boot overlay's
+;      rom_adopt, before a byte of `.cold` has run
 ; out: CF = 0 adopted: every listed word names ROM_COLDSEG and the kernel's
 ;      rom_mfp names rom_modfix. CF = 1: nothing anywhere was written
 ; preserves: every register (the doorbell saves only what it touches); leaves
@@ -288,14 +293,17 @@ rom_patch:
     push ax                     ; EVERY REGISTER KEPT, here and not in the
     push bx                     ; kernel's doorbell: these bytes are ROM and
     push cx                     ; cost nobody RAM, the doorbell's are the
-    push dx                     ; boot overlay's and it had 27 to spare
+    push dx                     ; boot overlay's, which kern_big has filled
     push si
     push di
     push bp
     push ds
     push es
     cld
-    mov bp, ax                  ; BP = the blob, for rt_ovl
+    mov ax, RT_KSEG             ; BP = the blob, for rt_ovl: [spl_fseg], which
+    mov ds, ax                  ; stage 2 (or the VBR) published before the
+    mov bp, [RT_FSEG]           ; kernel was entered - read here so the
+                                ; doorbell need not carry it
     ; --- 1. `.cold`, byte for byte -------------------------------------------
     push cs
     pop ds

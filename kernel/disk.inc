@@ -2196,6 +2196,15 @@ dsk_boot_from_x:
     mov [dsk_vbase+bx+2], cx
 .out:
     call dsk_bootltr            ; and the messages that NAME the system disk
+%ifdef ROM_COLD
+    call rom_adopt              ; ...and the ROM's doorbell (SPEC.md 2.10.4):
+                                ; HERE, inside this routine, because it is the
+                                ; first thing kmain_o does and runs before any
+                                ; `.cold`, because its BX is the one popped
+                                ; below, and because a call from kmain_o was
+                                ; 5 bytes of `.ovl` that BOOTMARK's knob build
+                                ; does not have. A near call: both are `.ovlw`
+%endif
     pop si
     pop bx
     pop ax
@@ -2274,7 +2283,9 @@ dsk_bootltr:
 ; been put above the blob yet. Boot code, so it is in `.ovlw` and gone with
 ; the window at the first mount.
 ; -----------------------------------------------------------------------------
-DSK_HCYLSEG equ ((HEAP_SEG + BOOT2_SECS * 32 + 0x3F) / 0x40) * 0x40
+DSK_HCYLSEG equ ((BLOB_SEG_AT + BOOT2_SECS * 32 + 0x3F) / 0x40) * 0x40
+                                ; (BLOB_SEG_AT: the blob is lifted off HEAP_SEG
+                                ; where `.cold` is the top rung, SPEC.md 2.10.3)
 dsk_hcyl_probe:
     push ax
     push bx
@@ -2961,7 +2972,8 @@ osapi_vol_add_x:
 osapi_vol_take_x:
     call osapi_vol_fence        ; [dsk_vcls] = the caller's class
     jc .no
-    call COLD_SEG:osapi_vol_at_x    ; AL = the row covering DL, BX:CX
+    COLDCALL osapi_vol_at_x        ; AL = the row covering DL, BX:CX (a FAR
+                                ; body, so `push cs` + near call: ROM-PLAN 3.2)
     jc .no
     push bx
     mov bl, al

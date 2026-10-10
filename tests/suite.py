@@ -311,8 +311,8 @@ FAST = [
         "re-pointed by the ROM (read, not inferred: the dead RAM copy of "
         ".cold could otherwise answer by accident). B: no ROM, nothing "
         "changes. C, the negative control: a ROM one byte of .cold away is "
-        "refused and is no ROM. D: the 128KB floor machine, 86.5KB of heap "
-        "against 62.5. SOAK: the subject is a 5150's ROM sockets",
+        "refused and is no ROM. D: the 128KB floor machine, 87.5KB of heap "
+        "against 64.5 at build 387. SOAK: the subject is a 5150's ROM sockets",
         needs=("marty", "nasm"), serial=True,
         wants=("build/small360.img",)),
     Row("rombig", "soak", py("tests/rombig.py"), 90.0,

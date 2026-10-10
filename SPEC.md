@@ -3284,18 +3284,18 @@ small`'s - and each kernel **finds its own at boot and runs its `.cold` from
 it**. The same disks boot unchanged on a machine without it. Two rows gate it,
 `tests/rombig.py` and `tests/romsmall.py`, each with three legs:
 - with the ROM, `[api_coldseg]` is F401 and the heap floor falls by the cold
-  rung - **37.5KB on kern_big, 24.5KB on kern_small**;
+  rung - **37.0KB on kern_big, 23.0KB on kern_small** at build 387;
 - with no ROM, nothing changes;
 - with a ROM one byte away from the kernel, nothing changes.
 
-On kern_small's 128KB floor machine that is **86.5KB of free heap against
-62.5**.
+On kern_small's 128KB floor machine that is **87.5KB of free heap against
+64.5**.
 
 #### 2.10.1 The window is ONE option ROM
 
 | offset | what |
 |---|---|
-| 0x0000 | `55 AA 40`, then `jmp near rom_init`, `'OS88'`, the format (1) at +10 and the kind at +11 (1 a socket check, 2 a kernel) - adjacent, so stage 2 tests them as one word - the identity block's offset at +12, `bal1` at +14 |
+| 0x0000 | `55 AA 40`, then `jmp near rom_init`, `'OS'` at +6, the format (2) at +8 and the kind at +9 (1 a socket check, 2 a kernel) - adjacent, so the doorbell tests them as one word - a FAR POINTER to `rom_patch` at +10 (offset, then F400), `bal1` at +14. Format 1 had `'OS88'` and an offset to the identity block; format 2 moved the call into the header so the doorbell is one `call far [10]` (§2.10.4) |
 | 0x0010 | the payload. For a kernel ROM, `.cold` itself, so it executes at **F401** (`ROM_COLDSEG`) |
 | tail | `boot/osrom.asm`: the 32-byte identity block (`'OS88ROM\0'`, lengths, and at +24 a far pointer to `rom_patch`), `rom_init`, `rom_stub`, and the kernel ROM's adapter and tables |
 | 0x9FFF | `bal2` |
@@ -3366,16 +3366,21 @@ paragraphs (`BLOB_LIFT`):
 #### 2.10.4 Adoption: the ROM decides, the kernel only rings
 
 **The kernel's part is three pieces:**
-- **The boot overlay's doorbell.** `kmain_o`'s first instruction is
-  `OVWCALL rom_adopt`, which both loaders reach before anything of `.cold`
-  has run or anything has mounted. It checks for an os8088 kernel ROM at F400
-  (format 1, kind 2, tested as one word), then far-calls `rom_patch` with
-  AX = the blob's segment out of `[spl_fseg]`. It is in the window half of
-  the overlay (`.ovlw`), and that was its third home: in stage 2's `.boot2` a
-  knob build's 96-136-byte loader share stopped four kern_small knob kernels
-  assembling, and in `.ovl` kern_big had 27 bytes to spare. `rom_patch`
-  preserves every register itself, so the doorbell saves only what it uses:
-  46 transient bytes of `.ovlw`, and 5 of `.ovl` for the call.
+- **The boot overlay's doorbell.** `dsk_boot_from_x`, `kmain_o`'s first
+  call, rings `rom_adopt` on its way out (a near call, both being `.ovlw`). Both loaders reach it before anything of `.cold` has run or
+  anything has mounted, and the one register it clobbers, BX, is the one
+  `dsk_boot_from_x` pops straight after. It checks for an os8088 kernel ROM at
+  F400 (`'OS'`, then format 2 and kind 2 tested as one word) and calls the
+  header's far pointer; `rom_patch` keeps every register and reads the blob's
+  segment out of `[spl_fseg]` itself (`RT_FSEG`). **31 transient bytes of
+  `.ovlw`, and none of `.ovl`.** It is in the window half of the overlay, its
+  third home, and in its third shape:
+  - in stage 2's `.boot2`, a knob build's 96-136-byte loader share stopped
+    four kern_small knob kernels assembling;
+  - in `.ovl`, kern_big had 27 bytes to spare - and even the 5-byte call from
+    `kmain_o` was more than `BOOTMARK=1`'s `.ovl` has;
+  - its first `.ovlw` shape was 46 bytes, which the integration branch's next
+    round left kern_big's `.ovlw` 12 short of.
 - **The heap floor.** `mem_floor_ax` drops it by `COLD_PARA` when
   `[api_coldseg]` is not `COLD_RAM`.
 - **Modules.** After `mod_check`, `mod_need` far-calls `[rom_mfp]` with
@@ -3388,13 +3393,12 @@ paragraphs (`BLOB_LIFT`):
   boot without it refuse each other, in both directions. +15 bytes of
   `HIBER.DRV`, an on-demand module.
 
-That is **+47 resident bytes** on kern_big (`.text` +4, `.cold` +43,
-measured against `NO_ROM_COLD`) and **+28** on kern_small (`.text` +2,
-`.cold` +26, against the tree before wave 0). §2.10.5's module arm adds
-`.cold` +35 on both and `ROM_PKG` `.text` +34 on kern_small, for totals of
-**+82 on kern_big** (`.text` +4, `.cold` +78) and **+111 on kern_small**
-(`.text` +36, `.cold` +75), all measured at build 364. On a ROM machine the
-`.cold` part of it is in ROM.
+All of §2.10, measured at build 387 against the integration branch it was
+carried onto (`elendilon` at a3818217) and with §2.9's `vid_apply` fix's 14
+`.text` bytes left out, is **+67 resident bytes on kern_big** (`.text` +1,
+`.cold` +66) and **+110 on kern_small** (`.text` +36 - `ROM_PKG` is 34 of
+them - and `.cold` +74). At build 364, on the branch before that, kern_big's
+was +82. On a ROM machine the `.cold` part of it is in ROM.
 
 **The ROM's part is `rom_patch`.** It writes nothing until all three of these
 tests pass:
@@ -3433,8 +3437,8 @@ the package, `FORMAT.DRV`, `CLONE.DRV`, `EXTD.DRV`, `DOCK.DRV`, `HIBER.DRV`.
 Each goes in if it fits, greedily, and one that does not is read off the disk
 as before - so a `.cold` that grows takes a module out of the ROM rather than
 failing the ROM. At build 364 kern_small's ROM holds FDLG, FILECP, CTRL,
-the small Task Manager and FORMAT with 642 bytes to spare; kern_big's holds
-`FORMAT.DRV` alone, with 323. `make rom` prints what went in.
+the small Task Manager and FORMAT with 2,915 bytes to spare at build 387;
+kern_big's holds `FORMAT.DRV` alone, with 590. `make rom` prints what went in.
 
 **Modules are COPIED, never run in place.** kern_small's modules keep their
 `.bss` in the claim's tail and write it through CS (MODULE-SELFCONTAIN-PLAN

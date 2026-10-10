@@ -2853,11 +2853,11 @@ socketrom: $(BUILDINC)
 # byte for byte and a hash over `.text`'s code before it touches anything).
 # Every shipped disk FINDS its ROM at boot and boots the same without it;
 # with it, `.cold` runs from F401 and the heap floor falls by the cold rung.
-#   osrom-big   - kern_big's, for `all`'s disks (wave 3): 37.5KB more heap on
+#   osrom-big   - kern_big's, for `all`'s disks (wave 3): 37.0KB more heap on
 #                 every adapter, VGA's decoder buffers moved under the floor
 #                 (tests/rombig.py)
-#   osrom-small - kern_small's, for `make small`'s (wave 2): 24.5KB, 62.5 ->
-#                 86.5KB free on a 128KB machine (tests/romsmall.py) - and
+#   osrom-small - kern_small's, for `make small`'s (wave 2): 23.0KB, 64.5 ->
+#                 87.5KB free on a 128KB machine (tests/romsmall.py) - and
 #                 (wave 4) the Standard File dialog, Cut/Copy/Paste, the
 #                 Control Panel, the formatter and the small Task Manager, so
 #                 none of them needs the system disk in a drive

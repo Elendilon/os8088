@@ -4,7 +4,7 @@
 docs/plans/ROM-PLAN.md is the design and section 1.3 is the layout. The window
 is U28-U32, F4000-FDFFF, 40,960 bytes, laid out as ONE option ROM:
 
-    0x0000  55 AA 40  E9 rel16  'OS88'  fmt kind  dw id  bal1 0    16 bytes
+    0x0000  55 AA 40  E9 rel16  'OS'  fmt kind  dd rom_patch  bal1 0   16 bytes
     0x0010  the payload (the kernel's .cold, or the socket-check pattern)
      ...    0xFF fill
     TAIL    boot/osrom.asm, assembled at its own offset
@@ -52,7 +52,7 @@ DECL_BLOCKS = 0x40                  # 32KB - ROM-PLAN 1.3 point 2, NOT 0x50
 DECL_SIZE = DECL_BLOCKS * 512
 HDR_SIZE = 16
 BAL1 = 14                           # the header's balance byte
-FMT = 1
+FMT = 2                             # 2: +10 is a far pointer to rom_patch
 KIND_SOCK, KIND_KERNEL = 1, 2
 
 # the 1981 BIOSes never run rom_init, so int 18h still lands at F600:0000 on
@@ -115,10 +115,14 @@ def layout(kind, payload_len, fill, extra=(), bstr=None):
     hdr[0:3] = bytes((0x55, 0xAA, DECL_BLOCKS))
     rel = (init - 6) & 0xFFFF                   # jmp near at +3, next ip +6
     hdr[3:6] = bytes((0xE9, rel & 0xFF, rel >> 8))
-    hdr[6:10] = b"OS88"
-    hdr[10] = FMT                               # fmt and kind ADJACENT: stage
-    hdr[11] = kind                              # 2 tests them as one word
-    hdr[12:14] = tail_at.to_bytes(2, "little")  # rom_id
+    hdr[6:8] = b"OS"
+    hdr[8] = FMT                                # fmt and kind ADJACENT: the
+    hdr[9] = kind                               # doorbell tests them as one word
+    # +10: rom_patch, as a FAR POINTER the kernel's doorbell calls through
+    # in one instruction (`call far [10]`, ROM_FMT 2). The offset is the
+    # assembler's, out of rom_id+24; the segment is the window's
+    hdr[10:12] = tail[24:26]
+    hdr[12:14] = (ROM_BASE >> 4).to_bytes(2, "little")
     hdr[14] = 0                                 # bal1, below
     img[0:HDR_SIZE] = hdr
     # rom_id's tool-written fields (boot/osrom.asm: +10, +12, +14)
@@ -516,6 +520,7 @@ def kernel_tables(build, variant):
             "vgabram": vgabram,
             "cold": a[cst:cen], "hash": h, "spans": spans, "lists": lists,
             "nmods": len(rows), "mfp": _symbol(amap, ".text", "rom_mfp"),
+            "fseg": _symbol(amap, ".text", "spl_fseg"),
             "modtab": modtab, "rowimg": rowimg, "names": names,
             "images": images,
             "text": text, "skipwords": sorted(skip)}
@@ -545,6 +550,7 @@ def write_romtab(t, path, held=None, pkg=None):
            f"RT_COLDLEN  equ {len(t['cold'])}",
            f"RT_HASH     equ 0x{t['hash']:04X}",
            f"RT_MFP      equ 0x{t['mfp']:04X}",
+           f"RT_FSEG     equ 0x{t['fseg']:04X}",
            f"RT_MODTAB   equ 0x{t['modtab']:04X}",
            f"RT_MODRSZ   equ 4",
            f"RT_NTEXT    equ {len(L['text'])}",
@@ -749,14 +755,15 @@ def check(img):
     if img[3] != 0xE9:
         probs.append("+3 is not a near jmp")
     init = (int.from_bytes(img[4:6], "little") + 6) & 0xFFFF
-    rid = int.from_bytes(img[12:14], "little")
-    if img[rid:rid + 8] != b"OS88ROM\0":
-        probs.append("the header's identity pointer does not land on rom_id")
-    if init != rid + 32:
-        probs.append("the init jmp does not land on rom_init")
-    if int.from_bytes(img[rid + 26:rid + 28], "little") != ROM_BASE >> 4:
-        probs.append("rom_id+24 is not a far pointer into the window - "
-                     "stage 2 far-calls it")
+    rid = init - 32                             # rom_init follows rom_id
+    if not 0 <= rid < ROM_SIZE or img[rid:rid + 8] != b"OS88ROM\0":
+        probs.append("the init jmp does not land 32 bytes past rom_id")
+    if img[6:8] != b"OS" or img[8] != FMT:
+        probs.append("the header is not 'OS' in format %d" % FMT)
+    if (img[10:12] != img[rid + 24:rid + 26]
+            or int.from_bytes(img[12:14], "little") != ROM_BASE >> 4):
+        probs.append("+10 is not a far pointer to rom_patch in the window - "
+                     "the kernel's doorbell far-calls it")
     return probs
 
 
@@ -764,7 +771,7 @@ def selfcheck():
     img = build_socket()
     probs = check(img)
     # the pattern the ROM's own loop recomputes, re-derived independently
-    tail_at = int.from_bytes(img[12:14], "little")
+    tail_at = (int.from_bytes(img[4:6], "little") + 6 - 32) & 0xFFFF
     bad = [o for o in range(HDR_SIZE, tail_at)
            if not (INT18_AT <= o < INT18_AT + 5) and img[o] != sock_byte(o)]
     if bad:
@@ -813,7 +820,7 @@ def main():
             fail("; ".join(probs))
         name = a.name or ("osrom-small" if a.small else "osrom-big")
         path = write(img, a.out, name)
-        tail_at = int.from_bytes(img[12:14], "little")
+        tail_at = (int.from_bytes(img[4:6], "little") + 6 - 32) & 0xFFFF
         L = t["lists"]
         print(f"os88rom: {os.path.relpath(path, ROOT)} and its five sockets - "
               f"{variant}'s .cold ({len(t['cold']):,} bytes) at F401, build "
