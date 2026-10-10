@@ -85551,10 +85551,14 @@ one of them rather than a reader:
 2. **A stub ends in the `ret` kind its callers use.** Six of them are
    far-called and end in `retf`; the overlay pair is entered through
    `call far [spl_fp]` and ends in `retf` too (§2.5.3).
-3. **`drv_svc` is `.text` with real zero bytes, not `.bss`.** `snd.inc` reads
-   `[drv_svc+DSV_TONE]` directly to ask whether a driver offered it a tone
-   proc, and nothing zeroes `.bss` on this assembler (§8) — the live build
-   gets its zeros from `drv_init_x`, which is inside the gate.
+3. **A reader of a driver table that cannot be published is gated with it,
+   not fed zeros.** `drv_svc` used to be `.text` with real zero bytes here so
+   `snd.inc` and the Sound page could read "no proc" out of it; since kernel
+   size pass 11 every such reader is `OS88_DRIVERS`'s (`snd_release_inst`'s
+   `DSV_RELINST` call, `cp_snd_rowok`/`cp_snd_row`, which state their
+   answers - the speaker's row, alone), and `drv_svc`, `drv_owner`,
+   `drv_memk` and `drv_blkcls` are gone from this build. Nothing zeroes
+   `.bss` on this assembler (§8), which is why the zeros had to be bytes.
 
 The Control Panel's Drivers page is **stubbed rather than gated**, and the
 row is taken out of `cp_items` so nothing can select it. `CTRL.DRV` is an
@@ -85577,6 +85581,16 @@ as does `osapi_vol_at`'s arm for a TAKEN row (§52.1.1), which no row can be:
 itself stays, unfenced and live: it is the question an installer asks of
 the kernel's own boot volume. `osapi_desk_item`, the fence's other caller,
 takes its package arm as it always did.
+
+**And the fence's consequences one layer out** (kernel size pass 11): the
+two fenced FILE cells, `OSAPI_FILE_WRITE_SYS` and `_APPEND_SYS` (§19.6.1),
+are their refusal's answer and nothing else - `mov ax, FERR_PROT / stc /
+retf`, the registers the fenced body gave back untouched - and
+`OSAPI_FILE_FIND`'s fence is `xor al, al`, no caller being a driver. The
+resident lifecycle calls, `ui_cmd_reboot`'s `drv_shutdown` and the panel
+close's `drv_cp_closed`, are gated rather than stubbed (a far call is five
+bytes a site), `kmain`'s stays a stub call because it is boot overlay.
+`kern_small` -115 resident for those.
 
 ### 51.1 A driver is a package that is not an application
 
@@ -85884,10 +85898,14 @@ class in the middle would renumber every user's saved settings and turn "I
 had the hard disk on" into "I had the debug monitor on". Appending cannot.
 
 **One slot per class means one DRIVER per class at a time, and `drv_load`
-refuses the second.** Immediately before the attach it compares
-`[drv_owner]` for the row's class against the row itself: a slot held by a
-*different* row is `DRVE_TWICE`, the image goes straight back, and the row
-reads `Attached twice (bug)` beside its own name on the Drivers page.
+refuses the second.** First of all - before the disk is asked anything,
+since `DRVR_CLASS` is the row's own expectation and `drv_check` holds the
+header to it - it compares `[drv_owner]` for the row's class against the row
+itself: a slot held by a *different* row is `DRVE_TWICE`, no image is claimed
+or read, and the row reads `Attached twice (bug)` beside its own name on the
+Drivers page. (It sat immediately before the attach until kernel size pass
+11; ahead of the read it costs no disk work, and from there the five
+refusals after it reach their answers with two-byte jumps.)
 Without that test `drv_publish` overwrites the slot unconditionally — the
 first driver's volumes stay mounted and browsable while every verb on them
 dispatches into the SECOND driver, which is this section's own bug one level
@@ -96342,6 +96360,22 @@ bank it: the 128KB machine's `.cold` rung had 11 bytes left in it, and the
 mount's two redirected blocks alone are **115**. That does not uncross
 anything today; it makes the next thing that wants a rung cheaper, and it
 stops a build paying for a feature it is unable to use.
+
+**Kernel size pass 11 finished the gate the paragraph above describes.** The
+first round had gated the mount and the write bodies and left eleven arms
+assembled on `kern_small` that the same argument says are unreachable: the
+FAT reads (`dskw_rbody`, `dskw_stat_x`, `dskw_read_at_x`, `dwf_dskw_read_seq`,
+`dskw_wabody`, `dskw_rtbody`), `dsk_free_clus_x`, `dsk_up_open`, the
+directory enumerator's `FSV_ENUM`, `ld_take`'s handle test and `dsk_xfer`'s
+`DVK_DRV`/`DVK_FILE` dispatch (the last `OS88_DRIVERS`'s, since only a driver
+can stamp either kind), with `dskw_fsop`/`dskw_fsstat` and `[dsk_fsup]`
+behind them. **`kern_small` −331 resident** for those, and `kern_dos` - which
+defines neither symbol and has §96.44.9's fence - drops the same arms. Where
+a removed arm sat between an entry and its FAT path, the build without it
+takes a `jmp short` over the arm's relays, which is cheaper than the compare
+and taken branch it replaces. What is still assembled is `filecp.inc`'s six
+sites, in `FILECP.DRV` (a module there); `fdlg.inc`'s two, in `FDLG.DRV`, went
+with the rest.
 
 #### 62.9.3 The branch sites, and the order to build them in
 

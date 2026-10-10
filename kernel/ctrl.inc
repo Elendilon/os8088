@@ -1030,6 +1030,7 @@ cp_tick_due_x:
 ; is a thunk; module -> kernel is a cw_* shim; resident -> module for a
 ; five-instruction predicate is neither).
 ; -----------------------------------------------------------------------------
+%ifdef OS88_DRIVERS             ; (its one caller, drv_release, is)
 cp_drv_gone_x:
     push ax
     mov al, [cp_sel]
@@ -1043,6 +1044,7 @@ cp_drv_gone_x:
 .out:
     pop ax
     ret
+%endif
 
 section .modu                   ; ...and back to the panel's image
 
@@ -4987,6 +4989,11 @@ cp_snd_paint:
 ; says a parallel PORT answered, which is all a probe can say (SPEC.md 34.14).
 ; -----------------------------------------------------------------------------
 cp_snd_rowok:
+%ifndef OS88_DRIVERS            ; kern_small: NOTHING IS EVER PUBLISHED, so the
+    cmp al, 1                   ; speaker's row is the only live one - CF = 1
+    cmc                         ; for every other (kernel size pass 11; the
+    ret                         ; arm below reads drv_owner's zeros to say so)
+%else
     or al, al
     jz .yes                     ; the PC speaker is resident and needs no
                                 ; driver at all: never refused
@@ -5013,6 +5020,7 @@ cp_snd_rowok:
 .no:
     stc
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; cp_snd_row - which row is EFFECTIVELY live? (module internal)
@@ -5028,6 +5036,10 @@ cp_snd_rowok:
 ; the speaker, whichever the driver actually reached.
 ; -----------------------------------------------------------------------------
 cp_snd_row:
+%ifndef OS88_DRIVERS            ; kern_small: the speaker, whatever SYSTEM.CFG
+    xor al, al                  ; says - the arm below reads drv_svc's zeros
+    ret                         ; to the same answer (kernel size pass 11)
+%else
     mov al, [snd_route]
     cmp al, SND_RT_SPK
     je .spk
@@ -5054,6 +5066,7 @@ cp_snd_row:
 .sb:
     mov al, 2
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; cp_snd_radios - the four glyphs (module internal)

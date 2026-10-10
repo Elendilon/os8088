@@ -4920,6 +4920,9 @@ api_ff_go:
     mov [dsk_fdraw], al
     call inst_vol_enter         ; this instance's own folder; preserves
                                 ; everything including the flags
+%ifndef OS88_DRIVERS
+    xor al, al                  ; kern_small: no segment is a driver's, so no
+%else                           ; caller may see them (kernel size pass 11)
     call COLD_SEG:dvf_drv_owns_seg ; CF = 0: a loaded driver, so it may see the
     sbb al, al                  ; system files it is going to have to copy.
     inc al                      ; CF straight into AL without a branch: `sbb
@@ -4933,6 +4936,7 @@ api_ff_go:
                                 ; and `inc` does not touch it - which matters
                                 ; only in that it is dsk_find_x's OUTPUT below
                                 ; and never its input.
+%endif
     pop bx
     call COLD_SEG:dsk_find_x
     pop si
@@ -5013,6 +5017,13 @@ api_file_path:
 ; both paths rather than only the append one - a word left set by an append
 ; would silently turn the next driver's write into an append.
 ; -----------------------------------------------------------------------------
+%ifndef OS88_DRIVERS
+api_file_append_sys:            ; kern_small: the fence refuses EVERY caller,
+api_file_write_sys:             ; no segment being a driver's - so the two
+    mov ax, FERR_PROT           ; cells are .refuse's answer and nothing else,
+    stc                         ; every register .refuse gave back untouched
+    retf                        ; (kernel size pass 11)
+%else
 api_file_append_sys:
     mov word [cs:api_sysfp], dwf_dskw_append_sys    ; ...the same fence, the
     jmp short api_file_sysc                         ; other verb (18.4.4)
@@ -5057,6 +5068,7 @@ api_file_sysc:
     mov ax, FERR_PROT           ; the same answer DSKW_PROT gives a package
     stc                         ; that names a system file: it is protected,
     retf                        ; and from out there that is the whole truth
+%endif                          ; OS88_DRIVERS
 
 ; ...and the two-name case, which needs DI as well and so is written out
 api_file_rename:
@@ -5247,11 +5259,13 @@ spl_fseg:   dw COLD_SEG
 spl_ifp:    dw mod_gone
 spl_ifseg:  dw COLD_SEG
 
+%ifdef OS88_DRIVERS
 api_sysfp:  dw dwf_dskw_write_sys  ; which verb the shared fenced cell runs:
             dw COLD_SEG         ; dskw_write_sys or dskw_append_sys, as the
                                 ; far pointer it calls. .text for api_name's
                                 ; reason, and written through CS because the
                                 ; stub still has the caller's DS when it lands
+%endif
 
 ; =============================================================================
 ; Boot (SPEC.md 15)
@@ -7659,9 +7673,10 @@ dsk_chdir_q:      call COLD_SEG:dkf_dsk_chdir_q
 ; drv_boot's thunk is GONE (SPEC.md 2.5.2): the body is in the overlay and
 ; kmain's one call site reaches it through OVLGATE1, which is the crossing the
 ; thunk used to be.
-drv_svc_call:  call COLD_SEG:drv_svc_call_x
+%ifdef OS88_DRIVERS                     ; (kern_small: no caller - snd.inc's
+drv_svc_call:  call COLD_SEG:drv_svc_call_x ; are all OS88_DRIVERS's now)
            ret                          ; drv_task, drv_cfg and drv_dlg are
-                                        ; their cells' own (SPEC.md 20.3.2)
+%endif                                  ; their cells' own (SPEC.md 20.3.2)
 ; ...and the other end of that round trip (SPEC.md 51.10) needs NO thunk:
 ; fdlg_commit dispatches a kernel window's completion proc through wm_pkgcall,
 ; which takes a W_SEG 0 window into `.cold` (SPEC.md 2.6.3), so the offset

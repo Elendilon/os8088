@@ -941,6 +941,7 @@ dskw_rmtree:
 ; -----------------------------------------------------------------------------
 dskw_rtbody:
     call dskw_mounted           ; returns only when there is a volume
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
     cmp byte [dsk_vkind], DVK_FILE
     jne .fat                    ; A REDIRECTED VOLUME HAS NO DIRECTORY SECTORS
                                 ; (SPEC.md 62.9) and everything below this line
@@ -1005,13 +1006,18 @@ dskw_rtbody:
                                 ; is" has one answer: that body's own
                                 ; DVK_FILE arm two hundred lines up. It
                                 ; re-runs the [dsk_mntok] gate, which is free
+%else                           ; kern_small: no redirected volume can exist,
+    jmp short .fat              ; so over the two relays (kernel size pass 11)
+%endif
 .protj:                         ; ...and the two attribute refusals below take
     jmp dskw_wbody.prot         ; this, on a path nothing falls into: NASM
                                 ; spelt each of them as a five-byte inverted
                                 ; pair, an 8086 having no near `jcc`, and from
                                 ; here they are two bytes each (-3)
+%ifdef OS88_REDIR
 .fsno:                          ; (`or` cleared CF on the way here)
     stc
+%endif
 .fsok:                          ; ...and CF = 0 is the `jnc`'s
     ret
 .fat:
@@ -1367,7 +1373,6 @@ dskw_fsargs:
     mov cx, [dskw_len]
     mov di, [dskw_lenhi]
     ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; dskw_fsop - run one FSV_* write verb and reconcile (module internal)
@@ -1416,7 +1421,8 @@ dskw_fsstat:
     stc
 .out:
     ret
-
+%endif                          ; OS88_REDIR: dskw_fsargs, dskw_fsop and
+                                ; dskw_fsstat have no caller without it
 dskw_wbody:
     call dskw_mounted           ; returns only when there is a volume
 %ifdef OS88_REDIR               ; SPEC.md 62.9.2.3: the write's
@@ -1821,10 +1827,12 @@ dskw_last_p:
 ; -----------------------------------------------------------------------------
 dskw_rbody:
     call dskw_mounted           ; returns only when there is a volume
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
     cmp byte [dsk_vkind], DVK_FILE
     jne .fatname
     jmp .fsread                 ; a REDIRECTED volume (SPEC.md 62.9): there is
                                 ; no chain to walk and no entry to walk it from
+%endif
 .fatname:
     call dskw_gate83
     call dskw_norm              ; the destination becomes seg:0..15 + a run
@@ -1989,6 +1997,7 @@ dskw_rbody:
 .czbad:
     jmp dskw_rdata.corrupt      ; the same answer, spelled once
 
+%ifdef OS88_REDIR
     ; --- a REDIRECTED volume: STAT to a handle, then READ (SPEC.md 62.9.1) ---
     ; Reads are BY HANDLE and only FSV_STAT takes a name, so this is `open`
     ; and `read` - which is also what makes the refusals below identical to
@@ -2029,7 +2038,6 @@ dskw_rbody:
                                         ; dskw_czknow asks it
 .fsfail:
     ret                         ; CF = 1 and AX = FERR_* from dskw_fsstat
-%ifdef OS88_REDIR
 .fsdata:                        ; the widget's scale is BYTES (SPEC.md 12.8.1)
                                 ; and fpg_begin above was handed them: a
                                 ; redirected volume has no sectors to give it,
@@ -2500,6 +2508,7 @@ dskw_stat_x:
     push di
     cmp byte [dsk_mntok], 1
     jne .nodisk
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
     cmp byte [dsk_vkind], DVK_FILE
     jne .fat
 
@@ -2521,6 +2530,7 @@ dskw_stat_x:
                                 ; size. `mov bx, ax` first would have eaten
                                 ; the attribute byte, BL being where it is
     jmp short .out              ; (CF = 0 from the `jc`; xchg writes no flag)
+%endif
 .fat:
     mov di, dskw_n83
     call dskw_name83
@@ -2606,6 +2616,7 @@ dskw_read_at_x:
     mov [dwr_off], ax
     mov [dwr_off+2], dx
 
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
     cmp byte [dsk_vkind], DVK_FILE
     jne .fatat
     ; --- a REDIRECTED volume: STAT to a handle, then READAT (62.9.1) --------
@@ -2625,6 +2636,9 @@ dskw_read_at_x:
     mov bp, FSV_READAT
     call drv_fs_call              ; -> DX:AX = the bytes delivered
     jmp short .out              ; CF and DX:AX are already the answer
+%else                           ; ...and on kern_small the jump OVER the
+    jmp short .fatat            ; answers is all there is: 15 cycles where
+%endif                          ; the compare and its taken `jne` were ~36
 
     ; --- the answers, ABOVE the FAT body so its refusals reach them short ---
 .eof:
@@ -2826,10 +2840,12 @@ dwf_dskw_read_seq:
     jc .out
     add [dwr_c+FSEQ_OFF], ax    ; the cursor moves only when bytes arrived
     adc [dwr_c+FSEQ_OFF+2], dx
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
     cmp byte [dsk_vkind], DVK_FILE
     je .out                     ; a REDIRECTED volume (SPEC.md 62.9) serves
                                 ; any offset: its cursor is only that. CF=0,
                                 ; the compare having been equal
+%endif
     push ax                     ; ...otherwise it is trusted under THIS
     mov ax, [dsk_chain_end]     ; snapshot, on this volume: the LAST cluster
     mov [dwr_c+RSQ_CUR], ax     ; read, whose one FAT link is the next call's
@@ -3281,6 +3297,7 @@ dskw_wabody:
     jnc .gated
 .out:                           ; ...and a `ret` any error can share, AX
     ret                         ; and CF being already the answer
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
 .gated:
     cmp byte [dsk_vkind], DVK_FILE
     jne .fat
@@ -3296,8 +3313,12 @@ dskw_wabody:
     mov dx, es                  ; DX:BX = the bytes, CX = how many - the same
     mov bp, FSV_APPEND          ; three registers this cell was handed
     jmp dskw_fsop
+%endif
 .prot:
     jmp dskw_wbody.prot
+%ifndef OS88_REDIR
+.gated:
+%endif
 .fat:
     call dskw_gate83
 %ifdef DSKW_WSEQ

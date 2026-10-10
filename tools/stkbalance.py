@@ -102,6 +102,13 @@ JMP = re.compile(r"^jmp\s+(?:strict\s+)?(?:short\s+|near\s+|word\s+)?(\S+)", re.
 JCC = re.compile(r"^(j[a-z]{1,3}|loop|loope|loopne|loopz|loopnz)\s+"
                  r"(?:short\s+)?(\S+)$", re.I)
 SPADD = re.compile(r"^(add|sub)\s+sp\s*,\s*(\S+)$", re.I)
+# `lea sp, [bp+N]` - a frame's teardown in ONE instruction, where it was
+# `mov sp, bp` / `add sp, N` (gfx_blit1_x's `.noswap`). The walk has never
+# modelled `mov sp, bp`: it trusts the frame's own `mov bp, sp` and reads the
+# pair as its `add sp, N` half, so this is read exactly the same way - the
+# two spellings must give the same verdict, or a size pass that takes the
+# shorter one reads as a leak.
+LEASP = re.compile(r"^lea\s+sp\s*,\s*\[\s*bp\s*\+\s*([^\]\s]+)\s*\]$", re.I)
 GLOBAL = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):")
 LOCAL = re.compile(r"^(\.[A-Za-z0-9_]+):")
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -226,6 +233,12 @@ def delta(text):
         return 8 if text.lower().startswith("pusha") else 1
     if POP.match(text):
         return -8 if text.lower().startswith("popa") else -1
+    m = LEASP.match(text)
+    if m:
+        try:
+            return -(int(m.group(1), 0) // 2)
+        except ValueError:
+            return None
     m = SPADD.match(text)
     if m:
         try:

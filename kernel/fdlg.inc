@@ -373,9 +373,11 @@ fdlg_seed:
     FDX dsk_chdir_x             ; the root - and only for the volume and
     mov si, fdlg_s_media        ; folder it publishes: a mount with no
     jc .root                    ; listing store lists nothing, so MEDIA
-    cmp byte [dsk_vkind], DVK_FILE ; is looked up BY NAME in the directory
-    je .root                    ; (dskw_stat), not in a listing (SPEC.md
-    call COLD_SEG:dwf_dskw_stat ; 38.10). A redirected volume's stat writes
+%ifdef OS88_REDIR               ; is looked up BY NAME in the directory
+    cmp byte [dsk_vkind], DVK_FILE ; (dskw_stat), not in a listing (SPEC.md
+    je .root                    ; 38.10). A redirected volume's stat writes
+%endif
+    call COLD_SEG:dwf_dskw_stat
     jc .root                    ; nothing, so it is the root there. SI is
     test al, 0x10               ; kept; AL = the attribute, BX = the cluster
     jnz .got                    ; a FILE called MEDIA is not the folder
@@ -601,8 +603,10 @@ FDBODY fdlg_reap_x
     jc .zero                    ; no such name in this folder
     test al, 0x10
     jnz .zero                   ; a folder has no size to report
+%ifdef OS88_REDIR               ; SPEC.md 62.9.2.3
     cmp byte [dsk_vkind], DVK_FILE
     je .sized
+%endif
     push es
 %ifdef KERN_BIG
     FDX dskw_czsize             ; drvvol.inc's, shared with drv_find

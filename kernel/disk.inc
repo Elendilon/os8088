@@ -1431,10 +1431,14 @@ dsk_xfer:
                                 ; was right only because A: and B: are volumes
                                 ; 0 and 1 AND drives 0 and 1; a boot partition
                                 ; is volume 2 and drive 80h and ends that
+%ifdef OS88_DRIVERS
     mov al, [bx+DV_KIND]        ; AL is free: the unit went to [dsk_unit] above
     mov ch, [bx+DV_CLASS]       ; ...and the CLASS, for .drv: CX is dead here
-    pop bx                      ; (SI took the count) and this is the one
-    cmp al, DVK_DRV             ; lookup of the row the transfer makes
+%endif                          ; (SI took the count) and this is the one
+    pop bx                      ; lookup of the row the transfer makes
+%ifdef OS88_DRIVERS             ; - on kern_small and kern_dos EVERY row is a
+    cmp al, DVK_DRV             ; BIOS one: only dsk_vol_add stamps another
+
     je .drv
     cmp al, DVK_FILE            ; A REDIRECTED VOLUME HAS NO SECTORS AT ALL
     je .jfilevol                ; (SPEC.md 62.9). This REFUSES rather than
@@ -1444,10 +1448,13 @@ dsk_xfer:
                                 ; such a row is the DRIVER'S OWN HANDLE, so
                                 ; the LBA would go to whatever int 13h drive
                                 ; that number happens to name
+%endif                          ; kind, and it is OS88_DRIVERS's (SPEC.md
+                                ; 62.9.2.3, 51.0.2)
     call dsk_geom_pick          ; [dsk_base] and [dsk_cylmax] for this volume
     jmp short .sector
 .jbadvol:
     pop bx
+%ifdef OS88_DRIVERS
 .jfilevol:
     jmp .fail
 
@@ -1493,6 +1500,7 @@ dsk_xfer:
     CURXFER_OFF                 ; ...and CF is the driver's answer, which `mov`
     jnc .success                ; leaves alone
     mov [dsk_ioerr], al         ; the driver reports int 13h's status byte,
+%endif                          ; (.jbadvol falls into .jfail on kern_small)
 .jfail:                         ; ...AND the two range refusals in .sector, at
     jmp .fail                   ; two bytes each rather than the five NASM
                                 ; spells an out-of-reach `jcc` as.  The jump
@@ -1538,8 +1546,10 @@ dsk_xfer:
     jne .nocache
     cmp byte [dsk_op], 0x02
     jne .nocache
+%ifdef OS88_DRIVERS
     cmp byte [dsk_vkind], DVK_DRV
     je .nocache
+%endif
     call dsk_rah_serve          ; CF=0 with AX = sectors copied out of it, the
     jc .nocache                 ; slot filled first if a fill would have paid
                                 ; (SPEC.md 18.95.1). THREE CALLS AND A TEST
@@ -2556,8 +2566,10 @@ dsk_vol_fixed_x:
                                 ; assumed, so a change to either breaks the
                                 ; BUILD instead of the published ABI
     mov al, 1                   ; a driver volume is fixed by construction
+%ifdef OS88_DRIVERS             ; (kern_small and kern_dos: every row is BIOS)
     cmp ah, DVK_BIOS            ; (SPEC.md 52 mounts partitions and nothing
     jne .out                    ; else through DSV_BLK), and so is a REDIRECTED
+%endif
                                 ; one, which has no medium at all to eject
                                 ; (SPEC.md 62.9).
                                 ;
@@ -4499,14 +4511,18 @@ dsk_up_open:
     call dsk_ent_zero           ; the name's NUL padding and the unused tail
     mov word [dsk_ent+0], '..'  ; both fall out of it; then two bytes
     mov word [dsk_ent+16], 3    ; type 3 = the parent link (SPEC.md 19)
+%ifdef OS88_REDIR
     cmp byte [dsk_vkind], DVK_FILE
     je .fsup                    ; a REDIRECTED volume carries no '..' entry on
-    call dsk_dotdot_x           ; a disk to read one out of, so FSV_CHDIR
-    jnc .have                   ; answered it and disk_mount banked it in
-    xor ax, ax                  ; [dsk_fsup] (SPEC.md 62.9.1). The handle is
-    jmp short .have             ; opaque, so this is the ONLY source there is
+%endif                          ; a disk to read one out of, so FSV_CHDIR
+    call dsk_dotdot_x           ; answered it and disk_mount banked it in
+    jnc .have                   ; [dsk_fsup] (SPEC.md 62.9.1). The handle is
+    xor ax, ax                  ; opaque, so this is the ONLY source there is
+%ifdef OS88_REDIR
+    jmp short .have
 .fsup:
     mov ax, [dsk_fsup]
+%endif
 .have:
     mov [dsk_ent+18], ax
     pop di
@@ -5348,6 +5364,7 @@ dsk_free_clus_x:
     push es
     cmp byte [dsk_mntok], 1
     jne dsk_fc_bad
+%ifdef OS88_REDIR
     cmp byte [dsk_vkind], DVK_FILE
     jne .fat
 
@@ -5373,13 +5390,18 @@ dsk_free_clus_x:
     mov ax, 0xFFFF              ; more free space than a word of sectors can
 .fsok:                          ; carry. SATURATE rather than wrap: 32MB is
     mov di, ax                  ; already past what the status line's KB
+                                ; figure means, and a wrapped one would read
+                                ; as a nearly full volume on the emptiest
+                                ; possible remote disk
+%else                           ; kern_small and kern_dos: no redirected
+    jmp short .fat              ; volume can exist (SPEC.md 62.9.2.3), so over
+%endif                          ; the relays - 15 cycles where the compare and
+                                ; its taken `jne` were ~36 (kernel size pass 11)
 .jcounted:
-    jmp .counted                ; figure means, and a wrapped one would read
+    jmp .counted
 .slowj:                         ; ...and the FAT12 fast path's two vetoes:
     jmp .slow                   ; the window IS whole on every floppy, so
                                 ; this is the arm that does not run (-3)
-                                ; as a nearly full volume on the emptiest
-                                ; possible remote disk
 .fat:
     xor di, di                  ; DI = free clusters
     mov si, 2                   ; SI = cluster under test
@@ -6213,12 +6235,14 @@ section .text                   ; **.text AND NOT .cold**, and nothing static
                                 ; reaching a desktop at all, because mem_unblob
                                 ; compacts at the end of kmain and the window
                                 ; is the first thing it moves
-dsk_rah_reloc:
+%ifdef OS88_COMPACT             ; (kern_small and kern_dos move nothing,
+dsk_rah_reloc:                  ; SPEC.md 66.0: no proc to declare)
     cmp bx, [dsk_rah_seg]
     jne .out
     mov [dsk_rah_seg], dx
 .out:
     ret
+%endif
 section .cold                   ; ...and back, or every routine below joins it
 
 ; -----------------------------------------------------------------------------
@@ -6387,6 +6411,7 @@ dsk_rah_want:
                                 ; off its own floor test for exactly that
                                 ; reason; the order here makes it structural
     mov [dsk_rah_seg], dx
+%ifdef OS88_COMPACT             ; (kern_small: mem_movable is `stc / ret`)
     mov ax, dsk_rah_reloc       ; ...AND MOVABLE (§66.2, §50.6.7), asc_reloc's
     call mem_movable_x          ; shape and for its reason: this claim is taken
                                 ; at a MOUNT, so after a shed it comes back
@@ -6396,6 +6421,7 @@ dsk_rah_want:
                                 ; LBAs and not addresses, and a fill in flight
                                 ; is already pinned by mem_in_xfer. BX is still
                                 ; MEM_P_DIRW - mem_claim preserves it
+%endif
     call dsk_rah_flush          ; ...and it holds nothing yet. THE ONLY place
                                 ; that is established: .bss arrives at whatever
                                 ; -f bin left there, and dsk_rah_serve would
@@ -6591,10 +6617,12 @@ dsk_find_x:
                                 ; the success tail (and a failure now answers
                                 ; it too, where CX was whatever the walk left)
     mov ax, [dsk_cwd]
+%ifdef OS88_REDIR
     cmp byte [dsk_vkind], DVK_FILE
     je .fsenum                  ; A REDIRECTED VOLUME (SPEC.md 62.9.17): no
                                 ; sectors to walk, so the driver is asked for
                                 ; the Nth entry instead
+%endif
     call dsk_dirw_start_x
 .sector:
     call dsk_dirw_get_x           ; dsk_secbuf = the next directory sector, and
@@ -6639,6 +6667,7 @@ dsk_find_x:
     loop .entry                 ; listing's is DSK_DE_STRIDE and is narrower
     jmp short .sector
 
+%ifdef OS88_REDIR
 .fsenum:
     ; --- A REDIRECTED VOLUME: ONE FSV_ENUM, BY ORDINAL (SPEC.md 62.9.17) ----
     ; fcp_scan's arm, one cell along and for the same reason: there are no
@@ -6672,6 +6701,7 @@ dsk_find_x:
                                 ; passed through. The sector arm's own
                                 ; end-or-error pair asks the same ZF, so this
                                 ; joins it (2 bytes where two relays were 8)
+%endif                          ; OS88_REDIR
 
 .take:
     ; dsk_synth stages the display name, the type and the cluster into the
@@ -7881,6 +7911,7 @@ ico_need:
     jc .out                     ; CF = 1 is the refusal, as it arrives
     mov [ico_seg], dx
     mov byte [ico_n], 0
+%ifdef OS88_COMPACT             ; (kern_small: nothing moves, SPEC.md 66.0)
     mov ax, ico_reloc
     mov bx, MEM_P_ICO
     push dx                     ; ...and a refusal here only PINS it, which is
@@ -7889,6 +7920,7 @@ ico_need:
                                 ; banked across it rather than re-read out of
                                 ; [ico_seg], which is two bytes and asks
                                 ; nothing about what that routine does to DX
+%endif
 .have:
     mov es, dx
     clc
@@ -8160,12 +8192,14 @@ section .text                   ; ...AND THE KERNEL SEGMENT FOR BOTH OF THESE
 ; is what a jump into the middle of an unrelated routine looks like from
 ; outside. assoc.inc's asc_reloc is in `.text` for exactly this reason.
 ; -----------------------------------------------------------------------------
+%ifdef OS88_COMPACT
 ico_reloc:
     cmp bx, [ico_seg]
     jne .out
     mov [ico_seg], dx
 .out:
     ret
+%endif
 
 ico_seg:    dw 0                ; the store's claim, 0 = none (refused, or no
                                 ; listing has wanted a body yet)
@@ -9372,12 +9406,12 @@ dsk_fsn:      resw 1            ; how many entries have been appended, parent
                                 ; link included. THE KERNEL COUNTS, because
                                 ; the count is disk_nfiles' and a driver has
                                 ; no business holding it
-%endif
 dsk_fsup:     resw 1            ; the current folder's PARENT handle, answered
                                 ; by FSV_CHDIR and spent by dsk_up_open.
                                 ; Opaque: only the driver knows what it means,
                                 ; and there is no '..' on a disk to read it
                                 ; from
+%endif
 dsk_totsec:   resw 1            ; TotSec16, the volume's extent in sectors
 dsk_rootlba:  resw 1            ; first root-dir LBA
 dsk_rootsecs: resw 1            ; root-dir sector count (<= 32)
