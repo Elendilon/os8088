@@ -650,19 +650,34 @@ hd_buf_step:
 ;
 ; BOUNDED, always. The one way to hang a machine here is to wait forever for
 ; a bit that never changes on a machine where every read is 0FFh - the exact
-; bug Linux shipped until v5.11 - so this counts out instead.
+; bug Linux shipped until v5.11 - so this counts out instead, and a floating
+; bus is answered AT ONCE: 0FFh is never a drive's status (ERR with BSY), so
+; it comes back CF=0 with AL=0FFh for hd_at_ident to refuse, and the long
+; bound below never holds up a probe of a channel with nothing on it.
+;
+; THE BOUND IS SECONDS, NOT A FIFTH OF ONE (SPEC.md 52.1.3): HD_WAITN x 65,536
+; status reads. An ISA status read is ~1 us on any CPU - the bus sets it, not
+; the clock - so a count is a time on every machine this rung runs on: ~8-12 s.
+; A drive spinning up from standby may take seconds (ATA allows 30) and the
+; old 65,536 reads, ~0.2 s, failed its first read where the BIOS waited.
 ; -----------------------------------------------------------------------------
+HD_WAITN    equ 128
 hd_ide_wait:
     push cx
     push dx
     mov dx, bx
     add dx, IDE_STAT
-    xor cx, cx                  ; 65,536 reads: ~0.2s on a 286, and the only
-.poll:                          ; thing that matters is that it ENDS
+    xor cx, cx
+    mov ah, HD_WAITN            ; AH is this routine's to clobber (AX's output
+.poll:                          ; is AL)
     in al, dx
+    cmp al, 0xFF                ; a floating bus: nobody there, say so now
+    je .ready
     test al, IDE_ST_BSY
     jz .ready
     loop .poll
+    dec ah
+    jnz .poll
     pop dx
     pop cx
     stc
@@ -678,6 +693,8 @@ hd_ide_wait:
 ; in:  BX = the base port
 ; out: CF = 0 ready for a sector's worth of data; CF = 1 = timeout or error
 ; clobbers: AX, flags
+; hd_ide_wait's bound, HD_WAITN x 65,536 reads (SPEC.md 52.1.3): the first
+; sector of a command is a seek and a turn, and of a spun-down drive a spin-up
 ; -----------------------------------------------------------------------------
 hd_ide_drq:
     push cx
@@ -685,6 +702,7 @@ hd_ide_drq:
     mov dx, bx
     add dx, IDE_STAT
     xor cx, cx
+    mov ah, HD_WAITN
 .poll:
     in al, dx
     test al, IDE_ST_BSY
@@ -695,6 +713,8 @@ hd_ide_drq:
     jnz .ready
 .again:
     loop .poll
+    dec ah
+    jnz .poll
 .err:
     pop dx
     pop cx

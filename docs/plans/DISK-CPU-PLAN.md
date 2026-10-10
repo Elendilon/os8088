@@ -457,6 +457,12 @@ transfer; the photograph decides it.
   clusters, ~90 a cluster, ~2% on the 286. A run-length cache would take
   most of it; bigger clusters would take it for free. Not worth bytes for
   the 286.
+- **The waits' bound - not a CPU row, found by this work and FIXED (SPEC.md
+  52.1.3).** Rung 1 gave up on a drive after 65,536 status reads, ~0.2 s, and
+  nothing above it retries: a loaded QEMU failed 5 of 128 READ_SEQ calls that
+  way, and a real drive spinning up from standby would fail the same way.
+  HD_WAITN x 65,536 reads now, seconds, with a floating bus answered at once
+  so a probe is no slower: +16 bytes of HDD.DRV.
 - **Polling against IRQ14.** Unpriced still, and not a CPU-a-KB question:
   inside the bracket the decode pre-empts the poll, so the poll only spends
   time nobody else wanted.

@@ -86655,6 +86655,30 @@ from 312 stalls and 433 late to **361 of 361 drawn, 0 stalls, 0 late, 274
 ticks of 273, `Lead 5 at f84`, the speaker never dry**, and the same video
 encoded without sound ahead plays clean with it too.
 
+#### 52.1.3 Rung 1 waits SECONDS for a drive, and not at all for an empty bus (2026-10-10)
+
+**`hd_ide_wait` and `hd_ide_drq` poll up to `HD_WAITN` (128) x 65,536 status
+reads**, where they polled 65,536: ~0.2 s became ~8-12 s. An ISA status read
+is ~1 us whatever the CPU, because the bus sets it and not the clock, so a
+count is a time on every machine the rung runs on. The old bound was the
+defect: a drive spinning up from standby takes seconds (ATA allows 30), and
+rung 1 failed its first read where the BIOS's own int 13h would have waited.
+It was found on a loaded host rather than a spun-down drive - QEMU's IDE
+outlasted 65,536 reads and **5 of 128 32 KB READ_SEQ calls failed outright**
+(`tests/viddiskcpu.py`, under four lanes), with no retry anywhere above the
+driver. The outer count is AH, which both routines already clobber, so it
+costs `mov ah` and `dec ah` / `jnz` in each.
+
+**A floating bus is answered at once.** `hd_at_ident` selects a drive through
+`hd_ide_select`, which waits for BSY to clear BEFORE the probe looks for the
+0FFh an empty channel reads - so the longer bound would have spent its
+seconds on every absent drive at boot. `hd_ide_wait` now returns CF=0 with
+AL = 0FFh the moment it reads 0FFh (ERR with BSY: never a real drive's
+status), `hd_at_ident` refuses it as it always did, and the callers that test
+the status after a command (52.1's write check) read ERR in it and fail as
+before. **+16 bytes of HDD.DRV** and no kernel byte. Not a retry: a command
+that fails after the drive came ready still fails, as it did.
+
 ### 52.2 The disk tool — one window, one button
 
 Partitioning and formatting are **one operation to the user and one window in
