@@ -1982,6 +1982,16 @@ SOAK = [
         "FOLDER open beside it is the control that says the breakpoint "
         "fires at all.",
         needs=("marty",), serial=True),
+    Row("fpgnotch", "soak", py("tests/fpgnotch.py"), 13.0,
+        "SPEC.md 18.91.6: dsk_xfer asks ONCE A RUN whether the boot bar or "
+        "the progress widget is live and skips its per-sector notch loop "
+        "when neither is - 5.2% of a bracketed 32 KB read on an XT. The "
+        "silent failure would be a widget that goes up and never moves, so "
+        "a launch off B: (a scale armed) must LIGHT the bar (fpg_lit), and a "
+        "second open of B: - 5 runs read with no scale - must reach fpg_step "
+        "not once. Always-skip took step 1 red, no test took step 2 red",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/apps360.img")),
     Row("fpgcold", "soak", py("tests/fpgcold.py"), 20.0,
         "SPEC.md 12.8.3.1: with every floppy motor stopped, opening a drive "
         "puts the progress widget and busy pointer up BEFORE the first int "

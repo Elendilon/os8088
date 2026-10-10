@@ -33033,6 +33033,30 @@ says otherwise. A file encoded for 119,000 can STALL on a kernel built
 `NOHDCYL=1` or older than build 458, which reads the disk a track at a
 time: `--disk 96000` makes one for those.
 
+#### 18.91.6 …and the bars are asked once a RUN, not once a sector
+
+A run moved, `dsk_xfer`'s `.notch` loop steps the boot bar (`splf_step`) and
+the progress widget (`fpg_step`, through `ct_cw_mem_disp`) once per SECTOR,
+because both count sectors and a call carries a run of them. With neither
+bar live - the splash gone (`[spl_fseg]` at or below `COLD_SEG`, SPLCALL's
+own test) and no scale armed (`[fpg_total]` = 0, `fpg_step`'s) - every pass
+is two calls answering "not armed" after a `pushf`, `fpg_baron` and a
+compare: ~22 instructions a sector. An fsx bracket is exactly where the
+widget is never armed (12.8.5.2), so that is every Video Player stream
+through the BIOS. So the loop now asks the same two questions once before it
+starts and skips itself when both say no. **Measured on MartyPC** (an XT
+through the XT-IDE ROM, one 32 KB READ_SEQ inside VIDDISK's ceiling bracket,
+single-stepped with the cycle counter, docs/plans/DISK-CPU-PLAN.md 7.4):
+**729,455 -> 691,196 cycles, 5.2% of the read**, the kernel's share of it
+12.8% -> 8.3% - more than the ~25,000 the two calls looked like, because
+the loop's own instructions in `dsk_xfer` went with them. **+15 bytes of
+`.cold` on both kernels, resident; `kern_dos` byte-identical** (it has no
+bars, `SPLCALL` being empty there and `fpg_step` a bare `ret`). The one side
+effect an unarmed `fpg_step` had - `CURBAR_OFF` writing `[cur_barok]` = 0 -
+is the value every widget entry already leaves there. A DVK_DRV volume
+(HDD.DRV's rung 1) never runs this loop at all. `tests/fpgnotch.py` is the
+gate that a LIVE bar still moves.
+
 ### 18.92 The diskette parameter table is OURS, and EOT is why
 
 **int 1Eh is not an interrupt.** It is a far pointer to an 11-byte table the

@@ -462,11 +462,16 @@ transfer; the photograph decides it.
   time nobody else wanted.
 - **A copy.** None (7.4).
 - **dsk_xfer's per-sector notch loop - the 8088's, and the cheapest row in
-  this file.** Asking once per RUN whether either bar is live
-  (`[spl_live]`, `[fpg_total]`) and skipping the loop when neither is,
-  ~10-12 bytes of `.cold`, ESTIMATED, would take ~25,000 cycles off every
-  bracketed 32 KB read on the XT, 3.4% of it: every Video Player stream
-  through the BIOS on a 5150. Not built.
+  this file. BUILT (SPEC.md 18.91.6).** The loop asks once per RUN whether
+  either bar is live (`[spl_fseg]` above `COLD_SEG`, `[fpg_total]` non-zero)
+  and skips itself when neither is: **+15 bytes of `.cold` on both kernels,
+  resident, `kern_dos` byte-identical**. Re-traced on MartyPC, the same
+  bracketed 32 KB read went **729,455 -> 691,196 cycles, 5.2%** - more than
+  the ~25,000 estimated, because the loop's own instructions in `dsk_xfer`
+  (14,120 -> 4,694 cycles) went with the calls - and the kernel's share of
+  the read 12.8% -> 8.3%. Every Video Player stream through the BIOS on a
+  5150 gets it. `tests/fpgnotch.py` is the gate that a LIVE bar still
+  moves.
 - **The windowed widget's per-chunk redraw - the 8088's, and the biggest
   number here.** 29% of a desktop chunked read on an XT. The shape of a fix
   is the widget's, not the disk's: a job that never moves the bar by a

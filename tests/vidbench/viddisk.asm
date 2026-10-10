@@ -2696,7 +2696,12 @@ vk_cprun:
     call bl_sline
     jmp short .direct
 .look:
-    call vk_find
+    push word [vk_err]              ; vk_find zeroes it when it finds the
+    call vk_find                    ; stream, and the rows above must not
+    pop ax                          ; lose theirs to that
+    pushf
+    add [vk_err], ax
+    popf
     jnc .found
     mov si, vk_s_nostr
     call bl_sline
@@ -2789,14 +2794,14 @@ vk_ide_ready:
     pop ax
     ret
 
-; vk_ide_nbsy - wait for BSY to clear (about half a second at most). CF=1 not
+; vk_ide_nbsy - wait for BSY to clear (vk_ide_drq's bound). CF=1 it did not
 vk_ide_nbsy:
     push ax
     push bx
     push cx
     push dx
     mov dx, VK_IDE + 7
-    mov bx, 8
+    mov bx, VK_IDEWT
 .o:
     xor cx, cx
 .p:
@@ -2817,11 +2822,18 @@ vk_ide_nbsy:
     pop ax
     ret
 
-; vk_ide_drq - wait for DRQ, the way hd_ide_drq does. CF=1 ERR or too long
+; vk_ide_drq - wait for DRQ, the way hd_ide_drq does. CF=1 ERR or too long:
+; VK_IDEWT x 65536 status reads, seconds on a 286 and spent only by a drive
+; that has failed - a command's first DRQ is a seek and a turn, and QEMU's
+; drive on a loaded host has been seen to take half a million reads
+VK_IDEWT    equ 64
 vk_ide_drq:
+    push bx
     push cx
     push dx
     mov dx, VK_IDE + 7
+    mov bx, VK_IDEWT
+.o:
     xor cx, cx
 .p:
     in al, dx
@@ -2833,14 +2845,18 @@ vk_ide_drq:
     jnz .ok
 .a:
     loop .p
+    dec bx
+    jnz .o
 .e:
     pop dx
     pop cx
+    pop bx
     stc
     ret
 .ok:
     pop dx
     pop cx
+    pop bx
     clc
     ret
 
