@@ -1887,6 +1887,17 @@ dsk_xfer:
     mov ax, [dsk_run]           ; the whole run: CF=0 is the contract
 .count:
     mov cx, ax                  ; the boot bar counts SECTORS, and a call now
+%ifndef KD_BUILD                ; (kern_dos has no bars: SPLCALL is empty
+                                ; there and fpg_step a bare `ret`)
+    cmp word [spl_fseg], COLD_SEG   ; ...BUT ASKED ONCE A RUN FIRST (SPEC.md
+    ja .notch                   ; 18.91.6): with neither bar live - the
+    cmp word [fpg_total], 0     ; splash gone (SPLCALL's own test) and no
+    je .notched                 ; scale armed (fpg_step's) - every pass below
+                                ; is two calls answering "not armed": 5.2% of
+                                ; a bracketed 32 KB read on an XT, measured
+                                ; (DISK-CPU-PLAN 7.4). CX is left holding the
+                                ; run, and .sector writes it before it reads it
+%endif
 .notch:                         ; carries a run of them (SPEC.md 18.91) - so
     SPLCALL splf_step               ; it is stepped per sector rather than per
     mov bp, fpg_step
@@ -1901,6 +1912,7 @@ dsk_xfer:
                                 ; it (SPEC.md 12.8). The two are never both
                                 ; live, the splash owning the screen being
                                 ; one of the things fpg_begin refuses on.
+.notched:
     add di, ax                  ; next LBA...
 %ifdef OS88_BIGVOL
     adc word [dsk_lbahi], 0     ; ...carrying into its high word (18.7.5)

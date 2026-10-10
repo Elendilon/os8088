@@ -67,6 +67,13 @@
 ;    last chunk checked against STREAM.DAT's pattern through the frame. That
 ;    last pair is the question VIDEO-XMS-PLAN 10 turns on: whether a disk read
 ;    can fill a bank with no copy at all. Saves VDEMS.TXT beside the bench.
+; C  WHAT A READ COSTS THE CPU (docs/plans/DISK-CPU-PLAN.md 7), on a 286
+;    with an IDE disk: sectors read through the task file by the bench
+;    itself, each PIT-timed with interrupts off - the wait for DRQ and the
+;    256 words, with `rep insw` and with the old `in`/`stosw`/`loop` - then
+;    4 MB streamed as 64-sector commands against 4 MB of 32 KB READ_SEQ
+;    calls on the stream: what the second costs over the first is the
+;    kernel's and HDD.DRV's own CPU. Read-only. Saves VDCPU.TXT.
 ;
 ; With a STREAM.DAT, R also CHECKS the data at 12 MB, read by READ_AT and by
 ; READ_SEQ: a stream that times well and reads the wrong bytes is not a
@@ -195,6 +202,8 @@ vk_onkey:
     je .xms
     cmp bl, 'e'                     ; E: expanded memory (the header's E)
     je .ems
+    cmp bl, 'c'                     ; C: what a read costs the CPU
+    je .cpu
     call bl_key
     jc .out
     call bl_paint
@@ -210,6 +219,9 @@ vk_onkey:
     jmp short .paint
 .ems:
     call vk_emrun
+    jmp short .paint
+.cpu:
+    call vk_cprun
     jmp short .paint
 .run:
     call vk_run
@@ -2514,6 +2526,503 @@ vk_mh:
     pop ax
     ret
 
+
+; =============================================================================
+; vk_cprun - C: WHAT A READ COSTS THE CPU, on a 286 with an IDE disk
+; (docs/plans/DISK-CPU-PLAN.md 7). Three questions, each to a number:
+;
+;   THE TRANSFER: what moving one sector costs the CPU on this bus, taken by
+;     reading sectors through the task file ourselves, PIT-timed with
+;     interrupts off around each sector: the drive's wait for DRQ, and the
+;     256 words with `rep insw` (what HDD.DRV's rung 1 does, SPEC.md 52.1.2)
+;     and again with `in ax, dx` / `stosw` / `loop` (what it did before) -
+;     which is the bus's own floor and the old loop's real price, measured.
+;     The first sector of each command is its own row: the command's latency.
+;   THE STREAM, TWO WAYS: 4 MB of 32 KB OSAPI_FILE_READ_SEQ calls on the
+;     stream, then 4 MB of 64-sector commands with `rep insw`, interrupts on
+;     and nothing timed inside them. Same bytes, same drive: what the first
+;     costs over the second is the kernel's and HDD.DRV's own CPU. The direct
+;     row runs LAST so that the buffer ends holding the 64 sectors before
+;     [vk_cplba] - tests/viddiskcpu.py checks them against the image.
+;
+; READ-ONLY, like R: READ SECTORS (20h) to the primary channel's MASTER at
+; 1F0h, from cylinder VK_CPCYL up - the fixed disk's own geometry off int 13h
+; AH=08h, which is the drive's when HDD.DRV took it (52.1.1 pairs them on it).
+; A machine below CPU_286 (no `rep insw`) or with no drive answering at 1F0h
+; says so and runs only the READ_SEQ row. Saves VDCPU.TXT beside the bench.
+; =============================================================================
+VK_IDE      equ 0x1F0
+VK_CPSEC    equ 64                  ; sectors a command: one 32 KB chunk
+VK_CPCMD    equ 8                   ; commands a timed transfer row
+VK_CPSTRM   equ 128                 ; 32 KB units a stream row: 4 MB
+VK_CPCYL    equ 20                  ; where the direct reads start
+
+vk_cprun:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov word [vk_err], 0
+    mov word [bl_nrow], 0
+    mov word [vk_cpdone], 0
+    mov byte [vk_cpide], 0
+    mov si, vk_s_cptitle
+    call bl_sline
+    call vk_claim
+    jnc .geom
+    jmp .fail
+.geom:
+    mov ah, 8                       ; the fixed disk's geometry, off the ROM
+    mov dl, 0x80
+    push es
+    int 0x13
+    pop es
+    jnc .gok
+    jmp .fail
+.gok:
+    mov al, cl
+    and al, 0x3F
+    mov [vk_spt], al
+    inc dh
+    mov [vk_heads], dh
+    mov si, vk_r_spt
+    mov al, [vk_spt]
+    xor ah, ah
+    xor dx, dx
+    mov cx, 9
+    call bl_kv
+    mov si, vk_r_heads
+    mov al, [vk_heads]
+    xor ah, ah
+    xor dx, dx
+    call bl_kv
+    call OSAPI_CPU_INFO
+    cmp al, CPU_286
+    jae .cpu
+    mov si, vk_s_cp86
+    call bl_sline
+    jmp .stream
+.cpu:
+    call vk_ide_ready
+    jnc .ide
+    mov si, vk_s_cpnoide
+    call bl_sline
+    jmp .stream
+.ide:
+    mov byte [vk_cpide], 1
+    mov al, [vk_heads]              ; the first sector: cylinder VK_CPCYL
+    mul byte [vk_spt]
+    mov cx, VK_CPCYL
+    mul cx
+    mov [vk_cplba], ax
+    ; --- what reading the PIT costs, which every timed span below carries
+    mov si, vk_s_cphdr
+    call bl_sline
+    xor ax, ax
+    mov [vk_cpx], ax
+    mov [vk_cpx + 2], ax
+    mov cx, 64
+.cal:
+    pushf
+    cli
+    call bl_pit
+    mov bx, ax
+    call bl_pit
+    sub bx, ax
+    popf
+    add [vk_cpx], bx
+    adc word [vk_cpx + 2], 0
+    loop .cal
+    mov si, vk_r_cppit
+    mov bx, vk_cpx
+    mov cx, 64
+    call vk_cprep
+    ; --- the transfer, both loops
+    mov byte [vk_cpmode], 0
+.mode:
+    xor ax, ax
+    mov [vk_cpx], ax
+    mov [vk_cpx + 2], ax
+    mov [vk_cpw], ax
+    mov [vk_cpw + 2], ax
+    mov [vk_cpf], ax
+    mov [vk_cpf + 2], ax
+    mov word [vk_cpbad], 0
+    mov bp, VK_CPCMD
+.cmd:
+    call vk_cpcmd
+    dec bp
+    jnz .cmd
+    mov bl, [vk_cpmode]
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    mov si, [vk_cprows + bx]
+    mov bx, vk_cpx
+    mov cx, VK_CPCMD * VK_CPSEC
+    call vk_cprep
+    mov bl, [vk_cpmode]
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    mov si, [vk_cprows + bx + 2]
+    mov bx, vk_cpw
+    mov cx, VK_CPCMD * (VK_CPSEC - 1)
+    call vk_cprep
+    mov si, vk_r_cpfirst
+    mov bx, vk_cpf
+    mov cx, VK_CPCMD
+    call vk_cprep
+    mov si, vk_r_cpbad
+    mov ax, [vk_cpbad]
+    xor dx, dx
+    mov cx, 9
+    call bl_kv
+    inc byte [vk_cpmode]
+    cmp byte [vk_cpmode], 2
+    jb .mode
+    ; --- 4 MB through the kernel, 32 KB READ_SEQ calls; then the same 4 MB
+    ; as the bench's own commands, LAST, so the buffer ends holding the
+    ; sectors just before [vk_cplba] for a harness to check against the disk
+.stream:
+    mov si, vk_s_cphdr2
+    call bl_sline
+    call vk_toc
+    jnc .look
+    mov si, vk_s_noc
+    call bl_sline
+    jmp short .direct
+.look:
+    push word [vk_err]              ; vk_find zeroes it when it finds the
+    call vk_find                    ; stream, and the rows above must not
+    pop ax                          ; lose theirs to that
+    pushf
+    add [vk_err], ax
+    popf
+    jnc .found
+    mov si, vk_s_nostr
+    call bl_sline
+    jmp short .home
+.found:
+    mov si, vk_s_using
+    mov di, [vk_fname]
+    call bl_kvs
+    mov dx, 0x20                    ; from 2 MB
+    call vk_seek
+    mov word [vk_cap], VK_CHUNK
+    mov word [bl_n], VK_CPSTRM
+    mov word [bl_body], vk_b_seq
+    mov si, vk_r_cpseq
+    mov al, 1                       ; method T: whole ticks, interrupts on
+    call bl_run
+.home:
+    call vk_back
+.direct:
+    cmp byte [vk_cpide], 0
+    je .save
+    mov word [bl_n], VK_CPSTRM      ; 4 MB of 64-sector commands, rep insw,
+    mov word [bl_body], vk_b_ide    ; interrupts on, nothing timed inside
+    mov si, vk_r_cpdir
+    mov al, 1
+    call bl_run
+    jmp short .save
+.fail:
+    mov si, vk_s_fail
+    call bl_sline
+.save:
+    mov si, vk_r_err
+    mov ax, [vk_err]
+    xor dx, dx
+    mov cx, 9
+    call bl_kv
+    call bl_operator
+    mov si, vk_f_ctxt               ; the report, beside the bench
+    call bl_save
+    inc word [vk_cpdone]            ; for a harness: C has finished
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vk_cprep - SI = label, BX -> a dword of PIT counts, CX = what it is over:
+; "label  us x 100 each" into the report
+vk_cprep:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, [bx]
+    mov dx, [bx + 2]
+    call bl_us100
+    mov cx, 9
+    call bl_kv
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vk_ide_ready - the primary channel's master, selected and ready. CF=1: none
+vk_ide_ready:
+    push ax
+    push dx
+    mov dx, VK_IDE + 6
+    mov al, 0xA0
+    out dx, al
+    call vk_ide_nbsy
+    jc .out
+    mov dx, VK_IDE + 7
+    in al, dx
+    cmp al, 0xFF                    ; a floating bus: nothing there
+    je .no
+    test al, 0x40                   ; DRDY
+    jnz .yes
+.no:
+    stc
+    jmp short .out
+.yes:
+    clc
+.out:
+    pop dx
+    pop ax
+    ret
+
+; vk_ide_nbsy - wait for BSY to clear (vk_ide_drq's bound). CF=1 it did not
+vk_ide_nbsy:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dx, VK_IDE + 7
+    mov bx, VK_IDEWT
+.o:
+    xor cx, cx
+.p:
+    in al, dx
+    test al, 0x80
+    jz .ok
+    loop .p
+    dec bx
+    jnz .o
+    stc
+    jmp short .out
+.ok:
+    clc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vk_ide_drq - wait for DRQ, the way hd_ide_drq does. CF=1 ERR or too long:
+; VK_IDEWT x 65536 status reads, seconds on a 286 and spent only by a drive
+; that has failed - a command's first DRQ is a seek and a turn, and QEMU's
+; drive on a loaded host has been seen to take half a million reads
+VK_IDEWT    equ 64
+vk_ide_drq:
+    push bx
+    push cx
+    push dx
+    mov dx, VK_IDE + 7
+    mov bx, VK_IDEWT
+.o:
+    xor cx, cx
+.p:
+    in al, dx
+    test al, 0x80
+    jnz .a
+    test al, 0x01
+    jnz .e
+    test al, 0x08
+    jnz .ok
+.a:
+    loop .p
+    dec bx
+    jnz .o
+.e:
+    pop dx
+    pop cx
+    pop bx
+    stc
+    ret
+.ok:
+    pop dx
+    pop cx
+    pop bx
+    clc
+    ret
+
+; vk_ide_cmd - READ SECTORS, VK_CPSEC of them at [vk_cplba] in the ROM's
+; geometry, to the master. CF=1 the drive would not take it
+vk_ide_cmd:
+    push ax
+    push bx
+    push cx
+    push dx
+    call vk_ide_nbsy
+    jc .out
+    mov ax, [vk_cplba]
+    xor dx, dx
+    mov cl, [vk_spt]
+    xor ch, ch
+    div cx                          ; AX = the track, DX = the sector - 1
+    mov bl, dl
+    inc bl
+    xor dx, dx
+    mov cl, [vk_heads]
+    div cx                          ; AX = the cylinder, DX = the head
+    mov bh, dl
+    mov cx, ax
+    mov dx, VK_IDE + 6
+    mov al, bh
+    and al, 0x0F
+    or al, 0xA0
+    out dx, al
+    call vk_ide_nbsy
+    jc .out
+    mov dx, VK_IDE + 2
+    mov al, VK_CPSEC
+    out dx, al
+    inc dx
+    mov al, bl
+    out dx, al
+    inc dx
+    mov al, cl
+    out dx, al
+    inc dx
+    mov al, ch
+    out dx, al
+    mov dx, VK_IDE + 7
+    mov al, 0x20
+    out dx, al
+    clc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vk_cpcmd - one timed command: VK_CPSEC sectors into the buffer, each sector
+; PIT-timed with interrupts off, by [vk_cpmode]'s loop
+vk_cpcmd:
+    push si
+    push di
+    push es
+    mov es, [vk_buf]
+    call vk_ide_cmd
+    jc .err
+    mov byte [vk_cpfirst], 1
+    xor di, di
+    mov si, VK_CPSEC
+.s:
+    call vk_ide_sec
+    jc .out
+    dec si
+    jnz .s
+    call vk_ide_nbsy
+    jc .err
+    mov dx, VK_IDE + 7
+    in al, dx
+    test al, 0x01
+    jz .adv
+    inc word [vk_cpbad]
+.adv:
+    add word [vk_cplba], VK_CPSEC
+    jmp short .out
+.err:
+    inc word [vk_err]
+.out:
+    pop es
+    pop di
+    pop si
+    ret
+
+; vk_ide_sec - one sector, ES:DI the buffer (advanced past it): the wait for
+; DRQ and the 256 words, each between two PIT reads with interrupts off.
+; CF=1 the drive said ERR or never asked. Clobbers AX, BX, CX, DX
+vk_ide_sec:
+    pushf
+    cli
+    call bl_pit
+    mov [vk_cpt0], ax
+    call vk_ide_drq
+    jc .err
+    call bl_pit
+    mov bx, [vk_cpt0]
+    sub bx, ax                      ; the wait, in counts (a down-counter)
+    mov [vk_cpt0], ax
+    mov dx, VK_IDE
+    mov cx, 256
+    cld
+    cmp byte [vk_cpmode], 0
+    jne .loop
+    db 0xF3, 0x6D                   ; rep insw (this row runs on CPU_286 up)
+    jmp short .done
+.loop:
+    in ax, dx                       ; HDD.DRV's rung 1 before SPEC.md 52.1.2
+    stosw
+    loop .loop
+.done:
+    call bl_pit
+    mov cx, [vk_cpt0]
+    sub cx, ax                      ; the transfer
+    popf
+    add [vk_cpx], cx
+    adc word [vk_cpx + 2], 0
+    cmp byte [vk_cpfirst], 0
+    je .later
+    mov byte [vk_cpfirst], 0
+    add [vk_cpf], bx
+    adc word [vk_cpf + 2], 0
+    clc
+    ret
+.later:
+    add [vk_cpw], bx
+    adc word [vk_cpw + 2], 0
+    clc
+    ret
+.err:
+    popf
+    inc word [vk_err]
+    stc
+    ret
+
+; vk_b_ide - the stream row's body: one command of VK_CPSEC sectors with
+; `rep insw` and interrupts ON, nothing timed inside it
+vk_b_ide:
+    push es
+    mov es, [vk_buf]
+    call vk_ide_cmd
+    jc .err
+    xor di, di
+    mov si, VK_CPSEC
+    mov dx, VK_IDE
+.s:
+    call vk_ide_drq
+    jc .err
+    mov cx, 256
+    cld
+    db 0xF3, 0x6D
+    dec si
+    jnz .s
+    call vk_ide_nbsy
+    add word [vk_cplba], VK_CPSEC
+    jmp short .out
+.err:
+    inc word [vk_err]
+.out:
+    pop es
+    ret
+
 %include "benchlib.inc"
 
 vk_tpl:
@@ -2524,6 +3033,22 @@ vk_ttl:       db 'Video Disk Bench', 0
 vk_f_names:   db 'STREAM.DAT', 0, 'BADAPPLE.V88', 0, 'BAPPLE.V88', 0, 0
 vk_f_txt:     db 'VIDDISK.TXT', 0
 vk_f_wtxt:    db 'VDWRITE.TXT', 0
+vk_s_cptitle: db 'VIDDISK C - what a read costs the CPU (DISK-CPU-PLAN 7)', 0
+vk_s_cp86:    db 'Below a 286: no rep insw here - the READ_SEQ row only', 0
+vk_s_cpnoide: db 'No drive answering at 1F0h master - the READ_SEQ row only', 0
+vk_s_cphdr:   db '-- one sector at a time, PIT-timed, ints off (us x 100) --', 0
+vk_s_cphdr2:  db '-- 4 MB streamed, ints on: the kernel, then direct --', 0
+vk_r_cppit:   db 'a PIT read, itself', 0
+vk_r_cpxi:    db 'rep insw, 256 words', 0
+vk_r_cpwi:    db '...the wait for DRQ', 0
+vk_r_cpxl:    db 'in/stosw/loop, 256 w', 0
+vk_r_cpwl:    db '...the wait for DRQ', 0
+vk_r_cpfirst: db '...a command, 1st DRQ', 0
+vk_r_cpbad:   db '...commands ending ERR', 0
+vk_r_cpdir:   db 'direct 64-sector cmd', 0
+vk_r_cpseq:   db 'READ_SEQ 32K', 0
+vk_cprows:    dw vk_r_cpxi, vk_r_cpwi, vk_r_cpxl, vk_r_cpwl
+vk_f_ctxt:    db 'VDCPU.TXT', 0
 vk_s_title:   db 'VIDDISK - streaming off the fixed disk (VIDEO-PLAN W0 b, W2, W3)', 0
 vk_s_hint:    db 'R (or a click) runs: reads only, saves VIDDISK.TXT. No stream? W.', 0
 vk_r_wpath:   db 'the writer', 0
@@ -2723,6 +3248,17 @@ vk_ddone:     dw 0
 vk_wfrom:     dw 0
 vk_fnd:       times OSAPI_FIND_SZ db 0
 vk_cur:       times FSEQ_SIZE db 0
+vk_cplba:     dw 0              ; C: the next sector a direct read takes
+vk_cpmode:    db 0              ; ...0 rep insw, 1 in/stosw/loop
+vk_cpfirst:   db 0              ; ...this sector is its command's first
+vk_cpide:     db 0              ; ...the direct rows ran
+vk_cpt0:      dw 0              ; ...a PIT read
+vk_cpbad:     dw 0              ; ...commands that ended in ERR
+vk_cpdone:    dw 0              ; for a harness: C has finished
+              align 2
+vk_cpx:       dw 0, 0           ; ...PIT counts: the transfers,
+vk_cpw:       dw 0, 0           ; ...the waits after a command's first,
+vk_cpf:       dw 0, 0           ; ...and its first
 vk_res:       times VK_NRES dd 0
 
 VK_BSS_OWN  equ 512

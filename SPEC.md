@@ -33116,6 +33116,30 @@ says otherwise. A file encoded for 119,000 can STALL on a kernel built
 `NOHDCYL=1` or older than build 458, which reads the disk a track at a
 time: `--disk 96000` makes one for those.
 
+#### 18.91.6 …and the bars are asked once a RUN, not once a sector
+
+A run moved, `dsk_xfer`'s `.notch` loop steps the boot bar (`splf_step`) and
+the progress widget (`fpg_step`, through `ct_cw_mem_disp`) once per SECTOR,
+because both count sectors and a call carries a run of them. With neither
+bar live - the splash gone (`[spl_fseg]` at or below `COLD_SEG`, SPLCALL's
+own test) and no scale armed (`[fpg_total]` = 0, `fpg_step`'s) - every pass
+is two calls answering "not armed" after a `pushf`, `fpg_baron` and a
+compare: ~22 instructions a sector. An fsx bracket is exactly where the
+widget is never armed (12.8.5.2), so that is every Video Player stream
+through the BIOS. So the loop now asks the same two questions once before it
+starts and skips itself when both say no. **Measured on MartyPC** (an XT
+through the XT-IDE ROM, one 32 KB READ_SEQ inside VIDDISK's ceiling bracket,
+single-stepped with the cycle counter, docs/plans/DISK-CPU-PLAN.md 7.4):
+**729,455 -> 691,196 cycles, 5.2% of the read**, the kernel's share of it
+12.8% -> 8.3% - more than the ~25,000 the two calls looked like, because
+the loop's own instructions in `dsk_xfer` went with them. **+15 bytes of
+`.cold` on both kernels, resident; `kern_dos` byte-identical** (it has no
+bars, `SPLCALL` being empty there and `fpg_step` a bare `ret`). The one side
+effect an unarmed `fpg_step` had - `CURBAR_OFF` writing `[cur_barok]` = 0 -
+is the value every widget entry already leaves there. A DVK_DRV volume
+(HDD.DRV's rung 1) never runs this loop at all. `tests/fpgnotch.py` is the
+gate that a LIVE bar still moves.
+
 ### 18.92 The diskette parameter table is OURS, and EOT is why
 
 **int 1Eh is not an interrupt.** It is a far pointer to an 11-byte table the
@@ -86902,12 +86926,39 @@ taken through the BIOS, describes rung 1 too and was left as it is. The
 short single-shot rows above the ceilings (READ_AT, READ_SEQ by chunk size)
 are whole PIT ticks over eight reads and moved both ways by one or two
 ticks; the ceilings are the averaged rows and the ones the encoder prices.
-The rung-1 loop before this change was never put through VIDDISK, so its
-~15% is the arithmetic above and not a measurement. The field result is
+The rung-1 loop before this change was not put through VIDDISK R; VIDDISK C
+(docs/plans/DISK-CPU-PLAN.md 7.5) has since timed both loops on the same
+machine, per sector with interrupts off: **`rep insw` 226 us, the old loop
+469 us** (0.88 against 1.83 us a word), so at 384 KB/s the old loop cost
+**18.7%** of the 286 - the ~15% above was arithmetic and low. The field result is
 the plays: the sound-ahead file above, unchanged and not re-encoded, went
 from 312 stalls and 433 late to **361 of 361 drawn, 0 stalls, 0 late, 274
 ticks of 273, `Lead 5 at f84`, the speaker never dry**, and the same video
 encoded without sound ahead plays clean with it too.
+
+#### 52.1.3 Rung 1 waits SECONDS for a drive, and not at all for an empty bus (2026-10-10)
+
+**`hd_ide_wait` and `hd_ide_drq` poll up to `HD_WAITN` (128) x 65,536 status
+reads**, where they polled 65,536: ~0.2 s became ~8-12 s. An ISA status read
+is ~1 us whatever the CPU, because the bus sets it and not the clock, so a
+count is a time on every machine the rung runs on. The old bound was the
+defect: a drive spinning up from standby takes seconds (ATA allows 30), and
+rung 1 failed its first read where the BIOS's own int 13h would have waited.
+It was found on a loaded host rather than a spun-down drive - QEMU's IDE
+outlasted 65,536 reads and **5 of 128 32 KB READ_SEQ calls failed outright**
+(`tests/viddiskcpu.py`, under four lanes), with no retry anywhere above the
+driver. The outer count is AH, which both routines already clobber, so it
+costs `mov ah` and `dec ah` / `jnz` in each.
+
+**A floating bus is answered at once.** `hd_at_ident` selects a drive through
+`hd_ide_select`, which waits for BSY to clear BEFORE the probe looks for the
+0FFh an empty channel reads - so the longer bound would have spent its
+seconds on every absent drive at boot. `hd_ide_wait` now returns CF=0 with
+AL = 0FFh the moment it reads 0FFh (ERR with BSY: never a real drive's
+status), `hd_at_ident` refuses it as it always did, and the callers that test
+the status after a command (52.1's write check) read ERR in it and fail as
+before. **+16 bytes of HDD.DRV** and no kernel byte. Not a retry: a command
+that fails after the drive came ready still fails, as it did.
 
 ### 52.2 The disk tool — one window, one button
 

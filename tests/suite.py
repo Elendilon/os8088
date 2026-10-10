@@ -1982,6 +1982,16 @@ SOAK = [
         "FOLDER open beside it is the control that says the breakpoint "
         "fires at all.",
         needs=("marty",), serial=True),
+    Row("fpgnotch", "soak", py("tests/fpgnotch.py"), 13.0,
+        "SPEC.md 18.91.6: dsk_xfer asks ONCE A RUN whether the boot bar or "
+        "the progress widget is live and skips its per-sector notch loop "
+        "when neither is - 5.2% of a bracketed 32 KB read on an XT. The "
+        "silent failure would be a widget that goes up and never moves, so "
+        "a launch off B: (a scale armed) must LIGHT the bar (fpg_lit), and a "
+        "second open of B: - 5 runs read with no scale - must reach fpg_step "
+        "not once. Always-skip took step 1 red, no test took step 2 red",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/apps360.img")),
     Row("fpgcold", "soak", py("tests/fpgcold.py"), 20.0,
         "SPEC.md 12.8.3.1: with every floppy motor stopped, opening a drive "
         "puts the progress widget and busy pointer up BEFORE the first int "
@@ -9841,6 +9851,20 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/viddisk.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv")),
+    Row("viddiskcpu", "soak", py("tests/viddiskcpu.py"), 16.0,
+        "docs/plans/DISK-CPU-PLAN.md 7: VIDDISK's C mode, what a read costs "
+        "the CPU - sectors read through the IDE task file by the bench "
+        "itself, PIT-timed per sector (rep insw and the old in/stosw/loop), "
+        "then 4 MB of READ_SEQ against 4 MB of its own 64-sector commands. "
+        "On QEMU's 386 the times are the host's, so this gates the "
+        "INSTRUMENT before it goes to the owner's 286: every row has a "
+        "number, no command ended ERR, no row errored, VDCPU.TXT saved - and "
+        "the direct reads, run last, left in the buffer exactly the 64 "
+        "sectors of the image before [vk_cplba], inside a 16 MB patterned "
+        "STREAM.DAT. vk_ide_cmd's CHS split broken took it red",
+        needs=("qemu", "nasm"), serial=True, timeout=300,
+        wants=("build/os8088.img", "build/apps.img", "build/viddisk.o88",
+               "build/viddisk.bin")),
     Row("viddiskfd", "soak", py("tests/viddisk.py", "--floppy"), 195.0,
         "THE FIELD FLOPPY'S PATH (make viddisk360, tests/vidbench/"
         "FIELDDISK.TXT): the ST-225's streaming rate for a machine nobody "
