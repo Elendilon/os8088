@@ -3267,7 +3267,7 @@ the cull, and the cull's only input that grows with a long session is the
 clock. `tests/skiesticks.py` sets `[ticks]` and reproduces it in 25 seconds.
 
 
-## 63. Pentium 4, USB keyboard on a USB-to-PS/2 converter: Space cannot PAUSE MIDIRack's speaker play (OPEN — instrumented: SPEC.md 9.8.1)
+## 63. Pentium 4, USB keyboard on a USB-to-PS/2 converter: Space cannot PAUSE MIDIRack's speaker play (OPEN — the keyboard is HELD OFF for the whole bracket: SPEC.md 9.8.1)
 
 Reported by a tester on a **Pentium 4**, keyboard USB through a USB-to-PS/2
 converter. The keyboard works on the desktop, types, and **Space RESUMES** a
@@ -3289,6 +3289,57 @@ MIDIRack, play on the speaker, press Space three or four times, then pause with
 a CLICK (or let the song end), touch nothing, and photograph the panel under
 the menu bar. Esc and S in the bracket are worth trying too - if they also do
 nothing, it is not about Space.
+
+
+
+### 63.1 The first photograph: the keys are not lost, they are DELAYED
+
+The machine is a **Compaq Evo D500 small-form-factor** (P4 1.8 GHz, 256MB
+PC133, so Intel 845 with an ICH2), PS/2 keyboard and mouse sockets, the
+keyboard a USB part through a converter in the purple one. A PS/2 mouse is in
+use (`x` = 06: a mouse has spoken, an aux port is present). The tester pressed
+Space three times, then Esc, then S, inside the bracket, and paused with a
+click. The panel says:
+
+- **`irq1 000A/0000`**: ten keyboard interrupts in the session and **none**
+  inside any of the three brackets; `fsx-ticks 06D8` (1,752 ticks, 96 s in
+  brackets) with **`obf`, `irr1`, `isr1` and `msk1` all 0**. So it is the
+  first of 9.8.1's three pictures and the strongest form of it: the byte never
+  reached the 8042's output buffer, the PIC never saw a request, and IRQ1 was
+  never masked.
+- **The ten bytes are EXACTLY what was typed**, in order - `39 B9 39 B9 39 B9
+  01 81 1F 9F`, Space make/break three times, Esc, S - and every one of them
+  arrives in the same tick as an `L` row, i.e. the instant a bracket ends. The
+  keyboard (or its converter) BUFFERED them while it could not send.
+- **The `int 16h` half works inside a bracket.** After the first `L`, Space,
+  Space arrive on the desktop; the first resumes the play (`E`, head 20, tail
+  22) and the second is still in the BIOS buffer, so the new bracket takes it
+  and pauses at once (`L` in the same tick, head 22). A key that is already in
+  the buffer pauses MIDIRack as designed.
+- **The 8042's status changes within one tick of the speaker starting**:
+  `1C` at the bracket's first sample (tick 1423) and **`34`** at the next
+  (1424), and it reads `34` for the whole bracket and `15`/`1C` again the
+  moment it ends. Bit 3 cleared says the last write the controller saw was to
+  **port 60h** - and nothing in this kernel or in MIDIRack writes port 60h or
+  64h at run time (`mou_p2cw`/`mou_p2dw` are boot and `mou_p2_off` only) - and
+  bit 5 set is the aux/timeout bit. What happens in that one tick is
+  `os88spk_go`: the FSX_SPK door turns channel 2 into the PWM, IRQ0's vector
+  goes to the speaker ISR and channel 0 is reprogrammed to the sample rate.
+
+So the bracket's own code is not reading the keyboard wrongly: something
+outside it **stops the PS/2 keyboard channel** while the PIT runs at the
+sample rate, and lets it go when it stops. The mouse channel keeps working
+(the click that ended the bracket arrived). The prime suspect is the BIOS's
+**USB legacy support**: its SMM handler traps ports 60h/64h on the ICH even
+for a PS/2 keyboard, a status read is then the EMULATOR's answer, and a
+write to port 60h that no code here made is exactly what an SMI handler would
+leave behind. DOS programs that reprogram the PIT losing the keyboard with USB
+legacy enabled is a known class of failure on machines of this age.
+
+**Next**: the same disk with USB legacy support DISABLED in Compaq's F10
+setup. If Space then pauses, it is the SMM handler and the question becomes
+what in the speaker's start upsets it; if not, a second build that records the
+status after each step of `os88spk_go` names the step.
 
 
 ## 64. 286, Video Player: Esc, then the close box while the disk still clicks - the machine froze (OPEN - once in seven, not reproduced)
