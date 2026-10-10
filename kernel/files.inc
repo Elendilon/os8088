@@ -5734,9 +5734,12 @@ fm_mw_1st:                      ; the walk's FIRST entry, in AX: a stop
 ; in:  AL = FCP_COPY or FCP_CUT; DI = [fm_vp]
 ; out: CF = 1 refused - a paste is running (it walks the list there is), the
 ;      set held nothing but '..' (the clipboard as it was), or the heap could
-;      not hold 1KB (the clipboard empty). All registers preserved
+;      not hold 1KB (the clipboard empty). Clobbers AX, BX, CX, DX and SI:
+;      its two callers are a command body (fm_c_clip, which fm_docmd lets
+;      clobber anything) and fm_drag's arm (fm_dgarm, inside fm_drag's
+;      kentc_di, and nothing after it reads a register), so it banks nothing
+;      (kernel size pass 11)
 fm_armset:
-    call kentc_di
     cmp byte [fcp_busy], 0
     stc
     jne .out
@@ -5763,11 +5766,13 @@ fm_armset:
 .pop:
     pop es
 .out:
-    jmp kretc_di
+    ret
 
 ; fm_dgarm - a drag's clipboard (SPEC.md 22.27): the whole SET when the press
 ; is on one of its members and the row alone otherwise, and a COPY when Ctrl
-; is held. in: AL = FCP_CUT, BX = the pressed index. out: fcp_arm's CF
+; is held. in: AL = FCP_CUT, BX = the pressed index. out: fcp_arm's CF;
+; clobbers CX and DI, and through fm_armset AX, BX, DX and SI - fm_drag's
+; kentc_di has them all, and it reads none of them after this
 fm_dgarm:                       ; (DI is fm_drag's to lose: fm_dgwait has)
     mov di, [fm_vp]
     call fm_mods                ; (AL is FCP_CUT on the way in, always)
@@ -8323,19 +8328,19 @@ fm_mfocus:
     ret
 
 ; fm_mods - the BIOS's shift state (0040:0017): AL bit 2 = Ctrl, bits 0-1 =
-; Shift, and nothing else. A Standard File chooser picks ONE file, so in its
-; block (DI) no modifier is seen at all. AH clobbered
+; Shift, and nothing else; AH = 0. A Standard File chooser picks ONE file, so
+; in its block (DI) no modifier is seen at all - the zero that addresses the
+; BIOS's segment is its answer
 fm_mods:
-    push ds
     xor ax, ax
+    cmp di, [fdlg_blk]
+    je .k
+    push ds
     mov ds, ax
     mov al, [0x417]
     pop ds
-    cmp di, [fdlg_blk]
-    jne .k
-    xor al, al
-.k:
     and al, 7
+.k:
     ret
 
 ; fm_mwalk - call BX for every entry of DI's set but '..' (19.5), with AX =

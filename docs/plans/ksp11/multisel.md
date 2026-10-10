@@ -103,6 +103,22 @@ design input.
 Batch 2: **kern_big 92,433 -> 92,427 (-6)**, kern_small 61,435 -> 61,431
 (-4), MSELOFF 91,666 -> 91,661 (-5). **The feature is 766.**
 
+### Batch 3 (concept)
+
+* **fm_mods takes its zero from the chooser test**: `xor ax, ax` first, and
+  the chooser's answer IS that zero (`je .k` to the `ret`), where the read of
+  0000:0417 was followed by a compare and an `xor al, al`. AH = 0 on both
+  arms, as before. **-2**.
+* **fm_armset banks nothing.** Its two callers are `fm_c_clip`, a command
+  body (fm_docmd: "may clobber anything"), and `fm_dgarm` inside `fm_drag`,
+  whose `kentc_di` has every register and which reads none after the arm
+  (`fm_dgmove`/`fm_dgxor` preserve everything, `fm_dgdrop` takes no input).
+  `call kentc_di` and `jmp kretc_di` go for a `ret`; ES is still banked.
+  **-5**.
+
+Batch 3: **kern_big 92,427 -> 92,420 (-7)**, kern_small and MSELOFF
+unchanged. **The feature is 759** (cold 701, text 13, bss 45).
+
 ## REFUSED
 
 * **One global bitmap instead of eight bytes a block** (`.bss` 40 -> 9). Only
@@ -140,6 +156,17 @@ Batch 2: **kern_big 92,433 -> 92,427 (-6)**, kern_small 61,435 -> 61,431
   skips `fcp_undo` on the first stream's refusal, which is only right if
   `[fcp_made]` is provably 0 there; an error path, and FILECP.DRV on
   kern_small, so kern_big only.
+* **fm_mw_1st as an alias of an existing `stc`/`ret`** (`fm_mw_1st equ
+  fm_drag.click`, -2): a callee whose body is whatever another routine's
+  local label happens to be today, with nothing to say so when it changes.
+* **fm_mset without `push bx`** (-2): its own callers would allow it, but
+  `fm_lsel_bar` reaches it through `fm_mdraw` from the painter and from
+  `fm_scrollpaint`'s lift and relay, whose register use around the call is
+  not this concept's to re-prove for two bytes.
+* **The busy test in fcp_lfree instead of fcp_arm**: every `fcp_lend` is
+  reached with `[fcp_busy]` = 0 (each entry ends through `fcp_stop`), so it
+  would be correct - and it is the same seven bytes on the other side of the
+  call. 0.
 * **fcp_lbegin's floor store through `mmf_osapi_mem_floor`** (OSAPI_MEM_FLOOR's
   own far body): built, -2 as `push cs / call`, which os88ovlchk refuses twice
   over - the walk's model files `fcp_lbegin` as `.modp`, and `push cs` in
