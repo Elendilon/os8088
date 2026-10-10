@@ -272,3 +272,12 @@ FILECP.DRV 1,936, FDLG.DRV 1,232, kerndos.bin 32,799.
 extra byte being alignment. kern_big byte-identical (listing builds
 `cmp`'d). FDLG.DRV and kerndos.bin unchanged (filecp.inc is not in kern_dos;
 the disk-side code did not move). SPEC.md 62.9.2.3 and 51.0.2 say so.
+
+Round 2 rows, on this branch's build after the commit: `fcpcopy`, `fcpapi`,
+`fcproom`, `fcpsmall`, `fdlgdrop`, `fdlgchsmall`, `dispclose-small`,
+`small128`, `smallboot`, `smalllaunch`, `tmsmall`, `msel` (kern_big sanity)
+- **12/12 ok**. kerndos/kdos rows not re-run: kerndos.bin is byte-for-byte
+the size it was and no disk-layer source moved. Gates: `make -j2` (fast
+61/61), `make -j2 small`, `checkdocs`, `tools/stkbalance.py` 0 unbalanced
+(3,900 entries; "names defined twice" back to 9, because `osapi_vol_fence`'s
+second definition went with its stub).
