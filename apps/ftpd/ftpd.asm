@@ -372,13 +372,13 @@ FD_CKPT     equ 262144              ; bytes between checkpoints
 
 ; --- FD_BIGSZ - STOR COMMITS 32KB AT A TIME (SPEC.md 77.50.2, 77.50.3) -----
 ; Measured on both machines the field has. A 286, 737,280 bytes to its hard
-; disk: 8KB kept 81.9 KB/s, 32KB kept 92.2. A 5150 (86Box), 1,474,560 bytes:
-; 8KB kept 20,768 B/s, 32KB kept **35,964** - 1.73x, the 8KB commit carrying
-; a fixed ~177ms that the 32KB one pays a quarter as often. The 8088 had kept
-; 8KB on two refusals (77.21, 77.24), both taken against a server whose
-; commits cost a second each; this is the re-measurement they were owed, so
-; every CPU claims a 32KB stage for STOR alone. RETR and LIST keep the 8KB
-; one in our segment. A refused claim is the 8KB server, which works. Not
+; disk: 8KB kept 81.9 KB/s, 32KB kept 92.2 - the 32KB stage writes at the
+; drive's own rate. A 5150 (86Box): kept 8KB 34.3 KB/s against the plain
+; per-chunk server's 31.4-32.1, and kept 32KB measured once at 36.0. The
+; 8088 had kept 8KB on two refusals (77.21, 77.24), both taken against a
+; server whose commits cost a second each and neither true of the kept
+; stream, so every CPU claims a 32KB stage for STOR alone. RETR and LIST keep
+; the 8KB one in our segment. A refused claim is the 8KB server, which works. Not
 ; 64KB: [fd_sfill] and the commit's CX are words. `-DFD_NOBIG` (ftpspeed's
 ; 8KB arms) or a bigger FD_STGSZ turns it off.
 FD_BIGSZ    equ 32768
