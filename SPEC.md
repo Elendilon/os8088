@@ -25827,7 +25827,9 @@ moment it lets go (`mem_free_rec`). The pass resumed and called the handler
 anyway, through a `W_SEG` that names memory the heap had already got back:
 a wild far call. The handler word is read again under the lock for the same
 reason - a record re-used meanwhile is another window's, and its
-`W_ONTIMER` may be 0.
+`W_ONTIMER` may be 0 - and since kernel size pass 11 it is read ONLY there:
+the walk's own test is `W_FLAGS` and `W_TIMER`, and a due timer with no
+handler (a legal no-op) costs one lock round trip instead of a second read.
 
 A task-less instance cannot reach it: `app_close_win` tears that down on the
 UI task itself, under the lock, between two passes. It wants a worker, a
@@ -85517,6 +85519,18 @@ rather than derived, because deriving them would hide the fact that makes
 them fragile — they are positions in a table one `%ifdef` above, and the two
 have to be read together.
 
+**The volume slots a driver mounts through are stubs too** (kernel size pass
+11): `OSAPI_VOL_ADD`, `_DEL` and `_MOUNT` are `stc / retf`, `OSAPI_FS_ENT`
+`xor ax,ax / stc / retf` and `osapi_vol_fence` itself `stc / ret`, because
+the fence walks the PUBLISHED classes and none can be published here, so
+every one of them refused every caller already. The bodies behind them -
+`dsk_vol_add`, `dsk_vol_del`, `dsk_vol_drop_drv_x`, the take - go with them,
+as does `osapi_vol_at`'s arm for a TAKEN row (§52.1.1), which no row can be:
+-418 of `.cold` and -4 of `.bss`, `kern_big` byte-identical. `OSAPI_VOL_AT`
+itself stays, unfenced and live: it is the question an installer asks of
+the kernel's own boot volume. `osapi_desk_item`, the fence's other caller,
+takes its package arm as it always did.
+
 ### 51.1 A driver is a package that is not an application
 
 Same 32-byte header, same `org 0`, same paragraph-aligned heap claim, same
@@ -86959,32 +86973,41 @@ an XT-IDE ROM, 15.4% of pulses lost while the ring refills; files made for a
   row, 80h; the device is an IDE row now), so that drive's saved typed
   geometry is ignored once; it is probed, the geometry is the BIOS's, and
   the automount takes every probed device anyway (§52.6.1).
-- **And the boot partition too: `OSAPI_VOL_TAKE`.** The kernel adopts the
-  partition it booted from as a `DVK_BIOS` row before any driver loads
-  (§52.10.3), and a video disk is one partition - so a driver that could not
-  take that row would leave every video on C: of an installed machine
-  playing slow, and the same file fine on D:. `hd_mount`, finding a
-  partition the kernel already carries (`hd_kvol`) on a drive it TOOK,
-  calls `hd_mount_one` with `[hd_take]` set, and that asks the kernel for
-  the row in place of adding one: slot 0x0467, an X cell behind
-  `osapi_vol_fence` (so the class stamped is the caller's), `OSAPI_VOL_AT`'s
-  arguments plus the driver's handle in AH. The row becomes `DVK_DRV`,
-  mounted as it is - nothing is listed again, and `dsk_xfer` reads the row
-  on every transfer, so the next one is the driver's.
+- **And the boot partition too: a TAKE, `OSAPI_VOL_ADD` with DX != 0.**
+  The kernel adopts the partition it booted from as a `DVK_BIOS` row before
+  any driver loads (§52.10.3), and a video disk is one partition - so a
+  driver that could not take that row would leave every video on C: of an
+  installed machine playing slow, and the same file fine on D:. `hd_mount`,
+  finding a partition the kernel already carries (`hd_kvol`) on a drive it
+  TOOK, calls `hd_mount_one` with `[hd_take]` set, and that asks the kernel
+  for the row in place of adding one: `OSAPI_VOL_ADD` behind its own
+  `osapi_vol_fence` (so the class stamped is the caller's), with DX - which
+  was RESERVED, pass 0, since §22.6 retired the listing claim it carried -
+  non-zero, DL the index `OSAPI_VOL_AT` answered and AL the driver's handle.
+  The row becomes `DVK_DRV`, mounted as it is - nothing is listed again, and
+  `dsk_xfer` reads the row on every transfer, so the next one is the
+  driver's. Kind and unit are one word (`DV_KIND` 0, `DV_UNIT` 1), so the
+  row changes transport in ONE store and no IF = 0 bracket is needed.
+  - **It was a slot of its own, 0x0467 `OSAPI_VOL_TAKE`, for one cycle**,
+    taking `OSAPI_VOL_AT`'s arguments and asking that question again
+    inside. It never reached `main`; kernel size pass 11 folded it into the
+    door the driver already uses, six resident bytes of cell and a second
+    fence call cheaper on both kernels.
   - **It keeps its int 13h drive in `DV_BUNIT`** (row offset 14, one of the
     two bytes DV_SEG's retirement left spare) and its base stays in
     `dsk_vbase`, so `OSAPI_VOL_AT` still names it - the installer still
     refuses the running volume, and `hd_mount` still finds it its own.
-  - **`dsk_vol_del` GIVES IT BACK** rather than freeing it: kind `DVK_BIOS`,
-    unit the BIOS's, class 0, at IF = 0. Both of the kernel's ways of
-    dropping a driver's volumes end there - an unmount's `OSAPI_VOL_DEL`
-    and `dsk_vol_drop_drv_x` at an unload, which is also a hibernate's
-    detach and the DOS box's handoff - and without it every one of them
-    FREES THE SYSTEM VOLUME: measured, the row went to `DVK_FREE` and the
-    driver could not even be loaded again off it.
-  - **+84 resident bytes of kernel** on both builds (`.text` +6, the cell;
-    `.cold` +78), and none of `HDD.DRV`'s image: the driver's half fits in
-    padding the image already had.
+  - **`dsk_vol_del` GIVES IT BACK** rather than freeing it: kind `DVK_BIOS`
+    and unit the BIOS's in one store, then class 0. Both of the kernel's
+    ways of dropping a driver's volumes end there - an unmount's
+    `OSAPI_VOL_DEL` and `dsk_vol_drop_drv_x` at an unload, which is also a
+    hibernate's detach and the DOS box's handoff - and without it every one
+    of them FREES THE SYSTEM VOLUME: measured, the row went to `DVK_FREE`
+    and the driver could not even be loaded again off it.
+  - **+84 resident bytes of kernel** on both builds as first shipped
+    (`.text` +6, the cell; `.cold` +78), and none of `HDD.DRV`'s image: the
+    driver's half fits in padding the image already had. After pass 11:
+    `.text` +0 and `.cold` +66.
 
 `hdtake` is the gate, on QEMU - the one emulator here with a 286-class CPU and
 a BIOS that knows an IDE disk: device row 0 must be IDE on 1F0h unit 0 with
@@ -170403,10 +170426,14 @@ is reached by OUT and needs no CPU above an 8088.
 ### 107.1 What the kernel carries
 
 - **A class, `DRVC_EMS` = 7** (`apps/os88api.inc`), appended after
-  `DRVC_POINT` because a class number is ABI. It has a publication slot and a
-  copy of its service table; `DRVC_POINT` remains the one class with no copy,
-  and the class-to-copy arithmetic (`drv_cls_svc_x`, `drv_pkg_call_x`) skips
-  it as it skips the retired class 3.
+  `DRVC_POINT` because a class number is ABI. It has a publication slot and,
+  like `DRVC_POINT`, **no copy of its service table**: its one cell is
+  `DSV_PKGCALL`, and `drv_publish` puts that word in `drv_fptr7`'s OFFSET
+  half - which nothing reads for this class, `drv_pkg_disp` taking class
+  1's `PKG_DISP` for every far call - where `drv_pkg_call_x` reads it. So
+  `drv_cls_svc_x` refuses the two last classes by one `>= DRVC_POINT` test,
+  as it did before EMS. (It shipped for one cycle with a 36-byte copy for
+  that one word, and kernel size pass 11 took the copy out.)
 - **A row, `EMS.DRV`, "EMS"**, on `kern_big` and `kern_emu`, SYSTEM.CFG
   **bit 7** on both, **not wanted by default** (§51.3): attach writes to
   I/O ports, and on a machine without a board at that address they are
@@ -170417,8 +170444,10 @@ is reached by OUT and needs no CPU above an 8088.
   `inst_caller`'s answer (§34.3): the instance slot, or 0xFF for the kernel,
   a driver or the UI task outside a package callback. EMS ownership is keyed
   on it, because a package's SEGMENT can move under compaction (§66).
-- **A dead instance's pages are returned.** `inst_rel_rec` - the teardown
-  that releases an instance's sound grants and XMS blocks - calls the EMS
+- **A dead instance's pages are returned.** `xm_release_rec` - the
+  teardown that releases an instance's XMS blocks, entered from
+  `inst_rel_rec`'s tail after the sound grants and from `ld_unreserve`'s
+  abort sweep - calls the EMS
   class's package door with verb `EMSV_GONE` and `ES = KERNEL_SEG`, which no
   package can send (its calls arrive with its own segment in ES).
 
@@ -170501,6 +170530,14 @@ against this one:
 
 113 resident bytes on every `kern_big` machine, board or none - the estimate
 in VIDEO-XMS-PLAN 10.5 was 95-100, short by the teardown call's banking.
+
+**Kernel size pass 11 took 30 bytes of it back**: the 36-byte table copy (the
+door is `drv_fptr7`'s offset half now, 107.1; `.bss` -36, `drv_publish` +10
+of `.cold`, `drv_pkg_call_x` +1 and no longer multiplies for EMS), and the
+teardown converting the record once for the EMS door and the XMEM dispatch
+(`.text` -5). A defect came out with it: `mem_rr_tab` relocated five class
+segments of seven, so a compaction that MOVED `EMS.DRV` left `drv_fseg7`
+naming freed memory (§66.6.3; the row counts `DRVC_MAX` now).
 
 ### 107.6 Not done
 

@@ -542,10 +542,15 @@ FSV_SIZE     equ 30
 ;                        CX = the volume's sector count, for the kernel's own
 ;                            "does this BPB claim to be bigger than its
 ;                            partition" check
-;                        DX = RESERVED, pass 0. It took a listing claim your
-;                            driver funded, which SPEC.md 22.6 retired: the
-;                            kernel lists every volume into its own buffers
-;                            now, at the same cap for all of them
+;                        DX = 0. It took a listing claim your driver
+;                            funded, which SPEC.md 22.6 retired: the kernel
+;                            lists every volume into its own buffers now, at
+;                            the same cap for all of them. DX != 0 is a TAKE
+;                            (SPEC.md 52.1.1): DL = the index OSAPI_VOL_AT
+;                            answered for a BIOS volume on a disk you have
+;                            PROVED is that int 13h drive, AL = your handle;
+;                            CX and SI unread. The row is yours, mounted as it
+;                            is, and OSAPI_VOL_DEL gives it back to the BIOS
 ;                        SI = a NUL desktop label in YOUR segment (0 = the
 ;                            kernel derives 'Disk X' from the index)
 ;                    out CF = 0 and AL = the volume index; CF = 1 = no room

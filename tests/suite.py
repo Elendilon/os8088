@@ -1945,7 +1945,7 @@ SOAK = [
     Row("hdtakeboot", "soak", py("tests/hdtake.py", "--boot"), 30.0,
         "SPEC.md 52.1.1 on an INSTALLED machine (QEMU, booted from the IDE "
         "disk): C:, the kernel's own int 13h boot volume, must be HANDED to "
-        "HDD.DRV by OSAPI_VOL_TAKE (row kind DVK_DRV, DV_BUNIT 80h) and a "
+        "HDD.DRV by a take, OSAPI_VOL_ADD with DX != 0 (row kind DVK_DRV, DV_BUNIT 80h) and a "
         "package launch from it work; unticking the driver must GIVE C: "
         "BACK to the BIOS rather than freeing the system volume, and "
         "ticking it again take it again",

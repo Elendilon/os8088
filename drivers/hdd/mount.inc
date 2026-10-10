@@ -112,9 +112,6 @@ hd_mount:
 ; out: [hd_nmnt] incremented on success; [hd_msg] set on a failure
 ; clobbers: flags
 ;
-; DI = THE DEVICE ROW as well, for the take below: hd_mount's loop and
-; hd_svc_mount both hold it.
-;
 ; NO LISTING CLAIM (SPEC.md 22.6). This used to claim 6KB and hand it over
 ; with the volume, so that the partition listed more entries than the kernel's
 ; own floor gave a floppy; the floor is the same cap for every volume now, so
@@ -154,38 +151,30 @@ hd_mount_one:
     mov [bx+HDV_SECS], ax       ; the kernel's rule 13 accepts (SPEC.md 18.7.5)
 
     mov cx, ax                  ; = [bx+HDV_SECS]
-    mov al, [hd_sel]            ; THE KERNEL'S ALREADY? Only on a drive rung
-    call hd_kvol                ; 1 took (hd_mount skips it on any other):
-    jnc .take                   ; then it is handed over, not added
+    xor dx, dx                  ; DX = 0: a volume ADDED...
+    mov al, [hd_sel]            ; ...unless it is THE KERNEL'S already: only
+    call hd_kvol                ; on a drive rung 1 took (hd_mount skips it
+    jc .add                     ; on any other), and then it is TAKEN -
+    mov dl, al                  ; OSAPI_VOL_ADD with DL = the index hd_kvol
+.add:                           ; answered, never 0 or 1 (SPEC.md 52.1.1)
     mov al, [bx+HDV_VOLH]       ; our own handle IS the row index
-    xor dx, dx                  ; no donated listing claim: the kernel's own
-                                ; buffers, which is every volume now (22.6)
+                                ; (no donated listing claim: the kernel's own
+                                ; buffers, which is every volume now, 22.6)
     xor si, si                  ; no label: the KERNEL derives 'HDD C'..'HDD F'
     call OSAPI_VOL_ADD          ; from the volume index, which is the only
-    jc .novol                   ; place that knows it (SPEC.md 26.1)
-    mov [bx+HDV_VOL], al
+    jc .novol                   ; place that knows it (SPEC.md 26.1); a take
+    mov [bx+HDV_VOL], al        ; reads neither CX nor SI
     mov byte [bx+HDV_USED], 1   ; AL is STILL the volume index - the reload
-    call OSAPI_VOL_MOUNT        ; that was here existed because the movable
-                                ; declaration passed its proc through AX
-    jc .badvol
+    or dx, dx                   ; that was here existed because the movable
+    jnz .counted                ; declaration passed its proc through AX. A
+    call OSAPI_VOL_MOUNT        ; TAKE is mounted already, and listed: it is
+    jc .badvol                  ; not read again (DX survives the slot)
 .counted:
     inc byte [hd_nmnt]
     jmp short .out
 .badvol:
     call hd_unmount_row         ; typed FAT, is not FAT: give it all back and
     jmp short .out              ; leave the loop to try the next slot
-.take:                          ; THE KERNEL'S VOLUME, ours from here: mounted
-    push bx                     ; already, so nothing is listed again
-    mov ah, [bx+HDV_VOLH]
-    mov cx, [bx+HDV_BASE]
-    mov bx, [bx+HDV_BASE+2]
-    mov dl, [di+HDD_BIOS]       ; (DI: hd_mount's device row)
-    call OSAPI_VOL_TAKE
-    pop bx
-    jc .novol
-    mov [bx+HDV_VOL], al
-    mov byte [bx+HDV_USED], 1
-    jmp short .counted
 .novol:
     mov byte [bx+HDV_USED], 0
 .full:
