@@ -33904,9 +33904,12 @@ except the one it exists to skip:
   menu, a timer, a repaint. So every moment the user can act still finds the
   hold committed, and 18.4.9's invariant - *no hold is pending where the user
   can reach the drive* - stands for everything but another package's wake;
-- **an unlock inside a wake whose FAT edits are BANKED** (§18.8.5): the
-  callback hopped off the volume, and a banked bank is the one a shed can
-  poison;
+- **an unlock inside a wake once its FAT edits have been BANKED** (§18.8.5)
+  since the hold's last write: the callback hopped off the volume, and a
+  banked bank is the one a shed can poison. `dws_hswap` clears `[dws_keep]`
+  whichever way it swaps, so `gfx_unlock` asks one word and the next write
+  sets the verdict again (kernel size pass 11; it used to ask `[dws_hd0]`
+  at the unlock, which kept a hold that had hopped off and back);
 - a posted restart or hibernate (`ui_task` step 0) - a hibernate zeroes the
   bank, and a restart would lose the stream - except the `NOFLUSH` restart,
   which goes near no disk at all;
@@ -33940,7 +33943,13 @@ Cost, measured against the kernel before it: **+108 resident bytes** on
 stores, `ui_task` step 0's commit), `.cold` +72 (the door's flags, the
 checkpoint arm, the fixed-disk verdict and `dsk_vol_del`'s commit), `.bss` +2
 (`dws_keep`, `dws_inwk`, adjacent so the unlock reads them as one word). No
-rung crossed. Not in `kern_small`, which has no WRITE_SEQ (18.4.9).
+rung crossed. Not in `kern_small`, which has no WRITE_SEQ (18.4.9). Kernel
+size pass 11 took **-31** of it back with nothing changed but the bank rule
+above: the checkpoint arm shares the door's hot test (`jcxz` tells a
+checkpoint from a write once the token is known hot), the verdict is one
+`and`, `dsk_vol_del` lets `dws_commit` ask `[dws_hold]` itself, and the
+wake arm's two stores are an `inc`/`dec` pair - `.text` -9, `.cold` -22
+(the bank's own clear is +5 of that).
 
 Gated by `tests/ftpkeep.py` (QEMU, a hard-disk boot): a STOR byte-exact on
 the host's own FAT reader and fsck-clean; the same STOR through the per-chunk
@@ -33966,13 +33975,23 @@ commit was the longest by 10x; the same STOR with the rover already past the
 used run read 36.
 
 **FAT16 searches the resident window with one `repne scasw`** for a zero
-word (`dskw_alloc16`): an entry is a word and free is zero, so the answer,
-the rover, the wrap, the window loads and the end bound (`[dsk_maxclus]`,
-because the last FAT sector's tail is zero PADDING) are all the per-cluster
-loop's, at a few clocks an entry instead of the three calls. A window that
-will not load hands its place back to the per-cluster loop, which asks
-again and answers as it always has. FAT12 - every floppy, whose whole FAT is
-resident and small - keeps the loop.
+word (`dskw_alloc`'s `.scan`): an entry is a word and free is zero, so the
+answer, the rover, the wrap, the window loads and the end bound
+(`[dsk_maxclus]`, because the last FAT sector's tail is zero PADDING) are all
+the per-cluster loop's, at a few clocks an entry instead of the three calls.
+A window that will not load asks that one cluster the per-cluster way, which
+retries the load, and the scan goes on from the next. FAT12 - every floppy,
+whose whole FAT is resident and small - keeps the loop.
+
+The scan is bounded by the window and the last cluster and NOT by the
+candidates left: those are only charged with what each window asked, and the
+first charge that reaches zero or borrows is the full volume. Past the last
+candidate lie only clusters the same search has already seen used, so an
+overrun can find nothing a bounded scan would not (checked in a Python model
+against the per-cluster loop over 20,000 random FATs, full ones among them).
+That and sharing the loop's wrap are kernel size pass 11's **-42** on both
+kernels; the scan was a routine of its own, `dskw_alloc16`, with a second
+copy of the wrap and both bounds.
 
 **Measured on MartyPC's 4.77 MHz 8088** (`os8088_5150_herc_hdd_sb_gla`, its
 XT-IDE volume filled to 1 MB free, VIDDISK's `f` writer, the first

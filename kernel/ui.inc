@@ -356,8 +356,10 @@ ui_task:
 .wake:
     mov si, cx                  ; the window that asked; NO lock is taken -
 %ifdef KERN_BIG
-    mov byte [dws_inwk], 1      ; (a WSEQF_KEEP hold outlives a wake and
-%endif                          ; nothing else, SPEC.md 18.4.9.3)
+    inc byte [dws_inwk]         ; (a WSEQF_KEEP hold outlives a wake and
+%endif                          ; nothing else, SPEC.md 18.4.9.3; .bss is 0
+                                ; at boot, and a nested wake reads 2, which
+                                ; commits - the safe way to be wrong)
     call wm_wake_disp           ; the handler takes it itself for a stated
                                 ; burst, and may call the file slots (74.1)
 %ifdef KERN_BIG
@@ -366,7 +368,7 @@ ui_task:
     call gfx_lock               ; back, and the unlock's commit runs where
     call gfx_unlock             ; every other callback's does - a KEPT one
 .wkout:                         ; excepted, which is why the byte clears
-    mov byte [dws_inwk], 0      ; only after it
+    dec byte [dws_inwk]         ; only after it
 %endif
     jmp short .yj2
 

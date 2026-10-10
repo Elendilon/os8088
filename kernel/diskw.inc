@@ -1885,7 +1885,10 @@ dskw_rbody:
     mov [dskw_uz], ax                   ; below: R = U - P BORROWS, and a
     mov [dskw_uzhi], dx                 ; borrowed R is past the megabyte
     cmp word [dskw_src], 0
-    jne .czbad                          ; a compressed file expands into a
+    jne .czjae                          ; a compressed file expands into a
+                                        ; (CF=0 out of a compare with 0, so
+                                        ; the `jae .czbad` below takes it:
+                                        ; .czbad is out of a byte's reach)
                                         ; PARAGRAPH-ALIGNED buffer: lz_decomp_x
                                         ; wants DI = 0 (SPEC.md 20.13.3), the
                                         ; SDK says so, and R's own low nibble
@@ -1935,6 +1938,7 @@ dskw_rbody:
     sbb dx, [dskw_lenhi]        ; the writer can never overtake the reader
                                 ; (SPEC.md 20.14.2) - and 0 for a plain file
     cmp dx, 0x10
+.czjae:
     jae .czbad                  ; R past a megabyte, which is what a hint
                                 ; smaller than its file comes out as, and not
                                 ; an address in this machine either way - the
@@ -2157,12 +2161,9 @@ dskw_xclus:
     jc .ioerr
     ret                         ; CF = 0 from the `jc`
 
-; tests/dskwstage.py breakpoints each pipeline's staging arm BY NAME, and the
-; two arms are one now: the names stay, on the one address. A write call
-; reaches it only for a write and a read call only for a read, so a count per
-; call still says which pipeline staged
-dskw_wdata.stg equ dskw_xclus.stg
-dskw_rdata.stg equ dskw_xclus.stg
+; tests/dskwstage.py breakpoints the staging arm BY NAME, dskw_xclus.stg: a
+; write call reaches it only for a write and a read call only for a read, so
+; a count per call still says which pipeline staged
 
 ; -----------------------------------------------------------------------------
 ; dskw_czexp - expand the compressed file dskw_rdata just delivered
@@ -2607,10 +2608,41 @@ dskw_read_at_x:
 
     cmp byte [dsk_vkind], DVK_FILE
     jne .fatat
-    jmp .fsat                   ; a REDIRECTED volume (SPEC.md 62.9): the
-                                ; driver serves any offset, so BOTH of this
-                                ; routine's cluster-alignment preconditions
-                                ; simply do not arise
+    ; --- a REDIRECTED volume: STAT to a handle, then READAT (62.9.1) --------
+    ; dskw_stat_x is redirected too, so this could have fallen through to the
+    ; code above and got the right handle and size out of it - and then walked
+    ; a cluster chain that does not exist. The branch is here rather than
+    ; after the stat because everything between them is FAT arithmetic.
+.fsat:
+    call dskw_fsstat            ; SI = the name -> AX = the handle, DX:CX =
+    jc .out                     ; size; a folder is refused FERR_PROT, as
+                                ; everywhere else
+    mov bx, [dwr_buf]           ; AX is still the handle
+    mov dx, es                  ; DX:BX = the buffer, ES being the caller's
+    mov cx, [dwr_cap]           ; and DX not carrying it into the driver
+    mov si, [dwr_off]           ; DI:SI = the 32-bit offset, and a driver is
+    mov di, [dwr_off+2]         ; free to answer 0 for "at or past the end"
+    mov bp, FSV_READAT
+    call drv_fs_call              ; -> DX:AX = the bytes delivered
+    jmp short .out              ; CF and DX:AX are already the answer
+
+    ; --- the answers, ABOVE the FAT body so its refusals reach them short ---
+.eof:
+    xor ax, ax
+    xor dx, dx
+    jmp short .out
+.badarg:
+    mov ax, FERR_NAME           ; a bad ARGUMENT, and FERR_NAME is this API's
+    stc                         ; word for that (SPEC.md 20.3)
+.err:
+.out:
+    pop bp
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
 .fatat:
     call dskw_clbytes           ; AX = bytes per cluster on this volume
     mov [dwr_clb], ax
@@ -2688,7 +2720,7 @@ dskw_read_at_x:
     jcxz .atclus                ; nothing above has touched
 .skip:
     call dsk_next_clus_x    ; AX = the next cluster; CF=1 = the
-    jc .corrupt                 ; chain ended before the size said it would
+    jc .rdend                   ; chain ended before the size said it would
     loop .skip                  ; ...and a link outside [2, dsk_maxclus] is
                                 ; refused by whatever reads it next: the next
                                 ; pass's dsk_next_clus_x, or dsk_read_chain_x's
@@ -2715,48 +2747,14 @@ dskw_read_at_x:
     pop ax
     mov bx, [dwr_buf]
     call dsk_read_chain_x
-    jc .ioerr
-    mov ax, [dwr_take]
-    xor dx, dx                  ; (`xor` clears CF: the answer)
-    jmp short .out
-.eof:
-    xor ax, ax
-    xor dx, dx
-    jmp short .out
-.badarg:
-    mov ax, FERR_NAME           ; a bad ARGUMENT, and FERR_NAME is this API's
-    jmp short .fail             ; word for that (SPEC.md 20.3)
-.corrupt:
-.ioerr:
+.rdend:                         ; CF=1 = the chain ended early or the read
+    mov ax, [dwr_take]          ; failed, FERR_IO both (`mov` keeps CF)
+    mov dx, 0
+    jnc .rdout
     mov ax, FERR_IO
-.fail:
-    stc
-.err:
-.out:
-    pop bp
-    pop di
-    pop si
-    pop cx
-    pop bx
-    ret
+.rdout:
+    jmp .out                    ; (up past the FAT body: not a byte's reach)
 
-    ; --- a REDIRECTED volume: STAT to a handle, then READAT (62.9.1) --------
-    ; dskw_stat_x is redirected too, so this could have fallen through to the
-    ; code above and got the right handle and size out of it - and then walked
-    ; a cluster chain that does not exist. The branch is here rather than
-    ; after the stat because everything between them is FAT arithmetic.
-.fsat:
-    call dskw_fsstat            ; SI = the name -> AX = the handle, DX:CX =
-    jc .out                     ; size; a folder is refused FERR_PROT, as
-                                ; everywhere else
-    mov bx, [dwr_buf]           ; AX is still the handle
-    mov dx, es                  ; DX:BX = the buffer, ES being the caller's
-    mov cx, [dwr_cap]           ; and DX not carrying it into the driver
-    mov si, [dwr_off]           ; DI:SI = the 32-bit offset, and a driver is
-    mov di, [dwr_off+2]         ; free to answer 0 for "at or past the end"
-    mov bp, FSV_READAT
-    call drv_fs_call              ; -> DX:AX = the bytes delivered
-    jmp short .out              ; CF and DX:AX are already the answer
 
 ;
 ; -----------------------------------------------------------------------------
@@ -2955,45 +2953,42 @@ dwf_dskw_write_seq:
     or al, WSQF_IN              ; bits: WSQF_HOT is the door's
     mov [dws_flg], al
     jcxz .close                 ; a CLOSE: the commit, and nothing more
+.hot:
     cmp di, [dsk_mgen]          ; the token still names the record...
     jne .cold
     call dws_ours.vol           ; ...on this volume
     jne .cold
+    jcxz .ckpt                  ; (a CHECKPOINT's way here, below)
     or byte [dws_flg], WSQF_HOT
     jmp short .go
 .close:                         ; A CHECKPOINT (18.4.9.3) is a close whose
-    test byte [dws_flg], WSQF_CKPT  ; token survives it: the commit stamps the
-    jz .cold                    ; record (WSQF_IN), so after it the record
-    cmp di, [dsk_mgen]          ; names the file exactly as the disk does and
-    jne .cold                   ; the next call may start a NEW hold from it,
-    call dws_ours.vol           ; hot. Only for a HOT token: then the pending
-    jne .cold                   ; hold, if any, is this stream's and nobody's
-    call dws_commit             ; else (every other write moved [dsk_mgen])
+    test al, WSQF_CKPT          ; token survives it: the commit stamps the
+    jnz .hot                    ; record (WSQF_IN), so after it the record
+.cold:                          ; names the file exactly as the disk does and
+    call dws_commit             ; the next call may start a NEW hold from it,
+    jc .out                     ; hot - for a HOT token only, the pending hold
+    jcxz .out                   ; then being this stream's and nobody's else
+.go:                            ; (every other write moved [dsk_mgen]). A cold
+    mov al, [dws_flg]           ; one is a plain close: a hold ends before a
+    and al, WSQF_SYS            ; file is looked up again, its size being the
+    mov [dskw_syswr], al        ; lookup's answer, and a close's answer is the
+    call dskw_append_x          ; commit's (AX = 0 when nothing was held).
+    jc .out                     ; WSQF_SYS is [dskw_syswr], which dskw_wrp
+    mov al, [dws_flg]           ; clears on the way out - set on EVERY call,
+    and al, WSQF_KEEP           ; so none can leak into the next write. DI as
+    jz .keep                    ; it was on a refusal: the record is untouched
+    push bx                     ; MAY THE HOLD OUTLIVE A WAKE (18.4.9.3)? Only
+    mov bl, [disk_drive]        ; on a FIXED disk: a floppy can be taken out
+    call dsk_vol_fixed_x        ; between two callbacks, which is the whole
+    pop bx                      ; reason a hold ends with the callback that
+.keep:                          ; made it. AL = 1 fixed, 0 removable - and the
+    mov [dws_keep], al          ; written volume has a row, so no CF; were it
+    xor ax, ax                  ; ever CF=1, AL = WSQF_KEEP is not 1 either
+    jmp short .tok              ; the append's answer, which AL just spent
+.ckpt:
+    call dws_commit             ; the checkpoint: AX = 0 out of the commit
     jc .out
-    mov di, [dsk_mgen]          ; AX = 0 out of the commit
-    jmp short .out
-.cold:
-    call dws_commit             ; a hold ends before a file is looked up
-    jc .out                     ; again: its size IS the lookup's answer - and
-    jcxz .out                   ; a close's answer is the commit's (AX = 0
-.go:                            ; when nothing was held)
-    mov al, [dws_flg]           ; WSQF_SYS is [dskw_syswr], which dskw_wrp
-    and al, WSQF_SYS            ; clears on the way out - set on EVERY call,
-    mov [dskw_syswr], al        ; so none can leak into the next write
-    call dskw_append_x
-    jc .out                     ; DI as it was: the record is untouched too
-    test byte [dws_flg], WSQF_KEEP  ; MAY THE HOLD OUTLIVE A WAKE (18.4.9.3)?
-    jz .keep                    ; Only on a FIXED disk: a floppy can be taken
-    push bx                     ; out between two callbacks, which is the whole
-    mov bl, [disk_drive]        ; reason a hold ends with the callback that
-    call dsk_vol_fixed_x        ; made it. AL = 1 fixed, 0 removable
-    pop bx
-    jnc .keep1
-.keep:
-    xor al, al
-.keep1:
-    mov [dws_keep], al
-    xor ax, ax                  ; the append's answer, which AL just spent
+.tok:
     mov di, [dsk_mgen]          ; THE TOKEN: what the call left (`mov`: CF
 .out:                           ; stays the answer)
     mov byte [dws_flg], 0       ; `mov`: CF stays the answer
@@ -3163,7 +3158,13 @@ dws_hret:
 ; dws_hswap - exchange the live dirty pair with the bank: EMPTY (0xFFFF, 0)
 ; is what each side is left holding, so one routine banks and restores.
 ; out: CF=0. clobbers: AX
+;
+; EITHER WAY THE HOLD STOPS BEING KEPT (SPEC.md 18.4.9.3): a bank is the one a
+; shed can poison, so a WSEQF_KEEP hold whose dirt has been banked since its
+; last write commits at the next UI-task unlock, wake or not - and gfx_unlock
+; asks one word for it instead of two. The next write sets the verdict again
 dws_hswap:
+    mov byte [dws_keep], 0
     mov ax, [dsk_fatd0]
     xchg ax, [dws_hd0]
     mov [dsk_fatd0], ax
@@ -4216,14 +4217,6 @@ dskw_alloc:
     mov cx, [dsk_maxclus]
     dec cx                      ; candidates: clusters 2..maxclus
     mov ax, [dsk_rover]
-    cmp byte [dsk_fattype], 0   ; FAT16: A WINDOW AT A TIME (SPEC.md 18.4.10)
-    je .try
-    call dskw_alloc16           ; out ZF=1 AX = the free cluster; ZF=0 = none
-    je .got1                    ; there, or a window that would not load -
-                                ; which the per-cluster loop below then asks
-                                ; again, AX and CX where the search stopped
-    jcxz .nospace               ; every candidate asked: the volume is full
-                                ; (and `loop` from CX = 0 would ask 65,536)
 .try:
     cmp ax, [dsk_maxclus]       ; wrap the rover into range: past the last
     ja .wrap                    ; cluster or below the first, both are 2
@@ -4232,6 +4225,9 @@ dskw_alloc:
 .wrap:
     mov ax, 2
 .check:
+    cmp byte [dsk_fattype], 0   ; FAT16: A WINDOW AT A TIME (SPEC.md 18.4.10)
+    jne .scan
+.one:
     push ax
     call dsk_next_clus_x
     jc .skip
@@ -4260,94 +4256,65 @@ dskw_alloc:
     sbb ax, ax                  ; ...and say WHICH failure it was: 0xFFFF,
     jmp short .out              ; out of the CF the `jc` arrived with, and
                                 ; CF = 1 still (the borrow)
+
+; THE FAT16 SEARCH (SPEC.md 18.4.10). The per-cluster loop above is three
+; nested calls a cluster - dsk_next_clus_x, dsk_fat_ofs_x, dsk_fat_window and
+; its KENT frame - to ask whether one word is zero, and the rover goes back
+; to 2 at every mount, so the first allocation after one walks every USED
+; cluster from the front: on a nearly full 32MB volume 16,000 of them, the
+; field's 1.55s first commit of an FTP upload (SPEC.md 77.50.1). A FAT16 entry
+; is a WORD and free is ZERO, so the resident window is searched with one
+; `repne scasw`, from AX to the window's end or the last cluster, whichever
+; comes first (the last FAT sector's tail is zero PADDING). A window that will
+; not load asks that one cluster the per-cluster way, which retries it.
+;
+; The scan is NOT bounded by the candidates left (CX), only charged against
+; them: past the last candidate lie only clusters this search has already
+; seen USED, so an overrun can find nothing a bounded scan would not, and the
+; first `sub` that borrows or reaches zero is the full volume.
+.scan:
+    call dsk_fat_ofs_x          ; BX = AX's entry in the window, now resident
+    jc .one                     ; (DX spent: dskw_alloc banks it)
+    push cx                     ; the candidates left
+    push di
+    push es
+    mov di, bx
+    mov ch, [dsk_fatwn]         ; the window's entries, x256 a sector: under
+    mov cl, 0                   ; 256 sectors, so the byte move IS the shift
+    shr bx, 1
+    sub cx, bx                  ; CX = the entries from AX to the window's end
+    mov bx, [dsk_maxclus]
+    sub bx, ax
+    inc bx                      ; BX = ...to the last cluster, inclusive
+    cmp cx, bx
+    jbe .lim
+    mov cx, bx
+.lim:
+    mov bx, cx                  ; BX = how many this window asks (>= 1)
+    xchg ax, dx                 ; DX = the first of them
+    xor ax, ax                  ; the free word
+    mov es, [dsk_fatseg]
+    cld
+    repne scasw
+    pop es                      ; (neither a pop nor an xchg writes a flag)
+    pop di
+    xchg ax, dx                 ; AX = the first again
+    jne .miss
+    stc                         ; AX + (asked - left) - 1, the hit: CX = the
+    sbb ax, cx                  ; entries the scan did not reach
+    add ax, bx
+    pop cx
+    jmp short .got1
+.miss:
+    pop cx
+    add ax, bx                  ; none here: on past this window...
+    sub cx, bx                  ; ...charged against the candidates
+    ja .try
 .nospace:
     xor ax, ax
     stc
 .out:
     jmp dskw_find.pdx           ; its pop run is ours (a pop writes no flag)
-
-; -----------------------------------------------------------------------------
-; dskw_alloc16 - dskw_alloc's search on FAT16, a WINDOW at a time (SPEC.md
-;                18.4.10)
-; in:  AX = the first candidate (the rover, maybe out of range), CX = how many
-;      candidates are left
-; out: ZF=1 with AX = a free cluster; ZF=0 with AX/CX where the search stopped
-;      - CX = 0 for a full volume, else a window that would not load, for the
-;      per-cluster loop to ask again
-; clobbers: AX, CX, DX, flags
-;
-; THE PER-CLUSTER LOOP IS THREE NESTED CALLS A CLUSTER - dsk_next_clus_x,
-; dsk_fat_ofs_x, dsk_fat_window and its KENT frame - to ask whether one word
-; is zero, and the rover goes back to 2 at every mount, so the first
-; allocation after one walks every USED cluster from the front. On a nearly
-; full 32MB volume that is 16,000 of them: the field measured the first
-; commit of an FTP upload at 1.55s against 62ms for the rest, on a 286
-; (SPEC.md 77.50.1). A FAT16 entry is a WORD and free is ZERO, so the
-; resident window is searched with one `repne scasw` - the same answer, the
-; same rover, the same window loads, a few clocks an entry.
-; -----------------------------------------------------------------------------
-dskw_alloc16:
-    push bx
-    push di
-    push es
-.win:
-    jcxz .none
-    cmp ax, [dsk_maxclus]       ; the rover's wrap, as the loop's
-    ja .wrap
-    cmp ax, 2
-    jae .in
-.wrap:
-    mov ax, 2
-.in:
-    call dsk_fat_ofs_x          ; BX = AX's entry in the window, now resident
-    jc .none                    ; (ZF=0 out of the carry's own `stc` path is
-                                ; not promised, so .none makes it)
-    mov dx, [dsk_fatw0]         ; the entries resident from AX on: to the
-    add dx, [dsk_fatwn]         ; window's end...
-    mov dh, dl                  ; ...x256, the cluster past the window. Its
-    mov dl, 0                   ; sector count is under 256 (FAT16 caps at
-    sub dx, ax                  ; 256 sectors), so the byte move IS the shift
-    push cx
-    mov cx, [dsk_maxclus]       ; ...and never past the last cluster: the
-    inc cx                      ; tail of the FAT's last sector is padding,
-    sub cx, ax                  ; and padding is zero
-    cmp dx, cx
-    jbe .lim
-    mov dx, cx
-.lim:
-    pop cx
-    cmp dx, cx                  ; ...nor past the candidates left
-    jbe .lim2
-    mov dx, cx
-.lim2:
-    sub cx, dx                  ; CX = what is left after this window
-    push cx
-    mov cx, dx
-    mov es, [dsk_fatseg]
-    mov di, bx
-    push ax
-    xor ax, ax
-    cld
-    repne scasw
-    pop ax
-    je .found
-    add ax, dx                  ; none here: the next window
-    pop cx
-    jmp short .win
-.found:
-    inc cx                      ; CX = entries NOT examined, the hit included
-    sub dx, cx
-    add ax, dx                  ; AX = the free cluster; ZF from the `sub`
-    pop cx                      ; is not ZF=1, so set it below
-    xor dx, dx                  ; ZF=1
-    jmp short .out
-.none:
-    or sp, sp                   ; ZF=0 (SP is never 0)
-.out:
-    pop es
-    pop di
-    pop bx
-    ret
 
 ; -----------------------------------------------------------------------------
 ; dskw_free_chain - zero every FAT entry of a chain

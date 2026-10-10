@@ -7500,7 +7500,7 @@ SOAK = [
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
         "and puts the default kernel back, both seam orientations",
         needs=("marty",), serial=True),
-    Row("dskwstage", "soak", py("tests/dskwstage.py"), 120.0,
+    Row("dskwstage", "soak", py("tests/dskwstage.py"), 15.0,
         "SPEC.md 18.4.2.1: does the DMA STAGING arm run, and does it move the "
         "RIGHT bytes? dskw_runadd's third answer - CF=0 with CX != 0, `not "
         "one sector fits this DMA page` - fell through into a shared "
@@ -7516,7 +7516,14 @@ SOAK = [
         "own FAT12 reader, which shares no code with the kernel that wrote "
         "it, so a writer and a reader agreeing on the same wrong thing "
         "cannot pass. `--bug` asserts the PRE-fix refusal instead, which is "
-        "what makes the A/B repeatable against an old image",
+        "what makes the A/B repeatable against an old image. AND THE "
+        "TRANSFER'S OWN BOUNCE (SPEC.md 18.91.4, kernel size passes 9-11 "
+        "asked for a row): WRITE_AT's inside arm and READ_AT with the read "
+        "cache stood aside reach dsk_xfer with the caller's straddling ES:BX, "
+        "so .bounce and .unbounce must each fire exactly once, ES come back "
+        "the caller's, and the bytes match in the guest and on the host's "
+        "own read of the flushed floppy - while every file-layer case above "
+        "must bounce NOTHING, which is the control on that counter",
         needs=("marty",), serial=True),
     Row("dispstrad", "soak", py("tests/dispstrad.py"), 30.0,
         "Does a window dragged across the seam give back the rows only ONE"

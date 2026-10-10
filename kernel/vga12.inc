@@ -4677,10 +4677,10 @@ gfx_unlock:
     cmp byte [sch_cur], 0       ; the drive, dsk_batch's own argument below. The
     jne .nohold                 ; UI task's unlock only - a worker's may not
     cmp word [dws_keep], 0x0101 ; (touch the disk, 20.6 rule 7.) A KEPT hold
-    jne .commit                 ; inside a WAKE is the one that stays (SPEC.md
-    cmp word [dws_hd0], 0xFFFF  ; 18.4.9.3) - unless its FAT edits are BANKED,
-    je .nohold                  ; this callback having hopped off its volume
-.commit:
+    je .nohold                  ; inside a WAKE is the one that stays (SPEC.md
+                                ; 18.4.9.3) - and a bank of its FAT edits, a
+                                ; callback having hopped off its volume, has
+                                ; cleared [dws_keep] (dws_hswap)
     call COLD_SEG:dwsf_commit   ; - and first,
 .nohold:                        ; while the widget and the lock are still ours.
                                 ; The [dws_hold] filter STAYS although

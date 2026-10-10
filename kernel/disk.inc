@@ -1807,7 +1807,9 @@ dsk_xfer:
     call dsk_flrec              ; ...and the WHOLE transfer, for the cloner's
 %endif                          ; toast (SPEC.md 18.99.10)
     cmp ah, 0x03
-    je .fail                    ; write-protected: retrying cannot help
+    je .wpfail                  ; write-protected: retrying cannot help (ZF=1
+                                ; rides to a `jbe .fail` below, which takes it:
+                                ; .fail itself is out of a byte's reach)
 %ifndef KD_BUILD                ; **A FAILING DISK SAYS SO** (SPEC.md 12.8.3.2).
     dec byte [sch_lock]         ; FPG_WARM counts sectors MOVED and a retry
     push cx                     ; moves none, so a one-sector read failing on
@@ -1841,6 +1843,7 @@ dsk_xfer:
     ; 512 bytes, not the seven good ones beside it. The retry unit widened
     ; with the transfer, so the fallback is what keeps ageing media readable.
     cmp word [dsk_run], 1
+.wpfail:
     jbe .fail                   ; already per-sector: unrecoverable
     mov word [dsk_run], 1
     mov bp, 3
@@ -2802,15 +2805,13 @@ dsk_vol_add:
 ; -----------------------------------------------------------------------------
 dsk_vol_del:
 %ifdef DSK_STREAM
-    cmp byte [dws_hold], 0      ; A HOLD ON THE VOLUME GOING AWAY ENDS FIRST
-    je .nohold                  ; (SPEC.md 18.4.9.3): a WSEQF_KEEP hold can be
-    cmp al, [dws_vol]           ; pending when a callback unloads a driver,
-    jne .nohold                 ; and dsk_fatw_drop below would take its FAT
-    push ax                     ; edits with the window. Committed while the
-    call dws_commit             ; driver still serves the volume
-    pop ax
-.nohold:
-%endif
+    cmp al, [dws_vol]           ; A HOLD ON THE VOLUME GOING AWAY ENDS FIRST
+    jne .nohold                 ; (SPEC.md 18.4.9.3): a WSEQF_KEEP hold can be
+    push ax                     ; pending when a callback unloads a driver,
+    call dws_commit             ; and dsk_fatw_drop below would take its FAT
+    pop ax                      ; edits with the window. Committed while the
+.nohold:                        ; driver still serves the volume. [dws_vol]
+%endif                          ; may be stale: dws_commit asks [dws_hold]
     call dsk_bpb_bank_zap       ; the volume TABLE moved: a banked head names a
                                 ; row, and a row can be re-used by another
                                 ; partition, or the same one re-formatted
