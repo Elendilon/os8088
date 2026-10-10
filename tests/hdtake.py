@@ -150,7 +150,7 @@ def vrow(q, S, v):
 def boot_leg(bad):
     """--boot: the INSTALLED machine. C: is the kernel's own boot volume,
     adopted through int 13h before any driver loads (52.10.3), and must be
-    HANDED to HDD.DRV (OSAPI_VOL_TAKE) - then GIVEN BACK when the driver goes,
+    HANDED to HDD.DRV (a take: OSAPI_VOL_ADD with DX != 0) - then GIVEN BACK when the driver goes,
     and taken again when it comes back"""
     import rdpreserve as rp
     import rdxms

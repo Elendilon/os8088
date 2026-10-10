@@ -286,7 +286,7 @@ DV_LBL       equ 6               ; db[8]: the desktop label, NUL-terminated
                                  ;     the DS pointer font_str wants, with no
                                  ;     staging buffer behind it
 DV_BUNIT     equ 14              ; db: a row a DRIVER TOOK from the BIOS
-                                 ;     (osapi_vol_take, SPEC.md 52.1.1): the
+                                 ;     (osapi_vol_add's take, 52.1.1): the
                                  ;     int 13h drive it is given back to, 0
                                  ;     on every other row. One of the two
                                  ;     spare bytes DV_SEG's retirement left
@@ -2638,7 +2638,7 @@ dsk_vol_slot_x:
 ; mount, one from the BIOS.
 ;
 ; It answers about DVK_BIOS rows - and a row a driver TOOK from one (DV_BUNIT,
-; osapi_vol_take, 52.1.1), which is still the partition the kernel booted
+; osapi_vol_add's take, 52.1.1), which is still the partition the kernel booted
 ; from - and no others, which is not tidiness. A
 ; driver-backed row's DV_UNIT is the DRIVER's own volume handle - a small
 ; integer that would collide with an int 13h drive number for free - and its
@@ -2829,13 +2829,10 @@ dsk_vol_del:
     mov ah, [bx+DV_BUNIT]       ; ...BUT A ROW THE DRIVER TOOK IS GIVEN BACK
     or ah, ah                   ; (52.1.1): the boot volume, mounted, and the
     jz .free                    ; BIOS reads it again - an unload, an unmount,
-    pushf                       ; a hibernate's detach or the DOS box's
-    cli                         ; handoff must never drop the system volume
-    mov [bx+DV_UNIT], ah
-    mov byte [bx+DV_CLASS], 0   ; (a BIOS row's class is 0)
-    mov byte [bx+DV_BUNIT], 0
-    mov byte [bx+DV_KIND], DVK_BIOS
-    popf
+    mov al, DVK_BIOS            ; a hibernate's detach or the DOS box's
+    mov [bx+DV_KIND], ax        ; handoff must never drop the system volume.
+    mov [bx+DV_CLASS], al       ; Kind and unit in ONE store (osapi_vol_add's
+    mov [bx+DV_BUNIT], al       ; take), then class and BUNIT back to 0
     jmp short .out
 .free:
     mov byte [bx+DV_KIND], DVK_FREE
@@ -2952,60 +2949,60 @@ osapi_vol_fence:
 
 ; -----------------------------------------------------------------------------
 ; osapi_vol_add - slot 0x01F8 (X: ES = the caller's segment)
-; in:  AL = the driver's volume handle, CX = sectors, DX = a listing claim's
-;      segment (0 = the floor), ES:SI = a NUL label or SI = 0
+; in:  AL = the driver's volume handle, CX = sectors, ES:SI = a NUL label or
+;      SI = 0, DX = 0 (the listing claim it used to take, SPEC.md 22.6)
+;      ...OR DX != 0: TAKE the BIOS volume whose index is DL - the one
+;      OSAPI_VOL_AT answered - with AL the handle; CX and SI unread
 ; out: CF = 0 and AL = the volume index; CF = 1 refused
+;
+; THE TAKE (SPEC.md 52.1.1). The boot partition of an installed machine is a
+; DVK_BIOS row the kernel adopted before any driver loaded (52.10.3), and
+; int 13h is the BIOS's PIO with interrupts OFF on an AT - which loses the PC
+; speaker's samples. A DRVC_DISK driver that has proved it reaches the same
+; disk with interrupts on hands the row to itself: mounted as it is, nothing
+; re-read. Its int 13h drive goes to DV_BUNIT and its base STAYS in
+; dsk_vbase, so OSAPI_VOL_AT still names it and dsk_vol_del gives it BACK
+; rather than freeing it. dsk_xfer reads the row on every transfer, so the
+; next is the driver's. It was a slot of its own, 0x0467, for one cycle; DX
+; was RESERVED here, so a flag on this door is six resident bytes cheaper
+; and needs no second fence call (kernel size pass 11).
+;
+; KIND AND UNIT ARE ONE WORD (DV_KIND 0, DV_UNIT 1), so the row changes
+; transport in ONE store and needs no IF = 0 bracket: a transfer can never
+; see a driver's handle on a BIOS row, or the BIOS's drive on a driver's.
 ; -----------------------------------------------------------------------------
+%if DV_KIND != 0 || DV_UNIT != 1
+  %error "osapi_vol_add's take and dsk_vol_del's give-back store DV_KIND and DV_UNIT as one word"
+%endif
 osapi_vol_add_x:
     call osapi_vol_fence
     jc .no                      ; CF = 1 is the answer as it arrives, and
-    call dsk_vol_add            ; dsk_vol_add's is the answer otherwise
+    or dx, dx                   ; dsk_vol_add's is the answer otherwise
+    jnz .take
+    call dsk_vol_add
 .no:
     retf
-
-; -----------------------------------------------------------------------------
-; osapi_vol_take - slot 0x0467 (X: ES = the caller's segment), SPEC.md 52.1.1
-; in:  DL = an int 13h drive, BX:CX = a partition's base (OSAPI_VOL_AT's), AH =
-;      the driver's own volume handle
-; out: CF = 0 and AL = the volume index, whose TRANSPORT is now the caller's;
-;      CF = 1 = no BIOS row is that partition, or the caller is no driver
-;
-; The boot partition of an installed machine is a DVK_BIOS row the kernel
-; adopted before any driver loaded (52.10.3), and int 13h is the BIOS's PIO
-; with interrupts OFF on an AT - which loses the PC speaker's samples. A
-; DRVC_DISK driver that has proved it reaches the same disk with interrupts
-; on hands the row to itself here: mounted as it is, nothing re-read. Its
-; int 13h drive goes in DV_BUNIT and its base STAYS in dsk_vbase, so
-; OSAPI_VOL_AT still names it and dsk_vol_del gives it BACK rather than
-; freeing it. dsk_xfer reads the row on every transfer, so the next is the
-; driver's.
-; -----------------------------------------------------------------------------
-osapi_vol_take_x:
-    call osapi_vol_fence        ; [dsk_vcls] = the caller's class
-    jc .no
-    call COLD_SEG:osapi_vol_at_x    ; AL = the row covering DL, BX:CX
-    jc .no
-    push bx
-    mov bl, al
-    call dsk_vol_row_x          ; BX = the row
-    cmp byte [bx+DV_KIND], DVK_BIOS
+.tno:
     stc
-    jne .out                    ; taken already
-    pushf
-    cli
-    mov [bx+DV_BUNIT], dl
-    mov [bx+DV_UNIT], ah
-    push ax
-    mov al, [dsk_vcls]
-    mov [bx+DV_CLASS], al
-    pop ax
-    mov byte [bx+DV_KIND], DVK_DRV  ; published LAST
-    popf
-    clc
-.out:
+.tout:
     pop bx
-.no:
     retf
+.take:
+    push bx
+    mov bl, dl
+    call dsk_vol_row_x          ; BX = the row; CF = 1 = no such index
+    jc .tout
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    jne .tno                    ; taken already, or not the BIOS's
+    mov ah, al                  ; AH = the driver's handle, the row's new unit
+    mov al, [bx+DV_UNIT]
+    mov [bx+DV_BUNIT], al       ; ...and the BIOS's drive, to give it back to
+    mov al, [dsk_vcls]          ; the fence's class serves it from here
+    mov [bx+DV_CLASS], al
+    mov al, DVK_DRV
+    mov [bx+DV_KIND], ax        ; kind and unit together: the row is the
+    mov al, dl                  ; driver's from this store on. AL = the index,
+    jmp short .tout             ; CF = 0 still from the equal compare
 
 ; -----------------------------------------------------------------------------
 ; osapi_fs_ent - slot 0x02D9 (X: ES = the caller's segment), SPEC.md 62.9.1

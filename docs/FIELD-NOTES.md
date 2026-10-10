@@ -3406,7 +3406,7 @@ drive instead - and PCWolf played in 15.1 s with clean sound.
 **The fix**: rung 1 takes a drive the BIOS also knows on a 286 or better,
 once LBA 0 read through both rungs agrees (SPEC.md 52.1.1), so no BIOS
 setting is needed - and the boot partition of an installed machine (a video
-disk is one partition) is handed to the driver too, `OSAPI_VOL_TAKE`, and
+disk is one partition) is handed to the driver too (`OSAPI_VOL_TAKE`, now `OSAPI_VOL_ADD` with DX != 0), and
 given back to the BIOS when the driver goes. `tests/hdtake.py` is the gate.
 
 ## 66. PicoMEM: the Sound Blaster plays nothing, and the NE2000 transmits but never receives - no DHCP (OPEN, ON THE 1.x ONLY — the network is FIXED on both cards, and the SB, B:, Restart and the USB mouse on the 2.x; the 1.x's SB and USB mouse wait on that card's firmware update: SPEC.md 34.10, 72.2, 18.97.6, 18.100.1, 9.12.7)

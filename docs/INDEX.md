@@ -147,11 +147,10 @@ Read first: [§18 disk.inc — floppy I/O (BIOS int 13h) + the FAT driver](../SP
 | `0x042B` | `OSAPI_VOL_STAT` | THE VOLUME YOU ARE STANDING ON, in four registers (SPEC.md 18.4.6): out CF=0 with AX = sectors per cluster, BX = free clusters, CX = bytes per sector... |
 | `0x0124` | `OSAPI_FILE_DLG` | AL = 0 Open / 1 Save, BX = your window ptr, DI = completion proc, SI = default name (NUL, <= 12) or 0... |
 | `0x0190` | `OSAPI_VOL_KIND` | AL = a volume index (0 = A:). CF=1 = there is no such volume... |
-| `0x01F8` | `OSAPI_VOL_ADD` | AL = the driver's own volume handle, CX = the volume's sector count, DX = a listing claim's segment (0 = the kernel's 32-entry floor), SI = a NUL... |
+| `0x01F8` | `OSAPI_VOL_ADD` | AL = the driver's own volume handle, CX = the volume's sector count, DX = 0 (it was a listing claim's segment, SPEC.md 22.6), SI = a NUL desktop... |
 | `0x01FE` | `OSAPI_VOL_DEL` | AL = a volume index this driver registered. Cannot fail |
 | `0x0204` | `OSAPI_VOL_MOUNT` | AL = a volume index; mount and list it. out CF=1 = not a readable FAT12/16 volume. UI-TASK CONTEXT ONLY, like every other file slot |
 | `0x02F6` | `OSAPI_VOL_AT` | DL = an int 13h drive number, BX:CX = a partition's 32-bit base LBA (BX = the high word)... |
-| `0x0467` | `OSAPI_VOL_TAKE` | DL, BX:CX = OSAPI_VOL_AT's partition, AH = your own volume handle... |
 | `0x02D9` | `OSAPI_FS_ENT` | ES:SI -> a DSK_DE_SIZE-byte staged SPEC.md 19.1 entry in YOUR OWN segment: name at 0 (NUL-terminated 8.3), type at 16 (0 file / 1 package / 2 folder... |
 | `0x02DF` | `OSAPI_FS_PROG` | AX = bytes moved SINCE YOUR LAST REPORT - a running total would advance the bar by the whole file every call... |
 | `0x0328` | `OSAPI_VOL_SYS` | out BL = the volume this machine BOOTED from - A: on a floppy machine, the installed partition on one that boots from its hard disk... |
