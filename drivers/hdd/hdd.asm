@@ -410,10 +410,12 @@ hd_xfer_out:
 ; No DMA page bound here, unlike the BIOS rung: PIO moves every byte through
 ; the CPU, and hd_buf_step carries the offset into the segment.
 ;
-; The PIO loop is `in ax, dx` / `stosw` because this tree is cpu 8086 and
-; `rep insw` is a 186 instruction - a 286-and-up machine could emit its two
-; opcode bytes by hand, and that is an optimisation for a day when someone
-; has measured it.
+; A READ is `rep insw`, its two opcode bytes emitted by hand because this
+; tree is cpu 8086 and the instruction is a 186's - legal here because the
+; rung is reached on CPU_286 and up only (SPEC.md 52.1.2: the day came when
+; rung 1 started carrying a 384 KB/s video stream, and the loop's CPU was
+; the stream's disk). A WRITE is still `out dx, ax` a word: `rep outsw`
+; wants DS:SI, and SI is the sector count.
 ; -----------------------------------------------------------------------------
 hd_xfer_ide:
     mov bp, di                  ; BP = the device row: DI is the PIO loop's
@@ -473,11 +475,15 @@ hd_xfer_ide:
     cld
     cmp byte [hd_bop], 0
     jne .write
-.read:
-    in ax, dx                   ; 16-bit, and the reason this rung is gated
-    stosw                       ; on a 16-bit bus (SPEC.md 52.1)
-    loop .read
-    jmp short .advance
+.read:                          ; REP INSW, the 286's own (52.1.2): this
+    db 0xF3, 0x6D               ; rung runs on CPU_286 and up ALONE, so its
+    jmp short .advance          ; two opcode bytes are always legal here.
+                                ; ~4 clocks a word against `in ax, dx` /
+                                ; `stosw` / `loop`'s ~16 - at a 384 KB/s
+                                ; stream, ~15% of a 16 MHz 286 the decode
+                                ; gets back. Interruptible, as every REP
+                                ; string op is: the drive holds DRQ, the
+                                ; speaker's IRQ0 is taken between words
 .write:
     mov ax, [es:di]
     out dx, ax

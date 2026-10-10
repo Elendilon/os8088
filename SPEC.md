@@ -86508,6 +86508,30 @@ with the system volume freed. +180 bytes of `HDD.DRV`'s image (3,584 ->
 3,764 with 16 of bss, inside the 4 KB claim it already took), all of it in
 the attach-only run that `hd_mbr` is laid over and the 180 bytes past it.
 
+#### 52.1.2 Rung 1 reads with `rep insw` (2026-10-10)
+
+**A read through the task file is `rep insw`**, emitted as `db 0xF3, 0x6D`
+because the tree is `cpu 8086`: rung 1 is reached on `CPU_286` and up only
+(§52.1), so the 186 instruction is always legal where it runs. It was
+`in ax, dx` / `stosw` / `loop`, about 16 clocks a word on a 286 against
+`rep insw`'s 4 (both before the bus's own I/O and memory cycles, which they
+share) - so the old loop cost a 384 KB/s stream ~196,000 words x 12
+clocks a second, **~15% of a 16 MHz 286**, which §52.1.1 had just made the
+VIDEO STREAM'S: once rung 1 took the owner's drive from the BIOS, whose own
+int 13h uses `rep insw`, the CPU the decode had been given became the disk
+the reader lacked. Measured on the owner's 286 with a `VPDIAG=1` player and
+a Mode X file on the speaker at 3.75 x 8088: `Lead 1 at f71`, 312 stalls,
+433 late, the speaker dry 73 times for 1.9 s - a reader that never got more
+than one chunk ahead.
+
+`rep insw` is interruptible like every REP string op: IRQ0 is taken between
+words with the count in CX, which is what keeps the speaker's samples
+(§52.1.1). A WRITE stays a word at a time - `rep outsw` wants DS:SI and SI
+is the transfer's sector count. 0 bytes: the two opcode bytes replace the
+four-instruction loop and the image is the same 3,764. `hdtake`,
+`hdtakeboot` and `hdtakeblank` are the function gates (QEMU; every read
+through rung 1); what it buys on the 286 is VIDDISK's to measure.
+
 ### 52.2 The disk tool — one window, one button
 
 Partitioning and formatting are **one operation to the user and one window in
