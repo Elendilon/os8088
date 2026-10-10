@@ -42009,11 +42009,11 @@ own sizes and stay true; `build/media360.img` is still built and now carries a
 compressed copy of the same file, which is a duplicate rather than a
 requirement.
 
-**`README.TXT` is compressed and gains no room by it.** 14,722 bytes of CRLF
-prose is 8,088, and Note Pad reads it whole through `OSAPI_FILE_READ`, so
+**`README.TXT` is compressed and gains no room by it.** 13,175 bytes of CRLF
+prose is 8,088 (it was 14,722 before the manual was rewritten to the same packed size), and Note Pad reads it whole through `OSAPI_FILE_READ`, so
 §20.14 applies and `np_load` is untouched — but `np_load` claims against the
 UNPACKED size §20.14.4 reports, so `NP_MAXKB`'s 16 KB still bounds the manual
-at 14,722 with the same 1,662 bytes of headroom. `tools/checkreadme.py` rule 2
+at 13,175 with 3,209 bytes of headroom. `tools/checkreadme.py` rule 2
 therefore keeps measuring the CRLF source and not the file. **The live CD
 carries a PLAIN copy** as its host-visible `README.TXT` (§80.2): a host that
 mounts the ISO to copy the raw image off it has to be able to read the
