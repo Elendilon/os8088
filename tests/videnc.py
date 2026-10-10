@@ -341,6 +341,16 @@ def main():
             if got != want:
                 bad.append("--avg auto on %s came to %r, not %r"
                            % (prof, got, want))
+            # ...AND IT IS THE DEFAULT (98.2.1.5): no --avg at all comes to
+            # the same share, and the profile's old fixed one is still a
+            # number away
+            p3, res3, k3 = run("dflt-" + prof, "--preset", "herc",
+                               "--profile", prof, "--end", "1")
+            got3 = vid.Reader(p3).options()["o"].get("avg")
+            print("   no --avg on %s: %r (want %r)" % (prof, got3, want))
+            if got3 != want:
+                bad.append("no --avg on %s came to %r, not AUTO's %r - "
+                           "AUTO is not the default" % (prof, got3, want))
         # ...and its FIRST PICTURE is whole before the keyframes start (the
         # pre-roll, SPEC.md 98.2.9): key 0 is exactly its frame's target -
         # a half-painted one is where a colour play starts

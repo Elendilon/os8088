@@ -159642,9 +159642,17 @@ case `auto` has not been played in is a Sound Blaster beside it.
   rule: what an option implied is stored as its value), so options version
   14 reads as it did. With `--layer-profile`, the layer's machine takes its
   own `auto`.
-- **Not the default.** `--avg` left out is the profile's average, as
-  before; the window offers `auto` in the field's list. `videnc` checks
-  both kinds of profile.
+- **THE DEFAULT, since 2026-10-10**, once the owner had played `auto`
+  encodes on the 286 (Mode X, the speaker and sound ahead, after 52.1.2):
+  `--avg` left out IS `auto`, and the encoder window's field shows `auto`.
+  The old fixed share is one pick away - the field's list is `auto` and
+  then the chosen profile's own `avg` (`os88venc.profile_avg`, a Live
+  file's `LIVE_AVG` under Live), refilled as the profile changes, and a
+  profile with no budget offers `auto` alone. A file made before this
+  holds the share it was made with, so nothing older reads differently and
+  the options version does not move. `videnc` checks `auto` and no `--avg`
+  come to the same share on both kinds of profile (red with the default
+  taken out), and `vencgui` the default and the list per profile.
 
 #### 98.2.2 Composite colour from a video (`--pixfmt cgacomp`)
 

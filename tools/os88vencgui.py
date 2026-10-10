@@ -349,7 +349,9 @@ IMPLYING = ("preset", "pixfmt", "profile", "live")
 # memory (98.1.7.2) - any other rate can still be typed. Owed time's 0 is
 # OFF, the fixed per-frame ceiling (98.2.1.1)
 SUGGEST = {"rate": ["", "22050", "11025", "8000", "5512"],
-           "avg": ["", "auto"],
+           # AUTO and the profile's own share: avg_list() fills the second
+           # in as the profile changes
+           "avg": ["auto"],
            "owe": ["", "0", "1.6"],
            # FREE MEMORY TO PLAY (98.2.1.3.1): rings of 8, 10 and 12 slots
            "memory": ["", "309", "373", "437"],
@@ -420,6 +422,12 @@ def form_start():
     vals = {f["dest"]: f["default"] for f in fields()}
     vals.update(style_values(vals.get("spk_style")))
     return vals
+
+
+def avg_choices(share):
+    """--avg's list for a profile whose old fixed share was SHARE ("" for
+    one with no budget): AUTO first, the default, then that share"""
+    return ["auto"] + ([share] if share else [])
 
 
 def choice_lines(f, current=""):
@@ -1574,6 +1582,12 @@ class App(object):
                                        lambda *a: self.groups_dirty())
         self.out.trace_add("write", lambda *a: self.groups_dirty())
         self.out.trace_add("write", lambda *a: self.sync_outtype())
+        # --avg's list follows the machine: AUTO, and the share the profile
+        # (or a Live file) used to fix (98.2.1.5)
+        for d in ("profile", "live"):
+            if d in self.vars:
+                self.vars[d].trace_add("write", lambda *a: self.avg_list())
+        self.avg_list()
         # --- the palette the Colour tab's choices give, redrawn as they
         # change: under the tab's fields - what the file WILL be, where the
         # preview's column is the file that IS (the owner). The VGA groups
@@ -1954,6 +1968,22 @@ class App(object):
                 ws.append(hb)
             self.vars[f["dest"]] = v
             self.fwidgets[f["dest"]] = ws
+
+    def avg_list(self):
+        """--avg's dropdown: AUTO, the default, and the fixed share the
+        chosen profile carried before it was (os88venc.profile_avg) - so the
+        old behaviour is one pick away, under the machine it belongs to"""
+        ws = self.fwidgets.get("avg")
+        if not ws:
+            return
+        prof = self.vars["profile"].get().strip() or "5150-st225"
+        live = self.vars["live"].get().strip() if "live" in self.vars \
+            else ""
+        try:
+            n = V.profile_avg(prof, live or None)
+        except KeyError:
+            n = ""
+        ws[1].configure(values=avg_choices(n))
 
     def groups_dirty(self):
         """A field a group's rule reads changed: judge them again once,

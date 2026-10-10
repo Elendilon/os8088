@@ -259,6 +259,21 @@ def options_leg():
                        % ({k: o.get(k) for k in ("novel", "dither")}, notes))
     finally:
         V.OPTS_VERSION, V.MIGRATIONS = keep
+    # --avg AUTO IS THE DEFAULT (98.2.1.5): the parser's, what the profile
+    # implies, and the window's list - AUTO, then the profile's own old
+    # share (a Live file's for Live), nothing for a profile with no budget
+    if V.parser().get_default("avg") != "auto":
+        bad.append("--avg's default is %r, not auto"
+                   % V.parser().get_default("avg"))
+    for prof, live, want in (("286-fast", None, ["auto", "2.25"]),
+                             ("5150-st225", None, ["auto", "0.5"]),
+                             ("5150-st225", "cga", ["auto", "0.6"]),
+                             ("lossless", None, ["auto"])):
+        got = G.avg_choices(V.profile_avg(prof, live))
+        imp = V.implied(None, None, prof, live)["avg"]
+        if got != want or imp != ("" if prof == "lossless" else "auto"):
+            bad.append("--avg on %s%s: the list %r (want %r), implied %r"
+                       % (prof, " Live" if live else "", got, want, imp))
     # THE PROFILES' RENAME (98.2.3, options version 15): a record a version-14
     # encoder wrote names the OLD profiles, and must read as the new ones -
     # the field's files were made then. And the command line takes an old
