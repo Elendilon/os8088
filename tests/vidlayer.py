@@ -5,7 +5,7 @@ second stream on top of it for a faster one.
     python3 tests/vidlayer.py
 
 ffmpeg makes six seconds of a Mandelbrot zoom - every pixel moving every
-frame, so a 60 KB/s disk cuts most of them - and each arm encodes it twice for the 286-pvga profile
+frame, so a 60 KB/s disk cuts most of them - and each arm encodes it twice for the 286-fast profile
 at that disk: once plain, once with `--layer-disk` for 240 KB/s. What it
 asserts, per arm:
 
@@ -26,7 +26,7 @@ asserts, per arm:
 
 Arms: vga8 (LIN320, one plane) and modex (four planes, sub-records), both
 for the 286 at 60 KB/s; and xt286, a CGA file for a 5150 at 20 KB/s whose
-layer is for the 286 (--layer-profile 286-pvga): the layer's machine is
+layer is for the 286 (--layer-profile 286-fast): the layer's machine is
 ANOTHER CPU, pricing the base's records at its own speed; and bank486,
 BANKED AND LAYERED - a base for the 286 with a 512 KB bank prefilled, its
 layer for the 486 - where the yardstick (key 0's decode modelled on each,
@@ -66,25 +66,25 @@ def main():
             return a.out, venc.encode(a)
 
         # (arm, the base's options, the layer's)
-        arms = (("vga8", ["--preset", "vga8", "--profile", "286-pvga",
+        arms = (("vga8", ["--preset", "vga8", "--profile", "286-fast",
                           "--disk", str(BASE_DISK)],
                  ["--layer-disk", str(LAYER_DISK)]),
-                ("modex", ["--preset", "modex", "--profile", "286-pvga",
+                ("modex", ["--preset", "modex", "--profile", "286-fast",
                            "--disk", str(BASE_DISK)],
                  ["--layer-disk", str(LAYER_DISK)]),
                 # A FILE FOR A 5150, ITS LAYER FOR A 286 (--layer-profile):
                 # the base's records repriced on the 286's CPU
                 ("xt286", ["--preset", "cga", "--profile", "5150-st225",
                            "--disk", "20480"],
-                 ["--layer-profile", "286-pvga", "--layer-disk",
+                 ["--layer-profile", "286-fast", "--layer-disk",
                   str(LAYER_DISK)]),
                 # BANKED AND LAYERED: the base for a 286 with an XMS bank,
                 # its layer for a 486 - which the player tells apart by the
                 # yardstick (key 0's decode on each), read off the header
-                ("bank486", ["--preset", "modex", "--profile", "286-pvga",
+                ("bank486", ["--preset", "modex", "--profile", "286-fast",
                              "--disk", str(BASE_DISK), "--bank", "512",
                              "--prefill", "all"],
-                 ["--layer-profile", "486", "--layer-disk",
+                 ["--layer-profile", "486-dx266", "--layer-disk",
                   str(LAYER_DISK)]))
         for arm, bopt, lopt in arms:
             print("\n== arm %s" % arm)
