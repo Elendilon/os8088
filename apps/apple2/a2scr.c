@@ -390,24 +390,31 @@ static void a2_dirty_split(void)
 static int ovl_a2_dirty_range(unsigned lo, unsigned hi)
 {
     int r, s, any;
-    unsigned b, l;
+    unsigned b;
 
+    /* NESTED TESTS AND A RUNNING LINE ADDRESS (apps size pass 1): `&&` is
+     * two compares made into values and tested, and `s << 10` is ten
+     * `shl ax, 1` in this lowering, where `b += $400` is one add. */
     any = 0;
     for (r = 0; r < A2_ROWS; r++) {
         b = a2_row_base(r);
         if (a2_row_mode(r) == A2_MODE_HIRES) {
             for (s = 0; s < 8; s++) {
-                l = b + ((unsigned)s << 10);
-                if (l <= hi && l + (A2_COLS - 1) >= lo) {
-                    a2_line_dirty((int)A2_X8(r) + s);
-                    a2_rowwide[r] = 1;
-                    any = 1;
-                }
+                if (b <= hi)
+                    if (b + (A2_COLS - 1) >= lo) {
+                        a2_line_dirty((int)A2_X8(r) + s);
+                        a2_rowwide[r] = 1;
+                        any = 1;
+                    }
+                b += 0x400;                 /* the next scan line of the
+                                             * row, $400 on (section 7.2) */
             }
-        } else if (b <= hi && b + (A2_COLS - 1) >= lo) {
-            a2_row_dirty(r);
-            a2_rowwide[r] = 1;
-            any = 1;
+        } else if (b <= hi) {
+            if (b + (A2_COLS - 1) >= lo) {
+                a2_row_dirty(r);
+                a2_rowwide[r] = 1;
+                any = 1;
+            }
         }
     }
     if (any)
