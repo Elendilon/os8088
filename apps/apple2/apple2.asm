@@ -160,6 +160,23 @@ _a2_opbase equ op_base              ; the carve's CLAIM base, which apple2.c
 
 %include "apple2.gen.asm"           ; the compiled C, found through -I build/
 
+%define A2_SHIP 1                   ; THE SHIPPING BUILD, AND NOT A HARNESS:
+                                    ; nasm has no dead-code elimination, so
+                                    ; this define is what keeps the routines
+                                    ; only a harness calls out of the resident
+                                    ; image - a2band.inc's `a2_rowsig` (~34
+                                    ; bytes: the shift test compares forty
+                                    ; source bytes now, APPLE2-SPEC 7.7 step 2)
+                                    ; and, from apps size pass 1, a2mem.inc's
+                                    ; a2_rom_rd, a2_zfill and a2_zcopy_in
+                                    ; (hosttest/a2memtest.asm's subjects) and
+                                    ; the a2_dirty and a2_cut nothing calls at
+                                    ; all - 150 bytes. The harnesses that
+                                    ; %include these files themselves -
+                                    ; tests/a2band/a2bandbench.asm and
+                                    ; hosttest/a2memtest.asm, a2cputest.asm -
+                                    ; do not define it, and keep them
+
 ; The hand-written half (SPEC.md 73.11's rule that the inner loop is
 ; assembly). ORDER MATTERS ONLY IN THAT a2cpu.inc declares the register file
 ; and the scratch layout that a2mem.inc addresses through.
@@ -168,17 +185,6 @@ _a2_opbase equ op_base              ; the carve's CLAIM base, which apple2.c
                                     ; memory hooks and the entry/exit shell
 %include "apple2/a2mem.inc"         ; the RAM/ROM claim accessors and movers
                                     ; (APPLE2-SPEC section 3.4)
-%define A2_SHIP 1                   ; ...and a2band.inc's `a2_rowsig` is NOT in
-                                    ; it. The shift test compares forty source
-                                    ; bytes now (APPLE2-SPEC 7.7 step 2) and
-                                    ; nothing calls the signature; nasm has no
-                                    ; dead-code elimination, so this define is
-                                    ; what keeps ~34 unreachable bytes out of
-                                    ; the resident image. The two harnesses
-                                    ; that %include a2band.inc themselves -
-                                    ; tests/a2band/a2bandbench.asm and
-                                    ; hosttest/a2memtest.asm - do not define
-                                    ; it, and keep the routine as their subject
 %include "apple2/a2band.inc"        ; the 1bpp composers and the span compare
                                     ; (APPLE2-SPEC 7.3)
 %include "apple2/a2nib.inc"         ; the 6-and-2 encoder - a STUB until the

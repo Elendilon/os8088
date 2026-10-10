@@ -2141,6 +2141,7 @@ _a2_bread:
     pop bp
     ret
 
+%ifndef A2_SHIP                     ; no caller in the package (apps size pass 1)
 ; void a2_cut(void) - end the run that is in progress at once, WITHOUT
 ; disturbing the cycle accounting: the unspent countdown moves into CARRY and
 ; a2_expire puts it back, so `ran = asked - cnt` is still exact. a2io.c calls
@@ -2157,6 +2158,7 @@ _a2_cut:
     pop bx
     pop ds
     ret
+%endif                              ; A2_SHIP
 
 ; void a2_rebias(void) - PC moved under the core's feet (a reset, a poke).
 ; Emptying the fetch region forces the next fetch through a2_rebias_go, so no
