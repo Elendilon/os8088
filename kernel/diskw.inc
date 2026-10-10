@@ -4216,6 +4216,14 @@ dskw_alloc:
     mov cx, [dsk_maxclus]
     dec cx                      ; candidates: clusters 2..maxclus
     mov ax, [dsk_rover]
+    cmp byte [dsk_fattype], 0   ; FAT16: A WINDOW AT A TIME (SPEC.md 18.4.10)
+    je .try
+    call dskw_alloc16           ; out ZF=1 AX = the free cluster; ZF=0 = none
+    je .got1                    ; there, or a window that would not load -
+                                ; which the per-cluster loop below then asks
+                                ; again, AX and CX where the search stopped
+    jcxz .nospace               ; every candidate asked: the volume is full
+                                ; (and `loop` from CX = 0 would ask 65,536)
 .try:
     cmp ax, [dsk_maxclus]       ; wrap the rover into range: past the last
     ja .wrap                    ; cluster or below the first, both are 2
@@ -4236,6 +4244,7 @@ dskw_alloc:
     jmp short .nospace
 .got:
     pop ax                      ; AX = the free cluster
+.got1:
     mov dx, DSKW_EOC16          ; ...on FAT12 too: dskw_setfat keeps the low
                                 ; 12 bits there, which is DSKW_EOC12 exactly
     call dskw_setfat            ; the EOC mark. A cluster we could not MARK is
@@ -4256,6 +4265,89 @@ dskw_alloc:
     stc
 .out:
     jmp dskw_find.pdx           ; its pop run is ours (a pop writes no flag)
+
+; -----------------------------------------------------------------------------
+; dskw_alloc16 - dskw_alloc's search on FAT16, a WINDOW at a time (SPEC.md
+;                18.4.10)
+; in:  AX = the first candidate (the rover, maybe out of range), CX = how many
+;      candidates are left
+; out: ZF=1 with AX = a free cluster; ZF=0 with AX/CX where the search stopped
+;      - CX = 0 for a full volume, else a window that would not load, for the
+;      per-cluster loop to ask again
+; clobbers: AX, CX, DX, flags
+;
+; THE PER-CLUSTER LOOP IS THREE NESTED CALLS A CLUSTER - dsk_next_clus_x,
+; dsk_fat_ofs_x, dsk_fat_window and its KENT frame - to ask whether one word
+; is zero, and the rover goes back to 2 at every mount, so the first
+; allocation after one walks every USED cluster from the front. On a nearly
+; full 32MB volume that is 16,000 of them: the field measured the first
+; commit of an FTP upload at 1.55s against 62ms for the rest, on a 286
+; (SPEC.md 77.50.1). A FAT16 entry is a WORD and free is ZERO, so the
+; resident window is searched with one `repne scasw` - the same answer, the
+; same rover, the same window loads, a few clocks an entry.
+; -----------------------------------------------------------------------------
+dskw_alloc16:
+    push bx
+    push di
+    push es
+.win:
+    jcxz .none
+    cmp ax, [dsk_maxclus]       ; the rover's wrap, as the loop's
+    ja .wrap
+    cmp ax, 2
+    jae .in
+.wrap:
+    mov ax, 2
+.in:
+    call dsk_fat_ofs_x          ; BX = AX's entry in the window, now resident
+    jc .none                    ; (ZF=0 out of the carry's own `stc` path is
+                                ; not promised, so .none makes it)
+    mov dx, [dsk_fatw0]         ; the entries resident from AX on: to the
+    add dx, [dsk_fatwn]         ; window's end...
+    mov dh, dl                  ; ...x256, the cluster past the window. Its
+    mov dl, 0                   ; sector count is under 256 (FAT16 caps at
+    sub dx, ax                  ; 256 sectors), so the byte move IS the shift
+    push cx
+    mov cx, [dsk_maxclus]       ; ...and never past the last cluster: the
+    inc cx                      ; tail of the FAT's last sector is padding,
+    sub cx, ax                  ; and padding is zero
+    cmp dx, cx
+    jbe .lim
+    mov dx, cx
+.lim:
+    pop cx
+    cmp dx, cx                  ; ...nor past the candidates left
+    jbe .lim2
+    mov dx, cx
+.lim2:
+    sub cx, dx                  ; CX = what is left after this window
+    push cx
+    mov cx, dx
+    mov es, [dsk_fatseg]
+    mov di, bx
+    push ax
+    xor ax, ax
+    cld
+    repne scasw
+    pop ax
+    je .found
+    add ax, dx                  ; none here: the next window
+    pop cx
+    jmp short .win
+.found:
+    inc cx                      ; CX = entries NOT examined, the hit included
+    sub dx, cx
+    add ax, dx                  ; AX = the free cluster; ZF from the `sub`
+    pop cx                      ; is not ZF=1, so set it below
+    xor dx, dx                  ; ZF=1
+    jmp short .out
+.none:
+    or sp, sp                   ; ZF=0 (SP is never 0)
+.out:
+    pop es
+    pop di
+    pop bx
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dskw_free_chain - zero every FAT entry of a chain

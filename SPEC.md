@@ -33840,6 +33840,45 @@ the host's own FAT reader and fsck-clean; the same STOR through the per-chunk
 build making at least 1.5 more disk writes a chunk; and a power cut mid-STOR
 leaving the file at exactly its last checkpoint.
 
+### 18.4.10 The free-cluster search on FAT16 is a window at a time
+
+`dskw_alloc` hands out the first free cluster at or after `[dsk_rover]`,
+and the rover goes back to **2 at every mount** - a hint, never a fact
+carried across a remount. Asking whether a cluster is free was three nested
+calls (`dsk_next_clus_x`, `dsk_fat_ofs_x`, `dsk_fat_window` and its KENT
+frame) a cluster, so the first allocation after a mount walked every USED
+cluster from the front of the FAT at that price. On a nearly full volume
+that is the whole FAT.
+
+The field found it as one commit: an FTP upload's first, **1.55 s against
+62 ms** for every other, on a 286, in all three arms of §77.50.1. The owner
+deleted the previous file first each time, so it is not the replace - it is
+the full disk. Reproduced in QEMU on a 32 MB volume 15,461 of 16,324
+clusters full: the first STOR after a boot read 162 sectors and its first
+commit was the longest by 10x; the same STOR with the rover already past the
+used run read 36.
+
+**FAT16 searches the resident window with one `repne scasw`** for a zero
+word (`dskw_alloc16`): an entry is a word and free is zero, so the answer,
+the rover, the wrap, the window loads and the end bound (`[dsk_maxclus]`,
+because the last FAT sector's tail is zero PADDING) are all the per-cluster
+loop's, at a few clocks an entry instead of the three calls. A window that
+will not load hands its place back to the per-cluster loop, which asks
+again and answers as it always has. FAT12 - every floppy, whose whole FAT is
+resident and small - keeps the loop.
+
+**Measured on MartyPC's 4.77 MHz 8088** (`os8088_5150_herc_hdd_sb_gla`, its
+XT-IDE volume filled to 1 MB free, VIDDISK's `f` writer, the first
+`dskw_alloc` after boot timed from entry to its `.got1` by breakpoint
+cycles): **21,426,472 cycles - 4,489 ms - against 1,362,960, 286 ms**,
+15.7x, and what is left is the window loads, which this controller moves
+with the CPU. An allocation that finds the next cluster free at once costs
+1,602 cycles against 1,409: the window's setup, 0.04 ms a 2 KB cluster.
+QEMU could not see any of it - it runs the scan in host microseconds either
+way, and its longest commit moved 62 -> 59 ms of host time. **+114 bytes
+of `.cold`**, resident, on `kern_big`; the WRITE_SEQ rows (`wseq*`, the
+full-volume `wseqfull` among them) and `tests/ftpkeep.py` are green on it.
+
 ### 18.4.7 `OSAPI_FILE_WRITE_AT` — the same offset, going the other way
 
 `OSAPI_FILE_READ_AT` gave a package a byte offset to read from and left the
