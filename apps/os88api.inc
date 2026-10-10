@@ -4390,6 +4390,16 @@ WSEQF_HELD  equ 1               ; AL bit 0: commit once, not every call
 WSEQF_SYS   equ 2               ; AL bit 1: OSAPI_FILE_APPEND_SYS's rule - the
                                 ; file may be hidden + system. DRIVERS ONLY,
                                 ; FENCED as APPEND_SYS is: FERR_PROT otherwise
+WSEQF_KEEP  equ 4               ; AL bit 2, with HELD: on a FIXED disk the hold
+                                ; outlives your OSAPI_WM_ONWAKE callback - it
+                                ; is committed at the close, a checkpoint, any
+                                ; other write on the volume, or the first
+                                ; callback that is NOT a wake (SPEC.md 18.4.9.3).
+                                ; A floppy ignores it and commits per callback
+WSEQF_CKPT  equ 8               ; AL bit 3 on a CLOSE (CX = 0): commit what is
+                                ; held and hand back a token that is still HOT,
+                                ; so the stream goes on with no lookup and no
+                                ; walk - a checkpoint, not an end
 %define OSAPI_FILE_FIND_RAW KERNEL_SEG:0x03D9   ; OSAPI_FILE_FIND, with +18 the
                                  ; size the file OCCUPIES rather than the one
                                  ; it expands to (SPEC.md 20.14.3). THE CELL A

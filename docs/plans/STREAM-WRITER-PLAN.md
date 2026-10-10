@@ -219,7 +219,10 @@ What is left, in order:
 1. ~~The consumers.~~ **All three are converted**: the split-set join
    (section 11) and the file manager's copy are HELD, one stream per file,
    closed before the rename or at the copy's end (SPEC.md 22.5.3); FTPD's
-   `STOR` is PLAIN (SPEC.md 77.49). Before and after on every one of them,
+   `STOR` was PLAIN (SPEC.md 77.49) and is HELD now, with `WSEQF_KEEP` so
+   the hold outlives the wake that stages each chunk on a fixed disk and a
+   `WSEQF_CKPT` every 256 KB (SPEC.md 18.4.9.3, 77.50) - which is what the
+   field heard as clicking on the ST-225 and on a 286. Before and after on every one of them,
    against `origin/elendilon`, is
    docs/reports/STREAM-WRITER-AB-2026-09-29.md.
 2. ~~The FAT at a hop~~ - **BUILT** as SPEC.md 18.8.5, on section 11's

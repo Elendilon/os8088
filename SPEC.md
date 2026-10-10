@@ -33617,7 +33617,7 @@ resident.
 | the installer, every file and `KPAD.TMP` | 52.10.13.2 | HELD, `WSEQF_SYS` for a system file |
 | a RAM disk's Preserve | 62.9.12.1 | HELD |
 | Telnet's Zmodem receive | 70.11.7 | PLAIN, FTPD's shape |
-| FTPD's `STOR` | 77.49 | PLAIN |
+| FTPD's `STOR` | 77.49, 77.50 | HELD + `WSEQF_KEEP`, a checkpoint every 256 KB |
 | VIDDISK's W | - | HELD (A is APPEND and P plain, the bench's A/B; W was APPEND until 2026-10-07) |
 
 **A grow stores the entry's TAIL** (`dskw_ent_tail`): its head and size, the
@@ -33769,6 +33769,76 @@ DOS program filled a floppy and deleted its file), and the hold's own commit
 would later link a cluster the delete had FREED and store the dead entry
 back. The hold test is one routine now, `dws_gate`, and both gates call it:
 **+7 bytes**. The same DOS probe verifies clean after it.
+
+#### 18.4.9.3 `WSEQF_KEEP` — a hold that outlives a wake, on a fixed disk, and `WSEQF_CKPT`
+
+A HELD stream ends with the callback that made it, and a writer whose chunks
+arrive one WAKE at a time - FTPD's `STOR`, staged by a worker and committed
+by the UI task (§77.1) - therefore commits once per chunk whichever flag it
+passes. Every commit is a FAT write and a directory write, and on a fixed
+disk the head goes from the data to cylinder 0 and back: docs/plans/
+STREAM-WRITER-PLAN.md §1's three long seeks, which is the clicking the field
+heard from an upload on an ST-225 and on a 286 (§77.50). The reason a hold
+ends with its callback is a FLOPPY: between two callbacks the user can take
+it out. A fixed disk has no such moment.
+
+So two more flags, both read only by the door:
+
+| `AL` bit | name | |
+|---|---|---|
+| 2 | `WSEQF_KEEP` | with `WSEQF_HELD`: when the stream's volume is FIXED (`dsk_vol_fixed`, §18.7.2), the hold survives an unlock made inside an `OSAPI_WM_ONWAKE` handler and the wake arm's own commit after it |
+| 3 | `WSEQF_CKPT` | on a close (`CX` = 0) with a HOT token: commit what is held and hand back a token that is still hot |
+
+**What a kept hold still ends at**, which is every commit point 18.4.9 lists
+except the one it exists to skip:
+- the close and any cold call, as ever;
+- any other write on its volume (`dws_gate`, §18.4.9.2);
+- **the first UI-task unlock that is NOT inside a wake** - a click, a key, a
+  menu, a timer, a repaint. So every moment the user can act still finds the
+  hold committed, and 18.4.9's invariant - *no hold is pending where the user
+  can reach the drive* - stands for everything but another package's wake;
+- **an unlock inside a wake whose FAT edits are BANKED** (§18.8.5): the
+  callback hopped off the volume, and a banked bank is the one a shed can
+  poison;
+- a posted restart or hibernate (`ui_task` step 0) - a hibernate zeroes the
+  bank, and a restart would lose the stream - except the `NOFLUSH` restart,
+  which goes near no disk at all;
+- `dsk_vol_del` on its volume: a driver unloaded by a callback would
+  otherwise drop the window with the hold's FAT edits in it.
+
+A floppy volume ignores the bit: `[dws_keep]` is the door's verdict, set on
+every call that writes, and it is 0 unless the bit was passed AND the volume
+is fixed. A redirected volume (§62.9) holds nothing, so it does not arise.
+
+**`WSEQF_CKPT` keeps the walk away.** A close stales the token (18.4.9: every
+commit does), so a writer that committed every 256 KB with a plain close
+would pay a lookup and a walk of the whole chain each time - §18.4.8's
+141.9 ms a MB, which on a 12.5 MB upload is tens of seconds of walking put
+back. A checkpoint is the same commit, entered with `WSQF_IN` set, so the
+body's own `.stamp` re-saves the record after the seal; the record then names
+the file exactly as the disk does, and its last cluster is the committed
+tail. The next call starts a NEW hold from it, hot. Only a hot token
+checkpoints: then the pending hold, if there is one, can only be this
+stream's, every other write having moved `[dsk_mgen]`. A cold one is a plain
+close.
+
+**What a crash costs.** Nothing that is linked: the held chain is unreachable
+until a commit, so a power cut leaves the file at its last checkpoint and the
+held clusters free on the disk - or LOST, if a FAT window slide flushed their
+allocation first, which on FAT16 is one FAT sector per 128 clusters. Never a
+cross-link and never a wrong file.
+
+Cost, measured against the kernel before it: **+108 resident bytes** on
+`kern_big` - `.text` +34 (the unlock's two compares, the wake arm's two
+stores, `ui_task` step 0's commit), `.cold` +72 (the door's flags, the
+checkpoint arm, the fixed-disk verdict and `dsk_vol_del`'s commit), `.bss` +2
+(`dws_keep`, `dws_inwk`, adjacent so the unlock reads them as one word). No
+rung crossed. Not in `kern_small`, which has no WRITE_SEQ (18.4.9).
+
+Gated by `tests/ftpkeep.py` (QEMU, a hard-disk boot): a STOR byte-exact on
+the host's own FAT reader and fsck-clean; the same STOR through the per-chunk
+build making at least 1.5 more disk writes a chunk; and a power cut mid-STOR
+leaving the file at exactly its last checkpoint.
 
 ### 18.4.7 `OSAPI_FILE_WRITE_AT` — the same offset, going the other way
 
@@ -117415,8 +117485,9 @@ length (docs/plans/DISK-CPU-PLAN.md 6). It is `OSAPI_FILE_WRITE_SEQ` now
 (§18.4.9), through one token, `fd_wtok`: a lookup and a walk per FILE.
 The create zeroes it, so no earlier STOR's token can be hot (§70.11.7).
 
-**PLAIN, not HELD.** Each chunk is committed by the wake that stages it
-(§77.1), and the `gfx_unlock` after that wake would commit a hold anyway.
+**PLAIN, not HELD** - and §77.50 reverses it. Each chunk is committed by the
+wake that stages it (§77.1), and the `gfx_unlock` after that wake would
+commit a hold anyway.
 So HELD would buy nothing but a commit in a different place, while PLAIN
 keeps §77's own promise that every chunk that has been acknowledged is on the
 disk.
@@ -117425,6 +117496,51 @@ disk.
 `OSAPI_FILE_APPEND` for the rest of its run (`fd_noseq`). That is exact, not
 a guess: on `kern_big`, `FERR_NAME` is the answer APPEND would give for the
 same arguments.
+
+### 77.50 A STOR commits every 256 KB, not every chunk
+
+**The field report.** On the owner's 5150 and ST-225 an upload ran at
+31-36 KB/s; on a 286 with a PicoMEM's NE2000, **41 KB/s**, against mTCP's
+`ftpserv` on the same machine at ~150 KB/s and VIDDISK's HELD 32 KB stream
+(18.4.9) writing 12.5 MB to the same drive in 64 s, ~195 KB/s. And the drive
+**clicked** far more under FTPD than under `ftpserv`.
+
+**The clicking was the answer.** §77.49 made `STOR` a PLAIN stream: no walk,
+but every chunk committed - the FAT, then the directory entry, so for every
+`FD_STGSZ` = 8 KB the head left the data area for cylinder 0 and came back
+(docs/plans/STREAM-WRITER-PLAN.md §1). A machine six times faster moving only
+a fifth more data is a machine waiting on something that does not scale with
+the CPU, and a seek does not. `ftpserv` writes through DOS, which keeps the
+FAT in its buffers and the entry until the close, so it makes none of them.
+
+**The fix is the owner's**: commit only when the transfer finishes, when it
+fails, or every couple of hundred KB - an uncommitted chunk loses nothing,
+the data being on the disk and merely not linked. That needed one kernel
+change (§18.4.9.3): a HELD stream ended with every callback, and FTPD
+commits one chunk per wake. `STOR` is now `WSEQF_HELD | WSEQF_KEEP`, with a
+`WSEQF_CKPT` every `FD_CKPT` = 256 KB (`FD_CKPTN` chunks) and a close on the
+final chunk, before the `226` goes out. So the per-chunk commit becomes one
+per 256 KB: 32 times fewer at 8 KB.
+
+- **Every acknowledged chunk is on the disk** still holds for the DATA;
+  what moves is when the FAT and the entry say so. A transfer that fails
+  leaves the hold to the kernel's next commit point - the first callback that
+  is not a wake, or the next write on the volume - so the file is the bytes
+  that arrived, as before.
+- **On a floppy nothing changes**: `WSEQF_KEEP` is a fixed disk's, and a
+  floppy's hold still commits per callback, which is what §77.49 shipped.
+- On `kern_small` the cell refuses and §77.49's `APPEND` fallback runs, as
+  before.
+
+`make ... FTPPLAIN=1` builds the per-chunk commit back, for the A/B.
+`FD_STGSZ` may now be overridden (`-DFD_STGSZ=`), and `make ftpspeed` builds
+the field's A/B disk: FTPD with `FTPDBG=1` in three arms - kept at 8 KB, kept
+at 32 KB, and PLAIN at 8 KB - each a package of its own name, so one session
+runs all three. `FTPDBG=1` gains a fourth split line,
+`stage 8192 cm 1600 max 312 ck 49`: the stage size, how many commits
+(`fd_do_write` calls) the transfer made, the LONGEST one in ms - a seek-bound
+disk shows in the worst commit and not in the total - and how many
+checkpoints and closes it sent.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 

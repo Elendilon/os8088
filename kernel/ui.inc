@@ -91,6 +91,11 @@ ui_task:
                                 ; where 15 were, which on the 8088's 4-cycle
                                 ; byte fetch is about the xchg's own cost
 %ifdef KERN_BIG
+    cmp al, UI_RBQ_NOFLUSH      ; A KEPT HOLD IS COMMITTED BEFORE THE MACHINE
+    je .nokept                  ; GOES (SPEC.md 18.4.9.3): a restart would lose
+    call COLD_SEG:dwsf_commit   ; it, and a hibernate zeroes the FAT bank it
+.nokept:                        ; may be in. NOFLUSH goes near no disk at all
+
     cmp al, UI_RBQ_HIBER        ; a hibernate, a resume or the question
     jb .restart                 ; (SPEC.md 87): these DO return - on a
     call COLD_SEG:hbf_perform   ; refusal, a Discard, or once the question
@@ -350,13 +355,18 @@ ui_task:
                                 ; anything else is ignored
 .wake:
     mov si, cx                  ; the window that asked; NO lock is taken -
+%ifdef KERN_BIG
+    mov byte [dws_inwk], 1      ; (a WSEQF_KEEP hold outlives a wake and
+%endif                          ; nothing else, SPEC.md 18.4.9.3)
     call wm_wake_disp           ; the handler takes it itself for a stated
                                 ; burst, and may call the file slots (74.1)
 %ifdef KERN_BIG
     cmp byte [dws_hold], 0      ; ...so a HELD stream it made ends with it
-    je .yj2                     ; (SPEC.md 18.4.9): the lock taken and given
+    je .wkout                   ; (SPEC.md 18.4.9): the lock taken and given
     call gfx_lock               ; back, and the unlock's commit runs where
-    call gfx_unlock             ; every other callback's does
+    call gfx_unlock             ; every other callback's does - a KEPT one
+.wkout:                         ; excepted, which is why the byte clears
+    mov byte [dws_inwk], 0      ; only after it
 %endif
     jmp short .yj2
 

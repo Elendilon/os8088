@@ -2919,6 +2919,9 @@ dwr_stat:
 WSQF_HELD   equ 0x01            ; the caller's AL...
 WSQF_SYS    equ 0x02            ; ...and APPEND_SYS's permission (18.4.4):
                                 ; a hidden + system file may be grown
+WSQF_KEEP   equ 0x04            ; ...the hold outlives a WAKE (18.4.9.3), on a
+                                ; fixed disk: [dws_keep] is the verdict
+WSQF_CKPT   equ 0x08            ; ...and a close that keeps the token HOT
 WSQF_HOT    equ 0x40            ; the door's: the token names the record
 WSQF_IN     equ 0x80            ; ...and inside a call at all
 DWS_REC0    equ dskw_raw + DSK_R_CLUS   ; the record's run: the entry's head
@@ -2948,16 +2951,27 @@ dwsf_dskw_write_seq:
     retf
 %endif
 dwf_dskw_write_seq:
-    and al, WSQF_HELD | WSQF_SYS    ; the CALLER's bits: WSQF_HOT is the door's
-    or al, WSQF_IN
+    and al, WSQF_HELD | WSQF_SYS | WSQF_KEEP | WSQF_CKPT    ; the CALLER's
+    or al, WSQF_IN              ; bits: WSQF_HOT is the door's
     mov [dws_flg], al
-    jcxz .cold                  ; a CLOSE: the commit, and nothing more
+    jcxz .close                 ; a CLOSE: the commit, and nothing more
     cmp di, [dsk_mgen]          ; the token still names the record...
     jne .cold
     call dws_ours.vol           ; ...on this volume
     jne .cold
     or byte [dws_flg], WSQF_HOT
     jmp short .go
+.close:                         ; A CHECKPOINT (18.4.9.3) is a close whose
+    test byte [dws_flg], WSQF_CKPT  ; token survives it: the commit stamps the
+    jz .cold                    ; record (WSQF_IN), so after it the record
+    cmp di, [dsk_mgen]          ; names the file exactly as the disk does and
+    jne .cold                   ; the next call may start a NEW hold from it,
+    call dws_ours.vol           ; hot. Only for a HOT token: then the pending
+    jne .cold                   ; hold, if any, is this stream's and nobody's
+    call dws_commit             ; else (every other write moved [dsk_mgen])
+    jc .out
+    mov di, [dsk_mgen]          ; AX = 0 out of the commit
+    jmp short .out
 .cold:
     call dws_commit             ; a hold ends before a file is looked up
     jc .out                     ; again: its size IS the lookup's answer - and
@@ -2968,6 +2982,18 @@ dwf_dskw_write_seq:
     mov [dskw_syswr], al        ; so none can leak into the next write
     call dskw_append_x
     jc .out                     ; DI as it was: the record is untouched too
+    test byte [dws_flg], WSQF_KEEP  ; MAY THE HOLD OUTLIVE A WAKE (18.4.9.3)?
+    jz .keep                    ; Only on a FIXED disk: a floppy can be taken
+    push bx                     ; out between two callbacks, which is the whole
+    mov bl, [disk_drive]        ; reason a hold ends with the callback that
+    call dsk_vol_fixed_x        ; made it. AL = 1 fixed, 0 removable
+    pop bx
+    jnc .keep1
+.keep:
+    xor al, al
+.keep1:
+    mov [dws_keep], al
+    xor ax, ax                  ; the append's answer, which AL just spent
     mov di, [dsk_mgen]          ; THE TOKEN: what the call left (`mov`: CF
 .out:                           ; stays the answer)
     mov byte [dws_flg], 0       ; `mov`: CF stays the answer
@@ -5835,6 +5861,11 @@ dws_hold:     resb 1            ; 1 = a HELD stream is pending (dws_commit),
 dws_flg:      resb 1            ; inside WRITE_SEQ: WSQF_*. ADJACENT to
                                 ; dws_hold: the gates read one word
 dws_hlink:    resw 1            ; the file's committed last cluster; 0 = empty
+dws_keep:     resb 1            ; 1 = the pending hold may outlive a WAKE
+                                ; (WSEQF_KEEP on a fixed disk, 18.4.9.3)...
+dws_inwk:     resb 1            ; ...and 1 = ui_task is inside one. ADJACENT,
+                                ; keep low: gfx_unlock reads the pair as one
+                                ; word and skips the commit at exactly 0101h
 %endif
 dskw_raw:     resb 32           ; one raw 32-byte entry, staged in the kernel
                                 ; segment (the write path's dsk_ent)

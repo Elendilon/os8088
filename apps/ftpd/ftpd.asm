@@ -330,7 +330,9 @@ FD_WDOG_T   equ 1638                ; ticks: 90s at 18.2065 Hz
 ; A word still bounds it - [fd_sfill] and [fd_sout] are words, so 65536
 ; would be zero in one - but that ceiling is no longer the binding one.
 ; -----------------------------------------------------------------------------
-FD_STGSZ    equ 8192
+%ifndef FD_STGSZ                     ; `make ftpspeed` builds a 32K arm
+FD_STGSZ    equ 8192                ; with -DFD_STGSZ= (SPEC.md 77.50)
+%endif
 ; --- THE SECOND STAGE IS A HEAP CLAIM, AND OPTIONAL --------------------------
 ; Stage 0 is `fd_stage`, in our own bss, and is always there. Stage 1 is
 ; `OSAPI_MEM_CLAIM`'s, taken in the entry proc, and **the server runs perfectly
@@ -350,6 +352,24 @@ FD_STGSZ    equ 8192
 ; a movable one could be relocated at a park point with the driver holding its
 ; segment.
 FD_STGKB    equ FD_STGSZ / 1024
+
+; --- FD_WSEQF - A STOR IS A HELD, KEPT STREAM (SPEC.md 77.50) ---------------
+; Every chunk used to be COMMITTED - a FAT write and the directory entry, and
+; on a hard disk the head leaving the data for cylinder 0 and coming back,
+; once per FD_STGSZ. That is the clicking the field heard and most of the
+; time a STOR spent on a fast machine. HELD writes the data and grows an
+; unlinked chain; KEPT lets the hold outlive this package's wake on a FIXED
+; disk (SPEC.md 18.4.9.3), so nothing is committed until FD_CKPT has gone by,
+; the transfer ends, or the user does anything at all. A crash loses at most
+; the bytes since the last checkpoint - unlinked, so never a wrong file.
+; `make ... FTPPLAIN=1` is the per-chunk commit back, for the A/B.
+%ifdef FTPPLAIN
+FD_WSEQF    equ 0
+%else
+FD_WSEQF    equ WSEQF_HELD | WSEQF_KEEP
+%endif
+FD_CKPT     equ 262144              ; bytes between checkpoints
+FD_CKPTN    equ FD_CKPT / FD_STGSZ  ; ...in chunks: 32 at 8KB
 
 ; --- FD_STG2 - AND IT IS 0, BECAUSE THE MACHINE CANNOT OVERLAP THEM ---------
 ; **THE SECOND STAGE WORKS AND BUYS NOTHING** (SPEC.md 77.41.2). The field ran
@@ -647,7 +667,11 @@ FT_IDLE     equ 4               ; because "the wall minus the three" turned out
                                 ; here overlaps: step + draw + wait + idle is
                                 ; the wall, and what is left over is other
                                 ; tasks
-FT_N        equ 8
+FT_CMAX     equ 8               ; NOT a bracket: t0s holds the open COMMIT's
+                                ; start and tms the LONGEST one (SPEC.md
+                                ; 77.50). A total over commits is `disk`; what
+                                ; a seek-bound disk shows is the worst one
+FT_N        equ 9
 
 ; **GATED, AND THIS REVERSES 77.32's "ALWAYS ON"** (SPEC.md 77.43). That
 ; decision was right while the split was finding things - "a split that needs
@@ -2859,6 +2883,8 @@ fd_xstart:
     mov word [fd_npass+2], 0
     mov word [fd_nwake], 0
     mov word [fd_nwake+2], 0
+    mov word [fd_ncmt], 0
+    mov word [fd_nck], 0
     call fd_wdog_stamp              ; the 90-second clock starts when the
                                     ; TRANSFER does (77.19) - stamped only at
                                     ; fd_reset_xfer, a session that browsed
@@ -3036,6 +3062,33 @@ fd_log_split:
     mov byte [di], 0
     mov si, fd_outb2
     call fd_log
+%ifdef FTPDBG
+    ; --- ...and the fourth: the COMMITS (SPEC.md 77.50) ----------------
+    mov di, fd_outb2
+    mov si, fd_l_stg
+    call fd_dcat
+    mov ax, FD_STGSZ
+    xor dx, dx
+    call fd_dnum32
+    mov si, fd_l_cm
+    call fd_dcat
+    mov ax, [fd_ncmt]
+    xor dx, dx
+    call fd_dnum32
+    mov si, fd_l_max
+    call fd_dcat
+    mov bx, FT_CMAX * 4
+    call fd_tms_ms
+    call fd_dnum32
+    mov si, fd_l_ck
+    call fd_dcat
+    mov ax, [fd_nck]
+    xor dx, dx
+    call fd_dnum32
+    mov byte [di], 0
+    mov si, fd_outb2
+    call fd_log
+%endif
     pop di
     pop si
     pop dx
@@ -6020,6 +6073,9 @@ fd_do_write:
     push di
     push es
     FT_B FT_DISK                    ; the whole body, for fd_do_read's reason
+%ifdef FTPDBG
+    FT_B FT_CMAX                    ; ...and this commit alone (SPEC.md 77.50)
+%endif
     call fd_xferpath
     mov si, [fd_pathp]
     call fd_split
@@ -6044,24 +6100,57 @@ fd_do_write:
     jc .no                          ; means
     mov byte [fd_created], 1
     mov word [fd_wtok], 0           ; a NEW file: no older token may be hot
-    jmp short .ok
+    mov byte [fd_ckn], 0
+    jmp short .last                 ; the whole file, if it was one chunk
 .append:
-    jcxz .ok                        ; an empty tail needs no append at all -
+    jcxz .last                      ; an empty tail needs no append at all -
                                     ; and APPEND's own contract wants CX >= 1
     cmp byte [fd_noseq], 0          ; A STREAMING APPEND (SPEC.md 77.49): the
     jne .app                        ; kernel keeps the file's entry and last
     mov di, [fd_wtok]               ; cluster under this token, so a chunk is
-    xor al, al                      ; no lookup and no walk of the chain from
+    mov al, FD_WSEQF                ; no lookup and no walk of the chain from
     call OSAPI_FILE_WRITE_SEQ       ; its front - which made a long STOR
-    mov [fd_wtok], di               ; QUADRATIC. PLAIN, not HELD: a wake
-    jnc .ok                         ; commits one chunk and the unlock after
-                                    ; it would commit a hold anyway
+    mov [fd_wtok], di               ; QUADRATIC. HELD AND KEPT (SPEC.md
+    jnc .held                       ; 77.50): the FAT and the entry are not
+                                    ; written per chunk at all
     cmp ax, FERR_NAME               ; kern_small's cell answers this - and so
     jne .no                         ; does APPEND, for the arguments it would
     mov byte [fd_noseq], 1          ; refuse, so falling back to it is exact
 .app:
     call OSAPI_FILE_APPEND
     jc .no
+    jmp short .ok
+.held:
+%if FD_WSEQF
+    inc byte [fd_ckn]               ; ...BUT EVERY FD_CKPTN CHUNKS, A
+    cmp byte [fd_ckn], FD_CKPTN     ; CHECKPOINT: the stream so far committed
+    jb .last                        ; and the token still hot, so what a crash
+    mov al, FD_WSEQF | WSEQF_CKPT   ; can lose is bounded by FD_CKPT and not
+    jmp short .seal                 ; by the file
+%endif
+.last:
+%if FD_WSEQF
+    cmp byte [fd_lmore], 2          ; the LAST commit closes the stream, so
+    jne .ok                         ; the 226 goes out with the file whole on
+    cmp byte [fd_noseq], 0          ; the disk
+    jne .ok
+    xor al, al
+.seal:
+    mov byte [fd_ckn], 0
+    xor cx, cx                      ; CX = 0: a close, or with WSEQF_CKPT a
+    mov di, [fd_wtok]               ; checkpoint
+    call OSAPI_FILE_WRITE_SEQ
+    mov [fd_wtok], di
+    jnc .sealed
+    cmp ax, FERR_NAME               ; a kernel with no WRITE_SEQ has nothing
+    jne .no                         ; held to close - a one-chunk file never
+    mov byte [fd_noseq], 1          ; asked it before
+    jmp short .ok
+.sealed:
+%ifdef FTPDBG
+    inc word [fd_nck]
+%endif
+%endif
 .ok:
     call fd_unbank
     mov word [fd_scnt], 0           ; **NOT fd_sfill** - the worker owns that
@@ -6084,6 +6173,9 @@ fd_do_write:
     call fd_ferr_sel
     call fd_xfail
 .out:
+%ifdef FTPDBG
+    call fd_cmax_end
+%endif
     FT_E FT_DISK
     pop es
     pop di
@@ -6093,6 +6185,31 @@ fd_do_write:
     pop bx
     pop ax
     ret
+
+%ifdef FTPDBG
+; --- fd_cmax_end - one commit is over: count it, and keep the LONGEST --------
+; A seek-bound disk shows in the worst commit and not in the total (SPEC.md
+; 77.50): `disk` over `cm` is the mean, and this is the tail
+fd_cmax_end:
+    push ax
+    push dx
+    call pit_now
+    sub ax, [fd_t0s+FT_CMAX*4]
+    sbb dx, [fd_t0s+FT_CMAX*4+2]
+    cmp dx, [fd_tms+FT_CMAX*4+2]
+    jb .n
+    ja .s
+    cmp ax, [fd_tms+FT_CMAX*4]
+    jbe .n
+.s:
+    mov [fd_tms+FT_CMAX*4], ax
+    mov [fd_tms+FT_CMAX*4+2], dx
+.n:
+    inc word [fd_ncmt]
+    pop dx
+    pop ax
+    ret
+%endif
 
 ; --- the one-shots -----------------------------------------------------------
 fd_do_dele:
@@ -8713,6 +8830,12 @@ fd_l_wake:  db ' wake ', 0           ; leftover actually was
 fd_l_dfree: db 'dfree ', 0           ; ...and the third line, which bisects
 fd_l_glass: db ' glass ', 0          ; fd_wake itself (SPEC.md 77.39)
 fd_l_wk:    db ' wk ', 0
+%ifdef FTPDBG
+fd_l_stg:   db 'stage ', 0           ; ...and the fourth (SPEC.md 77.50)
+fd_l_cm:    db ' cm ', 0
+fd_l_max:   db ' max ', 0
+fd_l_ck:    db ' ck ', 0
+%endif
 fd_l_pass:  db ' pass ', 0
 fd_l_gs:    db 's', 0
 fd_l_prange: db 'Passive data ports 2048-2055', 0
@@ -8975,6 +9098,8 @@ fd_wtok     equ fd_cfgn + 2                     ; word: STOR's WRITE_SEQ token
                                      ; committed, as APPEND's were
 fd_noseq    equ fd_wtok + 2                    ; byte: the kernel has no
                                      ; WRITE_SEQ (kern_small): APPEND instead
+fd_ckn      equ fd_noseq + 1                    ; byte: chunks held since the
+                                     ; last checkpoint (SPEC.md 77.50)
 ; -----------------------------------------------------------------------------
 ; THE TWO RECT TABLES - CONTIGUOUS, because os88ui_bfind strides an array
 ;
@@ -8989,7 +9114,7 @@ fd_noseq    equ fd_wtok + 2                    ; byte: the kernel has no
 ; the four Setup fields keep the press, because focusing a field is
 ; SELECTING and SPEC.md 13.8.8 keeps the press for exactly that.
 ; -----------------------------------------------------------------------------
-fd_rcur     equ fd_noseq + 1                    ; FSEQ_SIZE: RETR's READ_SEQ
+fd_rcur     equ fd_ckn + 1                      ; FSEQ_SIZE: RETR's READ_SEQ
                                      ; cursor (SPEC.md 18.4.8.1)
 fd_rects    equ fd_rcur + FSEQ_SIZE              ; 24: the LOG page's three
 fd_btn      equ fd_rects + 0                    ; ...Start/Stop
@@ -9046,7 +9171,10 @@ fd_cidle    equ fd_rjhnd + 1                    ; word: the tick the control
 fd_tlast    equ fd_cidle + 2                    ; word: the tick a byte last
                                      ; crossed, for the gap
 fd_gapmax   equ fd_tlast + 2                    ; word: ...and the longest hole
-fd_t0s      equ fd_gapmax + 2                   ; FT_N dwords: each stage's
+fd_ncmt     equ fd_gapmax + 2                   ; word: how many commits
+                                     ; (fd_do_write calls) this transfer...
+fd_nck      equ fd_ncmt + 2                     ; word: ...and checkpoints
+fd_t0s      equ fd_nck + 2                      ; FT_N dwords: each stage's
 fd_tms      equ fd_t0s + FT_N * 4               ; open bracket, and the total
                                      ; it accumulates into. CONTIGUOUS and in
                                      ; that order - fd_tzero clears both with
