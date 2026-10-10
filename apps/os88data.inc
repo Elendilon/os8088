@@ -107,7 +107,7 @@ od_enter:
     cmp bl, [od_drv]
     jne .walk                       ; banked on another volume: not ours now
     mov dx, [od_clus]
-    call OSAPI_FILE_GOTO_QM         ; a word, or a quiet mount
+    call od_qm                      ; a word, or a quiet mount
     jnc .ok
 .walk:
     call od_walk
@@ -130,7 +130,7 @@ od_walk:
     mov byte [od_gen], 0            ; whatever was banked is not trusted now
     mov bl, [od_homedrv]
     xor dx, dx                      ; the ROOT of our own volume
-    call OSAPI_FILE_GOTO_QM
+    call od_qm
     jc .out
     push si
     mov si, od_s_system
@@ -185,7 +185,7 @@ od_dive:
     pop si
     mov dx, [od_find + 16]
     mov bl, [od_homedrv]
-    call OSAPI_FILE_GOTO_QM
+    call od_qm
     jmp short .out                  ; CF is GOTO_QM's answer
 .differ:
     pop si
@@ -193,6 +193,20 @@ od_dive:
 .out:
     pop es
     pop di
+    pop cx
+    ret
+
+; od_qm - OSAPI_FILE_GOTO_QM with CX, SI and DI kept. On a REDIRECTED volume
+; the slot reaches the driver's FSV_CHDIR and those three are the driver's
+; (os88api.inc says so at OSAPI_FILE_GOTO_Q) - and every caller here is
+; holding the name, the count or the stamp in one of them.
+od_qm:
+    push cx
+    push si
+    push di
+    call OSAPI_FILE_GOTO_QM
+    pop di
+    pop si
     pop cx
     ret
 
@@ -204,7 +218,7 @@ od_back:
     push dx
     mov dx, [od_home]
     mov bl, [od_homedrv]
-    call OSAPI_FILE_GOTO_QM         ; a word: we never left the volume. A
+    call od_qm                      ; a word: we never left the volume. A
     pop dx                          ; refusal here has nobody to tell, as
     pop bx                          ; the old FILE_GOTO's had not either
     pop ax
