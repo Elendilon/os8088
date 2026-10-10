@@ -42009,11 +42009,11 @@ own sizes and stay true; `build/media360.img` is still built and now carries a
 compressed copy of the same file, which is a duplicate rather than a
 requirement.
 
-**`README.TXT` is compressed and gains no room by it.** 14,722 bytes of CRLF
-prose is 8,088, and Note Pad reads it whole through `OSAPI_FILE_READ`, so
+**`README.TXT` is compressed and gains no room by it.** 13,175 bytes of CRLF
+prose is 8,088 (it was 14,722 before the manual was rewritten to the same packed size), and Note Pad reads it whole through `OSAPI_FILE_READ`, so
 §20.14 applies and `np_load` is untouched — but `np_load` claims against the
 UNPACKED size §20.14.4 reports, so `NP_MAXKB`'s 16 KB still bounds the manual
-at 14,722 with the same 1,662 bytes of headroom. `tools/checkreadme.py` rule 2
+at 13,175 with 3,209 bytes of headroom. `tools/checkreadme.py` rule 2
 therefore keeps measuring the CRLF source and not the file. **The live CD
 carries a PLAIN copy** as its host-visible `README.TXT` (§80.2): a host that
 mounts the ISO to copy the raw image off it has to be able to read the
@@ -55307,6 +55307,26 @@ lesson in a second costume: `wd_rflush` is entered once per row **walked** and
 decides inside whether to letter, so counting its calls reads 2 on a build that
 letters 1. Legs B, D and F are what still say the screen is right, and they are
 unchanged — which is the property that made the three waves worth separating.
+
+### 27.20 The opening size is per ADAPTER
+
+`np_tpl`'s 260x180 frame is CGA's and stays CGA's: 640x200 has no room to
+spare, and it is the width `tools/checkreadme.py` lays README.TXT's tables
+out against (29 cells). The other two kinds open larger through §11.100.1's
+table, `np_pref`:
+
+| adapter | frame | text cells |
+|---|---|---|
+| VGA / EGA | 440 x 260, 442 x 260 snapped | 52 |
+| Hercules | 480 x 240, 482 x 240 snapped | 57 |
+| CGA | the template, 260 x 180 | 29 |
+
+§11.94's snap rounds the content to the cell grid, which is the +2 (measured
+on MartyPC, `os8088_xt_vga_144` and `os8088_5150_herc`), and the heights are
+clamped to the desktop band like any template's. What it
+costs is the larger window's own redraw and its §11.96 save-under (a 1bpp
+cache, about 14KB at 440x260 against about 6KB) - both bounded by the area the
+user sees, which is the area they asked for.
 
 ## 28. apps/taskmgr — the Task Manager
 

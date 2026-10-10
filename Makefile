@@ -3363,7 +3363,7 @@ else
 	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
 endif
 
-# ...AND IT IS COMPRESSED ON THE DISKS (SPEC.md 20.13.4). 14,722 bytes of
+# ...AND IT IS COMPRESSED ON THE DISKS (SPEC.md 20.13.4). 13,175 bytes of
 # CRLF prose is 8,088 wrapped, which is seven of a 360KB disk's 354 clusters,
 # and Note Pad reads it whole through OSAPI_FILE_READ - so SPEC.md 20.14's
 # transparent read applies and nothing in np_load changes. TWO ARTEFACTS, and
@@ -3382,8 +3382,8 @@ endif
 #
 # WHAT IT DOES NOT BUY IS ROOM. checkreadme.py's 16KB limit is np_load's, and
 # np_load claims against the UNPACKED size that OSAPI_FILE_FIND reports
-# (SPEC.md 20.14.4) - so the manual has the same 1,662 bytes of headroom it
-# had before, and rule 2 there still measures the CRLF source, not the file.
+# (SPEC.md 20.14.4) - so the manual has 3,209 bytes of headroom (it had
+# 1,662 at 14,722 bytes), and rule 2 there still measures the CRLF source, not the file.
 SYSDOCRAW := $(BUILD)/readme-plain.txt
 
 # --- WHAT THE 360KB SYSTEM DISK ALONE LEAVES OFF (SPEC.md 24.3) --------------
