@@ -4040,7 +4040,7 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     loop %%up_u
 %ifdef OS88_THEME
     mov al, [thm_kind]          ; the map above stored the theme; resolving
-    call KERNEL_SEG:cw_thm_set  ; the palette from it is not a store (76.5).
+    call COLD_SEG:thm_set       ; the palette from it is not a store (76.5).
                                 ; NO RANGE TEST HERE: thm_set owns both
                                 ; refusals - an unknown kind and Color on a
                                 ; machine with no colour - and a second
@@ -5048,6 +5048,9 @@ section .cold                   ; ...and back: drv_notice_x runs AFTER the first
                                 ; desktop paint and opens the Control Panel, so
                                 ; it is resident cold code and not this
 drv_notice_x:
+%ifdef OS88_SHORTCUTS
+    call dia_boot               ; the widgets FIRST (SPEC.md 110.4), so a
+%endif                          ; driver's panel opens IN FRONT of them
     push ax
     cmp byte [drv_nerr], 0
     je .out

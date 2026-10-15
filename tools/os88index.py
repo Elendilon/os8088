@@ -46,7 +46,7 @@ OUT = os.path.join(ROOT, "docs", "INDEX.md")
 GROUPS = [
     ("Windows", ["11", "20"],
      ["WM_", "ABOUT_SET"]),
-    ("Packages and the desktop", ["21", "26"],
+    ("Packages and the desktop", ["21", "26", "110"],
      ["PKG_", "DESK_"]),
     ("Menus and the menu bar", ["12", "59"],
      ["MENU_", "TOAST"]),
@@ -62,7 +62,7 @@ GROUPS = [
     ("Memory", ["2", "41", "50", "66"],
      ["MEM_", "XMEM_", "CLAIM_SNAPSHOT", "SYS_KB"]),
     ("Tasks, timing and the clock", ["7", "8", "37"],
-     ["TASK_", "GET_TICKS", "BOOT_TICKS"]),
+     ["TASK_", "GET_TICKS", "BOOT_TICKS", "CLK_"]),
     ("Sound", ["34", "35"],
      ["SND_"]),
     ("The system - CPU, video, clipboard, drivers", ["31", "51", "55", "57", "60"],
@@ -117,6 +117,25 @@ INCLUDES = [
      "`cmp ax, KEY_ALTENTER` in its W_ONKEY is both directions. Both want "
      "`OS88_ALTENTER_ARM` (apps/os88api.inc) in the entry proc, without which "
      "the chord is silently dead."),
+    ("os88dia.inc", "110",
+     "A DESKTOP INTEGRATED APPLICATION - a widget that lives in SYSTEM\\DIA\\ "
+     "and comes back at the next boot where it was left. Its state file "
+     "(SYSTEM\\APPDATA, a 16-byte DIA header then your payload), its DIA row "
+     "in SYSTEM.CFG's desktop trailer, registered on the first tick and "
+     "removed by name on close, and a 36-tick poll that saves the window's "
+     "place once a drag settles. `dia_load` in the entry proc (size your "
+     "template for the adapter first), `dia_made` after OSAPI_WM_CREATE and "
+     "your own KEEPH/PREFER, `dia_painted` as the LAST thing your W_PAINT "
+     "does (kern_small's worker is hired there - without it that kernel has "
+     "no tick, no save and no reminders, and says nothing), and `dia_touch` "
+     "whenever your payload changes. `%define DIA_WIDGET` (§110.11) is the "
+     "widget TREATMENT: a desk window (§11.103) of chromeless cards with the "
+     "desktop between them and a name tag that becomes a handle - x to "
+     "close, drag by the tag or a gap - under the pointer; you give "
+     "`DIA_LAYOUT`s (picked by the screen's height) and a card painter "
+     "(`dia_slabs` + `DIA_COMPOSE` into os88gfx.inc's band), it owns every "
+     "other pixel, the gestures, the hover and focus states and the titled "
+     "fallback on kern_small."),
     ("os88line.inc", "83",
      "A one-line text field: caret, horizontal scroll, focus, click-to-position "
      "and the editing keys. The caller owns a 20-byte block."),
@@ -185,7 +204,11 @@ INCLUDES = [
      "`%define GFXE_LINE` adds the Bresenham, which implies the band because a "
      "line needs somewhere to land. An app-side rasteriser is FASTER than the "
      "slot (24.6 us a pixel against `gfx_line`'s 31.6 with the arrival "
-     "removed)."),
+     "removed). `%define GFXE_TEXT` puts the kernel's 8x8 glyphs into the "
+     "band at any x - normal or inverse, x1/x2/x3, bold - plus a rectangle "
+     "fill, and `%define GFXE_BITS` a 16-wide bit record (a tick, a bell): "
+     "a whole card composed and put down in one BLIT1, nothing drawn twice "
+     "(§5.12.8)."),
     ("os88dec.inc", "20.5.2",
      "Number -> decimal text, 0 resident: `dec_u16`/`dec_s16`/`dec_u32` at "
      "DS:DI, NUL-ended with DI left on the NUL so the next piece appends, "
@@ -408,8 +431,13 @@ def packages():
     """
     mk = re.sub(r"\\\n\s*", " ", read("Makefile"))
     mvars = make_vars(mk)
+    # ...OR the system disk's own SYSTEM/ and SYSTEM/DIA/ (SPEC.md 92, 110):
+    # The Wire and the Desk Calendar ride every system floppy and no apps
+    # disk, so the everything-set alone called both "built by its own target
+    # only", which is the one thing neither is
     shipped = set(re.findall(r"\$\(BUILD\)/([a-z0-9]+)\.o88",
-                             make_expand("$(ALLAPPSFILES)", mvars)))
+                             make_expand("$(ALLAPPSFILES) $(SYSAPPS) "
+                                         "$(DIAAPPS)", mvars)))
     retired = set()
     rp = os.path.join(ROOT, "apps", "RETIRED.txt")
     if os.path.exists(rp):
@@ -607,7 +635,8 @@ def build():
       "shortest package that uses it is usually the fastest answer. "
       "*ships* is **retired** for a package apps/RETIRED.txt retires "
       "(SPEC.md 20.16), and otherwise whether a shipped floppy carries it (the `make allapps` "
-      "payload, SPEC.md 19.10); a `no` is built by its own target only.")
+      "payload, SPEC.md 19.10, or the system disk's `SYSTEM/` and `SYSTEM/DIA/`); "
+      "a `no` is built by its own target only.")
     w("")
     w("| package | source | SPEC | ships |")
     w("|---|---|---|---|")

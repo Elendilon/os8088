@@ -225,8 +225,11 @@ wn_cap:     times 81 db 0       ; the caption, truncated to fit (80 cells)
 ; buttons on every window, which is the owner's decision (SPEC.md 76.14.5).
 ; -----------------------------------------------------------------------------
 wn_title:
-    test byte [di+W_FLAGS], WF_FULL
-    jnz .none                   ; a fullscreen window HAS no title bar
+    WM_CHROMELESS di
+    jnz .none                   ; a fullscreen window HAS no title bar, and
+                                ; nor has a DESK one (SPEC.md 11.103.5): this
+                                ; door stands in front of wm_draw_title_b's
+                                ; own test, so it asks the same question
     push ax
     push bx
     push cx

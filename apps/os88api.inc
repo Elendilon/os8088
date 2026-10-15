@@ -331,6 +331,88 @@ ICON_SOLID  equ 0                ; the record's first byte for a picture whose
 %define OSAPI_SRAND         KERNEL_SEG:0x00C0   ; AX -> [osapi_seed]
 %define OSAPI_RAND          KERNEL_SEG:0x00C5   ; out AX = next pseudo-random word
 
+; --- the date and time of day (SPEC.md 37.96) --------------------------------
+; The wall clock the menu bar shows, as fields. Both kernels. A package that
+; calls it ships beside its own kernel: an older one at the same PKG_FMT has no
+; cell at 0x0475 (SPEC.md 20.2.0.1's open gap), so such a package is not
+; offered on The Wire.
+%define OSAPI_CLK_GET       KERNEL_SEG:0x0475   ; out CX = the year (1980..2099),
+                                 ; DH = the month (1..12), DL = the day,
+                                 ; BH = the hour (0..23), BL = the minute,
+                                 ; AH = the second; AL bit 0 = a hardware RTC
+                                 ; was found (0: the clock is the PIT's since
+                                 ; boot and may never have been set), AL bit 1
+                                 ; = the user chose 12-hour DISPLAY (the hour
+                                 ; is 0..23 regardless). CF=0, every other
+                                 ; register preserved. The live fields, read
+                                 ; with interrupts off: consistent from the UI
+                                 ; task (entry proc, callback, ONWAKE); a
+                                 ; worker may see a torn read at a rollover
+
+; --- the desk layer (SPEC.md 11.103) -----------------------------------------
+; A DESK WINDOW lives under every application window: never raised, no title
+; bar, frame, shadow or dock tile, the bar and the keys only while it was the
+; last thing pressed. apps/os88dia.inc is the way to use these; a package
+; that calls either ships beside its own kernel (SPEC.md 110.8).
+%define OSAPI_WM_DESK       KERNEL_SEG:0x047B   ; AL = 0 QUERY: CF=0 this
+                                 ; kernel has the layer (kern_small: CF=1, and
+                                 ; every verb refuses there). QUERY IS NOT
+                                 ; FREE: it LOADS DESK.DRV off the system disk
+                                 ; (a find and a read) and holds a 1 KB claim
+                                 ; until restart, unless the loader already
+                                 ; did for a package with OS88_F_DESK - so ask
+                                 ; it ONCE, in your ENTRY PROC on the UI task,
+                                 ; never from a worker (SPEC.md 20.6 rule 7)
+                                 ; and never per paint. CF=1 on kern_big means
+                                 ; DESK.DRV is missing or there is no heap:
+                                 ; take the titled path (SPEC.md 11.103.10).
+                                 ; AL = 1 MAKE, BX
+                                 ; = your window, HIDDEN, not fullscreen, not
+                                 ; sizable - and ONLY in your entry proc,
+                                 ; between OSAPI_WM_CREATE and its return
+                                 ; (anywhere else it refuses): it
+                                 ; becomes a desk window - WF_DESK, WF_NOANIM
+                                 ; and WF_OWNBG on, WF_SAVEU and WF_1BPP off
+                                 ; (never ask for a save-under after), and
+                                 ; it is put at the BOTTOM of the z-order. A
+                                 ; window another package made, or one made
+                                 ; outside a load, is refused. RETURN this
+                                 ; window from the entry proc: your instance
+                                 ; gets IF_DESK and no dock tile only when
+                                 ; the window it returns is the desk one.
+                                 ; Its content is its whole frame: OSAPI_WM_
+                                 ; CONTENT answers (W_X, W_Y). AL = 2 DRAG,
+                                 ; BX = your DESK window, from its W_ONCLICK
+                                 ; ONLY, on the UI task: when it returns, the
+                                 ; kernel's outline drag moves it, and the
+                                 ; drag EATS the release - no W_ONMOUSEUP. It
+                                 ; is honoured only when BX is the window that
+                                 ; was pressed and a desk one, so a press on
+                                 ; any other window, or a fullscreen one, is
+                                 ; never dragged by it. Posted anywhere else
+                                 ; it moves nothing - the next press forgets
+                                 ; it - but it is not free: a press already
+                                 ; ARMED (yours or another's) is handed one
+                                 ; W_ONDRAG at an unmoved point. Never from a
+                                 ; worker, which races the UI task. CF=0.
+                                 ; AL = 3 RELEASE,
+                                 ; BX = your window: if it owns the menu bar,
+                                 ; the bar and the keys go back to the front
+                                 ; application window (call it from a
+                                 ; callback, under the lock - Esc). CF=1 =
+                                 ; refused; every register preserved. NEVER
+                                 ; minimize or fullscreen a desk window: it
+                                 ; has no tile to come back by
+%define OSAPI_GFX_DESK      KERNEL_SEG:0x0481   ; AX,BX = x1,y1  CX,DX = x2,y2
+                                 ; (inclusive), lock held (W_PAINT): lay the
+                                 ; DESKTOP'S OWN GROUND there - the theme's,
+                                 ; Bright's dither phased on the screen as the
+                                 ; desktop's is, so a gap in your window shows
+                                 ; the desktop with no seam. [gfx_color] is
+                                 ; the THEME'S afterwards on Dark, Color and
+                                 ; Windows: set your own pen again. Both
+                                 ; kernels
+
 ; --- is this key DOWN right now? (SPEC.md 9.7) -------------------------------
 ; int 16h answers what was TYPED. There is no key-up in it, and a typematic
 ; repeat is byte-identical to a fresh press, so "is left held" cannot be asked
@@ -1225,6 +1307,9 @@ OSAPI_LD_EVER   equ 6            ; ...and the AL that means THAT FILE IS AN
                                  ;   +0   1  the volume, 0 = A:
                                  ;   +1   1  the cell you would like
                                  ;   +2   1  0 document, 1 package, 2 folder
+                                 ;   +3   1  OSAPI_DIA_MARK for a DIA's row
+                                 ;           (SPEC.md 110.2; KIND must be 1),
+                                 ;           else stored as 0
                                  ;   +4  45  the path BELOW THE ROOT, NUL:
                                  ;           `APPS\CALC.O88`
                                  ;   +49 13  the caption, NUL
@@ -1240,16 +1325,27 @@ OSAPI_LD_EVER   equ 6            ; ...and the AL that means THAT FILE IS AN
                                  ; (withdraw at detach); a package the link
                                  ; in zone AH, ES:SI = the record it added -
                                  ; CF=1 if that zone no longer holds it (a
-                                 ; zone is reused). Both strings are
-                                 ; terminated by the kernel whatever you put
-                                 ; in them.
+                                 ; zone is reused). AH = 0xFF: the DIA row
+                                 ; whose path's FINAL component is your
+                                 ; record's - a zone does not survive a boot.
+                                 ; Both strings are terminated by the kernel
+                                 ; whatever you put in them.
+                                 ; A DIA record (+3 = OSAPI_DIA_MARK) is ONE
+                                 ; ROW PER WIDGET: an add whose name has a row
+                                 ; already UPDATES it in place when the volume
+                                 ; or path differ and writes NOTHING when they
+                                 ; do not, so register on every launch; it
+                                 ; takes no desktop cell and the kernel
+                                 ; relaunches it at boot (SPEC.md 110.4).
 OSAPI_DI_VOL    equ 0           ; a package's link record, field by field
 OSAPI_DI_CELL   equ 1
 OSAPI_DI_KIND   equ 2
+OSAPI_DI_DIA    equ 3           ; the DIA mark's byte (SPEC.md 110.2)
 OSAPI_DI_PATH   equ 4
 OSAPI_DI_CAP    equ 49
 OSAPI_DI_BODY   equ 64
 OSAPI_DI_SIZE   equ 128
+OSAPI_DIA_MARK  equ 'D'         ; +3 of a DIA row: a remembered WIDGET
 
 ; --- a LOADER hands its identity to one of its own PARTS (SPEC.md 20.12.10) ---
 ; A package whose image is a small LOADER, whose parts include a full package
@@ -2031,7 +2127,9 @@ SS_INST    equ SS_TCYC + SS_TMAX * 4       ; ...then the instance records
 ; renumber changes this file and kernel/instance.inc together, the standing
 ; arrangement MAX_TASKS, INST_MAX and MEM_MAX are already under.
 SSI_STATE  equ 0                ; byte: 0 free, 1 live, 2 dying
-SSI_FLAGS  equ 1                ; byte: bit 0 = minimized (was a pad)
+SSI_FLAGS  equ 1                ; byte: bit 0 = minimized (was a pad), bit 2
+                                ; = IF_DESK, a desk window's instance
+IF_DESK    equ 4                ; SSI_FLAGS / I_FLAGS bit 2 (SPEC.md 11.103)
 SSI_KIND   equ 2                ; byte: bit 7 (KIND_PKG) = a loaded package
 SSI_TASK   equ 3                ; byte: its task slot, 0xFF = task-less
 SSI_WIN    equ 4                ; word: OPAQUE - the kernel's own window record.
@@ -3015,6 +3113,23 @@ WF_NOANIM  equ 0x4000            ; W_FLAGS bit14: this window does NOT zoom
                                  ; number it did not expect. The kernel masks
                                  ; them off both ways round, which is why
                                  ; OSAPI_WM_CURSOR does not clear this one
+WF_DESK    equ 0x0400            ; W_FLAGS bit10: a DESK window (SPEC.md
+                                 ; 11.103) - READ it, never write it: set by
+                                 ; OSAPI_WM_DESK's MAKE alone
+WF_HOVER   equ 0x0800            ; W_FLAGS bit11: the pointer is over this desk
+                                 ; window (SPEC.md 11.103.7) - read it in your
+                                 ; W_ONWAKE; the kernel sets and clears it on
+                                 ; every change of the window under the
+                                 ; pointer and wakes you each time. Never set
+                                 ; over a window covering yours, and no NEW
+                                 ; hover begins under a Standard File chooser
+                                 ; - but one standing when the chooser opens
+                                 ; stays set until the pointer leaves your
+                                 ; window, and an open hidden dock over yours
+                                 ; does not clear it: keep a reveal you can
+                                 ; live with there. A BUTTON HELD is yours to
+                                 ; refuse (OSAPI_MOUSE), the kernel still
+                                 ; reports the edge
 WF_SIZABLE equ 4                 ; W_FLAGS bit2: resizable (SPEC.md 11.1)
 WF_FULL    equ 8                 ; W_FLAGS bit3: fullscreen (SPEC.md 11.2)
 WF_NOSNAP  equ 16                ; W_FLAGS bit4: this window has OPTED OUT of
@@ -3192,6 +3307,11 @@ WT_SIZE    equ 16
 OS88_F_ICON   equ 1             ; an embedded 16x16 icon follows the header
 OS88_F_ASSOC  equ 2             ; ...and an association block follows that (54.6)
 OS88_F_PARTS  equ 4             ; the FILE is longer than the image, on purpose
+OS88_F_DESK   equ 64            ; this package makes a DESK window (SPEC.md
+                                ; 11.103.9): kern_big gives it the TOP free
+                                ; instance slot, so its empty dock position is
+                                ; at the strip's far end. Older kernels and
+                                ; kern_small ignore it
 OS88_F_GLYPH  equ 32            ; a 16-byte DOCUMENT-GLYPH block follows the
                                 ; association block (SPEC.md 54.3.2): the 8x8
                                 ; your documents wear, SHIPPED rather than
@@ -3859,7 +3979,9 @@ OS88_BSS_SIZE equ 0
                                                 ; by hand
 
 %define OSAPI_WM_TOP        KERNEL_SEG:0x01EC   ; out BX = the frontmost
-                                                ; VISIBLE window, 0 if none.
+                                                ; VISIBLE window that is not
+                                                ; a DESK window (SPEC.md
+                                                ; 11.103.2), 0 if none.
                                                 ; Preserves everything else,
                                                 ; takes no lock, callable from
                                                 ; a worker.

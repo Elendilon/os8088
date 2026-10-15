@@ -1143,6 +1143,7 @@ section .modk    start=MODK_START vstart=0
 %ifdef KERN_BIG
 section .modx    start=MODX_START vstart=0
 section .modw    start=MODW_START vstart=0
+section .modj    start=MODJ_START vstart=0  ; DESK.DRV (SPEC.md 11.103.10)
 %endif
 section .modmap  start=MODMAP_START vstart=0
 section .text
@@ -2976,8 +2977,32 @@ apic_inst_minimize:               ; DOCK.DRV's door (SPEC.md 30.4)
     nop
 %endif
     OSAPI_IEND
-osapi_table_end:                  ; 0x0475 today (0x05A8 before pass 4's
-                                  ; renumber). TWO cells came off the tail in
+    OSAPI_RCSLOT osapi_clk_get_x  ; 0x0475 - THE DATE AND TIME (SPEC.md
+                                  ;          37.96): out CX = year, DH:DL =
+                                  ;          month:day, BH:BL = hour:minute,
+                                  ;          AH = second, AL = bit 0 RTC
+                                  ;          found / bit 1 12-hour; the live
+                                  ;          fields under cli. Both kernels
+    OSAPI_RCSLOT osapi_wm_desk_x  ; 0x047B - THE DESK LAYER (SPEC.md 11.103.9):
+                                  ;          AL = 0 QUERY, 1 MAKE BX = a hidden
+                                  ;          window, 2 DRAG (W2), 3 RELEASE
+                                  ;          the bar. CF = 1 refused, and every
+                                  ;          verb refuses on kern_small
+%ifdef OS88_THEME                 ; (vga12.inc's %define of thm_desk on a
+    OSAPI_RSLOT thm_desk          ; build with no themes comes later than this)
+%else
+    OSAPI_RSLOT gfx_fill_gray
+%endif                            ; 0x0481 - THE DESKTOP'S GROUND over AX,BX
+                                  ;          .. CX,DX, lock held (SPEC.md
+                                  ;          11.103.9, 76.2): the theme's, per
+                                  ;          display; [gfx_color] is the theme's
+                                  ;          after on Dark/Color/Windows. kern_small's
+                                  ;          thm_desk IS gfx_fill_gray
+osapi_table_end:                  ; 0x0487 today (0x0475 before the DIA's
+                                  ; three cells, 0x046D before OSAPI_THM_SET,
+                                  ; 0x0467 before OSAPI_FERR_TEXT, 0x05A8
+                                  ; before pass 4's renumber). TWO cells
+                                  ; came off the tail in
                                   ; the size pass: OSAPI_MEM_COMPACT_WAKE
                                   ; (0x0598) is 0x0590's MEMC_POST verb
                                   ; now (SPEC.md 66.4.3), and the DOS
@@ -2994,8 +3019,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 99*6 + 6*3 + 6 + 12*5 + 3*6 + 8
-%error "os8088 API jump table must be exactly 0x0465 bytes: 43 SLOT (8), 11 XCELL (7), 99 rare (6), 6 JCELL (3), 1 FCELL (6), 16 ICELL (12 of 5, 3 of 6, 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
+%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 102*6 + 6*3 + 6 + 12*5 + 3*6 + 8
+%error "os8088 API jump table must be exactly 0x0477 bytes: 43 SLOT (8), 11 XCELL (7), 102 rare (6), 6 JCELL (3), 1 FCELL (6), 16 ICELL (12 of 5, 3 of 6, 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
 %endif
 
 ; =============================================================================
@@ -4307,7 +4332,7 @@ kmain_o:
 
 %ifdef OS88_THEME
     mov al, [thm_kind]          ; RESOLVE THE PALETTE FROM THE KIND, once, before
-    call KERNEL_SEG:cw_thm_set ; anything is drawn (SPEC.md 76.12.1). Two
+    call COLD_SEG:thm_set       ; anything is drawn (SPEC.md 76.12.1). Two
                                 ; things need it and only one of them has run:
                                 ; drv_cfg_unpack calls thm_set when SYSTEM.CFG
                                 ; carried a theme, and a machine with no
@@ -5029,6 +5054,7 @@ EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
 %include "dockmod.inc"            ; empty unless DOCK_OPT (kern_big)
 %include "extmod.inc"             ; EXTD.DRV, the extended desktop
 %include "winmod.inc"             ; WIN95.DRV, the Windows theme (SPEC.md 76.14)
+%include "deskmod.inc"            ; DESK.DRV, the desk layer (SPEC.md 11.103.10)
                                   ; (SPEC.md 39.19.6) - kern_big only
 %include "ctrl.inc"
 %include "desksc.inc"           ; desktop shortcuts (SPEC.md 26.8): empty
@@ -5081,6 +5107,7 @@ mod_fpt:
 %ifdef KERN_BIG
     MODFP EXFP, MOD_EXT, EXT_NENT
     MODFP WNFP, MOD_WIN, WN_NENT
+    MODFP DKDFP, MOD_DESK, DKD_NENT
 %endif
 %ifdef OS88_SHORTCUTS
     MODFP SETFP, MOD_SETS, 1    ; the settings core's ONE slot, CPE_SC (2.8.7)
@@ -5612,8 +5639,10 @@ cw_gfx_fill_pat:        call gfx_fill_pat
 %ifdef OS88_THEME              ; (kern_small: vga12.inc aliases it)
 cw_thm_desk:            call thm_desk
                     retf
-cw_thm_set:             call thm_set
-                    retf
+cw_dock_force:          call dock_force     ; thm_set's way out, and the
+                    retf                    ; next one api_thm_set_x's: both
+cw_wm_su_drop_all:      call wm_su_drop_all ; are .cold now, and cw_thm_set
+                    retf                    ; went (SPEC.md 76.14.14.1)
 %endif
 %ifdef DOCK_OPT
 cw_dock_band:           call dock_band
@@ -6522,9 +6551,10 @@ MODMAP_START equ MODD_START + MODD_SIZE   ; no Dock module (SPEC.md 30.5)
                                           ; (SPEC.md 20.15.3)
 
 %ifdef DOCK_OPT                           ; DOCK_OPT is KERN_BIG, so
-MODX_START   equ MODK_START + MODK_SIZE   ; EXTD.DRV (SPEC.md 39.19.6) and
-MODW_START   equ MODX_START + MODX_SIZE   ; WIN95.DRV (SPEC.md 76.14) are
-MODMAP_START equ MODW_START + MODW_SIZE   ; always the last two images there
+MODX_START   equ MODK_START + MODK_SIZE   ; EXTD.DRV (SPEC.md 39.19.6),
+MODW_START   equ MODX_START + MODX_SIZE   ; WIN95.DRV (SPEC.md 76.14) and
+MODJ_START   equ MODW_START + MODW_SIZE   ; DESK.DRV (SPEC.md 11.103.10) are
+MODMAP_START equ MODJ_START + MODJ_SIZE   ; always the last three images there
 %endif
 
 %ifdef KERN_BIG
@@ -6537,6 +6567,12 @@ MODW_SIZE equ modw_end - $$
 %if MODW_SIZE > MOD_MAX_KB*1024
   %error "WIN95.DRV exceeds its maximum claim"
 %endif
+section .modj
+modj_end:
+MODJ_SIZE equ modj_end - $$
+%if MODJ_SIZE > MOD_MAX_KB*1024
+  %error "DESK.DRV exceeds its maximum claim"
+%endif
 %endif
 %ifdef DOCK_OPT
 section .modk
@@ -6547,21 +6583,35 @@ MODK_SIZE equ modk_end - $$
 %endif
 %endif
 
+%ifdef OS88_DRIVERS
+section .modcb                  ; ABOVE `.modu`'s end and not with the other
+modcb_end:                      ; bss ends below: the pad two blocks down is a
+MODC_BSS equ modcb_end - $$     ; `times`, whose count must be known when it
+%endif                          ; is read
+
 section .modc
 mods_end:
 MODS_SIZE equ mods_end - $$     ; the settings core: CTRL.DRV's first bytes
 section .modu
-%ifdef ANIMOFF
-; ANIMOFF=1 takes the zoom outline's callers out of the panel, and kernel size
-; pass 10 had already taken CTRL.DRV to 11,301 bytes: the knob's image came to
-; 11,177, so its claim rounded to 11KB and the 131 bytes of .modcb below did
-; not fit it (the MODC_BSS assertion). DOSRMARK=1's answer for HIBER.DRV (the
-; .modh block above): pad the knob's image to ONE byte past a KB boundary, so
-; the rounding leaves 1,023 bytes whatever either side grows to - a disk-only
-; cost, on a build that ships nowhere. `.modu` does not start KB-aligned, so
-; the pad is counted from the IMAGE's start (MODS_SIZE in), not `align`'s
-    times 1024 - ((MODS_SIZE + ($ - $$)) % 1024) db 0
-    db 0
+%ifdef OS88_DRIVERS
+                                ; THE DEAD ZONE (MODULE-SELFCONTAIN-PLAN 3.2):
+MODC_UNPAD equ MODS_SIZE + ($ - $$) ; an image that ends fewer than MODC_BSS
+                                ; bytes short of a KB boundary has no room for
+                                ; its bss in the claim mod_need makes, which
+                                ; is the image's own KB rounding. The pad
+                                ; carries the image ONE BYTE PAST that
+                                ; boundary, so the claim is the next KB - the
+                                ; claim the bss needs anyway - for no resident
+                                ; byte, where the plan's named fallback is 8 of
+                                ; them. Zero bytes outside the zone, so a build
+                                ; that fits is byte-identical; it is what keeps
+                                ; ANIMOFF=1
+                                ; assembling, whose fewer bytes of panel land
+                                ; CTRL.DRV inside the zone (SPEC.md 2.8) - the
+                                ; case main's size pass 10 met with a pad for
+                                ; that knob alone; this one is the general
+                                ; form of the same answer
+    times (MODC_UNPAD + MODC_BSS > ((MODC_UNPAD + 1023) / 1024) * 1024) * (((MODC_UNPAD + 1023) / 1024) * 1024 + 1 - MODC_UNPAD) db 0
 %endif
 modc_end:
 MODU_SIZE equ modc_end - $$     ; ...the panel behind it...
@@ -6594,12 +6644,6 @@ MODH_SIZE equ modh_end - $$
 section .modhb
 modhb_end:
 MODH_BSS equ modhb_end - $$
-%endif
-
-%ifdef OS88_DRIVERS
-section .modcb
-modcb_end:
-MODC_BSS equ modcb_end - $$
 %endif
 
 %ifdef FCP_MOD
@@ -6711,6 +6755,8 @@ mod_map:
     dw EXT_NENT
     dd MODW_START, MODW_SIZE    ; the Windows theme's chrome (SPEC.md 76.14)
     dw WN_NENT
+    dd MODJ_START, MODJ_SIZE    ; the desk layer (SPEC.md 11.103.10)
+    dw DKD_NENT
 %endif
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file
@@ -7240,6 +7286,10 @@ section .modk
 section .modw
 %if $ != modw_end
   %error "something landed in .modw after modw_end"
+%endif
+section .modj
+%if $ != modj_end
+  %error "something landed in .modj after modj_end"
 %endif
 %endif
 section .modmap

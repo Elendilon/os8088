@@ -4859,6 +4859,19 @@ cur_shape_pass:
     mov dx, [mouse_y]           ; went through AX/BX until size pass 9)
     call wm_hit                 ; BX = the topmost visible window over the
                                 ; point (0 = none), AL = which part of it
+%ifdef KERN_BIG
+    cmp bx, [cur_hovw]          ; THE HOVER EDGE (SPEC.md 11.103.7): the same
+    je .hov                     ; answer, asked whether it CHANGED - one
+    push bx                     ; compare per pass, and only a change pays the
+    xchg bx, [cur_hovw]         ; far call: [cur_hovw] = the new window HERE,
+    call far [DKDFP + DKD_HOVER] ; so it is current with no image too, and
+    pop bx                      ; DESK.DRV's dkd_hover (SPEC.md 11.103.10)
+.hov:                           ; takes WF_HOVER off the OLD one (BX) and on
+                                ; the new, each a desk window's, with a wake to
+                                ; each. With no image the slot is mod_gone:
+                                ; no desk window exists, so nothing is hovered.
+                                ; CX is spent, AX is kept
+%endif
     mov ah, CUR_ARROWSH
     or bx, bx
     jz .set                     ; the desktop, the dock and the menu bar are
@@ -5583,6 +5596,13 @@ cur_shchk   db 0                ; "the window under the pointer may have
                                 ; changed without the pointer moving": a
                                 ; raise, a hide, a destroy or a drag. One
                                 ; byte, the [fm_fchk] shape (SPEC.md 22.8)
+%ifdef KERN_BIG
+cur_hovw    dw 0                ; the window the HOVER EDGE last answered
+                                ; (SPEC.md 11.103.7), 0 = none or a chooser
+                                ; up. Only ever compared and passed through
+                                ; dkd_hover's tests, never trusted, so a
+                                ; record that died since is harmless
+%endif
 %ifndef NOCURDISK
 cur_barok   db 0                ; **THE PAINTER ON TASK (this - 1) IS CONFINED
                                 ; TO THE MENU BAR** (SPEC.md 7.4.3): the
