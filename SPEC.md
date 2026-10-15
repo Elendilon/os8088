@@ -113741,6 +113741,119 @@ What a page holds while it is on screen, `eth.htm` (442 bytes) off the wire:
 links 1) - and the peak DURING a fetch is the 32KB source alone. A file load
 saves only the link arena's difference, its other three sizes being unchanged.
 
+### 71.15 Bounded compatibility for retro pages
+
+The Browser identifies itself as **os8088 Browser 1.4**. Its compatibility
+work stays within the existing page and link claims. HTTP redirects are limited
+to three hops, and a redirect is decided by the worker at the end of the drain,
+BEFORE the page buffers are claimed (71.14's hand-over): the source claim is
+still at its ceiling and nothing else has been claimed, so a hop leaks nothing,
+the target is not drained into a buffer cut to the redirect body's size, and a
+redirect with an empty body is followed rather than reported as an empty
+reply; forms retain a fixed maximum of four forms and twelve controls;
+images contribute only their alternate text; and a frameset is fetched child
+by child and appended into one page. URL, host, path, page, and link
+storage remain bounded. When a bound is reached, the Browser truncates or
+refuses the affected operation visibly rather than allocating without limit.
+
+**A frameset's children are drained into page buffers RE-CLAIMED AT THE
+CEILING.** The frameset page is parsed like any other and its `<frame src>`s
+are queued in the link arena; but 71.14's hand-over cut the source to the
+frameset's own size and claimed the document from it, and a child drained into
+those was cut at a kilobyte. So instead of fetching the first child the worker
+posts `[br_fin]` = 4 and a wake, and the UI task re-claims (`br_frameclaim`):
+the document and the line table are freed, the source is regrown to
+`BR_MAXKB` (or, when the heap cannot grow it where it stands, freed and
+claimed again at the ceiling - the frameset's source is parsed and not needed
+again), the two are claimed again from the ceiling (`br_claimpage`, the head
+of `br_claimrest`), and **the link arena is kept**, because the queued srcs and
+each child's base URL live in it. The UI task answers `[br_fin]` = 5 and the
+worker fetches the first child; a refusal is `Out of memory`. The hand-over
+byte's values are therefore 0 draining, 1 the page is in and the UI task owes
+its claims, 2 claimed, 3 parsing, 4 the UI task owes a frameset's re-claim, 5
+re-claimed. A frameset costs what the largest page costs - 32 KB of source,
+the document claim sized from `BR_MAXKB` through `BR_DOCMUL`/`BR_DOCSLK` and
+capped at `BR_DOCMAX` (63 KB), `BR_LINEKB` (8 KB) of lines - plus the frameset
+page's own link arena, min(frameset KB, `BR_LINKKB` = 6) KB, which bounds the
+children's links together: `Links limited` is the visible refusal. Each child
+resolves into the location bar and `br_host`/`br_path`; when the last child is
+in, or one is refused, the document is ended (an open frame table closed) and
+the frameset's own title, host, path and bar text are restored
+(`br_frameclose`), so Reload re-fetches the frameset and a top-level relative
+link resolves against it. File > Save As after a frameset writes the source
+claim, which holds the LAST child's bytes.
+
+### 71.16 Browser 1.3 — text formatting on the cell font
+
+The 1.3 renderer stays on the existing 8×8 cell font and linear document
+stream. `<b>`/`<strong>` use a one-pixel double-strike; `<i>`/`<em>` shear the
+existing glyph bitmap by at most two pixels; and `<u>` uses the existing row
+ink pass. Styled rows are composed from `OSAPI_FONT_GLYPHS` through one fixed
+`BR_MAXCOL`-byte scanline buffer and eight one-row `OSAPI_GFX_BLIT1` calls.
+The band is composed with a set bit as ink and handed over under an ink/paper
+pen; on a 1bpp adapter the pen is not read (SPEC.md 5.4.2.2) and a set bit is
+a lit pixel, so there the band is complemented before each blit. Layout
+reserves the scroll bar plus a two-cell margin at the right edge.
+Wrapping also subtracts each
+line's active heading, list, or quote indent before measuring its text.
+Unstyled rows retain the single opaque `OSAPI_FONT_RUN` path. This adds no font
+resource, framebuffer, dynamic allocation, or per-character drawing call. If
+the blit is refused by a small-kernel configuration, the row falls back to the
+normal cell font. Formatting markers are zero-width document controls, so
+wrapping, scrolling, links, and hit-testing continue to use the same bounded
+path.
+
+Headings remain block elements, gain a level-dependent left indent, and are
+underlined through the Browser's existing per-row ink pass. Unordered and
+ordered list items use the same compact `*` bullet and hanging indent. A
+blockquote receives a two-cell indent, including wrapped lines. `<pre>` keeps
+its existing literal spaces and line breaks and does not wrap. Paragraphs
+retain one blank line between nonempty blocks; duplicate empty breaks are
+coalesced. Unsupported styling such as CSS, colors, and font sizes remains
+ignored, and application content is never rewritten outside the Browser's
+own document buffer.
+
+### 71.17 Browser 1.4 — table spans, cell alignment and form POST
+
+The table renderer extends its bounded ASCII compositor. A `<td>` or `<th>`
+may span one through eight logical columns with `colspan`. Missing, malformed,
+zero or over-limit values fall back to one column. The cell's measured width is
+the sum of the spanned columns plus the existing separators. `align=left`,
+`align=center`, `align=middle` and `align=right` affect text in that cell; left
+is the default and `middle` aliases `center`. The eight-column limit,
+wrapping, link hit-testing and row bounds remain unchanged. Width, colors, CSS,
+borders and spacing remain ignored presentation hints.
+
+Forms retain their fixed limits and successful-control rules. `GET` remains
+the default; `method=post` sends the existing bounded, percent-encoded pairs
+as an `application/x-www-form-urlencoded` request body. The resolved `action`
+is the request target; submitted pairs are not appended to its URL. The
+request includes an exact `Content-Length` and uses the existing HTTP/1.0
+close-delimited flow. A `301`, `302` or `303` answering a POST is followed as a
+GET with no body, which is what a post-redirect-get server expects; `307` and
+`308` keep the method and the body, which is what those two codes are for.
+The encoded body is limited to 159 bytes and appended
+to the existing 512-byte request staging area; no second body buffer, dynamic
+allocation, framebuffer or kernel API is introduced. Oversized bodies are
+refused visibly, never truncated. Unchecked controls are omitted; checked choices and selected
+options remain successful controls. Only the CLICKED submit button is a
+successful control: a named `<input type=submit>` is not baked into the form's
+hidden pairs at parse time but keeps its tag's span in the retained source
+(`SUB_ASTART`/`SUB_AEND`, the submit record being `BR_SUBSZ` = 9 bytes), and
+`br_submit` encodes that one button's `name=value` after the fields, so a
+form with two buttons (Search / I'm Feeling Lucky, Login / Register) tells the
+server which was pressed. Return in a focused text field submits the field's
+own form with no button pair.
+
+Password and file controls remain visibly unsupported. With no TLS, the
+browser must not show a password control that could be submitted in plaintext.
+`<textarea>` remains outside the single-line control model and is shown as
+unsupported, while its source contents are skipped as control content rather
+than rendered as page text. The reference renderer and guest share fixtures
+for spans, alignment and unsupported controls; a local HTTP test checks the
+POST request line, headers, exact length and body. Existing GET, formatting
+and frame-navigation behavior remains covered.
+
 ### 72.1 What the packages did have to change, which is one question
 
 The claim "without one byte changing" is not quite true and the exact shortfall
