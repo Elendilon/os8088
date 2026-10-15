@@ -65,4 +65,4 @@ Close both VMs and rerun the launcher to load an updated build.
 Overrides: --86box PATH, --roms DIR. --prepare-only builds without launching;
 --no-build uses existing disk images. Run --help for details.
 
-See SPEC.md section 107 for the protocol and hardware validation limits.
+See SPEC.md section 109 for the protocol and hardware validation limits.

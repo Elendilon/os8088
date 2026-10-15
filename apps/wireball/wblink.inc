@@ -55,7 +55,7 @@ wb_openone:
     or dx, dx
     jz .out
     ; Every 8250 has a divisor latch; the original has no scratch register.
-    ; Read back two patterns, then restore DLL/LCR even on refusal (§107.1).
+    ; Read back two patterns, then restore DLL/LCR even on refusal (§109.1).
     add dx, 3
     in al, dx
     mov [si+WP_LCR], al

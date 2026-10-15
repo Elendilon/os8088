@@ -56,12 +56,12 @@ nothing here duplicates it — a second copy is a copy that goes stale.
 | **[docs/WIRE-PLAN.md](docs/WIRE-PLAN.md)** | anything in The Wire (§92, `apps/thewire/`, the desktop zone and `OSAPI_PKG_RUN`) — the design record: the four facts that decided the shape, the catalog and picture formats as they were pinned, and what was deferred with the arithmetic attached. SPEC.md §92 is the contract and this is why it reads that way; its brand table is **fixed by the user and not to be reworded** |
 | **[docs/plans/completed/WEAVE-PLAN.md](docs/plans/completed/WEAVE-PLAN.md)** | re-opening a Weave design decision — why each fork went the way it did, the judged alternatives, and what was deferred with the arithmetic attached |
 
-## Fast fullscreen VRAM games (SPEC.md §53, §107.5)
+## Fast fullscreen VRAM games (SPEC.md §53, §109.5)
 
 Use [WireBall's renderer](apps/wireball/wbvideo.inc) and
 [game loop](apps/wireball/wireball.asm) as worked examples. The contracts are
 §53.4 (mode info), §53.7 (legal calls) and §53.10 (page selection);
-[PERFORMANCE.md Set 160](PERFORMANCE.md#set-160--wireball-local-serial-collisions-and-pixel-movement-on-the-xt-specmd-1075)
+[PERFORMANCE.md Set 160](PERFORMANCE.md#set-160--wireball-local-serial-collisions-and-pixel-movement-on-the-xt-specmd-1095)
 records the measurements. These techniques belong inside an exclusive
 `OSAPI_FSX_RUN` bracket. A windowed game still uses the desktop's clipping,
 damage and drawing APIs.
