@@ -10968,8 +10968,9 @@ vp_lyread:
 ; and only for a file with a layer and a yardstick. [vp_lytm] its time,
 ; [vp_lyoff] 1 when it said no. Clobbers AX, BX, CX, DX, SI, DI, BP, ES
 vp_lybench:
-    mov word [vp_lytm], 0
-    mov byte [vp_ybq], 0
+    xor ax, ax
+    mov [vp_lytm], ax
+    mov [vp_ybq], al
     call vp_bnsel                   ; THE BENCH's yardsticks, or key 0's
     cmp byte [vp_snd], VP_SPK       ; THE SPEAKER AGAINST THE BANK (98.3.18.9)
     jne .nsq                        ; - a file that asks for a bank, played
@@ -11156,12 +11157,10 @@ vp_bnsel:
     call .cp
     cmp word [vp_bnb], 0
     je .r
-    cmp byte [vp_shadow], 0         ; (a shadow's image has no gap to aim
-    jne .r                          ; at: the key, as before)
-    cmp byte [vp_livem], 0
-    jne .r
-    cmp byte [vp_resid], 0
-    jne .r
+    mov al, [vp_shadow]             ; (a shadow's image has no gap to aim
+    or al, [vp_livem]               ; at: the key, as before)
+    or al, [vp_resid]
+    jnz .r
     cmp byte [vp_pixfmt], PF_CGA4   ; (no text screen)
     ja .r
     mov bx, 8000                    ; THE GAP the bench decodes into: CGA's
@@ -11301,18 +11300,19 @@ vp_bngen:
     stosb
 .hdr:
     mov [es:0], di                  ; its length, rows 0 to 1
-    mov word [es:2], 0
-    mov word [es:4], 1
+    xor ax, ax
+    mov [es:2], ax
+    inc ax
+    mov [es:4], ax
     mov [vp_bnlen], di
     mov cx, di
     xor si, si
     xor bx, bx
+    dec ax                          ; (AH 0 for the sum, DF clear)
 .s:
     rol bx, 1                       ; THE CHECK: each byte added to the word
-    mov al, [es:si]                 ; rotated left one
-    xor ah, ah
+    es lodsb                        ; rotated left one
     add bx, ax
-    inc si
     loop .s
     mov [vp_bnsum], bx
     ret
@@ -11786,19 +11786,18 @@ vp_lypre:
     cmp byte [vp_pfwait], 0         ; (the gate's hold, tests/vidlybank.py)
     jne .lp
 .done:
-    mov byte [vp_pfly], 0
+    clc
+.box:
+    pushf                           ; (the box cleared, either way)
     xor ax, ax
+    mov [vp_pfly], al
     mov si, vo_s_none
     call vo_show
-    clc
+    popf
     ret
 .esc:
-    mov byte [vp_pfly], 0
-    xor ax, ax
-    mov si, vo_s_none
-    call vo_show
     stc
-    ret
+    jmp short .box
 
 ; vp_lybh - in the hook, CX = the frames this call draws: two or more is
 ; BEHIND, and the layer waits for the picture to catch up. Every register
@@ -12018,9 +12017,10 @@ vp_srun:
     je .go
     call vp_canwin
     jc .go
-    mov byte [vp_winm], 1           ; IN THE WINDOW: Play is Pause while it
-    mov byte [vp_bpause], 1         ; plays, drawn before the bracket takes
-    call vp_clip                    ; the screen
+    mov al, 1                       ; IN THE WINDOW: Play is Pause while it
+    mov [vp_winm], al               ; plays, drawn before the bracket takes
+    mov [vp_bpause], al             ; the screen
+    call vp_clip
     call vp_buttons
     call vp_boxxy                   ; A DRAG moves the window's pixels by any
     mov ax, [vp_py]                 ; number of rows and the play puts the
@@ -12147,10 +12147,11 @@ vp_sstop:
 %endif
     call vp_eend                    ; (in place: the bank again, emptied)
     call vp_xipend                  ; (held in place: the yield sites off)
-    mov byte [vp_lrun], 0           ; (the worker, if live, is held off by the
-    mov byte [vp_lsess], 0          ; lock we hold, and idles from here)
-    mov byte [vp_lend], 0           ; (a Live end's wake still queued must
-    mov byte [vp_ldrain], 0         ; not stop the NEXT session)
+    xor ax, ax
+    mov [vp_lrun], al               ; (the worker, if live, is held off by the
+    mov [vp_lsess], al              ; lock we hold, and idles from here)
+    mov [vp_lend], al               ; (a Live end's wake still queued must
+    mov [vp_ldrain], al             ; not stop the NEXT session)
     cmp byte [vp_sess], 0
     je short .out                   ; (short: nasm took either form)
     cmp byte [vp_dtok], 0           ; the time it played, if a bracket's end
@@ -12184,8 +12185,9 @@ vp_sstop:
     je .fmt                         ; out, since it is what says why - on the
     cmp byte [vp_lcard], 0          ; wake, which lays the window out again
     jne .fmt
-    mov byte [vp_card], 1
-    mov byte [vp_relay], 1
+    mov al, 1
+    mov [vp_card], al
+    mov [vp_relay], al
     mov bx, [vp_win]
     call OSAPI_WM_WAKE
 .fmt:
@@ -12233,22 +12235,20 @@ vp_canwin:
     push bx
     push cx
     push dx
-    cmp byte [vp_nowin], 0
-    jne .no
-    cmp byte [vp_fsdisp], 0         ; ...or another display's (98.3.21)
-    jne .no
+    mov al, [vp_nowin]
+    or al, [vp_fsdisp]              ; ...or another display's (98.3.21)
+    or al, [vp_screen]              ; ...and a VGA4 file's screen of its own
+    jnz .no                         ; (98.1.3.2.1)
     cmp byte [vp_flip], 2           ; page-ahead: two pages, full screen only
     je .no                          ; (98.3.8.3)
     cmp byte [vp_pixfmt], PF_VGA8   ; 256 colours: full screen only (98.3.7)
     je .no
     cmp byte [vp_pixfmt], PF_CGA4   ; ...and CGA's colours, whose modes the
     jae .no                         ; one-bit desktop is not (98.3.12)
-    cmp byte [vp_screen], 0         ; ...and a VGA4 file's screen of its own
-    jne .no                         ; (98.1.3.2.1)
-    cmp word [vp_palo], 0           ; ...or its own sixteen on any screen
-    jne .no                         ; (98.1.3.2.2): VGA8 left above, so a
-    cmp word [vp_palo+2], 0         ; palette here is VGA4's, and its colours
-    jne .no                         ; are not the desktop's
+    mov ax, [vp_palo]               ; ...or its own sixteen on any screen
+    or ax, [vp_palo+2]              ; (98.1.3.2.2): VGA8 left above, so a
+    jnz .no                         ; palette here is VGA4's, and its colours
+                                    ; are not the desktop's
     cmp word [vp_ps], 1
     jne .no
     mov bx, [vp_win]
@@ -12269,9 +12269,7 @@ vp_canwin:
     cmp dx, MBAR_H
     jl .no
     add dx, [vp_h]
-    cmp dx, bx
-    ja .no
-    clc
+    cmp bx, dx                      ; CF = past the screen's foot
     jmp short .out
 .no:
     stc
@@ -12465,14 +12463,17 @@ vp_keyat:
     inc word [vp_kat_i]
     jmp short .l
 .got:
+    clc
+    jmp short .fr
+.bad:
+    stc
+.fr:
+    pushf                           ; (the entries' claim, either way)
     mov dx, [vp_rdseg]
     call OSAPI_MEM_FREE
     mov ax, [vp_kat_i]
-    clc
+    popf
     jmp short .out
-.bad:
-    mov dx, [vp_rdseg]
-    call OSAPI_MEM_FREE
 .fail:
     stc
 .out:
@@ -12494,8 +12495,9 @@ vp_keyat:
 ; =============================================================================
 vp_main:
     OS88_ALTENTER_SEED              ; the Alt+Enter that got us here is held
-    mov byte [vp_msync], 0          ; (no mode change to wait out, yet)
-    mov byte [vp_pfresh], 0         ; a pause from before this bracket - the
+    xor ax, ax
+    mov [vp_msync], al              ; (no mode change to wait out, yet)
+    mov [vp_pfresh], al             ; a pause from before this bracket - the
                                     ; desktop's, or the last bracket's way
                                     ; out - has no periods pending in it
     cmp byte [vp_winm], 0
@@ -12519,8 +12521,10 @@ vp_main:
     mov al, [vp_fsmode]
     call OSAPI_FSX_MODE
     jnc .mode
+    mov ax, vp_s_refused
+.err:                               ; (the bracket's refusals: AX = why)
     mov byte [vp_err], 1
-    mov word [vp_errmsg], vp_s_refused
+    mov [vp_errmsg], ax
     ret
 .mode:
     call vp_mchg                    ; A MONITOR'S RE-SYNC (98.3.20): when
@@ -12529,9 +12533,8 @@ vp_main:
     mov [vp_vseg], ax
     call vp_hpg2                    ; (a Hercules's second page, or refused)
     jnc .hp2
-    mov byte [vp_err], 1
-    mov word [vp_errmsg], vp_s_hpage
-    ret
+    mov ax, vp_s_hpage
+    jmp short .err
 .hp2:
     call vp_dac                     ; VGA8: the file's 256 colours
     call vp_crtc                    ; ...and each row twice, if it asks
@@ -12540,11 +12543,7 @@ vp_main:
     ; the origin: centred, the row on a bank (SPEC.md 98.1.2), on the
     ; screen's layout - the file's own, or the shadow's target (98.3.2)
     mov bl, [vp_tlay]
-    xor bh, bh
-    mov ax, bx
-    shl bx, 1
-    add bx, ax
-    shl bx, 1
+    call vp_lay6                    ; BX = the layout x 6
     mov ax, [vp_laytab+bx+4]        ; rows...
     cmp byte [vp_mx200], 0          ; (...Mode X's 320 x 200's, 98.1.3.1.1,
     je .orx                         ; or a screen of its own's: 98.1.3.2.1)
@@ -12594,31 +12593,33 @@ vp_main:
     out dx, al
     mov byte [vp_burst], 1
 .surf:
-    mov word [vp_fcap], 2           ; through the shadow the decode is cheap
+    mov ax, 2                       ; through the shadow the decode is cheap
     cmp byte [vp_shadow], 0         ; and the copy is not: more frames a call,
     je .fc                          ; one copy after them
-    mov word [vp_fcap], 8
+    mov al, 8
 .fc:
     cmp byte [vp_fpg], 0            ; (flipped and built ahead: every frame
     jne .fc2                        ; flipped too)
     cmp byte [vp_flip], 1           ; FLIPPING: a frame a call, so a flip has
     jne .fc1                        ; a period to latch before the next draw
 .fc2:
-    mov word [vp_fcap], 1           ; goes into the page it replaces (page-
+    mov al, 1                       ; goes into the page it replaces (page-
                                     ; ahead waits for its rare flips instead)
 .fc1:
+    mov [vp_fcap], ax
     call vo_setup                   ; the full screen's text (98.3.13)
-    mov word [vp_dy0], 0xFFFF
-    mov word [vp_dy1], 0
     call OSAPI_MOUSE                ; the buttons as they are: a CLICK is a
     mov [vp_mbtn], al               ; press after this
-    mov word [vp_wtk], 0xFFFF       ; the thumb: asked at the first frame
     xor ax, ax                      ; PAGES (98.3.8): page 0 on the glass,
+    mov [vp_dy1], ax
     mov [vp_poff], ax               ; the other drawn next, and no record
     mov [vp_foff], ax               ; owed to it yet
     mov [vp_prevn], ax
     mov [vo_sl0], ax                ; (the text's two saves on pages 0 and
-    mov ax, [vp_page]               ; 1, until N pages move one: vo_pgsave)
+    dec ax                          ; 1, until N pages move one: vo_pgsave)
+    mov [vp_dy0], ax
+    mov [vp_wtk], ax                ; the thumb: asked at the first frame
+    mov ax, [vp_page]
     mov [vo_sl1], ax
     cmp byte [vp_flip], 1           ; (page-ahead draws on the page shown)
     jne .pg
@@ -12642,9 +12643,11 @@ vp_main:
     ; left the window black for all of them. From frame 0 the black waits
     ; for the fill; from a key the screen already shows, it is not needed
     ; at all - the key's writes are the bytes already there
-    mov byte [vp_sfirst], 0
-    mov byte [vp_pfok], 1           ; (the bank's prefill, after the ring's)
-    mov byte [vp_kblk], 1           ; (from frame 0: black after the fill)
+    xor ax, ax
+    mov [vp_sfirst], al
+    inc ax
+    mov [vp_pfok], al               ; (the bank's prefill, after the ring's)
+    mov [vp_kblk], al               ; (from frame 0: black after the fill)
     cmp word [vp_krec], 0xFFFF
     je .first
     mov byte [vp_kblk], 0
@@ -12692,9 +12695,8 @@ vp_main:
     mov [vp_krec], si
     jmp .kp
 .kpbad:
-    mov byte [vp_err], 1
-    mov word [vp_errmsg], vp_s_kbad
-    ret
+    mov ax, vp_s_kbad
+    jmp .err
 .klast:
     cmp byte [vp_audio], 2          ; ADPCM4's keyframe carries the card's
     jne .kd                         ; REFERENCE after its lists: the sample
