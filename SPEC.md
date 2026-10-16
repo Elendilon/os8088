@@ -40205,6 +40205,68 @@ Three consequences fall out, all wanted:
 The volume is labelled `OS8088SYS`; the apps disk stays `OS8088APPS`, and the
 data disks never had a reserved area to begin with.
 
+#### 19.3.1 Chains go where the command line names them, so the boot set is beside the directories
+
+**Where a chain sits is the one thing about a FAT volume its builder is free
+to choose, and `tools/os88disk.py` chooses it for the reads that happen.**
+Nothing here is a format change: every directory entry, every FAT link and
+the free count are what any FAT12/FAT16 reader expects, and `--verify` and
+DOS read the volume exactly as before. Only cluster NUMBERS move.
+
+Two rules, in this order, after `KERNEL.SYS` (cluster 2, §19.3) and the
+directory chains:
+
+1. **File chains go in ARGUMENT order**, not folder order. A boot reads the
+   kernel, the root, the drivers this machine detects and `\AUTOSTRT`
+   (§26.10.5) and nothing else, and folder order put the drivers after every
+   package - a Sound Blaster machine's 720KB boot went cylinder
+   0 → 46 → 47 → 10 for one 13-sector file. `$(DRIVERS)` is named first on
+   every system disk and `SOUND.DRV`/`HDD.DRV` lead it, so they land on the
+   cylinder after the directories.
+2. **No chain crosses a cylinder it did not have to** (`cyl_pack`). A file
+   read is one `int 13h` per cylinder it touches (§18.91), and a 14-sector
+   file on an 18-sector cylinder placed by chance crosses ~70% of the time -
+   an extra call, about a revolution, at every load. Such a chain is put on
+   the boundary by **filling** the gap exactly with later chains from the same
+   folder, or else by **padding** it: leaving the gap free. A free cluster in
+   the middle of a volume holds as much as one at the end, so a pad is free
+   space MOVED rather than spent. Half a disk's free clusters may be used this
+   way, first come first served in argument order, so the boot set is paid for
+   first and the volume still ends in a free run. `--no-pack` is the A/B.
+
+ASSOC.DAT keeps §54.7.5's own placement and the directory chains stay where
+rule 1 left them; both are pinned out of the packer.
+
+Measured (MartyPC, cycle-exact; `tools/os88boot.py`, an `int 13h` trace, and
+a launch timed to `wm_show`), against the folder-order layout:
+
+| | before | after |
+|---|---:|---:|
+| 720KB boot, 5150 + Hercules + SB, `\AUTOSTRT` empty | 16,093 ms | **15,293 ms** |
+| ...its `as_boot` (one directory sector) | 573 ms, 37 cyl | **218 ms, 1 cyl** |
+| 360KB boot, the same with the 360KB disk | 14,881 ms | **14,793 ms** |
+| 360KB boot, 5150 + CGA, no driver | 13,452 ms | 13,452 ms |
+| Calculator launched off the 360KB apps disk | 4,560 ms, 2 reads | **4,142 ms, 1 read** |
+| needless cylinder crossings, all twelve shipped images | 132 | **16** |
+
+The no-driver boot does not move because it reads nothing past the root.
+The 360KB Sound Blaster figure is smaller than the 720KB one because that disk
+has no `\AUTOSTRT` to come back for, and is ~110 ms above the argument-order
+layout without the packer: `SOUND.DRV` is read in two calls wherever it sits
+- the split is the kernel's buffer and not the platter - so what moved is
+the rotational phase the second call starts at, which no build-time layout
+controls. What the 16 remaining crossings are is the full disks: the 360KB
+system disk has 4 free clusters, so 2 to pad with, and the 360KB apps disk 1.
+
+**The cost is where a user's FIRST saves land.** `dskw_alloc` roves from
+cluster 2 on every mount (§18.4), so the first files written to a shipped disk
+fill these gaps. For a small file - a `SYSTEM.CFG`, a link in `\AUTOSTRT` -
+that is beside the boot set and better than the end of the disk; a large
+document saved early is split across a few gaps and reads back in more calls
+than it would have. The gaps fill and are gone; a disk that had none never
+pays it.
+
+
 ### 19.4 The listing is sorted by name, in the mount
 
 `disk_dir` comes out of `disk_mount` in **ascending display-name order**,
