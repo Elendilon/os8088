@@ -9737,6 +9737,7 @@ vp_sstart:
     mov ax, VP_PREVKB               ; (from the top too, for the same
     call vp_mclhi                   ; reason)
     jnc .pv
+.pvf:
     jmp .memf
 .pv:
     mov [vp_prevseg], dx
@@ -9749,6 +9750,13 @@ vp_sstart:
     call vp_zero                    ; and left the keeper as the claim found
                                     ; it - onto both pages, 98.3.8)
 .nkz:
+    cmp byte [vp_flip], 0           ; ON TWO PAGES OR MORE, the text's
+    je .ns1                         ; second save (98.3.13.2) - from the
+    mov ax, (VO_SAV + 1023) / 1024  ; top, as the copy is
+    call vp_mclhi
+    jc .pvf
+    mov [vo_s1seg], dx
+.ns1:
     ; --- RESIDENT (98.1.7): no ring - the block, loaded and kept, and a
     ;     key's record read into a claim of its own if the play starts at one
     cmp byte [vp_resid], 0
@@ -10427,6 +10435,8 @@ vp_smov:
     call vp_mmovz
     mov dx, [vp_pevseg]             ; (the hook reads the palettes a scene)
     call vp_mmovz
+    mov dx, [vo_s1seg]              ; (and the text's second save)
+    call vp_mmovz
     pop dx
     ret
 
@@ -10475,7 +10485,7 @@ vp_smove:
     ret
 
 vp_smtab:     dw vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd
-              dw vp_pevseg, vp_p8seg, 0
+              dw vp_pevseg, vp_p8seg, vo_s1seg, 0
 
 ; -----------------------------------------------------------------------------
 ; vp_spos - DX = the ring (or, resident, the key's claim, or 0): the session
@@ -11918,22 +11928,27 @@ vp_sfree:
     call .f
     mov dx, [vp_prevseg]
     call .f
+    mov dx, [vo_s1seg]
+    call .f
     mov dx, [vp_lyseg]
     cmp byte [vp_lyb], 0            ; (a flip's slots are the ring's)
     jne .nly
     call .f
 .nly:
-    xor dx, dx
-    mov [vp_lyb], dl
-    mov [vp_lyseg], dx
-    mov [vp_lyon], dl
-    mov [vp_prevseg], dx
-    mov [vp_ring], dx
-    mov [vp_rclm], dx
-    mov [vp_keep], dx
-    mov [vp_shseg], dx
-    mov [vp_aseg], dx
-    mov [vp_kkb], dl
+    push ax                         ; (AX the zero: a store of it is a byte
+    xor ax, ax                      ; shorter than one of DX)
+    mov [vp_lyb], al
+    mov [vp_lyseg], ax
+    mov [vp_lyon], al
+    mov [vp_prevseg], ax
+    mov [vo_s1seg], ax
+    mov [vp_ring], ax
+    mov [vp_rclm], ax
+    mov [vp_keep], ax
+    mov [vp_shseg], ax
+    mov [vp_aseg], ax
+    mov [vp_kkb], al
+    pop ax
     pop dx
     ret
 .f:
@@ -20281,9 +20296,12 @@ vp_s_buf:     db 'Buffering ', 0    ; (here, past the libraries: eleven bytes
 vp_pal        equ os88_image_end    ; the SIXTEEN: a VGA4 file's own, or a
                                     ; scene's (VGA8's 256 are a claim's,
                                     ; [vp_p8seg]: vp_rdpal)
-vo_sav        equ vp_pal + 48       ; what the full screen's text covers, a
-                                    ; save a page (98.3.13)
-vc_pg         equ vo_sav + 2 * VO_SAV ; ...and a 256-byte page -> the first
+vo_sav        equ vp_pal + 48       ; what the full screen's text covers on
+                                    ; the FIRST of its two pages (98.3.13) -
+                                    ; the second's is a claim, [vo_s1seg],
+                                    ; and only a play on two pages or more
+                                    ; takes it (98.3.13.2)
+vc_pg         equ vo_sav + VO_SAV   ; ...and a 256-byte page -> the first
                                     ; of its rows at or after it (98.3.13.1)
 ; ...and INSIDE THE SAVE, the desktop's two picture tables (98.4): the save
 ; is live only in a bracket with the box up (vo_setup clears it at every
@@ -20301,7 +20319,9 @@ vp_lines      equ vo_sav + 768      ; the info panel's text
 %if 768 + VP_LINES * VP_LINE > VO_SAV       ; (the tables before it)
   %error "the card's text does not fit a page's save"
 %endif
-; ...and PAST it, to the save's end, THE DESKTOP'S SCRATCH: words a routine
+; ...and PAST it, over the page table and on past both, THE DESKTOP'S
+; SCRATCH - which is what sizes the bss, being longer than the save and the
+; table together (98.3.13.2): words a routine
 ; writes before it reads them and spends inside the one call, in routines
 ; the full screen never runs - the ground's holes (vp_ground), the thumb's
 ; move and a button turned over (vp_wmove, vp_winv: the window's play
@@ -20311,7 +20331,8 @@ vp_lines      equ vo_sav + 768      ; the info panel's text
 ; (vp_layfit), the open's (vp_open, vp_rwalk: vp_sstart runs it between
 ; brackets) and the hold's check (vp_xok, the same). And the mode's record
 ; (vp_fsi), filled and read at a bracket's door BEFORE the box can be up.
-; A box up clobbers every one of them, and none is read across a bracket
+; A box up clobbers every one of them under the save's and the table's
+; end, and none is read across a bracket
 vp_dsk        equ vp_lines + VP_LINES * VP_LINE
 vp_gh         equ vp_dsk            ; the holes: x1, y1, x2, y2 each
 vp_gb         equ vp_gh + 16 * 8    ; ...the rect
@@ -20380,8 +20401,9 @@ vp_lsin       equ vp_ldseg + 2      ; ...vp_ldstored's start in its cluster
 vp_lsrem      equ vp_lsin + 2       ; and the bytes still to read or move
 vp_etseg      equ vp_lsrem + 4      ; vp_erate's segment (vp_open's)
 vp_dskend     equ vp_etseg + 2
-%if vp_dskend - vo_sav > 2 * VO_SAV
-  %error "the desktop's scratch runs past the full screen's save"
+%if vp_dskend - vo_sav > VO_SAV + 256 ; (the scratch is the longer: the bss
+    OS88_BSS vp_dskend - vp_pal     ; is the palette and it, the save and
+%else                               ; the page table inside it)
+    OS88_BSS 48 + VO_SAV + 256
 %endif
-    OS88_BSS 48 + 2 * VO_SAV + 256
     OS88_IMAGE_END
