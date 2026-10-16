@@ -50871,6 +50871,12 @@ content-relative; the procs fetch the content origin via `wm_content`
     item 0 and the region's relocation proc is `mn_org`'s `ret`; the digit's
     colour is read through SI with no bank; and the clicked cell's one-entry
     list is the queue's first byte, which the enqueue rewrites with itself.
+  - **A colour is set once per RUN of rects.** A list is `MN_SC` (16) +
+    colour and then that colour's rects, 0xFF ending it: a coordinate is
+    0..15, so one compare tells a colour byte from the next rect's x1 and
+    the same compare's sign finds the 0xFF. The covered face sets the pen 3
+    times for 5 fills, the open face 2 for 5, the exposed mine 2 for 10 -
+    14 colour bytes and that many `OSAPI_SET_COLOR` calls fewer.
 
 ## 24. Packaging toolchain (host side)
 

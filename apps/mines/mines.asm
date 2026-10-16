@@ -594,18 +594,23 @@ mn_cellxy:
 
 ; -----------------------------------------------------------------------------
 ; mn_shape - run a list of coloured fills relative to a cell origin.
-; Record: db colour, x1, y1, x2, y2 (cell-relative bytes); 0xFF terminates.
+; List: runs of `db MN_SC + colour` and then that colour's rects, each
+; `db x1, y1, x2, y2` (cell-relative, 0..15); 0xFF terminates.
 ; in:  SI -> shape list, CX = cell x, DX = cell y
 ; out: SI -> past the list's 0xFF; preserves every other register
+;
+; A COLOUR IS SET ONCE PER RUN, not once per rect: a coordinate is 0..15
+; and a colour byte MN_SC (16) + 0..15, so one compare tells them apart and
+; a rect in the colour already set costs no pen call and no byte. The same
+; compare sorts out the 0xFF - it is the one byte whose difference from 16
+; is negative. (Not `cbw` for a sign test anywhere here: CBW WRITES NO
+; FLAGS, and a `js` after it tested whatever the last gfx_fill left - which
+; is how this shipped once and walked off the end of the list.)
 ;
 ; SI is LEFT past the terminator on purpose: a list laid out straight after
 ; another is drawn by calling again with no reload (the flag over a covered
 ; cell). Each coordinate goes to the register gfx_fill wants it in with a
-; one-byte xchg, and the terminator is the one record whose colour byte has
-; bit 7 set - colours are 0..15 - so its sign is the test. `or`, not `cbw`:
-; CBW WRITES NO FLAGS, and a `js` after it tests whatever the last gfx_fill
-; left - which is how this shipped once and walked off the end of the list
-; on the first board that was not entirely covered.
+; one-byte xchg.
 ; -----------------------------------------------------------------------------
 mn_shape:
     push ax
@@ -617,11 +622,14 @@ mn_shape:
     mov bp, cx                      ; cell left
     mov di, dx                      ; cell top
 .rec:
-    lodsb                           ; colour (DF=0 per calling convention)
-    or al, al
+    lodsb                           ; DF=0 per calling convention
+    cmp al, MN_SC
+    jb .rect                        ; 0..15: x1 of another rect in this colour
     js .done                        ; 0xFF: the end of the list
+    and al, 0x0F                    ; MN_SC + colour: the pen for this run
     call OSAPI_SET_COLOR
     lodsb                           ; x1 (every coordinate is 0..15, so
+.rect:
     cbw                             ; cbw is the zero extension)
     add ax, bp
     push ax
@@ -713,10 +721,10 @@ mn_draw_cell2:
 ; -----------------------------------------------------------------------------
 mn_draw_minecell:
     call mn_cellxy
-    mov al, CLGRAY
+    mov al, MN_SC + CLGRAY
     cmp bl, [mn_boom]
     jne .bg
-    mov al, CLRED
+    mov al, MN_SC + CLRED
 .bg:
     mov [mn_sh_bg], al
     mov si, mn_sh_bg
@@ -950,42 +958,53 @@ mn_ttl:     db 'Minesweeper', 0     ; the title, and the card's first line
 mn_digcol:
     db CBLUE, CGREEN, CRED, CMAGENTA, CBROWN, CCYAN, CBLACK, CDGRAY
 
-; --- cell shape lists: db colour, x1, y1, x2, y2 (cell-relative); 0xFF ends ----
+; --- cell shape lists (mn_shape): MN_SC + colour, then that colour's rects as
+; x1, y1, x2, y2 (cell-relative, inclusive); 0xFF ends the list -------------
+MN_SC        equ 16                 ; above every coordinate (0..15)
 mn_sh_covered:                      ; light gray face, 2px bevels - and
                                     ; mn_sh_flag MUST follow it (mn_draw_cell)
-    db CLGRAY,  0,  0, 15, 15
-    db CWHITE,  0,  0, 15,  1       ; top bevel
-    db CWHITE,  0,  0,  1, 15       ; left bevel
-    db CDGRAY,  0, 14, 15, 15       ; bottom bevel
-    db CDGRAY, 14,  0, 15, 15       ; right bevel
+    db MN_SC + CLGRAY
+    db          0,  0, 15, 15
+    db MN_SC + CWHITE
+    db          0,  0, 15,  1       ; top bevel
+    db          0,  0,  1, 15       ; left bevel
+    db MN_SC + CDGRAY
+    db          0, 14, 15, 15       ; bottom bevel
+    db         14,  0, 15, 15       ; right bevel
     db 0xFF
 
 mn_sh_flag:                         ; overlay on a covered cell
-    db CBLACK,  8,  3,  8, 11       ; mast
-    db CBLACK,  6, 12, 10, 12       ; base
-    db CLRED,   4,  3,  7,  7       ; pennant
+    db MN_SC + CBLACK
+    db          8,  3,  8, 11       ; mast
+    db          6, 12, 10, 12       ; base
+    db MN_SC + CLRED
+    db          4,  3,  7,  7       ; pennant
     db 0xFF
 
 mn_sh_open:                         ; white face, 1px dark gray grid border
-    db CWHITE,  0,  0, 15, 15
-    db CDGRAY,  0,  0, 15,  0
-    db CDGRAY,  0,  0,  0, 15
-    db CDGRAY, 15,  0, 15, 15
-    db CDGRAY,  0, 15, 15, 15
+    db MN_SC + CWHITE
+    db          0,  0, 15, 15
+    db MN_SC + CDGRAY
+    db          0,  0, 15,  0
+    db          0,  0,  0, 15
+    db         15,  0, 15, 15
+    db          0, 15, 15, 15
     db 0xFF
 
 mn_sh_bg:                           ; loss: the ground under the mine glyph,
-    db 0,       0,  0, 15, 15       ; its colour written by mn_draw_minecell
+    db 0                            ; its MN_SC + colour written by
+    db          0,  0, 15, 15       ; mn_draw_minecell
 mn_sh_mine:                         ; black disc with spokes
-    db CBLACK,  5,  5, 10, 10       ; disc core
-    db CBLACK,  6,  4,  9, 11       ; the rounding: the core grown by a row
-    db CBLACK,  4,  6, 11,  9       ; ...and by a column (two rects for four)
-    db CBLACK,  7,  2,  8, 13       ; vertical spoke
-    db CBLACK,  2,  7, 13,  8       ; horizontal spoke
-    db CBLACK,  3,  3,  4,  4       ; diagonal spoke nubs
-    db CBLACK, 11,  3, 12,  4
-    db CBLACK,  3, 11,  4, 12
-    db CBLACK, 11, 11, 12, 12
+    db MN_SC + CBLACK
+    db          5,  5, 10, 10       ; disc core
+    db          6,  4,  9, 11       ; the rounding: the core grown by a row
+    db          4,  6, 11,  9       ; ...and by a column (two rects for four)
+    db          7,  2,  8, 13       ; vertical spoke
+    db          2,  7, 13,  8       ; horizontal spoke
+    db          3,  3,  4,  4       ; diagonal spoke nubs
+    db         11,  3, 12,  4
+    db          3, 11,  4, 12
+    db         11, 11, 12, 12
     db 0xFF
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
