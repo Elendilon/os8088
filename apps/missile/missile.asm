@@ -4826,34 +4826,42 @@ mc_redraw_trails:
     push dx
     push si
     push di
+    push bp
     mov al, [mc_cicbm]
+    xor bp, bp                      ; BP = the MC_ABMD bias: the ICBMs, then
+.pass:                              ; the ABMs through the very same code
     call mc_setcol
-    xor si, si
-.icbm:
+    mov si, bp
+.each:
     mov al, [mc_ia + si]
-    cmp al, 1
-    jb .inext
+    cmp al, 1                       ; flying (an ABM is never 2)
+    jb .next
     cmp al, 2
-    ja .inext
-    mov di, si
-    add di, di
-    mov ax, [mc_isx + di]
-    mov bx, [mc_isy + di]
-    mov cx, [mc_iex + di]
-    mov dx, [mc_iey + di]
-    push di
-    call mc_iblk
+    ja .next
+    mov bx, si
+    sub bx, bp                      ; the slot...
+    mov di, bx
+    mov cl, 4
+    shl di, cl
+    add di, bp
+    add di, mc_iwlk                 ; ...its walk block...
+    add bx, si                      ; ...and BX = 2 * slot + bias
+    mov ax, [mc_isx + bx]
+    mov cx, [mc_iex + bx]
+    mov dx, [mc_iey + bx]
+    push bx
+    mov bx, [mc_isy + bx]
     call mc_tr_lay
     pop bx                          ; BX = slot*2 again; a pop leaves CF alone
-    jc .iold
+    jc .old
     mov byte [mc_iarm + si], 1
     mov ax, [mc_trlen]
     mov [mc_ilen + bx], ax
     mov cx, [mc_idrw + bx]
-    jcxz .inext
+    jcxz .next
     call mc_tr_step
-    jmp short .inext
-.iold:
+    jmp short .next
+.old:
     mov byte [mc_iarm + si], 2      ; no walk: the segment path owns this one,
     mov word [mc_idrw + bx], 0      ; and [mc_ipx] is what it draws to
     mov ax, [mc_isx + bx]
@@ -4861,47 +4869,17 @@ mc_redraw_trails:
     mov dx, [mc_ipy + bx]
     mov bx, [mc_isy + bx]
     call mc_line
-.inext:
+.next:
     inc si
-    cmp si, MC_MAXICBM
-    jb .icbm
-
+    mov ax, si
+    sub ax, bp
+    cmp ax, MC_MAXICBM
+    jb .each
     mov al, [mc_cabm]
-    call mc_setcol
-    xor si, si
-.abm:
-    cmp byte [mc_aa + si], 1
-    jne .anext
-    mov di, si
-    add di, di
-    mov ax, [mc_asx + di]
-    mov bx, [mc_asy + di]
-    mov cx, [mc_atx + di]
-    mov dx, [mc_aty + di]
-    push di
-    call mc_ablk
-    call mc_tr_lay
-    pop bx
-    jc .aold
-    mov byte [mc_aarm + si], 1
-    mov ax, [mc_trlen]
-    mov [mc_alen + bx], ax
-    mov cx, [mc_adrw + bx]
-    jcxz .anext
-    call mc_tr_step
-    jmp short .anext
-.aold:
-    mov byte [mc_aarm + si], 2
-    mov word [mc_adrw + bx], 0
-    mov ax, [mc_asx + bx]
-    mov cx, [mc_apx + bx]
-    mov dx, [mc_apy + bx]
-    mov bx, [mc_asy + bx]
-    call mc_line
-.anext:
-    inc si
-    cmp si, MC_MAXABM
-    jb .abm
+    or bp, bp
+    mov bp, MC_ABMD                 ; (MOV leaves the flags alone)
+    jz .pass
+    pop bp
     jmp mc_pop_6
 
 ; -----------------------------------------------------------------------------
@@ -7711,7 +7689,9 @@ MC_ABMD     equ mc_aa - mc_ia
     MC_ALIKE mc_isy,  mc_asy
     MC_ALIKE mc_iex,  mc_atx
     MC_ALIKE mc_iey,  mc_aty
+    MC_ALIKE mc_iwlk, mc_awlk
     MC_ALIKE mc_idrw, mc_adrw
+    MC_ALIKE mc_ilen, mc_alen
     MC_ALIKE mc_iarm, mc_aarm
     MWORD mc_trlen                  ; mc_tr_lay's answer, out of the registers
 

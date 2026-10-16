@@ -87710,6 +87710,7 @@ of them consumes the random stream differently, so a game plays out the same.
 |---|---:|---:|---:|
 | before pass 2 | 10,689 | 13,463 | 2,430 |
 | one slot fill for both kinds, the targets as one run | 10,542 | 13,065 | 2,430 |
+| `mc_redraw_trails` walks both kinds with one body | 10,524 | 12,993 | 2,430 |
 
 **The ICBM and ABM records are laid out alike**, field for field from
 `[mc_ia]`/`[mc_aa]`, and `MC_ABMD` is the distance between them - asserted
@@ -87728,6 +87729,16 @@ as a SUM and walks them as one loop - the same count, the same random draw
 and the same pick - and `mc_destroy` and `mc_nextwave`'s regeneration share
 `mc_tdmg` for the terrain under a target. `mc_destroy` said it preserved every
 register and clobbered CX; it keeps CX now (its one caller saved it anyway).
+
+`mc_redraw_trails` - the full repaint's, and only the full repaint's - walks
+the ICBMs and then the ABMs through ONE body with the bias in BP (used as a
+number, never as an address, so SS never enters into it). It is the clearest
+case of what LZ4 already did with duplicated code: 72 bytes of image came out
+and **18** of file, because the two copies differed only in their
+displacements and the packer had matched the rest. The per-frame trail loops
+(`mc_wipe_trails`, `mc_move_trails`) keep their two copies: one body there
+would cost every frame a bias subtraction per slot, and their packed weight
+is the same story as this one's.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
