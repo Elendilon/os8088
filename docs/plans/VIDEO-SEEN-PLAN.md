@@ -466,6 +466,49 @@ drawn over the base's, so a base drawn toward the next frame would have
 the layer drawing it back - paid for twice), and LIVE (a pass a tick on
 the desktop).
 
+## 3b. OPEN: a flipped file whose every record is against its own page
+
+**Recorded, not started** (the owner, 2026-10-16: "record the option for
+changing the format and let's move on for now"). The held record's bring-up
+is 77% of the next frame's ceiling on Last Exile (3a, wave 3), and it is
+the shape of every flipped file, not only a held one: today a flipped
+record is a change against the frame BEFORE it, so the page it is drawn on
+(which holds the frame two back) is first brought up - the last record
+decoded again, or its rows copied off the glass (98.3.8, 98.3.8.1) - and
+every frame pays that before it draws.
+
+**The option**: a flipped file whose every record is a change against ITS
+OWN PAGE - the frame two back - drawn "as it stands", as 98.1.3.7.2's
+`REC_BUILT` already is. No page is ever brought up: no kept record, no
+`vp_prevseg` claim, no copy, and a held record (98.1.3.9) is then free,
+its page simply drawn on twice.
+
+**What decides it is one number, measurable on the host before any byte is
+written**: per frame, the cost of the change against the frame two back
+against the cost of the bring-up plus the change against the frame one
+back - priced by the profile's table (98.2.3.3) over the clips that flip
+(Last Exile, Bad Carrot, Trackmania). A change two back is the UNION of
+two frames' changes, so it is larger where the picture moves on, and the
+bring-up it removes is a whole record's decode or a band's copy: which is
+cheaper is the clip's, and may be the frame's.
+
+**Its shape, if it wins**:
+- **Format**: rendition byte 37 = 7 (a player before it refuses), every
+  frame record flipped and drawn on its own page as it stands. Keys are a
+  picture onto both pages, as today; a seek lands on two equal pages, so
+  the first record after a key is a change against the key on either.
+- **Player**: `vp_flipdec` without its bring-up - SMALLER than today's, and
+  `vp_prevseg`'s 31 KB claim gone with it. The text's two saves are a page
+  each already (98.3.8.5).
+- **Encoder**: the `Flipped` model keeps BOTH pages' pictures, a frame's
+  change taken against its own page's; the budgets lose `prev_c`. A
+  per-frame choice between the two kinds would need both in one file (a
+  record bit, `REC_BUILT`'s), and bringing a page up again after a record
+  against its own page is the copy this exists to avoid - so the choice,
+  if any, is the file's.
+- **Not combined** with page-ahead's flipped files (98.1.3.7.2), which
+  already build a page as it stands where they flip to one.
+
 ## 4. The order
 
 1. (FIRST, not this plan) Fix why the opening GasGas shot breaks at all
