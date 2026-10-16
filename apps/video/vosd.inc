@@ -63,64 +63,58 @@ VO_TATTR    equ 0x70                ; a cell each, on one row, black on grey -
 ; controls say what the keys did. Clobbers AX, BX, CX, DX, SI
 vo_setup:
     xor ax, ax
-    mov [vo_mode], al
-    mov [vo_drawn], al
-    mov [vo_on], al
-    mov [vo_chg], al
-    mov [vo_kind], al
-    mov [vo_pz], al
-    mov [vo_toast], al
-    mov [vo_skp], al
-    mov [vo_clip], al
+    mov [vo_mode], ax               ; (and vo_drawn: the ten bytes in front
+    mov [vo_on], ax                 ; of vo_rows, five words - vo_on, vo_chg,
+    mov [vo_kind], ax               ; vo_kind, vo_pz, vo_toast, vo_skp,
+    mov [vo_toast], ax              ; vo_clip, vo_dir)
+    mov [vo_clip], ax
     cmp byte [vp_winm], 0
-    jne .out
+    je .g
+.r0:
+    ret                             ; (a ret in a short jump's reach: the
+.g:                                 ; exits below were jumps over a jump)
     push es
     call OSAPI_FONT_GLYPHS          ; DX:SI, AL..AH, CX bytes a glyph
     pop es
     cmp cx, 8
-    jne .out
+    jne .r0
     mov [vo_gseg], dx
     mov [vo_goff], si
-    mov [vo_gfst], al
-    mov [vo_glst], ah
-    mov bl, [vp_fsmode]             ; this screen's renderer, the bytes a
-    cmp bl, FSXM_MODEX              ; character takes (a plane's), and the
-    ja .out                         ; box's left, in the same bytes
+    mov [vo_gfst], ax               ; (and vo_glst)
+    mov bl, [vp_fsmode]             ; this screen's renderer and the bytes a
+    cmp bl, FSXM_MODEX              ; character takes (a plane's) - which is
+    ja .r0                          ; the box's left, in the same bytes
     xor bh, bh
-    mov ax, bx
     shl bx, 1
-    add bx, ax
-    mov al, [vo_mtab+bx]
-    or al, al
-    jz .out
-    mov cl, [vo_mtab+bx+1]
-    mov [vo_bpc], cl
-    mov cl, [vo_mtab+bx+2]
-    xor ch, ch
-    mov [vo_xoff], cx
+    mov bx, [vo_mtab+bx]            ; BL = the renderer, BH = the bytes
+    or bl, bl
+    jz .r0
+    mov cl, bh
+    mov ax, VO_ROWS                 ; the box's rows of the canvas, and how
+    mov dx, VO_YOFF                 ; far down it is
     cmp byte [vp_pixfmt], PF_C512   ; C512 shares C160's mode, and the
     jne .nc5                        ; screen is its canvas: a character is
-    mov byte [vo_bpc], 8            ; four 0DEh CELLS, eight bytes, and the
-    mov cl, 8                       ; box's left is one
-    mov [vo_xoff], cx
+    mov cl, 8                       ; four 0DEh CELLS, eight bytes
+    mov bl, VOM_C
 .nc5:
-    mov word [vo_rows], VO_ROWS     ; the box's rows of the canvas, and how
-    mov word [vo_rows2], VO_ROWS * 2    ; far down it is
-    mov word [vo_yoff], VO_YOFF
     cmp byte [vp_pixfmt], PF_TEXT   ; TEXT: a character is a CELL, two
     jne .ntx                        ; bytes, the box one row of them a row
-    mov byte [vo_bpc], 2            ; down and a cell in
-    mov cl, 2
-    mov [vo_xoff], cx
-    mov word [vo_rows], 1
-    mov word [vo_rows2], 2
-    mov word [vo_yoff], 1
+    mov cl, 2                       ; down and a cell in
+    mov bl, VOM_A
+    mov al, 1
+    mov dx, ax
 .ntx:
+    mov [vo_rows], ax
+    mov [vo_yoff], dx
+    shl ax, 1
+    mov [vo_rows2], ax
+    mov [vo_bpc], cl
+    xor ch, ch
+    mov [vo_xoff], cx
     mov ax, [vp_wb]                 ; the characters the canvas holds
     sub ax, cx
     jbe .out
     xor dx, dx
-    mov cl, [vo_bpc]
     div cx
     sub ax, 2
     jbe .out
@@ -133,19 +127,9 @@ vo_setup:
     add ax, [vo_rows]
     cmp [vp_h], ax
     jb .out
-    mov bl, [vo_mtab+bx]            ; (the renderer, again)
-    cmp byte [vp_pixfmt], PF_C512
-    jne .r5
-    mov bl, VOM_C
-.r5:
-    cmp byte [vp_pixfmt], PF_TEXT
-    jne .r6
-    mov bl, VOM_A
-.r6:
-    mov cl, 1                       ; the planes a save takes: Mode X's four,
-    mov ch, 0                       ; VGA4's four, else one
-    cmp bl, VOM_X
-    jne .p1
+    mov cx, 1                       ; the planes a save takes: Mode X's four,
+    cmp bl, VOM_X                   ; VGA4's four, else one - and whether
+    jne .p1                         ; they are the VGA's ports (vo_mx)
     mov cx, 0x0104
     jmp short .pl
 .p1:
@@ -159,12 +143,7 @@ vo_setup:
     jne .pl
     mov cl, 4
 .pl:
-    mov [vo_pl], cl
-    mov [vo_mx], ch
-    cmp bl, VOM_X
-    jne .mk
-    mov byte [vo_mx], 1
-.mk:
+    mov [vo_pl], cx                 ; (and vo_mx)
     mov [vo_mode], bl
 .out:
     ret
@@ -282,7 +261,7 @@ vo_update:
 .sh:
     cbw                             ; (a kind is below 80h: AH = 0)
     xchg ax, si
-    mov al, [vo_stab+si]            ; its text, a byte past vo_s_none
+    mov al, [vo_stab+si]            ; its text, a byte from vo_s_none
     cbw                             ; (all of them inside 128 bytes)
     add ax, vo_s_none
     xchg ax, si                     ; SI = the text, AX = the kind
@@ -868,19 +847,18 @@ vo_draw:
 .m2:
     cmp bl, VOM_2
     jne .m8
+    mov bx, vo_x2
 .b2:                                ; TWO BITS: each bit twice, colour 3
     lodsb
-    mov bl, al
-    shr bl, 1
-    shr bl, 1
-    shr bl, 1
-    shr bl, 1
-    xor bh, bh
-    mov ah, [vo_x2+bx]
-    mov bl, al
-    and bl, 15
-    mov al, [vo_x2+bx]
+    mov ah, al
+    and al, 15
+    xlatb                           ; the low nibble's byte...
     xchg al, ah
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    xlatb                           ; ...and the high one's, first
     stosw
     loop .b2
     jmp short .rn
@@ -1007,17 +985,20 @@ vo_draw:
 vc_setup:
     mov byte [vo_clip], 0
     cmp byte [vp_shadow], 0
-    jne .ret
+    je .g
+.r0:
+    ret
+.g:
     cmp byte [vp_flip], 1           ; (FLIPPED, every frame onto the page
-    je .ret                         ; not shown: the box put back there -
+    je .r0                          ; not shown: the box put back there -
     cmp byte [vp_fpg], 0            ; built ahead or not)
-    jne .ret
+    jne .r0
     cmp byte [vp_flip], 2           ; PAGE-AHEAD decodes on the page SHOWN:
     jne .pg0                        ; round the box there, as unflipped - its
     mov ax, [vp_foff]               ; save that page's (vp_pgdec sets it up
     call vo_savbit                     ; again at every flip)
     test [vo_drawn], bl
-    jz .ret                         ; (not on that page: nothing to go round)
+    jz .r0                          ; (not on that page: nothing to go round)
 .pg0:
     mov al, [vo_dn]                 ; the box's bytes a row, as it is drawn
     add al, 2
@@ -1060,7 +1041,7 @@ vc_setup:
     mov [vc_rv+di], dx
     add dx, [vc_w]
     add si, 2
-    cmp si, [cs:vo_rows2]
+    cmp si, [vo_rows2]
     jb .r
     xor si, si                      ; each range's end
 .e:
@@ -1068,13 +1049,13 @@ vc_setup:
     add ax, [vc_w]
     mov [vc_re+si], ax
     add si, 2
-    cmp si, [cs:vo_rows2]
+    cmp si, [vo_rows2]
     jb .e
     xor bx, bx                      ; the page table: each page, the first
     xor di, di                      ; range ending past its first byte
     xor dx, dx
 .pg:
-    cmp bx, [cs:vo_rows2]
+    cmp bx, [vo_rows2]
     jae .pp
     cmp [vc_re+bx], dx
     ja .pp
@@ -1519,22 +1500,22 @@ vo_time:
     mov byte [di], 0
     ret
 
-; the renderers by FSXM id: renderer, bytes a character (a plane's), the
-; box's left in those bytes
+; the renderers by FSXM id: renderer, bytes a character (a plane's) - and
+; the box's left, a character in
 vo_mtab:
-    db VOM_T, 4, 4                  ; FSXM_TEXT80: C160, through the shadow
-    db 0, 0, 0                      ; FSXM_TEXT40
-    db VOM_2, 2, 2                  ; FSXM_CGA320
-    db VOM_1, 1, 1                  ; FSXM_CGA640
-    db VOM_1, 1, 1                  ; FSXM_HERC
-    db VOM_1, 1, 1                  ; FSXM_VGA0D: a VGA4 screen of its own
-    db VOM_8, 8, 8                  ; FSXM_VGA13
-    db VOM_1, 1, 1                  ; FSXM_VGA12
-    db VOM_X, 2, 2                  ; FSXM_MODEX
+    db VOM_T, 4                     ; FSXM_TEXT80: C160, through the shadow
+    db 0, 0                         ; FSXM_TEXT40
+    db VOM_2, 2                     ; FSXM_CGA320
+    db VOM_1, 1                     ; FSXM_CGA640
+    db VOM_1, 1                     ; FSXM_HERC
+    db VOM_1, 1                     ; FSXM_VGA0D: a VGA4 screen of its own
+    db VOM_8, 8                     ; FSXM_VGA13
+    db VOM_1, 1                     ; FSXM_VGA12
+    db VOM_X, 2                     ; FSXM_MODEX
 vo_x2:        db 0x00, 0x03, 0x0C, 0x0F, 0x30, 0x33, 0x3C, 0x3F
               db 0xC0, 0xC3, 0xCC, 0xCF, 0xF0, 0xF3, 0xFC, 0xFF
-vo_s_none:    db 0
-vo_s_pause:   db 'Paused', 0
+vo_s_pause:   db 'Paused'
+vo_s_none:    db 0                  ; (an empty text: Paused's own NUL)
 vo_s_ron:     db 'Repeat on', 0
 vo_s_roff:    db 'Repeat off', 0
 vo_s_soff:    db 'Sound off', 0
@@ -1558,53 +1539,60 @@ vo_stab:      db 0                  ; vo_update's: each kind's text, its
 %if vo_s_lowmem - vo_s_none > 127 || VOK_PAUSE != 1 || VOK_SEEK != 2 || VOK_REPON != 3 || VOK_REPOFF != 4 || VOK_NOKEY != 5 || VOK_SNDOFF != 6 || VOK_LOWMEM != 7 || VOK_SNDON != 8 || VOK_SNDNX != 9 || VOK_BUF != 10 || VOK_BIGKEY != 11
 %error "vo_stab: a kind out of its order, or a text past cbw's reach"
 %endif
+; (vo_setup zeroes the first ten as five words, and every word is at an
+; even offset from vo_mode - which is put on an even address, and the pad
+; that takes is paid again at the end, so what follows keeps its parity in
+; every arm)
+..@vo_dbeg:
+    align 2, db 0
 vo_mode:      db 0                  ; the renderer, 0 none
+vo_drawn:     db 0                  ; the pages it is on (bits 0, 1)
+vo_on:        db 0                  ; whether it is to be on the glass
+vo_chg:       db 0                  ; ...changed since it was drawn
+vo_kind:      db 0                  ; what is shown
+vo_pz:        db 0                  ; Space paused the play here
+vo_toast:     db 0                  ; a toast's kind, while it lasts...
+vo_skp:       db 0                  ; a seek is on its way (vp_skkey)
+vo_clip:      db 0                  ; the hook decodes round the box (vd_clip)
+vo_dir:       db 0                  ; (vo_iop's: set before every use)
 vo_rows:      dw VO_ROWS            ; the box's rows of the canvas (TEXT's 1),
 vo_rows2:     dw VO_ROWS * 2        ; ...twice that,
 vo_yoff:      dw VO_YOFF            ; ...and the row it starts on
-vo_bpc:       db 0
 vo_xoff:      dw 0
-vo_cmax:      db 0                  ; the characters the canvas holds
-vo_pl:        db 0                  ; the planes a save takes
-vo_mx:        db 0                  ; ...and whether they are the VGA's ports
-vo_ink4:      db 15                 ; sixteen colours' ink: the brightest
 vo_gseg:      dw 0                  ; the kernel's glyphs
 vo_goff:      dw 0
-vo_gfst:      db 0
-vo_glst:      db 0
-vo_kind:      db 0                  ; what is shown
-vo_on:        db 0                  ; ...and whether it is to be on the glass
-vo_chg:       db 0                  ; ...changed since it was drawn
-vo_drawn:     db 0                  ; the pages it is on (bits 0, 1)
-vo_n:         db 0                  ; its characters
-vo_dn:        db 0                  ; ...as drawn, for the put-back
-vo_text:      times VO_MAXC + 1 db 0
-vo_bits:      times VO_MAXC + 2 db 0
-vo_nbuf:      times 7 db 0
 vo_nb:        dw 0
 vo_w:         dw 0
 vo_pgo:       dw 0
 vo_sl0:       dw 0                  ; the page each of the two saves is on:
 vo_sl1:       dw VP_PAGE            ; 0 and 1, or any two of N (vo_pgsave)
-vo_dir:       db 0
-vo_pz:        db 0                  ; Space paused the play here
-vo_toast:     db 0                  ; a toast's kind, while it lasts...
-vo_ttk:       dw 0                  ; ...since this tick
-vo_skp:       db 0                  ; a seek is on its way (vp_skkey)
-vo_clip:      db 0                  ; the hook decodes round the box (vd_clip)
-vc_mask:      db 1                  ; vd_clip: the planes a store reaches
-vc_w:         dw 0                  ; ...the box's bytes a row
+vo_ttk:       dw 0                  ; ...a toast's, since this tick
+vc_w:         dw 0                  ; vd_clip: the box's bytes a row
 vc_pls:       dw 0                  ; ...and a plane of the save
 vc_rs:        times VO_ROWS dw 0    ; ...its rows' ranges, in address order:
 vc_re:        times VO_ROWS dw 0    ; first byte, past the last, and the
 vc_rv:        times VO_ROWS dw 0    ; save's row
 vc_ri:        dw 0                  ; ...the range at or after a store, x 2
-vc_lst:       db 0                  ; ...the span list walked
-vc_sk:        db 0                  ; ...skip-coded: [vc_nb] holds
 vc_nb:        dw 0                  ; ...the next range's start
 vc_n:         dw 0                  ; vc_sav: the piece
-vc_fillf:     db 0                  ; ...a run, of
-vc_val:       db 0
 vb_n1:        dw 0                  ; vo_bparts: a shadow row's three parts
 vb_n2:        dw 0
 vb_n3:        dw 0
+vo_bpc:       db 0
+vo_cmax:      db 0                  ; the characters the canvas holds
+vo_pl:        db 0                  ; the planes a save takes
+vo_mx:        db 0                  ; ...and whether they are the VGA's ports
+vo_ink4:      db 15                 ; sixteen colours' ink: the brightest
+vo_gfst:      db 0                  ; (the kernel's first and last glyph,
+vo_glst:      db 0                  ; one word)
+vo_n:         db 0                  ; its characters
+vo_dn:        db 0                  ; ...as drawn, for the put-back
+vo_text:      times VO_MAXC + 1 db 0
+vo_bits:      times VO_MAXC + 2 db 0
+vo_nbuf:      times 7 db 0
+vc_mask:      db 1                  ; vd_clip: the planes a store reaches
+vc_lst:       db 0                  ; ...the span list walked
+vc_sk:        db 0                  ; ...skip-coded: [vc_nb] holds
+vc_fillf:     db 0                  ; ...a run, of
+vc_val:       db 0
+    times vo_mode - ..@vo_dbeg db 0
