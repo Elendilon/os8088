@@ -66888,6 +66888,68 @@ inks.
   frequencies; replayed songs play tone-to-tone with no speaker-off gap,
   so a whole song is ONE contiguous wav region — per-note assertions
   slice it at the 6-tick note quantum and Goertzel each slice.
+- **Apps size pass 2** (disk room, docs/plans/HANDOFF-APPS-SIZE-P2.md):
+  every change is to the shipped file and none to what the window draws
+  or plays. The entry proc declares its region with
+  `OS88_REGION_MOVABLE_NOKEEP`: the plain form's `pushf`/`push`/`pop`
+  kept AX, DX and the flags, and the next line reloads AX, DX (the
+  instance) is never read and the CF the loader is owed is
+  `pn_metrics`' (-6 bytes). A note's diatonic step and its sharp flag
+  are ONE 20-byte table, `pn_nstep` = step × 2 + sharp, where they were
+  two: the key lookup, the viewer's per-note facts and its same-step
+  test split it with a shift, which costs less than the second load it
+  replaces on every one of those paths (-21 image bytes). Replay's
+  abort silences the speaker through `pn_tone`'s own tail (-4). The
+  About card's lines are `OS88UI_ABPACK`'s end-to-end form rather than a
+  pointer table (-4; the card is the same pixels). On the paint path
+  the viewer's field is its frame one pixel in (the helpers keep their
+  registers) with the staff's x span loaded once, the button row is
+  ONE walk over the five buttons after the message and the "SONGS:"
+  caption - which share no pixel with any button, so the result is the
+  same picture - and the message area takes its pens from `pn_inkw` /
+  `pn_inkk`; and `pn_metrics` stores the black keys' foot as a byte,
+  the word's high byte being the loader's zero (-34 together). The two
+  key painters take every rect after the first from the one before it
+  - a white key's face is its outline one pixel in, a lit black key's
+  core its body one pixel in, the white key's letter row is the face's
+  last row less 10 - since the helpers keep their registers, set the
+  black pen before the x arithmetic needs AL, and test the lit flag in
+  BP where they copied BP to AX to test AH: FEWER instructions on the
+  key redraw and the keyboard paint, none added (-27). The viewer's
+  painters read the step `pn_vinfo` leaves in AL rather than re-load
+  it, middle C's ledger asks the next column before it builds its
+  span, and the sharp's erase decides its two rows in one test and
+  falls into `pn_vcol`, which falls into `pn_cvline` (moved beside it):
+  again fewer instructions on every path a note draws (-19 image bytes,
+  -3 file - what LZ4 had already been charging little for). On the
+  click and key path, `pn_abdismiss` tests and clears the About flag in
+  one `shr`, and `pn_note` makes the new count from the index it
+  already holds rather than incrementing memory and reading it back
+  (-9). A clear, a song load and a stopped replay end in one tail,
+  `pn_vsay` (the viewer's count and the message), and the plain READY
+  is the tail of MARY READY (-17). The sharp's erase reads whether a
+  C#4's ledger stays off the column's NEW note, already in `pn_vshow`
+  (C4 is its one same-step partner), so the per-column `pn_vkeep` byte
+  and its two stores are gone (-11 image, -1 bss). `pn_setdown` takes
+  the new button back off its own stack rather than re-reading the
+  word it just wrote (-1). Measured on MartyPC (GLaBIOS 5150, CGA),
+  the branch point's PIANO.O88 against this one on ONE boot, the same 29
+  keys (whites, blacks, the viewer filling and then scrolling) and three
+  About-card dismissals each, guest cycles at entry and return: key to
+  tone 5,288 -> 5,259 at the minimum (median of the 29 pairs -27); a
+  white key's redraw 66,112 -> 66,001 (pairs -68); a black key's 15,784
+  -> 15,763 (pairs 0, within the CGA's own jitter); the viewer's append
+  8,921 -> 8,861 (pairs -39) and a scrolling append ~530K -> ~527K; the
+  keyboard paint 867,276 -> 866,017 (all three pairs, -1,225). Nothing
+  is slower beyond one IRQ0's ~5.8K landing in one arm and not the
+  other, which happens both ways. The window was pixel-identical to the
+  branch point's after the same input (0 of 35,030 pixels). The file is
+  2,960 bytes where it was 3,052, image 3,287 where it was 3,440, bss
+  654. **Not fixed, found here**: taking the About card down leaves
+  fragments of its text in the gaps between the viewer, the button rows
+  and the keyboard - `pn_paint` draws the parts and never the ground
+  between them, and a dismissal is not a W_PAINT, so nothing whites it
+  first. The branch point does the same, pixel for pixel.
 
 ## 37. clock.inc — the system clock
 
