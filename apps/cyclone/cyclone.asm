@@ -153,7 +153,7 @@ CY_MAXV     equ 16                  ; vertices in the widest web: a closed
                                     ; also what makes a vertex-table row 32
                                     ; bytes, a shift where it was a multiply
 %if CY_MAXV * 2 != 32
-  %error "cyclone: cy_vert and cy_lanepos shift by 5 for a CY_MAXV*2 row"
+  %error "cyclone: cy_vert and cy_lanepos shift by 5 (cy_build_verts by 4) for a CY_MAXV*2 row"
 %endif
 CY_PTMAX    equ 96                  ; the point list os88gfx.inc steps into
 CY_MAXLANE  equ 16
@@ -364,78 +364,82 @@ CY_C_BG     equ CBLACK
 ; scale in `cy_scale` - so ONE table of rim vertices describes the whole
 ; three-dimensional tube and there is no 3D arithmetic anywhere in this app.
 ;
-; Descriptor: db nlanes, closed; then nverts pairs of (db x, db y), where
+; Descriptor: db nlanes, closed | form; then the STORED pairs of (db x, db y).
 ; nverts = nlanes for a closed web and nlanes+1 for an open one. A closed web
 ; wraps lane nlanes-1 back onto vertex 0; an open one does not, and the player
 ; hits a wall at each end.
+;
+; THE FORM IS WHAT SHIPS ONLY PART OF A WEB (SPEC.md 67.26). Seven of the eight
+; are symmetric, and cy_build_verts' pass 0 derives the rest of the vertices
+; from the stored ones, in the normalised space and before any scaling, so the
+; table it scales is byte for byte the one a full listing would have given:
+;
+;  - CY_SH_ROT: a quarter turn. nlanes/4 pairs are stored and every later
+;    vertex is the one nlanes/4 back turned by 90 degrees, (x,y) -> (-y,x).
+;    The circle, the square, the plus and the star.
+;  - CY_SH_MIR: a mirror in the vertical axis. nlanes/2 + 1 pairs are stored
+;    and vertex i past them is vertex nlanes-i with x negated. The triangle
+;    (closed) and the vee, the ribbon and the horseshoe (open).
+;
+; CYSHEND asserts the stored count against the form, so a pair added or lost
+; is an assembly error and not a web with a vertex read out of the next one.
 ; =============================================================================
+CY_SH_ROT   equ 2
+CY_SH_MIR   equ 4
 
-%macro CYSHAPE 2                    ; nlanes, closed
-  %if %1 + (%2 == 0) > CY_MAXV
+%macro CYSHAPE 3-4 0                ; label, nlanes, closed, form
+  %if %2 + (%3 == 0) > CY_MAXV
     %error "cyclone: a web with more vertices than the tables hold (CY_MAXV)"
   %endif
-    db %1, %2
+  %if %4 == CY_SH_ROT
+    %if %3 == 0 || (%2 % 4) != 0
+      %error "cyclone: a quarter-turn web is closed and has 4n lanes"
+    %endif
+    %assign CYSH_K %2 / 4
+  %elif %4 == CY_SH_MIR
+    %if (%2 % 2) != 0
+      %error "cyclone: a mirrored web has an even lane count"
+    %endif
+    %assign CYSH_K %2 / 2 + 1
+  %else
+    %assign CYSH_K %2 + (%3 == 0)
+  %endif
+  %xdefine CYSH_CUR %1
+%1:
+    db %2, %3 | %4
+%endmacro
+%macro CYSHEND 0
+%[CYSH_CUR]_end:
+  %if (%[CYSH_CUR]_end - CYSH_CUR - 2) != 2 * CYSH_K
+    %error "cyclone: a web's stored pairs disagree with its form"
+  %endif
 %endmacro
 
 ; --- 0: the circle. Tempest's level 1, and the one every player learns on ----
-cy_sh_circle:
-    CYSHAPE 16, 1
+    CYSHAPE cy_sh_circle, 16, 1, CY_SH_ROT
     db  100,   0
     db   92,  38
     db   71,  71
     db   38,  92
-    db    0, 100
-    db  -38,  92
-    db  -71,  71
-    db  -92,  38
-    db -100,   0
-    db  -92, -38
-    db  -71, -71
-    db  -38, -92
-    db    0,-100
-    db   38, -92
-    db   71, -71
-    db   92, -38
+    CYSHEND                         ; ...then (0,100) round to (92,-38)
 
 ; --- 1: the square -----------------------------------------------------------
-cy_sh_square:
-    CYSHAPE 16, 1
+    CYSHAPE cy_sh_square, 16, 1, CY_SH_ROT
     db -100,-100
     db  -50,-100
     db    0,-100
     db   50,-100
-    db  100,-100
-    db  100, -50
-    db  100,   0
-    db  100,  50
-    db  100, 100
-    db   50, 100
-    db    0, 100
-    db  -50, 100
-    db -100, 100
-    db -100,  50
-    db -100,   0
-    db -100, -50
+    CYSHEND                         ; ...then (100,-100) round to (-100,-50)
 
 ; --- 2: the plus. Four inside corners, so a flipper can hide -----------------
-cy_sh_plus:
-    CYSHAPE 12, 1
+    CYSHAPE cy_sh_plus, 12, 1, CY_SH_ROT
     db  -33,-100
     db   33,-100
     db   33, -33
-    db  100, -33
-    db  100,  33
-    db   33,  33
-    db   33, 100
-    db  -33, 100
-    db  -33,  33
-    db -100,  33
-    db -100, -33
-    db  -33, -33
+    CYSHEND                         ; ...then (100,-33) round to (-33,-33)
 
 ; --- 3: the triangle ---------------------------------------------------------
-cy_sh_tri:
-    CYSHAPE 12, 1
+    CYSHAPE cy_sh_tri, 12, 1, CY_SH_MIR
     db    0,-100
     db   25, -55
     db   50, -10
@@ -443,35 +447,18 @@ cy_sh_tri:
     db  100,  80
     db   50,  80
     db    0,  80
-    db  -50,  80
-    db -100,  80
-    db  -75,  35
-    db  -50, -10
-    db  -25, -55
+    CYSHEND                         ; ...then (-50,80) back up to (-25,-55)
 
 ; --- 4: the star -------------------------------------------------------------
-cy_sh_star:
-    CYSHAPE 16, 1
+    CYSHAPE cy_sh_star, 16, 1, CY_SH_ROT
     db  100,   0
     db   41,  17
     db   71,  71
     db   17,  41
-    db    0, 100
-    db  -17,  41
-    db  -71,  71
-    db  -41,  17
-    db -100,   0
-    db  -41, -17
-    db  -71, -71
-    db  -17, -41
-    db    0,-100
-    db   17, -41
-    db   71, -71
-    db   41, -17
+    CYSHEND                         ; ...then (0,100) round to (41,-17)
 
 ; --- 5: the vee. OPEN - the player hits a wall at both ends ------------------
-cy_sh_vee:
-    CYSHAPE 12, 0
+    CYSHAPE cy_sh_vee, 12, 0, CY_SH_MIR
     db -100, -80
     db  -83, -52
     db  -67, -23
@@ -479,16 +466,10 @@ cy_sh_vee:
     db  -33,  33
     db  -17,  62
     db    0,  90
-    db   17,  62
-    db   33,  33
-    db   50,   5
-    db   67, -23
-    db   83, -52
-    db  100, -80
+    CYSHEND                         ; ...then (17,62) up to (100,-80)
 
 ; --- 6: the flat ribbon. OPEN, and the level that reads most like falling ----
-cy_sh_flat:
-    CYSHAPE 12, 0
+    CYSHAPE cy_sh_flat, 12, 0, CY_SH_MIR
     db -100,   0
     db  -83,   0
     db  -67,   0
@@ -496,16 +477,10 @@ cy_sh_flat:
     db  -33,   0
     db  -17,   0
     db    0,   0
-    db   17,   0
-    db   33,   0
-    db   50,   0
-    db   67,   0
-    db   83,   0
-    db  100,   0
+    CYSHEND                         ; ...then (17,0) out to (100,0)
 
 ; --- 7: the horseshoe. OPEN ---------------------------------------------------
-cy_sh_uu:
-    CYSHAPE 12, 0
+    CYSHAPE cy_sh_uu, 12, 0, CY_SH_MIR
     db -100, -70
     db -100, -25
     db -100,  20
@@ -513,12 +488,7 @@ cy_sh_uu:
     db  -60,  80
     db  -25,  92
     db    0,  95
-    db   25,  92
-    db   60,  80
-    db   88,  55
-    db  100,  20
-    db  100, -25
-    db  100, -70
+    CYSHEND                         ; ...then (25,92) round to (100,-70)
 
 CY_NSHAPE   equ 8
 cy_shapes:
@@ -1457,81 +1427,114 @@ cy_build_verts:
                                     ; plain scalar and must go back
 
     mov si, [cy_shape]              ; the descriptor
-    mov al, [si]
-    mov ah, 0
-    mov bl, [si + 1]
+    lodsw                           ; AL = nlanes, AH = closed | form; SI ->
+    mov dh, ah                      ; the stored pairs. DH = the form, for
+    and ah, 1                       ; pass 0
+    mov bl, ah
     mov bh, 0
     mov [cy_closed], bx
-    mov dx, CY_MAXV                 ; CLAMPED, not trusted. The tables are
+    mov ah, 0
+    mov cx, CY_MAXV                 ; CLAMPED, not trusted. The tables are
     or bx, bx                       ; CY_MAXV wide and cy_build_verts writes
     jnz .cap                        ; one entry per vertex per depth; a
-    dec dx                          ; descriptor claiming more does not draw
+    dec cx                          ; descriptor claiming more does not draw
 .cap:                               ; a wrong web, it writes through the end
-    cmp ax, dx                      ; of them. An OPEN web has a vertex more
+    cmp ax, cx                      ; of them. An OPEN web has a vertex more
     jbe .nl                         ; than it has lanes, so one lane fewer
-    mov ax, dx
+    mov ax, cx
 .nl:
     or ax, ax
     jnz .nl2
-    mov ax, 3
+    mov al, 3                       ; (AH is already 0)
 .nl2:
     mov [cy_nlane], ax
-    add si, 2                       ; -> the vertex pairs
 
-    mov cx, [cy_nlane]              ; nverts = nlanes (+1 when open)
-    cmp bx, 0
-    jne .nv
+    mov cx, ax                      ; nverts = nlanes (+1 when open)
+    or bx, bx
+    jnz .nv
     inc cx
 .nv:
     mov [cy_nvert], cx
 
+    ; --- pass 0: the stored pairs -> all nverts of them ---------------------
+    ; Into the TOP half of cy_rsx, which pass 1 then scales into the whole of
+    ; it in place: byte j is read from rsx+32+j before word j is written at
+    ; rsx+2j, and 2j+1 < 32+k for every byte k not yet read, so the two never
+    ; meet. The forms are at the shape table (SPEC.md 67.26).
+    push es
+    push ds
+    pop es
+    mov di, cy_rsx + CY_MAXV * 2
+    mov bx, cx                      ; BX = nverts; AX = nlanes, still
+    test dh, CY_SH_ROT
+    jz .nrot
+    shr al, 1
+    shr al, 1                       ; k = nlanes / 4
+    jmp short .k
+.nrot:
+    test dh, CY_SH_MIR
+    jz .copy                        ; whole: k = nverts, which CX holds
+    shr al, 1
+    inc ax                          ; k = nlanes / 2 + 1
+.k:
+    mov cx, ax
+.copy:
+    sub bx, cx                      ; BX = the pairs still to derive
+    rep movsw
+    mov cx, bx
+    jcxz .p0done
+    mov si, cy_rsx + CY_MAXV * 2    ; a quarter turn reads k pairs back...
+    test dh, CY_SH_ROT
+    jnz .rot
+    lea si, [di - 4]                ; ...and a mirror walks back from k-2
+.mir:
+    mov ax, [si]
+    neg al                          ; (x, y) -> (-x, y)
+    stosw
+    dec si
+    dec si
+    loop .mir
+    jmp short .p0done
+.rot:
+    lodsw
+    xchg al, ah
+    neg al                          ; (x, y) -> (-y, x)
+    stosw
+    loop .rot
+.p0done:
+    pop es
+
     ; --- pass 1: normalised (-128..127) -> pixels at the rim ----------------
+    ; ONE body for x and y: the pairs are just 2*nverts signed bytes in a row,
+    ; each scaled the same way into the next word of cy_rsx.
+    mov si, cy_rsx + CY_MAXV * 2
     mov di, cy_rsx
-    push cx
+    mov cx, [cy_nvert]
+    shl cx, 1
 .p1:
-    mov al, [si]                    ; x
+    lodsb
     cbw
-    imul word [cy_rad]              ; DX:AX = x * R
+    imul word [cy_rad]              ; DX:AX = v * R
     ; >> 7, because the normalised space is 128 units to the radius. The high
-    ; word is live (R can be 200, x can be 100), so shift the pair.
-    mov bx, dx
-    mov dx, ax
-    mov ax, bx                      ; AX = high, DX = low
-    ; a 15-bit arithmetic shift right of DX:AX by 7 == (<<1 then take AH:DL)
-    shl dx, 1
-    rcl ax, 1
-    mov dl, dh
-    mov dh, al
-    mov [di], dx
-    add di, 2
-
-    mov al, [si + 1]                ; y
-    cbw
-    imul word [cy_rad]
-    mov bx, dx
-    mov dx, ax
-    mov ax, bx
-    shl dx, 1
-    rcl ax, 1
-    mov dl, dh
-    mov dh, al
-    mov [di], dx
-    add di, 2
-
-    add si, 2
+    ; word is live (R can be 200, v can be 100), so shift the pair: << 1, then
+    ; the middle two bytes of the 32-bit result are the answer.
+    shl ax, 1
+    rcl dx, 1
+    mov al, ah
+    mov ah, dl
+    mov [di], ax
+    inc di
+    inc di
     loop .p1
-    pop cx
 
     ; --- pass 2: the depth ladder -------------------------------------------
     ; vx[d][v] = cx + (rsx[v] * scale[d]) >> 8
-    mov word [cy_dd], 0
+    xor bx, bx                      ; BX = depth * 2, the cy_scale index
 .p2d:
-    mov bx, [cy_dd]
-    shl bx, 1
     mov bp, [cy_scale + bx]         ; the scale for this depth
 
-    mov di, [cy_dd]                 ; row base = d * CY_MAXV * 2
-    mov cl, 5
+    mov di, bx                      ; row base = d * CY_MAXV * 2 = BX * 16
+    mov cl, 4
     shl di, cl                      ; DI = byte offset of row d
     mov si, cy_rsx
     mov cx, [cy_nvert]
@@ -1554,8 +1557,9 @@ cy_build_verts:
     add di, 2
     loop .p2v
 
-    inc word [cy_dd]
-    cmp word [cy_dd], CY_NDEPTH
+    inc bx
+    inc bx
+    cmp bx, CY_NDEPTH * 2
     jb .p2d
 
     call cy_lip_build               ; ...and then the lip, which is the one
@@ -7956,7 +7960,6 @@ cy_ekcol:
     CWORD cy_nlane
     CWORD cy_nvert
     CWORD cy_closed
-    CWORD cy_dd                     ; cy_build_verts' depth cursor
 
     ; --- the warp ---------------------------------------------------------
     CWORD cy_wn                     ; live walks

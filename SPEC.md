@@ -109728,6 +109728,45 @@ go red: `wleft 8` against 7 on a level-1 board, which is `cy_wavesize`'s ramp
 answering for the level instead of the counter being left alone.
 
 
+### 67.26 Apps size pass 2: the shipped file, not the machine
+
+`CYCLONE.O88` rides two of the 360KB disks (`apps360.img`, `games360.img`) and
+both were full when docs/plans/HANDOFF-APPS-SIZE-P2.md opened, so this pass is
+measured in the LZ4-packed FILE and the clusters it takes, with nothing a
+player can see changing, no frame path made slower and image + bss not
+growing. Each part below is one commit and says what it cost and bought.
+
+#### 67.26.1 The webs ship their symmetric half
+
+Seven of §67.2's eight webs are symmetric, and the descriptor now says so in
+its second byte beside the closed bit: **`CY_SH_ROT`** stores a quarter of a
+closed web (`nlanes/4` pairs) and every later vertex is the one `nlanes/4`
+back turned a quarter, (x,y) → (−y,x) — the circle, square, plus and star;
+**`CY_SH_MIR`** stores `nlanes/2 + 1` pairs and vertex *i* past them is vertex
+`nlanes − i` with x negated — the triangle, vee, ribbon and horseshoe. 136 of
+the 238 bytes of shape table are gone.
+
+The derivation is `cy_build_verts`' **pass 0**, in the NORMALISED space and
+before any scaling. That is the whole correctness argument and the reason it is
+not done on the scaled words: pass 1's `>> 7` is an arithmetic shift, which
+floors, so −(v·R >> 7) is not (−v·R) >> 7 for most v and a rotation applied
+after scaling would move a vertex a pixel. Applied before, pass 1 is handed
+the identical 2·nverts bytes a full listing gave it, and every table after it
+is the same. Pass 0 writes into the top half of `cy_rsx` and pass 1 scales
+that into the whole of it in place (byte *j* is read from rsx+32+*j* before
+word *j* lands at rsx+2*j*), so the expansion costs no bss. `CYSHEND` asserts
+each web's stored count against its form at assembly time, and the expansion
+was checked on the host against the old table, all eight webs vertex for
+vertex.
+
+Pass 1 also lost its second copy: x and y are just 2·nverts signed bytes in a
+row, so one `lodsb`/`imul`/`>> 7` body walks them all, and the 32-bit shift is
+taken in DX:AX's own order (`shl ax,1; rcl dx,1`, then AH:DL) instead of
+swapping the halves through BX first — the same two bytes of the same 32-bit
+value. Pass 2 counts the depth in BX (as the `cy_scale` index, ×16 for the row)
+instead of in `[cy_dd]`, which is gone. All of it runs at layout time, never
+in a frame. Image −119 bytes, file −109.
+
 ### 67.13 What is deliberately not here
 
 **No high-score file.** The table lives in bss and dies with the instance. It
