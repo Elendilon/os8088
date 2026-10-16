@@ -2388,9 +2388,8 @@ vp_pevload:
     mov ax, [vp_pevo]
     mov dx, [vp_pevo+2]
     mov cx, [vp_pevb]
-    call vp_rdat                    ; SI = where it landed
+    call vp_rdat                    ; SI = where it landed (CX kept)
     jc .io
-    mov cx, [vp_pevb]
     mov es, [vp_pevseg]
     xor di, di
     push ds
@@ -2456,10 +2455,10 @@ vp_pevload:
     loop .e
     mov si, vp_pal                  ; ...and entry 0's sixteen the header's
     mov di, 4
-    mov cx, 48
+    mov cl, 48                      ; (CX is 0 after the loop)
     repe cmpsb                      ; (DF clear since the copy)
     jne .bad
-    mov word [vp_pevp], 0
+    mov [vp_pevp], cx               ; (0: every byte compared)
     mov dx, [vp_pevseg]
     mov ax, vp_smove
     call vp_mmov
@@ -3992,7 +3991,8 @@ vp_crtc:
     and ah, 0xE0
     and al, 0x1F
     shl al, 1
-    inc al                          ; n + 1 lines a row, twice: 2n + 1
+    inc ax                          ; n + 1 lines a row, twice: 2n + 1 (AL
+                                    ; <= 3Eh: no carry into AH)
     or al, ah
     out dx, al
     pop dx
@@ -4090,8 +4090,8 @@ vp_v8mono:
     mov cx, [vp_pwb]
 .byte:
     push cx
-    xor ah, ah                      ; AH = the byte, built from the left
-    mov cx, 8
+    mov cx, 8                       ; AH = the byte, built from the left:
+                                    ; eight rcl's leave nothing of what it was
 .pix:
     es lodsb                        ; (DF clear: vp_mklum)
     mov bx, vp_lum
@@ -4140,8 +4140,7 @@ vp_v8mono:
     mov cx, [vp_pwb]
 .mbyte:
     push cx
-    xor ah, ah
-    xor cx, cx                      ; CX = the pixel, 0..7
+    xor cx, cx                      ; CX = the pixel, 0..7 (AH: eight rcl's)
 .mpix:
     mov bx, cx
     and bx, 3
@@ -7259,16 +7258,13 @@ vp_bseek:
     sub ax, [vp_xlo]
     sbb dx, [vp_xlo+2]
     jb .no                          ; behind the head: the ring's, or gone
-    cmp dx, 0x8000
-    jae .no
+    test dh, 0x80                   ; (DX >= 8000h)
+    jnz .no
     mov bx, ax
     and bx, VP_CHUNK - 1            ; BX = into its chunk
+    shl ax, 1                       ; (bit 15 to the carry: AX is spent)
     mov cx, dx
-    shl cx, 1
-    test ax, 0x8000
-    jz .n
-    inc cx                          ; CX = the chunks before it
-.n:
+    rcl cx, 1                       ; CX = the chunks before it
     cmp cx, [vp_xcnt]
     jae .no
     sub [vp_xcnt], cx               ; DROPPED: the head moves on by CX
@@ -20120,9 +20116,11 @@ vp_v4p:       db 0                  ; LIVE IN COLOUR (98.3.10.4): BLITP may walk
 vp_cbnd:      dw 0                  ; the canvas's bound in its layout, and
 vp_kkb:       db 0                  ; the keeper's KB, 0 none (98.1.7.3)
 vp_kneed:     db 0                  ; this session decodes INTO the keeper,
-vp_rchk:      db 0                  ; ...and the block's writes are checked
 vp_ptk0:      dw 0                  ; the tick it paused at
 vp_ptk:       dw 0                  ; ticks paused, this play
+vp_rchk:      db 0                  ; ...and the block's writes are checked
+                                    ; (after the two words: they keep the
+                                    ; parity they had)
 vp_cur:       times FSEQ_SIZE db 0
 vp_rdcur:     times FSEQ_SIZE db 0  ; vp_rdat's own (os88_rseq), never the stream's
 vp_xcur:      times FSEQ_SIZE db 0  ; THE HOLD (98.3.18): its loader's cursor,
@@ -20264,7 +20262,6 @@ vp_bhold:     db 0                  ; 1: the bracket's loop banks no further,
 vp_pfn:       dw 0                  ; the prefill's slots
 vp_bskn:      dw 0                  ; seeks the bank answered (a gate's count)
 vp_pft0:      dw 0                  ; ...and the tick it began
-vp_s_buf:     db 'Buffering ', 0
 vp_pfbuf      equ vp_skbuf          ; the line, composed in the seek's own
                                     ; buffer: each is a call's, made and then
                                     ; copied into the box by vo_show, and the
@@ -20276,6 +20273,9 @@ vp_pfbuf      equ vp_skbuf          ; the line, composed in the seek's own
 %define OS88UI_NOGLYPH              ; no pixel written twice (SPEC.md 13.8.9),
 %define OS88UI_BIMGONLY             ; nothing BUT pictures (no caption, ink or
 %include "os88ui.inc"               ; default ring), and no check box or radio
+vp_s_buf:     db 'Buffering ', 0    ; (here, past the libraries: eleven bytes
+                                    ; in front of them put os88alt_edge, which
+                                    ; a frame's pass calls, at an odd shift)
 
 ; --- bss: zeroed by the loader, and no bytes of the file ----------------------
 vp_pal        equ os88_image_end    ; the SIXTEEN: a VGA4 file's own, or a
