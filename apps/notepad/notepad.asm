@@ -6346,7 +6346,8 @@ np_redraw:
 ; -----------------------------------------------------------------------------
 ; np_new - empty the note (File > New)
 ; in:  nothing
-; out: nothing; preserves all registers
+; out: nothing; clobbers AX (it always did - the toast's string went through
+;      it - and its one caller, np_oncmd, has spent AX by then)
 ;
 ; The length, the toast and the claim. np_paint reads exactly [np_len] bytes,
 ; so the stale tail is unreachable and wiping it would buy nothing - but the
@@ -6356,18 +6357,18 @@ np_redraw:
 ; reason an ordinary keystroke retires it.
 ; -----------------------------------------------------------------------------
 np_new:
-    mov word [np_len], 0
-    mov word [np_cur], 0
+    xor ax, ax                  ; (AX is the menu item, and spent)
+    mov [np_len], ax
+    mov [np_cur], ax
     mov ax, np_s_nul            ; retire the toast: 'Loaded NOTES.TXT' over an
     call np_saymsg              ; empty note is a lie. An EMPTY string is how
     call np_clamp               ; SPEC.md 59.3 spells that, so no flag of ours
                ; a no-op on the caret, which is already 0 -
                                 ; it is here for the invalidation np_clamp
                                 ; carries (SPEC.md 27.4/27.5)
-    push ax                     ; ...and give the heap back what the old note
-    mov ax, NP_KB0              ; had grown into. A shrink always succeeds in
-    call np_resize              ; place, so this cannot fail (SPEC.md 50.3.1)
-    pop ax
+    mov ax, NP_KB0              ; ...and give the heap back what the old note
+    call np_resize              ; had grown into. A shrink always succeeds in
+                                ; place, so this cannot fail (SPEC.md 50.3.1)
     mov byte [np_named], 0      ; ...and it is not a FILE until something
     call np_mark                ; makes it one (SPEC.md 27.15): empty and
                                 ; clean, so New then Close asks nothing

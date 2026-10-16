@@ -58293,6 +58293,10 @@ into bss or the heap. The numbers are the file and the image, both arms.
     could reach are gone (§27.16.2's table). The full build still carries
     `os88ui_btninit`/`btnclick`/`btlist`, which it never calls - they share
     the knob with the gesture it does use.
+18. **File > New zeroes through AX.** `np_new` stored two immediate
+    zeros and saved AX around `np_resize`, which keeps it anyway; AX was
+    already spent on the toast's string, so its header now says it clobbers
+    AX, which it always did.
 
 ## 28. apps/taskmgr — the Task Manager
 
