@@ -138,7 +138,6 @@ tm_entry:
                                     ; by pool slot and a package has no pool
     call OSAPI_WM_CREATE            ; BX = window ptr, CF on table full
     jc tm_ret
-    mov [tm_win], bx
     OS88_REGION_MOVABLE_NOKEEP tm_ret ; SPEC.md 66.6.1: here, where the window
                                     ; exists. Every byte that outlives a pass
                                     ; is a static and moves with us, so the
@@ -171,7 +170,10 @@ tm_entry:
                                     ; and the library ignores that on purpose)
     mov dx, tm_onclick              ; a press that was not a button's: the
     call os88ui_btninit             ; About card's dismissal. It keeps every
-    xchg ax, bx                     ; register, so this is BX = the window
+    xchg ax, bx                     ; register, so this is BX = the window -
+                                    ; which it has also written into the
+                                    ; record (OS88UI_BT_WIN), and that word is
+                                    ; the worker's window: no copy of our own
     clc                             ; the CF the loader is owed
 tm_ret:
     ret
@@ -184,7 +186,8 @@ tm_ret:
 ;      its callers go on to use
 ;
 ; delta = ticks - tm_last (wrap-safe by subtraction); tm_last = ticks
-; UNCONDITIONALLY, so a stopped interval is discarded rather than banked -
+; UNCONDITIONALLY - which is tm_stamp, so this calls it rather than saying
+; it again, so a stopped interval is discarded rather than banked -
 ; leaving it alone would make Start jump forward by however long the timer
 ; had been stopped. Running: tm_acc += delta * 10, and every 182 tenths is a
 ; second, carried SEC -> MIN -> HRS through tm_lim's wrap limits. A long UI
@@ -193,10 +196,9 @@ tm_ret:
 ; fault.
 ; -----------------------------------------------------------------------------
 tm_keep:
-    call OSAPI_GET_TICKS
-    mov dx, ax
-    sub ax, [tm_last]
-    mov [tm_last], dx
+    mov dx, [tm_last]
+    call tm_stamp                   ; AX = [tm_last] = the tick now
+    sub ax, dx                      ; AX = the delta
     cmp byte [tm_run], 0
     je .out                         ; stopped: the delta goes nowhere
     mov dx, 10
@@ -232,7 +234,7 @@ tm_keep:
 ; in:  SI = window ptr, CX = DX = 0; the UI task, gfx lock held - W_ONCLICK's
 ;      environment exactly. The clip is NOT armed for a timer dispatch, so
 ;      the handler arms it itself (SPEC.md 11.3)
-; out: nothing; keeps SI
+; out: nothing; spends SI (the timer pass banks its own, SPEC.md 13.9)
 ;
 ; It FALLS INTO tm_clipd and that into tm_digits, so a firing is one call
 ; deep: the worker on kern_small enters at tm_clipd, after its own test.
@@ -253,7 +255,9 @@ tm_clipd:
 ; -----------------------------------------------------------------------------
 ; tm_digits - position and draw the HH:MM:SS line, the cells that CHANGED
 ; in:  BX = window ptr; gfx lock held, the clip armed or not
-; out: nothing; clobbers AX, BX, CX, DX, DI; keeps SI
+; out: nothing; clobbers AX, BX, CX, DX, SI, DI - SI being the run, and the
+;      painter the one caller that owes it back, so it banks it there and the
+;      per-tick path pays nothing for it
 ;
 ; ONE OPAQUE RUN rather than an erase and a lettering (SPEC.md 6.1): the
 ; erase-then-letter pair is PERFORMANCE.md Part 1's double-draw flash, twice
@@ -264,7 +268,6 @@ tm_clipd:
 ; and then forgotten (SPEC.md 14.4, 28.2's rule).
 ; -----------------------------------------------------------------------------
 tm_digits:
-    push si
     ; --- format "HH:MM:SS" into tm_str ---------------------------------------
     ; The NUL cell, tm_str+8, is never written here: the loop stops at the
     ; seventh cell and the run's own terminator below writes only 1..8, so
@@ -336,7 +339,6 @@ tm_digits:
     mov ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = ground
     call OSAPI_FONT_RUN             ; CX = x, DX = y, SI = the run
 .out:
-    pop si
     ret
 
 ; -----------------------------------------------------------------------------
@@ -359,7 +361,8 @@ tm_forget:
 ; out: nothing; keeps SI, clobbers what W_PAINT may (AX, BX, CX, DX, DI)
 ; -----------------------------------------------------------------------------
 tm_paint:
-    mov bx, si
+    push si                         ; the window, which W_PAINT owes back and
+    mov bx, si                      ; tm_digits spends
     ; --- kern_small's clock: a WORKER (SPEC.md 111.3), hired once ------------
     ; OSAPI_WM_TIMER refuses on the kernel that carries the slot and not the
     ; body, so there the clock is a task - the shape the kind had before
@@ -407,6 +410,7 @@ tm_paint:
     call tm_digits                  ; BX = the window still
     mov dl, TM_NB + 1               ; ...then the greying and all three buttons
     call tm_flags
+    pop si
     cmp byte [tm_btrec+OS88UI_BT_N], 0 ; ...and the About card LAST, over the
     jne .out                        ; content it is opaque about (SPEC.md
                                     ; 20.5.1). The card is up exactly while the
@@ -487,7 +491,8 @@ tm_ondrag:
 ;           says (SPEC.md 111.2)
 ; in:  CX = x, DX = y (SCREEN, possibly outside the window), SI = window ptr;
 ;      gfx lock held
-; out: nothing; keeps SI
+; out: nothing; a Reset spends SI in tm_digits, and the release's dispatch
+;      reads nothing back (ui_bill, then the unlock)
 ;
 ; Start sets tm_run and re-stamps the sample - up to TM_TICKS of stopped time
 ; can be sitting unsampled at the click; Stop clears tm_run; Reset zeroes
@@ -544,7 +549,7 @@ tm_stamp:
 ; -----------------------------------------------------------------------------
 tm_worker:
 .loop:
-    mov bx, [tm_win]
+    mov bx, [tm_btrec+OS88UI_BT_WIN] ; our window, as os88ui_btninit wrote it
     call OSAPI_TASK_ALIVE           ; the lock must NOT be held here; a clicked
                                     ; close box never returns
     mov ax, TM_TICKS
@@ -648,23 +653,22 @@ tm_ab2:     db 'a stopwatch', 0
 %error "tm_flags greys with an inc: it needs OS88UI_DIS at bit 0 and FILL clear of it"
 %endif
 
-    OS88_BSS 58
+    OS88_BSS 56
     OS88_IMAGE_END
 
 ; --- loader-zeroed bss (SPEC.md 21 step 5) --------------------------------------
-tm_win      equ os88_image_end + 0  ; word: our window
-tm_hms      equ os88_image_end + 2  ; 3 bytes: hours, minutes, seconds (TM_HRS..)
-tm_run      equ os88_image_end + 5  ; byte: 0 stopped, 1 running
-tm_last     equ os88_image_end + 6  ; word: last [ticks] sample
-tm_acc      equ os88_image_end + 8  ; word: tenth-of-tick accumulator
-tm_shown    equ os88_image_end + 10 ; 8: the cells this window is DISPLAYING;
+tm_hms      equ os88_image_end + 0  ; 3 bytes: hours, minutes, seconds (TM_HRS..)
+tm_run      equ os88_image_end + 3  ; byte: 0 stopped, 1 running
+tm_last     equ os88_image_end + 4  ; word: last [ticks] sample
+tm_acc      equ os88_image_end + 6  ; word: tenth-of-tick accumulator
+tm_shown    equ os88_image_end + 8  ; 8: the cells this window is DISPLAYING;
                                     ; all zero = nothing here describes the glass
-tm_str      equ os88_image_end + 18 ; 9: "HH:MM:SS",0 scratch (under the lock);
+tm_str      equ os88_image_end + 16 ; 9: "HH:MM:SS",0 scratch (under the lock);
                                     ; the NUL at +8 is the loader's, never written
-tm_clk      equ os88_image_end + 27 ; byte: whose clock - 0 the window's timer,
+tm_clk      equ os88_image_end + 25 ; byte: whose clock - 0 the window's timer,
                                     ; 1 owed a worker (kern_small), 2 hired
-tm_rects    equ os88_image_end + 28 ; 3 x 4 words: the buttons, screen, inclusive
-tm_bflags   equ os88_image_end + 52 ; 3 words: OS88UI_FILL, and DIS on the refused one
-%if tm_bflags + 2 * TM_NB - os88_image_end != 58
+tm_rects    equ os88_image_end + 26 ; 3 x 4 words: the buttons, screen, inclusive
+tm_bflags   equ os88_image_end + 50 ; 3 words: OS88UI_FILL, and DIS on the refused one
+%if tm_bflags + 2 * TM_NB - os88_image_end != 56
 %error "the Timer's bss layout and OS88_BSS disagree"
 %endif

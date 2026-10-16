@@ -185291,7 +185291,7 @@ It landed in v2's wave 3 (§110.10); the Desk Calendar adopted it in wave 4
 ## 111. TIMER — the stopwatch (`apps/timer/timer.asm`)
 
 The kernel's Timer kind (§14) as a package since §14.8: `TIMER.O88`, in
-`APPS/` on every apps disk, 1,550 bytes of image and 58 of bss (§111.6),
+`APPS/` on every apps disk, 1,540 bytes of image and 56 of bss (§111.6),
 the stopwatch icon in its header, label prefix `tm_`. Everything §14 says about
 the Timer's behaviour holds — the window, the layout, the accumulator
 (binding), §14.1's incremental redraw, §14.4's cut line, §47's greying — and
@@ -185412,6 +185412,13 @@ clear prefix), 953 this file's code and data, and 963 `apps/os88ui.inc`.
   title is the header's name field (§20.2, +16, which `OS88_HEADER` NUL-pads
   and caps at 15 characters) rather than a second 'Timer'. Image 1,589 ->
   1,550, bss 60 -> 58, the file 1,501 -> 1,467.
+- **...and the window is the button record's.** `os88ui_btninit` writes it
+  into `OS88UI_BT_WIN` and nothing ever clears it for a package with one
+  record, so the worker reads its window there and `tm_win` went. `tm_keep`
+  takes its sample through `tm_stamp` rather than saying it twice, and the
+  painter - the one caller that owes SI back - banks it round `tm_digits`
+  instead of `tm_digits` banking it for every caller. Image 1,550 -> 1,540,
+  bss 58 -> 56, the file 1,467 -> 1,461.
 
 ## 112. BOUNCE — the square (`apps/bounce/bounce.asm`)
 
