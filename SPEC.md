@@ -131182,7 +131182,7 @@ step table is **built at launch** rather than shipped (`apd_mkstep`, ~4 ms on
 a 4.77 MHz 8088): to the unit it is `s[n+1] = s[n] + s[n] / 10 + r[n]` with
 every residual `r[n]` 0 or 1, bar the last entry, which is the predictor's own
 clamp 32767 — so eleven bytes of residual bits ship where 178 bytes of table
-packed to nearly 178 (apps size pass 2: −116 file bytes, image −120, bss +179;
+packed to nearly 178 (apps size pass 2: −117 file bytes, image −120, bss +179;
 the table sits at an even address in bss, which the shipped one never was).
 The decoder is **resumable**: `apd_pull(want)` fills up to `want` PCM8 bytes and
 keeps predictor / index / block cursor / nibble phase across calls, so a
@@ -131219,10 +131219,14 @@ Playlist:
 > 02  BEVERLY.WAV
 ```
 
-The transport buttons tile the row gap-free (`apu_hit` takes
-`column = (x − x1) / pitch`, so there is no dead lane between two of them —
-found on the glass). Shuffle and Repeat draw the `OS88UI_DOWN` pressed look
-while toggled on. The worker's one gfx-lock hold each pass redraws only the
+The transport buttons were tiled gap-free by `apu_hit`, which took
+`column = (x − x1) / pitch` so that no dead lane lay between two of them
+(found on the glass). **That is no longer true, and `apu_hit` is gone**: since
+the press went to `os88ui.inc`'s gesture (§20.5.1.3) the library hit-tests
+the DRAWN rects, which leave 2 px between buttons, and nothing called
+`apu_hit` again — apps size pass 2 deleted it as dead code and recorded the
+lane as a defect rather than redrawing the row to close it. Shuffle and Repeat
+draw the latched look (`OS88UI_LATCH`, §20.5.1.4) while toggled on. The worker's one gfx-lock hold each pass redraws only the
 elapsed time and the progress-bar fill, and only while `OSAPI_WM_OBSCURED`
 says the window is visible — a backgrounded player does no UI work. **Every
 self-initiated content repaint arms `OSAPI_WM_CLIP_SET` first** (`apu_repaint`,

@@ -324,10 +324,7 @@ ap_cinv equ aps_dbuf               ; ...counts back to samples, on a card or a
 
 ; --- ui layout (apui.inc) --------------------------------------
     APBUF apu_rects, 7 * 8         ; 7 buttons x {x1,y1,x2,y2} words
-    APW   apu_pbx1                 ; progress bar rect
-    APW   apu_pby1
-    APW   apu_pbx2
-    APW   apu_pby2
+    APW   apu_pbx2                 ; progress bar right edge (apui.inc)
     APW   apu_cw                   ; last content w/h laid out against
     APW   apu_ch
     APB   ap_abon                  ; 1 = the About card is up
