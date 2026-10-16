@@ -2174,7 +2174,7 @@ WEAVEDEMOS := apps/weave/demos
 WEAVEWABS  := $(BUILD)/FORM.WAB $(BUILD)/SHEET.WAB $(BUILD)/PONG.WAB
 all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
      $(BUILD)/hello.o88 $(BUILD)/video.o88 \
-     $(BUILD)/imgtest.o88 $(BUILD)/scribe.o88 $(BUILD)/ovlz/SCRIBE.OVL \
+     $(BUILD)/imgtest.o88 $(BUILD)/scribe.o88 \
      $(BUILD)/livepayload.txt \
      $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
      $(BUILD)/doscore.bin \
@@ -10193,46 +10193,49 @@ $(BUILD)/word360.img: $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC tools/os88disk.py
 SCRIBESRC := apps/scribe/scribe.asm apps/scribe/scdoc.inc apps/scribe/scrtf.inc \
              apps/scribe/scutil.inc
 
-# SC_OVSTAMP is the BUILD STAMP both halves carry (SPEC.md 95.8.7): the CRC of
-# every prerequisite's bytes and the -D flags, folded to 16 bits. sc_ovload
-# refuses a SCRIBE.OVL whose first word is not this build's, because the module
-# reaches the package's bss by offset and another build's reads a document of
-# nothing. It is per build INPUT rather than per interface - the interface is
-# every resident offset the module names, which nothing enumerates - and the
-# toolchain is deterministic, so one input always matches itself.
-$(BUILD)/scribe.bin: $(SCRIBESRC) apps/os88api.inc apps/os88ui.inc apps/os88type.inc \
-                     apps/os88img.inc apps/os88dec.inc $(SBSTAMP) | $(BUILD)
-	st=$$({ printf '%s\n' '$(PKGSBDEF)'; cat $^; } | cksum | \
-	      { read c n; echo $$(( (c ^ (c >> 16)) & 65535 )); }) && \
-	$(NASM) -f bin -w+error $(STKLST) $(PKGSBDEF) -DSC_OVSTAMP=$$st \
-		-I apps/ -I apps/scribe/ -o $@ apps/scribe/scribe.asm && \
-	printf 'scribe: %s bytes, build stamp %04X\n' $(call FILESIZE,$@) $$st
+# SCRIBE.O88 IS A PARTED PACKAGE (SPEC.md 95.8.8, 20.12.10) - WORD's shape
+# one fork along, and the rule below is word.o88's: the image the kernel
+# launches is apps/scribe/scload.asm, and scribe.asm's assembly is cut in two
+# to be its parts. Part 0 is the image with its bss shipped inside it
+# (--pad-bss: the kernel does not zero a part) and part 1 is `.modc`, the file
+# formats and the picture decoders, assembled at SC_P1ORG so that it lands at
+# the top of the program's own segment. The cut point is the image size the
+# package header already carries, and the padded part 0 is exactly SC_P1ORG
+# long because the header's bss is declared to run up to it.
+#
+# PART 1 WAS SCRIBE.OVL, a file beside the package with a CS of its own. What
+# went with it: the build stamp both halves carried (SC_OVSTAMP - a stale PAIR
+# cannot exist when there is one file), the SC_OVKB claim and the check of the
+# cut against it (the carve is sized from the parts table, and scribe.asm
+# asserts part 1 fits under 65,024), and the CC_OVLZ_RULE copy a disk carried.
+#
+# ONE recipe makes both halves and the package, because they are one
+# operation - word.o88's rule above says what a rule per half cost.
+$(BUILD)/scribe.bin: $(SCRIBESRC) apps/scribe/scicon.inc apps/os88api.inc \
+                     apps/os88ui.inc apps/os88type.inc apps/os88img.inc \
+                     apps/os88dec.inc $(SBSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error $(STKLST) $(PKGSBDEF) -I apps/ -I apps/scribe/ \
+		-o $@ apps/scribe/scribe.asm
+	@echo "scribe: $(call FILESIZE,$@) bytes"
 
-# One recipe for all three, for the reason word.o88's rule spells out above:
-# splitting the cut from the package let make decide the .o88 was up to date
-# against the PREVIOUS trim and ship a stale image.
-$(BUILD)/scribe.o88: $(BUILD)/scribe.bin tools/os88ovl.py tools/os88pkg.py $(PKGZSTAMP)
-	python3 tools/os88ovl.py $(BUILD)/scribe.bin -o $(BUILD)/SCRIBE.OVL \
-		--trim $(BUILD)/scribe.trim.bin
-	@ovkb=$$(sed -n 's/^SC_OVKB *equ *\([0-9]*\).*/\1/p' apps/scribe/scribe.asm); \
-	 have=$$(wc -c < $(BUILD)/SCRIBE.OVL); cap=$$((ovkb * 1024)); \
-	 if [ $$have -gt $$cap ]; then \
-	   echo "SCRIBE.OVL is $$have bytes; SC_OVKB reserves $$cap - raise it" >&2; \
-	   exit 1; fi; \
-	 echo "SCRIBE.OVL: $$have of $$cap bytes claimed (SC_OVKB=$$ovkb)"
-	$(OS88PKG) $(BUILD)/scribe.trim.bin -o $@
+$(BUILD)/scload.bin: apps/scribe/scload.asm apps/scribe/scicon.inc apps/os88api.inc \
+                     apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/scribe/ -o $@ apps/scribe/scload.asm
+	@echo "scload: $(call FILESIZE,$@) bytes of parts loader"
 
-# A disk carries the PACKED module, through the C SDK's CC_OVLZ_RULE although
-# Scribe is assembly: sc_ovload reads it with OSAPI_FILE_READ into its own
-# SC_OVKB claim, which is the same transparent read cc_ovneed makes (SPEC.md
-# 20.14), and the check above is against the UNPACKED cut.
-$(BUILD)/SCRIBE.OVL: $(BUILD)/scribe.o88 ;
-$(eval $(call CC_OVLZ_RULE,SCRIBE.OVL))
+$(BUILD)/scribe.o88: $(BUILD)/scload.bin $(BUILD)/scribe.bin tools/os88ovl.py \
+                     tools/os88pkg.py $(PKGZSTAMP)
+	python3 tools/os88ovl.py $(BUILD)/scribe.bin -o $(BUILD)/scribe.p1.bin \
+		--trim $(BUILD)/scribe.p0.bin --pad-bss
+	$(OS88PKG) $(BUILD)/scload.bin -o $@ \
+		--part $(BUILD)/scribe.p0.bin --part $(BUILD)/scribe.p1.bin
 
-# THE PACKED MODULE COMES WITH THE PACKAGE (SPEC.md 95.8.7): a disk carries
-# build/ovlz/SCRIBE.OVL, and a target that refreshed scribe.o88 alone is how a
-# stale pair was made. `all` names it beside scribe.o88 for the same reason.
-scribe: $(BUILD)/scribe.o88 $(CC_OVLZ)/SCRIBE.OVL
+# ...and the two halves are askable by name, as word.o88's are: they fall out
+# of the recipe above, so without this line `make $(BUILD)/scribe.p1.bin` has
+# no rule at all.
+$(BUILD)/scribe.p0.bin $(BUILD)/scribe.p1.bin: $(BUILD)/scribe.o88 ;
+
+scribe: $(BUILD)/scribe.o88
 
 scribedisk: $(BUILD)/scribe.img $(BUILD)/scribe720.img \
             $(BUILD)/scribe120.img $(BUILD)/scribe360.img
@@ -10246,8 +10249,7 @@ scribedisk: $(BUILD)/scribe.img $(BUILD)/scribe720.img \
 $(BUILD)/SCWELCOM.RTF: tools/os88rtf.py tools/os88doc.py apps/scribe/welcome.wtx | $(BUILD)
 	python3 tools/os88rtf.py apps/scribe/welcome.wtx -o $@
 
-SCRIBEDISK := $(BUILD)/scribe.o88 $(CC_OVLZ)/SCRIBE.OVL $(BUILD)/WELCOME.DOC \
-              $(BUILD)/SCWELCOM.RTF
+SCRIBEDISK := $(BUILD)/scribe.o88 $(BUILD)/WELCOME.DOC $(BUILD)/SCWELCOM.RTF
 
 $(BUILD)/scribe.img: $(SCRIBEDISK) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(SCRIBEDISK) --folder DOCS
@@ -13908,10 +13910,11 @@ LIVESYSARGS := $(addprefix SYSTEM:,$(filter-out $(APPSYS),$(SYSAPPS))) \
 # SCRIBE took the budget NEGATIVE. The note over $(ALLAPPSFILES) has the
 # arithmetic. A live volume with 26MB free has no such trade in it.
 #
-# SCRIBE GETS A FOLDER rather than a second .O88 in APPS/: SCRIBE.OVL is
-# resolved in the launching instance's directory (SPEC.md 19.2.1), the same
-# requirement that gives each Word one - and its WELCOME.DOC is a second copy
-# of the name WORD/ already carries, which only separate folders allow.
+# SCRIBE GETS A FOLDER rather than a second .O88 in APPS/: its WELCOME.DOC is
+# a second copy of the name WORD/ already carries, which only separate folders
+# allow. (It was also because SCRIBE.OVL was resolved in the launching
+# instance's directory; that module is a part of SCRIBE.O88 now, SPEC.md
+# 95.8.8, so the folder holds one program file and its two documents.)
 #
 # $(MEDIA_EXTRA) is the category disks' documents (SPEC.md 24.6.2): SALES.SLK,
 # WRITING.MD, SAMPLE.BMP and LAKE.JPG, so that Sheet, Chart, ArtfulType, Paint
