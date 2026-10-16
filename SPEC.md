@@ -66443,7 +66443,13 @@ inks.
   last row less 10 - since the helpers keep their registers, set the
   black pen before the x arithmetic needs AL, and test the lit flag in
   BP where they copied BP to AX to test AH: FEWER instructions on the
-  key redraw and the keyboard paint, none added (-27).
+  key redraw and the keyboard paint, none added (-27). The viewer's
+  painters read the step `pn_vinfo` leaves in AL rather than re-load
+  it, middle C's ledger asks the next column before it builds its
+  span, and the sharp's erase decides its two rows in one test and
+  falls into `pn_vcol`, which falls into `pn_cvline` (moved beside it):
+  again fewer instructions on every path a note draws (-19 image bytes,
+  -3 file - what LZ4 had already been charging little for).
 
 ## 37. clock.inc — the system clock
 

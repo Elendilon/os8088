@@ -1096,7 +1096,8 @@ pn_vwant:
 
 ; pn_vinfo - AL = a note: [pn_vyc] = its y, [pn_vrs] = the staff row inside
 ; its sharp's y-3..y+2 (0 for none - there is at most one, and it is y or
-; y-3), [pn_vstp] = its step, [pn_vsh] = sharp; AX, BX clobbered
+; y-3), [pn_vstp] = its step, [pn_vsh] = sharp; out AX = the step, BX
+; clobbered
 pn_vinfo:
     mov bl, al
     xor bh, bh
@@ -1134,23 +1135,21 @@ pn_vputs:
     call pn_vinfo
     jmp short pn_vput.s
 pn_vput:
-    call pn_vinfo
-    cmp byte [pn_vstp], 0
-    jne .d
+    call pn_vinfo                   ; AX = the step
+    or al, al
+    jnz .d
     call pn_inkk                    ; middle C: the ledger line, to colx+11 -
-    lea bx, [bp+11]                 ; or colx+10 when the next column will
-                                    ; show a C#4, whose vline owns that pixel
-    cmp di, PN_VCOLS-1
-    jae .lx
-    inc di
-    push bx
-    call pn_vwant
-    pop bx
+    cmp di, PN_VCOLS-1              ; or colx+10 when the next column will
+    jae .lx                         ; show a C#4, whose vline owns that pixel
+    inc di                          ; (the last column has no next: AL is
+    call pn_vwant                   ; this one's step, 0, which is no C#4)
     dec di
-    cmp al, 1
-    jne .lx
-    dec bx
 .lx:
+    lea bx, [bp+11]
+    cmp al, 1
+    jne .lxx
+    dec bx
+.lxx:
     lea ax, [bp+2]
     mov dx, 46
     call pn_chline
@@ -1194,9 +1193,9 @@ pn_vput:
 ; clobbered
 ; -----------------------------------------------------------------------------
 pn_vrub:
-    call pn_vinfo
-    cmp byte [pn_vstp], 0
-    jne .d
+    call pn_vinfo                   ; AX = the step
+    or al, al
+    jnz .d
     call pn_inkw                    ; the ledger: white, but not the pixel a
     lea ax, [bp+2]                  ; C#4 in the next column owns - and at
                                     ; the last column its end is the FRAME
@@ -1248,8 +1247,8 @@ pn_vrub:
     call pn_chline
 .s:
     cmp byte [pn_vsh], 0
-    je pn_vsrub.r
-    jmp short pn_vsrub
+    jne pn_vsrub
+    ret
 pn_vsrubn:
     call pn_vinfo
 pn_vsrub:
@@ -1263,32 +1262,32 @@ pn_vsrub:
     call pn_chline
     add dx, 3
     call pn_chline
-    mov cx, [pn_vrs]                ; vline colx+1: the staff row it crosses,
-    cmp byte [pn_vstp], 0           ; or - for a C#4 - row 46, which is the
-    jne .v1                         ; ledger's of the column before if that
-    or di, di                       ; one is middle C
-    jz .v1
-    cmp byte [pn_vshow+di-1], 1
+    mov cx, [pn_vrs]                ; both vlines: the staff row they cross,
+    cmp byte [pn_vstp], 0           ; and pn_vcol keeps CX for the second -
+    jne .both                       ; or, for a C#4 (whose [pn_vrs] is 0, so
+    or di, di                       ; CH is), row 46 at colx+1 if it is the
+    jz .v1                          ; ledger of the column before, middle C
+    cmp byte [pn_vshow+di-1], 1     ; or C#4 there...
     ja .v1
-    mov cx, 46
+    mov cl, 46
 .v1:
     lea ax, [bp+1]
     call pn_vcol
-    mov cx, [pn_vrs]                ; vline colx+3: likewise, and row 46 is
-    cmp byte [pn_vstp], 0           ; this column's OWN ledger if it stays
-    jne .v3
-    cmp byte [pn_vkeep], 0
+    xor cx, cx                      ; ...and row 46 at colx+3 if it is this
+    cmp byte [pn_vkeep], 0          ; column's OWN ledger, which stays
     je .v3
-    mov cx, 46
+    mov cl, 46
+    jmp short .v3
+.both:
+    lea ax, [bp+1]
+    call pn_vcol
 .v3:
     lea ax, [bp+3]
-    call pn_vcol
-.r:
-    ret
+                                    ; ...and FALLS INTO pn_vcol
 
 ; pn_vcol - a sharp's vline at x AX, rows y-3..y+2, drawn over in white
 ; except row CX (0 = none), which is black: a staff line or a ledger. Each
-; pixel is written once. AX..DX clobbered
+; pixel is written once. AX, BX, DX clobbered, CX kept
 pn_vcol:
     call pn_inkw
     mov bx, [pn_vyc]
@@ -1314,8 +1313,21 @@ pn_vcol:
     call pn_inkk
     mov bx, cx
     mov dx, cx
-.all:
-    jmp pn_cvline
+.all:                               ; ...and FALLS INTO pn_cvline, which is
+                                    ; here rather than with the other pn_c*
+                                    ; helpers for that
+pn_cvline:                          ; AX=x BX=y1 DX=y2 (color set)
+    push ax
+    push bx
+    push dx
+    add ax, [pn_ox]
+    add bx, [pn_oy]
+    add dx, [pn_oy]
+    call OSAPI_GFX_VLINE
+    pop dx
+    pop bx
+    pop ax
+    ret
 
 ; pn_inkw / pn_inkk / pn_inkb - the pen white / black / blue, AX kept (the
 ; viewer's erases change pen a dozen times; this is 3 bytes a change)
@@ -1611,19 +1623,6 @@ pn_chline:                          ; AX=x1 BX=x2 DX=y (color set)
     add bx, [pn_ox]
     add dx, [pn_oy]
     call OSAPI_GFX_HLINE
-    pop dx
-    pop bx
-    pop ax
-    ret
-
-pn_cvline:                          ; AX=x BX=y1 DX=y2 (color set)
-    push ax
-    push bx
-    push dx
-    add ax, [pn_ox]
-    add bx, [pn_oy]
-    add dx, [pn_oy]
-    call OSAPI_GFX_VLINE
     pop dx
     pop bx
     pop ax
