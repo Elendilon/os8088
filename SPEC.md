@@ -169166,6 +169166,26 @@ was built and is NOT taken: the two parts compress apart, part 1's code at
 took `apps360.img` past its 354. It is kept for the day the ceiling bites
 again.
 
+**Apps size pass 2 (2026-10-16)** measured the player by its FILE - the
+LZ4-packed `VIDEO.O88`, 41,127 bytes and 41 clusters of the 360KB apps
+disk - and took cold code only, under the rules above: every routine
+`apps/video/rdiffhot.txt` names is instruction-identical and at an even
+shift in all three arms, and so is every play-time data word. What packs
+decides what is worth taking: LZ4 already stores a repeat of four bytes or
+more as a three-byte match, so a byte cut from UNIQUE code is most of a
+file byte, while folding a copy of something into a call buys almost
+nothing, and a rewrite that trades a common shape (`cmp byte [vp_pixfmt]`
+seven times) for a novel one (`cmp ch` seven times) made the file BIGGER
+by 21 bytes for 10 fewer in the image - measured and not taken.
+
+- **The bench's long divide and multiply are the card's** (`vp_ldiv` and
+  `vp_lmul`, 98.1.9.13's, were `vp_div32` and `vp_mul32` written again;
+  the bench's arithmetic is past its timed loop, and the remainder the
+  card's divide leaves in CX is read by nothing), and a Live planar
+  stream's keeper is sized by `vp_plshd`, the planar keyframe's own claim
+  - the same sum, written out a second time in `vp_sstart`. -48 bytes of
+  image, -21 of file.
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |

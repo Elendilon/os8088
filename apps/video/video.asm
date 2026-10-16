@@ -9634,15 +9634,10 @@ vp_sstart:
 .kps:
     cmp byte [vp_livem], 0          ; A LIVE STREAM (98.3.18.1): nothing
     je .kpl                         ; checks its records ahead, so the claim
-    mov ax, [vp_plsp]               ; is the bound, as a keyframe's is
-    mov cx, ax                      ; (VP_MXSHD): plane 3's base + 64 KB, and
-    shl ax, 1                       ; a 16-bit write from any plane stays in
-    add ax, cx                      ; it
-    add ax, 63
-    mov cl, 6
-    shr ax, cl
-    add ax, 64
-    jmp short .kc
+    call vp_plshd                   ; is the bound, as a keyframe's is
+    jmp short .kc                   ; (VP_MXSHD): plane 3's base + 64 KB, and
+                                    ; a 16-bit write from any plane stays in
+                                    ; it - a planar keyframe's own claim
 .kpl:
     mov ax, [vp_plsp]               ; 4 x plsp paragraphs, in KB - 64
     shl ax, 1                       ; paragraphs to the KB (it was 16: the
@@ -11026,11 +11021,11 @@ vp_lybench:
     cmp dx, cx                      ; the BIOS's to a tick (65,536 counts)
     jb .tkd
     mov cx, [vp_lyn]
-    call vp_ldiv                    ; DX:AX = a decode's counts
+    call vp_div32                   ; DX:AX = a decode's counts
     mov cx, 100
-    call vp_lmul
+    call vp_mul32
     mov cx, 1193                    ; ...x 100 / 1,193: in 10 us
-    call vp_ldiv
+    call vp_div32
     or dx, dx
     jz .tt
     mov ax, 0xFFFF
@@ -11185,35 +11180,6 @@ vp_bnsel:
     cld
     rep movsw
 .r:
-    ret
-
-; vp_ldiv - DX:AX / CX -> DX:AX, the long way (no overflow). Every other
-; register kept
-vp_ldiv:
-    push bx
-    mov bx, ax
-    mov ax, dx
-    xor dx, dx
-    div cx
-    xchg ax, bx
-    div cx
-    mov dx, bx
-    pop bx
-    ret
-
-; vp_lmul - DX:AX x CX -> DX:AX (the product under 2^32). Every other
-; register kept
-vp_lmul:
-    push bx
-    mov bx, dx
-    mul cx
-    push dx
-    xchg ax, bx
-    mul cx
-    pop dx
-    add dx, ax
-    mov ax, bx
-    pop bx
     ret
 
 ; vp_bnio - the bench's surface swapped in, or back (98.1.9.13): the origin
