@@ -142177,8 +142177,8 @@ file byte saved.
   `fv_choose`. The launch name is copied through the ES the loader hands
   over (`es lodsb`), so DS never moves. Every repaint runs the same calls in
   the same order with fewer pushes around them: a keystroke's repaint does
-  22 fewer `push`/`pop` pairs (~590 of an 8088's cycles, counted rather than
-  measured), and no instruction on that path was added.
+  22 fewer `push`/`pop` pairs, and no instruction on that path was added
+  (measured below).
 - **The region's relocation proc is a `ret` already there** (-3 image, -3
   file). `OS88_REGION_MOVABLE_NOKEEP` with no argument emits a `jmp` over a
   `ret` of its own; nothing in the region names the region's segment, so it
@@ -142204,6 +142204,27 @@ file byte saved.
 - **A catalogue row's gutter is composed in AX and stored once** (-3 image,
   -4 file): `'  '`, with `'>'` in its low byte for the selection, where a
   word of blanks was stored and then a marker byte over it.
+
+**The keystroke repaint got faster, and it is MEASURED**: MartyPC guest
+cycles from `fv_onkey`'s entry to the kernel's `gfx_unlock` after it, Charter
+open, six typed `X`s and six Backspaces on `os8088_5150_cga_gla`, the
+same kernel and the package swapped in place on the system disk. Least of
+six: `X` **471,935 -> 470,785** and Backspace **470,135 -> 468,973**, ~1,160
+cycles (0.24 ms of a 98.9 ms repaint); the modal reading moved by the same
+~1,170. Nothing was moved to the entry proc. Looked at on the glass the same
+boot: launch on `CHARTER.F88`, typing, Backspace, Down, a row click, the
+About card and its dismissal all draw and behave as before.
+
+**The disk did not gain a cluster**: 3,456 bytes is still four 1,024-byte
+clusters on both disks it rides, and the next 384 bytes are not in the
+package's own code, whose 840 remaining bytes pack to ~95% of themselves.
+They are in `os88type.inc` (2,817 image bytes here, ~2,070 packed), which a
+package does not edit. Every routine of it this package assembles is reached
+but one: `ty_gray` (56 bytes, plus `ty_flush`'s 5-byte call to it) runs only
+for a band drawn GREYED, and the specimen never is (`clc` at its one
+`ty_flush`). An `OS88TY_NOGRAY` opt-out beside §6.5.5's others would take
+~61 image and ~50 file bytes off this package, and off any other carrier that
+never greys.
 
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 
