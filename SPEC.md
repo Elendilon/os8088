@@ -42566,6 +42566,19 @@ writes it, so a W_PAINT mid-press agrees for free; Word and Scribe stage the
 record one control at a time and set it before each `os88ui_btn` from their
 own "which control is down". That is the contract, and not a trespass.
 
+**`OS88UI_NOBTNINIT`** splits the gesture in two (apps size pass 2b). Its
+SETUP half - `os88ui_btninit`, the library's own W_ONCLICK `os88ui_btnclick`
+and the record list head `os88ui_btlist`, 112 bytes - is reached only by a
+package that hands the window to the library; its PRESS half -
+`os88ui_btnpress`/`btndrag`/`btnup` over `os88ui_bfrec` - is also what a
+package that routes its own press into the record calls. `OS88UI_NOBTNINIT`
+takes out the setup half and keeps the press half; `OS88UI_NOGEST` implies it
+and takes out both, so every existing consumer is byte-identical. It removes
+the symbols on the same argument: a package that sets it and calls
+`os88ui_btninit` does not assemble. Note Pad's full build is the one consumer
+(§27.21 item 19): its find panel presses into `os88ui_btnpress` and installs
+its own up and drag procs.
+
 **`OS88UI_NOBFIND`** is the same shape one routine further: under
 `OS88UI_NOGEST` nothing in the file calls `os88ui_bfind` — the gesture is its
 only internal caller — so a package that hit-tests with `os88ui_bhit` or by
@@ -59105,13 +59118,21 @@ into bss or the heap. The numbers are the file and the image, both arms.
     there is no button record in `APP_SMALL` at all - the alert's buttons
     are its own - so the build sets `OS88UI_NOGEST` and `OS88UI_NOBFIND`
     (§20.5.1.3.4) and the ~230 bytes of record-gesture code nothing in it
-    could reach are gone (§27.16.2's table). The full build still carries
-    `os88ui_btninit`/`btnclick`/`btlist`, which it never calls - they share
-    the knob with the gesture it does use.
+    could reach are gone (§27.16.2's table). The full build carried
+    `os88ui_btninit`/`btnclick`/`btlist`, which it never calls, until item
+    19 gave that half a knob of its own.
 18. **File > New zeroes through AX.** `np_new` stored two immediate
     zeros and saved AX around `np_resize`, which keeps it anyway; AX was
     already spent on the toast's string, so its header now says it clobbers
     AX, which it always did.
+19. **The full build leaves the gesture's SETUP half out** (apps size pass
+    2b). The find panel routes its own press into `os88ui_btnpress` and
+    installs its own up/drag pair (`np_onup`/`np_ondrag`), so it reaches the
+    gesture's press half and never `os88ui_btninit`, `os88ui_btnclick` or
+    the record list head. `OS88UI_NOBTNINIT` (§20.5.1.3.4) takes those out:
+    image -112, file 14,875 -> 14,766 (-109), 15 clusters on the system and
+    apps disks either way. The small arm, already `OS88UI_NOGEST`, is
+    byte-identical.
 
 ## 28. apps/taskmgr — the Task Manager
 
