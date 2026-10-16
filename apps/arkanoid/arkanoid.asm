@@ -2643,10 +2643,9 @@ ark_draw_wall:
 ; The dirty map is a BIT a cell (ark_break sets them), so a frame with nothing
 ; broken reads ARK_DIRTYB bytes and draws nothing, where a byte a cell was
 ; sixty compares a frame
+; clobbers AX, BX, SI and saves nothing: its one caller is the worker loop's
+; .draw, which holds no register across it (SPEC.md 44.12)
 ark_draw_bricks_dirty:
-    push ax
-    push bx
-    push si
     xor si, si
 .byte:
     mov al, [ark_dirty+si]
@@ -2669,9 +2668,6 @@ ark_draw_bricks_dirty:
     inc si
     cmp si, ARK_DIRTYB
     jb .byte
-    pop si
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2931,11 +2927,9 @@ ark_draw_paddle:
     pop ax
     ret
 
+; clobbers AX..DX and saves nothing: its one caller is the worker loop's
+; .draw, which holds no register across it (SPEC.md 44.12)
 ark_move_paddle:
-    push ax
-    push bx
-    push cx
-    push dx
     cmp byte [ark_padwipe], 0
     je .out
     mov byte [ark_padwipe], 0
@@ -3004,10 +2998,6 @@ ark_move_paddle:
     je .out
     call ark_draw_ball
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3040,11 +3030,9 @@ ark_draw_ball:
     pop ax
     ret
 
+; clobbers AX, CX and saves nothing: its one caller is the worker loop's
+; .draw, which holds no register across it (SPEC.md 44.12)
 ark_move_ball:
-    push ax
-    push bx
-    push cx
-    push dx
     mov ax, [ark_bx]
     cmp ax, [ark_obx]
     jne .go
@@ -3093,10 +3081,6 @@ ark_move_ball:
     mov ax, [ark_by]
     mov [ark_oby], ax
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3413,14 +3397,10 @@ ark_pu_compose:
 
 ; -----------------------------------------------------------------------------
 ; ark_wipe_pu - erase every capsule from where it was last frame
-; preserves all registers
 ; -----------------------------------------------------------------------------
+; clobbers AX..DX, SI and saves nothing: its one caller is the worker loop's
+; .draw, which holds no register across it (SPEC.md 44.12)
 ark_wipe_pu:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
     xor si, si
 .each:
     cmp byte [ark_pukind+si], PU_NONE
@@ -3472,11 +3452,6 @@ ark_wipe_pu:
     inc si
     cmp si, ARK_MAXPU
     jb .each
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3516,12 +3491,9 @@ ark_draw_shots:
     pop ax
     ret
 
+; clobbers AX..DX, SI and saves nothing: its one caller is the worker loop's
+; .draw, which holds no register across it (SPEC.md 44.12)
 ark_wipe_shots:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
     xor si, si
 .each:
     cmp byte [ark_shot+si], 0
@@ -3544,11 +3516,6 @@ ark_wipe_shots:
     inc si
     cmp si, ARK_MAXSHOT
     jb .each
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------

@@ -80470,6 +80470,13 @@ pass leaves binding:
   it writes. The paddle test runs on every pixel of ball travel that misses
   the wall, so it is the hottest code the pass touched, and none of these
   got an instruction more.
+- **The draw half's own helpers save nothing.** `ark_wipe_pu`,
+  `ark_wipe_shots`, `ark_draw_bricks_dirty`, `ark_move_paddle` and
+  `ark_move_ball` have one caller, the worker loop's `.draw`, which holds no
+  register across them; their 21 push/pop pairs were paid every frame for
+  nobody. Each says what it clobbers at its label. `ark_draw_pu` and
+  `ark_draw_shots` keep theirs: `ark_draw_all` and `ark_draw_msgband` call
+  them too.
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
