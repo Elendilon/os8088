@@ -858,7 +858,13 @@ Twice what MartyPC's 5150 measured (+0.34-0.70%): a taken jump empties the
 the most because their cost is mostly fixed and every list head is a site.
 The options, none taken yet:
 
-1. **Out of line.** A site becomes three bytes - three NOPs off, a `call
+1. **Out of line - BUILT, MEASURED and NOT TAKEN (the owner, 2026-10-16;
+   docs/reports/VIDEO-VDYCK-2026-10-16.md, the patch beside it as
+   `VIDEO-VDYCK-2026-10-16.patch`).** As a 3-byte `test ax, rel16` patched to `call
+   vd_yield` it saved 258 bytes and ~6 cycles a site on an 8088 (35-90 a
+   frame, MEASURED), and cost a 286 decoding in place ~13 clocks a site
+   (0.25-0.6% of a real frame, PREDICTED). The owner keeps the 286's
+   in-place play as it is. The sketch as first written: a site becomes three bytes - three NOPs off, a `call
    vd_ychk` on - so a play that never yields falls through instead of
    jumping (9 clocks a site on a 286, against 7 + the next instruction's
    length for the jump, and ~3 fewer on an 8088's fetch) and the twenty

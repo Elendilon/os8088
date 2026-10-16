@@ -7009,6 +7009,17 @@ fm_dgdrop:
     jnz .out                    ; ZF = 0: a member - the drag goes nowhere
 %endif
 .have:
+%ifdef OS88_SHORTCUTS
+    call fm_mods                ; ALT HELD: a LINK to it there, and nothing
+    test al, 8                  ; moved or copied (SPEC.md 26.10.4) - into
+    jz .noalt                   ; its own folder too, which is where a link
+    mov byte [fcp_cbop], FCP_NONE   ; is most often made. The Cut the drag
+    mov dx, bx                  ; armed is disarmed, as a desktop drop's is
+    mov al, [fm_dgdrv]
+    mov ah, SC_OP_LNK           ; CTRL.DRV writes it, as it writes a shortcut
+    jmp sc_modcall
+.noalt:
+%endif
     mov al, [fm_dgdrv]
     cmp al, [fcp_cbdrv]           ; the same folder it came from? then the
 %ifdef FM_MSEL
@@ -8439,8 +8450,9 @@ fm_mfocus:
     mov [fm_lsel], ax
     ret
 
-; fm_mods - the BIOS's shift state (0040:0017): AL bit 2 = Ctrl, bits 0-1 =
-; Shift, and nothing else; AH = 0. A Standard File chooser picks ONE file, so
+; fm_mods - the BIOS's shift state (0040:0017): AL bit 3 = Alt (an Alt-drop
+; makes a LINK, SPEC.md 26.10.4), bit 2 = Ctrl, bits 0-1 = Shift, and nothing
+; else; AH = 0. A Standard File chooser picks ONE file, so
 ; in its block (DI) no modifier is seen at all - the zero that addresses the
 ; BIOS's segment is its answer
 fm_mods:
@@ -8451,7 +8463,7 @@ fm_mods:
     mov ds, ax
     mov al, [0x417]
     pop ds
-    and al, 7
+    and al, 0x0F
 .k:
     ret
 

@@ -915,6 +915,26 @@ FAST = [
         "at all",
         wants=("build/small360.img", "build/small.img",
                "build/smallapps360.img", "build/smallapps.img")),
+    Row("lzbclust", "soak", py("tests/unit/t_lzbclust.py"), 1.2,
+        "SPEC.md 20.13.5's rule for LZBPKGS: a package ships LZB only while "
+        "LZB SAVES IT A 1KB CLUSTER on the 360KB disks it rides, because the "
+        "decode costs ~4x LZ4's on every launch (+541 ms on ArtfulType's "
+        "first, measured on a 5150) and the disk only gains a whole cluster. "
+        "A package is chosen against the size it had that day and its next "
+        "edit can move it to the far side of a boundary with every build "
+        "step green - so for each listed name this re-packs build/<name>.bin "
+        "with LZ4 and fails unless the shipped LZB file takes fewer "
+        "clusters, and fails a listed name whose shipped file is not LZB at "
+        "all (the stamp or the rule come apart from the list - the first try "
+        "at the list shipped all of them LZ4 and reported up to date). Red "
+        "on purpose both ways: `mines` added to the list fails as not LZB, "
+        "and Solitaire's small arm packed LZB (3,658 bytes, 4 clusters "
+        "against LZ4's 4,067, 4) fails as saving none. `--candidates` lists "
+        "the LZ4 packages LZB would save one for, as information. SOAK and "
+        "not fast: it re-packs a dozen packages, and which compressor a "
+        "package uses is not 'did you obviously break the OS'",
+        wants=("build/artful.o88", "build/artful.bin",
+               "build/smallapp/calc.o88", "build/smallapp/tank.o88")),
     Row("ktags", "soak", py("tests/unit/t_ktags.py"), 0.1,
         "every owner tag the kernel ships has a TYPE name on the Task "
         "Manager's heap page - SPEC.md 28.4's hex fallback is for a tag this "
@@ -2974,14 +2994,16 @@ SOAK = [
         "CHIPSET1/2.TXT without the help, the pane scrolls, Benchmark restores the foot, "
         "Quit closes REDLINE",
         needs=("marty", "nasm"), wants=("build/redline360.img", "build/os8088-360.img")),
-    Row("rltune", "soak", py("tests/rltune.py"), 77.0,
+    Row("rltune", "soak", py("tests/rltune.py"), 81.0,
         "REDLINE's chipset write path in the OS on QEMU's AT (SPEC.md 103.6.3-103.6.5): "
         "on the Tune tab an FE3600 nothing detects is picked, Target Mfg spec and Tune "
         "confirm and set R4 10, Fastest tested sweeps to 4 and sets it unasked, the state "
-        "field following both, Save setting writes REDLINE.CFG to the "
-        "BOOT disk's APPDATA with this BIOS's fingerprint, Quit closes it, and RLAPPLY.O88 "
+        "field following both, Apply on boot writes REDLINE.CFG to the "
+        "BOOT disk's APPDATA with this BIOS's fingerprint and \\AUTOSTRT\\RLAPPLY.LNK "
+        "beside it (SPEC.md 26.10.6), Quit closes it, and RLAPPLY.O88 "
         "from A:\\SYSTEM toasts its verdict before and after the Save and leaves no "
-        "window. QEMU by name: "
+        "window - and a REBOOT toasts `Chipset setting applied` with nobody touching "
+        "anything, the bar seen empty first so 5b's toast cannot pass for it. QEMU by name: "
         "the path is refused on an 8088, where 63h is the PPI",
         needs=("nasm", "qemu"), wants=("build/os8088.img", "build/redline.img")),
     Row("redlinemodern", "soak", py("tests/redline.py", "--modern"), 15.0,
@@ -8909,6 +8931,21 @@ SOAK = [
         "open, because a move shuts that window. VERIFIED RED with .selmove's "
         "FS_CLKT store taken out (the Audio Player launched on one click).",
         needs=("marty",), serial=True),
+    Row("autostart", "soak", py("tests/autostart.py"), 50.0,
+        "SPEC.md 26.10: LINKS and AUTOSTART on kern_big, off "
+        "`make autostarttest`'s disk. A: the boot opens every link in the "
+        "boot volume's \\AUTOSTRT - the Task Manager is up with nobody "
+        "touching anything, and a file named like a link and not one stops "
+        "nothing. B: A:\\CALC.LNK, double-clicked, starts the Calculator "
+        "off B: (an absolute volume, through assoc_run_x). C: Shift held "
+        "through the boot says `Autostart skipped` and starts nothing. D: "
+        "an Alt-drop of B:\\APPS\\CALC.O88 on its '..' leaves it there "
+        "and writes B:\\CALC.LNK, which starts the Calculator. VERIFIED "
+        "RED three ways: as_boot's folder test jumped past (A and C), "
+        "as_boot's Shift test inverted (A and C), fm_dgdrop's Alt test "
+        "jumped past (D alone - the drag MOVES the package).",
+        needs=("marty",), serial=True,
+        wants=("build/autostart360.img", "build/astapps360.img")),
     Row("msel", "soak", py("tests/msel.py"), 55.0,
         "SPEC.md 22.27: MULTI-SELECT in a Disk window (kern_big). Ctrl+click "
         "adds and removes one entry, Shift+click takes the run from the "
@@ -10052,8 +10089,9 @@ SOAK = [
         "loader's step 5 for an OS88_F_DESK package and by a Sticky App's QUERY. "
         "absent: the shipped 360KB system disk with a Sticky App row "
         "to DESKCAL.O88 and DESK.DRV mdel'd (asserted gone on the host) - "
-        "the boot still relaunches the calendar (stik_boot is resident), it "
-        "comes up TITLED (no WF_DESK, a title bar), mod_tab's MOD_DESK row "
+        "the boot still relaunches the calendar (stik_boot is resident) and "
+        "the STIK_DESKONLY build refuses, said (`No desk layer (DESK.DRV)`, "
+        "no window - the titled arm is the small build's), mod_tab's MOD_DESK row "
         "is 0 and every DKDFP slot mod_gone, and the row is kept, marked and "
         "cell-less. present, the control: the same disk with the module - a "
         "desk window, the module held, the row kept, and the module's claim "
@@ -10127,15 +10165,16 @@ SOAK = [
         "SPEC.md 110.3: the Desk Calendar WIDGET's APPOINTMENTS, read back "
         "off the guest's own disk by tools/os88stik.py, selected the v2 way "
         "(the two-line agenda paged by its `+N more` pager). A DAMAGED "
-        "state file (count 60) opens empty and its first edit asks `Replace "
-        "damaged calendar?` with the file untouched until Yes; `9:30 "
+        "state file (count 60) opens empty, says `Calendar file damaged`, is "
+        "untouched until the first edit, whose save deletes it and writes "
+        "afresh; `9:30 "
         "Dentist`, `1230 Lunch`, `815 Gym` and `Mum's birthday` are four "
         "appointments IN ORDER, all-day first, the timed ones armed; Enter "
         "on a pressed line edits it in the field (09:30 Doctor, reminder "
-        "kept); Del asks and Yes deletes; 26 characters are refused (`At "
-        "most 25 letters`, nothing written); Delete Item picked with the "
-        "field open asks on a bar with nothing right of the app name "
-        "(SPEC.md 110.9); v2's FOCUS with a Disk window in front all along "
+        "kept); Del arms (`Delete again to confirm`), a key between disarms "
+        "and two Dels in a row delete; 26 characters are refused (`At "
+        "most 25 letters`, nothing written); Delete Item picked twice, the "
+        "first with the field open (it shuts), deletes; v2's FOCUS with a Disk window in front all along "
         "- a card-margin press hands the widget the bar and the Disk window "
         "stays wm_top, `+` opens the field in card 2's heading row and a "
         "plain line is a TASK and a timed one an appointment, losing the "
@@ -10155,8 +10194,8 @@ SOAK = [
         "box's rect and nowhere else, the box then pixel for pixel the "
         "TICKED record; the two-line list pages by `+2 more`, a text press "
         "selects and Space checks, one BLIT1 again; Clear Done Tasks greyed "
-        "`(none done)` until one is checked and leaving the unchecked one; "
-        "Del and Yes empty the list; and three again show the last one's "
+        "until one is checked and leaving the unchecked one; "
+        "Del twice empties the list; and three again show the last one's "
         "page and the pager wraps.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
     Row("deskcalgrid", "soak", py("tests/deskcalgrid.py"), 40.0,
@@ -10335,8 +10374,8 @@ SOAK = [
         "cell of the API table, a call counted only when its far return "
         "address is the calendar's own segment - on the VGA XT (TALL) and "
         "the 5150 CGA (COMPACT), against v2's budgets: the first paint (<= "
-        "20 calls TALL, <= 14 COMPACT), the About card's take-down (its rows "
-        "alone, fewer calls than the first paint), a day select (<= 5: the "
+        "20 calls TALL, <= 14 COMPACT), About (one toast, 0 calls on the "
+        "cards), a day select (<= 5: the "
         "two boxes and card 2), a month (<= 8), a task's tick (exactly 1), "
         "the tag's reveal and hide (1 / 3), an IDLE stretch of three beats "
         "and a minute boundary that must draw ZERO, and a reminder going off "
@@ -10360,7 +10399,7 @@ SOAK = [
         "20th's dot is ink and the 13th has none (the COMPACT box once took "
         "the dot row of the day above, SPEC.md 110.9); every gap pixel is "
         "the desktop's dither; and with the Calendar menu held down on the "
-        "widget's own bar, every item's band - the greyed `(no item)` ones "
+        "widget's own bar, every item's band - the greyed ones "
         "included - carries ink.",
         needs=("marty", "mtools"), timeout=900,
         wants=("build/os8088-360.img",)),
@@ -10391,12 +10430,12 @@ SOAK = [
         needs=("marty", "mtools"), timeout=900,
         wants=("build/os8088-360.img",)),
     Row("deskmodal", "soak", py("tests/deskmodal.py"), 40.0,
-        "SPEC.md 110.3, 11.103.4: a widget's MODAL QUESTION on MartyPC's "
-        "VGA XT with a Disk window in front: the widget is wm_zord[0] and "
-        "the Disk window wm_top; Del on the widget's appointment puts "
-        "`Delete this appointment?` at the TOP of wm_zord owning the bar, "
-        "the widget still at [0] under the Disk window; Yes deletes it and "
-        "the bar goes to wm_top - the Disk window, never the widget.",
+        "SPEC.md 110.3, 11.103.4: a widget's DELETE on MartyPC's VGA XT "
+        "with a Disk window in front: the widget is wm_zord[0] and the Disk "
+        "window wm_top; Del on the widget's appointment arms (`Delete again "
+        "to confirm`) and opens NO window - wm_zord unchanged, the bar the "
+        "widget's; Del again deletes it and still nothing moved. It was the "
+        "Delete QUESTION's row until the size pass took the alert out.",
         needs=("marty", "mtools"), timeout=600,
         wants=("build/os8088-360.img",)),
     Row("curdisk", "soak", py("tests/curdisk.py"), 240.0,
