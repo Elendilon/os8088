@@ -3700,12 +3700,20 @@ ark_draw_status:
     je .lives
     mov [ark_oscore], ax
     mov di, ark_sbuf + ARK_SFW      ; the digits at the field's END, then
-    call ark_num2str                ; slid to its start by ark_padl - a copy
-    mov si, di                      ; forward with the source ahead of the
-    mov di, ark_sbuf                ; destination, so nothing is read after
-                                    ; it is written
-    mov cx, ARK_SFW
-    call ark_padl                   ; left in the field, spaces after
+    call ark_num2str                ; slid to its start - a copy forward with
+    mov si, di                      ; the source ahead of the destination, so
+    mov di, ark_sbuf                ; nothing is read after it is written -
+    mov cx, ARK_SFW                 ; left in the field, spaces after. The
+.pad:                               ; padding is what makes the field opaque:
+    lodsb                           ; a space paints background on
+    or al, al                       ; OSAPI_FONT_RUN's fast path, so a field
+    jnz .put                        ; that got SHORTER erases the cells it gave
+    dec si                          ; up in the same pass that letters the rest.
+    mov al, ' '                     ; Parked on the NUL, every cell after it
+.put:                               ; reads the NUL again and pads. The NUL
+    mov [di], al                    ; that ends the field is ark_num2str's own,
+    inc di                          ; at ark_sbuf + ARK_SFW, which this never
+    loop .pad                       ; reaches (SPEC.md 44.12)
     mov si, ark_sbuf
     mov cx, 8                       ; a multiple of 8, because the window's own
     mov dx, bp                      ; origin is (WF_SNAP is the default) - and
@@ -3785,36 +3793,6 @@ ark_draw_status:
     pop dx
     pop cx
     pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; ark_padl - copy SI into DI left-aligned in a CX-cell field, space padded and
-;            NUL-terminated; the string must fit. Preserves every register.
-;
-; The padding is what makes the field opaque: a space paints background on
-; OSAPI_FONT_RUN's fast path, so a field that got SHORTER erases the cells it
-; gave up in the same pass that letters the rest, and never blanks.
-; -----------------------------------------------------------------------------
-ark_padl:
-    push ax
-    push cx
-    push si
-    push di
-.c:
-    lodsb
-    or al, al
-    jnz .put
-    dec si                          ; parked on the NUL: every cell after it
-    mov al, ' '                     ; reads the NUL again and pads
-.put:
-    mov [di], al
-    inc di
-    loop .c
-    mov byte [di], 0
-    pop di
-    pop si
-    pop cx
     pop ax
     ret
 

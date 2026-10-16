@@ -80440,6 +80440,11 @@ pass leaves binding:
   where the game no longer reads them - because `tests/dispsize.py` leg E
   reads them back as the proof that the handler asked about the card the
   window is on (SPEC.md 39.16.4).
+- **The score's padding is inline in `ark_draw_status`.** `ark_padl` had one
+  caller; inline it is the same copy loop without the call, its four saves
+  (the caller banks every register already) and its closing NUL store, which
+  wrote a zero over the NUL `ark_num2str` had already put at
+  `ark_sbuf + ARK_SFW`.
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
