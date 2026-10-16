@@ -159885,6 +159885,14 @@ to what a DOS program sees (§96's real-DOS rule, docs/DOS-DEBUGGING.md):
   8-byte `DOS_B_BRECT` cell, which only `dos_btn_rect` wrote. Part 0 222
   bytes smaller raw, 116 packed.
 
+DEFECTS found reading the code are fixed here, each one byte-negative:
+
+- **`dsh_isshell` never recognised a full `COMSPEC` path** (§96.30). An
+  `inc si`/`dec si` pair either side of `.fwd` cancelled the step past the
+  separator, so `C:\COMMAND.COM` compared its `\` against `c` and only a bare
+  `command.com` was ever the built-in shell - the case §96.30's own prose
+  names as the reason the match is raw. Two instructions out of the core.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a

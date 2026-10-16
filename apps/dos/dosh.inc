@@ -2466,10 +2466,15 @@ dsh_isshell:
     jmp short .back
 .cmp:
     dec si                          ; .back stopped AT the separator when it
-    inc si                          ; found one and one short of the start when
-.fwd:                               ; it did not; .fwd is the shared step past
-    inc si                          ; it, and this pair makes the no-separator
-    dec si                          ; case land on the same instruction
+.fwd:                               ; found one and AT the start when it did
+    inc si                          ; not; .fwd is the shared step past the
+                                    ; separator, and the `dec` makes the
+                                    ; no-separator case land on the start.
+                                    ; (A `inc si`/`dec si` pair either side
+                                    ; of `.fwd` used to cancel the step, so a
+                                    ; full COMSPEC path compared its `\`
+                                    ; against `c` and was never recognised -
+                                    ; SPEC.md 96.44.16)
     mov di, dsh_s_cmd
 .c:
     mov al, [es:si]
