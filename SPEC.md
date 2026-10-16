@@ -58269,6 +58269,13 @@ into bss or the heap. The numbers are the file and the image, both arms.
     image + bss is unchanged. The scroll bar's 16-byte record was tried the
     same way and left where it is: it bought the full arm 4 bytes of file
     and cost the small arm 3.
+15. **A find box edits in registers.** `np_fpkey` kept the caret and the
+    length in memory and re-read both at every step; it holds them in DX
+    and CX and stores the caret back once, on every way out (so the clamp
+    to the box still lands even for a key it refuses). The insert and delete
+    slides move the terminating NUL with the text instead of writing it
+    afterwards - a box is NUL-terminated at its length on every path that
+    writes one, which item 16 below makes true of `np_fopen` too.
 
 ## 28. apps/taskmgr — the Task Manager
 

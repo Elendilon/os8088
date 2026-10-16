@@ -10350,12 +10350,15 @@ np_fpkey:
     mov si, np_frep
     mov di, np_frepn
 .have:
-    mov bx, [di]                ; ONE caret word serves both boxes, so the
-    cmp [np_fpcur], bx          ; first thing this must do is make sure it is
+    mov cx, [di]                ; CX = the length, DX = the caret - and ONE
+    mov dx, [np_fpcur]          ; caret word serves both boxes, so the first
+    cmp dx, cx                  ; thing this must do is make sure it is
     jbe .cur                    ; inside THIS one. Without it, tabbing from a
-    mov [np_fpcur], bx          ; long pattern into a short replacement gave
+    mov dx, cx                  ; long pattern into a short replacement gave
 .cur:                           ; the insert loop a NEGATIVE count, and it
-                                ; wrote 64KB across this package's own bss
+                                ; wrote 64KB across this package's own bss.
+                                ; Both live in registers until .out stores
+                                ; the caret back on every path
     or al, al
     jnz .ascii
     cmp ah, NP_K_LEFT
@@ -10368,7 +10371,7 @@ np_fpkey:
     je .end
     cmp ah, NP_K_DEL
     je .del
-    jmp .no
+    jmp short .no
 .ascii:
     cmp al, 8
     je .bksp
@@ -10376,73 +10379,58 @@ np_fpkey:
     jb .no
     cmp al, 126
     ja .no
-    mov bx, [di]
-    cmp bx, NP_PATMAX
+    cmp cx, NP_PATMAX
     jae .yes                    ; full: the keystroke is dropped, as a full
                                 ; note's is
-    push ax                     ; open a gap at the caret
-    mov cx, bx
-    sub cx, [np_fpcur]
-    mov bx, [di]
-.ig:
-    jcxz .iplace
-    mov al, [si+bx-1]
-    mov [si+bx], al
+    mov bx, cx                  ; open a gap at the caret: [caret, len] moves
+.ig:                            ; up one, its NUL with it (a box is always
+    mov ah, [si+bx]             ; NUL-terminated at its length)
+    mov [si+bx+1], ah
+    cmp bx, dx
+    je .iplace
     dec bx
-    dec cx
     jmp short .ig
 .iplace:
-    pop ax
-    mov bx, [np_fpcur]
-    mov [si+bx], al
-    inc word [di]
-    inc word [np_fpcur]
-    mov bx, [di]
-    mov byte [si+bx], 0
+    mov [si+bx], al             ; BX = the caret
+    inc dx
+    inc cx
     jmp short .chg
 .bksp:
-    cmp word [np_fpcur], 0
-    je .yes
-    dec word [np_fpcur]
+    or dx, dx
+    jz .yes
+    dec dx
     jmp short .cut1
 .del:
-    mov bx, [np_fpcur]
-    cmp bx, [di]
+    cmp dx, cx
     jae .yes
 .cut1:
-    mov bx, [np_fpcur]
-.dg:
-    mov cx, [di]
-    cmp bx, cx
-    jae .dend
-    mov al, [si+bx+1]
-    mov [si+bx], al
+    mov bx, dx                  ; close the gap: (caret, len] moves down one,
+.dg:                            ; its NUL with it. The caret is short of the
+    mov ah, [si+bx+1]           ; length on both ways in, so this runs at
+    mov [si+bx], ah             ; least once
     inc bx
-    jmp short .dg
-.dend:
-    dec word [di]
-    mov bx, [di]
-    mov byte [si+bx], 0
+    cmp bx, cx
+    jb .dg
+    dec cx
     jmp short .chg
 .left:
-    cmp word [np_fpcur], 0
-    je .yes
-    dec word [np_fpcur]
+    or dx, dx
+    jz .yes
+    dec dx
     jmp short .yes
 .right:
-    mov bx, [np_fpcur]
-    cmp bx, [di]
+    cmp dx, cx
     jae .yes
-    inc word [np_fpcur]
+    inc dx
     jmp short .yes
 .home:
-    mov word [np_fpcur], 0
+    xor dx, dx
     jmp short .yes
 .end:
-    mov bx, [di]
-    mov [np_fpcur], bx
+    mov dx, cx
     jmp short .yes
 .chg:
+    mov [di], cx
     call np_fchk                ; the pattern changed: it may not compile, and
     mov byte [np_fcok], 0       ; the count it had is about somebody else
     mov byte [np_fcdirty], 1
@@ -10453,6 +10441,7 @@ np_fpkey:
 .no:
     stc
 .out:
+    mov [np_fpcur], dx          ; flags kept: CF is the answer
     pop di
     pop si
     ret
