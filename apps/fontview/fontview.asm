@@ -499,8 +499,8 @@ fv_draw_sample:
     mov bx, [fv_y]
     add bx, di
     mov cx, FV_SAMPLEW
-    clc                             ; THE CARRY IS AN ARGUMENT (SPEC.md 6.5.4):
-    call ty_flush                   ; a face SAMPLE is never a greyed control
+    call ty_flushlive               ; a face SAMPLE is never a greyed control,
+                                    ; so the carry-less entry (OS88TY_NOGRAY)
     pop cx
     add si, bp
     sub cx, bp
@@ -539,6 +539,8 @@ fv_copy:
 %define OS88TY_NOFAMN
 %define OS88TY_NOGETASC
 %define OS88TY_NOGETLEAD
+%define OS88TY_NOGRAY           ; no band is ever greyed: ty_gray out, and the
+                                ; flush is ty_flushlive (apps size pass 2b)
 %include "os88type.inc"
 
 fv_tpl:

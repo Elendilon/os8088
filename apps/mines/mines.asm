@@ -982,14 +982,13 @@ mn_sh_flag:                         ; overlay on a covered cell
     db          4,  3,  7,  7       ; pennant
     db 0xFF
 
-mn_sh_open:                         ; white face, 1px dark gray grid border
-    db MN_SC + CWHITE
-    db          0,  0, 15, 15
+mn_sh_open:                         ; white face, 1px dark gray grid border:
+                                    ; a gray square, a white one inside it -
+                                    ; two fills, less flash (SPEC.md 23)
     db MN_SC + CDGRAY
-    db          0,  0, 15,  0
-    db          0,  0,  0, 15
-    db         15,  0, 15, 15
-    db          0, 15, 15, 15
+    db          0,  0, 15, 15
+    db MN_SC + CWHITE
+    db          1,  1, 14, 14
     db 0xFF
 
 mn_sh_bg:                           ; loss: the ground under the mine glyph,

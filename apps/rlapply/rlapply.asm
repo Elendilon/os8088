@@ -88,6 +88,8 @@
 %define CS_APPLY_ONLY
 %define CS_LOADER                   ; csapply.inc's load and apply: ours alone
 %define OD_BOOTVOL                  ; where REDLINE saved it (103.6.4)
+%define OD_READONLY                 ; ...which RLAPPLY only reads: no
+                                    ; od_write (apps size pass 2b)
 
 ; -----------------------------------------------------------------------------
 ; ra_entry - in: DS = our segment, ES = KERNEL_SEG; out: CF = 1, always - the

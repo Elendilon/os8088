@@ -53,38 +53,86 @@
     OS88_ASSOC16_END
 
 ; --- THE COLOUR FACE'S PICTURES (SPEC.md 105.9.5): MIDIRACK.GFX ------------
-; tools/os88midart.py draws the transport's fifteen faces into a file that
+; tools/os88midart.py draws the transport's fifteen faces - five of them into a file that
 ; ships BESIDE the package and is read only on a colour primary - a Hercules
 ; or a CGA machine never spends a byte or a revolution on it, and a disk
 ; without it plays exactly the same with code-drawn buttons. It is a sidecar
 ; and not a part (SPEC.md 20.12) for one measured reason: os88pkg.py refuses
 ; to compress an image that has parts, and this image is 30 KB packed to 25.
-; The four numbers are the generator's, which compares them (--check-asm)
+; Every number below that is not arithmetic is the generator's, which compares
+; them (--check-asm)
 MRA_W       equ 48                  ; a face: whole bytes, so BLITP takes it
 MRA_H       equ 30
 MRA_NB      equ 5                   ; Prev, Play, Pause, Stop, Next
 MRA_NS      equ 3                   ; up, pressed, greyed
 MRA_FACE    equ 4 * MRA_H * MRA_W / 8
 MRA_SIZE    equ MRA_NB * MRA_NS * MRA_FACE
+; ...and THE FILE CARRIES THE FIVE UP FACES (apps size pass 2): the pressed
+; and greyed ten are made at load by mra_derive (the image's tail), from a
+; recipe after the faces - the pressed frame's three rows a plane, the two
+; bytes a moved row fixes a plane, the greyed wipe's row. The generator's
+; derive_pressed() / derive_greyed() are the loops; these are its numbers.
+; The claim is STATE-major: up faces 0..4, pressed 5..9, greyed 10..14
+MRA_FSIZE   equ 3686                ; the file: 5 faces + 72 + 8 + 6
+MRA_SH0     equ 3                   ; pressed: rows SH0..SH1-1 are the row
+MRA_SH1     equ 28                  ; above, a pixel right...
+MRA_A0      equ 0x1F                ; ...these bits of its first byte and
+MRA_A5      equ 0xC7                ; of its last kept, the rest the frame's
+MRA_PR1     equ 1                   ; ...and these three rows the frame alone
+MRA_PR2     equ 2
+MRA_PR3     equ 28
+MRA_G0      equ 2                   ; greyed: rows G0..G1-1 wiped in the
+MRA_GB      equ 14                  ; rect, the shape the coloured pixels
+MRA_G1      equ 27                  ; above GB and the black from it; G1
+                                    ; takes only the shadow
+MRA_ROW     equ MRA_W / 8
+MRA_PL      equ MRA_H * MRA_ROW
+MRA_PFACE   equ MRA_NB * MRA_FACE   ; the pressed five, after the up five...
+MRA_GFACE   equ 2 * MRA_PFACE       ; ...and the greyed after them
+MRA_CLAIM   equ ((MRA_SIZE + 1023) / 1024) * 1024
+MRA_RECN    equ MRA_FSIZE - MRA_PFACE   ; the recipe's bytes
+MRA_SCR     equ MRA_CLAIM - 6 * MRA_ROW - MRA_RECN - 4  ; at the claim's end:
+MRA_KP      equ MRA_SCR             ; the row above's shape, then this one's
+MRA_WR      equ MRA_KP + MRA_ROW    ; the row above's shape a pixel right
+MRA_T       equ MRA_WR + MRA_ROW    ; wipe | shadow
+MRA_NK      equ MRA_T + MRA_ROW     ; ~shape
+MRA_NR      equ MRA_NK + MRA_ROW    ; ~wipe
+MRA_WK      equ MRA_NR + MRA_ROW    ; shadow | shape
+MRA_Y       equ MRA_WK + MRA_ROW    ; the greyed row
+MRA_WF      equ MRA_Y + 2           ; ...and its wipe's mask
+MRA_REC     equ MRA_WF + 2          ; the recipe, moved out of the pressed
+MRA_FIX     equ MRA_REC + 4 * 3 * MRA_ROW   ; faces' way: the frame's rows,
+MRA_RM      equ MRA_FIX + 4 * 2             ; the fixed bytes, the wipe
+%if MRA_RM + MRA_ROW != MRA_CLAIM || MRA_PR2 != MRA_PR1 + 1
+  %error "MIDIRACK.GFX's layout and mra_derive's disagree"
+%endif
+%if MRA_SCR < MRA_SIZE || (MRA_SCR & 1)
+  %error "the derivation's rows overlap the faces"
+%endif
 
 ; =============================================================================
-; the package-wide bss accumulator (the Audio Player's %assign pattern)
+; the package-wide bss accumulator (the Audio Player's %assign pattern). It
+; starts 3 KB past mr_ztail and not at os88_image_end: the image's TAIL -
+; mrt_unz and what it expands, read once at entry (SPEC.md 105.6.1) - lies
+; under mrk_pring and then mrl_ent, two buffers each written before it is
+; read (SPEC.md 105.8.4; an entry only below [mrl_n]), so it costs no RAM
 ; =============================================================================
+mr_bss0     equ mrl_ent + MRL_MAX * MRL_ENT
 %assign MR_BSS 0
 %macro MRB 1
-%1 equ os88_image_end + MR_BSS
+%1 equ mr_bss0 + MR_BSS
 %assign MR_BSS MR_BSS + 1
 %endmacro
 %macro MRW 1
-%1 equ os88_image_end + MR_BSS
+%1 equ mr_bss0 + MR_BSS
 %assign MR_BSS MR_BSS + 2
 %endmacro
 %macro MRD 1
-%1 equ os88_image_end + MR_BSS
+%1 equ mr_bss0 + MR_BSS
 %assign MR_BSS MR_BSS + 4
 %endmacro
 %macro MRBUF 2
-%1 equ os88_image_end + MR_BSS
+%1 equ mr_bss0 + MR_BSS
 %assign MR_BSS MR_BSS + (%2)
 %endmacro
 ; ...and the engines' voice state OVERLAID on the synth's output table
@@ -174,6 +222,7 @@ MR_FILEMAX  equ 63                  ; KB: the largest file taken whole
 ;            window afterwards: no drawing and no worker here.
 ; =============================================================================
 mr_entry:
+    call mrt_unz                    ; the smooth tables, first (105.6.1)
     call OSAPI_CPU_INFO
     mov [mr_cpu], al
     call OSAPI_SND_CAPS             ; AX = caps
@@ -374,8 +423,331 @@ mr_s_notbank:   db 'MIDIRACK.BNK is not a bank this player reads', 0
 %if MR_XBSS > 2048
   %error "the engines' overlay has outgrown mry_otab"
 %endif
-    OS88_BSS MR_BSS
-    align 2, db 0                   ; (even, as the 16 it was: every bss word
-                                    ; keeps its parity, and no buffer is ever
-                                    ; made a segment)
+
+; =============================================================================
+; THE TAIL (SPEC.md 105.6.1): read once, by mr_entry's first call, and then
+; mrk_pring's first bytes - it must be the image's last, and it must fit the
+; page. Even, as every bss word keeps its parity from mr_bss0
+; =============================================================================
+    align 2, db 0
+mr_ztail:
+; mrt_unz - mrt_tl, mrt_amp, mrt_fn, mrt_fq and mrt_pow into their bss out of
+;           mrt_z, then the FM bank and kit out of mrt_zc's columns (SPEC.md
+;           105.6.1). mrt_z: per table a first value and step, then a two-bit code an
+;           entry whose value less the bias is the step's change. The step is
+;           a BYTE added with a carry into the value's high byte - exact for a
+;           word table (steps 0..118) and for a byte table's low byte, whose
+;           high is spilled onto the next entry and the next table's first.
+;           tools/os88midi.py's unz() is this loop, and refuses a stream it
+;           does not read back.
+mrt_unz:
+    push bp
+    cld
+    mov si, mrt_z
+.tab:
+    lodsw
+    xchg ax, di                     ; DI = the table (0 ends the list)
+    or di, di
+    jz .done
+    lodsw
+    xchg ax, cx                     ; CX = its entries, a multiple of 4
+    lodsw
+    xchg ax, bx                     ; BX = the first
+    lodsw
+    xchg ax, dx                     ; DL = the first step, DH = the bias
+    lodsb
+    cbw
+    xchg ax, bp                     ; BP = 1 or 2, the entry's bytes
+.el:
+    mov [di], bx
+    add di, bp
+    test cl, 3
+    jnz .have
+    lodsb                           ; four codes a byte, the low pair first
+    mov ah, al
+.have:
+    mov al, ah
+    and al, 3
+    shr ah, 1
+    shr ah, 1
+    sub al, dh
+    add dl, al                      ; the step moves
+    add bl, dl                      ; ...and the value by it
+    adc bh, 0
+    loop .el
+    jmp short .tab
+.done:                              ; SI = mrt_zc, which MRT_ZTAIL puts right
+.col:                               ; after the stream's end: the FM bank's
+    lodsw                           ; columns, each byte the bss's own plus
+    xchg ax, di                     ; the one BX before it (BX = 0: itself,
+    or di, di                       ; still zero)
+    jz .ret
+    lodsw
+    xchg ax, cx                     ; CL = the count, CH = the stride
+    lodsb
+    cbw
+    xchg ax, bx
+    mov al, ch
+    cbw
+    xchg ax, dx
+    xor ch, ch
+.b:
+    lodsb
+    add al, [di+bx]
+    mov [di], al
+    add di, dx
+    loop .b
+    jmp short .col
+.ret:
+    pop bp
+    ret
+    MRT_ZTAIL
+
+; -----------------------------------------------------------------------------
+; mra_load - the colour face's pictures, MIDIRACK.GFX beside us, into a claim
+; of their own (SPEC.md 105.9.5). Only on a COLOUR PRIMARY: a Hercules or a
+; CGA machine never reads it. Silent when the file is not there, the heap is
+; short or the file is not exactly MRA_FSIZE (a file from before pass 2, the
+; fifteen faces whole, is refused that way) - the transport is then
+; code-drawn, which is a complete face and not a broken one. UI task, at
+; entry only, so it lives in the tail (a read and a claim, SPEC.md 20.6
+; rule 7). The claim is STATE-major - the five up faces, the five pressed,
+; the five greyed - so the file's up faces land where they stay
+; -----------------------------------------------------------------------------
+mra_load:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    call OSAPI_VIDEO                ; DH = the primary's bits per pixel
+    cmp dh, 1
+    jbe .out
+    mov ax, MRA_CLAIM / 1024
+    call OSAPI_MEM_CLAIM            ; DX = the segment
+    jc .out
+    push dx
+    mov es, dx
+    xor bx, bx
+    mov cx, MRA_FSIZE
+    xor dx, dx
+    mov si, mra_name
+    call OSAPI_FILE_READ            ; DX:AX = its size (unwrapped, 20.14)
+    pop si
+    jc .free
+    or dx, dx
+    jnz .free
+    cmp ax, MRA_FSIZE
+    jne .free
+    mov [mra_seg], si
+    push ds
+    mov ds, si                      ; DS = ES = the claim
+    call mra_derive
+    pop ds
+    jmp short .out
+.free:
+    mov dx, si
+    call OSAPI_MEM_FREE
+.out:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+mra_name:   db 'MIDIRACK.GFX', 0
+
+; mra_derive - the ten faces the file does not carry, each button's pressed
+; and greyed from its up face. DS = ES = the claim; clobbers all but those.
+; The recipe first, out of the way of the pressed faces it lies under
+mra_derive:
+    mov si, MRA_NB * MRA_FACE
+    mov di, MRA_REC
+    mov cx, MRA_FSIZE - MRA_NB * MRA_FACE
+    rep movsb
+    xor bx, bx                      ; BX = the button's up face
+.b:
+    call mra_press
+    call mra_grey
+    add bx, MRA_FACE
+    cmp bx, MRA_NB * MRA_FACE
+    jb .b
+    ret
+
+; mra_press - BX = an up face: its pressed one, MRA_NB faces on
+; (the generator's derive_pressed)
+mra_press:
+    push bx
+    mov ax, MRA_REC                 ; AX = the plane's frame rows
+    mov dx, MRA_FIX                 ; DX = its two fixed bytes
+.pl:
+    mov si, bx                      ; the first row and the last: the up
+    lea di, [bx + MRA_PFACE]        ; face's
+    movsw
+    movsw
+    movsw
+    lea si, [bx + (MRA_H - 1) * MRA_ROW]
+    lea di, [bx + MRA_PFACE + (MRA_H - 1) * MRA_ROW]
+    movsw
+    movsw
+    movsw
+    mov si, ax                      ; the frame's own rows
+    lea di, [bx + MRA_PFACE + MRA_PR1 * MRA_ROW]
+    mov cx, MRA_ROW                 ; (PR1 and PR2: two rows, six words)
+    rep movsw
+    lea di, [bx + MRA_PFACE + MRA_PR3 * MRA_ROW]
+    movsw
+    movsw
+    movsw
+    push si                         ; (the next plane's rows)
+    push dx
+    mov si, dx
+    lodsw
+    xchg ax, bp                     ; BP = the fixed bytes' pixels
+    lea si, [bx + (MRA_SH0 - 1) * MRA_ROW]
+    lea di, [bx + MRA_PFACE + MRA_SH0 * MRA_ROW]
+    mov dx, MRA_SH1 - MRA_SH0
+.row:
+    clc                             ; the row above, a pixel right, a zero
+%rep MRA_ROW                        ; in at the left
+    lodsb
+    rcr al, 1
+    stosb
+%endrep
+    mov cx, bp
+    and byte [di - MRA_ROW], MRA_A0
+    or [di - MRA_ROW], cl
+    and byte [di - 1], MRA_A5
+    or [di - 1], ch
+    dec dx
+    jnz .row
+    pop dx
+    pop ax
+    add bx, MRA_PL
+    inc dx
+    inc dx
+    cmp dx, MRA_FIX + 4 * 2
+    jb .pl
+    pop bx
+    ret
+
+; mra_grey - BX = an up face: its greyed one, 2 x MRA_NB faces on (the
+; generator's derive_greyed)
+mra_grey:
+    push bx
+    mov dx, 4                       ; rows 0, 1, H-2 and H-1 of each plane:
+    mov si, bx                      ; the up face's
+.c:
+    lea di, [si + MRA_GFACE]
+    mov cx, MRA_ROW
+    rep movsw
+    add si, (MRA_H - 4) * MRA_ROW
+    lea di, [si + MRA_GFACE]
+    mov cx, MRA_ROW
+    rep movsw
+    dec dx
+    jnz .c
+    mov di, MRA_KP                  ; no shape above the first row
+    xor ax, ax
+    stosw
+    stosw
+    stosw
+    add bx, MRA_G0 * MRA_ROW        ; BX = the row, in plane 0 of the up face
+    mov word [MRA_Y], MRA_G0
+.row:
+    mov si, MRA_KP                  ; the shadow: the row above's shape, a
+    mov di, MRA_WR                  ; pixel right (before this row's
+    clc                             ; replaces it)
+%rep MRA_ROW
+    lodsb
+    rcr al, 1
+    stosb
+%endrep
+    xor ax, ax                      ; the wipe's own mask: all of the rect,
+    cmp word [MRA_Y], MRA_G1        ; or on G1 none of it
+    jae .r
+    dec ax
+.r:
+    mov [MRA_WF], ax
+    xor di, di                      ; DI = the word
+.k:
+    mov ax, [bx + di]
+    mov dx, [bx + di + MRA_PL]
+    mov cx, [bx + di + 2 * MRA_PL]
+    mov si, [bx + di + 3 * MRA_PL]
+    mov bp, ax
+    or bp, dx
+    or bp, cx
+    or bp, si                       ; BP = any colour but black
+    and ax, dx
+    and ax, cx
+    not si
+    and ax, si                      ; AX = the face's grey
+    not ax
+    and ax, bp                      ; AX = coloured (the icon)
+    cmp word [MRA_Y], MRA_GB
+    jb .ka
+    mov ax, bp                      ; ...or from GB, black (the label)
+    not ax
+.ka:
+    mov dx, [di + MRA_RM]
+    and dx, [MRA_WF]                ; DX = the wipe
+    and ax, dx                      ; AX = the shape
+    mov [di + MRA_KP], ax
+    mov cx, [di + MRA_WR]           ; CX = the shadow
+    mov si, cx
+    or si, ax
+    mov [di + MRA_WK], si
+    or cx, dx
+    mov [di + MRA_T], cx
+    not dx
+    mov [di + MRA_NR], dx
+    not ax
+    mov [di + MRA_NK], ax
+    inc di
+    inc di
+    cmp di, MRA_ROW
+    jb .k
+    mov si, bx                      ; the four planes: three that wipe to
+    lea di, [bx + MRA_GFACE]        ; grey and lose the shape, the fourth
+    mov dx, 3                       ; that the shadow and the shape set
+.p:
+%assign MRA_J 0
+%rep MRA_ROW / 2
+    lodsw
+    or ax, [MRA_T + MRA_J]
+    and ax, [MRA_NK + MRA_J]
+    stosw
+%assign MRA_J MRA_J + 2
+%endrep
+    add si, MRA_PL - MRA_ROW
+    add di, MRA_PL - MRA_ROW
+    dec dx
+    jnz .p
+%assign MRA_J 0
+%rep MRA_ROW / 2
+    lodsw
+    and ax, [MRA_NR + MRA_J]
+    or ax, [MRA_WK + MRA_J]
+    stosw
+%assign MRA_J MRA_J + 2
+%endrep
+    add bx, MRA_ROW
+    inc word [MRA_Y]
+    cmp word [MRA_Y], MRA_G1
+    jbe .row
+    pop bx
+    ret
+    align 2, db 0                   ; (an even image, as it always was)
+%if ($ - mr_ztail) > OS88SPK_PRL + MRL_MAX * MRL_ENT
+  %error "the image's tail has outgrown mrk_pring and mrl_ent, laid over it"
+%endif
+    OS88_BSS mr_bss0 + MR_BSS - os88_image_end
     OS88_IMAGE_END

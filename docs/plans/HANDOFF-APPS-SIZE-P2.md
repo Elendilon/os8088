@@ -44,7 +44,7 @@ disk needs it. One session per set; one agent per package inside it.
 | **A** | the system disk | `dos`, `paint`, `notepad`, `deskcal`, `thewire`, `taskmgr`, `fontview`, `rlapply`, `mines` | **done** - docs/reports/APPS-SIZE-P2-SETA-2026-10-16.md |
 | **B** | the apps disk: network and office | `browser`, `ftpd`, `telnet`, `OS88NET.COM` (`drivers/net/os88net.asm`, the DOS end of NET.DRV - SPEC.md 62.12; the one file under `drivers/` a set may edit), `texpad`, `artful`, `audio`, `calc` | **done** - docs/reports/APPS-SIZE-P2-SETB-2026-10-16.md |
 | **C** | the apps disk: games | `tracker`, `wireball`, `tank`, `cyclone`, `missile`, `arkanoid`, `solitaire`, `tamegram` | **done** - docs/reports/APPS-SIZE-P2-SETC-2026-10-16.md |
-| **D** | the apps disk: the owner-constrained and the small | `skies`, `video`, `fractal`, `piano`, `timer`, `midirack`, `chart` | **claimed** - session 01LNUrZS6bEfiBG3rnKx8gsX, 2026-10-16 |
+| **D** | the apps disk: the owner-constrained and the small | `skies`, `video`, `fractal`, `piano`, `timer`, `midirack`, `chart` | **done** - docs/reports/APPS-SIZE-P2-SETD-2026-10-16.md |
 | **E** | the office and games disks | `pixel`, `pixelstein`, `word`, `drmario` (with `DRMARCO.VGA`/`.HRC`/`.CGA`), `isotron`, `dotdel`, `gorillas` | open |
 
 **Not in any set, and why** - each is the owner's to reopen:
@@ -62,10 +62,22 @@ disk needs it. One session per set; one agent per package inside it.
   whether a shared lane runs after the sets. docs/plans/HANDOFF-APPS-SHARED.md
   is pass 1's list.
 
-### 2.1 Set A's follow-on, owner-approved - IN PROGRESS, and it moves your numbers
+### 2.1 Set A's follow-on, owner-approved - LANDED on the pass branch, and it moves your numbers
 
 On set A's results the owner approved three things outside the sets, run by
-set A's session on the pass branch:
+set A's session on the pass branch. **It has landed** (SPEC.md 20.13.8,
+96.44.16.1): a parted package's image now ships packed when that saves a
+sector - DOS.O88 48 -> 47 clusters, PiXEL 113,147 -> 105,467 bytes (111 -> 103
+clusters on office360), C64 and Apple II 8 clusters each on their 360KB disks;
+Skies, Word and PIXELSTEIN declined (no sector saved) and are byte-identical.
+The kernel paid +33 resident bytes of `.cold` on each kernel for it, which
+leaves kern_big's `.cold` rung ONE byte from crossing. The CP437 glyph
+generator was REFUSED on a measurement (LZ4 already packs the box glyphs to
+~179 bytes) and the core-in-part-0 idea was dropped by the owner (part 1 is
+moved to launch programs under kern_dos). Set E: re-take your snapshot after
+merging - PiXEL's 7.7 KB is set A's follow-on, not yours.
+
+What was proposed:
 
 - **`tools/os88pkg.py` packs the image of a package that has PARTS** (today
   that image ships raw). If it lands it is universal: every parted package's
@@ -328,7 +340,7 @@ every set's list into one ranked table here (6) for the owner to pick from.
 | A | docs/reports/APPS-SIZE-P2-SETA-2026-10-16.md | system +1, network +1, small360 +3, smallapps360 +3; apps360 +0 (-2,138 B off the system disk's full arms) |
 | B | docs/reports/APPS-SIZE-P2-SETB-2026-10-16.md | 0 / **+22** / office +12, games +12, small360 +17, smallapps360 +17, network +4 - the code pass is -3,509 file bytes, the rest is the owner's LZB decision (6.2) |
 | C | docs/reports/APPS-SIZE-P2-SETC-2026-10-16.md | 0 / +3 / games360 +3, small360 +3, smallapps360 +3 (-2,610 file bytes across 8 packages; image + bss -2,561) |
-| D | - | - |
+| D | docs/reports/APPS-SIZE-P2-SETD-2026-10-16.md | 0 / **+1** / +1 games360, +3 media360 (+5 in all; -5,366 file bytes) |
 | E | - | - |
 
 ### 6.2 What set B changed for EVERY set: nineteen builds ship LZB
