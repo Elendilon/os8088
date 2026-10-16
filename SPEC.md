@@ -104251,6 +104251,12 @@ a DOS user sees on the console changes and nothing on the wire does.
    command that moves bytes over a cable, so it is not what the rule against
    a slower hot path is about either way - but it is the number to take on
    MartyPC if anyone doubts it.
+5. **Answers that say the same thing are one answer** (file −13). In
+   `srv_copy` the four exits that close both files did so each on its own
+   line; they set AL and meet at one `call cpy_close` (which keeps AX), with
+   the success arm falling into it so its path is unchanged, and the two
+   `FERR_NOENT` exits share a label. `srv_rmtree`'s two `FERR_PROT` and two
+   `FERR_NOENT` exits do the same.
 
 ## 63. The logo (`tools/os88logo.py`, `MEDIA/OS8088.GIF`)
 

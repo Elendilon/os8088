@@ -2731,28 +2731,22 @@ srv_copy:
     cmp ax, cx                  ; a short write is a full disk, which DOS
     jne .full                   ; reports by count and not by CF
     jmp short .chunk
-.done:
-    call cpy_close
-    mov al, FERR_OK
-    jmp .tell
 .full:
-    call cpy_close
     mov al, FERR_FULL
-    jmp .tell
+    jmp short .close
 .ioerr:
-    call cpy_close
-    mov al, FERR_IO
-    jmp .tell
 .nodst:
-    call cpy_close
     mov al, FERR_IO
-    jmp .tell
-.nosrc:
-    mov al, FERR_NOENT
-    jmp .tell
+    jmp short .close
+.done:
+    mov al, FERR_OK
+.close:
+    call cpy_close              ; AX preserved, so the answer survives it
+    jmp short .tell
 .gsay:
     mov al, FERR_WPROT          ; wr_gate's answer, sent by its caller
-    jmp .tell
+    jmp short .tell
+.nosrc:
 .nodir:
     mov al, FERR_NOENT
 .tell:
@@ -3124,20 +3118,16 @@ srv_rmtree:
     call dos_ferr               ; AX = DOS's code -> AL = a FERR_*
     jmp .tell
 .prot:
+.isfile:                        ; a FILE: dskw_delete's job, not this one
     mov al, FERR_PROT
-    jmp .tell
-.isfile:
-    mov al, FERR_PROT           ; a FILE: dskw_delete's job, not this one
     jmp .tell
 .toodeep:
     mov al, FERR_DIRFULL        ; the path will not fit, so we cannot name the
     jmp .tell                ; folder we would be deleting
-.noent:
-    mov al, FERR_NOENT
-    jmp .tell
 .gsay:
     mov al, FERR_WPROT
     jmp .tell
+.noent:
 .nodir:
     mov al, FERR_NOENT
 .tell:
