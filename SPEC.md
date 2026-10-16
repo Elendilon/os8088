@@ -130100,8 +130100,8 @@ are only ever read and written over the ridge's band (§85.3.8 - rectangle 6's
 rows), so they are as long as the band can be: the ridge table's tallest peak
 at the larger of the two ridge scales, plus the two rows of slack
 `tk_tmlayout` gives it - **72 rows, 144 bytes, where they were 400**. The peak
-is ASSEMBLED rather than scanned for: `tkridge.inc`'s rows are `TKRDG` lines,
-which keep `TK_RIDGEPK` as they go, and `tk_tmlayout`'s 256-byte scan for it
+is ASSEMBLED rather than scanned for: `tkridge.inc`'s runs are `TKRDG` lines,
+which keep `TK_RIDGEPK` as they go (§85.5.1), and `tk_tmlayout`'s 256-byte scan for it
 is gone with the guess. An absolute row still indexes both, through two bases
 `tk_tmlayout` sets once a bracket (`tk_rb2`, `tk_rbd`: the array less the
 band's first row), so a walk drawing the template's ridge marks `tk_sprdg`
@@ -130160,7 +130160,15 @@ instructions against the ten a right shift by 14 would take. The table holds
 **one quarter of the wave** - 65 words, where it held 256 - and `tk_sin1`
 reads the other three quarters backwards and negated: the full table was
 symmetric to the unit, so that is exact, and it is 382 bytes for two folds a
-lookup on a path no pixel waits on (apps size pass 1, set 6).
+lookup on a path no pixel waits on (apps size pass 1, set 6). **The file ships
+that quarter as its second differences** (apps size pass 2): `sin 0` is 0,
+the first step is 402, and every later step is 0..11 shorter than the one
+before, so `tksin.inc` is 64 nibbles - 32 bytes - that `tk_mktabs` in the
+entry overlay (§85.10.6) adds back up into the bss's `tk_sintab`, the same 65
+words to the unit (checked the way §85.5.1's ridge is). 32 bytes of seed and
+41 of code where there were 130 of table: **the file -58, RAM unchanged**,
+678 instructions at launch. The expanded tables are the bss's FIRST names,
+so the word table keeps the even address it had in the image.
 
 **The world is a torus 8,192 units round** and the wrap is three
 instructions: mask a difference to 13 bits and fold the top half negative.
@@ -130276,6 +130284,30 @@ turns "an arctangent per column" into a table lookup per frame; the profile
 itself is built out of whole numbers of cycles, so a ridge line closes on
 itself.
 
+**The file ships the profile as the straight runs it is made of, and the
+entry proc draws the 256 heights** (apps size pass 2). `tkridge.inc` is 49
+runs - `TKRDG n, h`, a run of `n` steps ending at height `h` - and step `k`
+of a run from `h0` is `(h0 (n - k) + h k + n / 2) / n`, which is the rounding
+the 256-byte table had been written to: `tk_mktabs` in the entry overlay
+(§85.10.6) expands them into the bss's `tk_ridgetab` and the result is the
+old table **to the byte**, checked by running the routine out of the
+assembled image on the host against the image before. `tk_ridge` reads the
+same table through the same instruction. 99 bytes of seed and 60 of code
+where there were 256 bytes of table: **the file -78, RAM unchanged** - the
+seed and the code are the overlay's, which was going to be RAM anyway, and
+the table's 256 bytes moved from the image to the bss. The expansion is
+4,434 instructions, ~18 ms at 4.77 MHz (an estimate from the 255 byte MULs
+and DIVs it makes), once per launch. `TK_RIDGEPK` reads the same file a first
+time, emitting nothing: a run's heights lie between its ends, so the tallest
+end is the tallest height, and an `%error` holds the runs to angles 1..255.
+
+**The 25 sampling angles' tangents are thirteen bytes.** A tangent is odd and
+the steepest of them is 171, so `tktan.inc` holds the twelve right of the
+sights and the zero, and `tk_ridgesetup` gives each column its angle's sign
+before the multiply - the same signed word into the same `imul`, and the same
+`tk_ridgex` for 876 scales and centres run both ways on the host. Once a
+bracket, never a frame: **image -20, the file -22**.
+
 #### 85.5.2 The models
 
 `db nverts, db nedges, dw vertices, dw edges`. A vertex is three words — x
@@ -130285,6 +130317,15 @@ draws. Cube and slab are 8/12, the pyramid 5/8, the tank 13/22 — hull,
 turret and a barrel that says which way it is about to shoot — and a shell
 is a three-axis cross, 6/3, drawn in `TKI_MARK` so the thing about to kill
 you is the thing that stands out.
+
+**The vertices are the bss's** (apps size pass 2). Every coordinate of the
+forty is a multiple of five and lies in -150..330, so `TK_MODELS` in
+`tk3d.inc` ships each as a signed byte of fifths - an `%error` refuses one
+that is not - and `tk_mktabs` in the entry overlay (§85.10.6) multiplies them
+back into `tk_v_cube`..`tk_v_shell`, the same 240 bytes in the same order,
+checked as §85.5.1's ridge is. The model records and the edge lists are
+unchanged and the rotation reads the same words through the same pointers.
+120 bytes of seed and 19 of code: **the file -30, RAM unchanged**.
 
 ### 85.6 The session (`apps/tank/tkgame.inc`)
 
@@ -130484,6 +130525,17 @@ because a dial still sweeping under `GAME OVER` says the game is still going
 on. Everything else is the raster the game already had — the same `tk_seg`,
 the same spans, the same blit — so the overlay costs what forty more segments
 cost and nothing structural.
+
+**The file ships the forty as the twelve strokes they are drawn in**
+(apps size pass 2): 28 of them start where the one before ended, so
+`tkover.inc` is twelve runs of points, and `tk_mktabs` in the entry overlay
+(§85.10.6) writes one segment for every pair of neighbours into the bss's
+`tk_goseg` - the same 160 bytes in the same order, so every segment keeps its
+index and therefore its flight. `tk_golets` stops on its segment count, which
+BP already is, rather than on a terminator byte: a register compare where
+there was a memory one, so the walk is a few cycles a segment cheaper and
+the list is four bytes a segment exactly. 117 bytes of seed and 13 of code
+where there were 161 of table: **the file -32, RAM unchanged**.
 
 #### 85.6.3 The difficulty curve — the first ten tanks
 
@@ -131363,6 +131415,63 @@ ends is not repainted then, and the worker could find it uncovered before its
 `W_PAINT` had run. So `tk_fsx_main` sets `[tk_atstale]` before anything writes
 the table, `tk_paint` clears it once the cursors are re-armed, and `tk_at_step`
 draws nothing while it is set. +20 bytes of image for 370 of bss.
+
+#### 85.10.6 The entry proc lies under the span set nobody reads
+
+Solitaire's §43.11.6, applied to a buffer that is never READ rather than one
+built at entry. `tk_entry` runs once per instance, from a fresh read of the
+file, and never again (§20.1); `tk_spjunk` is the span set a template draw
+marks so that its walks have somewhere to write, which only a shadow backend
+has and only inside an fsx bracket - long after the loader has had its window.
+So the set and its two 8-byte guards are the **last bytes of the image**
+(`tk_ovl`), the entry proc is the first thing in them, and the rest is zeros,
+which cost a packed file almost nothing. Apps size pass 2: **image +254, bss
+-408, so 154 bytes less RAM an instance on both builds**, and the file +2.
+`tk_rowoff` joined it when the tables below needed the room: it is written
+whole - every row the viewport has, on every backend - by `tk_devrows` at the
+top of every bracket before anything reads it, so it follows the set's
+trailing guard and the overlay is **896 bytes**, RAM-neutral (image +480, bss
+-480). The only instruction that names it relative to a bss name,
+`tk_clearspans`' `tk_tmrix - tk_rowoff` on the small build, keeps its 16-bit
+displacement and changes only its sign. Three rules, each stated in
+`tank.asm` where it binds:
+
+1. **Nothing in the overlay may be named after `tk_entry` returns.** The
+   region's relocation proc is therefore `tk_ret`, a lone `ret` in
+   `tk_sin1` - the bare `OS88_REGION_MOVABLE` plants its own `ret` inline,
+   which here would be overwritten by the first template draw, and the
+   kernel calls it on the next compaction.
+2. **Nothing the kernel keeps a pointer to is in it**: the window template,
+   the title, the menus, the About handler and every callback stay above.
+3. **A walk's overrun runs one row past either end of a set** (§85.3.2), and
+   the set's guards are the overlay's first eight bytes and the eight between
+   it and `tk_rowoff`, which nothing overruns; `tk_spguard4` stays in the bss
+   in front of `tk_sprdg`, whose trailing slack it is. A `times` with a
+   negative count refuses an overlay that outgrows the two buffers.
+
+The overlay is what the tables below are expanded by: code and seeds that run
+once and are dead after it, in bytes that were going to be RAM anyway.
+
+#### 85.10.7 Apps size pass 2: the cold code
+
+What the pass took out of code nothing times, every item's effect on what the
+machine does being none:
+
+- `tk_adapter` tests the three modes in the REVERSE of the preference into
+  one register and stores the `tk_want`/`tk_fsxm` word once, so every branch
+  still writes both - one store rather than four. `tk_caps`, which it wrote
+  and nothing read, is gone, and `tk_onresize` is `tk_adapter` itself rather
+  than a call to it. The window's title is the menu's name, the same eleven
+  characters. Image -36, bss -2, the file -21.
+- **A parity pad after `tk_tantab`.** The pass moved code by odd amounts
+  (the entry proc's 163 bytes, the tangents' 37), which left the game loop's
+  routines - `tk_render`, the AI, the template's - an odd distance from where
+  they were. An 8088 fetches a byte at a time and does not care; a 286 or
+  an 8086 fetches words and does. One `db 0` puts every routine below it
+  back on the parity it had before the pass, on both builds (checked off
+  the two maps: what still differs is the window's callbacks, its strings
+  and the overlay). It costs no image byte, the overlay's own `align 2`
+  giving one back.
 
 ## 86. AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`)
 
