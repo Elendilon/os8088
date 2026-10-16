@@ -1149,7 +1149,8 @@ whose `LESSONS.md` is what MIDIRack's (SPEC.md §105.9.4, §105.9.5) learned.
   the worker may not take one. `apps/ftpd/` (§77) is the worked example.
 - **A C package that does not fit gets a second segment, not a bigger one**
   (§73.14): a function named `ovl_*` has its CODE emitted into a module that
-  ships beside the package (`CWORD.OVL`) and is far-called both ways, while
+  is far-called both ways - shipped as a PART of the package itself with
+  `CC_OVL_PART` (§73.14.2, CWORD's shape), or as a `<NAME>.OVL` beside it - while
   every global, literal and bss byte it names stays resident and DS-relative. Split by
   FREQUENCY — a keystroke's path stays in, a menu command's can go out — and
   never take the address of an overlay function.

@@ -688,9 +688,9 @@ document in the one you pick, proportional metrics and all.
 It does not fit in one segment, and that is the interesting part. A package's
 image and bss share 60KB and that ceiling IS the segment; C costs two to three
 times the image of hand assembly for the same work. So a good deal of it lives
-in `CWORD.OVL`, a file beside the package that is read into a heap claim the
-first time a dialog, a file command, the clipboard, the ruler or the Font list
-is asked for — the split falling exactly between what a keystroke touches and
+in its overlay, a second segment carried INSIDE `CWORD.O88` as a part and
+read into a heap claim at launch, right behind the program (SPEC.md 73.14.2) —
+the split falling exactly between what a keystroke touches and
 what a menu command touches. When the typefaces went in, that line is what
 moved: the resident half got *smaller* while the program grew a view and a text
 engine.
@@ -833,7 +833,7 @@ cleanly and runs wrong when C meets this machine.
 | `build/zork*.img`      | 1.44MB / 720KB / 1.2MB / 360KB | Frotz story floppies (`make zdisk`). The 1.2MB one is the only list here that is a cut rather than a fill — the 1.44MB story set alone overruns it, so `ADVENT5.Z5` and `905.Z5` come off and nine of the eleven stay |
 | `build/word*.img`      | 1.44MB / 720KB / 1.2MB / 360KB | Microsoft Word floppies (`make worddisk`) |
 | `build/scribe*.img`    | 1.44MB / 720KB / 1.2MB / 360KB | Scribe, the fork of Word: one parted package + its welcome documents (`make scribedisk`) |
-| `build/cword*.img`     | 1.44MB / 720KB / 1.2MB / 360KB | Word in C, package + `CWORD.OVL` (`make cworddisk`) |
+| `build/cword*.img`     | 1.44MB / 720KB / 1.2MB / 360KB | Word in C: one package, its overlay a part of it, and `WELCOME.RTF` (`make cworddisk`) |
 | `build/runcpm*.img`    | 1.44MB / 720KB / 1.2MB / 360KB | RunCPM, package + `RUNCPM.OVL` + CP/M drive A + the games and applications each holds (`make runcpmdisk`). What drive A carries is chosen per geometry at build time, so the 1.2MB disk fills itself and names what it left off in its own `LEFT-OFF.TXT` |
 | `build/paccman*.img`   | 1.44MB / 720KB / 1.2MB / 360KB | PaccMan, the C Pac-Man: the package and its README, no overlay (`make paccmandisk`) |
 | `build/c64*.img`       | 1.44MB / 720KB / 1.2MB / 360KB | Commodore 64, package (the ROMs are part 0 of `C64.O88`) + `C64.OVL` (`make c64disk`) |

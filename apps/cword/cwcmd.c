@@ -656,7 +656,7 @@ void os88_onfile(int mode, const char *name, unsigned size_lo,
  * the UI half hides the window and raises a flag, and the worker destroys the
  * record and dies inside its next os88_task_alive(), which is the kernel's own
  * teardown path and frees the task, the region and every claim including
- * CWORD.OVL's.
+ * the one the overlay part was read into.
  *
  * It sleeps four ticks a pass, so it costs a fifth of a second of latency on
  * a command the user has already committed to and nothing at all otherwise. It
@@ -682,7 +682,7 @@ void os88_worker(void *win)
              * liveness question of a window that no longer has an owner
              * (kernel/instance.inc, inst_pkg_alive), and the kernel's own
              * teardown frees the task, the instance, the region and every
-             * claim - including the one CWORD.OVL is in. */
+             * claim - including the one the overlay part is in. */
             os88_gfx_lock();
             os88_wm_destroy(win);
             os88_gfx_unlock();

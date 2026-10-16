@@ -4569,15 +4569,15 @@ SOAK = [
     Row("ovlhigh", "soak", py("tests/ovlhigh.py"), 20.0,
         "docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 1: a C package's OVERLAY is "
         "claimed from the TOP (SPEC.md 50.3.2 - its base is a CS) and declares "
-        "itself movable. CWORD.OVL is 18,565 bytes, bigger than every kernel "
-        "module put together, and it took the low door for as long as overlays "
-        "have existed. It reads MC_HI, the placement and MC_RLOC out of "
-        "mem_tab, because a declaration mem_movable REFUSED looks identical "
-        "from inside the package (SPEC.md 66.5.6.2). Verified to fail in both "
-        "halves: the low door reddens three checks, dropping the declaration "
-        "reddens the fourth",
+        "itself movable. CWORD's is 14,106 bytes, bigger than every kernel "
+        "module put together. Since SPEC.md 73.14.2 it is an EAGER PART of "
+        "CWORD.O88, so the row finds the claim holding build/CWORD.OVL's bytes "
+        "after the LAUNCH (the decode checked byte for byte), reads MC_HI, the "
+        "placement and MC_RLOC out of mem_tab - a declaration mem_movable "
+        "REFUSED looks identical from inside the package (SPEC.md 66.5.6.2) - "
+        "and that an overlay call (F5) claims nothing more",
         needs=("marty", "cc"), serial=True,
-        wants=("build/cword360.img",)),
+        wants=("build/cword360.img", "build/CWORD.OVL")),
     Row("cmemmove", "soak", py("tests/cmemmove.py"), 110.0,
         "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "

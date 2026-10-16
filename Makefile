@@ -8132,7 +8132,7 @@ chello: $(BUILD)/chello.img $(BUILD)/chello360.img
 # these rules into a directory-taking CC_PACKAGE_AT rather than write them a
 # third time.
 #
-# The disk carries two files: COVL.O88 and the module beside it. Boot it, press
+# The disk carries one file, COVL.O88, the module inside it. Boot it, press
 # SPACE, and read the numbers - each one is a different way for the mechanism
 # to be wrong (tests/covl/covl.c says which).
 $(BUILD)/covl.raw.asm: tests/covl/covl.c $(CC_RUNTIME) | $(BUILD) cc-toolchain
@@ -8148,27 +8148,27 @@ $(BUILD)/covl.bin: tests/covl/covl.asm $(BUILD)/covl.gen.asm $(CC_RUNTIME) | $(B
 		-o $@ tests/covl/covl.asm
 	@echo "covl: $(call FILESIZE,$@) bytes (image + module)"
 
+# THE MODULE IS PART 0 OF COVL.O88 (SPEC.md 73.14.2): tests/covl/covl.asm
+# declares CC_OVL_PART and CC_OVL_LAZY, so this is the gate for the LAZY arm -
+# op_fetch on the first call into the module, from the folder the package was
+# launched from - and CWORD is the eager arm's consumer. The part is OP_COMP,
+# as a shipped overlay's is, though LZ4 saves this one nothing a disk can see:
+# the mechanism under test is the one a real overlay goes through.
+# build/COVL.OVL is the plain cut, kept for tests/unit/t_ctoolchain.py.
 $(BUILD)/covl.o88: $(BUILD)/covl.bin tools/os88pkg.py tools/os88ovl.py $(PKGZSTAMP)
 	python3 tools/os88ovl.py $< -o $(BUILD)/COVL.OVL \
 		--trim $(BUILD)/covl.trim.bin
-	$(OS88PKG) $(BUILD)/covl.trim.bin -o $@
+	$(OS88PKG) $(BUILD)/covl.trim.bin -o $@ --part-compress lz4 \
+		--part $(BUILD)/COVL.OVL
 
-# The disk carries the PACKED copy of the module, as every C package's disk
-# does (CC_OVLZ_RULE, apps/cc/Makefile.inc): 110 bytes -> 102, which saves
-# nothing a disk can see and is not why it is here. This is the gate for the
-# overlay MECHANISM, and the mechanism a shipped overlay goes through is the
-# packed one - a 'CZ' file through cc_ovneed's transparent read.
 $(BUILD)/COVL.OVL: $(BUILD)/covl.o88 ;
-$(eval $(call CC_OVLZ_RULE,COVL.OVL))
 
-$(BUILD)/covl.img: $(BUILD)/covl.o88 $(CC_OVLZ)/COVL.OVL tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 \
-		$(BUILD)/covl.o88 $(CC_OVLZ)/COVL.OVL
+$(BUILD)/covl.img: $(BUILD)/covl.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/covl.o88
 	@python3 tools/os88disk.py --verify $@
 
-$(BUILD)/covl360.img: $(BUILD)/covl.o88 $(CC_OVLZ)/COVL.OVL tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 \
-		$(BUILD)/covl.o88 $(CC_OVLZ)/COVL.OVL
+$(BUILD)/covl360.img: $(BUILD)/covl.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/covl.o88
 	@python3 tools/os88disk.py --verify $@
 
 #   make covl                            builds both images
@@ -8554,7 +8554,7 @@ msegw: $(BUILD)/msegw.img $(BUILD)/msegw360.img $(BUILD)/msegwz.img \
 # assembly and the two share no file, no package name, no make target, no disk
 # image, no VM directory and no extension. Nothing here may reach a `word`
 # name, and nothing in the Word section above may reach a `cword` one.
-$(eval $(call CC_PACKAGE,cword,cword,CWORD.OVL))
+$(eval $(call CC_PACKAGE,cword,cword,CWORD.OVL,,part))
 
 # THE REST OF THE TRANSLATION UNIT. `nasm -f bin` has no notion of an external
 # symbol, so a C package is ONE compilation and one assembly (SPEC.md 73.1):
@@ -8595,24 +8595,24 @@ cword: $(BUILD)/cword.o88
 # the assembly port puts WELCOME.DOC and for a reason that is not tidiness:
 # a double-click on the document launches the program through SPEC.md 54.4.2,
 # and assoc_back then leaves the app's current directory on the DOCUMENT's
-# (SPEC.md 54.9, 19.2.1). CWORD.OVL is resolved in that directory (SPEC.md
-# 73.14), so a document in a folder of its own would open a program whose
-# every menu then refused, politely and inexplicably.
+# (SPEC.md 54.9, 19.2.1). CWORD.OVL used to be resolved in that directory
+# (SPEC.md 73.14), so a document in a folder of its own opened a program whose
+# every menu then refused; the overlay is a part of CWORD.O88 read at launch
+# now (73.14.2), so the folder no longer matters to it, and the document stays
+# at the root for the association's sake alone.
 $(BUILD)/WELCOME.RTF: tools/os88rtf.py tools/os88doc.py apps/cword/welcome.wtx | $(BUILD)
 	python3 tools/os88rtf.py apps/cword/welcome.wtx -o $@
 
 cworddisk: $(BUILD)/cword.img $(BUILD)/cword720.img $(BUILD)/cword120.img \
            $(BUILD)/cword360.img
 
-# THE FLOPPY CARRIES BOTH FILES PACKED. CC_PACKAGE (apps/cc/Makefile.inc)
-# packs build/cword.o88 itself, like every shipped package (the loader expands
-# it, SPEC.md 20.13), and writes build/CWORD.OVL plain, which is what
-# tests/unit/t_ctoolchain.py and the symbol readers want; what goes on a disk
-# is the 'CZ' copy CC_PACKAGE writes into $(CC_OVLZ) (SPEC.md 73.14.1), which
-# cc_ovneed's OSAPI_FILE_READ expands into a claim sized from the IMAGE.
-# 36,514 + 18,565 bytes on the floppy became 20,351 + 8,851. This used to be
-# a rule of CWORD's own in build/cwordz/, the first overlay to ship packed.
-CWORDDISK := $(BUILD)/cword.o88 $(CC_OVLZ)/CWORD.OVL $(BUILD)/WELCOME.RTF
+# THE FLOPPY CARRIES ONE PROGRAM FILE. The overlay is PART 0 of CWORD.O88
+# (SPEC.md 73.14.2, the `part` argument above), LZ4-packed inside it and read
+# by op_load at launch, so there is no CWORD.OVL to lose, to copy without, or
+# to scroll past. build/CWORD.OVL is still written, plain, for
+# tests/unit/t_ctoolchain.py and the symbol readers. WELCOME.RTF is a
+# DOCUMENT and stays a file.
+CWORDDISK := $(BUILD)/cword.o88 $(BUILD)/WELCOME.RTF
 
 $(BUILD)/cword.img: $(CWORDDISK) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(CWORDDISK) --folder DOCS
@@ -8859,7 +8859,7 @@ $(BUILD)/HELLO.COM: | $(BUILD)
 	printf '\016\011\021\011\001\315\005\000\311Hello from the Z80 - RunCPM on os8088\r\n$$' > $@
 
 # THE THREE FLOPPIES (SPEC.md 74.5): the package in the root beside the CCP it
-# loads (before any folder move: the same rule as CWORD.OVL), RunCPM's LICENSE
+# loads (before any folder move: the rule CWORD.OVL kept), RunCPM's LICENSE
 # and 1STREAD.ME, and drive A user 0 - the master disk as far as the geometry
 # holds it, chosen at recipe time by getruncpm.py --select (the texts and
 # submit files first, then the programs, then documentation, libraries and
@@ -9439,7 +9439,8 @@ weave: $(BUILD)/weave.o88 $(BUILD)/WEAVE.WSM
 # 19.2.1); WEAVE.OVL is resolved in that directory (SPEC.md 73.14). So a
 # bundle in a folder WITHOUT the runtime opens a program whose every overlay
 # path then refuses, politely and inexplicably - which is why WELCOME.RTF
-# rides beside CWORD.OVL two hundred lines up. The layout itself - what the
+# rode beside CWORD.OVL until that overlay became a part of CWORD.O88 (SPEC.md
+# 73.14.2). The layout itself - what the
 # two folders are and why LOOM/ carries a second copy of the runtime - is the
 # block below WEAVEDISK, and WEAVE-SPEC 11.2 is its record.
 weavedisk: $(BUILD)/weave.img $(BUILD)/weave720.img $(BUILD)/weave120.img \
@@ -9900,8 +9901,8 @@ loom: $(BUILD)/loom.o88 $(BUILD)/LOOM.WPV
 # DOCUMENT's directory (SPEC.md 54.9, 19.2.1), and LOOM.OVL is resolved in
 # that directory (SPEC.md 73.14). A project in a folder without LOOM's three
 # files opens a program whose every Pack then refuses, politely and
-# inexplicably. WEAVE's own disk block says the same thing about WELCOME.RTF
-# and CWORD.OVL.
+# inexplicably. WEAVE's own disk block says the same thing, and CWORD's
+# overlay is the case that went away when it became a part (SPEC.md 73.14.2).
 #
 # THE 360KB DISK CARRIES THE LOT AND IT FITS - the recipe's --verify prints the
 # cluster count, and if a later wave grows LOOM past it the answer is to drop
@@ -13770,7 +13771,7 @@ N1942LIVE := $(BUILD)/1942.o88
 ALLAPPSFILES := $(BUILD)/redline.o88 $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUILD)/frotz.o88 \
                 $(BUILD)/MIDIRACK.BNK \
                 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC \
-                $(BUILD)/cword.o88 $(CC_OVLZ)/CWORD.OVL $(CWORDDISK) \
+                $(CWORDDISK) \
                 $(PACCMANDISK) \
                 $(BUILD)/c64.o88 $(CC_OVLZ)/C64.OVL \
                 apps/c64/README.TXT apps/c64/COPYING \

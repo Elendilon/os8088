@@ -41036,7 +41036,7 @@ The tree, and the one part of it that is a correctness requirement:
 | `APPS/` | the thirteen tools, plus `FROTZ.O88` |
 | `GAMES/` | the six games |
 | `WORD/` | `WORD.O88`, `WELCOME.DOC` |
-| `CWORD/` | `CWORD.O88`, `CWORD.OVL`, `WELCOME.RTF` |
+| `CWORD/` | `CWORD.O88` (its overlay is a PART of it, §73.14.2), `WELCOME.RTF` |
 | `RUNCPM/`, `RUNCPM/A/0/` | `RUNCPM.O88`, `RUNCPM.OVL`, the CCP and its `LICENSE` — and CP/M drive A below them (§74.5) |
 | `C64/` | `C64.O88` (the ROM is a PART of it, §20.12), `C64.OVL`, `README.TXT` and `COPYING` (`docs/C64-SPEC.md` §14.2) |
 | `WEAVE/` | `WEAVE.O88`, `WEAVE.OVL`, `WEAVE.WSM` and the three demo bundles (`WEAVE-SPEC 1.2`) |
@@ -113274,8 +113274,8 @@ copy of `WORD.O88` without it was a Word whose module refused. The
 launch-folder banking, the claim, the vectors and 12 bytes of bss went with it.
 §73.14 is that far design for a **compiled** package and remains the right
 one there. A C package's code is not near-callable from a vstart the compiler
-does not control, and `CWORD.OVL` is 18,565 bytes, more than this carve's
-headroom.
+does not control, and CWORD's overlay is 14,106 bytes (a part of `CWORD.O88`
+since §73.14.2), more than this carve's headroom.
 
 **Past the headroom** the next step is a far part: a lazy `OP_SEG` of its own
 claim, reached the way §73.14's overlay is, or large bss buffers moved into
@@ -120026,22 +120026,26 @@ made to. It is split by §73.14's overlay along the line between **what a
 keystroke touches** and **what a menu command touches**:
 
 ```
-resident   image  35,886   the chrome, the layout, the glass shadow, the
-                           document model, the keyboard, the mouse, and the
-                           type library (§6.3) the chosen face is set through
-           bss    24,511   the document (4,000 chars + 4,000 attribute bytes),
+resident   image  30,452   the chrome, the layout, the glass shadow, the
+                           document model, the keyboard, the mouse, the
+                           type library (§6.3) the chosen face is set through,
+                           and the parts standard that reads the overlay
+           bss    24,624   the document (4,000 chars + 4,000 attribute bytes),
                            the RTF staging buffer (6,000), the shadow
                            (2 x 24 x 128 = 6,144), the type library's band and
                            face table (1,933)
            -------------
-           total  60,397   98% of APP_MAX_SIZE; 1,043 bytes spare
-CWORD.OVL        18,564    the dialogs, RTF in and out, search, Sort,
-                           Renumber, Table of Contents, the clipboard, the
-                           paragraph dictionary and the Font list
+           total  55,076   90% of APP_MAX_SIZE; 6,364 bytes spare
+overlay          14,106    PART 0 of CWORD.O88 (§73.14.2), 8,423 packed: the
+                           dialogs, RTF in and out, search, Sort, Renumber,
+                           Table of Contents, the clipboard, the paragraph
+                           dictionary and the Font list
 ```
 
-`cc8086.py` reports **158 functions, 26 frame bytes maximum against the 96-byte
-cap, 1,327 sites lowered, 76 functions moved to `.modc`, 47 resident shims**.
+`cc8086.py` reports **159 functions, 26 frame bytes maximum against the 96-byte
+cap, 1,332 sites lowered, 76 functions moved to `.modc`, 48 resident shims**
+(measured at §73.14.2; the peephole pass of §73.15 is what took the figures
+below the ones this table first carried).
 
 **Those numbers moved a long way for §73.12.2**, and the direction is the
 point: the resident image got SMALLER while the program grew a typeface engine
@@ -120253,7 +120257,7 @@ line of this program changes. So the space was found first, in the order
 from code that runs once per command and was resident only because nobody had
 needed the bytes yet:
 
-| moved to `CWORD.OVL` | why it is module code |
+| moved to the overlay | why it is module code |
 |---|---|
 | the whole RTF engine's helpers — the parser, the control-word scanner, the writer, the property setters | they run inside `ovl_file_load` / `ovl_file_store`, which were already out there. Only the TABLES stayed, because they are data and data is resident by construction (§73.14) |
 | the clipboard's three commands | once per Cut / Copy / Paste |
@@ -120263,10 +120267,12 @@ needed the bytes yet:
 | **the Font list itself** — its geometry, its painter, its hit test, the scan and the pick | once per visit to the Font box |
 
 That last row is worth stating plainly rather than leaving in a table, because
-it is the one that costs something a user can notice: **choosing a typeface
-needs `CWORD.OVL` on the disk.** It is the right side of the line — a face is
-chosen about as often as a document is opened — and the refusal is the ordinary
-one, a toast naming the missing file and a list that does not drop down.
+it was the one that cost something a user could notice: **choosing a typeface
+needed `CWORD.OVL` on the disk.** It is the right side of the line — a face is
+chosen about as often as a document is opened — and the refusal was the
+ordinary one, a toast naming the missing file and a list that did not drop
+down. Since §73.14.2 the overlay is an eager part of `CWORD.O88`, read at
+launch, so there is no file to be missing and the refusal is gone.
 
 **The type LIBRARY, though, is resident whole**, and that was decided the other
 way. `ty_putn`, `ty_flush` and `ty_advof` are the redraw path and could never
@@ -120406,8 +120412,8 @@ for the caller to do about it and nothing to tell the user.
 
 #### 73.12.3 `WELCOME.RTF` — the document, and the two things it may not claim
 
-`cworddisk` puts **`WELCOME.RTF`** in the root of all three geometries, beside
-`CWORD.O88` and `CWORD.OVL`, exactly as §68.5's disk puts `WELCOME.DOC` beside
+`cworddisk` puts **`WELCOME.RTF`** in the root of all four geometries, beside
+`CWORD.O88` (whose overlay is a part of it, §73.14.2), exactly as §68.5's disk puts `WELCOME.DOC` beside
 Word: a disk that demonstrates the product the moment it is double-clicked.
 It is generated **deterministically** by `tools/os88rtf.py` from
 `apps/cword/welcome.wtx`, so the shipped file rebuilds byte for byte.
@@ -120454,9 +120460,9 @@ rules that turn `apps/<dir>/<name>.c` plus `apps/<dir>/<name>.asm` into
 |---|---|
 | `cc-smoke` | `build/ccsmoke.img` — `apps/cc/ccsmoke.c`, the toolchain's smoke test and the SDK's worked example of the two files a C package is made of |
 | `chello` | `build/chello.img` + `build/chello360.img` — `tests/chello/`, the capability gate that first proved a compiled package can hold a window |
-| `covl` | `build/covl.img` + `build/covl360.img` — `tests/covl/`, the capability gate for the OVERLAY (§73.14) |
-| `cword` | `build/cword.o88` + `build/CWORD.OVL` (§73.12) |
-| `cworddisk` | `build/cword.img`, `cword720.img`, `cword360.img`, each carrying both files plus `WELCOME.RTF` and an empty `DOCS/` (§73.12.3), and each `os88disk.py --verify`ed |
+| `covl` | `build/covl.img` + `build/covl360.img` — `tests/covl/`, the capability gate for the OVERLAY (§73.14), and since §73.14.2 for its LAZY part arm |
+| `cword` | `build/cword.o88`, its overlay inside it as part 0 (§73.12, §73.14.2) - and `build/CWORD.OVL`, the plain cut the host readers want, which no disk carries |
+| `cworddisk` | `build/cword.img`, `cword720.img`, `cword120.img`, `cword360.img`, each carrying `CWORD.O88`, `WELCOME.RTF` and an empty `DOCS/` (§73.12.3), and each `os88disk.py --verify`ed |
 | `386-c-word` | boots `$(IMG)` in A: and `build/cword.img` in B: on `vm/386-c-word` |
 | `allapps` | the everything set, `build/apps-all-N.img` and `build/apps-all-120-N.img` — every application on as many floppies as it takes (§19.10). Outside this section, only it and the live media (§80) — whose payload is this set's — need the compiler, which is why all of them are on demand |
 | `clean-cc` | removes `build/cc`, which plain `clean` spares |
@@ -120565,7 +120571,11 @@ than the UI task's ~700 bytes of headroom can hold C frames for, so the task
 stack is the limit that binds.
 
 **Loading is on demand and needs no kernel byte.** `cc_ovneed` claims
-`ceil(size / 1024)` KB and reads `<CC_PKG_NAME>.OVL` into it. It does **not**
+`ceil(size / 1024)` KB and reads `<CC_PKG_NAME>.OVL` into it. (That is the
+FILE form, which every overlay shipped as until §73.14.2 made the module a
+PART of the package's own `.O88`; CWORD and COVL take that form now, and the
+paragraphs below that are about the file - the stamp, the missing-file
+refusal - are about the packages that still ship one.) It does **not**
 visit a folder first: every file name a package passes the file API already
 resolves in that instance's own directory (§19.2.1), which is the folder it
 was launched from. The KB is computed at run time from a `.data` word holding
@@ -120579,7 +120589,9 @@ is believed. A rebuilt package beside a stale module is something a user can
 produce with a file copy, and every offset in both vector tables would be
 wrong. It catches a stale **pair**, not every stale pair: two builds whose
 resident image and module were both the same size would pass it, and that is
-worth stating rather than implying.
+worth stating rather than implying. A part carries no stamp (§73.14.2): its
+bytes are the package's own file, located by a table in the image it was
+built with, so there is no pair to go stale.
 
 **Refusal is an ordinary path** (§47). No heap, a disk without the file, a
 stamp mismatch, or a **worker task** asking: the reason is toasted, `AX` is 0,
@@ -120616,9 +120628,11 @@ which is what says the argument fixup reached every one of four arguments;
 a resident routine that toasts, **which is the case §68.10 could not prove for
 the assembly module**; and the counters go up by exactly one per press, ten
 presses running, because a mechanism that leaks two bytes of stack per call
-works for a while and then does not. The refusal screen is the second half:
+works for a while and then does not. The refusal screen was the second half -
 build the disk without the `.OVL` and every number stays 0 with the reason in
-the menu bar.
+the menu bar - until §73.14.2 put the module inside `COVL.O88`, where there is
+no file to leave off; the gate is the LAZY part arm's now, and its refusals are
+the parts standard's (`op_fetch`'s, and the home bracket's).
 
 #### 73.14.1 The overlay ships PACKED, as a `'CZ'` file beside the package
 
@@ -120649,12 +120663,12 @@ gone. Measured, file bytes:
 |---|---:|---:|
 | `LOOM.OVL` | 43,702 | **17,929** |
 | `WEAVE.OVL` | 21,198 | **9,480** |
-| `CWORD.OVL` | 18,565 | **8,851** |
+| `CWORD.OVL` (a PART of `CWORD.O88` since §73.14.2) | 18,565 | **8,851** |
 | `SCRIBE.OVL` (part 1 of `SCRIBE.O88` since §95.8.8) | 10,121 | **8,348** |
 | `RUNCPM.OVL` | 7,389 | **3,526** |
 | `APPLE2.OVL` | 3,971 | **2,472** |
 | `C64.OVL` | 2,323 | **1,597** |
-| `COVL.OVL` (the gate) | 110 | 102 |
+| `COVL.OVL` (the gate; a part since §73.14.2) | 110 | 102 |
 
 **The one risk is the directory entry, and it is closed.** A packed file's
 unpacked size lives in its directory entry (§20.14.1), and a copy made by a
@@ -120668,6 +120682,159 @@ the image and not from FIND, §20.14.6.3's short-claim case cannot arise here.
 **`tests/unit/t_pkgzrules.py` holds it** (fast tier): a disk that names
 `$(BUILD)/<NAME>.OVL` - the plain cut - fails the build, alongside every
 shipped package rule that does not pack (§20.13.5).
+
+#### 73.14.2 The overlay as a PART of the package — `CC_OVL_PART`
+
+**The module can ride inside `<NAME>.O88` instead of beside it**, as the last
+row of the package's parts table (§20.12). The user sees one program file,
+which is what the owner asked for: a `<NAME>.OVL` is a file the PROGRAM needs
+and the user never opens, it scrolls past in every listing, and a copy that
+takes the `.O88` and leaves it behind is a program whose every command
+refuses. It is OPT-IN, per package - so a package that has not adopted it
+assembles byte for byte as it did, and ships its `.OVL` exactly as §73.14.1
+says.
+
+**What a package writes.** In the shim, beside `CC_HAS_OVL`:
+
+```
+%define CC_HAS_OVL
+%define CC_OVL_PART          ; the module is a part of <NAME>.O88
+%define CC_OVL_LAZY          ; OPTIONAL: fetch it on first use, not at launch
+%define CC_OVL_PLAIN         ; OPTIONAL: store it unpacked (no OP_COMP)
+```
+
+and in the Makefile, `part` as `CC_PACKAGE`'s fifth argument (an open-coded
+rule, like COVL's, passes `--part-compress lz4 --part $(BUILD)/<NAME>.OVL` to
+`os88pkg.py` itself, as its LAST `--part`):
+
+```
+$(eval $(call CC_PACKAGE,cword,cword,CWORD.OVL,,part))
+$(eval $(call CC_PACKAGE,c64,c64,C64.OVL,$(BUILD)/c64-rom/C64.ROM,part))
+```
+
+The two cannot disagree silently: `os88pkg.py` refuses a `--part` count that
+is not the table's file-backed rows, in both directions. `make` still writes
+`$(BUILD)/<NAME>.OVL` - the plain cut `tools/os88ovl.py` makes, which
+`tests/unit/t_ctoolchain.py` and the symbol readers read - and `os88pkg.py`
+appends it as the last part; no `$(CC_OVLZ)` copy is made, so a disk recipe
+still naming one fails as `No rule to make target`, which is the reminder to
+take it off every disk list.
+
+**The table.** A package whose overlay is its only part writes nothing:
+`CC_IMAGE_END` emits a one-row table, after the compiled C. A package that
+already has a table (C64 and the Apple II, whose ROM is part 0) adds the row
+itself, LAST, and counts it:
+
+```
+    CC_PARTS_BEGIN 2
+      OS88_PART OP_ASSET, OP_COMP   ; 0 the ROM, as before
+      CC_OVL_ROW                    ; 1 the overlay
+    CC_PARTS_END
+```
+
+LAST because `CC_PACKAGE` appends the module as the last `--part`, and
+because a lazy row must follow every eager one anyway (`os88pkg.py` refuses
+the other order); `CC_IMAGE_END` `%error`s a table without the row or with it
+anywhere else. The row is `OP_SEG` - it is code the package far-calls - with
+`OP_COMP` unless `CC_OVL_PLAIN`, and `OP_LAZY` with `CC_OVL_LAZY`.
+
+**The stamp is gone, and `cc_ovsize`, `cc_ovfile` and the three `cc_ovm_*`
+refusals with it.** The stamp caught a stale PAIR of files; a part is bytes of
+the package's own file, located by a table inside the image it was assembled
+with. A compressed part is still checked whole: `op_unpack` and `op_fetch`
+refuse a stream that does not decode to exactly the row's `len` (§20.13.4).
+The module is sized by the row (`os88pkg.py` fills `len`), not by a word in
+the image.
+
+##### 73.14.2.1 The two arms, and which one to pick
+
+| | EAGER (`CC_OVL_PART`) | LAZY (`+ CC_OVL_LAZY`) |
+|---|---|---|
+| when it is read | at launch, by `op_load` in `cc_entry`, in the same carve read as every other eager part - right behind the image the kernel just read | the first time an `ovl_*` function is called, by `op_fetch` from `cc_ovneed` - §73.14's on-demand load, out of the package's own file |
+| the claim | the parts CARVE, top-down (`op_claim`, §20.12.10.8) | a claim of its own, through `op_fetch`'s door (bottom-up), shrunk to the part |
+| movable | yes when the overlay is the carve's ONLY part: `cc_ovcarve` is the proc, and it re-bases `[op_base]`, re-derives the module's segment through `op_seg` and re-binds. PINNED, at the top, when the carve also holds the package's own parts, because the C may have banked `os88_part_seg()` of one (C64's and the Apple II's ROM pointers are) and only the package can say it has not | yes, from the moment it is bound (`cc_ovreloc`) |
+| where `[cc_ovseg]` lives | a word of the runtime's bss, written once by `cc_ovinit` | **the row's own `zkb`**: `op_fetch` banks the claim's base there and `op_seg` reads it there, so `cc_ovseg` is `%define`d to that word and the relocation proc's one store keeps the binder, `op_seg`, `op_drop` and the thunk's `retf` in step - there is no second copy to forget |
+| `cc_ovneed` | the worker gate and nothing else | the worker gate, the row's `OP_FETCHED`, then the HOME BRACKET and `op_fetch` |
+| a refusal | the LAUNCH refuses, with the parts standard's toast (`Not enough memory`, `Cannot read my parts`, ...), and no window whose every menu says no ever opens | the CALL refuses with `op_fetch`'s toast, `AX` = 0 and the call skipped, as §73.14's refusal always was |
+| resident code, CWORD measured | +1,100 image bytes over the file form | +924 |
+
+**The home bracket is the lazy arm's, and it closes a hole the file form
+had.** `op_fetch` reads the part out of `op_name` - the package's own file -
+by NAME, and a name resolves in the folder the instance stands in (§19.2.1),
+which the Standard File dialog and a document launch's goto both move. So
+`cc_ovinit` banks `OSAPI_FILE_HERE` at launch, after `op_load`, and
+`cc_ovneed` stands there with `OSAPI_FILE_GOTO_QM` for the fetch and comes
+back - PiXEL's bracket (§106.5), QM on both legs because nothing lists either
+folder, and no call at all when the instance is already home. The file form
+had the same hole: `CWORD.OVL` was resolved wherever the instance stood, so a
+document opened from another folder opened a program whose every command then
+refused (the Makefile carried a paragraph on keeping `WELCOME.RTF` beside it
+for exactly that). A home volume that cannot be reached - the program's
+floppy swapped out on a one-drive machine - refuses with the standard's own
+`No disk to read from`.
+
+**Why the lazy arm takes `op_fetch`'s bottom-up door, against §50.3.2.** That
+rule sends a block whose base IS a CS to the top because such a block is
+PINNED, and a pinned block mid-arena splits it for good. The lazy overlay is
+declared movable the instant it is bound, so the compactor packs it like any
+other movable claim - and a top-down claim would not even be tidy here,
+because `op_fetch` claims the read's window (R plus the packed bytes,
+cluster-rounded) and SHRINKS to the part, and a shrink keeps the base: on a
+top-down claim that leaves the shrunk tail as a hole directly above it. The
+parts standard is untouched by this section; nothing outside `apps/cc/`
+changed.
+
+**Which to pick.** Eager when the module is used in practically every
+session - CWORD's is every command but typing: Open, Save, every dialog, the
+Font list - because then lazy only moves the read to the first command, after
+the motor has stopped, and on a one-drive machine after the program's disk
+may have been swapped for a document's. Lazy when a session can plausibly
+never call it and its RAM is worth deferring, which is §73.14's original
+argument - and COVL takes it so the arm has a gate. The size row above is the
+price in resident bytes of either: the eager arm carries the carve's sizing,
+claim, read and unpack (`op_size`, `op_claim`, `op_read`, `op_unpack`,
+`op_seg`'s walk), the lazy one `op_fetch` and `op_drop` (a one-row table whose
+C never asks `os88_part_lazyok()` is built without `op_lazyok`, §20.12.9.2)
+and the bracket. A package that ALREADY carries a carve - C64, the Apple II -
+pays almost none of the eager arm's figure, because it is code it already
+has.
+
+##### 73.14.2.2 What it cost and bought, measured
+
+CWORD (eager) and COVL (lazy), against the file form at the same commit:
+
+| | before | after |
+|---|---|---|
+| `cword` image + bss | 29,352 + 24,522 = 53,874 | 30,452 + 24,624 = **55,076** (6,364 spare of `APP_MAX_SIZE`) |
+| CWORD's module | 14,110 (stamp included) | 14,106 |
+| CWORD on a disk | `CWORD.O88` 19,580 + `CWORD.OVL` 8,444 - two files, 56 sectors | `CWORD.O88` **29,415** (its part 8,423 bytes of LZ4) - one file, 58 sectors |
+| `cword360.img` / `cword720.img` | 34 clusters, 4 files | 34 clusters, 3 files |
+| `cword.img` / `cword120.img` | 63 clusters, 4 files | 65 clusters, 3 files |
+| `covl` image + bss | 1,802 + 152 | 2,730 + 256 |
+| COVL on a disk | 1,438 + 99, two files | 2,646, one file |
+
+**The two sectors are the parts standard's code, packed**, and they are
+deliberate: the alternative was a private fetch of ~200 bytes inside `crt0`,
+which is exactly the "packer and expander of its own outside the standard"
+§20.12.7.4 retired. On the 1KB-cluster geometries the one file lands in the
+clusters the pair took; on the 512-byte ones it is two sectors more than the
+pair, for one directory entry fewer. The bss grows by `OP_BSS` (102), the
+standard's own words.
+
+**How to adopt it** (C64, the Apple II, RunCPM, WEAVE, LOOM): define
+`CC_OVL_PART` (and `CC_OVL_LAZY` if the module is not used by every session)
+in the shim; if the package has a parts table, add `CC_OVL_ROW` as its last
+row and bump the count; add `part` as `CC_PACKAGE`'s fifth argument (LOOM's
+open-coded rules pass `--part-compress lz4 --part $(BUILD)/LOOM.OVL` to
+`os88pkg.py` instead); take `$(CC_OVLZ)/<NAME>.OVL` off every disk list -
+the package's own disk, `ALLAPPSFILES`, the live media, the category disks -
+and every `.OVL` mention in tests and docs that means the shipped file; and
+keep reading `build/<NAME>.OVL` in any host tool that wants the module's
+bytes, which it still is. A package that relied on the file form's folder
+rule (WEAVE and LOOM keep a runtime in each folder so a bundle opens beside
+its overlay) can re-read that rule: an eager part is in memory before any
+folder move, and a lazy one is fetched from home - though a bundle still
+needs the runtime's OTHER files (`WEAVE.WSM`) wherever that rule put them.
 
 ### 73.15 The peephole pass, and the differential check that lets it ship
 
