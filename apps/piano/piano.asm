@@ -824,34 +824,30 @@ pn_draw_wkey:
     push di
     push bp
     mov bp, bx                      ; BP = state:index (register use only)
+    mov al, CBLACK                  ; the outline's pen while AL is free
+    call OSAPI_SET_COLOR
     mov al, 18
     mul bl                          ; AX = index*18
     add ax, 2
-    mov di, ax                      ; DI = key left edge
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, di
+    mov di, ax                      ; DI = key left edge, < 256: AH is 0
     mov bx, PN_KB_Y1
     lea cx, [di+18]
     mov dx, [pn_kby2]
-    call pn_cframe
-    mov ax, bp                      ; AH = highlight state
-    mov al, CWHITE
-    test ah, 1
+    call pn_cframe                  ; ...which keeps AX..DX: the face is this
+    mov al, CWHITE                  ; rect one pixel in
+    test bp, 1 << 8                 ; BH: lit
     jz .face
     mov al, CLBLUE                  ; the sounding fill
 .face:
     call OSAPI_SET_COLOR
-    mov ax, di
+    mov ax, di                      ; (AH was 0 all along)
     inc ax
-    mov bx, PN_KB_Y1+1
-    lea cx, [di+17]
-    mov dx, [pn_kby2]
+    inc bx
+    dec cx
     dec dx
-    call pn_cfill
-    mov ax, bp                      ; the map letter: CBLUE, CWHITE when lit
-    mov al, CBLUE
-    test ah, 1
+    call pn_cfill                   ; DX = the face's last row, kept
+    mov al, CBLUE                   ; the map letter: CBLUE, CWHITE when lit
+    test bp, 1 << 8
     jz .lcol
     mov al, CWHITE
 .lcol:
@@ -860,16 +856,14 @@ pn_draw_wkey:
     mov bh, 0
     mov al, [pn_wchar+bx]
     lea cx, [di+5]
-    mov dx, [pn_kby2]               ; the letter rides PN_WLBL_UP above the
-    sub dx, PN_WLBL_UP              ; key's foot, wherever that is
-    call pn_cchar
+    sub dx, PN_WLBL_UP - 1          ; the letter rides PN_WLBL_UP above the
+    call pn_cchar                   ; key's foot, wherever that is
     mov bx, bp                      ; re-draw the black keys overlapping
     xor bh, bh                      ; this white key: the ones on slots idx-1
     dec bx                          ; and idx, where there are any - and
     mov cx, 2                       ; neighbours re-draw un-highlighted (BH 0).
-    mov ax, bp                      ; ...or slot idx-1 alone, in a whole
-    test ah, PN_WK_LEFT             ; keyboard's walk
-    jz .nb
+    test bp, PN_WK_LEFT << 8        ; ...or slot idx-1 alone, in a whole
+    jz .nb                          ; keyboard's walk
     dec cx
 .nb:                                ; Slot -1 is the 0 byte before [pn_bchs],
     cmp byte [pn_bchs+bx], 0        ; there for this; slot 11 is [pn_bchs]'s
@@ -901,27 +895,24 @@ pn_draw_bkey:
     push di
     push bp
     mov bp, bx                      ; BP = state:slot (register use only)
+    mov al, CBLACK                  ; the body's pen while AL is free
+    call OSAPI_SET_COLOR
     mov al, 18
     mul bl
     add ax, 15                      ; AX = key left edge (18*slot + 15)
-    mov di, ax                      ; DI = x1
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, di
+    mov di, ax                      ; DI = x1, < 256: AH is 0
     mov bx, PN_KB_Y1
     lea cx, [di+9]
     mov dx, [pn_bky2]
-    call pn_cfill
-    mov ax, bp
-    or ah, ah
+    call pn_cfill                   ; ...which keeps AX..DX
+    test bp, 0FF00h                 ; BH: lit
     jz .letter
-    mov al, CLRED                   ; the sounding core
+    mov al, CLRED                   ; the sounding core: the body one pixel in
     call OSAPI_SET_COLOR
     mov ax, di
     inc ax
-    mov bx, PN_KB_Y1+1
-    lea cx, [di+8]
-    mov dx, [pn_bky2]
+    inc bx
+    dec cx
     dec dx
     call pn_cfill
 .letter:

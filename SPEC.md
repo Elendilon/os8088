@@ -66436,7 +66436,14 @@ inks.
   caption - which share no pixel with any button, so the result is the
   same picture - and the message area takes its pens from `pn_inkw` /
   `pn_inkk`; and `pn_metrics` stores the black keys' foot as a byte,
-  the word's high byte being the loader's zero (-34 together).
+  the word's high byte being the loader's zero (-34 together). The two
+  key painters take every rect after the first from the one before it
+  - a white key's face is its outline one pixel in, a lit black key's
+  core its body one pixel in, the white key's letter row is the face's
+  last row less 10 - since the helpers keep their registers, set the
+  black pen before the x arithmetic needs AL, and test the lit flag in
+  BP where they copied BP to AX to test AH: FEWER instructions on the
+  key redraw and the keyboard paint, none added (-27).
 
 ## 37. clock.inc — the system clock
 
