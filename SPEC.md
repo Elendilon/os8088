@@ -57736,6 +57736,7 @@ than the image and the bss together.
 | `NPF_UNDO` | the undo log and Edit ▸ Undo (§27.9) | nine internal entry points collapse to one shared `ret` |
 | `NPF_ABOUT` | the standard About card (§20.5.1) | one `OSAPI_ABOUT_SET` at entry and one layer in `np_paint` |
 | `OS88UI_SBDRAG` | §13.10.5's thumb gesture | already a knob (§13.10.7); the bar still tracks and steps |
+| `OS88UI_NOGEST` + `OS88UI_NOBFIND` (set, not cleared) | §20.5.1.3's button-record gesture - `os88ui_btnpress`/`btndrag`/`btnup`, `btninit` and `bfind` | follows from `NPF_FIND`: the panel's four are the only buttons with a record here, and §75.3's alert drives its own through `os88ui_ahit` and arm/fire (§27.21 item 17) |
 
 **Kept on purpose, so that the small build is a text editor and not a
 demo:** typing and word wrap, scrolling, the selection with cut/copy/paste,
@@ -58285,6 +58286,13 @@ into bss or the heap. The numbers are the file and the image, both arms.
     reads the pattern to its NUL, searched for more than the box showed.
     It scans the selection with `repne scasb` first and writes nothing
     unless the whole of it is one line. +3 image bytes, +0 file.
+17. **The small build leaves the button gesture out.** With no find panel
+    there is no button record in `APP_SMALL` at all - the alert's buttons
+    are its own - so the build sets `OS88UI_NOGEST` and `OS88UI_NOBFIND`
+    (§20.5.1.3.4) and the ~230 bytes of record-gesture code nothing in it
+    could reach are gone (§27.16.2's table). The full build still carries
+    `os88ui_btninit`/`btnclick`/`btlist`, which it never calls - they share
+    the knob with the gesture it does use.
 
 ## 28. apps/taskmgr — the Task Manager
 

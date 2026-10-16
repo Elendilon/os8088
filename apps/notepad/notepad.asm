@@ -11011,6 +11011,14 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                                 ; dialog has a floor of ~800 bytes wherever it
                                 ; lives, and this is where that is affordable
 %define OS88UI_NOGLYPH          ; no check box or radio drawn here (SPEC.md 13.8.9)
+%ifndef NPF_FIND
+%define OS88UI_NOGEST           ; ...and with no find panel there is no button
+%define OS88UI_NOBFIND          ; with a gesture: the alert's are its own
+                                ; (os88ui_ahit/arm/fire), so the record side -
+                                ; btnpress/btndrag/btnup, btninit and bfind -
+                                ; would be ~230 bytes nothing in the small
+                                ; build reaches (SPEC.md 20.5.1.3.4, 27.16)
+%endif
 %include "os88ui.inc"
 
 ; ...and it is ABOVE the bss counter below because that block sizes a field
