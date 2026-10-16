@@ -2351,15 +2351,7 @@ vp_loadkey:
 .nobuf:
     call vp_pfree
 .out:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld8
 
 ; vp_pevload - A PALETTE A SCENE (98.1.3.2.3): the table at [vp_pevo] into a
 ; claim of its own, [vp_pevseg], checked - entry 0 at frame 0 in the
@@ -3155,14 +3147,7 @@ vp_cmono:
     inc dx
     jmp .row
 .done:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld7
 
 ; vp_tmono - TEXT's poster (98.4.6): every cell FOUR pixels wide and four
 ; rows tall, each quarter lit when its glyph quadrant's share of the way
@@ -3226,15 +3211,7 @@ vp_tmono:
     mov dx, [vp_tscr]
     call vp_mfree
 .out:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld8
 
 ; vp_tqbuild - the scratch's tables: every code's two halves' quadrant
 ; counts (vp_tquad, the machine's glyph or the blocks' table), and the
@@ -3803,14 +3780,7 @@ vp_v4xlat:
     inc di
     cmp di, 16
     jb .px
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld7b
 
 ; vp_dac - VGA8: the file's 256 colours into the DAC, once the bracket has
 ; set 13h (the mode set loads the BIOS's own, and the bracket's restore
@@ -4121,15 +4091,7 @@ vp_v8mono:
     inc dx
     jmp short .row
 .done:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld8
 .mx:                                ; MODEX: pixel x of a row is plane x mod
     mov ax, [vp_kshd]               ; 4, byte x div 4 - so an output byte's
     mov bx, vp_mxseg                ; eight are two bytes of each plane
@@ -4350,15 +4312,7 @@ vp_v4pack:
     add si, [vp_ps]
     jmp .row
 .done:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld8
 
 ; vp_zero - ES:0: the file's layout's memory image, black - or, where the
 ; keeper is smaller ([vp_kkb], a resident play's canvas, 98.1.7.3), as much
@@ -4872,11 +4826,7 @@ vp_lyown:
     mov [vp_lyns], dx
     mov word [vp_lysht], 0
 .x:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld4
 
 ; vp_lyunc - THE FLIP GIVEN BACK (98.1.9.4): the layer not read after all -
 ; the CPU's verdict or the disk's - so its slots are the ring's again, K as
@@ -5728,6 +5678,7 @@ vp_eprobe:
     push cx
     push dx
     push si
+    push di                         ; (vp_ld6's rung, the even one)
     mov bl, EMSV_CAPS
     call vp_ems                     ; AX free, CX on the board, DX the frame,
     jc .out                         ; SI the quarters nobody holds
@@ -5736,12 +5687,7 @@ vp_eprobe:
     je .out                         ; (CF=0: JE was on equal)
     stc
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld6
 
 ; vp_epref - CF=0: take EMS though there is an XMS pool - EMS.DRV answers
 ; (it is only loaded when somebody ticked it, which on this CPU is the
@@ -6932,16 +6878,10 @@ vp_pfst:
     push dx
     push si
     push di
+    push bp                         ; (vp_ld8's rung, the even one)
     push es
     call vp_fill
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld8
 
 vp_pfcap:                           ; CX = the most it can fill: the bank's
     mov cx, [vp_xbn]                ; slots, or in place the RING's, which a
@@ -7871,15 +7811,7 @@ vp_half:
     inc ax
     shr ax, 1
     mov [vh_h], ax
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld8
 
 ; vh_addr - AX = a source row -> AX = its first byte (clobbers DX)
 vh_addr:
@@ -8067,6 +7999,7 @@ vp_lsetup:
     push cx
     push dx
     push si
+    push di                         ; (vp_ld6's rung, the even one)
     mov byte [vp_lsess], 1
     mov byte [vp_ldrain], 0
     mov byte [vp_shadow], 1
@@ -8121,12 +8054,7 @@ vp_lsetup:
     mov [vp_t0], ax
     mov [vp_ltk], ax                ; ...and the worker's clock from it
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld6
 .no:
     mov word [vp_msg], vp_s_refused
     xor al, al
@@ -13053,11 +12981,7 @@ vp_mchg:
     mov [vp_mtk], ax
     mov byte [vp_msync], 1
 .same:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld4
 
 ; vp_mwait - a play about to start in a bracket whose mode changed: held
 ; until VP_MSYNC ticks after the change, so a monitor that blanks while it
@@ -13414,13 +13338,7 @@ vp_sktext:
     mov ah, 1
     mov si, vp_skbuf
     call vo_show
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld6
 
 ; vp_skdue - the main loop's: a seek whose wait is over is made. out: CF=1
 ; it was - the play starts from its key (vp_main's .first); CF=0 nothing to
@@ -14133,15 +14051,7 @@ vp_winv:
     out dx, ax
 .o:
     popf
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld8
 
 ; -----------------------------------------------------------------------------
 ; vp_sopen - the sound (SPEC.md 98.3.1): the audio cursor at the stream's
@@ -14524,11 +14434,7 @@ vp_unmfs:
     mov al, VOK_SNDNX
 .t:
     call vo_toastk
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld4
 
 ; vp_spkinfo - the info line's word on the sound (98.3.15, 98.3.17), at DI:
 ; MUTED and why, or with no card, the speaker - or the Covox, when the Sound
@@ -18119,6 +18025,7 @@ vp_ptext:
     push cx
     push dx
     push si
+    push di                         ; (vp_ld6's rung, the even one)
     cmp byte [vp_lcard], 0
     je .out
     mov ax, VP_LINE
@@ -18149,12 +18056,7 @@ vp_ptext:
     inc bx
     jmp short .l
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld6
 
 ; vp_pposter - the box and the picture in it (98.4): the picture where there
 ; is one, black round it, each pixel written once
@@ -18609,13 +18511,7 @@ vp_ground:
     call OSAPI_SET_COLOR
     call vp_unfilled
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld6
 
 ; vp_gcard - AX,BX..CX,DX = the card's rect: its lines and, if they are in
 ; it, its buttons, with a margin round them - on the screen
@@ -18765,13 +18661,7 @@ vp_unfilled:
     inc ax
     jmp .band
 .done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld6
 
 ; vp_fillne - GFX_FILL AX,BX..CX,DX in the colour set, unless it is empty
 vp_fillne:
@@ -19351,13 +19241,20 @@ vp_fmt:
     call vp_putn
 %endif
 .out:
-; vp_ld7 / vp_ld4 - THE SHARED EPILOGUE, vp_fmt's own: pop the last 7 or 4
-; of AX BX CX DX SI DI ES, in push order, and return. Cold routines end in
-; `jmp vp_ld7` instead of their own pops - nothing a play runs does. Written
-; out, not OS88_POPLADDER, and only the rungs something jumps to named:
-; tools/stkbalance.py walks a jump into it from the depth it came with
+; vp_ld7, vp_ld8 .. vp_ld4 - THE SHARED EPILOGUE, vp_fmt's own (it falls
+; in): pop the last 7 of AX BX CX DX SI DI ES (vp_ld7), or the last 8, 7, 6
+; or 4 of AX BX CX DX SI DI BP ES, in push order, and return. Cold routines
+; end in `jmp vp_ldN` instead of their own pops - nothing a play runs does.
+; Written out, not OS88_POPLADDER, and only the rungs something jumps to
+; named: tools/stkbalance.py walks a jump into it from the depth it came with
 vp_ld7:
     pop es
+    jmp short vp_ld6
+vp_ld8:
+    pop es
+vp_ld7b:
+    pop bp
+vp_ld6:
     pop di
     pop si
 vp_ld4:
@@ -19389,11 +19286,9 @@ vp_putt:
     call vp_putc
     mov al, ah
     call vp_putc
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp near vp_ld4                 ; (NEAR: a short one moves everything
+                                    ; after it, the play path, an odd byte -
+                                    ; tools/os88rdiff.py)
 
 ; vp_puts - SI = NUL string -> DI, stopping at the line's end (DI's own NUL)
 vp_puts:
@@ -19460,11 +19355,7 @@ vp_putn:
     call vp_putc
     dec bh
     jnz .o
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp vp_ld4
 
 ; THE KERNEL CALLS COLD CODE MAKES MOST, as near thunks: a far call is five
 ; bytes a site and a near one three. Each is exactly the slot it names, so a
