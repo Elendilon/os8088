@@ -1274,8 +1274,12 @@ tm_s_phdr:  db 'Packages      ', 0; + allocated/size KB of the pool:
                                 ; SIZE exactly where tm_buf_row's does
 tm_s_mfr:   db '   -    -', 0   ; the ADDR+SIZE pair a built-in has no answer
                                 ; for: it owns no region of its own
-tm_s_sys0:  db '0600', 0        ; where the kernel starts: KERNEL_SEG, the
-                                ; first paragraph above the BIOS data area
+tm_s_sys0:  db 'System   0600', 0   ; the memory list's System row up to its
+                                ; KB columns, as ONE constant: the name, both
+                                ; of the NAME field's trailing columns (row 0
+                                ; has no indent) and where the kernel starts -
+                                ; KERNEL_SEG, the first paragraph above the
+                                ; BIOS data area
 
 ; The row ABOVE System: everything below KERNEL_SEG, which is the one span of
 ; conventional memory that is neither the kernel nor the heap and was in no
@@ -1291,7 +1295,9 @@ tm_s_sys0:  db '0600', 0        ; where the kernel starts: KERNEL_SEG, the
 %if KERNEL_SEG * 16 != 1536
   %error "taskmgr: the low-memory row is a 1.5K literal and KERNEL_SEG moved"
 %endif
-tm_s_low:   db 'IVT+BDA  0000  1.5K', 0
+tm_s_low:   db 'IVT+BDA  0000  1.5K     -', 0   ; ...the whole row: a dash in
+                                ; HEAP after its own gap, as the buffer rows
+                                ; have - it is not a claim
 
 ; The kernel's own buffers, one row each under System (SPEC.md 28). Every
 ; figure beside them is a compile-time constant (TM_K*_KB above), so drawing
@@ -1328,6 +1334,16 @@ tm_s_hhdr:  db 'TYPE      ADDR SIZE TIER', 0
 ; + 1 + 6 + 4 + 4 = 31 characters and the line has 27 (TM_STRMAX), so the
 ; choice was one aligned column or none.
 tm_s_hheap: db 'HEAP ', 0
+; TIER names, FOUR-CHARACTER RECORDS indexed by the owner's high byte -
+; MEM_PG_TRIV first, so the index is (high byte - MEM_PG_MIN) - and copied
+; by tm_htier at TMH_TIERC = 4, so a record needs no NUL and no pointer
+; (apps size pass 2; it was a pointer table and five strings). The fifth
+; record IS the caption's 'HELD' below: an unpurgeable claim is HELD, and
+; the record is the string.
+tm_tiers:   db 'TRIV', 'LOW ', 'MED ', 'HIGH'
+%if TMH_TIERC != 4 || MEM_PG_MAX - MEM_PG_MIN != 3
+  %error "taskmgr: tm_tiers is four 4-character records"
+%endif
 tm_s_hheld: db 'HELD', 0        ; the two halves of what is claimed, never one
 tm_s_hpurg: db ' PURGE ', 0     ; figure: they are owed on different terms.
                                 ; 'HELD' takes no trailing space - tm_put3
@@ -1355,8 +1371,6 @@ tm_s_hfrag: db ' FRAG  ', 0     ; ...and everything available OUTSIDE it, so
 ; as the nearest thing it recognises.
 tm_s_tregn: db 'Region', 0      ; owner = the slot, base = I_SPTR (SPEC.md 20.1)
 tm_s_tdata: db 'Data', 0        ; ...anything else that instance holds (50.3)
-tm_s_tsave: db 'MenuSav', 0
-tm_s_tdrv:  db 'DrvImg', 0
 tm_s_tdrvb: db 'DrvBuf', 0      ; ...and what that driver CLAIMED (SPEC.md
                                 ; 28.4.6): a ring, a pool, a listing buffer.
                                 ; It is NOT in tm_ktab and cannot be - a
@@ -1365,55 +1379,42 @@ tm_s_tdrvb: db 'DrvBuf', 0      ; ...and what that driver CLAIMED (SPEC.md
                                 ; which is a different number on every boot,
                                 ; so tm_hdrv decides this one by walking the
                                 ; snapshot rather than by matching a constant
-tm_s_tcopy: db 'CopyBuf', 0
 tm_s_tfatw: db 'FATwin', 0
 tm_s_tview: db 'DirView', 0     ; kern_small's listing cache (SPEC.md 50.6.5)
-tm_s_tasc:  db 'Assoc', 0
-tm_s_tclip: db 'Clipbrd', 0
 tm_s_twsav: db 'WinSave', 0
-tm_s_tdirw: db 'DirRead', 0
-tm_s_tflst: db 'FileClp', 0
-tm_s_tico:  db 'Icons', 0        ; the machine-wide icon store (SPEC.md 25.9),
-                                ; one row per DISTINCT body. It is claimed at
-                                ; the first mount that harvests one and lives
-                                ; until it is purged, so leaving it out of this
-                                ; table put a permanent hex row on the heap
-                                ; page of every machine - MEM_K_BAND's own
-                                ; lesson, one tag along
-; ...and the three that were MISSING, every one of which this page had been
-; printing as a bare owner word (SPEC.md 28.4.3). The hex fallback below is
-; the table's honesty rule about a tag this build has never SEEN, and not a
-; place to leave one the kernel ships: MEM_K_BAND is claimed at boot and
-; never freed, so 'FF0A' was a permanent row on every machine with a band
-; composer. tests/unit/t_ktags.py is the gate that stops a fourth.
-tm_s_tmod:  db 'ModImg', 0      ; ...beside DrvImg, because it is the same
-                                ; thing one rung down: an image claimed
-                                ; top-down whose base IS its CS (SPEC.md 2.8)
-tm_s_tclon: db 'Cloner', 0      ; the job block AND the sectors in flight,
-                                ; which is why freeing it is the whole of a
-                                ; clone's teardown (SPEC.md 18.99)
-tm_s_tband: db 'BandBuf', 0     ; the 1bpp composer's, one per machine (5.9.2)
-tm_s_thib:  db 'Resume', 0      ; the resume's extent list (SPEC.md 87.5), alive
-                                ; only on the way into the stub
 
-tm_s_tcmpr: db 'Compress', 0
-tm_s_tfont: db 'Font', 0        ; the glyph table copied out of an option
-                                ; ROM at boot (SPEC.md 6.0.1): 1KB, top-down
-tm_s_tfdlg: db 'FileDlg', 0     ; the Standard File dialog's listing (SPEC.md
-                                ; 38.2). It is the FOURTH the prose above
-                                ; warned about: the dialog claimed its own
-                                ; store the moment SPEC.md 22.6.3 abolished
-                                ; the floor listing, and 'FF0F' was on this
-                                ; page for as long as any Save or Open was up
-tm_s_tsc:   db 'Shortcut', 0    ; the desktop shortcuts' one table (SPEC.md
-                                ; 26.8), read off SYSTEM.CFG at boot and held
-                                ; while any shortcut exists - a permanent
-                                ; 'FF11' row on a machine with one, otherwise
-tm_s_timg:  db 'Disk img', 0    ; a mounted .IMG's run table (SPEC.md
-                                ; 18.101), 1KB a mount, freed at the unmount
-; (owner word, name) pairs, ended by a 0 owner. MEM_P_WSAVE is NOT here: it is
-; a RANGE (SPEC.md 11.96.3), one cache per window slot, and tm_htype tests it
-; before it walks this.
+; (owner word, name) RECORDS of TMK_REC bytes, ended by a 0 owner: the name
+; is IN the record, NUL-padded to eight, rather than a pointer to a string
+; elsewhere (apps size pass 2: the pointer and the terminator were three
+; bytes a tag). tm_htype copies TMH_TYPEC = 7 of it, so the three eight-
+; letter names show seven, as they always did. MEM_P_WSAVE is NOT here: it
+; is a RANGE (SPEC.md 11.96.3), one cache per window slot, and tm_htype tests
+; it before it walks this. Why some rows are here at all:
+;   MEM_P_ICO   - the machine-wide icon store (SPEC.md 25.9), one row per
+;                 DISTINCT body, claimed at the first mount that harvests one
+;                 and alive until purged: leaving it out put a permanent hex
+;                 row on the heap page of every machine - MEM_K_BAND's lesson
+;   MEM_K_MOD, MEM_K_CLONE, MEM_K_BAND - the three that were MISSING, every
+;                 one printed as a bare owner word (SPEC.md 28.4.3). The hex
+;                 fallback is the table's honesty rule about a tag this build
+;                 has never SEEN, not a place to leave one the kernel ships:
+;                 MEM_K_BAND is claimed at boot and never freed, so 'FF0A' was
+;                 a permanent row on every machine with a band composer.
+;                 tests/unit/t_ktags.py is the gate that stops a fourth.
+;                 ModImg sits beside DrvImg because it is the same thing one
+;                 rung down: an image claimed top-down whose base IS its CS
+;                 (SPEC.md 2.8); Cloner is the job block AND the sectors in
+;                 flight (SPEC.md 18.99); BandBuf the 1bpp composer's (5.9.2)
+;   MEM_K_HIB   - the resume's extent list (SPEC.md 87.5), alive only on the
+;                 way into the stub
+;   MEM_K_FONT  - the glyph table copied out of an option ROM at boot (SPEC.md
+;                 6.0.1): 1KB, top-down
+;   MEM_K_FDLG  - the Standard File dialog's listing (SPEC.md 38.2): the FOURTH
+;                 the prose above warned about - 'FF0F' was on this page for as
+;                 long as any Save or Open was up
+;   MEM_K_SC    - the desktop shortcuts' one table (SPEC.md 26.8), read off
+;                 SYSTEM.CFG at boot and held while any shortcut exists
+;   MEM_K_IMG   - a mounted .IMG's run table (SPEC.md 18.101), 1KB a mount
 ;
 ; MEM_K_OVL used to be a row, and was the one kernel tag with a lifetime
 ; SHORTER than the session - a heap page open early enough could catch it. The
@@ -1425,42 +1426,35 @@ tm_s_timg:  db 'Disk img', 0    ; a mounted .IMG's run table (SPEC.md
 ; ends the capture early - which drops every row below it from the gate without
 ; failing anything.
 tm_ktab:
-    dw MEM_P_MSAVE, tm_s_tsave
-    dw MEM_K_DRV,   tm_s_tdrv
-    dw MEM_K_COPY,  tm_s_tcopy
-    dw MEM_K_ASC,   tm_s_tasc
-    dw MEM_K_CLIP,  tm_s_tclip
-    dw MEM_K_MOD,   tm_s_tmod
-    dw MEM_K_CLONE, tm_s_tclon
-    dw MEM_K_BAND,  tm_s_tband
-    dw MEM_K_HIB,   tm_s_thib
-    dw MEM_K_CMPR,  tm_s_tcmpr
-    dw MEM_K_FDLG,  tm_s_tfdlg
-    dw MEM_K_FONT,  tm_s_tfont
-    dw MEM_K_SC,    tm_s_tsc
-    dw MEM_K_IMG,   tm_s_timg
-    dw MEM_P_DIRW,  tm_s_tdirw
-    dw MEM_P_FLIST, tm_s_tflst
-    dw MEM_P_ICO,   tm_s_tico
+    dw MEM_P_MSAVE, 'MenuSav'
+    dw MEM_K_DRV,   'DrvImg', 0
+    dw MEM_K_COPY,  'CopyBuf'
+    dw MEM_K_ASC,   'Assoc', 0
+    dw MEM_K_CLIP,  'Clipbrd'
+    dw MEM_K_MOD,   'ModImg', 0
+    dw MEM_K_CLONE, 'Cloner', 0
+    dw MEM_K_BAND,  'BandBuf'
+    dw MEM_K_HIB,   'Resume', 0
+    dw MEM_K_CMPR,  'Compress'
+    dw MEM_K_FDLG,  'FileDlg'
+    dw MEM_K_FONT,  'Font', 0, 0
+    dw MEM_K_SC,    'Shortcut'
+    dw MEM_K_IMG,   'Disk img'
+    dw MEM_P_DIRW,  'DirRead'
+    dw MEM_P_FLIST, 'FileClp'
+    dw MEM_P_ICO,   'Icons', 0
     dw 0
+TMK_REC     equ 10              ; owner word + an eight-byte name
+%if ($ - tm_ktab - 2) % TMK_REC
+  %error "taskmgr: a tm_ktab record is no longer TMK_REC bytes (pad its name to 8)"
+%endif
 
-; TIER names, four columns, indexed by the owner's high byte - MEM_PG_TRIV
-; first, so the index is (high byte - MEM_PG_MIN). An unpurgeable claim gets
-; the dash, which is the answer for every instance-owned row as well.
-tm_ztab:
-    dw tm_s_ztriv, tm_s_zlow, tm_s_zmed, tm_s_zhigh
-tm_s_ztriv: db 'TRIV', 0
-tm_s_zlow:  db 'LOW', 0
-tm_s_zmed:  db 'MED', 0
-tm_s_zhigh: db 'HIGH', 0
-tm_s_zno:   db 'HELD', 0        ; NOT a dash. The tiers are what LOSING a
-                                ; block costs, and a dash in that column read
-                                ; as a rank BELOW 'TRIV' - the opposite of the
-                                ; truth, since an ordinary claim is the only
-                                ; rank that outranks every cache (MEM_LVL_TOP,
-                                ; SPEC.md 50.6.4). 'HELD' says the thing the
-                                ; scale cannot: this one is not a cache at all
-                                ; and the kernel cannot take it back
+; An unpurgeable claim's TIER is 'HELD' (tm_tiers' fifth record, which is
+; tm_s_hheld), and NOT a dash. The tiers are what LOSING a block costs, and a
+; dash in that column read as a rank BELOW 'TRIV' - the opposite of the
+; truth, since an ordinary claim is the only rank that outranks every cache
+; (MEM_LVL_TOP, SPEC.md 50.6.4). 'HELD' says the thing the scale cannot: this
+; one is not a cache at all and the kernel cannot take it back.
 %endif
 
 %ifdef TMF_MEM
@@ -3056,40 +3050,36 @@ tm_cap_xms:
     push si
     push di
 
-    call OSAPI_XMEM_CAPS                ; AX = KB still free, SK_XMS = the whole pool
-    mov bx, [tm_kb+SK_XMS]
-    neg ax
-    add ax, bx                  ; AX = KB in use: sized minus free
-    push ax                     ; --- the bar's width, worked out HERE, while
-    push bx                     ; AX and BX still hold used and sized; the
-    mov cx, bx                  ; pair rides the stack to the figures below
-    call tm_scale               ; (no pool: an empty bar, not an absent one)
-    mov [tm_xbarw], ax
-
     mov di, tm_str
     mov si, tm_s_cpu            ; 'CPU ' + the tier, ahead of the XMS figures:
     call tm_copy                ; the two belong together, because the tier is
     mov si, tm_s_t86            ; exactly what decides whether there can BE any
-    push ax
-    call OSAPI_CPU_INFO               ; AL = the tier (SPEC.md 41.1)
-    cmp al, CPU_286
-    pop ax
+    call OSAPI_CPU_INFO         ; AL = the tier (SPEC.md 41.1) - asked FIRST,
+    cmp al, CPU_286             ; while AX is still nobody's
     jb .tier
     mov si, tm_s_t286
     je .tier
     mov si, tm_s_t386
 .tier:
     call tm_copy
-    cmp word [tm_xoff], 0       ; no store above 1MB: the line is the TIER and
-    je .figs                    ; nothing else. 'XMS 0/ 0K' is the same empty
-    pop bx                      ; statement the bar was making, and the tier is
-    pop ax                      ; what makes the absence legible - 'CPU 8086'
-    jmp short .term             ; IS the reason there is none (SPEC.md 60.2)
-.figs:
-    mov si, tm_s_xms
-    call tm_copy
-    pop bx                      ; BX = total, AX = used
+
+    call OSAPI_XMEM_CAPS                ; AX = KB still free, SK_XMS = the whole pool
+    mov bx, [tm_kb+SK_XMS]
+    neg ax
+    add ax, bx                  ; AX = KB in use: sized minus free
+    push ax                     ; --- the bar's width, worked out HERE, while
+    mov cx, bx                  ; AX and BX still hold used and sized (BX
+    call tm_scale               ; survives tm_scale; AX rides the stack). No
+    mov [tm_xbarw], ax          ; pool: an empty bar, not an absent one
     pop ax
+
+    cmp word [tm_xoff], 0       ; no store above 1MB: the line is the TIER and
+    jne .term                   ; nothing else. 'XMS 0/ 0K' is the same empty
+                                ; statement the bar was making, and the tier is
+                                ; what makes the absence legible - 'CPU 8086'
+                                ; IS the reason there is none (SPEC.md 60.2)
+    mov si, tm_s_xms
+    call tm_copy                ; BX = total, AX = used
     call tm_put5                ; FIVE digits, not tm_kpair's three: AH=88h
     mov byte [di], '/'          ; answers up to 65,535 KB and tm_put3 emits a
     inc di                      ; non-digit above 999. Every other figure in
@@ -3384,24 +3374,14 @@ tm_rows_mem:
     ; at 4K a pixel on a 640K machine it is not a band of its own anyway. A
     ; dash in HEAP, as the buffer rows have - it is not a claim.
     call tm_mrow_open
-    mov si, tm_s_low
-    call tm_copy
-    mov byte [di], ' '          ; the HEAP column's own gap (tm_s_mhdr)
-    inc di
-    mov si, tm_s_dash5
+    mov si, tm_s_low            ; one constant, HEAP column and all
     call tm_copy
     call tm_mrow_close
 
     ; --- row 1: the kernel's fixed reservation --------------------------------
     call tm_mrow_open
-    mov si, tm_s_sys
-    call tm_copy7
-    mov byte [di], ' '          ; row 0 has no indent, so it pays BOTH of the
-    inc di                      ; NAME field's trailing columns here
-    mov byte [di], ' '
-    inc di
-    mov si, tm_s_sys0           ; it starts at the bottom of low memory
-    call tm_copy
+    mov si, tm_s_sys0           ; 'System', no indent, and where it starts:
+    call tm_copy                ; at the bottom of low memory
     mov byte [di], ' '
     inc di
     mov ax, [tm_kb+SK_KERN]     ; the kernel, whole (SPEC.md 2)
@@ -3629,11 +3609,9 @@ tm_buf_row:
 .size:
     pop ax
     call tm_kcol
-    mov byte [di], ' '          ; the HEAP column's own gap (tm_s_mhdr)
-    inc di
     push si
-    mov si, tm_s_dash5          ; HEAP: a buffer is not a claim
-    call tm_copy
+    mov si, tm_s_dash6          ; HEAP, after its own gap (tm_s_mhdr): a
+    call tm_copy                ; buffer is not a claim
     pop si
     call tm_mrow_close
     jmp tm_pop_dsdcba
@@ -3942,6 +3920,19 @@ tm_put2:
     mov cx, 2
     jmp tm_putw
 
+; tm_kcnt - 'nnnK(nn)', NUL-terminated: the HELD/PURGE caption's two halves
+; in:  AX = KB, BX = records, DI = dest; out: DI -> the NUL; clobbers AX
+tm_kcnt:
+    call tm_put3
+    mov word [di], 'K('
+    inc di
+    inc di
+    mov ax, bx
+    call tm_put2
+    mov word [di], ')'          ; ')' and the NUL in one store
+    inc di
+    ret
+
 ; -----------------------------------------------------------------------------
 ; tm_hsplit - what is claimed, split by whether the kernel can take it back
 ; in:  the claim snapshot
@@ -4051,10 +4042,11 @@ tm_htype:
     jz .hex
     cmp dx, ax
     je .found
-    add si, 4
+    add si, TMK_REC
     jmp short .scan
 .found:
-    mov si, [si+2]
+    inc si                      ; the name is the record's own tail
+    inc si
     jmp short .put
 .wsave:
     mov si, tm_s_twsav
@@ -4100,7 +4092,7 @@ tm_htier:
     push bx
     push cx
     push si
-    mov si, tm_s_zno
+    mov si, tm_s_hheld          ; 'HELD'
     cmp ah, MEM_PG_MIN
     jb .put                     ; an instance's own: never a cache
     cmp ah, MEM_PG_MAX
@@ -4109,7 +4101,8 @@ tm_htier:
     sub bl, MEM_PG_MIN
     xor bh, bh
     shl bx, 1
-    mov si, [tm_ztab+bx]
+    shl bx, 1
+    lea si, [bx+tm_tiers]
 .put:
     mov cx, TMH_TIERC
     call tm_copyn
@@ -4442,9 +4435,7 @@ tm_cap_heap:
     call tm_copy
     mov ax, [tm_avl]
     call tm_put3
-    mov byte [di], 'K'
-    inc di
-    mov byte [di], 0
+    mov word [di], 'K'          ; 'K' and the NUL in one store
 
     mov bx, tm_elck + 2*TMC_HTOT
     mov ax, TMH_TOT_Y
@@ -4468,36 +4459,15 @@ tm_cap_heap:
 .cap_hspl:
 
     call tm_hsplit              ; AX/BX = held KB and records, DX/CX = the
-    push dx                     ; purgeable pair
-    push cx
-    push bx
-    mov di, tm_str
-    mov si, tm_s_hheld
+    mov di, tm_str              ; purgeable pair - and nothing below touches
+    mov si, tm_s_hheld          ; DX or CX, so the pair needs no banking
     call tm_copy
-    call tm_put3
-    mov byte [di], 'K'
-    inc di
-    mov byte [di], '('
-    inc di
-    pop ax                      ; held records
-    call tm_put2                ; two columns, so PURGE below cannot move
-    mov byte [di], ')'
-    inc di
-    mov si, tm_s_hpurg
+    call tm_kcnt                ; 'nnnK(nn)': two record columns, so PURGE
+    mov si, tm_s_hpurg          ; cannot move
     call tm_copy
-    pop cx                      ; purgeable records, banked across the KB
-    pop ax                      ; purgeable KB
-    push cx
-    call tm_put3
-    mov byte [di], 'K'
-    inc di
-    mov byte [di], '('
-    inc di
-    pop ax
-    call tm_put2                ; ...and so the line is one fixed width
-    mov byte [di], ')'
-    inc di
-    mov byte [di], 0
+    xchg ax, dx
+    mov bx, cx
+    call tm_kcnt                ; ...and so the line is one fixed width
 
     mov bx, tm_elck + 2*TMC_HSPL
     mov ax, TMH_SPL_Y
@@ -4535,9 +4505,7 @@ tm_cap_heap:
     xor ax, ax                  ; so this cannot go negative - but a wrong 0
 .frag:                          ; beats a wrong 65,000 if it ever does
     call tm_put3
-    mov byte [di], 'K'
-    inc di
-    mov byte [di], 0
+    mov word [di], 'K'          ; 'K' and the NUL in one store
 
     mov bx, tm_elck + 2*TMC_HFRG
     mov ax, TMH_FRG_Y
@@ -6300,9 +6268,8 @@ tm_kpair:
     inc di
     mov ax, bx
     call tm_put3
-    mov byte [di], 'K'
-    inc di
-    mov byte [di], 0
+    mov word [di], 'K'          ; 'K' and the NUL in one store
+    inc di                      ; DI -> the NUL, where the next copy lands
     pop ax
     ret
 

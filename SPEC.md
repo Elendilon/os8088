@@ -60607,6 +60607,19 @@ the file follows UNIQUE bytes.
   gone; `tm_cpucol` writes `'% '` as one word; `tm_namef` stops saving
   registers its callers reload; `tm_order` takes the class bit straight out
   of `KIND_PKG`.
+- **The memory and heap pages' text**: the low-memory row and the System
+  row's name-and-address are each ONE constant string; the heap page's TYPE
+  table carries each name IN its record (`TMK_REC` = owner word + eight
+  bytes) instead of a pointer to a separate string, and the TIER names are
+  four-character records whose fifth is the caption's own `'HELD'`; the
+  HELD/PURGE caption's two halves are one helper (`tm_kcnt`); a figure's
+  `'K'` and its terminating NUL are one word store; `tm_cap_xms` asks the
+  CPU tier before it needs AX for anything else. **Defect found, not fixed**:
+  the TYPE column is seven wide (`TMH_TYPEC`) and three names are eight —
+  `Compress`, `Shortcut` and `Disk img` have always shown as `Compres`,
+  `Shortcu` and `Disk im`. The row has exactly one spare column (24 of 25),
+  so `TMH_TYPEC` = 8 would fit if the header and the ADDR/SIZE/TIER columns
+  moved one right — a visible change, left for the owner.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 
