@@ -6835,8 +6835,14 @@ $(BUILD)/artful.bin: apps/artful/artful.asm apps/artful/atdoc.inc \
 	$(NASM) -f bin -w+error $(STKLST) $(ATDEF) -I apps/ -I apps/artful/ -o $@ apps/artful/artful.asm
 	@echo "artful: $(call FILESIZE,$@) bytes"
 
+# ...and it SHIPS LZB-PACKED where every other package is LZ4 (SPEC.md 46.11,
+# the owner's decision): ARTFUL.O88 rides four 360KB disks, and LZB's ratio is
+# 1,858 bytes off this one file - two clusters on each - for a slower decode
+# at launch. Both kernels carry the LZB decoder by default (SPEC.md 20.13.6,
+# COMPRESS defaults to `both`). It still follows the knob: `make PKGZ=` packs
+# nothing, and $(PKGZSTAMP) is what rebuilds it when the knob moves.
 $(BUILD)/artful.o88: $(BUILD)/artful.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/artful.bin -o $@
+	python3 tools/os88pkg.py $(if $(PKGZ),--compress-if=lzb) $(BUILD)/artful.bin -o $@
 
 # Fractal, the sixth shipped package: five escape-time fractals in Q4.12
 # fixed point, rendered by a background WORKER TASK (SPEC.md 20.6) while the
