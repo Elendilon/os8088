@@ -640,19 +640,12 @@ dc_rbox:
     xor dh, dh
     add dx, bx
     dec dx
-    mov al, cl
-    mov ah, DC_FLDW
-    mul ah
-    add ax, DC_FLD0 + 2         ; the box's first pixel...
-    mov cx, ax
-    add ax, DC_BOXW - 1         ; ...and its last
-    push cx
-    mov cl, 3
-    shr ax, cl
-    mov ch, al
-    pop ax
-    shr ax, cl
-    mov cl, al
+    mov al, cl                  ; the column: a field is THREE bytes, and
+    add al, al                  ; the box's first pixel is in its first
+    add al, cl                  ; byte and its last in its fourth (the
+    mov cl, al                  ; %if below), so CL = the first byte...
+    add al, 3
+    mov ch, al                  ; ...and CH the last
     xor al, al
     call dc_rrect
     pop di

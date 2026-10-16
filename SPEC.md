@@ -184119,6 +184119,7 @@ at a time, the bytes each saved:
 | `OS88UI_NOGEST` and `OS88UI_NOBFIND` (§20.5.1.3.4): the record-based button gesture and `os88ui_bfind` were compiled in and never called - the calendar's only buttons are the alert's, which arm and fire their own; both gates remove symbols, so the build succeeding IS the check | -224 | -208 |
 | `CBW` for `XOR AH, AH` at the 37 sites where AL is provably 0..127 - a geometry byte, a byte of the face, an index or count the payload's tables bound, a digit - one byte and one cycle less each; not where AL is a lead read out of the file | -32 | -20 |
 | eleven PAIRS of adjacent bss bytes read, written or compared as one word - the selection's kind and index, the slot's page and the page it was taken from, the held button, the hit's bytes, the day's first appointment and count, a list's line and section, card 3's state and appointment - asserted adjacent at the end of `deskcal.asm` | -80 | -59 |
+| `dc_rbox`'s bytes are 3 x the column and 3 more (asserted beside `DC_FLDW`), not a `MUL` and two shifts; `dc_cday1` no longer reloads `[dc_wfx]` it holds and zeroes `[dc_wink]` from AH | -16 | -5 |
 
 ### 110.7 `kern_small`
 
