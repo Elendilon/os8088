@@ -66427,7 +66427,9 @@ inks.
   two: the key lookup, the viewer's per-note facts and its same-step
   test split it with a shift, which costs less than the second load it
   replaces on every one of those paths (-21 image bytes). Replay's
-  abort silences the speaker through `pn_tone`'s own tail (-4).
+  abort silences the speaker through `pn_tone`'s own tail (-4). The
+  About card's lines are `OS88UI_ABPACK`'s end-to-end form rather than a
+  pointer table (-4; the card is the same pixels).
 
 ## 37. clock.inc — the system clock
 

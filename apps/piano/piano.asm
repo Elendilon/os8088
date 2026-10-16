@@ -1715,12 +1715,11 @@ pn_abdismiss:
 ; --- the About card's lines (SPEC.md 20.5.1) ----------------------------------
 ; SHORT: the card is clamped to the content box and this window's is 222px on
 ; VGA and narrower on a CGA, so the credit is two lines rather than one.
+; OS88UI_ABPACK's form: end to end, a lone NUL the blank line, 0FFh
+; (OS88UI_ABEND, defined after this) where the next line would begin.
 pn_ablines:
-    dw pn_ab1, pn_ab2, pn_ab3, pn_ab4, 0
-pn_ab1:     db 'Piano for os8088', 0
-pn_ab2      equ $ - 1               ; the empty line: pn_ab1's own NUL
-pn_ab3:     db 'Contributed by', 0
-pn_ab4:     db 'Jorge Gonzalez', 0
+    db 'Piano for os8088', 0, 0, 'Contributed by', 0, 'Jorge Gonzalez', 0
+    db 0FFh                         ; OS88UI_ABEND
 
 pn_tpl:
     dw 250, 100, 224, 177           ; x, y, w, h -> content 222 x 158
@@ -1841,6 +1840,7 @@ pn_song_mary:                       ; Mary Had a Little Lamb (26 notes)
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
 %define OS88UI_ABOUT            ; ...and the standard About card beside the
+%define OS88UI_ABPACK           ; (its lines END TO END, no pointer table)
 %define OS88UI_NOGLYPH          ; no check box or radio drawn here (SPEC.md 13.8.9)
 %define OS88UI_NOGEST           ; presses routed by hand: no gesture install (SPEC.md 20.5.1.3.4)
 %define OS88UI_NOBFIND          ; hit-tests its own rects: no os88ui_bfind (SPEC.md 20.5.1.3.4)
