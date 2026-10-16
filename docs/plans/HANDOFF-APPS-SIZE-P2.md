@@ -62,6 +62,26 @@ disk needs it. One session per set; one agent per package inside it.
   whether a shared lane runs after the sets. docs/plans/HANDOFF-APPS-SHARED.md
   is pass 1's list.
 
+### 2.1 Set A's follow-on, owner-approved - IN PROGRESS, and it moves your numbers
+
+On set A's results the owner approved three things outside the sets, run by
+set A's session on the pass branch:
+
+- **`tools/os88pkg.py` packs the image of a package that has PARTS** (today
+  that image ships raw). If it lands it is universal: every parted package's
+  file shrinks - Skies, PiXEL, PIXELSTEIN, C64, Apple II and others in sets D
+  and E. **After it lands, merge the pass branch and re-take your `--save`
+  snapshot** before measuring, or the tool's saving is credited to your set.
+- **`kerndos/` and `apps/os88cp437.inc`/`os88con.inc`** for DOS.O88 (the core
+  inline in part 0, box-drawing glyphs generated at launch). The glyph change
+  is OPT-IN; Telnet (set B) carries the same table and stays byte-identical -
+  its share is recorded for set B to take or leave.
+- **Opt-in gates in `apps/os88ui.inc`, `os88line.inc`, `os88gfx.inc`,
+  `os88type.inc`, `os88data.inc`**, default off, so no package that does not
+  set them changes by a byte. Set A's packages opt in; the per-package saving
+  for every other carrier is listed in set A's follow-on report for each set
+  to take in its own package source.
+
 ## 3. Coordinating over git
 
 **The pass branch is `claude/apps-size-2-disk-reclaim-6rn5hh`** on `origin`
