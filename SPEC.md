@@ -142953,7 +142953,8 @@ divider, and `fv_redraw` is the one routine that puts all three back.
 
 The include is `OS88UI_ABOUT` + `OS88UI_NOBTN` — the card is the only control
 this package takes, and without the opt-out it would carry `os88ui_glyph`'s
-116 bytes for a button nothing calls.
+116 bytes for a button nothing calls — and `OS88UI_ABPACK` since §90.11, so
+the lines are one packed string rather than a table of five pointers.
 
 ### 90.10 The first apps size pass
 
@@ -143006,6 +143007,92 @@ package to a 6 KB claim. The runtime claims are larger than the region and
 also the library's: `ty_open` claims 8 KB for a face the shipped set holds in
 1.1–1.7 KB, and `ty_cache` claims 12 KB, sized for 16 rows, for faces of 8, 12
 and 14.
+
+### 90.11 The second apps size pass — the shipped file
+
+The second pass measures what the package costs a DISK
+(docs/plans/HANDOFF-APPS-SIZE-P2.md): `build/fontview.o88` as `make` packs it
+(LZ4, `PKGZ=lz4`), which rides the 360 KB system disk and `office360.img`.
+
+| | before | after |
+|---|---|---|
+| file (LZ4) | 3,549 | **3,456** (-93) |
+| image | 4,381 | **4,261** (-120) |
+| bss | 1,542 | 1,542 (`FV_PAD`: the parity moves with the image) |
+| image + bss | 5,923 | **5,803** (-120) — a 6 KB claim either way |
+| heap claims | one face (its file's KB) + the pre-shift table | unchanged |
+
+**What the file is made of** (each byte charged its share of the LZ4 stream):
+the header, icon and association block are 112 bytes the packer may not touch;
+`os88type.inc` is ~2,070 of the rest, its own code ~900, its strings and
+window template ~240, `os88ui.inc`'s About card ~150, and the specimen and the
+four state bytes ~67. Code packs to ~95% of itself, so a code byte saved is a
+file byte saved.
+
+**What moved, one idea at a time:**
+
+- **The callbacks bank nothing but SI** (-95 image, -69 file). The entry proc
+  banked SI, DI, CX and ES for the loader, which reads BX and CF back and
+  nothing else (§20.2; TameGram's entry has always returned without them);
+  `fv_onkey`, `fv_onclick`, `fv_paint` and `fv_about` banked AX-DX, which
+  `ui_bill`, `wm_draw_win` and `ui_dispatch` either bank themselves or never
+  read (§11, §12.2, §13). Inside, each routine now preserves exactly what its
+  own callers in the file read after it: `fv_sysline` BX, CX and DX for the
+  catalogue walk, `fv_draw` SI for the window, `fv_draw_sample` ES for the
+  About card - so `fv_pop4`/`fv_pop6` are gone, `fv_redraw` falls into
+  `fv_draw`, `fv_redraw_right` into `fv_draw_right`, which falls into
+  `fv_sysline` at the hint row both panes letter last, and `fv_onclick` into
+  `fv_choose`. The launch name is copied through the ES the loader hands
+  over (`es lodsb`), so DS never moves. Every repaint runs the same calls in
+  the same order with fewer pushes around them: a keystroke's repaint does
+  22 fewer `push`/`pop` pairs, and no instruction on that path was added
+  (measured below).
+- **The region's relocation proc is a `ret` already there** (-3 image, -3
+  file). `OS88_REGION_MOVABLE_NOKEEP` with no argument emits a `jmp` over a
+  `ret` of its own; nothing in the region names the region's segment, so it
+  is handed `fv_ret`, the bare `ret` that ends `fv_choose`.
+- **The About card's lines are packed** (-7 image, -7 file):
+  `OS88UI_ABPACK` (§20.5.1.1) takes the five lines end to end with an
+  `OS88UI_ABEND` byte after them, so the six-word pointer table is not
+  shipped; the include's walk over packed text is a few bytes longer than
+  over a table, and the card is the same card.
+- **`[fv_pending]` is tested by the shift that clears it** (-4 image, -4
+  file): it only ever holds 0 or 1, so `shr byte [fv_pending], 1` leaves the
+  old value in CF and 0 behind, where an `xchg` through AL and an `or` did
+  the same in ten bytes.
+- **`fv_sysline` offsets the point and not a rect** (-2 image, -2 file):
+  `fv_abs` adds the origin to AX/BX before falling into `fv_abscd`, which
+  adds it to CX/DX, and a line of text wants only the second half - so
+  `fv_sysline` no longer banks BX or adds to AX and BX, and every lettered
+  line is a `push`, a `pop` and two memory adds (~65 cycles) cheaper.
+- **The catalogue's `FONTS` heading is `os88type.inc`'s own string** (-6
+  image, -4 file): `ty_s_fonts` is the folder name `ty_gofonts` walks to, and
+  the column it heads lists exactly that folder, so the package's second
+  copy went.
+- **A catalogue row's gutter is composed in AX and stored once** (-3 image,
+  -4 file): `'  '`, with `'>'` in its low byte for the selection, where a
+  word of blanks was stored and then a marker byte over it.
+
+**The keystroke repaint got faster, and it is MEASURED**: MartyPC guest
+cycles from `fv_onkey`'s entry to the kernel's `gfx_unlock` after it, Charter
+open, six typed `X`s and six Backspaces on `os8088_5150_cga_gla`, the
+same kernel and the package swapped in place on the system disk. Least of
+six: `X` **471,935 -> 470,785** and Backspace **470,135 -> 468,973**, ~1,160
+cycles (0.24 ms of a 98.9 ms repaint); the modal reading moved by the same
+~1,170. Nothing was moved to the entry proc. Looked at on the glass the same
+boot: launch on `CHARTER.F88`, typing, Backspace, Down, a row click, the
+About card and its dismissal all draw and behave as before.
+
+**The disk did not gain a cluster**: 3,456 bytes is still four 1,024-byte
+clusters on both disks it rides, and the next 384 bytes are not in the
+package's own code, whose 840 remaining bytes pack to ~95% of themselves.
+They are in `os88type.inc` (2,817 image bytes here, ~2,070 packed), which a
+package does not edit. Every routine of it this package assembles is reached
+but one: `ty_gray` (56 bytes, plus `ty_flush`'s 5-byte call to it) runs only
+for a band drawn GREYED, and the specimen never is (`clc` at its one
+`ty_flush`). An `OS88TY_NOGRAY` opt-out beside §6.5.5's others would take
+~61 image and ~50 file bytes off this package, and off any other carrier that
+never greys.
 
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 
