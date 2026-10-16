@@ -66416,6 +66416,13 @@ inks.
   frequencies; replayed songs play tone-to-tone with no speaker-off gap,
   so a whole song is ONE contiguous wav region — per-note assertions
   slice it at the 6-tick note quantum and Goertzel each slice.
+- **Apps size pass 2** (disk room, docs/plans/HANDOFF-APPS-SIZE-P2.md):
+  every change is to the shipped file and none to what the window draws
+  or plays. The entry proc declares its region with
+  `OS88_REGION_MOVABLE_NOKEEP`: the plain form's `pushf`/`push`/`pop`
+  kept AX, DX and the flags, and the next line reloads AX, DX (the
+  instance) is never read and the CF the loader is owed is
+  `pn_metrics`' (-6 bytes).
 
 ## 37. clock.inc — the system clock
 

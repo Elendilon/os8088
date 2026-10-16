@@ -154,8 +154,14 @@ pn_entry:
     ; NO worker is the case that moves most easily, and putting it at
     ; the spawn left exactly those runs declaring nothing - measured,
     ; by the row that reads MC_RLOC back out of the kernel's own table.
-    OS88_REGION_MOVABLE pn_ret      ; ...and holds no segment word, so the
-                                    ; proc is any `ret` (SPEC.md 20.5)
+    OS88_REGION_MOVABLE_NOKEEP pn_ret ; ...and holds no segment word, so the
+                                    ; proc is any `ret` (SPEC.md 20.5). The
+                                    ; NOKEEP form: AX is reloaded on the next
+                                    ; line, DX (the instance) is never read,
+                                    ; and the CF this proc owes the loader is
+                                    ; pn_metrics' below, whatever came before
+                                    ; it - so the plain form's pushf/push/pop
+                                    ; kept nothing anybody reads
     mov ax, pn_metrics              ; the keyboard's depth follows the box, and
     call OSAPI_WM_ONRESIZE          ; the box is the kernel's (SPEC.md 11.98).
                                     ; pn_metrics IS the handler: it reads DX and
