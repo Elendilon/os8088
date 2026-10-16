@@ -115343,6 +115343,11 @@ redirects and frames - and left the same bytes behind.
   the `je`/`clc`/`stc` around it goes; Forward is its compare's borrow
   inverted by `cmc`. `br_keydelta`'s four `clc`s after an EQUAL compare were
   already true. `br_inrect` and `br_s_subbtn` had no reference left at all.
+- **`br_resolve` refuses through one exit.** Too long, no host and `https`
+  were three copies of *say it unless mid-parse, then CF=1*; each now loads
+  its message and joins the one `br_errst` call, which is the very sequence
+  two of them had inlined. The root and the directory-relative shapes share
+  their host check and base, and an absolute href joins them at `br_uputh`.
 
 ### 72.1 What the packages did have to change, which is one question
 

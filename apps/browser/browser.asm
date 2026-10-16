@@ -2722,20 +2722,21 @@ br_resolve:
     mov word [br_upos], 0
     mov byte [br_urlcut], 0
     cmp byte [es:si], '#'
-    je .anchor
+    je .fail                        ; the page we are already on
     mov bx, br_s_scheme             ; "http://"
     call br_hrefpfx
     jnc .abs
     mov bx, br_s_schemes
     call br_hrefpfx
     jnc .https
-    cmp byte [es:si], '/'
-    je .root
-                                    ; --- relative to this page's directory ---
+                                    ; --- relative: to the root or to this
+                                    ; page's directory, and both need a host
     call br_haveh
     jc .nohost
     call br_ubase                   ; scheme + host + port
-    mov bx, br_path                 ; ...and the path up to its last '/'
+    cmp byte [es:si], '/'
+    je .abs                         ; a root href goes on as it stands
+    mov bx, br_path                 ; ...else the path up to its last '/'
     xor cx, cx
     xor dx, dx
 .dirscan:
@@ -2752,67 +2753,38 @@ br_resolve:
     mov bx, br_path
     mov cx, dx
     call br_uputn                   ; that many bytes of it
-    call br_uputh                   ; ...then the href
-    jmp .done
-.root:
-    call br_haveh
-    jc .nohost
-    call br_ubase
-    call br_uputh
-    jmp .done
-.nohost:
-    cmp byte [br_parsing], 0
-    jne .quiet
-    push si                         ; **A PAGE OPENED FROM A FILE HAS NO
-    mov si, br_s_nohost             ; SERVER**, so a relative link has nothing
-    mov [br_nmsg], si               ; to be relative TO - br_host is whatever
-    mov byte [br_nstate], BN_ERR    ; the last fetch left, or empty on a
-    call br_status                  ; browser that has not fetched at all.
-    pop si                          ; Composing `http:///torture.htm` and
-    stc                             ; letting br_split refuse it would report
-    jmp .out                        ; a bad ADDRESS about a good link
-.quiet:
-    stc                             ; an unusable child-frame link is inert
-    jmp .out
 .abs:
-    call br_uputh                   ; already absolute
-    jmp .done
-.anchor:
-    stc                             ; the page we are already on
-    jmp .out
-.https:
-    cmp byte [br_parsing], 0
-    jne .quiethttps
-    push si
-    mov si, br_s_nohttps
-.refuse:
-    call br_errst
-    pop si
-    stc
-    jmp .out
-.quiethttps:
-    stc
-    jmp .out
-.done:
+    call br_uputh                   ; ...then the href, already absolute or not
     cmp byte [br_urlcut], 0
     jne .toolong
     mov bx, [br_upos]
     mov byte [br_ubuf+bx], 0
     call br_undot                   ; ...and ONE call covers all three shapes
     clc
-    jmp .out
+    jmp short .out
+                                    ; --- the three REFUSALS share one exit
+                                    ; (apps size pass 2): each names itself
+                                    ; and br_errst says it, unless this is a
+                                    ; child-frame link mid-parse, which is
+                                    ; inert rather than an error to show
 .toolong:
-    cmp byte [br_parsing], 0
-    jne .quietlong
-    push si
     mov si, br_s_urltoo
-    mov [br_nmsg], si
-    mov byte [br_nstate], BN_ERR
-    call br_status
-    pop si
-    stc
-    jmp .out
-.quietlong:
+    jmp short .refuse
+.nohost:                            ; **A PAGE OPENED FROM A FILE HAS NO
+    mov si, br_s_nohost             ; SERVER**, so a relative link has nothing
+    jmp short .refuse               ; to be relative TO - br_host is whatever
+                                    ; the last fetch left, or empty on a
+                                    ; browser that has not fetched at all.
+                                    ; Composing `http:///torture.htm` and
+                                    ; letting br_split refuse it would report
+                                    ; a bad ADDRESS about a good link
+.https:
+    mov si, br_s_nohttps
+.refuse:
+    cmp byte [br_parsing], 0
+    jne .fail
+    call br_errst                   ; SI is the prologue's, restored by pop7
+.fail:
     stc
 .out:
     jmp br_pop7
