@@ -78521,6 +78521,15 @@ its branch, being the one that must not end a text run, and two `times`
 lines refuse an assembly whose table and `PTTOOL` order disagree. Same
 routines, same order. **−33 image, −29 file, −18 on the small arm.**
 
+**The entry proc keeps only what the loader reads.** §20.2's contract is BX
+= the window and a CF, with SI an input `pt_arg` has already spent; `pt_entry`
+bracketed its calls in `push`/`pop` of SI and AX anyway, three pairs of each.
+They are gone, and the region declares itself with
+`OS88_REGION_MOVABLE_NOKEEP` naming a lone `ret` (`pt_wait.nowait`), which is
+the keeping form's call without its `pushf`/`push`/`pop`/`popf` bracket — the
+proc states its CF with the `clc` 42.6.4 put at its end, so no flag is owed
+across it. **−24 image, −33 file, −32 on the small arm.**
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather

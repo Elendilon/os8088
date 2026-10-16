@@ -582,10 +582,12 @@ pt_entry:
                                     ; say what was happening. pt_onwake spends
                                     ; it now, after the window is drawn
 .make:
-    push si
+    ; NOTHING HERE IS KEPT FOR THE LOADER BUT BX (SPEC.md 20.2: it returns BX =
+    ; the window and a CF it is TOLD, and SI was an input already spent by
+    ; pt_arg above), so the calls below take AX and SI as they come rather
+    ; than bracketing each one (apps size pass 2)
     mov si, pt_tpl
     call OSAPI_WM_CREATE            ; BX = window ptr, CF on table full
-    pop si
     jc .out                         ; no window: nothing to flag, nothing to
                                     ; claim - the region stays untouched
     mov [pt_win], bx
@@ -594,13 +596,12 @@ pt_entry:
     ; NO worker is the case that moves most easily, and putting it at
     ; the spawn left exactly those runs declaring nothing - measured,
     ; by the row that reads MC_RLOC back out of the kernel's own table.
-    OS88_REGION_MOVABLE
+    OS88_REGION_MOVABLE_NOKEEP pt_wait.nowait   ; (a lone `ret`)
 %ifdef PTF_FSX
     OS88_ALTENTER_ARM               ; SPEC.md 11.2.1.1: nothing tracks a
                                     ; scancode until something asks, and both
                                     ; halves of the chord ride on that map
 %endif
-    push ax
     mov ax, pt_onup                 ; SPEC.md 13.7/13.8.1: Apply fires on the
     call OSAPI_WM_ONMOUSEUP         ; RELEASE and follows the pointer between
     mov ax, pt_ondrag               ; the edges. Not template words, so they
@@ -615,7 +616,7 @@ pt_entry:
                                     ; here and not in pt_tpl
     mov al, 1                       ; WE OWN OUR BACKGROUND (SPEC.md 11.90.1):
     call OSAPI_WM_OWNBG             ; pt_fsbed + the palette + the strip + the
-    pop ax                          ; canvas cover every pixel of the content,
+                                    ; canvas cover every pixel of the content,
                                     ; so the kernel's white fill in front of
                                     ; W_PAINT is a white HOLE for as long as
                                     ; the canvas takes to blit - measured at
@@ -655,13 +656,12 @@ pt_entry:
                                     ; about the SCREEN, so pt_onresize re-asks
     call pt_sucache                 ; (no flags to keep across it or the next:
                                     ; the proc SAYS its CF at the bottom)
-    push ax                         ; ...and TELL US WHEN THE ADAPTER MOVES
-    mov ax, pt_onresize             ; (SPEC.md 11.98). Outside the PT_M_LIVE
-    call OSAPI_WM_ONRESIZE          ; gate below on purpose: a Paint that could
-    pop ax                          ; not fund a canvas still has a screen
+    mov ax, pt_onresize             ; ...and TELL US WHEN THE ADAPTER MOVES
+    call OSAPI_WM_ONRESIZE          ; (SPEC.md 11.98). Outside the PT_M_LIVE
+                                    ; gate below on purpose: a Paint that could
+                                    ; not fund a canvas still has a screen
     cmp byte [pt_mode], PT_M_LIVE
     jne .menus
-    push ax
     mov al, 1                       ; resizable: the canvas IS the content, so
     call OSAPI_WM_SIZABLE           ; dragging the grow box sizes the picture.
                                     ; It used to be conditional on there being
@@ -670,22 +670,18 @@ pt_entry:
                                     ; and needs no staging area at all
     mov ax, pt_onsize               ; ...and the kernel asks us before it
     call OSAPI_WM_ONSIZE            ; commits one (SPEC.md 11.1)
-    pop ax
 %ifdef PTF_ABOUT
-    push si                         ; SI is the loader's, like the two other
-    mov si, pt_about                ; borrowings in this proc
+    mov si, pt_about
     call OSAPI_ABOUT_SET            ; 'About Paint' under our name in the bar
-    pop si                          ; (SPEC.md 12.2); BX is still the window.
+                                    ; (SPEC.md 12.2); BX is still the window.
 %endif
                                     ; LIVE only - see pt_about
     call pt_menufix                 ; and the menus say what is unavailable                      ; a notice window gets the menu bar too,
                                     ; so its name shows and File/Edit are
                                     ; visibly inert rather than absent
 .menus:
-    push si
     mov si, pt_menus                ; BX is still the window (SPEC.md 20.3:
     call OSAPI_MENU_SET             ; menu_win_set preserves flags too)
-    pop si
     clc                             ; ...WHICH IS WHY THIS IS HERE (SPEC.md
                                     ; 42.6.4). Every path from wm_create's
                                     ; `jc .out` down is a SUCCESS, and the only
