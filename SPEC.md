@@ -86339,6 +86339,52 @@ erase still draw inside that hold.
 the CF and kept in `[at_ink]`; `at_ctext` names its pair outright, because all
 three of its callers are the About body on the box's white.
 
+### 46.11 The second apps size pass — what the FILE costs
+
+The first pass weighed ArtfulType by image + bss; this one weighs it by the
+shipped `ARTFUL.O88`, LZ4-packed (SPEC.md 20.13), because it rides four 360KB
+disks (`apps360`, `office360`, `small360`, `smallapps360`) and every one of them
+is short of clusters. Nothing the user sees moved. What LZ4 makes true, and
+what decided every item below, is that **a repeated byte sequence is nearly
+free and a unique one costs about a byte a byte**: trimming the push/pop
+prologues of the three window callbacks took 42 bytes off the image and **0**
+off the file, because the identical `push ax` … `push es` runs were already
+back-references. So the pass went after bytes that occur once.
+
+- **One copy of each shared string.** The About card's lines are the splash's
+  own (`at_s_title`, `at_s_sub`, `at_s_credit`), and the windowed bar's `File`,
+  `New` and `Open...`, the alert's `Save` and the splash's `New` / `Open...`
+  name the fullscreen menu's `at_m_file` / `at_i_*`. -114 image bytes, -8 file
+  bytes: the copies were already matches, so this is mostly RAM.
+- **Code nothing reached, and stores nothing read.** `at_btnhit` (the x/y/width
+  ladder §20.5.1.3.3's library replaced) and `at_draw_cline` had no caller at
+  all; `at_modal_click` and `at_splash_click` were pushes and pops round
+  nothing, because `os88ui_btnclick` takes the press first and `at_modal_up`
+  fires on the release; and the nine `at_b1x`..`at_b3w` words, `at_spw` and
+  `at_sukb` were written on every alert, splash and pull-down and read by
+  nothing - the buttons' rects live in `at_brects`, the one copy `os88ui_btn`
+  reads. -140 file bytes, -169 image, -22 bss.
+- **Frames that only passed through.** `W_ONMOUSEUP` and `W_ONDRAG` are
+  `at_modal_up` and `at_modal_drag` themselves now, not two wrappers that
+  banked all six registers a callback may clobber (§13.7, §13.8.2); five
+  `call` + `ret` pairs in the file layer are tail `jmp`s; and Style > None
+  repaints through `at_refit`, the relayout-clamp-redraw a zoom or a view
+  change already runs, instead of its own copy of it. -30 file bytes.
+- **`at_button` writes its own slot.** It computed the rect into a staging
+  `at_brect` and copied it into `at_brects`, and every one of its six callers
+  stored the label word and a `[at_bslot]` byte before calling it. The rect
+  is computed in the slot now, the label is stored from the SI it is handed,
+  and the slot rides in DH beside the default flag in DL. The same three
+  arrays `os88ui_btn` reads, filled the same way. -62 file bytes, -107 image.
+- **The command's number is the argument.** `at_docmd` hands every routine
+  `at_cmdtab` names its own `AT_CMD_*` in AL, so the eight stubs that loaded a
+  private constant and called through are gone: `at_heading` takes its level
+  as AL - `AT_CMD_H1` + 1, `at_setview` its mode as AL - `AT_CMD_VIEWMD`, and
+  `at_confirm` keeps `AT_CMD_NEW` / `OPEN` / `QUIT` as the pending action
+  itself, the close box's continuation taking `AT_PEND_CLOSE`, a number no
+  command has. The orders those subtractions need are assembly-time
+  assertions. -36 file bytes.
+
 ## 47. Disabled controls — the greying standard (binding)
 
 Every part of the UI that can refuse a click has to say so the same way. This
