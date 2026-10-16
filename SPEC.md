@@ -80427,6 +80427,11 @@ pass leaves binding:
   rally, the ceiling over it - are the `%if` assertions on the unscaled
   constants beside `ARK_VXMAX`, and both shipped records were checked to give
   the same 27 words as before, figure for figure.
+- **The frame's update half is inline in `ark_worker`.** `ark_update` had
+  one caller, the worker loop, and banked nothing; inline it is the same
+  instructions less a `call` and a `ret` every frame, and the death/clear
+  pause tests the mode in AL, which it was just loaded into, instead of
+  re-reading `[ark_mode]`. The worker's static stack chain is 62 bytes, not 64.
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 

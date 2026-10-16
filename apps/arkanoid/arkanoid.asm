@@ -89,11 +89,12 @@
     OS88_HEADER 'ARKANOID', ark_entry, 1, OS88_STACK_192
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
-                                ; static 64 for ark_worker
+                                ; static 62 for ark_worker
                                 ; over the 64-byte interrupt floor
-                                ; that is 128, and 192 gives 1.5x
-                                ; (76 and 1.37x before size pass 1:
-                                ; ark_update banks nothing now)
+                                ; that is 126, and 192 gives 1.52x
+                                ; (76 and 1.37x before size pass 1,
+                                ; 64 before pass 2 inlined
+                                ; ark_update into the loop)
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; A brick wall over a ball over the paddle - the whole game in three objects.
@@ -1134,23 +1135,20 @@ ark_worker:
                                     ; all - and the deadline is re-anchored to
                                     ; now, or it runs away and this loop never
                                     ; sleeps again
-.frame:
-    call ark_update
-    call ark_render
-    jmp .loop
-
-; -----------------------------------------------------------------------------
-; ark_update - advance one frame. NO lock held, nothing drawn.
-; clobbers AX..DI: its one caller, ark_worker, holds nothing across it
-; -----------------------------------------------------------------------------
-ark_update:                         ; (ark_worker reloads everything it uses,
-    call ark_do_paddle              ; so nothing is banked here)              ; the paddle moves even while parked
+.frame:                             ; ADVANCE one frame - no lock held,
+                                    ; nothing drawn, nothing banked: this loop
+                                    ; reloads everything it uses. It was
+                                    ; ark_update, called from here and from
+                                    ; nowhere else, and inline it is the same
+                                    ; instructions less a call and a ret a
+                                    ; frame (SPEC.md 44.12)
+    call ark_do_paddle              ; the paddle moves even while parked
     call ark_focuschk               ; ...and a rally stops if we lost focus
     mov al, [ark_mode]
     cmp al, M_PAUSE
-    je .out
+    je .draw
     cmp al, M_OVER
-    je .out
+    je .draw
     cmp al, M_DEAD
     je .wait
     cmp al, M_CLEAR
@@ -1159,18 +1157,19 @@ ark_update:                         ; (ark_worker reloads everything it uses,
     call ark_do_ball
     call ark_do_pu
     call ark_do_shots
-    jmp .out
+    jmp short .draw
 .wait:
     dec word [ark_hold]             ; the pause after a death or a clear
-    jg .out
-    cmp byte [ark_mode], M_CLEAR
-    je .next
+    jg .draw
+    cmp al, M_CLEAR                 ; AL is still [ark_mode]: nothing since
+    je .next                        ; the load above can change it
     call ark_respawn
-    jmp .out
+    jmp short .draw
 .next:
     call ark_nextwall
-.out:
-    ret
+.draw:
+    call ark_render
+    jmp .loop
 
 ; -----------------------------------------------------------------------------
 ; ark_focuschk - pause the rally if the player has gone somewhere else
@@ -2582,8 +2581,9 @@ ark_render:
     jmp short .unlock
 
     ; --- a frame that drew nothing owes a WHOLE one -------------------------
-    ; ark_update ran and moved everything; the screen did not follow. Every
-    ; erase this module does is aimed at where something was last DRAWN, so
+    ; the worker's update half ran and moved everything; the screen did not
+    ; follow. Every erase this module does is aimed at where something was
+    ; last DRAWN, so
     ; one skipped frame is survivable - but that is an invariant six separate
     ; pieces of state have to keep, and it cost a stranded capsule once
     ; already (SPEC.md 44.4).
