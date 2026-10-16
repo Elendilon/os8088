@@ -41,7 +41,7 @@ disk needs it. One session per set; one agent per package inside it.
 
 | set | relieves | packages | status |
 |---|---|---|---|
-| **A** | the system disk | `dos`, `paint`, `notepad`, `deskcal`, `thewire`, `taskmgr`, `fontview`, `rlapply`, `mines` | **claimed** - session 01EWBYzwkv2cwWgUPLisNi9f, 2026-10-16 |
+| **A** | the system disk | `dos`, `paint`, `notepad`, `deskcal`, `thewire`, `taskmgr`, `fontview`, `rlapply`, `mines` | **done** - docs/reports/APPS-SIZE-P2-SETA-2026-10-16.md |
 | **B** | the apps disk: network and office | `browser`, `ftpd`, `telnet`, `OS88NET.COM` (`drivers/net/os88net.asm`, the DOS end of NET.DRV - SPEC.md 62.12; the one file under `drivers/` a set may edit), `texpad`, `artful`, `audio`, `calc` | **claimed** - session 011caEC6F27qkiqgaFFmYJh3, 2026-10-16 |
 | **C** | the apps disk: games | `tracker`, `wireball`, `tank`, `cyclone`, `missile`, `arkanoid`, `solitaire`, `tamegram` | **claimed** - session 01GfWHnG73FPCc31ULLuNyXr, 2026-10-16 |
 | **D** | the apps disk: the owner-constrained and the small | `skies`, `video`, `fractal`, `piano`, `timer`, `midirack`, `chart` | **claimed** - session 01LNUrZS6bEfiBG3rnKx8gsX, 2026-10-16 |
@@ -305,8 +305,23 @@ every set's list into one ranked table here (6) for the owner to pick from.
 
 | set | report | free clusters gained (system 360 / apps 360 / other) |
 |---|---|---|
-| A | - | - |
+| A | docs/reports/APPS-SIZE-P2-SETA-2026-10-16.md | system +1, network +1, small360 +3, smallapps360 +3; apps360 +0 (-2,138 B off the system disk's full arms) |
 | B | - | - |
 | C | - | - |
 | D | - | - |
 | E | - | - |
+
+### 6.1 What set A learned that the other sets can use
+
+- **A per-package pass rarely crosses a 1KB cluster**: seven of nine packages
+  lost 200-700 packed bytes and crossed nothing. The APP_SMALL arms are where
+  clusters came back.
+- **The file follows UNIQUE bytes**: de-duplicating a repeated idiom often
+  ADDS file bytes (LZ4 packs a repeat for ~3 bytes). Measure the packed file
+  after every change.
+- **The biggest levers are structural and outside every set**: DOS.O88's
+  three parts are padded to sectors, and three recorded fixes (a packed
+  loader in `tools/os88pkg.py`, the core inline in part 0 in `kerndos/`,
+  box-drawing glyphs generated at launch in `apps/os88cp437.inc`) are worth
+  about a sector each - ~1.5 KB, a cluster or two on every system disk. The
+  set A report's last table is the full list.

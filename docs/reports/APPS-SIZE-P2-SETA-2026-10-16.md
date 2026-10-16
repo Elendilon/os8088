@@ -149,7 +149,21 @@ The merged tree built clean (fast tier 47/47; `make small smallapps`), and
 ran the union of the nine agents' rows plus the shared rows a package change
 reaches, through `tools/os88soak.py` at lane 4, once:
 
-**(running at the time of this commit; the result replaces this line.)**
+**125 of 126 ok in 29:32, 0 SKIP** (run `20261016-142055`), with `mtools` and
+`unicorn` installed for it so the DeskCal, `instkeep`, `bigvol` and `csprobe`
+rows ran rather than skipped. Then `make test-full` once: **54/54 ok**.
+
+The one failure is **not set A's**: `fdlgchoose`'s *"the save landed in the
+folder"* - a Save As into `B:\MEDIA` from Note Pad commits and the listing
+does not show `NEWNOTE.TXT` - fails identically on `elendilon` at
+`4466b348` built in a private worktree, with no set A change in it. It is
+reported here and not investigated.
+
+Not covered by any row: The Wire's list-row painter with a real catalog
+(MartyPC has no NIC; the painter's parts were measured in isolation by the
+agent's own harness, and `thewire` runs on QEMU), and a pixel A/B of Task
+Manager's three pages against the base (all three painted without fault in
+the agent's timing runs).
 
 ## Wins no set can take - shared includes, kernel, tools
 
