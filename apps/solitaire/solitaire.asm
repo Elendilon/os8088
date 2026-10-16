@@ -3014,23 +3014,10 @@ sol_p8s:                            ; spade, heart, diamond, club - BYTES,
     db 0x18, 0x3C, 0x7E, 0xFF, 0x7E, 0x3C, 0x18, 0x00      ; stages each as
     db 0x18, 0x3C, 0x3C, 0xBD, 0xFF, 0xDB, 0x18, 0x3C      ; a word's high half
 
-sol_p16s:                           ; spade
-    dw 0x0180, 0x03C0, 0x07E0, 0x0FF0, 0x1FF8, 0x3FFC, 0x7FFE, 0xFFFF
-    dw 0xFFFF, 0xFFFF, 0x7E7E, 0x3C3C, 0x0180, 0x03C0, 0x0FF0, 0x3FFC
-                                    ; heart
-    dw 0x3C3C, 0x7E7E, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0x7FFE
-    dw 0x7FFE, 0x3FFC, 0x1FF8, 0x0FF0, 0x07E0, 0x03C0, 0x0180, 0x0000
-                                    ; diamond
-    dw 0x0180, 0x03C0, 0x07E0, 0x0FF0, 0x1FF8, 0x3FFC, 0x7FFE, 0xFFFF
-    dw 0xFFFF, 0x7FFE, 0x3FFC, 0x1FF8, 0x0FF0, 0x07E0, 0x03C0, 0x0180
-                                    ; club
-    dw 0x03C0, 0x07E0, 0x0FF0, 0x0FF0, 0x07E0, 0x33CC, 0x7BDE, 0xFFFF
-    dw 0xFFFF, 0x7BDE, 0x33CC, 0x03C0, 0x03C0, 0x07E0, 0x1FF8, 0x3FFC
-
-; The empty stock's mark: a ring, for "round again".
-sol_ic_ring:
-    dw 0x07E0, 0x1FF8, 0x381C, 0x700E, 0x6006, 0xE007, 0xC003, 0xC003
-    dw 0xC003, 0xC003, 0xE007, 0x6006, 0x700E, 0x381C, 0x1FF8, 0x07E0
+; The 16x16 pips and the empty stock's ring are not here: every one of them
+; is a MIRROR - each row's right half is its left half reversed - so the image
+; carries the left halves only (sol_pipl, after sol_entry's code) and the
+; entry proc writes the whole words into .bss (SPEC.md 43.11.7).
 
 ; -----------------------------------------------------------------------------
 ; sol_entry - package entry point (SPEC.md 20.2)
@@ -3062,6 +3049,26 @@ sol_entry:                          ; (SI and DI are not saved: SPEC.md
                                     ; and nothing else, and the loader
                                     ; reloads every register it reads after
                                     ; the call - SPEC.md 43.11.7)
+    push es                         ; THE MIRRORED MASKS FIRST (SPEC.md
+    push ds                         ; 43.11.7): sol_p16s and sol_ic_ring are
+    pop es                          ; .bss, a word a row, and each row is its
+    mov si, sol_pipl                ; own left half beside that half reversed
+    mov di, sol_p16s                ; - so the image keeps one byte a row,
+    mov cx, SOL_PIPL                ; below, inside the bytes the card back
+.mirror:                            ; takes over when this proc is done
+    lodsb                           ; AL = the left half, which is the HIGH
+    mov ah, al                      ; byte of the row's word (bit 15 is the
+    mov bl, al                      ; leftmost pixel)...
+    mov bh, 8
+.rev:
+    shr bl, 1                       ; ...and the low byte is the same eight
+    rcl al, 1                       ; bits in the other order
+    dec bh
+    jnz .rev
+    stosw
+    loop .mirror
+    pop es
+
     call OSAPI_VIDEO                ; AX=w, BX=h, CX=dock top row, DH=bpp
     mov [sol_bpp], dh
     push ax                         ; the width and the dock row are for the
@@ -3208,6 +3215,23 @@ sol_entry:                          ; (SI and DI are not saved: SPEC.md
     ret                             ; region is the loader's to free - the
                                     ; back is never needed
 
+; The left halves of the 16x16 masks, bit 7 the leftmost pixel: sol_entry's
+; .mirror makes each a word, this byte high and its reverse low. Here, after
+; the code, because it is read once by the entry proc and then the card back
+; is rendered over it like the rest of sol_entry (SPEC.md 43.11.6).
+sol_pipl:
+    db 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F, 0xFF  ; spade
+    db 0xFF, 0xFF, 0x7E, 0x3C, 0x01, 0x03, 0x0F, 0x3F
+    db 0x3C, 0x7E, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F  ; heart
+    db 0x7F, 0x3F, 0x1F, 0x0F, 0x07, 0x03, 0x01, 0x00
+    db 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F, 0xFF  ; diamond
+    db 0xFF, 0x7F, 0x3F, 0x1F, 0x0F, 0x07, 0x03, 0x01
+    db 0x03, 0x07, 0x0F, 0x0F, 0x07, 0x33, 0x7B, 0xFF  ; club
+    db 0xFF, 0x7B, 0x33, 0x03, 0x03, 0x07, 0x1F, 0x3F
+    db 0x07, 0x1F, 0x38, 0x70, 0x60, 0xE0, 0xC0, 0xC0  ; the stock's ring,
+    db 0xC0, 0xC0, 0xE0, 0x60, 0x70, 0x38, 0x1F, 0x07  ; for "round again"
+SOL_PIPL    equ $ - sol_pipl        ; rows: four suits and the ring, 16 each
+
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes SOL_BSS bytes after the image, and
 ; every name below is an offset from os88_image_end). Assigned by the macros
@@ -3332,6 +3356,14 @@ sol_bssbase equ sol_backbuf + SOL_BACKMAX
 ; DATA half costs claim rather than image, and starts zero.
     SBUF  sol_icrec, 2              ; wwords (always 1), then rows
     SBUF  sol_icmask, SOL_ICROWS*4  ; rows of mask, then rows of data
+
+; --- the 16x16 masks, mirrored out of sol_pipl by sol_entry (43.11.7) ------
+    SBUF  sol_p16s, 4*16*2          ; spade, heart, diamond, club: 32 a suit
+    SBUF  sol_ic_ring, 16*2         ; ...and the ring, which .mirror writes
+                                    ; straight after them
+%if sol_ic_ring - sol_p16s != 4*16*2 || SOL_PIPL * 2 != sol_ic_ring + 32 - sol_p16s
+%error "sol_entry's .mirror writes sol_p16s and sol_ic_ring as one run"
+%endif
 
 ; --- sol_colfan / sol_yoff ---------------------------------------------------
     SWORD sol_cfd                   ; face-down cards in the column

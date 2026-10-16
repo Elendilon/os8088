@@ -79183,6 +79183,7 @@ half of `sol_mkback`, which run at launch and on an adapter change only.
 |---|---:|---:|---:|
 | the metric records carry their DERIVED fields | −58 | −52 | −47 / −47 |
 | `sol_entry` saves no registers | −6 | −6 | 0 / 0 |
+| the 16x16 masks are stored as their left halves | −16 | −19 | 0 / 0 |
 
 **The metric records carry their derived fields.** `sol_metrics` copied a
 record of fourteen bytes into words and then worked out four more from them -
@@ -79205,6 +79206,20 @@ call - DI from `[ld_rec]`, SI and BP before their next use, on the success,
 abort and re-home paths alike. Six bytes, and none of them RAM: the entry
 proc is under the card back (§43.11.6), so its length moves bytes between
 the image and the `.bss` and leaves the sum where it was.
+
+**The 16x16 masks are stored as their left halves.** The four centre pips
+and the empty stock's ring are mirror images: every row's right half is its
+left half with the bits in the other order. So the image carries one byte a
+row (`sol_pipl`, 80 bytes where the words were 160), and the entry proc's
+`.mirror` loop writes the words into `.bss` - `sol_p16s` and `sol_ic_ring`,
+named and read exactly as before. The source bytes sit after the entry
+proc's code, inside the bytes the card back takes over, so they cost no RAM
+either: the 160 bytes of tables left the image for the `.bss` and the sum is
+unchanged. The 8x8 pips stay as they are - a byte a row, and a 4-bit half
+saved too little to pay for its own unpacking. Checked on the host: the
+mirrored words are the old tables to the byte, and the loop is ~4-5 ms of
+launch at 4.77 MHz (an estimate from instruction timings: 80 rows of an
+eight-step reversal).
 
 ### 43.12 `APP_SMALL` — the small build of this package
 
