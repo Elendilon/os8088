@@ -88010,6 +88010,14 @@ instruction; `tests/tgplay.py` (soak `tgplay`, `--ref` for the cycles) and
   lock, and skips both - nothing between them can raise a panel. 7 image
   bytes, 1 file byte (LZ4 had been matching the repeat), and a test fewer
   on every tick.
+- **The whole repaint, 13 file bytes and ~600 cycles cheaper.** The HUD
+  table stores a column in PIXELS where it stored it divided by 8 - which
+  cost a `mul` a field, ten a repaint, to undo - and `TG_HUDF` refuses a
+  column that is not a multiple of 8 as the division did (the row comes
+  first now and a 0 row ends the table). The two full-width fills, the black
+  below the band and the band itself, share `tg_band`; the board's frame and
+  walk are `tg_draw_all`'s own middle instead of a call. Same calls, same
+  order, same pixels; two `call`/`jmp` pairs more against ten `mul`s fewer.
 
 ## 50. memory.inc — the claim heap
 

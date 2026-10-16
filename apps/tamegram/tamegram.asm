@@ -180,8 +180,9 @@ TG_HUD_W    equ 248             ; the widest HUD row is 240px (LOCK's 32 at
 ; leaving the last uniformly-fixable entry on the survey invites the next reader
 ; to re-derive the whole census. It is NOT taken for the time.
 ;
-; tg_hud stores each column DIVIDED BY 8, which is the same rule written so it
-; cannot be broken: a column that is not a multiple of 8 does not assemble.
+; tg_hud's TG_HUDF checks every column it is given the same way, so a column
+; that is not a multiple of 8 does not assemble. (It stored them divided by 8
+; until apps size pass 2, which cost a `mul` a field to undo.)
 TG_HC_L     equ 8               ; row 1's title, row 2's THREAT, row 3's VECTOR
 TG_HC_LV    equ 64              ; the value beside whichever left label has one
 TG_HC_R     equ 112             ; row 2's PURGES
@@ -1264,35 +1265,22 @@ tg_frame:
 ; tg_draw_all - the whole content, from the black up
 ; in:  gfx lock held, origin tracked
 ;
-; The black starts BELOW the HUD band: tg_draw_hud fills the band itself, so
-; a black wipe over it first was every one of its pixels written twice and an
-; instant of black behind the status line on every whole repaint (PERFORMANCE
-; rule 2).
+; The black starts BELOW the HUD band: the band is filled in its own colour,
+; so a black wipe over it first was every one of its pixels written twice and
+; an instant of black behind the status line on every whole repaint
+; (PERFORMANCE rule 2).
+;
+; tg_draw_board is this routine's middle, entered only by falling in:
+; nothing else draws the board (apps size pass 2 folded its call in).
 ; -----------------------------------------------------------------------------
 tg_draw_all:
     mov al, TG_BG
-    call OSAPI_SET_COLOR
-    xor ax, ax
     mov bx, TG_HUD_H
-    mov cx, [tg_cwid]
-    dec cx
     mov dx, [tg_chgt]
     dec dx
-    call tg_fillc
+    call tg_band
     call tg_draw_hud
-    call tg_draw_board
-    cmp byte [tg_mode], TG_M_PAUSE  ; PLAY or PAUSE: the piece is on screen
-    ja .noa
-    call tg_draw_active             ; ...and is the next PLAY frame's erase
-.noa:                               ; target
-    call tg_draw_banner
-    cmp byte [tg_panel], 0
-    je tg_fret
-    mov bx, [tg_win]                ; ...and the panel LAST: the shared card,
-    mov si, [tg_plines]             ; measured, centred and clamped to the
-    jmp os88ui_about_d              ; content box it reads for itself
 
-; -----------------------------------------------------------------------------
 ; tg_draw_board / tg_draw_flash_pages - the matrix's cells
 ;
 ; One walk over the 1,024 cells, row-major, selecting with [tg_wsel]: the
@@ -1300,21 +1288,29 @@ tg_draw_all:
 ; its faction's colour) and the flash pages only the marked ones. Leaving the
 ; rest of the content alone is what stops the ghost trails a full tg_draw_all
 ; wipe left behind every shrink on the direct-to-VRAM path.
-; -----------------------------------------------------------------------------
 tg_draw_board:
     mov al, [tg_frcol]
     call OSAPI_SET_COLOR
     mov ax, [tg_bx0]
     mov bx, TG_HUD_H
-    mov cx, ax
-    add cx, [tg_boardpx]
+    mov cx, [tg_boardpx]
     dec cx
-    mov dx, bx
-    add dx, [tg_boardpx]
-    dec dx
+    mov dx, cx
+    add cx, ax                      ; x2 = bx0 + boardpx - 1
+    add dx, bx                      ; y2 = TG_HUD_H + boardpx - 1
     call tg_framec
     mov al, TG_FAC                  ; any occupant
-    jmp short tg_walk
+    call tg_walk
+    cmp byte [tg_mode], TG_M_PAUSE  ; PLAY or PAUSE: the piece is on screen
+    ja .noa
+    call tg_draw_active             ; ...and is the next PLAY frame's erase
+.noa:                               ; target
+    call tg_draw_banner
+    cmp byte [tg_panel], 0
+    je tg_walk.ret
+    mov bx, [tg_win]                ; ...and the panel LAST: the shared card,
+    mov si, [tg_plines]             ; measured, centred and clamped to the
+    jmp os88ui_about_d              ; content box it reads for itself
 
 tg_draw_flash_pages:
     mov al, TG_MARK                 ; marked cells only
@@ -1375,7 +1371,69 @@ tg_walk:
     inc di
     cmp di, TG_CELLS
     jb .cell
+.ret:
     ret
+
+; tg_draw_hud - the status band above the matrix
+; Three 8px rows inside TG_HUD_H, and the layout the TG_HUD_W floor is for,
+; drawn from the table tg_hud: every field is an opaque run of its own on the
+; band filled first, so no pen is set after the band's.
+tg_draw_hud:
+    mov al, [tg_hudbg]
+    xor bx, bx
+    mov dx, TG_HUD_H - 1
+    call tg_band
+    mov di, tg_hud
+    cmp byte [tg_glock], 0          ; LOCK is the table's first row, and
+    jne .field                      ; there only while the vector is locked
+    add di, 4
+.field:
+    cmp byte [di], 0                ; the row: 0 ends the table
+    je tg_walk.ret                  ; (the nearest ret)
+    mov si, [di + 2]                ; a string, or a live field's number
+    cmp si, TG_HF_N
+    jae .text
+    shl si, 1
+    cmp si, 2 * TG_HF_VEC
+    jae .name
+    mov ax, [tg_score + si]         ; THREAT or PURGES, as decimal
+    call tg_fmt
+    jmp short .text
+.name:
+    mov bl, [tg_grav]               ; VECTOR: [tg_vecname + grav]
+    mov si, tg_vecname
+    je .pick
+    mov al, [tg_pfac]               ; FACTION: [tg_facname + the pair]
+    call tg_faci
+    mov si, tg_facname
+.pick:
+    xor bh, bh
+    shl bx, 1
+    mov si, [si + bx]
+.text:
+    mov dx, [di]                    ; DL = the row (bit 7 = the one yellow
+    mov cl, dh                      ; field), DH = the column in pixels
+    xor ch, ch
+    mov al, CWHITE                  ; Text that must be read comes from the
+    shl dl, 1                       ; white class: SPEC.md 39.4 rounds an
+    jnc .ink                        ; unflagged glyph to black or white, and
+    mov al, CYELLOW                 ; CLGRAY rounds to black - which is what
+.ink:                               ; left Missile Command's wave counter not
+    shr dl, 1                       ; faint but absent. A filled BAND may
+    xor dh, dh                      ; dither; a 1px stroke does not survive it
+    mov ah, [tg_hudbg]              ; AH = the band, filled above
+    call tg_run
+    add di, 4
+    jmp .field
+
+; tg_band - fill the content's full width, rows BX..DX, in colour AL.
+; Clobbers AX-DX.
+tg_band:
+    call OSAPI_SET_COLOR
+    xor ax, ax
+    mov cx, [tg_cwid]
+    dec cx
+    jmp tg_fillc
 
 ; -----------------------------------------------------------------------------
 ; tg_cell_paint - the cell AH = row, AL = col in faction DL's colour
@@ -1623,66 +1681,6 @@ tg_str_gate:
     stc
     ret
 
-; -----------------------------------------------------------------------------
-; tg_draw_hud - the status band above the matrix
-; Three 8px rows inside TG_HUD_H, and the layout the TG_HUD_W floor is for,
-; drawn from the table tg_hud: every field is an opaque run of its own on the
-; band this routine fills first, so no pen is set after the band's.
-; -----------------------------------------------------------------------------
-tg_draw_hud:
-    mov al, [tg_hudbg]
-    call OSAPI_SET_COLOR
-    xor ax, ax
-    xor bx, bx
-    mov cx, [tg_cwid]
-    dec cx
-    mov dx, TG_HUD_H - 1
-    call tg_fillc
-    mov di, tg_hud
-    cmp byte [tg_glock], 0          ; LOCK is the table's first row, and
-    jne .field                      ; there only while the vector is locked
-    add di, 4
-.field:
-    cmp byte [di], 0
-    je tg_str.out                   ; (the nearest ret)
-    mov si, [di + 2]                ; a string, or a live field's number
-    cmp si, TG_HF_N
-    jae .text
-    shl si, 1
-    cmp si, 2 * TG_HF_VEC
-    jae .name
-    mov ax, [tg_score + si]         ; THREAT or PURGES, as decimal
-    call tg_fmt
-    jmp short .text
-.name:
-    mov bl, [tg_grav]               ; VECTOR: [tg_vecname + grav]
-    mov si, tg_vecname
-    je .pick
-    mov al, [tg_pfac]               ; FACTION: [tg_facname + the pair]
-    call tg_faci
-    mov si, tg_facname
-.pick:
-    xor bh, bh
-    shl bx, 1
-    mov si, [si + bx]
-.text:
-    mov al, [di]                    ; the column, stored / 8
-    mov ah, 8
-    mul ah
-    xchg ax, cx
-    mov dl, [di + 1]                ; the row; bit 7 = the one yellow field
-    mov al, CWHITE                  ; Text that must be read comes from the
-    shl dl, 1                       ; white class: SPEC.md 39.4 rounds an
-    jnc .ink                        ; unflagged glyph to black or white, and
-    mov al, CYELLOW                 ; CLGRAY rounds to black - which is what
-.ink:                               ; left Missile Command's wave counter not
-    shr dl, 1                       ; faint but absent. A filled BAND may
-    xor dh, dh                      ; dither; a 1px stroke does not survive it
-    mov ah, [tg_hudbg]              ; AH = the band, filled above
-    call tg_run
-    add di, 4
-    jmp .field
-
 ; tg_faci - AL = a faction (1 or 2) -> BX = its index in the colour and name
 ; tables: (colour-blind * 2) + faction - 1
 tg_faci:
@@ -1762,8 +1760,9 @@ tg_vw:       db 'WEST', 0
 tg_facname:  dw tg_s_fa, tg_s_fb, tg_s_fa_cb, tg_s_fb_cb
 tg_colours:  db TG_COL_A, TG_COL_B, TG_COL_ACB, TG_COL_BCB
 
-; The HUD, one field a row: the column / 8, the y (bit 7 = drawn yellow), and
-; a string - or, below TG_HF_N, the live field tg_draw_hud fills in. LOCK is
+; The HUD, one field a row: the y (bit 7 = drawn yellow; 0 ends the table),
+; the column in pixels, and a string - or, below TG_HF_N, the live field
+; tg_draw_hud fills in. LOCK is
 ; first because it is the one that may be skipped; the order of the rest is
 ; the order they always went up in.
 TG_HF_SCORE equ 0                   ; [tg_score], as decimal
@@ -1772,7 +1771,10 @@ TG_HF_VEC   equ 2                   ; the vector's name
 TG_HF_FAC   equ 3                   ; the faction's name
 TG_HF_N     equ 4
 %macro TG_HUDF 3
-    db (%1) / 8, %2
+  %if (%1) & 7
+    %error "a HUD column is not a multiple of 8 - see SPEC.md 11.94.3"
+  %endif
+    db %2, %1
     dw %3
 %endmacro
 tg_hud:
