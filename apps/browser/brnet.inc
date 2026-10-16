@@ -233,19 +233,13 @@ br_go:
                                     ; last time's verdict goes: without this a
                                     ; `Saved` would survive into the next page
                                     ; and be shown again when it finished
-    mov [br_nlen], ax
     mov [br_fin], al                ; ...the hand-over (SPEC.md 71.14)
-    mov [br_code], ax
-    mov [br_trunc], al              ; ...the CUT flag, which br_parse clears on
-                                    ; a file load and nothing cleared on this
-                                    ; path, so one truncated page would have
-                                    ; reported every page after it as cut
-    mov [br_hcol], ax               ; per-fetch header state
-    mov [br_hstate], al
-    mov byte [br_lstate], 0
-    mov word [br_redirlen], 0
-    mov byte [br_redirurl], 0
-    mov byte [br_redirs], 0
+    call br_hreset                  ; ...the per-fetch header state, and the
+                                    ; CUT flag, which br_parse clears on a file
+                                    ; load and nothing cleared on this path, so
+                                    ; one truncated page would have reported
+                                    ; every page after it as cut
+    mov [br_redirs], al
                                     ; [br_hcol] only ever counts up, so it sat
                                     ; at 12 after the first reply's status line
                                     ; and every byte of every later fetch was
@@ -253,13 +247,13 @@ br_go:
                                     ; code was read for the FIRST page of the
                                     ; session and no other
     mov byte [br_nstate], BN_OPEN
-    push ax                         ; ...AND THE PROMISE IS WITHDRAWN HERE, at
-    push bx                         ; the transition and UNCONDITIONALLY, not
+                                    ; ...AND THE PROMISE IS WITHDRAWN HERE, at
+                                    ; the transition and UNCONDITIONALLY, not
     mov bx, [br_win]                ; by re-reading [br_nstate] on the way out
     xor al, al                      ; (SPEC.md 71.11). BX IS THE WINDOW and is
     call OSAPI_WM_SAVEU             ; not optional: without it wm_saveu's own
-    pop bx                          ; bounds check refuses the call and the
-    pop ax                          ; withdrawal silently does not happen -
+                                    ; bounds check refuses the call and the
+                                    ; withdrawal silently does not happen -
                                     ; SPEC.md 11.96.11.4's guard earning its
                                     ; keep a second time, and the reason this
                                     ; is not `whatever BX held`.
@@ -329,10 +323,7 @@ br_split:
     mov word [br_port], 80          ; test serves both
     mov bx, br_s_schemes            ; https:// ?
     call br_hrefpfx
-    jc .nohttps
-    stc
-    jmp .out
-.nohttps:
+    jnc .bad                        ; ...refused by name (SPEC.md 71.2)
     mov bx, br_s_scheme             ; http:// - stepped over if present
     call br_hrefpfx
     jc .host                        ; ...NOT present: SI is already the host
@@ -340,26 +331,20 @@ br_split:
 .host:                              ; CF=0 for a MATCH and does not advance SI
     mov di, br_host
     mov cx, BR_HOSTMAX-1
-.hloop:
-    mov al, [si]
-    or al, al
-    jz .hend
-    cmp al, '/'
+.hloop:                             ; the terminators are asked FIRST, so the
+    mov al, [si]                    ; one count test below is both the loop's
+    or al, al                       ; bound and the too-long verdict (apps
+    jz .hend                        ; size pass 2: it was a LOOP and then the
+    cmp al, '/'                     ; same three tests again after it)
     je .hend
     cmp al, ':'
     je .colon
+    jcxz .long
     mov [di], al
     inc di
     inc si
-    loop .hloop
-    mov al, [si]
-    or al, al
-    jz .hend
-    cmp al, '/'
-    je .hend
-    cmp al, ':'
-    je .colon
-    jmp .long
+    dec cx
+    jmp .hloop
 .hend:
     mov byte [di], 0
     cmp di, br_host
@@ -368,31 +353,28 @@ br_split:
 .colon:
     mov byte [di], 0
     inc si
-    mov word [br_port], 0
+    xor ax, ax                      ; the port, accumulated in AX
+    mov cx, 10
 .pd:
     mov bl, [si]
-    cmp bl, '0'
-    jb .pdone
-    cmp bl, '9'
+    sub bl, '0'                     ; one unsigned compare is '0'..'9'
+    cmp bl, 9
     ja .pdone
     inc si
-    mov ax, [br_port]
-    mov cx, 10
     mul cx
-    sub bl, '0'
     xor bh, bh
     add ax, bx
-    mov [br_port], ax
     jmp short .pd
 .pdone:
-    cmp word [br_port], 0
-    jne .path
-    mov word [br_port], 80
+    or ax, ax
+    jnz .port
+    mov al, 80                      ; `:` with no digits, or 0: the default
+.port:
+    mov [br_port], ax
 .path:
     mov di, br_path
     mov cx, BR_PATHMAX-1
-    mov al, [si]
-    cmp al, '/'
+    cmp byte [si], '/'
     je .ploop
     mov byte [di], '/'              ; a bare host is its root, which is what
     inc di                          ; every browser and every user assumes
@@ -401,21 +383,19 @@ br_split:
     mov al, [si]
     or al, al
     jz .pend
+    jcxz .long
     mov [di], al
     inc di
     inc si
-    loop .ploop
-    cmp byte [si], 0
-    jne .long
+    dec cx
+    jmp .ploop
 .pend:
     mov byte [di], 0
     clc
     jmp short .out
-.bad:
-    stc
-    jmp .out
 .long:
     mov word [br_nmsg], br_s_urltoo
+.bad:
     stc
 .out:
     jmp br_pop7
@@ -641,14 +621,7 @@ br_nstep:
     mov si, br_ubuf
     call br_split
     jc .redirunbad
-    mov word [br_nlen], 0           ; per-fetch header state, as br_go sets it
-    mov word [br_code], 0
-    mov byte [br_trunc], 0
-    mov word [br_hcol], 0
-    mov byte [br_hstate], 0
-    mov byte [br_lstate], 0
-    mov word [br_redirlen], 0
-    mov byte [br_redirurl], 0
+    call br_hreset                  ; per-fetch header state, as br_go sets it
     mov byte [br_nstate], BN_OPEN   ; ...and the source claim stands at its
 .redirunlock:                       ; ceiling for the target
     call OSAPI_GFX_UNLOCK
@@ -684,6 +657,21 @@ br_nstep:
     jmp .redraw
 
 ; --- br_qstat - NETV_STATUS on our handle. out AH = state, CX = readable ----
+; --- br_hreset - a reply's header state back to its start; AX = 0 out ---------
+; A fetch (br_go), a redirect hop and a frame child each carried this run of
+; stores inline (apps size pass 2).
+br_hreset:
+    xor ax, ax
+    mov [br_nlen], ax
+    mov [br_code], ax
+    mov [br_trunc], al
+    mov [br_hcol], ax
+    mov [br_hstate], al
+    mov [br_lstate], al
+    mov [br_redirlen], ax
+    mov [br_redirurl], al
+    ret
+
 br_qstat:
     mov al, [br_hnd]
     mov bh, NET_CLASS
@@ -1367,15 +1355,8 @@ br_framefetch:
     call br_put
 .markers:
     call br_flushbuf
-    mov word [br_nlen], 0
-    mov word [br_code], 0
-    mov byte [br_trunc], 0
-    mov word [br_hcol], 0
-    mov byte [br_hstate], 0
-    mov byte [br_lstate], 0
-    mov word [br_redirlen], 0
-    mov byte [br_redirurl], 0
-    mov byte [br_redirs], 0
+    call br_hreset
+    mov [br_redirs], al             ; AL = 0, br_hreset's
     inc byte [br_frameidx]
     mov byte [br_nstate], BN_OPEN
     jmp .out

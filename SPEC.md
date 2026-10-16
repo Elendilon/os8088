@@ -115377,6 +115377,13 @@ redirects and frames - and left the same bytes behind.
   DX and a `push`/`pop`, and split the link index into its two payload
   nibbles with two loads where one `shl`/`shr` pair leaves both halves in AX.
   Every one of these removes instructions from the path it is on.
+- **`br_split` asks the terminators first.** Its host and path loops ran a
+  `loop` to the bound and then the same three tests again to tell a full
+  field from a too-long one; testing the end first lets one `jcxz` be both
+  the bound and the verdict. The port accumulates in AX and is stored once.
+  A reply's header state - eight stores that a fetch, a redirect hop and a
+  frame child each carried - is `br_hreset`, and `br_go` no longer saves AX
+  and BX around a `OSAPI_WM_SAVEU` whose caller restores both anyway.
 
 ### 72.1 What the packages did have to change, which is one question
 
