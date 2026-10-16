@@ -87986,6 +87986,26 @@ pixel outside the matrix, or erasing at the paint's inset, ends it; either
 changes the picture and is the owner's call. `OS88_STACK_256` stays: docs/FIELD-NOTES.md 42 is why a game's
 class is not cut to its quiet-machine reading.
 
+### 49.9 The second size pass: the FILE, for the disk
+
+Apps size pass 2 (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures the shipped,
+LZ4-packed `TAMEGRAM.O88` rather than image + bss, because the 360KB disks it
+rides are full. Nothing on the screen changes and no hot path gains an
+instruction; `tests/tgplay.py` (soak `tgplay`, `--ref` for the cycles) and
+`tests/tgui.py` (soak `tgui`) are the rows it is held to.
+
+- **Every branch is a short one.** Fifteen conditional branches had a target
+  out of reach - most of them to the one `tg_ret` - so each assembled as an
+  inverted short branch over a three-byte `jmp`. Each now takes the nearest
+  `ret` (`tg_fret`, the `.ret`/`.out` of the routine beside it), `tg_newgame`
+  sits beside `tg_act`, `tg_toggle_halt` ends at `tg_owe` (the tail of
+  `tg_panel_off`, `tg_owefull` with CF = 1, which no caller reads), the
+  Protocol items share `tg_onkey`'s `call tg_act` / repaint tail, and the
+  board walk follows `tg_draw_all`. Two tail jumps became fall-throughs:
+  `tg_cell_fill` into `tg_fillc` (a `jmp` fewer for every cell drawn) and the
+  banner into `tg_str`. A routine-by-routine disassembly against the base
+  differs ONLY in those branches and in moved addresses.
+
 ## 50. memory.inc — the claim heap
 
 Everything above the kernel, in one map the kernel owns.
