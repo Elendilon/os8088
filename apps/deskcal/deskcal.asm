@@ -29,7 +29,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'Desk Calendar', dc_entry, OS88_F_ICON | OS88_F_DESK
+    OS88_HEADER 'Desk Calendar', dc_entry, OS88_F_ICON | OS88_F_DESK | OS88_F_STIK
 
 ; A calendar page: a solid header band over a grid of days. It is also the
 ; Sticky App row's picture (STIK_ICON below), so a row the boot could not launch
@@ -41,10 +41,52 @@
     dw 0x4002, 0x5552, 0x4002, 0x5552, 0x4002, 0x7FFE, 0x0000, 0x0000
     OS88_ICON16_END
 
+; The Sticky Apps menu's row for us (SPEC.md 110.12): what Locator's menu
+; lists before the calendar has ever been launched - today's page, big, over
+; the month's grid - read out of this file's first sector.
+    OS88_STIKCARD 'Desk Calendar', 'Dates, tasks & reminders'
+    OS88_STIKROW '................................'
+    OS88_STIKROW '.##############################.'
+    OS88_STIKROW '.#............................#.'
+    OS88_STIKROW '.#............................#.'
+    OS88_STIKROW '.#....######..........##......#.'
+    OS88_STIKROW '.#..##......##......####......#.'
+    OS88_STIKROW '.#..........##....##..##......#.'
+    OS88_STIKROW '.#........##....##....##......#.'
+    OS88_STIKROW '.#......##......##########....#.'
+    OS88_STIKROW '.#....##..............##......#.'
+    OS88_STIKROW '.#..##########........##......#.'
+    OS88_STIKROW '.#............................#.'
+    OS88_STIKROW '.#............................#.'
+    OS88_STIKROW '.#.##########################.#.'
+    OS88_STIKROW '.#............................#.'
+    OS88_STIKROW '.#............................#.'
+    OS88_STIKROW '.#...##..##..##..##..##..##...#.'
+    OS88_STIKROW '.#...##..##..##..##..##..##...#.'
+    OS88_STIKROW '.#............................#.'
+    OS88_STIKROW '.#............................#.'
+    OS88_STIKROW '.#...##..##..##..##..##..##...#.'
+    OS88_STIKROW '.#...##..##..##..##..##..##...#.'
+    OS88_STIKROW '.#............................#.'
+    OS88_STIKROW '.#............................#.'
+    OS88_STIKROW '.#...##..##..##..##..##..##...#.'
+    OS88_STIKROW '.#...##..##..##..##..##..##...#.'
+    OS88_STIKROW '.#............................#.'
+    OS88_STIKROW '.#...##..##...................#.'
+    OS88_STIKROW '.#...##..##...................#.'
+    OS88_STIKROW '.#............................#.'
+    OS88_STIKROW '.##############################.'
+    OS88_STIKROW '................................'
+    OS88_STIKCARD_END
+
 DC_GRIDN    equ 42
 
 ; --- the payload v1, what the calendar reads of it (SPEC.md 110.3) -----------
-; tools/os88stik.py's DESKCAL_* are the same numbers; t_stik holds them equal
+; tools/os88stik.py's DESKCAL_* are the same numbers; t_stik holds them equal.
+; The file is PACKED to the records in use (dcdata.inc), so the table's size
+; costs a disk nothing until it is filled (SPEC.md 110.3)
+%define DC_NAPPT 48             ; (the toasts below spell these, so the counts
+%define DC_NTASK 32             ; are said once)
 DCP_LEN     equ 2440
 DCP_VER     equ 1
 DCP_NAPPT   equ 0               ; db: appointments in use
@@ -52,8 +94,8 @@ DCP_NTASK   equ 1               ; db: tasks in use
 DCP_SNZT    equ 4               ; dw: the SNOOZE SLOT's minute of the day (v2)
 DCP_SNZD    equ 6               ; dw: ...and its FAT date - read only beside a
                                 ; SNOOZED appointment, so v1's zeros mean nothing
-DCP_MAXAPPT equ 48
-DCP_MAXTASK equ 32
+DCP_MAXAPPT equ DC_NAPPT
+DCP_MAXTASK equ DC_NTASK
 DCP_APPT0   equ 8               ; the first appointment
 DCP_APPTSZ  equ 32
 DCP_TASK0   equ DCP_APPT0 + DCP_MAXAPPT * DCP_APPTSZ    ; 1544
@@ -1814,8 +1856,10 @@ dc_l4:      db '1 hour early', 0
 dc_l5:      db 'off', 0
 dc_s_rem:   db 'Reminder ', 0       ; the selected appointment's...
 dc_s_def:   db 'Default: ', 0       ; ...or a new one's (<= 24 in all)
-dc_s_afull: db 'Calendar is full (48)', 0
-dc_s_tfull: db 'Task list is full (32)', 0
+%defstr DC_NAPPT_S DC_NAPPT
+%defstr DC_NTASK_S DC_NTASK
+dc_s_afull: db 'Calendar is full (', DC_NAPPT_S, ')', 0
+dc_s_tfull: db 'Task list is full (', DC_NTASK_S, ')', 0
 dc_s_long:  db 'At most 25 letters', 0
 dc_s_tlong: db 'A task: at most 23', 0
 dc_s_qdel:  db 'Delete again to confirm', 0

@@ -1060,7 +1060,8 @@ whose `LESSONS.md` is what MIDIRack's (SPEC.md §105.9.4, §105.9.5) learned.
   test): kernel code that ships as a file
   (`CTRL.DRV`, `FORMAT.DRV`, `DISKOPS.DRV`, `HIBER.DRV`, `DOCK.DRV`, on
   kern_big `EXTD.DRV` (the extended desktop, SPEC.md 39.19.6) and
-  `DESK.DRV` (the desk layer, SPEC.md 110), and on
+  `DESK.DRV` (the desk layer, SPEC.md 110) and `STIKMENU.DRV` (the Sticky
+  Apps menu, SPEC.md 110.12), and on
   kern_small `FILECP.DRV` and `FDLG.DRV`) and is read into a heap claim when the feature
   is asked for, freed when it is done. A feature qualifies when the system
   disk is already required to use it, or can be required without interrupting
