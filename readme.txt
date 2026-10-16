@@ -58,6 +58,8 @@ One tile per program. Clicking a tile brings back one put away, puts away the on
 DESKTOP
 Drag a file, folder or program from a disk window onto the bare desktop to make a SHORTCUT (arrow badge). Double-click or Enter opens it; Del, right-click or File > Remove Shortcut takes it away (the file stays). Any icon, drive icons included, can be dragged to a new place. Up to 15 shortcuts, kept in SYSTEM.CFG, so the system disk must be in A:.
 
+Hold Alt as you drop a file, folder or program on a disk window and you make a LINK there instead (NAME.LNK, the original stays put). Double-clicking a link opens what it names, from wherever that lives. Links in a folder called AUTOSTRT in the root of the disk the machine boots from are opened at every boot; hold Shift while it boots to skip them, and delete a link to stop it for good.
+
 With no window in front the bar reads Locator: File (Close Window, Remove Shortcut) and Builtins (Timer, Bounce, Disk). Builtins > Disk opens a disk window.
 
 SCREEN SAVER

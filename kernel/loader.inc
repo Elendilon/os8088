@@ -1806,6 +1806,13 @@ ld_pkg_byname:
     xor al, al                  ; it reported its own verdict to the user
     ret                         ; (ld_say_status) - 21.5.3's thinner answer
 .nodoc:
+%ifdef OS88_SHORTCUTS
+    call lnk_is                 ; ...but a LINK is opened by nothing, being
+    jne .ebad                   ; followed (SPEC.md 26.10.3): on to
+    mov al, ASSOC_FIND          ; assoc_run, which knows - with the search
+    jmp short .have             ; for a program, should it not be ours. The
+.ebad:                          ; equal compare cleared CF for .have's `jc`
+%endif
     mov al, LD_EBAD             ; the one thing the caller could not know:
     ret                         ; nothing on this machine opens it
 %else

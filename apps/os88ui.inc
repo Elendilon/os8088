@@ -471,13 +471,21 @@ OS88UI_BT_SIZE   equ 16
  %endif
  %define OS88UI_NOBTN
 %endif
+; OS88UI_MACROS says that emitting NOTHING is the point: a package that carries
+; os88line.inc and draws every control of its own wants the UI_* macros alone
+; (the Desk Calendar, SPEC.md 110.3). It implies OS88UI_NOBTN.
+%ifdef OS88UI_MACROS
+ %define OS88UI_NOBTN
+%endif
 %ifdef OS88UI_NOBTN
  %ifdef OS88UI_KERNEL
   %error "OS88UI_NOBTN/BARONLY is a PACKAGE's: both kernel dialogs draw buttons"
  %endif
  %ifndef OS88UI_SCROLL
   %ifndef OS88UI_ABOUT
-   %error "OS88UI_NOBTN with neither OS88UI_SCROLL nor OS88UI_ABOUT includes no drawing code at all"
+   %ifndef OS88UI_MACROS
+    %error "OS88UI_NOBTN with neither OS88UI_SCROLL nor OS88UI_ABOUT includes no drawing code at all - OS88UI_MACROS if that is what you want"
+   %endif
   %endif
  %endif
 %endif
