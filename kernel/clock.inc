@@ -2183,7 +2183,7 @@ clk_hour:   resb 1              ; 0..23       |
 clk_day:    resb 1              ; 1..31       |
 clk_mon:    resb 1              ; 1..12       |
 %if clk_min - clk_sec != 1 || clk_hour - clk_sec != 2 || clk_day - clk_sec != 3 || clk_mon - clk_sec != 4
-%error "clock: ctrl.inc's clk_fld_adj finds field f at (4 or 5) - f past clk_sec, and osapi_clk_get_x reads min+hour and day+month as words"
+%error "clock: ctrl.inc's clk_fld_adj finds field f at (4 or 5) - f past clk_sec, and osapi_clk_get_x reads min+hour and day+month as words (and AH = clk_sec off a word at clk_sec - 1)"
 %endif
 clk_rtc:    resb 1              ; 1 = a usable hardware RTC was found
 clk_dirty:  resb 1              ; 1 = the clock was set; write the RTC
@@ -2340,13 +2340,15 @@ osapi_clk_get_x:
     mov cx, [clk_year]
     mov dx, [clk_day]           ; DL = day, DH = month
     mov bx, [clk_min]           ; BL = minute, BH = hour
-    mov ah, [clk_sec]
+    mov ax, [clk_sec - 1]       ; AH = second: a word read is the 3-byte
+    popf                        ; accumulator form where `mov ah` is 4, and
+                                ; AL is overwritten below. The two settings
+                                ; are read after the popf: neither is a field
+                                ; a rollover can tear
     mov al, [clk_h12]           ; 0 or 1 - but SYSTEM.CFG's CFG_H12 is a
     and al, 1                   ; file's byte, so bit 0 only. clk_rtc is
     shl al, 1                   ; only ever stored as 1, by clk_init
-    or al, [clk_rtc]
-    popf
-    clc
-    retf
+    or al, [clk_rtc]            ; ...and the OR is the CF = 0: no `clc`
+    retf                        ; (kernel size pass 13, -2)
 
 section .text

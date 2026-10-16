@@ -627,11 +627,12 @@ desk_live:
     mov al, bl
     call sc_row                 ; CF = 1: no claim, past it, or a free row
     jc .ld
-    cmp byte [es:bx+SC_R_STIK], SC_STIK
-    stc                         ; ...or a Sticky App ROW (SPEC.md 110.2): a remembered
-    je .ld                      ; widget, never live, so never in a cell and
-    clc                         ; never painted or hit
-.ld:
+    mov al, [es:bx+SC_R_STIK]   ; ...or a Sticky App ROW (SPEC.md 110.2): a
+    xor al, SC_STIK             ; remembered widget, never live, so never in a
+    cmp al, 1                   ; cell and never painted or hit. 0 exactly
+.ld:                            ; when it is one, and `cmp al, 1` borrows
+                                ; only from 0: CF = 1 dead (a byte under the
+                                ; stc/je/clc it was, kernel size pass 13)
     sbb al, al                  ; 0xFF dead, 0 live...
     inc al                      ; ...0 dead (ZF = 1), 1 live (ZF = 0) - AL,
                                 ; not AX: ZF off a word is AH's to spoil

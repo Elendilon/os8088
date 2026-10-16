@@ -68475,7 +68475,8 @@ OSAPI_CLK_GET   KERNEL_SEG:0x0475
        CF = 0; every other register preserved
 ```
 
-- **It reads the LIVE fields under `cli`**, two words and three bytes, and
+- **It reads the LIVE fields under `cli`**, four words (the second as the high
+  byte of one at `clk_sec - 1`, the three-byte accumulator form), and
   deliberately does not call `clk_snapshot`: the `clk_sn_*` copy belongs to the
   menu bar's formatters (§37), and a package refreshing it would race their
   next format. `clk_min`/`clk_hour` and `clk_day`/`clk_mon` are read as words,

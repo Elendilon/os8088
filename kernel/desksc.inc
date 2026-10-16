@@ -256,15 +256,14 @@ sc_walk:
 ; ([ui_rebootq]) stands everything down: that image IS the session.
 ; -----------------------------------------------------------------------------
 stik_boot:
-    cmp byte [ui_rebootq], 0
-    jne .r0
-    cmp byte [sc_nrows], 0      ; no row, no work and no I/O: what every
-    je .r0                      ; machine without a widget pays
-    call kentc_bp
-    push es
+    call kentc_bp               ; the bank FIRST, so both refusals below are
+    push es                     ; one exit (kernel size pass 13, -6): a boot
+    cmp byte [ui_rebootq], 0    ; pays it once and nothing else does
+    jne .x
     mov cl, [sc_nrows]
     xor ch, ch
-    mov al, DESK_SC0
+    jcxz .x                     ; no row, no work and no I/O: what every
+    mov al, DESK_SC0            ; machine without a widget pays
 .l:
     call sc_row                 ; ES:BX = the row
     jc .n
@@ -282,9 +281,8 @@ stik_boot:
 .n:
     inc ax
     loop .l
+.x:
     jmp kretc_es
-.r0:
-    ret
 
 ; -----------------------------------------------------------------------------
 ; lnk_is - is the document in assoc_doc a LINK? (SPEC.md 26.10)

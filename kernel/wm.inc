@@ -4630,7 +4630,7 @@ wm_top_bpd:
 ; router, Close Window, menu_check's promotion, the pinstripes, dock_act,
 ; OSAPI_WM_TOP - means "the front ORDINARY window", and with only widgets up
 ; this answers 0, which is Locator. One word test where the bit test stood:
-; visible AND NOT WF_DESK is `(W_FLAGS & 0x0402) == 2`, +5 bytes on kern_big.
+; visible AND NOT WF_DESK is `(W_FLAGS & 0x0402) == 2`, +4 bytes on kern_big.
 ; -----------------------------------------------------------------------------
 wm_top:
     push ax
@@ -4647,9 +4647,10 @@ wm_top:
     call wm_idx2ptr
 %ifdef KERN_BIG
     mov ax, [bx+W_FLAGS]        ; AL is spent: wm_idx2ptr has had it, and the
-    and ax, WF_DESK | 2         ; next pass reloads it from [si]
-    cmp ax, 2
-    je .done
+    and ax, WF_DESK | 2         ; next pass reloads it from [si]. 0, 2, 400h
+    dec ax                      ; or 402h, and only 2 - visible, not a desk
+    dec ax                      ; window - reaches zero: two DECs, a byte
+    jz .done                    ; under `cmp ax, 2`, no slower (size pass 13)
 %else
     test byte [bx+W_FLAGS], 2
     jnz .done
