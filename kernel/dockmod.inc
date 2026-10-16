@@ -1538,7 +1538,10 @@ dkx_gfx_hole_arm:
     push cx
     push dx
     push si
-    call KERNEL_SEG:cw_cur_unlazy
+    push bp                     ; (spw_near takes the routine in BP: the one
+    mov bp, cur_unlazy          ; site, so no resident shim of its own -
+    call KERNEL_SEG:spw_near    ; kernel size pass 13)
+    pop bp
     xor ax, ax
     xor dx, dx
     mov cx, [vid_wm1]

@@ -4200,7 +4200,8 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
                                 ; No window exists yet, so the refit inside it
                                 ; walks an empty table
 %endif
-    call COLD_SEG:drvf_ss_mins2idle   ; the map above stored [ss_mins]; the
+    mov bp, ss_mins2idle        ; (wm_cbd: the boot's reader holds nothing
+    call COLD_SEG:wm_cbd        ; in BP) the map above stored [ss_mins]; the
                                 ; TICKS blk_pass compares against are derived
                                 ; from it and clamped (SPEC.md 79.4), which is
                                 ; not a store and so cannot be a map row
@@ -5071,7 +5072,8 @@ drv_boot_x:
     ; applies: the adapter was already right, or was refused, and neither is a
     ; statement about the desktop. No spl_reset - the primary's card is never
     ; re-programmed here, so the loading screen is untouched.
-    call KERNEL_SEG:cw_vid_disp_init
+    mov bp, vid_disp_init       ; (spw_near's `call bp`: drv_boot_x holds
+    call KERNEL_SEG:spw_near    ; nothing in BP, kernel size pass 13)
 %endif
 .load:
     ; --- HOW MANY are we about to read? (SPEC.md 15.6) -----------------------
@@ -5358,33 +5360,23 @@ drvf_drv_call:           call drv_call
                     retf
 drvf_drv_release:        call drv_release
                     retf
-drvf_drv_cp_call:        call drv_cp_call_x
-                    retf
 drvf_drv_cls_svc:        call drv_cls_svc_x
                     retf
 drvf_drv_unload:         call drv_unload_x
-                    retf
-drvf_drv_cp_class:       call drv_cp_class_x
                     retf
 
 ; ...and the four SPEC.md 51.5.3's parser needs. drvf_drv_cfg_save is gone with
 ; the body it wrapped: the save half is inside CTRL.DRV now, so cp_flush_x
 ; reaches it with a near call and these are what IT has to cross for.
-; drvf_ss_mins2idle wraps a body in blank.inc rather than this file, which is
-; fine and is the first of these that does - a far entry is four bytes wherever
-; the body lives, and .cold reaches .cold near.
 drvf_drv_vol_bank:       call drv_vol_bank
                     retf
 drvf_drv_vol_back:       call drv_vol_back
                     retf
-%ifdef KERN_BIG
-drvf_drv_find:           call drv_find   ; hb_probe_x, from the blob
-                         retf
-%endif
 drvf_drv_mounted:        call drv_mounted
                     retf
-drvf_ss_mins2idle:       call ss_mins2idle
-                    retf
+; (drvf_drv_find and drvf_ss_mins2idle went in kernel size pass 13: their one
+; caller each - hb_probe_x and the settings reader's unpack - is in the blob,
+; with nothing in BP, and reaches the near body through wm_cbd)
 
 section .modc                   ; CTRL.DRV's image (SPEC.md 2.8)
 

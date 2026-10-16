@@ -5108,7 +5108,10 @@ dskw_fmt_line_x:
     call dskw_fmt_cat           ; ...SI on dskf_s_q, laid behind it
     xchg ax, bx
     shr ax, 1
-    call COLD_SEG:fmf_fm_utoa   ; the one thing this image does NOT carry: a
+    push bp                     ; (every register but DI kept: wm_cbd takes
+    mov bp, fm_utoa             ; the routine in BP - kernel size pass 13,
+    call COLD_SEG:wm_cbd        ; and no far entry of its own) the one thing
+    pop bp                      ; this image does NOT carry: a
                                 ; decimal formatter is real code and a second
                                 ; copy of it is a second thing to be wrong.
                                 ; It clobbers DI alone, so SI survives it

@@ -313,7 +313,9 @@ menu_init:
     xor bx, bx
     mov [menu_win], bx
     mov word [menu_sseg], 0     ; the save-under is claimed by menu_drop for
-    call KERNEL_SEG:cw_menu_relayout ; as long as a menu is actually down, not
+    mov bp, menu_relayout       ; (spw_near's `call bp`: kmain_o, the one
+    call KERNEL_SEG:spw_near    ; caller, holds nothing in BP) as long as a
+                                ; menu is actually down, not
                                 ; here for the session (SPEC.md 12.4/50.2)
     pop dx
     pop bx

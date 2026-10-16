@@ -8973,10 +8973,13 @@ dkf_dsk_chdir_q:     call dsk_chdir_q_x
                  retf
 dkf_dsk_copy_seg:    call dsk_copy_seg_x
                  retf
-dkf_dsk_vol_fixed:   call dsk_vol_fixed_x    ; kern_dos's (kerndos/kdentry.inc)
-                 retf
-dkf_dsk_vol_slot:    call dsk_vol_slot_x
-                 retf
+%ifdef KD_BUILD                 ; kern_dos's alone (kerndos/kdentry.inc): no
+dkf_dsk_vol_fixed:   call dsk_vol_fixed_x    ; kernel caller (kernel size
+                 retf                        ; pass 13)
+%endif
+; (dkf_dsk_vol_slot went in kernel size pass 13: desk_init, its one caller,
+; is boot-only and reaches dsk_vol_slot_x through wm_cbd with BP, which kmain
+; holds nothing in)
 
 
 ; =============================================================================

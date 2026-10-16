@@ -903,7 +903,9 @@ What moved with it, and why each is boot-only:
   at all, which is what flips that row.
 - **`hb_probe_x`** (kern_big): one caller, after `drv_boot` and before
   `spl_finish`. It reaches the three routines it needs through the existing
-  `drvf_`/`dkf_` far shims plus one new one, `drvf_drv_find` (4 bytes).
+  `drvf_`/`dkf_` far shims plus one new one, `drvf_drv_find` (4 bytes) -
+  which kernel size pass 13 retired again: `drv_find` is reached through
+  `wm_cbd` with BP, which `kmain_o` holds nothing in.
 - **`wm_init` and `files_init_x` went the OTHER way**, `.ovl` → `.ovlw` on
   kern_small, to make the blob room: `kmain_o` reaches them before the mount,
   which is all `.ovlw` asks.
@@ -914,7 +916,8 @@ body — five `mov [label], al` stores are *smaller* than the table walk they
 replace, so `.ovlw` shrank by 6 as well), and the **`dsk_flop_add` and
 `dsk_vol_slot` thunks** (6 bytes each of `.text`, whose one caller was
 `desk_init` in `.ovlw` — it far-calls `dsk_flop_add_x` in its own half and
-`dkf_dsk_vol_slot` in `.cold` directly now).
+`dsk_vol_slot_x` in `.cold` directly now - through `wm_cbd` with BP since
+kernel size pass 13, whose `dkf_dsk_vol_slot` far entry had no other caller).
 
 **A KNOB build's blob is a sector LONGER, and a shipped one's is not.** A knob
 kernel ships nowhere, so its boot may read one sector more where a shipped
@@ -31702,7 +31705,8 @@ The code, the three strings and the line buffer are all in `.ovl`. It is
 drawing code that exists for exactly as long as there is a loading screen to
 draw on: it arrives on the boot sector's own sector run, is claimed high by
 `ovl_relocate` (§2.5.1), and is freed by `kmain` the line after `drv_boot`
-returns. The resident cost is **`ovw_font_run_x`, four bytes**, plus the two
+returns. The resident cost was **`ovw_font_run_x`, four bytes** (none since
+kernel size pass 13: `spl_mdraw` reaches `font_run_x` through `spw_near`), plus the two
 `OVLCALL` sites. No `.text` rung, no `.bss`, no `KERN_BUDGET` step, and — while
 it fits the overlay's existing KB rung — not a byte of the RAM floor §2.5.1.1
 describes either.
@@ -31851,8 +31855,8 @@ reads as a hang — but nothing says what is being read.
 
 **§15.6's line cannot say it, and the reason is structural.** That line is one
 `font_run` into the framebuffer (§15.6.3) and `font_run` lives in `.text` —
-which is precisely what stage 2 is reading. `spl_mdraw`'s far call to
-`ovw_font_run_x` is the whole of the dependency, and there is no font either:
+which is precisely what stage 2 is reading. `spl_mdraw`'s far call into
+`font_run_x` (through `spw_near`) is the whole of the dependency, and there is no font either:
 `[font_seg]:[font_base]` is not set until `font_init` runs, in `kmain`.
 
 ##### 15.6.5.1 NOT BIOS teletype, and that is the measurement worth keeping
@@ -53899,7 +53903,7 @@ the record's is fronted with `inst_restore`, otherwise the boot volume is
 quiet-mounted, the loader is given the record's file inside `SYSTEM/`, and the
 user's volume and folder go back. A failure raises the kernel's one-line
 notice with the record's lead and the `LD_*` reason. `desk_click` is `.cold`
-and `ui_sys_open` is not, so it goes out through `cw_ui_svc_open` — with **no
+and `ui_sys_open` is not, so it goes out through the far body `cw_ui_svc_open` — with **no
 gfx lock held**, which is that routine's contract and why the deselect and its
 redraw happen inside their own lock hold first.
 
@@ -67988,7 +67992,7 @@ immediate back out of `build/kernel.bin` and asserts all twelve lengths —
 zero kernel bytes, and the only thing in the tree that covers the eleven the
 mask decides. `tests/dtfield.py` row 3 is February, which is the branch.
 **`clk_mlen` must not spend AH**: `clk_fld_adj` carries the ±1 step there
-across both `cw_clk_mlen` calls and `clk_step` opens `add al, ah`, so the
+across both `clk_mlen` calls and `clk_step` opens `add al, ah`, so the
 3-bytes-cheaper `mov ax, mask / shr ax, cl` form breaks the Date/Time ±
 button and nothing here would see it.
 
@@ -68337,7 +68341,10 @@ one caller's copy), so none of
 them can leave and none can become a `retf` body (§2.6.1). They get the
 ordinary `.text` thunk instead — **six of them, `cw_clk_mlen`,
 `cw_clk_put_mon`, `cw_clk_put2`, `cw_clk_put4`, `cw_clk_h12h`, `cw_clk_ampm`,
-24 bytes** — and the module far-calls those. Duplicating the six into the
+24 bytes** — and the module far-calls those. (Kernel size pass 13 retired the
+six: `CTRL.DRV` reaches the near bodies through its own `CPXK` hop,
+`ctrl.inc`'s `cp_kgo`, which is `fdlg.inc`'s `fdx_go` one image along, so
+the 24 bytes are back and the trade below still holds.) Duplicating the six into the
 image instead would have saved those 24 bytes and cost a second copy of
 `clk_mlen`, which is the leap-year rule with a range it is only exact over;
 24 bytes is not worth a second opinion about February.
@@ -73287,7 +73294,8 @@ collapse, which is the invariant kept by construction rather than by care.
 
 - **The Control Panel** (§31.10.2's arrangement row, inside `CTRL.DRV`, +50
   image bytes and no resident ones) calls `exf_sync`, then
-  `vid_disp_relayout`, then `exf_sync` again: the first loads before anything
+  `vid_disp_init`, `desk_rowcalc_x` and `wm_refit` - what `vid_disp_relayout`
+  was, written out in the image since kernel size pass 13 - then `exf_sync` again: the first loads before anything
   moves and the second drops after the collapse. A refusal skips the relayout
   and toasts the panel's own `Needs Sys Disk A:` (§2.8.4) — the panel is
   itself a module, so the system disk is normally in the drive at the click,
@@ -73295,7 +73303,7 @@ collapse, which is the invariant kept by construction rather than by care.
   Heap exhaustion gets the same words.
 - **The boot** (`drv_boot_x`, in `.ovl`, +5 bytes and none resident) calls it
   once, right after `SYSTEM.CFG`'s two arrangement bytes are stored and before
-  `vid_switch`/`cw_vid_disp_init` can extend — after `drvf_drv_mounted` and
+  `vid_switch`/`vid_disp_init` (through `spw_near`) can extend — after `drvf_drv_mounted` and
   the settings read that requests `DOCK.DRV`, and reaching nothing in `.ovlw`
   after that mount (os88ovlchk rule 2e). A Single machine drops an empty row and reads no disk.
   **A refused boot load is Single, with `SYSTEM.CFG` untouched** until the
@@ -92833,8 +92841,10 @@ unchanged and only the parser's own tables take `cs:`.
 - **`drv_cfgname` and `drv_sysname`.** `dskw_read`, `dskw_stat` and
   `dskw_write_sys` each read a filename through `DS` — a name in an image is a
   filename read out of the kernel at the image's offset.
-- **Four far entries**, sixteen bytes: `drvf_drv_vol_bank`, `drvf_drv_vol_back`,
-  `drvf_drv_mounted`, `drvf_ss_mins2idle`. A call out of an image is far.
+- **Three far entries**, twelve bytes: `drvf_drv_vol_bank`, `drvf_drv_vol_back`,
+  `drvf_drv_mounted` (`drvf_ss_mins2idle` was a fourth until kernel size pass
+  13: the boot's reader reaches `ss_mins2idle` through `wm_cbd`). A call out
+  of an image is far.
 
 **Written once, emitted twice.** `CFG_DATA` / `CFG_SHARED` / `CFG_BOOT` /
 `CFG_SAVE` are macros taking the image's label prefix, and the two
@@ -129237,7 +129247,8 @@ nothing, which is the shape §2.8.4 refuses. So the button reports out of
 already borrows for the same reason: one set of words for *no system disk*,
 *not on the system disk*, *not a valid driver* and *not enough memory* is one
 less thing for the reader to map. `drv_load_at` has already written the cause
-into `ss_row`'s `DRVR_ERR` by the time `ssf_cfg` answers CF = 1, so naming it
+into `ss_row`'s `DRVR_ERR` by the time `ss_open` (`SSV_CFG`, which the panel
+calls through its `CPXC` hop) answers CF = 1, so naming it
 costs one byte read and no string of its own.
 
 **A refusal that is not about the disk does not say the disk**, which is

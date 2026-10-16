@@ -582,7 +582,8 @@ vid_reboot:
 ; 2.9.6), which stage 1 reads before it jumps and kmain gives back after
 ; spl_finish - so this is drawing code that exists for exactly as long as there
 ; is a loading screen to draw on, and then stops existing. The resident cost is
-; 4 bytes (ovw_font_run_x) plus the two SPLCALL sites.
+; 4 bytes (ovw_font_run_x, since kernel size pass 13 spw_near's `call bp`
+; and no shim at all) plus the two SPLCALL sites.
 ;
 ; **That is only possible since SPEC.md 2.5.1.** The overlay used to BE the FAT
 ; window, so the first mount ate it - and drv_boot's own mount is the very
@@ -861,10 +862,13 @@ spl_mdraw:
     mov es, ax                  ; font_run_x is the ES:SI entry
     mov si, spl_mline
     mov ax, (CBLACK << 8) | CWHITE
-    call KERNEL_SEG:ovw_font_run_x  ; ONE opaque run: ink white, ground black,
+    push bp                     ; (every register kept: spw_near takes the
+    mov bp, font_run_x          ; routine in BP)
+    call KERNEL_SEG:spw_near    ; ONE opaque run: ink white, ground black,
                                 ; which is the loading screen on all three
                                 ; adapters whatever the theme says about a
                                 ; desktop that has not been drawn yet
+    pop bp
     dec byte [spl_busy]
     pop es
     pop si
@@ -1679,7 +1683,8 @@ vid_ctx_init:
     mov es, cx
     mov word [vid_ndisp], 1     ; one display, display 0 current (a pair)
     xor al, al
-    call KERNEL_SEG:cw_vid_ctx_ptr
+    mov bp, vid_ctx_ptr         ; (spw_near's `call bp`: kmain_o, the one
+    call KERNEL_SEG:spw_near    ; caller, holds nothing in BP)
     xor ax, ax                  ; display 0 sits at the virtual origin
     mov [es:di+VID_CTX_VX], ax
     mov [es:di+VID_CTX_VY], ax
@@ -2166,11 +2171,9 @@ vid_span_one:
 ; nothing, and wm_init has not run yet - so wm_refit there would clamp records
 ; whose used bit is whatever the machine left in memory.
 ; -----------------------------------------------------------------------------
-vid_disp_relayout:
-    call vid_disp_init
-    call desk_rowcalc
-    call wm_refit
-    retf
+; (THE BODY IS CTRL.DRV's since kernel size pass 13: the Display page was its
+; one caller, and it now makes the three calls itself - ctrl.inc, the
+; arrangement's click - through its CPXK hop, with desk_rowcalc_x far)
 
 ; -----------------------------------------------------------------------------
 ; vid_desk_union - the desktop spans every display (SPEC.md 39.16)

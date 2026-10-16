@@ -3858,10 +3858,8 @@ ovw_sch_fast_on:    call sch_fast_on
 ovw_band_init:      call band_init
                     retf
 %endif
-%ifdef DOCK_OPT
-ovw_dock_geom:      call dock_geom
-                    retf
-%endif
+; (ovw_dock_geom went in kernel size pass 13: vid_init, in the blob, reaches
+; dock_geom through spw_near with the BP it already banks)
 ; ...and the MOUSE's (SPEC.md 9.4.7). mouse_init's boot half is in the
 ; overlay and everything mou_hotplug or mouse_unhook can reach stayed resident,
 ; so the port writers the probe uses and the round counter it resets are edges
@@ -3890,11 +3888,9 @@ ovw_mou_lockon:     call mou_lockon     ; ...and one for SPEC.md 9.11:
                                         ; nothing can reach
 %endif
 %endif
-ovw_font_run_x:     call font_run_x     ; SPEC.md 15.6's status line composes
-                    retf                ; into the OVERLAY, so its string is
-                                        ; reached ES:CS and not through DS -
-                                        ; which is font_run_x's entry and not
-                                        ; font_run's
+; (ovw_font_run_x went in kernel size pass 13 too: spl_mdraw, its one caller,
+; reaches font_run_x - the ES:SI entry, since SPEC.md 15.6's status line is
+; composed into the OVERLAY and reached ES:CS - through spw_near)
 
 ; ...AND THE CLOCK'S FIVE ARE DOWN TO TWO (SPEC.md 37.94). The five were port
 ; helpers that the READ path (overlay) and the WRITE path shared, and the
@@ -4440,7 +4436,8 @@ kmain_o:
                                 ; there
     MARKW 10
 %ifdef KERN_BIG
-    call KERNEL_SEG:cw_vid_disp_init          ; ...and if it has BOTH mono cards, programme
+    mov bp, vid_disp_init       ; (spw_near: kmain_o holds nothing in BP)
+    call KERNEL_SEG:spw_near    ; ...and if it has BOTH mono cards, programme
                                 ; the second one too (SPEC.md 39.13). Here
                                 ; because [vid_avail] is what decides, so this
                                 ; is the earliest it can run; it claims nothing
@@ -5947,34 +5944,31 @@ MARK_FNVEC  equ $ - mark_fvec
 ; =============================================================================
 cw_app_launch:          call app_launch
                     retf
-cw_app_close_win:       call app_close_win  ; the Standard File chooser's
-                    retf                ; close (SPEC.md 38.7)
+%ifndef KERN_SMALL              ; (kern_small: FDLG.DRV's fdt_go, kernel size
+cw_app_close_win:       call app_close_win  ; pass 13) the Standard File chooser's
+%endif
+cw_kretf:           retf                ; close (SPEC.md 38.7) - AND cw_kretf,
+                                        ; THE .text `retf` an image's hand-built
+                                        ; far hop lands a near `ret` on: DOCK.DRV's
+                                        ; dkk_* stubs, EXTD.DRV's exk_go and
+                                        ; CTRL.DRV's cp_kgo. It was a byte of its
+                                        ; own, kern_big's alone (DOCK_OPT); this
+                                        ; one is on both kernels and costs none
+                                        ; (kernel size pass 13). Nothing may go
+                                        ; between the call and it: cw_app_close_win
+                                        ; IS the near call and this retf
 cw_clk_snapshot:        call clk_snapshot
                     retf
 
-; --- ...and the six the Date/Time page's editor needs (SPEC.md 37.93) -------
-; clk_fld_str and clk_fld_adj moved into CTRL.DRV, and these are everything
-; they reach on the way. Not one of them could go with them: clk_fmt draws
-; the menu bar from five of these and clk_inc_sec's day carry reaches the
-; sixth, so all six keep a RESIDENT near caller and none can become a retf
-; body (SPEC.md 2.6.1). 329 bytes of .text left and 24 came back, so the move
-; is 305; duplicating the six into the image instead would have saved those
-; 24 and cost a second copy of clk_mlen, which is the leap-year rule.
-cw_clk_mlen:            call clk_mlen
-                    retf
-cw_clk_put_mon:         call clk_put_mon
-                    retf
-cw_clk_put2:            call clk_put2
-                    retf
-cw_clk_put4:            call clk_put4
-                    retf
-cw_clk_h12h:            call clk_h12h
-                    retf
-cw_clk_ampm:            call clk_ampm
-                    retf
-cw_cur_unlazy:          call cur_unlazy     ; gfx_blit1_x's (SPEC.md 5.4.2), and
-                    retf                    ; on BOTH builds since 5.4.2.5's
-                                            ; decision was reversed
+; (...and the six the Date/Time page's editor reached here - cw_clk_mlen,
+; _put_mon, _put2, _put4, _h12h, _ampm - went in kernel size pass 13: CTRL.DRV
+; reaches the near bodies through its own CPXK hop, ctrl.inc's cp_kgo, so the
+; 24 bytes SPEC.md 37.93 paid for them are back and there is still one copy
+; of clk_mlen, the leap-year rule)
+%ifdef KERN_SMALL
+cw_cur_unlazy:          call cur_unlazy     ; gfx_blit1_x's (SPEC.md 5.4.2), on
+                    retf                    ; kern_small; kern_big's one caller
+%endif                                      ; is DOCK.DRV, through spw_near
 %ifdef KERN_BIG
 cw_cur_lazyrect:        call cur_lazyrect   ; ...and SPEC.md 7.1.4.5's rect
                     retf                    ; form, which is the one a BAND asks
@@ -6014,12 +6008,6 @@ cw_thm_desk equ apic_thm_desk   ; THE CELL IS THE DOOR (size pass 13): the
 %ifdef DOCK_OPT
 cw_dock_band:           call dock_band
                        retf
-cw_kretf:           retf                    ; DOCK.DRV's dkk_* stubs return
-                                            ; through this. (cw_dock_apply
-                                            ; fell into it until size pass 9:
-                                            ; the Dock page and the settings
-                                            ; reader far-call dkf_apply now,
-                                            ; whose own return is far)
 cw_gfx_clip_query:      call gfx_clip_query ; CLIPQF: shared region query
                     retf                    ; from .cold (SPEC.md 30.6.1)
 %endif
@@ -6042,8 +6030,6 @@ cw_gfx_lock equ apic_gfx_lock   ; THE CELL IS THE DOOR (size pass 13): a lock
                                 ; is per OPERATION, so the cell's DS bank is
                                 ; ~50 cycles a lock and the shim was 4 bytes
 cw_gfx_pen_cf equ apic_gfx_pen_cf ; THE CELL IS THE DOOR (size pass 9)
-cw_gfx_pen_live:        call gfx_pen_live
-                    retf
 cw_gfx_rowbase:         call gfx_rowbase
                     retf
 cw_gfx_unlock equ apic_gfx_unlock ; THE CELL IS THE DOOR (size pass 13)
@@ -6057,8 +6043,10 @@ cw_icon_draw16:         call icon_draw16
                     retf
 cw_inst_find_kind:      call inst_find_kind
                     retf
+%ifndef KERN_SMALL              ; (kern_small: FDLG.DRV's FDKT hop)
 cw_inst_fhome_idx:      call inst_fhome_idx
                     retf
+%endif
 cw_inst_win_owner:      call inst_win_owner
                     retf
 ; ...and the instance store's. (apps.inc's three kinds had three more here -
@@ -6071,22 +6059,22 @@ cw_inst_ptr:            call inst_ptr
 cw_mem_disp equ spw_near        ; `call bp` / `retf` - viddet.inc's splash door
                                 ; is the same three bytes, and it stays where
                                 ; SPL_RESIDENT needs it (size pass 10)
-cw_menu_activate:       call menu_activate
-                    retf
+%ifndef KERN_SMALL              ; (kern_small: FDLG.DRV's FDKT hop - and so
+cw_menu_activate:       call menu_activate  ; are menu_draw_bar and wm_pkgcall
+                    retf                    ; below; DESK.DRV and DOCK.DRV
+%endif                                      ; keep them on kern_big)
 ; ...and menu_kbnav's two, which went cold with it (SPEC.md 12.10)
 cw_menu_item_dis:       call menu_item_dis
                     retf
 cw_mou_clamp:           call mou_clamp
                     retf
-; ...and the BOOT OVERLAY's (docs/plans/LAST-DROP-BYTES.md rows 15 and 17):
-; dock_init and menu_init moved into `.boot2`; menu_init has exactly one
-; outbound call left, and dock_init now has NONE - what it asked cw_dock_force
-; for was "the whole strip is owed", which is two words it writes itself, so
-; the shim went with the call.
-cw_menu_relayout:       call menu_relayout
-                    retf
+; (...and the BOOT OVERLAY's: menu_init's one outbound call, cw_menu_relayout,
+; is spw_near's `call bp` since kernel size pass 13 - and dock_init has none,
+; what it asked cw_dock_force for being two words it writes itself)
+%ifndef KERN_SMALL
 cw_menu_draw_bar:       call menu_draw_bar
                     retf
+%endif
 cw_menu_popup:          call menu_popup
                     retf
 cw_snd_beep:            call snd_beep
@@ -6096,8 +6084,10 @@ cw_snd_disp_set:        call snd_disp_set
 %ifdef KERN_BIG                 ; its callers are kern_big only
 cw_task_exit equ task_exit      ; NEVER RETURNS - cw_inst_task_die's reason
 %endif
-cw_task_spawn:           call task_spawn
+%ifndef KERN_SMALL              ; (drv_task_x's; kern_small's one caller,
+cw_task_spawn:           call task_spawn ; sch_idle_start, uses spw_near)
                      retf
+%endif
 cw_task_yield equ apic_task_yield ; THE CELL IS THE DOOR (size pass 13)
 cw_toast_show equ apic_toast_show ; THE CELL IS THE DOOR (size pass 9)
 %ifdef KERN_BIG
@@ -6112,27 +6102,16 @@ cw_drv_pkg_call equ apic_drv_pkg_call ; ...and its PAINT, which is the same
 %endif
 cw_vga_xor_rect_vram:   call vga_xor_rect_vram
                     retf
-cw_vid_avail_test:      call vid_avail_test
-                    retf
-%ifdef KERN_BIG                 ; vid_disp_init is dual display's and so is
-                                ; its shim - cw_vid_dual_ok below already had
-                                ; the guard and this one was missed, so
-                                ; kern_small stopped assembling entirely
-cw_vid_disp_init:       call vid_disp_init
-                    retf
-%endif
+; (cw_vid_disp_init went in kernel size pass 13: its two callers, kmain_o and
+; drv_boot_x, are the blob's and reach vid_disp_init through spw_near)
 %ifdef KERN_BIG
 ; vidsel.inc's whole dual-display half is inside one %ifdef KERN_BIG, so these
 ; bodies do not exist in the small build.
-cw_vid_dual_ok:         call vid_dual_ok
-                    retf
-; ...and these two are the BOOT OVERLAY's, not cold code's: vid_ctx_init went
-; into `.boot2` (docs/plans/LAST-DROP-BYTES.md row 13) and calls both. They are `cw_`
-; rather than `ovw_` for the reason the clock's pair is - `ovw_` names the
-; overlay, and what these actually name is "resident, reached from another
-; address space", which is the same shim whichever side asks.
-cw_vid_ctx_ptr:         call vid_ctx_ptr
-                    retf
+; ...and this one is the BOOT OVERLAY's and EXTD.DRV's: vid_ctx_init went
+; into the overlay (docs/plans/LAST-DROP-BYTES.md row 13) and calls it, and so
+; does the Extend. It is `cw_` rather than `ovw_` for the reason the clock's
+; pair is. (cw_vid_ctx_ptr, vid_ctx_init's other one, is spw_near's `call bp`
+; since kernel size pass 13.)
 cw_vid_ctx_capture:     call vid_ctx_capture
                     retf
 ; ...and EXTD.DRV's one hop that is on OSAPI_WM_DISPLAY's path (wm_disp_now's
@@ -6198,8 +6177,10 @@ cw_wm_paint_all:        call wm_paint_all
                     retf
 cw_wm_paint_dmg:         call wm_paint_dmg
                      retf
+%ifndef KERN_SMALL
 cw_wm_pkgcall:          call wm_pkgcall
                     retf
+%endif
 cw_wm_show equ apic_wm_show ; THE CELL IS THE DOOR (size pass 9)
 %ifdef WM_ANIM
 cw_inst_unmin:          call inst_unmin

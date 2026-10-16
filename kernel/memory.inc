@@ -490,7 +490,8 @@ mem_init_x:
     cld
     rep stosb
 
-    call COLD_SEG:memf_mem_floor_ax           ; THE FLOOR (SPEC.md 39.22), and it is a proc
+    mov bp, mem_floor_ax        ; (wm_cbd, BP: kmain_o holds nothing in it)
+    call COLD_SEG:wm_cbd        ; THE FLOOR (SPEC.md 39.22), and it is a proc
                                 ; rather than eight instructions here because
                                 ; mem_unblob below has to arrive at the same
                                 ; answer - two copies of a conditional whose
@@ -614,11 +615,9 @@ mem_unblob_x:
 ; vid_probe_avail runs before mem_init in kmain, which is what makes the bit
 ; readable at all.
 ; -----------------------------------------------------------------------------
-; ...and the far entry the BOOT OVERLAY reaches it through (SPEC.md 2.5.2):
-; mem_init_x is in the blob and mem_floor_ax is not, mem_unblob_x still
-; near-calling it from `.cold`.
-memf_mem_floor_ax:  call mem_floor_ax
-                    retf
+; mem_init_x, in the boot overlay (SPEC.md 2.5.2), reaches it through wm_cbd
+; with BP = mem_floor_ax (kernel size pass 13: it had a far entry of its own,
+; memf_mem_floor_ax); mem_unblob_x still near-calls it from `.cold`.
 
 mem_floor_ax:
 %ifdef ROM_COLD

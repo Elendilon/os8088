@@ -6223,14 +6223,8 @@ os88ui_btn_f:
 os88ui_arm_f:
     call os88ui_arm
     retf
-os88ui_fire_f:
-    call os88ui_fire
-    retf
-os88ui_armed_f:
-    call os88ui_armed
-    retf
 %endif
-os88ui_glyph_f:
-    call os88ui_glyph
-    retf
+; (os88ui_fire_f, os88ui_armed_f and os88ui_glyph_f went in kernel size pass
+; 13: the Control Panel was their one caller, and CTRL.DRV reaches the near
+; bodies through its own CPXC hop - ctrl.inc's cp_cgo - for no resident byte)
 %endif

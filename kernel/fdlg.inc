@@ -148,6 +148,10 @@ FDE_TOP     equ 4
   %macro FDK 1
     call KERNEL_SEG:%1
   %endmacro
+  %macro FDKT 1                 ; a near .text routine with no other caller on
+    call fdt_go                 ; this build: fdx_go's hop into KERNEL_SEG,
+    dw %1                       ; so it needs no resident cw_ shim (kernel
+  %endmacro                     ; size pass 13)
   %macro FDRET 0
     retf
   %endmacro
@@ -160,6 +164,9 @@ FDE_TOP     equ 4
   %endmacro
   %macro FDK 1
     call ct_ %+ %1
+  %endmacro
+  %macro FDKT 1                 ; ...which on kern_big is the shim, kept for
+    call KERNEL_SEG:cw_ %+ %1   ; its other callers (DOCK.DRV, DESK.DRV)
   %endmacro
   %macro FDRET 0
     ret
@@ -234,6 +241,19 @@ fdk_di:     pop di
 ; kern_small's `.cold`, at ~300 cycles a hop on a dialog's open, a click or a
 ; commit; the frame at the body's entry is the six bytes the thunk's was, and
 ; the peak inside this routine is 14 above the call.
+; fdt_go is the same hop into KERNEL_SEG (FDKT): the segment slot is DS's,
+; the near return cw_kretf, and the tail is fdx_go's own (kernel size pass 13,
+; for the five resident cw_ shims only this image called).
+fdt_go:                         ; ovlchk: builds its own far frame
+    push ax                     ; STKBALANCE-OK: fdx_go's frame, its target's
+    push ax                     ; return through cw_kretf. The segment slot is
+    push ds                     ; PUSHED: DS is KERNEL_SEG throughout the image
+    push ax
+    push bp
+    mov bp, sp
+    push bx
+    mov bx, cw_kretf
+    jmp short fdx_go.t
 fdx_go:                         ; ovlchk: builds its own far frame
     push ax                     ; STKBALANCE-OK: a far frame built by hand, its
     push ax                     ; four slots spent by the RETF below and by the
@@ -242,10 +262,12 @@ fdx_go:                         ; ovlchk: builds its own far frame
     push bp
     mov bp, sp                  ; [bp+2] offset, [bp+4] segment, [bp+6] the
     push bx                     ; near return, [bp+8] the far return's offset
-    mov bx, [bp+10]             ; and [bp+10] the call's own return, which
-    mov [bp+10], cs             ; becomes the far return's CS
-    mov word [bp+6], cold_kretf
-    mov word [bp+4], COLD_SEG
+    mov word [bp+4], COLD_SEG   ; and [bp+10] the call's own return, which
+    mov bx, cold_kretf          ; becomes the far return's CS
+.t:
+    mov [bp+6], bx
+    mov bx, [bp+10]
+    mov [bp+10], cs
     lea bx, [bx+2]              ; past the `dw`
     mov [bp+8], bx
     mov bx, [cs:bx-2]           ; ...which names the target
@@ -404,7 +426,7 @@ fdlg_seed:
 fdlg_hidx:
     push di
     mov di, [fdlg_rqrec]
-    call KERNEL_SEG:cw_inst_fhome_idx
+    FDKT inst_fhome_idx
     pop di
     push ax
     mov al, INST_FNSZ
@@ -543,11 +565,11 @@ FDBODY fdlg_reap_x
     jne .gone                   ; ...or torn down already: the close box did it
     cmp [di+I_SPTR], si         ; ...and it is still the CHOOSER's: a window
     jne .gone                   ; slot is reused, a pool block names one role
-    call KERNEL_SEG:cw_app_close_win ; frees the cache claim with the record
+    FDKT app_close_win          ; frees the cache claim with the record
 .gone:
     mov bx, [fdlg_rqwin]
-    call KERNEL_SEG:cw_menu_activate ; the bar goes back to the requester
-    call KERNEL_SEG:cw_menu_draw_bar
+    FDKT menu_activate          ; the bar goes back to the requester
+    FDKT menu_draw_bar
     pop dx
 %if FDA_COMMIT != 1
   %error "fdlg_reap tests the posted answer for FDA_COMMIT with dec"
@@ -651,7 +673,7 @@ FDBODY fdlg_reap_x
     mov si, [fdlg_rqwin]        ; window, DI = the name (ours - for a package
     mov di, fdlg_name           ; DS is its own segment and this buffer is in
                                 ; the kernel's, 20.1), DX:CX = the size
-    call KERNEL_SEG:cw_wm_pkgcall
+    FDKT wm_pkgcall
     pop bp
     pop es
     pop word [snd_inst]

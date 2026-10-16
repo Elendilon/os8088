@@ -803,8 +803,13 @@ sch_idle_start:
     mov cx, SCH_IDLE_STK        ; the smallest class: its own footprint is 4
                                 ; bytes and the rest is the floor (SPEC.md 8.7)
     mov dx, 0x00FF              ; DL -> T_INST = 0xFF, "owns no instance"
-    call KERNEL_SEG:cw_task_spawn ; FAR: `.boot2` -> resident, through the shim
-    jc .out                       ; driver.inc already needed
+%ifdef KERN_SMALL                ; FAR: `.ovl` -> resident. kern_small has no
+    mov bp, task_spawn          ; other caller, so spw_near's `call bp` (kmain_o
+    call KERNEL_SEG:spw_near    ; holds nothing in BP); kern_big shares the
+%else                           ; shim driver.inc's task path needs anyway
+    call KERNEL_SEG:cw_task_spawn
+%endif
+    jc .out
     mov [sch_idleslot], al      ; the ONE identifier for the idle task: the
                                 ; scan skips this index and the fallback picks
                                 ; it, and both need the index anyway.

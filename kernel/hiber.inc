@@ -336,7 +336,8 @@ hb_probe_x:
     call COLD_SEG:dkf_dsk_chdir_q
     jc .back
     mov si, hb_s_ptr
-    call COLD_SEG:drvf_drv_find ; the directory sectors themselves
+    mov bp, drv_find            ; (wm_cbd: kmain_o holds nothing in BP)
+    call COLD_SEG:wm_cbd        ; the directory sectors themselves
     jc .back
     mov byte [ui_rebootq], UI_RBQ_ASK
 .back:

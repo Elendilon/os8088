@@ -1380,7 +1380,8 @@ vid_init:                       ; the spw_near door the splash already needs
     mov bp, vid_apply           ; routine clobbers only flags
     call KERNEL_SEG:spw_near
 %ifdef DOCK_OPT
-    call KERNEL_SEG:ovw_dock_geom ; ...and the strip where the user put it
+    mov bp, dock_geom           ; (BP is banked above for spw_near already)
+    call KERNEL_SEG:spw_near    ; ...and the strip where the user put it
                                 ; (SPEC.md 30.5). HERE and never from
                                 ; vid_apply, which the splash reaches before
                                 ; dock.inc has come off the floppy

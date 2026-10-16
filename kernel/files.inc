@@ -9720,14 +9720,13 @@ section .cold                   ; far entries (SPEC.md 2.6): the resident
                                 ; thunks in kernel.asm far-call these, and
                                 ; these near-call the bodies above - so every
                                 ; routine here keeps its ordinary near `ret`
-; ...and one an on-demand MODULE calls rather than the kernel (SPEC.md 2.8.6):
-; FORMAT.DRV letters its own confirmation now and needs a decimal formatter to
-; do it. Six resident bytes against a second copy of real code in the image,
-; which is the one place that trade goes the other way.
-fmf_fm_utoa:            call fm_utoa
-                    retf
-fmf_fm_stage_onam:      call fm_stage_onam  ; the compressor's selection test
-                    retf
+; (...and fmf_fm_utoa, FORMAT.DRV's decimal formatter, went in kernel size
+; pass 13: the image reaches fm_utoa through wm_cbd, so a second copy of real
+; code is still not in it and neither is a resident far entry.)
+%ifdef KERN_SMALL               ; the compressor's selection test: DISKOPS.DRV
+fmf_fm_stage_onam:      call fm_stage_onam  ; is exactly 7 KB on kern_small,
+                    retf                    ; so it keeps the far entry there
+%endif                                      ; and takes wm_cbd on kern_big
 fmf_files_open:         call files_open_x
                     retf
                                         ; `call` nor `retf` touches it
