@@ -7294,6 +7294,11 @@ SK_COLD_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - COLD_PARA * 16)
 %if KLOW_SIZE + STK0_SIZE > 65536
 %error "lowbss + task 0's stack overflows one 64KB segment"
 %endif
+%ifdef OS88_SHORTCUTS
+%if SC_MAX * SC_REC > STK0_BOT
+%error "sc_walk tells a shortcut-table offset (below SC_MAX * SC_REC) from a link's record on task 0's stack (above STK0_BOT) by comparing it with SP - the table must end below the stack (SPEC.md 26.10.2)"
+%endif
+%endif
 ; 3b. menu_bar is a LITERAL byte count (.bss may not forward-reference), so
 ;    nothing makes it follow MENU_BARMAX. It gained a cell the day the app
 ;    name became a pull-down (SPEC.md 12.2); this is what catches the next one.

@@ -55080,12 +55080,16 @@ not resident at all.** It crossed one `.cold` rung, which is the rung's
 business and not the feature's (CLAUDE.md, §1's banner).
 
 **`sc_open` IS the link's open, split rather than copied.** `sc_walk` takes
-the volume and kind in AL/AH and the path at DI, in the segment named by the
-WORD `[sc_wsp]` points at: a shortcut's record is in a movable claim and
-is re-read through `[sc_seg]` at every component, and a link's is on the
-stack, whose segment is the constant `sc_lowseg`. So the path walk, the
-folder, package and document arms, and `Shortcut not found (B:)` are the
-shortcut's, byte for byte.
+the volume and kind in AL/AH and the path at DI, and **the offset says whose
+the record is**: below SP it is a shortcut's, in a movable claim and re-read
+through `[sc_seg]` at every component, and above SP it is a link's, on the
+stack, read through SS. A table offset is under `SC_MAX * SC_REC` and task
+0's stack, the one context that walks, is above `STK0_BOT` - kernel.asm's foot
+proves the second the larger - while `lnk_open` calls the walk from beneath
+its record. So the path walk, the folder, package and document arms, and
+`Shortcut not found (B:)` are the shortcut's, byte for byte. (It was a word
+of `.bss` naming a segment word and a `dw LOW_SEG` for the stack's, until
+kernel size pass 13.)
 
 #### 26.10.3 Opening one
 
