@@ -361,8 +361,8 @@ vp_entry:
     pop cx                          ; and EGA both
     pop bx
     jbe .ngrey
-    mov byte [vp_grey], 1
     mov al, 1
+    mov [vp_grey], al
     call OSAPI_WM_OWNBG
 .ngrey:
     pop ax
@@ -802,8 +802,7 @@ vp_dragx:
     jns .t
     xor ax, ax
 .t:
-    mov cx, [vp_lbw]
-    sub cx, VP_THW
+    sub cx, VP_THW - 1              ; (CX = [vp_lbw] - 1 above)
     cmp ax, cx
     jbe .u
     mov ax, cx
@@ -880,12 +879,11 @@ vp_seekto:
     cmp ax, [vp_kload]              ; its entry is what the play needs; a
     jne .fail                       ; picture that would not fit is only black
     mov [vp_sel], ax
-    call vp_fmt
-    jmp short .paint
+    jmp short .f
 .fail:
     mov word [vp_msg], vp_s_kbad
+.f:
     call vp_fmt
-.paint:
     mov bx, [vp_win]
     call OSAPI_WM_CLIP_SET
     jc .out
@@ -937,7 +935,7 @@ vp_cpname:
     or al, al
     jz .cpd
     loop .cp
-    mov byte [di], 0
+    mov [di], cl                    ; (CX = 0)
 .cpd:
     ret
 
@@ -17758,18 +17756,16 @@ vp_layfit:
     call vp_laynorm
     call vp_layA
 .a:
-    mov byte [vp_lbin], 0
+    mov al, 0
     jmp short .set
 .b:
-    mov byte [vp_lbin], 1
+    mov al, 1
 .set:
+    mov [vp_lbin], al
     mov [vp_ps], si
-    mov bx, [vp_lpw]                ; the box: the picture's width, and never
-    cmp bx, VP_MINBW                ; less than the button row wants
-    jae .bw
-    mov bx, VP_MINBW
-.bw:
-    mov [vp_lbw], bx
+    call vp_laybw                   ; the box: the picture's width, and never
+    mov [vp_lbw], ax                ; less than the button row wants
+    mov bx, ax
     mov ax, [vp_lph]
     add ax, [vp_lslk]               ; the picture's row goes down to a bank
     mov [vp_lbh], ax
@@ -18044,7 +18040,7 @@ vp_buttons:
     mov [vp_bflags+10], bx
     cmp byte [vp_lcard], 0          ; the card's button stands DOWN while the
     je .c                           ; card is out (OS88UI_LATCH)
-    or ax, OS88UI_LATCH
+    or al, OS88UI_LATCH
 .c:
     mov [vp_bflags+12], ax
     cmp word [vp_sel], 0
@@ -18140,28 +18136,26 @@ vp_pposter:
     mov ax, [vp_py]                 ; where it is drawn, from the content's
     sub ax, [vp_cy0]                ; origin: a drag moves the pixels by any
     mov [vp_ppoff], ax              ; number of rows, and the play looks
-    mov ax, [vp_pseg]               ; THE PICTURE: the poster, or a LIVE play's
-    mov [vp_qseg], ax               ; shadow - the frame it is on, at its own
-    mov ax, [vp_pbw]                ; size (98.3.10)
-    mov [vp_qbw], ax
-    mov ax, [vp_prows]
-    mov [vp_qrows], ax
+    mov dx, [vp_pseg]               ; THE PICTURE: the poster, or a LIVE play's
+    mov bx, [vp_pbw]                ; shadow - the frame it is on, at its own
+    mov ax, [vp_prows]              ; size (98.3.10)
     cmp byte [vp_lsess], 0
     je .q
-    mov ax, [vp_shseg]
-    mov [vp_qseg], ax
-    mov word [vp_qbw], 80
+    mov dx, [vp_shseg]
+    mov bx, 80
     mov ax, [vp_h]
-    mov [vp_qrows], ax
 .q:
-    cmp word [vp_qseg], 0
+    mov [vp_qseg], dx
+    mov [vp_qbw], bx
+    mov [vp_qrows], ax
+    or dx, dx
     je .black
-    mov ax, [vp_by2]                ; rows past the box - a picture made at
-    sub ax, [vp_py]                 ; another scale, between a relayout and
-    inc ax                          ; its reload - are not drawn
-    cmp ax, [vp_qrows]
+    mov cx, [vp_by2]                ; rows past the box - a picture made at
+    sub cx, [vp_py]                 ; another scale, between a relayout and
+    inc cx                          ; its reload - are not drawn
+    cmp ax, cx
     jbe .r
-    mov ax, [vp_qrows]
+    mov ax, cx
 .r:
     mov [vp_pdh], ax
     ; THE FRAME HUGS THE PICTURE (98.3.7): its row is on a bank, so up to
@@ -18226,15 +18220,11 @@ vp_pposter:
     call OSAPI_GFX_BLIT4
     jmp .out
 .b1:
-    call vp_blitb
+    call vp_blitb                   ; (every register kept)
     jnc .out
-    mov ax, [vp_px]                 ; refused: black where it would be
-    mov bx, [vp_py]
-    mov cx, ax
-    add cx, [vp_pdw]
+    add cx, ax                      ; refused: black where it would be
     dec cx
-    mov dx, bx
-    add dx, [vp_pdh]
+    add dx, bx
     dec dx
     call vp_fillne
     jmp short .out
@@ -18249,11 +18239,11 @@ vp_pposter:
     inc cx
     mov dx, [vp_by2]
     inc dx
-    call OSAPI_GFX_FRAME
-    mov ax, [vp_bx1]
-    mov bx, [vp_by1]
-    mov cx, [vp_bx2]
-    mov dx, [vp_by2]
+    call OSAPI_GFX_FRAME            ; (a kernel cell: every register kept)
+    inc ax                          ; ...and the box inside it
+    inc bx
+    dec cx
+    dec dx
     call vp_fillne
 .out:
     pop es
@@ -18526,14 +18516,8 @@ vp_ground:
     call vp_gcard
     call vp_ghole
 .fill:
-    mov ax, di
-    sub ax, vp_gh
-    mov cl, 3
-    shr ax, cl
-    mov [vp_ghn], ax
-    mov al, CLGRAY
-    call OSAPI_SET_COLOR
-    call vp_unfilled
+    mov bl, CLGRAY
+    call .fl
     cmp byte [vp_lcard], 0          ; THE CARD: white between its lines
     je .out
     call vp_gcard
@@ -18570,14 +18554,8 @@ vp_ground:
     jne .cf
     call vp_gbtns
 .cf:
-    mov ax, di
-    sub ax, vp_gh
-    mov cl, 3
-    shr ax, cl
-    mov [vp_ghn], ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    call vp_unfilled
+    mov bl, CWHITE
+    call .fl
 .out:
     pop di
     pop si
@@ -18586,6 +18564,15 @@ vp_ground:
     pop bx
     pop ax
     ret
+.fl:                                ; BL = a colour: [vp_gb] less the holes
+    xchg ax, di                     ; vp_gh to DI, filled in it (DI spent:
+    sub ax, vp_gh                   ; both callers set it again, or pop it)
+    mov cl, 3
+    shr ax, cl
+    mov [vp_ghn], ax
+    mov al, bl
+    call OSAPI_SET_COLOR
+    jmp vp_unfilled
 
 ; vp_gcard - AX,BX..CX,DX = the card's rect: its lines and, if they are in
 ; it, its buttons, with a margin round them - on the screen
@@ -18601,8 +18588,7 @@ vp_gcard:
     add dx, VP_CARDH - 1
     cmp byte [vp_lbin], 0
     je .r
-    mov dx, [vp_cy0]
-    add dx, VP_CARDHB - 1
+    add dx, VP_CARDHB - VP_CARDH
 .r:
     ret
 
