@@ -571,20 +571,32 @@ te_status:
 
 ; --- te_screen - every row of the terminal (a repaint owes all of them) -----
 te_screen:
-    call te_wscroll                 ; **A FULL PAINT MAY NOT SKIP A FRAME**: it
-                                    ; owes every row, and there is no next pass
-                                    ; that will come back for it. The hold is a
-                                    ; con_cmove of at most 2,000 cells, so the
-                                    ; wait is the gfx lock's own shape
+    ; --- te_wscroll, inline: wait out a half-done scroll (the w3 review's
+    ; MAJOR 1). **A FULL PAINT MAY NOT SKIP A FRAME**: it owes every row, and
+    ; there is no next pass that will come back for it. The hold is a
+    ; con_cmove of at most 2,000 cells, so the wait is the gfx lock's own
+    ; shape. OSAPI_TASK_YIELD and not a spin: the worker holds [con_scrbusy]
+    ; across one con_cmove and needs a slice to finish it, and this runs on
+    ; the UI task. BOUNDED, because a worker that died mid-scroll must not
+    ; take the UI task with it - 2,000 yields is far past any real hold.
+    push cx
+    mov cx, 2000
+.w:
+    cmp byte [con_scrbusy], 0
+    je .wout
+    call OSAPI_TASK_YIELD
+    loop .w
+.wout:
+    pop cx
     call con_markall
     cmp byte [tz_pan], 0
     je .rows                        ; a transfer is up: the panel has the
-    call tz_panel                   ; terminal's area and the marks just set are
-    ret                             ; what puts the text back afterwards
+    jmp tz_panel                    ; terminal's area and the marks just set are
+                                    ; what puts the text back afterwards
 .rows:
     call con_rows_owed
-    call con_takescroll              ; **AND THE SCROLL DEBT, WHICH IT DID NOT.**
-    ret                             ; Every row has just been drawn from the
+    jmp con_takescroll              ; **AND THE SCROLL DEBT, WHICH IT DID NOT.**
+                                    ; Every row has just been drawn from the
                                     ; buffer, so a pending "blit the pixels up
                                     ; by N" is not owed - and spending it is
                                     ; not harmless. con_scrollpaint moves the
@@ -600,24 +612,6 @@ te_screen:
                                     ; worker pass blits a screen that was
                                     ; already right
 
-; -----------------------------------------------------------------------------
-; te_wscroll - wait out a half-done scroll (the w3 review's MAJOR 1)
-; OSAPI_TASK_YIELD and not a spin: the worker holds [con_scrbusy] across one
-; con_cmove and needs a slice to finish it, and this runs on the UI task.
-; BOUNDED, because a worker that died mid-scroll must not take the UI task with
-; it - 2,000 yields is far past any real hold.
-; -----------------------------------------------------------------------------
-te_wscroll:
-    push cx
-    mov cx, 2000
-.w:
-    cmp byte [con_scrbusy], 0
-    je .out
-    call OSAPI_TASK_YIELD
-    loop .w
-.out:
-    pop cx
-    ret
 te_onup:                            ; ...and AX and BX are the only two
     push ax                         ; anything here writes: os88ui_btnup and
     push bx                         ; btndrag keep the rest, and so do
@@ -1683,8 +1677,8 @@ te_option:
     ; construction rather than by luck.
     mov si, te_will_naws            ; ...and the size, unasked: a client that
     mov cx, 12                      ; reported a NARROW window would have the
-    call te_reply                   ; host wrap its lines where the buffer is
-    jmp short .out                  ; not going to wrap them, and every line of
+    jmp short .reply                ; host wrap its lines where the buffer is
+                                    ; not going to wrap them, and every line of
 .willit:                            ; art after the first would be in the wrong
     mov al, T_WILL                  ; place. NAWS reports the BUFFER, always
     jmp short .say                  ; 80x25 (SPEC.md 70.8.10)
@@ -1696,27 +1690,19 @@ te_option:
     jmp short .say
 .mirror_dont:
     mov al, T_DONT
-.say:
-    call te_say3
+.say:                               ; IAC, AL, BL: one three-byte reply, whole
+    mov byte [te_say + 0], IAC      ; (it was te_say3, with this one caller)
+    mov ah, bl
+    mov [te_say + 1], ax
+    mov si, te_say
+    mov cx, 3
+.reply:
+    call te_reply
 .out:
     pop si
     pop cx
     pop bx
     pop ax
-    ret
-
-; --- te_say3 - IAC, AL, BL: one three-byte option reply, whole --------------
-te_say3:
-    push cx
-    push si
-    mov byte [te_say + 0], IAC
-    mov [te_say + 1], al
-    mov [te_say + 2], bl
-    mov si, te_say
-    mov cx, 3
-    call te_reply
-    pop si
-    pop cx
     ret
 
 ; --- te_say_ttype - `SB TTYPE IS "ANSI" SE`, ten bytes on the wire ----------
