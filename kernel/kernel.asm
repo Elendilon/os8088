@@ -1310,8 +1310,14 @@ section .modhb   nobits vfollows=.modh ; HIBER.DRV's own scratch: the DOS
 %ifdef FCP_MOD
   %define MOD_BSS 1             ; ...and THIS is what mod_need's zeroing hangs
                                 ; off: a build with no module bss has nothing
-                                ; to zero and must not carry the code. Widen it
-                                ; when a second module declares one.
+                                ; to zero and must not carry the code. FDLG.DRV
+                                ; declares the second (`.moddb`, kernel size
+                                ; pass 13) and FDLG_MOD is kern_small's exactly
+                                ; as FCP_MOD is, so one condition covers both;
+                                ; widen it if a module ever declares one alone.
+%ifndef FDLG_MOD
+ %error "MOD_BSS hangs off FCP_MOD and FDLG.DRV's .moddb needs it: they are one build's"
+%endif
 section .modp    start=MODP_START vstart=0
 ; ...AND ITS OWN BSS (docs/plans/MODULE-SELFCONTAIN-PLAN.md 3.1). A module runs
 ; from a heap claim and mod_need sizes that claim in whole KB
@@ -1329,6 +1335,9 @@ section .modpb   nobits vfollows=.modp
 %endif
 %ifdef FDLG_MOD
 section .modd    start=MODD_START vstart=0
+section .moddb   nobits vfollows=.modd ; FDLG.DRV's own scratch: one dialog's
+                                ; state (fdlg.inc), zeroed by mod_need with the
+                                ; rest of the claim's tail (kernel size pass 13)
 %endif
 %ifdef DOCK_OPT
 section .modk    start=MODK_START vstart=0
@@ -7019,6 +7028,9 @@ MODP_BSS equ modpb_end - $$
 section .modd
 modd_end:
 MODD_SIZE equ modd_end - $$
+section .moddb
+moddb_end:
+MODD_BSS equ moddb_end - $$
 %endif
 
 ; ...and each of them has to fit the claim mod_need makes for it. MOD_MAX_KB
@@ -7067,6 +7079,9 @@ MODD_SIZE equ modd_end - $$
 %ifdef FDLG_MOD
  %if MODD_SIZE > MOD_MAX_KB*1024
 %error "the file dialog module is over MOD_MAX_KB - mod_need would refuse it at run time"
+ %endif
+ %if MODD_SIZE + MODD_BSS > ((MODD_SIZE + 1023) / 1024) * 1024
+%error "FDLG.DRV's bss does not fit its claim's KB rounding - see MODULE-SELFCONTAIN-PLAN 3.2"
  %endif
 %endif
 

@@ -68829,6 +68829,13 @@ role one block plays):
 | `fdlg_name` | the name handed back, 13 bytes |
 | `fdlg_sdrv`, `fdlg_scwd` | where the chooser opened (§38.10's seed) and, from the close on, where it stood |
 
+On kern_small, where the dialog's code is `FDLG.DRV` (§38.0), every row but
+`fdlg_win`, `fdlg_blk`, `fdlg_ttl` (the caption `fm_kinit` adopts) and
+`fdlg_name` is the IMAGE's bss - `.moddb`, in the claim's KB rounding, zeroed
+by `mod_need` with the rest of it and read `[cs:x]` (kernel size pass 13: 16
+resident bytes). `fdlg_open` writes every one of them before anything reads
+it, and `fdlg_reap_x` drops the image only once no chooser is up.
+
 **The Save form's name box is the Disk window's line editor**, as status-line
 edit mode **8** (`Save as:`, §22). Typing, Backspace and the 8.3 filter are
 `fm_editkey`'s, so the box accepts exactly the bytes `dskw_name83` will store
