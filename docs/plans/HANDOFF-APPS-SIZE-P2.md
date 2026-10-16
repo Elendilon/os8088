@@ -42,7 +42,7 @@ disk needs it. One session per set; one agent per package inside it.
 | set | relieves | packages | status |
 |---|---|---|---|
 | **A** | the system disk | `dos`, `paint`, `notepad`, `deskcal`, `thewire`, `taskmgr`, `fontview`, `rlapply`, `mines` | **done** - docs/reports/APPS-SIZE-P2-SETA-2026-10-16.md |
-| **B** | the apps disk: network and office | `browser`, `ftpd`, `telnet`, `OS88NET.COM` (`drivers/net/os88net.asm`, the DOS end of NET.DRV - SPEC.md 62.12; the one file under `drivers/` a set may edit), `texpad`, `artful`, `audio`, `calc` | **claimed** - session 011caEC6F27qkiqgaFFmYJh3, 2026-10-16 |
+| **B** | the apps disk: network and office | `browser`, `ftpd`, `telnet`, `OS88NET.COM` (`drivers/net/os88net.asm`, the DOS end of NET.DRV - SPEC.md 62.12; the one file under `drivers/` a set may edit), `texpad`, `artful`, `audio`, `calc` | **done** - docs/reports/APPS-SIZE-P2-SETB-2026-10-16.md |
 | **C** | the apps disk: games | `tracker`, `wireball`, `tank`, `cyclone`, `missile`, `arkanoid`, `solitaire`, `tamegram` | **done** - docs/reports/APPS-SIZE-P2-SETC-2026-10-16.md |
 | **D** | the apps disk: the owner-constrained and the small | `skies`, `video`, `fractal`, `piano`, `timer`, `midirack`, `chart` | **claimed** - session 01LNUrZS6bEfiBG3rnKx8gsX, 2026-10-16 |
 | **E** | the office and games disks | `pixel`, `pixelstein`, `word`, `drmario` (with `DRMARCO.VGA`/`.HRC`/`.CGA`), `isotron`, `dotdel`, `gorillas` | open |
@@ -326,10 +326,35 @@ every set's list into one ranked table here (6) for the owner to pick from.
 | set | report | free clusters gained (system 360 / apps 360 / other) |
 |---|---|---|
 | A | docs/reports/APPS-SIZE-P2-SETA-2026-10-16.md | system +1, network +1, small360 +3, smallapps360 +3; apps360 +0 (-2,138 B off the system disk's full arms) |
-| B | - | - |
+| B | docs/reports/APPS-SIZE-P2-SETB-2026-10-16.md | 0 / **+22** / office +12, games +12, small360 +17, smallapps360 +17, network +4 - the code pass is -3,509 file bytes, the rest is the owner's LZB decision (6.2) |
 | C | docs/reports/APPS-SIZE-P2-SETC-2026-10-16.md | 0 / +3 / games360 +3, small360 +3, smallapps360 +3 (-2,610 file bytes across 8 packages; image + bss -2,561) |
 | D | - | - |
 | E | - | - |
+
+### 6.2 What set B changed for EVERY set: thirteen builds ship LZB
+
+**The owner decided, mid-set B, that a package whose disks matter more than
+its launch ships LZB** (SPEC.md 20.13.5). The test is that LZB saves it a
+1KB cluster on the 360KB disks it rides; Paint, Note Pad and the Task
+Manager stay LZ4 whatever it would save them, because they open the common
+documents and must stay quick. On the tree set B landed on, that is
+ArtfulType, Calculator (both arms), Cyclone, Dot Delirium, Missile, Sheet, Solitaire, TameGram, Tank (both arms), TeXPad and WireBall - set C's
+and set E's packages among them, by their Makefile rule only. **Arkanoid was
+on the list and came OFF at set B's landing**: set C's pass took its LZ4 file
+to 5 clusters, the same as LZB's, and `lzbclust` failed on it - which is the
+row working.
+
+- **The list is `LZBPKGS` in the Makefile** and the packer `$(OS88PKGB)`. It
+  falls back to LZ4 on a `COMPRESS=lz4` kernel, which carries no LZB decoder.
+- **A set that shrinks a listed package must re-run `soak -k lzbclust`**:
+  it fails any listed package whose LZB file no longer saves a cluster, and
+  `--candidates` lists the LZ4 ones it would now save one for. Measured on
+  ArtfulType, LZB costs **+541 ms on a first launch** off a 360KB floppy -
+  paid for nothing once the cluster is gone.
+- **Measure an LZB package's savings packed LZB**: a code byte saved under
+  LZB is worth slightly less file than under LZ4, and an LZ4-shaped
+  re-encode can be WORSE under LZB (ArtfulType's splash: -88 under LZ4,
+  +121 under LZB, not taken).
 
 ### 6.1 What set A learned that the other sets can use
 
