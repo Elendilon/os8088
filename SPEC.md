@@ -88662,6 +88662,65 @@ pixel outside the matrix, or erasing at the paint's inset, ends it; either
 changes the picture and is the owner's call. `OS88_STACK_256` stays: docs/FIELD-NOTES.md 42 is why a game's
 class is not cut to its quiet-machine reading.
 
+### 49.9 The second size pass: the FILE, for the disk
+
+Apps size pass 2 (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures the shipped,
+LZ4-packed `TAMEGRAM.O88` rather than image + bss, because the 360KB disks it
+rides are full. Nothing on the screen changes and no hot path gains an
+instruction; `tests/tgplay.py` (soak `tgplay`, `--ref` for the cycles) and
+`tests/tgui.py` (soak `tgui`) are the rows it is held to.
+
+- **Every branch is a short one.** Fifteen conditional branches had a target
+  out of reach - most of them to the one `tg_ret` - so each assembled as an
+  inverted short branch over a three-byte `jmp`. Each now takes the nearest
+  `ret` (`tg_fret`, the `.ret`/`.out` of the routine beside it), `tg_newgame`
+  sits beside `tg_act`, `tg_toggle_halt` ends at `tg_owe` (the tail of
+  `tg_panel_off`, `tg_owefull` with CF = 1, which no caller reads), the
+  Protocol items share `tg_onkey`'s `call tg_act` / repaint tail, and the
+  board walk follows `tg_draw_all`. Two tail jumps became fall-throughs:
+  `tg_cell_fill` into `tg_fillc` (a `jmp` fewer for every cell drawn) and the
+  banner into `tg_str`; and `tg_tryshift` follows `tg_nudge`, so a strafe
+  along a row falls into it (a further -1 file byte). A routine-by-routine
+  disassembly against the base differs ONLY in those branches and in moved
+  addresses.
+- **The panel test is made once a tick.** `tg_update` and `tg_frame` each
+  opened by asking whether a panel was up; `tg_worker` asks once, inside the
+  lock, and skips both - nothing between them can raise a panel. 7 image
+  bytes, 1 file byte (LZ4 had been matching the repeat), and a test fewer
+  on every tick.
+- **The whole repaint, 13 file bytes and ~600 cycles cheaper.** The HUD
+  table stores a column in PIXELS where it stored it divided by 8 - which
+  cost a `mul` a field, ten a repaint, to undo - and `TG_HUDF` refuses a
+  column that is not a multiple of 8 as the division did (the row comes
+  first now and a 0 row ends the table). The two full-width fills, the black
+  below the band and the band itself, share `tg_band`; the board's frame and
+  walk are `tg_draw_all`'s own middle instead of a call. Same calls, same
+  order, same pixels; two `call`/`jmp` pairs more against ten `mul`s fewer.
+- **Three clamps that never fired.** `tg_track` clamped the matrix's left
+  edge at 0, but a cell is at most `[tg_cwid]`/32 so the matrix is never
+  wider than the box; the banner's centring clamped at 0 a pen `tg_str`
+  drops anyway (a negative one is dropped the same way, so `sar` replaces
+  the clamp and the shift); and the entry proc floored the REQUESTED cell at
+  1, which no desktop band reaches - `tg_track`'s floor is the one that
+  guards the drawing. Every frame's `tg_track` loses a taken branch.
+- **The template's four words are stored in order.** The entry proc wrote
+  `WT_W`, `WT_H`, `WT_X`, `WT_Y` one `mov` each and divided by 3 in 16
+  bits; it computes them into registers and `stosw`s them in template order,
+  and the third is an 8-bit `div` (what the frame leaves of the desktop
+  band is under 160 rows). Checked against the old arithmetic for every
+  dock row 100-480 at 320, 640 and 720 wide: the same four words.
+- **The UI half, tightened.** `tg_look` compares against DH, which is where
+  the scan code already is, so the key no longer needs turning round;
+  `tg_toggle_halt` swaps AL and AH instead of copying each way (resuming
+  leaves PAUSE as the remembered mode, which nothing reads before the next
+  halt rewrites it); `tg_act`'s two flag flips are one `xor` through BX.
+- **Two register saves nobody needed.** `tg_clampc` banked SI around its
+  own use of it for every rect drawn, and no caller holds SI across it
+  (`tg_cell_fill` has spent its inset by then, and every repaint sets SI
+  afresh); `tg_frame` copied the window pointer into BX after `tg_track`,
+  which leaves it there - the two WM calls keep BX. Pure deletions: every
+  cell drawn loses a push and a pop, every frame a move.
+
 ## 50. memory.inc — the claim heap
 
 Everything above the kernel, in one map the kernel owns.
