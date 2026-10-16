@@ -59,8 +59,10 @@ def zord(ui):
 def main():
     tmp = tempfile.mkdtemp(prefix="deskmodal-")
     try:
-        img = disk_with(tmp, "modal.img", os88stik.dat(os88stik.deskcal(
-            [(TODAY, 600, "Dentist")])))
+        # PACKED, as the package writes it (SPEC.md 110.5.3): the load's
+        # dc_spread is what puts Dentist on line 0
+        img = disk_with(tmp, "modal.img", os88stik.dat(os88stik.deskcal_pack(
+            os88stik.deskcal([(TODAY, 600, "Dentist")]))))
         with os88ui.boot(img, machine="os8088_xt_vga") as ui:
             c = Cal(ui, tmp, check=check)
             disk = ui.open_drive("A")

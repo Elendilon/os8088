@@ -101,6 +101,8 @@ KSC_DEL     equ 0x53
 %define STIK_CAP     'Calendar'
 %define STIK_ISOPEN  'Desk Calendar is open'
 %define STIK_DMGREPLACE         ; a damaged file is replaced (110.5.2)
+%define STIK_PACK     dc_squeeze ; the state file holds the records in use
+%define STIK_UNPACK   dc_spread  ; (dcdata.inc, SPEC.md 110.5.3)
 %define STIK_ONTICK  dc_tick
 STIK_PAYLEN equ DCP_LEN
 STIK_PAYVER equ DCP_VER

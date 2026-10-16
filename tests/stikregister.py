@@ -23,8 +23,9 @@ DESKCAL.DAT. One boot on a VGA XT (MartyPC), driven by name:
      first file call (the loader's read of the package is all it costs).
   D  the x its HANDLE reveals (hovered: a widget has no close box, SPEC.md
      110.11) removes the row BY NAME: SYSTEM.CFG has no trailer, and the
-     close saved DESKCAL.DAT - 2,456 bytes, a valid header holding the
-     widget's FACE origin (STIK_HF_CONT) and the empty payload.
+     close saved DESKCAL.DAT - 24 bytes, a valid header holding the
+     widget's FACE origin (STIK_HF_CONT) and the empty payload PACKED: its
+     8 bytes of counts and settings and no record (SPEC.md 110.5.3).
   E  a reset brings NO calendar back: the row went with the close.
 
 **BREAK IT ON PURPOSE**: take stik_single's call out of stik_load and C fails
@@ -184,13 +185,13 @@ def main():
         try:
             dat = v.read("SYSTEM/APPDATA/DESKCAL.DAT")
             pd = os88stik.parse_dat(dat, os88stik.DESKCAL_PAYLEN,
-                                   os88stik.DESKCAL_PAYVER)
+                                   os88stik.DESKCAL_PAYVER, packed=True)
             cal = os88stik.parse_deskcal(pd["payload"])
         except Exception as e:
             dat, pd, cal = b"", {"pos": False}, {"err": str(e)}
-        check(len(dat) == os88stik.STIK_HDR_SIZE + os88stik.DESKCAL_PAYLEN,
-              "DESKCAL.DAT is %d bytes (%d)"
-              % (os88stik.STIK_HDR_SIZE + os88stik.DESKCAL_PAYLEN, len(dat)))
+        check(len(dat) == os88stik.STIK_HDR_SIZE + os88stik.DESKCAL_APPT0,
+              "DESKCAL.DAT is %d bytes, packed (%d)"
+              % (os88stik.STIK_HDR_SIZE + os88stik.DESKCAL_APPT0, len(dat)))
         check(pd.get("pos") and pd.get("cont")
               and (pd["x"], pd["y"]) == (w.x + 1, w.y)
               and tuple(pd.get("screen") or ()) == (640, 480),

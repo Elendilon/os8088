@@ -121064,15 +121064,35 @@ back stale pixels.
 
 #### 76.14.10 The Theme page
 
-Three theme radios - **Bright**, **Dark**, **Color** - with **Customize...**
-on the Color row (76.14.14), then the animation pair, and the **Screen
-Saver** button centred under them at pane y 110. **Windows is not a radio**:
-it is a title style of Color, chosen in Customize (76.14.13), so its row went
-and the animation group moved up to pane y 80. The control ids are 1-3 the
-theme rows, 4-5 the animation pair, 6 the Screen Saver button and 7
-Customize. Customize is live only while Color or Windows is (and Color is
-offered at all, 76.12.1); a Windows that `WIN95.DRV` cannot be read for is
-refused at the click that asked for it, with a toast.
+Four theme radios - **Bright**, **Dark**, **Color**, **Windows** - with
+**Customize...** on the Color row (76.14.14), then the animation pair at pane
+y 98, and the **Screen Saver** button in the pane's bottom-right corner
+(112,110), under Customize, so the two buttons make one right-hand column.
+The control ids are 1-4 the theme rows, 5-6 the animation pair, 7 the Screen
+Saver button and 8 Customize.
+
+**Windows is a radio AND a title style of Color** (76.14.13), and the two are
+one bit: the Windows radio sets bit 2 of `[thm_cstrp]` and asks for Windows,
+the Color radio clears it and asks for Color, so the page and Customize's
+style group cannot disagree. Bright and Dark leave the bit alone. The radio is
+**never greyed** - on a 1bpp primary it is the black-and-white row (76.14.6),
+and the fork owner's own machine is a Hercules - and whether `WIN95.DRV`
+reads is the click's to find out: refused, the nearest theme that needs no
+module stands and a toast says why.
+
+**Customize is live wherever Color is OFFERED** (76.12.1) and greys only
+there, through `cp_thm_colgrey`, the predicate behind the Color label and the
+Color radio's refusal. It once greyed on the theme radio as well - live only
+while Color or Windows was - and on VGA a greyed button is dark-grey letters
+in a black frame, so under Bright it looked live and every click on it was
+silently refused. Nothing needed that rule: `THMPAL.DRV` banks the kind it was
+opened over, every change it makes is a Color, and Cancel puts Bright or Dark
+back.
+
+The two designs met here once and each lost a half: Windows as a title style
+removed the radio, which left a 1bpp machine with no way to reach Windows at
+all, and the Screen Saver button went back to the centre. Both are restored
+above.
 
 #### 76.14.11 Measured
 
@@ -186559,6 +186579,57 @@ GOTO_QM    home
   declared restartable (§66.6.2). There is no registration on kern_small,
   whose `OSAPI_DESK_ITEM` is the refusal (§110.7).
 
+#### 110.5.3 A packed state file (`STIK_PACK` / `STIK_UNPACK`)
+
+**The calendar's state file holds the records IN USE, not the table.** Its
+payload is fixed in memory - 8 bytes, 48 appointments of 32 at +8, 32 tasks
+of 28 at +1544, 2,440 in all (§110.3) - and until this it was written that
+way whatever it held: 2,456 bytes, three clusters, for an empty calendar. A
+replace claims its new chain before it frees the old (§18.4), so every save
+wanted three free clusters BESIDE the file, and on the 360 KB system disk,
+which has held seven or fewer since the calendar shipped, that was the
+difference between a calendar that saves and one that goes read-only after
+its first save (§110.6's size-pass table).
+
+So the include takes two optional hooks:
+
+```
+%define STIK_PACK   proc   just before a save: squeeze STIK_PAY in place,
+                           CX out = the payload bytes to write (1..STIK_PAYLEN)
+%define STIK_UNPACK proc   after a load (CX = the file's payload length, the
+                           rest of STIK_PAY zero) and after every save (CX =
+                           what STIK_PACK answered): spread it back. CF = 1:
+                           not yours - the file is DAMAGED. Both keep BX, DX
+                           and ES; AX, CX, SI and DI are theirs
+```
+
+With them the load accepts a payload of 1..`STIK_PAYLEN` bytes whose length
+is the header's own `+14`, and the save writes what `STIK_PACK` answered and
+records it there; without them nothing changes - the file is `STIK_PAYLEN`
+exactly, as the probes keep it. The header and `STIK_PAYVER` do not move.
+
+**The calendar's packing** (`dc_squeeze` / `dc_spread`, `dcdata.inc`) is the
+8 bytes, the appointments in use, then the tasks in use straight behind
+them: `8 + 32 x appointments + 28 x tasks`. A calendar with five
+appointments and three tasks is 268 bytes - **one cluster** - and an empty
+one is a 24-byte file. **Full tables pack to the fixed layout byte for
+byte**, and `8 + 32a + 28t` reaches 2,440 only at 48 and 32, so a payload of
+exactly 2,440 bytes is read as it stands: that is every file written before
+the packing, which therefore loads unchanged. Anything shorter must be
+EXACTLY its counts' records, or the file is DAMAGED (§110.5.2). The spread
+moves the tasks back up to +1544 (backwards: the move overlaps) and zeroes
+the gap behind them, so the records not in use are zero as `dc_adel` leaves
+them. Both moves are in memory, one `rep movsb` of at most 896 bytes each
+way, against the seconds of disk the save is (§110.5.1).
+
+**A build from before the packing reads a packed file as DAMAGED** - its
+exact-size test fails - and its first save replaces it (§110.5.2). Taking a
+calendar BACK to an older build is the only way to see it.
+`tools/os88stik.py`'s `deskcal_pack` / `deskcal_unpack` are the second
+reader, and `parse_dat(..., packed=True)` is how every row reads the file
+the guest wrote; `deskcaledit` B asserts the packed length and `deskmodal`
+loads a packed fixture.
+
 ### 110.6 What it costs
 
 The kernel half, measured by `tools/kernsize.py` against the tree it was cut
@@ -186682,7 +186753,8 @@ bss.
 **At runtime**, a machine with no Sticky App row reads nothing at boot (§110.4).
 What a widget costs, MEASURED on MartyPC's 4.77 MHz XT with its FDC counters
 (the probe: a 1 KB package and a 16-byte state file - the calendar adds its
-larger package and a five-sector file to the reads):
+larger package and a five-sector file to the reads - the state file before
+§110.5.3 packed it to the records in use, one sector for a few of them):
 
 | what | `int 13h` | 5150 clock | on the lock? |
 |---|---:|---:|---|
@@ -186690,7 +186762,7 @@ larger package and a five-sector file to the reads):
 | the first tick: `OSAPI_FILE_PATH`'s `..` walk, then the settings core's read for a compare that writes nothing | 7 reads | 2.05 s | yes |
 | **a whole autostart** | **13 reads** | **~4.9 s** | |
 | a settled drag's save | 2 reads, 6 writes | ~3.2 s at PERFORMANCE.md's 400 ms a call | yes |
-| **the calendar's save** (a five-sector file): any edit's or drag's, and the two the user does not cause - a reminder going off (~2 s after it; under its alert in v1, v2 having none) and a launch that missed reminders (the first quiet poll after the registration) - for the FIRED marks | **3 reads, 8 writes** after a firing, 4 and 8 after a missed launch - counted at the drive by `deskcalperf` on both legs, both adapters | ~4.4-4.8 s at 400 ms a call | yes |
+| **the calendar's save** (a five-sector file before §110.5.3's packing): any edit's or drag's, and the two the user does not cause - a reminder going off (~2 s after it; under its alert in v1, v2 having none) and a launch that missed reminders (the first quiet poll after the registration) - for the FIRED marks | **3 reads, 8 writes** after a firing, 4 and 8 after a missed launch - counted at the drive by `deskcalperf` on both legs, both adapters | ~4.4-4.8 s at 400 ms a call | yes |
 | the close of a widget that owes nothing: the settings core, the row away, SYSTEM.CFG written | 8 reads, 6 writes | | yes |
 | an idle widget | 0 | 0 | |
 | **the calendar, v1's wave 4** (v2: 19.22 s, above): reset to `ui_task` with its row in SYSTEM.CFG, against the same disk with none | 7 reads, 44 sectors in `stik_boot` | **19.02 s against 14.85 s**: +0.55 s reading the trailer before the paint, +3.62 s autostarting - then the first tick's ~2 s, and on a day whose reminders came due before the boot (the first boot of a working day, typically) the missed marks' save ~2 s later, ~4.8 s more (the row above; `deskcalperf`'s boot leg has nothing missed) | no |
@@ -186855,6 +186927,7 @@ kernel byte moved. MEASURED off the build:
 | `dcdate`/`dcdata`/`dcrem`'s pass | 14,464 | 3,709 | |
 | **`dcdraw.inc`'s pass - today** | **13,680** | 3,709 | **12,535 (13 clusters)** |
 | the small build (`build/smallapp/`, kern_small's disks) | 14,016 | 3,709 | 12,791 |
+| **the packed state file** (§110.5.3: `dc_squeeze` 34 + `dc_spread` 76, the include's two hooks 21) | **13,824** (+131 of code, the rest paragraph padding) | 3,709 | |
 
 -5,296 bytes of image, 27.9%, and three clusters of the 360 KB system disk:
 346 of 354 against `elendilon-next`'s 349. **Those clusters were a defect

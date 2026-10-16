@@ -131,7 +131,7 @@ class Cal(object):
         v = os88flush.Volume(open(out, "rb").read())
         try:
             return D.parse_dat(v.read("SYSTEM/APPDATA/DESKCAL.DAT"),
-                               D.DESKCAL_PAYLEN, D.DESKCAL_PAYVER)
+                               D.DESKCAL_PAYLEN, D.DESKCAL_PAYVER, packed=True)
         except Exception:
             return None
 
