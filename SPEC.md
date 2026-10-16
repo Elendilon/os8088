@@ -109802,6 +109802,14 @@ unchanged:
 
 Image −89, file −51.
 
+#### 67.26.4 Three strings nothing drew
+
+`cy_s_keys` (*ARROWS MOVE  SPACE FIRE  Z ZAP  J JUMP*), `cy_s_level`
+(*LEVEL*) and `cy_s_avoid` (*AVOID THE SPIKES*) were in the image from the
+first commit of this package and named by no instruction in it — the keys
+are How To Play's (§67.14) and the attract scroll's, and neither banner was
+ever raised. Deleted. Image −62, file −39.
+
 ### 67.13 What is deliberately not here
 
 **No high-score file.** The table lives in bss and dies with the instance. It

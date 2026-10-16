@@ -544,14 +544,11 @@ cy_scale:
 cy_title        db 'Cyclone 88', 0  ; the window's title AND the menu's name
 cy_s_name       equ cy_scroll_txt   ; 'CYCLONE 88', the scroll's first line
 cy_s_press      db 'PRESS ENTER TO START', 0
-cy_s_keys       db 'ARROWS MOVE  SPACE FIRE  Z ZAP  J JUMP', 0
 cy_s_hiscore    db 'HIGH SCORES', 0
 cy_s_over       db 'GAME OVER', 0
-cy_s_level      db 'LEVEL', 0
 cy_s_bonus      db 'BONUS', 0
 cy_s_small      db 'Window too small', 0
 cy_s_paused     db 'PAUSED', 0
-cy_s_avoid      db 'AVOID THE SPIKES', 0
 cy_s_superzap   db 'SUPERZAPPER RECHARGE', 0
 cy_s_zapfired   db 'SUPERZAPPER!', 0
 
