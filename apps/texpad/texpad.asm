@@ -3146,30 +3146,6 @@ tp_clamp_ps:
     pop ax
     ret
 
-tp_redraw_prev:
-    push ax
-    push bx
-    push cx
-    push dx
-    call tp_prev_box
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    mov ax, [tp_px1]
-    inc ax
-    mov bx, [tp_py1]
-    inc bx
-    mov cx, [tp_px2]
-    dec cx
-    mov dx, [tp_py2]
-    dec dx
-    call OSAPI_GFX_FILL
-    call tp_draw_preview
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
 ; -----------------------------------------------------------------------------
 ; THE PREVIEW SCROLLS BY BLITTING TOO, and it is the pane where that matters
 ; most: a page of set text is forty-odd FONT_RUNs of fifty cells, which is
@@ -3267,8 +3243,12 @@ tp_prev_scroll:
     mov [tp_oldps], ax
     jmp short .out
 .full:
-    call tp_rgn_all
-    call tp_redraw_prev
+    ; THE WHOLE PANE, AND ONCE. This was a white fill of the interior and then
+    ; tp_draw_preview, whose desk (tp_draw_sheet's 50% dither, which writes
+    ; every pixel it covers) is that same interior to the pixel - so the white
+    ; was overdrawn in full a few calls later, PERFORMANCE.md's double draw on
+    ; every long preview jump. tp_draw_preview sets the region whole itself.
+    call tp_draw_preview
 .out:
     pop si
     pop dx

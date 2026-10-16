@@ -111849,6 +111849,16 @@ and code packs to about a byte a byte, so what moved it is code that went:
   in the command table directly - a handler is jumped to with nothing to undo,
   so `tp_c_nl` and `tp_c_par` had nothing in them but the call. `tp_xw_cr` had
   no caller. Every one of these is a return the typesetter no longer makes.
+- **A DEFECT, FIXED: the preview's whole-pane fallback drew its interior
+  twice.** `tp_prev_scroll`'s `.full` arm - a scroll further than the pane, a
+  thumb dropped far off, a blit `gfx_scroll` refused - went through
+  `tp_redraw_prev`, which white-filled the pane's interior and then called
+  `tp_draw_preview`, whose desk is `tp_draw_sheet`'s 50% dither over exactly
+  that interior, to the pixel. The dither writes every pixel it covers, so the
+  white was a whole pane of fill overdrawn a few calls later: PERFORMANCE.md's
+  double draw, one `gfx_fill` the size of the preview, on every long jump.
+  `.full` is `tp_draw_preview` now, which sets the region whole itself; the
+  last frame is the same picture and the white one before it is gone.
 
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 
