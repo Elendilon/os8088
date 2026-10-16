@@ -120666,7 +120666,7 @@ gone. Measured, file bytes:
 | `CWORD.OVL` (a PART of `CWORD.O88` since §73.14.2) | 18,565 | **8,851** |
 | `SCRIBE.OVL` (part 1 of `SCRIBE.O88` since §95.8.8) | 10,121 | **8,348** |
 | `RUNCPM.OVL` | 7,389 | **3,526** |
-| `APPLE2.OVL` | 3,971 | **2,472** |
+| `APPLE2.OVL` (part 1 of `APPLE2.O88` since §73.14.2, lazy - APPLE2-SPEC 15.5.1) | 3,403 | **2,356** |
 | `C64.OVL` | 2,323 | **1,597** |
 | `COVL.OVL` (the gate; a part since §73.14.2) | 110 | 102 |
 

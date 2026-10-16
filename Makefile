@@ -9148,7 +9148,7 @@ xt-c64: $(IMG360) $(BUILD)/c64360.img
 #
 # THE HOST CHECKS RUN FIRST AND STOP THE BUILD, through the stamp below: a
 # check that fails leaves no stamp, and the compile does not run.
-$(eval $(call CC_PACKAGE,apple2,apple2,APPLE2.OVL,$(BUILD)/apple2-rom/APPLE2.ROM))
+$(eval $(call CC_PACKAGE,apple2,apple2,APPLE2.OVL,$(BUILD)/apple2-rom/APPLE2.ROM,part))
 
 # THE REST OF THE TRANSLATION UNIT (SPEC.md 73.1): apple2.c #includes the
 # parts, and the shim %includes the five hand-written pieces and the icon.
@@ -9211,10 +9211,11 @@ $(BUILD)/apple2-rom/APPLE2.ROM: tools/getapple2rom.py | $(BUILD)
 
 apple2rom: $(BUILD)/apple2-rom/APPLE2.ROM
 
-# THE DISK. APPLE2.O88 and APPLE2.OVL are TWO FILES IN ONE FOLDER on every
-# disk they share (SPEC.md 19.2.1: the .OVL is resolved in the launching
-# instance's current directory), plus a README.TXT naming the licence and
-# whose the ROMs are - AND COPYING, THE LICENCE ITSELF. The floppy is the
+# THE DISK. APPLE2.O88 is ONE FILE: the ROM is its part 0 and the overlay its
+# part 1 (APPLE2-SPEC 1.5 and 15.5.1, SPEC.md 73.14.2 - `part`, the fifth
+# argument above, is what appends the module and why no $(CC_OVLZ) copy is
+# made), plus a README.TXT naming the licence and whose the ROMs are - AND
+# COPYING, THE LICENCE ITSELF. The floppy is the
 # distributed form of a GPL-2-or-later binary and README.TXT on it says "the
 # full licence text is COPYING, on this disk beside the package": it has to be
 # here for that to be true. **If space ever runs out, the licence stays and
@@ -9223,9 +9224,10 @@ apple2rom: $(BUILD)/apple2-rom/APPLE2.ROM
 # FOUR GEOMETRIES, each --verify'd: 1.44MB, 720KB, 1.2MB and 360KB. A 360KB
 # disk's cluster is 1,024 bytes (tools/os88disk.py GEOMETRY[360], spc = 2), so
 # COPYING's 21,533 bytes are 22 of its 354 clusters, and the whole folder -
-# apple2.o88 54,272 (the ROM part included) + APPLE2.OVL 4,349 + WELCOME.BAS
-# 884 + README.TXT 9,500 + COPYING 21,533 = 90,538 bytes, plus the folder's
-# own directory cluster - is what os88disk.py --verify reports as 93 of 354.
+# apple2.o88 37,684 (the ROM and the overlay parts included, both LZ4) +
+# WELCOME.BAS 884 + README.TXT + COPYING 21,533, plus the folder's own
+# directory cluster - is what os88disk.py --verify reports, 72 of 354 at the
+# conversion (74 with APPLE2.OVL beside the package).
 # Even the 360KB disk carries the licence and the listing with room to spare.
 # ...AND WELCOME.BAS, WHICH IS TOKENISED AND NOT TYPED (section 16.2). The
 # package loads a program by WALKING its line chain (section 12), so a plain
@@ -9241,11 +9243,10 @@ $(BUILD)/WELCOME.BAS: tools/a2bas.py apps/apple2/welcome.a2b \
                       $(BUILD)/apple2-rom/APPLE2.ROM | $(BUILD)
 	python3 tools/a2bas.py apps/apple2/welcome.a2b --selfcheck -o $@
 
-APPLE2DISK := $(BUILD)/apple2.o88 $(CC_OVLZ)/APPLE2.OVL $(BUILD)/WELCOME.BAS \
+APPLE2DISK := $(BUILD)/apple2.o88 $(BUILD)/WELCOME.BAS \
               apps/apple2/COPYING apps/apple2/README.TXT tools/os88disk.py
 APPLE2IMG = python3 tools/os88disk.py -o $(1) --size $(2) \
-	    APPLE2:$(BUILD)/apple2.o88 APPLE2:$(CC_OVLZ)/APPLE2.OVL \
-	    APPLE2:$(BUILD)/WELCOME.BAS \
+	    APPLE2:$(BUILD)/apple2.o88 APPLE2:$(BUILD)/WELCOME.BAS \
 	    APPLE2:apps/apple2/README.TXT APPLE2:apps/apple2/COPYING
 apple2disk: $(BUILD)/apple2.img $(BUILD)/apple2720.img \
             $(BUILD)/apple2120.img $(BUILD)/apple2360.img
@@ -13775,7 +13776,7 @@ ALLAPPSFILES := $(BUILD)/redline.o88 $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUIL
                 $(PACCMANDISK) \
                 $(BUILD)/c64.o88 $(CC_OVLZ)/C64.OVL \
                 apps/c64/README.TXT apps/c64/COPYING \
-                $(BUILD)/apple2.o88 $(CC_OVLZ)/APPLE2.OVL \
+                $(BUILD)/apple2.o88 \
                 $(BUILD)/WELCOME.BAS \
                 apps/apple2/README.TXT apps/apple2/COPYING \
                 $(WEAVEDISK) $(WEAVELOOM) $(LOOMRUN) $(LOOMSRCS) \
@@ -13801,7 +13802,7 @@ ALLAPPSARGS := APPS:$(BUILD)/redline.o88 $(addprefix APPS:,$(APPS_TOOLS) $(CORE_
                $(addprefix RUNCPM:,$(RUNCPMDISK)) \
                $(addprefix C64:,$(BUILD)/c64.o88 $(CC_OVLZ)/C64.OVL \
                                 apps/c64/README.TXT apps/c64/COPYING) \
-               $(addprefix APPLE2:,$(BUILD)/apple2.o88 $(CC_OVLZ)/APPLE2.OVL \
+               $(addprefix APPLE2:,$(BUILD)/apple2.o88 \
                                    $(BUILD)/WELCOME.BAS \
                                    apps/apple2/README.TXT \
                                    apps/apple2/COPYING) \
