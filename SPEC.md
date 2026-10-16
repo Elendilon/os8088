@@ -179278,6 +179278,32 @@ the General MIDI names, **an original 128-program FM bank and a 47-key kit**
 (built from family templates in the tool - no third-party bank is read,
 fetched or transcribed), the synth's voicing per program and its kit.
 
+**Five of them are not shipped** (apps size pass 2): `mrt_tl`, `mrt_amp`,
+`mrt_fn`, `mrt_fq` and `mrt_pow` are smooth curves, so they are bss and the
+image carries `mrt_z` - each one's first value and first step, then two bits
+an entry whose value less a bias is the change in the step (every second
+difference is in -2..2) - which `mrt_unz` expands as `mr_entry`'s first
+call: 1,280 entries and 1,750 column bytes, **73.0 ms at 4.77 MHz,
+MEASURED** on MartyPC (348,545 cycles, `mr_entry` to the instruction after
+the call), on every adapter. Read back out of the running package's bss,
+all of them are the generator's tables to the byte. The tool's `unz()` is the loop
+line for line and `gen` refuses a stream it does not read back to the table.
+**The FM bank and kit ship as COLUMNS** too: 175 records of twelve
+registers pack badly as records and well as columns of like registers, the
+two E0h columns are all zero and do not ship at all, and the carrier's
+attack/decay and sustain/release are stored as their difference from the
+modulator's. `mrt_unz` lays them back into 2,100 bytes of bss, each byte the
+column's plus the one a fixed distance before it (zero distance: the bss's
+own zero), and `gen` refuses columns its `uncol()` does not read back.
+
+`mrt_z`, `mrt_zc` and `mrt_unz` are the image's TAIL (2,284 bytes), laid
+under `mrk_pring` (105.8.4) and then `mrl_ent` (105.3) - two buffers each
+written before it is read (a playlist entry only below `[mrl_n]`), so the
+tail is their first tenant and is spent before either has another - and the
+bss starts 3 KB past the tail rather than at the image's end. The change
+costs no RAM: image + bss is 47,484 before and after, and the file is
+**2,422 bytes smaller** (30,991 -> 28,569).
+
 #### 105.6.2 OPL3, and an emulator that is half of one
 
 `SND_FM_INFO`'s answer decides the mode: an OPL3 is claimed in OPL3 mode with
@@ -179387,7 +179413,9 @@ only one output is ever open, so the grant ring's half, the polled Covox's
 ring (105.8.7) and the speaker's PWM table - read once, by `mry_open`, as it
 builds the output table - are three tenants of `mrk_pring`, each written
 whole at its own session's start before it is read. 2,304 bytes of bss
-(apps size pass 1, set 4).
+(apps size pass 1, set 4). **The page's first bytes are the image's TAIL**
+(105.6.1): what only `mr_entry` reads, laid under the page so that it costs
+no RAM - a fourth tenant, gone before the first output opens.
 
 #### 105.8.5 MIDI out, through an MPU-401 (`mrmid.inc`)
 
@@ -179697,9 +179725,30 @@ the card's 8-pixel grid, five faces at a pitch of 48, and the rack the rest
 so the panes' last rows line up across the window: Load Directory with Eject
 and Loop, Add and Remove with the transport's bottom edge.
 
-**The faces are a file beside the package, `MIDIRACK.GFX`** (10,800 bytes,
-LZ-wrapped on the disk), read at entry into a claim of its own **only on a
-colour primary**, so a Hercules or a CGA machine never reads it. It is a
+**The faces are a file beside the package, `MIDIRACK.GFX`**, read at entry
+into a claim of its own (11 KB) **only on a colour primary**, so a Hercules
+or a CGA machine never reads it. **The file carries five of the fifteen**
+(apps size pass 2): the up faces, then an 86-byte recipe - the pressed
+frame's three rows a plane, the two bytes a moved row fixes a plane, the
+greyed wipe's row - 3,686 bytes where it was 10,800, **780 LZ-wrapped where
+it was 2,025, one cluster where it was two**. `mra_derive` makes the other
+ten in the claim, which is STATE-major (the five up, the five pressed, the
+five greyed) so the up faces are read straight to where they stay: a
+pressed face is its up face's row above, a pixel right, between the pressed
+frame's rows with two bytes a row set to the frame's; a greyed face wipes
+the contents to the face's grey and embosses the shape - the up face's
+COLOURED pixels above row 14, its BLACK ones from it - white a pixel down and
+right, dark grey on top. `tools/os88midart.py`'s `derive_pressed()` and
+`derive_greyed()` are those loops and its selfcheck holds them to the fifteen
+faces it draws, with a negative control; `--check-asm` holds the package's
+`MRA_` numbers to its own. `mra_load` and `mra_derive` live in the image's
+tail (105.6.1), so they cost no RAM. MEASURED on MartyPC's VGA XT, against
+the claim and the screen: the claim's 10,800 bytes are the generator's to
+the byte and the window is pixel-identical to the fifteen-face file's; the
+load is **413.8 ms where it was 364.5 - +49.3 ms** of launch, and only on a
+colour primary: the read and its LZ expansion fall 361.6 -> 281.1 ms and the
+derivation is ~132 ms. A file from before pass 2 is refused by its size
+(the transport is then code-drawn) and so is this one by an older package. It is a
 sidecar and not a part (§20.12) for one measured reason: `os88pkg.py` refuses
 to compress an image that has parts, and this image packs 30 KB to 25. A disk
 without the file, a heap without the room, a block the card refuses (a window
@@ -179714,7 +179763,8 @@ wavetable (§105.8.6) took it from the 32,416 / 9,710 / 25.8 KB this section
 first gave. §105.9.4's caches are ~2.4 KB of that bss and §105.9.5's colour
 face ~2.1 KB of the image. It rides `APPS\` on the 1.44 MB, 1.2 MB and 720 KB
 apps disks with the songs LZ-wrapped in `MEDIA\MIDI\` (ten songs, 27
-clusters) and `MIDIRACK.GFX` beside it (2 clusters). **The 720 KB disk
+clusters) and `MIDIRACK.GFX` beside it (1 cluster since apps size pass 2,
+105.9.5). **The 720 KB disk
 carries two songs and not the pictures** (BATTLE1 and INTRO, 7 clusters; the
 player is 29) **and is FULL: 713 of 713 clusters**, so the next byte anything
 on it grows by is a curation decision for that disk, not a build fix. **The
