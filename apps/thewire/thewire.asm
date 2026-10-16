@@ -1934,8 +1934,7 @@ wr_onclick:
     jb .out
     cmp dx, WR_FY + OS88UI_GW - 1
     ja .list
-    call wr_filhit
-    jmp short .out
+    jmp wr_filhit
 
 .list:
     cmp cx, WR_SBX1                     ; --- the scroll bar
@@ -1951,8 +1950,7 @@ wr_onclick:
                                         ; action
     add cx, [wr_ox]
     add dx, [wr_oy]
-    call wr_sbclick
-    jmp short .out
+    jmp wr_sbclick
 
 .rows:
     cmp cx, 1
@@ -1999,8 +1997,7 @@ wr_filhit:
     call wr_dglyph                      ; ...and ONLY THE TWO THAT CHANGED:
     mov di, dx                          ; os88ui_glyph is 35-50 ms on the field
     call wr_dglyph                      ; machine, so five of them is a quarter
-    call wr_refilter                    ; of a second for a change of one
-    jmp short .out
+    jmp wr_refilter                     ; of a second for a change of one
 .next:
     inc di
     cmp di, 5
@@ -2082,8 +2079,8 @@ wr_sbclick:
     mov bx, wr_sb
     mov ax, WR_SBRATE | (WR_SBRATE286 << 8)
     call os88ui_sbrate                  ; the view follows every 2 ticks: a
-    call os88ui_sbgrab                  ; 12-row repaint is 36 drawing calls
-    jmp short .out                      ; and the field machine cannot do that
+    jmp os88ui_sbgrab                   ; 12-row repaint is 36 drawing calls
+                                        ; and the field machine cannot do that
 .up:                                    ; per mouse report (SPEC.md 13.10.5.4)
     mov ax, -1
     jmp short .by
@@ -2184,8 +2181,7 @@ wr_onup:
     or ax, ax
     jz .nobtn
     dec ax                          ; wr_do takes 0 = Load, 1 = Add to Disk
-    call wr_do
-    jmp .out
+    jmp wr_do
 .nobtn:
     call wr_geom
     jc .out
@@ -2227,7 +2223,7 @@ wr_onkey:
     je .end
     cmp ah, KSC_ENTER
     je .run
-    jmp short .out
+    ret
 .up:
     mov ax, -1
     jmp short .move
@@ -2247,8 +2243,7 @@ wr_onkey:
 .end:
     mov ax, 32000
 .move:
-    call wr_selby
-    jmp short .out
+    jmp wr_selby
 .run:
     xor al, al
     call wr_do
@@ -2312,26 +2307,14 @@ wr_oncmd:
     call wr_abdismiss
     call wr_geom
     jc .out
-    cmp al, 0
-    je .refresh
-    cmp al, 1
-    je .run
-    cmp al, 2
-    je .add
-    cmp al, 3
-    je .close
-    jmp short .out
+    cmp al, 3                           ; File: Refresh, Load Program, Add to
+    je .close                           ; Disk..., Close - and the middle two
+    ja .out                             ; are wr_do's own 0 and 1, one lower
+    sub al, 1
+    jc .refresh
+    jmp wr_do
 .refresh:
-    call wr_refresh
-    jmp short .out
-.run:
-    xor al, al
-    call wr_do
-    jmp short .out
-.add:
-    mov al, 1
-    call wr_do
-    jmp short .out
+    jmp wr_refresh
 .close:
     mov bx, [wr_win]
     call OSAPI_WM_CLOSE
@@ -2427,8 +2410,7 @@ wr_do:
     jnc .go
 .say:
     mov [wr_msg], si
-    call wr_dstat
-    jmp .out
+    jmp wr_dstat
 .go:
     mov byte [wr_ramjob], 0
     or al, al
@@ -2440,8 +2422,7 @@ wr_do:
     jnz .arc
     mov byte [wr_job], WJ_LOAD          ; --- Load Program: one file, and the
     mov word [wr_chain], 0              ; wake runs it
-    call wr_fetchnext
-    jmp short .out
+    jmp wr_fetchnext
 .arc:
     mov al, 1                           ; --- Load Program on an ARCHIVE: the
     call wr_ramck                       ; SECOND ask, and the one that MOUNTS
@@ -2457,8 +2438,7 @@ wr_do:
                                         ; program's own files are beside it
     mov byte [wr_ramjob], 1
     mov byte [wr_job], WJ_LOAD
-    call wr_arcstart
-    jmp short .out
+    jmp wr_arcstart
 .nordo:
     mov si, wr_r_nord                   ; a store that is mounted and cannot be
     jmp short .say                      ; stood on is a driver that is not
@@ -2591,16 +2571,15 @@ wr_saved:
     call wr_selrec
     test byte [es:si+WC_FLAGS], WF_ARC
     jz .chain
-    call wr_arcstart                    ; --- an ARCHIVE unpacks where the
-    jmp short .out                      ; dialog pointed, and THE TYPED NAME IS
+    jmp wr_arcstart                     ; --- an ARCHIVE unpacks where the
+                                        ; dialog pointed, and THE TYPED NAME IS
                                         ; IGNORED (92.8): the archive names its
                                         ; own files, so there is one name the
                                         ; user could have typed and fifty-nine
                                         ; the machine is about to write
 .chain:
     mov word [wr_chain], 0
-    call wr_fetchnext
-    jmp short .out
+    jmp wr_fetchnext
 .noroom:
     mov word [wr_msg], wr_r_space
     call wr_dstat
@@ -2674,11 +2653,9 @@ wr_fetchnext:
     mov [wr_pnum], ax                   ; counts from one
     call wr_addprog
 .said:                                  ; [wr_msg], and a line written after
-    call wr_dstat                       ; the last file is a line nothing draws
-    jmp short .out
+    jmp wr_dstat                        ; the last file is a line nothing draws
 .done:
-    call wr_chaindone
-    jmp short .out
+    jmp wr_chaindone
 .nomem:
     mov ax, wr_s_nomem
     jmp short .ab
@@ -3175,7 +3152,7 @@ wr_pkgrun:
     mov si, wr_omsg
     xor cx, cx
     call OSAPI_TOAST
-    jmp short .out
+    ret
 .bad:
     mov word [wr_msg], wr_s_fmt         ; the loader's LD_EVER (SPEC.md 20.2.0)
     cmp al, OSAPI_LD_EVER               ; in words: the one refusal here a user
@@ -3281,7 +3258,7 @@ wr_dive:
     call OSAPI_FILE_GOTO_QM
     jc .no
     clc
-    jmp short .out
+    ret
 .no:
     stc
 .out:

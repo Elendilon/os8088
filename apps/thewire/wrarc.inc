@@ -557,7 +557,7 @@ wr_arcbase:
     mov [wr_bdrv], bl
     mov byte [wr_state], WS_BODY    ; ...and the worker may carry on
     clc
-    jmp short .out
+    ret
 .nomem:
     mov word [wr_msg], wr_s_nomem
     jmp short .no
@@ -672,7 +672,7 @@ wr_arcwrite:
 .wrote:
     jc .no
     clc
-    jmp short .out
+    ret
 .no:
     call wr_wrfail                  ; 'Could not write <name>' - a failure
     stc                             ; mid-tree LEAVES WHAT WAS WRITTEN (22)

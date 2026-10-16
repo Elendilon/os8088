@@ -144857,6 +144857,12 @@ the package had twice or did not need.
   ends in its own `clc`. `wr_hire` pops AX and nobody reads its flags. And
   `wr_entry` stopped banking five registers around `os88ui_btninit` to get
   one of them back: it re-reads `[wr_win]`.
+- **A `wr_sv` routine's every exit is a `ret`**, so a `jmp short .out` onto
+  a bare `ret` is that `ret`, and a `call` followed by one is a tail `jmp`:
+  the callee's own `ret` lands in `wr_rs` as the routine's would have.
+  Twenty-two sites in the handlers and the file chain, each one shorter and
+  faster. `wr_oncmd` tells its four items apart with one compare and one
+  subtract, the middle two being `wr_do`'s 0 and 1 one lower.
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 
