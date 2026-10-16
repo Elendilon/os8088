@@ -8968,7 +8968,7 @@ rczex: $(BUILD)/runcpm.img
 #
 # THE HOST CHECKS RUN FIRST AND STOP THE BUILD, through the stamp below: a
 # check that fails leaves no stamp, and the compile does not run.
-$(eval $(call CC_PACKAGE,c64,c64,C64.OVL,$(BUILD)/c64-rom/C64.ROM))
+$(eval $(call CC_PACKAGE,c64,c64,C64.OVL,$(BUILD)/c64-rom/C64.ROM,part))
 
 # THE REST OF THE TRANSLATION UNIT (SPEC.md 73.1): c64.c #includes the parts,
 # and the shim %includes the three hand-written pieces and the icon. Every one
@@ -9018,13 +9018,15 @@ $(BUILD)/c64-rom/C64.ROM: tools/c64rom.py $(C64ROMS) | $(BUILD)
 
 c64rom: $(BUILD)/c64-rom/C64.ROM
 
-# THE DISK. C64.O88 and C64.OVL are TWO FILES IN ONE FOLDER on every disk they
-# share (SPEC.md 19.2.1: the .OVL is resolved in the launching instance's
-# current directory). **THE ROM USED TO BE A THIRD** - C64.ROM, 20,480 bytes
-# of KERNAL, BASIC and CHARGEN that a file copy could separate from the
-# program it is useless without - and it is a PART inside C64.O88 now
-# (SPEC.md 20.12, the CC_PACKAGE call above). It is still built here, because
-# build/c64-rom/C64.ROM is what the packer appends and what c64uitest reads.
+# THE DISK. C64.O88 is ONE FILE that carries everything the program reads:
+# **THE ROM AND THE OVERLAY USED TO BE TWO MORE** - C64.ROM, 20,480 bytes of
+# KERNAL, BASIC and CHARGEN, and C64.OVL, the module the program loaded at its
+# first wake in every session - and both are PARTS inside C64.O88 now (SPEC.md
+# 20.12; the ROM part 0, the overlay part 1 and EAGER, C64-SPEC 13.3 - the
+# `part` argument of the CC_PACKAGE call above). The ROM is still built here,
+# because build/c64-rom/C64.ROM is what the packer appends and what c64uitest
+# reads; build/C64.OVL is still cut, because it is what the packer appends and
+# what tests/c64part.py compares the guest against. No disk carries either.
 # Plus a README.TXT naming the licence and
 # whose the ROMs are - AND COPYING, THE LICENCE ITSELF. The floppy is the
 # distributed form of a GPL-2-or-later binary and README.TXT on it says "the
@@ -9034,14 +9036,14 @@ c64rom: $(BUILD)/c64-rom/C64.ROM
 # (the rule at the $(RUNCPMDISK) recipe above). COPYING is 17,989 bytes, which
 # is ~50 of a 360KB disk's 354 clusters - C64-SPEC §14.2 says which of the
 # three geometries carries it and what README.TXT says where it cannot.
-# All three geometries (C64-SPEC §14.2): the same five files in one C64/
+# All four geometries (C64-SPEC §14.2): the same three files in one C64/
 # folder on each - ~62KB, so even the 360KB disk carries the licence. One
 # disk per 86Box machine: c64.img for the 386, c64720.img for the 286,
 # c64360.img for the XT (runcpmdisk's arrangement, §74.5).
-C64DISK := $(BUILD)/c64.o88 $(CC_OVLZ)/C64.OVL \
+C64DISK := $(BUILD)/c64.o88 \
            apps/c64/COPYING apps/c64/README.TXT tools/os88disk.py
 C64IMG = python3 tools/os88disk.py -o $(1) --size $(2) \
-	    C64:$(BUILD)/c64.o88 C64:$(CC_OVLZ)/C64.OVL \
+	    C64:$(BUILD)/c64.o88 \
 	    C64:apps/c64/README.TXT C64:apps/c64/COPYING
 c64disk: $(BUILD)/c64.img $(BUILD)/c64720.img $(BUILD)/c64120.img \
          $(BUILD)/c64360.img
@@ -13773,7 +13775,7 @@ ALLAPPSFILES := $(BUILD)/redline.o88 $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUIL
                 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC \
                 $(CWORDDISK) \
                 $(PACCMANDISK) \
-                $(BUILD)/c64.o88 $(CC_OVLZ)/C64.OVL \
+                $(BUILD)/c64.o88 \
                 apps/c64/README.TXT apps/c64/COPYING \
                 $(BUILD)/apple2.o88 $(CC_OVLZ)/APPLE2.OVL \
                 $(BUILD)/WELCOME.BAS \
@@ -13799,7 +13801,7 @@ ALLAPPSARGS := APPS:$(BUILD)/redline.o88 $(addprefix APPS:,$(APPS_TOOLS) $(CORE_
                $(addprefix CWORD:,$(CWORDDISK)) \
                $(addprefix PACCMAN:,$(PACCMANDISK)) \
                $(addprefix RUNCPM:,$(RUNCPMDISK)) \
-               $(addprefix C64:,$(BUILD)/c64.o88 $(CC_OVLZ)/C64.OVL \
+               $(addprefix C64:,$(BUILD)/c64.o88 \
                                 apps/c64/README.TXT apps/c64/COPYING) \
                $(addprefix APPLE2:,$(BUILD)/apple2.o88 $(CC_OVLZ)/APPLE2.OVL \
                                    $(BUILD)/WELCOME.BAS \

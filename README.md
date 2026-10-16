@@ -836,7 +836,7 @@ cleanly and runs wrong when C meets this machine.
 | `build/cword*.img`     | 1.44MB / 720KB / 1.2MB / 360KB | Word in C: one package, its overlay a part of it, and `WELCOME.RTF` (`make cworddisk`) |
 | `build/runcpm*.img`    | 1.44MB / 720KB / 1.2MB / 360KB | RunCPM, package + `RUNCPM.OVL` + CP/M drive A + the games and applications each holds (`make runcpmdisk`). What drive A carries is chosen per geometry at build time, so the 1.2MB disk fills itself and names what it left off in its own `LEFT-OFF.TXT` |
 | `build/paccman*.img`   | 1.44MB / 720KB / 1.2MB / 360KB | PaccMan, the C Pac-Man: the package and its README, no overlay (`make paccmandisk`) |
-| `build/c64*.img`       | 1.44MB / 720KB / 1.2MB / 360KB | Commodore 64, package (the ROMs are part 0 of `C64.O88`) + `C64.OVL` (`make c64disk`) |
+| `build/c64*.img`       | 1.44MB / 720KB / 1.2MB / 360KB | Commodore 64: one package (the ROMs and its overlay are parts of `C64.O88`) + `README.TXT` + `COPYING` (`make c64disk`) |
 | `build/apple2*.img`    | 1.44MB / 720KB / 1.2MB / 360KB | Apple II Plus, package + `APPLE2.OVL` + `WELCOME.BAS` + `README.TXT` + `COPYING` in one `APPLE2/` folder (`make apple2disk`). The Apple II+ ROMs are inside the package as a part and are fetched at a pin, never committed |
 | `build/weave*.img`     | 1.44MB / 720KB / 1.2MB / 360KB | Weave: the runtime and its two modules, the demo bundles, LOOM, the demo sources and `CATALOG.TXT` (`make weavedisk`) |
 | `build/loom*.img`      | 1.44MB / 720KB / 1.2MB / 360KB | the Weave IDE's own disk, with the demo sources flat (`make loomdisk`) |

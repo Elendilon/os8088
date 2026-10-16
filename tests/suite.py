@@ -2532,7 +2532,11 @@ SOAK = [
         "row failing for a reason it does not name. VERIFIED TO FAIL - a "
         "package truncated by one sector gives ld_status 4 and no window, "
         "because op_read now refuses a run that arrives short. Needs `make "
-        "c64disk`, so it needs the C toolchain.",
+        "c64disk`, so it needs the C toolchain. AND THE OVERLAY IS PART 1 "
+        "(C64-SPEC 13.3, SPEC.md 73.14.2): C64.OVL must not be in the folder "
+        "either, the table must carry its EAGER OP_SEG row unpacking to "
+        "build/C64.OVL, and the module's first and last 16 bytes must be at "
+        "cc_ovseg in the guest - the segment every vector far-calls.",
         needs=("marty", "cc"), serial=True,
         wants=("build/c64.img",)),
     Row("apple2part", "soak", py("tests/apple2part.py"), 30.0,
