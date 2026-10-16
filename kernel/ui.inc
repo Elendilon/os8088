@@ -732,8 +732,11 @@ ui_task:
     call wm_close_pass          ; (SPEC.md 75.2)
 .clr_done:
     xor ax, ax                  ; deferred instance launch (posted by
-    xchg ax, [inst_launch]      ; lock-held handlers via inst_launch_post);
-    or ax, ax                   ; consumed before running, not after
+    xchg al, [inst_launch]      ; lock-held handlers via inst_launch_post);
+    or al, al                   ; consumed before running, not after. A BYTE
+                                ; since kernel size pass 13: 8 clocks less of
+                                ; every idle pass, the word's second bus cycle
+                                ; each way
     jz .chk_ld
     dec ax                      ; stored as kind + 1
     call app_launch             ; in: AL = kind; does its own locking

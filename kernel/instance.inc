@@ -299,7 +299,7 @@ inst_ico_ctrl:
     db 0x0A, 0x0C, 0x09, 0x0A, 0x0D, 0x09, 0x04, 0x80
 
 ; -----------------------------------------------------------------------------
-; inst_init - clear the instance table and the deferred-launch word
+; inst_init - clear the instance table and the deferred-launch byte
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
@@ -317,7 +317,7 @@ inst_init:
     mov di, inst_tab
     mov cx, INST_MAX * I_RECSZ
     rep stosb
-    mov word [inst_launch], 0
+    mov [inst_launch], al       ; AL is still the 0 the table was cleared with
     pop es
     pop di
     pop cx
@@ -2141,18 +2141,19 @@ inst_pkg_alive:
     jmp task_exit               ; precedent (SPEC.md 34.5); never returns
 
 ; -----------------------------------------------------------------------------
-; inst_launch_post - post a deferred launch request (SPEC.md 29.4)
-; in:  AL = kind; callable under the gfx lock (one atomic word store).
-;      Drained by ui_task step 3 (SPEC.md 13); rapid posts coalesce.
-; out: nothing (all registers preserved)
+; inst_launch_post - post a deferred launch of a DISK WINDOW (SPEC.md 29.4)
+; in:  nothing (AL is not read); callable under the gfx lock (one atomic byte
+;      store). Drained by ui_task step 3 (SPEC.md 13); rapid posts coalesce.
+; out: nothing (all registers preserved, the flags spent)
+;
+; IT POSTS ONE KIND. It took AL = any kind while the Builtins menu posted the
+; Timer and Bounce through it too; since SPEC.md 14.8 its one caller is the
+; Disk window's New Window (fm_newwin), so the kind is a constant and the word
+; a byte (kernel size pass 13). ui_task's drain still takes it as kind + 1.
 ; -----------------------------------------------------------------------------
 inst_launch_post:
-    push ax
-    cbw                         ; AH = 0: a kind is under 0x80
-    inc ax
-    mov [inst_launch], ax
+    mov byte [inst_launch], KIND_FILES + 1
     inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13)
-    pop ax
     retf
 
 ; =============================================================================
@@ -2394,7 +2395,7 @@ sch_parked:   resb MAX_TASKS    ; ...and which TASKS have. PER TASK and not per
                                 ; sch_parked is here rather than in sched.inc
                                 ; because the park is what writes it
 
-inst_launch: resw 1             ; deferred launch: 0 = none, else kind + 1
+inst_launch: resb 1             ; deferred launch: 0 = none, else kind + 1
 inst_knd:    resb 1             ; app_launch scratch: kind being launched
                                 ; (the state-pool slot was a word here, and is
                                 ; DX across the pick since size pass 9)
