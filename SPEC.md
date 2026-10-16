@@ -88529,6 +88529,89 @@ is the wrong number to tune on; the tail is the one the eye sees.
 is reused. Verified for the other half at the same time: scanning every lit
 burst on every frame, **0 holed of 124 samples**.
 
+### 48.26 The shipped file: apps size pass 2
+
+Pass 2 measured the package by what it costs a DISK - `MISSILE.O88` as `make`
+leaves it, LZ4-packed - and it is almost all CODE, so the file falls by
+taking code out rather than by moving data. Nothing the player sees moved, and
+no routine the worker runs every frame changed: every cut below is in code a
+launch, a hit, a wave or a repaint runs, never the per-frame loops, and none
+of them consumes the random stream differently, so a game plays out the same.
+
+| | file | image | bss |
+|---|---:|---:|---:|
+| before pass 2 | 10,689 | 13,463 | 2,430 |
+| one slot fill for both kinds, the targets as one run | 10,542 | 13,065 | 2,430 |
+| `mc_redraw_trails` walks both kinds with one body | 10,524 | 12,993 | 2,430 |
+| the window sized in registers, `mc_adapter` in three stores | 10,489 | 12,946 | 2,426 |
+| the two kinds are ONE object table; the trail loops walk it once | 10,186 | 12,500 | 2,426 |
+| a new game and a new wave cleared in fewer stores; the credits sized in one walk | 10,164 | 12,451 | 2,426 |
+
+**The ICBM and ABM records are laid out alike**, field for field from
+`[mc_ia]`/`[mc_aa]`, and `MC_ABMD` is the distance between them - asserted
+per field, so a field added to one record and not the other fails the build.
+An ABM's slot is therefore an ICBM index biased by `MC_ABMD`, and
+`mc_obj_init` and `mc_freeslot_at` fill and find either kind with the very
+addressing they used for one: no base register, so no instruction got dearer.
+The launch, the MIRV child and the bomber's drop share `mc_launch_at` /
+`mc_child` (aim, fill, count), `mc_room` is the MXICON-and-budget test the
+three of them each spelled out, and `mc_tgt_set`/`mc_tgt_aim` record and
+place a target once rather than five times.
+
+**`mc_balive` follows `mc_calive`** (asserted), so the nine targets are one
+byte run in the arcade's numbering, each 0 or 1: `mc_pick_target` counts them
+as a SUM and walks them as one loop - the same count, the same random draw
+and the same pick - and `mc_destroy` and `mc_nextwave`'s regeneration share
+`mc_tdmg` for the terrain under a target. **A defect, fixed**: `mc_destroy`
+said it preserved every register and clobbered CX; it keeps CX now. Nothing
+saw it - its one caller, `mc_icbm_land`, saved CX itself - so nothing a
+player could see changed.
+
+`mc_redraw_trails` - the full repaint's, and only the full repaint's - walks
+the ICBMs and then the ABMs through ONE body with the bias in BP (used as a
+number, never as an address, so SS never enters into it). It is the clearest
+case of what LZ4 already did with duplicated code: 72 bytes of image came out
+and **18** of file, because the two copies differed only in their
+displacements and the packer had matched the rest. The per-frame trail loops
+(`mc_wipe_trails`, `mc_move_trails`) keep their two copies: one body there
+would cost every frame a bias subtraction per slot, and their packed weight
+is the same story as this one's.
+
+`mc_entry` sizes the window in registers - the screen's width and the dock's
+row stay in SI and DI from `OSAPI_VIDEO`, so `mc_scrw` and `mc_dock` left the
+bss - and `mc_adapter` works its three facts out in BL, CH and CL and stores
+each once rather than setting and then overwriting them.
+
+**...and then the bias went, because the LAYOUT was the thing to change.**
+Every table both kinds have is now the ICBMs' eight entries followed at once
+by the ABMs' eight (`MC_OBJ` lays each pair and asserts its spacing), so
+`MC_ABMD` is 8 and ABM slot n is simply OBJECT 8 + n: `[mc_ia + si]`,
+`[mc_ix16 + di]` with DI = 2*SI and the walk block at SI << 4 all reach
+either kind with no correction at all. The bss is the same 2,426 bytes in a
+different order. That is what made the PER-FRAME loops shareable for free:
+`mc_wipe_trails`, `mc_move_trails` and `mc_redraw_trails` each walk objects
+0..15 once, `mc_move_trails` changing pen at 8 against a bound in BP, and
+`mc_apix`/`mc_ablk` are gone into `mc_ipix`/`mc_iblk`. Here the duplicates
+were NOT free on disk - every memory operand in the ABM copy differed from
+the ICBM one, so LZ4 found almost nothing to match - and the file fell 257
+bytes for it.
+
+Nothing in a frame got dearer for it, by construction: the per-object
+instructions are the same instructions, and the three that changed are
+cheaper. "Flying" is now `cmp byte [mc_ia + si], 1` / `js` - the states are
+0, 1, 2 and 0FFh, and free and dying both go negative - which is exactly the
+ABM loop's old test and one compare and one branch less than the ICBM
+loop's two-sided one (`mc_recount`, `mc_move_icbm`, `mc_dmg_icbm` and the
+satellite's three tests take it too); the loop bound is `cmp si, bp`, a
+register; and the `push si`/`pop si` around `mc_ipix` and `mc_add_exp`,
+both of which keep SI, came out. What it adds is one pass switch a frame.
+
+MEASURED on the deterministic bench (§48.16.2's `mcbench.inc`, 400 frames on
+`os8088_5150_herc_gla`), base against this change: **63,034,335 -> 62,595,337
+cycles (-0.70%)**, median frame 134,439 -> 131,919, the same 33 frames over
+one tick, the same end state (`C3B7`) and the same final screen
+(`91e91066db9890ee`). It is the same game, drawn the same way, a little faster.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
