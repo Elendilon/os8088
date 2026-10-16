@@ -51445,8 +51445,33 @@ content-relative; the procs fetch the content origin via `wm_content`
     colour and then that colour's rects, 0xFF ending it: a coordinate is
     0..15, so one compare tells a colour byte from the next rect's x1 and
     the same compare's sign finds the 0xFF. The covered face sets the pen 3
-    times for 5 fills, the open face 2 for 5, the exposed mine 2 for 10 -
-    14 colour bytes and that many `OSAPI_SET_COLOR` calls fewer.
+    times for 5 fills, the open face 2 for 2 (below), the exposed mine 2
+    for 10 - 14 colour bytes and that many `OSAPI_SET_COLOR` calls fewer.
+  - **An open cell is TWO fills, decided by the flash and not the size.**
+    `mn_sh_open` was a white 16x16 face and then the four 1px dark gray
+    edges (five fills); it is now a dark gray 16x16 and a white 14x14 inside
+    it, the same pixels - so the cell's brief in-between state changed (a
+    white border that the edges then put back, against a dark gray interior
+    the face then covers), and the owner's condition was that it be taken
+    only if that is LESS flash. Measured with the flicker metric (PERFORMANCE.md
+    Part 3.1) on a deterministic board written into `mn_cell` (mines on row
+    4 and at cell 80), every frame read off the card, the click injected at
+    eight frame phases, the pointer's own cell masked out; mean over the
+    eight, five fills -> two:
+
+    | MartyPC, 4.77MHz | one numbered cell | a 36-cell flood |
+    |---|---|---|
+    | 5150 CGA, transient px (cell) | 9.9 -> **1.1** | 135.8 -> **30.5** (worst frame 29 -> 13) |
+    | 5150 CGA, frames to settle | 2.9 -> 2.8 | 14.8 -> **10.9** |
+    | XT VGA, transient px (cell) | 3.5 -> **0.0** | 136.9 -> **34.9** (worst frame 33 -> 25) |
+    | XT VGA, frames to settle | 3.1 -> 3.0 (one 26-frame outlier excluded) | 11.6 -> **8.5** |
+    | `mn_reveal`, guest cycles | | CGA 927,146 -> **602,138** (-35.1%), VGA 679,997 -> **427,941** (-37.1%) |
+
+    Counted WITH the pointer, as `flicker` reports it, the flood is 623 ->
+    355 px on CGA and 598 -> 344 on VGA - the arrow is off for the length
+    of the lock hold, so a shorter flood is less arrow flash as well. The
+    settled window is pixel-identical between the two builds on both
+    adapters, after the single cell and after the flood. 12 bytes of image.
   - `mn_hitcell` bounds the column and row on AL alone (a content point is
     under 4,096px, so AH is 0, and `mul` reads AL anyway), and the strip's
     right edge is `mov cx, 143 / add cx, ax`, the shorter order.
