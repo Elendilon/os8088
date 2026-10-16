@@ -1658,8 +1658,10 @@ tz_wake:
     cmp al, TZ_DATA
     je .data
     cmp al, TZ_DONE
-    je .done
-    jmp short .backstop
+    jne .backstop
+    mov byte [tz_pan], 0            ; the takeover comes off and the terminal is
+    call con_markall                 ; back, which is the repaint it already owed
+    jmp short .clr
 .name:
     cmp byte [te_txm], 0
     jne .backstop                   ; **NOT UNDER A FOREIGN TEXT MODE.** The
@@ -1674,14 +1676,10 @@ tz_wake:
                                     ; own answer is what clears it
 .data:
     call tz_commit
+.clr:
     mov byte [tz_req], TZ_NONE      ; **LAST, AND AFTER EVERY RESULT IS
                                     ; WRITTEN**: the worker reads the stage the
                                     ; moment this byte goes to zero
-    jmp short .backstop
-.done:
-    mov byte [tz_pan], 0            ; the takeover comes off and the terminal is
-    call con_markall                 ; back, which is the repaint it already owed
-    mov byte [tz_req], TZ_NONE
 .backstop:
     ; --- THE CANCEL, AND IT IS NOT A PAINT (SPEC.md 70.11.4) ----------------
     ; A cancelled file dialog calls nothing back at all (SPEC.md 38.6), so the
@@ -1746,7 +1744,15 @@ tz_wake:
     cmp ax, TZ_DLGTMO
     jb .glass
 .cancel:
-    call tz_dcancel
+    ; --- the cancel, taken on the UI task and nowhere else ------------------
+    ; Every write to [tz_req] belongs on this side of the fence (SPEC.md
+    ; 70.11.3), and all three of SPEC.md 70.11.4's routes to a cancel land
+    ; here. (It was tz_dcancel, with this one caller.)
+    mov byte [tz_dlg], 0
+    mov byte [tz_pcan], 0
+    mov byte [tz_dslot], 0xFF
+    mov byte [tz_rst], TZR_CANCEL
+    mov byte [tz_req], TZ_NONE
 .glass:
     cmp byte [te_txm], 0
     jne .out                        ; the bracket owns the glass AND the lock
@@ -2076,17 +2082,6 @@ tz_cancelck:
     mov byte [tz_pcan], 1
 .no:
     pop ax
-    ret
-
-; --- tz_dcancel - the cancel, taken on the UI task and nowhere else ---------
-; Every write to [tz_req] belongs on this side of the fence (SPEC.md 70.11.3),
-; and all three of SPEC.md 70.11.4's routes to a cancel land here.
-tz_dcancel:
-    mov byte [tz_dlg], 0
-    mov byte [tz_pcan], 0
-    mov byte [tz_dslot], 0xFF
-    mov byte [tz_rst], TZR_CANCEL
-    mov byte [tz_req], TZ_NONE
     ret
 
 ; -----------------------------------------------------------------------------
