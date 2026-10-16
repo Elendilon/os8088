@@ -4650,24 +4650,21 @@ np_save:
     xor si, si                  ; DS:SI = the note, ES:DI the expansion. NO
     xor di, di                  ; kernel variable is readable while DS is the
     mov cx, [cs:np_len]         ; document - through CS is how the counts are
-    xor bx, bx                  ; reached, the dsk_copy_in discipline
+                                ; reached, the dsk_copy_in discipline
 .stage:
     jcxz .staged
     lodsb                       ; DF=0 per SPEC.md 1
     dec cx
-    mov [es:di], al
-    inc di
-    inc bx
+    stosb                       ; ES:DI - and DI is the staged count as it goes
     cmp al, 13
     jne .stage
-    mov byte [es:di], 10        ; the DOS half of the line ending
-    inc di
-    inc bx
+    mov al, 10                  ; the DOS half of the line ending
+    stosb
     jmp short .stage
 .staged:
     push cs
     pop ds                      ; ...and back, before anything else is read
-    mov cx, bx                  ; ES:BX = the staged bytes (SPEC.md 20.3),
+    mov cx, di                  ; ES:BX = the staged bytes (SPEC.md 20.3),
     xor bx, bx                  ; DX:CX their count (SPEC.md 18.4.1)
     xor dx, dx
     mov si, np_name
@@ -4838,8 +4835,9 @@ np_load:
 .done:
     call np_fitclaim            ; both paths: give back what the file did not
 .out:                           ; need, including the whole of a read that
-                                ; failed and left the note as it was
-    jmp np_ld_7
+                                ; failed and left the note as it was -
+                                ; and FALLS into np_ld_7 below, which is
+                                ; what the jmp to it was (2 bytes, 15 clocks)
 
 ; -----------------------------------------------------------------------------
 ; np_ld_N - the shared epilogue: pop the last N of AX BX CX DX SI DI ES, in

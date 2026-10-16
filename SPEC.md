@@ -58204,6 +58204,10 @@ into bss or the heap. The numbers are the file and the image, both arms.
    `np_defname` each carried their own NUL-string copy; they share
    `np_cat` / `np_scpy` now, which leave DI on the NUL so the next copy
    overwrites it.
+2. **The save's CR LF expansion is `stosb`.** ES:DI was already the staging
+   claim, so the store is one byte and DI IS the staged count - the BX that
+   counted beside it is gone - and `np_load`'s `jmp` to the epilogue that
+   follows it falls through instead.
 
 ## 28. apps/taskmgr — the Task Manager
 
