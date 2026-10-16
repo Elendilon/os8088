@@ -836,8 +836,11 @@ cy_entry:
     mov al, KSC_LEFT
     call OSAPI_KEY_DOWN
 
-    mov byte [cy_state], CYS_TITLE
-    mov byte [cy_needlay], 1
+    mov byte [cy_needlay], 1        ; ([cy_state] is CYS_TITLE already: it
+                                    ; is 0, and the loader zeroes the bss)
+%if CYS_TITLE != 0
+  %error "cyclone: cy_entry leaves [cy_state] as the zeroed bss left it"
+%endif
 
     ; THE ATTRACT SCREEN NEEDS A WEB BEFORE ANY LEVEL HAS STARTED. Only
     ; cy_startlevel and cy_title_nextshape set this, and neither has run yet -
@@ -847,8 +850,7 @@ cy_entry:
     ; past CY_MAXV and cy_build_verts wrote through the end of the vertex
     ; tables. It showed as a small tangle in the corner on the very first
     ; frame of the attract screen and nowhere else.
-    mov word [cy_shape], cy_sh_circle
-    mov word [cy_tshape], 0
+    mov word [cy_shape], cy_sh_circle   ; ...which is [cy_tshape] 0, as zeroed
     call cy_hs_init
 
     mov bx, [cy_win]
@@ -1291,8 +1293,7 @@ cy_layout:
     push bx
     push cx
     push dx
-    push si
-    push di
+    push si                         ; (DI: nothing here or below touches it)
 
     call cy_org                     ; AX/DX = content origin, CX/BX = size
     mov [cy_ox], ax
@@ -1368,7 +1369,6 @@ cy_layout:
     mov word [cy_nlane], 0
     stc
 .out:
-    pop di
     pop si
     pop dx
     pop cx
@@ -1693,38 +1693,35 @@ cy_lip_build:
     ; the push grows a pixel at a time until that says it clears. It converges
     ; in one or two passes, it is bounded by CY_LIPKMAX, and it needs no
     ; square root anywhere.
-    mov word [cy_lpox], 0
-    mov word [cy_lpoy], 0
+    xor ax, ax
+    mov [cy_lpox], ax
+    mov [cy_lpoy], ax
     call cy_lp_cross                ; CX = the distance the scale already has
     cmp cx, [cy_lpn]
     jae .next                       ; ...and it clears this edge: leave it
     mov al, [cy_lpdir]              ; the sign of THIS cross is the direction
     mov [cy_lpdir0], al             ; to push in, and the loop overwrites it
 
-    mov ax, [cy_lpn]                ; k = ceil((need - dist) / |e|), at least 1
-    sub ax, cx
-    add ax, [cy_lpl]
+    mov ax, [cy_lpn]                ; k = ceil((need - dist) / |e|), which is
+    sub ax, cx                      ; at least 1 because need - dist is: this
+    add ax, [cy_lpl]                ; is only reached when dist < need
     dec ax
     xor dx, dx
     div word [cy_lpl]
-    or ax, ax
-    jnz .kok
-    mov ax, 1
-.kok:
     mov [cy_lpk], ax
 .try:
-    mov cx, [cy_lpk]
+    mov cx, [cy_lpk]                ; (cy_lp_scale keeps CX, for both)
     mov ax, [cy_lpey]               ; the normal is (ey, -ex)...
     call cy_lp_scale
     mov [cy_lpox], ax
-    mov cx, [cy_lpk]
     mov ax, [cy_lpex]
     neg ax
     call cy_lp_scale
     mov [cy_lpoy], ax
-    cmp byte [cy_lpdir0], 1         ; ...whose sign is the cross product's:
+    mov al, [cy_lpdir0]
+    cmp al, 1                       ; ...whose sign is the cross product's:
     je .test                        ; negative and it already leans the way
-    cmp byte [cy_lpdir0], 2         ; the scaled lip does, positive and it is
+    cmp al, 2                       ; the scaled lip does, positive and it is
     je .flip                        ; the other one
     ; A FLAT WEB LEANS NOWHERE. Every vertex has y = 0, so the lip is ON the
     ; rim line and the cross product is zero: up is as good an answer as down,
@@ -6804,22 +6801,21 @@ cy_hs_init:
 cy_hs_submit:
     ; Preserves nothing: every caller is a spine or a callback that reloads
     ; what it uses on the next line (SPEC.md 67.5.5).
-    xor si, si
+    xor si, si                      ; SI = the row...
+    mov bx, cy_hs                   ; ...and BX its score, to the end
 .find:
     cmp si, CY_NHS
     jae .out
-    mov bx, si
-    shl bx, 1
-    shl bx, 1
     mov ax, [cy_score + 2]
-    cmp ax, [cy_hs + bx + 2]
+    cmp ax, [bx + 2]
     ja .ins
     jb .next
     mov ax, [cy_score]
-    cmp ax, [cy_hs + bx]
+    cmp ax, [bx]
     ja .ins
 .next:
     inc si
+    add bx, 4
     jmp short .find
 .ins:
     ; Shuffle the tail down one row: the rows from SI to CY_NHS-2 move up an
@@ -6830,16 +6826,16 @@ cy_hs_submit:
     push ds
     pop es
     push si
-    mov bx, CY_NHS - 1
-    sub bx, si                      ; BX = rows to move, 0..CY_NHS-1
+    mov dx, CY_NHS - 1
+    sub dx, si                      ; DX = rows to move, 0..CY_NHS-1
     std
-    mov cx, bx
+    mov cx, dx
     add cx, cx
-    add cx, bx                      ; three bytes a name
+    add cx, dx                      ; three bytes a name
     mov si, cy_hsn + (CY_NHS - 1) * 3 - 1
     mov di, cy_hsn + CY_NHS * 3 - 1
     rep movsb
-    mov cx, bx
+    mov cx, dx
     shl cx, 1
     shl cx, 1                       ; four bytes a score
     mov si, cy_hs + (CY_NHS - 1) * 4 - 1
@@ -6849,13 +6845,10 @@ cy_hs_submit:
     pop si
     pop es
 .put:
-    mov bx, si
-    shl bx, 1
-    shl bx, 1
-    mov ax, [cy_score]
-    mov [cy_hs + bx], ax
+    mov ax, [cy_score]              ; BX is still this row's score
+    mov [bx], ax
     mov ax, [cy_score + 2]
-    mov [cy_hs + bx + 2], ax
+    mov [bx + 2], ax
     mov bx, si                      ; a blank name until the player types one
     add bx, bx
     add bx, si
@@ -7583,26 +7576,19 @@ cy_scroll_next:
     cmp bl, CY_NHS
     jae .back                       ; the table is spent: back to the LIST,
     mov bh, 0                       ; which is where the marker left off
-    mov di, cy_scrbuf
-    mov byte [di], '1'
-    add [di], bl
-    mov byte [di + 1], '.'
-    mov byte [di + 2], ' '
-    push bx                         ; the NAME, then the score
-    mov ax, bx
-    add bx, bx
-    add bx, ax
-    mov si, cy_hsn
-    add si, bx
-    mov di, cy_scrbuf + 3
-    mov al, [si]
-    mov [di], al
-    mov al, [si + 1]
-    mov [di + 1], al
-    mov al, [si + 2]
-    mov [di + 2], al
-    mov byte [di + 3], ' '
-    pop bx
+    mov al, '1'                     ; 'n. ABC ' in words, then the score
+    add al, bl
+    mov ah, '.'
+    mov [cy_scrbuf], ax
+    mov si, bx
+    add si, si
+    add si, bx                      ; SI = row * 3, the NAME
+    mov al, ' '
+    mov ah, [cy_hsn + si]
+    mov [cy_scrbuf + 2], ax
+    mov ax, [cy_hsn + si + 1]
+    mov [cy_scrbuf + 4], ax
+    mov byte [cy_scrbuf + 6], ' '
     mov si, bx
     shl si, 1
     shl si, 1

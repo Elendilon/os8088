@@ -109833,6 +109833,27 @@ ever raised. Deleted. Image −62, file −39.
 
 Image −55, file −60.
 
+#### 67.26.6 A third sweep
+
+- **`cy_lip_build`** (layout time): the zero offset is one cleared register
+  stored twice; the second `mov cx, [cy_lpk]` before `cy_lp_scale` goes, that
+  routine keeping CX; the direction byte is loaded once and compared twice;
+  and the "at least 1" fallback after the ceiling division is gone, because
+  it is reachable only when distance < need, which makes the dividend at least
+  `|e|` and the quotient at least 1 already.
+- **`cy_entry`** no longer stores `CYS_TITLE` into `[cy_state]` or 0 into
+  `[cy_tshape]`: both are 0 and the loader zeroes the bss (§20.1), and an
+  assembly-time check keeps `CYS_TITLE` 0. `cy_layout` stops saving DI, which
+  nothing under it touches.
+- **`cy_hs_submit`** walks the score row by pointer and keeps it in BX for the
+  store (the shuffle's row count moves to DX).
+- **The attract scroll's score lines** (`cy_scroll_next`) compose
+  `n. ABC ` in four word and byte stores instead of seven byte moves through
+  SI and DI — fewer instructions on a path the attract screen runs every
+  twelve frames, so it is cheaper as well as shorter.
+
+Image −64, file −42.
+
 ### 67.13 What is deliberately not here
 
 **No high-score file.** The table lives in bss and dies with the instance. It
