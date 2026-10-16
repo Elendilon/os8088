@@ -7450,6 +7450,17 @@ vp_bpre:
     cmp al, ' '
     je .done
 .nk:
+    cmp byte [vp_pfly], 0           ; THE LAYER's (vp_lypre, which runs this
+    je .bk                          ; loop with [vp_pfly] 1): to its ask, or
+    call vp_pfc                     ; its end
+    cmp ax, [vp_pfn]
+    jae .full
+    cmp byte [vp_lyeof], 0          ; (the layer read to its end: all there
+    jne .full                       ; is to fill)
+    call vp_pfsay
+    call vp_lyread
+    jmp short .st
+.bk:
     call vp_pfeof                   ; THE FILE'S END BANKED: the rest of it
     je .ns                          ; is all there is to fill, so that is
     call vp_pfc                     ; the 100% (a short file, or a bank as
@@ -7464,22 +7475,24 @@ vp_bpre:
     cmp ax, [vp_pfn]
     jae .full
     call vp_pfst                    ; a chunk up, or nothing more to bank
+.st:
     jnc .lp
 .full:
-    cmp byte [vp_pfwait], 0         ; (the gate's hold, tests/vidbank.py)
-    jne .lp
+    cmp byte [vp_pfwait], 0         ; (the gate's hold, tests/vidbank.py and
+    jne .lp                         ; tests/vidlybank.py)
 .done:
+    clc
+.x:
+    pushf                           ; (CF the answer, whatever vo_show does)
+    mov byte [vp_pfly], 0
     xor ax, ax
     mov si, vo_s_none
     call vo_show
-    clc
+    popf
     ret
 .esc:
-    xor ax, ax
-    mov si, vo_s_none
-    call vo_show
     stc
-    ret
+    jmp short .x
 
 ; vp_bshort - a file whose encode banked on XMS ([vp_hxb] KB, 98.3.18.3)
 ; and a machine whose bank is smaller - or none, the file not held whole
@@ -11805,8 +11818,9 @@ vp_lyxfree:
 ; vp_lypre - a session's first start, after the base's prefill: THE
 ; LAYER's, the header's KB of it (FFFFh: every slot and the bank whole)
 ; read before the first frame, saying `Buffering 37% ~24s` as the base's
-; does. Space plays with what is in; Esc cancels: CF=1. Clobbers AX, BX,
-; CX, DX, SI, DI
+; does - in the base's own loop (vp_bpre.n), [vp_pfly] 1 turning its
+; questions to the layer. Space plays with what is in; Esc cancels: CF=1.
+; Clobbers AX, BX, CX, DX, SI, DI
 vp_lypre:
     cmp byte [vp_lyon], 0
     je .done
@@ -11830,47 +11844,10 @@ vp_lypre:
     jae .n
     mov cx, ax
 .n:
-    jcxz .done
-    mov [vp_pfn], cx
-    mov byte [vp_pfly], 1
-    call OSAPI_GET_TICKS
-    mov [vp_pft0], ax
-.lp:
-    mov ah, 1
-    int 0x16
-    jz .nk
-    xor ah, ah
-    int 0x16
-    cmp al, 27
-    je .esc
-    cmp al, ' '
-    je .done
-.nk:
-    call vp_pfc
-    cmp ax, [vp_pfn]
-    jae .full
-    cmp byte [vp_lyeof], 0          ; (the layer read to its end: all there
-    jne .full                       ; is to fill)
-    call vp_pfsay
-    call vp_lyread
-    jnc .lp
-.full:
-    cmp byte [vp_pfwait], 0         ; (the gate's hold, tests/vidlybank.py)
-    jne .lp
+    inc byte [vp_pfly]              ; 1 (every way out of the loop puts it
+    jmp vp_bpre.n                   ; back to 0): the BASE's loop fills it
 .done:
-    mov byte [vp_pfly], 0
-    xor ax, ax
-    mov si, vo_s_none
-    call vo_show
-    clc
-    ret
-.esc:
-    mov byte [vp_pfly], 0
-    xor ax, ax
-    mov si, vo_s_none
-    call vo_show
-    stc
-    ret
+    jmp vp_bpre.done
 
 ; vp_lybh - in the hook, CX = the frames this call draws: two or more is
 ; BEHIND, and the layer waits for the picture to catch up. Every register
