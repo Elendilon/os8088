@@ -6600,23 +6600,7 @@ np_qcompose:
     push di
     mov si, np_q_pre
     mov di, np_qbuf
-.pre:
-    lodsb
-    or al, al
-    jz .name
-    mov [di], al
-    inc di
-    jmp short .pre
-.name:
-    mov si, np_name
-.copy:
-    lodsb
-    or al, al
-    jz .end
-    mov [di], al
-    inc di
-    jmp short .copy
-.end:
+    call np_cat                     ; prefix + name, DI left on the NUL
     mov word [di], '?'              ; '?' and the NUL in one store - the high
     pop di                          ; byte of the immediate is 0
     pop si
@@ -6976,13 +6960,7 @@ np_defname:
     push di
     mov si, np_s_default
     mov di, np_name
-.copy:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    or al, al
-    jnz .copy
+    call np_scpy
     pop di
     pop si
     pop ax
@@ -6999,30 +6977,34 @@ np_setmsg:
     push si
     push di
     mov di, np_tbuf
-.pre:
-    mov al, [si]
-    or al, al
-    jz .name
-    mov [di], al
-    inc si
-    inc di
-    jmp short .pre
-.name:
-    mov si, np_name
-.copy:
-    mov al, [si]
-    mov [di], al
-    or al, al
-    jz .done
-    inc si
-    inc di
-    jmp short .copy
-.done:
+    call np_cat
     mov ax, np_tbuf
     call np_saymsg              ; the kernel copies it, so np_tbuf is free to
     pop di                      ; be recomposed the moment this returns
     pop si
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; np_cat / np_scpy - the three name composers' one copy loop (internal)
+; np_cat:  SI = a NUL prefix, DI = the buffer -> the prefix, then np_name
+; np_scpy: SI = a NUL string, DI = the buffer -> that string
+; out: the string is in the buffer with its NUL and DI is left ON that NUL,
+;      so the next copy - or np_qcompose's '?' - overwrites it. Clobbers AL
+;      and SI; DS is the package's for both ends (no ES, which is the
+;      kernel's in a callback)
+; -----------------------------------------------------------------------------
+np_cat:
+    call np_scpy
+    mov si, np_name
+np_scpy:
+    lodsb
+    mov [di], al
+    or al, al
+    jz .end
+    inc di
+    jmp short np_scpy
+.end:
     ret
 
 ; =============================================================================

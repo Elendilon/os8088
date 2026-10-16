@@ -58190,6 +58190,21 @@ costs is the larger window's own redraw and its §11.96 save-under (a 1bpp
 cache, about 14KB at 440x260 against about 6KB) - both bounded by the area the
 user sees, which is the area they asked for.
 
+### 27.21 The second apps size pass - what was taken for DISK room
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md measures a package by its SHIPPED FILE,
+the LZ4-packed `NOTEPAD.O88`, because the 360KB system and apps disks are
+full - and Note Pad rides both, plus the two small disks in its §27.16 arm.
+Every change below is on a COLD path (a file, a menu, a dialog, the find
+panel), leaves the picture and every behaviour as it was, and moves no byte
+into bss or the heap. The numbers are the file and the image, both arms.
+
+1. **One copy loop for the three name composers.** `np_qcompose` (the
+   §27.15 question), `np_setmsg` (the Saved / Loaded toast) and
+   `np_defname` each carried their own NUL-string copy; they share
+   `np_cat` / `np_scpy` now, which leave DI on the NUL so the next copy
+   overwrites it.
+
 ## 28. apps/taskmgr — the Task Manager
 
 **A package in the root of every shipped floppy** (`TASKMGR.O88`) — the
