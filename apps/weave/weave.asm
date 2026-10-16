@@ -166,6 +166,7 @@
 ; so. apps/browser/browser.asm is the worked example of this exact pair.
 %define OS88UI_NOBFIND          ; hit-tests its own rects: no os88ui_bfind (SPEC.md 20.5.1.3.4)
 %include "os88ui.inc"
+%define OS88LINE_NOEDIT         ; nothing here calls os88line_edit (SPEC.md 83.1.2)
 %include "os88line.inc"
 
 ; --- the hand-written cores (SPEC.md 73.11: the inner loop is assembly) ------

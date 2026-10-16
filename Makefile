@@ -1700,7 +1700,7 @@ OS88PKGB := python3 tools/os88pkg.py $(if $(PKGZ),--compress-if=$(PKGZBFMT))
 # stamp's name carries a checksum of it, so adding a name rebuilds the set.
 # TAKING ONE OFF does not rebuild that package (its rule no longer names the
 # stamp): `rm build/<pkg>.o88` once, by hand.
-LZBPKGS := artful calc cyclone dotdel missile sheet solitair \
+LZBPKGS := artful audio browser calc chart gorillas telnet thewire cyclone dotdel missile sheet solitair \
            tamegram tank texpad wireball smallapp/calc smallapp/tank
 PKGZBSTAMP := $(BUILD)/.pkgzb$(if $(PKGZ),-$(PKGZ)-$(PKGZBFMT))-$(shell printf '%s' '$(LZBPKGS)' | cksum | cut -d' ' -f1)
 
@@ -5722,8 +5722,8 @@ $(BUILD)/chart.bin: apps/chart/chart.asm apps/os88api.inc apps/os88chart.inc \
 	@echo "chart:  $(call FILESIZE,$@) bytes"
 
 
-$(BUILD)/chart.o88: $(BUILD)/chart.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/chart.bin -o $@
+$(BUILD)/chart.o88: $(BUILD)/chart.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/chart.bin -o $@
 
 # Note Pad, formerly the built-in KIND_NOTE app (SPEC.md 27).
 $(BUILD)/notepad.bin: apps/notepad/notepad.asm apps/os88api.inc apps/os88ui.inc \
@@ -5791,8 +5791,8 @@ $(BUILD)/telnet.bin: apps/telnet/telnet.asm apps/telnet/tetxt.inc \
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/telnet/ -I drivers/net/ -o $@ apps/telnet/telnet.asm
 	@echo "telnet: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/telnet.bin -o $@
+$(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/telnet.bin -o $@
 
 # THE WIRE (SPEC.md 92) - Telnet's include set for Telnet's reason: netpkg.inc
 # is the DRIVER's own ABI header and both ends include it, so the two cannot
@@ -6572,8 +6572,8 @@ $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/thewire/ -I drivers/net/ -I drivers/ramdisk/ -o $@ apps/thewire/thewire.asm
 	@echo "thewire: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/thewire.o88: $(BUILD)/thewire.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/thewire.bin -o $@
+$(BUILD)/thewire.o88: $(BUILD)/thewire.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/thewire.bin -o $@
 
 # THE FTP SERVER (SPEC.md 77) - docs/plans/completed/NET-STACK-PLAN.md stage F, and the first
 # thing here that SERVES. Same include set as Telnet's for the same reason:
@@ -6613,8 +6613,8 @@ $(BUILD)/ftpd.bin: apps/ftpd/ftpd.asm apps/os88api.inc apps/os88ui.inc \
 $(BUILD)/ftpd.o88: $(BUILD)/ftpd.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/ftpd.bin -o $@
 
-$(BUILD)/browser.o88: $(BUILD)/browser.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/browser.bin -o $@
+$(BUILD)/browser.o88: $(BUILD)/browser.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/browser.bin -o $@
 
 # ...and the REFERENCE build, which letters every history row where the
 # shipped one scrolls the band (SPEC.md 65.4.1). It is the A/B for that
@@ -6756,8 +6756,8 @@ $(BUILD)/audio.bin: apps/audio/audio.asm $(AUDIO_SRC) | $(BUILD)
 # and is not optional - no package rule names PKGZ, so without it a
 # `make PKGZ=` after a plain build finds audio.o88 up to date and ships the
 # compressed one on an uncompressed disk (see $(PKGZSTAMP)'s own note).
-$(BUILD)/audio.o88: $(BUILD)/audio.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/audio.bin -o $@
+$(BUILD)/audio.o88: $(BUILD)/audio.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/audio.bin -o $@
 
 # MIDIRACK.O88 - the MIDI file player (SPEC.md 105): a Standard MIDI File
 # through an OPL2/OPL3 (SOUND.DRV's package verbs, SPEC.md 34.12), a Sound
@@ -7178,8 +7178,8 @@ gorillas: $(BUILD)/gorillas.o88
 $(BUILD)/gorillas.bin: apps/gorillas/gorillas.asm apps/gorillas/grart.inc apps/gorillas/grfront.inc apps/gorillas/grdraw.inc apps/gorillas/grmusic.inc apps/gorillas/grbgm.inc apps/gorillas/grbgmdata.inc apps/gorillas/grai.inc apps/gorillas/grplay.inc apps/gorillas/grphysics.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/gorillas/ -o $@ apps/gorillas/gorillas.asm
 
-$(BUILD)/gorillas.o88: $(BUILD)/gorillas.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/gorillas.bin -o $@
+$(BUILD)/gorillas.o88: $(BUILD)/gorillas.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/gorillas.bin -o $@
 
 # PIXELSTEIN 3D (SPEC.md 97): a raycast first-person shooter, fullscreen in
 # a foreign mode on every adapter and windowed as a 1bpp band. The package

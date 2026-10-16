@@ -343,18 +343,20 @@ every set's list into one ranked table here (6) for the owner to pick from.
 | D | docs/reports/APPS-SIZE-P2-SETD-2026-10-16.md | 0 / **+1** / +1 games360, +3 media360 (+5 in all; -5,366 file bytes) |
 | E | - | - |
 
-### 6.2 What set B changed for EVERY set: thirteen builds ship LZB
+### 6.2 What set B changed for EVERY set: nineteen builds ship LZB
 
 **The owner decided, mid-set B, that a package whose disks matter more than
 its launch ships LZB** (SPEC.md 20.13.5). The test is that LZB saves it a
 1KB cluster on the 360KB disks it rides; Paint, Note Pad and the Task
 Manager stay LZ4 whatever it would save them, because they open the common
 documents and must stay quick. On the tree set B landed on, that is
-ArtfulType, Calculator (both arms), Cyclone, Dot Delirium, Missile, Sheet, Solitaire, TameGram, Tank (both arms), TeXPad and WireBall - set C's
-and set E's packages among them, by their Makefile rule only. **Arkanoid was
+ArtfulType, Audio, Browser, Calculator (both arms), Chart, Cyclone, Dot
+Delirium, Gorillas, Missile, Sheet, Solitaire, TameGram, Tank (both arms),
+Telnet, TeXPad, The Wire and WireBall - sets A, C, D and E's packages among them, by their Makefile rule only. **Arkanoid was
 on the list and came OFF at set B's landing**: set C's pass took its LZ4 file
 to 5 clusters, the same as LZB's, and `lzbclust` failed on it - which is the
-row working.
+row working. Six more joined after the landing, at the owner's word -
+Telnet, Audio, Chart, Gorillas, The Wire and Browser.
 
 - **The list is `LZBPKGS` in the Makefile** and the packer `$(OS88PKGB)`. It
   falls back to LZ4 on a `COMPRESS=lz4` kernel, which carries no LZB decoder.

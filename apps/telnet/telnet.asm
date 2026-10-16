@@ -2030,6 +2030,7 @@ te_tpl:
 %include "os88alt.inc"          ; SPEC.md 11.2.1.1's edge, for the bracket
 %define OS88UI_NOGLYPH          ; no check box or radio drawn here (SPEC.md 13.8.9)
 %include "os88ui.inc"
+%define OS88LINE_NOEDIT         ; nothing here calls os88line_edit (SPEC.md 83.1.2)
 %include "os88line.inc"
 %define OS88SOCK_STATE             ; ...every net_find here asks NETV_STATE too
 %include "os88sock.inc"         ; net_find (SPEC.md 72, SPEC.md 20.11.1)

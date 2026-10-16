@@ -45035,7 +45035,7 @@ and is what an A/B uses. The kernel needs no arranging to match, because
 §20.13.3's default format is LZ4 as well — which is the reason LZ4 is the one
 that got to be the default here rather than the better ratio.
 
-**LZB is built, and is not the default** - the thirteen package builds below are the exception. It is ~10 points better on ratio and ~4×
+**LZB is built, and is not the default** - the nineteen package builds below are the exception. It is ~10 points better on ratio and ~4×
 slower to expand (§20.13.3), and on a 4.77 MHz 8088 that trade is a disk
 saving *once* against a launch cost *for ever* — two numbers on different
 clocks that do not reduce to one rate. Until somebody has measured the second
@@ -45043,9 +45043,11 @@ of them on a 5150 the machine takes the fast decoder. Both knobs stay on both
 sides (`make PKGZ=lzb COMPRESS=lzb`), and `tests/lzship.py --fmt lzb` builds
 and boots the whole set through it, so adding LZB later moves no layout.
 
-**THIRTEEN PACKAGE BUILDS SHIP LZB, by the owner's decision** (apps size pass
-2, set B): ArtfulType, Calculator (both arms), Cyclone, Dot Delirium,
-Missile, Sheet, Solitaire, TameGram, Tank (both arms), TeXPad and WireBall. Each
+**NINETEEN PACKAGE BUILDS SHIP LZB, by the owner's decision** (apps size pass
+2, set B): ArtfulType, Audio, Browser, Calculator (both arms), Chart,
+Cyclone, Dot Delirium, Gorillas, Missile, Sheet, Solitaire, TameGram, Tank
+(both arms), Telnet, TeXPad, The Wire and WireBall - The Wire being the
+first on the system disk (`SYSTEM/`, 10 -> 9 clusters). Each
 rule packs through `$(OS88PKGB)` - `--compress-if=lzb` whenever `PKGZ` is set,
 so `make PKGZ=` still builds them plain - and `LZBPKGS` names them for a stamp,
 because moving a rule between the two packers changes no prerequisite. On a
@@ -131205,6 +131207,20 @@ arm is an 8px white fill, which is exactly what a rubbed-out cell wants.
 version could not state its own promise: *repaint what one edit changed* has to
 include the caret, and a routine that is told where the text was but not where
 the bar was can only ever get it right by luck.
+
+#### 83.1.2 `OS88LINE_NOEDIT` - a carrier that never takes the cheap path
+
+`os88line_edit` is the narrow repaint of §83.1.1 and §96.19.1, and only two
+packages call it: DOS's command line and DeskCal's cells. Every other carrier
+repaints a whole field with `os88line_draw` and was shipping the routine for
+nothing - ~160 image bytes and ~125 packed in each of **Browser, FTPD, Telnet,
+Sheet, Weave, LOOM's `lmpvmod`, `SAVER.DRV` and `ETHER.DRV`**. `%define
+OS88LINE_NOEDIT` before the `%include` leaves it out, in `os88ui.inc`'s
+`OS88UI_NO*` shape: an OPT-OUT, so a new carrier gets the whole control and
+has to ask for less, and a carrier that defines it and then calls the routine
+fails to assemble on the undefined label rather than running wrong. Apps size
+pass 2, at the owner's word; nothing else in the file calls it, so it gates
+one routine and nothing more.
 
 ### 83.2 The multi-line block, and what it does not do
 
