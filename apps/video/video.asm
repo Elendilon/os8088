@@ -8001,12 +8001,7 @@ vp_lsetup:
     cmp word [vp_krec], 0xFFFF      ; the key, onto the black
     je .nk
     mov si, [vp_krec]
-    mov dx, [vp_ring]
-    mov ax, si
-    mov cl, 4
-    shr ax, cl
-    add dx, ax
-    and si, 15
+    call vp_rptr
     call vp_decrec
     call vp_bandall
 .nk:
@@ -11019,8 +11014,8 @@ vp_lybench:
     cmp byte [vp_bnon], 0
     jne .ld
     mov si, [vp_krec]               ; ...or the key's record, where it was
-    mov dx, [vp_ring]               ; read
-    mov ax, si
+    mov dx, [vp_ring]               ; read (inline, not vp_rptr: this loop
+    mov ax, si                      ; is the timed one)
     mov cl, 4
     shr ax, cl
     add dx, ax
@@ -16212,6 +16207,17 @@ vp_kref1:
     pop ax
     ret
 
+; vp_rptr - SI = an offset into the ring: DX:SI the same byte, SI < 16.
+; Clobbers AX, CL
+vp_rptr:
+    mov dx, [vp_ring]
+    mov ax, si
+    mov cl, 4
+    shr ax, cl
+    add dx, ax
+    and si, 15
+    ret
+
 ; vp_kpool - THE PAGE POOL (98.1.3.8.1, 98.3.8.6), after a key: each page it
 ; named black and then its picture, read in parts as a key is and checked as
 ; a key's reads are. CF=1, with [vp_err], when one could not be read or is
@@ -16250,12 +16256,7 @@ vp_kpool:
     call vp_rbnd
     jc .bad
 .ok:
-    mov dx, [vp_ring]
-    mov ax, si
-    mov cl, 4
-    shr ax, cl
-    add dx, ax
-    and si, 15
+    call vp_rptr
     call vp_khdr                    ; (another part after it?)
     push dx
     call vp_decrec
