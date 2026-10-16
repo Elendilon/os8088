@@ -352,7 +352,7 @@ vp_entry:
     push bx                         ; desktop (98.4.8): the window paints
     push cx                         ; every pixel of its content itself, so
     push dx                         ; the kernel's white fill in front of
-    call OSAPI_VIDEO                ; W_PAINT is not a flash of white under
+    call vp_video                   ; W_PAINT is not a flash of white under
     cmp dh, 1                       ; the grey (SPEC.md 11.90.1). The DEPTH
     pop dx                          ; is the question, as the SDK says: VGA
     pop cx                          ; and EGA both
@@ -392,8 +392,7 @@ vp_entry:
     mov ax, vp_onresize             ; ...and a landing on another display
     call OSAPI_WM_ONRESIZE          ; asks again (98.3.21)
     call vp_fmt                     ; ([vp_msg]: the image's vp_s_none)
-    mov bx, [vp_win]
-    call OSAPI_WM_WAKE              ; the document, and a settled first paint,
+    call vp_wakew                   ; the document, and a settled first paint,
     mov bx, [vp_win]                ; from the wake (SPEC.md 54.10)
     clc
     ret
@@ -618,8 +617,7 @@ vp_cardtog:
     xor byte [vp_card], 1
     mov byte [vp_relay], 1
     push bx
-    mov bx, [vp_win]
-    call OSAPI_WM_WAKE
+    call vp_wakew
     pop bx
 .out:
     ret
@@ -883,8 +881,7 @@ vp_seekto:
     mov word [vp_msg], vp_s_kbad
     call vp_fmt
 .paint:
-    mov bx, [vp_win]
-    call OSAPI_WM_CLIP_SET
+    call vp_clipw
     jc .out
     call vp_track
     call vp_pposter
@@ -899,8 +896,7 @@ vp_seekto:
 
 vp_clip:
     push bx
-    mov bx, [vp_win]
-    call OSAPI_WM_CLIP_SET
+    call vp_clipw
     pop bx
     ret
 
@@ -917,8 +913,7 @@ vp_onfile:
     call vp_open                    ; the dialog left us standing in its
     pop di                          ; folder (SPEC.md 19.2.1)
     pop si
-    mov bx, [vp_win]                ; the layout and the paint: the wake's
-    call OSAPI_WM_WAKE
+    call vp_wakew                   ; the layout and the paint: the wake's
     jmp vp_ld4
 
 ; vp_cpname - ES:SI = a file's name, NUL-terminated within 13: into vp_name.
@@ -2311,7 +2306,7 @@ vp_loadkey:
     mov bx, ax
     call vp_pfree
     call vp_psize                   ; THE PICTURE, from the TOP: it is held
-    call OSAPI_MEM_CLAIM_HI         ; while the window is open, and from the
+    call vp_mclhi                   ; while the window is open, and from the
                                     ; bottom it lay under a resident block,
                                     ; which could then never move down past
                                     ; it (98.1.7.4). No room for a picture:
@@ -2436,7 +2431,7 @@ vp_pevload:
     push ax
     mov dx, [vp_pevseg]
     mov ax, vp_smove
-    call OSAPI_MEM_MOVABLE
+    call vp_mmov
     pop ax
     clc
     ret
@@ -2606,7 +2601,7 @@ vp_pmov:
     or dx, dx
     jz .out
     mov ax, vp_smove
-    call OSAPI_MEM_MOVABLE
+    call vp_mmov
 .out:
     pop dx
     pop ax
@@ -2913,7 +2908,7 @@ vp_sesspic:
     cmp word [vp_pseg], 0
     jne .have
     call vp_psize
-    call OSAPI_MEM_CLAIM_HI         ; (from the top, as vp_loadkey's is)
+    call vp_mclhi                   ; (from the top, as vp_loadkey's is)
     jc .out
     mov [vp_pseg], dx
 .have:
@@ -3499,7 +3494,7 @@ vp_cgaset:
     push si
     push di
     push es
-    call OSAPI_VIDEO                ; DL = the adapter
+    call vp_video                   ; DL = the adapter
     mov dh, dl
     mov al, [vp_pixfmt]
     cmp al, PF_C160
@@ -4534,7 +4529,7 @@ vp_xopen:
 .ok:                                ; either form as code above it moved)
     cmp byte [vp_resid], 0          ; RESIDENT: read whole into its blocks
     jne .out
-    call OSAPI_XMEM_CAPS            ; no pool (every 8088): nothing more is
+    call vp_xcaps                   ; no pool (every 8088): nothing more is
     or ax, ax                       ; asked, not even the directory - unless
     jnz .sz                         ; EXPANDED MEMORY answers (98.3.18.6)
     call vp_eprobe
@@ -4555,7 +4550,7 @@ vp_xopen:
     mov si, dx                      ; SI = its KB, one over
     call vp_epref                   ; EMS FIRST below a 386 (98.3.18.6):
     jnc .ems                        ; no copy holds interrupts off there
-    call OSAPI_XMEM_CAPS            ; AX = the KB the pool has (BL, DX:CX
+    call vp_xcaps                   ; AX = the KB the pool has (BL, DX:CX
     or ax, ax                       ; its other answers)
     jz .ems
     cmp ax, si
@@ -4791,7 +4786,7 @@ vp_lyown:
     push dx
     mov dx, VP_LYMAX
 .try:
-    call OSAPI_MEM_AVAIL
+    call vp_mavail
     call vp_kres                    ; AX = what is left, the seek's entry
     mov bx, ax                      ; and a muted play's sound kept back
     mov ax, dx
@@ -5149,7 +5144,7 @@ vp_lysplit:
     call vp_lyxfree                 ; THE BASE'S MACHINE: no layer read -
     cmp byte [vp_xbank], 0          ; and the base's bank the WHOLE pool, as
     je .r                           ; a layerless file's is (98.3.18.2.1):
-    call OSAPI_XMEM_CAPS            ; the open capped it at its ask so the
+    call vp_xcaps                   ; the open capped it at its ask so the
     and al, 0xE0                    ; layer could have the rest (98.1.9.11).
     or ax, ax                       ; Empty yet - the split is before any
     jz .r                           ; prefill - so let go and taken again
@@ -7627,8 +7622,7 @@ vp_ontimer:
     cmp byte [vp_played], 0         ; the card's line 6, until a play's
     jne .out                        ; figures take it
     call vp_fmt
-    mov bx, [vp_win]
-    call OSAPI_WM_CLIP_SET
+    call vp_clipw
     jc .out
     call vp_track
     mov bx, 6
@@ -8675,12 +8669,12 @@ vp_rmov:
     mov dx, [vp_rblk]
     or dx, dx
     jz .a
-    call OSAPI_MEM_MOVABLE
+    call vp_mmov
 .a:
     mov dx, [vp_rablk]
     or dx, dx
     jz .z
-    call OSAPI_MEM_MOVABLE
+    call vp_mmov
 .z:
     pop dx
     ret
@@ -8892,7 +8886,7 @@ vp_fits:
     push di
     push es
     mov cx, ax
-    call OSAPI_MEM_AVAIL            ; AX = the largest a claim is served
+    call vp_mavail                  ; AX = the largest a claim is served
     cmp cx, ax
     jbe .yes
     push ds
@@ -9712,7 +9706,7 @@ vp_sstart:
     call vp_kelig                   ; A KEEPER THIS PLAY CAN DO WITHOUT
     jc .kreq                        ; (98.3.19): claimed, and given back if
     push ax                         ; the ring cannot reach the header's
-    call OSAPI_MEM_CLAIM_HI         ; slots beside it
+    call vp_mclhi                   ; slots beside it
     pop ax
     jc .knone
     call vp_kroom
@@ -9733,7 +9727,7 @@ vp_sstart:
     stc
     jmp .out
 .kreq:
-    call OSAPI_MEM_CLAIM_HI         ; FROM THE TOP, streamed or RESIDENT
+    call vp_mclhi                   ; FROM THE TOP, streamed or RESIDENT
     jnc .kok                        ; (98.1.7.4, 98.3): pinned for a bracket
                                     ; (98.3.19.2), and claimed from the bottom
                                     ; it landed on the kernel's caches and
@@ -9750,7 +9744,7 @@ vp_sstart:
     je .nopv
 .pvc:
     mov ax, VP_PREVKB               ; (from the top too, for the same
-    call OSAPI_MEM_CLAIM_HI         ; reason)
+    call vp_mclhi                   ; reason)
     jnc .pv
     mov word [vp_msg], vp_s_mem
     jmp .fail
@@ -9793,7 +9787,7 @@ vp_sstart:
     ;     as many as the machine has, 2..[vp_kmax]: every slot past the
     ;     header's ring is headroom the encode never counted on. LIVE plays
     ;     on the desktop, so it keeps the old rule, a power of two to VP_KMAX
-    call OSAPI_MEM_AVAIL            ; AX = the largest free run, KB
+    call vp_mavail                  ; AX = the largest free run, KB
 %ifdef VP_DIAG
     mov [vp_mrun], ax               ; (the card's memory lines, and what
     mov dl, [vp_kkb]                ; was claimed before it: a stop
@@ -9969,8 +9963,7 @@ vp_sstart:
     mov byte [vp_card], 1           ; its way (vp_sstop) - it is what says
     mov byte [vp_relay], 1          ; why, and the owner found the reason
     push bx                         ; hidden behind a closed card
-    mov bx, [vp_win]
-    call OSAPI_WM_WAKE
+    call vp_wakew
     pop bx
 .fc:
     stc
@@ -10354,7 +10347,7 @@ vp_kroom:
     push ax
     push bx
     push cx
-    call OSAPI_MEM_AVAIL
+    call vp_mavail
     call vp_kres
     mov cl, 5
     shr ax, cl                      ; ...in 32 KB slots
@@ -10449,7 +10442,7 @@ vp_smov:
     or dx, dx
     jz .n
     push ax
-    call OSAPI_MEM_MOVABLE
+    call vp_mmov
     pop ax
 .n:
     ret
@@ -11679,7 +11672,7 @@ vp_lyxopen:
     cmp word [vp_lybkb], 0
     je .out
     push bx
-    call OSAPI_XMEM_CAPS            ; AX = the pool's KB (and DX:CX, BL
+    call vp_xcaps                   ; AX = the pool's KB (and DX:CX, BL
     pop bx                          ; its other answers)
     mov cx, [vp_lybkb]
     cmp ax, cx
@@ -12148,8 +12141,7 @@ vp_sstop:
     jne .fmt
     mov byte [vp_card], 1
     mov byte [vp_relay], 1
-    mov bx, [vp_win]
-    call OSAPI_WM_WAKE
+    call vp_wakew
 .fmt:
     call vp_fmt
     cmp byte [vp_stopq], 0
@@ -12220,7 +12212,7 @@ vp_canwin:
     mov ax, [vp_pdw]                ; the whole width, on its byte
     cmp ax, [vp_lpw]
     jne .no
-    call OSAPI_VIDEO                ; AX, BX = the screen
+    call vp_video                   ; AX, BX = the screen
     mov cx, [vp_px]
     test cx, cx
     js .no
@@ -12947,7 +12939,7 @@ vp_mchg:
     push bx
     push cx
     push dx
-    call OSAPI_VIDEO                ; AX, BX = the desktop's width, height
+    call vp_video                   ; AX, BX = the desktop's width, height
     mov dl, [vp_fsmode]
     mov cx, 480
     cmp dl, FSXM_VGA12
@@ -14152,7 +14144,7 @@ vp_sopen:
     mov di, [vp_aseg]
     mov cx, [vp_atot]
     mov dx, [vp_rate]
-    call OSAPI_SND_STREAM
+    call vp_sstrm
     or al, al
     jnz .fail
     mov [vp_hand], ah
@@ -14179,7 +14171,7 @@ vp_mdet:
     push ax
     push bx
     push dx
-    call OSAPI_SND_CAPS
+    call vp_scaps
     xor bl, bl                      ; BL = why, into [vp_mwhy] at .set
     cmp byte [vp_audio], 2
     jne .p8
@@ -14297,7 +14289,7 @@ vp_sndprep:
     cmp byte [vp_mute], 0           ; MUTED: nothing claimed, nothing run
     jne .ret
     push bx
-    call OSAPI_SND_CAPS
+    call vp_scaps
     pop bx
     test ax, SND_CAP_PCM_BG
     jz .spk
@@ -14442,7 +14434,7 @@ vp_spkinfo:
     mov si, [vp_mwnames+bx]
     jmp short .p
 .on:
-    call OSAPI_SND_CAPS
+    call vp_scaps
     test ax, SND_CAP_PCM_BG
     jnz .o                          ; a card plays it
     cmp byte [vp_audio], 1
@@ -14470,7 +14462,7 @@ vp_sclose:
 .card:
     mov al, 2
     mov ah, [vp_hand]
-    call OSAPI_SND_STREAM           ; (a far cell: called, never jumped to)
+    call vp_sstrm                   ; (a far cell: called, never jumped to)
     ret
 
 ; vp_skeep - a stream the card paused for want of data resumes the moment a
@@ -14516,7 +14508,7 @@ vp_sblk:
     jne .r
     push bx
     push dx
-    call OSAPI_SND_CAPS
+    call vp_scaps
     test al, SND_CAP_EXTBLK
     jz .x                           ; an older driver: 2,048, and no bits
     mov ax, [vp_rate]               ; AX = the bytes a second
@@ -14638,7 +14630,7 @@ vp_upaus:
 .cp:
     mov al, SND_V_PAUSE
     mov ah, [vp_hand]
-    call OSAPI_SND_STREAM
+    call vp_sstrm
 .out:
     ret
 .resume:
@@ -14664,7 +14656,7 @@ vp_upaus:
     mov al, 1                       ; the card first: it resumes where it
     mov ah, [vp_hand]               ; stopped, and the clock extrapolates
     mov cx, [vp_atot]               ; from its last word as before
-    call OSAPI_SND_STREAM
+    call vp_sstrm
 .go:
     mov byte [vp_pfresh], 0         ; (a pause no call saw: nothing pending)
     mov byte [vp_upause], 0
@@ -17657,7 +17649,7 @@ vp_layfit:
     push dx
     push si
     push di
-    call OSAPI_VIDEO                ; AX = width, BX = height
+    call vp_video                   ; AX = width, BX = height
     sub ax, 10                      ; the widest content: frame x 7, 1 border
     mov [vp_lcwm], ax
     sub bx, MBAR_H + TITLE_H + 1    ; the tallest, over the dock
@@ -18095,7 +18087,7 @@ vp_pposter:
     ; owner's report), so they go OUTSIDE it, in the window's ground -
     ; white, or grey where the ground is (98.4.8)
     mov al, CWHITE
-    call OSAPI_SET_COLOR
+    call vp_color
     mov ax, [vp_bx1]                ; above the frame
     dec ax
     mov bx, [vp_by1]
@@ -18112,7 +18104,7 @@ vp_pposter:
     inc dx
     call vp_gndne
     mov al, CBLACK
-    call OSAPI_SET_COLOR
+    call vp_color
     mov ax, [vp_bx1]                ; the frame, on the picture's rows
     dec ax
     mov bx, [vp_py]
@@ -18165,7 +18157,7 @@ vp_pposter:
     jmp short .out
 .black:
     mov al, CBLACK                  ; no picture: the box, framed, black
-    call OSAPI_SET_COLOR
+    call vp_color
     mov ax, [vp_bx1]
     dec ax
     mov bx, [vp_by1]
@@ -18391,7 +18383,7 @@ vp_gndne:
     je vp_fillne
     push ax
     mov al, CLGRAY
-    call OSAPI_SET_COLOR
+    call vp_color
     pop ax
     jmp vp_fillne
 
@@ -18457,7 +18449,7 @@ vp_ground:
     shr ax, cl
     mov [vp_ghn], ax
     mov al, CLGRAY
-    call OSAPI_SET_COLOR
+    call vp_color
     call vp_unfilled
     cmp byte [vp_lcard], 0          ; THE CARD: white between its lines
     je .out
@@ -18501,7 +18493,7 @@ vp_ground:
     shr ax, cl
     mov [vp_ghn], ax
     mov al, CWHITE
-    call OSAPI_SET_COLOR
+    call vp_color
     call vp_unfilled
 .out:
     jmp vp_ld6
@@ -18761,7 +18753,7 @@ vp_thumbx:
 vp_repaint:                         ; SI = window, lock held, no region armed
     push bx
     mov bx, si
-    call OSAPI_WM_CLIP_SET
+    call vp_clips
     jc .gone
     call vp_paint
 .gone:
@@ -19368,6 +19360,39 @@ vp_ticks:                           ; OSAPI_GET_TICKS
 vp_ems:                             ; OSAPI_DRV_CALL to EMS, BL the verb
     mov bh, DRVC_EMS
     call OSAPI_DRV_CALL
+    ret
+vp_wakew:                           ; OSAPI_WM_WAKE, BX = the window
+    mov bx, [vp_win]
+    call OSAPI_WM_WAKE
+    ret
+vp_clipw:                           ; OSAPI_WM_CLIP_SET, BX = the window...
+    mov bx, [vp_win]
+vp_clips:                           ; ...or BX as it is
+    call OSAPI_WM_CLIP_SET
+    ret
+vp_mclhi:                           ; OSAPI_MEM_CLAIM_HI
+    call OSAPI_MEM_CLAIM_HI
+    ret
+vp_mmov:                            ; OSAPI_MEM_MOVABLE
+    call OSAPI_MEM_MOVABLE
+    ret
+vp_mavail:                          ; OSAPI_MEM_AVAIL
+    call OSAPI_MEM_AVAIL
+    ret
+vp_xcaps:                           ; OSAPI_XMEM_CAPS
+    call OSAPI_XMEM_CAPS
+    ret
+vp_video:                           ; OSAPI_VIDEO
+    call OSAPI_VIDEO
+    ret
+vp_color:                           ; OSAPI_SET_COLOR
+    call OSAPI_SET_COLOR
+    ret
+vp_scaps:                           ; OSAPI_SND_CAPS
+    call OSAPI_SND_CAPS
+    ret
+vp_sstrm:                           ; OSAPI_SND_STREAM
+    call OSAPI_SND_STREAM
     ret
 
 ; vp_div32 - DX:AX /= CX; CX = the remainder
