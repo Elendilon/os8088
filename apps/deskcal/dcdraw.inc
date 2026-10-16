@@ -702,10 +702,8 @@ dc_cmon:
     mov ax, [dc_ty]
     call dc_yr4
     call dc_lnz
-    mov di, [dc_geo]
-    mov cl, [di + DCG_DOWX]
-    xor ch, ch
-    mov dl, [di + DCG_MONY]
+    mov di, [dc_geo]            ; at the weekday's x, which CX still holds:
+    mov dl, [di + DCG_MONY]     ; dc_cline and the string calls keep it
     xor dh, dh
     xor bl, bl
     call dc_cline
@@ -1207,13 +1205,11 @@ dc_caline:
     call dc_lnz
     mov cx, 8
     call dc_cline
+    mov di, [dc_geo]            ; the text's characters, read BEFORE dc_ln0
+    mov cl, [di + DCG_ATN]      ; takes DI (CH is 0: CX was 8)
     call dc_ln0
     push si
     add si, DCA_TEXT
-    mov di, [dc_geo]
-    mov cl, [di + DCG_ATN]
-    xor ch, ch
-    mov di, dc_line
     call dc_putsn
     call dc_lnz
     pop si
@@ -1300,19 +1296,15 @@ dc_ctline:
     pop dx
     mov bl, GFXE_INV
 .ink:
-    call dc_ln0
-    push si
+    mov cl, [di + DCG_TTN]      ; DI is the geometry and CH is 0 on both paths
+    call dc_ln0                 ; here (CX was 8, or the bar's width), and
+    push si                     ; dc_putsn keeps CX
     add si, DCT_TEXT
-    mov di, [dc_geo]
-    mov cl, [di + DCG_TTN]
-    xor ch, ch
-    mov di, dc_line
     call dc_putsn
     call dc_lnz
     pop si
     mov di, [dc_geo]
     mov cl, [di + DCG_TX]
-    xor ch, ch
     jmp dc_cline
 
 ; -----------------------------------------------------------------------------
@@ -1393,19 +1385,17 @@ dc_crem:
     xor bl, bl                  ; regular: x1 bold fills a time's `0`s
     call dc_cline
     pop bx                      ; BX = the shift
-    call dc_ln0                 ; the text
-    mov al, [dc_c3a]
-    call dc_aptr
-    add si, DCA_TEXT
-    mov di, [dc_geo]
-    mov cl, [di + DCG_R2N]
-    xor ch, ch
+    mov cl, [di + DCG_R2N]      ; the text's characters (DI the geometry,
+    xor ch, ch                  ; before dc_ln0 takes it)...
     mov ax, bx
     shr ax, 1
     shr ax, 1
     shr ax, 1
-    sub cx, ax                  ; a character fewer for each 8 px moved
-    mov di, dc_line
+    sub cx, ax                  ; ...a fewer for each 8 px moved
+    call dc_ln0                 ; the text
+    mov al, [dc_c3a]
+    call dc_aptr
+    add si, DCA_TEXT
     call dc_putsn
     call dc_lnz
     mov di, [dc_geo]
