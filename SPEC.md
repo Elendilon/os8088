@@ -44378,6 +44378,32 @@ Measured, image bytes: PiXEL's `pixel.bin` **39,938 -> 39,102** (-836, the
 file 105,467 -> 104,956, no cluster on `office360.img`), and DrMarco's
 `drmario.bin` 33,247 -> **32,411** against the same source without the gate.
 
+##### 20.12.9.4 `OP_HAS_READ`, for a table that reads nothing itself
+
+**A table with no carve and no row the standard fetches - every row lazy and
+every one `OP_SELF` - still assembled the code that reads.** `op_read`,
+`op_say`, `op_clbget`, the four refusals they toast (`op_s_big`, `op_s_mem`,
+`op_s_disk`, `op_s_read`), `op_s_zbad` and the `os88rseq.inc` include have
+exactly two callers between them, `op_load`'s carve (§20.12.9.3) and
+`op_fetch` (§20.12.9.1), and such a table has neither. MIDIRack's faces
+(§105.9.5) are the first: one `OP_LAZY | OP_COMP | OP_SELF` row the package
+reads for itself, at entry, from code in its image's tail.
+
+`OP_HAS_READ` is `OP_HAS_CARVE || OP_HAS_FETCH`, assigned in
+`apps/os88partsbody.inc` after the table, and `op_s_zbad` keeps its own
+condition narrowed to `OP_HAS_COMP && (OP_HAS_CARVE || OP_HAS_ZLAZY)` - its
+two users. `op_load` (the name copy), `op_seg` and `op_row` stay: they are
+public, and a package may ask `op_seg` about an `OP_SELF` row and be told 0.
+**Every other includer assembles byte-identical** - each has a carve or a
+fetched row, so every gate is true for it - checked by assembling each one
+against both bodies and comparing: `drmario`, `pixel`, `pxstein`, `csload`,
+`skies`, `dosload`, `dos`, `wdload`, `telnet`, `c64`, `apple2`, `mseg`
+(plain, `-DMSEG_COMP`, `-DMSEG_LZC`), `msegbig` and `rehome`.
+
+Measured: the standard's whole emission in `midirack.bin` - table, `op_load`,
+`op_seg`, `op_row` - is **102 bytes against 372** without the gate, and those
+270 are what let it fit the 3,072-byte tail at all (§105.9.5).
+
 #### 20.12.10 A LOADER hands its identity to one of its own parts
 
 A parted package's image is the thing the kernel launches, and everything else
@@ -52240,8 +52266,8 @@ something the last data file left on the disk happens to provide.
 ordinary FAT12 volume of the kind §24.1 already describes, and every
 mechanism it meets already covers "another volume has the file on it", which
 is what a removable disk is. It was a pure DATA volume until §105.10 put
-MIDIRack at its root - the player, `MIDIRACK.GFX` and the ten songs in
-`MEDIA\MIDI\`, at 360KB alone - so it now carries ONE package, on the disk
+MIDIRack at its root - the player (its pictures a part of it since
+§105.9.5) and the ten songs in `MEDIA\MIDI\`, at 360KB alone - so it now carries ONE package, on the disk
 whose subject is music already, and `os88disk.py`'s `ASSOC.DAT` for it is
 that package's (§54.7).
 
@@ -183280,64 +183306,103 @@ the card's 8-pixel grid, five faces at a pitch of 48, and the rack the rest
 so the panes' last rows line up across the window: Load Directory with Eject
 and Loop, Add and Remove with the transport's bottom edge.
 
-**The faces are a file beside the package, `MIDIRACK.GFX`**, read at entry
-into a claim of its own (11 KB) **only on a colour primary**, so a Hercules
-or a CGA machine never reads it. **The file carries five of the fifteen**
-(apps size pass 2): the up faces, then an 86-byte recipe - the pressed
-frame's three rows a plane, the two bytes a moved row fixes a plane, the
-greyed wipe's row - 3,686 bytes where it was 10,800, **780 LZ-wrapped where
-it was 2,025, one cluster where it was two**. `mra_derive` makes the other
-ten in the claim, which is STATE-major (the five up, the five pressed, the
-five greyed) so the up faces are read straight to where they stay: a
-pressed face is its up face's row above, a pixel right, between the pressed
-frame's rows with two bytes a row set to the frame's; a greyed face wipes
-the contents to the face's grey and embosses the shape - the up face's
-COLOURED pixels above row 14, its BLACK ones from it - white a pixel down and
-right, dark grey on top. `tools/os88midart.py`'s `derive_pressed()` and
-`derive_greyed()` are those loops and its selfcheck holds them to the fifteen
-faces it draws, with a negative control; `--check-asm` holds the package's
-`MRA_` numbers to its own. `mra_load` and `mra_derive` live in the image's
-tail (105.6.1), so they cost no RAM. MEASURED on MartyPC's VGA XT, against
-the claim and the screen: the claim's 10,800 bytes are the generator's to
-the byte and the window is pixel-identical to the fifteen-face file's; the
-load is **413.8 ms where it was 364.5 - +49.3 ms** of launch, and only on a
-colour primary: the read and its LZ expansion fall 361.6 -> 281.1 ms and the
-derivation is ~132 ms. A file from before pass 2 is refused by its size
-(the transport is then code-drawn) and so is this one by an older package. It is a
-sidecar and not a part (§20.12) for one measured reason: `os88pkg.py` refuses
-to compress an image that has parts, and this image packs 30 KB to 25. A disk
-without the file, a heap without the room, a block the card refuses (a window
-straddling two displays, §5.4.3) - each is the code-drawn bevelled button
-with the caption, a complete face rather than a broken one.
+**The faces are PART 0 of `MIDIRACK.O88`** (§20.12) - an `OP_ASSET`,
+`OP_LAZY | OP_COMP | OP_SELF` row - read at entry into a claim of its own
+(11 KB) **only on a colour primary**, so a Hercules or a CGA machine never
+reads a byte of it. **The part carries five of the fifteen** (apps size pass
+2): the up faces, then an 86-byte recipe - the pressed frame's three rows a
+plane, the two bytes a moved row fixes a plane, the greyed wipe's row -
+3,686 bytes where it was 10,800, **772 packed** (LZ4, `--part-compress`'s
+default). `mra_derive` makes the other ten in the claim, which is
+STATE-major (the five up, the five pressed, the five greyed) so the up faces
+are expanded straight to where they stay: a pressed face is its up face's
+row above, a pixel right, between the pressed frame's rows with two bytes a
+row set to the frame's; a greyed face wipes the contents to the face's grey
+and embosses the shape - the up face's COLOURED pixels above row 14, its
+BLACK ones from it - white a pixel down and right, dark grey on top.
+`tools/os88midart.py`'s `derive_pressed()` and `derive_greyed()` are those
+loops and its selfcheck holds them to the fifteen faces it draws, with a
+negative control; `--check-asm` holds the package's `MRA_` numbers to its
+own, and `t_midtab` holds the BUILT package's part 0 to what the generator
+draws. MEASURED on MartyPC's VGA XT when it was a file, against the claim and
+the screen: the claim's 10,800 bytes are the generator's to the byte and the
+window is pixel-identical to the fifteen-face file's; the load was **413.8
+ms**, of which the derivation is ~132 ms.
+
+**Why `OP_SELF` and not `op_fetch`.** `mra_load` and `mra_derive` live in the
+image's TAIL (§105.6.1) - read once, by `mr_entry`, and then laid over by
+`mrk_pring` and `mrl_ent` - so they cost no RAM, and so do the part table
+and `op_load`, which are there too. The standard's fetch is ~800 bytes and
+the tail had 248 spare, so the package reads its one part itself, which is
+what `OP_SELF` is for (§20.12.9.1): the row's packed stream, at its own
+SECTOR (`READ_AT`'s unit on `kern_big`, §18.4.4.2; `kern_small` draws no
+colour and ships no MIDIRack), read `R = roundup512(len - packed)` up the
+claim and expanded down onto its base with `OSAPI_DECOMP` - §20.12.7.4's
+arithmetic, ~60 bytes. With no carve and no fetched row the standard then
+reads nothing itself, and §20.12.9.4 gates what that leaves unreachable: its
+whole emission here is 102 bytes against 372, the tail 2,992 of its 3,072.
+`op_load`'s bss is laid over `mrt_z`, the tables' stream `mrt_unz` has
+already spent, so `mr_entry` banks the kernel's name pointer across that
+call and makes `op_load` its second rather than its first. **The claim is
+MOVABLE** (§66): `mra_seg` is the only word that names it and a paint
+reloads ES from it per face, so `mra_reloc` is one store.
+
+**It was `MIDIRACK.GFX` beside the package** for one measured reason that
+§20.13.8 has withdrawn: `os88pkg.py` refused to compress an image that has
+parts, and this one packs 36 KB to 28. It is the program's own art and no
+user opens it, so it is not a document and it is not a file. A heap
+without the room, a read that fails, a block the card refuses (a window
+straddling two displays, §5.4.3) - each is still the code-drawn bevelled
+button with the caption, a complete face rather than a broken one.
 
 ### 105.10 Disks and cost
 
-`MIDIRACK.O88` is **36,320 bytes of image and 10,414 of bss (29,486 bytes,
-28.8 KB, packed)**, measured at v1.0.20261003 - MIDI out (§105.8.5) and the
+`MIDIRACK.O88` is **36,490 bytes of image and 10,914 of bss, and ONE FILE of
+29,956 bytes**: the image packed to 29,141 (§20.13.8), its sector's 43 bytes
+of padding, and part 0, the colour face's pictures, 772 (§105.9.5). It was
+36,310 / 11,082 and two files, 28,965 bytes and `MIDIRACK.GFX`'s 780: the
+image grew 180 bytes and its bss shrank 168, because all but 12 of the
+growth is in the tail that bss is laid over, so the REGION grew **12 bytes**
+(`mr_entry`'s name bank and `mra_reloc`). MIDI out (§105.8.5) and the
 wavetable (§105.8.6) took it from the 32,416 / 9,710 / 25.8 KB this section
-first gave. §105.9.4's caches are ~2.4 KB of that bss and §105.9.5's colour
-face ~2.1 KB of the image. It rides `APPS\` on the 1.44 MB, 1.2 MB and 720 KB
-apps disks with the songs LZ-wrapped in `MEDIA\MIDI\` (ten songs, 27
-clusters) and `MIDIRACK.GFX` beside it (1 cluster since apps size pass 2,
-105.9.5). **The 720 KB disk
-carries two songs and not the pictures** (BATTLE1 and INTRO, 7 clusters; the
-player is 29) **and is FULL: 713 of 713 clusters**, so the next byte anything
-on it grows by is a curation decision for that disk, not a build fix. **The
-360 KB apps disk carries none**: it is curated (§24.6.1) and had 12. At 360 KB
-the player, its pictures and all ten songs ride the MEDIA disk
-(`media360.img`, 207 of 354), the floppy whose subject is music already. All
-three are decisions with this section's date on them.
+first gave; §105.9.4's caches are ~2.4 KB of the bss and §105.9.5's colour
+face ~2.1 KB of the image. **The disks lost a file and kept their clusters**
+- 59 sectors either way, so 1,603 of 2,847 on the 1.44 MB apps disk and
+1,603 of 2,371 on the 1.2 MB both before and after, 206 of 354 on
+`media360.img`, 269 of 354 on `midirack360.img`; the live media's 2 KB
+clusters save one. It rides `APPS\` on the 1.44 MB, 1.2 MB and 720 KB apps
+disks with the songs LZ-wrapped in `MEDIA\MIDI\` (ten songs, 27 clusters).
+**The 720 KB disk carries two songs** (BATTLE1 and INTRO, 7 clusters; the
+player is 30) and, since the pictures stopped being a file it could leave
+off, **the colour face too: 640 of 713 clusters**, one more than without it.
+**The 360 KB apps disk carries none**: it is curated (§24.6.1) and had 12. At
+360 KB the player and all ten songs ride the MEDIA disk (`media360.img`, 206
+of 354), the floppy whose subject is music already. All three are decisions
+with this section's date on them.
 
 **`make midirackdisk`** is the player's own floppy in all four geometries:
-`MIDIRACK.O88`, `MIDIRACK.GFX` and `MIDIRACK.BNK` (unwrapped, §105.8.6) at
-the root, the ten songs in `MEDIA\MIDI\` and `SYSTEM\APPDATA\` for its
-settings - 270 of 354 clusters at 360 KB, the bank being 206 of them. It
+`MIDIRACK.O88` and `MIDIRACK.BNK` (unwrapped, §105.8.6) at the root, the ten
+songs in `MEDIA\MIDI\` and `SYSTEM\APPDATA\` for its settings - 269 of 354
+clusters at 360 KB, the bank being 206 of them. **The bank stays a file, and
+it is not a part for four reasons**, each one sufficient: it is OPTIONAL and
+a part is not - the apps disks carry the player without it, the wavetable
+greys and says why, and a part cannot be absent from a file, so the same
+`MIDIRACK.O88` would have to be two files with one name or 206 KB on every
+apps disk, which the 720 KB and 360 KB ones cannot hold; it is SWAPPABLE by
+design - `make mrwttest` puts `os88midbank.py synth`'s CC0 bank beside the
+very package `midirackdisk` puts GeneralUser's beside, and the format is the
+documented container any SoundFont `os88midbank.py build` reads becomes; it
+is FETCHED and never committed (§105.8.6), so a part would make `all`'s
+package depend on the network; and it is someone else's work under its own
+licence, which a separate file keeps separable. It
 needs `make midibank` (the fetch, once). The bank also rides `APPS\` on the
 everything set and the live media (§80), whose premise is completeness; no
 other shipped floppy carries it. The `kern_small` disks leave it off (§24.5's table): its outputs are
 a driver's and a rate bracket's, and the songs go with it. **The Wire** (§92)
-serves it as an ARCHIVE (§92.13) - the player, `MIDIRACK.GFX` and the ten
-songs in a `MIDI\` folder beside it, the first place §105.3.1 looks - and
+serves it as an ARCHIVE (§92.13) - the player and the ten songs in a
+`MIDI\` folder beside it, the first place §105.3.1 looks; the archive packed
+before §105.9.5 made the pictures a part also carries `MIDIRACK.GFX`, which
+this package no longer reads - and
 **never the bank**, which is over `WIRE_FILEMAX` in either kind of record.
 `SOUND.DRV` grew 603 bytes of image for §34.12 and 420 for §34.13 (5,098 to
 5,997 bytes on the system disk, packed); no kernel byte moved.
@@ -183353,9 +183418,12 @@ loops or advances; and the captures (`MARTYPC_WAV`) carry the song's notes.
 **`tests/mrdraw.py`** prices the window (§105.9.4) - rows `mrdraw` (the 5150's
 Hercules) and `mrdrawvga` (the VGA XT, the colour face): every drawing call
 per gesture under a ceiling a repaint blows through, and the picture the
-caches drew identical to a forced repaint's. `tests/unit/t_midtab.py` (soak)
-also holds `tools/os88midart.py`'s selfcheck and the four numbers the package
-states about `MIDIRACK.GFX`.
+caches drew identical to a forced repaint's - and `mrdrawvga` first asserts
+that part 0 WAS read (`mra_seg` non-zero), because a miss falls back to the
+code-drawn buttons in silence and would pass every other assertion.
+`tests/unit/t_midtab.py` (soak) also holds `tools/os88midart.py`'s selfcheck,
+the numbers the package states about its faces, and the built package's
+part 0 against the generator's bytes.
 
 Three more rows: `midirackmpu` (MIDI out, on a 5150 whose ONLY card is
 MartyPC's recording MPU-401 - so `SOUND.DRV` attaches on it alone, booted
