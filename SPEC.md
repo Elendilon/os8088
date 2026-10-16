@@ -27201,6 +27201,15 @@ Browser, Calculator, Loom, Note Pad, Paint, Piano, Recorder, Telnet and TeXPad
 — and §13.15.3 adds the two half-measures for a package that draws one of the
 two pictures.
 
+`OS88UI_BIMGONLY` is the one-write body's own opt-out, for a package whose
+EVERY button is an `OS88UI_IMG` picture: the body drops the caption path
+(`font_width` and `font_run`), the caller's ink (`OS88UI_INK`) and the
+default ring (`OS88UI_DEF`) - 92 bytes in the Video Player (§98.4), its first
+consumer. Those three are then ignored, and a caption would be read as a
+picture record, so it is a statement about the package and not a per-button
+flag. It refuses to assemble without `OS88UI_BIMG`; every other package is
+byte-identical.
+
 #### 13.8.10 A button the PACKAGE paints — `OS88UI_BOWN` and `OS88UI_OWN`
 
 The library draws two looks, the plain one and §13.8.9's one-write body, and
@@ -168998,11 +169007,84 @@ instruction-identical and at an even shift in all three arms
 (`tools/os88rdiff.py`, against the base, and for `VPDIAG` against the
 commit before 98.1.9.13, the last one it assembled at).
 
+**And the second pass's shared-code lane (2026-10-16)**: features that had
+grown copies of each other, folded into one routine each, **-580 bytes of
+image in every arm** (55,977 -> 55,397; `NOLIVESND` 55,746 -> 55,166;
+`VPDIAG` 57,337 -> 56,757, which is 181 over where it was 761), bss
+unchanged. The layer's prefill runs the base's Buffering loop (`vp_bpre`,
+`[vp_pfly]` turning its questions to the layer, -56); the kernel calls cold
+code makes most go through near thunks - `vp_mfree`/`vp_rdfree`,
+`vp_mclaim`, `vp_ticks`, `vp_ems`, `vp_wakew`, `vp_clipw` and ten more,
+three bytes a site against five (-194); twenty cold routines end in
+`vp_fmt`'s pop ladder, which gains BP's rungs (`vp_ld8`, `vp_ld7b`,
+`vp_ld6`; -74); and one routine each for the Bayer row (`vp_rthrs`), a
+seek's first press and its 'due at once' (`vp_skfirst`, `vp_sknow`), a ring
+offset as DX:SI (`vp_rptr`), 'is the bank XMS's' (`vp_xmsbk`), the
+keeper's common ground (`vp_kplain`) and 'declare this claim movable'
+(`vp_mmovz`). `OS88UI_BIMGONLY` (13.8.9) drops the button body's caption,
+ink and default ring, which no button here has (-92). Nothing a play runs
+calls a new routine or pays a call more: every routine `rdiffhot.txt` names,
+and every one the per-frame path (`vp_frame`, the hook, the card clock, the
+worker, the play loop's reader) reaches, is identical at an even shift in
+all three arms - four five-pop tails push one register more to take the
+even rung, and `vp_lybench`'s timed loop keeps its own inline copy of
+`vp_rptr`'s six instructions.
+
+**The second size pass's DATA half (2026-10-16)** found the same save had
+room to spare: past the card's text it is 2,784 bytes (2,604 with
+`VPDIAG`) that the desktop never used. **The desktop's SCRATCH lives there
+now** (`vp_dsk`): 289 bytes of words that were in the image - the grey
+ground's holes (`vp_ground`, 146), the window play's thumb move and button
+turn (`vp_wmove`, `vp_winv`), Live's band and repack counters (`vp_blitb`,
+`vp_v4blit`), the poster's draw (`vp_pposter`), the half-scaler's
+arguments (`vp_half`), the layout's working (`vp_layfit`), the open's and
+the hold check's (`vp_open`, `vp_rwalk`, `vp_xok`) and the bracket's mode
+record (`vp_fsi`, filled and read at the door, before a box can be up).
+Each is written before it is read inside one call of a routine the full
+screen never runs (nothing in `vp_hook`'s or `vp_main`'s reach, and the
+worker's only through Live, which never shares the glass with the box), so
+a box clobbering it costs nothing, and none is a word the play reads. The
+fill line and the seek's text share one buffer (`vp_pfbuf` is
+`vp_skbuf`): each is composed and handed to `vo_show`, which copies it.
+`apps/video/rdiffhot.txt` names `vh_addr` rather than `vh_.*`, the
+half-scaler's words being bss now and not routines. **86 more followed**:
+Live's gathered runs (`vx_run`, 64 - written by the frames' decodes only
+while Live runs and spent by the pass's own blit, all inside the worker's
+one hold of the lock, so the hot list names `vx_n` now), the TEXT poster's
+glyph words (`vp_tmono`), the bar's thumb x (`vp_pbar`), a resident
+block's load (`vp_ldblk`, `vp_ldstored`: `vp_sstart`'s, between brackets)
+and the board timing's segment (`vp_erate`). One byte, `vp_tqok`, stays in
+the image for the PARITY of the hook's words after it (`vb_s`..`vb_td`),
+which the hot list checks as it does a routine's.
+
+**And VGA8's palette is a CLAIM** (`[vp_p8seg]`, 1KB from the top): only
+a VGA8 file has 768 bytes of it, and they are read twice - into the DAC at
+a bracket's door (`vp_dac`) and into the lumas at each picture
+(`vp_mklum`), neither at interrupt time - so the bss keeps the SIXTEEN
+(`vp_pal`, 48: a VGA4 file's own, a scene's, VGA8's first) and the rest is
+held while the file is open, movable through `vp_smove`, and given back by
+the next open with the palettes a scene (`vp_pevfree`). A VGA8 file that
+finds no kilobyte for it is refused with `Not enough memory`, as one that
+found none to read the palette through always was. Live in colour's repack
+buffer (`vp_v4buf`, 1,024), which sat on VGA8's palette, is the desktop's
+scratch now, past the rest of it; on `vp_pal` a repack (BLITP refused)
+wrote over a VGA4 file's own sixteen, which a later full screen loads
+into the DAC (`vp_scrset`) - a latent defect, not seen in the field, that
+the move ends. **-720 bytes of bss**; with the scratch, the
+shipped arm is 55,702 + 4,144 = **1,594 under** (599 before the pass's data
+half), `NOLIVESND=1` 1,825, and `VPDIAG=1` assembles again at 57,062 +
+4,144, **234 under** (761 over).
+
 **A second pass, on cold CODE (2026-10-16)**, took **936 bytes of
-`.text`** in every arm and no bss: the shipped arm 55,977 -> **55,041**
-(1,535 under `APP_MAX_SIZE` with its 4,864 of bss), `NOLIVESND=1` 54,810
-(1,766 under), and `VPDIAG=1` 56,401 - **175 under**, assembling again. It
-is open and parse, the poster makers, setup and teardown, the layer's and
+`.text`** in every arm and no bss against the unparted player it was cut on
+(the shipped arm 55,977 -> 55,041). Merged with the shared-code, data and
+parts lanes above, **846 of them survive in every arm** - part 0's `.text`
+50,923 -> **50,221** (`NOLIVESND=1` 50,692 -> 49,990, `VPDIAG=1` 52,277 ->
+51,575) and part 1 4,196 -> **4,042** (`VPDIAG=1` 4,202 -> 4,048); the
+other 90 were sites the shared-code lane had already turned into a call of
+one of its routines, where what is left of the peephole went into the
+routine instead (`vp_kplain`'s chain ORed into AL, `vp_skfirst`'s flags
+from a zeroed register). It is open and parse, the poster makers, setup and teardown, the layer's and
 the bank's verdicts, the bench's setup, the card, the window's paint: flag
 bytes stored from a zeroed register, runs of must-be-clear flags ORed into
 AL and tested once, refusals that shared a store of `[vp_msg]` or reach a
@@ -169012,12 +169094,13 @@ reads `[vp_ok]`); **`vp_parse` copies the title before the loop block's
 checks** (a refused file's title is read by nothing - only a loaded file's);
 and the window's paint relies on what the kernel's cells and `vp_blitb`
 promise, every register kept, rather than loading the box's corners again.
-**Nothing a play runs moved or changed**: every routine `rdiffhot.txt`
-names, every routine they reach that it does not (the decode's helpers,
+**Nothing a play runs changed**, and on the base it was cut against
+nothing moved either: every routine `rdiffhot.txt` names, every routine they reach that it does not (the decode's helpers,
 `vp_afill`/`vp_aput`, the reader's `vp_fill`/`vp_warm`, Live's worker
 path, `vp_m3pl` off `vc_m3b`), the bracket's loop inside `vp_main`, and
-EVERY DATA LABEL - the play's word variables included - is identical and at
-an even shift in all three arms. Two string merges (`vp_s_comma` is
+EVERY DATA LABEL - the play's word variables included - was identical and
+at an even shift in all three arms (lanes that were each even combine to
+odd shifts, so the merged tree's parity is the integration's one pass). Two string merges (`vp_s_comma` is
 `vp_s_ticks`' bytes; `vp_ab2` an empty line) were refused for that last
 reason: 3 and 1 bytes, each shifting every variable after it by an odd
 amount, which `os88rdiff.py --hot` does not see.
@@ -175507,6 +175590,82 @@ reached **85-89% on the two 16-colour files, which played perfectly**, and
 **113% on Bad Carrot**, whose picture fell 186 ms behind and caught up
 unseen (98.2.1.1.2); single frames reached 123-126% on all three with no
 harm. That is what `--lag` and `--peak` are set from.
+
+#### 98.3.23 Part 1: the top of the player's segment (2026-10-16)
+
+**`VIDEO.O88` is a PARTED package, Word's shape (68.10) one package
+along.** `image + bss` is the REGION and `APP_MAX_SIZE` caps it at 61,440;
+the player stood at **60,841** - 599 bytes spare - with its `VPDIAG=1` arm
+already past it and not assembling. The segment runs to 65,536 and a parts
+carve may run to **65,024** (`op_size`'s 127 sectors), so the difference is
+room the player can have without a byte of mechanism in it.
+
+**Three pieces in one file.** The image the kernel launches is
+`apps/video/vidload.asm`, a **1,517-byte** loader that reads two parts and
+hands its identity to part 0 through `OSAPI_PKG_REHOME` (20.12.10); its
+region is then freed. Part 0 is `video.asm`'s image with its bss shipped
+inside it, padded to `VP_P1ORG` (`tools/os88ovl.py --pad-bss`). Part 1 is
+every `section .modc` of `video.asm`, assembled at `vstart=VP_P1ORG` - so
+`op_load`, which lays the carve out at `roundup512(len)` a part, puts it at
+that offset of the PLAYER'S OWN SEGMENT. A call into it and out of it is
+near, `DS` never moves, a compaction moves it with the region (the two are
+one claim), and there is no vector, thunk or relocation proc: **the
+mechanism costs the player's segment nothing**. The icon, the `.V88`
+association and the document glyph are one include, `apps/video/vpicon.inc`,
+read by both roots, so the Disk window and the dock cannot disagree.
+
+**What is in part 1** is code the kernel never calls by its address -
+`tools/os88ovlchk.py` walks `video.asm` (it is in `PKGS`) and refuses a
+part-1 code label used as anything but a branch target, because the kernel
+bounds every entry point by I_SIZE and I_SIZE is `VP_P1ORG`. Today it is the
+OPEN (`vp_open`, `vp_parse`, `vp_pblock`, the display walk `vp_canplay` to
+`vp_try`, 3,134 bytes) and THE BENCH (`vp_lybench` to `vp_bncmix`, 98.1.9.13,
+1,066 bytes): **4,200 bytes**. `vp_onresize`, a `W_ONRESIZE` callback in the
+middle of the walk, stays in part 0 between two section switches, which is
+how the whole move is written - the routines did not move in the source, a
+`section .modc` / `section .text` pair brackets each run where it stands.
+Speed was not a reason to keep anything out: part 1 is the same segment and
+a near call into it costs what it always did. **The play path did not move
+by a byte**: `os88rdiff --hot-file apps/video/rdiffhot.txt` reads every hot
+routine `same` at an even shift (-3,134 before the bench, -4,200 after), on
+all three arms. Two of the tool's own assumptions had to learn the shape: a
+near branch from `.text` into a `vstart` section is resolved in THAT section,
+and a routine matches by name across sections.
+
+| arm | image | bss (to `VP_P1ORG`) | part 1 | used | free of 65,024 |
+|---|---:|---:|---:|---:|---:|
+| default (`VP_P1ORG` 0xDE00) | 51,777 | 5,055 (4,864 real) | 4,200 | 60,841 | **4,183** (191 under `VP_P1ORG`, 3,992 in part 1) |
+| `NOLIVESND=1` (0xDE00) | 51,546 | 5,286 | 4,200 | 60,610 | 4,414 |
+| `VPDIAG=1` (0xE400) | 53,131 | 5,237 | 4,206 | 62,201 | **2,823** - it ASSEMBLES again |
+
+**Growing it.** Part 0 grows by raising `VP_P1ORG` 512 at a time - the
+assertion at `OS88_IMAGE_END` fires when it must, and the slack is RAM, the
+region being `VP_P1ORG` however much of it is used, so a size pass that
+leaves a whole sector under it should lower it. Part 1 grows to 65,024 and
+its assertion says when it cannot. **Past 65,024 the next step is a FAR
+part** - a lazy `OP_SEG` of its own claim with far thunks, PiXEL's shape
+(106.5) - and it has two costs this one does not: a part that is read when
+it is wanted is read off the disk the player was launched from, which on a
+one-drive machine is the disk the user has just swapped for a video's; and
+code reached far cannot call the player's own routines near. Both parts here
+are EAGER for the first reason: everything is read at the launch, while
+`VIDEO.O88`'s disk is in the drive.
+
+**What it costs.** No resident byte and no cycle of a play. On the disk the
+file is **41,467 -> 43,362 bytes** (+1,895: the loader ships raw - a file with
+parts cannot be compressed itself, 20.12.7 - and the image is now two LZ4
+streams, part 0 at 66.6% and part 1 at 93.8%), which is 41 -> 43 clusters on
+a 360KB disk. **The launch is ~0.3 s slower** on a 4.77 MHz 5150 off a
+360KB floppy, measured on MartyPC by the same double-click on the two files
+(plain 9.04/9.01 guest s, parted 9.26/9.39, the harness's navigation inside
+both): ONE more `int 13h` (6 against 5) and the same 81 sectors, the decode
+being the same LZ4 the kernel ran before, in two streams. In RAM the region
+is `VP_P1ORG` plus part 1 where it was image + bss, the same bytes, and the
+loader's own ~2KB region exists only for the length of the launch - which is
+the one new demand: a launch now wants that 2KB beside the carve for a
+moment. `lzglyph` (`tests/lzcomp.py --glyph`) loses VIDEO.O88
+as a subject, because Compress refuses a parted file by design; DOS.O88 still
+carries the glyph rung.
 
 ## 99. Gorillas (`apps/gorillas/gorillas.asm`)
 

@@ -107,7 +107,9 @@ INCLUDES = [
      "OS88UI_BIMG` and the `OS88UI_IMG` flag (SPEC.md 13.8.9); a button whose "
      "face the PACKAGE paints, keeping the library's press gesture, is `%define "
      "OS88UI_BOWN` and the `OS88UI_OWN` flag (SPEC.md 13.8.10); a package with "
-     "no check box or radio sheds that code with `%define OS88UI_NOGLYPH`."),
+     "no check box or radio sheds that code with `%define OS88UI_NOGLYPH`, "
+     "and one whose every button is a picture sheds the caption, ink and "
+     "default-ring paths with `%define OS88UI_BIMGONLY`."),
     ("os88alt.inc", "11.2.1.1",
      "Alt+Enter, the full-screen key, for a package on SPEC.md 53's BRACKET - "
      "where no event is dispatched, so the kernel's synthesised keystroke "
