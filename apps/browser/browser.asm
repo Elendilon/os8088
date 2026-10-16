@@ -325,21 +325,15 @@ br_entry:
     mov [br_win], bx
     push ax                         ; **THE BUTTONS' THREE SLOTS** (SPEC.md
     push bx                         ; 20.5.1.3.3): btninit links this record so
-    push cx                         ; the library's click thunk can find it,
-    push dx                         ; and installs the PRESS as well as the
-    push si                         ; release and the tracking edge. br_onclick
-    push di                         ; is our own click work and the library
-    mov ax, bx                      ; chains to it when the press was not a
-    mov bx, br_btrec                ; button's - which is what stops a package
-    mov si, br_onup                 ; having a click path that skips them
-    mov di, br_ondrag
-    mov dx, br_onclick
-    call os88ui_btninit
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
+    push dx                         ; the library's click thunk can find it,
+    mov ax, bx                      ; and installs the PRESS as well as the
+    mov bx, br_btrec                ; release and the tracking edge. br_onclick
+    mov si, br_onup                 ; is our own click work and the library
+    mov di, br_ondrag               ; chains to it when the press was not a
+    mov dx, br_onclick              ; button's - which is what stops a package
+    call os88ui_btninit             ; having a click path that skips them.
+    pop dx                          ; CX is not touched, and SI and DI are
+    pop bx                          ; loaded afresh before their next use
     pop ax
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
     ; worker's declaration: a package with NO worker is the case that
@@ -1633,22 +1627,19 @@ br_onup:
     or ax, ax
     jz .nobtn
     push si
-    cmp al, 1
+    mov bx, [br_histi]          ; Back and Forward are one move: the slot
+    cmp al, 1                   ; either side of this one
     jne .nb2
     call br_okback              ; ONE predicate for the greying and the
-    jc .bdone                   ; refusal, so they cannot disagree (47 rule 5)
-    mov bx, [br_histi]
-    dec bx
-    mov [br_histi], bx
-    call br_hgo
-    jmp short .bdone
+    dec bx                      ; refusal, so they cannot disagree (47 rule 5)
+    jmp short .move
 .nb2:
     cmp al, 2
     jne .nb3
-    call br_okfwd
-    jc .bdone
-    mov bx, [br_histi]
+    call br_okfwd               ; both predicates keep BX...
     inc bx
+.move:
+    jc .bdone                   ; ...and INC/DEC keep their CF
     mov [br_histi], bx
     call br_hgo
     jmp short .bdone
@@ -3383,9 +3374,7 @@ br_oncmd:
     jmp .out
 .f1:
     cmp al, 2
-    je .save
-    jmp .loc
-.save:
+    jne .loc
     call br_saveas                  ; File > Save As...
     jmp .out
 .loc:

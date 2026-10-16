@@ -115397,6 +115397,11 @@ redirects and frames - and left the same bytes behind.
   or restores the pair (`br_frame`, `br_framefetch`, `br_frameclose`) move
   `BR_HOSTMAX + BR_PATHMAX` bytes in one `rep movsb`; an `%error` holds the
   adjacency.
+- **Back and Forward are one move.** Both buttons step `br_histi` by one and
+  go there; they now share the step, with the predicate's CF surviving the
+  `inc`/`dec`. File's Save As stops jumping over itself, and the entry proc
+  stops saving three registers around `os88ui_btninit` that it never reads
+  again.
 
 ### 72.1 What the packages did have to change, which is one question
 
