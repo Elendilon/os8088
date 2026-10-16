@@ -10101,22 +10101,31 @@ vp_kwant:
 .r:
     ret
 
+; vp_kplain - ZF=1: the keeper would hold the canvas's image and nothing
+; else - no decode INTO it, no RESIDENT, Live or flipped play, no shadow in
+; either surface (vp_kelig's and vp_pcanv's common ground). Preserves all
+; but flags
+vp_kplain:
+    cmp byte [vp_kneed], 0          ; (the decoder writes INTO it)
+    jne .r
+    cmp byte [vp_resid], 0
+    jne .r
+    cmp byte [vp_livem], 0
+    jne .r
+    cmp byte [vp_flip], 0
+    jne .r
+    cmp byte [vp_fsshd], 0
+.r:
+    ret
+
 ; vp_kelig - CF=0 this play may go WITHOUT its keeper (SPEC.md 98.3.19):
 ; the keeper is only the canvas's image here - not a shadow the decoder
 ; writes, not a Live or RESIDENT play's, no second page to flip to - and the
 ; play is in the FULL SCREEN, where nothing but a swap reads it back. In the
 ; window the keeper is how the canvas crosses every bracket. Preserves all
 vp_kelig:
-    cmp byte [vp_kneed], 0          ; (the decoder writes INTO it)
-    jne .no
-    cmp byte [vp_resid], 0
-    jne .no
-    cmp byte [vp_livem], 0
-    jne .no
-    cmp byte [vp_flip], 0
-    jne .no
-    cmp byte [vp_fsshd], 0
-    jne .no
+    call vp_kplain
+    jnz .no
     cmp byte [vp_startp], 0         ; F: the full screen, paused
     jne .yes
     call vp_track
@@ -10143,16 +10152,8 @@ vp_pcanv:
     jne .no
     cmp word [vp_pscale], 1
     jne .no
-    cmp byte [vp_kneed], 0
-    jne .no
-    cmp byte [vp_resid], 0
-    jne .no
-    cmp byte [vp_livem], 0
-    jne .no
-    cmp byte [vp_flip], 0
-    jne .no
-    cmp byte [vp_fsshd], 0
-    jne .no
+    call vp_kplain
+    jnz .no
     cmp byte [vp_pixfmt], PF_VGA4   ; 16 colours, on mode 12h's planes -
     jne .p1                         ; but not in ITS OWN sixteen (98.1.3.2.2):
     cmp word [vp_palo], 0           ; the poster is in the desktop's, and the
