@@ -8042,6 +8042,20 @@ gfxe_bits    SI = record, CX = x, DX = y      a bit record: db rows, then a word
   its blits, and a `STIK_COMPOSE` that skips the glyphs a slab cannot hold
   saves the rejects as well (§110.6).
 
+#### 5.12.9 `GFXE_NOBUTIL` — the band without its utilities
+
+`GFXE_BAND` brings the band's geometry, `gfxe_bclear`, and a set of
+utilities for a FIGURE: the running bounds (`gfxe_bnew`, `gfxe_bfold`,
+`gfxe_bsize` and seven words), the pixel `gfxe_bpix` and the commit
+`gfxe_bput`. A widget that composes a fixed-size face with `GFXE_TEXT` and
+`GFXE_BITS`, papers it with `gfxe_bclear` and blits it itself reaches none of
+them. `%define GFXE_NOBUTIL` leaves them out (apps size pass 2b) and keeps the
+band, `gfxe_bclear` and `gfxe_bh`: an opt-out in `os88ui.inc`'s `OS88UI_NO*`
+shape, so every package that does not set it is byte-identical, removing the
+symbols so a package that sets it and calls one does not assemble, and
+refusing without a band. The Desk Calendar sets it (§110.6.2), 208 bytes of
+image; WIREFRAME and PiXEL use the bounds and the commit and cannot.
+
 ### 5.13 `gfx_pixel` and `gfx_points` — which to reach for
 
 `OSAPI_GFX_PIXEL` costs **640.87 µs** on the field machine and `OSAPI_GFX_POINTS`
@@ -188375,6 +188389,7 @@ without:
 | gate | what goes | image | file | small file |
 |---|---|---:|---:|---:|
 | `OS88LINE_NOSET` (§83.4) | `os88line_set` - the field is filled in place and resynced | -48 | -26 | -25 |
+| `GFXE_NOBUTIL` (§5.12.9) | `os88gfx.inc`'s band utilities - the face papers and blits its own band | -208 | -182 | -183 |
 
 ### 110.7 `kern_small`
 
