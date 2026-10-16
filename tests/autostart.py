@@ -8,7 +8,8 @@ holding TASKMGR.LNK (SYSTEM\\TASKMGR.O88 on the link's own volume),
 BADVER.LNK (ours, in a version 2 this kernel does not read, naming the
 Calculator) and NOTES.TXT (no link at all, which Note Pad would open), and
 CALC.LNK in the root - a link to B:\\APPS\\CALC.O88. tools/os88lnk.py
-wrote the links.
+wrote the links. B: is build/astapps360.img, the Calculator and room: leg D
+writes to it, and the shipped apps disk is a cluster from full.
 
   A. AUTOSTART. The boot opens every link in \\AUTOSTRT: the Task Manager's
      window is up once the boot is, with nobody touching anything - and it
@@ -41,7 +42,7 @@ import os88marty                                          # noqa: E402
 import os88ui                                             # noqa: E402
 
 IMG = os.path.join(ROOT, "build", "autostart360.img")
-APPS = os.path.join(ROOT, "build", "apps360.img")
+APPS = os.path.join(ROOT, "build", "astapps360.img")   # B:, with room
 FAILS = []
 
 

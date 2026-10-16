@@ -8925,7 +8925,7 @@ SOAK = [
         "as_boot's Shift test inverted (A and C), fm_dgdrop's Alt test "
         "jumped past (D alone - the drag MOVES the package).",
         needs=("marty",), serial=True,
-        wants=("build/autostart360.img", "build/apps360.img")),
+        wants=("build/autostart360.img", "build/astapps360.img")),
     Row("msel", "soak", py("tests/msel.py"), 55.0,
         "SPEC.md 22.27: MULTI-SELECT in a Disk window (kern_big). Ctrl+click "
         "adds and removes one entry, Shift+click takes the run from the "

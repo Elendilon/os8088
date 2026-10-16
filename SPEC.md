@@ -54782,10 +54782,18 @@ A link is REMOVED as any file is: Delete in a Disk window.
 
 The folder is in the ROOT of the boot volume, and not in `SYSTEM\`, for the
 boot's sake: the root has just been walked for SYSTEM.CFG, so asking it for
-one more name costs no I/O. **Every kern_big system disk and the live volume
-ship it EMPTY** (`AUTOFOLDER` in the Makefile). A folder a user can see is how
-the feature is found, where a feature with no folder is a manual nobody has
-written. kern_small has no autostart and its disks do not carry it.
+one more name costs no I/O. **The 720KB, 1.2MB and 1.44MB system disks,
+`emu.img` and the live volume ship it EMPTY** (`AUTOFOLDER` in the Makefile).
+A folder a user can see is how the feature is found, where a feature with no
+folder is a manual nobody has written. kern_small has no autostart and its
+disks do not carry it.
+
+**The 360KB system disk does not carry it, for ROOM.** That disk had 5
+clusters free; the eleventh blob sector took `KERNEL.SYS` over one more, and
+the folder would take another. At 3 free the Sticky Apps calendar can no
+longer save its place on A: (`stikmove`, `stikmovecga` and `stikregister` go
+red; at 4 they pass). Whoever finds that disk a cluster gives it the folder by
+adding `$(AUTOFOLDER)` to `$(IMG360)`.
 
 **`as_boot` is the BLOB's** (§2.5.3.3), called by kmain_o straight after
 `spl_finish`, so it costs no resident byte. A launch must not race the
@@ -54819,30 +54827,32 @@ it needs to be.
 sector had 34 bytes left. Then a folder that was there and EMPTY read the
 settings core on every boot: 1,170 ms on the 360KB disk, 16 sectors over 54
 cylinders. A shipped empty folder would have charged that to every machine.
-The eleventh sector is free for stage 1 on every geometry, and on today's
-kernel it pushes stage 2 over a cylinder on 720KB alone (`t_blobruns`'s 720
-row, moved 11 -> 12 with the reason beside it). KSIG_OFF moved 5632 -> 5120,
-file sector 21 still. The owner took the 720KB quarter second.
+The eleventh sector is free for stage 1 on every geometry. Stage 2 depends on
+the KERNEL's length: on the kernel this was written against it pushed 720KB
+over a cylinder (+213 ms, which the owner accepted), and on the kernel it
+landed on it costs no call anywhere (`t_blobruns`). KSIG_OFF moved
+5632 -> 5120, file sector 21 still.
 
-**Measured** with `tools/os88boot.py`, reset to desktop:
+**Measured** with `tools/os88boot.py`, reset to desktop, against the
+`elendilon-next` it was rebased onto:
 
 | | 360KB, `os8088_5150_cga_gla` | 720KB, `os8088_5150_herc_sb_720_gla` |
 |---|---:|---:|
-| before §26.10 | 13,418 ms | - |
-| blob 10, no folder (§26.10's first cut) | 13,452 ms | 15,065 ms |
-| ...the eleventh sector alone | ±0 (loader +20 ms) | **+217 ms** (loader 14 -> 15 `int 13h`) |
-| blob 11, the shipped EMPTY folder | **13,817 ms** | **16,095 ms** |
-| `as_boot` itself, empty folder | 456 ms: 3 sectors in 1 read, 262 ms mechanical | 579 ms: 1 read after a 34-cylinder seek, 417 ms mechanical |
-| with `TASKMGR.LNK` in the folder (blob 10, module walk) | 3,597 ms for the walk and the Task Manager | - |
+| before §26.10 | 13,417 ms | 14,935 ms |
+| as shipped | **13,452 ms** (no folder) | **16,093 ms** (the empty folder) |
+| the loader (blob 11) | 5,816 -> 5,859 ms, 13 reads either way | 5,889 -> 5,930 ms, 13 reads either way |
+| `as_boot` | 91 ms of CPU, no disk I/O | 573 ms: its first directory sector after a 37-cylinder seek, 411 ms mechanical |
+| `drv_boot_x` | - | 2,260 -> 2,860 ms: 25 -> 39 sectors, 4 -> 5 reads |
 
-**An empty folder is one directory read, and the head decides its price.**
-On the 360KB disk nothing has moved the head off the root, so the folder at
-cylinder 10 is a short seek. On the 720KB machine `SOUND.DRV` is loaded
-first, at cylinder 43, and the head comes back 34 cylinders. The 720KB total
-carries a third, accidental, term: the folder's cluster moves every file
-after it by one, and `SOUND.DRV` then straddles one more track (`drv_boot_x`
-4 -> 5 reads, +321 ms). That is a layout coincidence any one-cluster addition
-to that disk can cause, and it is in the 16,095.
+**An empty folder costs one directory read, and where the head is decides
+the price.** On the 720KB machine `SOUND.DRV` has been loaded at cylinder 43,
+and the head comes back 37 cylinders. The `drv_boot_x` row is the folder's
+ROOT ENTRY rather than the folder. That disk had exactly 31 root entries, so
+`AUTOSTRT` is the 32nd and fills the root's second sector. The end-of-directory
+marker moves into a third, and a walk for a name that is not there
+(SYSTEM.CFG, on a disk with no settings yet) now reads it. Any one more file
+in that root would cost the same. Measured before the rebase, on the 360KB
+disk with the folder: 13,817 ms, `as_boot` 456 ms after a 10-cylinder seek.
 
 #### 26.10.6 A package that asks to be started: `apps/os88link.inc`
 

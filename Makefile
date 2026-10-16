@@ -3382,7 +3382,13 @@ APPDATAFOLDER := --folder SYSTEM/APPDATA
 # disk and the live volume: a folder a user can see is how the feature is
 # found, where a feature with no folder is a manual nobody has written. It
 # costs the boot one directory sector (its first, and the whole of an empty
-# one); kern_small has no autostart and its disks do not carry it
+# one); kern_small has no autostart and its disks do not carry it.
+# **NOT THE 360KB SYSTEM DISK, for now, and it is ROOM and not a decision
+# about the feature**: that disk had 5 clusters free, §26.10's eleventh blob
+# sector took KERNEL.SYS over a cluster and the folder would take another, and
+# at 3 free the Sticky Apps calendar can no longer save its place there
+# (stikmove, stikmovecga and stikregister go red; at 4 they pass). The day a
+# cluster is found for it, $(IMG360) takes $(AUTOFOLDER) like the other three
 AUTOFOLDER := --folder AUTOSTRT
 
 # The logo (SPEC.md 63): 466x100 of monochrome GIF, and the one thing in
@@ -5067,7 +5073,7 @@ $(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
-		$(APPDATAFOLDER) $(AUTOFOLDER)
+		$(APPDATAFOLDER)
 
 # AUTOSTARTTEST - the LINKS and AUTOSTART gate's disk (SPEC.md 26.10): the
 # shipped 360KB system disk plus \AUTOSTRT holding a link to the Task Manager
@@ -5076,6 +5082,8 @@ $(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(
 # would start Note Pad if it were opened - and CALC.LNK in the root, a link
 # to B:\APPS\CALC.O88 for the double-click leg. tools/os88lnk.py writes them,
 # the same 50 bytes CTRL.DRV's Alt-drop and apps/os88link.inc write.
+# MEDIA's logo is left off: the shipped disk is 3 clusters from full, and
+# these four files and the folder they need do not fit beside it.
 #   make autostarttest && python3 tests/autostart.py
 # ONE rule writes the four, behind a stamp: a grouped target (`&:`) is GNU
 # make 4.3, and the macOS make is 3.81
@@ -5092,13 +5100,19 @@ $(BUILD)/astest/.made: tools/os88lnk.py | $(BUILD)
 $(BUILD)/autostart360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py $(BUILD)/astest/.made
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(FACESARG360) \
 		$(BUILD)/astest/CALC.LNK AUTOSTRT:$(BUILD)/astest/BADVER.LNK \
 		AUTOSTRT:$(BUILD)/astest/NOTES.TXT AUTOSTRT:$(BUILD)/astest/TASKMGR.LNK \
 		$(APPDATAFOLDER)
 
+# ...and a B: of its own: the Calculator and room. The Alt-drop leg WRITES a
+# link to B:, and the shipped apps disk is a cluster from full - a row that
+# needs room on it fails for a reason that is not its subject
+$(BUILD)/astapps360.img: $(BUILD)/calc.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 APPS:$(BUILD)/calc.o88
+
 .PHONY: autostarttest
-autostarttest: $(BUILD)/autostart360.img $(APPSIMG360)
+autostarttest: $(BUILD)/autostart360.img $(BUILD)/astapps360.img
 	@echo "autostarttest: build/autostart360.img - \\AUTOSTRT with a link to the"
 	@echo "               Task Manager. Run it with: python3 tests/autostart.py"
 
