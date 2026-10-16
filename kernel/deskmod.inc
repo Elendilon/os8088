@@ -57,16 +57,17 @@ section .cold
 ; -----------------------------------------------------------------------------
 osapi_wm_desk_x:
     or al, al
-    jnz .v
-    call desk_need              ; preserves every register; CF is the answer
-    retf
-.v:
+    jz desk_need                ; QUERY IS desk_need, which ends in `retf`
     jmp far [DKDFP + DKD_VERB]  ; MAKE / DRAG / RELEASE: the image's
 
 ; -----------------------------------------------------------------------------
 ; desk_need - mod_need MOD_DESK, INSIDE whatever drv_vol bracket is open
-;             (SPEC.md 11.103.10), near, resident .cold
+;             (SPEC.md 11.103.10), FAR, resident .cold
 ; in:  nothing. out: CF = mod_need's answer; every register preserved
+;
+; FAR because it IS QUERY's body (kernel size pass 13): the cell jumps here,
+; and the loader's step 5, in `.cold` beside it, calls it with COLDCALL.
+; It was a near proc behind QUERY's `call desk_need / retf`.
 ;
 ; TWO CALLERS: QUERY above, and the loader's step 5 for a package whose header
 ; carries OS88_F_DESK - BEFORE the package's region is claimed, so the 1 KB
@@ -96,7 +97,7 @@ desk_need:
     mov [drv_vol_drv], al       ; nor `mov` writes a flag)
     pop word [drv_vol_cwd]
     pop ax
-    ret
+    retf
 
 ; =============================================================================
 ; DESK.DRV - the module image

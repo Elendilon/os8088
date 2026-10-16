@@ -158,7 +158,14 @@ DSKW_EOC16   equ 0xFFFF        ; (0FF8h / 0FFF8h), so a host fsck walks the
 
 %ifdef DSK_STREAM                ; WRITE_SEQ's record rides the append body
 %define DSKW_WSEQ                ; (SPEC.md 18.4.9) on kern_big and in
-%endif                           ; kern_dos, whose DOS box streams (96.53.1)
+%define DSKW_SYSW                ; kern_dos, whose DOS box streams (96.53.1)
+%endif                           ; ...and DSKW_SYSW: can a SYSTEM write
+%ifdef OS88_DRIVERS              ; happen at all (SPEC.md 19.6)? WSQF_SYS, a
+%define DSKW_SYSW                ; driver's fenced cell, the assoc writer and
+%endif                           ; HIBER.DRV are its only setters, so on
+                                 ; kern_small [dskw_syswr] was 0 for ever and
+                                 ; its whole tier is not assembled there
+                                 ; (kernel size pass 13)
 
 ; the legal short-name symbols, beyond A-Z and 0-9 (SPEC.md 18.4). Spaces,
 ; path separators, wildcards and "+,;=[]:" are absent on purpose.
@@ -189,12 +196,14 @@ dws_hd1:    dw 0                ; while the machine stands elsewhere (SPEC.md
                                 ; 18.8.5); 0xFFFF = none. .text, for this
                                 ; block's reason: the empty value is not 0
 %endif
+%ifdef DSKW_SYSW
 dskw_syswr: db 0                ; 1 = dskw_write_sys, not dskw_write: this
                                 ; file is the KERNEL's (SPEC.md 19.6). Here
                                 ; for the same reason again, and with the
                                 ; sharper edge - garbage in this byte would
                                 ; make every package's write create a hidden
                                 ; system file and overwrite one
+%endif
 
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own, so it costs KERN_CODE_MAX
@@ -224,7 +233,11 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; It is a routine rather than two copies because it had been two copies -
 ; dskw_wbody's and dskw_apbody's, identical and eleven hundred lines apart -
 ; and the append one would have kept the bug through the fix.
+;
+; A DSKW_SYSW kernel's alone: with no system writer the answer is DSKW_PROT
+; every time, and both sites test that immediate instead (kernel size pass 13)
 ; -----------------------------------------------------------------------------
+%ifdef DSKW_SYSW
 dskw_pmask:
     push bx
     mov al, DSKW_PROT
@@ -246,6 +259,7 @@ dskw_pmask:
 .out:
     pop bx
     ret
+%endif                          ; DSKW_SYSW
 
 ; -----------------------------------------------------------------------------
 ; dskw_write - create or replace a whole file (SPEC.md 18.4, slot 0x0103)
@@ -283,8 +297,10 @@ dskw_wrp:
     call ct_fpg_end             ; the ONE place the widget is given back,
                                 ; however many ways the body returned - and it
                                 ; preserves CF and AX too (SPEC.md 12.8)
+%ifdef DSKW_SYSW
     mov byte [dskw_syswr], 0    ; one shot, cleared here so it can never
-.pop:                           ; leak into the next caller's write
+%endif                          ; leak into the next caller's write
+.pop:
     pop es                      ; (dskw_wrap7's pop run as well)
     pop bp
     jmp dskw_find.pdi           ; ...and dskw_find's for the rest (size
@@ -1463,8 +1479,12 @@ dskw_wbody:
                                 ; dskw_raw two instructions ago (SPEC.md
                                 ; 18.4.3), so this path re-read the sector it
                                 ; had just been handed - a whole revolution
+%ifdef DSKW_SYSW
     call dskw_pmask             ; AL = what may not be replaced here
     test byte [dskw_raw+DSK_R_ATTR], al
+%else
+    test byte [dskw_raw+DSK_R_ATTR], DSKW_PROT  ; (no system writer: AL is
+%endif                          ; dead on both arms below)
     jz .keep
 .prot:                          ; (dskw_nbody, dskw_wabody and
     mov ax, FERR_PROT           ; dskw_rmbody_n83 answer here too)
@@ -3320,8 +3340,12 @@ dskw_wabody:
 %endif
     call dskw_find
     jc .out                     ; AX = FERR_NOENT / FERR_IO already
+%ifdef DSKW_SYSW
     call dskw_pmask             ; AL = what may not be written here
     test byte [dskw_raw+DSK_R_ATTR], al
+%else
+    test byte [dskw_raw+DSK_R_ATTR], DSKW_PROT  ; (.args spends AX next)
+%endif
     jnz .prot
 .args:
     call dskw_clbytes           ; --- the arguments, all refused ------------
@@ -3697,10 +3721,12 @@ dskw_commit:
     mov si, dskw_n83
     mov di, dskw_raw
     call dskw_copy11
+%ifdef DSKW_SYSW
     cmp byte [dskw_syswr], 0    ; hidden + system, if the kernel is making
     je .notsys1                 ; one of its own (SPEC.md 19.6)
     mov byte [dskw_raw+DSK_R_ATTR], DSKW_SYSAT
 .notsys1:
+%endif
     cmp byte [dskw_isdir], 0     ; a folder is ATTR_DIRECTORY and
     je .notdir1                 ; never ARCHIVE (SPEC.md 18.5)
     mov byte [dskw_raw+DSK_R_ATTR], DSKW_DIR
@@ -6137,14 +6163,18 @@ dwf_dskw_rename:        call dskw_rename_x
                     retf
 dwf_dskw_stat:          call dskw_stat_x
                     retf
+%ifdef DSKW_SYSW
 dwf_dskw_write_sys:     mov byte [dskw_syswr], 1    ; ...and the plain
+%endif
 dwf_dskw_write:         call dskw_write_x           ; write, which clears it
                     retf
 dwf_dskw_mkdir:         call dskw_mkdir_x
                     retf
 dwf_dskw_read_at:       call dskw_read_at_x
                     retf
+%ifdef DSKW_SYSW
 dwf_dskw_append_sys:    mov byte [dskw_syswr], 1    ; ...and the plain
+%endif
 dwf_dskw_append:        call dskw_append_x          ; append (dskw_wrp
                     retf                            ; clears it)
 %ifndef KERN_SMALL

@@ -2848,7 +2848,7 @@ cp_thm_cust_btn:
 ; HERE IN THE PANEL'S IMAGE, NOT IN .cold: the button that calls it is this
 ; image's, so the loader costs the kernel nothing. What stays resident is the
 ; row (kernel/driver.inc), drv_call's range test and the reap that every panel
-; close runs (thmv_reap_x). The window is handed the three addresses it edits -
+; close runs (drv_cp_closed_x's tail). The window is handed the three addresses it edits -
 ; the Color row, the struct's 'TP' record and [thm_cstrp] - so it needs no
 ; symbol and the kernel needs no preset table and no call to set one.
 ; -----------------------------------------------------------------------------
@@ -2881,9 +2881,12 @@ cp_thmv_open:
     mov al, THMV_OPEN
     call COLD_SEG:drvf_drv_call
     jnc .out
-    call COLD_SEG:thmv_reap_x   ; it loaded and then refused: give it back -
-                                ; the panel close's own two steps, one door
-.no:
+    mov bx, thmv_row            ; it loaded and then refused: give it back -
+    mov bp, [bx+DRVR_ENT]       ; the panel close's own two steps (the tail
+    mov al, THMV_CLOSE          ; of drv_cp_closed_x), through the two far
+    call COLD_SEG:drvf_drv_call ; entries. The row and the entry are loaded
+    call COLD_SEG:drvf_drv_release  ; again: a refusing driver may answer in
+.no:                            ; BX, and drv_call spends BP
     stc
 .out:
     jmp kretm_bp                ; pops and a ret: CF survives

@@ -21216,9 +21216,10 @@ module (§2.8), and its slot block `DKDFP` has `DKD_NENT` = 4 entries:
 | 2 | `dkd_show` | `wm_show_b`'s desk arm (§11.103.3): the visible bit, `wm_win_rect` and `wm_paint_dmg` through their resident far shims | `wm_show_b`, for a `WF_DESK` window | unreachable: only MAKE, in the image, sets `WF_DESK` |
 | 3 | `dkd_key` | `fdlg_top_x`'s desk arm (§11.103.4). In: BX = `wm_top`'s answer. CF = 0 and BX = `[menu_win]` when it is a desk window, CF = 1 "stand" (BX kept) otherwise | `fdlg_top_x`, with no chooser up | CF = 1, BX kept - stand: wm_top's answer, exactly right with no widget |
 
-**QUERY is the load point.** The resident half of `osapi_wm_desk_x` is a
-12-byte `.cold` thunk: AL = 0 calls `desk_need` (below) and returns its CF;
-every other verb is `jmp far [DKDFP]`. Three reasons make QUERY the
+**QUERY is the load point.** The resident half of `osapi_wm_desk_x` is an
+8-byte `.cold` thunk: AL = 0 jumps to `desk_need` (below), which is FAR and
+returns its CF with `retf` (the loader's step 5 reaches it with `COLDCALL`,
+kernel size pass 13); every other verb is `jmp far [DKDFP]`. Three reasons make QUERY the
 place:
 
 - every Sticky App asks it first, inside its entry proc (`os88stik.inc`'s
@@ -53892,7 +53893,7 @@ land while another task is inside one of the driver's other verbs, so both
 drivers answer it above their own claim, where `NETV_IDENT` is answered and for
 the same reason.
 
-**Double-click** → `ui_svc_open`, which is `ui_tm_open` (§28.3) with a
+**Double-click** → `cw_ui_svc_open` (a far body: `desk_click` is `.cold`), which is `ui_tm_open` (§28.3) with a
 different descriptor (§28.3.2): a running instance whose header name matches
 the record's is fronted with `inst_restore`, otherwise the boot volume is
 quiet-mounted, the loader is given the record's file inside `SYSTEM/`, and the
@@ -123600,9 +123601,10 @@ boot blob had room for (2.9.14). kern_small carries the record untouched.
 row (`thmv_row`) sits one row past `drv_tab`, outside `DRV_MAX`, so
 `drv_call`'s one range test reaches it with no compare in `.cold`, and
 `mem_rr_tab` names its segment so a compaction can move it (66.6.3). The
-panel's close branch in `instance.inc` far-calls the resident `thmv_reap_x`
-(`.cold`, §76.14.14.1) on EVERY close, before and independent of the settings
-write: the window goes first, then the image.
+panel's close branch in `instance.inc` far-calls the resident `drv_cp_closed_x`
+on EVERY close, before and independent of the settings write, and its tail is
+the reap (`.cold`, §76.14.14.1): the drivers are told, then the window goes
+first, then the image.
 
 **Verification.** `tests/colorpresets_qemu.py` drives each preset through the
 chooser's own click handler and asserts the desktop, both title pairs and the
@@ -123612,8 +123614,8 @@ across a reboot.
 
 ##### 76.14.14.1 The theme's set path is `.cold`
 
-`thm_set`, `api_thm_set_x` (`OSAPI_THM_SET`'s body) and `thmv_reap_x` live
-in `.cold` on kern_big and kern_emu (§2.6) — they are still resident. Each
+`thm_set`, `api_thm_set_x` (`OSAPI_THM_SET`'s body) and the Customize
+window's reap live in `.cold` on kern_big and kern_emu (§2.6) — they are still resident. Each
 runs at human cadence: a theme or preset change, a display switch, the
 boot's one palette resolve and a Control Panel close. None of them runs from
 an ISR or from the loading screen's IRQ0 path, and the cold segment is up
@@ -123642,12 +123644,15 @@ The shape:
   `api_thm_set` thunk the cell used to near-call is gone. `api_thm_set_x`
   reaches `wm_su_drop_all` through `cw_mem_disp` the same way (the
   `cw_wm_su_drop_all` shim is gone with `cw_dock_force`).
-- **`thmv_reap_x` is far-called from `app_close_win` and ends in `retf`.** It
-  near-calls `drv_call_ent` and `drv_release` directly, since both are cold
-  bodies, and asks neither whether the image is loaded: both refuse a row
-  whose `DRVR_SEG` is 0 on their own, so the never-loaded close does nothing
-  either way. `cp_thmv_open`'s refusal path far-calls it too, where it had its
-  own copy of the two calls.
+- **The reap is `drv_cp_closed_x`'s tail** (kernel size pass 13; it was
+  `thmv_reap_x`, a far body of its own). `app_close_win`'s panel branch
+  far-calls `drv_cp_closed_x` immediately before it, with every register
+  already banked, so the reap is four instructions there: it near-calls
+  `drv_call_ent` and `drv_release` directly, since both are cold bodies, and
+  asks neither whether the image is loaded - both refuse a row whose
+  `DRVR_SEG` is 0 on their own, so the never-loaded close does nothing either
+  way. `cp_thmv_open`'s refusal path spells the same two calls through
+  `drvf_drv_call` and `drvf_drv_release`.
 - **THMPAL.DRV's file name is CTRL.DRV's** (kernel size pass 13). `drv_load_at`
   reads a row's `DRVR_FILE` through DS, so the name must be in the kernel
   segment while it loads - but only then, and `cp_thmv_open` is the one code

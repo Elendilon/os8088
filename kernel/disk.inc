@@ -5537,6 +5537,10 @@ dsk_fatw_claim:
 ; LOW_SEG for the life of the machine. Both rows are out of mem_rr_tab with it.
 section .cold                   ; ...and back, or every routine below joins it
 
+; dsk_fatw_drop - give volume AL's FAT window back (SPEC.md 18.8.4). Its two
+; callers are dsk_vol_del (OS88_DRIVERS, not kern_dos) and HIBER.DRV's sweep
+; (kern_big), so kern_small and kern_dos carry no body (kernel size pass 13)
+%ifdef OS88_DRIVERS
 dsk_fatw_drop:
     push ax
     push bx
@@ -5571,6 +5575,7 @@ dsk_fatw_drop:
     pop bx
     pop ax
     ret
+%endif                          ; OS88_DRIVERS
 
 ; -----------------------------------------------------------------------------
 ; dsk_fc_bad - dsk_free_clus_x's first three refusals share this one near jump.

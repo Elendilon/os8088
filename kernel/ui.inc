@@ -2583,15 +2583,20 @@ ui_d_svc:
 %endif
 
 ; -----------------------------------------------------------------------------
-; ui_tm_open / ui_svc_open - front a system package, or load it off the
-;                            system disk (SPEC.md 28.3, 26.7)
+; ui_tm_open / cw_ui_svc_open - front a system package, or load it off the
+;                               system disk (SPEC.md 28.3, 26.7)
 ; in:  nothing; UI task, no lock held
 ; out: nothing (all registers preserved)
+;
+; cw_ui_svc_open is FAR: its one caller is desk.inc's service zone, which is
+; `.cold`, and it was a near entry behind a kernel.asm shim of its own that
+; did nothing but `call` it and `retf` (kernel size pass 13: one body, -2)
 ; -----------------------------------------------------------------------------
 %ifndef KERN_SMALL
-ui_svc_open:
+cw_ui_svc_open:
     mov word [ui_desc], ui_d_svc
-    jmp short ui_sys_open
+    call ui_sys_open
+    retf
 %endif
 ui_tm_open:
 %ifndef KERN_SMALL

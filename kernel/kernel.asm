@@ -5109,12 +5109,11 @@ osapi_video:
                                 ; [vid_pwm1]+1 IS [vid_w].
     mov cx, [vid_dock_y0]
     mov dl, [vid_kind]
-    mov dh, 4
-    cmp byte [vid_mono], 0
-    je .r
-    mov dh, 1
-.r:
-    ret
+    mov dh, [vid_planes]        ; the bpp IS the plane count: 4 on a planar
+    ret                         ; adapter, 1 where [vid_mono] = 1 - the one
+                                ; fact vid_depth_set stores as a word, so the
+                                ; two cannot disagree (kernel size pass 13: it
+                                ; was a compare on [vid_mono] and two moves)
 
 osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 
@@ -5181,6 +5180,24 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
     call cur_unlazy
 %%spent:
 %endmacro
+
+; -----------------------------------------------------------------------------
+; THE TRAMPOLINES A BUILD DOES NOT PAY FOR (SPEC.md 2.6.2, kernel size pass 13)
+; A `ct_` trampoline (below the includes) is 6 bytes that save 2 a CALL site,
+; so at 2 sites it costs 2 and at 3 it is a wash - and the count is per BUILD.
+; Where a target has 2 call sites on one kernel and more on the other, that
+; kernel names the far call straight through the trampoline's own name:
+; `call ct_x` is `call KERNEL_SEG:x` there, and no site changes. CALL sites
+; only - a tail `jmp ct_x` would become a far jump to a `retf` body, so a
+; target with one cannot go on this list. Counted off the assembled listing
+; (the calls and jumps whose target is the trampoline's address), not the
+; source: FDK and os88ui.inc's UI_* macros reach these too.
+; -----------------------------------------------------------------------------
+%ifdef KERN_BIG
+  %define ct_cw_wm_clip_test KERNEL_SEG:cw_wm_clip_test ; 2 sites (small: 3)
+%else
+  %define ct_cw_snd_beep KERNEL_SEG:cw_snd_beep         ; 2 sites (big: 4)
+%endif
 
 %include "dskwin.inc"           ; THE FIRST INCLUDE, and that is the whole of
                                 ; the mechanism (SPEC.md 2.1.2): `.lowbss` is
@@ -6084,9 +6101,8 @@ cw_task_spawn:           call task_spawn
 cw_task_yield equ apic_task_yield ; THE CELL IS THE DOOR (size pass 13)
 cw_toast_show equ apic_toast_show ; THE CELL IS THE DOOR (size pass 9)
 %ifdef KERN_BIG
-cw_ui_svc_open:         call ui_svc_open    ; the service zone's double-click
-                    retf                    ; (SPEC.md 26.7): desk.inc is cold
-                                            ; and ui_sys_open is not
+; (cw_ui_svc_open, the service zone's double-click, is ui.inc's own far body
+; since kernel size pass 13 - SPEC.md 26.7)
 cw_drv_pkg_call equ apic_drv_pkg_call ; ...and its PAINT, which is the same
                                 ; door a package reaches a driver by (SPEC.md
                                 ; 20.11) - and since size pass 13 the door IS
@@ -6207,9 +6223,12 @@ cw_wm_win_rect:         call wm_win_rect
 ; `.cold` CALLERS ONLY. An on-demand module (`.modc`/`.modd`/...) and the boot
 ; overlay run at another CS and keep the far call; fdlg.inc, which is `.cold`
 ; on kern_big and FDLG.DRV on kern_small, reaches these through its FDK macro.
-; The sites-per-target figures are kern_big's / kern_small's, measured when
-; this block was written; a target whose count falls to 3 or below is paying
-; for its trampoline, and goes back to the plain far call.
+; The sites-per-target figures are kern_big's / kern_small's, calls and tail
+; jumps both, re-measured off the listing at kernel size pass 13; a target
+; whose CALL count falls to 2 is paying for its trampoline and goes back to
+; the plain far call (3 is a wash) - on that build alone, through the
+; %define block above the includes. ct_cw_font_run's are mostly TAILS, which
+; a far call cannot replace for less, so it stays at 2.
 section .cold
 osapi_vol_kind_x:               ; (see osapi_vol_kind's header above)
     push bx
@@ -6219,39 +6238,43 @@ osapi_vol_kind_x:               ; (see osapi_vol_kind's header above)
     retf                        ; CF alone)
 
 ct_cw_gfx_fill:     call KERNEL_SEG:cw_gfx_fill
-                    ret                     ; 23 / 18 sites
+                    ret                     ; 13 / 14 sites
 ct_cw_gfx_unlock:   call KERNEL_SEG:cw_gfx_unlock
-                    ret                     ; 15 / 10 sites
+                    ret                     ; 11 / 8 sites
 ct_cw_gfx_lock:     call KERNEL_SEG:cw_gfx_lock
-                    ret                     ; 14 / 10 sites
+                    ret                     ; 12 / 8 sites
 ct_cw_font_run:     call KERNEL_SEG:cw_font_run
-                    ret                     ; 10 / 10 sites
+                    ret                     ; 2 / 3 sites
 ct_cw_wm_content:   call KERNEL_SEG:cw_wm_content
-                    ret                     ; 9 / 3 sites
+                    ret                     ; 3 / 3 sites
 ct_cw_mem_disp:     call KERNEL_SEG:cw_mem_disp
-                    ret                     ; 8 / 6 sites
+                    ret                     ; 10 / 8 sites
 ct_toast_say:       call KERNEL_SEG:toast_say
-                    ret                     ; 8 / 8 sites
+                    ret                     ; 4 / 4 sites
 ct_cw_gfx_frame:    call KERNEL_SEG:cw_gfx_frame
-                    ret                     ; 8 / 7 sites
+                    ret                     ; 5 / 7 sites
 ct_font_width:      call KERNEL_SEG:font_width
-                    ret                     ; 7 / 5 sites
+                    ret                     ; 3 / 4 sites
 ct_fpg_begin:       call KERNEL_SEG:fpg_begin
-                    ret                     ; 6 / 5 sites
-ct_cw_inst_win_owner: call KERNEL_SEG:cw_inst_win_owner
-                    ret                     ; 6 / 5 sites
-ct_cw_gfx_xor_fill: call KERNEL_SEG:cw_gfx_xor_fill
-                    ret                     ; 5 / 3 sites
-ct_cw_wm_clip_test: call KERNEL_SEG:cw_wm_clip_test
-                    ret                     ; 5 / 3 sites
-ct_cw_snd_beep:     call KERNEL_SEG:cw_snd_beep
-                    ret                     ; 5 / 2 sites
-ct_fpg_end:         call KERNEL_SEG:fpg_end
-                    ret                     ; 4 / 4 sites
-ct_cw_task_yield:   call KERNEL_SEG:cw_task_yield
                     ret                     ; 4 / 3 sites
+ct_cw_inst_win_owner: call KERNEL_SEG:cw_inst_win_owner
+                    ret                     ; 5 / 4 sites
+ct_cw_gfx_xor_fill: call KERNEL_SEG:cw_gfx_xor_fill
+                    ret                     ; 3 / 3 sites
+%ifndef KERN_BIG                ; (kern_big: the far call itself - above)
+ct_cw_wm_clip_test: call KERNEL_SEG:cw_wm_clip_test
+                    ret                     ; - / 3 sites
+%else                           ; (kern_small: the far call itself - above)
+ct_cw_snd_beep:     call KERNEL_SEG:cw_snd_beep
+                    ret                     ; 4 / - sites
+%endif
+ct_fpg_end:         call KERNEL_SEG:fpg_end
+                    ret                     ; 3 / 3 sites
+; (ct_cw_task_yield went in kernel size pass 13: 3 / 2 sites, a wash on
+; kern_big and 2 bytes on kern_small - and the three far calls skip a near
+; call and a ret each, on loops that yield every pass)
 ct_cw_gfx_pen_cf:   call KERNEL_SEG:cw_gfx_pen_cf
-                    ret                     ; 4 / 4 sites
+                    ret                     ; 7 / 7 sites
 ct_cw_gfx_hline:    call KERNEL_SEG:cw_gfx_hline
                     ret                     ; 4 / 4 sites
 section .text

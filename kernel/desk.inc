@@ -1685,10 +1685,13 @@ desk_pic:
     add si, byte 4
     jmp short .icon
 .svcico:                        ; THE DRIVER DRAWS IT (SPEC.md 26.7): no glyph
-    push ds                     ; in here, so a machine with no network card
-    pop es                      ; carries none. drv_pkg_call refuses (CF = 1)
+                                ; in here, so a machine with no network card
+                                ; carries none. drv_pkg_call refuses (CF = 1)
     mov bh, [desk_svc_cls]      ; when no such driver is published, so one
-    mov bl, [desk_svc_vrb]      ; that went away draws nothing
+    mov bl, [desk_svc_vrb]      ; that went away draws nothing. ES = our DS
+                                ; is the X cell's own first act (api_x), and
+                                ; it gives ES back after - nothing here reads
+                                ; it: desk_cap's caption rect reloads it
     call KERNEL_SEG:cw_drv_pkg_call
     ret
 .link:                          ; THE CACHE: the stored picture, drawn

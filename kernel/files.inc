@@ -2065,7 +2065,8 @@ fm_ttl      equ fm_s_root       ; the same four bytes fm_title_set letters at
                                 ; the root, and both are .text = KERNEL_SEG
 
 fm_s_drive:  db 'Drive ', 0     ; header: "Drive " letter ":  " N " files"
-fm_s_colsp:  db ':  ', 0
+fm_s_colsp:  db ':  ', 0        ; (its last three bytes are sched.inc's
+                                ; sch_s_in, the stack-overflow panel's gap)
 fm_s_files:  db ' files', 0
 fm_s_nodisk: db 'No os8088 disk (', 0 ; + letter + ':)' - 19 chars, short
                                 ; enough to clear the buttons (SPEC.md 22)
@@ -2312,7 +2313,11 @@ fm_s_free:    db '   Free ', 0      ; carries both figures (SPEC.md 22.7)
 %if fm_s_free - fm_s_size != 6
   %error "fm_draw_status reaches fm_s_free as the string after fm_s_size"
 %endif
-fm_s_root:    db 'Disk', 0      ; window title at the root...
+%ifdef KERN_BIG
+fm_s_root     equ drv_t_ram + 4 ; window title at the root - 'Disk', 0, the
+%else                           ; tail of the RAM disk's 'Ram Disk' (driver.inc,
+fm_s_root:    db 'Disk', 0      ; .text, a kern_big row) - kernel size pass 13
+%endif
 fm_s_rootf:   db 'Root '        ; (the context menu's 'Root Folder' is this
 fm_s_folder:  db 'Folder', 0    ; with five bytes in front) ...and in a
                                 ; folder we arrived at from
@@ -2681,7 +2686,12 @@ fm_front_win:
 ; NOT called before a context menu (SPEC.md 12.4): Format is not on one. If
 ; it ever is, this is the routine to call there too - and the descriptor note
 ; above fm_ctx_file is the argument for why that is allowed.
+;
+; KERN_BIG ONLY: its one caller, ui_task's bar press, is `%ifndef KERN_SMALL`
+; (kern_small has no Format item to point anywhere), so the small build
+; carried 64 bytes of `.cold` nothing reached (kernel size pass 13)
 ; -----------------------------------------------------------------------------
+%ifndef KERN_SMALL
 fm_bar_gate_x:
     call kentc_di
     mov ax, fm_s_formatx        ; greyed unless every test below passes -
@@ -2733,6 +2743,7 @@ fm_bar_gate_x:
     %error "fm_bar_gate_x lives Unmount Image with one inc"
   %endif
 %endif
+%endif                          ; KERN_SMALL
 
 ; -----------------------------------------------------------------------------
 ; fm_ncpy - copy a NUL string into a bounded field, always NUL-terminated
@@ -2772,10 +2783,12 @@ fm_ncpy:
 ; terminator and the ret are fm_ncpy's own, shared six lines up - so an edit
 ; to fm_ncpy's tail is an edit to this one's.
 ;
-; Two callers, both in .cold like this one, both staging a driver-supplied
-; name into a kernel field: osapi_drv_dlg_x's default file name and
-; drv_cp_name_x's Control Panel page name (SPEC.md 51).
+; ONE caller now, in .cold like this one: osapi_drv_dlg_x's default file
+; name (SPEC.md 51), a driver-supplied name staged into a kernel field - and
+; that caller is kern_big's, so this is too (kern_small's slot is a refusing
+; stub with no body; kernel size pass 13). drv_cp_name_x was the second.
 ; -----------------------------------------------------------------------------
+%ifdef KERN_BIG
 fm_ncpye:
 .c:
     es lodsb
@@ -2785,6 +2798,7 @@ fm_ncpye:
     jz fm_ncpy.d
     loop .c
     jmp short fm_ncpy.t
+%endif
 
 ; -----------------------------------------------------------------------------
 ; fm_seed - park a target directory for the next fm_kinit (SPEC.md 22.1)
@@ -5978,7 +5992,9 @@ fm_newwin:
     cmp cx, FM_MAXWIN
     jae fm_nw_full
     call fm_seed                ; park the target for the new window's
-    mov al, KIND_FILES          ; fm_kinit, then let ui_task do the launch
+                                ; fm_kinit, then let ui_task do the launch -
+                                ; a DISK window's, which is the only launch
+                                ; inst_launch_post posts, so it reads no AL
     call KERNEL_SEG:inst_launch_post    ; NOT app_launch: it takes the lock
 fm_nw_none:                     ; we hold. The NEW window is what draws; this
     mov byte [fm_cmdchg], FMD_NONE  ; one is untouched, and so it is not
@@ -6824,7 +6840,7 @@ fm_drag:
     jz .drop                    ; EVT_MUP still ends the drag by level
     call fm_dgxor               ; erase at the OLD position...
     call ct_cw_gfx_unlock         ; ...only then may the lock drop
-    call ct_cw_task_yield
+    call KERNEL_SEG:cw_task_yield
     call ct_cw_gfx_lock
     call fm_dgmove              ; ...take the new one...
     call fm_dgxor               ; ...and draw there
@@ -6893,7 +6909,7 @@ fm_dgwait:
 fm_linger:
     mov ax, [ticks]
 .l:
-    call ct_cw_task_yield
+    call KERNEL_SEG:cw_task_yield
     cmp ax, [ticks]
     je .l
     ret

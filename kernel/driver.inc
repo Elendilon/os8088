@@ -1041,7 +1041,7 @@ drv_f_net:   db 'NET.DRV', 0
 drv_t_net:   db 'os88net', 0
 %ifdef KERN_BIG
 drv_f_ram:   db 'RAMDISK.DRV', 0
-drv_t_ram:   db 'Ram Disk', 0
+drv_t_ram:   db 'Ram Disk', 0   ; ...whose 'Disk', 0 is files.inc's fm_s_root
 %endif
 %ifdef KERN_EMU
 drv_f_vmm:   db 'VMMOUSE.DRV', 0 ; SPEC.md 9.11's absolute pointer, kern_emu
@@ -2439,6 +2439,21 @@ drv_cp_closed_x:
     inc cl
     cmp cl, DRVC_MAX
     jbe .cls
+%ifdef OS88_THEME
+    ; ...and THEN the Customize window (SPEC.md 76.14.14): destroy THMPAL.DRV's
+    ; child first - its W_PAINT names the image - and give the image back.
+    ; This is what thmv_reap_x was, a far body of its own behind one far call
+    ; from app_close_win's panel branch, which calls this routine immediately
+    ; before; written here it needs neither its own bank nor the call (kernel
+    ; size pass 13). NO "IS IT LOADED?" TEST: drv_call refuses a row whose
+    ; DRVR_SEG is 0 (CF = 1, AX = 0) before reading anything else of it, and
+    ; drv_release returns at once for one, so the never-loaded close does
+    ; nothing either way. drv_call_ent reads BP off the row itself.
+    mov bx, thmv_row
+    mov al, THMV_CLOSE
+    call drv_call_ent
+    call drv_release
+%endif
     jmp kretfc_bp
 
 ; -----------------------------------------------------------------------------
@@ -3582,7 +3597,7 @@ drv_unload_x:
     je .free
     mov dx, [ticks]
 .tk:
-    call ct_cw_task_yield
+    call KERNEL_SEG:cw_task_yield
     cmp byte [drv_wcnt], 0
     je .free
     cmp dx, [ticks]
