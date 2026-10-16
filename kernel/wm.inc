@@ -6486,6 +6486,7 @@ wm_clip_seed:
     mov word [wm_clip_n], 1
     ret
 
+%ifndef OS88_SHORTCUTS
 ; -----------------------------------------------------------------------------
 ; wm_clip_rect - arm clipping to a bare screen rect's visible region
 ; in:  AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); caller HOLDS the gfx
@@ -6549,6 +6550,13 @@ wm_clip_rect:
     pop bx
     pop ax
     retf
+%endif                          ; ...ITS ONE CALLER IS desk_zone_redraw, which is
+                                ; `%ifndef OS88_SHORTCUTS` (desk.inc): on a
+                                ; kernel with shortcuts the selection is a
+                                ; posted cell repaint (desk_cmark) and nothing
+                                ; flips a zone under a region of its own, so
+                                ; the body went unreached on kern_big and
+                                ; kern_emu (kernel size pass 13, -68)
 
 %ifdef KERN_SMALL
 ; -----------------------------------------------------------------------------
@@ -8734,10 +8742,16 @@ wm_su_scrsz: dw 0               ; scratch begins, and how big that is
 ; the cheapest regression test the whole feature has - and because the first
 ; version of this DID cost it 17 bytes, by writing [vid_planes_w] into a word
 ; nothing else could ever have put anything different in.
+;
+; **AND SINCE KERNEL SIZE PASS 13 kern_small READS NO DEPTH AT ALL.** The one
+; display it has is a CGA or a Hercules on every machine (SPEC.md 39.27.1), so
+; [vid_planes_w] was 1 for ever and each of its six readers here was a x1
+; multiply, a 1-against-1 compare or a plane loop that ran once; all six are
+; KERN_BIG's now and the word itself is a planar kernel's (viddet.inc). So the
+; name is defined on kern_big alone, and a new reader on kern_small is a build
+; error rather than a read of a word that is not there.
 %ifdef KERN_BIG
 %define WM_SU_PW wm_su_pw
-%else
-%define WM_SU_PW vid_planes_w
 %endif
 wm_su_fbase: dw 0               ; ...and where the fragment being restored
                                 ; STARTS, which is what wm_su_edge patches
@@ -8785,8 +8799,9 @@ wm_su_pw: dw 4                  ; HOW DEEP THE DISPLAY THIS CACHE IS ON IS, in
 ; THE BUFFER'S HEADER IS THESE, IN THIS ORDER: WSU_X1..WSU_Y2, WSU_EXT and
 ; (kern_big) WSU_PW are wm_su_x1..wm_su_y2, wm_su_kex and wm_su_pw laid end to
 ; end, so wm_su_take writes the header with ONE rep movsw and wm_su_ck checks
-; it with ONE repe cmpsw. kern_small's depth is [vid_planes_w] and is written
-; and compared beside the run.
+; it with ONE repe cmpsw. kern_small has no depth to bank (one plane, always:
+; SPEC.md 39.27.1), so its run stops short of WSU_PW and the word stays
+; unwritten.
 %if wm_su_kex - wm_su_x1 != WSU_EXT || WSU_X1 != 0 || WSU_Y2 != 6
   %error "wm_su_x1..y2 and wm_su_kex must be the buffer header's first twelve bytes, in order"
 %endif
@@ -9676,10 +9691,15 @@ wm_su_bytes:
     mul si
     or dx, dx
     jnz .big
+%ifdef KERN_BIG                 ; (kern_small: WM_SU_PW is [vid_planes_w], which
+                                ; is 1 on every machine that kernel drives -
+                                ; SPEC.md 39.27.1 - so the multiply and its
+                                ; overflow test were x1: kernel size pass 13)
     mov si, [WM_SU_PW]          ; the display THIS CACHE IS ON (4.3), not the
     mul si                      ; one that happens to be current
     or dx, dx
     jnz .big
+%endif
     mov [wm_su_fsz], ax
     jmp short .out
 .big:
@@ -9730,10 +9750,12 @@ wm_su_scrset:
     mov [wm_su_scrb], di
     mov ax, si
     add ax, ax                  ; two byte columns...
+%ifdef KERN_BIG                 ; (x1 on kern_small, wm_su_bytes' reason)
     mov cx, [WM_SU_PW]
     mul cx                      ; ...x planes, of the tallest fragment
     or dx, dx
     jnz .big
+%endif
     mov [wm_su_scrsz], ax
     jmp short .out
 .big:
@@ -9889,12 +9911,17 @@ wm_su_ck:
     pop si
     pop di                      ; a pop touches no flag, so ZF survives
     jne .no
-%ifndef KERN_BIG
-    mov ax, [WM_SU_PW]          ; ...and the DEPTH the bytes were laid out to
-    cmp ax, [es:WSU_PW]         ; (SPEC.md 11.96.17): a two-colour claim
-    jne .no                     ; withdrawn, or a window that has crossed to a
-%endif                          ; display of another depth, leaves a buffer
-                                ; that means something else at the same stride
+                                ; ...and on kern_big the run includes the
+                                ; DEPTH the bytes were laid out to (SPEC.md
+                                ; 11.96.17): a two-colour claim withdrawn, or
+                                ; a window that has crossed to a display of
+                                ; another depth, leaves a buffer that means
+                                ; something else at the same stride.
+                                ; kern_small compared [vid_planes_w] here, beside
+                                ; the run, and no longer does: every display it
+                                ; drives is one plane deep (SPEC.md 39.27.1), so
+                                ; every buffer is banked at 1 and the compare
+                                ; was 1 against 1 (kernel size pass 13)
     mov ax, si                  ; ...and the segment, for wm_su_try. CF = 0
     jmp short .out              ; already: the compare that just said EQUAL
 .no:
@@ -10179,10 +10206,12 @@ wm_su_take:
     xor di, di                  ; outside the claim has to be kept in step -
     mov cx, WSU_HDRW            ; ...AND THE DEPTH (SPEC.md 11.96.17), which
     rep movsw                   ; wm_su_flay has just decided and which the
-%ifndef KERN_BIG                ; bytes below are laid out to: one run, the
-    mov ax, [WM_SU_PW]          ; three being laid end to end in .text (see
-    stosw                       ; the %if under wm_su_kex). kern_small's depth
-%endif                          ; is [vid_planes_w] and follows the run
+                                ; bytes below are laid out to: one run, the
+                                ; three being laid end to end in .text (see
+                                ; the %if under wm_su_kex). kern_small banks
+                                ; no depth: it is 1 on every machine it drives
+                                ; and wm_su_ck no longer asks (kernel size pass
+                                ; 13); WSU_PW's word is left unwritten there
     pop si
     mov di, WSU_IMG             ; ...and the fragments start after it, in index
     mov word [wm_su_fn], 0      ; order and back to back - gfx_save walks DI
@@ -10293,6 +10322,11 @@ wm_su_edge:
     sub ax, [WSE_Y1]         ; every walk below is bounded by
     inc ax
     mov [wm_su_srow], ax
+%ifdef KERN_BIG                 ; ...ONE PLANE ON kern_small, ALWAYS (SPEC.md
+                                ; 39.27.1): there [wm_su_nrow] IS [wm_su_srow],
+                                ; an `equ` below, and no plane has a tail to
+                                ; step over, so neither word is computed
+                                ; (kernel size pass 13)
     mov cx, [WM_SU_PW]          ; ...x planes = the bytes gfx_save writes for
     mul cx                      ; one screen column, so the second column's
     mov [wm_su_nrow], ax        ; scratch starts that far past the first
@@ -10304,6 +10338,7 @@ wm_su_edge:
     mul bx
     mov [wm_su_pext], ax        ; the rows of each plane this rect does not
                                 ; cover, one whole buffer row each
+%endif
     mov ax, [wm_su_scrb]        ; ...and the scratch is past EVERY FRAGMENT's
     mov [wm_su_scr], ax         ; image (SPEC.md 11.96.11.1), not just this
                                 ; one's. Derived here it was the same address
@@ -10409,12 +10444,16 @@ wm_su_edge:
 wm_su_merge:
     push si
     push di
-    push bp
+%ifdef KERN_BIG                 ; (kern_small: one plane, so no plane loop -
+    push bp                     ; the walk below runs once and the tail step
+%endif                          ; that only fed the next plane goes with it)
     mov dh, dl
     not dh                      ; ...and the bits to take from the screen
     mov bx, [wm_su_bpr]
+%ifdef KERN_BIG
     mov bp, [WM_SU_PW]
 .plane:
+%endif
     mov cx, [wm_su_srow]
 .row:
     mov al, [es:di]
@@ -10426,10 +10465,12 @@ wm_su_merge:
     inc si
     add di, bx
     loop .row
+%ifdef KERN_BIG
     add di, [wm_su_pext]        ; past the rows of this plane the rect does not
     dec bp                      ; cover, and on to the next plane's copy of it
     jnz .plane
     pop bp
+%endif
     pop di
     pop si
     ret
@@ -11814,16 +11855,22 @@ wm_fs_save: resw 4                  ; its windowed x/y/w/h, restored on exit
 ; --- wm_su_edge's scratch (SPEC.md 11.96.2) ----------------------------------
 ; Derived from the banked rect at every restore and never read before it is
 ; written, so unlike the five wm_su_* words above these want no initialiser.
+%ifdef KERN_BIG
 wm_su_nrow: resw 1                  ; scratch bytes per column = restored rows
                                     ; x planes, which is what gfx_save wrote
+%endif
 wm_su_bpr:  resw 1                  ; bytes per buffer row (the BANKED rect's)
 wm_su_scr:  resw 1                  ; offset of the two screen columns
 wm_su_lm:   resb 1                  ; bits of the left edge byte the rect owns
 wm_su_rm:   resb 1                  ; ...and of the right
 ; --- and what bounds it to the rect being restored (SPEC.md 11.96.8) ---------
 wm_su_srow: resw 1                  ; rows of THIS restore, per plane
+%ifdef KERN_BIG
 wm_su_pext: resw 1                  ; ...and the rows of the plane it does not
                                     ; cover, which the walk steps over
+%else
+wm_su_nrow equ wm_su_srow           ; one plane: rows x 1 (kernel size pass 13)
+%endif
 wm_su_rofs: resw 1                  ; where its first row sits in the buffer
 wm_su_dol:  resw 1                  ; 0 = the restore reaches the banked rect's
 wm_su_dor:  resw 1                  ; left / right edge byte column

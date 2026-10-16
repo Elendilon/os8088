@@ -4070,7 +4070,10 @@ gfx_bank_ok:                    ; unlocked caller banks the arrow and nothing
     call vga_save_vram          ; on a card rather than in a coordinate space,
 gfx_sr_tail:                    ; (gfx_restore's tail too - size pass 10)
     GFXDLEAVE                   ; so this is whole-shape like gfx_scroll and
-    call gfx_1bpp_off           ; ...and a ONE-PLANE arm is spent (11.96.17)
+%ifdef GFX_VGA                  ; (a planar kernel's alone: kern_small has no
+    call gfx_1bpp_off           ; plane to arm, and nothing there reads the
+%endif                          ; pair - kernel size pass 13) ...and a
+                                ; ONE-PLANE arm is spent (11.96.17)
     jmp kret_dx                 ; NOT split like a blit's runs. The caller owes
                                 ; the straddle test - wm_su_take asks
                                 ; vid_span_one - because a cut save and a cut
@@ -4171,6 +4174,10 @@ vga_save_vram:                              ; only renderer gfx_save has
 ;
 ; The restore's loop needs no terminator of its own: seeded with 0Fh it does
 ; one pass and `add al, al` gives 1Eh, which fails `cmp al, 0x10`.
+%ifdef GFX_VGA                  ; ...ALL OF IT a planar kernel's: kern_small's
+                                ; only readers were the VGA save and restore
+                                ; bodies and the planar cursor, none of which
+                                ; it assembles (kernel size pass 13)
 vga_pn      db 4                ; planes a SAVE walks: 4, or 1 for one plane
 vga_pm      db 1                ; ...and the Map Mask a RESTORE starts on: the
                                 ; single-plane bit 1, or 0Fh to broadcast
@@ -4189,6 +4196,7 @@ gfx_1bpp_off:
     ret
 VGA_PN_FOUR equ 0x0104          ; [vga_pn] = 4 planes, [vga_pm] = Map Mask 1 -
                                 ; also stored inline by mouse.inc's cur_rect
+%endif
 
 gfx_sub_st  dw 0                ; buffer offset of the sub-rect's first byte
 gfx_sub_rs  dw 0                ; ...bytes to step the BUFFER past each row

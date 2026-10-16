@@ -535,10 +535,14 @@ section .cold
 ; which fails structurally rather than proportionally, in the one place in
 ; this file that can multiply at all. SS_MAXMIN is what a word of ticks holds.
 ;
-; Both builds: the period is a setting on kern_small too (see ss_pub).
+; kern_big's ALONE now: its three callers - SYSTEM.CFG's reader
+; (drvf_ss_mins2idle), ss_set_x and the blanker's wake - are all kern_big's,
+; and kern_small, which reads no SYSTEM.CFG and has no saver, keeps [ss_idle]
+; at its resting BLK_IDLE for ever (kernel size pass 13, -23 there).
 ; -----------------------------------------------------------------------------
 SS_MAXMIN   equ 59              ; 59 x 1092 = 64,428, inside a word
 
+%ifdef KERN_BIG
 ss_mins2idle:
     push ax
     push dx
@@ -561,7 +565,6 @@ ss_mins2idle:
     pop ax
     ret
 
-%ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
 ; ss_call - one verb into the overlay (module internal)
 ; in:  AL = SSV_*, every other register that verb's own argument

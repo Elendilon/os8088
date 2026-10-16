@@ -2591,7 +2591,11 @@ ui_svc_open:
     jmp short ui_sys_open
 %endif
 ui_tm_open:
-    mov word [ui_desc], ui_d_tm ; ...and on into the body
+%ifndef KERN_SMALL
+    mov word [ui_desc], ui_d_tm ; ...and on into the body. kern_small has no
+%endif                          ; service zone, so ui_d_tm is the only value
+                                ; [ui_desc] ever holds there and its resting
+                                ; value already is it (kernel size pass 13, -6)
 
 ; -----------------------------------------------------------------------------
 ; ui_sys_open - the body both of them are

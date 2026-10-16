@@ -299,7 +299,10 @@ vid_kind    db VID_VGA          ; VID_VGA / VID_HERC / VID_CGA / VID_EGA
 vid_mono    db 0                ; 1bpp adapter? This is what routes every
                                 ; draw through the software renderer (32/39.5)
 vid_planes  db 4                ; 4 or 1
-vid_planes_w dw 4               ; the same, where a word is wanted
+%ifdef GFX_VGA
+vid_planes_w dw 4               ; the same, where a word is wanted. A planar
+%endif                          ; kernel's alone (kernel size pass 13: see
+                                ; vid_depth_set)
 
 ; Hercules has no BIOS mode, so vid_setmode programs the 6845 itself.
 ; R0..R11 for 720x348: 45 char clocks of 16 px across, 87 rows of 4 scan
@@ -562,8 +565,10 @@ section .text                   ; vid_pop8`, the shared epilogue, which is
 %if (vid_planes - vid_mono) != 1
   %error "[vid_mono] and [vid_planes] must stay adjacent, mono first: they are set together by vid_depth_set and read as one fact by the four bodies SPEC.md 39.26 flattened"
 %endif
+%ifdef GFX_VGA
 %if (vid_planes_w - vid_planes) != 1
   %error "[vid_planes_w] must follow [vid_planes]: menu_drop documents the 0x0404 a word read of the byte picks up, and that sentence is only true while the _w twin is the byte after it"
+%endif
 %endif
 vid_depth_set:
     push ax                     ; the header says "clobbers: flags", and AL is
@@ -593,10 +598,15 @@ vid_depth_set:
                                 ; observe mono=1 with planes=4 between two
                                 ; byte writes, which the three stores it
                                 ; replaces could show it
-    mov al, ah
-    cbw                         ; 1 or 4, so the sign bit is clear and AH
+%ifdef GFX_VGA                  ; (a planar kernel's: kern_small's planes are 1
+    mov al, ah                  ; on every machine it drives, and since kernel
+    cbw                         ; size pass 13 nothing there reads the word -
+                                ; the save-under, menu_drop's sizing and the
+                                ; cursor all drop their x1 multiplies)
+                                ; 1 or 4, so the sign bit is clear and AH
                                 ; becomes 0. `cbw` is 8086.
     mov [vid_planes_w], ax
+%endif
     pop ax
     ret
 
@@ -754,10 +764,14 @@ vid_apply:
     call vid_depth_set          ; (see there: a display swap needs it too)
     mov ax, [vid_seg]           ; font_run's target, [vid_tseg]: see the block
     mov [vid_tseg], ax          ; below for why it is the LIVE [vid_seg]
+%ifdef GFX_VGA                  ; (kern_small has no planar kind to set - SPEC.md
+                                ; 39.27.1 - so there the target is always the
+                                ; screen: kernel size pass 13, -9)
     cmp byte [vid_mono], 0      ; PLANAR (VGA or EGA): the software renderer
     jne .rend                   ; has no target - 0, because nothing routes
     xor ax, ax                  ; through it (SPEC.md 39.5/39.24). Keyed on
 .rend:                          ; the DEPTH vid_depth_set has just set and not
+%endif
     mov [vid_rseg], ax          ; on the kind - EGA is planar and 0 here too.
                                 ; MONO: the renderer draws straight into the
                                 ; framebuffer, so its target IS the screen.

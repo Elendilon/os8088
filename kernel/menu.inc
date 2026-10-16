@@ -1967,13 +1967,17 @@ menu_drop:
     sub bx, [menu_y1]
     inc bx                      ; BX = rows
     mul bx                      ; AX = bytes for one plane
+%ifdef GFX_VGA
     mul word [vid_planes_w]     ; ...times the planes this adapter HAS: 4 on
                                 ; VGA, 1 on Hercules and CGA (SPEC.md 39.2).
                                 ; The _w twin, because vid_planes itself is a
                                 ; BYTE and a word read of it takes the low
                                 ; half of this very variable with it - 0x0404,
                                 ; a thousand planes, and a claim bigger than
-                                ; the fixed one it replaced
+                                ; the fixed one it replaced. A VGA kernel's
+%endif                          ; alone: kern_small's planes are always 1
+                                ; (SPEC.md 39.27.1), and x1 is no multiply
+                                ; (kernel size pass 13)
     call mem_bytes_kb           ; ...as KB, rounded UP, and never 0: a rect
                                 ; this small still needs somewhere to go
     mov bx, MEM_P_MSAVE         ; TRIVIAL-purgeable (SPEC.md 12.4.2)

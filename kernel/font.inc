@@ -1060,9 +1060,13 @@ font_ink:
     mov byte [font_dith], 0     ; cleared on EVERY path, VGA included: the
                                 ; glyph loop reads it per plane and .bss is
                                 ; not zeroed by -f bin
-    mov al, [vid_mono]          ; MONO, OR THE WINDOW SAID SO (SPEC.md
-    or al, [gfx_mono1]          ; 11.96.17.1) - two booleans, so an OR of the
-    jz .out                     ; bytes is non-zero on exactly that pair of
+%ifdef GFX_VGA                  ; (kern_small: ALWAYS mono - SPEC.md 39.27.1 -
+    mov al, [vid_mono]          ; so the test is a VGA kernel's alone and the
+    or al, [gfx_mono1]          ; small build goes straight to the reduction:
+    jz .out                     ; kernel size pass 13, -9 and faster a glyph)
+%endif                          ; MONO, OR THE WINDOW SAID SO (SPEC.md
+                                ; 11.96.17.1) - two booleans, so an OR of the
+                                ; bytes is non-zero on exactly that pair of
                                 ; conditions. A cache one plane deep cannot
                                 ; carry a third
                                 ; colour, and 47 rule 1's disabled pen is solid
@@ -1107,6 +1111,7 @@ font_ink:
     pop ax
     ret
 
+%ifdef BOOT_PROFILE
 ; -----------------------------------------------------------------------------
 ; font_str - draw a NUL-terminated string left to right
 ;
@@ -1114,6 +1119,11 @@ font_ink:
 ;           caller holds the gfx lock
 ; out:      nothing
 ; clobbers: nothing
+;
+; `make BOOTPROF=1` ONLY: bootprof.inc's three far calls are the last callers
+; in the tree. Every other kernel draws a kernel string through font_str_x or
+; font_run, and the API's OSAPI_FONT_STR door is apic_font_str, so on a shipped
+; kernel these eight bytes were reached by nothing (kernel size pass 13)
 ; -----------------------------------------------------------------------------
 font_str:
     push es                     ; the kernel's own strings live in DS; the
@@ -1122,6 +1132,7 @@ font_str:
     call font_str_x             ; segment, and wm/menu pass that in ES)
     pop es
     retf
+%endif
 
 ; -----------------------------------------------------------------------------
 ; font_str_x - font_str with the string at ES:SI
@@ -1344,12 +1355,16 @@ font_run_x:
                                 ; the tighter of the two by design, and 6.1.11
                                 ; is +262 bytes of .text
 %endif
-    cmp byte [vid_mono], 0
 %ifdef KERN_BIG
+    cmp byte [vid_mono], 0
     je .planar                  ; SPEC.md 6.1.10: mode 12h has a single-store
-%else                           ; prologue of its own. kern_small does not
-    je .slq                     ; carry it - gfx_blit1's precedent (5.4.2)
-%endif
+%endif                          ; prologue of its own. kern_small does not
+                                ; carry it - gfx_blit1's precedent (5.4.2) -
+                                ; and does not need the test either: its
+                                ; [vid_mono] is 1 on every machine it drives
+                                ; (SPEC.md 39.27.1), so the `je .slq` that
+                                ; stood here was never taken (kernel size
+                                ; pass 13, -7 and a compare a run)
     ; SPEC.md 6.1.12: a DISABLED control's glyph is checkerboarded, and this
     ; path used to hand it to .slow for that reason. It does not any more -
     ; the mask FOLDS INTO the run's own, below, and costs the row loop one
