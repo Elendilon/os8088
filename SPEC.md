@@ -72854,6 +72854,19 @@ cycles a pixel against ~105, and a run's own overhead outside the two kernel
 calls falls by four memory operands. `frac_iter`, `fr_q12` and `fr_inset` are
 **byte-for-byte unchanged**.
 
+### 40.9 The second apps size pass — disk room
+
+The second pass measures the **shipped file** rather than the region:
+`FRACTAL.O88` rides three 360KB disks (`apps360.img`, `small360.img`,
+`smallapps360.img`), so a cluster off it is three clusters of room
+(docs/plans/HANDOFF-APPS-SIZE-P2.md). The package is code that packs to ~92%,
+so the lever is the classic code pass. Nothing the user can see changed, and
+the run cache's claims (§40.1) are the same.
+
+- **Both declarations take the `_NOKEEP` form** (§66.6.1.1): nothing after
+  either reads AX, DX or the slot's CF, so `fr_entry` ends in its own `clc` for
+  the loader and `fr_hire` keeps nothing. 9 bytes.
+
 ### 39.26 The software renderer's plane loop is gone
 
 **`softgfx.inc` was written for a RAM back buffer — four claimed planes on a

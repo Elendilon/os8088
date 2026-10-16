@@ -307,8 +307,9 @@ FR_BSS_TOTAL equ 464                ; see the bss layout after OS88_IMAGE_END
 ; I_STATE=1 and binds wm_owner only after this returns (SPEC.md 21 step 9),
 ; so inst_pkg_spawn would find no instance and refuse. fr_paint does it.
 ;
-; OSAPI_MENU_SET preserves the flags as well as the registers, so the CF = 0
-; our contract owes the loader is the one wm_create's branch established.
+; The CF = 0 our contract owes the loader on success is an explicit `clc`
+; at the foot: the region declaration hands back the slot's own CF, and
+; OSAPI_MENU_SET / OSAPI_ABOUT_SET preserve whatever they are given.
 ; -----------------------------------------------------------------------------
 fr_entry:
     push si
@@ -329,13 +330,15 @@ fr_entry:
     ; by the row that reads MC_RLOC back out of the kernel's own table.
     ; The proc is a bare `ret` already in this file: no segment word we
     ; hold points inside the region (the cache's is fr_reloc's business).
-    OS88_REGION_MOVABLE fr_noreloc
+    ; The _NOKEEP form: nothing below reads AX, DX or the slot's CF - the
+    ; CF = 0 the loader is owed is the `clc` at the foot (apps size pass 2).
+    OS88_REGION_MOVABLE_NOKEEP fr_noreloc
     mov si, fr_menus
     call OSAPI_MENU_SET             ; BX = the window, SI = our set
     mov si, fr_about                ; ...and 'About Fractal' above the Close
     call OSAPI_ABOUT_SET            ; the kernel already puts in our pull-down
-                                    ; (SPEC.md 12.2). Flags preserved, like
-                                    ; menu_win_set above
+                                    ; (SPEC.md 12.2)
+    clc                             ; the window exists: CF = 0 for the loader
 .out:
     pop si                          ; POP leaves the flags alone
     ret
@@ -909,7 +912,8 @@ fr_hire:
     ; A restart costs one row. The worker needs nothing re-established on
     ; the way back in, because it no longer derives any state of its own:
     ; the UI task's fr_setup is the only one, and it has always run already.
-    OS88_WORKER_RESTARTABLE fr_worker
+    ; The _NOKEEP form: no caller of fr_hire reads AX or the flags after it.
+    OS88_WORKER_RESTARTABLE_NOKEEP fr_worker
 fr_noreloc:                         ; also OS88_REGION_MOVABLE's proc: a ret
     ret
 
