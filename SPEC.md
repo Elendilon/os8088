@@ -66460,7 +66460,24 @@ inks.
   (C4 is its one same-step partner), so the per-column `pn_vkeep` byte
   and its two stores are gone (-11 image, -1 bss). `pn_setdown` takes
   the new button back off its own stack rather than re-reading the
-  word it just wrote (-1).
+  word it just wrote (-1). Measured on MartyPC (GLaBIOS 5150, CGA),
+  the branch point's PIANO.O88 against this one on ONE boot, the same 29
+  keys (whites, blacks, the viewer filling and then scrolling) and three
+  About-card dismissals each, guest cycles at entry and return: key to
+  tone 5,288 -> 5,259 at the minimum (median of the 29 pairs -27); a
+  white key's redraw 66,112 -> 66,001 (pairs -68); a black key's 15,784
+  -> 15,763 (pairs 0, within the CGA's own jitter); the viewer's append
+  8,921 -> 8,861 (pairs -39) and a scrolling append ~530K -> ~527K; the
+  keyboard paint 867,276 -> 866,017 (all three pairs, -1,225). Nothing
+  is slower beyond one IRQ0's ~5.8K landing in one arm and not the
+  other, which happens both ways. The window was pixel-identical to the
+  branch point's after the same input (0 of 35,030 pixels). The file is
+  2,960 bytes where it was 3,052, image 3,287 where it was 3,440, bss
+  654. **Not fixed, found here**: taking the About card down leaves
+  fragments of its text in the gaps between the viewer, the button rows
+  and the keyboard - `pn_paint` draws the parts and never the ground
+  between them, and a dismissal is not a W_PAINT, so nothing whites it
+  first. The branch point does the same, pixel for pixel.
 
 ## 37. clock.inc — the system clock
 
