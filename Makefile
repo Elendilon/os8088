@@ -12628,20 +12628,14 @@ $(BUILD)/llboot144.bin: boot/boot.asm $(BUILD)/lptlink.bin Makefile | $(BUILD)
 # DOS in this container and none this tree may ship, so `make` could say the
 # program was fine while DOS entered it at a byte that was not its entry.
 #
-#   make dosstub                     10MB image: 20,480 sectors
-#   make dosstub FSIZE=64M           past os8088's cap: 65,535, and it says so
-#   make dosstub FSIZE=256           under one sector: the refusal
+#   make dosstub                     the ordinary run, to `Listening.`
 #   make dosstub FAILOPEN=1          DOS says no: the error path
 #   make dosstub ARGS='/RO /P:378'   the command tail
 #
 # ON DEMAND ONLY. `all` never builds tests/ and nothing under it ships.
+# (FSIZE= went with block mode, SPEC.md 62.12.6 item 8: it sized the image
+# file OS88NET.COM's block mode served, and nothing serves one now.)
 DOSSTUB_DEF :=
-ifeq ($(FSIZE),64M)
-DOSSTUB_DEF += -DFSIZE_HI=0x0400 -DFSIZE_LO=0x0000
-endif
-ifeq ($(FSIZE),256)
-DOSSTUB_DEF += -DFSIZE_HI=0x0000 -DFSIZE_LO=0x0100
-endif
 ifneq ($(ARGS),)
 DOSSTUB_DEF += -DARGS='"$(ARGS)"'
 ifdef PKTFAKE
@@ -12664,12 +12658,12 @@ DOSSTUB_DEF += -DCOMFILE='"$(COMFILE)"'
 endif
 
 # ...AND A STAMP FILE, for exactly VIDSTAMP's reason (see its comment above).
-# None of these four knobs is a prerequisite of anything, so `make dosstub
+# None of these knobs is a prerequisite of anything, so `make dosstub
 # ARGS='/P:378 /W'` after a plain `make dosstub` saw an up-to-date .bin and
 # rebuilt NOTHING - the program then ran with the PREVIOUS run's command tail,
 # which reads exactly like a switch that does not work. Measured: /W was
 # parsed correctly and never reached the binary at all.
-DSSTAMP := $(BUILD)/.dosstub-$(if $(FSIZE),$(FSIZE),def)$(if $(ARGS),-a$(shell echo '$(ARGS)' | tr -c 'A-Za-z0-9' '_'))$(if $(FAILOPEN),-fo$(FAILOPEN))$(if $(COMFILE),-c$(notdir $(COMFILE)))$(if $(PKTFAKE),-pk)
+DSSTAMP := $(BUILD)/.dosstub-def$(if $(ARGS),-a$(shell echo '$(ARGS)' | tr -c 'A-Za-z0-9' '_'))$(if $(FAILOPEN),-fo$(FAILOPEN))$(if $(COMFILE),-c$(notdir $(COMFILE)))$(if $(PKTFAKE),-pk)
 
 $(BUILD)/dosstub.bin: tests/dosstub/dosstub.asm $(BUILD)/os88net.com | $(BUILD)
 	@[ -f $(DSSTAMP) ] || { rm -f $(BUILD)/.dosstub-*; touch $(DSSTAMP); }

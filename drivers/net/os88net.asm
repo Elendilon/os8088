@@ -5,7 +5,7 @@
 ; NET.DRV loaded browses them as an ordinary drive. Stage 2 of
 ; docs/plans/completed/NET-PLAN.md; NET.DRV is the other end.
 ;
-;   OS88NET [folder] [/W] [/P:378] [/RO] [/I:image]
+;   OS88NET [folder] [/W] [/P:378] [/RO] [/N]
 ;
 ;   folder  what to serve, default THE CURRENT DIRECTORY - which is the answer
 ;           that needs no explaining: cd to the thing you want to send and run
@@ -21,15 +21,17 @@
 ;   /RO     refuse every write. THE DEFAULT FOR A FIRST RUN, and the honest
 ;           setting for anything you would mind losing. Phase 1 serves no
 ;           write verb at all, so it is presently the only behaviour.
-;   /I:     BLOCK MODE, which the redirector superseded: serve 512-byte
-;           sectors out of an image file instead, and os8088 mounts it as a
-;           FAT volume. Kept because it is the same wire and the same
-;           transport - see SPEC.md 62.10 for why it stopped being the
-;           default. Its size decides the volume's: os8088 caps a volume at
-;           65,535 sectors (31.99MB) by BPB rule 8, so a bigger file is served
-;           truncated and says so. Nothing in os8088 ASKS for sectors any more
-;           (NET.DRV publishes no DSV_BLK), so this is a source kept live, not
-;           a mode you can reach from the other end.
+;
+; BLOCK MODE IS GONE (apps size pass 2, SPEC.md 62.12.6 item 8). It was /I:,
+; serving 512-byte sectors of an image file as the 'R'/'W' commands, and
+; nothing could reach it: NET.DRV has published no DSV_BLK since it became the
+; redirector (SPEC.md 62.10) and its block-mode master was removed then.
+; Serving an image again needs BOTH ends restored - NET.DRV's net_blk and its
+; DSV_BLK cell, and this server - and the server is in git: the commit titled
+; "os88net: apps size pass 2 - block mode removed" deleted it, so its parent
+; has the whole of it (open_image, blk_read/blk_write, seek_lba, get_req).
+; 'R' and 'W' stay RESERVED in the command space so a restored one cannot
+; collide with a verb added since.
 ;
 ; NOTHING HERE WRITES, in phase 1. The three verbs it serves - list, chdir,
 ; free space - are the ones that MOUNT AND LIST, so a run of this can be
@@ -160,9 +162,10 @@ dos_rand:
     pop dx
     ret
 
-NC_INFO     equ 'I'
-NC_READ     equ 'R'
-NC_WRITE    equ 'W'
+NC_INFO     equ 'I'             ; the connect handshake: status, a sector
+                                ; count (0 - see the header) and the flags
+NC_READ     equ 'R'             ; RESERVED: block mode's, removed (header).
+NC_WRITE    equ 'W'             ; ...no verb may take either letter
 NC_BYE      equ 'X'
 
 ; --- and file mode's (SPEC.md 62.10.1) ---------------------------------------
@@ -230,10 +233,6 @@ FERR_PROT   equ 8
 FERR_WPROT  equ 9
 
 NST_OK      equ 0x00
-NST_WPROT   equ 0x03
-NST_NOSEC   equ 0x04
-
-SEC_MAX     equ 0xFFFF          ; os8088's own cap: BPB rule 8 (SPEC.md 18.2)
 
 ; --- handles (SPEC.md 62.9.1) ------------------------------------------------
 ; A handle is OPAQUE TO THE KERNEL and this is what it opaquely is: a slot in
@@ -292,8 +291,6 @@ start:
     int 0x21                    ; thing that can meet an empty one, and DOS
                                 ; restores this vector itself at 4Ch
     call setup_root
-    jc  .bye
-    call open_image             ; ...only if /I: named one
     jc  .bye
 
     call net_start             ; /N: the packet driver and an address, BEFORE
@@ -570,11 +567,10 @@ srv_tab:
 %assign srv_c 'A'
 %rep 'w' - 'A' + 1
   %if srv_c == NC_INFO
-    dw blk_info
-  %elif srv_c == NC_READ
-    dw blk_read
-  %elif srv_c == NC_WRITE
-    dw blk_write
+    dw srv_info
+  %elif srv_c == NC_READ || srv_c == NC_WRITE
+    dw srv_nop                  ; RESERVED, block mode's (the header): read
+                                ; and ignored, as any unknown letter is
   %elif srv_c == NC_BYE
     dw srv_bye
   %elif srv_c == NF_LIST
@@ -628,6 +624,12 @@ srv_tab:
   %endif
   %assign srv_c srv_c + 1
 %endrep
+%if NF_LIST == NC_READ || NF_CHDIR == NC_READ || NF_DFREE == NC_READ || NF_STAT == NC_READ || NF_READ == NC_READ || NF_READAT == NC_READ || NF_WRITE == NC_READ || NF_APPEND == NC_READ || NF_DELETE == NC_READ || NF_RENAME == NC_READ || NF_MKDIR == NC_READ || NF_RMDIR == NC_READ || NF_COPY == NC_READ || NF_ENUM == NC_READ || NF_RMTREE == NC_READ
+  %error "os88net: a verb took 'R', which is block mode's and RESERVED"
+%endif
+%if NF_LIST == NC_WRITE || NF_CHDIR == NC_WRITE || NF_DFREE == NC_WRITE || NF_STAT == NC_WRITE || NF_READ == NC_WRITE || NF_READAT == NC_WRITE || NF_WRITE == NC_WRITE || NF_APPEND == NC_WRITE || NF_DELETE == NC_WRITE || NF_RENAME == NC_WRITE || NF_MKDIR == NC_WRITE || NF_RMDIR == NC_WRITE || NF_COPY == NC_WRITE || NF_ENUM == NC_WRITE || NF_RMTREE == NC_WRITE
+  %error "os88net: a verb took 'W', which is block mode's and RESERVED"
+%endif
 
 srv_nop:
     clc
@@ -640,181 +642,20 @@ srv_bye:
     stc                         ; ...which serve reads as the end of the run
     ret
 
-; --- the block-mode verbs (SPEC.md 62.10): CF=1 = the link went away -------
-blk_info:
+; --- srv_info - NC_INFO, the connect handshake: CF=1 = the link went away --
+; NET.DRV's net_info reads a status, a sector count and the flags, and keeps
+; only the read-only bit. The count was block mode's and is 0, as it always
+; was when no image was named; the frame is fixed, so it is still sent.
+srv_info:
     mov al, NST_OK
     call lp_sbyte
     jc  .ret
-    mov ax, [nsecs]
+    xor ax, ax
     call lp_sword
     jc  .ret
     mov al, [roflag]
     call lp_sbyte
 .ret:
-    ret
-
-blk_read:
-    ; ONE COMMAND, `count` FRAMES OF {status, 512 bytes}. Every frame is 512
-    ; bytes whatever the status says, so a sector this side refuses cannot
-    ; leave the master waiting for data that is not coming - see net.asm's
-    ; protocol header.
-    call get_req                ; DX = LBA, CL = count
-    jc  .ret
-    mov [nrun], cl
-    or  cl, cl
-    jz  .ret                    ; (`or` cleared CF)
-.rsec:
-    mov byte [rstat], NST_OK
-    call seek_lba
-    jc  .rbad
-    push dx
-    mov ah, 0x3F                ; DOS read
-    mov bx, [fh]
-    mov cx, 512
-    mov dx, secbuf
-    int 0x21
-    pop dx
-    jc  .rbad
-    cmp ax, 512
-    je  .rgo
-.rbad:
-    mov byte [rstat], NST_NOSEC
-    call zero_buf               ; a refused sector still carries its 512 bytes
-.rgo:
-    mov al, [rstat]
-    call lp_sbyte
-    jc  .ret
-    mov si, secbuf
-    mov cx, 512
-.rsend:
-    lodsb
-    call lp_sbyte
-    jc  .ret
-    loop .rsend
-    inc dx
-    dec byte [nrun]
-    jnz .rsec
-    call tick_dot               ; one dot per RUN now, not per sector: it is
-    clc                         ; console output in the middle of a transfer,
-.ret:                           ; and the master is waiting through it
-    ret
-
-blk_write:
-    ; The mirror: the whole run's data arrives first, then one status byte per
-    ; sector goes back. The bytes are consumed whether or not they are kept,
-    ; for the reason above.
-    call get_req
-    jc  .ret
-    mov [nrun], cl
-    mov [nrun2], cl
-    or  cl, cl
-    jz  .ret                    ; (`or` cleared CF)
-    mov si, dx                  ; SI = the LBA, so DX is free for int 21h
-.wsec:
-    mov di, secbuf
-    mov cx, 512
-.wrecv:
-    call lp_rbyte
-    jc  .ret
-    mov [di], al
-    inc di
-    loop .wrecv
-    mov byte [rstat], NST_OK
-    cmp byte [roflag], 0
-    jne .wprot
-    mov dx, si
-    call seek_lba
-    jc  .wbad
-    mov ah, 0x40                ; DOS write
-    mov bx, [fh]
-    mov cx, 512
-    mov dx, secbuf
-    int 0x21
-    jc  .wbad
-    cmp ax, 512
-    je  .wnext
-.wbad:
-    mov byte [rstat], NST_NOSEC
-    jmp short .wnext
-.wprot:
-    mov byte [rstat], NST_WPROT
-.wnext:
-    mov bl, [nrun2]             ; bank this sector's verdict; they all go back
-    sub bl, [nrun]              ; together, after the data
-    xor bh, bh
-    add bx, wstat
-    mov al, [rstat]
-    mov [bx], al
-    inc si
-    dec byte [nrun]
-    jnz .wsec
-    mov cl, [nrun2]             ; ...and now the verdicts
-    xor ch, ch
-    mov si, wstat
-.wsend:
-    lodsb
-    call lp_sbyte
-    jc  .ret
-    loop .wsend
-    call tick_dot
-    clc
-.ret:
-    ret
-
-; -----------------------------------------------------------------------------
-; get_req - read an LBA word and a count byte
-; out: DX = LBA, CL = count; CF=1 = the link went away
-; -----------------------------------------------------------------------------
-get_req:
-    call lp_rword
-    jc  .bad
-    mov dx, ax
-    call lp_rbyte
-    jc  .bad
-    mov cl, al
-    clc
-    ret
-.bad:
-    stc
-    ret
-
-; -----------------------------------------------------------------------------
-; seek_lba - put the file pointer at DX * 512
-; out: CF=1 = past the end, or the seek failed
-;
-; DX*512 is a 32-bit byte offset and int 21h AH=42h wants it in CX:DX, which
-; is exactly the shape a 16-bit LBA shifted left nine times takes: the high
-; word is DX >> 7 and the low is DX << 9. No 32-bit arithmetic anywhere.
-; -----------------------------------------------------------------------------
-seek_lba:
-    push ax
-    push bx
-    push cx
-    push dx
-    cmp dx, [nsecs]
-    jae .bad                    ; past the end of what we told them we had
-    mov ax, dx
-    mov cl, 7
-    shr ax, cl                  ; the high word
-    mov cl, 9
-    shl dx, cl                  ; ...and the low word
-    mov cx, ax
-    mov ax, 0x4200              ; from the start of the file
-    mov bx, [fh]
-    int 0x21
-    jc  .bad
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    ret
-.bad:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    stc
     ret
 
 ; =============================================================================
@@ -840,7 +681,7 @@ parse_args:
     jcxz .argdone
     jmp short .word
 .argdone:                   ; a TRAMPOLINE, because `jcxz` has no near form on
-    jmp .done               ; an 8086 and /I: put the end of this routine out
+    jmp .done               ; an 8086 and the switches put the end of this out
                             ; of one byte's reach. The same shape serves the
                             ; three `jcxz .done`s below, which are nearer
 .word:
@@ -852,7 +693,7 @@ parse_args:
     ; A BARE WORD IS THE FOLDER TO SERVE, which it did not used to be - it was
     ; the image file, back when this served sectors. The redirector is what the
     ; cable is for now (SPEC.md 62.10), so the ordinary argument is the
-    ; ordinary thing, and block mode's image moved behind /I:.
+    ; ordinary thing (block mode, which took the image, is gone).
     mov di, dirarg
     call get_word
     jmp short .next
@@ -868,8 +709,6 @@ parse_args:
     je  .port
     cmp al, 'w'
     je  .whole
-    cmp al, 'i'
-    je  .image
     cmp al, 'n'
     je  .net
     cmp al, '?'
@@ -889,17 +728,6 @@ parse_args:
 .whole:
     mov byte [wholemc], 1
     jmp short .skipopt
-.image:
-    inc si                      ; past 'I'
-    dec cx
-    jcxz .argdone
-    cmp byte [si], ':'
-    jne .skipopt
-    inc si
-    dec cx
-    mov di, imgname             ; ...block mode, which the redirector
-    call get_word               ; superseded and which is kept because the
-    jmp .next                   ; wire is the same one (SPEC.md 62.10)
 .port:
     inc si                      ; past 'P'
     dec cx
@@ -998,9 +826,6 @@ gethex:                         ; SI/CX -> AX, stopping at the first non-digit
     ret
 
 ; -----------------------------------------------------------------------------
-; open_image - open it and work out how many sectors it holds
-; -----------------------------------------------------------------------------
-; -----------------------------------------------------------------------------
 ; setup_root - decide what this run is serving, and say so
 ; out: CF=1 = the folder named on the command line is not one
 ;
@@ -1067,14 +892,6 @@ setup_root:
     call puthex16
 .noport2:
     call crlf
-    cmp byte [imgname], 0       ; block mode is the exception, so it is only
-    je  .noimg                  ; mentioned when it is on
-    mov si, s_imgsay
-    call puts
-    mov si, imgname
-    call puts
-    call crlf
-.noimg:
     pop si
     pop dx
     pop ax
@@ -1086,89 +903,6 @@ setup_root:
     pop si
     pop dx
     pop ax
-    stc
-    ret
-
-; -----------------------------------------------------------------------------
-; open_image - block mode's file, IF /I: named one (SPEC.md 62.10)
-; -----------------------------------------------------------------------------
-open_image:
-    cmp byte [imgname], 0       ; the ordinary case now: no image, and the
-    jne .named                  ; NC_* commands answer NST_NOSEC to a master
-    clc                         ; that will never send them
-    ret
-.named:
-    push bx
-    push cx
-    push dx
-    mov si, s_serving
-    call puts
-    mov si, imgname
-    call puts
-    call crlf
-
-    mov ax, 0x3D02              ; read/write
-    cmp byte [roflag], 0
-    je  .op
-    mov ax, 0x3D00              ; ...or read-only, if /RO said so
-.op:
-    mov dx, imgname
-    int 0x21
-    jc  .bad
-    mov [fh], ax
-
-    mov bx, ax                  ; seek to the end: CX:DX = the size
-    mov ax, 0x4202
-    xor cx, cx
-    xor dx, dx
-    int 0x21
-    jc  .bad
-    ; DX:AX = size. sectors = size / 512, saturating at os8088's own cap.
-    mov cl, 9
-    shr ax, cl
-    mov bx, dx
-    mov cl, 7
-    shl bx, cl
-    or  ax, bx
-    mov cl, 9
-    shr dx, cl
-    jnz .cap                    ; over 32MB: serve the first 32MB and say so
-    or  ax, ax
-    jz  .empty
-    jmp short .have
-.cap:
-    mov ax, SEC_MAX
-    mov si, s_capped
-    call puts
-.have:
-    mov [nsecs], ax
-    mov si, s_size
-    call puts
-    call put_dec
-    mov si, s_secs
-    call puts
-    cmp byte [roflag], 0
-    je  .rw
-    mov si, s_roflag
-    call puts
-.rw:
-    call crlf
-    pop dx
-    pop cx
-    pop bx
-    clc
-    ret
-.empty:
-    mov si, s_tiny
-    call puts
-    jmp short .bad2
-.bad:
-    mov si, s_noopen
-    call puts
-.bad2:
-    pop dx
-    pop cx
-    pop bx
     stc
     ret
 
@@ -4039,11 +3773,10 @@ report_ports:
     ret
 
 ; -----------------------------------------------------------------------------
-; zero_buf - secbuf to zeros, for a sector we are refusing
+; zero_buf - secbuf to zeros, for a file read DOS answered SHORT
 ;
-; The frame is 512 bytes whether or not the read worked, so the master stays
-; in step; ZEROS rather than the previous sector's contents is what stops a
-; refusal looking like data to anything that ignores the status.
+; send_body owes the master the length it promised, so the bytes DOS did not
+; give are sent as ZEROS rather than the previous chunk's contents.
 ; -----------------------------------------------------------------------------
 zero_buf:
     push di
@@ -4051,13 +3784,6 @@ zero_buf:
     mov di, secbuf
     mov cx, 512
     jmp zero_fill
-
-tick_dot:                       ; one dot per RUN, so a long transfer looks
-    push ax                     ; alive rather than hung
-    mov al, '.'
-    call putc
-    pop ax
-    ret
 
 ; =============================================================================
 ; lplink.inc / lplslv.inc's two requirements, and the console
@@ -4144,13 +3870,6 @@ puthex16:
 s_banner:
     db 13,10,'OS88NET - the DOS end of an os8088 parallel file link',13,10
     db 'ESC stops.  OS88NET /? for options.',13,10,13,10,0
-s_serving:  db 'Serving: ',0
-s_size:     db '  ',0
-s_secs:     db ' sectors',0
-s_roflag:   db ', READ ONLY',0
-s_capped:   db '  (over 32MB - serving the first 65535 sectors)',13,10,0
-s_tiny:     db '  that file is under one sector',13,10,0
-s_noopen:   db '  cannot open it',13,10,0
 s_phead:    db 13,10,'  port  latch',13,10,0
 s_ind:      db '  ',0
 s_gap:      db '   ',0
@@ -4170,7 +3889,7 @@ s_wmc:      db 'Serving files from EVERY DRIVE on this machine.',13,10,0
 s_ronly:    db 'Writes REFUSED (/RO).',13,10,0
 s_rwok:     db 'Writes allowed.',13,10,0
 s_help:
-    db 'OS88NET [folder] [/W] [/RO] [/N] [/P:base] [/I:image]',13,10,13,10
+    db 'OS88NET [folder] [/W] [/RO] [/N] [/P:base]',13,10,13,10
     db '  folder    serve this folder and everything under it.',13,10
     db '            Default: the current directory.',13,10
     db '  /W        serve EVERY drive on this machine: the root of the',13,10
@@ -4178,8 +3897,6 @@ s_help:
     db '  /RO       refuse every write. Read-only, whatever os8088 asks.',13,10
     db '  /P:base   pin the parallel port, in hex - /P:378, /P:278,',13,10
     db '            /P:3BC. Default: scan and use the first that answers.',13,10
-    db '  /I:image  block mode: serve 512-byte sectors out of an image',13,10
-    db '            file instead of serving files.',13,10
     db '  /N       serve SOCKETS as well as files: os8088 packages then',13,10
     db '            reach the network through this machine. Needs a packet',13,10
     db '            driver loaded (the one mTCP uses) and a DHCP server.',13,10
@@ -4195,7 +3912,6 @@ sf_pre:     db '  ['
 sf_tag:     db '?', '] ',0
 s_portpin:  db 'Port pinned by /P: to ',0
 s_portscan: db 'Port chosen by scanning (see the table below).',0
-s_imgsay:   db 'Block-mode image (/I:): ',0
 s_nwtry:    db 'Sockets (/N): looking for a packet driver...',13,10,0
 s_nwok:     db '  up, address ',0
 s_nwnopkt:  db '  no packet driver in 60h..80h, or it is not Ethernet',13,10,0
@@ -4263,24 +3979,9 @@ dos_seed:   resw 1              ; dos_rand's LCG
 helpflag:   resb 1
 netflag:    resb 1              ; /N was asked for (net_start)
 dirarg:     resb 80             ; the bare argument: the folder to serve
-imgname:    resb 80             ; ...EMPTY by default now: the bare argument
-                                ; is the FOLDER to serve, and block mode is
-                                ; behind /I: (see parse_args)
-fh:         resw 1
-nsecs:      resw 1
 roflag:     resb 1
 pinned:     resb 1
 pinbase:    resw 1
-nrun:       resb 1              ; sectors left in the run being served
-nrun2:      resb 1              ; ...and how many it started with
-rstat:      resb 1              ; this sector's verdict
-wstat:      resb 256            ; a write run's verdicts. 256 and not NET_RUN,
-                                ; because the count crosses as ONE BYTE and
-                                ; that is the protocol's own ceiling: sized to
-                                ; net.asm's constant instead, the two programs
-                                ; would be coupled across a cable by a number
-                                ; neither can see, and raising it at one end
-                                ; would overrun this at the other
 secbuf:     resb 512
 
 ; --- file mode's (SPEC.md 62.10.3) -------------------------------------------
