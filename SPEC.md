@@ -104262,6 +104262,18 @@ a DOS user sees on the console changes and nothing on the wire does.
    `shr ax, cl` with CL = 7 for the high word and `shl dx, cl` with CL = 9 for
    the low, and `mov ax, 0x4200` for the two byte loads. Block mode only, and
    faster.
+7. **The two argument copies are one, and it is BOUNDED** (file −4, and a
+   DEFECT fixed). `parse_args` copied the bare folder word into `dirarg` and
+   `/I:`'s name into `imgname` with two loops of its own, neither of which
+   knew the buffer was 80 bytes - and DOS's command tail is 127. A long enough
+   word wrote past either buffer: past `dirarg` into the strings that
+   followed it in the file, and since item 1 into `imgname`, where it would
+   have turned a folder argument into a block-mode image. `get_word` is the
+   one copy now; it keeps at most 79 characters and still consumes the whole
+   word, so the rest of the tail parses exactly as before. (DOS's own path
+   limit is 64, so nothing that could ever have been served is cut.)
+   `listen_once` also lost a `shr bx, 1` whose result the next instruction
+   overwrote.
 
 ## 63. The logo (`tools/os88logo.py`, `MEDIA/OS8088.GIF`)
 

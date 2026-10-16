@@ -486,7 +486,6 @@ listen_once:
     mov ax, [cand_base+bx]
     cmp ax, [pinbase]
     jne .next2
-    shr bx, 1
 .listen:
     mov bx, di
     shl bx, 1
@@ -855,17 +854,7 @@ parse_args:
     ; cable is for now (SPEC.md 62.10), so the ordinary argument is the
     ; ordinary thing, and block mode's image moved behind /I:.
     mov di, dirarg
-.name:
-    mov al, [si]
-    cmp al, ' '
-    jbe .namedone
-    mov [di], al
-    inc di
-    inc si
-    dec cx
-    jnz .name
-.namedone:
-    mov byte [di], 0
+    call get_word
     jmp short .next
 .opt:
     inc si
@@ -909,19 +898,8 @@ parse_args:
     inc si
     dec cx
     mov di, imgname             ; ...block mode, which the redirector
-.iname:                         ; superseded and which is kept because the
-    jcxz .inamed                ; wire is the same one (SPEC.md 62.10)
-    mov al, [si]
-    cmp al, ' '
-    jbe .inamed
-    mov [di], al
-    inc di
-    inc si
-    dec cx
-    jmp short .iname
-.inamed:
-    mov byte [di], 0
-    jmp .next
+    call get_word               ; superseded and which is kept because the
+    jmp .next                   ; wire is the same one (SPEC.md 62.10)
 .port:
     inc si                      ; past 'P'
     dec cx
@@ -950,6 +928,31 @@ parse_args:
     pop bx
     pop ax
     clc
+    ret
+
+; get_word - SI/CX -> the 80-byte buffer at DI, up to a space or the end
+; of the tail; NUL-terminated. A word longer than the buffer is CONSUMED
+; whole and KEPT to 79 characters: DOS's tail is 127, so an unbounded copy
+; ran up to 48 bytes past either buffer into whatever followed it.
+get_word:
+    push bx
+    lea bx, [di + 79]
+.l:
+    jcxz .e
+    mov al, [si]
+    cmp al, ' '
+    jbe .e
+    cmp di, bx
+    jae .n
+    mov [di], al
+    inc di
+.n:
+    inc si
+    dec cx
+    jmp short .l
+.e:
+    mov byte [di], 0
+    pop bx
     ret
 
 skip_sp:
