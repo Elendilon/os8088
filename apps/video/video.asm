@@ -1467,7 +1467,11 @@ vp_parse:
     mov [vp_sub2], al
     mov dl, [vp_pixfmt]             ; (the format, from here to .pgeo)
     ; THE ROW SCALE (98.2.4): each row shown twice by the CRTC, VGA8 only
-    mov byte [vp_rs], 0
+    xor ax, ax
+    mov [vp_rs], al
+    mov [vp_flip], al               ; (PAGE FLIPPING's, below: none yet)
+    mov [vp_npg], al
+    mov [vp_fpg], al
     mov al, [es:di+R_RSCALE]
     cmp al, 1
     jbe .rs1
@@ -1477,10 +1481,7 @@ vp_parse:
     jne .b3
     mov byte [vp_rs], 1
 .rs1:
-    mov byte [vp_flip], 0           ; PAGE FLIPPING (98.3.8): Mode X's own
-    mov byte [vp_npg], 0
-    mov byte [vp_fpg], 0
-    mov al, [es:di+R_FLIP]
+    mov al, [es:di+R_FLIP]          ; PAGE FLIPPING (98.3.8): Mode X's own
     cmp al, 5                       ; FLIPPED AND BUILT AHEAD (98.1.3.7.2):
     jne .fp7                        ; byte 37's 4 with every record flipped,
     cmp word [vp_lstr], 40          ; never on a NARROW screen
@@ -7969,8 +7970,10 @@ vp_lplay:
     xor al, al
     call vp_stopfor
 .start:
-    mov byte [vp_startp], 0
-    mov byte [vp_livem], 1
+    xor ax, ax
+    mov [vp_startp], al
+    inc ax
+    mov [vp_livem], al
 %ifdef VP_LIVESND
     call vp_sstart                  ; WITH SOUND (98.3.10.1): the worker is
 %else                               ; the card's feeder
@@ -8030,8 +8033,10 @@ vp_lsetup:
     call vp_bandall
 .nk:
     call vp_lprime                  ; A STREAM: the ring filled, over the key
-    mov byte [vp_sfirst], 0
-    mov byte [vp_ready], 1
+    xor ax, ax
+    mov [vp_sfirst], al
+    inc ax
+    mov [vp_ready], al
     call vp_lgo                     ; (its clock is taken again below)
     cmp byte [vp_hired], 0          ; THE WORKER, once for the instance
     jne .h
@@ -10792,16 +10797,17 @@ vp_lyopen:
     mov [vp_lygot], ax              ; (this play's counts, layer or none)
     mov [vp_lymis], ax
     mov [vp_lyskp], ax
-.out:
+    inc ax                          ; (AX = 0 above: 1)
     cmp word [vp_lyseg], 0          ; (a seek's re-entry keeps it on)
     je .room
-    mov byte [vp_lyon], 1
+    mov [vp_lyon], al
     jmp short .r
 .room:
     cmp byte [vp_lyfl], 0           ; NO ROOM, and none the ring could lend
     je .r                           ; (98.1.9.4): the card says by how much -
-    mov byte [vp_lyoff], 1          ; or the DISK said no, kept for the file
-    mov byte [vp_lywhy], 2          ; (98.1.9.3), so none was placed
+    mov [vp_lyoff], al              ; or the DISK said no, kept for the file
+    inc ax                          ; (98.1.9.3), so none was placed
+    mov [vp_lywhy], al
     cmp byte [vp_lydv], 2
     jne .r
     dec byte [vp_lywhy]
