@@ -13195,21 +13195,7 @@ vp_skkey:
     push dx
     cmp byte [vo_skp], 0
     jne .more
-    mov byte [vo_skp], 1            ; THE FIRST PRESS: from the frame on the
-    mov word [vp_skn], 0            ; glass, the play paused
-    mov bx, [vp_done]
-    or bx, bx
-    jz .z
-    dec bx
-.z:
-    mov [vp_skb], bx
-    mov byte [vp_skwas], 0
-    cmp byte [vp_upause], 0
-    jne .more
-    mov byte [vp_skwas], 1
-    push ax
-    call vp_upaus
-    pop ax
+    call vp_skfirst                 ; THE FIRST PRESS
 .more:
     cbw
     add ax, [vp_skn]
@@ -13230,6 +13216,38 @@ vp_skkey:
     pop ax
     ret
 
+; vp_skfirst - a seek's FIRST PRESS (an arrow's, or an unmute's in the full
+; screen): [vo_skp] 1, no presses yet, from the frame on the glass, the play
+; paused - [vp_skwas] whether it was playing. Clobbers BX
+vp_skfirst:
+    mov byte [vo_skp], 1
+    mov word [vp_skn], 0
+    mov bx, [vp_done]
+    or bx, bx
+    jz .z
+    dec bx
+.z:
+    mov [vp_skb], bx
+    mov byte [vp_skwas], 0
+    cmp byte [vp_upause], 0
+    jne .r
+    mov byte [vp_skwas], 1
+    push ax
+    call vp_upaus
+    pop ax
+.r:
+    ret
+
+; vp_sknow - the seek on its way due at once: [vp_sktk] now less its wait.
+; Clobbers AX, DX
+vp_sknow:
+    call vp_ticks
+    mov dl, [vp_skwt]
+    xor dh, dh
+    sub ax, dx
+    mov [vp_sktk], ax
+    ret
+
 ; vp_skhome - Home: a seek to the start, due at once - the one Left makes,
 ; taken all the way back, with no wait for another press (98.3.14).
 ; Preserves all
@@ -13240,12 +13258,7 @@ vp_skhome:
     call vp_skkey                   ; paused, and a seek on its way...
     mov word [vp_skn], -VP_SKMAXN   ; ...all the way back: frame 0
     call vp_sktext
-    call vp_ticks
-    mov dx, ax
-    mov al, [vp_skwt]
-    xor ah, ah
-    sub dx, ax                      ; ...and its wait already over
-    mov [vp_sktk], dx
+    call vp_sknow                   ; ...and its wait already over
     pop dx
     pop ax
     ret
@@ -14394,26 +14407,9 @@ vp_unmfs:
     je .next
     cmp byte [vo_skp], 0            ; a seek on its way lands with it
     jne .prep
-    mov byte [vo_skp], 1
-    mov word [vp_skn], 0
     mov byte [vp_skhere], 1
-    mov bx, [vp_done]
-    or bx, bx
-    jz .z
-    dec bx
-.z:
-    mov [vp_skb], bx
-    mov byte [vp_skwas], 0
-    cmp byte [vp_upause], 0         ; PAUSED FIRST, while there is no sound
-    jne .pz                         ; for the pause to touch
-    mov byte [vp_skwas], 1
-    call vp_upaus
-.pz:
-    call vp_ticks                   ; ...and due at once
-    mov dl, [vp_skwt]
-    xor dh, dh
-    sub ax, dx
-    mov [vp_sktk], ax
+    call vp_skfirst                 ; PAUSED FIRST, while there is no sound
+    call vp_sknow                   ; for the pause to touch - and due at once
 .prep:
     cmp byte [vp_snd], 0
     jne .say
