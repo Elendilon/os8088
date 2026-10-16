@@ -756,15 +756,15 @@ tm_init:
     ; answers, so this needs no build-time test and gets that build right for
     ; free (SPEC.md 41.11).
     call tm_getkb
-    mov word [tm_xoff], 0
-    cmp word [tm_kb+SK_XMS], 0
-    jne .xms
-    mov word [tm_xoff], TMM_XSHIFT
+    cmp word [tm_kb+SK_XMS], 0  ; [tm_xoff] arrives 0 - the loader zeroes our
+    jne .xms                    ; bss, and this runs once, at launch - so only
+    mov byte [tm_xoff], TMM_XSHIFT  ; the no-store answer is written
 .xms:
 
     call OSAPI_VIDEO            ; and the live geometry (SPEC.md 39.2): AX =
     mov [tm_vw], ax             ; width, CX = the dock strip's top row. Banked
     mov [tm_vdock], cx          ; because everything below spends AX..DX
+    xchg ax, cx
 
     ; --- fit the window between the menu bar and the dock ---------------------
     ; The template used to carry a fixed 312, which is fine on VGA's 480 rows
@@ -784,7 +784,6 @@ tm_init:
     ; already covering its first row. wm_fit will happily hand out exactly
     ; that (it clamps y to dock_y0 - h), and the whole point of this is that
     ; it must not.
-    mov ax, [tm_vdock]
     sub ax, MBAR_H + 1          ; AX = px available to the whole frame
     call tm_layout              ; ...and everything derived from it, which the
                                 ; SPEC.md 11.98 handler below re-runs when the
@@ -803,11 +802,9 @@ tm_init:
                                 ; chrome, so feeding it back yields
                                 ; min(rows, TMM_ROWS) and then stops
 
-    mov ax, [tm_tpl+6]          ; (the y clamp below wants the height back)
-
     mov dx, [tm_vdock]          ; ...and a top that keeps y+h off the dock.
     dec dx                      ; Deriving the height is not enough on its
-    sub dx, ax                  ; own: wm_fit clamps y to dock_y0 - h, which
+    sub dx, [tm_tpl+6]          ; own: wm_fit clamps y to dock_y0 - h, which
     cmp dx, 100                 ; puts the shadow row back on the strip for
     jge .ykeep                  ; any frame tall enough to be clamped at all
     cmp dx, MBAR_H              ; (signed - a tiny screen can drive this below
@@ -823,19 +820,18 @@ tm_init:
 ; tm_rowsfit - how many TM_ROW_H rows a frame AX px tall holds under DX px of
 ;              chrome; a screen too short for any still gets one row
 ; out: AX = rows (the quotient fits a byte: the tallest frame here is 295px
-;      against an 11px pitch); clobbers nothing else
+;      against an 11px pitch); clobbers DX - every caller loads it per call
 ; -----------------------------------------------------------------------------
 tm_rowsfit:
     sub ax, dx
     jbe .one
-    push bx
-    mov bl, TM_ROW_H
-    div bl
-    pop bx
-    xor ah, ah
+    mov dl, TM_ROW_H
+    div dl
+    cbw                         ; AL < 128: the quotient fits, as above
     ret
 .one:
-    mov ax, 1
+    xor ax, ax
+    inc ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -844,7 +840,7 @@ tm_rowsfit:
 ; in:  AX = the frame HEIGHT available, [tm_vw] = the frame WIDTH available
 ; out: tm_colrows, tm_cols, tm_hcolrows, tm_col2rows, tm_maxrow and
 ;      tm_tpl+4 / tm_tpl+6, all set
-; clobbers: AX, BX, DX
+; clobbers: AX, BX, CX, DX
 ;
 ; FACTORED OUT OF tm_init FOR SPEC.md 11.98, and the two callers hand it two
 ; different things that mean the same thing. At launch the frame does not
@@ -858,41 +854,34 @@ tm_rowsfit:
 ; resize as one of the three things that arrive there.
 ; -----------------------------------------------------------------------------
 tm_layout:
-    sub ax, TITLE_H + 1 + TMM_ROW_Y     ; ...less the chrome and the maps
-    add ax, [tm_xoff]           ; ...and back the bar's height on a machine
-                                ; with no store, which is what turns the
-                                ; reclaimed space into a ROW rather than into
-                                ; a shorter window (TMM_XSHIFT = TM_ROW_H)
-    jbe .norows
-    mov bl, TM_ROW_H
-    div bl                      ; AL = rows that fit in ONE column
-    xor ah, ah
-    jmp short .haverows
-.norows:
-    mov ax, 1                   ; a screen this short still gets one row
-.haverows:
-    mov [tm_colrows], ax        ; ...and that is the column's depth
+    add ax, [tm_xoff]           ; the bar's height back on a machine with no
+                                ; store, which is what turns the reclaimed
+                                ; space into a ROW rather than into a shorter
+                                ; window (TMM_XSHIFT = TM_ROW_H)...
+    mov dx, TITLE_H + 1 + TMM_ROW_Y     ; ...less the chrome and the maps
+    call tm_rowsfit             ; AX = rows that fit in ONE column (a screen
+    mov [tm_colrows], ax        ; this short still gets one) - the column's
+                                ; depth
 
     ; --- one column, or two? -------------------------------------------------
-    mov word [tm_cols], 1
+    mov cx, 1
     mov bx, TM_W
     cmp ax, TM_COL2_MIN
     jae .cols                   ; tall enough: one column shows a useful list
-    mov dx, [tm_vw]             ; short: a second column IF the screen is wide
-    cmp dx, TM_W + TM_COLW      ; enough to carry it
-    jb .cols
-    mov word [tm_cols], 2
+    cmp word [tm_vw], TM_W + TM_COLW    ; short: a second column IF the
+    jb .cols                    ; screen is wide enough to carry it
+    inc cx
     mov bx, TM_W + TM_COLW
 .cols:
+    mov [tm_cols], cx
     mov [tm_tpl+4], bx          ; the frame width the layout needs
 
-    mov ax, [tm_colrows]        ; the height is COLUMN 0's worth: it is the
-    cmp ax, TMM_ROWS            ; column that starts lowest, so it is the one
-    jbe .hok                    ; the frame has to be tall enough for
-    mov ax, TMM_ROWS
+    cmp ax, TMM_ROWS            ; the height is COLUMN 0's worth: it is the
+    jbe .hok                    ; column that starts lowest, so it is the one
+    mov al, TMM_ROWS            ; the frame has to be tall enough for (AH = 0)
 .hok:
-    mov dx, TM_ROW_H
-    mul dx
+    mov dl, TM_ROW_H
+    mul dl
     add ax, TITLE_H + 1 + TMM_ROW_Y
     sub ax, [tm_xoff]           ; the list starts higher with no bar above it
     mov [tm_tpl+6], ax          ; the frame height the machine can take
@@ -994,8 +983,8 @@ tm_onresize:
     push cx
     push dx
     push si
-    push cx                     ; **THE CONTENT BOX THIS PROC WAS HANDED** -
-    push dx                     ; the kernel applies a published frame BEFORE
+    push dx                     ; **THE CONTENT BOX THIS PROC WAS HANDED** -
+                                ; the kernel applies a published frame BEFORE
                                 ; it notifies (SPEC.md 39.16.3.3), so CX/DX
                                 ; already describe the window we now have
     mov bx, si                  ; ...and the CARD it is on (SPEC.md 39.16.4):
@@ -1012,7 +1001,7 @@ tm_onresize:
                                 ; which is what the field reported
     mov [tm_vdock], cx
     pop ax                      ; the CONTENT height, back as a FRAME one -
-    pop cx                      ; tm_layout's argument is a frame. Handing it
+                                ; tm_layout's argument is a frame. Handing it
     add ax, TITLE_H + 1         ; the display's BAND instead makes tm_colrows
                                 ; what fits the SCREEN rather than what fits
                                 ; the window, which is 32 rows on a VGA against
@@ -1025,17 +1014,41 @@ tm_onresize:
     jmp tm_pop_sdcba
 
 ; -----------------------------------------------------------------------------
-; tm_kinit - bind the window and ask for the byte-aligned content origin
+; tm_entry - the package entry proc (SPEC.md 20.2)
+; in:  nothing; DS = CS = our segment, ES = KERNEL_SEG, UI task, no lock
+; out: CF = 0 launched, CF = 1 the loader tears us down
 ;
-; The loader zeroes our bss, so the state block does not need clearing the way
-; it did as a built-in kind: a relaunched instance is a fresh image with a
-; fresh bss and cannot inherit the previous one's calibration or graph.
-;
-; in:  BX = window ptr
-; out: nothing (all registers preserved)
+; The worker is NOT spawned here, and cannot be: the kernel sets I_STATE = 1
+; and binds our window to the record only after this returns (SPEC.md 21),
+; so OSAPI_TASK_SPAWN would find no instance and refuse. tm_paint does it -
+; the apps/fractal precedent (SPEC.md 40).
 ; -----------------------------------------------------------------------------
-tm_kinit:
-    push ax
+tm_entry:
+    push si
+    call tm_init                ; int 12h, then the template's live geometry
+    mov si, tm_tpl
+    call OSAPI_WM_CREATE        ; BX = window ptr, CF = the table is full
+    jc .out
+    mov al, 1                   ; **WE PAINT EVERY PIXEL** (SPEC.md 11.90.1,
+    call OSAPI_WM_OWNBG         ; 28.10): the kernel's white fill was the first
+                                ; layer of a double draw on a window whose
+                                ; W_PAINT is ~450 ms, so the content went white
+                                ; and re-lettered on every repaint. It also
+                                ; unlocks OSAPI_WM_DAMAGE, which answers
+                                ; "whole" without this flag (SPEC.md 11.90.2's
+                                ; interlock)
+    mov si, tm_about            ; 'About Task Manager' above the Close the
+    call OSAPI_ABOUT_SET        ; kernel already puts in our pull-down
+                                ; (SPEC.md 12.2) - BX is still the window and
+                                ; the slot preserves the flags. AX and SI are
+                                ; scratch here: the entry proc's own push/pop
+                                ; of SI is what it owes the loader
+
+    ; --- bind the window and ask for the byte-aligned content origin --------
+    ; (this was tm_kinit, called once, from here). The loader zeroes our bss,
+    ; so the state block does not need clearing the way it did as a built-in
+    ; kind: a relaunched instance is a fresh image with a fresh bss and cannot
+    ; inherit the previous one's calibration or graph.
     mov [tm_win], bx
 
     mov ax, TM_PREF_H           ; **THE HEIGHT IS PATCHED, NOT FUDGED.**
@@ -1066,42 +1079,8 @@ tm_kinit:
                                 ; (SPEC.md 11.94/6.1). EVERY adapter: this was
                                 ; mono-only until VGA was measured and gained
                                 ; more (verified aligned there - content
-                                ; origin 248). It
-                                ; PRESERVES FLAGS, which the entry proc's own
-                                ; ret owes the loader
-
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; tm_entry - the package entry proc (SPEC.md 20.2)
-; in:  nothing; DS = CS = our segment, ES = KERNEL_SEG, UI task, no lock
-; out: CF = 0 launched, CF = 1 the loader tears us down
-;
-; The worker is NOT spawned here, and cannot be: the kernel sets I_STATE = 1
-; and binds our window to the record only after this returns (SPEC.md 21),
-; so OSAPI_TASK_SPAWN would find no instance and refuse. tm_paint does it -
-; the apps/fractal precedent (SPEC.md 40).
-; -----------------------------------------------------------------------------
-tm_entry:
-    push si
-    call tm_init                ; int 12h, then the template's live geometry
-    mov si, tm_tpl
-    call OSAPI_WM_CREATE        ; BX = window ptr, CF = the table is full
-    jc .out
-    push ax                     ; **WE PAINT EVERY PIXEL** (SPEC.md 11.90.1,
-    mov al, 1                   ; 28.10): the kernel's white fill was the first
-    call OSAPI_WM_OWNBG         ; layer of a double draw on a window whose
-    pop ax                      ; W_PAINT is ~450 ms, so the content went white
-                                ; and re-lettered on every repaint. It also
-                                ; unlocks OSAPI_WM_DAMAGE, which answers
-                                ; "whole" without this flag (SPEC.md 11.90.2's
-                                ; interlock)
-    push si                     ; 'About Task Manager' above the Close the
-    mov si, tm_about            ; kernel already puts in our pull-down
-    call OSAPI_ABOUT_SET        ; (SPEC.md 12.2) - BX is still the window and
-    pop si                      ; the slot preserves the flags
-    call tm_kinit               ; preserves the flags, so the CF our ret owes
+                                ; origin 248). It PRESERVES FLAGS, so the CF
+                                ; our ret owes the loader is the one above
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
     ; exists, and not beside any worker's declaration: a package with
     ; NO worker is the case that moves most easily, and putting it at
@@ -2649,28 +2628,25 @@ tm_view_begin:
 ; in:       nothing
 ; out:      nothing (all registers preserved)
 ;
-; TWO spans, not one. This used to zero tm_elck and tm_rowck as a single run
-; on the strength of a comment saying they were declared adjacent - and they
-; were not: five unrelated words had drifted in between, so the run stopped
-; five words short and the LAST rows of tm_rowck were never invalidated at
-; all. Harmless while those were the memory list's two bottom rows, which are
-; empty on any machine that fits its instances; fatal the moment the CPU
-; caption became the last row, because a view switch then white-filled the
-; content and left four fifths of 'CPU nnn% SCH preempt' recorded as drawn.
-; An address and a count each, so the layout cannot say otherwise again.
+; ONE span again, and this time the ASSEMBLER says so. It used to zero
+; tm_elck and tm_rowck as a single run on the strength of a comment saying
+; they were declared adjacent - and they were not: five unrelated words had
+; drifted in between, so the run stopped five words short and the LAST rows
+; of tm_rowck were never invalidated at all. Harmless while those were the
+; memory list's two bottom rows, which are empty on any machine that fits
+; its instances; fatal the moment the CPU caption became the last row,
+; because a view switch then white-filled the content and left four fifths
+; of 'CPU nnn% SCH preempt' recorded as drawn. That was answered with two
+; spans; apps size pass 2 makes it one again by DEFINITION - the bss chain
+; says `tm_rowck equ tm_elck + TMC_N * 2`, so nothing can drift in between
+; without rewriting that line - which is the same guarantee for half the code.
 ; -----------------------------------------------------------------------------
 tm_rowck_clear:
     push bx
     push cx
     mov bx, tm_elck
-    mov cx, TMC_N
-    call tm_ckz
-    mov bx, tm_rowck
-    mov cx, TM_NCK * TM_NCHUNK
-    call tm_ckz
-    pop cx
-    pop bx
-    ret
+    mov cx, TMC_N + TM_NCK * TM_NCHUNK
+    jmp short tm_ckz.z
 
 ; tm_ckz - zero CX check words at BX (all registers preserved)
 tm_ckz:
@@ -2883,11 +2859,11 @@ tm_click:
     jb .vset                    ; navigation a third page needs - no tabs, no
     xor al, al                  ; chrome, no second hit-test
 .vset:
-    mov [tm_view], al
-    mov byte [tm_slow], 0       ; ...and the slow count starts over, so the
-                                ; first unattended refresh of a page arrives
-                                ; one interval after it opened rather than up
-                                ; to TM_SLOW of them (SPEC.md 28.6)
+    cbw                         ; AH = 0: tm_slow is the byte after tm_view,
+    mov [tm_view], ax           ; so the slow count starts over in the same
+                                ; store, and the first unattended refresh of
+                                ; a page arrives one interval after it opened
+                                ; rather than up to TM_SLOW of them (28.6)
     call tm_clear_content       ; SI = window ptr; the ONLY thing that erases
     call tm_draw_full           ; the outgoing view (SPEC.md 28.10)
     call tm_promise             ; ...and WHICH page it is now decides whether
@@ -2935,26 +2911,21 @@ tm_hscroll:
     jnz .page                   ; a frame with one row on it still pages by
     inc cx                      ; one, or the bar would have an inert half
 .page:
-    cmp al, OS88UI_SBUP
-    je .up
-    cmp al, OS88UI_SBDOWN
-    je .down
+    cmp al, OS88UI_SBDOWN       ; an ARROW moves one row, the track a page
+    ja .step
+    mov cx, 1
+.step:
+    cmp al, OS88UI_SBUP         ; UP and PGUP go back; DOWN, PGDN and the
+    je .back                    ; THUMB (which pages the way it lies) go on
     cmp al, OS88UI_SBPGUP
-    je .pgup
-    add dx, cx                  ; PGDN, and the THUMB pages the way it lies
-    jmp short .set
-.pgup:
+    jne .on
+.back:
     sub dx, cx
     jnc .set
-    xor dx, dx                  ; ...which is the only place this can wrap
-    jmp short .set
-.up:
-    or dx, dx
-    jz .set                     ; already at the top: a dec would wrap, and
-    dec dx                      ; the compare below turns it into an end stop
-    jmp short .set
-.down:
-    inc dx
+    xor dx, dx                  ; ...the only place this can wrap: the top is
+    jmp short .set              ; an end stop the compare below turns into a
+.on:                            ; repaint of nothing
+    add dx, cx
 .set:
     mov [tm_htop], dx
     call tm_hclamp              ; ...and the bottom end stop, which is the one
@@ -4366,35 +4337,27 @@ tm_hclamp:
 tm_hsbset:
     push ax
     push dx
-    mov ax, [tm_cols]           ; x2 = the last column's own right edge...
-    dec ax
-    mov dx, TM_COLW
-    mul dx
-    add ax, [tm_cx]
+    mov ax, [tm_cx]             ; x2 = the last column's own right edge...
     add ax, TM_RW
+    mov dx, [tm_cy]             ; y1 = that column's FIRST ROW: column 0 sits
+    add dx, TMH_ROW_Y           ; under two caption lines and a header, every
+    cmp word [tm_cols], 1       ; later one at the top of the content. ONE or
+    je .one                     ; TWO columns (tm_layout), so the second is a
+    add ax, TM_COLW             ; constant step on both axes and not a multiply
+    add dx, TM_C2_ROW_Y - TMH_ROW_Y
+.one:
     mov [tm_hsb+4], ax
     sub ax, TMH_SB_W - 1        ; ...and the bar is its rightmost TMH_SB_W
     mov [tm_hsb], ax
-
-    mov ax, [tm_cy]             ; y1 = that column's FIRST ROW: column 0 sits
-    cmp word [tm_cols], 1       ; under two caption lines and a header, every
-    je .y1                      ; later one at the top of the content
-    add ax, TM_C2_ROW_Y
-    jmp short .y1set
-.y1:
-    add ax, TMH_ROW_Y
-.y1set:
-    mov [tm_hsb+2], ax
+    mov [tm_hsb+2], dx
     mov ax, [tm_ylim]           ; y2 = the bottom of the lowest row band the
     add ax, 7                   ; frame holds, which is one pixel clear of the
     mov [tm_hsb+6], ax          ; frame's own bottom border
 
-    mov ax, [tm_hrows]
-    mov [tm_hsb+8], ax          ; total
-    mov ax, [tm_maxrow]
-    mov [tm_hsb+10], ax         ; fit
-    mov ax, [tm_htop]
-    mov [tm_hsb+12], ax         ; pos
+                                ; total and fit ARE [tm_hrows] and [tm_maxrow]
+                                ; (they live in this block), so only pos is
+    mov ax, [tm_htop]           ; copied - it must stay the value the last
+    mov [tm_hsb+12], ax         ; paint drew from, for tm_hscroll
     pop dx
     pop ax
     ret
@@ -6551,13 +6514,7 @@ tm_sqp      equ tm_sqox + 2  ; ...and its texture, or 0 for no square. A
                                 ; the band before it letters it, so a square
                                 ; drawn while the row was being composed
                                 ; would be erased again
-tm_elck     equ tm_sqp + 2  ; the last drawn state of the non-row
-%else                           ; elements, one word each (TMC_*). The other
-tm_elck     equ tm_iend     ; arm closes over the row cursor, its fit flag
-%endif                          ; and the legend square
-
-%ifdef TMF_MEM
-tm_qkey     equ tm_elck + TMC_N * 2  ; tm_quiet's key, held until a paint
+tm_qkey     equ tm_sqp + 2  ; tm_quiet's key, held until a paint
                                 ; actually happens (SPEC.md 28.6.1): the
                                 ; question is asked with no lock and the paint
                                 ; can still be REFUSED under it, so the answer
@@ -6565,8 +6522,9 @@ tm_qkey     equ tm_elck + TMC_N * 2  ; tm_quiet's key, held until a paint
                                 ; whoever asks
 tm_rowx     equ tm_qkey + 2  ; the left edge of the row being drawn: tm_cx
 %else                           ; for column 0, one TM_COLW on for column 1.
-tm_rowx     equ tm_elck + TMC_N * 2  ; The other arm closes over tm_quiet's
-%endif                          ; key, there being no quiet page to hold one
+tm_rowx     equ tm_iend     ; The other arm closes over the row cursor, its
+%endif                          ; fit flag, the legend square and tm_quiet's
+                                ; key, there being no quiet page to hold one
 
 %ifdef TMF_MEM
 tm_xbarw    equ tm_rowx + 2  ; the XMS bar's black run, px (TMC_XBAR)
@@ -6580,7 +6538,13 @@ tm_ci       equ tm_penx + 2  ; tm_row_draw's chunk index (BP is the task's
                                 ; instance record and cannot be borrowed)
 tm_ckb      equ tm_ci + 2  ; ...and the running check-word pointer, for
                                 ; the same reason
-tm_rowck    equ tm_ckb + 2  ; the last drawn content of each row, a
+tm_elck     equ tm_ckb + 2  ; the last drawn state of the non-row
+                                ; elements, one word each (TMC_*), and
+                                ; DIRECTLY in front of tm_rowck: the two are
+                                ; cleared as ONE span (tm_rowck_clear), which
+                                ; is why tm_rowck is defined off tm_elck's end
+                                ; - nothing may go between them
+tm_rowck    equ tm_elck + TMC_N * 2  ; the last drawn content of each row, a
                                 ; word per CHUNK (tm_sumb's), plus one
                                 ; virtual row for the CPU caption (TMR_CPU).
                                 ; Shared by all THREE pages, so it is sized
@@ -6594,7 +6558,14 @@ tm_rowck    equ tm_ckb + 2  ; the last drawn content of each row, a
                                 ; not been for some time
 %ifdef TMF_MEM
 tm_view     equ tm_rowck + TM_NCK * TM_NCHUNK * 2  ; 0 = performance, 1 = memory, 2 = heap
-tm_rcyc     equ tm_view + 1  ; per-ROW cycles: task + instance, dword
+tm_slow     equ tm_view + 1  ; byte: intervals since the last paint of a
+                                ; SLOW page (SPEC.md 28.6). A byte and not a
+                                ; word: TM_SLOW is 4. Directly after tm_view
+                                ; so tm_click resets both with one word store;
+                                ; the performance-only arm has no tm_slow at
+                                ; all, that view having always painted every
+                                ; interval
+tm_rcyc     equ tm_slow + 1  ; per-ROW cycles: task + instance, dword
 %else
 tm_rcyc     equ tm_rowck + TM_NCK * TM_NCHUNK * 2  ; ...and with one page there
                                 ; is no page to record: every `cmp byte
@@ -6621,10 +6592,14 @@ tm_pcolrows equ tm_colrows + 2  ; ...and the PROCESS list's own column 0, which
                                 ; reason and with the opposite sign
 tm_col2rows equ tm_pcolrows + 2  ; rows in each LATER column, which starts at the
                                 ; top and so holds more - A DIVISOR, never 0
+%ifdef TMF_HEAP
+tm_totkb    equ tm_col2rows + 2  ; total conventional RAM (int 12h, boot)
+%else                           ; (tm_maxrow lives in tm_hsb on this arm)
 tm_maxrow   equ tm_col2rows + 2  ; rows this SCREEN shows, <= TMM_ROWS: derived
                                 ; from [vid_dock_y0] so the window never
                                 ; overlaps the dock (SPEC.md 28.1)
 tm_totkb    equ tm_maxrow + 2  ; total conventional RAM (int 12h, boot)
+%endif
 tm_vw       equ tm_totkb + 2  ; the live screen width and the dock strip's
 tm_vdock    equ tm_vw + 2  ; top row (osapi_video, SPEC.md 39.2), banked
                                 ; at boot: the template's whole geometry is
@@ -6689,31 +6664,30 @@ tm_hskip    equ tm_htop + 2  ; ...how many rows THIS paint still owes
                                        ; makes that a SCREEN row and leaves
                                        ; tm_rowck indexed by the thing it is
                                        ; drawn at
-tm_hrows    equ tm_hskip + 2  ; ...and how many rows the last walk
-                                       ; produced in all: the bar's `total`,
-                                       ; and what tm_hclamp measures against
-tm_slow     equ tm_hrows + 2  ; byte: intervals since the last paint of a
-%elifdef TMF_MEM                       ; SLOW page (SPEC.md 28.6). A byte and
-tm_slow     equ tm_xoff + 2            ; not a word: TM_SLOW is 4. The second
-%endif                                 ; arm closes over tm_htop, tm_hskip and
-                                       ; tm_hrows; the THIRD has no tm_slow at
-                                       ; all, the performance view having
-                                       ; always painted every interval
-
-%ifdef TMF_HEAP
-tm_hpad     equ tm_slow + 2  ; ...and how many of the rows this paint
+tm_hpad     equ tm_hskip + 2  ; ...and how many of the rows this paint
                                        ; drew were tm_mrow_nolast's BLANKS,
                                        ; which belong to the layout and not to
                                        ; the table (SPEC.md 28.4.4)
 tm_hsb      equ tm_hpad + 2  ; the shared bar's seven-word block
                                        ; (SPEC.md 13.10.2): x1 y1 x2 y2, then
-                                       ; total, fit, pos
+                                       ; total, fit, pos - and the first two
+                                       ; of those ARE the page's own words:
+tm_hrows    equ tm_hsb + 8   ; how many rows the last walk produced in
+                                       ; all - the bar's `total`, and what
+                                       ; tm_hclamp measures against...
+tm_maxrow   equ tm_hsb + 10  ; ...and the rows this SCREEN shows, which
+                                       ; is its `fit` (on the other arms
+                                       ; tm_maxrow sits after tm_col2rows).
+                                       ; os88ui_sbar only reads the block, so
+                                       ; tm_hsbset copies neither. `pos` stays
+                                       ; a COPY of tm_htop: tm_hscroll tells a
+                                       ; move from an end stop by comparing them
 tm_dmg      equ tm_hsb + 14  ; THIS PAINT'S DAMAGE, absolute, x1 y1 x2
-%elifdef TMF_MEM                       ; y2 (SPEC.md 28.10.2) - the rect
-tm_dmg      equ tm_slow + 2            ; tm_clear_owed filled, which is
-%else                                  ; exactly the rect that has to be
-tm_dmg      equ tm_xoff + 2            ; lettered again. Read by tm_dmg_hit
-%endif                                 ; once per chunk and by nothing else
+%else                                  ; y2 (SPEC.md 28.10.2) - the rect
+tm_dmg      equ tm_xoff + 2            ; tm_clear_owed filled, which is
+%endif                                 ; exactly the rect that has to be
+                                       ; lettered again. Read by tm_dmg_hit
+                                       ; once per chunk and by nothing else
 
 tm_abon     equ tm_dmg + 8   ; byte: the About card is up (SPEC.md 20.5.1)
 

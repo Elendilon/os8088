@@ -60584,6 +60584,21 @@ the file follows UNIQUE bytes.
   bits off the total and `tm_shn` shifts each row (and the meter's
   numerator) by that count in registers on the way into `tm_share`, which is
   the same floor division and fewer cycles.
+- **Launch and the click (cold code)**: `tm_init` writes `[tm_xoff]` only on
+  the no-store answer (the loader zeroes bss) and `tm_layout` takes its first
+  depth from `tm_rowsfit` like the other three; `tm_kinit` is inlined into
+  `tm_entry`, which no longer saves registers nobody reads; `tm_onresize`
+  banks only the height it uses; `tm_hscroll` picks the step (an arrow is a
+  row, the track a page) and then the direction, instead of four arms.
+- **The bss words that were copies**: on the heap arm `tm_hrows` and
+  `tm_maxrow` ARE the scroll block's `total` and `fit` (`tm_hsb+8`/`+10`;
+  `os88ui_sbar` only reads the block), so `tm_hsbset` copies only `pos`, and
+  places the bar with a constant step for the second column rather than a
+  multiply. `tm_elck` is declared directly in front of `tm_rowck` again —
+  `tm_rowck` is DEFINED off its end, so the drift that once left the CPU
+  caption's check words uncleared cannot recur — and `tm_rowck_clear` is one
+  span. `tm_slow` is the byte after `tm_view`, so a view switch resets both
+  in one store.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 
