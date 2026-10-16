@@ -185262,8 +185262,9 @@ null modem runs remain hardware validation.
 The splash owns its background (§11.90.1) and publishes 418x295 VGA/Hercules
 and 418x154 CGA frame preferences with a 418x154 floor. Layout is computed
 from the actual content box. A 416x104 title strip is embedded in packed
-4bpp color and 1bpp monochrome forms; compact windows draw alternate source
-rows at half height. The instruction area and standard release-fired buttons
+4bpp color and 1bpp monochrome forms (the 1bpp form shipped as a residual
+against the colour one and rebuilt on first use, 109.6); compact windows draw
+alternate source rows at half height. The instruction area and standard release-fired buttons
 use native OS text and `os88ui.inc` (§20.5.1.3). H opens/closes controls;
 clicking background artwork does not start a match. About temporarily
 withdraws the button group's live count, so its dismissal cannot also launch.
@@ -185329,9 +185330,11 @@ through the ordinary frame parser in the foreground.
 
 The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures the
 shipped file, LZ4-packed: **14,315 bytes** (image 37,237, bss 1,939) when it
-started. Nothing a frame or the link runs changed shape for it: every
-routine the court, the rate hook and the frame parser run assembles to the
-same instructions.
+started, and **13,496** (image 37,349, bss 1,854) when it finished. Nothing
+a frame or the link runs changed shape for it: every routine the court, the
+rate hook and the frame parser run assembles to the same instructions at the
+same address parity, and the image keeps its odd length, so every bss
+variable keeps its parity too.
 
 - **One dispatcher for the splash's keys and buttons.** A fired button is
   handed to `wb_onkey` as its own key (`wb_btnkeys`: S, L, H, M), so the
@@ -185352,6 +185355,25 @@ same instructions.
   courts runs in a bracket, so `wb_drawold` and `wb_hudold` (kern_small's
   text court) are names inside `wv_old` and `wv_hudold`; each court fills
   its caches when it draws its board. bss -86, -7 file bytes.
+- **The 1bpp title strip is rebuilt from the colour one** (109.4).
+  `tools/wbfront.py` gives each colour a dither level (0..16; a pixel lights
+  when its colour's level exceeds its 4x4 Bayer cell, the matrix the 1bpp
+  strip was dithered with) and ships `wb_artmono` as the XOR of the real
+  1bpp strip and the strip those levels predict - mostly zero. The levels
+  are chosen per colour for the fewest disagreeing pixels and then nudged
+  while the residual packs smaller; the generator refuses to emit a
+  residual that does not rebuild the strip exactly. `wb_monobuild` rebuilds
+  the strip in place on the instance's first monochrome paint, a row phase
+  at a time through a 256-entry table (scratch in `wb_ports`, which only a
+  serial match establishes), so the picture is the same pixels as before.
+  A colour display never runs it; a compact strip draws only even rows and
+  rebuilds only those two phases, the others following if the window
+  grows. It costs **about 195 ms** on the first full-height monochrome
+  paint and **about 97 ms** on a compact one - an ESTIMATE from 8088
+  instruction timings over the executed instruction counts, not measured -
+  and **27 bytes** of net image + bss over the pass's start (the routine
+  and two 16-byte tables, after the bss the cache sharing above returned).
+  Both were put to the owner and approved. -740 file bytes.
 
 ## 110. Sticky Apps (`STIKAPPS\`, `apps/os88stik.inc`)
 

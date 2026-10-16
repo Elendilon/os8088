@@ -334,6 +334,7 @@ WB_VAR wb_soundwait,1
 WB_VAR wb_soundhz,2
 WB_VAR wb_soundnotes,2
 WB_VAR wb_soundactive,1
+WB_VAR wb_monodone,1          ; 1bpp title strip row phases rebuilt, a bit each
 ; Byte pairs cleared or set with one word store must stay adjacent.
 %macro WB_PAIR 2
     times -((%2)-(%1)-1)*((%2)-(%1)-1) db 0
