@@ -144,6 +144,9 @@ VPX_STOP    equ 1                   ; how a bracket ended (98.3.7): stopped,
 VPX_SWAP    equ 2                   ; swapped between window and full screen,
 VPX_DESK    equ 3                   ; back to the desktop, paused - never 0,
                                     ; which is vp_poll's "nothing" 
+%if VPX_STOP != 1
+    %error "vp_main's .pfesc makes VPX_STOP with an inc from 0"
+%endif
 VP_KMAXREC  equ 61440               ; the largest keyframe record we will read:
                                     ; a VGA8 one is up to a canvas (98.1.3),
                                     ; and what bounds it is the read - the
@@ -12749,9 +12752,10 @@ vp_main:
     call vp_lypre                   ; ...and THE LAYER's (98.1.9)
     jnc .npf
 .pfesc:
-    mov word [vp_dt], 0             ; ESC while it filled: nothing played
-    mov byte [vp_dtok], 1
-    mov al, VPX_STOP
+    xor ax, ax                      ; ESC while it filled: nothing played
+    mov [vp_dt], ax
+    inc ax                          ; (AL = 1 = VPX_STOP)
+    mov [vp_dtok], al
     jmp .leave
 .npf:
     mov cx, [vp_kidx]               ; ...then step over the records before
@@ -12767,9 +12771,8 @@ vp_main:
 %ifdef VP_RDLOG
     call vp_prbad
 %endif
-    mov byte [vp_err], 1
-    mov word [vp_errmsg], vp_s_badsp
-    ret
+    mov ax, vp_s_badsp
+    jmp .err
 .skn:
     loop .sk
 .sk0:
@@ -12951,11 +12954,7 @@ vp_main:
     je .rb                          ; user's own
     mov byte [vp_autop], 1
 .rb:
-    pushf
-    cli
-    mov byte [vp_ready], 0
-    popf
-    call vo_off                     ; the text off: the canvas is read back
+    call .off                       ; the text off: the canvas is read back
     call vp_kget                    ; the canvas off the screen, for the next
     mov byte [vp_bpause], 0         ; surface and the box
     cmp byte [vp_exitr], VPX_DESK
@@ -12966,18 +12965,19 @@ vp_main:
     call vp_sesspic                 ; THE FRAME IN THE BOX, for the repaint
 .fmt:                               ; the bracket's exit makes (§53.6) - and
     call vp_fmt                     ; the card's text, which shares the box's
-    ret                             ; save
+.ret:                               ; save
+    ret
 .stop:
     mov byte [vp_exitr], VPX_STOP
+    call .off
+    call vp_dtcalc                  ; the time it played - NOW, and not after
+    jmp short .fmt                  ; the bracket's exit repaints the desktop
+.off:                               ; the hook idle, and the text off
     pushf
     cli
     mov byte [vp_ready], 0
     popf
-    call vo_off
-    call vp_dtcalc                  ; the time it played - NOW, and not after
-    jmp short .fmt                  ; the bracket's exit repaints the desktop
-.ret:
-    ret
+    jmp vo_off
 
 ; vp_mchg - the full screen's mode just set: [vp_msync] 1 and [vp_mtk] now
 ; where the HARDWARE mode changed - the desktop's geometry (OSAPI_VIDEO) is
@@ -13049,15 +13049,15 @@ vp_mwait:
 ; less every pause - the one running now included
 vp_dtcalc:
     push ax
+    call OSAPI_GET_TICKS            ; (one reading for all three)
     cmp byte [vp_upause], 0
     je .np
-    call OSAPI_GET_TICKS
+    push ax
     sub ax, [vp_ptk0]
     add [vp_ptk], ax
-    call OSAPI_GET_TICKS
+    pop ax
     mov [vp_ptk0], ax
 .np:
-    call OSAPI_GET_TICKS
     sub ax, [vp_t0]
     sub ax, [vp_ptk]
     mov [vp_dt], ax
@@ -13239,17 +13239,18 @@ vp_skkey:
     cmp byte [vo_skp], 0
     jne .more
     mov byte [vo_skp], 1            ; THE FIRST PRESS: from the frame on the
-    mov word [vp_skn], 0            ; glass, the play paused
+    xor dx, dx                      ; glass, the play paused
+    mov [vp_skn], dx
+    mov [vp_skwas], dl
     mov bx, [vp_done]
     or bx, bx
     jz .z
     dec bx
 .z:
     mov [vp_skb], bx
-    mov byte [vp_skwas], 0
     cmp byte [vp_upause], 0
     jne .more
-    mov byte [vp_skwas], 1
+    inc byte [vp_skwas]             ; (0 above: 1)
     push ax
     call vp_upaus
     pop ax
@@ -13499,9 +13500,11 @@ vp_fseek:
     jnc .ok
     mov ax, [vp_msg]
     mov [vp_errmsg], ax
-    mov byte [vp_err], 1
-    mov byte [vp_end], 1
-    mov byte [vp_skwas], 0
+    mov al, 1
+    mov [vp_err], al
+    mov [vp_end], al
+    dec ax
+    mov [vp_skwas], al
     jmp short .no
 .ok:
     call vp_paldac                  ; (the key's sixteen, the canvas black)
@@ -13522,21 +13525,23 @@ vp_wsurf:
     mov [vp_vseg], ax
     mov al, [vp_dlay]
     mov [vp_tlay], al
-    mov byte [vp_shadow], 0         ; the file's own layout: decoded onto the
-    cmp al, [vp_layout]             ; desktop in place; another's: through the
+    cmp al, [vp_layout]             ; the file's own layout: decoded onto the
+    mov al, 0                       ; desktop in place; another's: through the
     je .n                           ; shadow, and copied (98.3.2)
-    mov byte [vp_shadow], 1
+    inc ax
 .n:
+    mov [vp_shadow], al
     call vp_track
     call vp_boxxy
     mov ax, [vp_py]
     mov [vp_ty0], ax
+    push ax
     mov ax, [vp_px]
     shr ax, 1
     shr ax, 1
     shr ax, 1
     mov [vp_tx0], ax
-    mov ax, [vp_ty0]
+    pop ax
     mov bl, [vp_tlay]
     call vp_rowaddr
     add ax, [vp_tx0]
@@ -14023,12 +14028,10 @@ vp_winv:
     mov ax, 0x1803
     out dx, ax
 .g:
-    mov bx, vp_wvq
-    mov si, [bx+2]
+    mov si, [vp_wvq + 2]
     inc si                          ; SI = the first row inside
 .row:
-    mov ax, [vp_wvq + 6]
-    cmp si, ax
+    cmp si, [vp_wvq + 6]
     jae .d
     mov ax, si
     mov bl, [vp_dlay]
@@ -14138,7 +14141,7 @@ vp_sopen:
     mov al, [vp_aref]               ; THE PLAYER'S DECODER (98.3.17.1) where
     xor ah, ah                      ; the card's would start: the reference
     mov [vp_sref], ax               ; byte and a scale of 0 - the state the
-    mov byte [vp_sscl], 0           ; encoder steers to at a key
+    mov [vp_sscl], ah               ; encoder steers to at a key
     cmp byte [vp_sadp], 0           ; ...and then the card is PCM8's, with
     jne .pf                         ; no reference byte in its ring
     cmp byte [vp_audio], 2
@@ -14148,9 +14151,11 @@ vp_sopen:
                                     ; 98.3.17): stream byte 0 is the card's
     mov al, [vp_aref]               ; reference - 80h, or a keyframe's
     mov [es:0], al                  ; (98.3.5) - and the silence is a
-    mov word [vp_atot], 1           ; nibble of no change
-    mov word [vp_a0], 1
-    mov byte [vp_afn], 0
+    mov ax, 1                       ; nibble of no change
+    mov [vp_atot], ax
+    mov [vp_a0], ax
+    dec ax
+    mov [vp_afn], al
 .pf:
     mov [vp_sflag], bl
     mov cx, [vp_alst]               ; SOUND AHEAD (98.1.8): the lead vp_lstage
@@ -14189,8 +14194,9 @@ vp_sopen:
     cmp byte [vp_snd], VP_SPK       ; THE SPEAKER: from here, in this bracket
     jne .card                       ; (98.3.15)
     call os88spk_go
-    jc .fail
-    mov byte [vp_sopn], 1
+    jnc .op
+.fail:
+    mov byte [vp_snd], 0            ; the card said no: a silent play
     ret
 .card:
     xor al, al                      ; verb 0: open, the ring in our claim
@@ -14203,10 +14209,8 @@ vp_sopen:
     or al, al
     jnz .fail
     mov [vp_hand], ah
+.op:
     mov byte [vp_sopn], 1
-    ret
-.fail:
-    mov byte [vp_snd], 0            ; the card said no: a silent play
     ret
 
 ; =============================================================================
@@ -14313,10 +14317,10 @@ vp_sndoff:
     je .c
     call vp_sclose
 .c:
-    mov byte [vp_snd], 0            ; (the hook reads it: before the free)
-    mov byte [vp_sdefer], 0         ; ...and a card deferred to the first
-    mov word [vp_owed], 0           ; Space is not started on a freed ring
     xor dx, dx
+    mov [vp_snd], dl                ; (the hook reads it: before the free)
+    mov [vp_sdefer], dl             ; ...and a card deferred to the first
+    mov [vp_owed], dx               ; Space is not started on a freed ring
     xchg dx, [vp_aseg]
     or dx, dx
     jz .p
@@ -14333,8 +14337,9 @@ vp_sndoff:
 ; 0 none: no audio, MUTED, told to be silent, or no room. The card is not
 ; opened here. Clobbers AX, CX, DX
 vp_sndprep:
-    mov byte [vp_snd], 0
-    mov byte [vp_sadp], 0           ; the card decodes, unless (98.3.17.1)
+    xor ax, ax
+    mov [vp_snd], al
+    mov [vp_sadp], al               ; the card decodes, unless (98.3.17.1)
     mov ax, [vp_abytes]             ; ...and the ring's bytes a frame are
     mov [vp_rbytes], ax             ; the file's
     cmp byte [vp_audio], 0
@@ -14405,9 +14410,9 @@ vp_sndprep:
 .shp:
     ret
 .spkno:
-    mov dx, [vp_aseg]
+    xor dx, dx
+    xchg dx, [vp_aseg]
     call OSAPI_MEM_FREE
-    mov word [vp_aseg], 0
     ret
 
 ; vp_ringkb - AX = the KB the sound ring claims, or will: RL, its control
@@ -14451,19 +14456,21 @@ vp_unmfs:
     je .next
     cmp byte [vo_skp], 0            ; a seek on its way lands with it
     jne .prep
-    mov byte [vo_skp], 1
-    mov word [vp_skn], 0
-    mov byte [vp_skhere], 1
+    mov al, 1
+    mov [vo_skp], al
+    mov [vp_skhere], al
+    xor dx, dx
+    mov [vp_skn], dx
+    mov [vp_skwas], dl
     mov bx, [vp_done]
     or bx, bx
     jz .z
     dec bx
 .z:
     mov [vp_skb], bx
-    mov byte [vp_skwas], 0
     cmp byte [vp_upause], 0         ; PAUSED FIRST, while there is no sound
     jne .pz                         ; for the pause to touch
-    mov byte [vp_skwas], 1
+    inc byte [vp_skwas]             ; (0 above: 1)
     call vp_upaus
 .pz:
     call OSAPI_GET_TICKS            ; ...and due at once
@@ -14775,11 +14782,13 @@ vp_lfloor:
 ; over it - into the sound ring's TAIL, where vp_sopen queues it. A muted
 ; play stages none. Clobbers AX, CX, SI, DI
 vp_lstage:
-    mov word [vp_alst], 0
+    xor ax, ax
+    mov [vp_alst], ax
     mov si, [vp_lsrc]
-    cmp si, 0xFFFF
+    dec ax
+    cmp si, ax
     je .r
-    mov word [vp_lsrc], 0xFFFF
+    mov [vp_lsrc], ax
     cmp byte [vp_snd], 0
     je .r
     mov cx, [vp_alb]
