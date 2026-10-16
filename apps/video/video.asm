@@ -15304,11 +15304,9 @@ vp_hook:
 .stop:
     mov bl, [vp_pitper]             ; still a frame owed after them: behind
     xor bh, bh
-    xor al, al
-    cmp [vp_owed], bx
-    jb .copy
-    inc ax
-.copy:
+    cmp [vp_owed], bx               ; (AL = 1 not below, 0 below: no branch)
+    sbb al, al
+    inc al
     call vp_blitck                  ; the shadow's band, once for them all
     call vo_post                    ; ...and the text back over it
     cli
@@ -15334,12 +15332,10 @@ vp_hook:
     loop .f2
 .top:
     sti
-    xor al, al                      ; still frames due after them: behind
-    mov bx, [vp_due]
-    cmp bx, [vp_vseq]
-    jbe .tc
-    inc ax
-.tc:
+    mov bx, [vp_due]                ; still frames due after them: behind
+    cmp [vp_vseq], bx               ; (AL = 1 when vseq < due: no branch)
+    sbb al, al
+    neg al
     call vp_blitck
     call vo_post
     call vp_afill                   ; the audio a few frames ahead of the card

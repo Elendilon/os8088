@@ -168998,6 +168998,45 @@ instruction-identical and at an even shift in all three arms
 (`tools/os88rdiff.py`, against the base, and for `VPDIAG` against the
 commit before 98.1.9.13, the last one it assembled at).
 
+**The hot path's own size pass (2026-10-16)** took the routines a play
+runs, under one rule - every change the same speed or faster, per path -
+and found **618 bytes** (`NOLIVESND=1` 616) that were also cycles. The
+file format and every list's semantics are unchanged; what moved is how
+the decoders (`vdec.inc`) and the hook get from one test to the next:
+
+- **A list's end is a short jump BACK.** A poke list's 0 was `jnz` over a
+  near `jmp` to an end past the body - a TAKEN jump at every segment. It
+  is a `jz` to the gate's own jump on now (C160's lists, which have no
+  gate, keep that jump in front of the list), and a list whose next is in
+  reach (the spans, the long ones, write mode 3's poke lists of a round of
+  one) gates with `jnc next` and ends with `jz next`. The gate shifts the
+  list map a BYTE at a time, 8 cycles under a word's.
+- **The set-ups count in AL** and `xchg` the rounds into CX - 0 at every
+  segment, which every store leaves it - and a round of ONE is a plain
+  loop with no Duff table; the entries fall into their first list.
+- **Every list's `.seg` and its round's head are on even addresses**
+  (`VD_PAR`), both where the base had one of the two - a 16-bit bus's
+  jump target - and the decoder's length keeps its base parity, so what
+  follows is where it was in every arm. The full screen's state is laid
+  out so every word of it is even too.
+- **The hook, the frame and the box**: `vp_hook`'s pause block in front
+  of the play and `vp_frame`'s ends in a short jump's reach of their tests
+  (five jumps over a jump, taken every call or frame); `vo_update`'s ten
+  compares a byte table; `vo_draw`'s lit pixel an `sbb`; `vo_setup` one
+  byte a renderer and its state zeroed a word at a time.
+
+Measured on MartyPC's 5150: every frame of `tests/vidbench.py`'s
+synthetic set decodes **260-390 cycles faster** to the screen and to RAM
+(an empty frame 1,704 -> 1,441), and `tests/vidfskeys.py --cost`'s hook a
+frame with the text down is faster on every kind measured - 9,770 ->
+9,376 on Hercules, 45,194 -> 41,225 for write mode 3. With the text UP
+in Mode X flipping a frame read 0.3% slower, and two `nop`s at the hook's
+entry, on either build, move that figure by more than the difference: it
+is where the frame's 640,000 cycles fall against the card's memory and
+the ticks, not the code, which is identical or shorter on that path.
+`os88spk.inc` gave 18 bytes to every includer on the way (its ISRs' grant
+event jumps straight to `os88spk_isr.ev`).
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |
