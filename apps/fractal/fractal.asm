@@ -1833,11 +1833,10 @@ fr_inset:
     mov si, dx
 
     mov bx, [fr_cx]                 ; --- the main cardioid ---
-    sub bx, FR_QTR                  ; BX = dx
-    cmp bx, FR_CDXHI
-    jg .bulb
-    cmp bx, FR_CDXLO
-    jl .bulb
+    add bx, -FR_QTR-FR_CDXLO        ; dx - CDXLO: ONE unsigned range test for
+    cmp bx, FR_CDXHI-FR_CDXLO       ; CDXLO <= dx <= CDXHI (|cx| <= 3.5, so
+    ja .bulb                        ; the sum cannot wrap a signed word)
+    add bx, FR_CDXLO                ; BX = dx = cx - 1/4
     mov ax, bx
     imul bx
     call fr_q12
@@ -1858,12 +1857,11 @@ fr_inset:
 .bulb:                              ; --- the period-2 bulb ---
     cmp cx, FR_BULBR                ; its box is disjoint from the cardioid's
     jae .no                         ; in cx, so reaching here costs two compares
-    mov bx, [fr_cx]
-    add bx, FR_ONE                  ; BX = cx + 1
-    cmp bx, FR_BULBR
-    jge .no
-    cmp bx, -FR_BULBR
-    jle .no
+    mov bx, [fr_cx]                 ; |cx + 1| < BULBR as one unsigned test:
+    add bx, FR_ONE+FR_BULBR-1       ; cx + 1 + (BULBR-1) in 0..2*BULBR-2
+    cmp bx, 2*FR_BULBR-2
+    ja .no
+    sub bx, FR_BULBR-1              ; BX = cx + 1
     mov ax, bx
     imul bx
     call fr_q12
