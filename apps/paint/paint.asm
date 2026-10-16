@@ -613,7 +613,6 @@ pt_entry:
     call OSAPI_WM_ONCLOSE           ; it closes us, and a picture with unsaved
                                     ; work answers. A side table, so it goes
                                     ; here and not in pt_tpl
-    mov byte [pt_adown], 0
     mov al, 1                       ; WE OWN OUR BACKGROUND (SPEC.md 11.90.1):
     call OSAPI_WM_OWNBG             ; pt_fsbed + the palette + the strip + the
     pop ax                          ; canvas cover every pixel of the content,
@@ -654,15 +653,12 @@ pt_entry:
                                     ; whole content IS ~9KB and Paint takes the
                                     ; lot - pt_sucache below, and it is a fact
                                     ; about the SCREEN, so pt_onresize re-asks
-    pushf                           ; THE CF wm_create OWES THE LOADER rides
-    call pt_sucache                 ; through here too, and pt_sucache asks a
-    popf                            ; question that answers in it
-    pushf                           ; ...and TELL US WHEN THE ADAPTER MOVES
-    push ax                         ; (SPEC.md 11.98). Outside the PT_M_LIVE
-    mov ax, pt_onresize             ; gate below on purpose: a Paint that could
-    call OSAPI_WM_ONRESIZE          ; not fund a canvas still has a screen, and
-    pop ax                          ; the CF wm_create owes the loader is still
-    popf                            ; riding through this proc
+    call pt_sucache                 ; (no flags to keep across it or the next:
+                                    ; the proc SAYS its CF at the bottom)
+    push ax                         ; ...and TELL US WHEN THE ADAPTER MOVES
+    mov ax, pt_onresize             ; (SPEC.md 11.98). Outside the PT_M_LIVE
+    call OSAPI_WM_ONRESIZE          ; gate below on purpose: a Paint that could
+    pop ax                          ; not fund a canvas still has a screen
     cmp byte [pt_mode], PT_M_LIVE
     jne .menus
     push ax
@@ -824,11 +820,8 @@ pt_screen:
     mov [pt_scrw], ax
     mov [pt_scrh], bx               ; the whole screen, for the SPEC.md 53
     mov [pt_dockr], cx              ; bracket's own pointer (pt_ptr_xor)
-    mov byte [pt_mono], 0
-    cmp dh, 1
-    jne .colour
-    mov byte [pt_mono], 1
-.colour:
+    and dh, 1                       ; DH is 4 or 1 bits a pixel, so its low bit
+    mov [pt_mono], dh               ; IS "this screen is one bit"
     call pt_ncolset                 ; ...and the swatch count from both facts,
                                     ; because this runs again on every adapter
                                     ; change and the DOCUMENT's depth did not
@@ -1305,6 +1298,7 @@ pt_reloc:
     push ax
     push cx
     push si
+    push di
     cmp bx, [pt_base]
     jne .notcv
     mov [pt_base], dx
@@ -1322,30 +1316,17 @@ pt_reloc:
     inc si
     loop .shift
 .notcv:
-%ifdef PTF_UNDO
-    cmp bx, [pt_unseg]
-    jne .notun
-    mov [pt_unseg], dx
-.notun:
-%endif
-%ifdef PTF_CLIP
-    cmp bx, [pt_cbseg]
-    jne .notcb
-    mov [pt_cbseg], dx
-.notcb:
-%endif
-    cmp bx, [pt_scseg]              ; the fill stack, while the fill tool is in
-    jne .notsc                      ; hand: one word, re-read at every use
-    mov [pt_scseg], dx
-.notsc:
-    cmp bx, [pt_obase]              ; a resize's outgoing canvas, held live
-    jne .notob                      ; across the claims below it
-    mov [pt_obase], dx
-.notob:
-    cmp bx, [pt_osrc]               ; ...and whichever block it is staging
-    jne .notos                      ; from, which is the old canvas on one
-    mov [pt_osrc], dx               ; path and the undo image on the other
-.notos:
+    mov si, pt_rltab                ; every other word that NAMES a block, each
+.word:                              ; re-aimed if it named the one that moved
+    mov di, [si]                    ; (a table of them since apps size pass 2)
+    inc si
+    inc si
+    cmp bx, [di]
+    jne .next
+    mov [di], dx
+.next:
+    cmp si, pt_rltab_end
+    jb .word
 %ifdef PTF_UNDO
     mov ax, [pt_unseg]              ; the delta LAST, and unconditionally:
     or ax, ax                       ; either end may have been what moved,
@@ -1354,10 +1335,26 @@ pt_reloc:
     mov [pt_undelta], ax
 %endif
 .out:
+    pop di
     pop si
     pop cx
     pop ax
     ret
+
+pt_rltab:
+%ifdef PTF_UNDO
+    dw pt_unseg                     ; the undo image
+%endif
+%ifdef PTF_CLIP
+    dw pt_cbseg                     ; the clipboard
+%endif
+    dw pt_scseg                     ; the fill stack, while the fill tool is in
+                                    ; hand: one word, re-read at every use
+    dw pt_obase                     ; a resize's outgoing canvas, held live
+                                    ; across the claims below it
+    dw pt_osrc                      ; ...and whichever block it is staging
+pt_rltab_end:                       ; from, which is the old canvas on one path
+                                    ; and the undo image on the other
 
 ; -----------------------------------------------------------------------------
 ; pt_movable - declare the claim in DX relocatable (SPEC.md 66.2)
@@ -1472,12 +1469,11 @@ pt_alloc_undo:
 pt_alloc_clip:
     push ax
     push bx                         ; MEM_AVAIL answers in AX and BX
-    mov byte [pt_haveclip], 0
     call OSAPI_MEM_AVAIL            ; AX = the largest run a claim is served
     cmp ax, PT_CLIPMINP >> 6        ; from - and the floor is in paragraphs
-    jb .out
-    mov byte [pt_haveclip], 1
-.out:
+    sbb al, al                      ; FF under the floor, 0 at or over it...
+    inc ax                          ; ...so AL = 1 exactly when it is funded
+    mov [pt_haveclip], al
     call pt_menufix                 ; funded or not, the menu says which
     pop bx
     pop ax
@@ -5942,23 +5938,18 @@ pt_paint:
     call pt_abdraw
 .noab:
 %endif
-    cmp byte [pt_apend], 0          ; a refused resize, deferred to here
+    xor al, al                      ; a refused resize, deferred to here
+    xchg al, [pt_apend]             ; (taken, and the flag cleared, at once)
+    or al, al
     je .out
-    cmp byte [pt_apend], 2          ; 2 = pt_onsize held an axis back, so the
+    cmp al, 2                       ; 2 = pt_onsize held an axis back, so the
     je .justsay                     ; frame the kernel drew is already right
-    mov byte [pt_apend], 0
     mov bx, [pt_win]
     call OSAPI_WM_FRONT             ; the corrected frame, over a clean desktop
+.justsay:
     cmp byte [pt_apsay], 0
     je .out                         ; the frame was corrected but the canvas
     call pt_szsi                    ; moved: no notice is owed (pt_track)
-    call pt_msg_show
-    jmp short .out
-.justsay:
-    mov byte [pt_apend], 0
-    cmp byte [pt_apsay], 0
-    je .out
-    call pt_szsi
     call pt_msg_show
     jmp short .out
 .notice:
@@ -12329,11 +12320,8 @@ pt_lose_w:
     mov bx, ax
     shr bx, 1
     mov [pt_lwb], bx
-    mov byte [pt_lwn], 0
-    test al, 1
-    jz .rows
-    mov byte [pt_lwn], 1            ; odd: byte [pt_lwb]'s LOW nibble is lost
-.rows:
+    and al, 1                       ; odd: byte [pt_lwb]'s LOW nibble is lost
+    mov [pt_lwn], al
     xor si, si                      ; SI = row
 .row:
     mov ax, si

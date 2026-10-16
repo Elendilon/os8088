@@ -78488,6 +78488,22 @@ names `pt_brect` and `pt_s_apply` where it is declared, the rect comes from
 guarded registers the shared epilogue restores anyway went with it.
 **−46 image, −29 file, −14 on the small arm.**
 
+**Cold bookkeeping says what it computes.** Six places in the launch, resize
+and repaint paths set a byte to 0, tested, and set it to 1: `[pt_mono]` is
+the low bit of `OSAPI_VIDEO`'s DH (4 or 1 bits a pixel), `[pt_haveclip]` is
+the borrow of the floor compare plus one, `pt_lose_w`'s odd-column byte is
+the width's low bit, and `pt_paint` takes `[pt_apend]` and clears it with one
+`xchg`, after which its two notice tails are one. `pt_entry` lost two
+`pushf`/`popf` pairs guarding a CF the proc states with `clc` at its end
+(42.6.4) and a store of 0 into a `.bss` byte the loader zeroed. `pt_reloc`'s
+five compare-and-store pairs are a table of the words that name a block
+(`pt_rltab`), walked by one compare and one store. Two candidates were
+measured and NOT taken: `pt_hpass`/`pt_spass` computing `[pt_cvup]` from
+the borrow is −10 image but **+9 file** (the branchy form matched
+`pt_resize`'s and packed better), and `pt_szdraw` choosing its value, row
+and label with one compare is −9 image and +3 file. **−76 image, −33 file,
+−30 on the small arm.**
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather
