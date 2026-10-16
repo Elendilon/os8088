@@ -1570,11 +1570,14 @@ pn_draw_btns:
     push dx
     push si
     call pn_draw_msg
-    call pn_inkk
-    mov si, pn_l_songs
-    mov cx, 2
-    mov dx, PN_ROW2_Y+4
-    call pn_cstr
+    mov ax, CBLACK | (CWHITE << 8)  ; the caption OPAQUE (SPEC.md 6.1): its
+    mov si, pn_l_songs              ; cells' ground is the run's, which is
+    mov cx, [pn_ox]                 ; what lets an About card's dismissal
+    inc cx                          ; leave it to this rather than white it
+    inc cx                          ; first (pn_abdismiss)
+    mov dx, [pn_oy]
+    add dx, PN_ROW2_Y+4
+    call OSAPI_FONT_RUN
     mov al, 1
 .each:
     call pn_btn1
@@ -1684,24 +1687,65 @@ pn_about:
 ; -----------------------------------------------------------------------------
 ; pn_abdismiss - take the card down if it is up
 ; in:  SI = our window ptr; gfx lock held
-; out: CF = 1 the click or key was spent doing it; preserves every register
+; out: CF = 0 no card, every register preserved; CF = 1 the click or key was
+;      spent doing it, AX, BX, CX, DX and DI clobbered (every caller has them
+;      saved, or - pn_oncmd - saved AX and reloads the rest)
 ;
 ; The way back is the whole content, which is what pn_paint draws: the card
-; covered the viewer, the buttons and the keyboard.
+; covered the viewer, the buttons and the keyboard - AND THE GROUND BETWEEN
+; THEM, which pn_paint never draws because a W_PAINT's content arrives white
+; and a dismissal's does not. So the gaps go first, white, from pn_gnd: each
+; is ground no part covers, so every pixel is written once (SPEC.md 36). It
+; drew the parts alone until apps size pass 2, and left the card's letters
+; and frame in the gaps between them.
 ; -----------------------------------------------------------------------------
 pn_abdismiss:
     shr byte [pn_abon], 1           ; CF = the card was up (the flag is 0 or
     jnc .ret                        ; 1), and the shift has taken it down
-    push bx
     mov bx, si
     call OSAPI_WM_CLIP_SET          ; nothing armed a region for a click or a
     jc .gone                        ; key (SPEC.md 11.3)
-    call pn_paint                   ; ...and the card is down, so this is the
-.gone:                              ; three parts it covered, at the origin the
-    pop bx                          ; window has NOW - it may have been dragged
-    stc                             ; since the card went up
+    call pn_org                     ; the origin the window has NOW - it may
+    call pn_inkw                    ; have been dragged since the card went up
+    xor ax, ax
+    cwd
+    xor bx, bx
+    xor cx, cx
+    mov di, pn_gnd
+.g:
+    mov al, [di]                    ; one rect, four bytes: x1 y1 x2 y2
+    mov bl, [di+1]
+    mov cl, [di+2]
+    mov dl, [di+3]
+    call pn_cfill
+    add di, 4
+    cmp di, pn_gnd + PN_NGND * 4
+    jb .g
+    call pn_paint                   ; ...and then the three parts
+.gone:
+    stc
 .ret:
     ret
+
+; --- the ground an About card can cover and pn_paint never draws ------------
+; The card is centred in the content and its widest line is 16 cells, so it
+; spans x 35..186 and, on every adapter's box, rows inside 37..109 - over the
+; viewer's foot, both button rows and the keyboard's head. Those parts draw
+; every pixel of their own rects; what is left there is this: the three
+; two-row gaps between the bands, the two-pixel gaps between buttons, and
+; round the "SONGS:" caption (whose cells, rows 74..81, are its own run).
+pn_gnd:
+    db   2, 50, 219, 51                 ; viewer / button row
+    db   2, 68, 219, 69                 ; button row / songs row
+    db   2, 86, 219, 87                 ; songs row / keyboard
+    db  58, 52,  59, 67                 ; REPLAY | CLEAR
+    db 108, 52, 109, 67                 ; CLEAR | the message
+    db   2, 70,  49, 73                 ; above the caption
+    db   2, 82,  49, 85                 ; ...below it
+    db  50, 70,  51, 85                 ; caption | TWINKLE
+    db 116, 70, 117, 85                 ; TWINKLE | ODE
+    db 158, 70, 159, 85                 ; ODE | MARY
+PN_NGND     equ ($ - pn_gnd) / 4
 
 ; --- the About card's lines (SPEC.md 20.5.1) ----------------------------------
 ; SHORT: the card is clamped to the content box and this window's is 222px on
