@@ -124583,10 +124583,13 @@ the 720KB/1.44MB/1.2MB apps disks, and ships no data file beside it -
 `apps/ftpd/ftpspeed.txt` goes only onto the on-demand `make ftpspeed`
 floppies. Nothing a client sees changed: every reply's code and text, the
 listing format and `FTPD.CFG`'s bytes are as they were, and **the transfer
-path was not touched** - `fd_step`, `fd_worker`, the send and receive stages,
-`fd_data_ready`, `fd_wake`'s dispatch and `fd_do_read`/`_write`/`_list` are
-byte-identical in what they execute (§77.30's loop is what the KB/s is
-measured on, and MartyPC has no NIC to measure a change to it with).
+path was not made slower anywhere** - `fd_worker`, the send and receive
+stages, `fd_data_ready`, `fd_wake` and `fd_do_read`/`_write`/`_list` execute
+the same instructions as before, and `fd_step` changed only by losing work
+(its paint call goes direct, two `jmp .done`s are short, and the accept that
+starts a session calls `fd_session`). §77.30's loop is what the KB/s is
+measured on, and MartyPC has no NIC to measure a change to it with, so
+nothing that runs per pass was given anything to do.
 
 | | before | after |
 |---|---:|---:|
@@ -124638,6 +124641,9 @@ measured on, and MartyPC has no NIC to measure a change to it with).
   the same keys in the same order (§77.12.1), an empty string or an all-zero
   value omitted. `fd_cfg_putflag` went, and the record bounds are checked
   against one end pointer rather than recomputed from the buffer base twice.
+  Checked once on MartyPC (`os8088_5150_cga_gla`): a Setup save with every
+  key set read back off the guest floppy as exactly the bytes §77.12.1's
+  layout prescribes, and a second instance loaded all six.
 - **DEFECT FIXED: Server > Sockets lettered over the worker's reply.**
   `fd_socks` runs on the UI task from a menu pick, at any moment, and it
   composed each row in `fd_outb2` - the buffer the WORKER composes a 227,
