@@ -184110,6 +184110,7 @@ at a time, the bytes each saved:
 | change | image | file |
 |---|---:|---:|
 | `dc_aday` deleted - nothing called it; `dc_fenter`'s save and restore of `dc_ebuf`'s first word around `dc_ptime`, which parses a COPY; `dc_build`'s unused `push bp` | -64 | -55 |
+| `dc_build`'s marks compare each date with its day bits masked off against `dc_pack`'s with its own masked - no `MUL` to make the key and no shift per appointment: faster as well as shorter | -16 | -8 |
 
 ### 110.7 `kern_small`
 

@@ -143,27 +143,20 @@ dc_build:
     xor ax, ax
     stosw
     stosw
+    call dc_pack                ; the selected day's packed date, its day
+    and al, 0E0h                ; bits cleared: the MONTH's - a word compare
+    mov dx, ax                  ; against each date with ITS day cleared
     mov cl, [STIK_PAY + DCP_NAPPT]
     cmp cl, DCP_MAXAPPT
     ja .done                    ; not ours to trust: mark nothing
     xor ch, ch
     jcxz .done
-    mov ax, [dc_y]              ; (y - 1980) << 4 | m: the packed date's
-    sub ax, DC_Y0               ; bits 5.. - a word compare against it
-    mov dx, ax
-    mov ax, 16
-    mul dx                      ; AX = (y - 1980) * 16
-    or al, [dc_m]
-    mov dx, ax
     mov si, STIK_PAY + DCP_APPT0
 .a:
     mov ax, [si + DCA_DATE]
     mov bx, ax
     and bx, 31                  ; the day
-    push cx
-    mov cl, 5
-    shr ax, cl
-    pop cx
+    and al, 0E0h                ; ...and its month
     cmp ax, dx
     jne .n
     mov ax, bx                  ; set bit `day` of the 32-bit mask
