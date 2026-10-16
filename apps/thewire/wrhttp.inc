@@ -60,8 +60,9 @@ wr_hire:
     ; costs is one pass of the loop - the park is inside
     ; OSAPI_TASK_ALIVE and nowhere else (this package is not
     ; OSAPI_MEM_PARKSAFE), which is the TOP of the loop, and every byte
-    ; that outlives a pass is a static and moves with us.
-    OS88_WORKER_RESTARTABLE wr_worker
+    ; that outlives a pass is a static and moves with us. NOKEEP: AX is
+    ; popped below and no caller reads this routine's flags.
+    OS88_WORKER_RESTARTABLE_NOKEEP wr_worker
 .out:
     pop bx
     pop ax

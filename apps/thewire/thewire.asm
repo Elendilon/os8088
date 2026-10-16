@@ -331,12 +331,8 @@ wr_entry:
     call OSAPI_WM_CREATE                ; BX = window ptr, CF on table full
     jc .out
     mov [wr_win], bx
-    push ax                             ; **THE GESTURE'S TWO SLOTS** (SPEC.md
-    push bx                             ; 20.5.1.3): neither is a template word
-    push si
-    push di
-    push dx
-    mov ax, bx
+    mov ax, bx                          ; **THE GESTURE'S TWO SLOTS** (SPEC.md
+                                        ; 20.5.1.3): neither is a template word
     mov bx, wr_btrec
     mov si, wr_onup
     mov di, wr_ondrag
@@ -344,18 +340,18 @@ wr_entry:
                                     ; takes the press FIRST and chains
                                     ; here (SPEC.md 20.5.1.3.3)
     call os88ui_btninit
-    pop dx
-    pop di
-    pop si
-    pop bx
-    pop ax
+    mov bx, [wr_win]                    ; the window again, for every slot
+                                        ; below; nothing else is carried
     mov word [wr_sel], 0xFFFF
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
     ; exists, and not beside any worker's declaration: a package with
     ; NO worker is the case that moves most easily, and putting it at
     ; the spawn left exactly those runs declaring nothing - measured,
     ; by the row that reads MC_RLOC back out of the kernel's own table.
-    OS88_REGION_MOVABLE
+    ; NOKEEP, naming a lone `ret`: AX and DX are set again below before
+    ; anything reads them, and the CF the loader is owed is the `clc` at the
+    ; end (SPEC.md 66.6.1.1)
+    OS88_REGION_MOVABLE_NOKEEP wr_ret
     mov si, wr_sizes
     call OSAPI_WM_PREFER                ; ...registers AND applies, and
                                         ; preserves the flags (SPEC.md 11.100.1)
@@ -3321,12 +3317,12 @@ wr_ieq:
 
 wr_upper:
     cmp al, 'a'
-    jb .out
+    jb wr_ret
     cmp al, 'z'
-    ja .out
+    ja wr_ret
     sub al, 32
-.out:
-    ret
+wr_ret:                                 ; a lone `ret`, and so ALSO the
+    ret                                 ; region's relocation proc (wr_entry)
 
 ; --- wr_cfgparse - `host[:port][/prefix/]`, one line -------------------------
 ; The parse is deliberately forgiving about what follows the line - a CR, an

@@ -144851,6 +144851,12 @@ the package had twice or did not need.
   writes `[wr_wake]` last. The worker's chain is no deeper: it is a jump.
   42 bytes of image and only 5 of file - lz4 had already found the copies,
   which is 4.6 of the handoff's rule in one line.
+- **The two declarations take their `_NOKEEP` forms** (SPEC.md 66.6.1.1).
+  The region names `wr_ret`, the lone `ret` at the end of `wr_upper`, as its
+  relocation proc; `wr_entry` sets AX and DX again before reading them and
+  ends in its own `clc`. `wr_hire` pops AX and nobody reads its flags. And
+  `wr_entry` stopped banking five registers around `os88ui_btninit` to get
+  one of them back: it re-reads `[wr_win]`.
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 
