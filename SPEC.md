@@ -70384,6 +70384,16 @@ the adapter under it, so the arithmetic is resident - `desk_rowcalc_x`, in
 `.cold` and ending in a `retf` - and the overlay far-calls that body by name
 (the `ovw_desk_rowcalc` shim it bounced through went in kernel size pass 9).
 
+**On kern_small `vid_switch` is `CTRL.DRV`'s** (kernel size pass 13). Its one
+caller there is the Display page - that build has no `drv_boot` to apply
+`SYSTEM.CFG`'s adapter and no second display - so it and the five routines
+only it reaches (`vid_equip`, `vid_blank`, `vid_avail_test`, `wm_su_drop_all`,
+`wm_refit`) are assembled into the panel's image (`KSW_SECT` in `kernel.asm`,
+`.modu` there and `.text` on kern_big) and reach the kernel through the
+panel's `CPXK` hop: 187 resident bytes on the 128 KB machine's kernel, for
+the order above unchanged. `desk_rowcalc`'s resident thunk goes with it - the
+image makes the far call to `desk_rowcalc_x` itself.
+
 #### 39.11.2.1 …and back again — the natural bank
 
 **A clamp throws the number away, so `wm_refit` may not be given the clamp's

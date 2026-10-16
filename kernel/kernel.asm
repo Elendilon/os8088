@@ -5205,6 +5205,31 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
   %define ct_cw_snd_beep KERNEL_SEG:cw_snd_beep         ; 2 sites (big: 4)
 %endif
 
+; -----------------------------------------------------------------------------
+; KSW_SECT / KSWK - THE ADAPTER SWITCH IS CTRL.DRV's ON kern_small (SPEC.md
+; 39.11.2, kernel size pass 13). vid_switch's one caller there is the Display
+; page - kern_small has no drv_boot to apply SYSTEM.CFG's adapter at boot and
+; no second display - so it and the five routines only it reaches (vid_equip,
+; vid_blank, vid_avail_test, wm_su_drop_all, wm_refit) are assembled into the
+; panel's image, `.modu`, and what they reach in the kernel they reach through
+; the panel's CPXK hop (ctrl.inc's cp_kgo). On kern_big they stay `.text`,
+; where the boot, EXTD.DRV and the dock reach them too. The section is a
+; NAME and not a literal so that tools/os88ovlchk.py, which reads source and
+; evaluates no %if, files the bodies as the `.text` they are on kern_big.
+; -----------------------------------------------------------------------------
+%ifdef KERN_SMALL
+  %define KSW_SECT .modu
+  %define KSW_GO cp_kgo         ; (a NAME too: the scan reads macro bodies,
+  %macro KSWK 1                 ; and on kern_big's reading this is .text
+    call KSW_GO                 ; calling the image's hop - which no kern_big
+    dw %1                       ; byte does)
+  %endmacro
+%else
+  %macro KSWK 1
+    call %1
+  %endmacro
+%endif
+
 %include "dskwin.inc"           ; THE FIRST INCLUDE, and that is the whole of
                                 ; the mechanism (SPEC.md 2.1.2): `.lowbss` is
                                 ; laid out in the order its contributors
@@ -6494,8 +6519,10 @@ section .text                   ; that is not an error
 ; zones. Drawn on a mount, on a volume going away and on a click on bare
 ; desktop - never in a loop, and the module carries no data at all, so it
 ; moved whole with no section toggle in it.
-desk_rowcalc:     call COLD_SEG:desk_rowcalc_x
-              ret
+%ifndef KERN_SMALL              ; (kern_small: vid_switch, its one caller
+desk_rowcalc:     call COLD_SEG:desk_rowcalc_x ; there, is CTRL.DRV's and makes
+              ret                              ; the far call itself)
+%endif
 
 ; =============================================================================
 ; THE SHARED-EPILOGUE LADDER (SPEC.md 15.1.2)

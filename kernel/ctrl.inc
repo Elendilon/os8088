@@ -270,6 +270,10 @@ CP_B1Y2   equ CP_PR0Y + CP_PROWH + CP_GW + 3  ; 61: row 1 (Cooperative) bottom
 %macro CPXN 1
     call %1
 %endmacro
+%macro CPXF 1                   ; ...and the FAR-bodied one (a `retf`):
+    push cs                     ; kern_small's vid_switch, which kern_big's
+    call %1                     ; boot far-calls - KSW_SECT in kernel.asm
+%endmacro
 section .text
 
 
@@ -3799,7 +3803,11 @@ cp_radios:
 ; clobbers: nothing (flags)
 ; -----------------------------------------------------------------------------
 cp_vid_rowok:
+%ifdef KERN_SMALL
+    CPXN vid_avail_test         ; in this image on kern_small (KSW_SECT)
+%else
     CPXK vid_avail_test
+%endif
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4176,7 +4184,11 @@ cp_vid_click:
     jc .done
 %endif
     mov al, [cp_vsel]
+%ifdef KERN_SMALL
+    CPXF vid_switch             ; IN THIS IMAGE on kern_small (KSW_SECT)
+%else
     call KERNEL_SEG:vid_switch
+%endif
     jc .done                    ; refused: the adapter went away under us
     call cp_repost              ; ...remembered on close (SPEC.md 31.8)
                                 ; ...and the whole screen is a new shape
