@@ -73408,6 +73408,89 @@ cycles a pixel against ~105, and a run's own overhead outside the two kernel
 calls falls by four memory operands. `frac_iter`, `fr_q12` and `fr_inset` are
 **byte-for-byte unchanged**.
 
+### 40.9 The second apps size pass — disk room
+
+The second pass measures the **shipped file** rather than the region:
+`FRACTAL.O88` rides three 360KB disks (`apps360.img`, `small360.img`,
+`smallapps360.img`), so a cluster off it is three clusters of room
+(docs/plans/HANDOFF-APPS-SIZE-P2.md). The package is code that packs to ~92%,
+so the lever is the classic code pass. Nothing the user can see changed, and
+the run cache's claims (§40.1) are the same.
+
+- **Both declarations take the `_NOKEEP` form** (§66.6.1.1): nothing after
+  either reads AX, DX or the slot's CF, so `fr_entry` ends in its own `clc` for
+  the loader and `fr_hire` keeps nothing. 9 bytes.
+- **The menu dispatch falls into `fr_kick`.** `fr_oncmd` sits directly above
+  it; the View menu is one `sub al, 2` (Reset is zero, Redraw above, the two
+  zooms below and told apart by one `inc`); `fr_zoom_in` became
+  `fr_zin_kick`, View > Zoom In and the tail of a canvas click in one, falling
+  into the restart; and the click's range test is one UNSIGNED compare an
+  axis, a click above or left of the canvas wrapping past any dimension.
+  24 bytes.
+- **`fr_kick` is one store and falls into `fr_redraw`.** Both began with
+  `fr_org` and `fr_setup`; zeroing `[fr_cn]` first makes `fr_redraw`'s
+  "nothing cached" test the restart, so the restart (`fr_kick_s`) sits under
+  its tests and the resume (`fr_replay`) under that, and the cache-key test
+  that was a jump-around near branch is a short one. 5 bytes.
+- **Shorter encodings off the hot paths.** `fr_promise` computes its answer
+  as `(pass + 1) >> 2`; the cache's first claim stores its two sizes as
+  bytes onto the loader's zeros; and `fr_status_pct` divides by an 8-bit 10
+  through an `SI` base. Its field is **four cells and not five**
+  (`FR_PCT_CELLS`): `'100%'` is the longest, so four is what erases a
+  shorter number, and the fifth was a space on the strip's white ground that
+  nothing else draws under — the strip is pixel-identical and a progress tick
+  letters one cell fewer. Its NUL is then the loader's zero. 14 bytes.
+- **`fr_stepv`'s step is `neg`, `js`, `add`.** A `+d` becomes its twin `-d`
+  and stops there (the sign flag says which); a zero or a `-d` takes the
+  increment after the same `neg`. Three instructions where there were six
+  and two jumps, and the success path falls into the return. The assembled
+  routine was run under an emulator against `tools/frref.py`'s model for
+  every canvas height 1-199, every mirror row and every step of every frame
+  - 2,646,700 steps, no disagreement, SI and DI kept. 14 bytes.
+- **The row path lost its jump-arounds.** `fr_take` is inline in
+  `fr_worker` (one caller), going straight to `fr_emit` with a whole row and
+  falling into the mirror test without one, and holding the cache segment in
+  `DX` for the walk instead of re-reading it a run. The worker's pre-lock
+  `[fr_restart]` test is gone: `fr_emit` makes the binding one under the lock
+  anyway, so a stale row now costs a lock taken and given back, once a view
+  change, and every row one test less. `fr_cache_row` is a routine again, so
+  its four early exits are short jumps to a `ret` rather than near branches
+  over the run loop, and the frontier step is a tail jump into `fr_stepm`;
+  the emit's visibility test asks `fr_org` first, which leaves `BX` the
+  window for `OSAPI_WM_GEOM`. The package has no relaxed (jump-around)
+  conditional branch left. 22 bytes.
+- **`fr_inset`'s two box tests are one unsigned range test each** (the
+  frac_iter guard's shape): `cx - 1/4` against `[CDXLO, CDXHI]` and `cx + 1`
+  against `(-BULBR, BULBR)`, each a bias, one compare and one `ja`, the bias
+  taken back off on the way through. No path through it runs more
+  instructions than before and the in-box paths run fewer (16 EU clocks and
+  14 bytes of fetch against 20 and 16). The constants, the margin and every
+  multiply are untouched, so §40.5's sweep is still the one that stands; the
+  assembled routine of both builds was run under an emulator for every `cx`
+  on the clamped range at 23 values of `cy` either side of every bound -
+  659,479 points, 77,304 claimed, no disagreement. 6 bytes.
+
+**Measured on MartyPC** (`os8088_xt_vga`, the default Mandelbrot, guest
+cycles at 4.77 MHz, one session each, base = the tree before this pass):
+
+| | base | after |
+|---|---:|---:|
+| whole frame, View > Redraw | 260,853,872 and 261,129,992 (two runs) | 260,201,854 |
+| `fr_emit`, lock to unlock, per computed row (170 rows) | 201,454 / 201,602 | 200,574 |
+| replay after a forced `W_PAINT`: worker `.work` to `fr_emit`, per row (127 rows) | 16,082 | 14,757 |
+| ...the emit per replayed row | 175,170 | 175,033 |
+| ...the whole replay, `fr_paint` to the promise | 31,697,280 / 31,698,072 | 31,733,045 / 31,732,901 |
+
+Every per-row figure is lower - the take is 8% cheaper - and the frame is
+within its own run-to-run spread. The whole replay is the one figure that
+reads higher, by 35,000 cycles (7 ms, 0.1%), and it is not the row path:
+the per-row parts it is made of sum to ~185,000 cycles LESS, and an
+intermediate build whose replay code is byte-identical to this one's (it
+differed only in `fr_inset`, which a replay never calls) read 32,256,845 -
+the span ends on the worker's yields and the tick, so it moves by a tick's
+fraction with the layout. The window at rest, strip included, is
+pixel-identical to the base's (no differing pixel over the 322x199 window).
+
 ### 39.26 The software renderer's plane loop is gone
 
 **`softgfx.inc` was written for a RAM back buffer — four claimed planes on a
@@ -106637,7 +106720,7 @@ relocation proc exists to recompute.
 rule's edge actually is.** Its worker's only lock site is `fr_emit`, which
 takes the lock and *then* runs `fr_emit_body`'s work (inline since §40.8), which re-reads `[fr_cseg]`
 rather than inheriting it — so the interval spent blocked in `gfx_lock` holds
-nothing at all. `fr_take` *does* hold the cache segment in `AX` for its whole
+nothing at all. `fr_take` *does* hold the cache segment in `DX` for its whole
 walk and runs lock-free, and that is still safe, because §66.5.4 marks a task
 parked **only while it is descheduled inside `gfx_lock`**. A task pre-empted
 anywhere else is not parked and its claims stay pinned. The rule is narrower
