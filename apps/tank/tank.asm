@@ -416,7 +416,7 @@ TK_KS     equ 0x1F              ; S - back
 ; tk_adapter - the raster this machine would give us, and the mode to ask for
 ;
 ; in:  nothing.  out: [tk_want] = a TKB_*, [tk_fsxm] = the FSXM_* to set,
-;      [tk_caps] = the caps mask, and the menu item's caption.
+;      [tk_vidk] = that display's VID_* kind, and the menu item's caption.
 ; preserves every register (tk_onresize is a callback)
 ;
 ; EVERY BRANCH WRITES BOTH WAYS - SPEC.md 48's own lesson, and it is the same
@@ -433,30 +433,34 @@ tk_adapter:
     push dx
     mov bx, [tk_win]
     call OSAPI_FSX_CAPS             ; AX = settable ids, DL = that display's
-    mov [tk_caps], ax               ; VID_* kind
-    mov [tk_vidk], dl               ; ...which is also the attract window's ink
-                                    ; question, and it is asked HERE so that a
-                                    ; window dragged to the other card of a
-                                    ; two-card machine re-answers it
-    mov word [tk_want], TKB_NONE | (0FFh << 8)  ; [tk_want] and [tk_fsxm],
-                                    ; adjacent, as one word
-    test ax, 1 << FSXM_MODEX        ; VGA first: Mode X is the only mode here
-    jz .cga                         ; with a spare page in it
-    mov word [tk_want], TKB_MODEX | (FSXM_MODEX << 8)
-    jmp short .say
+    mov [tk_vidk], dl               ; VID_* kind - which is also the attract
+                                    ; window's ink question, and it is asked
+                                    ; HERE so that a window dragged to the other
+                                    ; card of a two-card machine re-answers it
+    ; THE LAST TEST TO PASS WINS, so they run in the reverse of the preference
+    ; - VGA's Mode X, the only mode here with a spare page in it, then the 1983
+    ; port's own CGA mode, then Hercules - and [tk_want] and [tk_fsxm],
+    ; adjacent, are written as ONE word whatever answered
+    mov bx, TKB_NONE | (0FFh << 8)
+    test al, 1 << FSXM_HERC
+    jz .cga
+    mov bx, TKB_HERC | (FSXM_HERC << 8)
 .cga:
-    test ax, 1 << FSXM_CGA320       ; ...then the 1983 port's own mode
-    jz .herc
-    mov word [tk_want], TKB_CGA | (FSXM_CGA320 << 8)
-    jmp short .say
-.herc:
-    test ax, 1 << FSXM_HERC
+    test al, 1 << FSXM_CGA320
+    jz .modex
+    mov bx, TKB_CGA | (FSXM_CGA320 << 8)
+.modex:
+    test ax, 1 << FSXM_MODEX
     jz .say
-    mov word [tk_want], TKB_HERC | (FSXM_HERC << 8)
+    mov bx, TKB_MODEX | (FSXM_MODEX << 8)
 .say:
+    mov [tk_want], bx
     mov dx, tk_s_play               ; and the menu says WHY not, off the same
-    cmp byte [tk_want], TKB_NONE    ; predicate the command refuses on
-    jne .ok                         ; (SPEC.md 47)
+%if TKB_NONE != 0                   ; predicate the command refuses on
+  %error "tk_adapter tests TKB_NONE as zero"    ; (SPEC.md 47)
+%endif
+    or bl, bl
+    jnz .ok
     mov dx, tk_s_playn
 .ok:
     mov [tk_mi_game + 0], dx
@@ -469,9 +473,7 @@ tk_adapter:
 ; tk_onresize - the adapter changed under us (SPEC.md 11.98)
 ; in:  SI = our window, gfx lock held.  preserves all registers
 ; -----------------------------------------------------------------------------
-tk_onresize:
-    call tk_adapter
-    ret
+tk_onresize equ tk_adapter         ; which keeps every register itself
 
 ; =============================================================================
 ; The windowed half: an attract panel, and one command that leaves it
@@ -615,7 +617,7 @@ tk_s_play:   db 'Play', 0              ; tk_adapter when no mode can be had
 tk_s_playn:  db 'Play (no mode)', 0
 tk_s_new:    db 'New Game', 0
 
-tk_ttl:      db 'Tank Attack', 0
+tk_ttl       equ tk_m_name          ; the window's title is the menu's name
 tk_s_high:   db 'HIGH', 0
 tk_s_pl1:    db 'PL 1', 0
 ; What a shell cannot pass through, by the object's own OT_* (SPEC.md 85.6.2).
@@ -737,7 +739,6 @@ tk_tpl:
     ZWORD tk_winoy
     ZWORD tk_cw
     ZWORD tk_ch
-    ZWORD tk_caps
     ZBYTE tk_want
     ZBYTE tk_fsxm
     OS88_ADJACENT tk_want, tk_fsxm, 1   ; tk_adapter writes the pair as a word

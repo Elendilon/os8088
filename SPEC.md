@@ -130128,6 +130128,18 @@ Three rules, each stated in `tank.asm` where it binds:
 The overlay is what the tables below are expanded by: code and seeds that run
 once and are dead after it, in bytes that were going to be RAM anyway.
 
+#### 85.10.7 Apps size pass 2: the cold code
+
+What the pass took out of code nothing times, every item's effect on what the
+machine does being none:
+
+- `tk_adapter` tests the three modes in the REVERSE of the preference into
+  one register and stores the `tk_want`/`tk_fsxm` word once, so every branch
+  still writes both - one store rather than four. `tk_caps`, which it wrote
+  and nothing read, is gone, and `tk_onresize` is `tk_adapter` itself rather
+  than a call to it. The window's title is the menu's name, the same eleven
+  characters. Image -36, bss -2, the file -21.
+
 ## 86. AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`)
 
 `AUDIO.O88`, "AUDIO PLAYER" in the header name field. Lightweight background
