@@ -412,23 +412,25 @@ tz_hex2:
     inc di
     ret
 
-; --- tz_ohdr32 - put the dword at BX into the outgoing header, little endian --
-tz_ohdr32:
-    push ax
-    mov ax, [bx]
-    mov [tz_ohdr + 0], al
-    mov [tz_ohdr + 1], ah
-    mov ax, [bx+2]
-    mov [tz_ohdr + 2], al
-    mov [tz_ohdr + 3], ah
-    pop ax
-    ret
+; =============================================================================
+; THE THREE HEADERS THIS END COMPOSES - one tail, three entries
+;
+; Each entry records the type in [tz_lst] (what tz_resend replays), fills the
+; four header bytes and joins tz_hsend, which hands [tz_lst] to tz_hex and
+; gives the caller's AX back. All three keep every register, as they always
+; did. (Apps size pass 2: they were three procs and two helpers, tz_ohdr32
+; and tz_zero4, 28 bytes longer between them.)
+; =============================================================================
 
-; --- tz_zero4 - ...and the four zeros every flag frame but ZRINIT sends -------
-tz_zero4:
-    mov word [tz_ohdr + 0], 0
-    mov word [tz_ohdr + 2], 0
-    ret
+; --- tz_saypos - AL = a frame type carrying the dword at BX ------------------
+tz_saypos:
+    push ax
+    mov [tz_lst], al
+    mov ax, [bx]                    ; the dword, little endian, as it is
+    mov [tz_ohdr + 0], ax           ; stored
+    mov ax, [bx+2]
+    mov [tz_ohdr + 2], ax
+    jmp short tz_hsend
 
 ; -----------------------------------------------------------------------------
 ; tz_rinit - what this terminal advertises (SPEC.md 70.11.1)
@@ -442,28 +444,20 @@ tz_zero4:
 ; -----------------------------------------------------------------------------
 tz_rinit:
     push ax
-    call tz_zero4
-    mov byte [tz_ohdr + 3], CANFDX | CANOVIO
-    mov al, ZF_RINIT
-    mov [tz_lst], al
-    call tz_hex
-    pop ax
-    ret
+    mov byte [tz_lst], ZF_RINIT
+    mov ax, (CANFDX | CANOVIO) << 8 ; hdr[2] = 0, hdr[3] = ZF0
+    jmp short tz_hflag
 
 ; --- tz_say - AL = a frame type with an all-zero header ----------------------
 tz_say:
     push ax
     mov [tz_lst], al
-    call tz_zero4
-    call tz_hex
-    pop ax
-    ret
-
-; --- tz_saypos - AL = a frame type carrying the dword at BX ------------------
-tz_saypos:
-    push ax
-    mov [tz_lst], al
-    call tz_ohdr32
+    xor ax, ax
+tz_hflag:                           ; AX = header bytes 2..3, and 0..1 are 0
+    mov [tz_ohdr + 2], ax
+    mov word [tz_ohdr + 0], 0
+tz_hsend:                           ; [tz_lst] = the type; the caller's AX is
+    mov al, [tz_lst]                ; on the stack
     call tz_hex
     pop ax
     ret
@@ -479,22 +473,19 @@ tz_resend:
     push bx
     mov al, [tz_lst]
     cmp al, ZF_RINIT
-    jne .other
-    call tz_rinit
-    jmp short .out
-.other:
-    cmp al, ZF_RPOS
+    je .rinit
+    mov bx, tz_rcv                  ; an ACK names what ARRIVED and a ZRPOS what
+    cmp al, ZF_ACK                  ; was COMMITTED: two different numbers
     je .pos
-    cmp al, ZF_ACK
+    mov bx, tz_pos
+    cmp al, ZF_RPOS
     je .pos
     call tz_say
     jmp short .out
+.rinit:
+    call tz_rinit
+    jmp short .out
 .pos:
-    mov bx, tz_pos
-    cmp al, ZF_ACK
-    jne .go
-    mov bx, tz_rcv                  ; an ACK names what ARRIVED and a ZRPOS what
-.go:                                ; was COMMITTED: two different numbers
     call tz_saypos
 .out:
     pop bx
