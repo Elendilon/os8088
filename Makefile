@@ -15588,28 +15588,30 @@ excitebike-check:
 	python3 tools/excitebike_assets.py --selfcheck
 	python3 tests/unit/t_excitebike_clean.py
 
-$(BUILD)/excitebike.bin: apps/excitebike/excitebike.asm apps/excitebike/front.inc apps/excitebike/video.inc apps/excitebike/world.inc apps/excitebike/game.inc apps/excitebike/vga.inc apps/excitebike/cga.inc apps/excitebike/herc.inc apps/excitebike/sprite.inc apps/excitebike/sim.inc apps/excitebike/input.inc apps/excitebike/hud.inc apps/excitebike/ai.inc apps/excitebike/flow.inc apps/excitebike/audio.inc apps/excitebike/const.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc $(EXB_ART)/exbtables.inc $(EXB_ART)/exbtracks.inc $(EXB_ART)/exbscripts.inc $(EXB_ART)/exbsnd.inc $(EXB_ART)/EXB.SND
+$(BUILD)/excitebike.bin: apps/excitebike/excitebike.asm apps/excitebike/front.inc apps/excitebike/video.inc apps/excitebike/world.inc apps/excitebike/game.inc apps/excitebike/vga.inc apps/excitebike/cga.inc apps/excitebike/herc.inc apps/excitebike/sprite.inc apps/excitebike/sim.inc apps/excitebike/input.inc apps/excitebike/hud.inc apps/excitebike/ai.inc apps/excitebike/flow.inc apps/excitebike/audio.inc apps/excitebike/const.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc apps/os88partsbody.inc $(EXB_ART)/exbtables.inc $(EXB_ART)/exbtracks.inc $(EXB_ART)/exbscripts.inc $(EXB_ART)/exbsnd.inc $(EXB_ART)/EXB.SND
 	$(NASM) -f bin -w+error -I apps/ -I apps/excitebike/ -I $(EXB_ART)/ -l $(BUILD)/excitebike.lst -o $@ $<
 
 # EXCITEBIKE.O88 is not a legal 8.3 name (a stem is at most 8 characters), so
 # the file is EXCBIKE.O88 and the header name stays EXCITEBIKE.
-$(BUILD)/excbike.o88: $(BUILD)/excitebike.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $< -o $@
+#
+# THE SIX ART FILES ARE PARTS OF IT (SPEC.md 102.10, 20.12): the three splash
+# screens and the three game art sets, every one a compressed LAZY row, in
+# the order the table in apps/excitebike/excitebike.asm declares (XB_P_*).
+# That order is the packer's: each part starts on a sector, so the one whose
+# packed stream would pad most goes LAST, where nothing is padded.
+EXB_PARTS := $(addprefix $(EXB_ART)/,EXBSPL.HRC EXBC.GFX EXBH.GFX EXBV.GFX EXBSPL.VGA EXBSPL.CGA)
+$(BUILD)/excbike.o88: $(BUILD)/excitebike.bin $(EXB_PARTS) tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $< -o $@ $(foreach p,$(EXB_PARTS),--part $(p))
 
 excitebike: $(BUILD)/excbike.o88
 
-# The data files ride LZ-wrapped like every other data file (SPEC.md 20.14): the
-# package reads each one WHOLE with OSAPI_FILE_READ, the transparent read, into
-# a claim of its unpacked size, and checks the same size (and, for EXB?.GFX, the
-# same checksum) against the same bytes - so nothing in the package changes and
-# the six art files go 59,321 -> 25,251 bytes on the floppy. `make PKGZ=` ships
-# them raw.
+# The disk is the package and its README, a DOCUMENT and so a file of its own
+# - the six art files that rode beside it until SPEC.md 102.10 are parts of
+# EXCBIKE.O88 now. The README rides LZ-wrapped like every other data file
+# (SPEC.md 20.14); `make PKGZ=` ships it raw.
 EXB_Z := $(ZDATA)/excitebike
-EXB_DATA := apps/excitebike/README.md $(EXB_ART)/EXBV.GFX $(EXB_ART)/EXBC.GFX $(EXB_ART)/EXBH.GFX $(EXB_ART)/EXBSPL.VGA $(EXB_ART)/EXBSPL.CGA $(EXB_ART)/EXBSPL.HRC
+EXB_DATA := apps/excitebike/README.md
 EXB_DISKFILES := $(BUILD)/excbike.o88 $(if $(PKGZ),$(addprefix $(EXB_Z)/,$(notdir $(EXB_DATA))),$(EXB_DATA))
-$(EXB_Z)/%: $(EXB_ART)/% tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
-	@mkdir -p $(EXB_Z)
-	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
 $(EXB_Z)/README.md: apps/excitebike/README.md tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
 	@mkdir -p $(EXB_Z)
 	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<

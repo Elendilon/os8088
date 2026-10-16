@@ -682,7 +682,16 @@ op_claim:
 ; itself (MIDIRack's faces, SPEC.md 105.9.5) - so op_read, op_say, op_clbget,
 ; their four refusals and os88_rseq are reached from nothing there. A table
 ; with either assembles to the byte it did (SPEC.md 20.12.9.4)
+; ...UNLESS the package asks: `%define OP_WANT_READ` before os88parts.inc
+; keeps op_read, op_clbget and os88_rseq for a package that reads its OP_SELF
+; rows with them (Excitebike's xb_partget, SPEC.md 102.10) - a DEFINE and not
+; a derived flag, for OP_NO_LAZYOK's reason: what decides it is the program's
+; CALLS, which no table row sees (SPEC.md 20.12.9.2, 20.12.9.4)
+%ifdef OP_WANT_READ
+%assign OP_HAS_READ 1
+%else
 %assign OP_HAS_READ OP_HAS_CARVE || OP_HAS_FETCH
+%endif
 %if OP_HAS_READ
 ; -----------------------------------------------------------------------------
 ; op_read - the carved run, OP_CHUNK bytes at a time
@@ -1294,7 +1303,12 @@ op_seg:
     pop bx
     ret
 
-%if OP_HAS_READ
+%if OP_HAS_CARVE || OP_HAS_FETCH
+; GATED (SPEC.md 20.12.9.4): op_say and the refusals below it - only the carve
+; and op_fetch refuse, so a table whose every row is lazy AND OP_SELF (the
+; package reads and refuses for itself, SPEC.md 102.10, 105.9.5) reaches
+; neither - even one that asked for op_read with OP_WANT_READ
+
 ; -----------------------------------------------------------------------------
 ; op_say - put SI's string up and refuse (module-internal)
 ; in:  SI = a NUL-terminated string in our segment; out: CF=1
@@ -1306,7 +1320,9 @@ op_say:
     call OSAPI_TOAST
     stc
     ret
+%endif                              ; OP_HAS_CARVE || OP_HAS_FETCH
 
+%if OP_HAS_READ
 ; -----------------------------------------------------------------------------
 ; op_clbget - this volume's bytes per cluster, asked AT MOST ONCE
 ; out: CF=0 and [op_clb] filled; CF=1 = the volume would not answer
@@ -1986,6 +2002,7 @@ op_scrub:
     ret
 %endif                              ; OP_HAS_ZERO
 
+%if OP_HAS_CARVE || OP_HAS_FETCH
 ; --- refusals, in the package's own words (SPEC.md 47, 59) -------------------
 ; TOAST_MAX is 24 characters and a cut message reads like a bug in the thing
 ; it is reporting on, so these are short on purpose.
@@ -2006,6 +2023,7 @@ op_s_spent: db 'That part was dropped', 0   ; ...and cannot come back: a
 %endif                                      ; compressed lazy row's packed
                                             ; length is where the segment went
                                             ; (SPEC.md 20.12.7.4)
+%endif                              ; OP_HAS_CARVE || OP_HAS_FETCH
 
 %if OP_HAS_READ
 %include "os88rseq.inc"         ; os88_rseq: op_read's and op_xload's READ_AT,

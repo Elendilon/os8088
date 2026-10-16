@@ -2959,8 +2959,11 @@ SOAK = [
         "GFX files (magic, length, checksum, record directory, every tile, "
         "band column, collision row, class, top picture, pose mask, font "
         "glyph, palette), the three EXF1 splash files packet by packet and "
-        "the generated NASM. The budgets and negative controls are the "
-        "excitebikeselfcheck row's. No emulator, nothing external",
+        "the generated NASM - and each of the six parts of the built "
+        "EXCBIKE.O88, unpacked, is the art file its XB_P_* line names "
+        "(SPEC.md 102.10; a swapped EXB_PARTS order fails it). The budgets "
+        "and negative controls are the excitebikeselfcheck row's. No "
+        "emulator, nothing external",
         needs=("nasm",), wants=("build/excitebike360.img",)),
     Row("excitebikeselfcheck", "soak", ["python3", "tools/excitebike_assets.py", "--selfcheck"], 2.0,
         "the compiler's own gate: every hard budget of plan 12.5 printed with "
@@ -3530,7 +3533,8 @@ SOAK = [
         needs=("marty", "nasm"), timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
     Row("excitebikecustomherc", "soak", py("tests/excitebike_flow.py", "--custom", "--adapter", "herc"), 55.0,
-        "EXCITEBIKE wave 6, excitebikecustom on the Hercules (the scratch disks carry EXBH.GFX too)",
+        "EXCITEBIKE wave 6, excitebikecustom on the Hercules (the scratch disks' package carries "
+        "EXBH.GFX as a part, SPEC.md 102.10)",
         needs=("marty", "nasm"), timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
     Row("excitebikeaiherc", "soak", py("tests/excitebike_flow.py", "--ai", "--collide", "--adapter", "herc"), 90.0,
@@ -3600,7 +3604,8 @@ SOAK = [
     Row("excitebikegeomhost", "soak", py("tests/excitebike_geom.py", "--host"), 4.0,
         "EXCITEBIKE wave 7 (SPEC.md 102.8.2), no emulator: all four standalone floppies (1.44MB, 720KB, "
         "1.2MB, 360KB) walked by tests/unit/t_image.py's FAT12 reader - deliberately not os88disk's - and "
-        "each must be the geometry its name says, carry exactly the eight files of the package in the root "
+        "each must be the geometry its name says, carry exactly the two files of the package in the root (the art is parts of EXCBIKE.O88, "
+        "SPEC.md 102.10) "
         "with every chain whole and the right length, and the same bytes in all four; EXCBIKE.O88 is the "
         "built package. Negative control: a FAT entry damaged in EXCBIKE.O88's chain fails the same walk. "
         "The 1.2MB floppy is only walked: no MartyPC machine has a 5.25 inch HD drive",
@@ -3623,7 +3628,7 @@ SOAK = [
     Row("excitebikelowmem", "soak", py("tests/excitebike_geom.py", "--lowmem"), 70.0,
         "EXCITEBIKE wave 7 (SPEC.md 102.8.3): a 256KB XT (os8088_5150_cga_gla_256k) holds one Excitebike; "
         "a SECOND window opens (the code is shared) and Enter on it is REFUSED with `NOT ENOUGH MEMORY` "
-        "on the glass - xb_error 3 and xb_nomem 1, not the `EXB?.GFX MISSING` an unrelated refusal "
+        "on the glass - xb_error 3 and xb_nomem 1, not the `CANNOT LOAD THE RACE` an unrelated refusal "
         "printed - with every claim the attempt made freed (the program's claims are what they were; a "
         "purgeable cache is the desktop's own) and the window still answering H. Guards the bug it found: "
         "the small 17KB sprite claim, taken when the big one is refused, was reported as a failed load "
