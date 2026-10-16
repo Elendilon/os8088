@@ -168998,6 +168998,25 @@ instruction-identical and at an even shift in all three arms
 (`tools/os88rdiff.py`, against the base, and for `VPDIAG` against the
 commit before 98.1.9.13, the last one it assembled at).
 
+**The second size pass's DATA half (2026-10-16)** found the same save had
+room to spare: past the card's text it is 2,784 bytes (2,604 with
+`VPDIAG`) that the desktop never used. **The desktop's SCRATCH lives there
+now** (`vp_dsk`): 289 bytes of words that were in the image - the grey
+ground's holes (`vp_ground`, 146), the window play's thumb move and button
+turn (`vp_wmove`, `vp_winv`), Live's band and repack counters (`vp_blitb`,
+`vp_v4blit`), the poster's draw (`vp_pposter`), the half-scaler's
+arguments (`vp_half`), the layout's working (`vp_layfit`), the open's and
+the hold check's (`vp_open`, `vp_rwalk`, `vp_xok`) and the bracket's mode
+record (`vp_fsi`, filled and read at the door, before a box can be up).
+Each is written before it is read inside one call of a routine the full
+screen never runs (nothing in `vp_hook`'s or `vp_main`'s reach, and the
+worker's only through Live, which never shares the glass with the box), so
+a box clobbering it costs nothing, and none is a word the play reads. The
+fill line and the seek's text share one buffer (`vp_pfbuf` is
+`vp_skbuf`): each is composed and handed to `vo_show`, which copies it.
+`apps/video/rdiffhot.txt` names `vh_addr` rather than `vh_.*`, the
+half-scaler's words being bss now and not routines.
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |

@@ -19894,7 +19894,6 @@ vp_h:         dw 200                ; vp_entry's first layout)
 vp_sp0:       dw 0, 0
 vp_sp0n:      dw 0
 vp_clsec:     dw 0
-vp_tmp:       dw 0
 ; the play
 vp_ring:      dw 0
 vp_rclm:      dw 0                  ; ...the claim it starts in (THE GAP)
@@ -19984,8 +19983,6 @@ vp_mwhy:      db 0                  ; ...defaulted there: 1 ADPCM4 on a DSP
 vp_umute:     db 0                  ; ...and the user's own last choice
 vp_unmq:      db 0                  ; unmuted in the window: play on, synced
 vp_skhere:    db 0                  ; a seek to the frame on the glass
-vp_wvr:       dw 0                  ; vp_winv's button: its rect...
-vp_wvq:       dw 0, 0, 0, 0         ; ...copied
                                     ; over the speaker (S, 98.3.15)
 vp_snd:       db 0                  ; this play has the card
 vp_hand:      db 0
@@ -20052,13 +20049,8 @@ vp_lacc:      dw 0, 0               ; ...PIT counts owed...
 vp_lper:      dw 0, 0               ; ...and a frame's
 vp_lrem:      dw 0                  ; ...PIT counts short of a period (98.3.10.1)
 vp_ldrain:    db 0                  ; ...and the picture done, the sound not
-vp_qseg:      dw 0                  ; vp_pposter's picture: its segment,
-vp_qbw:       dw 0                  ; stride and rows
-vp_qrows:     dw 0
 vp_rend:      db 0                  ; the rendition vp_parse reads (98.1.7)
 vp_nrend:     db 0                  ; ...of this many
-vp_rbest:     db 0                  ; ...the best so far, and its score
-vp_rscore:    db 0
 vp_resid:     db 0                  ; RESIDENT: played from memory
 vp_bk:        times 13 db 0         ; the rendition's block's fields...
 vp_abk:       times 13 db 0         ; ...and the audio block's
@@ -20162,8 +20154,6 @@ vp_by2:       dw 0
 vp_tx1:       dw 0                  ; the bar's inside, and the thumb
 vp_tx2:       dw 0
 vp_tx:        dw 0
-vp_pdh:       dw 0                  ; the picture's rows drawn
-vp_brem:      dw 0                  ; vp_blitb's rows left
 vp_dkey:      dw 0xFFFF             ; the key the picture is, FFFFh none
 vp_kblk:      db 0                  ; a first bracket's black, owed (98.3.7.1)
 vp_pscale:    dw 0                  ; ...and the scale it was made at
@@ -20173,20 +20163,14 @@ vp_lcard:     db 0                  ; ...and whether it is (layout B forces it)
 vp_lbin:      db 0                  ; 1: the buttons are in the card
 vp_relay:     db 0                  ; the wake owes a layout and a resize
 vp_ps:        dw 2                  ; the picture's scale: 1, 2 or 4
-vp_lops:      dw 0
 vp_lpw:       dw 0                  ; the picture at it, pixels and rows
-vp_lph:       dw 0
 vp_lbw:       dw 0                  ; the box: its width and height
 vp_lbh:       dw 0
-vp_lslk:      dw VP_BSLACK          ; the layout's slack and gaps (vp_laynorm,
-vp_lgap:      dw VP_BGAP            ; vp_laycomp)
 vp_lbary:     dw 0                  ; the bar's frame top, the button row's
 vp_lbty:      dw 0
 vp_lcardx:    dw 0                  ; the card's x
 vp_lcw:       dw 0                  ; the content's size
 vp_lch:       dw 0
-vp_lcwm:      dw 0                  ; ...and the most the screen allows
-vp_lchm:      dw 0
 ; the thumb's drag (98.4.2)
 vp_drag:      db 0
 vp_tier:      db 0                  ; OSAPI_CPU_INFO's AL
@@ -20222,19 +20206,6 @@ vp_keep:      dw 0                  ; the canvas keeper (the shadow, or not)
 vp_pdiv:      dw 0                  ; this play's PIT divisor
 vp_wtk:       dw 0                  ; the frame the thumb was last asked at
 vp_wtx:       dw 0                  ; ...and where it was drawn
-vp_wnx:       dw 0                  ; vp_wmove: the block's new x...
-vp_wox:       dw 0                  ; ...and its old one
-vp_wmn:       db 0                  ; the bytes the move touches...
-vp_wmt:       times 4 dw 0, 0       ; ...each its offset, mask, white bits
-vh_sseg:      dw 0                  ; vp_half's image...
-vh_lay:       db 0                  ; ...its layout, or FFh linear...
-              db 0
-vh_sstr:      dw 0                  ; ...at this stride
-vh_wb:        dw 0
-vh_h:         dw 0
-vh_dseg:      dw 0
-vh_owb:       dw 0
-vh_y:         dw 0
 ; the play's start and its pause (98.3.4, 98.3.5)
 vp_base:      dw 0                  ; the first frame the stream draws
 vp_krec:      dw 0                  ; the keyframe's record in the ring, or FFFFh
@@ -20251,13 +20222,6 @@ vp_skwas:     db 0                  ; it was playing
 vp_skgo:      db 0                  ; ...and plays on from the key
 vp_skwt:      db VP_SKWAIT          ; the wait after the last press, ticks
 vp_grey:      db 0                  ; THE GREY GROUND (98.4.8) is on
-vp_gb:        dw 0, 0, 0, 0         ; ...the rect
-vp_ghn:       dw 0                  ; ...how many holes
-vp_gh:        times 16 * 4 dw 0     ; ...and the holes: x1, y1, x2, y2 each
-vp_gy:        dw 0                  ; ...the band
-vp_gy2:       dw 0
-vp_gx1:       dw 0                  ; ...and the hole a gap ends at
-vp_gx2:       dw 0
                                     ; (tests/vidfskeys.py holds a seek here)
 vp_skbuf:     times VO_MAXC + 1 db 0
 vp_aref:      db 0                  ; ADPCM4's reference byte, this play
@@ -20276,23 +20240,15 @@ vp_alst:      dw 0                  ; ...its bytes staged in the sound ring
 vp_lsin:      dw 0                  ; vp_ldstored: the start in its cluster
 vp_lsrem:     dw 0, 0               ; ...and the bytes still to read or move
 vp_mbuf:      times VP_MBUF db 0    ; vp_fits's "Needs n KB..."
-vp_v4p:       db 0                  ; LIVE IN COLOUR (98.3.10.4): BLITP may,
-vp_v4ax:      dw 0                  ; the clip down; vp_v4blit's repack:
-vp_v4by:      dw 0                  ; x, y, width,
-vp_v4cw:      dw 0
-vp_v4rl:      dw 0                  ; rows left,
-vp_v4nb:      dw 0                  ; bytes a row,
-vp_v4bs:      dw 0                  ; the buffer's stride,
-vp_v4rc:      dw 0                  ; rows it holds,
-vp_v4k:       dw 0                  ; rows this chunk,
-vp_v4ps:      dw 0                  ; and the plane step
+vp_v4p:       db 0                  ; LIVE IN COLOUR (98.3.10.4): BLITP may walk the
+                                    ; clip (vp_v4blit; its repack's words are
+                                    ; the desktop's scratch, vp_dsk)
 vp_cbnd:      dw 0                  ; the canvas's bound in its layout, and
 vp_kkb:       db 0                  ; the keeper's KB, 0 none (98.1.7.3)
 vp_kneed:     db 0                  ; this session decodes INTO the keeper,
 vp_rchk:      db 0                  ; ...and the block's writes are checked
 vp_ptk0:      dw 0                  ; the tick it paused at
 vp_ptk:       dw 0                  ; ticks paused, this play
-vp_fsi:       times FSI_SIZE db 0
 vp_cur:       times FSEQ_SIZE db 0
 vp_rdcur:     times FSEQ_SIZE db 0  ; vp_rdat's own (os88_rseq), never the stream's
 vp_xcur:      times FSEQ_SIZE db 0  ; THE HOLD (98.3.18): its loader's cursor,
@@ -20323,11 +20279,9 @@ vp_xact:      db 0                  ; ...a borrow is open (VP_DSDX..VP_DSEND)
 vp_xif:       db 0                  ; ...and its caller had IF on (2) or off
 vp_xidx:      db 0                  ; ...vp_xpend's last
 vp_xchk:      db 0                  ; ...this instance checked: 1 ok, 2 not
-vp_xzf:       db 0                  ; ...vp_xok's compare
 vp_xpc:       dd 0                  ; ...the open borrow's DS base, linear
 vp_xpend:     times 16 dd 0         ; ...vp_xaddr's handles' bases
 vp_xslo:      times VP_KBIG dd 0    ; ...each slot's chunk, its file offset
-vp_xsig:      times 16 db 0         ; ...vp_xok's reference bytes
 vp_simseg:    dw 0                  ; ...LA_SIM's shadow (a test build)
 %ifdef LA_SIM
 vp_simyc:     dw 0                  ; ...and its yields that opened a window
@@ -20438,7 +20392,10 @@ vp_pfn:       dw 0                  ; the prefill's slots
 vp_bskn:      dw 0                  ; seeks the bank answered (a gate's count)
 vp_pft0:      dw 0                  ; ...and the tick it began
 vp_s_buf:     db 'Buffering ', 0
-vp_pfbuf:     times VO_MAXC + 1 db 0
+vp_pfbuf      equ vp_skbuf          ; the line, composed in the seek's own
+                                    ; buffer: each is a call's, made and then
+                                    ; copied into the box by vo_show, and the
+                                    ; main loop builds one at a time
 
 %include "os88alt.inc"              ; Alt+Enter in the bracket (SPEC.md 11.2.1.1)
 %define OS88UI_ABOUT                ; the standard About card (SPEC.md 20.5.1)
@@ -20470,6 +20427,69 @@ vp_lum        equ vo_sav + 512      ; VGA8's lumas, 0..16 (or CGA's colours')
 vp_lines      equ vo_sav + 768      ; the info panel's text
 %if 768 + VP_LINES * VP_LINE > VO_SAV       ; (the tables before it)
   %error "the card's text does not fit a page's save"
+%endif
+; ...and PAST it, to the save's end, THE DESKTOP'S SCRATCH: words a routine
+; writes before it reads them and spends inside the one call, in routines
+; the full screen never runs - the ground's holes (vp_ground), the thumb's
+; move and a button turned over (vp_wmove, vp_winv: the window's play
+; only), Live's band and repack (vp_blitb, vp_v4blit: the window's, under
+; the gfx lock), the poster's draw (vp_pposter), the half-scaler's
+; arguments (vp_half, which only vp_mkpic calls), the layout's working
+; (vp_layfit), the open's (vp_open, vp_rwalk: vp_sstart runs it between
+; brackets) and the hold's check (vp_xok, the same). And the mode's record
+; (vp_fsi), filled and read at a bracket's door BEFORE the box can be up.
+; A box up clobbers every one of them, and none is read across a bracket
+vp_dsk        equ vp_lines + VP_LINES * VP_LINE
+vp_gh         equ vp_dsk            ; the holes: x1, y1, x2, y2 each
+vp_gb         equ vp_gh + 16 * 8    ; ...the rect
+vp_ghn        equ vp_gb + 8         ; ...how many holes
+vp_gy         equ vp_ghn + 2        ; ...the band
+vp_gy2        equ vp_gy + 2
+vp_gx1        equ vp_gy2 + 2        ; ...and the hole a gap ends at
+vp_gx2        equ vp_gx1 + 2
+vp_wmt        equ vp_gx2 + 2        ; vp_wmove: each byte's offset, mask
+vp_wnx        equ vp_wmt + 16       ; and white bits; the block's new x...
+vp_wox        equ vp_wnx + 2        ; ...its old one...
+vp_wmn        equ vp_wox + 2        ; ...and the bytes it touches (a byte)
+vp_wvr        equ vp_wmn + 1        ; vp_winv's button: its rect...
+vp_wvq        equ vp_wvr + 2        ; ...copied
+vp_brem       equ vp_wvq + 8        ; vp_blitb's rows left
+vp_v4ax       equ vp_brem + 2       ; vp_v4blit's repack: x, y, width,
+vp_v4by       equ vp_v4ax + 2
+vp_v4cw       equ vp_v4by + 2
+vp_v4rl       equ vp_v4cw + 2       ; rows left,
+vp_v4nb       equ vp_v4rl + 2       ; bytes a row,
+vp_v4bs       equ vp_v4nb + 2       ; the buffer's stride,
+vp_v4rc       equ vp_v4bs + 2       ; rows it holds,
+vp_v4k        equ vp_v4rc + 2       ; rows this chunk,
+vp_v4ps       equ vp_v4k + 2        ; and the plane step
+vp_qseg       equ vp_v4ps + 2       ; vp_pposter's picture: its segment,
+vp_qbw        equ vp_qseg + 2       ; stride and rows,
+vp_qrows      equ vp_qbw + 2
+vp_pdh        equ vp_qrows + 2      ; ...and its rows drawn (a gate reads it)
+vh_sseg       equ vp_pdh + 2        ; vp_half's image...
+vh_lay        equ vh_sseg + 2       ; ...its layout, or FFh linear (a byte)...
+vh_sstr       equ vh_lay + 2        ; ...at this stride
+vh_wb         equ vh_sstr + 2
+vh_h          equ vh_wb + 2
+vh_dseg       equ vh_h + 2
+vh_owb        equ vh_dseg + 2
+vh_y          equ vh_owb + 2
+vp_lops       equ vh_y + 2          ; vp_layfit's: the scale it started at,
+vp_lph        equ vp_lops + 2       ; the picture's rows at the one tried,
+vp_lslk       equ vp_lph + 2        ; the slack and gaps (vp_laynorm,
+vp_lgap       equ vp_lslk + 2       ; vp_laycomp), and the most the screen
+vp_lcwm       equ vp_lgap + 2       ; allows
+vp_lchm       equ vp_lcwm + 2
+vp_tmp        equ vp_lchm + 2       ; vp_open's header claim, vp_rwalk's mark
+vp_rbest      equ vp_tmp + 2        ; vp_open: the best rendition so far, and
+vp_rscore     equ vp_rbest + 1      ; its score (bytes)
+vp_xsig       equ vp_rscore + 1     ; vp_xok's reference bytes...
+vp_xzf        equ vp_xsig + 16      ; ...and its compare (a byte)
+vp_fsi        equ vp_xzf + 1        ; the bracket's mode (OSAPI_FSX_MODE)
+vp_dskend     equ vp_fsi + FSI_SIZE
+%if vp_dskend - vo_sav > 2 * VO_SAV
+  %error "the desktop's scratch runs past the full screen's save"
 %endif
     OS88_BSS 768 + 2 * VO_SAV + 256
     OS88_IMAGE_END
