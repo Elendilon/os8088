@@ -87,10 +87,11 @@ it. Since SPEC.md 54.7.4 the cache is absorbed into the icon store, and
 `asc_row_take` skips a blank body (`asc_inkck` / `jz .out`). The harvest's
 iconless arm never calls `ico_put` either. So nothing stores the absence,
 which §54.7's *"caching the ABSENCE saves that read too"* still promises.
-Four packages in the tree are iconless (`CHART`, `HELLO`, `IMGTEST`, `WIRE`),
-and of those only CHART ships on the apps disks. It matters to this plan in
-one place: §3.2 has to choose a trigger that an iconless package cannot
-fire on every mount.
+Four packages in the tree were iconless (`CHART`, `HELLO`, `IMGTEST`, `WIRE`),
+and of those only CHART shipped on the apps disks - so CHART was given an icon
+after this work landed (a bar chart, `apps/chart/chart.asm`), and none that
+ships is iconless now. It matters to this plan in one place: §3.2 has to
+choose a trigger that an iconless package cannot fire on every mount.
 
 ## 2. The writer that already exists, and why it cannot be called as it stands
 
@@ -754,6 +755,7 @@ can reach (`assoc*`, `ascabsorb`, `ico*`, `mediadisk`, `rdicon`,
    `FORMAT.DRV` a cluster. Wave 2 returns it, so the system disk is level.
 6. **An iconless package is not written incrementally.** The store never takes
    one (§1's finding), so nothing in RAM learns about it; full mode writes it.
+   CHART was the one that shipped, and it has an icon now.
 7. **The gate found a defect the review did not.** The root walk's
    eleven-byte name compare was read off ZF after the loop, and `inc di`
    clears ZF, so `ASSOC.DAT` was never found and every flush rebuilt from the
