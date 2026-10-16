@@ -169197,6 +169197,16 @@ by 21 bytes for 10 fewer in the image - measured and not taken.
   DS and ES to copy it with `lodsb`/`stosb`, the same copy the other way
   round. -16 of image, -3 of file - and -20 in the two knob arms, the
   same cut packing differently around it.
+- **The card's number routines**: `vp_putt`'s forced NEAR jump to the pop
+  ladder is short, `vp_putn`'s `inc cl` an `inc cx` (CL is at most 3),
+  `vp_div32`'s first move an `xchg`, and `vp_mul32` the shorter body the
+  bench's copy had - four odd cuts that sum to an even -6, so every play
+  word after them keeps its parity; only the card's own text routines and
+  `vp_mul32`, which no play runs, moved by an odd byte. -6 of image, -3 of
+  file. The two string merges the second pass refused stay refused: either
+  alone puts the play's words after the strings (`vp_mxseg`, `vp_plsp`,
+  the state from `vp_kmax` on) an odd byte out, and no third odd cut lies
+  between them and those words.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 

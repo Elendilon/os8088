@@ -19199,9 +19199,7 @@ vp_putt:
     call vp_putc
     mov al, ah
     call vp_putc
-    jmp near vp_ld4                 ; (NEAR: a short one moves everything
-                                    ; after it, the play path, an odd byte -
-                                    ; tools/os88rdiff.py)
+    jmp short vp_ld4
 
 ; vp_puts - SI = NUL string -> DI, stopping at the line's end (DI's own NUL)
 vp_puts:
@@ -19259,7 +19257,7 @@ vp_putn:
     or bl, bl                       ; ...and with decimals, at least one digit
     jz .o                           ; before the point: "0.05", not ".05"
     mov cl, bl
-    inc cl
+    inc cx                          ; (CL <= 3: CH is not read)
     cmp bh, cl
     jbe .d
 .o:
@@ -19326,7 +19324,7 @@ vp_sstrm:                           ; OSAPI_SND_STREAM
 ; vp_div32 - DX:AX /= CX; CX = the remainder
 vp_div32:
     push bx
-    mov bx, ax
+    xchg ax, bx                     ; (BX the low word)
     mov ax, dx
     xor dx, dx
     div cx
@@ -19337,17 +19335,16 @@ vp_div32:
     pop bx
     ret
 
-; vp_mul32 - DX:AX *= CX (the product must fit 32 bits)
+; vp_mul32 - DX:AX *= CX (the product must fit 32 bits). Every other
+; register kept
 vp_mul32:
     push bx
     mov bx, dx
-    mul cx
+    mul cx                          ; DX:AX = the low word's product
     push dx
-    push ax
-    mov ax, bx
-    mul cx
-    pop bx                          ; the low product's low word
-    pop dx                          ; ...and high
+    xchg ax, bx                     ; (BX its low word)
+    mul cx                          ; AX = the high word's, the low half
+    pop dx
     add dx, ax
     mov ax, bx
     pop bx
