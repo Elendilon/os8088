@@ -106,7 +106,10 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--machine", default="os8088_5150_cga_gla")
 a = ap.parse_args()
 syms, image = pkg_syms()
-o88 = open(os88build.at("build/pixel.o88"), "rb").read()
+import os88pkg                                          # noqa: E402
+# the IMAGE, not the file: a parted package's image ships packed when that
+# saves a sector (SPEC.md 20.13.8)
+o88 = os88pkg.image_unwrap(open(os88build.at("build/pixel.o88"), "rb").read())
 if o88[:syms["op_table"]] != image[:syms["op_table"]]:   # the table's rows
                                                           # are os88pkg.py's
     sys.exit("build/pixel.o88's image is not this tree's pixel.asm - run "
