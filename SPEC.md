@@ -169007,6 +169007,29 @@ instruction-identical and at an even shift in all three arms
 (`tools/os88rdiff.py`, against the base, and for `VPDIAG` against the
 commit before 98.1.9.13, the last one it assembled at).
 
+**And the second pass's shared-code lane (2026-10-16)**: features that had
+grown copies of each other, folded into one routine each, **-580 bytes of
+image in every arm** (55,977 -> 55,397; `NOLIVESND` 55,746 -> 55,166;
+`VPDIAG` 57,337 -> 56,757, which is 181 over where it was 761), bss
+unchanged. The layer's prefill runs the base's Buffering loop (`vp_bpre`,
+`[vp_pfly]` turning its questions to the layer, -56); the kernel calls cold
+code makes most go through near thunks - `vp_mfree`/`vp_rdfree`,
+`vp_mclaim`, `vp_ticks`, `vp_ems`, `vp_wakew`, `vp_clipw` and ten more,
+three bytes a site against five (-194); twenty cold routines end in
+`vp_fmt`'s pop ladder, which gains BP's rungs (`vp_ld8`, `vp_ld7b`,
+`vp_ld6`; -74); and one routine each for the Bayer row (`vp_rthrs`), a
+seek's first press and its 'due at once' (`vp_skfirst`, `vp_sknow`), a ring
+offset as DX:SI (`vp_rptr`), 'is the bank XMS's' (`vp_xmsbk`), the
+keeper's common ground (`vp_kplain`) and 'declare this claim movable'
+(`vp_mmovz`). `OS88UI_BIMGONLY` (13.8.9) drops the button body's caption,
+ink and default ring, which no button here has (-92). Nothing a play runs
+calls a new routine or pays a call more: every routine `rdiffhot.txt` names,
+and every one the per-frame path (`vp_frame`, the hook, the card clock, the
+worker, the play loop's reader) reaches, is identical at an even shift in
+all three arms - four five-pop tails push one register more to take the
+even rung, and `vp_lybench`'s timed loop keeps its own inline copy of
+`vp_rptr`'s six instructions.
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |
