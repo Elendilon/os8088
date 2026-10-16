@@ -195,11 +195,13 @@ fourteen builds is the rest:
 | `tools/os88sfx.py` + stub | OS88NET.COM's packer: 10,588 against zlib's ~10,500 and LZMA's ~9,900; a repeat-last-offset code might win a few percent | unestimated | OS88NET.COM |
 
 **And one the pass did not ask about**: `soak -k lzbclust` with
-`--candidates` lists the LZ4 packages LZB WOULD save a cluster for. On this
-tree: Browser (18 -> 16), The Wire (11 -> 9), FTPD, Telnet, Audio, Chart,
-DeskCal, Gorillas (one each), isoTron (17 -> 15), DOS (31 -> 28), Tracker
-(26 -> 24), MIDIRack (31 -> 27), Video (41 -> 36), 1942 (30 -> 26) - plus
-Paint, Note Pad and the Task Manager, which the owner keeps LZ4.
+`--candidates` lists the LZ4 packages LZB WOULD save a cluster for. On the
+final tree: Browser (18 -> 16), The Wire (11 -> 9), FTPD, Telnet, Audio,
+Chart, DeskCal, Gorillas (one each), isoTron (17 -> 15), DOS (31 -> 28),
+Tracker (26 -> 24), MIDIRack (31 -> 27), Video (41 -> 36), 1942 (30 -> 26) -
+plus Paint, Note Pad and the Task Manager, which the owner keeps LZ4. Not
+every one of those rides a 360KB disk; the row counts 1KB clusters of the
+file whatever disk it is on.
 
 ## Lessons for the other sets
 
@@ -220,4 +222,37 @@ Paint, Note Pad and the Task Manager, which the owner keeps LZ4.
 
 ## Coverage
 
-FILLED IN BY THE FINAL PASS - see below.
+Run once, after the last agent merged, on HEAD `b104e049` (the session's
+union of every agent's named rows, the handoff's shared rows - `appsmall`,
+`smallreq`, `movable`, `dispapps`, `regapp`, `regwork`, `lz*`, `assoc*` - and
+at least one launch row for each package the LZB change reached):
+
+- `make -j4`, `make small`, `make smallapps` green; the fast tier 47/47 at
+  every merge.
+- **`os88soak.py start`, 106 rows, 42:51 at width 4: 103 ok, 3 FAIL, 0 SKIP**
+  (`build/soak/20261016-140656/`). `lzdrv*` were left out - their fixture
+  does not build (Defects, above).
+  - **`lzship` was a REAL defect in this set, and is fixed**: `make zset
+    ZFMT=lz4` pairs packing with a kernel built `COMPRESS=lz4`, which carries
+    the LZ4 decoder alone, and the fourteen LZB builds were packed LZB there
+    all the same - CALC.O88 came back `LD_EBAD` from its own kernel. The LZB
+    packer now follows `COMPRESS` (`PKGZBFMT`) and its stamp carries it.
+    Re-run on the fix: **ok** (68.9 s). `lzship-lzb` was ok in the soak.
+  - **`btnall` is PRE-EXISTING**: `os88bisect.py classify --base dc1890ba
+    -n 2` - 2/2 failed at HEAD and 2/2 at the cut point, on the same leg. It
+    closes each package through a menu named after the WINDOW TITLE, and the
+    browser's title is `os8088 Web Browser` where its menu is `Browser`;
+    neither string moved in this set.
+  - **`lzbig` passes at HEAD**: classify, 0/2 failed on a run alone - it
+    failed in the soak on its pointer-motion watch (`the arrow moved 10
+    times... wanted >= 20`), every one of its byte-for-byte legs green, and
+    nothing in this set reaches the kernel's Compress verb.
+- **`make test-full`: 54/54**, 61.3 s.
+- **New row `lzbclust`** (soak): every LZBPKGS package still saves a 1KB
+  cluster over LZ4, and is LZB on disk. Red on purpose both ways (a name
+  added to the list with an LZ4 file; Solitaire's small arm packed LZB,
+  4 clusters either way). 1.2 s.
+- `tests/ftpd.py` (unregistered, QEMU; FTPD's agent named it as the script
+  that exercises most of that package's pass): **all assertions passed**,
+  including `FTPD.CFG` written and read back byte-exact and STOR's upload
+  read off the image by an independent reader.
