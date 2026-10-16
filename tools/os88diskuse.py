@@ -25,6 +25,7 @@ It reads images; it never writes one. Every number is counted.
 import argparse
 import json
 import os
+import signal
 import struct
 import sys
 
@@ -116,4 +117,5 @@ def main():
 
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)   # `| head` ends quietly
     main()
