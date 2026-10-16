@@ -8766,7 +8766,16 @@ pmcbandbench: $(BUILD)/pmcband.img
 # THE HOST CHECKS RUN FIRST AND STOP THE BUILD. They are an order-only-free
 # prerequisite of the .raw.asm through the stamp below: a check that fails
 # leaves no stamp, and the compile does not run.
-$(eval $(call CC_PACKAGE,runcpm,runcpm,RUNCPM.OVL))
+#
+# ONE FILE ON THE DISK (SPEC.md 74.3, 73.14.2): RUNCPM.O88's one part is the
+# module (CC_OVL_PART, eager, LZ4), and DRI's CCP is incbin'd at the head of
+# it (runcpm.asm), so neither CCP-DR.60K nor RUNCPM.OVL is a file beside it.
+# $(BUILD)/RUNCPM.OVL is still written, plain - the cut, CCP included, that
+# the symbol readers and tests/unit/t_ctoolchain.py read.
+$(eval $(call CC_PACKAGE,runcpm,runcpm,RUNCPM.OVL,,part))
+# RUNCPMDIR here, not with the fetch below: the runcpm.bin rule names the CCP
+# in it, and a rule's prerequisites expand as it is read.
+RUNCPMDIR := $(BUILD)/runcpm-disk
 
 # THE REST OF THE TRANSLATION UNIT (SPEC.md 73.1): runcpm.c #includes the
 # parts, and the shim %includes the three hand-written pieces and the icon. Every one is a
@@ -8781,7 +8790,7 @@ RUNCPMHOST := apps/runcpm/build.sh apps/runcpm/hosttest/os88.h \
               apps/runcpm/hosttest/rcmemtest.asm \
               apps/runcpm/hosttest/rcmemtest.sh $(RUNCPMINC)
 $(BUILD)/runcpm.raw.asm: $(RUNCPMSRC) $(BUILD)/.runcpm-hostchecks
-$(BUILD)/runcpm.bin: $(RUNCPMINC) apps/runcpm/icon.inc
+$(BUILD)/runcpm.bin: $(RUNCPMINC) apps/runcpm/icon.inc $(RUNCPMDIR)/CCP-DR.60K
 
 # ($(RUNCPMINC) is in RUNCPMHOST because rcmemtest.asm %includes rcmem.inc and
 # rcz80.inc: an edit to a mover must re-run the mover harness, and make
@@ -8801,14 +8810,14 @@ runcpm: $(BUILD)/runcpm.o88
 # A/0/LEFT-OFF.TXT names). A stamp rather than a directory, as the story cache
 # is: make cannot depend on eighty files, and the script is idempotent -
 # nothing is downloaded twice. `make runcpm-src` alone fetches.
-RUNCPMDIR := $(BUILD)/runcpm-disk
 CPMCACHE := apps/runcpm/cache/cpmcache.zip
 $(BUILD)/runcpm-src.stamp: tools/getruncpm.py tools/cpmcache.py $(CPMCACHE) | $(BUILD)
 	python3 tools/getruncpm.py -o $(RUNCPMDIR)
 	@touch $@
 
-# Live/all-apps images also name these files directly. Their producer must
-# be visible to make before the first fetch, including parallel builds.
+# Live/all-apps images also name the texts directly, and runcpm.bin's rule
+# names the CCP (incbin'd into the module). Their producer must be visible to make before
+# the first fetch, including parallel builds.
 $(RUNCPMDIR)/CCP-DR.60K $(RUNCPMDIR)/LICENSE $(RUNCPMDIR)/1STREAD.ME: $(BUILD)/runcpm-src.stamp
 	@test -f $@ || python3 tools/getruncpm.py -o $(RUNCPMDIR)
 
@@ -8858,9 +8867,9 @@ CPMSW ?=
 $(BUILD)/HELLO.COM: | $(BUILD)
 	printf '\016\011\021\011\001\315\005\000\311Hello from the Z80 - RunCPM on os8088\r\n$$' > $@
 
-# THE THREE FLOPPIES (SPEC.md 74.5): the package in the root beside the CCP it
-# loads (before any folder move: the rule CWORD.OVL kept), RunCPM's LICENSE
-# and 1STREAD.ME, and drive A user 0 - the master disk as far as the geometry
+# THE THREE FLOPPIES (SPEC.md 74.5): the package in the root - ONE file, the
+# CCP and the module being its parts (SPEC.md 74.3) - RunCPM's LICENSE and
+# 1STREAD.ME, and drive A user 0 - the master disk as far as the geometry
 # holds it, chosen at recipe time by getruncpm.py --select (the texts and
 # submit files first, then the programs, then documentation, libraries and
 # sources; 720KB and 1.44MB carry all of it, 360KB the programs and texts), so
@@ -8870,7 +8879,7 @@ $(BUILD)/HELLO.COM: | $(BUILD)
 # that is a data store rather than a place to browse. Each image is
 # --verify'd, and the verify is what catches a --select that overshot - but
 # --select is told what it is choosing beside: --reserve names the root files
-# (the package, an .OVL if one comes, the CCP, the texts) and prices them
+# (the package and the texts) and prices them
 # in the geometry's own clusters, so the A/0
 # selection re-shapes itself as the package grows instead of the 360KB
 # build stopping at 'data over capacity'. The selection is a shell
@@ -8879,9 +8888,8 @@ $(BUILD)/HELLO.COM: | $(BUILD)
 # an empty A/0 and verify clean - which reads exactly like a working disk.
 # RUNCPMIMG therefore keeps its stderr and stops the recipe when the
 # selection is empty. $(3) is the geometry's extra root files, if any.
-RUNCPMDISK := $(BUILD)/runcpm.o88 $(CC_OVLZ)/RUNCPM.OVL $(RUNCPMDIR)/CCP-DR.60K \
-              $(RUNCPMDIR)/LICENSE $(RUNCPMDIR)/1STREAD.ME
-RUNCPMDEPS := $(BUILD)/runcpm.o88 $(CC_OVLZ)/RUNCPM.OVL $(BUILD)/runcpm-src.stamp \
+RUNCPMDISK := $(BUILD)/runcpm.o88 $(RUNCPMDIR)/LICENSE $(RUNCPMDIR)/1STREAD.ME
+RUNCPMDEPS := $(BUILD)/runcpm.o88 $(BUILD)/runcpm-src.stamp \
               $(BUILD)/cpmsw.stamp tools/os88disk.py tools/getruncpm.py \
               tools/getcpmsw.py
 # A\0 SHIPS WITH SPARE DIRECTORY SLOTS (SPEC.md 74.3): the kernel does not
@@ -9030,7 +9038,7 @@ c64rom: $(BUILD)/c64-rom/C64.ROM
 # distributed form of a GPL-2-or-later binary and README.TXT on it says "the
 # full licence text is apps/c64/COPYING in the os8088 source tree, and it
 # accompanies every release": it has to be here for that to be true. RUNCPM's
-# disk ships its upstream LICENSE beside the CCP for the same reason
+# disk ships its upstream LICENSE beside the package for the same reason
 # (the rule at the $(RUNCPMDISK) recipe above). COPYING is 17,989 bytes, which
 # is ~50 of a 360KB disk's 354 clusters - C64-SPEC §14.2 says which of the
 # three geometries carries it and what README.TXT says where it cannot.

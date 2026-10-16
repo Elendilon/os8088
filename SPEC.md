@@ -41037,7 +41037,7 @@ The tree, and the one part of it that is a correctness requirement:
 | `GAMES/` | the six games |
 | `WORD/` | `WORD.O88`, `WELCOME.DOC` |
 | `CWORD/` | `CWORD.O88` (its overlay is a PART of it, §73.14.2), `WELCOME.RTF` |
-| `RUNCPM/`, `RUNCPM/A/0/` | `RUNCPM.O88`, `RUNCPM.OVL`, the CCP and its `LICENSE` — and CP/M drive A below them (§74.5) |
+| `RUNCPM/`, `RUNCPM/A/0/` | `RUNCPM.O88` (its module and the CCP are its PART, §74.3.1), `LICENSE` and `1STREAD.ME` — and CP/M drive A below them (§74.5) |
 | `C64/` | `C64.O88` (the ROM is a PART of it, §20.12), `C64.OVL`, `README.TXT` and `COPYING` (`docs/C64-SPEC.md` §14.2) |
 | `WEAVE/` | `WEAVE.O88`, `WEAVE.OVL`, `WEAVE.WSM` and the three demo bundles (`WEAVE-SPEC 1.2`) |
 | `LOOM/` | `LOOM.O88`, `LOOM.OVL`, `LOOM.WPV`, the demo sources — and a second copy of `WEAVE.O88`, `WEAVE.OVL` and `WEAVE.WSM`, so that a bundle Pack writes beside its sources opens where it was written (`WEAVE-SPEC 1.2`, `1.2.4`, `11.2`) |
@@ -120665,7 +120665,7 @@ gone. Measured, file bytes:
 | `WEAVE.OVL` | 21,198 | **9,480** |
 | `CWORD.OVL` (a PART of `CWORD.O88` since §73.14.2) | 18,565 | **8,851** |
 | `SCRIBE.OVL` (part 1 of `SCRIBE.O88` since §95.8.8) | 10,121 | **8,348** |
-| `RUNCPM.OVL` | 7,389 | **3,526** |
+| `RUNCPM.OVL` (the PART of `RUNCPM.O88`, with the CCP in it, since §74.3.1) | 7,389 | **3,526** |
 | `APPLE2.OVL` | 3,971 | **2,472** |
 | `C64.OVL` | 2,323 | **1,597** |
 | `COVL.OVL` (the gate; a part since §73.14.2) | 110 | 102 |
@@ -120821,7 +120821,7 @@ clusters the pair took; on the 512-byte ones it is two sectors more than the
 pair, for one directory entry fewer. The bss grows by `OP_BSS` (102), the
 standard's own words.
 
-**How to adopt it** (C64, the Apple II, RunCPM, WEAVE, LOOM): define
+**How to adopt it** (C64, the Apple II, WEAVE, LOOM; RunCPM has, §74.3.1): define
 `CC_OVL_PART` (and `CC_OVL_LAZY` if the module is not used by every session)
 in the shim; if the package has a parts table, add `CC_OVL_ROW` as its last
 row and bump the count; add `part` as `CC_PACKAGE`'s fifth argument (LOOM's
@@ -121104,7 +121104,7 @@ surface names ONE RunCPM file:
 | `Bdos Err on X:` texts and the wait-and-warm-boot | `RunCPM/disk.h` `_error` |
 | the FCB and directory-entry layouts, name rules, extent/record synthesis, every file operation's return code | `RunCPM/disk.h`, `abstraction_posix.h` |
 | drives A..P / users 0..F as folders, `AUTOEXEC.TXT`, `$$$.SUB`, `PUN.TXT`/`LST.TXT` capture | `RunCPM/disk.h`, `cpm.h`, `globals.h` |
-| the command processor | `RunCPM/CCP/CCP-DR.60K` — Digital Research's CCP, run on the Z80, loaded from the launch folder |
+| the command processor | `RunCPM/CCP/CCP-DR.60K` — Digital Research's CCP, run on the Z80, carried inside the package's part (§74.3.1) |
 | HostOS code 0x08 (new; 0x00–0x07 are RunCPM's) | `abstraction_*.h` |
 | the terminal geometry: 80×25 | `abstraction_runvt.h`; `TE.COM`'s configuration block on the master disk |
 
@@ -121119,8 +121119,9 @@ estimate, ERA/REN/MAKE, the error texts) are named from the first wave and
 `RUNCPM.OVL` exists the moment the measured size line says so (§73.14). The
 Z80's 64KB is **not** in the package: it is `os88_mem_claim(64)`, its own
 segment, and the launch refuses (quoting what it asked and
-`os88_mem_largest_kb()`) if that claim, the 2KB CCP claim or one file claim
-cannot be had. *Numbers: wave 1 (window, terminal, shadow, banner, wake,
+`os88_mem_largest_kb()`) if that claim or one file claim cannot be had - and
+before it, in the parts standard's words, if the carve holding the module and
+the CCP cannot (§74.3.1; it was a 2KB CCP claim of its own until then). *Numbers: wave 1 (window, terminal, shadow, banner, wake,
 quiet goto, harness — no Z80, no BDOS, no files yet) measured
 `image=12590 bss=6473`, 42 functions, largest frame 30 bytes; **wave 2 (the
 Z80 core, the movers, the slice driver, the console side of BDOS/BIOS,
@@ -121159,12 +121160,12 @@ record, a punched byte, a console byte or a keystroke touches (`F_READ`/
 `F_WRITE`, the random records, the capture files, the open-file table's
 loader `rc_oft_get`, the directory cache) stays resident.** The module is
 first called by `rc_boot` on the first wake (`ovl_patch_cpm`, after
-`ovl_banner2`), before any folder move, so `RUNCPM.OVL` resolves in the
-launch folder like the CCP; `ovl_patch_cpm` answers 1, and a 0 — no heap, no
-file, a stale module, each toasted by `cc_ovneed` — stops the machine with
-`Unable to load RUNCPM.OVL.` / `CPU halted.` on the terminal, the window kept
-up as for a missing CCP; every later `ovl_*` call therefore finds the module
-in. **Wave 5 (the About panel, the flush counters key, the panel-as-damage
+`ovl_banner2`). *(Until §74.3.1 that call was the module's load: `RUNCPM.OVL`
+resolved in the launch folder like the CCP, and a 0 — no heap, no file, a
+stale module, each toasted by `cc_ovneed` — stopped the machine with `Unable
+to load RUNCPM.OVL.` / `CPU halted.` on the terminal. The module is an eager
+part of the package now, read at launch, so neither the load nor that text
+exists.)* **Wave 5 (the About panel, the flush counters key, the panel-as-damage
 close, the 642-px window) measures `image=39356 bss=11689` resident (51,045)
 + a 7,389-byte `RUNCPM.OVL`**, 128 functions, 23 in the module, 55 resident
 shims, 20 loading call sites, largest frame 30 — +780 image / +102 bss for
@@ -121396,17 +121397,18 @@ HL and DE end past the block and BC = 0xFFFF as upstream's post-decrement
 leaves it) rather than ~50 µs a byte on the UI task.
 
 **The command processor is DRI's CCP, run on the Z80, and the boot is
-`main.c`'s loop (wave 3, `rc_boot`).** `CCP-DR.60K` is read ONCE, in
-`os88_main`, from the launch folder — before any folder move, the way an
-`.OVL` is resolved — into a **2KB claim** (`os88_mem_claim(2)`; the launch
-refuses with the same "what was asked / what there is" toast as the 64KB
-claim, `RunCPM: 2KB? n KB`, if it cannot be had), and every lap of the loop
+`main.c`'s loop (wave 3, `rc_boot`).** `CCP-DR.60K` is in memory from
+launch: it rides at offset 0 of the package's one part, the module, which
+`op_load` reads with the image (§74.3.1; until then it was read ONCE, in
+`os88_main`, from the launch folder into a 2KB claim of its own, refused as
+`RunCPM: 2KB? n KB`), and every lap of the loop
 — the first, after the clock estimate; and every warm boot: BIOS WBOOT, BDOS
 0, `^C` on an empty line at the prompt, a disk error's key — does exactly
 `main.c` 110–140: CCPHEAD (`\r\nRunCPM Version 6.9 (CCP-DR.60K) - CP/M
 2.2\r\n`), `_PatchCPM` (IOBYTE 3Dh and DSKByte only on a cold start:
 `Status != STATUS_RESTART`), `Status = 0`, the CCP copied to 0xE400 out of
-its claim with `rc_zzcopy_in`, **`AUTOEXEC.TXT` poked on EVERY boot**
+the part with `rc_zzcopy_in` (its segment ASKED, `os88_part_seg`, every
+time and never banked - the carve moves), **`AUTOEXEC.TXT` poked on EVERY boot**
 (upstream's `BOOTONLY FALSE`, globals.h 305) — its first 125 bytes at
 CCPaddr+8, cut at the first control character, a NUL after it, its length
 at CCPaddr+7, which is the DRI CCP's own command buffer (`+6` the max 0x7F,
@@ -121415,8 +121417,8 @@ the CCP runs the line before its first prompt and prints its answer, not the
 line — Z80reset (PC, IFF, I, R cleared; SP is the CCP's own), C = DSKByte,
 PC = CCPaddr, run. **The file is READ ONCE, at launch** (`rc_ax_load` in
 `os88_main`, beside the CCP, from the launch folder before any move), and
-**the poke is made ONCE, INTO THE CCP CLAIM** (+7 the length, +8 the text
-and its NUL) — every boot copies the CCP out of that claim, so every boot's
+**the poke is made ONCE, INTO THE PART'S COPY OF THE CCP** (+7 the length,
++8 the text and its NUL) — every boot copies the CCP out of the part, so every boot's
 copy carries the same bytes to CCPaddr+7.. that upstream's poke after its
 `_RamLoad` puts there, with no buffer of their own (apps size pass 1: the
 126-byte `rc_axbuf` cache it replaced); upstream re-reads it from FILEBASE on every lap, which is a host
@@ -121432,19 +121434,17 @@ from the directory entry, so a 125-byte read would silently ignore any
 `AUTOEXEC.TXT` over 125 bytes, where upstream's `_RamLoad(AUTOEXEC, cmd,
 125)` delivers the first 125 bytes of a file of any size) — into the Z80
 claim's TPA at the loader's 512-aligned landing, with the TPA up to the CCP
-(~57KB) as the capacity, the first 125 bytes copied into the claim and the
+(~57KB) as the capacity, the first 125 bytes copied into the part and the
 TPA cleared behind them; a file above ~57KB is FERR_BIG and ignored, the one remaining
-cap, stated. **So a warm boot is a 2KB claim-to-claim copy and no disk at
+cap, stated. **So a warm boot is a 2KB part-to-claim copy and no disk at
 all**, and `rc_slice` runs the CCP's prompt in what is left of the same
 slice: CCPHEAD and the next `A>` are ONE flush — `^C` on the bottom row is
 one `gfx_scroll` and one fill, not two of each (harness: `^C at the bottom
-row: warm boot + prompt, one flush`, 5 calls / 1 scroll / 1 fill). A disk without `CCP-DR.60K` is not a
-refused launch: `main.c` 118's `Unable to load CP/M CCP.\r\nCPU halted.`
-follows CCPHEAD on the terminal, and — **one stated deviation** — the
-machine goes idle with the window up so the text can be read (upstream
-breaks out of the loop and the process ends, taking its terminal with it if
-it was launched by a double-click); the close box ends it and Alt+L still
-loads a `.COM`. **The exit** — BIOS BOOT (`EXIT.COM`) and HALT — is `main.c`
+row: warm boot + prompt, one flush`, 5 calls / 1 scroll / 1 fill). `main.c`
+118's `Unable to load CP/M CCP.` has no case here: the CCP is inside the
+package's part, so a launch that has a window has the CCP (§74.3.1 - a disk
+without `CCP-DR.60K` used to idle the machine under that text, with the
+window up). **The exit** — BIOS BOOT (`EXIT.COM`) and HALT — is `main.c`
 141–160: the machine stops, `\r\n` goes into the terminal model and is
 **not drawn** (upstream's `\r\n` is for a host shell that outlives the
 process; here nothing outlives the window, which the worker destroys within
@@ -121986,9 +121986,9 @@ the programs and the texts (§74.5), and it ships at 350/354 with 4KB free —
 `pip test.txt=info.txt` and `type test.txt` on it are
 `build/port-shots/wave6-360-pip.png`.
 
-The CCP is `CCP-DR.60K`, loaded once at launch from the launch folder — before
-any folder move, like the `.OVL` — into a 2KB claim and copied to 0xE400 on
-every warm boot with CCPHEAD printed above it; `AUTOEXEC.TXT` is read from the
+The CCP is `CCP-DR.60K`, at the head of the package's one part (§74.3.1) and
+in memory from launch, copied to 0xE400 on every warm boot with CCPHEAD
+printed above it; `AUTOEXEC.TXT` is read from the
 launch folder once at launch and poked on every warm boot — identical to
 upstream's read-on-every-boot default here, because CP/M cannot reach the
 launch folder (wave 3 — the mechanics are in §74's command-processor
@@ -122021,6 +122021,98 @@ b:` then `pip b:=a:*.sub` — twelve files across the two slots
 info.sub`, `a:`: 2 `int 13h` calls in all, `wave4b-b-drive.png`;
 `B\0\INFO.SUB` walked equals A's); `exit` closes the window
 (`wave4b-exit.png`).
+
+#### 74.3.1 One file: the module and the CCP are the package's PART
+
+**`RUNCPM.O88` is the only file the program is.** It shipped as three -
+the package, `RUNCPM.OVL` (§73.14's module) and `CCP-DR.60K` - and the two
+beside it were files the program needs and the user never opens: they
+scrolled past in every listing, and a copy that took the `.O88` and left
+either behind was a window whose machine could not boot. Both are inside it
+now, as its ONE part (§20.12): the module, adopted through §73.14.2's
+`CC_OVL_PART`, with the CCP `incbin`'d at offset 0 of `.modc` ahead of the
+compiled code (`apps/runcpm/runcpm.asm`; the shim fails to assemble unless it
+lands at 0 and is exactly `RC_CCPSIZE`). `LICENSE` and `1STREAD.ME` are
+documents and stay files, and drive `A\0` is the emulated machine's DISK -
+the user's files - and stays a folder.
+
+**The CCP is the program's data, not a choice.** Upstream picks one CCP at
+COMPILE time (`globals.h`'s `CCP_DR` / `CCP_CCPZ` / `CCP_ZCPR2` / `CCP_ZCPR3`
+/ `CCP_Z80`, each with its own address, file name and `$$$.SUB` FCB), and this
+port compiles `CCP_DR`'s in (`rccpm.c`: `RC_CCPADDR`, `RC_BATCHFCB` at
++0x7AC, `F_CCPVERSION` 0x00). A different file under that name was never a
+second CCP here, it was a wrong machine. The master disk's `CCP.SUB` /
+`CCPZ.SUB` / `ZCPR2.SUB` / `Z80CCP.SUB` build `CCP-*.BIN` files ON drive A,
+which upstream's user copies to the host and recompiles for; here that is
+still the shape - rebuild the package - and it is stated rather than hidden
+that a hand-rebuilt `CCP-DR.60K` dropped beside the package (which CP/M could
+never reach anyway, the launch folder being outside `A\0..P\F`) is no longer
+read.
+
+**EAGER, because every session uses both within a second of launch.** The
+first wake prints `ovl_banner2` and calls `ovl_patch_cpm`, and the CCP's
+first act is a `DIR` or a `.COM` load - `F_SFIRST` or `F_OPEN`, module code -
+while the CCP itself is copied on that same wake and `AUTOEXEC.TXT` is poked
+into it in `os88_main`. So `op_load` reads both in the carve right behind the
+image, with the motor still running, and a machine without the RAM is
+refused at LAUNCH in the standard's words rather than opening a window that
+cannot boot - which is why `Unable to load RUNCPM.OVL.`, `Unable to load CP/M
+CCP.`, the `RunCPM: 2KB?` refusal and the module's stamp are all gone. The
+lazy arm was built and measured: 176 bytes less image than the eager one and
+the same 52 sectors of file, and it would have needed the part fetched in `os88_main`
+anyway for the `AUTOEXEC.TXT` poke - lazy in name only.
+
+**Why the CCP is INSIDE the module rather than a row of its own.** Both were
+built. As its own row (plain, part 0, the module part 1) it cost two things:
+a part is sector-aligned, so the file was **26,702 bytes, 53 sectors** - one
+more than the three files it replaced on the 512-byte-cluster geometries
+(2,048 bytes is four sectors plain, and LZ4 takes it only to 1,762, still four
+once padded) - and a carve holding the package's own part beside the module
+stays PINNED (§73.14.2.1: crt0 cannot know the C banked no segment), where
+the `RUNCPM.OVL` claim it replaced was movable. Inside the module it is one
+LZ4 stream with the code (6,726 -> **4,916**), no row and no padding, and the
+carve is the overlay ALONE as far as crt0 can see, so `cc_ovcarve` declares it
+movable with no shared code touched. What makes that safe is on the C side:
+the CCP's segment is ASKED (`os88_part_seg(RC_CCP_PART)` + `RC_CCP_OFF`) at
+each use - `rc_boot`'s copy, `rc_ax_load`'s poke - and banked nowhere, so the
+relocation proc re-binding the module is the whole of the move. It is never
+executed in the module: it is Z80 code, copied out, and the module's DS is
+still the package's. The Makefile names the CCP as a prerequisite of
+`runcpm.bin` and not as a `--part`: it is assembled in.
+
+**Measured, against the three files at the same commit:**
+
+| | before | after |
+|---|---|---|
+| image + bss | 29,966 + 10,453 | **30,836 + 10,551** (+870: the parts standard's carve - `op_load`, `op_size`, `op_claim`, `op_read`, `op_unpack`, `op_seg` - against `cc_ovneed`'s file path, stamp and refusals, the CCP's file read and the two `Unable to load` paths; +98 bss: `OP_BSS`, less `rc_ccpseg`/`rc_ccplen`) |
+| the module | 4,682 (stamp included) | 6,726 (4,678 of code, the CCP's 2,048) |
+| on a disk | `RUNCPM.O88` 20,607 + `RUNCPM.OVL` 3,155 + `CCP-DR.60K` 2,048 = 25,810, three files, 52 sectors, 27 clusters of 1KB | `RUNCPM.O88` **26,420**, one file, 52 sectors, 26 clusters of 1KB (the image 21,490 of LZ4, the part 4,916) |
+| launch claims | the CCP's 2KB, and on the first wake the module's 5KB - two, the CCP's pinned | one carve of 8KB, movable (read off `mem_tab` on MartyPC) |
+
+**The carve is 1KB more than the two claims it replaces, and that is
+measured and kept.** `op_claim` cuts an eager compressed carve for the
+in-place expansion - the unpacked part, one sector below it, and the packed
+run in whole clusters (§20.12.10.8) - so 6,726 bytes unpacked from 4,916
+packed is 7,680, an 8KB claim of which the top 1,466 bytes are dead once
+`op_unpack` is done. The Apple II gives that tail back (`os88_mem_regrow` in
+place, APPLE2-SPEC 1.5), and that was built here and REFUSED on two
+measurements: its ~30 resident bytes took the packed image over a sector
+boundary, so the file went to 53 sectors and 27 clusters - a sector or a
+cluster more on every geometry, for a heap kilobyte only while RunCPM runs -
+and with the part
+then starting on an ODD sector the run's head slack on a 1KB-cluster disk
+was 512 bytes, so the carve read 8KB on the glass with the shrink in it and
+bought nothing there at all.
+
+On the four `make runcpmdisk` floppies the root loses two entries and the
+`A\0` fill keeps every file: `runcpm.img` 2,722 clusters before and after,
+214 -> 212 files; `runcpm120.img` 2,246 and 2,246, 160 -> 158;
+`runcpm360.img` 329 -> **328**, 59 -> 57; and `runcpm720.img`, where the
+1KB cluster the package gave back is spent by `--select`, 698 and 698 with
+`A\0` carrying one more master-disk file (`ABDOS.60K`, 70 -> 71), 89 -> 88.
+`apps/runcpm/hosttest/rcuitest.c` models the part: one claim at launch, the
+CCP at the part's segment and never read as a file (a read of the name fails
+the harness), and its disk-without-the-CCP scene is gone with the case.
 
 ### 74.4 What is present and greyed, and what is absent
 
@@ -122064,10 +122156,8 @@ package); the 64-bit clock estimate (replaced, stated); `INFO.COM`'s host
 name (its table predates HostOS 0x08 — a third-party binary, not edited);
 `::CPU HALTED::` (DEBUG-only upstream — this port toasts the fact and then
 does exactly what BOOT does: the "\r\n", the exit path, the self-close);
-`Unable to load CP/M CCP.` leaves the window up rather than ending the
-process (stated in §74: the text would otherwise never be read), and
-`Unable to load RUNCPM.OVL.` does the same for the module (§74's numbers
-paragraph). **A toast is the BAR's strip, and the bar is under a fullscreen
+`Unable to load CP/M CCP.` (the CCP cannot be missing: it is inside the
+package, §74.3.1). **A toast is the BAR's strip, and the bar is under a fullscreen
 window** (§11.2's fullscreen, `Alt+F` here, §74.2 — a shipped mode: `menu_draw_bar` early-outs on
 `wm_fs_vis`, and `toast_pass` retires the strip after `TOAST_TICKS` all the
 same), so a refusal stated only by a toast would reach a fullscreen user as a
@@ -122091,8 +122181,9 @@ embedding, ABDOS, the alternate cores, and the three master-disk files above
 Package `RUNCPM`, directory `apps/runcpm/`, images `build/runcpm.img` /
 `runcpm720.img` / `runcpm120.img` / `runcpm360.img` (each `--verify`'d), 86Box machine
 `vm/386-runcpm` (a copy of `vm/386-c-word` with the B: image and uuid
-changed), on `apps-all.img` as a folder of its own `RUNCPM\` (§19.10 — the
-CCP, the `.OVL` and drive `A\0` must sit beside the package, below).
+changed), on `apps-all.img` as a folder of its own `RUNCPM\` (§19.10 — drive
+`A\0` must sit beside the package, below; the CCP and the module are inside
+it, §74.3.1).
 `tools/getruncpm.py` takes RunCPM's files at the pinned commit at build time
 (`make runcpm-src`, the stamp `build/runcpm-src.stamp`) out of the
 **committed `apps/runcpm/cache/cpmcache.zip`** (§74.6.1), reaching GitHub
@@ -122108,16 +122199,16 @@ pixel: a two-row window strip with its close box over a dark field carrying
 a large green `A>`; read at 1bpp — field and strip black, glyph and close
 box white — so it is the same picture on every adapter, with one stated
 deviation, a white row between strip and field where the colour edge was,
-§20.2), `RUNCPM.OVL`
-(from wave 4's split — beside the package, where `cc_ovneed` resolves it,
-§73.14), `CCP-DR.60K`, `LICENSE` and `1STREAD.ME` in its root
+§20.2, and its one part: the module with DRI's CCP at its head, §74.3.1 -
+until then `RUNCPM.OVL` and `CCP-DR.60K` were files beside it), `LICENSE`
+and `1STREAD.ME` in its root
 and drive A user 0 as
 far as the geometry holds it, chosen at recipe time by `getruncpm.py --select
 <kb>` — the texts and submit files first (they are ~18 clusters and make
 the disk explain itself), then the programs, then documentation, libraries
 and sources; **the cluster budget is DERIVED, not a constant**: the recipe
 passes `--reserve` with the root files that ride beside `A/0` (the package,
-the `.OVL`, the CCP, LICENSE, the read-me — and nothing of this tree's:
+LICENSE, the read-me — and nothing of this tree's:
 `HELLO.COM`, the 49-byte hand-assembled hello wave 2's gate loaded from the
 root of `build/runcpm.img`, is still built (`build/HELLO.COM`, for a hand
 test of Alt+L's launch-folder path on a scratch image) and ships on no
@@ -122188,8 +122279,9 @@ with the 39,412-byte package and its 7,389-byte module; wave 4's 360KB disk carr
 and libraries filled it to the last cluster and no session could save —
 and wave 2's 24,848-byte package left it 62 files: `--reserve` re-shaped
 the selection by itself each time). **The everything set (§19.10) carries the
-same package as a folder of its own, `RUNCPM\`** — the package, the
-`.OVL`, the CCP, LICENSE, 1STREAD.ME and `A\0` below it. That folder carries
+same package as a folder of its own, `RUNCPM\`** — the package, LICENSE,
+1STREAD.ME and `A\0` below it (the `.OVL` and the CCP beside the package
+until §74.3.1). That folder carries
 no games. Since the set replaced the single floppy (2026-09-30) its `A\0` is
 priced WHOLE by `tools/os88allapps.py` — the fill an otherwise empty disk of
 the geometry holds, which is **all 77 files at 1.44MB and at 1.2MB** — where
@@ -122207,7 +122299,7 @@ directory slots; `make allapps`
 therefore acquires `tools/getruncpm.py`'s stamp as a prerequisite, which it
 can because it already needs the C toolchain — 112 files in 11 folders,
 2,212 of 2,847 clusters, booted to `A>` from `RUNCPM\` (the `.OVL` and the
-CCP resolve in the launch folder, and so does `A\0`: wave 6's
+CCP resolved in the launch folder then, before §74.3.1, and `A\0` still does: wave 6's
 `build/port-shots/wave6-all-a-prompt.png`). **A/0
 holds more entries than the Disk window's
 32-entry listing cap** (§19): that is a DISPLAY cap — `OSAPI_FILE_FIND` and
