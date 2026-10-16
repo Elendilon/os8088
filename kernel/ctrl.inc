@@ -2848,13 +2848,8 @@ cp_thm_cust_btn:
 ; symbol and the kernel needs no preset table and no call to set one.
 ; -----------------------------------------------------------------------------
 cp_thmv_open:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    mov bx, thmv_row
+    call kentm_bp               ; KENT: push ax..bp (AX too: the caller reads
+    mov bx, thmv_row            ; [thmv_row+DRVR_ERR] for itself afterwards)
     CPSTAGE cp_thmv_fname       ; THE FILE NAME IS STAGED, not resident (kernel
     mov [bx+DRVR_FILE], si      ; size pass 13): drv_load_at reads it through
                                 ; DS, and this is the one code that loads the
@@ -2886,13 +2881,7 @@ cp_thmv_open:
 .no:
     stc
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp kretm_bp                ; pops and a ret: CF survives
 cp_thmv_fname: db 'THMPAL.DRV', 0   ; staged into cp_sbuf above (ss_fname's
                                 ; shape, one image along: no row on the
                                 ; Drivers page and no caption)
@@ -3070,17 +3059,12 @@ cp_thm_click:
 %ifdef KERN_BIG
     jnc .tok                    ; WIN95.DRV could not be mounted (SPEC.md
     push si                     ; 76.14.1): thm_set has adopted the nearest
-    push es                     ; theme that needs no module and [thm_kind]
-    push cx                     ; says which - the radios below read it back,
-    push cs                     ; and the toast says why they did not move.
-    pop es                      ; The line is in THIS image, so ES is CS
-    mov si, cp_s_tnowin         ; (cp_toast is for the kernel's strings)
-    xor cx, cx
-    call KERNEL_SEG:cw_toast_show
-    pop cx
-    pop es
-    pop si
-.tok:
+    mov si, cp_s_tnowin         ; theme that needs no module and [thm_kind]
+    call sc_m_say               ; says which - the radios below read it back,
+    pop si                      ; and the toast says why they did not move.
+.tok:                           ; The line is in THIS image, so sc_m_say
+                                ; (ES = CS) and not cp_toast, which is for
+                                ; the kernel's strings
 %endif
     call cp_repost              ; remembered on close (SPEC.md 31.8)
                                 ; ui_task repaints the world (SPEC.md 13)
