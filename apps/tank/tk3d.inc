@@ -766,56 +766,67 @@ tk_m_tank:  db TKV_TANK, 22
 tk_m_shell: db TKV_SHELL, 3
             dw tk_v_shell, tk_e_shell, tk_ypre + 2 * (TK_NYPRE - TKV_SHELL)
 
-tk_v_cube:
-    dw  -90,   0,  -90
-    dw   90,   0,  -90
-    dw   90,   0,   90
-    dw  -90,   0,   90
-    dw  -90, 180,  -90
-    dw   90, 180,  -90
-    dw   90, 180,   90
-    dw  -90, 180,   90
-
-tk_v_block:                         ; the low wide slabs the 1983 port stands
-    dw -150,   0,  -60              ; in threes
-    dw  150,   0,  -60
-    dw  150,   0,   60
-    dw -150,   0,   60
-    dw -150,  90,  -60
-    dw  150,  90,  -60
-    dw  150,  90,   60
-    dw -150,  90,   60
+; THE VERTICES ARE THE BSS'S (apps size pass 2, SPEC.md 85.5.2). Every
+; coordinate is a multiple of five, so the file ships each one as a signed
+; byte of fifths and tk_mktabs multiplies them back - TK_MODELS is that list,
+; emitted once, in the entry overlay (tank.asm), and tk_v_cube..tk_v_shell
+; are bss names laid out in the same order, TKV_* vertices apiece.
+%macro TK_MODELS 0
+    ; tk_v_cube
+    TKV  -90,    0,  -90
+    TKV   90,    0,  -90
+    TKV   90,    0,   90
+    TKV  -90,    0,   90
+    TKV  -90,  180,  -90
+    TKV   90,  180,  -90
+    TKV   90,  180,   90
+    TKV  -90,  180,   90
+    ; tk_v_block                    ; the low wide slabs the 1983 port stands
+    TKV -150,    0,  -60            ; in threes
+    TKV  150,    0,  -60
+    TKV  150,    0,   60
+    TKV -150,    0,   60
+    TKV -150,   90,  -60
+    TKV  150,   90,  -60
+    TKV  150,   90,   60
+    TKV -150,   90,   60
+    ; tk_v_pyr
+    TKV -110,    0, -110
+    TKV  110,    0, -110
+    TKV  110,    0,  110
+    TKV -110,    0,  110
+    TKV    0,  260,    0
+    ; tk_v_tank                     ; hull, turret, and a barrel that says
+    TKV -130,    0, -150            ; which way it is about to shoot
+    TKV  130,    0, -150
+    TKV  130,    0,  150
+    TKV -130,    0,  150
+    TKV -130,   70, -150
+    TKV  130,   70, -150
+    TKV  130,   70,  150
+    TKV -130,   70,  150
+    TKV  -60,  130,  -80
+    TKV   60,  130,  -80
+    TKV   60,  130,   60
+    TKV  -60,  130,   60
+    TKV    0,  105,  330
+    ; tk_v_shell                    ; a three-axis cross: small, bright, and
+    TKV  -40,   90,    0            ; unmistakably not scenery
+    TKV   40,   90,    0
+    TKV    0,   50,    0
+    TKV    0,  130,    0
+    TKV    0,   90,  -40
+    TKV    0,   90,   40
+%endmacro
 
 tk_e_box:
     db 0,1, 1,2, 2,3, 3,0
     db 4,5, 5,6, 6,7, 7,4
     db 0,4, 1,5, 2,6, 3,7
 
-tk_v_pyr:
-    dw -110,   0, -110
-    dw  110,   0, -110
-    dw  110,   0,  110
-    dw -110,   0,  110
-    dw    0, 260,    0
-
 tk_e_pyr:
     db 0,1, 1,2, 2,3, 3,0
     db 0,4, 1,4, 2,4, 3,4
-
-tk_v_tank:                          ; hull, turret, and a barrel that says
-    dw -130,   0, -150              ; which way it is about to shoot
-    dw  130,   0, -150
-    dw  130,   0,  150
-    dw -130,   0,  150
-    dw -130,  70, -150
-    dw  130,  70, -150
-    dw  130,  70,  150
-    dw -130,  70,  150
-    dw  -60, 130,  -80
-    dw   60, 130,  -80
-    dw   60, 130,   60
-    dw  -60, 130,   60
-    dw    0, 105,  330
 
 tk_e_tank:
     db 0,1, 1,2, 2,3, 3,0
@@ -824,14 +835,6 @@ tk_e_tank:
     db 8,9, 9,10, 10,11, 11,8
     db 4,8, 5,9, 6,10, 7,11
     db 10,12, 11,12
-
-tk_v_shell:                         ; a three-axis cross: small, bright, and
-    dw  -40,  90,    0              ; unmistakably not scenery
-    dw   40,  90,    0
-    dw    0,  50,    0
-    dw    0, 130,    0
-    dw    0,  90,  -40
-    dw    0,  90,   40
 
 tk_e_shell:
     db 0,1, 2,3, 4,5

@@ -129021,6 +129021,15 @@ turret and a barrel that says which way it is about to shoot — and a shell
 is a three-axis cross, 6/3, drawn in `TKI_MARK` so the thing about to kill
 you is the thing that stands out.
 
+**The vertices are the bss's** (apps size pass 2). Every coordinate of the
+forty is a multiple of five and lies in -150..330, so `TK_MODELS` in
+`tk3d.inc` ships each as a signed byte of fifths - an `%error` refuses one
+that is not - and `tk_mktabs` in the entry overlay (§85.10.6) multiplies them
+back into `tk_v_cube`..`tk_v_shell`, the same 240 bytes in the same order,
+checked as §85.5.1's ridge is. The model records and the edge lists are
+unchanged and the rotation reads the same words through the same pointers.
+120 bytes of seed and 19 of code: **the file -30, RAM unchanged**.
+
 ### 85.6 The session (`apps/tank/tkgame.inc`)
 
 `tk_fsx_main` is the §53.1 bracket's exclusive main, and it has **two rates,
@@ -130106,11 +130115,18 @@ built at entry. `tk_entry` runs once per instance, from a fresh read of the
 file, and never again (§20.1); `tk_spjunk` is the span set a template draw
 marks so that its walks have somewhere to write, which only a shadow backend
 has and only inside an fsx bracket - long after the loader has had its window.
-So the set and its two 8-byte guards are the **last 416 bytes of the image**
+So the set and its two 8-byte guards are the **last bytes of the image**
 (`tk_ovl`), the entry proc is the first thing in them, and the rest is zeros,
 which cost a packed file almost nothing. Apps size pass 2: **image +254, bss
 -408, so 154 bytes less RAM an instance on both builds**, and the file +2.
-Three rules, each stated in `tank.asm` where it binds:
+`tk_rowoff` joined it when the tables below needed the room: it is written
+whole - every row the viewport has, on every backend - by `tk_devrows` at the
+top of every bracket before anything reads it, so it follows the set's
+trailing guard and the overlay is **896 bytes**, RAM-neutral (image +480, bss
+-480). The only instruction that names it relative to a bss name,
+`tk_clearspans`' `tk_tmrix - tk_rowoff` on the small build, keeps its 16-bit
+displacement and changes only its sign. Three rules, each stated in
+`tank.asm` where it binds:
 
 1. **Nothing in the overlay may be named after `tk_entry` returns.** The
    region's relocation proc is therefore `tk_ret`, a lone `ret` in
@@ -130119,11 +130135,11 @@ Three rules, each stated in `tank.asm` where it binds:
    kernel calls it on the next compaction.
 2. **Nothing the kernel keeps a pointer to is in it**: the window template,
    the title, the menus, the About handler and every callback stay above.
-3. **Nothing follows it in the image.** A walk's overrun runs one row past
-   either end of a set (§85.3.2), and the overlay's own first and last eight
-   bytes are those guards, so the bss's first word is safe; `tk_spguard4`
-   stays in the bss in front of `tk_sprdg`, whose trailing slack it is. A
-   `times` with a negative count refuses an overlay that outgrows the set.
+3. **A walk's overrun runs one row past either end of a set** (§85.3.2), and
+   the set's guards are the overlay's first eight bytes and the eight between
+   it and `tk_rowoff`, which nothing overruns; `tk_spguard4` stays in the bss
+   in front of `tk_sprdg`, whose trailing slack it is. A `times` with a
+   negative count refuses an overlay that outgrows the two buffers.
 
 The overlay is what the tables below are expanded by: code and seeds that run
 once and are dead after it, in bytes that were going to be RAM anyway.

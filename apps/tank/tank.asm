@@ -728,8 +728,13 @@ tk_tpl:
 %endmacro
 
 ; --- the tables the entry overlay expands (SPEC.md 85.5, 85.5.1) --------------
-    ZBUF  tk_sintab, 65 * 2         ; FIRST, so a word table is on an even
-    ZBUF  tk_ridgetab, 256          ; address: the overlay ends the image on one
+    ZBUF  tk_sintab, 65 * 2         ; FIRST, so the word tables are on even
+    ZBUF  tk_v_cube, TKV_CUBE * 6   ; addresses: the overlay ends the image on
+    ZBUF  tk_v_block, TKV_BLOCK * 6 ; one, and these are all words
+    ZBUF  tk_v_pyr, TKV_PYR * 6
+    ZBUF  tk_v_tank, TKV_TANK * 6
+    ZBUF  tk_v_shell, TKV_SHELL * 6 ; (tk3d.inc's TK_MODELS, in its order)
+    ZBUF  tk_ridgetab, 256
 
 ; --- the desktop side ---------------------------------------------------------
     ZWORD tk_scrw
@@ -850,8 +855,9 @@ tk_tpl:
 %ifdef APP_SMALL
     ZBUF  tk_devoff, TK_SHROWS * 2  ; the blit's, so a shadow's alone - and in
 %endif                              ; the claim's tail on the shipped build
-    ZBUF  tk_rowoff, TK_MAXROW * 2  ; 80 x row: the target offset of a row,
-                                    ; looked up rather than multiplied
+                                    ; tk_rowoff, 80 x row - the target offset
+                                    ; of a row, looked up rather than
+                                    ; multiplied - is the overlay's too
 
 ; --- the clipper and the walk -------------------------------------------------
     ZWORD tk_cx1                    ; these four are CONTIGUOUS and indexed
@@ -1095,30 +1101,34 @@ tk_kx equ tk_kxrows - TK_NEARZ * 2  ; the projection table (85.5.3): sclx over
 
 ; =============================================================================
 ; THE ENTRY OVERLAY (SPEC.md 85.10.6): the entry proc lies under tk_spjunk
+; and tk_rowoff
 ;
 ; tk_entry runs once per instance, from a fresh read of the file, and never
 ; again (SPEC.md 20.1) - and tk_spjunk is the span set a TEMPLATE draw marks
 ; and nobody reads (tkgame.inc), which only a shadow backend has and only
-; inside an fsx bracket. The two never meet: the bracket is a menu command or
-; a key, long after the loader has had its window. So the set and its two
-; guards are THESE bytes, at the very end of the image, and not 416 more of
-; bss. Three rules make it safe:
+; inside an fsx bracket, while tk_rowoff is written whole, every row the
+; viewport has, by tk_devrows at the top of every bracket before anything
+; reads it. Neither meets the entry proc: the bracket is a menu command or a
+; key, long after the loader has had its window. So the set, its two guards
+; and the row table are THESE bytes, at the very end of the image, and not
+; 896 more of bss. Three rules make it safe:
 ;
 ; 1. Nothing here may be named after tk_entry returns - so the region's
 ;    relocation proc is tk_ret (tk3d.inc), NAMED, because the bare
 ;    OS88_REGION_MOVABLE plants its own `ret` inline, which would be here.
 ; 2. Nothing the kernel keeps a pointer to is here: the window template, the
 ;    title, the menus, the About handler and every callback are above.
-; 3. Nothing follows the overlay in the image: a walk's overrun runs at most
-;    one row past either end of the set (SPEC.md 85.3.2), and its 8-byte
-;    guards are the overlay's first and last bytes, so the end of the image
-;    is where the overlay must be - tk_spguard4 is the bss's own, in front of
-;    tk_sprdg, and stays there.
+; 3. A walk's overrun runs at most one row past either end of the set
+;    (SPEC.md 85.3.2), and its 8-byte guards are the overlay's first bytes
+;    and the ones between it and tk_rowoff, which nothing overruns - so the
+;    bss's first word, after the row table, is safe. tk_spguard4 is the bss's
+;    own, in front of tk_sprdg, and stays there.
 ; =============================================================================
-TK_OVLSZ  equ 8 + TK_SHROWS * 2 + 8
+TK_OVLSZ  equ 8 + TK_SHROWS * 2 + 8 + TK_MAXROW * 2
     align 2, db 0                   ; tk_spjunk is marked a word a row
 tk_ovl:
 tk_spjunk equ tk_ovl + 8
+tk_rowoff equ tk_spjunk + TK_SHROWS * 2 + 8
 
 ; -----------------------------------------------------------------------------
 ; tk_entry - the loader calls this once per instance (SPEC.md 20.1)
@@ -1274,6 +1284,23 @@ tk_mktabs:
     sub dx, bx
     loop .sin
     stosw                           ; sin 64
+
+    ; The models' vertices (SPEC.md 85.5.2): a byte of fifths each, and DI
+    ; runs on from tk_sintab's end into tk_v_cube
+%if tk_v_cube != tk_sintab + 65 * 2
+  %error "tk_mktabs runs from the sine into the vertices: keep them adjacent"
+%endif
+    mov si, tk_mdlseed
+    mov cx, TK_NYPRE * 3
+.vtx:
+    lodsb
+    cbw
+    mov dx, ax
+    shl ax, 1
+    shl ax, 1
+    add ax, dx                      ; x 5
+    stosw
+    loop .vtx
     pop es
     ret
 
@@ -1299,6 +1326,20 @@ tk_rdgseed:
 %endmacro
 tk_sinseed:
 %include "tksin.inc"
+
+%assign TK_NVSEED 0
+%macro TKV 3
+  %if ((%1) // 5) * 5 != (%1) || ((%2) // 5) * 5 != (%2) || ((%3) // 5) * 5 != (%3)
+    %error "a model coordinate that is not a multiple of five"
+  %endif
+    db (%1) // 5, (%2) // 5, (%3) // 5
+  %assign TK_NVSEED TK_NVSEED + 1
+%endmacro
+tk_mdlseed:
+    TK_MODELS
+%if TK_NVSEED != TK_NYPRE
+  %error "TK_MODELS does not hold TK_NYPRE vertices"
+%endif
 
 tk_ovlend:
     times TK_OVLSZ - (tk_ovlend - tk_ovl) db 0  ; a negative count is the
