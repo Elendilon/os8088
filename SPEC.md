@@ -128863,7 +128863,15 @@ instructions against the ten a right shift by 14 would take. The table holds
 **one quarter of the wave** - 65 words, where it held 256 - and `tk_sin1`
 reads the other three quarters backwards and negated: the full table was
 symmetric to the unit, so that is exact, and it is 382 bytes for two folds a
-lookup on a path no pixel waits on (apps size pass 1, set 6).
+lookup on a path no pixel waits on (apps size pass 1, set 6). **The file ships
+that quarter as its second differences** (apps size pass 2): `sin 0` is 0,
+the first step is 402, and every later step is 0..11 shorter than the one
+before, so `tksin.inc` is 64 nibbles - 32 bytes - that `tk_mktabs` in the
+entry overlay (§85.10.6) adds back up into the bss's `tk_sintab`, the same 65
+words to the unit (checked the way §85.5.1's ridge is). 32 bytes of seed and
+41 of code where there were 130 of table: **the file -58, RAM unchanged**,
+678 instructions at launch. The expanded tables are the bss's FIRST names,
+so the word table keeps the even address it had in the image.
 
 **The world is a torus 8,192 units round** and the wrap is three
 instructions: mask a difference to 13 bits and fold the top half negative.

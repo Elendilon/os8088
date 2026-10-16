@@ -826,8 +826,8 @@ tk_v_shell:                         ; a three-axis cross: small, bright, and
 tk_e_shell:
     db 0,1, 2,3, 4,5
 
-tk_sintab:
-%include "tksin.inc"
+; tk_sintab is the bss's: tksin.inc ships its second differences, and the
+; entry overlay adds them back up (tank.asm, SPEC.md 85.5)
 
 ; TKRDG0 / TKRDG - tkridge.inc's runs, read HERE for TK_RIDGEPK alone: the
 ; tallest height, so the band the ridge can reach is ASSEMBLED rather than

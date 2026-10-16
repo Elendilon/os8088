@@ -725,6 +725,10 @@ tk_tpl:
 %assign TK_BSS TK_BSS + (%2)
 %endmacro
 
+; --- the tables the entry overlay expands (SPEC.md 85.5, 85.5.1) --------------
+    ZBUF  tk_sintab, 65 * 2         ; FIRST, so a word table is on an even
+    ZBUF  tk_ridgetab, 256          ; address: the overlay ends the image on one
+
 ; --- the desktop side ---------------------------------------------------------
     ZWORD tk_scrw
     ZWORD tk_dock
@@ -890,7 +894,6 @@ tk_tpl:
     ZWORD tk_ey1
     ZWORD tk_ex2
     ZWORD tk_ey2
-    ZBUF  tk_ridgetab, 256          ; tkridge.inc's runs, expanded at entry
     ZBUF  tk_ridgex, 25 * 2
     ZBUF  tk_rpy, 25 * 2
     ZBYTE tk_ra
@@ -1246,6 +1249,30 @@ tk_mktabs:
     mov dl, dh                      ; this run's end is the next one's start
     cmp di, tk_ridgetab + 256
     jb .run
+
+    ; The quarter sine (SPEC.md 85.5): tksin.inc's second differences, two
+    ; to a byte with the EVEN step in the low nibble, added up twice.
+    mov si, tk_sinseed
+    mov di, tk_sintab
+    xor ax, ax                      ; AX = sin i, from sin 0 = 0
+    mov dx, TK_SIN_D1               ; DX = sin (i + 1) - sin i
+    mov cx, 64                      ; CX = 64 - i
+.sin:
+    stosw
+    add ax, dx
+    mov bl, [si]
+    test cl, 1
+    jz .lo                          ; an even i is the byte's low nibble...
+    shr bl, 1
+    shr bl, 1
+    shr bl, 1
+    shr bl, 1
+    inc si                          ; ...and an odd one its high, and done
+.lo:
+    and bx, 0Fh
+    sub dx, bx
+    loop .sin
+    stosw                           ; sin 64
     pop es
     ret
 
@@ -1262,6 +1289,15 @@ tk_mktabs:
 %endmacro
 tk_rdgseed:
 %include "tkridge.inc"
+
+%macro TKSIN 2-*
+  %rep %0 / 2
+    db (%1) | ((%2) << 4)
+    %rotate 2
+  %endrep
+%endmacro
+tk_sinseed:
+%include "tksin.inc"
 
 tk_ovlend:
     times TK_OVLSZ - (tk_ovlend - tk_ovl) db 0  ; a negative count is the
