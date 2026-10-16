@@ -3833,7 +3833,9 @@ tp_kpvs:    db 0x48
 ; -----------------------------------------------------------------------------
 ; tp_bact - do what bar button AL says (SPEC.md 13.8)
 ; in:  AL = 1..7; the gfx lock is held
-; out: CF = 1 if the caller owes a full redraw
+; out: nothing - and the caller owes a full redraw, ALWAYS: every one of the
+;      seven changes the page, the setup or the set, so the "CF = 1 if" this
+;      used to answer was CF = 1 on all four of its exits
 ;
 ; ONE body, lifted out of tp_onclick's ladder so the press and the release
 ; cannot come to hold different opinions about what a button means.
@@ -3859,20 +3861,13 @@ tp_bact:
 .ok:
     mov [tp_psize-2+bx], al
     mov byte [tp_needset], 1
-    stc
     ret
 .set:
-    call tp_typeset
-    stc
-    ret
+    jmp tp_typeset
 .prev:
-    call tp_prev_page
-    stc
-    ret
+    jmp tp_prev_page
 .next:
-    call tp_next_page
-    stc
-    ret
+    jmp tp_next_page
 ; -----------------------------------------------------------------------------
 ; tp_onup - W_ONMOUSEUP (SPEC.md 13.7): a bar button fires HERE
 ; in:  CX = x, DX = y (SCREEN), SI = the window; gfx lock held
@@ -3924,7 +3919,6 @@ tp_onup:
                                 ; and drawing it upright first is
                                 ; PERFORMANCE.md's double-draw
     call tp_bact
-    jnc .out
     mov byte [tp_ldfull], 0
     call tp_redraw
 .out:

@@ -111879,6 +111879,11 @@ and code packs to about a byte a byte, so what moved it is code that went:
   both, the title's ` - ` is one `stosw` and a `stosb`, `tp_dlg` no longer
   falls back to SI for a window that always exists before a menu or a key
   can arrive, and Esc sets the preview's focus and falls into F5's typeset.
+- **A bar button always owes the window a repaint, and says so by not
+  answering.** `tp_bact` returned *CF = 1 if the caller owes a full redraw*,
+  and every one of its four exits set it: all seven buttons change the page,
+  the setup or the set. It returns nothing now, its three calls are jumps,
+  and `tp_onup` repaints after it without asking.
 
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 
