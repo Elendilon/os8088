@@ -73138,11 +73138,28 @@ eleven routines under it, §39.16.3), `ui_drag_size` (§11.100.3/.4),
 `wm_disp_now`/`wm_disp_rest` (§39.16.4.1) and the fsx bracket's three
 (`vid_fsx_enter`/`_leave`/`_unblank`, §39.18). **What did NOT move** is
 everything that runs per primitive, per glyph cell or inside the mouse ISR —
-`GFXDISP`, `gfx_disp_run`, the blit seam cut (§39.14.7.2), `font_ch_cut`
-(§39.14.11), `cur_move_multi`, the clip in display space — ~2,150 bytes that
-would put a far call under every primitive of an extended machine, and most of
-which is code GENERALISED in place rather than gated, so it runs on every
-`kern_big` machine and only its difference could ever come out.
+`GFXDISP`, `gfx_disp_run`, `cur_move_multi`, the clip in display space — ~1,800
+bytes that would put a far call under every primitive of an extended machine,
+and most of which is code GENERALISED in place rather than gated, so it runs on
+every `kern_big` machine and only its difference could ever come out.
+
+**Kernel size pass 13 took the two SEAM CUTS** that were on that list —
+`font_ch_cut` (§39.14.11, now `ext_fcut`, entry 12) and `gfx_blit4`'s cut
+(§39.14.7.2, now `ext_bcut`, entry 13) — because neither is per primitive: each
+runs once for the ONE glyph cell or the ONE blit a seam crosses, and only where
+`[gfx_dnest]` = 1 or `[vid_ndisp]` > 1, which is to say only while this image
+is mounted. **−330 resident bytes on `kern_big` and `kern_emu`** (`.text`
+−338, `.bss` +8, measured), and the image goes 1,031 → 1,406 bytes, **inside the
+2 KB claim it already took**: the second wave left it at 1,023, and what had
+been added since put it 7 bytes over the KB. `font_ch_spill` asks the cut's
+first question itself (`cmp byte [gfx_dnest], 1`) before the `EXTCALL`, so a
+one-card machine's off-the-edge glyph is refused FASTER than the near call it
+replaced, and pays no far call at all. What an extended desktop pays is a far
+call and two `EXK` hops on its one seam cell per text row (~+900 cycles against
+the cell's ~4,300), and a far call and two or three hops per straddling blit;
+the nested `font_char`/`gfx_blit4` each run ~10 bytes deeper on the stack than
+the near recursion did. `NOSEAMCUT` and `NOBLITCUT` leave their slot on a
+refusing `ext_refuse`, so the numbering never moves.
 
 **The second wave took the ARMS**, once §2.8.1's per-module slot blocks made
 an entry cost this module's own four bytes of `.bss` rather than four for
@@ -73194,6 +73211,8 @@ every register kept (§2.8.1) — and every call site is either behind a
 | 9 | `EXT_FSRECT` — `wm_fs_setrect`'s arm | `wm_fs_setrect` | CF = 1 → the primary's rect, written by the caller |
 | 10 | `EXT_DESK` — `vid_disp_desk` | `wm_paint_all` ×2 | CF = 1 = nothing painted, which the fullscreen arm reads in place of the `[vid_ndisp]` test it made |
 | 11 | `EXT_YLOW` — `ui_ylow`'s arm | `ui_drag`, GATED (the release) | never reached; the caller loaded `MBAR_H` into SI |
+| 12 | `EXT_FCUT` — `ext_fcut`, §39.14.11's cell cut | `font_ch_spill`, GATED (`[gfx_dnest]` = 1) | never reached; CF = 1 would be §39.14.2's whole-cell drop |
+| 13 | `EXT_BCUT` — `ext_bcut`, §39.14.7.2's blit cut | `gfx_blit4`, GATED (`[vid_ndisp]` > 1, a straddle) | never reached; CF = 1 (and an ODD cut) is §39.14.7's run-splitting path |
 
 `mod_init_x` rests the slots on `mod_gone` before `wm_init`, which is before
 the first of these can run; the early `vid_disp_init` in `kmain_o`, before

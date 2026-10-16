@@ -28,6 +28,11 @@ FONT_BYTES  equ (FONT_LAST - FONT_FIRST + 1) * 8    ; 95 glyphs x 8 rows = 760
  %endif                         ; five sites below, because a knob spelled out
 %endif                          ; five times is a knob spelled wrong once
 %ifdef SEAMCUT
+EXT_FCUT    equ 12              ; the CUT is EXTD.DRV's entry 12 (extmod.inc's
+                                ; header asserts it): [gfx_dnest] = 1 only on
+                                ; an extended desktop, and EXTD.DRV is mounted
+                                ; for exactly as long as there is one (SPEC.md
+                                ; 39.19.6; kernel size pass 13)
 FONT_SEAM_A equ FONT_LAST + 2   ; SPEC.md 39.14.11: the two codes that address
 FONT_SEAM_B equ FONT_LAST + 3   ; font_seam_a/font_seam_b through the glyph
                                 ; arithmetic already in font_char's body,
@@ -399,8 +404,13 @@ font_ch_hi:                     ; AL is past FONT_LAST - normally nothing to
     jmp short font_ch_drop      ; any other code past FONT_LAST: nothing
 
 font_ch_spill:                  ; the cell runs off this display's edge
-    call font_ch_cut
-    jc font_ch_drop             ; refused: 39.14.2's whole-cell drop stands
+    cmp byte [gfx_dnest], 1     ; 0 = one card, above 1 = a caller owns the
+    jne font_ch_drop            ; translation: 39.14.2's whole-cell drop stands
+                                ; for both, and a one-card machine is answered
+                                ; HERE, faster than the call it replaces
+    EXTCALL EXT_FCUT            ; ...and the CUT is EXTD.DRV's (kernel size
+    jc font_ch_drop             ; pass 13): refused - or no image - is 39.14.2's
+                                ; whole-cell drop
     mov al, FONT_SEAM_A         ; ...and what is left is the part that IS here,
     call font_ch_seam           ; drawn by a font_char of its own at the same
     jmp short font_ch_drop      ; pen, NESTED on this display (no second
@@ -662,175 +672,9 @@ font_char:
     pop ax
     ret
 
-%ifdef SEAMCUT
-; -----------------------------------------------------------------------------
-; font_ch_cut - SPEC.md 39.14.11: the one cell a display seam crosses, CUT
-;               instead of dropped
-;
-; in:       CX = x, DX = y, LOCAL to the display font_char entered; AL = the
-;           character; one of the two edge tests has just failed
-; out:      CF = 0 - font_seam_a holds this display's part of the cell, and the
-;           spill has ALREADY been drawn on the display across the seam with
-;           this one put back current. The caller draws font_seam_a in place
-;           and must NOT re-test the edges: nothing is left outside them, and
-;           the coordinates that failed have not moved
-;           CF = 1 - refused, and 39.14.2's whole-cell drop stands
-; clobbers: nothing but the flags
-;
-; The seam is a multiple of 8 and the cell's top-left is left of it, so the
-; cell's two byte-columns fall one wholly each side: the cut lands exactly
-; where the renderers already split, and neither of them gains an instruction.
-; What is cut is the GLYPH, into the two scratch cells beside the table, and
-; each half is then drawn by an ORDINARY font_char at ordinary VIRTUAL
-; coordinates - which resolves its own display, runs its own clip region and
-; picks its own renderer, because 39.14.10's question is asked per display and
-; the two cards need not be alike.
-;
-; **The spill is drawn FIRST and this display's part built after it**, and that
-; order is not a preference: a spill can run off the far display's OTHER edge
-; and cut again, and that cut writes font_seam_a. Building ours last is what
-; makes the recursion harmless - and it is bounded at two, because a spill sits
-; at coordinate 0 in the axis it crossed and only one axis carries a seam.
-; -----------------------------------------------------------------------------
-font_ch_cut:
-    cmp byte [gfx_dnest], 1     ; 0 = one card, above 1 = a caller owns the
-    je .live                    ; translation: 39.14.2 stands for both
-.no:
-    stc
-    ret
-.live:
-    cmp cx, [vid_cw]            ; is the ANCHOR even on this display? 39.2.1's
-    jae .no                     ; dead zone answers with the primary, and a
-    cmp dx, [vid_ch]            ; cell there fails the same edge test with
-    jae .no                     ; nothing across it - and would cut for ever
-    test byte [vid_cw], 7       ; a width that is not a multiple of 8 would
-    jnz .no                     ; leave our own half spilling into the next
-                                ; row. 39.14.7.2 refuses an odd cut rather
-                                ; than approximating it and so does this; every
-                                ; adapter here is 640 or 720 wide, so what the
-                                ; compare buys is the property, not the case
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-
-    mov es, [font_seg]          ; ES:SI -> the source rows, wherever the table
-    sub al, FONT_FIRST          ; is (SPEC.md 6) - and this is the same
-    cbw                         ; arithmetic that will address the scratch
-    shl ax, 1                   ; cell on the way back in. `cbw` AFTER the
-    shl ax, 1                   ; subtract, and this is the ONE site with no
-    shl ax, 1                   ; range test above it: AL can also be
-    add ax, [font_base]         ; FONT_SEAM_A/_B (96/97), and 97-32 = 65, still
-    xchg ax, si                 ; (ES is font_char's to clobber: it banked it)
-                                ; positive. AX carries SI's old value out of
-                                ; the xchg and is spent below - `mov al,1`
-                                ; then vid_ctx_ptr, which takes its index in
-                                ; AL and does `mul dl`, so AH is that
-                                ; instruction's OUTPUT and not an input
-
-    mov bx, [vid_cw]            ; BX = k, this display's columns of the cell,
-    sub bx, cx                  ; and BP = n, its rows. Both are 1..8: the
-    cmp bx, 8                   ; anchor is on the display and the cell is 8
-    jbe .kok
-    mov bx, 8
-.kok:
-    mov bp, [vid_ch]
-    sub bp, dx
-    cmp bp, 8
-    jbe .nok
-    mov bp, 8
-.nok:
-
-    mov al, 1                   ; which axis carries the SEAM (39.19.2)? The
-    call vid_ctx_ptr            ; second display's VX names it and no mode byte
-    mov ax, [di+VID_CTX_VX]     ; has to be read - gfx_blit4's cut asks exactly
-    or ax, ax                   ; this. vid_ctx_ptr keeps AX, which is why the
-    jz .below                   ; index goes in through AL
-
-    cmp bx, 8                   ; --- RIGHT: the seam is a COLUMN
-    jae .part                   ; ...which this cell does not reach: its
-                                ; overhang is a screen edge with nothing beyond
-                                ; it, and .part clips it to what is here
-    mov di, font_seam_b         ; B[i] = src[i] << k - the columns past the
-    mov cx, bx                  ; seam, lifted to the far display's first. All
-    mov ch, 8                   ; eight ROWS go: it runs its own y test, and
-.bxr:                           ; its height is its own
-    es lodsb                    ; (DF = 0, SPEC.md 1: SI walks itself, and the
-    shl al, cl                  ; `sub si, 8` below puts it back either way)
-    mov [ss:di], al
-    inc di
-    dec ch
-    jnz .bxr
-    sub si, 8                   ; SI back to the source, for .part
-    add dx, [vid_oy]            ; ...and the spill goes AT the seam, at the
-    mov cx, [vid_ox]            ; cell's own y
-    add cx, [vid_cw]
-    jmp short .spill
-
-.below:                         ; --- BELOW: the seam is a ROW
-    cmp bp, 8
-    jae .part
-    add cx, [vid_ox]            ; the spill's x is the cell's own, banked here
-    push cx                     ; because the loop below wants CX
-    mov di, font_seam_b         ; B[i] = src[i+n] - the rows past the seam,
-    add si, bp                  ; lifted to the far display's first. All eight
-    mov cx, 8                   ; COLUMNS go: it runs its own x test
-    sub cx, bp
-.byr:
-    es lodsb
-    mov [ss:di], al
-    inc di
-    loop .byr                   ; CX = 8 - bp, 1..7 (`jae .part` above proved
-                                ; bp < 8). A CX of 0 would run 65,536 times -
-                                ; and so would the `dec cx / jnz` this
-                                ; replaces, to the iteration, so the hazard is
-                                ; unchanged rather than introduced
-    mov cx, bp                  ; ...and the rows the cell has not got there
-    xor al, al                  ; are blank, which draws nothing at all,
-.byz:                           ; text being transparent
-    mov [ss:di], al
-    inc di
-    loop .byz                   ; CX = bp, 1..8
-    sub si, 8
-    pop cx
-    mov dx, [vid_oy]
-    add dx, [vid_ch]
-
-.spill:
-    mov al, [vid_cur]           ; 39.14.3 leaves the LAST display drawn on
-    push ax                     ; current, so ours has to be named to come back
-    dec byte [gfx_dnest]        ; the spill takes its own enter
-    mov al, FONT_SEAM_B
-    call font_ch_seam           ; (the two codes are private to this routine)
-    inc byte [gfx_dnest]
-    pop ax
-    call vid_ctx_act            ; ...and this display is live again, which is
-                                ; what the caller's fall-through rests on
-
-.part:
-    mov di, font_seam_a         ; A[i] = src[i] masked to the k columns and n
-    mov cx, bx                  ; rows that are HERE, the rest zeroed. THE
-    mov al, 0xFF                ; ZEROING IS THE WHOLE MASK: a blank row writes
-    shr al, cl                  ; nothing, and a glyph with no ink past the
-    not al                      ; seam leaves AL zero after the renderers' own
-    mov ah, al                  ; shift - which their `or al, al / jz` skips
-    mov cx, 8                   ; already. k = 8 shifts the byte away and `not`
-.par:                           ; brings back FF, so no mask is no work
-    es lodsb
-    and al, ah
-    dec bp                      ; ONE loop over all eight rows: the first n
-    jns .pkeep                  ; (BP = n, 1..8, counted down to -1) keep
-    xor al, al                  ; their columns and the rest are zeroed - what
-.pkeep:                         ; two loops and a `jz` around the second did.
-    mov [ss:di], al             ; BP is spent; the ladder gives it back
-    inc di
-    loop .par
-    clc                         ; POP leaves the flags alone, so the answer
-    jmp kret_bp
-%endif
+; font_ch_cut is EXTD.DRV's ext_fcut now (kernel/extmod.inc, kernel size
+; pass 13): its every caller sits behind [gfx_dnest] = 1, which no machine but
+; an extended one ever sees, and EXTD.DRV is mounted for exactly that long.
 
 ; -----------------------------------------------------------------------------
 ; font_char_bb - the software renderer's glyph body (SPEC.md 32/39.5)

@@ -593,6 +593,8 @@ gfx_clip_query:
 ; in the machine reads these - including the first, before anything has run.
 gfx_dnest   db 0                ; whole-shape hooks in effect (SPEC.md 39.14.2)
 %ifndef NOBLITCUT
+EXT_BCUT    equ 13              ; gfx_blit4's cut is EXTD.DRV's entry 13 (kernel
+                                ; size pass 13; extmod.inc's header asserts it)
 gfx_blit_fd db 0                ; SPEC.md 39.14.7.2: 0 = gfx_blit4 resolves its
                                 ; own display, d+1 = this call is one HALF of a
                                 ; cut and the display is NAMED.
@@ -2211,102 +2213,14 @@ gfx_blit4:
 %ifdef KERN_BIG
 %ifndef NOBLITCUT
 ; -----------------------------------------------------------------------------
-; ...and the CUT (SPEC.md 39.14.7.2), out of line because no machine with one
-; card and no blit that fits one display ever reaches it.
-;
-; 39.14.7.1's gate is binary: a block that fits one display keeps 5.4.1's fast
-; path and a block that straddles gives it up ENTIRELY - every coalesced run
-; becomes a gfx_fill at its own arrival, which is the 4.17x Set 63 measured. A
-; straddle is not, though, a reason to give up the fast path on the pixels that
-; do NOT straddle: displays are placed edge to edge (39.19.2), so there is
-; exactly ONE seam, and either side of it is a block that fits one display.
-;
-; What the seam costs is a source pointer, and that is the whole feasibility
-; question. A run carries no source (39.14.7) and a SUB-RECT does, so the
-; second half has to start `n` pixels along - and the source is packed two
-; pixels to a byte, high nibble leftmost, so it can only do that when `n` is
-; EVEN. It is: the seam is the primary's own width, 640 or 720, and a window's
-; content origin is a multiple of 8 (11.94). An odd cut is refused rather than
-; approximated, and the refusal is 39.14.7's path, unchanged.
-;
-; The half that does not cross is the same case one axis along, and it is
-; taken too: vid_span_one refuses a block that fits one display in x and hangs
-; into the DEAD ZONE in y (39.2.1), and those rows are drawn by nobody. So a
-; block that does not reach the seam at all is one forced pass rather than
-; two, and the row loop's own `cmp bx, [vid_ch]` is what skips the rows that
-; are not there.
-;
-; in:  AX = x, BX = y, CX = w, DX = h (VIRTUAL), ES:SI = source, BP = stride,
-;      [gfx_blit_fd] = 0, no hook taken and no nest put up
+; ...and the CUT (SPEC.md 39.14.7.2) is kernel/extmod.inc's ext_bcut since
+; kernel size pass 13: the body and its argument moved with it.
 ; -----------------------------------------------------------------------------
-.cut:
-    push ax                     ; vid_ctx_ptr answers in DI and DI is the
-    mov al, 1                   ; caller's, banked at entry. Display 1 is at
-    call vid_ctx_ptr            ; (VX, MBAR_H) on the RIGHT layout and (0, VY)
-    pop ax                      ; on BELOW, so a NON-ZERO VX names the axis
-    cmp word [di+VID_CTX_VX], 0 ; (39.19.2) and no mode byte has to be read -
-    je .cutv                    ; asked in memory, so AX comes back at once
-    mov di, [di+VID_CTX_VX]     ; ...and in DI, where the arithmetic wants it
-
-    ; --- RIGHT: the seam is a COLUMN, and a column carries a nibble phase --
-    sub di, ax                  ; DI = pixels of this block left of the seam
-    jle .cutd1                  ; none: display 1 owns the whole of it
-    cmp di, cx
-    jge .cutd0                  ; all of them: display 0 does
-    test di, 1
-    jnz .hkdonej                ; AN ODD CUT (see above): the second half's
-                                ; source would start on a LOW nibble, which no
-                                ; path below can take. 39.14.7's mechanism is
-                                ; still correct and is what happens
-    push cx
-    mov cx, di                  ; --- the left half, on display 0
-    mov byte [gfx_blit_fd], 1
-    call gfx_blit4              ; ...which gives back EVERY register, DI and AX
-    pop cx                      ; included - so the cut needs no banked state:
-    sub cx, di                  ; --- the right half, on display 1, starts at
-    add ax, di                  ; x + n, which IS the seam, and its source is
-    shr di, 1                   ; n/2 BYTES along (size pass 9: this banked n
-                                ; and the seam in two words it never needed)
-    add si, di
-    jmp short .cutd1            ; ...which is the second half's whole story
-
-    ; --- BELOW: the seam is a ROW, and a row carries no parity at all ------
-    ; The source advance is a whole number of STRIDES, so there is no even-cut
-    ; test here and nothing to refuse. BP is SIGNED - Paint stores its canvas
-    ; bottom row first and hands over a negative stride (42.9) - and `mul`
-    ; leaves the same low sixteen bits as `imul` would, which is all that is
-    ; being added to SI.
-.cutv:
-    mov di, [di+VID_CTX_VY]
-    sub di, bx                  ; DI = rows of this block above the seam
-    jle .cutd1
-    cmp di, dx
-    jge .cutd0
-    push dx
-    mov dx, di                  ; --- the top half, on display 0
-    mov byte [gfx_blit_fd], 1
-    call gfx_blit4              ; (every register back, as above)
-    pop dx
-    sub dx, di                  ; --- and the bottom half, on display 1, at
-    add bx, di                  ; y + n = the seam, its source n STRIDES along
-    push ax
-    push dx
-    mov ax, di
-    mul bp
-    add si, ax
-    pop dx
-    pop ax
-    jmp short .cutd1
-.cutd0:
-    mov byte [gfx_blit_fd], 1   ; one pass, on display 0: it does not reach the
-    jmp short .cut1             ; seam and is in the dead zone in the other axis
-.cutd1:
-    mov byte [gfx_blit_fd], 2   ; ...or on display 1, for the same reason
-.cut1:                          ; ...and the two-pass cases arrive at .cutd1
-    call gfx_blit4              ; for their SECOND half, which is the same
-    mov byte [gfx_blit_fd], 0   ; three instructions with the same display
-    jmp .pops
-
+.cut:                           ; ...the CUT (SPEC.md 39.14.7.2) is EXTD.DRV's:
+    EXTCALL EXT_BCUT            ; a straddle exists only on an extended desktop,
+    jc .hkdonej                 ; and EXTD.DRV is mounted for exactly that long.
+    jmp .pops                   ; CF = 1 is an ODD cut (or no image): 39.14.7's
+                                ; path, unchanged (kernel size pass 13)
 .hkforce:                       ; THIS call is one half: its display is named
     mov byte [gfx_blit_hk], 1   ; and its teardown is its own
     push dx
