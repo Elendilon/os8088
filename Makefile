@@ -1675,6 +1675,35 @@ endif
 OS88PKG := python3 tools/os88pkg.py $(PKGZARG)
 OS88DRV := python3 tools/os88drv.py $(PKGZARG)
 
+# ...AND THE PACKAGES THAT SHIP LZB INSTEAD (SPEC.md 20.13.5). The owner's
+# decision, apps size pass 2: a package whose disks matter more than its
+# launch takes the better ratio - ~10 points of file for ~4x the decode, which
+# on MartyPC's 5150 measured +541 ms on ArtfulType's first launch. The test
+# for each one is that LZB SAVES IT A CLUSTER on the 360KB disks it rides;
+# where it does not, the launch is paid for nothing and the package stays
+# LZ4. Paint, Note Pad and the Task Manager stay LZ4 whatever it saves them:
+# they open the common documents and have to stay quick. PKGZ= still builds
+# every one of them plain, and PKGZ=lzb builds the rest LZB as well.
+#
+# ...AND ONLY WHERE THE KERNEL CAN READ IT. `COMPRESS=lz4` builds a kernel
+# with the LZ4 decoder alone (SPEC.md 20.13.6), and `make zset ZFMT=lz4` is
+# exactly that pairing - so an LZB package on that build is one its own
+# kernel refuses as LD_EBAD, which is how `lzship` found it. On a
+# COMPRESS=lz4 build these packages fall back to LZ4 with everything else.
+PKGZBFMT := $(if $(filter lz4,$(COMPRESS)),lz4,lzb)
+OS88PKGB := python3 tools/os88pkg.py $(if $(PKGZ),--compress-if=$(PKGZBFMT))
+#
+# THE LIST IS STAMPED, for PKGZSTAMP's reason: moving a rule from $(OS88PKG)
+# to $(OS88PKGB) changes no prerequisite, so an existing tree kept every one
+# of these LZ4 and reported up to date - which is exactly what happened the
+# first time. LZBPKGS names each package whose rule says $(OS88PKGB), and the
+# stamp's name carries a checksum of it, so adding a name rebuilds the set.
+# TAKING ONE OFF does not rebuild that package (its rule no longer names the
+# stamp): `rm build/<pkg>.o88` once, by hand.
+LZBPKGS := artful audio browser calc chart gorillas telnet thewire cyclone dotdel missile sheet solitair \
+           tamegram tank texpad wireball smallapp/calc smallapp/tank
+PKGZBSTAMP := $(BUILD)/.pkgzb$(if $(PKGZ),-$(PKGZ)-$(PKGZBFMT))-$(shell printf '%s' '$(LZBPKGS)' | cksum | cut -d' ' -f1)
+
 # ...AND A STAMP, for exactly SBSTAMP's reason one paragraph up: none of the
 # package rules names PKGZ, so `make PKGZ=lz4` after a plain `make` sees two
 # dozen up-to-date .o88 files and rebuilds none of them.
@@ -5153,12 +5182,12 @@ $(LZDDIR)/ramdisk.drv: $(BUILD)/ramdisk.bin tools/os88drv.py tools/os88lz.py
 	python3 tools/os88drv.py $(BUILD)/ramdisk.bin -o $@ --compress=lz4
 
 $(BUILD)/lzdrv360.img: $(BUILD)/boot360.bin $(KERNFILE) \
-                       $(LZDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) \
-                       $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py $(SYSROOT)
+                       $(LZDRIVERS) $(SYSAPPS) $(STIKAPPS) $(COREAPPS360) $(SYSDOC) \
+                       $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py $(SYSROOT)
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(LZDRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) \
-		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER)
+		$(LZDRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) \
+		$(SYSLOGOARG) $(FACESARG360) $(APPDATAFOLDER)
 
 .PHONY: lzdrvtest
 lzdrvtest: $(BUILD)/lzdrv360.img $(BUILD)/drvcall360.img
@@ -5608,6 +5637,10 @@ $(PKGZSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.pkgz $(BUILD)/.pkgz-lz4 $(BUILD)/.pkgz-lzb
 	@touch $@
 
+$(PKGZBSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.pkgzb*
+	@touch $@
+
 $(DOSNETSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.dosnet $(BUILD)/.dosnet-on $(BUILD)/.dosnet-card \
 	       $(BUILD)/.dosnet-on-card
@@ -5626,8 +5659,8 @@ $(BUILD)/sheet.bin: apps/sheet/sheet.asm apps/os88api.inc \
 	@echo "sheet:  $(call FILESIZE,$@) bytes"
 
 
-$(BUILD)/sheet.o88: $(BUILD)/sheet.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/sheet.bin -o $@
+$(BUILD)/sheet.o88: $(BUILD)/sheet.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/sheet.bin -o $@
 
 # FPTEST: the self-test for apps/os88fp.inc, the software IEEE-754 double.
 # Deliberately NOT on any disk - it is a developer tool, and the 360KB apps
@@ -5689,8 +5722,8 @@ $(BUILD)/chart.bin: apps/chart/chart.asm apps/os88api.inc apps/os88chart.inc \
 	@echo "chart:  $(call FILESIZE,$@) bytes"
 
 
-$(BUILD)/chart.o88: $(BUILD)/chart.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/chart.bin -o $@
+$(BUILD)/chart.o88: $(BUILD)/chart.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/chart.bin -o $@
 
 # Note Pad, formerly the built-in KIND_NOTE app (SPEC.md 27).
 $(BUILD)/notepad.bin: apps/notepad/notepad.asm apps/os88api.inc apps/os88ui.inc \
@@ -5710,8 +5743,8 @@ $(BUILD)/calc.bin: apps/calc/calc.asm apps/os88api.inc apps/os88ui.inc | $(BUILD
 	@echo "calc:   $(call FILESIZE,$@) bytes"
 
 
-$(BUILD)/calc.o88: $(BUILD)/calc.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/calc.bin -o $@
+$(BUILD)/calc.o88: $(BUILD)/calc.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/calc.bin -o $@
 
 # Desk Calendar (SPEC.md 110.3): the first STICKY APP, in
 # STIKAPPS/ on every system disk ($(STIKARGS) above) and on no apps disk.
@@ -5758,8 +5791,8 @@ $(BUILD)/telnet.bin: apps/telnet/telnet.asm apps/telnet/tetxt.inc \
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/telnet/ -I drivers/net/ -o $@ apps/telnet/telnet.asm
 	@echo "telnet: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/telnet.bin -o $@
+$(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/telnet.bin -o $@
 
 # THE WIRE (SPEC.md 92) - Telnet's include set for Telnet's reason: netpkg.inc
 # is the DRIVER's own ABI header and both ends include it, so the two cannot
@@ -6539,8 +6572,8 @@ $(BUILD)/thewire.bin: apps/thewire/thewire.asm apps/thewire/wrhttp.inc \
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/thewire/ -I drivers/net/ -I drivers/ramdisk/ -o $@ apps/thewire/thewire.asm
 	@echo "thewire: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/thewire.o88: $(BUILD)/thewire.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/thewire.bin -o $@
+$(BUILD)/thewire.o88: $(BUILD)/thewire.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/thewire.bin -o $@
 
 # THE FTP SERVER (SPEC.md 77) - docs/plans/completed/NET-STACK-PLAN.md stage F, and the first
 # thing here that SERVES. Same include set as Telnet's for the same reason:
@@ -6580,8 +6613,8 @@ $(BUILD)/ftpd.bin: apps/ftpd/ftpd.asm apps/os88api.inc apps/os88ui.inc \
 $(BUILD)/ftpd.o88: $(BUILD)/ftpd.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/ftpd.bin -o $@
 
-$(BUILD)/browser.o88: $(BUILD)/browser.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/browser.bin -o $@
+$(BUILD)/browser.o88: $(BUILD)/browser.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/browser.bin -o $@
 
 # ...and the REFERENCE build, which letters every history row where the
 # shipped one scrolls the band (SPEC.md 65.4.1). It is the A/B for that
@@ -6619,8 +6652,8 @@ $(BUILD)/texpad.bin: apps/texpad/texpad.asm apps/texpad/tpparse.inc \
 	$(NASM) -f bin -w+error -I apps/ $(PKGSBDEF) -o $@ apps/texpad/texpad.asm
 	@echo "texpad: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/texpad.o88: $(BUILD)/texpad.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/texpad.bin -o $@
+$(BUILD)/texpad.o88: $(BUILD)/texpad.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/texpad.bin -o $@
 
 # Piano, the fifth shipped package (SPEC.md 36): a colorful playable piano
 # over the SPEC.md 34 tone tier (note viewer, replay, embedded songs).
@@ -6723,8 +6756,8 @@ $(BUILD)/audio.bin: apps/audio/audio.asm $(AUDIO_SRC) | $(BUILD)
 # and is not optional - no package rule names PKGZ, so without it a
 # `make PKGZ=` after a plain build finds audio.o88 up to date and ships the
 # compressed one on an uncompressed disk (see $(PKGZSTAMP)'s own note).
-$(BUILD)/audio.o88: $(BUILD)/audio.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/audio.bin -o $@
+$(BUILD)/audio.o88: $(BUILD)/audio.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/audio.bin -o $@
 
 # MIDIRACK.O88 - the MIDI file player (SPEC.md 105): a Standard MIDI File
 # through an OPL2/OPL3 (SOUND.DRV's package verbs, SPEC.md 34.12), a Sound
@@ -6893,8 +6926,14 @@ $(BUILD)/artful.bin: apps/artful/artful.asm apps/artful/atdoc.inc \
 	$(NASM) -f bin -w+error $(STKLST) $(ATDEF) -I apps/ -I apps/artful/ -o $@ apps/artful/artful.asm
 	@echo "artful: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/artful.o88: $(BUILD)/artful.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/artful.bin -o $@
+# ...and it SHIPS LZB-PACKED where every other package is LZ4 (SPEC.md 46.11,
+# the owner's decision): ARTFUL.O88 rides four 360KB disks, and LZB's ratio is
+# 1,858 bytes off this one file - two clusters on each - for a slower decode
+# at launch. Both kernels carry the LZB decoder by default (SPEC.md 20.13.6,
+# COMPRESS defaults to `both`). It still follows the knob: `make PKGZ=` packs
+# nothing, and $(PKGZSTAMP) is what rebuilds it when the knob moves.
+$(BUILD)/artful.o88: $(BUILD)/artful.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/artful.bin -o $@
 
 # Fractal, the sixth shipped package: five escape-time fractals in Q4.12
 # fixed point, rendered by a background WORKER TASK (SPEC.md 20.6) while the
@@ -6938,8 +6977,8 @@ $(BUILD)/solitair.bin: apps/solitaire/solitaire.asm apps/os88api.inc | $(BUILD)
 	@echo "solitaire: $(call FILESIZE,$@) bytes"
 
 
-$(BUILD)/solitair.o88: $(BUILD)/solitair.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/solitair.bin -o $@
+$(BUILD)/solitair.o88: $(BUILD)/solitair.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/solitair.bin -o $@
 
 # Arkanoid, the ninth shipped package (SPEC.md 44): a brick-breaker whose game
 # loop is a WORKER TASK (SPEC.md 20.6) rather than a callback, because a ball
@@ -6966,8 +7005,8 @@ $(BUILD)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc apps/os88dec.inc \
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/tank/ -o $@ apps/tank/tank.asm
 	@echo "tank:  $(call FILESIZE,$@) bytes"
 
-$(BUILD)/tank.o88: $(BUILD)/tank.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/tank.bin -o $@
+$(BUILD)/tank.o88: $(BUILD)/tank.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/tank.bin -o $@
 
 # CLEAR SKIES (SPEC.md 88): a filled-polygon flight simulator over Paris, in
 # the same foreign-mode fsx bracket as TANK ATTACK - every pixel its own, no
@@ -7038,10 +7077,11 @@ skiesprobe: $(BUILD)/skiesprobe/apps360.img
 	@echo "            python3 tests/skiescount.py --scene dfangled"
 # --- THE WORLDS (SPEC.md 88.10.5) -------------------------------------------
 # Each of the eight assembled ON ITS OWN, at the overlay's fixed org, and
-# packed; plus the shared vocabulary they all point into and the title bands -
-# ten LZ4 streams, one after another in ONE file, csw.z, which is ONE lazy part
-# (SPEC.md 88.10.7: as ten parts the file carried 2,278 bytes of sector
-# padding between them). The order lives in tools/csworlds.py and nowhere
+# packed; plus the shared vocabulary they all point into - nine LZ4 streams,
+# one after another in ONE file, csw.z, which is ONE lazy part (SPEC.md
+# 88.10.7: as ten parts the file carried 2,278 bytes of sector padding between
+# them). The title bands, packed one by one, are csartz.bin, which skies.asm
+# INCBINs (SPEC.md 88.10.7.2). The order lives in tools/csworlds.py and nowhere
 # else. cswidx.inc is the resident index it writes with them: each stream's
 # offset and unpacked length, the nine locations' names, the world each stands
 # in, where its record lands, and the vocabulary's own addresses.
@@ -7075,16 +7115,16 @@ $(BUILD)/cswidx.inc: tools/csworlds.py tools/os88lz.py tools/os88pkg.py \
 	python3 tools/csworlds.py --out $(BUILD) --art $(BUILD)/csart.bin \
 		--vocab-from $(BUILD)/csprobe.bin
 
-$(CSWORLDS_Z): $(BUILD)/cswidx.inc ;
+$(CSWORLDS_Z) $(BUILD)/csartz.bin: $(BUILD)/cswidx.inc ;
 
 $(BUILD)/skies.bin: $(SKIES_SRC) $(BUILD)/cswidx.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -I $(BUILD)/ $(CSDIAGDEF) -o $@ apps/skies/skies.asm
 	@echo "skies: $(call FILESIZE,$@) bytes"
 
-# THE TITLE BANDS ARE csw.z's LAST STREAM (SPEC.md 88.10.3, 88.10.7).
-# tools/csart.py writes the .inc - the offsets, which is all the image carries -
-# and with --raw the UNPACKED bands, which tools/csworlds.py packs beside the
-# worlds with the LZ4 the kernel's OSAPI_DECOMP reads.
+# THE TITLE BANDS ARE csartz.bin, IN THE IMAGE (SPEC.md 88.10.3, 88.10.7.2).
+# tools/csart.py writes the .inc - the offsets - and with --raw the UNPACKED
+# bands, which tools/csworlds.py packs band by band with the LZ4 the kernel's
+# OSAPI_DECOMP reads.
 $(BUILD)/csart.bin: tools/csart.py | $(BUILD)
 	python3 tools/csart.py -o apps/skies/csart.inc --raw $@
 	@echo "csart: $(call FILESIZE,$@) bytes of bands, raw"
@@ -7128,8 +7168,8 @@ $(BUILD)/dotdel.bin: $(DOTDEL_SRC) | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/dotdel/ -o $@ apps/dotdel/dotdel.asm
 	@echo "dotdel: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/dotdel.o88: $(BUILD)/dotdel.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/dotdel.bin -o $@
+$(BUILD)/dotdel.o88: $(BUILD)/dotdel.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/dotdel.bin -o $@
 
 # GORILLAS (SPEC.md 99): native skyline artillery, all three adapters.
 .PHONY: gorillas
@@ -7138,8 +7178,8 @@ gorillas: $(BUILD)/gorillas.o88
 $(BUILD)/gorillas.bin: apps/gorillas/gorillas.asm apps/gorillas/grart.inc apps/gorillas/grfront.inc apps/gorillas/grdraw.inc apps/gorillas/grmusic.inc apps/gorillas/grbgm.inc apps/gorillas/grbgmdata.inc apps/gorillas/grai.inc apps/gorillas/grplay.inc apps/gorillas/grphysics.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/gorillas/ -o $@ apps/gorillas/gorillas.asm
 
-$(BUILD)/gorillas.o88: $(BUILD)/gorillas.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/gorillas.bin -o $@
+$(BUILD)/gorillas.o88: $(BUILD)/gorillas.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/gorillas.bin -o $@
 
 # PIXELSTEIN 3D (SPEC.md 97): a raycast first-person shooter, fullscreen in
 # a foreign mode on every adapter and windowed as a 1bpp band. The package
@@ -7289,8 +7329,8 @@ $(BUILD)/missile.bin: apps/missile/missile.asm apps/os88api.inc apps/os88gfx.inc
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -o $@ apps/missile/missile.asm
 	@echo "missile: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/missile.o88: $(BUILD)/missile.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/missile.bin -o $@
+$(BUILD)/missile.o88: $(BUILD)/missile.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/missile.bin -o $@
 
 # Pac-Man, the native Roklan Atari disk port (SPEC.md 89) - **RETIRED**
 # (SPEC.md 89.12, apps/RETIRED.txt). `all` does not name it and no image
@@ -7377,8 +7417,8 @@ $(BUILD)/cyclone.bin: apps/cyclone/cyclone.asm apps/os88api.inc apps/os88data.in
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ $(CYCFLAGS) -o $@ apps/cyclone/cyclone.asm
 	@echo "cyclone: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/cyclone.o88: $(BUILD)/cyclone.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/cyclone.bin -o $@
+$(BUILD)/cyclone.o88: $(BUILD)/cyclone.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/cyclone.bin -o $@
 
 # TameGram, the thirteenth shipped package (SPEC.md 49): a four-direction,
 # dual-faction containment matrix contributed by Jason Page (store.amfile.org),
@@ -7395,8 +7435,8 @@ $(BUILD)/tamegram.bin: apps/tamegram/tamegram.asm apps/os88api.inc apps/os88ui.i
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -o $@ apps/tamegram/tamegram.asm
 	@echo "tamegram: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/tamegram.o88: $(BUILD)/tamegram.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/tamegram.bin -o $@
+$(BUILD)/tamegram.o88: $(BUILD)/tamegram.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/tamegram.bin -o $@
 
 # FILETEST, the file-API gate package (SPEC.md 18.4/18.4.1): drives the file
 # slots end to end (write, read-back, replace, rename, delete, dfree and the
@@ -12233,8 +12273,8 @@ $(SMALLAPPDIR)/calc.bin: apps/calc/calc.asm apps/os88api.inc apps/os88ui.inc \
 	        apps/calc/calc.asm
 	@echo "calc (APP_SMALL): $(call FILESIZE,$@) bytes"
 
-$(SMALLAPPDIR)/calc.o88: $(SMALLAPPDIR)/calc.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(SMALLAPPDIR)/calc.bin -o $@
+$(SMALLAPPDIR)/calc.o88: $(SMALLAPPDIR)/calc.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(SMALLAPPDIR)/calc.bin -o $@
 
 $(SMALLAPPDIR)/taskmgr.bin: apps/taskmgr/taskmgr.asm apps/os88api.inc \
                             apps/os88ui.inc apps/os88dec.inc $(SBSTAMP) | $(BUILD)
@@ -12271,8 +12311,8 @@ $(SMALLAPPDIR)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc apps/os88dec.
 	        -o $@ apps/tank/tank.asm
 	@echo "tank (APP_SMALL): $(call FILESIZE,$@) bytes"
 
-$(SMALLAPPDIR)/tank.o88: $(SMALLAPPDIR)/tank.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(SMALLAPPDIR)/tank.bin -o $@
+$(SMALLAPPDIR)/tank.o88: $(SMALLAPPDIR)/tank.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(SMALLAPPDIR)/tank.bin -o $@
 
 # The Desk Calendar's SMALL build, for the kern_small system disks alone ($(SMALLSTIKAPPS)):
 # -DAPP_SMALL leaves STIK_DESKONLY off, so the titled fallback and the worker
@@ -12698,20 +12738,14 @@ $(BUILD)/llboot144.bin: boot/boot.asm $(BUILD)/lptlink.bin Makefile | $(BUILD)
 # DOS in this container and none this tree may ship, so `make` could say the
 # program was fine while DOS entered it at a byte that was not its entry.
 #
-#   make dosstub                     10MB image: 20,480 sectors
-#   make dosstub FSIZE=64M           past os8088's cap: 65,535, and it says so
-#   make dosstub FSIZE=256           under one sector: the refusal
+#   make dosstub                     the ordinary run, to `Listening.`
 #   make dosstub FAILOPEN=1          DOS says no: the error path
 #   make dosstub ARGS='/RO /P:378'   the command tail
 #
 # ON DEMAND ONLY. `all` never builds tests/ and nothing under it ships.
+# (FSIZE= went with block mode, SPEC.md 62.12.6 item 8: it sized the image
+# file OS88NET.COM's block mode served, and nothing serves one now.)
 DOSSTUB_DEF :=
-ifeq ($(FSIZE),64M)
-DOSSTUB_DEF += -DFSIZE_HI=0x0400 -DFSIZE_LO=0x0000
-endif
-ifeq ($(FSIZE),256)
-DOSSTUB_DEF += -DFSIZE_HI=0x0000 -DFSIZE_LO=0x0100
-endif
 ifneq ($(ARGS),)
 DOSSTUB_DEF += -DARGS='"$(ARGS)"'
 ifdef PKTFAKE
@@ -12734,12 +12768,12 @@ DOSSTUB_DEF += -DCOMFILE='"$(COMFILE)"'
 endif
 
 # ...AND A STAMP FILE, for exactly VIDSTAMP's reason (see its comment above).
-# None of these four knobs is a prerequisite of anything, so `make dosstub
+# None of these knobs is a prerequisite of anything, so `make dosstub
 # ARGS='/P:378 /W'` after a plain `make dosstub` saw an up-to-date .bin and
 # rebuilt NOTHING - the program then ran with the PREVIOUS run's command tail,
 # which reads exactly like a switch that does not work. Measured: /W was
 # parsed correctly and never reached the binary at all.
-DSSTAMP := $(BUILD)/.dosstub-$(if $(FSIZE),$(FSIZE),def)$(if $(ARGS),-a$(shell echo '$(ARGS)' | tr -c 'A-Za-z0-9' '_'))$(if $(FAILOPEN),-fo$(FAILOPEN))$(if $(COMFILE),-c$(notdir $(COMFILE)))$(if $(PKTFAKE),-pk)
+DSSTAMP := $(BUILD)/.dosstub-def$(if $(ARGS),-a$(shell echo '$(ARGS)' | tr -c 'A-Za-z0-9' '_'))$(if $(FAILOPEN),-fo$(FAILOPEN))$(if $(COMFILE),-c$(notdir $(COMFILE)))$(if $(PKTFAKE),-pk)
 
 $(BUILD)/dosstub.bin: tests/dosstub/dosstub.asm $(BUILD)/os88net.com | $(BUILD)
 	@[ -f $(DSSTAMP) ] || { rm -f $(BUILD)/.dosstub-*; touch $(DSSTAMP); }
@@ -15922,8 +15956,8 @@ wireball-pair:
 wireball: $(BUILD)/wireball.o88
 $(BUILD)/wireball.bin: apps/wireball/wireball.asm apps/wireball/wblink.inc apps/wireball/wbgame.inc apps/wireball/wbsound.inc apps/wireball/wbvideo.inc apps/wireball/wbfront.inc apps/wireball/art/wbfront.inc apps/os88api.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -l $(BUILD)/wireball.lst -o $@ $<
-$(BUILD)/wireball.o88: $(BUILD)/wireball.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $< -o $@
+$(BUILD)/wireball.o88: $(BUILD)/wireball.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $< -o $@
 wireballdisk: $(BUILD)/wireball.img $(BUILD)/wireball720.img $(BUILD)/wireball120.img $(BUILD)/wireball360.img
 $(BUILD)/wireball.img: $(BUILD)/wireball.o88 apps/wireball/README.TXT tools/os88disk.py
 	python3 tools/os88disk.py --size 1440 -o $@ $< apps/wireball/README.TXT

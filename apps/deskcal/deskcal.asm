@@ -126,6 +126,9 @@ STIK_BSS    equ DC_BSS          ; the include's state follows ours
 %define GFXE_BAND_W   176       ; the face: 22 cells, a 704-byte band
 %define GFXE_BAND_H   32
 %define GFXE_BAND_BUF dc_band
+%define GFXE_NOBUTIL            ; the face papers and blits its own band: no
+                                ; bounds, pixel or gfxe_bput (apps size pass
+                                ; 2b, SPEC.md 5.12.9)
 
 ; --- bss: OURS FIRST, at fixed offsets - tests read it out of a running guest
 ; (tests/deskcal*.py), and tools/os88stik.py's DESKCAL_BSS_* say where
@@ -916,7 +919,7 @@ dc_selrows:
     mov al, [bx + DCG_AP]
     mov bx, dx
 .span:
-    xor ah, ah
+    cbw                         ; (a geometry pitch)
     add dx, ax
     dec dx
     clc
@@ -1282,7 +1285,7 @@ dc_rbox:
     je .r
     push bx
     mov di, [dc_geo]
-    xor ah, ah
+    cbw                         ; (an index, 0..41)
     mov bl, 7
     div bl                      ; AL = the week, AH = the column
     mov cl, ah
@@ -1296,16 +1299,12 @@ dc_rbox:
     xor dh, dh
     add dx, bx
     dec dx
-    mov al, cl
-    mov ah, DC_FLDW
-    mul ah
-    add al, DC_FLD0 + 2         ; the box's first pixel...
-    mov ch, al
-    add ch, DC_BOXW - 1         ; ...and its last: both < 256, the face is
-    mov cl, 3                   ; 176 wide
-    shr al, cl
-    shr ch, cl
-    mov cl, al
+    mov al, cl                  ; the column: a field is THREE bytes, and
+    add al, al                  ; the box's first pixel is in its first
+    add al, cl                  ; byte and its last in its fourth (the %if
+    mov cl, al                  ; beside DC_FLDW), so CL = the first byte...
+    add al, 3
+    mov ch, al                  ; ...and CH the last
     xor al, al
     call dc_rrect
     pop bx
@@ -1639,7 +1638,7 @@ dc_rtbox:
     mov bx, dx
     mov di, [dc_geo]
     mov al, [di + DCG_BOX]
-    xor ah, ah
+    cbw
     add dx, ax
     dec dx
     add al, 7                   ; its bytes: from x 8
@@ -1789,7 +1788,8 @@ dc_i_edit:  db 'Edit Item  Enter', 0
             db MENU_DIS
 dc_i_del:   db 'Delete Item  Del', 0
             db MENU_DIS
-dc_i_clr:   db 'Clear Done Tasks', 0
+dc_i_clr:   db 'Clear Done '
+dc_s_tasksh: db 'Tasks', 0         ; (COMPACT's page name: the tail)
 dc_i_today: db 'Go to Today  T', 0
 dc_i_prev:  db 'Previous Month', 0
 dc_i_next:  db 'Next Month', 0
@@ -1802,7 +1802,8 @@ dc_r2:      db '1'                     ; (dc_r1 is dc_r2's tail)
 dc_r1:      db '5 Min Early', 0
 dc_r3:      db '30 Min Early', 0
 dc_r4:      db '1 Hour Early', 0
-dc_r5:      db 'No Reminder', 0
+dc_r5:      db 'No '
+dc_s_remh:  db 'Reminder', 0       ; (COMPACT's page name: the tail)
 dc_leads:   db 0, 5, 15, 30, 60, 0FFh   ; ...their leads; 0FFh none
 dc_rlbl:    dw dc_l0, dc_l1, dc_l2, dc_l3, dc_l4, dc_l5
 dc_l0:      db 'at the time', 0     ; ...and the toast's words for them
@@ -1831,6 +1832,8 @@ dc_s_about: db 'Desk Calendar, SPEC 110', 0
                                 ; there is no alert and no About card
                                 ; (SPEC.md 110.3, 110.11)
 %include "os88ui.inc"
+%define OS88LINE_NOSET          ; the field is filled in place and resynced,
+                                ; never replaced (apps size pass 2b)
 %include "os88line.inc"
 %include "os88gfx.inc"
 %include "os88stik.inc"

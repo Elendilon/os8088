@@ -285,8 +285,15 @@ ld_hdr_ok:
                                              ; It was a second routine that
                                              ; re-read both fields after this
                                              ; one refused (kernel size pass 12)
-    cmp word [es:si+LD_H_LINK], 0            ; org 0 or it is not v3
-    jne ld_hdr_size.bad
+    cmp word [es:si+LD_H_LINK], 0            ; org 0 or it is not v3 -
+    je .disp                                 ; UNLESS it is a PACKAGE whose
+    cmp byte [es:si+LD_H_VER], PKG_FMT       ; flags carry BOTH bit 2 and bit
+    jne ld_hdr_size.bad                      ; 3: then the word is the packed
+    mov al, [es:si+LD_H_FLAGS]               ; IMAGE's length, because with
+    not al                                   ; parts the file is not it
+    test al, 0x0C                            ; (SPEC.md 20.13.8). A driver,
+    jnz ld_hdr_size.bad                      ; or any other combination, is
+.disp:                                       ; refused as it always was
     cmp word [es:si+LD_H_DISP], 0D5FFh       ; call bp
     jne ld_hdr_size.bad
     cmp byte [es:si+LD_H_DISP+2], 0CBh       ; retf - and without the pair the
@@ -400,6 +407,20 @@ ld_check_hdr:
                                 ; table (SPEC.md 20.2.0) - fail on the version,
                                 ; never a far call into cells that moved: AL
                                 ; is LD_EVER or LD_EBAD as ld_hdr_ok leaves it
+    ; A PARTED PACKAGE WITH A PACKED IMAGE (SPEC.md 20.13.8): ld_hdr_ok has
+    ; let a non-zero link word through only beside flags bits 2 AND 3, and it
+    ; is the packed image's length - the one figure everything below reads
+    ; [ld_fsz] for, the size ladder, step 6's R and read and step 6a's stream.
+    ; So it simply BECOMES [ld_fsz], and every test after this is the plain
+    ; compressed package's, unchanged: a length at or past the image still
+    ; takes the ladder's refusal, and zero (bits 2 and 3, no length) does too,
+    ; the file being longer than the image with the compression bits set.
+    mov ax, [es:si+LD_H_LINK]
+    or ax, ax
+    jz .flen
+    mov [ld_fsz], ax
+    and word [ld_fsz+2], 0
+.flen:
     mov ax, [es:si+LD_H_IMG]
     cmp ax, LD_HDR_SIZE
     jb ld_hdr_size.bad                                 ; image smaller than the header

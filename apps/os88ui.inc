@@ -498,6 +498,23 @@ OS88UI_BT_SIZE   equ 16
  %ifdef OS88UI_KERNEL
   %error "OS88UI_NOGEST is a PACKAGE's: the kernel's dialogs install the gesture"
  %endif
+ %define OS88UI_NOBTNINIT       ; the gesture's two halves, both out (below)
+%endif
+; --- OS88UI_NOBTNINIT - the gesture's SETUP half out, its PRESS half kept ----
+; (apps size pass 2b, SPEC.md 20.5.1.3.4). The gesture is two halves and
+; OS88UI_NOGEST takes out both: the SETUP half - os88ui_btninit, the library's
+; own W_ONCLICK os88ui_btnclick and the record list os88ui_btlist - and the
+; PRESS half, os88ui_btnpress / btndrag / btnup over os88ui_bfrec. A package
+; that routes its own press INTO os88ui_btnpress and installs its own
+; W_ONMOUSEUP / W_ONDRAG (Note Pad's find panel) reaches the press half and
+; never the setup half, and carried ~110 bytes of image it never ran. It is
+; an opt-out with OS88UI_NOGEST's rule: it removes the SYMBOLS, so a package
+; that sets it and then calls os88ui_btninit does not assemble. OS88UI_NOGEST
+; implies it, which is why every existing consumer is byte-identical.
+%ifdef OS88UI_NOBTNINIT
+ %ifdef OS88UI_KERNEL
+  %error "OS88UI_NOBTNINIT is a PACKAGE's: the kernel has no gesture setup half to take out"
+ %endif
 %endif
 %ifndef OS88UI_NOBTN
 ; -----------------------------------------------------------------------------
@@ -1560,7 +1577,7 @@ os88ui_armw: dw 0               ; a package's: DATA, inline, for the reason
 ; there, so a package must not have to ask - and one that did ask would be
 ; writing a kern_small special case into every application in the tree.
 ; -----------------------------------------------------------------------------
-%ifndef OS88UI_NOGEST
+%ifndef OS88UI_NOBTNINIT
 ; -----------------------------------------------------------------------------
 ; THE INSTALL SIDE - 226 bytes, and twenty-three of thirty-one packages never
 ; reach it (SPEC.md 20.5.1.3.4). `OS88UI_NOGEST` drops it for a package that
@@ -1570,6 +1587,9 @@ os88ui_armw: dw 0               ; a package's: DATA, inline, for the reason
 ; that a package routing its own press is invisible to anything static, so a
 ; gate a package could set and then go on calling os88ui_btninit would re-open
 ; that door. Setting this one and calling it does not assemble.
+;
+; `OS88UI_NOBTNINIT` drops this half ALONE, for a package that routes its own
+; press into os88ui_btnpress below (Note Pad); OS88UI_NOGEST implies it.
 ; -----------------------------------------------------------------------------
 %ifndef OS88UI_KERNEL
 os88ui_btninit:
@@ -1660,7 +1680,7 @@ os88ui_btnclick:
 os88ui_btlist: dw 0             ; the head of this package's record list -
                                 ; DATA, inline, for os88ui_armw's reason
 %endif                          ; OS88UI_KERNEL
-%endif                          ; OS88UI_NOGEST
+%endif                          ; OS88UI_NOBTNINIT
 
 ; -----------------------------------------------------------------------------
 ; os88ui_btnpress - W_ONCLICK: arm whatever the press landed on
@@ -4175,6 +4195,11 @@ os88ui_radhit:
     ret
 %endif                          ; OS88UI_RAD
 
+%ifdef OS88UI_NODRGEST
+ %ifndef OS88UI_DROP
+  %error "OS88UI_NODRGEST takes part of the drop-down out, and OS88UI_DROP has not put one in"
+ %endif
+%endif
 %ifdef OS88UI_DROP
 ; =============================================================================
 ; THE DROP-DOWN (SPEC.md 13.14): one pick out of a short list
@@ -4260,6 +4285,15 @@ os88ui_radhit:
 ; state is decided, which is os88ui_btn's rule. Size the box to the widest
 ; item plus the arrow cell: the caption is one opaque run and is not clipped.
 ; =============================================================================
+
+; --- OS88UI_NODRGEST - the drop-down WITHOUT its drag, release and close -----
+; (apps size pass 2b, SPEC.md 13.14.7). An OPT-OUT in OS88UI_NOGEST's shape:
+; a package whose drop-down is PRESS-PRESS - the press opens the list and the
+; next press picks or takes it down, both through os88ui_drpress - and which
+; never takes a list down from outside the control carries os88ui_drdrag,
+; os88ui_drup and os88ui_drclose and reaches none of them (the DOS box).
+; It removes the SYMBOLS, so a package that sets it and then wires a W_ONDRAG
+; or W_ONMOUSEUP to the control, or closes it on Esc, does not assemble.
 
 OS88UI_DR_RECT  equ 0
 OS88UI_DR_ITEMS equ 8
@@ -4814,6 +4848,7 @@ os88ui_drpress:
     pop bx
     ret
 
+%ifndef OS88UI_NODRGEST
 ; -----------------------------------------------------------------------------
 ; os88ui_drdrag - the tracking edge: the highlight follows the pointer
 ; in:  BX = the record, CX = x, DX = y; the gfx lock is held
@@ -4919,6 +4954,7 @@ os88ui_drclose:
 .no:
     clc
     ret
+%endif                          ; OS88UI_NODRGEST
 %endif                          ; OS88UI_DROP
 
 %ifdef OS88UI_MENU

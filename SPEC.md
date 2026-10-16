@@ -8042,6 +8042,20 @@ gfxe_bits    SI = record, CX = x, DX = y      a bit record: db rows, then a word
   its blits, and a `STIK_COMPOSE` that skips the glyphs a slab cannot hold
   saves the rejects as well (§110.6).
 
+#### 5.12.9 `GFXE_NOBUTIL` — the band without its utilities
+
+`GFXE_BAND` brings the band's geometry, `gfxe_bclear`, and a set of
+utilities for a FIGURE: the running bounds (`gfxe_bnew`, `gfxe_bfold`,
+`gfxe_bsize` and seven words), the pixel `gfxe_bpix` and the commit
+`gfxe_bput`. A widget that composes a fixed-size face with `GFXE_TEXT` and
+`GFXE_BITS`, papers it with `gfxe_bclear` and blits it itself reaches none of
+them. `%define GFXE_NOBUTIL` leaves them out (apps size pass 2b) and keeps the
+band, `gfxe_bclear` and `gfxe_bh`: an opt-out in `os88ui.inc`'s `OS88UI_NO*`
+shape, so every package that does not set it is byte-identical, removing the
+symbols so a package that sets it and calls one does not assemble, and
+refusing without a band. The Desk Calendar sets it (§110.6.2), 208 bytes of
+image; WIREFRAME and PiXEL use the bounds and the commit and cannot.
+
 ### 5.13 `gfx_pixel` and `gfx_points` — which to reach for
 
 `OSAPI_GFX_PIXEL` costs **640.87 µs** on the field machine and `OSAPI_GFX_POINTS`
@@ -9835,6 +9849,15 @@ Three knobs, set before the `%include`:
   `OS88TY_NOGETLEAD`. Nothing inside the library calls any of them, so a
   wrong one is an undefined-symbol error at assembly and never a runtime one.
   Every includer sets the ones it does not reach.
+- **`OS88TY_NOGRAY`** (apps size pass 2b) — leaves out `ty_gray` (§47 rule 3)
+  and `ty_flush`'s greying arm, 61 bytes, for an includer that never greys a
+  band. The arm is inside `ty_flush`, so a plain gate would leave a call site
+  passing `stc` drawing live with nothing to say so; the switch therefore
+  RENAMES the entry as well. Under it the flush is **`ty_flushlive`**, which
+  takes no carry argument, and `ty_flush` is not defined - so a call written
+  to pass the carry (§6.5.4) fails the assembly like every other switch here.
+  Font Viewer sets it (§90.12); Word, Scribe and CWORD pass `clc` at their one
+  call site too and could.
 - `OS88TY_SLANT` (§6.5.3) is the one opt-IN.
 
 **`TY_BSS_SIZE` is exact** and `TY_BSS` asserts it against the last label it
@@ -28925,6 +28948,21 @@ frame, mark and label over it. It is named here rather than quietly changed
 because it is the file's most-copied routine and the next author will copy it
 too; **§13.17 is the one to follow.**
 
+#### 13.14.7 `OS88UI_NODRGEST` — a press-press drop-down carries no release half
+
+The control answers two gestures (§13.14): press, drag and release, where
+`os88ui_drdrag` tracks the highlight and `os88ui_drup` picks; and press-press,
+where `os88ui_drpress` alone both opens the list and picks or closes it. A
+package that wires only the second, and never takes a list down from outside
+the control (Esc, a menu) with `os88ui_drclose`, reaches none of those three
+routines. `OS88UI_NODRGEST` takes them out (apps size pass 2b). It is an
+opt-out in `OS88UI_NOGEST`'s shape (§20.5.1.3.4): every package that does not
+set it is byte-identical, it removes the symbols so a package that sets it and
+then calls one of the three does not assemble, and it refuses without
+`OS88UI_DROP`. The DOS box's disk-cache dial is the one consumer (§96.44.16):
+152 bytes of image. Clear Skies, Word, PiXEL and RedLine use the drag and
+release half and cannot set it.
+
 #### 13.15.1 `os88ui_glyph` draws with FILLS now, and shares the radio's shape
 
 It used to be four 12×12 **bitmaps** put down through the masked sprite pass
@@ -41148,7 +41186,7 @@ each needed a mechanism**:
 | 0   | 2    | magic: bytes `'O','8'` (word 0x384F)                      |
 | 2   | 1    | format version = **10** (`PKG_FMT`): the segment-per-package layout, built against the API table as §20.3 lays it out now. Anything else — 1 to 9 included — is refused (§20.2.0) |
 | 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; **bit 3 = the image is COMPRESSED and the file is SHORTER than it, bit 4 = which format (0 = LZ4, 1 = LZB)** — docs/plans/O88-COMPRESSION-PLAN.md; **bit 5 = a 16-byte DOCUMENT-GLYPH block follows the association block (§54.3.2)**; **bit 6 = `OS88_F_DESK`, the package makes a desk window (§11.103.9): kern_big's loader takes its instance record from the top of the table down**; bit 7 zero |
-| 4   | 2    | link base — must be **0**: a v3 package links at org 0     |
+| 4   | 2    | link base — must be **0**: a v3 package links at org 0. **The one exception is a package with parts AND a packed image (flags bits 2 and 3 both)**: there it is the packed image's length in the file, because the file is not the image (§20.13.8) |
 | 6   | 2    | entry offset (≥ 0x20; ≥ 0x60 with icon; < image size)      |
 | 8   | 2    | image size = resident bytes: header + icon + code + data. Equals the file size exactly — **unless flags bit 2 is set, when it may be smaller and the file's tail is the package's (§20.12)**. |
 | 10  | 2    | bss size — bytes the loader zeroes after the image        |
@@ -42566,6 +42604,19 @@ writes it, so a W_PAINT mid-press agrees for free; Word and Scribe stage the
 record one control at a time and set it before each `os88ui_btn` from their
 own "which control is down". That is the contract, and not a trespass.
 
+**`OS88UI_NOBTNINIT`** splits the gesture in two (apps size pass 2b). Its
+SETUP half - `os88ui_btninit`, the library's own W_ONCLICK `os88ui_btnclick`
+and the record list head `os88ui_btlist`, 112 bytes - is reached only by a
+package that hands the window to the library; its PRESS half -
+`os88ui_btnpress`/`btndrag`/`btnup` over `os88ui_bfrec` - is also what a
+package that routes its own press into the record calls. `OS88UI_NOBTNINIT`
+takes out the setup half and keeps the press half; `OS88UI_NOGEST` implies it
+and takes out both, so every existing consumer is byte-identical. It removes
+the symbols on the same argument: a package that sets it and calls
+`os88ui_btninit` does not assemble. Note Pad's full build is the one consumer
+(§27.21 item 19): its find panel presses into `os88ui_btnpress` and installs
+its own up and drag procs.
+
 **`OS88UI_NOBFIND`** is the same shape one routine further: under
 `OS88UI_NOGEST` nothing in the file calls `os88ui_bfind` — the gesture is its
 only internal caller — so a package that hit-tests with `os88ui_bhit` or by
@@ -43607,7 +43658,9 @@ version number would advertise a kernel capability that does not exist.
    because such a file is bigger than its segment by construction, and
    `ld_run_body` step 1 tests the staged size's high word before it trusts
    the low one (§21).
-2. **`ld_check_hdr` allows `image < file size`** when bit 2 is set. Without
+2. **`ld_check_hdr` allows `image < file size`** when bit 2 is set (and,
+   since §20.13.8, a packed image beside it, whose length the link word
+   carries). Without
    the flag the guard is unchanged and exact.
 3. **The entry proc is told the name of the file it came from** (§20.2's
    entry contract, §21 step 9).
@@ -44277,6 +44330,23 @@ starts 1,024 bytes earlier in the file. The loader is freed at the re-home, so
 that is disk and transient RAM, and the program never knew - it is told the
 streams' sector (`CSH_SEC`) out of the row rather than computing it.
 
+##### 20.12.9.2 `OP_NO_LAZYOK`, for a loader that fetches without asking
+
+`op_lazyok` is the QUESTION half of the lazy surface - *could part AL be had
+right now?* - and it exists so a menu item behind a lazy part can be greyed
+on a fact (§47) before the user picks it. A package that fetches its lazy
+part ONCE, at launch, with no menu in front of it, never asks: the answer is
+`op_fetch`'s own refusal and its toast. The DOS box's loader is that shape
+(§96.44.5.3) and carried the routine anyway, because the table cannot say
+"fetched, but never asked about" - so the include takes a define instead:
+`%define OP_NO_LAZYOK` before `apps/os88parts.inc` leaves `op_lazyok` out.
+
+It is a DEFINE and not a derived flag, for the one reason it differs from
+§20.12.9's: what decides it is the program's CALLS, which no table row sees.
+The default emits the routine, so every package that does not say so
+assembles byte-identical. `apps/dos/dosload.asm` opts in: 2,276 -> 2,210
+image bytes (apps size pass 2b, §96.44.16).
+
 #### 20.12.10 A LOADER hands its identity to one of its own parts
 
 A parted package's image is the thing the kernel launches, and everything else
@@ -44842,7 +44912,10 @@ guard is still exact for everything else.
 
 The compressed length needs no header field: the loader already has the file's
 size staged from the directory entry (§19.1), and the compressed body is that
-minus the clear prefix.
+minus the clear prefix. **Except beside parts** (§20.13.8), where the file is
+longer than the image and its size says nothing about the stream: there the
+link word carries the packed length, and it becomes the "file" every test
+below is about.
 
 **BIT 3 IS HONOURED ON ONE ARM OF THE LADDER AND REFUSED ON THE OTHERS**
 (binding). `image > file` is not a consequence of the bit, it is the
@@ -44962,13 +45035,54 @@ and is what an A/B uses. The kernel needs no arranging to match, because
 §20.13.3's default format is LZ4 as well — which is the reason LZ4 is the one
 that got to be the default here rather than the better ratio.
 
-**LZB is built and not shipped.** It is ~10 points better on ratio and ~4×
+**LZB is built, and is not the default** - the nineteen package builds below are the exception. It is ~10 points better on ratio and ~4×
 slower to expand (§20.13.3), and on a 4.77 MHz 8088 that trade is a disk
 saving *once* against a launch cost *for ever* — two numbers on different
 clocks that do not reduce to one rate. Until somebody has measured the second
 of them on a 5150 the machine takes the fast decoder. Both knobs stay on both
 sides (`make PKGZ=lzb COMPRESS=lzb`), and `tests/lzship.py --fmt lzb` builds
 and boots the whole set through it, so adding LZB later moves no layout.
+
+**NINETEEN PACKAGE BUILDS SHIP LZB, by the owner's decision** (apps size pass
+2, set B): ArtfulType, Audio, Browser, Calculator (both arms), Chart,
+Cyclone, Dot Delirium, Gorillas, Missile, Sheet, Solitaire, TameGram, Tank
+(both arms), Telnet, TeXPad, The Wire and WireBall - The Wire being the
+first on the system disk (`SYSTEM/`, 10 -> 9 clusters). Each
+rule packs through `$(OS88PKGB)` - `--compress-if=lzb` whenever `PKGZ` is set,
+so `make PKGZ=` still builds them plain - and `LZBPKGS` names them for a stamp,
+because moving a rule between the two packers changes no prerequisite. On a
+`COMPRESS=lz4` build - a kernel with the LZ4 decoder alone, which is what
+`make zset ZFMT=lz4` builds - they fall back to LZ4, because an LZB package
+there is one its own kernel refuses (`lzship` found it). **The
+test for each one is that LZB saves it a cluster on the 360KB disks it rides**
+(Solitaire's APP_SMALL arm does not, and stays LZ4; Arkanoid did when it was
+chosen and stopped doing so when set C's code pass took its LZ4 file to 5,031
+bytes, 5 clusters either way - `lzbclust` caught it at the merge, and it went
+back to LZ4), and **Paint, Note Pad and
+the Task Manager stay LZ4 whatever it would save them**: they open the common
+documents and have to stay quick. Every other package is LZ4.
+
+**The cluster test is a gate, not a note**: `soak -k lzbclust`
+(`tests/unit/t_lzbclust.py`) re-packs every listed package with LZ4 and fails
+any whose LZB file no longer takes fewer 1KB clusters - a package's next edit
+can carry it across a boundary with every build step green - and any listed
+name whose shipped file is not LZB at all. `--candidates` prints the LZ4
+packages LZB would save a cluster for, as information.
+
+The second of this section's two numbers has been TAKEN rather than predicted,
+on ArtfulType, on MartyPC's 4.77 MHz 5150 off a 360KB floppy, from
+`ld_run_body_x` to `lz_decomp_x`'s return: **+541 ms on a first launch**
+(1,600.0 -> 2,140.7) and **+411 ms on a second** (1,219.2 -> 1,630.7) - the
+decode adds 764 ms for 18.6 KB of image and the smaller file gives 224-352 ms
+of reading back. The ratio LZB gets is not special to any package - a survey
+of every shipped one found 10-14% off the LZ4 file almost everywhere, at about
++26 ms of net launch per KB of image off a 360KB floppy, more off a hard disk -
+so the choice is per package, decided by how many disks it rides and how often
+it is opened, never by its ratio. What the set bought, against the tree the
+pass's set B was cut from: the 360KB apps disk 1 -> 22 free clusters, office
+51 -> 63, games 80 -> 92, both small disks +17 (those figures include set B's
+code passes). Both kernels carry the decoder (§20.13.6), `kern_small`
+included, which is what makes a per-package choice possible at all.
 
 **What it is worth, on the geometry that binds** — the 360KB pair, and
 **no cluster totals are written down here.** They move with every package,
@@ -45159,7 +45273,8 @@ That is not a hedge:
 **The disks stay LZ4** (§20.13.5), and the trade is still the one §12.7 of
 `docs/plans/O88-COMPRESSION-PLAN.md` states: LZ4 is 50.6 cycles an output byte and
 LZB is 207, against about ten points of ratio. A disk saving happens once and
-a launch cost happens for ever, and the 5150 has not been asked yet.
+a launch cost happens for ever. §20.13.5 records the packages that ship
+LZB anyway and what a launch was measured to cost.
 
 **The default names no symbol.** `kernel/lz.inc` defines both when neither is
 defined, and only `COMPRESS=lz4` and `COMPRESS=lzb` pass a `-D`. That
@@ -45239,6 +45354,92 @@ replaced:
 |---|---:|---:|
 | `.cold` | 650 | 347 |
 | `.bss` (the window and its cursor) | 266 | 0 |
+
+#### 20.13.8 A parted package's IMAGE may be packed too, and its length rides the link word
+
+**It was refused as circular, and it is a fixed point.** A part's `off` is a
+sector of the FILE and lives in the table INSIDE the image, so packing the
+image moves where the parts can start, which changes the table being packed.
+But only the table's `off` words move, every part moves by the same whole
+number of sectors and the parts' own bytes never change - so `os88pkg.py`
+packs once to guess the base, then packs again at each base until the packed
+image fits in front of it (`compress_parted`). The base only rises, so it
+stops; where it would oscillate it settles on the larger, which fits by
+construction. **A pack that saves no SECTOR is declined** (`--compress-if`'s
+soft refusal): the parts would not move, the file would not shrink, and every
+launch would pay the decode for nothing - so Skies' and Word's loaders, and
+Pixelstein's (refused by the region rule below), ship as they were.
+
+**The kernel has to be told the stream's length**, because §20.13.2's "the
+file minus the prefix" is wrong when the file carries parts. It rides the
+LINK word (+4), which is zero on every other package:
+
+- **`ld_hdr_ok`** lets a non-zero link word through only on a PACKAGE header
+  (format byte `PKG_FMT`) whose flags carry BOTH bit 2 and bit 3. The test
+  comes AFTER the version test, so a package of another format still says
+  `LD_EVER` (§20.2.0) however its link word reads; a driver, a module, or a
+  package with any other combination is refused exactly as before.
+- **`ld_check_hdr`** then puts that length in `[ld_fsz]` and zeroes the high
+  word, and every test after it is the plain compressed package's, unchanged:
+  the size ladder, step 6's `R = roundup512(image - file)` and its read, and
+  step 6a's stream length.
+
+**Every malformed combination is refused by a test that already existed.**
+Checked by running the BUILT kernel's own `ld_check_hdr` and `ld_hdr_ok` -
+the `.cold` bytes out of `build/kernel-full.bin`, placed by the map - in
+Unicorn's 8086 core against the shipped `DOS.O88` header and each corruption
+of it: the shipped one is accepted with `[ld_fsz]` = 1,992, and every row
+below answers CF = 1 with the status given.
+
+| the header says | what refuses it |
+|---|---|
+| link != 0, bits 2 and 3 not both set | `ld_hdr_ok`, `LD_EBAD`, as before |
+| link != 0, another format byte | `ld_hdr_ok`, **`LD_EVER`** - the version test still comes first |
+| link != 0 on a driver, its class byte holding 0x0C | `ld_hdr_ok` through the driver door: the format byte is not `PKG_FMT`, `LD_EBAD` |
+| bits 2 and 3, link 0 | the ladder: the file is longer than the image, and the compression bits are refused on that arm (§20.13.2), `LD_EBAD` |
+| bits 2 and 3, link == image or past it | the ladder: `image == file` or `image < file` with the bits set, `LD_EBAD` |
+| bits 2 and 3, link past the file's chain | `dsk_read_chain_x`: a link past the chain's end is corruption, `LD_EBAD` |
+| a stream that does not decode to `image` bytes | `lz_decomp_x`'s output bound, then the in-region header re-check (§21 step 6) |
+
+**What it bought, measured on the tree it landed on**: `DOS.O88` 48,172 ->
+47,660 (48 -> 47 clusters, every 360KB system disk), PiXEL 113,147 ->
+105,467 (111 -> 103, `office360.img`), and the C SDK's two parted programs
+**8,192 bytes each**, 16 sectors: C64 47,570 -> 39,378 and the Apple II
+44,544 -> 36,352 (47 -> 39 and 44 -> 36 clusters on their own floppies). Skies,
+Word and Pixelstein are declined and byte-identical.
+
+What it cannot refuse it shares with every compressed package since §20.13
+(see 20.13.8.1). **Cost: `.cold` +33 resident bytes on each kernel**, no rung
+crossed - 28 for the store and the gate, 5 more to put the gate after the
+version test.
+
+**THE FORMAT NUMBER DOES NOT MOVE**, by §20.2.0.1's rule and §20.12's argument
+one bit along: every package built before this runs on this kernel unchanged
+(none sets the pair, because `os88pkg.py` refused it), and an older kernel
+handed the new pair refuses it as `Bad package` by the flag-bits rule above -
+the correct outcome by the correct route. A bump would refuse every existing
+package on the new kernel to advertise a capability only one kind of file
+uses. `apps/os88api.inc` is untouched, so the ABI lock's fingerprint is too.
+
+Host side: `os88pkg.image_unwrap` returns the IMAGE of such a file (the
+stream ends at the link word, which it zeroes), and the part table is read
+out of that while the parts are read out of the FILE at its offsets -
+`os88parts.image_rows`, `part_bytes`. `os88disk.py` and `tests/unit/t_pkg.py`
+hold the link word to the same rules as the kernel.
+
+##### 20.13.8.1 What the read can still overrun, and it is not new
+
+Step 6 reads `roundup512(file)` bytes at `R = roundup512(image - file)`, and
+two round-ups can exceed the one `ld_alloc` sizes the region with by up to
+511 bytes when the bss is short - `image` 1,000, a 600-byte stream and no bss
+reads to 1,536 in a 1,024-byte region. `os88pkg.py` never writes such a file
+(its region test refuses it), but a hostile header can, on the plain
+compressed arm as on this one: the guard belongs in the ladder, as
+`R + roundup512(file) <= roundup512(image + bss)`, and it is not taken here.
+The same is true of a length shorter than the clear prefix (accepted by the
+header test, and step 6a's stream length then wraps): the decoder's output
+bound keeps every write inside the region, as it does for a plain compressed
+file that short, and only the read above can pass it.
 
 ### 20.14 A COMPRESSED FILE — the kernel expands it on the way in
 
@@ -51351,6 +51552,90 @@ content-relative; the procs fetch the content origin via `wm_content`
   1,945 -> 1,678; a covered-board redraw and a whole-board (71-cell) flood measure
   1.4-1.9% fewer guest cycles than before (MartyPC, 5150 CGA). Tests that
   read a cell decode `mn_cell` (`tests/minexflag.py`, `tests/minesrc.py`).
+- **Apps size pass 2 (disk)**, docs/plans/HANDOFF-APPS-SIZE-P2.md. The file
+  was 1,678 bytes and shipped PLAIN, because LZ4's in-place layout needed
+  2,096 bytes of a 2,048-byte region; image cuts got it under that line.
+  - **The callbacks bank nothing the kernel does not read back.** `W_PAINT`
+    gives back SI, `W_ONCLICK`/`W_ONRCLICK` SI (13.7's arm), and `W_ONKEY`,
+    `AM_ONCMD` and the About handler nothing (12.2); so the push-everything
+    prologues went, and with them the drawing routines' own banks - each
+    keeps only what its callers read after it (`mn_draw_cell` BX, DI and BP,
+    for the board loop and the flood). The entry proc takes
+    `OS88_REGION_MOVABLE_NOKEEP` and a `clc`, the flag toggle is a block of
+    the click body rather than a routine of its own, and the new-game wipe
+    runs down so its index is its counter. Pictures identical; the redraws
+    and the flood measure 0.4-0.6% fewer guest cycles (MartyPC, 5150 CGA).
+  - **`mn_nlist` lists the cell's whole 3x3 block, the cell included**, and
+    answers SI = `mn_nbuf` itself. The flood finds the cell already OPEN and
+    skips it; `mn_place` bumps a mine's OWN count, which nothing reads (a
+    mine is never opened) and which tops out at 9, inside the nibble. A
+    candidate is kept when its index is on the board (0..80 as a byte, which
+    settles the row) and its column is 0..8 - no row*9 + column rebuilt per
+    neighbour. `mn_nbuf` is 9 bytes, and 9 + 71 is exactly `mn_xpts`'s 80.
+  - **Shape lists chain.** `mn_shape` leaves SI past the terminator, so
+    `mn_sh_flag` laid out after `mn_sh_covered` is drawn by a second call
+    with no reload; the ground under an exposed mine is ONE record in front
+    of `mn_sh_mine` whose colour byte `mn_draw_minecell` writes (light gray,
+    or light red for the clicked one) before every use - two lists and two
+    calls became one. The terminator is the one colour byte with bit 7 set,
+    so its sign tests it (`or al, al` - the first cut used `cbw`, which
+    writes no flags, and walked off the list on the first board that was not
+    all covered), and each coordinate reaches its `gfx_fill`
+    register by a one-byte `xchg`. The loss renderer classifies a cell on
+    one masked byte.
+  - **The wrong-flag X is composed from three running registers** (the
+    falling diagonal's x up, the rising one's down, the shared row up), the
+    cell origin being the one `mn_draw_minecell` already left in CX/DX -
+    the same twenty points in the same order, one `OSAPI_GFX_POINTS`.
+  - **The strip's three lines carry their own x.** Each is led by a byte
+    `(144 - 8 * length) / 2` worked out at build time (`MN_CTEXT`) - the font
+    is 8px a character by contract, so it is exactly what `OSAPI_FONT_WIDTH`
+    answered on every repaint, and the far call is gone with the arithmetic.
+    The counter's "10" reaches its 0 through the single-digit line.
+  - **The About card's lines are packed** (`OS88UI_ABPACK`, 20.5.1.1): end
+    to end with their NULs and an `OS88UI_ABEND`, no pointer table, the first
+    line being the window title's own bytes. The card draws as before.
+  - **Five small cuts.** `[mn_abon]` is 0 or 1, so `mn_abdismiss` tests and
+    clears it with one `shr` whose CF is the answer; `mn_hitcell` stops
+    banking CX round `mn_org` (`OSAPI_WM_CONTENT` keeps it); the Game set
+    declares two items, so `mn_docmd` falls into Flag Mode for anything but
+    item 0 and the region's relocation proc is `mn_org`'s `ret`; the digit's
+    colour is read through SI with no bank; and the clicked cell's one-entry
+    list is the queue's first byte, which the enqueue rewrites with itself.
+  - **A colour is set once per RUN of rects.** A list is `MN_SC` (16) +
+    colour and then that colour's rects, 0xFF ending it: a coordinate is
+    0..15, so one compare tells a colour byte from the next rect's x1 and
+    the same compare's sign finds the 0xFF. The covered face sets the pen 3
+    times for 5 fills, the open face 2 for 2 (below), the exposed mine 2
+    for 10 - 14 colour bytes and that many `OSAPI_SET_COLOR` calls fewer.
+  - **An open cell is TWO fills, decided by the flash and not the size.**
+    `mn_sh_open` was a white 16x16 face and then the four 1px dark gray
+    edges (five fills); it is now a dark gray 16x16 and a white 14x14 inside
+    it, the same pixels - so the cell's brief in-between state changed (a
+    white border that the edges then put back, against a dark gray interior
+    the face then covers), and the owner's condition was that it be taken
+    only if that is LESS flash. Measured with the flicker metric (PERFORMANCE.md
+    Part 3.1) on a deterministic board written into `mn_cell` (mines on row
+    4 and at cell 80), every frame read off the card, the click injected at
+    eight frame phases, the pointer's own cell masked out; mean over the
+    eight, five fills -> two:
+
+    | MartyPC, 4.77MHz | one numbered cell | a 36-cell flood |
+    |---|---|---|
+    | 5150 CGA, transient px (cell) | 9.9 -> **1.1** | 135.8 -> **30.5** (worst frame 29 -> 13) |
+    | 5150 CGA, frames to settle | 2.9 -> 2.8 | 14.8 -> **10.9** |
+    | XT VGA, transient px (cell) | 3.5 -> **0.0** | 136.9 -> **34.9** (worst frame 33 -> 25) |
+    | XT VGA, frames to settle | 3.1 -> 3.0 (one 26-frame outlier excluded) | 11.6 -> **8.5** |
+    | `mn_reveal`, guest cycles | | CGA 927,146 -> **602,138** (-35.1%), VGA 679,997 -> **427,941** (-37.1%) |
+
+    Counted WITH the pointer, as `flicker` reports it, the flood is 623 ->
+    355 px on CGA and 598 -> 344 on VGA - the arrow is off for the length
+    of the lock hold, so a shorter flood is less arrow flash as well. The
+    settled window is pixel-identical between the two builds on both
+    adapters, after the single cell and after the flood. 12 bytes of image.
+  - `mn_hitcell` bounds the column and row on AL alone (a content point is
+    under 4,096px, so AH is 0, and `mul` reads AL anyway), and the strip's
+    right edge is `mov cx, 143 / add cx, ax`, the shorter order.
 
 ## 24. Packaging toolchain (host side)
 
@@ -58499,6 +58784,7 @@ than the image and the bss together.
 | `NPF_UNDO` | the undo log and Edit ▸ Undo (§27.9) | nine internal entry points collapse to one shared `ret` |
 | `NPF_ABOUT` | the standard About card (§20.5.1) | one `OSAPI_ABOUT_SET` at entry and one layer in `np_paint` |
 | `OS88UI_SBDRAG` | §13.10.5's thumb gesture | already a knob (§13.10.7); the bar still tracks and steps |
+| `OS88UI_NOGEST` + `OS88UI_NOBFIND` (set, not cleared) | §20.5.1.3's button-record gesture - `os88ui_btnpress`/`btndrag`/`btnup`, `btninit` and `bfind` | follows from `NPF_FIND`: the panel's four are the only buttons with a record here, and §75.3's alert drives its own through `os88ui_ahit` and arm/fire (§27.21 item 17) |
 
 **Kept on purpose, so that the small build is a text editor and not a
 demo:** typing and word wrap, scrolling, the selection with cut/copy/paste,
@@ -58953,6 +59239,121 @@ costs is the larger window's own redraw and its §11.96 save-under (a 1bpp
 cache, about 14KB at 440x260 against about 6KB) - both bounded by the area the
 user sees, which is the area they asked for.
 
+### 27.21 The second apps size pass - what was taken for DISK room
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md measures a package by its SHIPPED FILE,
+the LZ4-packed `NOTEPAD.O88`, because the 360KB system and apps disks are
+full - and Note Pad rides both, plus the two small disks in its §27.16 arm.
+Every change below is on a COLD path (a file, a menu, a dialog, the find
+panel), leaves the picture and every behaviour as it was, and moves no byte
+into bss or the heap. The numbers are the file and the image, both arms.
+
+1. **One copy loop for the three name composers.** `np_qcompose` (the
+   §27.15 question), `np_setmsg` (the Saved / Loaded toast) and
+   `np_defname` each carried their own NUL-string copy; they share
+   `np_cat` / `np_scpy` now, which leave DI on the NUL so the next copy
+   overwrites it.
+2. **The save's CR LF expansion is `stosb`.** ES:DI was already the staging
+   claim, so the store is one byte and DI IS the staged count - the BX that
+   counted beside it is gone - and `np_load`'s `jmp` to the epilogue that
+   follows it falls through instead.
+3. **A length kept in memory is updated IN memory.** Seven
+   `mov ax, [x]` / `add ax, cx` / `mov [x], ax` triples - `[np_len]` in
+   `np_delspan`, `np_gaproom` and `np_paste`, `[np_utop]` and a record's
+   `np_udel` in the undo arena - are one `add [x], cx` each: four bytes where
+   there were ten, and fewer cycles, since the 8088 pays for the fetch.
+4. **The line-ending fold is written once.** `np_load` and `np_paste`
+   apply the same rule - CR LF and a lone LF to 13, anything else outside
+   32..126 dropped - and each carried the loop; `np_nlfold` is both now
+   (`es lodsb` / `stosb`, and the paste's capacity check provably never
+   fires). The paste's tail move after the fold is `rep movsb`.
+5. **The find panel's button rects are reached through one pointer.**
+   `np_pbutton` computed the slot's rect address twice, once per arm, and
+   pushed and popped the slot around it; it computes it once into SI. The
+   match count's fixed words (`...`, `Bad pattern`, a blank) are copied
+   by `np_scpy`.
+6. **Replace copies with `rep movsb`.** `np_replat` moved the replacement
+   text into the note a byte at a time with DS:SI and ES:DI already set up
+   for the string move it is now - and a zero count moves nothing, so the
+   `jcxz` went with it. `np_saycnt`'s ' replaced' suffix is `np_scpy`.
+7. **`np_fpgeom` derives the panel from registers.** The content's left
+   and right stay in DI across `OSAPI_WM_GEOM` and every edge is one `lea`
+   off them instead of a reload-add-store; the three optional button widths
+   share one test of `[np_fpan]`. `np_fpclick`'s `.hit` arm, unreached
+   since the press stopped firing a button (np_onup reaches `np_fp_act` at
+   the release), is gone.
+8. **`np_fpaint` keeps its coordinates in the registers.** A primitive
+   preserves every register, so the rule under the panel is the fill's own
+   rect one row down (`inc dx`, `mov bx, cx`), the Regex tick is the tick
+   box's frame inset by two, and the four buttons count their slot down
+   from 3 in BX, which `np_pbutton` keeps.
+9. **`np_pfield` places a text box with `lea`.** The row's top is
+   `[np_pt]` plus the pad, plus a row for Repl: (no `mul`), the label's x is
+   `[np_pcbx]` that `np_fpgeom` already holds, and the frame and caret
+   edges are each one `lea` off the row's top.
+10. **A dropped selection is ONE rotation in registers.** `np_movesel`
+    wrote its two directions out as two sets of three reversals over four
+    bss words (`np_mvs`/`np_mve`/`np_mvp`/`np_mvn`). Both are the same
+    rotation of `[a,b)[b,c)` - rightwards `(s,e,p)`, leftwards `(p,s,e)`
+    - so the leftward case swaps its three ends into place and both fall
+    into one body that holds them in AX/BX/DX, with the block's landing
+    place in DI. The four words are gone: bss -8 on both arms.
+11. **A name is adopted in one place.** The file dialog's callback and
+    the launch document (`np_ondlg`, `np_arg`) each recorded the folder and
+    copied the kernel's name with a loop of their own; `np_adopt` does both
+    for both, bounded at 13 and a NUL as `np_arg`'s was (SPEC.md 38.6
+    promises 12, and `np_name` holds 14).
+12. **`np_onclose`'s refusal is one branch.** When `os88ui_ask` refuses,
+    the close tested `[np_asking]` to tell "ours is already up" from "the
+    window table is full" - and both arms went to the same `.wait`. It is
+    one `jc .wait` now.
+13. **The panel's button actions share their tail.** `np_fp_act`'s All and
+    Repl arms each ended in the same redraw-and-recount, and now meet at
+    one; the slot is counted down with `dec bx`. `np_pdrawn` lets its
+    cut-to-fit case reach `.draw`'s own NUL instead of writing one first,
+    and `np_fpclick` compares the button row's top in memory.
+14. **The panel's button arrays are bss.** The group's rects, labels and
+    flags (48 bytes, `np_brects`/`np_btlbl`/`np_btflg`) were zeros in the
+    image; the loader zeroes bss, so they start exactly as they did, and
+    image + bss is unchanged. The scroll bar's 16-byte record was tried the
+    same way and left where it is: it bought the full arm 4 bytes of file
+    and cost the small arm 3.
+15. **A find box edits in registers.** `np_fpkey` kept the caret and the
+    length in memory and re-read both at every step; it holds them in DX
+    and CX and stores the caret back once, on every way out (so the clamp
+    to the box still lands even for a key it refuses). The insert and delete
+    slides move the terminating NUL with the text instead of writing it
+    afterwards - a box is NUL-terminated at its length on every path that
+    writes one, which item 16 below makes true of `np_fopen` too.
+16. **DEFECT FIXED: a multi-line selection no longer corrupts the
+    pattern.** `np_fopen` seeds the pattern from a one-line selection and
+    checked for a CR AS it copied - so a selection whose CR came after more
+    characters than the old pattern held had already written over the old
+    pattern's NUL when it gave up. `[np_fpatn]` kept the old length, the
+    box showed that many characters of the NEW text, and the matcher, which
+    reads the pattern to its NUL, searched for more than the box showed.
+    It scans the selection with `repne scasb` first and writes nothing
+    unless the whole of it is one line. +3 image bytes, +0 file.
+17. **The small build leaves the button gesture out.** With no find panel
+    there is no button record in `APP_SMALL` at all - the alert's buttons
+    are its own - so the build sets `OS88UI_NOGEST` and `OS88UI_NOBFIND`
+    (§20.5.1.3.4) and the ~230 bytes of record-gesture code nothing in it
+    could reach are gone (§27.16.2's table). The full build carried
+    `os88ui_btninit`/`btnclick`/`btlist`, which it never calls, until item
+    19 gave that half a knob of its own.
+18. **File > New zeroes through AX.** `np_new` stored two immediate
+    zeros and saved AX around `np_resize`, which keeps it anyway; AX was
+    already spent on the toast's string, so its header now says it clobbers
+    AX, which it always did.
+19. **The full build leaves the gesture's SETUP half out** (apps size pass
+    2b). The find panel routes its own press into `os88ui_btnpress` and
+    installs its own up/drag pair (`np_onup`/`np_ondrag`), so it reaches the
+    gesture's press half and never `os88ui_btninit`, `os88ui_btnclick` or
+    the record list head. `OS88UI_NOBTNINIT` (§20.5.1.3.4) takes those out:
+    image -112, file 14,875 -> 14,766 (-109), 15 clusters on the system and
+    apps disks either way. The small arm, already `OS88UI_NOGEST`, is
+    byte-identical.
+
 ## 28. apps/taskmgr — the Task Manager
 
 **A package in the root of every shipped floppy** (`TASKMGR.O88`) — the
@@ -59174,7 +59575,9 @@ is the safe direction — one extra redraw, never a missed one.
 changed.** Both views compose the whole row into `tm_str` first — name, ADDR,
 SIZE/HEAP or ST/CPU/MEM, all of it — zero-pad it to `TM_NCHUNK`×`TM_CHUNK`
 characters, and then hash each `TM_CHUNK`-character chunk on its own
-(`tm_chunksum`, rotate-then-add, so a transposition is not invisible) against
+(`tm_sumb` over the chunk's `TM_CHUNK` bytes, seed 0 — it was a private
+`tm_chunksum` until §28.12.2 — rotate-then-add, so a transposition is not
+invisible) against
 its word in `tm_rowck`. Equal means the pixels on screen are already right:
 **no fill, no legend square, no glyphs** for that chunk. So the erase is
 *inside* the changed branch, which is the ordering the whole thing rests on —
@@ -59910,7 +60313,8 @@ than a bare per-app total.
   docs/FIELD-NOTES.md 2 is a refusal where the total says there is room and
   the largest run does not, and until now nothing in the OS showed both at
   once.
-- (6,26): the header, `"TYPE      ADDR SIZE TIER"`.
+- (6,26): the header, `"TYPE       ADDR SIZE TIER"` — twenty-five
+  characters since §28.12.2 widened TYPE to eight.
 - (6,37): the rows, at the memory list's `TM_ROW_H` pitch and `TM_MPEN` pen.
 
 **The list starts at `TMH_ROW_Y`, and it needed saying twice.** `tm_mrow_open`
@@ -59972,13 +60376,15 @@ that layout already does.
 
 **Grouping is by OWNER, and a heading is not a claim.** `System` first, then
 one heading per live instance in slot order, each carrying that owner's total
-KB in the SIZE column; every claim it holds is a row **indented two
+KB in the SIZE column and its name WHOLE - a heading fills neither ADDR nor
+TIER, so the name has the fifteen columns left of SIZE, which is exactly
+`I_NAME`'s fifteen (§28.12.2); every claim it holds is a row **indented two
 characters** under it. An owner with no claims still gets its heading — "this
 app holds nothing" is an answer, and its absence would read as the app not
 running.
 
-**The TYPE column is what makes a row identifiable**, seven characters
-decoded from `CLS_OWN`:
+**The TYPE column is what makes a row identifiable**, eight characters
+(`TMH_TYPEC`; seven until §28.12.2) decoded from `CLS_OWN`:
 
 | Owner word | TYPE | |
 |---|---|---|
@@ -60544,7 +60950,7 @@ the content before the callback runs. Nothing else ever redraws a heading —
 they are constants, so `tm_elchk` has nothing to compare and none of them is
 behind one.
 
-**The pen is still set before each, and that is deliberate.** `TM_INK CBLACK`
+**The pen is still set before each, and that is deliberate.** `TM_INKX CBLACK`
 no longer feeds the heading, but it is one 46.7 µs call once per repaint and
 removing it would make the pen's value at that point a question somebody has
 to re-answer. It is left where it is; the heading simply no longer reads it.
@@ -61266,9 +61672,12 @@ worth a byte of `.text` here and `tools/os88pkgsize.py` prints the sum:
 
 | arm | image | bss | claim | vs. full |
 |---|---|---|---|---|
-| full (shipped) | 8,223 | 1,707 | **9,930** | — |
-| `TMF_HEAP` off | 6,970 | 1,581 | 8,551 | −1,379 (13.9%) |
-| both off (`APP_SMALL`) | 4,980 | 1,317 | **6,297** | −3,633 (36.6%) |
+| full (shipped) | 7,589 | 1,698 | **9,287** | — |
+| `TMF_HEAP` off | 6,300 | 1,586 | 7,886 | −1,401 (15.1%) |
+| both off (`APP_SMALL`) | 3,641 | 1,313 | **4,954** | −4,333 (46.7%) |
+
+(As of §28.12.3; §28.12.2's pass left the small arm at 4,400 of image; the first pass left them at 8,223 / 6,970 / 4,980 of
+image against 1,707 / 1,581 / 1,317 of bss.)
 
 The first size pass on the package (it had only ever been moved, never
 trimmed) took the full arm from 9,245 + 2,269 = 11,514 to the row above and
@@ -61316,6 +61725,135 @@ silent:
   field reading of 180 was taken on the heap page's chain, and re-deriving a
   slice from a static walk is exactly what put a task through the canary
   last time.
+
+#### 28.12.2 Apps size pass 2 — what the SHIPPED FILE lost
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
+package by the **LZ4-packed file** on the disks it rides, not by image + bss —
+`TASKMGR.O88` is in `SYSTEM/` on every system disk and on the 360KB apps
+disk, both of which were full. Nothing a user can see changed, and no hot path
+got slower: every change below is fewer instructions on the path it touches.
+The lesson that shaped it is the handoff's 4.6, met in practice: **code that
+repeats packs to nothing**, so taking a repeated sequence out (a macro's
+push/pop, a duplicated epilogue) moves the image and barely moves the file —
+the file follows UNIQUE bytes.
+
+- **The pen (`TM_INKX`)**: twelve of the fourteen pen sites no longer save AX
+  around `OSAPI_SET_COLOR` — each was either loading AX afterwards or could
+  set the pen first. `tm_map_ram` sets the claims' black frame pen ONCE
+  before the walk (FILL_PAT and FILL_GRAY ignore the pen), not per claim.
+  `tm_row_draw` drops the register saves around its run and its tail fill
+  (everything after them reloads what it uses), counts drawn chunks in a
+  borrowed BP instead of on the stack, steps DI a chunk at a time instead of
+  multiplying, and hashes with `tm_sumb` — `tm_chunksum` is gone.
+- **The sample (`tm_sample`)**: the idle task is found inside the per-task
+  diff loop rather than in a pass of its own; `tm_dif` banks a counter with
+  two `MOVSW`s (ES = DS there) and steps SI/DI itself; the rows' total is
+  summed in registers (`tm_total` is gone from bss); and the normalisation
+  no longer shifts thirteen dwords in memory once per bit — it counts the
+  bits off the total and `tm_shn` shifts each row (and the meter's
+  numerator) by that count in registers on the way into `tm_share`, which is
+  the same floor division and fewer cycles.
+- **Launch and the click (cold code)**: `tm_init` writes `[tm_xoff]` only on
+  the no-store answer (the loader zeroes bss) and `tm_layout` takes its first
+  depth from `tm_rowsfit` like the other three; `tm_kinit` is inlined into
+  `tm_entry`, which no longer saves registers nobody reads; `tm_onresize`
+  banks only the height it uses; `tm_hscroll` picks the step (an arrow is a
+  row, the track a page) and then the direction, instead of four arms.
+- **The bss words that were copies**: on the heap arm `tm_hrows` and
+  `tm_maxrow` ARE the scroll block's `total` and `fit` (`tm_hsb+8`/`+10`;
+  `os88ui_sbar` only reads the block), so `tm_hsbset` copies only `pos`, and
+  places the bar with a constant step for the second column rather than a
+  multiply. `tm_elck` is declared directly in front of `tm_rowck` again —
+  `tm_rowck` is DEFINED off its end, so the drift that once left the CPU
+  caption's check words uncleared cannot recur — and `tm_rowck_clear` is one
+  span. `tm_slow` is the byte after `tm_view`, so a view switch resets both
+  in one store.
+- **The process list (`tm_rows`)**: a free slot's row is a constant, so it
+  is ONE string (`tm_s_freerow`) instead of `tm_namef`, three copies and a
+  store — and its tail doubles as the memory pages' dash columns
+  (`tm_s_dash6`/`5`/`4` overlap it). The ST strings carry their separator.
+  `tm_memcol`'s byte-count entry had had no caller since MEM became KB and is
+  gone; `tm_cpucol` writes `'% '` as one word; `tm_namef` stops saving
+  registers its callers reload; `tm_order` takes the class bit straight out
+  of `KIND_PKG`.
+- **The memory and heap pages' text**: the low-memory row and the System
+  row's name-and-address are each ONE constant string; the heap page's TYPE
+  table carries each name IN its record (`TMK_REC` = owner word + eight
+  bytes) instead of a pointer to a separate string, and the TIER names are
+  four-character records whose fifth is the caption's own `'HELD'`; the
+  HELD/PURGE caption's two halves are one helper (`tm_kcnt`); a figure's
+  `'K'` and its terminating NUL are one word store; `tm_cap_xms` asks the
+  CPU tier before it needs AX for anything else. **Defect found, and FIXED
+  at the owner's word afterwards**: the TYPE column was seven wide
+  (`TMH_TYPEC`) and three names are eight — `Compress`, `Shortcut` and
+  `Disk img` had always shown as `Compres`, `Shortcu` and `Disk im`. It is
+  eight now, on the owner's condition that nothing reaches an edge. The row
+  had exactly one spare column, so it is **2 + 8 + 1 + 4 + 5 + 1 + 4 = 25 of
+  25** and the header (`TYPE` and seven spaces) and ADDR/SIZE/TIER each moved
+  one column right — ADDR to 11, SIZE's `nnnK` to 16, TIER to 21. In pixels
+  the row ends where every row of this window already ended its padded scrub:
+  the 25th cell is `TM_PEN` + 200 − 1 = 207 content-relative, the scroll bar
+  starts at `TMH_SB_X1` = 210, so **two pixels of gutter, three clear in the
+  glyphs** (an 8×8 cell keeps its right column blank), where TIER's last
+  ink used to stand eleven clear. That holds in every layout the page has: one
+  column (VGA, Hercules — and the 232-pixel frame is the narrowest, the
+  window having no grow box) and two (CGA, where column 0's band runs to 223
+  with no bar beside it and column 1 has the same 210 bar edge). Looked at on
+  MartyPC on all three adapters (`_gla` twins) with all three names on the
+  page, measured off the glass: last ink 206, bar 210. The header string is
+  the one byte it cost: image 7,589 → 7,590, bss unchanged, the shipped file
+  6,711 → 6,713, no cluster on either 360KB disk. The `APP_SMALL` arm has no
+  heap page and assembles byte-identical. No field crosses a chunk boundary
+  it did not cross before (§28.2): ADDR stays in chunk 2, SIZE's figure in 3
+  and TIER in 4.
+
+  **...and the group headings, the same day.** A heading row is the owner's
+  name and the group's KB, and the name was cut at seven by `tm_copy7`
+  (`CALCULA`) with eight pad spaces standing between it and the figure. Its
+  field is now everything left of the SIZE column - `TMH_HNAMEC` =
+  `TMH_IND` + `TMH_TYPEC` + 1 + 4 = **15** - and `I_NAME` holds at most 15
+  characters (`kernel/instance.inc`), so every owner name is shown whole;
+  an assembly guard refuses a `TMH_HNAMEC` below 15. `tm_kcol`'s own leading
+  space at column 15 is the separator, so even a full fifteen-character name
+  keeps one blank cell before a three-digit figure (16..18, `K` at 19), and
+  the heading row is 20 characters - content x 167, 43 px short of the bar.
+  It replaces `tm_copy7` and the pad loop with one `tm_copyn` of 15: image
+  7,590 → **7,584**, the file 6,713 → **6,707**. Looked at on all three
+  adapters with `CALCULATOR` and a poked fifteen-`W` `I_NAME` (the widest
+  glyph) on the page, in both the one- and two-column layouts.
+- **The quiet key and the graph**: `tm_quiet` walks the claim table to its
+  end by address (no counter on the stack) and starts the totals' span from
+  where that walk leaves SI, which IS `tm_kb`; `tm_graph` keeps the
+  interior's left edge in a register instead of recomputing it.
+- **Per-row helpers**: `tm_dmg_hit` derives a chunk's right edge from the
+  left one it already has instead of a second multiply; `tm_row_place` steps
+  to column 1 by `TM_COLW` (there are only ever one or two columns);
+  `tm_lrun` pads a caption with `REPNE SCASB`/`REP STOSB` as `tm_row_draw`
+  pads a row (whose `jcxz` was dead: a row always has its NUL); `tm_htype`
+  loads each range's name before its test.
+
+**What it came to**, measured on the shipped file (LZ4-packed) and on the
+360KB disks: the full arm **7,047 → 6,711 bytes** (7 clusters still, on the
+system disk and the apps disk alike), image + bss 8,040 + 1,707 → 7,589 +
+1,698; the `APP_SMALL` arm **4,175 → 3,952 bytes, 5 → 4 clusters** on both
+small disks, image + bss 4,687 + 1,317 → 4,400 + 1,313. No heap claim
+changed. MartyPC, `os8088_5150_cga`, both builds in one boot and then again
+in the other order: `tm_sample` 71,654 → 63,778 cycles, the performance
+page's refresh (median) 247,922 → 234,302, a quiet page's no-change check
+19,786 → 19,456, and the three pages' full paints 1.73–1.81 M → 1.63–1.70 M.
+
+#### 28.12.3 Apps size pass 2b — the small arm draws no button
+
+With `TMF_HEAP` off there is no scroll bar, so the small build could not say
+`OS88UI_BARONLY` and carried the whole button block of `os88ui.inc` -
+`os88ui_btn`, `os88ui_bhit`, the check/radio glyph and its bitmaps, and the
+record gesture - though nothing in it draws a button: its one click target is
+the content (`tm_click`), and the About card (§20.5.1) draws none. It sets
+`OS88UI_NOBTN` (§13.10.6.5.1), which removes those symbols, so a button added
+later does not assemble rather than shipping half-drawn. Image 4,400 → 3,641,
+bss unchanged, the file **3,952 → 3,305 bytes** (4 clusters still on both
+small disks). The full arm, already `OS88UI_BARONLY`, is byte-identical.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 
@@ -67188,6 +67726,84 @@ inks.
   frequencies; replayed songs play tone-to-tone with no speaker-off gap,
   so a whole song is ONE contiguous wav region — per-note assertions
   slice it at the 6-tick note quantum and Goertzel each slice.
+- **Apps size pass 2** (disk room, docs/plans/HANDOFF-APPS-SIZE-P2.md):
+  every change is to the shipped file and none to what the window draws
+  or plays. The entry proc declares its region with
+  `OS88_REGION_MOVABLE_NOKEEP`: the plain form's `pushf`/`push`/`pop`
+  kept AX, DX and the flags, and the next line reloads AX, DX (the
+  instance) is never read and the CF the loader is owed is
+  `pn_metrics`' (-6 bytes). A note's diatonic step and its sharp flag
+  are ONE 20-byte table, `pn_nstep` = step × 2 + sharp, where they were
+  two: the key lookup, the viewer's per-note facts and its same-step
+  test split it with a shift, which costs less than the second load it
+  replaces on every one of those paths (-21 image bytes). Replay's
+  abort silences the speaker through `pn_tone`'s own tail (-4). The
+  About card's lines are `OS88UI_ABPACK`'s end-to-end form rather than a
+  pointer table (-4; the card is the same pixels). On the paint path
+  the viewer's field is its frame one pixel in (the helpers keep their
+  registers) with the staff's x span loaded once, the button row is
+  ONE walk over the five buttons after the message and the "SONGS:"
+  caption - which share no pixel with any button, so the result is the
+  same picture - and the message area takes its pens from `pn_inkw` /
+  `pn_inkk`; and `pn_metrics` stores the black keys' foot as a byte,
+  the word's high byte being the loader's zero (-34 together). The two
+  key painters take every rect after the first from the one before it
+  - a white key's face is its outline one pixel in, a lit black key's
+  core its body one pixel in, the white key's letter row is the face's
+  last row less 10 - since the helpers keep their registers, set the
+  black pen before the x arithmetic needs AL, and test the lit flag in
+  BP where they copied BP to AX to test AH: FEWER instructions on the
+  key redraw and the keyboard paint, none added (-27). The viewer's
+  painters read the step `pn_vinfo` leaves in AL rather than re-load
+  it, middle C's ledger asks the next column before it builds its
+  span, and the sharp's erase decides its two rows in one test and
+  falls into `pn_vcol`, which falls into `pn_cvline` (moved beside it):
+  again fewer instructions on every path a note draws (-19 image bytes,
+  -3 file - what LZ4 had already been charging little for). On the
+  click and key path, `pn_abdismiss` tests and clears the About flag in
+  one `shr`, and `pn_note` makes the new count from the index it
+  already holds rather than incrementing memory and reading it back
+  (-9). A clear, a song load and a stopped replay end in one tail,
+  `pn_vsay` (the viewer's count and the message), and the plain READY
+  is the tail of MARY READY (-17). The sharp's erase reads whether a
+  C#4's ledger stays off the column's NEW note, already in `pn_vshow`
+  (C4 is its one same-step partner), so the per-column `pn_vkeep` byte
+  and its two stores are gone (-11 image, -1 bss). `pn_setdown` takes
+  the new button back off its own stack rather than re-reading the
+  word it just wrote (-1). Measured on MartyPC (GLaBIOS 5150, CGA),
+  the branch point's PIANO.O88 against this one on ONE boot, the same 29
+  keys (whites, blacks, the viewer filling and then scrolling) and three
+  About-card dismissals each, guest cycles at entry and return: key to
+  tone 5,288 -> 5,259 at the minimum (median of the 29 pairs -27); a
+  white key's redraw 66,112 -> 66,001 (pairs -68); a black key's 15,784
+  -> 15,763 (pairs 0, within the CGA's own jitter); the viewer's append
+  8,921 -> 8,861 (pairs -39) and a scrolling append ~530K -> ~527K; the
+  keyboard paint 867,276 -> 866,017 (all three pairs, -1,225). Nothing
+  is slower beyond one IRQ0's ~5.8K landing in one arm and not the
+  other, which happens both ways. The window was pixel-identical to the
+  branch point's after the same input (0 of 35,030 pixels). The file is
+  2,960 bytes where it was 3,052, image 3,287 where it was 3,440, bss
+  654. **Defect fixed, found here**: taking the About card down left
+  fragments of its letters and frame in the gaps between the viewer, the
+  button rows and the keyboard (193 pixels on a CGA, 60 on a VGA, the
+  same at the branch point) - `pn_paint` draws the parts and never the
+  ground between them, because a W_PAINT's content arrives white and a
+  dismissal's does not. `pn_abdismiss` now fills `pn_gnd` first: the ten
+  rects of ground the card can reach (it is centred, 16 cells wide, so x
+  35..186 and rows inside 37..109) that no part draws - the three
+  two-row gaps between the bands, the two-pixel gaps between buttons and
+  round the "SONGS:" caption - each ground and nothing else, so no pixel
+  is written twice; and the caption is an opaque `OSAPI_FONT_RUN`, its
+  cells' ground its own, where it was a transparent string on the
+  W_PAINT's white. Card up then dismissed is now pixel-identical to a
+  fresh paint of the window on CGA and VGA (0 differing pixels), and a
+  fresh paint is identical to the one before the fix. The button row's
+  paint got CHEAPER for it (one `FONT_RUN` against a pen change and a
+  transparent string: 310,275 -> 297,627 cycles on the CGA, 245,647 ->
+  235,553 on the VGA, one count each); the hot paths are untouched - a
+  key or click with no card up runs the same two instructions. It costs
+  81 file bytes (+86 image: 40 of table, the loop, the run): 2,960 ->
+  3,041, still 3 clusters.
 
 ## 37. clock.inc — the system clock
 
@@ -73630,6 +74246,89 @@ cycles a pixel against ~105, and a run's own overhead outside the two kernel
 calls falls by four memory operands. `frac_iter`, `fr_q12` and `fr_inset` are
 **byte-for-byte unchanged**.
 
+### 40.9 The second apps size pass — disk room
+
+The second pass measures the **shipped file** rather than the region:
+`FRACTAL.O88` rides three 360KB disks (`apps360.img`, `small360.img`,
+`smallapps360.img`), so a cluster off it is three clusters of room
+(docs/plans/HANDOFF-APPS-SIZE-P2.md). The package is code that packs to ~92%,
+so the lever is the classic code pass. Nothing the user can see changed, and
+the run cache's claims (§40.1) are the same.
+
+- **Both declarations take the `_NOKEEP` form** (§66.6.1.1): nothing after
+  either reads AX, DX or the slot's CF, so `fr_entry` ends in its own `clc` for
+  the loader and `fr_hire` keeps nothing. 9 bytes.
+- **The menu dispatch falls into `fr_kick`.** `fr_oncmd` sits directly above
+  it; the View menu is one `sub al, 2` (Reset is zero, Redraw above, the two
+  zooms below and told apart by one `inc`); `fr_zoom_in` became
+  `fr_zin_kick`, View > Zoom In and the tail of a canvas click in one, falling
+  into the restart; and the click's range test is one UNSIGNED compare an
+  axis, a click above or left of the canvas wrapping past any dimension.
+  24 bytes.
+- **`fr_kick` is one store and falls into `fr_redraw`.** Both began with
+  `fr_org` and `fr_setup`; zeroing `[fr_cn]` first makes `fr_redraw`'s
+  "nothing cached" test the restart, so the restart (`fr_kick_s`) sits under
+  its tests and the resume (`fr_replay`) under that, and the cache-key test
+  that was a jump-around near branch is a short one. 5 bytes.
+- **Shorter encodings off the hot paths.** `fr_promise` computes its answer
+  as `(pass + 1) >> 2`; the cache's first claim stores its two sizes as
+  bytes onto the loader's zeros; and `fr_status_pct` divides by an 8-bit 10
+  through an `SI` base. Its field is **four cells and not five**
+  (`FR_PCT_CELLS`): `'100%'` is the longest, so four is what erases a
+  shorter number, and the fifth was a space on the strip's white ground that
+  nothing else draws under — the strip is pixel-identical and a progress tick
+  letters one cell fewer. Its NUL is then the loader's zero. 14 bytes.
+- **`fr_stepv`'s step is `neg`, `js`, `add`.** A `+d` becomes its twin `-d`
+  and stops there (the sign flag says which); a zero or a `-d` takes the
+  increment after the same `neg`. Three instructions where there were six
+  and two jumps, and the success path falls into the return. The assembled
+  routine was run under an emulator against `tools/frref.py`'s model for
+  every canvas height 1-199, every mirror row and every step of every frame
+  - 2,646,700 steps, no disagreement, SI and DI kept. 14 bytes.
+- **The row path lost its jump-arounds.** `fr_take` is inline in
+  `fr_worker` (one caller), going straight to `fr_emit` with a whole row and
+  falling into the mirror test without one, and holding the cache segment in
+  `DX` for the walk instead of re-reading it a run. The worker's pre-lock
+  `[fr_restart]` test is gone: `fr_emit` makes the binding one under the lock
+  anyway, so a stale row now costs a lock taken and given back, once a view
+  change, and every row one test less. `fr_cache_row` is a routine again, so
+  its four early exits are short jumps to a `ret` rather than near branches
+  over the run loop, and the frontier step is a tail jump into `fr_stepm`;
+  the emit's visibility test asks `fr_org` first, which leaves `BX` the
+  window for `OSAPI_WM_GEOM`. The package has no relaxed (jump-around)
+  conditional branch left. 22 bytes.
+- **`fr_inset`'s two box tests are one unsigned range test each** (the
+  frac_iter guard's shape): `cx - 1/4` against `[CDXLO, CDXHI]` and `cx + 1`
+  against `(-BULBR, BULBR)`, each a bias, one compare and one `ja`, the bias
+  taken back off on the way through. No path through it runs more
+  instructions than before and the in-box paths run fewer (16 EU clocks and
+  14 bytes of fetch against 20 and 16). The constants, the margin and every
+  multiply are untouched, so §40.5's sweep is still the one that stands; the
+  assembled routine of both builds was run under an emulator for every `cx`
+  on the clamped range at 23 values of `cy` either side of every bound -
+  659,479 points, 77,304 claimed, no disagreement. 6 bytes.
+
+**Measured on MartyPC** (`os8088_xt_vga`, the default Mandelbrot, guest
+cycles at 4.77 MHz, one session each, base = the tree before this pass):
+
+| | base | after |
+|---|---:|---:|
+| whole frame, View > Redraw | 260,853,872 and 261,129,992 (two runs) | 260,201,854 |
+| `fr_emit`, lock to unlock, per computed row (170 rows) | 201,454 / 201,602 | 200,574 |
+| replay after a forced `W_PAINT`: worker `.work` to `fr_emit`, per row (127 rows) | 16,082 | 14,757 |
+| ...the emit per replayed row | 175,170 | 175,033 |
+| ...the whole replay, `fr_paint` to the promise | 31,697,280 / 31,698,072 | 31,733,045 / 31,732,901 |
+
+Every per-row figure is lower - the take is 8% cheaper - and the frame is
+within its own run-to-run spread. The whole replay is the one figure that
+reads higher, by 35,000 cycles (7 ms, 0.1%), and it is not the row path:
+the per-row parts it is made of sum to ~185,000 cycles LESS, and an
+intermediate build whose replay code is byte-identical to this one's (it
+differed only in `fr_inset`, which a replay never calls) read 32,256,845 -
+the span ends on the worker's yields and the tick, so it moves by a tick's
+fraction with the layout. The window at rest, strip included, is
+pixel-identical to the base's (no differing pixel over the 322x199 window).
+
 ### 39.26 The software renderer's plane loop is gone
 
 **`softgfx.inc` was written for a RAM back buffer — four claimed planes on a
@@ -79311,6 +80010,164 @@ last — on `kern_small`'s Hercules floor machine, against the base's small
 build: **every screen identical** below the menu bar's clock and outside the
 Disk window's own file size, and **both saved files byte-identical**.
 
+#### 42.22.4 The second apps size pass — the FILE (2026-10-16)
+
+42.22.2 measured Paint by image + bss, what it costs a MACHINE, and the file
+grew. This pass measures it by `PAINT.O88` as `make` ships it, LZ4-packed
+(§20.13.5), because the 360KB system and apps disks are full and Paint rides
+**three** 360KB disks (system, apps, office) and the small arm two more — a
+byte off the full arm is three bytes of floppy. Nothing user-visible moves,
+no hot path is touched (the stroke, the fill, the blits and both decoders
+are left byte for byte), and the image only shrinks, so RAM does too.
+
+What makes a FILE byte is not what makes an image byte. A repeated
+sequence of four or more bytes is a three-byte LZ4 match, so de-duplicating
+code that is byte-identical buys almost nothing on disk; what pays is
+**unique** code made shorter — a computation carried in a register instead
+of reloaded, a flag computed instead of branched to, fixed bytes made data.
+
+**The first canvas is `pt_fmtpick`'s rule.** `pt_geom` decided the canvas
+format with its own branches — one-bit on a one-bit screen, planar on a
+colour one — and `pt_fmtpick` decided a LOADED picture's with others. They
+are one rule: a launch is a load of a picture whose one-bitness is
+`[pt_mono]`. `pt_geom` now calls `pt_fmtpick` with that, and `pt_fmtpick`
+computes the two bytes rather than branching to them — `[pt_1bpp]` is the
+argument and `[pt_planar]` is `(AL | [pt_mono]) xor 1`, both operands being
+0 or 1. **−52 image, −27 file.** The small arm, whose depth is the build's
+(42.22.3), keeps its own `pt_ncolset` call and assembles byte-identical.
+
+**The GIF header is data.** `pt_ghdr` wrote the magic and the palette from
+data and the other eleven fixed bytes — the screen descriptor's flags, the
+image descriptor's separator, origin and tail — as a `pt_gwr` call each.
+They sit around `pt_pal_rgb` in file order now (`pt_g_magic` and `pt_g_lsd`
+before it, `pt_g_desc` and `pt_g_tail` after, all under `PTF_GIF`), so the
+header is three runs out of one table with the width and height written
+between them: 6 bytes, then 56, then 2. The file it writes is byte-identical.
+**−34 image, −17 file**; the small arm has no GIF writer.
+
+**The bottom strip carries its geometry in registers.** `pt_draw_strip`
+multiplied each width button's x out of its index and reloaded the strip's y
+for every well. `pt_swell` is `pt_cwell` with the strip's well top and
+height filled in, falling into it, and it leaves that top in BX for the
+glyph or frame drawn next; SI walks the button x by addition; the bed reuses
+the separator's registers (`pt_cfill` keeps them); and a width button
+decides its two colours once — the glyph is the well's colour XOR
+`CWHITE ^ CBLACK` — where it asked `pt_thsel` twice. Same calls, same
+rectangles, same order. **−100 image, −58 file, −47 on the small arm.**
+
+**A tool button decides its colours once, too.** `pt_draw_pal`'s per-button
+path compared the tool in hand twice, once for the well and once for the
+glyph, and parked the button's position in `[pt_bx]`/`[pt_by]` across the
+well. The glyph's colour is the well's XOR `CWHITE ^ CBLACK` (grey instead
+when it is the unfunded fill's), and the position stays in AX/BX, which
+`pt_cwell` keeps. **−33 image, −11 file, −20 on the small arm.**
+
+**Apply's record is aimed at assembly time.** `pt_szdraw_apply` computed
+Apply's rect inline — the same eight instructions as `pt_apwant`, which the
+hit test already calls — and wrote the rect pointer and the label into the
+`OS88UI_BTNREC` record on every draw. Neither ever changes, so the record
+names `pt_brect` and `pt_s_apply` where it is declared, the rect comes from
+`pt_apwant`, and only the flags word is written. Two `push`/`pop` pairs that
+guarded registers the shared epilogue restores anyway went with it.
+**−46 image, −29 file, −14 on the small arm.**
+
+**Cold bookkeeping says what it computes.** Six places in the launch, resize
+and repaint paths set a byte to 0, tested, and set it to 1: `[pt_mono]` is
+the low bit of `OSAPI_VIDEO`'s DH (4 or 1 bits a pixel), `[pt_haveclip]` is
+the borrow of the floor compare plus one, `pt_lose_w`'s odd-column byte is
+the width's low bit, and `pt_paint` takes `[pt_apend]` and clears it with one
+`xchg`, after which its two notice tails are one. `pt_entry` lost two
+`pushf`/`popf` pairs guarding a CF the proc states with `clc` at its end
+(42.6.4) and a store of 0 into a `.bss` byte the loader zeroed. `pt_reloc`'s
+five compare-and-store pairs are a table of the words that name a block
+(`pt_rltab`), walked by one compare and one store. Two candidates were
+measured and NOT taken: `pt_hpass`/`pt_spass` computing `[pt_cvup]` from
+the borrow is −10 image but **+9 file** (the branchy form matched
+`pt_resize`'s and packed better), and `pt_szdraw` choosing its value, row
+and label with one compare is −9 image and +3 file. **−76 image, −33 file,
+−30 on the small arm.**
+
+**`pt_gate` is two doors.** It took AL = 0 for undo and 1 for the
+clipboard, and all six callers named the feature with a constant inside a
+`push ax` / `mov al, n` / `pop ax` bracket. `pt_gate_u` and `pt_gate_c` are
+the two entries, the undo one jumping into the clipboard one's tail, and the
+clipboard commands tail-jump to the routine they gate. The gate's questions,
+its re-ask and its toasts are unchanged. **−27 image, −7 file**; the small arm
+has no gate (42.22.1.3).
+
+**A press on the canvas is one indirect call.** `pt_canvas_click` compared
+the tool in hand against each tool in turn and gave every arm its own
+`call`/`jmp .out`; it is `call [pt_cctab + tool * 2]` now, with the pencil,
+eraser, shape and selection arms tail-jumping into the routine they run and
+the dropper and the fill named in the table directly. The text tool keeps
+its branch, being the one that must not end a text run, and two `times`
+lines refuse an assembly whose table and `PTTOOL` order disagree. Same
+routines, same order. **−33 image, −29 file, −18 on the small arm.**
+
+**The entry proc keeps only what the loader reads.** §20.2's contract is BX
+= the window and a CF, with SI an input `pt_arg` has already spent; `pt_entry`
+bracketed its calls in `push`/`pop` of SI and AX anyway, three pairs of each.
+They are gone, and the region declares itself with
+`OS88_REGION_MOVABLE_NOKEEP` naming a lone `ret` (`pt_wait.nowait`), which is
+the keeping form's call without its `pushf`/`push`/`pop`/`popf` bracket — the
+proc states its CF with the `clc` 42.6.4 put at its end, so no flag is owed
+across it. **−24 image, −33 file, −32 on the small arm.**
+
+**The callbacks bank what their contracts ask and no more.** W_PAINT owes
+back SI and DF = 0 (§11's `W_PAINT`), W_ONCLICK, W_ONKEY and the ONDRAG
+edge give SI back and may clobber AX–DI and ES (§13.14, §20.3), and a
+relocation proc may clobber all of them (§66.3, author rule 1). `pt_paint`,
+`pt_click` and `pt_onkey` banked six registers each; they bank SI. `pt_ondrag`,
+which writes no SI, and `pt_reloc` bank nothing. The two callbacks Paint
+also calls itself are safe for it: `pt_fsx_main` re-reads the mouse after
+`pt_click`, and `pt_fsx_key` banks the two registers it needs around
+`pt_onkey`. `pt_onup` keeps its saves, because `pt_fsx_main` reads AH, CX
+and DX after it. **−34 image, −26 file, −17 on the small arm.**
+
+**A BMP's row stride drops five bits and shifts three.** `pt_bmp_in` turned
+`(w × bpp + 31)` into a stride with five `shr` and two `shl`; `and al, 0E0h`
+and three `shr` are the same number. **−6 image, −5 file, −7 on the small
+arm.**
+
+**A menu command is one table lookup.** `pt_oncmd` compared AH against each
+menu and AL against each item. `pt_mtab` is every menu's handlers in
+`PTMENU` order, `pt_mbase` each menu's first entry, and the dispatch is
+`jmp [pt_mtab + 2 × (pt_mbase[AH] + AL)]` with AL still the item for the
+font sizes. The Edit items name `pt_undo_cmd`, `pt_cmd_cut` and the rest
+directly — the routines Ctrl+Z/X/C/V reach — where each had a `jmp` stub,
+and View's one item names `pt_cmd_fs`. There is no range test: AM_ONCMD
+hands a menu of this set and an enabled item of it (§12.2). **The menu
+counts in `pt_menus` are now each menu's run of `pt_mtab`** (`PT_MC_*`), so
+a menu cannot grow an item its dispatch has no handler for. **−61 image,
+−64 file, −5 on the small arm.**
+
+**The small arm assembled 614 bytes nothing could reach.** A sweep of what
+each build ASSEMBLES for labels nothing assembled names — run over a listing
+with its macros expanded (`nasm -Lme`), because a `dw %2` inside
+`OS88_HEADER` or `OS88_MENU` is a reference a plain listing hides — found,
+on `APP_SMALL`: the fullscreen bracket's pointer, `pt_ptr_rect` through
+`pt_ptr_move` (440 bytes and 39 of `.bss`), whose only callers are
+`pt_fsx_main` and `pt_fsx_key` under `PTF_FSX`; `pt_setpx` (102), whose two
+callers are the paste's format conversion (`PTF_CLIP`) and the text cell's
+restore (`PTF_UNDO`), so it is `PTF_EDIT`'s now; and 72 bytes of data for
+features the arm does not carry — the View menu's three entries, two toasts
+and undo's bit table. Each is gated where its users are; **the full build
+assembles byte-identical**, and the same sweep finds nothing on it. **Small
+arm −614 image, −34 `.bss`, −500 file** — 15 clusters to 14 on both small
+disks.
+
+**A DEFECT the pass found and fixed: Save Gif asked the clipboard's
+question.** Both GIF verbs were gated on `pt_gate`'s clipboard arm, a
+leftover from before the encoder had a claim of its own (`pt_alloc_lzw`,
+`PT_LZW_KB`). With under 4 KB free a GIF save was refused saying **"No RAM
+for clipboard"**; with 4 KB to 16 KB it went through the gate (and, unnamed,
+through the Save dialog) to fail at `pt_save`'s own claim. `pt_gate_g` asks
+the question `pt_menufix` greys the GIF items on — can `OSAPI_MEM_AVAIL`
+fund `PT_LZW_KB` — before anything else happens, and refuses with the GIF
+toast, **"No RAM for GIF here"**. `pt_save`'s own refusal stays behind it, for
+a heap that changes between the two. **+21 image, +19 file**, the one change
+in this pass that spends; the small arm has no GIF writer.
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather
@@ -80041,6 +80898,162 @@ callback are above `sol_entry`, and the region's relocation proc is
 the bss starts at the image's end - it anchors its walk on the address of an
 instruction that names `sol_pcnt` and checks a second name the same way - and
 `tests/dispapps.py` reads names off nasm's own map, which never assumed it.
+
+#### 43.11.7 The third size pass (apps size pass 2: the DISK)
+
+Apps size pass 2 (docs/plans/HANDOFF-APPS-SIZE-P2.md) weighs a package by
+its SHIPPED FILE - the LZ4-packed `SOLITAIR.O88` and the clusters it takes on
+each 360KB disk it rides - because the disks are full. Its rules are pass
+1's with the measure changed: nothing removed, nothing on the screen moved,
+no hot path slower, and `image + bss` may not grow (on `APP_SMALL` not by a
+byte). Solitaire rides `apps360.img` and `games360.img` in the full build
+and `small360.img` and `smallapps360.img` in the small one.
+
+| | image | bss | image + bss | file (LZ4) |
+|---|---:|---:|---:|---:|
+| full, before | 4,595 | 1,140 | 5,735 | 4,259 |
+| full, after | **4,410** | **1,218** | **5,628** (−107) | **4,127** (−132) |
+| `APP_SMALL`, before | 4,385 | 1,147 | 5,532 | 4,067 |
+| `APP_SMALL`, after | **4,208** | **1,225** | **5,433** (−99) | **3,938** (−129) |
+
+**The first four rows are COLD**: every routine a frame, a click, a drag or a
+key runs is instruction-identical to the build before them - compared
+routine by routine off nasm's two listings, source text and encoded length,
+so only the values of addresses differ - and what changed is the entry proc,
+`sol_metrics` and the set-up half of `sol_mkback`, which run at launch and on
+an adapter change only. **The rows after them touch hot routines**, each one
+by taking instructions OUT of the path it is on, and they are measured below.
+
+| change | file, full | file, small | image + bss |
+|---|---:|---:|---:|
+| the metric records carry their DERIVED fields | −58 | −52 | −47 / −47 |
+| `sol_entry` saves no registers | −6 | −6 | 0 / 0 |
+| the 16x16 masks are stored as their left halves | −16 | −19 | 0 / 0 |
+| `sol_entry`'s placement: two dead clamps, one register | −10 | −10 | 0 / 0 |
+| `sol_track` keeps the origin once | −6 | −6 | −11 / −11 |
+| `sol_pilexy` reads a pile's column from a table | −5 | −5 | −5 / −5 |
+| six routines lose instructions they did not need | −27 | −27 | −35 / −35 |
+| DEFECT: `sol_colfan`'s fit test read the face-down half as 0 | −4 | −4 | −9 / −9 |
+
+**The metric records carry their derived fields.** `sol_metrics` copied a
+record of fourteen bytes into words and then worked out four more from them -
+the column pitch, the tableau's y, the waste's fan step - and the content
+width, which `sol_track` overwrites from the live window before anything
+reads it; `sol_mkback` worked out the back's stride. Every one of them is a
+function of the record and of nothing at run time, so the assembler computes
+them into it (`SOL_METD`) and the copy loop takes eighteen bytes instead of
+fourteen. The two words after each record are the frame that record lays
+out - the same `SOL_PW_*`/`SOL_PH_*` the published preference is made of -
+and `sol_metrics` leaves SI on them, so `sol_entry` reads its window size
+with two `lodsw` where it re-derived the width and picked the height on a
+compare. An assembly-time `%if` keeps the eighteen words contiguous in
+`.bss`.
+
+**`sol_entry` saves no registers.** It pushed SI and DI and popped them on
+both exits, and nothing asks it to: §20.2's entry contract is BX and CF out,
+and the loader (`ld_start`) reloads every register it reads after the far
+call - DI from `[ld_rec]`, SI and BP before their next use, on the success,
+abort and re-home paths alike. Six bytes, and none of them RAM: the entry
+proc is under the card back (§43.11.6), so its length moves bytes between
+the image and the `.bss` and leaves the sum where it was.
+
+**The 16x16 masks are stored as their left halves.** The four centre pips
+and the empty stock's ring are mirror images: every row's right half is its
+left half with the bits in the other order. So the image carries one byte a
+row (`sol_pipl`, 80 bytes where the words were 160), and the entry proc's
+`.mirror` loop writes the words into `.bss` - `sol_p16s` and `sol_ic_ring`,
+named and read exactly as before. The source bytes sit after the entry
+proc's code, inside the bytes the card back takes over, so they cost no RAM
+either: the 160 bytes of tables left the image for the `.bss` and the sum is
+unchanged. The 8x8 pips stay as they are - a byte a row, and a 4-bit half
+saved too little to pay for its own unpacking. Checked on the host: the
+mirrored words are the old tables to the byte, and the loop is ~4-5 ms of
+launch at 4.77 MHz (an estimate from instruction timings: 80 rows of an
+eight-step reversal).
+
+**`sol_entry`'s placement** lost two clamps that could not fire: the slack
+the window is placed a third of the way down is at least the one pixel the
+height is clamped short of the dock by, and the widest frame (258) is
+narrower than the narrowest screen (640), so neither difference can go
+negative. The clamped height's band is kept in BX and the slack taken from
+it, where it was re-derived from the dock row. The same window lands on the
+same pixel.
+
+**`sol_track` keeps the origin once.** It stored the content origin in
+`sol_ox`/`sol_oy` on every callback and kept a second copy, `sol_lastox`/
+`sol_lastoy`, to tell a moved window (§43.10's shadow is drawn at the old
+origin) - and nothing but `sol_track` writes either pair, so the two were
+always equal by the time anything compared them. It compares against the
+pair it already has and stores only on a change: two stores fewer on every
+callback, four bytes of `.bss` and six of code.
+
+**`sol_pilexy` reads a pile's column from a table.** Which column a pile
+sits in - itself for a tableau column, 3..6 for the foundations, 0 for the
+stock and 1 for the waste - was four compares and their branches, 22 bytes;
+it is `xlatb` over `sol_pcol`, thirteen bytes of table and four of code, and
+the same column for every pile without a branch taken.
+
+**Six routines lose instructions they did not need**, each the same work in
+fewer instructions:
+
+- `sol_oncmd` saved SI and DI that §12.2 lets an `AM_ONCMD` handler clobber
+  (and that every routine below it keeps anyway), banked the menu index in
+  BH where `sol_track` keeps AX, and called `sol_gamecmd` to return from it -
+  it is the next routine down, so the Game menu is a `jz` into it;
+- `sol_abdismiss` is `shr byte [sol_abon], 1`: the flag is 0 or 1, so the
+  shift both answers "was it up" in CF and takes it down;
+- `sol_card` dropped a test for a visible height of 0, which cannot arrive:
+  SI is above 0 past the `jle`, and every caller's DX is a fan step of at
+  least one pixel (§43.2) or the whole card;
+- `sol_drop` aims at a column from half the PITCH where it added half the
+  card and half the gap - the same pixel, the card being an even width,
+  which an `%if` now asserts for both records (the back's two pixels a byte
+  already needed it);
+- `sol_panel` sets the card's white before it measures the lines, where AX
+  is free, rather than saving AX round it later; nothing is drawn between;
+- `sol_shwbase` multiplies through AH, which a byte `mul` overwrites anyway,
+  so DX need not be saved.
+
+**A DEFECT, fixed: `sol_colfan`'s fit test read the face-down half as 0**,
+and had since the package's first version. It priced the column's last
+card as `up * cfu`, then loaded the face-down count from DX - which the
+`mul` had just made the product's high word, 0 - so `cfd * cfa` never
+counted. A column that overflowed by less than its face-down height was
+judged to fit and was not tightened, and its last card ran off the content
+and was clipped there. Read off a CGA game (`[sol_avail]` = 100): six
+face-down cards and nine face-up need 6×3 + 8×12 = 114 rows against 100, the
+test saw 96, and the top card lost 14 of its 28 rows. The fix multiplies
+the face-down half FIRST, while DX still holds it, into SI - which is the
+very value the shrink path below recomputed with a third `mul`, so that one
+goes and the fix is four bytes SMALLER. That column now fans at 10 rows a
+card (82 / 8), the last card is whole and every rank glyph still shows
+(they need 10). It changes the picture only in that window - a column whose
+true height overflows and whose face-up half alone does not.
+
+**Measured** on MartyPC's 4.77 MHz 8088, guest cycles entry to return, with
+`tools/solperf.py` (§43.11.5's tool: one seeded deal, three stock clicks and
+its own twelve-move session) - the build before the hot rows (after the
+cold four) against the final one:
+
+| | CGA | Hercules | VGA | CGA, `APP_SMALL` |
+|---|---:|---:|---:|---:|
+| a drop, five, each lower by | 170..320 | 104..245 | 170..328 | 170..320 |
+| a drop, mean | 354,826 → **354,561** | 443,487 → **443,302** | 282,686 → **282,449** | 354,835 → **354,576** |
+| a stock click with no tick inside, each lower by | 117..171 | 72..171 | 117..216 | 39..72 |
+| a stock click, floor | 117,822 → **117,656** | 131,457 → **131,291** | 98,480 → **96,968** | 117,656 → **117,611** |
+| New Game (one span) | 1,694,313 → 1,698,660 | 2,055,039 → 2,048,072 | 4,102,137 → 4,105,860 | 1,694,219 → 1,698,584 |
+| Restart Deal (one span) | 1,649,196 → 1,653,732 | 2,010,101 → 2,008,832 | 4,056,993 → 4,054,983 | 1,649,075 → 1,647,635 |
+
+New Game and Restart are ONE span each, 1.6 to 4.1 million cycles - six to
+sixteen timer ticks at ~5.7-5.9 thousand cycles a tick, the step every
+stock-click row that a tick landed in shows - so the two builds can differ
+by a whole tick on phase alone; every one of the eight lands within a tick
+of 1.1-2.2 thousand cycles LOWER (+4,347 is one tick more and ~1,350
+fewer, −6,967 one tick fewer and ~1,100 fewer). The drag's outline,
+`sol_dxor`, is instruction-identical and was not re-priced: its spans move
+with where the host's mouse puts the outline, not with the build. Nothing
+in the hot rows moved the dealt game or the moves played, and the colfan
+fix is not reached by this session (no column in it overflows).
 
 ### 43.12 `APP_SMALL` — the small build of this package
 
@@ -81281,6 +82294,98 @@ cycles, not more. What it leaves binding:
   it draws**, for every full repaint (the worker's, `W_PAINT`'s and the
   credits' dismissal). The two callback paths used to clear them after, so a
   flag the worker raised during the draw was dropped.
+
+### 44.12 Size pass 2 — the shipped file
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures the
+LZ4-packed `ARKANOID.O88` on the four 360KB disks it rides (apps, games, and
+both small disks), not image + bss. Nothing a player can see changed. What the
+pass leaves binding:
+
+- **The tuning tables are signed BYTES.** `ark_met_big`/`ark_met_sml` and
+  `ark_vel_src`/`ark_zbias` are written with `ARK_SB`, which refuses a figure
+  outside -128..127 at assembly time, because `cbw` would otherwise widen it to
+  a different number. The content height is the one figure that does not fit,
+  so the records store it less `ARK_CHWBIAS` (200) and `ark_entry`, its only
+  reader, adds the bias back inside an `add` it already made.
+- **One loop widens the record and the velocity family.** `ark_metrics` sets
+  `[ark_vscale]` to 100 and sends the record through `ark_scale` too - at par
+  that is the identity - so the record's last figure, the adapter's scale, is
+  in place by the time the loop reaches `ark_vel_src`. `ark_bw`..`ark_zbq` are
+  one run of 27 words, asserted in the bss. `ark_scale_vel` is gone; the
+  launch pays twelve more `ark_scale` calls, about 1 ms at 4.77 MHz
+  (estimated from instruction timings), once per launch and per adapter
+  change.
+- **There are no clamps after the scaling, by proof.** `ark_scale` is
+  monotonic (round to nearest of one per-cent product, floored at one), so two
+  figures in order before it stay in order after it for ANY percentage. The
+  four relationships the clamps enforced - a serve no flatter than the
+  ceiling, a flick no harder than a hold, Slow's floor under the opening
+  rally, the ceiling over it - are the `%if` assertions on the unscaled
+  constants beside `ARK_VXMAX`, and both shipped records were checked to give
+  the same 27 words as before, figure for figure.
+- **The frame's update half is inline in `ark_worker`.** `ark_update` had
+  one caller, the worker loop, and banked nothing; inline it is the same
+  instructions less a `call` and a `ret` every frame, and the death/clear
+  pause tests the mode in AL, which it was just loaded into, instead of
+  re-reading `[ark_mode]`.
+- **...and so is the draw half.** `ark_render` (the one lock hold a frame,
+  everything the sections above say of it unchanged) is the loop's `.draw`
+  now: the same instructions less a `call`, a `ret` and six register saves
+  the loop never needed. The routines `tests/arkpuwipe.py` stubs to a `ret`
+  (`ark_do_ball`, `ark_do_launch`, `ark_do_shots`, `ark_do_paddle`,
+  `ark_draw_msg`) stay routines.
+- **The window's y is placed off the clamp's own register.** The height is
+  clamped to `dock - MBAR_H - 1`, so that register less the height is the
+  slack less one and cannot be negative; the old re-derivation from
+  `[ark_dock]` and its `jns` guard were the same number by a longer road.
+  `[ark_scrw]` and `[ark_dock]` stay banked - in `ark_onresize` as well,
+  where the game no longer reads them - because `tests/dispsize.py` leg E
+  reads them back as the proof that the handler asked about the card the
+  window is on (SPEC.md 39.16.4).
+- **The score's padding is inline in `ark_draw_status`.** `ark_padl` had one
+  caller; inline it is the same copy loop without the call, its four saves
+  (the caller banks every register already) and its closing NUL store, which
+  wrote a zero over the NUL `ark_num2str` had already put at
+  `ark_sbuf + ARK_SFW`.
+- **The heart is composed as a glyph.** `ark_heartbits` is `ark_heartrun`'s
+  picture in the font's own shape - eight rows, bit 7 the left column - so
+  `ark_pu_letter`'s eight-row walk lays it into the band exactly where the
+  runs did (asserted: both centre it two rows and two columns into the
+  capsule), and `ark_pu_heart`, a second walk over the runs a pixel at a
+  time, is gone. `ark_heartrun` stays: §44.10.4's fallback fills the heart
+  from it. The walk itself is inline in `ark_pu_compose`, its one caller,
+  which now sets ES back to DS for the heart (a letter kind leaves it on the
+  font's segment).
+- **The ball's one-caller helpers are inline where the walk calls them.**
+  `ark_reflect`, `ark_hit_paddle` and `ark_die` are blocks of `ark_move1`
+  now, and `ark_english` (the paddle's kick) a block of `ark_padbounce`:
+  each is the same instructions less its call, its `ret` and the saves its
+  caller had already made - `ark_move1` banks AX..DX on entry, and the
+  paddle test ends in `jb .paddle` where it ended in a `ret` that handed the
+  same carry to a `jc`. `ark_padbounce` no longer saves CX, which nothing in
+  it writes. The paddle test runs on every pixel of ball travel that misses
+  the wall, so it is the hottest code the pass touched, and none of these
+  got an instruction more.
+- **The draw half's own helpers save nothing.** `ark_wipe_pu`,
+  `ark_wipe_shots`, `ark_draw_bricks_dirty`, `ark_move_paddle` and
+  `ark_move_ball` have one caller, the worker loop's `.draw`, which holds no
+  register across them; their 21 push/pop pairs were paid every frame for
+  nobody. Each says what it clobbers at its label. `ark_draw_pu` and
+  `ark_draw_shots` keep theirs: `ark_draw_all` and `ark_draw_msgband` call
+  them too.
+- **...and so do the update half's.** `ark_do_paddle`, `ark_focuschk`,
+  `ark_do_launch`, `ark_do_ball`, `ark_do_pu` and `ark_do_shots` have the
+  same one caller and it holds nothing across them either (it loads the mode
+  after the first two, and reads no register after the other four): 21 more
+  pairs a frame.
+- **...and their own one-caller routines are inline, or tails.** `ark_pkey`
+  is a block of `ark_do_paddle` and `ark_throw` of `ark_do_launch`;
+  `ark_slower` is `ark_apply`'s Slow arm, and `ark_apply` saves nothing
+  (`ark_do_pu` holds only SI across it). Where a routine ended in
+  `call ark_beep` or `call ark_fire` and then its own `ret`, it jumps
+  instead, and `ark_fire` saves nothing either. The worker's static stack
+  chain is 50 bytes, from 64; it keeps `OS88_STACK_192`.
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
@@ -85253,6 +86358,53 @@ not kept.
 It costs Tracker **189 bytes of image** (34,180 -> 34,369), 2 of bss and 140
 of the packed file; no kernel byte.
 
+### 45.26 Apps size pass 2 — the shipped file, not the machine
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
+package by its PACKED file and the clusters it takes, because the 360KB disks
+are full. Tracker rides `apps360.img` (and the larger apps disks) as one
+copy. Nothing below changes what the user sees or hears; every change is
+load-time, menu-time or entry code, and the replayer, the mixers, the
+speaker shaper and every per-frame painter are instruction-identical (a
+per-routine listing comparison, source text and encoded length, says so).
+
+- **`mp_load` keeps its scratch in registers** (-63 file bytes, image -76,
+  bss -13): the six loader temporaries and `mp_vtbuild`'s row counter were
+  bss round trips. P rides BP to the extent check, the sample loop keeps the
+  available and effective lengths in BP and the loop start and length in
+  CX/BX, the title and order copies read with `es lodsb`, and the 1..128 song
+  length is one `dec`/`js`. Same verdict, same table and same volume table
+  for every input, hostile ones included.
+- **The UI task's cold paths in `tracker.asm`** (-35 file bytes, image -61):
+  `trk_legend`'s five string compares are one RANGE test (the five legends
+  are asserted, by a pair of `TIMES`, to be one run of 166 bytes and nothing
+  else); the entry's tier test is `cmp`/`sbb`/`inc` and sets the visualiser
+  pick there rather than re-testing `[trk_cpu0]`; the menu dispatch compares
+  once per pair of items; and the CF-returning helpers end in
+  `TRK_CLC_OR_STC` (the kernel's `CLC_OR_STC`, `db 0A8h` before the `stc`)
+  or in a carry computed from the caps bit (`and`/`neg`, `and`/`cmp`) rather
+  than in two exits each.
+- **The FT2 screen's copies and re-loads** (`trkui.inc`, -42 file bytes,
+  image -79): `tui_layout_for` copies its layout and colour tables with
+  `rep movsw`/`rep movsb` and folds the mono flag into the colour pick;
+  `tui_btn` stops recomputing the corner it had just computed; the value
+  painters (`tui_val_bpm`, `tui_val_ptn`, `tui_val_cga_*`) stop re-loading
+  the SI/CX/BX/AX that `tui_rdout`, `tui_dec3` and `tui_hexnp` preserve - a
+  strict subset of the instructions they ran, so no frame is slower; and
+  `tui_el_bpm` banks its values through `tui_val_bpm`'s own tail.
+- **The body tiles are grouped, over one table of x spans** (`trkwin.inc`,
+  `trklist.inc`, `tools/trkface.py`; -92 file bytes, image -103): the
+  face's two tables and the PlayList editor's were four and six bytes a
+  tile, 436 bytes in all. Every x span any of them uses is now one word pair
+  in `tw_xp` (22 of them), and the tiles are grouped by their rows - `db y1,
+  y2, n` and then n byte offsets into `tw_xp` - which is 354 bytes, read by
+  ONE decoder, `tw_tiles`, where there were two loops. `tools/trkface.py`
+  emits and checks that form; the tile SETS are the old ones exactly (40, 36
+  and 22 rectangles, decoded out of the built image and compared), so every
+  paint is pixel-identical and makes the same number of fills, in an order
+  grouped by rows. The editor's body now sets its pen once rather than once
+  a tile (`tw_fills`), 21 fewer `OSAPI_SET_COLOR` calls a full paint of it.
+
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
 A port of ActionRetro's **ArtfulType** — "a distraction-free Markdown
@@ -86638,6 +87790,89 @@ erase still draw inside that hold.
 (§68.14 hit the same wall). An item's ink is decided at the branch that decides
 the CF and kept in `[at_ink]`; `at_ctext` names its pair outright, because all
 three of its callers are the About body on the box's white.
+
+### 46.11 The second apps size pass — what the FILE costs
+
+The first pass weighed ArtfulType by image + bss; this one weighs it by the
+shipped `ARTFUL.O88`, LZ4-packed (SPEC.md 20.13), because it rides four 360KB
+disks (`apps360`, `office360`, `small360`, `smallapps360`) and every one of them
+is short of clusters. Nothing the user sees moved. What LZ4 makes true, and
+what decided every item below, is that **a repeated byte sequence is nearly
+free and a unique one costs about a byte a byte**: trimming the push/pop
+prologues of the three window callbacks took 42 bytes off the image and **0**
+off the file, because the identical `push ax` … `push es` runs were already
+back-references. So the pass went after bytes that occur once.
+
+- **One copy of each shared string.** The About card's lines are the splash's
+  own (`at_s_title`, `at_s_sub`, `at_s_credit`), and the windowed bar's `File`,
+  `New` and `Open...`, the alert's `Save` and the splash's `New` / `Open...`
+  name the fullscreen menu's `at_m_file` / `at_i_*`. -114 image bytes, -8 file
+  bytes: the copies were already matches, so this is mostly RAM.
+- **Code nothing reached, and stores nothing read.** `at_btnhit` (the x/y/width
+  ladder §20.5.1.3.3's library replaced) and `at_draw_cline` had no caller at
+  all; `at_modal_click` and `at_splash_click` were pushes and pops round
+  nothing, because `os88ui_btnclick` takes the press first and `at_modal_up`
+  fires on the release; and the nine `at_b1x`..`at_b3w` words, `at_spw` and
+  `at_sukb` were written on every alert, splash and pull-down and read by
+  nothing - the buttons' rects live in `at_brects`, the one copy `os88ui_btn`
+  reads. -140 file bytes, -169 image, -22 bss.
+- **Frames that only passed through.** `W_ONMOUSEUP` and `W_ONDRAG` are
+  `at_modal_up` and `at_modal_drag` themselves now, not two wrappers that
+  banked all six registers a callback may clobber (§13.7, §13.8.2); five
+  `call` + `ret` pairs in the file layer are tail `jmp`s; and Style > None
+  repaints through `at_refit`, the relayout-clamp-redraw a zoom or a view
+  change already runs, instead of its own copy of it. -30 file bytes.
+- **`at_button` writes its own slot.** It computed the rect into a staging
+  `at_brect` and copied it into `at_brects`, and every one of its six callers
+  stored the label word and a `[at_bslot]` byte before calling it. The rect
+  is computed in the slot now, the label is stored from the SI it is handed,
+  and the slot rides in DH beside the default flag in DL. The same three
+  arrays `os88ui_btn` reads, filled the same way. -62 file bytes, -107 image.
+- **The command's number is the argument.** `at_docmd` hands every routine
+  `at_cmdtab` names its own `AT_CMD_*` in AL, so the eight stubs that loaded a
+  private constant and called through are gone: `at_heading` takes its level
+  as AL - `AT_CMD_H1` + 1, `at_setview` its mode as AL - `AT_CMD_VIEWMD`, and
+  `at_confirm` keeps `AT_CMD_NEW` / `OPEN` / `QUIT` as the pending action
+  itself, the close box's continuation taking `AT_PEND_CLOSE`, a number no
+  command has. The orders those subtractions need are assembly-time
+  assertions. -36 file bytes.
+- **`at_respan` is the `NOATRESPAN` arm's alone.** §46.3.2 took its one call
+  into that knob, and the routine went on assembling into every shipped
+  build with nothing to call it. -36 file bytes.
+- **The hot code is where it was measured.** Every edit above is in cold
+  code, but deleting `at_draw_cline` moved the caret and scroll group
+  (`at_caret_on` .. `at_sbar`) by an ODD amount, which an 8088 does not
+  notice and an 8086 or a 286 does (PERFORMANCE.md Part 7). `at_bigtext`, a
+  cold routine of odd size, now sits in the gap that left, so all 83
+  keystroke, render, caret and drag routines are byte-identical to the pass's
+  base at an even shift - `tools/os88rdiff.py --hot` is the check - for no
+  pad byte. Hot-path cycles are therefore unchanged, and none were re-taken.
+
+#### 46.11.1 ArtfulType ships LZB-packed
+
+The one package that does, by the owner's decision: the edits above took the
+LZ4 file 15,387 -> 15,075 bytes, and packing that image with LZB (SPEC.md
+20.13, the format both kernels already decode, kern_small included) takes it
+to **13,217** - 16 clusters to **13** on each of the four 360KB disks it
+rides, twelve clusters in all. `make PKGZ=` still builds it plain; the
+Makefile's `artful.o88` rule is the whole of the change.
+
+What it costs is the decode, MEASURED on MartyPC (a 4.77MHz 5150 on GLaBIOS,
+kern_big, both packings of one image launched from one 360KB floppy, the
+loader traced from `ld_run_body_x` through `lz_decomp_x`'s return):
+
+| launch | file read | decode | read + decode |
+|---|---:|---:|---:|
+| LZ4, first | 1,280.3 ms | 319.7 ms | 1,600.0 ms |
+| LZB, first | 1,056.1 ms | 1,084.6 ms | 2,140.7 ms |
+| LZ4, again | 899.4 ms | 319.7 ms | 1,219.2 ms |
+| LZB, again | 547.4 ms | 1,083.3 ms | 1,630.7 ms |
+
+So a launch is **+541 ms** the first time and +411 ms after (the decode is
++764 ms, of which the 1,858 fewer bytes read give 224-352 back). The
+splash re-encode that was tried beside it (a Huffman nibble stream, decoded
+in place) LOST under LZB - 121 file bytes worse, because LZB already takes
+most of what an entropy coder could from the picture - and was not taken.
 
 ## 47. Disabled controls — the greying standard (binding)
 
@@ -88581,6 +89816,89 @@ is the wrong number to tune on; the tail is the one the eye sees.
 is reused. Verified for the other half at the same time: scanning every lit
 burst on every frame, **0 holed of 124 samples**.
 
+### 48.26 The shipped file: apps size pass 2
+
+Pass 2 measured the package by what it costs a DISK - `MISSILE.O88` as `make`
+leaves it, LZ4-packed - and it is almost all CODE, so the file falls by
+taking code out rather than by moving data. Nothing the player sees moved, and
+no routine the worker runs every frame changed: every cut below is in code a
+launch, a hit, a wave or a repaint runs, never the per-frame loops, and none
+of them consumes the random stream differently, so a game plays out the same.
+
+| | file | image | bss |
+|---|---:|---:|---:|
+| before pass 2 | 10,689 | 13,463 | 2,430 |
+| one slot fill for both kinds, the targets as one run | 10,542 | 13,065 | 2,430 |
+| `mc_redraw_trails` walks both kinds with one body | 10,524 | 12,993 | 2,430 |
+| the window sized in registers, `mc_adapter` in three stores | 10,489 | 12,946 | 2,426 |
+| the two kinds are ONE object table; the trail loops walk it once | 10,186 | 12,500 | 2,426 |
+| a new game and a new wave cleared in fewer stores; the credits sized in one walk | 10,164 | 12,451 | 2,426 |
+
+**The ICBM and ABM records are laid out alike**, field for field from
+`[mc_ia]`/`[mc_aa]`, and `MC_ABMD` is the distance between them - asserted
+per field, so a field added to one record and not the other fails the build.
+An ABM's slot is therefore an ICBM index biased by `MC_ABMD`, and
+`mc_obj_init` and `mc_freeslot_at` fill and find either kind with the very
+addressing they used for one: no base register, so no instruction got dearer.
+The launch, the MIRV child and the bomber's drop share `mc_launch_at` /
+`mc_child` (aim, fill, count), `mc_room` is the MXICON-and-budget test the
+three of them each spelled out, and `mc_tgt_set`/`mc_tgt_aim` record and
+place a target once rather than five times.
+
+**`mc_balive` follows `mc_calive`** (asserted), so the nine targets are one
+byte run in the arcade's numbering, each 0 or 1: `mc_pick_target` counts them
+as a SUM and walks them as one loop - the same count, the same random draw
+and the same pick - and `mc_destroy` and `mc_nextwave`'s regeneration share
+`mc_tdmg` for the terrain under a target. **A defect, fixed**: `mc_destroy`
+said it preserved every register and clobbered CX; it keeps CX now. Nothing
+saw it - its one caller, `mc_icbm_land`, saved CX itself - so nothing a
+player could see changed.
+
+`mc_redraw_trails` - the full repaint's, and only the full repaint's - walks
+the ICBMs and then the ABMs through ONE body with the bias in BP (used as a
+number, never as an address, so SS never enters into it). It is the clearest
+case of what LZ4 already did with duplicated code: 72 bytes of image came out
+and **18** of file, because the two copies differed only in their
+displacements and the packer had matched the rest. The per-frame trail loops
+(`mc_wipe_trails`, `mc_move_trails`) keep their two copies: one body there
+would cost every frame a bias subtraction per slot, and their packed weight
+is the same story as this one's.
+
+`mc_entry` sizes the window in registers - the screen's width and the dock's
+row stay in SI and DI from `OSAPI_VIDEO`, so `mc_scrw` and `mc_dock` left the
+bss - and `mc_adapter` works its three facts out in BL, CH and CL and stores
+each once rather than setting and then overwriting them.
+
+**...and then the bias went, because the LAYOUT was the thing to change.**
+Every table both kinds have is now the ICBMs' eight entries followed at once
+by the ABMs' eight (`MC_OBJ` lays each pair and asserts its spacing), so
+`MC_ABMD` is 8 and ABM slot n is simply OBJECT 8 + n: `[mc_ia + si]`,
+`[mc_ix16 + di]` with DI = 2*SI and the walk block at SI << 4 all reach
+either kind with no correction at all. The bss is the same 2,426 bytes in a
+different order. That is what made the PER-FRAME loops shareable for free:
+`mc_wipe_trails`, `mc_move_trails` and `mc_redraw_trails` each walk objects
+0..15 once, `mc_move_trails` changing pen at 8 against a bound in BP, and
+`mc_apix`/`mc_ablk` are gone into `mc_ipix`/`mc_iblk`. Here the duplicates
+were NOT free on disk - every memory operand in the ABM copy differed from
+the ICBM one, so LZ4 found almost nothing to match - and the file fell 257
+bytes for it.
+
+Nothing in a frame got dearer for it, by construction: the per-object
+instructions are the same instructions, and the three that changed are
+cheaper. "Flying" is now `cmp byte [mc_ia + si], 1` / `js` - the states are
+0, 1, 2 and 0FFh, and free and dying both go negative - which is exactly the
+ABM loop's old test and one compare and one branch less than the ICBM
+loop's two-sided one (`mc_recount`, `mc_move_icbm`, `mc_dmg_icbm` and the
+satellite's three tests take it too); the loop bound is `cmp si, bp`, a
+register; and the `push si`/`pop si` around `mc_ipix` and `mc_add_exp`,
+both of which keep SI, came out. What it adds is one pass switch a frame.
+
+MEASURED on the deterministic bench (§48.16.2's `mcbench.inc`, 400 frames on
+`os8088_5150_herc_gla`), base against this change: **63,034,335 -> 62,595,337
+cycles (-0.70%)**, median frame 134,439 -> 131,919, the same 33 frames over
+one tick, the same end state (`C3B7`) and the same final screen
+(`91e91066db9890ee`). It is the same game, drawn the same way, a little faster.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
@@ -88869,6 +90187,65 @@ under it until the next whole repaint, on all three adapters. Framing one
 pixel outside the matrix, or erasing at the paint's inset, ends it; either
 changes the picture and is the owner's call. `OS88_STACK_256` stays: docs/FIELD-NOTES.md 42 is why a game's
 class is not cut to its quiet-machine reading.
+
+### 49.9 The second size pass: the FILE, for the disk
+
+Apps size pass 2 (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures the shipped,
+LZ4-packed `TAMEGRAM.O88` rather than image + bss, because the 360KB disks it
+rides are full. Nothing on the screen changes and no hot path gains an
+instruction; `tests/tgplay.py` (soak `tgplay`, `--ref` for the cycles) and
+`tests/tgui.py` (soak `tgui`) are the rows it is held to.
+
+- **Every branch is a short one.** Fifteen conditional branches had a target
+  out of reach - most of them to the one `tg_ret` - so each assembled as an
+  inverted short branch over a three-byte `jmp`. Each now takes the nearest
+  `ret` (`tg_fret`, the `.ret`/`.out` of the routine beside it), `tg_newgame`
+  sits beside `tg_act`, `tg_toggle_halt` ends at `tg_owe` (the tail of
+  `tg_panel_off`, `tg_owefull` with CF = 1, which no caller reads), the
+  Protocol items share `tg_onkey`'s `call tg_act` / repaint tail, and the
+  board walk follows `tg_draw_all`. Two tail jumps became fall-throughs:
+  `tg_cell_fill` into `tg_fillc` (a `jmp` fewer for every cell drawn) and the
+  banner into `tg_str`; and `tg_tryshift` follows `tg_nudge`, so a strafe
+  along a row falls into it (a further -1 file byte). A routine-by-routine
+  disassembly against the base differs ONLY in those branches and in moved
+  addresses.
+- **The panel test is made once a tick.** `tg_update` and `tg_frame` each
+  opened by asking whether a panel was up; `tg_worker` asks once, inside the
+  lock, and skips both - nothing between them can raise a panel. 7 image
+  bytes, 1 file byte (LZ4 had been matching the repeat), and a test fewer
+  on every tick.
+- **The whole repaint, 13 file bytes and ~600 cycles cheaper.** The HUD
+  table stores a column in PIXELS where it stored it divided by 8 - which
+  cost a `mul` a field, ten a repaint, to undo - and `TG_HUDF` refuses a
+  column that is not a multiple of 8 as the division did (the row comes
+  first now and a 0 row ends the table). The two full-width fills, the black
+  below the band and the band itself, share `tg_band`; the board's frame and
+  walk are `tg_draw_all`'s own middle instead of a call. Same calls, same
+  order, same pixels; two `call`/`jmp` pairs more against ten `mul`s fewer.
+- **Three clamps that never fired.** `tg_track` clamped the matrix's left
+  edge at 0, but a cell is at most `[tg_cwid]`/32 so the matrix is never
+  wider than the box; the banner's centring clamped at 0 a pen `tg_str`
+  drops anyway (a negative one is dropped the same way, so `sar` replaces
+  the clamp and the shift); and the entry proc floored the REQUESTED cell at
+  1, which no desktop band reaches - `tg_track`'s floor is the one that
+  guards the drawing. Every frame's `tg_track` loses a taken branch.
+- **The template's four words are stored in order.** The entry proc wrote
+  `WT_W`, `WT_H`, `WT_X`, `WT_Y` one `mov` each and divided by 3 in 16
+  bits; it computes them into registers and `stosw`s them in template order,
+  and the third is an 8-bit `div` (what the frame leaves of the desktop
+  band is under 160 rows). Checked against the old arithmetic for every
+  dock row 100-480 at 320, 640 and 720 wide: the same four words.
+- **The UI half, tightened.** `tg_look` compares against DH, which is where
+  the scan code already is, so the key no longer needs turning round;
+  `tg_toggle_halt` swaps AL and AH instead of copying each way (resuming
+  leaves PAUSE as the remembered mode, which nothing reads before the next
+  halt rewrites it); `tg_act`'s two flag flips are one `xor` through BX.
+- **Two register saves nobody needed.** `tg_clampc` banked SI around its
+  own use of it for every rect drawn, and no caller holds SI across it
+  (`tg_cell_fill` has spent its inset by then, and every repaint sets SI
+  afresh); `tg_frame` copied the window pointer into BX after `tg_track`,
+  which leaves it there - the two WM calls keep BX. Pure deletions: every
+  cell drawn loses a push and a pop, every frame a move.
 
 ## 50. memory.inc — the claim heap
 
@@ -101249,11 +102626,11 @@ rests on. A stub that returns a plausible zero for a call it does not implement
 is a harness that has started lying about the program under test, and it would
 lie in exactly the direction that makes the test pass.
 
-Four knobs, because the paths worth testing are the ones a real file cannot
-easily produce: `FSIZE=` (the reported size is a constant pair, so the 32-bit
-byte count folded into a 16-bit sector count is driven over its whole range
-without a 32MB image), `FAILOPEN=1` (DOS says no), and `ARGS=` (the command
-tail — argument parsing is code nothing else in this tree executes). Only the
+Knobs, because the paths worth testing are the ones a real file cannot
+easily produce: `FAILOPEN=1` (DOS says no), and `ARGS=` (the command tail —
+argument parsing is code nothing else in this tree executes). There was an
+`FSIZE=` for block mode's image arithmetic, and it went with block mode
+(§62.12.6 item 8). Only the
 first `DSF_KB` of the "file" is real memory and a read past it is answered
 **short** rather than with whatever was in RAM.
 
@@ -103237,6 +104614,16 @@ whichever of them is second is refused with `DRVE_TWICE` (§51.2.1) — the RAM
 disk and the cable are mutually exclusive at run time, and that is a stated
 limitation rather than an oversight.
 
+**BLOCK MODE IS REMOVED FROM BOTH ENDS NOW.** `NET.DRV`'s master half went
+first, here, and has published no `DSV_BLK` since; `OS88NET.COM`'s server
+half (`/I:` and the `R`/`W` sector commands) was then reachable from nothing,
+and apps size pass 2 removed it (§62.12.6 item 8). Serving an image again
+needs BOTH ends restored - `NET.DRV`'s `net_blk` and its `DSV_BLK` cell, and
+the server - and the server is in the history: the commit titled *"os88net:
+apps size pass 2 - block mode removed"* deleted it, so that commit's parent
+has the whole of it. `'R'` and `'W'` stay RESERVED in the one-byte command
+space so a restored server cannot collide with a verb added since.
+
 #### 62.10.1 The wire protocol
 
 §62.7's framing is unchanged and this is a second command set inside it: os8088
@@ -103346,8 +104733,8 @@ subtree, and `/W` serves the whole machine with the drives as folders of a
 synthetic root.
 
 The bare argument is the folder because the redirector is what the cable is
-FOR now; block mode's image moved behind **`/I:`**, which is the same
-demotion its `DSV_BLK` cell got. A named folder is **entered rather than
+FOR now; block mode's image moved behind a switch, `/I:`, which was the same
+demotion its `DSV_BLK` cell got - and both are gone (§62.10's note). A named folder is **entered rather than
 remembered** — `chdir` and then `int 21h` 47h — so DOS resolves `..`, a bare
 drive letter and a relative path, and what this program stores is always the
 fully-qualified answer every path it builds is rooted on. Storing the
@@ -104000,7 +105387,7 @@ The banner names it, because a switch nobody can discover is not a switch.
 
 **The startup report names the whole effective setup**: the folder served,
 whether writes are allowed *and why* (`/RO` or not), the port and whether it
-was pinned or scanned for, and the block-mode image if there is one. Every
+was pinned or scanned for (and, while block mode lived, its image). Every
 line is a choice the user made or a default they did not know they took.
 
 **And every file the run touches is named as it is touched**, one line, with
@@ -104698,10 +106085,12 @@ finds it); greedy costs about 3% here.
 
 #### 62.12.3 It needs no memory the program did not already need
 
-The staged body runs `0x4C85..0x7A0A`. `os88net.asm`'s own reserved buffers
-already run to `net_bss1` = **`0x9C0D`** (§62.11.7), so every machine with the
-room to run the unpacked program has the room to unpack this one, with **8,803
-bytes to spare**. `tools/os88sfx.py` asserts the ceiling and refuses in a
+The staged body runs `0x3ACA..0x6426` (it was `0x4A01..0x76CD` before
+§62.12.6's size pass). `os88net.asm`'s own reserved buffers already run to
+`net_bss1` = **`0x995C`** (§62.11.7; `0x9F89` before the same pass took 1,581
+bytes of code and block mode's bss out from under them), so every machine with
+the room to run the unpacked program has the room to unpack this one, with
+**13,622 bytes to spare**. `tools/os88sfx.py` asserts the ceiling and refuses in a
 sentence if it is ever crossed, and `net_bss_clear` zeroes the staged body along
 with everything else above the image — by which time it has been read.
 
@@ -104728,7 +106117,8 @@ answer it, and neither is arithmetic:
   8086, only the ones `os88sfx.asm` emits, running `build/os88net.com` out of a
   simulated 64KB segment the way DOS enters a `.COM`, and passing only when
   execution reaches `0x100` again with the whole of `build/os88net.raw` sitting
-  there. It runs in the **fast** tier, so it hangs off every `make`, and it
+  there. It is the soak row `sfx` (it ran in the fast tier when this was
+  written), and it
   refuses an opcode it does not model rather than stepping over one. A packer
   checked only by its own decoder proves nothing: the two agree by construction
   and neither is what ships.
@@ -104740,6 +106130,121 @@ answer it, and neither is arithmetic:
 `tools/os88sfx.py` also refuses to write a payload it cannot decode back, on
 every build, with a model of the assembly rather than a second call into its own
 tables. Three checks, none of which is the author's arithmetic.
+
+#### 62.12.6 Apps size pass 2: what the file stopped carrying
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md measures a program by its SHIPPED FILE, and
+this one's file is `build/os88net.com`, the archive, not the image. Every
+change below is in `drivers/net/os88net.asm` alone: what it shares with
+`NET.DRV` (`lplink.inc`, `lplslv.inc`, `nwslv.inc`, ...) and with `ETHER.DRV`
+(the stack), and the stub and the packer, are other programs' bytes. Nothing
+a DOS user sees on the console changes and nothing on the wire does.
+
+1. **The zeros left the image** (raw 18,689 → 16,032, file −21). Forty-two
+   variables and buffers the program starts with at zero - `secbuf`,
+   `wstat`, `hdtab`, the path buffers, the DTA - were `times N db 0` among the
+   strings. They are `resb` in the reserved block now, beside the stack's own,
+   and `net_bss_clear` moved from after `open_image` to the first call in
+   `start` so that `parse_args` writes its switches into memory that is already
+   zero, which is the whole of what the emitted zeros were for. The file gains
+   little - a run of zeros is one match to this packer - but the archive no
+   longer DECODES 2,657 bytes of nothing on the far machine, and `rep stosw`
+   clears them at about half the per-byte cost of the copy that wrote them.
+   Image + bss is the same
+   40,585 bytes and `net_bss1` the same `0x9F89`: the two variables that start
+   NONZERO (`rfh` and `cpydst`, both `0xFFFF`) stayed in the file.
+2. **Three helpers that were written twice are written once** (file −14).
+   `putdec16` was `put_dec` with two instructions swapped; `lpl_ticks`, the
+   transport's clock, read the same BIOS word `dos_ticks` already reads for
+   the stack, through an ES override one byte and two clocks dearer - it is an
+   `equ` of `dos_ticks` now, so the transport's deadline polls got the cheaper
+   body; and `zero_buf` and `srv_blank` share one `rep stosb` tail, which now
+   also hands ES back as it found it.
+3. **A write verb answers through one call** (file −94). The six verbs that
+   end in one status byte - write, append, delete/mkdir/rmdir, rmtree,
+   rename, copy - had a `call wr_done` on each of their 30 answer branches,
+   24 of them followed by `jmp short .out`, and `wr_done` was `call lp_sbyte`
+   / `ret`. Each branch is `jmp .tell` now and `.tell:` is the one `call lp_sbyte` in front
+   of `.out:`. The answer and everything after it are the same; a branch is a
+   call level and a return shorter. **This is the shape that pays on this
+   packer, and its opposite does not**: merging the routines' byte-identical
+   `pop`/`stc`/`ret` epilogues was tried first and made the file **9 bytes
+   BIGGER** - a repeated epilogue already costs the packer almost nothing,
+   and each `jmp` that replaced one carried a displacement nothing else
+   shares. What costs a file byte here is a call or jump DISPLACEMENT, which
+   is unique per site.
+4. **`serve` indexes a table instead of walking a chain** (file −210). The
+   command loop compared the letter against 27 verbs in turn and jumped to a
+   stub per verb that called the routine and then tested CF - 27 compares
+   and 23 stubs, nearly every byte of it a unique displacement. Every verb
+   is a letter from `'A'` to `'w'`, so `srv_tab` is one word per letter (55,
+   built with `%rep` from the same equates IN THE CHAIN'S ORDER, so a letter
+   two verbs shared would still go to the first) and the loop is `sub` /
+   `cmp` / `ja` / `cbw` / `xchg` / `shl` / `call [srv_tab+bx]`. The one
+   distinction the stubs carried survives as the table's halves: an upper-case
+   letter is a FILE or block verb whose CF=1 means the link went away and
+   ends `serve`, a lower-case one is a SOCKET verb (§62.11.1) whose CF is
+   not the link's verdict and is ignored, exactly as the stubs did. A letter
+   no verb has goes to `srv_nop` and is read and ignored, as before. The
+   inline block-mode bodies became `blk_info`, `blk_read` and `blk_write`,
+   their transfer loops unchanged instruction for instruction, and `NC_BYE`
+   is `srv_bye`, which prints and returns CF=1.
+
+   **The cost, PREDICTED from the 8088's timings and not measured**: the
+   table path is ~19 bytes and ~100 clocks to the handler whatever the verb,
+   where the chain was ~16 clocks a compare plus ~50 for the stub, so the
+   break-even is the chain's third verb. The first three were `NC_INFO`,
+   `NC_READ` and `NC_WRITE` - block mode, which no os8088 can send any more
+   (§62.10: `NET.DRV` publishes no `DSV_BLK`) - and they are now up to ~20
+   clocks slower; every verb an os8088 does send is faster, from about even at
+   `NC_BYE` to ~400 clocks at `NW_ADDR`, and the polled socket verbs (`s`,
+   `r`, `w`, the 23rd to 25th) by ~300. That is microseconds against a
+   command that moves bytes over a cable, so it is not what the rule against
+   a slower hot path is about either way - but it is the number to take on
+   MartyPC if anyone doubts it.
+5. **Answers that say the same thing are one answer** (file −13). In
+   `srv_copy` the four exits that close both files did so each on its own
+   line; they set AL and meet at one `call cpy_close` (which keeps AX), with
+   the success arm falling into it so its path is unchanged, and the two
+   `FERR_NOENT` exits share a label. `srv_rmtree`'s two `FERR_PROT` and two
+   `FERR_NOENT` exits do the same.
+6. **`seek_lba` shifts by CL** (file −12). `LBA * 512` was built by two
+   counted loops of single-bit shifts, nine and seven turns; it is
+   `shr ax, cl` with CL = 7 for the high word and `shl dx, cl` with CL = 9 for
+   the low, and `mov ax, 0x4200` for the two byte loads. Block mode only, and
+   faster.
+7. **The two argument copies are one, and it is BOUNDED** (file −4, and a
+   DEFECT fixed). `parse_args` copied the bare folder word into `dirarg` and
+   `/I:`'s name into `imgname` with two loops of its own, neither of which
+   knew the buffer was 80 bytes - and DOS's command tail is 127. A long enough
+   word wrote past either buffer: past `dirarg` into the strings that
+   followed it in the file, and since item 1 into `imgname`, where it would
+   have turned a folder argument into a block-mode image. `get_word` is the
+   one copy now; it keeps at most 79 characters and still consumes the whole
+   word, so the rest of the tail parses exactly as before. (DOS's own path
+   limit is 64, so nothing that could ever have been served is cut.)
+   `listen_once` also lost a `shr bx, 1` whose result the next instruction
+   overwrote.
+8. **Block mode is removed** (file −512, image + bss 40,135 → 39,004), by the
+   owner's decision and not by this pass's rules, which forbid removing a
+   feature: `/I:`, the `R`/`W` sector service, `open_image`, `blk_read`,
+   `blk_write`, `get_req`, `seek_lba`, `tick_dot`, the usage line, eight
+   strings and 343 bytes of bss. Nothing could reach it - §62.10's note says
+   why and how it would be restored. `NC_INFO` is NOT block mode's alone:
+   `NET.DRV`'s `net_info` sends it at every Connect and keeps the read-only
+   flag, so it stays as `srv_info` and sends the sector count as the 0 it
+   always was with no image named - the same bytes on the wire. `R` and `W`
+   go to `srv_nop` in `srv_tab`, and an assembly-time check refuses a verb
+   that takes either. Items 4, 6 and 7 describe code this removed in part
+   (`blk_*`, `seek_lba`, the `/I:` copy); they are kept as what was measured.
+   `tests/dosstub`'s `FSIZE=` knob went with it.
+
+**What the pass came to**: `OS88NET.COM` **11,575 → 10,695 bytes (−880)**,
+the packed body 11,468 → 10,588 and the raw image 18,689 → 14,794. It is
+**12 → 11 clusters** on each 1KB-cluster disk that carries it (`apps360`,
+`network360`, `apps720`) and **23 → 21** on the 512-byte-cluster ones (`apps`,
+`apps120`). Image + bss **40,585 → 39,004**; the program allocates nothing
+else and is not resident.
 
 ## 63. The logo (`tools/os88logo.py`, `MEDIA/OS8088.GIF`)
 
@@ -105105,9 +106610,10 @@ into the entry, so the result of one sum is the start of the next. That last
 part is the reason the pane exists at all — a list you can only read is a log,
 and this is a working surface.
 
-4,780 bytes of image and 478 of bss, so 5,258 of the 60KB a package's region
-may hold (§20.1); 3,849 in the small build (§65.10). No heap claim, no worker
-task, no file of its own.
+4,652 bytes of image and 478 of bss, so 5,130 of the 60KB a package's region
+may hold (§20.1); 3,609 in the small build (§65.10). No heap claim, no worker
+task, no file of its own. On disk it is a 4,262-byte LZ4 file, 3,175 for the
+small build (§65.10.4).
 
 **`tests/dispcalc.py` and `tests/calcflick.py` are the gates**, and
 `tests/dispcalcx.py` is §65.3's — the one that drives an adapter change and a
@@ -105677,10 +107183,12 @@ leaves no room to fold the pane open), made the only shape.
 
 Two integration notes, both Note Pad's rules applied again. The three history
 routines the *arithmetic* calls — `cal_hist_prep`, `cal_hist_prep_un`,
-`cal_hist_push`, reached from every `=`, √ and 1/x — collapse to **one shared
-`ret`** rather than six `%ifdef`s through code that is not the history's. And
-`[cal_linep]` stays in both builds: it reads 0 here, which is exactly what
-`cal_unary_end` already tests for, so that path needs no gate either.
+`cal_hist_push`, reached from every `=`, √ and 1/x — collapsed to **one shared
+`ret`** rather than six `%ifdef`s through code that is not the history's, and
+`[cal_linep]` stayed in both builds, reading 0. **Apps size pass 2 took the
+other side of that trade** (§65.10.4): the call sites still loaded their
+strings, called the `ret` and tested a word that could only read 0, so four
+short gates now take them out of the small build entirely.
 
 **The full build is byte-identical with the gates in**, proven by assembling a
 mechanically de-gated copy and comparing md5; `tests/unit/t_appsmall.py`
@@ -105726,6 +107234,94 @@ there and nowhere else, so none of them banks a register of its own any more
   `[cal_wait]` group is laid out so the stores that set them together are
   word stores. `tests/dispcalc.py` and `tests/dispcalcx.py` read the bss at
   fixed offsets and were moved with it.
+
+#### 65.10.4 Apps size pass 2 — the SHIPPED FILE, on four disks
+
+Pass 2 measures what a package costs a DISK: the LZ4-packed `CALC.O88`, which
+rides `apps360.img` and `office360.img` in the full build and `small360.img`
+and `smallapps360.img` in the small one. Code packs poorly (a byte of code is
+most of a file byte), but a run of pushes or pops matches one elsewhere in the
+image and costs a fraction of its length — so taking out a bracket of saves
+can SHRINK the image and GROW the file. `cal_draw_hdr`'s eight saves are the
+measured case: dropping the four nobody reads is 8 image bytes and 4 MORE file
+bytes, and it was not taken. No bss offset moved in the full build.
+
+| step | full file | full image + bss | small file | small image + bss |
+|---|---:|---:|---:|---:|
+| the cut point | 4,329 | 4,777 + 478 | 3,353 | 3,657 + 192 |
+| 1. cold paths | 4,301 | 4,721 + 478 | 3,327 | 3,614 + 192 |
+| 2. the keystroke path | 4,262 | 4,652 + 478 | 3,287 | 3,545 + 192 |
+| 3. what the small build cannot reach | 4,262 | 4,652 + 478 | **3,175** | **3,419 + 190** |
+
+So **-67 file bytes on each of two disks for the full build and -178 on each
+of two for the small one**, with image + bss down 125 and 240. The clusters
+did not move (5 and 4), and that is the boundary rather than the result.
+
+**1. The cold paths** — none of these runs on a keystroke:
+
+- `cal_entry` keeps no register: the loader reloads everything it reads after
+  the call (`kernel/loader.inc` step 9 takes BX and nothing else), the region
+  declaration names the entry's own `ret` as its proc, and the second
+  `mov al, 1` went, `OSAPI_WM_SNAP` preserving AL.
+- `cal_paste` steps over a leading `-` and reads it again off `cal_pbuf` at
+  the end, where it kept a flag and a second counter in two more registers;
+  it and `cal_hist_load` share `cal_result`, the tail of `cal_clearent` (no
+  error, a RESULT on show, no point).
+- `cal_repaint` is `cal_drawall` entered with CF = 1, so the ground fill runs
+  inside the one save.
+- `View`'s item is TOGGLED rather than copied: `Show` and `Hide` are one XOR
+  of each other applied in step with `[cal_open]`, which drops the two
+  four-byte source strings and two saves.
+
+**2. The keystroke path** — every change REMOVES or cheapens instructions, so
+none can be slower, and it was measured anyway:
+
+- **A register is kept by whoever reads it after, and by nobody else.** The
+  `cq_*` family banked everything; now `cq_div10`, `cq_divmod`, `cq_zero`,
+  `cq_big`, `cq_div10r`, `cq_scale` and `cq_mul32` keep only what a caller
+  reads across them (`cq_mul10` keeps AX for `cal_pack`'s digit and
+  `cal_do_sqrt`'s exponent, CX for `cq_scale`, SI and BX for `cal_addsub`'s
+  operands), and each routine's header says what it clobbers. `cal_fmtv` no
+  longer banks AX, BX or DX (BX it never wrote); `cal_copy`, the one caller
+  owing its own caller every register, banks DX itself. `cal_hit` dropped a
+  push/pop round two routines that keep AX.
+- `cq_mul32` STORES the two partial products that do not overlap and adds only
+  the two cross terms, so the result needs no zeroing first. `cq_div10r`
+  falls into `cq_add16`. `cal_kdigit`'s `m * 10 + d` multiplies the same two
+  operands in the other order and needs two moves where it had six.
+  `cal_rect` adds each extent a byte at a time with its carry.
+- `cal_key`'s tail IS `cal_show`'s body: the two banked the same six registers
+  one inside the other, so a key paid for the save twice. `cal_show` is now a
+  save and a jump into it, paid by the four entries that are not a keystroke.
+
+Measured on MartyPC (`os8088_5150_cga`, the 360KB disks): guest cycles from
+`cal_key`'s entry to its `ret` for each of 56 typed keys - digits, all four
+operators, `=`, `Q`, `R`, `%`, `N`, Backspace, Esc - on both builds, with the
+display fields compared after every key and **identical on all 56**. A digit
+is **314-464 cycles cheaper**, `=` 962-1,058, `R` 1,222, `Q` 1,512; the whole
+sequence **2,106,376 -> 2,042,978 (-3.0%)**. Four keys read dearer, by 1,054
+to 5,486, and none of them repeats at the same key elsewhere in the sequence
+(Backspace and Esc are -294 and -320 there): a timer tick landing inside the
+window is ~6,000 cycles, which is also the size of the eight largest gains.
+
+**3. What the small build cannot reach** — the full build is the same code
+after this step (its data moved, its bss did not), and each piece is gated
+behind the flag that already gates the code that reads it:
+
+- the pane's DATA: the View menu, its two items and the strip's label, 46
+  bytes nothing in that build reads;
+- the history calls IN THE ARITHMETIC (`cal_keq`, `cal_ksqrt`, `cal_krecip`,
+  `cal_unary_end`), with the three unary-line strings and `[cal_linep]`,
+  where the shared `ret` of §65.10.2 used to stand;
+- `cal_abdismiss`'s three call sites and the `clc` / `ret` stub that answered
+  "not spent" every time, `cal_ctl`'s pane test, and the `H` key.
+
+**One defect went with the `H` key.** The small build has no pane, but
+`cal_asctab` still mapped `h`/`H` to `CK_HIST` - which `cal_dispatch` refuses
+only AFTER its choke point has cleared `[cal_wait]` - so `12 +` then `h`
+brought the `12` back into a field that was waiting for a new number
+(§65.2.1). The key does nothing at all there now, as it does nothing to the
+field in the full build.
 
 ## 66. Heap compaction — closing the holes on demand
 
@@ -107122,7 +108718,7 @@ relocation proc exists to recompute.
 rule's edge actually is.** Its worker's only lock site is `fr_emit`, which
 takes the lock and *then* runs `fr_emit_body`'s work (inline since §40.8), which re-reads `[fr_cseg]`
 rather than inheriting it — so the interval spent blocked in `gfx_lock` holds
-nothing at all. `fr_take` *does* hold the cache segment in `AX` for its whole
+nothing at all. `fr_take` *does* hold the cache segment in `DX` for its whole
 walk and runs lock-free, and that is still safe, because §66.5.4 marks a task
 parked **only while it is descheduled inside `gfx_lock`**. A task pre-empted
 anywhere else is not parked and its claims stay pinned. The rule is narrower
@@ -110291,6 +111887,132 @@ go red: `wleft 8` against 7 on a level-1 board, which is `cy_wavesize`'s ramp
 answering for the level instead of the counter being left alone.
 
 
+### 67.26 Apps size pass 2: the shipped file, not the machine
+
+`CYCLONE.O88` rides two of the 360KB disks (`apps360.img`, `games360.img`) and
+both were full when docs/plans/HANDOFF-APPS-SIZE-P2.md opened, so this pass is
+measured in the LZ4-packed FILE and the clusters it takes, with nothing a
+player can see changing, no frame path made slower and image + bss not
+growing. Each part below is one commit and says what it cost and bought.
+
+#### 67.26.1 The webs ship their symmetric half
+
+Seven of §67.2's eight webs are symmetric, and the descriptor now says so in
+its second byte beside the closed bit: **`CY_SH_ROT`** stores a quarter of a
+closed web (`nlanes/4` pairs) and every later vertex is the one `nlanes/4`
+back turned a quarter, (x,y) → (−y,x) — the circle, square, plus and star;
+**`CY_SH_MIR`** stores `nlanes/2 + 1` pairs and vertex *i* past them is vertex
+`nlanes − i` with x negated — the triangle, vee, ribbon and horseshoe. 136 of
+the 238 bytes of shape table are gone.
+
+The derivation is `cy_build_verts`' **pass 0**, in the NORMALISED space and
+before any scaling. That is the whole correctness argument and the reason it is
+not done on the scaled words: pass 1's `>> 7` is an arithmetic shift, which
+floors, so −(v·R >> 7) is not (−v·R) >> 7 for most v and a rotation applied
+after scaling would move a vertex a pixel. Applied before, pass 1 is handed
+the identical 2·nverts bytes a full listing gave it, and every table after it
+is the same. Pass 0 writes into the top half of `cy_rsx` and pass 1 scales
+that into the whole of it in place (byte *j* is read from rsx+32+*j* before
+word *j* lands at rsx+2*j*), so the expansion costs no bss. `CYSHEND` asserts
+each web's stored count against its form at assembly time, and the expansion
+was checked on the host against the old table, all eight webs vertex for
+vertex.
+
+Pass 1 also lost its second copy: x and y are just 2·nverts signed bytes in a
+row, so one `lodsb`/`imul`/`>> 7` body walks them all, and the 32-bit shift is
+taken in DX:AX's own order (`shl ax,1; rcl dx,1`, then AH:DL) instead of
+swapping the halves through BX first — the same two bytes of the same 32-bit
+value. Pass 2 counts the depth in BX (as the `cy_scale` index, ×16 for the row)
+instead of in `[cy_dd]`, which is gone. All of it runs at layout time, never
+in a frame. Image −119 bytes, file −109.
+
+#### 67.26.2 The bracket's flags are set in words
+
+Six byte flags were only ever set together at the fullscreen bracket's edges
+and at a level or title change — `[cy_fsx]`, `[cy_inbr]`, `[cy_fsxq]`,
+`[cy_mheld]` and the `[cy_needlay]`/`[cy_full]` pair that owes a relayout and
+a whole repaint. They are ONE `CBUF` now, in that order, so a pair is one
+`mov word` (`CY_LAYFULL` for the last two): five stores of 5 bytes became three
+of 6 at the bracket's exit, and a `needlay`/`full` pair is 6 bytes instead of
+10 at all six places that set both. It has to be one `CBUF` and not six
+`CBYTE`s, because `OS88_BSS_ALIGNED` may cut the bss list between any two
+entries (§77.31.1). Nothing reads them differently, and one store is never
+slower than two. Image −40, file −20.
+
+#### 67.26.3 The cold paths, the classic way
+
+Code nothing in a frame runs, taken the ordinary way and with every result
+unchanged:
+
+- **Tail calls.** Eight `call X` / `ret` pairs on the key, new-game and title
+  paths are `jmp X`, `cy_newgame` falls into `cy_startlevel` (it is the next
+  routine), and the key handler's `.start` falls into `.new`.
+- **`cy_wavesize`** computes `(level − 1) · 3` once for both ramps, and the
+  five-rung ladder of kinds a level unlocks is `cy_kindlv`, seven bytes indexed
+  by the level and clamped at 7 — the same 1, 2, 3, 3, 4, 4, 5 the compares
+  gave.
+- **The high-score table.** `cy_hs_init` walks a score pointer and a name
+  pointer instead of re-deriving `row·4` and `row·3` each pass;
+  `cy_hs_submit`'s shuffle is two backward `rep movsb` (names, then scores)
+  instead of a row loop that re-derived both offsets per row; `cy_init_commit`
+  copies the three initials as a word and a byte.
+- **`cy_init_begin`** blanks the initials and their NUL as two words, and
+  **`cy_centre`** subtracts and tests the borrow instead of comparing first.
+
+Image −89, file −51.
+
+#### 67.26.4 Three strings nothing drew
+
+`cy_s_keys` (*ARROWS MOVE  SPACE FIRE  Z ZAP  J JUMP*), `cy_s_level`
+(*LEVEL*) and `cy_s_avoid` (*AVOID THE SPIKES*) were in the image from the
+first commit of this package and named by no instruction in it — the keys
+are How To Play's (§67.14) and the attract scroll's, and neither banner was
+ever raised. Deleted. Image −62, file −39.
+
+#### 67.26.5 A second sweep, and three stores nothing read
+
+- **`cy_entry`** clamps the template width to `CY_WIN_W + 2` against the
+  screen's directly instead of taking the 1px sides off and putting them back,
+  and drops the centring's negative guard, which the clamp makes unreachable
+  (the width is at most the screen's own).
+- **`cy_oncmd`** steps AX through the Game items with `dec` and tests Help's
+  one item as the single word `0x0100`, so both indices are still tested.
+- **`cy_panel_draw`** steps the pen down 9 pixels a line in DX — which
+  `cy_textw` promises to keep — instead of re-deriving `pny + 6 + 9·line`
+  from the row index every line.
+- **Three dead stores.** `[cy_vkind]` and `[cy_bpp]` were stored by the entry
+  proc and read by nothing (`cy_pal` asks `OSAPI_FSX_CAPS` per display, which
+  is the right question, §39.2.1); `[cy_lspy]` was stored by `cy_lanepos` on
+  every call and read by nothing, the dominant span `[cy_lspm]` being what
+  `cy_lanecap` reads. All three variables are gone. `cy_lanepos` is a FRAME
+  path, so this one is argued rather than left: it lost a `mov [mem], ax` and a
+  `push ax`/`pop ax` pair whose restored AX nothing after it read (the entry
+  push already restores it) and gained nothing, so every call is strictly
+  cheaper than it was.
+
+Image −55, file −60.
+
+#### 67.26.6 A third sweep
+
+- **`cy_lip_build`** (layout time): the zero offset is one cleared register
+  stored twice; the second `mov cx, [cy_lpk]` before `cy_lp_scale` goes, that
+  routine keeping CX; the direction byte is loaded once and compared twice;
+  and the "at least 1" fallback after the ceiling division is gone, because
+  it is reachable only when distance < need, which makes the dividend at least
+  `|e|` and the quotient at least 1 already.
+- **`cy_entry`** no longer stores `CYS_TITLE` into `[cy_state]` or 0 into
+  `[cy_tshape]`: both are 0 and the loader zeroes the bss (§20.1), and an
+  assembly-time check keeps `CYS_TITLE` 0. `cy_layout` stops saving DI, which
+  nothing under it touches.
+- **`cy_hs_submit`** walks the score row by pointer and keeps it in BX for the
+  store (the shuffle's row count moves to DX).
+- **The attract scroll's score lines** (`cy_scroll_next`) compose
+  `n. ABC ` in four word and byte stores instead of seven byte moves through
+  SI and DI — fewer instructions on a path the attract screen runs every
+  twelve frames, so it is cheaper as well as shorter.
+
+Image −64, file −42.
+
 ### 67.13 What is deliberately not here
 
 **No high-score file.** The table lives in bss and dies with the instance. It
@@ -112397,6 +114119,95 @@ difference and only the rows that fell out of the blit are drawn. An edit
 whose shape was never measured — a selection deleted, a paste — takes the
 whole pane, which is the honest answer rather than a guess.
 
+### 69.11 What the second apps size pass took
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
+package by its SHIPPED FILE - the LZ4-packed `TEXPAD.O88`, which rides four
+360KB disks - rather than by image + bss. TeXPad's file is code to 84% (the
+strings, the exporters' fixed text and the shared scroll bar are the rest),
+and code packs to about a byte a byte, so what moved it is code that went:
+
+- **Tail calls, and two handlers that were only a call.** A `call X` / `ret`
+  pair is a `jmp X` (`\TeX`, `\LaTeX` and `\today` now sit in front of
+  `tp_emit_csi` and the last falls into it; `tp_put_run` falls into
+  `tp_put_run_at`), and `\newline` and `\par` name `tp_nl` and `tp_endpara`
+  in the command table directly - a handler is jumped to with nothing to undo,
+  so `tp_c_nl` and `tp_c_par` had nothing in them but the call. `tp_xw_cr` had
+  no caller. Every one of these is a return the typesetter no longer makes.
+- **A DEFECT, FIXED: the preview's whole-pane fallback drew its interior
+  twice.** `tp_prev_scroll`'s `.full` arm - a scroll further than the pane, a
+  thumb dropped far off, a blit `gfx_scroll` refused - went through
+  `tp_redraw_prev`, which white-filled the pane's interior and then called
+  `tp_draw_preview`, whose desk is `tp_draw_sheet`'s 50% dither over exactly
+  that interior, to the pixel. The dither writes every pixel it covers, so the
+  white was a whole pane of fill overdrawn a few calls later: PERFORMANCE.md's
+  double draw, one `gfx_fill` the size of the preview, on every long jump.
+  `.full` is `tp_draw_preview` now, which sets the region whole itself; the
+  last frame is the same picture and the white one before it is gone.
+- **The preview's two maps divide by the page as it is.** `tp_mapx`,
+  `tp_mapy` and the gutter in `tp_draw_sheet` each tested the page width or
+  height for 0 and divided by 612 or 792 instead - a guard nothing reaches:
+  `tp_pagesz` is the only writer of `[tp_pw]` and `[tp_ph]`, it reads them out
+  of `tp_pgtab` at `[tp_psize]`, which every writer keeps to 0..3, and every
+  caller of the three is behind a `tp_fit_sheet` or a `tp_ts_init`, which run
+  `tp_geom` and so `tp_pagesz` first. The divide takes the memory operand now,
+  and `tp_mapy` forms *height - y* as `neg` / `add`, so the two maps the run
+  painter calls per run each push one register fewer.
+- **The cold paths bank what their callers hold and no more.** The entry
+  proc reads its argument's name inline (`tp_note_arg` banked seven
+  registers for a caller that owes the loader BX and CF and nothing else);
+  `tp_deferred_ld` keeps AX, CX, DX and SI - the key or the menu item, a
+  click's point and the window, which is what its four callers hold across
+  it; `tp_redraw` keeps BX and SI, the two `tp_paint` does not. `tp_srcfit`
+  and `tp_srctrim` share one KB rounding (`tp_srcby`), `tp_is_tex` compares
+  the extension in a loop against `tp_s_tex` with the case folded out of
+  both, the title's ` - ` is one `stosw` and a `stosb`, `tp_dlg` no longer
+  falls back to SI for a window that always exists before a menu or a key
+  can arrive, and Esc sets the preview's focus and falls into F5's typeset.
+- **A bar button always owes the window a repaint, and says so by not
+  answering.** `tp_bact` returned *CF = 1 if the caller owes a full redraw*,
+  and every one of its four exits set it: all seven buttons change the page,
+  the setup or the set. It returns nothing now, its three calls are jumps,
+  and `tp_onup` repaints after it without asking.
+- **A menu command is a routine and a repaint, and the pair is written
+  once.** Ten of `tp_oncmd`'s arms were `call X` / `jmp tp_redraw`. Each arm
+  now names its routine in BX and they share one `call bx` / `jmp
+  tp_redraw`; the choosers' arms (Open, Save As, the two Exports) still jump
+  to the chooser, whose completion proc (`tp_ondlg`) does its own repaint.
+  One repaint per command, as before. (Pushing `tp_redraw` as the arms'
+  return address is 4 bytes smaller and was built first; `tools/stkbalance.py`
+  reads every routine an arm jumps to as returning one word deep, and a pass
+  that takes ten exemptions to save four bytes is the wrong trade.)
+- **What a drawing call keeps is not loaded again.** Every API call keeps
+  every register but its documented outputs (`apps/os88api.inc`'s rule), so
+  the run painter's bold strike reuses the SI and AX `OSAPI_FONT_RUN` was
+  just handed instead of reloading both, and sets ES to its own segment once
+  before the walk rather than once per run; the About card loads its ink
+  once (the scan to the next line ends on the NUL, 0, which is `CBLACK`, so
+  AL survives it too); and `tp_xor_span` sets the selection's pen once per
+  span where it was one `OSAPI_SET_COLOR` far call per ROW it inverted.
+- **The typing path's own stores.** `tp_draw_srow` - the routine that
+  letters every row an edit reaches - copies the row into `tp_cline` with DS
+  switched to the source once, where it went through eleven pushes and pops
+  to arrange the same two segment registers; and `tp_dirty` and `tp_needset`,
+  adjacent bytes that every edit sets together, are set by one word store
+  (pinned by an `OS88_ADJACENT` line under the bss map), as are the load's and
+  File > New's *clean, but unset*.
+- **A DEFECT, FIXED, and the one change here that costs a keystroke time:
+  typing after a DRAG drew where the window used to be.** A move replays the
+  content and calls no paint (§11.96.12.0), and every incremental path a key
+  takes - the edited rows, the caret, the top bar's `(edit)`, the byte count -
+  drew from the origin, panes and bar rects the last paint or click had
+  left. Seen on the look-boot this pass took: PAPER.TEX open, the window
+  dragged down 33 rows by its title, one letter typed - and the edited rows
+  and the top bar's text landed 33 rows up, over the title bar and the
+  desktop, and the byte count in the preview where the status strip had
+  been. A key now re-reads them first, through `tp_regeo` (the content box,
+  the bar's rects and both panes - the four calls `tp_onclick` already made,
+  which it shares). Measured on MartyPC's VGA XT: **+5,976 guest cycles a key
+  (1.25 ms at 4.77 MHz)**, on a letter that costs ~690,000 and an arrow
+  ~87,500. +13 file bytes.
+
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 
 It was built here — the picture character, the claim per picture, the layout
@@ -114501,7 +116312,7 @@ second chunk, which answers **`FERR_NAME`** — so the user is shown `Disk error
 and a 4 KB stump of a 40 KB file, with an innocent disk. The over-8,192 refusal
 below was never reached through that door at all.
 
-`tz_chunk_set` therefore runs in `tz_dlgdone`, on the UI task, with the lock
+The chunk is therefore sized in `tz_dlgdone` (it was a proc of its own, `tz_chunk_set`, until §70.13), on the UI task, with the lock
 held and no disk I/O: the same 105 ms, one question later. The worker stages
 nothing until it reads `[tz_rst]`, so the chunk is still fixed before the first
 byte lands.
@@ -114824,7 +116635,8 @@ so a declared size over 4 GB wraps small, and a 63-character name walked the
 parse into the staging area and read the previous download's digits as this
 file's size.
 
-`tz_frac` now treats `pos >= size` — and a position whose high word survived the
+`tz_bar`'s fraction (it was `tz_frac`, inline since §70.13) now treats
+`pos >= size` — and a position whose high word survived the
 reduction the size's did not — as a FULL bar, which is what a sender that lied
 deserves. `tests/telzm.py` drives it with a sender that declares 1 and sends
 6,144, and asserts that the session is still up afterwards: the symptom of an
@@ -115137,6 +116949,47 @@ which bytes come back — so the assertion is that string, in order, inside
 **Thirteen fixtures, 0 differing cells of 2,000, on every one.** The stream
 offset the guest fed matches the fixture's length on twelve of them and stops
 at **82 of 151** on `zmodem`, which is `ansisim`'s own `zmodem_at` to the byte.
+
+### 70.13 What the package costs a DISK (apps size pass 2)
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
+package by its SHIPPED FILE - the LZ4-packed `TELNET.O88` - because the two
+360KB disks it rides, `apps360.img` and `network360.img`, are where the room
+ran out. Nothing below changes what the terminal draws, sends or writes, and
+no per-received-byte path (§70.9's parser, §70.11's receiver, the socket pump)
+was touched; every change is on a callback, the entry proc or a path that runs
+once per sequence or per transfer, and each is the same work in fewer bytes
+and no more cycles. Started at **12,361 bytes, 13 clusters** (image 15,109,
+bss 6,077).
+
+| change | where | file bytes |
+|---|---|---:|
+| the entry proc's region declaration takes `OS88_REGION_MOVABLE_NOKEEP` (nothing after it reads AX, DX or the flags) and a redundant SI frame round `OSAPI_MENU_SET` goes | `te_entry` | -9 |
+| the host box, the button, the pen and both view clamps are derived off the two registers `OSAPI_WM_GEOM` hands back rather than re-read from the words just stored; `con_mono` is `cmp`/`sbb`/`neg`, and the clamps take ZF from the shift (a count in CL is never zero) instead of an `or` after it. Same values to the bit (`tests/telnet.py`'s `viewfits` derivation is unchanged), 46 image bytes, and fewer and cheaper instructions on a path every key, click, paint and worker draw runs | `te_layout` | -41 |
+| `te_in` stores `[te_win]` and FALLS into `te_layout`, so the four callbacks that opened with that pair make one call; `te_hire` (one caller) is inline in `te_paint` with the worker declared `OS88_WORKER_RESTARTABLE_NOKEEP` - no instruction is added to any path, and the paint loses a call, a ret and a frame | `te_paint`, `te_onclick`, `te_onkey`, `te_about` | -11 |
+| the three headers this end composes (`tz_saypos`, `tz_rinit`, `tz_say`) share one tail, `tz_hsend`, that reads the type back out of `[tz_lst]`; `tz_ohdr32` (byte stores of a word) and `tz_zero4` fold into them, and `tz_resend` loads BX once per arm. The same bytes on the wire for every header, every register still kept | `tezm.inc` | -27 |
+| **DEFECT FIXED**: `tz_infodone`'s size parse bounded itself with a count in CX that the multiply re-loaded with 10 on every digit, so the bound never ran out - and a name filling all 63 bytes of the info block leaves the parse ONE PAST the buffer, on `[tz_sseg]`, whose bytes were read as digits (the residue of §70.11.6's 63-character walk). The bound is the pointer now and that block reads a size of 0. The size accumulates in DI:BX rather than in `[tz_fsz]` and `tz_add32` (two callers) is gone, `tz_commit` adding to `[tz_pos]` in place. Once per file | `tz_infodone`, `tz_commit` | -26 |
+| `tz_frac` (one caller) is inline in `tz_bar`, which takes the SI/DI frame and `te_pop6`; its "no size" arm drops straight to the exit instead of returning a zero to be tested. The progress bar is drawn per repaint, and the inline is a call, a ret and five pushes and pops fewer | `tz_bar` | -10 |
+| `tz_cp32`'s three callers passed one of two fixed pairs: `tz_mark0` ([tz_sub0] = [tz_rcv]) replaces it and falls into `tz_touch`, which is now `tz_touchq` with the retry count reset and falls into it; `tz_subok` reaches it as a tail. `tz_poll`'s resume (`min([tz_pos], [tz_sub0])`, §70.11.3) compares and copies inline with no SI/DI frame, and `tz_cmp32` goes. Per subpacket or per recovery, never per byte; `tz_touchq`, the one that IS per byte, is unchanged | `tezm.inc` | -22 |
+| `tz_hex` addresses its prefix off the pointer it ends at and loads the CRC bytes rather than the word twice; `tz_hex2` keeps the nibble in AH instead of a BX frame; `tz_hcrc`'s two epilogues are one, the answer riding the flags through the pops | `tz_hex`, `tz_hex2`, `tz_hcrc` | -7 |
+| `te_say3` and `te_wscroll`, one caller each, are inline in `te_option` and `te_screen`; the option reply stores AL and BL as one word, the NAWS arm joins the reply call instead of making its own, and `te_screen` leaves by two tail jumps. Same bytes to the host, same bounded wait | `te_option`, `te_screen` | -19 |
+| `tz_chunk_set` and `tz_bigmsg`, one caller each, are inline in `tz_dlgdone`, which takes DX into its frame and leaves by `te_pop6`; the cluster in bytes is `BL` shifted into AX with CF as the overflow instead of a `mul` and a test of DX. Once per file, on the UI task | `tz_dlgdone` | -31 |
+| `tz_wake`'s commit and done arms share the one `[tz_req]` clear, the done arm sits on the dispatch's fall-through, and `tz_dcancel` (one caller; all three cancel routes reach it there) is inline | `tz_wake` | -10 |
+| `te_retry` (one caller) is inline at the top of the worker pass, which already keeps every register: the held reply is tested with `jcxz` on its own length instead of a separate compare. Per worker pass, and fewer cycles on it whether or not a reply is held | `te_step` | -9 |
+| the DSR answer stores `ESC [` as one word and measures itself off SI; DECSET/DECRST's show bit is `cmp`/`sbb`/`neg`; `tz_start` tail-jumps to `tz_begin`. Same bytes to the host (the `report` fixture's answer string is unchanged); once per sequence or per transfer | `te_f_dsr`, `te_csidisp`, `tz_start` | -11 |
+| `te_toggle` tests "already on its way" (TS_OPEN, TS_WAIT) as one range after a `dec`, asserted at assembly; `tz_fail` stored `[tz_why]` twice either side of the cancel string, and the first store goes | `te_toggle`, `tz_fail` | -5 |
+
+**Ended at 12,123 bytes, 12 clusters** (image 14,819, bss 6,077 - the claim
+image + bss 290 bytes smaller, and the one heap claim, §70.11.3's 8 KB
+staging area, unchanged): a cluster back on each of the two disks. What it
+did NOT reach is the next cluster and the reason is the shape of what is
+left: of ~7.1 KB of the package's own code packed, the larger halves are
+§70.9's parser and §70.11's receiver on the byte path, which this pass
+leaves alone, and the 2 KB CP437 face (§70.8.6.1) is 975 packed bytes of
+`apps/os88cp437.inc` - shared with DOS, so not this package's to cut. Its
+box-drawing and shade rows, 0xB0..0xDF, are 221 of those bytes and are drawn
+by arithmetic in `tools/cp437font.py` already, so building them at launch is
+the one large disk win left, and it belongs to a shared-include lane.
 
 ## 71. The browser fetches (`apps/browser/brnet.inc`)
 
@@ -115643,7 +117496,9 @@ and `style` dropped whole, `font` and `bgcolor` dropped in both directions
 
 **3,063 bytes**, which is three clusters of a 360KB floppy against
 `DEMO.HTM`'s six — and the reason to care is §24.4, where that geometry is
-tight enough that `BEVERLY.MOD` rides a disk of its own.
+tight enough that `BEVERLY.MOD` rides a disk of its own. (2,901 since 71.18,
+which packs to 2,046 and two clusters: the boilerplate no renderer here reads
+went, and nothing it draws did.)
 
 It also puts the file **beside its package**, which is where the other three
 `APPS_DATA` entries already were — `apps/tracker/beverly.mod`,
@@ -115885,6 +117740,128 @@ than rendered as page text. The reference renderer and guest share fixtures
 for spans, alignment and unsupported controls; a local HTTP test checks the
 POST request line, headers, exact length and body. Existing GET, formatting
 and frame-navigation behavior remains covered.
+
+### 71.18 Apps size pass 2 — the shipped file, not the machine
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md's subject is DISK room, so the measure is
+the LZ4-packed `BROWSER.O88` (17,832 bytes, 18 clusters on `apps360.img` and
+`network360.img` both, at the cut) and not image + bss. Code packs to ~0.9 of
+itself here, so a disk byte is an instruction that stops existing; a sequence
+that merely REPEATS packs to ~3 bytes already and is not worth factoring. No
+behaviour moves: every change below was run against the cut's own binary under
+a stub kernel - the parse, layout and per-line compose of every page in
+`tests/htm/` and `BROWSER.HTM` at five widths, URL split and resolution, the
+history and its predicates, form submission and the request it builds, page
+clicks, and the whole fetch state machine through a fake socket driver with
+redirects and frames - and left the same bytes behind.
+
+Altogether `BROWSER.O88` 17,832 -> 17,467 bytes (still 18 clusters), image
+20,945 -> 20,190 and bss unchanged at 5,940, so the claim is 755 bytes
+smaller; `BROWSER.HTM` 2,184 -> 2,046, three clusters to two. No heap claim
+changed size. The renderer's per-byte loops (`br_build`, the paint, the parse
+and layout loops, `br_take`/`br_hdrb`) are untouched; what moved on a parse
+is per tag or per form control, bounded per page, and removes instructions
+except the field helpers' one `call`/`ret`.
+
+- **The predicates are the compare.** `br_okback`, `br_okfwd`, `br_okrel` and
+  `br_haveh` answer CF and every caller reads CF and nothing else, so an
+  unsigned `cmp x, 1` (which borrows exactly when x is 0) IS the answer and
+  the `je`/`clc`/`stc` around it goes; Forward is its compare's borrow
+  inverted by `cmc`. `br_keydelta`'s four `clc`s after an EQUAL compare were
+  already true. `br_inrect` and `br_s_subbtn` had no reference left at all.
+- **`br_resolve` refuses through one exit.** Too long, no host and `https`
+  were three copies of *say it unless mid-parse, then CF=1*; each now loads
+  its message and joins the one `br_errst` call, which is the very sequence
+  two of them had inlined. The root and the directory-relative shapes share
+  their host check and base, and an absolute href joins them at `br_uputh`.
+- **A DEFECT, FIXED: every GET form submitted to the FIRST form's action.**
+  `br_submit` indexed `br_factions` with AL after AL had been reused for the
+  form's method byte, which is 0 for a GET - so on a page with two forms, the
+  second searched wherever the first one pointed. POST was right all along,
+  because its action is looked up again at the toast. Invisible on FrogFind,
+  which has one form; found by the differential run above (a two-form page
+  submitting form 2 to form 0's `/search`). +3 bytes.
+- **A field record is filled by one helper.** Four control parsers (text,
+  select, checkbox/radio, and the option value) each copied `name` or `value`
+  into the record inline, with `push bx / add bx, FLD_x / mov di, bx / pop
+  bx` where one `lea` is that address; `br_fldname` and `br_fldcp` are the
+  copy once. `FLD_W` and `FLD_LEN` are adjacent, so a field's width and its
+  empty length are one word store, a checkbox's default `on` is another, and
+  `br_input` stops re-loading the `type` name `br_attreq` already hands back.
+  Per control this is bounded work - at most `BR_FMAX` = 12 on a page - and
+  not the per-byte parse loop, which no change here touches.
+- **`br_submit` builds the query out of three small pieces.** `br_actptr`
+  (a form's action, also `br_form`'s), `br_amp` (the `&` before every pair
+  but the first, three copies before) and `br_encz` (a NUL string through the
+  encoder, two); a POST and a GET share one toast-then-resolve tail with the
+  string to resolve in DI, `OSAPI_TOAST` keeping every register; the
+  too-long refusal is `br_errst`; and `br_form` stores a form's method with
+  one `adc` off `br_attreq`'s carry.
+- **The tag path does less, and so is no slower.** `br_do`'s four
+  `call`/`ret` pairs are tail jumps and its unreachable `.input` is gone;
+  `br_anchor` measured the href twice, built the arena offset's index through
+  DX and a `push`/`pop`, and split the link index into its two payload
+  nibbles with two loads where one `shl`/`shr` pair leaves both halves in AX.
+  Every one of these removes instructions from the path it is on.
+- **`br_split` asks the terminators first.** Its host and path loops ran a
+  `loop` to the bound and then the same three tests again to tell a full
+  field from a too-long one; testing the end first lets one `jcxz` be both
+  the bound and the verdict. The port accumulates in AX and is stored once.
+  A reply's header state - eight stores that a fetch, a redirect hop and a
+  frame child each carried - is `br_hreset`, and `br_go` no longer saves AX
+  and BX around a `OSAPI_WM_SAVEU` whose caller restores both anyway.
+- **A reset stores a register.** `br_parse`'s per-page reset and
+  `br_layout`'s were runs of immediate zeros, five or six bytes a store; with
+  AX cleared once each is `mov [x], al` or `mov [x], ax`, three. Once per
+  parse and once per layout, and fewer cycles than before.
+- **A record is addressed by its helper.** A text field's record was a
+  hand-inlined copy of `br_fld`; a submit button's, three copies of one
+  multiply, is `br_subrec`. A button value's `&nbsp;` is two word compares and
+  a byte rather than five bytes, and a field's padding is `jcxz`/`loop`.
+- **A frame's host and path are one copy.** `br_path` follows `br_host` and
+  `br_framepath` follows `br_framehost`, so the three places a frameset saves
+  or restores the pair (`br_frame`, `br_framefetch`, `br_frameclose`) move
+  `BR_HOSTMAX + BR_PATHMAX` bytes in one `rep movsb`; an `%error` holds the
+  adjacency.
+- **Back and Forward are one move.** Both buttons step `br_histi` by one and
+  go there; they now share the step, with the predicate's CF surviving the
+  `inc`/`dec`. File's Save As stops jumping over itself, and the entry proc
+  stops saving three registers around `os88ui_btninit` that it never reads
+  again.
+- **A finished fetch says one thing once.** `br_finish` picks its warning
+  (cut, else links limited) into AX and stores it once, zeroes the layout's
+  three words from one register around a `br_measure` that keeps it, and
+  saves only ES around the frameset's two copies, `.out` restoring the rest;
+  `br_framefetch` stores a child's base word, an offset or `0FFFFh`, through
+  one indexed store instead of two.
+- **A click and a wake ask each thing once.** `br_onwake`'s two hand-overs
+  are both a `BN_BODY`'s, so that is asked first and once (`br_frameclaim`
+  leaves `[br_fin]` at 5 or 0, never the netclaim's 1); `br_onclick` stops
+  saving the point around a `br_measure` that keeps it, and its toolbar-strip
+  test is one `jbe`.
+- **The About card's lines are packed.** `OS88UI_ABPACK` (SPEC.md 20.5.1.1)
+  is the include's own opt-in for lines end to end with an `OS88UI_ABEND`,
+  in place of a pointer table; the card draws the same calls at the same
+  places (the differential run's About leg, with a width stub that measures).
+- **The worker's small answers are arithmetic.** `br_gchk` (did a
+  navigation supersede this pass?) is a subtract, a `cmp al, 1` and a `cmc`
+  where it was two exits, every one of its eleven callers reading CF alone;
+  `br_hclose` tests the handle in the register it loads it into; and
+  `br_req` picks its method string before one `br_rputs`.
+- **The claims multiply by shifting.** `br_claimpage`'s `* BR_DOCMUL` is a
+  shift, and `br_claimrest` keeps the link arena's KB in BX across the claim
+  and makes its byte capacity from it, rather than clamping `br_srckb` a
+  second time and multiplying by 1,024; `%error`s hold both constants. -17
+  bytes of image and -2 of file, which is LZ4 finding most of what went.
+- **The manual sheds what nothing reads.** `BROWSER.HTM` lost its DOCTYPE,
+  its `<meta>` charset (the page is pure ASCII), `<html>`/`</html>`,
+  `</body>` and its blank lines - 162 bytes of source, and the packed file
+  2,184 -> 2,046, three clusters to two on both disks that carry it. Every
+  shape 71.12 lists it exercising is still in it, `<head>` included, and it
+  renders the same: identical document, line table and per-line compose on
+  the machine's own code at six widths, and an identical `htmsim.py --render`
+  on all three adapters, whose only change is its own parse count (171 ops
+  and 28 tags to 167 and 27).
 
 ### 72.1 What the packages did have to change, which is one question
 
@@ -125157,6 +127134,113 @@ keeps `fd_stage`: its rows are composed in our segment.
 
 What it costs: `ftpd.o88`'s image **+46 bytes** (14,670 -> 14,716).
 
+### 77.52 Apps size pass 2 - the shipped file
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md measures a package by its SHIPPED FILE,
+the LZ4-packed `build/ftpd.o88` (§20.13), because the 360KB apps disk is full.
+FTPD rides two of the six 360KB images (`apps360.img`, `network360.img`) and
+the 720KB/1.44MB/1.2MB apps disks, and ships no data file beside it -
+`apps/ftpd/ftpspeed.txt` goes only onto the on-demand `make ftpspeed`
+floppies. Nothing a client sees changed: every reply's code and text, the
+listing format and `FTPD.CFG`'s bytes are as they were, and **the transfer
+path was not made slower anywhere** - `fd_worker`, the send and receive
+stages, `fd_data_ready`, `fd_wake` and `fd_do_read`/`_write`/`_list` execute
+the same instructions as before, and `fd_step` changed only by losing work
+(its paint call goes direct, two `jmp .done`s are short, and the accept that
+starts a session calls `fd_session`). §77.30's loop is what the KB/s is
+measured on, and MartyPC has no NIC to measure a change to it with, so
+nothing that runs per pass was given anything to do.
+
+| | before | after |
+|---|---:|---:|
+| `ftpd.o88` (file) | 12,291 | 11,864 |
+| image | 14,746 | 14,090 |
+| image + bss (the region) | 26,624 | 25,600 |
+
+- **The entry proc's declaration is the NOKEEP form** (§66.6.1.1), moved
+  above the `mov al, 1` it sat below - which is what the SDK note says this
+  site would need, and nothing below the declaration is owed the AX, DX or
+  flags it spends. The four `mov bx, [fd_win]` reloads went with it: every
+  slot the entry proc calls preserves BX. The region falls a 512-byte step
+  because `fd_stage` is 512-aligned above the last scalar.
+- **A handler keeps no register** (-258 file bytes). Every `fd_c_*` is
+  reached from `fd_command`'s table call alone and every `fd_do_*` from
+  `fd_wake`'s, and both of those push everything before the dispatch and pop
+  it after - `fd_do_rnto` was already spending AX, BX and CX on exactly that.
+  So the cold handlers lost their frames and end in a tail jump to
+  `fd_reply`; `fd_do_read`, `_write` and `_list` (once a STAGE) keep theirs.
+  What that let go with them: MODE and STRU are one body with the letter in
+  AH (`fd_c_one`) and TYPE folds case with `and al, 0xDF` as they do (the
+  only bytes it maps onto `A`, `I`, `L` are those letters and their lower
+  case); the eight one-shots that post a request (`CWD` .. `RMD`, `CDUP`
+  falling into `CWD`) are a chain whose links are `mov al, FR_x` and a
+  `cmp ax, imm16` opcode that swallows the next link's load, three bytes a
+  handler; `fd_iswrite` folded into `fd_one`, its one caller; `fd_xrefuse`
+  was a second copy of `fd_xfail`'s three instructions and is now its label;
+  DELE, RMD, MKD and RNTO share three tails (`fd_do_250`, `_ferr`, `_no`),
+  laid between them so every jump to one is short; five composed replies
+  end in `fd_say2`; and the four dotted quads (our address, the PASV
+  override typed back, PORT's host and the 227's first four fields) are one
+  loop, `fd_quad`, with PORT's six fields kept as the BYTES `fd_pbyte`
+  already bounds them to. `fd_c_port` also lost a `mov al, [fd_dhnd]` that
+  fed nothing (`fd_reply` takes the control handle itself).
+- **`fd_ferr_sel` is a word per `FERR_*` code** (-11 file bytes, image
+  -26), indexed by it, where it was a compare-and-branch ladder; a code past
+  the table - `FERR_BIG` and anything new - takes the same catch-all `552`
+  it fell to before, and an `%error` holds the table to `os88api.inc`'s
+  numbering. `fd_flush_glass` is an `equ` for `fd_paint_now`, which it only
+  ever jumped to, so `fd_step` calls the painter direct and every worker
+  pass spends one `jmp` less.
+- **`FTPD.CFG` is read and written off one table** (-94 file bytes, image
+  -84, and the region another 512-byte step), `fd_cfg_keys`: key, the
+  setting's address, and either `FK_STR` and a capacity or a byte count. The
+  parse looks a record's key up in it and applies the per-key rules the arms
+  had (a string clamped and terminated, the PASV address only when exactly
+  four bytes, a flag from any record carrying a byte); the save walks it top
+  to bottom, so the file it writes is BYTE-IDENTICAL to the per-key code's -
+  the same keys in the same order (§77.12.1), an empty string or an all-zero
+  value omitted. `fd_cfg_putflag` went, and the record bounds are checked
+  against one end pointer rather than recomputed from the buffer base twice.
+  Checked once on MartyPC (`os8088_5150_cga_gla`): a Setup save with every
+  key set read back off the guest floppy as exactly the bytes §77.12.1's
+  layout prescribes, and a second instance loaded all six.
+- **DEFECT FIXED: Server > Sockets lettered over the worker's reply.**
+  `fd_socks` runs on the UI task from a menu pick, at any moment, and it
+  composed each row in `fd_outb2` - the buffer the WORKER composes a 227,
+  229, 257 or 213 in - so a pick landing mid-reply could garble what was
+  sent (apps size pass 1 found it and left it). The rows are composed in
+  `fd_skrow` now, just past the snapshot inside `fd_cfgb`, which is UI-task
+  scratch already (an `%error` holds the pair to `FD_CFGSZ`); the
+  `push bx`/`push cx` around `fd_log` went with it, `fd_log` keeping CX and
+  never naming BX. -3 file bytes.
+- **A session begins in one place** (-23 file bytes, image -58):
+  `fd_session` is what `fd_step`'s accept in `FD_LISTEN` and `fd_second`'s
+  takeover of a stale session (§77.29.1) both did, line for line, so the two
+  cannot drift about what a new session resets. `fd_stale` answers with the
+  compare itself - `cmp ax, FD_YIELD_T` leaves CF=1 exactly when the session
+  is to be KEPT - where three exits each popped and set a flag, and
+  `fd_data_abort`/`fd_data_drop` load their verb and fall into the shared
+  body instead of each calling it.
+- **Three more shared tails** (-18 file bytes, image -46): `fd_endsess` is
+  the teardown `fd_bye` and `fd_shutdown` both did once the data handles
+  were gone; `fd_log2` terminates and logs a line composed at `fd_outb2`,
+  which eight sites spelled out, and falls into `fd_log`; and `fd_command`
+  holds the line's end in DX for the parse rather than reading `[fd_lend]`
+  three times a character, with its two refusals (530, 502) sharing one
+  `call fd_reply`.
+- **One byte back, for the hot code's PARITY** (+3 file bytes, image +1).
+  The pass took an odd number of bytes out of the cold code that sits ABOVE
+  every routine a transfer runs, so all of them - `os88_rseq`, the worker,
+  `fd_step`, the send and receive stages, `fd_wake`, the reads and writes and
+  the path walk - had moved to the other address parity from the one every
+  KB/s in this section was measured at. An 8088 fetches a byte and does not
+  care; an 8086 or a 286 fetches a word, and an odd branch target costs it.
+  A `nop` after `fd_layout`'s last jump puts every one of them back, checked
+  label by label against the base. The one label left on the other parity is
+  `fd_step`'s `.waiting`, reached only while the worker is waiting on the UI
+  task and doing nothing else - its two `jmp .done`s became SHORT jumps
+  when the session code above it moved out into `fd_session`.
+
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 
 The demonstration §5.6.4.1 was built for, and the one that says out loud
@@ -129069,6 +131153,11 @@ is now the same. `tools/stkbalance.py` cannot see this class — the stack is
 balanced throughout, and what is wrong is the *contents* of a register, which
 needs a different gate than a depth walk.
 
+Since apps size pass 2 (§82.15) `ct_render` is **`ct_show`**, and it banks
+exactly that one register: the window goes on the stack before `ch_draw` and
+comes off straight into `SI`, which is where `ct_paint` wants it, so the
+routine falls into `ct_paint` instead of every caller calling the two in turn.
+
 ### 82.11 A label is not a data point
 
 `ct_parse_c` recorded any `K` field as a number, and `ct_pint` on `K"Rent"`
@@ -129248,6 +131337,69 @@ dialog's answer over it, so a column choice after an export parsed `CHART.BMP`
 as SYLK and said *No data in that column.* The export name is staged in
 `ct_ntxt`, `ct_esatof`'s scratch, which no read is using at that moment.
 
+### 82.15 Apps size pass 2: the shipped file
+
+The subject was DISK ROOM (docs/plans/HANDOFF-APPS-SIZE-P2.md): `CHART.O88`
+rides `office360.img` and every larger apps disk, LZ4-packed. Nothing a user
+can see changed, and no heap claim or bss byte moved. Every step below was
+held to a host differential - both builds run under an 8086 core with the
+`OSAPI_*` cells stubbed, over every reader on hand-made and mutated SYLK, DIF
+and BIFF files, every Data column, every Gallery type, the export, the About
+card and a refused claim - comparing the canvas, the exported BMP, every slot
+called and its arguments, the toasts and the series words, and all of it
+identical. `apps/os88chart.inc` is SHEET's too and is not touched here: what
+it holds is recorded with the pass's report.
+
+- **A callback banks only what its contract owes back** (-169 image, -80
+  file). `W_PAINT` owes `SI` and `DF` (§11), `W_ONCLICK` `SI`, and an
+  `AM_ONCMD` handler, the About handler and a file-dialog completion proc owe
+  nothing (§12.2, §38.6); the entry proc owes `BX`, `CF` and `ES`, which the
+  loader's own far call does not restore (§21 step 9). Every one of them
+  pushed everything. So did every routine under them whose only caller
+  reloads what it clobbers: the three readers and `ct_finalize` bank nothing
+  now and `ct_read_by_ext` banks `AX` and `BX` for its caller, once. The two
+  routines every caller called back to back are one - `ct_show` falls into
+  `ct_paint` (§82.10) - the `W_ONCLICK` handler is `ct_abdismiss` itself
+  rather than a `call`/`ret` around it, and the menu, About and completion
+  arms end in tail jumps. `ct_paint` keeps the window in `DI` across the blit
+  and gives it back from there, so the paint is eight push/pop pairs shorter.
+- **SYLK and DIF share one line scanner** (-68 image, -49 file). `ct_eol`
+  answers where the line at `SI` ends, `ct_tonext` steps past the CR/LFs from
+  there, and `ct_difskipline` is the two together. SYLK carried its own copy
+  of both loops and DIF its own of the second plus `ct_is_bot_line`, which is
+  now a length test on `ct_eol`'s answer; SYLK tests `C;` as one word. A DIF
+  open costs one more `call`/`ret` a line (+0.6% of the open's instructions on
+  a 50-row file - a menu command, not a hot path, and dwarfed by its disk
+  read); a SYLK open got cheaper.
+- **BIFF asks whether a record fits once** (-64 image, -54 file). The bound
+  that stops a hostile length wrapping the walk back onto its own header was
+  asked by each cell type before it read and again before the advance, with
+  the same answer; it is asked once, as the header is read, and the next
+  record's offset is kept in `DI`. The header is two `es lodsw`, NUMBER's
+  eight bytes a four-pass loop, and `ct_i32_dbl`'s body is `ct_rkdec`'s
+  integer arm - it had no other caller - which hands a `/100` value to
+  `fp_scale10` where it stands instead of packing it into `ch_dbl` and
+  unpacking it again. That round trip was exact: `ct_rkdec` on both builds
+  agrees byte for byte over 16,216 RK values, all four subtypes.
+- **No `cld`** (-6 image, -1 file). §1 rule 3 promises DF = 0 on entry to
+  every routine and nothing in the package or its includes sets it, so the
+  six `cld`s before its string moves were each a byte of nothing.
+- **The region is declared with `OS88_REGION_MOVABLE_NOKEEP`** (-11 image,
+  -7 file), naming the entry proc's own `ret` as the relocation proc - the
+  region holds no segment word that points inside itself (§66.6.1.1). The
+  keeping form banked AX, DX and the flags for nothing still owed; the entry
+  ends in its own `clc` now, and both refusals reach the `pop es` by a `jc`
+  that already carries the CF the loader wants, so `.fail`'s `stc` went too.
+- **One `Chart` string** (-7 image, -10 file): the menu bar's name and the
+  window title were two copies of the same six bytes, and both readers only
+  read it. The About card's blank line is the NUL that ends the line above.
+- **The read's setup, byte by byte** (-8 image, -8 file): `ct_stage`'s
+  second read reuses the `SI` the probe left (a slot preserves all but its
+  outputs) and its two refusals return where they stand; the extension test
+  finds the name's end testing the byte behind the step; `ct_esatof` points
+  ES at DS through the stack; and `ct_parse_c` turns X and Y 0-based with a
+  `SUB 1` whose borrow is the `CMP 1`/`JB` that refused a missing one.
+
 ## 83. Text input for packages (`apps/os88line.inc`, `apps/os88text.inc`)
 
 Two editable text controls, as **source** rather than as API slots. A slot
@@ -129326,6 +131478,20 @@ version could not state its own promise: *repaint what one edit changed* has to
 include the caret, and a routine that is told where the text was but not where
 the bar was can only ever get it right by luck.
 
+#### 83.1.2 `OS88LINE_NOEDIT` - a carrier that never takes the cheap path
+
+`os88line_edit` is the narrow repaint of §83.1.1 and §96.19.1, and only two
+packages call it: DOS's command line and DeskCal's cells. Every other carrier
+repaints a whole field with `os88line_draw` and was shipping the routine for
+nothing - ~160 image bytes and ~125 packed in each of **Browser, FTPD, Telnet,
+Sheet, Weave, LOOM's `lmpvmod`, `SAVER.DRV` and `ETHER.DRV`**. `%define
+OS88LINE_NOEDIT` before the `%include` leaves it out, in `os88ui.inc`'s
+`OS88UI_NO*` shape: an OPT-OUT, so a new carrier gets the whole control and
+has to ask for less, and a carrier that defines it and then calls the routine
+fails to assemble on the undefined label rather than running wrong. Apps size
+pass 2, at the owner's word; nothing else in the file calls it, so it gates
+one routine and nothing more.
+
 ### 83.2 The multi-line block, and what it does not do
 
 ```
@@ -129369,6 +131535,18 @@ Both are silent, and both only bite past 255 bytes:
   no symptom until the buffer grew.
 * **`BP` addresses `SS` by default**, so it cannot be used as a memory base for
   a buffer in `DS`.
+
+### 83.4 `OS88LINE_NOSET` — a field nobody replaces carries no `os88line_set`
+
+`os88line_set` (51 bytes) copies a NUL string into the field and puts the
+caret at its end. A package that fills the buffer in place and calls
+`os88line_resync` (§96.21.3), or never replaces a field's contents, reaches
+none of it. `%define OS88LINE_NOSET` before the include leaves it out (apps
+size pass 2b): an opt-out in `os88ui.inc`'s `OS88UI_NO*` shape, so every
+package that does not set it is byte-identical, and it removes the symbol, so
+a package that sets it and calls `os88line_set` does not assemble. The DOS
+box (§96.44.16) and the Desk Calendar (§110.6.2) set it; Browser, ftpd,
+Sheet, Weave, `ETHER.DRV` and `SAVER.DRV` call it.
 
 ## 84. Software floating point (`apps/os88fp.inc`)
 
@@ -130250,8 +132428,8 @@ are only ever read and written over the ridge's band (§85.3.8 - rectangle 6's
 rows), so they are as long as the band can be: the ridge table's tallest peak
 at the larger of the two ridge scales, plus the two rows of slack
 `tk_tmlayout` gives it - **72 rows, 144 bytes, where they were 400**. The peak
-is ASSEMBLED rather than scanned for: `tkridge.inc`'s rows are `TKRDG` lines,
-which keep `TK_RIDGEPK` as they go, and `tk_tmlayout`'s 256-byte scan for it
+is ASSEMBLED rather than scanned for: `tkridge.inc`'s runs are `TKRDG` lines,
+which keep `TK_RIDGEPK` as they go (§85.5.1), and `tk_tmlayout`'s 256-byte scan for it
 is gone with the guess. An absolute row still indexes both, through two bases
 `tk_tmlayout` sets once a bracket (`tk_rb2`, `tk_rbd`: the array less the
 band's first row), so a walk drawing the template's ridge marks `tk_sprdg`
@@ -130310,7 +132488,15 @@ instructions against the ten a right shift by 14 would take. The table holds
 **one quarter of the wave** - 65 words, where it held 256 - and `tk_sin1`
 reads the other three quarters backwards and negated: the full table was
 symmetric to the unit, so that is exact, and it is 382 bytes for two folds a
-lookup on a path no pixel waits on (apps size pass 1, set 6).
+lookup on a path no pixel waits on (apps size pass 1, set 6). **The file ships
+that quarter as its second differences** (apps size pass 2): `sin 0` is 0,
+the first step is 402, and every later step is 0..11 shorter than the one
+before, so `tksin.inc` is 64 nibbles - 32 bytes - that `tk_mktabs` in the
+entry overlay (§85.10.6) adds back up into the bss's `tk_sintab`, the same 65
+words to the unit (checked the way §85.5.1's ridge is). 32 bytes of seed and
+41 of code where there were 130 of table: **the file -58, RAM unchanged**,
+678 instructions at launch. The expanded tables are the bss's FIRST names,
+so the word table keeps the even address it had in the image.
 
 **The world is a torus 8,192 units round** and the wrap is three
 instructions: mask a difference to 13 bits and fold the top half negative.
@@ -130426,6 +132612,30 @@ turns "an arctangent per column" into a table lookup per frame; the profile
 itself is built out of whole numbers of cycles, so a ridge line closes on
 itself.
 
+**The file ships the profile as the straight runs it is made of, and the
+entry proc draws the 256 heights** (apps size pass 2). `tkridge.inc` is 49
+runs - `TKRDG n, h`, a run of `n` steps ending at height `h` - and step `k`
+of a run from `h0` is `(h0 (n - k) + h k + n / 2) / n`, which is the rounding
+the 256-byte table had been written to: `tk_mktabs` in the entry overlay
+(§85.10.6) expands them into the bss's `tk_ridgetab` and the result is the
+old table **to the byte**, checked by running the routine out of the
+assembled image on the host against the image before. `tk_ridge` reads the
+same table through the same instruction. 99 bytes of seed and 60 of code
+where there were 256 bytes of table: **the file -78, RAM unchanged** - the
+seed and the code are the overlay's, which was going to be RAM anyway, and
+the table's 256 bytes moved from the image to the bss. The expansion is
+4,434 instructions, ~18 ms at 4.77 MHz (an estimate from the 255 byte MULs
+and DIVs it makes), once per launch. `TK_RIDGEPK` reads the same file a first
+time, emitting nothing: a run's heights lie between its ends, so the tallest
+end is the tallest height, and an `%error` holds the runs to angles 1..255.
+
+**The 25 sampling angles' tangents are thirteen bytes.** A tangent is odd and
+the steepest of them is 171, so `tktan.inc` holds the twelve right of the
+sights and the zero, and `tk_ridgesetup` gives each column its angle's sign
+before the multiply - the same signed word into the same `imul`, and the same
+`tk_ridgex` for 876 scales and centres run both ways on the host. Once a
+bracket, never a frame: **image -20, the file -22**.
+
 #### 85.5.2 The models
 
 `db nverts, db nedges, dw vertices, dw edges`. A vertex is three words — x
@@ -130435,6 +132645,15 @@ draws. Cube and slab are 8/12, the pyramid 5/8, the tank 13/22 — hull,
 turret and a barrel that says which way it is about to shoot — and a shell
 is a three-axis cross, 6/3, drawn in `TKI_MARK` so the thing about to kill
 you is the thing that stands out.
+
+**The vertices are the bss's** (apps size pass 2). Every coordinate of the
+forty is a multiple of five and lies in -150..330, so `TK_MODELS` in
+`tk3d.inc` ships each as a signed byte of fifths - an `%error` refuses one
+that is not - and `tk_mktabs` in the entry overlay (§85.10.6) multiplies them
+back into `tk_v_cube`..`tk_v_shell`, the same 240 bytes in the same order,
+checked as §85.5.1's ridge is. The model records and the edge lists are
+unchanged and the rotation reads the same words through the same pointers.
+120 bytes of seed and 19 of code: **the file -30, RAM unchanged**.
 
 ### 85.6 The session (`apps/tank/tkgame.inc`)
 
@@ -130634,6 +132853,17 @@ because a dial still sweeping under `GAME OVER` says the game is still going
 on. Everything else is the raster the game already had — the same `tk_seg`,
 the same spans, the same blit — so the overlay costs what forty more segments
 cost and nothing structural.
+
+**The file ships the forty as the twelve strokes they are drawn in**
+(apps size pass 2): 28 of them start where the one before ended, so
+`tkover.inc` is twelve runs of points, and `tk_mktabs` in the entry overlay
+(§85.10.6) writes one segment for every pair of neighbours into the bss's
+`tk_goseg` - the same 160 bytes in the same order, so every segment keeps its
+index and therefore its flight. `tk_golets` stops on its segment count, which
+BP already is, rather than on a terminator byte: a register compare where
+there was a memory one, so the walk is a few cycles a segment cheaper and
+the list is four bytes a segment exactly. 117 bytes of seed and 13 of code
+where there were 161 of table: **the file -32, RAM unchanged**.
 
 #### 85.6.3 The difficulty curve — the first ten tanks
 
@@ -131514,6 +133744,68 @@ ends is not repainted then, and the worker could find it uncovered before its
 the table, `tk_paint` clears it once the cursors are re-armed, and `tk_at_step`
 draws nothing while it is set. +20 bytes of image for 370 of bss.
 
+#### 85.10.6 The entry proc lies under the span set nobody reads
+
+Solitaire's §43.11.6, applied to a buffer that is never READ rather than one
+built at entry. `tk_entry` runs once per instance, from a fresh read of the
+file, and never again (§20.1); `tk_spjunk` is the span set a template draw
+marks so that its walks have somewhere to write, which only a shadow backend
+has and only inside an fsx bracket - long after the loader has had its window.
+So the set and its two 8-byte guards are the **last bytes of the image**
+(`tk_ovl`), the entry proc is the first thing in them, and the rest is zeros,
+which cost a packed file almost nothing. Apps size pass 2: **image +254, bss
+-408, so 154 bytes less RAM an instance on both builds**, and the file +2.
+`tk_rowoff` joined it when the tables below needed the room: it is written
+whole - every row the viewport has, on every backend - by `tk_devrows` at the
+top of every bracket before anything reads it, so it follows the set's
+trailing guard and the overlay is **896 bytes**, RAM-neutral (image +480, bss
+-480). The only instruction that names it relative to a bss name,
+`tk_clearspans`' `tk_tmrix - tk_rowoff` on the small build, keeps its 16-bit
+displacement and changes only its sign. Three rules, each stated in
+`tank.asm` where it binds:
+
+1. **Nothing in the overlay may be named after `tk_entry` returns.** The
+   region's relocation proc is therefore `tk_ret`, a lone `ret` in
+   `tk_sin1` - the bare `OS88_REGION_MOVABLE` plants its own `ret` inline,
+   which here would be overwritten by the first template draw, and the
+   kernel calls it on the next compaction. It is the KEEPING spelling,
+   `OS88_REGION_MOVABLE tk_ret`: `_NOKEEP` shipped in the first cut of the
+   pass and the small build stopped opening, because kern_small answers the
+   slot `stc` (nothing moves there, §66.0) and nothing after it in
+   `tk_entry` sets CF again on that kernel - so the entry proc returned the
+   slot's refusal as its own, `LD_EABORT` with no toast (`tanksmall`).
+2. **Nothing the kernel keeps a pointer to is in it**: the window template,
+   the title, the menus, the About handler and every callback stay above.
+3. **A walk's overrun runs one row past either end of a set** (§85.3.2), and
+   the set's guards are the overlay's first eight bytes and the eight between
+   it and `tk_rowoff`, which nothing overruns; `tk_spguard4` stays in the bss
+   in front of `tk_sprdg`, whose trailing slack it is. A `times` with a
+   negative count refuses an overlay that outgrows the two buffers.
+
+The overlay is what the tables below are expanded by: code and seeds that run
+once and are dead after it, in bytes that were going to be RAM anyway.
+
+#### 85.10.7 Apps size pass 2: the cold code
+
+What the pass took out of code nothing times, every item's effect on what the
+machine does being none:
+
+- `tk_adapter` tests the three modes in the REVERSE of the preference into
+  one register and stores the `tk_want`/`tk_fsxm` word once, so every branch
+  still writes both - one store rather than four. `tk_caps`, which it wrote
+  and nothing read, is gone, and `tk_onresize` is `tk_adapter` itself rather
+  than a call to it. The window's title is the menu's name, the same eleven
+  characters. Image -36, bss -2, the file -21.
+- **A parity pad after `tk_tantab`.** The pass moved code by odd amounts
+  (the entry proc's 163 bytes, the tangents' 37), which left the game loop's
+  routines - `tk_render`, the AI, the template's - an odd distance from where
+  they were. An 8088 fetches a byte at a time and does not care; a 286 or
+  an 8086 fetches words and does. One `db 0` puts every routine below it
+  back on the parity it had before the pass, on both builds (checked off
+  the two maps: what still differs is the window's callbacks, its strings
+  and the overlay). It costs no image byte, the overlay's own `align 2`
+  giving one back.
+
 ## 86. AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`)
 
 `AUDIO.O88`, "AUDIO PLAYER" in the header name field. Lightweight background
@@ -131761,7 +134053,13 @@ PCM8 is a pass-through — `apd_pull` copies bytes out of the look-ahead ring.
 IMA/DVI ADPCM is decoded from the **public IMA/DVI specification** — the
 89-entry step table and the 16-entry index table are the ones every
 BSD/public-domain implementation carries; nothing is vendored (§86.17). The
-decoder is **resumable**: `apd_pull(want)` fills up to `want` PCM8 bytes and
+step table is **built at launch** rather than shipped (`apd_mkstep`, ~4 ms on
+a 4.77 MHz 8088): to the unit it is `s[n+1] = s[n] + s[n] / 10 + r[n]` with
+every residual `r[n]` 0 or 1, bar the last entry, which is the predictor's own
+clamp 32767 — so eleven bytes of residual bits ship where 178 bytes of table
+packed to nearly 178 (apps size pass 2: −117 file bytes, image −120, bss +179;
+the table sits at an even address in bss, which the shipped one never was).
+The decoder is **resumable**: `apd_pull(want)` fills up to `want` PCM8 bytes and
 keeps predictor / index / block cursor / nibble phase across calls, so a
 2048-byte stage half never has to line up with an ADPCM block boundary. The
 predictor is a signed 16-bit value clamped to [−32768, 32767] each step; the
@@ -131796,10 +134094,14 @@ Playlist:
 > 02  BEVERLY.WAV
 ```
 
-The transport buttons tile the row gap-free (`apu_hit` takes
-`column = (x − x1) / pitch`, so there is no dead lane between two of them —
-found on the glass). Shuffle and Repeat draw the `OS88UI_DOWN` pressed look
-while toggled on. The worker's one gfx-lock hold each pass redraws only the
+The transport buttons were tiled gap-free by `apu_hit`, which took
+`column = (x − x1) / pitch` so that no dead lane lay between two of them
+(found on the glass). **That is no longer true, and `apu_hit` is gone**: since
+the press went to `os88ui.inc`'s gesture (§20.5.1.3) the library hit-tests
+the DRAWN rects, which leave 2 px between buttons, and nothing called
+`apu_hit` again — apps size pass 2 deleted it as dead code and recorded the
+lane as a defect rather than redrawing the row to close it. Shuffle and Repeat
+draw the latched look (`OS88UI_LATCH`, §20.5.1.4) while toggled on. The worker's one gfx-lock hold each pass redraws only the
 elapsed time and the progress-bar fill, and only while `OSAPI_WM_OBSCURED`
 says the window is visible — a backgrounded player does no UI work. **Every
 self-initiated content repaint arms `OSAPI_WM_CLIP_SET` first** (`apu_repaint`,
@@ -131924,7 +134226,7 @@ number of clusters — a 16-byte-record queue is neither.
 
 | item | size | where |
 |---|---|---|
-| image + bss | 21,698 B (13,407 image + 8,291 bss; it was 42,872 before the apps size pass, 28,536 of it bss) | the package region (cap `APP_MAX_SIZE` = 60 KB) |
+| image + bss | 17,875 B (12,242 image + 5,633 bss; 18,868 at apps size pass 2's cut point, and 42,872 before the first apps size pass, 28,536 of it bss) | the package region (cap `APP_MAX_SIZE` = 60 KB) |
 | look-ahead ring | 32 KB | one `OSAPI_MEM_CLAIM`, held for the instance's life — the refill's `int 13h` target and the parser's header window (§86.5.2) |
 | decoder scratch | 2,368 B | `apd_out` in bss: a card's 2 KB half, and on the speaker a step's span of inputs — the PCM source copy (`aps_src`) too, one format a track (§86.21) |
 | speaker buffers | 1,280 B | `aps_stage` 512, `aps_dbuf` 768 (the box's table, k ≤ 3 — and `ap_cinv`'s 256, a counts file never being boxed). The shaper's 2,816-byte family was here as `aps_fam` and lives in the speaker ring's claim now (§34.11.9), so a card machine never holds it |
@@ -131934,9 +134236,22 @@ number of clusters — a 16-byte-record queue is neither.
 
 Comfortable on 640 KB; on 256 KB the look-ahead and ring tiers drop.
 
-**On the disk it is 7,468 bytes, not 9,216.** `AUDIO.O88` goes through
+**Apps size pass 2** (docs/plans/HANDOFF-APPS-SIZE-P2.md) measured the
+package by the file a floppy carries, from **10,939 bytes** (image 13,393 +
+bss 5,475) on its cut point. What it took, a commit each: the IMA step table
+built at launch (§86.4, −117); the window's text runs through one
+content-relative helper, the clock's digits by `AAM`, the bar's fixed edges
+as constants and the dead `apu_hit` deleted (§86.7, −117); and the playlist
+store rewritten smaller, with its entry-time init gone because the loader
+zeroes a package's bss (§86.10, −108); the callbacks and transport commands sharing their tails — one step-close-open body for Next, Previous and the track end, one name copy out of the kernel's buffer, `ap_add_file` keeping the name, folder and volume in the registers its two callees already preserve, and the four button captions that are the Play menu's own words pointing at its strings (−102); and the WAV parser with its last checks folded in, its refusals sharing one tail laid out where an 8086 short jump reaches them (a `Jcc` that cannot costs a `JMP NEAR` besides, five bytes for two), and its signature and rate compares as string instructions (§86.6, −134); and the track open with its refusals moved inside a short jump of their tests and its per-track state — the decoder's and the engine's counters — kept together in bss and zeroed with one `REP STOSB` each (−54); and the button painter without the dead caption lookup it still carried from before the gesture library, its absolute-rect builder as one fourteen-turn loop, and the entry proc trusting `os88ui_btninit` to keep the registers it documents (−58); and the speaker's move to the next track at a track's end taking the same tail as a skip (§86.21, −13); and the duration and the speaker's clock and source flags joining the per-track run, which deletes `aps_trk_reset` and the zeroing at the head of `ap_calc_duration` (−55). **10,939 → 10,181 bytes (−758)**, 11 → 10
+clusters on the 360KB and 720KB apps disks and 22 → 20 on the 1.44MB and
+1.2MB ones; image + bss 18,868 → 17,875. Nothing a playback runs per sample or
+per block was touched; the worker's per-tick bar and clock only trade memory
+operands for immediates and two `DIV`s for `AAM`s.
+
+**On the disk it is 10,181 bytes, not 12,242.** `AUDIO.O88` goes through
 `$(OS88PKG)` behind `$(PKGZSTAMP)` like every other shipped package, so it is
-LZ4 on the floppy and the `image` field at +8 still reads 9,216 — which is the
+LZ4 on the floppy and the `image` field at +8 still reads 12,242 — which is the
 row above, and the number that matters to the loader and to `APP_MAX_SIZE`
 (§20.13). Its rule named `tools/os88pkg.py` directly for a cycle, which made
 this the one shipped package §20.13.5's *"every shipped package … is LZ4 on
@@ -135437,6 +137752,30 @@ tolerating it, holds the 257 entries to §88.5's own snippet, and walks the
 reflection over a whole turn against `sin` itself. The axis crossings stay
 EXACT, which matters: §88.9.2.2's divide by `cos` depends on cos ±90° being
 exactly zero.
+
+##### 88.5.9.1 …and it SHIPS as its second differences, expanded at launch
+
+The 514 bytes are a slowly falling curve, which is the one shape LZ4 cannot
+touch: no four bytes of it repeat, so they cost the file 516. Its first
+difference falls from 201 to 0 and its **second difference is −3..+1**, so
+the table is two numbers and 256 two-bit codes (`c` = d″ + 2; the single −3,
+between entries 253 and 255, is rounding and gets a code 0 and a one-step
+fix-up). `tools/cssin.py` writes them into `cssin.inc` at the **tail** of the
+table's own 514 bytes behind 450 zeros, and `cs_entry` expands them
+**forwards, in place**, before anything calls `cs_sin` — the writer is at
+`8j + 2` when it reads code byte `j` at `450 + j`, so it never catches the
+codes up, and the table costs no scratch and no claim. The generator
+simulates that loop instruction for instruction, reading each code out of
+the buffer it is writing, and refuses to write a table it does not get back;
+`tests/unit/t_cssin.py` decodes the SHIPPED codes the same way and then holds
+the result to §88.5's snippet and the reflection, exactly as before.
+
+**−385 bytes of the packed program** (part 0, 29,356 → 28,971) for 49 bytes
+of `cs_entry` (`image` 36,070 → 36,119; the region was 61,345 and is paid
+back by §88.10.7.2) and
+3,465 instructions of one launch — ~7 ms at 4.77 MHz, estimated from the
+instruction count. Nothing a frame runs moved: `cs_sin` reads the same 257
+words at the same address.
 
 #### 88.5.4 Levels of detail, all about pixels
 
@@ -140730,6 +143069,33 @@ world were nothing but objects. `csworlds.py` reads every location record's
 `CSA_NOBJ` (the offset out of `skies.asm`, not restated) and emits `CS_MAXOBJ`,
 the most any location's table holds: **47**, Paris'. 244 bytes become 94.
 
+##### 88.10.5.7 The object table travels FIELD-MAJOR, and goes back at the load
+
+A world's object table is half its bytes - 18 to 47 records of `CSO_SIZE`,
+ten words each - and it repeats down its FIELDS, not along its records: the
+same model, the same range, the same flags row after row, and a `CSO_FAR` of
+0 almost everywhere. LZ4 sees only matches of whole runs of bytes, so the
+records cost it nearly what they cost raw. `tools/csworlds.py` therefore packs
+each world with its table TRANSPOSED - every record's first word, then every
+record's second - and `cs_wldget`, after `OSAPI_DECOMP` has expanded a world
+into the overlay, puts it back the right way up: the table is copied out to
+the read buffer the stream has just been consumed from, and scattered back
+one field of every record at a time. The table is the one the picked
+location's record names (`[cs_airport]` is already in the overlay); every
+location in a world names the same one, and the generator refuses a world
+where they do not, and a table bigger than the read buffer can be - the
+packed stream, never under a KB. **The overlay is byte for byte what it
+always was**, which `tests/skiesworlds.py` asserts at every pick; the
+generator round-trips each world through the transpose before it writes it,
+and the shipped 8086 code was run under an emulator against all nine
+locations before it was taken.
+
+**csw.z 9,853 -> 9,280 bytes**, 573 of them, for 67 bytes of `cs_wldget`
+and ~6 ms of a world load (≤ 470 words moved twice, at Fly or a Location
+pick, never in a frame). Field-major beat every other in-place shape tried:
+a record-by-record word delta - which needs no buffer at all - bought 231,
+and splitting the transposed words into low and high bytes made it WORSE.
+
 #### 88.10.6 The overlay's address is DERIVED, and the gap was protecting nothing
 
 `CS_VOCAB_AT` is computed in `tools/csworlds.py` and emitted into
@@ -141035,6 +143401,33 @@ the union after the way out to the title and the plane in use AND NOTHING ELSE,
 and then each other band to its bytes as a repaint draws it - red with the
 copy one byte out and with a decode that marks every band.
 
+##### 88.10.7.2 …and the kept copy is IN THE IMAGE, so nothing reads it
+
+Kept for the instance's life, `cs_artz` was a `CS_ARTZ_SIZE` run of the bss
+that the launch FILLED - a read of csw.z's last stream through `cs_wldget`'s
+keep arm, a `[cs_artzok]` byte saying it had worked, and `cs_fsx_main` trying
+again on every way out for the launch whose read had failed. The region held
+the room either way, so the bytes might as well arrive with the program:
+`tools/csworlds.py` writes the six packed bands to **`csartz.bin`** instead of
+appending them to csw.z, and `skies.asm` INCBINs it as `cs_artz` at the end of
+the image, held to the index's `CS_ARTZ_SIZE` both ways. `cs_artload`, the
+keep arm, `[cs_artzok]`, `CS_STREAM_ART` and the way out's call are gone, and
+`cs_artes` loses its "nothing kept" test - the copy is always there. The
+refusal that stays is the band that will not expand, which draws the plainer
+page as it always did.
+
+**The launch reads one stream fewer** (the art was a `OSAPI_FILE_READ_AT` and
+a transient claim of its own), the way out of a flight is the same two
+decodes, and the overlay, the union and every frame routine are where they
+were less an even 22 bytes. `image + bss` 58,356 -> **58,281**, the region
+61,393 -> **61,313**: the code that filled the copy was 75 bytes. Part 0 grows
+by the stream - 28,971 -> 33,652 packed, 220 bytes LESS than the two added:
+the code taken out, and the six bands' literal runs repeating the same
+cumulus, which part 0's LZ4 finds where the band-by-band packing could not -
+and csw.z shrinks by it,
+14,759 -> 9,853. `tests/skiesworlds.py` holds the guest's `cs_artz` to
+`build/csartz.bin` now, and the union to the bands exactly as before.
+
 #### 88.10.8 The region is cut to the program, by the kernel
 
 The region is the parts carve the loader read the program into (§20.12.10.5).
@@ -141071,6 +143464,32 @@ re-entering `cs_r_setup` inside one bracket still finds it held and claims
 nothing. A machine too full for 16KB at the next Fly takes the refusal the
 first Fly always could: the bracket is left before a frame is drawn. Mode X
 has two pages of VRAM and never claimed one.
+
+#### 88.10.10 The second apps size pass: the disk, and the segment it is paid in
+
+The second apps size pass measured Clear Skies by its FILE, 45,991 bytes in 45
+clusters on both disks that carry it (`GAMES/` on apps360.img, and
+games360.img). It took §88.5.9.1 (the sine table as second differences),
+§88.10.7.2 (the kept bands in the image) and §88.10.5.7 (the object tables
+field-major). The binding constraint was not the disk but the SEGMENT: the
+program stood 95 bytes under `APP_MAX_SIZE` with its overlay, and the two
+decoders the disk wins need (49 and 67 bytes) are code that has to be paid
+for in it - the first build of the transpose was 32 bytes OVER, and
+`tools/csworlds.py` refused it. What paid for them, all on the title page:
+the code that read the kept bands (§88.10.7.2, 75 bytes); two shared
+epilogues for the handlers that push the same six or five registers and
+leave by a `jmp` (`cs_pop6`/`cs_pop5`, `cs_pop5x`; a jump costs no stack);
+`cs_onresize`, which was `call cs_adapter / ret`, replaced by `cs_adapter`
+itself; and four `xor ah, ah` that are a `cbw` on a row number.
+
+**Every routine a frame runs is instruction-identical and at its BASE
+address or two bytes below it** (`tools/os88rdiff.py`: the raster, the
+geometry and the flight from `cs_artroff` to `cs_fsx_main` at +0, the rest of
+the session at −2), which is what `mov ch, 1` in §88.5.9.1's loop and one
+`cbw` are for: they are where the odd bytes went. `image + bss` 58,306 ->
+58,303 and the region 61,345 -> 61,329, so the RAM went down while the file
+went **45,991 -> 44,610** - **44 clusters a disk**, one cluster on each of
+the two.
 
 ### 88.13 The settings (SPEC.md 88.13)
 
@@ -143532,7 +145951,8 @@ divider, and `fv_redraw` is the one routine that puts all three back.
 
 The include is `OS88UI_ABOUT` + `OS88UI_NOBTN` — the card is the only control
 this package takes, and without the opt-out it would carry `os88ui_glyph`'s
-116 bytes for a button nothing calls.
+116 bytes for a button nothing calls — and `OS88UI_ABPACK` since §90.11, so
+the lines are one packed string rather than a table of five pointers.
 
 ### 90.10 The first apps size pass
 
@@ -143585,6 +146005,100 @@ package to a 6 KB claim. The runtime claims are larger than the region and
 also the library's: `ty_open` claims 8 KB for a face the shipped set holds in
 1.1–1.7 KB, and `ty_cache` claims 12 KB, sized for 16 rows, for faces of 8, 12
 and 14.
+
+### 90.11 The second apps size pass — the shipped file
+
+The second pass measures what the package costs a DISK
+(docs/plans/HANDOFF-APPS-SIZE-P2.md): `build/fontview.o88` as `make` packs it
+(LZ4, `PKGZ=lz4`), which rides the 360 KB system disk and `office360.img`.
+
+| | before | after |
+|---|---|---|
+| file (LZ4) | 3,549 | **3,456** (-93) |
+| image | 4,381 | **4,261** (-120) |
+| bss | 1,542 | 1,542 (`FV_PAD`: the parity moves with the image) |
+| image + bss | 5,923 | **5,803** (-120) — a 6 KB claim either way |
+| heap claims | one face (its file's KB) + the pre-shift table | unchanged |
+
+**What the file is made of** (each byte charged its share of the LZ4 stream):
+the header, icon and association block are 112 bytes the packer may not touch;
+`os88type.inc` is ~2,070 of the rest, its own code ~900, its strings and
+window template ~240, `os88ui.inc`'s About card ~150, and the specimen and the
+four state bytes ~67. Code packs to ~95% of itself, so a code byte saved is a
+file byte saved.
+
+**What moved, one idea at a time:**
+
+- **The callbacks bank nothing but SI** (-95 image, -69 file). The entry proc
+  banked SI, DI, CX and ES for the loader, which reads BX and CF back and
+  nothing else (§20.2; TameGram's entry has always returned without them);
+  `fv_onkey`, `fv_onclick`, `fv_paint` and `fv_about` banked AX-DX, which
+  `ui_bill`, `wm_draw_win` and `ui_dispatch` either bank themselves or never
+  read (§11, §12.2, §13). Inside, each routine now preserves exactly what its
+  own callers in the file read after it: `fv_sysline` BX, CX and DX for the
+  catalogue walk, `fv_draw` SI for the window, `fv_draw_sample` ES for the
+  About card - so `fv_pop4`/`fv_pop6` are gone, `fv_redraw` falls into
+  `fv_draw`, `fv_redraw_right` into `fv_draw_right`, which falls into
+  `fv_sysline` at the hint row both panes letter last, and `fv_onclick` into
+  `fv_choose`. The launch name is copied through the ES the loader hands
+  over (`es lodsb`), so DS never moves. Every repaint runs the same calls in
+  the same order with fewer pushes around them: a keystroke's repaint does
+  22 fewer `push`/`pop` pairs, and no instruction on that path was added
+  (measured below).
+- **The region's relocation proc is a `ret` already there** (-3 image, -3
+  file). `OS88_REGION_MOVABLE_NOKEEP` with no argument emits a `jmp` over a
+  `ret` of its own; nothing in the region names the region's segment, so it
+  is handed `fv_ret`, the bare `ret` that ends `fv_choose`.
+- **The About card's lines are packed** (-7 image, -7 file):
+  `OS88UI_ABPACK` (§20.5.1.1) takes the five lines end to end with an
+  `OS88UI_ABEND` byte after them, so the six-word pointer table is not
+  shipped; the include's walk over packed text is a few bytes longer than
+  over a table, and the card is the same card.
+- **`[fv_pending]` is tested by the shift that clears it** (-4 image, -4
+  file): it only ever holds 0 or 1, so `shr byte [fv_pending], 1` leaves the
+  old value in CF and 0 behind, where an `xchg` through AL and an `or` did
+  the same in ten bytes.
+- **`fv_sysline` offsets the point and not a rect** (-2 image, -2 file):
+  `fv_abs` adds the origin to AX/BX before falling into `fv_abscd`, which
+  adds it to CX/DX, and a line of text wants only the second half - so
+  `fv_sysline` no longer banks BX or adds to AX and BX, and every lettered
+  line is a `push`, a `pop` and two memory adds (~65 cycles) cheaper.
+- **The catalogue's `FONTS` heading is `os88type.inc`'s own string** (-6
+  image, -4 file): `ty_s_fonts` is the folder name `ty_gofonts` walks to, and
+  the column it heads lists exactly that folder, so the package's second
+  copy went.
+- **A catalogue row's gutter is composed in AX and stored once** (-3 image,
+  -4 file): `'  '`, with `'>'` in its low byte for the selection, where a
+  word of blanks was stored and then a marker byte over it.
+
+**The keystroke repaint got faster, and it is MEASURED**: MartyPC guest
+cycles from `fv_onkey`'s entry to the kernel's `gfx_unlock` after it, Charter
+open, six typed `X`s and six Backspaces on `os8088_5150_cga_gla`, the
+same kernel and the package swapped in place on the system disk. Least of
+six: `X` **471,935 -> 470,785** and Backspace **470,135 -> 468,973**, ~1,160
+cycles (0.24 ms of a 98.9 ms repaint); the modal reading moved by the same
+~1,170. Nothing was moved to the entry proc. Looked at on the glass the same
+boot: launch on `CHARTER.F88`, typing, Backspace, Down, a row click, the
+About card and its dismissal all draw and behave as before.
+
+**The disk did not gain a cluster**: 3,456 bytes is still four 1,024-byte
+clusters on both disks it rides, and the next 384 bytes are not in the
+package's own code, whose 840 remaining bytes pack to ~95% of themselves.
+They are in `os88type.inc` (2,817 image bytes here, ~2,070 packed), which a
+package does not edit. Every routine of it this package assembles is reached
+but one: `ty_gray` (56 bytes, plus `ty_flush`'s 5-byte call to it) runs only
+for a band drawn GREYED, and the specimen never is (`clc` at its one
+`ty_flush`). An `OS88TY_NOGRAY` opt-out beside §6.5.5's others would take
+~61 image and ~50 file bytes off this package, and off any other carrier that
+never greys.
+
+### 90.12 Apps size pass 2b — the band is never greyed
+
+Font Viewer's one band flush is a face sample, never a greyed control, so it
+sets `OS88TY_NOGRAY` (§6.5.5): `ty_gray` and the greying arm go, and the call
+site is `ty_flushlive` with no `clc` in front of it. Image 4,261 -> 4,199,
+`FONTVIEW.O88` **3,456 -> 3,400 bytes**, 4 clusters either way on the system
+disk and the office disk.
 
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 
@@ -146256,6 +148770,120 @@ the bss and both are load-bearing: the picture is redrawn on every repaint and
 of the image and is shared. The worker's paths keep their shape, because its
 slice is the thinnest in the tree (`t_stkclass`) and its per-byte loop is the
 transfer rate.
+
+#### 92.15.3 Apps size pass 2 - the file on the disk
+
+The second pass measures the package by its SHIPPED FILE, the lz4-packed
+`THEWIRE.O88` (docs/plans/HANDOFF-APPS-SIZE-P2.md), because the 360KB system
+disk is full and this file rides every system disk and `network360.img`.
+Nothing a user sees changed and no string was reworded; every change is code
+the package had twice or did not need.
+
+| | before | after |
+|---|---|---|
+| `THEWIRE.O88`, the file | 10,256 | **9,984** (-272) |
+| clusters on the 360KB system disk and `network360.img` (and 720KB) | 11 | **10** |
+| clusters on the 1.44MB and 1.2MB system disks (512-byte) | 21 | **20** |
+| image | 11,925 | **11,457** (-468) |
+| bss | 2,803 | 2,808 (+9 for the defect below, -4) |
+| image + bss (the region) | 14,728 | **14,265** (-463) |
+| heap claims | | unchanged |
+
+**Every hot path it touched is faster**, measured on MartyPC (5150, CGA)
+by calling each routine in the loaded package with interrupts off, base and
+this tree in the same harness: a whole repaint of the no-driver window
+812,057 -> 811,574 cycles; a list row's icon copy 2,745 -> 1,112 and its
+title 1,532 -> 1,478; the worker's loop over 512 body bytes 201,097 ->
+198,025; one 18-byte LZSS match 1,747 -> 1,009 at distance 1 and at 50.
+
+- **`wr_onclick`'s detail-pane arm was dead.** It re-made the coordinates
+  absolute and returned without using them: the buttons are the gesture
+  library's, which takes the press before `wr_onclick` runs. The row test
+  borrows on `sub` instead of comparing first.
+- **A DEFECT, fixed: the status cell's compose buffer was one cell wide.**
+  `wr_statbuild` composes the whole line and only then pads or cuts it to
+  48 cells, and during an Add or an archive the line is `[wr_msg]` - the
+  outcome buffer `wr_omsg`, which sat directly after it - plus ` NNNK of
+  MMMK`. With an 18-character title that is up to 57 characters, so the tail
+  was written over the head of `wr_omsg` and every later repaint showed the
+  figure's last characters where `Adding` was, until the next file of the set
+  rebuilt it. `wr_sline` is `WR_STATB` = 58 bytes now: **+9 bytes of bss**,
+  and nothing on the glass changes but the corruption.
+- **`wr_sput` writes its NUL** and leaves DI on it, so a composition that
+  ends in a string is terminated and one that goes on writes over it. Nine
+  `mov byte [di], 0` after a final `wr_sput` went, `wr_pathbuild`'s three
+  arms end in one tail jump to it, and the loop is `lodsb` - fewer cycles a
+  character, and 13 more at the end of a string, so any string of four or
+  more characters is cheaper than before. Every destination was checked for
+  room for the terminator after its longest composition (`wr_sline` is the
+  one that needed it, above).
+- **`wr_start` zeroes one block.** The nine words a new transfer starts from
+  zero - `wr_got` and `wr_clen` (both halves), `wr_code`, `wr_hline`,
+  `wr_hlen`, `wr_sent`, `wr_msg`, `wr_rxp`, `wr_rxn` - are laid out from
+  `WR_ZERO` and cleared by one `rep stosw`, where they were eleven immediate
+  stores. `wr_reqn`, `wr_port` and `wr_cfgn` traded places with the three
+  that moved in; the bss is the same size.
+- **One post.** `wr_finish`, `wr_failpost` and `wr_pausepost` each banked the
+  kind, wrote the one byte, woke the window and redrew the cell; they set
+  their own state and jump to `wr_post` with the WW_* code in AL, which still
+  writes `[wr_wake]` last. The worker's chain is no deeper: it is a jump.
+  42 bytes of image and only 5 of file - lz4 had already found the copies,
+  which is 4.6 of the handoff's rule in one line.
+- **The two declarations take their `_NOKEEP` forms** (SPEC.md 66.6.1.1).
+  The region names `wr_ret`, the lone `ret` at the end of `wr_upper`, as its
+  relocation proc; `wr_entry` sets AX and DX again before reading them and
+  ends in its own `clc`. `wr_hire` pops AX and nobody reads its flags. And
+  `wr_entry` stopped banking five registers around `os88ui_btninit` to get
+  one of them back: it re-reads `[wr_win]`.
+- **A `wr_sv` routine's every exit is a `ret`**, so a `jmp short .out` onto
+  a bare `ret` is that `ret`, and a `call` followed by one is a tail `jmp`:
+  the callee's own `ret` lands in `wr_rs` as the routine's would have.
+  Twenty-two sites in the handlers and the file chain, each one shorter and
+  faster. `wr_oncmd` tells its four items apart with one compare and one
+  subtract, the middle two being `wr_do`'s 0 and 1 one lower.
+- **Stores from a register, and saves nobody needed.** `wr_refresh`,
+  `wr_arcstart`, `wr_aentck` and the Content-Length parse write their zeros
+  and their 0xFFFFs from a register (in `wr_aentck` the zero `loop` leaves in
+  CX); `wr_catck` makes N * 256 as `mov ah, cl`, N being at most 255; two
+  loops stopped banking a CX their callee keeps; `wr_saved` stopped pointing
+  ES at a segment `wr_selrec` points elsewhere on the next line; and
+  `wr_stemput`, a once-a-file routine whose callers never read the DI it
+  advanced, saves through `wr_sv`.
+- **The three decimal parses** - the port in `WIRE.CFG`, the reply's status
+  code and its Content-Length - test a digit as `sub al, '0'` / `cmp al, 9`,
+  one unsigned compare for two, and the two 16-bit ones accumulate in BX
+  with `mov dx, 10` / `mul dx` instead of banking CX around a `mul cx`. Same
+  answers for every input, the port's 16-bit wrap included.
+- **`wr_ohead` / `wr_otitle` and `wr_otoast`.** The three outcome sentences
+  that name the program (`Adding`, `Loaded`, `added to your disk`) composed
+  the selected title the same way three times, and the two that toast set
+  `[wr_msg]` and called `OSAPI_TOAST` the same way twice; each is a routine
+  now. Two ES loads nothing read went with them.
+- **Smaller exits everywhere else.** `wr_netcheck` had one caller and is
+  inline in `wr_refresh`; `wr_lockarm`, `wr_dall`, `wr_dend`, `wr_dglyph`,
+  `wr_rowrect` and `wr_refresh` end in a tail jump; `wr_dive` returns the
+  CF `OSAPI_FILE_GOTO_QM` gave it, and `wr_ieq` the one its own `or` left;
+  `wr_hclose` takes the handle with one `xchg`, so it is NONE from that
+  instruction on and the superseded-open arm of `wr_nstep` closes through
+  it; and the three RAM-disk verbs load BX as one word. (`NET_CLASS` cannot
+  be folded the same way: in a package it is the byte `[net_cls]`.)
+- **`WIRE.CFG` is read with three fewer words of bss.** `wr_cfgload` banks
+  the cwd it walks away from on the stack rather than in `wr_dbclus` and
+  `wr_dbdrv`, and hands `wr_cfgparse` - its one caller, which no longer
+  saves through `wr_sv` of its own - the length in CX rather than in
+  `wr_cfgn`. `wr_port` took `wr_dbclus`'s word and the archive block closed
+  up behind the two it left: **bss -4**.
+- **String instructions in the copy loops**, each one shorter AND faster
+  than the loop it replaced, which is why three of them are on hot paths:
+  `es lodsb` in `wr_rowtext` (a list row's title), `wr_sputn`,
+  `wr_stemcopy`, `wr_saved` and the catalog date; `lodsb` in `wr_take`, the
+  worker's per-byte loop; one `rep movsw` for a row's 64 icon bytes in
+  `wr_icocopy`, with DS and ES swapped around it; and one `rep movsb` for an
+  LZSS match in `wr_lzb`, which copies forward a byte at a time exactly as
+  the loop did, so a match that overlaps itself still repeats.
+- **`wr_catck` checks the version and the record size as one word**, the
+  record-size byte being the one after the version (asserted at assembly).
+  `wr_arcwrite` lost a `clc` its own `jc` had already made true.
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 
@@ -161312,6 +163940,104 @@ foot of `kerndos/kdos.asm`, 33,659 of 33,792, so **the DOS program on the
 shut-down arm is handed two kilobytes more**. That is Task #27's kilobyte -
 the one §96.11.7's character devices borrowed - and one besides.
 
+#### 96.44.16 The second apps size pass: what `DOS.O88` costs a DISK
+
+The shipped `DOS.O88` is §96.44.4's four pieces, and the second apps size pass
+(docs/plans/HANDOFF-APPS-SIZE-P2.md) weighs it by its FILE: the 2,276-byte raw
+loader, then part 0 (the box), part 1 (the core) and part 2 (`kern_dos`),
+each LZ4-packed and each started on a 512-byte boundary (§20.12.3) - so a byte
+saved inside parts 0 and 1 reaches the file only when that part's packed
+length crosses a sector, and a byte saved in part 2, the last, reaches it at
+once. What the pass took, every item a layout or data change and none a change
+to what a DOS program sees (§96's real-DOS rule, docs/DOS-DEBUGGING.md):
+
+- **Dead window code**, superseded and never deleted: `dos_btn_rect` and
+  `dos_sav_rect` (the page button's and Save Shortcut's rects before
+  `dos_bar_rects`/`dos_furn_rects`, §96.32.2), `dos_btn_lbl` with its label
+  table and the two labels only it named (`Memory`, `Done` - the page
+  cycle §96.32.2 retired), `dos_erow_focus`, `dos_lnk_skip` and
+  `dos_con_say`, none of which anything called; and the page button's
+  8-byte `DOS_B_BRECT` cell, which only `dos_btn_rect` wrote. Part 0 222
+  bytes smaller raw, 116 packed.
+- **Fifteen `call X` / `ret` pairs became `jmp X`** - ten in the window half,
+  five in the shell (`dsh_say`), none whose target reads its own return
+  address or swaps the stack (`dos_restore_machine`, `dos_exec_back` and the
+  `dos_be_*` doors are left alone for that reason). A word less stack and a
+  `ret` less time on each, and part 0 -10 / part 1 -4 packed.
+
+DEFECTS found reading the code are fixed here, each one byte-negative:
+
+- **`dsh_isshell` never recognised a full `COMSPEC` path** (§96.30). An
+  `inc si`/`dec si` pair either side of `.fwd` cancelled the step past the
+  separator, so `C:\COMMAND.COM` compared its `\` against `c` and only a bare
+  `command.com` was ever the built-in shell - the case §96.30's own prose
+  names as the reason the match is raw. Two instructions out of the core.
+- **`dos_pkt_hchk` overwrote the client's CX** with the row size, 7: the
+  handle check divided by CX. `get_address` reads the client's buffer size in
+  CX AFTER the check, so it never refused a short buffer, and `release_type`
+  and `terminate` handed the client back a CX it did not pass. A byte divide
+  by DL instead (AX is under 28) - three bytes shorter and faster.
+
+Together: part 0 19,802 -> 19,671 packed and part 1 13,513 -> 13,507, and
+**neither crossed its sector, so the file is still 48,203 bytes** - part 0 is
+215 packed bytes short of one and part 1 195. The box's image + bss is 243
+bytes smaller (50,364 -> 50,121), which takes `op_size`'s sector-rounded carve
+from 99 sectors to 98. What would move the file is outside this package and
+is recorded in the pass's report rather than taken: generating CP437's
+box-drawing glyphs at launch (`apps/os88cp437.inc`, 220 packed bytes of part
+0), gating the dropdown's drag/up and two unused `os88con`/`os88line` entries
+(~180), compressing a parted package's IMAGE (`tools/os88pkg.py`: this
+loader's 2,276 raw bytes pack to 1,980, a sector), and shipping the core
+inside part 0 for `kern_dos`'s stub to read from there (one part's padding).
+Sharing the window half's `pop`-ladder epilogues, which pass 1 left on the
+table, is REFUSED on a measurement: every copy is a 3-byte LZ4 match already,
+and replacing the 35 commonest with a `jmp` makes part 0 111 packed bytes
+LARGER.
+
+**Apps size pass 2b took the include gates** for what part 0 never calls:
+`OS88UI_NODRGEST` (§13.14.7) drops the disk-cache dial's drag, release and
+close, since `dos_click_mem` drives it press-press through `os88ui_drpress`
+alone - part 0 50,121 -> 49,969 raw, 19,671 -> 19,563 packed - and
+`OS88LINE_NOSET` (§83.4) drops `os88line_set`, since the fields are filled in
+place and resynced (§96.21.3): 49,969 -> 49,918 raw, 19,563 -> 19,534 packed.
+
+##### 96.44.16.1 Pass 2b: the structural items
+
+The set A list above, taken by a session of its own. Two of its four items
+are opt-in gates in shared includes that DOS turns on and nobody else does, so
+every other carrier assembles byte-identical:
+
+- **`OP_NO_LAZYOK`** (§20.12.9.2): the loader fetches the core once and never
+  asks first, so `op_lazyok` goes - 2,276 -> 2,210 image bytes of loader.
+- **`CON_NOSCROLLDOWN`** (`apps/os88con.inc`): the DOS console is a teletype
+  and only ever scrolls UP, so `con_scrolldown` - which nothing in the tree
+  calls, Telnet included - goes from part 0: 50,121 -> 50,064 image bytes,
+  19,671 -> 19,635 packed.
+
+Neither crosses a sector on its own, and with §96.44.16's two gates beside
+them part 0 is **49,861 image bytes, 19,485 packed** - 29 packed bytes past
+a sector boundary, so `DOS.O88` would still be 48,172 bytes. What moves
+the file is the item that needed the kernel:
+
+- **The loader IMAGE ships packed** (§20.13.8): 2,210 bytes -> 1,992, four
+  sectors where it was five, so every part starts a sector earlier and
+  **`DOS.O88` is 47,660 bytes, 47 clusters on every 360KB system disk**. The
+  kernel learns the packed length from the link word, `.cold` +33 resident on
+  each kernel, and the same change reaches every parted package the tree
+  ships whose packed image saves a sector (§20.13.8 lists them).
+
+**Generating the box-drawing set at launch is REFUSED on a measurement.**
+The 220 packed bytes above were the set ZEROED; LZ4 already packs the forty
+box glyphs to ~179, because they are runs of `0x10` and `0x28`. Built - each
+glyph one word of five indices into a 13-byte alphabet (rows 0-1 and 5-7
+are always one arm's line, and rows 2-4 take thirteen values over the set),
+decoded by `con_font` on the pre-EGA path, round-tripped bit-identical by
+`tools/cp437font.py` - it saved **26 packed bytes for +151 bytes of RAM**
+(the table and decoder beside a hole that must stay), and **17 packed for
++10** with table and decoder parked in the ASCII hole the ROM copy
+overwrites. Neither is worth a mechanism in a shared include. Telnet's share
+would be the same 17.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a
@@ -169755,6 +172481,48 @@ was built and is NOT taken: the two parts compress apart, part 1's code at
 94%, and the 1.5KB loader is raw, so the file was ~4 clusters bigger and
 took `apps360.img` past its 354. It is kept for the day the ceiling bites
 again.
+
+**Apps size pass 2 (2026-10-16)** measured the player by its FILE - the
+LZ4-packed `VIDEO.O88`, 41,127 bytes and 41 clusters of the 360KB apps
+disk - and took cold code only, under the rules above: every routine
+`apps/video/rdiffhot.txt` names is instruction-identical and at an even
+shift in all three arms, and so is every play-time data word. What packs
+decides what is worth taking: LZ4 already stores a repeat of four bytes or
+more as a three-byte match, so a byte cut from UNIQUE code is most of a
+file byte, while folding a copy of something into a call buys almost
+nothing, and a rewrite that trades a common shape (`cmp byte [vp_pixfmt]`
+seven times) for a novel one (`cmp ch` seven times) made the file BIGGER
+by 21 bytes for 10 fewer in the image - measured and not taken.
+
+- **The bench's long divide and multiply are the card's** (`vp_ldiv` and
+  `vp_lmul`, 98.1.9.13's, were `vp_div32` and `vp_mul32` written again;
+  the bench's arithmetic is past its timed loop, and the remainder the
+  card's divide leaves in CX is read by nothing), and a Live planar
+  stream's keeper is sized by `vp_plshd`, the planar keyframe's own claim
+  - the same sum, written out a second time in `vp_sstart`. -48 bytes of
+  image, -21 of file.
+- **Can it play here** (`vp_canp1`) reads a screen of its own once into
+  BL for each of its two ladders, and stores the full screen's layout and
+  mode where it has them rather than loading them back after `vp_mdet`
+  (which keeps every register and reads neither); and `vp_canplay`'s two
+  parity pads (`inc bl` and `add sp, 4` where `inc bx` and two pops do)
+  are gone, the pass keeping every play routine's parity as a whole. -14
+  of image, -27 of file.
+- **The header's title is copied by the name's own loop** (`vp_cpn`, the
+  body of `vp_cpname` given a destination and a count): `vp_parse` swapped
+  DS and ES to copy it with `lodsb`/`stosb`, the same copy the other way
+  round. -16 of image, -3 of file - and -20 in the two knob arms, the
+  same cut packing differently around it.
+- **The card's number routines**: `vp_putt`'s forced NEAR jump to the pop
+  ladder is short, `vp_putn`'s `inc cl` an `inc cx` (CL is at most 3),
+  `vp_div32`'s first move an `xchg`, and `vp_mul32` the shorter body the
+  bench's copy had - four odd cuts that sum to an even -6, so every play
+  word after them keeps its parity; only the card's own text routines and
+  `vp_mul32`, which no play runs, moved by an odd byte. -6 of image, -3 of
+  file. The two string merges the second pass refused stay refused: either
+  alone puts the play's words after the strings (`vp_mxseg`, `vp_plsp`,
+  the state from `vp_kmax` on) an odd byte out, and no third odd cut lies
+  between them and those words.
 
 **And the text's second save (2026-10-16)** is a claim a play on two pages
 or more takes (98.3.13.2): **-1,660 bytes of bss for +54 of image**, so
@@ -179510,7 +182278,7 @@ from Tune, so it went: `cs_cfg_load` and `cs_cfg_apply` assemble only with
     the row's probe again: the fingerprint IS the identification, the one
     the user confirmed when the setting was tuned and saved on this board.
 
-It is `apps/rlapply/rlapply.asm`, **2,282 bytes with no bss** (the NEAT's five knobs were 122, the four rows of the first field round's tables, protocols and apply procs 409 more, and the WD76C10's lock sample 32), its 64-byte icon included, and it is the
+It is `apps/rlapply/rlapply.asm`, **1,681 bytes and 42 of bss** (the NEAT's five knobs were 122, the four rows of the first field round's tables, protocols and apply procs 409 more, and the WD76C10's lock sample 32), its 64-byte icon included, and it is the
 shared files assembled `CS_APPLY_ONLY`: the row table and the fingerprint
 with no probe, the knob with no sweep, the file and the apply - so **nothing
 it can run touches a port before the fingerprint has matched**. It has no
@@ -179524,6 +182292,52 @@ damaged`, `REDLINE.CFG: other BIOS`, `REDLINE.CFG: no such row`,
 region movable naming its own `ret`, which buys nothing inside an entry
 proc (`mem_in_nest` pins it there) and is the ratchet's terms
 (`tests/movable.txt`) rather than an exemption with no mechanism in it.
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) took it from
+2,282 bytes of image and a **1,979-byte** shipped file. What only REDLINE
+runs is gated `%ifndef CS_APPLY_ONLY`, so REDLINE assembles byte-identical
+to what it was, and what is RLAPPLY's own - the entry, and csapply.inc's
+`CS_LOADER` half, which only it and the csprobe write harness assemble - was
+tightened:
+  - **Save** - `cs_cfg_new`, `cs_cfg_knob` and `cs_cfg_save`, 127 bytes of
+    code nothing in RLAPPLY calls (file -103). `od_write` stayed, being
+    `apps/os88data.inc`'s and ungated, until apps size pass 2b gave it a
+    switch (below).
+  - **The NEAT's named setters** - `cs_ne_put` and `cs_ne_set`, the names
+    csprobe and the sweep call; RLAPPLY's `cs_ap_ne` reaches `cs_kput`
+    itself (24 bytes, file -23).
+  - **The entry proc** banks no register - the loader promises an entry
+    proc nothing back but BX and CF - and counts its way to the toast's
+    string, NUL by NUL, instead of indexing a table of seven pointers
+    (23 bytes, file -23).
+  - **REDLINE.CFG's buffer is bss** - `cs_cfg` and the checked row, 41
+    zero bytes that were image, and Save's in-place stamp gone with Save
+    (image -42, bss +41, file -2: zeros were all but free packed, and the
+    region is the same 2,560 bytes).
+  - **No probe's data** - RLAPPLY runs no probe, so its row table is each
+    row's code and apply proc (4 bytes a row, not 10) with no drop-down
+    names, and the probes' answers (`cs_found`, `cs_pres`, `cs_pval`,
+    `cs_aliased`), the FE3600 allowlist and `cs_fingerprint`'s Compaq
+    signature test are REDLINE's alone (image -290, file -52; the region
+    falls to 2,048 bytes, inside which LZ4 no longer fits in place, so this
+    step ships the file plain).
+  - **`cs_cfg_load` and `cs_cfg_apply`**, RLAPPLY's own: the fingerprint is
+    ONE 11-byte compare (`cs_crc`, `cs_date` and `cs_model` lie in the
+    file's order, +12/+14/+22, and an assembly-time check refuses a gap);
+    the knob count's own range test goes, the length test `24 + 2n` inside
+    26..40 already being n = 1..8; the load keeps the row's APPLY PROC
+    rather than its number, so the WD76C10's lock sample is chosen by
+    `cs_ap_w7` and the apply build can leave out the five rows that cannot
+    write (refused as `CSA_ROW` exactly as an unknown row is); and neither
+    routine banks a register, the entry keeping nothing across them (image
+    -95). The file is LZ4 again inside the 2,048-byte region: **1,520
+    bytes**, 16 under the 1,536 at which it would have to ship plain.
+
+Apps size pass 2b: RLAPPLY only ever READS `REDLINE.CFG`, so it sets
+`OD_READONLY` and `apps/os88data.inc` leaves `od_write` out - image 1,681 ->
+1,606, the file **1,520 -> 1,447 bytes**, 2 clusters on every system disk
+either way. A package that sets the switch and calls `od_write` does not
+assemble.
 
 `tests/rltune.py` launches it from `A:\SYSTEM` before REDLINE has saved and
 after, on QEMU, and reads the toast and the window list each time.
@@ -179712,6 +182526,32 @@ the General MIDI names, **an original 128-program FM bank and a 47-key kit**
 (built from family templates in the tool - no third-party bank is read,
 fetched or transcribed), the synth's voicing per program and its kit.
 
+**Five of them are not shipped** (apps size pass 2): `mrt_tl`, `mrt_amp`,
+`mrt_fn`, `mrt_fq` and `mrt_pow` are smooth curves, so they are bss and the
+image carries `mrt_z` - each one's first value and first step, then two bits
+an entry whose value less a bias is the change in the step (every second
+difference is in -2..2) - which `mrt_unz` expands as `mr_entry`'s first
+call: 1,280 entries and 1,750 column bytes, **73.0 ms at 4.77 MHz,
+MEASURED** on MartyPC (348,545 cycles, `mr_entry` to the instruction after
+the call), on every adapter. Read back out of the running package's bss,
+all of them are the generator's tables to the byte. The tool's `unz()` is the loop
+line for line and `gen` refuses a stream it does not read back to the table.
+**The FM bank and kit ship as COLUMNS** too: 175 records of twelve
+registers pack badly as records and well as columns of like registers, the
+two E0h columns are all zero and do not ship at all, and the carrier's
+attack/decay and sustain/release are stored as their difference from the
+modulator's. `mrt_unz` lays them back into 2,100 bytes of bss, each byte the
+column's plus the one a fixed distance before it (zero distance: the bss's
+own zero), and `gen` refuses columns its `uncol()` does not read back.
+
+`mrt_z`, `mrt_zc` and `mrt_unz` are the image's TAIL (2,284 bytes), laid
+under `mrk_pring` (105.8.4) and then `mrl_ent` (105.3) - two buffers each
+written before it is read (a playlist entry only below `[mrl_n]`), so the
+tail is their first tenant and is spent before either has another - and the
+bss starts 3 KB past the tail rather than at the image's end. The change
+costs no RAM: image + bss is 47,484 before and after, and the file is
+**2,422 bytes smaller** (30,991 -> 28,569).
+
 #### 105.6.2 OPL3, and an emulator that is half of one
 
 `SND_FM_INFO`'s answer decides the mode: an OPL3 is claimed in OPL3 mode with
@@ -179821,7 +182661,9 @@ only one output is ever open, so the grant ring's half, the polled Covox's
 ring (105.8.7) and the speaker's PWM table - read once, by `mry_open`, as it
 builds the output table - are three tenants of `mrk_pring`, each written
 whole at its own session's start before it is read. 2,304 bytes of bss
-(apps size pass 1, set 4).
+(apps size pass 1, set 4). **The page's first bytes are the image's TAIL**
+(105.6.1): what only `mr_entry` reads, laid under the page so that it costs
+no RAM - a fourth tenant, gone before the first output opens.
 
 #### 105.8.5 MIDI out, through an MPU-401 (`mrmid.inc`)
 
@@ -180131,9 +182973,30 @@ the card's 8-pixel grid, five faces at a pitch of 48, and the rack the rest
 so the panes' last rows line up across the window: Load Directory with Eject
 and Loop, Add and Remove with the transport's bottom edge.
 
-**The faces are a file beside the package, `MIDIRACK.GFX`** (10,800 bytes,
-LZ-wrapped on the disk), read at entry into a claim of its own **only on a
-colour primary**, so a Hercules or a CGA machine never reads it. It is a
+**The faces are a file beside the package, `MIDIRACK.GFX`**, read at entry
+into a claim of its own (11 KB) **only on a colour primary**, so a Hercules
+or a CGA machine never reads it. **The file carries five of the fifteen**
+(apps size pass 2): the up faces, then an 86-byte recipe - the pressed
+frame's three rows a plane, the two bytes a moved row fixes a plane, the
+greyed wipe's row - 3,686 bytes where it was 10,800, **780 LZ-wrapped where
+it was 2,025, one cluster where it was two**. `mra_derive` makes the other
+ten in the claim, which is STATE-major (the five up, the five pressed, the
+five greyed) so the up faces are read straight to where they stay: a
+pressed face is its up face's row above, a pixel right, between the pressed
+frame's rows with two bytes a row set to the frame's; a greyed face wipes
+the contents to the face's grey and embosses the shape - the up face's
+COLOURED pixels above row 14, its BLACK ones from it - white a pixel down and
+right, dark grey on top. `tools/os88midart.py`'s `derive_pressed()` and
+`derive_greyed()` are those loops and its selfcheck holds them to the fifteen
+faces it draws, with a negative control; `--check-asm` holds the package's
+`MRA_` numbers to its own. `mra_load` and `mra_derive` live in the image's
+tail (105.6.1), so they cost no RAM. MEASURED on MartyPC's VGA XT, against
+the claim and the screen: the claim's 10,800 bytes are the generator's to
+the byte and the window is pixel-identical to the fifteen-face file's; the
+load is **413.8 ms where it was 364.5 - +49.3 ms** of launch, and only on a
+colour primary: the read and its LZ expansion fall 361.6 -> 281.1 ms and the
+derivation is ~132 ms. A file from before pass 2 is refused by its size
+(the transport is then code-drawn) and so is this one by an older package. It is a
 sidecar and not a part (§20.12) for one measured reason: `os88pkg.py` refuses
 to compress an image that has parts, and this image packs 30 KB to 25. A disk
 without the file, a heap without the room, a block the card refuses (a window
@@ -180148,7 +183011,8 @@ wavetable (§105.8.6) took it from the 32,416 / 9,710 / 25.8 KB this section
 first gave. §105.9.4's caches are ~2.4 KB of that bss and §105.9.5's colour
 face ~2.1 KB of the image. It rides `APPS\` on the 1.44 MB, 1.2 MB and 720 KB
 apps disks with the songs LZ-wrapped in `MEDIA\MIDI\` (ten songs, 27
-clusters) and `MIDIRACK.GFX` beside it (2 clusters). **The 720 KB disk
+clusters) and `MIDIRACK.GFX` beside it (1 cluster since apps size pass 2,
+105.9.5). **The 720 KB disk
 carries two songs and not the pictures** (BATTLE1 and INTRO, 7 clusters; the
 player is 29) **and is FULL: 713 of 713 clusters**, so the next byte anything
 on it grows by is a curation decision for that disk, not a build fix. **The
@@ -185972,8 +188836,9 @@ null modem runs remain hardware validation.
 The splash owns its background (§11.90.1) and publishes 418x295 VGA/Hercules
 and 418x154 CGA frame preferences with a 418x154 floor. Layout is computed
 from the actual content box. A 416x104 title strip is embedded in packed
-4bpp color and 1bpp monochrome forms; compact windows draw alternate source
-rows at half height. The instruction area and standard release-fired buttons
+4bpp color and 1bpp monochrome forms (the 1bpp form shipped as a residual
+against the colour one and rebuilt on first use, 109.6); compact windows draw
+alternate source rows at half height. The instruction area and standard release-fired buttons
 use native OS text and `os88ui.inc` (§20.5.1.3). H opens/closes controls;
 clicking background artwork does not start a match. About temporarily
 withdraws the button group's live count, so its dismissal cannot also launch.
@@ -186034,6 +188899,55 @@ The cycle-accurate video regression requires at least 45 displayed frames/s
 and 68 physics steps/s at 4.77 MHz. The native UART rate callback keeps an
 original 8250 serviced across vertical-retrace waits; its raw queue drains
 through the ordinary frame parser in the foreground.
+
+### 109.6 The disk size pass
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures the
+shipped file, LZ4-packed: **14,315 bytes** (image 37,237, bss 1,939) when it
+started, and **13,496** (image 37,349, bss 1,854) when it finished. Nothing
+a frame or the link runs changed shape for it: every routine the court, the
+rate hook and the frame parser run assembles to the same instructions at the
+same address parity, and the image keeps its odd length, so every bss
+variable keeps its parity too.
+
+- **One dispatcher for the splash's keys and buttons.** A fired button is
+  handed to `wb_onkey` as its own key (`wb_btnkeys`: S, L, H, M), so the
+  button handler no longer carries a second copy of the four actions; the
+  menu's handler falls into `wb_launch` instead of jumping to it. -42 file
+  bytes.
+- **Word stores where setup cleared bytes one at a time.** The match's
+  start (`wb_main`), a lost link (`wb_lost`), a new game and a serve clear
+  their state through a zero register and store adjacent byte pairs as one
+  word; `WB_PAIR` refuses to assemble if a pair stops being adjacent. Each
+  is fewer cycles than the byte-immediate stores it replaces, and none runs
+  per frame. -21 file bytes.
+- **One `rep stosw` clears both ports' state** at the start of a serial
+  match (`wb_openports`), where `wb_openone` cleared eight fields a port one
+  store at a time; the fields it did not clear are written before they are
+  read. -9 file bytes.
+- **The text court shares the pixel court's caches.** Only one of the two
+  courts runs in a bracket, so `wb_drawold` and `wb_hudold` (kern_small's
+  text court) are names inside `wv_old` and `wv_hudold`; each court fills
+  its caches when it draws its board. bss -86, -7 file bytes.
+- **The 1bpp title strip is rebuilt from the colour one** (109.4).
+  `tools/wbfront.py` gives each colour a dither level (0..16; a pixel lights
+  when its colour's level exceeds its 4x4 Bayer cell, the matrix the 1bpp
+  strip was dithered with) and ships `wb_artmono` as the XOR of the real
+  1bpp strip and the strip those levels predict - mostly zero. The levels
+  are chosen per colour for the fewest disagreeing pixels and then nudged
+  while the residual packs smaller; the generator refuses to emit a
+  residual that does not rebuild the strip exactly. `wb_monobuild` rebuilds
+  the strip in place on the instance's first monochrome paint, a row phase
+  at a time through a 256-entry table (scratch in `wb_ports`, which only a
+  serial match establishes), so the picture is the same pixels as before.
+  A colour display never runs it; a compact strip draws only even rows and
+  rebuilds only those two phases, the others following if the window
+  grows. It costs **about 195 ms** on the first full-height monochrome
+  paint and **about 97 ms** on a compact one - an ESTIMATE from 8088
+  instruction timings over the executed instruction counts, not measured -
+  and **27 bytes** of net image + bss over the pass's start (the routine
+  and two 16-byte tables, after the bss the cache sharing above returned).
+  Both were put to the owner and approved. -740 file bytes.
 
 ## 110. Sticky Apps (`STIKAPPS\`, `apps/os88stik.inc`)
 
@@ -187136,6 +190050,66 @@ a damaged file replaced without a question (§110.5.2). The bss did not move:
 70 -> 68, a month 152 -> 146, a tick 13 -> 14, every call count identical
 (19 / 4 / 8 / 1); CGA's first paint is 156 ms in 12 calls. About is now
 0 calls on the cards where its take-down was 6 calls and 54 ms.
+
+#### 110.6.1 Apps size pass 2, after the size pass
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md weighs `DESKCAL.O88` by the packed file on
+every system disk. It ran first on the calendar BEFORE the size pass above,
+and that pass's tiers took most of what it had found - the alert went whole,
+and the register convention, the word moves and the string tails were tier B's
+- so this is what was left of it, re-measured on the size pass's tree, with
+the pass's rules: nothing user-visible changes, RAM does not grow, and no path
+a repaint, a tick, a key or a click runs takes a cycle more (every change
+takes instructions out or puts a cheaper one in; none adds a call or a jump).
+
+From the size pass's tree: **12,535 bytes on disk and 13,680 of image** (the
+small build 12,791 and 14,016), bss 3,709, 13 clusters on the 360 KB system
+disk. One change at a time:
+
+| change | image (span) | file | small file |
+|---|---:|---:|---:|
+| `dc_rbox`'s bytes are 3 x the column and 3 more (asserted beside `DC_FLDW`), not a `MUL` and two shifts; `CBW` for `XOR AH, AH` at the three sites left, each a grid index or a geometry byte | 0 (-12) | -7 | -6 |
+| three more strings that are another's tail: `>` in the slot's ` >`, COMPACT's `Tasks` in `Clear Done Tasks`, its `Reminder` in `No Reminder` | -16 (-17) | -8 | -10 |
+| `os88stik.inc`'s `stik_redraw` is OPT-IN (`%define STIK_REDRAW`): its one caller was the About card, a toast since the size pass, and neither includer (the calendar, `tests/stikprob`) calls it - the size pass treated the include as the calendar's, and the gate keeps the entry for a package that wants it | -32 (-22) | -20 | -14 |
+
+The image column is the file's, which `align 16` pads; the span is the code.
+
+**The whole of it: 12,535 -> 12,500 bytes on disk (-35), 13,680 -> 13,632 of
+image (-48)**; the small build 12,791 -> 12,761 and 14,016 -> 13,968. The bss
+(3,709) and every heap claim are unchanged, and no cluster moves on any system
+disk: 13 at 360 KB and 720 KB, 25 at 1.44 MB and 1.2 MB. What the first run of
+this pass had found and the size pass had ALREADY taken, so nothing was redone:
+the alert and its button kit (with it `OS88UI_NOGEST`, which this pass had
+set), `dc_aday`, `dc_fenter`'s save of `dc_ebuf`, `dc_build`'s `MUL`-made
+month key, the month-and-day and ten other bss PAIRS moved as one word, the
+composers' geometry reloads, and the `15 Min Early` / title / `Calendar`
+string tails. A second title tail - `dc_title` and the menu's name as labels
+into `os88stik.inc`'s `stik_tags` - measured +2 on the file and was left.
+
+**Not taken, outside the package** (the pass's rule 4, recorded for the
+owner): `os88gfx.inc`'s band utilities (`gfxe_bnew`, `bfold`, `bsize`,
+`bpix`, `bput`) are compiled into every `GFXE_BAND` package and the calendar
+calls none - 187 image bytes, ~160 packed, and the only other `GFXE_BAND`
+carriers (Wire, PiXEL) use them, so an opt-out gate would serve the calendar
+alone; and `os88line.inc`'s `os88line_set` (51 bytes; Browser, ftpd, Sheet and
+Weave call it).
+
+The rows that run the package: `stik` (fast), `deskcaledit`, `deskcaltask`,
+`deskcalgrid`, `deskcalremind`, `deskcalperf`, `deskcal1bpp`, `deskcalcards`,
+`deskcalsnooze`, `deskmodal`, `stikmove`, `stikmovecga`, `stikanchor`,
+`stiknodesk`, `stikregister` and `stiksmall`; `t_stik` also assembles
+`tests/stikprob`, the include's other consumer.
+
+#### 110.6.2 Apps size pass 2b — the include gates the calendar asked for
+
+The two shared-include wins 110.6.1 recorded and could not take are gates now,
+each an opt-out the calendar sets and every other package is byte-identical
+without:
+
+| gate | what goes | image | file | small file |
+|---|---|---:|---:|---:|
+| `OS88LINE_NOSET` (§83.4) | `os88line_set` - the field is filled in place and resynced | -48 | -26 | -25 |
+| `GFXE_NOBUTIL` (§5.12.9) | `os88gfx.inc`'s band utilities - the face papers and blits its own band | -208 | -182 | -183 |
 
 ### 110.7 `kern_small`
 
@@ -188288,7 +191262,7 @@ adapter's kind), and sizes the template itself.
 | `stik_load` | also: `OSAPI_WM_DESK` QUERY; the layout; the template's size and, from the state file or the default, its place - converting a v1 file's titled frame to a face |
 | `stik_made` | also: MAKE (the desk form) or `OWNBG` + `SAVEU ON\|1BPP` (the titled fallback); `W_ONCLICK` = `stik_click`, `W_ONMOUSEUP` = `stik_mup`, `W_ONWAKE` = `STIK_WAKE`; the place on record is the FACE's |
 | `stik_paint` | the template's `W_PAINT` (or the package's, tail-jumping to it): `OSAPI_WM_DAMAGE`, then only what intersects it - the two ground columns and every gap by `OSAPI_GFX_DESK`, each card by `STIK_PAINTCARD`, the tag row from the state - and `stik_painted` |
-| `stik_redraw` | (wave 4) the whole face again OUTSIDE a paint, SI = the window, the lock held: `OSAPI_WM_CLIP_SET`, then `stik_paint`'s body with the damage the whole of it - a package's About card taken down; nothing when none of the window shows |
+| `stik_redraw` | (wave 4) the whole face again OUTSIDE a paint, SI = the window, the lock held: `OSAPI_WM_CLIP_SET`, then `stik_paint`'s body with the damage the whole of it - a package's About card taken down; nothing when none of the window shows. **Opt-in since apps size pass 2** (`%define STIK_REDRAW`, §110.6.1): its one caller was the calendar's About card, a toast now, so neither includer assembled a call to it |
 | `stik_slabs` | the slab painter a `STIK_PAINTCARD` may be: for each `GFXE_BAND_H`-row slab of the card that the rows touch, paper the band white, call `STIK_COMPOSE` (AL = the card, BX = the slab's first card row, CX = its rows; compose with `y` = card row - BX) and blit the damaged rows of it, ONE `OSAPI_GFX_BLIT1` |
 | `stik_click`, `stik_mup` | the prefilters (the gestures above) |
 | `stik_wake` | `W_ONWAKE`: on the worker arm, v1's beat; otherwise the hover edge's reconcile |
@@ -188349,8 +191323,8 @@ It landed in v2's wave 3 (§110.10); the Desk Calendar adopted it in wave 4
 ## 111. TIMER — the stopwatch (`apps/timer/timer.asm`)
 
 The kernel's Timer kind (§14) as a package since §14.8: `TIMER.O88`, in
-`APPS/` on every apps disk, 2,012 bytes of image and 60 of bss, the
-stopwatch icon in its header, label prefix `tm_`. Everything §14 says about
+`APPS/` on every apps disk, 1,547 bytes of image and 56 of bss (§111.6),
+the stopwatch icon in its header, label prefix `tm_`. Everything §14 says about
 the Timer's behaviour holds — the window, the layout, the accumulator
 (binding), §14.1's incremental redraw, §14.4's cut line, §47's greying — and
 this section says only what is different about being a package.
@@ -188415,11 +191389,90 @@ one `OSAPI_FONT_RUN`.
 The standard About card (§20.5.1), two lines — 41px of content holds two.
 While the card is up the button record is told it has NO buttons, so a
 press anywhere in the content reaches the dismissal rather than the button
-under the card. `tests/timerbounce.py` is the gate (soak, MartyPC): it opens
+under the card - and that zero IS the card's state (§111.6): there is no
+flag byte beside it to disagree with it. `tests/timerbounce.py` is the gate (soak, MartyPC): it opens
 `TIMER.O88` and `BOUNCE.O88` by name out of the apps disk's `APPS/`, reads the
 Timer's seconds advancing out of its own bss, presses Stop and then Start
 through the real gesture and reads `tm_run` both ways, and reads the Bounce's
 square moving and its worker holding a task slot.
+
+### 111.6 Size (apps size pass 2)
+
+The package rides THREE 360KB disks (`apps360`, `small360`, `smallapps360`),
+so its subject in the second apps size pass is the shipped FILE.
+Before the pass: 2,012 bytes of image, 60 of bss, a 1,813-byte LZ4 file - two
+clusters on each disk. Of the image, 96 bytes are the header and icon (the
+clear prefix), 953 this file's code and data, and 963 `apps/os88ui.inc`.
+
+- **`OS88UI_NOGLYPH`** (§13.8.9's opt-out): the Timer draws no check box and
+  no radio, and the glyph's body and shapes were 237 bytes of the library it
+  carried for nothing. Image 2,012 -> 1,775; the file 1,813 -> 1,775 - only
+  38, because what went was the part of the image that PACKED (the 12x12
+  bitmaps): what is left is code, which LZ4 no longer shrinks at all, so the
+  package ships PLAIN (`os88pkg` writes it uncompressed when packing does
+  not pay) and every image byte from here is a file byte.
+- **Each proc owes what its CALLER reads, and no more.** The file was
+  written to "preserve every register", and nobody it serves asks for that:
+  the entry proc owes BX and CF (the loader reloads everything else after
+  its far call), W_PAINT owes SI and DF, the W_ONCLICK family - W_ONTIMER,
+  W_ONMOUSEUP and W_ONDRAG are its environment exactly - gives SI back and
+  may clobber the rest (`ui_bill` clobbers AX/BX/CX/DX/DI round every one of
+  them anyway), and the worker reloads at the top of its loop. So the
+  internal procs document what they CLOBBER, the pushes nobody read went
+  (about fifty), `tm_tick` FALLS INTO `tm_clipd` and that into `tm_digits`
+  (the worker enters at `tm_clipd` after its own visibility test), the
+  release does the action in one proc rather than two, the two declarations
+  take the `_NOKEEP` forms (§66.6.1.1), the layout and the clock check are
+  inlined into their one caller, and the worker stops reloading ES - it is
+  the task frame's `KERNEL_SEG` and no slot changes it. The digit formatter
+  stops writing the NUL cell (the loader's zero at `tm_str+8` is the line's
+  terminator for ever, since the run's own terminator writes only cells
+  1..8), and the changed-cell scan walks RIGHT TO LEFT so the last
+  difference is met first and terminates the run where it is found. Image
+  1,775 -> 1,589, and that is under the line: LZ4 now fits its in-place
+  layout in the 2,048-byte region (1,501 + 512), so the package packs again
+  and the FILE is 1,775 -> 1,501.
+- **State that was written twice is kept once.** The About card's flag byte
+  went: the card is up exactly while the button record's count is 0, which
+  `tm_about` already wrote, so `tm_paint` reads the count and `tm_onclick`
+  clears and tests it in one `xchg` - and with the test that cheap, the
+  dismissal is written out rather than handed to `os88ui_abdismiss` (whose
+  own comment says it is not a byte saving in a one-dismissal package; here
+  the repaint proc it needed folds into the dismissal too). The clock's two
+  bytes, "the window timer refused" and "the worker is hired", are one
+  three-state `tm_clk`, set by an `adc` of the refusal's carry. The window
+  title is the header's name field (§20.2, +16, which `OS88_HEADER` NUL-pads
+  and caps at 15 characters) rather than a second 'Timer'. Image 1,589 ->
+  1,550, bss 60 -> 58, the file 1,501 -> 1,467.
+- **...and the window is the button record's.** `os88ui_btninit` writes it
+  into `OS88UI_BT_WIN` and nothing ever clears it for a package with one
+  record, so the worker reads its window there and `tm_win` went. `tm_keep`
+  takes its sample through `tm_stamp` rather than saying it twice, and the
+  painter - the one caller that owes SI back - banks it round `tm_digits`
+  instead of `tm_digits` banking it for every caller. Image 1,550 -> 1,540,
+  bss 58 -> 56, the file 1,467 -> 1,461.
+- **A DEFECT, FIXED: the seconds were lettered through the About card.**
+  The card is opaque over the digit line, and every firing went on drawing
+  the cells that changed - so a card left up read "Timer for 1:18088" a
+  second later. The package shipped that way (the base commit draws the
+  identical picture). `tm_clipd`, where both clocks enter the drawing, now
+  keeps the time and draws nothing while the record's button count is 0,
+  which is exactly while the card is up; the dismissal's repaint forgets the
+  line and letters all eight cells. +7 image bytes, the file 1,461 -> 1,467,
+  and one byte compare on the per-tick path.
+
+**What the pass bought**: image 2,012 -> 1,547, bss 60 -> 56, the file
+1,813 -> 1,467 (-346 bytes on each of three disks, still two clusters on
+each - one cluster is out of reach, `os88ui.inc` alone being ~705 bytes of
+the image). Measured on MartyPC's 5150 (CGA), `tm_tick` from its entry to
+the dispatcher's `retf`, median of 24 firings: **9,180 -> 8,536 cycles**
+for a firing with no digit to draw and **16,137 -> 15,527** for one with a
+digit - faster on both, the defect fix's compare included. Looked at old
+against new in one boot each, six states (running at 3s, stopped, reset,
+restarted at 2s, About up, About dismissed): the first four are
+pixel-identical, and the two About states differ only in the seconds cell -
+the old package's overdrawn digit on the card, and the clock a second or
+two apart.
 
 ## 112. BOUNCE — the square (`apps/bounce/bounce.asm`)
 

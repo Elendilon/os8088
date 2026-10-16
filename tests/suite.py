@@ -915,6 +915,26 @@ FAST = [
         "at all",
         wants=("build/small360.img", "build/small.img",
                "build/smallapps360.img", "build/smallapps.img")),
+    Row("lzbclust", "soak", py("tests/unit/t_lzbclust.py"), 1.2,
+        "SPEC.md 20.13.5's rule for LZBPKGS: a package ships LZB only while "
+        "LZB SAVES IT A 1KB CLUSTER on the 360KB disks it rides, because the "
+        "decode costs ~4x LZ4's on every launch (+541 ms on ArtfulType's "
+        "first, measured on a 5150) and the disk only gains a whole cluster. "
+        "A package is chosen against the size it had that day and its next "
+        "edit can move it to the far side of a boundary with every build "
+        "step green - so for each listed name this re-packs build/<name>.bin "
+        "with LZ4 and fails unless the shipped LZB file takes fewer "
+        "clusters, and fails a listed name whose shipped file is not LZB at "
+        "all (the stamp or the rule come apart from the list - the first try "
+        "at the list shipped all of them LZ4 and reported up to date). Red "
+        "on purpose both ways: `mines` added to the list fails as not LZB, "
+        "and Solitaire's small arm packed LZB (3,658 bytes, 4 clusters "
+        "against LZ4's 4,067, 4) fails as saving none. `--candidates` lists "
+        "the LZ4 packages LZB would save one for, as information. SOAK and "
+        "not fast: it re-packs a dozen packages, and which compressor a "
+        "package uses is not 'did you obviously break the OS'",
+        wants=("build/artful.o88", "build/artful.bin",
+               "build/smallapp/calc.o88", "build/smallapp/tank.o88")),
     Row("ktags", "soak", py("tests/unit/t_ktags.py"), 0.1,
         "every owner tag the kernel ships has a TYPE name on the Task "
         "Manager's heap page - SPEC.md 28.4's hex fallback is for a tag this "
