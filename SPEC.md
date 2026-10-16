@@ -41038,7 +41038,7 @@ The tree, and the one part of it that is a correctness requirement:
 | `WORD/` | `WORD.O88`, `WELCOME.DOC` |
 | `CWORD/` | `CWORD.O88` (its overlay is a PART of it, §73.14.2), `WELCOME.RTF` |
 | `RUNCPM/`, `RUNCPM/A/0/` | `RUNCPM.O88`, `RUNCPM.OVL`, the CCP and its `LICENSE` — and CP/M drive A below them (§74.5) |
-| `C64/` | `C64.O88` (the ROM is a PART of it, §20.12), `C64.OVL`, `README.TXT` and `COPYING` (`docs/C64-SPEC.md` §14.2) |
+| `C64/` | `C64.O88` (the ROM and the overlay are PARTS of it, §20.12, §73.14.2), `README.TXT` and `COPYING` (`docs/C64-SPEC.md` §14.2) |
 | `WEAVE/` | `WEAVE.O88`, `WEAVE.OVL`, `WEAVE.WSM` and the three demo bundles (`WEAVE-SPEC 1.2`) |
 | `LOOM/` | `LOOM.O88`, `LOOM.OVL`, `LOOM.WPV`, the demo sources — and a second copy of `WEAVE.O88`, `WEAVE.OVL` and `WEAVE.WSM`, so that a bundle Pack writes beside its sources opens where it was written (`WEAVE-SPEC 1.2`, `1.2.4`, `11.2`) |
 | `MEDIA/` | the module, the two `.TEX` documents and `BROWSER.HTM` — where a File Open starts (§38.10) |
@@ -120667,7 +120667,7 @@ gone. Measured, file bytes:
 | `SCRIBE.OVL` (part 1 of `SCRIBE.O88` since §95.8.8) | 10,121 | **8,348** |
 | `RUNCPM.OVL` | 7,389 | **3,526** |
 | `APPLE2.OVL` (part 1 of `APPLE2.O88` since §73.14.2, lazy - APPLE2-SPEC 15.5.1) | 3,403 | **2,356** |
-| `C64.OVL` | 2,323 | **1,597** |
+| `C64.OVL` (part 1 of `C64.O88` since §73.14.2; C64-SPEC §13.3) | 2,323 | **1,597** |
 | `COVL.OVL` (the gate; a part since §73.14.2) | 110 | 102 |
 
 **The one risk is the directory entry, and it is closed.** A packed file's
@@ -120812,6 +120812,9 @@ CWORD (eager) and COVL (lazy), against the file form at the same commit:
 | `cword.img` / `cword120.img` | 63 clusters, 4 files | 65 clusters, 3 files |
 | `covl` image + bss | 1,802 + 152 | 2,730 + 256 |
 | COVL on a disk | 1,438 + 99, two files | 2,646, one file |
+| `c64` image + bss (eager; it already had a carve) | 30,188 + 12,936 | 30,004 + 12,936 - the arm alone; 29,840 + 12,930 once the C's refusal machinery went too (C64-SPEC §13.3) |
+| C64 on a disk | `C64.O88` 39,378 + `C64.OVL` 1,538, two files | `C64.O88` **40,401**, one file |
+| `c64.img`/`c64120.img`, `c64720.img`/`c64360.img` | 127, 65 clusters | 125, 64 |
 
 **The two sectors are the parts standard's code, packed**, and they are
 deliberate: the alternative was a private fetch of ~200 bytes inside `crt0`,
@@ -120821,7 +120824,15 @@ clusters the pair took; on the 512-byte ones it is two sectors more than the
 pair, for one directory entry fewer. The bss grows by `OP_BSS` (102), the
 standard's own words.
 
-**How to adopt it** (C64, the Apple II, RunCPM, WEAVE, LOOM): define
+**C64 is the case the size row predicts**: a package that already had a
+carve for its ROM, so its EAGER arm came out 184 image bytes SMALLER than the
+file form rather than larger - the carve's code was already resident, and the
+file form's stamp, claim, read and refusals were deleted. The lazy arm,
+measured on the same tree, was 584 bytes larger than the file form and bought
+nothing on the disk, because C64 read its module at the first wake of every
+session anyway (C64-SPEC §13.3).
+
+**How to adopt it** (the Apple II, RunCPM, WEAVE, LOOM): define
 `CC_OVL_PART` (and `CC_OVL_LAZY` if the module is not used by every session)
 in the shim; if the package has a parts table, add `CC_OVL_ROW` as its last
 row and bump the count; add `part` as `CC_PACKAGE`'s fifth argument (LOOM's
