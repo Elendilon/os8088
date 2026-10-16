@@ -130126,6 +130126,18 @@ Both are silent, and both only bite past 255 bytes:
 * **`BP` addresses `SS` by default**, so it cannot be used as a memory base for
   a buffer in `DS`.
 
+### 83.4 `OS88LINE_NOSET` — a field nobody replaces carries no `os88line_set`
+
+`os88line_set` (51 bytes) copies a NUL string into the field and puts the
+caret at its end. A package that fills the buffer in place and calls
+`os88line_resync` (§96.21.3), or never replaces a field's contents, reaches
+none of it. `%define OS88LINE_NOSET` before the include leaves it out (apps
+size pass 2b): an opt-out in `os88ui.inc`'s `OS88UI_NO*` shape, so every
+package that does not set it is byte-identical, and it removes the symbol, so
+a package that sets it and calls `os88line_set` does not assemble. The DOS
+box (§96.44.16) and the Desk Calendar (§110.6.2) set it; Browser, ftpd,
+Sheet, Weave, `ETHER.DRV` and `SAVER.DRV` call it.
+
 ## 84. Software floating point (`apps/os88fp.inc`)
 
 An IEEE-754 double, in software, for a machine with no FPU. It is what stage
@@ -162440,7 +162452,9 @@ LARGER.
 **Apps size pass 2b took the include gates** for what part 0 never calls:
 `OS88UI_NODRGEST` (§13.14.7) drops the disk-cache dial's drag, release and
 close, since `dos_click_mem` drives it press-press through `os88ui_drpress`
-alone - part 0 50,121 -> 49,969 raw, 19,671 -> 19,563 packed.
+alone - part 0 50,121 -> 49,969 raw, 19,671 -> 19,563 packed - and
+`OS88LINE_NOSET` (§83.4) drops `os88line_set`, since the fields are filled in
+place and resynced (§96.21.3): 49,969 -> 49,918 raw, 19,563 -> 19,534 packed.
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
@@ -188351,6 +188365,16 @@ The rows that run the package: `stik` (fast), `deskcaledit`, `deskcaltask`,
 `deskcalsnooze`, `deskmodal`, `stikmove`, `stikmovecga`, `stikanchor`,
 `stiknodesk`, `stikregister` and `stiksmall`; `t_stik` also assembles
 `tests/stikprob`, the include's other consumer.
+
+#### 110.6.2 Apps size pass 2b — the include gates the calendar asked for
+
+The two shared-include wins 110.6.1 recorded and could not take are gates now,
+each an opt-out the calendar sets and every other package is byte-identical
+without:
+
+| gate | what goes | image | file | small file |
+|---|---|---:|---:|---:|
+| `OS88LINE_NOSET` (§83.4) | `os88line_set` - the field is filled in place and resynced | -48 | -26 | -25 |
 
 ### 110.7 `kern_small`
 

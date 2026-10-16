@@ -18084,6 +18084,9 @@ DOS_BSS_SIZE equ HB
 %if DOS_BTREC_SZ != OS88UI_BT_SIZE
  %error "DOS_BTREC_SZ mirrors OS88UI_BT_SIZE and they have drifted - the HBSS block is laid out before this include, so the size must be written twice; fix the literal"
 %endif
+%define OS88LINE_NOSET              ; the fields are filled in place and
+                                    ; resynced (96.21.1), never replaced
+                                    ; (apps size pass 2b)
 %include "os88line.inc"
 %endif
 ; --- THE CONSOLE (SPEC.md 96.33), telnet's screen as a shared include -------

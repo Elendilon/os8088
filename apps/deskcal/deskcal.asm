@@ -1827,6 +1827,8 @@ dc_s_about: db 'Desk Calendar, SPEC 110', 0
                                 ; there is no alert and no About card
                                 ; (SPEC.md 110.3, 110.11)
 %include "os88ui.inc"
+%define OS88LINE_NOSET          ; the field is filled in place and resynced,
+                                ; never replaced (apps size pass 2b)
 %include "os88line.inc"
 %include "os88gfx.inc"
 %include "os88stik.inc"
