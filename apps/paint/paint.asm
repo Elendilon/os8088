@@ -10780,37 +10780,18 @@ pt_oncmd:
     mov bx, si
     call pt_org
     mov ax, [pt_key]
-%ifdef PTF_EDIT
-    cmp ah, PT_MENU_EDIT
-    je .edit
-%endif
-    cmp ah, PT_MENU_DRAW
-    je .draw
-%ifdef PTF_FSX
-    cmp ah, PT_MENU_VIEW
-    je .view
-%endif
-    or ah, ah                       ; PT_MENU_FILE is 0 on every build
-    jnz .out
-; --- File ------------------------------------------------------------------
-    cmp al, PT_MF_NEW
-    je .new
-    cmp al, PT_MF_OPEN
-    je .open
-    cmp al, PT_MF_SAVE
-    je .save_bmp
-    cmp al, PT_MF_SAVEAS
-    je .saveas_bmp
-%ifdef PTF_GIF
-    cmp al, PT_MF_SAVEG
-    je .save_gif
-    cmp al, PT_MF_SAVEAG
-    je .saveas_gif
-%endif
+    ; --- ONE TABLE OF HANDLERS, indexed by (menu, item) (apps size pass 2): a
+    ; menu's items are a run of pt_mtab starting at pt_mbase[menu], and AL
+    ; still holds the item when the handler is reached. No range test: AH is
+    ; a menu of THIS set and AL an enabled item of it (SPEC.md 12.2's
+    ; AM_ONCMD), which is what the table is built from
+    mov bl, ah
+    xor bh, bh
+    mov bl, [pt_mbase+bx]
+    add bl, al
+    add bx, bx
+    jmp [pt_mtab+bx]
 .out:
-    ret
-.new:
-    call pt_new
     ret
 %ifdef PTF_GIF
 .save_gif:
@@ -10872,59 +10853,56 @@ pt_oncmd:
 ; The WHOLE menu is PTF_EDIT's (SPEC.md 42.22.1): Undo, Cut, Copy, Paste and
 ; Clear are all of it, and Clear clears the SELECTION rather than the canvas -
 ; so with the marquee gone there is nothing left to put in it.
-%ifdef PTF_EDIT
-.edit:
-%ifdef PTF_UNDO
-    cmp al, PT_ME_UNDO
-    je .undo
-%endif
-%ifdef PTF_CLIP
-    cmp al, PT_ME_CUT
-    je .cut
-    cmp al, PT_ME_COPY
-    je .copy
-    cmp al, PT_ME_PASTE
-    je .paste
-    cmp al, PT_ME_CLEAR
-    je .clear
-%endif
-    ret
-%ifdef PTF_UNDO
-.undo:
-    jmp pt_undo_cmd
-%endif
-%ifdef PTF_CLIP
-.cut:
-    jmp pt_cmd_cut
-.copy:
-    jmp pt_cmd_copy
-.paste:
-    jmp pt_cmd_paste
-.clear:
-    jmp pt_sel_clear
-%endif
-%endif   ; PTF_EDIT
+; The Edit menu's items go straight to the routines the Ctrl keys reach (the
+; table below), so the two doors cannot drift.
 ; --- Draw ------------------------------------------------------------------
-.draw:
-    cmp al, PT_MD_FILL
-    jne .font
+.fill:
     xor byte [pt_filled], 1
     jmp pt_draw_strip
 .font:
-    cmp al, PT_MD_F4
-    ja .out
     dec al                          ; item 1/2/3 -> shift 0/1/2 -> scale 1/2/4
     call pt_setscale
     jmp pt_draw_strip
-; --- View ------------------------------------------------------------------
+; View's one item is pt_cmd_fs, which does not return until the user leaves
+; and repaints on the way out - so, like the dialog above, NO repaint after it
+
+; --- the handler table, by menu ----------------------------------------------
+pt_mtab:
+PT_MB_FILE  equ ($ - pt_mtab) / 2
+    dw pt_new, pt_oncmd.open, pt_oncmd.save_bmp, pt_oncmd.saveas_bmp
+%ifdef PTF_GIF
+    dw pt_oncmd.save_gif, pt_oncmd.saveas_gif
+%endif
+PT_MC_FILE  equ ($ - pt_mtab) / 2 - PT_MB_FILE
+%ifdef PTF_EDIT
+PT_MB_EDIT  equ ($ - pt_mtab) / 2
+%ifdef PTF_UNDO
+    dw pt_undo_cmd                  ; PT_ME_UNDO
+%endif
+%ifdef PTF_CLIP
+    dw pt_cmd_cut, pt_cmd_copy, pt_cmd_paste, pt_sel_clear
+%endif
+PT_MC_EDIT  equ ($ - pt_mtab) / 2 - PT_MB_EDIT
+%endif
+PT_MB_DRAW  equ ($ - pt_mtab) / 2
+    dw pt_oncmd.fill, pt_oncmd.font, pt_oncmd.font, pt_oncmd.font
+PT_MC_DRAW  equ ($ - pt_mtab) / 2 - PT_MB_DRAW
 %ifdef PTF_FSX
-.view:
-    cmp al, PT_MV_FULL
-    jne .out
-    jmp pt_cmd_fs
-%endif                   ; does not return until the user leaves,
-                                    ; and repaints on the way out - so, like
-                                    ; the dialog above, NO repaint after it
+PT_MB_VIEW  equ ($ - pt_mtab) / 2
+    dw pt_cmd_fs                    ; PT_MV_FULL
+PT_MC_VIEW  equ ($ - pt_mtab) / 2 - PT_MB_VIEW
+%endif
+pt_mbase:                           ; ...and each menu's first entry, in
+    db PT_MB_FILE                   ; PTMENU's order
+%ifdef PTF_EDIT
+    db PT_MB_EDIT
+%endif
+    db PT_MB_DRAW
+%ifdef PTF_FSX
+    db PT_MB_VIEW
+%endif
+    times ($ - pt_mbase) - PT_MN db 0           ; one entry a menu
+    times PT_MN - ($ - pt_mbase) db 0
 
 ; =============================================================================
 ; What a smaller machine does without (SPEC.md 42)
@@ -16003,17 +15981,16 @@ pt_tpl:
 
 ; --- menus (SPEC.md 12.2) ----------------------------------------------------
     OS88_MENUSET pt_menus, pt_appname, pt_oncmd
-%ifdef PTF_GIF
-        OS88_MENU pt_s_file, pt_it_file, 6
-%else
-        OS88_MENU pt_s_file, pt_it_file, 4
-%endif
+        OS88_MENU pt_s_file, pt_it_file, PT_MC_FILE  ; (every count IS its run
+                                                      ; of pt_mtab, so a menu
+                                                      ; cannot outgrow its
+                                                      ; handlers)
 %ifdef PTF_EDIT
-        OS88_MENU pt_s_edit, pt_it_edit, PT_ME_N
+        OS88_MENU pt_s_edit, pt_it_edit, PT_MC_EDIT
 %endif
-        OS88_MENU pt_s_draw, pt_it_draw, 4
+        OS88_MENU pt_s_draw, pt_it_draw, PT_MC_DRAW
 %ifdef PTF_FSX
-        OS88_MENU pt_s_view, pt_it_view, 1
+        OS88_MENU pt_s_view, pt_it_view, PT_MC_VIEW
 %endif
     OS88_MENUSET_END pt_menus
 

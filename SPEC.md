@@ -78546,6 +78546,18 @@ and DX after it. **−34 image, −26 file, −17 on the small arm.**
 and three `shr` are the same number. **−6 image, −5 file, −7 on the small
 arm.**
 
+**A menu command is one table lookup.** `pt_oncmd` compared AH against each
+menu and AL against each item. `pt_mtab` is every menu's handlers in
+`PTMENU` order, `pt_mbase` each menu's first entry, and the dispatch is
+`jmp [pt_mtab + 2 × (pt_mbase[AH] + AL)]` with AL still the item for the
+font sizes. The Edit items name `pt_undo_cmd`, `pt_cmd_cut` and the rest
+directly — the routines Ctrl+Z/X/C/V reach — where each had a `jmp` stub,
+and View's one item names `pt_cmd_fs`. There is no range test: AM_ONCMD
+hands a menu of this set and an enabled item of it (§12.2). **The menu
+counts in `pt_menus` are now each menu's run of `pt_mtab`** (`PT_MC_*`), so
+a menu cannot grow an item its dispatch has no handler for. **−61 image,
+−64 file, −5 on the small arm.**
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather
