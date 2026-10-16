@@ -80451,6 +80451,13 @@ pass leaves binding:
   (the caller banks every register already) and its closing NUL store, which
   wrote a zero over the NUL `ark_num2str` had already put at
   `ark_sbuf + ARK_SFW`.
+- **The heart is composed as a glyph.** `ark_heartbits` is `ark_heartrun`'s
+  picture in the font's own shape - eight rows, bit 7 the left column - so
+  `ark_pu_letter`'s eight-row walk lays it into the band exactly where the
+  runs did (asserted: both centre it two rows and two columns into the
+  capsule), and `ark_pu_heart`, a second walk over the runs a pixel at a
+  time, is gone. `ark_heartrun` stays: §44.10.4's fallback fills the heart
+  from it.
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 

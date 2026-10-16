@@ -3393,13 +3393,7 @@ ark_pu_compose:
     push di
     mov bx, bp                      ; the MARK: a letter, or the heart
     mov al, [ark_puletter+bx]
-    or al, al
-    jz .heart
     call ark_pu_letter
-    jmp short .knext
-.heart:
-    call ark_pu_heart
-.knext:
     pop di
     add di, ARK_SPH * ARK_SPW       ; ...and the next kind's row 0
     inc bp
@@ -3417,16 +3411,27 @@ ark_pu_compose:
     ret
 
 ; -----------------------------------------------------------------------------
-; ark_pu_letter - clear the letter's pixels out of one kind's body
-; in:  AL = the character, DI = that kind's capsule row 0
+; ark_pu_letter - clear the mark's pixels out of one kind's body
+; in:  AL = the character, or 0 for the heart; DI = that kind's capsule row 0
 ; clobbers AX/BX/CX/DX/SI/DI/ES: ark_pu_compose is its only caller, and it
 ; banks all of them
 ;
 ; The glyph comes from OSAPI_FONT_GLYPHS - the SAME table OSAPI_FONT_CHAR draws
 ; from, which is the point: no second typeface, and it works on all three
 ; adapters. It answers ES = DX, and the table is NOT in KERNEL_SEG.
+;
+; THE HEART IS A GLYPH TOO, here: ark_heartbits is ark_heartrun's picture in
+; the font's own shape - eight rows, bit 7 the left column - placed so the
+; same eight-row walk puts it exactly where ark_heartrun's runs put it (and
+; where ark_heart's fallback fills it). It was a second walk, over the runs,
+; one pixel at a time (SPEC.md 44.12).
 ; -----------------------------------------------------------------------------
 ark_pu_letter:
+    push ds                         ; the heart's rows are ours
+    pop es
+    mov si, ark_heartbits
+    or al, al
+    jz .have
     mov bl, al                      ; bank the character: FONT_GLYPHS returns
     call OSAPI_FONT_GLYPHS          ; the range in AL/AH and the table in DX:SI
     cmp bl, al
@@ -3443,7 +3448,7 @@ ark_pu_letter:
                                     ; character, which a 16-bit mul would use
     mul bx
     add si, ax                      ; SI = this glyph's first row
-
+.have:
     add di, ARK_SPW                 ; DI = capsule row 1
     mov dx, 8                       ; eight glyph rows onto body rows 1..8
     mov cl, 6                       ; column c sits at capsule x = 2+c, and a
@@ -3458,37 +3463,6 @@ ark_pu_letter:
     dec dx
     jnz .row
 .out:
-    ret
-
-; -----------------------------------------------------------------------------
-; ark_pu_heart - the same, from ark_heartrun's horizontal runs
-; in:  DI = the kind's capsule row 0; clobbers AX/BX/CX/SI/DI, as above
-; -----------------------------------------------------------------------------
-ark_pu_heart:
-    add di, ((ARK_PUH - ARK_HEARTH) / 2) * ARK_SPW  ; the row it is centred on
-    mov si, ark_heartrun
-.row:
-    mov ch, 2                       ; two run slots a row; 0xFF ends them
-.run:
-    lodsw                           ; AL..AH inclusive, in heart columns
-    cmp al, 0xFF
-    je .rend
-.px:
-    mov cl, al
-    add cl, (ARK_PUW - ARK_HEARTW) / 2  ; ...into capsule columns
-    mov bx, 0x7FFF                  ; x0 is bit 15, and this is its COMPLEMENT
-    ror bx, cl                      ; rotated, so the hole travels alone
-    xchg bl, bh                     ; ...and the band is little-endian bytes
-    and [di], bx
-    inc al
-    cmp al, ah
-    jbe .px
-.rend:
-    dec ch
-    jnz .run
-    add di, ARK_SPW
-    cmp si, ark_heartend
-    jb .row
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4145,6 +4119,24 @@ ark_heartrun:                       ; low bits
 ark_heartend:
 ARK_HEARTW  equ 7
 ARK_HEARTH  equ 6
+
+; ...and the same heart as a GLYPH for ark_pu_letter: glyph row g lands on
+; capsule row g+1 and glyph column c on capsule column c+2, so the picture
+; sits one row down and no columns across - which is exactly where
+; ark_heartrun's runs are centred, (ARK_PUH - ARK_HEARTH) / 2 = 2 rows and
+; (ARK_PUW - ARK_HEARTW) / 2 = 2 columns into the capsule.
+%if (ARK_PUH - ARK_HEARTH) / 2 != 2 || (ARK_PUW - ARK_HEARTW) / 2 != 2
+  %error "ark_heartbits is placed for a heart centred 2 rows and 2 columns in"
+%endif
+ark_heartbits:
+    db 0x00                         ; ........
+    db 0x6C                         ; .##.##..
+    db 0xFE                         ; #######.
+    db 0xFE                         ; #######.
+    db 0x7C                         ; .#####..
+    db 0x38                         ; ..###...
+    db 0x10                         ; ...#....
+    db 0x00                         ; ........
 
 ; --- metrics records (ARK_NMET signed BYTES each, widened into bss words by
 ; ark_metrics) ------------------------------------------------------------------
