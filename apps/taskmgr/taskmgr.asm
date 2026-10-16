@@ -4117,10 +4117,19 @@ tm_htier:
 ; in:  SI = the name, AX = the group's KB
 ; out: nothing (all registers preserved); [tm_mrow] advanced
 ;
-; The pad is what puts the total in the SIZE column, on the same vertical rule
-; as every claim row under it - a heading is not a claim, so it fills neither
-; ADDR nor TIER.
+; The name's field is everything left of the SIZE column - indent, TYPE,
+; separator and ADDR, TMH_HNAMEC = 15 - which is what puts the total on the
+; same vertical rule as every claim row under it. A heading is not a claim,
+; so it fills neither ADDR nor TIER, and that is the room the name takes:
+; I_NAME is at most 15 characters (kernel/instance.inc), so every owner name
+; is shown WHOLE. It was cut at seven ('CALCULA') for as long as this page
+; existed (SPEC.md 28.12.2). tm_kcol's own leading space is the separator,
+; so even a fifteen-character name keeps a cell clear of the figure.
 ; -----------------------------------------------------------------------------
+TMH_HNAMEC  equ TMH_IND + TMH_TYPEC + 1 + 4
+%if TMH_HNAMEC < 15
+  %error "taskmgr: a heading can no longer show a whole 15-character I_NAME"
+%endif
 tm_hhead:
     push ax
     push cx
@@ -4129,12 +4138,8 @@ tm_hhead:
     call tm_mrow_nolast         ; ...never at the foot of a column, where the
                                 ; rows it heads are in the next one
     call tm_mrow_open
-    call tm_copy7
-    mov cx, TMH_IND + TMH_TYPEC + 1 + 4 - 7
-.pad:
-    mov byte [di], ' '
-    inc di
-    loop .pad
+    mov cx, TMH_HNAMEC
+    call tm_copyn               ; space-padded to the SIZE column
     call tm_kcol
     call tm_mrow_close
     pop si
