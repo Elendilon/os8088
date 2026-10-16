@@ -79412,6 +79412,164 @@ last — on `kern_small`'s Hercules floor machine, against the base's small
 build: **every screen identical** below the menu bar's clock and outside the
 Disk window's own file size, and **both saved files byte-identical**.
 
+#### 42.22.4 The second apps size pass — the FILE (2026-10-16)
+
+42.22.2 measured Paint by image + bss, what it costs a MACHINE, and the file
+grew. This pass measures it by `PAINT.O88` as `make` ships it, LZ4-packed
+(§20.13.5), because the 360KB system and apps disks are full and Paint rides
+**three** 360KB disks (system, apps, office) and the small arm two more — a
+byte off the full arm is three bytes of floppy. Nothing user-visible moves,
+no hot path is touched (the stroke, the fill, the blits and both decoders
+are left byte for byte), and the image only shrinks, so RAM does too.
+
+What makes a FILE byte is not what makes an image byte. A repeated
+sequence of four or more bytes is a three-byte LZ4 match, so de-duplicating
+code that is byte-identical buys almost nothing on disk; what pays is
+**unique** code made shorter — a computation carried in a register instead
+of reloaded, a flag computed instead of branched to, fixed bytes made data.
+
+**The first canvas is `pt_fmtpick`'s rule.** `pt_geom` decided the canvas
+format with its own branches — one-bit on a one-bit screen, planar on a
+colour one — and `pt_fmtpick` decided a LOADED picture's with others. They
+are one rule: a launch is a load of a picture whose one-bitness is
+`[pt_mono]`. `pt_geom` now calls `pt_fmtpick` with that, and `pt_fmtpick`
+computes the two bytes rather than branching to them — `[pt_1bpp]` is the
+argument and `[pt_planar]` is `(AL | [pt_mono]) xor 1`, both operands being
+0 or 1. **−52 image, −27 file.** The small arm, whose depth is the build's
+(42.22.3), keeps its own `pt_ncolset` call and assembles byte-identical.
+
+**The GIF header is data.** `pt_ghdr` wrote the magic and the palette from
+data and the other eleven fixed bytes — the screen descriptor's flags, the
+image descriptor's separator, origin and tail — as a `pt_gwr` call each.
+They sit around `pt_pal_rgb` in file order now (`pt_g_magic` and `pt_g_lsd`
+before it, `pt_g_desc` and `pt_g_tail` after, all under `PTF_GIF`), so the
+header is three runs out of one table with the width and height written
+between them: 6 bytes, then 56, then 2. The file it writes is byte-identical.
+**−34 image, −17 file**; the small arm has no GIF writer.
+
+**The bottom strip carries its geometry in registers.** `pt_draw_strip`
+multiplied each width button's x out of its index and reloaded the strip's y
+for every well. `pt_swell` is `pt_cwell` with the strip's well top and
+height filled in, falling into it, and it leaves that top in BX for the
+glyph or frame drawn next; SI walks the button x by addition; the bed reuses
+the separator's registers (`pt_cfill` keeps them); and a width button
+decides its two colours once — the glyph is the well's colour XOR
+`CWHITE ^ CBLACK` — where it asked `pt_thsel` twice. Same calls, same
+rectangles, same order. **−100 image, −58 file, −47 on the small arm.**
+
+**A tool button decides its colours once, too.** `pt_draw_pal`'s per-button
+path compared the tool in hand twice, once for the well and once for the
+glyph, and parked the button's position in `[pt_bx]`/`[pt_by]` across the
+well. The glyph's colour is the well's XOR `CWHITE ^ CBLACK` (grey instead
+when it is the unfunded fill's), and the position stays in AX/BX, which
+`pt_cwell` keeps. **−33 image, −11 file, −20 on the small arm.**
+
+**Apply's record is aimed at assembly time.** `pt_szdraw_apply` computed
+Apply's rect inline — the same eight instructions as `pt_apwant`, which the
+hit test already calls — and wrote the rect pointer and the label into the
+`OS88UI_BTNREC` record on every draw. Neither ever changes, so the record
+names `pt_brect` and `pt_s_apply` where it is declared, the rect comes from
+`pt_apwant`, and only the flags word is written. Two `push`/`pop` pairs that
+guarded registers the shared epilogue restores anyway went with it.
+**−46 image, −29 file, −14 on the small arm.**
+
+**Cold bookkeeping says what it computes.** Six places in the launch, resize
+and repaint paths set a byte to 0, tested, and set it to 1: `[pt_mono]` is
+the low bit of `OSAPI_VIDEO`'s DH (4 or 1 bits a pixel), `[pt_haveclip]` is
+the borrow of the floor compare plus one, `pt_lose_w`'s odd-column byte is
+the width's low bit, and `pt_paint` takes `[pt_apend]` and clears it with one
+`xchg`, after which its two notice tails are one. `pt_entry` lost two
+`pushf`/`popf` pairs guarding a CF the proc states with `clc` at its end
+(42.6.4) and a store of 0 into a `.bss` byte the loader zeroed. `pt_reloc`'s
+five compare-and-store pairs are a table of the words that name a block
+(`pt_rltab`), walked by one compare and one store. Two candidates were
+measured and NOT taken: `pt_hpass`/`pt_spass` computing `[pt_cvup]` from
+the borrow is −10 image but **+9 file** (the branchy form matched
+`pt_resize`'s and packed better), and `pt_szdraw` choosing its value, row
+and label with one compare is −9 image and +3 file. **−76 image, −33 file,
+−30 on the small arm.**
+
+**`pt_gate` is two doors.** It took AL = 0 for undo and 1 for the
+clipboard, and all six callers named the feature with a constant inside a
+`push ax` / `mov al, n` / `pop ax` bracket. `pt_gate_u` and `pt_gate_c` are
+the two entries, the undo one jumping into the clipboard one's tail, and the
+clipboard commands tail-jump to the routine they gate. The gate's questions,
+its re-ask and its toasts are unchanged. **−27 image, −7 file**; the small arm
+has no gate (42.22.1.3).
+
+**A press on the canvas is one indirect call.** `pt_canvas_click` compared
+the tool in hand against each tool in turn and gave every arm its own
+`call`/`jmp .out`; it is `call [pt_cctab + tool * 2]` now, with the pencil,
+eraser, shape and selection arms tail-jumping into the routine they run and
+the dropper and the fill named in the table directly. The text tool keeps
+its branch, being the one that must not end a text run, and two `times`
+lines refuse an assembly whose table and `PTTOOL` order disagree. Same
+routines, same order. **−33 image, −29 file, −18 on the small arm.**
+
+**The entry proc keeps only what the loader reads.** §20.2's contract is BX
+= the window and a CF, with SI an input `pt_arg` has already spent; `pt_entry`
+bracketed its calls in `push`/`pop` of SI and AX anyway, three pairs of each.
+They are gone, and the region declares itself with
+`OS88_REGION_MOVABLE_NOKEEP` naming a lone `ret` (`pt_wait.nowait`), which is
+the keeping form's call without its `pushf`/`push`/`pop`/`popf` bracket — the
+proc states its CF with the `clc` 42.6.4 put at its end, so no flag is owed
+across it. **−24 image, −33 file, −32 on the small arm.**
+
+**The callbacks bank what their contracts ask and no more.** W_PAINT owes
+back SI and DF = 0 (§11's `W_PAINT`), W_ONCLICK, W_ONKEY and the ONDRAG
+edge give SI back and may clobber AX–DI and ES (§13.14, §20.3), and a
+relocation proc may clobber all of them (§66.3, author rule 1). `pt_paint`,
+`pt_click` and `pt_onkey` banked six registers each; they bank SI. `pt_ondrag`,
+which writes no SI, and `pt_reloc` bank nothing. The two callbacks Paint
+also calls itself are safe for it: `pt_fsx_main` re-reads the mouse after
+`pt_click`, and `pt_fsx_key` banks the two registers it needs around
+`pt_onkey`. `pt_onup` keeps its saves, because `pt_fsx_main` reads AH, CX
+and DX after it. **−34 image, −26 file, −17 on the small arm.**
+
+**A BMP's row stride drops five bits and shifts three.** `pt_bmp_in` turned
+`(w × bpp + 31)` into a stride with five `shr` and two `shl`; `and al, 0E0h`
+and three `shr` are the same number. **−6 image, −5 file, −7 on the small
+arm.**
+
+**A menu command is one table lookup.** `pt_oncmd` compared AH against each
+menu and AL against each item. `pt_mtab` is every menu's handlers in
+`PTMENU` order, `pt_mbase` each menu's first entry, and the dispatch is
+`jmp [pt_mtab + 2 × (pt_mbase[AH] + AL)]` with AL still the item for the
+font sizes. The Edit items name `pt_undo_cmd`, `pt_cmd_cut` and the rest
+directly — the routines Ctrl+Z/X/C/V reach — where each had a `jmp` stub,
+and View's one item names `pt_cmd_fs`. There is no range test: AM_ONCMD
+hands a menu of this set and an enabled item of it (§12.2). **The menu
+counts in `pt_menus` are now each menu's run of `pt_mtab`** (`PT_MC_*`), so
+a menu cannot grow an item its dispatch has no handler for. **−61 image,
+−64 file, −5 on the small arm.**
+
+**The small arm assembled 614 bytes nothing could reach.** A sweep of what
+each build ASSEMBLES for labels nothing assembled names — run over a listing
+with its macros expanded (`nasm -Lme`), because a `dw %2` inside
+`OS88_HEADER` or `OS88_MENU` is a reference a plain listing hides — found,
+on `APP_SMALL`: the fullscreen bracket's pointer, `pt_ptr_rect` through
+`pt_ptr_move` (440 bytes and 39 of `.bss`), whose only callers are
+`pt_fsx_main` and `pt_fsx_key` under `PTF_FSX`; `pt_setpx` (102), whose two
+callers are the paste's format conversion (`PTF_CLIP`) and the text cell's
+restore (`PTF_UNDO`), so it is `PTF_EDIT`'s now; and 72 bytes of data for
+features the arm does not carry — the View menu's three entries, two toasts
+and undo's bit table. Each is gated where its users are; **the full build
+assembles byte-identical**, and the same sweep finds nothing on it. **Small
+arm −614 image, −34 `.bss`, −500 file** — 15 clusters to 14 on both small
+disks.
+
+**A DEFECT the pass found and fixed: Save Gif asked the clipboard's
+question.** Both GIF verbs were gated on `pt_gate`'s clipboard arm, a
+leftover from before the encoder had a claim of its own (`pt_alloc_lzw`,
+`PT_LZW_KB`). With under 4 KB free a GIF save was refused saying **"No RAM
+for clipboard"**; with 4 KB to 16 KB it went through the gate (and, unnamed,
+through the Save dialog) to fail at `pt_save`'s own claim. `pt_gate_g` asks
+the question `pt_menufix` greys the GIF items on — can `OSAPI_MEM_AVAIL`
+fund `PT_LZW_KB` — before anything else happens, and refuses with the GIF
+toast, **"No RAM for GIF here"**. `pt_save`'s own refusal stays behind it, for
+a heap that changes between the two. **+21 image, +19 file**, the one change
+in this pass that spends; the small arm has no GIF writer.
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather
