@@ -40996,8 +40996,8 @@ program never needs a disk list edited:
   one disk: the tree below is a correctness requirement, and a program's
   folder holds its overlay and its documents. `APPS\`, `GAMES\` and `MEDIA\`
   are *collections* of independent programs and are split only when one
-  outgrows a whole floppy, between same-stem groups (`GAMES\DRMARCO.O88`
-  keeps `DRMARCO.VGA` beside it). Any other folder bigger than a floppy is
+  outgrows a whole floppy, between same-stem groups (a `GAMES\X.O88` keeps
+  any `X.*` data file beside it). Any other folder bigger than a floppy is
   refused by name: it needs a decision, not a bigger set.
 - **Placement is first fit in payload order**, so the set is a function of the
   payload alone. It is not stable against growth — a folder early in the order
@@ -44355,6 +44355,28 @@ It is a DEFINE and not a derived flag, for the one reason it differs from
 The default emits the routine, so every package that does not say so
 assembles byte-identical. `apps/dos/dosload.asm` opts in: 2,276 -> 2,210
 image bytes (apps size pass 2b, §96.44.16).
+
+##### 20.12.9.3 `OP_HAS_CARVE`, for a table with nothing in the carve
+
+**A table whose every row is `OP_LAZY` has no carve, and still assembled the
+code that loads one.** `op_load` sized the table with `op_size`, found nothing
+to claim and returned - so `op_size`, `op_claim`, `op_unpack` (when a lazy row
+is `OP_COMP`), `op_load`'s claim, read and unpack sequence and `op_seg`'s
+eager arms were all in the image, reached from nothing. PiXEL's nine decoder
+parts are that shape (§106.5), and DrMarco's three front screens (§100) are
+the second.
+
+`OP_HAS_CARVE` is derived like the rest (§20.12.9): `OS88_PART` sets it for any
+row that is NOT lazy - a filed part, a scratch part, an `OP_XMS` one - because
+each of those is in the carve. Without it `op_load` is the name copy and
+`clc`, which is exactly what it computed before, and `op_seg` answers a lazy
+row's banked segment or 0. **Every table with an eager row assembles
+byte-identical**, and nothing it earns is a feature: the gated code could not
+run.
+
+Measured, image bytes: PiXEL's `pixel.bin` **39,938 -> 39,102** (-836, the
+file 105,467 -> 104,956, no cluster on `office360.img`), and DrMarco's
+`drmario.bin` 33,247 -> **32,411** against the same source without the gate.
 
 #### 20.12.10 A LOADER hands its identity to one of its own parts
 
@@ -179783,7 +179805,7 @@ SHA-256 in `tools/drmario_assets.py`, which refuses any other bytes. Their
 same kind of departure as `apps/c64/rom/`. So `make` builds `DRMARCO.O88` on
 any clone and it ships like every other game: `GAMES/` on the 1.44MB, 1.2MB
 and 720KB apps disks, `games360.img`, the everything floppy and the live
-media, with `DRMARCO.VGA/.HRC/.CGA` beside it. It is NOT on `apps360.img`
+media - ONE file, its three front screens being parts of it (below). It is NOT on `apps360.img`
 (full, 24.6.1), the 360KB combo, or the kern_small disks, where image + bss
 was 56,333 bytes in one claim against a 53,760-byte arena (37,720 since the
 apps size pass; that ground is unmeasured on the 128KB machine since). `make drmarcodisk`
@@ -179832,12 +179854,36 @@ A desktop splash supplies controls and settings. `front.inc` draws a generated
 capsule-logo/checkerboard scene with DrMarco and virus sprites; H opens a help
 page using the existing gameplay portrait and tile graphics. VGA gets 432x264
 color art; Hercules gets 432x264 line drawings and CGA gets 432x132 line drawings.
-The supporting `DRMARCO.VGA`, `.HRC`, and `.CGA` files ship beside the package.
-Each has a DMF1 header, dimensions/depth, two row-offset directories and bounded
+The three front screens `DRMARCO.VGA`, `.HRC` and `.CGA` are PARTS of
+`DRMARCO.O88` (§20.12): `OP_ASSET | OP_LAZY | OP_COMP` rows, so they cost the
+launch nothing and the one wanted is fetched, expanded and banked when the
+splash first needs it. They were three files beside the package, which a user
+scrolled past in every Disk window and had to keep together when copying.
+The table's order is HRC, CGA, VGA, and `[dm_artkind]` is the row plus one:
+the VGA stream pads most to its sector (14,364 bytes packed, 484 short of
+one) and the LAST part is not padded at all, so it goes last - 413 bytes off
+the file against VGA first. Each screen is still the file it was, with a
+DMF1 header, dimensions/depth, two row-offset directories and bounded
 repeat/literal row streams (four native VGA planes per color row, packed bits
 per monochrome row). Repeated rows share directory offsets, including across
-the two pages. Only the current adapter's resource is loaded into
-an instance-owned movable claim. The painter uses bounded REP span decoding
+the two pages. Only the current adapter's screen is fetched, into a claim
+that is declared movable: its proc rewrites the row's `zkb` as well as
+`[dm_artseg]`, because the row is where `op_drop` finds the claim it frees
+(§20.12.7.4). A change of adapter class drops the screen it leaves first.
+The header checks the loader made of a loose file are gone with the file:
+the part's length is the row's `len` and the row decoder still bounds every
+packet by it.
+
+What it bought, measured on the tree it landed on: four files of 21,320 +
+26,947 + 10,112 + 5,139 bytes - 64 clusters at 360KB - became one of
+**48,156**, 48 clusters, because the parts are LZ4 (§20.12.7.4) and the parted
+image is packed as well (§20.13.8). `games360.img` went 259 -> 243 of 354
+clusters, the 1.44MB and 1.2MB apps disks 1,636 -> 1,603, and `make
+drmarcodisk`'s floppies 80 -> 64 (360KB). The image grew 835 bytes for the
+standard's code and the bss 104 for its own words, after §20.12.9.3 took
+836 bytes of eager-load code back out of it. LZB parts would be 45,008 bytes,
+four clusters fewer again, for a fetch ~4x slower to expand (§20.13.5) - a
+per-package choice that is the owner's, and not taken. The painter uses bounded REP span decoding
 into the idle fullscreen font cache, then presents up to 16 rows per OS blit.
 Mode entry rebuilds that cache; the game queue holds a single-row packed
 fallback. No framebuffer or extra pixel storage is added. A real window

@@ -11810,15 +11810,15 @@ SMALLOMIT_GAMES = $(BUILD)/skies.o88 $(BUILD)/pxstein.o88 $(DM_SHIP)
 #                           The door stays open: a 32x32-level, 48x64 arm
 #                           measured on os8088_5150_cga_128k would be a
 #                           SUBSTITUTION, and nobody has measured one
-#   drmarco (+ DRMARCO.*)   DrMarco (SPEC.md 100): the loader could not place
+#   drmarco                 DrMarco (SPEC.md 100): the loader could not place
 #                           it at all. (Since the apps size pass it is 31,579
 #                           + 6,141 = 37,720 and needs RE-MEASURING on
 #                           os8088_5150_cga_128k.) Image 49,685 + bss 6,648 was 56,333
 #                           bytes in ONE claim, against a 52.5KB (53,760)
 #                           arena - `Load failed` before a byte of the
 #                           package runs, so it could not refuse in its own
-#                           words. Its three front screens go with it: they
-#                           are read by nothing else
+#                           words. Its three front screens are parts of
+#                           the file, so they go with it
 
 # --- ...AND THE READERS LEFT WITH NOTHING TO READ (SPEC.md 24.5.3) -----------
 #
@@ -12893,14 +12893,14 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
 # disk had eight spare clusters, 89's package is six of them and 93's twelve,
 # so the two could not both sit here - that is what started this, even though
 # it is no longer the reason.
-# DRMARCO IS THREE FILES AND A PACKAGE (SPEC.md 100): its splash and help
-# screens are DRMARCO.VGA/.HRC/.CGA, read at launch from the folder the
-# package was launched from, so they ride GAMES/ beside it on every disk that
-# carries it. They are committed build output (apps/drmario/art/native/, and
-# the rules at DrMarco's own block near the end of this file).
+# DRMARCO IS ONE FILE (SPEC.md 100): its splash and help screens,
+# DRMARCO.VGA/.HRC/.CGA, are compressed lazy PARTS of DRMARCO.O88 (SPEC.md
+# 20.12) and no longer ride GAMES/ beside it. They are committed build output
+# (apps/drmario/art/native/, and the rules at DrMarco's own block near the end
+# of this file). $(DM_SHIP) stays a list so every disk recipe that names it is
+# unchanged.
 DM_NATIVE := apps/drmario/art/native
-DM_SHIP := $(BUILD)/drmarco.o88 \
-           $(addprefix $(DM_NATIVE)/,DRMARCO.VGA DRMARCO.HRC DRMARCO.CGA)
+DM_SHIP := $(BUILD)/drmarco.o88
 APPS_GAMES := $(BUILD)/wireball.o88 $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
               $(BUILD)/mines.o88 $(BUILD)/skies.o88 $(BUILD)/dotdel.o88 \
               $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88 \
@@ -12936,7 +12936,8 @@ APPS_GAMES := $(BUILD)/wireball.o88 $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BU
 #
 # DRMARCO IS NOT ON apps360.img EITHER, on the same rule and its own date
 # (2026-09-30): that disk was 354 of 354 clusters when DrMarco stopped being a
-# `local` package, and DrMarco is ~68 of them with its three front screens.
+# `local` package, and DrMarco was ~68 of them with its three front screens
+# (48 since they became parts of the one file, SPEC.md 100).
 # games360.img carries it, which is where a 360KB machine finds every game.
 #
 # ISOTRON IS NOT ON apps360.img EITHER (SPEC.md 108.8, 24.6.1's rule, dated
@@ -13427,7 +13428,7 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(MRGFX) $(PXGFX)) \
 # ...AND WITHOUT DRMARCO (SPEC.md 24.6.1's rule, the owner's decision of
 # 2026-10-04, "for now"): main's own 720KB disk built at 713 of 713 clusters
 # after MIDIRack, and elendilon's OS88CZ.COM crossed a cluster on top of it.
-# DrMarco is the package and its three front screens, and its own disk
+# DrMarco is one file with its three front screens in it, and its own disk
 # (`make drmarcodisk`) and every other geometry's apps disk still carry it.
 APPS720 := $(filter-out $(BUILD)/pixel.o88 $(PXGFX),$(APPS))
 APPSARGS720 := $(filter-out $(MIDISONGARGS) APPS:$(MRGFX) \
@@ -14302,9 +14303,10 @@ imager:
 # overflow - that is a decision for whoever owns the field disk, and
 # tests/pxsdisk.py asserts the omission only when the image exists.
 #
-# DRMARCO (SPEC.md 100) goes on PIXELSTEIN's ground, with its three front
-# screens: ~68 clusters at 360 KB, a game and not a calibration instrument,
-# added 2026-09-30 when it stopped being a `local` package.
+# DRMARCO (SPEC.md 100) goes on PIXELSTEIN's ground: ~68 clusters at 360 KB
+# with its three front screens beside it, 48 since they became parts of the
+# one file, a game and not a calibration instrument, added 2026-09-30 when it
+# stopped being a `local` package.
 #
 # ISOTRON (SPEC.md 108) goes on the same ground, added 2026-10-13: a game, not
 # a calibration instrument, and games360.img carries it at this geometry.
@@ -15520,7 +15522,7 @@ DM_ART := $(BUILD)/drmario-art
 DM_ARTSRC := apps/drmario/art/drmarco-screen.png apps/drmario/art/drmarco-splash.png
 DM_NATIVE_INC := $(addprefix $(DM_NATIVE)/,dm-anim-vga.inc dm-anim-cga.inc \
                    dm-anim-vga.bin dm-anim-cga.bin dm-screen-vga.bin \
-                   dm-screen-cga.bin dm-front.inc)
+                   dm-screen-cga.bin)
 .PHONY: drmarco drmarcodisk drmario drmariodisk drmarco-art
 
 # One stamp for the three outputs of one run; macOS make is 3.81, which has
@@ -15539,11 +15541,15 @@ $(DM_ART)/dm-music.inc: tools/drmario_audio.py reference/drmario/bank_FF.asm | $
 drmarco-art: | $(BUILD)
 	python3 tools/drmario_assets.py reference/drmario $(DM_ART) --art $(DM_NATIVE)
 
-$(BUILD)/drmario.bin: apps/drmario/drmario.asm apps/drmario/front.inc apps/drmario/audio.inc apps/drmario/game.inc apps/drmario/video.inc apps/drmario/anim.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc $(DM_ART)/dm-tables.inc $(DM_ART)/dm-vga.bin $(DM_ART)/dm-cga.bin $(DM_ART)/dm-music.inc $(DM_NATIVE_INC)
+$(BUILD)/drmario.bin: apps/drmario/drmario.asm apps/drmario/front.inc apps/drmario/audio.inc apps/drmario/game.inc apps/drmario/video.inc apps/drmario/anim.inc apps/os88api.inc apps/os88ui.inc apps/os88alt.inc apps/os88parts.inc apps/os88partsbody.inc $(DM_ART)/dm-tables.inc $(DM_ART)/dm-vga.bin $(DM_ART)/dm-cga.bin $(DM_ART)/dm-music.inc $(DM_NATIVE_INC)
 	$(NASM) -f bin -w+error -I apps/ -I apps/drmario/ -I $(DM_ART)/ -I $(DM_NATIVE)/ -l $(BUILD)/drmario.lst -o $@ $<
 
-$(BUILD)/drmarco.o88: $(BUILD)/drmario.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $< -o $@
+# The front screens are parts 0-2, in the order the table in
+# apps/drmario/front.inc declares them: VGA LAST, because it is the one whose
+# packed stream pads most to its sector and the last part is not padded.
+DM_PARTS := $(addprefix $(DM_NATIVE)/,DRMARCO.HRC DRMARCO.CGA DRMARCO.VGA)
+$(BUILD)/drmarco.o88: $(BUILD)/drmario.bin $(DM_PARTS) tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $< -o $@ $(foreach p,$(DM_PARTS),--part $(p))
 
 drmarco: $(BUILD)/drmarco.o88
 drmario: drmarco
