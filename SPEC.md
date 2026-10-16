@@ -184124,6 +184124,7 @@ at a time, the bytes each saved:
 | three saves of a register nothing writes: `dc_cmon`'s DX around `dc_navlbl` (which keeps it - now said in its header), `dc_rcardw`'s SI and `dc_ptime`'s SI around a copy whose next line reloads it | -16 | -13 |
 | strings that were another string's TAIL point into it: the Calendar menu's name is the title's, COMPACT's `Reminder` page name is `No Reminder`'s, the About card's first line IS the title and its blank line is the NUL of the second | -32 | -6 |
 | ...and four more tails, found by a search of every string: `5 Min Early` in `15 Min Early` (and the toast's lower-case pair), `>` in the slot's ` >`, `Tasks` in `Clear Done Tasks` | -32 | -9 |
+| the title IS `os88stik.inc`'s name tag (`STIK_TAG`, which the package defines as the title), so `dc_title` and the menu's name are labels into `stik_tags` - asserted with `%ifnidn` | -16 | -4 |
 
 ### 110.7 `kern_small`
 

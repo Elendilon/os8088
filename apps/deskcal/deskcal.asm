@@ -2230,8 +2230,11 @@ dc_tpl:
     dw 375, 42, 178, 357        ; stik_load sizes and places it (STIK_RIGHT)
     dw dc_title, dc_paint, dc_onkey, 0
 
-dc_title:   db 'Desk '
-dc_m_cal:   db 'Calendar', 0      ; ...the menu's name is the title's tail
+dc_title    equ stik_tags       ; the title IS the name tag (STIK_TAG, above)...
+dc_m_cal    equ stik_tags + 5   ; ...and the menu's name its tail, `Calendar`
+%ifnidn STIK_TAG, 'Desk Calendar'
+  %error "deskcal: dc_m_cal is the tail of STIK_TAG, `Desk Calendar`"
+%endif
 
     OS88_MENUSET dc_menus, dc_title, dc_oncmd   ; AM_NAME NOT 0: menu_relayout's
                                 ; instance-name fallback sets the cells'
