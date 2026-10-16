@@ -2473,6 +2473,7 @@ tm_dmg_hit:
     push ax
     push bx
     push cx
+    push dx
     mov ax, [tm_rowy]
     cmp ax, [tm_dmg+6]
     ja .no                      ; the row starts below the damage
@@ -2482,8 +2483,9 @@ tm_dmg_hit:
     mov ax, [tm_ci]             ; --- x1, and a chunk's band is not always its
     mov cl, TM_CW               ; own text: 5 chunks of 40px, so AL is the
     mul cl                      ; whole of the multiply
-    mov bx, ax
+    mov bx, ax                  ; BX = i * TM_CW, kept for x2
     add ax, [tm_penx]
+    mov dx, ax                  ; DX = the chunk's pen x, kept for x2
     or bx, bx
     jnz .x1
     mov ax, [tm_rowx]           ; CHUNK 0 OWNS THE LEAD-IN, here as in the
@@ -2492,22 +2494,18 @@ tm_dmg_hit:
     cmp ax, [tm_dmg+4]          ; legend square, and this is the chunk that
     ja .no                      ; has to put it back - test from the pen and
                                 ; it is erased until the row's key moves
-    mov ax, [tm_ci]             ; --- x2
-    inc ax
-    cmp ax, TM_NCHUNK
+    cmp bx, (TM_NCHUNK - 1) * TM_CW     ; --- x2
     jae .yes                    ; THE LAST CHUNK HAS NO RIGHT EDGE to test:
-    mov cl, TM_CW               ; tm_rowr runs it on to the row's own, so it
-    mul cl                      ; owns the tail past the text and damage out
-    add ax, [tm_penx]           ; there is still its to repair
-    dec ax
-    cmp ax, [tm_dmg+0]
-    jb .no
+    add dx, TM_CW - 1           ; tm_rowr runs it on to the row's own, so it
+    cmp dx, [tm_dmg+0]          ; owns the tail past the text and damage out
+    jb .no                      ; there is still its to repair
 .yes:
     clc
     jmp short .out
 .no:
     stc
 .out:
+    pop dx
     pop cx
     pop bx
     pop ax
@@ -4011,27 +4009,31 @@ tm_htype:
     mov si, tm_s_tregn
     jmp short .put
 .seg:
-    call tm_hdrv                ; only the claim table tells the two apart: a
-    jc .data                    ; driver's ring and a package's data claim both
-    mov si, tm_s_tdrvb          ; carry a bare segment, and labelling the ring
-    jmp short .put              ; 'Data' is 28.4.3's rule failing the one way
+    mov si, tm_s_tdrvb          ; only the claim table tells the two apart: a
+    call tm_hdrv                ; driver's ring and a package's data claim both
+    jnc .put                    ; carry a bare segment, and labelling the ring
+                                ; 'Data' is 28.4.3's rule failing the one way
                                 ; that leaves nothing on screen to notice
 .data:
     mov si, tm_s_tdata
     jmp short .put
-.kern:
+.kern:                          ; (each range's name is loaded BEFORE its
+                                ; test, so a hit goes straight to .put)
+    mov si, tm_s_twsav
     mov dx, ax                  ; the raise-cache RANGE first: one per window
     sub dx, MEM_P_WSAVE         ; slot (SPEC.md 11.96.3), so it is not in the
     cmp dx, MEM_P_WSAVE_N       ; exact-match table below
-    jb .wsave
+    jb .put
+    mov si, tm_s_tfatw
     mov dx, ax                  ; ...and the FAT windows, one per VOLUME, which
     sub dx, MEM_P_FATW          ; became a range when they became a cache
     cmp dx, MEM_P_FATW_N        ; (SPEC.md 18.8.4)
-    jb .fatw
+    jb .put
+    mov si, tm_s_tview
     mov dx, ax                  ; ...and a Disk window's LISTING cache, one per
     sub dx, MEM_P_VIEW          ; fm_pool slot, which became a range when it
     cmp dx, MEM_P_VIEW_N        ; became a cache on kern_small (SPEC.md 50.6.5).
-    jb .view                    ; On kern_big nothing is stamped with it and
+    jb .put                     ; On kern_big nothing is stamped with it and
                                 ; this compare simply never fires
     mov si, tm_ktab
 .scan:
@@ -4045,15 +4047,6 @@ tm_htype:
 .found:
     inc si                      ; the name is the record's own tail
     inc si
-    jmp short .put
-.wsave:
-    mov si, tm_s_twsav
-    jmp short .put
-.fatw:
-    mov si, tm_s_tfatw
-    jmp short .put
-.view:
-    mov si, tm_s_tview
     jmp short .put
 .hex:
     call tm_put4x               ; AX is still the owner word
@@ -4622,12 +4615,9 @@ tm_row_place:
     jmp short .nofit            ; an index this page has no column for - and the
 .col:                           ; row then went a TM_COLW past the frame's right
                                 ; edge, onto the desktop, which nothing clips
-    push dx                     ; DX is the row within the column and `mul`
-    mov bx, ax                  ; writes it - it does not survive this
-    mov ax, TM_COLW
-    mul bx
-    pop dx
-    add cx, ax
+    add cx, TM_COLW             ; ...and it can only be column 1: tm_layout
+                                ; makes ONE or TWO, so this is a step and
+                                ; not a multiply (DX = the row within it)
     mov bx, TM_C2_ROW_Y         ; top-anchored, whatever column 0 does
     mov ax, dx
 .place:
@@ -4923,27 +4913,19 @@ tm_lrun:
     call tm_rowok
     jc .out
 
-    mov di, tm_str              ; pad to the band's width, in place
-    xor cx, cx
-.len:
-    cmp byte [di], 0
-    je .lend
-    inc di
-    inc cx
-    cmp cx, TM_LCELLS
-    jb .len
-.lend:
-    mov ax, TM_LCELLS
-    sub ax, cx                  ; ...however many spaces that takes
-    jbe .term                   ; already the full width, or over it
-    mov cx, ax
-    mov al, ' '
-.sp:
-    mov [di], al
-    inc di
-    loop .sp
-.term:
-    mov byte [di], 0
+    push es                     ; pad to the band's width, in place - with
+    push ds                     ; the string instructions, as tm_row_draw
+    pop es                      ; pads a row (ES = our segment for them)
+    mov di, tm_str
+    mov cx, TM_LCELLS + 1
+    xor al, al
+    repne scasb                 ; DI just past the NUL (every line is at most
+    dec di                      ; TM_LCELLS: the guards at TM_STRMAX), back
+    inc cx                      ; onto it; CX >= 1 cells from there to the
+    mov al, ' '                 ; band's end, inclusive
+    rep stosb
+    mov byte [tm_str + TM_LCELLS], 0
+    pop es
 
     mov cx, [tm_cx]
     add cx, TM_PEN
@@ -5000,9 +4982,8 @@ tm_row_draw:
     cld
     repne scasb                 ; DI just past the NUL, CX = bytes after it
     dec di                      ; ...back ONTO it: the pad overwrites it
-    inc cx
-    jcxz .padded
-    mov al, ' '                 ; SPACES, not zeros. font_run paints a space
+    inc cx                      ; (>= 1: a row is at most the span, so the
+    mov al, ' '                 ; NUL is found) SPACES, not zeros. font_run paints a space
     rep stosb                   ; as background on its fast path (the glyph's
                                 ; rows are all clear, so the mask leaves the
                                 ; background byte) - which is exactly the

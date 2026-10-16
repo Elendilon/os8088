@@ -60624,6 +60624,12 @@ the file follows UNIQUE bytes.
   end by address (no counter on the stack) and starts the totals' span from
   where that walk leaves SI, which IS `tm_kb`; `tm_graph` keeps the
   interior's left edge in a register instead of recomputing it.
+- **Per-row helpers**: `tm_dmg_hit` derives a chunk's right edge from the
+  left one it already has instead of a second multiply; `tm_row_place` steps
+  to column 1 by `TM_COLW` (there are only ever one or two columns);
+  `tm_lrun` pads a caption with `REPNE SCASB`/`REP STOSB` as `tm_row_draw`
+  pads a row (whose `jcxz` was dead: a row always has its NUL); `tm_htype`
+  loads each range's name before its test.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 
