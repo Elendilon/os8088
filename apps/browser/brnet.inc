@@ -1269,13 +1269,9 @@ br_framefetch:
     ; Restore the base URL of the frameset before resolving relative srcs.
     push ds
     pop es
-    mov si, br_framehost
-    mov di, br_host
-    mov cx, BR_HOSTMAX
-    rep movsb
-    mov si, br_framepath
-    mov di, br_path
-    mov cx, BR_PATHMAX
+    mov si, br_framehost            ; host and path are ONE run on both
+    mov di, br_host                 ; sides, so one copy
+    mov cx, BR_HOSTMAX + BR_PATHMAX
     rep movsb
     xor bx, bx
     mov bl, [br_frameidx]
@@ -1411,13 +1407,9 @@ br_frameclose:
     mov di, br_ptitle
     mov cx, BR_TITMAX
     rep movsb
-    mov si, br_framehost
-    mov di, br_host
-    mov cx, BR_HOSTMAX
-    rep movsb
-    mov si, br_framepath
-    mov di, br_path
-    mov cx, BR_PATHMAX
+    mov si, br_framehost            ; host and path are ONE run on both
+    mov di, br_host                 ; sides, so one copy
+    mov cx, BR_HOSTMAX + BR_PATHMAX
     rep movsb
     mov si, br_frameurl
     mov di, br_ubuf

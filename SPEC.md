@@ -115392,6 +115392,11 @@ redirects and frames - and left the same bytes behind.
   hand-inlined copy of `br_fld`; a submit button's, three copies of one
   multiply, is `br_subrec`. A button value's `&nbsp;` is two word compares and
   a byte rather than five bytes, and a field's padding is `jcxz`/`loop`.
+- **A frame's host and path are one copy.** `br_path` follows `br_host` and
+  `br_framepath` follows `br_framehost`, so the three places a frameset saves
+  or restores the pair (`br_frame`, `br_framefetch`, `br_frameclose`) move
+  `BR_HOSTMAX + BR_PATHMAX` bytes in one `rep movsb`; an `%error` holds the
+  adjacency.
 
 ### 72.1 What the packages did have to change, which is one question
 

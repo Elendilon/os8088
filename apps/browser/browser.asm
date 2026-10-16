@@ -5000,13 +5000,9 @@ br_frame:
     push es
     push ds
     pop es
-    mov si, br_host
-    mov di, br_framehost
-    mov cx, BR_HOSTMAX
-    rep movsb
-    mov si, br_path
-    mov di, br_framepath
-    mov cx, BR_PATHMAX
+    mov si, br_host                 ; host and path are ONE run on both
+    mov di, br_framehost            ; sides, so one copy
+    mov cx, BR_HOSTMAX + BR_PATHMAX
     rep movsb
     pop es
     pop di
@@ -9071,6 +9067,9 @@ BR_BSS      equ (br_frameurl + BR_UBUF - os88_image_end)
 %endif
 %if br_nstate != os88_image_end + 946 || br_nlines != os88_image_end + 38
 %error "tests/ethernet.py and tests/brfetch.py read br_nstate at +946 and br_nlines at +38 by number"
+%endif
+%if br_path != br_host + BR_HOSTMAX || br_framepath != br_framehost + BR_HOSTMAX
+%error "a frame saves and restores br_host and br_path as one run"
 %endif
 %if br_docseg != br_srcseg + 2 || br_lseg != br_docseg + 2
 %error "br_free_all walks br_srcseg, br_docseg and br_lseg as a run"
