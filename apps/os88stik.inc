@@ -52,6 +52,20 @@
 ;                                       build for kern_big, where a refused
 ;                                       QUERY refuses the LAUNCH instead
 ;                                       (SPEC.md 110.7, 110.11)
+;   %define STIK_PACK   proc             optional, with STIK_UNPACK: a PACKED
+;   %define STIK_UNPACK proc            state file, only the payload bytes in
+;                                       use (SPEC.md 110.5.3). STIK_PACK, just
+;                                       before a save: squeeze STIK_PAY in
+;                                       place, CX out = the bytes to write
+;                                       (1..STIK_PAYLEN). STIK_UNPACK, after a
+;                                       load (CX = the file's payload length,
+;                                       <= STIK_PAYLEN, the rest of STIK_PAY
+;                                       zero) and after every save (CX = what
+;                                       STIK_PACK answered): spread it back,
+;                                       CF = 1 it is not yours - DAMAGED. Both
+;                                       keep BX, DX and ES and may spend AX,
+;                                       CX, SI, DI. Without them the file is
+;                                       STIK_PAYLEN exactly, as ever
 ;   %define STIK_DMGREPLACE              optional: a DAMAGED file is
 ;                                       DELETED by the first save, which then
 ;                                       writes afresh - nothing asked. Without
@@ -135,6 +149,11 @@ STIK_BKMAX      equ 16          ; a refusal that may clear waits 1, 2, 4, 8,
 
 %if STIK_BSS % 16
   %error "os88stik: STIK_BSS must be a multiple of 16 - the read wants a paragraph"
+%endif
+%ifdef STIK_PACK
+ %ifndef STIK_UNPACK
+  %error "os88stik: STIK_PACK wants STIK_UNPACK - a save spreads back what it squeezed"
+ %endif
 %endif
 %ifdef STIK_DESKONLY
  %ifndef STIK_WIDGET
@@ -498,16 +517,31 @@ stik_load:
 .got:
     or dx, dx
     jnz .bad
+%ifdef STIK_PACK
+    sub ax, STIK_HDR_SIZE       ; PACKED: a payload of 1..STIK_PAYLEN bytes,
+    jbe .bad                    ; the header's own length (SPEC.md 110.5.3)
+    cmp ax, STIK_PAYLEN
+    ja .bad
+    cmp [stik_file+STIK_H_LEN], ax
+    jne .bad
+%else
     cmp ax, STIK_HDR_SIZE + STIK_PAYLEN
     jne .bad                    ; the EXACT size, or it is not ours
+%endif
     cmp word [stik_file+STIK_H_MAGIC], STIK_HDR_MAGIC
     jne .bad
     cmp byte [stik_file+STIK_H_VER], STIK_HDR_VER
     jne .bad
     cmp byte [stik_file+STIK_H_PAYVER], STIK_PAYVER
     jne .bad
+%ifdef STIK_PACK
+    xchg ax, cx                 ; CX = the payload's length, the rest of it
+    call STIK_UNPACK            ; zero (bss): spread it, or CF = 1 not ours
+    jc .bad
+%else
     cmp word [stik_file+STIK_H_LEN], STIK_PAYLEN
     jne .bad
+%endif
     test byte [stik_file+STIK_H_FLAGS], STIK_HF_POS
     jz .home
     pop di                      ; the template
@@ -928,10 +962,24 @@ stik_save:
     mov word [stik_file+STIK_H_MAGIC], STIK_HDR_MAGIC
     mov byte [stik_file+STIK_H_VER], STIK_HDR_VER
     mov word [stik_file+STIK_H_PAYVER], STIK_PAYVER  ; +13 = 0
+%ifdef STIK_PACK
+    call STIK_PACK              ; CX = the payload's bytes in use, squeezed
+    mov [stik_file+STIK_H_LEN], cx
+    call stik_io
+    add cx, STIK_HDR_SIZE
+    call OSAPI_FILE_WRITE
+    pushf
+    push ax
+    mov cx, [stik_file+STIK_H_LEN]
+    call STIK_UNPACK            ; spread back - it cannot refuse what
+    pop ax                      ; STIK_PACK made
+    popf
+%else
     mov word [stik_file+STIK_H_LEN], STIK_PAYLEN
     call stik_io
     mov cx, STIK_HDR_SIZE + STIK_PAYLEN
     call OSAPI_FILE_WRITE
+%endif
     call stik_leave             ; AX and the flags kept
     jnc .ok
     cmp ax, FERR_IO

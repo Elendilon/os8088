@@ -10110,7 +10110,7 @@ SOAK = [
         "double-click is refused by the package's own singleton - `Desk "
         "Calendar is open`, LD_EABORT, no write, SYSTEM.CFG unchanged; the "
         "x its hovered HANDLE reveals removes the row by name and saves a "
-        "2,456-byte "
+        "24-byte (packed, empty) "
         "DESKCAL.DAT holding its place; a reset brings nothing back.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
     Row("stikmove", "soak", py("tests/stikmove.py"), 30.0,

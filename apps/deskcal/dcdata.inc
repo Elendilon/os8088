@@ -14,6 +14,84 @@
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
+; THE STATE FILE IS PACKED (os88stik.inc's STIK_PACK / STIK_UNPACK, SPEC.md
+; 110.5.3): the 8 bytes of counts and settings, the appointments IN USE, then
+; the tasks in use straight after them - so a few entries are one cluster on
+; the disk where the whole 2,440-byte table was three. Full tables pack to
+; exactly the fixed layout, so a file of DCP_LEN is read as it stands -
+; which is every file written before the packing, too.
+;
+; dc_squeeze - STIK_PACK, just before a save: the tasks down behind the last
+; appointment. Out CX = the payload bytes to write. Keeps BX, DX and ES
+; -----------------------------------------------------------------------------
+dc_squeeze:
+    push es
+    push ds
+    pop es
+    mov al, [STIK_PAY + DCP_NAPPT]
+    mov ah, DCP_APPTSZ
+    mul ah                      ; (a byte MUL: DX kept)
+    add ax, STIK_PAY + DCP_APPT0
+    xchg ax, di                 ; DI = where the tasks go
+    mov al, [STIK_PAY + DCP_NTASK]
+    mov ah, DCP_TASKSZ
+    mul ah
+    xchg ax, cx                 ; CX = their bytes
+    mov si, STIK_PAY + DCP_TASK0
+    cld
+    rep movsb                   ; DOWN, so forward is safe
+    pop es
+    lea cx, [di - STIK_PAY]     ; CX = the bytes in use
+    ret
+
+; dc_spread - STIK_UNPACK, after a load and after every save: CX = the
+; payload's length. DCP_LEN is the fixed layout, read as it stands; anything
+; shorter must be exactly the counts' records, packed, and the tasks go back
+; up to DCP_TASK0 with the gap behind them zeroed. CF = 1 it is not - a
+; DAMAGED file. Keeps BX, DX and ES
+dc_spread:
+    cmp cx, DCP_LEN
+    je .r                       ; (CF = 0)
+    push es
+    push ds
+    pop es
+    mov al, [STIK_PAY + DCP_NTASK]
+    cmp al, DCP_MAXTASK
+    ja .bad
+    mov ah, DCP_TASKSZ
+    mul ah
+    xchg ax, di                 ; DI = the tasks' bytes
+    mov al, [STIK_PAY + DCP_NAPPT]
+    cmp al, DCP_MAXAPPT
+    ja .bad
+    mov ah, DCP_APPTSZ
+    mul ah
+    add ax, DCP_APPT0           ; AX = where the packed tasks start
+    mov si, ax
+    add si, di                  ; SI = where they end, which must be the
+    cmp si, cx                  ; file's own length
+    jne .bad
+    mov cx, di
+    add si, STIK_PAY - 1        ; the last packed byte...
+    lea di, [di + STIK_PAY + DCP_TASK0 - 1] ; ...to the last task byte
+    std
+    rep movsb                   ; UP, so backwards
+    cld
+    mov cx, DCP_TASK0
+    sub cx, ax
+    xchg ax, di
+    add di, STIK_PAY            ; the gap: the records not in use, zero as
+    xor al, al                  ; dc_adel leaves them
+    rep stosb
+    pop es                      ; (CF = 0: the XOR's)
+    ret
+.bad:
+    pop es
+    stc
+.r:
+    ret
+
+; -----------------------------------------------------------------------------
 ; dc_check - the payload as it was read: both counts inside their tables and
 ; the appointments in order. CF = 1 it is not ours to trust (a DAMAGED file,
 ; SPEC.md 110.3). Every register kept

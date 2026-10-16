@@ -379,13 +379,20 @@ def dat(payload=b"", x=None, y=None, screen=None, payver=1, cont=False):
     return hdr + payload
 
 
-def parse_dat(data, paylen, payver):
+def parse_dat(data, paylen, payver, packed=False):
     """The package's own test (os88stik.inc's stik_load): the EXACT size, the
     magic, the header version, the payload's version and length. Raises
     DiaError naming the first refusal - a file that is not exactly this is
-    DAMAGED to the package, never partly read."""
+    DAMAGED to the package, never partly read. `packed` is a package with
+    STIK_PACK (SPEC.md 110.5.3): the payload may be SHORTER than `paylen`,
+    and is then exactly the header's length - the caller unpacks it."""
     data = bytes(data)
-    if len(data) != STIK_HDR_SIZE + paylen:
+    if packed:
+        if not STIK_HDR_SIZE < len(data) <= STIK_HDR_SIZE + paylen:
+            raise DiaError("%d bytes, not 1..%d of payload"
+                           % (len(data), paylen))
+        paylen = len(data) - STIK_HDR_SIZE
+    elif len(data) != STIK_HDR_SIZE + paylen:
         raise DiaError("%d bytes, not %d" % (len(data), STIK_HDR_SIZE + paylen))
     if data[:2] != STIK_HDR_MAGIC:
         raise DiaError("no 'DA' magic")
@@ -467,10 +474,42 @@ def deskcal(appts=(), tasks=(), lead=5, flags=0, snooze=None):
     return bytes(out)
 
 
-def parse_deskcal(p):
+def deskcal_pack(p):
+    """The payload as dc_squeeze writes it (SPEC.md 110.5.3): the 8 bytes,
+    the appointments in use, the tasks in use straight after them. Full
+    tables pack to the fixed layout byte for byte."""
     p = bytes(p)
     if len(p) != DESKCAL_PAYLEN:
         raise DiaError("a DESKCAL payload is %d bytes" % DESKCAL_PAYLEN)
+    na, nt = p[0], p[1]
+    end = DESKCAL_APPT0 + na * DESKCAL_APPT
+    return (p[:end] + p[DESKCAL_TASK0:DESKCAL_TASK0 + nt * DESKCAL_TASK])
+
+
+def deskcal_unpack(p):
+    """dc_spread: DESKCAL_PAYLEN is the fixed layout as it stands; anything
+    shorter must be exactly its counts' records, and comes back with the
+    tasks at DESKCAL_TASK0 and every record not in use zero."""
+    p = bytes(p)
+    if len(p) == DESKCAL_PAYLEN:
+        return p
+    if len(p) < DESKCAL_APPT0:
+        raise DiaError("a packed DESKCAL payload of %d bytes" % len(p))
+    na, nt = p[0], p[1]
+    if na > DESKCAL_NAPPT or nt > DESKCAL_NTASK:
+        raise DiaError("counts %d/%d past the table" % (na, nt))
+    end = DESKCAL_APPT0 + na * DESKCAL_APPT
+    if len(p) != end + nt * DESKCAL_TASK:
+        raise DiaError("a packed payload of %d bytes for %d/%d records"
+                       % (len(p), na, nt))
+    out = bytearray(DESKCAL_PAYLEN)
+    out[:end] = p[:end]
+    out[DESKCAL_TASK0:DESKCAL_TASK0 + nt * DESKCAL_TASK] = p[end:]
+    return bytes(out)
+
+
+def parse_deskcal(p):
+    p = deskcal_unpack(p)
     na, nt, lead, flags = p[0], p[1], p[2], p[3]
     if na > DESKCAL_NAPPT or nt > DESKCAL_NTASK:
         raise DiaError("counts %d/%d past the table" % (na, nt))
@@ -614,6 +653,21 @@ def selfcheck():
     bad = bytearray(pay)
     bad[0] = 49
     refuses(lambda: parse_deskcal(bytes(bad)), "49 appointments")
+    # PACKED (SPEC.md 110.5.3): the records in use, the tasks behind them
+    pk = deskcal_pack(pay)
+    ok(len(pk) == 8 + 3 * 32 + 2 * 28, "packed: 8 + 3 x 32 + 2 x 28 bytes")
+    ok(deskcal_unpack(pk) == pay, "...and it spreads back to the payload")
+    pf = dat(pk, payver=DESKCAL_PAYVER)
+    ok(len(pf) <= 1024, "a few entries are one cluster (%d bytes)" % len(pf))
+    ok(parse_deskcal(parse_dat(pf, DESKCAL_PAYLEN, 1, packed=True)
+                     ["payload"]) == dc, "a packed file parses the same")
+    refuses(lambda: parse_dat(pf, DESKCAL_PAYLEN, 1), "packed, not unpacked")
+    refuses(lambda: deskcal_unpack(pk[:-1]), "packed, a byte short")
+    refuses(lambda: deskcal_unpack(pk + b"\0"), "packed, a byte long")
+    fullp = deskcal([((2026, 1, 1), i, "A") for i in range(48)],
+                    [("T", False)] * 32)
+    ok(deskcal_pack(fullp) == fullp, "FULL tables pack to the fixed layout")
+    ok(len(deskcal_pack(deskcal())) == 8, "an empty one is its 8 bytes")
     # v2: DUE, SNOOZED and the snooze slot (+4 minute, +6 date)
     ok(dc["snooze"] is None and not any(a["due"] or a["snoozed"]
                                         for a in dc["appts"]),
