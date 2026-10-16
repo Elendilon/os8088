@@ -88025,6 +88025,12 @@ instruction; `tests/tgplay.py` (soak `tgplay`, `--ref` for the cycles) and
   the clamp and the shift); and the entry proc floored the REQUESTED cell at
   1, which no desktop band reaches - `tg_track`'s floor is the one that
   guards the drawing. Every frame's `tg_track` loses a taken branch.
+- **The template's four words are stored in order.** The entry proc wrote
+  `WT_W`, `WT_H`, `WT_X`, `WT_Y` one `mov` each and divided by 3 in 16
+  bits; it computes them into registers and `stosw`s them in template order,
+  and the third is an 8-bit `div` (what the frame leaves of the desktop
+  band is under 160 rows). Checked against the old arithmetic for every
+  dock row 100-480 at 320, 640 and 720 wide: the same four words.
 
 ## 50. memory.inc — the claim heap
 

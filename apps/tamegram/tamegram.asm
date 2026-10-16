@@ -283,30 +283,33 @@ tg_entry:
     jbe .wid
     mov dx, ax
 .wid:
-    inc dx                          ; frame = content + the 1px sides
-    inc dx
-    mov [tg_tpl + WT_W], dx
-    add ax, TG_HUD_H + TITLE_H + 1  ; content height = HUD + matrix
-    mov [tg_tpl + WT_H], ax
-
-    pop bx                          ; centred horizontally, a third of the way
-    sub bx, dx                      ; down the desktop band
-    jns .xok
-    xor bx, bx
+    inc dx                          ; DX = the frame's width: the content and
+    inc dx                          ; its 1px sides
+    add ax, TG_HUD_H + TITLE_H + 1  ; AX = its height: HUD, matrix, title
+    xchg ax, cx                     ; CX = the height
+    pop ax                          ; the screen width: centred horizontally,
+    sub ax, dx                      ; a third of the way down the desktop
+    jns .xok                        ; band
+    xor ax, ax
 .xok:
-    shr bx, 1
-    mov [tg_tpl + WT_X], bx
-    xchg ax, si                     ; AX = the dock row, SI = the frame height
+    shr ax, 1
+    mov di, tg_tpl                  ; the template's first four words, in
+    stosw                           ; order: WT_X...
+    xchg ax, si                     ; AX = the dock row
     sub ax, MBAR_H
-    sub ax, si
+    sub ax, cx
     jns .yok
     xor ax, ax
 .yok:
-    xor dx, dx
-    mov bx, 3
-    div bx
+    mov bl, 3                       ; what the frame leaves of the band is
+    div bl                          ; under 160 rows (the cell takes the rest
+    cbw                             ; up to its cap), so AL < 128: AH = 0
     add ax, MBAR_H
-    mov [tg_tpl + WT_Y], ax
+    stosw                           ; ...WT_Y
+    xchg ax, dx
+    stosw                           ; ...WT_W
+    xchg ax, cx
+    stosw                           ; ...and WT_H
 
     call OSAPI_GET_TICKS            ; seeded once; every later piece, faction
     call OSAPI_SRAND                ; and vector walks on down the same stream
