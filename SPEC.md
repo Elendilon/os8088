@@ -160729,6 +160729,60 @@ foot of `kerndos/kdos.asm`, 33,659 of 33,792, so **the DOS program on the
 shut-down arm is handed two kilobytes more**. That is Task #27's kilobyte -
 the one §96.11.7's character devices borrowed - and one besides.
 
+#### 96.44.16 The second apps size pass: what `DOS.O88` costs a DISK
+
+The shipped `DOS.O88` is §96.44.4's four pieces, and the second apps size pass
+(docs/plans/HANDOFF-APPS-SIZE-P2.md) weighs it by its FILE: the 2,276-byte raw
+loader, then part 0 (the box), part 1 (the core) and part 2 (`kern_dos`),
+each LZ4-packed and each started on a 512-byte boundary (§20.12.3) - so a byte
+saved inside parts 0 and 1 reaches the file only when that part's packed
+length crosses a sector, and a byte saved in part 2, the last, reaches it at
+once. What the pass took, every item a layout or data change and none a change
+to what a DOS program sees (§96's real-DOS rule, docs/DOS-DEBUGGING.md):
+
+- **Dead window code**, superseded and never deleted: `dos_btn_rect` and
+  `dos_sav_rect` (the page button's and Save Shortcut's rects before
+  `dos_bar_rects`/`dos_furn_rects`, §96.32.2), `dos_btn_lbl` with its label
+  table and the two labels only it named (`Memory`, `Done` - the page
+  cycle §96.32.2 retired), `dos_erow_focus`, `dos_lnk_skip` and
+  `dos_con_say`, none of which anything called; and the page button's
+  8-byte `DOS_B_BRECT` cell, which only `dos_btn_rect` wrote. Part 0 222
+  bytes smaller raw, 116 packed.
+- **Fifteen `call X` / `ret` pairs became `jmp X`** - ten in the window half,
+  five in the shell (`dsh_say`), none whose target reads its own return
+  address or swaps the stack (`dos_restore_machine`, `dos_exec_back` and the
+  `dos_be_*` doors are left alone for that reason). A word less stack and a
+  `ret` less time on each, and part 0 -10 / part 1 -4 packed.
+
+DEFECTS found reading the code are fixed here, each one byte-negative:
+
+- **`dsh_isshell` never recognised a full `COMSPEC` path** (§96.30). An
+  `inc si`/`dec si` pair either side of `.fwd` cancelled the step past the
+  separator, so `C:\COMMAND.COM` compared its `\` against `c` and only a bare
+  `command.com` was ever the built-in shell - the case §96.30's own prose
+  names as the reason the match is raw. Two instructions out of the core.
+- **`dos_pkt_hchk` overwrote the client's CX** with the row size, 7: the
+  handle check divided by CX. `get_address` reads the client's buffer size in
+  CX AFTER the check, so it never refused a short buffer, and `release_type`
+  and `terminate` handed the client back a CX it did not pass. A byte divide
+  by DL instead (AX is under 28) - three bytes shorter and faster.
+
+Together: part 0 19,802 -> 19,671 packed and part 1 13,513 -> 13,507, and
+**neither crossed its sector, so the file is still 48,203 bytes** - part 0 is
+215 packed bytes short of one and part 1 195. The box's image + bss is 243
+bytes smaller (50,364 -> 50,121), which takes `op_size`'s sector-rounded carve
+from 99 sectors to 98. What would move the file is outside this package and
+is recorded in the pass's report rather than taken: generating CP437's
+box-drawing glyphs at launch (`apps/os88cp437.inc`, 220 packed bytes of part
+0), gating the dropdown's drag/up and two unused `os88con`/`os88line` entries
+(~180), compressing a parted package's IMAGE (`tools/os88pkg.py`: this
+loader's 2,276 raw bytes pack to 1,980, a sector), and shipping the core
+inside part 0 for `kern_dos`'s stub to read from there (one part's padding).
+Sharing the window half's `pop`-ladder epilogues, which pass 1 left on the
+table, is REFUSED on a measurement: every copy is a 3-byte LZ4 match already,
+and replacing the 35 commonest with a `jmp` makes part 0 111 packed bytes
+LARGER.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a
