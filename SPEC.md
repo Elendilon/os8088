@@ -169335,8 +169335,10 @@ averages brightness over a box wide enough to see past the dither and
 counts the edges a cut ADDS but not the ones it LOSES - blur inside dither
 "has very little effect". A scene change that leaves the OLD scene showing
 whole reads low (21 where the owner put the frame at 70) and is right to
-in play, where it "looks like a fade". It is a REPORT: nothing steers by
-it yet.
+in play, where it "looks like a fade". It steers no pixel yet; it is one
+of the measures `--aim quality`'s trials (98.2.1.4) and page-ahead's keep
+(98.2.1.8.1, 98.2.1.8.2) judge by, BESIDE the error as seen and never in
+its place.
 
 ###### 98.2.1.2.1 `--cut`: which changes a cut frame keeps (2026-10-06)
 
@@ -169803,7 +169805,9 @@ the owner's "maximize quality, minimize size":
   choices on trial encodes - the whole clip up to 40 s, else three 10 s
   windows at a sixth, a half and five sixths - and takes each in turn while
   the picture stays within 1.25 x the asked one's error as seen (+0.2
-  points) and cuts at most 5% more of its frames: a box a step up the
+  points) and 1.25 x its VIEW as seen (+1 point, `AIM_SEEN0`; 98.2.1.2's
+  `seen_share`, where a format has pixels to judge it by) and cuts at most
+  5% more of its frames: a box a step up the
   preset's ladder (`herc` -> `herc-mid` -> `herc-full`, `vga` -> `vga-mid`
   -> `vga-full`, `cga-small` -> `cga`, and the colour presets' own), then
   22,050 Hz sound. The report says what it tried and why it stopped. Bad
@@ -170027,7 +170031,8 @@ Options version 26 takes a version-25 record's flag as `on` or `off`.
   PROGRESS lines going straight through. The page-ahead file is shipped
   only if `page_compare` finds its picture better somewhere and worse
   nowhere: the mean error as seen, the worst second, the seconds visibly
-  broken and the frames cut. Otherwise the plain file and its report are
+  broken, the view as seen and its seconds a tenth broken (98.2.1.2's
+  `seen_share`, since 2026-10-16) and the frames cut. Otherwise the plain file and its report are
   shipped, with one line saying why: *page-ahead: DROPPED - it made the
   worst second worse (...)*, or *no flip*, or *it bettered nothing*. A plan
   pass with no cut frame never runs the second pass at all.
@@ -170076,7 +170081,8 @@ whole. This judges each build:
   the 8 builds that hurt came out no better than the pass with them.
 - **Which file ships**: the third pass replaces the second if its PICTURE
   is better than the second's somewhere and worse nowhere (the error as
-  seen, the worst second, the seconds visibly broken), or if 98.2.1.8.1
+  seen, the worst second, the seconds visibly broken, the view as seen and
+  its seconds a tenth broken: `PAGE_PICTURE`), or if 98.2.1.8.1
   would drop the second and the third passes 98.2.1.8.1's test against the
   plain encode. The frames cut are not asked between the two page passes: a
   pruned build's scene change is cut again by design, so they nearly always

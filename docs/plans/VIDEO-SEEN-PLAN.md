@@ -1,6 +1,6 @@
 # VIDEO-SEEN-PLAN - "error as seen" as a person sees it, and an encoder that spends by it
 
-**Status: section 2's score BUILT as a report line (2a, 2026-10-16), in three sets - colour, grey and 1-bit dither; the rest is PLAN.** Recorded from the owner's
+**Status: section 2's score BUILT as a report line (2a, 2026-10-16), in three sets - colour, grey and 1-bit dither - and judging `--aim quality`'s trials and page-ahead's keep beside today's figure; the rest is PLAN.** Recorded from the owner's
 review of the GasGas and Bad Carrot comparison encodes, and parked while
 the encoder's choice in one scene is fixed first: the opening car shot of
 GasGas (0:40), which the owner's own tune plays clean on the Victory 286
@@ -172,9 +172,17 @@ idea (98.2.1.8: a scene change built on the hidden page and swapped in
 whole) and 3a's hold, which shows the old frame whole for a period; the
 score should not punish what those two buy.
 
-**Next**: the clip's figure into the trial encodes (`--aim`, page-ahead's
-KEEP) beside today's; then section 3. A colour clip of flat cartoon
-colour is a fourth check.
+**In the trial encodes** (2026-10-16): `--aim quality` takes a step only
+while the view as seen stays within 1.25 x the asked one's plus a point
+(`AIM_SEEN0`), beside the error as seen's own test; page-ahead's keep and
+its prune weigh the view's mean and its seconds a tenth broken beside the
+error as seen's three (`PAGE_PICTURE`). Take On Me 0:10-0:30 at `--preset
+herc`: `herc-mid` not taken, the view 1.0% broken against 0.4% (and 16%
+of frames cut against 2%); GasGas 0:38-0:48 in Mode X, page-ahead KEPT
+with the view 0.4% against the plain encode's 0.7%. `page_hurt` - which
+build hurt its own stretch - still sums today's per-frame figure.
+
+**Next**: section 3. A colour clip of flat cartoon colour is a fourth check.
 
 ## 3. Using it in the encoder
 

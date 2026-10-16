@@ -6625,16 +6625,20 @@ AIM_WHOLE = 40.0        # ...or the whole clip when it is this short
 AIM_ERR = 1.25          # ...a richer choice may be this much worse as seen
 AIM_ERR0 = 0.002        # ...plus this, so a clip near 0 has room
 AIM_CUT = 0.05          # ...and cut this share more of its frames
+AIM_SEEN0 = 0.01        # ...and the VIEW as seen (seen_share) as AIM_ERR,
+                        # plus this: a point of it, the view being shares
+                        # of tens where the mean is tenths (VIDEO-SEEN-PLAN)
 AIM_WORTH = 1.0         # --aim size's floor: pixels fixed a byte of stream
 
 
 def _trial(b):
-    """One --aim quality trial window: (error as seen, share cut)"""
+    """One --aim quality trial window: (error as seen, share cut, the view
+    as seen - None where the format has no pixels to judge it by)"""
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         b.out = os.path.join(tmp, "t.V88")
         res = _encode(b, None, lambda *x: None, [])
-    return res.get("q_vis", 0.0), res.get("cutf", 0.0)
+    return res.get("q_vis", 0.0), res.get("cutf", 0.0), res.get("q_seen")
 
 
 def aim_quality(a, tick, say):
@@ -6642,8 +6646,10 @@ def aim_quality(a, tick, say):
     TRYING it. Trial encodes of the clip (or three windows of a long one)
     at the asked settings, then a box a step up the preset's ladder at a
     time, then 22,050 Hz sound; each is taken while its picture stays
-    within AIM_ERR of the asked one's error as seen and cuts no more than
-    AIM_CUT more of its frames. -> the args to encode with"""
+    within AIM_ERR of the asked one's error as seen - and of its VIEW as
+    seen (seen_share, plus AIM_SEEN0), the share of where an eye looks
+    that is broken - and cuts no more than AIM_CUT more of its frames.
+    -> the args to encode with"""
     import copy
     dur = probe(a.src)[4] or 0.0
     end = a.end if a.end is not None else dur
@@ -6665,7 +6671,8 @@ def aim_quality(a, tick, say):
         return b
 
     def trials(argss):
-        """Each args' (error as seen, share cut), its windows averaged -
+        """Each args' (error as seen, share cut, view as seen), its windows
+        averaged -
         EVERY window of every one at once, `jobs` encodes at a time, each
         in a process of its own (and one core: a pool's worker dithers in
         itself). The numbers are one encode's each, whichever process made
@@ -6690,13 +6697,23 @@ def aim_quality(a, tick, say):
                 res.append(_trial(b))
         out, k = [], len(wins)
         for n in range(len(argss)):
-            errs = [e for e, c in res[n * k:(n + 1) * k]]
-            cuts = [c for e, c in res[n * k:(n + 1) * k]]
-            out.append((sum(errs) / len(errs), sum(cuts) / len(cuts)))
+            r = res[n * k:(n + 1) * k]
+            vs = [v for e, c, v in r]
+            out.append((sum(e for e, c, v in r) / k,
+                        sum(c for e, c, v in r) / k,
+                        None if None in vs else sum(vs) / k))
         return out
 
     def fine(q, q0):
-        return q[0] <= q0[0] * AIM_ERR + AIM_ERR0 and q[1] <= q0[1] + AIM_CUT
+        return q[0] <= q0[0] * AIM_ERR + AIM_ERR0 and \
+            q[1] <= q0[1] + AIM_CUT and \
+            (q[2] is None or q0[2] is None or
+             q[2] <= q0[2] * AIM_ERR + AIM_SEEN0)
+
+    def figs(q):
+        return "%.2f%% error as seen%s, %.0f%% of frames cut" % (
+            100 * q[0], "" if q[2] is None else
+            ", the view %.1f%% broken" % (100 * q[2]), 100 * q[1])
 
     best = a
     lad = next((l for l in LADDERS if a.preset in l), None)
@@ -6713,15 +6730,14 @@ def aim_quality(a, tick, say):
     ahead = steps if jobs >= (1 + len(steps)) * len(wins) else []
     got = trials([a] + ahead)
     q0 = got[0]
-    say("   aim quality: as asked, %.2f%% error as seen, %.0f%% of frames "
-        "cut" % (100 * q0[0], 100 * q0[1]))
+    say("   aim quality: as asked, %s" % figs(q0))
     if steps:
         for n, b in enumerate(steps):
             p = b.preset
             q = got[1 + n] if ahead else trials([b])[0]
             ok = fine(q, q0)
-            say("   aim quality: %s, %.2f%% and %.0f%% - %s" % (
-                p, 100 * q[0], 100 * q[1], "taken" if ok else "not taken"))
+            say("   aim quality: %s, %s - %s" % (
+                p, figs(q), "taken" if ok else "not taken"))
             if not ok:
                 break
             best = b
@@ -6735,9 +6751,8 @@ def aim_quality(a, tick, say):
         b.rate = AIM_SOUND
         q = trials([b])[0]
         ok = fine(q, q0)
-        say("   aim quality: %d Hz sound, %.2f%% and %.0f%% - %s" % (
-            AIM_SOUND, 100 * q[0], 100 * q[1],
-            "taken" if ok else "not taken"))
+        say("   aim quality: %d Hz sound, %s - %s" % (
+            AIM_SOUND, figs(q), "taken" if ok else "not taken"))
         if ok:
             best = b
     return best
@@ -6869,8 +6884,10 @@ def page_line(verdict, plain, page=None, pg=None, pruned=None):
     shipped"""
     def fig(r):
         n = r.get("cuts", 0)
-        return "%d frame%s cut, %.1f s visibly broken" % (
-            n, "" if n == 1 else "s", r.get("q_broken", 0.0))
+        return "%d frame%s cut, %.1f s visibly broken%s" % (
+            n, "" if n == 1 else "s", r.get("q_broken", 0.0),
+            ", the view %.1f%% broken" % (100 * r["q_seen"])
+            if "q_seen" in r else "")
     out = "   page-ahead: %s - plain: %s" % (verdict, fig(plain))
     if page is not None:
         out += "; with it: %s" % fig(page)
@@ -7020,7 +7037,7 @@ def page_passes(a, keep, tick, readers, mode="on"):
                 p3 = res3.get("page") or {}
                 # (a pruned build's scene change is cut again by design:
                 # the frames cut cannot judge a prune, the picture can)
-                w32, b32 = page_compare(res3, res2, PAGE_MEASURES[:3])
+                w32, b32 = page_compare(res3, res2, PAGE_PICTURE)
                 w3, b3 = page_compare(res3, res1)
                 if p3.get("flips") and (
                         (not w32 and b32) or
@@ -7156,10 +7173,12 @@ def page_hurt(plain, page):
     return out
 
 
-PAGE_MEASURES = (("q_vis", "the error as seen"),
-                 ("q_worst", "the worst second"),
-                 ("q_broken", "the seconds visibly broken"),
-                 ("cutf", "the frames cut"))
+PAGE_PICTURE = (("q_vis", "the error as seen"),
+                ("q_worst", "the worst second"),
+                ("q_broken", "the seconds visibly broken"),
+                ("q_seen", "the view as seen"),
+                ("q_seen_broken", "the seconds a tenth of the view broken"))
+PAGE_MEASURES = PAGE_PICTURE + (("cutf", "the frames cut"),)
 
 
 def page_compare(p, b, measures=PAGE_MEASURES):
