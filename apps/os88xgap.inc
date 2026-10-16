@@ -67,6 +67,11 @@ xg_gap:
     mov ax, [si]
     call xg_time
     jc .fail
+%ifdef XG_TIMES
+    mov bx, si                      ; (each gap's count kept, xg_tt: what a
+    sub bx, xg_gaps                 ; caller's diagnostic saves, the board's
+    mov [xg_tt + bx], ax            ; interleave as this boot found it)
+%endif
     cmp si, xg_gaps
     jne .c
     mov [xg_t0], ax                 ; 0 apart: the reference
@@ -174,4 +179,7 @@ xg_s0:      dd 0                    ; the block's start, 0 apart from DS:0
 xg_t0:      dw 0                    ; the count 0 apart
 xg_bt:      dw 0                    ; the least count
 xg_best:    dw 0                    ; ...and its gap
+%ifdef XG_TIMES
+xg_tt:      times 6 dw 0            ; every gap's count, xg_gaps' order
+%endif
 %endmacro
