@@ -105179,6 +105179,7 @@ bytes, and it was not taken. No bss offset moved in the full build.
 |---|---:|---:|---:|---:|
 | the cut point | 4,329 | 4,777 + 478 | 3,353 | 3,657 + 192 |
 | 1. cold paths | 4,301 | 4,721 + 478 | 3,327 | 3,614 + 192 |
+| 2. the keystroke path | 4,262 | 4,652 + 478 | 3,287 | 3,545 + 192 |
 
 **1. The cold paths** — none of these runs on a keystroke:
 
@@ -105195,6 +105196,37 @@ bytes, and it was not taken. No bss offset moved in the full build.
 - `View`'s item is TOGGLED rather than copied: `Show` and `Hide` are one XOR
   of each other applied in step with `[cal_open]`, which drops the two
   four-byte source strings and two saves.
+
+**2. The keystroke path** — every change REMOVES or cheapens instructions, so
+none can be slower, and it was measured anyway:
+
+- **A register is kept by whoever reads it after, and by nobody else.** The
+  `cq_*` family banked everything; now `cq_div10`, `cq_divmod`, `cq_zero`,
+  `cq_big`, `cq_div10r`, `cq_scale` and `cq_mul32` keep only what a caller
+  reads across them (`cq_mul10` keeps AX for `cal_pack`'s digit and
+  `cal_do_sqrt`'s exponent, CX for `cq_scale`, SI and BX for `cal_addsub`'s
+  operands), and each routine's header says what it clobbers. `cal_fmtv` no
+  longer banks AX, BX or DX (BX it never wrote); `cal_copy`, the one caller
+  owing its own caller every register, banks DX itself. `cal_hit` dropped a
+  push/pop round two routines that keep AX.
+- `cq_mul32` STORES the two partial products that do not overlap and adds only
+  the two cross terms, so the result needs no zeroing first. `cq_div10r`
+  falls into `cq_add16`. `cal_kdigit`'s `m * 10 + d` multiplies the same two
+  operands in the other order and needs two moves where it had six.
+  `cal_rect` adds each extent a byte at a time with its carry.
+- `cal_key`'s tail IS `cal_show`'s body: the two banked the same six registers
+  one inside the other, so a key paid for the save twice. `cal_show` is now a
+  save and a jump into it, paid by the four entries that are not a keystroke.
+
+Measured on MartyPC (`os8088_5150_cga`, the 360KB disks): guest cycles from
+`cal_key`'s entry to its `ret` for each of 56 typed keys - digits, all four
+operators, `=`, `Q`, `R`, `%`, `N`, Backspace, Esc - on both builds, with the
+display fields compared after every key and **identical on all 56**. A digit
+is **314-464 cycles cheaper**, `=` 962-1,058, `R` 1,222, `Q` 1,512; the whole
+sequence **2,106,376 -> 2,042,978 (-3.0%)**. Four keys read dearer, by 1,054
+to 5,486, and none of them repeats at the same key elsewhere in the sequence
+(Backspace and Esc are -294 and -320 there): a timer tick landing inside the
+window is ~6,000 cycles, which is also the size of the eight largest gains.
 
 ## 66. Heap compaction — closing the holes on demand
 

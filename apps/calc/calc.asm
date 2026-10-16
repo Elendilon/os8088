@@ -473,14 +473,11 @@ cal_rect:
     add dx, [cal_oy]
     mov [bx+0], ax
     mov [bx+2], dx
-    push cx
-    mov ch, 0
-    add ax, cx
-    mov [bx+4], ax
-    pop cx
-    mov cl, ch
-    mov ch, 0
-    add dx, cx
+    add al, cl                      ; ...and each extent added a BYTE at a
+    adc ah, 0                       ; time, carry and all: no push, no pop and
+    mov [bx+4], ax                  ; no widening of CL and CH into a word
+    add dl, ch                      ; first (apps size pass 2)
+    adc dh, 0
     mov [bx+6], dx
     pop dx
     pop cx
@@ -541,11 +538,9 @@ cal_hit:
 %endif
 .try:
     mov ah, 0
-    push ax
-    call cal_rect                   ; BX = the candidate's rect
-    call os88ui_bhit                ; CF = 0: inside it
-    pop ax
-    jc .none
+    call cal_rect                   ; BX = the candidate's rect; AX kept
+    call os88ui_bhit                ; CF = 0: inside it (every register kept,
+    jc .none                        ; so nothing needs banking round the two)
     inc ax
     ret
 .none:
@@ -1388,6 +1383,13 @@ cal_hslot:
 ; THE KEYSTROKE PATH: every key ends here. The save is this routine's and
 ; nothing under it keeps a register (cal_compose, cal_emit), which is both
 ; fewer bytes and fewer cycles than each of them banking the lot.
+;
+; ITS BODY IS cal_key's TAIL. The two banked the same six registers in the
+; same order, one inside the other, so a keystroke paid for the save twice
+; and a call and a return between them. The body now sits at the end of
+; cal_key and this entry banks and jumps into it - so the jump is paid by the
+; four entries that are not a keystroke (a repaint, a paste's last word, a
+; history row) and the keystroke pays nothing (apps size pass 2).
 ; -----------------------------------------------------------------------------
 cal_show:
     push ax
@@ -1396,6 +1398,32 @@ cal_show:
     push dx
     push si
     push di
+    jmp short cal_key.show
+
+; -----------------------------------------------------------------------------
+; cal_key - run one key code
+; in:  AL = CK_*; the layout is current; gfx lock held
+; out: nothing; preserves all registers
+;
+; Every path ends in cal_show's body, which draws the cells that changed and
+; no others - so a digit costs one OSAPI_FONT_RUN over two or three cells, and
+; nothing else on the window is touched.
+;
+; THIS IS THE ONE SAVE FOR THE WHOLE ENGINE. Every handler below cal_dispatch
+; - the arithmetic, the history line, the clears - is reached from here and
+; nowhere else, so none of them keeps a register of anybody's: each says what
+; it clobbers rather than banking and restoring the lot on the way through
+; (apps size pass 1, where that banking was ~200 bytes of push and pop).
+; -----------------------------------------------------------------------------
+cal_key:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call cal_dispatch
+.show:                              ; cal_show's body, under the same save
     call cal_compose                ; the two fields, as they SHOULD read, and
     mov ax, CAL_CTX_X               ; CX = their width
     mov si, cal_cbuf
@@ -1601,41 +1629,14 @@ cal_rpad:
 ; a TABLE rather than a compare ladder, because the ladder was 24 rungs and
 ; an 8086's conditional jumps are all short: a body added in the middle put
 ; the arms at the bottom out of reach, which NASM reports as a range error
-; nowhere near the change that caused it.
+; nowhere near the change that caused it. (cal_key itself sits beside
+; cal_show above, because its tail IS cal_show's body.)
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; cal_key - run one key code
-; in:  AL = CK_*; the layout is current; gfx lock held
-; out: nothing; preserves all registers
-;
-; Every path ends in cal_show, which draws the cells that changed and no
-; others - so a digit costs one OSAPI_FONT_RUN over two or three cells, and
-; nothing else on the window is touched.
-;
-; THIS IS THE ONE SAVE FOR THE WHOLE ENGINE. Every handler below cal_dispatch
-; - the arithmetic, the history line, the clears - is reached from here and
-; nowhere else, so none of them keeps a register of anybody's: each says what
-; it clobbers rather than banking and restoring the lot on the way through
-; (apps size pass 1, where that banking was ~200 bytes of push and pop).
+; cal_dispatch - run the handler for key code AL, under cal_key's save
+; out: nothing; clobbers AX, BX, CX, DX, SI, DI
 ; -----------------------------------------------------------------------------
-cal_key:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    call cal_dispatch
-    call cal_show
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
 cal_dispatch:
     mov [cal_kcode], al             ; the handlers that need it read it here
     ; ANY KEY THAT REACHES THE ENGINE UN-BLANKS THE FIELD, and cal_kop is the
@@ -1690,19 +1691,15 @@ cal_kdigit:
     cmp ax, (CAL_ENTMAX & 0xFFFF)
     ja .out
 .fits:
-    mov bx, 10                      ; m = m * 10 + digit, in 32 bits; the high
-    mov cx, dx                      ; half cannot carry out, m being at most
-    mul bx                          ; CAL_ENTMAX on the way in
-    mov si, dx                      ; SI = the carry into the high half
-    mov di, ax                      ; DI = the low half
-    mov ax, cx
-    mul bx
-    add ax, si
-    mov dx, ax
-    mov ax, di
-    mov bl, [cal_kcode]
-    xor bh, bh
-    add ax, bx
+    mov cx, 10                      ; m = m * 10 + digit, in 32 bits; the high
+    xchg ax, dx                     ; half cannot carry out, m being at most
+    mov si, dx                      ; CAL_ENTMAX on the way in. The HIGH half
+    mul cx                          ; first, so its product is set aside in SI
+    xchg ax, si                     ; and the low one lands in DX:AX where the
+    mul cx                          ; sum wants it: two moves where there were
+    add dx, si                      ; six (apps size pass 2), the same two
+    mov cl, [cal_kcode]             ; multiplies of the same operands, and CH
+    add ax, cx                      ; is already the 0 the digit needs
     adc dx, 0
     mov [cal_cur+CV_M+0], ax
     mov [cal_cur+CV_M+2], dx
@@ -2247,6 +2244,7 @@ cal_copy:
     push ax
     push bx
     push cx
+    push dx                         ; cal_fmtv's, which does not keep it
     push si
     push di
     push es
@@ -2267,6 +2265,7 @@ cal_copy:
     pop es                          ; cannot leave our incremental drawing
     pop di                          ; disagreeing with our W_PAINT (SPEC.md 59)
     pop si
+    pop dx
     pop cx
     pop bx
     pop ax
@@ -2353,13 +2352,18 @@ cq_set32:
 
 ; -----------------------------------------------------------------------------
 ; cq_mul10 - [DI] *= 10
-; out: CF = 1 if it carried out of 64 bits; preserves all registers
+; out: CF = 1 if it carried out of 64 bits; clobbers DX, preserves the rest
+;
+; WHAT IS KEPT IS WHAT A CALLER READS AFTER IT, and no more (apps size pass
+; 2, here and through the cq_* family): AX is cal_pack's digit and
+; cal_do_sqrt's exponent, CX is cq_scale's count, SI and BX are cal_addsub's
+; operand pointers across cq_scale. Nothing holds DX across one, so it is
+; not banked - a push and a pop off every multiply by ten.
 ; -----------------------------------------------------------------------------
 cq_mul10:
     push ax
     push bx
     push cx
-    push dx
     push si
     push di
     mov bx, di                      ; BX = the pointer: an 8086 index register
@@ -2379,7 +2383,6 @@ cq_mul10:
     neg cx                          ; CF = 1 exactly when a carry is left
     pop di                          ; pops do not touch the flags
     pop si
-    pop dx
     pop cx
     pop bx
     pop ax
@@ -2387,13 +2390,12 @@ cq_mul10:
 
 ; -----------------------------------------------------------------------------
 ; cq_div10 - [DI] /= 10
-; out: AX = the remainder 0..9; preserves all other registers
+; out: AX = the remainder 0..9; clobbers BX, DX, SI; preserves CX and DI
+;
+; cal_pack is the only caller (directly and through cq_div10r) and it holds
+; DI alone across one; CX is never touched here at all.
 ; -----------------------------------------------------------------------------
 cq_div10:
-    push bx
-    push cx
-    push dx
-    push si
     push di
     mov bx, di                      ; BX = the pointer, for cq_mul10's reason
     mov di, 10
@@ -2405,13 +2407,23 @@ cq_div10:
     mov [bx+si], ax
     sub si, 2
     jnc .w                          ; 6, 4, 2, 0, then the borrow ends it
-    mov ax, dx
+    xchg ax, dx
     pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
     ret
+
+; -----------------------------------------------------------------------------
+; cq_div10r - [DI] = round([DI] / 10)
+; out: nothing; clobbers AX, BX, DX, SI (cq_div10's, and cal_pack - the one
+;      caller - holds none of them across it)
+;
+; It FALLS INTO cq_add16 to round up, and leaves through that routine's
+; `ret` when it does not - so neither arm has a jump or a return of its own.
+; -----------------------------------------------------------------------------
+cq_div10r:
+    call cq_div10
+    cmp ax, 5
+    jb cq_add16.out
+    mov ax, 1                       ; ...and on into the add
 
 ; -----------------------------------------------------------------------------
 ; cq_add16 - [DI] += AX (unsigned 16-bit)
@@ -2422,21 +2434,7 @@ cq_add16:
     adc word [di+2], 0
     adc word [di+4], 0
     adc word [di+6], 0
-    ret
-
-; -----------------------------------------------------------------------------
-; cq_div10r - [DI] = round([DI] / 10)
-; out: nothing; preserves all registers
-; -----------------------------------------------------------------------------
-cq_div10r:
-    push ax
-    call cq_div10
-    cmp ax, 5
-    jb .out
-    mov ax, 1
-    call cq_add16
 .out:
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2492,15 +2490,14 @@ cq_cmp:
 
 ; -----------------------------------------------------------------------------
 ; cq_zero - is [DI] zero?
-; out: ZF = 1 if it is; every register preserved
+; out: ZF = 1 if it is; clobbers AX (its two callers, cal_pack and
+;      cal_isqrt, branch on the answer and hold nothing in AX across it)
 ; -----------------------------------------------------------------------------
 cq_zero:
-    push ax
     mov ax, [di+0]
     or ax, [di+2]
     or ax, [di+4]
     or ax, [di+6]                   ; ...which is the ZF
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2522,19 +2519,27 @@ cq_copy:
 
 ; -----------------------------------------------------------------------------
 ; cq_mul32 - [DI] = the 64-bit product of the dwords at [SI] and [BX]
-; out: nothing; preserves all registers
+; out: nothing; clobbers AX and DX (cal_mul goes on to cal_pack, cal_div to
+;      its raise loop, and neither reads them)
 ;
 ; Four 16x16 partial products. DI may not alias either input.
+;
+; THE TWO THAT DO NOT OVERLAP ARE STORED, NOT ADDED: a0 * b0 is words 0..1
+; and a1 * b1 is words 2..3, which between them write all four - so the two
+; cross products are the only adds and the result needs no zeroing first. It
+; was two `mov word [di+n], 0` stores and an add where this has a move: ten
+; bytes fewer, and every instruction it lost was paid on every multiply and
+; on every divide's precision target (apps size pass 2).
 ; -----------------------------------------------------------------------------
 cq_mul32:
-    push ax
-    push dx
-    mov word [di+4], 0
-    mov word [di+6], 0
     mov ax, [si+0]                  ; a0 * b0, into words 0..1
     mul word [bx+0]
     mov [di+0], ax
     mov [di+2], dx
+    mov ax, [si+2]                  ; a1 * b1, into words 2..3
+    mul word [bx+2]
+    mov [di+4], ax
+    mov [di+6], dx
     mov ax, [si+0]                  ; a0 * b1, into words 1..2
     mul word [bx+2]
     add [di+2], ax
@@ -2545,18 +2550,13 @@ cq_mul32:
     add [di+2], ax
     adc word [di+4], dx
     adc word [di+6], 0
-    mov ax, [si+2]                  ; a1 * b1, into words 2..3
-    mul word [bx+2]
-    add [di+4], ax
-    adc word [di+6], dx
-    pop dx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; cq_divmod - [DI] = [DI] / [cal_dv], the remainder to [cal_rem]
 ; in:  DI = the dividend, [cal_dv] a NON-ZERO dword divisor
-; out: nothing; preserves all registers
+; out: nothing; clobbers AX and CX (cal_div goes on to cal_pack and
+;      cal_isqrt reloads both, so a pass of sixty-four is not bracketed)
 ;
 ; Restoring shift-subtract, one bit a pass, the quotient shifted in at the
 ; bottom as the dividend leaves the top - so there is one 96-bit shift and no
@@ -2565,8 +2565,6 @@ cq_mul32:
 ; compare: R < D always, so 2R+1 < 2D and 2R+1-D < D fits 32 bits again.
 ; -----------------------------------------------------------------------------
 cq_divmod:
-    push ax
-    push cx
     mov word [cal_rem+0], 0
     mov word [cal_rem+2], 0
     mov cx, 64
@@ -2594,16 +2592,13 @@ cq_divmod:
 .next:
     dec cx
     jnz .pass
-    pop cx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; cq_big - is [DI] more than nine digits?
-; out: CF = 1 if [DI] > CAL_MAXM; every register preserved
+; out: CF = 1 if [DI] > CAL_MAXM; clobbers AX (cal_pack, the one caller)
 ; -----------------------------------------------------------------------------
 cq_big:
-    push ax
     xor ax, ax                      ; each compare is the LIMIT against the
     cmp ax, [di+6]                  ; word, so its borrow IS the answer: CF = 1
     jb .out                         ; when the word is the larger - and a
@@ -2615,23 +2610,20 @@ cq_big:
     mov ax, CAL_MAXM & 0xFFFF
     cmp ax, [di+0]
 .out:
-    pop ax                          ; pops do not touch the flags
     ret
 
 ; -----------------------------------------------------------------------------
 ; cq_scale - [DI] *= 10^CL
-; out: nothing; preserves all registers
+; out: nothing; clobbers CX (cal_addsub's raise is the one caller, and it
+;      loads CL fresh for each operand)
 ; -----------------------------------------------------------------------------
 cq_scale:
-    push cx
-    or cl, cl
-    jz .out
-    xor ch, ch
+    mov ch, 0
+    jcxz .out
 .mul:
     call cq_mul10
     loop .mul
 .out:
-    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2639,7 +2631,8 @@ cq_scale:
 ; in:  cal_q the magnitude, [cal_wd] its decimal places (0..16), [cal_wsgn]
 ;      its sign
 ; out: CF = 1 and cal_cur untouched on overflow
-; clobbers: AX, DI
+; clobbers: AX, BX, DX, SI, DI (every caller is a key handler under
+;      cal_key's one save, or cal_calc, which clobbers the lot already)
 ;
 ; EVERY ANSWER LANDS IN cal_cur, so that is where this writes: the four
 ; callers each named it (or cal_res, which three callers then copied into
@@ -3009,7 +3002,14 @@ cal_isqrt:
 ; in:  BX = the value, DI = the destination, AL non-zero = show a trailing
 ;      point (the '12.' a half-typed entry is showing)
 ; out: DI = ONE PAST the text, which is NOT terminated, and CX = how many
-;      characters that is; preserves all other registers
+;      characters that is; clobbers AX and DX, preserves BX (which it only
+;      reads), SI and BP
+;
+; AX AND DX ARE NOT BANKED, because no caller holds anything in them across
+; a format: cal_compose and the history composers reload both, and cal_copy -
+; the one caller owing its own caller every register - banks DX itself. Six
+; bytes and three pushes and pops off every keystroke's two formats (apps size
+; pass 2); BX was banked round code that never writes it.
 ;
 ; DI comes back ADVANCED because every caller but one went on to write after
 ; the number - a NUL, an operator, ' = ' - and each spelled `add di, cx`
@@ -3028,9 +3028,6 @@ cal_isqrt:
 ; round each one, which is both shorter and faster than it was.
 ; -----------------------------------------------------------------------------
 cal_fmtv:
-    push ax
-    push bx
-    push dx
     push si
     push bp
     push di                         ; the start, for the count
@@ -3090,9 +3087,6 @@ cal_fmtv:
     sub cx, si
     pop bp
     pop si
-    pop dx
-    pop bx
-    pop ax
     ret
 
 ; =============================================================================
