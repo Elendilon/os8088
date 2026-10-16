@@ -9734,25 +9734,20 @@ np_pfield:
     push si
     push di
     push bp
-    xor ah, ah
+    cbw                         ; AL is 0 or 1
     mov bp, ax                  ; BP = which box (a VALUE - SS is not DS here)
-    mov cx, NP_FP_ROW
-    mul cx
-    add ax, [np_pt]
-    add ax, NP_FP_PAD
-    mov di, ax                  ; DI = this row's top
-
-    mov al, CBLACK              ; the pen is the BOX FRAME's below, not the
-    call OSAPI_SET_COLOR        ; label's - the label carries its own pair
+    mov di, [np_pt]
+    add di, NP_FP_PAD           ; DI = this row's top...
     mov si, np_s_find
     or bp, bp
     jz .lbl
+    add di, NP_FP_ROW           ; ...one row down for Repl:
     mov si, np_s_repl
 .lbl:
-    mov cx, [np_pl]
-    add cx, 4
-    mov dx, di
-    add dx, 1
+    mov al, CBLACK              ; the pen is the BOX FRAME's below, not the
+    call OSAPI_SET_COLOR        ; label's - the label carries its own pair
+    mov cx, [np_pcbx]           ; the panel's left + 4, which np_fpgeom keeps
+    lea dx, [di+1]
     mov ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = the panel's own ground
     call OSAPI_FONT_RUN             ; (SPEC.md 6.6.5)
 
@@ -9761,8 +9756,7 @@ np_pfield:
     mov bx, di
     mov cx, [np_pfr]
     add cx, 2
-    mov dx, di
-    add dx, NP_FP_ROW - 3
+    lea dx, [di+NP_FP_ROW-3]
     call OSAPI_GFX_FRAME
 
     push di
@@ -9774,8 +9768,7 @@ np_pfield:
     inc dx                      ; di+1..di+8, INSIDE the frame at di..di+9:
                                 ; the run is opaque, so a cell that reached
                                 ; the frame's own row would erase it
-    mov al, CBLACK
-    mov ah, CWHITE
+    mov ax, (CWHITE << 8) | CBLACK
     call OSAPI_FONT_RUN
 
     mov al, [np_ffield]         ; the caret, when this box has the focus
@@ -9788,10 +9781,8 @@ np_pfield:
     add ax, [np_pfx]
     cmp ax, [np_pfr]
     ja .out
-    mov bx, di
-    inc bx
-    mov dx, bx
-    add dx, 7
+    lea bx, [di+1]
+    lea dx, [di+8]
     call np_black
     call OSAPI_GFX_VLINE
 .out:

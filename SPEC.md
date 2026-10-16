@@ -58238,6 +58238,10 @@ into bss or the heap. The numbers are the file and the image, both arms.
    rect one row down (`inc dx`, `mov bx, cx`), the Regex tick is the tick
    box's frame inset by two, and the four buttons count their slot down
    from 3 in BX, which `np_pbutton` keeps.
+9. **`np_pfield` places a text box with `lea`.** The row's top is
+   `[np_pt]` plus the pad, plus a row for Repl: (no `mul`), the label's x is
+   `[np_pcbx]` that `np_fpgeom` already holds, and the frame and caret
+   edges are each one `lea` off the row's top.
 
 ## 28. apps/taskmgr — the Task Manager
 
