@@ -62,10 +62,22 @@ disk needs it. One session per set; one agent per package inside it.
   whether a shared lane runs after the sets. docs/plans/HANDOFF-APPS-SHARED.md
   is pass 1's list.
 
-### 2.1 Set A's follow-on, owner-approved - IN PROGRESS, and it moves your numbers
+### 2.1 Set A's follow-on, owner-approved - LANDED on the pass branch, and it moves your numbers
 
 On set A's results the owner approved three things outside the sets, run by
-set A's session on the pass branch:
+set A's session on the pass branch. **It has landed** (SPEC.md 20.13.8,
+96.44.16.1): a parted package's image now ships packed when that saves a
+sector - DOS.O88 48 -> 47 clusters, PiXEL 113,147 -> 105,467 bytes (111 -> 103
+clusters on office360), C64 and Apple II 8 clusters each on their 360KB disks;
+Skies, Word and PIXELSTEIN declined (no sector saved) and are byte-identical.
+The kernel paid +33 resident bytes of `.cold` on each kernel for it, which
+leaves kern_big's `.cold` rung ONE byte from crossing. The CP437 glyph
+generator was REFUSED on a measurement (LZ4 already packs the box glyphs to
+~179 bytes) and the core-in-part-0 idea was dropped by the owner (part 1 is
+moved to launch programs under kern_dos). Set E: re-take your snapshot after
+merging - PiXEL's 7.7 KB is set A's follow-on, not yours.
+
+What was proposed:
 
 - **`tools/os88pkg.py` packs the image of a package that has PARTS** (today
   that image ships raw). If it lands it is universal: every parted package's
