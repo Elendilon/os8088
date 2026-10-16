@@ -832,13 +832,22 @@ db_px_hit:
 ; rather than by the bump this used to need.
 ; -----------------------------------------------------------------------------
 db_key:
+%ifdef KERN_BIG
+%if I_STATE != 0 || I_FLAGS != 1
+  %error "db_key reads I_STATE and I_FLAGS as ONE word at the record's start"
+%endif
+    mov ax, [di]                ; AL = I_STATE, AH = I_FLAGS: live only -
+    and ah, IF_DESK             ; dying and free records have no tile
+    dec ax                      ; (SPEC.md 29.2 rule 3) - and nor does a DESK
+    jnz .none                   ; instance (SPEC.md 30, 11.103). 1 exactly
+                                ; when it is live and no widget, so the DEC
+                                ; answers both: two bytes under two tests
+                                ; (kernel size pass 13)
+%else
     xor ax, ax
     cmp byte [di+I_STATE], 1    ; live only - dying and free records have no
     jne .out                    ; tile (SPEC.md 29.2 rule 3)
-%ifdef KERN_BIG
-    test byte [di+I_FLAGS], IF_DESK
-    jnz .out                    ; ...and nor does a DESK instance (SPEC.md 30,
-%endif                          ; 11.103): AX = 0 is "no tile"
+%endif
     mov ax, [di+I_ICON]
     rol ax, 1                   ; x3 - the pointer's high bits reach the low
     rol ax, 1                   ; end. THREE 1-BIT ROTATES: 6 bytes against
@@ -867,6 +876,11 @@ db_key:
     or al, DOCK_K_ACT           ; active: the border doubles
 .out:
     ret
+%ifdef KERN_BIG
+.none:
+    xor ax, ax                  ; AX = 0 is "no tile"
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; db_tile_x - tile i's left edge
@@ -1080,13 +1094,16 @@ db_hit:
     cmp al, INST_MAX            ; past the last slot?
     jae .in
     call inst_ptr               ; DI = record (in: AL = index; AX survives)
-    cmp byte [di+I_STATE], 1
 %ifdef KERN_BIG
-    jne .none
-    test byte [di+I_FLAGS], IF_DESK
-    jz .in                      ; live, and not a DESK instance (SPEC.md 30):
-.none:                          ; DI is the answer
+    push ax                     ; AL, the slot, is an output
+    call db_key                 ; AX = 0: no tile - empty, dying or a DESK
+    or ax, ax                   ; instance (SPEC.md 30). "Which records have
+    pop ax                      ; a tile" is ONE question (SPEC.md 29.2 rule
+    jnz .in                     ; 3), and db_key already asks all of it -
+                                ; three bytes under asking it again here
+                                ; (kernel size pass 13). `pop` writes no flag
 %else
+    cmp byte [di+I_STATE], 1
     je .in                      ; live: DI is the answer
 %endif
     xor di, di                  ; empty or dying: no tile here

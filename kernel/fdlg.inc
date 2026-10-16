@@ -710,23 +710,26 @@ FDBODY fdlg_top_x
     pop ax                      ; AX = wm_top's answer
     jnc .out
 %ifdef KERN_BIG
-    jnz .gone                   ; ZF=0: gone or answered (SPEC.md 38.2)
-    call far [DKDFP + DKD_KEY]  ; ZF=1: there is none - so does a WIDGET own
-    jnc .out                    ; the bar? DESK.DRV's dkd_key asks (SPEC.md
-    jmp short .stand            ; 11.103.10): CF = 0 and BX = it, or CF = 1,
-                                ; stand - which is also mod_gone's answer with
-                                ; no image, when no desk window can exist
-.gone:
-    xor ax, ax
+    jz .ask                     ; ZF=1: there is none - see below
 %else
     jz .stand                   ; ZF=1: there is none
-    xor ax, ax                  ; ZF=0: gone or answered (SPEC.md 38.2)
 %endif
+    xor ax, ax                  ; ZF=0: gone or answered (SPEC.md 38.2)
 .stand:
     xchg ax, bx                 ; ...which stands
 .out:
     pop ax
     retf
+%ifdef KERN_BIG
+.ask:                           ; ...so does a WIDGET own the bar? wm_top's
+    xchg ax, bx                 ; answer STANDS FIRST, in BX, and DESK.DRV's
+    call far [DKDFP + DKD_KEY]  ; dkd_key (SPEC.md 11.103.10) replaces it with
+    pop ax                      ; the widget (CF = 0) or keeps it (CF = 1) -
+    retf                        ; which is mod_gone's "registers kept" with no
+                                ; image, when no desk window can exist. A byte
+                                ; under standing after the call (kernel size
+                                ; pass 13)
+%endif
 
 ; =============================================================================
 ; THE HOOK (SPEC.md 38.9): files.inc's sites, one dispatch

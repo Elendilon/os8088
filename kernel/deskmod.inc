@@ -281,8 +281,10 @@ dkd_show:
 ; -----------------------------------------------------------------------------
 ; dkd_key - does a WIDGET own the bar? (SPEC.md 11.103.4, 12.6), far, from
 ;           fdlg_top_x with no chooser up
+; in:  BX = wm_top's answer, which stands unless a widget owns the bar
 ; out: CF = 0 and BX = [menu_win], a desk window: the key goes to IT;
-;      CF = 1 "stand" - wm_top's answer (BX spent). AX and the rest kept
+;      CF = 1 "stand" - BX kept, as mod_gone keeps it with no image. AX and
+;      the rest kept
 ;
 ; Never a HIDDEN one: every hide repaints through menu_draw_bar, whose
 ; menu_check takes the bar off a window that is not visible. A stale
@@ -290,14 +292,18 @@ dkd_show:
 ; without WF_DESK.
 ; -----------------------------------------------------------------------------
 dkd_key:
-    mov bx, [menu_win]
-    or bx, bx
+    push si
+    mov si, [menu_win]
+    or si, si
     jz .s
-    test byte [bx+W_FLAGS+1], WF_DESK >> 8
-    jnz .y                      ; CF = 0 (test clears it): BX = the widget
+    test byte [si+W_FLAGS+1], WF_DESK >> 8
+    jz .s
+    mov bx, si                  ; CF = 0 (the test cleared it): the widget
+    pop si
+    retf
 .s:
     stc
-.y:
+    pop si
     retf
 
 section .text
