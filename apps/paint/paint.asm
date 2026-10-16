@@ -932,20 +932,19 @@ pt_geom:
     ; DOCUMENT - a canvas born on a 1bpp screen stays one bit when the window
     ; is dragged onto the VGA beside it, because the picture has not changed
     ; and a promotion would quadruple a claim nobody asked to spend.
+    ; THE FIRST CANVAS IS pt_fmtpick'S RULE WITH THE ADAPTER AS THE DOCUMENT
+    ; (apps size pass 2): a one-bit screen opens a one-bit canvas, a colour
+    ; one a planar canvas - which is exactly a load of a picture whose
+    ; one-bitness is [pt_mono], so the same five instructions decide both and
+    ; the same pt_ncolset follows (black and white, and not SPEC.md 39.4's
+    ; dither class between them: a canvas that cannot store a colour must not
+    ; offer it). [pt_dcvt] is cleared on the way, which it already is.
 %ifndef PT_ONEBIT                   ; SPEC.md 42.22: the small arm is ALWAYS one
-    mov byte [pt_planar], 0         ; bit, on any adapter - so on that build
-    mov byte [pt_1bpp], 0           ; there is no colour arm at all rather than
-    cmp byte [pt_mono], 0           ; an unreachable one, and since 42.22.3 not
-    jne .one                        ; even the two bytes that would say so
-    mov byte [pt_planar], 1
-    jmp short .fmt
-.one:
-    mov byte [pt_1bpp], 1
-.fmt:
+    mov al, [pt_mono]               ; bit, on any adapter - so on that build
+    call pt_fmtpick                 ; there is no colour arm at all rather than
+%else                               ; an unreachable one, and since 42.22.3 not
+    call pt_ncolset                 ; even the two bytes that would say so
 %endif
-    call pt_ncolset                 ; black and white, and not SPEC.md 39.4's
-                                    ; dither class between them: a canvas that
-                                    ; cannot store a colour must not offer it
     mov ax, [pt_cwmax]              ; (SPEC.md 11.98, pt_onresize below)
     mov cx, [pt_chmax]
     cmp cx, PT_CH_MIN
@@ -14802,19 +14801,11 @@ pt_fmtpick:
     mov [pt_dcvt], al
 %else
     mov byte [pt_dcvt], 0
-    or al, al
-    jnz .one                        ; the file has no colour in it: hold it at
-    mov byte [pt_1bpp], 0           ; the depth it really is, whatever the
-    mov byte [pt_planar], 0         ; adapter would have picked
-    cmp byte [pt_mono], 0
-    jne .out
-    mov byte [pt_planar], 1
-    jmp short .out
-.one:
-    mov byte [pt_1bpp], 1
-    mov byte [pt_planar], 0
-.out:
-%endif
+    mov [pt_1bpp], al               ; AL = 1: the file has no colour in it, so
+    or al, [pt_mono]                ; hold it at the depth it really is,
+    xor al, 1                       ; whatever the adapter would have picked;
+    mov [pt_planar], al             ; planar only for a colour file on a colour
+%endif                              ; screen (AL and [pt_mono] are both 0 or 1)
     call pt_ncolset                 ; ...AND THE STRIP FOLLOWS THE DEPTH. This
                                     ; used to store 16 here, which is wrong
                                     ; twice over: a colour file on a HERCULES

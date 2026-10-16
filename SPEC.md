@@ -78427,6 +78427,32 @@ last — on `kern_small`'s Hercules floor machine, against the base's small
 build: **every screen identical** below the menu bar's clock and outside the
 Disk window's own file size, and **both saved files byte-identical**.
 
+#### 42.22.4 The second apps size pass — the FILE (2026-10-16)
+
+42.22.2 measured Paint by image + bss, what it costs a MACHINE, and the file
+grew. This pass measures it by `PAINT.O88` as `make` ships it, LZ4-packed
+(§20.13.5), because the 360KB system and apps disks are full and Paint rides
+**three** 360KB disks (system, apps, office) and the small arm two more — a
+byte off the full arm is three bytes of floppy. Nothing user-visible moves,
+no hot path is touched (the stroke, the fill, the blits and both decoders
+are left byte for byte), and the image only shrinks, so RAM does too.
+
+What makes a FILE byte is not what makes an image byte. A repeated
+sequence of four or more bytes is a three-byte LZ4 match, so de-duplicating
+code that is byte-identical buys almost nothing on disk; what pays is
+**unique** code made shorter — a computation carried in a register instead
+of reloaded, a flag computed instead of branched to, fixed bytes made data.
+
+**The first canvas is `pt_fmtpick`'s rule.** `pt_geom` decided the canvas
+format with its own branches — one-bit on a one-bit screen, planar on a
+colour one — and `pt_fmtpick` decided a LOADED picture's with others. They
+are one rule: a launch is a load of a picture whose one-bitness is
+`[pt_mono]`. `pt_geom` now calls `pt_fmtpick` with that, and `pt_fmtpick`
+computes the two bytes rather than branching to them — `[pt_1bpp]` is the
+argument and `[pt_planar]` is `(AL | [pt_mono]) xor 1`, both operands being
+0 or 1. **−52 image, −27 file.** The small arm, whose depth is the build's
+(42.22.3), keeps its own `pt_ncolset` call and assembles byte-identical.
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather
