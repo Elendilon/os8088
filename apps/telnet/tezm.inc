@@ -339,10 +339,9 @@ tz_hex:
     push dx
     push si
     push di
-    mov di, tz_ob
-    mov word [di], ZPAD | (ZPAD << 8)   ; **TWO ZPADs on a hex header** and
-    mov word [di+2], ZDLE | (ZHEX << 8) ; one on a binary one (SPEC.md 70.11.1)
-    add di, 4
+    mov di, tz_ob + 4
+    mov word [di-4], ZPAD | (ZPAD << 8) ; **TWO ZPADs on a hex header** and
+    mov word [di-2], ZDLE | (ZHEX << 8) ; one on a binary one (SPEC.md 70.11.1)
     mov word [tz_crc], 0
     mov dl, al                      ; DL = the frame type, kept past the CRC
     call tz_crcb
@@ -355,10 +354,9 @@ tz_hex:
     call tz_crcb
     call tz_hex2
     loop .h
-    mov ax, [tz_crc]
-    mov al, ah                      ; the CRC goes out HIGH byte first
+    mov al, [tz_crc + 1]            ; the CRC goes out HIGH byte first
     call tz_hex2
-    mov ax, [tz_crc]
+    mov al, [tz_crc]
     call tz_hex2
     mov word [di], 0x0A0D           ; CR LF
     add di, 2
@@ -378,17 +376,15 @@ tz_hex:
 ; --- tz_hex2 - AL as two lower-case hex digits at DI -------------------------
 tz_hex2:
     push ax
-    push bx
     push cx
-    mov bl, al
+    mov ah, al                      ; AH keeps the low nibble's byte
     mov cl, 4
     shr al, cl                      ; `shr reg, CL` is 8086; `shr reg, imm` is
     call .dig                       ; not (CLAUDE.md)
-    mov al, bl
+    mov al, ah
     and al, 0x0F
     call .dig
     pop cx
-    pop bx
     pop ax
     ret
 .dig:
@@ -1148,18 +1144,14 @@ tz_hcrc:
     mov ax, [tz_crc]
     cmp ah, [tz_hb + 5]
     jne .no
-    cmp al, [tz_hb + 6]
-    jne .no
+    cmp al, [tz_hb + 6]             ; equal leaves CF = 0, which is the answer
+.no:                                ; ZF = it checks; `pop` keeps the flags
     pop cx
     pop bx
     pop ax
-    clc
-    ret
-.no:
-    pop cx
-    pop bx
-    pop ax
+    je .yes
     stc
+.yes:
     ret
 
 ; -----------------------------------------------------------------------------
