@@ -1123,10 +1123,16 @@ int os88_assoc_set(const char *ext, const char *stem);
 
 /* os88_assoc_flush - bring volume vol's ASSOC.DAT up to date with the
  * packages on it (54.7.6): after copying packages onto a disk, so the next
- * boot knows their icons, their extensions and where they are. full != 0
- * reads every package the old cache did not hold. Returns 0, or -1 if it
- * could not (a full or write-protected disk, no system disk, kern_small). */
-int os88_assoc_flush(int vol, int full);
+ * boot knows their icons, their extensions and where they are. flags is 0
+ * (incremental) or the OS88_ASSOC_* bits: FULL reads every package the old
+ * cache did not hold; NOFLUSH|HOLD loads the writer and keeps it (call it
+ * BEFORE replacing system files), NOFLUSH alone releases it - on every way
+ * out. Returns 0, or -1 if it could not (a full or write-protected disk, no
+ * system disk, kern_small). */
+#define OS88_ASSOC_FULL    1
+#define OS88_ASSOC_HOLD    2
+#define OS88_ASSOC_NOFLUSH 4
+int os88_assoc_flush(int vol, int flags);
 
 /* The batch bracket (18.9.3): between these two a floppy may reuse its banked
  * BPB instead of re-reading LBA 0 at every volume switch - one call and one

@@ -86,6 +86,7 @@ ascw_flush_x:
     push bp
     push es
     mov [cs:asw_vol], dl
+    and al, ASCF_FULL           ; the hold bits are asc_flush's, not ours
     mov [cs:asw_mode], al
     mov word [cs:asw_seg], 0
     mov word [cs:asw_err], FERR_NODISK

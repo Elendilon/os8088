@@ -31,8 +31,16 @@
 ; vanishing, and the per-module pass keeps assembling.
 %ifdef OS88_ASSOC
 
-ASSOC_NAPP   equ 12             ; app slots
-ASSOC_NEXT   equ 24             ; extension slots
+ASSOC_NAPP   equ 32             ; app slots - 20 resident bytes each (stem,
+                                ; glyph, cluster, volume, default folder)
+ASSOC_NEXT   equ 64             ; extension slots - 4 each. Both were 12 and
+                                ; 24, and NOTHING FREES A SLOT in a session, so
+                                ; a machine that met more than 7 declaring
+                                ; programs past the five built-ins dropped the
+                                ; rest silently: office360 with apps360 wanted
+                                ; 9, a full hard-disk install 11 and 20 new
+                                ; extensions. 32/64 is what one full ASSOC.DAT
+                                ; (ASC_NEXT) can declare (SPEC.md 54.2)
 ASSOC_STICKY equ 0x80           ; ext slot bit 7: claimed by a RUNTIME
                                 ; registration, so a header declaration
                                 ; (SPEC.md 54.5) may not take it back
@@ -44,6 +52,12 @@ ASSOC_FIND   equ 0xEF           ; [assoc_dapp]: an extension nothing here
                                 ; BELOW ASSOC_FLUSH, with the slots, so that
                                 ; "a document is pending" is one compare
                                 ; (SPEC.md 54.7.6.3) - it was 0xFE
+ASCF_FULL    equ 1              ; OSAPI_ASSOC_FLUSH's AL (SPEC.md 54.5): read
+                                ; every package the old file does not hold
+ASCF_HOLD    equ 2              ; ...with ASCF_NOFLUSH: ACQUIRE - load the
+                                ; writer and keep it until a release
+ASCF_NOFLUSH equ 4              ; ...flush nothing: acquire (with HOLD) or
+                                ; RELEASE (without), and nothing else
 ASSOC_FLUSH  equ 0xF0           ; [assoc_dapp]: 0xF0 + a volume = flush that
                                 ; volume's ASSOC.DAT (SPEC.md 54.7.6). DVOL_MAX
                                 ; is 8, so 0xF0..0xF7, and nothing else at or
@@ -1774,9 +1788,11 @@ ASC_ROWCLUS  equ 10             ; the DIRECTORY the program lives in (0 = root),
                                 ; reserved - so SPEC.md 54.7.1's seeding costs
                                 ; the file not one byte
 ASC_ROWICO   equ 16             ; ...the icon's offset inside a row
-ASC_NAPP     equ 32             ; was 16, and the shipped apps disk holds 15 -
-ASC_NEXT     equ 24             ; one package of headroom, with no guard
-ASC_KB       equ 3              ; 32*88 + 16 + 24*4 = 2,928 bytes
+ASC_NAPP     equ 55             ; was 32 (and 16 before that), and apps720
+ASC_NEXT     equ 64             ; held exactly 32 packages while the 1.44MB
+ASC_KB       equ 5              ; apps disk held 34: 55*88 + 16 + 64*4 =
+                                ; 5,112 bytes, the most that fits 5KB with
+                                ; room for 64 extensions (SPEC.md 54.7.1)
 ; ...and that sum is now checked rather than kept up to date by hand. The ext
 ; rows are FOUR bytes, not ASC_ROW: asc_merge_ext walks them with `add di, 4`,
 ; which is the one number here that a reader is likely to get wrong, ASC_ROW
@@ -1955,7 +1971,7 @@ asc_use_x:
     shl bx, 1
     add bx, ax                  ; BX = what the header says the file contains,
     mov ax, dx                  ; less its header. DX = sectors, and at most
-    mov cl, 9                   ; ASC_KB*2 = 6 of them, so this cannot
+    mov cl, 9                   ; ASC_KB*2 = 10 of them, so this cannot
     shl ax, cl                  ; overflow: AX = what the file actually is
     sub ax, ASC_HDR
     cmp bx, ax
@@ -2213,7 +2229,7 @@ asc_slot_of:
     mul bl                      ; only, so AH needs no clearing and DX SURVIVES
     add ax, ASC_HDR             ; - this routine's header says it clobbers AX
     mov si, ax                  ; and CF, and `mul bx` clobbered DX. The row
-                                ; index is < ASC_NAPP, so AL*88 <= 2,728 and
+                                ; index is < ASC_NAPP, so AL*88 <= 4,752 and
                                 ; the product cannot leave AX. ES:SI = the row
     call asc_stem_in            ; stage its stem into the kernel
     call assoc_app_get          ; a full table leaves AL alone and CF set, and
@@ -2437,6 +2453,11 @@ asc_seg:  dw 0                  ; the claim, 0 = none (refused, or not yet)
 asc_n:    dw 0                  ; app rows in it, 0 = no usable cache
 asc_ne:   dw 0                  ; ...and association rows
 asc_vol:  db 0xFF               ; whose cache it holds, 0xFF = nobody's
+asc_hold: db 0                  ; non-zero = a caller HOLDS the writer
+                                ; (ASCF_HOLD): fm_fmt_drop leaves FORMAT.DRV
+                                ; loaded, so an installer that replaces it on
+                                ; the boot volume still flushes with the copy
+                                ; that matches this kernel (SPEC.md 54.7.6.4)
 asc_wno:  db 0xFF               ; the volume whose last flush the disk REFUSED
                                 ; this session (write-protected, full): no
                                 ; more posts for it (SPEC.md 54.7.6.4)

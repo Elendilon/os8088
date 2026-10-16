@@ -162,7 +162,7 @@ Read first: [§18 disk.inc — floppy I/O (BIOS int 13h) + the FAT driver](../SP
 | `0x01C7` | `OSAPI_FILE_GOTO` | in DX = a cluster from OSAPI_FILE_HERE, BL = its drive; moves YOUR instance there... |
 | `0x0467` | `OSAPI_FERR_TEXT` | AX = a FERR_* above, out ES:SI = the KERNEL'S own NUL text for it (SPEC.md 18.4.11)... |
 | `0x0249` | `OSAPI_ARG_FILE` | the document this instance was launched to open (SPEC.md 54.5). No inputs; out CF=1 = launched empty, the ordinary case... |
-| `0x0493` | `OSAPI_ASSOC_FLUSH` | DL = a volume, AL = 0 incremental / 1 FULL: bring that volume's ASSOC.DAT up to date with the packages on it (SPEC.md 54.5, 54.7.6), so the next boot... |
+| `0x0493` | `OSAPI_ASSOC_FLUSH` | DL = a volume, AL = the ASSOC_FL_* bits below (0 = incremental): bring that volume's ASSOC.DAT up to date with the packages on it (SPEC.md 54.5,... |
 | `0x024F` | `OSAPI_ASSOC_SET` | claim an extension for a program (SPEC.md 54.5). ES:SI -> 3 extension bytes then 8 stem bytes, both space-padded... |
 | `0x025A` | `OSAPI_DSK_CACHE` | **COMMAND THE READ-AHEAD CACHE'S WIDTH** (SPEC.md 18.95.8), for a program that is about to take the arena... |
 | `0x041F` | `OSAPI_FILE_PATH` | ES:DI = your buffer, CX = its size in bytes (>= 2); out CF=0, a NUL `\DIR\DIR` written there and CX = its length not counting the NUL, DI unchanged... |

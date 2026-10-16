@@ -5930,16 +5930,37 @@ dskw_fmt_line:
 ; on the UI task's idle pass, or from a package's own call), and a format
 ; prompt that was holding it reloads it through dskw_fmt_go like every other
 ; formatter stub does - one read, in the rare case the two overlap.
+; THE HOLD (SPEC.md 54.7.6.4): AL with ASCF_NOFLUSH flushes nothing. With
+; ASCF_HOLD as well it LOADS the image and keeps it, without it it RELEASES -
+; loading nothing - and either way that is all it does. A flush leaves the
+; hold as it found it, so the runtime flush the UI task posts cannot drop an
+; image an installer is holding; fm_fmt_drop is where the hold is honoured.
 ; -----------------------------------------------------------------------------
 asc_flush:
+    test al, ASCF_NOFLUSH
+    jz .run
+    and al, ASCF_HOLD
+    mov [asc_hold], al
+    jz .rel                     ; (`mov` leaves the `and`'s ZF)
+    call .ld                    ; acquire
+    jmp short .drop
+.rel:
+    xor ax, ax                  ; a release answers CF=0, AX=0
+    jmp short .drop
+.run:
     call .go
+.drop:
     pushf
-    call fm_fmt_drop
+    call fm_fmt_drop            ; ...which a hold makes a no-op
     popf
     ret
 .go:
     call dskw_fmt_go
     call far [FMFP + FME_ASCW*4]
+    ret
+.ld:
+    call dskw_fmt_go
+    xor ax, ax
     ret
 
 ; OSAPI_ASSOC_FLUSH's far entry (0x0493, SPEC.md 54.5): the rare cold slot
@@ -5954,10 +5975,15 @@ osapi_assoc_flush_x:
 ; Called from every path that ends a format confirmation, which is the one
 ; moment nothing is on the module's stack and nothing will call it again.
 fm_fmt_drop:
+%ifdef OS88_ASSOC
+    cmp byte [asc_hold], 0      ; HELD for an installer (SPEC.md 54.7.6.4):
+    jne .held                   ; the copy on the boot volume may no longer
+%endif                          ; be this kernel's, so this one stays
     push ax
     mov al, MOD_FMT
     call mod_drop
     pop ax
+.held:
     ret
 
 

@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "76db0c6485a05e20cc6aa5649c86ed0430710447cfb672128736b5dfeb5757e8",
+  "fingerprint": "85ee2660ea6043fc88c5fd37287e0f1cca7b1d855ccb0090d5df50834b995efa",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "1b54119e966a2494d5b90e15a31d51708f5865657efcde14953e16ddaacc6243",
+  "fingerprint": "e2942a8830ad99578ef3f58eb9c05d283f0026e5680abde7ee520a1e7bc86de0",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -203,6 +203,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_ASSOC_FLUSH (0x0493) appended past the last cell (SPEC.md 54.5, 54.7.6): a new slot at the end, so every package built before still runs - no PKG_FMT bump",
+   "to": 11
+  },
+  {
+   "fingerprint": "e2942a8830ad99578ef3f58eb9c05d283f0026e5680abde7ee520a1e7bc86de0",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_ASSOC_FLUSH grew hold modes: ASSOC_FL_HOLD and ASSOC_FL_NOFLUSH constants added to an existing cell's contract; every package built before still runs",
+   "to": 10
+  },
+  {
+   "fingerprint": "85ee2660ea6043fc88c5fd37287e0f1cca7b1d855ccb0090d5df50834b995efa",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_ASSOC_FLUSH grew hold modes: ASSOC_FL_HOLD and ASSOC_FL_NOFLUSH constants added to an existing cell's contract; every package built before still runs",
    "to": 11
   }
  ]

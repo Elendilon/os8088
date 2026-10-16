@@ -4303,8 +4303,9 @@ OS88_BSS_SIZE equ 0
                                  ; READ-AND-CLEAR - the first proc to ask
                                  ; gets it, so a second instance launched
                                  ; later can never inherit a document
-%define OSAPI_ASSOC_FLUSH   KERNEL_SEG:0x0493   ; DL = a volume, AL = 0
-                                 ; incremental / 1 FULL: bring that volume's
+%define OSAPI_ASSOC_FLUSH   KERNEL_SEG:0x0493   ; DL = a volume, AL = the
+                                 ; ASSOC_FL_* bits below (0 = incremental):
+                                 ; bring that volume's
                                  ; ASSOC.DAT up to date with the packages on
                                  ; it (SPEC.md 54.5, 54.7.6), so the next boot
                                  ; knows their icons, their extensions and
@@ -4319,6 +4320,16 @@ OS88_BSS_SIZE equ 0
                                  ; write-protected disk, or no system disk to
                                  ; load the writer from. kern_small refuses
                                  ; (CF=1). Synchronous; never from a worker
+ASSOC_FL_FULL    equ 1          ; read every package the old cache lacks
+ASSOC_FL_HOLD    equ 2          ; with NOFLUSH: ACQUIRE - load the writer now
+                                ; and keep it loaded until a release. For an
+                                ; installer that is about to REPLACE the
+                                ; system's own files: the copy it would load
+                                ; afterwards may belong to the new system, not
+                                ; the running one. Flushes in between keep it
+ASSOC_FL_NOFLUSH equ 4          ; flush nothing: ACQUIRE (with HOLD) or
+                                ; RELEASE (alone). A release loads nothing.
+                                ; Release on EVERY way out, failure included
 %define OSAPI_ASSOC_SET     KERNEL_SEG:0x024F   ; claim an extension for a
                                  ; program (SPEC.md 54.5). ES:SI -> 3
                                  ; extension bytes then 8 stem bytes, both

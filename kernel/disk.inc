@@ -8259,8 +8259,8 @@ ICO_ROW     equ ICO_R_GLYPH + 8 ; (SPEC.md 54.3.2), which is here because
                                 ; block - so a store that carried only the
                                 ; body would answer a hit with the reduction
                                 ; and DOWNGRADE a slot the seed had resolved.
-                                ; 8 bytes x 48 rows = 384, against the 3,072
-                                ; the claim gave back
+                                ; 8 bytes x 60 rows = 480, against the 5,120
+                                ; the cache's claim gives back
 %if ASC_ROWGLY - ASC_ROWICO != ICO_R_GLYPH - ICO_R_BODY
 %error "asc_gly_pair walks an ASSOC.DAT row and a store row with ONE body of \
 code: the body-to-glyph delta has to be the same in both"
@@ -8271,23 +8271,26 @@ ICO_ROW     equ ICO_R_BODY + DSK_ICO_SIZE   ; (SPEC.md 54.0), so it carries no
 %ifdef KERN_SMALL
 ICO_NROW    equ 24              ; SPEC.md 51.0 leaves this kernel no
 %else                           ; driver-backed volume and fewer packages
-ICO_NROW    equ 48
-%endif
+ICO_NROW    equ 60              ; a full ASSOC.DAT (ASC_NAPP 55) is absorbed
+%endif                          ; WHOLE (SPEC.md 54.7.4), so the store has to
+                                ; hold one and some: 60 x 82 + the capture is
+                                ; 5,108 of a 5KB claim (it was 48, 4KB)
 ICO_KB      equ (ICO_NROW*ICO_ROW + 1023) / 1024
 %ifdef OS88_ASSOC
-; THE CAPTURE (SPEC.md 54.7.6.2): the claim's KB rounding is 160 bytes past
+; THE CAPTURE (SPEC.md 54.7.6.2): the claim's KB rounding is 200 bytes past
 ; the last row, and the harvest keeps there the one thing an ASSOC.DAT row
 ; needs that the store does not hold - a declaring package's association
 ; block - so the flush never reads a package a second time for it. It costs
 ; no heap: those bytes were already claimed and unused.
 ICO_CAP      equ ICO_NROW * ICO_ROW
-ICO_CAP_MAX  equ 9                  ; records: one action's worth - the busiest
-                                    ; shipped folder declares eight. HOW MANY
+ICO_CAP_MAX  equ 11                 ; records: one action's worth - every
+                                    ; declaring program in the tree. HOW MANY
                                     ; are held is [ico_capn], beside [ico_n],
                                     ; so the two words that empty the store
                                     ; empty the capture too
 ICO_CAP_ROWS equ ICO_CAP            ; ICO_CAP_MAX bytes: each record's row
-ICO_CAP_REC  equ ICO_CAP + 10       ; ...and 16-byte records, the header's block
+ICO_CAP_REC  equ ICO_CAP + 12       ; ...and 16-byte records, the header's block
+                                    ; (an EVEN offset: the copy is rep movsw)
 %if ICO_CAP_ROWS + ICO_CAP_MAX > ICO_CAP_REC
   %error "the capture's row bytes overrun its records"
 %endif
@@ -8468,7 +8471,7 @@ ico_scan:
 ; keyed on ICO_ROW's value - which meant a `%if` arm per row width, and 80 and
 ; 88 needed different ones. `mul ah` takes ANY width in two bytes: 9 bytes
 ; against 23, and the product cannot leave AX because the store's widest row
-; is ICO_NROW-1 = 47 of them (4,136, and 255 x 88 would still fit). The
+; is ICO_NROW-1 = 59 of them (4,838, and 255 x 88 would still fit). The
 ; 8088 prices `mul r8` at ~70 clocks against the ladder's ~50, and this is
 ; called once per icon RESOLVED - 32 of them on a full listing, so 0.2 ms of
 ; a repaint that spends 71 ms on one row of text (PERFORMANCE.md part 2).

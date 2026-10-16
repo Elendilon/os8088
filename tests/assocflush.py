@@ -217,11 +217,11 @@ def leg_write(bad):
 def leg_one(bad, all_flush):
     """ONE FLUSH: one new package; the flush's cost against seventeen.
 
-    ...and one package GONE, for two reasons. The shipped apps720 cache is at
-    ASC_NAPP (32 rows for 32 packages), so a 33rd would push the last plain
-    row out by design (SPEC.md 54.7.6.4 step 6) and this leg would be
-    measuring the cap. And a package that is no longer on the disk must leave
-    the file - the walk is what drops it."""
+    ...and one package GONE: a package that is no longer on the disk must
+    leave the file, and the walk is what drops it. (It was also what kept
+    this leg off the cap while ASC_NAPP was 32 and apps720 held 32 packages;
+    the cap is 55 now, SPEC.md 54.7.1, so that reason has gone and this one
+    stands.)"""
     img = scratch("one")
     orig_rows, _ = assoc_of(APPS)
     fat = Fat12(img)

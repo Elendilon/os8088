@@ -766,4 +766,16 @@ can reach (`assoc*`, `ascabsorb`, `ico*`, `mediadisk`, `rdicon`,
    dropped, and its folder posts one flush a session that writes nothing
    (§6 hazard 5). Raising `ASC_NAPP` would end that, at a transient KB or
    two of heap on every mount that reads a cache. That is left as a separate
-   decision.
+   decision. **It was taken the same week** (item 9).
+9. **The caps went to what fits 5KB, and the installer HOLDS the writer.**
+   The owner's call, on the ground that programs will keep being written:
+   `ASC_NAPP` 32 -> 55 and `ASC_NEXT` 24 -> 64 (`ASC_KB` 3 -> 5, 5,112
+   bytes), the icon store 48 -> 60 rows (`ICO_KB` 4 -> 5, so a full file is
+   absorbed whole) with the capture 9 -> 11 records in its tail, and the
+   kernel's own slot tables 12/24 -> 32/64 - what one full file can declare,
+   since nothing frees a slot within a session (SPEC.md 54.2). The installer
+   no longer flushes per copied folder: `OSAPI_ASSOC_FLUSH` grew a HOLD mode
+   (`ASSOC_FL_HOLD` with `ASSOC_FL_NOFLUSH`) that loads `FORMAT.DRV` and
+   keeps it until released, so `hd_inst` acquires before the first copy,
+   writes one FULL flush at the end and releases, and a disk visited after an
+   install shows every icon it can (SPEC.md 52.10.14).
