@@ -290,8 +290,10 @@ WB_VAR wb_count,1
 WB_VAR wb_command,1
 WB_VAR wb_ack,1
 WB_VAR wb_cmdtype,1
-WB_VAR wb_drawold,6           ; three previous sprite VRAM offsets (ffff = absent)
-WB_VAR wb_hudold,80           ; last displayed HUD, only changed cells written
+; The text court (kern_small) and the pixel court never run in one bracket,
+; so the text court's two caches share the pixel court's.
+wb_drawold equ wv_old+1       ; three previous sprite VRAM offsets (ffff = absent); +1 keeps their word parity
+wb_hudold equ wv_hudold       ; last displayed HUD, only changed cells written
 WB_VAR wb_hud,80
 WB_VAR wb_crossings,2         ; diagnostic: left player crossings through the seam
 WB_VAR wb_frames,2

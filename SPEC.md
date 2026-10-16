@@ -185348,6 +185348,10 @@ same instructions.
   match (`wb_openports`), where `wb_openone` cleared eight fields a port one
   store at a time; the fields it did not clear are written before they are
   read. -9 file bytes.
+- **The text court shares the pixel court's caches.** Only one of the two
+  courts runs in a bracket, so `wb_drawold` and `wb_hudold` (kern_small's
+  text court) are names inside `wv_old` and `wv_hudold`; each court fills
+  its caches when it draws its board. bss -86, -7 file bytes.
 
 ## 110. Sticky Apps (`STIKAPPS\`, `apps/os88stik.inc`)
 
