@@ -134,12 +134,10 @@ at_onask:
     call at_save_q                  ; titled: write it, and say NOTHING on
     jc .failed                      ; failure - there is no surface to say it on
 .close:
-    call at_do_close
-    ret
+    jmp at_do_close
 .askname:
     mov byte [at_pend], 4           ; ...and the commit is a CLOSE
-    call at_dlg_save
-    ret
+    jmp at_dlg_save
 .failed:
     push ax                         ; the write's verdict, in a WINDOW for
     push bx                         ; at_onclose's own reason. We stay open and
@@ -228,8 +226,7 @@ at_savepend:
 .out:
     ret
 .askname:
-    call at_dlg_save
-    ret
+    jmp at_dlg_save
 
 ; -----------------------------------------------------------------------------
 ; at_cmd_save / at_cmd_saveas - the File menu's two save doors
@@ -241,12 +238,10 @@ at_cmd_save:
                                     ; titled save must not fire here
     cmp byte [at_havefile], 0
     je at_cmd_saveas
-    call at_save_named
-    ret
+    jmp at_save_named
 at_cmd_saveas:
     mov byte [at_pend], 0
-    call at_dlg_save
-    ret
+    jmp at_dlg_save
 
 ; -----------------------------------------------------------------------------
 ; at_save_q - write the document to [at_name], SAYING NOTHING

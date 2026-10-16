@@ -86364,6 +86364,12 @@ back-references. So the pass went after bytes that occur once.
   `at_sukb` were written on every alert, splash and pull-down and read by
   nothing - the buttons' rects live in `at_brects`, the one copy `os88ui_btn`
   reads. -140 file bytes, -169 image, -22 bss.
+- **Frames that only passed through.** `W_ONMOUSEUP` and `W_ONDRAG` are
+  `at_modal_up` and `at_modal_drag` themselves now, not two wrappers that
+  banked all six registers a callback may clobber (§13.7, §13.8.2); five
+  `call` + `ret` pairs in the file layer are tail `jmp`s; and Style > None
+  repaints through `at_refit`, the relayout-clamp-redraw a zoom or a view
+  change already runs, instead of its own copy of it. -30 file bytes.
 
 ## 47. Disabled controls — the greying standard (binding)
 

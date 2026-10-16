@@ -181,8 +181,12 @@ at_entry:
     push dx                         ; existed
     mov ax, bx
     mov bx, at_btrec
-    mov si, at_onup
-    mov di, at_ondrag
+    mov si, at_modal_up             ; the release and the drag go straight
+    mov di, at_modal_drag           ; to the one record both button sets
+                                    ; share: a callback may clobber CX, DX
+                                    ; and DI (SPEC.md 13.7, 13.8.2), and the
+                                    ; two pass-through frames that pushed and
+                                    ; popped all six went in apps size pass 2
     mov dx, at_onclick                ; OUR own click work; the library
                                     ; takes the press FIRST and chains
                                     ; here (SPEC.md 20.5.1.3.3)
@@ -581,41 +585,6 @@ at_onkey:
 ; -----------------------------------------------------------------------------
 ; at_onclick - W_ONCLICK (CX = x, DX = y, absolute screen; lock held)
 ; -----------------------------------------------------------------------------
-; --- at_onup / at_ondrag - the modal's buttons fire and track (13.7/13.8.2) --
-; Only the modal draws standard buttons, so both edges go straight to it; a
-; release with no modal up finds nothing armed and does nothing.
-at_onup:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    call at_modal_up
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-at_ondrag:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    call at_modal_drag
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
 at_onclick:
     push ax
     push bx

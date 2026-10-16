@@ -554,21 +554,10 @@ at_cmd_none:
     mov [at_caret], ax
     mov [at_sela], ax
     mov [at_selb], ax
-    ; scattered edits: relayout whole, repaint whole - None is rare
-    call at_layout
+    ; scattered edits: relayout whole, repaint whole - None is rare, and
+    ; that is exactly at_refit, which a zoom or a view change runs
     mov byte [at_dirty], 1
-    call at_maxtop
-    mov bx, ax
-    mov ax, [at_top]
-    cmp ax, bx
-    jbe .t
-    mov [at_top], bx
-.t:
-    call at_caret_off
-    call at_draw_text
-    call at_sbar
-    call at_seecaret
-    call at_caret_on
+    call at_refit
 .out:
     pop es
     pop di
