@@ -86339,6 +86339,24 @@ erase still draw inside that hold.
 the CF and kept in `[at_ink]`; `at_ctext` names its pair outright, because all
 three of its callers are the About body on the box's white.
 
+### 46.11 The second apps size pass — what the FILE costs
+
+The first pass weighed ArtfulType by image + bss; this one weighs it by the
+shipped `ARTFUL.O88`, LZ4-packed (SPEC.md 20.13), because it rides four 360KB
+disks (`apps360`, `office360`, `small360`, `smallapps360`) and every one of them
+is short of clusters. Nothing the user sees moved. What LZ4 makes true, and
+what decided every item below, is that **a repeated byte sequence is nearly
+free and a unique one costs about a byte a byte**: trimming the push/pop
+prologues of the three window callbacks took 42 bytes off the image and **0**
+off the file, because the identical `push ax` … `push es` runs were already
+back-references. So the pass went after bytes that occur once.
+
+- **One copy of each shared string.** The About card's lines are the splash's
+  own (`at_s_title`, `at_s_sub`, `at_s_credit`), and the windowed bar's `File`,
+  `New` and `Open...`, the alert's `Save` and the splash's `New` / `Open...`
+  name the fullscreen menu's `at_m_file` / `at_i_*`. -114 image bytes, -8 file
+  bytes: the copies were already matches, so this is mostly RAM.
+
 ## 47. Disabled controls — the greying standard (binding)
 
 Every part of the UI that can refuse a click has to say so the same way. This

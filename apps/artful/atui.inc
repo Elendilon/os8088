@@ -1128,7 +1128,7 @@ at_mdbuttons:
                                     ; refuses an index past the LIVE count, so
                                     ; a count written after the draws is a
                                     ; count of zero on the pass that matters
-    mov si, at_s_save
+    mov si, at_i_save
     mov [at_btlbl], si
     mov byte [at_bslot], 0
     mov dx, 1
@@ -1852,7 +1852,7 @@ at_splash:
     mov ax, [at_spcx]
     sub ax, 76
     mov word [at_btrec+OS88UI_BT_N], 2   ; the splash's pair, count first
-    mov si, at_s_new
+    mov si, at_i_new
     mov [at_btlbl], si
     mov byte [at_bslot], 0
     mov dx, 1
@@ -1862,7 +1862,7 @@ at_splash:
     mov [at_b1w], cx
     mov ax, [at_spcx]
     add ax, 12
-    mov si, at_s_open
+    mov si, at_i_open
     mov [at_btlbl+2], si
     mov byte [at_bslot], 1
     xor dx, dx

@@ -931,12 +931,11 @@ at_abdismiss:
     ret
 
 ; --- the About card's lines (SPEC.md 20.5.1) ----------------------------------
+; ONE copy of each string the card shares with at_about_body (apps size pass
+; 2): the card's lines name the splash's own, so they cannot drift apart
 at_ablines:
-    dw at_ab1, at_ab2, at_ab3, at_ab4, 0
-at_ab1:     db 'The Artful Type', 0
-at_ab2:     db 'A Distraction-Free Writing Environment', 0
+    dw at_s_title, at_s_sub, at_ab3, at_s_credit, 0
 at_ab3:     db 0
-at_ab4:     db 'Ported by Jorge Gonzalez', 0
 
 at_tpl:
     dw 140, 60, 360, 300
@@ -946,14 +945,11 @@ at_ttl: db 'ArtfulType', 0
 
 ; --- the WINDOWED bar's menu set (SPEC.md 12.2) --------------------------------
     OS88_MENUSET at_kmenus, at_ttl, at_koncmd
-        OS88_MENU at_km_file, at_km_items, 3
+        OS88_MENU at_m_file, at_km_items, 3
     OS88_MENUSET_END at_kmenus
 
-at_km_file:  db 'File', 0
-at_km_items: dw at_ki_new, at_ki_open, at_ki_write
-at_ki_new:   db 'New', 0
-at_ki_open:  db 'Open...', 0
-at_ki_write: db 'Write', 0
+at_km_items: dw at_i_new, at_i_open, at_ki_write   ; the fullscreen bar's own
+at_ki_write: db 'Write', 0                         ; 'File', 'New', 'Open...'
 
 ; --- the FULLSCREEN menus (at_mtab: title, items, count - 6 bytes each) --------
 ; item records: dw label (0 = separator), dw shortcut label, db AT_CMD_*,
@@ -1090,15 +1086,13 @@ at_k_k:  db '^K', 0
 at_k_l:  db '^L', 0
 
 ; --- the alert/splash strings --------------------------------------------------
+; 'Save', 'New' and 'Open...' are the menu items' own (at_i_*): one copy each
 at_s_savechg:  db 'Save changes to ', 0
 at_s_qmark:    db '?', 0
 at_s_untitled: db 'Untitled', 0
-at_s_save:     db 'Save', 0
 at_s_cancel:   db 'Cancel', 0
 at_s_dontsave: db "Don't Save", 0
 at_s_ok:       db 'OK', 0
-at_s_new:      db 'New', 0
-at_s_open:     db 'Open...', 0
 at_s_title:    db 'The Artful Type', 0
 at_s_sub:      db 'A Distraction-Free Writing Environment', 0
 at_s_ver:      db 'v0.1 - the os8088 port', 0
