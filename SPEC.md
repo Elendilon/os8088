@@ -60599,6 +60599,14 @@ the file follows UNIQUE bytes.
   caption's check words uncleared cannot recur — and `tm_rowck_clear` is one
   span. `tm_slow` is the byte after `tm_view`, so a view switch resets both
   in one store.
+- **The process list (`tm_rows`)**: a free slot's row is a constant, so it
+  is ONE string (`tm_s_freerow`) instead of `tm_namef`, three copies and a
+  store — and its tail doubles as the memory pages' dash columns
+  (`tm_s_dash6`/`5`/`4` overlap it). The ST strings carry their separator.
+  `tm_memcol`'s byte-count entry had had no caller since MEM became KB and is
+  gone; `tm_cpucol` writes `'% '` as one word; `tm_namef` stops saving
+  registers its callers reload; `tm_order` takes the class bit straight out
+  of `KIND_PKG`.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 

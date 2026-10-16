@@ -1215,14 +1215,30 @@ tm_s_hdr:   db 'NAME'
             times TM_CPUC - 3      db ' '
             db 'MEM', 0
 tm_s_sys:   db 'System', 0      ; row 0: the kernel's own share
-tm_s_dash:  db '-', 0
-tm_s_run:   db 'run', 0
-tm_s_rdy:   db 'rdy', 0
-tm_s_slp:   db 'slp', 0
-tm_s_evt:   db 'evt', 0         ; no worker task: runs only in callbacks
-tm_s_die:   db 'die', 0         ; I_STATE 2: closing, task not yet reaped
-tm_s_free:  db '---', 0
-tm_s_frtl:  db '  -     -', 0   ; free row's CPU + MEM columns
+; The ST column, each WITH the separator the CPU column needs after it - the
+; one place every state string is copied, so the space is data rather than a
+; store after every copy (TM_STC + 1)
+tm_s_run:   db 'run ', 0
+tm_s_rdy:   db 'rdy ', 0
+tm_s_slp:   db 'slp ', 0
+tm_s_evt:   db 'evt ', 0        ; no worker task: runs only in callbacks
+tm_s_die:   db 'die ', 0        ; I_STATE 2: closing, task not yet reaped
+; A FREE SLOT'S ROW IS A CONSTANT, so it is one string rather than tm_namef,
+; three copies and a store: '-' padded to TM_NAMEF, '---' and its separator,
+; then the CPU and MEM columns' dashes. ITS TAIL IS THE MEMORY PAGES' DASHES,
+; overlapped rather than repeated: ' ' + tm_s_dash5 is the blank SIZE/HEAP
+; column with its leading gap (tm_s_dash6), tm_s_dash5 that column with
+; tm_kcol's leading space, tm_s_dash4 one bare KB column
+tm_s_freerow:
+            db '-'
+            times TM_NAMEF - 1     db ' '
+            db '---   -'
+tm_s_dash6: db ' '
+tm_s_dash5: db ' '
+tm_s_dash4: db '   -', 0
+%if tm_s_dash4 + 5 - tm_s_freerow != TM_NCHUNK * TM_CHUNK + 1
+  %error "taskmgr: the free slot's row is no longer exactly one row long"
+%endif
 
 %ifdef TMF_MEM
 ; --- memory view (SPEC.md 28) ------------------------------------------------
@@ -1258,8 +1274,6 @@ tm_s_phdr:  db 'Packages      ', 0; + allocated/size KB of the pool:
                                 ; SIZE exactly where tm_buf_row's does
 tm_s_mfr:   db '   -    -', 0   ; the ADDR+SIZE pair a built-in has no answer
                                 ; for: it owns no region of its own
-tm_s_dash4: db '   -', 0        ; one empty KB column
-tm_s_dash5: db '    -', 0       ; ...and one with tm_kcol's leading space
 tm_s_sys0:  db '0600', 0        ; where the kernel starts: KERNEL_SEG, the
                                 ; first paragraph above the BIOS data area
 
@@ -5958,19 +5972,15 @@ tm_order:
 .pass:
     xor si, si
 .scan:
-    mov al, [tm_ist+si]
-    or al, al
-    jz .isfree
-    mov al, [tm_iknd+si]
-    and al, KIND_PKG
-    jz .isbuilt
-    mov al, 1
-    jmp short .cls
-.isbuilt:
-    xor al, al
-    jmp short .cls
-.isfree:
-    mov al, 2
+    mov al, 2                   ; free...
+    cmp byte [tm_ist+si], 0
+    je .cls
+    mov al, [tm_iknd+si]        ; ...else KIND_PKG, bit 7, as the class bit:
+    rol al, 1                   ; 1 a package, 0 a built-in
+    and al, 1
+%if KIND_PKG != 0x80
+  %error "taskmgr: tm_order rotates KIND_PKG down from bit 7"
+%endif
 .cls:
     cmp al, cl
     jne .next
@@ -6036,10 +6046,8 @@ tm_rows:
     jne .sysst
     mov si, tm_s_run
 .sysst:
-    call tm_copy
+    call tm_copy                ; (the separator is in the string)
     pop si
-    mov byte [di], ' '
-    inc di
     mov bx, si
     mov al, [tm_pct+bx]
     call tm_cpucol
@@ -6086,10 +6094,8 @@ tm_rows:
     je .stput
     mov si, tm_s_rdy
 .stput:
-    call tm_copy
+    call tm_copy                ; (the separator is in the string)
     pop si
-    mov byte [di], ' '
-    inc di
 
     mov bl, [tm_rowi]           ; share, right-aligned in 3, then '%'
     xor bh, bh                  ; (tm_pct is indexed by instance + 1, not by
@@ -6109,16 +6115,9 @@ tm_rows:
     call tm_memcol_kb0          ; canvas costs far more than its region - the
     jmp .draw                   ; same sum the System row already shows
 
-.free:                          ; free slot: "-        ---   -    -"
+.free:                          ; free slot: one constant row
     push si
-    mov si, tm_s_dash
-    xor al, al
-    call tm_namef
-    mov si, tm_s_free
-    call tm_copy
-    mov byte [di], ' '
-    inc di
-    mov si, tm_s_frtl
+    mov si, tm_s_freerow
     call tm_copy
     pop si
 
@@ -6145,79 +6144,42 @@ tm_rows:
 ;             gap MEM needs after it - TM_CPUC characters, not four
 ; in:  AL = share 0..100, DI = dest
 ; out: DI advanced by TM_CPUC
-; clobbers: nothing else (internal helper)
+; clobbers: AH (every caller reloads AX after it)
 ; -----------------------------------------------------------------------------
 tm_cpucol:
-    push ax
     xor ah, ah
     call tm_put3
-    mov byte [di], '%'
+    mov word [di], '% '         ; '%' and the gap MEM needs: 100% against 335K
+    inc di                      ; with nothing between reads as one number
     inc di
-    mov byte [di], ' '          ; the gap MEM needs: 100% against 335K with
-    inc di                      ; nothing between reads as one number
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
-; tm_memcol - the MEM column: KB right-aligned in 3, then 'K'; an instance
-;             that owns no region of its own (every built-in kind) shows
-;             "   -" instead of a misleading 0 (SPEC.md 28)
-; in:  AX = bytes, DI = dest
+; tm_memcol_kb0 - the MEM column: KB right-aligned in 3, then 'K'; 0 KB means
+;                 the instance owns nothing at all (no region, no claim) and
+;                 shows "   -" instead of a misleading 0 (SPEC.md 28)
+; tm_memcol_kb  - the same for a caller whose KB is never 0 - the System row,
+;                 which adds the kernel's own claims and so cannot be a byte
+;                 count. (There was a byte-count entry, `tm_memcol`; nothing
+;                 had called it since the MEM column became KB.)
+; in:  AX = KB, DI = dest
 ; out: DI advanced by 4
-; clobbers: nothing else (internal helper)
+; clobbers: AX (both callers go straight to .draw, which reloads it)
 ; -----------------------------------------------------------------------------
-tm_memcol:
-    push ax
-    push cx
+tm_memcol_kb0:
     or ax, ax
-    jz .none
-    add ax, 1023                ; round up; AX <= 0xB000 here, no overflow
-    mov cl, 10
-    shr ax, cl
-.kb:
+    jnz tm_memcol_kb
+    mov ax, '  '
+    mov [di], ax
+    mov ax, ' -'
+    mov [di+2], ax
+    add di, 4
+    ret
+tm_memcol_kb:
     call tm_put3
     mov byte [di], 'K'
     inc di
-    jmp .out
-.none:
-    mov byte [di], ' '
-    inc di
-    mov byte [di], ' '
-    inc di
-    mov byte [di], ' '
-    inc di
-    mov byte [di], '-'
-    inc di
-.out:
-    pop cx
-    pop ax
     ret
-
-; -----------------------------------------------------------------------------
-; tm_memcol_kb - tm_memcol's tail for a caller that already has KB in AX
-;                (nonzero) - the System row adds the kernel's own claims,
-;                which cannot be expressed as a 16-bit byte count
-; in:  AX = KB (> 0), DI = dest
-; out: DI advanced by 4
-; clobbers: nothing else (internal helper)
-; -----------------------------------------------------------------------------
-tm_memcol_kb:
-    push ax
-    push cx
-    jmp tm_memcol.kb
-
-; -----------------------------------------------------------------------------
-; tm_memcol_kb0 - the same, but 0 KB still means "owns nothing" and prints "-"
-; in:  AX = KB, DI = dest
-; out: DI advanced by 4
-; clobbers: nothing else (internal helper)
-; -----------------------------------------------------------------------------
-tm_memcol_kb0:
-    push ax
-    push cx
-    or ax, ax
-    jnz tm_memcol.kb
-    jmp tm_memcol.none
 
 ; -----------------------------------------------------------------------------
 ; tm_namef - the performance view's NAME field: an optional one-space indent,
@@ -6232,27 +6194,22 @@ tm_memcol_kb0:
 ; doing double duty.
 ; -----------------------------------------------------------------------------
 tm_namef:
-    push ax
     push cx
-    mov cl, al
     or al, al
     jz .noind
     mov byte [di], ' '
     inc di
 .noind:
-    push cx
     mov cx, TM_NAMEC
-    call tm_copyn
-    pop cx
+    call tm_copyn               ; (keeps AL, the indent flag)
     mov byte [di], ' '
     inc di
-    or cl, cl
+    or al, al
     jnz .out
     mov byte [di], ' '          ; not indented: the column the indent would
     inc di                      ; have taken is padding instead
 .out:
     pop cx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
