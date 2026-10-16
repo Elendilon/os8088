@@ -124590,8 +124590,8 @@ measured on, and MartyPC has no NIC to measure a change to it with).
 
 | | before | after |
 |---|---:|---:|
-| `ftpd.o88` (file) | 12,291 | 11,905 |
-| image | 14,746 | 14,197 |
+| `ftpd.o88` (file) | 12,291 | 11,902 |
+| image | 14,746 | 14,193 |
 | image + bss (the region) | 26,624 | 25,600 |
 
 - **The entry proc's declaration is the NOKEEP form** (§66.6.1.1), moved
@@ -124638,6 +124638,15 @@ measured on, and MartyPC has no NIC to measure a change to it with).
   the same keys in the same order (§77.12.1), an empty string or an all-zero
   value omitted. `fd_cfg_putflag` went, and the record bounds are checked
   against one end pointer rather than recomputed from the buffer base twice.
+- **DEFECT FIXED: Server > Sockets lettered over the worker's reply.**
+  `fd_socks` runs on the UI task from a menu pick, at any moment, and it
+  composed each row in `fd_outb2` - the buffer the WORKER composes a 227,
+  229, 257 or 213 in - so a pick landing mid-reply could garble what was
+  sent (apps size pass 1 found it and left it). The rows are composed in
+  `fd_skrow` now, just past the snapshot inside `fd_cfgb`, which is UI-task
+  scratch already (an `%error` holds the pair to `FD_CFGSZ`); the
+  `push bx`/`push cx` around `fd_log` went with it, `fd_log` keeping CX and
+  never naming BX. -3 file bytes.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 

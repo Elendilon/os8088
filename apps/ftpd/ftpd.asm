@@ -4392,8 +4392,12 @@ fd_socks:
     xor cl, cl                      ; CL = the slot number
 .row:
     cld
-    mov di, fd_outb2
-    mov si, fd_l_sk
+    mov di, fd_skrow                ; NOT fd_outb2, which is the WORKER'S reply
+    mov si, fd_l_sk                 ; buffer: this runs on the UI task, from a
+                                    ; menu pick, at any moment - and a pick
+                                    ; landing mid-PASV lettered over the 227
+                                    ; the worker was composing (apps size
+                                    ; pass 1 found it, pass 2 fixed it)
     call fd_dcat
     mov al, cl
     xor ah, ah
@@ -4448,13 +4452,9 @@ fd_socks:
     call fd_dnum
 .noflg:
     mov byte [di], 0
-    push bx
-    push cx
-    mov si, fd_outb2
-    call fd_log                     ; BX and CL are the loop's and fd_log is
-    pop cx                          ; not documented to keep them
-    pop bx
-    add bx, SKI_SZ
+    mov si, fd_skrow
+    call fd_log                     ; ...which keeps CX and never names BX, the
+    add bx, SKI_SZ                  ; loop's two
     inc cl
     cmp cl, [fd_skn]
     jb .row
@@ -8339,7 +8339,8 @@ fd_cfgb     equ fd_rclus + 2                    ; FD_CFGSZ: FTPD.CFG, whole
 ;   fd_path2   CWD's banked path, filled by fd_pbank and read back by
 ;              fd_punbank inside one fd_do_cwd (fd_wake)
 ;   fd_skbuf   the NETV_SKTAB snapshot, filled and lettered inside one
-;              fd_socks (fd_oncmd)
+;              fd_socks (fd_oncmd) - and fd_skrow, the row it letters, just
+;              past it in the same buffer
 ;
 ; The WORKER never names any of them. 368 bytes of every instance's region.
 ; -----------------------------------------------------------------------------
@@ -8478,8 +8479,11 @@ fd_skn      equ fd_wprog + 2                    ; byte: how many socket records
                                      ; table still reads whole records
 FD_SKBSZ    equ NET_SOCKS * SKI_SZ
 fd_skbuf    equ fd_cfgb                         ; FD_SKBSZ, in fd_cfgb (above)
-%if FD_SKBSZ > FD_CFGSZ
-  %error "ftpd: the socket snapshot no longer fits inside fd_cfgb"
+fd_skrow    equ fd_skbuf + FD_SKBSZ             ; FD_LOGW + 1: ...and the row
+                                     ; lettered from it, which is fd_socks'
+                                     ; alone for the same reason
+%if FD_SKBSZ + FD_LOGW + 1 > FD_CFGSZ
+  %error "ftpd: the socket snapshot and its row no longer fit inside fd_cfgb"
 %endif                      ; the snapshot itself (72.20)
 
 FD_SOFF     equ ((fd_skn + 1 - $$) + 511) & ~511
