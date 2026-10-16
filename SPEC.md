@@ -169327,8 +169327,16 @@ put the whole file at "5-10% as seen" before the score existed. Its
 weights are fitted to the owner's scores, in TWO SETS: colour on nine of
 the car frames (rms 2.7 points), and GREY - a target whose every pixel is
 R = G = B - on eight of Bad Carrot's (rms 7.8), where blur and edges count
-for more and colour nothing; one set for both missed by 11. It is a
-REPORT: nothing steers by it yet.
+for more and colour nothing; one set for both missed by 11. A THIRD set,
+DITHER, takes a 1-bit target a quarter or more of whose pixels average to
+a mid grey (`SEEN_DITHER_MIX`; a solid black-and-white 1-bit picture keeps
+GREY): fitted on nine frames of an old Hercules Take On Me (rms 3.4), it
+averages brightness over a box wide enough to see past the dither and
+counts the edges a cut ADDS but not the ones it LOSES - blur inside dither
+"has very little effect". A scene change that leaves the OLD scene showing
+whole reads low (21 where the owner put the frame at 70) and is right to
+in play, where it "looks like a fade". It is a REPORT: nothing steers by
+it yet.
 
 ###### 98.2.1.2.1 `--cut`: which changes a cut frame keeps (2026-10-06)
 

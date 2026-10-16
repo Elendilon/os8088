@@ -4947,11 +4947,23 @@ AHEAD = 256 << 20       # the most frames read ahead while a pass runs
 # both missed by 11 points, the car frames at half the owner's: "black and
 # white, so the blur ends up counting for more here, and edges matter
 # more" - and colour nothing, and a broken patch spilling onto none. A
-# report line only: it steers nothing yet
+# THIRD, DITHER - a 1-bit target a quarter or more of whose pixels average
+# to a mid grey (SEEN_DITHER_MIX; Bad Carrot on a Hercules is 4% at the
+# median, solid black and white, and keeps GREY) - on Take On Me, an old
+# 1-bit Hercules file with many cuts, nine frames rated 0-80% (rms 3.4):
+# brightness averaged over a box big enough to see past the dither, the
+# edges a cut ADDS counted and the ones it LOSES not ("the face shape
+# survives, just blurred"). A scene change left showing the old scene
+# whole reads LOW (that clip's frame G, 21 against the owner's 70 for the
+# frame and "the video is not broken": it plays as a fade), and was left
+# out of the fit. A report line only: it steers nothing yet
 SEEN_P = 16                 # the patch, canvas pixels
-#            brightness, colour, edges; broken at; spread; curve
-SEEN_COLOUR = (0.75, 0.25, 1.0, 0.04, 0.75, 1.0)
-SEEN_GREY = (1.0, 0.0, 2.0, 0.12, 0.0, 1.5)
+#            brightness, colour, edges added, lost; broken at; spread;
+#            curve; the brightness box and the edges' (radius, pixels)
+SEEN_COLOUR = (0.75, 0.25, 1.0, 1.0, 0.04, 0.75, 1.0, 2, 1)
+SEEN_GREY = (1.0, 0.0, 2.0, 2.0, 0.12, 0.0, 1.5, 2, 1)
+SEEN_DITHER = (1.0, 0.0, 1.0, 0.0, 0.12, 0.75, 3.0, 6, 1)
+SEEN_DITHER_MIX = 0.25      # ...a 1-bit target this much mid grey
 SEEN_BAD = 0.10             # a frame a tenth of whose view is broken
 
 
@@ -4992,7 +5004,12 @@ def seen_share(S, T, Tp=None):
     box = _seen_box
     grey = T.ndim == 2 or float(np.abs(T[..., 0] - T[..., 1]).max()) < 0.01 \
         and float(np.abs(T[..., 1] - T[..., 2]).max()) < 0.01
-    wl, wc, wb, thr, spread, curve = SEEN_GREY if grey else SEEN_COLOUR
+    w = SEEN_GREY if grey else SEEN_COLOUR
+    if T.ndim == 2 and T.size and float(np.abs(T - 0.5).min()) >= 0.5:
+        bT = box(T, 2)                  # 1-bit: dithered, or solid?
+        if float(((bT > 0.1) & (bT < 0.9)).mean()) >= SEEN_DITHER_MIX:
+            w = SEEN_DITHER
+    wl, wc, wa, wo, thr, spread, curve, rl, re = w
     lum = np.array([0.299, 0.587, 0.114], np.float32)
     if S.ndim == 3:
         lS, lT = S @ lum, T @ lum
@@ -5002,11 +5019,11 @@ def seen_share(S, T, Tp=None):
         EC = np.hypot(box(s1, 1) - box(t1, 1), box(s2, 1) - box(t2, 1))
     else:
         lS, lT, EC = S, T, 0.0
-    EL = np.abs(box(lS, 2) - box(lT, 2))
-    gS, gT = _seen_grad(box(lS, 1)), _seen_grad(box(lT, 1))
-    EB = np.abs(gS - gT)
+    EL = np.abs(box(lS, rl) - box(lT, rl))
+    gS, gT = _seen_grad(box(lS, re)), _seen_grad(box(lT, re))
+    EB = wa * np.maximum(gS - gT, 0) + wo * np.maximum(gT - gS, 0)
     act = np.sqrt(np.maximum(box(lT * lT, 3) - box(lT, 3) ** 2, 0))
-    D = (wl * EL + wc * EC + wb * EB) / (1.0 + 4.0 * act)
+    D = (wl * EL + wc * EC + EB) / (1.0 + 4.0 * act)
     if Tp is not None and np.shape(Tp) == np.shape(T):
         Tp = np.asarray(Tp, np.float32)
         lP = Tp @ lum if Tp.ndim == 3 else Tp

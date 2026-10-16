@@ -1,6 +1,6 @@
 # VIDEO-SEEN-PLAN - "error as seen" as a person sees it, and an encoder that spends by it
 
-**Status: section 2's score BUILT as a report line (2a, 2026-10-16); the rest is PLAN.** Recorded from the owner's
+**Status: section 2's score BUILT as a report line (2a, 2026-10-16), in three sets - colour, grey and 1-bit dither; the rest is PLAN.** Recorded from the owner's
 review of the GasGas and Bad Carrot comparison encodes, and parked while
 the encoder's choice in one scene is fixed first: the opening car shot of
 GasGas (0:40), which the owner's own tune plays clean on the Victory 286
@@ -124,10 +124,57 @@ exactly its 46 cut frames register at all.
 | G | 12% | 13% |
 | H | 15% | 6% |
 
+**The third clip says a DITHERED picture is a third kind** (2026-10-16).
+Take On Me, an old Hercules file (640 x 309 mono, 24 fps, 5150-st225 at
+peak 0.9 - 518 of 971 frames cut, 418 of them by the disk), its own frames
+decoded as the screen and today's encoder's 1-bit targets beside them
+(today's encode of the same options differs from the old file by a few
+dozen pixels a frame, and scores the same: 6.0% against 5.9% on average,
+7.6 s broken in both). Ten frames rated blind; the GREY set it fell under
+matched six and read the blur inside the dither as breakage (D 20 against
+3, E 19 against 5), because a 5-pixel box does not see past an 8 x 8
+dither. No weighting fixed it while an edge lost counted the same as an
+edge gained; splitting the edge term did, the owner's own reading of
+every frame being that the LINES a cut leaves count and the blur does not
+("the face shape survives, just blurred"). So DITHER: brightness over a
+13-pixel box, edges ADDED 1.0 and LOST 0, a patch broken at 0.12 on a
+curve of 3, spread 0.75 - rms 3.4 over nine frames. A 1-bit target takes
+it when a quarter of its pixels average to a mid grey: Take On Me is
+42-93% so in every frame, Bad Carrot on the same Hercules options 4% at
+the median (solid black and white, GREY as the owner predicted for Bad
+Apple on a Hercules), its 51 frames of fade dithered and taking DITHER.
+
+| frame | the owner | seen_share (dither) |
+|---|---:|---:|
+| A (a scene change, the old scene dominating) | 80% | 82% |
+| B | 12-15% | 10% |
+| C | 0% | 1% |
+| D | 3% | 6% |
+| E | 5% | 9% |
+| F | 2% | 0% |
+| G (a scene change) | 70% | 21% |
+| H | 30% | 29% |
+| I | 10% | 3% |
+| J | 25% | 23% |
+
+**G is a class of its own and is left out of the fit.** It is a cut at a
+scene change that leaves the OLD scene showing whole, a light sketch over
+a light wide shot, so patch for patch the brightness is near and the
+score reads it low. The owner: "the individual frame is VERY broken but
+the 'video' is not" - in play it "looks like a fade". A is the same kind
+of frame and reads 82 because its old scene is high contrast against the
+new. So for the encoder's purposes the low reading is the RIGHT one and
+A's is the one too high, and the term this asks for (section 3) is the
+other way round from a standalone rating: a cut frame that shows a whole
+coherent picture - the old scene, or the new one not yet arrived - is a
+FADE and costs less than one torn between two. That is also page-ahead's
+idea (98.2.1.8: a scene change built on the hidden page and swapped in
+whole) and 3a's hold, which shows the old frame whole for a period; the
+score should not punish what those two buy.
+
 **Next**: the clip's figure into the trial encodes (`--aim`, page-ahead's
-KEEP) beside today's; then section 3. A third kind of picture (a colour
-clip of flat cartoon colour, a 1-bit Hercules file) is a third check
-before the weights are assumed to generalise.
+KEEP) beside today's; then section 3. A colour clip of flat cartoon
+colour is a fourth check.
 
 ## 3. Using it in the encoder
 
