@@ -144871,6 +144871,11 @@ the package had twice or did not need.
   ES at a segment `wr_selrec` points elsewhere on the next line; and
   `wr_stemput`, a once-a-file routine whose callers never read the DI it
   advanced, saves through `wr_sv`.
+- **The three decimal parses** - the port in `WIRE.CFG`, the reply's status
+  code and its Content-Length - test a digit as `sub al, '0'` / `cmp al, 9`,
+  one unsigned compare for two, and the two 16-bit ones accumulate in BX
+  with `mov dx, 10` / `mul dx` instead of banking CX around a `mul cx`. Same
+  answers for every input, the port's 16-bit wrap included.
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 

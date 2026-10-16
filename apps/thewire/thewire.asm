@@ -3326,31 +3326,27 @@ wr_cfgparse:
     mov byte [di], 0
     inc si
     dec cx
-    mov word [wr_port], 0
+    xor bx, bx                          ; --- the port, accumulated in BX
 .p:
     jcxz .pend
     mov al, [si]
-    cmp al, '0'
-    jb .pend
-    cmp al, '9'
+    sub al, '0'                         ; a digit is 0..9 after this, and
+    cmp al, 9                           ; anything else is above 9 unsigned
     ja .pend
-    push cx
-    sub al, '0'
-    mov bl, al
-    xor bh, bh
-    mov ax, [wr_port]
-    mov cx, 10
-    mul cx
-    add ax, bx
-    mov [wr_port], ax
-    pop cx
+    cbw
+    xchg ax, bx                         ; AX = the port so far, BX = the digit
+    mov dx, 10
+    mul dx                              ; ...the low word, so a port that laps
+    add bx, ax                          ; 16 bits wraps as it always did
     inc si
     dec cx
     jmp short .p
 .pend:
-    cmp word [wr_port], 0
-    jne .path
-    mov word [wr_port], 80
+    or bx, bx                           ; `host:` with no digits is the
+    jnz .port                           ; default port, as no colon is
+    mov bl, 80
+.port:
+    mov [wr_port], bx
     jmp short .path
 .hend:
     mov byte [di], 0

@@ -597,12 +597,10 @@ wr_hdrline:
     mov [wr_clen+2], ax
 .d:
     mov al, [si]
-    cmp al, '0'
-    jb .out
-    cmp al, '9'
+    sub al, '0'                         ; a digit is 0..9 after this, and
+    cmp al, 9                           ; anything else is above 9 unsigned
     ja .out
-    sub al, '0'
-    xor ah, ah
+    cbw
     mov di, ax                          ; DI = the digit
     mov cx, 10
     mov ax, [wr_clen]
@@ -640,18 +638,13 @@ wr_hdrline:
     mov cx, 3
 .code:
     mov al, [si]
-    cmp al, '0'
-    jb .cdone
-    cmp al, '9'
+    sub al, '0'                         ; a digit is 0..9 after this, and
+    cmp al, 9                           ; anything else is above 9 unsigned
     ja .cdone
-    sub al, '0'
-    push ax
-    mov ax, bx
-    mov bx, 10
-    mul bx
-    mov bx, ax
-    pop ax
-    xor ah, ah
+    cbw
+    xchg ax, bx                         ; AX = the code so far, BX = the digit
+    mov dx, 10
+    mul dx
     add bx, ax
     inc si
     loop .code
