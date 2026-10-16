@@ -115080,7 +115080,9 @@ and `style` dropped whole, `font` and `bgcolor` dropped in both directions
 
 **3,063 bytes**, which is three clusters of a 360KB floppy against
 `DEMO.HTM`'s six — and the reason to care is §24.4, where that geometry is
-tight enough that `BEVERLY.MOD` rides a disk of its own.
+tight enough that `BEVERLY.MOD` rides a disk of its own. (2,901 since 71.18,
+which packs to 2,046 and two clusters: the boilerplate no renderer here reads
+went, and nothing it draws did.)
 
 It also puts the file **beside its package**, which is where the other three
 `APPS_DATA` entries already were — `apps/tracker/beverly.mod`,
@@ -115402,6 +115404,15 @@ redirects and frames - and left the same bytes behind.
   `inc`/`dec`. File's Save As stops jumping over itself, and the entry proc
   stops saving three registers around `os88ui_btninit` that it never reads
   again.
+- **The manual sheds what nothing reads.** `BROWSER.HTM` lost its DOCTYPE,
+  its `<meta>` charset (the page is pure ASCII), `<html>`/`</html>`,
+  `</body>` and its blank lines - 162 bytes of source, and the packed file
+  2,184 -> 2,046, three clusters to two on both disks that carry it. Every
+  shape 71.12 lists it exercising is still in it, `<head>` included, and it
+  renders the same: identical document, line table and per-line compose on
+  the machine's own code at six widths, and an identical `htmsim.py --render`
+  on all three adapters, whose only change is its own parse count (171 ops
+  and 28 tags to 167 and 27).
 
 ### 72.1 What the packages did have to change, which is one question
 
