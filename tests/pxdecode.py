@@ -44,7 +44,7 @@ import os88ui, os88geom, heapmap, os88build
 import pxtmp
 import pixelsim as P
 import pixcorpus as C
-from pxsyms import pkg_syms, u16
+from pxsyms import pkg_syms, same_header, u16
 
 FAIL = []
 
@@ -116,7 +116,7 @@ with os88ui.boot(SYSDISK, apps=DISK, machine=a.machine) as ui:
         for i in range(12):
             r = m.read(S("inst_tab") + i * os88geom.I_RECSZ, os88geom.I_RECSZ)
             c = u16(r, os88geom.I_SPTR)
-            if c and m.read(c * 16, 32) == image[:32]:
+            if c and same_header(m.read(c * 16, 32), image):
                 return c
         return None
     ui.path("B:/PA/" + first)

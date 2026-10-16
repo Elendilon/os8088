@@ -54,6 +54,7 @@ os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, "tests"); sys.path.insert(0, "tools")
 import os88marty as M
 import os88ui, os88geom, heapmap, os88build
+from pxsyms import same_header
 
 u16 = lambda b, i=0: b[i] | (b[i + 1] << 8)
 FAIL = []
@@ -155,7 +156,7 @@ with os88ui.boot("build/os8088-360.img", apps=DISK, machine=a.machine) as ui:
         for i in range(12):
             r = m.read(S("inst_tab") + i * os88geom.I_RECSZ, os88geom.I_RECSZ)
             c = u16(r, os88geom.I_SPTR)
-            if c and m.read(c * 16, 32) == image[:32]:
+            if c and same_header(m.read(c * 16, 32), image):
                 return c
         return None
     M.until(m, lambda _: inst(), "PiXEL's instance", poll=0.3, limit=60)

@@ -28,6 +28,14 @@ def pkg_syms(defines=()):
         return out, open(os.path.join(d, "p.bin"), "rb").read()
 
 
+def same_header(got, image):
+    """The first 32 bytes of a loaded PiXEL against this tree's image, the
+    LINK word (+4) excepted: a parted package whose image ships packed keeps
+    the packed length there in the loaded header (SPEC.md 20.13.8), where
+    the assembled image has 0."""
+    return got[:4] == image[:4] and got[6:32] == image[6:32]
+
+
 def instance(m, S, image):
     """PiXEL's segment: the LIVE instance whose image carries this header.
     A record whose state is not 1 is a closed one whose region may still
@@ -37,7 +45,7 @@ def instance(m, S, image):
         r = m.read(S("inst_tab") + i * os88geom.I_RECSZ, os88geom.I_RECSZ)
         c = u16(r, os88geom.I_SPTR)
         if (r[os88geom.I_STATE] == 1 and c
-                and m.read(c * 16, 32) == image[:32]):
+                and same_header(m.read(c * 16, 32), image)):
             return c
     return None
 
