@@ -6772,23 +6772,25 @@ MIDIRACK_SRC := apps/midirack/midirack.asm apps/midirack/mrseq.inc \
                 apps/midirack/mrmid.inc apps/midirack/mrwt.inc \
                 apps/os88pit.inc apps/os88spk.inc apps/os88ui.inc \
                 apps/os88api.inc apps/os88data.inc apps/os88rseq.inc \
+                apps/os88parts.inc apps/os88partsbody.inc \
                 drivers/sound/sndpkg.inc
 $(BUILD)/midirack.bin: $(MIDIRACK_SRC) | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/midirack/ -I drivers/sound/ \
 	    -I drivers/ -o $@ apps/midirack/midirack.asm
 	@echo "midirack: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/midirack.o88: $(BUILD)/midirack.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/midirack.bin -o $@
-
-# THE COLOUR FACE'S PICTURES (SPEC.md 105.9.5): the transport's fifteen faces,
-# drawn by tools/os88midart.py - which first holds the package's four numbers
-# to its own (--check-asm) - and shipped beside the package as MIDIRACK.GFX,
-# LZ-wrapped like any data file. A sidecar and not a part (SPEC.md 20.12):
-# os88pkg.py refuses to compress an image that has parts, and this one packs
-# 30 KB to 25. MRGFX is what the disk lists name.
-$(BUILD)/MIDIRACK.GFX: tools/os88midart.py tools/os88face.py faces/helv.t88                        apps/midirack/midirack.asm | $(BUILD)
+# ...and its one PART, the colour face's pictures (SPEC.md 105.9.5): the
+# transport's five up faces and the recipe for the other ten, drawn by
+# tools/os88midart.py - which first holds the package's numbers to its own
+# (--check-asm). An OP_LAZY | OP_COMP row, LZ4 like every part, read only on
+# a colour primary; it was MIDIRACK.GFX beside the package until a parted
+# image could be packed too (SPEC.md 20.13.8), and this one packs 36 KB to 28.
+$(BUILD)/mrfaces.bin: tools/os88midart.py tools/os88face.py faces/helv.t88 \
+                      apps/midirack/midirack.asm | $(BUILD)
 	python3 tools/os88midart.py --check-asm apps/midirack/midirack.asm -o $@
+
+$(BUILD)/midirack.o88: $(BUILD)/midirack.bin $(BUILD)/mrfaces.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/midirack.bin -o $@ --part $(BUILD)/mrfaces.bin
 
 # ...and the SAME SOURCE with -DAPROF (SPEC.md 86.5.1): the diagnostic-counter
 # build, for the profiling tests in docs/plans/completed/AUDIO-PLAN.md. Every counter is inside
@@ -13173,16 +13175,10 @@ MIDISONGS720 := $(filter %/BATTLE1.MID %/INTRO.MID,$(MIDISONGS))
 MIDISONGARGS := $(addprefix MEDIA/MIDI:,$(MIDISONGS))
 MIDISONGARGS720 := $(addprefix MEDIA/MIDI:,$(MIDISONGS720))
 ifneq ($(PKGZ),)
-MRGFX := $(ZDATA)/MIDIRACK.GFX
 PXGFX := $(ZDATA)/PIXEL.GFX
 else
-MRGFX := $(BUILD)/MIDIRACK.GFX
 PXGFX := $(BUILD)/PIXEL.GFX
 endif
-
-$(ZDATA)/MIDIRACK.GFX: $(BUILD)/MIDIRACK.GFX tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
-	@mkdir -p $(ZDATA)
-	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
 
 $(ZDATA)/MIDI/%.MID: apps/midirack/songs/%.MID tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
 	@mkdir -p $(ZDATA)/MIDI
@@ -13303,7 +13299,7 @@ os88cz: $(BUILD)/os88cz.com
 .PHONY: os88cz
 
 APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS) \
-        $(APPS_DOSCZ) $(MIDISONGS) $(MRGFX) $(PXGFX)
+        $(APPS_DOSCZ) $(MIDISONGS) $(PXGFX)
 # ...and the 360KB disk's list, which is that one less what the media disk
 # carries. Kept as its own variable rather than reusing $(APPS): a rule whose
 # prerequisites name a file that is not on the disk it builds is a dependency
@@ -13406,17 +13402,17 @@ APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES_360) $(APPS_DATA_360) $(APPS_SYS) $(AP
 # taking a value in the MIDDLE of a positional list stops the list being
 # collected, so os88disk.py answered "unrecognized arguments: SYSTEM/DOS:..."
 # for the packages that followed it.
-APPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(MRGFX) $(PXGFX)) \
+APPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(PXGFX)) \
             $(addprefix GAMES:,$(APPS_GAMES)) \
             $(addprefix MEDIA:,$(APPS_DATA)) $(LOGOVIDARG) \
             $(MIDISONGARGS) \
             $(APPSYSARGS) \
             $(addprefix SYSTEM/DOS:,$(APPS_DOS) $(APPS_DOSCZ)) \
             $(APPDATAFOLDER)
-# ...and the 720KB disk's, which is that list with two songs (MIDISONGS720)
-# and WITHOUT MIDIRACK.GFX (SPEC.md 105.10): the pictures are 2 clusters and
-# the disk had 3 - a VGA machine booting it draws the transport's buttons in
-# code, which is a complete face and not a broken one
+# ...and the 720KB disk's, which is that list with two songs (MIDISONGS720).
+# It left MIDIRack's colour pictures off while they were a file of their own
+# (2 clusters, with 3 free); they are a part of MIDIRACK.O88 now (SPEC.md
+# 105.9.5), so this disk's MIDIRack has the colour face like every other
 #
 # --- AND 720KB LEAVES PIXEL OFF (SPEC.md 106.7; 24.6.1's rule, the same dated
 #     decision as the 360KB filter above, 2026-10-02). apps720.img had 37 of
@@ -13431,7 +13427,7 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(MRGFX) $(PXGFX)) \
 # DrMarco is one file with its three front screens in it, and its own disk
 # (`make drmarcodisk`) and every other geometry's apps disk still carry it.
 APPS720 := $(filter-out $(BUILD)/pixel.o88 $(PXGFX),$(APPS))
-APPSARGS720 := $(filter-out $(MIDISONGARGS) APPS:$(MRGFX) \
+APPSARGS720 := $(filter-out $(MIDISONGARGS) \
                  APPS:$(BUILD)/pixel.o88 APPS:$(PXGFX) \
                  $(addprefix GAMES:,$(DM_SHIP)),$(APPSARGS))
 APPSARGS720 := $(filter-out $(APPDATAFOLDER),$(APPSARGS720)) \
@@ -13464,7 +13460,7 @@ APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS_360)) \
 # is in the folder the Open dialog already opens on whichever disk is in the
 # drive (SPEC.md 38.10) - a user who swaps disks should not have to know that
 # this one keeps its module somewhere else.
-MEDIAARGS360 := $(BUILD)/midirack.o88 $(MRGFX) \
+MEDIAARGS360 := $(BUILD)/midirack.o88 \
                 $(addprefix MEDIA:,$(MEDIA_DISK_DATA)) $(LOGOVIDARG) \
                 $(MIDISONGARGS)
 
@@ -13482,7 +13478,7 @@ $(APPSIMG360): $(APPS360) tools/os88disk.py
 
 # The MEDIA DISK (SPEC.md 24.4), 360KB only: data, on a disk whose whole job is
 # to be swapped into B: when the module is what you came for - and, since
-# SPEC.md 105.10, MIDIRack with its pictures and songs, the one package whose
+# SPEC.md 105.10, MIDIRack and its songs, the one package whose
 # subject the disk already is.
 #
 # AND THERE IS NO 1.2MB ONE, WHICH IS NOT AN OMISSION. This disk exists
@@ -13494,7 +13490,7 @@ $(APPSIMG360): $(APPS360) tools/os88disk.py
 # is the geometry's, not the disk's: a media disk exists exactly where the
 # apps disk had to drop the module, and 1.2MB is not such a geometry.
 $(MEDIAIMG360): $(MEDIA_DISK_DATA) $(LOGOVID) $(BUILD)/midirack.o88 \
-                $(MRGFX) $(MIDISONGS) tools/os88disk.py
+                $(MIDISONGS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(MEDIAARGS360) \
 		--folder SYSTEM/APPDATA
 
@@ -13789,7 +13785,7 @@ ALLAPPS := $(ALLAPPSFILES) $(BUILD)/runcpm-src.stamp tools/getruncpm.py
 # priced with it; the LOOM=32 directory slots below are priced too.
 
 ALLAPPSARGS := APPS:$(BUILD)/redline.o88 $(addprefix APPS:,$(APPS_TOOLS) $(CORE_SYSONLY) \
-                                 $(BUILD)/frotz.o88 $(MRGFX) $(PXGFX) \
+                                 $(BUILD)/frotz.o88 $(PXGFX) \
                                  $(BUILD)/MIDIRACK.BNK) \
                $(addprefix GAMES:,$(APPS_GAMES)) \
                $(addprefix MEDIA:,$(APPS_DATA)) \
@@ -14984,12 +14980,12 @@ xt-sound: $(IMG360) $(APPSIMG360)
 # Built on demand and shipped nowhere.
 $(BUILD)/FURELISE.WAV: tools/os88tunewav.py | $(BUILD)
 	python3 tools/os88tunewav.py -o $@
-$(BUILD)/covoxlisten720.img: $(BUILD)/midirack.o88 $(MRGFX) $(MIDISONGS) \
+$(BUILD)/covoxlisten720.img: $(BUILD)/midirack.o88 $(MIDISONGS) \
                             $(BUILD)/tracker.o88 $(BUILD)/audio.o88 \
                             $(MEDIA_DISK_DATA) $(BUILD)/FURELISE.WAV \
                             tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 \
-	    $(BUILD)/midirack.o88 $(MRGFX) $(MIDISONGARGS) \
+	    $(BUILD)/midirack.o88 $(MIDISONGARGS) \
 	    APPS:$(BUILD)/tracker.o88 APPS:$(BUILD)/audio.o88 \
 	    $(addprefix MEDIA:,$(MEDIA_DISK_DATA)) MEDIA:$(BUILD)/FURELISE.WAV \
 	    --folder SYSTEM/APPDATA
@@ -15045,14 +15041,15 @@ $(BUILD)/MIDIRACK.BNK: $(MIDISF2) tools/os88midbank.py
 .PHONY: midibank
 midibank: $(BUILD)/MIDIRACK.BNK
 
-# MIDIRACK'S OWN DISK, in all four geometries: MIDIRACK.O88 and its pictures
-# at the root, MIDIRACK.BNK beside them (UNWRAPPED - MIDIRack reads it in
-# 32 KB chunks with OSAPI_FILE_READ_AT, which delivers a file raw), the ten
-# songs in MEDIA\MIDI\ and SYSTEM\APPDATA for its settings. At 360KB it is
-# ~261 of 354 clusters: the bank is 206 of them.
-MIDIRACKDISKARGS := $(BUILD)/midirack.o88 $(MRGFX) $(BUILD)/MIDIRACK.BNK \
+# MIDIRACK'S OWN DISK, in all four geometries: MIDIRACK.O88 (its pictures a
+# part of it) at the root, MIDIRACK.BNK beside it (UNWRAPPED - MIDIRack reads
+# it in 32 KB chunks with OSAPI_FILE_READ_AT, which delivers a file raw), the
+# ten songs in MEDIA\MIDI\ and SYSTEM\APPDATA for its settings. The bank is
+# 206 of 354 clusters at 360KB, and it STAYS A FILE (SPEC.md 105.8.6): it is
+# optional, fetched rather than committed, swappable and someone else's work.
+MIDIRACKDISKARGS := $(BUILD)/midirack.o88 $(BUILD)/MIDIRACK.BNK \
                     $(MIDISONGARGS) --folder SYSTEM/APPDATA
-MIDIRACKDISKDEPS := $(BUILD)/midirack.o88 $(MRGFX) $(BUILD)/MIDIRACK.BNK \
+MIDIRACKDISKDEPS := $(BUILD)/midirack.o88 $(BUILD)/MIDIRACK.BNK \
                     $(MIDISONGS) tools/os88disk.py
 $(BUILD)/midirack.img: $(MIDIRACKDISKDEPS)
 	python3 tools/os88disk.py -o $@ --size 1440 $(MIDIRACKDISKARGS)

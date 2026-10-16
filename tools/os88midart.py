@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """MIDIRack's colour button faces (SPEC.md 105.9.5): draw them, pack them.
 
-    python3 tools/os88midart.py -o build/mrart.bin [--png preview.png]
+    python3 tools/os88midart.py -o build/mrfaces.bin [--png preview.png]
     python3 tools/os88midart.py --selfcheck
 
 The transport's five buttons - Prev, Play, Pause, Stop, Next - each in three
@@ -9,8 +9,10 @@ states (up, pressed, greyed), as PLANAR 4bpp pictures in the standard 16
 colours: what OSAPI_GFX_BLITP puts on a VGA or an EGA with one `rep movsb` a
 plane a row (SPEC.md 5.4.3), so a face costs one call and a few milliseconds
 on the 8088 where a blit of packed pixels would cost thirty. The package
-carries them as a LAZY part of MIDIRACK.O88 (SPEC.md 20.12.4) and fetches them
-only on a colour display - a Hercules or a CGA never reads a byte of this.
+carries them as a LAZY, COMPRESSED part of MIDIRACK.O88 (SPEC.md 20.12.4) -
+`-o` writes the part, and the Makefile hands it to os88pkg.py with --part -
+and reads it only on a colour display: a Hercules or a CGA never reads a byte
+of this.
 
 Everything is drawn HERE, in code, and nothing is hand-painted: an icon is a
 shape (a triangle, a bar, a square) given a one-pixel black outline and a
@@ -256,7 +258,7 @@ def _rect():
 
 
 def pack():
-    """MIDIRACK.GFX: the five up faces, then the pressed frame's rows (plane
+    """The part: the five up faces, then the pressed frame's rows (plane
     by plane, PR_CONST's order), the two fixed bytes' pixels per plane (FIX0
     then FIX5), and the greyed wipe's row mask."""
     imgs, _ = build()

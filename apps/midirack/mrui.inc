@@ -53,7 +53,7 @@ MRB_QUIT    equ 13
     MRB mru_col                     ; 1 = the COLOUR face (SPEC.md 105.9.5):
                                     ; a 4bpp display, decided at each full
                                     ; paint, and tall
-    MRW mra_seg                     ; MIDIRACK.GFX's claim, or 0
+    MRW mra_seg                     ; the faces' claim (part 0), or 0
     MRW mru_hdr                     ; a pane's title strip
     MRW mru_lbt                     ; the list box's top, under the title
     MRW mru_nrp                     ; Now Playing's line pitch
@@ -1856,7 +1856,15 @@ mru_mode:
     ret
 
 ; mra_load (midirack.asm, the image's tail: entry only) reads the colour
-; face's pictures into a claim and makes the ten the file does not carry
+; face's pictures - part 0 of MIDIRACK.O88 - into a claim and makes the ten
+; the part does not carry
+
+; mra_reloc - the pictures' claim has MOVED (OSAPI_MEM_MOVABLE, SPEC.md 66):
+; DX = where it is now. mra_seg is the only word that names it - a paint
+; reloads ES from it per face - so this is the whole of the proc
+mra_reloc:
+    mov [mra_seg], dx
+    ret
 
 ; mra_free - the pictures' claim back (the window is closing)
 mra_free:

@@ -538,7 +538,9 @@ FAST = [
         "tools/os88midi.py's, and its ten shipped songs are read by TWO "
         "readers that share no code - the composer's checker and the "
         "reference sequencer the player's gates compare against - which must "
-        "agree on every song's length (SPEC.md 105.6.1)"),
+        "agree on every song's length (SPEC.md 105.6.1); and the colour "
+        "face's part 0 of build/midirack.o88 unpacks to exactly what "
+        "tools/os88midart.py draws (SPEC.md 105.9.5)"),
     Row("bits", "fast", py("tests/unit/t_bits.py"), 0.5,
         "TWO FLAGS THAT SHARE ONE BYTE MAY NOT SHARE A BIT (SPEC.md 96.11.10). "
         "t_mirror's sibling and the same class of gate: a flag is `NAME equ "

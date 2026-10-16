@@ -168,7 +168,16 @@ def header(blob, nm):
     eq(blob[12:15], DISPATCH, "%s: carries the dispatcher at +12" % nm,
        "the kernel far-calls +12 to reach every callback (SPEC.md 20.2); a "
        "package without it sends the kernel into its own data on the first paint")
-    if ver == V_APP and b3 & 4:
+    if ver == V_APP and b3 & 0x0C == 0x0C:
+        # PARTS AND A PACKED IMAGE (SPEC.md 20.13.8): the bound the kernel
+        # takes is the LINK WORD - the packed stream's length, which
+        # ld_check_hdr puts in [ld_fsz] in place of the file's - and app()
+        # holds it inside the image and the file. The FILE may be shorter
+        # than the image: MIDIRack's 36,490-byte image packs to 29,141 and
+        # its one part is 772, so the file is 29,956 (SPEC.md 105.9.5)
+        check(32 <= image <= 0xFFFF,
+              "%s: image %d fits the 16-bit field" % (nm, image), got=image)
+    elif ver == V_APP and b3 & 4:
         # FLAGS BIT 2: the file is longer than the image ON PURPOSE, and the
         # tail is the package's own to read (SPEC.md 20.12). The truncation
         # guard becomes image <= file, which is still exact about the half
