@@ -13764,8 +13764,16 @@ ALLAPPSIMG120 := $(BUILD)/apps-all-120-1.img
 # list went on believing in it.
 # A local cartridge is optional; extracted files stay in the build directory.
 N1942_ROM ?= $(wildcard 1942.nes)
-N1942SCENES = $(if $(strip $(N1942_ROM)),WORLD.V42 WORLD.C42,SEA.V42 REEF.V42 PORT.V42 SEA.C42 REEF.C42 PORT.C42)
-N1942LIVE := $(BUILD)/1942.o88 $(addprefix $(BUILD)/,1942V.GFX 1942C.GFX 1942VX.GFX 1942CX.GFX 1942L.GFX $(N1942SCENES) 1942.SFX)
+# The scenes in PART order (apps/1942/video.inc n_scenerow): REEF.C42 last,
+# because it pads most to its sector and the file's last part is not padded.
+N1942SCENES = $(if $(strip $(N1942_ROM)),WORLD.V42 WORLD.C42,SEA.V42 REEF.V42 PORT.V42 SEA.C42 PORT.C42 REEF.C42)
+# THE PARTS OF 1942.O88 (SPEC.md 101.2, 20.12), in TABLE ORDER: the N_P_*
+# rows in apps/1942/video.inc name the same files in the same order, and
+# tests/n1942.py --assets-only checks each row's length against them. They
+# were twelve sidecar files beside the package and are one file now, so it
+# rides GAMES\ in the set below rather than a folder of its own.
+N1942PARTS = $(addprefix $(BUILD)/,1942V.GFX 1942VX.GFX 1942L.GFX 1942C.GFX 1942CX.GFX 1942.SFX $(N1942SCENES))
+N1942LIVE := $(BUILD)/1942.o88
 ALLAPPSFILES := $(BUILD)/redline.o88 $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUILD)/frotz.o88 \
                 $(BUILD)/MIDIRACK.BNK \
                 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC \
@@ -13791,7 +13799,7 @@ ALLAPPS := $(ALLAPPSFILES) $(BUILD)/runcpm-src.stamp tools/getruncpm.py
 ALLAPPSARGS := APPS:$(BUILD)/redline.o88 $(addprefix APPS:,$(APPS_TOOLS) $(CORE_SYSONLY) \
                                  $(BUILD)/frotz.o88 $(MRGFX) $(PXGFX) \
                                  $(BUILD)/MIDIRACK.BNK) \
-               $(addprefix GAMES:,$(APPS_GAMES)) \
+               $(addprefix GAMES:,$(APPS_GAMES) $(N1942LIVE)) \
                $(addprefix MEDIA:,$(APPS_DATA)) \
                $(addprefix WORD:,$(BUILD)/word.o88 $(BUILD)/WELCOME.DOC) \
                $(addprefix CWORD:,$(CWORDDISK)) \
@@ -13804,7 +13812,6 @@ ALLAPPSARGS := APPS:$(BUILD)/redline.o88 $(addprefix APPS:,$(APPS_TOOLS) $(CORE_
                                    apps/apple2/README.TXT \
                                    apps/apple2/COPYING) \
                $(addprefix WEAVE:,$(WEAVEDISK)) \
-               $(addprefix 1942:,$(N1942LIVE)) \
                $(addprefix LOOM:,$(WEAVELOOM) $(LOOMRUN) $(LOOMSRCS)) \
                $(APPSYSARGS) \
                $(addprefix SYSTEM/DOS:,$(APPS_DOS) $(APPS_DOSCZ))
@@ -15456,7 +15463,7 @@ distclean: clean clean-marty clean-cc clean-nasm3
 
 # Standalone 1942: committed artwork, compiled into adapter-native banks.
 N1942ART = apps/1942/art/sprites.json apps/1942/art/sea.idx apps/1942/art/reef.idx apps/1942/art/port.idx apps/1942/palette.json
-N1942BANKS = $(filter-out $(BUILD)/1942.o88 $(BUILD)/1942.SFX,$(N1942LIVE))
+N1942BANKS = $(addprefix $(BUILD)/,1942V.GFX 1942C.GFX 1942VX.GFX 1942CX.GFX 1942L.GFX $(N1942SCENES))
 N1942DISK = $(N1942LIVE)
 $(BUILD)/1942.SFX: tools/1942sfx.py $(wildcard apps/1942/sfx/*) | $(BUILD)
 	python3 tools/1942sfx.py -o $@
@@ -15474,28 +15481,19 @@ $(BUILD)/1942art.inc $(N1942BANKS): $(BUILD)/.1942assets
 	@test -f $@ || python3 tools/1942assets.py -o $(BUILD) $(if $(N1942_ROM),--rom "$(N1942_ROM)")
 $(BUILD)/1942front.inc: tools/1942front.py tools/os88lz.py apps/1942/art/splash.json apps/1942/art/sprites.json | $(BUILD)
 	python3 tools/1942front.py -o $(BUILD)
-$(BUILD)/1942.bin: apps/1942/1942.asm apps/1942/front.inc $(BUILD)/1942front.inc apps/1942/game.inc apps/1942/campaign.inc apps/1942/motion.inc apps/1942/audio.inc apps/1942/pcm.inc apps/1942/video.inc apps/1942/scroll.inc $(BUILD)/1942art.inc apps/os88api.inc apps/os88ui.inc
+$(BUILD)/1942.bin: apps/1942/1942.asm apps/1942/front.inc $(BUILD)/1942front.inc apps/1942/game.inc apps/1942/campaign.inc apps/1942/motion.inc apps/1942/audio.inc apps/1942/pcm.inc apps/1942/video.inc apps/1942/scroll.inc $(BUILD)/1942art.inc apps/os88api.inc apps/os88ui.inc apps/os88parts.inc apps/os88partsbody.inc
 	$(NASM) -f bin -w+error -I apps/ -I apps/1942/ -I $(BUILD)/ -l $(BUILD)/1942.lst -o $@ $<
-$(BUILD)/1942.o88: $(BUILD)/1942.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $< -o $@
+# EVERY PART IS OP_COMP | OP_LAZY, packed lz4 by os88pkg.py (SPEC.md 101.2),
+# so one file serves every geometry - and the 360KB disk no longer leaves the
+# effects bank off for space: the twelve files it used to carry rounded up to
+# a cluster each, which cost more than the bank's sectors do.
+$(BUILD)/1942.o88: $(BUILD)/1942.bin $(N1942PARTS) tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $< -o $@ $(foreach p,$(N1942PARTS),--part $(p))
 1942disk: $(BUILD)/1942.img $(BUILD)/1942-360.img
 $(BUILD)/1942.img: $(N1942DISK) apps/1942/README.TXT tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(N1942DISK) apps/1942/README.TXT
-# THE 360KB DISK CARRIES THE BANKS PACKED (SPEC.md 101, 20.14.3). Raw, the
-# original-art set is 355 data clusters of a disk that holds 354 - it never
-# fitted, from the commit that added it - and the three 61,448-byte V42 scenes
-# are 61 clusters each where 41,920 packed are 41. 1942 reads every bank with
-# OSAPI_FILE_READ, which is the TRANSPARENT read, so the package checks the
-# same size and checksum against the same bytes and nothing in it changes.
-# The 1.44MB disk has the room and keeps them raw.
-N1942Z := $(ZDATA)/1942
-N1942BANKS360 := $(filter-out $(BUILD)/1942.o88 $(if $(strip $(N1942_ROM)),,$(BUILD)/1942.SFX),$(N1942DISK))
-N1942DISK360 := $(BUILD)/1942.o88 $(if $(PKGZ),$(patsubst $(BUILD)/%,$(N1942Z)/%,$(N1942BANKS360)),$(N1942BANKS360))
-$(N1942Z)/%: $(BUILD)/% tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
-	@mkdir -p $(N1942Z)
-	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
-$(BUILD)/1942-360.img: $(N1942DISK360) apps/1942/README.TXT tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(N1942DISK360) apps/1942/README.TXT
+$(BUILD)/1942-360.img: $(N1942DISK) apps/1942/README.TXT tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(N1942DISK) apps/1942/README.TXT
 1942test: 1942disk $(BUILD)/os8088-360.img
 	python3 tests/n1942front.py
 	python3 tests/n1942.py

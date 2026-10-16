@@ -180041,19 +180041,28 @@ VGA keeps its terrain ring in offscreen video RAM after the two display
 pages, followed by the sprite cache. The original-art build scrolls a cyclic
 native backdrop through the same display paths.
 
-Three instance-owned claims hold two sprite banks and terrain/canvas data; the
-loader releases them. Each is sized at assembly time from what is read or
-composed into it, not a flat 64KB: a sprite claim is the larger of its VGA and
-CGA bank (the first also holds the desktop's rendered menu labels, see 101.5),
-and the canvas is the largest of the scene, the splash cache, `1942L.GFX` and
-CGA's 32KB composition (the cartridge
-build keeps 64KB for its upper-half world bank). The original-art build
-claims 61+46+7KB where it claimed 192KB. Every bank read passes its exact size
-as `OSAPI_FILE_READ`'s capacity, so a longer file is refused, never overrun. The XT target remains 640KB RAM. Enter/F enters or
-resumes the FSX bracket; Escape/F restores the desktop. An executable-resident
-bitmap says `1942  LOADING GRAPHICS` before the first disk read, including
-resume and scenery reloads. It does not depend on the graphics being loaded.
-Missing or invalid graphics return to the launcher with an error.
+The instance holds ONE claim for its whole life, the canvas, sized at
+assembly time from what is composed into it: the desktop splash cache or
+CGA's 32KB composition, 61KB (the cartridge build keeps 64KB for its
+upper-half world bank). Everything the game READS is a part of `1942.O88`
+(101.6) fetched into a claim of its own on the way into the FSX bracket: the
+two sprite banks for the adapter in use are held for the bracket and dropped
+on every way out of it (`n_dropgfx`), and the latch cache, a scene and the
+effects bank are copied where they are used and dropped at once. So the
+desktop holds 61KB where it held 61+46+7KB, and the bracket adds 18KB of
+banks on VGA and 53KB on CGA, plus one transient scene claim while a scene
+loads (op_fetch's R plus the packed read: 62KB on VGA, 16KB on CGA). The four
+rendered menu labels (101.5) live in the instance's bss. The XT target
+remains 640KB RAM. Enter/F enters or resumes the FSX bracket; Escape/F
+restores the desktop. **The heap is asked on the desktop first** (`n_fsxroom`):
+both banks plus the largest scene, each priced as `op_fetch` will claim it -
+because the fetches run after the mode is set, where a refusal's toast would
+be drawn into the game's own framebuffer (§53.7). A heap that cannot hold
+them leaves the window saying so; what is left to refuse inside the bracket is
+a disk that will not read. An executable-resident bitmap says
+`1942  LOADING GRAPHICS` before the first disk read, including resume and
+scenery reloads. It does not depend on the graphics being loaded. A part
+that cannot be fetched returns to the launcher with an error.
 
 ### 101.2 Graphics files
 
@@ -180066,9 +180075,10 @@ streams represent horizontal phases. Width bit 7 identifies compiled CGA
 The host gate decodes their opcodes and checks store bounds. Other streams
 contain offset/count records terminated by FFFFh; VGA runs contain color
 bytes, CGA runs contain a type (opaque or AND-mask/OR-data) and data.
-Offsets use an 80-byte destination stride. The guest verifies expected
-length and 16-bit byte checksum before following offsets. These checks
-catch accidental damage, not malicious executable files.
+Offsets use an 80-byte destination stride. A bank is a part of the package
+built with it (101.6), so its length is its row's and a stream that does not
+expand to exactly that is refused by `op_fetch`; the size and 16-bit checksum
+the guest checked while banks were separate files - a stale pair - are gone.
 
 `1942L.GFX` holds four planes of the deduplicated VGA sprite cache. Grouped-mask display
 lists are generated into the package. The host refuses segment/cache overflow.
@@ -180093,9 +180103,10 @@ CGA row sampling uses floor(y*6/5); VGA uses the cartridge rows directly.
 Pause freezes scrolling; fullscreen resume reconstructs the same route
 position after the video mode and graphics caches are reloaded.
 
-Original-art builds retain `SEA.V42`, `REEF.V42`, `PORT.V42` (`N42B`, length,
-adapter byte 0, reserved byte, four 64x240 planes), and `.C42` equivalents
-(adapter byte 1, 80x200 packed bytes). Families cycle every four stages.
+Original-art builds retain `SEA.V42`, `REEF.V42`, `PORT.V42` (four 64x240
+planes) and `.C42` equivalents (80x200 packed bytes) - headerless since they
+became parts, the row carrying the length the `N42B` header did. Families
+cycle every four stages.
 Generated sprite/palette JSON beside the binaries supports independent tests.
 Source-selection stamps ensure switching between cartridge and original art
 rebuilds the matching package and disks.
@@ -180122,7 +180133,8 @@ completion/escape controls, results bonus boundaries, extra lives, two-player
 turns, sound controls, natural spawning, all aircraft kinds, bosses, victory,
 scenery/route transitions,
 ring wrapping, pause/resume, palette cycling, full-refresh equivalence and
-missing/damaged file rejection. The independent terrain reference reads
+refused parts (a scene row whose length no longer matches its stream, a bank
+row pointed past the end of the file). The independent terrain reference reads
 CHR, metatiles and route bytes directly from the local cartridge rather than
 using the generated world bank or guest cache. VGA scanout mode is checked
 separately from plane contents. Performance includes rendering, presentation
@@ -180226,7 +180238,9 @@ edits in `apps/1942/sfx/CREDITS.md`). Music stays on FM. The bank contains a
 16-byte N42S header and 1024/3072/4096 bytes of unsigned 8-bit mono PCM at
 8000 Hz; its length, header and checksum are checked before use.
 A page-safe 13KB DMA claim holds three prepared 4096-byte rings and their
-control words at offsets 0, 4112 and 8224. The bank is read and validated at
+control words at offsets 0, 4112 and 8224. The bank, a part (101.6), is
+fetched only when the card can play it and the heap can hold it - asked first,
+so a busy heap is FM effects and not a toast inside the bracket - copied to
 offset zero, then expanded in place, last sample first. Each one-shot is
 padded with silence and played directly through SND_STREAM's external-ring
 interface. Starting an effect copies no samples. No mixer or refill worker
@@ -180234,13 +180248,10 @@ is needed.
 At most one pending sample starts per game frame; louder events take priority
 over shots. Mute/pause cancels effects; exit closes the stream before freeing
 the claim. Missing samples, memory or unsupported DSP fall back to FM.
-The 360KB original-art disk omits the optional bank for space; the cartridge
-360KB disk and 1.44MB disk include it. **The 360KB disk carries every bank
-lz4-packed** (§20.14): raw, the original-art set is 355 data clusters of 354
-and never fitted, and every bank is read with `OSAPI_FILE_READ`, the
-transparent read, so the package's size and checksum tests see the same bytes
-(230 of 354 packed). The 1.44MB disk keeps them raw. The old tone path already
-used hardware tones, so richer sound does not promise an XT speedup.
+The bank rides inside `1942.O88` on every disk (101.6), the 360KB one
+included, where as a separate file it was left off for space. The old tone
+path already used hardware tones, so richer sound does not promise an XT
+speedup.
 Both palette sets at $A770/$A790 are available for the cartridge's final area.
 Original-art builds implement the same game rules using original fallback
 assets and native schedules. No extracted cartridge content is committed.
@@ -180274,6 +180285,59 @@ once per scale from an 8x8 subset of the game font into the sprite claim,
 which is idle on the desktop, and `n_launch` invalidates them because the
 graphics load refills that claim. Kernels without window timers decode the cache during entry and
 show the static splash.
+
+### 101.6 The banks are parts of `1942.O88`
+
+`1942.O88` is the whole game. Its twelve data files - two sprite banks and
+their continuations, the VGA latch cache, the effects bank and six scenes
+(two worlds in a cartridge build) - were sidecars beside it, and are
+`OP_ASSET, OP_LAZY | OP_COMP` parts now (§20.12, §20.12.7.4), lz4-packed by
+`os88pkg.py`. **Every row is lazy because only the adapter in use is ever
+read**: a VGA machine never touches a CGA byte, nothing is read at launch, and
+the table has no carve (§20.12.9.3). `op_fetch` claims, reads and expands a
+part; the banks are held for the bracket, the rest is copied and dropped.
+`OP_NO_LAZYOK`: the one question asked ahead, `n_fsxroom`, prices the parts
+with `op_lazykb` itself, and the effects bank asks the same way before it
+fetches.
+
+| row | part | unpacked | packed |
+|---|---|---:|---:|
+| 0 | `1942V.GFX` | 15,053 | 12,270 |
+| 1 | `1942VX.GFX` | 2,330 | 2,083 |
+| 2 | `1942L.GFX` | 16,312 | 6,672 |
+| 3 | `1942C.GFX` | 46,356 | 27,750 |
+| 4 | `1942CX.GFX` | 6,630 | 4,743 |
+| 5 | `1942.SFX` | 8,208 | 7,729 |
+| 6-8 | `SEA` `REEF` `PORT.V42` | 61,440 each | 41,904 / 41,826 / 37,737 |
+| 9-11 | `SEA` `PORT` `REEF.C42` | 16,000 each | 5,875 / 5,560 / 5,117 |
+
+**The row order is the Makefile's `N1942PARTS`** and `video.inc`'s `N_P_*`
+(`n_scenerow` maps a scene to its row), and `tests/n1942.py --assets-only`
+checks every row against the file the code names. **`REEF.C42` is last**
+because it pads most to its sector (510 bytes) and the last part is not
+padded; and the scenes lost their 8-byte `N42B` header, which nothing read
+once the row carried the length - together the two are what bring the file
+under a 1,024-byte cluster, 233,469 bytes against 233,472.
+
+Measured against the tree before, original art: the image 36,738 -> 37,671
+bytes (the standard's fetch code, +933) and the bss 4,800 -> 6,438 (`OP_BSS`
+and the menu labels' 1,536, which were in the sprite claim). The file is
+233,469 bytes, its image packed (§20.13.8).
+
+| disk | before | after |
+|---|---|---|
+| `1942-360.img` | 14 files, 229 clusters, **no effects bank** | 3 files, 235 clusters, with it |
+| `1942.img` (1.44MB) | 15 files, 719 clusters, banks raw | 3 files, 469 clusters |
+| `make allapps`, 1.44MB set | 2 disks, 4,705 clusters | 2 disks, 4,455 |
+| `make allapps`, 1.2MB set | **3 disks**, 4,710 clusters | **2 disks**, 4,455 |
+
+On the 360KB disk the banks were already lz4-packed files, so the parts save
+only their cluster rounding against a sector's padding each and the standard's
+code: 2 clusters, and 11 directory entries. The effects bank it now carries
+costs 8 - it was left off for space, and one file that serves every geometry
+has no reason to. The 1.44MB disk carried the banks raw, so there the
+compression is most of the 250. On the everything set the game
+leaves its own `1942\` folder for `GAMES\`: one file needs no folder.
 
 ## 102. Excitebike — native motocross racer (`apps/excitebike/excitebike.asm`)
 

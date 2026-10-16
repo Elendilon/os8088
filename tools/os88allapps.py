@@ -10,7 +10,7 @@ payload needs one. Nobody edits a disk list when a program is added.
 
 THE UNIT IS A TOP-LEVEL FOLDER, and a folder is never split between disks
 while it fits on one. That is a correctness rule and not tidiness: WORD\\,
-CWORD\\, RUNCPM\\, C64\\, APPLE2\\, WEAVE\\, LOOM\\, PACCMAN\\ and 1942\\ each
+CWORD\\, RUNCPM\\, C64\\, APPLE2\\, WEAVE\\, LOOM\\ and PACCMAN\\ each
 hold a program, its overlay or data files, and its documents, which all have
 to sit in the folder the program is launched from (SPEC.md 19.10). A
 COLLECTION folder (--collection: APPS, GAMES, MEDIA) is a set of independent
