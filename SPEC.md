@@ -50847,7 +50847,9 @@ content-relative; the procs fetch the content origin via `wm_content`
     of `mn_sh_mine` whose colour byte `mn_draw_minecell` writes (light gray,
     or light red for the clicked one) before every use - two lists and two
     calls became one. The terminator is the one colour byte with bit 7 set,
-    so `cbw`'s sign tests it, and each coordinate reaches its `gfx_fill`
+    so its sign tests it (`or al, al` - the first cut used `cbw`, which
+    writes no flags, and walked off the list on the first board that was not
+    all covered), and each coordinate reaches its `gfx_fill`
     register by a one-byte `xchg`. The loss renderer classifies a cell on
     one masked byte.
   - **The wrong-flag X is composed from three running registers** (the

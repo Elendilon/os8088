@@ -602,7 +602,10 @@ mn_cellxy:
 ; another is drawn by calling again with no reload (the flag over a covered
 ; cell). Each coordinate goes to the register gfx_fill wants it in with a
 ; one-byte xchg, and the terminator is the one record whose colour byte has
-; bit 7 set - colours are 0..15 - so cbw's sign is the test.
+; bit 7 set - colours are 0..15 - so its sign is the test. `or`, not `cbw`:
+; CBW WRITES NO FLAGS, and a `js` after it tests whatever the last gfx_fill
+; left - which is how this shipped once and walked off the end of the list
+; on the first board that was not entirely covered.
 ; -----------------------------------------------------------------------------
 mn_shape:
     push ax
@@ -615,7 +618,7 @@ mn_shape:
     mov di, dx                      ; cell top
 .rec:
     lodsb                           ; colour (DF=0 per calling convention)
-    cbw
+    or al, al
     js .done                        ; 0xFF: the end of the list
     call OSAPI_SET_COLOR
     lodsb                           ; x1 (every coordinate is 0..15, so
