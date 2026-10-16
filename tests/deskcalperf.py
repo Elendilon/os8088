@@ -232,14 +232,15 @@ def ui_leg(tmp, machine, label, results):
                  if it.startswith("About Desk")]
         check(bool(about), "%s: an About item on the bar (%r)"
               % (label, [mm[0] for mm in ui.menus()]))
-        ab = gesture(lambda: ui.menu_pick(*about[0]), 3.0)
+        ab = gesture(lambda: ui.menu_pick(*about[0]), 3.0, tag=False)
         print("%s: About            %s" % (label, ab))
         r["about"] = ab.row()
         txt = ui.wait_toast(says="Desk Calendar")
         check(txt == "Desk Calendar, SPEC 110", "%s: About says %r"
               % (label, txt))
-        check(ab.n == 0, "%s: About draws nothing on the face (%d calls)"
-              % (label, ab.n))
+        check(ab.n == 0, "%s: About draws nothing on the cards (%d calls: "
+              "%r) - the tag row's plate is the bar's focus edge, not About's"
+              % (label, ab.n, ab.by))
 
         print("%s: a press on the 15th" % label)
         c.front()

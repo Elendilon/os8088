@@ -21281,7 +21281,12 @@ its 1 KB claim, or a stale stamp (§2.8.2): QUERY answers CF = 1, which is
 with nothing half-done. **It says nothing**: the widget works, so there is
 no refusal for the user to act on (§47 rule 3). The boot relaunch is
 unaffected - `stik_boot` stays resident (§110.4, §110.9's module-cut entry) -
-so a Sticky App row still launches at boot and comes up titled, and its row is kept.
+so a Sticky App row still launches at boot and its row is kept. **The shipped
+Desk Calendar is built `STIK_DESKONLY`** (§110.7) and so does NOT come up
+titled: `stik_single` asks QUERY before any I/O and a refusal is no launch,
+said - `No desk layer (DESK.DRV)` - because the titled arm is code only a
+machine with no desk layer reaches, and kern_big always has one unless its
+system disk is damaged.
 Each launch of an `OS88_F_DESK` package pays TWO more `drv_find`s of
 `SYSTEM\` for the file that is not there - step 5's and the QUERY's, the
 first refusal not being remembered (a byte to remember it would be resident
@@ -185617,21 +185622,27 @@ held draws it lit and cannot leave a stale inversion (§110.9).
 **Keys** reach the widget while it owns the bar (§11.103.4): v1's table -
 Left / Right a day, Up / Down a week, PgUp / PgDn (`,` `.`) a month, `T`
 today, `N` a new appointment, `K` a new task, `Enter` edit, `Del` delete
-(after asking), `Space` a task's box, `Tab` COMPACT's slot - plus `S`
+(pressed twice in a row), `Space` a task's box, `Tab` COMPACT's slot - plus `S`
 snooze and `D` dismiss the ringing reminder, and `Esc`, which is
 `OSAPI_WM_DESK` RELEASE: the bar and the keys go back to the front
 application (on kern_small, where there is no RELEASE, `Esc` selects
 nothing, as v1). While the field is open its keys are `os88line_key`'s and
 only `Enter` and `Esc` come back.
 
-**The menus** are v1's, shown while the widget owns the bar: `Calendar` (New
-Appointment, New Task, Edit Item, Delete Item, Clear Done Tasks, Show Tasks /
-Show Day - live on COMPACT only, greyed `(both shown)` elsewhere - Go to
-Today, Previous Month, Next Month) and `Remind` (the leads), with every v1
-greying (§47). The app-name cell carries About and the kernel's Close,
-through `os88stik.inc`'s negotiator. **The About card** lies over the face
-(its lines are 14 cells at most) until a key, a press or a pick, and its
-take-down is ONE whole-face repaint (`stik_redraw`, §110.11).
+**The menus** are shown while the widget owns the bar: `Calendar` (New
+Appointment, New Task, Edit Item, Delete Item, Clear Done Tasks, Go to
+Today, Previous Month, Next Month, and LAST Show Tasks / Show Reminder /
+Show Day - COMPACT's page, so on TALL and MID, which show both lists, the
+item is not on the menu at all: `dc_entry` takes the count one lower before
+`OSAPI_MENU_SET`, the layout being the session's) and `Remind` (the leads),
+with v1's greying (§47) in the ITEM'S OWN WORDS: each greyable string has
+one `MENU_DIS` byte in front of it, so its greyed form is the live string
+less one byte and needs no twin (`dc_menulive`). The reason is what the key
+says - `N` at 48 answers `Calendar is full (48)` - or plain on the card. The
+app-name cell carries About and the kernel's Close, through `os88stik.inc`'s
+negotiator. **About is one toast**, `Desk Calendar, SPEC 110`, and draws
+nothing on the face: the About card that lay over it, and its take-down
+repaint, went in the size pass (docs/plans/DESKCAL-SIZE-PLAN.md).
 
 **The one-line entry** (`os88line.inc`) takes card 2's HEADING ROW (the
 slot's on COMPACT): content x 4..155, so the `+` stays, rows heading - 3 ..
@@ -185663,14 +185674,20 @@ stays open); a task's at most 23. Editing an appointment keeps its reminder
 and lead while it stays timed, and its FIRED mark only while its time does
 not move (a moved one also loses DUE and SNOOZED). Appointments are kept in
 `(date, time + 1)` order (all day first in its day); the load CHECKS the
-order and the counts, and a payload that fails is DAMAGED (§110.5.2). `Del`
-asks through `os88ui_ask` (`Delete this appointment?` / `Delete this
-task?`) - an ordinary window that lands ABOVE every application and over the
-widget and takes the bar, giving it to `wm_top` when it closes (§11.103.4;
-`deskmodal`). Clear Done Tasks removes every checked task without asking. A
-page is re-derived whenever its list changes shape, as v1. The limits grey
-as v1: `New Appointment (full)` at 48, `New Task (full)` at 32, `(no item)`,
-`(none done)`, `(typing)`.
+order and the counts, and a payload that fails is DAMAGED (§110.5.2).
+**Delete is pressed TWICE**: the first `Del` (or Delete Item) on a selected
+item arms a one-byte latch, `dc_ask`, and says `Delete again to confirm`;
+a second on the very NEXT event, with the same item selected, deletes it.
+Every event handler (`dc_onkey`, `dc_oncmd`, `dc_oncard`) ages the latch
+first (`dc_age`, 2 -> 1 -> 0), so anything in between - another key, a
+press, another command - disarms it. It replaced an `os88ui_ask` question,
+which with the damaged-file question was all the alert and its button kit
+were carried for (1,238 bytes). Clear Done Tasks removes every checked task
+without asking. A page is re-derived whenever its list changes shape, as
+v1. The limits grey as v1 - New Appointment at 48, New Task at 32, Edit and
+Delete Item with nothing selected, Clear Done Tasks with none done, the
+three that would throw away an open field's line while it is open - in
+their own words (the menus, above).
 
 **Remind** sets a lead (At the Time, 5, 15, 30 Min Early, 1 Hour Early, No
 Reminder): the selected TIMED appointment's (FIRED, DUE and SNOOZED cleared,
@@ -185768,8 +185785,8 @@ with the snooze slot in the words v1 left zero:
 `tools/os88stik.py` writes and reads it (`deskcal(snooze=...)`,
 `parse_deskcal()`'s `snoozed` / `due` and `snooze`), and `t_stik` holds the
 offsets, the two new bits and the slot equal to `deskcal.asm`'s by NASM's own
-evaluation. An edit owes a save, held while the field or the Delete question
-is open and until one poll has passed with no edit, as v1.
+evaluation. An edit owes a save, held while the field is open and until one
+poll has passed with no edit, as v1.
 
 **What it costs**: §110.6's package rows.
 
@@ -185819,7 +185836,7 @@ stik_boot:       [ui_rebootq] != 0  -> nothing (a resume or DOS question is up)
 | launched from B:, booted with no disk in B: | the same, naming `(B:)` | the same |
 | a hard-disk install: a row recorded against A: | the same — a row's VOL is a volume index, which is existing shortcut semantics (§26.8.1) | the same |
 | load refused (memory, version) | `ld_say_status`'s sentence | KEPT |
-| `DESK.DRV` missing from the system disk, or no heap for its 1 KB claim (§11.103.10) | the widget comes up TITLED - its QUERY refused, kern_small's path - and nothing is said | KEPT |
+| `DESK.DRV` missing from the system disk, or no heap for its 1 KB claim (§11.103.10) | a `STIK_DESKONLY` widget - the shipped calendar - refuses in its own words, `No desk layer (DESK.DRV)`; one built without it comes up TITLED, kern_small's path, and says nothing | KEPT |
 | state file missing / damaged / position off this screen | the package's own answers (§110.5) | — |
 | hibernate or DOS question pending | nothing is launched | — |
 
@@ -186008,24 +186025,26 @@ GOTO_QM    home
   clamped at launch is not written back as though the user had chosen it -
   the file keeps the place the user DID choose, for the screen they chose it
   on. A wave-2 build compared against "never saved" and wrote a missing file
-  ~2 s after every first launch, and put the damaged-file question up
-  unprompted ~2 s after every launch over a damaged one. **The one exception
+  ~2 s after every first launch, and (when there was a damaged-file
+  question) put it up unprompted ~2 s after every launch over a damaged
+  one. **The one exception
   is the calendar's reminders** (§110.3): a FIRED mark is the payload
   changing, so a launch that finds reminders MISSED, and a reminder going
   off with nobody at the machine, each owe a save at the next quiet poll -
   §110.6 prices both. A launch with nothing missed still writes nothing.
-- **A DAMAGED file is asked about, once, before it is overwritten.** Wave 1
-  never saved over one. Now the first save that is owed - a settled drag
-  away from where the window opened, an edit (`stik_touch`); never a launch
-  by itself - asks `STIK_DAMAGEDQ` (`Replace damaged calendar?`) through
-  `os88ui_ask` with Yes / No, when the package includes `os88ui.inc` with
-  `OS88UI_ALERT` and defines that string. **Yes** clears the damage and the
-  next tick writes a whole new file; **No**, or a dismissed alert, makes the
-  state READ-ONLY for the session (`STIK_S_RDONLY`, §110.5.1's word for it):
-  kept in memory, never written, never asked again. The question is NOT put
-  from the close - the alert is a window of the closing package's own and
-  would die with it - so a damaged file the user never answered for stays
-  exactly as it was found. A package without the alert keeps wave 1's rule.
+- **A DAMAGED file is SET ASIDE, never asked about and never lost.** Wave 1
+  never saved over one. A package that defines `STIK_BADNAME` (the
+  calendar's is `DESKCAL.BAD`) has the first save that is owed - a settled
+  drag away from where the window opened, an edit (`stik_touch`), a close
+  that owes one; never a launch by itself - delete any older file of that
+  name, RENAME the damaged one to it, and then write afresh, all inside
+  `stik_enter`'s walk. A refused rename is the write's to report: it meets
+  the same disk. The calendar says `Calendar file damaged` at launch, the
+  first beat's toast (`dc_ltp`), and runs empty. A package without
+  `STIK_BADNAME` keeps wave 1's rule. Until the size pass this was a
+  Yes / No `os88ui_ask` (`STIK_DAMAGEDQ`, `Replace damaged calendar?`), No
+  making the session read-only - which kept the file only by keeping
+  everything the user typed from being saved.
 - **kern_small has no `OSAPI_WM_TIMER`** (its window record stops at 28
   bytes, §13.8.2), so the tick comes from a WORKER there. `stik_made` sees the
   timer refused (CF = 1) and installs `stik_wake` as the window's
@@ -186038,8 +186057,7 @@ GOTO_QM    home
   `OSAPI_GFX_LOCK` around the WHOLE beat - the poll, `STIK_ONTICK` and the
   save - which is kern_big's timer environment exactly: the application's
   tick sees what it sees there, and the save runs under the lock as it does
-  there (its damaged-file question is an `os88ui_ask`, which wants the lock
-  held). One body, `stik_beat`, serves both arms. The worker is
+  there. One body, `stik_beat`, serves both arms. The worker is
   declared restartable (§66.6.2). There is no registration on kern_small,
   whose `OSAPI_DESK_ITEM` is the refusal (§110.7).
 
@@ -186345,8 +186363,12 @@ slot, below) (880 Hz, 8 ticks: the worker's 36-tick
 sleep has begun before the beat that could shorten it runs, so there is no
 second note to time), the close box closes at once with nothing to remove,
 a reset brings no calendar back, and opened by hand again it is where it was
-dragged with its data. Nothing about the calendar is a different build on
-kern_small: the same `DESKCAL.O88` is on both kinds of system disk.
+dragged with its data. **The small system disks carry their own build** of
+the calendar, `build/smallapp/deskcal.o88` (`-DAPP_SMALL`, `$(SMALLSTIKAPPS)`):
+the shipped one defines `STIK_DESKONLY`, which leaves out the titled fallback
+and the worker arm below - 336 bytes that only a machine with no desk layer
+can reach - so kern_small's disks take the build that has them. Same source,
+same bss, same state file; `t_stik` holds each system disk to its own build.
 
 **v2: the titled fallback with v2's face** (§110.11, the v2 design's open decision 9's
 default). kern_small has the two cells of §11.103.9 and nothing else of the
@@ -187432,6 +187454,14 @@ STIK_FACE_W  equ 176                  the face's width: a multiple of 8, no wide
                                       On BOTH arms: kern_small's worker kick
                                       reaches it too, and stik_wake tells the
                                       two apart by STIK_S_WORKER
+%define STIK_DESKONLY                 optional: no titled fallback and no
+                                      worker arm - a refused QUERY refuses the
+                                      LAUNCH (stik_single, said). For a build
+                                      that only kern_big runs: the calendar's
+                                      default, and -DAPP_SMALL leaves it off
+                                      (110.7)
+%define STIK_BADNAME 'X.BAD'          optional: the name a DAMAGED state file
+                                      is renamed to by the first save (110.5.2)
 %define GFXE_TEXT / GFXE_BITS         and os88gfx.inc, whose band (GFXE_BAND_BUF,
                                       GFXE_BAND_W >= STIK_FACE_W, GFXE_BAND_H >= the
                                       tag row) the include composes the tag in

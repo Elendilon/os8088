@@ -28,7 +28,7 @@ the package's own dc_geos.
      checks it - one BLIT1 again - and DONE in the file.
   D  Calendar > Clear Done Tasks leaves `Post letter` alone in the file, the
      item greyed again.
-  E  Post letter selected, Del, and Yes: the file has no task.
+  E  Post letter selected and Del twice in a row: the file has no task.
   F  three tasks again: the list shows the page holding the last one typed,
      and its pager wraps back to the first page.
 
@@ -249,14 +249,11 @@ def main():
             check(clear_item() == ("Clear Done Tasks", False),
                   "...and the item is greyed again")
 
-            print("E: Post letter deleted, after asking")
+            print("E: Post letter deleted, Del twice")
             c.front()
             c.press(c.task_text(0))
-            c.key("Delete")
-            ui._wait(lambda: len([w for w in ui.windows()
-                                  if w.title == TITLE]) == 2,
-                     "the Delete question", 30)
-            c.answer_yes("the Delete question")
+            check(c.delete_once() == 2, "the first Del arms")
+            check(c.delete_once() == 0, "the second deletes")
             got = tasks()
             check(got == [], "no task is left in the file (%r)" % (got,))
 
