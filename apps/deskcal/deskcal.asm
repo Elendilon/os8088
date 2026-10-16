@@ -2331,6 +2331,9 @@ dc_ab4:     db 'SPEC.md 110', 0
 
 %define OS88UI_ABOUT
 %define OS88UI_ALERT
+%define OS88UI_NOGEST           ; no gesture install, and so no os88ui_bfind:
+%define OS88UI_NOBFIND          ; the one button set is the alert's, which
+                                ; arms and fires its own (SPEC.md 20.5.1.3.4)
 %define OS88UI_NOGLYPH          ; no check-box glyph: the widget's tick is a
                                 ; composed bit record (SPEC.md 13.16.2.1)
 %include "os88ui.inc"

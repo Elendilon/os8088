@@ -42022,6 +42022,9 @@ out.
 Piano, Recorder, Scribe, Skies, TeXPad, Word and `LOOM.WPV` joined the
 drivers, Weave and Loom — each define tried and kept only where the build
 still succeeded, which is the gate's own safety argument used as a search.
+The Desk Calendar (§110.6.1) had been missed - it landed after that pass, and
+its only buttons are the alert's (§75.3), which arm and fire their own - and
+took both gates at the second apps size pass, for 208 packed bytes.
 
 **Under `OS88UI_NOGEST` THE PACKAGE OWNS `OS88UI_BT_DOWN`.** The record's
 own comment says *"THE LIBRARY'S ... never write it"*, and that is true of a
@@ -42041,7 +42044,8 @@ own "which control is down". That is the contract, and not a trespass.
 only internal caller — so a package that hit-tests with `os88ui_bhit` or by
 hand carries 25 bytes it never reaches. It removes the symbol, refuses
 without `OS88UI_NOGEST`, and is set in ether, hddtool, LOOM, LOOM.WPV, net,
-Paint, Piano, saver, Scribe, Skies, TeXPad, Weave and Word.
+Paint, Piano, saver, Scribe, Skies, TeXPad, Weave, Word and the Desk
+Calendar.
 
 **The gesture's own body got smaller in the same pass, unchanged in
 behaviour.** `os88ui_bfrec` is `os88ui_bfind` over a RECORD's live rects —
@@ -184112,6 +184116,7 @@ at a time, the bytes each saved:
 | `dc_aday` deleted - nothing called it; `dc_fenter`'s save and restore of `dc_ebuf`'s first word around `dc_ptime`, which parses a COPY; `dc_build`'s unused `push bp` | -64 | -55 |
 | `dc_build`'s marks compare each date with its day bits masked off against `dc_pack`'s with its own masked - no `MUL` to make the key and no shift per appointment: faster as well as shorter | -16 | -8 |
 | the month and the day are adjacent bytes on both sides (`DC_BSS_M`/`SEL`, `DC_BSS_TM`/`TD`, now asserted), so `dc_entry`, `dc_gotoday`, `dc_istoday`, `dc_today` and `dc_tomorrow` move and compare them as ONE word | -32 | -27 |
+| `OS88UI_NOGEST` and `OS88UI_NOBFIND` (§20.5.1.3.4): the record-based button gesture and `os88ui_bfind` were compiled in and never called - the calendar's only buttons are the alert's, which arm and fire their own; both gates remove symbols, so the build succeeding IS the check | -224 | -208 |
 
 ### 110.7 `kern_small`
 
