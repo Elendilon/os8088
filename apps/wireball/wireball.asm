@@ -100,23 +100,19 @@ wb_main:
     jc .out
     mov ax, [wb_fsi+FSI_SEG]
     mov [wb_vseg], ax
-    mov byte [wb_quit], 0
-    mov byte [wb_latch], 0
-    mov byte [wb_phase], 0
-    mov byte [wb_side], 0
-    mov byte [wb_bound], 0
-    mov byte [wb_command], 0
-    mov byte [wb_ack], 0
-    mov byte [wb_cmdtype], 0
-    mov byte [wb_peerack], 0
-    mov byte [wb_owner], 0
-    mov word [wb_generation], 0
-    mov byte [wb_pending], 0
-    mov byte [wb_urgent], 0
-    mov word [wb_peer], 0
-    mov word [wb_peer+2], 0
-    mov word [wb_port], 0
-    mov word [wb_ticksim], 0
+    xor ax, ax                  ; word stores clear adjacent byte pairs
+    mov [wb_quit], ax           ; quit, latch
+    mov [wb_phase], ax          ; phase, side
+    mov [wb_bound], al
+    mov [wb_command], ax        ; command, ack
+    mov [wb_cmdtype], al
+    mov [wb_owner], ax          ; owner, generation low
+    mov [wb_generation+1], ax   ; generation high, pending
+    mov [wb_urgent], ax         ; urgent, peerack
+    mov [wb_peer], ax
+    mov [wb_peer+2], ax
+    mov [wb_port], ax
+    mov [wb_ticksim], ax
     call wb_identity
     call wb_board
     cmp byte [wb_practice], 0
@@ -336,5 +332,20 @@ WB_VAR wb_soundwait,1
 WB_VAR wb_soundhz,2
 WB_VAR wb_soundnotes,2
 WB_VAR wb_soundactive,1
+; Byte pairs cleared or set with one word store must stay adjacent.
+%macro WB_PAIR 2
+    times -((%2)-(%1)-1)*((%2)-(%1)-1) db 0
+%endmacro
+WB_PAIR wb_quit, wb_latch
+WB_PAIR wb_phase, wb_side
+WB_PAIR wb_command, wb_ack
+WB_PAIR wb_owner, wb_generation
+WB_PAIR wb_generation+1, wb_pending
+WB_PAIR wb_urgent, wb_peerack
+WB_PAIR wb_left, wb_right
+WB_PAIR wb_vx, wb_vy
+WB_PAIR wb_scorel, wb_scorer
+WB_PAIR wb_lspin, wb_rspin
+WB_PAIR wb_fracx, wb_fracy
     OS88_BSS WB_BSS
     OS88_IMAGE_END

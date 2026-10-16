@@ -185338,6 +185338,12 @@ same instructions.
   button handler no longer carries a second copy of the four actions; the
   menu's handler falls into `wb_launch` instead of jumping to it. -42 file
   bytes.
+- **Word stores where setup cleared bytes one at a time.** The match's
+  start (`wb_main`), a lost link (`wb_lost`), a new game and a serve clear
+  their state through a zero register and store adjacent byte pairs as one
+  word; `WB_PAIR` refuses to assemble if a pair stops being adjacent. Each
+  is fewer cycles than the byte-immediate stores it replaces, and none runs
+  per frame. -21 file bytes.
 
 ## 110. Sticky Apps (`STIKAPPS\`, `apps/os88stik.inc`)
 

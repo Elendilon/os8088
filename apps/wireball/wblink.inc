@@ -555,13 +555,13 @@ wb_state_valid:
 
 wb_lost:
     call wb_sound_quiet
-    mov byte [wb_bound], 0
-    mov byte [wb_phase], 0
-    mov word [wb_peer], 0
-    mov word [wb_peer+2], 0
-    mov word [wb_port], 0
-    mov byte [wb_command], 0
-    mov byte [wb_ack], 0
+    xor ax, ax
+    mov [wb_bound], al
+    mov [wb_phase], al
+    mov [wb_peer], ax
+    mov [wb_peer+2], ax
+    mov [wb_port], ax
+    mov [wb_command], ax        ; command, ack
     call OSAPI_GET_TICKS
     mov [wb_send], ax
     sub word [wb_send], 18
