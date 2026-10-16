@@ -28925,6 +28925,21 @@ frame, mark and label over it. It is named here rather than quietly changed
 because it is the file's most-copied routine and the next author will copy it
 too; **§13.17 is the one to follow.**
 
+#### 13.14.7 `OS88UI_NODRGEST` — a press-press drop-down carries no release half
+
+The control answers two gestures (§13.14): press, drag and release, where
+`os88ui_drdrag` tracks the highlight and `os88ui_drup` picks; and press-press,
+where `os88ui_drpress` alone both opens the list and picks or closes it. A
+package that wires only the second, and never takes a list down from outside
+the control (Esc, a menu) with `os88ui_drclose`, reaches none of those three
+routines. `OS88UI_NODRGEST` takes them out (apps size pass 2b). It is an
+opt-out in `OS88UI_NOGEST`'s shape (§20.5.1.3.4): every package that does not
+set it is byte-identical, it removes the symbols so a package that sets it and
+then calls one of the three does not assemble, and it refuses without
+`OS88UI_DROP`. The DOS box's disk-cache dial is the one consumer (§96.44.16):
+152 bytes of image. Clear Skies, Word, PiXEL and RedLine use the drag and
+release half and cannot set it.
+
 #### 13.15.1 `os88ui_glyph` draws with FILLS now, and shares the radio's shape
 
 It used to be four 12×12 **bitmaps** put down through the masked sprite pass
@@ -162421,6 +162436,11 @@ Sharing the window half's `pop`-ladder epilogues, which pass 1 left on the
 table, is REFUSED on a measurement: every copy is a 3-byte LZ4 match already,
 and replacing the 35 commonest with a `jmp` makes part 0 111 packed bytes
 LARGER.
+
+**Apps size pass 2b took the include gates** for what part 0 never calls:
+`OS88UI_NODRGEST` (§13.14.7) drops the disk-cache dial's drag, release and
+close, since `dos_click_mem` drives it press-press through `os88ui_drpress`
+alone - part 0 50,121 -> 49,969 raw, 19,671 -> 19,563 packed.
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 

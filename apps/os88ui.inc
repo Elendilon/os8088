@@ -4195,6 +4195,11 @@ os88ui_radhit:
     ret
 %endif                          ; OS88UI_RAD
 
+%ifdef OS88UI_NODRGEST
+ %ifndef OS88UI_DROP
+  %error "OS88UI_NODRGEST takes part of the drop-down out, and OS88UI_DROP has not put one in"
+ %endif
+%endif
 %ifdef OS88UI_DROP
 ; =============================================================================
 ; THE DROP-DOWN (SPEC.md 13.14): one pick out of a short list
@@ -4280,6 +4285,15 @@ os88ui_radhit:
 ; state is decided, which is os88ui_btn's rule. Size the box to the widest
 ; item plus the arrow cell: the caption is one opaque run and is not clipped.
 ; =============================================================================
+
+; --- OS88UI_NODRGEST - the drop-down WITHOUT its drag, release and close -----
+; (apps size pass 2b, SPEC.md 13.14.7). An OPT-OUT in OS88UI_NOGEST's shape:
+; a package whose drop-down is PRESS-PRESS - the press opens the list and the
+; next press picks or takes it down, both through os88ui_drpress - and which
+; never takes a list down from outside the control carries os88ui_drdrag,
+; os88ui_drup and os88ui_drclose and reaches none of them (the DOS box).
+; It removes the SYMBOLS, so a package that sets it and then wires a W_ONDRAG
+; or W_ONMOUSEUP to the control, or closes it on Esc, does not assemble.
 
 OS88UI_DR_RECT  equ 0
 OS88UI_DR_ITEMS equ 8
@@ -4834,6 +4848,7 @@ os88ui_drpress:
     pop bx
     ret
 
+%ifndef OS88UI_NODRGEST
 ; -----------------------------------------------------------------------------
 ; os88ui_drdrag - the tracking edge: the highlight follows the pointer
 ; in:  BX = the record, CX = x, DX = y; the gfx lock is held
@@ -4939,6 +4954,7 @@ os88ui_drclose:
 .no:
     clc
     ret
+%endif                          ; OS88UI_NODRGEST
 %endif                          ; OS88UI_DROP
 
 %ifdef OS88UI_MENU

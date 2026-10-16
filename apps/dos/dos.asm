@@ -18060,6 +18060,11 @@ DOS_BSS_SIZE equ HB
                                     ; which is one pick out of a SHORT LIST of
                                     ; widths - a radio of five would be 80 px
                                     ; of a column that has 155
+%define OS88UI_NODRGEST             ; ...which is press-press (dos_click_mem ->
+                                    ; os88ui_drpress both ways) and is never
+                                    ; taken down from outside, so its drag,
+                                    ; release and close are out (SPEC.md
+                                    ; 13.14.7, apps size pass 2b)
 %define OS88UI_ABOUT                ; ...and the About card (SPEC.md 96.51).
                                     ; dos_about was a bare `ret` for the whole
                                     ; of this package's life, so the kernel put
