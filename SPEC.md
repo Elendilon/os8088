@@ -169166,6 +169166,12 @@ was built and is NOT taken: the two parts compress apart, part 1's code at
 took `apps360.img` past its 354. It is kept for the day the ceiling bites
 again.
 
+**And the text's second save (2026-10-16)** is a claim a play on two pages
+or more takes (98.3.13.2): **-1,660 bytes of bss for +54 of image**, so
+`video.bin` is **53,700 + 2,484 = 56,184, 5,256 to spare**, `NOLIVESND=1`
+55,955 (5,485) and `VPDIAG=1` 57,724 (3,716) - and every hook call with the
+text up is faster, every one with it down unchanged.
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |
@@ -173911,7 +173917,8 @@ again keeps the text for good.
   measured against what that machine needs for the base (`[vp_lyneed]`),
   not the file's ask (`vp_bshort`) - it was said on every play after the
   first, the split being once a file.
-- **Page flipping (98.3.8) keeps one save a page**: the page drawn next has
+- **Page flipping (98.3.8) keeps one save a page** (the second a claim,
+  98.3.13.2): the page drawn next has
   its box put back (`vo_pre`) and is decoded into, and the text is drawn on
   it BEFORE it is shown (`vo_flipon`).
 - **Through the shadow the screen is only a copy**, and the copy goes round
@@ -173998,6 +174005,74 @@ without the text. Broken on purpose, it fails on each of the three paths:
   bytes out;
 - no `vo_flipon`: `modexflip`, 17 of 20;
 - `vo_bparts` copying whole rows: `c160`, 20 of 20.
+
+##### 98.3.13.2 The second save is a claim (2026-10-16)
+
+**The text's two saves were 3,840 bytes of bss** (`vo_sav`, `VO_SAV` =
+1,920 a page), and the second is used only by a play on TWO PAGES OR MORE -
+`--flip` (98.3.8), page-ahead (98.3.8.3) on two pages or N (98.3.8.4), and
+flipped and built ahead (98.3.8.5). `vo_savbit` names it only for
+`[vo_sl1]`'s page, and an unflipped play draws on page 0 and shows page 0.
+So **the second save is a claim** now, `[vo_s1seg]`: 2 KB from the top,
+taken by `vp_sstart` beside the page copy whenever `[vp_flip]` is set, and
+a SESSION claim like the rest - in `vp_smtab`, pinned for every bracket and
+movable between them (`vp_smov`, 98.3.19.2), given back by `vp_sfree`. A
+heap that cannot spare it refuses the play with *Not enough memory*, as the
+page copy's 31 KB always has. It is claimed BEFORE the ring, which sizes
+itself on what is left - which is why it is not claimed at the bracket's
+door, where a ring that took the machine would leave it nothing exactly
+when it matters.
+
+**What it saves is set by the DESKTOP'S SCRATCH, not by the save.** The
+scratch (98.1.9.13's data half) runs 2,436 bytes from `vo_sav` (2,616 with
+`VPDIAG`), past page 0's save and the page table together (2,176), so the
+bss is the sixteen and the scratch: **4,144 -> 2,484 bytes, -1,660**
+(-1,480 with `VPDIAG`), for **+54 bytes of image** in every arm. Taking
+page 0's save and `vc_pg` out as well would buy NOTHING more for the same
+reason, and would put a segment on `vc_find`'s lookup, which every change
+near the box pays. The scratch is the next floor: Live in colour's repack
+buffer (`vp_v4buf`, 1,024) is the largest thing in it.
+
+**Every access names its segment, and the play pays nothing for it** -
+every routine it touches is FASTER, the ones it does not are identical and
+at an even shift in all three arms (`tools/os88rdiff.py --hot-file`):
+- `vo_iop` holds the save as BX:BP and its own DS in DX, both free through
+  its rows: the KEEP is `mov es, bx` where it was `push ds / pop es`, and DS
+  comes back as `mov ds, dx` where it was popped - ~34 cycles a row
+  cheaper; the PUT BACK gains `mov ds, bx` and the same restore, ~8 dearer.
+  A flipped frame with the text up makes one of each.
+- `vc_setup` records the save's segment beside its rows (`[vc_sseg]`, CS
+  for page 0). `vc_sav` loads ES from it where it pushed CS, and reads the
+  planes a store reaches and the save's planes as ONE word (`vc_mask` sits
+  in front of `vo_pl`). `vc_m3b` loads the plane stride and the segment
+  with one `LES` (`vc_sseg` follows `vc_pls`) and adds the stride from a
+  register, its range test is the subtraction itself, and its two paths
+  each have their own tail - one of them `dec cx / jnz` for `loop`, a byte
+  longer, so what follows keeps its parity.
+- `vp_sfree`'s zero stores come from AX, a byte shorter each (-9): the odd
+  cut that puts the cold code's shift back on parity.
+
+Measured with `tests/vidfskeys.py --cost` on MartyPC's 5150 and XT VGA,
+every `vp_hook` call to the cycle, the same frames against the base:
+
+| kind | text down, a frame | text up, a frame |
+|---|---|---|
+| `modexflip` | 19,532 -> 19,531 | 597,467 -> 596,620 (-0.14%) |
+| `vga8` | 15,543 -> 15,547 | 72,259 -> 71,951 (-0.43%) |
+| `vga4` | 37,908 -> 37,909 | 126,728 -> 126,205 (-0.41%) |
+| `vga4m3` | 41,217 -> 41,202 | 129,015 -> 127,886 (-0.87%) |
+| `modex` | 9,711 -> 9,722 | 50,562 -> 50,335 (-0.45%) |
+| `herc` | 9,362 -> 9,359 | 31,135 -> 31,018 (-0.38%) |
+| `cga4` | 9,092 -> 9,098 | 33,567 -> 33,422 (-0.43%) |
+| `c512` | 8,750 -> 8,750 | 30,954 -> 30,859 (-0.31%) |
+| `text` | 8,671 -> 8,676 | 13,048 -> 13,021 (-0.21%) |
+| `c160` (the shadow) | 9,290 -> 9,293 | 52,265 -> 52,249 (noise) |
+
+The text-down column runs no changed instruction, and its +/-15 is where the
+frames fall against the ticks. Per routine, every call timed: `vo_iop`
+138,915 -> 137,781 cycles a flipped frame; `vc_sav` -17 a call; `vc_m3b`
+21,987 -> 21,477 a frame (an earlier build that kept the stride in memory
+and saved ES in DX read +387, which is what the `LES` is for).
 
 #### 98.3.14 Seeking in the full screen: Left and Right
 
