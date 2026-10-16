@@ -215,6 +215,26 @@ class Build(object):
                 if r["nbytes"] != r["size"]]
 
     # -- resolution
+    def _home(self, va, sec):
+        """The section a NEAR branch out of `sec` to `va` lands in.
+
+        Its own, unless `va` is outside it and inside a section assembled at
+        a NON-ZERO vstart - which is one laid out in the SAME segment, past
+        the image: a parted package's part 1 (Word's SPEC.md 68.10, the
+        Video Player's 98.3.23), reached by a plain near call from `.text`
+        and calling back the same way. The kernel's sections all start at
+        offset 0 in segments of their own, and nothing near crosses them,
+        so for the kernel this is always the branch's own section."""
+        s = self.sections.get(sec)
+        if s is None or s["vstart"] <= va < s["vstart"] + s["length"]:
+            return sec
+        for o, d in self.sections.items():
+            if o != sec and not d["nobits"] and \
+                    (d["vstart"] or s["vstart"]) and \
+                    d["vstart"] <= va < d["vstart"] + d["length"]:
+                return o
+        return sec
+
     def resolve(self, v, sec=None):
         """Every reading of `v` as (section, label, offset).
 
@@ -438,7 +458,7 @@ class Build(object):
                 # .cold offset 0x466 to 0x8C9D is spelt E8 37 88, -30,665
                 t &= 0xFFFF
                 raw = [b[0]] + (["J", b[2]] if len(b) == 5 else []) + ["R0"]
-                relocs = [self.resolve(t, sec)]
+                relocs = [self.resolve(t, self._home(t, sec))]
                 canon = kind
         # (raw, relocs, canon, displacement, address) - the last two only
         # serve the merge above and take no part in a comparison
@@ -447,8 +467,16 @@ class Build(object):
 
 # ---------------------------------------------------------------- comparing
 
+def _named(rs):
+    """A reading by LABEL where it has one: a routine that moved into another
+    section is still the same target (a parted package's part 1, SPEC.md
+    98.3.23, takes its routines out of `.text` and calls them where they
+    land). An unnamed reading keeps its section, as before."""
+    return {(r[1], r[2]) if r[1] else r for r in rs}
+
+
 def _meet(a, b):
-    return all(x & y for x, y in zip(a, b))
+    return all(_named(x) & _named(y) for x, y in zip(a, b))
 
 
 def line_eq(t1, t2, equ_old, equ_new, names, relaxed=False):

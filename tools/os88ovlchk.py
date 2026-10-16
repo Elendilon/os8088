@@ -1419,7 +1419,8 @@ def main():
 # fork may carry one this branch does not, and the walk should still check the
 # ones that are here. The count reported at the end is what was actually
 # walked, so a skipped package cannot be mistaken for a checked one.
-PKGS = ['apps/word/word.asm', 'apps/scribe/scribe.asm']
+PKGS = ['apps/word/word.asm', 'apps/scribe/scribe.asm',
+        'apps/video/video.asm']
 
 
 def expand(path, seen, defines=None):
@@ -1502,7 +1503,7 @@ def check_pkgs():
         # one linear pass for the section each line lands in: a `section`
         # directive inside an include stays in force after it, exactly as it
         # does for NASM
-        rows, cur = [], '.text'
+        rows, cur, top = [], '.text', False
         for f, n, raw in stream:
             line = raw.split(';')[0]
             m = re.match(r'\s*section\s+(\.\w+)(.*)', line)
@@ -1517,6 +1518,13 @@ def check_pkgs():
                 # module here spells 0 - is the overlay this walk guards.
                 v = re.search(r'\bvstart\s*=\s*(\S+)', m.group(2))
                 if cur == '.modc' and v and v.group(1) != '0':
+                    top = True
+                # ...and a BARE `section .modc` re-enters the section with the
+                # attributes it was first declared with, as NASM does: the
+                # Video Player (SPEC.md 98.3.23) switches in and out around
+                # each routine it moves, so the source moves no text at all,
+                # and only its first switch carries the vstart
+                if cur == '.modc' and top:
                     cur = '.top'
                 continue
             rows.append((cur, f, n, line))
@@ -1565,12 +1573,21 @@ def check_pkgs():
         # CODE label may appear only as a branch target. Its DATA labels are
         # fine anywhere: DS reaches them like any other byte of the segment.
         topcode = set()
-        for sect, f, n, line in rows:
+        DATA = ('db', 'dw', 'dd', 'times', 'equ', 'resb', 'resw')
+        for i, (sect, f, n, line) in enumerate(rows):
             m = re.match(r'^([A-Za-z_]\w*):?\s*(\S*)', line)
-            if sect == '.top' and m and line[:1] not in ' \t' \
-                    and m.group(2).lower() not in ('db', 'dw', 'dd', 'times',
-                                                   'equ', 'resb', 'resw'):
-                topcode.add(m.group(1))
+            if sect == '.top' and m and line[:1] not in ' \t':
+                what = m.group(2).lower()
+                # A LABEL ALONE ON ITS LINE names whatever comes next, and a
+                # table is written that way as often as code is (the Video
+                # Player's bench tables, vp_bnmix): look at the next line
+                # that has anything on it
+                j = i + 1
+                while not what and j < len(rows):
+                    what = (rows[j][3].split() or [''])[0].lower()
+                    j += 1
+                if what not in DATA:
+                    topcode.add(m.group(1))
         for sect, f, n, line in rows:
             body = re.sub(r'^[A-Za-z_]\w*:', '', line)
             if re.match(r'\s*times\b', body):
