@@ -717,6 +717,41 @@ def main():
                     if wrong:
                         bad.append("%s: the glass before frame %d is wrong "
                                    "in %d pixels" % (what, n, wrong))
+                    if what == "from the start":    # PAGE 1 DIRTY ROUND
+                        if "dirt" not in ap_:   # THE CANVAS, as a last play's
+                            ap_["dirt"] = 1     # bigger picture leaves it:
+                            for y in list(range(ty0)) + \
+                                    list(range(ty0 + H, SH)):
+                                m.write(0xB8000 + y % 4 * 0x2000 +
+                                        y // 4 * 90, b"\xAA" * 90)
+                        return          # (the mode set clears page 0 alone,
+                                        # so each later play must black page
+                                        # 1 itself, 98.3.8.3. Written in a
+                                        # hold, 3BFh the player's: paused at
+                                        # the desktop the debugger's write to
+                                        # B8000 lands on page 0)
+                    dx, dy = ap_["off"]     # ...and ROUND the canvas: black
+                    lit = 0                 # on both pages
+                    for y in range(0, SH, 2):
+                        if ty0 <= y < ty0 + H:
+                            xs = list(range(0, tx0, 2)) + \
+                                list(range(tx0 + W * 8, SW, 2))
+                        else:
+                            xs = range(0, SW, 2)
+                        fy = y + dy
+                        if not 0 <= fy < fh:
+                            continue
+                        for x in xs:
+                            fx = x + dx
+                            if 0 <= fx < fw:
+                                o = 3 * (fy * fw + fx)
+                                lit += sum(rgb[o:o + 3]) > 3 * 96
+                    print("   %s, hold before frame %2d: %d pixels lit "
+                          "round the canvas" % (what, n, lit))
+                    if lit:
+                        bad.append("%s: before frame %d, %d pixels lit "
+                                   "round the canvas - a page not made "
+                                   "black" % (what, n, lit))
                     return
                 sx, sy = fw / SW, fh / SH
                 if sy < sx * 0.99:      # (Mode X's 480-line retime, which

@@ -97522,6 +97522,15 @@ decoded and bit 7 can switch back from page 1. On a dual-card machine
 page 0 leaves 3BFh = 1 and page 1 refuses. The bracket's mode restore
 takes the configuration back to the desktop's 3BFh = 1 on exit.
 
+**A HERCULES'S PAGE 1 IS NOT CLEARED BY THE MODE SET.** `fsx_mode`'s
+Hercules arm clears the 32KB at `[vid_seg]`, page 0, and nothing else -
+it cannot reach B8000 without the decode this section allows, and the
+kernel spends no resident byte on a page only a flipping app reads. So page
+1 holds whatever the LAST program to flip left there, and an app that
+spends it initialises it, as every page-flipping consumer here does
+(WireBall's court on every page; the Video Player's black, §98.3.8.3).
+Mode X has no such page: its arm clears all 256KB.
+
 **TANK ATTACK (§85) is the consumer that asked for it**, and it is the first
 thing in this tree to page-flip at all. Its Mode X backend draws into the
 page nobody is looking at and calls this; what it had before was the CRTC
@@ -176834,6 +176843,19 @@ two frames a call as ever. Only these are different:
   02 had taken the Hercules's page 1 off the bus for the two-card machine's
   sake. Page 1 is now claimed only where no other card has mapped B8000,
   and it decodes only while 3BFh bit 1 allows it, as on the card.
+- **Page 1 is made BLACK at every bracket's start** (2026-10-16), by
+  `vp_hpg2` once the decode is allowed and page 0 is shown: the mode set
+  clears page 0 alone (§53.10), and `vp_kput` blacks the CANVAS on each
+  page and not the screen round it. Reported off the field: a 600 x 290
+  video played after a 720 x 348 one showed the bigger video's picture
+  round the smaller one at every flip, Paused included - the last play's
+  page 1, outside the rectangle anything here wrote. The whole 32KB is
+  cleared rather than the margin, the page being hidden and the canvas
+  then drawn over it either way. **+17 bytes of `video.o88`'s image, no
+  kernel byte.** `vidpageherc` is the gate: a hold in its first play
+  writes a pattern on page 1 round the canvas, and every later play's
+  holds must show no pixel lit there - with the clear taken out, 35,904
+  sampled pixels are lit at every hold that shows page 1 and it FAILS.
 
 #### 98.3.8.4 Page-ahead on N pages (2026-10-15)
 
