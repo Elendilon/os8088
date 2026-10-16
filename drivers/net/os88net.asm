@@ -795,20 +795,12 @@ seek_lba:
     cmp dx, [nsecs]
     jae .bad                    ; past the end of what we told them we had
     mov ax, dx
-    mov cx, dx
-    mov bx, 9
-.shl:
-    shl ax, 1                   ; the low word
-    dec bx
-    jnz .shl
-    mov bx, 7
-.shr:
-    shr cx, 1                   ; ...and the high word
-    dec bx
-    jnz .shr
-    mov dx, ax
-    mov ah, 0x42
-    mov al, 0                   ; from the start of the file
+    mov cl, 7
+    shr ax, cl                  ; the high word
+    mov cl, 9
+    shl dx, cl                  ; ...and the low word
+    mov cx, ax
+    mov ax, 0x4200              ; from the start of the file
     mov bx, [fh]
     int 0x21
     jc  .bad

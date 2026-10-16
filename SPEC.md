@@ -104257,6 +104257,11 @@ a DOS user sees on the console changes and nothing on the wire does.
    the success arm falling into it so its path is unchanged, and the two
    `FERR_NOENT` exits share a label. `srv_rmtree`'s two `FERR_PROT` and two
    `FERR_NOENT` exits do the same.
+6. **`seek_lba` shifts by CL** (file −12). `LBA * 512` was built by two
+   counted loops of single-bit shifts, nine and seven turns; it is
+   `shr ax, cl` with CL = 7 for the high word and `shl dx, cl` with CL = 9 for
+   the low, and `mov ax, 0x4200` for the two byte loads. Block mode only, and
+   faster.
 
 ## 63. The logo (`tools/os88logo.py`, `MEDIA/OS8088.GIF`)
 
