@@ -1476,8 +1476,7 @@ tp_redraw:
 
 tp_onabout:
     xor byte [tp_abouton], 1
-    call tp_redraw
-    ret
+    jmp tp_redraw
 
 ; ---- panes -----------------------------------------------------------------
 tp_edit_box:
@@ -2490,8 +2489,7 @@ tp_marks_sync:
     call tp_caret_hide
     call tp_sel_hide
     call tp_sel_show
-    call tp_caret_show
-    ret
+    jmp tp_caret_show
 
 ; Focus rings only - selecting a pane does not redraw its contents.
 tp_draw_frames:

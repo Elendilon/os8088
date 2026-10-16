@@ -111834,6 +111834,22 @@ difference and only the rows that fell out of the blit are drawn. An edit
 whose shape was never measured — a selection deleted, a paste — takes the
 whole pane, which is the honest answer rather than a guess.
 
+### 69.11 What the second apps size pass took
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
+package by its SHIPPED FILE - the LZ4-packed `TEXPAD.O88`, which rides four
+360KB disks - rather than by image + bss. TeXPad's file is code to 84% (the
+strings, the exporters' fixed text and the shared scroll bar are the rest),
+and code packs to about a byte a byte, so what moved it is code that went:
+
+- **Tail calls, and two handlers that were only a call.** A `call X` / `ret`
+  pair is a `jmp X` (`\TeX`, `\LaTeX` and `\today` now sit in front of
+  `tp_emit_csi` and the last falls into it; `tp_put_run` falls into
+  `tp_put_run_at`), and `\newline` and `\par` name `tp_nl` and `tp_endpara`
+  in the command table directly - a handler is jumped to with nothing to undo,
+  so `tp_c_nl` and `tp_c_par` had nothing in them but the call. `tp_xw_cr` had
+  no caller. Every one of these is a return the typesetter no longer makes.
+
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 
 It was built here — the picture character, the claim per picture, the layout
