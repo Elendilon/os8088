@@ -50834,6 +50834,13 @@ content-relative; the procs fetch the content origin via `wm_content`
     the click body rather than a routine of its own, and the new-game wipe
     runs down so its index is its counter. Pictures identical; the redraws
     and the flood measure 0.4-0.6% fewer guest cycles (MartyPC, 5150 CGA).
+  - **`mn_nlist` lists the cell's whole 3x3 block, the cell included**, and
+    answers SI = `mn_nbuf` itself. The flood finds the cell already OPEN and
+    skips it; `mn_place` bumps a mine's OWN count, which nothing reads (a
+    mine is never opened) and which tops out at 9, inside the nibble. A
+    candidate is kept when its index is on the board (0..80 as a byte, which
+    settles the row) and its column is 0..8 - no row*9 + column rebuilt per
+    neighbour. `mn_nbuf` is 9 bytes, and 9 + 71 is exactly `mn_xpts`'s 80.
 
 ## 24. Packaging toolchain (host side)
 

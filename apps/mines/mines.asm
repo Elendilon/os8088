@@ -459,11 +459,12 @@ mn_place:
     or byte [mn_cell+di], MN_C_MINE
     push bx                         ; bump neighbours' adjacency counts
     mov bx, di                      ; (BH = 0: DI < 81)
-    call mn_nlist                   ; CX = count (3..8), mn_nbuf = indices
-    mov si, mn_nbuf
+    call mn_nlist                   ; CX = count (4..9), SI = mn_nbuf
 .adj:
     mov bl, [si]
-    inc byte [mn_cell+bx]           ; the low nibble: at most 8, no carry
+    inc byte [mn_cell+bx]           ; the low nibble: at most 9 - eight mined
+                                    ; neighbours and the mine itself, which
+                                    ; the list includes - so no carry
     inc si
     loop .adj
     pop bx
@@ -504,8 +505,7 @@ mn_reveal:
     call mn_draw_cell
     test byte [mn_cell+bx], MN_C_ADJ
     jnz .pump                       ; numbered cell: no spreading
-    call mn_nlist                   ; CX = count (3..8), mn_nbuf = indices
-    mov si, mn_nbuf
+    call mn_nlist                   ; CX = count (4..9), SI = mn_nbuf
 .nb:
     mov bl, [si]
     test byte [mn_cell+bx], MN_C_OPEN | MN_C_FLAG
@@ -522,56 +522,52 @@ mn_reveal:
     ret
 
 ; -----------------------------------------------------------------------------
-; mn_nlist - list the valid neighbours of a cell (3..8 of them)
-; in:  BX = cell index
-; out: CX = neighbour count, mn_nbuf = neighbour indices (bytes)
-; clobbers: AX, DX (BX, SI, DI, BP preserved)
+; mn_nlist - list a cell's 3x3 block: its valid neighbours AND ITSELF (4..9)
+; in:  BX = cell index (BH = 0)
+; out: CX = count, SI = mn_nbuf = the indices (bytes), in row order
+; clobbers: AX, DX (BX, DI, BP preserved)
+;
+; THE CELL ITSELF IS IN THE LIST (apps size pass 2). Both callers are
+; indifferent to it - the flood finds it already OPEN and skips it, and
+; mn_place bumps a MINE's own count, which nothing reads (a mine is never
+; opened, so its digit is never drawn) and which tops out at 9, still inside
+; the nibble - so testing for it was 8 bytes and a branch per candidate for
+; nobody. The walk is the block's indices, BL running from cell - 10 and a
+; row apart by 9: a candidate is kept when it is ON THE BOARD (0..80, which
+; settles the row - an index off the top wraps past 80 as a byte) and when
+; its column is (0..8). That is the whole test, with no row*9 + column to
+; rebuild, so a candidate costs a third of what it did.
 ; -----------------------------------------------------------------------------
 mn_nlist:
     push bx
-    push di
     mov ax, bx
     mov dl, MN_COLS
-    div dl                          ; AL = row, AH = column
+    div dl                          ; AH = column
     xor cx, cx
-    mov di, mn_nbuf
-    mov dh, -1                      ; row delta: -1, 0, +1
+    mov si, mn_nbuf
+    sub bl, MN_COLS + 1             ; BL = the block's top-left index
+    mov al, 3                       ; three rows
 .row:
-    mov dl, al
-    add dl, dh                      ; neighbour row
-    cmp dl, MN_COLS
-    jae .rownext                    ; unsigned: catches -1 (255) and 9
-    mov bh, -1                      ; column delta: -1, 0, +1
+    mov dh, -1                      ; column delta: -1, 0, +1
 .col:
-    mov bl, ah
-    add bl, bh                      ; neighbour column
-    cmp bl, MN_COLS
-    jae .colnext
-    or bh, bh
-    jnz .keep
-    or dh, dh
-    jz .colnext                     ; skip the cell itself
-.keep:
-    push ax
-    mov al, dl                      ; index = row*9 + column
-    add al, al
-    add al, al
-    add al, al
-    add al, dl
-    add al, bl
-    mov [di], al                    ; (no stosb: ES is not ours to assume)
-    inc di
-    pop ax
+    cmp bl, MN_CELLS
+    jae .no                         ; off the top (wrapped) or the bottom
+    mov dl, ah
+    add dl, dh                      ; the candidate's column
+    cmp dl, MN_COLS
+    jae .no                         ; unsigned: catches -1 (255) and 9
+    mov [si], bl                    ; (no stosb: ES is not ours to assume)
+    inc si
     inc cx
-.colnext:
-    inc bh
-    cmp bh, 2
-    jl .col
-.rownext:
-    inc dh
+.no:
+    inc bx                          ; BL only matters: a carry into BH is
+    inc dh                          ; undone by the pop
     cmp dh, 2
-    jl .row
-    pop di
+    jl .col
+    add bl, MN_COLS - 3             ; the next row's first column
+    dec al
+    jnz .row
+    sub si, cx                      ; SI = mn_nbuf again
     pop bx
     ret
 
@@ -1020,10 +1016,11 @@ mn_xpts     equ os88_image_end + 91  ; MN_XPTN x,y pairs: the wrong-flag X,
                                      ; total 91 + 80 = MN_BSS_TOTAL
 ; ...and inside mn_xpts, the two buffers only a LIVE board uses. The X is
 ; drawn only on a LOST board, so they never meet: mn_nbuf (mn_nlist's
-; output, 8 bytes) and then the flood queue, which holds at most MN_SAFE
-; cells because only safe cells are ever queued (mn_reveal).
-mn_nbuf     equ mn_xpts              ; 8 bytes: mn_nlist output
-mn_queue    equ mn_xpts + 8          ; MN_SAFE bytes: the flood queue
-%if 8 + MN_SAFE > MN_XPTN * 4
+; output, 9 bytes - the cell's whole 3x3 block) and then the flood queue,
+; which holds at most MN_SAFE cells because only safe cells are ever queued
+; (mn_reveal). 9 + 71 is exactly the 80 the X takes.
+mn_nbuf     equ mn_xpts              ; 9 bytes: mn_nlist output
+mn_queue    equ mn_xpts + 9          ; MN_SAFE bytes: the flood queue
+%if 9 + MN_SAFE > MN_XPTN * 4
   %error "mines: mn_nbuf + the flood queue no longer fit inside mn_xpts"
 %endif
