@@ -182,3 +182,41 @@ agent's estimate unless it says measured.
 | `apps/os88data.inc` | a read-only switch leaving out `od_write` (RLAPPLY is the only includer that never writes) | ~65 B, RLAPPLY |
 | `apps/os88partsbody.inc` | a gate for `op_lazyok`, which DOS's loader never calls | 66 raw bytes |
 | `apps/os88ui.inc` | the scroll bar (~520) and About card (~140) are ~660 packed bytes of Task Manager; no specific cut found | - |
+
+## The follow-on (2b), owner-approved after the set landed
+
+Built on the pass branch after sets A to C had merged; numbers are against the
+tree just before each piece merged.
+
+| change | what it bought |
+|---|---|
+| **A parted package's image ships LZ4-packed** (SPEC.md 20.13.8): `tools/os88pkg.py` packs the loader when that saves a sector, the kernel takes the packed length from the header's link word | **DOS.O88 48,172 -> 47,660, 48 -> 47 clusters on every system disk**; PiXEL 113,147 -> 105,467 (111 -> 103 on office360); C64 and Apple II -8,192 each (8 clusters on their 360KB disks). **Kernel: `.cold` +33 resident bytes on each kernel** (kern_big's cold rung now 1 byte from crossing). `PKG_FMT` unchanged: no old package sets the pair, and an old kernel refuses the new one as `Bad package` |
+| **Opt-in include gates** (`OS88UI_NOBTNINIT`, `OS88UI_NODRGEST`, `OS88LINE_NOSET`, `GFXE_NOBUTIL`, `OS88TY_NOGRAY`, `OD_READONLY`, `OP_NO_LAZYOK`, `CON_NOSCROLLDOWN`), default off, every non-opting package byte-identical | Note Pad -109, DeskCal -208, Font Viewer -56, RLAPPLY -73, DOS part 0 -173 packed, Task Manager small arm -647 (`OS88UI_NOBTN`); no cluster crossed |
+| **Task Manager**: TYPE column 7 -> 8, group headings the whole owner name (15) | `Compress`/`Shortcut`/`Disk img` and `CALCULATOR` shown whole, 3 px clear of the bar; file 6,711 -> 6,707 |
+| **Mines**: an opened cell in two fills, taken because it measured LESS flash | flood transient 136 -> 31 px (CGA) / 137 -> 35 (VGA), flood 35-37% faster, settled picture identical |
+
+Measured and refused: generating the CP437 box-drawing glyphs at launch
+(LZ4 already packs them to ~179 bytes; the best decoder saved 17 packed for
++10 RAM). Dropped by the owner: the INT 21h core inside part 0 (part 1 is
+moved to launch programs under kern_dos, and HIBER.DRV's handoff stub reads
+it off the disk).
+
+**Found, not fixed (the owner's call)**: SPEC.md 20.13.8.1 - step 6's read
+of `roundup512(file)` at `R` can run up to 511 bytes past the region for a
+hostile header with a short bss, true of every compressed package since
+20.13; the decoder's output bound still keeps every decoded write inside.
+The fix is one bound test in the size check, at resident bytes.
+
+**Coverage**: one soak over the union the four pieces reach (110 rows, run
+`20261016-161511`), then the rows a test-side fix touched re-run alone:
+every row passed except **`pxbench`, which fails on the tree BEFORE the
+packed image too** (its "first rows on the glass" ceilings swing by up to
+1.2 s in both directions between two runs of either tree; the opens it times
+are inside an already-running PiXEL, which the change never reaches), and
+`pxopenpng` and `deskcaledit`, which each failed once under load and passed
+alone. Nine PiXEL tests had compared the shipped FILE against the assembly,
+and their instance finder the loaded header against it; both are taught the
+packed image (`tests/pxsyms.py`'s `same_header`). `make test-full` 54/54.
+
+**The disks after sets A-D and this follow-on**: the 360KB system disk
+**5 -> 11 free**, the 360KB apps disk **1 -> 30**.
