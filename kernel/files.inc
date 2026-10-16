@@ -9685,7 +9685,17 @@ fm_hdrbuf:  resb 48             ; = FM_HDRMAX (a literal per the no-forward-
                                 ; worst case, "Delete NAME +contents? Del=yes
                                 ; Esc=no", which is staged whole and truncated
                                 ; afterwards
-fm_numbuf:  resb 11             ; fm_ultoa scratch: 10 digits + NUL
+fm_numbuf   equ fm_name         ; fm_ultoa scratch, 10 digits + NUL - ONE
+                                ; BUFFER, TWO NAMES (kernel size pass 13): its
+                                ; one writer is fm_draw_lrow's size column,
+                                ; AFTER that row's name has been lettered out of
+                                ; fm_name, and every reader of fm_name stages it
+                                ; first (fm_stage_name; fm_newwin's seed copies
+                                ; it before any row can repaint)
+                                ; - and 11 bytes is the most it needs, of 17
+fm_bsspad:  resb 1              ; ...whose 11 were odd: this keeps every .bss
+                                ; word after this file at the parity it had (a
+                                ; 286's wait state on each one that went odd)
 
 section .text
 
