@@ -58223,6 +58223,10 @@ into bss or the heap. The numbers are the file and the image, both arms.
    pushed and popped the slot around it; it computes it once into SI. The
    match count's fixed words (`...`, `Bad pattern`, a blank) are copied
    by `np_scpy`.
+6. **Replace copies with `rep movsb`.** `np_replat` moved the replacement
+   text into the note a byte at a time with DS:SI and ES:DI already set up
+   for the string move it is now - and a zero count moves nothing, so the
+   `jcxz` went with it. `np_saycnt`'s ' replaced' suffix is `np_scpy`.
 
 ## 28. apps/taskmgr — the Task Manager
 

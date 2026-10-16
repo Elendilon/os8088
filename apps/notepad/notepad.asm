@@ -9018,15 +9018,8 @@ np_replat:
     mov es, [np_dseg]
     mov di, bx
     mov si, np_frep
-    jcxz .filled
-.f:
-    mov al, [si]
-    mov [es:di], al
-    inc si
-    inc di
-    dec cx
-    jnz .f
-.filled:
+    rep movsb                   ; DS:SI (ours) -> ES:DI (the note); CX = 0
+                                ; moves nothing, so no jcxz
     mov ax, bx
     mov cx, [np_frepn]
     call np_urec_ins
@@ -10813,13 +10806,7 @@ np_saycnt:
     mov di, np_tbuf
     call np_utoa
     mov si, np_m_repld
-.cp:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    or al, al
-    jnz .cp
+    call np_scpy
     mov ax, np_tbuf
     call np_saymsg
     pop di
