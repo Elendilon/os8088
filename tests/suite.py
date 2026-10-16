@@ -12587,7 +12587,9 @@ SOAK = [
         "SPEC.md 98.3.8.3: vidpage on MartyPC's Hercules 5150 - page 1 at "
         "B800h, allowed by 3BFh, flipped by 3B8h after the retrace; key 0 "
         "PRELOADS the first scene change and key 1 holds the second whole. "
-        "With a play from the start not taking key 0, it FAILS",
+        "With a play from the start not taking key 0, it FAILS. And page 1 "
+        "is dirtied round the canvas in the first play: every later play "
+        "must show black there, and with vp_hpg2's clear taken out it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidpagehercno", "soak", py("tests/vidpage.py", "--layout", "herc",
