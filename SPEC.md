@@ -124574,6 +124574,33 @@ keeps `fd_stage`: its rows are composed in our segment.
 
 What it costs: `ftpd.o88`'s image **+46 bytes** (14,670 -> 14,716).
 
+### 77.52 Apps size pass 2 - the shipped file
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md measures a package by its SHIPPED FILE,
+the LZ4-packed `build/ftpd.o88` (§20.13), because the 360KB apps disk is full.
+FTPD rides two of the six 360KB images (`apps360.img`, `network360.img`) and
+the 720KB/1.44MB/1.2MB apps disks, and ships no data file beside it -
+`apps/ftpd/ftpspeed.txt` goes only onto the on-demand `make ftpspeed`
+floppies. Nothing a client sees changed: every reply's code and text, the
+listing format and `FTPD.CFG`'s bytes are as they were, and **the transfer
+path was not touched** - `fd_step`, `fd_worker`, the send and receive stages,
+`fd_data_ready`, `fd_wake`'s dispatch and `fd_do_read`/`_write`/`_list` are
+byte-identical in what they execute (§77.30's loop is what the KB/s is
+measured on, and MartyPC has no NIC to measure a change to it with).
+
+| | before | after |
+|---|---:|---:|
+| `ftpd.o88` (file) | 12,291 | 12,268 |
+| image | 14,746 | 14,715 |
+| image + bss (the region) | 26,624 | 26,112 |
+
+- **The entry proc's declaration is the NOKEEP form** (§66.6.1.1), moved
+  above the `mov al, 1` it sat below - which is what the SDK note says this
+  site would need, and nothing below the declaration is owed the AX, DX or
+  flags it spends. The four `mov bx, [fd_win]` reloads went with it: every
+  slot the entry proc calls preserves BX. The region falls a 512-byte step
+  because `fd_stage` is 512-aligned above the last scalar.
+
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 
 The demonstration §5.6.4.1 was built for, and the one that says out loud

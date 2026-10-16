@@ -461,18 +461,23 @@ fd_entry:
     call OSAPI_WM_CREATE
     jc .out
     mov [fd_win], bx
-    mov al, 1
-    mov bx, [fd_win]
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
     ; worker's declaration: a package with NO worker is the case that
     ; moves most easily, and putting this at the spawn left exactly
     ; those runs declaring nothing - measured, by the row that reads
-    ; MC_RLOC back out of the kernel's own table.
-    OS88_REGION_MOVABLE
+    ; MC_RLOC back out of the kernel's own table. The NOKEEP form, and
+    ; ABOVE the `mov al, 1` it used to sit below: nothing here is owed
+    ; the AX, DX or flags it spends (the entry proc ends in its own clc,
+    ; and DX's instance index is read by nobody below).
+    ;
+    ; **BX IS [fd_win] FROM HERE TO THE END** and is never reloaded:
+    ; every slot called below preserves every register but its outputs,
+    ; and none of them outputs BX (apps size pass 2).
+    OS88_REGION_MOVABLE_NOKEEP
+    mov al, 1
     call OSAPI_WM_SNAP              ; 8-aligned content, so every log line takes
                                     ; font_run's single-store path on the two
                                     ; mono adapters (SPEC.md 11.94)
-    mov bx, [fd_win]
     mov ax, fd_wake
     call OSAPI_WM_ONWAKE            ; THE UI-TASK HALF. Everything this package
                                     ; does to a disk happens in there
@@ -501,7 +506,6 @@ fd_entry:
     mov byte [fd_ckpn], FD_CKPT / FD_BIGSZ
 .nobig:
 %endif
-    mov bx, [fd_win]
     mov ax, fd_onup
     call OSAPI_WM_ONMOUSEUP         ; SPEC.md 13.7: EVERY control here fires on
                                     ; the RELEASE, over the one the press
@@ -520,14 +524,10 @@ fd_entry:
     mov ax, fd_onclose
     call OSAPI_WM_ONCLOSE           ; ...and the last chance to write the
                                     ; settings out (SPEC.md 77.17)
-    push si
-    mov si, fd_menus
-    mov bx, [fd_win]
-    call OSAPI_MENU_SET
+    mov si, fd_menus                ; SI is the entry proc's own, pushed at
+    call OSAPI_MENU_SET             ; the top and popped at .out
     mov si, fd_about
-    mov bx, [fd_win]
-    call OSAPI_ABOUT_SET            ; preserves the flags, which matters: the
-    pop si                          ; CF wm_create left still has to ride out
+    call OSAPI_ABOUT_SET
     call fd_cfg_load                ; SYSTEM\APPDATA\FTPD.CFG, if the disk has
                                     ; one. UI-task context, which the entry
                                     ; proc is - the worker does not exist yet
