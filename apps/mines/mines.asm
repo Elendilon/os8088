@@ -920,18 +920,21 @@ mn_mi_game: dw mn_mi_new, mn_mi_flag   ; item order = mn_oncmd's AL ladder
 mn_mi_new:  db 'New Game', 0
 mn_mi_flag: db 'Flag Mode', 0
 
-mn_ttl:     db 'Minesweeper', 0     ; ...and the card's first line
-
 ; --- the About card's lines (SPEC.md 20.5.1) ----------------------------------
 ; SHORT, because the card is clamped to the content box and this window's is
 ; 144px - eighteen cells, of which the card's own margins take three. The
 ; credit is two lines for that reason and not for a typographic one.
+;
+; PACKED (OS88UI_ABPACK, 20.5.1.1): the lines end to end, each with its NUL,
+; closed by OS88UI_ABEND - no pointer table. The first line IS the window's
+; title, so mn_ttl names the same bytes.
 mn_ablines:
-    dw mn_ttl, mn_ab2, mn_ab3, mn_ab4, mn_ab5, 0
-mn_ab2:     db 'for os8088', 0
-mn_ab3:     db 0
-mn_ab4:     db 'Contributed by', 0
-mn_ab5:     db 'Jorge Gonzalez', 0
+mn_ttl:     db 'Minesweeper', 0     ; the title, and the card's first line
+            db 'for os8088', 0
+            db 0
+            db 'Contributed by', 0
+            db 'Jorge Gonzalez', 0
+            db OS88UI_ABEND
 ; the strip's three lines, each led by its centred x in the 144px strip -
 ; (144 - 8 * length) / 2, what mn_draw_status used to ask OSAPI_FONT_WIDTH
 ; for on every repaint
@@ -989,8 +992,9 @@ mn_sh_mine:                         ; black disc with spokes
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
 %define OS88UI_ABOUT            ; the standard About card, and NOTHING else:
 %define OS88UI_NOBTN            ; Minesweeper's cell is its own game's chrome
-%include "os88ui.inc"           ; (os88ui.inc's own header says so) and it
-                                ; draws no standard button anywhere
+%define OS88UI_ABPACK           ; (os88ui.inc's own header says so), it draws
+%include "os88ui.inc"           ; no standard button anywhere, and its card's
+                                ; lines are packed end to end (mn_ablines)
 
     OS88_BSS MN_BSS_TOTAL
     OS88_IMAGE_END

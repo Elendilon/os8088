@@ -50859,6 +50859,9 @@ content-relative; the procs fetch the content origin via `wm_content`
     is 8px a character by contract, so it is exactly what `OSAPI_FONT_WIDTH`
     answered on every repaint, and the far call is gone with the arithmetic.
     The counter's "10" reaches its 0 through the single-digit line.
+  - **The About card's lines are packed** (`OS88UI_ABPACK`, 20.5.1.1): end
+    to end with their NULs and an `OS88UI_ABEND`, no pointer table, the first
+    line being the window title's own bytes. The card draws as before.
 
 ## 24. Packaging toolchain (host side)
 
