@@ -75,6 +75,9 @@ DC_LINKS    equ 72              ; Dismiss after Snooze
 DC_FLD0     equ 4               ; the first day field's x
 DC_FLDW     equ 24              ; a day field's width
 DC_BOXW     equ 20              ; today's box / the selection's outline
+%if DC_FLDW != 24 || (DC_FLD0 + 2) / 8 != 0 || (DC_FLD0 + 2 + DC_BOXW - 1) / 8 != 3 || (DC_FLD0 + 2 + DC_BOXW + 1) / 8 != 3
+  %error "deskcal: dc_rbox's bytes are 3 x the column and 3 more"
+%endif
 DCG_DOTBY   equ 80h             ; DCG_DOTY's flag: the dot BESIDE the number,
                                 ; 2 x 1 one pixel past its cell, and the box
                                 ; DC_BOXW + 2 wide round both (COMPACT: a

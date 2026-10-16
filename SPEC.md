@@ -187260,6 +187260,27 @@ a damaged file replaced without a question (§110.5.2). The bss did not move:
 (19 / 4 / 8 / 1); CGA's first paint is 156 ms in 12 calls. About is now
 0 calls on the cards where its take-down was 6 calls and 54 ms.
 
+#### 110.6.1 Apps size pass 2, after the size pass
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md weighs `DESKCAL.O88` by the packed file on
+every system disk. It ran first on the calendar BEFORE the size pass above,
+and that pass's tiers took most of what it had found - the alert went whole,
+and the register convention, the word moves and the string tails were tier B's
+- so this is what was left of it, re-measured on the size pass's tree, with
+the pass's rules: nothing user-visible changes, RAM does not grow, and no path
+a repaint, a tick, a key or a click runs takes a cycle more (every change
+takes instructions out or puts a cheaper one in; none adds a call or a jump).
+
+From the size pass's tree: **12,535 bytes on disk and 13,680 of image** (the
+small build 12,791 and 14,016), bss 3,709, 13 clusters on the 360 KB system
+disk. One change at a time:
+
+| change | image (span) | file | small file |
+|---|---:|---:|---:|
+| `dc_rbox`'s bytes are 3 x the column and 3 more (asserted beside `DC_FLDW`), not a `MUL` and two shifts; `CBW` for `XOR AH, AH` at the three sites left, each a grid index or a geometry byte | 0 (-12) | -7 | -6 |
+
+The image column is the file's, which `align 16` pads; the span is the code.
+
 ### 110.7 `kern_small`
 
 kern_small reads no SYSTEM.CFG (§51.5), has no shortcuts (`OS88_SHORTCUTS`)

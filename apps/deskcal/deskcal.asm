@@ -914,7 +914,7 @@ dc_selrows:
     mov al, [bx + DCG_AP]
     mov bx, dx
 .span:
-    xor ah, ah
+    cbw                         ; (a geometry pitch)
     add dx, ax
     dec dx
     clc
@@ -1280,7 +1280,7 @@ dc_rbox:
     je .r
     push bx
     mov di, [dc_geo]
-    xor ah, ah
+    cbw                         ; (an index, 0..41)
     mov bl, 7
     div bl                      ; AL = the week, AH = the column
     mov cl, ah
@@ -1294,16 +1294,12 @@ dc_rbox:
     xor dh, dh
     add dx, bx
     dec dx
-    mov al, cl
-    mov ah, DC_FLDW
-    mul ah
-    add al, DC_FLD0 + 2         ; the box's first pixel...
-    mov ch, al
-    add ch, DC_BOXW - 1         ; ...and its last: both < 256, the face is
-    mov cl, 3                   ; 176 wide
-    shr al, cl
-    shr ch, cl
-    mov cl, al
+    mov al, cl                  ; the column: a field is THREE bytes, and
+    add al, al                  ; the box's first pixel is in its first
+    add al, cl                  ; byte and its last in its fourth (the %if
+    mov cl, al                  ; beside DC_FLDW), so CL = the first byte...
+    add al, 3
+    mov ch, al                  ; ...and CH the last
     xor al, al
     call dc_rrect
     pop bx
@@ -1637,7 +1633,7 @@ dc_rtbox:
     mov bx, dx
     mov di, [dc_geo]
     mov al, [di + DCG_BOX]
-    xor ah, ah
+    cbw
     add dx, ax
     dec dx
     add al, 7                   ; its bytes: from x 8
