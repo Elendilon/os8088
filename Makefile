@@ -5182,12 +5182,12 @@ $(LZDDIR)/ramdisk.drv: $(BUILD)/ramdisk.bin tools/os88drv.py tools/os88lz.py
 	python3 tools/os88drv.py $(BUILD)/ramdisk.bin -o $@ --compress=lz4
 
 $(BUILD)/lzdrv360.img: $(BUILD)/boot360.bin $(KERNFILE) \
-                       $(LZDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) \
-                       $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py $(SYSROOT)
+                       $(LZDRIVERS) $(SYSAPPS) $(STIKAPPS) $(COREAPPS360) $(SYSDOC) \
+                       $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py $(SYSROOT)
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(LZDRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) \
-		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER)
+		$(LZDRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) \
+		$(SYSLOGOARG) $(FACESARG360) $(APPDATAFOLDER)
 
 .PHONY: lzdrvtest
 lzdrvtest: $(BUILD)/lzdrv360.img $(BUILD)/drvcall360.img
