@@ -8201,7 +8201,7 @@ def _encode(a, keep, tick, readers):
     # WHAT A CUT FRAME SPENDS ON (98.2.1.2)
     enc.look, enc.vis = a.lookahead, a.error == "visible"
     enc.attend = float(getattr(a, "attend", 0.0) or 0.0)
-    enc.edges = float(getattr(a, "edges", 0.0) or 0.0)
+    enc.edges = float(getattr(a, "edges", 1.0) or 0.0)
     enc.cut = a.cut
     if not 0 <= a.bands <= 60:
         raise vid.V88Error("--bands %d: 0 to 60" % a.bands)
@@ -9372,12 +9372,13 @@ def parser():
                          "attention - the bright, and what moves against the "
                          "camera - at strength S (1 the map, 0 off, the "
                          "default; VIDEO-SEEN-PLAN 3)")
-    ap.add_argument("--edges", type=float, default=0.0, metavar="S",
+    ap.add_argument("--edges", type=float, default=1.0, metavar="S",
                     help="WHEN A FRAME IS CUT, count the EDGES it leaves: a "
                          "change also worth how much nearer its target's "
                          "edges the screen is for it - a stale band's torn "
-                         "rows, a block's outline - at strength S (0 off, the "
-                         "default; VIDEO-SEEN-PLAN 3)")
+                         "rows, a block's outline - at strength S (1, the "
+                         "default since 2026-10-16; 0 off, as before; "
+                         "VIDEO-SEEN-PLAN 3)")
     ap.add_argument("--error", choices=("visible", "bits"),
                     default="visible",
                     help="WHEN A FRAME IS CUT, what counts as wrong: the "

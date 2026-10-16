@@ -1,6 +1,6 @@
 # VIDEO-SEEN-PLAN - "error as seen" as a person sees it, and an encoder that spends by it
 
-**Status: section 2's score BUILT as a report line (2a, 2026-10-16), in three sets - colour, grey and 1-bit dither - and judging `--aim quality`'s trials and page-ahead's keep beside today's figure; section 3 BUILT as two options off by default, awaiting the owner's eye on its one trade; the rest is PLAN.** Recorded from the owner's
+**Status: section 2's score BUILT as a report line (2a, 2026-10-16), in three sets - colour, grey and 1-bit dither - and judging `--aim quality`'s trials and page-ahead's keep beside today's figure; section 3 BUILT as two options, `--edges 1` the default and `--attend` off; the rest is PLAN.** Recorded from the owner's
 review of the GasGas and Bad Carrot comparison encodes, and parked while
 the encoder's choice in one scene is fixed first: the opening car shot of
 GasGas (0:40), which the owner's own tune plays clean on the Victory 286
@@ -237,9 +237,10 @@ and no order of spans makes the ~20 KB a 24 fps frame has draw what needs
 today's 62 54 82 71 52 56 75 58 68 59 - frames 50 and 52 are the carrot
 drawn whole where today's are torn bands - and frames 54-57 and 66-68
 read 31 32 22 20 / 20 13 20 against 22 14 8 4 / 10 6 6: the worst repaired
-sooner, a milder residue left longer. The owner's eye decides that trade,
-and until it has, both stay off. `--attend` moved nothing a strip of
-frames shows.
+sooner, a milder residue left longer. The owner's eye on the strip and in
+play: 44-52 "much better", a slight outline at 55-57, and it tears "very
+slightly less" in play - so **`--edges 1` is the default** (2026-10-16).
+`--attend` moved nothing a strip of frames shows and stays off.
 
 What NOT to do first: change allocation and the metric in the same step.
 The metric is the instrument the allocation is judged by; build the score
