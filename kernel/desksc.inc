@@ -87,6 +87,25 @@ SC_OP_PDEL  equ 4               ; ...and its remove, named by the record
 SC_OP_VGC   equ 5               ; ...and Force Color at boot (SPEC.md 39.28):
                                 ; not a shortcut, but the core is the part of
                                 ; CTRL.DRV a boot can afford to read
+SC_OP_LNK   equ 6               ; ...and a LINK, an Alt-drop's (SPEC.md 26.10.4)
+SC_OP_AUTO  equ 7               ; ...and AUTOSTART, at boot (SPEC.md 26.10.5)
+
+; --- a LINK file, *.LNK (SPEC.md 26.10.1) - a shortcut's open half on disk ---
+LNK_SIG     equ 0               ;  2: 'LK'
+LNK_VER     equ 2               ;  1: LNK_V; any other is not followed
+LNK_VOL     equ 3               ;  1: the volume index, LNK_SELF = the link's
+                                ;     own - and LNK_KIND NEXT, so one word
+LNK_KIND    equ 4               ;  1: as SC_R_KIND - 1 package, else not
+LNK_PATH    equ 5               ; 45: below the root, NUL - SC_R_PATH's field
+LNK_SIZE    equ LNK_PATH + SC_PATHMAX   ; 50 - and a longer file is not a
+                                ;     link
+LNK_V       equ 1
+LNK_SELF    equ 0xFF
+LNK_SPMIN   equ 320             ; task 0's stack a link needs left to follow
+                                ; it: its record and a package load under it
+%if LNK_KIND != LNK_VOL + 1
+  %error "desksc: lnk_open reads LNK_VOL and LNK_KIND as one word"
+%endif
 
 ; =============================================================================
 section .cold
@@ -130,15 +149,31 @@ sc_open:
     call sc_row                 ; ES:BX = the record
     mov ax, [es:bx+SC_R_VOL]    ; AL = the volume...
     mov ah, [es:bx+SC_R_KIND]   ; ...AH = the kind
-    xchg ax, bp                 ; BP holds both for the walk
     lea di, [bx+SC_R_PATH]
+    mov word [sc_wsp], sc_seg   ; ...in the claim, which may MOVE
+
+; sc_walk - the open BY PATH that sc_open and a LINK share (SPEC.md 26.8.5,
+;           26.10.3)
+; in:  AL = the volume, AH = the kind (1 package, else a document or a
+;      folder - what the entry IS decides), DI = the path below the root, an
+;      offset in the segment held by the WORD [sc_wsp] points at
+; out: nothing; clobbers AX..DI, ES, flags
+;
+; [sc_wsp] is a pointer to a segment word and not a segment, because the
+; walk mounts and a mount may compact the heap: the shortcut table is a
+; movable claim and is re-read at every component through [sc_seg] itself.
+; A link's record is on the STACK, whose segment is a constant
+; (sc_lowseg), and the boot's autostart hands it the same.
+sc_walk:
+    xchg ax, bp                 ; BP holds both for the walk
     call drv_vol_bank
     xor bx, bx                  ; the volume's ROOT first
 .dir:
     mov ax, bp
     call fcp_goto               ; CF = no disk, or no such folder
     jc .nf
-    mov es, [sc_seg]            ; re-read: a mount may compact the heap
+    mov si, [sc_wsp]            ; re-read: a mount may compact the heap
+    mov es, [si]
     mov si, assoc_doc
     mov cx, SC_CAPMAX
 .cc:
@@ -250,6 +285,89 @@ stik_boot:
     loop .l
     jmp kretc_es
 .r0:
+    ret
+
+; -----------------------------------------------------------------------------
+; lnk_is - is the document in assoc_doc a LINK? (SPEC.md 26.10)
+; out: ZF = 1 its extension is LNK; ZF = 0 not, or no extension at all
+; clobbers: SI, DI, flags - all three callers hold nothing in either: the
+;      locator is in memory, and each reloads what it needs after
+; -----------------------------------------------------------------------------
+lnk_is:
+    mov si, assoc_doc
+    call assoc_ext_of           ; CF = 0: DI -> its three padded bytes
+    jc .nz
+    cmp word [di], 'LN'
+    jne .out
+    cmp byte [di+2], 'K'
+    ret
+.nz:
+    or si, si                   ; assoc_doc is not 0: ZF = 0
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; lnk_open - follow the LINK named in assoc_doc (SPEC.md 26.10.3)
+; in:  assoc_doc / assoc_dclus / assoc_ddrv = the .LNK file's name, folder
+;      and volume - the document locator every open already stages; the UI
+;      task, NO lock held
+; out: CF = 0 it was OURS and is dealt with: what it names is opened as its
+;      Disk window would open it, or `Shortcut not found (B:)`, or - a newer
+;      version, a volume no row has, a chain too deep - nothing, silently.
+;      CF = 1 it is NOT ours: no file this size, or not 'LK' - the DOS box's
+;      shortcuts are .LNK too, in Microsoft's format (SPEC.md 96.21), and the
+;      caller carries on to the association that opens those
+; clobbers: AX..DI, ES, flags
+;
+; THE RECORD IS READ ONTO THE STACK and walked from there: 50 bytes for the
+; length of one open, where a buffer anywhere else would be resident for
+; ever. A link may name a link, and that is a chain the stack pays for, so
+; THE DEPTH IS THE GUARD: past LNK_SPMIN of task 0's stack nothing is
+; followed, which ends a link that names itself after a level or two
+; instead of in a stack overflow.
+; -----------------------------------------------------------------------------
+lnk_open:
+    cmp sp, STK0_BOT + LNK_SPMIN
+    jb .done
+    call assoc_back             ; stand in the link's own folder
+    jc .done
+    sub sp, LNK_SIZE
+    mov bx, sp
+    push ss
+    pop es                      ; ES:BX = the record's room
+    mov si, assoc_doc
+    mov cx, LNK_SIZE
+    xor dx, dx
+    call dskw_read_x            ; a bigger file is FERR_BIG, before any I/O:
+    jc .notours                 ; Microsoft's header alone is 76 bytes. A
+                                ; SHORTER one is not refused by length - the
+                                ; signature has to match, the volume is bounded
+                                ; and the path terminated below, so its unread
+                                ; tail is stack bytes that can only fail to
+                                ; name anything (5 bytes, kept out)
+    cmp word [es:bx+LNK_SIG], 'LK'
+    jne .notours
+    cmp byte [es:bx+LNK_VER], LNK_V
+    jne .pop                    ; ours, in a format this kernel does not read
+    mov ax, [es:bx+LNK_VOL]     ; AL = the volume, AH = the kind
+    cmp al, LNK_SELF
+    jne .abs
+    mov al, [assoc_ddrv]        ; THE LINK'S OWN VOLUME, so a link travels
+.abs:                           ; with the disk it names
+    cmp al, DVOL_MAX
+    jae .pop                    ; the file is hostile: no row has that index
+    lea di, [bx+LNK_PATH]
+    mov byte [es:di+SC_PATHMAX-1], 0    ; ...and terminated, whatever it said
+    mov word [sc_wsp], sc_lowseg
+    call sc_walk
+.pop:
+    add sp, LNK_SIZE
+.done:
+    clc
+    ret
+.notours:
+    add sp, LNK_SIZE
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -414,7 +532,12 @@ sc_rclick_x:
 ; grey, exactly as it would with the box clear.
 ; -----------------------------------------------------------------------------
 vgcf_boot:
-    mov ax, (SC_OP_VGC << 8) | MOD_SETS ; AL the module, AH the operation:
+    mov ah, SC_OP_VGC
+; scf_boot - the same for ANY core operation in AH: AUTOSTART (SPEC.md
+; 26.10.5) is the other, and the blob's test in front of it is what keeps a
+; machine with nothing to start from reading the core at all (+1 byte here)
+scf_boot:
+    mov al, MOD_SETS            ; AL the module, AH the operation:
     call mod_need               ; every register kept. Its CF is NOT TESTED:
     call far [SETFP]            ; a core that could not be read leaves this
     call mod_drop               ; slot on mod_gone (`stc / retf`, nothing
@@ -436,6 +559,12 @@ section .text
 sc_reloc:
     mov [sc_seg], dx
     ret
+sc_lowseg   dw LOW_SEG          ; ...a link's record is on the STACK, and
+                                ; sc_walk takes the WORD naming its segment
+as_s_dir    db 'AUTOSTRT', 0    ; the boot volume's autostart folder (SPEC.md
+                                ; 26.10.5): RESIDENT because dskw_stat reads a
+                                ; name through DS, and the blob's test and
+                                ; CTRL.DRV's walk both name it
 
 ; --- the File menu's item and the right-click's, ONE string ------------------
 ; desk_select points item 1 at the MENU_DIS byte or past it, the Close Window
@@ -462,6 +591,7 @@ sc_bdg      db 1, 10            ; the badge: 10x10, one word across - a box
 section .bss
 ; =============================================================================
 sc_seg      resw 1              ; the table's claim, 0 = no shortcuts
+sc_wsp      resw 1              ; sc_walk's record: the word naming its segment
 sc_nrows    resb 1              ; rows the claim holds, 0..SC_MAX
 
 ; =============================================================================
@@ -483,6 +613,16 @@ modc_e_sc:                      ; CPE_SC (SPEC.md 2.8.7): AH = the operation
     jz .add
     dec ah
     jz .pdel
+    dec ah
+    jz .vgc
+    dec ah
+    jz .lnk
+    call sc_m_auto              ; SC_OP_AUTO (SPEC.md 26.10.5)
+    jmp short .out
+.lnk:
+    call sc_m_lnk               ; SC_OP_LNK (SPEC.md 26.10.4)
+    jmp short .out
+.vgc:
     call cp_vgc_force           ; SC_OP_VGC (SPEC.md 39.28)
     jmp short .out
 .add:
@@ -862,6 +1002,180 @@ sc_m_same:
     pop ds                      ; no `pop` writes a flag
     pop di
     pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; sc_m_lnk - SC_OP_LNK: a Disk window's entry Alt-dropped on a Disk window
+; in:  AL = the destination's volume, DX = its folder's first cluster (the
+;      folder under the drop, fm_dgdrop's own reading); the drag's [fcp_cb*]
+;      = the entry (the Cut fm_drag armed, which the caller has disarmed)
+; out: nothing; <STEM>.LNK written there and every Disk window owed the new
+;      listing, or the reason it was not, said
+;
+; THE RECORD IS sc_m_new's, MINUS THE PICTURE: the entry's volume, kind and
+; path below the root, composed in cpc_buf - the settings file's buffer, which
+; nothing else holds while a gesture runs - and written as one 50-byte file.
+; The volume is the ENTRY's, absolute: a link Alt-dropped from B: into A: names
+; B:, which is what the hand meant. LNK_SELF is for a link written by a
+; program about its own disk (SPEC.md 26.10.6). A link to a link is written as
+; one: lnk_open's depth guard is what bounds the chain, not a refusal here.
+; -----------------------------------------------------------------------------
+sc_m_lnk:
+    push ax                     ; the destination, for after the path
+    push dx
+    call COLD_SEG:drvf_drv_vol_bank
+    mov al, [fcp_cbdrv]
+    mov bx, [fcp_cbcwd]
+    call COLD_SEG:fcpf_fcp_goto ; ...standing in the ENTRY's folder
+    jc .nopath
+    push cs
+    pop es
+    lea di, [cs:cpc_buf + LNK_PATH - 1] ; ONE BEFORE THE FIELD, sc_m_new's way:
+    mov cx, SC_PATHMAX + 1 - SC_CAPMAX  ; dsk_path's leading `\` lands on
+    call COLD_SEG:dsk_path_x    ; the kind byte, written after it
+    jc .nopath
+    add di, cx
+    cmp cx, 1                   ; the root answers `\`, which is no folder
+    je .nm
+    mov byte [es:di], '\'
+    inc di
+.nm:
+    cld
+    mov si, fcp_cbname
+    mov cx, SC_CAPMAX
+    rep movsb                   ; `APPS\CALC.O88`
+    lea di, [cs:cpc_buf]        ; (`lea` with `cs:` - the pointer is the
+                                ; IMAGE's, ES = CS, and os88ovlchk is told so)
+    mov ax, 'LK'
+    stosw
+    mov al, LNK_V
+    stosb
+    mov al, [fcp_cbdrv]
+    stosb                       ; LNK_VOL...
+    mov al, [fcp_cbtype]
+    cmp al, 2
+    jbe .kind
+    mov al, 2
+.kind:
+    stosb                       ; ...and LNK_KIND
+    push ds                     ; THE LINK'S NAME, the entry's stem and .LNK,
+    pop es                      ; into assoc_doc: a name is read through DS
+    mov si, fcp_cbname
+    mov di, assoc_doc
+    mov cx, 8
+.st:
+    mov al, [si]
+    cmp al, '.'
+    je .ext
+    or al, al
+    je .ext
+    stosb
+    inc si
+    loop .st
+.ext:
+    mov ax, '.L'
+    stosw
+    mov ax, 'NK'
+    stosw
+    xor al, al
+    stosb
+    pop bx                      ; the destination's folder...
+    pop ax                      ; ...and volume
+    mov [fcp_ddrv], al          ; fmv_reload_all's question: which volumes
+    call COLD_SEG:fcpf_fcp_goto ; changed
+    jc .err
+    push cs
+    pop es
+    lea bx, [cs:cpc_buf]
+    mov cx, LNK_SIZE
+    xor dx, dx
+    mov si, assoc_doc
+    call COLD_SEG:dwf_dskw_write    ; an existing one of that name is replaced
+    jc .err
+    xor ax, ax                  ; FCPS_DONE
+    jmp short .res
+.nopath:
+    pop ax
+    pop ax
+    call COLD_SEG:drvf_drv_vol_back
+    mov si, sc_s_path
+    jmp sc_m_say
+.err:
+    mov [fcp_err], ax
+    mov al, FCPS_ERR
+.res:
+    call COLD_SEG:drvf_drv_vol_back
+    push ax
+    mov bx, [fm_dgwin]          ; the result is said on the window the drag
+    mov bp, fm_vp_set           ; began in, as a paste's is
+    call sc_m_cold
+    pop ax
+    mov bp, fm_paste_res        ; ...which re-lists and repaints what changed
+    jmp sc_m_cold
+
+; -----------------------------------------------------------------------------
+; sc_m_auto - SC_OP_AUTO: open every link in the boot volume's \AUTOSTRT
+; in:  the boot volume standing at its root, the folder there (kmain_o's test,
+;      in the blob, which is what reads this core at all); AL = MOD_SETS
+; out: nothing; AX preserved - scf_boot drops the core by AL
+;
+; Every link is opened by lnk_open, the door a double-click takes, so what
+; autostarts a package, a document or a folder is exactly what opens one by
+; hand - associations included. EITHER SHIFT, HELD, SKIPS THE LOT and says
+; so: read here, after the whole boot, so a key held through the loading
+; screen is a key held now.
+; -----------------------------------------------------------------------------
+sc_m_auto:
+    push ax
+    push ds
+    xor ax, ax
+    mov ds, ax
+    test byte [0x417], 3        ; KB_FLAG: either Shift
+    pop ds
+    jnz .skip
+    mov si, as_s_dir
+    call COLD_SEG:dwf_dskw_stat ; BX = its first cluster
+    jc .root
+    mov [cs:sc_adir], bx
+    xor cx, cx                  ; the ordinal, 0 to start
+.next:
+    mov al, [dsk_bootvol]       ; stand there again: the open before this one
+    mov bx, [cs:sc_adir]        ; went wherever its link pointed
+    call COLD_SEG:fcpf_fcp_goto
+    jc .root
+    push cs
+    pop es
+    lea di, [cs:cpc_buf]        ; one find record, in the image
+    xor al, al                  ; no hidden or system entries
+    call COLD_SEG:dsk_find_x    ; CX = the next ordinal; CF = the end
+    jc .root
+    push cx
+    mov si, di                  ; its 8.3 name, NUL, into the document locator
+    mov di, assoc_doc           ; every open reads (SPEC.md 21.5)
+    mov cx, 13
+.cp:
+    mov al, [cs:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .cp
+    mov bp, lnk_is
+    call sc_m_cold              ; ZF = 1: a .LNK - anything else there is
+    jne .nl                     ; not started
+    mov byte [assoc_dapp], ASSOC_FIND   ; ...and opened AS A DOUBLE-CLICK
+    mov word [assoc_pwin], 0    ; WOULD, standing here: assoc_run_x follows
+    call COLD_SEG:assoc_run_x   ; ours, and a DOS box shortcut goes to the
+.nl:                            ; program that reads it (SPEC.md 96.21)
+    pop cx
+    jmp short .next
+.skip:
+    mov si, sc_s_askip
+    call sc_m_say
+.root:
+    mov al, [dsk_bootvol]       ; ...and the boot volume's root again, where
+    xor bx, bx                  ; the boot left it
+    call COLD_SEG:fcpf_fcp_goto
+    pop ax
     ret
 
 ; sc_m_mem - the table's claims, one door: AX = KB (0 = free the claim at DX),
@@ -1399,6 +1713,7 @@ sc_m_serx:
 sc_s_room   db 'No room on the desktop', 0  ; the image's own strings: a toast
 sc_s_many   db 'Too many shortcuts', 0      ; copies, and these cost the
 sc_s_path   db 'Path too long', 0           ; kernel nothing (SPEC.md 2.8)
+sc_s_askip  db 'Autostart skipped', 0       ; Shift held at boot (26.10.5)
 
 ; =============================================================================
 section .boot2                    ; the BOOT half (SPEC.md 2.5.1): runs once,
@@ -1580,6 +1895,7 @@ sc_bc       db 0                ; out, the nearest distance so far and its
                                 ; cell; sc_m_ser's claim and the rows it holds
 sc_tseg     dw 0
 sc_tcnt     db 0
+sc_adir     dw 0                ; sc_m_auto: \AUTOSTRT's first cluster
 
 section .text
 

@@ -2974,14 +2974,16 @@ SOAK = [
         "CHIPSET1/2.TXT without the help, the pane scrolls, Benchmark restores the foot, "
         "Quit closes REDLINE",
         needs=("marty", "nasm"), wants=("build/redline360.img", "build/os8088-360.img")),
-    Row("rltune", "soak", py("tests/rltune.py"), 77.0,
+    Row("rltune", "soak", py("tests/rltune.py"), 81.0,
         "REDLINE's chipset write path in the OS on QEMU's AT (SPEC.md 103.6.3-103.6.5): "
         "on the Tune tab an FE3600 nothing detects is picked, Target Mfg spec and Tune "
         "confirm and set R4 10, Fastest tested sweeps to 4 and sets it unasked, the state "
-        "field following both, Save setting writes REDLINE.CFG to the "
-        "BOOT disk's APPDATA with this BIOS's fingerprint, Quit closes it, and RLAPPLY.O88 "
+        "field following both, Apply on boot writes REDLINE.CFG to the "
+        "BOOT disk's APPDATA with this BIOS's fingerprint and \\AUTOSTRT\\RLAPPLY.LNK "
+        "beside it (SPEC.md 26.10.6), Quit closes it, and RLAPPLY.O88 "
         "from A:\\SYSTEM toasts its verdict before and after the Save and leaves no "
-        "window. QEMU by name: "
+        "window - and a REBOOT toasts `Chipset setting applied` with nobody touching "
+        "anything, the bar seen empty first so 5b's toast cannot pass for it. QEMU by name: "
         "the path is refused on an 8088, where 63h is the PPI",
         needs=("nasm", "qemu"), wants=("build/os8088.img", "build/redline.img")),
     Row("redlinemodern", "soak", py("tests/redline.py", "--modern"), 15.0,
@@ -8909,6 +8911,21 @@ SOAK = [
         "open, because a move shuts that window. VERIFIED RED with .selmove's "
         "FS_CLKT store taken out (the Audio Player launched on one click).",
         needs=("marty",), serial=True),
+    Row("autostart", "soak", py("tests/autostart.py"), 50.0,
+        "SPEC.md 26.10: LINKS and AUTOSTART on kern_big, off "
+        "`make autostarttest`'s disk. A: the boot opens every link in the "
+        "boot volume's \\AUTOSTRT - the Task Manager is up with nobody "
+        "touching anything, and a file named like a link and not one stops "
+        "nothing. B: A:\\CALC.LNK, double-clicked, starts the Calculator "
+        "off B: (an absolute volume, through assoc_run_x). C: Shift held "
+        "through the boot says `Autostart skipped` and starts nothing. D: "
+        "an Alt-drop of B:\\APPS\\CALC.O88 on its '..' leaves it there "
+        "and writes B:\\CALC.LNK, which starts the Calculator. VERIFIED "
+        "RED three ways: the blob's folder test jumped past (A and C), "
+        "SC_OP_AUTO's Shift test inverted (A and C), fm_dgdrop's Alt test "
+        "jumped past (D alone - the drag MOVES the package).",
+        needs=("marty",), serial=True,
+        wants=("build/autostart360.img", "build/apps360.img")),
     Row("msel", "soak", py("tests/msel.py"), 55.0,
         "SPEC.md 22.27: MULTI-SELECT in a Disk window (kern_big). Ctrl+click "
         "adds and removes one entry, Shift+click takes the run from the "

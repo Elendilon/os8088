@@ -4643,8 +4643,30 @@ kmain_o:
     BLOBCALL spl_finish         ; the bar to 100% and the screen handed back:
                                 ; the paint kmain makes on return covers every
                                 ; pixel of it, so the loading screen needs no
-                                ; erase. The LAST call of the body: kmain
-                                ; releases the blob as soon as this returns
+                                ; erase. The LAST call of the body but one:
+                                ; kmain releases the blob as soon as this
+                                ; returns
+%ifdef OS88_SHORTCUTS
+    ; --- AUTOSTART, the one thing after it (SPEC.md 26.10.5) -----------------
+    ; It LAUNCHES, and a launch must not race the loading screen's IRQ0
+    ; frames, which spl_finish has just stopped. THE TEST IS HERE, in the blob,
+    ; and it is the whole of what a machine with nothing to start pays: one
+    ; name in the boot volume's root, which the SYSTEM.CFG read has just
+    ; walked - no I/O, no module. Only a folder there reads CTRL.DRV's core,
+    ; whose SC_OP_AUTO checks the Shift keys and opens every link in it
+    mov al, [dsk_bootvol]
+    xor bx, bx
+    call COLD_SEG:fcpf_fcp_goto ; the boot volume's ROOT
+    jc .noas
+    mov si, as_s_dir
+    call COLD_SEG:dwf_dskw_stat ; AL = its attribute
+    jc .noas
+    test al, 0x10
+    jz .noas                    ; a FILE called AUTOSTRT starts nothing
+    mov ah, SC_OP_AUTO
+    call COLD_SEG:scf_boot
+.noas:
+%endif
 
     retf
 %ifdef BOOT_MARK
