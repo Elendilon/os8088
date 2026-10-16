@@ -80450,6 +80450,162 @@ the bss starts at the image's end - it anchors its walk on the address of an
 instruction that names `sol_pcnt` and checks a second name the same way - and
 `tests/dispapps.py` reads names off nasm's own map, which never assumed it.
 
+#### 43.11.7 The third size pass (apps size pass 2: the DISK)
+
+Apps size pass 2 (docs/plans/HANDOFF-APPS-SIZE-P2.md) weighs a package by
+its SHIPPED FILE - the LZ4-packed `SOLITAIR.O88` and the clusters it takes on
+each 360KB disk it rides - because the disks are full. Its rules are pass
+1's with the measure changed: nothing removed, nothing on the screen moved,
+no hot path slower, and `image + bss` may not grow (on `APP_SMALL` not by a
+byte). Solitaire rides `apps360.img` and `games360.img` in the full build
+and `small360.img` and `smallapps360.img` in the small one.
+
+| | image | bss | image + bss | file (LZ4) |
+|---|---:|---:|---:|---:|
+| full, before | 4,595 | 1,140 | 5,735 | 4,259 |
+| full, after | **4,410** | **1,218** | **5,628** (−107) | **4,127** (−132) |
+| `APP_SMALL`, before | 4,385 | 1,147 | 5,532 | 4,067 |
+| `APP_SMALL`, after | **4,208** | **1,225** | **5,433** (−99) | **3,938** (−129) |
+
+**The first four rows are COLD**: every routine a frame, a click, a drag or a
+key runs is instruction-identical to the build before them - compared
+routine by routine off nasm's two listings, source text and encoded length,
+so only the values of addresses differ - and what changed is the entry proc,
+`sol_metrics` and the set-up half of `sol_mkback`, which run at launch and on
+an adapter change only. **The rows after them touch hot routines**, each one
+by taking instructions OUT of the path it is on, and they are measured below.
+
+| change | file, full | file, small | image + bss |
+|---|---:|---:|---:|
+| the metric records carry their DERIVED fields | −58 | −52 | −47 / −47 |
+| `sol_entry` saves no registers | −6 | −6 | 0 / 0 |
+| the 16x16 masks are stored as their left halves | −16 | −19 | 0 / 0 |
+| `sol_entry`'s placement: two dead clamps, one register | −10 | −10 | 0 / 0 |
+| `sol_track` keeps the origin once | −6 | −6 | −11 / −11 |
+| `sol_pilexy` reads a pile's column from a table | −5 | −5 | −5 / −5 |
+| six routines lose instructions they did not need | −27 | −27 | −35 / −35 |
+| DEFECT: `sol_colfan`'s fit test read the face-down half as 0 | −4 | −4 | −9 / −9 |
+
+**The metric records carry their derived fields.** `sol_metrics` copied a
+record of fourteen bytes into words and then worked out four more from them -
+the column pitch, the tableau's y, the waste's fan step - and the content
+width, which `sol_track` overwrites from the live window before anything
+reads it; `sol_mkback` worked out the back's stride. Every one of them is a
+function of the record and of nothing at run time, so the assembler computes
+them into it (`SOL_METD`) and the copy loop takes eighteen bytes instead of
+fourteen. The two words after each record are the frame that record lays
+out - the same `SOL_PW_*`/`SOL_PH_*` the published preference is made of -
+and `sol_metrics` leaves SI on them, so `sol_entry` reads its window size
+with two `lodsw` where it re-derived the width and picked the height on a
+compare. An assembly-time `%if` keeps the eighteen words contiguous in
+`.bss`.
+
+**`sol_entry` saves no registers.** It pushed SI and DI and popped them on
+both exits, and nothing asks it to: §20.2's entry contract is BX and CF out,
+and the loader (`ld_start`) reloads every register it reads after the far
+call - DI from `[ld_rec]`, SI and BP before their next use, on the success,
+abort and re-home paths alike. Six bytes, and none of them RAM: the entry
+proc is under the card back (§43.11.6), so its length moves bytes between
+the image and the `.bss` and leaves the sum where it was.
+
+**The 16x16 masks are stored as their left halves.** The four centre pips
+and the empty stock's ring are mirror images: every row's right half is its
+left half with the bits in the other order. So the image carries one byte a
+row (`sol_pipl`, 80 bytes where the words were 160), and the entry proc's
+`.mirror` loop writes the words into `.bss` - `sol_p16s` and `sol_ic_ring`,
+named and read exactly as before. The source bytes sit after the entry
+proc's code, inside the bytes the card back takes over, so they cost no RAM
+either: the 160 bytes of tables left the image for the `.bss` and the sum is
+unchanged. The 8x8 pips stay as they are - a byte a row, and a 4-bit half
+saved too little to pay for its own unpacking. Checked on the host: the
+mirrored words are the old tables to the byte, and the loop is ~4-5 ms of
+launch at 4.77 MHz (an estimate from instruction timings: 80 rows of an
+eight-step reversal).
+
+**`sol_entry`'s placement** lost two clamps that could not fire: the slack
+the window is placed a third of the way down is at least the one pixel the
+height is clamped short of the dock by, and the widest frame (258) is
+narrower than the narrowest screen (640), so neither difference can go
+negative. The clamped height's band is kept in BX and the slack taken from
+it, where it was re-derived from the dock row. The same window lands on the
+same pixel.
+
+**`sol_track` keeps the origin once.** It stored the content origin in
+`sol_ox`/`sol_oy` on every callback and kept a second copy, `sol_lastox`/
+`sol_lastoy`, to tell a moved window (§43.10's shadow is drawn at the old
+origin) - and nothing but `sol_track` writes either pair, so the two were
+always equal by the time anything compared them. It compares against the
+pair it already has and stores only on a change: two stores fewer on every
+callback, four bytes of `.bss` and six of code.
+
+**`sol_pilexy` reads a pile's column from a table.** Which column a pile
+sits in - itself for a tableau column, 3..6 for the foundations, 0 for the
+stock and 1 for the waste - was four compares and their branches, 22 bytes;
+it is `xlatb` over `sol_pcol`, thirteen bytes of table and four of code, and
+the same column for every pile without a branch taken.
+
+**Six routines lose instructions they did not need**, each the same work in
+fewer instructions:
+
+- `sol_oncmd` saved SI and DI that §12.2 lets an `AM_ONCMD` handler clobber
+  (and that every routine below it keeps anyway), banked the menu index in
+  BH where `sol_track` keeps AX, and called `sol_gamecmd` to return from it -
+  it is the next routine down, so the Game menu is a `jz` into it;
+- `sol_abdismiss` is `shr byte [sol_abon], 1`: the flag is 0 or 1, so the
+  shift both answers "was it up" in CF and takes it down;
+- `sol_card` dropped a test for a visible height of 0, which cannot arrive:
+  SI is above 0 past the `jle`, and every caller's DX is a fan step of at
+  least one pixel (§43.2) or the whole card;
+- `sol_drop` aims at a column from half the PITCH where it added half the
+  card and half the gap - the same pixel, the card being an even width,
+  which an `%if` now asserts for both records (the back's two pixels a byte
+  already needed it);
+- `sol_panel` sets the card's white before it measures the lines, where AX
+  is free, rather than saving AX round it later; nothing is drawn between;
+- `sol_shwbase` multiplies through AH, which a byte `mul` overwrites anyway,
+  so DX need not be saved.
+
+**A DEFECT, fixed: `sol_colfan`'s fit test read the face-down half as 0**,
+and had since the package's first version. It priced the column's last
+card as `up * cfu`, then loaded the face-down count from DX - which the
+`mul` had just made the product's high word, 0 - so `cfd * cfa` never
+counted. A column that overflowed by less than its face-down height was
+judged to fit and was not tightened, and its last card ran off the content
+and was clipped there. Read off a CGA game (`[sol_avail]` = 100): six
+face-down cards and nine face-up need 6×3 + 8×12 = 114 rows against 100, the
+test saw 96, and the top card lost 14 of its 28 rows. The fix multiplies
+the face-down half FIRST, while DX still holds it, into SI - which is the
+very value the shrink path below recomputed with a third `mul`, so that one
+goes and the fix is four bytes SMALLER. That column now fans at 10 rows a
+card (82 / 8), the last card is whole and every rank glyph still shows
+(they need 10). It changes the picture only in that window - a column whose
+true height overflows and whose face-up half alone does not.
+
+**Measured** on MartyPC's 4.77 MHz 8088, guest cycles entry to return, with
+`tools/solperf.py` (§43.11.5's tool: one seeded deal, three stock clicks and
+its own twelve-move session) - the build before the hot rows (after the
+cold four) against the final one:
+
+| | CGA | Hercules | VGA | CGA, `APP_SMALL` |
+|---|---:|---:|---:|---:|
+| a drop, five, each lower by | 170..320 | 104..245 | 170..328 | 170..320 |
+| a drop, mean | 354,826 → **354,561** | 443,487 → **443,302** | 282,686 → **282,449** | 354,835 → **354,576** |
+| a stock click with no tick inside, each lower by | 117..171 | 72..171 | 117..216 | 39..72 |
+| a stock click, floor | 117,822 → **117,656** | 131,457 → **131,291** | 98,480 → **96,968** | 117,656 → **117,611** |
+| New Game (one span) | 1,694,313 → 1,698,660 | 2,055,039 → 2,048,072 | 4,102,137 → 4,105,860 | 1,694,219 → 1,698,584 |
+| Restart Deal (one span) | 1,649,196 → 1,653,732 | 2,010,101 → 2,008,832 | 4,056,993 → 4,054,983 | 1,649,075 → 1,647,635 |
+
+New Game and Restart are ONE span each, 1.6 to 4.1 million cycles - six to
+sixteen timer ticks at ~5.7-5.9 thousand cycles a tick, the step every
+stock-click row that a tick landed in shows - so the two builds can differ
+by a whole tick on phase alone; every one of the eight lands within a tick
+of 1.1-2.2 thousand cycles LOWER (+4,347 is one tick more and ~1,350
+fewer, −6,967 one tick fewer and ~1,100 fewer). The drag's outline,
+`sol_dxor`, is instruction-identical and was not re-priced: its spans move
+with where the host's mouse puts the outline, not with the build. Nothing
+in the hot rows moved the dealt game or the moves played, and the colfan
+fix is not reached by this session (no column in it overflows).
+
 ### 43.12 `APP_SMALL` — the small build of this package
 
 Note Pad's §27.16 is the pattern and its rules hold. **There is very little to
@@ -81689,6 +81845,98 @@ cycles, not more. What it leaves binding:
   it draws**, for every full repaint (the worker's, `W_PAINT`'s and the
   credits' dismissal). The two callback paths used to clear them after, so a
   flag the worker raised during the draw was dropped.
+
+### 44.12 Size pass 2 — the shipped file
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures the
+LZ4-packed `ARKANOID.O88` on the four 360KB disks it rides (apps, games, and
+both small disks), not image + bss. Nothing a player can see changed. What the
+pass leaves binding:
+
+- **The tuning tables are signed BYTES.** `ark_met_big`/`ark_met_sml` and
+  `ark_vel_src`/`ark_zbias` are written with `ARK_SB`, which refuses a figure
+  outside -128..127 at assembly time, because `cbw` would otherwise widen it to
+  a different number. The content height is the one figure that does not fit,
+  so the records store it less `ARK_CHWBIAS` (200) and `ark_entry`, its only
+  reader, adds the bias back inside an `add` it already made.
+- **One loop widens the record and the velocity family.** `ark_metrics` sets
+  `[ark_vscale]` to 100 and sends the record through `ark_scale` too - at par
+  that is the identity - so the record's last figure, the adapter's scale, is
+  in place by the time the loop reaches `ark_vel_src`. `ark_bw`..`ark_zbq` are
+  one run of 27 words, asserted in the bss. `ark_scale_vel` is gone; the
+  launch pays twelve more `ark_scale` calls, about 1 ms at 4.77 MHz
+  (estimated from instruction timings), once per launch and per adapter
+  change.
+- **There are no clamps after the scaling, by proof.** `ark_scale` is
+  monotonic (round to nearest of one per-cent product, floored at one), so two
+  figures in order before it stay in order after it for ANY percentage. The
+  four relationships the clamps enforced - a serve no flatter than the
+  ceiling, a flick no harder than a hold, Slow's floor under the opening
+  rally, the ceiling over it - are the `%if` assertions on the unscaled
+  constants beside `ARK_VXMAX`, and both shipped records were checked to give
+  the same 27 words as before, figure for figure.
+- **The frame's update half is inline in `ark_worker`.** `ark_update` had
+  one caller, the worker loop, and banked nothing; inline it is the same
+  instructions less a `call` and a `ret` every frame, and the death/clear
+  pause tests the mode in AL, which it was just loaded into, instead of
+  re-reading `[ark_mode]`.
+- **...and so is the draw half.** `ark_render` (the one lock hold a frame,
+  everything the sections above say of it unchanged) is the loop's `.draw`
+  now: the same instructions less a `call`, a `ret` and six register saves
+  the loop never needed. The routines `tests/arkpuwipe.py` stubs to a `ret`
+  (`ark_do_ball`, `ark_do_launch`, `ark_do_shots`, `ark_do_paddle`,
+  `ark_draw_msg`) stay routines.
+- **The window's y is placed off the clamp's own register.** The height is
+  clamped to `dock - MBAR_H - 1`, so that register less the height is the
+  slack less one and cannot be negative; the old re-derivation from
+  `[ark_dock]` and its `jns` guard were the same number by a longer road.
+  `[ark_scrw]` and `[ark_dock]` stay banked - in `ark_onresize` as well,
+  where the game no longer reads them - because `tests/dispsize.py` leg E
+  reads them back as the proof that the handler asked about the card the
+  window is on (SPEC.md 39.16.4).
+- **The score's padding is inline in `ark_draw_status`.** `ark_padl` had one
+  caller; inline it is the same copy loop without the call, its four saves
+  (the caller banks every register already) and its closing NUL store, which
+  wrote a zero over the NUL `ark_num2str` had already put at
+  `ark_sbuf + ARK_SFW`.
+- **The heart is composed as a glyph.** `ark_heartbits` is `ark_heartrun`'s
+  picture in the font's own shape - eight rows, bit 7 the left column - so
+  `ark_pu_letter`'s eight-row walk lays it into the band exactly where the
+  runs did (asserted: both centre it two rows and two columns into the
+  capsule), and `ark_pu_heart`, a second walk over the runs a pixel at a
+  time, is gone. `ark_heartrun` stays: §44.10.4's fallback fills the heart
+  from it. The walk itself is inline in `ark_pu_compose`, its one caller,
+  which now sets ES back to DS for the heart (a letter kind leaves it on the
+  font's segment).
+- **The ball's one-caller helpers are inline where the walk calls them.**
+  `ark_reflect`, `ark_hit_paddle` and `ark_die` are blocks of `ark_move1`
+  now, and `ark_english` (the paddle's kick) a block of `ark_padbounce`:
+  each is the same instructions less its call, its `ret` and the saves its
+  caller had already made - `ark_move1` banks AX..DX on entry, and the
+  paddle test ends in `jb .paddle` where it ended in a `ret` that handed the
+  same carry to a `jc`. `ark_padbounce` no longer saves CX, which nothing in
+  it writes. The paddle test runs on every pixel of ball travel that misses
+  the wall, so it is the hottest code the pass touched, and none of these
+  got an instruction more.
+- **The draw half's own helpers save nothing.** `ark_wipe_pu`,
+  `ark_wipe_shots`, `ark_draw_bricks_dirty`, `ark_move_paddle` and
+  `ark_move_ball` have one caller, the worker loop's `.draw`, which holds no
+  register across them; their 21 push/pop pairs were paid every frame for
+  nobody. Each says what it clobbers at its label. `ark_draw_pu` and
+  `ark_draw_shots` keep theirs: `ark_draw_all` and `ark_draw_msgband` call
+  them too.
+- **...and so do the update half's.** `ark_do_paddle`, `ark_focuschk`,
+  `ark_do_launch`, `ark_do_ball`, `ark_do_pu` and `ark_do_shots` have the
+  same one caller and it holds nothing across them either (it loads the mode
+  after the first two, and reads no register after the other four): 21 more
+  pairs a frame.
+- **...and their own one-caller routines are inline, or tails.** `ark_pkey`
+  is a block of `ark_do_paddle` and `ark_throw` of `ark_do_launch`;
+  `ark_slower` is `ark_apply`'s Slow arm, and `ark_apply` saves nothing
+  (`ark_do_pu` holds only SI across it). Where a routine ended in
+  `call ark_beep` or `call ark_fire` and then its own `ret`, it jumps
+  instead, and `ark_fire` saves nothing either. The worker's static stack
+  chain is 50 bytes, from 64; it keeps `OS88_STACK_192`.
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
@@ -85661,6 +85909,53 @@ not kept.
 It costs Tracker **189 bytes of image** (34,180 -> 34,369), 2 of bss and 140
 of the packed file; no kernel byte.
 
+### 45.26 Apps size pass 2 — the shipped file, not the machine
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
+package by its PACKED file and the clusters it takes, because the 360KB disks
+are full. Tracker rides `apps360.img` (and the larger apps disks) as one
+copy. Nothing below changes what the user sees or hears; every change is
+load-time, menu-time or entry code, and the replayer, the mixers, the
+speaker shaper and every per-frame painter are instruction-identical (a
+per-routine listing comparison, source text and encoded length, says so).
+
+- **`mp_load` keeps its scratch in registers** (-63 file bytes, image -76,
+  bss -13): the six loader temporaries and `mp_vtbuild`'s row counter were
+  bss round trips. P rides BP to the extent check, the sample loop keeps the
+  available and effective lengths in BP and the loop start and length in
+  CX/BX, the title and order copies read with `es lodsb`, and the 1..128 song
+  length is one `dec`/`js`. Same verdict, same table and same volume table
+  for every input, hostile ones included.
+- **The UI task's cold paths in `tracker.asm`** (-35 file bytes, image -61):
+  `trk_legend`'s five string compares are one RANGE test (the five legends
+  are asserted, by a pair of `TIMES`, to be one run of 166 bytes and nothing
+  else); the entry's tier test is `cmp`/`sbb`/`inc` and sets the visualiser
+  pick there rather than re-testing `[trk_cpu0]`; the menu dispatch compares
+  once per pair of items; and the CF-returning helpers end in
+  `TRK_CLC_OR_STC` (the kernel's `CLC_OR_STC`, `db 0A8h` before the `stc`)
+  or in a carry computed from the caps bit (`and`/`neg`, `and`/`cmp`) rather
+  than in two exits each.
+- **The FT2 screen's copies and re-loads** (`trkui.inc`, -42 file bytes,
+  image -79): `tui_layout_for` copies its layout and colour tables with
+  `rep movsw`/`rep movsb` and folds the mono flag into the colour pick;
+  `tui_btn` stops recomputing the corner it had just computed; the value
+  painters (`tui_val_bpm`, `tui_val_ptn`, `tui_val_cga_*`) stop re-loading
+  the SI/CX/BX/AX that `tui_rdout`, `tui_dec3` and `tui_hexnp` preserve - a
+  strict subset of the instructions they ran, so no frame is slower; and
+  `tui_el_bpm` banks its values through `tui_val_bpm`'s own tail.
+- **The body tiles are grouped, over one table of x spans** (`trkwin.inc`,
+  `trklist.inc`, `tools/trkface.py`; -92 file bytes, image -103): the
+  face's two tables and the PlayList editor's were four and six bytes a
+  tile, 436 bytes in all. Every x span any of them uses is now one word pair
+  in `tw_xp` (22 of them), and the tiles are grouped by their rows - `db y1,
+  y2, n` and then n byte offsets into `tw_xp` - which is 354 bytes, read by
+  ONE decoder, `tw_tiles`, where there were two loops. `tools/trkface.py`
+  emits and checks that form; the tile SETS are the old ones exactly (40, 36
+  and 22 rectangles, decoded out of the built image and compared), so every
+  paint is pixel-identical and makes the same number of fills, in an order
+  grouped by rows. The editor's body now sets its pen once rather than once
+  a tile (`tw_fills`), 21 fewer `OSAPI_SET_COLOR` calls a full paint of it.
+
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
 A port of ActionRetro's **ArtfulType** — "a distraction-free Markdown
@@ -88989,6 +89284,89 @@ is the wrong number to tune on; the tail is the one the eye sees.
 is reused. Verified for the other half at the same time: scanning every lit
 burst on every frame, **0 holed of 124 samples**.
 
+### 48.26 The shipped file: apps size pass 2
+
+Pass 2 measured the package by what it costs a DISK - `MISSILE.O88` as `make`
+leaves it, LZ4-packed - and it is almost all CODE, so the file falls by
+taking code out rather than by moving data. Nothing the player sees moved, and
+no routine the worker runs every frame changed: every cut below is in code a
+launch, a hit, a wave or a repaint runs, never the per-frame loops, and none
+of them consumes the random stream differently, so a game plays out the same.
+
+| | file | image | bss |
+|---|---:|---:|---:|
+| before pass 2 | 10,689 | 13,463 | 2,430 |
+| one slot fill for both kinds, the targets as one run | 10,542 | 13,065 | 2,430 |
+| `mc_redraw_trails` walks both kinds with one body | 10,524 | 12,993 | 2,430 |
+| the window sized in registers, `mc_adapter` in three stores | 10,489 | 12,946 | 2,426 |
+| the two kinds are ONE object table; the trail loops walk it once | 10,186 | 12,500 | 2,426 |
+| a new game and a new wave cleared in fewer stores; the credits sized in one walk | 10,164 | 12,451 | 2,426 |
+
+**The ICBM and ABM records are laid out alike**, field for field from
+`[mc_ia]`/`[mc_aa]`, and `MC_ABMD` is the distance between them - asserted
+per field, so a field added to one record and not the other fails the build.
+An ABM's slot is therefore an ICBM index biased by `MC_ABMD`, and
+`mc_obj_init` and `mc_freeslot_at` fill and find either kind with the very
+addressing they used for one: no base register, so no instruction got dearer.
+The launch, the MIRV child and the bomber's drop share `mc_launch_at` /
+`mc_child` (aim, fill, count), `mc_room` is the MXICON-and-budget test the
+three of them each spelled out, and `mc_tgt_set`/`mc_tgt_aim` record and
+place a target once rather than five times.
+
+**`mc_balive` follows `mc_calive`** (asserted), so the nine targets are one
+byte run in the arcade's numbering, each 0 or 1: `mc_pick_target` counts them
+as a SUM and walks them as one loop - the same count, the same random draw
+and the same pick - and `mc_destroy` and `mc_nextwave`'s regeneration share
+`mc_tdmg` for the terrain under a target. **A defect, fixed**: `mc_destroy`
+said it preserved every register and clobbered CX; it keeps CX now. Nothing
+saw it - its one caller, `mc_icbm_land`, saved CX itself - so nothing a
+player could see changed.
+
+`mc_redraw_trails` - the full repaint's, and only the full repaint's - walks
+the ICBMs and then the ABMs through ONE body with the bias in BP (used as a
+number, never as an address, so SS never enters into it). It is the clearest
+case of what LZ4 already did with duplicated code: 72 bytes of image came out
+and **18** of file, because the two copies differed only in their
+displacements and the packer had matched the rest. The per-frame trail loops
+(`mc_wipe_trails`, `mc_move_trails`) keep their two copies: one body there
+would cost every frame a bias subtraction per slot, and their packed weight
+is the same story as this one's.
+
+`mc_entry` sizes the window in registers - the screen's width and the dock's
+row stay in SI and DI from `OSAPI_VIDEO`, so `mc_scrw` and `mc_dock` left the
+bss - and `mc_adapter` works its three facts out in BL, CH and CL and stores
+each once rather than setting and then overwriting them.
+
+**...and then the bias went, because the LAYOUT was the thing to change.**
+Every table both kinds have is now the ICBMs' eight entries followed at once
+by the ABMs' eight (`MC_OBJ` lays each pair and asserts its spacing), so
+`MC_ABMD` is 8 and ABM slot n is simply OBJECT 8 + n: `[mc_ia + si]`,
+`[mc_ix16 + di]` with DI = 2*SI and the walk block at SI << 4 all reach
+either kind with no correction at all. The bss is the same 2,426 bytes in a
+different order. That is what made the PER-FRAME loops shareable for free:
+`mc_wipe_trails`, `mc_move_trails` and `mc_redraw_trails` each walk objects
+0..15 once, `mc_move_trails` changing pen at 8 against a bound in BP, and
+`mc_apix`/`mc_ablk` are gone into `mc_ipix`/`mc_iblk`. Here the duplicates
+were NOT free on disk - every memory operand in the ABM copy differed from
+the ICBM one, so LZ4 found almost nothing to match - and the file fell 257
+bytes for it.
+
+Nothing in a frame got dearer for it, by construction: the per-object
+instructions are the same instructions, and the three that changed are
+cheaper. "Flying" is now `cmp byte [mc_ia + si], 1` / `js` - the states are
+0, 1, 2 and 0FFh, and free and dying both go negative - which is exactly the
+ABM loop's old test and one compare and one branch less than the ICBM
+loop's two-sided one (`mc_recount`, `mc_move_icbm`, `mc_dmg_icbm` and the
+satellite's three tests take it too); the loop bound is `cmp si, bp`, a
+register; and the `push si`/`pop si` around `mc_ipix` and `mc_add_exp`,
+both of which keep SI, came out. What it adds is one pass switch a frame.
+
+MEASURED on the deterministic bench (§48.16.2's `mcbench.inc`, 400 frames on
+`os8088_5150_herc_gla`), base against this change: **63,034,335 -> 62,595,337
+cycles (-0.70%)**, median frame 134,439 -> 131,919, the same 33 frames over
+one tick, the same end state (`C3B7`) and the same final screen
+(`91e91066db9890ee`). It is the same game, drawn the same way, a little faster.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
@@ -89277,6 +89655,65 @@ under it until the next whole repaint, on all three adapters. Framing one
 pixel outside the matrix, or erasing at the paint's inset, ends it; either
 changes the picture and is the owner's call. `OS88_STACK_256` stays: docs/FIELD-NOTES.md 42 is why a game's
 class is not cut to its quiet-machine reading.
+
+### 49.9 The second size pass: the FILE, for the disk
+
+Apps size pass 2 (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures the shipped,
+LZ4-packed `TAMEGRAM.O88` rather than image + bss, because the 360KB disks it
+rides are full. Nothing on the screen changes and no hot path gains an
+instruction; `tests/tgplay.py` (soak `tgplay`, `--ref` for the cycles) and
+`tests/tgui.py` (soak `tgui`) are the rows it is held to.
+
+- **Every branch is a short one.** Fifteen conditional branches had a target
+  out of reach - most of them to the one `tg_ret` - so each assembled as an
+  inverted short branch over a three-byte `jmp`. Each now takes the nearest
+  `ret` (`tg_fret`, the `.ret`/`.out` of the routine beside it), `tg_newgame`
+  sits beside `tg_act`, `tg_toggle_halt` ends at `tg_owe` (the tail of
+  `tg_panel_off`, `tg_owefull` with CF = 1, which no caller reads), the
+  Protocol items share `tg_onkey`'s `call tg_act` / repaint tail, and the
+  board walk follows `tg_draw_all`. Two tail jumps became fall-throughs:
+  `tg_cell_fill` into `tg_fillc` (a `jmp` fewer for every cell drawn) and the
+  banner into `tg_str`; and `tg_tryshift` follows `tg_nudge`, so a strafe
+  along a row falls into it (a further -1 file byte). A routine-by-routine
+  disassembly against the base differs ONLY in those branches and in moved
+  addresses.
+- **The panel test is made once a tick.** `tg_update` and `tg_frame` each
+  opened by asking whether a panel was up; `tg_worker` asks once, inside the
+  lock, and skips both - nothing between them can raise a panel. 7 image
+  bytes, 1 file byte (LZ4 had been matching the repeat), and a test fewer
+  on every tick.
+- **The whole repaint, 13 file bytes and ~600 cycles cheaper.** The HUD
+  table stores a column in PIXELS where it stored it divided by 8 - which
+  cost a `mul` a field, ten a repaint, to undo - and `TG_HUDF` refuses a
+  column that is not a multiple of 8 as the division did (the row comes
+  first now and a 0 row ends the table). The two full-width fills, the black
+  below the band and the band itself, share `tg_band`; the board's frame and
+  walk are `tg_draw_all`'s own middle instead of a call. Same calls, same
+  order, same pixels; two `call`/`jmp` pairs more against ten `mul`s fewer.
+- **Three clamps that never fired.** `tg_track` clamped the matrix's left
+  edge at 0, but a cell is at most `[tg_cwid]`/32 so the matrix is never
+  wider than the box; the banner's centring clamped at 0 a pen `tg_str`
+  drops anyway (a negative one is dropped the same way, so `sar` replaces
+  the clamp and the shift); and the entry proc floored the REQUESTED cell at
+  1, which no desktop band reaches - `tg_track`'s floor is the one that
+  guards the drawing. Every frame's `tg_track` loses a taken branch.
+- **The template's four words are stored in order.** The entry proc wrote
+  `WT_W`, `WT_H`, `WT_X`, `WT_Y` one `mov` each and divided by 3 in 16
+  bits; it computes them into registers and `stosw`s them in template order,
+  and the third is an 8-bit `div` (what the frame leaves of the desktop
+  band is under 160 rows). Checked against the old arithmetic for every
+  dock row 100-480 at 320, 640 and 720 wide: the same four words.
+- **The UI half, tightened.** `tg_look` compares against DH, which is where
+  the scan code already is, so the key no longer needs turning round;
+  `tg_toggle_halt` swaps AL and AH instead of copying each way (resuming
+  leaves PAUSE as the remembered mode, which nothing reads before the next
+  halt rewrites it); `tg_act`'s two flag flips are one `xor` through BX.
+- **Two register saves nobody needed.** `tg_clampc` banked SI around its
+  own use of it for every rect drawn, and no caller holds SI across it
+  (`tg_cell_fill` has spent its inset by then, and every repaint sets SI
+  afresh); `tg_frame` copied the window pointer into BX after `tg_track`,
+  which leaves it there - the two WM calls keep BX. Pure deletions: every
+  cell drawn loses a push and a pop, every frame a move.
 
 ## 50. memory.inc — the claim heap
 
@@ -110436,6 +110873,132 @@ go red: `wleft 8` against 7 on a level-1 board, which is `cy_wavesize`'s ramp
 answering for the level instead of the counter being left alone.
 
 
+### 67.26 Apps size pass 2: the shipped file, not the machine
+
+`CYCLONE.O88` rides two of the 360KB disks (`apps360.img`, `games360.img`) and
+both were full when docs/plans/HANDOFF-APPS-SIZE-P2.md opened, so this pass is
+measured in the LZ4-packed FILE and the clusters it takes, with nothing a
+player can see changing, no frame path made slower and image + bss not
+growing. Each part below is one commit and says what it cost and bought.
+
+#### 67.26.1 The webs ship their symmetric half
+
+Seven of §67.2's eight webs are symmetric, and the descriptor now says so in
+its second byte beside the closed bit: **`CY_SH_ROT`** stores a quarter of a
+closed web (`nlanes/4` pairs) and every later vertex is the one `nlanes/4`
+back turned a quarter, (x,y) → (−y,x) — the circle, square, plus and star;
+**`CY_SH_MIR`** stores `nlanes/2 + 1` pairs and vertex *i* past them is vertex
+`nlanes − i` with x negated — the triangle, vee, ribbon and horseshoe. 136 of
+the 238 bytes of shape table are gone.
+
+The derivation is `cy_build_verts`' **pass 0**, in the NORMALISED space and
+before any scaling. That is the whole correctness argument and the reason it is
+not done on the scaled words: pass 1's `>> 7` is an arithmetic shift, which
+floors, so −(v·R >> 7) is not (−v·R) >> 7 for most v and a rotation applied
+after scaling would move a vertex a pixel. Applied before, pass 1 is handed
+the identical 2·nverts bytes a full listing gave it, and every table after it
+is the same. Pass 0 writes into the top half of `cy_rsx` and pass 1 scales
+that into the whole of it in place (byte *j* is read from rsx+32+*j* before
+word *j* lands at rsx+2*j*), so the expansion costs no bss. `CYSHEND` asserts
+each web's stored count against its form at assembly time, and the expansion
+was checked on the host against the old table, all eight webs vertex for
+vertex.
+
+Pass 1 also lost its second copy: x and y are just 2·nverts signed bytes in a
+row, so one `lodsb`/`imul`/`>> 7` body walks them all, and the 32-bit shift is
+taken in DX:AX's own order (`shl ax,1; rcl dx,1`, then AH:DL) instead of
+swapping the halves through BX first — the same two bytes of the same 32-bit
+value. Pass 2 counts the depth in BX (as the `cy_scale` index, ×16 for the row)
+instead of in `[cy_dd]`, which is gone. All of it runs at layout time, never
+in a frame. Image −119 bytes, file −109.
+
+#### 67.26.2 The bracket's flags are set in words
+
+Six byte flags were only ever set together at the fullscreen bracket's edges
+and at a level or title change — `[cy_fsx]`, `[cy_inbr]`, `[cy_fsxq]`,
+`[cy_mheld]` and the `[cy_needlay]`/`[cy_full]` pair that owes a relayout and
+a whole repaint. They are ONE `CBUF` now, in that order, so a pair is one
+`mov word` (`CY_LAYFULL` for the last two): five stores of 5 bytes became three
+of 6 at the bracket's exit, and a `needlay`/`full` pair is 6 bytes instead of
+10 at all six places that set both. It has to be one `CBUF` and not six
+`CBYTE`s, because `OS88_BSS_ALIGNED` may cut the bss list between any two
+entries (§77.31.1). Nothing reads them differently, and one store is never
+slower than two. Image −40, file −20.
+
+#### 67.26.3 The cold paths, the classic way
+
+Code nothing in a frame runs, taken the ordinary way and with every result
+unchanged:
+
+- **Tail calls.** Eight `call X` / `ret` pairs on the key, new-game and title
+  paths are `jmp X`, `cy_newgame` falls into `cy_startlevel` (it is the next
+  routine), and the key handler's `.start` falls into `.new`.
+- **`cy_wavesize`** computes `(level − 1) · 3` once for both ramps, and the
+  five-rung ladder of kinds a level unlocks is `cy_kindlv`, seven bytes indexed
+  by the level and clamped at 7 — the same 1, 2, 3, 3, 4, 4, 5 the compares
+  gave.
+- **The high-score table.** `cy_hs_init` walks a score pointer and a name
+  pointer instead of re-deriving `row·4` and `row·3` each pass;
+  `cy_hs_submit`'s shuffle is two backward `rep movsb` (names, then scores)
+  instead of a row loop that re-derived both offsets per row; `cy_init_commit`
+  copies the three initials as a word and a byte.
+- **`cy_init_begin`** blanks the initials and their NUL as two words, and
+  **`cy_centre`** subtracts and tests the borrow instead of comparing first.
+
+Image −89, file −51.
+
+#### 67.26.4 Three strings nothing drew
+
+`cy_s_keys` (*ARROWS MOVE  SPACE FIRE  Z ZAP  J JUMP*), `cy_s_level`
+(*LEVEL*) and `cy_s_avoid` (*AVOID THE SPIKES*) were in the image from the
+first commit of this package and named by no instruction in it — the keys
+are How To Play's (§67.14) and the attract scroll's, and neither banner was
+ever raised. Deleted. Image −62, file −39.
+
+#### 67.26.5 A second sweep, and three stores nothing read
+
+- **`cy_entry`** clamps the template width to `CY_WIN_W + 2` against the
+  screen's directly instead of taking the 1px sides off and putting them back,
+  and drops the centring's negative guard, which the clamp makes unreachable
+  (the width is at most the screen's own).
+- **`cy_oncmd`** steps AX through the Game items with `dec` and tests Help's
+  one item as the single word `0x0100`, so both indices are still tested.
+- **`cy_panel_draw`** steps the pen down 9 pixels a line in DX — which
+  `cy_textw` promises to keep — instead of re-deriving `pny + 6 + 9·line`
+  from the row index every line.
+- **Three dead stores.** `[cy_vkind]` and `[cy_bpp]` were stored by the entry
+  proc and read by nothing (`cy_pal` asks `OSAPI_FSX_CAPS` per display, which
+  is the right question, §39.2.1); `[cy_lspy]` was stored by `cy_lanepos` on
+  every call and read by nothing, the dominant span `[cy_lspm]` being what
+  `cy_lanecap` reads. All three variables are gone. `cy_lanepos` is a FRAME
+  path, so this one is argued rather than left: it lost a `mov [mem], ax` and a
+  `push ax`/`pop ax` pair whose restored AX nothing after it read (the entry
+  push already restores it) and gained nothing, so every call is strictly
+  cheaper than it was.
+
+Image −55, file −60.
+
+#### 67.26.6 A third sweep
+
+- **`cy_lip_build`** (layout time): the zero offset is one cleared register
+  stored twice; the second `mov cx, [cy_lpk]` before `cy_lp_scale` goes, that
+  routine keeping CX; the direction byte is loaded once and compared twice;
+  and the "at least 1" fallback after the ceiling division is gone, because
+  it is reachable only when distance < need, which makes the dividend at least
+  `|e|` and the quotient at least 1 already.
+- **`cy_entry`** no longer stores `CYS_TITLE` into `[cy_state]` or 0 into
+  `[cy_tshape]`: both are 0 and the loader zeroes the bss (§20.1), and an
+  assembly-time check keeps `CYS_TITLE` 0. `cy_layout` stops saving DI, which
+  nothing under it touches.
+- **`cy_hs_submit`** walks the score row by pointer and keeps it in BX for the
+  store (the shuffle's row count moves to DX).
+- **The attract scroll's score lines** (`cy_scroll_next`) compose
+  `n. ABC ` in four word and byte stores instead of seven byte moves through
+  SI and DI — fewer instructions on a path the attract screen runs every
+  twelve frames, so it is cheaper as well as shorter.
+
+Image −64, file −42.
+
 ### 67.13 What is deliberately not here
 
 **No high-score file.** The table lives in bss and dies with the instance. It
@@ -130395,8 +130958,8 @@ are only ever read and written over the ridge's band (§85.3.8 - rectangle 6's
 rows), so they are as long as the band can be: the ridge table's tallest peak
 at the larger of the two ridge scales, plus the two rows of slack
 `tk_tmlayout` gives it - **72 rows, 144 bytes, where they were 400**. The peak
-is ASSEMBLED rather than scanned for: `tkridge.inc`'s rows are `TKRDG` lines,
-which keep `TK_RIDGEPK` as they go, and `tk_tmlayout`'s 256-byte scan for it
+is ASSEMBLED rather than scanned for: `tkridge.inc`'s runs are `TKRDG` lines,
+which keep `TK_RIDGEPK` as they go (§85.5.1), and `tk_tmlayout`'s 256-byte scan for it
 is gone with the guess. An absolute row still indexes both, through two bases
 `tk_tmlayout` sets once a bracket (`tk_rb2`, `tk_rbd`: the array less the
 band's first row), so a walk drawing the template's ridge marks `tk_sprdg`
@@ -130455,7 +131018,15 @@ instructions against the ten a right shift by 14 would take. The table holds
 **one quarter of the wave** - 65 words, where it held 256 - and `tk_sin1`
 reads the other three quarters backwards and negated: the full table was
 symmetric to the unit, so that is exact, and it is 382 bytes for two folds a
-lookup on a path no pixel waits on (apps size pass 1, set 6).
+lookup on a path no pixel waits on (apps size pass 1, set 6). **The file ships
+that quarter as its second differences** (apps size pass 2): `sin 0` is 0,
+the first step is 402, and every later step is 0..11 shorter than the one
+before, so `tksin.inc` is 64 nibbles - 32 bytes - that `tk_mktabs` in the
+entry overlay (§85.10.6) adds back up into the bss's `tk_sintab`, the same 65
+words to the unit (checked the way §85.5.1's ridge is). 32 bytes of seed and
+41 of code where there were 130 of table: **the file -58, RAM unchanged**,
+678 instructions at launch. The expanded tables are the bss's FIRST names,
+so the word table keeps the even address it had in the image.
 
 **The world is a torus 8,192 units round** and the wrap is three
 instructions: mask a difference to 13 bits and fold the top half negative.
@@ -130571,6 +131142,30 @@ turns "an arctangent per column" into a table lookup per frame; the profile
 itself is built out of whole numbers of cycles, so a ridge line closes on
 itself.
 
+**The file ships the profile as the straight runs it is made of, and the
+entry proc draws the 256 heights** (apps size pass 2). `tkridge.inc` is 49
+runs - `TKRDG n, h`, a run of `n` steps ending at height `h` - and step `k`
+of a run from `h0` is `(h0 (n - k) + h k + n / 2) / n`, which is the rounding
+the 256-byte table had been written to: `tk_mktabs` in the entry overlay
+(§85.10.6) expands them into the bss's `tk_ridgetab` and the result is the
+old table **to the byte**, checked by running the routine out of the
+assembled image on the host against the image before. `tk_ridge` reads the
+same table through the same instruction. 99 bytes of seed and 60 of code
+where there were 256 bytes of table: **the file -78, RAM unchanged** - the
+seed and the code are the overlay's, which was going to be RAM anyway, and
+the table's 256 bytes moved from the image to the bss. The expansion is
+4,434 instructions, ~18 ms at 4.77 MHz (an estimate from the 255 byte MULs
+and DIVs it makes), once per launch. `TK_RIDGEPK` reads the same file a first
+time, emitting nothing: a run's heights lie between its ends, so the tallest
+end is the tallest height, and an `%error` holds the runs to angles 1..255.
+
+**The 25 sampling angles' tangents are thirteen bytes.** A tangent is odd and
+the steepest of them is 171, so `tktan.inc` holds the twelve right of the
+sights and the zero, and `tk_ridgesetup` gives each column its angle's sign
+before the multiply - the same signed word into the same `imul`, and the same
+`tk_ridgex` for 876 scales and centres run both ways on the host. Once a
+bracket, never a frame: **image -20, the file -22**.
+
 #### 85.5.2 The models
 
 `db nverts, db nedges, dw vertices, dw edges`. A vertex is three words — x
@@ -130580,6 +131175,15 @@ draws. Cube and slab are 8/12, the pyramid 5/8, the tank 13/22 — hull,
 turret and a barrel that says which way it is about to shoot — and a shell
 is a three-axis cross, 6/3, drawn in `TKI_MARK` so the thing about to kill
 you is the thing that stands out.
+
+**The vertices are the bss's** (apps size pass 2). Every coordinate of the
+forty is a multiple of five and lies in -150..330, so `TK_MODELS` in
+`tk3d.inc` ships each as a signed byte of fifths - an `%error` refuses one
+that is not - and `tk_mktabs` in the entry overlay (§85.10.6) multiplies them
+back into `tk_v_cube`..`tk_v_shell`, the same 240 bytes in the same order,
+checked as §85.5.1's ridge is. The model records and the edge lists are
+unchanged and the rotation reads the same words through the same pointers.
+120 bytes of seed and 19 of code: **the file -30, RAM unchanged**.
 
 ### 85.6 The session (`apps/tank/tkgame.inc`)
 
@@ -130779,6 +131383,17 @@ because a dial still sweeping under `GAME OVER` says the game is still going
 on. Everything else is the raster the game already had — the same `tk_seg`,
 the same spans, the same blit — so the overlay costs what forty more segments
 cost and nothing structural.
+
+**The file ships the forty as the twelve strokes they are drawn in**
+(apps size pass 2): 28 of them start where the one before ended, so
+`tkover.inc` is twelve runs of points, and `tk_mktabs` in the entry overlay
+(§85.10.6) writes one segment for every pair of neighbours into the bss's
+`tk_goseg` - the same 160 bytes in the same order, so every segment keeps its
+index and therefore its flight. `tk_golets` stops on its segment count, which
+BP already is, rather than on a terminator byte: a register compare where
+there was a memory one, so the walk is a few cycles a segment cheaper and
+the list is four bytes a segment exactly. 117 bytes of seed and 13 of code
+where there were 161 of table: **the file -32, RAM unchanged**.
 
 #### 85.6.3 The difficulty curve — the first ten tanks
 
@@ -131658,6 +132273,68 @@ ends is not repainted then, and the worker could find it uncovered before its
 `W_PAINT` had run. So `tk_fsx_main` sets `[tk_atstale]` before anything writes
 the table, `tk_paint` clears it once the cursors are re-armed, and `tk_at_step`
 draws nothing while it is set. +20 bytes of image for 370 of bss.
+
+#### 85.10.6 The entry proc lies under the span set nobody reads
+
+Solitaire's §43.11.6, applied to a buffer that is never READ rather than one
+built at entry. `tk_entry` runs once per instance, from a fresh read of the
+file, and never again (§20.1); `tk_spjunk` is the span set a template draw
+marks so that its walks have somewhere to write, which only a shadow backend
+has and only inside an fsx bracket - long after the loader has had its window.
+So the set and its two 8-byte guards are the **last bytes of the image**
+(`tk_ovl`), the entry proc is the first thing in them, and the rest is zeros,
+which cost a packed file almost nothing. Apps size pass 2: **image +254, bss
+-408, so 154 bytes less RAM an instance on both builds**, and the file +2.
+`tk_rowoff` joined it when the tables below needed the room: it is written
+whole - every row the viewport has, on every backend - by `tk_devrows` at the
+top of every bracket before anything reads it, so it follows the set's
+trailing guard and the overlay is **896 bytes**, RAM-neutral (image +480, bss
+-480). The only instruction that names it relative to a bss name,
+`tk_clearspans`' `tk_tmrix - tk_rowoff` on the small build, keeps its 16-bit
+displacement and changes only its sign. Three rules, each stated in
+`tank.asm` where it binds:
+
+1. **Nothing in the overlay may be named after `tk_entry` returns.** The
+   region's relocation proc is therefore `tk_ret`, a lone `ret` in
+   `tk_sin1` - the bare `OS88_REGION_MOVABLE` plants its own `ret` inline,
+   which here would be overwritten by the first template draw, and the
+   kernel calls it on the next compaction. It is the KEEPING spelling,
+   `OS88_REGION_MOVABLE tk_ret`: `_NOKEEP` shipped in the first cut of the
+   pass and the small build stopped opening, because kern_small answers the
+   slot `stc` (nothing moves there, §66.0) and nothing after it in
+   `tk_entry` sets CF again on that kernel - so the entry proc returned the
+   slot's refusal as its own, `LD_EABORT` with no toast (`tanksmall`).
+2. **Nothing the kernel keeps a pointer to is in it**: the window template,
+   the title, the menus, the About handler and every callback stay above.
+3. **A walk's overrun runs one row past either end of a set** (§85.3.2), and
+   the set's guards are the overlay's first eight bytes and the eight between
+   it and `tk_rowoff`, which nothing overruns; `tk_spguard4` stays in the bss
+   in front of `tk_sprdg`, whose trailing slack it is. A `times` with a
+   negative count refuses an overlay that outgrows the two buffers.
+
+The overlay is what the tables below are expanded by: code and seeds that run
+once and are dead after it, in bytes that were going to be RAM anyway.
+
+#### 85.10.7 Apps size pass 2: the cold code
+
+What the pass took out of code nothing times, every item's effect on what the
+machine does being none:
+
+- `tk_adapter` tests the three modes in the REVERSE of the preference into
+  one register and stores the `tk_want`/`tk_fsxm` word once, so every branch
+  still writes both - one store rather than four. `tk_caps`, which it wrote
+  and nothing read, is gone, and `tk_onresize` is `tk_adapter` itself rather
+  than a call to it. The window's title is the menu's name, the same eleven
+  characters. Image -36, bss -2, the file -21.
+- **A parity pad after `tk_tantab`.** The pass moved code by odd amounts
+  (the entry proc's 163 bytes, the tangents' 37), which left the game loop's
+  routines - `tk_render`, the AI, the template's - an odd distance from where
+  they were. An 8088 fetches a byte at a time and does not care; a 286 or
+  an 8086 fetches words and does. One `db 0` puts every routine below it
+  back on the parity it had before the pass, on both builds (checked off
+  the two maps: what still differs is the window's callbacks, its strings
+  and the overlay). It costs no image byte, the overlay's own `align 2`
+  giving one back.
 
 ## 86. AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`)
 
@@ -186411,8 +187088,9 @@ null modem runs remain hardware validation.
 The splash owns its background (§11.90.1) and publishes 418x295 VGA/Hercules
 and 418x154 CGA frame preferences with a 418x154 floor. Layout is computed
 from the actual content box. A 416x104 title strip is embedded in packed
-4bpp color and 1bpp monochrome forms; compact windows draw alternate source
-rows at half height. The instruction area and standard release-fired buttons
+4bpp color and 1bpp monochrome forms (the 1bpp form shipped as a residual
+against the colour one and rebuilt on first use, 109.6); compact windows draw
+alternate source rows at half height. The instruction area and standard release-fired buttons
 use native OS text and `os88ui.inc` (§20.5.1.3). H opens/closes controls;
 clicking background artwork does not start a match. About temporarily
 withdraws the button group's live count, so its dismissal cannot also launch.
@@ -186473,6 +187151,55 @@ The cycle-accurate video regression requires at least 45 displayed frames/s
 and 68 physics steps/s at 4.77 MHz. The native UART rate callback keeps an
 original 8250 serviced across vertical-retrace waits; its raw queue drains
 through the ordinary frame parser in the foreground.
+
+### 109.6 The disk size pass
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures the
+shipped file, LZ4-packed: **14,315 bytes** (image 37,237, bss 1,939) when it
+started, and **13,496** (image 37,349, bss 1,854) when it finished. Nothing
+a frame or the link runs changed shape for it: every routine the court, the
+rate hook and the frame parser run assembles to the same instructions at the
+same address parity, and the image keeps its odd length, so every bss
+variable keeps its parity too.
+
+- **One dispatcher for the splash's keys and buttons.** A fired button is
+  handed to `wb_onkey` as its own key (`wb_btnkeys`: S, L, H, M), so the
+  button handler no longer carries a second copy of the four actions; the
+  menu's handler falls into `wb_launch` instead of jumping to it. -42 file
+  bytes.
+- **Word stores where setup cleared bytes one at a time.** The match's
+  start (`wb_main`), a lost link (`wb_lost`), a new game and a serve clear
+  their state through a zero register and store adjacent byte pairs as one
+  word; `WB_PAIR` refuses to assemble if a pair stops being adjacent. Each
+  is fewer cycles than the byte-immediate stores it replaces, and none runs
+  per frame. -21 file bytes.
+- **One `rep stosw` clears both ports' state** at the start of a serial
+  match (`wb_openports`), where `wb_openone` cleared eight fields a port one
+  store at a time; the fields it did not clear are written before they are
+  read. -9 file bytes.
+- **The text court shares the pixel court's caches.** Only one of the two
+  courts runs in a bracket, so `wb_drawold` and `wb_hudold` (kern_small's
+  text court) are names inside `wv_old` and `wv_hudold`; each court fills
+  its caches when it draws its board. bss -86, -7 file bytes.
+- **The 1bpp title strip is rebuilt from the colour one** (109.4).
+  `tools/wbfront.py` gives each colour a dither level (0..16; a pixel lights
+  when its colour's level exceeds its 4x4 Bayer cell, the matrix the 1bpp
+  strip was dithered with) and ships `wb_artmono` as the XOR of the real
+  1bpp strip and the strip those levels predict - mostly zero. The levels
+  are chosen per colour for the fewest disagreeing pixels and then nudged
+  while the residual packs smaller; the generator refuses to emit a
+  residual that does not rebuild the strip exactly. `wb_monobuild` rebuilds
+  the strip in place on the instance's first monochrome paint, a row phase
+  at a time through a 256-entry table (scratch in `wb_ports`, which only a
+  serial match establishes), so the picture is the same pixels as before.
+  A colour display never runs it; a compact strip draws only even rows and
+  rebuilds only those two phases, the others following if the window
+  grows. It costs **about 195 ms** on the first full-height monochrome
+  paint and **about 97 ms** on a compact one - an ESTIMATE from 8088
+  instruction timings over the executed instruction counts, not measured -
+  and **27 bytes** of net image + bss over the pass's start (the routine
+  and two 16-byte tables, after the bss the cache sharing above returned).
+  Both were put to the owner and approved. -740 file bytes.
 
 ## 110. Sticky Apps (`STIKAPPS\`, `apps/os88stik.inc`)
 
