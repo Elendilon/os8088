@@ -668,8 +668,7 @@ wr_arcwrite:
     call OSAPI_FILE_WRITE
 .wrote:
     jc .no
-    clc
-    ret
+    ret                             ; CF = 0: the jc fell through
 .no:
     call wr_wrfail                  ; 'Could not write <name>' - a failure
     stc                             ; mid-tree LEAVES WHAT WAS WRITTEN (22)

@@ -144818,6 +144818,23 @@ disk is full and this file rides every system disk and `network360.img`.
 Nothing a user sees changed and no string was reworded; every change is code
 the package had twice or did not need.
 
+| | before | after |
+|---|---|---|
+| `THEWIRE.O88`, the file | 10,256 | **9,984** (-272) |
+| clusters on the 360KB system disk and `network360.img` (and 720KB) | 11 | **10** |
+| clusters on the 1.44MB and 1.2MB system disks (512-byte) | 21 | **20** |
+| image | 11,925 | **11,457** (-468) |
+| bss | 2,803 | 2,808 (+9 for the defect below, -4) |
+| image + bss (the region) | 14,728 | **14,265** (-463) |
+| heap claims | | unchanged |
+
+**Every hot path it touched is faster**, measured on MartyPC (5150, CGA)
+by calling each routine in the loaded package with interrupts off, base and
+this tree in the same harness: a whole repaint of the no-driver window
+812,057 -> 811,574 cycles; a list row's icon copy 2,745 -> 1,112 and its
+title 1,532 -> 1,478; the worker's loop over 512 body bytes 201,097 ->
+198,025; one 18-byte LZSS match 1,747 -> 1,009 at distance 1 and at 50.
+
 - **`wr_onclick`'s detail-pane arm was dead.** It re-made the coordinates
   absolute and returned without using them: the buttons are the gesture
   library's, which takes the press before `wr_onclick` runs. The row test
@@ -144905,6 +144922,7 @@ the package had twice or did not need.
   the loop did, so a match that overlaps itself still repeats.
 - **`wr_catck` checks the version and the record size as one word**, the
   record-size byte being the one after the version (asserted at assembly).
+  `wr_arcwrite` lost a `clc` its own `jc` had already made true.
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 
