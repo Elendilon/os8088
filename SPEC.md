@@ -185344,6 +185344,10 @@ same instructions.
   word; `WB_PAIR` refuses to assemble if a pair stops being adjacent. Each
   is fewer cycles than the byte-immediate stores it replaces, and none runs
   per frame. -21 file bytes.
+- **One `rep stosw` clears both ports' state** at the start of a serial
+  match (`wb_openports`), where `wb_openone` cleared eight fields a port one
+  store at a time; the fields it did not clear are written before they are
+  read. -9 file bytes.
 
 ## 110. Sticky Apps (`STIKAPPS\`, `apps/os88stik.inc`)
 
