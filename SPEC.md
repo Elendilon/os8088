@@ -45382,16 +45382,20 @@ LINK word (+4), which is zero on every other package:
   the size ladder, step 6's `R = roundup512(image - file)` and its read, and
   step 6a's stream length.
 
-**Every malformed combination is refused by a test that already existed**,
-which is how it was checked - the ladder's arms, walked by hand against the
-new store:
+**Every malformed combination is refused by a test that already existed.**
+Checked by running the BUILT kernel's own `ld_check_hdr` and `ld_hdr_ok` -
+the `.cold` bytes out of `build/kernel-full.bin`, placed by the map - in
+Unicorn's 8086 core against the shipped `DOS.O88` header and each corruption
+of it: the shipped one is accepted with `[ld_fsz]` = 1,992, and every row
+below answers CF = 1 with the status given.
 
 | the header says | what refuses it |
 |---|---|
 | link != 0, bits 2 and 3 not both set | `ld_hdr_ok`, `LD_EBAD`, as before |
-| link != 0 on a driver | `ld_hdr_ok`: the format byte is not `PKG_FMT` |
-| bits 2 and 3, link 0 | the ladder: the file is longer than the image, and the compression bits are refused on that arm (§20.13.2) |
-| bits 2 and 3, link >= image | the ladder: `image == file` or `image < file` with the bits set |
+| link != 0, another format byte | `ld_hdr_ok`, **`LD_EVER`** - the version test still comes first |
+| link != 0 on a driver, its class byte holding 0x0C | `ld_hdr_ok` through the driver door: the format byte is not `PKG_FMT`, `LD_EBAD` |
+| bits 2 and 3, link 0 | the ladder: the file is longer than the image, and the compression bits are refused on that arm (§20.13.2), `LD_EBAD` |
+| bits 2 and 3, link == image or past it | the ladder: `image == file` or `image < file` with the bits set, `LD_EBAD` |
 | bits 2 and 3, link past the file's chain | `dsk_read_chain_x`: a link past the chain's end is corruption, `LD_EBAD` |
 | a stream that does not decode to `image` bytes | `lz_decomp_x`'s output bound, then the in-region header re-check (§21 step 6) |
 
@@ -45430,6 +45434,10 @@ reads to 1,536 in a 1,024-byte region. `os88pkg.py` never writes such a file
 (its region test refuses it), but a hostile header can, on the plain
 compressed arm as on this one: the guard belongs in the ladder, as
 `R + roundup512(file) <= roundup512(image + bss)`, and it is not taken here.
+The same is true of a length shorter than the clear prefix (accepted by the
+header test, and step 6a's stream length then wraps): the decoder's output
+bound keeps every write inside the region, as it does for a plain compressed
+file that short, and only the read above can pass it.
 
 ### 20.14 A COMPRESSED FILE — the kernel expands it on the way in
 
