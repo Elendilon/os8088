@@ -6609,6 +6609,9 @@ vp_xfill1:
 ; the bank's bounce and a key's read 32 KB on from its start - and the
 ; hold's own read claim then start that far from the XMS they copy against.
 ; -----------------------------------------------------------------------------
+%ifdef VP_DIAG
+%define XG_TIMES                    ; (each gap's count, for the trailer)
+%endif
 %include "os88xgap.inc"
 
 ; vp_xgm - the gap measured against [vp_xbase] (empty yet), once an
@@ -15708,7 +15711,7 @@ vp_prbeg:
     mov [vp_prlp], ax               ; (the log's first entry: after them)
     pop ax
 %endif
-    add ax, VP_PRH + 8 * VP_RLMAX + 1023
+    add ax, VP_PRH + 8 * VP_RLMAX + VP_DIL + 1023
     mov cl, 10
     shr ax, cl
     call OSAPI_MEM_CLAIM
@@ -15780,7 +15783,7 @@ vp_prend:
     mov es, [vp_prseg]              ; THE HEADER, in the claim's first 48
     mov word [es:0], 'VP'           ; (+38 on, a damaged super-packet's
     mov word [es:2], 'PR'           ; where, vp_prbad's, already there)
-    mov word [es:4], 2              ; version 2
+    mov word [es:4], 3              ; version 3 (the card's trailer, VPDI)
     mov ax, [vp_prn]
     mov [es:6], ax
     mov ax, [vp_pitdiv]
@@ -15808,6 +15811,38 @@ vp_prend:
     stosw
     mov ax, [vp_prbd]
     stosw
+    ; THE CARD'S TRAILER (98.3.22.3), after the words and the reads: 'VPDI',
+    ; its bytes, its words' count, then every number the info card draws
+    ; and where this boot put the play (vp_ditab), the package's CS and SS
+    mov di, [vp_prna]
+    shl di, 1
+    shl di, 1
+    mov ax, [vp_prnl]
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add di, ax
+    add di, VP_PRH
+    mov ax, 'VP'
+    stosw
+    mov ax, 'DI'
+    stosw
+    mov ax, VP_DIL
+    stosw
+    mov ax, VP_DIN
+    stosw
+    mov si, vp_ditab
+    mov cx, VP_DIN - 2
+.dw:
+    lodsw
+    xchg bx, ax
+    mov ax, [bx]
+    stosw
+    loop .dw
+    mov ax, cs
+    stosw
+    mov ax, ss
+    stosw
     mov al, '1'
 .try:
     mov [vp_prfn + 6], al
@@ -15819,17 +15854,21 @@ vp_prend:
     xor dx, dx
     mov si, vp_prfn
     call OSAPI_FILE_READ            ; zero bytes: is it there?
+    xchg bx, ax                     ; (BX = the refusal)
     pop ax
-    jc .free                        ; (FERR_NOENT: this one is)
-    inc al
+    jnc .next                       ; (an empty one: there)
+    cmp bx, FERR_NOENT              ; ONLY no such file is free: one that is
+    je .free                        ; there refuses FERR_BIG (a read into no
+.next:                              ; room, 20.14.6.3), and that refusal
+    inc al                          ; once overwrote VPPROF1 every play
     cmp al, '9'
     jbe .try
     jmp short .drop                 ; nine already: none written
 .free:
     mov cx, [vp_prna]               ; the header, every frame slot, and the
-    shl cx, 1                       ; reads logged after them
-    shl cx, 1
-    add cx, VP_PRH
+    shl cx, 1                       ; reads logged after them, and the
+    shl cx, 1                       ; card's trailer
+    add cx, VP_PRH + VP_DIL
     mov ax, [vp_prnl]
     shl ax, 1
     shl ax, 1
@@ -19986,6 +20025,20 @@ vp_prta:      dw 0                  ; ...channel 2 at a frame's start
 vp_prtb:      dw 0                  ; ...and at its record
 vp_pr61:      db 0                  ; ...port 61h as it was
 vp_prfn:      db 'VPPROF1.DAT', 0
+; THE CARD'S TRAILER's words (98.3.22.3), in this order - tools/os88vfit.py
+; DI_NAMES is the other copy. A byte's word carries its neighbour above it
+vp_ditab:     dw vp_mrun0, vp_mfre0, vp_k, vp_rneed, vp_mrun, vp_mkeep
+              dw vp_msnd, vp_lmin, vp_lminf, vp_gap, vp_pstrm, vp_pause
+              dw vp_pmax, vp_pmaxf, vp_stall, vp_late, vp_dt, vp_done
+              dw vp_base, vp_frames, vp_lysp, vp_lysp + 2, vp_lydkb
+              dw vp_lydln, vp_lytm, vp_lytl, vp_rate, vp_blk, vp_tier
+              dw vp_rshort, vp_kr, vp_xbn, vp_ring, vp_rclm, vp_xbase
+              dw vp_xbase + 2, vp_xgap, vp_xgok, xg_t0, xg_bt, xg_best
+              dw xg_tt, xg_tt + 2, xg_tt + 4, xg_tt + 6, xg_tt + 8
+              dw xg_tt + 10
+vp_ditab_end:
+VP_DIN      equ (vp_ditab_end - vp_ditab) / 2 + 2  ; ...and CS, SS
+VP_DIL      equ 8 + 2 * VP_DIN
 vp_prna:      dw 0                  ; ...its frame slots,
 vp_prnl:      dw 0                  ; ...the reads logged,
 %ifdef VP_RDLOG

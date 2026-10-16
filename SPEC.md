@@ -175988,7 +175988,7 @@ each word is added. `tools/os88vfit.py --reads` sums the file the same way
 and names every read that differs; a byte changed in the file the guest
 played is named to its chunk.
 
-**The profile is version 2 for both** - a 48-byte header: version 1's 32,
+**The profile is version 2 for both** (version 3 since 98.3.22.3, the same header) - a 48-byte header: version 1's 32,
 then +32 the frame slots that follow, +34 the reads logged after them,
 +36 the damaged super-packets seen and, for the first, +38 the decode's
 chunk, +40 its offset, +42 its sectors, +44 the reader's `[vp_lc]` and +46
@@ -175998,6 +175998,39 @@ start: claimed after the rings were sized, a machine with no XMS had no
 room and profiled nothing, so the diagnostic builds' rings are the claim
 smaller. VIDEOR's room under `APP_MAX_SIZE` is the info card's layer and
 speaker lines, which a card's play of a file with no layer does not draw.
+
+##### 98.3.22.3 Version 3: the info card and the boot's placement, in the file (2026-10-16)
+
+**A field run whose card was not photographed told us nothing but the
+frame times.** GasGas54 paused once on the owner's Victory and played
+clean after a reinstall and a reboot, and the question that left - what
+did this boot do differently? - is one the card answers and the profile
+did not. So version 3 appends a TRAILER after the frame words and the read
+log: `VPDI`, its bytes (u16), its word count (u16), then the words of
+`vp_ditab` in order and the package's CS and SS. Every number the info
+card draws is there - the heap at Play, the ring's slots against the
+file's ask and what it was sized from, the keeper and the card's ring, the
+reader's least lead and its frame, the hook's longest gap, the pauses
+that were the stream's and the longest, stalls, late, the ticks taken,
+the frames drawn, the layer's tests - and beside them where this boot put
+the play: the ring (the bank's bounce in place) and the claim it starts
+in, the XMS block, the bank's and the ring's slots, the card's rate and
+block, the CPU tier, and THE GAP (41.14): the G it chose and the PIT count
+of its 8 KB copy at each of 0, 512, 1 K, 2 K, 4 K and 8 K - `xg_tt`,
+kept only under `XG_TIMES`, which only a `VP_DIAG` build defines, so the
+shipped `VIDEO.O88` and VIDDISK assemble byte-identical. A byte's word
+carries the byte above it; the reader masks it. `tools/os88vfit.py` prints
+the trailer first, as the card read and as placement - the ring's distance
+from the block mod 2G, and PLACED or not - and its `DI_NAMES` is the
+second copy of `vp_ditab`'s order. The claim grows by the trailer; a
+version 2 reader ignores the bytes after its read log.
+
+**And the name it is saved under was wrong from version 1 on**: `vp_prend`
+asks whether `VPPROFn.DAT` is there with a read of zero bytes and took ANY
+refusal for *no such file* - but a file that IS there refuses a read into
+no room with `FERR_BIG` (20.14.6.3), so every play wrote `VPPROF1.DAT` over
+the last. Only `FERR_NOENT` is free now; any other answer moves on to the
+next n, so a disk error never overwrites a profile either.
 
 ##### 98.3.22.1 What the first profiles changed in the encoder (2026-10-15)
 
