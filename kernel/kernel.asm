@@ -1582,6 +1582,12 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
     call COLD_SEG:%1
     retf
 %endmacro
+%macro OSAPI_FJCELL 1               ; 8 bytes: OSAPI_SLOT's DS switch, and a
+    push ds                         ; FAR JUMP where the SLOT has its call -
+    push cs                         ; the .cold body %1 pops the DS pushed
+    pop ds                          ; here and retf's for the cell (OSAPI_THM_SET
+    jmp COLD_SEG:%1                 ; at 0x046D, kernel size pass 13): no
+%endmacro                           ; resident thunk between the two
 
 ; ---- the INLINE cells (SPEC.md 20.3): THE CELL IS THE ROUTINE ---------------
 ; Fifteen routines were ONE memory access and a `ret` - a getter, a setter or
@@ -1617,6 +1623,11 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
     times ($ - %$start) - %$len db 0
     times %$len - ($ - %$start) db 0
     %pop
+%endmacro
+%macro OSAPI_IENDJ 0             ; ...for a cell that ENDS IN A JUMP and so
+    times ($ - %$start) - %$len db 0    ; has no `retf` of its own (0x046D,
+    times %$len - ($ - %$start) db 0    ; SPEC.md 20.3): the same two
+    %pop                                ; assertions, nothing emitted
 %endmacro
 
 ; ---- CLC_OR_STC .label: THE CF-RETURN TAIL IN TWO BYTES (size pass 9) -------
@@ -3154,17 +3165,18 @@ apic_inst_minimize:               ; DOCK.DRV's door (SPEC.md 30.4)
                                    ; Bright (76.12.1); WIN reads WIN95.DRV,
                                    ; and CF = 1 says it could not (76.14.1).
                                    ; The UI TASK only - a worker may not
-                                   ; touch a file (20.6). OSAPI_SLOT's exact
-                                   ; 8-byte shape, by hand: kern_small has no
-                                   ; theme to set at all (76.13) and spends
-                                   ; the length as NOPs, gfx_blit1_pen's own
-                                   ; precedent (0x0393 above)
+                                   ; touch a file (20.6). OSAPI_SLOT's
+                                   ; 8-byte DS switch with a FAR JUMP for its
+                                   ; call (20.3, kernel size pass 13): the
+                                   ; body is .cold and pops the DS pushed
+                                   ; here itself, so no resident thunk stands
+                                   ; between them. kern_small has no theme to
+                                   ; set at all (76.13) and spends the length
+                                   ; as NOPs, gfx_blit1_pen's own precedent
+                                   ; (0x0393 above)
 %ifdef KERN_BIG
-    push ds
-    push cs
-    pop ds
-    call api_thm_set
-    pop ds
+    OSAPI_FJCELL api_thm_set_x
+    OSAPI_IENDJ
 %else
     nop
     nop
@@ -3173,8 +3185,8 @@ apic_inst_minimize:               ; DOCK.DRV's door (SPEC.md 30.4)
     nop
     nop
     nop
-%endif
     OSAPI_IEND
+%endif
     OSAPI_RCSLOT osapi_clk_get_x  ; 0x0475 - THE DATE AND TIME (SPEC.md
                                   ;          37.96): out CX = year, DH:DL =
                                   ;          month:day, BH:BL = hour:minute,

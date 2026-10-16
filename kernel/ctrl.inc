@@ -2855,6 +2855,13 @@ cp_thmv_open:
     push di
     push bp
     mov bx, thmv_row
+    CPSTAGE cp_thmv_fname       ; THE FILE NAME IS STAGED, not resident (kernel
+    mov [bx+DRVR_FILE], si      ; size pass 13): drv_load_at reads it through
+                                ; DS, and this is the one code that loads the
+                                ; row, so the name lives in this image and
+                                ; cp_sbuf carries it for the length of the
+                                ; call. Nothing else reads thmv_row's FILE or
+                                ; TITLE - it is past DRV_MAX, so no walk meets it
     call COLD_SEG:drvf_drv_load_at  ; CF = 0 immediately once it is already live
     jc .no
     push es
@@ -2874,10 +2881,8 @@ cp_thmv_open:
     mov al, THMV_OPEN
     call COLD_SEG:drvf_drv_call
     jnc .out
-    mov bp, [bx+DRVR_ENT]       ; it loaded and then refused: give it back,
-    mov al, THMV_CLOSE          ; thmv_reap_x's two steps
-    call COLD_SEG:drvf_drv_call
-    call COLD_SEG:drvf_drv_release
+    call COLD_SEG:thmv_reap_x   ; it loaded and then refused: give it back -
+                                ; the panel close's own two steps, one door
 .no:
     stc
 .out:
@@ -2888,6 +2893,9 @@ cp_thmv_open:
     pop cx
     pop bx
     ret
+cp_thmv_fname: db 'THMPAL.DRV', 0   ; staged into cp_sbuf above (ss_fname's
+                                ; shape, one image along: no row on the
+                                ; Drivers page and no caption)
 %endif
 
 ; cp_thm_colpen - the pen for the Color row: greyed unless this machine has
