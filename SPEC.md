@@ -168998,6 +168998,30 @@ instruction-identical and at an even shift in all three arms
 (`tools/os88rdiff.py`, against the base, and for `VPDIAG` against the
 commit before 98.1.9.13, the last one it assembled at).
 
+**A second pass, on cold CODE (2026-10-16)**, took **936 bytes of
+`.text`** in every arm and no bss: the shipped arm 55,977 -> **55,041**
+(1,535 under `APP_MAX_SIZE` with its 4,864 of bss), `NOLIVESND=1` 54,810
+(1,766 under), and `VPDIAG=1` 56,401 - **175 under**, assembling again. It
+is open and parse, the poster makers, setup and teardown, the layer's and
+the bank's verdicts, the bench's setup, the card, the window's paint: flag
+bytes stored from a zeroed register, runs of must-be-clear flags ORed into
+AL and tested once, refusals that shared a store of `[vp_msg]` or reach a
+`ret` with a short jump. Three things a reader should know: **`vp_canp1`'s
+carry means nothing** (its refusals never agreed on it, and every caller
+reads `[vp_ok]`); **`vp_parse` copies the title before the loop block's
+checks** (a refused file's title is read by nothing - only a loaded file's);
+and the window's paint relies on what the kernel's cells and `vp_blitb`
+promise, every register kept, rather than loading the box's corners again.
+**Nothing a play runs moved or changed**: every routine `rdiffhot.txt`
+names, every routine they reach that it does not (the decode's helpers,
+`vp_afill`/`vp_aput`, the reader's `vp_fill`/`vp_warm`, Live's worker
+path, `vp_m3pl` off `vc_m3b`), the bracket's loop inside `vp_main`, and
+EVERY DATA LABEL - the play's word variables included - is identical and at
+an even shift in all three arms. Two string merges (`vp_s_comma` is
+`vp_s_ticks`' bytes; `vp_ab2` an empty line) were refused for that last
+reason: 3 and 1 bytes, each shifting every variable after it by an odd
+amount, which `os88rdiff.py --hot` does not see.
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |
