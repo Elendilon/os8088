@@ -516,13 +516,13 @@ asw_one:
     jbe .capn
     mov cl, ICO_CAP_MAX
 .capn:
-    xor bx, bx
-    mov al, [cs:bp+asw_row-asw_v]
+    mov bx, ICO_CAP             ; the first record (disk.inc: a row byte
+    mov al, [cs:bp+asw_row-asw_v]   ; and the block, ICO_CAP_RSZ a record)
     jcxz .nocap
 .cap:
-    cmp [es:bx+ICO_CAP_ROWS], al
+    cmp [es:bx], al
     je .rec
-    inc bx
+    add bx, ICO_CAP_RSZ
     loop .cap
 .nocap:
     pop es
@@ -554,9 +554,7 @@ asw_one:
     jmp short .hdr              ; one is plain. With the table FULL that
                                 ; proves nothing - read it
 .rec:
-    mov cl, 4
-    shl bx, cl
-    lea si, [bx+ICO_CAP_REC]
+    lea si, [bx+1]              ; past the row byte: the block
     pop es                      ; ES = the claim again; the record is in the
     push ds                     ; STORE's
     mov ds, [ico_seg]

@@ -54166,7 +54166,7 @@ most `ASSOC_NAPP` composed bodies. (This paragraph said 26 and 29 when the
 tree shipped fewer programs; the figure grows with every program written, which
 is why the store is sized by what one whole `ASSOC.DAT` can declare rather
 than by today's count.) `ICO_NROW` is **60** on `kern_big` - 60 x 82 = 4,920
-bytes plus §54.7.6.2's capture, 5,108 of a 5KB claim, so a full `ASSOC.DAT`
+bytes plus §54.7.6.2's capture, 5,107 of a 5KB claim, so a full `ASSOC.DAT`
 (`ASC_NAPP` = 55) is absorbed whole with rows to spare - and 24 on
 `kern_small`, which SPEC.md 51.0 leaves no driver-backed volume and fewer
 packages.
@@ -99060,13 +99060,18 @@ are 4,920 bytes of a 5,120-byte claim, and the capture is the tail:
 
 | offset | |
 |---|---|
-| `ICO_CAP_ROWS` = `ICO_NROW * ICO_ROW` | `ICO_CAP_MAX` = 11 bytes: each record's store row |
-| `ICO_CAP_REC` (+12) | eleven 16-byte records: the header's association block verbatim (count, then 5 x 3 extension bytes) |
+| `ICO_CAP` = `ICO_NROW * ICO_ROW` | `ICO_CAP_MAX` = 11 records of `ICO_CAP_RSZ` = 17 bytes: the store row the record is for, then the header's association block verbatim (count, then 5 x 3 extension bytes) |
+
+(It was an 11-byte row array and eleven 16-byte records after it until kernel
+size pass 13: one stride makes a record one `mul` and its row one `stosb`,
+and 187 bytes fit the same 200 the array and its pad took.)
 
 How many records are held is **`[ico_capn]`**, a resident byte right behind
-`[ico_n]`. Every store that empties the store is a word store that empties the
-capture too: `ico_need`'s when it makes the claim, and `ico_demote`'s when a
-shed takes it.
+`[ico_n]`. The store that empties the store is a word store that empties the
+capture too: `ico_demote`'s when a shed takes it. `ico_need` makes a claim
+only when `[ico_seg]` is 0, and only `ico_demote` ever zeroes it, so the
+count is already 0 there (it was cleared a second time until kernel size
+pass 13).
 
 `asc_learn` is the store-take's call. It posts the flush, and when the
 header's flags say the package declares, it appends the block from

@@ -2380,7 +2380,9 @@ asc_post:
 ; in:  AL = the row ico_put just took (never ICO_R_NONE); dsk_secbuf (LOW_SEG)
 ;      holds the package's header with its ICON PRESENT - this is the harvest's
 ;      icon arm - and [assoc_hflags] its flags
-; out: nothing (all registers preserved)
+; out: nothing. AX, DX, BP and ES preserved; BX, CX, SI and DI are NOT - its
+;      one caller, the harvest, holds nothing in them across the call (it
+;      reloads SI, and BX, CX and DI are set afresh before each read)
 ;
 ; Posts the flush, and keeps the header's association block in the store's
 ; claim tail when the package declares, because that block is the one thing
@@ -2389,7 +2391,7 @@ asc_post:
 ; usability test when it reads the record.
 ; -----------------------------------------------------------------------------
 asc_learn:
-    call kentc_di               ; KENT: push ax..di
+    push ax
     push es
     mov bl, al                  ; BL = the row
     mov al, [disk_drive]
@@ -2401,12 +2403,12 @@ asc_learn:
     jae .out                    ; full: the flush reads this one's header
     inc byte [ico_capn]
     mov es, [ico_seg]           ; live: ico_put has just answered a row
-    cbw                         ; AH = 0 (AL < ICO_CAP_MAX)
-    mov di, ax
-    mov [es:di+ICO_CAP_ROWS], bl
-    mov cl, 4
-    shl di, cl                  ; x 16
-    add di, ICO_CAP_REC
+    mov ah, ICO_CAP_RSZ
+    mul ah                      ; AL < ICO_CAP_MAX: the record's offset
+    add ax, ICO_CAP
+    xchg di, ax
+    mov al, bl
+    stosb                       ; the row, then its block
     mov si, dsk_secbuf + 96     ; header 32 + icon 64: the block's offset
     mov cx, 8                   ; when the icon is present (SPEC.md 54.6)
 .cp:
@@ -2417,7 +2419,8 @@ asc_learn:
                                 ; resume after an interrupt
 .out:
     pop es
-    jmp kretc_di
+    pop ax
+    ret
 
 ; =============================================================================
 ; Far entries (SPEC.md 2.6): the resident thunks in kernel.asm far-call these,

@@ -8274,7 +8274,7 @@ ICO_NROW    equ 24              ; SPEC.md 51.0 leaves this kernel no
 ICO_NROW    equ 60              ; a full ASSOC.DAT (ASC_NAPP 55) is absorbed
 %endif                          ; WHOLE (SPEC.md 54.7.4), so the store has to
                                 ; hold one and some: 60 x 82 + the capture is
-                                ; 5,108 of a 5KB claim (it was 48, 4KB)
+                                ; 5,107 of a 5KB claim (it was 48, 4KB)
 ICO_KB      equ (ICO_NROW*ICO_ROW + 1023) / 1024
 %ifdef OS88_ASSOC
 ; THE CAPTURE (SPEC.md 54.7.6.2): the claim's KB rounding is 200 bytes past
@@ -8288,13 +8288,12 @@ ICO_CAP_MAX  equ 11                 ; records: one action's worth - every
                                     ; are held is [ico_capn], beside [ico_n],
                                     ; so the two words that empty the store
                                     ; empty the capture too
-ICO_CAP_ROWS equ ICO_CAP            ; ICO_CAP_MAX bytes: each record's row
-ICO_CAP_REC  equ ICO_CAP + 12       ; ...and 16-byte records, the header's block
-                                    ; (an EVEN offset: the copy is rep movsw)
-%if ICO_CAP_ROWS + ICO_CAP_MAX > ICO_CAP_REC
-  %error "the capture's row bytes overrun its records"
-%endif
-%if ICO_CAP_REC + ICO_CAP_MAX * 16 > ICO_KB * 1024
+ICO_CAP_RSZ  equ 17                 ; a RECORD: the store row it is for, then
+                                    ; the header's 16-byte block - one stride,
+                                    ; so a record is one `mul` and its row byte
+                                    ; one `stosb` (kernel size pass 13: it was
+                                    ; a row array and a 16-byte record array)
+%if ICO_CAP + ICO_CAP_MAX * ICO_CAP_RSZ > ICO_KB * 1024
   %error "the capture (SPEC.md 54.7.6.2) no longer fits the icon store's KB rounding: shrink ICO_CAP_MAX, or pay a KB of claim and say so"
 %endif
 %endif
