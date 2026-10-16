@@ -87712,6 +87712,7 @@ of them consumes the random stream differently, so a game plays out the same.
 | one slot fill for both kinds, the targets as one run | 10,542 | 13,065 | 2,430 |
 | `mc_redraw_trails` walks both kinds with one body | 10,524 | 12,993 | 2,430 |
 | the window sized in registers, `mc_adapter` in three stores | 10,489 | 12,946 | 2,426 |
+| the two kinds are ONE object table; the trail loops walk it once | 10,186 | 12,500 | 2,426 |
 
 **The ICBM and ABM records are laid out alike**, field for field from
 `[mc_ia]`/`[mc_aa]`, and `MC_ABMD` is the distance between them - asserted
@@ -87745,6 +87746,30 @@ is the same story as this one's.
 row stay in SI and DI from `OSAPI_VIDEO`, so `mc_scrw` and `mc_dock` left the
 bss - and `mc_adapter` works its three facts out in BL, CH and CL and stores
 each once rather than setting and then overwriting them.
+
+**...and then the bias went, because the LAYOUT was the thing to change.**
+Every table both kinds have is now the ICBMs' eight entries followed at once
+by the ABMs' eight (`MC_OBJ` lays each pair and asserts its spacing), so
+`MC_ABMD` is 8 and ABM slot n is simply OBJECT 8 + n: `[mc_ia + si]`,
+`[mc_ix16 + di]` with DI = 2*SI and the walk block at SI << 4 all reach
+either kind with no correction at all. The bss is the same 2,426 bytes in a
+different order. That is what made the PER-FRAME loops shareable for free:
+`mc_wipe_trails`, `mc_move_trails` and `mc_redraw_trails` each walk objects
+0..15 once, `mc_move_trails` changing pen at 8 against a bound in BP, and
+`mc_apix`/`mc_ablk` are gone into `mc_ipix`/`mc_iblk`. Here the duplicates
+were NOT free on disk - every memory operand in the ABM copy differed from
+the ICBM one, so LZ4 found almost nothing to match - and the file fell 257
+bytes for it.
+
+Nothing in a frame got dearer for it, by construction: the per-object
+instructions are the same instructions, and the three that changed are
+cheaper. "Flying" is now `cmp byte [mc_ia + si], 1` / `js` - the states are
+0, 1, 2 and 0FFh, and free and dying both go negative - which is exactly the
+ABM loop's old test and one compare and one branch less than the ICBM
+loop's two-sided one (`mc_recount`, `mc_move_icbm`, `mc_dmg_icbm` and the
+satellite's three tests take it too); the loop bound is `cmp si, bp`, a
+register; and the `push si`/`pop si` around `mc_ipix` and `mc_add_exp`,
+both of which keep SI, came out. What it adds is one pass switch a frame.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 

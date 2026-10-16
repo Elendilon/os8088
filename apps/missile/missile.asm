@@ -1537,10 +1537,8 @@ mc_recount:
     xor ax, ax
     xor si, si
 .each:
-    cmp byte [mc_ia + si], 1
-    jb .next
-    cmp byte [mc_ia + si], 2
-    ja .next
+    cmp byte [mc_ia + si], 1        ; flying: 1, or 2 for a smart bomb. Free
+    js .next                        ; (0) and dying (0FFh) both go negative
     inc ax
 .next:
     inc si
@@ -1698,8 +1696,8 @@ mc_launch_abm:
     push dx
     push si
     push di
-    mov si, MC_ABMD                 ; a free slot? (the ABM half of the
-    call mc_freeslot_at             ; biased index, see MC_ABMD)
+    mov si, MC_ABMD                 ; a free slot? (an ABM is object
+    call mc_freeslot_at             ; MC_ABMD + n, see there)
     jc .out
     push bx
     add bx, bx
@@ -1714,9 +1712,8 @@ mc_launch_abm:
     mov word [mc_aimspd], MC_ABMSPD
     call mc_aim                     ; -> [mc_aimvx]/[mc_aimvy]/[mc_aimn]
 
-    mov di, si                      ; DI = 2 * slot + MC_ABMD
+    mov di, si
     add di, di
-    sub di, MC_ABMD
     call mc_obj_init
 
     dec byte [mc_bmis + bx]         ; the base is one missile lighter, and its
@@ -1938,8 +1935,8 @@ mc_launch_icbm:
 
 ; mc_freeslot - the first unused ICBM slot
 ; out: CF=0 and SI = the slot; CF=1 all eight are busy
-; mc_freeslot_at - the same walk from SI: 0 for an ICBM, MC_ABMD for an ABM,
-;                  whose SI comes back carrying that bias
+; mc_freeslot_at - the same walk from object SI: MC_ABMD for an ABM, whose
+;                  SI comes back as an object index too
 ; clobbers AH; preserves every other register
 ; -----------------------------------------------------------------------------
 mc_freeslot:
@@ -2034,11 +2031,8 @@ mc_move_icbm:
     push di
     xor si, si
 .each:
-    mov al, [mc_ia + si]
-    cmp al, 1
-    jb .next
-    cmp al, 2
-    ja .next
+    cmp byte [mc_ia + si], 1        ; flying: 1, or 2 for a smart bomb. Free
+    js .next                        ; (0) and dying (0FFh) both go negative
     mov di, si
     add di, di
 
@@ -2242,13 +2236,13 @@ mc_launch_at:
 ; -----------------------------------------------------------------------------
 ; mc_spawn_child - fill ICBM slot SI from the mc_aim* block
 ; in:  SI = slot; out: DI = SI*2; preserves every other register
-; mc_obj_init - fill slot SI/DI of EITHER kind from the mc_aim* block
-; in:  SI = the slot and DI = slot*2, both biased by MC_ABMD for an ABM;
-;      preserves all registers
+; mc_obj_init - fill object SI of EITHER kind from the mc_aim* block
+; in:  SI = the object (an ABM is MC_ABMD + n), DI = SI*2; preserves all
+;      registers
 ;
-; The ICBM and ABM tables are laid out alike from [mc_ia]/[mc_aa] (asserted at
-; MC_ABMD), so one fill serves both: the ABM's far end [mc_atx] is the ICBM's
-; [mc_iex], and so on down the record.
+; The ICBM and ABM tables are one object table (see MC_ABMD), so one fill
+; serves both: an ABM's far end [mc_atx] is the ICBM's [mc_iex], and so on
+; down the record.
 ;
 ; The trail's walk is laid on the next frame that DRAWS, not here: mc_update
 ; is lock-free, and although laying a walk draws nothing, a walk laid before
@@ -2292,8 +2286,8 @@ mc_obj_init:
     ret
 
 ; -----------------------------------------------------------------------------
-; mc_ipix - an ICBM's position in whole pixels
-; in:  DI = slot*2; out: CX = x, DX = y; preserves every other register
+; mc_ipix - an object's position in whole pixels (an ICBM's, or an ABM's)
+; in:  DI = object*2; out: CX = x, DX = y; preserves every other register
 ; -----------------------------------------------------------------------------
 mc_ipix:
     push ax
@@ -2304,27 +2298,6 @@ mc_ipix:
     sar ax, 1                       ; dodging bomb can be off the left edge
     mov cx, ax
     mov ax, [mc_iy16 + di]
-    sar ax, 1
-    sar ax, 1
-    sar ax, 1
-    sar ax, 1
-    mov dx, ax
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; mc_apix - the same, for an ABM
-; in:  DI = slot*2; out: CX = x, DX = y; preserves every other register
-; -----------------------------------------------------------------------------
-mc_apix:
-    push ax
-    mov ax, [mc_ax16 + di]
-    sar ax, 1
-    sar ax, 1
-    sar ax, 1
-    sar ax, 1
-    mov cx, ax
-    mov ax, [mc_ay16 + di]
     sar ax, 1
     sar ax, 1
     sar ax, 1
@@ -2648,23 +2621,16 @@ mc_dmg_icbm:
     push di
     xor si, si
 .each:
-    mov al, [mc_ia + si]
-    cmp al, 1
-    jb .next
-    cmp al, 2
-    ja .next
+    cmp byte [mc_ia + si], 1        ; flying: 1, or 2 for a smart bomb. Free
+    js .next                        ; (0) and dying (0FFh) both go negative
     mov di, si
     add di, di
-    push si
     call mc_ipix                    ; CX/DX = the ICBM
-    pop si
     call mc_inrange
     jc .next
     mov [mc_expx], cx               ; it explodes where it was caught
     mov [mc_expy], dx
-    push si
     call mc_add_exp
-    pop si
     mov ax, [mc_icbpts]             ; 25 x multiplier, or 125 for a smart bomb
     cmp byte [mc_ia + si], 2
     jne .pts
@@ -2749,10 +2715,8 @@ mc_dmg_sat:
     push bx
     push cx
     push dx
-    cmp byte [mc_sata], 1
-    jb .out
-    cmp byte [mc_sata], 2
-    ja .out
+    cmp byte [mc_sata], 1           ; 1 satellite / 2 bomber; idle (0) and
+    js .out                           ; gone (0FFh) both go negative
     mov cx, [mc_satx]
     mov dx, [mc_saty]
     add word [mc_dmgr], 4           ; SPUTNIK/BOMBER: a bigger object than an
@@ -2791,10 +2755,8 @@ mc_do_sat:
     push bx
     push cx
     push dx
-    cmp byte [mc_sata], 1
-    jb .idle
-    cmp byte [mc_sata], 2
-    ja .idle
+    cmp byte [mc_sata], 1           ; 1 satellite / 2 bomber; idle (0) and
+    js .idle                          ; gone (0FFh) both go negative
 
     mov ax, [mc_satx]               ; move it
     add ax, [mc_satvx]
@@ -4143,22 +4105,14 @@ mc_base_shape:
 ; the origin moves and mc_redraw_trails re-lays every walk.
 ; -----------------------------------------------------------------------------
 
-; mc_iblk / mc_ablk - DI = slot SI's walk block; preserve every other register
+; mc_iblk - DI = object SI's walk block (an ICBM's or, from MC_ABMD on, an
+;           ABM's: mc_awlk follows mc_iwlk); preserves every other register
 mc_iblk:
     push cx
     mov di, si
     mov cl, 4
     shl di, cl
     add di, mc_iwlk
-    pop cx
-    ret
-
-mc_ablk:
-    push cx
-    mov di, si
-    mov cl, 4
-    shl di, cl
-    add di, mc_awlk
     pop cx
     ret
 
@@ -4820,34 +4774,25 @@ mc_redraw_trails:
     push dx
     push si
     push di
-    push bp
     mov al, [mc_cicbm]
-    xor bp, bp                      ; BP = the MC_ABMD bias: the ICBMs, then
-.pass:                              ; the ABMs through the very same code
+    xor si, si                      ; SI = the object: the ICBMs, then from
+.pass:                              ; MC_ABMD the ABMs in their own pen
     call mc_setcol
-    mov si, bp
 .each:
-    mov al, [mc_ia + si]
-    cmp al, 1                       ; flying (an ABM is never 2)
-    jb .next
-    cmp al, 2
-    ja .next
+    cmp byte [mc_ia + si], 1        ; flying: 1, or 2 for a smart bomb (an
+    js .next                        ; ABM is never 2). Free (0) and dying
+                                    ; (0FFh) both go negative
     mov bx, si
-    sub bx, bp                      ; the slot...
-    mov di, bx
-    mov cl, 4
-    shl di, cl
-    add di, bp
-    add di, mc_iwlk                 ; ...its walk block...
-    add bx, si                      ; ...and BX = 2 * slot + bias
+    add bx, bx                      ; BX = object*2
+    call mc_iblk                    ; DI = its walk
     mov ax, [mc_isx + bx]
     mov cx, [mc_iex + bx]
     mov dx, [mc_iey + bx]
     push bx
     mov bx, [mc_isy + bx]
     call mc_tr_lay
-    pop bx                          ; BX = slot*2 again; a pop leaves CF alone
-    jc .old
+    pop bx                          ; BX = object*2 again; a pop leaves CF
+    jc .old                         ; alone
     mov byte [mc_iarm + si], 1
     mov ax, [mc_trlen]
     mov [mc_ilen + bx], ax
@@ -4865,15 +4810,11 @@ mc_redraw_trails:
     call mc_line
 .next:
     inc si
-    mov ax, si
-    sub ax, bp
-    cmp ax, MC_MAXICBM
+    cmp si, MC_ABMD
+    mov al, [mc_cabm]               ; (MOV leaves the flags alone)
+    je .pass
+    cmp si, 2 * MC_ABMD
     jb .each
-    mov al, [mc_cabm]
-    or bp, bp
-    mov bp, MC_ABMD                 ; (MOV leaves the flags alone)
-    jz .pass
-    pop bp
     jmp mc_pop_6
 
 ; -----------------------------------------------------------------------------
@@ -4893,45 +4834,51 @@ mc_wipe_trails:
     push di
     mov al, MC_BG
     call mc_setcol
-    xor si, si
-.icbm:
+    xor si, si                      ; SI = the object: ICBMs, then ABMs
+.each:
     cmp byte [mc_ia + si], 0FFh
-    jne .inext
+    jne .next
     mov byte [mc_ia + si], 0
     mov di, si
     add di, di
     cmp byte [mc_iarm + si], 1
-    jne .iold
+    jne .old
     mov ax, [mc_isx + di]
     mov bx, [mc_isy + di]
     mov cx, [mc_iex + di]
     mov dx, [mc_iey + di]
-    mov word [mc_drngx], MC_NODMG   ; a trail that reached the ground takes a
-    mov word [mc_drnbx], MC_NODMG   ; bite out of it as it leaves - but at
-    push ax                         ; the point it actually DIED, which is
-    mov ax, [mc_ipy + di]           ; not the point it was aimed at when it
-    cmp ax, [mc_groundy]            ; was shot down on the way (SPEC.md 48.9)
-    jl .ing
+    mov word [mc_drngx], MC_NODMG
+    cmp si, MC_ABMD
+    jb .icbm
+    mov [mc_drnbx], ax              ; an ABM detonates in the air; what its
+    jmp short .push                 ; trail uncovers is its own launcher
+.icbm:
+    mov word [mc_drnbx], MC_NODMG   ; an ICBM that reached the ground takes a
+    push ax                         ; bite out of it as it leaves - but at
+    mov ax, [mc_ipy + di]           ; the point it actually DIED, which is
+    cmp ax, [mc_groundy]            ; not the point it was aimed at when it
+    jl .ing                         ; was shot down on the way (SPEC.md 48.9)
     mov ax, [mc_ipx + di]
     mov [mc_drngx], ax
 .ing:
     pop ax
+.push:
     push si
     mov si, [mc_idrw + di]
     call mc_drn_push                ; queued? then the drain owes the erase
     pop si                          ; AND the damage marks (SPEC.md 48.15)
-    jnc .iclr
+    jnc .clr
     call mc_cross_need              ; the two ends bound every pixel of it
     push di
     call mc_iblk
     call mc_tr_lay                  ; the SAME line, replayed exactly
     pop bx
-    jc .ignd
+    jc .gnd
     mov cx, [mc_idrw + bx]
-    jcxz .ignd
+    jcxz .gnd
     call mc_tr_step
-    jmp short .ignd
-.iold:
+    jmp short .gnd
+.old:
     mov ax, [mc_isx + di]
     mov bx, [mc_isy + di]
     mov cx, [mc_ipx + di]
@@ -4939,79 +4886,32 @@ mc_wipe_trails:
     mov byte [mc_lfat], 1           ; see mc_lflush: the segment path's erase
     call mc_line                    ; has to be one pixel wider than its draw
     mov byte [mc_lfat], 0
-.ignd:
+.gnd:
     mov di, si
     add di, di
+    cmp si, MC_ABMD
+    jb .igbite
+    mov ax, [mc_isx + di]           ; an ABM's trail starts ON the launcher
+    call mc_bdirty_at
+    jmp short .clr
+.igbite:
     mov dx, [mc_ipy + di]
-    cmp dx, [mc_groundy]            ; a trail that reached the ground took a
-    jl .iclr                        ; bite out of it on the way out - and the
+    cmp dx, [mc_groundy]            ; an ICBM that reached the ground took a
+    jl .clr                         ; bite out of it on the way out - and the
     mov cx, [mc_ipx + di]           ; bite is at the trail's END, not across
     mov ax, cx                      ; the whole band (SPEC.md 48.9)
     sub ax, 2
     add cx, 2
     call mc_gdmg
-.iclr:
+.clr:
     mov di, si
     add di, di
     mov word [mc_idrw + di], 0
     mov byte [mc_iarm + si], 0
-.inext:
+.next:
     inc si
-    cmp si, MC_MAXICBM
-    jb .icbm
-
-    xor si, si
-.abm:
-    cmp byte [mc_aa + si], 0FFh
-    jne .anext
-    mov byte [mc_aa + si], 0
-    mov di, si
-    add di, di
-    cmp byte [mc_aarm + si], 1
-    jne .aold
-    mov ax, [mc_asx + di]
-    mov bx, [mc_asy + di]
-    mov cx, [mc_atx + di]
-    mov dx, [mc_aty + di]
-    mov word [mc_drngx], MC_NODMG   ; an ABM detonates in the air; what its
-    mov [mc_drnbx], ax              ; trail uncovers is its own launcher
-    push si
-    mov si, [mc_adrw + di]
-    call mc_drn_push
-    pop si
-    jnc .aclr
-    call mc_cross_need
-    push di
-    call mc_ablk
-    call mc_tr_lay
-    pop bx
-    jc .abd
-    mov cx, [mc_adrw + bx]
-    jcxz .abd
-    call mc_tr_step
-    jmp short .abd
-.aold:
-    mov ax, [mc_asx + di]
-    mov bx, [mc_asy + di]
-    mov cx, [mc_apx + di]
-    mov dx, [mc_apy + di]
-    mov byte [mc_lfat], 1
-    call mc_line
-    mov byte [mc_lfat], 0
-.abd:
-    mov di, si
-    add di, di
-    mov ax, [mc_asx + di]           ; the trail starts ON the launcher
-    call mc_bdirty_at
-.aclr:
-    mov di, si
-    add di, di
-    mov word [mc_adrw + di], 0
-    mov byte [mc_aarm + si], 0
-.anext:
-    inc si
-    cmp si, MC_MAXABM
-    jb .abm
+    cmp si, 2 * MC_ABMD
+    jb .each
     pop di
     pop si
     pop dx
@@ -5038,50 +4938,49 @@ mc_move_trails:
     push dx
     push si
     push di
+    push bp
     mov al, [mc_cicbm]
+    xor si, si                      ; SI = the object: the ICBMs, then from
+    mov bp, MC_ABMD                 ; MC_ABMD the ABMs; BP = where this pass
+.pass:                              ; ends
     call mc_setcol
-    xor si, si
-.icbm:
-    mov al, [mc_ia + si]
-    cmp al, 1
-    jb .inext
-    cmp al, 2
-    ja .inext
+.each:
+    cmp byte [mc_ia + si], 1        ; flying: 1, or 2 for a smart bomb (an
+    js .next                        ; ABM is never 2). Free (0) and dying
+                                    ; (0FFh) both go negative
     mov di, si
     add di, di
-    push si
     call mc_ipix                    ; CX/DX = where it is now
-    pop si
     cmp byte [mc_iarm + si], 1
-    jne .iold
+    jne .old
     mov ax, [mc_ipx + di]           ; the pixels this frame can add are bounded
     mov bx, [mc_ipy + di]           ; by the old head and the new one
     call mc_cross_need
     mov [mc_ipx + di], cx
     mov [mc_ipy + di], dx
-    mov bx, di                      ; BX = slot*2 from here down
+    mov bx, di                      ; BX = object*2 from here down
     mov di, [mc_ilen + bx]          ; +n = x is the major axis, -n = y is
     or di, di
-    jns .ixmaj
+    jns .xmaj
     neg di
     mov cx, dx
     mov ax, [mc_isy + bx]
-    jmp short .ineed
-.ixmaj:
+    jmp short .need
+.xmaj:
     mov ax, [mc_isx + bx]
-.ineed:
+.need:
     call mc_tr_need                 ; AX = pixels the head has reached
     cmp ax, [mc_idrw + bx]
-    jbe .inext
+    jbe .next
     mov cx, ax
     sub cx, [mc_idrw + bx]
     mov [mc_idrw + bx], ax
     call mc_iblk                    ; DI = the walk
     call mc_dsc_add                 ; ...into this frame's ONE call
-    jmp short .inext
-.iold:
+    jmp short .next
+.old:
     cmp byte [mc_iarm + si], 0      ; not laid yet: lay it and pick a path
-    jne .iseg
+    jne .seg
     mov ax, [mc_isx + di]
     mov bx, [mc_isy + di]
     push cx
@@ -5095,103 +4994,32 @@ mc_move_trails:
     pop dx
     pop cx
     mov byte [mc_iarm + si], 2
-    jc .iseg
+    jc .seg
     mov byte [mc_iarm + si], 1      ; laid: take it from the top, walking
     mov ax, [mc_trlen]
     mov [mc_ilen + di], ax
-    jmp .icbm
-.iseg:
+    jmp .each
+.seg:
     mov ax, [mc_ipx + di]
     mov bx, [mc_ipy + di]
     cmp ax, cx
-    jne .idraw
+    jne .draw
     cmp bx, dx
-    je .inext
-.idraw:
+    je .next
+.draw:
     call mc_line
     mov [mc_ipx + di], cx
     mov [mc_ipy + di], dx
-.inext:
+.next:
     inc si
-    cmp si, MC_MAXICBM
-    jb .icbm
+    cmp si, bp
+    jb .each
     call mc_dsc_run                 ; spent before the pen changes
-
     mov al, [mc_cabm]
-    call mc_setcol
-    xor si, si
-.abm:
-    cmp byte [mc_aa + si], 1
-    jne .anext
-    mov di, si
-    add di, di
-    push si
-    call mc_apix
-    pop si
-    cmp byte [mc_aarm + si], 1
-    jne .aold
-    mov ax, [mc_apx + di]
-    mov bx, [mc_apy + di]
-    call mc_cross_need
-    mov [mc_apx + di], cx
-    mov [mc_apy + di], dx
-    mov bx, di
-    mov di, [mc_alen + bx]
-    or di, di
-    jns .axmaj
-    neg di
-    mov cx, dx
-    mov ax, [mc_asy + bx]
-    jmp short .aneed
-.axmaj:
-    mov ax, [mc_asx + bx]
-.aneed:
-    call mc_tr_need
-    cmp ax, [mc_adrw + bx]
-    jbe .anext
-    mov cx, ax
-    sub cx, [mc_adrw + bx]
-    mov [mc_adrw + bx], ax
-    call mc_ablk
-    call mc_dsc_add
-    jmp short .anext
-.aold:
-    cmp byte [mc_aarm + si], 0
-    jne .aseg
-    mov ax, [mc_asx + di]
-    mov bx, [mc_asy + di]
-    push cx
-    push dx
-    mov cx, [mc_atx + di]
-    mov dx, [mc_aty + di]
-    push di
-    call mc_ablk
-    call mc_tr_lay
-    pop di
-    pop dx
-    pop cx
-    mov byte [mc_aarm + si], 2
-    jc .aseg
-    mov byte [mc_aarm + si], 1
-    mov ax, [mc_trlen]
-    mov [mc_alen + di], ax
-    jmp .abm
-.aseg:
-    mov ax, [mc_apx + di]
-    mov bx, [mc_apy + di]
-    cmp ax, cx
-    jne .adraw
-    cmp bx, dx
-    je .anext
-.adraw:
-    call mc_line
-    mov [mc_apx + di], cx
-    mov [mc_apy + di], dx
-.anext:
-    inc si
-    cmp si, MC_MAXABM
-    jb .abm
-    call mc_dsc_run
+    cmp bp, MC_ABMD
+    mov bp, 2 * MC_ABMD             ; (MOV leaves the flags alone)
+    je .pass
+    pop bp
     pop di
     pop si
     pop dx
@@ -5911,10 +5739,8 @@ mc_draw_sat:
     push dx
     cmp byte [mc_sata], 0FFh
     je .gone
-    cmp byte [mc_sata], 1
+    cmp byte [mc_sata], 1           ; ...and of 0, 1 and 2, only 0 is not up
     jb .out
-    cmp byte [mc_sata], 2
-    ja .out
     mov ax, [mc_satpx]              ; erase where it was drawn...
     cmp ax, [mc_satx]
     je .out
@@ -5935,10 +5761,8 @@ mc_draw_sat:
 
 mc_draw_sat_full:
     push ax
-    cmp byte [mc_sata], 1
-    jb .out
-    cmp byte [mc_sata], 2
-    ja .out
+    cmp byte [mc_sata], 1           ; 1 satellite / 2 bomber; idle (0) and
+    js .out                           ; gone (0FFh) both go negative
     call mc_sat_shape
     mov ax, [mc_satx]
     mov [mc_satpx], ax
@@ -7611,80 +7435,53 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_chpy
     MBYTE mc_chshown
 
-; --- the ICBMs ------------------------------------------------------------------
-    MBUF  mc_ia,     MC_MAXICBM     ; 0 free / 1 ICBM / 2 smart bomb / FF dying
-    MBUF  mc_ix16,   MC_MAXICBM * 2 ; position, pixels * 16
-    MBUF  mc_iy16,   MC_MAXICBM * 2
-    MBUF  mc_ivx,    MC_MAXICBM * 2
-    MBUF  mc_ivy,    MC_MAXICBM * 2
-    MBUF  mc_istep,  MC_MAXICBM * 2
-    MBUF  mc_ipx,    MC_MAXICBM * 2 ; where the trail has been DRAWN to
-    MBUF  mc_ipy,    MC_MAXICBM * 2
-    MBUF  mc_isx,    MC_MAXICBM * 2 ; ...and where it started
-    MBUF  mc_isy,    MC_MAXICBM * 2
-    MBUF  mc_iex,    MC_MAXICBM * 2 ; ...and the point the trail is LAID at
-    MBUF  mc_iey,    MC_MAXICBM * 2 ; (SPEC.md 48.14): fixed at launch, so a
+; --- the objects: the ICBMs, and then the ABMs ---------------------------------
+; EVERY TABLE BELOW THAT BOTH KINDS HAVE IS THE ICBMS' EIGHT ENTRIES AND THEN THE
+; ABMS' EIGHT, so ABM slot n is OBJECT MC_ABMD + n (MC_ABMD = 8) and one index
+; reaches either kind: SI = the object reads [mc_ia + si] (= [mc_aa + n]),
+; DI = 2*SI reads [mc_ix16 + di] (= [mc_ax16 + 2n]) and SI << 4 is the walk
+; block in mc_iwlk (= mc_awlk's). That is what lets the trail loops, the slot
+; fill and the free-slot walk serve both kinds with the addressing they used
+; for one - no base register, no bias to subtract. MC_OBJ lays the pairs and
+; asserts the spacing, so a field added to one kind and not the other cannot
+; build.
+MC_ABMD     equ MC_MAXICBM
+%if MC_MAXICBM != MC_MAXABM
+  %error "the ICBM and ABM tables must be the same length (MC_ABMD)"
+%endif
+%macro MC_OBJ 3                     ; ICBM name, ABM name, bytes an entry
+    MBUF  %1, MC_MAXICBM * (%3)
+    MBUF  %2, MC_MAXABM * (%3)
+  %if ((%2) - (%1)) != MC_ABMD * (%3)
+    %error "%1 and %2 are not laid out as one object table (MC_ABMD)"
+  %endif
+%endmacro
+    MC_OBJ mc_ia,    mc_aa,    1    ; 0 free / 1 ICBM / 2 smart bomb / FF
+                                    ; dying (an ABM is never 2)
+    MC_OBJ mc_ix16,  mc_ax16,  2    ; position, pixels * 16
+    MC_OBJ mc_iy16,  mc_ay16,  2
+    MC_OBJ mc_ivx,   mc_avx,   2
+    MC_OBJ mc_ivy,   mc_avy,   2
+    MC_OBJ mc_istep, mc_astep, 2
+    MC_OBJ mc_ipx,   mc_apx,   2    ; where the trail has been DRAWN to
+    MC_OBJ mc_ipy,   mc_apy,   2
+    MC_OBJ mc_isx,   mc_asx,   2    ; ...and where it started
+    MC_OBJ mc_isy,   mc_asy,   2
+    MC_OBJ mc_iex,   mc_atx,   2    ; ...and the point the trail is LAID at
+    MC_OBJ mc_iey,   mc_aty,   2    ; (SPEC.md 48.14): fixed at launch, so a
                                     ; dodging bomb's trail stays a straight
                                     ; line - which is what the erase always
-                                    ; assumed
-    MBUF  mc_iwlk,   MC_MAXICBM * MC_WLK
-    MBUF  mc_idrw,   MC_MAXICBM * 2 ; pixels of that walk on the screen
-    MBUF  mc_ilen,   MC_MAXICBM * 2 ; ...and how many it has, signed: +n = x
+                                    ; assumed. An ABM's is where it detonates
+    MC_OBJ mc_iwlk,  mc_awlk,  MC_WLK
+    MC_OBJ mc_idrw,  mc_adrw,  2    ; pixels of that walk on the screen
+    MC_OBJ mc_ilen,  mc_alen,  2    ; ...and how many it has, signed: +n = x
                                     ; is the major axis, -n = y is
-    MBUF  mc_iarm,   MC_MAXICBM     ; 0 not laid / 1 walking / 2 no walk
+    MC_OBJ mc_iarm,  mc_aarm,  1    ; 0 not laid / 1 walking / 2 no walk
+; ...and what only an ICBM has
     MBUF  mc_itgt,   MC_MAXICBM
     MBUF  mc_imirv,  MC_MAXICBM
     MBUF  mc_imirv2, MC_MAXICBM * 2 ; frames until it splits
     MWORD mc_sbslot                 ; the smart bomb mc_sb_dodge is steering
-
-; --- the ABMs -------------------------------------------------------------------
-    MBUF  mc_aa,     MC_MAXABM
-    MBUF  mc_ax16,   MC_MAXABM * 2
-    MBUF  mc_ay16,   MC_MAXABM * 2
-    MBUF  mc_avx,    MC_MAXABM * 2
-    MBUF  mc_avy,    MC_MAXABM * 2
-    MBUF  mc_astep,  MC_MAXABM * 2
-    MBUF  mc_apx,    MC_MAXABM * 2
-    MBUF  mc_apy,    MC_MAXABM * 2
-    MBUF  mc_asx,    MC_MAXABM * 2
-    MBUF  mc_asy,    MC_MAXABM * 2
-    MBUF  mc_atx,    MC_MAXABM * 2  ; where it is to detonate - and, being
-    MBUF  mc_aty,    MC_MAXABM * 2  ; fixed at launch, where the trail is laid
-    MBUF  mc_awlk,   MC_MAXABM * MC_WLK
-    MBUF  mc_adrw,   MC_MAXABM * 2
-    MBUF  mc_alen,   MC_MAXABM * 2
-    MBUF  mc_aarm,   MC_MAXABM
-
-; MC_ABMD: an ABM's slot is an ICBM slot index biased by this, because the two
-; records are laid out ALIKE from [mc_ia]/[mc_aa] - so mc_obj_init and
-; mc_freeslot_at serve both kinds with no base register: SI = slot + MC_ABMD
-; and DI = 2*slot + MC_ABMD reach [mc_aa + slot] through [mc_ia + si] and
-; [mc_ax16 + 2*slot] through [mc_ix16 + di]. Every field either touches is
-; pinned here; a field added to one record and not the other fails the build.
-MC_ABMD     equ mc_aa - mc_ia
-%if MC_MAXICBM != MC_MAXABM
-  %error "the ICBM and ABM records must be the same length (MC_ABMD)"
-%endif
-%macro MC_ALIKE 2
-  %if ((%2) - (%1)) != MC_ABMD
-    %error "%1 and %2 are not laid out alike (MC_ABMD)"
-  %endif
-%endmacro
-    MC_ALIKE mc_ix16, mc_ax16
-    MC_ALIKE mc_iy16, mc_ay16
-    MC_ALIKE mc_ivx,  mc_avx
-    MC_ALIKE mc_ivy,  mc_avy
-    MC_ALIKE mc_istep, mc_astep
-    MC_ALIKE mc_ipx,  mc_apx
-    MC_ALIKE mc_ipy,  mc_apy
-    MC_ALIKE mc_isx,  mc_asx
-    MC_ALIKE mc_isy,  mc_asy
-    MC_ALIKE mc_iex,  mc_atx
-    MC_ALIKE mc_iey,  mc_aty
-    MC_ALIKE mc_iwlk, mc_awlk
-    MC_ALIKE mc_idrw, mc_adrw
-    MC_ALIKE mc_ilen, mc_alen
-    MC_ALIKE mc_iarm, mc_aarm
     MWORD mc_trlen                  ; mc_tr_lay's answer, out of the registers
 
 ; --- the drain (SPEC.md 48.15) --------------------------------------------------
