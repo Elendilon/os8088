@@ -50854,6 +50854,11 @@ content-relative; the procs fetch the content origin via `wm_content`
     falling diagonal's x up, the rising one's down, the shared row up), the
     cell origin being the one `mn_draw_minecell` already left in CX/DX -
     the same twenty points in the same order, one `OSAPI_GFX_POINTS`.
+  - **The strip's three lines carry their own x.** Each is led by a byte
+    `(144 - 8 * length) / 2` worked out at build time (`MN_CTEXT`) - the font
+    is 8px a character by contract, so it is exactly what `OSAPI_FONT_WIDTH`
+    answered on every repaint, and the far call is gone with the arithmetic.
+    The counter's "10" reaches its 0 through the single-digit line.
 
 ## 24. Packaging toolchain (host side)
 

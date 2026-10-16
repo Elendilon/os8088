@@ -825,28 +825,26 @@ mn_draw_status:
     mov al, '1'
     call OSAPI_FONT_CHAR_XPARENT
     add cx, 8
-    mov al, '0'
-    jmp .putc
+    mov al, 0                       ; ...and the 0, through the line below
 .one:
     add al, '0'
-.putc:
     call OSAPI_FONT_CHAR_XPARENT
 
     mov si, mn_s_boom               ; centred mode text
-    cmp byte [mn_mode], MN_M_LOST
+    mov al, [mn_mode]
+    cmp al, MN_M_LOST
     je .have
     mov si, mn_s_win
-    cmp byte [mn_mode], MN_M_WON
+    cmp al, MN_M_WON
     je .have
     cmp byte [mn_flagmode], 0
     je .done                        ; playing, flag mode off: blank
     mov si, mn_s_flag
 .have:
-    call OSAPI_FONT_WIDTH            ; AX = pixel width
-    mov cx, MN_BOARD_W
-    sub cx, ax
-    shr cx, 1
-    add cx, [mn_ox]
+    lodsb                           ; the line's own x, worked out at build
+    cbw                             ; time (MN_CTEXT): the font is 8px a
+    add ax, [mn_ox]                 ; character by contract (font_width), so
+    xchg cx, ax                     ; this is what OSAPI_FONT_WIDTH answered
     call OSAPI_FONT_STR_XPARENT
 .done:
     ret
@@ -934,9 +932,16 @@ mn_ab2:     db 'for os8088', 0
 mn_ab3:     db 0
 mn_ab4:     db 'Contributed by', 0
 mn_ab5:     db 'Jorge Gonzalez', 0
-mn_s_flag:  db 'F=FLAG', 0
-mn_s_boom:  db 'BOOM! N=NEW', 0
-mn_s_win:   db 'YOU WIN!', 0
+; the strip's three lines, each led by its centred x in the 144px strip -
+; (144 - 8 * length) / 2, what mn_draw_status used to ask OSAPI_FONT_WIDTH
+; for on every repaint
+%macro MN_CTEXT 2
+  %strlen %%n %2
+%1: db (MN_BOARD_W - 8 * %%n) / 2, %2, 0
+%endmacro
+    MN_CTEXT mn_s_flag, 'F=FLAG'
+    MN_CTEXT mn_s_boom, 'BOOM! N=NEW'
+    MN_CTEXT mn_s_win,  'YOU WIN!'
 
 ; pinned digit colours, indexed by adjacent-mine count 1..8 (SPEC.md 23) -
 ; read as [mn_digcol - 1 + count], so there is no entry for a 0
