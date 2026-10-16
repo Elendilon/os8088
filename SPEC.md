@@ -17206,7 +17206,7 @@ Frame drawing (paint-all does this before calling W_PAINT):
 | `wm_zabove`    | in BX = win ptr; out CF=0 with `SI` → the first `wm_zord` entry **above** it, `CX` = how many are above, `AL` = its own index; CF=1 = not in the z-order (which cannot happen for a used window). Clobbers AX, CX, SI. The one home of the "find me in the z-order and walk what covers me" idiom — five routines had it written out, and two of them (`wm_lift`, `wm_destroy`) want the entry itself and take a `dec si`. |
 | `wm_obscured`  | in BX = win ptr; out CF=1 if BX is not visible at all, or any visible window above it in z-order overlaps its frame rect (§11.3.1 — the visibility half is part of the answer, and was not). Result is only trustworthy while the caller holds the gfx lock — the UI task mutates `wm_zord`/window rects under it. Kept, but **no longer the right answer for a background painter**: it vetoes a whole frame for one covered pixel. Use `wm_clip_set` (§11.3). |
 | `wm_clip_set`  | in BX = win ptr; **caller holds the gfx lock**. Builds BX's visible region — its content rect less every visible window above it in `wm_zord`, drop shadows included — into the clip list, and arms clipping. out CF=1 the window is entirely invisible: nothing is armed, draw nothing this frame (also the answer when the region needs more than 16 rects, and — since §11.3.1 — when the window is *hidden*, which this always claimed and did not deliver). CF=0 armed. Preserves every register. The region is valid only until the next `gfx_unlock`, which clears it (§11.3). API slot 0x013D (§20.3). |
-| `wm_clip_rect` | in AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); **caller holds the gfx lock**. `wm_clip_set`'s arithmetic for a rect that belongs to no window: the seed is the caller's rect and the occluders are **every** visible window, because the thing under it is the DESKTOP and nothing is below that. out CF=1 the region needs more than 16 rects — nothing is armed and the caller must fall back to something unconditional; CF=0 armed, and **ZF=1 means the rect is wholly covered** (the list is empty, i.e. disarmed: draw nothing at all). Preserves every register. The two degradations are `wm_clip_set`'s, split apart because a caller can act on them differently — an overflow says nothing is *known*, an empty list is a *fact*. Kernel-internal; §26.2 is its consumer. |
+| `wm_clip_rect` | in AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); **caller holds the gfx lock**. `wm_clip_set`'s arithmetic for a rect that belongs to no window: the seed is the caller's rect and the occluders are **every** visible window, because the thing under it is the DESKTOP and nothing is below that. out CF=1 the region needs more than 16 rects — nothing is armed and the caller must fall back to something unconditional; CF=0 armed, and **ZF=1 means the rect is wholly covered** (the list is empty, i.e. disarmed: draw nothing at all). Preserves every register. The two degradations are `wm_clip_set`'s, split apart because a caller can act on them differently — an overflow says nothing is *known*, an empty list is a *fact*. Kernel-internal; §26.2 is its consumer — and **`kern_small`'s alone since kernel size pass 13**: its one caller, `desk_zone_redraw`, is assembled only without `OS88_SHORTCUTS`, a shortcuts kernel posting the selection's cell instead. |
 | `wm_clip_clear`| disarm clipping. Preserves every register. `gfx_unlock` already does this, so a painter only needs it to go back to drawing unclipped inside the same lock hold. API slot 0x0145 (§20.3). |
 | `wm_clip_test` | in AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); out CF=0 the whole rect lies inside **one** clip fragment, or nothing is armed; CF=1 it does not. Preserves every register. This is the question `font_char` and `icon_draw16` ask themselves, exposed so a caller that **erases a rect and then draws glyphs into it** can ask it first — see the granularity rule in §11.3. API slot 0x014D (§20.3). |
 
@@ -72054,8 +72054,10 @@ So the display is decided **once, at entry**, and `wm_lf_win`/`wm_lf_disp`
 answer every later ask for that window — the bank, the notification, and
 anything the handler calls from inside it. The window is latched beside the
 answer so a handler asking about some *other* window still gets the truth, and
-both live in `.text` with real initialisers because `wm_disp_now` is asked from
-the first mouse press of the session.
+both live in `EXTD.DRV`'s own image with real initialisers (they were `.text`
+until kernel size pass 13; every reader and writer is in the image), because
+`wm_disp_now` is asked from the first mouse press after an Extend and a fresh
+load is exactly when "nothing armed" is the right answer.
 
 **The rule generalises past this routine**: a question whose answer is derived
 from geometry may not be asked either side of a write to that geometry. §12.9's
@@ -73171,11 +73173,28 @@ eleven routines under it, §39.16.3), `ui_drag_size` (§11.100.3/.4),
 `wm_disp_now`/`wm_disp_rest` (§39.16.4.1) and the fsx bracket's three
 (`vid_fsx_enter`/`_leave`/`_unblank`, §39.18). **What did NOT move** is
 everything that runs per primitive, per glyph cell or inside the mouse ISR —
-`GFXDISP`, `gfx_disp_run`, the blit seam cut (§39.14.7.2), `font_ch_cut`
-(§39.14.11), `cur_move_multi`, the clip in display space — ~2,150 bytes that
-would put a far call under every primitive of an extended machine, and most of
-which is code GENERALISED in place rather than gated, so it runs on every
-`kern_big` machine and only its difference could ever come out.
+`GFXDISP`, `gfx_disp_run`, `cur_move_multi`, the clip in display space — ~1,800
+bytes that would put a far call under every primitive of an extended machine,
+and most of which is code GENERALISED in place rather than gated, so it runs on
+every `kern_big` machine and only its difference could ever come out.
+
+**Kernel size pass 13 took the two SEAM CUTS** that were on that list —
+`font_ch_cut` (§39.14.11, now `ext_fcut`, entry 12) and `gfx_blit4`'s cut
+(§39.14.7.2, now `ext_bcut`, entry 13) — because neither is per primitive: each
+runs once for the ONE glyph cell or the ONE blit a seam crosses, and only where
+`[gfx_dnest]` = 1 or `[vid_ndisp]` > 1, which is to say only while this image
+is mounted. **−330 resident bytes on `kern_big` and `kern_emu`** (`.text`
+−338, `.bss` +8, measured), and the image goes 1,031 → 1,406 bytes, **inside the
+2 KB claim it already took**: the second wave left it at 1,023, and what had
+been added since put it 7 bytes over the KB. `font_ch_spill` asks the cut's
+first question itself (`cmp byte [gfx_dnest], 1`) before the `EXTCALL`, so a
+one-card machine's off-the-edge glyph is refused FASTER than the near call it
+replaced, and pays no far call at all. What an extended desktop pays is a far
+call and two `EXK` hops on its one seam cell per text row (~+900 cycles against
+the cell's ~4,300), and a far call and two or three hops per straddling blit;
+the nested `font_char`/`gfx_blit4` each run ~10 bytes deeper on the stack than
+the near recursion did. `NOSEAMCUT` and `NOBLITCUT` leave their slot on a
+refusing `ext_refuse`, so the numbering never moves.
 
 **The second wave took the ARMS**, once §2.8.1's per-module slot blocks made
 an entry cost this module's own four bytes of `.bss` rather than four for
@@ -73227,6 +73246,8 @@ every register kept (§2.8.1) — and every call site is either behind a
 | 9 | `EXT_FSRECT` — `wm_fs_setrect`'s arm | `wm_fs_setrect` | CF = 1 → the primary's rect, written by the caller |
 | 10 | `EXT_DESK` — `vid_disp_desk` | `wm_paint_all` ×2 | CF = 1 = nothing painted, which the fullscreen arm reads in place of the `[vid_ndisp]` test it made |
 | 11 | `EXT_YLOW` — `ui_ylow`'s arm | `ui_drag`, GATED (the release) | never reached; the caller loaded `MBAR_H` into SI |
+| 12 | `EXT_FCUT` — `ext_fcut`, §39.14.11's cell cut | `font_ch_spill`, GATED (`[gfx_dnest]` = 1) | never reached; CF = 1 would be §39.14.2's whole-cell drop |
+| 13 | `EXT_BCUT` — `ext_bcut`, §39.14.7.2's blit cut | `gfx_blit4`, GATED (`[vid_ndisp]` > 1, a straddle) | never reached; CF = 1 (and an ODD cut) is §39.14.7's run-splitting path |
 
 `mod_init_x` rests the slots on `mod_gone` before `wm_init`, which is before
 the first of these can run; the early `vid_disp_init` in `kmain_o`, before
