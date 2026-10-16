@@ -20891,8 +20891,10 @@ the same store, for every window (§11.103.6).
   gated on `[menu_win]` = 0 (§26.8.5), so a widget typing never selects a
   desktop icon. 16 bytes of `.cold`, which this tree counts as resident -
   until §11.103.10 put the test in `DESK.DRV` (`dkd_key`, slot 3): the
-  resident arm is a far call and its answer, 8 bytes of `.cold` above
-  kern_small's, and with no image the slot's `mod_gone` is "stand".
+  resident arm puts `wm_top`'s answer in BX FIRST and far-calls, 7 bytes of
+  `.cold` above kern_small's (8 until kernel size pass 13), so the image
+  replaces it or keeps it and with no image the slot's `mod_gone`, keeping
+  every register, is "stand".
 - **The keys and the bar go back** on any press elsewhere (`ui.inc`'s
   `menu_activate` on every window hit and on the bare desktop), on any raise
   (`wm_raise`'s `menu_activate`), when the widget closes (`menu_check`, which
@@ -21211,7 +21213,7 @@ module (§2.8), and its slot block `DKDFP` has `DKD_NENT` = 4 entries:
 | 0 | `dkd_verb` | MAKE, DRAG and RELEASE (§11.103.9), the verb in AL; anything else is refused | `osapi_wm_desk_x`'s `jmp far [DKDFP]` | MAKE refused, so the Sticky App paints titled. DRAG and RELEASE only follow a MAKE that succeeded, so the image is there |
 | 1 | `dkd_hover` | the hover edge's body (§11.103.7). In: BX = the OLD window, `[cur_hovw]` = the new one, already exchanged by the caller | `cur_shape_pass`, on a change of window only | nothing is hovered: with no image there is no desk window, which is the right answer. **No disk read on the hover path, ever** |
 | 2 | `dkd_show` | `wm_show_b`'s desk arm (§11.103.3): the visible bit, `wm_win_rect` and `wm_paint_dmg` through their resident far shims | `wm_show_b`, for a `WF_DESK` window | unreachable: only MAKE, in the image, sets `WF_DESK` |
-| 3 | `dkd_key` | `fdlg_top_x`'s desk arm (§11.103.4): CF = 0 and BX = `[menu_win]` when it is a desk window, CF = 1 "stand" (`wm_top`'s answer) otherwise | `fdlg_top_x`, with no chooser up | CF = 1, stand: wm_top's answer, exactly right with no widget |
+| 3 | `dkd_key` | `fdlg_top_x`'s desk arm (§11.103.4). In: BX = `wm_top`'s answer. CF = 0 and BX = `[menu_win]` when it is a desk window, CF = 1 "stand" (BX kept) otherwise | `fdlg_top_x`, with no chooser up | CF = 1, BX kept - stand: wm_top's answer, exactly right with no widget |
 
 **QUERY is the load point.** The resident half of `osapi_wm_desk_x` is a
 12-byte `.cold` thunk: AL = 0 calls `desk_need` (below) and returns its CF;
