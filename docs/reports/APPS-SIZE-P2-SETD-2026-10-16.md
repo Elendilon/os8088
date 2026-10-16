@@ -161,10 +161,26 @@ against the generator), Chart under the host differential.
 `make -j4` green on the merged tree.
 
 **Soak** — one `os88soak.py start` over the deduplicated union of the
-agents' named rows and the handoff's shared rows, 199 rows:
-SOAKRESULT
+agents' named rows and the handoff's shared rows (every `vid*` family the
+Video agent named, every `skies*`/`cs*` row, `midtab`, `midirack*`,
+`mrdraw*`, `mediadisk`, the `fr*` rows bar `frinsetfull`, `dispfrac`,
+`editmove`, `timerbounce`, `fptest`, `decfmt`, `stkapps`, `appsmall`,
+`smallreq`, `movable`, `dispapps`, `regapp`, `regwork`, `lz*`, `assoc*`,
+`instassoc`, `buildmatrix`), 199 rows in 39 minutes at width 4:
+**195 ok, 3 FAIL, 1 SKIP** (`vidbench`: the owner's XDC streams are not in
+the container). The three failures are **pre-existing** -
+`tools/os88bisect.py classify --base aa185194 -n 2` fails each at the cut
+point on the same legs, 2 runs of 2:
 
-**`make test-full`**: FULLRESULT
+| row | what it reads | at `aa185194` |
+|---|---|---|
+| `vidspk2` | opened muted, why 2: `vp_mdet` mutes a two-pulse speaker play on an 8088 by design (34.11.7.1), and the row expects sound | fails, same legs |
+| `vidspkunmute` | the same verdict at 11,025 Hz | fails, same legs |
+| `vidfskeysvga4pl` | `vp_m3ok` is 1 on a VGA told it has no write mode 3 | fails, same leg |
+
+`lzdrv` and `lzdrv-nohint` were excluded: their disk does not build (Defects).
+
+**`make test-full`**: 54 passed, 0 failed (42 s).
 
 Rule slips, recorded: the MIDIRack and Skies agents each ran one host-side
 unit row by hand once (`t_midtab.py`, `t_cssin.py`, both passing) before
