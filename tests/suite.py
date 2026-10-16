@@ -4099,8 +4099,9 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("shutdown", "soak", py("tests/shutdown.py"), 120.0,
         "Shut Down confirms, Escape and Cancel preserve the desktop, sliding "
-        "off cancels a press, settings flush, and OS ticks stop while the "
-        "BIOS clock and splash pixels animate on VGA, CGA and Hercules",
+        "off cancels a press, settings flush, OS ticks stop while the BIOS "
+        "clock and splash pixels animate, and Ctrl-Alt-Del still warm-resets "
+        "back into the kernel, on VGA, CGA and Hercules",
         needs=("marty",), serial=True),
     Row("splashspin", "soak", py("tests/splashspin.py"), 20.0,
         "Does the logo turn on the WALL CLOCK? (SPEC.md 15.3.6) The composed "

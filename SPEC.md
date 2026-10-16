@@ -25084,12 +25084,21 @@ After confirmation, pending Control Panel/RTC settings are flushed while
 the module stays resident. If settings remain dirty, shutdown is cancelled
 with a toast. Drivers detach with the scheduler alive, then the graphics
 lock is acquired and `sched_stop` restores the BIOS timer, mouse and speaker
-state without entering the reboot path. Interrupts other than IRQ0 are
-masked, the floppy motor is stopped, and no tasks or disk I/O run again.
-The primary display shows the startup splash's spinning 8088 and
+state without entering the reboot path. Interrupts other than IRQ0 and
+IRQ1 are masked, the floppy motor is stopped, and no tasks or disk I/O run
+again. The primary display shows the startup splash's spinning 8088 and
 "You can now turn off your computer." indefinitely. The animation uses the
 BIOS clock and halts between ticks; it never invokes INT 19h or powers off
-the machine. The spinner composer is shared source between the boot blob
+the machine.
+
+IRQ1 stays open so that **Ctrl-Alt-Del still warm-resets** a machine the
+user decides to restart after all. `sched_stop`'s `mouse_unhook` has already
+handed int 09h back to the ROM, so the key reaches the BIOS's own handler,
+which answers it as it would on a machine with no OS: 1234h at 0040:0072
+and the reset vector, POST and all. The halt loop reads and drops every
+other key through int 16h, so the ROM's buffer never fills and beeps at a
+held one. Until this was opened the mask was 0FEh and the three keys did
+nothing at all. The spinner composer is shared source between the boot blob
 and CTRL.DRV; it adds no resident animation code or buffer. CTRL.DRV gains
 one final entry, CPE_SHUTDOWN, and one far-pointer slot in CPFP. The entry
 remains in the `.modc` header, after the optional settings-core entry and
