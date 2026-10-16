@@ -66945,11 +66945,27 @@ inks.
   other, which happens both ways. The window was pixel-identical to the
   branch point's after the same input (0 of 35,030 pixels). The file is
   2,960 bytes where it was 3,052, image 3,287 where it was 3,440, bss
-  654. **Not fixed, found here**: taking the About card down leaves
-  fragments of its text in the gaps between the viewer, the button rows
-  and the keyboard - `pn_paint` draws the parts and never the ground
-  between them, and a dismissal is not a W_PAINT, so nothing whites it
-  first. The branch point does the same, pixel for pixel.
+  654. **Defect fixed, found here**: taking the About card down left
+  fragments of its letters and frame in the gaps between the viewer, the
+  button rows and the keyboard (193 pixels on a CGA, 60 on a VGA, the
+  same at the branch point) - `pn_paint` draws the parts and never the
+  ground between them, because a W_PAINT's content arrives white and a
+  dismissal's does not. `pn_abdismiss` now fills `pn_gnd` first: the ten
+  rects of ground the card can reach (it is centred, 16 cells wide, so x
+  35..186 and rows inside 37..109) that no part draws - the three
+  two-row gaps between the bands, the two-pixel gaps between buttons and
+  round the "SONGS:" caption - each ground and nothing else, so no pixel
+  is written twice; and the caption is an opaque `OSAPI_FONT_RUN`, its
+  cells' ground its own, where it was a transparent string on the
+  W_PAINT's white. Card up then dismissed is now pixel-identical to a
+  fresh paint of the window on CGA and VGA (0 differing pixels), and a
+  fresh paint is identical to the one before the fix. The button row's
+  paint got CHEAPER for it (one `FONT_RUN` against a pen change and a
+  transparent string: 310,275 -> 297,627 cycles on the CGA, 245,647 ->
+  235,553 on the VGA, one count each); the hot paths are untouched - a
+  key or click with no card up runs the same two instructions. It costs
+  81 file bytes (+86 image: 40 of table, the loop, the run): 2,960 ->
+  3,041, still 3 clusters.
 
 ## 37. clock.inc — the system clock
 
