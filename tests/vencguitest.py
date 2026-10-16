@@ -314,7 +314,8 @@ def options_leg():
     # has no default to show - each word is in its dropdown and reads back
     # as the blank it stands for, no dropdown offers an empty entry, and a
     # field emptied by hand is put back to what the encode will use
-    free = {"title", "credits", "poster_at", "spk_preview"}
+    # (a blank ladder is NO ladder - the checkbox on its tab is off)
+    free = {"title", "credits", "poster_at", "spk_preview", "ladder"}
     for d, w in G.BLANK_WORD.items():
         f = [x for x in G.fields() if x["dest"] == d]
         if not f:
@@ -644,6 +645,7 @@ def main():
     leg13(bad)
     fit_leg(bad)
     profile_leg(bad)
+    ladder_leg(bad)
     bad += groups_leg()
     bad += options_leg()
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
@@ -822,6 +824,51 @@ def fit_leg(bad):
                            "(at %s)" % (t, b, r, tg))
     finally:
         root.destroy()
+
+
+def ladder_leg(bad):
+    """18: THE DEGRADE LADDER (Size vs quality's second inner tab): with a
+    ladder set, the options it sets greyed and the rest not; the rungs a
+    form can use following its sound and its scene palettes; and --ladder
+    round-tripping through the options record"""
+    base = dict(G.form_start())
+    # the greying is asked of a form where every option the ladder sets is
+    # otherwise LIVE - 16 colours with a palette a scene, so the scene
+    # options (coarse_cut, step_down, step_min) are not greyed by their
+    # own reason first, which would hide the ladder's
+    live = dict(base, preset="vga4", pixfmt="vga4", palette="colour16",
+                scene_palettes="1", audio="pcm8")
+    on = dict(live, ladder=V.DEGRADE_DEFAULT)
+    _, why0 = G.group_state(live)
+    _, why1 = G.group_state(on)
+    sets = [d for d in G.LADDER_SETS if why1.get(d) != G.LADDER_WHY]
+    freed = [d for d in G.LADDER_SETS if why0.get(d) == G.LADDER_WHY]
+    print("   18: a ladder greys %s; without one none of them is the "
+          "ladder's" % ", ".join(d for d in G.LADDER_SETS
+                                 if why1.get(d) == G.LADDER_WHY))
+    if sets or freed:
+        bad.append("the ladder's greying: not greyed %s, greyed without one "
+                   "%s" % (sets, freed))
+    kinds = lambda vals: sorted({t.split(":")[0] for _, t in
+                                 G.ladder_options(G.form_context(vals))})
+    card = kinds(dict(base, audio="pcm8"))
+    spk = kinds(dict(base, audio="speaker"))
+    v4 = kinds(dict(base, preset="vga4", pixfmt="vga4", palette="colour16",
+                    scene_palettes="1", audio="pcm8"))
+    print("   18: rungs offered - a card's sound %s, the speaker %s, 16 "
+          "colours a scene %s" % (card, spk, v4))
+    if "lag" not in card or "lag" in spk or "slow" not in spk or \
+            not {"coarse", "colours"} <= set(v4) or "coarse" in card:
+        bad.append("the rungs offered: card %s, speaker %s, vga4 scenes %s"
+                   % (card, spk, v4))
+    a = V.parser().parse_args(["in.mp4", "o.V88", "--ladder",
+                               V.DEGRADE_DEFAULT])
+    o = V.options_record(a)
+    back, notes = V.opts_migrate(V.options_doc(a, opts=o))
+    print("   18: --ladder in the record: %r, read back %r"
+          % (o.get("ladder"), back.get("ladder")))
+    if back.get("ladder") != V.DEGRADE_DEFAULT:
+        bad.append("--ladder did not round-trip: %r" % back.get("ladder"))
 
 
 def profile_leg(bad):
