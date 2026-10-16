@@ -538,172 +538,132 @@ serve:
 .cmd:
     call lp_rbyte_w             ; a tick-bounded wait: the master may take its
     jc  .out                    ; time between commands
-    cmp al, NC_INFO
-    je  .info
-    cmp al, NC_READ
-    je  .read
-    cmp al, NC_WRITE
-    je  .write
-    cmp al, NC_BYE
-    je  .bye
-    cmp al, NF_LIST
-    je  .flist
-    cmp al, NF_CHDIR
-    je  .fchdir
-    cmp al, NF_DFREE
-    je  .fdfree
-    cmp al, NF_STAT
-    je  .fstat
-    cmp al, NF_READ
-    je  .fread
-    cmp al, NF_READAT
-    je  .freadat
-    cmp al, NF_WRITE
-    je  .fwrite
-    cmp al, NF_APPEND
-    je  .fappend
-    cmp al, NF_DELETE
-    je  .fdelete
-    cmp al, NF_RENAME
-    je  .frename
-    cmp al, NF_MKDIR
-    je  .fmkdir
-    cmp al, NF_RMDIR
-    je  .frmdir
-    cmp al, NF_COPY
-    je  .fcopy
-    cmp al, NF_ENUM
-    je  .fenum
-    cmp al, NF_RMTREE
-    je  .frmtree
-    cmp al, NW_OPEN
-    je  .nwopen
-    cmp al, NW_LISTEN
-    je  .nwlisten
-    cmp al, NW_ACCEPT
-    je  .nwaccept
-    cmp al, NW_STAT
-    je  .nwstat
-    cmp al, NW_SEND
-    je  .nwsend
-    cmp al, NW_RECV
-    je  .nwrecv
-    cmp al, NW_CLOSE
-    je  .nwclose
-    cmp al, NW_ADDR
-    je  .nwaddr
-    jmp .cmd                    ; ...NEAR: the socket handlers below sit
-                                ; between here and the top of the loop
+    ; THE LETTER IS THE INDEX (apps size pass 2, SPEC.md 62.12.6). Every verb
+    ; is a letter from 'A' to 'w' and srv_tab has a word for each, so this is
+    ; the same eleven instructions whichever verb it is - where the chain of
+    ; compares it replaces walked to the 26th for NW_ADDR. Anything outside
+    ; the range, or a letter no verb has, is read and ignored as it was.
+    sub al, 'A'
+    cmp al, 'w' - 'A'
+    ja  .cmd
+    cbw                         ; AL <= 54, so AH = 0
+    xchg ax, bx
+    shl bx, 1
+    cmp bl, 2 * ('a' - 'A')     ; LOWER CASE IS A SOCKET VERB (62.11.1), and a
+    jae .sock                   ; socket verb's CF is not the link's verdict
+    call [srv_tab + bx]         ; a FILE verb's is: CF=1 = the link went away
+    jnc .cmd
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.sock:
+    call [srv_tab + bx]
+    jmp short .cmd
 
-.nwopen:
-    call nw_s_open
-    jmp .cmd
-.nwlisten:
-    call nw_s_listen
-    jmp .cmd
-.nwaccept:
-    call nw_s_accept
-    jmp .cmd
-.nwstat:
-    call nw_s_stat
-    jmp .cmd
-.nwsend:
-    call nw_s_send
-    jmp .cmd
-.nwrecv:
-    call nw_s_recv
-    jmp .cmd
-.nwclose:
-    call nw_s_close
-    jmp .cmd
-.nwaddr:
-    call nw_s_addr
-    jmp .cmd
+; --- srv_tab - one near routine per letter, 'A' to 'w' -----------------------
+; Built from the same equates the chain compared against, IN THE CHAIN'S
+; ORDER, so a letter two verbs share would still go to the first.
+srv_tab:
+%assign srv_c 'A'
+%rep 'w' - 'A' + 1
+  %if srv_c == NC_INFO
+    dw blk_info
+  %elif srv_c == NC_READ
+    dw blk_read
+  %elif srv_c == NC_WRITE
+    dw blk_write
+  %elif srv_c == NC_BYE
+    dw srv_bye
+  %elif srv_c == NF_LIST
+    dw srv_list
+  %elif srv_c == NF_CHDIR
+    dw srv_chdir
+  %elif srv_c == NF_DFREE
+    dw srv_dfree
+  %elif srv_c == NF_STAT
+    dw srv_stat
+  %elif srv_c == NF_READ
+    dw srv_read
+  %elif srv_c == NF_READAT
+    dw srv_readat
+  %elif srv_c == NF_WRITE
+    dw srv_write
+  %elif srv_c == NF_APPEND
+    dw srv_append
+  %elif srv_c == NF_DELETE
+    dw srv_delete
+  %elif srv_c == NF_RENAME
+    dw srv_rename
+  %elif srv_c == NF_MKDIR
+    dw srv_mkdir
+  %elif srv_c == NF_RMDIR
+    dw srv_rmdir
+  %elif srv_c == NF_COPY
+    dw srv_copy
+  %elif srv_c == NF_ENUM
+    dw srv_enum
+  %elif srv_c == NF_RMTREE
+    dw srv_rmtree
+  %elif srv_c == NW_OPEN
+    dw nw_s_open
+  %elif srv_c == NW_LISTEN
+    dw nw_s_listen
+  %elif srv_c == NW_ACCEPT
+    dw nw_s_accept
+  %elif srv_c == NW_STAT
+    dw nw_s_stat
+  %elif srv_c == NW_SEND
+    dw nw_s_send
+  %elif srv_c == NW_RECV
+    dw nw_s_recv
+  %elif srv_c == NW_CLOSE
+    dw nw_s_close
+  %elif srv_c == NW_ADDR
+    dw nw_s_addr
+  %else
+    dw srv_nop                  ; no such verb: read and ignored
+  %endif
+  %assign srv_c srv_c + 1
+%endrep
 
-.fwrite:
-    call srv_write
-    jc  .out
-    jmp .cmd
-.fappend:
-    call srv_append
-    jc  .out
-    jmp .cmd
-.fdelete:
-    call srv_delete
-    jc  .out
-    jmp .cmd
-.frename:
-    call srv_rename
-    jc  .out
-    jmp .cmd
-.fmkdir:
-    call srv_mkdir
-    jc  .out
-    jmp .cmd
-.frmdir:
-    call srv_rmdir
-    jc  .out
-    jmp .cmd
-.frmtree:
-    call srv_rmtree
-    jc  .out
-    jmp .cmd
-.fcopy:
-    call srv_copy
-    jc  .out
-    jmp .cmd
+srv_nop:
+    clc
+    ret
 
-.flist:
-    call srv_list
-    jc  .out
-    jmp .cmd
-.fenum:
-    call srv_enum
-    jc  .out
-    jmp .cmd
-.fchdir:
-    call srv_chdir
-    jc  .out
-    jmp .cmd
-.fdfree:
-    call srv_dfree
-    jc  .out
-    jmp .cmd
-.fstat:
-    call srv_stat
-    jc  .out
-    jmp .cmd
-.fread:
-    call srv_read
-    jc  .out
-    jmp .cmd
-.freadat:
-    call srv_readat
-    jc  .out
-    jmp .cmd
+; --- srv_bye - NC_BYE: the master is done, and so is serve ------------------
+srv_bye:
+    mov si, s_bye
+    call puts
+    stc                         ; ...which serve reads as the end of the run
+    ret
 
-.info:
+; --- the block-mode verbs (SPEC.md 62.10): CF=1 = the link went away -------
+blk_info:
     mov al, NST_OK
     call lp_sbyte
-    jc  .out
+    jc  .ret
     mov ax, [nsecs]
     call lp_sword
-    jc  .out
+    jc  .ret
     mov al, [roflag]
     call lp_sbyte
-    jc  .out
-    jmp .cmd
+.ret:
+    ret
 
-.read:
+blk_read:
     ; ONE COMMAND, `count` FRAMES OF {status, 512 bytes}. Every frame is 512
     ; bytes whatever the status says, so a sector this side refuses cannot
     ; leave the master waiting for data that is not coming - see net.asm's
     ; protocol header.
     call get_req                ; DX = LBA, CL = count
-    jc  .out
+    jc  .ret
     mov [nrun], cl
     or  cl, cl
-    jz  .cmd
+    jz  .ret                    ; (`or` cleared CF)
 .rsec:
     mov byte [rstat], NST_OK
     call seek_lba
@@ -724,38 +684,39 @@ serve:
 .rgo:
     mov al, [rstat]
     call lp_sbyte
-    jc  .out
+    jc  .ret
     mov si, secbuf
     mov cx, 512
 .rsend:
     lodsb
     call lp_sbyte
-    jc  .out
+    jc  .ret
     loop .rsend
     inc dx
     dec byte [nrun]
     jnz .rsec
     call tick_dot               ; one dot per RUN now, not per sector: it is
-    jmp .cmd                    ; console output in the middle of a transfer,
-                                ; and the master is waiting through it
+    clc                         ; console output in the middle of a transfer,
+.ret:                           ; and the master is waiting through it
+    ret
 
-.write:
+blk_write:
     ; The mirror: the whole run's data arrives first, then one status byte per
     ; sector goes back. The bytes are consumed whether or not they are kept,
     ; for the reason above.
     call get_req
-    jc  .out
+    jc  .ret
     mov [nrun], cl
     mov [nrun2], cl
     or  cl, cl
-    jz  .cmd
+    jz  .ret                    ; (`or` cleared CF)
     mov si, dx                  ; SI = the LBA, so DX is free for int 21h
 .wsec:
     mov di, secbuf
     mov cx, 512
 .wrecv:
     call lp_rbyte
-    jc  .out
+    jc  .ret
     mov [di], al
     inc di
     loop .wrecv
@@ -794,20 +755,11 @@ serve:
 .wsend:
     lodsb
     call lp_sbyte
-    jc  .out
+    jc  .ret
     loop .wsend
     call tick_dot
-    jmp .cmd
-
-.bye:
-    mov si, s_bye
-    call puts
-.out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    clc
+.ret:
     ret
 
 ; -----------------------------------------------------------------------------

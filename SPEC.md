@@ -104222,6 +104222,35 @@ a DOS user sees on the console changes and nothing on the wire does.
    and each `jmp` that replaced one carried a displacement nothing else
    shares. What costs a file byte here is a call or jump DISPLACEMENT, which
    is unique per site.
+4. **`serve` indexes a table instead of walking a chain** (file −210). The
+   command loop compared the letter against 27 verbs in turn and jumped to a
+   stub per verb that called the routine and then tested CF - 27 compares
+   and 23 stubs, nearly every byte of it a unique displacement. Every verb
+   is a letter from `'A'` to `'w'`, so `srv_tab` is one word per letter (55,
+   built with `%rep` from the same equates IN THE CHAIN'S ORDER, so a letter
+   two verbs shared would still go to the first) and the loop is `sub` /
+   `cmp` / `ja` / `cbw` / `xchg` / `shl` / `call [srv_tab+bx]`. The one
+   distinction the stubs carried survives as the table's halves: an upper-case
+   letter is a FILE or block verb whose CF=1 means the link went away and
+   ends `serve`, a lower-case one is a SOCKET verb (§62.11.1) whose CF is
+   not the link's verdict and is ignored, exactly as the stubs did. A letter
+   no verb has goes to `srv_nop` and is read and ignored, as before. The
+   inline block-mode bodies became `blk_info`, `blk_read` and `blk_write`,
+   their transfer loops unchanged instruction for instruction, and `NC_BYE`
+   is `srv_bye`, which prints and returns CF=1.
+
+   **The cost, PREDICTED from the 8088's timings and not measured**: the
+   table path is ~19 bytes and ~100 clocks to the handler whatever the verb,
+   where the chain was ~16 clocks a compare plus ~50 for the stub, so the
+   break-even is the chain's third verb. The first three were `NC_INFO`,
+   `NC_READ` and `NC_WRITE` - block mode, which no os8088 can send any more
+   (§62.10: `NET.DRV` publishes no `DSV_BLK`) - and they are now up to ~20
+   clocks slower; every verb an os8088 does send is faster, from about even at
+   `NC_BYE` to ~400 clocks at `NW_ADDR`, and the polled socket verbs (`s`,
+   `r`, `w`, the 23rd to 25th) by ~300. That is microseconds against a
+   command that moves bytes over a cable, so it is not what the rule against
+   a slower hot path is about either way - but it is the number to take on
+   MartyPC if anyone doubts it.
 
 ## 63. The logo (`tools/os88logo.py`, `MEDIA/OS8088.GIF`)
 
