@@ -1007,6 +1007,9 @@ te_reply:
 ; -----------------------------------------------------------------------------
 ; te_toggle - the Connect / Close button, and Return in the host box
 ; -----------------------------------------------------------------------------
+%if TS_OPEN != 1 || TS_WAIT != TS_OPEN + 1
+  %error "te_toggle tests TS_OPEN..TS_WAIT as `dec`, then one unsigned compare"
+%endif
 te_toggle:
     push ax
     mov al, [te_state]
@@ -1025,10 +1028,10 @@ te_toggle:
                                     ; are in the browser (SPEC.md 71.8), and
                                     ; what follows a finished session is a new
                                     ; one
-    cmp al, TS_OPEN
-    je .out                         ; ...on its way: a second click is not a
-    cmp al, TS_WAIT                 ; second connection
-    je .out
+    dec ax                          ; TS_OPEN or TS_WAIT, one unsigned range
+    cmp al, TS_WAIT - TS_OPEN       ; (AH is the frame's, popped at .out)
+    jbe .out                        ; ...on its way: a second click is not a
+                                    ; second connection
     mov byte [te_state], TS_OPEN    ; TS_IDLE, TS_DOWN and TS_ERR all connect
     mov byte [te_want], 0           ; ...and a close asked for on a session
     mov word [te_msg], 0            ; that has already ended is not owed

@@ -301,7 +301,6 @@ tz_fail:
     push ax
     push cx
     push si
-    mov [tz_why], si
     mov si, tz_cancels
     mov cx, TZ_CANS
     call te_reply                   ; ...whole or not at all (SPEC.md 70.10.3)
