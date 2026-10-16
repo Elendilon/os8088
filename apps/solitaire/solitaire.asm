@@ -3057,9 +3057,11 @@ sol_ic_ring:
 ; of letting the clamp do it means the template and the record agree from the
 ; very first paint.
 ; -----------------------------------------------------------------------------
-sol_entry:
-    push si
-    push di
+sol_entry:                          ; (SI and DI are not saved: SPEC.md
+                                    ; 20.2 asks an entry proc for BX and CF
+                                    ; and nothing else, and the loader
+                                    ; reloads every register it reads after
+                                    ; the call - SPEC.md 43.11.7)
     call OSAPI_VIDEO                ; AX=w, BX=h, CX=dock top row, DH=bpp
     mov [sol_bpp], dh
     push ax                         ; the width and the dock row are for the
@@ -3197,17 +3199,14 @@ sol_entry:
                                     ; it preserves the flags for the same
                                     ; reason: the CF above is the loader's
 %endif   ; SOLF_ABOUT
-    pop di
-    pop si
     jmp sol_mkback                  ; ...and LAST, the card back, over these
                                     ; very bytes: a tail jump, so nothing here
                                     ; runs after it starts writing. It keeps
                                     ; every register and answers CF = 0, which
                                     ; is the loader's "go" (BX is the window)
-.full:
-    pop di                          ; no window: CF = 1 rides out, and the
-    pop si                          ; region is the loader's to free - the
-    ret                             ; back is never needed
+.full:                              ; no window: CF = 1 rides out, and the
+    ret                             ; region is the loader's to free - the
+                                    ; back is never needed
 
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes SOL_BSS bytes after the image, and

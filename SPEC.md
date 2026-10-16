@@ -79182,6 +79182,7 @@ half of `sol_mkback`, which run at launch and on an adapter change only.
 | change | file, full | file, small | image + bss |
 |---|---:|---:|---:|
 | the metric records carry their DERIVED fields | −58 | −52 | −47 / −47 |
+| `sol_entry` saves no registers | −6 | −6 | 0 / 0 |
 
 **The metric records carry their derived fields.** `sol_metrics` copied a
 record of fourteen bytes into words and then worked out four more from them -
@@ -79196,6 +79197,14 @@ and `sol_metrics` leaves SI on them, so `sol_entry` reads its window size
 with two `lodsw` where it re-derived the width and picked the height on a
 compare. An assembly-time `%if` keeps the eighteen words contiguous in
 `.bss`.
+
+**`sol_entry` saves no registers.** It pushed SI and DI and popped them on
+both exits, and nothing asks it to: §20.2's entry contract is BX and CF out,
+and the loader (`ld_start`) reloads every register it reads after the far
+call - DI from `[ld_rec]`, SI and BP before their next use, on the success,
+abort and re-home paths alike. Six bytes, and none of them RAM: the entry
+proc is under the card back (§43.11.6), so its length moves bytes between
+the image and the `.bss` and leaves the sum where it was.
 
 ### 43.12 `APP_SMALL` — the small build of this package
 
