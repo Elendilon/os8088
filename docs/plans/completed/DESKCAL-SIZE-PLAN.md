@@ -1,10 +1,58 @@
 # DESKCAL size plan
 
-**PLAN, nothing built.** This plan is for cutting `DESKCAL.O88` (SPEC.md
-110.3) down from 18,976 bytes of image and 16,171 on disk. It is built on
+**BUILT - A, B and D; C left out on the measurement; E refused by the
+owner.** SPEC.md 110.6's size-pass table is the ledger and SPEC.md 110.3 /
+110.5.2 / 110.7 the contract; this file is the design record. `DESKCAL.O88`
+went **18,976 -> 13,680 bytes of image (-27.9%) and 16,171 -> 12,535 on
+disk (16 -> 13 clusters)**, against this plan's own A-D estimate of
+14.6-15.5 KB. Read *What happened* below before the tiers - three of them
+landed somewhere other than where they were priced.
+
+Its original framing follows. It was built on
 docs/reports/DESKCAL-SIZE-2026-10-16.md, which has the per-routine
 figures. **Owner's brief**: functionality may change if the core look and
 features survive.
+
+## What happened
+
+- **A** measured -1,344 and shipped as priced, with two changes the owner
+  asked for or the build forced. The greyed items' *why* twins went as well
+  (the owner: "just not show them"): one `MENU_DIS` byte in front of each
+  greyable string makes the greyed form `pointer - 1`, and Show Tasks is
+  dropped from the menu where both lists show (-240). The damaged-file
+  answer was first a RENAME to `DESKCAL.BAD`, and `deskcaledit` B showed
+  that copy's three clusters were exactly what the 360 KB system disk's
+  second save needed - so it is a DELETE before the write now
+  (`STIK_DMGREPLACE`), which is the old Yes without the question.
+- **The small build** was the owner's suggestion and is a tier this plan
+  did not have: `STIK_DESKONLY` takes the titled fallback and the worker arm
+  out of kern_big's build (-336), and `make small` ships the `-DAPP_SMALL`
+  build that keeps them (SPEC.md 110.7). On kern_big a refused QUERY now
+  refuses the launch, said (`stiknodesk`).
+- **B was worth more than estimated**: -2,996 against -1,500 to -2,200,
+  from four agents in parallel worktrees, one per file group, each held to
+  the cross-file contracts. Two of them (`dcdraw.inc`; `dcdate`/`dcdata`/
+  `dcrem`) checked their code against the old on a host 8086 emulator
+  (unicorn) before anything booted - 0 mismatches across ~123,000 compared
+  states; the other two were assembled and read, and the `deskcal*`,
+  `stik*` and desk-probe rows are their gate. The register convention was the smaller half;
+  folding single-caller routines, shared epilogues reached by `jmp`, table
+  dispatch for keys and card roles, and shared string tails were the rest.
+- **D** shipped as priced (-352 with `OS88UI_MACROS`, which lets a package
+  carry `os88line.inc` without any `os88ui.inc` control).
+- **C was not built.** B's `dcdraw.inc` pass had already shared the grid,
+  slot and dispatch arithmetic (`dc_hgrid`, `dc_hslot`, `dc_rolej`), and
+  what is left of the hit tests - ~700 bytes - is special cases rather
+  than repeated layout: the open field, COMPACT's page, the pagers, a label
+  whose width is its text's and a number whose width is its digits' times
+  its scale. A table would need an escape for each, for 100-200 bytes at
+  real risk to every press.
+- **E** the owner refused.
+- **The defect this found**: on the shipped 360 KB system disk the
+  calendar went READ-ONLY after its first save - a replace claims its new
+  chain before freeing the old, and 6 free clusters held SYSTEM.CFG and
+  one copy of the three-cluster state file but not two. It was red on
+  `elendilon-next` in four rows; three clusters of this pass fixed it.
 
 ## 0. What it is worth
 

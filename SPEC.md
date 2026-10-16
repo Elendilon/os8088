@@ -185642,7 +185642,7 @@ says - `N` at 48 answers `Calendar is full (48)` - or plain on the card. The
 app-name cell carries About and the kernel's Close, through `os88stik.inc`'s
 negotiator. **About is one toast**, `Desk Calendar, SPEC 110`, and draws
 nothing on the face: the About card that lay over it, and its take-down
-repaint, went in the size pass (docs/plans/DESKCAL-SIZE-PLAN.md).
+repaint, went in the size pass (docs/plans/completed/DESKCAL-SIZE-PLAN.md).
 
 **The one-line entry** (`os88line.inc`) takes card 2's HEADING ROW (the
 slot's on COMPACT): content x 4..155, so the `+` stays, rows heading - 3 ..
@@ -186344,6 +186344,40 @@ each (it crossed a 1 KB boundary), so the shipped 360 KB system disk was
 320 of 354; the review fixes' 229 lz4 bytes crossed one more, and it is
 **321 of 354, 33 left**. The state file is three more clusters at runtime,
 in `SYSTEM\APPDATA`, the first time the calendar is closed or moved.
+
+**The size pass** (docs/plans/completed/DESKCAL-SIZE-PLAN.md, on the owner's
+brief: a calendar, appointments and reminders are not worth 23 KB; the
+breakdown it started from is docs/reports/DESKCAL-SIZE-2026-10-16.md). No
+kernel byte moved. MEASURED off the build:
+
+| | image | bss | on disk (lz4) |
+|---|---:|---:|---:|
+| `DESKCAL.O88` before it | 18,976 | 3,709 | 16,171 (16 clusters) |
+| no alert, About a toast, greyed items without twins | 17,040 | 3,709 | |
+| `STIK_DESKONLY` (the titled fallback and the worker arm to the small build) | 16,704 | 3,709 | 14,340 |
+| `os88stik.inc`'s pass | 16,048 | 3,709 | |
+| `deskcal.asm`'s pass | 15,056 | 3,709 | |
+| `dcdate`/`dcdata`/`dcrem`'s pass | 14,464 | 3,709 | |
+| **`dcdraw.inc`'s pass - today** | **13,680** | 3,709 | **12,535 (13 clusters)** |
+| the small build (`build/smallapp/`, kern_small's disks) | 14,016 | 3,709 | 12,791 |
+
+-5,296 bytes of image, 27.9%, and three clusters of the 360 KB system disk:
+346 of 354 against `elendilon-next`'s 349. **Those clusters were a defect
+and not only a saving**: the calendar's state file is three clusters and a
+replace claims its new chain before it frees the old one (§18.4), so the
+second save of a session needed three free clusters beside the first copy
+and SYSTEM.CFG's - and with 6 left it got `FERR_FULL` and went read-only
+for the session (`stik_st` 0x33; `deskcaltask`, `deskcalremind`,
+`deskcalsnooze` and `deskcaledit` all red on `elendilon-next` for exactly
+that). At 347 and below it saves. What the user sees changed is in §110.3:
+Delete pressed twice, About a toast, greyed items in their own words, and
+a damaged file replaced without a question (§110.5.2). The bss did not move:
+2,456 of its 3,709 bytes are the payload's capacity, a file-format constant.
+**Nothing got slower**: `deskcalperf` A/B on one box against
+`elendilon-next`, VGA TALL, the first paint **264 -> 254 ms**, a day select
+70 -> 68, a month 152 -> 146, a tick 13 -> 14, every call count identical
+(19 / 4 / 8 / 1); CGA's first paint is 156 ms in 12 calls. About is now
+0 calls on the cards where its take-down was 6 calls and 54 ms.
 
 ### 110.7 `kern_small`
 

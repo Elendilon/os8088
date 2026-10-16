@@ -21,7 +21,7 @@ kernel's wm_top answered by tools/os88geom.py's mirror of it.
 
 It was this row's subject that Del put up an `os88ui_ask` question which
 landed ABOVE every application and took the bar; the size pass
-(docs/plans/DESKCAL-SIZE-PLAN.md) replaced that question with pressing
+(docs/plans/completed/DESKCAL-SIZE-PLAN.md) replaced that question with pressing
 twice, and nothing in the shipped tree creates a window from a widget now.
 
 **BREAK IT ON PURPOSE**: put an os88ui_ask back in dc_askdel and B fails on
