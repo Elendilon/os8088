@@ -342,18 +342,8 @@ ap_entry:
     jc .nodoc
     ; SI -> name in KERNEL_SEG; ES is KERNEL_SEG on entry - copy it out
     mov di, ap_arg_name
-    mov cx, 16
-.cpn:
-    mov al, [es:si]
-    mov [di], al
-    inc si
-    inc di
-    or al, al
-    jz .cpndone
-    dec cx
-    jnz .cpn
-.cpndone:
-    mov byte [ap_arg_name+15], 0
+    mov cx, 15
+    call ap_kcopy                 ; (apcb.inc)
     mov [ap_arg_dir], dx
     mov [ap_arg_vol], bl
     mov byte [ap_arg_pending], 1
@@ -424,7 +414,7 @@ ap_entry:
     call OSAPI_WM_ONCLOSE
 
     mov word [ap_msg], ap_s_ready  ; (no card: the speaker, SPEC.md 86.21)
-    mov byte [ap_state], AP_ST_STOP
+                                   ; ([ap_state] is AP_ST_STOP: bss is zeroed)
 
     ; The loader shows the window AFTER the entry proc returns, so the first
     ; W_PAINT can run before wm_fit has settled the frame and OSAPI_WM_GEOM /
@@ -494,10 +484,10 @@ ap_it_shuf:  db 'Shuffle', 0
 ap_it_rep:   db 'Repeat', 0
 
 ap_l_prev:  db 'Prev', 0
-ap_l_play:  db 'Play', 0
-ap_l_pause: db 'Pause', 0
-ap_l_stop:  db 'Stop', 0
-ap_l_next:  db 'Next', 0
+ap_l_play  equ ap_it_play          ; the button captions that are the Play
+ap_l_pause equ ap_it_pause         ; menu's own words are its strings
+ap_l_stop  equ ap_it_stop
+ap_l_next  equ ap_it_next
 ap_l_shuf:  db 'Shuf', 0
 ap_l_rep:   db 'Rep', 0
 
