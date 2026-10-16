@@ -4416,11 +4416,13 @@ vp_rdat:
     sub ax, si                      ; DX:AX = that cluster's start
     add cx, si                      ; the bytes owed from there, 17 bits
     mov [vp_rdend], cx
-    mov word [vp_rdend+2], 0
-    adc word [vp_rdend+2], 0
+    sbb di, di                      ; (the carry, as 0 or FFFFh...
+    neg di                          ; ...as 0 or 1)
+    mov [vp_rdend+2], di
     jnz .disk                       ; past 64 KB: the disk's
-    cmp cx, 0xFFFF                  ; (vp_xrdat rounds CX up to even)
-    je .disk
+    inc cx                          ; (vp_xrdat rounds CX up to even: FFFFh
+    jz .disk                        ; is the disk's)
+    dec cx
     call vp_xrdat                   ; HELD (98.3.18): a copy out of XMS
     jnc .ok
 .disk:
@@ -5550,6 +5552,7 @@ vp_xend:
     pop ax
     jbe .ok
     call vp_xfree
+.stc:                               ; (vp_xstep's "nothing left", too)
     stc
     ret
 .ok:
@@ -5560,11 +5563,11 @@ vp_xend:
 ; own cursor. out CF=1 nothing is left to load (or the hold is gone)
 vp_xstep:
     cmp byte [vp_xbank], 0          ; a bank fills while a play reads, not on
-    jne .done                       ; the timer
+    jne vp_xend.stc                 ; the timer
     cmp byte [vp_xon], 0
-    je .done
+    je vp_xend.stc
     cmp byte [vp_xfull], 0
-    jne .done
+    jne vp_xend.stc
     push ax
     push bx
     push cx
@@ -5655,9 +5658,8 @@ vp_xstep:
     pop ax
     clc
     ret
-.done:
-    stc
-    ret
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
 
 ; =============================================================================
 ; THE BANK (docs/plans/VIDEO-XMS-PLAN.md 4): a file BIGGER than the pool. The
@@ -15091,9 +15093,20 @@ vp_hook:
     cld                             ; DF is the interrupted code's (vp_nextw)
     add [vp_hper], ax               ; (the bracket's clock, 98.1.9.3)
     cmp byte [vp_ready], 0
-    je .ret
+    je .ret0
     cmp byte [vp_upause], 0         ; paused (98.3.4): the periods are not
-    jne .paused                     ; the play's
+    je .play                        ; the play's...
+    cmp byte [vp_pfresh], 0         ; ...EXCEPT THE PAUSE'S FIRST CALL'S: AX
+    je .ret0                        ; is every period since the last call,
+    mov byte [vp_pfresh], 0         ; and those PLAYED - through the shadow a
+    add [vp_pers], ax               ; call is a whole copy long, so Space
+    cmp byte [vp_snd], 0            ; lands between two calls with 5 or 6
+    jne .ret0                       ; periods pending, which were dropped and
+    add [vp_owed], ax               ; the picture ran that far behind the
+.ret0:                              ; clock (98.3.4). Owed, they are drawn on
+    ret                             ; the resume's first call
+    nop                             ; (never run: .play, every call's, on the
+.play:                              ; word parity the hook had)
     add [vp_pers], ax
     cmp ax, [vp_gap]                ; the longest the hook was held off: a
     jbe .g                          ; picture late for THAT is the machine's,
@@ -15109,7 +15122,7 @@ vp_hook:
     div bx                          ; at IF=0
     mov [vp_owed], dx
     mov cx, ax
-    jcxz .ret
+    jcxz .ret0
     cmp cx, [vp_fcap]
     jbe .n
     sub cx, [vp_fcap]
@@ -15146,25 +15159,13 @@ vp_hook:
 .stop:
     mov bl, [vp_pitper]             ; still a frame owed after them: behind
     xor bh, bh
-    xor al, al
-    cmp [vp_owed], bx
-    jb .copy
-    inc ax
-.copy:
+    cmp [vp_owed], bx               ; (AL = 1 not below, 0 below: no branch)
+    sbb al, al
+    inc al
     call vp_blitck                  ; the shadow's band, once for them all
     call vo_post                    ; ...and the text back over it
     cli
-.ret:
     ret
-.paused:                            ; ...EXCEPT THE PAUSE'S FIRST CALL'S: AX
-    cmp byte [vp_pfresh], 0         ; is every period since the last call,
-    je .ret                         ; and those PLAYED - through the shadow a
-    mov byte [vp_pfresh], 0         ; call is a whole copy long, so Space
-    add [vp_pers], ax               ; lands between two calls with 5 or 6
-    cmp byte [vp_snd], 0            ; periods pending, which were dropped and
-    jne .ret                        ; the picture ran that far behind the
-    add [vp_owed], ax               ; clock (98.3.4). Owed, they are drawn on
-    ret                             ; the resume's first call
 .snd:                               ; --- the card's clock (SPEC.md 98.3.1)
     call vp_adue                    ; CX = frames due, [vp_due] set
     jcxz .top
@@ -15186,12 +15187,10 @@ vp_hook:
     loop .f2
 .top:
     sti
-    xor al, al                      ; still frames due after them: behind
-    mov bx, [vp_due]
-    cmp bx, [vp_vseq]
-    jbe .tc
-    inc ax
-.tc:
+    mov bx, [vp_due]                ; still frames due after them: behind
+    cmp [vp_vseq], bx               ; (AL = 1 when vseq < due: no branch)
+    sbb al, al
+    neg al
     call vp_blitck
     call vo_post
     call vp_afill                   ; the audio a few frames ahead of the card
@@ -15900,8 +15899,27 @@ vp_frame:
     cmp al, 1
     je .theend
     cmp al, 2
-    je .badsp
-    jmp .badrec
+    jne .badrec
+%ifdef VP_RDLOG
+    call vp_prbad
+%endif
+    mov word [vp_errmsg], vp_s_badsp
+    jmp short .err
+.badrec:
+    mov word [vp_errmsg], vp_s_badrec
+.err:
+    mov byte [vp_err], 1
+    mov byte [vp_end], 1
+    stc
+    ret
+.stall:                             ; (the ends, here in a short jump's
+    inc word [vp_stall]             ; reach of the frame's tests: each was a
+    stc                             ; jump over a jump, taken every frame)
+    ret
+.theend:
+    mov byte [vp_end], 1
+    stc
+    ret
 .dec:
 %ifdef VP_DIAG
     call vp_prt1                    ; (...and its draw)
@@ -15985,27 +16003,6 @@ vp_frame:
     inc ax
     mov [vp_done], ax
     clc
-    ret
-.stall:
-    inc word [vp_stall]
-    stc
-    ret
-.theend:
-    mov byte [vp_end], 1
-    stc
-    ret
-.badsp:
-%ifdef VP_RDLOG
-    call vp_prbad
-%endif
-    mov word [vp_errmsg], vp_s_badsp
-    jmp short .err
-.badrec:
-    mov word [vp_errmsg], vp_s_badrec
-.err:
-    mov byte [vp_err], 1
-    mov byte [vp_end], 1
-    stc
     ret
 
 ; vp_flipdec - DX:SI = a record, played with PAGE FLIPPING (98.3.8): the
