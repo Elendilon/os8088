@@ -552,9 +552,9 @@ tz_poll:
     ; unsuitable destination. The cluster is a per-FILE fact and the next file
     ; may be saved somewhere else.
     ;
-    ; **AND THE SENTENCE IS COMPOSED ON THE UI TASK, not here.** tz_bigmsg
+    ; **AND THE SENTENCE IS COMPOSED ON THE UI TASK, not here.** tz_dlgdone
     ; writes tz_bmsg, which te_status reads under the gfx lock. Composing here
-    ; would have put a second TASK on that buffer for the first time. tz_chunk_set already knows the cluster
+    ; would have put a second TASK on that buffer for the first time. tz_dlgdone's chunk sizing already knows the cluster
     ; is too big and already runs on the UI task, so it composes the sentence
     ; there and this arm only points at it.
     mov si, tz_bmsg
@@ -1786,7 +1786,7 @@ tz_wake:
                                     ; this proc's own epilogue
 
 ; -----------------------------------------------------------------------------
-; te_pop7 / te_pop6 / te_pop5 / te_pop4 - THE SHARED EPILOGUE: pop the last N
+; te_pop7 / te_pop6 / te_pop5 - THE SHARED EPILOGUE: pop the last N
 ; of AX BX CX DX SI DI ES, in push order, and return. A COLD routine that
 ; pushed the first N of that list ends in `jmp te_popN` instead of its own pops
 ; - three bytes where five to eight were. The byte paths (tz_byte, te_csidisp,
@@ -1794,7 +1794,8 @@ tz_wake:
 ; It is OS88_POPLADDER's ladder (SPEC.md 20.5) WRITTEN OUT, for Note Pad's
 ; reason: tools/stkbalance.py could not then see a macro's labels (it can since
 ; shared round 2, SPEC.md 20.5). Every rung below is
-; jumped to, because the walker enters an unreferenced label at depth 0.
+; jumped to, because the walker enters an unreferenced label at depth 0 - which
+; is why te_pop4 went when apps size pass 2 inlined its last two users.
 ; -----------------------------------------------------------------------------
 te_pop7:
     pop es
@@ -1802,7 +1803,6 @@ te_pop6:
     pop di
 te_pop5:
     pop si
-te_pop4:
     pop dx
     pop cx
     pop bx
@@ -1818,67 +1818,6 @@ te_pop4:
 ; 4.77 MHz. SPEC.md 77.40 is the precedent - FTPD asked it per chunk and spent
 ; 44% of an upload inside it.
 ; -----------------------------------------------------------------------------
-; -----------------------------------------------------------------------------
-; tz_chunk_set - DFREE, and the chunk from the DESTINATION's cluster
-; out: CF=1 the cluster is over 8,192 and the transfer is refused
-;
-; **IT IS ASKED AFTER THE DIALOG ANSWERS, NOT BEFORE IT** (the w4 review's
-; MAJOR 2). The Save dialog has a Drive button (SPEC.md 38.11), and
-; `fdlg_home_save` records the volume the user landed on into the instance
-; before the completion proc runs - which is exactly what makes tz_commit's
-; bare-name write land there (SPEC.md 38.10). Sized before the question, the
-; chunk describes the volume the terminal was LAUNCHED from: a 4,096 chunk
-; against a partition with 8 KB clusters creates the file and then answers
-; FERR_NAME on the first OSAPI_FILE_APPEND, and the user is shown `Disk error`
-; and a 4 KB stump of a 40 KB file with an innocent disk. The over-8,192
-; refusal was never reached through that door at all.
-;
-; The worker stages nothing until it reads [tz_rst] (tz_poll's `.chosen`), so
-; the chunk is still fixed before the first byte lands. This runs on the UI
-; task with the gfx lock held and DFREE does no disk I/O, so it is the same
-; 105 ms it always was, just asked one question later.
-; -----------------------------------------------------------------------------
-tz_chunk_set:
-    push ax
-    push bx
-    push cx
-    push dx
-    call OSAPI_FILE_DFREE           ; BX = SECTORS per cluster
-    jc .assume
-    or bl, bl
-    jnz .have
-.assume:
-    mov bx, 1                       ; every floppy, and the safe assumption for
-.have:                              ; a volume nothing has asked about: too
-    xor bh, bh                      ; SMALL a chunk is merely more commits
-    mov ax, bx
-    mov cx, 512
-    mul cx                          ; DX:AX = the cluster in bytes
-    or dx, dx
-    jnz .big                        ; a cluster over 64KB is not a thing this
-    mov bx, ax                      ; kernel mounts (SPEC.md 18.7)
-    mov [tz_clus], bx               ; ...and the FACT a refusal names (SPEC.md 47)
-    cmp bx, TZ_HALF
-    ja .single
-    mov ax, TZ_HALF
-    xor dx, dx
-    div bx                          ; whole clusters in a half...
-    mul bx                          ; ...and back to bytes, which is 4,096 for
-    mov [tz_chunk], ax              ; every power-of-two cluster at or below it
-    mov byte [tz_dbl], 1
-    jmp short .ok
-.single:
-    cmp bx, TZ_STGSZ
-    ja .big
-    mov [tz_chunk], bx              ; 4,097..8,192: the whole area, SINGLE-
-    mov byte [tz_dbl], 0            ; buffered - the worker fills it, then waits
-.ok:
-    clc
-    jmp te_pop4                     ; ...and `pop` writes no flag
-.big:
-    stc
-    jmp te_pop4
-
 tz_dlgopen:
     push ax
     push bx
@@ -1994,6 +1933,7 @@ tz_dlgdone:
     push ax
     push bx
     push cx
+    push dx
     push si
     push di
     or byte [tz_diag], 8
@@ -2015,12 +1955,72 @@ tz_dlgdone:
 .term:
     mov byte [bx], 0
     mov byte [tz_rst], TZR_OK
-    call tz_chunk_set               ; **THE DESTINATION's cluster, and the
-    jnc .sized                      ; question is asked HERE because the Drive
-    mov byte [tz_rst], TZR_BIG      ; button may have moved it (the w4 review's
-    call tz_bigmsg                  ; MAJOR 2) - and the refusal's sentence is
-.sized:                             ; composed here too, so tz_bmsg keeps its
-                                    ; one-task property
+    ; ---------------------------------------------------------------------
+    ; THE CHUNK - DFREE, and the chunk from the DESTINATION's cluster (it was
+    ; tz_chunk_set, inline since apps size pass 2: this was its one caller). A
+    ; cluster over 8,192 refuses the transfer, and the refusal's sentence is
+    ; composed here too (it was tz_bigmsg), so tz_bmsg keeps its one-task property.
+    ;
+    ; **IT IS ASKED AFTER THE DIALOG ANSWERS, NOT BEFORE IT** (the w4 review's
+    ; MAJOR 2). The Save dialog has a Drive button (SPEC.md 38.11), and
+    ; `fdlg_home_save` records the volume the user landed on into the instance
+    ; before the completion proc runs - which is exactly what makes tz_commit's
+    ; bare-name write land there (SPEC.md 38.10). Sized before the question, the
+    ; chunk describes the volume the terminal was LAUNCHED from: a 4,096 chunk
+    ; against a partition with 8 KB clusters creates the file and then answers
+    ; FERR_NAME on the first OSAPI_FILE_APPEND, and the user is shown `Disk error`
+    ; and a 4 KB stump of a 40 KB file with an innocent disk. The over-8,192
+    ; refusal was never reached through that door at all.
+    ;
+    ; The worker stages nothing until it reads [tz_rst] (tz_poll's `.chosen`), so
+    ; the chunk is still fixed before the first byte lands. This runs on the UI
+    ; task with the gfx lock held and DFREE does no disk I/O, so it is the same
+    ; 105 ms it always was, just asked one question later.
+    ; ---------------------------------------------------------------------
+    call OSAPI_FILE_DFREE           ; BX = SECTORS per cluster
+    jc .assume
+    or bl, bl
+    jnz .have
+.assume:
+    mov bl, 1                       ; every floppy, and the safe assumption for
+.have:                              ; a volume nothing has asked about: too
+    mov ah, bl                      ; SMALL a chunk is merely more commits.
+    xor al, al                      ; AX = BL * 512, the cluster in bytes, and
+    shl ax, 1                       ; CF = it did not fit sixteen bits
+    jc .big                         ; a cluster over 64KB is not a thing this
+    mov bx, ax                      ; kernel mounts (SPEC.md 18.7)
+    mov [tz_clus], bx               ; ...and the FACT a refusal names (SPEC.md 47)
+    cmp bx, TZ_HALF
+    ja .single
+    mov ax, TZ_HALF
+    xor dx, dx
+    div bx                          ; whole clusters in a half...
+    mul bx                          ; ...and back to bytes, which is 4,096 for
+    mov [tz_chunk], ax              ; every power-of-two cluster at or below it
+    mov byte [tz_dbl], 1
+    jmp short .sized
+.single:
+    cmp bx, TZ_STGSZ
+    ja .big
+    mov [tz_chunk], bx              ; 4,097..8,192: the whole area, SINGLE-
+    mov byte [tz_dbl], 0            ; buffered - the worker fills it, then waits
+    jmp short .sized
+.big:
+    mov byte [tz_rst], TZR_BIG
+    ; `Cluster 16,384 too big` (SPEC.md 47): **THE FACT AND NOT THE WORD.**
+    ; SPEC.md 70.11.3 says the status line names the cluster size, and SPEC.md
+    ; 47's rule is that a refusal states a fact a person can act on - "too
+    ; large" is a judgement and 16,384 is the number they can take to a
+    ; different disk.
+    mov di, tz_bmsg                 ; **ITS OWN BUFFER.** tz_msg is the progress
+    mov si, tz_s_big                ; line and te_status rewrites it on every
+    call tz_scopy                   ; draw, so a refusal composed there is a
+    mov ax, [tz_clus]               ; refusal nobody ever reads
+    xor dx, dx
+    call dec_u32
+    mov si, tz_s_big2
+    call tz_scopy
+.sized:
     mov byte [tz_req], TZ_NONE      ; ...LAST, and BEFORE the paint below, which
                                     ; is the whole of the cancel inference: on a
                                     ; COMMIT this runs before the UI loop
@@ -2033,12 +2033,7 @@ tz_dlgdone:
 .out:
     call tz_sfree                   ; a transfer that ENDED while its dialog was
                                     ; up has no worker left to kick a wake
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp te_pop6
 
 ; -----------------------------------------------------------------------------
 ; tz_cancelck - A W_PAINT ARRIVING WHILE [tz_dlg] IS SET IS THE CANCEL
@@ -2234,30 +2229,6 @@ tz_text:
     mov dx, [tz_fsz+2]
     call dec_u32                    ; ...which ends the line with its NUL
     jmp te_pop6
-
-; --- tz_bigmsg - out SI = `Cluster 16,384 too big` (SPEC.md 47) --------------
-; **THE FACT AND NOT THE WORD.** SPEC.md 70.11.3 says the status line names the
-; cluster size, and SPEC.md 47's rule is that a refusal states a fact a person
-; can act on - "too large" is a judgement and 16,384 is the number they can
-; take to a different disk.
-tz_bigmsg:
-    push ax
-    push di
-    push dx
-    mov di, tz_bmsg                 ; **ITS OWN BUFFER.** tz_msg is the progress
-    mov si, tz_s_big                ; line and te_status rewrites it on every
-                                    ; draw, so a refusal composed there is a
-    call tz_scopy                   ; refusal nobody ever reads
-    mov ax, [tz_clus]
-    xor dx, dx
-    call dec_u32
-    mov si, tz_s_big2
-    call tz_scopy
-    mov si, tz_bmsg
-    pop dx
-    pop di
-    pop ax
-    ret
 
 ; --- tz_scopy - the NUL string at SI to DI, NUL and all; AL is spent ----------
 ; out: SI past the NUL, DI ON it - so a second call appends

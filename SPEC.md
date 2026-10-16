@@ -113938,7 +113938,7 @@ second chunk, which answers **`FERR_NAME`** — so the user is shown `Disk error
 and a 4 KB stump of a 40 KB file, with an innocent disk. The over-8,192 refusal
 below was never reached through that door at all.
 
-`tz_chunk_set` therefore runs in `tz_dlgdone`, on the UI task, with the lock
+The chunk is therefore sized in `tz_dlgdone` (it was a proc of its own, `tz_chunk_set`, until §70.13), on the UI task, with the lock
 held and no disk I/O: the same 105 ms, one question later. The worker stages
 nothing until it reads `[tz_rst]`, so the chunk is still fixed before the first
 byte lands.
@@ -114599,6 +114599,7 @@ bss 6,077).
 | `tz_cp32`'s three callers passed one of two fixed pairs: `tz_mark0` ([tz_sub0] = [tz_rcv]) replaces it and falls into `tz_touch`, which is now `tz_touchq` with the retry count reset and falls into it; `tz_subok` reaches it as a tail. `tz_poll`'s resume (`min([tz_pos], [tz_sub0])`, §70.11.3) compares and copies inline with no SI/DI frame, and `tz_cmp32` goes. Per subpacket or per recovery, never per byte; `tz_touchq`, the one that IS per byte, is unchanged | `tezm.inc` | -22 |
 | `tz_hex` addresses its prefix off the pointer it ends at and loads the CRC bytes rather than the word twice; `tz_hex2` keeps the nibble in AH instead of a BX frame; `tz_hcrc`'s two epilogues are one, the answer riding the flags through the pops | `tz_hex`, `tz_hex2`, `tz_hcrc` | -7 |
 | `te_say3` and `te_wscroll`, one caller each, are inline in `te_option` and `te_screen`; the option reply stores AL and BL as one word, the NAWS arm joins the reply call instead of making its own, and `te_screen` leaves by two tail jumps. Same bytes to the host, same bounded wait | `te_option`, `te_screen` | -19 |
+| `tz_chunk_set` and `tz_bigmsg`, one caller each, are inline in `tz_dlgdone`, which takes DX into its frame and leaves by `te_pop6`; the cluster in bytes is `BL` shifted into AX with CF as the overflow instead of a `mul` and a test of DX. Once per file, on the UI task | `tz_dlgdone` | -31 |
 
 ## 71. The browser fetches (`apps/browser/brnet.inc`)
 

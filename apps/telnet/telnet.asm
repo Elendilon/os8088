@@ -2079,7 +2079,7 @@ te_tpl:
 ; with itself. Each line says which writer, and why that many.
 TZ_NAMEMAX  equ 13                  ; tz_dlgdone copies 12 and terminates
 TZ_MSGMAX   equ 44                  ; tz_text: 12 of name, 2, 13, 3, 13, NUL
-TZ_BMSGMAX  equ 23                  ; tz_bigmsg: `Cluster ` 8, [tz_clus] - a
+TZ_BMSGMAX  equ 23                  ; tz_dlgdone: `Cluster ` 8, [tz_clus] - a
                                     ; WORD, so `65,535` at most - 6, ` too big`
                                     ; 8 and the NUL. It was declared 32 against
                                     ; a guard of 30, which counted the number
