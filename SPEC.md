@@ -111859,6 +111859,15 @@ and code packs to about a byte a byte, so what moved it is code that went:
   double draw, one `gfx_fill` the size of the preview, on every long jump.
   `.full` is `tp_draw_preview` now, which sets the region whole itself; the
   last frame is the same picture and the white one before it is gone.
+- **The preview's two maps divide by the page as it is.** `tp_mapx`,
+  `tp_mapy` and the gutter in `tp_draw_sheet` each tested the page width or
+  height for 0 and divided by 612 or 792 instead - a guard nothing reaches:
+  `tp_pagesz` is the only writer of `[tp_pw]` and `[tp_ph]`, it reads them out
+  of `tp_pgtab` at `[tp_psize]`, which every writer keeps to 0..3, and every
+  caller of the three is behind a `tp_fit_sheet` or a `tp_ts_init`, which run
+  `tp_geom` and so `tp_pagesz` first. The divide takes the memory operand now,
+  and `tp_mapy` forms *height - y* as `neg` / `add`, so the two maps the run
+  painter calls per run each push one register fewer.
 
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 

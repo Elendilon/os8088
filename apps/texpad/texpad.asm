@@ -776,47 +776,40 @@ tp_fit_sheet:
     div cx
     ret
 
-; AX = PDF x -> AX = screen x
+; AX = PDF x -> AX = screen x.
+;
+; [tp_pw] and [tp_ph] are never 0 here, so the two divides take them as they
+; are: tp_pagesz is their only writer and reads them out of tp_pgtab, whose
+; index [tp_psize] is 0..3 by every one of its writers (the Page menu's codes,
+; the bar's cycler, \documentclass's AND 3) - and every caller of the two
+; maps, and tp_draw_sheet's gutter, is behind a tp_fit_sheet or tp_ts_init,
+; both of which run tp_geom and so tp_pagesz first. A fallback of 612 and 792
+; for a zero sat in front of each divide and could not be reached.
 tp_mapx:
-    push bx
     push cx
     push dx
     mov cx, [tp_sx2]
     sub cx, [tp_sx1]
     mul cx
-    mov bx, [tp_pw]
-    or bx, bx
-    jnz .d
-    mov bx, 612
-.d:
-    div bx
+    div word [tp_pw]
     add ax, [tp_sx1]
     pop dx
     pop cx
-    pop bx
     ret
 
 ; AX = PDF y (from bottom) -> AX = screen y
 tp_mapy:
-    push bx
     push cx
     push dx
-    mov bx, [tp_ph]
-    sub bx, ax
-    mov ax, bx
+    neg ax
+    add ax, [tp_ph]             ; AX = the height less y: from the TOP
     mov cx, [tp_sy2]
     sub cx, [tp_sy1]
     mul cx
-    mov bx, [tp_ph]
-    or bx, bx
-    jnz .d
-    mov bx, 792
-.d:
-    div bx
+    div word [tp_ph]
     add ax, [tp_sy1]
     pop dx
     pop cx
-    pop bx
     ret
 
 ; Page, gutter band, text-area frame.
@@ -862,12 +855,7 @@ tp_draw_sheet:
     mov bx, [tp_sx2]
     sub bx, [tp_sx1]
     mul bx
-    mov bx, [tp_pw]
-    or bx, bx
-    jnz .gd
-    mov bx, 612
-.gd:
-    div bx
+    div word [tp_pw]            ; (never 0: tp_mapx has why)
     cmp ax, 4
     jae .gok
     mov ax, 4
