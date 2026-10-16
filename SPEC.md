@@ -114602,6 +114602,7 @@ bss 6,077).
 | `tz_chunk_set` and `tz_bigmsg`, one caller each, are inline in `tz_dlgdone`, which takes DX into its frame and leaves by `te_pop6`; the cluster in bytes is `BL` shifted into AX with CF as the overflow instead of a `mul` and a test of DX. Once per file, on the UI task | `tz_dlgdone` | -31 |
 | `tz_wake`'s commit and done arms share the one `[tz_req]` clear, the done arm sits on the dispatch's fall-through, and `tz_dcancel` (one caller; all three cancel routes reach it there) is inline | `tz_wake` | -10 |
 | `te_retry` (one caller) is inline at the top of the worker pass, which already keeps every register: the held reply is tested with `jcxz` on its own length instead of a separate compare. Per worker pass, and fewer cycles on it whether or not a reply is held | `te_step` | -9 |
+| the DSR answer stores `ESC [` as one word and measures itself off SI; DECSET/DECRST's show bit is `cmp`/`sbb`/`neg`; `tz_start` tail-jumps to `tz_begin`. Same bytes to the host (the `report` fixture's answer string is unchanged); once per sequence or per transfer | `te_f_dsr`, `te_csidisp`, `tz_start` | -11 |
 
 ## 71. The browser fetches (`apps/browser/brnet.inc`)
 

@@ -211,8 +211,7 @@ tz_start:
     inc byte [te_zn]                ; ...and how many times it has fired, which
                                     ; is what a gate reads to tell "fired once"
     pop ax                          ; from "fired on every star of some art"
-    call tz_begin
-    ret
+    jmp tz_begin
 
 ; -----------------------------------------------------------------------------
 ; tz_begin - a receive session, from the trigger or from the menu item
