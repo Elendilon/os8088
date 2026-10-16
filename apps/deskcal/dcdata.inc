@@ -17,9 +17,9 @@
 ; THE STATE FILE IS PACKED (os88stik.inc's STIK_PACK / STIK_UNPACK, SPEC.md
 ; 110.5.3): the 8 bytes of counts and settings, the appointments IN USE, then
 ; the tasks in use straight after them - so a few entries are one cluster on
-; the disk where v1's whole 2,440-byte table was three. Full tables pack
-; to exactly the fixed layout, so a file of DCP_LEN is read as it stands -
-; which is every v2 file written before the packing, too.
+; the disk where the whole 2,440-byte table was three. Full tables pack to
+; exactly the fixed layout, so a file of DCP_LEN is read as it stands -
+; which is every file written before the packing, too.
 ;
 ; dc_squeeze - STIK_PACK, just before a save: the tasks down behind the last
 ; appointment. Out CX = the payload bytes to write. Keeps BX, DX and ES

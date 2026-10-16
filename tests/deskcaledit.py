@@ -48,10 +48,10 @@ Boot 1, a DAMAGED file (its appointment count is 60, past the table):
 The appointments are selected the user's way on v2's two-line agenda:
 paged by its `+N more` line until the one wanted is on show, then pressed.
 
-Boot 2, a FULL table (DESKCAL_NAPPT appointments, 16):
+Boot 2, a FULL table (DESKCAL_NAPPT appointments, 48):
 
   F  Calendar > New Appointment is GREYED (SPEC.md 47) - its own words,
-     the reason being what `N` answers: `Calendar is full (16)`, and no
+     the reason being what `N` answers: `Calendar is full (48)`, and no
      field opens.
 
 **BREAK IT ON PURPOSE**: make dc_parse refuse three digits and B's 08:15
@@ -336,7 +336,7 @@ def appts_of(cal):
 
 def boot_damaged(tmp):
     pay = bytearray(os88stik.deskcal([(TODAY, 600, "Not trusted")]))
-    pay[0] = 60                 # past the 16-record table
+    pay[0] = 60                 # past the 48-record table
     fixture = os88stik.dat(bytes(pay), x=335, y=40, screen=(640, 480))
     img = disk_with(tmp, "damaged.img", fixture)    # a v1 place: converted
     with os88ui.boot(img, machine="os8088_xt_vga") as ui:

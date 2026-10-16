@@ -81,16 +81,14 @@
 
 DC_GRIDN    equ 42
 
-; --- the payload v2, what the calendar reads of it (SPEC.md 110.3) -----------
+; --- the payload v1, what the calendar reads of it (SPEC.md 110.3) -----------
 ; tools/os88stik.py's DESKCAL_* are the same numbers; t_stik holds them equal.
-; v2 is SIXTEEN appointments and SIXTEEN tasks, where v1 was 48 and 32: 968
-; bytes and a 984-byte file, ONE cluster on a 360KB disk where v1's 2,456
-; took three - and a save writes its new chain before it frees the old one
-; (SPEC.md 18.4), so v1 wanted six free while it saved (SPEC.md 110.3)
-%define DC_NAPPT 16             ; (the toasts below spell these, so the counts
-%define DC_NTASK 16             ; are said once)
-DCP_LEN     equ 968
-DCP_VER     equ 2
+; The file is PACKED to the records in use (dcdata.inc), so the table's size
+; costs a disk nothing until it is filled (SPEC.md 110.3)
+%define DC_NAPPT 48             ; (the toasts below spell these, so the counts
+%define DC_NTASK 32             ; are said once)
+DCP_LEN     equ 2440
+DCP_VER     equ 1
 DCP_NAPPT   equ 0               ; db: appointments in use
 DCP_NTASK   equ 1               ; db: tasks in use
 DCP_SNZT    equ 4               ; dw: the SNOOZE SLOT's minute of the day (v2)
@@ -100,7 +98,7 @@ DCP_MAXAPPT equ DC_NAPPT
 DCP_MAXTASK equ DC_NTASK
 DCP_APPT0   equ 8               ; the first appointment
 DCP_APPTSZ  equ 32
-DCP_TASK0   equ DCP_APPT0 + DCP_MAXAPPT * DCP_APPTSZ    ; 520
+DCP_TASK0   equ DCP_APPT0 + DCP_MAXAPPT * DCP_APPTSZ    ; 1544
 DCP_TASKSZ  equ 28
 DCA_DATE    equ 0               ; dw: FAT-packed
 DCA_TIME    equ 2               ; dw: minute of the day, 0FFFFh all day
@@ -1272,7 +1270,7 @@ dc_newday:
 ; dc_menulive - the items that state a fact (SPEC.md 47): live, or greyed.
 ; A greyed item is its live string LESS ONE BYTE - each greyable string has
 ; MENU_DIS in front of it - so it needs no twin; the reason is the toast a
-; key gets (`Calendar is full (16)`), or plain on the card. A store into the
+; key gets (`Calendar is full (48)`), or plain on the card. A store into the
 ; item array - the kernel reads it when the menu drops (12.2), so nothing is
 ; re-registered. Keeps everything
 dc_menulive:

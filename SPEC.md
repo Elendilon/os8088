@@ -52222,10 +52222,14 @@ opens Mines on the 360KB machine already opens it off `B:`.
 (Timer and Bounce were never on a system disk: §14.8 made them packages on
 the apps disks alone.)
 
-**Then the calendar's payload went to v2** (§110.3): sixteen appointments and
-sixteen tasks, a 984-byte file - one cluster where v1's took three - so what
-its first save wants falls from seven free to three. Mines stays off: the
-owner's decision stands, and the room is the next Sticky App's.
+**On this branch the calendar's payload stays v1** (§110.3): its state file is
+PACKED to the records in use (§110.5.3), so `main`'s sixteen-entry v2 saved
+no space on any calendar it could hold, and it is reverted. The disk is
+**343 of 354, 11 free**. Mines still stays off, by the owner's decision.
+`MINES.O88` is two clusters, but on this disk its `GAMES/` folder is a third.
+Moving it into `APPS/` would put it on an installed hard disk twice. And
+Sticky Apps, which `main` keeps adding, are more of a system program than a
+game is.
 
 ### 24.4 The MEDIA DISK — a third shipped disk, at 360KB alone
 
@@ -189317,7 +189321,7 @@ row's picture, so a row downgraded at boot shows it, §110.4),
 `OSAPI_ABOUT_SET` through `os88ui_about`, and `os88gfx.inc` (`GFXE_TEXT`,
 `GFXE_BITS`, a 176 x 32 band of 704 bytes in its own bss) with `os88stik.inc`
 included last. The Sticky App definitions are v1's (`STIK_DATNAME 'DESKCAL.DAT'`,
-`STIK_CAP 'Calendar'`, `STIK_PAYLEN` 968, `STIK_PAYVER` 2, `STIK_ICON` 32,
+`STIK_CAP 'Calendar'`, `STIK_PAYLEN` 2,440, `STIK_PAYVER` 1, `STIK_ICON` 32,
 `STIK_ONTICK dc_tick`) plus §110.11's: `STIK_WIDGET`, `STIK_TAG 'Desk
 Calendar'` (= the title), `STIK_RIGHT` 264, `STIK_LAYOUTS`, `STIK_PAINTCARD
 dc_pcard` (the include's `stik_slabs`, then the entry field when it is open),
@@ -189452,7 +189456,7 @@ item is not on the menu at all: `dc_entry` takes the count one lower before
 with v1's greying (§47) in the ITEM'S OWN WORDS: each greyable string has
 one `MENU_DIS` byte in front of it, so its greyed form is the live string
 less one byte and needs no twin (`dc_menulive`). The reason is what the key
-says - `N` at 16 answers `Calendar is full (16)` - or plain on the card. The
+says - `N` at 48 answers `Calendar is full (48)` - or plain on the card. The
 app-name cell carries About and the kernel's Close, through `os88stik.inc`'s
 negotiator. **About is one toast**, `Desk Calendar, SPEC 110`, and draws
 nothing on the face: the About card that lay over it, and its take-down
@@ -189573,23 +189577,24 @@ not the payload's `+4`, which is the snooze slot's minute):
 - The save a firing, a snooze or a dismiss owes waits for a quiet poll, as
   every edit's (`STIK_ONTICK`'s CF, §110.5).
 
-**The state file** is **984 bytes** - §110.5's header and this payload,
-**v2** - with the snooze slot in the words v1 left zero:
+**The state file** is at most 2,456 bytes - §110.5's header and this payload,
+packed to the records in use (§110.5.3) - with the snooze slot in the words
+v1 left zero:
 
 ```
-+0     db n_appt (0..16), n_task (0..16), lead_default, flags
++0     db n_appt (0..48), n_task (0..32), lead_default, flags
          flags bit 0 DCF_NOREM: a NEW timed appointment is created with
          no reminder (REMIND clear); clear, it is armed at lead_default
          (v1's bit, kept - `tools/os88stik.py`'s DESKCAL_NOREM)
 +4     dw snooze minute (0..1439; read only beside a SNOOZED appointment)
 +6     dw snooze date (FAT-packed)
-+8     16 x 32 B APPT, sorted by (date, time):
++8     48 x 32 B APPT, sorted by (date, time):
          +0 dw date   FAT-packed ((y-1980)<<9 | m<<5 | d)
          +2 dw time   minute of the day, 0..1439, 0FFFFh = all day
          +4 db flags  bit 0 REMIND, 1 FIRED, 2 SNOOZED, 3 DUE
          +5 db lead   minutes before
          +6 26 B text, NUL
-+520   16 x 28 B TASK:
++1544  32 x 28 B TASK:
          +0 db flags  bit 0 DONE, bit 1 DATED
          +1 db 0
          +2 dw due    packed date, valid iff DATED
@@ -189602,20 +189607,17 @@ offsets, the two new bits and the slot equal to `deskcal.asm`'s by NASM's own
 evaluation. An edit owes a save, held while the field is open and until one
 poll has passed with no edit, as v1.
 
-**v2 is SIXTEEN APPOINTMENTS AND SIXTEEN TASKS** - v1's tables were 48 and
-32, a 2,456-byte file - by the owner's decision, for the 360 KB system disk.
-At 1,024-byte clusters v1's file was THREE clusters, and a save writes its
-new chain before it frees the old one (§18.4), so the calendar needed six
-free while it saved, plus SYSTEM.CFG's one for its registration; §110.12's
-module left five, and the calendar's saves were refused (§24.3.1.3). v2's
-984 bytes are ONE cluster - two while a save is in flight, three with
-SYSTEM.CFG. The full table's words follow the counts (`Calendar is full
-(16)`, `Task list is full (16)`, spelled from `DC_NAPPT`/`DC_NTASK` with
-`%defstr`), and the package's bss is 1,472 bytes smaller. **A v1 file is a
-DAMAGED file to v2** - its length and its payload version both differ - so
-it opens empty and its first edit asks `Replace damaged calendar?` (§110.5.2);
-no shipped release carried v1, so the only v1 files are a developer's. Card
-2 already pages its appointments (`+N more`), so nothing it draws assumed 48.
+**The payload stays v1, 48 appointments and 32 tasks.** `main` cut it to a
+v2 of sixteen and sixteen - a 984-byte file, one cluster - for the 360 KB
+system disk's sake (§24.3.1.3). On this branch the cut buys nothing: the
+file is PACKED (§110.5.3), so its size is the records in use, and a
+calendar the sixteen-slot table can hold is the same bytes under v1's. The
+cut only ever saved space on a calendar it refused to hold. The worst case
+- both tables full, 2,456 bytes, three clusters and three more while a save
+is in flight, plus SYSTEM.CFG's one - is seven free, and the disk keeps
+eleven. The full-table words still follow the counts (`Calendar is full
+(48)`, `Task list is full (32)`, spelled from `DC_NAPPT`/`DC_NTASK` with
+`%defstr`).
 
 **What it costs**: §110.6's package rows.
 
@@ -191280,7 +191282,7 @@ table below), the state file read back off the guest's own drive by
 
 | row | asserts |
 |---|---|
-| `deskcaledit` | MartyPC's VGA XT, the clock at 2026-10-14. A DAMAGED state file opens empty and its first edit puts `Replace damaged calendar?` up with the file on A: the fixture byte for byte, until Yes; `9:30 Dentist`, `1230 Lunch`, `815 Gym` and `Mum's birthday` are four appointments IN ORDER, all-day first and the three timed ones armed (H:MM, HHMM and HMM each by what the guest wrote); a clicked line and Enter open the field holding `09:30 Dentist`, and `Doctor` keeps the reminder; Del asks, Yes deletes; 26 characters are refused (`At most 25 letters`, the field still open, nothing written); Calendar > Delete Item picked with the field OPEN shuts it and asks on a bar with nothing inked between the question's app name and the clock (§110.9's polish pass; 305 ink pixels without `dc_askdel`'s clear). A second boot with 16 appointments: New Appointment greyed in its own words, `N` answering `Calendar is full (16)` |
+| `deskcaledit` | MartyPC's VGA XT, the clock at 2026-10-14. A DAMAGED state file opens empty and its first edit puts `Replace damaged calendar?` up with the file on A: the fixture byte for byte, until Yes; `9:30 Dentist`, `1230 Lunch`, `815 Gym` and `Mum's birthday` are four appointments IN ORDER, all-day first and the three timed ones armed (H:MM, HHMM and HMM each by what the guest wrote); a clicked line and Enter open the field holding `09:30 Dentist`, and `Doctor` keeps the reminder; Del asks, Yes deletes; 26 characters are refused (`At most 25 letters`, the field still open, nothing written); Calendar > Delete Item picked with the field OPEN shuts it and asks on a bar with nothing inked between the question's app name and the clock (§110.9's polish pass; 305 ink pixels without `dc_askdel`'s clear). A second boot with 48 appointments: New Appointment greyed in its own words, `N` answering `Calendar is full (48)` |
 | `deskcaltask` | MartyPC's Hercules 5150 (TALL, a 1bpp framebuffer it reads whole). Three typed tasks in order, their boxes four ground columns off the window's frame with a ground row under each; Clear Done greyed `(none done)`; a click on a box checks it and the window differs in the 6x6 mark and nothing else, with ZERO runs through the package's own `dc_run` (a breakpoint counter at the label a NASM map of the running image names; selecting a row, two runs, is its control); Space on the selected task the same; Clear Done Tasks leaves the unchecked one; Del and Yes empty the list; and a PAGED list (six tasks): a delete that ends paging starts the list at its top, and a pager that goes away is erased - row 4 ground, every pixel |
 
 Both are verified to fail on a broken build: a parser that refuses three

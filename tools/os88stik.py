@@ -72,15 +72,14 @@ STIK_HF_POS = 1
 STIK_HF_CONT = 2                 # v2 (SPEC.md 110.11): +4/+6 are the FACE's
 TITLE_H = 18                    # ...and a v1 file's frame is a title bar up
 
-# --- the Desk Calendar's payload v2 (SPEC.md 110.3, 110.5): 16 and 16, where
-# v1 was 48 and 32 - one cluster on a 360KB disk instead of three -----------
-DESKCAL_PAYVER = 2
-DESKCAL_NAPPT, DESKCAL_NTASK = 16, 16
+# --- the Desk Calendar's payload v1 (SPEC.md 110.3, 110.5) --------------------
+DESKCAL_PAYVER = 1
+DESKCAL_NAPPT, DESKCAL_NTASK = 48, 32
 DESKCAL_APPT = 32               # +0 date, +2 time, +4 flags, +5 lead, +6 26 text
 DESKCAL_TASK = 28               # +0 flags, +1 0, +2 due, +4 24 text
 DESKCAL_APPT0 = 8
-DESKCAL_TASK0 = DESKCAL_APPT0 + DESKCAL_NAPPT * DESKCAL_APPT     # 520
-DESKCAL_PAYLEN = DESKCAL_TASK0 + DESKCAL_NTASK * DESKCAL_TASK    # 968
+DESKCAL_TASK0 = DESKCAL_APPT0 + DESKCAL_NAPPT * DESKCAL_APPT     # 1544
+DESKCAL_PAYLEN = DESKCAL_TASK0 + DESKCAL_NTASK * DESKCAL_TASK    # 2440
 DESKCAL_SNZT = 4                # v2: dw the snooze slot's minute of the day
 DESKCAL_SNZD = 6                # ...and its FAT date (read only beside a
                                 # SNOOZED appointment, so v1's zeros mean
@@ -643,10 +642,9 @@ def selfcheck():
                          ((2026, 10, 13), None, "Birthday"),
                          ((2026, 10, 1), 600, "Earlier", False)],
                   tasks=[("Buy milk", False), ("Call", True, (2026, 10, 20))])
-    ok(len(pay) == DESKCAL_PAYLEN == 968, "the payload is 968 bytes")
+    ok(len(pay) == DESKCAL_PAYLEN == 2440, "the payload is 2,440 bytes")
     full = dat(pay, x=400, y=40, screen=(640, 480), payver=DESKCAL_PAYVER)
-    ok(len(full) == 984, "the whole file is 984 bytes: two sectors, ONE "
-       "cluster on a 360KB disk")
+    ok(len(full) == 2456, "the whole file is 2,456 bytes, five sectors")
     dc = parse_deskcal(parse_dat(full, DESKCAL_PAYLEN,
                                  DESKCAL_PAYVER)["payload"])
     ok([a["text"] for a in dc["appts"]] == ["Earlier", "Birthday", "Dentist"],
@@ -741,7 +739,7 @@ def main(argv):
     d.add_argument("--payver", type=int, default=1)
     d.add_argument("--paylen", type=int, default=0)
     d.add_argument("--deskcal", action="store_true",
-                   help="an EMPTY Desk Calendar payload (v2, 968 bytes)")
+                   help="an EMPTY Desk Calendar payload (v1, 2,440 bytes)")
     d.add_argument("--cont", action="store_true",
                    help="x,y are a widget's FACE origin (STIK_HF_CONT)")
     u = sub.add_parser("dump", help="a SYSTEM.CFG or a .DAT, as JSON")
