@@ -44378,6 +44378,32 @@ Measured, image bytes: PiXEL's `pixel.bin` **39,938 -> 39,102** (-836, the
 file 105,467 -> 104,956, no cluster on `office360.img`), and DrMarco's
 `drmario.bin` 33,247 -> **32,411** against the same source without the gate.
 
+##### 20.12.9.4 A table of nothing but `OP_SELF` rows refuses nothing
+
+**`op_say` and the standard's refusal strings were assembled into a table
+that could not reach them.** Only the carve (`op_load`'s claim, read and
+unpack, §20.12.9.3) and `op_fetch` ever refuse, and a table whose every row is
+`OP_LAZY | OP_SELF` has neither - the package reads its parts itself and says
+what failed in its own words. Excitebike is that table (§102.10): its game art
+is read inside an fsx bracket after the mode is set, where `op_fetch`'s toast
+would compose the menu bar into the app's framebuffer (§53.7), so every row is
+`OP_SELF`, and it carried 111 bytes of `op_say` and five strings for nothing.
+
+So both are gated on `OP_HAS_CARVE || OP_HAS_FETCH`, derived like the rest
+(§20.12.9). The condition is TRUE for every other table in the tree - each has
+an eager row or a lazy one the standard fetches - so **every other includer
+assembles byte-identical**, which was checked by building `all` and the
+`mseg`, `msegbig`, `msegz`, `mseglz`, `rehome` and `rehomex` benches with and
+without the gate into two trees: 194 `.o88`, `.bin`, `.drv` and `.img` files,
+and only Excitebike's two differ. The C packages with parts (`c64`, `apple2`)
+were not rebuilt, and need not be: both tables have an eager row. Excitebike's
+`excitebike.bin` is 31,649 -> **31,538** against the same source without it,
+and that is what puts its packed image on 48 sectors (24,539 bytes) and the
+1.44MB and 1.2MB game floppies back on the cluster count they had with the
+art beside the package. `op_seg` is NOT gated, though it answers 0 for every
+row of such a table: it is a published entry point (the C SDK's thunk calls
+it), and refusing to assemble a call to it is not this gate's decision.
+
 #### 20.12.10 A LOADER hands its identity to one of its own parts
 
 A parted package's image is the thing the kernel launches, and everything else
@@ -180306,14 +180332,15 @@ blob under `apps/excitebike/`.
 `make excitebike` builds `build/excbike.o88` (header name `EXCITEBIKE`; the
 file is `EXCBIKE.O88` because an 8.3 stem is at most 8 characters);
 `make excitebikedisk` builds four standalone floppies (1.44MB, 720KB, 1.2MB,
-360KB, each `os88disk.py --verify`'d in the recipe) carrying the package,
-`README.md`, `EXBV.GFX`, `EXBC.GFX`, `EXBH.GFX` and the three `EXBSPL.*` files; `make
+360KB, each `os88disk.py --verify`'d in the recipe) carrying the package and
+`README.md` - the art files `EXBV.GFX`, `EXBC.GFX`, `EXBH.GFX` and the three
+`EXBSPL.*` are PARTS of the package (102.10), not files beside it; `make
 excitebiketest` runs the front-end gate. The package is `local` in
 `apps/RETIRED.txt` (§20.16): it is not in `all`, on the standard images, the
 allapps floppy or the live media. Its art is committed, so it needs no
 user-supplied asset; whether it should ship is the maintainer's decision.
 Nothing here spends a kernel byte: no new `OSAPI_*` slot, no driver, no kernel
-change. The package's image is 31,344 bytes and its bss 9,596 (40,940; the apps size pass, 102.9; wave 7:
+change. The package's image is 31,538 bytes and its bss 9,696 (41,234; the art as parts, 102.10; the apps size pass, 102.9: 31,344 + 9,596; wave 7:
 53,590; wave 6: 53,366), against the loader's 61,440.
 
 **Waves.** This is wave 7 of 7 (plan section 16): the compilers, the
@@ -180619,8 +180646,8 @@ exceeding one fails the build with the name and the number:**
 | `EXBH.GFX` | 16,384 | (wave 6) |
 | each `EXBSPL.*` | 24,000 | 12,457 / 3,498 / 4,866 |
 | `EXB.SND` | 3,072 | 297 |
-| package image + bss | 61,440 | 40,940 (image 31,344 + bss 9,596; wave 4: 46,413) |
-| whole game on a 360KB disk | 130 KB | 52 KB (56 of 354 clusters: the art files and `README.md` ride LZ-wrapped, 102.9) |
+| package image + bss | 61,440 | 41,234 (image 31,538 + bss 9,696, 102.10; wave 4: 46,413) |
+| whole game on a 360KB disk | 130 KB | 52 KB (55 of 354 clusters: the art is six compressed parts of `EXCBIKE.O88` and `README.md` rides LZ-wrapped, 102.10) |
 | sprite claim (VGA / CGA) | 44 / 17 KB | 28.4 / 10.3 KB (29,113 / 10,578 bytes, 28 poses) |
 | band dictionary | 72 columns | 61 |
 
@@ -180629,9 +180656,12 @@ exceeding one fails the build with the name and the number:**
 length; `+6` word checksum; `+8` byte format 1, byte adapter (0 VGA, 1 CGA, 2 Hercules);
 `+10` word record count (10); `+12` a directory of (word offset, word length).
 The checksum is the 16-bit sum of every byte of the file with the checksum word
-taken as zero; the guest verifies magic, length, the compiled-in checksum
-(`EXB_GFX_*_SUM`, an `equ` the compiler writes into `exbtables.inc`) and the sum
-itself before following any offset in the file. Records, by id (`EXBR_*`):
+taken as zero. The compiler still writes it (and `EXB_GFX_*_SUM` into
+`exbtables.inc`, which `tests/excitebike_assets.py` holds the file to), but
+**the guest no longer verifies it**: since 102.10 the file is a part of the
+package itself, expanded by the kernel's bounded decoder to exactly its row's
+length, so a stale or damaged PAIR - what the magic, the length and the sum
+were for - cannot happen. Records, by id (`EXBR_*`):
 0 TILES (VGA 32 bytes a tile, plane-major, 8 rows a plane; CGA 16 bytes, two a
 line, 2 bits a pixel through the ink map; Hercules the same 16 bytes with a PAIR of card pixels a
 game pixel, 102.7.1); 1 BAND (16 tile ids a column: rows
@@ -181586,8 +181616,8 @@ and track told apart and the rider readable - and are unchanged.
 and 360KB, each `os88disk.py --verify`'d in the recipe. `tests/excitebike_geom.py` (`make
 excitebikegeom`) holds them to more. `--host` (row `excitebikegeomhost`, no emulator) walks each of
 the four with `tests/unit/t_image.py`'s FAT12 reader - deliberately not os88disk's - and requires
-the geometry the name says (sectors per track 18, 9, 15, 9), exactly the eight files
-(`EXCBIKE.O88`, `README.MD`, `EXBV.GFX`, `EXBC.GFX`, `EXBH.GFX`, `EXBSPL.VGA`, `.CGA`, `.HRC`) in the
+the geometry the name says (sectors per track 18, 9, 15, 9), exactly the two files
+(`EXCBIKE.O88` and `README.MD`; it was eight until the art became parts, 102.10) in the
 root with every chain whole and of the right length for its size, the same bytes in all four
 geometries and `EXCBIKE.O88` equal to `build/excbike.o88`; its negative control damages one FAT
 entry in the package's chain and the same walk must fail. `--boot G` (rows `excitebikeboot360`,
@@ -181602,9 +181632,10 @@ hand on 86Box's `286-525` by pointing that profile's `fdd_02_fn` at `build/excit
 nothing here can drive.
 
 **102.8.3 The low-memory refusal, and the bug it found.** Before wave 7 every refused claim of the
-bracket ended as `EXB?.GFX MISSING`, a sentence about files. `XB_ERR_MEM` = 3 is the new answer
+bracket ended as `EXB?.GFX MISSING`, a sentence about files (since 102.10 the non-memory sentence is
+`CANNOT LOAD THE RACE`: there are no such files any more). `XB_ERR_MEM` = 3 is the new answer
 (`const.inc`): `xb_nomem` is set by each of the three `OSAPI_MEM_CLAIM` sites of the bracket (the art
-claim in `xb_gfx_load`, the sprite claim in `xb_spr_load`, the 48KB dictionary claim in `xc_init`) and
+claim in `xb_partget`, called by `xb_gfx_load`, the sprite claim in `xb_spr_load`, the 48KB dictionary claim in `xc_init`) and
 `xb_fsassetfail` turns it into `xb_error` = XB_ERR_MEM, which the splash prints on its last line as
 **`NOT ENOUGH MEMORY`**. Everything the attempt claimed is freed (the leave path is the one every
 refusal already took). Writing the test found a real defect underneath: **`xb_spr_load` treated the
@@ -181718,6 +181749,65 @@ cost the CGA what it saved the VGA, and leave the splash rows with nowhere to li
 A delta-coded splash (each row stored as its difference from the row above: the VGA file
 12,457 -> 6,553 bytes, its desktop claim 13 -> 7 KB) was built and REVERTED: a help-page reveal
 step measured 68 ms against `tests/excitebike_front.py`'s 55 ms gate. It is the largest win left.
+
+### 102.10 The art files are parts of the package (2026-10)
+
+The six art files rode beside `EXCBIKE.O88` on every floppy that carried it: three splash screens
+(`EXBSPL.VGA`, `.HRC`, `.CGA`) and three game art sets (`EXBV.GFX`, `EXBC.GFX`, `EXBH.GFX`). Nobody
+opens them - they are the program's, read by it and by nothing else - so they were six names in the
+Disk window a player had to keep with the game. They are now **six rows of the package's own part
+table** (§20.12), every one `OP_ASSET`, `OP_LAZY | OP_COMP | OP_SELF`. `README.md` is a document and
+stays a file.
+
+**Every row is lazy, because no launch wants all six, and only the current adapter's two are ever
+read.** A splash screen is read when the window first paints on an adapter class and freed when it
+leaves it (`xb_frontload`, `front.inc`), and the claim stays MOVABLE across a fullscreen visit
+exactly as before (§66): it is a plain claim the package made, so its relocation proc is the one
+word it always was. A game art set is read in the bracket under the loading screen and freed the
+moment the back end is built from it (`xb_gfx_load`, `video.inc`), also as before. There is no carve:
+a part every launch wanted would have been an eager row, and none is. `OP_COMP` everywhere: LZ4 takes
+the splash screens to 38-63% and the art sets to 40%, which is a sector or more on every row.
+
+**`OP_SELF`, and not `op_fetch`, because of where the art is read.** `op_fetch` refuses with a toast,
+and a toast composes the menu bar - a drawing slot, which §53.7 forbids once `OSAPI_FSX_MODE` has run.
+The loading screen is drawn after the mode set and exists so the read happens under it; moving the
+read in front of the bracket would have put ~1.4 s of frozen splash between Enter and anything
+happening (Set 153's art read). So the package reads its parts itself: `xb_partget` is `op_fetch`'s
+arithmetic to the letter (§20.12.7.4: the read starts on the cluster at or below the part, lands
+`R = roundup512(len - packed)` up the claim and expands down onto its base, and the claim is then
+shrunk to the part), over the standard's own `op_clbget`, `op_read` and read cursor, and it returns
+CF instead of toasting. **A refused CLAIM still sets `xb_nomem`**, so a machine with too little
+memory still reads `NOT ENOUGH MEMORY` on the splash (102.8.3); anything else - an unreadable floppy,
+a stream that will not expand - is `CANNOT LOAD THE RACE`, where it was `EXB?.GFX MISSING`, and the
+splash's own failure is `Graphics unavailable` (it used to tell the user to keep `EXBSPL.*` together).
+`OP_SELF` also keeps `op_fetch`, `op_drop`, `op_lazykb` and `op_lazyok` out of the image (§20.12.9.1):
+measured, the same rows fetched with `op_fetch` made the image **32,325** bytes against 31,538 - +984
+over the package before this, and two sectors more of packed image, which is a cluster more on every
+512-byte-cluster floppy.
+
+**What the guest stopped checking.** The magic, length and checksum `xb_gfx_load` verified, and the
+EXF1 header `xb_frontload` verified, were there against a stale or damaged FILE beside the package.
+The bytes are the package's own now, expanded by the kernel's bounded decoder to exactly the row's
+length, and `op_read` refuses a short read - so those checks had nothing left to catch, and went. The
+splash decoder's per-packet bounds stay: they index the data.
+
+**Order.** `os88pkg.py` starts each part on a sector and does not pad the last, so the row that
+would pad most goes last. Packed: `EXBSPL.HRC` 2,727, `EXBC.GFX` 5,038, `EXBH.GFX` 5,062, `EXBV.GFX`
+5,428, `EXBSPL.VGA` 4,755, `EXBSPL.CGA` 2,193 - the CGA splash pads 367 bytes and is last.
+
+| | before | after |
+|---|---:|---:|
+| image / bss | 31,341 / 9,596 | 31,538 / 9,696 |
+| `EXCBIKE.O88` | 24,296 | 50,833 (the image packed to 24,539, then six parts) |
+| the six art files beside it | 25,251 bytes in six files | none |
+| files in each game floppy's root | 8 | 2 |
+| clusters, 360KB / 720KB | 56 / 56 | **55 / 55** |
+| clusters, 1.44MB / 1.2MB | 109 / 109 | 109 / 109 |
+
+The image's +197 is the standard's load path (the part table, the name copy, `op_read`, `op_clbget`,
+`op_seg`, the read cursor) and `xb_partget`, less the two loaders and their checks; the bss's +100 is
+the standard's `OP_BSS`. What lets the 1.44MB and 1.2MB floppies break even rather than lose a
+cluster is §20.12.9.4: 111 bytes of the standard's refusal machinery this table cannot reach.
 
 
 ## 103 REDLINE — CPU and graphics benchmarks (`apps/redline/`)

@@ -1286,6 +1286,11 @@ op_seg:
     pop bx
     ret
 
+%if OP_HAS_CARVE || OP_HAS_FETCH
+; GATED (SPEC.md 20.12.9.4): op_say and the refusals below it - only the carve
+; and op_fetch refuse, so a table whose every row is lazy AND OP_SELF (the
+; package reads and refuses for itself, SPEC.md 102.10) reaches neither
+
 ; -----------------------------------------------------------------------------
 ; op_say - put SI's string up and refuse (module-internal)
 ; in:  SI = a NUL-terminated string in our segment; out: CF=1
@@ -1297,6 +1302,7 @@ op_say:
     call OSAPI_TOAST
     stc
     ret
+%endif                              ; OP_HAS_CARVE || OP_HAS_FETCH
 
 ; -----------------------------------------------------------------------------
 ; op_clbget - this volume's bytes per cluster, asked AT MOST ONCE
@@ -1976,6 +1982,7 @@ op_scrub:
     ret
 %endif                              ; OP_HAS_ZERO
 
+%if OP_HAS_CARVE || OP_HAS_FETCH
 ; --- refusals, in the package's own words (SPEC.md 47, 59) -------------------
 ; TOAST_MAX is 24 characters and a cut message reads like a bug in the thing
 ; it is reporting on, so these are short on purpose.
@@ -1994,6 +2001,7 @@ op_s_spent: db 'That part was dropped', 0   ; ...and cannot come back: a
 %endif                                      ; compressed lazy row's packed
                                             ; length is where the segment went
                                             ; (SPEC.md 20.12.7.4)
+%endif                              ; OP_HAS_CARVE || OP_HAS_FETCH
 
 %include "os88rseq.inc"         ; os88_rseq: op_read's and op_xload's READ_AT,
                                 ; on READ_SEQ's walk (SPEC.md 18.4.8.1)
