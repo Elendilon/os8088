@@ -546,11 +546,18 @@ TMH_ROWS    equ MEM_MAX + INST_MAX + 3
 ; The claim row, in characters: two of indent, the type, A SEPARATOR, the
 ; segment, the KB column tm_kcol emits, a gap and the purge tier. Stated here
 ; because the header string has to land on the same columns and nothing else
-; checks it. The separator is load-bearing rather than spacing - five of the
-; type names use all seven columns, and without it 'DirRead' and its segment
-; read as 'DirRead2000' (the memory list's 'ARKANOI9E40', SPEC.md 28).
+; checks it. The separator is load-bearing rather than spacing - three of the
+; type names use all eight columns, and without it 'Shortcut' and its segment
+; read as 'Shortcut2000' (the memory list's 'ARKANOI9E40', SPEC.md 28).
+;
+; EIGHT, because tm_ktab's names are eight and three of them use it all:
+; at seven 'Compress', 'Shortcut' and 'Disk img' showed as 'Compres',
+; 'Shortcu' and 'Disk im' (SPEC.md 28.12.2). 2+8+1+4+5+1+4 is 25, the whole
+; chunk span, so this row now has NO spare column and the guard below is
+; exact: the 25th cell ends at TM_PEN + 200 - 1 = 207, two pixels clear of
+; the scroll bar at TMH_SB_X1 = 210 (the guard after TMH_RW).
 TMH_IND     equ 2               ; the indent that puts a claim under its owner
-TMH_TYPEC   equ 7               ; TYPE - seven, the memory list's name width
+TMH_TYPEC   equ 8               ; TYPE - tm_ktab's eight-byte name, all of it
 TMH_TIERC   equ 4               ; TIER - 'TRIV'/'LOW'/'MED'/'HIGH'/'-'
 %if TMH_IND + TMH_TYPEC + 1 + 4 + 5 + 1 + TMH_TIERC > TM_NCHUNK * TM_CHUNK
   %error "taskmgr: the heap row is wider than the chunk span it is padded to"
@@ -1319,10 +1326,11 @@ tm_s_bfat:  db '  FAT snap', 0
 
 %ifdef TMF_HEAP
 ; --- heap page (SPEC.md 28.4) ------------------------------------------------
-; The header's gaps are what put ADDR at column 9, SIZE's four digits at 14
-; and TIER at 19 - exactly where tm_hclaim composes them, and where a heading
-; row's tm_kcol total lands too.
-tm_s_hhdr:  db 'TYPE      ADDR SIZE TIER', 0
+; The header's gaps are what put ADDR at column 11, SIZE over the 'nnnK' at
+; 16 and TIER at 21 - exactly where tm_hclaim composes them (TMH_IND +
+; TMH_TYPEC + the separator is 11), and where a heading row's tm_kcol total
+; lands too. Twenty-five characters: the chunk span, to the column.
+tm_s_hhdr:  db 'TYPE       ADDR SIZE TIER', 0
 ; The three captions are a two-column TABLE and the gaps below are what make
 ; them one (SPEC.md 28.4.2). Each right-hand label starts at column 13 and
 ; each right-hand figure at 19, whatever the left half of its own line spent -
@@ -1366,7 +1374,7 @@ tm_s_hfrag: db ' FRAG  ', 0     ; ...and everything available OUTSIDE it, so
                                 ; shorter than AVAIL and PURGE, and it is the
                                 ; FIGURES that have to line up, not the label
 
-; TYPE names, seven columns. A claim the table does not know prints its owner
+; TYPE names, TMH_TYPEC = 8 columns. A claim the table does not know prints its owner
 ; word in hex instead (tm_htype) - a debug page must not label an unknown tag
 ; as the nearest thing it recognises.
 tm_s_tregn: db 'Region', 0      ; owner = the slot, base = I_SPTR (SPEC.md 20.1)
@@ -1386,8 +1394,9 @@ tm_s_twsav: db 'WinSave', 0
 ; (owner word, name) RECORDS of TMK_REC bytes, ended by a 0 owner: the name
 ; is IN the record, NUL-padded to eight, rather than a pointer to a string
 ; elsewhere (apps size pass 2: the pointer and the terminator were three
-; bytes a tag). tm_htype copies TMH_TYPEC = 7 of it, so the three eight-
-; letter names show seven, as they always did. MEM_P_WSAVE is NOT here: it
+; bytes a tag). tm_htype copies TMH_TYPEC = 8 of it, the whole name - at 7
+; the three eight-letter ones lost their last letter (SPEC.md 28.12.2).
+; MEM_P_WSAVE is NOT here: it
 ; is a RANGE (SPEC.md 11.96.3), one cache per window slot, and tm_htype tests
 ; it before it walks this. Why some rows are here at all:
 ;   MEM_P_ICO   - the machine-wide icon store (SPEC.md 25.9), one row per
@@ -4155,10 +4164,10 @@ tm_hclaim:
     mov bx, [si+CLS_SEG]
     call tm_htype
     mov byte [di], ' '          ; the separator, and it is NOT decoration: a
-    inc di                      ; type that uses all seven columns - DirRead,
-                                ; Clipbrd, CopyBuf, MenuSav, WinSave - runs
-                                ; straight into the segment without it, which
-                                ; is 'DirRead2000'. The memory list learned
+    inc di                      ; type that uses all eight columns - Compress,
+                                ; Shortcut, Disk img - runs straight into the
+                                ; segment without it, which is
+                                ; 'Shortcut2000'. The memory list learned
                                 ; this the same way, with 'ARKANOI9E40'
     mov ax, [si+CLS_SEG]
     call tm_put4x
