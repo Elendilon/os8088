@@ -616,6 +616,17 @@ fd_layout:
     mov ax, [fd_btn+6]
     mov [fd_setb+6], ax
     jmp fd_x4
+    nop                             ; **A PARITY PAD, AND NOT DEAD CODE BY
+                                    ; ACCIDENT.** Apps size pass 2 took an ODD
+                                    ; number of bytes out of the cold code above
+                                    ; every hot routine (os88_rseq, the worker,
+                                    ; fd_step, the send/receive stages, fd_wake
+                                    ; and the reads and writes), so each of them
+                                    ; moved to the other parity from the one it
+                                    ; has been measured at. An 8088 does not
+                                    ; care; an 8086 or a 286 fetches a word, and
+                                    ; a branch target at an odd address costs
+                                    ; it. This byte puts all of them back
 
 ; --- fd_paint - W_PAINT: SI = window, gfx lock held --------------------------
 %ifdef FTPDBG                       ; the split's clock and nothing else's
@@ -1444,6 +1455,11 @@ fd_logline:
 ; lock. [fd_dirty] is what says the glass is behind, and whoever next holds
 ; the lock spends it.
 ; -----------------------------------------------------------------------------
+; --- fd_log2 - terminate the line composed at fd_outb2 (DI past its end) and
+; log it. Every composed log line ends this way. Clobbers SI.
+fd_log2:
+    mov byte [di], 0
+    mov si, fd_outb2
 fd_log:
     push ax
     push cx
@@ -2358,12 +2374,14 @@ fd_command:
     push si
     push di
     ; --- the verb ---
-    mov word [fd_verb], 0x2020
-    mov word [fd_verb+2], 0x2020
+    mov ax, 0x2020
+    mov [fd_verb], ax
+    mov [fd_verb+2], ax
+    mov dx, [fd_lend]               ; DX = the line's end, for the whole parse
     xor si, si
     xor di, di
 .v:
-    cmp si, [fd_lend]
+    cmp si, dx
     jae .varg
     mov al, [fd_ctlb+si]
     cmp al, ' '
@@ -2383,13 +2401,13 @@ fd_command:
     jmp short .v
 .varg:
     ; --- the argument: everything after ONE space, to the end of the line ---
-    cmp si, [fd_lend]
+    cmp si, dx
     jae .noarg
     inc si                          ; the separator
 .noarg:
     xor di, di
 .a:
-    cmp si, [fd_lend]
+    cmp si, dx
     jae .adone
     cmp di, FD_PATHMAX - 1
     jae .adone
@@ -2422,8 +2440,7 @@ fd_command:
     cmp byte [fd_auth], 0
     jne .go
     mov si, fd_r530
-    call fd_reply
-    jmp short .out
+    jmp short .say
 .go:
     call word [bx+4]
     jmp short .out
@@ -2432,6 +2449,7 @@ fd_command:
     jmp short .d
 .unknown:
     mov si, fd_r502
+.say:
     call fd_reply
 .out:
     jmp fd_x6
@@ -2903,9 +2921,7 @@ fd_log_rate:
     mov si, fd_l_gs
     call fd_dcat
 %endif
-    mov byte [di], 0
-    mov si, fd_outb2
-    call fd_log
+    call fd_log2
 %ifdef FTPDBG
     call fd_log_split               ; ...and where it went (SPEC.md 77.32)
 %endif
@@ -2946,9 +2962,7 @@ fd_log_split:
     mov bx, FT_DRAW * 4
     call fd_tms_ms
     call fd_dnum32
-    mov byte [di], 0
-    mov si, fd_outb2
-    call fd_log
+    call fd_log2
     ; --- ...and the second line, which is the SCHEDULER block named --------
     mov di, fd_outb2
     mov si, fd_l_wait
@@ -2971,9 +2985,7 @@ fd_log_split:
     mov ax, [fd_npass]
     mov dx, [fd_npass+2]
     call fd_dnum32
-    mov byte [di], 0
-    mov si, fd_outb2
-    call fd_log
+    call fd_log2
     ; --- ...and the third, which bisects fd_wake itself -------------------
     mov di, fd_outb2
     mov si, fd_l_dfree
@@ -2991,9 +3003,7 @@ fd_log_split:
     mov ax, [fd_nwake]
     mov dx, [fd_nwake+2]
     call fd_dnum32
-    mov byte [di], 0
-    mov si, fd_outb2
-    call fd_log
+    call fd_log2
 %ifdef FTPDBG
     ; --- ...and the fourth: the COMMITS (SPEC.md 77.50) ----------------
     mov di, fd_outb2
@@ -3014,9 +3024,7 @@ fd_log_split:
     call fd_dcat
     mov ax, [fd_nck]
     call fd_dnum
-    mov byte [di], 0
-    mov si, fd_outb2
-    call fd_log
+    call fd_log2
 %endif
     jmp fd_x6
 %endif                              ; FTPDBG
@@ -3036,9 +3044,7 @@ fd_log_pasv:
     call fd_dcat
     mov ax, [fd_dport]
     call fd_dnum
-    mov byte [di], 0
-    mov si, fd_outb2
-    call fd_log
+    call fd_log2
     pop si
     pop di
     pop dx
@@ -3103,9 +3109,7 @@ fd_log_sockfail:
     mov si, fd_l_nosock
     call fd_dcat
     call fd_dnum
-    mov byte [di], 0
-    mov si, fd_outb2
-    call fd_log
+    call fd_log2
     pop di
     pop si
     pop dx
@@ -3657,9 +3661,7 @@ fd_log_stall:
     pop ax                          ; CX = what is still queued
     call fd_dnum
 .nost:
-    mov byte [di], 0
-    mov si, fd_outb2
-    call fd_log
+    call fd_log2
     jmp fd_x6
 
 ; -----------------------------------------------------------------------------
@@ -6460,23 +6462,17 @@ fd_bye:
     push bx
     push si
     cmp byte [fd_xf], FX_NONE       ; **A TRANSFER THAT DIED STILL MEASURED
-    je .nox                         ; SOMETHING**, and it is the one anybody
+    je .clean                       ; SOMETHING**, and it is the one anybody
     mov si, fd_l_part               ; wants the number for: a client that gives
     call fd_log_rate                ; up mid-upload leaves by this door, not by
-.nox:                               ; fd_xdone's, so the rate line was printed
-    cmp byte [fd_xf], FX_NONE       ; for every transfer EXCEPT the failures
-    je .clean
+                                    ; fd_xdone's, so the rate line was printed
+                                    ; for every transfer EXCEPT the failures
     call fd_data_abort              ; a transfer was RUNNING when the client
     jmp short .dropped              ; left: abort, or its slot lingers
 .clean:
     call fd_data_drop
 .dropped:
-    call fd_reset_xfer
-    mov si, fd_chnd
-    call fd_hclose
-
-    mov byte [fd_auth], 0
-    mov word [fd_clen], 0
+    call fd_endsess
     mov byte [fd_havern], 0
     cmp byte [fd_st], FD_CTRL
     jne .done
@@ -6505,14 +6501,9 @@ fd_shutdown:
     push bx
     push si
     call fd_data_drop
-    call fd_reset_xfer
-    mov si, fd_chnd
-    call fd_hclose
+    call fd_endsess
     mov si, fd_lhnd
     call fd_hclose
-
-    mov byte [fd_auth], 0
-    mov word [fd_clen], 0
     mov byte [fd_req], FR_NONE
     or byte [fd_dirty], FDD_BTN | FDD_STAT
     pop si
@@ -6521,16 +6512,28 @@ fd_shutdown:
     ret
 
 fd_stop:
-    call fd_shutdown
     push ax
+    push si
+    call fd_shutdown
     xor al, al                      ; not serving: the user's saver again
     call fd_quiet
-    pop ax
     mov byte [fd_st], FD_OFF
-    push si
     mov si, fd_l_stop
     call fd_log
     pop si
+    pop ax
+    ret
+
+; --- fd_endsess - the control session is over, whatever ended it ------------
+; What fd_bye (the client left) and fd_shutdown (we stopped) both do once the
+; data handles are gone: the transfer state, the control handle, the login and
+; the half-read command line. Clobbers AX, BX and SI (fd_hclose's).
+fd_endsess:
+    call fd_reset_xfer
+    mov si, fd_chnd
+    call fd_hclose
+    mov byte [fd_auth], 0
+    mov word [fd_clen], 0
     ret
 
 ; =============================================================================

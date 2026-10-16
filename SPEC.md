@@ -124975,15 +124975,18 @@ the 720KB/1.44MB/1.2MB apps disks, and ships no data file beside it -
 `apps/ftpd/ftpspeed.txt` goes only onto the on-demand `make ftpspeed`
 floppies. Nothing a client sees changed: every reply's code and text, the
 listing format and `FTPD.CFG`'s bytes are as they were, and **the transfer
-path was not touched** - `fd_step`, `fd_worker`, the send and receive stages,
-`fd_data_ready`, `fd_wake`'s dispatch and `fd_do_read`/`_write`/`_list` are
-byte-identical in what they execute (§77.30's loop is what the KB/s is
-measured on, and MartyPC has no NIC to measure a change to it with).
+path was not made slower anywhere** - `fd_worker`, the send and receive
+stages, `fd_data_ready`, `fd_wake` and `fd_do_read`/`_write`/`_list` execute
+the same instructions as before, and `fd_step` changed only by losing work
+(its paint call goes direct, two `jmp .done`s are short, and the accept that
+starts a session calls `fd_session`). §77.30's loop is what the KB/s is
+measured on, and MartyPC has no NIC to measure a change to it with, so
+nothing that runs per pass was given anything to do.
 
 | | before | after |
 |---|---:|---:|
-| `ftpd.o88` (file) | 12,291 | 11,879 |
-| image | 14,746 | 14,135 |
+| `ftpd.o88` (file) | 12,291 | 11,864 |
+| image | 14,746 | 14,090 |
 | image + bss (the region) | 26,624 | 25,600 |
 
 - **The entry proc's declaration is the NOKEEP form** (§66.6.1.1), moved
@@ -125030,6 +125033,9 @@ measured on, and MartyPC has no NIC to measure a change to it with).
   the same keys in the same order (§77.12.1), an empty string or an all-zero
   value omitted. `fd_cfg_putflag` went, and the record bounds are checked
   against one end pointer rather than recomputed from the buffer base twice.
+  Checked once on MartyPC (`os8088_5150_cga_gla`): a Setup save with every
+  key set read back off the guest floppy as exactly the bytes §77.12.1's
+  layout prescribes, and a second instance loaded all six.
 - **DEFECT FIXED: Server > Sockets lettered over the worker's reply.**
   `fd_socks` runs on the UI task from a menu pick, at any moment, and it
   composed each row in `fd_outb2` - the buffer the WORKER composes a 227,
@@ -125047,6 +125053,25 @@ measured on, and MartyPC has no NIC to measure a change to it with).
   is to be KEPT - where three exits each popped and set a flag, and
   `fd_data_abort`/`fd_data_drop` load their verb and fall into the shared
   body instead of each calling it.
+- **Three more shared tails** (-18 file bytes, image -46): `fd_endsess` is
+  the teardown `fd_bye` and `fd_shutdown` both did once the data handles
+  were gone; `fd_log2` terminates and logs a line composed at `fd_outb2`,
+  which eight sites spelled out, and falls into `fd_log`; and `fd_command`
+  holds the line's end in DX for the parse rather than reading `[fd_lend]`
+  three times a character, with its two refusals (530, 502) sharing one
+  `call fd_reply`.
+- **One byte back, for the hot code's PARITY** (+3 file bytes, image +1).
+  The pass took an odd number of bytes out of the cold code that sits ABOVE
+  every routine a transfer runs, so all of them - `os88_rseq`, the worker,
+  `fd_step`, the send and receive stages, `fd_wake`, the reads and writes and
+  the path walk - had moved to the other address parity from the one every
+  KB/s in this section was measured at. An 8088 fetches a byte and does not
+  care; an 8086 or a 286 fetches a word, and an odd branch target costs it.
+  A `nop` after `fd_layout`'s last jump puts every one of them back, checked
+  label by label against the base. The one label left on the other parity is
+  `fd_step`'s `.waiting`, reached only while the worker is waiting on the UI
+  task and doing nothing else - its two `jmp .done`s became SHORT jumps
+  when the session code above it moved out into `fd_session`.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 
