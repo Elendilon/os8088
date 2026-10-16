@@ -13896,13 +13896,10 @@ pt_bmp_in:
     jnz .big
     add ax, 31
     jc .big
+    and al, 0xE0                    ; (/ 32 * 4 is "drop the low five bits,
+    shr ax, 1                       ; then / 8")
     shr ax, 1
     shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    shl ax, 1
-    shl ax, 1
     mov [pt_bstr], ax
     ; --- and the pixel data must be inside what we read, in 32 bits -------
     ; rows x stride is the number this used to give up on: 448 x 326 is

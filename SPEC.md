@@ -78541,6 +78541,11 @@ also calls itself are safe for it: `pt_fsx_main` re-reads the mouse after
 `pt_onkey`. `pt_onup` keeps its saves, because `pt_fsx_main` reads AH, CX
 and DX after it. **−34 image, −26 file, −17 on the small arm.**
 
+**A BMP's row stride drops five bits and shifts three.** `pt_bmp_in` turned
+`(w × bpp + 31)` into a stride with five `shr` and two `shl`; `and al, 0E0h`
+and three `shr` are the same number. **−6 image, −5 file, −7 on the small
+arm.**
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather
