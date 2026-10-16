@@ -105164,6 +105164,38 @@ there and nowhere else, so none of them banks a register of its own any more
   word stores. `tests/dispcalc.py` and `tests/dispcalcx.py` read the bss at
   fixed offsets and were moved with it.
 
+#### 65.10.4 Apps size pass 2 — the SHIPPED FILE, on four disks
+
+Pass 2 measures what a package costs a DISK: the LZ4-packed `CALC.O88`, which
+rides `apps360.img` and `office360.img` in the full build and `small360.img`
+and `smallapps360.img` in the small one. Code packs poorly (a byte of code is
+most of a file byte), but a run of pushes or pops matches one elsewhere in the
+image and costs a fraction of its length — so taking out a bracket of saves
+can SHRINK the image and GROW the file. `cal_draw_hdr`'s eight saves are the
+measured case: dropping the four nobody reads is 8 image bytes and 4 MORE file
+bytes, and it was not taken. No bss offset moved in the full build.
+
+| step | full file | full image + bss | small file | small image + bss |
+|---|---:|---:|---:|---:|
+| the cut point | 4,329 | 4,777 + 478 | 3,353 | 3,657 + 192 |
+| 1. cold paths | 4,301 | 4,721 + 478 | 3,327 | 3,614 + 192 |
+
+**1. The cold paths** — none of these runs on a keystroke:
+
+- `cal_entry` keeps no register: the loader reloads everything it reads after
+  the call (`kernel/loader.inc` step 9 takes BX and nothing else), the region
+  declaration names the entry's own `ret` as its proc, and the second
+  `mov al, 1` went, `OSAPI_WM_SNAP` preserving AL.
+- `cal_paste` steps over a leading `-` and reads it again off `cal_pbuf` at
+  the end, where it kept a flag and a second counter in two more registers;
+  it and `cal_hist_load` share `cal_result`, the tail of `cal_clearent` (no
+  error, a RESULT on show, no point).
+- `cal_repaint` is `cal_drawall` entered with CF = 1, so the ground fill runs
+  inside the one save.
+- `View`'s item is TOGGLED rather than copied: `Show` and `Hide` are one XOR
+  of each other applied in step with `[cal_open]`, which drops the two
+  four-byte source strings and two saves.
+
 ## 66. Heap compaction — closing the holes on demand
 
 The data arena is first fit from the bottom (§50.2), so a long session fills

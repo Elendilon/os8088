@@ -275,10 +275,13 @@ CAL_CUT       equ '~'               ; a history line too long for the field
 ; The loader shows the window, so nothing here may draw. Everything installed
 ; below preserves the FLAGS as well as the registers (SPEC.md 20.3), which is
 ; why the CF this proc owes the loader survives all six calls.
+;
+; NO REGISTER IS KEPT. The loader reloads everything it reads after the call
+; (kernel/loader.inc's step 9 takes BX and nothing else from us), so the
+; push/pop of AX and SI this proc used to carry kept nothing anybody read -
+; TameGram's entry clobbers four registers and always has (apps size pass 2).
 ; -----------------------------------------------------------------------------
 cal_entry:
-    push ax
-    push si
     mov si, cal_tpl
     call OSAPI_WM_CREATE            ; BX = window ptr, CF on table full
     jc .out
@@ -288,9 +291,10 @@ cal_entry:
     ; NO worker is the case that moves most easily, and putting it at
     ; the spawn left exactly those runs declaring nothing - measured,
     ; by the row that reads MC_RLOC back out of the kernel's own table.
-    OS88_REGION_MOVABLE_NOKEEP      ; 6 bytes short: AX is ours to pop, DX
-                                    ; and the flags nobody reads (the CF the
-                                    ; loader is owed is the `clc` below)
+    OS88_REGION_MOVABLE_NOKEEP .out ; the proc is this proc's own `ret`: no
+                                    ; segment word here points inside us, and
+                                    ; AX, DX and the flags are nobody's (the
+                                    ; CF the loader is owed is the `clc`)
     mov si, cal_menus
     call OSAPI_MENU_SET             ; the bar already says 'Calc' on frame one
 %ifdef CALF_ABOUT
@@ -320,8 +324,9 @@ cal_entry:
     mov al, 1
     call OSAPI_WM_SNAP              ; every pen here is content + a multiple of
                                     ; 8, so this is what buys the single-store
-                                    ; font_run path (SPEC.md 6.1/11.94)
-    mov al, 1
+                                    ; font_run path (SPEC.md 6.1/11.94) - and
+                                    ; it preserves every register, so the 1 is
+                                    ; still in AL for the call below
     call OSAPI_WM_SAVEU             ; ...and our content genuinely does not
                                     ; change while we are not drawing (SPEC.md
                                     ; 11.96.1): no worker, no clock, nothing
@@ -335,8 +340,6 @@ cal_entry:
                                     ; back here as LD_EABORT, and the small
                                     ; build of Calculator never opened at all
 .out:
-    pop si
-    pop ax
     ret                             ; near: dispatched (SPEC.md 20.5)
 
 ; =============================================================================
@@ -950,6 +953,7 @@ cal_abdismiss:
 ; -----------------------------------------------------------------------------
 cal_paint:
     call cal_sync
+    clc                             ; no ground owed: the kernel whitened it
     jmp short cal_drawall           ; ...which preserves everything itself
 
 ; -----------------------------------------------------------------------------
@@ -962,30 +966,18 @@ cal_paint:
 ; PERFORMANCE.md's double-draw flash with our own picture as the second
 ; layer. This entry is for the paths that repaint with no kernel fill in
 ; front of them - a menu command, and the About card coming down.
+;
+; It is cal_drawall entered with CF = 1, so the fill runs inside that
+; routine's own save rather than banking the same four registers a second
+; time in front of it (apps size pass 2).
 ; -----------------------------------------------------------------------------
 cal_repaint:
-    push ax
-    push bx
-    push cx
-    push dx
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    mov ax, [cal_ox]
-    mov bx, [cal_oy]
-    mov cx, ax
-    add cx, CAL_CW - 1
-    mov dx, bx
-    add dx, [cal_ch]
-    dec dx
-    call OSAPI_GFX_FILL
-    pop dx
-    pop cx
-    pop bx
-    pop ax                          ; ...and on into the drawing
+    stc                             ; ...and on into the drawing, ground first
 
 ; -----------------------------------------------------------------------------
-; cal_drawall - every pixel of the content, over ground that is already white
-; in:  the layout is current; gfx lock held
+; cal_drawall - every pixel of the content
+; in:  CF = 1 to whiten the ground first (cal_repaint), CF = 0 when it is
+;      already white (cal_paint); the layout is current; gfx lock held
 ; out: nothing; preserves all registers
 ; -----------------------------------------------------------------------------
 cal_drawall:
@@ -997,6 +989,19 @@ cal_drawall:
 
     call cal_shadkill               ; the glass is about to disagree with both
                                     ; shadows, so the next emit must be whole
+                                    ; (and it leaves the flags alone)
+    jnc .ground
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov ax, [cal_ox]
+    mov bx, [cal_oy]
+    mov cx, ax
+    add cx, CAL_CW - 1
+    mov dx, bx
+    add dx, [cal_ch]
+    dec dx
+    call OSAPI_GFX_FILL
+.ground:
     mov al, CBLACK
     call OSAPI_SET_COLOR
     mov ax, [cal_ox]                ; the display well
@@ -1895,6 +1900,10 @@ cal_clearall:
 cal_clearent:
     mov di, cal_cur
     call cal_vzero
+cal_result:                         ; ...and the tail on its own, called by the
+                                    ; two entries that do not come through
+                                    ; cal_dispatch (a paste, a history row):
+                                    ; preserves every register
     mov word [cal_err], 0x0100      ; no error, and a RESULT (the 0) on show,
     mov byte [cal_dot], 0           ; past no point
     ret
@@ -2178,8 +2187,8 @@ cal_hist_load:
     lea si, [bx+cal_hval]
     mov di, cal_cur
     call cq_copy
-    mov word [cal_err], 0x0100      ; no error, and it is a RESULT, so a digit
-    mov word [cal_dot], 0           ; replaces it; no point - and it is a
+    call cal_result                 ; no error, and it is a RESULT, so a digit
+    mov byte [cal_wait], 0          ; replaces it; no point - and it is a
                                     ; number to LOOK at, so the field is not
                                     ; waiting any more: this one does not come
                                     ; through cal_dispatch
@@ -2198,33 +2207,31 @@ cal_hist_load:
 ; there is nothing to draw after it and nothing here needs to know what a CGA
 ; can spare: it asks for CAL_OPEN_H, and cal_sync - which the repaint runs -
 ; derives [cal_nvis] from whatever was actually granted.
+;
+; THE MENU ITEM'S FIRST WORD IS TOGGLED, NOT COPIED. It says what the click
+; WILL do, and it changes exactly when [cal_open] does - here, and nowhere
+; else - so 'Show' and 'Hide' are one XOR of each other applied in step with
+; the byte: two stores where there were two loads, two stores and the eight
+; bytes of the two words they were copied from (apps size pass 2).
 ; -----------------------------------------------------------------------------
 cal_hist_toggle:
-    push ax
     push bx
     push cx
     push dx
-    push si
     xor byte [cal_open], 1
-    mov si, cal_mi_hide             ; the menu item says what the click WILL do
-    mov dx, CAL_OPEN_H + TITLE_H + 1
-    jnz .word
-    mov si, cal_mi_show
     mov dx, CAL_BASE_H + TITLE_H + 1
+    jz .word
+    mov dx, CAL_OPEN_H + TITLE_H + 1
 .word:
-    mov ax, [si+0]
-    mov [cal_mi_hist+0], ax
-    mov ax, [si+2]
-    mov [cal_mi_hist+2], ax
+    xor word [cal_mi_hist+0], 'Sh' ^ 'Hi'
+    xor word [cal_mi_hist+2], 'ow' ^ 'de'
     mov cx, CAL_CW + 2
     mov bx, [cal_win]
     call OSAPI_WM_RESIZE
     call cal_sync                   ; ...and our own idea of the box follows
-    pop si                          ; whatever the clamp gave us
-    pop dx
+    pop dx                          ; whatever the clamp gave us
     pop cx
     pop bx
-    pop ax
     ret
 
 %endif   ; CALF_HIST
@@ -2273,12 +2280,18 @@ cal_copy:
 ; the clipboard cannot express a number the keypad cannot: the same range
 ; refusals, the same decimal rule, and no second parser to disagree with the
 ; first. Anything it does not recognise simply ends the paste.
+;
+; THE LEADING SIGN IS READ TWICE AND REMEMBERED NOWHERE: once to step past
+; it, and once at the end, off the buffer itself - nothing a paste reaches
+; writes cal_pbuf (digits and a point stage no history line, and the
+; display's composition stops short of it). It was a flag in DX and a second
+; counter in BX, two more registers to bank (apps size pass 2). A '-' that is
+; not the first character is CK_SUB to cal_asckey, which is past CK_DOT, so
+; it ends the paste exactly as it always did.
 ; -----------------------------------------------------------------------------
 cal_paste:
     push ax
-    push bx
     push cx
-    push dx
     push si
     push di
     push es
@@ -2289,33 +2302,23 @@ cal_paste:
     call OSAPI_CLIP_GET             ; character, cal_key ends in cal_show, and
     jc .out                         ; cal_show composes the display through
     jcxz .out                       ; cal_scratch - so pasting INTO the bytes
-    mov word [cal_err], 0x0100      ; it composes had every keystroke
-    mov byte [cal_dot], 0           ; overwrite the characters not yet read.
-    mov si, cal_pbuf                ; '88' came back as '87' or '8': the second
-    mov bx, cx                      ; byte was whatever the first digit's own
-    xor dx, dx                      ; display text had just put there. DL =
-.ch:                                ; a leading '-' was seen
-    or bx, bx
-    jz .done
-    mov al, [si]
-    cmp al, '-'                     ; a leading sign, and only a leading one
-    jne .code
-    cmp cx, bx
-    jne .done
-    inc dx
-    jmp short .next
-.code:
+    call cal_result                 ; it composes had every keystroke
+    mov si, cal_pbuf                ; overwrite the characters not yet read.
+    cmp byte [si], '-'              ; '88' came back as '87' or '8': the
+    jne .ch                         ; second byte was whatever the first
+    inc si                          ; digit's own display text had just put
+    dec cx                          ; there. A leading sign, and only a
+    jz .done                        ; leading one, is stepped over here
+.ch:
+    lodsb
     call cal_asckey
     cmp al, CK_DOT
     ja .done                        ; digits and the point drive the entry;
     call cal_key                    ; nothing else may come off a clipboard
-.next:
-    inc si
-    dec bx
-    jmp short .ch
+    loop .ch
 .done:
-    or dx, dx
-    jz .show
+    cmp byte [cal_pbuf], '-'        ; ...and applied here, after the digits
+    jne .show
     mov al, CK_NEG
     call cal_key
 .show:
@@ -2324,9 +2327,7 @@ cal_paste:
     pop es
     pop di
     pop si
-    pop dx
     pop cx
-    pop bx
     pop ax
     ret
 
@@ -3138,11 +3139,11 @@ cal_mi_pct:   db 'Percent      %', 0
 cal_mi_neg:   db 'Negate       N', 0
 ; The one mutable string in the set: a menu item's bytes are read when the
 ; menu DROPS, so saying what the click will do NEXT is four bytes rewritten
-; by cal_hist_toggle rather than two items with one of them greyed.
+; by cal_hist_toggle rather than two items with one of them greyed - an XOR
+; that turns 'Show' into 'Hide' and back, so the item starts as 'Show' and
+; the pane starts folded up.
 cal_mi_hist:  db 'Show History H', 0
 cal_mi_clr:   db 'Clear History', 0
-cal_mi_show:  db 'Show'
-cal_mi_hide:  db 'Hide'
 
 cal_ttl:      db 'Calculator', 0
 
