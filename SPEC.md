@@ -131351,7 +131351,7 @@ number of clusters — a 16-byte-record queue is neither.
 
 | item | size | where |
 |---|---|---|
-| image + bss | 21,698 B (13,407 image + 8,291 bss; it was 42,872 before the apps size pass, 28,536 of it bss) | the package region (cap `APP_MAX_SIZE` = 60 KB) |
+| image + bss | 17,875 B (12,242 image + 5,633 bss; 18,868 at apps size pass 2's cut point, and 42,872 before the first apps size pass, 28,536 of it bss) | the package region (cap `APP_MAX_SIZE` = 60 KB) |
 | look-ahead ring | 32 KB | one `OSAPI_MEM_CLAIM`, held for the instance's life — the refill's `int 13h` target and the parser's header window (§86.5.2) |
 | decoder scratch | 2,368 B | `apd_out` in bss: a card's 2 KB half, and on the speaker a step's span of inputs — the PCM source copy (`aps_src`) too, one format a track (§86.21) |
 | speaker buffers | 1,280 B | `aps_stage` 512, `aps_dbuf` 768 (the box's table, k ≤ 3 — and `ap_cinv`'s 256, a counts file never being boxed). The shaper's 2,816-byte family was here as `aps_fam` and lives in the speaker ring's claim now (§34.11.9), so a card machine never holds it |
@@ -131368,12 +131368,15 @@ built at launch (§86.4, −117); the window's text runs through one
 content-relative helper, the clock's digits by `AAM`, the bar's fixed edges
 as constants and the dead `apu_hit` deleted (§86.7, −117); and the playlist
 store rewritten smaller, with its entry-time init gone because the loader
-zeroes a package's bss (§86.10, −108); the callbacks and transport commands sharing their tails — one step-close-open body for Next, Previous and the track end, one name copy out of the kernel's buffer, `ap_add_file` keeping the name, folder and volume in the registers its two callees already preserve, and the four button captions that are the Play menu's own words pointing at its strings (−102); and the WAV parser with its last checks folded in, its refusals sharing one tail laid out where an 8086 short jump reaches them (a `Jcc` that cannot costs a `JMP NEAR` besides, five bytes for two), and its signature and rate compares as string instructions (§86.6, −134); and the track open with its refusals moved inside a short jump of their tests and its per-track state — the decoder's and the engine's counters — kept together in bss and zeroed with one `REP STOSB` each (−54); and the button painter without the dead caption lookup it still carried from before the gesture library, its absolute-rect builder as one fourteen-turn loop, and the entry proc trusting `os88ui_btninit` to keep the registers it documents (−58); and the speaker's move to the next track at a track's end taking the same tail as a skip (§86.21, −13); and the duration and the speaker's clock and source flags joining the per-track run, which deletes `aps_trk_reset` and the zeroing at the head of `ap_calc_duration` (−55). Nothing a playback runs per sample or
-per block was touched.
+zeroes a package's bss (§86.10, −108); the callbacks and transport commands sharing their tails — one step-close-open body for Next, Previous and the track end, one name copy out of the kernel's buffer, `ap_add_file` keeping the name, folder and volume in the registers its two callees already preserve, and the four button captions that are the Play menu's own words pointing at its strings (−102); and the WAV parser with its last checks folded in, its refusals sharing one tail laid out where an 8086 short jump reaches them (a `Jcc` that cannot costs a `JMP NEAR` besides, five bytes for two), and its signature and rate compares as string instructions (§86.6, −134); and the track open with its refusals moved inside a short jump of their tests and its per-track state — the decoder's and the engine's counters — kept together in bss and zeroed with one `REP STOSB` each (−54); and the button painter without the dead caption lookup it still carried from before the gesture library, its absolute-rect builder as one fourteen-turn loop, and the entry proc trusting `os88ui_btninit` to keep the registers it documents (−58); and the speaker's move to the next track at a track's end taking the same tail as a skip (§86.21, −13); and the duration and the speaker's clock and source flags joining the per-track run, which deletes `aps_trk_reset` and the zeroing at the head of `ap_calc_duration` (−55). **10,939 → 10,181 bytes (−758)**, 11 → 10
+clusters on the 360KB and 720KB apps disks and 22 → 20 on the 1.44MB and
+1.2MB ones; image + bss 18,868 → 17,875. Nothing a playback runs per sample or
+per block was touched; the worker's per-tick bar and clock only trade memory
+operands for immediates and two `DIV`s for `AAM`s.
 
-**On the disk it is 7,468 bytes, not 9,216.** `AUDIO.O88` goes through
+**On the disk it is 10,181 bytes, not 12,242.** `AUDIO.O88` goes through
 `$(OS88PKG)` behind `$(PKGZSTAMP)` like every other shipped package, so it is
-LZ4 on the floppy and the `image` field at +8 still reads 9,216 — which is the
+LZ4 on the floppy and the `image` field at +8 still reads 12,242 — which is the
 row above, and the number that matters to the loader and to `APP_MAX_SIZE`
 (§20.13). Its rule named `tools/os88pkg.py` directly for a cycle, which made
 this the one shipped package §20.13.5's *"every shipped package … is LZ4 on
