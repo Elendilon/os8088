@@ -49593,8 +49593,8 @@ formats differ in kind:
   because the question is "is it zero", not "what is it". It needs the
   **whole FAT resident**, since a pair straddles wherever it likes; that is
   the degenerate window every floppy has (§18.8), and a FAT12 volume whose
-  FAT outruns `DSK_FAT_SECS` falls back to `dsk_free_slow`, the per-cluster
-  walk, which is correct there and no slower than it was.
+  FAT outruns `DSK_FAT_SECS` falls back to `dsk_free_clus`'s `.slow` arm, the
+  per-cluster walk, which is correct there and no slower than it was.
 - **FAT16** is **not** gated on residency, and must not be: a 32MB partition
   formats to 2KB clusters (§52.3), which is 16,380 clusters and a **64-sector
   FAT against a 9-sector window**, so the windowed case *is* the normal one.

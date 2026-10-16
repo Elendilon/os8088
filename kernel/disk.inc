@@ -5778,45 +5778,29 @@ dsk_free_clus_x:
     clc
 .out:
     jmp dskw_find.out           ; the same six pops (a pop writes no flag)
-.slow:
-    call dsk_free_slow
-    jmp short .out
 .bad:
     stc
     jmp short .out
 
-; -----------------------------------------------------------------------------
-; dsk_free_slow - the per-cluster fallback (module internal)
-; in:  a successful mount
-; out: CF=0, AX = free clusters
-; clobbers: AX (the output), CF
-;
-; A windowed FAT bigger than DSK_FAT_SECS: dsk_next_clus reloads the window as
-; the scan crosses it, which is the I/O this walk exists to keep honest.
-; -----------------------------------------------------------------------------
-dsk_free_slow:
-    push si
-    push di
-    xor di, di
-    mov si, 2
-.scan:
+; .slow - the per-cluster fallback: a windowed FAT12 bigger than DSK_FAT_SECS,
+; where dsk_next_clus reloads the window as the scan crosses it, which is the
+; I/O this walk exists to keep honest. Both ways here leave SI = 2 and DI = 0
+; from .fat (dsk_fat_ofs_x spends BX and DX alone), so it walks from there and
+; answers through .counted. It was dsk_free_slow, a routine of its own with
+; one caller, its own SI/DI bank and its own copy of the start - all of which
+; the frame above already is (kernel size pass 13)
+.slow:
     cmp si, [dsk_maxclus]
-    ja .done
+    ja .counted
     mov ax, si
     call dsk_next_clus_x
-    jc .next
+    jc .snext
     test ax, ax
-    jnz .next
+    jnz .snext
     inc di
-.next:
+.snext:
     inc si
-    jmp short .scan
-.done:
-    mov ax, di
-    clc
-    pop di
-    pop si
-    ret
+    jmp short .slow
 
 ; -----------------------------------------------------------------------------
 ; dsk_next_clus - read one FAT entry from the snapshot
