@@ -128726,6 +128726,12 @@ it holds is recorded with the pass's report.
 - **One `Chart` string** (-7 image, -10 file): the menu bar's name and the
   window title were two copies of the same six bytes, and both readers only
   read it. The About card's blank line is the NUL that ends the line above.
+- **The read's setup, byte by byte** (-8 image, -8 file): `ct_stage`'s
+  second read reuses the `SI` the probe left (a slot preserves all but its
+  outputs) and its two refusals return where they stand; the extension test
+  finds the name's end testing the byte behind the step; `ct_esatof` points
+  ES at DS through the stack; and `ct_parse_c` turns X and Y 0-based with a
+  `SUB 1` whose borrow is the `CMP 1`/`JB` that refused a missing one.
 
 ## 83. Text input for packages (`apps/os88line.inc`, `apps/os88text.inc`)
 

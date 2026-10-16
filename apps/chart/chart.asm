@@ -445,10 +445,9 @@ ct_stage:
 .claim:
     mov ax, dx                          ; AX = the KB the file needs, plus
     inc ax                              ; the one under CT_FOFF for the series
-    call OSAPI_MEM_CLAIM                ; - and the claim leaves AX alone
-    mov si, ct_s_nomem                  ; (every slot preserves all but its
-    jc .out                             ; outputs)
-    mov [ct_stgseg], dx
+    call OSAPI_MEM_CLAIM                ; - and the claim leaves AX alone, as
+    jc .nomem                           ; the probe left SI = ct_name (every
+    mov [ct_stgseg], dx                 ; slot preserves all but its outputs)
     mov es, dx
     dec ax
     mov ch, al                          ; CX = the file's KB * 1024: AX <= 32,
@@ -457,18 +456,19 @@ ct_stage:
     shl cx, 1
     mov bx, CT_FOFF
     xor dx, dx
-    mov si, ct_name
-    call OSAPI_FILE_READ
+    call OSAPI_FILE_READ                ; SI = ct_name still
     jnc .got
     mov dx, [ct_stgseg]
     call OSAPI_MEM_FREE
 .rerr:
     mov si, ct_s_readerr
     stc
-    jmp .out
+    ret
+.nomem:
+    mov si, ct_s_nomem                  ; CF is still the claim's 1
+    ret
 .got:
     mov cx, ax                          ; a file this small never exceeds 64KB
-.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -498,11 +498,10 @@ ct_read_by_ext:
                                         ; zero is what ct_record tests first
     mov di, ct_name
 .end:
-    cmp byte [di], 0
-    je .atend
-    inc di
-    jmp .end
-.atend:
+    inc di                              ; DI ends ON the NUL
+    cmp byte [di-1], 0
+    jne .end
+    dec di
     mov ax, ct_read_sylk
     cmp di, ct_name + 4
     jb .go
@@ -680,8 +679,8 @@ ct_esatof:
     push si
     push es
     mov si, ct_ntxt
-    mov ax, ds                        ; fp_atof is DS-only, and ES is the
-    mov es, ax                        ; staging segment right now
+    push ds                           ; fp_atof is DS-only, and ES is the
+    pop es                            ; staging segment right now
     call fp_atof
     pop es
     pop si
@@ -1148,13 +1147,11 @@ ct_parse_c:
 .apply:
     or di, di
     jz .out
-    mov ax, dx
-    cmp ax, 1
+    xchg ax, dx                         ; 1-based -> 0-based, and 0 (none
+    sub ax, 1                           ; given) is refused: SUB borrows on
+    jb .out                             ; exactly the 0 that CMP 1 / JB did,
+    sub cx, 1                           ; and is the DEC as well
     jb .out
-    cmp cx, 1
-    jb .out
-    dec ax                              ; 1-based -> 0-based
-    dec cx
     mov bx, cx                          ; bx = row, ax = col
     call ct_record
 .out:
