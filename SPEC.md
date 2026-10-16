@@ -104135,10 +104135,11 @@ finds it); greedy costs about 3% here.
 
 #### 62.12.3 It needs no memory the program did not already need
 
-The staged body runs `0x4C85..0x7A0A`. `os88net.asm`'s own reserved buffers
-already run to `net_bss1` = **`0x9C0D`** (§62.11.7), so every machine with the
-room to run the unpacked program has the room to unpack this one, with **8,803
-bytes to spare**. `tools/os88sfx.py` asserts the ceiling and refuses in a
+The staged body runs `0x3FA0..0x6C57` (it was `0x4A01..0x76CD` before
+§62.12.6 moved the zeros out of the image). `os88net.asm`'s own reserved
+buffers already run to `net_bss1` = **`0x9F89`** (§62.11.7), so every machine
+with the room to run the unpacked program has the room to unpack this one, with
+**12,594 bytes to spare**. `tools/os88sfx.py` asserts the ceiling and refuses in a
 sentence if it is ever crossed, and `net_bss_clear` zeroes the staged body along
 with everything else above the image — by which time it has been read.
 
@@ -104165,7 +104166,8 @@ answer it, and neither is arithmetic:
   8086, only the ones `os88sfx.asm` emits, running `build/os88net.com` out of a
   simulated 64KB segment the way DOS enters a `.COM`, and passing only when
   execution reaches `0x100` again with the whole of `build/os88net.raw` sitting
-  there. It runs in the **fast** tier, so it hangs off every `make`, and it
+  there. It is the soak row `sfx` (it ran in the fast tier when this was
+  written), and it
   refuses an opcode it does not model rather than stepping over one. A packer
   checked only by its own decoder proves nothing: the two agree by construction
   and neither is what ships.
@@ -104177,6 +104179,101 @@ answer it, and neither is arithmetic:
 `tools/os88sfx.py` also refuses to write a payload it cannot decode back, on
 every build, with a model of the assembly rather than a second call into its own
 tables. Three checks, none of which is the author's arithmetic.
+
+#### 62.12.6 Apps size pass 2: what the file stopped carrying
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md measures a program by its SHIPPED FILE, and
+this one's file is `build/os88net.com`, the archive, not the image. Every
+change below is in `drivers/net/os88net.asm` alone: what it shares with
+`NET.DRV` (`lplink.inc`, `lplslv.inc`, `nwslv.inc`, ...) and with `ETHER.DRV`
+(the stack), and the stub and the packer, are other programs' bytes. Nothing
+a DOS user sees on the console changes and nothing on the wire does.
+
+1. **The zeros left the image** (raw 18,689 → 16,032, file −21). Forty-two
+   variables and buffers the program starts with at zero - `secbuf`,
+   `wstat`, `hdtab`, the path buffers, the DTA - were `times N db 0` among the
+   strings. They are `resb` in the reserved block now, beside the stack's own,
+   and `net_bss_clear` moved from after `open_image` to the first call in
+   `start` so that `parse_args` writes its switches into memory that is already
+   zero, which is the whole of what the emitted zeros were for. The file gains
+   little - a run of zeros is one match to this packer - but the archive no
+   longer DECODES 2,657 bytes of nothing on the far machine, and `rep stosw`
+   clears them at about half the per-byte cost of the copy that wrote them.
+   Image + bss is the same
+   40,585 bytes and `net_bss1` the same `0x9F89`: the two variables that start
+   NONZERO (`rfh` and `cpydst`, both `0xFFFF`) stayed in the file.
+2. **Three helpers that were written twice are written once** (file −14).
+   `putdec16` was `put_dec` with two instructions swapped; `lpl_ticks`, the
+   transport's clock, read the same BIOS word `dos_ticks` already reads for
+   the stack, through an ES override one byte and two clocks dearer - it is an
+   `equ` of `dos_ticks` now, so the transport's deadline polls got the cheaper
+   body; and `zero_buf` and `srv_blank` share one `rep stosb` tail, which now
+   also hands ES back as it found it.
+3. **A write verb answers through one call** (file −94). The six verbs that
+   end in one status byte - write, append, delete/mkdir/rmdir, rmtree,
+   rename, copy - had a `call wr_done` on each of their 30 answer branches,
+   24 of them followed by `jmp short .out`, and `wr_done` was `call lp_sbyte`
+   / `ret`. Each branch is `jmp .tell` now and `.tell:` is the one `call lp_sbyte` in front
+   of `.out:`. The answer and everything after it are the same; a branch is a
+   call level and a return shorter. **This is the shape that pays on this
+   packer, and its opposite does not**: merging the routines' byte-identical
+   `pop`/`stc`/`ret` epilogues was tried first and made the file **9 bytes
+   BIGGER** - a repeated epilogue already costs the packer almost nothing,
+   and each `jmp` that replaced one carried a displacement nothing else
+   shares. What costs a file byte here is a call or jump DISPLACEMENT, which
+   is unique per site.
+4. **`serve` indexes a table instead of walking a chain** (file −210). The
+   command loop compared the letter against 27 verbs in turn and jumped to a
+   stub per verb that called the routine and then tested CF - 27 compares
+   and 23 stubs, nearly every byte of it a unique displacement. Every verb
+   is a letter from `'A'` to `'w'`, so `srv_tab` is one word per letter (55,
+   built with `%rep` from the same equates IN THE CHAIN'S ORDER, so a letter
+   two verbs shared would still go to the first) and the loop is `sub` /
+   `cmp` / `ja` / `cbw` / `xchg` / `shl` / `call [srv_tab+bx]`. The one
+   distinction the stubs carried survives as the table's halves: an upper-case
+   letter is a FILE or block verb whose CF=1 means the link went away and
+   ends `serve`, a lower-case one is a SOCKET verb (§62.11.1) whose CF is
+   not the link's verdict and is ignored, exactly as the stubs did. A letter
+   no verb has goes to `srv_nop` and is read and ignored, as before. The
+   inline block-mode bodies became `blk_info`, `blk_read` and `blk_write`,
+   their transfer loops unchanged instruction for instruction, and `NC_BYE`
+   is `srv_bye`, which prints and returns CF=1.
+
+   **The cost, PREDICTED from the 8088's timings and not measured**: the
+   table path is ~19 bytes and ~100 clocks to the handler whatever the verb,
+   where the chain was ~16 clocks a compare plus ~50 for the stub, so the
+   break-even is the chain's third verb. The first three were `NC_INFO`,
+   `NC_READ` and `NC_WRITE` - block mode, which no os8088 can send any more
+   (§62.10: `NET.DRV` publishes no `DSV_BLK`) - and they are now up to ~20
+   clocks slower; every verb an os8088 does send is faster, from about even at
+   `NC_BYE` to ~400 clocks at `NW_ADDR`, and the polled socket verbs (`s`,
+   `r`, `w`, the 23rd to 25th) by ~300. That is microseconds against a
+   command that moves bytes over a cable, so it is not what the rule against
+   a slower hot path is about either way - but it is the number to take on
+   MartyPC if anyone doubts it.
+5. **Answers that say the same thing are one answer** (file −13). In
+   `srv_copy` the four exits that close both files did so each on its own
+   line; they set AL and meet at one `call cpy_close` (which keeps AX), with
+   the success arm falling into it so its path is unchanged, and the two
+   `FERR_NOENT` exits share a label. `srv_rmtree`'s two `FERR_PROT` and two
+   `FERR_NOENT` exits do the same.
+6. **`seek_lba` shifts by CL** (file −12). `LBA * 512` was built by two
+   counted loops of single-bit shifts, nine and seven turns; it is
+   `shr ax, cl` with CL = 7 for the high word and `shl dx, cl` with CL = 9 for
+   the low, and `mov ax, 0x4200` for the two byte loads. Block mode only, and
+   faster.
+7. **The two argument copies are one, and it is BOUNDED** (file −4, and a
+   DEFECT fixed). `parse_args` copied the bare folder word into `dirarg` and
+   `/I:`'s name into `imgname` with two loops of its own, neither of which
+   knew the buffer was 80 bytes - and DOS's command tail is 127. A long enough
+   word wrote past either buffer: past `dirarg` into the strings that
+   followed it in the file, and since item 1 into `imgname`, where it would
+   have turned a folder argument into a block-mode image. `get_word` is the
+   one copy now; it keeps at most 79 characters and still consumes the whole
+   word, so the rest of the tail parses exactly as before. (DOS's own path
+   limit is 64, so nothing that could ever have been served is cut.)
+   `listen_once` also lost a `shr bx, 1` whose result the next instruction
+   overwrote.
 
 ## 63. The logo (`tools/os88logo.py`, `MEDIA/OS8088.GIF`)
 

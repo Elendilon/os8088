@@ -159,7 +159,6 @@ dos_rand:
     mov [dos_seed], ax
     pop dx
     ret
-dos_seed:   dw 0
 
 NC_INFO     equ 'I'
 NC_READ     equ 'R'
@@ -273,6 +272,9 @@ DTA_NAME    equ 30
 
 start:
     cld
+    call net_bss_clear          ; the reserved block, BEFORE anything reads or
+                                ; writes one of it: parse_args writes the
+                                ; switches into it (see the end of this file)
     mov si, s_banner
     call puts
 
@@ -294,9 +296,7 @@ start:
     call open_image             ; ...only if /I: named one
     jc  .bye
 
-    call net_bss_clear          ; ...the reserved buffers, BEFORE anything reads
-                                ; one (see the block at the end of this file)
-    call net_start              ; /N: the packet driver and an address, BEFORE
+    call net_start             ; /N: the packet driver and an address, BEFORE
                                 ; the cable - it is the slower of the two to
                                 ; fail and the one with something to say
 
@@ -334,7 +334,7 @@ start:
 
 ; --- net_bss_clear - zero what the file no longer carries --------------------
 ; DOS zeroes nothing above a .COM's image, so this is what makes the reserved
-; block behave exactly as the emitted one did. ~17KB of rep stosw, once.
+; block behave exactly as the emitted one did. ~24KB of rep stosw, once.
 net_bss_clear:
     push ax
     push cx
@@ -486,7 +486,6 @@ listen_once:
     mov ax, [cand_base+bx]
     cmp ax, [pinbase]
     jne .next2
-    shr bx, 1
 .listen:
     mov bx, di
     shl bx, 1
@@ -538,172 +537,132 @@ serve:
 .cmd:
     call lp_rbyte_w             ; a tick-bounded wait: the master may take its
     jc  .out                    ; time between commands
-    cmp al, NC_INFO
-    je  .info
-    cmp al, NC_READ
-    je  .read
-    cmp al, NC_WRITE
-    je  .write
-    cmp al, NC_BYE
-    je  .bye
-    cmp al, NF_LIST
-    je  .flist
-    cmp al, NF_CHDIR
-    je  .fchdir
-    cmp al, NF_DFREE
-    je  .fdfree
-    cmp al, NF_STAT
-    je  .fstat
-    cmp al, NF_READ
-    je  .fread
-    cmp al, NF_READAT
-    je  .freadat
-    cmp al, NF_WRITE
-    je  .fwrite
-    cmp al, NF_APPEND
-    je  .fappend
-    cmp al, NF_DELETE
-    je  .fdelete
-    cmp al, NF_RENAME
-    je  .frename
-    cmp al, NF_MKDIR
-    je  .fmkdir
-    cmp al, NF_RMDIR
-    je  .frmdir
-    cmp al, NF_COPY
-    je  .fcopy
-    cmp al, NF_ENUM
-    je  .fenum
-    cmp al, NF_RMTREE
-    je  .frmtree
-    cmp al, NW_OPEN
-    je  .nwopen
-    cmp al, NW_LISTEN
-    je  .nwlisten
-    cmp al, NW_ACCEPT
-    je  .nwaccept
-    cmp al, NW_STAT
-    je  .nwstat
-    cmp al, NW_SEND
-    je  .nwsend
-    cmp al, NW_RECV
-    je  .nwrecv
-    cmp al, NW_CLOSE
-    je  .nwclose
-    cmp al, NW_ADDR
-    je  .nwaddr
-    jmp .cmd                    ; ...NEAR: the socket handlers below sit
-                                ; between here and the top of the loop
+    ; THE LETTER IS THE INDEX (apps size pass 2, SPEC.md 62.12.6). Every verb
+    ; is a letter from 'A' to 'w' and srv_tab has a word for each, so this is
+    ; the same eleven instructions whichever verb it is - where the chain of
+    ; compares it replaces walked to the 26th for NW_ADDR. Anything outside
+    ; the range, or a letter no verb has, is read and ignored as it was.
+    sub al, 'A'
+    cmp al, 'w' - 'A'
+    ja  .cmd
+    cbw                         ; AL <= 54, so AH = 0
+    xchg ax, bx
+    shl bx, 1
+    cmp bl, 2 * ('a' - 'A')     ; LOWER CASE IS A SOCKET VERB (62.11.1), and a
+    jae .sock                   ; socket verb's CF is not the link's verdict
+    call [srv_tab + bx]         ; a FILE verb's is: CF=1 = the link went away
+    jnc .cmd
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.sock:
+    call [srv_tab + bx]
+    jmp short .cmd
 
-.nwopen:
-    call nw_s_open
-    jmp .cmd
-.nwlisten:
-    call nw_s_listen
-    jmp .cmd
-.nwaccept:
-    call nw_s_accept
-    jmp .cmd
-.nwstat:
-    call nw_s_stat
-    jmp .cmd
-.nwsend:
-    call nw_s_send
-    jmp .cmd
-.nwrecv:
-    call nw_s_recv
-    jmp .cmd
-.nwclose:
-    call nw_s_close
-    jmp .cmd
-.nwaddr:
-    call nw_s_addr
-    jmp .cmd
+; --- srv_tab - one near routine per letter, 'A' to 'w' -----------------------
+; Built from the same equates the chain compared against, IN THE CHAIN'S
+; ORDER, so a letter two verbs share would still go to the first.
+srv_tab:
+%assign srv_c 'A'
+%rep 'w' - 'A' + 1
+  %if srv_c == NC_INFO
+    dw blk_info
+  %elif srv_c == NC_READ
+    dw blk_read
+  %elif srv_c == NC_WRITE
+    dw blk_write
+  %elif srv_c == NC_BYE
+    dw srv_bye
+  %elif srv_c == NF_LIST
+    dw srv_list
+  %elif srv_c == NF_CHDIR
+    dw srv_chdir
+  %elif srv_c == NF_DFREE
+    dw srv_dfree
+  %elif srv_c == NF_STAT
+    dw srv_stat
+  %elif srv_c == NF_READ
+    dw srv_read
+  %elif srv_c == NF_READAT
+    dw srv_readat
+  %elif srv_c == NF_WRITE
+    dw srv_write
+  %elif srv_c == NF_APPEND
+    dw srv_append
+  %elif srv_c == NF_DELETE
+    dw srv_delete
+  %elif srv_c == NF_RENAME
+    dw srv_rename
+  %elif srv_c == NF_MKDIR
+    dw srv_mkdir
+  %elif srv_c == NF_RMDIR
+    dw srv_rmdir
+  %elif srv_c == NF_COPY
+    dw srv_copy
+  %elif srv_c == NF_ENUM
+    dw srv_enum
+  %elif srv_c == NF_RMTREE
+    dw srv_rmtree
+  %elif srv_c == NW_OPEN
+    dw nw_s_open
+  %elif srv_c == NW_LISTEN
+    dw nw_s_listen
+  %elif srv_c == NW_ACCEPT
+    dw nw_s_accept
+  %elif srv_c == NW_STAT
+    dw nw_s_stat
+  %elif srv_c == NW_SEND
+    dw nw_s_send
+  %elif srv_c == NW_RECV
+    dw nw_s_recv
+  %elif srv_c == NW_CLOSE
+    dw nw_s_close
+  %elif srv_c == NW_ADDR
+    dw nw_s_addr
+  %else
+    dw srv_nop                  ; no such verb: read and ignored
+  %endif
+  %assign srv_c srv_c + 1
+%endrep
 
-.fwrite:
-    call srv_write
-    jc  .out
-    jmp .cmd
-.fappend:
-    call srv_append
-    jc  .out
-    jmp .cmd
-.fdelete:
-    call srv_delete
-    jc  .out
-    jmp .cmd
-.frename:
-    call srv_rename
-    jc  .out
-    jmp .cmd
-.fmkdir:
-    call srv_mkdir
-    jc  .out
-    jmp .cmd
-.frmdir:
-    call srv_rmdir
-    jc  .out
-    jmp .cmd
-.frmtree:
-    call srv_rmtree
-    jc  .out
-    jmp .cmd
-.fcopy:
-    call srv_copy
-    jc  .out
-    jmp .cmd
+srv_nop:
+    clc
+    ret
 
-.flist:
-    call srv_list
-    jc  .out
-    jmp .cmd
-.fenum:
-    call srv_enum
-    jc  .out
-    jmp .cmd
-.fchdir:
-    call srv_chdir
-    jc  .out
-    jmp .cmd
-.fdfree:
-    call srv_dfree
-    jc  .out
-    jmp .cmd
-.fstat:
-    call srv_stat
-    jc  .out
-    jmp .cmd
-.fread:
-    call srv_read
-    jc  .out
-    jmp .cmd
-.freadat:
-    call srv_readat
-    jc  .out
-    jmp .cmd
+; --- srv_bye - NC_BYE: the master is done, and so is serve ------------------
+srv_bye:
+    mov si, s_bye
+    call puts
+    stc                         ; ...which serve reads as the end of the run
+    ret
 
-.info:
+; --- the block-mode verbs (SPEC.md 62.10): CF=1 = the link went away -------
+blk_info:
     mov al, NST_OK
     call lp_sbyte
-    jc  .out
+    jc  .ret
     mov ax, [nsecs]
     call lp_sword
-    jc  .out
+    jc  .ret
     mov al, [roflag]
     call lp_sbyte
-    jc  .out
-    jmp .cmd
+.ret:
+    ret
 
-.read:
+blk_read:
     ; ONE COMMAND, `count` FRAMES OF {status, 512 bytes}. Every frame is 512
     ; bytes whatever the status says, so a sector this side refuses cannot
     ; leave the master waiting for data that is not coming - see net.asm's
     ; protocol header.
     call get_req                ; DX = LBA, CL = count
-    jc  .out
+    jc  .ret
     mov [nrun], cl
     or  cl, cl
-    jz  .cmd
+    jz  .ret                    ; (`or` cleared CF)
 .rsec:
     mov byte [rstat], NST_OK
     call seek_lba
@@ -724,38 +683,39 @@ serve:
 .rgo:
     mov al, [rstat]
     call lp_sbyte
-    jc  .out
+    jc  .ret
     mov si, secbuf
     mov cx, 512
 .rsend:
     lodsb
     call lp_sbyte
-    jc  .out
+    jc  .ret
     loop .rsend
     inc dx
     dec byte [nrun]
     jnz .rsec
     call tick_dot               ; one dot per RUN now, not per sector: it is
-    jmp .cmd                    ; console output in the middle of a transfer,
-                                ; and the master is waiting through it
+    clc                         ; console output in the middle of a transfer,
+.ret:                           ; and the master is waiting through it
+    ret
 
-.write:
+blk_write:
     ; The mirror: the whole run's data arrives first, then one status byte per
     ; sector goes back. The bytes are consumed whether or not they are kept,
     ; for the reason above.
     call get_req
-    jc  .out
+    jc  .ret
     mov [nrun], cl
     mov [nrun2], cl
     or  cl, cl
-    jz  .cmd
+    jz  .ret                    ; (`or` cleared CF)
     mov si, dx                  ; SI = the LBA, so DX is free for int 21h
 .wsec:
     mov di, secbuf
     mov cx, 512
 .wrecv:
     call lp_rbyte
-    jc  .out
+    jc  .ret
     mov [di], al
     inc di
     loop .wrecv
@@ -794,20 +754,11 @@ serve:
 .wsend:
     lodsb
     call lp_sbyte
-    jc  .out
+    jc  .ret
     loop .wsend
     call tick_dot
-    jmp .cmd
-
-.bye:
-    mov si, s_bye
-    call puts
-.out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    clc
+.ret:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -843,20 +794,12 @@ seek_lba:
     cmp dx, [nsecs]
     jae .bad                    ; past the end of what we told them we had
     mov ax, dx
-    mov cx, dx
-    mov bx, 9
-.shl:
-    shl ax, 1                   ; the low word
-    dec bx
-    jnz .shl
-    mov bx, 7
-.shr:
-    shr cx, 1                   ; ...and the high word
-    dec bx
-    jnz .shr
-    mov dx, ax
-    mov ah, 0x42
-    mov al, 0                   ; from the start of the file
+    mov cl, 7
+    shr ax, cl                  ; the high word
+    mov cl, 9
+    shl dx, cl                  ; ...and the low word
+    mov cx, ax
+    mov ax, 0x4200              ; from the start of the file
     mov bx, [fh]
     int 0x21
     jc  .bad
@@ -911,17 +854,7 @@ parse_args:
     ; cable is for now (SPEC.md 62.10), so the ordinary argument is the
     ; ordinary thing, and block mode's image moved behind /I:.
     mov di, dirarg
-.name:
-    mov al, [si]
-    cmp al, ' '
-    jbe .namedone
-    mov [di], al
-    inc di
-    inc si
-    dec cx
-    jnz .name
-.namedone:
-    mov byte [di], 0
+    call get_word
     jmp short .next
 .opt:
     inc si
@@ -965,19 +898,8 @@ parse_args:
     inc si
     dec cx
     mov di, imgname             ; ...block mode, which the redirector
-.iname:                         ; superseded and which is kept because the
-    jcxz .inamed                ; wire is the same one (SPEC.md 62.10)
-    mov al, [si]
-    cmp al, ' '
-    jbe .inamed
-    mov [di], al
-    inc di
-    inc si
-    dec cx
-    jmp short .iname
-.inamed:
-    mov byte [di], 0
-    jmp .next
+    call get_word               ; superseded and which is kept because the
+    jmp .next                   ; wire is the same one (SPEC.md 62.10)
 .port:
     inc si                      ; past 'P'
     dec cx
@@ -1006,6 +928,31 @@ parse_args:
     pop bx
     pop ax
     clc
+    ret
+
+; get_word - SI/CX -> the 80-byte buffer at DI, up to a space or the end
+; of the tail; NUL-terminated. A word longer than the buffer is CONSUMED
+; whole and KEPT to 79 characters: DOS's tail is 127, so an unbounded copy
+; ran up to 48 bytes past either buffer into whatever followed it.
+get_word:
+    push bx
+    lea bx, [di + 79]
+.l:
+    jcxz .e
+    mov al, [si]
+    cmp al, ' '
+    jbe .e
+    cmp di, bx
+    jae .n
+    mov [di], al
+    inc di
+.n:
+    inc si
+    dec cx
+    jmp short .l
+.e:
+    mov byte [di], 0
+    pop bx
     ret
 
 skip_sp:
@@ -1197,7 +1144,7 @@ open_image:
     mov [nsecs], ax
     mov si, s_size
     call puts
-    call putdec16
+    call put_dec
     mov si, s_secs
     call puts
     cmp byte [roflag], 0
@@ -1764,19 +1711,22 @@ srv_ent:
     ret
 
 srv_blank:                      ; entbuf to DE_SZ zeros
-    push ax
-    push cx
     push di
+    push cx
     mov di, entbuf
     mov cx, DE_SZ
-    xor al, al
-    cld
+zero_fill:                      ; ...zero_buf's too: DI/CX banked by the caller
+    push ax
+    push es
     push ds
     pop es
+    xor al, al
+    cld
     rep stosb
-    pop di
-    pop cx
+    pop es
     pop ax
+    pop cx
+    pop di
     ret
 
 ; ent_ispkg - does the DTA's name end in .O88? CF=1 = yes
@@ -2692,11 +2642,6 @@ wr_arg:
     stc
     ret
 
-; wr_done - AL = a FERR_*, and the verb is over
-wr_done:
-    call lp_sbyte
-    ret
-
 ; -----------------------------------------------------------------------------
 ; srv_copy - NF_COPY: source folder, DEST folder, name -> one status byte
 ;
@@ -2781,37 +2726,26 @@ srv_copy:
     cmp ax, cx                  ; a short write is a full disk, which DOS
     jne .full                   ; reports by count and not by CF
     jmp short .chunk
-.done:
-    call cpy_close
-    mov al, FERR_OK
-    call wr_done
-    jmp short .out
 .full:
-    call cpy_close
     mov al, FERR_FULL
-    call wr_done
-    jmp short .out
+    jmp short .close
 .ioerr:
-    call cpy_close
-    mov al, FERR_IO
-    call wr_done
-    jmp short .out
 .nodst:
-    call cpy_close
     mov al, FERR_IO
-    call wr_done
-    jmp short .out
-.nosrc:
-    mov al, FERR_NOENT
-    call wr_done
-    jmp short .out
+    jmp short .close
+.done:
+    mov al, FERR_OK
+.close:
+    call cpy_close              ; AX preserved, so the answer survives it
+    jmp short .tell
 .gsay:
     mov al, FERR_WPROT          ; wr_gate's answer, sent by its caller
-    call wr_done
-    jmp short .out
+    jmp short .tell
+.nosrc:
 .nodir:
     mov al, FERR_NOENT
-    call wr_done
+.tell:
+    call lp_sbyte
 .out:
     pop di
     pop si
@@ -2884,15 +2818,13 @@ srv_write:
     je  .say
     mov al, FERR_FULL           ; DOS took fewer bytes than it was given
 .say:
-    call wr_done
-    jmp short .out
+    jmp .tell
 .sink:
     mov [srv_fail], al          ; the reason, banked across the drain
     call sink_body
     jc  .lost
     mov al, [srv_fail]          ; ...and said ONLY NOW, with the whole run off
-    call wr_done                ; the cable and the master listening for it
-    jmp short .out
+    jmp .tell                ; the cable and the master listening for it
 .rlost:
     call close_handle
 .lost:
@@ -2904,6 +2836,8 @@ srv_write:
     pop ax
     stc
     ret
+.tell:
+    call lp_sbyte
 .out:
     pop di
     pop si
@@ -2945,15 +2879,13 @@ srv_append:
     je  .say
     mov al, FERR_FULL           ; DOS took fewer bytes than it was given
 .say:
-    call wr_done
-    jmp short .out
+    jmp .tell
 .sink:
     mov [srv_fail], al          ; the reason, banked across the drain
     call sink_body
     jc  .lost
     mov al, [srv_fail]          ; ...and said ONLY NOW, with the whole run off
-    call wr_done                ; the cable and the master listening for it
-    jmp short .out
+    jmp .tell                ; the cable and the master listening for it
 .rlost:
     call close_handle
 .lost:
@@ -2965,6 +2897,8 @@ srv_append:
     pop ax
     stc
     ret
+.tell:
+    call lp_sbyte
 .out:
     pop di
     pop si
@@ -3018,19 +2952,17 @@ srv_name1:
     int 0x21
     jc  .doserr
     mov al, FERR_OK
-    call wr_done
-    jmp short .out
+    jmp .tell
 .doserr:
     call dos_ferr               ; AX = DOS's code -> AL = a FERR_*
-    call wr_done
-    jmp short .out
+    jmp .tell
 .gsay:
     mov al, FERR_WPROT          ; wr_gate's answer, sent by its caller
-    call wr_done
-    jmp short .out
+    jmp .tell
 .nodir:
     mov al, FERR_NOENT
-    call wr_done
+.tell:
+    call lp_sbyte
 .out:
     pop di
     pop si
@@ -3109,8 +3041,7 @@ srv_rmtree:
     cmp word [srv_h], 0
     jne .fenced
     mov al, FERR_PROT
-    call wr_done
-    jmp .out
+    jmp .tell
 
 .fenced:
     cmp byte [srv_ok], 0
@@ -3177,35 +3108,25 @@ srv_rmtree:
 
 .done:
     mov al, FERR_OK
-    call wr_done
-    jmp short .out
+    jmp .tell
 .doserr:
     call dos_ferr               ; AX = DOS's code -> AL = a FERR_*
-    call wr_done
-    jmp short .out
+    jmp .tell
 .prot:
+.isfile:                        ; a FILE: dskw_delete's job, not this one
     mov al, FERR_PROT
-    call wr_done
-    jmp short .out
-.isfile:
-    mov al, FERR_PROT           ; a FILE: dskw_delete's job, not this one
-    call wr_done
-    jmp short .out
+    jmp .tell
 .toodeep:
     mov al, FERR_DIRFULL        ; the path will not fit, so we cannot name the
-    call wr_done                ; folder we would be deleting
-    jmp short .out
-.noent:
-    mov al, FERR_NOENT
-    call wr_done
-    jmp short .out
+    jmp .tell                ; folder we would be deleting
 .gsay:
     mov al, FERR_WPROT
-    call wr_done
-    jmp short .out
+    jmp .tell
+.noent:
 .nodir:
     mov al, FERR_NOENT
-    call wr_done
+.tell:
+    call lp_sbyte
 .out:
     pop di
     pop si
@@ -3489,19 +3410,17 @@ srv_rename:
     int 0x21
     jc  .doserr
     mov al, FERR_OK
-    call wr_done
-    jmp short .out
+    jmp .tell
 .doserr:
     call dos_ferr
-    call wr_done
-    jmp short .out
+    jmp .tell
 .gsay:
     mov al, FERR_WPROT          ; wr_gate's answer, sent by its caller
-    call wr_done
-    jmp short .out
+    jmp .tell
 .nodir:
     mov al, FERR_NOENT
-    call wr_done
+.tell:
+    call lp_sbyte
 .out:
     pop di
     pop si
@@ -4127,22 +4046,11 @@ report_ports:
 ; refusal looking like data to anything that ignores the status.
 ; -----------------------------------------------------------------------------
 zero_buf:
-    push ax
-    push cx
     push di
-    push es
-    push ds
-    pop es
+    push cx
     mov di, secbuf
     mov cx, 512
-    xor al, al
-    cld
-    rep stosb
-    pop es
-    pop di
-    pop cx
-    pop ax
-    ret
+    jmp zero_fill
 
 tick_dot:                       ; one dot per RUN, so a long transfer looks
     push ax                     ; alive rather than hung
@@ -4154,15 +4062,11 @@ tick_dot:                       ; one dot per RUN, so a long transfer looks
 ; =============================================================================
 ; lplink.inc / lplslv.inc's two requirements, and the console
 ; =============================================================================
-lpl_ticks:
-    push es
-    push bx
-    mov bx, 0x0040
-    mov es, bx
-    mov ax, [es:0x006C]
-    pop bx
-    pop es
-    ret
+lpl_ticks   equ dos_ticks       ; the same word of the same BIOS counter,
+                                ; which the stack already reads through
+                                ; OSAPI_GET_TICKS: one body for both. DS and
+                                ; BX preserved, no flag touched, and a byte
+                                ; and a prefix shorter than an ES override
 
 lpl_kbhit:
     mov ah, 1
@@ -4233,31 +4137,6 @@ puthex16:
     pop ax
     ret
 
-putdec16:
-    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
-    push ax
-    push bx
-    push cx
-    push dx
-    mov bx, 10
-    xor cx, cx
-.div:
-    xor dx, dx
-    div bx
-    push dx
-    inc cx
-    or  ax, ax
-    jnz .div
-.out:
-    pop ax
-    add al, '0'
-    call putc
-    loop .out
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
 
 ; =============================================================================
 ; DATA
@@ -4286,7 +4165,6 @@ s_stopped:  db 13,10,'Stopped.',13,10,0
 
 s_wild:     db '*.*',0
 s_nodir:    db 13,10,'No such folder.',13,10,0
-dirarg:     times 80 db 0       ; the bare argument: the folder to serve
 s_root:     db 'Serving files from ',0
 s_wmc:      db 'Serving files from EVERY DRIVE on this machine.',13,10,0
 s_ronly:    db 'Writes REFUSED (/RO).',13,10,0
@@ -4318,78 +4196,19 @@ sf_tag:     db '?', '] ',0
 s_portpin:  db 'Port pinned by /P: to ',0
 s_portscan: db 'Port chosen by scanning (see the table below).',0
 s_imgsay:   db 'Block-mode image (/I:): ',0
-helpflag:   db 0
-netflag:    db 0                ; /N was asked for (net_start)
-
-imgname:    times 80 db 0       ; ...EMPTY by default now: the bare argument
-                                ; is the FOLDER to serve, and block mode is
-                                ; behind /I: (see parse_args)
-fh:         dw 0
-nsecs:      dw 0
-roflag:     db 0
 s_nwtry:    db 'Sockets (/N): looking for a packet driver...',13,10,0
 s_nwok:     db '  up, address ',0
 s_nwnopkt:  db '  no packet driver in 60h..80h, or it is not Ethernet',13,10,0
 s_nwnodhcp: db '  a packet driver, but DHCP never answered',13,10,0
 s_nwfiles:  db '  serving FILES only - os8088 will say No partner',13,10,0
 s_crlf:     db 13,10,0
-pinned:     db 0
-pinbase:    dw 0
-nrun:       db 0                ; sectors left in the run being served
-nrun2:      db 0                ; ...and how many it started with
-rstat:      db 0                ; this sector's verdict
-wstat:      times 256 db 0      ; a write run's verdicts. 256 and not NET_RUN,
-                                ; because the count crosses as ONE BYTE and
-                                ; that is the protocol's own ceiling: sized to
-                                ; net.asm's constant instead, the two programs
-                                ; would be coupled across a cable by a number
-                                ; neither can see, and raising it at one end
-                                ; would overrun this at the other
-secbuf:     times 512 db 0
-
-; --- file mode's (SPEC.md 62.10.3) -------------------------------------------
-wholemc:    db 0                ; /W: the root lists the DRIVES
-srv_h:      dw 0                ; the handle the command in hand is about
-srv_n:      dw 0                ; ...and how many entries we promised it
-srv_ord:    dw 0                ; NF_ENUM's ordinal, across hd_path (62.10.6)
-srv_cwd:    db 0                ; the DRIVE the last NF_CHDIR stood on, for
-                                ; NF_DFREE - which is the one verb with no
-                                ; handle to work it out from. 0 = the default
-                                ; drive, which is int 21h 36h's own convention
-srv_dsth:   dw 0                ; NF_COPY's DESTINATION folder (62.9.8)
-cpydst:     dw 0xFFFF           ; ...and its open handle, 0xFFFF = none
-cpysrc:     times 96 db 0       ; the source path, banked whole: building the
-                                ; destination rewrites pathbuf AND wildbuf
-nhd:        dw 0                ; handles issued this session
-hdtab:      times HD_MAX*HD_SZ db 0
-rootpath:   times 72 db 0       ; 'C:\' + DOS's 64 + a NUL
-pathbuf:    times 80 db 0       ; ...one handle's, rebuilt per command
-wildbuf:    times RT_BUFSZ db 0 ; ...plus '\*.*', and it is sized by the
-                                ; RECURSIVE DELETE now rather than by that:
-                                ; rt_build appends an 8.3 name to a path that
-                                ; may already be RT_PATHMAX long, and a write
-                                ; that could overrun is not something a
-                                ; length check AFTER it can fix (62.10.7.2)
-rtpath:     times RT_BUFSZ db 0 ; the folder srv_rmtree is currently emptying.
-                                ; The whole of the walk's state, with rtdep -
-                                ; there is no DTA stack, deliberately
-rtdep:      dw 0                ; ...how far below the subtree's root we are
-entbuf:     times DE_SZ db 0    ; one staged entry, on its way to the wire
-namebuf:    times 16 db 0       ; the 13 bytes a name crosses as, terminated
-srv_fh:     dw 0                ; the FILE handle a read is about
-srv_cap:    dd 0                ; what the master says it can take
-srv_rlen:   dd 0                ; ...and what we are actually sending
-srv_off:    dd 0                ; FSV_READAT's window
-srv_chunk:  dw 0                ; bytes in the secbuf pass in hand
+cpydst:     dw 0xFFFF           ; NF_COPY's open destination, 0xFFFF = none
 rfh:        dw 0xFFFF           ; the open DOS handle, FFFF = none
-srv_ok:     db 0                ; wr_arg resolved the folder
-srv_verb:   db 0                ; which of delete/mkdir/rmdir is in hand
-srv_fail:   db 0                ; ...the FERR_* banked across a drain
-srv_wbad:   db 0                ; a DOS write came up short: the disk is full
-oldbuf:     times 88 db 0       ; rename's first path, while the second is
-                                ; built in wildbuf
-dtabuf:     times 48 db 0       ; OUR DTA, and not DOS's at PSP:0080 - that is
-                                ; where the command tail lives
+; ...the only two variables this program starts NONZERO. Every other one,
+; and every buffer, is in the reserved block below: zero-initialised data
+; costs a self-extracting .COM the bytes to decode it as well as the room,
+; and net_bss_clear (the first thing `start` does) makes them read exactly
+; as the emitted zeros did (SPEC.md 62.12.3).
 
 ; =============================================================================
 ; THE BUFFERS, PAST THE IMAGE (ETH_NOEMIT, SPEC.md 62.11.1)
@@ -4436,6 +4255,75 @@ eth_rxb:    resb NE_FRAME + 4
 eth_txb:    resb NE_FRAME + 4
 pk_ring:    resb PKT_NBUF * PKT_FRAME
 nw_buf:     resb NET_SKMAX
+
+; --- and THIS PROGRAM'S OWN, which were emitted zeros until apps size pass 2.
+; Every one of them is zero when net_bss_clear has run, exactly as the file
+; used to say; what moved is that the file no longer says it.
+dos_seed:   resw 1              ; dos_rand's LCG
+helpflag:   resb 1
+netflag:    resb 1              ; /N was asked for (net_start)
+dirarg:     resb 80             ; the bare argument: the folder to serve
+imgname:    resb 80             ; ...EMPTY by default now: the bare argument
+                                ; is the FOLDER to serve, and block mode is
+                                ; behind /I: (see parse_args)
+fh:         resw 1
+nsecs:      resw 1
+roflag:     resb 1
+pinned:     resb 1
+pinbase:    resw 1
+nrun:       resb 1              ; sectors left in the run being served
+nrun2:      resb 1              ; ...and how many it started with
+rstat:      resb 1              ; this sector's verdict
+wstat:      resb 256            ; a write run's verdicts. 256 and not NET_RUN,
+                                ; because the count crosses as ONE BYTE and
+                                ; that is the protocol's own ceiling: sized to
+                                ; net.asm's constant instead, the two programs
+                                ; would be coupled across a cable by a number
+                                ; neither can see, and raising it at one end
+                                ; would overrun this at the other
+secbuf:     resb 512
+
+; --- file mode's (SPEC.md 62.10.3) -------------------------------------------
+wholemc:    resb 1              ; /W: the root lists the DRIVES
+srv_h:      resw 1              ; the handle the command in hand is about
+srv_n:      resw 1              ; ...and how many entries we promised it
+srv_ord:    resw 1              ; NF_ENUM's ordinal, across hd_path (62.10.6)
+srv_cwd:    resb 1              ; the DRIVE the last NF_CHDIR stood on, for
+                                ; NF_DFREE - which is the one verb with no
+                                ; handle to work it out from. 0 = the default
+                                ; drive, which is int 21h 36h's own convention
+srv_dsth:   resw 1              ; NF_COPY's DESTINATION folder (62.9.8)
+cpysrc:     resb 96             ; the source path, banked whole: building the
+                                ; destination rewrites pathbuf AND wildbuf
+nhd:        resw 1              ; handles issued this session
+hdtab:      resb HD_MAX*HD_SZ
+rootpath:   resb 72             ; 'C:\' + DOS's 64 + a NUL
+pathbuf:    resb 80             ; ...one handle's, rebuilt per command
+wildbuf:    resb RT_BUFSZ       ; ...plus '\*.*', and it is sized by the
+                                ; RECURSIVE DELETE now rather than by that:
+                                ; rt_build appends an 8.3 name to a path that
+                                ; may already be RT_PATHMAX long, and a write
+                                ; that could overrun is not something a
+                                ; length check AFTER it can fix (62.10.7.2)
+rtpath:     resb RT_BUFSZ       ; the folder srv_rmtree is currently emptying.
+                                ; The whole of the walk's state, with rtdep -
+                                ; there is no DTA stack, deliberately
+rtdep:      resw 1              ; ...how far below the subtree's root we are
+entbuf:     resb DE_SZ          ; one staged entry, on its way to the wire
+namebuf:    resb 16             ; the 13 bytes a name crosses as, terminated
+srv_fh:     resw 1              ; the FILE handle a read is about
+srv_cap:    resd 1              ; what the master says it can take
+srv_rlen:   resd 1              ; ...and what we are actually sending
+srv_off:    resd 1              ; FSV_READAT's window
+srv_chunk:  resw 1              ; bytes in the secbuf pass in hand
+srv_ok:     resb 1              ; wr_arg resolved the folder
+srv_verb:   resb 1              ; which of delete/mkdir/rmdir is in hand
+srv_fail:   resb 1              ; ...the FERR_* banked across a drain
+srv_wbad:   resb 1              ; a DOS write came up short: the disk is full
+oldbuf:     resb 88             ; rename's first path, while the second is
+                                ; built in wildbuf
+dtabuf:     resb 48             ; OUR DTA, and not DOS's at PSP:0080 - that is
+                                ; where the command tail lives
 net_bss1:
     section .text
 os88net_tail:
