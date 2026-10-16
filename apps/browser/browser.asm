@@ -4697,23 +4697,19 @@ TA_CELL  equ TA_MARK | TA_OPEN | D_CELL
 br_do:
     cmp al, TA_FRAMESET
     jne .frame
-    call br_frameset
-    ret
+    jmp br_frameset
 .frame:
     cmp al, TA_FRAME
     jne .anchor
-    call br_frame
-    ret
+    jmp br_frame
 .anchor:
     cmp al, TA_IMG
     jne .select
-    call br_image
-    ret
+    jmp br_image
 .select:
     cmp al, TA_SELECT
     jne .textarea
-    call br_select
-    ret
+    jmp br_select
 .textarea:
     cmp al, TA_TEXTAREA
     jne .cell
@@ -4800,9 +4796,6 @@ br_do:
 .form:
     call br_break
     jmp br_form
-.input:
-    call br_input
-    ret
 br_fmttab:
     dw br_fmtbold, br_fmtitalic, br_fmtunder, br_fmtquote
 br_fmtbold:
@@ -7082,22 +7075,17 @@ br_anchor:
     jz .out
     ; Keep the href compact and relative. br_lnkfrm records the frame whose
     ; URL is the base, avoiding a long absolute Wayback URL per anchor.
-    mov bx, cx
-    sub bx, si                      ; href length
     mov ax, [br_lnkw]
     add ax, bx
     inc ax
     cmp ax, [br_linkcap]
     ja .limited                     ; the arena is full: text, not a link
     mov di, [br_lnkw]               ; DI = where this href lands...
-    mov ax, [br_lnkn]
-    mov dx, ax
-    shl dx, 1
-    push bx
-    mov bx, dx
+    mov cx, bx                      ; (CX = the length, which frees BX)
+    mov bx, [br_lnkn]
+    shl bx, 1
     mov [br_lnkoff+bx], di          ; ...RECORDED BEFORE THE COPY, because the
-    pop bx                          ; copy is what moves the cursor
-    mov cx, bx
+                                    ; copy is what moves the cursor
     mov dx, [br_lnkseg]
     mov ax, [br_srcseg]             ; ...read while DS is still ours
     push ds
@@ -7119,13 +7107,11 @@ br_anchor:
     ; Mark links from a child document so br_follow resolves them against
     ; that frame's saved absolute URL. Zero means the top-level page.
     mov bx, [br_lnkn]
-    mov al, [br_framecurrent]       ; the owner, built in AL - BX is the
+    xor al, al                      ; the owner, built in AL - BX is the
     cmp byte [br_frameappend], 0    ; index and was overwriting it, so every
-    je .ownerroot                   ; link but the first was tagged as a
-    inc al                          ; frame's and resolved against no base
-    jmp .ownerstore
-.ownerroot:
-    xor al, al
+    je .ownerstore                  ; link but the first was tagged as a
+    mov al, [br_framecurrent]       ; frame's and resolved against no base
+    inc al
 .ownerstore:
     mov [br_lnkfrm+bx], al
     mov [br_lnkw], di
@@ -7139,14 +7125,15 @@ br_anchor:
     mov al, D_LNK1                  ; the marker and its two payload bytes
     call br_put
     mov ax, [br_lnkopen]            ; the index as two bytes in 16..31 - see
-    and al, 15                      ; D_LNK1's own comment for why that range
-    or al, 0x10
-    call br_put
-    mov ax, [br_lnkopen]
-    mov cl, 4
-    shr ax, cl
-    and al, 15
-    or al, 0x10
+    mov cl, 4                       ; D_LNK1's own comment for why that range.
+    shl ax, cl                      ; It is < BR_LNKMAX, so after the shift AH
+    shr al, cl                      ; is the high nibble and this the low one
+%if BR_LNKMAX > 256
+%error "br_anchor splits a link index of at most 8 bits into two nibbles"
+%endif
+    or ax, 0x1010
+    call br_put                     ; br_put keeps AX
+    mov al, ah
     call br_put
     jmp .out
 .limited:

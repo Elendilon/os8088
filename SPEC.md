@@ -115371,6 +115371,12 @@ redirects and frames - and left the same bytes behind.
   string to resolve in DI, `OSAPI_TOAST` keeping every register; the
   too-long refusal is `br_errst`; and `br_form` stores a form's method with
   one `adc` off `br_attreq`'s carry.
+- **The tag path does less, and so is no slower.** `br_do`'s four
+  `call`/`ret` pairs are tail jumps and its unreachable `.input` is gone;
+  `br_anchor` measured the href twice, built the arena offset's index through
+  DX and a `push`/`pop`, and split the link index into its two payload
+  nibbles with two loads where one `shl`/`shr` pair leaves both halves in AX.
+  Every one of these removes instructions from the path it is on.
 
 ### 72.1 What the packages did have to change, which is one question
 
