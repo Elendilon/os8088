@@ -1242,7 +1242,6 @@ ark_worker:
 
 ; -----------------------------------------------------------------------------
 ; ark_focuschk - pause the rally if the player has gone somewhere else
-; preserves all registers
 ;
 ; A ball keeps moving while the game is covered - that is deliberate (SPEC.md
 ; 44.1: a dropped FRAME must not stop the game), and it is exactly wrong when
@@ -1273,8 +1272,9 @@ ark_worker:
 ; done here: [ark_full] makes the worker's next frame repaint under the gfx
 ; lock, where drawing belongs.
 ; -----------------------------------------------------------------------------
+; clobbers BX and saves nothing: its one caller is the worker
+; loop, which holds no register across it (SPEC.md 44.12)
 ark_focuschk:
-    push bx
     cmp byte [ark_mode], M_PLAY
     jne .out
     call OSAPI_WM_TOP               ; BX = frontmost visible, 0 = none
@@ -1288,13 +1288,12 @@ ark_focuschk:
     mov byte [ark_mode], M_PAUSE
     mov byte [ark_full], 1          ; the banner, on the next frame that draws
 .out:
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
 ; ark_do_paddle - move the paddle at whichever of the three speeds is set
 ; in:  [ark_pdir]/[ark_pkeep]/[ark_pspd]/[ark_pacc]/[ark_pdn]; out: [ark_px]
-;      moved, clamped; preserves all registers
+;      moved, clamped
 ;
 ; [ark_pkeep] is written by the UI task and decremented here. Both are plain
 ; word accesses, and the 8086 recognises interrupts only at instruction
@@ -1338,10 +1337,9 @@ ark_focuschk:
 ; which is what lets ARK_PSTEP be 2.0 or 1.75 rather than only a whole 1 or 2
 ; (SPEC.md 44.3.2's argument, applied to the paddle).
 ; -----------------------------------------------------------------------------
+; clobbers AX, BX, DX and saves nothing: its one caller is the worker
+; loop, which holds no register across it (SPEC.md 44.12)
 ark_do_paddle:
-    push ax
-    push bx
-    push dx
     mov word [ark_pvel], 0          ; how far the paddle moves THIS frame,
                                     ; signed - the ball reads it on contact
     call ark_pkey                   ; is the arrow the paddle is following
@@ -1402,9 +1400,6 @@ ark_do_paddle:
     mov [ark_px], ax
     mov byte [ark_padwipe], 1
 .out:
-    pop dx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1546,10 +1541,11 @@ ark_setspeed:
 
 ; -----------------------------------------------------------------------------
 ; ark_do_launch - Space: send the ball off, or fire the laser
-; in:  [ark_launch] set by the UI task; out: cleared; preserves all registers
+; in:  [ark_launch] set by the UI task; out: cleared
 ; -----------------------------------------------------------------------------
+; clobbers AX and saves nothing: its one caller is the worker
+; loop, which holds no register across it (SPEC.md 44.12)
 ark_do_launch:
-    push ax
     cmp byte [ark_launch], 0
     je .out
     mov byte [ark_launch], 0
@@ -1571,12 +1567,10 @@ ark_do_launch:
     je .out
     call ark_fire
 .out:
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; ark_do_ball - walk the ball along its velocity, a pixel at a time
-; preserves all registers
 ;
 ; Bresenham, one axis per step, with a collision test after each single-pixel
 ; move - not one jump of (vx,vy) a frame. At four pixels a tick a whole-vector
@@ -1585,13 +1579,9 @@ ark_do_launch:
 ; the ball is never inside anything, which is also what lets it be erased with
 ; a plain background fill.
 ; -----------------------------------------------------------------------------
+; clobbers AX..DI and saves nothing: its one caller is the worker
+; loop, which holds no register across it (SPEC.md 44.12)
 ark_do_ball:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
     cmp byte [ark_stuck], 0
     je .free
     call ark_park                   ; parked: ride the paddle
@@ -1674,12 +1664,6 @@ ark_do_ball:
     call ark_move1                  ; ...and one in y
     jnc .walk
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2122,14 +2106,10 @@ ark_maybe_pu:
 
 ; -----------------------------------------------------------------------------
 ; ark_do_pu - fall every capsule, and catch the ones that reach the paddle
-; preserves all registers
 ; -----------------------------------------------------------------------------
+; clobbers AX..DX, SI and saves nothing: its one caller is the worker
+; loop, which holds no register across it (SPEC.md 44.12)
 ark_do_pu:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
     xor si, si
 .each:
     cmp byte [ark_pukind+si], PU_NONE
@@ -2171,11 +2151,6 @@ ark_do_pu:
     inc si
     cmp si, ARK_MAXPU
     jb .each
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2345,12 +2320,9 @@ ark_bolt:
     pop bx
     ret
 
+; clobbers AX..DX, SI and saves nothing: its one caller is the worker
+; loop, which holds no register across it (SPEC.md 44.12)
 ark_do_shots:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
     xor si, si
 .each:
     cmp byte [ark_shot+si], 0
@@ -2374,11 +2346,6 @@ ark_do_shots:
     inc si
     cmp si, ARK_MAXSHOT
     jb .each
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------

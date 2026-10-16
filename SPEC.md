@@ -80477,6 +80477,11 @@ pass leaves binding:
   nobody. Each says what it clobbers at its label. `ark_draw_pu` and
   `ark_draw_shots` keep theirs: `ark_draw_all` and `ark_draw_msgband` call
   them too.
+- **...and so do the update half's.** `ark_do_paddle`, `ark_focuschk`,
+  `ark_do_launch`, `ark_do_ball`, `ark_do_pu` and `ark_do_shots` have the
+  same one caller and it holds nothing across them either (it loads the mode
+  after the first two, and reads no register after the other four): 21 more
+  pairs a frame.
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
