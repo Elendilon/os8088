@@ -53874,14 +53874,21 @@ to the generic icon and the row returns at the next mount.
 
 #### 25.9.2 Sized for the MACHINE, and the file's cap is a different question
 
-Distinct package icons demandable at once, measured over the shipped images: 9
-with the system disk alone, **26** with system + apps, **29** with all six
-mounted - plus at most `ASSOC_NAPP` composed bodies. `ICO_NROW` is 48 on
-`kern_big` and 24 on `kern_small`, which SPEC.md 51.0 leaves no driver-backed
-volume and fewer packages.
+Distinct package icons demandable at once, measured over the shipped images:
+**40** distinct shipped programs across the six 360KB disks, 39 across the
+1.44MB pair and 37 across the 720KB one, every one carrying an icon - plus at
+most `ASSOC_NAPP` composed bodies. (This paragraph said 26 and 29 when the
+tree shipped fewer programs; the figure grows with every program written, which
+is why the store is sized by what one whole `ASSOC.DAT` can declare rather
+than by today's count.) `ICO_NROW` is **60** on `kern_big` - 60 x 82 = 4,920
+bytes plus §54.7.6.2's capture, 5,108 of a 5KB claim, so a full `ASSOC.DAT`
+(`ASC_NAPP` = 55) is absorbed whole with rows to spare - and 24 on
+`kern_small`, which SPEC.md 51.0 leaves no driver-backed volume and fewer
+packages.
 
-`ASC_NAPP` stays 32: that is a VOLUME's question, and the busiest shipped
-directory holds 15.
+`ASC_NAPP` is 55: that is a VOLUME's question, and it is the most rows that
+fit 5KB with 64 extension rows beside them (§54.7.1). It was 32 and the 720KB
+apps disk held exactly 32 packages, so the cap was already binding there.
 
 #### 25.9.3 What it replaced, and what `kern_small` pays instead
 
@@ -53948,9 +53955,9 @@ a row rather than a wrong picture, and the shed reclaims the old one.
 
 Two further consequences belong here rather than there. The store is sized for
 the machine and absorbing is eager, so the measurement that sizes it is the union
-over every volume a machine might mount: **28 distinct `(stem, size)` pairs
-across every shipped volume**, against `ICO_NROW`'s 48 and `ASSOC_NAPP`'s
-further 12 composed document bodies. And a **shed** now costs a little more
+over every volume a machine might mount: **40 distinct shipped programs**
+(§25.9.2), against `ICO_NROW`'s 60 and `ASSOC_NAPP`'s further 16 composed
+document bodies. And a **shed** now costs a little more
 than a redraw — the absorbed rows go with it — so `ico_need` clears
 `asc_vol` when it re-claims an empty store, which turns that cost back into
 one three-sector re-read at the next mount rather than a sector per package.
@@ -94408,6 +94415,39 @@ installed volume, that the packages the volume carries are the ones the file
 describes, and that `BROWSER.HTM`'s program is reachable from its row. The
 installer says `Done` either way.
 
+#### …and since §54.7.6 the writer is the KERNEL'S, reached through `OSAPI_ASSOC_FLUSH`
+
+**`hd_iassoc` and `iassoc.inc` are deleted.** The runtime flush (§54.7.6)
+needed exactly this algorithm on every volume a harvest learns something on,
+so it lives once, in `FORMAT.DRV`'s `ascw_flush_x`, and the installer's fourth
+step is now one call, `OSAPI_ASSOC_FLUSH` (§54.5) with DL = `[hd_idrv]` and
+AL = 1, **full** mode. Full mode is this section's walk unchanged: the root and
+one level of folders, every package's header read unless the old file already
+holds its `(stem, size)`, declaring packages first, written hidden + system.
+It is SILENT for the same reason the step always was, and a refusal now heals
+itself: the first harvest of the installed volume's `APPS\` writes the file
+after all.
+
+**What it gave back:** `hddtool.bin` 17,507 → 16,483 bytes, and
+`HDDTOOL.DRV` on the floppy 13,414 → 12,524, which is 14 → 13 clusters on the
+360KB system disk. `HDTOOL_KB` follows the image (§52.11), so `HDD.DRV`'s
+claim for the tool is a KB smaller. `tests/unit/t_mirror.py` lost its
+`iassoc.inc` entry, because the kernel's reader and writer of the format now
+share one assembly and cannot drift apart.
+
+**So the install HOLDS the writer** (§54.7.6.4). A machine booted FROM its
+hard disk that installs a newer kernel from a floppy has its system phase
+copy the new `*.DRV` over `C:`'s. `mod_need` reads the boot volume, so a
+`FORMAT.DRV` loaded after that copy is stamped for a kernel that is not
+running and is refused (§2.8.2), and the install would end with no
+`ASSOC.DAT` until the first browse after the restart. `hd_ia_acq` therefore
+loads it BEFORE the system phase (`ASSOC_FL_NOFLUSH | ASSOC_FL_HOLD`). The
+flush at the end uses the copy already in RAM, and `hd_ia_rel` lets it go on
+every way the install ends: done, failed, another row picked at the
+apps-disk prompt, or the window closed or the driver detached.
+`[hd_iheld]` keeps it from releasing a hold it never took. An install that
+grows to more disks flushes after each one under the same hold.
+
 ### 52.10.15 Install without erasing: the volume's files are kept
 
 **An install that does not format is the default over any slot that holds a
@@ -96376,7 +96416,9 @@ claim.
   empty, the ordinary case"* — the answer it already gives on every launch
   that was not a document open — and `OSAPI_ASSOC_SET`'s CF=1 is *"the tables
   are full and nothing was stored"*. A package that tests CF, as both slots
-  require, cannot tell the difference.
+  require, cannot tell the difference. **`OSAPI_ASSOC_FLUSH` (0x0493)**
+  shares the same stub (§54.7.6), and its CF=1 is *"it could not, and
+  nothing was written"*, which is also true.
 - **The mount's icon-harvest CACHE, not its function.** §54.7's `ASSOC.DAT`
   lets a known package's icon cost no sector read; without it every harvested
   icon is read the slow way. **This is the one real cost in the list** — it
@@ -96416,7 +96458,18 @@ assoc_drv[i]     byte      ...on which volume (0xFF = never seen)
 assoc_dfold[i]   byte      build-time folder: 0 root, 1 APPS, 2 GAMES
 ```
 
-`ASSOC_NAPP` = 12, `ASSOC_NEXT` = 24. **Every stride is a power of two** so
+`ASSOC_NAPP` = 16, `ASSOC_NEXT` = 32. They were 12 and 24, and **nothing
+frees a slot within a session**, so a machine that met more than seven
+declaring programs past the five built-ins dropped the rest in silence:
+`office360` mounted beside `apps360` wanted nine, a full hard-disk install
+eleven slots and twenty new extensions - and 16/32 is that install exactly,
+eleven slots and 24 extensions past the built-ins. The raise is 20 bytes a slot
+and 4 an extension, **114 resident bytes** on `kern_big` measured (§54.7.6.5).
+The 32/64 one full `ASSOC.DAT` could declare was built and REFUSED at 562
+bytes. A full table still drops a declaring program's association for the rest
+of the session, as it did at 12/24 - but no shipped set reaches 16/32, and
+448 more resident bytes on every machine is the wrong price for headroom
+nothing has asked for yet. **Every stride is a power of two** so
 the lookup the harvest does once per listed file is a shift through CL rather
 than the `mul` an odd stride would force.
 
@@ -97001,7 +97054,7 @@ and `asc_seed` has already pointed that slot's hint at the volume that
 answered, so the locate is rung 1.
 
 - **`assoc_post` cannot ask**: it runs under the gfx lock and the question is
-  a disk question. It posts `ASSOC_FIND` (0xFE) in `[assoc_dapp]` instead,
+  a disk question. It posts `ASSOC_FIND` (0xEF, §54.7.6.3) in `[assoc_dapp]` instead,
   and `assoc_run` - on the UI task, lock free - sweeps before it locates.
   0xFF is still "nothing posted", so `ui.inc`'s test is unchanged.
 - **A name with NO extension is not searched for.** Nothing can ever claim
@@ -97036,13 +97089,14 @@ the extension.
 
 ### 54.5 The API: the app PULLS its document, and may claim an extension
 
-Two cells, **appended past the last one**, so no `.o88` is invalidated
-(§20.8 rule 4).
+Three cells, each **appended past the last one** when it was added, so no
+`.o88` is invalidated (§20.8 rule 4).
 
 | slot | contract |
 |---|---|
 | `OSAPI_ARG_FILE` **0x0249** | no inputs. Out CF=1 = launched empty, the ordinary case; CF=0 with SI → the document's NUL 8.3 name **in the kernel segment** (read it through ES, which is `KERNEL_SEG` on entry to every package proc — §20.2), DX = the directory cluster it lives in, BL = its volume. **READ-AND-CLEAR.** |
 | `OSAPI_ASSOC_SET` **0x024F** | an **X stub**. ES:SI → 3 extension bytes then 8 stem bytes, both space-padded (`OS88_ASSOC` lays it out). Out CF=1 = the tables are full and nothing was stored. |
+| `OSAPI_ASSOC_FLUSH` **0x0493** | DL = a volume, AL = 0 **incremental**, or the `ASSOC_FL_*` bits: `FULL` (1) reads every package the old cache does not hold; `NOFLUSH` (4) flushes nothing and changes only the HOLD: with `HOLD` (2) it loads the writer and keeps it, alone it releases it (§54.7.6.4). Brings that volume's `ASSOC.DAT` up to date with the packages on it (§54.7.6). Out CF=0 = it describes the volume now (written, or already right); CF=1 with AX = `FERR_*` = it could not, and nothing was written. Every other register is preserved. **Synchronous**: the work is done when it returns. A package may call it, but a worker may not (§20.6 rule 7). Its main caller is a program that has just copied packages onto a disk; full mode is for that case, and its cost grows with the number of packages the old cache did not hold. `kern_small` refuses it with CF=1. |
 
 **DX and BL are exactly the pair `OSAPI_FILE_HERE` answers and
 `OSAPI_FILE_GOTO` takes**, so the whole of accepting a document is: copy the
@@ -97140,8 +97194,8 @@ the volume's root, hidden + system, that answers them all:
 +0    6   'OS88AC'
 +6    1   version = 2 (1 = the same rows at 80 bytes, without the glyph:
           READ by the kernel, never written any more - §54.3.2)
-+7    1   app rows (<= 32)
-+8    1   association rows (<= 24)
++7    1   app rows (<= 55)
++8    1   association rows (<= 64)
 +9    7   reserved
 +16   ..  app rows, 88 bytes: stem 8, size low word 2, folder cluster 2
           (§54.7.1), 4 reserved, icon 64, document glyph 8 (§54.3.2;
@@ -97254,7 +97308,7 @@ choices in it are the load-bearing ones:
 
 - **`assoc_app_of`, not `asc_slot_of` — find, never create.** A slot only
   matters if some extension points at it, and the kernel's table is
-  `ASSOC_NAPP` = **12** rows against a disk that may now cache 32. Creating a
+  `ASSOC_NAPP` = **16** rows against a disk that may cache 55. Creating a
   slot per package would evict the associations this exists to serve.
 - **After `asc_merge_ext`**, so a package that *declares* its extensions
   (§54.6) has already been given its slot and is found here like anything
@@ -97274,8 +97328,12 @@ and the sweep continues.
 the *entire* file if the count exceeded it. One package of headroom, no
 guard, and the failure mode was an association that quietly stopped working.
 
-It is **32** now (`ASC_KB` 2 → 3 — one more kilobyte of heap, and the buffer
-is one shared claim for the whole machine, not one per volume), the tool
+It was **32** (`ASC_KB` 2 → 3) and is **55** now (`ASC_KB` 5, with
+`ASC_NEXT` 24 → 64: 16 + 55 × 88 + 64 × 4 = 5,112 bytes, the most rows that
+fit 5KB beside 64 extensions) — the buffer is one shared claim for the whole
+machine, not one per volume, and it is TRANSIENT (§54.7.4), so the two extra
+kilobytes stand only for the length of one read. The 720KB apps disk held
+exactly 32 packages, so the old cap was already binding the day it was raised, the tool
 **reports** what it drops instead of dropping it in silence, and rows are
 ordered **association-bearing first** — a header declaration, or a stem the
 kernel already knows — so that if the cap ever does bite, what is lost is an
@@ -97433,8 +97491,9 @@ no lazy version of this: the choice is absorb everything or keep the claim.
 What eager costs is store rows spent before the user has looked at anything,
 and the busiest shipped volume declares 25 rows of which 24 carry a body,
 while the union over *every* shipped volume is **28 distinct `(stem, size)`
-pairs** against `ICO_NROW`'s 48, with `ASSOC_NAPP` capping composed document
-bodies at another 12. A full store is §25's generic icon and not an error.
+pairs** at the time (40 shipped programs since, §25.9.2) against
+`ICO_NROW`'s 60, with `ASSOC_NAPP` capping composed document bodies at another
+16. A full store is §25's generic icon and not an error.
 
 **`asc_vol` changes meaning, and the compare that reads it gains a second
 half.** It said *whose cache the claim holds*; there is no claim, so it says
@@ -97474,7 +97533,7 @@ browsed. So `ICO_R_GLYPH` is a column of the store row (`kern_big` only —
 `kern_small` has no glyphs at all), `asc_row_take` puts a cache
 row's glyph in beside its body, and `asc_take` prefers it exactly as
 `asc_seed`'s `asc_gly_pair` does, falling back to `asc_body_glyph`'s reduce when there is
-none. 8 bytes × 48 rows = 384, against the 3,072 the claim gave back.
+none. 8 bytes × 60 rows = 480, against the 5,120 the cache's claim gives back.
 `asc_body_glyph` is the reduce split out of the cache-row walker so a cache row and
 a store row cannot disagree about what the iconless sentinel is.
 
@@ -97505,9 +97564,11 @@ that nothing needed: the only alignment that binds a row is
 `ICO_KEY` here is one. The `add` that walked that gap is inside a `%if` and
 emits nothing while the gap is 0.
 
-`ICO_KB` falls out of that and is not chosen: 48 rows of 82 is 3,936 bytes, so
-**the claim is 4KB where the written-out layout made it 5** — a kilobyte
-returned to a heap whose whole point (§25.9) is the DOS arena.
+`ICO_KB` falls out of that and is not chosen: 48 rows of 82 was 3,936 bytes, so
+**the claim was 4KB where the written-out layout made it 5** — a kilobyte
+returned to a heap whose whole point (§25.9) is the DOS arena. §25.9.2's raise
+to 60 rows (4,920 bytes) spent that kilobyte again, on purpose: a full
+`ASSOC.DAT` is 55 rows and the store has to absorb one whole.
 
 `ico_rowoff` is `mul ah` and not a shift ladder, because a ladder needs an arm
 per row width and the multiply takes any of them in two bytes. The product
@@ -97564,8 +97625,217 @@ fails on an `ASSOC.DAT` that crosses a track, or that is not on the lowest
 cylinder any boundary would have allowed.
 
 It is a build-time property and not a rule the kernel enforces: an
-`ASSOC.DAT` written at runtime, by the hard-disk installer (§52.10.14), lands
-wherever the FAT allocator puts it.
+`ASSOC.DAT` written at runtime, by the flush (§54.7.6) or by the hard-disk
+installer through it (§52.10.14), lands wherever the FAT allocator puts it.
+
+### 54.7.6 The machine writes back what it learned
+
+**What the machine learns at runtime stayed in RAM until this section.** A
+harvest that reads a package `ASSOC.DAT` does not hold, and a search that
+finds a program the cache did not place, both teach the tables (§54.3.1,
+§54.4.2). Neither wrote anything down. So every boot and every heap shed
+(§25.9.2) paid again: a sector per such package per folder, documents drawn
+as bare pages until their program's folder was browsed (§54.7.3), and the
+same sweep for the same program. The design record is
+`docs/plans/completed/ASSOC-WRITER-PLAN.md`.
+
+**The machine now writes the volume's cache back, once per action that
+learned something.** The work is done by an entry in `FORMAT.DRV` (§2.8), so
+the resident kernel carries only the decision to do it and the door.
+
+#### 54.7.6.1 Two triggers, and both mean the cache was WRONG
+
+A flush is posted for a volume at two points, and nowhere else:
+
+- **The harvest's store-take.** In step 4's `.h_read` arm, `ico_put` has
+  just answered a real row (not `ICO_R_NONE`). `asc_use_x` absorbed this
+  volume's file at the top of the same harvest (§54.7.4), so a body that
+  was not in the store and was taken now is a `(stem, size)` the file does
+  not hold. The trigger is the take and not the miss. An **iconless**
+  package misses on every mount and never gets a store row, and a **full**
+  store misses for everything it did not take; either would post on every
+  navigation. A folder therefore posts at most once a session.
+- **The search's `.found`** (§54.4.2). Between `asc_use_x` and
+  `assoc_hint_here`, the slot's hint is what this volume's own cache said.
+  When that is not where the program was just found, the cache did not know
+  where the program is, or it was wrong, and both are worth a flush. A
+  search is quiet mounts, which never harvest (§18.9), so this is the only
+  point at which a location learned without a listing is seen.
+
+`asc_post` (AL = the volume) is the one routine both call. It posts nothing
+for a volume `[asc_wno]` names (§54.7.6.4), and nothing for a volume the
+association cache is not keyed to (`[asc_vol]`). That second test is what
+keeps a redirected volume out: `.harvloc` skips `asc_use_x` (§62.9.2.2), so
+a RAM disk's harvest has `[asc_vol]` pointing elsewhere.
+
+#### 54.7.6.2 The capture: a harvest keeps the one thing the store does not
+
+A row of `ASSOC.DAT` needs a stem, a size and a folder cluster (from the
+directory entry), an icon and a glyph (from the store, §54.7.4), and the
+package's **declarations** (§54.6), which nothing in RAM held as the header
+gave them. The flush must not read the package again for them. On a 360KB
+floppy every package's first sector is on a track of its own, so a
+re-read of twenty headers would miss §18.95's cache for all but the last
+few, at ~400 ms a call.
+
+So the harvest keeps them, **in the store's own claim**: 60 rows of 82 bytes
+are 4,920 bytes of a 5,120-byte claim, and the capture is the tail:
+
+| offset | |
+|---|---|
+| `ICO_CAP_ROWS` = `ICO_NROW * ICO_ROW` | `ICO_CAP_MAX` = 11 bytes: each record's store row |
+| `ICO_CAP_REC` (+12) | eleven 16-byte records: the header's association block verbatim (count, then 5 x 3 extension bytes) |
+
+How many records are held is **`[ico_capn]`**, a resident byte right behind
+`[ico_n]`. Every store that empties the store is a word store that empties the
+capture too: `ico_need`'s when it makes the claim, and `ico_demote`'s when a
+shed takes it.
+
+`asc_learn` is the store-take's call. It posts the flush, and when the
+header's flags say the package declares, it appends the block from
+`dsk_secbuf` + 96: on this arm the icon is present, so the block follows
+it. **It holds the blocks verbatim**; the flush applies §54.6's usability
+test when it reads them. A compaction moves the store with the capture
+inside it, and record row numbers stay valid because store rows never move
+inside the claim.
+
+**Eleven is per action, not per session.** The flush empties the capture
+whatever its outcome. The busiest shipped folder holds eight declaring
+packages (`APPS\` on the 1.44MB and 1.2MB apps disks).
+
+#### 54.7.6.3 The post rides `[assoc_dapp]`, so the UI task has nothing new to poll
+
+| `[assoc_dapp]` | |
+|---|---|
+| 0..`ASSOC_NAPP`-1 | open the pending document with this app slot (§54.4) |
+| `ASSOC_FIND` = **0xEF** | sweep for an unclaimed extension first (§54.4.3) |
+| `ASSOC_FLUSH` + volume = **0xF0..0xF7** | flush that volume's `ASSOC.DAT` |
+| 0xFF | nothing posted |
+
+`ui.inc`'s existing `cmp byte [assoc_dapp], 0xFF` is the whole of the poll,
+and `assoc_run_x` routes 0xF0 and above to `asc_flush` before anything about
+a document is read.
+
+**A post never overwrites a pending document**: `asc_post` writes only when
+the byte is 0xF0 or above, which is why `ASSOC_FIND` moved from 0xFE to
+0xEF. A pending document below 0xF0 makes that a single compare. A document
+posted on top of a pending flush wins, and the flush is lost for the
+session. That is harmless, because the next boot's harvest posts it again.
+
+**One action posts many times and flushes once.** Every post is a store to
+one byte, serviced after the handler that mounted has returned, so a folder
+of twenty new packages is one flush that writes all twenty.
+
+#### 54.7.6.4 The flush, `FME_ASCW`, in `FORMAT.DRV`
+
+`asc_flush` (DL = volume, AL = mode) loads the format image through
+`dskw_fmt_go`, far-calls its fifth entry, and drops the image again. No
+formatter code can be on the stack when it runs. A format prompt that was
+holding the image reloads it through `dskw_fmt_go`, as every formatter stub
+already does. A refused load is silent: CF=1,
+AX = `FERR_NODISK`, and nothing on the glass. This is the kernel's own
+housekeeping and not something the user asked for. On a one-drive machine
+with the system disk out, the module cannot be had, and that volume's cache
+waits for a session that has both.
+
+**THE HOLD.** `ASSOC_FL_NOFLUSH | ASSOC_FL_HOLD` loads the image and sets
+`[asc_hold]`, and `fm_fmt_drop` then leaves `FORMAT.DRV` loaded until
+`ASSOC_FL_NOFLUSH` alone releases it. A release loads nothing. A flush
+leaves the hold as it found it, so the runtime flush the UI task posts cannot
+drop an image someone is holding. It exists for one caller, and for a reason
+no other caller has. `mod_need` reads the BOOT volume and refuses an image
+stamped for another kernel (§2.8.2). An installer running on a machine booted
+from the disk it is installing onto replaces `FORMAT.DRV` there with the
+NEW system's copy, so a flush at the end of the install would find nothing
+it may load. The installer acquires before its system phase, flushes after
+each disk, and releases on every way out (§52.10.14).
+
+The entry, `ascw_flush_x`:
+
+1. **Refuses what cannot hold a cache**: a free row or a redirected volume
+   (`DVK_FILE`: the cable, the RAM disk).
+2. **Banks where the user is** (`[disk_drive]`, `[dsk_cwd]`) and stands in
+   the volume's root with `fcp_goto`.
+3. **Claims its work buffer** (`ASW_KB`, transient, freed before return).
+4. **Walks the root**, collecting its packages, its folders and `ASSOC.DAT`'s
+   own entry, and **reads the old file** under `asc_use_x`'s tests (§54.7.1's
+   guards). A bad or absent file is an empty one.
+5. **For each package in the root and in each folder one level down** (the
+   shape `build_assoc` and the installer index on), keyed by
+   `(stem, raw size)`:
+   - **in the old file**: the row is copied with its folder cluster
+     rewritten, and its association rows come with it;
+   - **else in the store** (`ico_find`): the body and glyph come from the
+     store row, and the declarations from the capture. With no record, a
+     package that holds an app slot has its header read (a built-in
+     program, or a package absorbed from *another* volume's cache), and one
+     that does not is plain, because a package that declares always takes a
+     slot. That proof fails when **every slot is taken**, so then the header
+     is read too, and **full** mode reads it whatever the slots say;
+   - **else**, in **incremental** mode, it is left out, because nothing has
+     learned anything about it; in **full** mode its header is read for all
+     three.
+6. **Orders and caps** the rows as §52.10.14 does: declaring packages first,
+   so the 32-row cap drops an icon and never an association.
+7. **Writes nothing when the bytes equal the old file's.**
+8. **Writes** through `dwf_dskw_write_sys` in the root, hidden + system
+   (§19.6.1).
+9. **On success** sets `[asc_vol]` to 0xFF, so the next harvest on the volume
+   re-absorbs the file instead of posting again for folders whose bodies the
+   store does not hold yet. **On a refused write** (`FERR_WPROT`, `_FULL`,
+   `_DIRFULL`, `_PROT`, `_IO`) it sets **`[asc_wno]`** to the volume, and
+   `asc_post` posts nothing more for it this session. A write-protected
+   floppy then pays one attempt, not one per folder.
+10. **Empties the capture**, puts the volume back with `fcp_goto`, frees the
+    buffer and returns.
+
+**What a flush costs does not grow with what it found.** In incremental mode
+it reads directories, never packages. The exceptions are the headers step 5
+names, and on every shipped disk those are only the built-in programs that
+are new to that volume. Its cost is one module load, the old file, a
+directory sector per folder and the write.
+
+**An iconless package is left out of an incremental flush.** The store never
+takes one (`asc_row_take` skips a blank body and the harvest's iconless arm
+stores nothing), so nothing in RAM has learned about it. Full mode writes it.
+
+#### 54.7.6.5 What it cost, measured
+
+Against the kernel before it: `kern_big` **+175 resident bytes** (`.text` +7,
+`.bss` +4, `.cold` +164); `kern_small` **+6**, the cell. `FORMAT.DRV`'s image
+is 1,136 → 3,111 bytes, a cluster more at 360KB, and §52.10.14's
+`HDDTOOL.DRV` lost `hd_iassoc` and a cluster, so the 360KB system disk is
+level. On MartyPC's 5150 off a 720KB floppy, one action's flush is **3.65 s**
+for one new package and **4.07 s** for seventeen. The next boot then lists
+`B:\APPS` in 7 reads instead of 33, and knows `.TEX` and `.HTM` from
+`B:\MEDIA` before `APPS\` is opened. `tests/assocflush.py` is the gate.
+
+**The 5KB raise and the installer's hold** (§25.9.2, §54.2, §54.7.1,
+§52.10.14) took the total to `kern_big` **+322 resident bytes** against the
+kernel before the writer (`.text` +121, `.bss` +4, `.cold` +197): of the
+raise, **114 are the two slot tables** (`ASSOC_NAPP` 12 -> 16 at 20 bytes a
+slot, `ASSOC_NEXT` 24 -> 32 at 4) and **33 are the hold mode** in
+`asc_flush` and `fm_fmt_drop`. Tables of 32/64 were built first and measured
+at 562 bytes, and refused (§54.2). `KERN_SIZE` 98,304 -> 98,816 against a
+`KERN_BUDGET` of 100,864. `kern_small` is still **+6**: it has no
+associations (§54.0). The heap side is transient - the cache buffer 3 -> 5KB
+for one read, the flush's work claim 8 -> 12KB for one flush - except the
+icon store, 4 -> 5KB for as long as it stands, which is the price of
+absorbing a full file whole. `HDDTOOL.DRV` is 12,565 bytes and the 360KB
+system disk still 347 of 354 clusters.
+
+#### 54.7.6.6 Hazards, stated
+
+- **A floppy swapped mid-flush on an XT**, which has no change line, gets a
+  file built from the other disk. That is §54.7's "present and wrong" state.
+  A key that does not match misses and is harvested again, and a wrong hint
+  costs one mount and never opens a wrong file (§54.4.2). The next store-take
+  on that disk rebuilds it. Every save on an XT shares the window.
+- **More than `ASC_NAPP` packages on a volume.** The rows past the cap miss
+  on every boot. Each boot then posts once and builds the same file, and
+  step 7 writes nothing.
+- **The file lands where the FAT allocator puts it** (§54.7.5's last
+  paragraph).
 
 ### 54.8 Accepting the document: five apps, and the three traps between them
 

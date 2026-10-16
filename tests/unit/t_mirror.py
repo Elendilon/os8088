@@ -135,17 +135,6 @@ ASM = ["boot/boot.asm", "boot/boothd.asm",
        # for drivers/saver's reason. A drifted version word is a chooser the
        # kernel refuses as DRVE_BAD; a drifted verb is the wrong one called.
        "drivers/thmpal/thmpal.asm",
-       # ASSOC.DAT's format (SPEC.md 54.7), which kernel/assoc.inc READS and
-       # the hard-disk installer WRITES: an installed volume gets its own
-       # cache built from its own packages (SPEC.md 52.10.14), so the row
-       # stride, the cap and the two field offsets are typed out in
-       # drivers/hdd/iassoc.inc as well. Same shape as drivers/saver and
-       # drivers/xmem above - a driver cannot %include a kernel header - and
-       # it fails the same silent way: a drifted ASC_ROW writes rows the
-       # kernel then parses at the wrong stride, which is a cache that reads
-       # as garbage rather than an error. tools/os88disk.py is the THIRD
-       # writer of this format and is covered by os88geom's Python sweep.
-       "drivers/hdd/iassoc.inc",
        # apps/c64 is a C package whose assembly half and C half type the same
        # constants out twice (docs/C64-SPEC.md, its memory and screen
        # sections): the core's scratch offsets, the composer's band stride.

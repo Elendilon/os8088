@@ -29,7 +29,47 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'CHART', ct_entry
+    OS88_HEADER 'CHART', ct_entry, OS88_F_ICON
+
+; --- embedded 16x16 icon: a bar chart, three bars rising on an L of axes -------
+; Sheet's page underlay, so the two read as one family on the desktop. Chart
+; was the one shipped package with no icon at all, which made it the one
+; package the mount re-read on every visit to its folder: an iconless package
+; never takes a row in the icon store (SPEC.md 54.7.4, 54.7.6.4).
+    OS88_ICON16
+    dw 0x0000                       ; 16 mask rows (white underlay)
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x0000
+    dw 0x0000                       ; 16 data rows (black pixels)
+    dw 0x0000
+    dw 0x2000                       ; the value axis
+    dw 0x2030                       ; ...and the tallest bar's top
+    dw 0x2030
+    dw 0x21B0                       ; the middle bar joins
+    dw 0x21B0
+    dw 0x21B0
+    dw 0x21B0
+    dw 0x2DB0                       ; ...and the shortest
+    dw 0x2DB0
+    dw 0x2DB0
+    dw 0x2DB0
+    dw 0x3FFC                       ; the category axis
+    dw 0x0000
+    dw 0x0000
+    OS88_ICON16_END
 
 ; --- shared chart geometry constants (see apps/os88chart.inc's own header -
 ; equ constants can't be forward-referenced, and that file's CODE has to

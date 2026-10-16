@@ -4855,7 +4855,12 @@ FME_LINE    equ 3               ; the status line's own composer (SPEC.md
                                 ; 2.8.6): every string the confirmation, the
                                 ; swap prompt and the two verdicts letter is
                                 ; in THIS FILE now, read through CS
-FM_NENT     equ 4
+%ifdef OS88_ASSOC
+FME_ASCW    equ 4               ; ...and the ASSOC.DAT flush (SPEC.md
+FM_NENT     equ 5               ; 54.7.6.4): kern_big's alone - kern_small has
+%else                           ; no associations (54.0), and its FORMAT.DRV
+FM_NENT     equ 4               ; carries no flush code at all
+%endif
 
 %ifndef KD_BUILD                    ; **NO MODULE UNDER kern_dos** (SPEC.md
                                     ; 96.43): `mod_need` is not in that root,
@@ -4879,6 +4884,9 @@ modf_hdr:
     dw dskw_fmt_reach_x         ; so each ends in the `retf` itself - a
     dw dskw_fmt_line_x          ; `call`/`retf` thunk per entry was 16 bytes
                                 ; of image buying nothing (size pass p1)
+%ifdef OS88_ASSOC
+    dw ascw_flush_x             ; FME_ASCW (ascw.inc, SPEC.md 54.7.6.4)
+%endif
 
 ; -----------------------------------------------------------------------------
 ; dskw_fmt_row_x - a table row's address (module-internal)
@@ -5906,15 +5914,76 @@ dskw_fmt_line:
     call far [FMFP + FME_LINE*4]
     ret
 
+%ifdef OS88_ASSOC
+; -----------------------------------------------------------------------------
+; asc_flush - bring volume DL's ASSOC.DAT up to date (SPEC.md 54.7.6.4)
+; in:  DL = the volume, AL = 0 incremental / 1 full - OSAPI_ASSOC_FLUSH's own
+;      registers, so the cell's far entry below is the call and nothing else
+; out: CF=0 = it describes the volume now; CF=1, AX = FERR_* = it could not -
+;      FERR_NODISK when the image itself could not be had. SILENT either way
+; clobbers: AX on CF=1 (the code), flags
+;
+; The format image's fifth entry, and the formatter's own load: dskw_fmt_go
+; returns past its caller on a refusal, which is why the far call sits in a
+; nested routine of its own here. The image is dropped again afterwards,
+; WHATEVER held it: no formatter code can be on the stack here (a flush runs
+; on the UI task's idle pass, or from a package's own call), and a format
+; prompt that was holding it reloads it through dskw_fmt_go like every other
+; formatter stub does - one read, in the rare case the two overlap.
+; THE HOLD (SPEC.md 54.7.6.4): AL with ASCF_NOFLUSH flushes nothing. With
+; ASCF_HOLD as well it LOADS the image and keeps it, without it it RELEASES -
+; loading nothing - and either way that is all it does. A flush leaves the
+; hold as it found it, so the runtime flush the UI task posts cannot drop an
+; image an installer is holding; fm_fmt_drop is where the hold is honoured.
+; -----------------------------------------------------------------------------
+asc_flush:
+    test al, ASCF_NOFLUSH
+    jz .run
+    and al, ASCF_HOLD
+    mov [asc_hold], al
+    jz .rel                     ; (`mov` leaves the `and`'s ZF)
+    call .ld                    ; acquire
+    jmp short .drop
+.rel:
+    xor ax, ax                  ; a release answers CF=0, AX=0
+    jmp short .drop
+.run:
+    call .go
+.drop:
+    pushf
+    call fm_fmt_drop            ; ...which a hold makes a no-op
+    popf
+    ret
+.go:
+    call dskw_fmt_go
+    call far [FMFP + FME_ASCW*4]
+    ret
+.ld:
+    call dskw_fmt_go
+    xor ax, ax
+    ret
+
+; OSAPI_ASSOC_FLUSH's far entry (0x0493, SPEC.md 54.5): the rare cold slot
+; far-calls its body (api_rsc), and asc_flush ends in a near ret
+osapi_assoc_flush_x:
+    call asc_flush
+    retf
+%endif
+
 ; fm_fmt_drop - the formatter is finished with (SPEC.md 2.8.3)
 ;
 ; Called from every path that ends a format confirmation, which is the one
 ; moment nothing is on the module's stack and nothing will call it again.
 fm_fmt_drop:
+%ifdef OS88_ASSOC
+    cmp byte [asc_hold], 0      ; HELD for an installer (SPEC.md 54.7.6.4):
+    jne .held                   ; the copy on the boot volume may no longer
+%endif                          ; be this kernel's, so this one stays
     push ax
     mov al, MOD_FMT
     call mod_drop
     pop ax
+.held:
     ret
 
 
