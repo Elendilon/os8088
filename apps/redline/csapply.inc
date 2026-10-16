@@ -46,6 +46,7 @@ cs_cfg:     times CS_CFG_SZ db 0
 cs_cfgrow:  db 0                    ; the row the file names, once checked
 
 
+%ifndef CS_APPLY_ONLY               ; Save is REDLINE's: RLAPPLY never writes
 ; -----------------------------------------------------------------------------
 ; cs_cfg_new - start a setting for row AL, method AH, in cs_cfg, stamped with
 ; this machine's fingerprint (cs_identify has run). Knobs: cs_cfg_knob.
@@ -131,6 +132,7 @@ cs_cfg_save:
     pop cx
     pop bx
     ret
+%endif                              ; !CS_APPLY_ONLY
 
 %ifdef CS_LOADER
 ; -----------------------------------------------------------------------------
