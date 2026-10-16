@@ -58249,6 +58249,11 @@ into bss or the heap. The numbers are the file and the image, both arms.
     - so the leftward case swaps its three ends into place and both fall
     into one body that holds them in AX/BX/DX, with the block's landing
     place in DI. The four words are gone: bss -8 on both arms.
+11. **A name is adopted in one place.** The file dialog's callback and
+    the launch document (`np_ondlg`, `np_arg`) each recorded the folder and
+    copied the kernel's name with a loop of their own; `np_adopt` does both
+    for both, bounded at 13 and a NUL as `np_arg`'s was (SPEC.md 38.6
+    promises 12, and `np_name` holds 14).
 
 ## 28. apps/taskmgr — the Task Manager
 

@@ -6765,33 +6765,15 @@ np_dlgopen:
 ; been uncovered by wm_destroy.
 ; -----------------------------------------------------------------------------
 np_ondlg:
-    mov bl, al                      ; BL = the mode; AL becomes a name byte
-    mov dx, si                      ; DX = our window: SI is about to be the
-                                    ; kernel's buffer, and np_redraw wants
-                                    ; the window back in SI
-    mov si, di
-    mov di, np_name
-    mov cx, NP_NAMEMAX
-.copy:
-    mov al, [es:si]                 ; the name buffer is the KERNEL's, and ES
-    mov [di], al                    ; points there on entry (SPEC.md 38.6).
-    or al, al                       ; Bounded even though 38.6 promises <= 12:
-    jz .copied                      ; a package that trusts a promise is a
-    inc si                          ; package with an overrun in it
-    inc di
-    loop .copy
-    mov byte [di], 0
-.copied:
-    push dx                         ; the window: FILE_HERE answers in DX
-    push bx                         ; ...and the mode is in BL
+    mov ah, al                      ; AH = the mode: np_adopt spends AL only,
+                                    ; and FILE_HERE answers in DX and BL
+    push si                         ; our window, which np_redraw wants back
+    mov si, di                      ; ES:SI = the name, in the KERNEL's buffer
     call OSAPI_FILE_HERE            ; where the dialog left the volume IS the
-    mov [np_dir], dx                ; folder the user chose, and it is the one
-    mov [np_drv], bl                ; this document belongs to from here on
-    mov byte [np_dirok], 1
-    pop bx
-    pop dx
-    mov si, dx                      ; SI = our window again
-    or bl, bl
+    call np_adopt                   ; folder the user chose, and it is the one
+                                    ; this document belongs to from here on
+    pop si
+    or ah, ah
     jz .load
     call np_save
     pushf                           ; its answer, past the read-and-clear
@@ -6897,25 +6879,11 @@ np_arg:
     push es
     call OSAPI_ARG_FILE             ; CF=1 = launched empty, the usual case
     jc .out
-    mov [np_dir], dx                ; the folder it lives in, recorded the
-    mov [np_drv], bl                ; way Save As records one - np_goto then
-    mov byte [np_dirok], 1          ; takes np_load there
     mov ax, KERNEL_SEG
     mov es, ax
-    mov di, np_name
-    mov cx, 13
-.copy:
-    mov al, [es:si]
-    mov [di], al
-    or al, al
-    jz .named
-    inc si
-    inc di
-    loop .copy
-    mov byte [di], 0
-.named:
-    push ds
-    pop es                          ; ES = DS again, the callback default
+    call np_adopt                   ; the folder it lives in, recorded the
+                                    ; way Save As records one - np_goto then
+                                    ; takes np_load there - and the name
     mov byte [np_argp], 1           ; np_onwake reads it; np_load is Ctrl-O and
                                     ; is what it calls (SPEC.md 54.10)
 .out:
@@ -6927,6 +6895,34 @@ np_arg:
     pop bx
     pop ax
     popf
+    ret
+
+; -----------------------------------------------------------------------------
+; np_adopt - this note IS the file ES:SI names, in folder DX on drive BL
+; in:  DX:BL = the folder (OSAPI_FILE_HERE's or OSAPI_ARG_FILE's pair), ES:SI
+;      = an 8.3 name in the KERNEL's segment; out: np_dir/np_drv/np_dirok and
+;      np_name set. Clobbers AL, CX, SI, DI - and AH is kept, np_ondlg's mode
+;
+; The two doors a name arrives by - the file dialog and a launch document -
+; record it the same way. Bounded at 13 characters and a NUL even though
+; SPEC.md 38.6 promises 12: a package that trusts a promise is a package
+; with an overrun in it, and np_name is 14 bytes.
+; -----------------------------------------------------------------------------
+np_adopt:
+    mov [np_dir], dx
+    mov [np_drv], bl
+    mov byte [np_dirok], 1
+    mov di, np_name
+    mov cx, 13
+.copy:
+    es lodsb
+    mov [di], al
+    or al, al
+    jz .done
+    inc di
+    loop .copy
+    mov byte [di], 0
+.done:
     ret
 
 ; -----------------------------------------------------------------------------
