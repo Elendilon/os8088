@@ -910,8 +910,10 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # and stage 2's `cmp word [b2_ksig], 0` skips the compare.
 # SPEC.md 6.0.1 took the blob to TEN sectors, and the probe moved one memory
 # sector down with it - 5632, memory sector 11, file sector 11 + 10 = 21, the
-# same file sector - so the band argument above is untouched.
-KSIG_OFF := 5632
+# same file sector - so the band argument above is untouched. SPEC.md 26.10.5
+# took it to ELEVEN for autostart's walk, and the probe moved down once more:
+# 5120, memory sector 10, file sector 10 + 11 = 21.
+KSIG_OFF := 5120
 #
 # A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
 # whole of this line's second job. It used to answer 0, and a fabricated zero is
@@ -3376,6 +3378,18 @@ MEDIAFOLDER := --folder MEDIA
 # exists only because a file named one, and an application that has to make
 # its own would have to handle "the disk is full" on a path nobody tests.
 APPDATAFOLDER := --folder SYSTEM/APPDATA
+# ...and AUTOSTART's folder (SPEC.md 26.10.5), EMPTY, on every kern_big system
+# disk and the live volume: a folder a user can see is how the feature is
+# found, where a feature with no folder is a manual nobody has written. It
+# costs the boot one directory sector (its first, and the whole of an empty
+# one); kern_small has no autostart and its disks do not carry it.
+# **NOT THE 360KB SYSTEM DISK, for now, and it is ROOM and not a decision
+# about the feature**: that disk had 5 clusters free, §26.10's eleventh blob
+# sector took KERNEL.SYS over a cluster and the folder would take another, and
+# at 3 free the Sticky Apps calendar can no longer save its place there
+# (stikmove, stikmovecga and stikregister go red; at 4 they pass). The day a
+# cluster is found for it, $(IMG360) takes $(AUTOFOLDER) like the other three
+AUTOFOLDER := --folder AUTOSTRT
 
 # The logo (SPEC.md 63): 466x100 of monochrome GIF, and the one thing in
 # MEDIA on the three SHIPPED system disks, which used to be empty. It is not
@@ -4392,7 +4406,7 @@ $(IMG): $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROO
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
-		$(SYSVIDARGS) $(APPDATAFOLDER)
+		$(SYSVIDARGS) $(APPDATAFOLDER) $(AUTOFOLDER)
 
 # The 720KB 3.5" DD disk (SPEC.md 19). It is the geometry the machines
 # BETWEEN the two shipped ones have: an XT or AT fitted with a 3.5" DD drive,
@@ -4407,7 +4421,7 @@ $(IMG720): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
-		$(SYSVIDARGS) $(APPDATAFOLDER)
+		$(SYSVIDARGS) $(APPDATAFOLDER) $(AUTOFOLDER)
 
 # The 1.2MB 5.25" HD disk (SPEC.md 19). The geometry of the machine the 720KB
 # note above describes from the other side: an AT-class box - 286 and up, or a
@@ -4434,7 +4448,7 @@ $(IMG120): $(BUILD)/boot120.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(
 	python3 tools/os88disk.py -o $@ --size 1200 \
 		--boot $(BUILD)/boot120.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
-		$(SYSVIDARGS) $(APPDATAFOLDER)
+		$(SYSVIDARGS) $(APPDATAFOLDER) $(AUTOFOLDER)
 
 # ETHERTEST - the system disk with a SYSTEM.CFG that already asks for the
 # Ethernet driver (SPEC.md 72.9). Nothing is ticked by hand, which is what
@@ -5060,6 +5074,47 @@ $(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(APPDATAFOLDER)
+
+# AUTOSTARTTEST - the LINKS and AUTOSTART gate's disk (SPEC.md 26.10): the
+# shipped 360KB system disk plus \AUTOSTRT holding a link to the Task Manager
+# (this volume's own, LNK_SELF), a link in a version this kernel does not read
+# (BADVER.LNK, to the Calculator) and a NOTES.TXT that is no link at all and
+# would start Note Pad if it were opened - and CALC.LNK in the root, a link
+# to B:\APPS\CALC.O88 for the double-click leg. tools/os88lnk.py writes them,
+# the same 50 bytes CTRL.DRV's Alt-drop and apps/os88link.inc write.
+# MEDIA's logo is left off: the shipped disk is 3 clusters from full, and
+# these four files and the folder they need do not fit beside it.
+#   make autostarttest && python3 tests/autostart.py
+# ONE rule writes the four, behind a stamp: a grouped target (`&:`) is GNU
+# make 4.3, and the macOS make is 3.81
+$(BUILD)/astest/.made: tools/os88lnk.py | $(BUILD)
+	mkdir -p $(BUILD)/astest
+	python3 tools/os88lnk.py $(BUILD)/astest/TASKMGR.LNK 'SYSTEM\TASKMGR.O88'
+	python3 tools/os88lnk.py $(BUILD)/astest/CALC.LNK 'APPS\CALC.O88' --vol B
+	python3 -c "import sys; sys.path.insert(0, 'tools'); import os88lnk; \
+		r = bytearray(os88lnk.make('APPS/CALC.O88', vol=1)); r[2] = 2; \
+		open('$(BUILD)/astest/BADVER.LNK', 'wb').write(r)"
+	echo 'Not a link: autostart opens only *.LNK' > $(BUILD)/astest/NOTES.TXT
+	touch $@
+
+$(BUILD)/autostart360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py $(BUILD)/astest/.made
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(FACESARG360) \
+		$(BUILD)/astest/CALC.LNK AUTOSTRT:$(BUILD)/astest/BADVER.LNK \
+		AUTOSTRT:$(BUILD)/astest/NOTES.TXT AUTOSTRT:$(BUILD)/astest/TASKMGR.LNK \
+		$(APPDATAFOLDER)
+
+# ...and a B: of its own: the Calculator and room. The Alt-drop leg WRITES a
+# link to B:, and the shipped apps disk is a cluster from full - a row that
+# needs room on it fails for a reason that is not its subject
+$(BUILD)/astapps360.img: $(BUILD)/calc.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 APPS:$(BUILD)/calc.o88
+
+.PHONY: autostarttest
+autostarttest: $(BUILD)/autostart360.img $(BUILD)/astapps360.img
+	@echo "autostarttest: build/autostart360.img - \\AUTOSTRT with a link to the"
+	@echo "               Task Manager. Run it with: python3 tests/autostart.py"
 
 # FMTEST: the AdLib gate package (SPEC.md 34.2/51.4). NEVER on the shipped
 # apps disks - their directory order is pinned (SPEC.md 24) - so it rides its
@@ -12104,7 +12159,7 @@ $(BUILD)/emu.img: $(EMUDRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT) $(COREAPPS) $(
 		--boot $(EMUDIR)/boot.bin --kernel $(EMUDIR)/$(KERNNAME) \
 		$(EMUDRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) \
 		$(SYSLOGOARG) $(FACESARG) $(BUILD)/vmmcfg/system.cfg \
-		$(APPDATAFOLDER)
+		$(APPDATAFOLDER) $(AUTOFOLDER)
 
 # ONE GEOMETRY, and that is a decision rather than an omission. 360KB exists
 # for real period hardware - a 5.25" drive on an XT or an AT - and no machine
@@ -13891,7 +13946,7 @@ LIVEARGS := $(DRIVERS) $(LIVEREST)
 # no third).
 LIVEDIRS := $(sort $(foreach a,$(LIVEARGS), \
                      $(if $(findstring :,$a),$(firstword $(subst :, ,$a)))) \
-                   DOCS RUNCPM/A SYSTEM/APPDATA STORIES/SAVES \
+                   DOCS AUTOSTRT RUNCPM/A SYSTEM/APPDATA STORIES/SAVES \
                    $(foreach d,$(shell python3 tools/getcpmsw.py --slots hdd 2>/dev/null), \
                      $(if $(findstring /,$d),RUNCPM/$(firstword $(subst =, ,$d)))) \
                    $(sort $(foreach a,$(shell python3 tools/getstories.py \
@@ -14009,7 +14064,7 @@ $(USBIMG) $(EMUUSBIMG): $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 		--mbr $(LIVEKDIR)/mbr.bin --boot $(LIVEKDIR)/boothd.bin \
 		--kernel $(LIVEKDIR)/$(KERNNAME) \
 		--deep-folders --dir-slots RUNCPM/A/0=$(RUNCPMSLOTS) $$gslot \
-		--folder DOCS $(APPDATAFOLDER) $(LIVESTORYDIRS) \
+		--folder DOCS $(APPDATAFOLDER) $(AUTOFOLDER) $(LIVESTORYDIRS) \
 		$(LIVEDRVS) $(LIVEREST) $$sel $$gsel $$zsel $(CPMSW) $(STORIES)
 	@python3 tools/os88disk.py --verify-hdd $@
 	@$(if $(LIVESUB),true,cp -f $(BUILD)/livepayload.txt $@.payload)
@@ -15676,7 +15731,7 @@ xt-isotron-ega: $(IMG360) $(BUILD)/isotron360.img
 # REDLINE native CPU/graphics performance lab (SPEC.md 103).
 .PHONY: redline redlinedisk redline-profile
 redline: $(BUILD)/redline.o88
-$(BUILD)/redline.bin: apps/redline/redline.asm apps/redline/detect.inc apps/redline/workloads.inc apps/redline/ui.inc apps/redline/csrows.inc apps/redline/csfe.inc apps/redline/csknob.inc apps/redline/csapply.inc apps/redline/csweep.inc apps/redline/chipset.inc apps/os88data.inc apps/redline/baseline.inc apps/redline/baseline-herc.inc apps/redline/baseline-vga.inc apps/os88api.inc apps/os88ui.inc tests/benchlib.inc | $(BUILD)
+$(BUILD)/redline.bin: apps/redline/redline.asm apps/redline/detect.inc apps/redline/workloads.inc apps/redline/ui.inc apps/redline/csrows.inc apps/redline/csfe.inc apps/redline/csknob.inc apps/redline/csapply.inc apps/redline/csweep.inc apps/redline/chipset.inc apps/os88data.inc apps/os88link.inc apps/redline/baseline.inc apps/redline/baseline-herc.inc apps/redline/baseline-vga.inc apps/os88api.inc apps/os88ui.inc tests/benchlib.inc | $(BUILD)
 	python3 tools/benchlint.py apps/redline/redline.asm
 	$(NASM) -f bin -w+error -I apps/ -I tests/ -l $(BUILD)/redline.lst -o $@ apps/redline/redline.asm
 $(BUILD)/redline.o88: $(BUILD)/redline.bin tools/os88pkg.py $(PKGZSTAMP)

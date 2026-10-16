@@ -1918,7 +1918,11 @@ def key_refs(krec, refs, g):
         last += struct.pack("<HHHIH", REF_LEN, REC_FLIP | (p << PG_SHIFT),
                             HID_MORE if i + 1 < len(refs) else 0, a, rn)
     struct.pack_into("<HHH", last, 0, len(last), y0, y1 | REC_HID)
-    return bytes(krec[:off]) + bytes(last) + tail, at
+    head = bytearray(krec[:off])
+    if off:                             # (the part before names this read,
+        struct.pack_into("<H", head, off - 2,   # which the references
+                         len(last) + len(tail))  # have just made longer)
+    return bytes(head) + bytes(last) + tail, at
 
 
 def key_split(krec):
@@ -6479,8 +6483,11 @@ def selfcheck():
         def mpage_clip(g, mk, scenes, cuts, builds, **kw):
             """`cuts`: frame -> the page it flips to; `builds`: page ->
             (scene, first frame, last frame), its rows a frame in turn"""
+            kp = kw.pop("kpart", None)
             w = Writer(g, 1500, 100, AUD_NONE, 0, mk, keysecs=0.2,
                        page=True, **kw)
+            if kp is not None:
+                w.kpart = kp
             P = [g.surface() for _ in range(w.pages)]
             cvs, s0 = [], 0
             for f in range(12):
@@ -6735,6 +6742,30 @@ def selfcheck():
                              "written (key 6 names %r)" % (named,))
         except V88Error as e:
             fails.append("a page pool: %s" % e)
+        # ...and that pool in a file whose keys are IN PARTS (98.1.3.8): the
+        # references lengthen a key's last part, so the part before it must
+        # name the longer read - a stale word reads the last part short, and
+        # its chain runs past the bytes read
+        try:
+            wq, cvq = mpage_clip(gm, PF_VGA4, scn, {8: 1}, {1: (1, 0, 2)},
+                                 palette=pals[0] + bytes(PAL_BYTES - 48),
+                                 screen=SCR_320X200, pages=4, kpart=200)
+            pq = os.path.join(tmp, "POOLP.V88")
+            wq.write(pq, 0)
+            verify_v88(pq)
+            rq = Reader(pq)
+            k6 = [i for i, e in enumerate(rq.keys) if e[0] == 6]
+            ps = key_split(rq.key(k6[0])[1]) if k6 else []
+            named = [hp for hp, x in mpage_parts(
+                ps[-1], gm, 4, kref=rq.kpool)[3]
+                if isinstance(x, tuple)] if ps else []
+            if not rq.kpool or len(ps) < 2 or 1 not in named or \
+                    any(decode_at(rq, f) != cvq[f] for f in range(12)):
+                fails.append("a page pool with keys in parts did not read "
+                             "back as written (key 6: %d parts, names %r)"
+                             % (len(ps), named))
+        except (V88Error, struct.error) as e:
+            fails.append("a page pool with keys in parts: %s" % e)
         # THE PAGE POOL (98.1.3.8.1): this file's keys name pages from it -
         # a reference past the file, one naming the page its key shows, and
         # one in a file without KPOOL must each be refused

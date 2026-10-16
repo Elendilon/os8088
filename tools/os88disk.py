@@ -16,8 +16,10 @@ first entry is the volume label (attr 0x08 -- the kernel filters it, so
 package indices start at 0), then one attr-0x20 entry per package in
 argument order with its exact byte size (never padded -- the loader's
 truncation guard depends on it) and fixed timestamps (date 0x5C21 =
-2026-01-01, time 0). File data is allocated contiguously from cluster 2 in
-argument order; every field is fixed, so rebuilds are byte-identical.
+2026-01-01, time 0). Each file's data is one contiguous chain, laid down in
+argument order and kept off cylinder boundaries it need not cross, with free
+gaps left where that takes them (SPEC.md 19.3.1, `cyl_pack`); every field is
+fixed, so rebuilds are byte-identical.
 Directory display names are the host filenames (8.3, uppercased).
 
 Geometries: 1440 (1.44MB, FAT12), 1200 (1.2MB 5.25" HD, FAT12), 720 (720KB
@@ -894,6 +896,78 @@ def read_blob(path: str, what: str) -> bytes:
         fail(f"cannot read {what} {path}: {e}")
 
 
+def cyl_pack(seq, size, secs, first, lay, cyl, base, pinned, group,
+             budget=0):
+    """`seq` reordered, and gaps put in it, so that a chain crosses no
+    CYLINDER it did not have to (SPEC.md 19.3.1).
+
+    A read of a file is one int 13h per cylinder it touches (SPEC.md 18.91),
+    so a 14-sector file on an 18-sector cylinder that starts four sectors from
+    the end costs two calls where it could cost one - about a revolution, every
+    time it is loaded, and chance does that ~70% of the time. Such a chain is
+    put on the cylinder boundary instead, two ways, both moving it by less than
+    the cylinder it would have wasted:
+
+    - FILL the gap in front of it exactly with later chains from the SAME
+      FOLDER (so a folder's files stay together), earliest preferred; or
+    - PAD it: leave the gap free. A free cluster in the middle of a volume is
+      as standard as one at the end and holds as much, so this is the free
+      space moved rather than spent - up to `budget` clusters of it, taken in
+      `seq` order, so what comes first in the order is paid for first.
+
+    Directories and anything `pinned` stay where `seq` put them. A
+    `("p", n)` item in the answer is n clusters left free.
+    """
+    out, todo = [], list(seq)
+    pos = first                                  # the next free cluster
+    lba = lambda c: base + lay.data_lba + (c - 2) * lay.spc
+
+    # ONLY AN EXACT FILL HELPS: a chain that crosses needlessly stops doing so
+    # only if it starts on the cylinder boundary, so a part-filled gap moves
+    # it and fixes nothing - and spends small chains a later gap could use.
+    # Subset sum over the gap, earliest chains preferred.
+    def gap_at(at):
+        """Clusters to the next cylinder - or 0 when a cluster straddles that
+        boundary (a hard disk's 4-sector cluster on a 1,008-sector cylinder),
+        where no fill or pad can land a chain on it."""
+        left = cyl - lba(at) % cyl
+        return 0 if left % lay.spc else left // lay.spc
+
+    def exact_fill(it, at):
+        gap = gap_at(at)
+        best = {0: []}
+        for c in todo:
+            if pinned(c) or group(c) != group(it) or size(c) > gap:
+                continue
+            for got, use in list(best.items()):
+                n = got + size(c)
+                if n <= gap and n not in best:
+                    best[n] = use + [c]
+        return best.get(gap, []) if gap else []
+
+    def needless(it, at):
+        n = secs(it)                    # what a READ touches, not the cluster
+        off = lba(at) % cyl
+        return -(-(off + n) // cyl) > -(-n // cyl)
+
+    while todo:
+        it = todo.pop(0)
+        if not pinned(it) and needless(it, pos):
+            fill = exact_fill(it, pos)
+            for c in fill:
+                todo.remove(c)
+                out.append(c)
+                pos += size(c)
+            gap = gap_at(pos)
+            if not fill and 0 < gap <= budget:
+                out.append(("p", gap))
+                pos += gap
+                budget -= gap
+        out.append(it)
+        pos += size(it)
+    return out
+
+
 def build(args) -> int:
     mbr = b""
     if args.hdd:
@@ -986,6 +1060,7 @@ def build(args) -> int:
         ensure(folder_key(folder))
 
     raw_paths = set(args.raw)
+    argpos: dict = {}                            # (folder, index) -> argument
     for arg in args.packages:
         folder, path = split_spec(arg)
         key = folder_key(folder) if folder else ""
@@ -1001,6 +1076,7 @@ def build(args) -> int:
             data = read_data_file(path)
         nclusters = (len(data) + lay.cluster_bytes - 1) // lay.cluster_bytes
         groups[key].append((name11, data, nclusters))
+        argpos[(key, len(groups[key]) - 1)] = len(argpos)
 
     # Root order: every folder first, in first-appearance order, then the
     # root-level packages. Only a TOP-LEVEL folder costs a root entry; a
@@ -1084,6 +1160,11 @@ def build(args) -> int:
                         // lay.cluster_bytes) for k in dirs}
 
     files = [f for k in dirs for f in groups[k]] + root_files
+    # Each file's place on the COMMAND LINE, which is where its chain goes
+    # (below). ASSOC.DAT was named by nobody and is placed on its own terms.
+    forder = [argpos[(k, i)] for k in dirs for i in range(len(groups[k]))] \
+        + [argpos.get(("", i), len(argpos)) for i in range(len(root_files))]
+    fdir = [k for k in dirs for _ in groups[k]] + [""] * len(root_files)
     kclus = (len(kern) + lay.cluster_bytes - 1) // lay.cluster_bytes
     need = sum(n for _, _, n in files) + sum(dir_nclus.values()) + kclus
     if need > lay.nclus:
@@ -1104,8 +1185,19 @@ def build(args) -> int:
 
     # Then the directory chains, contiguously and in root order, so a folder's
     # listing is one seek away from the root's - and then the file chains,
-    # contiguous in argument order, or round-robin interleaved under
+    # contiguous in ARGUMENT order, or round-robin interleaved under
     # --scramble (legally fragmented).
+    #
+    # **ARGUMENT order, not folder order** (SPEC.md 19.3.1): where a chain sits
+    # is the only thing about a FAT volume a builder is free to choose, and
+    # the boot is what it is worth choosing for. The boot reads the kernel,
+    # the root, the drivers this machine detects and \AUTOSTRT, and nothing
+    # else - and folder order put the drivers AFTER every package, so a Sound
+    # Blaster machine's boot went cylinder 0 -> 46 -> 47 -> 10 on a 720KB disk
+    # for a 13-sector file. Named first on the command line ($(DRIVERS) is,
+    # SOUND.DRV and HDD.DRV leading it), they land beside the directories. The
+    # directory ENTRIES keep their order either way: this moves data, never a
+    # name, so the volume reads the same to every FAT implementation.
     #
     # **EXCEPT ASSOC.DAT, WHICH GOES AS EARLY AS IT CAN WITHOUT STRADDLING A
     # TRACK** (SPEC.md 54.7.5). The mount reads it on every volume switch
@@ -1134,9 +1226,11 @@ def build(args) -> int:
                     c.append(nxt)
                     nxt += 1
     else:
-        seq = [("d", k) for k in dirs] + [("f", i) for i in range(len(files))
-                                          if i != asc_i]
-        size = lambda it: dir_nclus[it[1]] if it[0] == "d" else files[it[1]][2]
+        seq = [("d", k) for k in dirs] + [
+            ("f", i) for i in sorted(range(len(files)), key=forder.__getitem__)
+            if i != asc_i]
+        size = lambda it: (dir_nclus[it[1]] if it[0] == "d" else
+                           it[1] if it[0] == "p" else files[it[1]][2])
         if asc_i is not None:
             asecs = files[asc_i][2] * lay.spc
             at = len(seq)
@@ -1148,9 +1242,21 @@ def build(args) -> int:
                     at = pos
                     break
             seq.insert(at, ("f", asc_i))
+        if not args.no_pack:
+            # Half the free space may go on gaps, first come first served in
+            # the order above, so the boot set is paid for before anything
+            # else and the volume still ends in one run of free clusters.
+            nsecs = lambda it: (len(files[it[1]][1]) + SECTOR - 1) // SECTOR
+            seq = cyl_pack(seq, size, nsecs, nxt, lay, spt * heads,
+                           hbase if args.hdd else 0,
+                           pinned=lambda it: it[0] == "d" or it[1] == asc_i,
+                           group=lambda it: fdir[it[1]],
+                           budget=(lay.nclus - need) // 2)
         for it in seq:
             chain = list(range(nxt, nxt + size(it)))
             nxt += size(it)
+            if it[0] == "p":
+                continue
             if it[0] == "d":
                 dir_chains[it[1]] = chain
             else:
@@ -1727,6 +1833,10 @@ def main() -> int:
                          "path must also appear as a positional; this flag "
                          "only says which of them skips the check. Nothing "
                          "shipped uses it (--scramble's precedent)")
+    ap.add_argument("--no-pack", action="store_true",
+                    help="lay chains out in argument order exactly, without "
+                    "moving a small one ahead to keep a larger one inside a "
+                    "cylinder (SPEC.md 19.3.1) - the A/B for the packer")
     ap.add_argument("--scramble", action="store_true",
                     help="fragment cluster chains round-robin (test only)")
     ap.add_argument("--verify-hdd", metavar="IMG",

@@ -2974,14 +2974,16 @@ SOAK = [
         "CHIPSET1/2.TXT without the help, the pane scrolls, Benchmark restores the foot, "
         "Quit closes REDLINE",
         needs=("marty", "nasm"), wants=("build/redline360.img", "build/os8088-360.img")),
-    Row("rltune", "soak", py("tests/rltune.py"), 77.0,
+    Row("rltune", "soak", py("tests/rltune.py"), 81.0,
         "REDLINE's chipset write path in the OS on QEMU's AT (SPEC.md 103.6.3-103.6.5): "
         "on the Tune tab an FE3600 nothing detects is picked, Target Mfg spec and Tune "
         "confirm and set R4 10, Fastest tested sweeps to 4 and sets it unasked, the state "
-        "field following both, Save setting writes REDLINE.CFG to the "
-        "BOOT disk's APPDATA with this BIOS's fingerprint, Quit closes it, and RLAPPLY.O88 "
+        "field following both, Apply on boot writes REDLINE.CFG to the "
+        "BOOT disk's APPDATA with this BIOS's fingerprint and \\AUTOSTRT\\RLAPPLY.LNK "
+        "beside it (SPEC.md 26.10.6), Quit closes it, and RLAPPLY.O88 "
         "from A:\\SYSTEM toasts its verdict before and after the Save and leaves no "
-        "window. QEMU by name: "
+        "window - and a REBOOT toasts `Chipset setting applied` with nobody touching "
+        "anything, the bar seen empty first so 5b's toast cannot pass for it. QEMU by name: "
         "the path is refused on an 8088, where 63h is the PPI",
         needs=("nasm", "qemu"), wants=("build/os8088.img", "build/redline.img")),
     Row("redlinemodern", "soak", py("tests/redline.py", "--modern"), 15.0,
@@ -8909,6 +8911,21 @@ SOAK = [
         "open, because a move shuts that window. VERIFIED RED with .selmove's "
         "FS_CLKT store taken out (the Audio Player launched on one click).",
         needs=("marty",), serial=True),
+    Row("autostart", "soak", py("tests/autostart.py"), 50.0,
+        "SPEC.md 26.10: LINKS and AUTOSTART on kern_big, off "
+        "`make autostarttest`'s disk. A: the boot opens every link in the "
+        "boot volume's \\AUTOSTRT - the Task Manager is up with nobody "
+        "touching anything, and a file named like a link and not one stops "
+        "nothing. B: A:\\CALC.LNK, double-clicked, starts the Calculator "
+        "off B: (an absolute volume, through assoc_run_x). C: Shift held "
+        "through the boot says `Autostart skipped` and starts nothing. D: "
+        "an Alt-drop of B:\\APPS\\CALC.O88 on its '..' leaves it there "
+        "and writes B:\\CALC.LNK, which starts the Calculator. VERIFIED "
+        "RED three ways: as_boot's folder test jumped past (A and C), "
+        "as_boot's Shift test inverted (A and C), fm_dgdrop's Alt test "
+        "jumped past (D alone - the drag MOVES the package).",
+        needs=("marty",), serial=True,
+        wants=("build/autostart360.img", "build/astapps360.img")),
     Row("msel", "soak", py("tests/msel.py"), 55.0,
         "SPEC.md 22.27: MULTI-SELECT in a Disk window (kern_big). Ctrl+click "
         "adds and removes one entry, Shift+click takes the run from the "
@@ -13269,6 +13286,18 @@ SOAK = [
         "its plan mixes it (98.2.5), --cut fill and tear on two Mode X "
         "pans (98.2.1.2.1), and --bands' writes never climbing back a band "
         "(98.2.1.2.2), each red with its mechanism taken out.",
+        needs=("ffmpeg",)),
+    Row("vidlag", "soak", py("tests/vidlag.py"), 35.0,
+        "SPEC.md 98.2.1.1.3: the lag searched, host-side. A frame's ceiling "
+        "under the lag schedule must be the most it may take - safe and "
+        "tight to a hundredth of a period, an allowance between two calls "
+        "included (with the old 'allowance less a call' back, 17 of 31 are "
+        "not); on a clip of Mech2's shape whose bursts fixed allowances cut "
+        "5, 5, 3, 3, 3 frames, --lag 50-200 must cut no more than --lag 200, "
+        "choose more than one allowance and one below the top, and replayed "
+        "as the player schedules it fall a frame behind and never 200 ms; "
+        "--lag's spellings and a version-35 record must read as made. Broken "
+        "on purpose (the search always the top, or its worst pick) it FAILS",
         needs=("ffmpeg",)),
     Row("vidlayer", "soak", py("tests/vidlayer.py"), 320.0,
         "SPEC.md 98.1.9: THE LAYER, host-side - six seconds of a Mandelbrot "

@@ -107,7 +107,9 @@ INCLUDES = [
      "OS88UI_BIMG` and the `OS88UI_IMG` flag (SPEC.md 13.8.9); a button whose "
      "face the PACKAGE paints, keeping the library's press gesture, is `%define "
      "OS88UI_BOWN` and the `OS88UI_OWN` flag (SPEC.md 13.8.10); a package with "
-     "no check box or radio sheds that code with `%define OS88UI_NOGLYPH`."),
+     "no check box or radio sheds that code with `%define OS88UI_NOGLYPH`, "
+     "and one whose every button is a picture sheds the caption, ink and "
+     "default-ring paths with `%define OS88UI_BIMGONLY`."),
     ("os88alt.inc", "11.2.1.1",
      "Alt+Enter, the full-screen key, for a package on SPEC.md 53's BRACKET - "
      "where no event is dispatched, so the kernel's synthesised keystroke "
@@ -247,6 +249,12 @@ INCLUDES = [
      "folder's cluster, rewrite a file of unchanged length in ONE sector with "
      "`OSAPI_FILE_WRITE_AT`, and put the instance back on every path out. For "
      "a high-score table or a settings file; five packages carry it."),
+    ("os88link.inc", "26.10.6",
+     "LINKS and AUTOSTART: `OS88_LINK` lays down a 50-byte `.LNK` record and "
+     "`ol_autostart` writes it into `\\AUTOSTRT` on the BOOT volume, making "
+     "the folder if need be, so the program it names is opened at every boot "
+     "(Shift held skips it). Over os88data.inc's walk, so it needs "
+     "`OD_BOOTVOL`; REDLINE's Apply on boot is the worked example."),
     ("os88pit.inc", "72.15.1",
      "`pit_now`: a 32-bit clock in 838ns units off the 8253 and the BIOS tick, "
      "good for an hour before it wraps. Sub-tick timing for a profiler."),

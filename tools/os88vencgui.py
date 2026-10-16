@@ -541,6 +541,9 @@ SUGGEST = {"rate": ["", "22050", "11025", "8000", "5512"],
            # in as the profile changes
            "avg": ["auto"],
            "owe": ["", "0", "1.6"],
+           # THE LAG (98.2.1.1.2, 98.2.1.1.3): the default range, a
+           # tighter and a looser one, and one number fixes it
+           "lag": ["50-100", "50-150", "50-200", "100-300", "100"],
            # FREE MEMORY TO PLAY (98.2.1.3.1): rings of 8, 10 and 12 slots
            "memory": ["", "309", "373", "437"],
            # THE XMS BANK (98.3.18.2): 128 KB under a pool of 1, 3, 7 and

@@ -27201,6 +27201,15 @@ Browser, Calculator, Loom, Note Pad, Paint, Piano, Recorder, Telnet and TeXPad
 — and §13.15.3 adds the two half-measures for a package that draws one of the
 two pictures.
 
+`OS88UI_BIMGONLY` is the one-write body's own opt-out, for a package whose
+EVERY button is an `OS88UI_IMG` picture: the body drops the caption path
+(`font_width` and `font_run`), the caller's ink (`OS88UI_INK`) and the
+default ring (`OS88UI_DEF`) - 92 bytes in the Video Player (§98.4), its first
+consumer. Those three are then ignored, and a caption would be read as a
+picture record, so it is a statement about the package and not a per-button
+flag. It refuses to assemble without `OS88UI_BIMG`; every other package is
+byte-identical.
+
 #### 13.8.10 A button the PACKAGE paints — `OS88UI_BOWN` and `OS88UI_OWN`
 
 The library draws two looks, the plain one and §13.8.9's one-write body, and
@@ -40204,6 +40213,68 @@ Three consequences fall out, all wanted:
 
 The volume is labelled `OS8088SYS`; the apps disk stays `OS8088APPS`, and the
 data disks never had a reserved area to begin with.
+
+#### 19.3.1 Chains go where the command line names them, so the boot set is beside the directories
+
+**Where a chain sits is the one thing about a FAT volume its builder is free
+to choose, and `tools/os88disk.py` chooses it for the reads that happen.**
+Nothing here is a format change: every directory entry, every FAT link and
+the free count are what any FAT12/FAT16 reader expects, and `--verify` and
+DOS read the volume exactly as before. Only cluster NUMBERS move.
+
+Two rules, in this order, after `KERNEL.SYS` (cluster 2, §19.3) and the
+directory chains:
+
+1. **File chains go in ARGUMENT order**, not folder order. A boot reads the
+   kernel, the root, the drivers this machine detects and `\AUTOSTRT`
+   (§26.10.5) and nothing else, and folder order put the drivers after every
+   package - a Sound Blaster machine's 720KB boot went cylinder
+   0 → 46 → 47 → 10 for one 13-sector file. `$(DRIVERS)` is named first on
+   every system disk and `SOUND.DRV`/`HDD.DRV` lead it, so they land on the
+   cylinder after the directories.
+2. **No chain crosses a cylinder it did not have to** (`cyl_pack`). A file
+   read is one `int 13h` per cylinder it touches (§18.91), and a 14-sector
+   file on an 18-sector cylinder placed by chance crosses ~70% of the time -
+   an extra call, about a revolution, at every load. Such a chain is put on
+   the boundary by **filling** the gap exactly with later chains from the same
+   folder, or else by **padding** it: leaving the gap free. A free cluster in
+   the middle of a volume holds as much as one at the end, so a pad is free
+   space MOVED rather than spent. Half a disk's free clusters may be used this
+   way, first come first served in argument order, so the boot set is paid for
+   first and the volume still ends in a free run. `--no-pack` is the A/B.
+
+ASSOC.DAT keeps §54.7.5's own placement and the directory chains stay where
+rule 1 left them; both are pinned out of the packer.
+
+Measured (MartyPC, cycle-exact; `tools/os88boot.py`, an `int 13h` trace, and
+a launch timed to `wm_show`), against the folder-order layout:
+
+| | before | after |
+|---|---:|---:|
+| 720KB boot, 5150 + Hercules + SB, `\AUTOSTRT` empty | 16,093 ms | **15,293 ms** |
+| ...its `as_boot` (one directory sector) | 573 ms, 37 cyl | **218 ms, 1 cyl** |
+| 360KB boot, the same with the 360KB disk | 14,881 ms | **14,793 ms** |
+| 360KB boot, 5150 + CGA, no driver | 13,452 ms | 13,452 ms |
+| Calculator launched off the 360KB apps disk | 4,560 ms, 2 reads | **4,142 ms, 1 read** |
+| needless cylinder crossings, all twelve shipped images | 132 | **16** |
+
+The no-driver boot does not move because it reads nothing past the root.
+The 360KB Sound Blaster figure is smaller than the 720KB one because that disk
+has no `\AUTOSTRT` to come back for, and is ~110 ms above the argument-order
+layout without the packer: `SOUND.DRV` is read in two calls wherever it sits
+- the split is the kernel's buffer and not the platter - so what moved is
+the rotational phase the second call starts at, which no build-time layout
+controls. What the 16 remaining crossings are is the full disks: the 360KB
+system disk has 4 free clusters, so 2 to pad with, and the 360KB apps disk 1.
+
+**The cost is where a user's FIRST saves land.** `dskw_alloc` roves from
+cluster 2 on every mount (§18.4), so the first files written to a shipped disk
+fill these gaps. For a small file - a `SYSTEM.CFG`, a link in `\AUTOSTRT` -
+that is beside the boot set and better than the end of the disk; a large
+document saved early is split across a few gaps and reads back in more calls
+than it would have. The gaps fill and are gone; a disk that had none never
+pays it.
+
 
 ### 19.4 The listing is sorted by name, in the mount
 
@@ -54649,6 +54720,232 @@ column's picture composed once.
 desktop's redraw costs **+718** over the kernel before §11.91.6 (`1b382ac`)
 where the two builds before this one cost +1,493. kern_small is byte-identical. `tests/deskflash.py` and
 `tests/deskclip.py` are the gates.
+
+### 26.10 Links, and starting packages at boot
+
+`kernel/desksc.inc`, kern_big only (`OS88_SHORTCUTS`). A **LINK** is a file,
+`*.LNK`, that names an entry by its path: what a desktop shortcut (§26.8)
+holds, minus the picture, written to disk where anything can copy, move or
+delete it. Opening a link opens what it names, exactly as a double-click on
+that entry would. **AUTOSTART** is a folder of links: every link in
+`\AUTOSTRT` on the volume the machine booted from is opened once the boot is
+done, and holding either Shift through the boot skips them.
+
+They are one feature because the second is the first plus a folder. What
+autostarts is not a program but a LINK, so associations still work: a link to
+a document starts that document's program, a link to a folder opens a Disk
+window, and a program started that way is started from where it lives, its
+own folder, overlays and data beside it.
+
+`kern_small` has neither. It has no shortcuts and reads no SYSTEM.CFG, and the
+links' open is the shortcuts' (§26.10.3).
+
+#### 26.10.1 The file
+
+| off | len | field |
+|---|---|---|
+| 0 | 2 | `'LK'` |
+| 2 | 1 | the version, `LNK_V` = 1; any other is not followed |
+| 3 | 1 | the volume index (0 = A:), or `LNK_SELF` = `0xFF`: **the volume the link file is on** |
+| 4 | 1 | the kind, as `SC_R_KIND`: 1 package, 0 document, 2 folder |
+| 5 | 45 | the path BELOW THE ROOT, NUL - `SC_R_PATH`'s field, `SYSTEM\RLAPPLY.O88` |
+
+`LNK_SIZE` is **50**, and a longer file is not a link (`dskw_read` refuses it
+`FERR_BIG` before any I/O). A shorter one is not refused by its length. The
+signature has to match, the volume is bounded and the path terminated, so its
+unread tail is stack bytes that can only fail to name anything.
+
+**`LNK_SELF` is what makes a link travel with its disk.** A program asking to
+be started at boot names itself on the boot volume, and a system floppy
+installed to C: (§52.10) or copied to another drive is still right. An
+Alt-drop writes the ABSOLUTE index instead (§26.10.4): a link dragged from B:
+into A: names B:, which is what the hand meant.
+
+Three writers emit the same bytes: CTRL.DRV's Alt-drop, `apps/os88link.inc`
+and `tools/os88lnk.py`, the host's (and `--read` decodes one). The constants
+are named the same in the kernel and the SDK include, and `t_mirror` compares
+them.
+
+#### 26.10.2 What is resident
+
+| | bytes | what |
+|---|---:|---|
+| `.cold` | +160 | `lnk_is`, `lnk_open`, `sc_open`'s split, the two hooks, the Alt test |
+| `.text` | +2 | `sc_lowseg` |
+| `.bss` | +2 | `sc_wsp` |
+| **resident** | **+164** | measured by `kernsize`, kern_big; kern_small **+0** |
+| `.boot2` (the blob, freed at the desktop) | +224 | AUTOSTART, the whole of it (§26.10.5), and its eleventh sector |
+| `CTRL.DRV` (on demand) | +212 | `SC_OP_LNK`, the Alt-drop's writer (§26.10.4) |
+
+**All 164 are links**, against the ~150 they were given: 10 of them are
+§26.10.3's fall-through for the DOS box's own `.LNK` files. **Autostart is
+not resident at all.** It crossed one `.cold` rung, which is the rung's
+business and not the feature's (CLAUDE.md, §1's banner).
+
+**`sc_open` IS the link's open, split rather than copied.** `sc_walk` takes
+the volume and kind in AL/AH and the path at DI, in the segment named by the
+WORD `[sc_wsp]` points at: a shortcut's record is in a movable claim and
+is re-read through `[sc_seg]` at every component, and a link's is on the
+stack, whose segment is the constant `sc_lowseg`. So the path walk, the
+folder, package and document arms, and `Shortcut not found (B:)` are the
+shortcut's, byte for byte.
+
+#### 26.10.3 Opening one
+
+**Every door to a document reaches `assoc_run_x`**: a Disk window's
+double-click (`assoc_post` posts any extension, §54.4.3), `OSAPI_PKG_START`'s
+document arm, a shortcut to a document, a link to one. So that is where the
+link is caught. `lnk_is` asks whether `assoc_doc`'s extension is `LNK`, and
+if so `lnk_open` runs instead of any program. `ld_pkg_byname`'s `.nodoc` asks
+the same question, because there no association means LD_EBAD before
+`assoc_run` is reached.
+
+`lnk_open` stands in the link's own folder (`assoc_back`), reads the 50 bytes
+onto the stack, checks the signature and version, resolves `LNK_SELF` to the
+link's volume, bounds the volume against `DVOL_MAX`, terminates the path and
+hands it to `sc_walk`. **What the entry IS NOW decides**, as for a shortcut,
+and a target that is gone says `Shortcut not found (B:)`. A link of ours in a
+version this kernel does not read, or naming a volume no row has, opens
+nothing, silently.
+
+**`.LNK` IS SHARED WITH THE DOS BOX, and the CONTENT says whose a file is.**
+The DOS box's Save Shortcut writes Microsoft's Shell Link format under the
+same extension (§96.21), which is associated with `DOS.O88`. Each reader
+already refuses the other's: Microsoft's header alone is 76 bytes, so
+`dskw_read` answers `FERR_BIG` at a 50-byte capacity before any I/O, and
+ours does not begin `4C 00 00 00`. So `lnk_open` answers CF = 1, *not mine*,
+for a file it could not read at 50 bytes or that does not begin `'LK'`, and
+`assoc_run_x` carries on to the association exactly as before this existed.
+A second extension would have bought nothing but a choice between two names
+for the same idea, and a Disk window showing one kind of link with the DOS
+box's glyph is the price (§54.3: the glyph is the extension's). `doslnk` and
+`dosopen` are the rows that hold the DOS box's half.
+
+**A link may name a link, and the STACK is the guard.** With fewer than
+`LNK_SPMIN` (320) bytes of task 0's 512 left, nothing is followed. That is the
+record's 50 plus the 246 bytes `STK0_SIZE`'s comment measures as task 0's
+deepest, plus a margin, so a package launched under the last link followed
+still has room. A link that names itself ends after a level or two instead of
+in an overflow. No depth counter is kept, because the stack already is one.
+
+#### 26.10.4 Making one: Alt-drop
+
+**An entry dragged out of a Disk window and dropped on a Disk window with Alt
+held becomes a LINK there**, `<STEM>.LNK`, and nothing is moved or copied.
+Into its own folder is the commonest case, and allowed. The convention is
+Windows's (Alt-drag makes a shortcut), and it is §26.8.4's gesture one place
+over: a drop on the bare desktop makes a shortcut, an Alt-drop on a folder
+makes a link.
+
+`fm_dgdrop` asks `fm_mods`, which now answers Alt (bit 3) beside Ctrl and
+Shift, AT THE DROP. The drag's armed Cut is disarmed as a desktop drop's is,
+and the gesture goes to CTRL.DRV as `SC_OP_LNK` with the destination's volume
+and folder. `sc_m_lnk` composes the record in `cpc_buf` from the drag's
+`fcp_cb*`, sc_m_new's path code minus the picture, writes it with
+`dskw_write` (an existing link of that name is replaced) and ends in
+`fm_paste_res`, so the listing is re-read and repainted like a paste's.
+**Nothing resident but the test**: seven bytes in `fm_dgdrop`, the writer
+riding the settings core the desktop gestures already read.
+
+A link is REMOVED as any file is: Delete in a Disk window.
+
+#### 26.10.5 Autostart: `\AUTOSTRT`
+
+The folder is in the ROOT of the boot volume, and not in `SYSTEM\`, for the
+boot's sake: the root has just been walked for SYSTEM.CFG, so asking it for
+one more name costs no I/O. **The 720KB, 1.2MB and 1.44MB system disks,
+`emu.img` and the live volume ship it EMPTY** (`AUTOFOLDER` in the Makefile).
+A folder a user can see is how the feature is found, where a feature with no
+folder is a manual nobody has written. kern_small has no autostart and its
+disks do not carry it.
+
+**The 360KB system disk does not carry it, for ROOM.** That disk had 5
+clusters free; the eleventh blob sector took `KERNEL.SYS` over one more, and
+the folder would take another. At 3 free the Sticky Apps calendar can no
+longer save its place on A: (`stikmove`, `stikmovecga` and `stikregister` go
+red; at 4 they pass). Whoever finds that disk a cluster gives it the folder by
+adding `$(AUTOFOLDER)` to `$(IMG360)`.
+
+**`as_boot` is the BLOB's** (§2.5.3.3), called by kmain_o straight after
+`spl_finish`, so it costs no resident byte. A launch must not race the
+loading screen's IRQ0 frames, which that has stopped, and the blob lives until
+kmain's `mem_unblob_x`. It:
+
+- stands at the boot volume's root and `dskw_stat`s `AUTOSTRT`. No folder, or
+  a FILE of that name, is the end of it;
+- walks the folder with `dsk_find` (stateless by ordinal, §19.7.1, so a
+  launch between two entries cannot lose its place) and opens every `*.LNK`
+  **as a double-click would**: `assoc_run_x` with nothing posted, standing in
+  the folder. So a link of ours is followed, and a DOS box shortcut there
+  (§96.21) starts the DOS program it names. Anything that is not a `.LNK` is
+  not started, so a note left in the folder does not open Note Pad;
+- at the FIRST link, reads the BIOS's own shift byte (0040:0017) and, with
+  **either Shift held**, says `Autostart skipped` and starts nothing. It is
+  read after the whole boot, so a key held through the loading screen is a
+  key held now, and only at a link, so a shipped empty folder says nothing
+  whatever is held;
+- stands the machine at the boot volume's root again.
+
+**After `spl_finish`, before the first desktop paint.** A program that opens a
+window draws it on the loading screen's last frame, and kmain's first
+`wm_paint_all` then paints the desktop under it. Running after that paint
+instead would be a far call into the blob from `.text`, 9 resident bytes and
+`mem_unblob` moved behind it, to save a window that is drawn once more than
+it needs to be.
+
+**THE BLOB IS ELEVEN SECTORS FOR THIS.** The walk was first `CTRL.DRV`'s
+(`SC_OP_AUTO`), behind a blob test that the folder existed, because the tenth
+sector had 34 bytes left. Then a folder that was there and EMPTY read the
+settings core on every boot: 1,170 ms on the 360KB disk, 16 sectors over 54
+cylinders. A shipped empty folder would have charged that to every machine.
+The eleventh sector is free for stage 1 on every geometry. Stage 2 depends on
+the KERNEL's length: on the kernel this was written against it pushed 720KB
+over a cylinder (+213 ms, which the owner accepted), and on the kernel it
+landed on it costs no call anywhere (`t_blobruns`). KSIG_OFF moved
+5632 -> 5120, file sector 21 still.
+
+**Measured** with `tools/os88boot.py`, reset to desktop, against the
+`elendilon-next` it was rebased onto:
+
+| | 360KB, `os8088_5150_cga_gla` | 720KB, `os8088_5150_herc_sb_720_gla` |
+|---|---:|---:|
+| before §26.10 | 13,417 ms | 14,935 ms |
+| as shipped | **13,452 ms** (no folder) | **16,093 ms** (the empty folder) |
+| the loader (blob 11) | 5,816 -> 5,859 ms, 13 reads either way | 5,889 -> 5,930 ms, 13 reads either way |
+| `as_boot` | 91 ms of CPU, no disk I/O | 573 ms: its first directory sector after a 37-cylinder seek, 411 ms mechanical |
+| `drv_boot_x` | - | 2,260 -> 2,860 ms: 25 -> 39 sectors, 4 -> 5 reads |
+
+**An empty folder costs one directory read, and where the head is decides
+the price.** On the 720KB machine `SOUND.DRV` has been loaded at cylinder 43,
+and the head comes back 37 cylinders. The `drv_boot_x` row is the folder's
+ROOT ENTRY rather than the folder. That disk had exactly 31 root entries, so
+`AUTOSTRT` is the 32nd and fills the root's second sector. The end-of-directory
+marker moves into a third, and a walk for a name that is not there
+(SYSTEM.CFG, on a disk with no settings yet) now reads it. Any one more file
+in that root would cost the same. Measured before the rebase, on the 360KB
+disk with the folder: 13,817 ms, `as_boot` 456 ms after a 10-cylinder seek.
+
+#### 26.10.6 A package that asks to be started: `apps/os88link.inc`
+
+`OS88_LINK label, volume, kind, 'path'` lays down a record in the package's
+image, and `ol_autostart` (SI = the link's name, BX = the record) writes it
+into the boot volume's `\AUTOSTRT`, making the folder with `OSAPI_FILE_MKDIR`
+if it is not there. It is `apps/os88data.inc`'s walk with `OD_BOOTVOL`, so it
+puts the instance back where it stood and needs no kernel byte. Removing one
+is `OSAPI_FILE_DELETE` standing in the folder, or the user's Delete.
+
+**REDLINE is the first consumer** (§103.6.4). Its Save setting button is
+now **Apply on boot**: it writes `REDLINE.CFG` as before and then
+`\AUTOSTRT\RLAPPLY.LNK`, `LNK_SELF`, `SYSTEM\RLAPPLY.O88`. The setting is kept
+whether or not the link could be written, and the line under the buttons says
+which.
+
+`tests/autostart.py` (MartyPC, `make autostarttest`) is the gate for the
+kernel half. It checks that the boot starts the Task Manager through
+`\AUTOSTRT`, a root `CALC.LNK` starts the Calculator off B:, Shift skips the
+lot, and an Alt-drop writes a link that works. `tests/rltune.py` (QEMU, on
+REDLINE's AT path) checks that Apply on boot writes the link and that a reboot
+then runs RLAPPLY with nobody touching anything.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 
@@ -167452,6 +167749,13 @@ reference    = len(16)=12 y0(16) y1(16) at(32) n(16)
   15 another entry after it, `at` the picture's offset in the file and `n`
   its first read - a key table entry's two words. It is the hidden chain's
   third kind and lives only in keys, the COPY (98.1.3.7.2) only in frames.
+- **The references are part of the last part's READ**: in a key of more
+  than one part, the word ending the part before it names the last part's
+  length WITH its references (and an ADPCM4 key's reference byte), as
+  98.1.3.8 has it for every read. A writer that adds them after cutting the
+  parts must rewrite that word too - a stale one reads the last part short,
+  and its hidden chain then runs off the bytes read (fixed 2026-10-16; a
+  Mode X key, whose own page alone is two parts, was where it showed).
 - **The page a reference names is BLACK and then the picture**: the key's
   own lists went onto every page, and a pool picture is made over black.
   None of the key's parts carries a hidden record for that page.
@@ -168998,6 +169302,171 @@ instruction-identical and at an even shift in all three arms
 (`tools/os88rdiff.py`, against the base, and for `VPDIAG` against the
 commit before 98.1.9.13, the last one it assembled at).
 
+**And the second pass's shared-code lane (2026-10-16)**: features that had
+grown copies of each other, folded into one routine each, **-580 bytes of
+image in every arm** (55,977 -> 55,397; `NOLIVESND` 55,746 -> 55,166;
+`VPDIAG` 57,337 -> 56,757, which is 181 over where it was 761), bss
+unchanged. The layer's prefill runs the base's Buffering loop (`vp_bpre`,
+`[vp_pfly]` turning its questions to the layer, -56); the kernel calls cold
+code makes most go through near thunks - `vp_mfree`/`vp_rdfree`,
+`vp_mclaim`, `vp_ticks`, `vp_ems`, `vp_wakew`, `vp_clipw` and ten more,
+three bytes a site against five (-194); twenty cold routines end in
+`vp_fmt`'s pop ladder, which gains BP's rungs (`vp_ld8`, `vp_ld7b`,
+`vp_ld6`; -74); and one routine each for the Bayer row (`vp_rthrs`), a
+seek's first press and its 'due at once' (`vp_skfirst`, `vp_sknow`), a ring
+offset as DX:SI (`vp_rptr`), 'is the bank XMS's' (`vp_xmsbk`), the
+keeper's common ground (`vp_kplain`) and 'declare this claim movable'
+(`vp_mmovz`). `OS88UI_BIMGONLY` (13.8.9) drops the button body's caption,
+ink and default ring, which no button here has (-92). Nothing a play runs
+calls a new routine or pays a call more: every routine `rdiffhot.txt` names,
+and every one the per-frame path (`vp_frame`, the hook, the card clock, the
+worker, the play loop's reader) reaches, is identical at an even shift in
+all three arms - four five-pop tails push one register more to take the
+even rung, and `vp_lybench`'s timed loop keeps its own inline copy of
+`vp_rptr`'s six instructions.
+
+**The second size pass's DATA half (2026-10-16)** found the same save had
+room to spare: past the card's text it is 2,784 bytes (2,604 with
+`VPDIAG`) that the desktop never used. **The desktop's SCRATCH lives there
+now** (`vp_dsk`): 289 bytes of words that were in the image - the grey
+ground's holes (`vp_ground`, 146), the window play's thumb move and button
+turn (`vp_wmove`, `vp_winv`), Live's band and repack counters (`vp_blitb`,
+`vp_v4blit`), the poster's draw (`vp_pposter`), the half-scaler's
+arguments (`vp_half`), the layout's working (`vp_layfit`), the open's and
+the hold check's (`vp_open`, `vp_rwalk`, `vp_xok`) and the bracket's mode
+record (`vp_fsi`, filled and read at the door, before a box can be up).
+Each is written before it is read inside one call of a routine the full
+screen never runs (nothing in `vp_hook`'s or `vp_main`'s reach, and the
+worker's only through Live, which never shares the glass with the box), so
+a box clobbering it costs nothing, and none is a word the play reads. The
+fill line and the seek's text share one buffer (`vp_pfbuf` is
+`vp_skbuf`): each is composed and handed to `vo_show`, which copies it.
+`apps/video/rdiffhot.txt` names `vh_addr` rather than `vh_.*`, the
+half-scaler's words being bss now and not routines. **86 more followed**:
+Live's gathered runs (`vx_run`, 64 - written by the frames' decodes only
+while Live runs and spent by the pass's own blit, all inside the worker's
+one hold of the lock, so the hot list names `vx_n` now), the TEXT poster's
+glyph words (`vp_tmono`), the bar's thumb x (`vp_pbar`), a resident
+block's load (`vp_ldblk`, `vp_ldstored`: `vp_sstart`'s, between brackets)
+and the board timing's segment (`vp_erate`). One byte, `vp_tqok`, stays in
+the image for the PARITY of the hook's words after it (`vb_s`..`vb_td`),
+which the hot list checks as it does a routine's.
+
+**And VGA8's palette is a CLAIM** (`[vp_p8seg]`, 1KB from the top): only
+a VGA8 file has 768 bytes of it, and they are read twice - into the DAC at
+a bracket's door (`vp_dac`) and into the lumas at each picture
+(`vp_mklum`), neither at interrupt time - so the bss keeps the SIXTEEN
+(`vp_pal`, 48: a VGA4 file's own, a scene's, VGA8's first) and the rest is
+held while the file is open, movable through `vp_smove`, and given back by
+the next open with the palettes a scene (`vp_pevfree`). A VGA8 file that
+finds no kilobyte for it is refused with `Not enough memory`, as one that
+found none to read the palette through always was. Live in colour's repack
+buffer (`vp_v4buf`, 1,024), which sat on VGA8's palette, is the desktop's
+scratch now, past the rest of it; on `vp_pal` a repack (BLITP refused)
+wrote over a VGA4 file's own sixteen, which a later full screen loads
+into the DAC (`vp_scrset`) - a latent defect, not seen in the field, that
+the move ends. **-720 bytes of bss**; with the scratch, the
+shipped arm is 55,702 + 4,144 = **1,594 under** (599 before the pass's data
+half), `NOLIVESND=1` 1,825, and `VPDIAG=1` assembles again at 57,062 +
+4,144, **234 under** (761 over).
+
+**A second pass, on cold CODE (2026-10-16)**, took **936 bytes of
+`.text`** in every arm and no bss against the unparted player it was cut on
+(the shipped arm 55,977 -> 55,041). Merged with the shared-code and data
+lanes above, **846 of them survive in every arm**; the
+other 90 were sites the shared-code lane had already turned into a call of
+one of its routines, where what is left of the peephole went into the
+routine instead (`vp_kplain`'s chain ORed into AL, `vp_skfirst`'s flags
+from a zeroed register). It is open and parse, the poster makers, setup and teardown, the layer's and
+the bank's verdicts, the bench's setup, the card, the window's paint: flag
+bytes stored from a zeroed register, runs of must-be-clear flags ORed into
+AL and tested once, refusals that shared a store of `[vp_msg]` or reach a
+`ret` with a short jump. Three things a reader should know: **`vp_canp1`'s
+carry means nothing** (its refusals never agreed on it, and every caller
+reads `[vp_ok]`); **`vp_parse` copies the title before the loop block's
+checks** (a refused file's title is read by nothing - only a loaded file's);
+and the window's paint relies on what the kernel's cells and `vp_blitb`
+promise, every register kept, rather than loading the box's corners again.
+**Nothing a play runs changed**, and on the base it was cut against
+nothing moved either: every routine `rdiffhot.txt` names, every routine they reach that it does not (the decode's helpers,
+`vp_afill`/`vp_aput`, the reader's `vp_fill`/`vp_warm`, Live's worker
+path, `vp_m3pl` off `vc_m3b`), the bracket's loop inside `vp_main`, and
+EVERY DATA LABEL - the play's word variables included - was identical and
+at an even shift in all three arms (lanes that were each even combine to
+odd shifts, so the merged tree's parity is the integration's one pass). Two string merges (`vp_s_comma` is
+`vp_s_ticks`' bytes; `vp_ab2` an empty line) were refused for that last
+reason: 3 and 1 bytes, each shifting every variable after it by an odd
+amount, which `os88rdiff.py --hot` does not see.
+
+**The hot path's own size pass (2026-10-16)** took the routines a play
+runs, under one rule - every change the same speed or faster, per path -
+and found **620 bytes** (`NOLIVESND=1` 618, `VPDIAG=1` 620) that were
+also cycles. The file format and every list's semantics are unchanged;
+what moved is how the decoders (`vdec.inc`) and the hook get from one
+test to the next:
+
+- **A list's end is a short jump BACK.** A poke list's 0 was `jnz` over a
+  near `jmp` to an end past the body - a TAKEN jump at every segment. It
+  is a `jz` to the gate's own jump on now (C160's lists, which have no
+  gate, keep that jump in front of the list), and a list whose next is in
+  reach (the spans, the long ones, write mode 3's poke lists of a round of
+  one) gates with `jnc next` and ends with `jz next`. The gate shifts the
+  list map a BYTE at a time, 8 cycles under a word's.
+- **The set-ups count in AL** and `xchg` the rounds into CX - 0 at every
+  segment, which every store leaves it - and a round of ONE is a plain
+  loop with no Duff table; the entries fall into their first list.
+- **Every list's `.seg` and its round's head are on even addresses**
+  (`VD_PAR`), both where the base had one of the two - a 16-bit bus's
+  jump target - and the decoder's length keeps its base parity, so what
+  follows is where it was in every arm. The full screen's state is laid
+  out so every word of it is even too.
+- **The hook, the frame and the box**: `vp_hook`'s pause block in front
+  of the play and `vp_frame`'s ends in a short jump's reach of their tests
+  (five jumps over a jump, taken every call or frame); `vo_update`'s ten
+  compares a byte table; `vo_draw`'s lit pixel an `sbb`; `vo_setup` one
+  byte a renderer and its state zeroed a word at a time.
+
+Measured on MartyPC's 5150: every frame of `tests/vidbench.py`'s
+synthetic set decodes **260-390 cycles faster** to the screen and to RAM
+(an empty frame 1,704 -> 1,441), and `tests/vidfskeys.py --cost`'s hook a
+frame is faster on every kind measured, the text down and up - down,
+9,767 -> 9,363 on Hercules and 45,194 -> 41,222 for write mode 3. With
+the text UP in Mode X flipping a frame read 0.3% slower - and two or four
+`nop`s at the new hook's entry put it 0.1% UNDER the base: it is where the
+frame's 640,000 cycles fall against the card's memory and the ticks (the
+same `nop`s move the base by 300), not the code, which is identical or
+shorter on that path.
+`os88spk.inc` gave 18 bytes to every includer on the way (its ISRs' grant
+event jumps straight to `os88spk_isr.ev`).
+
+**Where the second pass landed (2026-10-16)**, all four lanes merged onto
+the tree after the #264 squash: `video.bin` **53,646 + 4,144 bss = 57,790
+of `APP_MAX_SIZE`'s 61,440, 3,650 to spare** (599 before), `NOLIVESND=1`
+57,561 (3,879), and `VPDIAG=1` 59,150 (2,290) - it assembles again. Lanes
+that were each even at their own base combine to ODD shifts, so the merge
+took one parity pass of its own, made of three odd cuts in the cold code in
+front of the three stretches that had moved (`vp_pevload`, `vp_crtc` with
+`vp_v8mono`, `vp_bseek`; -17, no pad), and two hot data words put back on
+their parity by MOVING a variable rather than adding a byte (`vp_rchk` after
+`vp_ptk`; the Buffering string past the library includes, which puts
+`os88alt_edge` back). `apps/video/rdiffhot.txt` now names every routine a
+frame reaches (the record's decode, the reader's fill, the page flips,
+Live's pass) and not only the loop's. Measured against the base on
+MartyPC's 5150, a frame decodes **257-385 cycles faster** and the hook a
+frame is faster on every kind, down and up. **A fifth lane, PARTING the
+player** (its open and its bench as a part 1 at the top of its own segment,
+Word's §68.10 shape: the ceiling 61,440 -> 65,024 for no resident byte),
+was built and is NOT taken: the two parts compress apart, part 1's code at
+94%, and the 1.5KB loader is raw, so the file was ~4 clusters bigger and
+took `apps360.img` past its 354. It is kept for the day the ceiling bites
+again.
+
+**And the text's second save (2026-10-16)** is a claim a play on two pages
+or more takes (98.3.13.2): **-1,660 bytes of bss for +54 of image**, so
+`video.bin` is **53,700 + 2,484 = 56,184, 5,256 to spare**, `NOLIVESND=1`
+55,955 (5,485) and `VPDIAG=1` 57,724 (3,716) - and every hook call with the
+text up is faster, every one with it down unchanged.
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |
@@ -169239,7 +169708,7 @@ late; Hercules 12 -> 4, 3 and 3. The 22 s of cuts from 33 s, silent, played
 on MartyPC's 5150 (`os88vidprof --hdd`): 660 frames, 0 late, 0 stalls,
 401 ticks against 400.5, the hook held off 2 periods at most.
 
-**`--min-fps F`: a VARIABLE FRAME RATE** (options version 37, 0 - off -
+**`--min-fps F`: a VARIABLE FRAME RATE** (options version 38, 0 - off -
 by default; docs/plans/VIDEO-SEEN-PLAN.md 3a). Where the budgets would
 cut a frame, and at a scene's first frame, the next half-second is
 encoded on copies of the encoder at each rate down to F (5/6, 2/3, 1/2,
@@ -169358,7 +169827,7 @@ of the measures `--aim quality`'s trials (98.2.1.4) and page-ahead's keep
 (98.2.1.8.1, 98.2.1.8.2) judge by, BESIDE the error as seen and never in
 its place.
 
-**`--attend S` and `--edges S`** (options version 36, VIDEO-SEEN-PLAN 3;
+**`--attend S` and `--edges S`** (options version 37, VIDEO-SEEN-PLAN 3;
 `--edges` 1 by default, `--attend` 0 - off) let it steer: `--attend` weights `value` by
 the view's attention map (`seen_attention`, its mean 1), `--edges` adds
 how much nearer the target's EDGES the screen is for writing a pixel,
@@ -169499,14 +169968,18 @@ in a burst, and catch up after** - owed time's idea (98.2.1.1) on the flip
 schedule, and since the same day **on every play with a card's sound,
 flipped or not**. The schedule above keeps the NEXT frame less than one
 frame behind; with L = MS x fps / 1000 frames it keeps it less than L, so
-a frame's ceiling is `(L + 1) periods - a call - how far behind it starts`.
+a frame's ceiling is `a period + the last call short of L - how far behind
+it starts` (it was `(L + 1) periods - a call - ...`, which is the same
+where L is a whole number of calls and too little where it is not:
+98.2.1.1.3).
 On a file that is not flipped the lag schedule REPLACES owed time
 (98.2.1.1) wherever L is past one frame: owed time pays a run back by
 holding the next frames, the lag schedule by drawing two a period, and a
 card's ring is what lets the second be on time.
 
-**The default is 100 ms** - 2.4 frames at 24 fps, 3 at 30 - and it was
-first `--flip-lag 3` (frames, flipped files only). How far behind a
+**The default was 100 ms** - 2.4 frames at 24 fps, 3 at 30 - and it was
+first `--flip-lag 3` (frames, flipped files only); since 2026-10-16 it is
+the RANGE `50-100`, searched for each burst (98.2.1.1.3). How far behind a
 picture can be without the eye minding is the VIDEO's and not the
 machine's: Bad Carrot's flames ran 186 ms behind on the Victory and read
 smooth, being timed to nothing in the sound, where a face speaking would
@@ -169546,6 +170019,96 @@ average": the attribution compared the room net of the back page's debt
 with the ceiling, and on a flipped file that debt is never zero. It reads
 the 1-second bucket against the ceiling now, and says `the lag schedule N`
 where the schedule's ceiling was under `--peak`.
+
+###### 98.2.1.1.3 The lag searched: a range, and the allowance per burst (2026-10-16)
+
+**`--lag LO-HI` gives the encoder a RANGE, and at each burst it finds the
+allowance in it that cuts the fewest frames** - the default, `50-100`. The
+owner, 2026-10-16: on Mech2 (15 fps, mode 13h, `286-picomem1`, PCM8),
+*"50ms lag cuts over 150 frames, 100ms lag cuts 26, 150ms lag cuts over
+150 frames ... I don't want to find out on another video that another
+number would have been optimal."* One number `--lag MS` is the fixed
+allowance it was (98.2.1.1.2), and a record made before ranges (options
+version 35) reads its number so.
+
+**Half of that answer was a DEFECT, and the fix is the reason the rest is
+cheap.** The schedule's calls come half a period apart, and the next frame
+starts at the first call after this one is drawn - so the most a frame may
+leave the picture behind is not `L - a call`, as the ceiling had it, but
+the LAST CALL SHORT OF L. Where L is a whole number of calls the two are
+the same; where it is not, a frame was held to less than it could take
+and the next still started at the call above, so in a long burst EVERY
+frame had that much less than a period, for nothing. 150 ms at 15 fps is
+2.25 frames, a quarter-frame between two calls: held at 2.0 frames behind,
+each frame got three quarters of a period. Measured on Mech2, cuts at
+fixed allowances before and after:
+
+| `--lag` | frames, at 15 fps | cut before | cut after |
+|---|---|---|---|
+| 100 | 1.5 (a call) | 26 | 26 |
+| 133 | 1.995 (a hair short of 2.0) | 25 | 24 |
+| 150 | 2.25 | **89** | 22 |
+| 200 | 3.0 (a call) | 20 | 20 |
+
+(The 50 ms the owner measured is under a frame, where an unflipped file
+keeps owed time, 98.2.1.1, and not the lag schedule at all.) So an
+allowance between two calls is the call above it: a file made at one
+re-encodes better, one made at a whole number of calls byte for byte as it
+was (Mech2 at 100 ms: only the options record's version differs), and the
+search has only the calls to choose among: `50-200` at
+15 fps is five allowances, the picture at most 33, 67, 100, 133 or 167 ms
+behind (a call short of 67 to 200).
+
+**The search** (`_encode`'s `lag_search`, `lag_best`): a frame that
+starts level with the sound is drawn at the range's top; if it ends
+level, every allowance draws it the same (its ceiling is at least a
+period under any of them) and nothing is decided. If it ends behind, a
+burst has begun: the encoder and page-ahead, snapshotted before that
+frame (`Encoder.__deepcopy__`, which keeps a copy's surfaces seen through
+its own views), are played on copies at every allowance - each until
+`LAG_SETTLE` (1 s) past its picture level again or `LAG_WIN` (4 s), all to
+the same frame - and the burst takes the allowance that cut the fewest
+frames, then left the fewest bytes wrong, then the LEAST LAG. A burst
+longer than the window is searched again from where it has got to. The
+top's own frame is kept when it wins; otherwise the real encoder is put
+back in place (the layer holds it by identity) and the frame drawn again.
+
+On Mech2 at `50-200`: 9 bursts, 20 frames cut (`--lag 200`'s 20, and
+100 ms's 26), four bursts with nothing cut at any allowance kept at 33 ms
+and five at 167, at 1.4 times the clip's frames played to choose (80 s
+against 51 for the fixed encode). After the fix the cuts FALL with every
+call more of lag on each of its bursts, so the top of the range is where
+a burst that cuts goes, and what the search buys is the bottom wherever
+the burst is free: **the top is the most lag the file will ever show, and
+choosing it is the video's question still (98.2.1.1.2)**. `50-150` cut 22,
+as `150` does, and kept the same four at 33 ms.
+
+**So the default is `50-100`** (the owner, 2026-10-16: *"Lag is very video
+dependent ... the user can bump it up when they need to for things that
+benefit"*). Its top is the 100 ms that was the default, so its sync is
+never worse than before: the picture is never further behind than the
+call short of 100 ms, which is where fixed 100 already reached - the old
+ceiling stopped short of it but the next frame started at that call
+anyway. Everywhere a burst cuts nothing at either allowance it is kept a
+call nearer. Its cuts are fixed 100's or fewer over each burst it
+searches, the top being one of the candidates - over a whole clip that is
+not a proof, one burst's choice leaving the next a different start - and
+where 100 ms is between two calls (2.4 frames at 24 fps) fixed 100 itself
+now has the room the ceiling's fix gives it. On Mech2:
+26 frames cut, as 100 cuts, the picture at most 67 ms behind as before,
+the four free bursts at 33 ms, at 0.5 times the clip played to choose.
+
+The summary says what it chose: `lag search: 9 bursts searched at --lag
+50-200, the picture at most 33/67/100/133/167 ms behind; chose 33 ms x4,
+167 ms x5; 1605 frames played to choose (1.4 x the clip)`, and
+`OS88_VENC_LAGDUMP=FILE` writes each search - its frame, its window and
+every allowance's cuts - as JSON. Nothing changes in the file or the
+player. `tests/vidlag.py` is the gate: the ceiling safe and tight for every
+allowance (17 of 31 not, with the old formula back), and on a clip of
+Mech2's shape whose bursts fixed allowances cut 5, 5, 3, 3, 3 frames the
+range cuts no more than its top, chooses below it, and replayed as the
+player schedules it never reaches 200 ms - red with the search always the
+top, or its worst pick.
 
 ##### 98.2.1.3 The disk reserve: bursts banked in the player's ring
 
@@ -173714,7 +174277,8 @@ again keeps the text for good.
   measured against what that machine needs for the base (`[vp_lyneed]`),
   not the file's ask (`vp_bshort`) - it was said on every play after the
   first, the split being once a file.
-- **Page flipping (98.3.8) keeps one save a page**: the page drawn next has
+- **Page flipping (98.3.8) keeps one save a page** (the second a claim,
+  98.3.13.2): the page drawn next has
   its box put back (`vo_pre`) and is decoded into, and the text is drawn on
   it BEFORE it is shown (`vo_flipon`).
 - **Through the shadow the screen is only a copy**, and the copy goes round
@@ -173801,6 +174365,84 @@ without the text. Broken on purpose, it fails on each of the three paths:
   bytes out;
 - no `vo_flipon`: `modexflip`, 17 of 20;
 - `vo_bparts` copying whole rows: `c160`, 20 of 20.
+
+##### 98.3.13.2 The second save is a claim (2026-10-16)
+
+**The text's two saves were 3,840 bytes of bss** (`vo_sav`, `VO_SAV` =
+1,920 a page), and the second is used only by a play on TWO PAGES OR MORE -
+`--flip` (98.3.8), page-ahead (98.3.8.3) on two pages or N (98.3.8.4), and
+flipped and built ahead (98.3.8.5). `vo_savbit` names it only for
+`[vo_sl1]`'s page, and an unflipped play draws on page 0 and shows page 0.
+So **the second save is a claim** now, `[vo_s1seg]`: 2 KB from the top,
+taken by `vp_sstart` beside the page copy whenever `[vp_flip]` is set, and
+a SESSION claim like the rest - in `vp_smtab`, pinned for every bracket and
+movable between them (`vp_smov`, 98.3.19.2), given back by `vp_sfree`. A
+heap that cannot spare it refuses the play with *Not enough memory*, as the
+page copy's 31 KB always has. It is claimed BEFORE the ring, which sizes
+itself on what is left - which is why it is not claimed at the bracket's
+door, where a ring that took the machine would leave it nothing exactly
+when it matters.
+
+**What it saves is set by the DESKTOP'S SCRATCH, not by the save.** The
+scratch (98.1.9.13's data half) runs 2,436 bytes from `vo_sav` (2,616 with
+`VPDIAG`), past page 0's save and the page table together (2,176), so the
+bss is the sixteen and the scratch: **4,144 -> 2,484 bytes, -1,660**
+(-1,480 with `VPDIAG`), for **+54 bytes of image** in every arm. Taking
+page 0's save and `vc_pg` out as well would buy NOTHING more for the same
+reason, and would put a segment on `vc_find`'s lookup, which every change
+near the box pays. The scratch is the next floor: Live in colour's repack
+buffer (`vp_v4buf`, 1,024) is the largest thing in it.
+
+**Recorded, not built (the owner, 2026-10-16: time, not merit)**: that
+buffer as a claim of its own, taken where Live in colour starts repacking
+(`vp_v4blit`, a VGA4 Live play whose BLITP refused) and freed with the
+session's claims. It is filled and blitted inside one call by the window's
+own code, not by the hook, so it costs the play nothing a frame. The
+scratch would then fall to page 0's save and `vc_pg` (2,176), so the bss
+**-260 bytes, -440 with `VPDIAG`** (ESTIMATED, not built), and a Live play
+in colour holds 1KB more heap while it runs. After it, the next floor is
+page 0's save itself, which is the segment on `vc_find` priced above.
+
+**Every access names its segment, and the play pays nothing for it** -
+every routine it touches is FASTER, the ones it does not are identical and
+at an even shift in all three arms (`tools/os88rdiff.py --hot-file`):
+- `vo_iop` holds the save as BX:BP and its own DS in DX, both free through
+  its rows: the KEEP is `mov es, bx` where it was `push ds / pop es`, and DS
+  comes back as `mov ds, dx` where it was popped - ~34 cycles a row
+  cheaper; the PUT BACK gains `mov ds, bx` and the same restore, ~8 dearer.
+  A flipped frame with the text up makes one of each.
+- `vc_setup` records the save's segment beside its rows (`[vc_sseg]`, CS
+  for page 0). `vc_sav` loads ES from it where it pushed CS, and reads the
+  planes a store reaches and the save's planes as ONE word (`vc_mask` sits
+  in front of `vo_pl`). `vc_m3b` loads the plane stride and the segment
+  with one `LES` (`vc_sseg` follows `vc_pls`) and adds the stride from a
+  register, its range test is the subtraction itself, and its two paths
+  each have their own tail - one of them `dec cx / jnz` for `loop`, a byte
+  longer, so what follows keeps its parity.
+- `vp_sfree`'s zero stores come from AX, a byte shorter each (-9): the odd
+  cut that puts the cold code's shift back on parity.
+
+Measured with `tests/vidfskeys.py --cost` on MartyPC's 5150 and XT VGA,
+every `vp_hook` call to the cycle, the same frames against the base:
+
+| kind | text down, a frame | text up, a frame |
+|---|---|---|
+| `modexflip` | 19,532 -> 19,531 | 597,467 -> 596,620 (-0.14%) |
+| `vga8` | 15,543 -> 15,547 | 72,259 -> 71,951 (-0.43%) |
+| `vga4` | 37,908 -> 37,909 | 126,728 -> 126,205 (-0.41%) |
+| `vga4m3` | 41,217 -> 41,202 | 129,015 -> 127,886 (-0.87%) |
+| `modex` | 9,711 -> 9,722 | 50,562 -> 50,335 (-0.45%) |
+| `herc` | 9,362 -> 9,359 | 31,135 -> 31,018 (-0.38%) |
+| `cga4` | 9,092 -> 9,098 | 33,567 -> 33,422 (-0.43%) |
+| `c512` | 8,750 -> 8,750 | 30,954 -> 30,859 (-0.31%) |
+| `text` | 8,671 -> 8,676 | 13,048 -> 13,021 (-0.21%) |
+| `c160` (the shadow) | 9,290 -> 9,293 | 52,265 -> 52,249 (noise) |
+
+The text-down column runs no changed instruction, and its +/-15 is where the
+frames fall against the ticks. Per routine, every call timed: `vo_iop`
+138,915 -> 137,781 cycles a flipped frame; `vc_sav` -17 a call; `vc_m3b`
+21,987 -> 21,477 a frame (an earlier build that kept the stride in memory
+and saved ES in DX read +387, which is what the `LES` is for).
 
 #### 98.3.14 Seeking in the full screen: Left and Right
 
@@ -175503,7 +176145,7 @@ each word is added. `tools/os88vfit.py --reads` sums the file the same way
 and names every read that differs; a byte changed in the file the guest
 played is named to its chunk.
 
-**The profile is version 2 for both** - a 48-byte header: version 1's 32,
+**The profile is version 2 for both** (version 3 since 98.3.22.3, the same header) - a 48-byte header: version 1's 32,
 then +32 the frame slots that follow, +34 the reads logged after them,
 +36 the damaged super-packets seen and, for the first, +38 the decode's
 chunk, +40 its offset, +42 its sectors, +44 the reader's `[vp_lc]` and +46
@@ -175513,6 +176155,39 @@ start: claimed after the rings were sized, a machine with no XMS had no
 room and profiled nothing, so the diagnostic builds' rings are the claim
 smaller. VIDEOR's room under `APP_MAX_SIZE` is the info card's layer and
 speaker lines, which a card's play of a file with no layer does not draw.
+
+##### 98.3.22.3 Version 3: the info card and the boot's placement, in the file (2026-10-16)
+
+**A field run whose card was not photographed told us nothing but the
+frame times.** GasGas54 paused once on the owner's Victory and played
+clean after a reinstall and a reboot, and the question that left - what
+did this boot do differently? - is one the card answers and the profile
+did not. So version 3 appends a TRAILER after the frame words and the read
+log: `VPDI`, its bytes (u16), its word count (u16), then the words of
+`vp_ditab` in order and the package's CS and SS. Every number the info
+card draws is there - the heap at Play, the ring's slots against the
+file's ask and what it was sized from, the keeper and the card's ring, the
+reader's least lead and its frame, the hook's longest gap, the pauses
+that were the stream's and the longest, stalls, late, the ticks taken,
+the frames drawn, the layer's tests - and beside them where this boot put
+the play: the ring (the bank's bounce in place) and the claim it starts
+in, the XMS block, the bank's and the ring's slots, the card's rate and
+block, the CPU tier, and THE GAP (41.14): the G it chose and the PIT count
+of its 8 KB copy at each of 0, 512, 1 K, 2 K, 4 K and 8 K - `xg_tt`,
+kept only under `XG_TIMES`, which only a `VP_DIAG` build defines, so the
+shipped `VIDEO.O88` and VIDDISK assemble byte-identical. A byte's word
+carries the byte above it; the reader masks it. `tools/os88vfit.py` prints
+the trailer first, as the card read and as placement - the ring's distance
+from the block mod 2G, and PLACED or not - and its `DI_NAMES` is the
+second copy of `vp_ditab`'s order. The claim grows by the trailer; a
+version 2 reader ignores the bytes after its read log.
+
+**And the name it is saved under was wrong from version 1 on**: `vp_prend`
+asks whether `VPPROFn.DAT` is there with a read of zero bytes and took ANY
+refusal for *no such file* - but a file that IS there refuses a read into
+no room with `FERR_BIG` (20.14.6.3), so every play wrote `VPPROF1.DAT` over
+the last. Only `FERR_NOENT` is free now; any other answer moves on to the
+next n, so a disk error never overwrites a profile either.
 
 ##### 98.3.22.1 What the first profiles changed in the encoder (2026-10-15)
 
@@ -178028,14 +178703,16 @@ two drop-downs and a field:
 
 The foot's six become four:
 - **Tune** - sets the Target;
-- **Save setting** - `REDLINE.CFG` (§103.6.4), for RLAPPLY to put back;
+- **Apply on boot** - `REDLINE.CFG` (§103.6.4), for RLAPPLY to put back, and
+  `\AUTOSTRT\RLAPPLY.LNK` so the boot starts RLAPPLY (§26.10.6). It was
+  **Save setting** until autostart existed;
 - **Save report** - the page, as `CHIPSET.TXT` numbered the way REDLINE's
   own benches are (`CHIPSET1.TXT`, `CHIPSET2.TXT`, the first free), into the
   current directory;
 - **Quit**.
 
 Tune and the Target are greyed where the picked row cannot write or the CPU
-is an 8088, and Save setting until something is set - and then everywhere
+is an 8088, and Apply on boot until something is set - and then everywhere
 but the row it was set ON (`cs_setrow`, written beside the value by Mfg
 spec, Tune and Bus clock x2). A pick after a Tune is not an identification:
 Save reaches no question and no probe, so a REDLINE.CFG may only ever name
@@ -178621,7 +179298,7 @@ proc (`mem_in_nest` pins it there) and is the ratchet's terms
 `tests/rltune.py` launches it from `A:\SYSTEM` before REDLINE has saved and
 after, on QEMU, and reads the toast and the window list each time.
 
-An autostart will launch it; until one exists it is run by hand after boot.
+REDLINE's **Apply on boot** puts a link to it in the boot volume's `\AUTOSTRT` (§26.10.6), so it runs at every boot; holding Shift through the boot skips it, and deleting the link stops it for good.
 
 ## 105. MIDIRack — a MIDI file player (`apps/midirack/`)
 
