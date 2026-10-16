@@ -35,7 +35,8 @@ VO_SAV      equ (VO_MAXC + 2) * 8 * VO_ROWS ; a page's save at the widest: a
                                     ; character and its ground at 8 bytes
 VO_TOASTT   equ 27                  ; a toast's ticks: 1.5 s
 VO_INK      equ 255                 ; 256 colours' brightest (the palette's
-                                    ; order, SPEC.md 98.2.3)
+                                    ; order, SPEC.md 98.2.3) - and an `sbb`
+                                    ; of a lit bit's carry (vo_draw)
 VOK_PAUSE   equ 1                   ; what the box says
 VOK_SEEK    equ 2
 VOK_REPON   equ 3
@@ -798,8 +799,38 @@ vo_draw:
     mov [vo_nb], ax                 ; the one-bit row's bytes
     mov es, [vp_vseg]
     cld
-    cmp byte [vo_mode], VOM_X
-    je .mx
+    cmp byte [vo_mode], VOM_X       ; (Mode X's own loop first: in a short
+    jne .nx                         ; jump's reach of the test)
+.mx:                                ; MODE X: a plane at a time, a byte a
+    xor cx, cx                      ; pixel, pixel x = 4 x byte + plane
+.xp:
+    call vp_mxsel
+    xor ax, ax
+.xr:
+    call vo_row
+    call vo_addr
+    add di, [vo_pgo]
+    push ax
+    push cx
+    mov bx, cx                      ; BX = the pixel
+    mov cx, [vo_nb]                 ; (under 256)
+    shl cx, 1                       ; two plane bytes a character
+.xb:
+    call vo_bit
+    sbb al, al                      ; lit: VO_INK, FFh (0 not)
+    stosb
+    add bx, 4
+    loop .xb
+    pop cx
+    pop ax
+    inc ax
+    cmp ax, [vo_rows]
+    jb .xr
+    inc cl
+    cmp cl, 4
+    jb .xp
+    jmp vp_mxall
+.nx:
     cmp byte [vo_mx], 0             ; mode 12h: every plane
     je .rows
     call vp_mxall
@@ -867,11 +898,8 @@ vo_draw:
     mov ah, al
     mov bl, 8
 .b8p:
-    xor al, al
     shl ah, 1
-    jnc .b8s
-    mov al, VO_INK
-.b8s:
+    sbb al, al                      ; lit: VO_INK, FFh (0 not)
     stosb
     dec bl
     jnz .b8p
@@ -880,8 +908,7 @@ vo_draw:
 .mt:
     cmp bl, VOM_A                   ; TEXT: the characters themselves, a
     jne .mtc                        ; cell of ground each side
-    mov ah, VO_TATTR
-    mov al, ' '
+    mov ax, VO_TATTR * 256 + ' '
     stosw
     mov si, vo_text
     mov cl, [vo_n]
@@ -900,11 +927,9 @@ vo_draw:
     shl cx, 1                       ; (a character is four cells)
     xor bx, bx
 .bt:
-    xor al, al
     call vo_bit
-    jnc .tl
-    mov al, 0xF0
-.tl:
+    sbb al, al
+    and al, 0xF0
     inc bx
     call vo_bit
     jnc .tr
@@ -928,39 +953,6 @@ vo_draw:
     cmp ax, [vo_rows]
     jb .r
     ret
-.mx:                                ; MODE X: a plane at a time, a byte a
-    xor cx, cx                      ; pixel, pixel x = 4 x byte + plane
-.xp:
-    call vp_mxsel
-    xor ax, ax
-.xr:
-    call vo_row
-    call vo_addr
-    add di, [vo_pgo]
-    push ax
-    push cx
-    mov bx, cx                      ; BX = the pixel
-    xor ch, ch
-    mov cl, byte [vo_nb]
-    shl cx, 1                       ; two plane bytes a character
-.xb:
-    xor al, al
-    call vo_bit
-    jnc .xs
-    mov al, VO_INK
-.xs:
-    stosb
-    add bx, 4
-    loop .xb
-    pop cx
-    pop ax
-    inc ax
-    cmp ax, [vo_rows]
-    jb .xr
-    inc cl
-    cmp cl, 4
-    jb .xp
-    jmp vp_mxall
 
 ; =============================================================================
 ; DECODING ROUND THE BOX (SPEC.md 98.3.13.1). The flicker the owner saw was
