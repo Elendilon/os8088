@@ -318,7 +318,8 @@ ap_cinv equ aps_dbuf               ; ...counts back to samples, on a card or a
 ; --- playlist (aplist.inc) --------------------------------------
     APBUF apl_ent, AP_MAXTRK * AP_ENTSZ
     APB   apl_n                    ; entries in use
-    APB   apl_cur                  ; index of the current track (0..n-1)
+    APB   apl_cur                  ; index of the current track (0..n-1) -
+                                   ; AFTER apl_n: apl_clear zeroes the pair
     APBUF apl_ord, AP_MAXTRK       ; shuffle order (indices)
     APB   apl_opos                 ; position within apl_ord
 
@@ -378,7 +379,6 @@ ap_entry:
     ret                           ; region, no window, no handover (SPEC.md 21)
 %endif
 .nodoc:
-    call aplist_init
     call apd_mkstep               ; the IMA step table (apdec.inc)
 
     mov si, ap_tpl

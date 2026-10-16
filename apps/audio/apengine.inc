@@ -449,9 +449,8 @@ ap_prime:
 ; =============================================================================
 ap_open_track:
     APCNT apc_opentk
-    call apl_count
-    or ax, ax
-    jnz .havetrk
+    cmp byte [apl_n], 0
+    jne .havetrk
     mov word [ap_msg], ap_s_nofile
     jmp .refuse
 .havetrk:

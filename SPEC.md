@@ -131361,6 +131361,16 @@ number of clusters — a 16-byte-record queue is neither.
 
 Comfortable on 640 KB; on 256 KB the look-ahead and ring tiers drop.
 
+**Apps size pass 2** (docs/plans/HANDOFF-APPS-SIZE-P2.md) measured the
+package by the file a floppy carries, from **10,939 bytes** (image 13,393 +
+bss 5,475) on its cut point. What it took, a commit each: the IMA step table
+built at launch (§86.4, −117); the window's text runs through one
+content-relative helper, the clock's digits by `AAM`, the bar's fixed edges
+as constants and the dead `apu_hit` deleted (§86.7, −117); and the playlist
+store rewritten smaller, with its entry-time init gone because the loader
+zeroes a package's bss (§86.10, −108). Nothing a playback runs per sample or
+per block was touched.
+
 **On the disk it is 7,468 bytes, not 9,216.** `AUDIO.O88` goes through
 `$(OS88PKG)` behind `$(PKGZSTAMP)` like every other shipped package, so it is
 LZ4 on the floppy and the `image` field at +8 still reads 9,216 — which is the
