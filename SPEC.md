@@ -72893,6 +72893,18 @@ the run cache's claims (§40.1) are the same.
   routine was run under an emulator against `tools/frref.py`'s model for
   every canvas height 1-199, every mirror row and every step of every frame
   - 2,646,700 steps, no disagreement, SI and DI kept. 14 bytes.
+- **The row path lost its jump-arounds.** `fr_take` is inline in
+  `fr_worker` (one caller), going straight to `fr_emit` with a whole row and
+  falling into the mirror test without one, and holding the cache segment in
+  `DX` for the walk instead of re-reading it a run. The worker's pre-lock
+  `[fr_restart]` test is gone: `fr_emit` makes the binding one under the lock
+  anyway, so a stale row now costs a lock taken and given back, once a view
+  change, and every row one test less. `fr_cache_row` is a routine again, so
+  its four early exits are short jumps to a `ret` rather than near branches
+  over the run loop, and the frontier step is a tail jump into `fr_stepm`;
+  the emit's visibility test asks `fr_org` first, which leaves `BX` the
+  window for `OSAPI_WM_GEOM`. The package has no relaxed (jump-around)
+  conditional branch left. 22 bytes.
 
 ### 39.26 The software renderer's plane loop is gone
 
@@ -105968,7 +105980,7 @@ relocation proc exists to recompute.
 rule's edge actually is.** Its worker's only lock site is `fr_emit`, which
 takes the lock and *then* runs `fr_emit_body`'s work (inline since §40.8), which re-reads `[fr_cseg]`
 rather than inheriting it — so the interval spent blocked in `gfx_lock` holds
-nothing at all. `fr_take` *does* hold the cache segment in `AX` for its whole
+nothing at all. `fr_take` *does* hold the cache segment in `DX` for its whole
 walk and runs lock-free, and that is still safe, because §66.5.4 marks a task
 parked **only while it is descheduled inside `gfx_lock`**. A task pre-empted
 anywhere else is not parked and its claims stay pinned. The rule is narrower
