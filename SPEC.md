@@ -55067,25 +55067,32 @@ them.
 
 | | bytes | what |
 |---|---:|---|
-| `.cold` | +160 | `lnk_is`, `lnk_open`, `sc_open`'s split, the two hooks, the Alt test |
-| `.text` | +2 | `sc_lowseg` |
-| `.bss` | +2 | `sc_wsp` |
-| **resident** | **+164** | measured by `kernsize`, kern_big; kern_small **+0** |
-| `.boot2` (the blob, freed at the desktop) | +224 | AUTOSTART, the whole of it (§26.10.5), and its eleventh sector |
-| `CTRL.DRV` (on demand) | +212 | `SC_OP_LNK`, the Alt-drop's writer (§26.10.4) |
+| `.cold` | +134 | `lnk_is`, `lnk_open`, `sc_open`'s split, the two hooks, the Alt test |
+| **resident** | **+134** | measured by `kernsize`, kern_big; kern_small **+0** |
+| `.boot2` (the blob, freed at the desktop) | +199 | AUTOSTART, the whole of it (§26.10.5), and its eleventh sector |
+| `CTRL.DRV` (on demand) | +212 | `SC_OP_LNK`, the Alt-drop's writer (§26.10.4), as written |
 
-**All 164 are links**, against the ~150 they were given: 10 of them are
+Kernel size pass 13 took the first two rows from +164 and +224 (a `.text`
+word and a `.bss` one went with `sc_walk`'s segment pointer, below) and the
+settings core 38 bytes shorter, the Alt-drop's writer sharing its path half
+with `sc_m_new` (docs/plans/completed/ksp13/links.md).
+
+**All of it is links**, against the ~150 they were given: 10 bytes are
 §26.10.3's fall-through for the DOS box's own `.LNK` files. **Autostart is
 not resident at all.** It crossed one `.cold` rung, which is the rung's
 business and not the feature's (CLAUDE.md, §1's banner).
 
 **`sc_open` IS the link's open, split rather than copied.** `sc_walk` takes
-the volume and kind in AL/AH and the path at DI, in the segment named by the
-WORD `[sc_wsp]` points at: a shortcut's record is in a movable claim and
-is re-read through `[sc_seg]` at every component, and a link's is on the
-stack, whose segment is the constant `sc_lowseg`. So the path walk, the
-folder, package and document arms, and `Shortcut not found (B:)` are the
-shortcut's, byte for byte.
+the volume and kind in AL/AH and the path at DI, and **the offset says whose
+the record is**: below SP it is a shortcut's, in a movable claim and re-read
+through `[sc_seg]` at every component, and above SP it is a link's, on the
+stack, read through SS. A table offset is under `SC_MAX * SC_REC` and task
+0's stack, the one context that walks, is above `STK0_BOT` - kernel.asm's foot
+proves the second the larger - while `lnk_open` calls the walk from beneath
+its record. So the path walk, the folder, package and document arms, and
+`Shortcut not found (B:)` are the shortcut's, byte for byte. (It was a word
+of `.bss` naming a segment word and a `dw LOW_SEG` for the stack's, until
+kernel size pass 13.)
 
 #### 26.10.3 Opening one
 
@@ -55176,7 +55183,8 @@ kmain's `mem_unblob_x`. It:
   the folder. So a link of ours is followed, and a DOS box shortcut there
   (§96.21) starts the DOS program it names. Anything that is not a `.LNK` is
   not started, so a note left in the folder does not open Note Pad;
-- at the FIRST link, reads the BIOS's own shift byte (0040:0017) and, with
+- at the FIRST link, reads the BIOS's own shift byte (0040:0017, through
+  `int 16h` AH=02, the ROM's read of it) and, with
   **either Shift held**, says `Autostart skipped` and starts nothing. It is
   read after the whole boot, so a key held through the loading screen is a
   key held now, and only at a link, so a shipped empty folder says nothing

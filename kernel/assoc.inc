@@ -1370,13 +1370,9 @@ assoc_run_x:
     jz .out
     mov bp, wm_wake_call        ; assoc_run's second phase (SPEC.md 54.10): the
     call ct_cw_mem_disp         ; launched window is on the glass, so the
-    jmp short .out              ; package may now spend the document it was
-                                ; handed
-
-%ifdef OS88_SHORTCUTS
-.lnk:                           ; the slot word is still on the stack, which
-    jmp short .out              ; is the one .out pops
-%endif
+.lnk:                           ; package may now spend the document it was
+    jmp short .out              ; handed - and a LINK's way out (SPEC.md
+                                ; 26.10.3), its slot word the one .out pops
 .noassoc:
     push ax                     ; the word .out pops
     call assoc_back             ; no volume knows it: the package route's own

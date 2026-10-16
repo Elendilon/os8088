@@ -7012,15 +7012,15 @@ fm_dgdrop:
 %ifdef OS88_SHORTCUTS
     call fm_mods                ; ALT HELD: a LINK to it there, and nothing
     test al, 8                  ; moved or copied (SPEC.md 26.10.4) - into
-    jz .noalt                   ; its own folder too, which is where a link
-    mov byte [fcp_cbop], FCP_NONE   ; is most often made. The Cut the drag
-    mov dx, bx                  ; armed is disarmed, as a desktop drop's is
-    mov al, [fm_dgdrv]
+    mov al, [fm_dgdrv]          ; its own folder too, which is where a link
+    jz .noalt                   ; is most often made. The Cut the drag armed
+    mov dx, bx                  ; is disarmed, as a desktop drop's is (.dsc)
     mov ah, SC_OP_LNK           ; CTRL.DRV writes it, as it writes a shortcut
-    jmp sc_modcall
+    jmp short .dsc
 .noalt:
-%endif
+%else
     mov al, [fm_dgdrv]
+%endif
     cmp al, [fcp_cbdrv]           ; the same folder it came from? then the
 %ifdef FM_MSEL
     jne .xdrv
@@ -7049,9 +7049,10 @@ fm_dgdrop:
     ; on the desktop pastes nothing - so the clipboard is DISARMED here, even
     ; when CTRL.DRV cannot be read, or a Paste in another folder later would
     ; move the original out from under the shortcut just made of it.
-    mov byte [fcp_cbop], FCP_NONE
     mov ah, SC_OP_NEW           ; CTRL.DRV makes a SHORTCUT of it out of the
-    jmp sc_modcall              ; drag's own state and writes SYSTEM.CFG
+.dsc:                           ; drag's own state and writes SYSTEM.CFG
+    mov byte [fcp_cbop], FCP_NONE
+    jmp sc_modcall
                                 ; (SPEC.md 26.8.4); the gfx lock is held, and
                                 ; CX,DX are still the RELEASE point read
                                 ; above - the module may take seconds to load
