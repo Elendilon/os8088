@@ -6797,7 +6797,7 @@ cy_hs_init:
     ret
 
 ; cy_hs_submit - offer [cy_score] to the table.
-; out: CF = 0 and AL = the row it took, CF = 1 if it did not make it.
+; out: CF = 0 and [cy_hsidx] = the row it took, CF = 1 if it did not make it.
 cy_hs_submit:
     ; Preserves nothing: every caller is a spine or a callback that reloads
     ; what it uses on the next line (SPEC.md 67.5.5).
