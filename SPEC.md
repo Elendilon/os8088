@@ -27201,6 +27201,15 @@ Browser, Calculator, Loom, Note Pad, Paint, Piano, Recorder, Telnet and TeXPad
 — and §13.15.3 adds the two half-measures for a package that draws one of the
 two pictures.
 
+`OS88UI_BIMGONLY` is the one-write body's own opt-out, for a package whose
+EVERY button is an `OS88UI_IMG` picture: the body drops the caption path
+(`font_width` and `font_run`), the caller's ink (`OS88UI_INK`) and the
+default ring (`OS88UI_DEF`) - 92 bytes in the Video Player (§98.4), its first
+consumer. Those three are then ignored, and a caption would be read as a
+picture record, so it is a statement about the package and not a per-button
+flag. It refuses to assemble without `OS88UI_BIMG`; every other package is
+byte-identical.
+
 #### 13.8.10 A button the PACKAGE paints — `OS88UI_BOWN` and `OS88UI_OWN`
 
 The library draws two looks, the plain one and §13.8.9's one-write body, and

@@ -20315,7 +20315,8 @@ vp_pfbuf:     times VO_MAXC + 1 db 0
 %define OS88UI_ABOUT                ; the standard About card (SPEC.md 20.5.1)
 %define OS88UI_BIMG                 ; ...and buttons with PICTURES, drawn with
 %define OS88UI_NOGLYPH              ; no pixel written twice (SPEC.md 13.8.9),
-%include "os88ui.inc"               ; and no check box or radio at all
+%define OS88UI_BIMGONLY             ; nothing BUT pictures (no caption, ink or
+%include "os88ui.inc"               ; default ring), and no check box or radio
 
 ; --- bss: zeroed by the loader, and no bytes of the file ----------------------
 vp_pal        equ os88_image_end    ; VGA8's palette (98.1.1)
