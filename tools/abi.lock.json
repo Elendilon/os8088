@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "85ee2660ea6043fc88c5fd37287e0f1cca7b1d855ccb0090d5df50834b995efa",
+  "fingerprint": "ef925cb40537ed0d4070dacf97b71659b87e42e5f57dabe3e9f0b2c9c99720f9",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "e2942a8830ad99578ef3f58eb9c05d283f0026e5680abde7ee520a1e7bc86de0",
+  "fingerprint": "572a9f011fb308ce2e6775b294b8fb46b8285ea629a7aca0a66926238c86516e",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -217,6 +217,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_ASSOC_FLUSH grew hold modes: ASSOC_FL_HOLD and ASSOC_FL_NOFLUSH constants added to an existing cell's contract; every package built before still runs",
+   "to": 11
+  },
+  {
+   "fingerprint": "572a9f011fb308ce2e6775b294b8fb46b8285ea629a7aca0a66926238c86516e",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "Merge of main's OS88_F_STIK (header flags bit 7) and OS88_STIKCARD/OS88_STIKROW/OS88_STIKCARD_END: the Sticky App card (SPEC.md 110.12), the last block of the clear prefix. ADDITIVE - no cell moved and no header field changed meaning; every package built before still runs (none sets bit 7), so no PKG_FMT bump",
+   "to": 10
+  },
+  {
+   "fingerprint": "ef925cb40537ed0d4070dacf97b71659b87e42e5f57dabe3e9f0b2c9c99720f9",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "Merge of main's OS88_F_STIK (header flags bit 7) and OS88_STIKCARD/OS88_STIKROW/OS88_STIKCARD_END: the Sticky App card (SPEC.md 110.12), the last block of the clear prefix. ADDITIVE - no cell moved and no header field changed meaning; every package built before still runs (none sets bit 7), so no PKG_FMT bump",
    "to": 11
   }
  ]
