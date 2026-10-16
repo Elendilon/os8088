@@ -41186,7 +41186,7 @@ each needed a mechanism**:
 | 0   | 2    | magic: bytes `'O','8'` (word 0x384F)                      |
 | 2   | 1    | format version = **10** (`PKG_FMT`): the segment-per-package layout, built against the API table as §20.3 lays it out now. Anything else — 1 to 9 included — is refused (§20.2.0) |
 | 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; **bit 3 = the image is COMPRESSED and the file is SHORTER than it, bit 4 = which format (0 = LZ4, 1 = LZB)** — docs/plans/O88-COMPRESSION-PLAN.md; **bit 5 = a 16-byte DOCUMENT-GLYPH block follows the association block (§54.3.2)**; **bit 6 = `OS88_F_DESK`, the package makes a desk window (§11.103.9): kern_big's loader takes its instance record from the top of the table down**; bit 7 zero |
-| 4   | 2    | link base — must be **0**: a v3 package links at org 0     |
+| 4   | 2    | link base — must be **0**: a v3 package links at org 0. **The one exception is a package with parts AND a packed image (flags bits 2 and 3 both)**: there it is the packed image's length in the file, because the file is not the image (§20.13.8) |
 | 6   | 2    | entry offset (≥ 0x20; ≥ 0x60 with icon; < image size)      |
 | 8   | 2    | image size = resident bytes: header + icon + code + data. Equals the file size exactly — **unless flags bit 2 is set, when it may be smaller and the file's tail is the package's (§20.12)**. |
 | 10  | 2    | bss size — bytes the loader zeroes after the image        |
@@ -43658,7 +43658,9 @@ version number would advertise a kernel capability that does not exist.
    because such a file is bigger than its segment by construction, and
    `ld_run_body` step 1 tests the staged size's high word before it trusts
    the low one (§21).
-2. **`ld_check_hdr` allows `image < file size`** when bit 2 is set. Without
+2. **`ld_check_hdr` allows `image < file size`** when bit 2 is set (and,
+   since §20.13.8, a packed image beside it, whose length the link word
+   carries). Without
    the flag the guard is unchanged and exact.
 3. **The entry proc is told the name of the file it came from** (§20.2's
    entry contract, §21 step 9).
@@ -44910,7 +44912,10 @@ guard is still exact for everything else.
 
 The compressed length needs no header field: the loader already has the file's
 size staged from the directory entry (§19.1), and the compressed body is that
-minus the clear prefix.
+minus the clear prefix. **Except beside parts** (§20.13.8), where the file is
+longer than the image and its size says nothing about the stream: there the
+link word carries the packed length, and it becomes the "file" every test
+below is about.
 
 **BIT 3 IS HONOURED ON ONE ARM OF THE LADDER AND REFUSED ON THE OTHERS**
 (binding). `image > file` is not a consequence of the bit, it is the
@@ -45347,6 +45352,84 @@ replaced:
 |---|---:|---:|
 | `.cold` | 650 | 347 |
 | `.bss` (the window and its cursor) | 266 | 0 |
+
+#### 20.13.8 A parted package's IMAGE may be packed too, and its length rides the link word
+
+**It was refused as circular, and it is a fixed point.** A part's `off` is a
+sector of the FILE and lives in the table INSIDE the image, so packing the
+image moves where the parts can start, which changes the table being packed.
+But only the table's `off` words move, every part moves by the same whole
+number of sectors and the parts' own bytes never change - so `os88pkg.py`
+packs once to guess the base, then packs again at each base until the packed
+image fits in front of it (`compress_parted`). The base only rises, so it
+stops; where it would oscillate it settles on the larger, which fits by
+construction. **A pack that saves no SECTOR is declined** (`--compress-if`'s
+soft refusal): the parts would not move, the file would not shrink, and every
+launch would pay the decode for nothing - so Skies' and Word's loaders, and
+Pixelstein's (refused by the region rule below), ship as they were.
+
+**The kernel has to be told the stream's length**, because §20.13.2's "the
+file minus the prefix" is wrong when the file carries parts. It rides the
+LINK word (+4), which is zero on every other package:
+
+- **`ld_hdr_ok`** lets a non-zero link word through only on a PACKAGE header
+  (format byte `PKG_FMT`) whose flags carry BOTH bit 2 and bit 3. The test
+  comes AFTER the version test, so a package of another format still says
+  `LD_EVER` (§20.2.0) however its link word reads; a driver, a module, or a
+  package with any other combination is refused exactly as before.
+- **`ld_check_hdr`** then puts that length in `[ld_fsz]` and zeroes the high
+  word, and every test after it is the plain compressed package's, unchanged:
+  the size ladder, step 6's `R = roundup512(image - file)` and its read, and
+  step 6a's stream length.
+
+**Every malformed combination is refused by a test that already existed**,
+which is how it was checked - the ladder's arms, walked by hand against the
+new store:
+
+| the header says | what refuses it |
+|---|---|
+| link != 0, bits 2 and 3 not both set | `ld_hdr_ok`, `LD_EBAD`, as before |
+| link != 0 on a driver | `ld_hdr_ok`: the format byte is not `PKG_FMT` |
+| bits 2 and 3, link 0 | the ladder: the file is longer than the image, and the compression bits are refused on that arm (§20.13.2) |
+| bits 2 and 3, link >= image | the ladder: `image == file` or `image < file` with the bits set |
+| bits 2 and 3, link past the file's chain | `dsk_read_chain_x`: a link past the chain's end is corruption, `LD_EBAD` |
+| a stream that does not decode to `image` bytes | `lz_decomp_x`'s output bound, then the in-region header re-check (§21 step 6) |
+
+**What it bought, measured on the tree it landed on**: `DOS.O88` 48,172 ->
+47,660 (48 -> 47 clusters, every 360KB system disk), PiXEL 113,147 ->
+105,467 (111 -> 103, `office360.img`), and the C SDK's two parted programs
+**8,192 bytes each**, 16 sectors: C64 47,570 -> 39,378 and the Apple II
+44,544 -> 36,352 (47 -> 39 and 44 -> 36 clusters on their own floppies). Skies,
+Word and Pixelstein are declined and byte-identical.
+
+What it cannot refuse it shares with every compressed package since §20.13
+(see 20.13.8.1). **Cost: `.cold` +33 resident bytes on each kernel**, no rung
+crossed - 28 for the store and the gate, 5 more to put the gate after the
+version test.
+
+**THE FORMAT NUMBER DOES NOT MOVE**, by §20.2.0.1's rule and §20.12's argument
+one bit along: every package built before this runs on this kernel unchanged
+(none sets the pair, because `os88pkg.py` refused it), and an older kernel
+handed the new pair refuses it as `Bad package` by the flag-bits rule above -
+the correct outcome by the correct route. A bump would refuse every existing
+package on the new kernel to advertise a capability only one kind of file
+uses. `apps/os88api.inc` is untouched, so the ABI lock's fingerprint is too.
+
+Host side: `os88pkg.image_unwrap` returns the IMAGE of such a file (the
+stream ends at the link word, which it zeroes), and the part table is read
+out of that while the parts are read out of the FILE at its offsets -
+`os88parts.image_rows`, `part_bytes`. `os88disk.py` and `tests/unit/t_pkg.py`
+hold the link word to the same rules as the kernel.
+
+##### 20.13.8.1 What the read can still overrun, and it is not new
+
+Step 6 reads `roundup512(file)` bytes at `R = roundup512(image - file)`, and
+two round-ups can exceed the one `ld_alloc` sizes the region with by up to
+511 bytes when the bss is short - `image` 1,000, a 600-byte stream and no bss
+reads to 1,536 in a 1,024-byte region. `os88pkg.py` never writes such a file
+(its region test refuses it), but a hostile header can, on the plain
+compressed arm as on this one: the guard belongs in the ladder, as
+`R + roundup512(file) <= roundup512(image + bss)`, and it is not taken here.
 
 ### 20.14 A COMPRESSED FILE — the kernel expands it on the way in
 
@@ -163637,29 +163720,29 @@ every other carrier assembles byte-identical:
   calls, Telnet included - goes from part 0: 50,121 -> 50,064 image bytes,
   19,671 -> 19,635 packed.
 
-Neither crosses a sector, so `DOS.O88` is still **48,172 bytes, 48 clusters**.
-The other two items were measured and are NOT taken:
+Neither crosses a sector on its own, and with §96.44.16's two gates beside
+them part 0 is **49,861 image bytes, 19,485 packed** - 29 packed bytes past
+a sector boundary, so `DOS.O88` would still be 48,172 bytes. What moves
+the file is the item that needed the kernel:
 
-- **Generating the box-drawing set at launch is REFUSED on a measurement.**
-  The 220 packed bytes above were the set ZEROED; LZ4 already packs the forty
-  box glyphs to ~179, because they are runs of `0x10` and `0x28`. Built - each
-  glyph one word of five indices into a 13-byte alphabet (rows 0-1 and 5-7
-  are always one arm's line, and rows 2-4 take thirteen values over the set),
-  decoded by `con_font` on the pre-EGA path, round-tripped bit-identical by
-  `tools/cp437font.py` - it saved **26 packed bytes for +151 bytes of RAM**
-  (the table and decoder beside a hole that must stay), and **17 packed for
-  +10** with table and decoder parked in the ASCII hole the ROM copy
-  overwrites. Neither is worth a mechanism in a shared include. Telnet's share
-  would be the same 17.
-- **Packing the IMAGE of a parted package needs the kernel** (§20.13.2):
-  `ld_check_hdr` refuses compression bits beside bit 2, and step 6 reads the
-  image at `R = roundup512(image - file)`, where with parts the file is not
-  the image. The least change found carries the packed image length in the
-  link word when bits 2 and 3 are both set and loads it into `[ld_fsz]` -
-  **+28 resident bytes of `.cold` on each kernel**, priced by assembling it and
-  left for the owner. It would take `DOS.O88` to 47,660 (47 clusters) and
-  PiXEL's file from 113,147 to ~105,467; Pixelstein's would be refused by
-  `os88pkg.py`'s region rule and Skies' and Word's loaders cross no sector.
+- **The loader IMAGE ships packed** (§20.13.8): 2,210 bytes -> 1,992, four
+  sectors where it was five, so every part starts a sector earlier and
+  **`DOS.O88` is 47,660 bytes, 47 clusters on every 360KB system disk**. The
+  kernel learns the packed length from the link word, `.cold` +33 resident on
+  each kernel, and the same change reaches every parted package the tree
+  ships whose packed image saves a sector (§20.13.8 lists them).
+
+**Generating the box-drawing set at launch is REFUSED on a measurement.**
+The 220 packed bytes above were the set ZEROED; LZ4 already packs the forty
+box glyphs to ~179, because they are runs of `0x10` and `0x28`. Built - each
+glyph one word of five indices into a 13-byte alphabet (rows 0-1 and 5-7
+are always one arm's line, and rows 2-4 take thirteen values over the set),
+decoded by `con_font` on the pre-EGA path, round-tripped bit-identical by
+`tools/cp437font.py` - it saved **26 packed bytes for +151 bytes of RAM**
+(the table and decoder beside a hole that must stay), and **17 packed for
++10** with table and decoder parked in the ASCII hole the ROM copy
+overwrites. Neither is worth a mechanism in a shared include. Telnet's share
+would be the same 17.
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
