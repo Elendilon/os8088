@@ -3711,6 +3711,8 @@ class Encoder:
         self.q_prev = self.q_tprev = (None, None)
         self.q_frames, self.q_bad = [], []  # per frame: the mean, and the
                                             # share VISIBLY wrong (measure)
+        self.q_seen, self.q_stp = [], None  # ...the VIEW as seen (seen_share)
+                                            # and the target before
         self.tcache, self.scache = {}, None     # (tpix, spix)
         # PAGE-AHEAD (98.2.1.8): the hidden page's record this frame, its
         # (cycles, bytes) - charged with the frame's own - and what the plan
@@ -4283,6 +4285,8 @@ class Encoder:
         # which the mean over a whole clip of pixels made 0.11%
         self.q_frames.append(m)
         self.q_bad.append(float((ev > VIS_BAD).mean()))
+        self.q_seen.append(seen_share(S, T, self.q_stp))
+        self.q_stp = T
         ne = S != T
         if ne.ndim == 3:
             ne = ne.any(2)
@@ -4924,6 +4928,98 @@ class EncoderP(Flipped, Encoder):
 # the source
 # --------------------------------------------------------------------------
 AHEAD = 256 << 20       # the most frames read ahead while a pass runs
+
+
+# THE VIEW AS SEEN (docs/plans/VIDEO-SEEN-PLAN.md, 2026-10-16): the share of
+# where an eye is LOOKING that is broken - not the mean over every pixel,
+# which the right ones dilute (GasGas's broken car was 0.3-2.6% "as seen",
+# and the owner's eye put the same frames at 17-62%). Per 16-pixel patch:
+# soft brightness error, colour error and edges added or lost, masked where
+# the target's own texture hides them; a patch broken to 1 at SEEN_THR,
+# and a broken patch counting SEEN_SPREAD of itself on its neighbours (a
+# fault on an object reads as the object broken); weighted by attention -
+# brightness, and motion against the camera's (the shot's shake taken out by
+# phase correlation). The weights are FITTED to the owner's scores of
+# GasGas 0:40.6-0:41.0 at 24 fps, frames 15-23: rms 2.7 points over nine
+# frames rated 17-62%, the clean frames 0 (the one miss frame 18, 25
+# against 31.5). A report line only: it steers nothing yet
+SEEN_P = 16                 # the patch, canvas pixels
+SEEN_WL, SEEN_WC, SEEN_WB = 0.75, 0.25, 1.0
+SEEN_THR = 0.04             # a patch this wrong is broken (1.0)
+SEEN_SPREAD = 0.75
+SEEN_BAD = 0.10             # a frame a tenth of whose view is broken
+
+
+def _seen_box(a, r):
+    """A box mean (2r+1) square, the edges repeated"""
+    p = np.pad(a, r, mode="edge")
+    c = np.pad(p.cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+    n = 2 * r + 1
+    return (c[n:, n:] - c[:-n, n:] - c[n:, :-n] + c[:-n, :-n]) / (n * n)
+
+
+def _seen_grad(l):
+    gx = np.zeros_like(l)
+    gy = np.zeros_like(l)
+    gx[:, 1:-1] = l[:, 2:] - l[:, :-2]
+    gy[1:-1, :] = l[2:, :] - l[:-2, :]
+    return np.hypot(gx, gy) / 2
+
+
+def _seen_shift(a, b):
+    """The (dy, dx) b is a moved by: the camera's, by phase correlation"""
+    fa = np.fft.rfft2(a - a.mean())
+    fb = np.fft.rfft2(b - b.mean())
+    r = fb * np.conj(fa)
+    r /= np.maximum(np.abs(r), 1e-9)
+    c = np.fft.irfft2(r, a.shape)
+    y, x = np.unravel_index(np.argmax(c), c.shape)
+    return (int(y) - a.shape[0] if y > a.shape[0] // 2 else int(y),
+            int(x) - a.shape[1] if x > a.shape[1] // 2 else int(x))
+
+
+def seen_share(S, T, Tp=None):
+    """THE VIEW AS SEEN: S the screen and T its target as pixels (h, w, 3)
+    colour or (h, w) grey, 0..1; Tp the target before (for motion) -> the
+    share of the attention-weighted view that is broken, 0..1"""
+    S = np.asarray(S, np.float32)
+    T = np.asarray(T, np.float32)
+    box = _seen_box
+    if S.ndim == 3:
+        lum = np.array([0.299, 0.587, 0.114], np.float32)
+        lS, lT = S @ lum, T @ lum
+        opp = lambda a: (a[..., 0] - a[..., 1],
+                         0.5 * (a[..., 0] + a[..., 1]) - a[..., 2])
+        (s1, s2), (t1, t2) = opp(S), opp(T)
+        EC = np.hypot(box(s1, 1) - box(t1, 1), box(s2, 1) - box(t2, 1))
+    else:
+        lS, lT, EC = S, T, 0.0
+    EL = np.abs(box(lS, 2) - box(lT, 2))
+    gS, gT = _seen_grad(box(lS, 1)), _seen_grad(box(lT, 1))
+    EB = np.abs(gS - gT)
+    act = np.sqrt(np.maximum(box(lT * lT, 3) - box(lT, 3) ** 2, 0))
+    D = (SEEN_WL * EL + SEEN_WC * EC + SEEN_WB * EB) / (1.0 + 4.0 * act)
+    if Tp is not None and np.shape(Tp) == np.shape(T):
+        Tp = np.asarray(Tp, np.float32)
+        lP = Tp @ lum if Tp.ndim == 3 else Tp
+        dy, dx = _seen_shift(lP, lT)
+        mot = box(np.abs(lT - np.roll(np.roll(lP, dy, 0), dx, 1)), 4)
+    else:
+        mot = 0.0
+    att = 0.35 + box(lT, 6) + 3.0 * mot
+    P = SEEN_P
+    h, w = lT.shape
+    hh, ww = max(P, h // P * P), max(P, w // P * P)
+    if h < P or w < P:
+        return float(np.minimum(1.0, D.mean() / SEEN_THR))
+    pool = lambda a: a[:hh, :ww].reshape(hh // P, P, ww // P, P).mean((1, 3))
+    b = np.minimum(1.0, pool(D) / SEEN_THR)
+    pb = np.pad(b, 1, mode="edge")
+    nb = np.max(np.stack([pb[y:y + b.shape[0], x:x + b.shape[1]]
+                          for y in range(3) for x in range(3)]), 0)
+    b = np.maximum(b, SEEN_SPREAD * nb)
+    pa = pool(np.broadcast_to(att, lT.shape))
+    return float((b * pa).sum() / pa.sum())
 
 
 VIS_BAD = 0.15          # VISIBLY WRONG: the picture as seen off by 15% of
@@ -5908,6 +6004,7 @@ class LayerEnc(object):
         e.q_vis = e.q_wrong = e.q_flick = e.q_tflick = 0.0
         e.q_prev = e.q_tprev = (None, None)
         e.q_frames, e.q_bad = [], []
+        e.q_seen, e.q_stp = [], None
         e.cpu = Budget(0.0, 1e18)
         e.dcurve = None
         e.owe = None
@@ -8810,6 +8907,17 @@ def _encode(a, keep, tick, readers):
                 "%d:%04.1f for %.1f s" % (int(t) // 60, t % 60, ln)
                 for t, ln in sp), " and %d more" % (nsp - len(sp))
                 if nsp > len(sp) else ""))
+        if enc.q_seen:
+            qs = enc.q_seen
+            wi = max(range(len(qs)), key=qs.__getitem__)
+            nb = sum(1 for v in qs if v >= SEEN_BAD)
+            rep("base", "the view as seen: %.1f%% of it broken on average, "
+                "%.1f%% at its worst (%d:%04.1f); %.1f s of %.1f with a "
+                "tenth or more of it broken (VIDEO-SEEN-PLAN)" % (
+                    100 * sum(qs) / len(qs), 100 * qs[wi],
+                    int(wi / fps) // 60, wi / fps % 60, nb / fps, nf / fps))
+            res.update(q_seen=sum(qs) / len(qs), q_seen_worst=qs[wi],
+                       q_seen_broken=nb / fps)
         res.update(q_worst=pw, q_worst_at=pat / fps, q_broken=pbr / fps)
     if lay is not None:
         # THE LAYER: what only the better machine reads, against ITS

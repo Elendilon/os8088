@@ -169310,6 +169310,23 @@ what a budget decides; a scene the palette cannot hold is the palette's.
 The layer's line says the same three for the layered play.
 `OS88_VENC_QDUMP=FILE` writes the per-frame figures as JSON.
 
+**THE VIEW AS SEEN** (2026-10-16, docs/plans/VIDEO-SEEN-PLAN.md 2a). Even
+the worst second is a mean over every pixel, and the right ones dilute a
+broken object: GasGas's car, torn into "a bunch of blocks" at 24 fps,
+measured 0.3-2.6% where the owner's eye put the same frames at 17-62%. So
+a fourth line gives `seen_share`: per 16-pixel patch the soft brightness
+error, the colour error and the edges added or lost, masked by the
+target's own texture, a patch broken to 1 at `SEEN_THR`, a broken patch
+counting `SEEN_SPREAD` of itself on its neighbours, and the patches
+weighted by attention (brightness, and motion against the camera's) - the
+share of where an eye is looking that is broken. GasGas 0:40-0:50 at
+24 fps on the owner's old tune says `picture: 0.41% error as seen` and
+`the view as seen: 6.9% of it broken on average, 96.9% at its worst
+(0:07.5); 1.5 s of 10.0 with a tenth or more of it broken` - the owner had
+put the whole file at "5-10% as seen" before the score existed. Its
+weights are fitted to the owner's scores of nine of the car frames (rms
+2.7 points), and nothing else. It is a REPORT: nothing steers by it yet.
+
 ###### 98.2.1.2.1 `--cut`: which changes a cut frame keeps (2026-10-06)
 
 **The owner's lossless Mode X encodes showed rows of a fast pan left a frame

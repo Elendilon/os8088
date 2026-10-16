@@ -1,6 +1,6 @@
 # VIDEO-SEEN-PLAN - "error as seen" as a person sees it, and an encoder that spends by it
 
-**Status: PLAN, nothing built (2026-10-15).** Recorded from the owner's
+**Status: section 2's score BUILT as a report line (2a, 2026-10-16); the rest is PLAN.** Recorded from the owner's
 review of the GasGas and Bad Carrot comparison encodes, and parked while
 the encoder's choice in one scene is fixed first: the opening car shot of
 GasGas (0:40), which the owner's own tune plays clean on the Victory 286
@@ -66,6 +66,43 @@ The output reads "the share of where you are looking that is broken", in
 a handful of clips by eye (GasGas ~5-10% is the first point, their tune
 of it "fine" the second) and a few weights are regressed. That is a small
 regression, not a trained model.
+
+## 2a. The first calibration (2026-10-16): BUILT as a report line
+
+`os88venc.seen_share` is 2's score, and every encode's summary carries it
+beside today's figure: `the view as seen: X% of it broken on average, Y%
+at its worst (t); Z s with a tenth or more of it broken`. It is fitted to
+the owner's scores of the GasGas car shot (0:40.6-0:41.0, 24 fps, the old
+tune: 286-fast, peak 4.0, owed time, page-ahead off), frames 15-23 - the
+frames the 24 fps encode broke and the 20 fps one did not:
+
+| frame | today's figure | the owner | seen_share |
+|---:|---:|---:|---:|
+| 15 | 1.14% | ~33% | 35.9% |
+| 16 | 2.58% | ~62% ("a bunch of blocks") | 59.7% |
+| 17 | 1.55% | ~45% | 48.6% |
+| 18 | 0.46% | 30-33% | 24.7% |
+| 19 | 0.47% | ~28% | 29.2% |
+| 20 | 0.44% | ~25% | 26.1% |
+| 21 | 1.51% | ~35% | 36.8% |
+| 22 | 0.33% | 15-18% | 19.5% |
+| 23 | 0.42% | ~ frame 22 | 19.9% |
+
+The clean frames either side are 0 in both. What the owner's notes taught
+it, each now a term: **colour counts** (frame 22's wrong-coloured
+headlight centre and the red on a black tire are hue errors at near the
+right brightness - a brightness-only first cut scored that frame 9%);
+**hard lines count** (stale rows through the cars' tops); **soft blur
+counts least** (the blurring on both cars "is not a major contributor");
+and **a fault on an object breaks the object** (the spread term). Fitted:
+soft brightness 0.75, colour 0.25, edges 1.0, a patch broken at 0.04, the
+spread 0.75. Persistence (a patch broken in the frame before counting
+more) was fitted too and came out 0 on these frames: frame 18, nearly
+frame 17's picture, is the one miss (25 against 31.5).
+
+**Next**: a second clip (Bad Carrot) rated the same way before the score
+is trusted; then the clip's figure into the trial encodes (`--aim`,
+page-ahead's KEEP) beside today's; then section 3.
 
 ## 3. Using it in the encoder
 
