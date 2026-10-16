@@ -4715,10 +4715,8 @@ vp_lycarve:
     xor ch, ch
     sub cx, ax                      ; CX = what K' is short of the header's
     jbe .free                       ; ring: lent from the base's bucket, so
-    cmp byte [vp_xbank], 0          ; paid back in its XMS bank - and with
-    je .no2                         ; none to pay it back in, none lent
-    cmp byte [vp_xems], 0
-    jne .no2
+    call vp_xmsbk                   ; paid back in its XMS bank - and with
+    jz .no2                         ; none to pay it back in, none lent
     push ax
     mov ax, cx
     mov cl, 5
@@ -4735,10 +4733,8 @@ vp_lycarve:
     mov [vp_kr], ax
     mov [vp_lyb], bl
     add ax, [vp_msl]                ; past the mirror...
-    cmp byte [vp_xbank], 0          ; ...and the base bank's bounce
-    je .nb
-    cmp byte [vp_xems], 0
-    jne .nb
+    call vp_xmsbk                   ; ...and the base bank's bounce
+    jz .nb
     cmp byte [vp_livem], 0
     jne .nb
     inc ax
@@ -9876,10 +9872,8 @@ vp_sstart:
     call vp_bshort                  ; ...and a BANK short of the file's ask
     mov ax, cx
     add ax, [vp_msl]
-    cmp byte [vp_xbank], 0          ; (+ the bank's bounce, vp_bbnc)
-    je .rkb
-    cmp byte [vp_xems], 0
-    jne .rkb
+    call vp_xmsbk                   ; (+ the bank's bounce, vp_bbnc)
+    jz .rkb
     cmp byte [vp_livem], 0
     jne .rkb
     inc ax
@@ -10018,14 +10012,23 @@ vp_kres:
 .a:
     sub ax, [vp_kekb]
     jc .z
-    cmp byte [vp_xbank], 0          ; ...and THE BANK'S BOUNCE, a slot after
-    je .r                           ; the mirror (vp_bbnc) - XMS's: EMS reads
-    cmp byte [vp_xems], 0           ; into its frame
-    jne .r
+    call vp_xmsbk                   ; ...and THE BANK'S BOUNCE, a slot after
+    jz .r                           ; the mirror (vp_bbnc) - XMS's: EMS reads
+                                    ; into its frame
     sub ax, VP_CHUNK / 1024
     jnc .r
 .z:
     xor ax, ax
+.r:
+    ret
+
+; vp_xmsbk - ZF=0: the session's bank is XMS's - [vp_xbank], and not EMS's
+; ([vp_xems] is 0 or 1), the one with a bounce slot (vp_bbnc). Preserves all
+; but flags
+vp_xmsbk:
+    cmp byte [vp_xbank], 0
+    je .r
+    cmp byte [vp_xems], 1
 .r:
     ret
 
@@ -10052,10 +10055,8 @@ vp_lyclaim:
     jne .set                        ; taken at the split, after this claim
     cmp word [vp_lybkb], 0
     je .set
-    cmp byte [vp_xbank], 0
-    je .set
-    cmp byte [vp_xems], 0
-    jne .set
+    call vp_xmsbk
+    jz .set
 .bq:
     mov byte [vp_lybnc], 1
 .set:
