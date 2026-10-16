@@ -174033,6 +174033,16 @@ reason, and would put a segment on `vc_find`'s lookup, which every change
 near the box pays. The scratch is the next floor: Live in colour's repack
 buffer (`vp_v4buf`, 1,024) is the largest thing in it.
 
+**Recorded, not built (the owner, 2026-10-16: time, not merit)**: that
+buffer as a claim of its own, taken where Live in colour starts repacking
+(`vp_v4blit`, a VGA4 Live play whose BLITP refused) and freed with the
+session's claims. It is filled and blitted inside one call by the window's
+own code, not by the hook, so it costs the play nothing a frame. The
+scratch would then fall to page 0's save and `vc_pg` (2,176), so the bss
+**-260 bytes, -440 with `VPDIAG`** (ESTIMATED, not built), and a Live play
+in colour holds 1KB more heap while it runs. After it, the next floor is
+page 0's save itself, which is the segment on `vc_find` priced above.
+
 **Every access names its segment, and the play pays nothing for it** -
 every routine it touches is FASTER, the ones it does not are identical and
 at an even shift in all three arms (`tools/os88rdiff.py --hot-file`):
