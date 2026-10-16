@@ -134008,8 +134008,9 @@ the buffer it is writing, and refuses to write a table it does not get back;
 `tests/unit/t_cssin.py` decodes the SHIPPED codes the same way and then holds
 the result to §88.5's snippet and the reflection, exactly as before.
 
-**−385 bytes of the packed program** (part 0, 29,356 → 28,971) for 50 bytes
-of `cs_entry` (`image` 36,070 → 36,120, the region 61,345 → 61,393) and
+**−385 bytes of the packed program** (part 0, 29,356 → 28,971) for 49 bytes
+of `cs_entry` (`image` 36,070 → 36,119; the region was 61,345 and is paid
+back by §88.10.7.2) and
 3,465 instructions of one launch — ~7 ms at 4.77 MHz, estimated from the
 instruction count. Nothing a frame runs moved: `cs_sin` reads the same 257
 words at the same address.
@@ -139305,6 +139306,33 @@ it was sized `CS_WLD_MAX / CSO_SIZE` - 122 rows for the largest world, as if a
 world were nothing but objects. `csworlds.py` reads every location record's
 `CSA_NOBJ` (the offset out of `skies.asm`, not restated) and emits `CS_MAXOBJ`,
 the most any location's table holds: **47**, Paris'. 244 bytes become 94.
+
+##### 88.10.5.7 The object table travels FIELD-MAJOR, and goes back at the load
+
+A world's object table is half its bytes - 18 to 47 records of `CSO_SIZE`,
+ten words each - and it repeats down its FIELDS, not along its records: the
+same model, the same range, the same flags row after row, and a `CSO_FAR` of
+0 almost everywhere. LZ4 sees only matches of whole runs of bytes, so the
+records cost it nearly what they cost raw. `tools/csworlds.py` therefore packs
+each world with its table TRANSPOSED - every record's first word, then every
+record's second - and `cs_wldget`, after `OSAPI_DECOMP` has expanded a world
+into the overlay, puts it back the right way up: the table is copied out to
+the read buffer the stream has just been consumed from, and scattered back
+one field of every record at a time. The table is the one the picked
+location's record names (`[cs_airport]` is already in the overlay); every
+location in a world names the same one, and the generator refuses a world
+where they do not, and a table bigger than the read buffer can be - the
+packed stream, never under a KB. **The overlay is byte for byte what it
+always was**, which `tests/skiesworlds.py` asserts at every pick; the
+generator round-trips each world through the transpose before it writes it,
+and the shipped 8086 code was run under an emulator against all nine
+locations before it was taken.
+
+**csw.z 9,853 -> 9,280 bytes**, 573 of them, for 67 bytes of `cs_wldget`
+and ~6 ms of a world load (≤ 470 words moved twice, at Fly or a Location
+pick, never in a frame). Field-major beat every other in-place shape tried:
+a record-by-record word delta - which needs no buffer at all - bought 231,
+and splitting the transposed words into low and high bytes made it WORSE.
 
 #### 88.10.6 The overlay's address is DERIVED, and the gap was protecting nothing
 

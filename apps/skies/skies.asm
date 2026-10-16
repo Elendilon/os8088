@@ -648,7 +648,7 @@ cs_entry:
     mov si, cs_sintab + CS_SINPK
     xor ax, ax                      ; v = sin 0
     mov dx, CS_SIND0                ; d = sin 1 - sin 0
-    mov cx, 256
+    mov ch, 1                       ; CX = 256: `loop .name` left it 0
 .sin:
     stosw                           ; v[256 - cx]
     add ax, dx
@@ -1098,6 +1098,48 @@ cs_wldget:
     call OSAPI_DECOMP
     pop ds
     jc .free
+
+    ; --- A WORLD'S OBJECT TABLE ARRIVES FIELD-MAJOR (SPEC.md 88.10.5.7) -----
+    ; tools/csworlds.py packs it transposed - every record's first word, then
+    ; every second - because a FIELD repeats down the table and a record does
+    ; not, and that is 573 bytes of csw.z. It goes back the right way up
+    ; here, through the read buffer, which the stream is done with and which
+    ; the generator holds to be at least the table's size. [cs_airport] is
+    ; the picked location's record, already in the overlay; every location
+    ; in a world names the same table (the generator refuses otherwise).
+    cmp word [cs_wgpar], CS_WLD_AT / 16
+    jne .done
+    mov si, [cs_airport]
+    mov bx, [si + CSA_NOBJ]
+    mov si, [si + CSA_OBJS]
+    mov ax, CSO_SIZE / 2
+    mul bx
+    xchg ax, cx                     ; CX = the table's words
+    mov ax, [cs_wgseg]
+    mov es, ax
+    xor di, di
+    push si
+    rep movsw                       ; out to the buffer, as it came...
+    pop di
+    push ds
+    push ds
+    pop es
+    mov ds, ax                      ; (DS = the buffer: nothing of ours is
+    xor si, si                      ; read until the pop)
+    mov dx, CSO_SIZE / 2
+.ofield:
+    push di
+    mov cx, bx
+.orec:
+    movsw                           ; ...and back, one field of every record
+    add di, CSO_SIZE - 2            ; at a time
+    loop .orec
+    pop di
+    inc di
+    inc di
+    dec dx
+    jnz .ofield
+    pop ds
 .done:
     mov dx, [cs_wgseg]
     call OSAPI_MEM_FREE
