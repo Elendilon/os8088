@@ -616,6 +616,17 @@ fd_layout:
     mov ax, [fd_btn+6]
     mov [fd_setb+6], ax
     jmp fd_x4
+    nop                             ; **A PARITY PAD, AND NOT DEAD CODE BY
+                                    ; ACCIDENT.** Apps size pass 2 took an ODD
+                                    ; number of bytes out of the cold code above
+                                    ; every hot routine (os88_rseq, the worker,
+                                    ; fd_step, the send/receive stages, fd_wake
+                                    ; and the reads and writes), so each of them
+                                    ; moved to the other parity from the one it
+                                    ; has been measured at. An 8088 does not
+                                    ; care; an 8086 or a 286 fetches a word, and
+                                    ; a branch target at an odd address costs
+                                    ; it. This byte puts all of them back
 
 ; --- fd_paint - W_PAINT: SI = window, gfx lock held --------------------------
 %ifdef FTPDBG                       ; the split's clock and nothing else's

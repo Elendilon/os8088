@@ -124590,8 +124590,8 @@ measured on, and MartyPC has no NIC to measure a change to it with).
 
 | | before | after |
 |---|---:|---:|
-| `ftpd.o88` (file) | 12,291 | 11,861 |
-| image | 14,746 | 14,089 |
+| `ftpd.o88` (file) | 12,291 | 11,864 |
+| image | 14,746 | 14,090 |
 | image + bss (the region) | 26,624 | 25,600 |
 
 - **The entry proc's declaration is the NOKEEP form** (§66.6.1.1), moved
@@ -124662,6 +124662,18 @@ measured on, and MartyPC has no NIC to measure a change to it with).
   holds the line's end in DX for the parse rather than reading `[fd_lend]`
   three times a character, with its two refusals (530, 502) sharing one
   `call fd_reply`.
+- **One byte back, for the hot code's PARITY** (+3 file bytes, image +1).
+  The pass took an odd number of bytes out of the cold code that sits ABOVE
+  every routine a transfer runs, so all of them - `os88_rseq`, the worker,
+  `fd_step`, the send and receive stages, `fd_wake`, the reads and writes and
+  the path walk - had moved to the other address parity from the one every
+  KB/s in this section was measured at. An 8088 fetches a byte and does not
+  care; an 8086 or a 286 fetches a word, and an odd branch target costs it.
+  A `nop` after `fd_layout`'s last jump puts every one of them back, checked
+  label by label against the base. The one label left on the other parity is
+  `fd_step`'s `.waiting`, reached only while the worker is waiting on the UI
+  task and doing nothing else - its two `jmp .done`s became SHORT jumps
+  when the session code above it moved out into `fd_session`.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 
