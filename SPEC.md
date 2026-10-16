@@ -80457,7 +80457,9 @@ pass leaves binding:
   runs did (asserted: both centre it two rows and two columns into the
   capsule), and `ark_pu_heart`, a second walk over the runs a pixel at a
   time, is gone. `ark_heartrun` stays: §44.10.4's fallback fills the heart
-  from it.
+  from it. The walk itself is inline in `ark_pu_compose`, its one caller,
+  which now sets ES back to DS for the heart (a letter kind leaves it on the
+  font's segment).
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 

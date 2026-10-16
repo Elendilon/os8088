@@ -3360,6 +3360,17 @@ ark_blit_pu:
 ; The mark CLEARS bits, which is SPEC.md 6.3's rule in the other direction and
 ; the one bug in this area that produces a plausible wrong result: OR the ink
 ; in against a set body and nothing changes at all.
+;
+; The glyph comes from OSAPI_FONT_GLYPHS - the SAME table OSAPI_FONT_CHAR draws
+; from, which is the point: no second typeface, and it works on all three
+; adapters. It answers ES = DX, and the table is NOT in KERNEL_SEG; the body's
+; stores go through DS, so only the mark's walk cares what ES is.
+;
+; THE HEART IS A GLYPH TOO, here: ark_heartbits is ark_heartrun's picture in
+; the font's own shape - eight rows, bit 7 the left column - placed so the
+; same eight-row walk puts it exactly where ark_heartrun's runs put it (and
+; where ark_heart's fallback fills it). It was a second walk, over the runs,
+; one pixel at a time, and the letter was a routine of its own (SPEC.md 44.12).
 ; preserves all registers
 ; -----------------------------------------------------------------------------
 ark_pu_compose:
@@ -3390,46 +3401,12 @@ ark_pu_compose:
     loop .body                      ; byte 1 = E0h (x8..x10)
     pop di
 
-    push di
-    mov bx, bp                      ; the MARK: a letter, or the heart
-    mov al, [ark_puletter+bx]
-    call ark_pu_letter
-    pop di
-    add di, ARK_SPH * ARK_SPW       ; ...and the next kind's row 0
-    inc bp
-    cmp bp, ARK_SPN
-    jb .kind
-
-    pop bp
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; ark_pu_letter - clear the mark's pixels out of one kind's body
-; in:  AL = the character, or 0 for the heart; DI = that kind's capsule row 0
-; clobbers AX/BX/CX/DX/SI/DI/ES: ark_pu_compose is its only caller, and it
-; banks all of them
-;
-; The glyph comes from OSAPI_FONT_GLYPHS - the SAME table OSAPI_FONT_CHAR draws
-; from, which is the point: no second typeface, and it works on all three
-; adapters. It answers ES = DX, and the table is NOT in KERNEL_SEG.
-;
-; THE HEART IS A GLYPH TOO, here: ark_heartbits is ark_heartrun's picture in
-; the font's own shape - eight rows, bit 7 the left column - placed so the
-; same eight-row walk puts it exactly where ark_heartrun's runs put it (and
-; where ark_heart's fallback fills it). It was a second walk, over the runs,
-; one pixel at a time (SPEC.md 44.12).
-; -----------------------------------------------------------------------------
-ark_pu_letter:
-    push ds                         ; the heart's rows are ours
-    pop es
+    push di                         ; the MARK: a letter, or the heart
+    push ds                         ; the heart's rows are ours - and ES is
+    pop es                          ; the FONT's after any letter kind
     mov si, ark_heartbits
+    mov bx, bp
+    mov al, [ark_puletter+bx]
     or al, al
     jz .have
     mov bl, al                      ; bank the character: FONT_GLYPHS returns
@@ -3463,6 +3440,20 @@ ark_pu_letter:
     dec dx
     jnz .row
 .out:
+    pop di
+    add di, ARK_SPH * ARK_SPW       ; ...and the next kind's row 0
+    inc bp
+    cmp bp, ARK_SPN
+    jb .kind
+
+    pop bp
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4120,7 +4111,7 @@ ark_heartend:
 ARK_HEARTW  equ 7
 ARK_HEARTH  equ 6
 
-; ...and the same heart as a GLYPH for ark_pu_letter: glyph row g lands on
+; ...and the same heart as a GLYPH for ark_pu_compose: glyph row g lands on
 ; capsule row g+1 and glyph column c on capsule column c+2, so the picture
 ; sits one row down and no columns across - which is exactly where
 ; ark_heartrun's runs are centred, (ARK_PUH - ARK_HEARTH) / 2 = 2 rows and
