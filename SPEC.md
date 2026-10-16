@@ -84369,6 +84369,24 @@ not kept.
 It costs Tracker **189 bytes of image** (34,180 -> 34,369), 2 of bss and 140
 of the packed file; no kernel byte.
 
+### 45.26 Apps size pass 2 — the shipped file, not the machine
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
+package by its PACKED file and the clusters it takes, because the 360KB disks
+are full. Tracker rides `apps360.img` (and the larger apps disks) as one
+copy. Nothing below changes what the user sees or hears; every change is
+load-time, menu-time or entry code, and the replayer, the mixers, the
+speaker shaper and every per-frame painter are instruction-identical (a
+per-routine listing comparison, source text and encoded length, says so).
+
+- **`mp_load` keeps its scratch in registers** (-63 file bytes, image -76,
+  bss -13): the six loader temporaries and `mp_vtbuild`'s row counter were
+  bss round trips. P rides BP to the extent check, the sample loop keeps the
+  available and effective lengths in BP and the loop start and length in
+  CX/BX, the title and order copies read with `es lodsb`, and the 1..128 song
+  length is one `dec`/`js`. Same verdict, same table and same volume table
+  for every input, hostile ones included.
+
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
 A port of ActionRetro's **ArtfulType** — "a distraction-free Markdown
