@@ -717,6 +717,14 @@ TM_NCK      equ TM_SHOWN + 1    ; ...so tm_rowck holds one more row than that
     call OSAPI_SET_COLOR
     pop ax
 %endmacro
+; ...and TM_INKX, which CLOBBERS AL. The audit was done (apps size pass 2): at
+; twelve of the fourteen sites AX was dead or could be loaded after the pen,
+; so the push/pop was two bytes and 27 cycles each for nothing. TM_INK stays
+; where AX really is live across the pen (tm_clear_owed's damage rect).
+%macro TM_INKX 1
+    mov al, %1
+    call OSAPI_SET_COLOR
+%endmacro
 
 ; -----------------------------------------------------------------------------
 ; tm_init - total conventional RAM and the window's derived geometry
@@ -2339,19 +2347,19 @@ tm_clear_content:
     push bx
     push cx
     push dx
+    TM_INKX CWHITE              ; first: AX is not ours yet
     mov bx, si
     call OSAPI_WM_CONTENT       ; AX = content left, DX = content top
-    push ax
-    mov ax, [es:bx+W_Y]
-    add ax, [es:bx+W_H]
-    sub ax, 2
     mov cx, [es:bx+W_X]
     add cx, [es:bx+W_W]
-    sub cx, 2
-    mov bx, dx
-    mov dx, ax
-    pop ax
-    TM_INK CWHITE
+    dec cx
+    dec cx
+    push dx
+    mov dx, [es:bx+W_Y]
+    add dx, [es:bx+W_H]
+    dec dx
+    dec dx
+    pop bx                      ; BX = content top
     call OSAPI_GFX_FILL
     jmp tm_pop_dcba
 
@@ -2750,7 +2758,7 @@ tm_frame:
     push bx
     push cx
     push dx
-    TM_INK CBLACK
+    TM_INKX CBLACK
     mov ax, [tm_cy]
     mov bx, ax
     add bx, cx
@@ -2773,10 +2781,10 @@ tm_hdrs:
     push bx
     push cx
     push dx
-    TM_INK CBLACK
     mov cx, [tm_cx]
-    add cx, ax
+    add cx, ax                  ; the pen's x is AX's last use...
     add dx, [tm_cy]
+    TM_INKX CBLACK              ; ...so the pen may take AL after it
     mov bx, [tm_cols]
     mov ax, (CWHITE << 8) | CBLACK
 .hdr:
@@ -3189,7 +3197,7 @@ tm_map_ram:
     call tm_elchk_y
     jc .out
 
-    TM_INK CWHITE
+    TM_INKX CWHITE
     xor ax, ax                  ; whole interior white first
     mov cx, TM_GW - 1
     mov bx, TMM_M1_Y1
@@ -3226,6 +3234,12 @@ tm_map_ram:
     ; cannot say where one claim stops and the next starts at that size; a
     ; 1px rule can, and gfx_frame degenerates gracefully: a one-column claim
     ; comes out as a solid vertical line, which is what it should look like.
+    ;
+    ; THE PEN IS SET ONCE, before the walk and not per claim: FILL_PAT
+    ; ignores the pen (it writes only 0/15), and FILL_GRAY above does too, so
+    ; nothing between two frames can move it. One far call where there were
+    ; as many as there are claims.
+    TM_INKX CBLACK              ; the claims' hard black frames
     mov di, tm_claims
 .claim:
     mov dx, [di+CLS_SEG]
@@ -3241,8 +3255,7 @@ tm_map_ram:
     call tm_band
     mov si, tm_pat_clm          ; light interior...
     TM_FILL_PAT
-    TM_INK CBLACK               ; ...hard black frame
-    call OSAPI_GFX_FRAME
+    call OSAPI_GFX_FRAME        ; ...hard black frame
 .cnext:
     add di, CLS_RECSZ
     cmp di, tm_claims + CLAIM_SNAPSHOT_SIZE
@@ -5037,8 +5050,9 @@ tm_row_draw:
     push dx
     push si
     push di
-    push es
-    push ds
+    push bp                     ; BORROWED, and given back below: BP counts
+    push es                     ; the chunks drawn, which rode the stack in
+    push ds                     ; SI before - three pushes and pops a chunk
     pop es
 
     mov di, tm_str              ; pad to TM_NCHUNK*TM_CHUNK with SPACES, and
@@ -5065,17 +5079,14 @@ tm_row_draw:
     add ax, tm_rowck
     mov [tm_ckb], ax            ; &tm_rowck[row][0], stepped a chunk at a time
     mov word [tm_ci], 0
-    xor si, si                  ; SI = 0: nothing drawn yet
-
+    xor bp, bp                  ; BP = 0: nothing drawn yet
+    mov di, tm_str              ; DI -> this chunk's characters, stepped by
+                                ; TM_CHUNK below rather than multiplied out
 .chunk:
-    push si                     ; the "drew something" flag rides the stack
-    mov si, [tm_ci]
-    mov ax, si
-    mov cl, TM_CHUNK
-    mul cl
-    add ax, tm_str              ; AX -> this chunk's characters
-    mov di, ax
-    call tm_chunksum            ; AX = their hash (DI preserved)
+    mov si, di                  ; the chunk's hash, which is all tm_chunksum
+    mov cx, TM_CHUNK            ; was: tm_sumb over a counted span
+    xor ax, ax
+    call tm_sumb                ; AX = their hash
     mov bx, [tm_ckb]
     call tm_elchk               ; changed? (BX = this chunk's check word)
     jnc .draw
@@ -5084,9 +5095,8 @@ tm_row_draw:
 .draw:
     call tm_row_lead            ; the FIRST chunk owns the band's LEAD-IN too
     jc .rect                    ; - and erasing it counts as a draw, because
-    pop si                      ; the legend square lives in it and the caller
-    inc si                      ; has to know to put it back
-    push si
+    inc bp                      ; the legend square lives in it and the caller
+                                ; has to know to put it back
 .rect:
     mov ax, [tm_ci]             ; the chunk's band: [penx + i*TM_CW, +TM_CW)
     mov cl, TM_CW
@@ -5111,34 +5121,31 @@ tm_row_draw:
                                 ; drawn WHOLE, which is whether its check word
                                 ; may be believed next time
 
-    push ax                     ; --- the chunk, as ONE opaque run ----------
-    push cx
-    push dx
+                                ; --- the chunk, as ONE opaque run ----------
+                                ; AX..DX are dead after it: everything below
+                                ; reloads what it uses, so nothing is saved
     mov cx, ax                  ; x
     mov dx, [tm_rowy]           ; y
     mov si, di                  ; DI -> this chunk's TM_CHUNK characters
-    mov bx, si                  ; terminate at the chunk's end and put the
-    add bx, TM_CHUNK            ; byte back after: the row is one 25-character
+    lea bx, [di+TM_CHUNK]       ; terminate at the chunk's end and put the
+                                ; byte back after: the row is one 25-character
     mov ah, [bx]                ; string and font_run runs to a NUL. The
     mov byte [bx], 0            ; buffer has room for the last chunk's, which
-    push bx                     ; lands on tm_str[25] of TM_STRMAX = 28
+                                ; lands on tm_str[25] of TM_STRMAX = 28
     push ax
     mov ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = background: the erase
                                 ; and the letters as one decision per cell
-    call OSAPI_FONT_RUN
+    call OSAPI_FONT_RUN         ; (preserves BX, the terminator's address)
     pop ax
-    pop bx
     mov [bx], ah
-    pop dx
-    pop cx
-    pop ax
 
     cmp word [tm_ci], TM_NCHUNK - 1     ; the LAST chunk owns the band's tail
     jne .gdone                          ; too - the pen is inset, so the row
-    push ax                             ; runs past the 25 cells and nothing
-    push bx                             ; else would scrub it
-    push cx
-    push dx
+                                        ; runs past the 25 cells and nothing
+                                        ; else would scrub it
+    TM_INKX CWHITE              ; before AX is the tail's x1. `ja .gdone`
+                                ; below is never taken at TM_PEN/TM_MPEN (the
+                                ; tail is at least a pixel on every page)
     mov ax, [tm_penx]
     add ax, TM_NCHUNK * TM_CW
     call tm_rowr
@@ -5146,32 +5153,25 @@ tm_row_draw:
     mov dx, bx                  ; run above left behind - terminating the
     add dx, 7                   ; chunk needed a register and BX was it
     cmp ax, cx
-    ja .tdone
-    TM_INK CWHITE
+    ja .gdone
     call OSAPI_GFX_FILL
-.tdone:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
 .gdone:
     popf
     jnc .kept
     mov bx, [tm_ckb]            ; an edge cut it, so some cell was skipped:
     mov word [bx], 0            ; forget the record and ask again next time
 .kept:
-    pop si
-    inc si                      ; something was drawn
-    push si
+    inc bp                      ; something was drawn
 .next:
-    pop si
+    add di, TM_CHUNK
     inc word [tm_ci]
     add word [tm_ckb], 2        ; the check word for the NEXT chunk
     cmp word [tm_ci], TM_NCHUNK
     jb .chunk
 
-    or si, si
+    or bp, bp
     pop es
+    pop bp
     pop di
     pop si
     pop dx
@@ -5247,55 +5247,27 @@ tm_row_lead:
     push bx
     push cx
     push dx
+    TM_INKX CWHITE              ; before AX is x1 (.none is never taken at
+                                ; TM_PEN/TM_MPEN, both wider than 6)
     mov ax, [tm_rowx]
     add ax, 6
     mov cx, [tm_penx]
     dec cx
     cmp cx, ax
     jb .none                    ; the pen IS the band's left edge: no lead-in
-    mov bx, [tm_rowy]
+    mov bx, [tm_rowy]           ; (CF=1 from the jb rides through the pops)
     mov dx, bx
     add dx, 7
-    TM_INK CWHITE
     call OSAPI_GFX_FILL
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     clc
-    ret
 .none:
     pop dx
     pop cx
     pop bx
     pop ax
+    ret
 .no:
     stc
-    ret
-
-; -----------------------------------------------------------------------------
-; tm_chunksum - one word standing for TM_CHUNK characters at DI
-; in:  DI -> the characters (already zero-padded by tm_row_draw)
-; out: AX = the hash; DI preserved
-; clobbers: AX (the output), flags
-; -----------------------------------------------------------------------------
-tm_chunksum:
-    push bx
-    push cx
-    push si
-    mov si, di
-    xor bx, bx
-    xor ah, ah
-    mov cx, TM_CHUNK
-.next:
-    lodsb
-    rol bx, 1
-    add bx, ax
-    loop .next
-    mov ax, bx
-    pop si
-    pop cx
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5318,8 +5290,8 @@ tm_rowok:
     mov dx, bx
     add dx, 7
     mov ax, [tm_rowx]
+    mov cx, ax
     add ax, 6
-    mov cx, [tm_rowx]
     add cx, TM_RW
     call OSAPI_WM_CLIP_TEST
     pop dx
@@ -5365,13 +5337,13 @@ tm_rowsum:
     pop bx
     ret
 
-%ifdef TMF_MEM
 ; -----------------------------------------------------------------------------
 ; tm_sumb - the same hash over a COUNTED span, so it can key a table
 ; in:  SI = ptr, CX = bytes, AX = seed (0, or a previous result to chain)
 ; out: AX = the sum; SI advanced past the span, everything else preserved
 ;
-; What the maps are keyed on. A map's pixels are a function of one table -
+; What a row's CHUNKS are keyed on (tm_row_draw, seed 0 over TM_CHUNK bytes),
+; and what the maps are keyed on. A map's pixels are a function of one table -
 ; the conventional map of the claim map (SPEC.md 50), the pool map of the
 ; instance snapshot - so hashing the table answers "has this map changed"
 ; without drawing anything. Reading the claim table unlocked can tear against
@@ -5395,6 +5367,7 @@ tm_sumb:
     pop bx
     ret
 
+%ifdef TMF_MEM
 ; -----------------------------------------------------------------------------
 ; tm_qpeek - tm_elchk's answer WITHOUT recording it
 ; in:  AX = key, BX = a TMC_* check word's address
@@ -5490,7 +5463,7 @@ tm_sq_frame:
     push bx
     push cx
     push dx
-    TM_INK CBLACK
+    TM_INKX CBLACK
     mov ax, [tm_rowx]
     add ax, [tm_sqox]
     mov bx, [tm_rowy]
@@ -5618,6 +5591,7 @@ tm_gapcol:
     push bx
     push dx
 
+    TM_INKX CWHITE              ; first, while AX is still free
     mov ax, [tm_cx]
     add ax, 7
     add ax, bx
@@ -5625,7 +5599,6 @@ tm_gapcol:
     mov dx, bx
     add bx, TM_GF_Y1 + 1
     add dx, TM_GF_Y2 - 1
-    TM_INK CWHITE
     call OSAPI_GFX_VLINE
 
     pop dx
@@ -5669,7 +5642,7 @@ tm_grun:
 
     cmp di, TM_GH               ; white: rows TM_GF_Y1+1 .. TM_GF_Y2-1-v, and
     jae .black                  ; none of it for a full-height column
-    TM_INK CWHITE
+    TM_INKX CWHITE              ; AL is spent: v is in DI
     push bx
     mov ax, bx
     mov bx, si
@@ -5682,7 +5655,7 @@ tm_grun:
 .black:
     or di, di                   ; black: rows TM_GF_Y2-v .. TM_GF_Y2-1, and
     jz .done                    ; none of it for an empty one
-    TM_INK CBLACK
+    TM_INKX CBLACK
     mov ax, bx
     mov bx, si
     add bx, TM_GF_Y2
@@ -5980,20 +5953,21 @@ tm_barfill:
     inc bx                      ; the interior's top row...
     mov dx, bx
     add dx, TM_BAR_Y2 - TM_BAR_Y1 - 2   ; ...and its bottom
-    mov ax, [tm_cx]
-    add ax, 7
-    or si, si
+    mov cx, [tm_cx]
+    add cx, 7                   ; CX = the interior's left, so AL is free for
+    or si, si                   ; the pen at both fills
     jz .rest
-    TM_INK CBLACK
-    mov cx, ax
+    TM_INKX CBLACK
+    mov ax, cx
     add cx, si
     dec cx                      ; x2 = 7 + barw - 1
     call OSAPI_GFX_FILL
+    inc cx                      ; CX = 7 + barw, the white run's x1
 .rest:
     cmp si, TM_GW
     jae .done
-    TM_INK CWHITE
-    add ax, si                  ; x1 = 7 + barw
+    TM_INKX CWHITE
+    mov ax, cx                  ; x1 = 7 + barw
     mov cx, [tm_cx]
     add cx, TM_RW - 1
     call OSAPI_GFX_FILL
@@ -6611,7 +6585,7 @@ tm_ci       equ tm_penx + 2  ; tm_row_draw's chunk index (BP is the task's
 tm_ckb      equ tm_ci + 2  ; ...and the running check-word pointer, for
                                 ; the same reason
 tm_rowck    equ tm_ckb + 2  ; the last drawn content of each row, a
-                                ; word per CHUNK (tm_chunksum), plus one
+                                ; word per CHUNK (tm_sumb's), plus one
                                 ; virtual row for the CPU caption (TMR_CPU).
                                 ; Shared by all THREE pages, so it is sized
                                 ; for the deepest of them - the heap page's

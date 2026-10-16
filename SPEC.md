@@ -58411,7 +58411,9 @@ is the safe direction — one extra redraw, never a missed one.
 changed.** Both views compose the whole row into `tm_str` first — name, ADDR,
 SIZE/HEAP or ST/CPU/MEM, all of it — zero-pad it to `TM_NCHUNK`×`TM_CHUNK`
 characters, and then hash each `TM_CHUNK`-character chunk on its own
-(`tm_chunksum`, rotate-then-add, so a transposition is not invisible) against
+(`tm_sumb` over the chunk's `TM_CHUNK` bytes, seed 0 — it was a private
+`tm_chunksum` until §28.12.2 — rotate-then-add, so a transposition is not
+invisible) against
 its word in `tm_rowck`. Equal means the pixels on screen are already right:
 **no fill, no legend square, no glyphs** for that chunk. So the erase is
 *inside* the changed branch, which is the ordering the whole thing rests on —
@@ -59781,7 +59783,7 @@ the content before the callback runs. Nothing else ever redraws a heading —
 they are constants, so `tm_elchk` has nothing to compare and none of them is
 behind one.
 
-**The pen is still set before each, and that is deliberate.** `TM_INK CBLACK`
+**The pen is still set before each, and that is deliberate.** `TM_INKX CBLACK`
 no longer feeds the heading, but it is one 46.7 µs call once per repaint and
 removing it would make the pen's value at that point a question somebody has
 to re-answer. It is left where it is; the heading simply no longer reads it.
@@ -60553,6 +60555,27 @@ silent:
   field reading of 180 was taken on the heap page's chain, and re-deriving a
   slice from a static walk is exactly what put a task through the canary
   last time.
+
+#### 28.12.2 Apps size pass 2 — what the SHIPPED FILE lost
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
+package by the **LZ4-packed file** on the disks it rides, not by image + bss —
+`TASKMGR.O88` is in `SYSTEM/` on every system disk and on the 360KB apps
+disk, both of which were full. Nothing a user can see changed, and no hot path
+got slower: every change below is fewer instructions on the path it touches.
+The lesson that shaped it is the handoff's 4.6, met in practice: **code that
+repeats packs to nothing**, so taking a repeated sequence out (a macro's
+push/pop, a duplicated epilogue) moves the image and barely moves the file —
+the file follows UNIQUE bytes.
+
+- **The pen (`TM_INKX`)**: twelve of the fourteen pen sites no longer save AX
+  around `OSAPI_SET_COLOR` — each was either loading AX afterwards or could
+  set the pen first. `tm_map_ram` sets the claims' black frame pen ONCE
+  before the walk (FILL_PAT and FILL_GRAY ignore the pen), not per claim.
+  `tm_row_draw` drops the register saves around its run and its tail fill
+  (everything after them reloads what it uses), counts drawn chunks in a
+  borrowed BP instead of on the stack, steps DI a chunk at a time instead of
+  multiplying, and hashes with `tm_sumb` — `tm_chunksum` is gone.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 
