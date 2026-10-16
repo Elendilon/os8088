@@ -1090,10 +1090,7 @@ br_finish:
     je .parsed
     cmp byte [br_framecut], 0
     jne .parsed                     ; a cut frameset cannot be safely composed
-    push cx
-    push si
-    push di
-    push es
+    push es                         ; (CX, SI and DI: .out restores them)
     push ds
     pop es
     mov si, br_ptitle
@@ -1105,9 +1102,6 @@ br_finish:
     mov cx, BR_UBUF                 ; br_frameclose puts back
     rep movsb
     pop es
-    pop di
-    pop si
-    pop cx
     mov word [br_doclen], 0         ; frame order is rebuilt from queue metadata
     mov byte [br_factive], 0
     mov byte [br_frameappend], 1
@@ -1152,14 +1146,14 @@ br_finish:
 .framedone:
     call br_frameclose
 .parsed:
+    mov ax, br_s_trunc              ; ...and a page that was CUT says so, which
     cmp byte [br_framecut], 0
-    je .linkwarn
-    mov word [br_nmsg], br_s_trunc  ; ...and a page that was CUT says so, which
-    jmp .notrunc
-.linkwarn:
+    jne .warn
+    mov ax, br_s_linklim
     cmp byte [br_linklimited], 0
     je .notrunc
-    mov word [br_nmsg], br_s_linklim
+.warn:
+    mov [br_nmsg], ax
 .notrunc:                           ; is SPEC.md 47 rule 3: the state line is
                                     ; the only place it can, and `Ready` under
                                     ; an article that stops mid-sentence reads
@@ -1175,11 +1169,12 @@ br_finish:
     mov byte [br_nstate], BN_DONE
     call br_promise                 ; ...and the page is standing still again
     mov si, [br_win]
-    mov word [br_cols], 0           ; force br_measure to relayout: the page
+    xor ax, ax                      ; (br_measure keeps AX)
+    mov [br_cols], ax               ; force br_measure to relayout: the page
                                     ; changed under a band whose width did not
     call br_measure                 ; ...and THAT is the layout, run whether
-    mov word [br_top], 0            ; or not we draw: br_paint measures but
-    mov word [br_ptop], 0           ; does not lay out, so a reveal after a
+    mov [br_top], ax                ; or not we draw: br_paint measures but
+    mov [br_ptop], ax               ; does not lay out, so a reveal after a
                                     ; skipped frame would paint a stale line
                                     ; table. (A br_layout call followed here
                                     ; and laid the page out a SECOND time.)
@@ -1210,12 +1205,11 @@ br_finish:
                                     ; here rather than joining it
 .nodraw:
     call OSAPI_GFX_UNLOCK
-    jmp br_pop6
 .out:
     jmp br_pop6
 .drop:                              ; superseded before the parse began: the
     mov byte [br_fin], 0            ; buffers may already be gone. Only the
-    jmp br_pop6                     ; worker sets 1, so 0 cannot hide a hand-over
+    jmp short .out                  ; worker sets 1, so 0 cannot hide a hand-over
 
 ; -----------------------------------------------------------------------------
 ; br_netclaim - the UI task's half of the hand-over (SPEC.md 71.14)
@@ -1288,34 +1282,29 @@ br_framefetch:
     jc .failed
     ; Save this frame's resolved base URL once in the existing link arena.
     ; Every anchor in the frame can then keep its short source href.
+    mov dx, 0FFFFh                      ; no room in the arena: no base
     mov ax, [br_upos]
     inc ax                              ; include the terminating NUL
     mov bx, [br_lnkw]
     add ax, bx
     cmp ax, [br_linkcap]
-    jae .nobase
+    jae .base
     mov cx, [br_upos]
     inc cx
     mov si, br_ubuf
-    mov dx, [br_lnkw]
-    mov di, dx
+    mov dx, bx                          ; DX = where the base lands
+    mov di, bx
     mov es, [br_lnkseg]
     cld
     rep movsb
     mov [br_lnkw], di
     push ds
     pop es
+.base:
     xor bx, bx
     mov bl, [br_frameidx]
     shl bx, 1
     mov [br_framebaseoff+bx], dx
-    jmp short .baseok
-.nobase:
-    xor bx, bx
-    mov bl, [br_frameidx]
-    shl bx, 1
-    mov word [br_framebaseoff+bx], 0FFFFh
-.baseok:
     mov al, [br_frameidx]
     mov [br_framecurrent], al
     mov si, br_ubuf

@@ -115404,6 +115404,12 @@ redirects and frames - and left the same bytes behind.
   `inc`/`dec`. File's Save As stops jumping over itself, and the entry proc
   stops saving three registers around `os88ui_btninit` that it never reads
   again.
+- **A finished fetch says one thing once.** `br_finish` picks its warning
+  (cut, else links limited) into AX and stores it once, zeroes the layout's
+  three words from one register around a `br_measure` that keeps it, and
+  saves only ES around the frameset's two copies, `.out` restoring the rest;
+  `br_framefetch` stores a child's base word, an offset or `0FFFFh`, through
+  one indexed store instead of two.
 - **The manual sheds what nothing reads.** `BROWSER.HTM` lost its DOCTYPE,
   its `<meta>` charset (the page is pure ASCII), `<html>`/`</html>`,
   `</body>` and its blank lines - 162 bytes of source, and the packed file
