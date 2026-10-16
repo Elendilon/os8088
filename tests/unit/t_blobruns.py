@@ -193,9 +193,18 @@ def stage2_calls(start, spt, heads, nsec_blob, k):
 # which is why it is not the cylinder count alone. 720KB is the tight one: an
 # eleventh blob sector is free on every geometry and a twelfth costs 720KB a
 # call (`--sectors 12`).
+#
+# **720KB MOVED, ON PURPOSE (SPEC.md 26.10.5): 11 -> 12.** The eleventh blob
+# sector carries AUTOSTART's walk, and on today's kernel it pushes stage 2's
+# read over a cylinder on this geometry alone. MEASURED with os88boot on
+# os8088_5150_herc_sb_720_gla: the loader 14 -> 15 int 13h, 5,934 -> 6,147 ms,
+# reset to desktop 15,065 -> 15,282 ms. The alternative was CTRL.DRV's
+# settings core read on every boot of a disk with \AUTOSTRT on it - and every
+# system disk ships one - at 1.2 s on the 360KB disk. The owner took the
+# quarter second (2026-10-16).
 STAGE2 = {
     "os8088-360.img": 11,
-    "os8088-720.img": 11,
+    "os8088-720.img": 12,
     "os8088-120.img": 8,
     "os8088.img": 7,
 }

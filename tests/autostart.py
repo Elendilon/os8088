@@ -25,10 +25,10 @@ wrote the links.
      starts the Calculator - CTRL.DRV's writer and the kernel's reader
      agreeing about the 50 bytes.
 
-Broken on purpose and watched go red: the blob's `jz .noas` made `jmp
-.noas` (no folder test, no autostart) takes A red and only A; the shift
-test's `jnz .skip` made `jz .skip` takes A and C red; fm_dgdrop's `jz
-.noalt` made `jmp .noalt` takes D red (the drag MOVES the package).
+Broken on purpose and watched go red: as_boot's folder test `jz .out`
+made `jmp .out` (no autostart at all) takes A and C red; its Shift test
+`jnz .skip` made `jz .skip` takes A and C red; fm_dgdrop's `jz .noalt` made
+`jmp .noalt` takes D red alone (the drag MOVES the package).
 """
 import argparse
 import os

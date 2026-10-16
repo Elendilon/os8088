@@ -1160,6 +1160,11 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 ; The whole blob is freed before the desktop; KERN_BUDGET is unchanged. It is
 ; nine on kern_small too, which has no such copy: KSIG_OFF (the Makefile) is
 ; one constant for every kernel, and it names file sector 21 only at nine.
+; ELEVEN since SPEC.md 26.10.5: the eleventh is AUTOSTART's walk, which was
+; CTRL.DRV's and cost a machine with an empty \AUTOSTRT 1.2 s of module load on
+; every boot. It is free for stage 1 on every geometry and costs stage 2 one
+; int 13h on 720KB (213 ms measured, tests/unit/t_blobruns.py's 720 row), and
+; KSIG_OFF moved one memory sector down again (5632 -> 5120), file sector 21.
 ; TEN since SPEC.md 6.0.1: the tenth sector is `.boot2`'s, for the timed font
 ; pick (font_init in the blob on both kernels), and KSIG_OFF moved one memory
 ; sector down with it (6144 -> 5632) so the FILE sector is still 21. It sits
@@ -1184,7 +1189,7 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 %else
   %define BOOT2_KNOBSEC 0
 %endif
-BOOT2_SECS  equ 10 + BOOT2_KNOBSEC ; sectors stage 1 reads before it jumps - the
+BOOT2_SECS  equ 11 + BOOT2_KNOBSEC ; sectors stage 1 reads before it jumps - the
                                 ; loader, its screen and the blob half of
                                 ; the boot overlay, one section to BOOT2_PAD.
                                 ; THE TOTAL IS THIS, so
@@ -4647,25 +4652,11 @@ kmain_o:
                                 ; kmain releases the blob as soon as this
                                 ; returns
 %ifdef OS88_SHORTCUTS
-    ; --- AUTOSTART, the one thing after it (SPEC.md 26.10.5) -----------------
-    ; It LAUNCHES, and a launch must not race the loading screen's IRQ0
-    ; frames, which spl_finish has just stopped. THE TEST IS HERE, in the blob,
-    ; and it is the whole of what a machine with nothing to start pays: one
-    ; name in the boot volume's root, which the SYSTEM.CFG read has just
-    ; walked - no I/O, no module. Only a folder there reads CTRL.DRV's core,
-    ; whose SC_OP_AUTO checks the Shift keys and opens every link in it
-    mov al, [dsk_bootvol]
-    xor bx, bx
-    call COLD_SEG:fcpf_fcp_goto ; the boot volume's ROOT
-    jc .noas
-    mov si, as_s_dir
-    call COLD_SEG:dwf_dskw_stat ; AL = its attribute
-    jc .noas
-    test al, 0x10
-    jz .noas                    ; a FILE called AUTOSTRT starts nothing
-    mov ah, SC_OP_AUTO
-    call COLD_SEG:scf_boot
-.noas:
+    BLOBCALL as_boot            ; ...AUTOSTART, the one thing after it (SPEC.md
+                                ; 26.10.5): it LAUNCHES, and a launch must not
+                                ; race the loading screen's IRQ0 frames, which
+                                ; spl_finish has just stopped. Still the blob's,
+                                ; so still no resident byte
 %endif
 
     retf

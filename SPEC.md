@@ -54699,18 +54699,17 @@ them.
 
 | | bytes | what |
 |---|---:|---|
-| `.cold` | +161 | `lnk_is`, `lnk_open`, `sc_open`'s split, the two hooks, the Alt test, `scf_boot` |
-| `.text` | +11 | `sc_lowseg` (2), `as_s_dir` (`'AUTOSTRT'`, 9) |
+| `.cold` | +160 | `lnk_is`, `lnk_open`, `sc_open`'s split, the two hooks, the Alt test |
+| `.text` | +2 | `sc_lowseg` |
 | `.bss` | +2 | `sc_wsp` |
-| **resident** | **+174** | measured by `kernsize`, kern_big; kern_small **+0** |
-| `.boot2` (the blob, freed at the desktop) | +33 | autostart's test (§26.10.5) |
-| `CTRL.DRV` (on demand) | +366 | `SC_OP_LNK`, `SC_OP_AUTO` and two strings, all in the settings core (§2.8.7) |
+| **resident** | **+164** | measured by `kernsize`, kern_big; kern_small **+0** |
+| `.boot2` (the blob, freed at the desktop) | +224 | AUTOSTART, the whole of it (§26.10.5), and its eleventh sector |
+| `CTRL.DRV` (on demand) | +212 | `SC_OP_LNK`, the Alt-drop's writer (§26.10.4) |
 
-Of the 174, autostart is **11**: the folder's name, which `dskw_stat` has to
-read through DS, and the byte `scf_boot` costs over `vgcf_boot`. The rest is
-links, against the ~150 they were given, and 10 of it is §26.10.3's
-fall-through for the DOS box's own `.LNK` files. It crossed one `.cold` rung, which
-is the rung's business and not the feature's (CLAUDE.md, §1's banner).
+**All 164 are links**, against the ~150 they were given: 10 of them are
+§26.10.3's fall-through for the DOS box's own `.LNK` files. **Autostart is
+not resident at all.** It crossed one `.cold` rung, which is the rung's
+business and not the feature's (CLAUDE.md, §1's banner).
 
 **`sc_open` IS the link's open, split rather than copied.** `sc_walk` takes
 the volume and kind in AL/AH and the path at DI, in the segment named by the
@@ -54782,56 +54781,68 @@ A link is REMOVED as any file is: Delete in a Disk window.
 #### 26.10.5 Autostart: `\AUTOSTRT`
 
 The folder is in the ROOT of the boot volume, and not in `SYSTEM\`, for the
-boot's sake. The root has just been walked for SYSTEM.CFG, so asking it for
-one more name costs no I/O, where `SYSTEM\` is a directory a boot otherwise
-never reads: a seek to cylinder 10 and a revolution, on every boot of every
-machine, to find out there is nothing to do.
+boot's sake: the root has just been walked for SYSTEM.CFG, so asking it for
+one more name costs no I/O. **Every kern_big system disk and the live volume
+ship it EMPTY** (`AUTOFOLDER` in the Makefile). A folder a user can see is how
+the feature is found, where a feature with no folder is a manual nobody has
+written. kern_small has no autostart and its disks do not carry it.
 
-**What a machine with nothing to start pays is one name.** kmain_o, in the
-BLOB (§2.5.3.3), after `spl_finish`: stand at the boot volume's root,
-`dskw_stat` `AUTOSTRT`, and only if that is a FOLDER call `scf_boot` with
-`SC_OP_AUTO`. That reads CTRL.DRV's settings core, as Force Color does at boot
-(§39.28; `vgcf_boot` is `scf_boot` with its operation fixed), and drops it
-after. `sc_m_auto` then:
+**`as_boot` is the BLOB's** (§2.5.3.3), called by kmain_o straight after
+`spl_finish`, so it costs no resident byte. A launch must not race the
+loading screen's IRQ0 frames, which that has stopped, and the blob lives until
+kmain's `mem_unblob_x`. It:
 
-- reads the BIOS's own shift byte (0040:0017) and, with **either Shift held**,
-  says `Autostart skipped` and starts nothing. It is read after the whole
-  boot, so a key held through the loading screen is a key held now. It is
-  asked only once the folder is known to be there: a machine with nothing to
-  start says nothing;
-- walks `\AUTOSTRT` with `dsk_find` (stateless by ordinal, §19.7.1, so a
+- stands at the boot volume's root and `dskw_stat`s `AUTOSTRT`. No folder, or
+  a FILE of that name, is the end of it;
+- walks the folder with `dsk_find` (stateless by ordinal, §19.7.1, so a
   launch between two entries cannot lose its place) and opens every `*.LNK`
   **as a double-click would**: `assoc_run_x` with nothing posted, standing in
   the folder. So a link of ours is followed, and a DOS box shortcut there
   (§96.21) starts the DOS program it names. Anything that is not a `.LNK` is
   not started, so a note left in the folder does not open Note Pad;
+- at the FIRST link, reads the BIOS's own shift byte (0040:0017) and, with
+  **either Shift held**, says `Autostart skipped` and starts nothing. It is
+  read after the whole boot, so a key held through the loading screen is a
+  key held now, and only at a link, so a shipped empty folder says nothing
+  whatever is held;
 - stands the machine at the boot volume's root again.
 
-**After `spl_finish`, before the first desktop paint.** A launch must not race
-the loading screen's IRQ0 frames, and the blob is still the boot's. A program
-that opens a window draws it on the loading screen's last frame, and kmain's
-first `wm_paint_all` then paints the desktop under it. Running after that
-paint instead would be a far call into the blob from `.text`, 9 resident bytes
-and `mem_unblob` moved behind it, to save a window that is drawn once more
-than it needs to be.
+**After `spl_finish`, before the first desktop paint.** A program that opens a
+window draws it on the loading screen's last frame, and kmain's first
+`wm_paint_all` then paints the desktop under it. Running after that paint
+instead would be a far call into the blob from `.text`, 9 resident bytes and
+`mem_unblob` moved behind it, to save a window that is drawn once more than
+it needs to be.
 
-**THE BLOB HAD 34 BYTES, NOT A SECTOR**, and that decided the split. The whole
-walk was written for the blob first, at ~220 bytes, and the blob's tenth
-sector holds less than that. An eleventh is free for stage 1 on every
-geometry, and costs stage 2 a whole `int 13h` on 720KB (`t_blobruns`), on
-every boot whether or not anything is started. So the blob holds the test and
-the walk is in the module, which is read only when the test says there is a
-folder.
+**THE BLOB IS ELEVEN SECTORS FOR THIS.** The walk was first `CTRL.DRV`'s
+(`SC_OP_AUTO`), behind a blob test that the folder existed, because the tenth
+sector had 34 bytes left. Then a folder that was there and EMPTY read the
+settings core on every boot: 1,170 ms on the 360KB disk, 16 sectors over 54
+cylinders. A shipped empty folder would have charged that to every machine.
+The eleventh sector is free for stage 1 on every geometry, and on today's
+kernel it pushes stage 2 over a cylinder on 720KB alone (`t_blobruns`'s 720
+row, moved 11 -> 12 with the reason beside it). KSIG_OFF moved 5632 -> 5120,
+file sector 21 still. The owner took the 720KB quarter second.
 
-**Measured** with `tools/os88boot.py` on `os8088_5150_cga_gla` (4.77 MHz,
-360KB) against the tree this was cut from:
+**Measured** with `tools/os88boot.py`, reset to desktop:
 
-| | before | after |
+| | 360KB, `os8088_5150_cga_gla` | 720KB, `os8088_5150_herc_sb_720_gla` |
 |---|---:|---:|
-| the `AUTOSTRT` test, no folder | - | **92 ms of CPU, no disk I/O** |
-| reset to desktop | 13,418 ms | 13,452 ms |
-| the kernel's own `boot_ticks` | 156 | 157 |
-| with `TASKMGR.LNK` in `\AUTOSTRT` | - | 3,597 ms for the core, the walk and the Task Manager: 42 sectors in 6 reads, 1.7 s of it mechanical |
+| before §26.10 | 13,418 ms | - |
+| blob 10, no folder (§26.10's first cut) | 13,452 ms | 15,065 ms |
+| ...the eleventh sector alone | ±0 (loader +20 ms) | **+217 ms** (loader 14 -> 15 `int 13h`) |
+| blob 11, the shipped EMPTY folder | **13,817 ms** | **16,095 ms** |
+| `as_boot` itself, empty folder | 456 ms: 3 sectors in 1 read, 262 ms mechanical | 579 ms: 1 read after a 34-cylinder seek, 417 ms mechanical |
+| with `TASKMGR.LNK` in the folder (blob 10, module walk) | 3,597 ms for the walk and the Task Manager | - |
+
+**An empty folder is one directory read, and the head decides its price.**
+On the 360KB disk nothing has moved the head off the root, so the folder at
+cylinder 10 is a short seek. On the 720KB machine `SOUND.DRV` is loaded
+first, at cylinder 43, and the head comes back 34 cylinders. The 720KB total
+carries a third, accidental, term: the folder's cluster moves every file
+after it by one, and `SOUND.DRV` then straddles one more track (`drv_boot_x`
+4 -> 5 reads, +321 ms). That is a layout coincidence any one-cluster addition
+to that disk can cause, and it is in the 16,095.
 
 #### 26.10.6 A package that asks to be started: `apps/os88link.inc`
 

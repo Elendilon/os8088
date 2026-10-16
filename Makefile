@@ -910,8 +910,10 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # and stage 2's `cmp word [b2_ksig], 0` skips the compare.
 # SPEC.md 6.0.1 took the blob to TEN sectors, and the probe moved one memory
 # sector down with it - 5632, memory sector 11, file sector 11 + 10 = 21, the
-# same file sector - so the band argument above is untouched.
-KSIG_OFF := 5632
+# same file sector - so the band argument above is untouched. SPEC.md 26.10.5
+# took it to ELEVEN for autostart's walk, and the probe moved down once more:
+# 5120, memory sector 10, file sector 10 + 11 = 21.
+KSIG_OFF := 5120
 #
 # A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
 # whole of this line's second job. It used to answer 0, and a fabricated zero is
@@ -3376,6 +3378,12 @@ MEDIAFOLDER := --folder MEDIA
 # exists only because a file named one, and an application that has to make
 # its own would have to handle "the disk is full" on a path nobody tests.
 APPDATAFOLDER := --folder SYSTEM/APPDATA
+# ...and AUTOSTART's folder (SPEC.md 26.10.5), EMPTY, on every kern_big system
+# disk and the live volume: a folder a user can see is how the feature is
+# found, where a feature with no folder is a manual nobody has written. It
+# costs the boot one directory sector (its first, and the whole of an empty
+# one); kern_small has no autostart and its disks do not carry it
+AUTOFOLDER := --folder AUTOSTRT
 
 # The logo (SPEC.md 63): 466x100 of monochrome GIF, and the one thing in
 # MEDIA on the three SHIPPED system disks, which used to be empty. It is not
@@ -4392,7 +4400,7 @@ $(IMG): $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROO
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
-		$(SYSVIDARGS) $(APPDATAFOLDER)
+		$(SYSVIDARGS) $(APPDATAFOLDER) $(AUTOFOLDER)
 
 # The 720KB 3.5" DD disk (SPEC.md 19). It is the geometry the machines
 # BETWEEN the two shipped ones have: an XT or AT fitted with a 3.5" DD drive,
@@ -4407,7 +4415,7 @@ $(IMG720): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
-		$(SYSVIDARGS) $(APPDATAFOLDER)
+		$(SYSVIDARGS) $(APPDATAFOLDER) $(AUTOFOLDER)
 
 # The 1.2MB 5.25" HD disk (SPEC.md 19). The geometry of the machine the 720KB
 # note above describes from the other side: an AT-class box - 286 and up, or a
@@ -4434,7 +4442,7 @@ $(IMG120): $(BUILD)/boot120.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(
 	python3 tools/os88disk.py -o $@ --size 1200 \
 		--boot $(BUILD)/boot120.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
-		$(SYSVIDARGS) $(APPDATAFOLDER)
+		$(SYSVIDARGS) $(APPDATAFOLDER) $(AUTOFOLDER)
 
 # ETHERTEST - the system disk with a SYSTEM.CFG that already asks for the
 # Ethernet driver (SPEC.md 72.9). Nothing is ticked by hand, which is what
@@ -5059,7 +5067,7 @@ $(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
-		$(APPDATAFOLDER)
+		$(APPDATAFOLDER) $(AUTOFOLDER)
 
 # AUTOSTARTTEST - the LINKS and AUTOSTART gate's disk (SPEC.md 26.10): the
 # shipped 360KB system disk plus \AUTOSTRT holding a link to the Task Manager
@@ -5081,10 +5089,10 @@ $(BUILD)/astest/.made: tools/os88lnk.py | $(BUILD)
 	echo 'Not a link: autostart opens only *.LNK' > $(BUILD)/astest/NOTES.TXT
 	touch $@
 
-$(BUILD)/autostart360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py $(BUILD)/astest/.made
+$(BUILD)/autostart360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py $(BUILD)/astest/.made
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(BUILD)/astest/CALC.LNK AUTOSTRT:$(BUILD)/astest/BADVER.LNK \
 		AUTOSTRT:$(BUILD)/astest/NOTES.TXT AUTOSTRT:$(BUILD)/astest/TASKMGR.LNK \
 		$(APPDATAFOLDER)
@@ -12137,7 +12145,7 @@ $(BUILD)/emu.img: $(EMUDRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT) $(COREAPPS) $(
 		--boot $(EMUDIR)/boot.bin --kernel $(EMUDIR)/$(KERNNAME) \
 		$(EMUDRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) \
 		$(SYSLOGOARG) $(FACESARG) $(BUILD)/vmmcfg/system.cfg \
-		$(APPDATAFOLDER)
+		$(APPDATAFOLDER) $(AUTOFOLDER)
 
 # ONE GEOMETRY, and that is a decision rather than an omission. 360KB exists
 # for real period hardware - a 5.25" drive on an XT or an AT - and no machine
@@ -13924,7 +13932,7 @@ LIVEARGS := $(DRIVERS) $(LIVEREST)
 # no third).
 LIVEDIRS := $(sort $(foreach a,$(LIVEARGS), \
                      $(if $(findstring :,$a),$(firstword $(subst :, ,$a)))) \
-                   DOCS RUNCPM/A SYSTEM/APPDATA STORIES/SAVES \
+                   DOCS AUTOSTRT RUNCPM/A SYSTEM/APPDATA STORIES/SAVES \
                    $(foreach d,$(shell python3 tools/getcpmsw.py --slots hdd 2>/dev/null), \
                      $(if $(findstring /,$d),RUNCPM/$(firstword $(subst =, ,$d)))) \
                    $(sort $(foreach a,$(shell python3 tools/getstories.py \
@@ -14042,7 +14050,7 @@ $(USBIMG) $(EMUUSBIMG): $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 		--mbr $(LIVEKDIR)/mbr.bin --boot $(LIVEKDIR)/boothd.bin \
 		--kernel $(LIVEKDIR)/$(KERNNAME) \
 		--deep-folders --dir-slots RUNCPM/A/0=$(RUNCPMSLOTS) $$gslot \
-		--folder DOCS $(APPDATAFOLDER) $(LIVESTORYDIRS) \
+		--folder DOCS $(APPDATAFOLDER) $(AUTOFOLDER) $(LIVESTORYDIRS) \
 		$(LIVEDRVS) $(LIVEREST) $$sel $$gsel $$zsel $(CPMSW) $(STORIES)
 	@python3 tools/os88disk.py --verify-hdd $@
 	@$(if $(LIVESUB),true,cp -f $(BUILD)/livepayload.txt $@.payload)

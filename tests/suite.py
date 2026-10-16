@@ -8921,8 +8921,8 @@ SOAK = [
         "through the boot says `Autostart skipped` and starts nothing. D: "
         "an Alt-drop of B:\\APPS\\CALC.O88 on its '..' leaves it there "
         "and writes B:\\CALC.LNK, which starts the Calculator. VERIFIED "
-        "RED three ways: the blob's folder test jumped past (A and C), "
-        "SC_OP_AUTO's Shift test inverted (A and C), fm_dgdrop's Alt test "
+        "RED three ways: as_boot's folder test jumped past (A and C), "
+        "as_boot's Shift test inverted (A and C), fm_dgdrop's Alt test "
         "jumped past (D alone - the drag MOVES the package).",
         needs=("marty",), serial=True,
         wants=("build/autostart360.img", "build/apps360.img")),

@@ -88,7 +88,6 @@ SC_OP_VGC   equ 5               ; ...and Force Color at boot (SPEC.md 39.28):
                                 ; not a shortcut, but the core is the part of
                                 ; CTRL.DRV a boot can afford to read
 SC_OP_LNK   equ 6               ; ...and a LINK, an Alt-drop's (SPEC.md 26.10.4)
-SC_OP_AUTO  equ 7               ; ...and AUTOSTART, at boot (SPEC.md 26.10.5)
 
 ; --- a LINK file, *.LNK (SPEC.md 26.10.1) - a shortcut's open half on disk ---
 LNK_SIG     equ 0               ;  2: 'LK'
@@ -532,12 +531,7 @@ sc_rclick_x:
 ; grey, exactly as it would with the box clear.
 ; -----------------------------------------------------------------------------
 vgcf_boot:
-    mov ah, SC_OP_VGC
-; scf_boot - the same for ANY core operation in AH: AUTOSTART (SPEC.md
-; 26.10.5) is the other, and the blob's test in front of it is what keeps a
-; machine with nothing to start from reading the core at all (+1 byte here)
-scf_boot:
-    mov al, MOD_SETS            ; AL the module, AH the operation:
+    mov ax, (SC_OP_VGC << 8) | MOD_SETS ; AL the module, AH the operation:
     call mod_need               ; every register kept. Its CF is NOT TESTED:
     call far [SETFP]            ; a core that could not be read leaves this
     call mod_drop               ; slot on mod_gone (`stc / retf`, nothing
@@ -561,10 +555,6 @@ sc_reloc:
     ret
 sc_lowseg   dw LOW_SEG          ; ...a link's record is on the STACK, and
                                 ; sc_walk takes the WORD naming its segment
-as_s_dir    db 'AUTOSTRT', 0    ; the boot volume's autostart folder (SPEC.md
-                                ; 26.10.5): RESIDENT because dskw_stat reads a
-                                ; name through DS, and the blob's test and
-                                ; CTRL.DRV's walk both name it
 
 ; --- the File menu's item and the right-click's, ONE string ------------------
 ; desk_select points item 1 at the MENU_DIS byte or past it, the Close Window
@@ -615,11 +605,6 @@ modc_e_sc:                      ; CPE_SC (SPEC.md 2.8.7): AH = the operation
     jz .pdel
     dec ah
     jz .vgc
-    dec ah
-    jz .lnk
-    call sc_m_auto              ; SC_OP_AUTO (SPEC.md 26.10.5)
-    jmp short .out
-.lnk:
     call sc_m_lnk               ; SC_OP_LNK (SPEC.md 26.10.4)
     jmp short .out
 .vgc:
@@ -1112,71 +1097,6 @@ sc_m_lnk:
     pop ax
     mov bp, fm_paste_res        ; ...which re-lists and repaints what changed
     jmp sc_m_cold
-
-; -----------------------------------------------------------------------------
-; sc_m_auto - SC_OP_AUTO: open every link in the boot volume's \AUTOSTRT
-; in:  the boot volume standing at its root, the folder there (kmain_o's test,
-;      in the blob, which is what reads this core at all); AL = MOD_SETS
-; out: nothing; AX preserved - scf_boot drops the core by AL
-;
-; Every link is opened by lnk_open, the door a double-click takes, so what
-; autostarts a package, a document or a folder is exactly what opens one by
-; hand - associations included. EITHER SHIFT, HELD, SKIPS THE LOT and says
-; so: read here, after the whole boot, so a key held through the loading
-; screen is a key held now.
-; -----------------------------------------------------------------------------
-sc_m_auto:
-    push ax
-    push ds
-    xor ax, ax
-    mov ds, ax
-    test byte [0x417], 3        ; KB_FLAG: either Shift
-    pop ds
-    jnz .skip
-    mov si, as_s_dir
-    call COLD_SEG:dwf_dskw_stat ; BX = its first cluster
-    jc .root
-    mov [cs:sc_adir], bx
-    xor cx, cx                  ; the ordinal, 0 to start
-.next:
-    mov al, [dsk_bootvol]       ; stand there again: the open before this one
-    mov bx, [cs:sc_adir]        ; went wherever its link pointed
-    call COLD_SEG:fcpf_fcp_goto
-    jc .root
-    push cs
-    pop es
-    lea di, [cs:cpc_buf]        ; one find record, in the image
-    xor al, al                  ; no hidden or system entries
-    call COLD_SEG:dsk_find_x    ; CX = the next ordinal; CF = the end
-    jc .root
-    push cx
-    mov si, di                  ; its 8.3 name, NUL, into the document locator
-    mov di, assoc_doc           ; every open reads (SPEC.md 21.5)
-    mov cx, 13
-.cp:
-    mov al, [cs:si]
-    mov [di], al
-    inc si
-    inc di
-    loop .cp
-    mov bp, lnk_is
-    call sc_m_cold              ; ZF = 1: a .LNK - anything else there is
-    jne .nl                     ; not started
-    mov byte [assoc_dapp], ASSOC_FIND   ; ...and opened AS A DOUBLE-CLICK
-    mov word [assoc_pwin], 0    ; WOULD, standing here: assoc_run_x follows
-    call COLD_SEG:assoc_run_x   ; ours, and a DOS box shortcut goes to the
-.nl:                            ; program that reads it (SPEC.md 96.21)
-    pop cx
-    jmp short .next
-.skip:
-    mov si, sc_s_askip
-    call sc_m_say
-.root:
-    mov al, [dsk_bootvol]       ; ...and the boot volume's root again, where
-    xor bx, bx                  ; the boot left it
-    call COLD_SEG:fcpf_fcp_goto
-    pop ax
-    ret
 
 ; sc_m_mem - the table's claims, one door: AX = KB (0 = free the claim at DX),
 ; DX = the claim (0 = a new one), CX = a new claim's relocation proc (0 = pin
@@ -1713,7 +1633,6 @@ sc_m_serx:
 sc_s_room   db 'No room on the desktop', 0  ; the image's own strings: a toast
 sc_s_many   db 'Too many shortcuts', 0      ; copies, and these cost the
 sc_s_path   db 'Path too long', 0           ; kernel nothing (SPEC.md 2.8)
-sc_s_askip  db 'Autostart skipped', 0       ; Shift held at boot (26.10.5)
 
 ; =============================================================================
 section .boot2                    ; the BOOT half (SPEC.md 2.5.1): runs once,
@@ -1885,6 +1804,113 @@ ovl_sc_load:
     clc
     jmp ovl_sc_out
 
+;
+; =============================================================================
+; as_boot - AUTOSTART: open every link in the boot volume's \AUTOSTRT
+;           (SPEC.md 26.10.5)
+;
+; In the BLOB, so it costs no resident byte: kmain_o calls it straight after
+; spl_finish - a launch must not race the loading screen's IRQ0 frames, which
+; that has stopped - and the blob lives until kmain's mem_unblob_x, after
+; kmain_o returns. It was CTRL.DRV's, behind a test here, and an EMPTY folder
+; then cost every boot the settings core's read: 1.2 s on the 360KB disk,
+; and every system disk ships the folder empty so that the feature can be
+; found. The blob's eleventh sector is the price (SPEC.md 26.10.5).
+;
+; WHAT A MACHINE PAYS:
+;   no folder        one name looked up in a root the SYSTEM.CFG read has
+;                    just walked - no I/O
+;   an empty folder  that, and its first directory sector
+;   a link           opened AS A DOUBLE-CLICK WOULD: assoc_run_x with nothing
+;                    posted, standing in the folder, so a link of ours is
+;                    followed and the DOS box's (SPEC.md 96.21) goes to the
+;                    program that reads it. Anything not *.LNK is not started
+;
+; EITHER SHIFT, HELD AT THE FIRST LINK, SKIPS THE LOT and says so - read off
+; the BIOS's own shift byte at that instruction, after the whole boot, so a
+; key held through the loading screen is a key held here; and only at a link,
+; so a folder with nothing in it says nothing whatever is held.
+; =============================================================================
+section .boot2
+
+as_boot:
+    mov al, [dsk_bootvol]
+    xor bx, bx
+    call COLD_SEG:fcpf_fcp_goto ; the boot volume's ROOT
+    jc .out
+    push ds
+    pop es
+    mov di, assoc_doc           ; a name dskw_stat reads goes through DS, so
+    mov si, as_s_dir            ; the blob's own is staged
+    mov cx, as_s_dirn
+.nm:
+    mov al, [cs:si]
+    stosb
+    inc si
+    loop .nm
+    mov si, assoc_doc
+    call COLD_SEG:dwf_dskw_stat ; AL = its attribute, BX = its first cluster
+    jc .out
+    test al, 0x10
+    jz .out                     ; a FILE called AUTOSTRT starts nothing
+    mov [cs:as_dir], bx
+    xor cx, cx                  ; the ordinal, 0 to start
+.next:
+    mov al, [dsk_bootvol]       ; stand there again: the open before this one
+    mov bx, [cs:as_dir]         ; went wherever its link pointed
+    call COLD_SEG:fcpf_fcp_goto
+    jc .root
+    push cs
+    pop es
+    mov di, as_find
+    xor al, al                  ; no hidden or system entries
+    call COLD_SEG:dsk_find_x    ; CX = the next ordinal; CF = the end
+    jc .root
+    push cx
+    mov si, di                  ; its 8.3 name, NUL, into the document locator
+    mov di, assoc_doc           ; every open reads (SPEC.md 21.5)
+    mov cx, 13
+.cp:
+    mov al, [cs:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .cp
+    mov bp, lnk_is
+    call COLD_SEG:wm_cbd        ; ZF = 1: a .LNK - anything else there is
+    jne .nl                     ; not started
+    push ds
+    xor ax, ax
+    mov ds, ax
+    test byte [0x417], 3        ; 0040:0017, KB_FLAG: either Shift
+    pop ds
+    jnz .skip
+    mov byte [assoc_dapp], ASSOC_FIND
+    mov word [assoc_pwin], 0
+    call COLD_SEG:assoc_run_x
+.nl:
+    pop cx
+    jmp short .next
+.skip:
+    pop cx
+    push cs
+    pop es
+    mov si, as_s_skip
+    xor cx, cx
+    call KERNEL_SEG:cw_toast_show   ; COPIED, so a blob string outlives it
+.root:
+    mov al, [dsk_bootvol]       ; ...and the boot volume's root again, where
+    xor bx, bx                  ; the boot left it
+    call COLD_SEG:fcpf_fcp_goto
+.out:
+    retf
+
+as_s_dir:   db 'AUTOSTRT', 0
+as_s_dirn   equ $ - as_s_dir
+as_s_skip:  db 'Autostart skipped', 0
+as_dir:     dw 0
+as_find:    times DSK_FIND_SZ db 0
+
 section .modc                   ; ...and the image's own scratch, IN the
 sc_mz       db 0                ; image: a module may write its own bytes
 sc_px       dw 0                ; (MODULE-SELFCONTAIN-PLAN), and its bss is
@@ -1895,7 +1921,6 @@ sc_bc       db 0                ; out, the nearest distance so far and its
                                 ; cell; sc_m_ser's claim and the rows it holds
 sc_tseg     dw 0
 sc_tcnt     db 0
-sc_adir     dw 0                ; sc_m_auto: \AUTOSTRT's first cluster
 
 section .text
 
