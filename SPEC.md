@@ -40214,6 +40214,68 @@ Three consequences fall out, all wanted:
 The volume is labelled `OS8088SYS`; the apps disk stays `OS8088APPS`, and the
 data disks never had a reserved area to begin with.
 
+#### 19.3.1 Chains go where the command line names them, so the boot set is beside the directories
+
+**Where a chain sits is the one thing about a FAT volume its builder is free
+to choose, and `tools/os88disk.py` chooses it for the reads that happen.**
+Nothing here is a format change: every directory entry, every FAT link and
+the free count are what any FAT12/FAT16 reader expects, and `--verify` and
+DOS read the volume exactly as before. Only cluster NUMBERS move.
+
+Two rules, in this order, after `KERNEL.SYS` (cluster 2, §19.3) and the
+directory chains:
+
+1. **File chains go in ARGUMENT order**, not folder order. A boot reads the
+   kernel, the root, the drivers this machine detects and `\AUTOSTRT`
+   (§26.10.5) and nothing else, and folder order put the drivers after every
+   package - a Sound Blaster machine's 720KB boot went cylinder
+   0 → 46 → 47 → 10 for one 13-sector file. `$(DRIVERS)` is named first on
+   every system disk and `SOUND.DRV`/`HDD.DRV` lead it, so they land on the
+   cylinder after the directories.
+2. **No chain crosses a cylinder it did not have to** (`cyl_pack`). A file
+   read is one `int 13h` per cylinder it touches (§18.91), and a 14-sector
+   file on an 18-sector cylinder placed by chance crosses ~70% of the time -
+   an extra call, about a revolution, at every load. Such a chain is put on
+   the boundary by **filling** the gap exactly with later chains from the same
+   folder, or else by **padding** it: leaving the gap free. A free cluster in
+   the middle of a volume holds as much as one at the end, so a pad is free
+   space MOVED rather than spent. Half a disk's free clusters may be used this
+   way, first come first served in argument order, so the boot set is paid for
+   first and the volume still ends in a free run. `--no-pack` is the A/B.
+
+ASSOC.DAT keeps §54.7.5's own placement and the directory chains stay where
+rule 1 left them; both are pinned out of the packer.
+
+Measured (MartyPC, cycle-exact; `tools/os88boot.py`, an `int 13h` trace, and
+a launch timed to `wm_show`), against the folder-order layout:
+
+| | before | after |
+|---|---:|---:|
+| 720KB boot, 5150 + Hercules + SB, `\AUTOSTRT` empty | 16,093 ms | **15,293 ms** |
+| ...its `as_boot` (one directory sector) | 573 ms, 37 cyl | **218 ms, 1 cyl** |
+| 360KB boot, the same with the 360KB disk | 14,881 ms | **14,793 ms** |
+| 360KB boot, 5150 + CGA, no driver | 13,452 ms | 13,452 ms |
+| Calculator launched off the 360KB apps disk | 4,560 ms, 2 reads | **4,142 ms, 1 read** |
+| needless cylinder crossings, all twelve shipped images | 132 | **16** |
+
+The no-driver boot does not move because it reads nothing past the root.
+The 360KB Sound Blaster figure is smaller than the 720KB one because that disk
+has no `\AUTOSTRT` to come back for, and is ~110 ms above the argument-order
+layout without the packer: `SOUND.DRV` is read in two calls wherever it sits
+- the split is the kernel's buffer and not the platter - so what moved is
+the rotational phase the second call starts at, which no build-time layout
+controls. What the 16 remaining crossings are is the full disks: the 360KB
+system disk has 4 free clusters, so 2 to pad with, and the 360KB apps disk 1.
+
+**The cost is where a user's FIRST saves land.** `dskw_alloc` roves from
+cluster 2 on every mount (§18.4), so the first files written to a shipped disk
+fill these gaps. For a small file - a `SYSTEM.CFG`, a link in `\AUTOSTRT` -
+that is beside the boot set and better than the end of the disk; a large
+document saved early is split across a few gaps and reads back in more calls
+than it would have. The gaps fill and are gone; a disk that had none never
+pays it.
+
+
 ### 19.4 The listing is sorted by name, in the mount
 
 `disk_dir` comes out of `disk_mount` in **ascending display-name order**,
@@ -54658,6 +54720,232 @@ column's picture composed once.
 desktop's redraw costs **+718** over the kernel before §11.91.6 (`1b382ac`)
 where the two builds before this one cost +1,493. kern_small is byte-identical. `tests/deskflash.py` and
 `tests/deskclip.py` are the gates.
+
+### 26.10 Links, and starting packages at boot
+
+`kernel/desksc.inc`, kern_big only (`OS88_SHORTCUTS`). A **LINK** is a file,
+`*.LNK`, that names an entry by its path: what a desktop shortcut (§26.8)
+holds, minus the picture, written to disk where anything can copy, move or
+delete it. Opening a link opens what it names, exactly as a double-click on
+that entry would. **AUTOSTART** is a folder of links: every link in
+`\AUTOSTRT` on the volume the machine booted from is opened once the boot is
+done, and holding either Shift through the boot skips them.
+
+They are one feature because the second is the first plus a folder. What
+autostarts is not a program but a LINK, so associations still work: a link to
+a document starts that document's program, a link to a folder opens a Disk
+window, and a program started that way is started from where it lives, its
+own folder, overlays and data beside it.
+
+`kern_small` has neither. It has no shortcuts and reads no SYSTEM.CFG, and the
+links' open is the shortcuts' (§26.10.3).
+
+#### 26.10.1 The file
+
+| off | len | field |
+|---|---|---|
+| 0 | 2 | `'LK'` |
+| 2 | 1 | the version, `LNK_V` = 1; any other is not followed |
+| 3 | 1 | the volume index (0 = A:), or `LNK_SELF` = `0xFF`: **the volume the link file is on** |
+| 4 | 1 | the kind, as `SC_R_KIND`: 1 package, 0 document, 2 folder |
+| 5 | 45 | the path BELOW THE ROOT, NUL - `SC_R_PATH`'s field, `SYSTEM\RLAPPLY.O88` |
+
+`LNK_SIZE` is **50**, and a longer file is not a link (`dskw_read` refuses it
+`FERR_BIG` before any I/O). A shorter one is not refused by its length. The
+signature has to match, the volume is bounded and the path terminated, so its
+unread tail is stack bytes that can only fail to name anything.
+
+**`LNK_SELF` is what makes a link travel with its disk.** A program asking to
+be started at boot names itself on the boot volume, and a system floppy
+installed to C: (§52.10) or copied to another drive is still right. An
+Alt-drop writes the ABSOLUTE index instead (§26.10.4): a link dragged from B:
+into A: names B:, which is what the hand meant.
+
+Three writers emit the same bytes: CTRL.DRV's Alt-drop, `apps/os88link.inc`
+and `tools/os88lnk.py`, the host's (and `--read` decodes one). The constants
+are named the same in the kernel and the SDK include, and `t_mirror` compares
+them.
+
+#### 26.10.2 What is resident
+
+| | bytes | what |
+|---|---:|---|
+| `.cold` | +160 | `lnk_is`, `lnk_open`, `sc_open`'s split, the two hooks, the Alt test |
+| `.text` | +2 | `sc_lowseg` |
+| `.bss` | +2 | `sc_wsp` |
+| **resident** | **+164** | measured by `kernsize`, kern_big; kern_small **+0** |
+| `.boot2` (the blob, freed at the desktop) | +224 | AUTOSTART, the whole of it (§26.10.5), and its eleventh sector |
+| `CTRL.DRV` (on demand) | +212 | `SC_OP_LNK`, the Alt-drop's writer (§26.10.4) |
+
+**All 164 are links**, against the ~150 they were given: 10 of them are
+§26.10.3's fall-through for the DOS box's own `.LNK` files. **Autostart is
+not resident at all.** It crossed one `.cold` rung, which is the rung's
+business and not the feature's (CLAUDE.md, §1's banner).
+
+**`sc_open` IS the link's open, split rather than copied.** `sc_walk` takes
+the volume and kind in AL/AH and the path at DI, in the segment named by the
+WORD `[sc_wsp]` points at: a shortcut's record is in a movable claim and
+is re-read through `[sc_seg]` at every component, and a link's is on the
+stack, whose segment is the constant `sc_lowseg`. So the path walk, the
+folder, package and document arms, and `Shortcut not found (B:)` are the
+shortcut's, byte for byte.
+
+#### 26.10.3 Opening one
+
+**Every door to a document reaches `assoc_run_x`**: a Disk window's
+double-click (`assoc_post` posts any extension, §54.4.3), `OSAPI_PKG_START`'s
+document arm, a shortcut to a document, a link to one. So that is where the
+link is caught. `lnk_is` asks whether `assoc_doc`'s extension is `LNK`, and
+if so `lnk_open` runs instead of any program. `ld_pkg_byname`'s `.nodoc` asks
+the same question, because there no association means LD_EBAD before
+`assoc_run` is reached.
+
+`lnk_open` stands in the link's own folder (`assoc_back`), reads the 50 bytes
+onto the stack, checks the signature and version, resolves `LNK_SELF` to the
+link's volume, bounds the volume against `DVOL_MAX`, terminates the path and
+hands it to `sc_walk`. **What the entry IS NOW decides**, as for a shortcut,
+and a target that is gone says `Shortcut not found (B:)`. A link of ours in a
+version this kernel does not read, or naming a volume no row has, opens
+nothing, silently.
+
+**`.LNK` IS SHARED WITH THE DOS BOX, and the CONTENT says whose a file is.**
+The DOS box's Save Shortcut writes Microsoft's Shell Link format under the
+same extension (§96.21), which is associated with `DOS.O88`. Each reader
+already refuses the other's: Microsoft's header alone is 76 bytes, so
+`dskw_read` answers `FERR_BIG` at a 50-byte capacity before any I/O, and
+ours does not begin `4C 00 00 00`. So `lnk_open` answers CF = 1, *not mine*,
+for a file it could not read at 50 bytes or that does not begin `'LK'`, and
+`assoc_run_x` carries on to the association exactly as before this existed.
+A second extension would have bought nothing but a choice between two names
+for the same idea, and a Disk window showing one kind of link with the DOS
+box's glyph is the price (§54.3: the glyph is the extension's). `doslnk` and
+`dosopen` are the rows that hold the DOS box's half.
+
+**A link may name a link, and the STACK is the guard.** With fewer than
+`LNK_SPMIN` (320) bytes of task 0's 512 left, nothing is followed. That is the
+record's 50 plus the 246 bytes `STK0_SIZE`'s comment measures as task 0's
+deepest, plus a margin, so a package launched under the last link followed
+still has room. A link that names itself ends after a level or two instead of
+in an overflow. No depth counter is kept, because the stack already is one.
+
+#### 26.10.4 Making one: Alt-drop
+
+**An entry dragged out of a Disk window and dropped on a Disk window with Alt
+held becomes a LINK there**, `<STEM>.LNK`, and nothing is moved or copied.
+Into its own folder is the commonest case, and allowed. The convention is
+Windows's (Alt-drag makes a shortcut), and it is §26.8.4's gesture one place
+over: a drop on the bare desktop makes a shortcut, an Alt-drop on a folder
+makes a link.
+
+`fm_dgdrop` asks `fm_mods`, which now answers Alt (bit 3) beside Ctrl and
+Shift, AT THE DROP. The drag's armed Cut is disarmed as a desktop drop's is,
+and the gesture goes to CTRL.DRV as `SC_OP_LNK` with the destination's volume
+and folder. `sc_m_lnk` composes the record in `cpc_buf` from the drag's
+`fcp_cb*`, sc_m_new's path code minus the picture, writes it with
+`dskw_write` (an existing link of that name is replaced) and ends in
+`fm_paste_res`, so the listing is re-read and repainted like a paste's.
+**Nothing resident but the test**: seven bytes in `fm_dgdrop`, the writer
+riding the settings core the desktop gestures already read.
+
+A link is REMOVED as any file is: Delete in a Disk window.
+
+#### 26.10.5 Autostart: `\AUTOSTRT`
+
+The folder is in the ROOT of the boot volume, and not in `SYSTEM\`, for the
+boot's sake: the root has just been walked for SYSTEM.CFG, so asking it for
+one more name costs no I/O. **The 720KB, 1.2MB and 1.44MB system disks,
+`emu.img` and the live volume ship it EMPTY** (`AUTOFOLDER` in the Makefile).
+A folder a user can see is how the feature is found, where a feature with no
+folder is a manual nobody has written. kern_small has no autostart and its
+disks do not carry it.
+
+**The 360KB system disk does not carry it, for ROOM.** That disk had 5
+clusters free; the eleventh blob sector took `KERNEL.SYS` over one more, and
+the folder would take another. At 3 free the Sticky Apps calendar can no
+longer save its place on A: (`stikmove`, `stikmovecga` and `stikregister` go
+red; at 4 they pass). Whoever finds that disk a cluster gives it the folder by
+adding `$(AUTOFOLDER)` to `$(IMG360)`.
+
+**`as_boot` is the BLOB's** (§2.5.3.3), called by kmain_o straight after
+`spl_finish`, so it costs no resident byte. A launch must not race the
+loading screen's IRQ0 frames, which that has stopped, and the blob lives until
+kmain's `mem_unblob_x`. It:
+
+- stands at the boot volume's root and `dskw_stat`s `AUTOSTRT`. No folder, or
+  a FILE of that name, is the end of it;
+- walks the folder with `dsk_find` (stateless by ordinal, §19.7.1, so a
+  launch between two entries cannot lose its place) and opens every `*.LNK`
+  **as a double-click would**: `assoc_run_x` with nothing posted, standing in
+  the folder. So a link of ours is followed, and a DOS box shortcut there
+  (§96.21) starts the DOS program it names. Anything that is not a `.LNK` is
+  not started, so a note left in the folder does not open Note Pad;
+- at the FIRST link, reads the BIOS's own shift byte (0040:0017) and, with
+  **either Shift held**, says `Autostart skipped` and starts nothing. It is
+  read after the whole boot, so a key held through the loading screen is a
+  key held now, and only at a link, so a shipped empty folder says nothing
+  whatever is held;
+- stands the machine at the boot volume's root again.
+
+**After `spl_finish`, before the first desktop paint.** A program that opens a
+window draws it on the loading screen's last frame, and kmain's first
+`wm_paint_all` then paints the desktop under it. Running after that paint
+instead would be a far call into the blob from `.text`, 9 resident bytes and
+`mem_unblob` moved behind it, to save a window that is drawn once more than
+it needs to be.
+
+**THE BLOB IS ELEVEN SECTORS FOR THIS.** The walk was first `CTRL.DRV`'s
+(`SC_OP_AUTO`), behind a blob test that the folder existed, because the tenth
+sector had 34 bytes left. Then a folder that was there and EMPTY read the
+settings core on every boot: 1,170 ms on the 360KB disk, 16 sectors over 54
+cylinders. A shipped empty folder would have charged that to every machine.
+The eleventh sector is free for stage 1 on every geometry. Stage 2 depends on
+the KERNEL's length: on the kernel this was written against it pushed 720KB
+over a cylinder (+213 ms, which the owner accepted), and on the kernel it
+landed on it costs no call anywhere (`t_blobruns`). KSIG_OFF moved
+5632 -> 5120, file sector 21 still.
+
+**Measured** with `tools/os88boot.py`, reset to desktop, against the
+`elendilon-next` it was rebased onto:
+
+| | 360KB, `os8088_5150_cga_gla` | 720KB, `os8088_5150_herc_sb_720_gla` |
+|---|---:|---:|
+| before §26.10 | 13,417 ms | 14,935 ms |
+| as shipped | **13,452 ms** (no folder) | **16,093 ms** (the empty folder) |
+| the loader (blob 11) | 5,816 -> 5,859 ms, 13 reads either way | 5,889 -> 5,930 ms, 13 reads either way |
+| `as_boot` | 91 ms of CPU, no disk I/O | 573 ms: its first directory sector after a 37-cylinder seek, 411 ms mechanical |
+| `drv_boot_x` | - | 2,260 -> 2,860 ms: 25 -> 39 sectors, 4 -> 5 reads |
+
+**An empty folder costs one directory read, and where the head is decides
+the price.** On the 720KB machine `SOUND.DRV` has been loaded at cylinder 43,
+and the head comes back 37 cylinders. The `drv_boot_x` row is the folder's
+ROOT ENTRY rather than the folder. That disk had exactly 31 root entries, so
+`AUTOSTRT` is the 32nd and fills the root's second sector. The end-of-directory
+marker moves into a third, and a walk for a name that is not there
+(SYSTEM.CFG, on a disk with no settings yet) now reads it. Any one more file
+in that root would cost the same. Measured before the rebase, on the 360KB
+disk with the folder: 13,817 ms, `as_boot` 456 ms after a 10-cylinder seek.
+
+#### 26.10.6 A package that asks to be started: `apps/os88link.inc`
+
+`OS88_LINK label, volume, kind, 'path'` lays down a record in the package's
+image, and `ol_autostart` (SI = the link's name, BX = the record) writes it
+into the boot volume's `\AUTOSTRT`, making the folder with `OSAPI_FILE_MKDIR`
+if it is not there. It is `apps/os88data.inc`'s walk with `OD_BOOTVOL`, so it
+puts the instance back where it stood and needs no kernel byte. Removing one
+is `OSAPI_FILE_DELETE` standing in the folder, or the user's Delete.
+
+**REDLINE is the first consumer** (§103.6.4). Its Save setting button is
+now **Apply on boot**: it writes `REDLINE.CFG` as before and then
+`\AUTOSTRT\RLAPPLY.LNK`, `LNK_SELF`, `SYSTEM\RLAPPLY.O88`. The setting is kept
+whether or not the link could be written, and the line under the buttons says
+which.
+
+`tests/autostart.py` (MartyPC, `make autostarttest`) is the gate for the
+kernel half. It checks that the boot starts the Task Manager through
+`\AUTOSTRT`, a root `CALC.LNK` starts the Calculator off B:, Shift skips the
+lot, and an Alt-drop writes a link that works. `tests/rltune.py` (QEMU, on
+REDLINE's AT path) checks that Apply on boot writes the link and that a reboot
+then runs RLAPPLY with nobody touching anything.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 
@@ -178225,14 +178513,16 @@ two drop-downs and a field:
 
 The foot's six become four:
 - **Tune** - sets the Target;
-- **Save setting** - `REDLINE.CFG` (§103.6.4), for RLAPPLY to put back;
+- **Apply on boot** - `REDLINE.CFG` (§103.6.4), for RLAPPLY to put back, and
+  `\AUTOSTRT\RLAPPLY.LNK` so the boot starts RLAPPLY (§26.10.6). It was
+  **Save setting** until autostart existed;
 - **Save report** - the page, as `CHIPSET.TXT` numbered the way REDLINE's
   own benches are (`CHIPSET1.TXT`, `CHIPSET2.TXT`, the first free), into the
   current directory;
 - **Quit**.
 
 Tune and the Target are greyed where the picked row cannot write or the CPU
-is an 8088, and Save setting until something is set - and then everywhere
+is an 8088, and Apply on boot until something is set - and then everywhere
 but the row it was set ON (`cs_setrow`, written beside the value by Mfg
 spec, Tune and Bus clock x2). A pick after a Tune is not an identification:
 Save reaches no question and no probe, so a REDLINE.CFG may only ever name
@@ -178818,7 +179108,7 @@ proc (`mem_in_nest` pins it there) and is the ratchet's terms
 `tests/rltune.py` launches it from `A:\SYSTEM` before REDLINE has saved and
 after, on QEMU, and reads the toast and the window list each time.
 
-An autostart will launch it; until one exists it is run by hand after boot.
+REDLINE's **Apply on boot** puts a link to it in the boot volume's `\AUTOSTRT` (§26.10.6), so it runs at every boot; holding Shift through the boot skips it, and deleting the link stops it for good.
 
 ## 105. MIDIRack — a MIDI file player (`apps/midirack/`)
 

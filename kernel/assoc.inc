@@ -1277,6 +1277,13 @@ assoc_run_x:
                                 ; ONCE A RUN and not once a locate, so an
                                 ; empty drive the search below found empty is
                                 ; not asked again by the locate after it
+%ifdef OS88_SHORTCUTS
+    call lnk_is                 ; A LINK opens what it names, and no program
+    jne .notlnk                 ; at all (SPEC.md 26.10.3): every door to a
+    call lnk_open               ; document arrives here, so this is all of
+    jnc .lnk                    ; them. CF = 1 is a .LNK that is not ours -
+.notlnk:                        ; the DOS box's (SPEC.md 96.21) - and it goes
+%endif                          ; on to its association like any document
 
     pop ax
     cmp al, ASSOC_FIND          ; an extension nothing here claimed (54.4.3):
@@ -1325,6 +1332,10 @@ assoc_run_x:
     jmp short .out              ; package may now spend the document it was
                                 ; handed
 
+%ifdef OS88_SHORTCUTS
+.lnk:                           ; the slot word is still on the stack, which
+    jmp short .out              ; is the one .out pops
+%endif
 .noassoc:
     push ax                     ; the word .out pops
     call assoc_back             ; no volume knows it: the package route's own
