@@ -115384,6 +115384,10 @@ redirects and frames - and left the same bytes behind.
   A reply's header state - eight stores that a fetch, a redirect hop and a
   frame child each carried - is `br_hreset`, and `br_go` no longer saves AX
   and BX around a `OSAPI_WM_SAVEU` whose caller restores both anyway.
+- **A reset stores a register.** `br_parse`'s per-page reset and
+  `br_layout`'s were runs of immediate zeros, five or six bytes a store; with
+  AX cleared once each is `mov [x], al` or `mov [x], ax`, three. Once per
+  parse and once per layout, and fewer cycles than before.
 
 ### 72.1 What the packages did have to change, which is one question
 

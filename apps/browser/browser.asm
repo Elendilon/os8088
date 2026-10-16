@@ -3952,15 +3952,15 @@ br_parse:
     mov byte [br_parsing], 1
     cmp byte [br_frameappend], 0
     jne .keepdoc
-    mov word [br_doclen], 0
-    mov word [br_lnkn], 0
-    mov word [br_lnkw], 0
-    mov byte [br_linklimited], 0
+    xor ax, ax                      ; every reset below stores AX or AL: a
+    mov [br_doclen], ax             ; register store is three bytes where an
+    mov [br_lnkn], ax               ; immediate zero is five or six (apps size
+    mov [br_lnkw], ax               ; pass 2)
+    mov [br_linklimited], al
     push es
     push ds
     pop es
     mov di, br_lnkfrm
-    xor ax, ax
     mov cx, BR_LNKMAX/2
     rep stosw
     pop es
@@ -3974,37 +3974,36 @@ br_parse:
     cmp byte [br_framecurrent], 0   ; frames before it, or a form in any frame
     jne .keepforms                  ; but the last would have no record and
 .newforms:                          ; its button no click. The FIRST child
-    mov byte [br_fn], 0             ; starts over: the frameset's own records
-    mov byte [br_formn], 0          ; point into the document brnet discarded
-    mov byte [br_subn], 0
+    xor ax, ax                      ; starts over: the frameset's own records
+    mov [br_fn], al                 ; point into the document brnet discarded
+    mov [br_formn], al
+    mov [br_subn], al
     push es
     push ds
     pop es
-    xor ax, ax
     mov di, br_factions
     mov cx, (BR_FORMMAX*BR_ACTMAX + BR_FORMMAX*BR_HIDMAX + BR_FORMMAX*3 + BR_SUBMAX*BR_SUBSZ)/2
     rep stosw
     pop es
 .keepforms:
-    mov byte [br_ptitle], 0         ; the title is the PAGE's, like the links
+    xor ax, ax
+    mov [br_ptitle], al             ; the title is the PAGE's, like the links
     mov byte [br_fcur], 0FFh        ; 0 is a real field, so "none" is 0FFh
-    mov byte [br_on], 0
-    mov byte [br_wsp], 0
-    mov byte [br_any], 0
-    mov byte [br_pre], 0
-    mov byte [br_trunc], 0
-    mov byte [br_hn], 0
-    mov word [br_hnw], 0
-    mov byte [br_hid], 0
-    mov byte [br_faction], 0
-    mov byte [br_fdepth], 0
-    mov byte [br_frameattr], 0
-    mov byte [br_fmode], 0
+    mov [br_on], ax                 ; ...and br_wsp
+    mov [br_any], ax                ; ...and br_pre
+    mov [br_trunc], al
+    mov [br_hn], al
+    mov [br_hnw], ax
+    mov [br_hid], al
+    mov [br_faction], al
+    mov [br_fdepth], al
+    mov [br_frameattr], al
+    mov [br_fmode], al
     mov byte [br_fnewrow], 1
-    cmp byte [br_frameappend], 0
+    cmp [br_frameappend], al
     jne .parsebody
-    mov byte [br_framecount], 0
-    mov byte [br_frameidx], 0
+    mov [br_framecount], al
+    mov [br_frameidx], al
 .parsebody:
     call br_sniff_utf8
     mov es, [br_srcseg]
@@ -5552,10 +5551,10 @@ br_layout:
     mov [br_bch], ax
     mov [br_lcen], al
     mov [br_lpre], ax               ; br_lpre and br_lind, one word
-    mov byte [br_lhead], 0
-    mov byte [br_lquote], 0
-    mov byte [br_litem], 0
-    mov byte [br_lfmt], 0
+    mov [br_lhead], al              ; AX is still 0: three-byte stores
+    mov [br_lquote], al
+    mov [br_litem], al
+    mov [br_lfmt], al
     mov ax, [br_cols]
     mov [br_effcols], ax
     dec ax
