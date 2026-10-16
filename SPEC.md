@@ -86396,6 +86396,32 @@ back-references. So the pass went after bytes that occur once.
   base at an even shift - `tools/os88rdiff.py --hot` is the check - for no
   pad byte. Hot-path cycles are therefore unchanged, and none were re-taken.
 
+#### 46.11.1 ArtfulType ships LZB-packed
+
+The one package that does, by the owner's decision: the edits above took the
+LZ4 file 15,387 -> 15,075 bytes, and packing that image with LZB (SPEC.md
+20.13, the format both kernels already decode, kern_small included) takes it
+to **13,217** - 16 clusters to **13** on each of the four 360KB disks it
+rides, twelve clusters in all. `make PKGZ=` still builds it plain; the
+Makefile's `artful.o88` rule is the whole of the change.
+
+What it costs is the decode, MEASURED on MartyPC (a 4.77MHz 5150 on GLaBIOS,
+kern_big, both packings of one image launched from one 360KB floppy, the
+loader traced from `ld_run_body_x` through `lz_decomp_x`'s return):
+
+| launch | file read | decode | read + decode |
+|---|---:|---:|---:|
+| LZ4, first | 1,280.3 ms | 319.7 ms | 1,600.0 ms |
+| LZB, first | 1,056.1 ms | 1,084.6 ms | 2,140.7 ms |
+| LZ4, again | 899.4 ms | 319.7 ms | 1,219.2 ms |
+| LZB, again | 547.4 ms | 1,083.3 ms | 1,630.7 ms |
+
+So a launch is **+541 ms** the first time and +411 ms after (the decode is
++764 ms, of which the 1,858 fewer bytes read give 224-352 back). The
+splash re-encode that was tried beside it (a Huffman nibble stream, decoded
+in place) LOST under LZB - 121 file bytes worse, because LZB already takes
+most of what an entropy coder could from the picture - and was not taken.
+
 ## 47. Disabled controls — the greying standard (binding)
 
 Every part of the UI that can refuse a click has to say so the same way. This
