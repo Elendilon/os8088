@@ -78453,6 +78453,15 @@ argument and `[pt_planar]` is `(AL | [pt_mono]) xor 1`, both operands being
 0 or 1. **−52 image, −27 file.** The small arm, whose depth is the build's
 (42.22.3), keeps its own `pt_ncolset` call and assembles byte-identical.
 
+**The GIF header is data.** `pt_ghdr` wrote the magic and the palette from
+data and the other eleven fixed bytes — the screen descriptor's flags, the
+image descriptor's separator, origin and tail — as a `pt_gwr` call each.
+They sit around `pt_pal_rgb` in file order now (`pt_g_magic` and `pt_g_lsd`
+before it, `pt_g_desc` and `pt_g_tail` after, all under `PTF_GIF`), so the
+header is three runs out of one table with the width and height written
+between them: 6 bytes, then 56, then 2. The file it writes is byte-identical.
+**−34 image, −17 file**; the small arm has no GIF writer.
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather

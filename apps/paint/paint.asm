@@ -15799,47 +15799,29 @@ pt_ghdr:
     push ax
     push cx
     push si
-    mov si, pt_g_magic
-    mov cx, 6
-.mag:
-    mov al, [si]
-    call pt_gwr
-    inc si
-    loop .mag
-    mov ax, [pt_cw]
-    call pt_gwrw
-    mov ax, [pt_ch]
-    call pt_gwrw
-    mov al, 0x83                    ; a global table of 2 << 3 entries
-    call pt_gwr
-    xor al, al                      ; background index
-    call pt_gwr
-    xor al, al                      ; no aspect ratio given
-    call pt_gwr
-    mov si, pt_pal_rgb
-    mov cx, 48
-.pal:
-    mov al, [si]
-    call pt_gwr
-    inc si
-    loop .pal
-    mov al, 0x2C                    ; the image descriptor
-    call pt_gwr
-    xor ax, ax
-    call pt_gwrw                    ; left
-    xor ax, ax
-    call pt_gwrw                    ; top
-    mov ax, [pt_cw]
-    call pt_gwrw
-    mov ax, [pt_ch]
-    call pt_gwrw
-    xor al, al                      ; no local table, not interlaced
-    call pt_gwr
-    mov al, 4                       ; LZW minimum code size: sixteen colours
-    call pt_gwr
+    mov si, pt_g_magic              ; the fixed bytes are DATA, laid out in
+    mov cx, 6                       ; file order around pt_pal_rgb, and only
+    call .run                       ; the size is written by hand - twice:
+    mov cx, PT_G_RUN                ; the screen descriptor's, then the image's
+    call .run                       ; (apps size pass 2: it was a pt_gwr call a
+    mov cx, 2                       ; fixed byte)
+    call .run
     pop si
     pop cx
     pop ax
+    ret
+.run:                               ; CX bytes from SI, then - unless this was
+    mov al, [si]                    ; the last run - the width and height
+    inc si
+    call pt_gwr
+    loop .run
+    cmp si, pt_g_tail + 2
+    je .ret
+    mov ax, [pt_cw]
+    call pt_gwrw
+    mov ax, [pt_ch]
+    call pt_gwrw
+.ret:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -16080,7 +16062,6 @@ pt_s_ebmp:    db 'BMP', 0           ; the extension is the default name's tail
 %ifdef PTF_GIF
 pt_s_defgif:  db 'PICTURE.'
 pt_s_egif:    db 'GIF', 0
-pt_g_magic:   db 'GIF87a'
 pt_gstep:     db 8, 8, 4, 2         ; the interlaced row passes: step...
 pt_gstart:    db 0, 4, 2, 1         ; ...and where each one starts
 %endif
@@ -16322,6 +16303,17 @@ pt_pal1:
     db 0xFF,0xFF,0xFF,0x00          ; 1  white
 %endif
 
+; --- THE GIF HEADER IS THIS DATA, IN FILE ORDER (apps size pass 2) ---------
+; pt_ghdr writes it as three runs with the picture's width and height between
+; them, so the fixed bytes around the palette sit against it rather than being
+; spelled out a pt_gwr call each: the magic and the screen descriptor's flags
+; before pt_pal_rgb, the image descriptor's fixed head and tail after it.
+%ifdef PTF_GIF
+pt_g_magic:  db 'GIF87a'            ; ...then the logical screen's width, height
+pt_g_lsd:    db 0x83                ; a global table of 2 << 3 entries
+             db 0                   ; background index
+             db 0                   ; no aspect ratio given
+%endif
 pt_pal_rgb:
     db 0x00,0x00,0x00               ; 0  black
     db 0x00,0x00,0xAA               ; 1  blue
@@ -16339,6 +16331,13 @@ pt_pal_rgb:
     db 0xFF,0x55,0xFF               ; 13 light magenta
     db 0xFF,0xFF,0x55               ; 14 yellow
     db 0xFF,0xFF,0xFF               ; 15 white
+%ifdef PTF_GIF
+pt_g_desc:   db 0x2C                ; the image descriptor
+             dw 0, 0                ; left, top - then the width and height
+pt_g_tail:   db 0                   ; no local table, not interlaced
+             db 4                   ; LZW minimum code size: sixteen colours
+PT_G_RUN     equ pt_g_desc + 5 - pt_g_lsd
+%endif
 
 ; --- the eight tool glyphs, 16x16, bit 15 = leftmost ------------------------
 pt_ic_tab:   dw pt_ic_pencil, pt_ic_eraser, pt_ic_drop, pt_ic_rect
