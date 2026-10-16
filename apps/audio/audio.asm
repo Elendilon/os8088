@@ -216,7 +216,6 @@ AP_B_NONE  equ 0xFF
     APBUF ap_arg_name, 16
     APW  ap_arg_dir
     APB  ap_arg_vol
-    APW  ap_elapsed_s              ; seconds played of the current track
     APW  ap_total_s               ; track duration in seconds (0 = unknown)
     APB  ap_diag                   ; 1 = the window shows the Diagnostics view
     APW  ap_last_s                 ; last elapsed second the dynamic redraw drew
@@ -240,8 +239,6 @@ AP_B_NONE  equ 0xFF
     APW ap_rd_len                  ; bytes the current ap_refill_chunk read pulls
     APD ap_data_off
     APD ap_data_end
-    APD ap_got
-    APB ap_src_done
 
 ; --- SND ring stream -------------------------------------------------
     APW ap_grant
@@ -253,14 +250,24 @@ AP_B_NONE  equ 0xFF
     APB ap_hand
     APB ap_sopen
     APB ap_mixing
+    APW ap_rate
+    APB ap_first_paint             ; 1 until ap_onwake does the settled repaint
+
+; --- the PER-TRACK RUN: ap_prep_track zeroes AP_TRK0 .. + AP_TRKLEN in one
+;     REP STOSB, so whatever a new track must start from 0 lives here
+AP_TRK0 equ os88_image_end + AP_BSS
+    APD ap_got
+    APD ap_played                  ; total PCM8 bytes the DSP has consumed
+    APW ap_total
+    APW ap_consumed
+    APW ap_consumed_prev           ; last polled verb-3 count (for the delta)
+    APW ap_elapsed_s               ; seconds played of the current track
+    APB ap_src_done
     APB ap_ended
     APB ap_lasthalf
     APB ap_paused
-    APW ap_total
-    APW ap_consumed
-    APW ap_rate
-    APB ap_req
-    APB ap_first_paint             ; 1 until ap_onwake does the settled repaint
+    APB ap_req                     ; (FR_NONE is 0)
+AP_TRKLEN equ os88_image_end + AP_BSS - AP_TRK0
 
 ; --- decoder state (apdec.inc) --------------------------------------
     APB apd_codec
@@ -274,6 +281,8 @@ AP_B_NONE  equ 0xFF
     APB apd_curbyte
     APW   apd_inlen                ; bytes currently in apd_inbuf
     APW   apd_inpos                ; read cursor into apd_inbuf
+APD_ZLEN equ apd_inpos + 2 - apd_bleft  ; apd_start zeroes apd_bleft..here:
+                                   ; keep these eight together, in this order
     APBUF apd_inbuf, APD_INBUF
     APBUF apd_out, APD_SRCSZ
 

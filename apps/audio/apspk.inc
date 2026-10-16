@@ -151,6 +151,15 @@ aps_plan:
     mov byte [aps_mode], APS_XL     ; (86.21.1): copied raw they are a quiet
     call ap_cinv_build              ; wave off the DAC's middle
     jmp short .rate
+.fast:                              ; (the two refusals, here where every
+    mov word [ap_msg], ap_s_spkfast ; jump to them is a short one)
+    stc
+    jmp .out
+.slow:
+    mov ax, ap_s_spkslow
+    call aps_say
+    stc
+    jmp .out
 .pcm:
     cmp ax, bx
     jbe .rate                       ; S itself
@@ -203,15 +212,6 @@ aps_plan:
     call aps_dtab_build
 .ok:
     clc
-    jmp short .out
-.fast:
-    mov word [ap_msg], ap_s_spkfast
-    stc
-    jmp short .out
-.slow:
-    mov ax, ap_s_spkslow
-    call aps_say
-    stc
 .out:
     pop dx
     pop cx
