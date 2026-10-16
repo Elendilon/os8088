@@ -4436,6 +4436,13 @@ pt_cframe:
 ; Every button, well and swatch in the palette and the strip is this: fill in
 ; some colour, frame in black. Six sites, twelve bytes each.
 ; -----------------------------------------------------------------------------
+; pt_swell - pt_cwell for a well in the bottom strip, whose top is the strip's
+; top + 1 and whose height is PT_BW: in AX = x, CX = width - 1, [pt_pen];
+; out BX = that top, DX = PT_BW - 1, everything else kept. Falls into pt_cwell
+pt_swell:
+    mov bx, [pt_stripy]
+    inc bx
+    mov dx, PT_BW - 1
 pt_cwell:
     push cx
     push dx
@@ -5575,51 +5582,42 @@ pt_draw_strip:
     mov cx, [pt_contw]
     dec cx
     mov dx, bx
-    call pt_cfill
+    call pt_cfill                   ; (pt_cfill keeps AX, BX and CX for the bed)
     mov byte [pt_pen], CWHITE
-    xor ax, ax
-    mov bx, [pt_ch]                 ; the bed starts just under the canvas, not
-    inc bx                          ; at the strip: on the fullscreen surface
-    mov cx, [pt_contw]              ; pt_stripset moves the strip to the bottom
-    dec cx                          ; of the content and the gap it leaves is
-    mov dx, [pt_stripy]             ; ours to erase. In a window the two rows
-    add dx, PT_STRIP_H - 1          ; are the same and the fill is unchanged
-    call pt_cfill
+    inc bx                          ; the bed starts just under the canvas, not
+    mov dx, [pt_stripy]             ; at the strip: on the fullscreen surface
+    add dx, PT_STRIP_H - 1          ; pt_stripset moves the strip to the bottom
+    call pt_cfill                   ; of the content and the gap it leaves is
+                                    ; ours to erase. In a window the two rows
+                                    ; are the same and the fill is unchanged
 
     ; --- four line widths for the tool in hand ----------------------------
+    ; SI walks the button x and every well's y comes back out of pt_swell, so
+    ; the loop carries no arithmetic of its own (apps size pass 2)
     xor di, di
+    mov si, PT_TH_X
 .width:
-    mov ax, di
-    mov cx, PT_TH_DX
-    mul cx
-    add ax, PT_TH_X
-    mov [pt_bx], ax                 ; button x
-    mov ax, [pt_stripy]
-    inc ax
-    mov [pt_by], ax
     call pt_thsel                   ; AL = the selected width index
     xor ah, ah
     cmp ax, di
-    mov byte [pt_pen], CWHITE
+    mov al, CWHITE                  ; the selected button is the dark one...
     jne .wbg
-    mov byte [pt_pen], CBLACK
+    mov al, CBLACK
 .wbg:
-    mov ax, [pt_bx]
-    mov bx, [pt_by]
+    mov [pt_pen], al
+    push ax
+    mov ax, si
     mov cx, PT_BW - 1
-    mov dx, PT_BW - 1
-    call pt_cwell
+    call pt_swell                   ; BX = the well's top
+    pop ax
+    xor al, CWHITE ^ CBLACK         ; ...and its glyph the light one
+    mov [pt_pen], al
     ; the glyph: a centred square whose side is the width itself, capped so
     ; the 32px eraser still fits in a 20px button
-    call pt_thsel
-    xor ah, ah
-    cmp ax, di
-    mov byte [pt_pen], CBLACK
-    jne .wg
-    mov byte [pt_pen], CWHITE
-.wg:
+    push bx
     mov bx, di
     call pt_thval                   ; AX = the width in pixels
+    pop bx
     cmp ax, 14
     jbe .wcap
     mov ax, 14
@@ -5628,15 +5626,15 @@ pt_draw_strip:
     mov ax, PT_BW
     sub ax, cx
     shr ax, 1                       ; AX = inset
-    mov bx, [pt_by]
     add bx, ax
-    add ax, [pt_bx]
+    add ax, si
     mov dx, bx
     add dx, cx
     dec dx
     add cx, ax
     dec cx
     call pt_cfill
+    add si, PT_TH_DX
     inc di
     cmp di, 4
     jb .width
@@ -5645,36 +5643,27 @@ pt_draw_strip:
     mov al, [pt_col]
     mov [pt_pen], al
     mov ax, PT_CUR_X
-    mov bx, [pt_stripy]
-    inc bx
     mov cx, PT_BW - 1
-    mov dx, PT_BW - 1
-    call pt_cwell
+    call pt_swell
 
     ; --- the palette ------------------------------------------------------
     xor di, di
+    mov si, PT_SW_X
 .sw:
-    mov ax, di
-    mul word [pt_swdx]
-    add ax, PT_SW_X
-    mov [pt_bx], ax
     mov ax, di
     call pt_swcol
     mov [pt_pen], al
-    mov ax, [pt_bx]
-    mov bx, [pt_stripy]
-    inc bx
+    push ax
+    mov ax, si
     mov cx, [pt_swsz]
     dec cx
-    mov dx, PT_BW - 1
-    call pt_cwell
-    mov ax, di                      ; the swatch in use gets a second frame
-    call pt_swcol
-    cmp al, [pt_col]
+    call pt_swell
+    pop ax
+    cmp al, [pt_col]                ; the swatch in use gets a second frame
     jne .swnext
-    mov ax, [pt_bx]
+    mov ax, si
     dec ax
-    mov bx, [pt_stripy]
+    dec bx                          ; the strip's own top
     mov cx, ax
     add cx, [pt_swsz]
     inc cx
@@ -5682,6 +5671,7 @@ pt_draw_strip:
     add dx, PT_BW + 1
     call pt_cframe
 .swnext:
+    add si, [pt_swdx]
     inc di
     cmp di, [pt_nsw]
     jb .sw
@@ -5689,15 +5679,10 @@ pt_draw_strip:
     ; --- filled-shapes toggle, and the font scale -------------------------
     mov byte [pt_pen], CWHITE
     mov ax, [pt_filx]
-    mov bx, [pt_stripy]
-    inc bx
     mov cx, PT_BTN_W16 - 1
-    mov dx, PT_BW - 1
-    call pt_cwell
-    mov ax, [pt_filx]
+    call pt_swell                   ; (pt_cwell leaves the pen black)
     add ax, 4
-    mov bx, [pt_stripy]
-    add bx, 6
+    add bx, 5                       ; the strip's top + 6
     mov cx, ax
     add cx, 7
     mov dx, bx
@@ -5711,19 +5696,16 @@ pt_draw_strip:
 .fnt:
     mov byte [pt_pen], CWHITE
     mov ax, [pt_fntx]
-    mov bx, [pt_stripy]
-    inc bx
     mov cx, PT_BTN_W16 - 1
-    mov dx, PT_BW - 1
-    call pt_cwell
+    call pt_swell
+    mov dx, bx
+    add dx, 6                       ; the strip's top + 7
+    mov cx, ax
+    add cx, 4
     mov al, [pt_fscale]
     add al, '0'
     mov [pt_fdigit], al
     mov si, pt_fdigit
-    mov cx, [pt_fntx]
-    add cx, 4
-    mov dx, [pt_stripy]
-    add dx, 7
     call pt_ctext
     ; --- and the grow box, which lives in this strip -------------------------
     ; The white bed above erases it, and the kernel draws it BEFORE W_PAINT

@@ -78462,6 +78462,16 @@ header is three runs out of one table with the width and height written
 between them: 6 bytes, then 56, then 2. The file it writes is byte-identical.
 **−34 image, −17 file**; the small arm has no GIF writer.
 
+**The bottom strip carries its geometry in registers.** `pt_draw_strip`
+multiplied each width button's x out of its index and reloaded the strip's y
+for every well. `pt_swell` is `pt_cwell` with the strip's well top and
+height filled in, falling into it, and it leaves that top in BX for the
+glyph or frame drawn next; SI walks the button x by addition; the bed reuses
+the separator's registers (`pt_cfill` keeps them); and a width button
+decides its two colours once — the glyph is the well's colour XOR
+`CWHITE ^ CBLACK` — where it asked `pt_thsel` twice. Same calls, same
+rectangles, same order. **−100 image, −58 file, −47 on the small arm.**
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather
