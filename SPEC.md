@@ -169270,6 +169270,48 @@ was built and is NOT taken: the two parts compress apart, part 1's code at
 took `apps360.img` past its 354. It is kept for the day the ceiling bites
 again.
 
+**Apps size pass 2 (2026-10-16)** measured the player by its FILE - the
+LZ4-packed `VIDEO.O88`, 41,127 bytes and 41 clusters of the 360KB apps
+disk - and took cold code only, under the rules above: every routine
+`apps/video/rdiffhot.txt` names is instruction-identical and at an even
+shift in all three arms, and so is every play-time data word. What packs
+decides what is worth taking: LZ4 already stores a repeat of four bytes or
+more as a three-byte match, so a byte cut from UNIQUE code is most of a
+file byte, while folding a copy of something into a call buys almost
+nothing, and a rewrite that trades a common shape (`cmp byte [vp_pixfmt]`
+seven times) for a novel one (`cmp ch` seven times) made the file BIGGER
+by 21 bytes for 10 fewer in the image - measured and not taken.
+
+- **The bench's long divide and multiply are the card's** (`vp_ldiv` and
+  `vp_lmul`, 98.1.9.13's, were `vp_div32` and `vp_mul32` written again;
+  the bench's arithmetic is past its timed loop, and the remainder the
+  card's divide leaves in CX is read by nothing), and a Live planar
+  stream's keeper is sized by `vp_plshd`, the planar keyframe's own claim
+  - the same sum, written out a second time in `vp_sstart`. -48 bytes of
+  image, -21 of file.
+- **Can it play here** (`vp_canp1`) reads a screen of its own once into
+  BL for each of its two ladders, and stores the full screen's layout and
+  mode where it has them rather than loading them back after `vp_mdet`
+  (which keeps every register and reads neither); and `vp_canplay`'s two
+  parity pads (`inc bl` and `add sp, 4` where `inc bx` and two pops do)
+  are gone, the pass keeping every play routine's parity as a whole. -14
+  of image, -27 of file.
+- **The header's title is copied by the name's own loop** (`vp_cpn`, the
+  body of `vp_cpname` given a destination and a count): `vp_parse` swapped
+  DS and ES to copy it with `lodsb`/`stosb`, the same copy the other way
+  round. -16 of image, -3 of file - and -20 in the two knob arms, the
+  same cut packing differently around it.
+- **The card's number routines**: `vp_putt`'s forced NEAR jump to the pop
+  ladder is short, `vp_putn`'s `inc cl` an `inc cx` (CL is at most 3),
+  `vp_div32`'s first move an `xchg`, and `vp_mul32` the shorter body the
+  bench's copy had - four odd cuts that sum to an even -6, so every play
+  word after them keeps its parity; only the card's own text routines and
+  `vp_mul32`, which no play runs, moved by an odd byte. -6 of image, -3 of
+  file. The two string merges the second pass refused stay refused: either
+  alone puts the play's words after the strings (`vp_mxseg`, `vp_plsp`,
+  the state from `vp_kmax` on) an odd byte out, and no third odd cut lies
+  between them and those words.
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |
