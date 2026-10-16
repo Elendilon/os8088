@@ -187283,6 +187283,32 @@ disk. One change at a time:
 
 The image column is the file's, which `align 16` pads; the span is the code.
 
+**The whole of it: 12,535 -> 12,500 bytes on disk (-35), 13,680 -> 13,632 of
+image (-48)**; the small build 12,791 -> 12,761 and 14,016 -> 13,968. The bss
+(3,709) and every heap claim are unchanged, and no cluster moves on any system
+disk: 13 at 360 KB and 720 KB, 25 at 1.44 MB and 1.2 MB. What the first run of
+this pass had found and the size pass had ALREADY taken, so nothing was redone:
+the alert and its button kit (with it `OS88UI_NOGEST`, which this pass had
+set), `dc_aday`, `dc_fenter`'s save of `dc_ebuf`, `dc_build`'s `MUL`-made
+month key, the month-and-day and ten other bss PAIRS moved as one word, the
+composers' geometry reloads, and the `15 Min Early` / title / `Calendar`
+string tails. A second title tail - `dc_title` and the menu's name as labels
+into `os88stik.inc`'s `stik_tags` - measured +2 on the file and was left.
+
+**Not taken, outside the package** (the pass's rule 4, recorded for the
+owner): `os88gfx.inc`'s band utilities (`gfxe_bnew`, `bfold`, `bsize`,
+`bpix`, `bput`) are compiled into every `GFXE_BAND` package and the calendar
+calls none - 187 image bytes, ~160 packed, and the only other `GFXE_BAND`
+carriers (Wire, PiXEL) use them, so an opt-out gate would serve the calendar
+alone; and `os88line.inc`'s `os88line_set` (51 bytes; Browser, ftpd, Sheet and
+Weave call it).
+
+The rows that run the package: `stik` (fast), `deskcaledit`, `deskcaltask`,
+`deskcalgrid`, `deskcalremind`, `deskcalperf`, `deskcal1bpp`, `deskcalcards`,
+`deskcalsnooze`, `deskmodal`, `stikmove`, `stikmovecga`, `stikanchor`,
+`stiknodesk`, `stikregister` and `stiksmall`; `t_stik` also assembles
+`tests/stikprob`, the include's other consumer.
+
 ### 110.7 `kern_small`
 
 kern_small reads no SYSTEM.CFG (§51.5), has no shortcuts (`OS88_SHORTCUTS`)
