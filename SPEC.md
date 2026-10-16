@@ -176568,7 +176568,7 @@ from Tune, so it went: `cs_cfg_load` and `cs_cfg_apply` assemble only with
     the row's probe again: the fingerprint IS the identification, the one
     the user confirmed when the setting was tuned and saved on this board.
 
-It is `apps/rlapply/rlapply.asm`, **2,155 bytes with no bss** (the NEAT's five knobs were 122, the four rows of the first field round's tables, protocols and apply procs 409 more, and the WD76C10's lock sample 32), its 64-byte icon included, and it is the
+It is `apps/rlapply/rlapply.asm`, **2,131 bytes with no bss** (the NEAT's five knobs were 122, the four rows of the first field round's tables, protocols and apply procs 409 more, and the WD76C10's lock sample 32), its 64-byte icon included, and it is the
 shared files assembled `CS_APPLY_ONLY`: the row table and the fingerprint
 with no probe, the knob with no sweep, the file and the apply - so **nothing
 it can run touches a port before the fingerprint has matched**. It has no
@@ -176591,6 +176591,9 @@ assemble byte-identical to what they were:
   - **Save** - `cs_cfg_new`, `cs_cfg_knob` and `cs_cfg_save`, 127 bytes of
     code nothing in RLAPPLY calls (file -103). `od_write` stays, being
     `apps/os88data.inc`'s and ungated.
+  - **The NEAT's named setters** - `cs_ne_put` and `cs_ne_set`, the names
+    csprobe and the sweep call; RLAPPLY's `cs_ap_ne` reaches `cs_kput`
+    itself (24 bytes, file -23).
 
 `tests/rltune.py` launches it from `A:\SYSTEM` before REDLINE has saved and
 after, on QEMU, and reads the toast and the window list each time.
