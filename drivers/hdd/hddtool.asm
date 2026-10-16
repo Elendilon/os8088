@@ -52,7 +52,6 @@
 %include "inst.inc"
 %include "os88rseq.inc"         ; os88_rseq: READ_AT's registers, READ_SEQ's walk
 %include "cppage.inc"
-%include "iassoc.inc"
 
 ; -----------------------------------------------------------------------------
 ; hd_tentry - the dispatcher's landing site

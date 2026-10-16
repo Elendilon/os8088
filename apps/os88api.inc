@@ -4303,6 +4303,22 @@ OS88_BSS_SIZE equ 0
                                  ; READ-AND-CLEAR - the first proc to ask
                                  ; gets it, so a second instance launched
                                  ; later can never inherit a document
+%define OSAPI_ASSOC_FLUSH   KERNEL_SEG:0x0493   ; DL = a volume, AL = 0
+                                 ; incremental / 1 FULL: bring that volume's
+                                 ; ASSOC.DAT up to date with the packages on
+                                 ; it (SPEC.md 54.5, 54.7.6), so the next boot
+                                 ; knows their icons, their extensions and
+                                 ; where they are without reading them. For a
+                                 ; program that has just COPIED packages onto
+                                 ; a disk (an installer, or one installing
+                                 ; itself): call it after the copy with AL = 1,
+                                 ; which reads the header of every package the
+                                 ; old cache did not hold. Out CF=0 = done (or
+                                 ; already right); CF=1, AX = FERR_* = it could
+                                 ; not, and nothing was written - a full or
+                                 ; write-protected disk, or no system disk to
+                                 ; load the writer from. kern_small refuses
+                                 ; (CF=1). Synchronous; never from a worker
 %define OSAPI_ASSOC_SET     KERNEL_SEG:0x024F   ; claim an extension for a
                                  ; program (SPEC.md 54.5). ES:SI -> 3
                                  ; extension bytes then 8 stem bytes, both

@@ -1823,6 +1823,25 @@ _os88_assoc_set:
     ret
 %endif
 
+; os88_assoc_flush(vol, full) - OSAPI_ASSOC_FLUSH (SPEC.md 54.7.6): DL = the
+; volume, AL = 0 incremental / 1 full. Every register but AX comes back.
+CC_GATE _os88_assoc_flush
+%ifdef CC_U__os88_assoc_flush
+_os88_assoc_flush:
+    push bp
+    mov bp, sp
+    mov dl, [bp+4]
+    mov al, [bp+6]
+    or al, al
+    jz .go
+    mov al, 1
+.go:
+    call OSAPI_ASSOC_FLUSH
+    sbb ax, ax                      ; CF -> 0 / -1
+    pop bp
+    ret
+%endif
+
 %ifdef CC_U__os88_assoc_set
 ; cc_padcopy - copy CX bytes of the NUL string at SI to DI, padding with
 ; spaces (module-internal; DS for both ends).

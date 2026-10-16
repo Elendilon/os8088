@@ -1121,6 +1121,13 @@ int os88_arg_file(char *name13, struct os88_place *p);
  * this pads them. Your icon becomes the mark its documents carry. */
 int os88_assoc_set(const char *ext, const char *stem);
 
+/* os88_assoc_flush - bring volume vol's ASSOC.DAT up to date with the
+ * packages on it (54.7.6): after copying packages onto a disk, so the next
+ * boot knows their icons, their extensions and where they are. full != 0
+ * reads every package the old cache did not hold. Returns 0, or -1 if it
+ * could not (a full or write-protected disk, no system disk, kern_small). */
+int os88_assoc_flush(int vol, int full);
+
 /* The batch bracket (18.9.3): between these two a floppy may reuse its banked
  * BPB instead of re-reading LBA 0 at every volume switch - one call and one
  * revolution per switch, on a copy or an install. It nests, and any

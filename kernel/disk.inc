@@ -4059,6 +4059,9 @@ disk_mount_x:
                                 ; cache row, and the harvest has to fill it
                                 ; out of the header, or a package the cache
                                 ; does not name can never keep one
+    call asc_learn              ; A ROW TAKEN IS A ROW THIS VOLUME'S FILE LACKS
+                                ; (SPEC.md 54.7.6.1): post its flush and keep
+                                ; the declarations the store cannot hold
     test byte [assoc_hflags], LD_HF_GLYPH
     jz .h_noglyph               ; ships none: the zeros ico_add wrote are the
     mov si, dsk_secbuf+LD_H_GLYPH   ; truth, and a hit reducing the body is
@@ -8271,6 +8274,27 @@ ICO_NROW    equ 24              ; SPEC.md 51.0 leaves this kernel no
 ICO_NROW    equ 48
 %endif
 ICO_KB      equ (ICO_NROW*ICO_ROW + 1023) / 1024
+%ifdef OS88_ASSOC
+; THE CAPTURE (SPEC.md 54.7.6.2): the claim's KB rounding is 160 bytes past
+; the last row, and the harvest keeps there the one thing an ASSOC.DAT row
+; needs that the store does not hold - a declaring package's association
+; block - so the flush never reads a package a second time for it. It costs
+; no heap: those bytes were already claimed and unused.
+ICO_CAP      equ ICO_NROW * ICO_ROW
+ICO_CAP_MAX  equ 9                  ; records: one action's worth - the busiest
+                                    ; shipped folder declares eight. HOW MANY
+                                    ; are held is [ico_capn], beside [ico_n],
+                                    ; so the two words that empty the store
+                                    ; empty the capture too
+ICO_CAP_ROWS equ ICO_CAP            ; ICO_CAP_MAX bytes: each record's row
+ICO_CAP_REC  equ ICO_CAP + 10       ; ...and 16-byte records, the header's block
+%if ICO_CAP_ROWS + ICO_CAP_MAX > ICO_CAP_REC
+  %error "the capture's row bytes overrun its records"
+%endif
+%if ICO_CAP_REC + ICO_CAP_MAX * 16 > ICO_KB * 1024
+  %error "the capture (SPEC.md 54.7.6.2) no longer fits the icon store's KB rounding: shrink ICO_CAP_MAX, or pay a KB of claim and say so"
+%endif
+%endif
 
 ICO_R_FOLDER equ 0xFE           ; not a row: the built-in folder body
 ICO_R_NONE   equ 0xFF           ; ...and SPEC.md 25's generic icon
@@ -8296,7 +8320,11 @@ ico_need:
     call mem_claim_x
     jc .out                     ; CF = 1 is the refusal, as it arrives
     mov [ico_seg], dx
+%ifdef OS88_ASSOC
+    mov word [ico_n], 0         ; ...and [ico_capn] beside it: the capture is
+%else                           ; empty (SPEC.md 54.7.6.2)
     mov byte [ico_n], 0
+%endif
 %ifdef OS88_COMPACT             ; (kern_small: nothing moves, SPEC.md 66.0)
     mov ax, ico_reloc
     mov bx, MEM_P_ICO
@@ -8345,7 +8373,11 @@ ico_need:
 ; -----------------------------------------------------------------------------
 ico_demote:
     mov word [ico_seg], 0       ; NEITHER A FRAME NOR A `pushf` HERE - see the
-    mov byte [ico_n], 0         ; header: `mem_pg_forget` has banked the lot
+%ifdef OS88_ASSOC
+    mov word [ico_n], 0         ; header: `mem_pg_forget` has banked the lot.
+%else                           ; (A WORD: [ico_capn] goes with the store,
+    mov byte [ico_n], 0         ; SPEC.md 54.7.6.2)
+%endif
     jmp fmv_icostale            ; already. And `fmv_icostale` ENDS IN A `ret`
                                 ; whose caller is this routine's caller, so it
                                 ; IS this routine's epilogue and the tail jump
@@ -8592,6 +8624,12 @@ ico_seg:    dw 0                ; the store's claim, 0 = none (refused, or no
 ico_n:      db 0                ; rows in use. It only grows: the store is
                                 ; retired by a PURGE and not by a mount, which
                                 ; is what makes it machine-wide
+%ifdef OS88_ASSOC
+ico_capn:   db 0                ; ...and the capture's records (SPEC.md
+                                ; 54.7.6.2). RIGHT BEHIND [ico_n]: every
+                                ; store that empties the one is a word store
+                                ; that empties both
+%endif
 section .cold
 
 ; -----------------------------------------------------------------------------

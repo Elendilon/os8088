@@ -1672,13 +1672,18 @@ hd_inst_step:
 .apps:
     call hd_inst_apps
     jc .failed
-    call hd_iassoc              ; ...and the volume's OWN association cache,
-                                ; built from what is actually on it (SPEC.md
-                                ; 52.10.14). LAST, so it sees both disks'
+    push dx                     ; ...and the volume's OWN association cache,
+    mov dl, [hd_idrv]           ; built from what is actually on it (SPEC.md
+    mov al, 1                   ; 52.10.14) - by the kernel's writer in FULL
+    call OSAPI_ASSOC_FLUSH      ; mode (SPEC.md 54.7.6), which was this
+    pop dx                      ; tool's own hd_iassoc until the runtime
+                                ; flush made it the second copy of one
+                                ; algorithm. LAST, so it sees both disks'
                                 ; packages, and SILENT: the MBR is already
                                 ; committed and a cache that cannot be written
                                 ; is SPEC.md 54.7's absent tier rather than a
-                                ; failed install
+                                ; failed install - and the first harvest of
+                                ; the installed volume writes it after all
     mov byte [hd_iw_st], HII_DONE
 %ifdef INSTBENCH
     mov word [hd_imsg], hd_s_bdone  ; the rows below are the report now, so the
@@ -2428,8 +2433,8 @@ hd_icopy_tree:
                                 ; destination, it is wrong in a way the
                                 ; kernel cannot tell from right: `.HTM`
                                 ; resolves to BROWSER and then to a cluster
-                                ; that means nothing on C:. hd_iassoc builds
-                                ; the volume its own at the end of the
+                                ; that means nothing on C:. OSAPI_ASSOC_FLUSH
+                                ; builds the volume its own at the end of the
                                 ; install.
                                 ;
                                 ; ROOT-ONLY like the kernel above, and for a

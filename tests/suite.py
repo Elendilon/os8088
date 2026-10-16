@@ -2221,6 +2221,17 @@ SOAK = [
         "HELLO.ZZZ, which nothing declares: the search runs and the verdict "
         "is the old one",
         needs=("marty",), serial=True),
+    Row("assocflush", "soak", py("tests/assocflush.py"), 170.0,
+        "SPEC.md 54.7.6: what the machine learns is written BACK to the "
+        "volume's ASSOC.DAT. Five boots, every answer read off the floppy "
+        "the guest wrote: a cold B:\\APPS is ONE flush whose rows equal "
+        "os88disk's own builder; browsing it again is none; one new package "
+        "and seventeen cost the flush the same reads (the capture, 54.7.6.2); "
+        "the next boot knows .TEX and .HTM from B:\\MEDIA and reads a third "
+        "as much; a program found by a SWEEP has its row corrected; a full "
+        "disk is tried once a session. Red with the harvest's asc_learn, the "
+        "capture, the location trigger or [asc_wno] taken out",
+        needs=("marty",), serial=True),
     Row("assocvol", "soak", py("tests/assocvol.py"), 21.0,
         "SPEC.md 54.3.3, 98.4.7: a .V88 on a bare B: with VIDEO.O88 in "
         "A:\\APPS - its glyph once the association is learned (a raise "

@@ -1,10 +1,9 @@
 # Writing back what the machine learned: `ASSOC.DAT` at runtime
 
-**Status: PLAN. Nothing here is built. The owner's decisions are taken
-(§8).** Figures are taken against
-`elendilon` at `08ca1c2`. A figure marked **ESTIMATE** is counted from
-instruction lengths or from a comparable routine and has not been assembled.
-Every other figure was read off that build.
+**Status: BUILT, both waves. SPEC.md 54.7.6 is the contract and this file
+is now its design record.** §10 is what was MEASURED, and the places the
+build departed from what follows. Read §10 first: every figure above it is
+the ESTIMATE the work was planned against, and several were wrong.
 
 The ask, in the owner's words:
 
@@ -707,3 +706,58 @@ SPEC.md 54.5 beside `OSAPI_ASSOC_SET`. It also amends 54.7.5's last paragraph (a
 second runtime writer) and 52.10.14 (wave 2). This plan becomes that
 section's design record and moves to `docs/plans/completed/` in the commit
 that lands the last wave.
+
+## 10. What was built, measured, and where it departed from the plan
+
+Measured against `elendilon` at `c7216ad`, built in a tree of its own
+beside this branch's (`kernsize --json` on both).
+
+| | estimated | measured |
+|---|---:|---:|
+| `kern_big` resident | ~100-130 | **175** (`.text` +7, `.bss` +4, `.cold` +164). It crosses one cold rung: `KERN_SIZE` 98,304 → 98,816 of 100,864 |
+| `kern_small` resident | 6-10 | **6** (the cell, `.text`). Its `FORMAT.DRV` carries no flush code |
+| `FORMAT.DRV` image | +800-1,000 | 1,136 → **3,111** bytes; the file 1,097 → 2,850, **2 → 3 clusters** at 360KB |
+| `HDDTOOL.DRV` | -1,040 | `hddtool.bin` 17,507 → 16,483; the file 13,414 → 12,524, **14 → 13 clusters** |
+| 360KB system disk | -1 to 0 | **0** (347 of 354 clusters, as at the base) |
+| one action's flush, 5150 floppy | 2.5-4 s | **3.65 s** for one new package (7 reads, 8 writes); **4.07 s** for seventeen (10 reads, 5 writes) |
+| the next boot's `B:\APPS` | | **7 reads / 38 sectors** against 33 / 198 with no cache; `.TEX` and `.HTM` known from `B:\MEDIA` |
+
+`tests/assocflush.py` is the gate and its legs are §7's table. Each break §7
+names was built and run, and each goes red.
+
+**Where the build departed from the plan:**
+
+1. **The resident figure is 175, not ~100-130.** `asc_learn` (the capture
+   and its post) is 69 of it, `asc_post` 29, the location trigger 26, and the
+   dispatch, the stub and the cell's far entry the rest. Rung-shaped or not,
+   that is the number.
+2. **The capture has no per-row "harvested" bitmap.** A row the capture holds
+   no record for is judged by the app-slot table instead. A package that
+   declares always takes a slot (`assoc_note_app`, `asc_merge_ext`), so "no
+   slot" means plain, unless the table is FULL, in which case it proves
+   nothing and the header is read. Full mode reads every header and trusts
+   nothing in RAM. The record COUNT is a resident byte, `[ico_capn]`, right
+   behind `[ico_n]`, so the two word stores that empty the store empty the
+   capture with it (`ico_need`, `ico_demote`).
+3. **The module's scratch is in the image, as zeros, not in `.modfb`.** 48
+   bytes of nobits overflowed the claim's KB rounding by 14, and that rounding
+   is a cliff (MODULE-SELFCONTAIN-PLAN 3.2). Zeros cost the compressed file
+   almost nothing.
+4. **`asc_flush` always drops the image.** No formatter code can be on the
+   stack when a flush runs, and a format prompt that was holding the image
+   reloads it through `dskw_fmt_go` like every formatter stub already does.
+5. **The writer is about twice the size estimated**, which costs
+   `FORMAT.DRV` a cluster. Wave 2 returns it, so the system disk is level.
+6. **An iconless package is not written incrementally.** The store never takes
+   one (§1's finding), so nothing in RAM learns about it; full mode writes it.
+7. **The gate found a defect the review did not.** The root walk's
+   eleven-byte name compare was read off ZF after the loop, and `inc di`
+   clears ZF, so `ASSOC.DAT` was never found and every flush rebuilt from the
+   store. It read as a working flush that cost twice the reads, which is
+   exactly what the ONE FLUSH leg's bound exists to catch.
+8. **The cap binds on a shipped disk.** `apps720.img` holds 32 packages and
+   its cache 32 rows, so a 33rd package on that disk has one plain row
+   dropped, and its folder posts one flush a session that writes nothing
+   (§6 hazard 5). Raising `ASC_NAPP` would end that, at a transient KB or
+   two of heap on every mount that reads a cache. That is left as a separate
+   decision.

@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "545f89db17d8fc53d66abe2f3c1761a9bf003c4e7c31732019b71d4a6181991c",
+  "fingerprint": "76db0c6485a05e20cc6aa5649c86ed0430710447cfb672128736b5dfeb5757e8",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "c74cf3c166c72ef7cc661b394114a30dcc8b772cd8730986cd9d66548bb9f4ac",
+  "fingerprint": "1b54119e966a2494d5b90e15a31d51708f5865657efcde14953e16ddaacc6243",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -189,6 +189,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "elendilon -> main merge (base 13e58898): elendilon's SDK additions over main's PKG_FMT 10 / DRV_VER 11, no bump. OSAPI_MEM_HMA and OSAPI_WM_QUIET were appended at 0x046D/0x0473 on elendilon and collided with main's OSAPI_THM_SET/CLK_GET at the same tail; main's cells keep their addresses and elendilon's two move after them, to 0x0487 and 0x048D - cells added at the end of main's table, so everything built against main still runs",
+   "to": 11
+  },
+  {
+   "fingerprint": "1b54119e966a2494d5b90e15a31d51708f5865657efcde14953e16ddaacc6243",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_ASSOC_FLUSH (0x0493) appended past the last cell (SPEC.md 54.5, 54.7.6): a new slot at the end, so every package built before still runs - no PKG_FMT bump",
+   "to": 10
+  },
+  {
+   "fingerprint": "76db0c6485a05e20cc6aa5649c86ed0430710447cfb672128736b5dfeb5757e8",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_ASSOC_FLUSH (0x0493) appended past the last cell (SPEC.md 54.5, 54.7.6): a new slot at the end, so every package built before still runs - no PKG_FMT bump",
    "to": 11
   }
  ]
