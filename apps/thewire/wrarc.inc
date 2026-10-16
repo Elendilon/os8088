@@ -821,14 +821,12 @@ wr_ramck:
     call wr_selrec
     mov ax, [es:si+WC_NEEDKB]
     mov [wr_needkb], ax
-    mov bh, RD_CLASS
-    mov bl, RDPV_IDENT
+    mov bx, (RD_CLASS << 8) | RDPV_IDENT
     call OSAPI_DRV_CALL
     jc .nodrv
     cmp ax, RD_SIG
     jne .nodrv
-    mov bh, RD_CLASS
-    mov bl, RDPV_STATE
+    mov bx, (RD_CLASS << 8) | RDPV_STATE
     call OSAPI_DRV_CALL
     jc .nodrv                       ; an OLDER driver, whose RDPV_MAX is 1
     cmp al, 0xFF
@@ -863,8 +861,7 @@ wr_ramck:
     mov bl, 0xFF                    ; the PREDICATE only asked, and mounting
     jmp short .yes                  ; from a painter would put a volume on the
 .doit:                              ; desktop every time the window redrew
-    mov bh, RD_CLASS
-    mov bl, RDPV_MOUNT
+    mov bx, (RD_CLASS << 8) | RDPV_MOUNT
     call OSAPI_DRV_CALL             ; AX = the KB, rounded already
     jc .short                       ; it refused after answering that it could:
                                     ; say the size, which is still the thing a

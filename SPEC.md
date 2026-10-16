@@ -144881,6 +144881,14 @@ the package had twice or did not need.
   the selected title the same way three times, and the two that toast set
   `[wr_msg]` and called `OSAPI_TOAST` the same way twice; each is a routine
   now. Two ES loads nothing read went with them.
+- **Smaller exits everywhere else.** `wr_netcheck` had one caller and is
+  inline in `wr_refresh`; `wr_lockarm`, `wr_dall`, `wr_dend`, `wr_dglyph`,
+  `wr_rowrect` and `wr_refresh` end in a tail jump; `wr_dive` returns the
+  CF `OSAPI_FILE_GOTO_QM` gave it, and `wr_ieq` the one its own `or` left;
+  `wr_hclose` takes the handle with one `xchg`, so it is NONE from that
+  instruction on and the superseded-open arm of `wr_nstep` closes through
+  it; and the three RAM-disk verbs load BX as one word. (`NET_CLASS` cannot
+  be folded the same way: in a package it is the byte `[net_cls]`.)
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 

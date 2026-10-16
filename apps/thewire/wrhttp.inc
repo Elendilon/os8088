@@ -140,13 +140,13 @@ wr_pathbuild:
 wr_hclose:
     push ax
     push bx
-    cmp byte [wr_hnd], 0
-    je .out
-    mov al, [wr_hnd]
+    xor al, al
+    xchg al, [wr_hnd]                   ; the handle, and NONE from this one
+    or al, al                           ; instruction on - so the other task's
+    jz .out                             ; wr_hclose cannot close it twice
     mov bh, NET_CLASS
     mov bl, NETV_CLOSE
     call OSAPI_DRV_CALL
-    mov byte [wr_hnd], 0
 .out:
     pop bx
     pop ax
@@ -230,10 +230,10 @@ wr_nstep:
     mov byte [wr_state], WS_WAIT
     jmp .redraw
 .stale:                                 ; superseded WHILE OPENING: this socket
-    mov bh, NET_CLASS                   ; belongs to nobody, and leaving it
-    mov bl, NETV_CLOSE                  ; would hold a handle for the session
-    call OSAPI_DRV_CALL
-    jmp .out
+    mov [wr_hnd], al                    ; belongs to nobody, and leaving it
+    call wr_hclose                      ; would hold a handle for the session.
+    jmp .out                            ; If the UI task closes it first, the
+                                        ; xchg there leaves this one nothing
 .nodrv:
     mov si, wr_s_nodrv
     jmp .fail

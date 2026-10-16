@@ -572,8 +572,7 @@ wr_clip:
 wr_lockarm:
     call OSAPI_GFX_LOCK
     call wr_clip
-    call wr_geom
-    ret
+    jmp wr_geom
 
 ; --- wr_dall - the whole content, from a state change ------------------------
 ; The menu follows the buttons, the list follows the catalog and the pane and
@@ -583,15 +582,13 @@ wr_dall:
     call wr_menufix
     call wr_dlist
     call wr_ddet
-    call wr_dstat
-    ret
+    jmp wr_dstat
 
 ; --- wr_dend - what every finished chain redraws -----------------------------
 wr_dend:
     call wr_menufix
     call wr_dstat
-    call wr_dbtns
-    ret
+    jmp wr_dbtns
 
 ; =============================================================================
 ; THE PAINTERS
@@ -677,8 +674,7 @@ wr_dglyph:
     xor ah, ah                          ; never disabled: an empty catalog
                                         ; still filters to nothing, which is a
                                         ; true answer and not a refusal
-    call os88ui_glyph
-    ret
+    jmp os88ui_glyph
 
 ; -----------------------------------------------------------------------------
 ; wr_dlist - the list pane: its frame, every visible row, and the scroll bar
@@ -785,8 +781,7 @@ wr_rowrect:
     add cx, [wr_ox]
     mov dx, [wr_rowy]
     add dx, WR_ROWH - 1
-    call wr_dy
-    ret
+    jmp wr_dy
 
 ; --- wr_icocopy - 64 bytes from the catalog claim into wr_icobuf + 2 ---------
 ; in:  ES:SI = the record's WC_ICON; DS = ours
@@ -2736,8 +2731,18 @@ wr_refresh:
     mov [wr_picok], al
     dec ax
     mov [wr_sel], ax                    ; 0xFFFF, nothing selected
-    call wr_netcheck
-    jc .say
+    call net_find                       ; --- IS THERE A STACK AT ALL? net_find
+    mov ax, wr_s_nodrv                  ; and NETV_STATE (OS88SOCK_STATE) are
+    mov bl, 1                           ; worker-safe AND UI-safe, so asking
+    jc .nonet                           ; here costs the worker nothing and
+    jz .nonet                           ; lets the window open already saying
+    xor ax, ax                          ; what is wrong (NSTF_SOCK clear is
+    xor bl, bl                          ; the jz)
+.nonet:
+    mov [wr_msg], ax
+    mov [wr_nodrv], bl
+    or bl, bl
+    jnz .say
     mov ax, WIRE_CATMAX / 1024          ; the transfer wants the whole ceiling
     mov dx, [wr_catseg]                 ; again: the first time a claim, and
     or dx, dx                           ; every time after a REGROW of the one
@@ -2766,32 +2771,7 @@ wr_refresh:
 .nomem:
     mov word [wr_msg], wr_s_nomem
 .say:
-    call wr_dall
-    ret
-
-; --- wr_netcheck - is there a stack at all? ----------------------------------
-; out: CF = 1 no, [wr_nodrv] set and [wr_msg] said
-; net_find is worker-safe AND UI-safe, so asking here costs the worker nothing
-; and lets the window open already saying what is wrong.
-wr_netcheck:
-    push ax
-    push bx
-    mov byte [wr_nodrv], 0
-    call net_find                       ; ...and NETV_STATE (OS88SOCK_STATE)
-    jc .no
-    jz .no                              ; NSTF_SOCK clear
-    mov word [wr_msg], 0
-    pop bx
-    pop ax
-    clc
-    ret
-.no:
-    mov byte [wr_nodrv], 1
-    mov word [wr_msg], wr_s_nodrv
-    pop bx
-    pop ax
-    stc
-    ret
+    jmp wr_dall
 
 ; --- wr_picwant - fetch the selected record's picture, if the worker is free -
 wr_picwant:
@@ -3230,22 +3210,15 @@ wr_dive:
     jc .no
     cmp word [wr_fbuf+14], OSAPI_FT_DIR
     jne .l
-    push cx
     mov si, [wr_dvname]
     mov di, wr_fbuf
-    call wr_ieq
-    pop cx
+    call wr_ieq                         ; (CX kept)
     jc .l
     mov dx, [wr_fbuf+16]
     call OSAPI_FILE_HERE                ; BL = the drive; DX is spent by it...
     mov dx, [wr_fbuf+16]                ; ...so the cluster goes back
-    call OSAPI_FILE_GOTO_QM
-    jc .no
-    clc
-    ret
-.no:
-    stc
-.out:
+    call OSAPI_FILE_GOTO_QM             ; CF = its answer, which is ours
+.no:                                    ; ...and CF = 1 on the jump here
     ret
 
 ; --- wr_ieq - the NUL strings at DS:SI and DS:DI, case-blind. CF = 0 equal ---
@@ -3261,14 +3234,11 @@ wr_ieq:
     xchg al, bl
     cmp al, bl
     jne .no
-    or al, al
-    jz .yes
+    or al, al                           ; both NUL: equal, and `or` has
+    jz .out                             ; cleared CF
     inc si
     inc di
     jmp short .c
-.yes:
-    clc
-    jmp short .out
 .no:
     stc
 .out:
