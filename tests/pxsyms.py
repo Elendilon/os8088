@@ -29,11 +29,14 @@ def pkg_syms(defines=()):
 
 
 def same_header(got, image):
-    """The first 32 bytes of a loaded PiXEL against this tree's image, the
-    LINK word (+4) excepted: a parted package whose image ships packed keeps
-    the packed length there in the loaded header (SPEC.md 20.13.8), where
-    the assembled image has 0."""
-    return got[:4] == image[:4] and got[6:32] == image[6:32]
+    """The first 32 bytes of a loaded PiXEL against this tree's image, with
+    what the FILE adds excepted: a compressed package runs with the header it
+    shipped (the clear prefix, SPEC.md 20.13.1), so the compression bits of
+    the flags byte (+3, bits 3 and 4) are set there and not in the assembly,
+    and a parted package whose image ships packed keeps the packed length in
+    the LINK word (+4), where the assembly has 0 (SPEC.md 20.13.8)."""
+    return (got[:3] == image[:3] and (got[3] & ~0x18) == (image[3] & ~0x18)
+            and got[6:32] == image[6:32])
 
 
 def instance(m, S, image):
