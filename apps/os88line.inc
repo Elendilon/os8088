@@ -460,6 +460,11 @@ os88line_caroff:
     pop ax
     ret
 
+%ifndef OS88LINE_NOEDIT
+; `%define OS88LINE_NOEDIT` before the %include leaves this routine out - for
+; a package that only ever repaints the whole field with os88line_draw, which
+; is every carrier but DOS and DeskCal (SPEC.md 83.1.2). It is ~160 image
+; bytes and ~125 packed, and nothing else in this file calls it.
 ; -----------------------------------------------------------------------------
 ; os88line_edit - repaint what ONE EDIT changed, and not the rest
 ; in:  SI = the block, AX = LN_VIEW as it was BEFORE the key,
@@ -601,6 +606,7 @@ os88line_edit:
     pop bx
     pop ax
     ret
+%endif ; OS88LINE_NOEDIT
 
 ; -----------------------------------------------------------------------------
 ; os88line_key - one keystroke

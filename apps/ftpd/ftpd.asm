@@ -8182,6 +8182,7 @@ fd_tpl:
 %define OS88UI_NOGEST           ; presses routed by hand: no gesture install (SPEC.md 20.5.1.3.4)
 %define OS88UI_NOGRADIO       ; check boxes only: no radio ring/dot (SPEC.md 13.15.3)
 %include "os88ui.inc"
+%define OS88LINE_NOEDIT         ; nothing here calls os88line_edit (SPEC.md 83.1.2)
 %include "os88line.inc"             ; the Setup page's address field. AFTER
                                     ; os88ui.inc, which it needs the UI_*
                                     ; macros from (its own header says so)

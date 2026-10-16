@@ -8700,6 +8700,7 @@ br_s_bad:   db 'Cannot open page', 0
                                 ; its bytes
 %define OS88UI_NOGLYPH          ; no check box or radio drawn here (SPEC.md 13.8.9)
 %include "os88ui.inc"           ; the standard button (SPEC.md 20.5.1)...
+%define OS88LINE_NOEDIT         ; nothing here calls os88line_edit (SPEC.md 83.1.2)
 %include "os88line.inc"         ; ...and the one-line field the bar is
 %include "brnet.inc"            ; ...and the fetch (NET-STACK-PLAN stage D)
 %define OS88SOCK_STATE             ; ...every net_find here asks NETV_STATE too

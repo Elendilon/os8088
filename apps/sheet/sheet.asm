@@ -19798,6 +19798,7 @@ sh_s_dif_eod:  db '-1,0', 13, 10, 'EOD', 13, 10, 0
 ; and mid-string editing, replacing the append-only in-cell editor this app
 ; had before. MUST come after os88ui.inc (it uses its UI_* macros) and before
 ; OS88_BSS, which is os88ui.inc's own placement rule for the same reason.
+%define OS88LINE_NOEDIT         ; nothing here calls os88line_edit (SPEC.md 83.1.2)
 %include "os88line.inc"
 
 ; stage 3.0b: its multi-line sibling, new in this stage and written to the same

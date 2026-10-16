@@ -130738,6 +130738,20 @@ version could not state its own promise: *repaint what one edit changed* has to
 include the caret, and a routine that is told where the text was but not where
 the bar was can only ever get it right by luck.
 
+
+#### 83.1.2 `OS88LINE_NOEDIT` - a carrier that never takes the cheap path
+
+`os88line_edit` is the narrow repaint of §83.1.1 and §96.19.1, and only two
+packages call it: DOS's command line and DeskCal's cells. Every other carrier
+repaints a whole field with `os88line_draw` and was shipping the routine for
+nothing - ~160 image bytes and ~125 packed in each of **Browser, FTPD, Telnet,
+Sheet, Weave, LOOM's `lmpvmod`, `SAVER.DRV` and `ETHER.DRV`**. `%define
+OS88LINE_NOEDIT` before the `%include` leaves it out, in `os88ui.inc`'s
+`OS88UI_NO*` shape: an OPT-OUT, so a new carrier gets the whole control and
+has to ask for less, and a carrier that defines it and then calls the routine
+fails to assemble on the undefined label rather than running wrong. Apps size
+pass 2, at the owner's word; nothing else in the file calls it, so it gates
+one routine and nothing more.
 ### 83.2 The multi-line block, and what it does not do
 
 ```
