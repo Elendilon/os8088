@@ -5575,6 +5575,9 @@ dsk_fatw_drop:
     pop bx
     pop ax
     ret
+%elifdef KERN_SMALL
+    nop                         ; PARITY PAD, never executed (kernel size pass
+                                ; 13): dsk_next_clus_x back at an even shift
 %endif                          ; OS88_DRIVERS
 
 ; -----------------------------------------------------------------------------

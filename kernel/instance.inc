@@ -1666,6 +1666,9 @@ app_close_win:
 .out:
     pop di
     ret
+    db 0                        ; PARITY PAD, never executed (kernel size pass
+                                ; 13): ui_task and everything to the end of
+                                ; .text back at an even shift on both kernels
 
 ; -----------------------------------------------------------------------------
 ; inst_minimize - send a window's instance to the dock

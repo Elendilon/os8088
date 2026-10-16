@@ -5120,6 +5120,10 @@ osapi_video:
                                 ; fact vid_depth_set stores as a word, so the
                                 ; two cannot disagree (kernel size pass 13: it
                                 ; was a compare on [vid_mono] and two moves)
+%ifdef KERN_BIG
+    db 0                        ; PARITY PAD, never executed (kernel size pass
+%endif                          ; 13): gfx_blit4, font_run, the ISRs and the
+                                ; scheduler back at an even shift on kern_big
 
 osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 
