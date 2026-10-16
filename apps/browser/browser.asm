@@ -1977,14 +1977,12 @@ br_onkey:
 br_keydelta:
     cmp ah, KSC_UP
     jne .dn
-    mov cx, -1
-    clc
-    ret
+    mov cx, -1                      ; CF=0 already: an EQUAL compare clears
+    ret                             ; it and a MOV leaves it (apps size pass 2)
 .dn:
     cmp ah, KSC_DOWN
     jne .pgup
     mov cx, 1
-    clc
     ret
 .pgup:
     cmp ah, KSC_PGUP
@@ -2009,12 +2007,10 @@ br_keydelta:
     cmp ah, KSC_END
     jne .no
     mov cx, [br_nlines]
-    clc
     ret
-.page:
-    mov cx, [br_rows]
+.page:                              ; both ways in were an EQUAL compare,
+    mov cx, [br_rows]               ; and DEC does not touch CF
     dec cx
-    clc
     ret
 .no:
     stc
@@ -2410,37 +2406,28 @@ br_reload:
     ret
 
 ; --- the three predicates, each answering CF=0 LIVE (gfx_pen_cf's shape) -----
+; Each is the COMPARE ITSELF and no branch (apps size pass 2): an unsigned
+; `cmp x, 1` borrows exactly when x is 0, so CF is the "no" answer as it
+; stands, and Forward's `histi + 1 < histn` is the borrow inverted. Every
+; caller reads CF and nothing else.
 br_okback:
-    cmp word [br_histn], 0
-    je .no
-    cmp word [br_histi], 0
-    je .no
-    clc
-    ret
-.no:
-    stc
+    cmp word [br_histn], 1          ; no history at all...
+    jc .out
+    cmp word [br_histi], 1          ; ...or already at the oldest
+.out:
     ret
 
 br_okfwd:
     push ax
     mov ax, [br_histi]
     inc ax
-    cmp ax, [br_histn]
+    cmp ax, [br_histn]              ; CF = there IS a newer entry...
+    cmc                             ; ...and CF=0 is what says so
     pop ax
-    jb .yes
-    stc
-    ret
-.yes:
-    clc
     ret
 
 br_okrel:
-    cmp byte [br_ubuf], 0
-    je .no
-    clc
-    ret
-.no:
-    stc
+    cmp byte [br_ubuf], 1           ; CF = the bar is empty
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2479,22 +2466,6 @@ br_toolbar:
     call br_btn1
     call br_status
     jmp br_pop6
-
-; --- br_inrect - is (CX,DX) inside the rect at BX? CF=0 yes ------------------
-br_inrect:
-    cmp cx, [bx]
-    jb .no
-    cmp cx, [bx+4]
-    ja .no
-    cmp dx, [bx+2]
-    jb .no
-    cmp dx, [bx+6]
-    ja .no
-    clc
-    ret
-.no:
-    stc
-    ret
 
 ; --- br_btn1 - one toolbar button; CF on entry = 0 live, 1 disabled ----------
 ; in: AL = the button's index PLUS ONE, CF from its own ok-predicate
@@ -2848,12 +2819,7 @@ br_resolve:
 
 ; --- br_haveh - is there a host to be relative to? CF=1 = no ----------------
 br_haveh:
-    cmp byte [br_host], 0
-    je .no
-    clc
-    ret
-.no:
-    stc
+    cmp byte [br_host], 1           ; borrows exactly when the host is empty
     ret
 
 ; --- br_hrefpfx - does the href at ES:SI start with the NUL string DS:BX? ----
@@ -8842,11 +8808,6 @@ br_s_radio:   db 'radio', 0
 br_s_option:  db 'option', 0
 br_s_selected: db 'selected', 0
 br_s_select:  db 'select', 0
-br_s_subbtn:  db '<', D_NBSP, 'Submit', D_NBSP, '>', 0   ; ONE WORD, so the
-                                    ; wrap moves the whole button to the next
-                                    ; line rather than splitting it. FrogFind's
-                                    ; is at the end of a line and came out as
-                                    ; `< Submit` with the `>` alone below
 br_s_scheme:  db 'http://', 0
 br_s_schemes: db 'https://', 0
 br_s_colon:   db ':', 0

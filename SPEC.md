@@ -115323,6 +115323,27 @@ for spans, alignment and unsupported controls; a local HTTP test checks the
 POST request line, headers, exact length and body. Existing GET, formatting
 and frame-navigation behavior remains covered.
 
+### 71.18 Apps size pass 2 — the shipped file, not the machine
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md's subject is DISK room, so the measure is
+the LZ4-packed `BROWSER.O88` (17,832 bytes, 18 clusters on `apps360.img` and
+`network360.img` both, at the cut) and not image + bss. Code packs to ~0.9 of
+itself here, so a disk byte is an instruction that stops existing; a sequence
+that merely REPEATS packs to ~3 bytes already and is not worth factoring. No
+behaviour moves: every change below was run against the cut's own binary under
+a stub kernel - the parse, layout and per-line compose of every page in
+`tests/htm/` and `BROWSER.HTM` at five widths, URL split and resolution, the
+history and its predicates, form submission and the request it builds, page
+clicks, and the whole fetch state machine through a fake socket driver with
+redirects and frames - and left the same bytes behind.
+
+- **The predicates are the compare.** `br_okback`, `br_okfwd`, `br_okrel` and
+  `br_haveh` answer CF and every caller reads CF and nothing else, so an
+  unsigned `cmp x, 1` (which borrows exactly when x is 0) IS the answer and
+  the `je`/`clc`/`stc` around it goes; Forward is its compare's borrow
+  inverted by `cmc`. `br_keydelta`'s four `clc`s after an EQUAL compare were
+  already true. `br_inrect` and `br_s_subbtn` had no reference left at all.
+
 ### 72.1 What the packages did have to change, which is one question
 
 The claim "without one byte changing" is not quite true and the exact shortfall
