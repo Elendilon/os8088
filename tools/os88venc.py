@@ -860,16 +860,16 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     31: "09f14123f968592f", 32: "413eeac77e2d4441",
                     33: "1cb11afeb374b243", 34: "60df56fd426010fd",
                     35: "e1090fc6c20c5367", 36: "00e7310bd1a264d8"}
-LAG_MS = "50-200"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
+LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
-                        # number tuned by hand - on Mech2 at 15 fps, 100 ms
-                        # cut 26 frames, 150 cut 89 and 200 cut 20, so no
-                        # number is the clip's. How far behind a picture may
-                        # be without the eye minding is still the VIDEO's
-                        # (Bad Carrot's flames read smooth at 186 ms; lip
-                        # sync would not), so the search takes the LEAST lag
-                        # that cuts the fewest frames, and the top of the
-                        # range is the most a file will ever show
+                        # number tuned by hand. Its top is the 100 ms that
+                        # was the default, so no file shows more lag than it
+                        # could before, and the search keeps a burst that
+                        # cuts nothing nearer the sound. How far behind a
+                        # picture may be without the eye minding is the
+                        # VIDEO's (Bad Carrot's flames read smooth at 186 ms;
+                        # lip sync would not), so a file that wants more
+                        # raises the top - 50-200 cut Mech2's 26 frames to 20
 LAG_WIN = 4.0           # a search plays each candidate this many seconds
                         # at most...
 LAG_SETTLE = 1.0        # ...or this long past its picture level again,
@@ -9628,7 +9628,7 @@ def parser():
                     metavar="MS|LO-HI",
                     help="with a card's sound: how far the picture may fall "
                          "behind the sound in a burst and catch up after, "
-                         "milliseconds. LO-HI, the default 50-200, is a "
+                         "milliseconds. LO-HI, the default 50-100, is a "
                          "RANGE: at each burst the encoder plays every "
                          "allowance in it half a frame apart and keeps the "
                          "one that cuts the fewest frames, the least lag of "

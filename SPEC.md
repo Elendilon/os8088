@@ -169449,7 +169449,7 @@ card's ring is what lets the second be on time.
 
 **The default was 100 ms** - 2.4 frames at 24 fps, 3 at 30 - and it was
 first `--flip-lag 3` (frames, flipped files only); since 2026-10-16 it is
-the RANGE `50-200`, searched for each burst (98.2.1.1.3). How far behind a
+the RANGE `50-100`, searched for each burst (98.2.1.1.3). How far behind a
 picture can be without the eye minding is the VIDEO's and not the
 machine's: Bad Carrot's flames ran 186 ms behind on the Victory and read
 smooth, being timed to nothing in the sound, where a face speaking would
@@ -169493,7 +169493,7 @@ where the schedule's ceiling was under `--peak`.
 ###### 98.2.1.1.3 The lag searched: a range, and the allowance per burst (2026-10-16)
 
 **`--lag LO-HI` gives the encoder a RANGE, and at each burst it finds the
-allowance in it that cuts the fewest frames** - the default, `50-200`. The
+allowance in it that cuts the fewest frames** - the default, `50-100`. The
 owner, 2026-10-16: on Mech2 (15 fps, mode 13h, `286-picomem1`, PCM8),
 *"50ms lag cuts over 150 frames, 100ms lag cuts 26, 150ms lag cuts over
 150 frames ... I don't want to find out on another video that another
@@ -169552,6 +169552,21 @@ a burst that cuts goes, and what the search buys is the bottom wherever
 the burst is free: **the top is the most lag the file will ever show, and
 choosing it is the video's question still (98.2.1.1.2)**. `50-150` cut 22,
 as `150` does, and kept the same four at 33 ms.
+
+**So the default is `50-100`** (the owner, 2026-10-16: *"Lag is very video
+dependent ... the user can bump it up when they need to for things that
+benefit"*). Its top is the 100 ms that was the default, so its sync is
+never worse than before: the picture is never further behind than the
+call short of 100 ms, which is where fixed 100 already reached - the old
+ceiling stopped short of it but the next frame started at that call
+anyway. Everywhere a burst cuts nothing at either allowance it is kept a
+call nearer. Its cuts are fixed 100's or fewer over each burst it
+searches, the top being one of the candidates - over a whole clip that is
+not a proof, one burst's choice leaving the next a different start - and
+where 100 ms is between two calls (2.4 frames at 24 fps) fixed 100 itself
+now has the room the ceiling's fix gives it. On Mech2:
+26 frames cut, as 100 cuts, the picture at most 67 ms behind as before,
+the four free bursts at 33 ms, at 0.5 times the clip played to choose.
 
 The summary says what it chose: `lag search: 9 bursts searched at --lag
 50-200, the picture at most 33/67/100/133/167 ms behind; chose 33 ms x4,
