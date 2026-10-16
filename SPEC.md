@@ -142148,10 +142148,10 @@ The second pass measures what the package costs a DISK
 
 | | before | after |
 |---|---|---|
-| file (LZ4) | 3,549 | **3,466** (-83) |
-| image | 4,381 | **4,272** (-109) |
+| file (LZ4) | 3,549 | **3,464** (-85) |
+| image | 4,381 | **4,270** (-111) |
 | bss | 1,542 | 1,541 (`FV_PAD`: the parity moves with the image) |
-| image + bss | 5,923 | **5,813** (-110) — a 6 KB claim either way |
+| image + bss | 5,923 | **5,811** (-112) — a 6 KB claim either way |
 | heap claims | one face (its file's KB) + the pre-shift table | unchanged |
 
 **What the file is made of** (each byte charged its share of the LZ4 stream):
@@ -142192,6 +142192,11 @@ file byte saved.
   file): it only ever holds 0 or 1, so `shr byte [fv_pending], 1` leaves the
   old value in CF and 0 behind, where an `xchg` through AL and an `or` did
   the same in ten bytes.
+- **`fv_sysline` offsets the point and not a rect** (-2 image, -2 file):
+  `fv_abs` adds the origin to AX/BX before falling into `fv_abscd`, which
+  adds it to CX/DX, and a line of text wants only the second half - so
+  `fv_sysline` no longer banks BX or adds to AX and BX, and every lettered
+  line is a `push`, a `pop` and two memory adds (~65 cycles) cheaper.
 
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 

@@ -343,15 +343,13 @@ fv_lastline:
 ; One opaque line in the always-readable system face, at CX/DX relative.
 ; Preserves BX, CX and DX - fv_draw_list's row walk rides on all three.
 fv_sysline:
-    push bx
     push cx
     push dx
-    call fv_abs
+    call fv_abscd                   ; BX is never touched, so never banked
     mov ax, (CWHITE << 8) | CBLACK
     call OSAPI_FONT_RUN
     pop dx
     pop cx
-    pop bx
     ret
 
 ; Clobbers AX-DX, SI and DI.
@@ -436,10 +434,12 @@ fv_origin:
     ret
 
 ; AX/CX += [fv_x], BX/DX += [fv_y]: a relative rect made a screen one.
+; fv_abscd is its second half, the point CX/DX alone: fv_sysline's.
 fv_abs:
     add ax, [fv_x]
-    add cx, [fv_x]
     add bx, [fv_y]
+fv_abscd:
+    add cx, [fv_x]
     add dx, [fv_y]
     ret
 
