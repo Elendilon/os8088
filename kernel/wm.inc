@@ -222,6 +222,17 @@ WF_NOANIM  equ 0x4000          ; W_FLAGS bit14: this window does NOT zoom on
                                ; with WF_STALE. kern_big only - kern_small has
                                ; no animation to opt out of, and the bit is
                                ; defined in both so a test is not %ifdef'd
+WF_QUIET   equ 0x1000          ; W_FLAGS bit12: WHILE THIS WINDOW IS UP, AN
+                               ; IDLE SESSION BLANKS THE SIGNAL rather than
+                               ; ANIMATING (SPEC.md 79.10). Set and cleared
+                               ; with OSAPI_WM_QUIET; read in ONE place,
+                               ; ss_start_x, when a session starts. A WINDOW BIT
+                               ; and not a count, so it cannot leak: the
+                               ; record dies with the program. kern_big reads
+                               ; it; kern_small has no animation, and its
+                               ; OSAPI_WM_QUIET is a bare `ret`. In this byte
+                               ; with the kernel's other bits, so WF_HIBITS
+                               ; carries it across the cursor shape
 WF_1BPP    equ 0x2000          ; W_FLAGS bit13: EVERY PIXEL OF THIS WINDOW'S
                                ; CONTENT IS COLOUR 0 OR COLOUR 15 (SPEC.md
                                ; 11.96.17). The second half of 11.96.1's
@@ -299,7 +310,7 @@ WF_HOVER   equ 0x0800          ; W_FLAGS bit11: the pointer is over this DESK
                                ; only by cur_shape_pass's hover edge - SET or
                                ; CLEAR, never toggled - and read by the
                                ; widget's W_ONWAKE
-WF_HIBITS  equ (WF_STALE | WF_NOANIM | WF_1BPP | WF_USRSZ | WF_DESK | WF_HOVER) >> 8
+WF_HIBITS  equ (WF_STALE | WF_NOANIM | WF_1BPP | WF_USRSZ | WF_QUIET | WF_DESK | WF_HOVER) >> 8
 %if WF_HIBITS & (CUR_NWSHAPE - 1)
   %error "WF_HIBITS overlaps the cursor shape field - SPEC.md 7.2.1/11.96.17"
 %endif
@@ -1342,12 +1353,25 @@ wm_create:
                                 ; The template copy above is EIGHT words and
                                 ; must stay eight: growing it would read one
                                 ; word past every existing package's template
+%ifndef HMA_DRV
     mov word [bx+W_DISP], PKG_DISP  ; the far pointer wm_pkgcall uses: the
-    mov ax, cs                      ; dispatcher's fixed offset, and the
-    cmp si, ax                      ; segment the caller called us in. Ours
-    jne .pkgseg                     ; means a KERNEL window, which is what
-    xor si, si                      ; W_SEG = 0 says (SPEC.md 20.1)
+%endif                              ; dispatcher's fixed offset, and the
+    mov ax, cs                      ; segment the caller called us in. Ours
+    cmp si, ax                      ; means a KERNEL window, which is what
+    jne .pkgseg                     ; W_SEG = 0 says (SPEC.md 20.1)
+    xor si, si
 .pkgseg:
+%ifdef HMA_DRV
+    mov ax, PKG_DISP                ; (the offset, once AX is spent above)
+    cmp si, DRV_HMA_SEG             ; ...and a DRIVER in the HMA has its
+    jb .heapseg                     ; dispatcher DRV_HMA_ORG further on
+    mov ah, DRV_HMA_ORG >> 8        ; (docs/plans/HMA-PLAN.md 5): HDD.DRV's
+.heapseg:                           ; Install window is one
+    mov [bx+W_DISP], ax
+%if PKG_DISP >> 8
+  %error "wm_create builds the HMA's dispatcher by writing AH alone"
+%endif
+%endif
     mov [bx+W_SEG], si
                                 ; (CX is spent: wm_fit and the index math
                                 ; below set their own)
@@ -4686,7 +4710,7 @@ wm_hit:
     cmp ax, TITLE_H
     jge .content
 %ifdef KERN_BIG
-    call wm_hit_ttl             ; AL = which part of the bar: winmod.inc's
+    call far [thv + THV_HIT]    ; AL = which part of the bar: winmod.inc's
     jmp .out                    ; door (SPEC.md 76.14.4), wm_hit_ttl_b at rest
 %else
     test bp, bp                 ; the boxes exist on the frontmost only
@@ -4752,11 +4776,20 @@ wm_hit:
     ret
 
 %ifdef KERN_BIG
+; menu.inc's menu_dropd (a pull-down is on the screen, SPEC.md 9.6.3), defined
+; HERE on kern_big and nowhere else on purpose: the byte moved from the end of
+; menu_drop to here puts the 288 routines between - wm_paint_all and the menu
+; bar's clock among them - back on the word parity pass 12 found them at,
+; wm_hit's `call far` to the theme door having moved them one byte (kernel
+; size pass 12, 0 bytes; docs/plans/completed/ksp12/xfile.md). In .text with a real
+; initialiser rather than in .bss, for fdlg_win's reason
+menu_dropd  db 0
+
 ; -----------------------------------------------------------------------------
 ; wm_hit_ttl_b - which part of a title bar is under a point: the Mac's answer
 ; in:  AX = y - W_Y (0 .. TITLE_H-1), BX = window, CX = x, BP = 1 when BX is
 ;      the frontmost visible window, else 0
-; out: AL = 1 the title bar, 2 the close box, 3 the minimize box
+; out: AL = 1 the title bar, 2 the close box, 3 the minimize box; FAR
 ; clobbers: AH
 ;
 ; wm_hit's own title-row arm, lifted out so that winmod.inc's door can stand
@@ -4778,7 +4811,7 @@ wm_hit_ttl_b:
     cmp ax, WM_BOX_W
     ja .minbox
     mov al, 2
-    ret
+    retf                        ; FAR: wm_hit `call far`s thv (THV_HIT)
 .minbox:
     mov ax, [bx+W_X]            ; minimize box: W_X+W_W-19 .. W_X+W_W-9
     add ax, [bx+W_W]            ; (the close box mirrored, SPEC.md 11)
@@ -4787,10 +4820,10 @@ wm_hit_ttl_b:
     cmp ax, WM_BOX_W
     ja .title
     mov al, 3
-    ret
+    retf
 .title:
     mov al, 1
-    ret
+    retf
 
 %endif
 
@@ -5055,26 +5088,6 @@ wm_rgrow:
     jge .d
     mov dx, [si+6]
 .d:
-    ret
-
-; -----------------------------------------------------------------------------
-; wm_win_hit - do two windows' occupied rects overlap?
-; in:  SI = window A, DI = window B
-; out: CF = 1 they overlap; all registers preserved
-; Both rects include the 1px drop shadow, exactly as wm_obscured tests them.
-; -----------------------------------------------------------------------------
-wm_win_hit:
-    push dx                     ; wm_win_over's arithmetic with A in DI, B in
-    push bx                     ; BX and B's far edges INCLUSIVE (k = 0), and
-    push di                     ; the answer the other way up
-    mov bx, di
-    mov di, si
-    xor dx, dx
-    call wm_ovl
-    cmc
-    pop di
-    pop bx
-    pop dx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5401,8 +5414,15 @@ wm_dmg_wins:
     test [wm_dmg_mask], bx
     jz .mbnext
     call wm_idx2ptr             ; BX = its record (AL still its index)
-    mov di, bx
-    call wm_win_hit             ; SI = ours, DI = theirs; preserves both
+    push dx                     ; DO OURS AND THEIRS OVERLAP? wm_win_over's
+    push bx                     ; arithmetic with A = ours in DI, B = theirs
+    mov di, si                  ; in BX and B's far edges INCLUSIVE (k = 0),
+    xor dx, dx                  ; the drop shadow included exactly as
+    call wm_ovl                 ; wm_obscured tests them - and the answer the
+    cmc                         ; other way up, CF = 1 they overlap. It was
+    pop bx                      ; wm_win_hit, wm_dmg_wins' own now (kernel
+    pop dx                      ; size pass 12, -8). `mov` keeps CF, and DI is
+    mov di, bx                  ; theirs again, as it was
     jc .mset
 .mbnext:
     inc word [wm_dmg_j]
@@ -5775,9 +5795,9 @@ wm_win_over:
     ret
 
 ; -----------------------------------------------------------------------------
-; wm_ovl - the one overlap test behind wm_win_over and wm_win_hit
+; wm_ovl - the one overlap test behind wm_win_over and wm_dmg_wins' window test
 ; in:  DI = window A, BX = window B, DX = k: 1 = B's right and bottom edges
-;      are exclusive (wm_win_over), 0 = inclusive (wm_win_hit)
+;      are exclusive (wm_win_over), 0 = inclusive (wm_dmg_wins)
 ; out: CF = 0 = A's rect, drop shadow included, reaches B's; CF = 1 = it does
 ;      not. Every register preserved
 ;
@@ -11177,38 +11197,11 @@ wm_grow_paint:
     cmp al, WF_SIZABLE
     jne .out
 %ifdef KERN_BIG
-    call wm_grow_glyph          ; winmod.inc's door (SPEC.md 76.14.3): the
-.out:                           ; Mac's two squares at rest, Windows' grip
-    pop di
-    jmp kret_dx
-
-; wm_grow_glyph_b - the grow box itself, DI = its window (gates passed)
-; out: AX, BX, CX, DX clobbered
-wm_grow_glyph_b:
-    call wm_grow_rect           ; 13x13 white square, black frame
-    call .box
-    add ax, 4                   ; the big square of the glyph: 8x8 frame
-    add bx, 4                   ; at inset (+4,+4)..(+11,+11)
-    mov cx, ax
-    add cx, 7
-    lea dx, [bx+7]
-    call gfx_frame
-    dec ax                      ; the small square: 7x7 at inset (+2,+2)..
-    dec ax
-    dec bx                      ; (+8,+8), white-filled (it overlaps the
-    dec bx
-    mov cx, ax                  ; big one's top-left), black-framed
-    add cx, 6
-    lea dx, [bx+6]
-    call .box
-    ret
-.box:                           ; AX..DX filled white and framed black - the
-    call thm_bg                 ; outer square and the small one alike (the
-    call gfx_fill               ; pens and both primitives preserve AX..DX)
-    call thm_ink
-    jmp gfx_frame
-%else
-    call wm_grow_rect           ; 13x13 white square, black frame
+    jmp far [thv + THV_GRIP]    ; winmod.inc's door (SPEC.md 76.14.3), a TAIL:
+%endif                          ; at rest it lands on the next line, and
+                                ; WIN95.DRV's grip leaves through .out too
+.glyph:                         ; the grow box itself, DI = its window (gates
+    call wm_grow_rect           ; passed): 13x13 white square, black frame
     call .box
     add ax, 4                   ; the big square of the glyph: 8x8 frame
     add bx, 4                   ; at inset (+4,+4)..(+11,+11)
@@ -11232,7 +11225,6 @@ wm_grow_glyph_b:
     call gfx_fill               ; pens and both primitives preserve AX..DX)
     call thm_ink
     jmp gfx_frame
-%endif
 
 
 %ifdef WM_ANIM
@@ -11504,15 +11496,60 @@ wm_an_n     dw WM_ANIM_N        ; idiv takes a memory or register operand, not
 ;
 ; OUTSIDE the %ifdef above for [wm_animon]'s reason one block down: the cell is
 ; ABI, a slot that exists in one build and not another is an ABI that depends
-; on a knob (SPEC.md 20.8 rule 4), and on kern_small the bit is set, masked out
-; of the cursor shape by WF_HIBITS exactly as on kern_big, and never read.
+; on a knob (SPEC.md 20.8 rule 4). But the bit is read in ONE place, the zoom
+; (wm_an_ok), so on a kernel with no zoom - kern_small, and an ANIMOFF build -
+; the body is wm_quiet's `ret`: the call taken and ignored, every register and
+; the flags kept (kernel size pass 12, -9 on kern_small).
 ; -----------------------------------------------------------------------------
+%ifndef WM_ANIM
+wm_noanim:
+    ret
+%else
 wm_noanim:
     call wm_isrec               ; **BX CAME FROM A PACKAGE**: wm_saveu's test,
     jae .done                   ; for wm_saveu's reason (SPEC.md 11.96.11.4).
     or word [bx+W_FLAGS], WF_NOANIM ; Without it a height passed here sets a
 .done:                          ; bit inside the API jump table, as Paint once
     ret                         ; did to wm_saveu
+%endif
+
+; -----------------------------------------------------------------------------
+; wm_quiet - "while I am up, blank the screen rather than animate it"
+; in:  BX = a window of yours, AL = 0 clear / non-zero set
+; out: nothing; every register preserved, FLAGS INCLUDED
+;
+; API slot 0x048D (SPEC.md 79.10). A saver session draws on the UI task, a
+; frame a pass under the gfx lock, and that is the task a server's disk half
+; runs on and the CPU its worker runs on: FTPD measured 125 KB/s falling to
+; 40 with fish swimming. A gated signal costs nothing, so a program doing
+; work in the background asks for that instead, for as long as it is doing
+; it. The bit is read when a SESSION STARTS (ss_start_x), so a session already
+; running carries on until the next input - which is when anybody could set
+; it in the first place: a Start button is a click, and a click ends one.
+;
+; IN BOTH KERNELS, for wm_noanim's reason: the cell is ABI. But on kern_small
+; the bit was set and never read - there is no animation for it to refuse - so
+; there the body is the `ret` the SDK's "takes the call and ignores it" always
+; described: 1 byte where it was 20 (kernel size pass 12). Every register and
+; the flags are kept either way.
+; -----------------------------------------------------------------------------
+%ifndef KERN_BIG
+wm_quiet:
+    ret
+%else
+wm_quiet:
+    pushf
+    call wm_isrec               ; BX came from a package (wm_noanim's test)
+    jae .done
+    and byte [bx+W_FLAGS+1], ~(WF_QUIET >> 8) & 0xFF ; CLEAR, and then SET if
+    or al, al                   ; asked: one fall-through, no `jmp` (kernel
+    jz .done                    ; size pass 12). The bit is read only by
+    or byte [bx+W_FLAGS+1], WF_QUIET >> 8 ; ss_start_x, on the UI task, and
+.done:                          ; FTPD's set and clear are clicks on it, so
+                                ; nothing sees the bit clear in between
+    popf
+    ret
+%endif
 
 ; wm_isrec - is BX a window record? CF = 1 yes (below the table's end),
 ; CF = 0 no; every register preserved. BELOW the table wraps high, so one

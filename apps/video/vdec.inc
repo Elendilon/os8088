@@ -150,6 +150,30 @@ vd_nmap:
 %endif
 %endmacro
 
+; VD_YCK - THE IN-PLACE DECODE'S YIELD (SPEC.md 98.3.18.11): SI past
+; [vd_ylim] calls vd_yield, which on a 286 decoding a record held in XMS
+; through a LOADALL'd DS opens the interrupts for a moment and borrows again
+; at the same SI. Everywhere else [vd_ylim] is FFFFh and it is never taken:
+; a compare at each poke list's head, each span segment's and each long
+; span's - never inside a poke segment, the hot loop an 8088 lives in
+; EVERY SITE STARTS AS A JUMP OVER ITSELF, and only an in-place session
+; patches it to two NOPs (vd_ypatch), so an 8088 - which can never decode in
+; place - pays a taken short jump, ~15 cycles, where the compare it skips
+; cost ~41: measured on MartyPC's 5150, the compare at every site was +410
+; cycles an empty frame and +0.9-2.4% a real one. The macro numbers its
+; sites and vd_ytab lists them, so a site added later is in the table
+%assign vd_ny 0
+%macro VD_YCK 0
+%assign vd_ny vd_ny + 1
+..@vd_y %+ vd_ny:
+    jmp short %%ok                  ; 2 bytes: EB 0A, or 90 90 in place
+%%live:                             ; (reached once vd_ypatch has run)
+    cmp si, [cs:vd_ylim]            ; 5
+    jb %%ok                         ; 2
+    call vd_yield                   ; 3
+%%ok:
+%endmacro
+
 %macro VD_NPOKE 2-6 0, 0, 0, 0
 %if %6
 %assign VD_U %6                     ; (a round as the caller says: write mode
@@ -159,6 +183,7 @@ vd_nmap:
 %assign VD_U 8
 %endif
 %1:
+    VD_YCK                          ; (a poke list's head: SPEC.md 98.3.18.11)
 %if %5
     VD_GATE %4
 %endif
@@ -252,6 +277,7 @@ vd_nmap:
     VD_GATE %4
 %endif
 .seg:
+    VD_YCK                          ; (a span segment's head: 98.3.18.11)
     lodsb
     or al, al
     jz .done
@@ -334,6 +360,7 @@ vd_n_slicel:
     xchg ax, di
     xor ax, ax
 .e:
+    VD_YCK                          ; (a long span: 98.3.18.11)
     lodsb
     add di, ax
     lodsw
@@ -361,6 +388,7 @@ vd_n_runl:
     xchg ax, di
     xor ax, ax
 .e:
+    VD_YCK                          ; (a long span: 98.3.18.11)
     lodsb
     add di, ax
     lodsw
@@ -494,6 +522,7 @@ vd_w_slicel:
     xchg ax, di
     xor ax, ax
 .e:
+    VD_YCK                          ; (a long span: 98.3.18.11)
     lodsb
     add di, ax
     lodsw
@@ -524,6 +553,7 @@ vd_w_runl:
     xchg ax, di
     xor ax, ax
 .e:
+    VD_YCK                          ; (a long span: 98.3.18.11)
     lodsb
     add di, ax
     lodsw
@@ -638,6 +668,45 @@ vd_walk:
     ret
 
 vd_map:       dw 0xFFFF             ; SUB2's list map, spent a bit a list
+vd_ylim:      dw 0xFFFF             ; VD_YCK's limit: FFFFh but inside an
+                                    ; in-place decode (SPEC.md 98.3.18.11)
+%ifndef VD_YIELD
+vd_yield:                           ; (an includer with no in-place decode:
+    ret                             ; never reached, its sites never patched)
+%else
+; vd_ytab - every VD_YCK site, for vd_ypatch
+vd_ytab:
+%assign vd_i 1
+%rep vd_ny
+    dw ..@vd_y %+ vd_i
+%assign vd_i vd_i + 1
+%endrep
+VD_NY       equ vd_ny
+
+; vd_ypatch - AL = 1: every yield site live (an in-place session starting),
+; 0: every one a jump over itself again. CS = DS = the package. Preserves
+; all but flags
+vd_ypatch:
+    push bx
+    push cx
+    push si
+    mov cx, VD_NY
+    mov si, vd_ytab
+.s:
+    mov bx, [si]
+    mov word [bx], 0x0AEB           ; jmp short +10
+    or al, al
+    jz .n
+    mov word [bx], 0x9090
+.n:
+    inc si
+    inc si
+    loop .s
+    pop si
+    pop cx
+    pop bx
+    ret
+%endif
 vw_fn:        dw 0                  ; vd_walk's per-byte routine
 vw_n:         dw 0                  ; ...the entries left in a segment
 vw_lst:       db 0                  ; ...the list it is in

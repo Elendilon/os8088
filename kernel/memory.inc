@@ -496,6 +496,12 @@ mem_init_x:
                                 ; answer - two copies of a conditional whose
                                 ; disagreement would be a mono machine handed
                                 ; a VGABUF rung the decoder is still using
+%if VGABUF_PARA
+    test byte [vid_avail], VID_A_VGA ; ...and the kernel row osapi_sys_kb
+    jnz .vga                    ; reports with it (vga_skkern): a STORE, so
+    mov byte [vga_skkern], KERN_KB - SK_VGAB_KB ; a second run of this
+.vga:                           ; cannot take the rung off twice
+%endif
 
     ; --- AND STAGE 2 IS DOWN HERE (SPEC.md 2.9.5) ---------------------------
     ; The loading screen lives in the loader, and the loader copied itself to
@@ -512,8 +518,8 @@ mem_init_x:
     ; A blob ABOVE the floor is not tested for: stage 2 puts itself exactly on
     ; HEAP_SEG and the floor is HEAP_SEG or one VGABUF rung below it, so the
     ; raise is never a lowering. What IS tested is the seed.
-    cmp word [spl_fseg], COLD_SEG
-    jbe .nospl
+    cmp word [spl_fseg], 0
+    je .nospl
     mov ax, [spl_fseg]
     add ax, BOOT2_PAD / 16      ; ...the paragraph past the blob's last byte
 .nospl:
@@ -615,11 +621,26 @@ memf_mem_floor_ax:  call mem_floor_ax
                     retf
 
 mem_floor_ax:
-    mov ax, HEAP_SEG
+%ifdef ROM_COLD
+    ; `.cold` FOUND IN ROM OR THE HMA (docs/plans/ROM-PLAN.md 3.4.2): its RAM
+    ; rung, the top one under `.vgabuf`, holds a copy nothing calls any more,
+    ; so the heap starts on it - and on a VGA machine the decoder's buffers
+    ; have moved to the BOTTOM of that rung (VGABUF_SEG's one site), so they
+    ; stay below the floor. ONE WORD SAYS ALL OF IT: [rom_vgabw] names the
+    ; `.vgabuf` rung, rp_walk moves it from VGABUF_RAM to COLD_RAM in the
+    ; same pass that re-points [api_coldseg], and the floor is that word plus
+    ; the rung on VGA - HEAP_SEG and HEAP_SEG - VGABUF_PARA as built, each
+    ; less COLD_PARA adopted. It was a test of [api_coldseg] and a
+    ; subtraction, and the VGA arm a subtraction from HEAP_SEG (kernel size
+    ; pass 12, -8 on either kernel; kernel.asm's rom_vgabw)
+    mov ax, [rom_vgabw]
+%else
+    mov ax, HEAP_SEG - VGABUF_PARA
+%endif
 %if VGABUF_PARA
     test byte [vid_avail], VID_A_VGA
-    jnz .out
-    sub ax, VGABUF_PARA
+    jz .out
+    add ax, VGABUF_PARA
 .out:
 %endif
     ret
@@ -1014,6 +1035,7 @@ mem_pg_floor: db MEM_LVL_TOP    ; low byte: the floor. MEM_LVL_TOP = none
 mem_pg_ftask: db 0              ; high byte: whose (sch_cur). Task 0 with the
                                 ; default floor is a no-op, so this needs no
                                 ; impossible value to start from
+
 
 mem_pg_own:
     dw MEM_P_WSAVE, wm_su_segs,  MAX_WIN
@@ -2977,7 +2999,16 @@ mem_reloc_call:
                                 ; program is AT the base, re-homed or not
                                 ; (SPEC.md 20.12.10.5)
 .pkg:
+%ifdef HMA_DRV
+    mov cx, PKG_DISP            ; (CX is no input to a proc: SI/BX/DX are)
+    cmp ax, DRV_HMA_SEG         ; a DRIVER in the HMA (docs/plans/HMA-PLAN.md
+    jb .pdisp                   ; 5) owns heap claims too - SOUND.DRV's pool
+    mov ch, DRV_HMA_ORG >> 8    ; - and its dispatcher is DRV_HMA_ORG further
+.pdisp:                         ; on (PKG_DISP < 256: wm_create asserts it)
+    mov [ss:mem_fptr], cx
+%else
     mov word [ss:mem_fptr], PKG_DISP
+%endif
     jmp short .go               ; DS = the holder's own segment below: the
 .kernel:                        ; proc's whole job is to write its own data
                                 ; The low word of mem_fptr is ALREADY
@@ -4045,6 +4076,46 @@ mem_sum_kb:
 ; actually get is the first thing an app does, before it creates its window.
 ; =============================================================================
 
+;-----------------------------------------------------------------------------
+; osapi_mem_hma - OSAPI_MEM_HMA: a DRIVER's buffer in the HMA (SPEC.md 2.10.8,
+;                 docs/plans/HMA-PLAN.md 5)
+; in:  AX = bytes, 1..8,192 -> a block; AX = 0 and DX = a block's segment ->
+;      give it back. ES = the caller's DS (an X cell), which must be a loaded
+;      driver's: the HMA is not in a hibernate's image, and a driver is what
+;      a hibernate unloads and loads again
+; out: a block: CF = 0, DX = its segment and AX = its first OFFSET - which is
+;      not 0, nothing above 1MB being reachable at offset 0 - and its physical
+;      address is DX * 16 + AX, 24 bits, for a DMA controller. CF = 1: no HMA
+;      on this machine, no room in it, or not a driver asking
+;      back: CF = 0 given back; CF = 1 not a block of yours
+; clobbers: AX
+;
+; COLDHMA.SYS's tail owns the pool; this is its door for a driver. Nothing
+; else in a block's life is the kernel's: drv_release gives back every block
+; a driver still holds when it unloads, so a driver that forgets one costs
+; nothing past its own lifetime.
+; -----------------------------------------------------------------------------
+%ifdef OS88_DRIVERS                ; (kern_small's is a label on driver.inc's
+osapi_mem_hma_x:                    ; shared refusal, kernel size pass 12)
+%ifdef HMA_DRV
+    push bx
+    push cx
+    mov bx, es                  ; the caller - a loaded driver, or nobody
+    call drv_owns_seg_x
+    jc .out
+    xchg cx, ax                 ; CX = the bytes, or 0 for a give-back:
+    mov al, ROMF_HCLAIM         ; the tail's HCLAIM takes CX = 0 as DX's
+    call drv_hma_door           ; block back, so one call serves both. CF = 1
+.out:                           ; from the door: no HMA on this machine
+    pop cx
+    pop bx
+    retf
+%else
+    stc
+    retf
+%endif
+%endif
+
 ; -----------------------------------------------------------------------------
 ; osapi_mem_claim - in: AX = KB, ES = the caller's segment (the stub's doing)
 ;                   out: CF = 0 and DX = segment, CF = 1 refused
@@ -4351,9 +4422,10 @@ mmf_osapi_mem_floor:
 ; -----------------------------------------------------------------------------
 mem_own:
     mov bx, es                       ; a claim that starts exactly here...
-    call mem_owner_of_x              ; ...and BX is now WHOSE it is. The walk
-    jc .no                           ; that used to be written out here also
-                                     ; carried on past a record whose base
+    call mem_owner_of_x              ; ...and BX is now WHOSE it is
+    jc .no
+                                     ; The walk that used to be written out
+                                     ; here also carried on past a record whose base
                                      ; matched but whose owner failed all
                                      ; three tests below - unreachable, since
                                      ; two live claims cannot share a base
@@ -4383,8 +4455,24 @@ mem_own:
 .yes:
     mov bx, es                       ; the OWNER WORD is that same segment -
     clc                              ; the walk above spent BX on the answer
-.no:                                 ; to a different question (`jc` arrives
-    ret                              ; with CF = 1)
+%ifdef HMA_DRV                       ; to a different question
+    ret
+.no:                                 ; ...AND A DRIVER IN THE HMA RUNS IN NO
+    mov bx, es                       ; CLAIM AT ALL (SPEC.md 2.10.8), so it and
+    call drv_owns_seg_x              ; its second image (52.11.7, the installer:
+    jnc .yes                         ; "Not enough memory to copy" until this)
+                                     ; are asked of drv_tab once everything
+                                     ; above has refused. That is exactly
+                                     ; those two and nothing more: drv_owns_seg
+                                     ; says yes for a segment drv_tab names or
+                                     ; a claim one of them owns, and every
+                                     ; heap case of either has already said
+                                     ; yes above. One arm for the two the HMA
+                                     ; work added (kernel size pass 12)
+%else
+.no:                                 ; (`jc` arrives with CF = 1)
+%endif
+    ret
 
 ; -----------------------------------------------------------------------------
 ; mem_owner_of - who owns the claim based at BX?
@@ -4536,9 +4624,13 @@ osapi_sys_kb_x:
     push bx
     push cx
     push di
+%if VGABUF_PARA
+    mov al, [vga_skkern]        ; ...and on a machine with NO VGA the kernel is
+    cbw                         ; (KERN_KB < 128: vga_skkern says so)
+%else
     mov ax, KERN_KB
-    mov bx, SK_IMG_KB           ; ...and on a machine with NO VGA the kernel is
-%if VGABUF_PARA                 ; a KB smaller, because `.vgabuf` was never
+%endif
+                                ; a KB smaller, because `.vgabuf` was never
                                 ; reserved (SPEC.md 39.22). Reported and not
                                 ; hidden: the free figure comes out right by
                                 ; construction - mem_avail is
@@ -4554,19 +4646,24 @@ osapi_sys_kb_x:
                                 ; SAME amount because the parts have to go on
                                 ; summing - which they do for any SK_VGAB_KB
                                 ; at all, the two subtractions cancelling.
-    test byte [vid_avail], VID_A_VGA
-    jnz .kern
-    sub ax, SK_VGAB_KB
-    sub bx, SK_VGAB_KB
-.kern:
+                                ; mem_init_x took it off [vga_skkern] at boot
+%ifdef ROM_COLD
+    cmp byte [api_coldseg + 1], COLD_HOME_HI ; ...and the cold rung, when the
+    je .kram                            ; ROM runs `.cold` (ROM-PLAN 3.4.2)
+    sub ax, SK_COLD_KB
+.kram:
 %endif
 %if SK_KERN != 0 || SK_IMG != 2 || SK_FAT != 4 || SK_STK != 6 || SK_STK0 != 8 || SK_BUF != 10 || SK_HEAP != 12 || SK_CLAIM != 14 || SK_KCLAIM != 16 || SK_XMS != 18
 %error "osapi_sys_kb stores the ten words in order with one walking pointer; they are no longer consecutive from 0"
 %endif
     cld                         ; ALL TEN WORDS IN ORDER, through one walking
     stosw                       ; pointer (size pass 10: it was four of them,
-    xchg ax, bx                 ; and six displaced stores either side).
-    stosw                       ; SK_KERN, SK_IMG
+                                ; and six displaced stores either side).
+    sub ax, KERN_KB - SK_IMG_KB ; SK_KERN, SK_IMG - the IMAGE row is the whole
+    stosw                       ; kernel less the same constant rows on every
+                                ; machine, so both subtractions above are made
+                                ; once, on AX, and BX is not spent on a second
+                                ; copy of them (kernel size pass 12)
     mov ax, SK_FAT_KB
     stosw
     mov ax, SK_STK_KB

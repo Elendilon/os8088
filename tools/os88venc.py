@@ -91,9 +91,51 @@ CYC_US_286 = dict(frame=28.07, seg=9.06, abs=0.392,
 CYC_US_286PVGA = dict(frame=25.35, seg=10.274, abs=0.555,
                       p=(2.370, 3.480, 4.866, 6.150, 7.481, 8.813),
                       slice=(1.595, 1.227), run=(2.470, 1.065), sub=1.5)
+# ...and the same 286 with its ISA bus at 8 wait states rather than 14 (the
+# BIOS's "Tune", 2026-10-15, docs/reports/VIDPM-VICTORY286-2026-10-15.md):
+# VIDBENCH run both ways on one boot, and 14 read the 10-08 table's rows to
+# 0.7%. Writing the screen is what the bus setting moves - every RAM row the
+# same to the microsecond - so the table is 10-08's with each term scaled by
+# what a least-squares fit of the two runs' synthetic frames gives it: a P
+# entry 0.946, a slice byte 0.932, a run byte 0.918, a segment and the frame
+# as they were. ESTIMATED by scaling, not refitted from nothing
+CYC_US_286PVGA8 = dict(frame=25.35, seg=10.274, abs=0.555,
+                       p=tuple(round(x * 0.946, 3) for x in
+                               CYC_US_286PVGA["p"]),
+                       slice=(round(1.595 * 0.932, 3), round(1.227 * 0.932, 3)),
+                       run=(round(2.470 * 0.918, 3), round(1.065 * 0.918, 3)),
+                       sub=1.5)
 CYC_US_486 = dict(frame=2.51, seg=2.392, abs=0.109,
                   p=(0.552, 0.957, 1.396, 1.827, 2.259, 2.692),
                   slice=(0.474, 0.407), run=(0.618, 0.390), sub=1.5)
+# THE XMS COPIES A PLAYER MAKES (Encoder.set_xplay, LOADALL-PLAN 7 and L5).
+# A 286 plays every file it can hold or bank IN PLACE by LOADALL
+# (SPEC.md 98.3.18.11, .13): no copy down, `xbor_n` borrows a frame and one
+# more each `xyield` record bytes at `xbor_us` (VIDDISK L's bare borrow,
+# 0.14-0.17 ms on the Victory, docs/reports/LOADALL-VICTORY286-2026-10-14.md
+# - an ESTIMATE of the player's, until a play is profiled), and the bank's
+# copy UP on the disk at `xup` ms a KB. `xdown` is the copy down for a play
+# the in-place paths refuse (the speaker, Repeat, BIGSP...).
+# The Victory's `xup`/`xdown`: a 32 KB copy at the gap the player places its
+# ring at (SPEC.md 98.3.18.12) is 5.96 ms, either transport - 0.186 ms a KB
+# (docs/reports/XMS-TRANSPORT-VICTORY286-2026-10-15.md). The other 286
+# keeps its unplaced 0.345, never re-measured
+XPLAY_VICTORY = dict(xplay="inplace", xup=0.186, xdown=0.186, xbor_us=160.0,
+                     xbor_n=3, xyield=2048)
+# THE PLAY, PROFILED on the same machine (SPEC.md 98.3.22.1, docs/reports/
+# VIDPROF-VICTORY286-2026-10-15.md): three in-place plays timed frame by
+# frame, each draw fitted against the table's price, the record's KB and a
+# constant together - so the triple is the WHOLE in-place draw, borrows
+# included, and replaces xbor_* for a layout it names. 16 colours (Cowboy
+# Bebop): 0.932 x table + 12 us a KB + 1,151 us - its borrows hide in the
+# table, which already ran a little high. Mode X (Bad Carrot): 1.102 x
+# table + 146 us a KB + 1,096 us, with the back page at 0.952 of the table
+# (cost0). GasGas's own fit is page-ahead's two records a frame moving the
+# KB with the table, and fixes nothing
+PLAY_VICTORY = dict(play={"modex": (1.102, 146.5, 1096.0),
+                          "planar": (0.932, 12.4, 1151.0)})
+XPLAY_286 = dict(xplay="inplace", xup=0.345, xdown=0.345, xbor_us=160.0,
+                 xbor_n=3, xyield=2048)
 PROFILES = {
     # MEASURED on the 5150 (docs/reports/VIDDISK-ST225-CYL-2026-10-07.md):
     # VIDDISK under the CYLINDER bound (SPEC.md 18.91.5, the default since
@@ -173,6 +215,7 @@ PROFILES = {
     # VIDDISK286.TXT of 2026-10-07, track-bound, read 665.5 at 50%)
     "286-speeddemon": dict(disk=616000, avg=2.25, peak=3.75, owe=1.6, speed=4.5,
                     ring=8, xcopy=0.345, lcopy_us=1.829, cyc_us=CYC_US_286,
+                    **XPLAY_286,
                     disk_at=((0.0, 1318.3 / 684.7), (0.25, 1023.9 / 684.7),
                              (0.5, 1.0), (0.75, 348.1 / 684.7), (1.0, 0.0)),
                     rate=22050, audio="pcm8", spk_us=(11.5, 6.5),
@@ -191,6 +234,7 @@ PROFILES = {
     # microseconds, so `speed` is only the unit they are written in
     "286-fast": dict(disk=448000, avg=2.25, peak=3.75, owe=1.6, speed=4.5,
                      ring=8, xcopy=0.345, lcopy_us=2.133, cyc_us=CYC_US_286PVGA,
+                     **XPLAY_VICTORY, **PLAY_VICTORY,
                      disk_at=((0.0, 729.5 / 486.3), (0.25, 684.7 / 486.3),
                               (0.5, 1.0), (0.75, 294.3 / 486.3), (1.0, 0.0)),
                      rate=22050, audio="pcm8", spk_us=(11.5, 6.5),
@@ -222,20 +266,41 @@ PROFILES = {
     # (PMDMA K), and the card's memory reads at exactly the speed of the
     # VGA's (PMDMA I), so the bus binds and not the card. On the stock
     # firmware this profile is 9% optimistic. 0.9 x the 50% row, the
-    # rule: 350,000
-    "286-picomem1": dict(disk=350000, avg=2.25, peak=3.75, owe=1.6, speed=4.5,
-                         ring=8, xcopy=0.345, lcopy_us=2.133,
-                         cyc_us=CYC_US_286PVGA,
-                         disk_at=((0.0, 755.1 / 379.8), (0.25, 575.9 / 379.8),
-                                  (0.5, 1.0), (0.75, 189.9 / 379.8),
+    # rule: 350,000.
+    #
+    # REMODELLED AT 8 WAIT STATES (2026-10-15, docs/reports/
+    # VIDPM-VICTORY286-2026-10-15.md): the machine's ISA bus at the BIOS's
+    # "Tune" setting, which is how it runs now. The card's disk is the bus's
+    # to cross, so it moved most: 1,119.9 KB/s idle and 838.3 / 563.1 /
+    # 281.5 at 25 / 50 / 75% - the same exact line, 48% higher - against
+    # 755.1 / 377.5 at 14 the same day (the multi-sector firmware's 10-12
+    # figures to 0.6%). 0.9 x 563.1 KB: 519,000. The decode is
+    # CYC_US_286PVGA8, the latch copy 15,730 us an 8,000 bytes. The XMS copy
+    # is NOT a bus figure - 14 and 8 read the same on one boot - and it has
+    # read 0.214, 0.257 and 0.337 ms a KB on three boots, so xcopy stays the
+    # slow boot's until the boots are understood.
+    # PEAK 5.4 (120% of a period), the owner's (2026-10-16): with the play's
+    # profile in the model (PLAY_VICTORY) and --lag 100 ms the CPU's ceiling
+    # was the cut that looked worst - Bad Carrot at 5.4 cut 48 frames and
+    # fell 83 ms behind at most against 55 and 0 at 3.75 and read smoother on
+    # the Victory, and the whole frame's share has been 123-126% on every
+    # profiled play with no harm (SPEC.md 98.3.22.1)
+    "286-picomem1": dict(disk=519000, avg=2.25, peak=5.4, owe=1.6, speed=4.5,
+                         ring=8, xcopy=0.345, lcopy_us=1.966,
+                         cyc_us=CYC_US_286PVGA8, **XPLAY_VICTORY,
+                         **PLAY_VICTORY,
+                         disk_at=((0.0, 1119.9 / 563.1),
+                                  (0.25, 838.3 / 563.1),
+                                  (0.5, 1.0), (0.75, 281.5 / 563.1),
                                   (1.0, 0.0)),
                          rate=22050, audio="pcm8", spk_us=(11.5, 6.5),
                          what="286-fast's machine with its disk on a PicoMEM "
-                              "1.x: the CPU copies every byte, so the disk "
-                              "is 755 KB/s idle and 380 with half the "
-                              "period decoding (measured on the owner's "
-                              "Packard Bell Victory 286, on the card's "
-                              "multi-sector firmware)"),
+                              "1.x, the bus at 8 wait states: the CPU "
+                              "copies every byte, so the disk is 1,120 KB/s "
+                              "idle and 563 with half the period decoding "
+                              "(measured on the owner's Packard Bell "
+                              "Victory 286, on the card's multi-sector "
+                              "firmware)"),
     # VIDDISK's ceiling at its 50% row, 2,192 KB/s, x 0.9 - the 5150's
     # rule - and its other rows as the curve: an IDE disk the CPU copies.
     # Track-bound, like 286-speeddemon's, and for the same reason left as it is
@@ -246,6 +311,7 @@ PROFILES = {
     # nothing seen wrong and 80% / 115% with late frames counted (98.2.3.6);
     # these sit under that boundary, a real machine being slower or faster
     "486-dx2-66": dict(disk=1950000, avg=6.50, peak=10.0, owe=1.6, speed=10, xcopy=0.05,
+                xplay="copy", xup=0.05, xdown=0.05,
                 ring=8, lcopy_us=1.380, cyc_us=CYC_US_486,
                 disk_at=((0.0, 4151 / 2192.0), (0.25, 3157 / 2192.0),
                          (0.5, 1.0), (0.75, 1096 / 2192.0), (1.0, 0.0)),
@@ -463,10 +529,10 @@ CHOICE_HELP = {
         "286-fast": "A fast 16 MHz 286 with VGA on the board: 448 KB/s off "
                     "an IDE disk, the decode measured on a real one "
                     "(12-29% slower than 286-speeddemon)",
-        "286-picomem1": "A fast 16 MHz 286 (286-fast's decode) with its "
-                        "disk on a PicoMEM 1.x: 350 KB/s, falling as the "
-                        "decode takes more - the CPU copies the disk "
-                        "(measured on a real one)",
+        "286-picomem1": "A fast 16 MHz 286 with its disk on a PicoMEM "
+                        "1.x and the bus at 8 wait states: 519 KB/s, "
+                        "falling as the decode takes more - the CPU copies "
+                        "the disk (measured on a real one)",
         "486-dx2-66": "A 486DX2/66 with an ISA VGA and IDE: 1.9 MB/s, ten 8088s "
                "of CPU, 65% of it on average - Mode X, the whole picture "
                "and 48 KB frames",
@@ -501,6 +567,35 @@ CHOICE_HELP = {
         "on": "Always build ahead, a Hercules too - which then plays only "
               "on a Hercules with no colour card beside it",
         "off": "Never: one page, every frame drawn in place",
+    },
+    "pages": {
+        "2": "One hidden page: a scene change at a time built ahead (the "
+             "default; every player since page-ahead plays it)",
+        "3": "Two hidden pages: two scene changes close together both "
+             "built in the calm before them - Mode X has three pages",
+        "4": "Three hidden pages - Mode X at 320 x 200 and 16 colours at "
+             "320 x 200 have four",
+        "5": "Four hidden pages (a screen with that many)",
+        "6": "Five hidden pages (a screen with that many)",
+        "7": "Six hidden pages (a screen with that many)",
+        "8": "Seven hidden pages (a screen with that many)",
+        "max": "Every page the screen holds - the first frames of a burst "
+               "built ahead too; a player before N pages refuses the file",
+    },
+    "page_keys": {
+        "all": "Each key carries every page as it stands: no build is "
+               "redone, and a seek reads a picture per page (the default)",
+        "started": "Each key carries only the pages whose build has begun; "
+                   "the rest are rebuilt whole after it - smaller keys and "
+                   "faster seeks, for stream bytes the spare pays",
+    },
+    "key_pool": {
+        "on": "A page several keys carry is stored once, in the file's page "
+              "pool, and each key names it - far smaller keys; a seek reads "
+              "a picture per page named (the default)",
+        "off": "Each key carries its own copy of every page, as before the "
+               "pool: one read a key part, and a player before the pool "
+               "plays the file",
     },
     "page_prune": {
         "rescue": "Where auto would throw page-ahead away, try once more "
@@ -580,10 +675,16 @@ CHOICE_HELP = {
     "screen": {
         "640x480": "Mode 12h, the desktop's own: one page, and it plays in "
                    "the window (the default)",
-        "320x200": "Mode 0Dh, 320 x 200: full screen, two pages",
+        "320x200": "Mode 0Dh, 320 x 200: full screen, two pages - or for "
+                   "Mode X, 13h's 400 lines, four pages where 320 x 240 has "
+                   "three",
         "320x240": "320 x 240, square pixels: full screen, two pages",
         "640x350": "640 x 350, mode 10h's lines: full screen, two pages",
         "640x400": "640 x 400: full screen, two pages",
+        "320x200n": "320 x 200 NARROW: full screen, eight pages - for "
+                    "--pages; no --flip (98.1.3.2.5)",
+        "320x240n": "320 x 240 NARROW: full screen, six pages - for "
+                    "--pages; no --flip (98.1.3.2.5)",
     },
     "palette": dict([("auto", "The format's own colours: the clip's 256 "
                       "for 256-colour VGA, the EGA's sixteen for 16 "
@@ -730,7 +831,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 31
+OPTS_VERSION = 35
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -756,7 +857,16 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     27: "1bbc64edb29f5541", 28: "f8b82d9a3bd56ab9",
                     29: "d68534558cface22",
                     30: "60532ee7474b8d76",
-                    31: "09f14123f968592f"}
+                    31: "09f14123f968592f", 32: "413eeac77e2d4441",
+                    33: "1cb11afeb374b243", 34: "60df56fd426010fd",
+                    35: "e1090fc6c20c5367"}
+LAG_MS = 100.0          # --lag's default (98.2.1.1.2), the owner's (2026-10-15):
+                        # how far behind a picture may be without the eye
+                        # minding is the VIDEO's - Bad Carrot's flames ran
+                        # 186 ms behind and read smooth, being timed to
+                        # nothing in the sound; lip sync would not - so the
+                        # default is low and a file raises it. 2.4 frames
+                        # at 24 fps (it was --flip-lag 3, flipped files only)
 POOL_KB = 2944          # --pool's default: a 4 MB board's ~3 MB of XMS less
                         # 128 KB (98.3.18.2.1)
 
@@ -885,6 +995,23 @@ MIGRATIONS = {
     # on its own sixteen alone, and one in the EGA's sixteen re-encoded now
     # takes it too: a re-encode is the better file, not the same one
     30: [("added", "vga4_wm3", "on")],
+    # 32: --flip-lag (98.2.1.1.2) - a file made before it kept the picture
+    # less than ONE frame behind the sound
+    31: [("added", "flip_lag", 1)],
+    # 33: --lag MS for every play with a card's sound, in place of
+    # --flip-lag FRAMES for flipped ones: the frames taken at 24 fps, the
+    # rate the flag was set at on every file the owner made with it - and
+    # 1 frame, the one-frame schedule, is 0: a file made before encodes the
+    # same, flipped (whose floor is a frame either way) or not (whose owe
+    # 0 keeps; 1 frame at 30 fps would be 1.25 and turn the lag on)
+    32: [("rename", "flip_lag", "lag"),
+         ("revalue", "lag", lambda n: 0.0 if float(n) <= 1 else
+          round(float(n) * 1000.0 / 24, 1))],
+    # 34: --pages and --page-keys (98.2.1.8.4) - a file made before them
+    # built on two pages
+    33: [("added", "pages", "2"), ("added", "page_keys", "all")],
+    # 35: --key-pool (98.1.3.8.1) - a file made before it had none
+    34: [("added", "key_pool", "off")],
 }
 
 
@@ -895,6 +1022,14 @@ def dims(v):
     if len(p) != 2 or not all(q.strip().isdigit() for q in p):
         raise argparse.ArgumentTypeError("%r is not WxH (or W*H)" % (v,))
     return "%dx%d" % tuple(int(q) for q in p)
+
+
+def screen_arg(v):
+    """--screen: a WxH (dims' spellings), with an N after it for a NARROW
+    screen's 40-byte rows (98.1.3.2.5) - 320x200n"""
+    t = str(v).strip().lower()
+    n = t.endswith("n")
+    return dims(t[:-1] if n else t) + ("n" if n else "")
 
 
 def bank_arg(v):
@@ -3538,8 +3673,20 @@ class Encoder:
         self.tv = np.frombuffer(self.tsurf, dtype=np.uint8)
         self.wv = np.zeros(65537, dtype=np.float64)
         self.stats = dict(frames=0, exact=0, cut=0, bytes_left=0,
-                          disk=0, cpu=0, peak=0, cap=0, owed=0, held=0,
-                          late=0, skipped=0)
+                          disk=0, cpu=0, peak=0, flip=0, cap=0, owed=0,
+                          held=0,
+                          late=0, skipped=0, unfit=0,
+                          fover=0, fmaxlag=0.0, flate=0, fbehind=0)
+        # THE LAG SCHEDULE (98.2.1.1.1, 98.2.1.1.2): a frame a call when
+        # flipped, up to two when not, the calls a period apart or half of
+        # one with a card's sound - so a frame that runs over its period
+        # starts the next at the next call, and the picture falls behind
+        # the sound by whole calls, catching up where the calls come faster
+        # than the frames. `fgrid` is the calls' spacing, model cycles, set
+        # by encode() on a budgeted file that runs it; `flag` how far behind
+        # the next frame starts; `flag_lag` the frames --lag allows
+        self.fgrid, self.flag = None, 0.0
+        self.flag_lag = 1
         # WHAT A CUT FRAME SPENDS ON (98.2.1.2): the targets after this one
         # (`look` of them, set per frame), and error as SEEN rather than as
         # bits - both need the screen as pixels, which `dmode` says how to
@@ -3571,6 +3718,64 @@ class Encoder:
         self.pa_spend = (0.0, 0.0)
         self.last_why = self.last_ref = None
 
+    def set_xplay(self, mode, prof):
+        """THE XMS COPIES THE PLAYER WILL MAKE (docs/plans/LOADALL-PLAN.md 7,
+        L5), charged where it makes them. The player takes every file into
+        XMS when the machine has a pool - held whole if it fits, banked if
+        not (SPEC.md 98.3.18) - so on a profile with `xplay` every frame
+        plays from there:
+          - "inplace" (a 286 whose LOADALL checks out: 98.3.18.11, .13):
+            NO copy down. The decode reads each record where it lies,
+            through borrows - `xbor_n` a frame (the super-packet and record
+            headers, the record, the sound) and one more every `xyield`
+            record bytes (vdec.inc's yields) - each `xbor_us`. The bank's
+            copy UP is the reader's, on the disk (set_bank), on EVERY
+            chunk: the ring is the bank's slots.
+          - "copy" (98.3.18.2's FIFO: a 386 or better, or a 286 play the
+            in-place paths refuse): a banked record is copied DOWN inside
+            its frame's period, ahead of its decode - `xdown` ms a KB on
+            the CPU, which nothing charged before and `--peak` paid for out
+            of slack (LOADALL-PLAN 7.1) - and up on the disk.
+        None, or no profile field: nothing, as before"""
+        us = vid.HZ / 1e6 * (prof.get("speed") or 1)
+        # a flipped file's back page is the last record decoded AGAIN, out
+        # of the copy the player kept: the table's price alone (cost0),
+        # which borrows nothing and was timed at 0.95 of it
+        self.cost0 = table = self.cost
+        self.xmode = mode
+        self.xfix = self.xbyte = 0.0
+        key = "modex" if self.g.layout == vid.LAY_MODEX else \
+            "planar" if getattr(self.g, "bitplanes", False) else None
+        play = (prof.get("play") or {}).get(key) if mode == "inplace" \
+            else None
+        if play:
+            # THE PLAY AS PROFILED (SPEC.md 98.3.22.1): the whole in-place
+            # draw measured, borrows and all - in place of xbor_*
+            k, kb_us, fix_us = play
+            self.cost = lambda rec: table(rec) * k + \
+                (kb_us / 1024.0 * len(rec) + fix_us) * us
+            return
+        if mode == "inplace":
+            self.xfix = prof["xbor_us"] * prof.get("xbor_n", 3) * us
+            self.xbyte = prof["xbor_us"] / float(prof.get("xyield", 2048)) * us
+        elif mode == "copy" and prof.get("xdown"):
+            self.xbyte = prof["xdown"] * 1000.0 / 1024 * us
+        if not (self.xfix or self.xbyte):
+            return
+        base = self.cost
+
+        def cost(rec):
+            c = base(rec)
+            if self.xmode == "copy" and not self._xbanked():
+                return c                # (the disk reads into the ring)
+            return c + self.xfix + self.xbyte * len(rec)
+        self.cost = cost
+
+    def _xbanked(self):
+        """...a banked frame on the copying FIFO: while the bank holds
+        anything (set_bank's test)"""
+        return bool(self.bank) and self.disk.level > self.reserve
+
     def set_bank(self, bank, pre, xcopy=0.0):
         """THE XMS BANK (SPEC.md 98.3.18.2): `bank` bytes ahead of the ring,
         so the disk bucket is that much deeper, and `pre` of them filled
@@ -3590,7 +3795,10 @@ class Encoder:
         self.disk.level = self.reserve / 2 + self.bankpre
         self.drate0 = self.drate
         if xcopy:
-            self.dslow = 1.0 + 2 * xcopy / 1000.0 * self.drate / 1024
+            # ONE copy on the disk: the copy UP, disk -> bounce -> XMS. The
+            # copy DOWN is the playback's, charged a frame (set_xplay) - or
+            # none at all in place. Two used to be charged here
+            self.dslow = 1.0 + xcopy / 1000.0 * self.drate / 1024
             if (self.drate / self.dslow) * 0.99 <= self.abps:
                 raise vid.V88Error("the bank's copies leave the disk %d bytes "
                                    "a second, and the sound is %d"
@@ -3600,11 +3808,49 @@ class Encoder:
         """The disk's rate this frame: the profile's, less the bank's copies
         while the bank holds anything (set_bank)"""
         if self.bank and self.dslow != 1.0 and \
-                self.disk.level > self.reserve:
-            return self.drate0 / self.dslow
-        return self.drate0
+                (getattr(self, "xmode", None) == "inplace" or
+                 self.disk.level > self.reserve):
+            return self.drate0 / self.dslow     # (in place: every chunk
+        return self.drate0                      # goes up through the bank)
 
     def begin(self):
+        """A frame starts (_begin), and where the LAG SCHEDULE runs (fgrid:
+        98.2.1.1.1, 98.2.1.1.2) the frame's ceiling it leaves: as long as
+        the frame may run and still keep the NEXT one less than `flag_lag`
+        frames behind the sound - a call short of it. The player draws a
+        frame a call when flipped, up to two when not; with a card's sound
+        the calls come every half period, so a picture that fell behind
+        catches up, and `flag_lag` is --lag in frames. A schedule that
+        cannot catch up (calls a period apart: silent, or the speaker's
+        clock) holds it at 1"""
+        self._begin()
+        if self.fgrid:
+            q = self.q
+            # (a call short of `flag_lag` frames: 98.2.1.1.2's allowance,
+            # one frame on a schedule that cannot catch up)
+            lmax = self.flag_lag * q - self.fgrid
+            room = (q + lmax - self.flag) * (1.0 - self.spk) \
+                - self.audio_cyc - HOOK_CYC
+            self.ceil = min(self.ceil, max(0.0, room))
+
+    def end(self, c):
+        """...and ends (_end), the lag schedule moved on: the next frame
+        starts at the first call after this one is drawn"""
+        self._end(c)
+        if self.fgrid:
+            q, g = self.q, self.fgrid
+            total = (c + self.audio_cyc + HOOK_CYC) / (1.0 - self.spk)
+            if total > q:
+                self.stats["fover"] += 1
+            self.flag = max(0.0, math.ceil((self.flag + total - q) / g
+                                           - 1e-9) * g)
+            self.stats["fmaxlag"] = max(self.stats["fmaxlag"], self.flag / q)
+            if self.flag >= q:          # behind by a frame or more, which
+                self.stats["fbehind"] += 1  # --lag may allow
+            if self.flag >= self.flag_lag * q:  # (only a frame that cannot
+                self.stats["flate"] += 1    # be cut below its fixed cost)
+
+    def _begin(self):
         """A frame starts: the buckets fill, and WHEN the player will
         decode it sets its ceiling (98.2.1.1). The hook runs a call a
         period and draws at most two frames a call, one due and one owed;
@@ -3695,7 +3941,7 @@ class Encoder:
                 return r0 + (r1 - r0) * (share - s0) / (s1 - s0)
         return pts[-1][1]
 
-    def end(self, c):
+    def _end(self, c):
         """...and ends, having cost the model `c` cycles"""
         if self.dcurve:                 # (the speaker's pulses are the
                                         # reader's CPU too, 98.2.15)
@@ -3794,6 +4040,9 @@ class Encoder:
             elif self.live and order is not None:
                 chosen, rec = self.trim(sp, order, g, audio, cyc_room,
                                         byte_room)
+        if len(rec) > self.rec_max:     # NEVER A RECORD THE FILE CANNOT
+            chosen, rec = [], vid.record([], g, audio)  # HOLD (unfit)
+            self.stats["unfit"] += 1
         if chosen is not sp:
             self.torn(chosen, 0)
         for a, bs, run in chosen:
@@ -3846,10 +4095,18 @@ class Encoder:
                 self.stats["disk"] += 1
             return
         self.cpucut = True
-        if cyc_room >= self.ceil:
-            self.stats["peak"] += 1
-        else:
+        # cyc_room is net of the back page's debt (a flipped file's prev_c),
+        # so it is not what to ask: the BUCKET against the CEILING is. Asked
+        # of cyc_room, every cut on a flipped file read as the average's,
+        # when the 1-second bucket had seconds of room and the flip schedule
+        # had cut the ceiling below --peak - so raising --avg or --peak
+        # changed nothing a summary seemed to blame it on
+        if self.cpu.room() < self.ceil:
             self.stats["cpu"] += 1
+        elif self.fgrid is not None and self.ceil < self.peak:
+            self.stats["flip"] += 1     # the lag schedule (98.2.1.1.1-2)
+        else:
+            self.stats["peak"] += 1
 
     def pixels(self, st):
         """A screen state (or a target) as pixels: (h, w) grey 0..1, or
@@ -4193,43 +4450,6 @@ class Flipped:
         self.flip, self.prev_c = flip, 0
         if flip:                        # a frame a call (98.3.8): owed time
             self.owe = None             # is the flip schedule's (below)
-        # THE FLIP SCHEDULE (98.2.1.1.1): the player draws one frame a call,
-        # the calls a period apart, or half of one with a card's sound - so
-        # a frame that runs over its period starts the next at the next
-        # call, and the picture falls behind the sound by whole calls. A
-        # call that finds a WHOLE frame more due than it draws counts it
-        # late. `fgrid` is the calls' spacing, model cycles, set by encode()
-        # on a budgeted file; `flag` how far behind the next frame starts
-        self.fgrid, self.flag = None, 0.0
-        self.stats.update(fover=0, fmaxlag=0.0, flate=0)
-
-    def begin(self):
-        """Encoder's, and on a flipped file the frame's ceiling the flip
-        schedule leaves: as long as the frame may run and still keep the
-        NEXT one less than a whole frame behind - a call short of it, so
-        the player never finds two due. With a card's sound (calls every
-        half period) a frame on time may run to 1.5 periods; behind by a
-        call, to one; and silent, to its own period"""
-        super().begin()
-        if self.fgrid:
-            q = self.q
-            lmax = q - self.fgrid           # (a call short of a frame)
-            room = (q + lmax - self.flag) * (1.0 - self.spk) \
-                - self.audio_cyc - HOOK_CYC
-            self.ceil = min(self.ceil, max(0.0, room))
-
-    def end(self, c):
-        super().end(c)
-        if self.fgrid:
-            q, g = self.q, self.fgrid
-            total = (c + self.audio_cyc + HOOK_CYC) / (1.0 - self.spk)
-            if total > q:
-                self.stats["fover"] += 1
-            self.flag = max(0.0, math.ceil((self.flag + total - q) / g
-                                           - 1e-9) * g)
-            self.stats["fmaxlag"] = max(self.stats["fmaxlag"], self.flag / q)
-            if self.flag >= q:          # (only a frame that cannot be cut
-                self.stats["flate"] += 1    # below its fixed cost)
 
     def charge(self, rec, abytes):
         c = self.cost(rec)
@@ -4246,10 +4466,14 @@ class Flipped:
             # copy for a record too long to keep (98.3.8.1)
             y0, y1 = struct.unpack_from("<HH", rec, 2)
             rows = max(0, y1 - y0)
-            if len(rec) > vid.PREV_MAX or rows * 80 * VP_LCW < len(rec):
+            # (flipped and built ahead, the player keeps the record's own
+            # lists and no more - its chain and its audio are not decoded
+            # again, 98.3.8.5)
+            n = len(rec) - (abytes if getattr(self, "fown", False) else 0)
+            if n > vid.PREV_MAX or rows * 80 * VP_LCW < n:
                 self.prev_c = rows * 80 * self.lcopy + CYC_LCOPY0
             else:
-                self.prev_c = c
+                self.prev_c = getattr(self, "cost0", self.cost)(rec)
         self.end(spent)
         return spent
 
@@ -4316,8 +4540,11 @@ class EncoderX(Flipped, Encoder):
                     ub += b
             ops = self.banded(chosen, (0x0F, 0x03, 0x0C, 1, 2, 4, 8))
             rec = vid.record(ops, g, audio, limit=None)
-            mc = vid.cycles_of(rec, True, table=self.ct, sub=self.csub,
-                               sub2=self.g.sub2, wm3=self.cwm3)
+            # (self.cost and not the table: the price charge() will take,
+            # the play's calibration and the XMS copies with it - asked of
+            # the table, Mode X chose to a model the charge then disagreed
+            # with, and the schedule paid the difference)
+            mc = self.cost(rec)
             if mc <= cyc_room and len(rec) - len(audio) <= byte_room and \
                     len(rec) <= self.rec_max:
                 f = self.grow(chosen is cand, rec, audio, byte_room, mc,
@@ -4339,6 +4566,10 @@ class EncoderX(Flipped, Encoder):
         else:
             if best is not None:
                 chosen, ops, rec = best
+        if len(rec) > self.rec_max:     # NEVER A RECORD THE FILE CANNOT
+            chosen, ops = [], []        # HOLD (unfit): the frame draws
+            rec = vid.record([], g, audio)  # nothing, the next catch up
+            self.stats["unfit"] += 1
         if chosen is cand:
             self.stats["exact"] += 1
         else:
@@ -4636,6 +4867,10 @@ class EncoderP(Flipped, Encoder):
         else:
             if best is not None:
                 chosen, ops, rec = best
+        if len(rec) > self.rec_max:     # NEVER A RECORD THE FILE CANNOT
+            chosen, ops = [], []        # HOLD (unfit): the frame draws
+            rec = vid.record([], g, audio)  # nothing, the next catch up
+            self.stats["unfit"] += 1
         self.stats["exact" if chosen is cand else "cut"] += 1
         if chosen is not cand:
             self.torn(chosen, 1)
@@ -4875,8 +5110,36 @@ class PageAhead(object):
                 j >= len(self.log) or \
                 any(qa <= j < qb for qa, qb in self.quiet):
             return None
-        c = e.cost(rec)
-        cpu_left = min(e.cpu.room(), e.ceil, e.peak) - c
+        room = self._room(j, rec, audio)
+        if room is None:
+            return None
+        cpu_left, dsk_left = room
+        T = self.T[self.F]
+        if not np.any(h.screen != T):
+            return None
+        p = self.P.get(self.F)
+        if p is not None and (h.pal is None or not np.array_equal(h.pal, p)):
+            h.set_pal(p)                # (the target's scene's colours)
+        h.peak = h.ceil = cpu_left
+        h.cpu = Budget(None, None)
+        h.disk = Budget(None, None)
+        h.rec_max = int(dsk_left)
+        ops, hrec = h.frame(T, b"")
+        if not ops:
+            return None
+        hc, hb = float(h.cost(hrec)), float(len(hrec))
+        e.pa_spend = (hc, hb)
+        self.start.setdefault(self.F, j)
+        self.cyc += hc
+        self.bytes += hb
+        return ops
+
+    def _room(self, j, rec, audio):
+        """What frame j left the hidden pages, (cycles, bytes) - or None
+        when it is too little to build with"""
+        e = self.e
+        c = e.cost(rec) + getattr(e, "prev_c", 0.0)  # (and what a flipped
+        cpu_left = min(e.cpu.room(), e.ceil, e.peak) - c    # frame owes)
         dsk_left = math.inf
         if e.disk.per is not None:
             dsk_left = min(e.disk.room() - e.disk_floor(),
@@ -4904,25 +5167,536 @@ class PageAhead(object):
         dsk_left = min(dsk_left, e.rec_max - len(rec))
         if cpu_left < 4 * e.ct[0] or dsk_left < 256:
             return None
-        T = self.T[self.F]
-        if not np.any(h.screen != T):
+        return cpu_left, dsk_left
+
+
+class PageAheadN(PageAhead):
+    """PAGE-AHEAD ON N PAGES (SPEC.md 98.1.3.7.1, 98.2.1.8.4): PageAhead with
+    N-1 hidden pages, each built toward a target of its own - the nearest
+    target first, out of the same cycles and bytes one page would have
+    had (`_room`), so a page is built only from what the page before it
+    did not need. The pages are PHYSICAL: `vp` is the page shown, `hp[i]`
+    hidden page i's, and a flip swaps the two. Measured before it was
+    built: docs/reports/VIDEO-PAGES-2026-10-15.md"""
+
+    def __init__(self, enc, plan, pages, key0=0, kcap=KEY_PLAYER,
+                 kpart=vid.KEY_PART, ref=0):
+        import copy
+        super().__init__(enc, plan, key0, kcap, kpart, ref)
+        h0 = self.h
+        self.hs = [h0]
+        for _ in range(pages - 2):
+            h = copy.deepcopy(h0)
+            if hasattr(h, "sv"):
+                h.sv = np.frombuffer(h.surf, dtype=np.uint8)
+                h.tv = np.frombuffer(h.tsurf, dtype=np.uint8)
+            self.hs.append(h)
+        self.vp, self.hp = 0, list(range(1, pages))
+        self.asg = [None] * (pages - 1)     # hidden page -> its target
+        self.done = set()
+        self.unbuilt = 0                    # targets no page was built for
+        # THE KEY RULE (98.2.1.8.4): a key carries only the pages with a
+        # target, and a page it leaves out is UNKNOWN from that key on -
+        # straight play holds what it held, a play from the key the key's
+        # picture - until a build has written every byte of it. `keyat` is
+        # the writer's key frames (set by encode())
+        self.unknown = [False] * (pages - 1)
+        self.keyat = lambda k: False
+        self.keyrule = False                # (--page-keys started)
+        self.dropped = 0                    # pages keys left out
+        self._assign(-1)
+
+    def _assign(self, j):
+        """Free pages take the next targets nobody is building, nearest
+        first - none the frame after j, which a build could not reach"""
+        held = set(x for x in self.asg if x is not None)
+        for F in self.targets:
+            if None not in self.asg:
+                break
+            if F > j + 1 and F not in held and F not in self.done:
+                i = self.asg.index(None)
+                self.asg[i] = F
+                held.add(F)
+                if self.unknown[i]:
+                    self._poison(i, self.T[F])
+        live = [x for x in self.asg if x is not None]
+        self.F = min(live) if live else None
+
+    def _poison(self, i, T):
+        """Hidden page i UNKNOWN: its picture in the model is the target
+        with every bit flipped, so every byte of it, in every plane, is a
+        change - the build writes them all, and whatever either play holds
+        there it holds the target after"""
+        h, g = self.hs[i], self.e.g
+        X = (T ^ (15 if getattr(g, "bitplanes", False) else 0xFF)).astype(
+            np.uint8)
+        g.put(h.surf, X.tobytes())
+        if hasattr(h, "pl"):            # (VGA4: the planes from the surface)
+            for p_ in range(4):
+                for y, b in enumerate(g.base):
+                    h.pl[p_, y] = np.frombuffer(
+                        bytes(h.surf[p_ * vid.PLANE + b:
+                                     p_ * vid.PLANE + b + g.wb]), np.uint8)
+        h.screen = X.copy()
+        h.scache = None
+
+    def carried(self, j):
+        """The pages frame j's key carries, by number - every page whose
+        build has STARTED, the rest left out and UNKNOWN from here
+        (98.2.1.8.4) - or, on a frame with no key, all of them. A page with
+        a target nothing has been spent toward yet holds a picture nobody
+        will see, and every target is handed to a page the moment one is
+        free, so that is most pages at most keys: a page with a target far
+        ahead was carried by every key before its build began"""
+        if not self.keyat(j) or not self.keyrule:
+            return self.surfs()
+        out = {self.vp: self.e.surf}
+        for i, h in enumerate(self.hs):
+            F = self.asg[i]
+            if (F is not None and F in self.start and not self.unknown[i]) \
+                    or np.array_equal(h.screen, self.e.screen):
+                out[self.hp[i]] = h.surf
+            elif F is not None and F in self.start:
+                out[self.hp[i]] = h.surf    # (unknown, part built: carried
+                                            # as the model has it, and whole
+                                            # before it is shown)
+            else:
+                if not self.unknown[i]:
+                    self.unknown[i] = True
+                    self.dropped += 1
+                if F is not None:           # (its build starts from the
+                    self._poison(i, self.T[F])  # target, every bit flipped)
+        return out
+
+    def before(self, j, target):
+        self.flipped = False
+        e = self.e
+        if j in self.T and j not in self.done:
+            self.done.add(j)
+            if j in self.asg:
+                i = self.asg.index(j)
+                h = self.hs[i]
+                if self.unknown[i] and np.any(h.screen != target):
+                    self.lost += 1      # (UNKNOWN and not yet whole: the
+                                        # two plays would show it apart)
+                elif np.count_nonzero(h.screen != target) < \
+                        np.count_nonzero(e.screen != target):
+                    for k in PA_STATE:
+                        if hasattr(e, k) and hasattr(h, k):
+                            x, y = getattr(e, k), getattr(h, k)
+                            setattr(e, k, y)
+                            setattr(h, k, x)
+                    e.scache = h.scache = None
+                    self.vp, self.hp[i] = self.hp[i], self.vp
+                    self.unknown[i] = False     # (whole, or never unknown;
+                                                # the page left is known)
+                    self.flipped = True
+                    self.flips += 1
+                else:
+                    self.lost += 1
+                self.asg[i] = None
+            else:
+                self.unbuilt += 1
+        for i, F in enumerate(self.asg):    # (a target passed unflipped)
+            if F is not None and F < j:
+                self.asg[i] = None
+        self._assign(j)
+        self.Fat[j] = self.F
+
+    def surfs(self):
+        """every page by its number: what a key carries of each"""
+        out = {self.vp: self.e.surf}
+        for i, h in enumerate(self.hs):
+            out[self.hp[i]] = h.surf
+        return out
+
+    def preload(self):
+        """Key 0's hidden pages: EVERY page's target whole, at no cost to
+        any frame (the key is read in parts, 98.1.3.8)"""
+        self.preloaded = self.npre = 0
+        for F, i in sorted((F, i) for i, F in enumerate(self.asg)
+                           if isinstance(F, int)):
+            h = self.hs[i]
+            T = self.T[F]
+            p = self.P.get(F)
+            if p is not None:
+                h.set_pal(p)
+            h.peak = h.ceil = math.inf
+            h.cpu = Budget(None, None)
+            h.disk = Budget(None, None)
+            h.rec_max = 1 << 30
+            h.frame(T, b"")
+            self.npre += 1
+            if not self.preloaded:
+                self.preloaded = int(np.count_nonzero(h.screen == T))
+
+    def upgrade_keys(self, wr):
+        return 0                # (an N-page key carries every page as it is)
+
+    def after(self, j, rec, audio, target=None):
+        """...the hidden pages' writes, nearest target first: a list of
+        (page, ops), or None"""
+        e = self.e
+        if j == self.key0 and not hasattr(self, "preloaded") and \
+                any(x is not None for x in self.asg):
+            if self.kpart is None:
+                self.preloaded = 0  # (one read of the key: no preload)
+            else:
+                self.preload()
+        if self.flipped or all(x is None for x in self.asg) or \
+                e.last_why is not None or j >= len(self.log) or \
+                any(qa <= j < qb for qa, qb in self.quiet):
             return None
-        p = self.P.get(self.F)
-        if p is not None and (h.pal is None or not np.array_equal(h.pal, p)):
-            h.set_pal(p)                # (the target's scene's colours)
-        h.peak = h.ceil = cpu_left
-        h.cpu = Budget(None, None)
-        h.disk = Budget(None, None)
-        h.rec_max = int(dsk_left)
-        ops, hrec = h.frame(T, b"")
-        if not ops:
+        room = self._room(j, rec, audio)
+        if room is None:
             return None
-        hc, hb = float(h.cost(hrec)), float(len(hrec))
-        e.pa_spend = (hc, hb)
-        self.start.setdefault(self.F, j)
-        self.cyc += hc
-        self.bytes += hb
-        return ops
+        cpu_left, dsk_left = room
+        out, tc, tb = [], 0.0, 0.0
+        for F, i in sorted((F, i) for i, F in enumerate(self.asg)
+                           if F is not None):
+            if cpu_left < 4 * e.ct[0] or dsk_left < 256:
+                break
+            h = self.hs[i]
+            T = self.T[F]
+            if not np.any(h.screen != T):
+                continue            # (built: the next page's turn)
+            p = self.P.get(F)
+            if p is not None and (h.pal is None or
+                                  not np.array_equal(h.pal, p)):
+                h.set_pal(p)
+            h.peak = h.ceil = cpu_left
+            h.cpu = Budget(None, None)
+            h.disk = Budget(None, None)
+            h.rec_max = int(dsk_left)
+            ops, hrec = h.frame(T, b"")
+            if not ops:
+                break
+            hc, hb = float(h.cost(hrec)), float(len(hrec))
+            cpu_left -= hc
+            dsk_left -= hb
+            tc += hc
+            tb += hb
+            self.start.setdefault(F, j)
+            out.append((self.hp[i], ops))
+            if self.unknown[i] and not np.any(h.screen != T):
+                self.unknown[i] = False     # (every byte written: known)
+        if not out:
+            return None
+        e.pa_spend = (tc, tb)
+        self.cyc += tc
+        self.bytes += tb
+        return out
+
+
+class PageAheadF(PageAheadN):
+    """FLIPPED AND BUILT AHEAD (SPEC.md 98.1.3.7.2, 98.2.1.8.5): every frame
+    drawn on the BACK page `bp` - the player brings it up to the frame shown
+    first, which the flipped encoder already charges (`prev_c`) - and the
+    pages are swapped; N-2 BUILDERS are PageAheadN's hidden pages. A flip to
+    a builder is BUILT, drawn on as it stands, with nothing brought up; the
+    next frame's back page must then be that page as it was built, so either
+    a builder the calm COPIED it onto (four pages or more: `cp`, in bands out
+    of spare cycles once the build is whole) becomes the back page, or the
+    flip's own record carries a COPY of the rows that differ onto the old
+    one. The copy's cycles take the bring-up's place in that frame's budget,
+    and a flip whose copy does not fit is not taken. Measured before it was
+    built: docs/reports/VIDEO-PAGES-2026-10-15.md §5"""
+
+    def __init__(self, enc, plan, pages, key0=0, kcap=KEY_PLAYER,
+                 kpart=vid.KEY_PART, ref=0):
+        super().__init__(enc, plan, pages - 1, key0, kcap, kpart, ref)
+        enc.fown = True                 # (the player keeps the own lists)
+        self.N = pages
+        self.bp = pages - 1                 # the back page, drawn next
+        self.bsurf = bytes(enc.surf)        # ...and what it holds
+        self.bunk = False                   # ...UNKNOWN: a key left it out
+        self.cp = {}                        # builder -> the builder copied
+        self.cleft = {}                     #   onto, and its rows still owed
+        self.built, self.copies = False, []
+        self.ncopy = self.crows = 0
+        self.copyrefused = 0
+        self.precopied = 0
+        self.bpend = None
+
+    def _rows(self, a, b):
+        """the canvas rows that differ between surfaces a and b, as a band
+        (y0, y1), or None"""
+        g = self.e.g
+        ca, cb = g.canvas(a), g.canvas(b)
+        rb = len(ca) // g.h
+        rows = [y for y in range(g.h) if ca[y * rb:(y + 1) * rb] !=
+                cb[y * rb:(y + 1) * rb]]
+        return (rows[0], rows[-1] + 1) if rows else None
+
+    def _ccost(self, band):
+        e = self.e
+        return 0.0 if band is None else \
+            (band[1] - band[0]) * 80 * e.lcopy + CYC_LCOPY0
+
+    def _setsurf(self, h, surf):
+        """builder object `h` made to model the page holding `surf`"""
+        g = self.e.g
+        X = np.frombuffer(bytes(g.canvas(surf)), np.uint8).reshape(
+            h.screen.shape)
+        g.put(h.surf, X.tobytes())
+        if hasattr(h, "pl"):
+            for p_ in range(4):
+                for y, b in enumerate(g.base):
+                    h.pl[p_, y] = np.frombuffer(
+                        bytes(h.surf[p_ * vid.PLANE + b:
+                                     p_ * vid.PLANE + b + g.wb]), np.uint8)
+        h.screen = X.copy()
+        h.scache = None
+
+    def carried(self, j):
+        """every page but the back page, which after a seek holds the key's
+        own picture - and is UNKNOWN from a key until it is drawn on"""
+        out = self.surfs()
+        if self.keyat(j):
+            self.bunk = True
+        return out
+
+    def surfs(self):
+        out = {self.vp: self.e.surf}
+        for i, h in enumerate(self.hs):
+            out[self.hp[i]] = h.surf
+        return out
+
+    def before(self, j, target):
+        e = self.e
+        self.flipped = self.built = False
+        self.copies = []
+        old = bytes(e.surf)                 # (the frame shown: j-1's)
+        if self.bpend is not None:      # (the back page as the last flip's
+            base, band = self.bpend     # copy left it: its rows of the
+            self.bpend = None           # frame that flip drew)
+            if band is not None:
+                g = e.g
+                cv = bytearray(g.canvas(base))
+                rb = len(cv) // g.h
+                cv[band[0] * rb:band[1] * rb] = \
+                    g.canvas(old)[band[0] * rb:band[1] * rb]
+                t_ = g.surface()
+                g.put(t_, bytes(cv))
+                base = bytes(t_)
+            self.bsurf = base
+        if j in self.T and j not in self.done:
+            self.done.add(j)
+            if j in self.asg:
+                i = self.asg.index(j)
+                h = self.hs[i]
+                if np.count_nonzero(h.screen != target) < \
+                        np.count_nonzero(e.screen != target):
+                    # THE NEXT BACK PAGE: the copy the calm made, or the old
+                    # back page with what differs copied onto it - the
+                    # cheaper; an unknown back page takes every row
+                    k = self.cp.get(i)
+                    bb = (0, e.g.h) if self.bunk else \
+                        self._rows(self.bsurf, h.surf)
+                    kb = self._rows(self.hs[k].surf, h.surf) \
+                        if k is not None else None
+                    use_k = k is not None and \
+                        self._ccost(kb) <= self._ccost(bb)
+                    band = kb if use_k else bb
+                    cc = self._ccost(band)
+                    room = min(e.cpu.room(), e.ceil, e.peak)
+                    if cc > max(0.0, room) * PA_COPY_OK:
+                        self.lost += 1
+                        self.copyrefused += 1
+                    else:
+                        for kk in PA_STATE:
+                            if hasattr(e, kk) and hasattr(h, kk):
+                                x, y = getattr(e, kk), getattr(h, kk)
+                                setattr(e, kk, y)
+                                setattr(h, kk, x)
+                        e.scache = h.scache = None
+                        self.vp, self.hp[i] = self.hp[i], self.vp
+                        if use_k:       # (the copy's page is the back page,
+                            kp = self.hp[k]     # the old one a builder)
+                            kbase = bytes(self.hs[k].surf)
+                            self.hp[k] = self.bp
+                            self._setsurf(self.hs[k], self.bsurf)
+                            self.bp = kp
+                            self.bpend = (kbase, kb)
+                            if kb is not None:
+                                self.copies = [(kp, self.vp) + kb]
+                            self.precopied += 1
+                        else:
+                            if band is not None:
+                                self.copies = [(self.bp, self.vp) + band]
+                            self.bpend = (self.bsurf, band)
+                        if self.copies:
+                            self.ncopy += 1
+                            self.crows += self.copies[0][3] - \
+                                self.copies[0][2]
+                        self.bunk = False
+                        self.cp.pop(i, None)
+                        if k is not None:
+                            self.asg[k] = None
+                        self.built = self.flipped = True
+                        self.flips += 1
+                        e.prev_c = cc   # (nothing brought up: the copy's
+                                        # cycles in its place)
+                else:
+                    self.lost += 1
+                self.asg[i] = None
+            else:
+                self.unbuilt += 1
+        for i, F in enumerate(self.asg):    # (a target passed unflipped)
+            if isinstance(F, int) and F < j:
+                self.asg[i] = None
+        for i in list(self.cp):         # (a copy whose build is gone)
+            if self.asg[i] is None:
+                self.asg[self.cp.pop(i)] = None
+        if not self.built:              # AN ORDINARY FRAME: on the back page,
+            self.vp, self.bp = self.bp, self.vp     # which is then shown
+            self.bsurf = old
+            self.bunk = False
+        self._assign(j)
+        self.Fat[j] = self.F
+
+    def _assign(self, j):
+        held = set(x for x in self.asg if isinstance(x, int))
+        for F in self.targets:
+            if None not in self.asg:
+                break
+            if F > j + 1 and F not in held and F not in self.done:
+                i = self.asg.index(None)
+                self.asg[i] = F
+                held.add(F)
+        live = [x for x in self.asg if isinstance(x, int)]
+        self.F = min(live) if live else None
+
+    def after(self, j, rec, audio, target=None):
+        """...the builders' writes, nearest target first, and the calm's
+        copies of a whole build onto a free builder"""
+        e = self.e
+        if j == self.key0 and not hasattr(self, "preloaded") and \
+                any(isinstance(x, int) for x in self.asg):
+            if self.kpart is None:
+                self.preloaded = 0
+            else:
+                self.preload()
+        if self.flipped or not any(isinstance(x, int) for x in self.asg) \
+                or e.last_why is not None or j >= len(self.log) or \
+                any(qa <= j < qb for qa, qb in self.quiet):
+            return None
+        room = self._room(j, rec, audio)
+        if room is None:
+            return None
+        cpu_left, dsk_left = room
+        out, tc, tb = [], 0.0, 0.0
+        # A COPY THAT CANNOT BE PAID AT THE FLIP (a 286: the whole canvas is
+        # most of a period) is paid in the calm, so the nearest target keeps
+        # a builder for its copy - the next target's build begins once that
+        # copy is whole. Where it can be paid (a 486), every builder builds
+        pre = len(self.hs) > 1 and \
+            e.g.h * 80 * e.lcopy + CYC_LCOPY0 > e.ceil * PA_COPY_OK
+        held = False                    # (the nearest's build or copy is
+        for F, i in sorted((F, i) for i, F in enumerate(self.asg)  # not
+                           if isinstance(F, int)):                 # whole)
+            if cpu_left < 4 * e.ct[0] or dsk_left < 256:
+                break
+            h = self.hs[i]
+            T = self.T[F]
+            if held and F not in self.start:
+                break
+            held = pre and (np.any(h.screen != T) or
+                            self.cleft.get(i, 0) < e.g.h)
+            if np.any(h.screen != T):
+                p = self.P.get(F)
+                if p is not None and (h.pal is None or
+                                      not np.array_equal(h.pal, p)):
+                    h.set_pal(p)
+                h.peak = h.ceil = cpu_left
+                h.cpu = Budget(None, None)
+                h.disk = Budget(None, None)
+                h.rec_max = int(dsk_left)
+                ops, hrec = h.frame(T, b"")
+                if not ops:
+                    break
+                hc, hb = float(h.cost(hrec)), float(len(hrec))
+                cpu_left -= hc
+                dsk_left -= hb
+                tc += hc
+                tb += hb
+                self.start.setdefault(F, j)
+                out.append((self.hp[i], ops))
+                if np.any(h.screen != T):
+                    continue
+            # BUILT WHOLE: copied onto another builder in bands, so its flip
+            # leaves a back page already brought up - one free, or one whose
+            # target is later and not begun (taken before the next build in
+            # this frame could begin it)
+            if not pre:
+                continue                # (paid at the flip)
+            k = self.cp.get(i)
+            if k is None:
+                cand = [x for x in range(len(self.asg)) if x != i and (
+                    self.asg[x] is None or (isinstance(self.asg[x], int) and
+                                            self.asg[x] > F and
+                                            self.asg[x] not in self.start))]
+                if not cand:
+                    continue
+                k = min(cand, key=lambda x: (self.asg[x] is not None,
+                                             -(self.asg[x] or 0)))
+                self.asg[k] = "copy"
+                self.cp[i] = k
+                self.cleft[i] = 0
+            y0 = self.cleft[i]
+            if y0 >= e.g.h or out and out[-1][0] == self.hp[i]:
+                continue                # (whole; or built THIS frame: its
+                                        # rows are copied from the next)
+            per = 80 * e.lcopy
+            n = int(min(e.g.h - y0, (cpu_left - CYC_LCOPY0) // per))
+            if n < 1:
+                break
+            self.copies.append((self.hp[k], self.hp[i], y0, y0 + n))
+            hk = self.hs[k]
+            cv = bytearray(e.g.canvas(hk.surf))
+            rb = len(cv) // e.g.h
+            cv[y0 * rb:(y0 + n) * rb] = \
+                e.g.canvas(h.surf)[y0 * rb:(y0 + n) * rb]
+            t_ = e.g.surface()
+            e.g.put(t_, bytes(cv))
+            self._setsurf(hk, t_)
+            self.cleft[i] = y0 + n
+            cc = n * per + CYC_LCOPY0
+            cpu_left -= cc
+            dsk_left -= vid.COPY_LEN
+            tc += cc
+            tb += vid.COPY_LEN
+        if not out and not self.copies:
+            return None
+        e.pa_spend = (tc, tb)
+        self.cyc += tc
+        self.bytes += tb
+        return out
+
+
+PA_COPY_OK = 1.0        # FLIPPED AND BUILT AHEAD (98.2.1.8.5): a flip is
+                        # taken only when its copy fits the frame's own room
+                        # - a flipped play that overruns its period stays
+                        # behind for good (98.2.1.1.1)
+
+
+PA_SCENE = 0.2          # ON N PAGES (98.2.1.8.4): a cut frame is a target of
+                        # its own when this share of its pixels differs from
+                        # the frame before - a scene change inside a cut run,
+                        # which one page never reaches anyway
+
+
+def page_count(a, L, scr):
+    """--pages: the pages an N-page encode uses - 2 (98.1.3.7), a number,
+    or MAX, every page the screen holds in a plane's 64 KB, 8 at most"""
+    v = str(getattr(a, "pages", "2") or "2")
+    most = min(vid.MPAGE_MAX, 0x10000 // vid.page_bytes(L, scr)) \
+        if L != vid.LAY_HERC else 2
+    n = most if v == "max" else int(v)
+    if not 2 <= n <= most:
+        raise vid.V88Error("--pages %s: this screen holds %d pages (98.1.3.7.1)"
+                           % (v, most))
+    return n
 
 
 def picture_report(q_frames, q_bad, fps):
@@ -5142,6 +5916,11 @@ class LayerEnc(object):
         e.alead, e.arefill, e.slead, e.srefill = 0, [], 0, []
         e.disk = Budget(0.0, ram_kb * 1024.0)
         e.disk.level = min(pre_kb, ram_kb) * 1024.0
+        # A LAYER RECORD'S ROOM is the layer's own, 32,760 bytes whatever
+        # --frame-cap gives the base (vid.L_RECMAX): the machine copied the
+        # base's 47 KB, so a layer with a bank and a fast CPU planned a
+        # 36 KB record that layer_frame then refused, an hour in
+        e.rec_max = min(e.rec_max, vid.L_RECMAX)
         return e
 
     def push(self, target, ops, rec, pal=None, hops=None, flip=False,
@@ -6199,6 +6978,14 @@ def page_passes(a, keep, tick, readers, mode="on"):
                 pass
 
 
+BENCH_WARN = 0.15   # the bench's machines' ratio this far from a file's
+                    # own frames' is said in the report (98.1.9.13)
+LY_TMIN = 100   # the least yardstick the player's bench judges a CPU by, in
+                # 10 us (SPEC.md 98.1.9.12; video.asm's VP_LYTMIN): key 0
+                # modelled under a millisecond is all fixed cost the model
+                # does not count, and both machines read the same
+
+
 def key_bench(m, rec, wr):
     """THE YARDSTICK'S WORK (98.1.9, 98.3.18.9): key 0's record as the
     player decodes it to time itself - vp_lybench's vp_decboth, which on a
@@ -6207,6 +6994,10 @@ def key_bench(m, rec, wr):
     record's lists once, so a page-ahead key was modelled at a third of
     the work: the owner's 486 timed 6 ms against a yardstick of 2.26, and
     the layer it was made for went unread"""
+    if getattr(wr, "mpage", False):     # (98.3.8.4: vp_decn, onto EVERY
+        flip, pg, own, hs = vid.mpage_parts(rec, wr.g, wr.pages)  # page,
+        return wr.pages * m.cost(own) + sum(    # and its chain)
+            m.cost(h) for p_, h in hs)
     if wr.page:
         flip, own, hrec = vid.page_parts(rec, wr.g)
         return 2 * m.cost(own) + (m.cost(hrec) if hrec else 0)
@@ -6613,11 +7404,15 @@ def _encode(a, keep, tick, readers):
     # at the screen's pixel shape, full screen only
     scr = vid.SCREEN_BY_NAME[a.screen or "640x480"]
     if scr:
-        if a.pixfmt != "vga4" or L != vid.LAY_LIN80 or a.live or a.resident:
+        # ...or MODE X AT 320 x 200 (98.1.3.1.1): 13h's 400 lines, four
+        # pages where 320 x 240 has three, at 13h's pixel shape
+        mx200 = L == vid.LAY_MODEX and scr == vid.SCR_320X200
+        if (a.pixfmt != "vga4" or L != vid.LAY_LIN80) and not mx200 or \
+                a.live or a.resident:
             raise vid.V88Error(       # (a resident file has no screen byte,
                 "--screen %s is 16-colour VGA's (--pixfmt vga4 on lin80, not "
-                "Live or resident); for black and white, --pixfmt vga4 "
-                "--palette grey2" % a.screen)  # and plays on the desktop)
+                "Live or resident), or 320x200 Mode X's; for black and "
+                "white, --pixfmt vga4 --palette grey2" % a.screen)
         bw = min(bw, vid.SCREENS[scr][1])
         bh = min(bh, vid.SCREENS[scr][2])
     # a C512 or a TEXT box is in CELLS, two bytes each (98.1.3.5)
@@ -6682,7 +7477,8 @@ def _encode(a, keep, tick, readers):
         raise vid.V88Error("--pixfmt vga4 is mode 12h's: the lin80 layout")
     if vga4 and (dw, dh) != (1, 1):
         raise vid.V88Error("--detail is VGA8's")
-    g = vid.Geom(L, int(w // ppb), h // dh, bitplanes=vga4)
+    g = vid.Geom(L, int(w // ppb), h // dh, bitplanes=vga4,   # (a NARROW
+                 stride=vid.screen_stride(scr) if vga4 else None)  # screen)
     g.sub2 = g.planes > 1           # SUB2 (98.1.3.2.4): every planar file
     if a.pixfmt is not None and (a.pixfmt == "vga8") != vga8:
         raise vid.V88Error("--pixfmt vga8 is the lin320 and modex layouts', "
@@ -7075,23 +7871,51 @@ def _encode(a, keep, tick, readers):
     if a.flip and L != vid.LAY_MODEX and not scr:
         raise vid.V88Error("--flip is Mode X's, or 16 colours' on a --screen "
                            "of its own: 13h and 12h have one page")
+    if a.flip and scr in vid.NARROW:
+        raise vid.V88Error("--flip is not a NARROW screen's: its pages are "
+                           "for --pages, and a flip every frame would want "
+                           "the whole canvas copied besides (98.1.3.2.5)")
     pmode = page_mode(a)
     pa_on = pmode == "on" or (pmode == "auto" and
                               getattr(a, "_paok", False))
     if pa_on and (L not in (vid.LAY_MODEX, vid.LAY_HERC) and not scr or
-                  a.flip or a.live or
-                  a.resident or a.loop_from is not None):
+                  a.live or a.resident or a.loop_from is not None):
         raise vid.V88Error("--page-ahead is Mode X's, a Hercules's, or 16 "
                            "colours' on a --screen of its own, played full "
                            "screen: not "
-                           "with --flip, --live, --resident or a loop "
+                           "with --live, --resident or a loop "
                            "(98.2.1.8)")
+    # ON N PAGES (98.2.1.8.4): --pages, which the plan pass takes too - its
+    # targets are a scene change's every frame then, not a run's first
+    npg = page_count(a, L, scr) if pa_on else 2
+    # ...and FLIPPED AND BUILT AHEAD (98.2.1.8.5): --flip with it, on three
+    # pages or more - two flip every frame and the rest build ahead
+    if pa_on and a.flip and (npg < 3 or L == vid.LAY_HERC):
+        raise vid.V88Error("--page-ahead with --flip builds ahead on the "
+                           "pages the flip leaves: --pages 3 or more, Mode "
+                           "X's or 16 colours' on a --screen of its own "
+                           "(98.2.1.8.5)")
+    if npg > 2 and (getattr(a, "layer_disk", None) or
+                    getattr(a, "layer_profile", None)):
+        raise vid.V88Error("--pages %d with a layer: a layer is drawn on two "
+                           "pages and no more (98.1.3.7.1)" % npg)
     enc = EncoderX(g, prof, fps, audio_cyc, audio_bps, palette, a.flip) \
         if L == vid.LAY_MODEX else \
         EncoderP(g, prof, fps, audio_cyc, audio_bps, palette and
                  palette[:48], a.flip) if vga4 else \
         Encoder(g, prof, fps, audio_cyc, audio_bps, palette)
     enc.live = bool(a.live)
+    # THE XMS COPIES THE PLAYER WILL MAKE (set_xplay): in place where the
+    # player's in-place paths take the file, the copying FIFO where they
+    # refuse it - the speaker's clock, Repeat or a loop, Live, RESIDENT,
+    # BIGSP and the two formats decoded through the shadow (98.3.18.13)
+    xmode = prof.get("xplay")
+    if xmode == "inplace" and (spk or a.repeat or a.loop_from is not None
+                               or a.live or a.resident
+                               or FRAME_CAPS[a.frame_cap] > vid.SP_MAX
+                               or a.pixfmt in ("c160", "text")):
+        xmode = "copy"
+    enc.set_xplay(xmode, prof)
     # WRITE MODE 3 (98.1.3.2.4) for a byte a refresh could catch half
     # written in a colour neither frame has: every 16-colour stream, its
     # own sixteen or the EGA's (the EGA's since 2026-10-14 - a window's
@@ -7118,13 +7942,30 @@ def _encode(a, keep, tick, readers):
         bank = int(a.bank * 1024)
         pre = bank if a.prefill == "all" else \
             min(bank, int(float(a.prefill or BANK_PREFILL) * prof["disk"]))
-        enc.set_bank(bank, pre, prof.get("xcopy") or 0.0)
+        enc.set_bank(bank, pre, prof.get("xup", prof.get("xcopy")) or 0.0)
     elif a.prefill:
         raise vid.V88Error("--prefill fills a --bank, and there is none")
+    # THE LAG (98.2.1.1.2): --lag ms, in frames. Only calls that come faster
+    # than the frames - a card's sound, every half period - can bring a
+    # picture that fell behind back to the sound; a period apart (silent,
+    # the speaker's clock) it stays behind for good
+    lagf = max(0.0, float(getattr(a, "lag", LAG_MS) or 0)) * fps / 1000.0
+    card = bool(afmt) and not spk
     if a.flip and prof["avg"] is not None:
         # the flip schedule's calls (98.2.1.1.1): half a period apart off a
         # card's sound, a period silent
-        enc.fgrid = enc.q / 2 if afmt and not spk else enc.q
+        enc.fgrid = enc.q / 2 if card else enc.q
+        enc.flag_lag = max(1.0, lagf) if enc.fgrid < enc.q else 1
+    elif card and lagf > 1.0 and enc.owe is not None and not a.live:
+        # ...and an UNFLIPPED play with a card's sound, which draws up to
+        # two frames a call and so catches up too: the lag schedule in
+        # place of the owed-time one, which allowed one frame owed and no
+        # more (98.2.1.1) - the owner's Victory plays a picture 4.5 frames
+        # behind and caught up as smooth, where a third frame due was
+        # counted fatal (docs/reports/VIDPROF-VICTORY286-2026-10-15.md)
+        enc.owe = None
+        enc.fgrid = enc.q / 2
+        enc.flag_lag = lagf
     if enc.reserve and not a.resident:  # (a disk to keep ahead: 98.2.1.3;
         enc.alead = audio_lead(afmt, rate, abytes)   # resident: none)
     # BUFFER SOUND AHEAD (98.1.8, 98.2.1.3): the file carries the sound's
@@ -7193,7 +8034,9 @@ def _encode(a, keep, tick, readers):
                     live=vid.TARGETS[a.live] if a.live and not a.resident
                     else None, ahead=ahead, kcap=KEY_PLAYER,
                     spcap=FRAME_CAPS[a.frame_cap], screen=scr,
-                    page=pa_on and getattr(a, "_paplan", None) is not None)
+                    page=pa_on and getattr(a, "_paplan", None) is not None,
+                    pages=npg if pa_on and getattr(a, "_paplan", None)
+                    is not None else 2)
     wr.opts = optsblk                   # (98.1.1.4)
     if a.resident or a.live or (getattr(a, "_paplan", None) is not None
                                 and a.repeat):
@@ -7367,11 +8210,22 @@ def _encode(a, keep, tick, readers):
                            "--layer-disk")
     # PAGE-AHEAD (98.2.1.8): the plan pass logs; the real pass builds
     plan = getattr(a, "_paplan", None)
-    pa = PageAhead(enc, plan, wr.key0, KEY_PLAYER, wr.kpart,
-                   int(wr.audio_fmt == vid.AUD_ADPCM4)) \
+    pa = (PageAheadF(enc, plan, npg, wr.key0, KEY_PLAYER, wr.kpart,
+                     int(wr.audio_fmt == vid.AUD_ADPCM4)) if npg > 2 and
+          a.flip else
+          PageAheadN(enc, plan, npg, wr.key0, KEY_PLAYER, wr.kpart,
+                     int(wr.audio_fmt == vid.AUD_ADPCM4)) if npg > 2 else
+          PageAhead(enc, plan, wr.key0, KEY_PLAYER, wr.kpart,
+                    int(wr.audio_fmt == vid.AUD_ADPCM4))) \
         if pa_on and plan is not None else None
+    if npg > 2 and pa is not None:      # (the writer's key frames)
+        pa.keyat = lambda k: k >= wr.key0 and \
+            (k - wr.key0) % wr.keyint == 0
+        pa.keyrule = getattr(a, "page_keys", "all") == "started"
+        wr.kpool = getattr(a, "key_pool", "on") == "on"
     plog = {"log": [], "T": {}, "P": {}} if pa_on and plan is None else None
     pcut = False
+    ptgt = None                         # (the frame before, for a scene's)
     ahead = deque()
     sound = []
     if scene_pals:                      # the output frame each scene starts:
@@ -7454,10 +8308,17 @@ def _encode(a, keep, tick, readers):
             # (a scene's start drawn in COARSE CELLS is one too: not cut,
             # but not drawn whole either, and a build ahead can show it so)
             short = enc.last_why is not None or draw is not target
-            if short and not pcut:
+            # ...and ON N PAGES every cut frame that is a CHANGE, PA_SCENE
+            # of its pixels off the frame before (98.2.1.8.4): two scene
+            # changes a few frames apart are one cut run on a slow machine,
+            # and its first frame alone would leave the second to be cut
+            if short and (not pcut or (
+                    npg > 2 and ptgt is not None and np.count_nonzero(
+                        target != ptgt) > PA_SCENE * target.size)):
                 plog["T"][f] = target.copy()
                 plog["P"][f] = getattr(enc, "pal", None)
             pcut = short
+            ptgt = target.copy() if npg > 2 else None
         if enc.bank:                # HOW DEEP THE BANK IS DRAWN (98.2.1.3.3)
             bl = min(max(0.0, enc.disk.level - enc.reserve), enc.bank)
             bspan[0] = min(bspan[0], bl)
@@ -7466,7 +8327,15 @@ def _encode(a, keep, tick, readers):
             enc.measure(target)
             if scene_pals and enc.q_bad and enc.q_bad[-1] >= VIS_AREA:
                 shot_cut[-1][3] += 1
-        if pa is not None:
+        if pa is not None and a.flip:  # (98.1.3.7.2: every frame flips)
+            wr.frame(ops, enc.surf, au, hidden=hops, flip=pa.vp,
+                     shown=pa.vp, hsurfs=pa.carried(f), built=pa.built,
+                     copies=pa.copies)
+        elif pa is not None and npg > 2:  # (98.1.3.7.1: pages by number)
+            wr.frame(ops, enc.surf, au, hidden=hops,
+                     flip=pa.vp if pa.flipped else None, shown=pa.vp,
+                     hsurfs=pa.carried(f))
+        elif pa is not None:
             wr.frame(ops, enc.surf, au, hidden=hops, flip=pa.flipped,
                      hsurf=pa.h.surf)
         else:
@@ -7565,6 +8434,21 @@ def _encode(a, keep, tick, readers):
                 key_bench(mm, kr, wr) / (vid.HZ * sp) * 1e5))))
                 for mm, sp in ((lay.m, lay.speeds[0]), (enc, lay.speeds[1])))
             wr.layer = wr.layer[:4] + ts
+    if not a.resident and not a.live and enc.cpu.per is not None and \
+            vid.bench_ok(wr.pixfmt, wr.g.layout, False, False):
+        # THE BENCH (98.1.9.13): the record the PLAYER builds and times, so
+        # the CPU test asks the same question of every file - modelled on
+        # the machine this is for and on the layer's. Key 0's yardsticks
+        # above stay, for a player made before
+        brec = vid.bench_record((1 if wr.g.layout == vid.LAY_MODEX else 2)
+                                if wr.g.planes > 1 else 0, wr.g.sub2)
+
+        def bench_us10(mm, sp):
+            return min(65535, max(1, int(round(
+                mm.cost(brec) / (vid.HZ * sp) * 1e5))))
+        wr.bench = (bench_us10(enc, prof.get("speed") or 1),
+                    bench_us10(lay.m, lay.speeds[0]) if lay is not None
+                    else 0)
     if enc.bank and getattr(a, "bank_auto", False):
         # --bank auto (98.2.1.3.3): the bank the encode DREW - its level
         # never left [lo, hi], so a bank of hi - lo, prefilled lo less,
@@ -7769,10 +8653,36 @@ def _encode(a, keep, tick, readers):
         "frame left wrong)%s" % (
             st["exact"], st["cut"], st["bytes_left"] / max(1, st["cut"]),
             "; cut by the disk %d, the CPU's average %d, the per-frame "
-            "ceiling %d, the %s KB a record holds %d" % (
-                st["disk"], st["cpu"], st["peak"], a.frame_cap, st["cap"])
+            "ceiling %d,%s the %s KB a record holds %d" % (
+                st["disk"], st["cpu"], st["peak"],
+                " the lag schedule %d," % st["flip"] if st.get("flip")
+                else "", a.frame_cap, st["cap"])
             if st["cut"] else ""))
-    if pa is not None:
+    if st.get("unfit"):
+        rep("base", "frames left empty: %d - the cutting did not bring them "
+            "under the %d bytes a record holds, so each drew nothing and the "
+            "frames after it caught up, rather than the encode ending"
+            % (st["unfit"], enc.rec_max))
+    if pa is not None and a.flip:
+        rep("base", "page-ahead FLIPPED ON %d PAGES: %d of %d cut scene "
+            "changes built ahead on %d builders and flipped to, %d of them "
+            "onto a back page the calm copied, %d with a copy in the flip's "
+            "record (%d rows), %d refused for a copy that did not fit; %.1f%% "
+            "of the model's cycles and %d KB for them (98.2.1.8.5)" % (
+                npg, pa.flips, len(pa.targets), npg - 2, pa.precopied,
+                pa.ncopy, pa.crows, pa.copyrefused,
+                100.0 * pa.cyc / max(1.0, sum(cyc)), pa.bytes / 1024))
+    elif pa is not None and npg > 2:
+        rep("base", "page-ahead ON %d PAGES: %d of %d cut scene changes built "
+            "ahead on %d hidden pages and flipped to, %.1f%% of the model's "
+            "cycles and %d KB for them (98.2.1.8.4); key 0 preloads %d "
+            "pages' targets, %d targets had no page free in time, and keys "
+            "left %d idle pages out" % (
+                npg, pa.flips, len(pa.targets), npg - 1,
+                100.0 * pa.cyc / max(1.0, sum(cyc)), pa.bytes / 1024,
+                getattr(pa, "npre", 0),
+                pa.unbuilt, pa.dropped))
+    elif pa is not None:
         rep("base", "page-ahead: %d of %d cut scene changes built ahead on "
             "the hidden page and flipped to, %.1f%% of the model's cycles "
             "and %d KB for it (98.2.1.8); key 0 preloads %s, and %d later "
@@ -7848,10 +8758,17 @@ def _encode(a, keep, tick, readers):
             "period late while it was paid back, %d dropped"
             % (st["owed"], st["held"], st["late"]))
     if getattr(enc, "fgrid", None):
-        rep("base", "flip schedule: %d frames ran past their period, the "
-            "picture %.2f of a frame behind the sound at most, %d frames a "
-            "whole one behind (98.2.1.1.1)"
-            % (st["fover"], st["fmaxlag"], st["flate"]))
+        rep("base", "lag schedule: %d frames ran past their period, the "
+            "picture %.2f of a frame (%d ms) behind the sound at most, %d "
+            "frames a whole one behind or more%s, %d past it (98.2.1.1.1, "
+            "98.2.1.1.2)"
+            % (st["fover"], st["fmaxlag"], st["fmaxlag"] * 1000.0 / fps,
+               st.get("fbehind", 0),
+               " - --lag allows %.1f" % enc.flag_lag
+               if enc.flag_lag > 1 else
+               " - --lag %g ms is held to a frame: calls a period apart "
+               "cannot catch up" % a.lag if a.lag * fps / 1000.0 > 1 else "",
+               st["flate"]))
     if getattr(wr, "ring", 0):
         msl = 2 if res["flags"] & vid.F_BIGSP else 1
         rep("base", "ring: a disk reserve of %d KB, %d slots - %d KB of free "
@@ -7901,6 +8818,12 @@ def _encode(a, keep, tick, readers):
             getattr(a, "layer_profile", None), a.layer_disk))
         rep("layer", "stream %.1f KB/s, in %d of %d frames"
             % (lay.bytes / secs / 1024.0, lay.recs, nf))
+        lunfit = sum(e.stats.get("unfit", 0) for e in (lay.e, lay.eh)
+                     if e is not None)
+        if lunfit:
+            rep("layer", "records left empty: %d - past the %d bytes a "
+                "layer record holds after the cutting, so each added nothing "
+                "and the next caught up" % (lunfit, lay.e.rec_max))
         rep("layer", "CPU: %.1f%% more of that machine's, past the base's"
             % (100.0 * lay.cycles / max(1.0, lay.m.cpu.per * nf)))
         # WHAT THE BETTER MACHINE NEEDS FOR THE BASE (98.1.9.1): with no
@@ -7951,6 +8874,35 @@ def _encode(a, keep, tick, readers):
                    if getattr(a, "layer_profile", None) and
                    a.layer_disk < PROFILES[a.layer_profile]["disk"] else "",
                    prof["disk"] / 1024.0, wr.lybks))
+        if wr.bench[1]:
+            # THE BENCH (98.1.9.13), and how far its two machines' ratio is
+            # from this file's own frames': the residual a fixed mix leaves
+            fb = sum(enc.cost(r) for r in wr.recs) / lay.speeds[1]
+            fl = sum(lay.m.cost(r) for r in wr.recs) / lay.speeds[0]
+            br, fr = wr.bench[0] / float(wr.bench[1]), fb / fl
+            rep("layer", "CPU test (98.1.9.13): the player's bench decodes "
+                "in %.2f ms on that machine and %.2f on the base's by the "
+                "model - %.2fx apart, against %.2fx for this file's own "
+                "frames (%+.0f%%)%s" % (
+                    wr.bench[1] / 100.0, wr.bench[0] / 100.0, br, fr,
+                    100 * (br / fr - 1),
+                    "" if abs(br / fr - 1) <= BENCH_WARN else
+                    "; NOTE: past %d%%, so a machine near the line is "
+                    "judged by the bench's mix more than by this file's"
+                    % (100 * BENCH_WARN)))
+        elif len(wr.layer) > 5 and wr.layer[4] < LY_TMIN:
+            # A KEY TOO SMALL TO TELL A CPU BY (98.1.9.12): a black key 0 is
+            # modelled in microseconds on both machines, and the player's
+            # bench then gives no verdict - so say who decides instead
+            disk = getattr(wr, "lyidl", 0) > getattr(wr, "lybks", 0)
+            rep("layer", "CPU test: none - key 0 decodes in %.2f ms on that "
+                "machine and %.2f on the base's by the model, under the %d ms "
+                "the player's bench can tell a CPU by%s"
+                % (wr.layer[4] / 100.0, wr.layer[5] / 100.0, LY_TMIN // 100,
+                   ", so the disk test above decides alone" if disk else
+                   "; with no disk test either it has no verdict and plays "
+                   "the BASE (98.1.9.7) - a key 0 with a picture in it gives "
+                   "it one"))
         if enc.metric:
             lpm, lpw, lpat, lpbr = picture_report(lay.e.q_frames,
                                                   lay.e.q_bad, fps)
@@ -8007,7 +8959,11 @@ def _encode(a, keep, tick, readers):
     if pa is not None:
         res["page"] = dict(flips=pa.flips, lost=pa.lost, cyc=pa.cyc,
                            bytes=pa.bytes, targets=len(pa.targets),
-                           start=dict(pa.start))
+                           start=dict(pa.start), pages=npg,
+                           dropped=getattr(pa, "dropped", 0),
+                           precopied=getattr(pa, "precopied", 0),
+                           copies=getattr(pa, "ncopy", 0),
+                           refused=getattr(pa, "copyrefused", 0))
     return res
 
 
@@ -8404,6 +9360,14 @@ def parser():
                     help="modex: two pages, the player drawing one while "
                          "the other shows - no tearing, at twice the decode "
                          "(98.3.8)")
+    ap.add_argument("--lag", type=float, default=LAG_MS, metavar="MS",
+                    help="with a card's sound: how far the picture may fall "
+                         "behind the sound in a burst and catch up after, "
+                         "milliseconds (98.2.1.1.2). The default 100 is "
+                         "~2.4 frames at 24 fps; a scene timed to nothing in "
+                         "the sound can take more. A file with the "
+                         "speaker's sound or none never catches up, and is "
+                         "held to a frame")
     ap.add_argument("--page-ahead", choices=("auto", "on", "off"),
                     default="auto",
                     help="the second page as where a frame the budgets "
@@ -8418,6 +9382,36 @@ def parser():
                          "Hercules's (a lone card: one with a colour card "
                          "beside it refuses the file), kept whatever. Two "
                          "passes where it applies")
+    ap.add_argument("--pages", choices=("2", "3", "4", "5", "6", "7", "8",
+                                        "max"), default="2",
+                    help="page-ahead ON N PAGES (98.2.1.8.4): the pages a "
+                         "page-ahead file builds on - 2 (the default, one "
+                         "hidden page: every player since 98.1.3.7 plays it), "
+                         "or up to every page the screen holds: Mode X 3, "
+                         "Mode X on --screen 320x200 4, 16 colours on "
+                         "320x200 4 and 320x240 3, NARROW (320x200n, "
+                         "320x240n) 8 and 6. MAX takes them all. More "
+                         "pages build two or three scene changes close "
+                         "together, and the first frames of a burst, in the "
+                         "calm before them; a player before 98.3.8.4 refuses "
+                         "such a file")
+    ap.add_argument("--page-keys", choices=("all", "started"), default="all",
+                    help="--pages past 2 (98.2.1.8.4): what a KEY carries "
+                         "of the hidden pages - all (the default): every "
+                         "page as it is, so no build is ever redone and a "
+                         "seek reads a picture per page; started: only the "
+                         "pages whose build has begun, the rest rebuilt "
+                         "whole after the key - smaller keys and faster "
+                         "seeks, for stream bytes the spare pays (on a "
+                         "Mode X clip of close cuts: keys 970 KB -> 802, "
+                         "the stream 655 KB -> 744, the same frames cut)")
+    ap.add_argument("--key-pool", choices=("on", "off"), default="on",
+                    help="--pages past 2 (98.1.3.8.1): THE PAGE POOL - a "
+                         "page picture two keys or more carry is stored once "
+                         "and each key names it: on (the default) - on the "
+                         "owner's clips at eight pages the keys' pages fell "
+                         "32-96%%; a seek reads a picture per page named. "
+                         "off: every key its own copy")
     ap.add_argument("--page-prune", choices=("rescue", "always", "off"),
                     default="rescue",
                     help="page-ahead, built flip by flip (98.2.1.8.2): a "
@@ -8534,14 +9528,18 @@ def parser():
     ap.add_argument("--vga8-stable", type=float, default=18.0,
                     help="vga8: how far, in RGB distance, the colour on "
                          "the screen may be from the source and stay")
-    ap.add_argument("--screen", type=dims, choices=tuple(v[0] for v in
+    ap.add_argument("--screen", type=screen_arg, choices=tuple(v[0] for v in
                                               vid.SCREENS.values()),
                     help="vga4: the screen it plays on - 640x480, mode 12h "
                          "and the desktop's own (the default, and the only "
                          "one a window hosts); 320x200 (mode 0Dh), 320x240, "
                          "640x350 or 640x400, full screen and with room for "
                          "two pages, so --flip (98.2.5.1). The box is cut "
-                         "to it")
+                         "to it. modex: 320x200 - 13h's 400 lines, four "
+                         "pages where 320 x 240 has three (98.1.3.1.1). "
+                         "320x200n and 320x240n: 16 colours NARROW, rows 40 "
+                         "bytes apart for eight and six pages, for --pages "
+                         "and not --flip (98.1.3.2.5)")
     ap.add_argument("--palette", choices=PALETTES, default="auto",
                     help="vga8: the colours - auto, the clip's own 256; "
                          "greyN, a ramp of N greys black to white, dithered "

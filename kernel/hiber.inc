@@ -504,7 +504,7 @@ hb_ok_x:
     push bx
     push cx                     ; ...and these two, for the reason above
     push dx
-    call COLD_SEG:hb_pick_x     ; the volume a hibernate would go to
+    COLDCALL hb_pick_x          ; the volume a hibernate would go to
     mov bx, menu_s_hibernh      ; ...none: '(no disk)'. A `mov` writes no
     jc .set                     ; flag, so the string can be chosen first
     call KERNEL_SEG:HB_API_XCAPS    ; BL = free block-table entries; on a
@@ -1637,6 +1637,13 @@ hbm_sweep:
     cmp al, dl
     jne .take                   ; ...and the caller's own
 .asked:                         ; ...unless this call named it (51.11.4)
+%ifdef HMA_DRV
+    cmp byte [bx+DRVR_SEG+1], DRV_HMA_SEG >> 8 ; ...OR IT RUNS FROM THE HMA and this
+    jb .askb                    ; is the IMAGE's sweep (docs/plans/HMA-PLAN.md
+    cmp si, hb_drvmask          ; 5): nothing above 1MB is in the image, so
+    je .take                    ; a driver up there is taken down and loaded
+.askb:                          ; again on the wake like every chip owner. A
+%endif                          ; suspend keeps it: the machine stays up
     push cx                     ; CL is the ROW and the shift wants the CLASS,
     mov cl, al                  ; so the index is banked for four instructions
     mov ch, 1
@@ -1871,6 +1878,21 @@ hbm_ptrfix_set:
     mov [cs:hbm_ptrfix + HBP_MEMTOP], ax
     mov al, [vid_kind]
     mov [cs:hbm_ptrfix + HBP_VID], al
+%ifdef ROM_COLD
+    ; ...and WHERE `.cold` RUNS, in the pad byte the head always compared as
+    ; 0 (docs/plans/ROM-PLAN.md 3.4.5): the HIGH BYTE of [api_coldseg], which
+    ; is the RAM rung's on a machine that kept it, F4 when a ROM adopted the
+    ; kernel and FF when XMEM.DRV put it in the HMA (docs/plans/HMA-PLAN.md).
+    ; An image hibernated with `.cold` in either has every far reference
+    ; pointing there and its cold rung is heap, so resumed where `.cold` is
+    ; anywhere else it would run into nothing; three places, so a byte that
+    ; only said "not in RAM" could not refuse the pair that matters. Same
+    ; build is already the head's BUILD_NUM, and a ROM or an HMA image this
+    ; boot installed is one that proved itself this kernel's - so an HMA
+    ; image resumes onto the HMA its own build filled, byte for byte the same.
+    mov al, [api_coldseg + 1]
+    mov [cs:hbm_ptrfix + HBP_VID + 1], al
+%endif
     ret
 
 ; hbm_imgsize - out: DX:AX = [mem_top] * 16, the bytes an image must have
@@ -3118,6 +3140,13 @@ hbm_wake:
     ; `hbm_hib`'s failure unwind calls `hbm_reload` to undo a detach that never
     ; became an image, and a suspender standing behind THAT one still holds its
     ; rows and is still going to ask for them.
+%ifdef HMA_DRV
+    cmp word [api_coldseg], HMA_SEG ; THE HMA'S POOL IS THE BOOT'S, NOT THE
+    jne .nohma                  ; IMAGE'S (docs/plans/HMA-PLAN.md 5): the
+    mov al, ROMF_HRESET         ; boot that resumed us may have put its own
+    call far [rom_mfp]          ; drivers there, and nothing restored names a
+.nohma:                         ; block - the image's own were swept before it
+%endif                          ; was written. Empty it before the reload
     mov dx, [hb_drvmask]
     or dx, [hb_susp]
     mov word [hb_susp], 0

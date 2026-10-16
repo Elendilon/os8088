@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "ac878c472188707cb70d1cbff1e47c2d870f33531aa05680b6e01f712e78a1df",
+  "fingerprint": "545f89db17d8fc53d66abe2f3c1761a9bf003c4e7c31732019b71d4a6181991c",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "6cfd133a4425ef421d43d7bba90562d044f557ef7023e39e2c58fcda2c0ff02f",
+  "fingerprint": "c74cf3c166c72ef7cc661b394114a30dcc8b772cd8730986cd9d66548bb9f4ac",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -119,6 +119,76 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "rename only: the DIA concept is Sticky Apps (OSAPI_DIA_MARK -> OSAPI_STIK_MARK, OSAPI_DI_DIA -> OSAPI_DI_STIK, same values); nothing built before is affected",
+   "to": 11
+  },
+  {
+   "fingerprint": "e4d7b7c050e173a6df5cf805934083006e1432a2f8e38b46480a1f62974dbe28",
+   "from": 8,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_FSX_CAPS: BX = 1..15 asks about display BX-1, CF=1 none; OSAPI_FSX_RUN: CH = 0 the window's display, n display n-1 (SPEC.md 53.1.2). Extends two contracts; every package built before passes BX >= 16 or 0 and CH = 0, so it runs unchanged",
+   "to": 8
+  },
+  {
+   "fingerprint": "69714c1959082805e614cd58fe3911b239c962829fcd73ca9d09db7d793eaf3f",
+   "from": 9,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_FSX_CAPS: BX = 1..15 asks about display BX-1, CF=1 none; OSAPI_FSX_RUN: CH = 0 the window's display, n display n-1 (SPEC.md 53.1.2). Extends two contracts; every package built before passes BX >= 16 or 0 and CH = 0, so it runs unchanged",
+   "to": 9
+  },
+  {
+   "fingerprint": "e595047d716e5673c105a511f743e31a67e7687414ed4ddeded35fa411886084",
+   "from": 8,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_HMA (0x046D) added at the end of the table, and OS88_DRIVER takes an optional DRV_ORG whose default (0) emits the same bytes: everything built before still runs (SPEC.md 2.10.8)",
+   "to": 8
+  },
+  {
+   "fingerprint": "fa99c97e58493f3de95d3340ba49b8d52fe533291b66aa812d9f9e2a044fcb48",
+   "from": 9,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_HMA (0x046D) added at the end of the table, and OS88_DRIVER takes an optional DRV_ORG whose default (0) emits the same bytes: everything built before still runs (SPEC.md 2.10.8)",
+   "to": 9
+  },
+  {
+   "fingerprint": "0c02a54afb999e99029858472e042b224f0ed2eb02f91cffc4e3baad5dfff545",
+   "from": 8,
+   "guard": "PKG_FMT",
+   "reason": "DRVM_CEIL_NET 31 -> 34: ETHER.DRV's socket pool grew 3KB for the send window (SPEC.md 72.4.3). A caption's ceiling constant; every cell, record and header is unchanged, so everything built before still runs - no bump",
+   "to": 8
+  },
+  {
+   "fingerprint": "59d7afb7eaca9fb6d545fa1ffb39681361202252d1cbfd1aa3ed9e73cad020cf",
+   "from": 9,
+   "guard": "DRV_VER",
+   "reason": "DRVM_CEIL_NET 31 -> 34: ETHER.DRV's socket pool grew 3KB for the send window (SPEC.md 72.4.3). A caption's ceiling constant; every cell, record and header is unchanged, so everything built before still runs - no bump",
+   "to": 9
+  },
+  {
+   "fingerprint": "457c14f8e55dd284f686a5ccfe80414309b82415a864a24ce10f663f229f794d",
+   "from": 8,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_WM_QUIET appended at 0x0473 (SPEC.md 79.10): a cell added at the end, nothing moved, so everything built before still runs - no bump",
+   "to": 8
+  },
+  {
+   "fingerprint": "fd43a81fbbac6ad3eefe3da6034b3aea559edd6e4b78cf76b4b4f8295efc288d",
+   "from": 9,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_WM_QUIET appended at 0x0473 (SPEC.md 79.10): a cell added at the end, nothing moved, so everything built before still runs - no bump",
+   "to": 9
+  },
+  {
+   "fingerprint": "c74cf3c166c72ef7cc661b394114a30dcc8b772cd8730986cd9d66548bb9f4ac",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "elendilon -> main merge (base 13e58898): elendilon's SDK additions over main's PKG_FMT 10 / DRV_VER 11, no bump. OSAPI_MEM_HMA and OSAPI_WM_QUIET were appended at 0x046D/0x0473 on elendilon and collided with main's OSAPI_THM_SET/CLK_GET at the same tail; main's cells keep their addresses and elendilon's two move after them, to 0x0487 and 0x048D - cells added at the end of main's table, so everything built against main still runs",
+   "to": 10
+  },
+  {
+   "fingerprint": "545f89db17d8fc53d66abe2f3c1761a9bf003c4e7c31732019b71d4a6181991c",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "elendilon -> main merge (base 13e58898): elendilon's SDK additions over main's PKG_FMT 10 / DRV_VER 11, no bump. OSAPI_MEM_HMA and OSAPI_WM_QUIET were appended at 0x046D/0x0473 on elendilon and collided with main's OSAPI_THM_SET/CLK_GET at the same tail; main's cells keep their addresses and elendilon's two move after them, to 0x0487 and 0x048D - cells added at the end of main's table, so everything built against main still runs",
    "to": 11
   }
  ]

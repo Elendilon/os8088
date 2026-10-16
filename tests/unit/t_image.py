@@ -35,7 +35,7 @@ WHAT IT CHECKS THAT --verify CANNOT.
      hardest place for this project to notice.
 
   3. SPEC.md 19.6's ATTRIBUTES.  `KERNEL.SYS`, `BOOTHD.SYS` (SPEC.md
-     52.10.16) and every `.DRV` hidden +
+     52.10.16), `COLDHMA.SYS` (docs/plans/HMA-PLAN.md) and every `.DRV` hidden +
      system + read-only, `SYSTEM.CFG` hidden + system but WRITABLE (the
      kernel rewrites it - make it read-only and the first save locks out
      every save after it), everything else on a system disk visible and
@@ -269,9 +269,11 @@ def check_attrs(v, is_system):
             check(not (attr & hs), "%s: %s is not hidden on a DATA disk" % (v.name, nm),
                   "a data disk is the user's; a hidden+system file there cannot be "
                   "listed or deleted from inside os8088 (SPEC.md 19.6)")
-        elif name11 in (b"KERNEL  SYS", b"BOOTHD  SYS") or name11.endswith(b"DRV"):
+        elif name11 in (b"KERNEL  SYS", b"BOOTHD  SYS", b"COLDHMA SYS") \
+                or name11.endswith(b"DRV"):
             # BOOTHD.SYS is the hard-disk boot sector built with that kernel,
-            # which the installer reads off the source (SPEC.md 52.10.16)
+            # which the installer reads off the source (SPEC.md 52.10.16), and
+            # COLDHMA.SYS the HMA image cut from it (docs/plans/HMA-PLAN.md)
             eq(attr & (hs | A_RDONLY), hs | A_RDONLY,
                "%s: %s is hidden+system+read-only" % (v.name, nm))
         else:

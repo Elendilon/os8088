@@ -220,7 +220,11 @@ vid_tseg    dw VGA_SEG          ; THE SEGMENT A COMPOSED ROW IS WRITTEN TO
 ; ui.inc, menu.inc, desk.inc and dock.inc. The renderer's side of the same
 ; question is twenty-two sites and enumerable, so the renderer is what moved.
 vid_w       dw SCREEN_W         ; desktop width, px
-vid_h       dw SCREEN_H         ; desktop height, px
+vid_h       dw SCREEN_H         ; desktop height, px - the word after vid_w:
+                                ; vid_apply's homing walks the pair with lodsw
+%if vid_h - vid_w != 2
+  %error "vid_h must follow vid_w - vid_apply reads them as a pair"
+%endif
 vid_wm1     dw SCREEN_W-1       ; last legal x
 vid_hm1     dw SCREEN_H-1       ; last legal y
 vid_wm8     dw SCREEN_W-8       ; the menu bar's right margin. Its twin
@@ -838,7 +842,8 @@ vid_apply:
                                 ; what banks them for the caller - so this
                                 ; block used to open and close on five
                                 ; push/pop pairs that protected nothing
-    jne .norowtab
+    jne .homed                  ; ...and NOT FROM THE SPLASH'S FIRST TICK
+                                ; EITHER, which is the same test (see below)
     mov si, vid_rowtab
     xor di, di                  ; DI = rowbase(0), which is 0 on every adapter
     mov cx, VID_ROWTAB          ; ...and CX may be the counter now: it is
@@ -849,14 +854,31 @@ vid_apply:
     call gfx_nextrow            ; the INCREMENTAL form - see the wrap
     loop .rowtab                ; arithmetic above. DI and flags, nothing else
     mov word [vid_rowmax], VID_ROWTAB   ; ...and only now may anything read it
-.norowtab:
+    ; NOT FROM THE SPLASH'S FIRST TICK - the `jne .homed` above. Everything
+    ; below writes PAST the plain head (mouse.inc's pair, cur_shchk, ui_post's
+    ; .bss), and on that call the rest of the kernel is still coming off the
+    ; floppy as an LZ4 stream lying IN PLACE under where `.text` and `.bss`
+    ; will be (SPEC.md 2.9.13) - so a store there lands on a packed byte if
+    ; its sector has already been read, and the expansion turns that one byte
+    ; into wrong CODE. It did: on the 1.44MB kern_small, `ui_post = 1` became
+    ; an 01 in menu_track's first compare, and every bar menu's pick was
+    ; lost. Whether a store is harmful is a race between the first tick and
+    ; the read, so it is refused rather than timed. THE STACK IS WHAT NAMES
+    ; THAT CALL: spl_chrome on stage 2's first tick is the one caller that
+    ; runs on the boot sector's stack (the row table's reason above), and
+    ; every other call - vid_init, vid_switch and the arrangement code - is
+    ; downstream of kmain's `mov ss`, on a whole kernel. It was a second test
+    ; of its own, [spl_live] up and [spl_fseg] still 0, for 14 bytes (kernel
+    ; size pass 12). Nothing is lost: kmain's vid_init runs this again once
+    ; the kernel is whole, and makes every store below then.
     mov di, mouse_x             ; --- home the cursor; see the header.
-    mov ax, [vid_w]             ; mouse_x and mouse_y are an adjacent pair
-    shr ax, 1                   ; (mouse.inc pins it with an %if), so the two
-    stosw                       ; stores are one walk - ES = DS and DF = 0
-    mov ax, [vid_h]             ; from this routine's own prologue, and DI is
-    shr ax, 1                   ; dead on both arms above
-    stosw
+    mov si, vid_w               ; mouse_x and mouse_y are an adjacent pair
+    lodsw                       ; (mouse.inc pins it with an %if), and so are
+    shr ax, 1                   ; vid_w and vid_h, so the two stores are one
+    stosw                       ; walk off the other - ES = DS and DF = 0
+    lodsw                       ; from this routine's own prologue, and SI and
+    shr ax, 1                   ; DI are dead on the arm above (-1 byte, kernel
+    stosw                       ; size pass 12)
     mov al, 1                   ; ...and the pointer MOVED (SPEC.md 7.2.1.1) -
     mov [cur_shchk], al         ; the geometry under it certainly did - and
     mov [ui_post], al           ; SAY SO once (SPEC.md 13.13). The accumulator
@@ -876,7 +898,7 @@ vid_apply:
                                 ; off the floppy, which is what the header
                                 ; above says about cur_unlazy
 %endif
-
+.homed:
     pop es                      ; ...and the other seven are vid_pop8's own run
     jmp vid_pop7                ; one label in - this routine has no BP in its
                                 ; frame. See vid_pop8's header
@@ -1579,6 +1601,19 @@ spw_resident_end:
 ; guard, fprog's boot test and vidsel's spl_reset all ask [spl_live] through
 ; DS, so it lives where DS reaches it. 967 bytes left; these stayed.
 spl_live    db 0
+blk_on      db 0                ; blank.inc's: is the desktop off the glass
+                                ; right now? TRUE FOR BOTH ANSWERS - a gated
+                                ; signal and a running animation are the same
+                                ; thing to blk_wake, which is what keeps
+                                ; SPEC.md 64.2's whole input rule one test.
+                                ; HERE, THE BYTE AFTER [spl_live], so that
+                                ; fpg_arm's two refusals - the splash owns the
+                                ; screen, the saver or the blanker does - are
+                                ; ONE word compare (kernel size pass 12); the
+                                ; %if below holds the pair together
+%if blk_on - spl_live != 1
+  %error "blk_on must be the byte after spl_live - fpg_arm reads them as a word"
+%endif
 
 ; [spl_busy] IS THE LOADING SCREEN'S ONE LOCK (SPEC.md 15.3.8). It is raised
 ; around every path that draws while [spl_live] is up, and spl_isr - which

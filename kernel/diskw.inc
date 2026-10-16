@@ -1752,43 +1752,10 @@ dskw_clba_set:
 %endif
 
 ; -----------------------------------------------------------------------------
-; dskw_take1 - size one cluster's TAKE for the data loops
-; in:  AX = the cluster, [dskw_rem]/[dskw_tail] sized by the caller
-; out: CF=1 the geometry cannot address it; else CF=0, [dskw_take] =
-;      min(spc, sectors remaining), [dskw_clba] = the cluster's first LBA and
-;      CX = the whole sectors of the take (one fewer when it ends in a
-;      partial sector, which goes through the stage)
-; clobbers: AX, CX (an output), flags
-;
-; dskw_wdata and dskw_rdata carried this per-cluster prologue as two copies,
-; identical to the instruction. The cursor is set BEFORE the count is tested:
-; a take that is nothing but a partial sector skips the walk and .tail still
-; reads it. Once a cluster, not once a sector: a call and a return on a loop
-; whose every turn ends in the FAT and the run arithmetic.
-; -----------------------------------------------------------------------------
-dskw_take1:
-    call dsk_clus2lba_x         ; AX = the cluster's first LBA
-    jc .out
-    DSKW_CLBA_SET               ; ...all 32 bits of it (SPEC.md 18.7.5)
-    mov al, [dsk_spc]           ; take = min(spc, sectors remaining)
-    cbw                         ; (<= 64: a zero extension, a byte shorter)
-    cmp ax, [dskw_rem]
-    jbe .take
-    mov ax, [dskw_rem]
-.take:
-    mov [dskw_take], ax
-    mov cx, ax
-    call dskw_last_p            ; ZF=1 if this take ends in a partial sector,
-    jnz .out                    ; and CF=0 on both of its answers
-    dec cx                      ; (dec leaves CF alone)
-.out:
-    ret
-
-; -----------------------------------------------------------------------------
 ; dskw_last_p - is the current take the file's last, with a partial sector?
 ; in:  [dskw_take], [dskw_rem], [dskw_tail]
 ; out: ZF=1 if this take ends the file AND the last sector is partial; CF=0
-; clobbers: AX, flags. Both callers (dskw_take1, whose AX nothing reads, and
+; clobbers: AX, flags. Both callers (dskw_xclus's take, whose AX nothing reads, and
 ;           dskw_xclus.tail, which reloads it) had nothing in AX to keep, so
 ;           the bank went: -2, and 25 cycles off each of its two calls a
 ;           cluster (size pass 10)
@@ -2120,10 +2087,28 @@ dskw_rdata:
 ; exactly as the two copies answered.
 ; -----------------------------------------------------------------------------
 dskw_xclus:
-    call dskw_take1             ; CX = whole sectors, [dskw_clba] the cursor -
-    jc .t1fail                  ; and CF=1 for a cluster outside [2,
-                                ; dsk_maxclus], dsk_clus2lba_x being the first
-                                ; thing it asks
+    ; --- THE TAKE: size this cluster's, its one caller's (it was dskw_take1,
+    ; kernel size pass 12: -6). CF=1 for a cluster the geometry cannot
+    ; address - outside [2, dsk_maxclus], dsk_clus2lba_x being the first thing
+    ; asked; else [dskw_take] = min(spc, sectors remaining), [dskw_clba] = the
+    ; cluster's first LBA and CX = the whole sectors of the take (one fewer
+    ; when it ends in a partial sector, which goes through the stage). The
+    ; cursor is set BEFORE the count is tested: a take that is nothing but a
+    ; partial sector skips the walk and .tail still reads it
+    call dsk_clus2lba_x         ; AX = the cluster's first LBA
+    jc .t1fail
+    DSKW_CLBA_SET               ; ...all 32 bits of it (SPEC.md 18.7.5)
+    mov al, [dsk_spc]           ; take = min(spc, sectors remaining)
+    cbw                         ; (<= 64: a zero extension, a byte shorter)
+    cmp ax, [dskw_rem]
+    jbe .take
+    mov ax, [dskw_rem]
+.take:
+    mov [dskw_take], ax
+    mov cx, ax
+    call dskw_last_p            ; ZF=1 if this take ends in a partial sector,
+    jnz .addrun                 ; and CF=0 on both of its answers
+    dec cx
 .addrun:
     call dskw_runadd            ; the whole sectors of this take, appended to
     jc .ioerr                   ; the pending run (SPEC.md 18.4.2). CX comes
@@ -3965,7 +3950,15 @@ dskw_find:
     and al, 0x3F
     cmp al, 0x0F
     je .next                    ; an LFN entry: never matched, never reused
-    call dskw_cmp               ; ES:SI vs dskw_n83
+    push cx                     ; THE NAME COMPARE: ES:SI's 11 name bytes
+    push si                     ; against dskw_n83, ZF = 1 identical - its
+    mov di, si                  ; one caller's, so a call and a return less
+    mov si, dskw_n83            ; an entry (it was dskw_cmp, kernel size pass
+    mov cx, 11                  ; 12: -4). DI holds nothing here (dskw_hit
+    cld                         ; and dskw_mark_free set it), and the raw
+    repe cmpsb                  ; name is the ES-side operand
+    pop si
+    pop cx
     jne .next
     call dskw_hit               ; found - and TAKE THE ENTRY WHILE IT IS HERE.
                                 ; dsk_secbuf holds this very sector - we read
@@ -4074,26 +4067,6 @@ dskw_here:
     mov ax, si
     sub ax, dsk_secbuf
     mov [di+DSKW_LBASZ], ax
-    ret
-
-; -----------------------------------------------------------------------------
-; dskw_cmp - compare a raw entry's name field against dskw_n83
-; in:  ES:SI -> a raw 32-byte directory entry (ES = LOW_SEG)
-; out: ZF=1 if the 11 name bytes are identical
-; clobbers: DI, flags. Its one caller, dskw_find's entry loop, holds nothing
-;           in DI (dskw_hit and dskw_mark_free set it), so the bank went:
-;           -2, and once an ENTRY faster (size pass 10)
-; -----------------------------------------------------------------------------
-dskw_cmp:
-    push cx
-    push si
-    mov di, si                  ; the raw name is the ES-side operand
-    mov si, dskw_n83
-    mov cx, 11
-    cld
-    repe cmpsb
-    pop si
-    pop cx
     ret
 
 ; -----------------------------------------------------------------------------

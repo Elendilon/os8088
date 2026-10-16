@@ -728,6 +728,21 @@ SPK_E_BUSY       equ 3           ; open already, or a clip plays
                                  ; after OSAPI_WM_CREATE. A resizable
                                  ; window's paint/click procs MUST lay out
                                  ; from the live W_W/W_H every call.
+%define OSAPI_WM_QUIET      KERNEL_SEG:0x048D   ; BX = win ptr, AL = 0 clear /
+                                 ; non-zero set; nothing answered, every
+                                 ; register and the flags kept. While this
+                                 ; window is up with it set, an idle
+                                 ; session BLANKS the signal instead of
+                                 ; animating (SPEC.md 79.10). For a program
+                                 ; that WORKS while nobody touches the
+                                 ; machine - a server mid-transfer - and
+                                 ; would otherwise share the UI task and
+                                 ; the CPU with the animation: FTPD sets it
+                                 ; at Start and clears it at Stop. Read when
+                                 ; a session STARTS, so a session already
+                                 ; running finishes as it began. The bit
+                                 ; goes with the window. kern_small has no
+                                 ; animation, takes the call and ignores it
 %define OSAPI_WM_NOANIM     KERNEL_SEG:0x03CD   ; BX = win ptr; NO other argument and
                                  ; no answer: this window does not zoom
                                  ; open (SPEC.md 11.99.2.1). Call it
@@ -1595,6 +1610,19 @@ MEMC_POST   equ 1                ; AH: post - BX = a window of YOURS, AL = the
                                  ; kern_small the what-if is the plain level
                                  ; door's answer and a post is refused
                                  ; (SPEC.md 66.0)
+%define OSAPI_MEM_HMA       KERNEL_SEG:0x0487   ; A DRIVER'S BUFFER IN THE HMA
+                                 ; (SPEC.md 2.10.8): AX = bytes, 1..8,192, out
+                                 ; CF=0 DX = its segment and AX = its first
+                                 ; OFFSET - never 0, so address it as DX:AX -
+                                 ; and DX*16+AX is its 24-bit physical address
+                                 ; for a DMA controller (one 64KB page: the
+                                 ; HMA crosses none). AX = 0, DX = a block's
+                                 ; segment: give it back. CF=1: no HMA here,
+                                 ; none left, or you are not a LOADED DRIVER -
+                                 ; the only callers it serves. Not movable,
+                                 ; not purgeable, not in a hibernate's image:
+                                 ; your unload gives back what you forget.
+                                 ; A REFUSAL IS ORDINARY: fall back to the heap
 %define OSAPI_MEM_AVAIL     KERNEL_SEG:0x01B0   ; out AX = largest free run in
                                  ; KB, BX = total free KB. Size yourself from
                                  ; THIS, not from int 12h: it is the only
@@ -1848,6 +1876,13 @@ MEMC_POST   equ 1                ; AH: post - BX = a window of YOURS, AL = the
 ; addressing needs unreal mode, which is tier 2 only and lives entirely inside
 ; the kernel. YOU are 8086 code: no 32-bit register, no FS, no GS, no
 ; `cpu 386` island of your own (SPEC.md 1 rule 1, no exception).
+;
+; THE ONE READER THROUGH THE TOKEN is apps/os88la.inc (SPEC.md 41.13): on tier
+; 1 the token IS the block's 24-bit linear base, and a hot loop that owns its
+; segment registers may read it IN PLACE through a LOADALL'd DS - the Video
+; Player's decode of a held file (98.3.18.11). That include is the whole of
+; the exception: tier 1 only, behind its INT 6 probe and a check against
+; OSAPI_XMEM_COPY. Everything else still copies.
 ;
 ; BRANCH ON THE CAPS, NEVER ON THE TIER. OSAPI_XMEM_CAPS returning 0 KB is the
 ; only answer that means "do not try", and it is the answer on a 386 whose A20
@@ -2714,7 +2749,7 @@ PKGV_IDENT   equ 0              ; **VERB 0 OF EVERY PACKAGE DOOR IS IDENTIFY**
 ; the ANSWER here and derives nothing, which is what makes it different from
 ; the per-driver copy 51.12.1 refuses.
 DRVM_CEIL_DISK equ 4           ; DRVC_DISK's ceiling, in KB
-DRVM_CEIL_NET  equ 31          ; ...and DRVC_NET's
+DRVM_CEIL_NET  equ 34          ; ...and DRVC_NET's
 DRVC_SOUND   equ 1
 DRVC_DISK    equ 2              ; block volumes: hard disks (SPEC.md 51.8).
                                 ; Publishes no package entry point and is not
@@ -4110,6 +4145,15 @@ OS88_BSS_SIZE equ 0
                                                 ; were LAUNCHED FROM, because
                                                 ; yours does not exist yet.
                                                 ; SPEC.md 39.18.2.
+                                                ;
+                                                ; BX = 1..15 ASKS ABOUT A
+                                                ; DISPLAY instead - BX-1 -
+                                                ; and CF=1 is "no such
+                                                ; display": walk BX = 1, 2,
+                                                ; ... to find the one that
+                                                ; can, then OSAPI_FSX_RUN
+                                                ; with CH = BX (SPEC.md
+                                                ; 53.1.2).
 
 %define OSAPI_FSX_RUN       KERNEL_SEG:0x0235   ; the bracket (SPEC.md 53.1).
                                                 ; In AX = a near proc in your
@@ -4119,8 +4163,13 @@ OS88_BSS_SIZE equ 0
                                                 ; FSXF_FASTTICK - SPEC.md
                                                 ; 53.2.1; bit 2 = FSXF_RATE,
                                                 ; with DX and DI - 53.2.2;
-                                                ; all others must be 0, or
-                                                ; it refuses). This
+                                                ; all others of CL must be
+                                                ; 0, or it refuses) and CH
+                                                ; = THE DISPLAY: 0 your
+                                                ; window's, n display n-1
+                                                ; (SPEC.md 53.1.2; kern_big,
+                                                ; a mode-setting bracket's
+                                                ; only). This
                                                 ; comment said "bit 0; all
                                                 ; others 0" for a cycle after
                                                 ; bit 1 was accepted; trust

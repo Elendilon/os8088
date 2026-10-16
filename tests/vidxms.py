@@ -44,6 +44,16 @@ ARM livevga4 is the same in COLOUR: a 1.1 MB VGA4 stream, the keeper sized to
 plane 3's base + 64 KB (a stream's writes are checked by nothing ahead), and
 the four planes compared with the decode's sixteen colours.
 
+ARM bios is arm xms through the 286's transport: XMEM.DRV assembled with
+XM_FORCE_BIOS (a test build, never shipped) takes int 15h AH=87h on QEMU's
+386 instead of unreal mode, so every copy into and out of the hold goes
+through xm_bios - the one path a real 286 takes and no other row runs. It
+cannot reproduce the 286 lockup it was written for (SPEC.md 2.10.8: an AT
+BIOS sti's inside AH=87h and shuts A20 on its way out, and an IRQ0 in that
+window reached SOUND.DRV in the HMA), because SeaBIOS puts A20 back as it
+found it; what it proves is that the masked PIC around the call costs the
+copy and the clock nothing - the hold whole, both plays to the last frame.
+
 ARM nox (`-m 1`, no memory above 1MB): the NEGATIVE CONTROL, and the
 fallback. No hold is taken, the play runs off the disk to the last frame -
 and after the same swap the same Right arrow FAILS. That is what says the
@@ -75,6 +85,7 @@ import os88ui                                               # noqa: E402
 import os88vid as vid                                       # noqa: E402
 import xmcheck                                              # noqa: E402
 from cycweb import pkg_syms                                 # noqa: E402
+from pxswin import qpoke                                     # noqa: E402
 
 NF = 300
 FPS = 30.0
@@ -218,11 +229,29 @@ class Q(object):
         return self.read((seg << 4) + off, n)
 
 
+def force_bios(tmp, sysimg):
+    """XMEM.DRV on the system disk, swapped for an XM_FORCE_BIOS build."""
+    b = os.path.join(tmp, "xmem.bin")
+    d = os.path.join(tmp, "XMEM.DRV")
+    subprocess.run(["nasm", "-f", "bin", "-w+error", "-DXM_FORCE_BIOS",
+                    "-I", "drivers/", "-I", "apps/", "-o", b,
+                    "drivers/xmem/xmem.asm"], check=True)
+    subprocess.run([sys.executable, "tools/os88drv.py", b, "-o", d],
+                   check=True, capture_output=True)
+    for verb in (["del", sysimg, "XMEM.DRV"], ["add", sysimg, d, "XMEM.DRV"]):
+        subprocess.run([sys.executable, "tools/os88fat.py"] + verb,
+                       check=True, capture_output=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--arm", choices=("xms", "idle", "nox", "live",
+    ap.add_argument("--arm", choices=("xms", "bios", "idle", "nox", "live",
                                       "livenox", "liverep", "livevga4"),
                     default="xms")
+    ap.add_argument("--gap", type=int, default=0, metavar="G",
+                    help="[vp_xgap] written G before each play: the ring "
+                    "placed at that gap whatever QEMU measured, which is its "
+                    "host's noise (SPEC.md 98.3.18.12)")
     a = ap.parse_args()
     os.chdir(ROOT)
     syms, _ = pkg_syms("apps/video/video.asm", ("apps/",))
@@ -247,6 +276,8 @@ def main():
         blank = os.path.join(tmp, "blank.img")
         sysimg = os.path.join(tmp, "sys.img")
         shutil.copy(sysimg0, sysimg)
+        if a.arm == "bios":
+            force_bios(tmp, sysimg)
         for out, files in ((disk, [v88, pkg]), (blank, [])):
             subprocess.run([sys.executable, "tools/os88disk.py", "-o", out,
                             "--size", "1440"] + files, check=True,
@@ -259,6 +290,17 @@ def main():
         xmcheck.wait_desktop(q.sock, "vidxms")
         S = xmcheck.sym
         ui = os88ui.UI(q, mouse=object(), sym=S, verbose=False)
+        if a.arm == "bios":
+            # THE ARM'S PREMISE, read and not assumed: XMEM.DRV attached at
+            # tier 1, so no unreal mode was armed (CPU_F_UNREAL, 0x04) and
+            # every copy is xm_bios's
+            feat = q.read(S("cpu_feat"), 1)[0]
+            print("   cpu_feat %02X: %s" % (feat, "unreal mode NOT armed - "
+                  "every copy is int 15h AH=87h" if not feat & 0x04 else
+                  "UNREAL MODE ARMED"))
+            if feat & 0x04:
+                bad.append("arm bios: XMEM.DRV armed unreal mode, so no copy "
+                           "went through the BIOS")
 
         def wait(cond, what, secs):
             if not os88qemu.acted(q, cond, secs=secs, what=what, poll=0.05):
@@ -319,9 +361,27 @@ def main():
         if rb("vp_ok") != 1:
             sys.exit("vidxms: the player will not play the clip here")
 
+        gaps = []
+
         def play(what):
+            if a.gap:
+                qpoke(q, [(base + syms["vp_xgap"], struct.pack("<H", a.gap))])
             q.hmp("sendkey p")
             wait(lambda: rb("vp_ready") == 1, what + " to start", 30)
+            # THE GAP (SPEC.md 98.3.18.12): with a G measured (QEMU's is its
+            # host's noise; an XG_FORCE build fixes it), the ring starts G
+            # mod 2G from the hold, inside its claim
+            g = rw("vp_xgap")
+            if g and rb("vp_xon") and not rb("vp_xip"):
+                ring, clm = rw("vp_ring"), rw("vp_rclm")
+                off = ((ring << 4) - rd("vp_xbase")) % (2 * g)
+                gaps.append((g, ring, clm, off))
+                print("   the gap: G %d, ring %04X in its claim at %04X, %d "
+                      "mod %d from the hold" % (g, ring, clm, off, 2 * g))
+                if off != g or not clm <= ring < clm + (2 * g >> 4):
+                    bad.append("%s: the ring at %04X in a claim at %04X is "
+                               "%d mod %d from the hold, not %d"
+                               % (what, ring, clm, off, 2 * g, g))
             wait(lambda: rb("vp_ready") == 0 and rb("vp_played") == 1,
                  what + " to end", 60)
 

@@ -34,7 +34,7 @@ Five legs, every one on MartyPC's 4.77 MHz 8088:
 Break it on purpose: swap regions 2 and 5 in wn_hit (A's close leg fails),
 drop the evq_drain from wn_stick's .close (A's off-click raises the Disk
 window), move wn_stick's click test after its `.drag` test (A's right-click
-runs item 0), or take ui_lit_xor's clip out (A's light paints the cover).
+runs item 0), or take ui_lit_go's clip out (A's light paints the cover).
 """
 import argparse
 import statistics
@@ -62,8 +62,8 @@ BLACK, NAVY, TEAL, LGRAY, DGRAY, WHITE = ((0, 0, 0), (0, 0, 170),
                                           (85, 85, 85), (255, 255, 255))
 THM_COLOR, THM_WIN = 2, 3
 TV_SY, TV_SPITCH = 3 + 8 * 11 + 8 + 10, 16  # thmpal.asm: the style radios
-DOORS = ("wm_draw_title_b", "wm_hit_ttl_b", "wm_grow_glyph_b", "kret_ret",
-         "wmz_crect_b")
+DOORS = ("wm_draw_title_b", "wm_hit_ttl_b", "wm_grow_paint.glyph",
+         "cw_kretf", "wmz_crect_b")
 
 
 def fail(msg):

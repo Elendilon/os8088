@@ -184,7 +184,7 @@ sc_open:
     mov si, sc_nul              ; ...and NO name: its extension picks the
 .run:                           ; program, which is the double-click
     xor cx, cx
-    call COLD_SEG:ldf_ld_pkg_start
+    COLDCALL ldf_ld_pkg_start
     jnc .back
     call ld_say_status          ; the Disk window's verdicts (SPEC.md 22.9)
     clc                         ; ...and a REFUSAL is not "not found": the
@@ -347,14 +347,20 @@ sc_rclick_x:
     call desk_hit               ; AL = the zone under it...
     jc .out
 %ifdef OS88_IMG
+    mov cx, menu_items_file + 2 ; CX = the popup's one item, chosen with the
+                                ; zone: desk_select and the lock keep CX
     cmp al, DESK_SVZ            ; a DRIVE's zone is its volume (desk_open),
     jae .notvol                 ; and a mounted image's has one command:
     mov bl, al                  ; Unmount Image (SPEC.md 18.101.5)
     call dsk_vol_row_x          ; CF = 1 a free row - ZF is then set (the
     jc .out                     ; `cmp` with DVK_FREE), so test CF first
+    mov cx, sc_umnt
     cmp byte [bx+DV_CLASS], DRVC_IMG
     je .pop
 .notvol:
+  %if DESK_SVZ > DVOL_MAX
+    %error "clo_unmnt takes AL in range on sc_rclick's word: a drive zone is below DESK_SVZ"
+  %endif
 %endif
     cmp al, DESK_SC0            ; ...and only a SHORTCUT has the command
     jb .out
@@ -362,12 +368,10 @@ sc_rclick_x:
     call desk_select
     call ct_cw_gfx_lock
     push ax
-    mov bx, menu_items_file + 2
 %ifdef OS88_IMG
-    cmp al, DESK_SVZ
-    jae .items
-    mov bx, sc_umnt
-.items:
+    mov bx, cx
+%else
+    mov bx, menu_items_file + 2
 %endif
     mov cx, di
     mov dx, si
@@ -393,32 +397,33 @@ sc_rclick_x:
 
 ; -----------------------------------------------------------------------------
 ; vgcf_boot - Force Color at boot (SPEC.md 39.28), from drv_boot_x
-; in:  [drv_cfg+CFG_VGC], just read; the system volume mounted
-; out: nothing; every register preserved
+; in:  the box is ticked (drv_boot_x tests [drv_cfg+CFG_VGC]); the system
+;      volume mounted
+; out: nothing; AX clobbered (drv_boot_x reloads it on the next line), every
+;      other register preserved
 ;
-; The box's TEST is here and not at the call site because the call site is
-; the boot overlay, which is full (SPEC.md 39.28 prices both).
+; THE BOX'S TEST IS AT THE CALL SITE, which is the boot BLOB and is given
+; back once the machine is up, and AX is not banked - so what stays resident
+; is only the part that has to be reached far (kernel size pass 12: 28 -> 14
+; bytes; it was here when the call site was the full boot overlay, SPEC.md
+; 39.28).
 ;
-; FAR, for the boot overlay, and NOT sc_modcall: that one's refusal is
-; `Needs Sys Disk A:` as a toast, and there is no desktop yet to say it on. A
-; core that cannot be read here leaves the BIOS's palette as it was - the
-; machine boots grey, exactly as it would with the box clear.
+; FAR, for the blob, and NOT sc_modcall: that one's refusal is `Needs Sys
+; Disk A:` as a toast, and there is no desktop yet to say it on. A core that
+; cannot be read here leaves the BIOS's palette as it was - the machine boots
+; grey, exactly as it would with the box clear.
 ; -----------------------------------------------------------------------------
 vgcf_boot:
-    test byte [drv_cfg+CFG_VGC], 1
-    jz .ret                     ; the box is clear: the BIOS's verdict stands
-    push ax
-    mov al, MOD_SETS
-    call mod_need               ; every register kept, CF = could not
-    jc .out
-    mov ah, SC_OP_VGC
-    call far [SETFP]            ; the core's one slot, CPE_SC
-    mov al, MOD_SETS
-    call mod_drop
-.out:
-    pop ax
-.ret:
-    retf
+    mov ax, (SC_OP_VGC << 8) | MOD_SETS ; AL the module, AH the operation:
+    call mod_need               ; every register kept. Its CF is NOT TESTED:
+    call far [SETFP]            ; a core that could not be read leaves this
+    call mod_drop               ; slot on mod_gone (`stc / retf`, nothing
+    retf                        ; done) and its row empty, which mod_drop
+                                ; passes over - so a refusal costs nothing
+                                ; here and needs no branch (kernel size pass
+                                ; 12). CPE_SC's SC_OP_VGC keeps AL: modc_e_sc
+                                ; counts AH down and cp_vgc_force banks AX, so
+                                ; AL is still MOD_SETS for the drop
 
 ; =============================================================================
 section .text
@@ -582,10 +587,26 @@ sc_m_new:
     add di, SC_R_PATH - 1       ; ONE BEFORE THE FIELD, so dsk_path's leading
     mov cx, SC_PATHMAX + 1 - SC_CAPMAX  ; `\` lands on the spare byte and
     call COLD_SEG:dsk_path_x    ; the field is the path BELOW THE ROOT. The
-    jc .bad                     ; folder's REAL path, which a window's
-    add di, cx                  ; FS_PATH is not when it was opened part-way
-    cmp cx, 1                   ; down (it records navigation). CX = its
-    je .nm                      ; length, so ES:DI = its NUL - and the root
+    jnc .path                   ; folder's REAL path, which a window's FS_PATH
+                                ; is not when it was opened part-way down
+
+    ; The refusals, HERE and not after the caption code: every jump to them is
+    ; then short, and the caption falls into .done (kernel size pass 12, -11)
+.bad:
+                                ; the folder is gone or its path will not fit
+    call sc_m_offz
+    mov byte [es:di+SC_R_VOL], 0xFF
+    call COLD_SEG:drvf_drv_vol_back
+    mov si, sc_s_path
+    jmp sc_m_say
+.noroom:
+    mov si, sc_s_room
+    jmp sc_m_say
+
+.path:
+    add di, cx                  ; (it records navigation). CX = the path's
+    cmp cx, 1                   ; length, so ES:DI = its NUL - and the root
+    je .nm
                                 ; answers `\`, which is no folder at all
     mov byte [es:di], '\'
     inc di
@@ -646,15 +667,7 @@ sc_m_new:
 .cut:
     mov byte [es:di], 0
 .capx:                          ; the caption is measured at paint, as every
-    jmp short .done             ; item's is (SPEC.md 26.9)
-.bad:
-                                ; the folder is gone or its path will not fit
-    call sc_m_offz
-    mov byte [es:di+SC_R_VOL], 0xFF
-    call COLD_SEG:drvf_drv_vol_back
-    mov si, sc_s_path
-    jmp sc_m_say
-.done:
+.done:                          ; item's is (SPEC.md 26.9)
     call COLD_SEG:drvf_drv_vol_back
     mov bl, [cs:sc_mz]          ; its cell, PLACED, in the one table (SPEC.md
     xor bh, bh                  ; 26.9) - and posted, so ui_task paints it
@@ -663,9 +676,6 @@ sc_m_new:
     or al, DSL_PIN
     mov [bx+desk_zslot], al
     jmp sc_m_save
-.noroom:
-    mov si, sc_s_room
-    jmp sc_m_say
 
 ; -----------------------------------------------------------------------------
 ; sc_m_add - SC_OP_ADD: a PACKAGE's link, through OSAPI_DESK_ITEM (SPEC.md 26.9)

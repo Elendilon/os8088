@@ -150,6 +150,19 @@ INCLUDES = [
      "IEEE-754 double arithmetic in software, with an 8087 path chosen at run "
      "time. Parse, format, add, subtract, multiply, divide, compare, sqrt, "
      "trunc, floor, round."),
+    ("os88xgap.inc", "41.14",
+     "Where a buffer that copies to and from XMS should START: `xg_gap` times "
+     "8 KB copies at six gaps against a block the caller owns and answers G, "
+     "half a page-interleaved board's period, or 0. Place by (conventional - "
+     "extended) mod 2G = G. Measured, never assumed - the period is the "
+     "board's DRAM page."),
+    ("os88la.inc", "41.13",
+     "LOADALL on a 286: memory above 1 MB read and written IN PLACE through "
+     "a hidden segment base, as one BORROW of the API table at physical "
+     "0x800 inside one cli window (`la_capture`, `la_probe`, `la_borrow`, "
+     "`la_restore`). Tier 1 only, behind the INT 6 probe. XMEM.DRV's tier-1 "
+     "copy is built on it, so a package that only wants bytes moved wants "
+     "OSAPI_XMEM_COPY, not this."),
     ("os88lzw.inc", "106.18",
      "LZW DECODE, GIF's flavour: Paint's reader with Paint taken out - a code "
      "past the table or a non-root after a Clear is refused, a chain cannot "

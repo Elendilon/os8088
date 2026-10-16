@@ -3106,7 +3106,7 @@ cmz_jdisp:
 ; put back signs the same (18.8.2) - its boot sector never changed - so the
 ; hop back would keep its FAT window and be served the OLD root out of the
 ; cache, and the part just copied onto it would be `Missing`. A failed hop
-; never returns (cmz_jerr). clobbers: BX CX, flags
+; never returns (cmz_jerr). clobbers: BX CX, flags (BP kept: CLO_KCALL's)
 cmz_jfresh:
     CMZ_GO dst                  ; OFF the source first: the hop back is then a
                                 ; mount however recently the motor ran, and
@@ -3115,13 +3115,10 @@ cmz_jfresh:
     xor bh, bh                  ; a volume this join mounted: < DVOL_MAX
     shl bx, 1
     mov word [dsk_fatwsig+bx], 0    ; 0 = nothing banked: dsk_fatw_pick loads
-    mov bx, dsk_rah_tab         ; ...and every cached chunk goes, which is
-    mov cx, DSK_RAH_RUNS        ; dsk_rah_flush's loop: it is .text, and this
-.chunk:                         ; is an image (DS is the kernel's)
-    and word [bx+RAH_N], 0
-    add bx, RAH_REC
-    loop .chunk
-    ret
+    push bp                     ; ...and every cached chunk goes: dsk_rah_flush
+    CLO_KCALL dsk_rah_flush     ; itself, which is .cold (disk.inc) and so one
+    pop bp                      ; wm_cbd away - where this was its loop copied,
+    ret                         ; on a belief it was .text (kernel size pass 12)
 
 ; cmz_jline - CLV_LINE: 'Put FILEA.002 in A:' over 'Enter=ready  Esc=stop'
 ; in:  AL = 0 / 1, DI = the kernel buffer. out: DI on the NUL, CF = 0

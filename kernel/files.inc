@@ -2702,19 +2702,16 @@ fm_bar_gate_x:
     or di, di
     jz .set
     mov di, [di+I_SPTR]
-%ifdef OS88_IMG
-    push bx
-    mov bl, [di+FS_DRV]
-    call dsk_vol_row_x          ; CF = 1 a free row
-    jc .notimg
-    cmp byte [bx+DV_CLASS], DRVC_IMG
-    jne .notimg
-    inc dx                      ; the live string, past its MENU_DIS
-.notimg:
-    pop bx
-%endif
     call fm_fmt_ok
+%ifdef OS88_IMG
+    jnc .live
+    jnz .set                    ; a no, and not an image's volume...
+    inc dx                      ; ...or an image's: Unmount Image's live
+    jmp short .set              ; string, past its MENU_DIS
+.live:
+%else
     jc .set
+%endif
     mov ax, fm_s_format
 .set:
 %ifdef OS88_IMG
@@ -5083,7 +5080,10 @@ fm_mdelarm:                     ; (Rename names the focus, as every one-name-
 ; -----------------------------------------------------------------------------
 ; fm_fmt_ok - may the window whose block is in DI be formatted? (SPEC.md 22.12)
 ; in:  DI = a state block
-; out: CF = 0 yes, CF = 1 no. All registers preserved.
+; out: CF = 0 yes, CF = 1 no - and with a no, ZF = 1 when the volume is a
+;      MOUNTED IMAGE's (OS88_IMG, SPEC.md 18.101.5), which is the one other
+;      thing fm_bar_gate asks of the same row (kernel size pass 12: it looked
+;      the row up a second time). All registers preserved.
 ;
 ; ONE stable, cheap fact - is this volume a floppy - and nothing that touches
 ; a disk, which is what makes this SPEC.md 47 rule 5's case: a GREYED item
@@ -5097,8 +5097,8 @@ fm_mdelarm:                     ; (Rename names the focus, as every one-name-
 ; greyed menu that cannot say why.
 ; -----------------------------------------------------------------------------
 fm_fmt_ok:
-    push ax
-    push bx
+    push bx                     ; (no AX: nothing below writes it - it was
+                                ; banked anyway, kernel size pass 12)
                                 ; NO TEST OF FS_MOK. It used to refuse a
                                 ; volume that MOUNTED - "there is nothing here
                                 ; to format, and erase this perfectly good
@@ -5113,18 +5113,33 @@ fm_fmt_ok:
                                 ; means yes and every other key no.
     mov bl, [di+FS_DRV]
     call dsk_vol_row_x
+%ifdef OS88_IMG
+    jc .free
+%else
     jc .no
+%endif
 %ifdef OS88_DRIVERS             ; (kern_small: every row is BIOS)
     cmp byte [bx+DV_KIND], DVK_BIOS
-    jne .no                     ; a driver-backed volume: its own driver owns
+  %ifdef OS88_IMG
+    jne .img                    ; a driver-backed volume: its own driver owns
+  %else
+    jne .no
+  %endif
 %endif
     test byte [bx+DV_UNIT], 0x80    ; formatting it (SPEC.md 52.2), and this
     jz .out                     ; module cannot reach its geometry at all -
-.no:                            ; and a `test` leaves CF = 0, the yes
+                                ; and a `test` leaves CF = 0, the yes
+%ifdef OS88_IMG
+.free:                          ; ...a no that is NOT an image: a BIOS hard
+    inc bx                      ; disk's row, or a free row's BX = 0 - and
+    jmp short .no               ; either + 1 is not 0, so ZF = 0
+.img:
+    cmp byte [bx+DV_CLASS], DRVC_IMG    ; ZF = 1: an image's volume
+%endif
+.no:
     stc
 .out:
     pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5614,7 +5629,7 @@ fm_clone_res:
 ; -----------------------------------------------------------------------------
 ; fm_imgcall - one of DISKOPS.DRV's image verbs, its refusal said, the image
 ;              dropped (SPEC.md 18.101)
-; in:  DL = CLV_MOUNT / CLV_MNTDLG / CLV_UNMNT; clo_call's contract otherwise
+; in:  DL = CLV_MOUNT / CLV_UNMNT / CLV_UNMNTW; clo_call's contract otherwise
 ; out: CF = 1 only when the image could not be read, or a clone or join holds
 ;      [clo_seg] and the verb was refused CERR_BUSY (both said here); every
 ;      other answer the verb has said itself
@@ -5622,20 +5637,32 @@ fm_clone_res:
 ;
 ; A mount OUTLIVES the image (its claim is MEM_K_IMG and not [clo_seg]), so
 ; the module goes back the moment the verb returns - unless a clone or a join
-; holds it, whose drop is not counted and is left to theirs.
+; holds it, whose drop is not counted and is left to theirs. That is
+; fm_cldrop exactly, and the refusal is fm_clone_bad exactly (the toast, then
+; the same drop), so this is the two of them and a carry (kernel size pass
+; 12: it was its own pushf-banked copy of both, 22 bytes against 10).
+;
+; The success CF is fm_cldrop's, and it is 0: a held image leaves through the
+; `cmp` of a live word with 0, and a drop's last flag is mem_free_x RELEASING
+; the module's claim (mod_free_row), which a claim mod_need made cannot fail.
+; fm_c_unmnt is the only caller that reads it.
+;
+; fm_mnt_done_x - Mount Image...'s Open box answered (fdlg_open's completion
+; contract, SPEC.md 38.6): SI = the requester window; the file's volume
+; mounted and its folder current. The verb aims [fm_vp] at the requester
+; itself (fm_img_done_x's reason), first thing once the image is in. It FALLS
+; INTO fm_imgcall and banks nothing: a completion proc owes the chooser no
+; register ("the callback owes us nothing", fdlg_reap_x's commit - which
+; keeps ES and BP itself and leaves through its own frame). It was eleven
+; bytes of kentc_di / kretc_di round the same call (kernel size pass 12).
 ; -----------------------------------------------------------------------------
+fm_mnt_done_x:
+    mov dl, CLV_MNTDLG
 fm_imgcall:
     call clo_call               ; CF = 1 only when the image cannot be read:
-    jnc .ok                     ; AL = CERR_NOMOD - or CERR_BUSY, refused
-    call fm_saycl
+    jnc fm_cldrop               ; AL = CERR_NOMOD - or CERR_BUSY, refused
+    call fm_clone_bad
     stc
-.ok:
-    pushf
-    cmp word [clo_seg], 0
-    jne .held
-    call clo_drop
-.held:
-    popf
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5644,31 +5671,17 @@ fm_imgcall:
 ; -----------------------------------------------------------------------------
 fm_c_mount:
     mov di, [fm_vp]
-    call fmv_winof              ; BX = the window fdlg_open needs
-    jc fm_c_unmnt.no
-    mov di, fm_mnt_done_x
-    jmp fm_c_wimg.dlg
+    mov ax, fm_mnt_done_x
+    jmp short fm_c_dlg          ; ...Write Image's dialog from its window test
 
 fm_c_unmnt:
-    mov di, [fm_vp]
-    mov al, [di+FS_DRV]         ; this window's volume: greyed unless it is an
-    mov dl, CLV_UNMNT           ; image's (fm_bar_gate), and the verb asks
-    call fm_imgcall             ; again
-    jc .no
-    mov dl, [disk_drive]        ; ...and the window goes to the root of the
-    jmp fm_mount                ; HOST: the volume it showed is gone
-.no:
-    ret
+    mov dl, CLV_UNMNTW          ; THIS window's volume, which the verb reads
+    call fm_imgcall             ; off [fm_vp] itself (kernel size pass 12):
+    jc fm_c_dlg.no              ; greyed unless it is an image's (fm_bar_gate),
+    mov dl, [disk_drive]        ; and the verb asks again. ...and the window
+    jmp fm_mount                ; goes to the root of the HOST: the volume it
+                                ; showed is gone
 
-; fm_mnt_done_x - Mount Image...'s Open box answered (fdlg_open's completion
-; contract, SPEC.md 38.6): SI = the requester window; the file's volume
-; mounted and its folder current
-fm_mnt_done_x:
-    call kentc_di
-    call fm_svp_set             ; [fm_vp] = the REQUESTER (fm_img_done_x's
-    mov dl, CLV_MNTDLG          ; reason)
-    call fm_imgcall
-    jmp kretc_di
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -5689,18 +5702,29 @@ fm_mnt_done_x:
 ; -----------------------------------------------------------------------------
 fm_c_wimg:
     call fm_cloneok             ; the same predicate Format and Clone grey
-    jc .no                      ; from - a BIOS floppy, and nothing else - and
+    jc fm_c_dlg.no              ; from - a BIOS floppy, and nothing else - and
                                 ; the same refusal a running clone earns there
                                 ; (SPEC.md 22.21.2): this one would open a
                                 ; dialog first and only discover it in the
                                 ; completion proc
-    call fmv_winof              ; BX = this block's window; CF=1 = no live
-    jc .no                      ; record owns it, which fdlg_open would refuse
-    mov di, fm_img_done_x       ; the COLD body: wm_pkgcall dispatches a
+%ifdef OS88_IMG                 ; (kern_small has no fm_c_mount, and there the
+                                ; AX form below would be a byte for nothing)
+    mov ax, fm_img_done_x       ; the COLD body: wm_pkgcall dispatches a
                                 ; kernel window's completion proc (SPEC.md
                                 ; 38.6) into `.cold` (SPEC.md 2.6.3), and
                                 ; drv_dlg_done_x is armed the same way
-.dlg:                           ; (fm_c_mount's entry, with its own proc)
+fm_c_dlg:                       ; AX = the completion proc, DI = [fm_vp]:
+                                ; fm_c_mount's entry too, with its own proc
+    call fmv_winof              ; BX = this block's window; CF=1 = no live
+    jc .no                      ; record owns it, which fdlg_open would refuse.
+    xchg ax, di                 ; AX is fmv_winof's to keep, so the proc
+                                ; rides it there
+%else
+fm_c_dlg:
+    call fmv_winof
+    jc .no
+    mov di, fm_img_done_x
+%endif
     xor si, si                  ; no default name: SPEC.md 38.10's remembered
     xor al, al                  ; one is the better answer here
     call fdlg_open_x            ; near - fdlg.inc is `.cold` too
@@ -5912,39 +5936,25 @@ fm_c_paste:                     ; File > Paste - into THIS window's folder
     jmp short fm_c_pasteto
 
 fm_c_pastein:                   ; context menu > Paste Into - the folder the
-    call fm_selfold             ; pointer is on, not the one we are in
+    push cx                     ; pointer is on, not the one we are in: the
+    push si                     ; acting window's selection, if it is a folder,
+    push di                     ; AL = its drive and BX = its first cluster.
+    call fm_sel_ok              ; Type 3 (the parent link, SPEC.md 19.5)
+    cmc                         ; counts: pasting onto '..' pastes into the
+    jc .out                     ; folder above, which is what it looks like.
+    call fmv_gdtype             ; (It was fm_selfold, kernel size pass 12: -4.)
+    jb .out                     ; 0xFFFF, no selection, fails fm_sel_ok; CF = 1
+    mov bx, [si+18]             ; from fmv_gdtype is not a folder; and CF = 0
+    mov al, [di+FS_DRV]         ; from its compare, which `mov` keeps
+.out:
+    pop di
+    pop si
+    pop cx
     jc fm_c_pasteno             ; the selection is not a folder: a no-op
 fm_c_pasteto:
     call fcp_paste              ; AL = FCPS_*; the operation may suspend on
     jmp fm_paste_res            ; an overwrite question (SPEC.md 22.3)
 fm_c_pasteno:
-    ret
-
-; -----------------------------------------------------------------------------
-; fm_selfold - the acting window's selection, if it is a folder
-; in:  [fm_vp] published
-; out: CF=0 with AL = its drive and BX = its first cluster; CF=1 = there is
-;      no selection, or it is not a folder
-; clobbers: AX, BX, flags
-;
-; Type 3 (the parent link, SPEC.md 19.5) counts: pasting onto '..' means
-; pasting into the folder above, which is exactly what it looks like.
-; -----------------------------------------------------------------------------
-fm_selfold:
-    push cx
-    push si
-    push di
-    call fm_sel_ok              ; 0xFFFF (no selection) also fails this
-    cmc                         ; ...and CF = 1 is this routine's refusal
-    jc .out
-    call fmv_gdtype             ; SI -> the staged entry (SPEC.md 19)
-    jb .out                     ; CF = 1: not a folder
-    mov bx, [si+18]             ; CF = 0 from the compare, which `mov` keeps
-    mov al, [di+FS_DRV]
-.out:
-    pop di
-    pop si
-    pop cx
     ret
 
 fm_c_newwin:                    ; Nav > New Window - a second view of here

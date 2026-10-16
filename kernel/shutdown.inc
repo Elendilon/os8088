@@ -6,7 +6,10 @@ section .modu
 modc_e_shutdown:
     call sd_confirm
     or al, al
-    jz .out
+    jnz .go
+.out:                           ; both refusals' exit, in SHORT reach of each
+    retf                        ; (kernel size pass 12)
+.go:
     call cp_flush_close_x       ; flush without dropping the executing module
     cmp byte [cp_wdirty], 0
     jne .out                   ; the existing settings toast explains failure
@@ -65,8 +68,6 @@ modc_e_shutdown:
 .idle:
     hlt                        ; wake on IRQ0; no scheduler or disk I/O
     jmp .loop
-.out:
-    retf
 
 ; A modal overlay owns the gfx lock, like menu tracking. It polls the same
 ; mouse state and BIOS keys as ui_task and keeps the pointer visible. Workers

@@ -95,6 +95,14 @@ so it is checked here with no Tk at all:
    before options were stored loads as None. With form_value answering ""
    the round trip FAILS on every target.
 
+16. EVERY TAB FITS THE DEFAULT WINDOW (SPEC.md 98.2.8): on a real Tk at
+   the window's own size, no group, panel or note on any tab runs past the
+   pane's bottom or right-hand edge - the Colour tab at every target, its
+   Palette panel following the form. The Colour tab overran it twice with
+   nothing to say so; on the window before the Size vs quality tab, 16
+   FAILS - the Colour tab 210 pixels past the bottom at CGA4 full screen,
+   the Sound tab 44 past the right. Skipped with no tkinter or no display.
+
 Broken on purpose - an option dropped from the table, or a help string
 emptied - 1 FAILS naming it. Needs ffmpeg for 3 to 5 and SKIPS without it.
 """
@@ -280,6 +288,72 @@ def options_leg():
     for d in ("bank", "layer_bank"):
         if "auto" not in G.SUGGEST.get(d, []):
             bad.append("--%s's list has no auto" % d.replace("_", "-"))
+    # A COARSE CUT TURNS OFF FROM THE WINDOW (98.2.5): an EDITABLE
+    # dropdown - AUTO the default and left off the command line, OFF on it
+    # as itself, and a size typed by hand passed through - and a box
+    # emptied by hand is put back to AUTO as the pointer leaves it. It was
+    # a text box, and emptying it - the obvious way to turn a thing off -
+    # left it empty, meaning the default, which is AUTO
+    cc = G.SUGGEST.get("coarse_cut", [])
+    if "" in cc or cc[:2] != [V.parser().get_default("coarse_cut"), "off"]:
+        bad.append("Coarse cut's dropdown is not auto, off, ...: %r" % cc)
+    vf = dict(G.form_start(), preset="vga4-full", palette="colour16",
+              scene_palettes="1")
+    for c in cc + ["24x6"]:
+        av = G.argv_from("in.mkv", "out.V88", dict(vf, coarse_cut=c))
+        got = V.parser().parse_args(av).coarse_cut
+        if got != V.coarse_cell(c) or ("--coarse-cut" in av) != (c != "auto"):
+            bad.append("Coarse cut %r made %s, parsing to %r"
+                       % (c, av[2:], got))
+    if G.blank_fill("coarse_cut", vf) != "auto":
+        bad.append("Coarse cut emptied is put back to %r, not auto"
+                   % G.blank_fill("coarse_cut", vf))
+    # NO BOX STANDS EMPTY FOR A VALUE IT HAS, and none takes a word typed
+    # blind (the boxes audit, 2026-10-14): on every target, every field that
+    # applies shows a value or its BLANK_WORD - but for the free text that
+    # has no default to show - each word is in its dropdown and reads back
+    # as the blank it stands for, no dropdown offers an empty entry, and a
+    # field emptied by hand is put back to what the encode will use
+    free = {"title", "credits", "poster_at", "spk_preview"}
+    for d, w in G.BLANK_WORD.items():
+        f = [x for x in G.fields() if x["dest"] == d]
+        if not f:
+            bad.append("BLANK_WORD names %s, which is no option" % d)
+            continue
+        if G.from_shown(d, G.to_shown(d, "")) != "" or \
+                G.from_shown(d, w.upper()) != "":
+            bad.append("%s's word %r does not read back as its blank"
+                       % (d, w))
+        if f[0]["choices"] is None or w not in G.dropdown(f[0]):
+            bad.append("%s shows %r and offers no dropdown with it" % (d, w))
+    for f in G.fields():
+        if "" in G.dropdown(f) and f["kind"] != "bool":
+            bad.append("%s's dropdown offers an empty entry" % f["dest"])
+    for i in range(len(G.TARGETS)):
+        v = dict(G.form_start(), **G.target_fill(i))
+        mine = G.target_values(i)       # (what the TARGET chose: emptied,
+                                        # it is not chosen - no preset)
+        off = G.group_state(v)[1]
+        for f in G.fields():
+            d = f["dest"]
+            if f["kind"] == "bool" or off.get(d) or d in free:
+                continue
+            if not str(G.to_shown(d, v.get(d, ""))).strip():
+                bad.append("%s stands EMPTY under %r" % (d, G.TARGETS[i][0]))
+            if d not in mine and \
+                    G.to_shown(d, G.blank_fill(d, v)) != G.to_shown(d, v[d]):
+                bad.append("%s emptied under %r is put back to %r, not %r"
+                           % (d, G.TARGETS[i][0], G.blank_fill(d, v), v[d]))
+    # A TITLE ALREADY THERE STAYS when a source is chosen: a .V88's or a
+    # typed one is kept, an empty field takes the file's name, and so does
+    # one still holding the name the last source filled in. It was always
+    # replaced, so loading a .V88 and then its source lost the title
+    for cur, was, keep in (("My cut", None, True), ("My cut", "clip", True),
+                           ("", None, False), ("  ", "clip", False),
+                           ("clip", "clip", False)):
+        if G.keep_title(cur, was) != keep:
+            bad.append("Title %r (last filled %r) is %s by a source"
+                       % (cur, was, "replaced" if keep else "kept"))
     pa = [x for x in V.parser()._actions if x.dest == "layer_passes"]
     if not pa or pa[0].default != "two" or \
             tuple(pa[0].choices) != ("two", "one"):
@@ -568,6 +642,8 @@ def main():
     if wrong:
         bad.append("11: drops taken wrongly: %s" % wrong)
     leg13(bad)
+    fit_leg(bad)
+    profile_leg(bad)
     bad += groups_leg()
     bad += options_leg()
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
@@ -686,6 +762,126 @@ def main():
     if not bad:
         print("   ok")
     return 1 if bad else 0
+
+
+def fit_leg(bad):
+    """16: every tab fits the window's default size, on a real Tk"""
+    if G.tk is None:
+        print("   16: SKIP, no tkinter")
+        return
+    try:
+        root = G.tk.Tk()
+    except Exception as e:                      # no display
+        print("   16: SKIP, no display (%s)" % str(e).splitlines()[0])
+        return
+    try:
+        app = G.App(root)
+
+        def pump():
+            for _ in range(4):
+                root.update()
+                root.update_idletasks()
+
+        def walk(w):
+            for c in w.winfo_children():
+                yield c
+                yield from walk(c)
+        nb = [w for w in walk(root) if isinstance(w, G.ttk.Notebook)][0]
+        pages = {nb.tab(i, "text"): nb.nametowidget(i) for i in nb.tabs()}
+
+        def over(t):
+            """(pixels past the pane's bottom, past its right) of the
+            worst group, panel or note on tab t"""
+            nb.select(pages[t])
+            pump()
+            bot = nb.winfo_rooty() + nb.winfo_height()
+            right = nb.winfo_rootx() + nb.winfo_width()
+            ws = [c for c in walk(pages[t]) if c.winfo_ismapped() and (
+                isinstance(c, (G.ttk.LabelFrame, G.tk.Canvas)) or
+                c.master is pages[t])]
+            return (max(c.winfo_rooty() + c.winfo_height() - bot
+                        for c in ws),
+                    max(c.winfo_rootx() + c.winfo_width() - right
+                        for c in ws))
+        pump()
+        worst = {t: over(t) + (G.TARGETS[0][0],) for t in pages}
+        # the Palette panel follows the form: the Colour tab at every target
+        for t in G.TARGETS:
+            app.target.set(t[0])
+            app.apply_target()
+            o = over("Colour")
+            if o[0] > worst["Colour"][0]:
+                worst["Colour"] = o + (t[0],)
+        print("   16: at %dx%d, the most past the pane's bottom/right: %s"
+              % (root.winfo_width(), root.winfo_height(), ", ".join(
+                  "%s %d/%d" % (t, b, r) for t, (b, r, _) in worst.items())))
+        for t, (b, r, tg) in worst.items():
+            if b > 0 or r > 0:
+                bad.append("16: the %s tab does not fit the default window "
+                           "- %d pixels past its bottom, %d past its right "
+                           "(at %s)" % (t, b, r, tg))
+    finally:
+        root.destroy()
+
+
+def profile_leg(bad):
+    """17: A PROFILE IS THE MACHINE (2026-10-15): picking one moves only
+    what the machine sets, and of that only fields still holding what the
+    old profile set - the box, the frame rate and a typed peak stay; an
+    untouched disk follows the machine; to LOSSLESS every limit goes. And
+    the leg's own control: the preset's path (sets the lot) DOES drop the
+    box, so a leg that passes is not a form that never changes"""
+    if G.tk is None:
+        print("   17: SKIP, no tkinter")
+        return
+    try:
+        root = G.tk.Tk()
+    except Exception as e:                      # no display
+        print("   17: SKIP, no display (%s)" % str(e).splitlines()[0])
+        return
+    try:
+        app = G.App(root)
+        v = app.vars
+        get = lambda k: str(v[k].get()).strip()
+
+        def pick(dest, val):
+            v[dest].set(val)
+            app.apply_implied(dest)
+        pick("preset", "vga4")
+        pick("profile", "286-fast")
+        v["box"].set("640x400")
+        v["fps"].set("20")
+        v["peak"].set("4.8")
+        disk_fast = get("disk")
+        pick("profile", "286-picomem1")
+        imp = G.implied_values({k: x.get() for k, x in v.items()})
+        got = {k: get(k) for k in ("box", "fps", "peak", "disk")}
+        print("   17: 286-fast -> 286-picomem1 with box, fps and peak typed:"
+              " %s (the disk was %s)" % (got, disk_fast))
+        if got["box"] != "640x400" or got["fps"] != "20":
+            bad.append("17: a profile pick reset the box or the frame rate:"
+                       " %s" % got)
+        if got["peak"] != "4.8":
+            bad.append("17: a profile pick dropped a typed peak: %s" % got)
+        if got["disk"] != imp["disk"] or got["disk"] == disk_fast:
+            bad.append("17: an untouched disk did not follow the profile: "
+                       "%s, implied %s" % (got["disk"], imp["disk"]))
+        pick("profile", "286-picomem1")         # the same again: nothing
+        if get("peak") != "4.8" or get("box") != "640x400":
+            bad.append("17: picking the same profile again changed the "
+                       "form")
+        pick("profile", "lossless")
+        if get("peak") != "" or get("disk") != "":
+            bad.append("17: lossless kept a limit: peak %r, disk %r"
+                       % (get("peak"), get("disk")))
+        if get("box") != "640x400":
+            bad.append("17: lossless reset the box")
+        pick("preset", "vga4")                  # the control
+        if get("box") == "640x400":
+            bad.append("17: a PRESET pick kept a typed box - the leg's "
+                       "control, which says the form can be reset at all")
+    finally:
+        root.destroy()
 
 
 def leg13(bad):

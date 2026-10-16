@@ -129,6 +129,10 @@ def main():
     ap.add_argument("--bps", type=int, default=BPS,
                     help="B:'s throttle, bytes a second (0 none): slow "
                          "enough that the bank is seen filling")
+    ap.add_argument("--gap", type=int, default=0, metavar="G",
+                    help="[vp_xgap] written G before the play: the ring "
+                    "placed at that gap against the BANK, whatever QEMU "
+                    "measured (SPEC.md 98.3.18.12)")
     ap.add_argument("--mem", type=int, default=2,
                     help="QEMU -m (MB): the pool is what is above the first")
     a = ap.parse_args()
@@ -415,6 +419,8 @@ def main():
         # (the bank HELD at the prefill's slots until the pause: F can take
         # guest seconds to land, and the bank must still have room then)
         qpoke(q, [(base + syms["vp_bhold"], b"\1")])
+        if a.gap:
+            poke("vp_xgap", a.gap)
         q.hmp("sendkey p")
         said = set()
 
@@ -425,6 +431,16 @@ def main():
         wait(filling, "the play to start", 120)
         q.hmp("stop")
         pfn, cnt0, done0 = rw("vp_pfn"), rw("vp_xcnt"), rw("vp_done")
+        g = rw("vp_xgap")
+        if g:                           # THE GAP (98.3.18.12): the ring G
+            ring, clm = rw("vp_ring"), rw("vp_rclm")    # mod 2G from the bank
+            off = ((ring << 4) - u32(q.read(base + syms["vp_xbase"], 4))) \
+                % (2 * g)
+            print("   the gap: G %d, ring %04X in its claim at %04X, %d mod "
+                  "%d from the bank" % (g, ring, clm, off, 2 * g))
+            if off != g or not clm <= ring < clm + (2 * g >> 4):
+                bad.append("the ring is %d mod %d from the bank, not %d"
+                           % (off, 2 * g, g))
         ask = (rw("vp_hxb"), rw("vp_hxp"))
         toast = rb("vo_toast")
         q.hmp("cont")

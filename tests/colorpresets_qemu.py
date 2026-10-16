@@ -155,6 +155,21 @@ class Guest:
     def read(self, address, size):
         return bytes.fromhex(self.rsp(f'm{address:x},{size:x}'))
 
+    def segment(self, name):
+        """The segment `name` RUNS at. `.cold` is assembled for COLD_SEG, but
+        on a machine with an HMA XMEM.DRV moves it to FFFF at boot and
+        re-points every far reference (docs/plans/HMA-PLAN.md), so a call or
+        a breakpoint aimed at the static segment lands on the dead rung and
+        the guest idles instead of returning. `[api_coldseg]` is the live one,
+        the word tests/hmacold.py reads; the offsets do not move."""
+        seg = os88sym.segment_of(name)
+        if seg == os88sym.equates()['COLD_SEG']:
+            seg = struct.unpack('<H', self.read(os88sym.linear('api_coldseg'), 2))[0]
+        return seg
+
+    def linear(self, name):
+        return self.segment(name)*16 + os88sym.syms()[name]
+
     def write(self, address, data):
         assert self.rsp(f'M{address:x},{len(data):x}:{data.hex()}') == 'OK'
 
@@ -167,8 +182,8 @@ class Guest:
         """
         saved = self.rsp('g')
         target = api if api is not None else os88sym.syms()[name]
-        seg = 0x60 if api is not None else os88sym.segment_of(name)
-        address = (os88sym.linear('cpf_cp_open') if near else 0x610)
+        seg = 0x60 if api is not None else self.segment(name)
+        address = (self.linear('cpf_cp_open') if near else 0x610)
         offset = address-seg*16 if near else 0x10
         code = (b'\xe8'+struct.pack('<H', (target-offset-3)&65535) if (seg == 0x60 and api is None) or near
                 else b'\x9a'+struct.pack('<HH', target, seg))
@@ -188,7 +203,7 @@ class Guest:
                 struct.pack_into('<I',regs,index*4,value)
         flags = struct.unpack_from('<I', regs, 9*4)[0]
         struct.pack_into('<I', regs, 9*4, flags | 0x200)
-        counted = os88sym.linear(count) if count else None
+        counted = self.linear(count) if count else None
         self.last_count = 0
         if counted is not None:
             assert self.rsp(f'Z0,{counted:x},1') == 'OK'

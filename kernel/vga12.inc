@@ -194,6 +194,23 @@ THM_CROW equ thm_tab + THM_COLOR * THM_ROW_BYTES    ; the row a preset lands in
 
 %endif
 
+%if VGABUF_PARA
+; SK_KERN as THIS machine reports it (osapi_sys_kb, SPEC.md 20.9): KERN_KB,
+; less SK_VGAB_KB on a machine with no VGA (SPEC.md 39.22). mem_init_x stores
+; it once, at the moment [vid_avail] is final - the answer never changes after
+; it, which is mem_floor_ax's argument - and osapi_sys_kb_x reads it where it
+; tested the bit on every call: kernel size pass 12, -8 bytes.
+;
+; A BYTE, AND HERE, ON PURPOSE. Every hot primitive from gfx_color on - the
+; blits, font_run, both mouse ISRs, sch_isr and sch_switch - had come to sit
+; an ODD distance from where pass 12 found them (the theme row's pad went,
+; -1), and on a 16-bit bus a word fetch at an odd address is two cycles; this
+; byte puts them all back on their old parity. The `cbw` it costs in `.cold`
+; does the same for dsk_xfer and the FAT walk. Zero bytes net against a word
+; in memory.inc's data (PERFORMANCE.md Part 7; docs/plans/completed/ksp12/xfile.md)
+vga_skkern      db KERN_KB          ; (kernel.asm's guard 7: under 128)
+%endif
+
 gfx_color       db CBLACK       ; current drawing color for every solid op.
                                 ; IT LIVES HERE, not up beside gfx_mono1,
                                 ; because the pen setters write it and the
@@ -2569,6 +2586,7 @@ vga_blit_prow:
                                 ; next row may be a run's again
 
     mov ax, VGABUF_SEG          ; ovlchk: DS = VGABUF_SEG
+vga_pr_bufw equ $ - 2           ; (its immediate is also mem_floor_ax's word)
     mov ds, ax                  ; DS = the four plane rows (the table is .lowbss, via ss:); ES is
                                 ; still the caller's source. THE BARE
                                 ; REFERENCE IS THE .vgabuf ONE FROM HERE TO
@@ -2797,8 +2815,8 @@ gfx_blitp:
 .clipok:
     test al, 7
     jz .xal                     ; x off the byte grid - refused, but for a
-    cmp word [gfx_bpfn], 0      ; PIECE of a region walk (5.4.3.6), whose
-    je .no                      ; left edge is a mask
+    cmp word [gfx_bpfn], gfx_blit1_x    ; PIECE of a region walk (5.4.3.6),
+    je .no                      ; whose left edge is a mask
 .xal:
     and di, 0xBFFF              ; (bit 14 asked for a walk: not a step)
     or cx, cx
@@ -5092,7 +5110,7 @@ section .bss
 ; * every member is WRITTEN BY ITS OWN PRIMITIVE BEFORE IT IS READ, on every
 ;   path - which is what a union needs and .bss's zero never gave anything
 ;   here. The members that DO lean on a value surviving between calls are kept
-;   OUT: gfx_bpfn (zero except inside a planar walk), gfx_b1hm (zero except
+;   OUT: gfx_bpfn (gfx_blit1_x except inside a planar walk), gfx_b1hm (zero except
 ;   inside .offg's head column) and gfx_bp_hk (set by gfx_blitp around a walk
 ;   that re-enters gfx_blitp).
 ;
@@ -5225,15 +5243,26 @@ gfx_u_pen:
 %endif
 %endif
 
+section .text
+%ifdef GFX_PLANE
+gfx_bpfn:    dw gfx_blit1_x     ; the fragment walk's piece (5.4.3.6):
+                                ; gfx_blit1_x, and gfx_bppiece only while a
+                                ; planar walk runs. INITIALISED, and in
+                                ; .text for it: it was a .bss word whose zero
+                                ; meant gfx_blit1_x by an assertion that the
+                                ; routine was .cold's first byte - which
+                                ; stopped being offset 0 when `.cold`'s
+                                ; offsets began at 0x10 (kernel.asm's
+                                ; COLD_VSTART), and a call to CS:0000 is
+                                ; FFFF:0000 from the HMA: the BIOS's reset
+                                ; vector. Two bytes moved, none spent
+%endif
 section .bss                    ; ...and back to plain .bss for the rest
 %ifdef GFX_PLANE
 gfx_bp_hk:   resb 1             ; ...and did THIS gfx_blitp take the whole-shape
                                 ; display hook? (SPEC.md 5.4.3) - the exit must
                                 ; not bring a nest down that it never put up,
                                 ; and every refusal above reaches that exit
-gfx_bpfn:    resw 1             ; the fragment walk's piece (5.4.3.6): 0 is
-                                ; gfx_blit1_x (.cold's first byte, asserted),
-                                ; gfx_bppiece only while a planar walk runs
 %endif
 
 vga_xorm        resb 1          ; vga_solid_rect: 0 = replace, else XOR with it. The
@@ -5593,14 +5622,6 @@ gfx_blit1_x:
     mov ch, [gfx_b1hm]
 %endif
 .notail:
-%ifdef GFX_VGA
-    mov cl, [vid_mono]          ; [bp+6]'s LOW byte, which nothing read back:
-                                ; 0 = this display is PLANAR, so a tail byte
-                                ; is merged through the Bit Mask and not by
-                                ; the CPU (SPEC.md 5.4.2.9). [vid_mono] is
-                                ; the RESOLVED display's here, and DS is still
-                                ; ours to read it through
-%endif
     push bp                     ; [bp+8]  the band's step
     push cx                     ; [bp+6]  the tail mask, in its HIGH byte
     push word [vid_rowadd]      ; [bp+4]  gfx_nextrow, inlined (Part 9 Set 3)
@@ -5650,22 +5671,34 @@ gfx_blit1_x:
     mov ax, [vid_seg]           ; the UNIFORM cell, and NOT vid_rseg, which is
     mov cx, es                  ; 0 on VGA (viddet.inc:115) - and already the
 %ifdef GFX_VGA
-    mov dl, [gfx_b1inv]         ; ...and WHICH LOOP, read while DS is still
+    cmp byte [gfx_b1inv], 0     ; ...and WHICH LOOP, asked while DS is still
+                                ; ours - the answer rides in the FLAGS over
+                                ; the segment loads and the `cld`, none of
+                                ; which writes one. `cs:` does not reach it -
+                                ; this body's CS is COLD_SEG and the flag is
+                                ; KERNEL_SEG's
+    mov dl, [vid_mono]          ; ...and DL = 0 is a PLANAR display, which
+                                ; merges a tail byte through the Bit Mask and
+                                ; not by the CPU (SPEC.md 5.4.2.9). [vid_mono]
+                                ; is the RESOLVED display's here. DL is free
+                                ; in both emit loops (DH is the split pass's
+                                ; row count), so the per-row test is `or dl,
+                                ; dl` and not a byte of the SS frame: 4 bytes
+                                ; and ~19 clocks a tail row less, twice
+                                ; (kernel size pass 12)
 %else
     xor dl, dl                  ; ...and never the complemented one: with no
                                 ; pen there is nothing to turn over
 %endif
-                                ; ours. `cs:` does not reach it - this body's
-                                ; CS is COLD_SEG and the flag is KERNEL_SEG's
-                                ; - and the frame is full, so it rides in DL,
-                                ; which the frame banked at [bp+10] and
-                                ; neither emit loop touches. The segment goes
-                                ; through CX rather than BX because BX now
-                                ; carries the split across the whole emit
+                                ; The segment goes through CX rather than BX
+                                ; because BX now carries the split across the
+                                ; whole emit
     mov es, ax                  ; resolved display's, the enter above having
     mov ds, cx                  ; run first (SPEC.md 39.12)
     cld
+%ifndef GFX_VGA
     or dl, dl
+%endif
     jnz .rowi
 
     ; --- THE FAST PATH: a band that needs none of the row loop's bookkeeping
@@ -5714,8 +5747,8 @@ gfx_blit1_x:
     jz .whole                   ; 8086 loses the prefix to an interrupt (5.7)
     lodsb                       ; SPEC.md 5.4.2.5: THE TAIL BYTE, merged under
 %ifdef GFX_VGA
-    cmp byte [bp+6], 0          ; ...through the Bit Mask on a PLANAR display
-    je .vtail                   ; (SPEC.md 5.4.2.9)
+    or dl, dl                   ; ...through the Bit Mask on a PLANAR display
+    jz .vtail                   ; (SPEC.md 5.4.2.9)
 %endif
     xor al, [es:di]             ; its mask - dest ^= (src ^ dest) & mask, one
     and al, bh                  ; read and one write of the framebuffer byte,
@@ -5735,6 +5768,34 @@ gfx_blit1_x:
 .vtail:
     call .vmask                 ; AL = the band's byte, under BH's bits
     jmp short .whole
+; .vmask - AL = a band byte: write it to [ES:DI] under the mask in BH, on a
+; PLANAR display (SPEC.md 5.4.2.9). The CPU merge above reads back ONE plane
+; (the Read Map's) and writes the answer to all of them, so every pixel it
+; meant to leave alone took plane 0's bit on every plane - exact over black
+; and white and nothing else: navy came back light grey. The Bit Mask takes
+; those pixels from the LATCHES instead, which hold all four planes, and the
+; Set/Reset the pen armed (5.4.2.2) still answers for its constant planes.
+; DX is banked: the split pass keeps its row count in DH. AX is spent, and
+; so is CL, which holds the byte across the port write - the same two bytes
+; as a `push ax` / `pop ax` pair and 25 clocks a tail row fewer: both loops
+; have just run their CX down to ZERO (`rep movsw` and `loop .iword`) and
+; reload it at the next row. HERE, behind .row's own `jmp short .emitted`,
+; so it costs no jump of its own (kernel size pass 12)
+.vmask:
+    push dx
+    mov cl, al                  ; CL = the band's byte
+    mov dx, VGA_GC
+    mov al, 8                   ; GC8 = Bit Mask
+    mov ah, bh
+    out dx, ax
+    xchg [es:di], cl            ; the read loads the latches and the write is
+                                ; what the Bit Mask acts on - vga_solid_rect's
+                                ; idiom, one instruction where `mov ah,
+                                ; [es:di]` and `mov [es:di], al` were two
+    mov ax, 0xFF08              ; Bit Mask back to every bit
+    out dx, ax
+    pop dx
+    ret
 %endif
 
     ; --- ...and the same rows COMPLEMENTED (SPEC.md 5.4.2.2) ----------------
@@ -5774,8 +5835,8 @@ gfx_blit1_x:
     lodsb
     not al
 %ifdef GFX_VGA
-    cmp byte [bp+6], 0          ; (SPEC.md 5.4.2.9, as above)
-    jne .icpu
+    or dl, dl                   ; (SPEC.md 5.4.2.9, as above)
+    jnz .icpu
     call .vmask
     jmp short .iwhole
 .icpu:
@@ -5794,31 +5855,6 @@ gfx_blit1_x:
     dec word [bp+12]
     jnz .rowi
 
-%ifdef GFX_VGA
-    jmp short .emitted
-; .vmask - AL = a band byte: write it to [ES:DI] under the mask in BH, on a
-; PLANAR display (SPEC.md 5.4.2.9). The CPU merge above reads back ONE plane
-; (the Read Map's) and writes the answer to all of them, so every pixel it
-; meant to leave alone took plane 0's bit on every plane - exact over black
-; and white and nothing else: navy came back light grey. The Bit Mask takes
-; those pixels from the LATCHES instead, which hold all four planes, and the
-; Set/Reset the pen armed (5.4.2.2) still answers for its constant planes.
-; DX is banked: the split pass keeps its row count in DH.
-.vmask:
-    push dx
-    push ax
-    mov dx, VGA_GC
-    mov al, 8                   ; GC8 = Bit Mask
-    mov ah, bh
-    out dx, ax
-    pop ax
-    mov ah, [es:di]             ; load the latches (the value itself is unused)
-    mov [es:di], al
-    mov ax, 0xFF08              ; Bit Mask back to every bit
-    out dx, ax
-    pop dx
-    ret
-%endif
 .emitted:
     ; --- SPEC.md 5.4.2.2.1's SECOND PASS, and it changes ONE port -------------
     ; The band is emitted again, complemented, with the Map Mask moved from
@@ -6078,7 +6114,7 @@ gfx_blit1_x:
     add di, [si+8]              ; ...from the band's first byte (gfx_cl_fn)
     mov si, di
 %ifdef GFX_PLANE
-    call word [gfx_bpfn]        ; gfx_blit1_x, 0 by assertion, or a planar
+    call word [gfx_bpfn]        ; gfx_blit1_x, or a planar
 %else                           ; piece's gfx_bppiece (5.4.3.6): no test
     call gfx_blit1_x
 %endif
@@ -6263,7 +6299,7 @@ gfx_bpwalk:
     and di, 0x3FFF              ; the plane step, which .frags banks where
     mov word [gfx_bpfn], gfx_bppiece    ; each piece reads it back - and
     call gfx_blit1_x.frags
-    and word [gfx_bpfn], 0      ; (and CF = 0: drawn)
+    mov word [gfx_bpfn], gfx_blit1_x    ; ...and back (CF = 0: drawn)
     retf
 
 ; gfx_bppiece - one piece of that walk: gfx_blitp, its plane step read back
@@ -6279,9 +6315,6 @@ gfx_bppiece:
     mov di, [ss:di + GFX_BPSTEP]
     call KERNEL_SEG:api_gfx_blitp
     ret
-%if gfx_blit1_x - $$ != 0
-  %error "gfx_blit1_x must be .cold's first byte: [gfx_bpfn] = 0 is the fragment walk's call to it, and .bss arrives zeroed"
-%endif
 %endif
                                 ; (the body's %ifdef KERN_BIG is gone: SPEC.md 5.4.2.5)
 
@@ -6343,7 +6376,7 @@ thm_set:
     xor ax, ax                  ; takes its own black-and-white row. Color is
     xor bl, bl                  ; refused, and falls back to Bright
 .apply:
-    call COLD_SEG:thf_apply     ; AL = the kind: WIN95.DRV mounted and hooked
+    COLDCALL thf_apply          ; AL = the kind: WIN95.DRV mounted and hooked
     jnc .live                   ; for THM_WIN, unhooked and dropped otherwise
     mov al, THM_COLOR           ; REFUSED (SPEC.md 76.14.1): the chrome stays
     mov bl, al                  ; the kernel's, so the nearest palette that
@@ -6429,7 +6462,7 @@ api_thm_set_x:
     push ax
     push bx
     mov bl, [thm_kind]
-    call COLD_SEG:thm_set
+    COLDCALL thm_set             ; (.cold to .cold: ROM-PLAN 3.2)
     pushf                        ; ...its CF is the caller's answer (Windows
     cmp bl, [thm_kind]           ; whose module could not be mounted)
     je .same

@@ -282,8 +282,14 @@ ext_e_fsx:
     call KERNEL_SEG:apic_wm_top ; OSAPI_WM_TOP's own cell is the door: the
     or bx, bx                   ; same five bytes as an EXK and no exk_go
     jz .notop
-.win:                           ; (NOT ext_wctx: that needs DI banked
+.win:
+    mov al, bl                  ; BX = 1..15 IS A DISPLAY, BX-1 (SPEC.md
+    dec ax                      ; 53.1.2): fsx_caps has already refused one
+    cmp bx, 16                  ; past [vid_ndisp]
+    jb .kind
+                                ; (NOT ext_wctx: that needs DI banked
     EXK wm_disp_of              ; round it, and this is the one entry a
+.kind:
     call ext_kind_of            ; WORKER reaches - four bytes deeper on its
     mov dl, al                  ; slice for two bytes of image. The CENTRE,
                                 ; then the origin, then the primary (SPEC.md

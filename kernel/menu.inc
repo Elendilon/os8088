@@ -1466,32 +1466,6 @@ menu_clkcells:
 .fw:
     ret
 
-; -----------------------------------------------------------------------------
-; menu_tbar_k - the toast strip's 4px black lead (SPEC.md 59.8.1)
-; in:  AX = x1, CX = x2 (inclusive); MENU_TEXT_Y is the row
-; out: nothing - all registers AND the flags preserved
-;
-; A gfx_fill and not a glyph because there is no glyph: the table is ASCII
-; 32..126 and holds no half-cell block. It costs 4,142 cycles on a 4.77MHz
-; 8088 - PERFORMANCE.md Part 2's per-call floor almost exactly, the 32 pixels
-; being ~110us of it - so a wider lead would cost the same.
-menu_tbar_k:
-    pushf
-    push ax
-    push bx
-    push cx
-    push dx
-    call thm_ink                
-    mov bx, MENU_TEXT_Y
-    mov dx, MENU_TEXT_Y + 7
-    call gfx_fill
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    popf
-    ret
-
 menu_draw_clock:
     call kent_di                ; = push ax/bx/cx/dx/si/di
     push es
@@ -1618,9 +1592,20 @@ menu_draw_clock:
 
     mov ax, cx                  ; --- the 4px black lead. No glyph can do this:
     add ax, 4                   ; the table is 95 glyphs, ASCII 32..126 (6.2),
-    push cx                     ; so CP437's half-block is not available
-    add cx, 4 + 3               ; (x2 off CX itself, not through AX: 2 bytes)
-    call menu_tbar_k
+    push cx                     ; so CP437's half-block is not available,
+    add cx, 4 + 3               ; and a gfx_fill costs PERFORMANCE.md Part 2's
+    pushf                       ; per-call floor almost exactly (4,142 cycles,
+    push ax                     ; the 32 pixels ~110us of it), so a wider lead
+    push bx                     ; would cost the same. (x2 off CX itself, not
+    push dx                     ; through AX: 2 bytes.) It was menu_tbar_k,
+    call thm_ink                ; its one caller's now: kernel size pass 12,
+    mov bx, MENU_TEXT_Y         ; -6, its own CX bank being the one above
+    mov dx, MENU_TEXT_Y + 7
+    call gfx_fill
+    pop dx
+    pop bx
+    pop ax
+    popf
     pop cx
 
     mov al, [menu_clkbuf+di]    ; --- and the message. font_run wants ASCIIZ
@@ -2132,11 +2117,12 @@ menu_drop:
     ; --- released: put the screen back, report the selection -------------------
 .up:
 %ifdef KERN_BIG
-    call menu_sticky            ; WINDOWS (SPEC.md 76.14.7): a release that
+    call far [thv + THV_STICK]  ; WINDOWS (SPEC.md 76.14.7): a release that
                                 ; ran nothing may leave the menu up for a
                                 ; second click, and the answer comes back in
-                                ; [menu_sel]. winmod.inc's door - a bare `ret`
-                                ; at rest, so every other theme releases here
+                                ; [menu_sel]. winmod.inc's door - cw_kretf's
+                                ; bare `retf` at rest, so every other theme
+                                ; releases here
 %endif
 %ifdef DOCK_OPT
     pop word [wm_clip_n]        ; the open dock's hole, back (see above)
@@ -2213,11 +2199,13 @@ menu_drop:
     pop bx
     ret
 
+%ifndef KERN_BIG                ; (kern_big's is in wm.inc, above wm_hit_ttl_b)
 menu_dropd  db 0                ; a pull-down is on the screen (SPEC.md 9.6.3).
                                 ; In .text with a real initialiser rather than
                                 ; in .bss, for fdlg_win's reason: -f bin zeroes
                                 ; nothing and this is read on the machine's
                                 ; very first arrow key
+%endif
 
 ; -----------------------------------------------------------------------------
 ; menu_kbnav - the keyboard mouse steps a dropped menu by ITEM (SPEC.md 9.6.3)

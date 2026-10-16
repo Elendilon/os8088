@@ -252,6 +252,17 @@ ALIAS = [
     # stride to prove one does not overlap the next, which is the very defect
     # a stale size causes.
     ("apps/os88ui.inc", "OS88UI_DR_SIZE", "tests/skiesui.py", "DR_SIZE"),
+    # SPEC.md 98.1.9.12. The player's bench gives no CPU verdict on a layer
+    # yardstick under this, and the encoder's report says so at the same
+    # line - a drift is a report promising a disk test that never decides
+    ("apps/video/video.asm", "VP_LYTMIN", "tools/os88venc.py", "LY_TMIN"),
+    # SPEC.md 98.1.9.13. The bench record is built twice - the player's
+    # vp_bngen at play and os88vid's bench_record when the encoder prices it
+    # - and these say where its words are and how wide its writes run; a
+    # drift is a yardstick for one record and a timing of another
+    ("apps/video/video.asm", "VP_BNSPAN", "tools/os88vid.py", "BENCH_SPAN"),
+    ("apps/video/video.asm", "R_BENCH", "tools/os88vid.py", "R_BENCH"),
+    ("apps/video/video.asm", "V88_BENCHL", "tools/os88vid.py", "H_BENCHL"),
     # SPEC.md 96.13.1. The DOS box has no slot to ask the kernel what day it
     # is - there is no date or time cell in the SDK at all - so on a machine
     # with no clock chip it answers the kernel's OWN fallback, spelled again

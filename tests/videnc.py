@@ -61,6 +61,21 @@ tools/os88venc.py encodes it three ways. Four questions:
 5i. PAGE-AHEAD PRUNED (98.2.1.8.2): one build forced to have hurt - rescue
    ships a third pass one flip short, off two passes and the plain file,
    always three passes and a page-ahead file; the passes are counted.
+5j. PAGE-AHEAD ON N PAGES (98.2.1.8.4): stills whose cuts come in pairs
+   two frames apart, on the 5150: --pages 3 must write byte 37 = 4,
+   verify from every key and cut fewer frames than --pages 2; --pages 4 on
+   Mode X's 320 x 200 with keys a second apart and --page-keys started
+   must leave a page whose build has not begun out of a key and still
+   verify. Broken on purpose - the scene rule off
+   (PA_SCENE 1), or a page left out of a key flipped to before it is whole
+   - the first cuts as many frames as two pages and the second fails its
+   verify.
+5k. FLIPPED AND BUILT AHEAD (98.2.1.8.5): 5j's pairs flipped every frame -
+   on the 5150 four pages with the copy made in the calm, on the 486
+   three with it in the flip's record: byte-37-5 files that verify and cut
+   fewer frames than flipped alone. Broken on purpose - the calm's copy
+   left out (PA_COPY_OK where the copy is paid at the flip on the 286 too)
+   - the 5150 leg builds nothing it can flip to and FAILS.
 8. DOES COMPOSITE DIFFUSION SEE THE MODEL? A picture rendered through the
    model from known nibbles, in runs of 2 to 6 cells, must come back as 90%
    or more of them (94% measured). Without the lookahead - a cell judged as
@@ -84,8 +99,9 @@ tools/os88venc.py encodes it three ways. Four questions:
    5g. DOES A FLIPPED FILE KEEP UP? (98.2.1.1.1) A noisy pan flipped on
    the 486 at 90% / 140%, replayed as the player runs it - a call every
    half period off the card, one frame a call - must leave no frame a
-   whole frame behind. Without the flip schedule (the ceiling the peak
-   alone) 68 are.
+   whole frame behind at `--lag 0`. Without the flip schedule (the ceiling
+   the peak alone) 68 are. At `--lag 125` (98.2.1.1.2) the picture may
+   fall behind, and must never fall as far as the lag.
 
 Broken on purpose - the measured retry in Encoder.frame skipped, so a
 frame is chosen by the per-span estimate alone - question 3 FAILS naming
@@ -384,7 +400,7 @@ def main():
         a = venc.parser().parse_args(
             [cuts, os.path.join(tmp, "owed.V88"), "--quiet", "--preset",
              "herc-full", "--disk", "200000", "--avg", "0.50", "--peak",
-             "0.30", "--owe", "1.6", "--rate", "5512"])
+             "0.30", "--owe", "1.6", "--rate", "5512", "--lag", "0"])
         res = venc.encode(a, [])
         r = vid.Reader(a.out)
         ov, drops, behind, run2 = hook_schedule(
@@ -1020,12 +1036,15 @@ def main():
     P = venc.PROFILES["486-dx2-66"]
     t, sub = venc.profile_table(P, vid.LAY_MODEX)
     kk = P["lcopy_us"] * vid.HZ / 1e6 * P["speed"]
-    for sched in (True, False):
-        out = os.path.join(ftmp, "f%d.V88" % sched)
+    # (--lag 0: the one-frame schedule, so a frame a whole one behind is
+    # late; the third arm is the lag's own, 98.2.1.1.2 - behind by up to
+    # --lag and never as far as it)
+    for sched in (True, False, "lag"):
+        out = os.path.join(ftmp, "f%s.V88" % sched)
         args = venc.parser().parse_args(
             [noisy, out, "--quiet", "--preset", "modex", "--profile", "486-dx2-66",
              "--flip", "--rate", "22050", "--avg", "9", "--peak", "14",
-             "--fit", "fill"])
+             "--fit", "fill", "--lag", "125" if sched == "lag" else "0"])
         if not sched:                   # broken on purpose: no schedule
             real = venc.EncoderX.begin
             venc.EncoderX.begin = lambda self: (real(self), setattr(
@@ -1038,7 +1057,7 @@ def main():
         r = vid.Reader(out)
         q = vid.HZ / r.fps * P["speed"]
         aud = venc.CYC_AUDIO * r.abytes + venc.HOOK_CYC
-        end, late, prev, over = 0.0, 0, None, 0
+        end, late, prev, over, most = 0.0, 0, None, 0, 0.0
         for i, (rec, _, _) in enumerate(r.records()):
             c = vid.cycles_of(rec, True, table=t, sub=sub,
                               sub2=r.g.sub2) + aud
@@ -1053,8 +1072,21 @@ def main():
             prev = rec
             start = math.ceil(max(i * q, end) / (q / 2) - 1e-9) * (q / 2)
             late += start - i * q >= q
+            most = max(most, (start - i * q) / q)
             over += c > q
             end = start + c
+        if sched == "lag":
+            allow = 0.125 * r.fps
+            print("   5g: flipped at 90%% / 140%%, --lag 125 (%.1f frames): %d "
+                  "frames over their period, the picture %.2f frames behind "
+                  "at most" % (allow, over, most))
+            if most >= allow:
+                bad.append("the lag: %.2f frames behind, past --lag's %.1f"
+                           % (most, allow))
+            if most < 1:
+                bad.append("the lag: never a frame behind at --lag 125 - the "
+                           "leg tests nothing")
+            continue
         print("   5g: flipped at 90%% / 140%%%s: %d frames over their period, "
               "%d late in the player's schedule"
               % ("" if sched else ", NO schedule", over, late))
@@ -1190,6 +1222,108 @@ def main():
             arms["always"][1] not in (fl, fl - 1):
         bad.append("page-ahead prune: always gave %s, not a page-ahead file "
                    "from three passes" % (arms["always"],))
+    # --- 5j: PAGE-AHEAD ON N PAGES (98.2.1.8.4): stills whose hard cuts
+    # come in PAIRS two frames apart, on the 5150 - too close for one
+    # hidden page to be rebuilt between them, and one cut run on this
+    # machine, so the second is a target only by the SCENE rule. Three
+    # pages must come out a byte-37-4 file that verifies from every key and
+    # cuts fewer frames than two; four on Mode X's 320 x 200, keys a second
+    # apart and --page-keys started, must leave a page out of a key and still
+    # verify - a page left out is unknown until rebuilt whole, and a play
+    # from that key shows the stream's frames or verify says which it did not
+    pairs = os.path.join(ptmp, "pairs.mkv")
+    srcs = ("testsrc2", "mandelbrot", "mandelbrot=start_scale=0.3:",
+            "rgbtestsrc", "mandelbrot=start_x=-0.75:start_y=0.1:",
+            "mandelbrot=start_scale=0.05:", "testsrc2")
+    long_, short_ = 1.5, 0.04
+    args, n = [], 0
+    for i, src in enumerate(srcs):
+        name, _, opt = src.partition("=")
+        d = long_ if i % 3 == 0 else short_
+        args += ["-f", "lavfi", "-i", "%s=%ssize=320x180:rate=24,trim="
+                 "duration=0.05,tpad=stop_mode=clone:stop_duration=%g"
+                 % (name, opt, d)]
+        n += 1
+    subprocess.run(["ffmpeg", "-v", "error"] + args + [
+        "-filter_complex", "".join("[%d:v]" % i for i in range(n)) +
+        "concat=n=%d:v=1:a=0[v]" % n, "-map", "[v]", "-c:v", "ffv1", pairs],
+        check=True)
+
+    def nenc(name, *extra):
+        out = os.path.join(ptmp, name + ".V88")
+        res = venc.encode(venc.parser().parse_args(
+            [pairs, out, "--quiet", "--preset", "modex", "--profile",
+             "5150-st225", "--audio", "none", "--fit", "fill",
+             "--page-ahead", "on"] + list(extra)))
+        vid.verify_v88(out)
+        return vid.Reader(out), res
+    try:
+        r2, res2 = nenc("pages2", "--pages", "2")
+        r3, res3 = nenc("pages3", "--pages", "3")
+        r4, res4 = nenc("pages4", "--pages", "4", "--screen", "320x200",
+                        "--keysecs", "1", "--page-keys", "started")
+        n4 = (res4.get("page") or {})
+        print("   5j: cut %d on two pages, %d on three (%s, %d pages); four "
+              "on 320 x 200: %s, %d pages, %d flips, %d idle pages left out "
+              "of keys" % (res2["cuts"], res3["cuts"],
+                           "N-page" if r3.mpage else "NOT N-page", r3.pages,
+                           "N-page" if r4.mpage else "NOT N-page", r4.pages,
+                           n4.get("flips", 0), n4.get("dropped", 0)))
+        if not r3.mpage or r3.pages != 3 or r2.mpage:
+            bad.append("N pages: --pages 3 wrote %s, --pages 2 %s" % (
+                r3.pages if r3.mpage else "no N-page file",
+                "an N-page file" if r2.mpage else "a two-page one"))
+        if res3["cuts"] >= res2["cuts"]:
+            bad.append("N pages: three pages cut %d frames, two %d - close "
+                       "cuts are what more pages are for"
+                       % (res3["cuts"], res2["cuts"]))
+        if not r4.mpage or r4.pages != 4 or r4.screen != vid.SCR_320X200 or \
+                not n4.get("flips") or not n4.get("dropped"):
+            bad.append("N pages: four on Mode X's 320 x 200 gave %d pages, "
+                       "screen %d, %d flips, %d pages left out of keys"
+                       % (r4.pages, r4.screen, n4.get("flips", 0),
+                          n4.get("dropped", 0)))
+    except vid.V88Error as e:
+        bad.append("N pages: %s" % e)
+    # --- 5k: FLIPPED AND BUILT AHEAD (98.2.1.8.5): the same pairs, every
+    # frame flipped. On the 5150 a whole-canvas copy is two and a half
+    # periods, so on Mode X's 320 x 200 four pages the copy is made in the
+    # calm and a flip lands on a back page already brought up; on the 486
+    # three pages pay it in the flip's own record. Each must be a byte-37-5 file that
+    # verifies - every page brought up is the page shown - and cut fewer
+    # frames than the same flipped file without building ahead
+    try:
+        def fenc(name, prof, *extra):
+            out = os.path.join(ptmp, name + ".V88")
+            res = venc.encode(venc.parser().parse_args(
+                [pairs, out, "--quiet", "--preset", "modex", "--profile",
+                 prof, "--audio", "none", "--fit", "fill", "--flip"] +
+                list(extra)))
+            vid.verify_v88(out)
+            return vid.Reader(out), res
+        for prof, pg, scr_, want in (("5150-st225", "4", "320x200",
+                                      "precopied"),
+                                     ("486-dx2-66", "3", None, "copies")):
+            sx = ["--screen", scr_] if scr_ else []
+            rf0, resf0 = fenc("flip" + pg, prof, *sx)
+            rf, resf = fenc("fpage" + pg, prof, "--page-ahead", "on",
+                            "--pages", pg, *sx)
+            nf = resf.get("page") or {}
+            print("   5k: %s, %s pages flipped: cut %d, built ahead %d - %d "
+                  "flips, %d onto a precopied page, %d with a copy, %d "
+                  "refused" % (prof, pg, resf0["cuts"], resf["cuts"],
+                               nf.get("flips", 0), nf.get("precopied", 0),
+                               nf.get("copies", 0), nf.get("refused", 0)))
+            if not getattr(rf, "fpage", False) or rf.pages != int(pg) or \
+                    not nf.get(want) or resf["cuts"] >= resf0["cuts"]:
+                bad.append("flipped and built ahead, %s on %s pages: %s, "
+                           "%d %s, cut %d against %d"
+                           % (prof, pg, "byte 37 = 5" if getattr(
+                               rf, "fpage", False) else "NOT byte 37 = 5",
+                              nf.get(want, 0), want, resf["cuts"],
+                              resf0["cuts"]))
+    except vid.V88Error as e:
+        bad.append("flipped and built ahead: %s" % e)
     shutil.rmtree(ptmp, ignore_errors=True)
     # --- 6: ADPCM4's exact search
     rnd = np.random.default_rng(7)

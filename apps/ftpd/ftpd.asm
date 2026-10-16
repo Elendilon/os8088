@@ -377,8 +377,9 @@ FD_CKPT     equ 262144              ; bytes between checkpoints
 ; per-chunk server's 31.4-32.1, and kept 32KB measured once at 36.0. The
 ; 8088 had kept 8KB on two refusals (77.21, 77.24), both taken against a
 ; server whose commits cost a second each and neither true of the kept
-; stream, so every CPU claims a 32KB stage for STOR alone. RETR and LIST keep
-; the 8KB one in our segment. A refused claim is the 8KB server, which works. Not
+; stream, so every CPU claims a 32KB stage for STOR - and RETR reads into it
+; too (77.51); LIST keeps the 8KB one in our segment. A refused claim is the
+; 8KB server, which works. Not
 ; 64KB: [fd_sfill] and the commit's CX are words. `-DFD_NOBIG` (ftpspeed's
 ; 8KB arms) or a bigger FD_STGSZ turns it off.
 FD_BIGSZ    equ 32768
@@ -1678,12 +1679,34 @@ fd_worker:
     jne .wnap                       ; (SPEC.md 77.36)
     mov ax, [fd_xbytes]
     cmp ax, [fd_xlast]
-    je  .nap                        ; nothing moved: an idle server, or a wire
+    je  .quiet                      ; nothing moved: an idle server, or a wire
                                     ; that really has gone quiet. Poll on the
                                     ; tick, which is what SPEC.md 72.18.1
                                     ; priced at 3.0% of an idle 8088
+.again:
     call OSAPI_TASK_YIELD           ; ...it moved. Come straight back
     jmp .loop
+.quiet:
+    ; -----------------------------------------------------------------------
+    ; **A SEND THAT TOOK NOTHING IS WAITING ON AN ACK, NOT IDLE** (SPEC.md
+    ; 77.51). A RETR or a LIST with bytes still staged ends its pass when
+    ; NETV_SEND takes 0 - the send ring is full of segments in flight - and
+    ; the next pass, straight after, finds the same: no time has passed for
+    ; the ACK to come back in. Napping a TICK there made every send ring's
+    ; worth of a download cost 55 ms whatever the wire did, which is the same
+    ; ceiling 77.34 took off the receive side, and the ACK is due in about a
+    ; millisecond. So a send with bytes staged polls; only a stage with
+    ; nothing in it - an idle server, or the UI task's turn - sleeps.
+    ; -----------------------------------------------------------------------
+    cmp byte [fd_xf], FX_RETR
+    je  .sending
+    cmp byte [fd_xf], FX_LIST
+    jne .nap
+.sending:
+    mov ax, [fd_sout]
+    cmp ax, [fd_sfill]
+    jb  .again
+    jmp short .nap
 .wnap:
     ; -----------------------------------------------------------------------
     ; **WAITING IS NOT SLEEPING** (SPEC.md 77.36). This was TASK_SLEEP 1, and
@@ -1872,9 +1895,10 @@ fd_fillp:                           ; stage are the same buffer, so the pair is
 fd_commp:                           ; one answer and the index never existed
 fd_stgp:
 %endif
-    mov dx, [fd_bigseg]             ; STOR's 32KB stage (77.50.2, 77.50.3):
-    or dx, dx                       ; only STOR reaches this pair, so RETR and
-    jz .own                         ; LIST, which name fd_stage, keep 8KB
+    mov dx, [fd_bigseg]             ; STOR's 32KB stage (77.50.2, 77.50.3),
+    or dx, dx                       ; which RETR shares (77.51): only those
+    jz .own                         ; two reach this pair, and LIST, which
+                                    ; names fd_stage, keeps 8KB
     xor ax, ax
     ret
 .own:
@@ -3912,12 +3936,20 @@ fd_send_stage:
     mov ax, NET_SKMAX
 .n:
     mov cx, ax
-    mov si, fd_stage                ; ES is OURS - the door put it there
+    mov si, fd_stage                ; a LIST's rows are in our own segment...
+    cmp byte [fd_xf], FX_RETR
+    jne .own
+    call fd_fillp                   ; ...and a RETR's file is wherever fd_do_
+    mov si, ax                      ; read put it - STOR's 32KB stage when it
+    mov es, dx                      ; was claimed (SPEC.md 77.51)
+.own:
     add si, [fd_sout]
     mov al, [fd_dhnd]
     mov bh, NET_CLASS
     mov bl, NETV_SEND
-    call OSAPI_DRV_CALL
+    call OSAPI_DRV_CALL_AT          ; **_AT: ES IS OURS TO SET** (SPEC.md
+    push ds                         ; 20.11.2) - the plain door would put our
+    pop es                          ; segment back over the claim's
     jc .later
     call fd_count                   ; COUNTED HERE, where the bytes really move
     add [fd_sout], cx               ; **BY WHAT WAS TAKEN**, which may be less
@@ -5597,8 +5629,8 @@ fd_do_rdchk:
                                     ; "a file")
     call fd_unbank
     push cx
-    mov cx, FD_STGSZ                ; RETR reads into fd_stage, always 8KB
-    call fd_setchunk
+    mov cx, [fd_wstg]               ; RETR reads into STOR's stage, 32KB if
+    call fd_setchunk                ; claimed (SPEC.md 77.51)
     pop cx
     jc .noroom
     mov si, fd_r150
@@ -5652,8 +5684,9 @@ fd_do_read:
     call fd_xfersplit
     jc .no
     mov si, fd_leaf
-    mov bx, fd_stage                ; ES:BX - ES is ours, set by fd_wake, and a
-                                    ; file slot is an N stub that keeps it
+    call fd_commp                   ; ES:BX - STOR's 32KB stage when there is
+    mov bx, ax                      ; one, else fd_stage (SPEC.md 77.51); a
+    mov es, dx                      ; file slot is an N stub that keeps ES
     mov cx, [fd_chunk]
     mov ax, [fd_foff]
     mov dx, [fd_foff+2]
@@ -6581,7 +6614,11 @@ fd_start:
                                     ; commonest way to make PASV unreachable
     call fd_hire                    ; ...and the worker is what ACCEPTS: with
     jc .noworker                    ; none of it, the window says Listening
-    jmp short .out                  ; and every client is ignored (SPEC.md 77.1)
+                                    ; and every client is ignored (SPEC.md 77.1)
+    mov al, 1                       ; **A SERVING SERVER ASKS FOR A QUIET
+    call fd_quiet                   ; SAVER** (SPEC.md 79.10): an animation
+    jmp short .out                  ; draws on the UI task, which is our disk
+                                    ; half, and took a RETR from 125 KB/s to 40
 .noworker:
     mov si, fd_lhnd                 ; so the port goes back, exactly as .badroot
     call fd_hclose                  ; gives it back - one of NET_SOCKS held for
@@ -6689,6 +6726,14 @@ fd_bye:
     pop ax
     ret
 
+; --- fd_quiet - AL = 1 / 0: ask for a blank saver while we serve, or stop ---
+fd_quiet:
+    push bx
+    mov bx, [fd_win]
+    call OSAPI_WM_QUIET             ; (SPEC.md 79.10) - keeps every register
+    pop bx
+    ret
+
 ; --- fd_shutdown - stop serving entirely -------------------------------------
 fd_shutdown:
     push ax
@@ -6712,6 +6757,10 @@ fd_shutdown:
 
 fd_stop:
     call fd_shutdown
+    push ax
+    xor al, al                      ; not serving: the user's saver again
+    call fd_quiet
+    pop ax
     mov byte [fd_st], FD_OFF
     push si
     mov si, fd_l_stop

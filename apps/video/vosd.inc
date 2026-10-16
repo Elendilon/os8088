@@ -349,13 +349,12 @@ vo_pre:
     je .ret
     cmp byte [vo_clip], 0           ; decoded round (vd_clip): nothing to do
     jne .ret
+    cmp byte [vp_fpg], 0            ; (flipped and built ahead: the page is
+    jne .ret                        ; the record's, vp_fpdec's to clear)
     cmp byte [vp_shadow], 0         ; through the shadow the copy restores
     jne .ret
-    mov bl, 1                       ; the page the next record goes into
-    cmp word [vp_poff], 0
-    je .p
-    inc bl
-.p:
+    mov ax, [vp_poff]               ; the page the next record goes into
+    call vo_savbit
     test [vo_drawn], bl
     jz .ret
     not bl
@@ -376,11 +375,11 @@ vo_post:
     je .un                          ; and every page it is on is put back
     cmp byte [vo_chg], 0
     je .dr
-    mov bl, 1                       ; ...unless it is A NEW TEXT AS WIDE as
-    cmp word [vp_foff], 0           ; the one up, on the page on the glass
-    je .o1                          ; and only there: drawn straight over
-    inc bl                          ; it, ground and glyph in one pass - put
-.o1:                                ; back first, the box was off the glass
+    mov ax, [vp_foff]               ; ...unless it is A NEW TEXT AS WIDE as
+    call vo_savbit                     ; the one up, on the page on the glass
+                                    ; and only there: drawn straight over
+                                    ; it, ground and glyph in one pass - put
+                                    ; back first, the box was off the glass
     cmp [vo_drawn], bl              ; between, which a prefill's line
     jne .un                         ; changing every chunk made a flicker
     mov al, [vo_n]                  ; (98.3.18.3) - on a FLIPPED file too,
@@ -395,11 +394,8 @@ vo_post:
     cmp byte [vo_on], 0
     je .ret
 .dr:
-    mov bl, 1                       ; ...then onto the page on the glass
-    cmp word [vp_foff], 0
-    je .g
-    inc bl
-.g:
+    mov ax, [vp_foff]               ; ...then onto the page on the glass
+    call vo_savbit
     test [vo_drawn], bl
     jnz .ret
     or [vo_drawn], bl
@@ -482,11 +478,8 @@ vo_flipon:
     push di
     push bp
     push es
-    mov bl, 1
-    cmp word [vp_poff], 0
-    je .p
-    inc bl
-.p:
+    mov ax, [vp_poff]
+    call vo_savbit
     test [vo_drawn], bl
     jnz .o
     or [vo_drawn], bl
@@ -521,11 +514,8 @@ vo_flipon:
 vo_lfix:
     cmp byte [vo_mode], 0
     je .ret
-    mov bl, 1                       ; the page on the glass
-    cmp word [vp_foff], 0
-    je .g
-    inc bl
-.g:
+    mov ax, [vp_foff]               ; the page on the glass
+    call vo_savbit
     test [vo_drawn], bl
     jz .ret
     mov ax, [vo_yoff]               ; the box's rows against the copy's,
@@ -540,6 +530,32 @@ vo_lfix:
     xor bl, 1
     mov al, 1
     jmp vo_iox
+.ret:
+    ret
+
+; vo_cfix - after a COPY (98.3.8.5): AX = its source. When that page has the
+; box drawn and the copied rows cross it, the copy carried the TEXT onto
+; [vp_poff], which must hold picture - and the source's save is the picture
+; under its box, so it goes there. vo_lfix's case for any two pages.
+; Clobbers all
+vo_cfix:
+    cmp byte [vo_mode], 0
+    je .ret
+    call vo_savbit
+    test [vo_drawn], bl
+    jz .ret
+    mov ax, [vo_yoff]
+    cmp ax, [vp_pry1]
+    jae .ret
+    add ax, [vo_rows]
+    cmp ax, [vp_pry0]
+    jbe .ret
+    mov bh, bl
+    shr bh, 1                       ; (bit -> the save)
+    mov ax, [vp_poff]
+    mov [vo_pgo], ax
+    mov al, 1
+    jmp vo_iop
 .ret:
     ret
 
@@ -578,14 +594,84 @@ vo_bparts:
 ; vo_page - BL = a page index -> [vo_pgo] its offset (the second page at
 ; [vp_page]: Mode X's VP_PAGE, or a screen's rows x 80, 98.3.8.2)
 vo_page:
-    mov word [vo_pgo], 0
-    or bl, bl
-    jz .ret
     push ax                         ; (THE SCREEN'S page: Mode X's 19,200,
-    mov ax, [vp_page]               ; 640 x 400's 32,000, a Hercules's
-    mov [vo_pgo], ax                ; 8000h - VP_PAGE put a 640 x 400 box
-    pop ax                          ; for page 1 into page 0's row 240)
-.ret:
+    mov ax, [vo_sl0]                ; 640 x 400's 32,000, a Hercules's
+    or bl, bl                       ; 8000h - VP_PAGE put a 640 x 400 box
+    jz .s                           ; for page 1 into page 0's row 240 -
+    mov ax, [vo_sl1]                ; or ON N PAGES whichever page each of
+.s:                                 ; the two saves is on, vo_pgsave)
+    mov [vo_pgo], ax
+    pop ax
+    ret
+
+; vo_savbit - AX = a page's offset -> BL = the bit in vo_drawn of the save
+; on that page, 1 or 2, or 0 when neither of the two is (98.3.8.4).
+; Preserves all but BL and the flags
+vo_savbit:
+    mov bl, 1
+    cmp ax, [vo_sl0]
+    je .r
+    inc bl
+    cmp ax, [vo_sl1]
+    je .r
+    mov bl, 0
+.r:
+    ret
+
+; vo_pgsave - ON N PAGES (98.3.8.4): AX = a page about to be shown gets one of
+; the text's two saves. The box is only ever on the page shown and the one
+; just left, so when neither save is on AX's page the one NOT on the glass
+; gives its page up - its box put back there first - and moves to AX's.
+; Preserves all
+vo_pgsave:
+    cmp ax, [vo_sl0]
+    je .r
+    cmp ax, [vo_sl1]
+    je .r
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    push ax
+    xor bl, bl                      ; BL = the save off the glass
+    mov ax, [vp_foff]
+    cmp ax, [vo_sl0]
+    jne .s
+    inc bl
+.s:
+    mov bh, 1
+    mov cl, bl
+    shl bh, cl                      ; BH = its bit
+    test [vo_drawn], bh
+    jz .m
+    not bh
+    and [vo_drawn], bh
+    push bx
+    mov al, 1
+    call vo_io                      ; (its box put back, on its old page)
+    pop bx
+.m:
+    pop ax
+    or bl, bl
+    jnz .m1
+    mov [vo_sl0], ax
+    jmp short .x
+.m1:
+    mov [vo_sl1], ax
+.x:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
     ret
 
 ; vo_addr - AX = a row of the box -> DI = its first byte on the screen, the
@@ -616,8 +702,9 @@ vo_addr:
 vo_io:
     mov bh, bl
 vo_iox:
-    mov [vo_dir], al
     call vo_page
+vo_iop:                             ; (...or [vo_pgo] the page, vo_cfix's)
+    mov [vo_dir], al
     mov bp, vo_sav
     or bh, bh
     jz .b
@@ -955,14 +1042,13 @@ vc_setup:
     cmp byte [vp_shadow], 0
     jne .ret
     cmp byte [vp_flip], 1           ; (FLIPPED, every frame onto the page
-    je .ret                         ; not shown: the box put back there)
+    je .ret                         ; not shown: the box put back there -
+    cmp byte [vp_fpg], 0            ; built ahead or not)
+    jne .ret
     cmp byte [vp_flip], 2           ; PAGE-AHEAD decodes on the page SHOWN:
     jne .pg0                        ; round the box there, as unflipped - its
-    mov bl, 1                       ; save that page's (vp_pgdec sets it up
-    cmp word [vp_foff], 0           ; again at every flip)
-    je .pgb
-    inc bl
-.pgb:
+    mov ax, [vp_foff]               ; save that page's (vp_pgdec sets it up
+    call vo_savbit                     ; again at every flip)
     test [vo_drawn], bl
     jz .ret                         ; (not on that page: nothing to go round)
 .pg0:
@@ -976,7 +1062,8 @@ vc_setup:
     mov [vc_pls], ax
     xor si, si                      ; SI = the row, x 2
     mov dx, vo_sav                  ; DX = its row of the save (page 1's
-    cmp word [vp_foff], 0           ; past page 0's, vo_io's)
+    mov ax, [vp_foff]               ; past page 0's, vo_io's - the save on
+    cmp ax, [vo_sl0]                ; the page shown, 98.3.8.4)
     je .sv
     add dx, VO_SAV
 .sv:
@@ -1516,6 +1603,8 @@ vo_nbuf:      times 7 db 0
 vo_nb:        dw 0
 vo_w:         dw 0
 vo_pgo:       dw 0
+vo_sl0:       dw 0                  ; the page each of the two saves is on:
+vo_sl1:       dw VP_PAGE            ; 0 and 1, or any two of N (vo_pgsave)
 vo_dir:       db 0
 vo_pz:        db 0                  ; Space paused the play here
 vo_toast:     db 0                  ; a toast's kind, while it lasts...

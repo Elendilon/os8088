@@ -573,8 +573,10 @@ hd_bios_run:
     mov ax, si
 .page:
     mov dx, [hd_bseg]
-    mov cl, 4
-    shl dx, cl
+    cmp dh, 0xF0                ; A BUFFER IN THE HMA IS NO int 13h TARGET
+    jae .none                   ; (SPEC.md 2.10.8): a diskette or XT-class
+    mov cl, 4                   ; ROM keeps four page bits and its DMA lands
+    shl dx, cl                  ; under 1MB. hd_raw bounces our own
     add dx, [hd_bofs]           ; DX = the offset within the 64KB DMA page
     neg dx
     jz .cap                     ; a zero offset means the whole page: no cap
@@ -587,6 +589,9 @@ hd_bios_run:
     cmp ax, 127
     jbe .done
     mov ax, 127
+    jmp short .done
+.none:
+    xor ax, ax                  ; ...a bound of zero: refused, below
 .done:
     cmp ax, 1                   ; CF = 1 for a bound of ZERO, which cannot
     pop dx                      ; happen for a 512-aligned buffer - every int

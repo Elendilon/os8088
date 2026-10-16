@@ -91,9 +91,19 @@ def run(card, machine, image):
             # Shutdown must return to the live desktop with the dirty flag intact.
             m.write(S.linear("cp_wdirty"), b"\x01")
             prompt()
+            # It patches the WRITER'S BODY, cpc_save, and not cp_cfg_save:
+            # that is a three-byte `jmp` at the very end of the settings
+            # core, so five bytes there wrote two over the first of the next
+            # image section's (docs/plans/completed/ksp12/ctrl.md). cpc_save opens on six
+            # one-byte pushes with no label among them, and the assert says so.
             error = eq["FERR_WPROT"]
-            m.write(seg() * 16 + offsets["cp_cfg_save"],
-                    bytes((0xB8, error & 255, error >> 8, 0xF9, 0xC3)))
+            patch = bytes((0xB8, error & 255, error >> 8, 0xF9, 0xC3))
+            at = offsets["cpc_save"]
+            inside = [v for k, v in offsets.items()
+                      if k.startswith("cpc_save.") and v >= at]
+            assert not inside or min(inside) >= at + len(patch), \
+                "the injected writer would overwrite a label inside cpc_save"
+            m.write(seg() * 16 + at, patch)
             m.key("Enter")
             cancelled()
             assert m.read(S.linear("cp_wdirty"), 1) == b"\x01", "Failed save was forgotten"

@@ -2670,7 +2670,7 @@ $(KMODS) $(BIGMODS): $(BUILD)/kernel.bin ;
 # it (SPEC.md 2.9.5).
 BOOTHEAP_DEFS = import sys, subprocess, json; \
                 k = json.loads(subprocess.check_output(['python3','tools/kernsize.py','--json','--build','$(BUILD)','--ico','$(ICODIR)'] + sys.argv[1:])); \
-                print('-DHEAP_PARA=%d' % k['kend'])
+                print('-DHEAP_PARA=%d' % k.get('blobseg', k['kend']))
 
 $(BUILD)/boot.bin: boot/boot.asm kernel/kernel.asm $(KERNFILE) Makefile | $(BUILD)
 	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(SYMDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
@@ -2870,6 +2870,45 @@ $(BUILD)/bdxboot144.bin: boot/boot.asm $(BUILD)/bootdiag.bin Makefile | $(BUILD)
 BD_IMGS := $(BUILD)/bootdiag360.img $(BUILD)/bootdiag720.img \
            $(BUILD)/bootdiag144.img $(BUILD)/bootdiagx360.img \
            $(BUILD)/bootdiagx720.img $(BUILD)/bootdiagx144.img
+
+# THE ROM (docs/plans/ROM-PLAN.md) - os8088 in an IBM 5150's five spare ROM
+# sockets, U28-U32, F4000-FDFFF, laid out as ONE option ROM (ROM-PLAN 1.3).
+# ON DEMAND, never in `all`: nothing ships in a ROM yet, and a ROM is cut per
+# release (and per experiment), not per build. Each target writes the 40KB
+# window and one 8KB file per socket into $(BUILD)/rom/.
+#
+# socketrom: no os8088 at all - a pattern and an init that prints `U28 ok ...
+# U32 ok` at POST. Flash it first, on any new board or wiring: it proves the
+# window before a kernel is asked to run out of it. tests/romsock.py is its
+# gate, and its negative control is a ROM with one byte of U30 wrong.
+.PHONY: socketrom
+socketrom: $(BUILDINC)
+	python3 tools/os88rom.py socket --out $(BUILD)/rom
+
+# rom: the KERNEL ROMs (ROM-PLAN 3.4) - one per kernel, because a ROM is cut
+# against ONE kernel and refuses every other (the ROM itself checks `.cold`
+# byte for byte and a hash over `.text`'s code before it touches anything).
+# Every shipped disk FINDS its ROM at boot and boots the same without it;
+# with it, `.cold` runs from F400 and the heap floor falls by the cold rung.
+#   osrom-big   - kern_big's, for `all`'s disks (wave 3): 37.0KB more heap on
+#                 every adapter, VGA's decoder buffers moved under the floor
+#                 (tests/rombig.py)
+#   osrom-small - kern_small's, for `make small`'s (wave 2): 23.0KB, 64.5 ->
+#                 87.5KB free on a 128KB machine (tests/romsmall.py) - and
+#                 (wave 4) the Standard File dialog, Cut/Copy/Paste, the
+#                 Control Panel, the formatter and the small Task Manager, so
+#                 none of them needs the system disk in a drive
+# Whatever room is left after `.cold` holds modules, in tools/os88rom.py's
+# PRIORITY order (SPEC.md 2.10.5); the tool prints what went in.
+# rom-big / rom-small build one. Build them from the tree whose disks they
+# will meet - a ROM from yesterday's tree is a ROM for yesterday's disks.
+.PHONY: rom rom-big rom-small
+rom: rom-big rom-small
+
+rom-big: $(BUILD)/os8088-360.img
+	python3 tools/os88rom.py kernel --build $(BUILD) --out $(BUILD)/rom
+
+# (rom-small is defined below SMALLAPPDIR, which its prerequisite names)
 
 .PHONY: bootdiag
 # NOMOUPRIV=1 puts BOTH mouse ISRs back on the interrupted TASK's stack, which
@@ -3119,6 +3158,17 @@ DRIVERS += $(KMODS) $(BIGMODS)
 # it off the disk by accident.
 HDBOOT = $(KMODDIR)/boothd.sys
 DRIVERS += $(HDBOOT)
+# ...and THE HMA IMAGE (docs/plans/HMA-PLAN.md), kern_big's for XMEM.DRV's
+# reason: XMEM.DRV reads it at attach, on a 286 or better that verified A20
+# and has the HMA to claim, and calls it to put `.cold` up there - which hands
+# the heap the whole cold rung. It is the ROM's adapter as a file (boot/osrom.asm,
+# kind 3), so it is as specific to its kernel as the modules are and rides
+# $(KMODDIR) for their reason; every sub-make that builds a tree's boothd.sys
+# builds its coldhma.sys beside it. os88disk.py stamps it like BOOTHD.SYS.
+ifeq ($(KERN_SMALL),)
+HMAIMG = $(KMODDIR)/coldhma.sys
+DRIVERS += $(HMAIMG)
+endif
 
 # --- ...and what the EMULATOR disks carry on top (SPEC.md 9.11.7) -------------
 # $(DRIVERS) PLUS the absolute pointer, and that direction is the point: this
@@ -3649,7 +3699,7 @@ $(BUILD)/sound.drv: $(BUILD)/sound.bin tools/os88drv.py $(PKGZSTAMP)
 # The store above 1MB (SPEC.md 41.12). An OVERLAY, not a driver: os88drv.py
 # stamps it and names it 'overlay' because its class byte is DRVC_OVL, which
 # the kernel deliberately does not know - so nothing can load it but xm_boot.
-$(BUILD)/xmem.bin: drivers/xmem/xmem.asm drivers/os88drv.inc apps/os88api.inc \
+$(BUILD)/xmem.bin: drivers/xmem/xmem.asm drivers/os88drv.inc apps/os88api.inc apps/os88la.inc \
                    | $(BUILD)
 	$(NASM) -f bin -w+error -I drivers/ -I apps/ -o $@ drivers/xmem/xmem.asm
 	@echo "xmem:   $(call FILESIZE,$@) bytes"
@@ -3872,7 +3922,7 @@ BOOTHD_DEFS = import sys, subprocess, json; sys.path.insert(0, 'tools'); \
               import os88sym; \
               k = json.loads(subprocess.check_output(['python3','tools/kernsize.py','--json','--build','$(BUILD)','--ico','$(ICODIR)'] + sys.argv[1:])); \
               S = os88sym.syms(); \
-              print('-DBLOB_SEG=%d -DSPL_FSEG=%d' % (k['kseg'] + k['ksize'] // 16, S['spl_fseg']) \
+              print('-DBLOB_SEG=%d -DSPL_FSEG=%d' % (k.get('blobseg', k['kseg'] + k['ksize'] // 16), S['spl_fseg']) \
                     + (' -DKZ_HD=%d' % S['kz_hd'] if 'kz_hd' in S else ''))
 
 # BLOB_SEG follows the SHIPPED kernel's ladder. A kern_small installed to a
@@ -3940,6 +3990,50 @@ $(BUILD)/boothd.bin: boot/boothd.asm kernel/kernel.asm $(KERNFILE) | $(BUILD)
 # the directory of the kernel the DISK carries, which is what the modules
 # already need. That is why every image rule with a KMODDIR of its own builds
 # <dir>/boothd.sys in its sub-make.
+# COLDHMA.SYS - the HMA image (above, docs/plans/HMA-PLAN.md): cut from this
+# tree's kernel with the defines it was assembled with, which is what lets a
+# knob tree carry one too. tools/os88rom.py runs its own model of the install
+# against the kernel it was cut from and refuses an image the model would not
+# install; four seconds, the six kernel assemblies it needs running side by side.
+#
+# ...AND THE DRIVERS THAT MAY RUN UP THERE (docs/plans/HMA-PLAN.md 5). Each is
+# assembled a SECOND time at org $(DRV_HMA_ORG) - the kernel's DRV_HMA_ORG,
+# which tools/os88rom.py checks - and the pair is diffed into a table of the
+# bytes that move with the origin. The tail relocates a driver the kernel has
+# just loaded by it and copies it into the HMA, so the shipped .DRV stays the
+# org-0 file it always was and a machine with no HMA reads nothing new. The
+# .hma.bin copies ship nowhere; they exist for the diff.
+DRV_HMA_ORG := 0xE000
+HMADRV := sound hdd net
+$(BUILD)/coldhma.sys: $(KERNFILE) boot/osrom.asm tools/os88rom.py tools/os88romfix.py \
+                      $(foreach d,$(HMADRV),$(BUILD)/$(d).bin $(BUILD)/$(d).hma.bin $(BUILD)/$(d).drv)
+	python3 tools/os88rom.py hma --build $(BUILD) --out $(BUILD) "--defines=$(VIDDEF)" \
+		"--drivers=$(HMADRV)" --drv-org=$(DRV_HMA_ORG)
+
+$(BUILD)/sound.hma.bin: drivers/sound/sound.asm drivers/sound/sb.inc drivers/sound/mpu.inc drivers/sound/covox.inc \
+                        drivers/sound/picomem.inc drivers/sound/sndpkg.inc \
+                        drivers/os88drv.inc apps/os88api.inc $(BUILD)/sound.bin
+	$(NASM) -f bin -w+error $(SNDDEF) -DDRV_ORG=$(DRV_HMA_ORG) -I drivers/sound/ \
+		--before "[map symbols $(BUILD)/sound.hma.map]" \
+		-I drivers/ -I apps/ -o $@ drivers/sound/sound.asm
+	@touch $(BUILD)/sound.hma.map   # NASM writes the map BEFORE it closes -o: newer than the .bin, for tests/hmadrv.py
+$(BUILD)/hdd.hma.bin: drivers/hdd/hdd.asm apps/os88ui.inc drivers/hdd/hddabi.inc drivers/hdd/hdcom.inc \
+                      drivers/hdd/hdtool.inc drivers/hdd/hdsec.inc \
+                      drivers/hdd/mount.inc drivers/hdd/cfg.inc \
+                      drivers/os88drv.inc apps/os88api.inc $(BUILD)/hdd.bin
+	$(NASM) -f bin -w+error $(DRVDEF) -DDRV_ORG=$(DRV_HMA_ORG) -I drivers/hdd/ \
+		--before "[map symbols $(BUILD)/hdd.hma.map]" \
+		-I drivers/ -I apps/ -I $(BUILD) \
+		-DHDTOOL_KB=$$(( ( $(call FILESIZE,$(BUILD)/hddtool.bin) + 1023 ) / 1024 )) \
+		-o $@ drivers/hdd/hdd.asm
+	@touch $(BUILD)/hdd.hma.map     # (the same: sound.hma.bin's note)
+$(BUILD)/net.hma.bin: drivers/net/net.asm drivers/net/netui.inc \
+                      drivers/net/netsock.inc drivers/net/netpkg.inc \
+                      drivers/net/lplink.inc drivers/os88drv.inc apps/os88api.inc \
+                      apps/os88ui.inc drivers/wirezone.inc drivers/net/nwire.inc $(BUILD)/net.bin
+	$(NASM) -f bin -w+error $(NETDEF) -DDRV_ORG=$(DRV_HMA_ORG) -I drivers/net/ \
+		-I drivers/ -I apps/ -o $@ drivers/net/net.asm
+
 $(BUILD)/boothd.sys: $(BUILD)/boothd.bin
 	@python3 -c 'import sys; v = open(sys.argv[1], "rb").read(); assert len(v) == 512 and not any(v[3:62]) and not any(v[504:510]) and v[510:] == b"\x55\xaa", "boothd.bin is not the shape the installer patches (SPEC.md 52.10.16)"' $<
 	cp $< $@
@@ -3977,7 +4071,9 @@ $(BUILD)/hddtool.bin: drivers/hdd/hddtool.asm apps/os88ui.inc drivers/hdd/hddabi
                   drivers/hdd/inst.inc drivers/hdd/cppage.inc drivers/hdd/iassoc.inc \
                   drivers/os88drv.inc apps/os88api.inc apps/os88rseq.inc \
                   $(BUILD)/mbr.bin | $(BUILD)
-	$(NASM) -f bin -w+error $(DRVDEF) $(HDBLOBDEF) -I drivers/hdd/ -I drivers/ -I apps/ -I $(BUILD) -o $@ $<
+	$(NASM) -f bin -w+error $(DRVDEF) $(HDBLOBDEF) -I drivers/hdd/ -I drivers/ -I apps/ -I $(BUILD) \
+		--before "[map symbols $(BUILD)/hddtool.map]" -o $@ $<
+	@touch $(BUILD)/hddtool.map     # (the same: sound.hma.bin's note)
 	@echo "hddtool: $(call FILESIZE,$@) bytes"
 
 # IT WAS THE ONE ARTEFACT ON THESE DISKS THAT PKGZ MUST NOT TOUCH, and the
@@ -4420,7 +4516,7 @@ $(BUILD)/vmmouse.img: KMODDIR := $(EMUDIR)
 # the runner's pre-build could not see it either. A parse is what it costs
 # when nothing changed.
 $(BUILD)/vmmouse.img: $(KERNEL_SRC) $(KERNEL_INC) $(EMUDRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/vmmcfg/system.cfg tools/os88disk.py
-	@$(MAKE) BUILD=$(EMUDIR) KERN_EMU=1 $(EMUDIR)/boot.bin $(EMUDIR)/boothd.sys
+	@$(MAKE) BUILD=$(EMUDIR) KERN_EMU=1 $(EMUDIR)/boot.bin $(EMUDIR)/boothd.sys $(EMUDIR)/coldhma.sys
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(EMUDIR)/boot.bin --kernel $(EMUDIR)/$(KERNNAME) \
 		$(EMUDRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
@@ -5373,7 +5469,7 @@ $(shell mkdir -p $(BUILD); \
                                       $(BUILD)/video.bin $(BUILD)/video.o88; \
                                 touch $(VPSTAMP); })
 $(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
-                    apps/os88ui.inc apps/os88rseq.inc $(VPSTAMP) | $(BUILD)
+                    apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc $(VPSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ $(VPDEF) -o $@ apps/video/video.asm
 	@echo "video:  $(call FILESIZE,$@) bytes"
 
@@ -10765,7 +10861,7 @@ $(BUILD)/vm3bench144.img: $(BUILD)/vm3bench.o88 tools/os88disk.py
 # controller's own ceiling. tests/viddisk.py builds the VHD it runs on.
 vidbench: $(BUILD)/viddisk.o88
 
-$(BUILD)/viddisk.bin: tests/vidbench/viddisk.asm tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+$(BUILD)/viddisk.bin: tests/vidbench/viddisk.asm tests/benchlib.inc apps/os88api.inc apps/os88la.inc apps/os88xgap.inc tools/benchlint.py | $(BUILD)
 	python3 tools/benchlint.py tests/vidbench/viddisk.asm
 	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/vidbench/viddisk.asm
 	@echo "viddisk: $(call FILESIZE,$@) bytes"
@@ -10777,9 +10873,10 @@ $(BUILD)/viddisk.o88: $(BUILD)/viddisk.bin tools/os88pkg.py
 # and how much of each frame a streaming disk leaves the interrupt.
 vidbench: $(BUILD)/vidsnd.o88
 
-$(BUILD)/vidsnd.bin: tests/vidbench/vidsnd.asm tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+$(BUILD)/vidsnd.bin: tests/vidbench/vidsnd.asm tests/benchlib.inc apps/os88api.inc \
+		drivers/sound/picomem.inc tools/benchlint.py | $(BUILD)
 	python3 tools/benchlint.py tests/vidbench/vidsnd.asm
-	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/vidbench/vidsnd.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -I drivers/sound/ -o $@ tests/vidbench/vidsnd.asm
 	@echo "vidsnd: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/vidsnd.o88: $(BUILD)/vidsnd.bin tools/os88pkg.py
@@ -10984,10 +11081,19 @@ videnchd: $(VIDENC_BASE) $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 \
 # `make 486-video` boots it in 86Box.
 VID486_CYLS ?= 250
 VID486CLIPS ?=
-$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc | $(BUILD)
+$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -o $@ apps/video/video.asm
 $(BUILD)/videodiag.o88: $(BUILD)/videodiag.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/videodiag.bin -o $@
+# VIDEOR.O88: VIDEOD with the READ LOG (SPEC.md 98.3.22.2) - every chunk the
+# player reads, its file offset, length and sum, and where a damaged
+# super-packet was found, saved in the profile for tools/os88vfit.py --reads
+# to hold against the file. Its room is the layer's and the speaker's info
+# lines, which a card's play of a file with no layer does not draw
+$(BUILD)/videordlog.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -DVP_RDLOG -o $@ apps/video/video.asm
+$(BUILD)/videordlog.o88: $(BUILD)/videordlog.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/videordlog.bin -o $@
 .PHONY: vid486
 vid486: $(VIDENC_BASE) $(BUILD)/videodiag.o88 $(BUILD)/vidbench.o88 \
 	$(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 tools/os88hdd.py tools/os88vid.py \
@@ -11039,13 +11145,15 @@ vid286: $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 \
 	@ls -l $(BUILD)/vid286-360.img $(BUILD)/vid286-720.img
 
 # THE PICOMEM PROFILE KIT: vid286's benches as LOOSE FILES in build/vidpm/,
-# for copying onto an existing install over FTP rather than a floppy - the
-# 286 with a PicoMEM 1.x and the 5150 with a 2.x, whose `5150-picomem2`
-# profile was predicted and never measured. VIDDISK measures the disk it
-# runs FROM, so the kit goes onto the PicoMEM's own disk.
+# for copying onto an existing install over FTP - the 286 with a PicoMEM 1.x
+# and the 5150 with a 2.x, whose `5150-picomem2` profile was predicted and
+# never measured - and the same six files on build/vidpm-1440.img, for the
+# Victory's 1.44MB drive A. VIDDISK measures the disk it runs FROM, so the
+# kit is copied onto the PicoMEM's own disk either way.
 .PHONY: vidpm
 vidpm: $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 \
-	tools/os88vid.py tests/vidbench/FIELDPM.TXT
+	$(BUILD)/videodiag.o88 $(BUILD)/videordlog.o88 tools/os88vid.py tools/os88disk.py \
+	tests/vidbench/FIELDPM.TXT
 	rm -rf $(BUILD)/vidpm && mkdir -p $(BUILD)/vidpm/src
 	python3 tools/os88vid.py synthxdv $(BUILD)/vidpm/src/SYNTH.XDV >/dev/null
 	python3 tools/os88vid.py benchdat --synth $(BUILD)/vidpm/VIDBENCH.DAT \
@@ -11054,8 +11162,16 @@ vidpm: $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 \
 	cp $(BUILD)/vidbench.o88 $(BUILD)/vidpm/VIDBENCH.O88
 	cp $(BUILD)/viddisk.o88 $(BUILD)/vidpm/VIDDISK.O88
 	cp $(BUILD)/vidsnd.o88 $(BUILD)/vidpm/VIDSND.O88
+	cp $(BUILD)/videodiag.o88 $(BUILD)/vidpm/VIDEOD.O88
+	cp $(BUILD)/videordlog.o88 $(BUILD)/vidpm/VIDEOR.O88
 	rm -rf $(BUILD)/vidpm/src
-	@ls -l $(BUILD)/vidpm
+	python3 tools/os88disk.py -o $(BUILD)/vidpm-1440.img --size 1440 \
+	    $(BUILD)/vidpm/README.TXT $(BUILD)/vidpm/VIDBENCH.O88 \
+	    $(BUILD)/vidpm/VIDBENCH.DAT $(BUILD)/vidpm/VIDDISK.O88 \
+	    $(BUILD)/vidpm/VIDSND.O88 $(BUILD)/vidpm/VIDEOD.O88 \
+	    $(BUILD)/vidpm/VIDEOR.O88
+	python3 tools/os88disk.py --verify $(BUILD)/vidpm-1440.img
+	@ls -l $(BUILD)/vidpm $(BUILD)/vidpm-1440.img
 
 # THE DEMO VIDEO DISKS (SPEC.md 98.5): a whole os8088 install on a hard disk
 # with the demo videos in MEDIA/ beside a 00-VIDS.TXT that describes them -
@@ -11409,6 +11525,13 @@ FIELDKNOBS := DISKCNT=1
 # design is written to avoid.
 SMALLDIR := $(BUILD)/smallk
 SMALLAPPDIR := $(BUILD)/smallapp
+
+# `make rom`'s kern_small half (see `rom:` above), HERE because a
+# prerequisite is expanded where the rule is read and this one names the
+# small Task Manager the ROM carries (SPEC.md 2.10.5)
+rom-small: $(BUILD)/small360.img $(SMALLAPPDIR)/taskmgr.o88
+	python3 tools/os88rom.py kernel --build $(SMALLDIR) --small \
+	        --pkg $(SMALLAPPDIR)/taskmgr.o88 --out $(BUILD)/rom
                                     # ...and where the small BUILDS of the
                                     # packages go. Beside $(SMALLDIR) because
                                     # both name a directory the small product
@@ -11976,7 +12099,7 @@ $(BUILD)/emu.img: KMODDIR := $(EMUDIR)
 $(BUILD)/emu.img: $(EMUDRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
                   $(FACES) $(FACELIC) $(BUILD)/vmmcfg/system.cfg \
                   tools/os88disk.py
-	@$(MAKE) BUILD=$(EMUDIR) KERN_EMU=1 $(EMUDIR)/boot.bin $(EMUDIR)/boothd.sys
+	@$(MAKE) BUILD=$(EMUDIR) KERN_EMU=1 $(EMUDIR)/boot.bin $(EMUDIR)/boothd.sys $(EMUDIR)/coldhma.sys
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(EMUDIR)/boot.bin --kernel $(EMUDIR)/$(KERNNAME) \
 		$(EMUDRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) \
@@ -12180,7 +12303,7 @@ $$(BUILD)/font-$(1)-360.img: KMODDIR := $$(call FONTDIR,$(1))
 
 $$(BUILD)/font-$(1)-360.img: fonts/$(1).f8 $$(DRIVERS) $$(SYSAPPS) $(SYSROOT) $$(SYSDOC) \
                              tools/os88font.py tools/os88disk.py
-	@$$(MAKE) BUILD=$$(call FONTDIR,$(1)) FONT=$(1) $$(call FONTDIR,$(1))/boot360.bin $$(call FONTDIR,$(1))/boothd.sys
+	@$$(MAKE) BUILD=$$(call FONTDIR,$(1)) FONT=$(1) $$(call FONTDIR,$(1))/boot360.bin $$(call FONTDIR,$(1))/boothd.sys $$(call FONTDIR,$(1))/coldhma.sys
 	python3 tools/os88disk.py -o $$@ --size 360 \
 		--boot $$(call FONTDIR,$(1))/boot360.bin \
 		--kernel $$(call FONTDIR,$(1))/$(KERNNAME) \
@@ -12192,7 +12315,7 @@ $$(BUILD)/font-$(1).img: KMODDIR := $$(call FONTDIR,$(1))
 
 $$(BUILD)/font-$(1).img: fonts/$(1).f8 $$(DRIVERS) $$(SYSAPPS) $(SYSROOT) $$(SYSDOC) \
                          tools/os88font.py tools/os88disk.py
-	@$$(MAKE) BUILD=$$(call FONTDIR,$(1)) FONT=$(1) $$(call FONTDIR,$(1))/boot.bin $$(call FONTDIR,$(1))/boothd.sys
+	@$$(MAKE) BUILD=$$(call FONTDIR,$(1)) FONT=$(1) $$(call FONTDIR,$(1))/boot.bin $$(call FONTDIR,$(1))/boothd.sys $$(call FONTDIR,$(1))/coldhma.sys
 	python3 tools/os88disk.py -o $$@ --size 1440 \
 		--boot $$(call FONTDIR,$(1))/boot.bin \
 		--kernel $$(call FONTDIR,$(1))/$(KERNNAME) \
@@ -12251,7 +12374,7 @@ field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img $(BUILD)/flop1.img
 # ctrl.drv, format.drv and diskops.drv out of it (SPEC.md 2.8). $(HDBOOT) is
 # filtered for the same reason, and that same sub-make names <dir>/boothd.sys
 # beside its boot sector (SPEC.md 52.10.16).
-FIELDDRV = @$(MAKE) $(FIELDKNOBS) $(filter-out $(KMODS) $(BIGMODS) $(HDBOOT),$(DRIVERS))
+FIELDDRV = @$(MAKE) $(FIELDKNOBS) $(filter-out $(KMODS) $(BIGMODS) $(HDBOOT) $(HMAIMG),$(DRIVERS))
 
 # --- WHY NO FIELD BENCH DISK CARRIES DOS.O88 --------------------------------
 # It used to, and `make field` was BROKEN because of it. These five are
@@ -12283,7 +12406,7 @@ $(BUILD)/herc.img: KMODDIR := $(HERCDIR)
 $(BUILD)/herc.img: $(BUILD)/kernel.bin $(DRIVERS) \
                    $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
-	@$(MAKE) BUILD=$(HERCDIR) $(FIELDKNOBS) $(HERCDIR)/boot360.bin $(HERCDIR)/boothd.sys
+	@$(MAKE) BUILD=$(HERCDIR) $(FIELDKNOBS) $(HERCDIR)/boot360.bin $(HERCDIR)/boothd.sys $(HERCDIR)/coldhma.sys
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(HERCDIR)/boot360.bin --kernel $(HERCDIR)/$(KERNNAME) \
 		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
@@ -12296,7 +12419,7 @@ $(BUILD)/cga.img: KMODDIR := $(CGADIR)
 
 $(BUILD)/cga.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
-	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(FIELDKNOBS) $(CGADIR)/boot360.bin $(CGADIR)/boothd.sys
+	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(FIELDKNOBS) $(CGADIR)/boot360.bin $(CGADIR)/boothd.sys $(CGADIR)/coldhma.sys
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(CGADIR)/boot360.bin --kernel $(CGADIR)/$(KERNNAME) \
 		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
@@ -12318,7 +12441,7 @@ $(BUILD)/cga720.img: KMODDIR := $(CGADIR)
 
 $(BUILD)/cga720.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
-	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(FIELDKNOBS) $(CGADIR)/boot360.bin $(CGADIR)/boothd.sys
+	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(FIELDKNOBS) $(CGADIR)/boot360.bin $(CGADIR)/boothd.sys $(CGADIR)/coldhma.sys
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(CGADIR)/boot360.bin --kernel $(CGADIR)/$(KERNNAME) \
 		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
@@ -12343,7 +12466,7 @@ $(BUILD)/flop1.img: KMODDIR := $(F1DIR)
 
 $(BUILD)/flop1.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
-	@$(MAKE) BUILD=$(F1DIR) FLOPPY1=1 $(FIELDKNOBS) $(F1DIR)/boot360.bin $(F1DIR)/boothd.sys
+	@$(MAKE) BUILD=$(F1DIR) FLOPPY1=1 $(FIELDKNOBS) $(F1DIR)/boot360.bin $(F1DIR)/boothd.sys $(F1DIR)/coldhma.sys
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(F1DIR)/boot360.bin --kernel $(F1DIR)/$(KERNNAME) \
 		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
@@ -12369,7 +12492,7 @@ $(BUILD)/cqdiag.img: KMODDIR := $(CQDIR)
 
 $(BUILD)/cqdiag.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	$(FIELDDRV)
-	@$(MAKE) BUILD=$(CQDIR) BOOTDIAG=1 $(FIELDKNOBS) $(CQDIR)/boot360.bin $(CQDIR)/boothd.sys
+	@$(MAKE) BUILD=$(CQDIR) BOOTDIAG=1 $(FIELDKNOBS) $(CQDIR)/boot360.bin $(CQDIR)/boothd.sys $(CQDIR)/coldhma.sys
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(CQDIR)/boot360.bin --kernel $(CQDIR)/$(KERNNAME) \
 		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)

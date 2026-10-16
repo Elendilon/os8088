@@ -304,19 +304,25 @@ ui_task:
     or ah, ah                   ; AH is the region still: gfx_lock preserves
     jz .mup_pkg                 ; every register
     mov bx, si
+%ifdef KERN_BIG
+    cmp ah, 3                   ; THE THREE CHROME REGIONS IN ONE COMPARE
+    je .mup_min                 ; (kernel size pass 12): 3 minimize, below it
+    jb .mup_close               ; 2 close, and above it 5 - Windows' MAXIMIZE
+    call wm_front               ; button (SPEC.md 76.14.4), the double-click's
+    call wm_zoom                ; zoom as a button. Only WIN95.DRV's wm_hit
+    jmp short .mup_done         ; answers 5, and only on a WF_SIZABLE window -
+                                ; and it RAISES, as Windows does: a window
+                                ; grown to the desktop under the others would
+                                ; show nothing of itself. No armed region is
+                                ; 1 or 4 (.chrome arms 2, 3 and 5 alone)
+.mup_close:
+%else
     cmp ah, 2
     jne .mup_min
+%endif
     call app_close_win          ; in: BX; quits the owning instance (or
     jmp short .mup_done         ; hides an ownerless window) - SPEC.md 29
 .mup_min:
-%ifdef KERN_BIG
-    cmp ah, 5                   ; Windows' MAXIMIZE button (SPEC.md 76.14.4):
-    jne .mup_mn                 ; the double-click's zoom, as a button. Only
-    call wm_front               ; WIN95.DRV's wm_hit answers 5, and only on a
-    call wm_zoom                ; WF_SIZABLE window - and it RAISES, as
-    jmp short .mup_done         ; Windows does: a window grown to the desktop
-.mup_mn:                        ; under the others would show nothing of itself
-%endif
     call inst_minimize          ; in: BX; flags the instance minimized and
     jmp short .mup_done         ; hides - its dock tile inverts (SPEC.md 30)
 
@@ -1215,7 +1221,7 @@ ui_arm_trk:                     ; ui_task tests [ui_armw] before calling
 ; glass and the byte cannot part and the XOR here is always the difference
 ; between two states that are both really on screen.
 ;
-; BP is spent (ui_lcall's). The lock is taken HERE rather than by the callers
+; BP is kept. The lock is taken HERE rather than by the callers
 ; because all four are in
 ; the UI task's lock-free stretches - the press before it dispatches, the
 ; deferred ladder, ui_arm_chk - and one of them (the release) runs a few
@@ -1236,6 +1242,7 @@ ui_lit_go:
     push cx
     push dx
     push si
+    push di                     ; ...for wm_chrome_clip's DI
     mov si, [ui_armw]
     or si, si
     jz .none
@@ -1247,35 +1254,31 @@ ui_lit_go:
     je .out                     ; already in that state
     mov [ui_armlit], al
     mov ah, [ui_armr]
-    call COLD_SEG:wmz_wm_chrome_rect ; AX,BX,CX,DX = the box interior
-    mov bp, ui_lit_xor
-    call ui_lcall
-    jmp short .out
+    call gfx_lock               ; ...the lock FIRST: the clip below is armed
+    call far [thv + THV_CRECT]  ; inside it. AX,BX,CX,DX = the box interior:
+                                ; winmod.inc's door, wmz_crect_b at rest
+                                ; (SPEC.md 76.14.4)
+    mov di, si                  ; THE INVERSION, CLIPPED to what of its window
+    call wm_chrome_clip         ; shows. A front window's box is never
+    jc .unl                     ; covered, and that was the only box there
+    call gfx_xor_fill           ; was; Windows' buttons are on EVERY window
+.unl:                           ; and act without a raise (SPEC.md 76.14.5),
+    call gfx_unlock             ; so a held one can be on a title bar another
+    jmp short .out              ; window half covers - and an unclipped XOR
+                                ; would invert the covering window's pixels.
+                                ; wm_chrome_clip arms this window's frame
+                                ; less everything above it; on the front one
+                                ; it arms nothing (wm_obscured says so
+                                ; first), so the Mac box pays a test. CF = 1
+                                ; is "wholly covered": nothing is drawn, and
+                                ; gfx_unlock disarms the region. It was
+                                ; ui_lit_xor through ui_lcall (kernel size
+                                ; pass 12, -1)
 .none:
     mov byte [ui_armlit], 0     ; nothing is lit and nothing can be, so the
 .out:                           ; byte must say so - it is what the next XOR
-    jmp kret_si
+    jmp kret_di
 
-; ui_lit_xor - the held box's inversion, CLIPPED to what of its window shows
-; in:  SI = the window, AX..DX = the box's interior; the gfx lock held
-;
-; A front window's box is never covered, and that was the only box there
-; was. Windows' buttons are on EVERY window and act without a raise (SPEC.md
-; 76.14.5), so a held one can be on a title bar another window half covers -
-; and an unclipped XOR would invert the covering window's pixels. wm_chrome_
-; clip arms this window's frame less everything above it; on the front one
-; it arms nothing (wm_obscured says so first), so the Mac box pays a test.
-; CF = 1 from it is "wholly covered": the press could not have landed there,
-; and nothing is drawn. gfx_unlock disarms the region.
-ui_lit_xor:
-    push di
-    mov di, si
-    call wm_chrome_clip
-    pop di
-    jc .out
-    jmp gfx_xor_fill
-.out:
-    ret
 %endif                          ; KERN_BIG - SPEC.md 13.8.1/13.8.2/13.9
 
 ; -----------------------------------------------------------------------------
@@ -2613,9 +2616,33 @@ ui_sys_open:
     mov bp, inst_restore        ; un-minimize and show - the app_launch cap
     call ui_lcall               ; path's rule, and now literally its code (BP
                                 ; is on the stack above and comes back at .out)
-    jmp short .out
-
+    jmp .out                    ; (short wherever it reaches: ROM_PKG's arm
+                                ; below is what can push it past 127)
 .load:
+%ifdef ROM_PKG
+    ; THE ROM'S COPY FIRST (docs/plans/ROM-PLAN.md 4.3, SPEC.md 2.10.5): a
+    ; kern_small ROM carries the Task Manager's image, and OSAPI_PKG_START's
+    ; image arm launches a package from a far pointer by COPYING it - the
+    ; same checks, claim and entry call as the disk, with a `rep movsb` where
+    ; the read was. So the menu item works with the system disk out of the
+    ; only drive. Any refusal falls through to the disk, which says why -
+    ; and on a kernel whose `.cold` is in RAM rom_mfp is rom_none, which
+    ; refuses PKG, so no test of [api_coldseg] is needed first (kernel size
+    ; pass 12). SI and AL are dead on the disk arm (kent_bp has them)
+%if UO_FILE != 0
+  %error "boot/osrom.asm's rom_pkg reads [ui_desc]'s name as its FIRST word"
+%endif
+    mov al, ROMF_PKG            ; [ui_desc]'s package - the ROM reads the
+    call far [rom_mfp]          ; descriptor's 8.3 name itself, its key and the
+                                ; name the package is told it was launched as -
+                                ; and LAUNCHED: the ROM runs ldf_ld_pkg_start
+                                ; on its image, so CF is that far entry's
+                                ; (kernel size pass 12)
+    push ds
+    pop es                      ; (ldf_ld_pkg_start's own note: nothing below
+    jnc .out                    ; may inherit the ES a failure leaves)
+.disk:
+%endif
     call osapi_file_here        ; bank where the user was: DX = the directory
     mov [ui_tm_cwd], dx         ; cluster, BL = the drive. Two module words
     mov [ui_tm_drv], bl         ; rather than the stack, because this is

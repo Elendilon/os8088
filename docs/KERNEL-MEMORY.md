@@ -205,6 +205,12 @@ line:
   the line rather than carrying the number, which is exactly what the two
   figures in this bullet failed at: they read 111.5 and 80.5 for a while
   after the kernel had come down under both).
+  The heap figure is for a machine WITHOUT the ROM; with it, the cold rung
+  is heap too (SPEC.md 2.10).
+- **`rom`** — `.cold` against the 40,944 bytes the 5150's U28–U32 window
+  holds before `boot/osrom.asm`'s tail (SPEC.md 2.10, ROM-PLAN 3.6). A report
+  and not a gate: a `.cold` past it means no ROM can be cut, and the disks
+  boot the same. `make rom` prints the exact spare once the tail is in.
 - **`*** ... CROSSED`** (or `UNCROSSED`) — the BILLING EVENT: the machine's
   RAM moved.
 
@@ -265,14 +271,17 @@ had added.
 ```json
 {
   "big": {
-    "boot2": 4891,
+    "blobseg": 6336,
+    "boot2": 4905,
     "bootmax": 121856,
-    "bss": 5227,
+    "bss": 5217,
     "budget": 100864,
     "codemax": 65536,
-    "cold": 37763,
+    "cold": 37688,
     "coldpara": 2368,
+    "colds": 3840,
     "fatpara": 288,
+    "fats": 3168,
     "grace": 2048,
     "imgpara": 3072,
     "kend": 6240,
@@ -280,45 +289,55 @@ had added.
     "ksize": 98304,
     "lowbss": 5358,
     "lowpara": 384,
+    "lows": 3456,
     "minramkb": 128,
-    "ovl": 5097,
+    "ovl": 5106,
     "stk0": 512,
-    "text": 43573,
+    "text": 43633,
     "vgabuf": 336,
-    "vgabufpara": 32
+    "vgabufpara": 32,
+    "vgas": 6208
   },
   "emu": {
-    "boot2": 4991,
+    "blobseg": 6336,
+    "boot2": 5005,
     "bootmax": 121344,
-    "bss": 5238,
+    "bss": 5217,
     "budget": 100864,
     "codemax": 65536,
-    "cold": 38833,
-    "coldpara": 2432,
+    "cold": 37688,
+    "coldpara": 2368,
+    "colds": 3840,
     "fatpara": 288,
+    "fats": 3168,
     "grace": 2048,
-    "imgpara": 3104,
-    "kend": 6336,
+    "imgpara": 3072,
+    "kend": 6240,
     "kseg": 96,
-    "ksize": 99840,
-    "lowbss": 5598,
+    "ksize": 98304,
+    "lowbss": 5358,
     "lowpara": 384,
+    "lows": 3456,
     "minramkb": 128,
-    "ovl": 5097,
+    "ovl": 5106,
     "stk0": 512,
-    "text": 44158,
+    "text": 43892,
     "vgabuf": 336,
-    "vgabufpara": 32
+    "vgabufpara": 32,
+    "vgas": 6208
   },
   "small": {
-    "boot2": 4341,
+    "blobseg": 4096,
+    "boot2": 4364,
     "bootmax": 121856,
     "bss": 3063,
     "budget": 64000,
     "codemax": 65536,
-    "cold": 22474,
+    "cold": 22449,
     "coldpara": 1408,
+    "colds": 2592,
     "fatpara": 64,
+    "fats": 2304,
     "grace": 2048,
     "imgpara": 2208,
     "kend": 4000,
@@ -326,12 +345,14 @@ had added.
     "ksize": 62464,
     "lowbss": 2868,
     "lowpara": 224,
+    "lows": 2368,
     "minramkb": 128,
     "ovl": 1480,
     "stk0": 512,
-    "text": 31892,
+    "text": 31841,
     "vgabuf": 0,
-    "vgabufpara": 0
+    "vgabufpara": 0,
+    "vgas": 4000
   }
 }
 ```
@@ -702,63 +723,63 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 29,735 | 36.6% |
+| the file system, end to end | 29,612 | 36.4% |
 | the window system and its furniture | 22,383 | 27.5% |
-| drawing: adapters, primitives, glyphs, icons | 13,236 | 16.3% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,165 | 10.0% |
-| the kernel proper: API table, heap, scheduler, events | 7,164 | 8.8% |
+| drawing: adapters, primitives, glyphs, icons | 13,250 | 16.3% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,190 | 10.1% |
+| the kernel proper: API table, heap, scheduler, events | 7,233 | 8.9% |
 | the Control Panel | 353 | 0.4% |
 | the About box, the one built-in kind left in apps.inc | 300 | 0.4% |
-| **total** | **81,336** | |
+| **total** | **81,321** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
 | module | `.text` | `.cold` | code | `.bss` | `.lowbss` | `.boot2` |
 |---|---:|---:|---:|---:|---:|---:|
-| `wm.inc` — the window manager (§11) | 9,228 | 141 | **9,369** | 1,132 | — | — |
-| `files.inc` — the Disk window (§22) | 1,164 | 8,149 | **9,313** | 583 | — | — |
-| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 460 | 6,410 | **6,870** | 418 | — | — |
-| `vga12.inc` — the VGA planar primitives (§5) | 5,230 | 1,375 | **6,605** | 40 | 526 | — |
-| `diskw.inc` — the FAT write path (§18.4–18.6) | 24 | 4,975 | **4,999** | 180 | — | — |
-| `mouse.inc` — serial mouse and the cursor (§9) | 3,863 | — | **3,863** | 107 | 128 | — |
-| `memory.inc` — the claim heap (§50) | 276 | 2,538 | **2,814** | 24 | 324 | — |
-| `ui.inc` — the UI task and the event ladder (§13) | 2,736 | 9 | **2,745** | 56 | — | — |
-| `menu.inc` — the menu bar and pull-downs (§12) | 2,542 | 165 | **2,707** | 173 | 84 | — |
-| `fdlg.inc` — the Standard File dialog (§38) | 35 | 2,348 | **2,383** | 86 | — | — |
-| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 446 | 1,931 | **2,377** | 313 | — | 1,167 |
+| `wm.inc` — the window manager (§11) | 9,251 | 141 | **9,392** | 1,132 | — | — |
+| `files.inc` — the Disk window (§22) | 1,164 | 8,102 | **9,266** | 583 | — | — |
+| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 458 | 6,381 | **6,839** | 416 | — | — |
+| `vga12.inc` — the VGA planar primitives (§5) | 5,234 | 1,364 | **6,598** | 38 | 526 | — |
+| `diskw.inc` — the FAT write path (§18.4–18.6) | 24 | 4,965 | **4,989** | 180 | — | — |
+| `mouse.inc` — serial mouse and the cursor (§9) | 3,855 | — | **3,855** | 107 | 128 | — |
+| `memory.inc` — the claim heap (§50) | 276 | 2,569 | **2,845** | 24 | 324 | — |
+| `ui.inc` — the UI task and the event ladder (§13) | 2,730 | 9 | **2,739** | 56 | — | — |
+| `menu.inc` — the menu bar and pull-downs (§12) | 2,536 | 165 | **2,701** | 173 | 84 | — |
+| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 471 | 1,940 | **2,411** | 311 | — | 1,159 |
+| `fdlg.inc` — the Standard File dialog (§38) | 35 | 2,346 | **2,381** | 86 | — | — |
 | `assoc.inc` — file type associations (§54) | 419 | 1,925 | **2,344** | 31 | — | — |
 | `font.inc` — the 8×8 glyph renderer (§6) | 2,224 | — | **2,224** | 22 | 16 | 236 |
-| `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | 40 | 1,985 | **2,025** | 152 | — | — |
-| `desk.inc` — the desktop and volume zones (§14/§26.1) | 23 | 1,951 | **1,974** | 91 | — | — |
+| `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | 40 | 1,977 | **2,017** | 152 | — | — |
+| `desk.inc` — the desktop and volume zones (§14/§26.1) | 23 | 1,950 | **1,973** | 91 | — | — |
 | `instance.inc` — instances and the built-in kinds (§29) | 1,637 | 126 | **1,763** | 722 | — | — |
-| `sched.inc` — pre-emptive scheduling (§7–8) | 1,380 | — | **1,380** | 212 | 2,944 | — |
-| `loader.inc` — the package loader (§21) | 4 | 1,299 | **1,303** | 48 | — | — |
+| `sched.inc` — pre-emptive scheduling (§7–8) | 1,379 | — | **1,379** | 212 | 2,944 | — |
+| `loader.inc` — the package loader (§21) | 4 | 1,274 | **1,278** | 48 | — | — |
 | `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,260 | — | **1,260** | 20 | — | — |
 | `icons.inc` — the icon renderer (§10) | 1,081 | — | **1,081** | 288 | — | — |
-| `dock.inc` — the dock strip (§30) | 937 | 45 | **982** | 59 | — | 75 |
-| `fsx.inc` — fullscreen exclusive (§53) | 935 | — | **935** | 9 | — | — |
+| `dock.inc` — the dock strip (§30) | 936 | 45 | **981** | 59 | — | 75 |
+| `fsx.inc` — fullscreen exclusive (§53) | 963 | — | **963** | 9 | — | — |
 | `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 870 | — | **870** | 74 | — | 422 |
 | `snd.inc` — the sound layer (§34) | 800 | — | **800** | 35 | — | — |
 | `viddet.inc` — adapter detection and geometry (§39) | 770 | — | **770** | — | 696 | 97 |
 | `fprog.inc` — the file-operation progress widget (§12.8) | 642 | — | **642** | — | — | — |
-| `desksc.inc` — desktop shortcuts: the record table, the open by name, the keys and the popup (§26.8), `kern_big` only | 90 | 442 | **532** | 3 | — | 286 |
 | `clock.inc` — the clock ladder (§37) | 490 | 32 | **522** | 59 | — | — |
+| `desksc.inc` — desktop shortcuts: the record table, the open by name, the keys and the popup (§26.8), `kern_big` only | 90 | 425 | **515** | 3 | — | 286 |
+| `mod.inc` — on-demand kernel modules (§2.8) | 123 | 346 | **469** | — | — | — |
 | `lz.inc` — the LZ decoder for packages, drivers, files and the kernel itself (§20.13) | — | 456 | **456** | — | — | — |
-| `mod.inc` — on-demand kernel modules (§2.8) | 123 | 324 | **447** | — | — | — |
-| `blank.inc` — the idle screen blanker (§64) | 200 | 226 | **426** | — | — | — |
+| `blank.inc` — the idle screen blanker (§64) | 199 | 248 | **447** | — | — | — |
 | `toast.inc` — the menu bar's transient message (§59) | 417 | — | **417** | 25 | — | — |
-| `hiber.inc` — hibernate, the resident half of `HIBER.DRV` (§87) | 65 | 289 | **354** | 207 | — | 73 |
+| `hiber.inc` — hibernate, the resident half of `HIBER.DRV` (§87) | 65 | 288 | **353** | 203 | — | 73 |
 | `ctrl.inc` — the Control Panel (§31) | 133 | 220 | **353** | 28 | — | — |
 | `apps.inc` — the three built-in kinds (§14) | 210 | 90 | **300** | — | — | — |
 | `xmem.inc` — memory above 1MB (§41.4–41.5) | 247 | — | **247** | 22 | — | 102 |
 | `clip.inc` — the system clipboard (§55) | 167 | — | **167** | 5 | — | — |
 | `events.inc` — the event ring (§10) | 149 | — | **149** | 3 | 128 | — |
-| `winmod.inc` — `WIN95.DRV`, the Windows theme's five chrome doors (§76.14), an on-demand module on `kern_big` | 36 | 32 | **68** | — | — | — |
+| `winmod.inc` — `WIN95.DRV`, the Windows theme's five chrome doors (§76.14), an on-demand module on `kern_big` | 24 | 24 | **48** | — | — | — |
 | `extmod.inc` — `EXTD.DRV`, the extended desktop's placement policy (§39.19.6), an on-demand module on `kern_big` | — | 46 | **46** | — | — | — |
 | `diskops.inc` — DISKOPS.DRV, the disk operations (§18.99) | 15 | 27 | **42** | — | — | — |
 | `deskmod.inc` — **(undescribed)** | — | 36 | **36** | — | — | — |
 | `cpudet.inc` — CPU tiers and the A20 gate (§41.1–41.3) | 2 | — | **2** | — | — | — |
-| `splash.inc` — the boot splash (§15) | — | — | **0** | — | — | 1,828 |
+| `splash.inc` — the boot splash (§15) | — | — | **0** | — | — | 1,827 |
 | `dskwin.inc` — the mount-owned window at the bottom of `.lowbss` (§2.1.2) | — | — | **0** | — | 512 | — |
 | `band.inc` — the 1bpp band composer (§5.9), `BAND=1` | — | — | **0** | — | — | — |
 | `mouproto.inc` — the Microsoft serial packet, decoded once and shared as source with `kern_dos` (§9.5) | — | — | **0** | — | — | — |
@@ -769,8 +790,8 @@ there and nowhere else.
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
 | `dockmod.inc` — `DOCK.DRV`, the Advanced Dock runtime (§30.5), an on-demand module on `kern_big` | — | — | **0** | — | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 2,203 | 171 | **2,374** | — | — | 605 |
-| **total** | **43,573** | **37,763** | **81,336** | **5,227** | **5,358** | **4,891** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 2,220 | 171 | **2,391** | — | — | 628 |
+| **total** | **43,633** | **37,688** | **81,321** | **5,217** | **5,358** | **4,905** |
 <!-- END generated table -->
 
 ### Reading it

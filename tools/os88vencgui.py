@@ -115,10 +115,11 @@ TARGETS = [t + ({},) if len(t) == 4 else t for t in TARGETS]
 # anything but CGA 4 colours, the PC speaker's on any other sound. An
 # option named in no group still appears, on Advanced, in "Other"
 TAB_ROWS = 10    # more options than this and a tab takes two columns
-PAL_W = 620      # the Palette panel's width: the Colour tab's
+PAL_W = 600      # the Palette panel's width: the Colour tab's (620 ran
+                 # its outline 7 pixels past the tab's edge)
 FPAL_W = 390     # ...and the open file's, in its box
-TABS = ("Basic", "Picture", "Colour", "Sound", "Budget", "Loop and keys",
-        "Advanced")
+TABS = ("Basic", "Picture", "Colour", "Sound", "Budget", "Size vs quality",
+        "Loop and keys", "Advanced")
 # what the form makes, in the words a reason uses
 PF_WORDS = {"mono": "one bit, black and white",
             "cgacomp": "CGA composite colour",
@@ -130,14 +131,15 @@ AUDIO_WORDS = {"pcm8": "8-bit sound for a Sound Blaster",
                "speaker": "the PC speaker", "none": "no sound"}
 
 
-def _for(pfs, what):
-    """A group's rule: it applies to the pixel formats `pfs`, and says so"""
+def _for(pfs, what, these="These are"):
+    """A group's rule: it applies to the pixel formats `pfs`, and says so -
+    or one option's, `these` then "This is" (FIELD_WHEN)"""
     def when(c):
         if c["pixfmt"] in pfs:
             return None
-        return ("These are for %s, and this file is %s. Choose a target "
+        return ("%s for %s, and this file is %s. Choose a target "
                 "that makes %s under Made for, or its pixel format on "
-                "Basic." % (what, PF_WORDS[c["pixfmt"]], what))
+                "Basic." % (these, what, PF_WORDS[c["pixfmt"]], what))
     return when
 
 
@@ -228,18 +230,25 @@ def _nospk(c):
     return None
 
 
-def _pages(c):
-    """The screens with a SECOND PAGE (98.3.8): Mode X, 16 colours on a
-    screen of their own, and a Hercules (page-ahead only, 98.3.8.3)"""
-    if c["layout"] in ("modex", "herc") or (
-            c["pixfmt"] == "vga4" and c["screen"] not in ("", "640x480")):
+def _tearing(c):
+    """BANDS AND A SECOND PAGE: Mode X and 16 colours (bands, 98.2.1.2.2,
+    and a page on a screen of their own, 98.3.8), and a Hercules (page-ahead
+    only, 98.3.8.3). Which of them applies is each option's own rule"""
+    if c["layout"] in ("modex", "herc") or c["pixfmt"] == "vga4":
         return None
-    return ("Two pages are Mode X's, a Hercules's, or 16 colours' on a "
-            "Screen of their own (320x200, 320x240, 640x350, 640x400) - and "
-            "%s has one page." % (
-                "mode 12h's 640 x 480" if c["pixfmt"] == "vga4" else
-                "mode 13h" if c["pixfmt"] == "vga8" else
-                "this %s file" % c["pixfmt"]))
+    return ("Bands and a second page are Mode X's, 16 colours' and (page-"
+            "ahead) a Hercules's, and this file is %s."
+            % ("mode 13h" if c["pixfmt"] == "vga8" else
+               PF_WORDS[c["pixfmt"]]))
+
+
+def _held(c, what):
+    """None unless the file is held WHOLE - Live or resident - which then
+    `what`: the read-ahead's options have nothing to act on"""
+    if c["live"] or c["resident"]:
+        return "A %s file is held whole in memory, and %s." % (
+            "Live" if c["live"] else "resident", what)
+    return None
 
 
 def _scenes(c):
@@ -272,6 +281,12 @@ def _knoll_own(c):
             "colourN or clipN on 16 colours).")
 
 
+_FOUR16_WHAT = ("CGA 4 colours, CGA 16 colours at 160 x 100, CGA composite "
+                "512 colours or 16 colours on a VGA")
+_FOUR16 = _for(("cga4", "c160", "c512", "vga4"), _FOUR16_WHAT)
+_FOUR16_ONE = _for(("cga4", "c160", "c512", "vga4"), _FOUR16_WHAT, "This is")
+
+
 GROUPS = [
     ("Basic", "Made for", ("preset", "pixfmt", "profile", "aim"), ALWAYS),
     ("Basic", "The clip", ("title", "credits", "start", "end", "fps"),
@@ -284,9 +299,8 @@ GROUPS = [
     ("Picture", "Solid colours", ("clip",),
      _for(("mono", "vga4", "cga4", "c160", "vga8"),
           "a dithered picture - one bit, 16 colours or 256")),
-    ("Picture", "A pixel held", ("stable",), _pixel_kept),
     ("Picture", "Text mode", ("text_glyphs", "text_detail", "text_sharpen",
-                              "text_busy", "text_stable"),
+                              "text_busy"),
      _for(("text",), PF_WORDS["text"])),
     ("Picture", "Text mode: words read (OCR)",
      ("text_ocr", "text_ocr_large", "text_ocr_conf", "text_ocr_every"),
@@ -295,36 +309,22 @@ GROUPS = [
      _for(("text",), PF_WORDS["text"])),
     ("Colour", "CGA, 4 colours", ("cga_palette", "cga_bright", "cga_bg"),
      _for(("cga4",), PF_WORDS["cga4"])),
-    ("Colour", "CGA composite", ("comp_dither", "comp_stable", "comp_quick",
-                                 "mix", "levels_mix"),
-     _for(("cgacomp",), PF_WORDS["cgacomp"])),
-    ("Colour", "4 and 16 colours", ("vga4_stable", "vga4_hold",
-                                    "vga4_hold_score", "vga4_plan_cap",
-                                    "vga4_sparse", "vga4_order",
-                                    "vga4_wm3"),
-     _for(("cga4", "c160", "c512", "vga4"),
-          "CGA 4 colours, CGA 16 colours at 160 x 100, CGA composite 512 "
-          "colours or 16 colours on a VGA")),
+    ("Colour", "4 and 16 colours", ("vga4_plan_cap", "vga4_sparse"),
+     _FOUR16),
     ("Colour", "CGA composite, 512 colours",
-     ("cga_card", "c512_dither", "c512_stable", "c512_mix"),
+     ("cga_card", "c512_dither", "c512_mix"),
      _for(("c512",), PF_WORDS["c512"])),
-    ("Colour", "VGA, 256 colours", ("detail", "vga8_dither",
-                                    "vga8_stable"),
+    # (in this order the tab's two columns are near one height, with the
+    # tallest Palette panel - CGA4's six sets and its note - under them)
+    ("Colour", "CGA composite", ("comp_dither", "comp_quick", "mix",
+                                 "levels_mix"),
+     _for(("cgacomp",), PF_WORDS["cgacomp"])),
+    ("Colour", "VGA, 256 colours", ("vga8_dither",),
      _for(("vga8",), PF_WORDS["vga8"])),
-    # (Bands rode a group of its own, and the header that cost was what
-    # pushed the tab's right-hand column past the window's default height)
-    ("Colour", "VGA: palette, screen and pages", ("palette",
-                                                  "scene_palettes",
-                                                  "scene_cover", "scene_min",
-                                                  "step_down", "step_min",
-                                                  "scene_hold", "coarse_cut",
-                                                  "screen", "bands"),
+    ("Colour", "VGA: palette and screen", ("palette", "scene_palettes",
+                                           "scene_cover", "scene_min",
+                                           "screen"),
      _for(("vga8", "vga4"), "256 or 16 colours on a VGA")),
-    # (a Hercules has a second page too, so page-ahead is not VGA's alone:
-    # under the VGA group it was greyed on the one screen that needs it
-    # asked for by name - the options audit, 2026-10-14)
-    ("Colour", "A second page: flip or page-ahead", ("flip", "page_ahead",
-                                                    "page_prune"), _pages),
     ("Sound", "Sound", ("audio", "rate", "volume"), ALWAYS),
     ("Sound", "Buffer sound ahead", ("buffer_sound_ahead", "ahead_frames"),
      _ahead),
@@ -345,9 +345,35 @@ GROUPS = [
       "layer_pool", "layer_prefill", "layer_seek", "layer_passes"),
      lambda c: _bank(c) or (
          "A layer is played unflipped." if c.get("flip") else None)),
-    ("Budget", "When a frame is cut", ("lookahead", "error", "cut",
-                                       "frame_cap"), ALWAYS),
-    ("Budget", "Aim: size", ("worth",),
+    # SIZE VS QUALITY: what gives up some of the picture for a smaller
+    # file or a lower rate, gathered off the tabs of the formats they act
+    # on - which overran the Colour tab's height twice (the owner). Each
+    # option keeps its format's rule, as its own (FIELD_WHEN)
+    ("Size vs quality", "Hold the picture still", ("stable", "text_stable",
+                                                   "comp_stable",
+                                                   "vga4_stable", "vga4_hold",
+                                                   "vga4_hold_score",
+                                                   "c512_stable",
+                                                   "vga8_stable"), ALWAYS),
+    ("Size vs quality", "VGA, 256 colours: fewer pixels", ("detail",),
+     _for(("vga8",), PF_WORDS["vga8"])),
+    ("Size vs quality", "16 colours: the player's time to draw",
+     ("vga4_order", "vga4_wm3"), _for(("vga4",), PF_WORDS["vga4"])),
+    ("Size vs quality", "Scenes: fewer bytes at a cut",
+     ("step_down", "step_min", "scene_hold", "coarse_cut"),
+     _for(("vga4",), PF_WORDS["vga4"])),
+    # (a Hercules has a second page too, so page-ahead is not VGA's alone:
+    # under the VGA group it was greyed on the one screen that needs it
+    # asked for by name - the options audit, 2026-10-14. Bands are the
+    # same question - what a frame caught half drawn looks like, for a few
+    # bytes or twice the decode - and each keeps its own rule)
+    ("Size vs quality", "Tearing: bands and a second page",
+     ("bands", "flip", "page_ahead", "pages", "page_keys", "key_pool",
+      "page_prune"),
+     _tearing),
+    ("Size vs quality", "When a frame is cut", ("lookahead", "error", "cut",
+                                                "frame_cap", "lag"), ALWAYS),
+    ("Size vs quality", "Aim: size", ("worth",),
      lambda c: None if c["aim"] == "size" else
      "This is --aim size's floor, and the aim is %s. Choose size as the Aim "
      "on Basic to use it." % c["aim"]),
@@ -360,16 +386,27 @@ GROUPS = [
 ]
 # ...and inside a group that applies, the few options narrower than it
 FIELD_WHEN = {
+    # (the boxes audit, 2026-10-14: these stood EMPTY on a Live target,
+    # where the encoder ignores them - a file held whole has no ring to
+    # size, and a Live play is a pass a tick, not the hook's owed time)
+    "memory": lambda c: _held(c, "has no ring to size"),
+    "reserve": lambda c: _held(c, "has no ring to bank ahead in"),
+    "owe": lambda c: None if not c["live"] else "A Live file draws a pass "
+    "a tick on the desktop, and owes no time at a cut.",
     "text_prefer_colour": lambda c: None if c["text_colour"] == "colour"
     else "This keeps a cell's hue, and the text is mono: it has none.",
     "bands": lambda c: ("Bands are a stream's drawn full screen, and a Live "
                         "file draws a pass a tick on the desktop."
                         if c["live"] else None) if c["layout"] == "modex" or
     c["pixfmt"] == "vga4" else "Bands are for a picture drawn a plane at a "
-    "time - Mode X, or 16 colours - and mode 13h is one plane.",
+    "time - Mode X, or 16 colours - and %s is one plane." % (
+        "mode 13h" if c["pixfmt"] == "vga8" else "a Hercules"),
     "flip": lambda c: ("A Hercules's second page is page-ahead's: flipping "
                        "every frame is a VGA's (its latches copy the page)."
                        if c["layout"] == "herc" else
+                       "A NARROW screen's pages are page-ahead's (--pages): "
+                       "flipping every frame is a screen with 80-byte rows'."
+                       if str(c.get("screen", "")).endswith("n") else
                        "Flipping is a stream's played full screen: not Live "
                        "or resident." if c["live"] or c["resident"] else
                        None) if c["layout"] in ("modex", "herc") or (
@@ -379,12 +416,19 @@ FIELD_WHEN = {
     % ("mode 12h's 640 x 480" if c["pixfmt"] == "vga4" else
        "mode 13h" if c["pixfmt"] == "vga8" else
        "this %s file" % c["pixfmt"]),
+    "lag": lambda c: "A Live file is drawn on the desktop: it keeps time "
+    "frame by frame." if c.get("live") else None
+    if c["audio"] not in ("none", "speaker") else
+    "The lag is a sound card's: it plays from a ring while the picture "
+    "catches up, and %s keeps to the frame." % (
+        "the PC speaker" if c["audio"] == "speaker" else "a silent file"),
     "page_ahead": lambda c: (
         "Page-ahead is a full-screen stream's: not Live, resident or "
         "looped." if c.get("live") or c.get("resident") or
         c.get("loop_from") else
-        "Page-ahead uses the second page that --flip spends on every "
-        "frame: one or the other." if c.get("flip") else None)
+        "With Flip, page-ahead builds on the pages the flip leaves: "
+        "Pages 3 or more (flipped and built ahead)." if c.get("flip") and
+        str(c.get("pages", "2")) == "2" else None)
     if c["layout"] in ("modex", "herc") or (
         c["pixfmt"] == "vga4" and c["screen"] not in ("", "640x480")) else
     "Two pages are Mode X's, a Hercules's, or 16 colours' on a Screen of "
@@ -392,6 +436,17 @@ FIELD_WHEN = {
     % ("mode 12h's 640 x 480" if c["pixfmt"] == "vga4" else
        "mode 13h" if c["pixfmt"] == "vga8" else
        "this %s file" % c["pixfmt"]),
+    "pages": lambda c: (FIELD_WHEN["page_ahead"](c) if not c.get("flip")
+                        else None) or (
+        "Pages are page-ahead's: Page ahead is off." if
+        c.get("page_ahead") == "off" else
+        "A Hercules has two pages." if c["layout"] == "herc" else None),
+    "page_keys": lambda c: FIELD_WHEN["pages"](c) or (
+        "Keys carry the pages past the second: Pages is 2." if
+        str(c.get("pages", "2")) == "2" else None),
+    "key_pool": lambda c: FIELD_WHEN["pages"](c) or (
+        "The pool shares pages past the second between keys: Pages is 2." if
+        str(c.get("pages", "2")) == "2" else None),
     "page_prune": lambda c: FIELD_WHEN["page_ahead"](c) or (
         "Pruning is page-ahead's: Page ahead is off." if
         c.get("page_ahead") == "off" else
@@ -416,8 +471,15 @@ FIELD_WHEN = {
     # reaches - composite's dither holds nothing, a ramp of greys is
     # GreyDitherer's, and the pattern's cap and the sparse rule are the
     # clip's own colours')
-    "vga4_hold": lambda c: _knoll_hold(c),
-    "vga4_hold_score": lambda c: _knoll_hold(c),
+    "vga4_hold": lambda c: _FOUR16_ONE(c) or _knoll_hold(c),
+    "vga4_hold_score": lambda c: _FOUR16_ONE(c) or _knoll_hold(c),
+    # (the holds left their formats' groups for Size vs quality, and took
+    # each format's rule with them)
+    "stable": _pixel_kept,
+    "text_stable": _for(("text",), PF_WORDS["text"], "This is"),
+    "vga4_stable": _FOUR16_ONE,
+    "c512_stable": _for(("c512",), PF_WORDS["c512"], "This is"),
+    "vga8_stable": _for(("vga8",), PF_WORDS["vga8"], "This is"),
     "vga4_plan_cap": lambda c: _knoll_own(c),
     "vga4_sparse": lambda c: _knoll_own(c),
     "vga4_order": lambda c: None if c["pixfmt"] == "vga4" and
@@ -433,10 +495,16 @@ FIELD_WHEN = {
                          "Live or resident file plays on the desktop."
                          if c["live"] or c["resident"] else None)
     if c["pixfmt"] == "vga4" else
-    "A screen of its own is 16 colours' (Pixfmt vga4): Mode X and 13h are "
-    "screens already.",
-    "comp_stable": lambda c: None if c["comp_dither"] == "diffuse" else
-    "This is the diffusion's, and Comp dither is pattern.",
+    # (MODE X: 320x200 is 13h's own 400 lines on the unchained card, four
+    # pages where 320 x 240 has three, 98.1.3.1.1 - the encoder refuses any
+    # other screen there and says so)
+    None if c["layout"] == "modex" else
+    "A screen of its own is 16 colours' (Pixfmt vga4), or 320x200 for "
+    "Mode X: 13h is a screen already.",
+    "comp_stable": lambda c: _for(("cgacomp",), PF_WORDS["cgacomp"],
+                                  "This is")(c) or (
+        None if c["comp_dither"] == "diffuse" else
+        "This is the diffusion's, and Comp dither is pattern."),
     "comp_quick": lambda c: None if c["comp_dither"] == "diffuse" else
     "This is the diffusion's, and Comp dither is pattern.",
     "mix": lambda c: None if c["comp_dither"] == "pattern" else
@@ -487,13 +555,103 @@ SUGGEST = {"rate": ["", "22050", "11025", "8000", "5512"],
            "layer_bank": ["", "auto", "896", "2944", "7040", "15232"],
            "pool": ["896", "2944", "7040", "15232"],
            "layer_pool": ["", "896", "2944", "7040", "15232"],
-           "prefill": ["", "5", "10", "30", "all"]}
+           "prefill": ["", "5", "10", "30", "all"],
+           # A COARSE CUT (98.2.5): AUTO, the default, OFF - the cut drawn
+           # as it comes, as before the cells - and the cells AUTO picks
+           # from, plus 16x8; any other WxH is typed. It was a bare text
+           # box, and EMPTYING it meant "the default", which is AUTO: a cut
+           # could not be turned off by clearing it, only by typing the word
+           "coarse_cut": ["auto", "off", "16x4", "16x8", "32x8", "64x8"],
+           # ...and the other boxes that took a WORD typed blind (the
+           # boxes audit, 2026-10-14): each word is its BLANK_WORD below
+           "jobs": ["", "1", "2", "4", "8"],
+           "end": [""],
+           "poster": [""],
+           "loop_from": ["", "0"],
+           "volume": ["", "0.5", "1.5", "2", "3dB", "6dB"],
+           "clip": ["", "0", "16"],
+           "text_busy": ["", "12", "2"],
+           "layer_disk": [""],
+           "layer_prefill": ["", "16", "32", "64", "all"],
+           "vga4_sparse": ["", "0", "1", "2", "3"],
+           "worth": ["", "0.5", "2", "4"]}
+# WHAT A BLANK MEANS, SAID (the boxes audit, 2026-10-14): an option whose
+# default is "none", "all", "the nearest" or "what the rest imply" showed
+# an EMPTY box, which reads as unset rather than as a choice already made.
+# The window shows this word instead - in the field and in its dropdown -
+# and reads the word back as the blank it stands for, so the command line,
+# the groups' rules and every other reader of the form are unchanged
+# (WordVar; typing the word is the same as leaving the field alone)
+BLANK_WORD = {"preset": "none", "layout": "auto", "pixfmt": "auto",
+              "audio": "auto", "live": "off", "layer_profile": "none",
+              "text_colour": "auto", "frame_cap": "auto",
+              "screen": "640x480",
+              "cga_palette": "nearest", "cga_bright": "nearest",
+              "cga_bg": "nearest",
+              "jobs": "all", "end": "end", "poster": "auto",
+              "loop_from": "off", "volume": "unchanged", "clip": "auto",
+              "text_busy": "auto", "bank": "none", "layer_bank": "none",
+              "layer_pool": "as Pool", "layer_disk": "none",
+              "layer_prefill": "none", "prefill": "%g" % V.BANK_PREFILL,
+              "vga4_sparse": "auto", "worth": "%g" % V.AIM_WORTH}
+
+
+def blank_word(dest):
+    """What field DEST shows for a blank, or None: it shows the blank"""
+    return BLANK_WORD.get(dest)
+
+
+def from_shown(dest, raw):
+    """What the field's text means to the form: its BLANK_WORD is the
+    blank it stands for, and anything else is itself"""
+    w = blank_word(dest)
+    if w is not None and str(raw).strip().lower() == w.lower():
+        return ""
+    return raw
+
+
+def to_shown(dest, value):
+    """...and back: a blank is shown as the field's word, when it has one"""
+    w = blank_word(dest)
+    return w if w is not None and not str(value).strip() else value
+
+
+def dropdown(f):
+    """A field's dropdown, as the window offers it: a blank is its word,
+    and an option with a real default offers no blank at all - picking the
+    default says the same thing, and an empty entry only emptied the box"""
+    out = []
+    for c in f["choices"] or []:
+        if c == "":
+            c = blank_word(f["dest"])
+            if c is None and f["default"]:
+                continue
+        if c is not None and c not in out:
+            out.append(c)
+    return out
+
+
+def blank_fill(dest, values, sfps=None):
+    """What a field EMPTIED by hand is put back to as the pointer leaves
+    it: what the encode will use for the blank - the preset's, format's
+    and profile's implication, the speaker style's number, or the parser's
+    default - so a cleared box never stands empty for a value it has"""
+    imp = implied_values(values, sfps)
+    imp.update(style_values(values.get("spk_style")))
+    v = imp.get(dest)
+    if v not in (None, ""):
+        return str(v)
+    return [f["default"] for f in fields() if f["dest"] == dest][0]
 # a free-text option that NAMES A FILE the encode writes: a Browse... beside
 # it, a Save dialog of that type, started beside the .V88 under its name
 SAVE_FILE = {"spk_preview": ("The speaker preview", ".wav",
                              [("WAV sound", "*.wav")])}
 # a line under a tab's fields: what no one field says
 TAB_NOTES = {
+    "Size vs quality": "Each of these gives up some of the picture for a "
+                       "smaller file, fewer bytes a second or less of the "
+                       "player's time - or spends them on it. Each is "
+                       "greyed where its file cannot use it.",
     "Budget": "XT-IDE and other disk controllers the CPU copies for "
               "cost CPU the picture would have had: every byte read is "
               "the 8088's work, where an ST11M or ST11R's DMA is not. The "
@@ -784,6 +942,14 @@ def target_fill(i, sfps=None):
     vals = target_values(i)
     vals.update(implied_values(vals, sfps))
     return vals
+
+
+def keep_title(cur, auto_was):
+    """Whether a source chosen keeps the Title field as it is: yes, unless
+    it is empty or still the file name the window itself filled in from the
+    source before (AUTO_WAS) - a .V88's title, or one typed, is kept"""
+    cur = str(cur or "").strip()
+    return bool(cur) and cur != str(auto_was or "").strip()
 
 
 def suggest(src):
@@ -1218,8 +1384,9 @@ def key_picture(r, i):
     """(its frame, its picture): keyframe `i` drawn from itself alone"""
     k, rec, spo, spn, idx = r.key(i)
     if r.page:      # (98.1.3.7: the shown page's, the hidden record after
-        surf = r.key_pages(rec)[0][0]   # its lists - which a plain decode
-    else:                               # refuses, and the picture was black)
+        ps, vis, _ = r.key_view(rec)    # its lists - which a plain decode
+        surf = ps[vis]                  # refuses, and the picture was black;
+    else:                               # on N pages the page it names)
         surf = r.g.surface()
         r.apply(surf, rec, key=True)
     return k, render(r, surf, k)
@@ -1418,7 +1585,7 @@ def swatch_draw(c, secs, tips, width=None):
     fg = ttk.Style().lookup("TLabel", "foreground") or "black"
     font = tkfont.nametofont("TkDefaultFont")
     th = font.metrics("linespace")
-    width = width or max(c.winfo_width(), 620)
+    width = width or max(c.winfo_width(), PAL_W)
     y = 2
     for head, rows, note in secs:
         if head:
@@ -1469,6 +1636,25 @@ def swatch_draw(c, secs, tips, width=None):
                                width=width - 8)
             y = c.bbox(it)[3] + 6
     c.config(height=y)
+
+
+class WordVar(tk.StringVar if tk is not None else object):
+    """A field's variable that SHOWS its BLANK_WORD for a blank and READS
+    the word back as the blank (from_shown/to_shown), so every reader of
+    the form keeps its blank and the person sees what the blank means"""
+
+    def __init__(self, dest, value=""):
+        self.dest = dest
+        tk.StringVar.__init__(self, value=to_shown(dest, value))
+
+    def raw(self):
+        return tk.StringVar.get(self)
+
+    def get(self):
+        return from_shown(self.dest, tk.StringVar.get(self))
+
+    def set(self, value):
+        tk.StringVar.set(self, to_shown(self.dest, value))
 
 
 class Tip(object):
@@ -1590,7 +1776,7 @@ class App(object):
         def take(c):
             v.set(c)
             if f["dest"] in IMPLYING:
-                self.apply_implied()
+                self.apply_implied(f["dest"])
             elif f["dest"] == "audio":
                 self.apply_audio()
             elif f["dest"] == "spk_style":
@@ -1754,7 +1940,7 @@ class App(object):
                 cols = [gs[:k], gs[k:]]
             # a TWO-COLUMN tab's fields are narrower, or the right-hand
             # column's "?" and Browse... fall off the pane's edge
-            fw = 22 if len(cols) == 1 else 12
+            fw = 22 if len(cols) == 1 else 11
             for ci, col in enumerate(cols):
                 cf = ttk.Frame(pages[t])
                 cf.grid(row=0, column=ci, sticky="nwe",
@@ -1781,6 +1967,15 @@ class App(object):
             if d in self.vars:
                 self.vars[d].trace_add("write", lambda *a: self.avg_list())
         self.avg_list()
+        # THE PROFILE BEFORE THIS ONE, however it was set - a pick, a
+        # target, a file loaded - so a pick by hand can tell the fields it
+        # filled from the ones a person changed since (apply_implied)
+        self.profwas = self.profnow = self.vars["profile"].get()
+
+        def profwrite(*a):
+            self.profwas, self.profnow = self.profnow, \
+                self.vars["profile"].get()
+        self.vars["profile"].trace_add("write", profwrite)
         # --- the palette the Colour tab's choices give, redrawn as they
         # change: under the tab's fields - what the file WILL be, where the
         # preview's column is the file that IS (the owner). The VGA groups
@@ -2005,6 +2200,17 @@ class App(object):
             self.info.set("ffprobe could not read it: %s" % e)
             return
         self.info.set(text)
+        # A TITLE ALREADY THERE STAYS: one a .V88 loaded or a person typed
+        # is the title, and the source's file name only fills an empty
+        # field - or one still holding the name it filled last time, so a
+        # second video dropped is renamed as the first was
+        auto = vals.pop("title", "")
+        if keep_title(self.vars["title"].get(),
+                      getattr(self, "autotitle", None)):
+            self.autotitle = None
+        else:
+            self.vars["title"].set(auto)
+            self.autotitle = auto
         for k, v in vals.items():
             self.vars[k].set(v)
         cur = {k: v.get() for k, v in self.vars.items()}
@@ -2070,13 +2276,34 @@ class App(object):
         if d is not None and not self.diskpicked:
             self.disksize.set(DISK_LABELS[d])
 
-    def apply_implied(self):
+    def apply_implied(self, dest=None):
         """A preset, format, profile or Live choice changed by hand: every
-        option it implies is shown as it will be used (98.2.10)"""
+        option it implies is shown as it will be used (98.2.10).
+
+        A PROFILE is the machine and nothing else, so picking one moves
+        only what the machine sets - and of that, only what the new machine
+        sets DIFFERENTLY, and only a field still holding what the old one
+        set: the box, the frame rate and a peak or disk typed by hand all
+        stay (the owner, 2026-10-15: every pick of a profile dropped the
+        box and the peak, and each encode was a hunt for what changed). A
+        preset, a format or Live is a fresh start and sets the lot"""
         vals = {k: v.get() for k, v in self.vars.items()}
         vals["pixfmt"] = fitting_pixfmt(vals)
-        for k, v in implied_values(vals, self.sfps).items():
-            self.vars[k].set(v)
+        new = implied_values(vals, self.sfps)
+        if dest == "profile":
+            was = dict(vals, profile=self.profwas)
+            was["pixfmt"] = fitting_pixfmt(was)
+            old = implied_values(was, self.sfps)
+            # (to or from LOSSLESS every limit follows it: a peak typed for
+            # a machine would quietly cap a file meant to have none)
+            nolim = "lossless" in (self.profwas, self.profnow)
+            for k, v in new.items():
+                cur = str(self.vars[k].get()).strip()
+                if v != old.get(k) and (nolim or cur in ("", old.get(k))):
+                    self.vars[k].set(v)
+        else:
+            for k, v in new.items():
+                self.vars[k].set(v)
         self.imply_disk()
 
     def apply_layer(self):
@@ -2107,6 +2334,15 @@ class App(object):
             vals = {k: v.get() for k, v in self.vars.items()}
             rate.set(implied_values(vals, self.sfps)["rate"])
 
+    def refill(self, dest):
+        """A field left EMPTY: put back what the encode will use for it
+        (blank_fill), or its word for a blank (WordVar)"""
+        v = self.vars.get(dest)
+        if v is None or str(v.raw()).strip():
+            return
+        vals = {k: x.get() for k, x in self.vars.items()}
+        v.set(blank_fill(dest, vals, self.sfps))
+
     # --- the groups
     def group_box(self, parent, name, fs, fw, lw, start):
         """One GROUP (98.2.8.2): its outline and header, and its options a
@@ -2134,16 +2370,31 @@ class App(object):
                 v = tk.StringVar(value="")
                 w = ttk.Checkbutton(p, variable=v, onvalue="1", offvalue="")
             elif f["kind"] == "choice" or f["choices"]:
-                v = tk.StringVar(value=start[f["dest"]])
-                w = ttk.Combobox(p, textvariable=v, values=f["choices"],
+                v = WordVar(f["dest"], start[f["dest"]])
+                w = ttk.Combobox(p, textvariable=v, values=dropdown(f),
                                  width=fw)
+            elif f["dest"] in SAVE_FILE:
+                # A FILE IT WRITES: the field and its Browse... share the
+                # field's and the "?"'s cells, as wide as the rows above -
+                # in a column of their own a Browse..., being wider than a
+                # "?", ran the Sound tab's right-hand column off the pane
+                v = WordVar(f["dest"], start[f["dest"]])
+                cell = ttk.Frame(p)
+                cell.grid(row=r, column=1, columnspan=2, sticky="w",
+                          padx=(4, 0), pady=(0, 1))
+                w = ttk.Entry(cell, textvariable=v, width=fw - 2)
+                w.pack(side="left")
             else:
-                v = tk.StringVar(value=start[f["dest"]])
+                v = WordVar(f["dest"], start[f["dest"]])
                 w = ttk.Entry(p, textvariable=v, width=fw + 2)
-            w.grid(row=r, column=1, sticky="w", padx=4, pady=(0, 1))
+            if f["kind"] != "bool":     # EMPTIED, it shows what it means
+                w.bind("<FocusOut>", lambda e, d=f["dest"]: self.refill(d),
+                       add="+")
+            if f["dest"] not in SAVE_FILE:
+                w.grid(row=r, column=1, sticky="w", padx=4, pady=(0, 1))
             if f["dest"] in IMPLYING:
                 w.bind("<<ComboboxSelected>>",
-                       lambda e: self.apply_implied())
+                       lambda e, d=f["dest"]: self.apply_implied(d))
             elif f["dest"] == "audio":
                 w.bind("<<ComboboxSelected>>",
                        lambda e: self.apply_audio())
@@ -2164,10 +2415,10 @@ class App(object):
             Tip(w, ftip)
             ws = [lab, w]
             if f["dest"] in SAVE_FILE:  # A FILE IT WRITES: chosen, not typed
-                bb = ttk.Button(p, text="Browse...", style="Tool.TButton",
-                                command=lambda f=f, v=v:
+                bb = ttk.Button(w.master, text="Browse...", width=0,
+                                style="Tool.TButton", command=lambda f=f, v=v:
                                 self.browse_save(f, v))
-                bb.grid(row=r, column=2, sticky="w")
+                bb.pack(side="left", padx=(4, 0))
                 Tip(bb, "Choose where %s is written"
                     % SAVE_FILE[f["dest"]][0].lower())
                 ws.append(bb)
@@ -2241,6 +2492,7 @@ class App(object):
         # minutes of decoding, and a person who wants only its settings
         # should not wait on it. Set now, the form is the person's while
         # the preview loads - the preview's end does not set it again
+        self.autotitle = None           # (its title is the file's: kept)
         try:
             self.apply_file_options(vid.HeadOptions(p), p)
         except (OSError, vid.V88Error) as e:

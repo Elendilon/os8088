@@ -340,6 +340,8 @@ def fat_get(buf: bytes, fat12: bool, n: int) -> int:
 KERNEL_NAME = b"KERNEL  SYS"   # the kernel, as a file (SPEC.md 19.3)
 HDBOOT_NAME = b"BOOTHD  SYS"   # ...and the hard-disk boot sector built with
                                # it, which the installer reads (SPEC.md 52.10.16)
+HMA_NAME    = b"COLDHMA SYS"   # ...and the HMA image cut from it, which
+                               # XMEM.DRV reads (docs/plans/HMA-PLAN.md)
 CFG_NAME    = b"SYSTEM  CFG"   # the Control Panel's settings (SPEC.md 51.5)
 
 # Directory attributes. A system disk hides the things that are the KERNEL's
@@ -486,8 +488,9 @@ def sys_attr(name11: bytes, boot: bool, hdd: bool = False) -> int:
     The rule is by EXTENSION so it needs no maintenance as drivers are added:
     a `.DRV` on the boot disk is kernel machinery and disappears, and so does
     KERNEL.SYS (build() stamps that one itself) and BOOTHD.SYS, the hard-disk
-    boot sector that goes with it (SPEC.md 52.10.16) - by NAME, being the one
-    file of its kind.
+    boot sector that goes with it (SPEC.md 52.10.16), and COLDHMA.SYS, the
+    HMA image cut from it (docs/plans/HMA-PLAN.md) - by NAME, each being the
+    one file of its kind.
 
     **SYSTEM.CFG on a boot disk is stamped as the kernel would have made it**
     (SPEC.md 19.6's table): hidden + system + archive, and NOT read-only.
@@ -522,7 +525,7 @@ def sys_attr(name11: bytes, boot: bool, hdd: bool = False) -> int:
         return A_ARCH
     if name11 == CFG_NAME:
         return A_HIDDEN | A_SYS | A_ARCH    # dskw_write_sys's create + commit
-    if not (name11.endswith(b"DRV") or name11 == HDBOOT_NAME):
+    if not (name11.endswith(b"DRV") or name11 in (HDBOOT_NAME, HMA_NAME)):
         return A_ARCH
     return A_HDDSYS if hdd else A_SYSTEM
 

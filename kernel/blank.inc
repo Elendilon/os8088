@@ -128,11 +128,10 @@ SSV_BUSY    equ 4               ; may your image be freed? Out: CF = 1 = no,
 ; reads as a decision, rather than as a zero somebody has to go and confirm.
 ; -----------------------------------------------------------------------------
 blk_t0      dw 0                ; [ticks] when the current idle period began
-blk_on      db 0                ; is the desktop off the glass right now? TRUE
-                                ; FOR BOTH ANSWERS - a gated signal and a
-                                ; running animation are the same thing to
-                                ; blk_wake, which is what keeps SPEC.md 64.2's
-                                ; whole input rule one test
+                                ; [blk_on] - is the desktop off the glass
+                                ; right now? - is in viddet.inc, the byte
+                                ; after [spl_live], so fpg_arm asks both in
+                                ; one word (kernel size pass 12)
 blk_act     db 0                ; mou_isr saw a packet; the UI task spends it
 
 ; -----------------------------------------------------------------------------
@@ -649,6 +648,27 @@ ss_start_x:
     stc                         ; the refusal, set BEFORE the branch so that
     je .out                     ; the two ways out share one `ret`. `stc`
                                 ; writes no ZF, so the compare still reads
+    ; ...AND A WINDOW THAT ASKED FOR QUIET IS A REFUSAL TOO (SPEC.md 79.10):
+    ; blank instead. WF_QUIET, set through OSAPI_WM_QUIET by a program working
+    ; in the background - FTPD while it serves. A session draws on the UI task
+    ; a frame a pass, and that is the task such a program's disk half runs on;
+    ; a gated signal costs nothing. A free record is all zeros (wm_destroy),
+    ; so the walk needs no used-bit test, and it runs once a SESSION, not once
+    ; a frame. Written here and not as ss_quiet, its one caller, and walked by
+    ; the POINTER against its end rather than by a count, so the `jb` that
+    ; keeps going is also the CF = 0 that falls out (kernel size pass 12)
+    push bx
+    mov bx, wm_wins + W_FLAGS + 1
+.q:
+    test byte [bx], WF_QUIET >> 8
+    stc                         ; `stc` writes no ZF: the test still reads
+    jnz .qx
+    add bx, WIN_SIZE
+    cmp bx, wm_wins + W_FLAGS + 1 + MAX_WIN * WIN_SIZE
+    jb .q                       ; ...and falling out of it is CF = 0
+.qx:
+    pop bx
+    jc .out
     call ct_cw_gfx_lock
     mov al, SSV_START
     call ss_open

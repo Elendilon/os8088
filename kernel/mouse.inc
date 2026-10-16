@@ -2451,7 +2451,7 @@ kbm_btn:
 ; kbm_btn and in short reach of kbm_key's dispatch, for kbm_btn's reason: a
 ; jcc to a routine more than 127 bytes away assembles as FIVE bytes, and
 ; kbm_key has four of them (kernel size pass 8). mou_clamp, which used to
-; stand here, went below kbm_paint to make the room.
+; stand here, went below kbm_move to make the room.
 kbm_rclick:                     ; latches too - menu_popup ends on a level poll
     push ax                     ; of bit 1 exactly as menu_track does on bit 0
     xor byte [mouse_btn], 0x02
@@ -2497,7 +2497,38 @@ kbm_move:
     inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13)
     call sch_wake_ui            ; ...and WAKE the UI task (SPEC.md 8.1.2.2)
 .paint:
-    call kbm_paint
+    ; --- put the arrow where mouse_x/mouse_y now say: the ISR's own .move
+    ; rules (SPEC.md 7) - draw only with the gfx lock free and the cursor
+    ; refcount-visible, otherwise leave it to the next unlock. IF is 0 across
+    ; the move because cur_move is not re-entrant against the ISR - and on a
+    ; machine with a modem on the other port that ISR is still live. SI/DI/BP/
+    ; ES are saved round cur_move, which clobbers all four (SPEC.md 7.1.4.1):
+    ; osapi_mouse reaches this through kbm_poll from inside a package's own
+    ; tracking loop. It was kbm_paint, written here now (kernel size pass 12,
+    ; -8): AX and BX were its own bank, and here BX is kbm_key's and AX was
+    ; spent on the step above - kbm_poll and ui_task bank it themselves
+    pushf
+    cli
+    mov al, 1                   ; [cur_dirty]'s answer unless the draw below
+    cmp byte [gfx_lock_flag], 0 ; happens: ONE store at the foot where each
+    jne .pset                   ; arm carried its own immediate one (kernel
+    cmp byte [cur_level], 0     ; size pass 10: 5 bytes)
+    jl .pset
+    push si
+    push di
+    push bp
+    push es
+    mov ax, [mouse_x]
+    mov bx, [mouse_y]
+    call cur_move
+    pop es
+    pop bp
+    pop di
+    pop si
+    mov al, 0
+.pset:
+    mov [cur_dirty], al
+    popf
     pop dx
     pop cx
     pop bx
@@ -2538,47 +2569,6 @@ kbm_accel:
     mov [kbm_step], dl
     mov [kbm_lastk], ch
     jmp kret_cx
-
-; --- kbm_paint - put the arrow where mouse_x/mouse_y now say -----------------
-; The ISR's own .move rules (SPEC.md 7): draw only with the gfx lock free and
-; the cursor refcount-visible, otherwise leave it to the next unlock. IF is 0
-; across the move because cur_move is not re-entrant against the ISR - and on
-; a machine with a modem on the other port that ISR is still live.
-;
-; It saves SI/DI/BP/ES around cur_move, which clobbers all four (SPEC.md
-; 7.1.4.1 - a routine reached from the drawing paths inherits THEIR register
-; contract). AX and BX were enough while ui_task was the only caller and both
-; of the others were kernel loops; osapi_mouse calls kbm_poll now, so this is
-; reached from inside a package's own tracking loop, where kbm_key's stated
-; 'all registers preserved' is the whole contract and not a courtesy.
-kbm_paint:
-    push ax
-    push bx
-    pushf
-    cli
-    mov al, 1                   ; [cur_dirty]'s answer unless the draw below
-    cmp byte [gfx_lock_flag], 0 ; happens: ONE store at the foot where each
-    jne .set                    ; arm carried its own immediate one (kernel
-    cmp byte [cur_level], 0     ; size pass 10: 5 bytes)
-    jl .set
-    push si
-    push di
-    push bp
-    push es
-    mov ax, [mouse_x]
-    mov bx, [mouse_y]
-    call cur_move
-    pop es
-    pop bp
-    pop di
-    pop si
-    mov al, 0
-.set:
-    mov [cur_dirty], al
-    popf
-    pop bx
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; mou_clamp - the nearest legal pointer position (SPEC.md 39.15.4)
@@ -6022,7 +6012,7 @@ cur_celly   resw 1              ; hot-spot-relative (SPEC.md 7.2.2). Banked
 absolute gfx_u                  ; ...and cur_move_mono's working set is a
                                 ; member of vga12.inc's PRIMITIVE UNION (size
                                 ; pass 9). cur_move runs from the mouse ISR and
-                                ; kbm_paint only with the gfx lock FREE, and
+                                ; kbm_move only with the gfx lock FREE, and
                                 ; from gfx_unlock's cur_lazyend after every
                                 ; primitive of the hold has returned - so it is
                                 ; never inside one of the union's five, which is

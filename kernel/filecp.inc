@@ -411,8 +411,21 @@ FCPBODY fcp_paste
     mov [fcp_cbop], ch          ; paste ends - and a Copy stays, so it can
 .keep:                          ; be pasted again. It USED to be spent in
 %ifdef FM_MSEL
-    call fcp_lbegin             ; a LIST (SPEC.md 22.27): spent by its paste
-    jc .empty                   ; whatever the verb - or purged already
+    ; ...and is it a LIST's (SPEC.md 22.27)? Then the clipboard is spent by its
+    ; paste whatever the verb, and THIS TASK'S PURGE FLOOR goes up to the
+    ; list's own rank (SPEC.md 50.6.6), so the copy buffer each entry claims
+    ; cannot shed the list being walked; a list purged before the paste is an
+    ; empty clipboard. Written here, its one caller (it was fcp_lbegin, kernel
+    ; size pass 12: -6)
+    cmp word [fcp_lcnt], 0
+    je .single                  ; a single entry
+    mov [fcp_cbop], ch          ; FCP_NONE: CH (asserted below)
+    cmp word [fcp_lseg], 1      ; CF = 1 exactly when it was purged - and the
+    jc .empty                   ; stale count goes at the next arm's lfree
+    mov dh, [sch_cur]           ; OSAPI_MEM_FLOOR's one store, for this task
+    mov dl, MEM_PG_MED          ; (DX is banked above)
+    mov [mem_pg_fl], dx
+.single:
 %endif
                                 ; fcp_stop, at the end; here, at the start, is
                                 ; the same moment as far as anything that
@@ -452,23 +465,6 @@ FCPBODY fcp_paste
 ; [fcp_lcnt] = its records, in BYTES - 16 a record (0 = the clipboard is a
 ; single entry) - and during a paste the records still to run, plus one.
 ; =============================================================================
-
-; fcp_lbegin - a paste is starting: is it a LIST's? The clipboard is spent
-; whatever the verb (cleared on paste), and THIS TASK'S PURGE FLOOR goes up
-; to the list's own rank (SPEC.md 50.6.6), so the copy buffer each entry
-; claims cannot shed the list being walked. out: CF = 1 = the list was
-; purged before the paste - an empty clipboard. DX clobbered
-fcp_lbegin:
-    cmp word [fcp_lcnt], 0
-    je .ret                     ; (CF = 0, the `cmp`'s equal)
-    mov [fcp_cbop], ch          ; FCP_NONE: fcp_paste's CH (asserted there)
-    cmp word [fcp_lseg], 1      ; CF = 1 exactly when it was purged - and the
-    jc .ret                     ; stale count goes at the next arm's lfree
-    mov dh, [sch_cur]           ; OSAPI_MEM_FLOOR's one store, for this task
-    mov dl, MEM_PG_MED          ; (DX is fcp_paste's banked scratch)
-    mov [mem_pg_fl], dx         ; CF = 0 still: the `cmp`
-.ret:
-    ret
 
 ; fcp_lnext - an entry of a list paste has ended with AL = FCPS_*: run the
 ; next, for as long as each one ends DONE. A question pauses the list with
@@ -1800,7 +1796,7 @@ fcp_xfer:
     call fcp_wprep
 %ifdef KERN_BIG
     mov al, WSQF_HELD           ; ONE HELD STREAM per file (SPEC.md 22.5.3):
-    call COLD_SEG:dwf_dskw_write_seq    ; no lookup and no walk a chunk, and
+    COLDCALL dwf_dskw_write_seq ; no lookup and no walk a chunk, and
                                 ; no FAT or directory write until the close
                                 ; below - a partial copy is deleted anyway,
                                 ; so HELD's one loss is nothing
@@ -1819,7 +1815,7 @@ fcp_xfer:
 .fin:
 %ifdef KERN_BIG
     xor cx, cx                  ; THE CLOSE: the stream's link, FAT and size.
-    call COLD_SEG:dwf_dskw_write_seq    ; Nothing held (one chunk, a
+    COLDCALL dwf_dskw_write_seq ; Nothing held (one chunk, a
     jc .err                     ; redirected copy) answers AX = 0 at once; a
 %endif                          ; failure is the disk's, and the partial copy
                                 ; goes with it
