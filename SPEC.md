@@ -104135,10 +104135,11 @@ finds it); greedy costs about 3% here.
 
 #### 62.12.3 It needs no memory the program did not already need
 
-The staged body runs `0x4C85..0x7A0A`. `os88net.asm`'s own reserved buffers
-already run to `net_bss1` = **`0x9C0D`** (§62.11.7), so every machine with the
-room to run the unpacked program has the room to unpack this one, with **8,803
-bytes to spare**. `tools/os88sfx.py` asserts the ceiling and refuses in a
+The staged body runs `0x3FA0..0x6C57` (it was `0x4A01..0x76CD` before
+§62.12.6 moved the zeros out of the image). `os88net.asm`'s own reserved
+buffers already run to `net_bss1` = **`0x9F89`** (§62.11.7), so every machine
+with the room to run the unpacked program has the room to unpack this one, with
+**12,594 bytes to spare**. `tools/os88sfx.py` asserts the ceiling and refuses in a
 sentence if it is ever crossed, and `net_bss_clear` zeroes the staged body along
 with everything else above the image — by which time it has been read.
 
@@ -104165,7 +104166,8 @@ answer it, and neither is arithmetic:
   8086, only the ones `os88sfx.asm` emits, running `build/os88net.com` out of a
   simulated 64KB segment the way DOS enters a `.COM`, and passing only when
   execution reaches `0x100` again with the whole of `build/os88net.raw` sitting
-  there. It runs in the **fast** tier, so it hangs off every `make`, and it
+  there. It is the soak row `sfx` (it ran in the fast tier when this was
+  written), and it
   refuses an opcode it does not model rather than stepping over one. A packer
   checked only by its own decoder proves nothing: the two agree by construction
   and neither is what ships.
@@ -104177,6 +104179,29 @@ answer it, and neither is arithmetic:
 `tools/os88sfx.py` also refuses to write a payload it cannot decode back, on
 every build, with a model of the assembly rather than a second call into its own
 tables. Three checks, none of which is the author's arithmetic.
+
+#### 62.12.6 Apps size pass 2: what the file stopped carrying
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md measures a program by its SHIPPED FILE, and
+this one's file is `build/os88net.com`, the archive, not the image. Every
+change below is in `drivers/net/os88net.asm` alone: what it shares with
+`NET.DRV` (`lplink.inc`, `lplslv.inc`, `nwslv.inc`, ...) and with `ETHER.DRV`
+(the stack), and the stub and the packer, are other programs' bytes. Nothing
+a DOS user sees on the console changes and nothing on the wire does.
+
+1. **The zeros left the image** (raw 18,689 → 16,032, file −21). Forty-two
+   variables and buffers the program starts with at zero - `secbuf`,
+   `wstat`, `hdtab`, the path buffers, the DTA - were `times N db 0` among the
+   strings. They are `resb` in the reserved block now, beside the stack's own,
+   and `net_bss_clear` moved from after `open_image` to the first call in
+   `start` so that `parse_args` writes its switches into memory that is already
+   zero, which is the whole of what the emitted zeros were for. The file gains
+   little - a run of zeros is one match to this packer - but the archive no
+   longer DECODES 2,657 bytes of nothing on the far machine, and `rep stosw`
+   clears them at about half the per-byte cost of the copy that wrote them.
+   Image + bss is the same
+   40,585 bytes and `net_bss1` the same `0x9F89`: the two variables that start
+   NONZERO (`rfh` and `cpydst`, both `0xFFFF`) stayed in the file.
 
 ## 63. The logo (`tools/os88logo.py`, `MEDIA/OS8088.GIF`)
 

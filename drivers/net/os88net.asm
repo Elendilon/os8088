@@ -159,7 +159,6 @@ dos_rand:
     mov [dos_seed], ax
     pop dx
     ret
-dos_seed:   dw 0
 
 NC_INFO     equ 'I'
 NC_READ     equ 'R'
@@ -273,6 +272,9 @@ DTA_NAME    equ 30
 
 start:
     cld
+    call net_bss_clear          ; the reserved block, BEFORE anything reads or
+                                ; writes one of it: parse_args writes the
+                                ; switches into it (see the end of this file)
     mov si, s_banner
     call puts
 
@@ -294,9 +296,7 @@ start:
     call open_image             ; ...only if /I: named one
     jc  .bye
 
-    call net_bss_clear          ; ...the reserved buffers, BEFORE anything reads
-                                ; one (see the block at the end of this file)
-    call net_start              ; /N: the packet driver and an address, BEFORE
+    call net_start             ; /N: the packet driver and an address, BEFORE
                                 ; the cable - it is the slower of the two to
                                 ; fail and the one with something to say
 
@@ -334,7 +334,7 @@ start:
 
 ; --- net_bss_clear - zero what the file no longer carries --------------------
 ; DOS zeroes nothing above a .COM's image, so this is what makes the reserved
-; block behave exactly as the emitted one did. ~17KB of rep stosw, once.
+; block behave exactly as the emitted one did. ~24KB of rep stosw, once.
 net_bss_clear:
     push ax
     push cx
@@ -4286,7 +4286,6 @@ s_stopped:  db 13,10,'Stopped.',13,10,0
 
 s_wild:     db '*.*',0
 s_nodir:    db 13,10,'No such folder.',13,10,0
-dirarg:     times 80 db 0       ; the bare argument: the folder to serve
 s_root:     db 'Serving files from ',0
 s_wmc:      db 'Serving files from EVERY DRIVE on this machine.',13,10,0
 s_ronly:    db 'Writes REFUSED (/RO).',13,10,0
@@ -4318,78 +4317,19 @@ sf_tag:     db '?', '] ',0
 s_portpin:  db 'Port pinned by /P: to ',0
 s_portscan: db 'Port chosen by scanning (see the table below).',0
 s_imgsay:   db 'Block-mode image (/I:): ',0
-helpflag:   db 0
-netflag:    db 0                ; /N was asked for (net_start)
-
-imgname:    times 80 db 0       ; ...EMPTY by default now: the bare argument
-                                ; is the FOLDER to serve, and block mode is
-                                ; behind /I: (see parse_args)
-fh:         dw 0
-nsecs:      dw 0
-roflag:     db 0
 s_nwtry:    db 'Sockets (/N): looking for a packet driver...',13,10,0
 s_nwok:     db '  up, address ',0
 s_nwnopkt:  db '  no packet driver in 60h..80h, or it is not Ethernet',13,10,0
 s_nwnodhcp: db '  a packet driver, but DHCP never answered',13,10,0
 s_nwfiles:  db '  serving FILES only - os8088 will say No partner',13,10,0
 s_crlf:     db 13,10,0
-pinned:     db 0
-pinbase:    dw 0
-nrun:       db 0                ; sectors left in the run being served
-nrun2:      db 0                ; ...and how many it started with
-rstat:      db 0                ; this sector's verdict
-wstat:      times 256 db 0      ; a write run's verdicts. 256 and not NET_RUN,
-                                ; because the count crosses as ONE BYTE and
-                                ; that is the protocol's own ceiling: sized to
-                                ; net.asm's constant instead, the two programs
-                                ; would be coupled across a cable by a number
-                                ; neither can see, and raising it at one end
-                                ; would overrun this at the other
-secbuf:     times 512 db 0
-
-; --- file mode's (SPEC.md 62.10.3) -------------------------------------------
-wholemc:    db 0                ; /W: the root lists the DRIVES
-srv_h:      dw 0                ; the handle the command in hand is about
-srv_n:      dw 0                ; ...and how many entries we promised it
-srv_ord:    dw 0                ; NF_ENUM's ordinal, across hd_path (62.10.6)
-srv_cwd:    db 0                ; the DRIVE the last NF_CHDIR stood on, for
-                                ; NF_DFREE - which is the one verb with no
-                                ; handle to work it out from. 0 = the default
-                                ; drive, which is int 21h 36h's own convention
-srv_dsth:   dw 0                ; NF_COPY's DESTINATION folder (62.9.8)
-cpydst:     dw 0xFFFF           ; ...and its open handle, 0xFFFF = none
-cpysrc:     times 96 db 0       ; the source path, banked whole: building the
-                                ; destination rewrites pathbuf AND wildbuf
-nhd:        dw 0                ; handles issued this session
-hdtab:      times HD_MAX*HD_SZ db 0
-rootpath:   times 72 db 0       ; 'C:\' + DOS's 64 + a NUL
-pathbuf:    times 80 db 0       ; ...one handle's, rebuilt per command
-wildbuf:    times RT_BUFSZ db 0 ; ...plus '\*.*', and it is sized by the
-                                ; RECURSIVE DELETE now rather than by that:
-                                ; rt_build appends an 8.3 name to a path that
-                                ; may already be RT_PATHMAX long, and a write
-                                ; that could overrun is not something a
-                                ; length check AFTER it can fix (62.10.7.2)
-rtpath:     times RT_BUFSZ db 0 ; the folder srv_rmtree is currently emptying.
-                                ; The whole of the walk's state, with rtdep -
-                                ; there is no DTA stack, deliberately
-rtdep:      dw 0                ; ...how far below the subtree's root we are
-entbuf:     times DE_SZ db 0    ; one staged entry, on its way to the wire
-namebuf:    times 16 db 0       ; the 13 bytes a name crosses as, terminated
-srv_fh:     dw 0                ; the FILE handle a read is about
-srv_cap:    dd 0                ; what the master says it can take
-srv_rlen:   dd 0                ; ...and what we are actually sending
-srv_off:    dd 0                ; FSV_READAT's window
-srv_chunk:  dw 0                ; bytes in the secbuf pass in hand
+cpydst:     dw 0xFFFF           ; NF_COPY's open destination, 0xFFFF = none
 rfh:        dw 0xFFFF           ; the open DOS handle, FFFF = none
-srv_ok:     db 0                ; wr_arg resolved the folder
-srv_verb:   db 0                ; which of delete/mkdir/rmdir is in hand
-srv_fail:   db 0                ; ...the FERR_* banked across a drain
-srv_wbad:   db 0                ; a DOS write came up short: the disk is full
-oldbuf:     times 88 db 0       ; rename's first path, while the second is
-                                ; built in wildbuf
-dtabuf:     times 48 db 0       ; OUR DTA, and not DOS's at PSP:0080 - that is
-                                ; where the command tail lives
+; ...the only two variables this program starts NONZERO. Every other one,
+; and every buffer, is in the reserved block below: zero-initialised data
+; costs a self-extracting .COM the bytes to decode it as well as the room,
+; and net_bss_clear (the first thing `start` does) makes them read exactly
+; as the emitted zeros did (SPEC.md 62.12.3).
 
 ; =============================================================================
 ; THE BUFFERS, PAST THE IMAGE (ETH_NOEMIT, SPEC.md 62.11.1)
@@ -4436,6 +4376,75 @@ eth_rxb:    resb NE_FRAME + 4
 eth_txb:    resb NE_FRAME + 4
 pk_ring:    resb PKT_NBUF * PKT_FRAME
 nw_buf:     resb NET_SKMAX
+
+; --- and THIS PROGRAM'S OWN, which were emitted zeros until apps size pass 2.
+; Every one of them is zero when net_bss_clear has run, exactly as the file
+; used to say; what moved is that the file no longer says it.
+dos_seed:   resw 1              ; dos_rand's LCG
+helpflag:   resb 1
+netflag:    resb 1              ; /N was asked for (net_start)
+dirarg:     resb 80             ; the bare argument: the folder to serve
+imgname:    resb 80             ; ...EMPTY by default now: the bare argument
+                                ; is the FOLDER to serve, and block mode is
+                                ; behind /I: (see parse_args)
+fh:         resw 1
+nsecs:      resw 1
+roflag:     resb 1
+pinned:     resb 1
+pinbase:    resw 1
+nrun:       resb 1              ; sectors left in the run being served
+nrun2:      resb 1              ; ...and how many it started with
+rstat:      resb 1              ; this sector's verdict
+wstat:      resb 256            ; a write run's verdicts. 256 and not NET_RUN,
+                                ; because the count crosses as ONE BYTE and
+                                ; that is the protocol's own ceiling: sized to
+                                ; net.asm's constant instead, the two programs
+                                ; would be coupled across a cable by a number
+                                ; neither can see, and raising it at one end
+                                ; would overrun this at the other
+secbuf:     resb 512
+
+; --- file mode's (SPEC.md 62.10.3) -------------------------------------------
+wholemc:    resb 1              ; /W: the root lists the DRIVES
+srv_h:      resw 1              ; the handle the command in hand is about
+srv_n:      resw 1              ; ...and how many entries we promised it
+srv_ord:    resw 1              ; NF_ENUM's ordinal, across hd_path (62.10.6)
+srv_cwd:    resb 1              ; the DRIVE the last NF_CHDIR stood on, for
+                                ; NF_DFREE - which is the one verb with no
+                                ; handle to work it out from. 0 = the default
+                                ; drive, which is int 21h 36h's own convention
+srv_dsth:   resw 1              ; NF_COPY's DESTINATION folder (62.9.8)
+cpysrc:     resb 96             ; the source path, banked whole: building the
+                                ; destination rewrites pathbuf AND wildbuf
+nhd:        resw 1              ; handles issued this session
+hdtab:      resb HD_MAX*HD_SZ
+rootpath:   resb 72             ; 'C:\' + DOS's 64 + a NUL
+pathbuf:    resb 80             ; ...one handle's, rebuilt per command
+wildbuf:    resb RT_BUFSZ       ; ...plus '\*.*', and it is sized by the
+                                ; RECURSIVE DELETE now rather than by that:
+                                ; rt_build appends an 8.3 name to a path that
+                                ; may already be RT_PATHMAX long, and a write
+                                ; that could overrun is not something a
+                                ; length check AFTER it can fix (62.10.7.2)
+rtpath:     resb RT_BUFSZ       ; the folder srv_rmtree is currently emptying.
+                                ; The whole of the walk's state, with rtdep -
+                                ; there is no DTA stack, deliberately
+rtdep:      resw 1              ; ...how far below the subtree's root we are
+entbuf:     resb DE_SZ          ; one staged entry, on its way to the wire
+namebuf:    resb 16             ; the 13 bytes a name crosses as, terminated
+srv_fh:     resw 1              ; the FILE handle a read is about
+srv_cap:    resd 1              ; what the master says it can take
+srv_rlen:   resd 1              ; ...and what we are actually sending
+srv_off:    resd 1              ; FSV_READAT's window
+srv_chunk:  resw 1              ; bytes in the secbuf pass in hand
+srv_ok:     resb 1              ; wr_arg resolved the folder
+srv_verb:   resb 1              ; which of delete/mkdir/rmdir is in hand
+srv_fail:   resb 1              ; ...the FERR_* banked across a drain
+srv_wbad:   resb 1              ; a DOS write came up short: the disk is full
+oldbuf:     resb 88             ; rename's first path, while the second is
+                                ; built in wildbuf
+dtabuf:     resb 48             ; OUR DTA, and not DOS's at PSP:0080 - that is
+                                ; where the command tail lives
 net_bss1:
     section .text
 os88net_tail:
