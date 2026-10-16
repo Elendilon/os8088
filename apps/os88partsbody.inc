@@ -61,6 +61,7 @@ op_load:
     push ds
     pop es                      ; ES is ours from here: every slot below that
                                 ; takes ES:SI or ES:BX means OUR buffer
+%if OP_HAS_CARVE
 
 %if OP_HAS_XMS
     ; --- is there a store to put the OP_XMS parts in? ----------------------
@@ -214,6 +215,16 @@ op_load:
 .ioerr:
     mov si, op_s_read
     jmp op_say
+%else
+    ; GATED (SPEC.md 20.12.9): EVERY ROW IS LAZY, so there is no carve to size,
+    ; claim or read - the name above is the whole of the load, and op_size,
+    ; op_claim and op_unpack below are reached from nothing
+    clc
+    ret
+%endif                              ; OP_HAS_CARVE
+
+%if OP_HAS_CARVE
+; GATED (SPEC.md 20.12.9): op_size and op_claim - only a table with a row in the carve reaches them
 
 ; -----------------------------------------------------------------------------
 ; op_size - how much the carved parts want, from the table alone
@@ -664,6 +675,8 @@ op_claim:
     stc
     ret
 
+%endif                              ; OP_HAS_CARVE
+
 ; -----------------------------------------------------------------------------
 ; op_read - the carved run, OP_CHUNK bytes at a time
 ; out: CF=0; CF=1 = the file could not be read
@@ -755,8 +768,8 @@ op_read:
     pop bp
     stc
     ret
-%if OP_HAS_COMP
-; GATED (SPEC.md 20.12.9): op_unpack - only a table with an OP_COMP row can reach it
+%if OP_HAS_COMP && OP_HAS_CARVE
+; GATED (SPEC.md 20.12.9): op_unpack - only a table with an OP_COMP row IN THE CARVE can reach it (a lazy one is op_fetch's)
 
 ; -----------------------------------------------------------------------------
 ; op_unpack - walk the run down out of where it was read (SPEC.md 20.12.7)
@@ -1133,6 +1146,7 @@ op_seg:
                                 ; the word available (SPEC.md 20.12.4)
 .notlazy:
 %endif
+%if OP_HAS_CARVE                    ; ...and with no carve every row is lazy
 %if OP_HAS_XMS
     test byte [si+OP_R_FLAG], OP_XMS
     jz .conv
@@ -1262,6 +1276,7 @@ op_seg:
     add ax, [op_base]
     jmp short .out
 %endif                          ; OP_HAS_ZERO - the scratch area
+%endif                          ; OP_HAS_CARVE
 .none:
     xor ax, ax
 .out:

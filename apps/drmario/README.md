@@ -36,10 +36,11 @@ Composing the artwork needs Pillow, so that half's output is committed in
 the playfield screens, the animation patches and the splash/help files
 `DRMARCO.VGA`, `DRMARCO.CGA` and `DRMARCO.HRC`. Run `make drmarco-art` after
 changing either PNG and commit the result; the `drmarcoart` row of `make
-test-full` fails if the committed bytes no longer match a fresh run. Keep
-the three `DRMARCO.*` files beside `DRMARCO.O88` when copying the game: they
-hold the splash/help artwork. Every disk that carries the game carries them.
-Gameplay assets and music remain embedded.
+test-full` fails if the committed bytes no longer match a fresh run. The
+three `DRMARCO.*` files are packed INTO `DRMARCO.O88` as compressed lazy
+parts (SPEC.md 100, 20.12), so the game is one file to copy; the splash
+fetches the current adapter's screen when it first paints. Gameplay assets
+and music are embedded in the image itself.
 
 The original doctor and laboratory surround are committed in
 [`art/drmarco-screen.png`](art/drmarco-screen.png), with the built-in imagegen

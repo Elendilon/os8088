@@ -3661,7 +3661,7 @@ SOAK = [
         wants=("build/drmario360.img", "build/os8088-360.img")),
     Row("drmariofront", "soak", py("tests/drmario_front.py"), 110.0,
         "DrMarco's splash and help (SPEC.md 100) on VGA, CGA and Hercules: "
-        "the DRMARCO.* front screens from the committed art, navigation, "
+        "the front-screen parts from the committed art, navigation, "
         "title music and restoration, with XT paint timings. Measured 75s CPU",
         needs=("marty", "pil"), serial=True,
         wants=("build/drmario360.img", "build/os8088-360.img")),

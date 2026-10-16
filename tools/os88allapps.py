@@ -15,7 +15,7 @@ hold a program, its overlay or data files, and its documents, which all have
 to sit in the folder the program is launched from (SPEC.md 19.10). A
 COLLECTION folder (--collection: APPS, GAMES, MEDIA) is a set of independent
 programs, and only when one outgrows a whole floppy is it split, between
-same-stem groups so that GAMES\\DRMARCO.O88 keeps DRMARCO.VGA beside it. Any
+same-stem groups so that a GAMES\\X.O88 keeps its X.* data beside it. Any
 other folder that outgrows a floppy is refused by name: it needs a decision.
 
 PLACEMENT IS FIRST FIT IN PAYLOAD ORDER, so the set is a function of the

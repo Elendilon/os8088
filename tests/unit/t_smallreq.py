@@ -128,9 +128,6 @@ FORBIDDEN = {
                     "56,333 bytes (37,720 since the apps size pass, unmeasured) in ONE claim against a 53,760-byte arena, so "
                     "it is `Load failed` before it can refuse in its own words "
                     "(SPEC.md 24.5, 100)",
-    "DRMARCO.VGA":  "DrMarco's front screen, read by nothing else (SPEC.md 100)",
-    "DRMARCO.HRC":  "DrMarco's front screen, read by nothing else (SPEC.md 100)",
-    "DRMARCO.CGA":  "DrMarco's front screen, read by nothing else (SPEC.md 100)",
     # DOTDEL.O88 IS NOT A ROW. It was omitted beside SKIES on a ground that
     # SPEC.md 5.4.2.5.1 withdrew (kern_small has a `gfx_blit1` body now), and
     # SPEC.md 24.5.5 is the measurement that put it back on the floppy. A name
