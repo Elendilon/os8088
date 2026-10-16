@@ -847,8 +847,8 @@ ap_reap:
     cmp byte [ap_ended], 0
     je .out
     call ap_autoadvance
-.out:
-    ret
+.out:                              ; (a BARE ret: our region's relocation
+    ret                            ; proc too, audio.asm)
 
 ; =============================================================================
 ; ap_autoadvance - a track finished: step the playlist and start the next, or

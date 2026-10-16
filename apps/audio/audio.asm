@@ -382,31 +382,24 @@ ap_entry:
     call OSAPI_WM_CREATE          ; BX = window ptr, CF on table full
     jc .fail
     mov [ap_win], bx
-    push ax                         ; **THE GESTURE'S TWO SLOTS** (SPEC.md
-    push bx                         ; 20.5.1.3): neither is a template word
-    push si
-    push di
-    push dx
-    mov ax, bx
-    mov bx, apu_btrec
+    xchg ax, bx                     ; **THE GESTURE'S TWO SLOTS** (SPEC.md
+    mov bx, apu_btrec               ; 20.5.1.3): neither is a template word
     mov si, ap_onup
     mov di, ap_ondrag
     mov dx, ap_onclick                ; OUR own click work; the library
                                     ; takes the press FIRST and chains
                                     ; here (SPEC.md 20.5.1.3.3)
-    call os88ui_btninit
-    pop dx
-    pop di
-    pop si
-    pop bx
-    pop ax
+    call os88ui_btninit             ; (which keeps every register)
+    xchg ax, bx                     ; BX = the window again
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
     ; worker's declaration: a package with NO worker is the case that
     ; moves most easily, and putting this at the spawn left exactly
     ; those runs declaring nothing - measured, by the row that reads
     ; MC_RLOC back out of the kernel's own table.
-    OS88_REGION_MOVABLE_NOKEEP      ; nothing kept: this proc preserves no
-                                    ; register, and its CF is the `clc` below
+    OS88_REGION_MOVABLE_NOKEEP ap_reap.out  ; nothing kept: this proc
+                                    ; preserves no register, and its CF is
+                                    ; the `clc` below. The relocation proc is
+                                    ; a bare `ret` we already have
 
     mov si, ap_menus
     call OSAPI_MENU_SET
