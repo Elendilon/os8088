@@ -112173,6 +112173,20 @@ and code packs to about a byte a byte, so what moved it is code that went:
   adjacent bytes that every edit sets together, are set by one word store
   (pinned by an `OS88_ADJACENT` line under the bss map), as are the load's and
   File > New's *clean, but unset*.
+- **A DEFECT, FIXED, and the one change here that costs a keystroke time:
+  typing after a DRAG drew where the window used to be.** A move replays the
+  content and calls no paint (§11.96.12.0), and every incremental path a key
+  takes - the edited rows, the caret, the top bar's `(edit)`, the byte count -
+  drew from the origin, panes and bar rects the last paint or click had
+  left. Seen on the look-boot this pass took: PAPER.TEX open, the window
+  dragged down 33 rows by its title, one letter typed - and the edited rows
+  and the top bar's text landed 33 rows up, over the title bar and the
+  desktop, and the byte count in the preview where the status strip had
+  been. A key now re-reads them first, through `tp_regeo` (the content box,
+  the bar's rects and both panes - the four calls `tp_onclick` already made,
+  which it shares). Measured on MartyPC's VGA XT: **+5,976 guest cycles a key
+  (1.25 ms at 4.77 MHz)**, on a letter that costs ~690,000 and an arrow
+  ~87,500. +13 file bytes.
 
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 
