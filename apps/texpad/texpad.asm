@@ -2143,31 +2143,19 @@ tp_draw_srow:
     add ax, di
     call tp_row_at              ; SI = its start, CX = its length, and a row
     jc .o                       ; never needs clipping: it IS what fits
-    push dx
-    push di
-    push es
-    push si
-    push cx
+    push di                     ; the row's text to tp_cline: DS:SI the
+    mov di, tp_cline            ; source's, ES:DI ours (a length of 0 moves
+    mov bx, cx                  ; nothing and needs no test)
     push ds
     pop es
-    mov di, tp_cline
-    pop cx
-    pop si
-    push cx
-    push ds
     mov ax, [tp_srcseg]
     mov ds, ax
-    jcxz .nul
     cld
     rep movsb
-.nul:
+    push es
     pop ds
-    pop cx
-    pop es
-    mov bx, cx
     mov byte [tp_cline+bx], 0
     pop di
-    pop dx
     mov cx, [tp_ex1]
     add cx, 3
     mov si, tp_cline
@@ -2405,8 +2393,7 @@ tp_sel_del:
     mov bx, ax
     call tp_del_range2
     mov byte [tp_selon], 0
-    mov byte [tp_dirty], 1
-    mov byte [tp_needset], 1
+    mov word [tp_dirty], 0x0101     ; tp_dirty and tp_needset, both set
     mov byte [tp_edkind], 0
     pop bx
     pop ax
@@ -4425,8 +4412,7 @@ tp_load:
     mov byte [tp_selon], 0      ; the selection is a pair of offsets into the
                                 ; document that just went (the same for the
                                 ; new document below, a cut and a paste)
-    mov byte [tp_dirty], 0
-    mov byte [tp_needset], 1
+    mov word [tp_dirty], 0x0100     ; tp_dirty clear, tp_needset set
     mov si, tp_s_loaded
     call tp_toast
     clc
@@ -4555,8 +4541,7 @@ tp_seed:
     mov di, tp_fname
     call tp_cpat
     mov byte [di], 0
-    mov byte [tp_dirty], 0
-    mov byte [tp_needset], 1
+    mov word [tp_dirty], 0x0100     ; tp_dirty clear, tp_needset set
 .o:
     pop es
     pop di
@@ -4623,8 +4608,7 @@ tp_paste:
                                 ; rows from mid-pasted-text: wrong caret row,
                                 ; wrong vscroll, until the next edit healed it
     call tp_clamp_cur
-    mov byte [tp_dirty], 1
-    mov byte [tp_needset], 1
+    mov word [tp_dirty], 0x0101     ; tp_dirty and tp_needset, both set
     jmp short .o
 .say:
     call tp_toast
@@ -4733,8 +4717,7 @@ tp_cut_line:
     mov [tp_tmp3], cx
     call tp_del_range2
     mov [tp_cur], bx
-    mov byte [tp_dirty], 1
-    mov byte [tp_needset], 1
+    mov word [tp_dirty], 0x0101     ; tp_dirty and tp_needset, both set
 .o:
     pop es
     pop di
@@ -4821,8 +4804,7 @@ tp_ins:
     inc word [tp_cur]
     inc word [tp_srclen]
     call tp_row_inval
-    mov byte [tp_dirty], 1
-    mov byte [tp_needset], 1
+    mov word [tp_dirty], 0x0101     ; tp_dirty and tp_needset, both set
     jmp short .o
 .no:
     call tp_toast               ; SI = why
@@ -4871,8 +4853,7 @@ tp_delete:
     mov word [tp_tmp3], 2
 .one:
     call tp_del_range2
-    mov byte [tp_dirty], 1
-    mov byte [tp_needset], 1
+    mov word [tp_dirty], 0x0101     ; tp_dirty and tp_needset, both set
 .o:
     pop es
     pop si
@@ -5752,5 +5733,6 @@ TP_BSS_TOTAL equ TPB_AT
     OS88_ADJACENT tp_margin, tp_units, 1
     OS88_ADJACENT tp_units, tp_pstyle, 1
     OS88_ADJACENT tp_pstyle, tp_fsize, 1
+    OS88_ADJACENT tp_dirty, tp_needset, 1   ; one word store sets both
     OS88_BSS TP_BSS_TOTAL
     OS88_IMAGE_END

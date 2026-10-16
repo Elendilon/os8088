@@ -111901,6 +111901,13 @@ and code packs to about a byte a byte, so what moved it is code that went:
   once (the scan to the next line ends on the NUL, 0, which is `CBLACK`, so
   AL survives it too); and `tp_xor_span` sets the selection's pen once per
   span where it was one `OSAPI_SET_COLOR` far call per ROW it inverted.
+- **The typing path's own stores.** `tp_draw_srow` - the routine that
+  letters every row an edit reaches - copies the row into `tp_cline` with DS
+  switched to the source once, where it went through eleven pushes and pops
+  to arrange the same two segment registers; and `tp_dirty` and `tp_needset`,
+  adjacent bytes that every edit sets together, are set by one word store
+  (pinned by an `OS88_ADJACENT` line under the bss map), as are the load's and
+  File > New's *clean, but unset*.
 
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 
