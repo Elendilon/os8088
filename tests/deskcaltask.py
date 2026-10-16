@@ -13,7 +13,7 @@ the package's own dc_geos.
 
   A  `K` and three lines - `Buy milk`, `Call plumber`, `Post letter` - are
      three tasks in the state file, in the order typed, none done; Calendar
-     > Clear Done Tasks is GREYED `Clear Done (none done)` (SPEC.md 47).
+     > Clear Done Tasks is GREYED (SPEC.md 47).
   B  THE BOX: 9 x 9 at face x 8, its frame ink and its inside ground. A
      press on Buy milk's box checks it, and the gesture is EXACTLY ONE
      drawing call of the calendar's - an OSAPI_GFX_BLIT1 (a breakpoint on
@@ -206,8 +206,8 @@ def main():
                           ("Post letter", False)],
                   "the file holds the three, in order, none done (%r)"
                   % (got,))
-            check(clear_item() == ("Clear Done (none done)", False),
-                  "Clear Done Tasks is greyed with its reason (%r)"
+            check(clear_item() == ("Clear Done Tasks", False),
+                  "Clear Done Tasks is greyed (%r)"
                   % (clear_item(),))
 
             print("B: Buy milk's box: the box, one BLIT1")
@@ -246,7 +246,7 @@ def main():
             got = tasks()
             check(got == [("Post letter", False)],
                   "Post letter is the one left (%r)" % (got,))
-            check(clear_item() == ("Clear Done (none done)", False),
+            check(clear_item() == ("Clear Done Tasks", False),
                   "...and the item is greyed again")
 
             print("E: Post letter deleted, after asking")

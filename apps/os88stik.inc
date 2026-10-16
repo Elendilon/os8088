@@ -47,10 +47,17 @@
 ;   %define STIK_ISOPEN 'Desk Calendar is open'   optional: the toast a SECOND
 ;                                       launch is refused with (<= 24 chars,
 ;                                       SPEC.md 59.10); 'Already open' if not
-;   %define STIK_DAMAGEDQ 'Replace damaged calendar?'   optional, and only with
-;                                       os88ui.inc's OS88UI_ALERT included
-;                                       first: asked before the first save
-;                                       over a damaged file (SPEC.md 110.5.2)
+;   %define STIK_DESKONLY                optional, a widget's: no titled
+;                                       fallback and no worker arm - the
+;                                       build for kern_big, where a refused
+;                                       QUERY refuses the LAUNCH instead
+;                                       (SPEC.md 110.7, 110.11)
+;   %define STIK_BADNAME 'DESKCAL.BAD'   optional: a DAMAGED file is
+;                                       renamed to this by the first save,
+;                                       which then writes afresh - nothing
+;                                       asked, nothing lost. Without it a
+;                                       damaged file is never written
+;                                       (SPEC.md 110.5.2)
 ;
 ; and gets STIK_PAY (the payload, STIK_PAYLEN bytes, zero when there was no
 ; valid file) and STIK_BSS_END (the next free bss offset).
@@ -117,8 +124,8 @@ STIK_S_WORKER   equ 64          ; no OSAPI_WM_TIMER (kern_small): the tick is
                                 ; a worker's wake (SPEC.md 110.5.2)
 STIK_S_HIRED    equ 128         ; ...and the worker is running
 ; stik_fl bits
-STIK_F_ASKING   equ 1           ; the damaged-file question is on the glass
-STIK_F_CLOSING  equ 2           ; stik_close's save: never ask from there
+STIK_F_ASKING   equ 1           ; retired: was the damaged-file question
+STIK_F_CLOSING  equ 2           ; retired: stik_close's save, when a save asked
 STIK_F_PLACED   equ 4           ; the template's place came from the file
 STIK_F_KEPT     equ 8           ; a close was declined once (stik_close)
 STIK_F_QUIT     equ 16          ; stik_quit's OSAPI_WM_CLOSE is posted: the
@@ -129,6 +136,11 @@ STIK_BKMAX      equ 16          ; a refusal that may clear waits 1, 2, 4, 8,
 
 %if STIK_BSS % 16
   %error "os88stik: STIK_BSS must be a multiple of 16 - the read wants a paragraph"
+%endif
+%ifdef STIK_DESKONLY
+ %ifndef STIK_WIDGET
+  %error "os88stik: STIK_DESKONLY is a widget's - v1 is a titled window"
+ %endif
 %endif
 
 stik_file   equ os88_image_end + STIK_BSS                   ; header + payload
@@ -422,7 +434,7 @@ stik_load:
     or byte [stik_st], STIK_S_DAMAGED
 .zero:
     push ds                     ; DAMAGED: run empty, and never overwrite it
-    pop es                      ; silently (stik_save asks first, 110.5.2)
+    pop es                      ; silently (stik_save sets it aside, 110.5.2)
     mov di, stik_file
     mov cx, STIK_HDR_SIZE + STIK_PAYLEN
     xor al, al
@@ -500,12 +512,21 @@ stik_single:
     inc ax
     cmp al, MAX_WIN
     jb .slot
+%ifdef STIK_DESKONLY
+    mov al, 0                   ; QUERY (stik_wsize's, asked here so that a
+    call OSAPI_WM_DESK          ; refusal costs no disk call): no desk layer
+    jnc .out                    ; - DESK.DRV missing, or no heap for it - is
+    mov si, stik_nodesk         ; no launch, said (SPEC.md 110.7)
+    jmp short .say
+%else
     clc
     jmp short .out
+%endif
 .found:
+    mov si, stik_isopen
+.say:
     push ds
     pop es
-    mov si, stik_isopen
     xor cx, cx
     call OSAPI_TOAST            ; the entry proc's own toast: the loader then
     stc                         ; says nothing over it (SPEC.md 20.12.4)
@@ -577,13 +598,15 @@ stik_made:
     call OSAPI_WM_ONCLOSE
     mov ax, 1                   ; the first tick: the window is up by then
     call OSAPI_WM_TIMER         ; CF = 1: kern_small, which has no timer -
-    jnc .t                      ; the WORKER ARM (SPEC.md 110.5.2): the
-    or byte [stik_st], STIK_S_WORKER ; first paint hires it, and its wake is
-%ifndef STIK_WIDGET             ; the tick - a widget's W_ONWAKE is STIK_WAKE
-    mov ax, stik_wake           ; already (stik_wmade), which reaches stik_wake,
-    call OSAPI_WM_ONWAKE        ; and stik_wake reads STIK_S_WORKER (SPEC.md
-%endif                          ; 110.11)
+%ifndef STIK_DESKONLY           ; the WORKER ARM (SPEC.md 110.5.2): the
+    jnc .t                      ; first paint hires it, and its wake is
+    or byte [stik_st], STIK_S_WORKER ; the tick - a widget's W_ONWAKE is
+%ifndef STIK_WIDGET             ; STIK_WAKE already (stik_wmade), which
+    mov ax, stik_wake           ; reaches stik_wake, and stik_wake reads
+    call OSAPI_WM_ONWAKE        ; STIK_S_WORKER (SPEC.md 110.11)
+%endif
 .t:
+%endif
     pop es
     pop si
     pop dx
@@ -592,6 +615,7 @@ stik_made:
     pop ax
     ret
 
+%ifndef STIK_DESKONLY
 ; stik_painted - the end of the package's W_PAINT (lock held). On the worker
 ; arm, hire the worker once: OSAPI_TASK_SPAWN wants the lock held and the
 ; instance published, which the entry proc has neither of (apps/taskmgr's
@@ -618,6 +642,8 @@ stik_painted:
     popf
     ret
 
+%endif
+
 ; stik_touch - the payload changed: owe a save, which the next tick makes.
 ; Every register and the flags kept
 stik_touch:
@@ -626,6 +652,7 @@ stik_touch:
     popf
     ret
 
+%ifndef STIK_DESKONLY
 ; stik_worker - kern_small's tick: sleep, ask to live, kick the UI task. It
 ; touches no file and no pixel (SPEC.md 20.6 rule 7); stik_wake does both
 stik_worker:
@@ -635,6 +662,8 @@ stik_worker:
     call OSAPI_TASK_ALIVE       ; never comes back once the window is closing
     call OSAPI_WM_WAKE          ; one queued per window: a busy UI task loses
     jmp short stik_worker       ; nothing by it
+
+%endif
 
 ; stik_wake - the worker's kick (SI = the window, the UI task, NO lock): take
 ; the lock so the beat - and STIK_ONTICK - sees kern_big's environment exactly
@@ -676,7 +705,11 @@ stik_beat:
     push si
     push di
     push es
+%ifdef STIK_DESKONLY
+    test byte [stik_st], STIK_S_TRIED
+%else
     test byte [stik_st], STIK_S_TRIED | STIK_S_WORKER
+%endif
     jnz .poll                   ; (kern_small's OSAPI_DESK_ITEM is the
     or byte [stik_st], STIK_S_TRIED  ; refusal: its path walk would buy nothing)
     call stik_register          ; EVERY launch, whatever the state file said:
@@ -848,8 +881,7 @@ stik_close:
 .s:
     test byte [stik_st], STIK_S_DIRTY
     jz .out
-    or byte [stik_fl], STIK_F_CLOSING ; never ask from here: the alert would
-    call stik_save              ; die with this package (SPEC.md 110.5.2)
+    call stik_save
 .out:
     clc
 .ret:
@@ -863,41 +895,19 @@ stik_close:
     ret
 
 ; stik_save - the state file, header and payload in one write (SPEC.md
-; 110.5.1). Not with no home, not once a refusal was for good, and not over a
-; DAMAGED file until the user has said Yes to STIK_DAMAGEDQ (110.5.2). A
-; refusal that may clear keeps it owed and backs the next try off; one that
-; will not makes the state read-only for the session. Keeps every register
+; 110.5.1). Not with no home, not once a refusal was for good. A DAMAGED file
+; is renamed to STIK_BADNAME first and then written afresh - or, with no
+; STIK_BADNAME, never written at all (110.5.2). A refusal that may clear keeps
+; it owed and backs the next try off; one that will not makes the state
+; read-only for the session. Keeps every register
 stik_save:
     test byte [stik_st], STIK_S_NOHOME | STIK_S_RDONLY
     jnz .r
+%ifndef STIK_BADNAME
     test byte [stik_st], STIK_S_DAMAGED
     jz .go
-%ifdef STIK_DAMAGEDQ
-    test byte [stik_fl], STIK_F_ASKING | STIK_F_CLOSING
-    jnz .r                      ; asked already, or closing: not now
-    push ax
-    push bx
-    push si
-    push di
-    push es
-    call OSAPI_WM_CLIP_CLEAR    ; STIK_ONTICK may have left a clip armed this
-                                ; beat, and the alert's create recomposes
-                                ; the bar through it (SPEC.md 110.9)
-    mov ax, KERNEL_SEG          ; os88ui_ask reads our window's title out of
-    mov es, ax                  ; the record, in KERNEL_SEG
-    mov al, OS88UI_AYESNO
-    mov bx, [stik_win]
-    mov si, stik_damq
-    mov di, stik_dans
-    call os88ui_ask             ; CF = 1: another alert of ours is up - ask
-    jc .busy                    ; at a later tick
-    or byte [stik_fl], STIK_F_ASKING
-.busy:
-    pop es
-    pop di
-    pop si
-    pop bx
-    pop ax
+%else
+    jmp short .go
 %endif
 .r:
     ret
@@ -910,6 +920,19 @@ stik_save:
     push es
     call stik_enter             ; CF = 1: not home now - the disk is out, or
     jc .soon                    ; another one is in
+%ifdef STIK_BADNAME
+    test byte [stik_st], STIK_S_DAMAGED
+    jz .w
+    push di
+    mov si, stik_bname          ; an older one set aside goes...
+    call OSAPI_FILE_DELETE
+    mov si, stik_dname          ; ...and this one takes its name. A refusal
+    mov di, stik_bname          ; is the write's to report: it meets the
+    call OSAPI_FILE_RENAME      ; same disk
+    pop di
+    and byte [stik_st], ~STIK_S_DAMAGED & 0xFF
+.w:
+%endif
     mov word [stik_file+STIK_H_MAGIC], STIK_HDR_MAGIC
     mov byte [stik_file+STIK_H_VER], STIK_HDR_VER
     mov byte [stik_file+STIK_H_PAYVER], STIK_PAYVER
@@ -951,23 +974,6 @@ stik_save:
     pop bx
     pop ax
     ret
-
-%ifdef STIK_DAMAGEDQ
-; stik_dans - the damaged-file question's answer (AL = 0 Yes, 1 No, or
-; OS88UI_ACANCEL; the lock held). Yes: the file is ours to replace, and the
-; next tick writes it whole. Anything else: read-only for the session
-stik_dans:
-    and byte [stik_fl], ~STIK_F_ASKING & 0xFF
-    or al, al
-    jnz .no
-    and byte [stik_st], ~STIK_S_DAMAGED & 0xFF
-    or byte [stik_st], STIK_S_DIRTY
-    ret
-.no:
-    or byte [stik_st], STIK_S_RDONLY
-    and byte [stik_st], ~STIK_S_DIRTY & 0xFF
-    ret
-%endif
 
 ; stik_enter - walk to SYSTEM\APPDATA on HOME's volume, having asked whether
 ; the disk in the drive is still home (SPEC.md 110.5.1). ONE full
@@ -1112,11 +1118,15 @@ stik_wsize:
     push cx
     push dx
     push si
+%ifdef STIK_DESKONLY
+    or byte [stik_wf], STIK_W_DESK  ; stik_single's QUERY took
+%else
     mov al, 0
     call OSAPI_WM_DESK          ; CF = 0: this kernel has the desk layer
     jc .q
     or byte [stik_wf], STIK_W_DESK
 .q:
+%endif
     call OSAPI_VIDEO            ; AX = width, BX = height
     push ax
     xor cx, cx                  ; TALL at 400 rows or more, MID from 300 -
@@ -1134,6 +1144,7 @@ stik_wsize:
     mov si, ax
     mov [stik_lay], si
     call stik_fsum              ; DX = the whole column, CX = tag + last gap
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jnz .d
     sub dx, cx                  ; the titled fallback: no tag, no last gap
@@ -1141,6 +1152,7 @@ stik_wsize:
     add dx, TITLE_H + 1
     jmp short .h
 .d:
+%endif
     mov [stik_fh], dx
 .h:
     mov [di+WT_H], dx
@@ -1150,10 +1162,12 @@ stik_wsize:
     sub ax, STIK_RIGHT + 1       ; the default place: the face STIK_RIGHT in
     mov [di+WT_X], ax           ; from the right edge, at the layout's y -
     mov ax, [si+STIKL_FY]        ; a state file's place overrides it
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jnz .y
     sub ax, TITLE_H
 .y:
+%endif
     mov [di+WT_Y], ax
 %endif
     pop si
@@ -1210,10 +1224,12 @@ stik_wplace:
     mov cx, [stik_file+STIK_H_SH]
     mov dx, [stik_fh]
     call stik_anchor
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jnz .d
     sub si, TITLE_H             ; wm_create clamps it onto the glass
 .d:
+%endif
     mov [di+WT_Y], si
     ret
 
@@ -1222,6 +1238,12 @@ stik_wplace:
 ; register kept
 stik_wmade:
     push ax
+%ifdef STIK_DESKONLY
+    mov al, 1
+    call OSAPI_WM_DESK          ; MAKE: we are in the entry proc, the window
+                                ; hidden and nobody's yet (SPEC.md 11.103.9) -
+                                ; its refusals are all a caller's mistakes
+%else
     test byte [stik_wf], STIK_W_DESK
     jz .t
     mov al, 1
@@ -1234,6 +1256,7 @@ stik_wmade:
     mov al, OSAPI_SAVEU_ON | OSAPI_SAVEU_1BPP   ; ...and two colours, as v1
     call OSAPI_WM_SAVEU
 .cb:
+%endif
     mov ax, stik_click
     call OSAPI_WM_ONCLICK
     mov ax, stik_mup
@@ -1252,10 +1275,12 @@ stik_place:
     mov ax, [es:si+W_X]
     inc ax
     mov dx, [es:si+W_Y]
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jnz .r
     add dx, TITLE_H
 .r:
+%endif
     ret
 
 ; stik_org - stik_place, kept in [stik_fx]/[stik_fy] for the painter
@@ -1274,8 +1299,10 @@ stik_org:
 ; primary's) is lifted to the menu bar once and then left - the move is made
 ; only when it is UP. Every register kept
 stik_refit:
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jz .r
+%endif
     test byte [es:si+W_FLAGS], 2
     jz .r
     push ax
@@ -1375,8 +1402,10 @@ stik_pbody:
     mov [stik_dmg+4], cx
     mov [stik_dmg+6], dx
     call stik_org               ; AX, DX = the face
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jz .cards
+%endif
     mov bx, dx                  ; the two ground columns, the column's height
     add dx, [stik_fh]
     dec dx
@@ -1424,11 +1453,13 @@ stik_pbody:
     mov bx, [stik_lay]
     mov cl, [stik_ci]
     inc cl
+%ifndef STIK_DESKONLY
     cmp cl, [bx+STIKL_N]
     jb .g                       ; the last gap is the tag's - the titled
     test byte [stik_wf], STIK_W_DESK ; fallback has neither
     jz .next
 .g:
+%endif
     mov ax, [stik_fx]
     mov bx, di
     mov cx, ax
@@ -1436,13 +1467,17 @@ stik_pbody:
     mov dx, di
     add dx, [stik_gh]
     dec dx
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jz .tg
+%endif
     call stik_desk              ; the desktop, in the gap
+%ifndef STIK_DESKONLY
     jmp short .gn
 .tg:
     call stik_tgap              ; white, with a rule through its middle
 .gn:
+%endif
     add di, [stik_gh]
 .next:
     add word [stik_pp], 2
@@ -1451,8 +1486,10 @@ stik_pbody:
     mov al, [stik_ci]
     cmp al, [bx+STIKL_N]
     jb .card
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jz .done
+%endif
     xor ax, ax                  ; the tag row: drawn whole if the damage
     mov al, [bx+STIKL_TAG]       ; touches it
     mov bx, di
@@ -1475,7 +1512,11 @@ stik_pdone:
     pop cx
     pop bx
     pop ax
+%ifdef STIK_DESKONLY
+    ret
+%else
     jmp stik_painted            ; tail: kern_small hires its worker there
+%endif
 
 ; stik_cut - AX..DX (inclusive) intersected with the paint's damage: CF = 1
 ; empty, else AX..DX the intersection
@@ -1523,6 +1564,7 @@ stik_desk:
     pop ax
     ret
 
+%ifndef STIK_DESKONLY
 ; stik_tgap - the titled fallback's gap (AX..DX = it, DI = its top, [stik_gh]
 ; its rows): white with a 1 px rule through its middle, composed and put down
 ; in ONE BLIT1 - never a fill and a line over it. Every register kept
@@ -1570,6 +1612,7 @@ stik_tgap:
     pop ax
     ret
 
+%endif
 ; stik_blit - the band onto the glass: AX = x, BX = y, CX = width, DX = rows,
 ; SI = the band row to start from. One OSAPI_GFX_BLIT1; every register kept
 stik_blit:
@@ -1858,8 +1901,10 @@ stik_boxy:
 ; stik_tagsync - the tag to what the state asks, drawn only on a change of the
 ; picture, under OSAPI_WM_CLIP_SET (lock held). Every register kept
 stik_tagsync:
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jz .r
+%endif
     push ax
     push bx
     push dx
@@ -2012,8 +2057,10 @@ stik_click:
 %endif
     jmp short .after
 .frame:
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jz .focus                   ; the titled frame is the kernel's
+%endif
     cmp byte [stik_pre], STIK_HV_SHOWN
     jb .drag                    ; the x only once it was SHOWING
     or ah, ah
@@ -2025,8 +2072,10 @@ stik_click:
     mov al, 2
     call OSAPI_WM_DESK          ; the kernel's drag, once we return
 .after:
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jz .focus
+%endif
     mov byte [stik_hv], STIK_HV_SHOWN ; a press reveals at once
 .focus:
     call stik_focus
@@ -2126,6 +2175,7 @@ stik_quit:
 stik_wake:
     test byte [stik_fl], STIK_F_QUIT
     jnz .q                      ; closing: nothing more
+%ifndef STIK_DESKONLY
     test byte [stik_st], STIK_S_WORKER
     jz .hov
     call OSAPI_GFX_LOCK
@@ -2133,6 +2183,7 @@ stik_wake:
     call OSAPI_GFX_UNLOCK
     ret
 .hov:
+%endif
     push ax
     push es
     mov ax, KERNEL_SEG
@@ -2281,8 +2332,10 @@ stik_hset:
 ; window's only: the titled fallback is an ordinary window. Every register
 ; kept
 stik_focus:
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jz .r
+%endif
     push ax
     push bx
     call OSAPI_MENU_OWNER
@@ -2371,8 +2424,11 @@ stik_isopen db STIK_ISOPEN, 0
 %else
 stik_isopen db 'Already open', 0
 %endif
-%ifdef STIK_DAMAGEDQ
-stik_damq   db STIK_DAMAGEDQ, 0
+%ifdef STIK_DESKONLY
+stik_nodesk db 'No desk layer (DESK.DRV)', 0
+%endif
+%ifdef STIK_BADNAME
+stik_bname  db STIK_BADNAME, 0
 %endif
 %strlen STIK_CAPLEN STIK_CAP
 %if STIK_CAPLEN > 12             ; the row's caption is 13 bytes, its NUL in

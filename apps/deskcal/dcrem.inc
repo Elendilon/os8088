@@ -245,11 +245,13 @@ dc_ring:
     call dc_copyz               ; record need not be
     mov ax, 880                 ; THE CHIRP: 880 Hz, then 660 on a beat four
     mov cx, 4                   ; ticks out (stik_nx) - one tone channel, so
-    test byte [stik_st], STIK_S_WORKER   ; the second note is a second ask.
-    jz .two                     ; kern_small's worker has begun its next
-    mov cl, 8                   ; 36-tick sleep before this beat ran: one
-    jmp short .tone             ; longer note there
+%ifndef STIK_DESKONLY           ; the second note is a second ask.
+    test byte [stik_st], STIK_S_WORKER   ; kern_small's worker has begun its
+    jz .two                     ; next 36-tick sleep before this beat ran:
+    mov cl, 8                   ; one longer note there
+    jmp short .tone
 .two:
+%endif
     mov byte [dc_chirp], 1
     mov byte [stik_nx], 4
 .tone:
@@ -419,8 +421,6 @@ dc_c3sync:
 .chg:
     cmp byte [stik_li], 2
     je .slot
-    cmp byte [dc_abon], 0
-    jne .x                      ; About up: its dismissal paints the face
     mov al, 2                   ; TALL / MID: card 3
     call dc_rshow
     jmp short .x
@@ -449,9 +449,7 @@ dc_c3sync:
     mov byte [dc_pane0], 0FFh
     call dc_menulive
 .draw:
-    cmp byte [dc_abon], 0
-    jne .x                      ; the page turned under About: its
-    mov al, 1                   ; dismissal paints it
+    mov al, 1
     call dc_rshow
 .x:
     pop cx

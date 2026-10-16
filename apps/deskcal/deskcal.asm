@@ -100,13 +100,16 @@ KSC_DEL     equ 0x53
 %define STIK_DATNAME 'DESKCAL.DAT'
 %define STIK_CAP     'Calendar'
 %define STIK_ISOPEN  'Desk Calendar is open'
-%define STIK_DAMAGEDQ 'Replace damaged calendar?'
+%define STIK_BADNAME  'DESKCAL.BAD'   ; a damaged file is set aside (110.5.2)
 %define STIK_ONTICK  dc_tick
 STIK_PAYLEN equ DCP_LEN
 STIK_PAYVER equ DCP_VER
 STIK_ICON   equ 32
 STIK_BSS    equ DC_BSS          ; the include's state follows ours
 %define STIK_WIDGET
+%ifndef APP_SMALL               ; kern_big's build: a desk widget or nothing.
+%define STIK_DESKONLY           ; The small build (make small) keeps the
+%endif                          ; titled fallback and the worker arm (110.7)
 %define STIK_TAG      'Desk Calendar'   ; = the title
 %define STIK_RIGHT    264       ; the face opens 264 px in from the right edge
                                 ; (a %define: the include tests it with %ifdef)
@@ -139,7 +142,6 @@ dc_ty       equ os88_image_end + DC_BSS_TY
 dc_tm       equ os88_image_end + DC_BSS_TM
 dc_td       equ os88_image_end + DC_BSS_TD
 dc_win      equ os88_image_end + 50     ; dw our window
-dc_abon     equ os88_image_end + 52     ; db the About card is up
 dc_dow1     equ os88_image_end + 53     ; db the 1st's column (Monday first)
 dc_dim      equ os88_image_end + 54     ; db the month's length
 dc_clip     equ os88_image_end + 55     ; db the clip is armed this lock hold
@@ -162,9 +164,10 @@ DC_BSS_ATOP equ 68                      ; db the agenda's first item on show
 DC_BSS_TTOP equ 69                      ; db ...and the tasks'
 dc_atop     equ os88_image_end + DC_BSS_ATOP
 dc_ttop     equ os88_image_end + DC_BSS_TTOP
-dc_ask      equ os88_image_end + 70     ; db our Delete question is up
-dc_delk     equ os88_image_end + 71     ; db ...about this kind
-dc_deli     equ os88_image_end + 72     ; db ...and index
+dc_ask      equ os88_image_end + 70     ; db Delete's latch: 2 armed by this
+                                        ; event, 1 by the one before (dc_askdel)
+dc_delk     equ os88_image_end + 71     ; db ...for this kind
+dc_deli     equ os88_image_end + 72     ; db ...and index - one word
 dc_afirst   equ os88_image_end + 73     ; db the day's first appointment
 DC_BSS_ACNT equ 74
 dc_acnt     equ os88_image_end + DC_BSS_ACNT    ; db ...and how many
@@ -261,7 +264,7 @@ dc_entry:
     mov [dc_geo], ax            ; our own geometry for that layout
     call dc_check               ; a payload whose counts or order are not
     jnc .ok                     ; ours is a DAMAGED file: empty, and the
-    push es                     ; first save asks before it replaces it
+    push es                     ; first save sets it aside (STIK_BADNAME)
     push ds                     ; (SPEC.md 110.3, 110.5.2)
     pop es
     mov di, STIK_PAY
@@ -275,6 +278,10 @@ dc_entry:
     call dc_today               ; today, and the month on show is today's
     mov word [dc_lnow], 0FFFFh  ; no minute seen: the first beat looks
     call dc_missed              ; what came due while we were not running
+    test byte [stik_st], STIK_S_DAMAGED
+    jz .nd
+    mov word [dc_ltp], dc_s_dmg ; ...or that the file was not ours: it runs
+.nd:                            ; empty and the first save sets it aside
     mov ax, [dc_ty]
     mov [dc_y], ax
     mov al, [dc_tm]
@@ -299,6 +306,10 @@ dc_entry:
     OS88_REGION_MOVABLE
     mov al, 1
     call OSAPI_WM_KEEPH         ; a fixed layout: hang over the dock, never cut
+    cmp byte [stik_li], 2       ; TALL / MID show both lists: no page
+    je .m                       ; to choose, so no Show item (the layout
+    dec word [dc_menus_list + AMENU_NITEM]  ; is the session's)
+.m:
     mov si, dc_menus
     call OSAPI_MENU_SET
     mov si, dc_about
@@ -313,88 +324,19 @@ dc_entry:
 
 ; -----------------------------------------------------------------------------
 ; dc_paint - W_PAINT (SI = the window; lock held, the clip armed): the
-; include's paint - the ground, every card's slabs, the tag - then the About
-; card over it while it is up
+; include's paint - the ground, every card's slabs, the tag
 ; -----------------------------------------------------------------------------
 dc_paint:
     mov byte [dc_clip], 1
-    call stik_paint
-    cmp byte [dc_abon], 0
-    je .x
-    push bx
-    push si
-    mov bx, [dc_win]
-    mov si, dc_ablines
-    call os88ui_about_d
-    pop si
-    pop bx
-.x:
-    ret
+    jmp stik_paint
 
-; -----------------------------------------------------------------------------
-; the About card (SPEC.md 12.2, 20.5.1)
-; -----------------------------------------------------------------------------
+; dc_about - the About item (SPEC.md 12.2, 20.5.1): one toast, and the face
+; is never covered (SPEC.md 110.3)
 dc_about:
-    push bx
     push si
-    mov byte [dc_abon], 1
-    mov bx, si
-    mov si, dc_ablines
-    call os88ui_about           ; arms the clip itself
+    mov si, dc_s_about
+    call dc_toast
     pop si
-    pop bx
-    ret
-
-; dc_abdismiss - the card down if it is up - what it covered again, ONE
-; repaint over its rows (os88stik.inc's stik_redrawr: the slabs those rows
-; reach, the content's width) - and CF = 1: the event was that. The rows are
-; os88ui_about_d's: the content's height less the card's, halved
-DC_ABN      equ 4               ; dc_ablines' lines
-DC_ABH      equ OS88UI_ABPADY * 2 + DC_ABN * OS88UI_ABLH
-dc_abdismiss:
-    cmp byte [dc_abon], 0
-    je .no
-    mov byte [dc_abon], 0
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    mov bx, [dc_win]
-    call OSAPI_WM_CONTENT       ; AX = the content's left, DX its top
-    push dx
-    push ax
-    call OSAPI_WM_GEOM          ; CX, DX = its size
-    pop ax
-    pop bx                      ; BX = its top (a pop writes no flags)
-    jc .x                       ; not on the glass: nothing to repaint
-    push cx
-    mov cx, DC_ABH
-    cmp cx, dx
-    jbe .h
-    mov cx, dx                  ; clamped as the card is
-.h:
-    sub dx, cx
-    shr dx, 1
-    add bx, dx                  ; BX = the card's top
-    mov dx, bx
-    add dx, cx
-    dec dx                      ; DX = its last row
-    pop cx
-    add cx, ax
-    dec cx                      ; CX = the content's last column
-    mov si, [dc_win]
-    call stik_redrawr
-.x:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    stc
-    ret
-.no:
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -721,8 +663,7 @@ dc_onkey:
     push dx
     push si
     mov byte [dc_clip], 0
-    call dc_abdismiss           ; a key takes the card down and is spent
-    jc .x
+    call dc_age
     cmp byte [dc_ed], 0
     je .cal
     call dc_fkey
@@ -843,15 +784,19 @@ dc_onkey:
 dc_release:
     push ax
     push bx
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jz .sel
+%endif
     mov bx, [dc_win]
     mov al, 3
     call OSAPI_WM_DESK
+%ifndef STIK_DESKONLY
     jmp short .x
 .sel:
     xor bx, bx
     call dc_selset
+%endif
 .x:
     pop bx
     pop ax
@@ -895,8 +840,7 @@ dc_oncard:
     push si
     push di
     mov byte [dc_clip], 0
-    call dc_abdismiss
-    jc .x
+    call dc_age
     call dc_hit                 ; [dc_hk] / [dc_hi] / [dc_hb] and its rect
     mov bl, [dc_hk]
     cmp byte [dc_ed], 0
@@ -1083,16 +1027,13 @@ dc_oncmd:
     push ax
     push bx
     mov byte [dc_clip], 0
-    call dc_abdismiss           ; a pick takes the card down - one repaint -
-                                ; then acts on what it shows
+    call dc_age
     cmp byte [dc_ed], 0
     je .shut
     call dc_fclose
 .shut:
     cmp ah, 1
     je .remind
-    cmp al, DCM_TODAY
-    jae .month
     xor ah, ah
     mov bx, ax
     shl bx, 1
@@ -1100,26 +1041,14 @@ dc_oncmd:
     jmp short .x
 .remind:
     call dc_remind
-    jmp short .x
-.month:
-    je .today
-    cmp al, DCM_PREV
-    je .prev
-    mov al, 1
-    call dc_month
-    jmp short .x
-.prev:
-    mov al, 0FFh
-    call dc_month
-    jmp short .x
-.today:
-    call dc_gotoday
 .x:
     pop bx
     pop ax
     ret
 
-dc_cmds:    dw dc_newa, dc_newt, dc_edit, dc_askdel, dc_clear, dc_pswap
+dc_cmds:    dw dc_newa, dc_newt, dc_edit, dc_askdel, dc_clear, dc_gotoday
+            dw dc_bprev, dc_bnext, dc_pswap
+dc_cmds_end:
 
 ; -----------------------------------------------------------------------------
 ; the edits. Every one is the UI task with the lock held, and each draws what
@@ -1133,17 +1062,12 @@ dc_touch:
     mov byte [dc_tq], 1
     jmp stik_touch
 
-; dc_busy - CF = 1 nothing may be changed now: the field is open, or our
-; Delete question is up (its answer deletes the item it asked about)
+; dc_busy - CF = 1 nothing may be changed now: the field is open
 dc_busy:
     cmp byte [dc_ed], 0
-    jne .y
-    cmp byte [dc_ask], 0
-    jne .y
-    clc
-    ret
-.y:
+    je .n
     stc
+.n:
     ret
 
 ; dc_toast - our line SI on the bar (<= 24 characters, SPEC.md 59.10)
@@ -1158,51 +1082,35 @@ dc_toast:
     pop cx
     ret
 
-; dc_menulive - the items that state a fact (SPEC.md 47): live, or their
-; MENU_DIS twin saying why. A store into the item array - the kernel reads it
-; when the menu drops (12.2), so nothing is re-registered. Keeps everything
+; dc_menulive - the items that state a fact (SPEC.md 47): live, or greyed.
+; A greyed item is its live string LESS ONE BYTE - each greyable string has
+; MENU_DIS in front of it - so it needs no twin; the reason is the toast a
+; key gets (`Calendar is full (48)`), or plain on the card. A store into the
+; item array - the kernel reads it when the menu drops (12.2), so nothing is
+; re-registered. Keeps everything
 dc_menulive:
     pushf
     push ax
     push di
-    mov ax, dc_i_newa
-    cmp byte [STIK_PAY + DCP_NAPPT], DCP_MAXAPPT
-    jb .a
-    mov ax, dc_i_newa0
-.a:
-    mov [dc_i_cal + 2 * DCM_NEWA], ax
+    mov di, dc_i_cal
+    mov ax, dc_i_newa           ; full, or typing (the three that would
+    cmp byte [STIK_PAY + DCP_NAPPT], DCP_MAXAPPT    ; close the field,
+    call .typ                   ; throwing its line away)
     mov ax, dc_i_newt
     cmp byte [STIK_PAY + DCP_NTASK], DCP_MAXTASK
-    jb .t
-    mov ax, dc_i_newt0
-.t:
-    mov [dc_i_cal + 2 * DCM_NEWT], ax
-    mov ax, dc_i_edit
-    mov di, dc_i_del
-    cmp byte [dc_selk], 0
-    jne .e
-    mov ax, dc_i_edit0
-    mov di, dc_i_del0
-.e:
-    mov [dc_i_cal + 2 * DCM_EDIT], ax
-    mov [dc_i_cal + 2 * DCM_DEL], di
-    cmp byte [dc_ed], 0         ; the field open: the three that would close
-    je .ne                      ; it, throwing its line away
-    mov word [dc_i_cal + 2 * DCM_NEWA], dc_i_newa1
-    mov word [dc_i_cal + 2 * DCM_NEWT], dc_i_newt1
-    mov word [dc_i_cal + 2 * DCM_EDIT], dc_i_edit1
-.ne:
-    mov ax, dc_i_clr
+    call .typ
+    mov ax, dc_i_edit           ; no item, or typing
+    cmp byte [dc_selk], 1
+    cmc
+    call .typ
+    mov ax, dc_i_del            ; no item
+    cmp byte [dc_selk], 1
+    call .put
+    mov ax, dc_i_clr            ; none done
     call dc_anydone
-    jnc .c
-    mov ax, dc_i_clr0
-.c:
-    mov [dc_i_cal + 2 * DCM_CLEAR], ax
-    mov ax, dc_i_pane0          ; Show Tasks / Reminder / Day: COMPACT's slot
-    cmp byte [stik_li], 2
-    jne .p
-    mov ax, dc_i_showt
-    cmp byte [dc_pane], 1
+    call .put
+    mov ax, dc_i_showt          ; Show Tasks / Reminder / Day: COMPACT's
+    cmp byte [dc_pane], 1       ; slot, and on the menu only there (dc_entry)
     jb .p
     mov ax, dc_i_showr
     je .p
@@ -1212,6 +1120,17 @@ dc_menulive:
     pop di
     pop ax
     popf
+    ret
+.typ:                           ; CF = 1 room: grey it if the field is open
+    cmc
+    jc .put
+    cmp byte [dc_ed], 1
+    cmc
+.put:                           ; AX = the live string, CF = 1 grey it
+    sbb ax, 0
+    mov [di], ax
+    inc di
+    inc di
     ret
 
 ; dc_selset - select BL = 0 (nothing), DCS_APPT or DCS_TASK, index BH: on
@@ -2005,57 +1924,41 @@ dc_fixsel:
 .x:
     ret
 
-; dc_askdel - Del / Delete Item: ask, and let the answer delete (SPEC.md
-; 110.3). Nothing changes while the question is up (dc_busy). The question
-; is an ordinary window: it lands above every application and the widget
-; and takes the bar (SPEC.md 11.103.4)
+; dc_askdel - Del / Delete Item, TWICE: the first arms the latch and says so,
+; and a second on the very next event, with the same item selected, deletes
+; it (SPEC.md 110.3). Every event handler ages the latch first (dc_age), so
+; anything in between - a key, a press, another command - disarms it.
+; Clobbers AX
 dc_askdel:
     call dc_busy
     jc .r
-    cmp byte [dc_selk], 0
-    je .r
-    push ax
-    push bx
-    push si
-    push di
-    push es
-    mov ax, KERNEL_SEG          ; os88ui_ask reads our title out of the
-    mov es, ax                  ; window record
-    mov si, dc_s_qappt
-    cmp byte [dc_selk], DCS_APPT
-    je .q
-    mov si, dc_s_qtask
-.q:
-    call OSAPI_WM_CLIP_CLEAR    ; the create recomposes the bar under any
-    mov byte [dc_clip], 0       ; armed clip, and the titles' cells would be
-                                ; recorded drawn and dropped (SPEC.md 110.9)
-    mov al, OS88UI_AYESNO
-    mov bx, [dc_win]
-    mov di, dc_delans
-    call os88ui_ask             ; CF = 1: another of ours is up (raised)
-    jc .x
-    mov byte [dc_ask], 1
     mov al, [dc_selk]
-    mov [dc_delk], al
-    mov al, [dc_seli]
-    mov [dc_deli], al
-.x:
-    pop es
-    pop di
+    or al, al
+    jz .r
+    mov ah, [dc_seli]
+    cmp byte [dc_ask], 1        ; armed by the event before this one...
+    jne .arm
+    cmp ax, [dc_delk]           ; ...for this same item
+    je dc_delans
+.arm:
+    mov byte [dc_ask], 2
+    mov [dc_delk], ax
+    push si
+    mov si, dc_s_qdel
+    call dc_toast
     pop si
-    pop bx
-    pop ax
 .r:
     ret
-
-; dc_delans - the question's answer (AL = 0 Yes; lock held, the alert gone)
+; dc_age - an event: Delete's latch one event older (2 -> 1 -> 0). Keeps
+; every register
+dc_age:
+    shr byte [dc_ask], 1
+    ret
+; dc_delans - the second Delete: the item [dc_delk]/[dc_deli] out (lock held)
 dc_delans:
     push ax
     push bx
-    mov byte [dc_clip], 0
     mov byte [dc_ask], 0
-    or al, al
-    jnz .x
     mov al, [dc_deli]
     cmp byte [dc_delk], DCS_APPT
     jne .task
@@ -2251,8 +2154,6 @@ dc_tick:
     jnc .min
     mov word [dc_lnow], 0FFFFh  ; a new day: the minute's work for it
     mov byte [dc_c3f], 1        ; ...and card 3's NEXT is another day's
-    cmp byte [dc_abon], 0
-    jne .min
     call dc_arm
     jc .min                     ; not visible: the next paint draws it
     call dc_rhdr                ; today's page
@@ -2269,8 +2170,8 @@ dc_tick:
 .hold:
     mov al, [dc_tq]             ; an edit this poll...
     mov byte [dc_tq], 0
-    or al, [dc_ed]              ; ...the field open, or the Delete
-    or al, [dc_ask]             ; question up: CF = 1 for any
+    or al, [dc_ed]              ; ...or the field open: CF = 1 for
+                                ; either
     neg al
     pop bx
     pop ax
@@ -2296,35 +2197,34 @@ DCM_NEWT    equ 1
 DCM_EDIT    equ 2
 DCM_DEL     equ 3
 DCM_CLEAR   equ 4
-DCM_PANE    equ 5
-DCM_TODAY   equ 6               ; ...and the three that draw a month
-DCM_PREV    equ 7
-DCM_NEXT    equ 8
-DCM_N       equ 9
+DCM_TODAY   equ 5               ; ...the three that draw a month
+DCM_PREV    equ 6
+DCM_NEXT    equ 7
+DCM_PANE    equ 8               ; ...and COMPACT's page, LAST: TALL and MID
+DCM_N       equ 9               ; show both lists and drop it (dc_entry)
+%if (dc_cmds_end - dc_cmds) / 2 != DCM_N
+  %error "deskcal: dc_cmds is the Calendar menu's items, in order"
+%endif
 dc_m_cal:   db 'Calendar', 0
 dc_m_rem:   db 'Remind', 0
-dc_i_cal:   dw dc_i_newa, dc_i_newt, dc_i_edit0, dc_i_del0, dc_i_clr0
-            dw dc_i_pane0, dc_i_today, dc_i_prev, dc_i_next
-dc_i_newa:  db 'New Appointment  N', 0  ; each greyable item has its twin:
-dc_i_newa0: db MENU_DIS, 'New Appointment (full)', 0   ; the grey says THAT,
-dc_i_newt:  db 'New Task  K', 0                        ; the words WHY
-dc_i_newt0: db MENU_DIS, 'New Task (full)', 0          ; (SPEC.md 47)
+dc_i_cal:   dw dc_i_newa, dc_i_newt, dc_i_edit - 1, dc_i_del - 1
+            dw dc_i_clr - 1, dc_i_today, dc_i_prev, dc_i_next, dc_i_showt
+            db MENU_DIS                 ; each greyable item's MENU_DIS: its
+dc_i_newa:  db 'New Appointment  N', 0  ; greyed form is the address before
+            db MENU_DIS                 ; it (dc_menulive, SPEC.md 47)
+dc_i_newt:  db 'New Task  K', 0
+            db MENU_DIS
 dc_i_edit:  db 'Edit Item  Enter', 0
-dc_i_edit0: db MENU_DIS, 'Edit Item (no item)', 0
-dc_i_newa1: db MENU_DIS, 'New Appointment (typing)', 0
-dc_i_newt1: db MENU_DIS, 'New Task (typing)', 0
-dc_i_edit1: db MENU_DIS, 'Edit Item (typing)', 0
+            db MENU_DIS
 dc_i_del:   db 'Delete Item  Del', 0
-dc_i_del0:  db MENU_DIS, 'Delete Item (no item)', 0
+            db MENU_DIS
 dc_i_clr:   db 'Clear Done Tasks', 0
-dc_i_clr0:  db MENU_DIS, 'Clear Done (none done)', 0
-dc_i_showt: db 'Show Tasks  Tab', 0
-dc_i_showr: db 'Show Reminder  Tab', 0
-dc_i_showd: db 'Show Day  Tab', 0
-dc_i_pane0: db MENU_DIS, 'Show Tasks (both shown)', 0
 dc_i_today: db 'Go to Today  T', 0
 dc_i_prev:  db 'Previous Month', 0
 dc_i_next:  db 'Next Month', 0
+dc_i_showt: db 'Show Tasks  Tab', 0
+dc_i_showr: db 'Show Reminder  Tab', 0
+dc_i_showd: db 'Show Day  Tab', 0
 dc_i_rem:   dw dc_r0, dc_r1, dc_r2, dc_r3, dc_r4, dc_r5
 dc_r0:      db 'At the Time', 0
 dc_r1:      db '5 Min Early', 0
@@ -2346,26 +2246,19 @@ dc_s_afull: db 'Calendar is full (48)', 0
 dc_s_tfull: db 'Task list is full (32)', 0
 dc_s_long:  db 'At most 25 letters', 0
 dc_s_tlong: db 'A task: at most 23', 0
-dc_s_qappt: db 'Delete this appointment?', 0
-dc_s_qtask: db 'Delete this task?', 0
+dc_s_qdel:  db 'Delete again to confirm', 0
+dc_s_dmg:   db 'Calendar file damaged', 0
 
-dc_ablines: dw dc_ab1, dc_ab2, dc_ab3, dc_ab4, 0
-%if ($ - dc_ablines) / 2 - 1 != DC_ABN
-  %error "deskcal: DC_ABN is dc_ablines' count"
-%endif
-dc_ab1:     db 'Desk Calendar', 0   ; each line inside the 176-px face
-dc_ab2:     db 'A desk widget', 0
-dc_ab3:     db 0
-dc_ab4:     db 'SPEC.md 110', 0
+dc_s_about: db 'Desk Calendar, SPEC 110', 0
 
 %include "dcdate.inc"
 %include "dcdata.inc"
 %include "dcrem.inc"
 
-%define OS88UI_ABOUT
-%define OS88UI_ALERT
-%define OS88UI_NOGLYPH          ; no check-box glyph: the widget's tick is a
-                                ; composed bit record (SPEC.md 13.16.2.1)
+%define OS88UI_MACROS           ; the UI_* macros os88line.inc draws with and
+                                ; no control: the cards draw their own, and
+                                ; there is no alert and no About card
+                                ; (SPEC.md 110.3, 110.11)
 %include "os88ui.inc"
 %include "os88line.inc"
 %include "os88gfx.inc"

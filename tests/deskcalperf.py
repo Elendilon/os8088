@@ -21,9 +21,9 @@ and three tasks, the clock at Wed 14 Oct 2026 09:58, v2's budgets (SPEC.md
 110.3) ASSERTED:
 
   first paint   the launch, its W_PAINT whole: <= 20 calls TALL, <= 14 COMPACT
-  About down    the About card taken down by a key: stik_redrawr over the
-                card's rows alone - FEWER calls than the first paint (the
-                slabs those 62 rows reach, v4 review)
+  About         the About item: ONE TOAST and nothing drawn on the face -
+                0 calls (the About card on the face and its take-down are
+                gone, SPEC.md 110.3)
   day select    a press on the 15th, a day with nothing on it: <= 5 - today's
                 box and the 15th's, a sub-rect each, and card 2
   month         PgDn: <= 8 - card 1 from the nav down and card 2
@@ -226,21 +226,20 @@ def ui_leg(tmp, machine, label, results):
                     and h["regs"]["bx"] >= ty)]
             return Gesture(hits, seg, extra=extra, start=comp_at)
 
-        print("%s: the About card, then a key takes it down" % label)
+        print("%s: About, a toast" % label)
         c.front()
         about = [(mm[0], it) for mm in ui.menus() for it, _ in mm[3]
                  if it.startswith("About Desk")]
         check(bool(about), "%s: an About item on the bar (%r)"
               % (label, [mm[0] for mm in ui.menus()]))
-        ui.menu_pick(*about[0])
-        os88marty.pace(m, 1.0)
-        c.front()
-        full = gesture(lambda: m.key("KeyX"), 3.0)
-        print("%s: About down       %s" % (label, full))
-        r["about_down"] = full.row()
-        check(0 < full.n < first.n, "%s: the About card's take-down repaints "
-              "the rows it covered, not the face (%d against the first "
-              "paint's %d calls)" % (label, full.n, first.n))
+        ab = gesture(lambda: ui.menu_pick(*about[0]), 3.0)
+        print("%s: About            %s" % (label, ab))
+        r["about"] = ab.row()
+        txt = ui.wait_toast(says="Desk Calendar")
+        check(txt == "Desk Calendar, SPEC 110", "%s: About says %r"
+              % (label, txt))
+        check(ab.n == 0, "%s: About draws nothing on the face (%d calls)"
+              % (label, ab.n))
 
         print("%s: a press on the 15th" % label)
         c.front()
