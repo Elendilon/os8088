@@ -131570,7 +131570,12 @@ displacement and changes only its sign. Three rules, each stated in
    region's relocation proc is therefore `tk_ret`, a lone `ret` in
    `tk_sin1` - the bare `OS88_REGION_MOVABLE` plants its own `ret` inline,
    which here would be overwritten by the first template draw, and the
-   kernel calls it on the next compaction.
+   kernel calls it on the next compaction. It is the KEEPING spelling,
+   `OS88_REGION_MOVABLE tk_ret`: `_NOKEEP` shipped in the first cut of the
+   pass and the small build stopped opening, because kern_small answers the
+   slot `stc` (nothing moves there, §66.0) and nothing after it in
+   `tk_entry` sets CF again on that kernel - so the entry proc returned the
+   slot's refusal as its own, `LD_EABORT` with no toast (`tanksmall`).
 2. **Nothing the kernel keeps a pointer to is in it**: the window template,
    the title, the menus, the About handler and every callback stay above.
 3. **A walk's overrun runs one row past either end of a set** (§85.3.2), and
