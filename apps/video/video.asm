@@ -2006,14 +2006,12 @@ vp_canplay:
     je .got
     mov byte [vp_ok], 0
 .next:
-    inc bl                          ; (BL, not BX: the byte keeps the decode
-    jmp short .d                    ; and the hook on their word parity -
-                                    ; tools/os88rdiff.py --hot, PERFORMANCE.md
-                                    ; Part 7. BX < 16 here, so it is the same)
+    inc bx
+    jmp short .d
 .got:
     mov [vp_fsdisp], bl             ; CH for OSAPI_FSX_RUN
-    add sp, 4                       ; (the two banked words; three bytes and
-                                    ; not two pops, for the parity above)
+    pop ax                          ; (the two banked words)
+    pop ax
     mov bl, [vp_fskind]
     and bx, 3
     shl bx, 1
@@ -2149,12 +2147,13 @@ vp_canp1:
     mov ax, vp_s_notxt
     jmp short .say
 .std:
-    cmp byte [vp_screen], 0         ; A SCREEN OF ITS OWN (98.1.3.2.1): its
-    je .std1                        ; mode on a VGA, never the shadow -
-    mov cx, 1 << FSXM_VGA0D         ; 0Dh's for the 320-wide two, 12h's for
-    cmp byte [vp_screen], 2         ; the rest, each then retimed - and the
-    jbe .sc                         ; NARROW two are 320 wide (98.1.3.2.5)
-    cmp byte [vp_screen], VP_SCRN
+    mov bl, [vp_screen]             ; A SCREEN OF ITS OWN (98.1.3.2.1): its
+    or bl, bl                       ; mode on a VGA, never the shadow -
+    jz .std1                        ; 0Dh's for the 320-wide two, 12h's for
+    mov cx, 1 << FSXM_VGA0D         ; the rest, each then retimed - and the
+    cmp bl, 2                       ; NARROW two are 320 wide (98.1.3.2.5)
+    jbe .sc
+    cmp bl, VP_SCRN
     jae .sc
     mov cx, 1 << FSXM_VGA12
 .sc:
@@ -2188,29 +2187,28 @@ vp_canp1:
     inc byte [vp_shadow]            ; (0 since the entry: 1)
 .ok:
     mov [vp_tlay], al
-    mov bl, al                      ; the mode to take
-    call vp_lay6                    ; BX = layout x 6
+    mov [vp_fslay], al              ; THE FULL SCREEN's, kept: a bracket in the
+    mov bl, al                      ; window sets its own (98.3.7) - the mode
+    call vp_lay6                    ; to take: BX = layout x 6
     mov al, [vp_laytab+bx]
     cmp byte [vp_pixfmt], PF_CGA4   ; (mode 4 is CGA's layout at two bits a
     jne .md                         ; pixel)
     mov al, FSXM_CGA320
 .md:
-    cmp byte [vp_screen], 0         ; (a screen of its own: 0Dh or 12h)
-    je .md1
+    mov bl, [vp_screen]             ; (a screen of its own: 0Dh or 12h)
+    or bl, bl
+    jz .md1
     mov al, FSXM_VGA0D
-    cmp byte [vp_screen], 2
+    cmp bl, 2
     jbe .md1
-    cmp byte [vp_screen], VP_SCRN
+    cmp bl, VP_SCRN
     jae .md1
     mov al, FSXM_VGA12
 .md1:
     mov [vp_mode], al
+    mov [vp_fsmode], al
     mov byte [vp_ok], 1
     call vp_mdet                    ; MUTED, if this machine may not play it
-    mov al, [vp_tlay]               ; THE FULL SCREEN's, kept: a bracket in the
-    mov [vp_fslay], al              ; window sets its own (98.3.7)
-    mov al, [vp_mode]
-    mov [vp_fsmode], al
     mov al, [vp_shadow]
     mov [vp_fsshd], al
     mov word [vp_msg], vp_s_ready

@@ -169185,6 +169185,13 @@ by 21 bytes for 10 fewer in the image - measured and not taken.
   stream's keeper is sized by `vp_plshd`, the planar keyframe's own claim
   - the same sum, written out a second time in `vp_sstart`. -48 bytes of
   image, -21 of file.
+- **Can it play here** (`vp_canp1`) reads a screen of its own once into
+  BL for each of its two ladders, and stores the full screen's layout and
+  mode where it has them rather than loading them back after `vp_mdet`
+  (which keeps every register and reads neither); and `vp_canplay`'s two
+  parity pads (`inc bl` and `add sp, 4` where `inc bx` and two pops do)
+  are gone, the pass keeping every play routine's parity as a whole. -14
+  of image, -27 of file.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 
