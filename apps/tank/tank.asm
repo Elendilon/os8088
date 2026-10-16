@@ -1199,9 +1199,14 @@ tk_entry:
     ; moves most easily, and putting this at the spawn left exactly
     ; those runs declaring nothing - measured, by the row that reads
     ; MC_RLOC back out of the kernel's own table.
-    OS88_REGION_MOVABLE_NOKEEP tk_ret   ; NAMED, and outside the overlay:
-                                    ; the bare form plants its `ret` HERE,
-                                    ; where tk_spjunk's first frame lands
+    OS88_REGION_MOVABLE tk_ret      ; NAMED, and outside the overlay: the
+                                    ; bare form plants its `ret` HERE, where
+                                    ; tk_spjunk's first frame lands. And the
+                                    ; KEEPING form: kern_small refuses the slot
+                                    ; with CF = 1 and nothing below this sets
+                                    ; CF again there, so the _NOKEEP spelling
+                                    ; made the entry proc refuse ITSELF on the
+                                    ; small build (tests/tanksmall.py)
     mov al, 1                       ; an 8-aligned content origin: every
     call OSAPI_WM_SNAP              ; font_run below reaches SPEC.md 6.1's
                                     ; single-store cell, and the score band's
