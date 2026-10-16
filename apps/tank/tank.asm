@@ -699,6 +699,10 @@ tk_tpl:
     dw tk_ttl, tk_paint, tk_onkey, tk_onclick
 
 %include "tklogo.inc"
+%assign TK_GONSEG 0                ; tkover.inc's strokes, COUNTED here: the
+%macro TKGO 4-*                     ; bytes are the entry overlay's, and the
+  %assign TK_GONSEG TK_GONSEG + %0 / 2 - 1    ; list they expand to the bss's
+%endmacro
 %include "tkover.inc"
 %include "tkhs.inc"
 %include "tkraster.inc"
@@ -734,6 +738,7 @@ tk_tpl:
     ZBUF  tk_v_pyr, TKV_PYR * 6
     ZBUF  tk_v_tank, TKV_TANK * 6
     ZBUF  tk_v_shell, TKV_SHELL * 6 ; (tk3d.inc's TK_MODELS, in its order)
+    ZBUF  tk_goseg, TK_GONSEG * 4   ; GAME OVER's segments (tk_golets counts)
     ZBUF  tk_ridgetab, 256
 
 ; --- the desktop side ---------------------------------------------------------
@@ -1301,6 +1306,26 @@ tk_mktabs:
     add ax, dx                      ; x 5
     stosw
     loop .vtx
+
+    ; GAME OVER (SPEC.md 85.8): tkover.inc's strokes - a segment count and
+    ; its points - out to one segment per pair of neighbours, and DI runs on
+    ; from the vertices into tk_goseg
+%if tk_goseg != tk_v_shell + TKV_SHELL * 6
+  %error "tk_mktabs runs from the vertices into tk_goseg: keep them adjacent"
+%endif
+.stroke:
+    lodsb                           ; SI runs on from the vertices' seed too
+    cbw
+    xchg ax, cx                     ; CX = the stroke's segments, 0 the end
+    jcxz .goend
+    lodsw                           ; its first point
+.goseg:
+    stosw                           ; a segment's start...
+    lodsw
+    stosw                           ; ...and its end, which starts the next
+    loop .goseg
+    jmp short .stroke
+.goend:
     pop es
     ret
 
@@ -1340,6 +1365,17 @@ tk_mdlseed:
 %if TK_NVSEED != TK_NYPRE
   %error "TK_MODELS does not hold TK_NYPRE vertices"
 %endif
+
+%unmacro TKGO 4-*
+%macro TKGO 4-*
+    db %0 / 2 - 1
+  %rep %0
+    db %1
+    %rotate 1
+  %endrep
+%endmacro
+%include "tkover.inc"               ; ...on from tk_mdlseed, which is where
+    db 0                            ; tk_mktabs reads it; and the strokes' end
 
 tk_ovlend:
     times TK_OVLSZ - (tk_ovlend - tk_ovl) db 0  ; a negative count is the

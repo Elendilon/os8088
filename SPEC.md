@@ -129229,6 +129229,17 @@ on. Everything else is the raster the game already had — the same `tk_seg`,
 the same spans, the same blit — so the overlay costs what forty more segments
 cost and nothing structural.
 
+**The file ships the forty as the twelve strokes they are drawn in**
+(apps size pass 2): 28 of them start where the one before ended, so
+`tkover.inc` is twelve runs of points, and `tk_mktabs` in the entry overlay
+(§85.10.6) writes one segment for every pair of neighbours into the bss's
+`tk_goseg` - the same 160 bytes in the same order, so every segment keeps its
+index and therefore its flight. `tk_golets` stops on its segment count, which
+BP already is, rather than on a terminator byte: a register compare where
+there was a memory one, so the walk is a few cycles a segment cheaper and
+the list is four bytes a segment exactly. 117 bytes of seed and 13 of code
+where there were 161 of table: **the file -32, RAM unchanged**.
+
 #### 85.6.3 The difficulty curve — the first ten tanks
 
 Reported from a playtest, and the two halves are separate complaints. §85.6.1
