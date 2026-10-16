@@ -44,7 +44,7 @@ disk needs it. One session per set; one agent per package inside it.
 | **A** | the system disk | `dos`, `paint`, `notepad`, `deskcal`, `thewire`, `taskmgr`, `fontview`, `rlapply`, `mines` | **done** - docs/reports/APPS-SIZE-P2-SETA-2026-10-16.md |
 | **B** | the apps disk: network and office | `browser`, `ftpd`, `telnet`, `OS88NET.COM` (`drivers/net/os88net.asm`, the DOS end of NET.DRV - SPEC.md 62.12; the one file under `drivers/` a set may edit), `texpad`, `artful`, `audio`, `calc` | **done** - docs/reports/APPS-SIZE-P2-SETB-2026-10-16.md |
 | **C** | the apps disk: games | `tracker`, `wireball`, `tank`, `cyclone`, `missile`, `arkanoid`, `solitaire`, `tamegram` | **done** - docs/reports/APPS-SIZE-P2-SETC-2026-10-16.md |
-| **D** | the apps disk: the owner-constrained and the small | `skies`, `video`, `fractal`, `piano`, `timer`, `midirack`, `chart` | **claimed** - session 01LNUrZS6bEfiBG3rnKx8gsX, 2026-10-16 |
+| **D** | the apps disk: the owner-constrained and the small | `skies`, `video`, `fractal`, `piano`, `timer`, `midirack`, `chart` | **done** - docs/reports/APPS-SIZE-P2-SETD-2026-10-16.md |
 | **E** | the office and games disks | `pixel`, `pixelstein`, `word`, `drmario` (with `DRMARCO.VGA`/`.HRC`/`.CGA`), `isotron`, `dotdel`, `gorillas` | open |
 
 **Not in any set, and why** - each is the owner's to reopen:
@@ -328,7 +328,7 @@ every set's list into one ranked table here (6) for the owner to pick from.
 | A | docs/reports/APPS-SIZE-P2-SETA-2026-10-16.md | system +1, network +1, small360 +3, smallapps360 +3; apps360 +0 (-2,138 B off the system disk's full arms) |
 | B | docs/reports/APPS-SIZE-P2-SETB-2026-10-16.md | 0 / **+22** / office +12, games +12, small360 +17, smallapps360 +17, network +4 - the code pass is -3,509 file bytes, the rest is the owner's LZB decision (6.2) |
 | C | docs/reports/APPS-SIZE-P2-SETC-2026-10-16.md | 0 / +3 / games360 +3, small360 +3, smallapps360 +3 (-2,610 file bytes across 8 packages; image + bss -2,561) |
-| D | - | - |
+| D | docs/reports/APPS-SIZE-P2-SETD-2026-10-16.md | 0 / **+1** / +1 games360, +3 media360 (+5 in all; -5,366 file bytes) |
 | E | - | - |
 
 ### 6.2 What set B changed for EVERY set: thirteen builds ship LZB
