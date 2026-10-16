@@ -1667,12 +1667,13 @@ sol_colfan:
     sub ax, dx
     jbe .allface
     mov bx, ax                      ; BX = face-up gaps
-    mul word [sol_cfu]
-    mov si, ax
-    mov ax, dx
-    mul word [sol_cfa]
-    add ax, si
-    jmp .test
+    xchg ax, dx                     ; AX = the face-down cards - DX, BEFORE
+    mul word [sol_cfa]              ; a `mul` makes it the product's high
+    xchg ax, si                     ; word (SPEC.md 43.11.7: it did, so the
+    mov ax, bx                      ; face-down half was read as 0 and a
+    mul word [sol_cfu]              ; column that overflowed by up to that
+    add ax, si                      ; much was not tightened)
+    jmp .test                       ; SI = what the face-down half costs
 .allface:
     xor bx, bx
     mov ax, cx
@@ -1682,11 +1683,8 @@ sol_colfan:
     jbe .out                        ; it fits at full stretch
 
     or bx, bx
-    jz .shrinkd                     ; no face-up gaps to give
-    mov ax, [sol_cfd]
-    mul word [sol_cfa]
-    mov si, ax                      ; SI = what the face-down half costs
-    mov ax, [sol_avail]
+    jz .shrinkd                     ; no face-up gaps to give - and with
+    mov ax, [sol_avail]             ; some, SI is the face-down half's cost
     sub ax, si
     jbe .shrinkboth
     cmp ax, bx

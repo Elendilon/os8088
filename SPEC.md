@@ -79171,7 +79171,9 @@ and `small360.img` and `smallapps360.img` in the small one.
 | | image | bss | image + bss | file (LZ4) |
 |---|---:|---:|---:|---:|
 | full, before | 4,595 | 1,140 | 5,735 | 4,259 |
+| full, after | **4,410** | **1,218** | **5,628** (−107) | **4,127** (−132) |
 | `APP_SMALL`, before | 4,385 | 1,147 | 5,532 | 4,067 |
+| `APP_SMALL`, after | **4,208** | **1,225** | **5,433** (−99) | **3,938** (−129) |
 
 **The first four rows are COLD**: every routine a frame, a click, a drag or a
 key runs is instruction-identical to the build before them - compared
@@ -79190,6 +79192,7 @@ by taking instructions OUT of the path it is on, and they are measured below.
 | `sol_track` keeps the origin once | −6 | −6 | −11 / −11 |
 | `sol_pilexy` reads a pile's column from a table | −5 | −5 | −5 / −5 |
 | six routines lose instructions they did not need | −27 | −27 | −35 / −35 |
+| DEFECT: `sol_colfan`'s fit test read the face-down half as 0 | −4 | −4 | −9 / −9 |
 
 **The metric records carry their derived fields.** `sol_metrics` copied a
 record of fourteen bytes into words and then worked out four more from them -
@@ -79269,6 +79272,47 @@ fewer instructions:
   is free, rather than saving AX round it later; nothing is drawn between;
 - `sol_shwbase` multiplies through AH, which a byte `mul` overwrites anyway,
   so DX need not be saved.
+
+**A DEFECT, fixed: `sol_colfan`'s fit test read the face-down half as 0**,
+and had since the package's first version. It priced the column's last
+card as `up * cfu`, then loaded the face-down count from DX - which the
+`mul` had just made the product's high word, 0 - so `cfd * cfa` never
+counted. A column that overflowed by less than its face-down height was
+judged to fit and was not tightened, and its last card ran off the content
+and was clipped there. Read off a CGA game (`[sol_avail]` = 100): six
+face-down cards and nine face-up need 6×3 + 8×12 = 114 rows against 100, the
+test saw 96, and the top card lost 14 of its 28 rows. The fix multiplies
+the face-down half FIRST, while DX still holds it, into SI - which is the
+very value the shrink path below recomputed with a third `mul`, so that one
+goes and the fix is four bytes SMALLER. That column now fans at 10 rows a
+card (82 / 8), the last card is whole and every rank glyph still shows
+(they need 10). It changes the picture only in that window - a column whose
+true height overflows and whose face-up half alone does not.
+
+**Measured** on MartyPC's 4.77 MHz 8088, guest cycles entry to return, with
+`tools/solperf.py` (§43.11.5's tool: one seeded deal, three stock clicks and
+its own twelve-move session) - the build before the hot rows (after the
+cold four) against the final one:
+
+| | CGA | Hercules | VGA | CGA, `APP_SMALL` |
+|---|---:|---:|---:|---:|
+| a drop, five, each lower by | 170..320 | 104..245 | 170..328 | 170..320 |
+| a drop, mean | 354,826 → **354,561** | 443,487 → **443,302** | 282,686 → **282,449** | 354,835 → **354,576** |
+| a stock click with no tick inside, each lower by | 117..171 | 72..171 | 117..216 | 39..72 |
+| a stock click, floor | 117,822 → **117,656** | 131,457 → **131,291** | 98,480 → **96,968** | 117,656 → **117,611** |
+| New Game (one span) | 1,694,313 → 1,698,660 | 2,055,039 → 2,048,072 | 4,102,137 → 4,105,860 | 1,694,219 → 1,698,584 |
+| Restart Deal (one span) | 1,649,196 → 1,653,732 | 2,010,101 → 2,008,832 | 4,056,993 → 4,054,983 | 1,649,075 → 1,647,635 |
+
+New Game and Restart are ONE span each, 1.6 to 4.1 million cycles - six to
+sixteen timer ticks at ~5.7-5.9 thousand cycles a tick, the step every
+stock-click row that a tick landed in shows - so the two builds can differ
+by a whole tick on phase alone; every one of the eight lands within a tick
+of 1.1-2.2 thousand cycles LOWER (+4,347 is one tick more and ~1,350
+fewer, −6,967 one tick fewer and ~1,100 fewer). The drag's outline,
+`sol_dxor`, is instruction-identical and was not re-priced: its spans move
+with where the host's mouse puts the outline, not with the build. Nothing
+in the hot rows moved the dealt game or the moves played, and the colfan
+fix is not reached by this session (no column in it overflows).
 
 ### 43.12 `APP_SMALL` — the small build of this package
 
