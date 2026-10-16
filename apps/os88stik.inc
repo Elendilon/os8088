@@ -1237,7 +1237,10 @@ stik_paint:
 
 ; stik_redraw - the whole face again OUTSIDE a paint (SI = the window, lock
 ; held): OSAPI_WM_CLIP_SET, then stik_paint's body over all of it. Nothing
-; when none of the window is on the glass. Every register kept
+; when none of the window is on the glass. Every register kept.
+; OPT-IN (%define STIK_REDRAW): its one caller was the calendar's About card,
+; which is a toast now (SPEC.md 110.3), and nothing else calls it
+%ifdef STIK_REDRAW
 stik_redraw:
     push ax
     push bx
@@ -1253,6 +1256,7 @@ stik_redraw:
     pop bx
     pop ax
     ret
+%endif
 
 ; stik_redrawr - stik_redraw over the damage AX, BX - CX, DX alone (screen,
 ; inclusive): what a card over the face uncovered, its slabs and nothing

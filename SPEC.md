@@ -187279,6 +187279,7 @@ disk. One change at a time:
 |---|---:|---:|---:|
 | `dc_rbox`'s bytes are 3 x the column and 3 more (asserted beside `DC_FLDW`), not a `MUL` and two shifts; `CBW` for `XOR AH, AH` at the three sites left, each a grid index or a geometry byte | 0 (-12) | -7 | -6 |
 | three more strings that are another's tail: `>` in the slot's ` >`, COMPACT's `Tasks` in `Clear Done Tasks`, its `Reminder` in `No Reminder` | -16 (-17) | -8 | -10 |
+| `os88stik.inc`'s `stik_redraw` is OPT-IN (`%define STIK_REDRAW`): its one caller was the About card, a toast since the size pass, and neither includer (the calendar, `tests/stikprob`) calls it - the size pass treated the include as the calendar's, and the gate keeps the entry for a package that wants it | -32 (-22) | -20 | -14 |
 
 The image column is the file's, which `align 16` pads; the span is the code.
 
@@ -188433,7 +188434,7 @@ adapter's kind), and sizes the template itself.
 | `stik_load` | also: `OSAPI_WM_DESK` QUERY; the layout; the template's size and, from the state file or the default, its place - converting a v1 file's titled frame to a face |
 | `stik_made` | also: MAKE (the desk form) or `OWNBG` + `SAVEU ON\|1BPP` (the titled fallback); `W_ONCLICK` = `stik_click`, `W_ONMOUSEUP` = `stik_mup`, `W_ONWAKE` = `STIK_WAKE`; the place on record is the FACE's |
 | `stik_paint` | the template's `W_PAINT` (or the package's, tail-jumping to it): `OSAPI_WM_DAMAGE`, then only what intersects it - the two ground columns and every gap by `OSAPI_GFX_DESK`, each card by `STIK_PAINTCARD`, the tag row from the state - and `stik_painted` |
-| `stik_redraw` | (wave 4) the whole face again OUTSIDE a paint, SI = the window, the lock held: `OSAPI_WM_CLIP_SET`, then `stik_paint`'s body with the damage the whole of it - a package's About card taken down; nothing when none of the window shows |
+| `stik_redraw` | (wave 4) the whole face again OUTSIDE a paint, SI = the window, the lock held: `OSAPI_WM_CLIP_SET`, then `stik_paint`'s body with the damage the whole of it - a package's About card taken down; nothing when none of the window shows. **Opt-in since apps size pass 2** (`%define STIK_REDRAW`, §110.6.1): its one caller was the calendar's About card, a toast now, so neither includer assembled a call to it |
 | `stik_slabs` | the slab painter a `STIK_PAINTCARD` may be: for each `GFXE_BAND_H`-row slab of the card that the rows touch, paper the band white, call `STIK_COMPOSE` (AL = the card, BX = the slab's first card row, CX = its rows; compose with `y` = card row - BX) and blit the damaged rows of it, ONE `OSAPI_GFX_BLIT1` |
 | `stik_click`, `stik_mup` | the prefilters (the gestures above) |
 | `stik_wake` | `W_ONWAKE`: on the worker arm, v1's beat; otherwise the hover edge's reconcile |
