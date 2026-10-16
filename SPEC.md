@@ -60620,6 +60620,10 @@ the file follows UNIQUE bytes.
   `Shortcu` and `Disk im`. The row has exactly one spare column (24 of 25),
   so `TMH_TYPEC` = 8 would fit if the header and the ADDR/SIZE/TIER columns
   moved one right — a visible change, left for the owner.
+- **The quiet key and the graph**: `tm_quiet` walks the claim table to its
+  end by address (no counter on the stack) and starts the totals' span from
+  where that walk leaves SI, which IS `tm_kb`; `tm_graph` keeps the
+  interior's left edge in a register instead of recomputing it.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 

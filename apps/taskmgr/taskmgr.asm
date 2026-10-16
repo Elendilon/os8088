@@ -1701,9 +1701,7 @@ tm_quiet:
     ; truthfully. What is skipped is the REASON to paint.
     mov si, tm_claims
     xor ax, ax                  ; AX chains through all three spans
-    mov cx, MEM_MAX
 .rec:
-    push cx
     cmp word [si+CLS_SEG], 0    ; A FREE RECORD WEIGHS NOTHING, and that is
     je .zero                    ; half of what makes this work: its CLS_PARA
                                 ; and CLS_OWN are a previous tenant's leftovers,
@@ -1740,11 +1738,11 @@ tm_quiet:
     mov cx, CLS_RECSZ
     call tm_sumb                ; AX chains; SI advances past the record
 .next:
-    pop cx
-    loop .rec
-
-    mov si, tm_kb               ; ...and the two TOTALS that move with our own
-    mov cx, SK_CLAIM            ; cache are SKIPPED rather than corrected: both
+    cmp si, tm_claims + CLAIM_SNAPSHOT_SIZE
+    jb .rec
+                                ; SI = tm_kb now: it follows the claim table
+    mov cx, SK_CLAIM            ; ...and the two TOTALS that move with our own
+                                ; cache are SKIPPED rather than corrected: both
     call tm_sumb                ; are derived from the table just hashed, so a
     add si, 4                   ; real claim is still caught by the record it
     mov cx, SYSKB_SIZE - (SK_KCLAIM + 2)    ; occupies, and the arithmetic to
@@ -5645,24 +5643,22 @@ tm_graph:
 
     call tm_frame
 
-    mov si, [tm_cx]             ; --- the damaged span, clamped to the interior
-    add si, 7                   ; SI = the interior's first screen x
-    mov di, si
-    add di, TM_GW - 1           ; DI = ...and its last
-    mov ax, [tm_dmg+0]
-    cmp ax, si
+    mov ax, [tm_cx]             ; --- the damaged span, clamped to the interior
+    add ax, 7                   ; AX = the interior's first screen x, kept
+    mov si, ax                  ; SI = the span's first...
+    lea di, [si+TM_GW-1]        ; DI = ...and its last
+    mov dx, [tm_dmg+0]
+    cmp dx, si
     jbe .lo                     ; the damage starts left of us: from column 0
-    mov si, ax
+    mov si, dx
 .lo:
-    mov ax, [tm_dmg+4]
-    cmp ax, di
+    mov dx, [tm_dmg+4]
+    cmp dx, di
     jae .hi                     ; ...and runs past our right: to the last
-    mov di, ax
+    mov di, dx
 .hi:
     cmp si, di
     ja .done                    ; it crossed our band beside us, not over us
-    mov ax, [tm_cx]
-    add ax, 7
     sub si, ax                  ; SI = the first column owed
     sub di, ax                  ; DI = the last
 
