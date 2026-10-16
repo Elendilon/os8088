@@ -159903,6 +159903,22 @@ DEFECTS found reading the code are fixed here, each one byte-negative:
   and `terminate` handed the client back a CX it did not pass. A byte divide
   by DL instead (AX is under 28) - three bytes shorter and faster.
 
+Together: part 0 19,802 -> 19,671 packed and part 1 13,513 -> 13,507, and
+**neither crossed its sector, so the file is still 48,203 bytes** - part 0 is
+215 packed bytes short of one and part 1 195. The box's image + bss is 243
+bytes smaller (50,364 -> 50,121), which takes `op_size`'s sector-rounded carve
+from 99 sectors to 98. What would move the file is outside this package and
+is recorded in the pass's report rather than taken: generating CP437's
+box-drawing glyphs at launch (`apps/os88cp437.inc`, 220 packed bytes of part
+0), gating the dropdown's drag/up and two unused `os88con`/`os88line` entries
+(~180), compressing a parted package's IMAGE (`tools/os88pkg.py`: this
+loader's 2,276 raw bytes pack to 1,980, a sector), and shipping the core
+inside part 0 for `kern_dos`'s stub to read from there (one part's padding).
+Sharing the window half's `pop`-ladder epilogues, which pass 1 left on the
+table, is REFUSED on a measurement: every copy is a 3-byte LZ4 match already,
+and replacing the 35 commonest with a `jmp` makes part 0 111 packed bytes
+LARGER.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a
