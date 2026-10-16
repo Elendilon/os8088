@@ -731,9 +731,7 @@ dc_cmon:
     xor ch, ch
     call dc_ctext
 .nr:
-    push dx
-    call dc_navlbl              ; dc_line = the label, CX = its x
-    pop dx
+    call dc_navlbl              ; dc_line = the label, CX = its x (DX kept)
     call dc_cline
 .wk:
     ; --- the weekday letters, Monday first
@@ -1561,12 +1559,10 @@ dc_rrows:
 dc_rcardw:
     push bx
     push dx
-    push si
     xor bx, bx
     call dc_chgt                ; DX = its rows
     dec dx
     call dc_rrows
-    pop si
     pop dx
     pop bx
     ret

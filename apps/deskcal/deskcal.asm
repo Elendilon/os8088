@@ -1645,12 +1645,10 @@ dc_ptime:
     push es
     push ds
     pop es
-    push si                     ; the line to dc_rec, which is scratch until
-    mov di, dc_rec              ; dc_cappt builds its record there
-    mov cx, DC_ESZ
+    mov di, dc_rec              ; the line to dc_rec, which is scratch until
+    mov cx, DC_ESZ              ; dc_cappt builds its record there
     cld
     rep movsb
-    pop si
     mov si, dc_rec
     call dc_parse               ; BX = the time
     pop es
