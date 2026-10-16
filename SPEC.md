@@ -114605,6 +114605,18 @@ bss 6,077).
 | the DSR answer stores `ESC [` as one word and measures itself off SI; DECSET/DECRST's show bit is `cmp`/`sbb`/`neg`; `tz_start` tail-jumps to `tz_begin`. Same bytes to the host (the `report` fixture's answer string is unchanged); once per sequence or per transfer | `te_f_dsr`, `te_csidisp`, `tz_start` | -11 |
 | `te_toggle` tests "already on its way" (TS_OPEN, TS_WAIT) as one range after a `dec`, asserted at assembly; `tz_fail` stored `[tz_why]` twice either side of the cancel string, and the first store goes | `te_toggle`, `tz_fail` | -5 |
 
+**Ended at 12,123 bytes, 12 clusters** (image 14,819, bss 6,077 - the claim
+image + bss 290 bytes smaller, and the one heap claim, §70.11.3's 8 KB
+staging area, unchanged): a cluster back on each of the two disks. What it
+did NOT reach is the next cluster and the reason is the shape of what is
+left: of ~7.1 KB of the package's own code packed, the larger halves are
+§70.9's parser and §70.11's receiver on the byte path, which this pass
+leaves alone, and the 2 KB CP437 face (§70.8.6.1) is 975 packed bytes of
+`apps/os88cp437.inc` - shared with DOS, so not this package's to cut. Its
+box-drawing and shade rows, 0xB0..0xDF, are 221 of those bytes and are drawn
+by arithmetic in `tools/cp437font.py` already, so building them at launch is
+the one large disk win left, and it belongs to a shared-include lane.
+
 ## 71. The browser fetches (`apps/browser/brnet.inc`)
 
 docs/plans/completed/NET-STACK-PLAN.md stage D. The rendering half of the browser needed **no
