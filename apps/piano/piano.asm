@@ -770,7 +770,8 @@ pn_wait:
 ;
 ; A natural's diatonic step IS its white key's index, and a sharp's IS the
 ; slot of the black key on it - the white key below it (SPEC.md 36) - so
-; [pn_step], which the viewer needs anyway, is the whole key lookup.
+; [pn_nstep], which the viewer needs anyway, is the whole key lookup: one
+; shift splits it into the step and, in CF, which of the two keys it is.
 ; -----------------------------------------------------------------------------
 pn_key_off:
     xor ah, ah
@@ -778,10 +779,10 @@ pn_key_hl:
     push bx
     mov bl, [pn_cur]
     xor bh, bh
-    cmp byte [pn_sharp+bx], 0
-    mov bl, [pn_step+bx]            ; (mov keeps the flags)
+    mov bl, [pn_nstep+bx]
+    shr bl, 1                       ; BL = the step, CF = a sharp
     mov bh, ah
-    jne .black
+    jc .black
     call pn_draw_wkey
     pop bx
     ret
@@ -1051,14 +1052,16 @@ pn_vsync:
     je .rub                         ; nothing to put up
     mov bl, dl
     xor bh, bh
-    mov cl, [pn_step+bx]
+    mov cl, [pn_nstep+bx]           ; the new note's step and sharp bit...
     mov bl, dh
-    cmp cl, [pn_step+bx]
-    jne .rub
+    mov ch, [pn_nstep+bx]           ; ...and the old one's
+    xor cl, ch
+    shr cl, 1                       ; ZF: the two steps agree
+    jnz .rub
     mov byte [pn_vkeep], 1          ; SAME STEP: a natural and its sharp, so
     mov al, dh                      ; the ledger and the dot stay and only
-    cmp byte [pn_sharp+bx], 0       ; the sharp glyph comes or goes
-    jne .unsharp
+    shr ch, 1                       ; the sharp glyph comes or goes - CF: the
+    jc .unsharp                     ; old note was the sharp
     mov al, dl
     call pn_vputs
     jmp short .next
@@ -1108,9 +1111,10 @@ pn_vwant:
 pn_vinfo:
     mov bl, al
     xor bh, bh
-    mov al, [pn_sharp+bx]
-    mov [pn_vsh], al
-    mov al, [pn_step+bx]
+    mov al, [pn_nstep+bx]
+    shr al, 1                       ; AL = the step, CF = a sharp
+    sbb ah, ah                      ; AH = 0FFh a sharp, 0 a natural
+    mov [pn_vsh], ah
     mov [pn_vstp], al
     cbw
     mov bx, 46
@@ -1766,13 +1770,16 @@ pn_s_mary:   db 'MARY READY', 0
 pn_freq:                            ; equal temperament, Hz
     dw 262, 277, 294, 311, 330, 349, 370, 392, 415, 440
     dw 466, 494, 523, 554, 587, 622, 659, 698, 740, 784
-pn_step:                            ; diatonic degree from C4 (staff height)
-    db 0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6, 7, 7, 8, 8, 9, 10, 10, 11
-pn_sharp:                           ; 1 = sharp (gets the viewer glyph)
-    db 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0
+pn_nstep:                           ; diatonic degree from C4 (staff height)
+                                    ; TIMES TWO, plus 1 for a sharp (which gets
+                                    ; the viewer glyph): one table where there
+                                    ; were two, every reader splitting it with
+                                    ; a shift that is cheaper than the second
+                                    ; load was (apps size pass 2)
+    db 0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 20, 21, 22
 ; The keys are identified by POSITION, which is all the drawing and the hit
 ; test need: a white key by its index 0..11 (x = 2 + 18i), a black one by its
-; SLOT, the white key it sits on (x = 18*slot + 15). A note's [pn_step] is
+; SLOT, the white key it sits on (x = 18*slot + 15). A note's step ([pn_nstep] / 2) is
 ; both - a natural's diatonic step IS its white index and a sharp's IS its
 ; slot - and a black key's note is its slot's white note plus one. So two
 ; 12-byte letter tables replace five tables of key indices, and the QWERTY

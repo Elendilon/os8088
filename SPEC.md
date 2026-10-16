@@ -66422,7 +66422,11 @@ inks.
   `OS88_REGION_MOVABLE_NOKEEP`: the plain form's `pushf`/`push`/`pop`
   kept AX, DX and the flags, and the next line reloads AX, DX (the
   instance) is never read and the CF the loader is owed is
-  `pn_metrics`' (-6 bytes).
+  `pn_metrics`' (-6 bytes). A note's diatonic step and its sharp flag
+  are ONE 20-byte table, `pn_nstep` = step × 2 + sharp, where they were
+  two: the key lookup, the viewer's per-note facts and its same-step
+  test split it with a shift, which costs less than the second load it
+  replaces on every one of those paths (-21 image bytes).
 
 ## 37. clock.inc — the system clock
 
