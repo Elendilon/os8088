@@ -4198,11 +4198,14 @@ tp_oncmd:
     cmp ah, 4
     jne .o
     ; View
+    mov bx, tp_typeset
     or al, al
-    jz .set
+    jz .cr
+    mov bx, tp_prev_page
     cmp al, 2
-    jb .vp
-    je .vn
+    jb .cr
+    mov bx, tp_next_page
+    je .cr
     cmp al, 4
     ja .o
     mov ax, 24                  ; Wider Source / Wider Preview: the split
@@ -4212,54 +4215,40 @@ tp_oncmd:
 .wp:
     sub [tp_split], ax
 .ws:
-    call tp_clamp_split
-    jmp tp_redraw
-.set:
-    call tp_typeset
-    jmp tp_redraw
-.vp:
-    call tp_prev_page
-    jmp tp_redraw
-.vn:
-    call tp_next_page
+    mov bx, tp_clamp_split
+    ; EVERY ARM BUT THE CHOOSERS' IS ONE ROUTINE AND A REPAINT: BX names the
+    ; routine and this is the call and the repaint, once
+.cr:
+    call bx
     jmp tp_redraw
 .fe:
     or ah, ah
     jnz .edit
-    or al, al                   ; File
-    jz .new
+    mov bx, tp_new              ; a document that REPLACES this one is set on
+    or al, al                   ; arrival - File > Open and a double-clicked
+    jz .cr                      ; .TEX already were, and a blank preview
+                                ; beside a fresh document was the odd one out
+                                ; (SPEC.md 69.1)
     cmp al, 2
     jb tp_open_dlg              ; 1 Open...
-    je .save
+    mov bx, tp_save
+    je .cr
     cmp al, 5
     ja .o
     sub al, 2                   ; 3 Save As..., 4 Export PDF..., 5 Export
     mov [tp_dlgmode], al        ; PS... are tp_ondlg's modes 1, 2 and 3
     mov al, FDLG_SAVE
     jmp tp_dlg
-.new:
-    call tp_new                 ; a document that REPLACES this one is set on
-    jmp tp_redraw               ; arrival - File > Open and a double-clicked
-                                ; .TEX already were, and a blank preview
-                                ; beside a fresh document was the odd one out
-                                ; (SPEC.md 69.1)
-.save:
-    call tp_save
-    jmp tp_redraw
 .edit:
+    mov bx, tp_copy_all
     or al, al
-    jz .copy
+    jz .cr
+    mov bx, tp_paste
     cmp al, 2
-    jb .paste
-    ja .o
-    call tp_cut_line
-    jmp tp_redraw
-.copy:
-    call tp_copy_all
-    jmp tp_redraw
-.paste:
-    call tp_paste
-    jmp tp_redraw
+    jb .cr
+    mov bx, tp_cut_line
+    je .cr
+    jmp short .o
 .lay:
     cmp al, 1                   ; Layout: Article, Book, then the codes
     jb .art

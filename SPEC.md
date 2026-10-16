@@ -111884,6 +111884,15 @@ and code packs to about a byte a byte, so what moved it is code that went:
   and every one of its four exits set it: all seven buttons change the page,
   the setup or the set. It returns nothing now, its three calls are jumps,
   and `tp_onup` repaints after it without asking.
+- **A menu command is a routine and a repaint, and the pair is written
+  once.** Ten of `tp_oncmd`'s arms were `call X` / `jmp tp_redraw`. Each arm
+  now names its routine in BX and they share one `call bx` / `jmp
+  tp_redraw`; the choosers' arms (Open, Save As, the two Exports) still jump
+  to the chooser, whose completion proc (`tp_ondlg`) does its own repaint.
+  One repaint per command, as before. (Pushing `tp_redraw` as the arms'
+  return address is 4 bytes smaller and was built first; `tools/stkbalance.py`
+  reads every routine an arm jumps to as returning one word deep, and a pass
+  that takes ten exemptions to save four bytes is the wrong trade.)
 
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 
