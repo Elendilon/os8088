@@ -169030,6 +169030,51 @@ all three arms - four five-pop tails push one register more to take the
 even rung, and `vp_lybench`'s timed loop keeps its own inline copy of
 `vp_rptr`'s six instructions.
 
+**The second size pass's DATA half (2026-10-16)** found the same save had
+room to spare: past the card's text it is 2,784 bytes (2,604 with
+`VPDIAG`) that the desktop never used. **The desktop's SCRATCH lives there
+now** (`vp_dsk`): 289 bytes of words that were in the image - the grey
+ground's holes (`vp_ground`, 146), the window play's thumb move and button
+turn (`vp_wmove`, `vp_winv`), Live's band and repack counters (`vp_blitb`,
+`vp_v4blit`), the poster's draw (`vp_pposter`), the half-scaler's
+arguments (`vp_half`), the layout's working (`vp_layfit`), the open's and
+the hold check's (`vp_open`, `vp_rwalk`, `vp_xok`) and the bracket's mode
+record (`vp_fsi`, filled and read at the door, before a box can be up).
+Each is written before it is read inside one call of a routine the full
+screen never runs (nothing in `vp_hook`'s or `vp_main`'s reach, and the
+worker's only through Live, which never shares the glass with the box), so
+a box clobbering it costs nothing, and none is a word the play reads. The
+fill line and the seek's text share one buffer (`vp_pfbuf` is
+`vp_skbuf`): each is composed and handed to `vo_show`, which copies it.
+`apps/video/rdiffhot.txt` names `vh_addr` rather than `vh_.*`, the
+half-scaler's words being bss now and not routines. **86 more followed**:
+Live's gathered runs (`vx_run`, 64 - written by the frames' decodes only
+while Live runs and spent by the pass's own blit, all inside the worker's
+one hold of the lock, so the hot list names `vx_n` now), the TEXT poster's
+glyph words (`vp_tmono`), the bar's thumb x (`vp_pbar`), a resident
+block's load (`vp_ldblk`, `vp_ldstored`: `vp_sstart`'s, between brackets)
+and the board timing's segment (`vp_erate`). One byte, `vp_tqok`, stays in
+the image for the PARITY of the hook's words after it (`vb_s`..`vb_td`),
+which the hot list checks as it does a routine's.
+
+**And VGA8's palette is a CLAIM** (`[vp_p8seg]`, 1KB from the top): only
+a VGA8 file has 768 bytes of it, and they are read twice - into the DAC at
+a bracket's door (`vp_dac`) and into the lumas at each picture
+(`vp_mklum`), neither at interrupt time - so the bss keeps the SIXTEEN
+(`vp_pal`, 48: a VGA4 file's own, a scene's, VGA8's first) and the rest is
+held while the file is open, movable through `vp_smove`, and given back by
+the next open with the palettes a scene (`vp_pevfree`). A VGA8 file that
+finds no kilobyte for it is refused with `Not enough memory`, as one that
+found none to read the palette through always was. Live in colour's repack
+buffer (`vp_v4buf`, 1,024), which sat on VGA8's palette, is the desktop's
+scratch now, past the rest of it; on `vp_pal` a repack (BLITP refused)
+wrote over a VGA4 file's own sixteen, which a later full screen loads
+into the DAC (`vp_scrset`) - a latent defect, not seen in the field, that
+the move ends. **-720 bytes of bss**; with the scratch, the
+shipped arm is 55,702 + 4,144 = **1,594 under** (599 before the pass's data
+half), `NOLIVESND=1` 1,825, and `VPDIAG=1` assembles again at 57,062 +
+4,144, **234 under** (761 over).
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |
