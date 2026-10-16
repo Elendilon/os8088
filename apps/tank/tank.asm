@@ -412,90 +412,6 @@ TK_KD     equ 0x20              ; D - turn right
 TK_KW     equ 0x11              ; W - forward
 TK_KS     equ 0x1F              ; S - back
 
-; =============================================================================
-; tk_entry - the loader calls this once per instance (SPEC.md 20.1)
-; =============================================================================
-tk_entry:
-    push si
-    push di
-    call OSAPI_VIDEO                ; AX = w, BX = h, CX = the dock's top row
-    mov [tk_scrw], ax
-    mov [tk_dock], cx
-
-    mov al, KSC_SPACE               ; ARMING the scancode reader: the first
-    call OSAPI_KEY_DOWN             ; answer is always "up" and this is where
-                                    ; the SDK says to spend it (SPEC.md 9.7)
-
-    call OSAPI_GET_TICKS
-    call OSAPI_SRAND                ; the field, the tanks and their aim all
-                                    ; walk down one stream
-    call tk_hs_init                 ; the built-in table; the file replaces it
-                                    ; at the first paint, which is a UI-task
-                                    ; callback and therefore a legal place to
-                                    ; read one from
-    mov byte [tk_gosh], TK_GOSH     ; the lettering's halo (SPEC.md 85.8.1)
-    mov byte [tk_at_scrt], TK_SCRT  ; the band's first roll is a whole interval
-                                    ; away, not 256 of them: the loader zeroes
-                                    ; bss and this counts DOWN
-    mov byte [tk_at_blink], 1       ; ...and the play line starts LIT, for the
-    mov byte [tk_at_blt], TK_BLINKON    ; same reason: a zeroed counter would
-                                    ; hold the first dark phase for 256 wakes
-                                    ; and a zeroed flag would open the window
-                                    ; on a panel with no play line at all
-
-    ; Centre the attract window in the desktop band. It is not resizable and
-    ; it never draws the game - the game is the bracket - so one size does.
-    mov ax, [tk_scrw]
-    sub ax, TK_WINW
-    jns .xok
-    xor ax, ax
-.xok:
-    shr ax, 1
-    mov [tk_tpl + WT_X], ax
-    mov ax, [tk_dock]
-    sub ax, MBAR_H
-    sub ax, TK_WINH
-    jns .yok
-    xor ax, ax
-.yok:
-    shr ax, 1
-    add ax, MBAR_H
-    mov [tk_tpl + WT_Y], ax
-
-    call tk_adapter                 ; which raster we would take, and whether
-                                    ; the machine will give it to us
-    call tk_newgame
-
-    mov si, tk_tpl
-    call OSAPI_WM_CREATE
-    jc .full
-    mov [tk_win], bx
-    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
-    ; worker's declaration: a package with NO worker is the case that
-    ; moves most easily, and putting this at the spawn left exactly
-    ; those runs declaring nothing - measured, by the row that reads
-    ; MC_RLOC back out of the kernel's own table.
-    OS88_REGION_MOVABLE
-    mov al, 1                       ; an 8-aligned content origin: every
-    call OSAPI_WM_SNAP              ; font_run below reaches SPEC.md 6.1's
-                                    ; single-store cell, and the score band's
-                                    ; OSAPI_GFX_SCROLL has ends it accepts
-    mov ax, tk_onresize             ; the card can change under us
-    call OSAPI_WM_ONRESIZE          ; (SPEC.md 11.98), and tk_adapter is every
-                                    ; fact this package holds about it
-    mov si, tk_menus
-    call OSAPI_MENU_SET
-    mov si, tk_about                ; ...and 'About Tank Attack' above the
-    call OSAPI_ABOUT_SET            ; Close the kernel already puts in our
-                                    ; pull-down (SPEC.md 12.2). WINDOWED only:
-                                    ; inside an fsx bracket the app owns every
-                                    ; pixel and there is no bar to pull down
-                                    ; (SPEC.md 53.7, docs/plans/completed/GFX-FSX-PLAN.md)
-.full:
-    pop di
-    pop si
-    ret
-
 ; -----------------------------------------------------------------------------
 ; tk_adapter - the raster this machine would give us, and the mode to ask for
 ;
@@ -923,9 +839,9 @@ tk_tpl:
     ZBUF  tk_spguard3, 8            ; (85.3.8) - over the BAND alone, so both
     ZBUF  tk_sprdg, TK_RBROWS * 2   ; are the band's rows long and reached
                                     ; through tk_rb2/tk_rbd (85.3.9)
-    ZBUF  tk_spguard4, 8
-    ZBUF  tk_spjunk, TK_SHROWS * 2  ; the set a template draw marks: nobody
-    ZBUF  tk_spguard5, 8            ; reads it
+    ZBUF  tk_spguard4, 8            ; tk_spjunk, the set a template draw
+                                    ; marks and nobody reads, is the ENTRY
+                                    ; OVERLAY's bytes (85.10.6, image's end)
 %ifdef APP_SMALL
     ZBUF  tk_devoff, TK_SHROWS * 2  ; the blit's, so a shadow's alone - and in
 %endif                              ; the claim's tail on the shipped build
@@ -1171,6 +1087,123 @@ tk_kx equ tk_kxrows - TK_NEARZ * 2  ; the projection table (85.5.3): sclx over
 %define GFXE_PT_BUF tk_pts
 %define GFXE_PT_MAX TK_PTMAX
 %include "os88gfx.inc"
+
+; =============================================================================
+; THE ENTRY OVERLAY (SPEC.md 85.10.6): the entry proc lies under tk_spjunk
+;
+; tk_entry runs once per instance, from a fresh read of the file, and never
+; again (SPEC.md 20.1) - and tk_spjunk is the span set a TEMPLATE draw marks
+; and nobody reads (tkgame.inc), which only a shadow backend has and only
+; inside an fsx bracket. The two never meet: the bracket is a menu command or
+; a key, long after the loader has had its window. So the set and its two
+; guards are THESE bytes, at the very end of the image, and not 416 more of
+; bss. Three rules make it safe:
+;
+; 1. Nothing here may be named after tk_entry returns - so the region's
+;    relocation proc is tk_ret (tk3d.inc), NAMED, because the bare
+;    OS88_REGION_MOVABLE plants its own `ret` inline, which would be here.
+; 2. Nothing the kernel keeps a pointer to is here: the window template, the
+;    title, the menus, the About handler and every callback are above.
+; 3. Nothing follows the overlay in the image: a walk's overrun runs at most
+;    one row past either end of the set (SPEC.md 85.3.2), and its 8-byte
+;    guards are the overlay's first and last bytes, so the end of the image
+;    is where the overlay must be - tk_spguard4 is the bss's own, in front of
+;    tk_sprdg, and stays there.
+; =============================================================================
+TK_OVLSZ  equ 8 + TK_SHROWS * 2 + 8
+    align 2, db 0                   ; tk_spjunk is marked a word a row
+tk_ovl:
+tk_spjunk equ tk_ovl + 8
+
+; -----------------------------------------------------------------------------
+; tk_entry - the loader calls this once per instance (SPEC.md 20.1)
+; -----------------------------------------------------------------------------
+tk_entry:
+    push si
+    push di
+    call OSAPI_VIDEO                ; AX = w, BX = h, CX = the dock's top row
+    mov [tk_scrw], ax
+    mov [tk_dock], cx
+
+    mov al, KSC_SPACE               ; ARMING the scancode reader: the first
+    call OSAPI_KEY_DOWN             ; answer is always "up" and this is where
+                                    ; the SDK says to spend it (SPEC.md 9.7)
+
+    call OSAPI_GET_TICKS
+    call OSAPI_SRAND                ; the field, the tanks and their aim all
+                                    ; walk down one stream
+    call tk_hs_init                 ; the built-in table; the file replaces it
+                                    ; at the first paint, which is a UI-task
+                                    ; callback and therefore a legal place to
+                                    ; read one from
+    mov byte [tk_gosh], TK_GOSH     ; the lettering's halo (SPEC.md 85.8.1)
+    mov byte [tk_at_scrt], TK_SCRT  ; the band's first roll is a whole interval
+                                    ; away, not 256 of them: the loader zeroes
+                                    ; bss and this counts DOWN
+    mov byte [tk_at_blink], 1       ; ...and the play line starts LIT, for the
+    mov byte [tk_at_blt], TK_BLINKON    ; same reason: a zeroed counter would
+                                    ; hold the first dark phase for 256 wakes
+                                    ; and a zeroed flag would open the window
+                                    ; on a panel with no play line at all
+
+    ; Centre the attract window in the desktop band. It is not resizable and
+    ; it never draws the game - the game is the bracket - so one size does.
+    mov ax, [tk_scrw]
+    sub ax, TK_WINW
+    jns .xok
+    xor ax, ax
+.xok:
+    shr ax, 1
+    mov [tk_tpl + WT_X], ax
+    mov ax, [tk_dock]
+    sub ax, MBAR_H
+    sub ax, TK_WINH
+    jns .yok
+    xor ax, ax
+.yok:
+    shr ax, 1
+    add ax, MBAR_H
+    mov [tk_tpl + WT_Y], ax
+
+    call tk_adapter                 ; which raster we would take, and whether
+                                    ; the machine will give it to us
+    call tk_newgame
+
+    mov si, tk_tpl
+    call OSAPI_WM_CREATE
+    jc .full
+    mov [tk_win], bx
+    ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
+    ; worker's declaration: a package with NO worker is the case that
+    ; moves most easily, and putting this at the spawn left exactly
+    ; those runs declaring nothing - measured, by the row that reads
+    ; MC_RLOC back out of the kernel's own table.
+    OS88_REGION_MOVABLE_NOKEEP tk_ret   ; NAMED, and outside the overlay:
+                                    ; the bare form plants its `ret` HERE,
+                                    ; where tk_spjunk's first frame lands
+    mov al, 1                       ; an 8-aligned content origin: every
+    call OSAPI_WM_SNAP              ; font_run below reaches SPEC.md 6.1's
+                                    ; single-store cell, and the score band's
+                                    ; OSAPI_GFX_SCROLL has ends it accepts
+    mov ax, tk_onresize             ; the card can change under us
+    call OSAPI_WM_ONRESIZE          ; (SPEC.md 11.98), and tk_adapter is every
+                                    ; fact this package holds about it
+    mov si, tk_menus
+    call OSAPI_MENU_SET
+    mov si, tk_about                ; ...and 'About Tank Attack' above the
+    call OSAPI_ABOUT_SET            ; Close the kernel already puts in our
+                                    ; pull-down (SPEC.md 12.2). WINDOWED only:
+                                    ; inside an fsx bracket the app owns every
+                                    ; pixel and there is no bar to pull down
+                                    ; (SPEC.md 53.7, docs/plans/completed/GFX-FSX-PLAN.md)
+.full:
+    pop di
+    pop si
+    ret
+tk_ovlend:
+    times TK_OVLSZ - (tk_ovlend - tk_ovl) db 0  ; a negative count is the
+                                    ; assembler refusing an overlay that
+                                    ; outgrew the set it lies under
 
     OS88_BSS TK_BSS
     OS88_IMAGE_END

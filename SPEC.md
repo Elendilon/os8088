@@ -130067,6 +130067,35 @@ ends is not repainted then, and the worker could find it uncovered before its
 the table, `tk_paint` clears it once the cursors are re-armed, and `tk_at_step`
 draws nothing while it is set. +20 bytes of image for 370 of bss.
 
+#### 85.10.6 The entry proc lies under the span set nobody reads
+
+Solitaire's §43.11.6, applied to a buffer that is never READ rather than one
+built at entry. `tk_entry` runs once per instance, from a fresh read of the
+file, and never again (§20.1); `tk_spjunk` is the span set a template draw
+marks so that its walks have somewhere to write, which only a shadow backend
+has and only inside an fsx bracket - long after the loader has had its window.
+So the set and its two 8-byte guards are the **last 416 bytes of the image**
+(`tk_ovl`), the entry proc is the first thing in them, and the rest is zeros,
+which cost a packed file almost nothing. Apps size pass 2: **image +254, bss
+-408, so 154 bytes less RAM an instance on both builds**, and the file +2.
+Three rules, each stated in `tank.asm` where it binds:
+
+1. **Nothing in the overlay may be named after `tk_entry` returns.** The
+   region's relocation proc is therefore `tk_ret`, a lone `ret` in
+   `tk_sin1` - the bare `OS88_REGION_MOVABLE` plants its own `ret` inline,
+   which here would be overwritten by the first template draw, and the
+   kernel calls it on the next compaction.
+2. **Nothing the kernel keeps a pointer to is in it**: the window template,
+   the title, the menus, the About handler and every callback stay above.
+3. **Nothing follows it in the image.** A walk's overrun runs one row past
+   either end of a set (§85.3.2), and the overlay's own first and last eight
+   bytes are those guards, so the bss's first word is safe; `tk_spguard4`
+   stays in the bss in front of `tk_sprdg`, whose trailing slack it is. A
+   `times` with a negative count refuses an overlay that outgrows the set.
+
+The overlay is what the tables below are expanded by: code and seeds that run
+once and are dead after it, in bytes that were going to be RAM anyway.
+
 ## 86. AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`)
 
 `AUDIO.O88`, "AUDIO PLAYER" in the header name field. Lightweight background

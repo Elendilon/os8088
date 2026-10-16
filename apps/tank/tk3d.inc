@@ -71,7 +71,8 @@ tk_sin1:
     jz .pos
     neg bx                          ; quarters 2 and 3 are the negatives
 .pos:
-    ret
+tk_ret:                             ; a lone `ret`, which is also the region's
+    ret                             ; relocation proc (tank.asm, 85.10.6)
 
 ; -----------------------------------------------------------------------------
 ; tk_camsetup - the camera's sine and cosine, once a frame
