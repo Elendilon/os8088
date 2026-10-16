@@ -169340,6 +169340,17 @@ of the measures `--aim quality`'s trials (98.2.1.4) and page-ahead's keep
 (98.2.1.8.1, 98.2.1.8.2) judge by, BESIDE the error as seen and never in
 its place.
 
+**`--attend S` and `--edges S`** (options version 36, both 0 - off - by
+default, VIDEO-SEEN-PLAN 3) let it steer: `--attend` weights `value` by
+the view's attention map (`seen_attention`, its mean 1), `--edges` adds
+how much nearer the target's EDGES the screen is for writing a pixel,
+priced as `plain` is and weighted by the picture kind (`seen_weights`).
+Neither changes a frame the budgets do not cut. On three clips neither
+touched GasGas's car (a budget question: 3a's hold), and `--edges 1` took
+Bad Carrot's cut burst from 82 to 70 at its worst and its mean from 2.76%
+to 2.49%, leaving a milder residue longer; they are off until the owner's
+eye has weighed that.
+
 ###### 98.2.1.2.1 `--cut`: which changes a cut frame keeps (2026-10-06)
 
 **The owner's lossless Mode X encodes showed rows of a fast pan left a frame

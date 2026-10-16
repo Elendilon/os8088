@@ -1,6 +1,6 @@
 # VIDEO-SEEN-PLAN - "error as seen" as a person sees it, and an encoder that spends by it
 
-**Status: section 2's score BUILT as a report line (2a, 2026-10-16), in three sets - colour, grey and 1-bit dither - and judging `--aim quality`'s trials and page-ahead's keep beside today's figure; the rest is PLAN.** Recorded from the owner's
+**Status: section 2's score BUILT as a report line (2a, 2026-10-16), in three sets - colour, grey and 1-bit dither - and judging `--aim quality`'s trials and page-ahead's keep beside today's figure; section 3 BUILT as two options off by default, awaiting the owner's eye on its one trade; the rest is PLAN.** Recorded from the owner's
 review of the GasGas and Bad Carrot comparison encodes, and parked while
 the encoder's choice in one scene is fixed first: the opening car shot of
 GasGas (0:40), which the owner's own tune plays clean on the Victory 286
@@ -197,6 +197,49 @@ changes follow from section 2 and both are local:
   completes an object (closes a stale band's edge) is worth more than its
   pixel count says. A first form: score the stale edge each candidate
   span REMOVES, from 2.2's edge comparison.
+
+**BUILT as two options, both off by default** (2026-10-16): `--attend S`
+weights `value` by `seen_attention`'s map (its mean 1, so a frame's whole
+worth is what it was and only where it is spent moves), and `--edges S`
+adds the edge term priced as `plain` is - how much nearer the target's
+edges the screen is for writing the pixel, less the target's own - with
+the picture kind's weights (`seen_weights`: on dither only the edges a cut
+ADDS). Five arms on the three clips, each on its own options (GasGas
+0:40-0:50 the old tune at 24 fps, page-ahead off; Bad Carrot 3:05-3:20
+the owner's 64 greys; Take On Me 0:15-0:30 the old Hercules options):
+
+| clip | arm | the view broken | s a tenth broken | worst | error as seen |
+|---|---|---:|---:|---:|---:|
+| GasGas | today | 6.84% | 1.54 | 95.8 | 0.396% |
+| | `--attend 1` | 6.97% | 1.54 | 95.7 | 0.392% |
+| | `--edges 1` | 6.80% | 1.54 | 95.8 | 0.398% |
+| | `--edges 2` | 6.81% | 1.54 | 95.8 | 0.399% |
+| | both 1 | 6.93% | 1.54 | 95.6 | 0.392% |
+| Bad Carrot | today | 2.76% | 0.75 | 81.8 | 0.397% |
+| | `--attend 1` | 2.70% | 1.04 | 76.6 | 0.389% |
+| | `--edges 1` | **2.49%** | 1.00 | **70.2** | **0.356%** |
+| | `--edges 2` | 2.81% | 0.92 | 75.2 | 0.398% |
+| | both 1 | 2.68% | 1.00 | 72.1 | 0.389% |
+| Take On Me | today | 5.45% | 1.87 | 90.9 | 2.158% |
+| | `--attend 1` | **5.18%** | **1.75** | 89.5 | 2.200% |
+| | `--edges 1` | 5.37% | 1.87 | 91.2 | 2.168% |
+| | `--edges 2` | 5.44% | 1.92 | 91.3 | 2.198% |
+| | both 1 | 5.15% | 1.79 | 90.0 | 2.208% |
+
+**The car is not an allocation question.** GasGas's car frames (14-23)
+read the same in every arm (37 62 52 26 35 28 37 20 23 today, 36 63 51 25
+36 26 37 19 22 with edges): the same frames are cut by the same ceiling,
+and no order of spans makes the ~20 KB a 24 fps frame has draw what needs
+27-30 KB. That is 3a's lever, a hold, and not this section's.
+
+**Where it does move, it is a TRADE.** Bad Carrot's cut burst with
+`--edges 1`: frames 44-53 read 35 69 70 50 47 46 47 30 25 56 against
+today's 62 54 82 71 52 56 75 58 68 59 - frames 50 and 52 are the carrot
+drawn whole where today's are torn bands - and frames 54-57 and 66-68
+read 31 32 22 20 / 20 13 20 against 22 14 8 4 / 10 6 6: the worst repaired
+sooner, a milder residue left longer. The owner's eye decides that trade,
+and until it has, both stay off. `--attend` moved nothing a strip of
+frames shows.
 
 What NOT to do first: change allocation and the metric in the same step.
 The metric is the instrument the allocation is judged by; build the score

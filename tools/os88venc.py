@@ -831,7 +831,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 35
+OPTS_VERSION = 36
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -859,7 +859,7 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     30: "60532ee7474b8d76",
                     31: "09f14123f968592f", 32: "413eeac77e2d4441",
                     33: "1cb11afeb374b243", 34: "60df56fd426010fd",
-                    35: "e1090fc6c20c5367"}
+                    35: "e1090fc6c20c5367", 36: "25f9e2036a3d5380"}
 LAG_MS = 100.0          # --lag's default (98.2.1.1.2), the owner's (2026-10-15):
                         # how far behind a picture may be without the eye
                         # minding is the VIDEO's - Bad Carrot's flames ran
@@ -1012,6 +1012,9 @@ MIGRATIONS = {
     33: [("added", "pages", "2"), ("added", "page_keys", "all")],
     # 35: --key-pool (98.1.3.8.1) - a file made before it had none
     34: [("added", "key_pool", "off")],
+    # 36: --attend and --edges (VIDEO-SEEN-PLAN 3) - a file made before
+    # them spent a cut frame by the error as seen alone
+    35: [("added", "attend", 0.0), ("added", "edges", 0.0)],
 }
 
 
@@ -3694,6 +3697,14 @@ class Encoder:
         # indexes `dpal`, "idx" a byte packs `ppb` indexes of `dpal`, None
         # no pixel form (the composite formats: bits, and no visible error)
         self.look, self.vis, self.future = 0, False, []
+        # WHERE AN EYE LOOKS (--attend, VIDEO-SEEN-PLAN 3): value() weighted
+        # by the view as seen's attention map, `attend` its strength (0
+        # off); `attc` the last target's (target, pixels, map)
+        self.attend, self.attc = 0.0, None
+        # ...and the EDGES a cut leaves (--edges, VIDEO-SEEN-PLAN 3): a
+        # pixel also worth how much nearer its target's edges the screen is
+        # for writing it, `edges` the strength (0 off)
+        self.edges = 0.0
         # HOW A CUT FRAME CHOOSES (--cut, 98.2.1.2.1): "rank" the best
         # first, the look-ahead dropping what it scores worth nothing;
         # "fill" the same, those last instead of never; "tear" whole rows
@@ -4224,9 +4235,26 @@ class Encoder:
         T0 = self.tpix(target)[1]
         bS = self.sblur() if self.vis else None
         v = 0.0
+        if self.edges:
+            # the view as seen's edge term, priced the way `plain` is: the
+            # screen's edges against each target's, less the frame's own
+            # target's - with the picture kind's weights (seen_weights), so
+            # on dither only the edges a cut ADDS count
+            wl, _, wa, wo, _, _, _, _, re = seen_weights(T0)
+            lum = (lambda x: x) if T0.ndim == 2 else \
+                (lambda x: x @ _SEEN_LUM)
+            eg = lambda x: _seen_grad(_seen_box(lum(x).astype(np.float32),
+                                                re))
+            gS, g0 = eg(S), eg(T0)
+            ew = self.edges / max(wl, 1e-6)
         for k, T in enumerate([target] + self.future[:self.look]):
             Tk = T0 if k == 0 else self.tpix(T)[1]
             plain = self.dist(S, Tk) - self.dist(T0, Tk)
+            if self.edges:
+                gk = g0 if k == 0 else eg(Tk)
+                ed = lambda g: wa * np.maximum(g - gk, 0) + \
+                    wo * np.maximum(gk - g, 0)
+                v = v + ew * (ed(gS) - ed(g0))
             if not self.vis:
                 v = v + plain
                 continue
@@ -4238,7 +4266,30 @@ class Encoder:
             vis = self.dist(bS, self.tblur(T)) / \
                 np.maximum(self.blur(self.dist(S, Tk)), 1e-3)
             v = v + plain * np.clip(vis, 0.25, 1.0)
+        if self.attend:
+            v = v * self.attention(target, T0)
         return v
+
+    def attention(self, target, T0):
+        """WHERE AN EYE LOOKS (--attend, VIDEO-SEEN-PLAN 3): the view as
+        seen's attention map (seen_share's: brightness, and motion against
+        the camera's) for this frame's target, made once a target - its
+        mean 1, so a frame's whole worth is what it was and only where it
+        is spent moves - and taken to `attend`: 0 flat, 1 the map"""
+        c = self.attc
+        if c is not None and c[0] is target:
+            return c[2]
+        lT = T0 if T0.ndim == 2 else T0 @ _SEEN_LUM
+        lT = lT.astype(np.float32)
+        lP = c[1] if c is not None and c[1].shape == lT.shape else None
+        att = seen_attention(lT, lP)
+        att = att / max(float(att.mean()), 1e-6)
+        if self.attend != 1.0:
+            att = np.maximum(1.0 + self.attend * (att - 1.0), 0.0)
+        if att.shape != T0.shape[:2]:
+            att = None
+        self.attc = (target, lT, 1.0 if att is None else att)
+        return self.attc[2]
 
     def bytevalue(self, target):
         """value() summed to the target's bytes, or None"""
@@ -4995,6 +5046,37 @@ def _seen_shift(a, b):
             int(x) - a.shape[1] if x > a.shape[1] // 2 else int(x))
 
 
+_SEEN_LUM = np.array([0.299, 0.587, 0.114], np.float32)
+
+
+def seen_attention(lT, lP=None):
+    """The view as seen's ATTENTION: per pixel of a target's brightness
+    `lT`, how much an eye goes there - the bright, and what moves against
+    the camera (its shake from `lP`, the target before, taken out by phase
+    correlation)"""
+    box = _seen_box
+    if lP is not None:
+        dy, dx = _seen_shift(lP, lT)
+        mot = box(np.abs(lT - np.roll(np.roll(lP, dy, 0), dx, 1)), 4)
+    else:
+        mot = 0.0
+    return 0.35 + box(lT, 6) + 3.0 * mot
+
+
+def seen_weights(T):
+    """The view as seen's WEIGHTS for a target T, pixels 0..1: GREY where
+    every pixel is R = G = B, DITHER where it is 1-bit and a quarter of it
+    averages to a mid grey (SEEN_DITHER_MIX), else COLOUR"""
+    grey = T.ndim == 2 or float(np.abs(T[..., 0] - T[..., 1]).max()) < 0.01 \
+        and float(np.abs(T[..., 1] - T[..., 2]).max()) < 0.01
+    w = SEEN_GREY if grey else SEEN_COLOUR
+    if T.ndim == 2 and T.size and float(np.abs(T - 0.5).min()) >= 0.5:
+        bT = _seen_box(np.asarray(T, np.float32), 2)    # 1-bit: dithered,
+        if float(((bT > 0.1) & (bT < 0.9)).mean()) >= SEEN_DITHER_MIX:
+            w = SEEN_DITHER                             # or solid?
+    return w
+
+
 def seen_share(S, T, Tp=None):
     """THE VIEW AS SEEN: S the screen and T its target as pixels (h, w, 3)
     colour or (h, w) grey, 0..1; Tp the target before (for motion) -> the
@@ -5002,14 +5084,7 @@ def seen_share(S, T, Tp=None):
     S = np.asarray(S, np.float32)
     T = np.asarray(T, np.float32)
     box = _seen_box
-    grey = T.ndim == 2 or float(np.abs(T[..., 0] - T[..., 1]).max()) < 0.01 \
-        and float(np.abs(T[..., 1] - T[..., 2]).max()) < 0.01
-    w = SEEN_GREY if grey else SEEN_COLOUR
-    if T.ndim == 2 and T.size and float(np.abs(T - 0.5).min()) >= 0.5:
-        bT = box(T, 2)                  # 1-bit: dithered, or solid?
-        if float(((bT > 0.1) & (bT < 0.9)).mean()) >= SEEN_DITHER_MIX:
-            w = SEEN_DITHER
-    wl, wc, wa, wo, thr, spread, curve, rl, re = w
+    wl, wc, wa, wo, thr, spread, curve, rl, re = seen_weights(T)
     lum = np.array([0.299, 0.587, 0.114], np.float32)
     if S.ndim == 3:
         lS, lT = S @ lum, T @ lum
@@ -5024,14 +5099,11 @@ def seen_share(S, T, Tp=None):
     EB = wa * np.maximum(gS - gT, 0) + wo * np.maximum(gT - gS, 0)
     act = np.sqrt(np.maximum(box(lT * lT, 3) - box(lT, 3) ** 2, 0))
     D = (wl * EL + wc * EC + EB) / (1.0 + 4.0 * act)
+    lP = None
     if Tp is not None and np.shape(Tp) == np.shape(T):
         Tp = np.asarray(Tp, np.float32)
         lP = Tp @ lum if Tp.ndim == 3 else Tp
-        dy, dx = _seen_shift(lP, lT)
-        mot = box(np.abs(lT - np.roll(np.roll(lP, dy, 0), dx, 1)), 4)
-    else:
-        mot = 0.0
-    att = 0.35 + box(lT, 6) + 3.0 * mot
+    att = seen_attention(lT, lP)
     P = SEEN_P
     h, w = lT.shape
     hh, ww = max(P, h // P * P), max(P, w // P * P)
@@ -8128,6 +8200,8 @@ def _encode(a, keep, tick, readers):
         enc.alead = max(0, enc.alead - ahead)   # this frame have fitted?
     # WHAT A CUT FRAME SPENDS ON (98.2.1.2)
     enc.look, enc.vis = a.lookahead, a.error == "visible"
+    enc.attend = float(getattr(a, "attend", 0.0) or 0.0)
+    enc.edges = float(getattr(a, "edges", 0.0) or 0.0)
     enc.cut = a.cut
     if not 0 <= a.bands <= 60:
         raise vid.V88Error("--bands %d: 0 to 60" % a.bands)
@@ -9089,7 +9163,8 @@ def _encode(a, keep, tick, readers):
         with open(os.environ["OS88_VENC_QDUMP"], "w") as fq:  # look at a
             json.dump(dict(fps=fps, mean=enc.q_frames, bad=enc.q_bad,  # clip's
                            layer=(lay.e.q_frames, lay.e.q_bad)  # worst)
-                           if lay is not None else None), fq)
+                           if lay is not None else None,
+                           seen=enc.q_seen), fq)
     res.update(q_vis=enc.q_vis / nf, q_wrong=enc.q_wrong / nf,
                q_flick=enc.q_flick / max(1, nf - 2), cutf=st["cut"] / nf,
                cuts=st["cut"])
@@ -9291,6 +9366,18 @@ def parser():
                          "more memory, and a big frame must be read and "
                          "drawn in its period - a 486-class machine's "
                          "(98.1.4.1). Not with --live or --resident")
+    ap.add_argument("--attend", type=float, default=0.0, metavar="S",
+                    help="WHEN A FRAME IS CUT, spend where an eye LOOKS: "
+                         "each pixel's worth weighted by the view as seen's "
+                         "attention - the bright, and what moves against the "
+                         "camera - at strength S (1 the map, 0 off, the "
+                         "default; VIDEO-SEEN-PLAN 3)")
+    ap.add_argument("--edges", type=float, default=0.0, metavar="S",
+                    help="WHEN A FRAME IS CUT, count the EDGES it leaves: a "
+                         "change also worth how much nearer its target's "
+                         "edges the screen is for it - a stale band's torn "
+                         "rows, a block's outline - at strength S (0 off, the "
+                         "default; VIDEO-SEEN-PLAN 3)")
     ap.add_argument("--error", choices=("visible", "bits"),
                     default="visible",
                     help="WHEN A FRAME IS CUT, what counts as wrong: the "
