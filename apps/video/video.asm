@@ -6194,6 +6194,8 @@ vp_xipq:
     jnz .no
     cmp byte [vp_snd], VP_SPK       ; (the speaker's clock: 98.3.18.5)
     je .no
+    call vp_lyipq                   ; (a LAYER: 98.3.18.14)
+    jc .no
     mov al, [vp_noinp]              ; (a gate's: the copying hold, the A/B)
 %ifndef LA_SIM
     cmp byte [vp_tier], CPU_8086    ; a 286 by LOADALL, a 386 by a loaded
@@ -6265,6 +6267,8 @@ vp_xbipq:
     jne .no
     cmp word [vp_xbn], 3            ; (two slots and the mirror, at least)
     jb .no
+    call vp_lyipq                   ; (a LAYER: 98.3.18.14)
+    jc .no
 %ifndef LA_SIM
     cmp byte [vp_tier], CPU_8086    ; a 286 by LOADALL, a 386 by a loaded
     je .no                          ; base (98.3.18.14)
@@ -6292,6 +6296,23 @@ vp_xbipq:
     stc
     ret
 %endif
+
+; vp_lyipq - CF=1: this play reads a LAYER (98.1.9; vp_lywant), and in
+; place is refused for it (SPEC.md 98.3.18.14). Not an incompatibility in
+; kind: the layer's slots, its split of the pool and its bank are planned
+; against the COPYING ring, and an in-place session - its ring cut to the
+; least and the pool's bank taken as the ring - leaves the layer reading
+; nothing (tests/vidlybank.py, red until this). A 286 has had it since
+; 98.3.18.11; a 386 met it the day it went in place. Refused until the
+; layer is planned for an in-place ring (docs/plans/VIDEO-386-PLAN.md 6).
+; Every register kept
+vp_lyipq:
+    push cx
+    call vp_lywant
+    cmp cx, 1
+    cmc                             ; CF = CX >= 1
+    pop cx
+    ret
 
 ; vp_xbaddr - vp_addr in the XMS bank: AX = a chunk, BX = an offset in it ->
 ; DX = a handle, SI its offset (vp_xmk). Clobbers AX, BX, CX

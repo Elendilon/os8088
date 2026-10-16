@@ -179338,7 +179338,14 @@ for unreal mode that had never been measured (docs/plans/VIDEO-386-PLAN.md).
 
 **Taken where a 286's is taken and refused where it is refused**, on 98.3.18.11
 and 98.3.18.13's lists and for their reasons - none of which is the 286's
-instruction, so none is a 386's either. The speaker's clock stays refused on
+instruction, so none is a 386's either - **plus one refusal on both tiers: a
+play that reads a LAYER** (98.1.9, `vp_lyipq`). The layer's slots, its split
+of the pool and its bank are planned against the COPYING ring, and an
+in-place base left the layer reading nothing: `vidlybank` went red the first
+time QEMU's 386 went in place, and green again with `[vp_noinp]` written. A
+286 had carried that since 98.3.18.11 with no row able to see it. It is a
+defect refused, not an incompatibility in kind (docs/plans/VIDEO-386-PLAN.md
+6). The speaker's clock stays refused on
 every tier: a borrow on a 386 is ~6 us rather than ~150, but the decode
 inside it still runs with interrupts off for up to `VP_XYB` record bytes,
 and one interrupt a sample cannot wait for that. **`[vp_noinp]` now refuses

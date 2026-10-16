@@ -158,12 +158,25 @@ measures the CPU side honestly and the disk side pessimistically.
 
 ## 6. Open items found on the way
 
-- **A layered file with a BASE bank, in place.** `vp_xbipq` decides at session
-  start, before `vp_lysplit`, and does not refuse a pending split. The bank in
-  place then skips the layer's split. This has been true on a 286 since
-  98.3.18.13 and is now true on a 386. The tests force the copying path where
-  they test the split, so none of them shows it. Decide whether `vp_xbipq`
-  should wait for the split.
+- **A layered play, in place: REFUSED, on both tiers** (`vp_lyipq`). The
+  final pass found it. `vidlybank` and `vidlybanknone` went red: the base was
+  held whole and went in place, and the layer then read nothing (its slot
+  count read 15072, planned against a ring that was no longer there). With
+  `[vp_noinp]` written they went green again. The bank in place had the same
+  shape: it decides before `vp_lysplit` and skipped the layer's split. Both
+  have been true on a 286 since 98.3.18.11/.13 with no row able to see them.
+  The refusal is the safe stop. The real fix is planning the layer's slots,
+  split and bank for an in-place ring. Once that exists the refusal comes out,
+  because nothing about a layer is incompatible with reading in place.
+- **The ring at THE GAP when G = 2048** (98.3.18.12). `vidxms`, `vidxmsbios`
+  and `vidxmsgap` fail on `origin/elendilon` too, so the defect is not this
+  branch's. The ring is sized to every slot the free run holds and the 2G of
+  slack is then claimed on top of it. G = 1024 needs 2 KB of slack, which the
+  slot rounding usually leaves; G = 2048 needs 4 KB, which it often does not.
+  The claim then falls back to an unplaced ring (`.rmx`'s retry), and the
+  Victory 286 measures G = 2048. QEMU's G is host noise, so the two plain
+  rows fail whenever it lands on 2048. Reserving the slack in the slot count
+  costs a slot on some layouts. That trade is the owner's.
 - **The CMOS index.** `ub_set` (like `xm_arm`) writes port 70h to mask NMI.
   The hook runs it from an ISR, so a CMOS read the hook interrupts between its
   `out 70h` and its `in 71h` would read register 0. The window is a few

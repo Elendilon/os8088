@@ -19,13 +19,11 @@ the slots and the bank with the whole layer; the play reaches the end and
 DRAWS EVERY LAYER RECORD, none missed - the slots fed from the bank as the
 hook let them go (vp_lydrain), copied down out of XMS.
 
-THE BASE IS THE SHIPPED CHOICE: held whole at Play on QEMU's 386, it may be
-decoded IN PLACE (98.3.18.14 - a loaded DS base, nothing copied), which is
-what a 286 has done since 98.3.18.11; the layer's slots and bank copy as
-before either way, and every assertion here is the layer's. `xip` in the
-state line says which the base took. A failure that `[vp_noinp]` = 1 (the
-gate's A/B, before Play) makes go away is the base's in place, not the
-layer's bank.
+THE BASE COPIES, ON EVERY TIER: a play that reads a layer is refused in
+place (vp_lyipq, SPEC.md 98.3.18.14), because an in-place base left this
+row's layer reading nothing - the first QEMU run after a 386 went in place
+was red here, and `[vp_noinp]` = 1 made it green, which is how the refusal
+was found. `xip` in the state line must read 0.
 
 ARM nobank: the NEGATIVE CONTROL - the bank's slots zeroed before Play
 (vp_lyxn 0), so the prefill fills the two slots and nothing more. After the
