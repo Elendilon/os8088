@@ -287,12 +287,8 @@ dskw_wrp:
 .pop:                           ; leak into the next caller's write
     pop es                      ; (dskw_wrap7's pop run as well)
     pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp dskw_find.pdi           ; ...and dskw_find's for the rest (size
+                                ; pass 13): DI, SI, DX, CX, BX, ret
 
 ; -----------------------------------------------------------------------------
 ; dskw_write_sys - dskw_write, for a file that belongs to the KERNEL
@@ -351,11 +347,7 @@ dskw_read_x:
     call ct_fpg_end             ; ...and neither does this (SPEC.md 12.8)
     pop es
     pop bp
-    pop di
-    pop si
-    pop cx
-    pop bx
-    ret
+    jmp dskw_ent_store.pdi      ; DI, SI, CX, BX (size pass 13)
 
 ; -----------------------------------------------------------------------------
 ; dskw_delete - delete a file by name (SPEC.md 18.4, slot 0x010F)
@@ -804,18 +796,9 @@ dskw_rmbody_n83:                ; the same pipeline with dskw_n83 already
                                 ; filled - what dskw_rmtree calls, because it
                                 ; works from raw 11-byte names it read off the
                                 ; disk rather than from display names
-    call dskw_find              ; in the CURRENT directory (SPEC.md 19.2)
-    jc .out                     ; AX = FERR_NOENT / FERR_IO already
-    mov al, [dskw_raw+DSK_R_ATTR]
-    test al, DSKW_NPROT
-    jnz .prot                   ; read-only, hidden, system or volume label
-    test al, DSKW_DIR
-    jz .prot                    ; a file: the caller wanted dskw_delete
-    mov ax, [dskw_raw+DSK_R_CLUS]
-    mov [dskw_oldclus], ax
-    call dskw_clok              ; a subdirectory always owns a real cluster,
-    jc .corrupt                 ; so anything else is corruption - and a walk
-                                ; we refuse is cheaper than one we bound
+    call dskw_fdir              ; in the CURRENT directory (SPEC.md 19.2):
+    jc .out                     ; a plain folder with a real cluster, or AX =
+    mov [dskw_oldclus], ax      ; the FERR_* saying why not
 
     call dskw_isempty           ; CF=1 with AX = FERR_PROT / FERR_IO
     jc .out
@@ -828,12 +811,34 @@ dskw_rmbody_n83:                ; the same pipeline with dskw_n83 already
     mov byte [dskw_zapnext], 0
     call dskw_ent_store
     jnc dskw_relold             ; only now is the chain nobody's
+.out:
     ret
+
+; -----------------------------------------------------------------------------
+; dskw_fdir - find [dskw_n83] in the current directory and require a plain
+;             FOLDER: the question dskw_rmbody and dskw_rmtree both ask first,
+;             which each spelt out until kernel size pass 13
+; out: CF=0 AX = its first cluster, inside [2, dsk_maxclus]; CF=1 AX = the
+;      find's FERR_NOENT / FERR_IO, FERR_PROT (read-only, hidden, system, a
+;      label - or a FILE: the caller wanted dskw_delete), or FERR_IO for a
+;      cluster outside the volume, which a subdirectory never has, so it is
+;      corruption - and a walk we refuse is cheaper than one we bound
+; clobbers: as dskw_find
+; -----------------------------------------------------------------------------
+dskw_fdir:
+    call dskw_find
+    jc .out
+    mov al, [dskw_raw+DSK_R_ATTR]
+    test al, DSKW_NPROT
+    jnz .prot
+    test al, DSKW_DIR
+    jz .prot
+    mov ax, [dskw_raw+DSK_R_CLUS]
+    call dskw_clok
+    jnc .out
+    jmp dskw_rdata.corrupt      ; AX = FERR_IO, CF = 1
 .prot:
-    jmp dskw_wbody.prot
-.corrupt:
-    mov ax, FERR_IO
-    stc
+    jmp dskw_wbody.prot         ; AX = FERR_PROT, CF = 1
 .out:
     ret
 
@@ -1008,13 +1013,8 @@ dskw_rtbody:
                                 ; DVK_FILE arm two hundred lines up. It
                                 ; re-runs the [dsk_mntok] gate, which is free
 %else                           ; kern_small: no redirected volume can exist,
-    jmp short .fat              ; so over the two relays (kernel size pass 11)
+    jmp short .fat              ; so over the relay (kernel size pass 11)
 %endif
-.protj:                         ; ...and the two attribute refusals below take
-    jmp dskw_wbody.prot         ; this, on a path nothing falls into: NASM
-                                ; spelt each of them as a five-byte inverted
-                                ; pair, an 8086 having no near `jcc`, and from
-                                ; here they are two bytes each (-3)
 %ifdef OS88_REDIR
 .fsno:                          ; (`or` cleared CF on the way here)
     stc
@@ -1030,20 +1030,12 @@ dskw_rtbody:
     jnc .named
     jmp dskw_nbody.badarg       ; FERR_NAME, spelled once
 .named:
-    call dskw_rtn83             ; dskw_find matches through dskw_n83
-    call dskw_find
-    jc .fsok                    ; AX = FERR_NOENT / FERR_IO already - and
-                                ; .fsok is a bare `ret` a hop back (this
-                                ; routine's own, at its foot, was one past
-                                ; short reach, and nothing else reached it)
-    mov al, [dskw_raw+DSK_R_ATTR]
-    test al, DSKW_NPROT
-    jnz .protj                  ; read-only, hidden, system or volume label
-    test al, DSKW_DIR
-    jz .protj                   ; a file: the caller wanted dskw_delete
-    mov ax, [dskw_raw+DSK_R_CLUS]
-    call dskw_clok
-    jc .corrupt
+    call dskw_rtn83             ; dskw_fdir matches through dskw_n83
+    call dskw_fdir              ; a plain folder with a real cluster...
+    jc .fsok                    ; ...or AX = the FERR_* already - and .fsok
+                                ; is a bare `ret` a hop back (this routine's
+                                ; own, at its foot, was one past short reach,
+                                ; and nothing else reached it)
     mov [dskw_rt_top], ax
     call dskw_chdir_dl           ; into the folder we are about to empty
     jc .ioerr
@@ -1293,11 +1285,7 @@ dskw_isempty:
     call dskw_ioerr             ; AX = FERR_IO / FERR_WPROT, CF = 1
 .out:
     pop es
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp dskw_find.psi           ; SI, DX, CX, BX, ret (size pass 13)
 
 ; -----------------------------------------------------------------------------
 ; dskw_scan1 - the first LIVE entry of a directory: not free, not deleted,
@@ -3093,14 +3081,9 @@ dws_commit:
 .home:
     pop ax
     popf
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-.none:
-    ret
+    jmp dskw_find.out           ; ES, DI, SI, DX, CX, BX - its pop run (size
+.none:                          ; pass 13); a `pop` writes no flag, so popf's
+    ret                         ; CF rides through
 
 ; dws_ours - ZF=1: a hold is pending on [disk_drive] and no WRITE_SEQ call is
 ; running (the word is [dws_hold] = 1 with [dws_flg] = 0 beside it); .vol
@@ -3746,11 +3729,7 @@ dskw_commit:
 .noarch:
     call dskw_czstamp           ; ...and the compression hint (SPEC.md 20.14)
     call dskw_ent_store         ; CF + AX
-    pop di
-    pop si
-    pop cx
-    pop bx
-    ret
+    jmp dskw_ent_store.pdi      ; DI, SI, CX, BX: its pop run (size pass 13)
 
 ; -----------------------------------------------------------------------------
 ; dskw_czstamp - set, or clear, the compressed-file hint (SPEC.md 20.14)
@@ -3994,10 +3973,11 @@ dskw_find:
     call dskw_ioerr             ; ...which sets CF itself
 .out:                           ; ...AND FIVE OTHER ROUTINES' POP RUN: the
     pop es                      ; ones that push this order jump to .out,
-.pdi:                           ; .pdi or .pdx (a `pop` writes no flag, so
-    pop di                      ; each one's CF rides through). kernel.asm's
-    pop si                      ; kretc_* ladder pops AX too, which none of
-.pdx:                           ; these may
+.pdi:                           ; .pdi, .psi or .pdx (a `pop` writes no flag,
+    pop di                      ; so each one's CF rides through). kernel.asm's
+.psi:                           ; kretc_* ladder pops AX too, which none of
+    pop si                      ; these may
+.pdx:
     pop dx
     pop cx
     pop bx
@@ -4205,7 +4185,8 @@ dskw_ent_store:
     call dskw_ioerr             ; ...which sets CF itself
 .out:
     pop es
-    pop di
+.pdi:                           ; ...and dskw_commit's and dskw_read_x's pop
+    pop di                      ; run too (size pass 13): DI, SI, CX, BX
     pop si
     pop cx
     pop bx

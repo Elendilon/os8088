@@ -3706,6 +3706,7 @@ fm_onup_x:
                                 ; the DIALOG's bar (13.10.5.10). FROM THE TIMER
                                 ; TOO (13.10.5.4.2): the hand paused, so this
                                 ; answers the pos and keeps the record
+.sbscroll:                      ; (fm_ondrag_x's thumb move lands here too)
     sub ax, [fm_lscr]           ; the DIALOG's bar (13.10.5.10) - spent by the
     call fm_scroll_by           ; call above, and this release is the button
     jc .paint                   ; arm's
@@ -3788,13 +3789,11 @@ fm_ondrag_x:
     call fm_sbset               ; BX = the block; DX is still the pointer's y
     call os88ui_sbtrack         ; CF = 1: the thumb moved and the view is not
     jc .out                     ; owed a thing yet (the rate, or the same row)
-    sub ax, [fm_lscr]           ; ...as a DELTA, which is what fm_scroll_by
-    call fm_scroll_by           ; takes (SPEC.md 22.11)
-    jc .drpaint                 ; 11.3's granularity refusal
-    jmp short .out
-.drpaint:
-    call fm_repaint             ; SI still = window ptr
-    jmp short .out
+    jmp fm_onup_x.sbscroll      ; ...as a DELTA, which is what fm_scroll_by
+                                ; takes (SPEC.md 22.11), and a repaint on
+                                ; 11.3's granularity refusal: the release's
+                                ; own tail, which is this frame's (kentc_di)
+                                ; ending in the same kretc_di (size pass 13)
 .btn:
 %endif
     call os88ui_armed           ; PEEK: the arm is the release's to spend
@@ -9687,7 +9686,17 @@ fm_hdrbuf:  resb 48             ; = FM_HDRMAX (a literal per the no-forward-
                                 ; worst case, "Delete NAME +contents? Del=yes
                                 ; Esc=no", which is staged whole and truncated
                                 ; afterwards
-fm_numbuf:  resb 11             ; fm_ultoa scratch: 10 digits + NUL
+fm_numbuf   equ fm_name         ; fm_ultoa scratch, 10 digits + NUL - ONE
+                                ; BUFFER, TWO NAMES (kernel size pass 13): its
+                                ; one writer is fm_draw_lrow's size column,
+                                ; AFTER that row's name has been lettered out of
+                                ; fm_name, and every reader of fm_name stages it
+                                ; first (fm_stage_name; fm_newwin's seed copies
+                                ; it before any row can repaint)
+                                ; - and 11 bytes is the most it needs, of 17
+fm_bsspad:  resb 1              ; ...whose 11 were odd: this keeps every .bss
+                                ; word after this file at the parity it had (a
+                                ; 286's wait state on each one that went odd)
 
 section .text
 
