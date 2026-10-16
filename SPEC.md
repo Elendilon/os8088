@@ -58203,6 +58203,7 @@ than the image and the bss together.
 | `NPF_UNDO` | the undo log and Edit ▸ Undo (§27.9) | nine internal entry points collapse to one shared `ret` |
 | `NPF_ABOUT` | the standard About card (§20.5.1) | one `OSAPI_ABOUT_SET` at entry and one layer in `np_paint` |
 | `OS88UI_SBDRAG` | §13.10.5's thumb gesture | already a knob (§13.10.7); the bar still tracks and steps |
+| `OS88UI_NOGEST` + `OS88UI_NOBFIND` (set, not cleared) | §20.5.1.3's button-record gesture - `os88ui_btnpress`/`btndrag`/`btnup`, `btninit` and `bfind` | follows from `NPF_FIND`: the panel's four are the only buttons with a record here, and §75.3's alert drives its own through `os88ui_ahit` and arm/fire (§27.21 item 17) |
 
 **Kept on purpose, so that the small build is a text editor and not a
 demo:** typing and word wrap, scrolling, the selection with cut/copy/paste,
@@ -58656,6 +58657,113 @@ clamped to the desktop band like any template's. What it
 costs is the larger window's own redraw and its §11.96 save-under (a 1bpp
 cache, about 14KB at 440x260 against about 6KB) - both bounded by the area the
 user sees, which is the area they asked for.
+
+### 27.21 The second apps size pass - what was taken for DISK room
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md measures a package by its SHIPPED FILE,
+the LZ4-packed `NOTEPAD.O88`, because the 360KB system and apps disks are
+full - and Note Pad rides both, plus the two small disks in its §27.16 arm.
+Every change below is on a COLD path (a file, a menu, a dialog, the find
+panel), leaves the picture and every behaviour as it was, and moves no byte
+into bss or the heap. The numbers are the file and the image, both arms.
+
+1. **One copy loop for the three name composers.** `np_qcompose` (the
+   §27.15 question), `np_setmsg` (the Saved / Loaded toast) and
+   `np_defname` each carried their own NUL-string copy; they share
+   `np_cat` / `np_scpy` now, which leave DI on the NUL so the next copy
+   overwrites it.
+2. **The save's CR LF expansion is `stosb`.** ES:DI was already the staging
+   claim, so the store is one byte and DI IS the staged count - the BX that
+   counted beside it is gone - and `np_load`'s `jmp` to the epilogue that
+   follows it falls through instead.
+3. **A length kept in memory is updated IN memory.** Seven
+   `mov ax, [x]` / `add ax, cx` / `mov [x], ax` triples - `[np_len]` in
+   `np_delspan`, `np_gaproom` and `np_paste`, `[np_utop]` and a record's
+   `np_udel` in the undo arena - are one `add [x], cx` each: four bytes where
+   there were ten, and fewer cycles, since the 8088 pays for the fetch.
+4. **The line-ending fold is written once.** `np_load` and `np_paste`
+   apply the same rule - CR LF and a lone LF to 13, anything else outside
+   32..126 dropped - and each carried the loop; `np_nlfold` is both now
+   (`es lodsb` / `stosb`, and the paste's capacity check provably never
+   fires). The paste's tail move after the fold is `rep movsb`.
+5. **The find panel's button rects are reached through one pointer.**
+   `np_pbutton` computed the slot's rect address twice, once per arm, and
+   pushed and popped the slot around it; it computes it once into SI. The
+   match count's fixed words (`...`, `Bad pattern`, a blank) are copied
+   by `np_scpy`.
+6. **Replace copies with `rep movsb`.** `np_replat` moved the replacement
+   text into the note a byte at a time with DS:SI and ES:DI already set up
+   for the string move it is now - and a zero count moves nothing, so the
+   `jcxz` went with it. `np_saycnt`'s ' replaced' suffix is `np_scpy`.
+7. **`np_fpgeom` derives the panel from registers.** The content's left
+   and right stay in DI across `OSAPI_WM_GEOM` and every edge is one `lea`
+   off them instead of a reload-add-store; the three optional button widths
+   share one test of `[np_fpan]`. `np_fpclick`'s `.hit` arm, unreached
+   since the press stopped firing a button (np_onup reaches `np_fp_act` at
+   the release), is gone.
+8. **`np_fpaint` keeps its coordinates in the registers.** A primitive
+   preserves every register, so the rule under the panel is the fill's own
+   rect one row down (`inc dx`, `mov bx, cx`), the Regex tick is the tick
+   box's frame inset by two, and the four buttons count their slot down
+   from 3 in BX, which `np_pbutton` keeps.
+9. **`np_pfield` places a text box with `lea`.** The row's top is
+   `[np_pt]` plus the pad, plus a row for Repl: (no `mul`), the label's x is
+   `[np_pcbx]` that `np_fpgeom` already holds, and the frame and caret
+   edges are each one `lea` off the row's top.
+10. **A dropped selection is ONE rotation in registers.** `np_movesel`
+    wrote its two directions out as two sets of three reversals over four
+    bss words (`np_mvs`/`np_mve`/`np_mvp`/`np_mvn`). Both are the same
+    rotation of `[a,b)[b,c)` - rightwards `(s,e,p)`, leftwards `(p,s,e)`
+    - so the leftward case swaps its three ends into place and both fall
+    into one body that holds them in AX/BX/DX, with the block's landing
+    place in DI. The four words are gone: bss -8 on both arms.
+11. **A name is adopted in one place.** The file dialog's callback and
+    the launch document (`np_ondlg`, `np_arg`) each recorded the folder and
+    copied the kernel's name with a loop of their own; `np_adopt` does both
+    for both, bounded at 13 and a NUL as `np_arg`'s was (SPEC.md 38.6
+    promises 12, and `np_name` holds 14).
+12. **`np_onclose`'s refusal is one branch.** When `os88ui_ask` refuses,
+    the close tested `[np_asking]` to tell "ours is already up" from "the
+    window table is full" - and both arms went to the same `.wait`. It is
+    one `jc .wait` now.
+13. **The panel's button actions share their tail.** `np_fp_act`'s All and
+    Repl arms each ended in the same redraw-and-recount, and now meet at
+    one; the slot is counted down with `dec bx`. `np_pdrawn` lets its
+    cut-to-fit case reach `.draw`'s own NUL instead of writing one first,
+    and `np_fpclick` compares the button row's top in memory.
+14. **The panel's button arrays are bss.** The group's rects, labels and
+    flags (48 bytes, `np_brects`/`np_btlbl`/`np_btflg`) were zeros in the
+    image; the loader zeroes bss, so they start exactly as they did, and
+    image + bss is unchanged. The scroll bar's 16-byte record was tried the
+    same way and left where it is: it bought the full arm 4 bytes of file
+    and cost the small arm 3.
+15. **A find box edits in registers.** `np_fpkey` kept the caret and the
+    length in memory and re-read both at every step; it holds them in DX
+    and CX and stores the caret back once, on every way out (so the clamp
+    to the box still lands even for a key it refuses). The insert and delete
+    slides move the terminating NUL with the text instead of writing it
+    afterwards - a box is NUL-terminated at its length on every path that
+    writes one, which item 16 below makes true of `np_fopen` too.
+16. **DEFECT FIXED: a multi-line selection no longer corrupts the
+    pattern.** `np_fopen` seeds the pattern from a one-line selection and
+    checked for a CR AS it copied - so a selection whose CR came after more
+    characters than the old pattern held had already written over the old
+    pattern's NUL when it gave up. `[np_fpatn]` kept the old length, the
+    box showed that many characters of the NEW text, and the matcher, which
+    reads the pattern to its NUL, searched for more than the box showed.
+    It scans the selection with `repne scasb` first and writes nothing
+    unless the whole of it is one line. +3 image bytes, +0 file.
+17. **The small build leaves the button gesture out.** With no find panel
+    there is no button record in `APP_SMALL` at all - the alert's buttons
+    are its own - so the build sets `OS88UI_NOGEST` and `OS88UI_NOBFIND`
+    (§20.5.1.3.4) and the ~230 bytes of record-gesture code nothing in it
+    could reach are gone (§27.16.2's table). The full build still carries
+    `os88ui_btninit`/`btnclick`/`btlist`, which it never calls - they share
+    the knob with the gesture it does use.
+18. **File > New zeroes through AX.** `np_new` stored two immediate
+    zeros and saved AX around `np_resize`, which keeps it anyway; AX was
+    already spent on the toast's string, so its header now says it clobbers
+    AX, which it always did.
 
 ## 28. apps/taskmgr — the Task Manager
 
