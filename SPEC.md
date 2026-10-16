@@ -179002,6 +179002,19 @@ the General MIDI names, **an original 128-program FM bank and a 47-key kit**
 (built from family templates in the tool - no third-party bank is read,
 fetched or transcribed), the synth's voicing per program and its kit.
 
+**Five of them are not shipped** (apps size pass 2): `mrt_tl`, `mrt_amp`,
+`mrt_fn`, `mrt_fq` and `mrt_pow` are smooth curves, so they are bss and the
+image carries `mrt_z` - each one's first value and first step, then two bits
+an entry whose value less a bias is the change in the step (every second
+difference is in -2..2) - which `mrt_unz` expands as `mr_entry`'s first
+call: 1,280 entries at ~120 cycles, ~32 ms at 4.77 MHz (estimated). The tool's `unz()` is the loop
+line for line and `gen` refuses a stream it does not read back to the table.
+`mrt_z` and `mrt_unz` are the image's TAIL, the first 454 bytes of
+`mrk_pring` (105.8.4) - its fourth tenant, read before any of the others is
+written - so the bss starts 2 KB past the tail rather than at the image's
+end and the change costs no RAM: image + bss is 47,484 before and after, and
+the file is **2,124 bytes smaller** (30,991 -> 28,867).
+
 #### 105.6.2 OPL3, and an emulator that is half of one
 
 `SND_FM_INFO`'s answer decides the mode: an OPL3 is claimed in OPL3 mode with
@@ -179111,7 +179124,9 @@ only one output is ever open, so the grant ring's half, the polled Covox's
 ring (105.8.7) and the speaker's PWM table - read once, by `mry_open`, as it
 builds the output table - are three tenants of `mrk_pring`, each written
 whole at its own session's start before it is read. 2,304 bytes of bss
-(apps size pass 1, set 4).
+(apps size pass 1, set 4). **The page's first bytes are the image's TAIL**
+(105.6.1): what only `mr_entry` reads, laid under the page so that it costs
+no RAM - a fourth tenant, gone before the first output opens.
 
 #### 105.8.5 MIDI out, through an MPU-401 (`mrmid.inc`)
 

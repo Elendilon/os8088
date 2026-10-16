@@ -10,7 +10,13 @@ ARITHMETIC rather than logic is made here, on the host, once:
     python3 tools/os88midi.py play FILE.MID [--rate R]  # the reference timeline
 
 `gen` writes apps/midirack/mrtab.inc - committed, the way apps/os88spkfx_t.inc
-is, and `check` (a fast-tier row) refuses a stale one:
+is, and `check` (a fast-tier row) refuses a stale one. The first five tables
+are SMOOTH, and the package does not ship them: they are bss, and what ships
+is `mrt_z` - each one's first value and step and then its SECOND
+differences, two bits apiece - which `mrt_unz` (midirack.asm) expands once
+at entry (SPEC.md 105.6.1). `zstream` below is that encoding and `unz` the
+asm's loop line for line, so `gen` refuses a stream that does not decode to
+the table byte for byte:
 
   mrt_fn     384 words  the OPL F-Number of each 1/32 of a semitone across
                         one octave, at BLOCK = octave - 1 (SPEC.md 105.6.2):
@@ -523,13 +529,15 @@ def generate():
     L.append('MRT_DRHI   equ %d' % DRUM_HI)
     L.append('MRT_PATCH  equ 12')
     L.append('')
-    L += _rows('mrt_fn', fn_table(), 'dw', 8, 'OPL F-Number at block = octave - 1, 1/32 semitone steps')
-    L.append('')
-    L += _rows('mrt_fq', fq_table(), 'dw', 8, "octave 0's frequency x 2048, the same steps")
-    L.append('')
-    L += _rows('mrt_tl', tl_table(), 'db', 16, 'MIDI level -> OPL attenuation (0.75 dB steps), 40 log10')
-    L.append('')
-    L += _rows('mrt_amp', amp_table(), 'db', 16, "MIDI level -> the synth's amplitude, a square law")
+    L.append("; THE SMOOTH TABLES ARE BSS, built once at entry by mrt_unz out of")
+    L.append("; MRT_ZTAIL's second differences (SPEC.md 105.6.1). In mrt_unz's order:")
+    L.append("; a byte table's last entry spills its high byte onto the next table's")
+    L.append("; first, which that table's own expansion then writes")
+    L.append('%if MR_BSS & 1')
+    L.append('%assign MR_BSS MR_BSS + 1')
+    L.append('%endif')
+    for label, vals, step, what in SMOOTH():
+        L.append('    MRBUF %-10s %4d    ; %s' % (label + ',', len(vals) * step, what))
     L.append('')
     L.append("; the General MIDI names, NUL-terminated, in program order (mr_gmname walks)")
     L.append('mrt_gmname:')
@@ -559,9 +567,69 @@ def generate():
     for i, e in enumerate(ENV):
         L.append('    db %d, %d, %d, %d   ; class %d' % (e + (i,)))
     L.append('')
-    L += _rows('mrt_pow', pow_table(), 'dw', 8, "the wavetable's pitch: 2^(i/384) x 32768, 1/32 semitone steps")
+    L.append('; the smooth tables, as mrt_unz reads them: per table its address,')
+    L.append('; entries, first value, first step, the codes\' bias and 1 (bytes) or')
+    L.append('; 2 (words); then a code a entry, two bits, the low pair first. Placed')
+    L.append('; by midirack.asm in the image\'s tail, which mrk_pring is laid over')
+    L.append('%macro MRT_ZTAIL 0')
+    L.append('mrt_z:')
+    for label, vals, step, what in SMOOTH():
+        v0, d0, bias, codes = zstream(vals, step)
+        L.append('    dw %s, %d, 0x%04X' % (label, len(vals), v0))
+        L.append('    db %d, %d, %d' % (d0, bias, step))
+        for i in range(0, len(codes), 16):
+            L.append('    db %s' % ', '.join('0x%02X' % b for b in codes[i:i + 16]))
+    L.append('    dw 0')
+    L.append('%endmacro')
     L.append('')
     return '\n'.join(L)
+
+
+def SMOOTH():
+    """The five tables mrt_unz builds, in its order (byte tables first: their
+    spill must land on a table expanded after them)."""
+    return [
+        ('mrt_tl', tl_table(), 1, 'MIDI level -> OPL attenuation (0.75 dB steps), 40 log10'),
+        ('mrt_amp', amp_table(), 1, "MIDI level -> the synth's amplitude, a square law"),
+        ('mrt_fn', fn_table(), 2, 'OPL F-Number at block = octave - 1, 1/32 semitone steps'),
+        ('mrt_fq', fq_table(), 2, "octave 0's frequency x 2048, the same steps"),
+        ('mrt_pow', pow_table(), 2, "the wavetable's pitch: 2^(i/384) x 32768, 1/32 semitone"),
+    ]
+
+
+def zstream(vals, step):
+    """(first value, first step, bias, code bytes) for mrt_unz: step k+1 is
+    step k plus (code k - bias), and entry k+1 is entry k plus step k+1, the
+    step kept as a BYTE (DL) and added to the value's low byte with a carry
+    into the high - exact for a word table whose steps are 0..255 and for a
+    byte table whose steps are -128..127. Refuses anything it cannot encode,
+    and anything unz does not read back to the table."""
+    n = len(vals)
+    assert n % 4 == 0, n
+    d = [vals[i + 1] - vals[i] for i in range(n - 1)]
+    dd = [d[i + 1] - d[i] for i in range(n - 2)]
+    bias = -min(dd)
+    assert 0 <= bias <= 3 and max(dd) + bias <= 3, (min(dd), max(dd))
+    codes = [bias] + [x + bias for x in dd] + [bias]
+    out = bytearray()
+    for i in range(0, n, 4):
+        out.append(codes[i] | codes[i + 1] << 2 | codes[i + 2] << 4 | codes[i + 3] << 6)
+    v0, d0 = vals[0], d[0] & 0xFF
+    mask = 0xFF if step == 1 else 0xFFFF     # a byte table's high byte is
+    assert [v & mask for v in unz(v0, d0, bias, out, n)] == vals   # its spill
+    return v0, d0, bias, bytes(out)
+
+
+def unz(v0, d0, bias, codes, n):
+    """mrt_unz's loop, as the 8086 runs it (BX the value, DL the step)."""
+    bx, dl, out = v0, d0, []
+    for k in range(n):
+        out.append(bx)
+        c = (codes[k // 4] >> (2 * (k % 4))) & 3
+        dl = (dl + c - bias) & 0xFF
+        bl = (bx & 0xFF) + dl
+        bx = ((bx & 0xFF00) + ((bl >> 8) << 8) + (bl & 0xFF)) & 0xFFFF
+    return out
 
 
 def pow_table():

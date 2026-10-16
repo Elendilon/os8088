@@ -68,23 +68,28 @@ MRA_FACE    equ 4 * MRA_H * MRA_W / 8
 MRA_SIZE    equ MRA_NB * MRA_NS * MRA_FACE
 
 ; =============================================================================
-; the package-wide bss accumulator (the Audio Player's %assign pattern)
+; the package-wide bss accumulator (the Audio Player's %assign pattern). It
+; starts 2 KB past mr_ztail and not at os88_image_end: the image's TAIL - the
+; smooth tables' second differences and mrt_unz, read once at entry (SPEC.md
+; 105.6.1) - is the first part of mrk_pring, whose four tenants each write it
+; whole before reading it (SPEC.md 105.8.4), so the tail costs no RAM
 ; =============================================================================
+mr_bss0     equ mr_ztail + OS88SPK_PRL
 %assign MR_BSS 0
 %macro MRB 1
-%1 equ os88_image_end + MR_BSS
+%1 equ mr_bss0 + MR_BSS
 %assign MR_BSS MR_BSS + 1
 %endmacro
 %macro MRW 1
-%1 equ os88_image_end + MR_BSS
+%1 equ mr_bss0 + MR_BSS
 %assign MR_BSS MR_BSS + 2
 %endmacro
 %macro MRD 1
-%1 equ os88_image_end + MR_BSS
+%1 equ mr_bss0 + MR_BSS
 %assign MR_BSS MR_BSS + 4
 %endmacro
 %macro MRBUF 2
-%1 equ os88_image_end + MR_BSS
+%1 equ mr_bss0 + MR_BSS
 %assign MR_BSS MR_BSS + (%2)
 %endmacro
 ; ...and the engines' voice state OVERLAID on the synth's output table
@@ -174,6 +179,7 @@ MR_FILEMAX  equ 63                  ; KB: the largest file taken whole
 ;            window afterwards: no drawing and no worker here.
 ; =============================================================================
 mr_entry:
+    call mrt_unz                    ; the smooth tables, first (105.6.1)
     call OSAPI_CPU_INFO
     mov [mr_cpu], al
     call OSAPI_SND_CAPS             ; AX = caps
@@ -374,8 +380,65 @@ mr_s_notbank:   db 'MIDIRACK.BNK is not a bank this player reads', 0
 %if MR_XBSS > 2048
   %error "the engines' overlay has outgrown mry_otab"
 %endif
-    OS88_BSS MR_BSS
-    align 2, db 0                   ; (even, as the 16 it was: every bss word
-                                    ; keeps its parity, and no buffer is ever
-                                    ; made a segment)
+
+; =============================================================================
+; THE TAIL (SPEC.md 105.6.1): read once, by mr_entry's first call, and then
+; mrk_pring's first bytes - it must be the image's last, and it must fit the
+; page. Even, as every bss word keeps its parity from mr_bss0
+; =============================================================================
+    align 2, db 0
+mr_ztail:
+; mrt_unz - mrt_tl, mrt_amp, mrt_fn, mrt_fq and mrt_pow into their bss out of
+;           mrt_z: per table a first value and step, then a two-bit code an
+;           entry whose value less the bias is the step's change. The step is
+;           a BYTE added with a carry into the value's high byte - exact for a
+;           word table (steps 0..118) and for a byte table's low byte, whose
+;           high is spilled onto the next entry and the next table's first.
+;           tools/os88midi.py's unz() is this loop, and refuses a stream it
+;           does not read back.
+mrt_unz:
+    push bp
+    cld
+    mov si, mrt_z
+.tab:
+    lodsw
+    xchg ax, di                     ; DI = the table (0 ends the list)
+    or di, di
+    jz .done
+    lodsw
+    xchg ax, cx                     ; CX = its entries, a multiple of 4
+    lodsw
+    xchg ax, bx                     ; BX = the first
+    lodsw
+    xchg ax, dx                     ; DL = the first step, DH = the bias
+    lodsb
+    cbw
+    xchg ax, bp                     ; BP = 1 or 2, the entry's bytes
+.el:
+    mov [di], bx
+    add di, bp
+    test cl, 3
+    jnz .have
+    lodsb                           ; four codes a byte, the low pair first
+    mov ah, al
+.have:
+    mov al, ah
+    and al, 3
+    shr ah, 1
+    shr ah, 1
+    sub al, dh
+    add dl, al                      ; the step moves
+    add bl, dl                      ; ...and the value by it
+    adc bh, 0
+    loop .el
+    jmp short .tab
+.done:
+    pop bp
+    ret
+    MRT_ZTAIL
+    align 2, db 0                   ; (an even image, as it always was)
+%if ($ - mr_ztail) > OS88SPK_PRL
+  %error "the image's tail has outgrown mrk_pring, which is laid over it"
+%endif
+    OS88_BSS mr_bss0 + MR_BSS - os88_image_end
     OS88_IMAGE_END
