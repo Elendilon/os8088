@@ -44277,6 +44277,23 @@ starts 1,024 bytes earlier in the file. The loader is freed at the re-home, so
 that is disk and transient RAM, and the program never knew - it is told the
 streams' sector (`CSH_SEC`) out of the row rather than computing it.
 
+##### 20.12.9.2 `OP_NO_LAZYOK`, for a loader that fetches without asking
+
+`op_lazyok` is the QUESTION half of the lazy surface - *could part AL be had
+right now?* - and it exists so a menu item behind a lazy part can be greyed
+on a fact (§47) before the user picks it. A package that fetches its lazy
+part ONCE, at launch, with no menu in front of it, never asks: the answer is
+`op_fetch`'s own refusal and its toast. The DOS box's loader is that shape
+(§96.44.5.3) and carried the routine anyway, because the table cannot say
+"fetched, but never asked about" - so the include takes a define instead:
+`%define OP_NO_LAZYOK` before `apps/os88parts.inc` leaves `op_lazyok` out.
+
+It is a DEFINE and not a derived flag, for the one reason it differs from
+§20.12.9's: what decides it is the program's CALLS, which no table row sees.
+The default emits the routine, so every package that does not say so
+assembles byte-identical. `apps/dos/dosload.asm` opts in: 2,276 -> 2,210
+image bytes (apps size pass 2b, §96.44.16).
+
 #### 20.12.10 A LOADER hands its identity to one of its own parts
 
 A parted package's image is the thing the kernel launches, and everything else
