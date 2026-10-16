@@ -829,21 +829,31 @@ tk_e_shell:
 tk_sintab:
 %include "tksin.inc"
 
-; TKRDG - a row of the ridge's heights, and TK_RIDGEPK the tallest of them, so
-; the band the ridge can reach is ASSEMBLED rather than scanned for at run time
-; (SPEC.md 85.3.9): tk_tmlayout's rectangle and the two span arrays sized to it
+; TKRDG0 / TKRDG - tkridge.inc's runs, read HERE for TK_RIDGEPK alone: the
+; tallest height, so the band the ridge can reach is ASSEMBLED rather than
+; scanned for at run time (SPEC.md 85.3.9) - tk_tmlayout's rectangle and the
+; two span arrays sized to it. A run's heights lie between its two ends, so
+; the tallest end is the tallest height. The bytes are emitted once more, by
+; the entry overlay (tank.asm), where tk_mktabs expands them into the bss's
+; tk_ridgetab.
 %assign TK_RIDGEPK 0
-%macro TKRDG 1-*
-  %rep %0
-    db %1
-    %if %1 > TK_RIDGEPK
-      %assign TK_RIDGEPK %1
+%assign TK_RIDGEN 0
+%macro TKRDG0 1
+  %assign TK_RIDGEPK %1
+%endmacro
+%macro TKRDG 2-*
+  %rep %0 / 2
+    %assign TK_RIDGEN TK_RIDGEN + %1
+    %if %2 > TK_RIDGEPK
+      %assign TK_RIDGEPK %2
     %endif
-    %rotate 1
+    %rotate 2
   %endrep
 %endmacro
-tk_ridgetab:
 %include "tkridge.inc"
+%if TK_RIDGEN != 255
+  %error "tkridge.inc's runs must cover angles 1..255 exactly"
+%endif
 ; ...and the most rows the ridge's BAND can be on a shadow backend - the peak
 ; at the larger of the two ridge scales (scly / 3, tk_r_setup), above the
 ; horizon and the two rows of slack tk_tmlayout gives it

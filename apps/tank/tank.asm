@@ -890,6 +890,7 @@ tk_tpl:
     ZWORD tk_ey1
     ZWORD tk_ex2
     ZWORD tk_ey2
+    ZBUF  tk_ridgetab, 256          ; tkridge.inc's runs, expanded at entry
     ZBUF  tk_ridgex, 25 * 2
     ZBUF  tk_rpy, 25 * 2
     ZBYTE tk_ra
@@ -1121,6 +1122,7 @@ tk_spjunk equ tk_ovl + 8
 tk_entry:
     push si
     push di
+    call tk_mktabs                  ; the tables the file ships as seeds
     call OSAPI_VIDEO                ; AX = w, BX = h, CX = the dock's top row
     mov [tk_scrw], ax
     mov [tk_dock], cx
@@ -1200,6 +1202,67 @@ tk_entry:
     pop di
     pop si
     ret
+
+; -----------------------------------------------------------------------------
+; tk_mktabs - the tables the file ships as SEEDS, expanded into the bss
+; clobbers AX, BX, CX, DX, SI, DI
+;
+; The ridge (SPEC.md 85.5.1): tkridge.inc's runs, each step k of an n-step run
+; from h0 to h1 being (h0 (n - k) + h1 k + n / 2) / n. Every term is unsigned
+; and the quotient is a height, so one byte MUL apiece and one byte DIV.
+; -----------------------------------------------------------------------------
+tk_mktabs:
+    push es
+    push ds
+    pop es
+    cld
+    mov si, tk_rdgseed
+    mov di, tk_ridgetab
+    lodsb                           ; angle 0's height...
+    stosb
+    xchg ax, dx                     ; ...is the first run's h0, in DL
+.run:
+    lodsw                           ; AL = n, AH = h1
+    mov cl, al
+    mov dh, ah
+    mov ch, 1                       ; CH = k
+.step:
+    mov al, cl
+    sub al, ch
+    mul dl                          ; h0 (n - k)
+    xchg ax, bx
+    mov al, ch
+    mul dh                          ; + h1 k
+    add ax, bx
+    mov bl, cl
+    mov bh, 0
+    shr bx, 1                       ; + n / 2
+    add ax, bx
+    div cl                          ; / n
+    stosb
+    inc ch
+    cmp ch, cl
+    jbe .step
+    mov dl, dh                      ; this run's end is the next one's start
+    cmp di, tk_ridgetab + 256
+    jb .run
+    pop es
+    ret
+
+%unmacro TKRDG0 1
+%unmacro TKRDG 2-*
+%macro TKRDG0 1
+    db %1
+%endmacro
+%macro TKRDG 2-*
+  %rep %0
+    db %1
+    %rotate 1
+  %endrep
+%endmacro
+tk_rdgseed:
+%include "tkridge.inc"
+
 tk_ovlend:
     times TK_OVLSZ - (tk_ovlend - tk_ovl) db 0  ; a negative count is the
                                     ; assembler refusing an overlay that

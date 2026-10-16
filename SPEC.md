@@ -128803,8 +128803,8 @@ are only ever read and written over the ridge's band (§85.3.8 - rectangle 6's
 rows), so they are as long as the band can be: the ridge table's tallest peak
 at the larger of the two ridge scales, plus the two rows of slack
 `tk_tmlayout` gives it - **72 rows, 144 bytes, where they were 400**. The peak
-is ASSEMBLED rather than scanned for: `tkridge.inc`'s rows are `TKRDG` lines,
-which keep `TK_RIDGEPK` as they go, and `tk_tmlayout`'s 256-byte scan for it
+is ASSEMBLED rather than scanned for: `tkridge.inc`'s runs are `TKRDG` lines,
+which keep `TK_RIDGEPK` as they go (§85.5.1), and `tk_tmlayout`'s 256-byte scan for it
 is gone with the guess. An absolute row still indexes both, through two bases
 `tk_tmlayout` sets once a bracket (`tk_rb2`, `tk_rbd`: the array less the
 band's first row), so a walk drawing the template's ridge marks `tk_sprdg`
@@ -128978,6 +128978,23 @@ alone. Sampling at 25 fixed angles and solving for x once a bracket is what
 turns "an arctangent per column" into a table lookup per frame; the profile
 itself is built out of whole numbers of cycles, so a ridge line closes on
 itself.
+
+**The file ships the profile as the straight runs it is made of, and the
+entry proc draws the 256 heights** (apps size pass 2). `tkridge.inc` is 49
+runs - `TKRDG n, h`, a run of `n` steps ending at height `h` - and step `k`
+of a run from `h0` is `(h0 (n - k) + h k + n / 2) / n`, which is the rounding
+the 256-byte table had been written to: `tk_mktabs` in the entry overlay
+(§85.10.6) expands them into the bss's `tk_ridgetab` and the result is the
+old table **to the byte**, checked by running the routine out of the
+assembled image on the host against the image before. `tk_ridge` reads the
+same table through the same instruction. 99 bytes of seed and 60 of code
+where there were 256 bytes of table: **the file -78, RAM unchanged** - the
+seed and the code are the overlay's, which was going to be RAM anyway, and
+the table's 256 bytes moved from the image to the bss. The expansion is
+4,434 instructions, ~18 ms at 4.77 MHz (an estimate from the 255 byte MULs
+and DIVs it makes), once per launch. `TK_RIDGEPK` reads the same file a first
+time, emitting nothing: a run's heights lie between its ends, so the tallest
+end is the tallest height, and an `%error` holds the runs to angles 1..255.
 
 #### 85.5.2 The models
 
