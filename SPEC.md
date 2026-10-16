@@ -115547,7 +115547,9 @@ and `style` dropped whole, `font` and `bgcolor` dropped in both directions
 
 **3,063 bytes**, which is three clusters of a 360KB floppy against
 `DEMO.HTM`'s six — and the reason to care is §24.4, where that geometry is
-tight enough that `BEVERLY.MOD` rides a disk of its own.
+tight enough that `BEVERLY.MOD` rides a disk of its own. (2,901 since 71.18,
+which packs to 2,046 and two clusters: the boilerplate no renderer here reads
+went, and nothing it draws did.)
 
 It also puts the file **beside its package**, which is where the other three
 `APPS_DATA` entries already were — `apps/tracker/beverly.mod`,
@@ -115804,6 +115806,14 @@ history and its predicates, form submission and the request it builds, page
 clicks, and the whole fetch state machine through a fake socket driver with
 redirects and frames - and left the same bytes behind.
 
+Altogether `BROWSER.O88` 17,832 -> 17,467 bytes (still 18 clusters), image
+20,945 -> 20,190 and bss unchanged at 5,940, so the claim is 755 bytes
+smaller; `BROWSER.HTM` 2,184 -> 2,046, three clusters to two. No heap claim
+changed size. The renderer's per-byte loops (`br_build`, the paint, the parse
+and layout loops, `br_take`/`br_hdrb`) are untouched; what moved on a parse
+is per tag or per form control, bounded per page, and removes instructions
+except the field helpers' one `call`/`ret`.
+
 - **The predicates are the compare.** `br_okback`, `br_okfwd`, `br_okrel` and
   `br_haveh` answer CF and every caller reads CF and nothing else, so an
   unsigned `cmp x, 1` (which borrows exactly when x is 0) IS the answer and
@@ -115822,6 +115832,87 @@ redirects and frames - and left the same bytes behind.
   because its action is looked up again at the toast. Invisible on FrogFind,
   which has one form; found by the differential run above (a two-form page
   submitting form 2 to form 0's `/search`). +3 bytes.
+- **A field record is filled by one helper.** Four control parsers (text,
+  select, checkbox/radio, and the option value) each copied `name` or `value`
+  into the record inline, with `push bx / add bx, FLD_x / mov di, bx / pop
+  bx` where one `lea` is that address; `br_fldname` and `br_fldcp` are the
+  copy once. `FLD_W` and `FLD_LEN` are adjacent, so a field's width and its
+  empty length are one word store, a checkbox's default `on` is another, and
+  `br_input` stops re-loading the `type` name `br_attreq` already hands back.
+  Per control this is bounded work - at most `BR_FMAX` = 12 on a page - and
+  not the per-byte parse loop, which no change here touches.
+- **`br_submit` builds the query out of three small pieces.** `br_actptr`
+  (a form's action, also `br_form`'s), `br_amp` (the `&` before every pair
+  but the first, three copies before) and `br_encz` (a NUL string through the
+  encoder, two); a POST and a GET share one toast-then-resolve tail with the
+  string to resolve in DI, `OSAPI_TOAST` keeping every register; the
+  too-long refusal is `br_errst`; and `br_form` stores a form's method with
+  one `adc` off `br_attreq`'s carry.
+- **The tag path does less, and so is no slower.** `br_do`'s four
+  `call`/`ret` pairs are tail jumps and its unreachable `.input` is gone;
+  `br_anchor` measured the href twice, built the arena offset's index through
+  DX and a `push`/`pop`, and split the link index into its two payload
+  nibbles with two loads where one `shl`/`shr` pair leaves both halves in AX.
+  Every one of these removes instructions from the path it is on.
+- **`br_split` asks the terminators first.** Its host and path loops ran a
+  `loop` to the bound and then the same three tests again to tell a full
+  field from a too-long one; testing the end first lets one `jcxz` be both
+  the bound and the verdict. The port accumulates in AX and is stored once.
+  A reply's header state - eight stores that a fetch, a redirect hop and a
+  frame child each carried - is `br_hreset`, and `br_go` no longer saves AX
+  and BX around a `OSAPI_WM_SAVEU` whose caller restores both anyway.
+- **A reset stores a register.** `br_parse`'s per-page reset and
+  `br_layout`'s were runs of immediate zeros, five or six bytes a store; with
+  AX cleared once each is `mov [x], al` or `mov [x], ax`, three. Once per
+  parse and once per layout, and fewer cycles than before.
+- **A record is addressed by its helper.** A text field's record was a
+  hand-inlined copy of `br_fld`; a submit button's, three copies of one
+  multiply, is `br_subrec`. A button value's `&nbsp;` is two word compares and
+  a byte rather than five bytes, and a field's padding is `jcxz`/`loop`.
+- **A frame's host and path are one copy.** `br_path` follows `br_host` and
+  `br_framepath` follows `br_framehost`, so the three places a frameset saves
+  or restores the pair (`br_frame`, `br_framefetch`, `br_frameclose`) move
+  `BR_HOSTMAX + BR_PATHMAX` bytes in one `rep movsb`; an `%error` holds the
+  adjacency.
+- **Back and Forward are one move.** Both buttons step `br_histi` by one and
+  go there; they now share the step, with the predicate's CF surviving the
+  `inc`/`dec`. File's Save As stops jumping over itself, and the entry proc
+  stops saving three registers around `os88ui_btninit` that it never reads
+  again.
+- **A finished fetch says one thing once.** `br_finish` picks its warning
+  (cut, else links limited) into AX and stores it once, zeroes the layout's
+  three words from one register around a `br_measure` that keeps it, and
+  saves only ES around the frameset's two copies, `.out` restoring the rest;
+  `br_framefetch` stores a child's base word, an offset or `0FFFFh`, through
+  one indexed store instead of two.
+- **A click and a wake ask each thing once.** `br_onwake`'s two hand-overs
+  are both a `BN_BODY`'s, so that is asked first and once (`br_frameclaim`
+  leaves `[br_fin]` at 5 or 0, never the netclaim's 1); `br_onclick` stops
+  saving the point around a `br_measure` that keeps it, and its toolbar-strip
+  test is one `jbe`.
+- **The About card's lines are packed.** `OS88UI_ABPACK` (SPEC.md 20.5.1.1)
+  is the include's own opt-in for lines end to end with an `OS88UI_ABEND`,
+  in place of a pointer table; the card draws the same calls at the same
+  places (the differential run's About leg, with a width stub that measures).
+- **The worker's small answers are arithmetic.** `br_gchk` (did a
+  navigation supersede this pass?) is a subtract, a `cmp al, 1` and a `cmc`
+  where it was two exits, every one of its eleven callers reading CF alone;
+  `br_hclose` tests the handle in the register it loads it into; and
+  `br_req` picks its method string before one `br_rputs`.
+- **The claims multiply by shifting.** `br_claimpage`'s `* BR_DOCMUL` is a
+  shift, and `br_claimrest` keeps the link arena's KB in BX across the claim
+  and makes its byte capacity from it, rather than clamping `br_srckb` a
+  second time and multiplying by 1,024; `%error`s hold both constants. -17
+  bytes of image and -2 of file, which is LZ4 finding most of what went.
+- **The manual sheds what nothing reads.** `BROWSER.HTM` lost its DOCTYPE,
+  its `<meta>` charset (the page is pure ASCII), `<html>`/`</html>`,
+  `</body>` and its blank lines - 162 bytes of source, and the packed file
+  2,184 -> 2,046, three clusters to two on both disks that carry it. Every
+  shape 71.12 lists it exercising is still in it, `<head>` included, and it
+  renders the same: identical document, line table and per-line compose on
+  the machine's own code at six widths, and an identical `htmsim.py --render`
+  on all three adapters, whose only change is its own parse count (171 ops
+  and 28 tags to 167 and 27).
 
 ### 72.1 What the packages did have to change, which is one question
 
