@@ -60072,7 +60072,8 @@ than a bare per-app total.
   docs/FIELD-NOTES.md 2 is a refusal where the total says there is room and
   the largest run does not, and until now nothing in the OS showed both at
   once.
-- (6,26): the header, `"TYPE      ADDR SIZE TIER"`.
+- (6,26): the header, `"TYPE       ADDR SIZE TIER"` — twenty-five
+  characters since §28.12.2 widened TYPE to eight.
 - (6,37): the rows, at the memory list's `TM_ROW_H` pitch and `TM_MPEN` pen.
 
 **The list starts at `TMH_ROW_Y`, and it needed saying twice.** `tm_mrow_open`
@@ -60139,8 +60140,8 @@ characters** under it. An owner with no claims still gets its heading — "this
 app holds nothing" is an answer, and its absence would read as the app not
 running.
 
-**The TYPE column is what makes a row identifiable**, seven characters
-decoded from `CLS_OWN`:
+**The TYPE column is what makes a row identifiable**, eight characters
+(`TMH_TYPEC`; seven until §28.12.2) decoded from `CLS_OWN`:
 
 | Owner word | TYPE | |
 |---|---|---|
@@ -61540,12 +61541,29 @@ the file follows UNIQUE bytes.
   four-character records whose fifth is the caption's own `'HELD'`; the
   HELD/PURGE caption's two halves are one helper (`tm_kcnt`); a figure's
   `'K'` and its terminating NUL are one word store; `tm_cap_xms` asks the
-  CPU tier before it needs AX for anything else. **Defect found, not fixed**:
-  the TYPE column is seven wide (`TMH_TYPEC`) and three names are eight —
-  `Compress`, `Shortcut` and `Disk img` have always shown as `Compres`,
-  `Shortcu` and `Disk im`. The row has exactly one spare column (24 of 25),
-  so `TMH_TYPEC` = 8 would fit if the header and the ADDR/SIZE/TIER columns
-  moved one right — a visible change, left for the owner.
+  CPU tier before it needs AX for anything else. **Defect found, and FIXED
+  at the owner's word afterwards**: the TYPE column was seven wide
+  (`TMH_TYPEC`) and three names are eight — `Compress`, `Shortcut` and
+  `Disk img` had always shown as `Compres`, `Shortcu` and `Disk im`. It is
+  eight now, on the owner's condition that nothing reaches an edge. The row
+  had exactly one spare column, so it is **2 + 8 + 1 + 4 + 5 + 1 + 4 = 25 of
+  25** and the header (`TYPE` and seven spaces) and ADDR/SIZE/TIER each moved
+  one column right — ADDR to 11, SIZE's `nnnK` to 16, TIER to 21. In pixels
+  the row ends where every row of this window already ended its padded scrub:
+  the 25th cell is `TM_PEN` + 200 − 1 = 207 content-relative, the scroll bar
+  starts at `TMH_SB_X1` = 210, so **two pixels of gutter, three clear in the
+  glyphs** (an 8×8 cell keeps its right column blank), where TIER's last
+  ink used to stand eleven clear. That holds in every layout the page has: one
+  column (VGA, Hercules — and the 232-pixel frame is the narrowest, the
+  window having no grow box) and two (CGA, where column 0's band runs to 223
+  with no bar beside it and column 1 has the same 210 bar edge). Looked at on
+  MartyPC on all three adapters (`_gla` twins) with all three names on the
+  page, measured off the glass: last ink 206, bar 210. The header string is
+  the one byte it cost: image 7,589 → 7,590, bss unchanged, the shipped file
+  6,711 → 6,713, no cluster on either 360KB disk. The `APP_SMALL` arm has no
+  heap page and assembles byte-identical. No field crosses a chunk boundary
+  it did not cross before (§28.2): ADDR stays in chunk 2, SIZE's figure in 3
+  and TIER in 4.
 - **The quiet key and the graph**: `tm_quiet` walks the claim table to its
   end by address (no counter on the stack) and starts the totals' span from
   where that walk leaves SI, which IS `tm_kb`; `tm_graph` keeps the
