@@ -687,39 +687,6 @@ ct_esatof:
     ret
 
 ; -----------------------------------------------------------------------------
-; ct_i32_dbl - the SIGNED 32-bit integer in DX:AX becomes ch_dbl. RK's integer
-; subtype is THIRTY bits, so a word was never enough for it either.
-; -----------------------------------------------------------------------------
-ct_i32_dbl:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-    xor cx, cx                        ; CL = the sign
-    or dx, dx
-    jns .abs
-    mov cl, 1
-    neg ax                            ; negate DX:AX
-    adc dx, 0
-    neg dx
-.abs:
-    mov [fp_t0], ax
-    mov [fp_t1], dx
-    mov word [fp_t2], 0
-    mov word [fp_t3], 0
-    call fp_u64_to_a
-    mov [fp_as], cl
-    mov di, ch_dbl
-    call fp_pack_a
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; ct_record - offer one cell to the series (the CT_TCAP fix)
 ; in:  AX = col, BX = row, and THE VALUE IN ch_dbl - eight bytes, not a word
 ; in DX. Stage 4.6: a cell holds an IEEE-754 double, and truncating it here
@@ -923,6 +890,8 @@ ct_finalize:
 ; -----------------------------------------------------------------------------
 ; ct_rkdec (stage 4.6) - ALL FOUR RK SUBTYPES, into ch_dbl.
 ; in: DX:AX = a packed RK value (AX low word, DX high word). Always succeeds.
+; Preserves CX, SI and DI; clobbers AX, BX and DX, which its one caller reloads.
+; The signed-integer arm is ct_i32_dbl's body, which had no other caller.
 ;
 ; The two low bits are the subtype. Bit 1 set means the upper 30 bits are a
 ; signed integer; clear means the 32-bit value with those two bits masked off
@@ -936,45 +905,57 @@ ct_finalize:
 ; 44.1 charted as an EMPTY sheet with no message.
 ; -----------------------------------------------------------------------------
 ct_rkdec:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si                             ; the caller's record-walk cursor -
-    push di                             ; .div100 needs SI for fp_unpack_a
+    push cx                             ; ct_read_biff's end bound, record
+    push si                             ; cursor and next record: what it
+    push di                             ; reads back. It reloads AX, BX, DX
     mov bl, al                          ; the subtype bits, banked
     test al, 0x02
     jz .isfloat
-    mov cx, 2                           ; a signed 30-bit integer
-.shr:
-    sar dx, 1
+    sar dx, 1                           ; a signed 30-bit integer: RK's
+    rcr ax, 1                           ; integer subtype is THIRTY bits, so
+    sar dx, 1                           ; a word was never enough for it
     rcr ax, 1
-    loop .shr
-    call ct_i32_dbl
-    jmp .div100
+    xor cx, cx                          ; CL = the sign
+    or dx, dx
+    jns .abs
+    inc cx
+    neg ax                              ; negate DX:AX
+    adc dx, 0
+    neg dx
+.abs:
+    mov [fp_t0], ax                     ; |DX:AX| as the unsigned 64-bit
+    mov [fp_t1], dx                     ; integer fp_u64_to_a takes
+    xor ax, ax
+    mov [fp_t2], ax
+    mov [fp_t3], ax
+    call fp_u64_to_a
+    mov [fp_as], cl
+    test bl, 0x01                       ; A is the value already, so a /100
+    jz .pack                            ; scales it where it stands - the
+    jmp .div100                         ; pack/unpack round trip it took
+                                        ; through ch_dbl was exact, and only
+                                        ; cost the time
 .isfloat:
     and al, 0xFC                        ; the top 32 bits of a double
-    mov word [ch_dbl], 0
-    mov word [ch_dbl+2], 0
+    xor cx, cx
+    mov [ch_dbl], cx
+    mov [ch_dbl+2], cx
     mov [ch_dbl+4], ax
     mov [ch_dbl+6], dx
-.div100:
     test bl, 0x01
     jz .out
     mov si, ch_dbl
     call fp_unpack_a
+.div100:
     mov cx, -2                          ; /100, exactly as scaling by 10^-2
     call fp_scale10
+.pack:
     mov di, ch_dbl
     call fp_pack_a
 .out:
     pop di
     pop si
-    pop dx
     pop cx
-    pop bx
-    pop ax
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -987,69 +968,68 @@ ct_rkdec:
 ; ct_record, which keeps only the lowest column. Stops at EOF (0x000A) or
 ; a truncated trailing record.
 ;
-; CX is the walk's end bound for the whole walk: the NUMBER path's eight-byte
-; copy is four moves rather than a counted loop, so nothing here needs CX as
-; a counter - which is why ct_biffend, the bound's banked copy, is gone.
+; CX is the walk's end bound for the whole walk and DI the next record's
+; offset: the NUMBER path's eight-byte copy counts in BX rather than CX, so
+; nothing here needs CX as a counter - which is why ct_biffend, the bound's
+; banked copy, is gone.
 ; -----------------------------------------------------------------------------
 ct_read_biff:
     mov si, CT_FOFF
-.rechdr:
+    cld                                 ; the header and NUMBER's eight bytes
+.rechdr:                                ; are string loads
     mov ax, si
     add ax, 4
     jc .done                            ; a wrapped sum passes the compare
     cmp ax, cx
     ja .done
-    mov ax, [es:si]                     ; opcode
-    mov dx, [es:si+2]                   ; length
-    add si, 4
+    es lodsw                            ; the opcode...
+    xchg ax, dx
+    es lodsw                            ; ...and the length: AX = opcode,
+    xchg ax, dx                         ; DX = length, SI past the header
     cmp ax, 0x000A                      ; EOF
     je .done
+    mov di, si                          ; DI = the next record. THE WHOLE OF
+    add di, dx                          ; THIS ONE must be in the buffer, or
+    jc .done                            ; the walk ends here: a hostile length
+    cmp di, cx                          ; near 0xFFFF wraps back onto the same
+    ja .done                            ; header and the walk never ends - on
+                                        ; the UI task with the gfx lock held,
+                                        ; that is the whole desktop. Asked once
+                                        ; for every record, where it was asked
+                                        ; again by each cell type before it
+                                        ; read, with the same answer
     cmp ax, 0x027E                      ; RK cell record
     je .isrk
     cmp ax, 0x0203                      ; NUMBER: eight bytes of IEEE-754,
-    jne .skip                           ; verbatim, and the ONLY way a value
+    jne .next                           ; verbatim, and the ONLY way a value
                                         ; that is not an exact small integer
                                         ; reaches a BIFF file at all
     cmp dx, 14                          ; too short to hold row/col/xf plus
-    jb .skip                            ; the eight bytes
-    mov ax, si                          ; the whole record must be in the
-    add ax, dx                          ; buffer, or the walk ends here
-    jc .done                            ; a wrapped sum passes the compare
-    cmp ax, cx
-    ja .done
-    mov ax, [es:si+6]                   ; past row/col/xf: the eight bytes
-    mov [ch_dbl], ax
-    mov ax, [es:si+8]
-    mov [ch_dbl+2], ax
-    mov ax, [es:si+10]
-    mov [ch_dbl+4], ax
-    mov ax, [es:si+12]
-    mov [ch_dbl+6], ax
+    jb .next                            ; the eight bytes
+    push si
+    add si, 6                           ; past row/col/xf: the eight bytes
+    mov bx, ch_dbl
+.n8:
+    es lodsw
+    mov [bx], ax
+    inc bx
+    inc bx
+    cmp bx, ch_dbl + 8
+    jb .n8
+    pop si
     jmp .cell
 .isrk:
     cmp dx, 10                          ; too short to hold row/col/xf/rk:
-    jb .skip                            ; stale buffer bytes are not a value
-    mov ax, si                          ; the whole record must be in the
-    add ax, dx                          ; buffer, or the walk ends here
-    jc .done                            ; a wrapped sum passes the compare
-    cmp ax, cx
-    ja .done
-    push dx                             ; length, saved across the decode
+    jb .next                            ; stale buffer bytes are not a value
     mov ax, [es:si+6]                   ; rk lo
     mov dx, [es:si+8]                   ; rk hi
     call ct_rkdec                       ; -> ch_dbl
-    pop dx
 .cell:
     mov ax, [es:si+2]                   ; ax = col
     mov bx, [es:si]                     ; bx = row
     call ct_record
-.skip:
-    mov ax, si                          ; the advance is bounds-checked HERE,
-    add ax, dx                          ; not just per record type: a hostile
-    jc .done                            ; length near 0xFFFF wraps SI back onto
-    cmp ax, cx                          ; the same header and the walk never
-    ja .done                            ; ends - on the UI task with the gfx
-    mov si, ax                          ; lock held, that is the whole desktop
+.next:
+    mov si, di
     jmp .rechdr
 .done:
     jmp ct_finalize

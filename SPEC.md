@@ -128704,6 +128704,16 @@ it holds is recorded with the pass's report.
   open costs one more `call`/`ret` a line (+0.6% of the open's instructions on
   a 50-row file - a menu command, not a hot path, and dwarfed by its disk
   read); a SYLK open got cheaper.
+- **BIFF asks whether a record fits once** (-64 image, -54 file). The bound
+  that stops a hostile length wrapping the walk back onto its own header was
+  asked by each cell type before it read and again before the advance, with
+  the same answer; it is asked once, as the header is read, and the next
+  record's offset is kept in `DI`. The header is two `es lodsw`, NUMBER's
+  eight bytes a four-pass loop, and `ct_i32_dbl`'s body is `ct_rkdec`'s
+  integer arm - it had no other caller - which hands a `/100` value to
+  `fp_scale10` where it stands instead of packing it into `ch_dbl` and
+  unpacking it again. That round trip was exact: `ct_rkdec` on both builds
+  agrees byte for byte over 16,216 RK values, all four subtypes.
 
 ## 83. Text input for packages (`apps/os88line.inc`, `apps/os88text.inc`)
 
