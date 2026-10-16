@@ -142085,7 +142085,8 @@ divider, and `fv_redraw` is the one routine that puts all three back.
 
 The include is `OS88UI_ABOUT` + `OS88UI_NOBTN` — the card is the only control
 this package takes, and without the opt-out it would carry `os88ui_glyph`'s
-116 bytes for a button nothing calls.
+116 bytes for a button nothing calls — and `OS88UI_ABPACK` since §90.11, so
+the lines are one packed string rather than a table of five pointers.
 
 ### 90.10 The first apps size pass
 
@@ -142147,10 +142148,10 @@ The second pass measures what the package costs a DISK
 
 | | before | after |
 |---|---|---|
-| file (LZ4) | 3,549 | **3,477** (-72) |
-| image | 4,381 | **4,283** (-98) |
-| bss | 1,542 | 1,542 (`FV_PAD` keeps it even) |
-| image + bss | 5,923 | **5,825** (-98) — a 6 KB claim either way |
+| file (LZ4) | 3,549 | **3,470** (-79) |
+| image | 4,381 | **4,276** (-105) |
+| bss | 1,542 | 1,541 (`FV_PAD`: the parity moves with the image) |
+| image + bss | 5,923 | **5,817** (-106) — a 6 KB claim either way |
 | heap claims | one face (its file's KB) + the pre-shift table | unchanged |
 
 **What the file is made of** (each byte charged its share of the LZ4 stream):
@@ -142182,6 +142183,11 @@ file byte saved.
   file). `OS88_REGION_MOVABLE_NOKEEP` with no argument emits a `jmp` over a
   `ret` of its own; nothing in the region names the region's segment, so it
   is handed `fv_ret`, the bare `ret` that ends `fv_choose`.
+- **The About card's lines are packed** (-7 image, -7 file):
+  `OS88UI_ABPACK` (§20.5.1.1) takes the five lines end to end with an
+  `OS88UI_ABEND` byte after them, so the six-word pointer table is not
+  shipped; the include's walk over packed text is a few bytes longer than
+  over a table, and the card is the same card.
 
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 

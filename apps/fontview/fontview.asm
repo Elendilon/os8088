@@ -560,13 +560,16 @@ fv_s_type:     db 'Type to edit; Backspace deletes', 0
 ; this window is one size everywhere (FV_W/FV_H, and FV_H is the whole CGA
 ; band) - so the widest line here, 29 cells, is nowhere near the widget's
 ; clamp and nothing is split across two lines the way Mines and Hello had to.
+;
+; PACKED (OS88UI_ABPACK, SPEC.md 20.5.1.1): the lines end to end, each with
+; its NUL, closed by OS88UI_ABEND - no pointer table to ship.
 fv_ablines:
-    dw fv_ab1, fv_ab2, fv_ab3, fv_ab4, fv_ab5, 0
-fv_ab1:     db 'Font Viewer for os8088', 0
-fv_ab2:     db 'The system face browser', 0
-fv_ab3:     db 0
-fv_ab4:     db 'Contributed by Jorge Gonzalez', 0
-fv_ab5:     db 'Any key or click closes', 0
+    db 'Font Viewer for os8088', 0
+    db 'The system face browser', 0
+    db 0
+    db 'Contributed by Jorge Gonzalez', 0
+    db 'Any key or click closes', 0
+    db OS88UI_ABEND
 
 ; --- the shared controls (SPEC.md 20.5.1) ------------------------------------
 ; AT THE END OF THE CODE, which is os88ui.inc's own rule: the header and the
@@ -578,6 +581,7 @@ fv_ab5:     db 'Any key or click closes', 0
 ; carrying the include pays 116 bytes for a glyph nothing calls.
 %define OS88UI_ABOUT
 %define OS88UI_NOBTN
+%define OS88UI_ABPACK
 %include "os88ui.inc"
 
 ; --- state whose first value is not zero, and the specimen LAST --------------
