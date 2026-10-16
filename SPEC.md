@@ -187737,8 +187737,8 @@ It landed in v2's wave 3 (§110.10); the Desk Calendar adopted it in wave 4
 ## 111. TIMER — the stopwatch (`apps/timer/timer.asm`)
 
 The kernel's Timer kind (§14) as a package since §14.8: `TIMER.O88`, in
-`APPS/` on every apps disk, 2,012 bytes of image and 60 of bss, the
-stopwatch icon in its header, label prefix `tm_`. Everything §14 says about
+`APPS/` on every apps disk, 1,547 bytes of image and 56 of bss (§111.6),
+the stopwatch icon in its header, label prefix `tm_`. Everything §14 says about
 the Timer's behaviour holds — the window, the layout, the accumulator
 (binding), §14.1's incremental redraw, §14.4's cut line, §47's greying — and
 this section says only what is different about being a package.
@@ -187803,11 +187803,90 @@ one `OSAPI_FONT_RUN`.
 The standard About card (§20.5.1), two lines — 41px of content holds two.
 While the card is up the button record is told it has NO buttons, so a
 press anywhere in the content reaches the dismissal rather than the button
-under the card. `tests/timerbounce.py` is the gate (soak, MartyPC): it opens
+under the card - and that zero IS the card's state (§111.6): there is no
+flag byte beside it to disagree with it. `tests/timerbounce.py` is the gate (soak, MartyPC): it opens
 `TIMER.O88` and `BOUNCE.O88` by name out of the apps disk's `APPS/`, reads the
 Timer's seconds advancing out of its own bss, presses Stop and then Start
 through the real gesture and reads `tm_run` both ways, and reads the Bounce's
 square moving and its worker holding a task slot.
+
+### 111.6 Size (apps size pass 2)
+
+The package rides THREE 360KB disks (`apps360`, `small360`, `smallapps360`),
+so its subject in the second apps size pass is the shipped FILE.
+Before the pass: 2,012 bytes of image, 60 of bss, a 1,813-byte LZ4 file - two
+clusters on each disk. Of the image, 96 bytes are the header and icon (the
+clear prefix), 953 this file's code and data, and 963 `apps/os88ui.inc`.
+
+- **`OS88UI_NOGLYPH`** (§13.8.9's opt-out): the Timer draws no check box and
+  no radio, and the glyph's body and shapes were 237 bytes of the library it
+  carried for nothing. Image 2,012 -> 1,775; the file 1,813 -> 1,775 - only
+  38, because what went was the part of the image that PACKED (the 12x12
+  bitmaps): what is left is code, which LZ4 no longer shrinks at all, so the
+  package ships PLAIN (`os88pkg` writes it uncompressed when packing does
+  not pay) and every image byte from here is a file byte.
+- **Each proc owes what its CALLER reads, and no more.** The file was
+  written to "preserve every register", and nobody it serves asks for that:
+  the entry proc owes BX and CF (the loader reloads everything else after
+  its far call), W_PAINT owes SI and DF, the W_ONCLICK family - W_ONTIMER,
+  W_ONMOUSEUP and W_ONDRAG are its environment exactly - gives SI back and
+  may clobber the rest (`ui_bill` clobbers AX/BX/CX/DX/DI round every one of
+  them anyway), and the worker reloads at the top of its loop. So the
+  internal procs document what they CLOBBER, the pushes nobody read went
+  (about fifty), `tm_tick` FALLS INTO `tm_clipd` and that into `tm_digits`
+  (the worker enters at `tm_clipd` after its own visibility test), the
+  release does the action in one proc rather than two, the two declarations
+  take the `_NOKEEP` forms (§66.6.1.1), the layout and the clock check are
+  inlined into their one caller, and the worker stops reloading ES - it is
+  the task frame's `KERNEL_SEG` and no slot changes it. The digit formatter
+  stops writing the NUL cell (the loader's zero at `tm_str+8` is the line's
+  terminator for ever, since the run's own terminator writes only cells
+  1..8), and the changed-cell scan walks RIGHT TO LEFT so the last
+  difference is met first and terminates the run where it is found. Image
+  1,775 -> 1,589, and that is under the line: LZ4 now fits its in-place
+  layout in the 2,048-byte region (1,501 + 512), so the package packs again
+  and the FILE is 1,775 -> 1,501.
+- **State that was written twice is kept once.** The About card's flag byte
+  went: the card is up exactly while the button record's count is 0, which
+  `tm_about` already wrote, so `tm_paint` reads the count and `tm_onclick`
+  clears and tests it in one `xchg` - and with the test that cheap, the
+  dismissal is written out rather than handed to `os88ui_abdismiss` (whose
+  own comment says it is not a byte saving in a one-dismissal package; here
+  the repaint proc it needed folds into the dismissal too). The clock's two
+  bytes, "the window timer refused" and "the worker is hired", are one
+  three-state `tm_clk`, set by an `adc` of the refusal's carry. The window
+  title is the header's name field (§20.2, +16, which `OS88_HEADER` NUL-pads
+  and caps at 15 characters) rather than a second 'Timer'. Image 1,589 ->
+  1,550, bss 60 -> 58, the file 1,501 -> 1,467.
+- **...and the window is the button record's.** `os88ui_btninit` writes it
+  into `OS88UI_BT_WIN` and nothing ever clears it for a package with one
+  record, so the worker reads its window there and `tm_win` went. `tm_keep`
+  takes its sample through `tm_stamp` rather than saying it twice, and the
+  painter - the one caller that owes SI back - banks it round `tm_digits`
+  instead of `tm_digits` banking it for every caller. Image 1,550 -> 1,540,
+  bss 58 -> 56, the file 1,467 -> 1,461.
+- **A DEFECT, FIXED: the seconds were lettered through the About card.**
+  The card is opaque over the digit line, and every firing went on drawing
+  the cells that changed - so a card left up read "Timer for 1:18088" a
+  second later. The package shipped that way (the base commit draws the
+  identical picture). `tm_clipd`, where both clocks enter the drawing, now
+  keeps the time and draws nothing while the record's button count is 0,
+  which is exactly while the card is up; the dismissal's repaint forgets the
+  line and letters all eight cells. +7 image bytes, the file 1,461 -> 1,467,
+  and one byte compare on the per-tick path.
+
+**What the pass bought**: image 2,012 -> 1,547, bss 60 -> 56, the file
+1,813 -> 1,467 (-346 bytes on each of three disks, still two clusters on
+each - one cluster is out of reach, `os88ui.inc` alone being ~705 bytes of
+the image). Measured on MartyPC's 5150 (CGA), `tm_tick` from its entry to
+the dispatcher's `retf`, median of 24 firings: **9,180 -> 8,536 cycles**
+for a firing with no digit to draw and **16,137 -> 15,527** for one with a
+digit - faster on both, the defect fix's compare included. Looked at old
+against new in one boot each, six states (running at 3s, stopped, reset,
+restarted at 2s, About up, About dismissed): the first four are
+pixel-identical, and the two About states differ only in the seconds cell -
+the old package's overdrawn digit on the card, and the clock a second or
+two apart.
 
 ## 112. BOUNCE — the square (`apps/bounce/bounce.asm`)
 
