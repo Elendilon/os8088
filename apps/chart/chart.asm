@@ -134,8 +134,10 @@ ct_entry:
     mov si, ch_hdrtpl                   ; header+palette into the buffer
     xor di, di                          ; once, here - nothing ever rebuilds
     mov cx, CH_HDRSZ                    ; it, and the export writes it as it
-    cld                                 ; stands
-    rep movsb
+    rep movsb                           ; stands. DF is clear: SPEC.md 1 rule 3
+                                        ; promises it on entry to every routine,
+                                        ; and nothing in this package sets it,
+                                        ; so no `cld` here or anywhere below
     mov si, ct_tpl
     call OSAPI_WM_CREATE                ; BX = window ptr, CF on table full
     jc .fail
@@ -565,7 +567,6 @@ ct_flip:
     pop ds
     mov si, CH_PXOFF
     mov di, CH_PXOFF + (CH_H - 1) * CH_STRIDE
-    cld
 .row:
     mov cx, CH_STRIDE / 2
 .w:
@@ -769,7 +770,6 @@ ct_record:
     push ds                             ; both arrays are in the staging claim
     push es
     pop ds
-    cld
     rep movsw
     pop ds
     pop ax
@@ -791,7 +791,6 @@ ct_record:
     add di, CT_A_TVAL                   ; ES:DI = series one's [old count]
 .store:
     mov si, ch_dbl                      ; DS:SI -> ES:DI, the eight bytes
-    cld
     movsw
     movsw
     movsw
@@ -881,7 +880,6 @@ ct_finalize:
     push es                             ; and were before: ch_draw reads only
     pop ds                              ; the count
     pop es
-    cld
     rep movsw
     push es
     pop ds
@@ -975,8 +973,7 @@ ct_rkdec:
 ; -----------------------------------------------------------------------------
 ct_read_biff:
     mov si, CT_FOFF
-    cld                                 ; the header and NUMBER's eight bytes
-.rechdr:                                ; are string loads
+.rechdr:
     mov ax, si
     add ax, 4
     jc .done                            ; a wrapped sum passes the compare

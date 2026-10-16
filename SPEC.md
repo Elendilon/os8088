@@ -128714,6 +128714,9 @@ it holds is recorded with the pass's report.
   `fp_scale10` where it stands instead of packing it into `ch_dbl` and
   unpacking it again. That round trip was exact: `ct_rkdec` on both builds
   agrees byte for byte over 16,216 RK values, all four subtypes.
+- **No `cld`** (-6 image, -1 file). §1 rule 3 promises DF = 0 on entry to
+  every routine and nothing in the package or its includes sets it, so the
+  six `cld`s before its string moves were each a byte of nothing.
 
 ## 83. Text input for packages (`apps/os88line.inc`, `apps/os88text.inc`)
 
