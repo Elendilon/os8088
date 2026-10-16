@@ -184122,6 +184122,7 @@ at a time, the bytes each saved:
 | `dc_rbox`'s bytes are 3 x the column and 3 more (asserted beside `DC_FLDW`), not a `MUL` and two shifts; `dc_cday1` no longer reloads `[dc_wfx]` it holds and zeroes `[dc_wink]` from AH | -16 | -5 |
 | the composers stop reloading what they hold: `dc_caline`, `dc_ctline` and `dc_crem` read a text's character count from the geometry BEFORE `dc_ln0` takes DI, so no reload and no `mov di, dc_line`, and `dc_cmon`'s month line takes the x the weekday's left in CX | -32 | -6 |
 | three saves of a register nothing writes: `dc_cmon`'s DX around `dc_navlbl` (which keeps it - now said in its header), `dc_rcardw`'s SI and `dc_ptime`'s SI around a copy whose next line reloads it | -16 | -13 |
+| strings that were another string's TAIL point into it: the Calendar menu's name is the title's, COMPACT's `Reminder` page name is `No Reminder`'s, the About card's first line IS the title and its blank line is the NUL of the second | -32 | -6 |
 
 ### 110.7 `kern_small`
 

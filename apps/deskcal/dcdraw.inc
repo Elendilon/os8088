@@ -784,7 +784,7 @@ dc_cmon:
     ret
 
 ; dc_navlbl - the nav's label into dc_line - `August 2026` centred, or
-; COMPACT's `Aug 2026` at its own x - and CX = that x
+; COMPACT's `Aug 2026` at its own x - and CX = that x. DX kept
 dc_navlbl:
     push ax
     push bx
@@ -2155,7 +2155,6 @@ dc_s_today: db 'Today', 0
 dc_s_more:  db ' more', 0
 dc_s_more2: db ' >', 0
 dc_s_tasksh: db 'Tasks', 0
-dc_s_remh:  db 'Reminder', 0
 dc_s_allday: db '--:--', 0
 dc_s_norem: db 'No reminders today', 0
 dc_s_noapp: db 'No appointments', 0

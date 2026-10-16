@@ -2230,7 +2230,8 @@ dc_tpl:
     dw 375, 42, 178, 357        ; stik_load sizes and places it (STIK_RIGHT)
     dw dc_title, dc_paint, dc_onkey, 0
 
-dc_title:   db 'Desk Calendar', 0
+dc_title:   db 'Desk '
+dc_m_cal:   db 'Calendar', 0      ; ...the menu's name is the title's tail
 
     OS88_MENUSET dc_menus, dc_title, dc_oncmd   ; AM_NAME NOT 0: menu_relayout's
                                 ; instance-name fallback sets the cells'
@@ -2250,7 +2251,6 @@ DCM_TODAY   equ 6               ; ...and the three that draw a month
 DCM_PREV    equ 7
 DCM_NEXT    equ 8
 DCM_N       equ 9
-dc_m_cal:   db 'Calendar', 0
 dc_m_rem:   db 'Remind', 0
 dc_i_cal:   dw dc_i_newa, dc_i_newt, dc_i_edit0, dc_i_del0, dc_i_clr0
             dw dc_i_pane0, dc_i_today, dc_i_prev, dc_i_next
@@ -2280,7 +2280,8 @@ dc_r1:      db '5 Min Early', 0
 dc_r2:      db '15 Min Early', 0
 dc_r3:      db '30 Min Early', 0
 dc_r4:      db '1 Hour Early', 0
-dc_r5:      db 'No Reminder', 0
+dc_r5:      db 'No '
+dc_s_remh:  db 'Reminder', 0       ; ...COMPACT's page name is its tail
 dc_leads:   db 0, 5, 15, 30, 60, 0FFh   ; ...their leads; 0FFh none
 dc_rlbl:    dw dc_l0, dc_l1, dc_l2, dc_l3, dc_l4, dc_l5
 dc_l0:      db 'at the time', 0     ; ...and the toast's words for them
@@ -2298,13 +2299,12 @@ dc_s_tlong: db 'A task: at most 23', 0
 dc_s_qappt: db 'Delete this appointment?', 0
 dc_s_qtask: db 'Delete this task?', 0
 
-dc_ablines: dw dc_ab1, dc_ab2, dc_ab3, dc_ab4, 0
-%if ($ - dc_ablines) / 2 - 1 != DC_ABN
-  %error "deskcal: DC_ABN is dc_ablines' count"
+dc_ablines: dw dc_title, dc_ab2, dc_ab3, dc_ab4, 0 ; each line inside the
+%if ($ - dc_ablines) / 2 - 1 != DC_ABN                 ; 176-px face; the first
+  %error "deskcal: DC_ABN is dc_ablines' count"       ; is the title
 %endif
-dc_ab1:     db 'Desk Calendar', 0   ; each line inside the 176-px face
-dc_ab2:     db 'A desk widget', 0
-dc_ab3:     db 0
+dc_ab2:     db 'A desk widget'
+dc_ab3:     db 0                ; ...whose NUL is the blank line
 dc_ab4:     db 'SPEC.md 110', 0
 
 %include "dcdate.inc"
