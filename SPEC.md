@@ -131368,7 +131368,7 @@ built at launch (§86.4, −117); the window's text runs through one
 content-relative helper, the clock's digits by `AAM`, the bar's fixed edges
 as constants and the dead `apu_hit` deleted (§86.7, −117); and the playlist
 store rewritten smaller, with its entry-time init gone because the loader
-zeroes a package's bss (§86.10, −108); the callbacks and transport commands sharing their tails — one step-close-open body for Next, Previous and the track end, one name copy out of the kernel's buffer, `ap_add_file` keeping the name, folder and volume in the registers its two callees already preserve, and the four button captions that are the Play menu's own words pointing at its strings (−102). Nothing a playback runs per sample or
+zeroes a package's bss (§86.10, −108); the callbacks and transport commands sharing their tails — one step-close-open body for Next, Previous and the track end, one name copy out of the kernel's buffer, `ap_add_file` keeping the name, folder and volume in the registers its two callees already preserve, and the four button captions that are the Play menu's own words pointing at its strings (−102); and the WAV parser with its last checks folded in, its refusals sharing one tail laid out where an 8086 short jump reaches them (a `Jcc` that cannot costs a `JMP NEAR` besides, five bytes for two), and its signature and rate compares as string instructions (§86.6, −134). Nothing a playback runs per sample or
 per block was touched.
 
 **On the disk it is 7,468 bytes, not 9,216.** `AUDIO.O88` goes through

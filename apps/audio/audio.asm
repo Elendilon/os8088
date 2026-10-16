@@ -289,12 +289,10 @@ AP_B_NONE  equ 0xFF
     APB apw_winn
     APW apw_pos
     APD apw_lpos
-    APW apw_ckid
     APD apw_cksz
     APB apw_gotfmt
     APW apw_tag
     APW apw_bits
-    APB apw_ok
     APB apw_fmt
     APW apw_rate
     APW apw_balign
