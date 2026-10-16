@@ -187278,6 +187278,7 @@ disk. One change at a time:
 | change | image (span) | file | small file |
 |---|---:|---:|---:|
 | `dc_rbox`'s bytes are 3 x the column and 3 more (asserted beside `DC_FLDW`), not a `MUL` and two shifts; `CBW` for `XOR AH, AH` at the three sites left, each a grid index or a geometry byte | 0 (-12) | -7 | -6 |
+| three more strings that are another's tail: `>` in the slot's ` >`, COMPACT's `Tasks` in `Clear Done Tasks`, its `Reminder` in `No Reminder` | -16 (-17) | -8 | -10 |
 
 The image column is the file's, which `align 16` pads; the span is the code.
 

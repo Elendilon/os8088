@@ -1783,7 +1783,8 @@ dc_i_edit:  db 'Edit Item  Enter', 0
             db MENU_DIS
 dc_i_del:   db 'Delete Item  Del', 0
             db MENU_DIS
-dc_i_clr:   db 'Clear Done Tasks', 0
+dc_i_clr:   db 'Clear Done '
+dc_s_tasksh: db 'Tasks', 0         ; (COMPACT's page name: the tail)
 dc_i_today: db 'Go to Today  T', 0
 dc_i_prev:  db 'Previous Month', 0
 dc_i_next:  db 'Next Month', 0
@@ -1796,7 +1797,8 @@ dc_r2:      db '1'                     ; (dc_r1 is dc_r2's tail)
 dc_r1:      db '5 Min Early', 0
 dc_r3:      db '30 Min Early', 0
 dc_r4:      db '1 Hour Early', 0
-dc_r5:      db 'No Reminder', 0
+dc_r5:      db 'No '
+dc_s_remh:  db 'Reminder', 0       ; (COMPACT's page name: the tail)
 dc_leads:   db 0, 5, 15, 30, 60, 0FFh   ; ...their leads; 0FFh none
 dc_rlbl:    dw dc_l0, dc_l1, dc_l2, dc_l3, dc_l4, dc_l5
 dc_l0:      db 'at the time', 0     ; ...and the toast's words for them
