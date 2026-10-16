@@ -111931,6 +111931,81 @@ difference and only the rows that fell out of the blit are drawn. An edit
 whose shape was never measured — a selection deleted, a paste — takes the
 whole pane, which is the honest answer rather than a guess.
 
+### 69.11 What the second apps size pass took
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
+package by its SHIPPED FILE - the LZ4-packed `TEXPAD.O88`, which rides four
+360KB disks - rather than by image + bss. TeXPad's file is code to 84% (the
+strings, the exporters' fixed text and the shared scroll bar are the rest),
+and code packs to about a byte a byte, so what moved it is code that went:
+
+- **Tail calls, and two handlers that were only a call.** A `call X` / `ret`
+  pair is a `jmp X` (`\TeX`, `\LaTeX` and `\today` now sit in front of
+  `tp_emit_csi` and the last falls into it; `tp_put_run` falls into
+  `tp_put_run_at`), and `\newline` and `\par` name `tp_nl` and `tp_endpara`
+  in the command table directly - a handler is jumped to with nothing to undo,
+  so `tp_c_nl` and `tp_c_par` had nothing in them but the call. `tp_xw_cr` had
+  no caller. Every one of these is a return the typesetter no longer makes.
+- **A DEFECT, FIXED: the preview's whole-pane fallback drew its interior
+  twice.** `tp_prev_scroll`'s `.full` arm - a scroll further than the pane, a
+  thumb dropped far off, a blit `gfx_scroll` refused - went through
+  `tp_redraw_prev`, which white-filled the pane's interior and then called
+  `tp_draw_preview`, whose desk is `tp_draw_sheet`'s 50% dither over exactly
+  that interior, to the pixel. The dither writes every pixel it covers, so the
+  white was a whole pane of fill overdrawn a few calls later: PERFORMANCE.md's
+  double draw, one `gfx_fill` the size of the preview, on every long jump.
+  `.full` is `tp_draw_preview` now, which sets the region whole itself; the
+  last frame is the same picture and the white one before it is gone.
+- **The preview's two maps divide by the page as it is.** `tp_mapx`,
+  `tp_mapy` and the gutter in `tp_draw_sheet` each tested the page width or
+  height for 0 and divided by 612 or 792 instead - a guard nothing reaches:
+  `tp_pagesz` is the only writer of `[tp_pw]` and `[tp_ph]`, it reads them out
+  of `tp_pgtab` at `[tp_psize]`, which every writer keeps to 0..3, and every
+  caller of the three is behind a `tp_fit_sheet` or a `tp_ts_init`, which run
+  `tp_geom` and so `tp_pagesz` first. The divide takes the memory operand now,
+  and `tp_mapy` forms *height - y* as `neg` / `add`, so the two maps the run
+  painter calls per run each push one register fewer.
+- **The cold paths bank what their callers hold and no more.** The entry
+  proc reads its argument's name inline (`tp_note_arg` banked seven
+  registers for a caller that owes the loader BX and CF and nothing else);
+  `tp_deferred_ld` keeps AX, CX, DX and SI - the key or the menu item, a
+  click's point and the window, which is what its four callers hold across
+  it; `tp_redraw` keeps BX and SI, the two `tp_paint` does not. `tp_srcfit`
+  and `tp_srctrim` share one KB rounding (`tp_srcby`), `tp_is_tex` compares
+  the extension in a loop against `tp_s_tex` with the case folded out of
+  both, the title's ` - ` is one `stosw` and a `stosb`, `tp_dlg` no longer
+  falls back to SI for a window that always exists before a menu or a key
+  can arrive, and Esc sets the preview's focus and falls into F5's typeset.
+- **A bar button always owes the window a repaint, and says so by not
+  answering.** `tp_bact` returned *CF = 1 if the caller owes a full redraw*,
+  and every one of its four exits set it: all seven buttons change the page,
+  the setup or the set. It returns nothing now, its three calls are jumps,
+  and `tp_onup` repaints after it without asking.
+- **A menu command is a routine and a repaint, and the pair is written
+  once.** Ten of `tp_oncmd`'s arms were `call X` / `jmp tp_redraw`. Each arm
+  now names its routine in BX and they share one `call bx` / `jmp
+  tp_redraw`; the choosers' arms (Open, Save As, the two Exports) still jump
+  to the chooser, whose completion proc (`tp_ondlg`) does its own repaint.
+  One repaint per command, as before. (Pushing `tp_redraw` as the arms'
+  return address is 4 bytes smaller and was built first; `tools/stkbalance.py`
+  reads every routine an arm jumps to as returning one word deep, and a pass
+  that takes ten exemptions to save four bytes is the wrong trade.)
+- **What a drawing call keeps is not loaded again.** Every API call keeps
+  every register but its documented outputs (`apps/os88api.inc`'s rule), so
+  the run painter's bold strike reuses the SI and AX `OSAPI_FONT_RUN` was
+  just handed instead of reloading both, and sets ES to its own segment once
+  before the walk rather than once per run; the About card loads its ink
+  once (the scan to the next line ends on the NUL, 0, which is `CBLACK`, so
+  AL survives it too); and `tp_xor_span` sets the selection's pen once per
+  span where it was one `OSAPI_SET_COLOR` far call per ROW it inverted.
+- **The typing path's own stores.** `tp_draw_srow` - the routine that
+  letters every row an edit reaches - copies the row into `tp_cline` with DS
+  switched to the source once, where it went through eleven pushes and pops
+  to arrange the same two segment registers; and `tp_dirty` and `tp_needset`,
+  adjacent bytes that every edit sets together, are set by one word store
+  (pinned by an `OS88_ADJACENT` line under the bss map), as are the load's and
+  File > New's *clean, but unset*.
+
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 
 It was built here — the picture character, the claim per picture, the layout

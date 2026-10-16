@@ -94,8 +94,7 @@ tp_ts_end:
     dec word [tp_page]
     ret
 .foot:
-    call tp_footer
-    ret
+    jmp tp_footer
 
 tp_ts_scan:
     push ax
@@ -959,22 +958,13 @@ tp_c_bslash:
     pop ax
     ret
 
-tp_c_nl:
-    call tp_nl
-    ret
-
-tp_c_par:
-    call tp_endpara
-    ret
-
 tp_c_noindent:
     mov byte [tp_needind], 0
     ret
 
 tp_c_newpage:
     call tp_endpara
-    call tp_newpage
-    ret
+    jmp tp_newpage
 
 tp_c_vspace:
     call tp_read_group
@@ -1063,8 +1053,7 @@ tp_c_cite:
     mov si, tp_wbuf
     call tp_emit_csi
     mov si, tp_s_rbr
-    call tp_emit_csi
-    ret
+    jmp tp_emit_csi
 
 tp_c_pstyle:
     call tp_read_group
@@ -1198,21 +1187,6 @@ tp_c_small:
 tp_c_norm:
     mov al, [tp_tsize]
     mov [tp_csize], al
-    ret
-
-tp_c_tex:
-    mov si, tp_s_tex
-    call tp_emit_csi
-    ret
-
-tp_c_latex:
-    mov si, tp_s_latex
-    call tp_emit_csi
-    ret
-
-tp_c_today:
-    mov si, tp_s_today
-    call tp_emit_csi
     ret
 
 ; ---- group / opt / dim ------------------------------------------------------
@@ -1597,8 +1571,8 @@ tp_cmdtab:
     TPC 'texttt', tp_c_texttt
 tp_cn_bsl:
     TPC 'textbackslash', tp_c_bslash
-    TPC 'newline', tp_c_nl
-    TPC 'par', tp_c_par
+    TPC 'newline', tp_nl            ; (a handler is jumped to with nothing
+    TPC 'par', tp_endpara           ; to undo, so these two need no body)
     TPC 'noindent', tp_c_noindent
     TPC 'newpage', tp_c_newpage
     TPC 'clearpage', tp_c_newpage
@@ -1655,6 +1629,19 @@ tp_strlen:
 .o:
     pop si
     ret
+
+; \TeX, \LaTeX and \today set a fixed string: they sit in front of
+; tp_emit_csi so that the last of them falls into it
+tp_c_tex:
+    mov si, tp_s_tex
+    jmp short tp_emit_csi
+
+tp_c_latex:
+    mov si, tp_s_latex
+    jmp short tp_emit_csi
+
+tp_c_today:
+    mov si, tp_s_today
 
 tp_emit_csi:
     ; SI = DS NUL string, current style
@@ -1951,9 +1938,7 @@ tp_footer:
 tp_put_run:
     mov ax, [tp_x]
     mov bx, [tp_y]
-    sub bx, 2
-    call tp_put_run_at
-    ret
+    sub bx, 2                   ; ...and on into tp_put_run_at
 
 ; AX=x BX=y SI=NUL: one run at (x, y) in the current style - or nothing,
 ; when the run array or the text pool is full (SPEC.md 69.3: a document that
