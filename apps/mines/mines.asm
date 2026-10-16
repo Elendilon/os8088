@@ -193,7 +193,8 @@ mn_org:
     call OSAPI_WM_CONTENT            ; AX = content left, DX = content top
     mov [mn_ox], ax
     mov [mn_oy], dx
-    ret
+mn_ret:                              ; ...a bare ret, which is also the
+    ret                              ; region's relocation proc (mn_entry)
 
 ; -----------------------------------------------------------------------------
 ; mn_paint - W_PAINT: full content repaint
@@ -263,7 +264,7 @@ mn_oncmd:
     ; fall into mn_docmd
 
 ; -----------------------------------------------------------------------------
-; mn_docmd - run Game item CL: 0 = New Game, 1 = Flag Mode, else nothing
+; mn_docmd - run Game item CL: 0 = New Game, else Flag Mode
 ; in:  CL = item, SI = our window; gfx lock held
 ; out: nothing; clobbers AX-DI
 ;
@@ -275,11 +276,9 @@ mn_oncmd:
 mn_docmd:
     call mn_org
     or cl, cl
-    jz mn_cmd_new                   ; item 0 = New Game
-    dec cl
-    jz mn_cmd_flag                  ; item 1 = Flag Mode
-mn_ret:                             ; unknown item: do nothing. Also the
-    ret                             ; region's relocation proc (mn_entry)
+    jz mn_cmd_new                   ; item 0 = New Game; item 1 falls through
+                                    ; - the set declares two, and the kernel
+                                    ; routes only what a set declares
 
 ; -----------------------------------------------------------------------------
 ; mn_cmd_flag - the flag-mode command: toggle it, refresh the strip text
@@ -410,10 +409,8 @@ mn_hitcell:
     cmp byte [mn_mode], MN_M_LOST
     jae .none                       ; board is dead after win/lose until 'N'
     mov di, dx                      ; DI = y while mn_org takes AX/BX/DX
-    push cx
     call mn_org                     ; AX = content left, DX = content top
-    pop cx
-    sub cx, ax                      ; -> content-relative point
+    sub cx, ax                      ; (CX survives it: WM_CONTENT keeps it)                      ; -> content-relative point
     sub di, dx
     sub di, MN_STRIP_H
     js .none                        ; it landed in the status strip
@@ -488,13 +485,15 @@ mn_place:
 ; 0 throughout: every index written to BL is under 81.
 ;
 ; The clicked cell enters as a one-entry neighbour list, so opening it is the
-; same five instructions that open every cell the flood reaches.
+; same five instructions that open every cell the flood reaches - the list
+; being the queue's first byte, which the enqueue then writes over with the
+; same value.
 ; -----------------------------------------------------------------------------
 mn_reveal:
     mov di, mn_queue                ; tail
     mov bp, di                      ; head
-    mov si, mn_nbuf
-    mov [si], bl
+    mov [di], bl                    ; the clicked cell's one-entry list, in
+    mov si, di                      ; the very byte .nb enqueues it to
     mov cx, 1
     jmp short .nb
 .pump:
@@ -669,13 +668,11 @@ mn_draw_cell:
     call mn_shape
     and al, MN_C_ADJ
     jz .done                        ; zero-count cells stay blank
-    push ax
-    push bx                         ; pinned digit colour (SPEC.md 23)
-    mov bx, mn_digcol - 1           ; ...indexed 1..8
-    xlatb
-    pop bx
+    cbw                             ; (1..8)
+    xchg si, ax                     ; pinned digit colour (SPEC.md 23),
+    mov al, [si + mn_digcol - 1]    ; ...indexed 1..8
     call OSAPI_SET_COLOR
-    pop ax
+    xchg si, ax                     ; AL = the count again
     add al, '0'
     add cx, 4                       ; centre the 8x8 glyph in the 16px cell
     add dx, 4
@@ -888,9 +885,8 @@ mn_about:
 ; two, which is what mn_paint draws.
 ; -----------------------------------------------------------------------------
 mn_abdismiss:
-    cmp byte [mn_abon], 0
-    je .none                        ; equal: CF is already 0
-    mov byte [mn_abon], 0
+    shr byte [mn_abon], 1           ; 0 or 1: CF = it was up, and it is down
+    jnc .none                       ; ...and CF = 0 is the no-card answer
     call mn_org                     ; the window may have been dragged since
                                     ; the card went up; BX = SI
     call OSAPI_WM_CLIP_SET          ; ...and nothing has armed a region for a

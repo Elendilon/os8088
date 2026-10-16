@@ -50862,6 +50862,13 @@ content-relative; the procs fetch the content origin via `wm_content`
   - **The About card's lines are packed** (`OS88UI_ABPACK`, 20.5.1.1): end
     to end with their NULs and an `OS88UI_ABEND`, no pointer table, the first
     line being the window title's own bytes. The card draws as before.
+  - **Five small cuts.** `[mn_abon]` is 0 or 1, so `mn_abdismiss` tests and
+    clears it with one `shr` whose CF is the answer; `mn_hitcell` stops
+    banking CX round `mn_org` (`OSAPI_WM_CONTENT` keeps it); the Game set
+    declares two items, so `mn_docmd` falls into Flag Mode for anything but
+    item 0 and the region's relocation proc is `mn_org`'s `ret`; the digit's
+    colour is read through SI with no bank; and the clicked cell's one-entry
+    list is the queue's first byte, which the enqueue rewrites with itself.
 
 ## 24. Packaging toolchain (host side)
 
