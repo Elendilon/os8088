@@ -84403,6 +84403,18 @@ per-routine listing comparison, source text and encoded length, says so).
   the SI/CX/BX/AX that `tui_rdout`, `tui_dec3` and `tui_hexnp` preserve - a
   strict subset of the instructions they ran, so no frame is slower; and
   `tui_el_bpm` banks its values through `tui_val_bpm`'s own tail.
+- **The body tiles are grouped, over one table of x spans** (`trkwin.inc`,
+  `trklist.inc`, `tools/trkface.py`; -92 file bytes, image -103): the
+  face's two tables and the PlayList editor's were four and six bytes a
+  tile, 436 bytes in all. Every x span any of them uses is now one word pair
+  in `tw_xp` (22 of them), and the tiles are grouped by their rows - `db y1,
+  y2, n` and then n byte offsets into `tw_xp` - which is 354 bytes, read by
+  ONE decoder, `tw_tiles`, where there were two loops. `tools/trkface.py`
+  emits and checks that form; the tile SETS are the old ones exactly (40, 36
+  and 22 rectangles, decoded out of the built image and compared), so every
+  paint is pixel-identical and makes the same number of fills, in an order
+  grouped by rows. The editor's body now sets its pen once rather than once
+  a tile (`tw_fills`), 21 fewer `OSAPI_SET_COLOR` calls a full paint of it.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
