@@ -765,16 +765,32 @@ tg_nudge:
     test byte [tg_grav], 1          ; keep only the component across the
     jnz .row                        ; fall: a vertical fall moves the column,
     xor dh, dh                      ; a horizontal one the row
-    jmp tg_tryshift
-.row:
-    xor dl, dl
-    jmp tg_tryshift
+    jmp short tg_tryshift
 .soft:
     call tg_step_grav
     cmp byte [tg_mode], TG_M_PLAY
     jne tg_ret
     mov ax, [tg_fallspd]
     mov [tg_fallcd], ax
+    ret
+.row:
+    xor dl, dl
+    ; ...into tg_tryshift, which follows (apps size pass 2)
+
+; -----------------------------------------------------------------------------
+; tg_tryshift - move the piece by DL = d(col), DH = d(row) if it fits there
+; out: CF = 1 refused, nothing changed; else the origin moved and a frame is
+;      owed. The ONE place the origin is written outside tg_spawn.
+; -----------------------------------------------------------------------------
+tg_tryshift:
+    mov bx, [tg_pc]                 ; BL = column, BH = row
+    add bl, dl
+    add bh, dh
+    call tg_fits
+    jc .out
+    mov [tg_pc], bx
+    mov byte [tg_dirty], 1
+.out:
     ret
 
 ; tg_rotate - a quarter turn, refused (and put back) if it does not fit
@@ -817,22 +833,6 @@ tg_gvec:
     xor bh, bh
     shl bx, 1
     mov bx, [tg_gtab + bx]
-    ret
-
-; -----------------------------------------------------------------------------
-; tg_tryshift - move the piece by DL = d(col), DH = d(row) if it fits there
-; out: CF = 1 refused, nothing changed; else the origin moved and a frame is
-;      owed. The ONE place the origin is written outside tg_spawn.
-; -----------------------------------------------------------------------------
-tg_tryshift:
-    mov bx, [tg_pc]                 ; BL = column, BH = row
-    add bl, dl
-    add bh, dh
-    call tg_fits
-    jc .out
-    mov [tg_pc], bx
-    mov byte [tg_dirty], 1
-.out:
     ret
 
 ; =============================================================================

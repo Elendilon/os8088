@@ -88003,8 +88003,10 @@ instruction; `tests/tgplay.py` (soak `tgplay`, `--ref` for the cycles) and
   Protocol items share `tg_onkey`'s `call tg_act` / repaint tail, and the
   board walk follows `tg_draw_all`. Two tail jumps became fall-throughs:
   `tg_cell_fill` into `tg_fillc` (a `jmp` fewer for every cell drawn) and the
-  banner into `tg_str`. A routine-by-routine disassembly against the base
-  differs ONLY in those branches and in moved addresses.
+  banner into `tg_str`; and `tg_tryshift` follows `tg_nudge`, so a strafe
+  along a row falls into it (a further -1 file byte). A routine-by-routine
+  disassembly against the base differs ONLY in those branches and in moved
+  addresses.
 - **The panel test is made once a tick.** `tg_update` and `tg_frame` each
   opened by asking whether a panel was up; `tg_worker` asks once, inside the
   lock, and skips both - nothing between them can raise a panel. 7 image
