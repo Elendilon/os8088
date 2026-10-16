@@ -1183,14 +1183,6 @@ aps_trackend:
     mov al, APX_END
     jc .out
     call os88spk_stop
-    call aps_next
-    or al, al
-    jnz .out
-    call os88spk_go
-    mov al, 0
-    jnc .out
-    mov ax, ap_s_spkbusy
-    call aps_say
-    mov al, APX_ERR
+    jmp aps_skip.go                 ; ...and on as a skip goes on
 .out:
     ret
