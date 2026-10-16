@@ -4562,8 +4562,8 @@ vp_xopen:
     or dx, dx
     jz .out
     mov si, dx                      ; SI = its KB, one over
-    call vp_epref                   ; EMS FIRST below a 386 (98.3.18.6):
-    jnc .ems                        ; no copy holds interrupts off there
+    call vp_epref                   ; EMS where it costs less than the
+    jnc .ems                        ; pool's copies (98.3.18.15)
     call vp_xcaps                   ; AX = the KB the pool has (BL, DX:CX
     or ax, ax                       ; its other answers)
     jz .ems
@@ -4581,6 +4581,9 @@ vp_xopen:
     jc .out
     mov [vp_xbase], ax
     mov [vp_xbase+2], dx
+%ifdef VP_XSPTEST
+    call vp_xspeed                  ; (a TEST BUILD: tests/vidxspeed.py reads
+%endif                              ; [vp_xr10] - only EMS asks otherwise)
     cmp si, XG_NEED / 1024          ; THE GAP, once an instance, while the
     jb .xg                          ; hold is empty (os88xgap.inc)
     call vp_xgm
@@ -5598,6 +5601,20 @@ vp_xstep:
     mov [vp_xcur+FSEQ_OFF], ax
     mov [vp_xcur+FSEQ_OFF+2], bx
 .rd:
+    mov ax, [vp_xbase]              ; THE TARGET (98.3.18.15): the hold's
+    mov bx, [vp_xbase+2]            ; end, and the room it has from there
+    add ax, [vp_xhave]
+    adc bx, [vp_xhave+2]
+    mov [vp_htg], ax
+    mov [vp_htg+2], bx
+    mov cx, [vp_xcap]
+    mov bx, [vp_xcap+2]
+    sub cx, [vp_xhave]
+    sbb bx, [vp_xhave+2]
+    jz .room
+    mov cx, VP_CHUNK
+.room:
+    call vp_harm
     xor bx, bx                      ; DX:BX = the claim
     mov cx, VP_CHUNK
     push ds
@@ -5605,6 +5622,7 @@ vp_xstep:
     mov di, vp_xcur
     mov si, vp_name
     call OSAPI_FILE_READ_SEQ        ; AX = the bytes (DX 0: one chunk)
+    call vp_hdis                    ; (flags kept)
     pop dx
     jc .drop                        ; the disk failed: the stream will say so
     mov es, dx
@@ -5618,7 +5636,7 @@ vp_xstep:
     push cx
     inc cx
     and cl, 0xFE
-    call vp_xcopy
+    call vp_xcopym                  ; (less what HDD.DRV put there)
     pop cx
     jc .free
     add [vp_xhave], cx
@@ -5695,29 +5713,149 @@ vp_eprobe:
     jmp vp_ld6
 
 ; vp_epref - CF=0: take EMS though there is an XMS pool - EMS.DRV answers
-; (it is only loaded when somebody ticked it, which on this CPU is the
-; request) and the CPU is below a 386, where XMS is int 15h's block move:
-; two copies a banked byte with interrupts off, against one copy with them
-; on, or none in place. A 386's unreal-mode copy is the faster, and keeps
-; XMS. Every register kept
+; (it is only loaded when somebody ticked it, which is the request) and the
+; board costs the play less than the pool's copies would (98.3.18.15). EMS
+; in place copies nothing; its price is the frame's reads, [vp_er10] tenths
+; of RAM's a KB, so (er10 - 10) tenths over RAM. The pool's price is its
+; copies: a KB copied is [vp_xr10] tenths of RAM's read (vp_xspeed), once a
+; banked byte where the decode goes in place (a 286 whose LOADALL has not
+; failed this instance, or a 386 - 98.3.18.14) and twice where it copies.
+; EMS wins when its price is the smaller. A board within VP_EFAST of RAM wins
+; on every tier without the pool being timed: no copy is that cheap. It
+; used to be a TIER test - EMS below a 386, XMS from one - written while a
+; 386 always copied twice and on a copy rate nobody had measured. Every
+; register kept
 vp_epref:
     push ax
     push bx
-    call OSAPI_CPU_INFO             ; AL = the tier
-    cmp al, CPU_386
-    pop bx
-    pop ax
-    jae .no
+    push cx
+    push dx
     call vp_eprobe
     jc .no
-    call vp_espeed                  ; ...and the board as fast as RAM: a
-    cmp byte [vp_eslow], 0          ; slow one's every byte costs more than
-    jne .no                         ; the pool's copies (98.3.18.8)
+    call vp_xcaps                   ; no pool (every 8088): EMS is all there
+    or ax, ax                       ; is, and nothing is timed
+    jz .yes
+    call vp_espeed
+    cmp byte [vp_eslow], 0          ; as fast as RAM: EMS, nothing to weigh
+    je .yes
+    cmp byte [vp_eslow], 2          ; too slow to bank in at all (98.3.18.8):
+    je .no                          ; the pool, whatever it costs
+    call vp_xspeed                  ; AX = an XMS KB copied, RAM tenths
+    jc .no                          ; (not timed: the pool, as before)
+    cmp byte [vp_tier], CPU_386     ; in place: ONE copy a banked byte
+    jae .one
+    cmp byte [vp_xchk], 2           ; (a 286 whose LOADALL failed: two)
+    jne .one
+    shl ax, 1
+.one:
+    mov bx, [vp_er10]
+    sub bx, 10                      ; EMS's price over RAM's
+    jbe .yes
+    cmp bx, ax
+    jae .no
+.yes:
     clc
-    ret
+    jmp short .r
 .no:
     stc
+.r:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
+
+; vp_xspeed - AX = the pool's copy of a KB in tenths of RAM's read of one
+; ([vp_xr10], measured once an instance: FFFFh until then). Taken with
+; OSAPI_XMEM_COPY itself - VP_XSPKB KB up out of our own image into a block
+; claimed for the purpose and freed - against vp_erate's 1 KB `rep lodsw`
+; passes over our own segment, two ticks each from a tick's edge, so a
+; BIOS's reset, LOADALL's borrow or a 386's base load is priced as what it
+; costs a play here and not as an instruction count. CF = 1 not measured
+; (no block): the caller keeps the pool. Every other register kept
+VP_XSPKB    equ 8                   ; KB a timed copy: a play copies 32 at a
+                                    ; time, so a call's fixed part must not
+                                    ; be the measurement
+vp_xspeed:
+    mov ax, [vp_xr10]
+    cmp ax, 0xFFFF
+    je .t
+    clc
+    ret
+.t:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov ax, VP_XSPKB * 1024
+    xor dx, dx
+    call OSAPI_XMEM_ALLOC           ; DX:AX = the block
+    jc .out
+    push ax
+    push dx
+    call OSAPI_GET_TICKS
+    mov bx, ax
+.w:
+    call OSAPI_GET_TICKS
+    cmp ax, bx
+    je .w
+    mov bx, ax
+    xor cx, cx                      ; CX = the copies
+.l:
+    pop dx
+    pop ax
+    push ax
+    push dx
+    push cx
+    push ds
+    pop es
+    xor si, si                      ; (our image: an UP copy only reads it)
+    xor di, di
+    mov cx, VP_XSPKB * 1024
+    call OSAPI_XMEM_COPY
+    pop cx
+    jc .fr
+    inc cx
+    call OSAPI_GET_TICKS
+    sub ax, bx
+    cmp ax, 2
+    jb .l
+    push cx
+    mov ax, ds
+    call vp_erate                   ; BX = RAM's 1 KB passes, two ticks
+    pop cx
+    mov ax, 10
+    mul bx                          ; DX:AX = RAM's x 10...
+    mov bx, cx
+    mov cl, 3                       ; (VP_XSPKB = 8: KB x copies = copies x 8)
+    shl bx, cl
+    jz .fr
+    cmp dx, bx
+    jae .fr
+    div bx                          ; AX = a KB's copy in RAM's tenths
+    mov [vp_xr10], ax
+.fr:
+    pop dx
+    pop ax
+    pushf
+    call OSAPI_XMEM_FREE
+    popf
+.out:
+    mov ax, [vp_xr10]
+    cmp ax, 0xFFFF
+    cmc                             ; CF = 1 while unmeasured
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+%if VP_XSPKB != 8
+%error "vp_xspeed's shl by 3 is VP_XSPKB = 8"
+%endif
 
 ; vp_espeed - [vp_eslow] (FFh until measured, once an instance): how the
 ; EMS frame READS against this package's own RAM, 1 KB `rep lodsw` passes
@@ -6181,6 +6319,19 @@ vp_xbread:
     push di
     push es
     push bx
+    xor cx, cx                      ; SLOT 0 IS NOT ARMED: its mirror is
+    or bx, bx                       ; copied up from the bounce as well
+    jz .h0
+    mov ax, bx
+    call vp_bslot                   ; DX:AX = the slot x 32 KB
+    add ax, [vp_xbase]
+    adc dx, [vp_xbase + 2]
+    mov [vp_htg], ax
+    mov [vp_htg + 2], dx
+    mov cx, VP_CHUNK
+.h0:
+    mov dx, [vp_ring]
+    call vp_harm                    ; (98.3.18.15)
     mov dx, [vp_ring]               ; DX:BX = the bounce (placed at THE GAP
     xor bx, bx                      ; from the bank, 98.3.18.12)
     mov cx, VP_CHUNK
@@ -6193,6 +6344,7 @@ vp_xbread:
     push word [vp_cur + FSEQ_OFF]
 %endif
     call OSAPI_FILE_READ_SEQ        ; AX = the bytes (DX 0: a chunk)
+    call vp_hdis                    ; (flags kept)
 %ifdef VP_RDLOG
     pop bx                          ; (DI:BX where it started; BX is the
     pop di                          ; slot again just below)
@@ -6268,15 +6420,200 @@ vp_xbup:
     inc cx
     and cl, 0xFE
     mov es, [vp_ring]
-    xor si, si
-    xor di, di                      ; UP
-    call OSAPI_XMEM_COPY
+    call vp_xupm                    ; UP, less what HDD.DRV put there
     pop es
     pop di
     pop si
     pop dx
     pop cx
     pop ax
+    ret
+
+; =============================================================================
+; THE FILL STRAIGHT INTO XMS (SPEC.md 98.3.18.15, 52.1.4; docs/plans/
+; VIDEO-386-PLAN.md section D). A fill - the hold's (vp_xstep), the copying
+; bank's (vp_bstep), the bank in place's (vp_xbread) - reads a chunk into a
+; conventional buffer and copies it UP. On a 386 whose disk is HDD.DRV's
+; rung 1, HDD.DRV can be ARMED for that one buffer: a sector it would put
+; there goes to the chunk's XMS address instead, and its bit is set in a
+; map handed back at DISARM. The copy up then skips every sector the map
+; has (vp_xupm), which on such a disk is all of them - the up copy, the one
+; LOADALL-PLAN's L2 was for, is gone. Everything else - a sector the
+; kernel's cache served, a disk on rung 0 or a floppy, a 286, no HDD.DRV -
+; leaves its bit clear and is copied as before, so the result is exact
+; whichever road each sector took.
+; =============================================================================
+
+; vp_harm - a fill's read is next: DX = its buffer (offset 0), CX = the
+; bytes its target has room for (0: do not arm), [vp_htg] = the XMS linear
+; address the buffer's first byte goes to. HDD.DRV armed where it can
+; ([vp_harmd] 1). [vp_hmapv] is 0 from here whatever happens, so a copy up
+; after a read nobody armed copies the lot. Every register kept
+vp_harm:
+    mov byte [vp_hmapv], 0
+    mov byte [vp_harmd], 0
+%ifndef VP_RDLOG                    ; (its log reads the buffer as it landed)
+%ifndef VP_NOHARM                   ; (a gate's A/B: tests/vidharm.py)
+    cmp byte [vp_hnone], 0          ; (the door said no for good: no HDD.DRV,
+    jne .r                          ; or below a 386 - asked once)
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    and cx, 0xFE00                  ; whole sectors...
+    cmp cx, VP_CHUNK                ; ...a chunk's at most
+    jbe .n
+    mov cx, VP_CHUNK
+.n:
+    jcxz .p
+    mov si, [vp_htg]
+    mov di, [vp_htg + 2]
+    mov bx, (DRVC_DISK << 8) | HDV_ARM
+    call OSAPI_DRV_CALL
+    jnc .ok
+    cmp ax, 1                       ; 0 no door, 1 no 386: for good; 2 the
+    ja .p                           ; gate, 3 the arguments: this read only
+    mov byte [vp_hnone], 1
+    jmp short .p
+.ok:
+    mov byte [vp_harmd], 1
+.p:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+%endif
+%endif
+.r:
+    ret
+
+; vp_hdis - the fill's read is over: HDD.DRV disarmed and its map in
+; [vp_hmap], [vp_hmapv] 1. Every register and the FLAGS kept (it sits
+; between a READ_SEQ and the jc that tests it)
+vp_hdis:
+    pushf
+    cmp byte [vp_harmd], 0
+    je .r
+    push ax
+    push bx
+    push di
+    mov byte [vp_harmd], 0
+    mov di, vp_hmap                 ; (ES:DI: the X stub makes ES ours)
+    mov bx, (DRVC_DISK << 8) | HDV_DISARM
+    call OSAPI_DRV_CALL
+    jc .x
+    mov byte [vp_hmapv], 1
+.x:
+    pop di
+    pop bx
+    pop ax
+.r:
+    popf
+    ret
+
+; vp_xcopym - vp_xcopy's UP copy (DX:AX an offset in the block, ES:0, CX
+; bytes), less what HDD.DRV put there already (vp_xupm). Every register kept
+vp_xcopym:
+    push ax
+    push dx
+    add ax, [vp_xbase]
+    adc dx, [vp_xbase+2]
+    call vp_xupm
+    pop dx
+    pop ax
+    jnc .ok
+    call vp_xfree
+    stc
+.ok:
+    ret
+
+; vp_xupm - ES:0 copied UP to DX:AX (linear), CX bytes (even), by
+; OSAPI_XMEM_COPY - less every sector [vp_hmap] says is there already, when
+; [vp_hmapv]; each one counted in [vp_hsk]. CF = 1 a copy refused. Every
+; register kept
+vp_xupm:
+    push si
+    push di
+    xor si, si
+    xor di, di                      ; UP
+    cmp byte [vp_hmapv], 0
+    jne .map
+    call OSAPI_XMEM_COPY            ; (the whole of it: nothing was armed)
+    pop di
+    pop si
+    ret
+.map:
+    push ax
+    push bx
+    push cx
+    push dx
+    push bp
+    mov bp, cx                      ; BP = the end
+.next:                              ; SI = the next sector's offset
+    cmp si, bp
+    jae .done
+    call .bit
+    jz .run
+    add si, 512                     ; in XMS already
+    add word [vp_hsk], 1
+    adc word [vp_hsk + 2], 0
+    jmp short .next
+.run:
+    mov bx, si                      ; BX = a run of sectors to copy
+.ext:
+    add si, 512
+    cmp si, bp
+    jae .end
+    call .bit
+    jz .ext
+    jmp short .cp
+.end:
+    mov si, bp
+.cp:
+    push ax
+    push dx
+    push si
+    mov cx, si
+    sub cx, bx                      ; (even: both ends are)
+    add ax, bx
+    adc dx, 0
+    mov si, bx
+    xor di, di
+    call OSAPI_XMEM_COPY
+    pop si
+    pop dx
+    pop ax
+    jnc .next
+    jmp short .out
+.done:
+    clc
+.out:
+    pop bp
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    pop di
+    pop si
+    ret
+.bit:                               ; ZF = 1: SI's sector is NOT in XMS
+    push bx
+    push cx
+    mov bx, si
+    mov cl, 9
+    shr bx, cl                      ; the sector...
+    mov cl, bl
+    and cl, 7
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1                       ; ...its byte of the map
+    mov bl, [vp_hmap + bx]
+    shr bl, cl
+    test bl, 1
+    pop cx
+    pop bx
     ret
 
 %ifndef VP_NOXIP
@@ -7178,8 +7515,17 @@ vp_bstep:
     call OSAPI_FILE_READ_SEQ        ; (a far cell: no tail jump)
     ret
 .xb:
+    call .tail
+    call vp_bslot                   ; DX:AX = the tail's slot, in the block
+    add ax, [vp_xbase]
+    adc dx, [vp_xbase + 2]
+    mov [vp_htg], ax
+    mov [vp_htg + 2], dx
     call vp_bbnc                    ; DX = the bounce slot
+    mov cx, VP_CHUNK
+    call vp_harm                    ; (98.3.18.15)
     call .read                      ; DX:AX = the bytes (DX 0: a chunk)
+    call vp_hdis                    ; (flags kept)
     jc .stop                        ; a disk error: the stream will meet it
     or ax, ax
     jz .end                         ; the file ended on a chunk's boundary
@@ -7194,7 +7540,7 @@ vp_bstep:
     and cl, 0xFE
     xor si, si
     xor di, di                      ; UP
-    call vp_xcopy
+    call vp_xcopym
     pop cx
     jc .lost
 .up:
@@ -20245,6 +20591,15 @@ vp_lbk:       db 0                  ; ...and the last play's bank (vp_bkind)
 vp_eslow:     db 0xFF               ; the board's speed (vp_espeed): FFh not
                                     ; measured, 0 RAM's, 1 slow, 2 too slow
 vp_er10:      dw 0                  ; ...its time, in tenths of RAM's
+vp_xr10:      dw 0xFFFF             ; the pool's KB copied, in tenths of RAM's
+                                    ; read (vp_xspeed): FFFFh not measured
+vp_htg:       dd 0                  ; THE FILL STRAIGHT INTO XMS (98.3.18.15):
+                                    ; where the armed buffer's first byte goes
+vp_hmap:      times 8 db 0          ; ...HDD.DRV's map: a bit a sector there
+vp_hmapv:     db 0                  ; ...the map is this read's
+vp_harmd:     db 0                  ; ...HDD.DRV is armed
+vp_hnone:     db 0                  ; ...the door refused for good
+vp_hsk:       dd 0                  ; ...sectors not copied up, all plays
 vp_noinp:     db 0                  ; 1: never in place (a gate's A/B)
 vp_ekr:       dw 0                  ; the in-place ring's slots at most (a gate's)
 vp_eq:        db 0                  ; the frame's quarters held: 0Fh or 3

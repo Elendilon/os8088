@@ -36,6 +36,11 @@ LEG swap (the instrument is tests/vidxms.py's, a disk swap):
 Step 1 also asserts the bank is the WHOLE pool (98.3.18.2.1): 26 slots,
 where the 256 KB VP_XRES kept back for others left 18 - put back, it FAILS.
 
+EVERY ARM PLAYS THE COPYING BANK: QEMU is a 386 and a 386 reads a bank in
+place since 98.3.18.14, where the FIFO this file counts is not used at all,
+so `[vp_noinp]` = 1 - the gate's A/B - is written before the first play.
+The bank in place is tests/vidxip.py's bank arms.
+
 VERIFIED TO FAIL: with `call vp_bstep` taken out of the reader's loop the
 bank stays empty (step 2), and with vp_bfill's head left unmoved step 3's
 picture differs.
@@ -235,6 +240,14 @@ def main():
             sys.exit("vidbank: the clip did not open")
         if rb("vp_ok") != 1:
             sys.exit("vidbank: the player will not play the clip here")
+        # THE COPYING BANK, every arm (98.3.18.14): QEMU is a 386, and a 386
+        # reads an XMS bank IN PLACE - [vp_xbank] 0 at the session's start,
+        # the FIFO unused, the ring's slots the bank's - so every count this
+        # file reads ([vp_xcnt], the prefill against it, the card's kind 1)
+        # would be of a FIFO that is not there. [vp_noinp] is the gate's A/B,
+        # read at each session's start and written by nothing in the player,
+        # so once is every play. The bank in place is tests/vidxip.py's
+        qpoke(q, [(base + syms["vp_noinp"], b"\1")])
 
         # --- 1: a bank, not a hold
         print("   opened: %s xhave=%d" % (state(), rd("vp_xhave")))

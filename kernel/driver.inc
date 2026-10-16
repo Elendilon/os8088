@@ -5672,7 +5672,8 @@ drv_pkg_call_x:
 .door:
     or bp, bp
     jz .none                    ; ...and 0 is THE FENCE: not published, so not
-                                ; reachable. HDD.DRV lands here
+                                ; reachable. (HDD.DRV's reaches two verbs and
+                                ; no sector: SPEC.md 52.1.4)
     mov al, bh
     cbw                         ; BH is 1..DRVC_MAX here, so AH = 0
     dec ax

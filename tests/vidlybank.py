@@ -19,6 +19,14 @@ the slots and the bank with the whole layer; the play reaches the end and
 DRAWS EVERY LAYER RECORD, none missed - the slots fed from the bank as the
 hook let them go (vp_lydrain), copied down out of XMS.
 
+THE BASE IS THE SHIPPED CHOICE: held whole at Play on QEMU's 386, it may be
+decoded IN PLACE (98.3.18.14 - a loaded DS base, nothing copied), which is
+what a 286 has done since 98.3.18.11; the layer's slots and bank copy as
+before either way, and every assertion here is the layer's. `xip` in the
+state line says which the base took. A failure that `[vp_noinp]` = 1 (the
+gate's A/B, before Play) makes go away is the base's in place, not the
+layer's bank.
+
 ARM nobank: the NEGATIVE CONTROL - the bank's slots zeroed before Play
 (vp_lyxn 0), so the prefill fills the two slots and nothing more. After the
 swap the layer's reader finds no disk and stops, and the play must draw
@@ -150,12 +158,13 @@ def main():
 
         def state():
             return ("done=%d err=%d on=%d got=%d mis=%d skp=%d rd=%d use=%d "
-                    "ns=%d xn=%d xc=%d xq=%d eof=%d xon=%d xfull=%d"
+                    "ns=%d xn=%d xc=%d xq=%d eof=%d xon=%d xfull=%d xip=%d"
                     % (rw("vp_done"), rb("vp_err"), rb("vp_lyon"),
                        rw("vp_lygot"), rw("vp_lymis"), rw("vp_lyskp"),
                        rw("vp_lyrd"), rw("vp_lyuse"), rw("vp_lyns"),
                        rw("vp_lyxn"), rw("vp_lyxc"), rb("vp_lyxq"),
-                       rb("vp_lyeof"), rb("vp_xon"), rb("vp_xfull")))
+                       rb("vp_lyeof"), rb("vp_xon"), rb("vp_xfull"),
+                       rb("vp_xip")))
         wait(lambda: rb("vp_loaded") == 1, "the clip's header", 30)
         print("   opened: %s; lysp %08x bank %d KB prefill %04x"
               % (state(), struct.unpack("<I", q.read(base + syms["vp_lysp"],

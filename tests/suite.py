@@ -4358,7 +4358,9 @@ SOAK = [
     Row("vidlysplit", "soak", py("tests/vidlysplit.py"), 60.0,
         "SPEC.md 98.1.9.2: the XMS pool split AFTER the CPU is timed - QEMU is the faster machine: the base's bank (it needs none) given up and the layer's its whole 800 KB ask, 25 slots where the open took 18. "
         "Broken on purpose (vp_lysplit not called) the layer and base arms "
-        "FAIL with the open's 8 and 18",
+        "FAIL with the open's 8 and 18. Every arm writes [vp_noinp] before "
+        "Play: QEMU's 386 reads an XMS bank in place (98.3.18.14), chosen "
+        "before the split, which then has no FIFO to resize",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidlysplitbase", "soak", py("tests/vidlysplit.py", "--arm", "base"), 60.0,
@@ -4403,7 +4405,9 @@ SOAK = [
         "-m 2's pool, is read RING, then the LAYER's slots, then the base's "
         "BANK - held before frame 20 on a throttled B:, the bank never takes "
         "a chunk while the layer's slots have room. Broken on purpose (the "
-        "reader's order put back) it FAILS; vidlyorderbank is its control",
+        "reader's order put back) it FAILS; vidlyorderbank is its control. "
+        "Both write [vp_noinp] before Play, the bank COPYING: QEMU's 386 "
+        "reads an XMS bank in place (98.3.18.14), with no FIFO to order",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidlyorderbank", "soak", py("tests/vidlyorder.py", "--arm",
@@ -4420,7 +4424,10 @@ SOAK = [
         "512 --layer-prefill all: the prefill fills the slots and the bank "
         "with the whole layer and holds (vp_pfwait), B: is BLANKED, and the "
         "play must draw all 89 layer records with none missed, each slot "
-        "fed from the bank as the hook let it go",
+        "fed from the bank as the hook let it go. The base, held whole, may "
+        "decode IN PLACE on the 386 (98.3.18.14; `xip` in its state line) - "
+        "the shipped choice, left alone because every assertion is the "
+        "layer's",
         needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidlybanknone", "soak", py("tests/vidlybank.py", "--arm",
@@ -12881,7 +12888,10 @@ SOAK = [
         "itself, so the hold is WHOLE as the play returns and byte-for-byte "
         "the file (pmemsave). Then drive B: is changed to a BLANK floppy "
         "under the player, so the disk has nothing left to answer with: the "
-        "next key and a whole play from it must still work. Broken on "
+        "next key and a whole play from it must still work - that second "
+        "play the shipped choice for a whole hold on a 386, IN PLACE "
+        "(98.3.18.14; the row prints which), the first, started mid-load, "
+        "copying. Broken on "
         "purpose - vp_xput out of vp_fill - the hold is short at the play's "
         "end (163,840 of 973,312); vp_xrdat out of vp_rdat, the key is "
         "refused",
@@ -12897,7 +12907,10 @@ SOAK = [
         "under the held play and the furthest key frame inside ring + bank "
         "is still right, while the play dies past the bank's end. Broken on "
         "purpose - vp_bstep out of the reader's loop - the bank stays empty; "
-        "vp_bfill's head left unmoved, the play errors at frame 100; vp_bpre out of the bracket, the prefill fills nothing. The clip asks a 4 MB bank and 256 KB first (98.3.18.3): 8 slots before the first frame and Low memory, and with the gate's hold on the prefill the box says Buffering 100%, Esc cancels and Space plays from the bank with B: blank",
+        "vp_bfill's head left unmoved, the play errors at frame 100; vp_bpre out of the bracket, the prefill fills nothing. The clip asks a 4 MB bank and 256 KB first (98.3.18.3): 8 slots before the first frame and Low memory, and with the gate's hold on the prefill the box says Buffering 100%, Esc cancels and Space plays from the bank with B: blank. "
+        "Every vidbank arm writes [vp_noinp] before its first play, the bank "
+        "COPYING: QEMU's 386 reads an XMS bank in place since 98.3.18.14, "
+        "where this FIFO is not used (vidxipbank is the in place)",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidbankwin", "soak", py("tests/vidbank.py", "--arm", "win"), 75.0,
@@ -12926,19 +12939,24 @@ SOAK = [
         "AH=87h - XMEM.DRV built with XM_FORCE_BIOS, the 286's transport, on "
         "QEMU's 386 - so xm_bios and the PIC it holds shut across the call "
         "run under a row at all: the hold whole and byte-for-byte, both plays "
-        "to the last frame. SeaBIOS restores A20 itself, so the 286 lockup "
+        "to the last frame and both COPYING ([vp_noinp]: a 386 would decode "
+        "the whole hold in place, 98.3.18.14, and send nothing through "
+        "xm_bios). SeaBIOS restores A20 itself, so the 286 lockup "
         "this guards is argued in SPEC.md 2.10.8 rather than reproduced",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidxip", "soak", py("tests/vidxip.py"), 120.0,
-        "SPEC.md 98.3.18.11: a file held whole in XMS decoded IN PLACE - "
-        "the player built LA_SIM (a test build: a borrow copies the 64 KB "
-        "window out of XMS through a flat FS where a 286 runs LOADALL) "
-        "against the shipped one, one flow each: a VGA-layout clip held "
-        "whole, B: blank, played to the last frame. In place, every frame, "
-        "246 yields opening a window, and the window's pixels identical to "
-        "the copying play's. Broken on purpose: vp_xaddr without the hold's "
-        "base never starts; the yield sites unpatched and no yield opens",
+        "SPEC.md 98.3.18.11, 98.3.18.14: a file held whole in XMS decoded "
+        "IN PLACE - the SHIPPED player on QEMU's 386, which loads DS's "
+        "hidden base (apps/os88ub.inc) where a 286 runs LOADALL, against "
+        "the same player COPYING ([vp_noinp] written before Play), one flow "
+        "each: a VGA-layout clip held whole, B: blank, played to the last "
+        "frame. In place, every frame, 246 yields opening a window, the card "
+        "kinds 4 and 7, and the window's pixels identical to the copying "
+        "play's. `--sim` (no row) puts the LA_SIM test build in the in-place "
+        "leg. Broken on purpose: vp_xaddr without the hold's base never "
+        "starts; the yield sites unpatched and no yield opens; vp_ubld's "
+        "ub_set out, vp_xok fails and the play copies",
         needs=("qemu", "nasm")),
     Row("vidxipsnd", "soak", py("tests/vidxip.py", "--arm", "snd"), 130.0,
         "SPEC.md 98.3.18.11: vidxip with QEMU's SB16 and a clip with sound - "
@@ -12955,7 +12973,9 @@ SOAK = [
     Row("vidxmsgap", "soak", py("tests/vidxms.py", "--gap", "2048"), 50.0,
         "SPEC.md 98.3.18.12: vidxms with THE GAP written 2,048 before each "
         "play (QEMU measures its host's noise): the ring starts 2,048 mod "
-        "4,096 from the hold inside its claim, both plays draw every frame, "
+        "4,096 from the hold inside its claim on BOTH plays - [vp_noinp] "
+        "keeps the second copying, where a 386 would take the whole hold in "
+        "place (98.3.18.14) and place no ring at all - both draw every frame, "
         "and the hold - filled through vp_xstep's placed claims - is the "
         "file byte for byte. vp_xgal made a `ret` takes it red",
         needs=("qemu", "nasm")),
@@ -12966,11 +12986,43 @@ SOAK = [
         needs=("qemu", "nasm")),
     Row("vidxipbank", "soak", py("tests/vidxip.py", "--arm", "bank"), 120.0,
         "SPEC.md 98.3.18.13: a 1.3 MB clip on a 2 MB QEMU, past the pool, "
-        "played through a BANK - copying, and then by the LA_SIM build IN "
-        "PLACE, the ring 25 of the bank's 26 slots: every tenth frame held "
+        "played through a BANK - copying ([vp_noinp]), and then by the "
+        "shipped player IN PLACE on QEMU's 386 (98.3.18.14), the card kinds "
+        "1 and 8, the ring 25 of the bank's 26 slots: every tenth frame held "
         "and its screen compared with the reference decode (39 holds each), "
         "because this clip's patches erase a wrong byte inside ~30 frames "
         "and the window after the play cannot see it",
+        needs=("qemu", "nasm")),
+    Row("vidxiphd", "soak", py("tests/vidxip.py", "--hd", "--arm", "bank"),
+        150.0,
+        "SPEC.md 98.3.18.15, 52.1.4: vidxipbank with the clip on an IDE DISK, "
+        "which QEMU's SeaBIOS knows and HDD.DRV's rung 1 takes, so every "
+        "fill ARMS the driver and its sectors go straight into XMS through "
+        "ES's loaded base (os88ub.inc) - both plays must report sectors that "
+        "skipped the copy up ([vp_hsk]), and the 39 holds against the "
+        "reference decode on each are what say those bytes are right. "
+        "Broken on purpose (hd_xa_read's rep insw replaced by a read that "
+        "drops the words) the play stalls on garbage before frame 140",
+        needs=("qemu", "nasm")),
+    Row("vidxiphdhold", "soak", py("tests/vidxip.py", "--hd"), 120.0,
+        "SPEC.md 98.3.18.15: vidxip's HOLD with the clip on an IDE disk - the "
+        "hold's own fill (vp_xstep, the window's timer) armed and read "
+        "straight into XMS, then both plays out of it, the window identical",
+        needs=("qemu", "nasm")),
+    Row("vidxiphdnoharm", "soak", py("tests/vidxip.py", "--hd", "--noharm",
+                                     "--arm", "bank"), 150.0,
+        "SPEC.md 98.3.18.15: vidxiphd's A/B - the player built VP_NOHARM, "
+        "which never arms HDD.DRV: the same plays and holds, and [vp_hsk] "
+        "must stay 0, so vidxiphd's count is the arm's and not a counter "
+        "that always moves",
+        needs=("qemu", "nasm")),
+    Row("vidxipxspeed", "soak", py("tests/vidxip.py", "--xspeed"), 120.0,
+        "SPEC.md 98.3.18.15: vp_xspeed, the pool's copy priced against RAM "
+        "for vp_epref's EMS-or-XMS choice, taken at the hold's open by a "
+        "VP_XSPTEST build - no emulator here has an EMS board beside XMS, so "
+        "nothing else reaches it. [vp_xr10] measured (its value is QEMU's "
+        "host timing) and its 8 KB block given back, read off XMEM.DRV's "
+        "own table; broken on purpose (the free taken out) it fails on both",
         needs=("qemu", "nasm")),
     Row("vidxipbankwrap", "soak", py("tests/vidxip.py", "--arm", "bankwrap"),
         120.0,
@@ -13003,7 +13055,8 @@ SOAK = [
         "SPEC.md 98.3.18: vidxms with no play at the start - the window's "
         "timer alone loads the file to its end (a short last chunk is what "
         "says so), with the info card out so its line 6 is drawn from the "
-        "timer; then the same blank-disk key and play",
+        "timer; then the same blank-disk key and play - the hold whole, so "
+        "the shipped choice on QEMU's 386, in place (98.3.18.14)",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidxmsnox", "soak", py("tests/vidxms.py", "--arm", "nox"), 45.0,

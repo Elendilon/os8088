@@ -1877,12 +1877,14 @@ MEMC_POST   equ 1                ; AH: post - BX = a window of YOURS, AL = the
 ; the kernel. YOU are 8086 code: no 32-bit register, no FS, no GS, no
 ; `cpu 386` island of your own (SPEC.md 1 rule 1, no exception).
 ;
-; THE ONE READER THROUGH THE TOKEN is apps/os88la.inc (SPEC.md 41.13): on tier
-; 1 the token IS the block's 24-bit linear base, and a hot loop that owns its
-; segment registers may read it IN PLACE through a LOADALL'd DS - the Video
-; Player's decode of a held file (98.3.18.11). That include is the whole of
-; the exception: tier 1 only, behind its INT 6 probe and a check against
-; OSAPI_XMEM_COPY. Everything else still copies.
+; THE TWO READERS THROUGH THE TOKEN are apps/os88la.inc (SPEC.md 41.13) and
+; apps/os88ub.inc (41.15): the token IS the block's linear base, and a hot
+; loop that owns its segment registers may read it IN PLACE - through a
+; LOADALL'd DS on tier 1, through a DS whose base a moment of protected mode
+; loaded on tier 2 - the Video Player's decode of a held file (98.3.18.11,
+; 98.3.18.14). Those two includes are the whole of the exception, each behind
+; a check against OSAPI_XMEM_COPY, and os88ub.inc's `cpu 386` island is the
+; one a package may assemble (SPEC.md 1 rule 1). Everything else still copies.
 ;
 ; BRANCH ON THE CAPS, NEVER ON THE TIER. OSAPI_XMEM_CAPS returning 0 KB is the
 ; only answer that means "do not try", and it is the answer on a 386 whose A20
@@ -2698,9 +2700,10 @@ DQ_MAXREC  equ 8                 ; the most records one call can write, so
                                  ;
                                  ; A DRIVER MUST OPT IN. One that publishes no
                                  ; DSV_PKGCALL cannot be reached this way at
-                                 ; all: HDD.DRV does not, so no .O88 on the
-                                 ; floppy can name DRVC_DISK here and arrive at
-                                 ; a raw sector write.
+                                 ; all. HDD.DRV's reaches HDV_ARM and
+                                 ; HDV_DISARM and nothing else, so no .O88 on
+                                 ; the floppy can name DRVC_DISK here and
+                                 ; arrive at a raw sector write.
                                  ;
                                  ; WORKER-SAFETY IS THE DRIVER'S TO STATE,
                                  ; per verb (SPEC.md 20.6 rule 7). The cell
@@ -2752,8 +2755,20 @@ DRVM_CEIL_DISK equ 4           ; DRVC_DISK's ceiling, in KB
 DRVM_CEIL_NET  equ 34          ; ...and DRVC_NET's
 DRVC_SOUND   equ 1
 DRVC_DISK    equ 2              ; block volumes: hard disks (SPEC.md 51.8).
-                                ; Publishes no package entry point and is not
-                                ; going to - see OSAPI_DRV_CALL above
+                                ; Its package door reaches TWO verbs and no
+                                ; sector (SPEC.md 52.1.4) - a read of YOURS
+                                ; sent straight into XMS on a 386:
+HDV_ARM      equ 1              ; DX = a buffer's segment (offset 0), CX =
+                                ; its bytes (whole sectors, <= 32768), DI:SI
+                                ; = the XMS linear address its first byte
+                                ; stands for: until HDV_DISARM, a sector rung
+                                ; 1 reads INTO that buffer goes there instead.
+                                ; CF=1 AX = 1 below a 386, 2 A20 shut, 3 bad
+                                ; arguments. Arm, read, disarm - one callback
+HDV_DISARM   equ 2              ; ES:DI = 8 bytes: bit n set = sector n of the
+                                ; buffer is in XMS and NOT in the buffer. Copy
+                                ; up the rest: a sector the kernel's cache
+                                ; served, or a disk on rung 0, is clear
                                 ; 3 was the serial monitor's and is RETIRED,
                                 ; not free: a class number is ABI, and a driver
                                 ; built against the old header would attach as

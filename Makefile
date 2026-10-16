@@ -4061,7 +4061,7 @@ $(BUILD)/sound.hma.bin: drivers/sound/sound.asm drivers/sound/sb.inc drivers/sou
 		-I drivers/ -I apps/ -o $@ drivers/sound/sound.asm
 	@touch $(BUILD)/sound.hma.map   # NASM writes the map BEFORE it closes -o: newer than the .bin, for tests/hmadrv.py
 $(BUILD)/hdd.hma.bin: drivers/hdd/hdd.asm apps/os88ui.inc drivers/hdd/hddabi.inc drivers/hdd/hdcom.inc \
-                      drivers/hdd/hdtool.inc drivers/hdd/hdsec.inc \
+                      drivers/hdd/hdtool.inc drivers/hdd/hdsec.inc drivers/hdd/hdxms.inc apps/os88ub.inc \
                       drivers/hdd/mount.inc drivers/hdd/cfg.inc \
                       drivers/os88drv.inc apps/os88api.inc $(BUILD)/hdd.bin
 	$(NASM) -f bin -w+error $(DRVDEF) -DDRV_ORG=$(DRV_HMA_ORG) -I drivers/hdd/ \
@@ -4145,7 +4145,7 @@ $(BUILD)/hddtool.drv: $(BUILD)/hddtool.bin tools/os88drv.py $(PKGZSTAMP)
 # CEILING - a bigger tool on the disk is refused by OSAPI_FILE_READ before any
 # data moves, and a smaller one leaves the tail unread.
 $(BUILD)/hdd.bin: drivers/hdd/hdd.asm apps/os88ui.inc drivers/hdd/hddabi.inc drivers/hdd/hdcom.inc \
-                  drivers/hdd/hdtool.inc drivers/hdd/hdsec.inc \
+                  drivers/hdd/hdtool.inc drivers/hdd/hdsec.inc drivers/hdd/hdxms.inc apps/os88ub.inc \
                   drivers/hdd/mount.inc drivers/hdd/cfg.inc \
                   drivers/os88drv.inc apps/os88api.inc \
                   $(BUILD)/hddtool.bin | $(BUILD)
