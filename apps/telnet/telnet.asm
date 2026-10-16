@@ -266,7 +266,13 @@ te_entry:
 ; resized, moved across an extended desktop's seam, or find itself on an
 ; adapter of a different size (SPEC.md 39.7/11.98) - and a control drawn from
 ; a remembered rect is a control the hit-test cannot find.
+; te_in - the same, for a CALLBACK: it records SI as [te_win] first and falls
+; into te_layout. Every callback starts with that pair, so it is one call at
+; each of four sites and the store executes exactly as it did (apps size pass
+; 2, -12 bytes, no instruction added to any path).
 ; -----------------------------------------------------------------------------
+te_in:
+    mov [te_win], si
 te_layout:
     push ax
     push bx
@@ -410,7 +416,9 @@ te_paint:
     push dx
     push si
     push di
-    mov [te_win], si
+    call te_in                      ; [te_win] = SI and the layout - which
+                                    ; reads neither tz_cancelck's flag nor
+                                    ; the worker, so it may come first
     call tz_cancelck                ; **A W_PAINT A SECOND AFTER THE DIALOG WENT
                                     ; UP IS THE CANCEL** (SPEC.md 70.11.4), and
                                     ; the grace period is the whole of the fix:
@@ -421,8 +429,28 @@ te_paint:
                                     ; paint reaches us. Unarmed, it skipped
                                     ; every transfer before the user could
                                     ; answer
-    call te_hire
-    call te_layout
+    ; --- te_hire, inline: the ONE worker, on the first paint ---------------
+    ; Not at launch: the window must exist and be drawn before anything can
+    ; fail into its status line. (Inline since apps size pass 2 - it had this
+    ; one caller, and the call, the ret and its AX/BX frame were 14 bytes.)
+    cmp byte [te_spawned], 1
+    je .hired
+    mov ax, te_worker
+    mov bx, si                      ; = [te_win], te_in having just stored it
+    call OSAPI_TASK_SPAWN
+    jc .hired
+    mov byte [te_spawned], 1
+    ; ...AND THE REGION CANNOT MOVE WITHOUT THIS (SPEC.md 66.6.2): the
+    ; kernel wrote our segment into this worker's frame before its
+    ; first instruction, so mem_frameless pins a region with an
+    ; undeclared worker however that region is declared. What a restart
+    ; costs is one pass of the loop - the park is inside
+    ; OSAPI_TASK_ALIVE and nowhere else (this package is not
+    ; OSAPI_MEM_PARKSAFE), which is the TOP of the loop, and every byte
+    ; that outlives a pass is a static and moves with us. NOKEEP: AX is
+    ; the frame's, and no flag is read before te_chrome sets its own.
+    OS88_WORKER_RESTARTABLE_NOKEEP te_worker
+.hired:
     call te_chrome
     call te_screen
     call te_promise                 ; a full paint settles every debt, so the
@@ -618,8 +646,7 @@ te_onclick:
     push dx
     push si
     push di
-    mov [te_win], si
-    call te_layout
+    call te_in                      ; [te_win] = SI, then te_layout
     call te_abdismiss               ; ...and by the click that dismisses them
     jc .out
                                     ; **NO `or ax, ax` HERE.** It tested the
@@ -663,8 +690,7 @@ te_onkey:
     push dx
     push si
     push di
-    mov [te_win], si
-    call te_layout
+    call te_in                      ; [te_win] = SI, then te_layout
     call te_abdismiss               ; the credits are dismissed by the key
     jc .out                         ; that dismisses them, and that key does
                                     ; nothing else (SPEC.md 12.2's shape)
@@ -1094,29 +1120,6 @@ te_zero:
     pop es
     pop di
     pop cx
-    pop ax
-    ret
-te_hire:
-    push ax
-    push bx
-    cmp byte [te_spawned], 1
-    je .out
-    mov ax, te_worker
-    mov bx, [te_win]
-    call OSAPI_TASK_SPAWN
-    jc .out
-    mov byte [te_spawned], 1
-    ; ...AND THE REGION CANNOT MOVE WITHOUT THIS (SPEC.md 66.6.2): the
-    ; kernel wrote our segment into this worker's frame before its
-    ; first instruction, so mem_frameless pins a region with an
-    ; undeclared worker however that region is declared. What a restart
-    ; costs is one pass of the loop - the park is inside
-    ; OSAPI_TASK_ALIVE and nowhere else (this package is not
-    ; OSAPI_MEM_PARKSAFE), which is the TOP of the loop, and every byte
-    ; that outlives a pass is a static and moves with us.
-    OS88_WORKER_RESTARTABLE te_worker
-.out:
-    pop bx
     pop ax
     ret
 
@@ -1800,8 +1803,7 @@ te_about:
     push dx
     push si
     push di
-    mov [te_win], si
-    call te_layout
+    call te_in                      ; [te_win] = SI, then te_layout
     mov byte [te_abon], 1
     call te_blank                   ; the terminal's own area, cleared - the
                                     ; host box and the button stay, because
