@@ -78558,6 +78558,21 @@ counts in `pt_menus` are now each menu's run of `pt_mtab`** (`PT_MC_*`), so
 a menu cannot grow an item its dispatch has no handler for. **−61 image,
 −64 file, −5 on the small arm.**
 
+**The small arm assembled 614 bytes nothing could reach.** A sweep of what
+each build ASSEMBLES for labels nothing assembled names — run over a listing
+with its macros expanded (`nasm -Lme`), because a `dw %2` inside
+`OS88_HEADER` or `OS88_MENU` is a reference a plain listing hides — found,
+on `APP_SMALL`: the fullscreen bracket's pointer, `pt_ptr_rect` through
+`pt_ptr_move` (440 bytes and 39 of `.bss`), whose only callers are
+`pt_fsx_main` and `pt_fsx_key` under `PTF_FSX`; `pt_setpx` (102), whose two
+callers are the paste's format conversion (`PTF_CLIP`) and the text cell's
+restore (`PTF_UNDO`), so it is `PTF_EDIT`'s now; and 72 bytes of data for
+features the arm does not carry — the View menu's three entries, two toasts
+and undo's bit table. Each is gated where its users are; **the full build
+assembles byte-identical**, and the same sweep finds nothing on it. **Small
+arm −614 image, −34 `.bss`, −500 file** — 15 clusters to 14 on both small
+disks.
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather

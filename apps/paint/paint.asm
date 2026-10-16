@@ -6147,6 +6147,10 @@ pt_wait_tick:
 ; app's own W_ONKEY and W_ONCLICK with the arguments the kernel would have).
 ; =============================================================================
 
+%ifdef PTF_FSX                      ; (the bracket's pointer is the bracket's:
+                                    ; the small arm has neither - apps size
+                                    ; pass 2 found these assembled there and
+                                    ; named by nothing)
 PT_PTR_R    equ 2                   ; half-side: the pointer is a 5x5 square
 
 ; -----------------------------------------------------------------------------
@@ -6436,6 +6440,7 @@ pt_ptr_move:
     mov [pt_ptry], dx
 .out:
     ret
+%endif   ; PTF_FSX, the bracket's pointer
 
 ; -----------------------------------------------------------------------------
 ; pt_cmd_fs - take the screen: the fullscreen surface, then the bracket
@@ -9716,8 +9721,11 @@ pt_paste:
 ; out: nothing; preserves all registers (ES included)
 ;
 ; The paste and the text-cell restore both go through here; neither wants a
-; gfx call per pixel and neither wants an undo snapshot per pixel.
+; gfx call per pixel and neither wants an undo snapshot per pixel. They are
+; PTF_CLIP's and PTF_UNDO's, so this is PTF_EDIT's: the small arm, which has
+; neither, assembled it for nothing until apps size pass 2.
 ; -----------------------------------------------------------------------------
+%ifdef PTF_EDIT
 pt_setpx:
     push ax
     push bx
@@ -9839,6 +9847,7 @@ pt_setpx:
     pop bx
     pop ax
     ret
+%endif   ; PTF_EDIT
 
 
 %ifdef PTF_UNDO
@@ -15956,7 +15965,9 @@ pt_s_saving: db 'Saving...', 0
 pt_s_wlab:   db 'W', 0
 pt_s_hlab:   db 'H', 0
 pt_s_apply:  db 'Apply', 0
+%ifdef PTF_FSX
 pt_s_nofsx:  db 'The screen is not free', 0
+%endif
 pt_s_nodlg:  db 'Leave Full Screen first', 0
 %ifdef PTF_UNDO
 pt_s_nu:     db 'No RAM for undo here', 0
@@ -15999,7 +16010,9 @@ pt_s_file:   db 'File', 0
 pt_s_edit:   db 'Edit', 0
 %endif
 pt_s_draw:   db 'Draw', 0
+%ifdef PTF_FSX
 pt_s_view:   db 'View', 0
+%endif
 pt_it_file:  dw pt_i_new, pt_i_open, pt_i_save, pt_i_saveas
 %ifdef PTF_GIF
              dw pt_i_saveg, pt_i_saveag
@@ -16014,7 +16027,9 @@ pt_it_edit:
 %endif
 %endif
 pt_it_draw:  dw pt_i_fill, pt_i_f1, pt_i_f2, pt_i_f4
+%ifdef PTF_FSX
 pt_it_view:  dw pt_i_full
+%endif
 pt_i_new:    db 'New', 0
 pt_i_open:   db 'Open...', 0
 pt_i_save:   db 'Save Bmp', 0
@@ -16055,7 +16070,9 @@ pt_i_f2:     db 'Text Size 2x', 0
 pt_i_f4:     db 'Text Size 4x', 0
 ; Never greyed, on any machine: this sets no video mode, so OSAPI_FSX_CAPS has
 ; nothing to say about it and there is no FACT to grey on (SPEC.md 47 rule 3).
+%ifdef PTF_FSX
 pt_i_full:   db 'Full Screen  ^F', 0
+%endif
 
 ; --- the notice windows (indexed by [pt_mode] - 1) ---------------------------
 pt_notice:   dw pt_s_nomem, pt_s_small
@@ -16087,7 +16104,9 @@ pt_s_nostage: db 'No memory to open file', 0
 pt_s_gifbig:  db 'GIF larger than 64KB', 0
 pt_s_trunc:   db 'Cropped - use Save As', 0
 pt_s_reduce:  db 'Reduced - use Save As', 0
+%ifdef PTF_CLIP
 pt_s_bigsel:  db 'Selection too big', 0
+%endif
 
 ; --- brush widths: the pencil's four, then the eraser's ----------------------
 ; The eraser's set starts where the pencil's ends, which is the whole of "a
@@ -16096,7 +16115,9 @@ pt_thtab:    db 1, 2, 4, 8
              db 8, 16, 24, 32
 
 ; --- bit masks for the undo row bitmap --------------------------------------
+%ifdef PTF_UNDO
 pt_bit8:     db 1, 2, 4, 8, 16, 32, 64, 128
+%endif
 
 ; --- the three colours a 1bpp adapter can really show (SPEC.md 39.4) --------
 ; black, the 50% dither class, white
@@ -16606,6 +16627,7 @@ pt_ic_text:
     PTWORD pt_dockr                 ; the first row the dock owns
     PTWORD pt_lwb                   ; pt_lose_*: first byte of the doomed band
     PTWORD pt_scrh                  ; screen height, for the bracket's pointer
+%ifdef PTF_FSX
     PTWORD pt_ptrx                  ; ...and where its crosshair is DRAWN, which
     PTWORD pt_ptry                  ; is what the XOR erase has to replay
     PTWORD pt_pnx                   ; pt_ptr_move: where it is going...
@@ -16616,6 +16638,7 @@ pt_ic_text:
     PTWORD pt_ovt
     PTWORD pt_ovr
     PTWORD pt_ovb
+%endif
 
     PTBYTE pt_mode                  ; PT_M_*
     PTBYTE pt_tool                  ; PT_T_*
@@ -16648,8 +16671,8 @@ pt_ic_text:
                                     ; takes one (SPEC.md 42.7)
     PTBYTE pt_fsx                   ; ...and pt_fsx_main is actually running,
                                     ; which is what pt_org branches on
-    PTBYTE pt_ptron                 ; the bracket's crosshair is on the glass
 %ifdef PTF_FSX
+    PTBYTE pt_ptron                 ; the bracket's crosshair is on the glass
     PTBYTE pt_pbtn                  ; ...and the mouse buttons it last saw
 %endif
 %ifdef PTF_UNDO
@@ -16707,7 +16730,9 @@ pt_ic_text:
     PTWORD pt_gncol                 ; entries in the colour table in effect
 %endif
     PTBYTE pt_fitcut                ; pt_fit had to give something up
+%ifdef PTF_EDIT
     PTBYTE pt_setval                ; pt_setpx's colour, across pt_rowset
+%endif
     PTBYTE pt_wchg                  ; the window was resized: repaint the lot
     PTBYTE pt_kept                  ; a resize was refused to save the artwork
     PTBYTE pt_apend                 ; ...and the notice for it is owed
