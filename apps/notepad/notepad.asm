@@ -9414,61 +9414,43 @@ np_movesel:
     push bx
     push cx
     push dx
+    push di
     call np_selget              ; AX = s, CX = n
     jc .out
-    mov [np_mvs], ax
-    mov [np_mvn], cx
-    add ax, cx
-    mov [np_mve], ax
-    mov ax, [np_dpos]
-    mov [np_mvp], ax
-    cmp ax, [np_mvs]
+    mov bx, ax
+    add bx, cx                  ; BX = e
+    mov dx, [np_dpos]           ; DX = p
+    mov di, dx                  ; DI = where the block begins afterwards: p
+    cmp dx, ax                  ; leftwards...
     jb .left
-    cmp ax, [np_mve]
+    cmp dx, bx
     jbe .out                    ; dropped inside itself: nothing to do
-    mov ax, [np_mvs]            ; --- rightwards: [s,e)[e,p) -> [e,p)[s,e) ---
-    mov cx, [np_mvp]
+    sub di, cx                  ; ...p - n rightwards, where it ENDS at p.
+    jmp short .rot              ; [s,e)[e,p) -> [e,p)[s,e): (a,b,c) = (s,e,p)
+.left:                          ; [p,s)[s,e) -> [s,e)[p,s): (a,b,c) = (p,s,e)
+    xchg ax, dx
+    xchg bx, dx
+.rot:                           ; rotate [a,b)[b,c) with AX = a, BX = b, DX = c
+    push cx
+    mov cx, dx
     sub cx, ax
-    call np_urec_bulk           ; the whole span [s, p), as one replacement
+    call np_urec_bulk           ; the whole span [a, c), as one replacement
     mov byte [np_unolog], 1
-    mov ax, [np_mvs]
-    mov bx, [np_mve]
     dec bx
-    call np_rev
-    mov ax, [np_mve]
-    mov bx, [np_mvp]
+    call np_rev                 ; [a, b)
+    inc bx
+    push ax
+    mov ax, bx
+    mov bx, dx
     dec bx
-    call np_rev
-    mov ax, [np_mvs]
-    mov bx, [np_mvp]
-    dec bx
-    call np_rev
-    mov ax, [np_mvp]
-    sub ax, [np_mvn]            ; the block ends where it was dropped
-    jmp short .fin
-.left:                          ; --- leftwards: [p,s)[s,e) -> [s,e)[p,s) ---
-    mov ax, [np_mvp]
-    mov cx, [np_mve]
-    sub cx, ax
-    call np_urec_bulk           ; the whole span [p, e)
-    mov byte [np_unolog], 1
-    mov ax, [np_mvp]
-    mov bx, [np_mvs]
-    dec bx
-    call np_rev
-    mov ax, [np_mvs]
-    mov bx, [np_mve]
-    dec bx
-    call np_rev
-    mov ax, [np_mvp]
-    mov bx, [np_mve]
-    dec bx
-    call np_rev
-    mov ax, [np_mvp]            ; ...and here it begins where it was dropped
-.fin:
+    call np_rev                 ; [b, c)
+    pop ax
+    call np_rev                 ; [a, c) - BX is still c - 1
+    pop cx
+    mov ax, di
     mov byte [np_unolog], 0
     mov dx, ax
-    add dx, [np_mvn]
+    add dx, cx                  ; CX = n, kept across the rotation
     call np_selset              ; it stays selected, which is what the user
     mov [np_cur], dx            ; just spent a drag pointing at
     call np_urec_bulkend_span
@@ -9476,6 +9458,7 @@ np_movesel:
     mov byte [np_follow], 1
     mov byte [np_ckok], 0
 .out:
+    pop di
     jmp np_ld_4
 
 ; np_urec_bulkend_span - close a bulk record whose span did not change length
@@ -11087,10 +11070,6 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                             ; would leave the old bar on screen for good
     NPVAR np_dpx,   2       ; word } where the press landed, for the dead-zone
     NPVAR np_dpy,   2       ; word } test that keeps a click a click
-    NPVAR np_mvs,   2       ; word } np_movesel's four numbers. In bss rather
-    NPVAR np_mve,   2       ; word } than in registers because the three
-    NPVAR np_mvp,   2       ; word } reversals want all four at once and the
-    NPVAR np_mvn,   2       ; word } 8086 has nowhere to put them
 
 ; --- undo (SPEC.md 27.9) -----------------------------------------------------
 %ifdef NPF_UNDO

@@ -58242,6 +58242,13 @@ into bss or the heap. The numbers are the file and the image, both arms.
    `[np_pt]` plus the pad, plus a row for Repl: (no `mul`), the label's x is
    `[np_pcbx]` that `np_fpgeom` already holds, and the frame and caret
    edges are each one `lea` off the row's top.
+10. **A dropped selection is ONE rotation in registers.** `np_movesel`
+    wrote its two directions out as two sets of three reversals over four
+    bss words (`np_mvs`/`np_mve`/`np_mvp`/`np_mvn`). Both are the same
+    rotation of `[a,b)[b,c)` - rightwards `(s,e,p)`, leftwards `(p,s,e)`
+    - so the leftward case swaps its three ends into place and both fall
+    into one body that holds them in AX/BX/DX, with the block's landing
+    place in DI. The four words are gone: bss -8 on both arms.
 
 ## 28. apps/taskmgr — the Task Manager
 
