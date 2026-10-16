@@ -124590,8 +124590,8 @@ measured on, and MartyPC has no NIC to measure a change to it with).
 
 | | before | after |
 |---|---:|---:|
-| `ftpd.o88` (file) | 12,291 | 12,268 |
-| image | 14,746 | 14,715 |
+| `ftpd.o88` (file) | 12,291 | 12,010 |
+| image | 14,746 | 14,309 |
 | image + bss (the region) | 26,624 | 26,112 |
 
 - **The entry proc's declaration is the NOKEEP form** (§66.6.1.1), moved
@@ -124600,6 +124600,27 @@ measured on, and MartyPC has no NIC to measure a change to it with).
   flags it spends. The four `mov bx, [fd_win]` reloads went with it: every
   slot the entry proc calls preserves BX. The region falls a 512-byte step
   because `fd_stage` is 512-aligned above the last scalar.
+- **A handler keeps no register** (-258 file bytes). Every `fd_c_*` is
+  reached from `fd_command`'s table call alone and every `fd_do_*` from
+  `fd_wake`'s, and both of those push everything before the dispatch and pop
+  it after - `fd_do_rnto` was already spending AX, BX and CX on exactly that.
+  So the cold handlers lost their frames and end in a tail jump to
+  `fd_reply`; `fd_do_read`, `_write` and `_list` (once a STAGE) keep theirs.
+  What that let go with them: MODE and STRU are one body with the letter in
+  AH (`fd_c_one`) and TYPE folds case with `and al, 0xDF` as they do (the
+  only bytes it maps onto `A`, `I`, `L` are those letters and their lower
+  case); the eight one-shots that post a request (`CWD` .. `RMD`, `CDUP`
+  falling into `CWD`) are a chain whose links are `mov al, FR_x` and a
+  `cmp ax, imm16` opcode that swallows the next link's load, three bytes a
+  handler; `fd_iswrite` folded into `fd_one`, its one caller; `fd_xrefuse`
+  was a second copy of `fd_xfail`'s three instructions and is now its label;
+  DELE, RMD, MKD and RNTO share three tails (`fd_do_250`, `_ferr`, `_no`),
+  laid between them so every jump to one is short; five composed replies
+  end in `fd_say2`; and the four dotted quads (our address, the PASV
+  override typed back, PORT's host and the 227's first four fields) are one
+  loop, `fd_quad`, with PORT's six fields kept as the BYTES `fd_pbyte`
+  already bounds them to. `fd_c_port` also lost a `mov al, [fd_dhnd]` that
+  fed nothing (`fd_reply` takes the control handle itself).
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 
