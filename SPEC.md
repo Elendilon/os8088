@@ -184117,6 +184117,7 @@ at a time, the bytes each saved:
 | `dc_build`'s marks compare each date with its day bits masked off against `dc_pack`'s with its own masked - no `MUL` to make the key and no shift per appointment: faster as well as shorter | -16 | -8 |
 | the month and the day are adjacent bytes on both sides (`DC_BSS_M`/`SEL`, `DC_BSS_TM`/`TD`, now asserted), so `dc_entry`, `dc_gotoday`, `dc_istoday`, `dc_today` and `dc_tomorrow` move and compare them as ONE word | -32 | -27 |
 | `OS88UI_NOGEST` and `OS88UI_NOBFIND` (§20.5.1.3.4): the record-based button gesture and `os88ui_bfind` were compiled in and never called - the calendar's only buttons are the alert's, which arm and fire their own; both gates remove symbols, so the build succeeding IS the check | -224 | -208 |
+| `CBW` for `XOR AH, AH` at the 37 sites where AL is provably 0..127 - a geometry byte, a byte of the face, an index or count the payload's tables bound, a digit - one byte and one cycle less each; not where AL is a lead read out of the file | -32 | -20 |
 
 ### 110.7 `kern_small`
 

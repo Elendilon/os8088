@@ -117,7 +117,7 @@ dc_due:
     mov di, [STIK_PAY + DCP_NAPPT]
     and di, 0FFh                ; DI = how many
 .l:
-    xor ah, ah
+    cbw
     cmp ax, di
     jae .none
     call dc_aptr

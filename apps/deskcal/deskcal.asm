@@ -629,7 +629,7 @@ dc_rbox:
     push dx
     push di
     mov di, [dc_geo]
-    xor ah, ah
+    cbw
     mov bl, 7
     div bl                      ; AL = the week, AH = the column
     mov cl, ah
@@ -689,7 +689,7 @@ dc_rtbox:
     mov bx, dx
     mov di, [dc_geo]
     mov al, [di + DCG_BOX]
-    xor ah, ah
+    cbw
     add dx, ax
     dec dx
     add ax, 7                   ; its bytes: from x 8
@@ -1092,7 +1092,7 @@ dc_oncmd:
     je .remind
     cmp al, DCM_TODAY
     jae .month
-    xor ah, ah
+    cbw
     mov bx, ax
     shl bx, 1
     call [dc_cmds + bx]
@@ -1328,7 +1328,7 @@ dc_selrows:
     mov bx, dx                  ; its bar's first row
     mov al, [di + DCG_AP]
 .span:
-    xor ah, ah
+    cbw
     add dx, ax
     dec dx
     clc
@@ -1896,7 +1896,7 @@ dc_aview:
     push bx
     sub al, [dc_afirst]
     call dc_apage
-    xor ah, ah
+    cbw
     or bh, bh
     jz .z
     div bl
@@ -1915,7 +1915,7 @@ dc_tview:
     push ax
     push bx
     call dc_tpage
-    xor ah, ah
+    cbw
     or bh, bh
     jz .z
     div bl
@@ -2126,7 +2126,7 @@ dc_remind:
     push bx
     push si
     push di
-    xor ah, ah
+    cbw
     mov bx, ax
     mov ah, [dc_leads + bx]     ; AH = the lead, or 0FFh: no reminder
     shl bx, 1

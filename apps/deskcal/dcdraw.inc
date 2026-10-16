@@ -385,7 +385,7 @@ dc_litinv:
     pop dx
     mov di, ax
     mov al, [dc_lx0]
-    xor ah, ah
+    cbw
     add di, ax
     mov cl, [dc_lx1]
     sub cl, al
@@ -512,7 +512,7 @@ dc_putn:
 ; dc_dec2 - AL (0..99) to AL = the tens digit, AH = the ones digit (ASCII)
 dc_dec2:
     push bx
-    xor ah, ah
+    cbw
     mov bl, 10
     div bl
     add ax, '00'
@@ -711,7 +711,7 @@ dc_cmon:
 .nav:
     ; --- the nav: `<`, the month on show, `>`
     mov al, [di + DCG_NAVY]
-    xor ah, ah
+    cbw
     mov dx, ax
     add dx, 8
     call dc_vis
@@ -740,7 +740,7 @@ dc_cmon:
     ; --- the weekday letters, Monday first
     mov di, [dc_geo]
     mov al, [di + DCG_WKY]
-    xor ah, ah
+    cbw
     mov dx, ax
     add dx, 8
     call dc_vis
@@ -1108,11 +1108,11 @@ dc_slot:                        ; BL = lines, BH = items, AH = the top
     add al, ah
     cmp al, bh
     jae .blank
-    xor ah, ah
+    cbw
     clc
     jmp short .x
 .blank:
-    xor ah, ah
+    cbw
     stc
 .x:
     pop di
@@ -1182,7 +1182,7 @@ dc_caline:
     push dx
     mov bx, dx
     mov al, [di + DCG_BAR]
-    xor ah, ah
+    cbw
     sub bx, ax
     mov dl, [di + DCG_BARH]
     xor dh, dh
@@ -1240,7 +1240,7 @@ dc_ctsec:
     pop dx
     jc .n
     mov al, [di + DCG_TTY]
-    xor ah, ah
+    cbw
     mov [dc_tty], ax
     mov al, [dc_li]
     call dc_tslot
@@ -1288,12 +1288,12 @@ dc_ctline:
     push dx                     ; SELECTED: a black bar under the text
     mov bx, dx
     mov al, [di + DCG_BAR]
-    xor ah, ah
+    cbw
     sub bx, ax
     mov dl, [di + DCG_BARH]
     xor dh, dh
     mov al, [di + DCG_TX]
-    xor ah, ah
+    cbw
     sub ax, 4
     mov cx, STIK_FACE_W - 4
     sub cx, ax
@@ -1482,13 +1482,13 @@ dc_rrect:
     mov [dc_rr1], dx
     mov [dc_rb], cx
     mov al, cl                  ; the x window the compose may skip text
-    xor ah, ah                  ; outside of (dc_ctext): bytes CL..CH
+    cbw                         ; outside of (dc_ctext): bytes CL..CH
     shl ax, 1
     shl ax, 1
     shl ax, 1
     mov [dc_cx0], ax
     mov al, ch
-    xor ah, ah
+    cbw
     inc ax
     shl ax, 1
     shl ax, 1
@@ -1515,7 +1515,7 @@ dc_rrect:
     mov cx, [gfxe_bh]
     call dc_compose
     mov al, [dc_rb]             ; the bytes: x, width, the band's start
-    xor ah, ah
+    cbw
     mov si, ax
     add si, dc_band
     mov cl, 3
@@ -1588,7 +1588,7 @@ dc_chgt:
     push bx
     mov bx, [stik_lay]
     push ax
-    xor ah, ah
+    cbw
     shl ax, 1
     add bx, ax
     pop ax
@@ -1652,7 +1652,7 @@ dc_fover:
     push di
     mov di, [dc_geo]
     mov al, [di + DCG_HY]
-    xor ah, ah
+    cbw
     sub ax, 3                   ; the field's first row
     cmp dx, ax
     jl .x
@@ -1681,7 +1681,7 @@ dc_frect:
     add bx, [stik_fy]
     mov di, [dc_geo]
     mov al, [di + DCG_HY]
-    xor ah, ah
+    cbw
     add ax, bx
     sub ax, 3
     mov [dc_ln + LN_Y1], ax
@@ -1712,7 +1712,7 @@ dc_fhead:
     push di
     mov di, [dc_geo]
     mov al, [di + DCG_HY]
-    xor ah, ah
+    cbw
     sub ax, 3
     mov bx, ax
     add ax, 11
@@ -1821,7 +1821,7 @@ dc_hbtn:
 ; dc_hmon - card 1 (CX, DX in it; DI the geometry)
 dc_hmon:
     mov al, [di + DCG_NAVY]
-    xor ah, ah
+    cbw
     mov si, ax
     sub si, 2                   ; the nav's light: 2 above, 1 below
     cmp byte [stik_li], 2
@@ -1915,7 +1915,7 @@ dc_hmon:
     mov al, ah                  ; the rows: 8 x the scale
     mov cl, 3
     shl al, cl
-    xor ah, ah
+    cbw
     mov si, [di + DCG_BIGY]
     and si, 0FFh
     mov dx, si
@@ -1927,7 +1927,7 @@ dc_hmon:
     ; a day: the week by the box's rows, the column by the field
     mov al, [di + DCG_W0]
     sub al, [di + DCG_BOXT]
-    xor ah, ah
+    cbw
     sub dx, ax
     jl .r
     mov ax, dx
@@ -1974,7 +1974,7 @@ dc_hday:
     ret
 .shut:
     mov al, [di + DCG_HY]
-    xor ah, ah
+    cbw
     sub ax, 3
     cmp dx, ax
     jl .r
@@ -2123,7 +2123,7 @@ dc_hrem:
     cmp byte [dc_c3k], DC3_RING
     jne .r
     mov al, [di + DCG_LKY]
-    xor ah, ah
+    cbw
     sub ax, 2
     mov si, ax
     mov ax, [dc_qy]
@@ -2134,7 +2134,7 @@ dc_hrem:
     cmp ax, dx
     jg .r
     mov al, [di + DCG_LKX]
-    xor ah, ah
+    cbw
     mov bx, [dc_qx]
     sub bx, ax
     jl .r

@@ -73,11 +73,11 @@ dc_dow_of:
     mov bx, di
     xor bh, bh
     mov al, [dc_sakt + bx - 1]
-    xor ah, ah
+    cbw
     add si, ax                  ; + t[m-1]
     mov ax, di
     mov al, ah
-    xor ah, ah
+    cbw
     add ax, si                  ; + d
     xor dx, dx
     mov cx, 7
