@@ -88031,6 +88031,11 @@ instruction; `tests/tgplay.py` (soak `tgplay`, `--ref` for the cycles) and
   and the third is an 8-bit `div` (what the frame leaves of the desktop
   band is under 160 rows). Checked against the old arithmetic for every
   dock row 100-480 at 320, 640 and 720 wide: the same four words.
+- **The UI half, tightened.** `tg_look` compares against DH, which is where
+  the scan code already is, so the key no longer needs turning round;
+  `tg_toggle_halt` swaps AL and AH instead of copying each way (resuming
+  leaves PAUSE as the remembered mode, which nothing reads before the next
+  halt rewrites it); `tg_act`'s two flag flips are one `xor` through BX.
 
 ## 50. memory.inc — the claim heap
 

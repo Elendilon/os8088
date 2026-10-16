@@ -454,17 +454,16 @@ tg_onkey:
     call tg_track                   ; (keeps AX)
     call tg_panel_off               ; the key that takes a panel down is spent
     jc .rep                         ; doing it, and owes the repaint
-    xchg ax, dx                     ; DH = scan, DL = ascii...
-    xchg dl, dh                     ; ...and the other way round
+    xchg ax, dx                     ; DH = scan, DL = ascii
     mov si, tg_kscan
     call tg_look
     jnc .cmd
-    mov dl, dh                      ; the ascii, for the second table
-    or dl, dl
+    mov dh, dl                      ; the ascii, for the second table
+    or dh, dh
     jz .ret
-    cmp dl, 'a'                     ; letters fold to upper case; nothing in
+    cmp dh, 'a'                     ; letters fold to upper case; nothing in
     jb .up                          ; the table is above 'Z', so whatever else
-    and dl, 0xDF                    ; this folds cannot match
+    and dh, 0xDF                    ; this folds cannot match
 .up:
     mov si, tg_kasc
     call tg_look
@@ -481,13 +480,13 @@ tg_onkey:
 .ret:
     ret
 
-; tg_look - DL = key, SI = a table of (key, value) byte pairs ending in a 0
+; tg_look - DH = key, SI = a table of (key, value) byte pairs ending in a 0
 ; key. out: CF = 0 and AL = the value, or CF = 1 not there. Clobbers AX, SI.
 tg_look:
     lodsw
     or al, al
     jz .miss
-    cmp al, dl
+    cmp al, dh
     jne tg_look
     mov al, ah                      ; CF = 0: the compare was equal
     ret
@@ -526,12 +525,12 @@ tg_act:
     dec al
     js tg_newgame
     jz tg_toggle_halt
+    mov bx, tg_cblind
     dec al
-    jnz .lock
-    xor byte [tg_cblind], 1
-    ret
-.lock:
-    xor byte [tg_glock], 1
+    jz .flip
+    mov bx, tg_glock
+.flip:
+    xor byte [bx], 1
     ret
 
 ; tg_toggle_halt - P / 'Halt'. A finished game cannot be paused, and it owes a
@@ -540,15 +539,12 @@ tg_toggle_halt:
     mov ax, [tg_mode]               ; AL = the mode, AH = the one it halted
     cmp al, TG_M_OVER
     je tg_owe
-    cmp al, TG_M_PAUSE
-    je .unp
-    mov ah, al
-    mov al, TG_M_PAUSE
-    jmp short .set
-.unp:
-    mov al, ah
-.set:
-    mov [tg_mode], ax
+    cmp al, TG_M_PAUSE              ; halted: AH holds the mode it halted,
+    je .swap                        ; and the swap puts it back (leaving
+    mov ah, TG_M_PAUSE              ; PAUSE in [tg_wasmode], which nothing
+.swap:                              ; reads before the next halt rewrites
+    xchg al, ah                     ; it); running: AL = PAUSE, AH = the
+    mov [tg_mode], ax               ; mode it halted
     jmp short tg_owe
 
 ; tg_newgame - an empty board and a fresh piece. Needs ES = DS.
