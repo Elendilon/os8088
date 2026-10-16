@@ -1682,7 +1682,14 @@ OS88DRV := python3 tools/os88drv.py $(PKGZARG)
 # LZ4. Paint, Note Pad and the Task Manager stay LZ4 whatever it saves them:
 # they open the common documents and have to stay quick. PKGZ= still builds
 # every one of them plain, and PKGZ=lzb builds the rest LZB as well.
-OS88PKGB := python3 tools/os88pkg.py $(if $(PKGZ),--compress-if=lzb)
+#
+# ...AND ONLY WHERE THE KERNEL CAN READ IT. `COMPRESS=lz4` builds a kernel
+# with the LZ4 decoder alone (SPEC.md 20.13.6), and `make zset ZFMT=lz4` is
+# exactly that pairing - so an LZB package on that build is one its own
+# kernel refuses as LD_EBAD, which is how `lzship` found it. On a
+# COMPRESS=lz4 build these packages fall back to LZ4 with everything else.
+PKGZBFMT := $(if $(filter lz4,$(COMPRESS)),lz4,lzb)
+OS88PKGB := python3 tools/os88pkg.py $(if $(PKGZ),--compress-if=$(PKGZBFMT))
 #
 # THE LIST IS STAMPED, for PKGZSTAMP's reason: moving a rule from $(OS88PKG)
 # to $(OS88PKGB) changes no prerequisite, so an existing tree kept every one
@@ -1693,7 +1700,7 @@ OS88PKGB := python3 tools/os88pkg.py $(if $(PKGZ),--compress-if=lzb)
 # stamp): `rm build/<pkg>.o88` once, by hand.
 LZBPKGS := artful arkanoid calc cyclone dotdel missile sheet solitair \
            tamegram tank texpad wireball smallapp/calc smallapp/tank
-PKGZBSTAMP := $(BUILD)/.pkgzb$(if $(PKGZ),-$(PKGZ))-$(shell printf '%s' '$(LZBPKGS)' | cksum | cut -d' ' -f1)
+PKGZBSTAMP := $(BUILD)/.pkgzb$(if $(PKGZ),-$(PKGZ)-$(PKGZBFMT))-$(shell printf '%s' '$(LZBPKGS)' | cksum | cut -d' ' -f1)
 
 # ...AND A STAMP, for exactly SBSTAMP's reason one paragraph up: none of the
 # package rules names PKGZ, so `make PKGZ=lz4` after a plain `make` sees two

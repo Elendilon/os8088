@@ -44908,7 +44908,10 @@ and boots the whole set through it, so adding LZB later moves no layout.
 Missile, Sheet, Solitaire, TameGram, Tank (both arms), TeXPad and WireBall. Each
 rule packs through `$(OS88PKGB)` - `--compress-if=lzb` whenever `PKGZ` is set,
 so `make PKGZ=` still builds them plain - and `LZBPKGS` names them for a stamp,
-because moving a rule between the two packers changes no prerequisite. **The
+because moving a rule between the two packers changes no prerequisite. On a
+`COMPRESS=lz4` build - a kernel with the LZ4 decoder alone, which is what
+`make zset ZFMT=lz4` builds - they fall back to LZ4, because an LZB package
+there is one its own kernel refuses (`lzship` found it). **The
 test for each one is that LZB saves it a cluster on the 360KB disks it rides**
 (Solitaire's APP_SMALL arm does not, and stays LZ4), and **Paint, Note Pad and
 the Task Manager stay LZ4 whatever it would save them**: they open the common
