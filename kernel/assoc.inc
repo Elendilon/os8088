@@ -1050,7 +1050,7 @@ assoc_tryvol:
     call assoc_try
     jnc .out
 .fold:
-    mov bx, 1                   ; ...then APPS, which is a built-in's own
+    mov bl, 1                   ; ...then APPS, which is a built-in's own
     call assoc_tryfold          ; folder and a declared program's first
     jnc .out
     cmp di, ASSOC_NDEF          ; a built-in looks nowhere else: CF = 1 is
