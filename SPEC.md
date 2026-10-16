@@ -104209,6 +104209,19 @@ a DOS user sees on the console changes and nothing on the wire does.
    `equ` of `dos_ticks` now, so the transport's deadline polls got the cheaper
    body; and `zero_buf` and `srv_blank` share one `rep stosb` tail, which now
    also hands ES back as it found it.
+3. **A write verb answers through one call** (file −94). The six verbs that
+   end in one status byte - write, append, delete/mkdir/rmdir, rmtree,
+   rename, copy - had a `call wr_done` on each of their 30 answer branches,
+   24 of them followed by `jmp short .out`, and `wr_done` was `call lp_sbyte`
+   / `ret`. Each branch is `jmp .tell` now and `.tell:` is the one `call lp_sbyte` in front
+   of `.out:`. The answer and everything after it are the same; a branch is a
+   call level and a return shorter. **This is the shape that pays on this
+   packer, and its opposite does not**: merging the routines' byte-identical
+   `pop`/`stc`/`ret` epilogues was tried first and made the file **9 bytes
+   BIGGER** - a repeated epilogue already costs the packer almost nothing,
+   and each `jmp` that replaced one carried a displacement nothing else
+   shares. What costs a file byte here is a call or jump DISPLACEMENT, which
+   is unique per site.
 
 ## 63. The logo (`tools/os88logo.py`, `MEDIA/OS8088.GIF`)
 

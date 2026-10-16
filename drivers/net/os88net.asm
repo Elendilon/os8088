@@ -2695,11 +2695,6 @@ wr_arg:
     stc
     ret
 
-; wr_done - AL = a FERR_*, and the verb is over
-wr_done:
-    call lp_sbyte
-    ret
-
 ; -----------------------------------------------------------------------------
 ; srv_copy - NF_COPY: source folder, DEST folder, name -> one status byte
 ;
@@ -2787,34 +2782,29 @@ srv_copy:
 .done:
     call cpy_close
     mov al, FERR_OK
-    call wr_done
-    jmp short .out
+    jmp .tell
 .full:
     call cpy_close
     mov al, FERR_FULL
-    call wr_done
-    jmp short .out
+    jmp .tell
 .ioerr:
     call cpy_close
     mov al, FERR_IO
-    call wr_done
-    jmp short .out
+    jmp .tell
 .nodst:
     call cpy_close
     mov al, FERR_IO
-    call wr_done
-    jmp short .out
+    jmp .tell
 .nosrc:
     mov al, FERR_NOENT
-    call wr_done
-    jmp short .out
+    jmp .tell
 .gsay:
     mov al, FERR_WPROT          ; wr_gate's answer, sent by its caller
-    call wr_done
-    jmp short .out
+    jmp .tell
 .nodir:
     mov al, FERR_NOENT
-    call wr_done
+.tell:
+    call lp_sbyte
 .out:
     pop di
     pop si
@@ -2887,15 +2877,13 @@ srv_write:
     je  .say
     mov al, FERR_FULL           ; DOS took fewer bytes than it was given
 .say:
-    call wr_done
-    jmp short .out
+    jmp .tell
 .sink:
     mov [srv_fail], al          ; the reason, banked across the drain
     call sink_body
     jc  .lost
     mov al, [srv_fail]          ; ...and said ONLY NOW, with the whole run off
-    call wr_done                ; the cable and the master listening for it
-    jmp short .out
+    jmp .tell                ; the cable and the master listening for it
 .rlost:
     call close_handle
 .lost:
@@ -2907,6 +2895,8 @@ srv_write:
     pop ax
     stc
     ret
+.tell:
+    call lp_sbyte
 .out:
     pop di
     pop si
@@ -2948,15 +2938,13 @@ srv_append:
     je  .say
     mov al, FERR_FULL           ; DOS took fewer bytes than it was given
 .say:
-    call wr_done
-    jmp short .out
+    jmp .tell
 .sink:
     mov [srv_fail], al          ; the reason, banked across the drain
     call sink_body
     jc  .lost
     mov al, [srv_fail]          ; ...and said ONLY NOW, with the whole run off
-    call wr_done                ; the cable and the master listening for it
-    jmp short .out
+    jmp .tell                ; the cable and the master listening for it
 .rlost:
     call close_handle
 .lost:
@@ -2968,6 +2956,8 @@ srv_append:
     pop ax
     stc
     ret
+.tell:
+    call lp_sbyte
 .out:
     pop di
     pop si
@@ -3021,19 +3011,17 @@ srv_name1:
     int 0x21
     jc  .doserr
     mov al, FERR_OK
-    call wr_done
-    jmp short .out
+    jmp .tell
 .doserr:
     call dos_ferr               ; AX = DOS's code -> AL = a FERR_*
-    call wr_done
-    jmp short .out
+    jmp .tell
 .gsay:
     mov al, FERR_WPROT          ; wr_gate's answer, sent by its caller
-    call wr_done
-    jmp short .out
+    jmp .tell
 .nodir:
     mov al, FERR_NOENT
-    call wr_done
+.tell:
+    call lp_sbyte
 .out:
     pop di
     pop si
@@ -3112,8 +3100,7 @@ srv_rmtree:
     cmp word [srv_h], 0
     jne .fenced
     mov al, FERR_PROT
-    call wr_done
-    jmp .out
+    jmp .tell
 
 .fenced:
     cmp byte [srv_ok], 0
@@ -3180,35 +3167,29 @@ srv_rmtree:
 
 .done:
     mov al, FERR_OK
-    call wr_done
-    jmp short .out
+    jmp .tell
 .doserr:
     call dos_ferr               ; AX = DOS's code -> AL = a FERR_*
-    call wr_done
-    jmp short .out
+    jmp .tell
 .prot:
     mov al, FERR_PROT
-    call wr_done
-    jmp short .out
+    jmp .tell
 .isfile:
     mov al, FERR_PROT           ; a FILE: dskw_delete's job, not this one
-    call wr_done
-    jmp short .out
+    jmp .tell
 .toodeep:
     mov al, FERR_DIRFULL        ; the path will not fit, so we cannot name the
-    call wr_done                ; folder we would be deleting
-    jmp short .out
+    jmp .tell                ; folder we would be deleting
 .noent:
     mov al, FERR_NOENT
-    call wr_done
-    jmp short .out
+    jmp .tell
 .gsay:
     mov al, FERR_WPROT
-    call wr_done
-    jmp short .out
+    jmp .tell
 .nodir:
     mov al, FERR_NOENT
-    call wr_done
+.tell:
+    call lp_sbyte
 .out:
     pop di
     pop si
@@ -3492,19 +3473,17 @@ srv_rename:
     int 0x21
     jc  .doserr
     mov al, FERR_OK
-    call wr_done
-    jmp short .out
+    jmp .tell
 .doserr:
     call dos_ferr
-    call wr_done
-    jmp short .out
+    jmp .tell
 .gsay:
     mov al, FERR_WPROT          ; wr_gate's answer, sent by its caller
-    call wr_done
-    jmp short .out
+    jmp .tell
 .nodir:
     mov al, FERR_NOENT
-    call wr_done
+.tell:
+    call lp_sbyte
 .out:
     pop di
     pop si
