@@ -144839,6 +144839,12 @@ the package had twice or did not need.
   more characters is cheaper than before. Every destination was checked for
   room for the terminator after its longest composition (`wr_sline` is the
   one that needed it, above).
+- **`wr_start` zeroes one block.** The nine words a new transfer starts from
+  zero - `wr_got` and `wr_clen` (both halves), `wr_code`, `wr_hline`,
+  `wr_hlen`, `wr_sent`, `wr_msg`, `wr_rxp`, `wr_rxn` - are laid out from
+  `WR_ZERO` and cleared by one `rep stosw`, where they were eleven immediate
+  stores. `wr_reqn`, `wr_port` and `wr_cfgn` traded places with the three
+  that moved in; the bss is the same size.
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 

@@ -88,20 +88,19 @@ wr_start:
     mov [wr_dbase], bx
     mov [wr_dmax], cx
     mov [wr_kind], dl
-    mov word [wr_got], 0
-    mov word [wr_got+2], 0              ; both halves: a WK_ARC transfer leaves
-    mov word [wr_clen], 0               ; them non-zero and the next kind reads
-    mov word [wr_clen+2], 0             ; them as a 4GB body already delivered
-    mov word [wr_rxp], 0                ; ...and the bytes an archive's pause
-    mov word [wr_rxn], 0                ; kept in wr_rxb belong to a transfer
-                                        ; that is now superseded
-    mov word [wr_code], 0
-    mov word [wr_hlen], 0
-    mov word [wr_hline], 0
-    mov word [wr_sent], 0
-    mov word [wr_msg], 0
-    mov word [wr_shown], 0xFFFF
-    mov byte [wr_wake], WW_NONE
+    push ds                             ; wr_got, wr_clen, wr_code,
+    pop es                              ; wr_hline, wr_hlen, wr_sent, wr_msg,
+    mov di, os88_image_end + WR_ZERO    ; wr_rxp and wr_rxn: one block. BOTH
+    mov cx, WR_ZEROW                    ; halves of the two dwords - a WK_ARC
+    xor ax, ax                          ; transfer leaves them non-zero and the
+    rep stosw                           ; next kind reads them as a 4GB body
+                                        ; already delivered - and the bytes an
+                                        ; archive's pause kept in wr_rxb
+                                        ; belong to a transfer that is now
+                                        ; superseded
+    mov [wr_wake], al                   ; WW_NONE
+    dec ax
+    mov [wr_shown], ax                  ; 0xFFFF
     call wr_pathbuild
     mov byte [wr_state], WS_OPEN
     ret

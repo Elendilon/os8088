@@ -3500,14 +3500,19 @@ wr_catlen   equ os88_image_end + 46
 wr_n        equ os88_image_end + 48     ; word: records, 0 = no catalog
 wr_sel      equ os88_image_end + 50     ; word: the selected RECORD, 0xFFFF
 wr_top      equ os88_image_end + 52     ; word: the first visible row
-wr_msg      equ os88_image_end + 54     ; word: what the status cell says
+wr_reqn     equ os88_image_end + 54
 wr_chain    equ os88_image_end + 56     ; word: which file of the set
 wr_fseg     equ os88_image_end + 58     ; word: the transfer claim
 wr_flen     equ os88_image_end + 60
 wr_dseg     equ os88_image_end + 62     ; word: where the body is going...
 wr_dbase    equ os88_image_end + 64
 wr_dmax     equ os88_image_end + 66
-wr_got      equ os88_image_end + 68     ; DWORD: ...and how much has
+WR_ZERO     equ 68                      ; **FROM wr_got TO wr_rxn IS ONE
+                                        ; BLOCK**: wr_start zeroes it in one
+                                        ; rep stosw, so a word that a new
+                                        ; transfer must start from zero goes
+                                        ; inside it
+wr_got      equ os88_image_end + WR_ZERO ; DWORD: ...and how much has
 wr_clen     equ os88_image_end + 72     ; DWORD: Content-Length
                                         ; **BOTH ARE DWORDS BECAUSE OF THE
                                         ; ARCHIVE** (92.13): a .WPK is the
@@ -3525,9 +3530,12 @@ wr_code     equ os88_image_end + 76     ; word: the status code
 wr_hline    equ os88_image_end + 78     ; word: which reply line
 wr_hlen     equ os88_image_end + 80     ; word: how much of it is buffered
 wr_sent     equ os88_image_end + 82     ; word: request bytes on the wire
-wr_reqn     equ os88_image_end + 84
-wr_port     equ os88_image_end + 86
-wr_cfgn     equ os88_image_end + 88
+wr_msg      equ os88_image_end + 84     ; word: what the status cell says
+wr_rxp      equ os88_image_end + 86     ; word: the read position in wr_rxb,
+                                        ; so a pause keeps the rest of the
+                                        ; chunk...
+wr_rxn      equ os88_image_end + 88     ; word: ...and what is left
+WR_ZEROW    equ (90 - WR_ZERO) / 2      ; ...which is where the block ends
 wr_dbclus   equ os88_image_end + 90     ; word: the banked cwd (19.9)
 wr_shown    equ os88_image_end + 92     ; word: the K figure last drawn
 wr_wname    equ os88_image_end + 94     ; word: the name OSAPI_FILE_WRITE was
@@ -3671,10 +3679,8 @@ wr_asto     equ os88_image_end + WR_B7 + 20         ; word: ...and stored
 wr_aout     equ os88_image_end + WR_B7 + 22         ; word: bytes decoded
 wr_ain      equ os88_image_end + WR_B7 + 24         ; word: stored bytes fed
 wr_bclus    equ os88_image_end + WR_B7 + 26         ; word: the base folder
-wr_rxp      equ os88_image_end + WR_B7 + 28         ; word: the read position in
-                                                    ; wr_rxb, so a pause keeps
-                                                    ; the rest of the chunk
-wr_rxn      equ os88_image_end + WR_B7 + 30         ; word: ...and what is left
+wr_port     equ os88_image_end + WR_B7 + 28
+wr_cfgn     equ os88_image_end + WR_B7 + 30
 wr_pnum     equ os88_image_end + WR_B7 + 32         ; word: 'N of M', the N...
 wr_ptot     equ os88_image_end + WR_B7 + 34         ; word: ...and the M
 wr_rlen     equ os88_image_end + WR_B7 + 36         ; word: the bytes handed to
