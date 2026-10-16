@@ -44914,6 +44914,13 @@ test for each one is that LZB saves it a cluster on the 360KB disks it rides**
 the Task Manager stay LZ4 whatever it would save them**: they open the common
 documents and have to stay quick. Every other package is LZ4.
 
+**The cluster test is a gate, not a note**: `soak -k lzbclust`
+(`tests/unit/t_lzbclust.py`) re-packs every listed package with LZ4 and fails
+any whose LZB file no longer takes fewer 1KB clusters - a package's next edit
+can carry it across a boundary with every build step green - and any listed
+name whose shipped file is not LZB at all. `--candidates` prints the LZ4
+packages LZB would save a cluster for, as information.
+
 The second of this section's two numbers has been TAKEN rather than predicted,
 on ArtfulType, on MartyPC's 4.77 MHz 5150 off a 360KB floppy, from
 `ld_run_body_x` to `lz_decomp_x`'s return: **+541 ms on a first launch**
