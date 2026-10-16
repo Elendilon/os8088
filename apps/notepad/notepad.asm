@@ -10117,17 +10117,11 @@ np_fpaint:
     mov ax, [np_pl]
     mov bx, [np_pt]
     mov cx, [np_pr]
-    mov dx, bx
-    add dx, di
-    sub dx, 2
-    call OSAPI_GFX_FILL
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, [np_pl]
-    mov bx, [np_pr]
-    mov dx, [np_pt]
-    add dx, di
-    dec dx
+    lea dx, [bx+di-2]
+    call OSAPI_GFX_FILL         ; (a primitive keeps every register)
+    inc dx                      ; y = the panel's last row...
+    mov bx, cx                  ; ...from the left (AX) to the right
+    call np_black
     call OSAPI_GFX_HLINE        ; the rule that separates it from the note
 
     xor ax, ax
@@ -10148,14 +10142,14 @@ np_fpaint:
     call OSAPI_GFX_FRAME
     cmp byte [np_frx], 0
     je .norx
-    mov ax, [np_pcbx]
-    add ax, 2
-    mov bx, [np_pbtny]
-    add bx, 3
-    mov cx, ax
-    add cx, 4
-    mov dx, bx
-    add dx, 4
+    inc ax                      ; the tick: the frame's rect inset by 2
+    inc ax
+    inc bx
+    inc bx
+    dec cx
+    dec cx
+    dec dx
+    dec dx
     call OSAPI_GFX_FILL
 .norx:
     mov cx, [np_pcbx]
@@ -10167,16 +10161,16 @@ np_fpaint:
     call OSAPI_FONT_RUN             ; The tick box to its left is a fill of
                                     ; its own and ends 5px short of this pen
 
-    mov bx, 3
-    mov si, np_b_next
+    mov bx, 3                   ; np_pbutton keeps BX, so the slots count
+    mov si, np_b_next           ; down 3, 2, 1, 0
     call np_pbutton
-    mov bx, 2
+    dec bx
     mov si, np_b_repl
     call np_pbutton
-    mov bx, 1
+    dec bx
     mov si, np_b_all
     call np_pbutton
-    xor bx, bx
+    dec bx
     mov si, np_b_x
     call np_pbutton
     mov si, [np_win]            ; np_pdrawn re-derives the geometry from the

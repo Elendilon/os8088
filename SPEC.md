@@ -58233,6 +58233,11 @@ into bss or the heap. The numbers are the file and the image, both arms.
    share one test of `[np_fpan]`. `np_fpclick`'s `.hit` arm, unreached
    since the press stopped firing a button (np_onup reaches `np_fp_act` at
    the release), is gone.
+8. **`np_fpaint` keeps its coordinates in the registers.** A primitive
+   preserves every register, so the rule under the panel is the fill's own
+   rect one row down (`inc dx`, `mov bx, cx`), the Regex tick is the tick
+   box's frame inset by two, and the four buttons count their slot down
+   from 3 in BX, which `np_pbutton` keeps.
 
 ## 28. apps/taskmgr — the Task Manager
 
