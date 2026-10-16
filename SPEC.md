@@ -115419,6 +115419,11 @@ redirects and frames - and left the same bytes behind.
   is the include's own opt-in for lines end to end with an `OS88UI_ABEND`,
   in place of a pointer table; the card draws the same calls at the same
   places (the differential run's About leg, with a width stub that measures).
+- **The worker's small answers are arithmetic.** `br_gchk` (did a
+  navigation supersede this pass?) is a subtract, a `cmp al, 1` and a `cmc`
+  where it was two exits, every one of its eleven callers reading CF alone;
+  `br_hclose` tests the handle in the register it loads it into; and
+  `br_req` picks its method string before one `br_rputs`.
 - **The manual sheds what nothing reads.** `BROWSER.HTM` lost its DOCTYPE,
   its `<meta>` charset (the page is pure ASCII), `<html>`/`</html>`,
   `</body>` and its blank lines - 162 bytes of source, and the packed file

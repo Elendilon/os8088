@@ -717,23 +717,19 @@ br_abort:
 br_gchk:
     push ax
     mov al, [br_gen]
-    cmp al, [br_gen0]
-    je .ok
-    pop ax
-    stc
-    ret
-.ok:
-    pop ax
-    clc
+    sub al, [br_gen0]               ; 0 = still this pass's fetch
+    cmp al, 1                       ; borrows exactly when it is 0...
+    cmc                             ; ...so CF=1 is "it moved". Every caller
+    pop ax                          ; reads CF and nothing else
     ret
 
 ; --- br_hclose - give the handle back, whatever happened --------------------
 br_hclose:
     push ax
     push bx
-    cmp byte [br_hnd], 0
-    je .out
     mov al, [br_hnd]
+    or al, al
+    jz .out
     mov bh, NET_CLASS
     mov bl, NETV_CLOSE
     call OSAPI_DRV_CALL
@@ -761,15 +757,12 @@ br_req:
                                     ; is derived and correct, and this is what
                                     ; keeps a longer User-Agent from quietly
                                     ; making it wrong again
-    cmp byte [br_reqpost], 0
-    je .get
-    mov si, br_r_post
-    call br_rputs
-    jmp short .line
-.get:
     mov si, br_s_get
-    call br_rputs
+    cmp byte [br_reqpost], 0
+    je .line
+    mov si, br_r_post
 .line:
+    call br_rputs                   ; the method
     mov si, br_path
     call br_rputs
     mov si, br_s_http
