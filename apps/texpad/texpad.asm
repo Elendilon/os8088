@@ -3545,6 +3545,17 @@ tp_paint_boxes:
 ; (SPEC.md 13.7) - and nothing else.
 tp_onkey:
     call tp_deferred_ld
+    ; THE WINDOW MAY HAVE MOVED SINCE ANYTHING HERE LAST LOOKED. A drag replays
+    ; the content and calls no paint (SPEC.md 11.96.12.0), and every
+    ; incremental path below draws from the origin, the panes and the bar's
+    ; rects as the last paint or click left them: typing after a drag lettered
+    ; the edited rows, the top bar's text and the byte count where the window
+    ; USED to be, over the desktop and the title bar. So a key asks the WM
+    ; first, as a click always has.
+    push si
+    mov si, [tp_win]
+    call tp_regeo
+    pop si
     mov bx, ax
     cmp byte [tp_abouton], 0
     je .k
@@ -3965,10 +3976,7 @@ tp_ondrag:
 tp_onclick:
     call tp_deferred_ld
     push si
-    call tp_wingeo
-    call tp_layout
-    call tp_edit_box
-    call tp_prev_box
+    call tp_regeo
 %ifdef OS88UI_SBDRAG
     call tp_sbd_which           ; A PRESS CANNOT ARRIVE DURING A LIVE DRAG, so
     jc .nostale                 ; one that does means the release never came
@@ -4068,6 +4076,15 @@ tp_onclick:
 .done:
     pop si
     ret
+
+; SI = the window: everything an event handler draws or hit-tests from, read
+; afresh - the content box (tp_wingeo), the bar's seven rects and both panes.
+; Preserves every register.
+tp_regeo:
+    call tp_wingeo
+    call tp_layout
+    call tp_edit_box
+    jmp tp_prev_box
 
 ; Focus to the source pane, or to the preview: a ring redrawn only when it
 ; MOVES, and the caret hidden when it leaves the source.
