@@ -1278,7 +1278,7 @@ tz_store:
     ; 70.11.3). [tz_sseg] is non-zero in ZR_DATA by construction: the only way
     ; in is TZR_OK, from a dialog tz_sclaim stood in front of. The half is an
     ; addressing mode rather than an add, and the count below is two stores
-    ; rather than tz_add32's call, so this is fewer cycles a byte than the
+    ; rather than a call to an add-to-dword helper, so this is fewer cycles a byte than the
     ; DS-relative store it replaced (tebench: the download path, every byte).
     push es
     mov es, [tz_sseg]
@@ -1351,12 +1351,6 @@ tz_cp32:
     mov ax, [si+2]
     mov [di+2], ax
     pop ax
-    ret
-
-; --- tz_add32 - add AX to the dword at BX ------------------------------------
-tz_add32:
-    add [bx], ax
-    adc word [bx+2], 0
     ret
 
 ; --- tz_cmp32 - the dword at SI against the dword at DI, UNSIGNED -----------
@@ -1607,37 +1601,40 @@ tz_infodone:
                                     ; for exactly this and was one short
 .size:
     inc si
-    mov word [tz_fsz], 0
-    mov word [tz_fsz+2], 0
-    mov cx, TZ_INFOSZ               ; ...and the digits cannot leave the buffer
-.dig:                               ; either, whatever a NUL-free field does
-    jcxz .have
-    dec cx
+    xor bx, bx                      ; DI:BX = the size, in 32 bits, held in
+    xor di, di                      ; registers until it is whole
+.dig:
+    ; ...and the digits cannot leave the buffer either. **THE BOUND IS THE
+    ; POINTER, AND IT USED TO BE A COUNT THAT DID NOT HOLD**: CX was loaded
+    ; with TZ_INFOSZ and then re-loaded with 10 for the multiply on every
+    ; digit, so it never ran out. A NUL-free field still stopped at the NUL
+    ; written above - but a name that fills all 63 bytes leaves SI one past
+    ; the buffer on [tz_sseg], and the parse read the staging segment's bytes
+    ; as digits. Fixed in apps size pass 2: that case now reads a size of 0,
+    ; which is what a block with no size field means (SPEC.md 70.11.6).
+    cmp si, tz_info + TZ_INFOSZ
+    jae .have
     mov al, [si]
-    cmp al, '0'
-    jb .have
-    cmp al, '9'
-    ja .have
     sub al, '0'
-    xor ah, ah
-    push ax
-    mov ax, [tz_fsz]                ; fsz = fsz*10 + digit, in 32 bits
-    mov dx, [tz_fsz+2]
+    cmp al, 9
+    ja .have                        ; anything but '0'..'9' ends the field
+    cbw                             ; AX = the digit
+    xchg ax, bx                     ; AX = lo, BX = the digit
     mov cx, 10
-    push dx
     mul cx                          ; DX:AX = lo * 10
-    pop bx
-    mov [tz_fsz], ax
-    mov [tz_fsz+2], dx
-    mov ax, bx
-    mul cx                          ; the high half's carry-in is dropped: a
-    add [tz_fsz+2], ax              ; file over 4 GB is not a thing this
-    pop ax                          ; machine mounts
-    mov bx, tz_fsz
-    call tz_add32
+    add ax, bx
+    adc dx, 0                       ; ...+ the digit
+    xchg ax, di                     ; AX = hi, DI = the new lo
+    mov bx, dx                      ; BX = what carried out of the low half
+    mul cx                          ; the high half's carry-out is dropped: a
+    add ax, bx                      ; file over 4 GB is not a thing this
+    xchg ax, di                     ; machine mounts. DI = hi, AX = lo
+    xchg ax, bx                     ; BX = lo
     inc si
     jmp short .dig
 .have:
+    mov [tz_fsz], bx
+    mov [tz_fsz+2], di
     mov si, tz_info
     mov di, tz_name
     call m83_mangle                 ; -> tz_name, SPEC.md 77.20's rule
@@ -2208,8 +2205,8 @@ tz_commit:
     jc .err
 .ok:
     mov ax, [tz_un]
-    mov bx, tz_pos
-    call tz_add32                   ; ...and THIS is what a ZRPOS may name
+    add [tz_pos], ax
+    adc word [tz_pos + 2], 0        ; ...and THIS is what a ZRPOS may name
     mov byte [te_dirty], 1          ; the progress moves per COMMITTED CHUNK and
     jmp short .out                  ; not per subpacket (SPEC.md 70.11.5)
 .err:
