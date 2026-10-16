@@ -1197,7 +1197,7 @@ open_image:
     mov [nsecs], ax
     mov si, s_size
     call puts
-    call putdec16
+    call put_dec
     mov si, s_secs
     call puts
     cmp byte [roflag], 0
@@ -1764,19 +1764,22 @@ srv_ent:
     ret
 
 srv_blank:                      ; entbuf to DE_SZ zeros
-    push ax
-    push cx
     push di
+    push cx
     mov di, entbuf
     mov cx, DE_SZ
-    xor al, al
-    cld
+zero_fill:                      ; ...zero_buf's too: DI/CX banked by the caller
+    push ax
+    push es
     push ds
     pop es
+    xor al, al
+    cld
     rep stosb
-    pop di
-    pop cx
+    pop es
     pop ax
+    pop cx
+    pop di
     ret
 
 ; ent_ispkg - does the DTA's name end in .O88? CF=1 = yes
@@ -4127,22 +4130,11 @@ report_ports:
 ; refusal looking like data to anything that ignores the status.
 ; -----------------------------------------------------------------------------
 zero_buf:
-    push ax
-    push cx
     push di
-    push es
-    push ds
-    pop es
+    push cx
     mov di, secbuf
     mov cx, 512
-    xor al, al
-    cld
-    rep stosb
-    pop es
-    pop di
-    pop cx
-    pop ax
-    ret
+    jmp zero_fill
 
 tick_dot:                       ; one dot per RUN, so a long transfer looks
     push ax                     ; alive rather than hung
@@ -4154,15 +4146,11 @@ tick_dot:                       ; one dot per RUN, so a long transfer looks
 ; =============================================================================
 ; lplink.inc / lplslv.inc's two requirements, and the console
 ; =============================================================================
-lpl_ticks:
-    push es
-    push bx
-    mov bx, 0x0040
-    mov es, bx
-    mov ax, [es:0x006C]
-    pop bx
-    pop es
-    ret
+lpl_ticks   equ dos_ticks       ; the same word of the same BIOS counter,
+                                ; which the stack already reads through
+                                ; OSAPI_GET_TICKS: one body for both. DS and
+                                ; BX preserved, no flag touched, and a byte
+                                ; and a prefix shorter than an ES override
 
 lpl_kbhit:
     mov ah, 1
@@ -4233,31 +4221,6 @@ puthex16:
     pop ax
     ret
 
-putdec16:
-    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
-    push ax
-    push bx
-    push cx
-    push dx
-    mov bx, 10
-    xor cx, cx
-.div:
-    xor dx, dx
-    div bx
-    push dx
-    inc cx
-    or  ax, ax
-    jnz .div
-.out:
-    pop ax
-    add al, '0'
-    call putc
-    loop .out
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
 
 ; =============================================================================
 ; DATA

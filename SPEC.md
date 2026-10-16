@@ -104202,6 +104202,13 @@ a DOS user sees on the console changes and nothing on the wire does.
    Image + bss is the same
    40,585 bytes and `net_bss1` the same `0x9F89`: the two variables that start
    NONZERO (`rfh` and `cpydst`, both `0xFFFF`) stayed in the file.
+2. **Three helpers that were written twice are written once** (file −14).
+   `putdec16` was `put_dec` with two instructions swapped; `lpl_ticks`, the
+   transport's clock, read the same BIOS word `dos_ticks` already reads for
+   the stack, through an ES override one byte and two clocks dearer - it is an
+   `equ` of `dos_ticks` now, so the transport's deadline polls got the cheaper
+   body; and `zero_buf` and `srv_blank` share one `rep stosb` tail, which now
+   also hands ES back as it found it.
 
 ## 63. The logo (`tools/os88logo.py`, `MEDIA/OS8088.GIF`)
 
