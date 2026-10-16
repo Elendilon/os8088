@@ -114601,6 +114601,7 @@ bss 6,077).
 | `te_say3` and `te_wscroll`, one caller each, are inline in `te_option` and `te_screen`; the option reply stores AL and BL as one word, the NAWS arm joins the reply call instead of making its own, and `te_screen` leaves by two tail jumps. Same bytes to the host, same bounded wait | `te_option`, `te_screen` | -19 |
 | `tz_chunk_set` and `tz_bigmsg`, one caller each, are inline in `tz_dlgdone`, which takes DX into its frame and leaves by `te_pop6`; the cluster in bytes is `BL` shifted into AX with CF as the overflow instead of a `mul` and a test of DX. Once per file, on the UI task | `tz_dlgdone` | -31 |
 | `tz_wake`'s commit and done arms share the one `[tz_req]` clear, the done arm sits on the dispatch's fall-through, and `tz_dcancel` (one caller; all three cancel routes reach it there) is inline | `tz_wake` | -10 |
+| `te_retry` (one caller) is inline at the top of the worker pass, which already keeps every register: the held reply is tested with `jcxz` on its own length instead of a separate compare. Per worker pass, and fewer cycles on it whether or not a reply is held | `te_step` | -9 |
 
 ## 71. The browser fetches (`apps/browser/brnet.inc`)
 

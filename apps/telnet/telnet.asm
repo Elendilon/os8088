@@ -1004,23 +1004,6 @@ te_reply:
 .out:
     ret
 
-; --- te_retry - the held reply, at the TOP of the next worker pass -----------
-te_retry:
-    push cx
-    push si
-    cmp byte [te_pndn], 0
-    je .out
-    mov cl, [te_pndn]
-    xor ch, ch
-    mov si, te_pnd
-    call te_enq
-    jc .out
-    mov byte [te_pndn], 0
-.out:
-    pop si
-    pop cx
-    ret
-
 ; -----------------------------------------------------------------------------
 ; te_toggle - the Connect / Close button, and Return in the host box
 ; -----------------------------------------------------------------------------
@@ -1198,8 +1181,17 @@ te_step:
     call te_close
     jmp .done
 .send:
-    call te_retry                   ; **THE HELD REPLY FIRST, before anything
-                                    ; else is enqueued** (SPEC.md 70.10.3)
+    ; --- the held reply, at the TOP of the pass: **THE HELD REPLY FIRST,
+    ; before anything else is enqueued** (SPEC.md 70.10.3). (It was
+    ; te_retry, with this one caller; the pass keeps every register itself.)
+    mov cl, [te_pndn]
+    xor ch, ch
+    jcxz .sent
+    mov si, te_pnd
+    call te_enq
+    jc .sent                        ; still no room: it stays held
+    mov byte [te_pndn], 0
+.sent:
     call te_flushtx
     jc .busyq
     cmp byte [te_pndn], 0
