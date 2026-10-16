@@ -1,12 +1,11 @@
-# Kernel size pass 14: the brief every agent reads first
+# Kernel size pass 13: the brief every agent reads first
 
-Branch `kernel-size-14`, cut from `elendilon` at `4833dfef`. The pass before
+Branch `kernel-size-13`, cut from `elendilon` at `4833dfef`. The pass before
 this one was **pass 12** (its record is
-`docs/plans/completed/HANDOFF-KERNEL-SIZE-P13.md`); the owner numbers this one
-the fourteenth. Each agent works in a git worktree of its own, created by the
-coordinator at `/home/user/wt/<name>` on a branch `ksp14-<name>` cut from the
+`docs/plans/completed/HANDOFF-KERNEL-SIZE-P13.md`). Each agent works in a git worktree of its own, created by the
+coordinator at `/home/user/wt/<name>` on a branch `ksp13-<name>` cut from the
 commit that adds this file, and writes its record to
-`docs/plans/completed/ksp14/<name>.md`. The coordinator merges the branches;
+`docs/plans/completed/ksp13/<name>.md`. The coordinator merges the branches;
 **agents do not push**.
 
 Read before writing any code, in this order:
@@ -162,7 +161,7 @@ byte of those windows too.
 ## 2. Method (passes 11 and 12, which worked)
 
 * **First command**: `cd /home/user/wt/<name> && git status` - you are on
-  `ksp14-<name>`; if you are not, stop and say so. Never `cd` into
+  `ksp13-<name>`; if you are not, stop and say so. Never `cd` into
   `/home/user/os8088` to build or edit: that is the coordinator's tree.
 * **Measure base and tip yourself**, absolute figures from
   `tools/kernsize.py --json` on all three kernels: kern_big (`make`),
@@ -213,7 +212,7 @@ byte of those windows too.
 
 ## 4. The note
 
-`docs/plans/completed/ksp14/<name>.md`, pass 12's shape
+`docs/plans/completed/ksp13/<name>.md`, pass 12's shape
 (`docs/plans/completed/ksp12/theme.md` is a good model): BASE AND TIP (a
 table, all three kernels and any image), TAKEN (each item with its bytes per
 kernel and its cycles if on a hot path), REFUSED (with the bytes it would
@@ -221,7 +220,7 @@ have been and why), WANTS THE OWNER (functionality changes, with bytes),
 WANTS AN ABI BREAK, CROSS-FILE, ROWS RUN (with results), DEFECTS FOUND
 (fixed or not, and how found). After adding the note run
 `python3 tools/os88index.py` (docs/INDEX.md is generated) and commit both.
-Commit messages end in `(kernel size pass 14)` and carry the attribution
+Commit messages end in `(kernel size pass 13)` and carry the attribution
 trailer the session gives you. Never a model name in a commit or a file.
 
 Your final message to the coordinator: the branch tip, the resident delta on
