@@ -115424,6 +115424,11 @@ redirects and frames - and left the same bytes behind.
   where it was two exits, every one of its eleven callers reading CF alone;
   `br_hclose` tests the handle in the register it loads it into; and
   `br_req` picks its method string before one `br_rputs`.
+- **The claims multiply by shifting.** `br_claimpage`'s `* BR_DOCMUL` is a
+  shift, and `br_claimrest` keeps the link arena's KB in BX across the claim
+  and makes its byte capacity from it, rather than clamping `br_srckb` a
+  second time and multiplying by 1,024; `%error`s hold both constants. -17
+  bytes of image and -2 of file, which is LZ4 finding most of what went.
 - **The manual sheds what nothing reads.** `BROWSER.HTM` lost its DOCTYPE,
   its `<meta>` charset (the page is pure ASCII), `<html>`/`</html>`,
   `</body>` and its blank lines - 162 bytes of source, and the packed file

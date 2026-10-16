@@ -3495,8 +3495,10 @@ br_claimpage:
     push bx
     push dx
     mov ax, [br_srckb]              ; document claim
-    mov bx, BR_DOCMUL
-    mul bx
+%if BR_DOCMUL != 2
+%error "br_claimpage multiplies by BR_DOCMUL as one shift"
+%endif
+    shl ax, 1                       ; * BR_DOCMUL
     add ax, BR_DOCSLK
     cmp ax, BR_DOCMAX               ; ...clamped, because every offset into it
     jbe .dok                        ; is a WORD: 64 KB is not a 16-bit byte
@@ -3532,23 +3534,21 @@ br_claimrest:
     jbe .lk
     mov ax, BR_LINKKB
 .lk:
+    mov bx, ax                      ; BX = the KB, kept across the claim
     call OSAPI_MEM_CLAIM
     jnc .lok
-    xor dx, dx
+    xor dx, dx                      ; no arena: no segment and no capacity
+    xor bx, bx
 .lok:
     mov [br_lnkseg], dx
-    mov word [br_linkcap], 0
-    or dx, dx
-    jz .nolinkcap
-    mov ax, [br_srckb]
-    cmp ax, BR_LINKKB
-    jbe .linkbytes
-    mov ax, BR_LINKKB
-.linkbytes:
-    mov bx, 1024
-    mul bx
+%if BR_LINKKB > 63
+%error "br_claimrest makes the link capacity KB << 10 in one word"
+%endif
+    mov ah, bl                      ; the capacity in bytes, KB << 10 (at
+    mov al, 0                       ; most BR_LINKKB, so it fits a word)
+    shl ax, 1
+    shl ax, 1
     mov [br_linkcap], ax
-.nolinkcap:
     clc
     pop dx
     pop bx
