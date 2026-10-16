@@ -1982,10 +1982,11 @@ fd_kick:
 ; --- fd_flush_glass - the log or the status changed, so put them on screen ---
 ; **THE LOCK IS TAKEN HERE AND NOWHERE ELSE IN THE WORKER**, and never across
 ; a wire exchange: a NETV_RECV is up to 274 ms on the cable and the cursor
-; would stop dead for it (SPEC.md 20.6 rule 3).
-fd_flush_glass:
-    jmp fd_paint_now               ; ...and the whole of it is fd_paint_now
-                                    ; now, which the wake path shares (77.33)
+; would stop dead for it (SPEC.md 20.6 rule 3). The whole of it is
+; fd_paint_now, which the wake path shares (77.33) - so it is a NAME for
+; that and not a routine: fd_step's one call goes there direct, and a pass
+; no longer spends a `jmp` on the way (apps size pass 2).
+fd_flush_glass equ fd_paint_now
 
 ; -----------------------------------------------------------------------------
 ; fd_promise - "the glass matches the face" / "it does not"
@@ -4116,40 +4117,36 @@ fd_unbferr:
 ; greying a fact rather than a guess, one layer out at the wire.
 ; -----------------------------------------------------------------------------
 fd_ferr_sel:
-    cmp ax, FERR_NAME
-    je .name
-    cmp ax, FERR_FULL
-    je .full
-    cmp ax, FERR_DIRFULL
-    je .full
-    cmp ax, FERR_PROT
-    je .prot
-    cmp ax, FERR_NOENT              ; the three the ONE-SHOTS bring - DELE,
-    je .none                        ; RNTO and RMD reach here too, and for
-    cmp ax, FERR_EXIST              ; them "no such file" is the COMMON answer
-    je .taken                       ; rather than an oddity. Without these
-    cmp ax, FERR_WPROT              ; arms the catch-all below would have told
-    je .wprot                       ; a client its disk was full
-    mov si, fd_r552                 ; FERR_IO, FERR_NODISK and anything new:
-    ret                             ; the honest catch-all is "it failed"
-.name:
-    mov si, fd_r553
+    ; ONE WORD PER CODE, indexed by it: FERR_NOENT, _EXIST and _WPROT are
+    ; the three the ONE-SHOTS bring - DELE, RNTO and RMD reach here too, and
+    ; for them "no such file" is the COMMON answer rather than an oddity.
+    ; FERR_EXIST is "550 That name is already in use" and NOT "no such
+    ; file", which is the exact inversion: it demonstrably exists. FERR_IO,
+    ; FERR_NODISK, FERR_BIG and anything new take the honest catch-all, "it
+    ; failed" - which a table one code short of a new FERR_* falls to.
+    mov si, fd_r552
+    cmp ax, FD_NFERR
+    jae .out
+    mov si, ax
+    shl si, 1
+    mov si, [fd_ferr_tab+si]
+.out:
     ret
-.full:
-    mov si, fd_r552f
-    ret
-.prot:
-    mov si, fd_r550w
-    ret
-.none:
-    mov si, fd_r550
-    ret
-.taken:
-    mov si, fd_r550e                ; and NOT "no such file", which is the
-    ret                             ; exact inversion: it demonstrably exists
-.wprot:
-    mov si, fd_r552w
-    ret
+fd_ferr_tab:
+    dw fd_r552                      ; FERR_OK (never an error here)
+    dw fd_r552                      ; FERR_NODISK
+    dw fd_r552                      ; FERR_IO
+    dw fd_r553                      ; FERR_NAME
+    dw fd_r550                      ; FERR_NOENT
+    dw fd_r550e                     ; FERR_EXIST
+    dw fd_r552f                     ; FERR_FULL
+    dw fd_r552f                     ; FERR_DIRFULL
+    dw fd_r550w                     ; FERR_PROT
+    dw fd_r552w                     ; FERR_WPROT
+FD_NFERR    equ ($ - fd_ferr_tab) / 2
+%if FERR_NAME != 3 || FERR_NOENT != 4 || FERR_EXIST != 5 || FERR_FULL != 6 || FERR_DIRFULL != 7 || FERR_PROT != 8 || FERR_WPROT != 9
+  %error "fd_ferr_tab is indexed by FERR_* - os88api.inc renumbered one"
+%endif
 
 ; --- fd_xfail - it did not. SI = the reply to send ---------------------------
 ; ...and fd_xrefuse, a transfer REFUSED before a byte moved, is the same

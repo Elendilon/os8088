@@ -124590,8 +124590,8 @@ measured on, and MartyPC has no NIC to measure a change to it with).
 
 | | before | after |
 |---|---:|---:|
-| `ftpd.o88` (file) | 12,291 | 12,010 |
-| image | 14,746 | 14,309 |
+| `ftpd.o88` (file) | 12,291 | 11,999 |
+| image | 14,746 | 14,281 |
 | image + bss (the region) | 26,624 | 26,112 |
 
 - **The entry proc's declaration is the NOKEEP form** (§66.6.1.1), moved
@@ -124621,6 +124621,13 @@ measured on, and MartyPC has no NIC to measure a change to it with).
   loop, `fd_quad`, with PORT's six fields kept as the BYTES `fd_pbyte`
   already bounds them to. `fd_c_port` also lost a `mov al, [fd_dhnd]` that
   fed nothing (`fd_reply` takes the control handle itself).
+- **`fd_ferr_sel` is a word per `FERR_*` code** (-11 file bytes, image
+  -26), indexed by it, where it was a compare-and-branch ladder; a code past
+  the table - `FERR_BIG` and anything new - takes the same catch-all `552`
+  it fell to before, and an `%error` holds the table to `os88api.inc`'s
+  numbering. `fd_flush_glass` is an `equ` for `fd_paint_now`, which it only
+  ever jumped to, so `fd_step` calls the painter direct and every worker
+  pass spends one `jmp` less.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 
