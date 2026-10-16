@@ -139703,6 +139703,32 @@ nothing. A machine too full for 16KB at the next Fly takes the refusal the
 first Fly always could: the bracket is left before a frame is drawn. Mode X
 has two pages of VRAM and never claimed one.
 
+#### 88.10.10 The second apps size pass: the disk, and the segment it is paid in
+
+The second apps size pass measured Clear Skies by its FILE, 45,991 bytes in 45
+clusters on both disks that carry it (`GAMES/` on apps360.img, and
+games360.img). It took §88.5.9.1 (the sine table as second differences),
+§88.10.7.2 (the kept bands in the image) and §88.10.5.7 (the object tables
+field-major). The binding constraint was not the disk but the SEGMENT: the
+program stood 95 bytes under `APP_MAX_SIZE` with its overlay, and the two
+decoders the disk wins need (49 and 67 bytes) are code that has to be paid
+for in it - the first build of the transpose was 32 bytes OVER, and
+`tools/csworlds.py` refused it. What paid for them, all on the title page:
+the code that read the kept bands (§88.10.7.2, 75 bytes); two shared
+epilogues for the handlers that push the same six or five registers and
+leave by a `jmp` (`cs_pop6`/`cs_pop5`, `cs_pop5x`; a jump costs no stack);
+`cs_onresize`, which was `call cs_adapter / ret`, replaced by `cs_adapter`
+itself; and four `xor ah, ah` that are a `cbw` on a row number.
+
+**Every routine a frame runs is instruction-identical and at its BASE
+address or two bytes below it** (`tools/os88rdiff.py`: the raster, the
+geometry and the flight from `cs_artroff` to `cs_fsx_main` at +0, the rest of
+the session at −2), which is what `mov ch, 1` in §88.5.9.1's loop and one
+`cbw` are for: they are where the odd bytes went. `image + bss` 58,306 ->
+58,303 and the region 61,345 -> 61,329, so the RAM went down while the file
+went **45,991 -> 44,610** - **44 clusters a disk**, one cluster on each of
+the two.
+
 ### 88.13 The settings (SPEC.md 88.13)
 
 Four knobs, each of which trades picture for frame rate, on a **Settings**

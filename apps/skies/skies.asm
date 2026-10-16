@@ -775,7 +775,7 @@ cs_entry:
                                     ; card. The entry proc is UI-task context
                                     ; - it is what opens the window - so the
                                     ; file slots are legal here
-    mov ax, cs_onresize             ; the card can change under us
+    mov ax, cs_adapter              ; the card can change under us
     call OSAPI_WM_ONRESIZE          ; (SPEC.md 11.98)
     mov ax, cs_onup                 ; the release half of a click (13.7)...
     call OSAPI_WM_ONMOUSEUP
@@ -932,14 +932,14 @@ cs_wldpick:
                                     ; a place: it is what a test pokes, and it
                                     ; is what survives a world being swapped
     push ax
-    xor ah, ah
+    cbw                             ; AH = 0: a row is under 128
     shl ax, 1
     mov si, ax
     mov ax, [cs_ports + si]         ; the record, wherever the overlay puts it
     mov [cs_airport], ax
     pop ax
     push ax
-    xor ah, ah
+    cbw
     mov si, ax
     mov al, [cs_apwld + si]         ; ...and the world it stands in
     cmp byte [cs_wldnow], 0FFh
@@ -1158,8 +1158,8 @@ cs_wldget:
 ;
 ; out: [cs_want] = a CSB_*, [cs_fsxm] = the FSXM_* to set, [cs_caps], the
 ;      Fly item's caption, and the menu set installed - with a Mode menu
-;      only where there is a choice. Preserves every register (cs_onresize
-;      is a callback). EVERY BRANCH WRITES BOTH WAYS - SPEC.md 48's lesson.
+;      only where there is a choice. Preserves every register (it is the
+;      resize callback itself). EVERY BRANCH WRITES BOTH WAYS - SPEC.md 48's lesson.
 ; OSAPI_FSX_CAPS is asked with our WINDOW in BX, so on a two-card machine the
 ; answer is about the display this window is on (SPEC.md 39.18.2).
 ; -----------------------------------------------------------------------------
@@ -1229,9 +1229,6 @@ cs_adapter:
     pop ax
     ret
 
-cs_onresize:
-    call cs_adapter
-    ret
 
 ; =============================================================================
 ; The windowed half: the title page (SPEC.md 88.10) - the lettering and the
@@ -1408,13 +1405,7 @@ cs_paint:
     call os88ui_about_d
 .out:
     pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp cs_pop6
 
 ; -----------------------------------------------------------------------------
 ; cs_set_page - the SETTINGS page (SPEC.md 88.13): four drop-downs with their
@@ -1574,13 +1565,7 @@ cs_set_page:
     pop cx
     dec di
     loop .ddrop
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp cs_pop6
 
 ; cs_modechoice - CF = 0 where the display offers TWO of them, which is the
 ;                 only case where the Mode row means anything (SPEC.md 47)
@@ -1653,7 +1638,7 @@ cs_setsync:
     shl si, 1
     mov bx, [cs_setbytes + si]      ; the byte this row edits
     mov al, [bx]
-    xor ah, ah
+    cbw                             ; a setting is a small row number
     mov bx, [cs_setdrops + si]
     mov [bx + OS88UI_DR_SEL], ax
     inc di
@@ -1674,12 +1659,7 @@ cs_setsync:
     shl ah, 1
     inc di
     loop .b
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp cs_pop5x
 
 ; cs_settake - a drop-down on the Settings page answered: put its pick into
 ;              the byte it edits, and act on it. in: DI = the row, AL = the
@@ -1718,8 +1698,9 @@ cs_setfillmask:
     inc di
     loop .b
     mov [cs_setfill], al
-    pop di
-    pop si
+cs_pop5x:                           ; ...and the one for the handlers
+    pop di                          ; that leave DX alone (cs_setsync,
+    pop si                          ; cs_instr_page)
     pop cx
     pop bx
     pop ax
@@ -1809,13 +1790,7 @@ cs_setclick:
     mov byte [cs_donedn], 1
     call cs_donedraw
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp cs_pop6
 
 ; cs_flybtn - the Fly button as it stands: greyed with no mode to fly in
 ;             (SPEC.md 47), down while pressed. in: [cs_flyrect] current
@@ -1919,12 +1894,7 @@ cs_instr_page:
     add bx, CS_LINEH
     jmp short .line
 .done:
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp cs_pop5x
 
 ; cs_repaint - the page again, from a handler: the kernel arms a region for
 ;              W_PAINT and for nothing else (SPEC.md 11.3), so one is armed
@@ -2007,12 +1977,7 @@ cs_at_left:
     add cx, [cs_winox]
     mov ah, CWHITE
     call OSAPI_FONT_RUN
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp cs_pop5
 
 ; cs_at_centre - SI = string, BX = content y, AL = ink; centred on the window
 cs_at_centre:
@@ -2061,13 +2026,7 @@ cs_hkat:
     mov si, di
     mov al, CBLACK
     call cs_at_left
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp cs_pop6
 
 ; cs_strlen - SI = string; out CX = its length. Preserves SI.
 cs_strlen:
@@ -2141,13 +2100,7 @@ cs_onclick:
     mov byte [cs_flydn], 1
     call cs_flydraw
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp cs_pop6
 
 ; cs_onup - W_ONMOUSEUP.  in: CX/DX = the point; gfx lock held
 cs_onup:
@@ -2180,11 +2133,13 @@ cs_onup:
     jc .out                         ; released elsewhere: a cancel
     call cs_cmd_fly
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
+cs_pop6:                            ; THE SHARED EPILOGUE of the title
+    pop di                          ; page's handlers: they push AX, BX,
+cs_pop5:                            ; CX, DX, SI and DI (cs_paint BP too,
+    pop si                          ; cs_at_left all but DI) and leave
+    pop dx                          ; through here by a jmp, which is a
+    pop cx                          ; jmp and not a call, so it costs no
+    pop bx                          ; stack (apps size pass 2)
     pop ax
     ret
 
@@ -2220,13 +2175,7 @@ cs_ondrag:
     mov bx, cs_drport
     call os88ui_drdrag
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp cs_pop6
 
 ; cs_setup2 - the release half on the Settings page: over an item it picks
 ;             (SPEC.md 13.14), and the Done button fires
@@ -2289,7 +2238,7 @@ cs_drtake:
     je .nopick
     push ax
     push si
-    xor ah, ah
+    cbw                             ; AH = 0: a picked row is under 128
     shl ax, 1
     mov si, ax
     cmp bx, cs_drplane
