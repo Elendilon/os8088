@@ -124590,8 +124590,8 @@ measured on, and MartyPC has no NIC to measure a change to it with).
 
 | | before | after |
 |---|---:|---:|
-| `ftpd.o88` (file) | 12,291 | 11,902 |
-| image | 14,746 | 14,193 |
+| `ftpd.o88` (file) | 12,291 | 11,879 |
+| image | 14,746 | 14,135 |
 | image + bss (the region) | 26,624 | 25,600 |
 
 - **The entry proc's declaration is the NOKEEP form** (§66.6.1.1), moved
@@ -124647,6 +124647,14 @@ measured on, and MartyPC has no NIC to measure a change to it with).
   scratch already (an `%error` holds the pair to `FD_CFGSZ`); the
   `push bx`/`push cx` around `fd_log` went with it, `fd_log` keeping CX and
   never naming BX. -3 file bytes.
+- **A session begins in one place** (-23 file bytes, image -58):
+  `fd_session` is what `fd_step`'s accept in `FD_LISTEN` and `fd_second`'s
+  takeover of a stale session (§77.29.1) both did, line for line, so the two
+  cannot drift about what a new session resets. `fd_stale` answers with the
+  compare itself - `cmp ax, FD_YIELD_T` leaves CF=1 exactly when the session
+  is to be KEPT - where three exits each popped and set a flag, and
+  `fd_data_abort`/`fd_data_drop` load their verb and fall into the shared
+  body instead of each calling it.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 

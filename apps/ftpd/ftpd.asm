@@ -1799,25 +1799,8 @@ fd_step:
     jc .lerr
     or ax, ax
     jz .done                        ; nobody yet, which is ORDINARY and not an
-    mov [fd_chnd], al               ; error (netpkg.inc)
-    mov byte [fd_st], FD_CTRL
-    mov byte [fd_auth], 0
-    mov word [fd_clen], 0
-    mov byte [fd_rowed], 1          ; **A NEW SESSION STARTS AT THE ROOT**, and
-                                    ; this is a FLAG rather than the work: a
-                                    ; worker may not touch a file (SPEC.md
-                                    ; 20.6 rule 7) and standing in a folder is
-                                    ; OSAPI_FILE_GOTO_QM. fd_wake spends it, ahead
-                                    ; of any request, and there is time for
-                                    ; several UI passes before the client's
-                                    ; first command arrives - it has to read
-                                    ; the 220 and log in first
-    call fd_reset_xfer
-    call fd_cidle_stamp             ; the session's clock starts at the 220
-    mov si, fd_l_conn
-    call fd_log
-    mov si, fd_r220
-    call fd_reply
+    mov si, fd_l_conn               ; error (netpkg.inc)
+    call fd_session
     jmp .done
 .lerr:
     cmp ax, NETE_BUSY
@@ -3317,6 +3300,30 @@ fd_c_port:
     call fd_data_drop
     jmp fd_reply
 
+; --- fd_session - AL = a control handle just accepted, SI = what the log says
+; The one place a session BEGINS: fd_step's accept in FD_LISTEN and
+; fd_second's takeover of a stale one both arrive here, so the two cannot
+; drift about what a new session resets. Clobbers SI.
+fd_session:
+    mov [fd_chnd], al
+    mov byte [fd_st], FD_CTRL
+    mov byte [fd_auth], 0
+    mov word [fd_clen], 0
+    mov byte [fd_rowed], 1          ; **A NEW SESSION STARTS AT THE ROOT**, and
+                                    ; this is a FLAG rather than the work: a
+                                    ; worker may not touch a file (SPEC.md
+                                    ; 20.6 rule 7) and standing in a folder is
+                                    ; OSAPI_FILE_GOTO_QM. fd_wake spends it, ahead
+                                    ; of any request, and there is time for
+                                    ; several UI passes before the client's
+                                    ; first command arrives - it has to read
+                                    ; the 220 and log in first
+    call fd_reset_xfer
+    call fd_cidle_stamp             ; the session's clock starts at the 220
+    call fd_log
+    mov si, fd_r220
+    jmp fd_reply
+
 ; --- fd_stale - is the session holding the server worth keeping? ------------
 ; out: CF=1 = yes, keep it (refuse the newcomer); CF=0 = it is stale
 ;
@@ -3328,7 +3335,8 @@ fd_stale:
     push bx
     push cx
     cmp byte [fd_xf], FX_NONE
-    jne .keep
+    stc                             ; CF=1, keep - stc leaves ZF alone
+    jne .x
     ; --- ALREADY CLOSED beats any clock -----------------------------------
     ; A client that closes without QUIT - which is most of them, and every
     ; reconnect in the field's FileZilla log - leaves a control socket that
@@ -3337,8 +3345,8 @@ fd_stale:
     ; refuse the reconnect that FOLLOWS a close, which is the commonest
     ; sequence there is.
     mov al, [fd_chnd]
-    or al, al
-    jz .gone
+    or al, al                       ; CF=0
+    jz .x                           ; no control socket at all: gone
     mov bl, NETV_STATUS
     call fd_net
     jc .clock                       ; the driver would not say: fall back on
@@ -3346,27 +3354,16 @@ fd_stale:
     je .clock
     cmp ah, NSK_CONNECT
     je .clock
-.gone:
-    pop cx                          ; the peer has gone: not stale, FINISHED
-    pop bx
-    pop ax
-    clc
-    ret
+    clc                             ; the peer has gone: not stale, FINISHED
+    jmp short .x
 .clock:
     call OSAPI_GET_TICKS
     sub ax, [fd_cidle]              ; modular, across the counter's wrap
-    cmp ax, FD_YIELD_T
-    jb .keep
+    cmp ax, FD_YIELD_T              ; ...and THE COMPARE IS THE ANSWER: CF=1,
+.x:                                 ; below FD_YIELD_T, is keep
     pop cx
     pop bx
     pop ax
-    clc
-    ret
-.keep:
-    pop cx
-    pop bx
-    pop ax
-    stc
     ret
 
 ; =============================================================================
@@ -3426,18 +3423,9 @@ fd_second:
     push ax
     call fd_bye                     ; the old one is gone: let it go, and the
     pop ax                          ; next pass accepts this handle properly
-    mov [fd_chnd], al
-    mov byte [fd_st], FD_CTRL
-    mov byte [fd_auth], 0
-    mov word [fd_clen], 0
-    mov byte [fd_rowed], 1
-    call fd_reset_xfer
-    call fd_cidle_stamp
     mov si, fd_l_took
-    call fd_log
-    mov si, fd_r220
-    call fd_reply
-    jmp .out
+    call fd_session
+    jmp short .out
 .refuse:
     ; --- the bounded send, ON THE REFUSED HANDLE - fd_reply_h takes it in AL
     ; rather than through [fd_chnd], because that cell yields to the UI task
@@ -3472,25 +3460,16 @@ fd_second:
 fd_data_abort:
     push ax
     mov al, NETV_ABORT
-    mov [fd_dverb], al
-    call fd_data_drop_v
-    pop ax
-    ret
-
+    jmp short fd_data_drop_v
 fd_data_drop:
     push ax
     mov al, NETV_CLOSE
-    mov [fd_dverb], al
-    call fd_data_drop_v
-    pop ax
-    ret
-
-fd_data_drop_v:
-    push ax
+fd_data_drop_v:                     ; AL = the verb; AX was pushed above
     push bx
     push si
+    mov [fd_dverb], al              ; banked: fd_hverb leaves BX the driver's
+    mov bl, al
     mov si, fd_dhnd
-    mov bl, [fd_dverb]
     call fd_hverb
     mov si, fd_dlhnd
     mov bl, [fd_dverb]
