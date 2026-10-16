@@ -106,13 +106,15 @@ def first_cluster(fat, name):
 class Flushes(object):
     """Every asc_flush the guest makes, and the floppy controller's count for
     each one alone - bracketed by breakpoints on the routine's entry and on
-    the instruction after its `call .go`, so the harvest that posted it and
-    the navigation around it are not in the figure."""
+    `.drop`, the instruction after its `call .go`, so the harvest that posted
+    it and the navigation around it are not in the figure. (It was
+    `asc_flush + 3` until the hold mode put a test in front of the call; a
+    hold or a release reaches `.drop` too, and no leg here makes one.)"""
 
     def __init__(self, m):
         self.m = m
         self.a = m.sym("asc_flush")
-        self.b = self.a + 3
+        self.b = m.sym("asc_flush.drop")
         self.done = []
 
     def hit(self, mm, rec):
@@ -146,11 +148,14 @@ class Flushes(object):
         os88marty.pace(self.m, guest)
 
 
+NAPP, NEXT = 32, 64                 # ASSOC_NAPP, ASSOC_NEXT (kernel/assoc.inc)
+
+
 def ext_map(ui):
-    raw = ui.m.read(ui._S("assoc_ext"), 24 * 4)
-    stems = ui.m.read(ui._S("assoc_stem"), 12 * 8)
+    raw = ui.m.read(ui._S("assoc_ext"), NEXT * 4)
+    stems = ui.m.read(ui._S("assoc_stem"), NAPP * 8)
     out = {}
-    for j in range(24):
+    for j in range(NEXT):
         e = raw[4 * j:4 * j + 3]
         if e[0] == 0:
             continue
