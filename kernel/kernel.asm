@@ -2471,6 +2471,7 @@ apic_fpg_stepb:
                                   ;          has neither, so this borrows the
                                   ;          panel's - which is the window the
                                   ;          page is drawn in anyway
+apic_wm_ondrag_c:
     OSAPI_RSLOT wm_ondrag_c        ; 0x0334 - BX = window, AX = a near proc in
                                   ;          YOUR segment (0 clears it): the
                                   ;          pointer MOVED while your press
@@ -2486,6 +2487,7 @@ apic_fpg_stepb:
                                   ;          control cannot un-draw itself as
                                   ;          the pointer leaves if nothing
                                   ;          tells it. Call it AFTER wm_create
+apic_wm_timer_c:
     OSAPI_SLOT wm_timer_c         ; 0x033A - BX = window, AX = TICKS from now
                                   ;          (0 cancels). Arms the one-shot
                                   ;          timer (SPEC.md 13.9); W_ONTIMER
@@ -2501,6 +2503,7 @@ apic_fpg_stepb:
                                   ;          billed to you - W_ONCLICK's
                                   ;          environment. Call it AFTER
                                   ;          wm_create
+apic_drv_pkg_call:
     OSAPI_XCELL drv_pkg_call_x      ; 0x0348 - a PACKAGE calls a DRIVER (SPEC.md
                                   ;          20.11). BH = the DRVC_* class, BL
                                   ;          = a verb THAT DRIVER defines, and
@@ -6064,9 +6067,12 @@ cw_toast_show equ apic_toast_show ; THE CELL IS THE DOOR (size pass 9)
 cw_ui_svc_open:         call ui_svc_open    ; the service zone's double-click
                     retf                    ; (SPEC.md 26.7): desk.inc is cold
                                             ; and ui_sys_open is not
-cw_drv_pkg_call:        call drv_pkg_call_x ; ...and its PAINT, which is the
-                    retf                    ; same door a package reaches a
-                                            ; driver by (SPEC.md 20.11)
+cw_drv_pkg_call equ apic_drv_pkg_call ; ...and its PAINT, which is the same
+                                ; door a package reaches a driver by (SPEC.md
+                                ; 20.11) - and since size pass 13 the door IS
+                                ; that cell: its X stub sets ES to the caller's
+                                ; DS, which desk.inc's one caller has just
+                                ; made ES itself
 %endif
 cw_vga_xor_rect_vram:   call vga_xor_rect_vram
                     retf
@@ -6119,19 +6125,17 @@ cw_wm_snap equ apic_wm_snap ; THE CELL IS THE DOOR (size pass 9)
 %endif                                  ; kern_big's alone (SPEC.md 14.6)
 %ifdef KERN_BIG
 cw_wm_onmouseup equ apic_wm_onmouseup ; THE CELL IS THE DOOR (size pass 9)
-cw_wm_ondrag:           call wm_ondrag
-                    retf
-cw_wm_timer:            call wm_timer       ; SPEC.md 13.10.5.4.2's PAUSE
-                    retf                    ; commit and the Timer's clock
-                                            ; (14.7): the kernel ARMS the same
-                                            ; one-shot a package does. Only the
-                                            ; arm needs a wrapper - it sets
-                                            ; [wm_tarm] and [ui_post] - where
-                                            ; the install (wm_ontimer) and the
-                                            ; cancel are each one store, made
-                                            ; in place. KERN_BIG and not
-                                            ; OS88UI_SBDRAG: the Timer needs it
-                                            ; under SBDRAGOFF=1 as well
+cw_wm_ondrag equ apic_wm_ondrag_c ; THE CELL IS THE DOOR (size pass 13): it
+                                ; answers CF = 0 as well, and fm_kinit_x reads
+                                ; no flag after it
+cw_wm_timer equ apic_wm_timer_c ; SPEC.md 13.10.5.4.2's PAUSE commit: the
+                                ; kernel ARMS the same one-shot a package
+                                ; does, through the same cell since size pass
+                                ; 13 (it answers CF = 0, which fm_ondrag_x
+                                ; does not read). Only the arm needs a door -
+                                ; it sets [wm_tarm] and [ui_post] - where the
+                                ; install (wm_ontimer) and the cancel are each
+                                ; one store, made in place
 ; ...and HIBER.DRV's seven needs go through cw_mem_disp (`call bp / retf`)
 %endif
 cw_wm_dmg_zadd:          push si             ; desk_dmg_zones grows the
