@@ -128696,6 +128696,14 @@ it holds is recorded with the pass's report.
   rather than a `call`/`ret` around it, and the menu, About and completion
   arms end in tail jumps. `ct_paint` keeps the window in `DI` across the blit
   and gives it back from there, so the paint is eight push/pop pairs shorter.
+- **SYLK and DIF share one line scanner** (-68 image, -49 file). `ct_eol`
+  answers where the line at `SI` ends, `ct_tonext` steps past the CR/LFs from
+  there, and `ct_difskipline` is the two together. SYLK carried its own copy
+  of both loops and DIF its own of the second plus `ct_is_bot_line`, which is
+  now a length test on `ct_eol`'s answer; SYLK tests `C;` as one word. A DIF
+  open costs one more `call`/`ret` a line (+0.6% of the open's instructions on
+  a 50-row file - a menu command, not a hot path, and dwarfed by its disk
+  read); a SYLK open got cheaper.
 
 ## 83. Text input for packages (`apps/os88line.inc`, `apps/os88text.inc`)
 

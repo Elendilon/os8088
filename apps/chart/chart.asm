@@ -1071,42 +1071,18 @@ ct_read_sylk:
 .lineloop:
     cmp si, di
     jae .done
-    mov bx, si
-.findeol:
-    cmp bx, di
-    jae .goteol
-    mov al, [es:bx]
-    cmp al, 13
-    je .goteol
-    cmp al, 10
-    je .goteol
-    inc bx
-    jmp .findeol
-.goteol:
-    mov ax, bx
-    sub ax, si
-    cmp ax, 2
-    jb .advance
-    cmp byte [es:si], 'C'
+    call ct_eol                         ; BX = this line's end
+    lea ax, [si+2]                      ; SI < DI <= 33KB: this cannot wrap
+    cmp ax, bx
+    ja .advance                         ; shorter than "C;"
+    cmp word [es:si], 'C;'
     jne .advance
-    cmp byte [es:si+1], ';'
-    jne .advance
-    add si, 2
+    inc si
+    inc si
     call ct_parse_c                     ; in: si=tokens start, bx=line end
 .advance:
-    mov si, bx
-.skipterm:
-    cmp si, di
-    jae .lineloop
-    mov al, [es:si]
-    cmp al, 13
-    je .isterm
-    cmp al, 10
-    je .isterm
+    call ct_tonext                      ; SI = BX, past the CR/LFs
     jmp .lineloop
-.isterm:
-    inc si
-    jmp .skipterm
 .done:
     jmp ct_finalize
 
@@ -1206,61 +1182,50 @@ ct_parse_c:
     ret
 
 ; -----------------------------------------------------------------------------
-; ct_difskipline - advance SI past the rest of the current line and every
-; trailing CR/LF (DI = end offset, module-scoped like ct_read_dif's own).
-; Clobbers AL.
+; THE LINE SCANNER BOTH TEXT READERS SHARE (apps size pass 2, SPEC.md 82.15).
+; ES = the staged file, SI = where a line starts, DI = the file's end; all
+; three clobber AL, and nothing else but what they answer in.
+;
+; ct_eol         - BX = that line's end: its first CR or LF, or DI.
+; ct_difskipline - SI past the rest of the line and every CR/LF after it.
+; ct_tonext      - the same from a line end ct_eol already found: SI = BX,
+;                  then past every CR/LF.
+;
+; SYLK wants the line's end (ct_parse_c is bounded by it) and DIF wants to
+; skip lines; each used to carry its own copy of the same two loops, and DIF a
+; third routine to ask whether a line read exactly "BOT", which is a length
+; test on ct_eol's answer.
 ; -----------------------------------------------------------------------------
-ct_difskipline:
+ct_eol:
+    mov bx, si
 .scan:
-    cmp si, di
+    cmp bx, di
     jae .out
-    mov al, [es:si]
-    inc si
+    mov al, [es:bx]
     cmp al, 13
-    je .eat
+    je .out
     cmp al, 10
-    je .eat
+    je .out
+    inc bx
     jmp .scan
+.out:
+    ret
+
+ct_difskipline:
+    call ct_eol
+ct_tonext:
+    mov si, bx
 .eat:
     cmp si, di
     jae .out
     mov al, [es:si]
     cmp al, 13
-    je .eat2
+    je .inc
     cmp al, 10
-    je .eat2
-    jmp .out
-.eat2:
+    jne .out
+.inc:
     inc si
     jmp .eat
-.out:
-    ret
-
-; -----------------------------------------------------------------------------
-; ct_is_bot_line - in: SI=line start, DI=end (exclusive); out: CF=1 if the
-; line at SI is exactly "BOT" (the real DIF row marker), else CF=0. Does
-; not advance SI. Clobbers AL and BX.
-; -----------------------------------------------------------------------------
-ct_is_bot_line:
-    lea bx, [si+3]                      ; SI < DI <= 33KB: this cannot wrap
-    cmp bx, di
-    ja .no
-    cmp word [es:si], 'BO'
-    jne .no
-    cmp byte [es:si+2], 'T'
-    jne .no
-    cmp bx, di
-    jae .yes
-    mov al, [es:bx]
-    cmp al, 13
-    je .yes
-    cmp al, 10
-    jne .no
-.yes:
-    stc
-    jmp .out
-.no:
-    clc
 .out:
     ret
 
@@ -1276,8 +1241,8 @@ ct_is_bot_line:
 ; "BOT"; each cell: "0,<value>" then "V", or anything else, meaning
 ; NA/blank). Offers (row,col,value) to ct_record, which keeps the lowest
 ; column and caps the series at CH_MAXBARS. The row and column counters are
-; DX and CX for the whole walk (ct_esatof, ct_difskipline, ct_is_bot_line and
-; ct_record all preserve both), and the value stays in ch_dbl from the number
+; DX and CX for the whole walk (ct_esatof, the line scanner and ct_record all
+; preserve both), and the value stays in ch_dbl from the number
 ; line to the V line - nothing between them touches it - so the two bss
 ; counters and the eight-byte round trip through a scratch copy are gone.
 ; -----------------------------------------------------------------------------
@@ -1287,12 +1252,19 @@ ct_read_dif:
 .hdrscan:
     cmp si, di
     jae .done                           ; no BOT anywhere: no data
-    call ct_is_bot_line
-    jc .foundbot
-    call ct_difskipline
+    call ct_eol                         ; is this line exactly "BOT"?
+    lea ax, [si+3]                      ; SI < DI <= 33KB: this cannot wrap
+    cmp ax, bx
+    jne .hdrnext
+    cmp word [es:si], 'BO'
+    jne .hdrnext
+    cmp byte [es:si+2], 'T'
+    je .foundbot
+.hdrnext:
+    call ct_tonext
     jmp .hdrscan
 .foundbot:
-    call ct_difskipline                 ; consume the first row's BOT line
+    call ct_tonext                      ; consume the first row's BOT line
     xor dx, dx                          ; DX = the row
     xor cx, cx                          ; CX = the column
     jmp .cellloop
@@ -1302,8 +1274,7 @@ ct_read_dif:
     call ct_difskipline                 ; the "-1,0" line
     cmp si, di
     jae .done
-    mov al, [es:si]
-    cmp al, 'E'                         ; EOD
+    cmp byte [es:si], 'E'               ; EOD
     je .done
     call ct_difskipline                 ; the "BOT" line
     inc dx
@@ -1315,8 +1286,14 @@ ct_read_dif:
     cmp al, '-'
     je .rowloop                         ; the next row's "-1,0"
     cmp al, '0'
-    jne .skipunknown                    ; type 1 (string/NA) or unknown
-    add si, 2                           ; past "0,"
+    je .num
+    call ct_difskipline                 ; type 1 (string/NA) or unknown: its
+    jmp .notvalid                       ; first line here, its second below -
+                                        ; every cell is exactly two lines, and
+                                        ; at the file's end both are no-ops
+.num:
+    inc si                              ; past "0,"
+    inc si
     mov bx, di
     call ct_esatof                      ; -> ch_dbl, si past the digits
     call ct_difskipline                 ; finish the "0,<value>" line
@@ -1329,12 +1306,6 @@ ct_read_dif:
     call ct_record
 .notvalid:
     call ct_difskipline                 ; the indicator line
-    jmp .cellnext
-.skipunknown:
-    call ct_difskipline
-    cmp si, di
-    jae .cellnext
-    call ct_difskipline                 ; every cell is exactly two lines
 .cellnext:
     inc cx
     jmp .cellloop
