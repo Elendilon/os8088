@@ -80982,6 +80982,98 @@ cycles, not more. What it leaves binding:
   credits' dismissal). The two callback paths used to clear them after, so a
   flag the worker raised during the draw was dropped.
 
+### 44.12 Size pass 2 — the shipped file
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures the
+LZ4-packed `ARKANOID.O88` on the four 360KB disks it rides (apps, games, and
+both small disks), not image + bss. Nothing a player can see changed. What the
+pass leaves binding:
+
+- **The tuning tables are signed BYTES.** `ark_met_big`/`ark_met_sml` and
+  `ark_vel_src`/`ark_zbias` are written with `ARK_SB`, which refuses a figure
+  outside -128..127 at assembly time, because `cbw` would otherwise widen it to
+  a different number. The content height is the one figure that does not fit,
+  so the records store it less `ARK_CHWBIAS` (200) and `ark_entry`, its only
+  reader, adds the bias back inside an `add` it already made.
+- **One loop widens the record and the velocity family.** `ark_metrics` sets
+  `[ark_vscale]` to 100 and sends the record through `ark_scale` too - at par
+  that is the identity - so the record's last figure, the adapter's scale, is
+  in place by the time the loop reaches `ark_vel_src`. `ark_bw`..`ark_zbq` are
+  one run of 27 words, asserted in the bss. `ark_scale_vel` is gone; the
+  launch pays twelve more `ark_scale` calls, about 1 ms at 4.77 MHz
+  (estimated from instruction timings), once per launch and per adapter
+  change.
+- **There are no clamps after the scaling, by proof.** `ark_scale` is
+  monotonic (round to nearest of one per-cent product, floored at one), so two
+  figures in order before it stay in order after it for ANY percentage. The
+  four relationships the clamps enforced - a serve no flatter than the
+  ceiling, a flick no harder than a hold, Slow's floor under the opening
+  rally, the ceiling over it - are the `%if` assertions on the unscaled
+  constants beside `ARK_VXMAX`, and both shipped records were checked to give
+  the same 27 words as before, figure for figure.
+- **The frame's update half is inline in `ark_worker`.** `ark_update` had
+  one caller, the worker loop, and banked nothing; inline it is the same
+  instructions less a `call` and a `ret` every frame, and the death/clear
+  pause tests the mode in AL, which it was just loaded into, instead of
+  re-reading `[ark_mode]`.
+- **...and so is the draw half.** `ark_render` (the one lock hold a frame,
+  everything the sections above say of it unchanged) is the loop's `.draw`
+  now: the same instructions less a `call`, a `ret` and six register saves
+  the loop never needed. The routines `tests/arkpuwipe.py` stubs to a `ret`
+  (`ark_do_ball`, `ark_do_launch`, `ark_do_shots`, `ark_do_paddle`,
+  `ark_draw_msg`) stay routines.
+- **The window's y is placed off the clamp's own register.** The height is
+  clamped to `dock - MBAR_H - 1`, so that register less the height is the
+  slack less one and cannot be negative; the old re-derivation from
+  `[ark_dock]` and its `jns` guard were the same number by a longer road.
+  `[ark_scrw]` and `[ark_dock]` stay banked - in `ark_onresize` as well,
+  where the game no longer reads them - because `tests/dispsize.py` leg E
+  reads them back as the proof that the handler asked about the card the
+  window is on (SPEC.md 39.16.4).
+- **The score's padding is inline in `ark_draw_status`.** `ark_padl` had one
+  caller; inline it is the same copy loop without the call, its four saves
+  (the caller banks every register already) and its closing NUL store, which
+  wrote a zero over the NUL `ark_num2str` had already put at
+  `ark_sbuf + ARK_SFW`.
+- **The heart is composed as a glyph.** `ark_heartbits` is `ark_heartrun`'s
+  picture in the font's own shape - eight rows, bit 7 the left column - so
+  `ark_pu_letter`'s eight-row walk lays it into the band exactly where the
+  runs did (asserted: both centre it two rows and two columns into the
+  capsule), and `ark_pu_heart`, a second walk over the runs a pixel at a
+  time, is gone. `ark_heartrun` stays: §44.10.4's fallback fills the heart
+  from it. The walk itself is inline in `ark_pu_compose`, its one caller,
+  which now sets ES back to DS for the heart (a letter kind leaves it on the
+  font's segment).
+- **The ball's one-caller helpers are inline where the walk calls them.**
+  `ark_reflect`, `ark_hit_paddle` and `ark_die` are blocks of `ark_move1`
+  now, and `ark_english` (the paddle's kick) a block of `ark_padbounce`:
+  each is the same instructions less its call, its `ret` and the saves its
+  caller had already made - `ark_move1` banks AX..DX on entry, and the
+  paddle test ends in `jb .paddle` where it ended in a `ret` that handed the
+  same carry to a `jc`. `ark_padbounce` no longer saves CX, which nothing in
+  it writes. The paddle test runs on every pixel of ball travel that misses
+  the wall, so it is the hottest code the pass touched, and none of these
+  got an instruction more.
+- **The draw half's own helpers save nothing.** `ark_wipe_pu`,
+  `ark_wipe_shots`, `ark_draw_bricks_dirty`, `ark_move_paddle` and
+  `ark_move_ball` have one caller, the worker loop's `.draw`, which holds no
+  register across them; their 21 push/pop pairs were paid every frame for
+  nobody. Each says what it clobbers at its label. `ark_draw_pu` and
+  `ark_draw_shots` keep theirs: `ark_draw_all` and `ark_draw_msgband` call
+  them too.
+- **...and so do the update half's.** `ark_do_paddle`, `ark_focuschk`,
+  `ark_do_launch`, `ark_do_ball`, `ark_do_pu` and `ark_do_shots` have the
+  same one caller and it holds nothing across them either (it loads the mode
+  after the first two, and reads no register after the other four): 21 more
+  pairs a frame.
+- **...and their own one-caller routines are inline, or tails.** `ark_pkey`
+  is a block of `ark_do_paddle` and `ark_throw` of `ark_do_launch`;
+  `ark_slower` is `ark_apply`'s Slow arm, and `ark_apply` saves nothing
+  (`ark_do_pu` holds only SI across it). Where a routine ended in
+  `call ark_beep` or `call ark_fire` and then its own `ret`, it jumps
+  instead, and `ark_fire` saves nothing either. The worker's static stack
+  chain is 50 bytes, from 64; it keeps `OS88_STACK_192`.
+
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
 A four-channel ProTracker MOD player: `tracker.asm` (shell, menus, the file
