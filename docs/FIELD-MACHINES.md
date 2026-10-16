@@ -354,8 +354,8 @@ and an FTPD.CFG serving C:\, both written by `tools/os88pmcfg.py`); the card's
 network WORKS on the os8088 build of 2026-10-10. **Its Sound Blaster and USB
 mouse WORK too** (since 2026-10-11 and 2026-10-12, docs/FIELD-NOTES.md 66).
 The Sound Blaster needs the card's firmware to carry the fixes that entry
-made, and `firmware/picomem1/` is that firmware (the `pm1x-sb-fixes` build
-for the 1.x board, with its own README). **Both PicoMEM generations, the
+made, and `firmware/picomem1/` is that firmware (the `pm1x-pr` build for
+the 1.x board, with its own README). **Both PicoMEM generations, the
 1.x here and 5150 #2's 2.x, are fully working** (the owner, 2026-10-14), so
 this machine plays a Video Player file through a Sound Blaster, not only the
 speaker.
