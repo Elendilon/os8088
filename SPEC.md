@@ -115355,6 +115355,15 @@ redirects and frames - and left the same bytes behind.
   because its action is looked up again at the toast. Invisible on FrogFind,
   which has one form; found by the differential run above (a two-form page
   submitting form 2 to form 0's `/search`). +3 bytes.
+- **A field record is filled by one helper.** Four control parsers (text,
+  select, checkbox/radio, and the option value) each copied `name` or `value`
+  into the record inline, with `push bx / add bx, FLD_x / mov di, bx / pop
+  bx` where one `lea` is that address; `br_fldname` and `br_fldcp` are the
+  copy once. `FLD_W` and `FLD_LEN` are adjacent, so a field's width and its
+  empty length are one word store, a checkbox's default `on` is another, and
+  `br_input` stops re-loading the `type` name `br_attreq` already hands back.
+  Per control this is bounded work - at most `BR_FMAX` = 12 on a page - and
+  not the per-byte parse loop, which no change here touches.
 
 ### 72.1 What the packages did have to change, which is one question
 

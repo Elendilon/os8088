@@ -5084,23 +5084,9 @@ br_select:
     call br_fld
     mov [bx+FLD_FORM], dl
     mov byte [bx+FLD_TYPE], 1
-    mov byte [bx+FLD_W], 8
-    mov byte [bx+FLD_LEN], 0
+    mov word [bx+FLD_W], 8          ; W = 8 and LEN = 0, one store
     mov [bx+FLD_FIRST], si
-    mov di, br_a_name
-    call br_getattr
-    jc .noname
-    push bx
-    add bx, FLD_NAME
-    mov di, bx
-    pop bx
-    push bx
-    mov bx, BR_NAMEMAX-1
-    call br_copyspan
-    pop bx
-    jmp .find
-.noname:
-    mov byte [bx+FLD_NAME], 0
+    call br_fldname
 .find:
     push bx
     call br_seloption
@@ -5286,27 +5272,18 @@ br_selvalue:
     push si
     push cx
     mov di, br_a_value
-    call br_getattr
-    jc .label
-    push bx
-    add bx, FLD_VALUE
-    mov di, bx
-    pop bx
-    mov bx, BR_VALMAX-1
-    call br_copyspan
+    call br_getattr                 ; CF=0: SI..CX is the value
+    jnc .copy
+    pop cx                          ; ...else the label, which is the span
+    pop si                          ; we were handed
+    push si
+    push cx
+.copy:
+    lea di, [bx+FLD_VALUE]
+    call br_fldcp
     pop cx
     pop si
-    jmp short .out
-.label:
-    pop cx
-    pop si
-    push bx
-    add bx, FLD_VALUE
-    mov di, bx
-    pop bx
-    mov bx, BR_VALMAX-1
-    call br_copyspan
-.out:
+
     pop si
     pop di
     pop dx
@@ -7379,6 +7356,29 @@ br_form:
     ret
 
 ; --- br_copyspan - the source span SI..CX -> DS:DI, at most BX bytes ---------
+; --- br_fldname - the tag's `name` into the record at BX, empty if it has none
+; ...and br_fldcp, the copy both halves of a field record share: the span
+; SI..CX into DI, at most BR_NAMEMAX - 1 bytes and NUL-terminated. Four parse
+; paths carried this inline, each with a push/add/mov/pop where one LEA is
+; the same address (apps size pass 2). Clobbers SI, CX and DI as br_getattr
+; does; BX is kept.
+%if BR_VALMAX != BR_NAMEMAX
+%error "br_fldcp bounds a name and a value with one limit"
+%endif
+br_fldname:
+    mov di, br_a_name
+    call br_getattr
+    lea di, [bx+FLD_NAME]           ; LEA leaves br_getattr's CF alone
+    mov byte [di], 0
+    jc br_fldcp.out
+br_fldcp:
+    push bx
+    mov bx, BR_NAMEMAX-1
+    call br_copyspan
+    pop bx
+.out:
+    ret
+
 br_copyspan:
     push ax
     push cx
@@ -7425,28 +7425,23 @@ br_input:
     mov bx, br_s_image              ; anything we do not draw is refused
     call br_attreq                  ; VISIBLY (SPEC.md 47 rule 3) rather than
     jnc .unsup                      ; vanishing
-    mov di, br_a_type
     mov bx, br_s_password
     call br_attreq
     jnc .unsup                      ; no TLS: never expose plaintext credentials
-    mov di, br_a_type
     mov bx, br_s_file
     call br_attreq
     jnc .unsup
     mov bx, br_s_check
     call br_attreq
     jnc .check
-    mov di, br_a_type
     mov bx, br_s_radio
     call br_attreq
-    jnc .radio
-    jmp .text
+    jc .text
+    mov al, 3
+    jmp short .choice
 .check:
     mov al, 2
-    call br_choice
-    jmp .out
-.radio:
-    mov al, 3
+.choice:
     call br_choice
     jmp .out
 .submit:
@@ -7541,20 +7536,7 @@ br_input:
     add bx, br_flds
     mov [bx+FLD_FORM], dl
     mov byte [bx+FLD_TYPE], 0
-    mov di, br_a_name               ; its name, for the query string
-    call br_getattr
-    jc .noname
-    push bx
-    add bx, FLD_NAME
-    mov di, bx
-    pop bx
-    push bx
-    mov bx, BR_NAMEMAX-1
-    call br_copyspan
-    pop bx
-    jmp .size
-.noname:
-    mov byte [bx+FLD_NAME], 0
+    call br_fldname                 ; its name, for the query string
 .size:
     mov dx, BR_FLDW                 ; a width, from `size` when it gives one
     mov di, br_a_size
@@ -7570,18 +7552,15 @@ br_input:
 .w2:
     mov dx, ax
 .w:
-    mov [bx+FLD_W], dl
-    mov byte [bx+FLD_LEN], 0
+    mov [bx+FLD_W], dx              ; W, and LEN = 0: DH is 0, the width
+                                    ; being at most BR_FLDWMAX
                                     ; ...and now the visible span: '[', W
                                     ; spaces, ']' as literal document text
-    push bx
     mov al, '['
-    call br_fput
+    call br_fput                    ; br_fput keeps BX and the record
     mov ax, [br_doclen]             ; where the editable cells begin
     add ax, [br_onw]
-    pop bx
     mov [bx+FLD_OFS], ax
-    mov byte [bx+FLD_LEN], 0
     mov di, br_a_value
     call br_getattr
     jc .blank
@@ -7649,37 +7628,15 @@ br_choice:
     call br_fld
     mov [bx+FLD_FORM], dl
     mov [bx+FLD_TYPE], dh
-    mov byte [bx+FLD_W], 1
-    mov byte [bx+FLD_LEN], 0
-    mov di, br_a_name
-    call br_getattr
-    jc .noname
-    push bx
-    add bx, FLD_NAME
-    mov di, bx
-    pop bx
-    push bx
-    mov bx, BR_NAMEMAX-1
-    call br_copyspan
-    pop bx
-    jmp .value
-.noname:
-    mov byte [bx+FLD_NAME], 0
-.value:
-    mov byte [bx+FLD_VALUE], 'o'
-    mov byte [bx+FLD_VALUE+1], 'n'
+    mov word [bx+FLD_W], 1          ; W = 1 and LEN = 0, one store
+    call br_fldname
+    mov word [bx+FLD_VALUE], 'on'   ; the default value, HTML's own
     mov byte [bx+FLD_VALUE+2], 0
     mov di, br_a_value
     call br_getattr
     jc .checked
-    push bx
-    add bx, FLD_VALUE
-    mov di, bx
-    pop bx
-    push bx
-    mov bx, BR_VALMAX-1
-    call br_copyspan
-    pop bx
+    lea di, [bx+FLD_VALUE]
+    call br_fldcp
 .checked:
     mov di, br_a_checked
     call br_hasattr
