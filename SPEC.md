@@ -134855,6 +134855,30 @@ reflection over a whole turn against `sin` itself. The axis crossings stay
 EXACT, which matters: §88.9.2.2's divide by `cos` depends on cos ±90° being
 exactly zero.
 
+##### 88.5.9.1 …and it SHIPS as its second differences, expanded at launch
+
+The 514 bytes are a slowly falling curve, which is the one shape LZ4 cannot
+touch: no four bytes of it repeat, so they cost the file 516. Its first
+difference falls from 201 to 0 and its **second difference is −3..+1**, so
+the table is two numbers and 256 two-bit codes (`c` = d″ + 2; the single −3,
+between entries 253 and 255, is rounding and gets a code 0 and a one-step
+fix-up). `tools/cssin.py` writes them into `cssin.inc` at the **tail** of the
+table's own 514 bytes behind 450 zeros, and `cs_entry` expands them
+**forwards, in place**, before anything calls `cs_sin` — the writer is at
+`8j + 2` when it reads code byte `j` at `450 + j`, so it never catches the
+codes up, and the table costs no scratch and no claim. The generator
+simulates that loop instruction for instruction, reading each code out of
+the buffer it is writing, and refuses to write a table it does not get back;
+`tests/unit/t_cssin.py` decodes the SHIPPED codes the same way and then holds
+the result to §88.5's snippet and the reflection, exactly as before.
+
+**−385 bytes of the packed program** (part 0, 29,356 → 28,971) for 49 bytes
+of `cs_entry` (`image` 36,070 → 36,119; the region was 61,345 and is paid
+back by §88.10.7.2) and
+3,465 instructions of one launch — ~7 ms at 4.77 MHz, estimated from the
+instruction count. Nothing a frame runs moved: `cs_sin` reads the same 257
+words at the same address.
+
 #### 88.5.4 Levels of detail, all about pixels
 
 The measure is `cs_sizepx`: **0.75 of the model's radius times the vertical
@@ -140147,6 +140171,33 @@ world were nothing but objects. `csworlds.py` reads every location record's
 `CSA_NOBJ` (the offset out of `skies.asm`, not restated) and emits `CS_MAXOBJ`,
 the most any location's table holds: **47**, Paris'. 244 bytes become 94.
 
+##### 88.10.5.7 The object table travels FIELD-MAJOR, and goes back at the load
+
+A world's object table is half its bytes - 18 to 47 records of `CSO_SIZE`,
+ten words each - and it repeats down its FIELDS, not along its records: the
+same model, the same range, the same flags row after row, and a `CSO_FAR` of
+0 almost everywhere. LZ4 sees only matches of whole runs of bytes, so the
+records cost it nearly what they cost raw. `tools/csworlds.py` therefore packs
+each world with its table TRANSPOSED - every record's first word, then every
+record's second - and `cs_wldget`, after `OSAPI_DECOMP` has expanded a world
+into the overlay, puts it back the right way up: the table is copied out to
+the read buffer the stream has just been consumed from, and scattered back
+one field of every record at a time. The table is the one the picked
+location's record names (`[cs_airport]` is already in the overlay); every
+location in a world names the same one, and the generator refuses a world
+where they do not, and a table bigger than the read buffer can be - the
+packed stream, never under a KB. **The overlay is byte for byte what it
+always was**, which `tests/skiesworlds.py` asserts at every pick; the
+generator round-trips each world through the transpose before it writes it,
+and the shipped 8086 code was run under an emulator against all nine
+locations before it was taken.
+
+**csw.z 9,853 -> 9,280 bytes**, 573 of them, for 67 bytes of `cs_wldget`
+and ~6 ms of a world load (≤ 470 words moved twice, at Fly or a Location
+pick, never in a frame). Field-major beat every other in-place shape tried:
+a record-by-record word delta - which needs no buffer at all - bought 231,
+and splitting the transposed words into low and high bytes made it WORSE.
+
 #### 88.10.6 The overlay's address is DERIVED, and the gap was protecting nothing
 
 `CS_VOCAB_AT` is computed in `tools/csworlds.py` and emitted into
@@ -140452,6 +140503,33 @@ the union after the way out to the title and the plane in use AND NOTHING ELSE,
 and then each other band to its bytes as a repaint draws it - red with the
 copy one byte out and with a decode that marks every band.
 
+##### 88.10.7.2 …and the kept copy is IN THE IMAGE, so nothing reads it
+
+Kept for the instance's life, `cs_artz` was a `CS_ARTZ_SIZE` run of the bss
+that the launch FILLED - a read of csw.z's last stream through `cs_wldget`'s
+keep arm, a `[cs_artzok]` byte saying it had worked, and `cs_fsx_main` trying
+again on every way out for the launch whose read had failed. The region held
+the room either way, so the bytes might as well arrive with the program:
+`tools/csworlds.py` writes the six packed bands to **`csartz.bin`** instead of
+appending them to csw.z, and `skies.asm` INCBINs it as `cs_artz` at the end of
+the image, held to the index's `CS_ARTZ_SIZE` both ways. `cs_artload`, the
+keep arm, `[cs_artzok]`, `CS_STREAM_ART` and the way out's call are gone, and
+`cs_artes` loses its "nothing kept" test - the copy is always there. The
+refusal that stays is the band that will not expand, which draws the plainer
+page as it always did.
+
+**The launch reads one stream fewer** (the art was a `OSAPI_FILE_READ_AT` and
+a transient claim of its own), the way out of a flight is the same two
+decodes, and the overlay, the union and every frame routine are where they
+were less an even 22 bytes. `image + bss` 58,356 -> **58,281**, the region
+61,393 -> **61,313**: the code that filled the copy was 75 bytes. Part 0 grows
+by the stream - 28,971 -> 33,652 packed, 220 bytes LESS than the two added:
+the code taken out, and the six bands' literal runs repeating the same
+cumulus, which part 0's LZ4 finds where the band-by-band packing could not -
+and csw.z shrinks by it,
+14,759 -> 9,853. `tests/skiesworlds.py` holds the guest's `cs_artz` to
+`build/csartz.bin` now, and the union to the bands exactly as before.
+
 #### 88.10.8 The region is cut to the program, by the kernel
 
 The region is the parts carve the loader read the program into (§20.12.10.5).
@@ -140488,6 +140566,32 @@ re-entering `cs_r_setup` inside one bracket still finds it held and claims
 nothing. A machine too full for 16KB at the next Fly takes the refusal the
 first Fly always could: the bracket is left before a frame is drawn. Mode X
 has two pages of VRAM and never claimed one.
+
+#### 88.10.10 The second apps size pass: the disk, and the segment it is paid in
+
+The second apps size pass measured Clear Skies by its FILE, 45,991 bytes in 45
+clusters on both disks that carry it (`GAMES/` on apps360.img, and
+games360.img). It took §88.5.9.1 (the sine table as second differences),
+§88.10.7.2 (the kept bands in the image) and §88.10.5.7 (the object tables
+field-major). The binding constraint was not the disk but the SEGMENT: the
+program stood 95 bytes under `APP_MAX_SIZE` with its overlay, and the two
+decoders the disk wins need (49 and 67 bytes) are code that has to be paid
+for in it - the first build of the transpose was 32 bytes OVER, and
+`tools/csworlds.py` refused it. What paid for them, all on the title page:
+the code that read the kept bands (§88.10.7.2, 75 bytes); two shared
+epilogues for the handlers that push the same six or five registers and
+leave by a `jmp` (`cs_pop6`/`cs_pop5`, `cs_pop5x`; a jump costs no stack);
+`cs_onresize`, which was `call cs_adapter / ret`, replaced by `cs_adapter`
+itself; and four `xor ah, ah` that are a `cbw` on a row number.
+
+**Every routine a frame runs is instruction-identical and at its BASE
+address or two bytes below it** (`tools/os88rdiff.py`: the raster, the
+geometry and the flight from `cs_artroff` to `cs_fsx_main` at +0, the rest of
+the session at −2), which is what `mov ch, 1` in §88.5.9.1's loop and one
+`cbw` are for: they are where the odd bytes went. `image + bss` 58,306 ->
+58,303 and the region 61,345 -> 61,329, so the RAM went down while the file
+went **45,991 -> 44,610** - **44 clusters a disk**, one cluster on each of
+the two.
 
 ### 88.13 The settings (SPEC.md 88.13)
 

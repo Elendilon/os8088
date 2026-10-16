@@ -6980,10 +6980,11 @@ skiesprobe: $(BUILD)/skiesprobe/apps360.img
 	@echo "            python3 tests/skiescount.py --scene dfangled"
 # --- THE WORLDS (SPEC.md 88.10.5) -------------------------------------------
 # Each of the eight assembled ON ITS OWN, at the overlay's fixed org, and
-# packed; plus the shared vocabulary they all point into and the title bands -
-# ten LZ4 streams, one after another in ONE file, csw.z, which is ONE lazy part
-# (SPEC.md 88.10.7: as ten parts the file carried 2,278 bytes of sector
-# padding between them). The order lives in tools/csworlds.py and nowhere
+# packed; plus the shared vocabulary they all point into - nine LZ4 streams,
+# one after another in ONE file, csw.z, which is ONE lazy part (SPEC.md
+# 88.10.7: as ten parts the file carried 2,278 bytes of sector padding between
+# them). The title bands, packed one by one, are csartz.bin, which skies.asm
+# INCBINs (SPEC.md 88.10.7.2). The order lives in tools/csworlds.py and nowhere
 # else. cswidx.inc is the resident index it writes with them: each stream's
 # offset and unpacked length, the nine locations' names, the world each stands
 # in, where its record lands, and the vocabulary's own addresses.
@@ -7017,16 +7018,16 @@ $(BUILD)/cswidx.inc: tools/csworlds.py tools/os88lz.py tools/os88pkg.py \
 	python3 tools/csworlds.py --out $(BUILD) --art $(BUILD)/csart.bin \
 		--vocab-from $(BUILD)/csprobe.bin
 
-$(CSWORLDS_Z): $(BUILD)/cswidx.inc ;
+$(CSWORLDS_Z) $(BUILD)/csartz.bin: $(BUILD)/cswidx.inc ;
 
 $(BUILD)/skies.bin: $(SKIES_SRC) $(BUILD)/cswidx.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -I $(BUILD)/ $(CSDIAGDEF) -o $@ apps/skies/skies.asm
 	@echo "skies: $(call FILESIZE,$@) bytes"
 
-# THE TITLE BANDS ARE csw.z's LAST STREAM (SPEC.md 88.10.3, 88.10.7).
-# tools/csart.py writes the .inc - the offsets, which is all the image carries -
-# and with --raw the UNPACKED bands, which tools/csworlds.py packs beside the
-# worlds with the LZ4 the kernel's OSAPI_DECOMP reads.
+# THE TITLE BANDS ARE csartz.bin, IN THE IMAGE (SPEC.md 88.10.3, 88.10.7.2).
+# tools/csart.py writes the .inc - the offsets - and with --raw the UNPACKED
+# bands, which tools/csworlds.py packs band by band with the LZ4 the kernel's
+# OSAPI_DECOMP reads.
 $(BUILD)/csart.bin: tools/csart.py | $(BUILD)
 	python3 tools/csart.py -o apps/skies/csart.inc --raw $@
 	@echo "csart: $(call FILESIZE,$@) bytes of bands, raw"
