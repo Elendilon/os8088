@@ -3303,13 +3303,15 @@ br_selcycle:
 ; which on this app is not an abstract cost, because a page can be arriving.
 ; =============================================================================
 
-br_ablines:                         ; os88ui_about's line table (SPEC.md
-                                    ; 20.5.1.1): near pointers, 0 ends it
-    dw br_ab1, br_ab2, br_ab3, br_ab4, 0
-br_ab1:      db 'os8088 Browser 1.4', 0
-br_ab2:      db 'HTTP, HTML and tables', 0
-br_ab3:      db 0                   ; a blank line is a line with no glyphs
-br_ab4:      db 'Contributed by Elendilon', 0
+br_ablines:                         ; os88ui_about's lines (SPEC.md 20.5.1.1),
+                                    ; OS88UI_ABPACK's shape: end to end, each
+                                    ; with its NUL, closed by OS88UI_ABEND -
+                                    ; no pointer table (apps size pass 2)
+    db 'os8088 Browser 1.4', 0
+    db 'HTTP, HTML and tables', 0
+    db 0                            ; a blank line is a line with no glyphs
+    db 'Contributed by Elendilon', 0
+    db OS88UI_ABEND
 
 ; -----------------------------------------------------------------------------
 ; br_about - the OSAPI_ABOUT_SET handler (slot 0x018A)
@@ -8692,6 +8694,7 @@ br_s_bad:   db 'Cannot open page', 0
                                 ; OS88UI_SBDRAG is at the TOP of this file, not
                                 ; here: SPEC.md 13.10.7.4
 %define OS88UI_ABOUT            ; SPEC.md 20.5.1.1: the standard About card
+%define OS88UI_ABPACK           ; ...its lines packed end to end, br_ablines
 %define OS88UI_SCROLL           ; SPEC.md 13.10: the shared scroll bar - OPT IN,
                                 ; so a package that draws no bar pays none of
                                 ; its bytes

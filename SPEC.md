@@ -115415,6 +115415,10 @@ redirects and frames - and left the same bytes behind.
   leaves `[br_fin]` at 5 or 0, never the netclaim's 1); `br_onclick` stops
   saving the point around a `br_measure` that keeps it, and its toolbar-strip
   test is one `jbe`.
+- **The About card's lines are packed.** `OS88UI_ABPACK` (SPEC.md 20.5.1.1)
+  is the include's own opt-in for lines end to end with an `OS88UI_ABEND`,
+  in place of a pointer table; the card draws the same calls at the same
+  places (the differential run's About leg, with a width stub that measures).
 - **The manual sheds what nothing reads.** `BROWSER.HTM` lost its DOCTYPE,
   its `<meta>` charset (the page is pure ASCII), `<html>`/`</html>`,
   `</body>` and its blank lines - 162 bytes of source, and the packed file
