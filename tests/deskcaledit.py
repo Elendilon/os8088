@@ -325,7 +325,7 @@ class Cal(object):
         if d is None:
             return None
         p = os88stik.parse_dat(d, os88stik.DESKCAL_PAYLEN,
-                              os88stik.DESKCAL_PAYVER)
+                              os88stik.DESKCAL_PAYVER, packed=True)
         return os88stik.parse_deskcal(p["payload"])
 
 
@@ -376,6 +376,11 @@ def boot_damaged(tmp):
         check(got == want, "the file holds them in order, all-day first, "
               "times 08:15 / 09:30 / 12:30 armed\n        got  %r\n        "
               "want %r" % (got, want))
+        n = len(c.raw() or b"")
+        check(n == os88stik.STIK_HDR_SIZE + 8 + 4 * 32 + 1 * 28,
+              "...PACKED: four appointments and the one task, %d bytes - "
+              "one cluster where the fixed layout was three (SPEC.md "
+              "110.5.3)" % n)
 
         print("C: Dentist edited in the field")
         c.select_appt(2)

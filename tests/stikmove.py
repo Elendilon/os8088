@@ -141,7 +141,7 @@ def move_leg(tmp, machine, template, drag, screen):
         try:
             d = os88stik.parse_dat(volume(m, tmp).read(
                 "SYSTEM/APPDATA/DESKCAL.DAT"), os88stik.DESKCAL_PAYLEN,
-                os88stik.DESKCAL_PAYVER)
+                os88stik.DESKCAL_PAYVER, packed=True)
         except Exception as e:
             d = {"pos": False, "x": None, "y": None, "screen": None,
                  "err": str(e)}
