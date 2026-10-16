@@ -728,7 +728,7 @@ vp_onclick:                         ; CX = x, DX = y (screen), SI = window
     jae .out
     mov byte [vp_drag], 1
     call vp_dragx
-    call OSAPI_GET_TICKS
+    call vp_ticks
     mov [vp_dtk], ax
     call vp_pbar
 .out:
@@ -764,13 +764,13 @@ vp_ondrag:
     cmp ax, [vp_sel]
     je .out
     push ax
-    call OSAPI_GET_TICKS
+    call vp_ticks
     sub ax, [vp_dtk]
     cmp ax, VP_DRAGT
     pop ax
     jb .out
     call vp_seekto                  ; (the thumb stays under the pointer)
-    call OSAPI_GET_TICKS            ; ...and the interval runs from the load's
+    call vp_ticks                   ; ...and the interval runs from the load's
     mov [vp_dtk], ax                ; END, so a slow disk is not asked again
 .out:                               ; the moment it answers
     pop dx
@@ -988,7 +988,7 @@ vp_open:
     mov ax, bx
     inc ax
     shr ax, 1                       ; ...in KB, for one cluster's claim
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jc .mem
     mov [vp_tmp], dx
     mov es, dx
@@ -1081,7 +1081,7 @@ vp_open:
     mov word [vp_nkeys], 0          ; not loaded: no key to seek or show
 .free:
     mov dx, [vp_tmp]
-    call OSAPI_MEM_FREE
+    call vp_mfree
 .said:
     mov byte [vp_relay], 1          ; THE LAYOUT for this video (98.4.1),
     cmp byte [vp_ok], 0             ; owed to the wake - with the card out if
@@ -2320,7 +2320,7 @@ vp_loadkey:
                                     ; entry
 .nop:
     mov ax, [vp_kbkb]               ; the record, a cluster either side
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jc .nobuf
     mov [vp_rdseg], dx
     mov ax, bx
@@ -2346,8 +2346,7 @@ vp_loadkey:
 .nent:
     call vp_pfree
 .free:
-    mov dx, [vp_rdseg]
-    call OSAPI_MEM_FREE
+    call vp_rdfree
     jmp short .out
 .nobuf:
     call vp_pfree
@@ -2376,12 +2375,12 @@ vp_pevload:
     add ax, 1023                    ; its own claim, whole KB
     mov cl, 10
     shr ax, cl
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jc .mem
     mov [vp_pevseg], dx
     mov cx, [vp_pevb]               ; ...and the read's, a cluster either side
     call vp_spankb
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jc .mem1
     push word [vp_rdseg]
     mov [vp_rdseg], dx
@@ -2398,8 +2397,7 @@ vp_pevload:
     cld
     rep movsb
     pop ds
-    mov dx, [vp_rdseg]              ; (the read's claim, done with)
-    call OSAPI_MEM_FREE
+    call vp_rdfree                  ; (the read's claim, done with)
     pop word [vp_rdseg]
     mov es, [vp_pevseg]             ; THE CHECKS (98.1.6: a hostile file)
     xor si, si
@@ -2456,8 +2454,7 @@ vp_pevload:
     mov word [vp_msg], vp_s_bad
     jmp short .fail
 .io:
-    mov dx, [vp_rdseg]
-    call OSAPI_MEM_FREE
+    call vp_rdfree
     pop word [vp_rdseg]
     mov word [vp_msg], vp_s_io
     jmp short .fail
@@ -2478,7 +2475,7 @@ vp_pevfree:
     mov dx, [vp_pevseg]
     or dx, dx
     jz .out
-    call OSAPI_MEM_FREE
+    call vp_mfree
     mov word [vp_pevseg], 0
 .out:
     pop dx
@@ -2629,7 +2626,7 @@ vp_pfree:
     mov dx, [vp_pseg]
     or dx, dx
     jz .out
-    call OSAPI_MEM_FREE
+    call vp_mfree
     mov word [vp_pseg], 0
 .out:
     mov word [vp_dkey], 0xFFFF
@@ -2697,7 +2694,7 @@ vp_kpic:
     je .kc
     call vp_plshd                   ; planes: the last one's base + 64 KB
 .kc:
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jc .no
     mov [vp_kshd], dx
     mov es, dx
@@ -2729,7 +2726,7 @@ vp_kpic:
 .free:
     pushf
     mov dx, [vp_kshd]
-    call OSAPI_MEM_FREE
+    call vp_mfree
     popf
 .no:
     ret
@@ -3199,7 +3196,7 @@ vp_tmono:
     push bp
     push es
     mov ax, VP_TSCRKB
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jnc .have
     mov ax, [vp_pwb]                ; NO ROOM: the poster black
     mul word [vp_ph]
@@ -3227,7 +3224,7 @@ vp_tmono:
     jmp short .row
 .fin:
     mov dx, [vp_tscr]
-    call OSAPI_MEM_FREE
+    call vp_mfree
 .out:
     pop es
     pop bp
@@ -3705,7 +3702,7 @@ vp_rdpal:
     push es
     mov cx, 768                     ; 768 bytes' clusters, whole KB (two
     call vp_spankb                  ; 32 KB clusters' sum was 0 in a word)
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jc .mem
     mov [vp_rdseg], dx
     mov ax, [vp_palo]
@@ -3738,8 +3735,7 @@ vp_rdpal:
     jne .fin
     call vp_v4xlat
 .fin:
-    mov dx, [vp_rdseg]
-    call OSAPI_MEM_FREE
+    call vp_rdfree
     clc
     jmp short .out
 .bad:
@@ -3748,8 +3744,7 @@ vp_rdpal:
 .io:
     mov word [vp_msg], vp_s_io
 .fr:
-    mov dx, [vp_rdseg]
-    call OSAPI_MEM_FREE
+    call vp_rdfree
     stc
     jmp short .out
 .mem:
@@ -4862,7 +4857,7 @@ vp_lyown:
     add ax, [vp_lymkb]              ; [slots][mirror][the bank's bounce]
     cmp bx, ax
     jb .less
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jc .less
     mov [vp_lyseg], dx
     jmp short .out
@@ -5733,8 +5728,8 @@ vp_eprobe:
     push cx
     push dx
     push si
-    mov bx, (DRVC_EMS << 8) | EMSV_CAPS
-    call OSAPI_DRV_CALL             ; AX free, CX on the board, DX the frame,
+    mov bl, EMSV_CAPS
+    call vp_ems                     ; AX free, CX on the board, DX the frame,
     jc .out                         ; SI the quarters nobody holds
     and si, 3
     cmp si, 3
@@ -5789,8 +5784,8 @@ vp_espeed:
     push dx
     push si
     mov byte [vp_eslow], 0
-    mov bx, (DRVC_EMS << 8) | EMSV_CAPS
-    call OSAPI_DRV_CALL             ; DX = the frame
+    mov bl, EMSV_CAPS
+    call vp_ems                     ; DX = the frame
     jc .out
     push dx
     mov ax, ds
@@ -5857,8 +5852,8 @@ vp_erate:
 ; Clobbers AX, BX, CX, DX
 vp_eopen:
     push si
-    mov bx, (DRVC_EMS << 8) | EMSV_CAPS
-    call OSAPI_DRV_CALL
+    mov bl, EMSV_CAPS
+    call vp_ems
     jc .out
     pop si                          ; (CAPS answered the quarters in SI)
     push si
@@ -5879,8 +5874,8 @@ vp_eopen:
     cmp ax, VP_XBMIN / 16
     jb .out
     push ax
-    mov bx, (DRVC_EMS << 8) | EMSV_ALLOC
-    call OSAPI_DRV_CALL             ; AX = the handle
+    mov bl, EMSV_ALLOC
+    call vp_ems                     ; AX = the handle
     pop cx
     jnc .got
     shr cx, 1                       ; no run that long: half, in slots
@@ -5892,13 +5887,13 @@ vp_eopen:
     push cx
     mov byte [vp_eq], 0x0F          ; ALL FOUR quarters, for the decode in
     mov al, 0x0F                    ; place (98.3.18.7) - else the two the
-    mov bx, (DRVC_EMS << 8) | EMSV_FRAME    ; hybrid needs
-    call OSAPI_DRV_CALL
+    mov bl, EMSV_FRAME              ; hybrid needs
+    call vp_ems
     jnc .fr
     mov byte [vp_eq], 3
     mov al, 3
-    mov bx, (DRVC_EMS << 8) | EMSV_FRAME
-    call OSAPI_DRV_CALL             ; DX = the frame's segment
+    mov bl, EMSV_FRAME
+    call vp_ems                     ; DX = the frame's segment
 .fr:
     jc .frx                         ; THE RECIPE (SPEC.md 107.4) before CX is
     mov [vp_eport], cx              ; the pages again: quarter 0's register,
@@ -5910,8 +5905,8 @@ vp_eopen:
     mov [vp_eseg], dx
     push cx
     mov ax, [vp_ehnd]
-    mov bx, (DRVC_EMS << 8) | EMSV_BASE
-    call OSAPI_DRV_CALL             ; AX = its first page on the board
+    mov bl, EMSV_BASE
+    call vp_ems                     ; AX = its first page on the board
     mov [vp_ebase], ax
     pop cx
     shr cx, 1
@@ -5928,10 +5923,10 @@ vp_eopen:
     pop si
     ret
 .nofr:                              ; (taken since the probe: the pages back)
+    pop si
     mov ax, [vp_ehnd]
-    mov bx, (DRVC_EMS << 8) | EMSV_FREE
-    call OSAPI_DRV_CALL
-    jmp short .out
+    mov bl, EMSV_FREE
+    jmp vp_ems                      ; (...and its ret is ours)
 
 ; vp_emap - AX = a slot: its two pages mapped into quarters 0 and 1. CF=1
 ; the board refused. Every register kept
@@ -7437,7 +7432,7 @@ vp_bpre:
 .n:
     jcxz .dz
     mov [vp_pfn], cx
-    call OSAPI_GET_TICKS
+    call vp_ticks
     mov [vp_pft0], ax
 .lp:
     mov ah, 1                       ; a key: Space plays now, Esc cancels,
@@ -7587,7 +7582,7 @@ vp_pfsay:
     sub ax, cx
     jbe .end
     push ax
-    call OSAPI_GET_TICKS
+    call vp_ticks
     sub ax, [vp_pft0]
     pop bx
     mul bx
@@ -7684,14 +7679,14 @@ vp_ontimer:
     push ax
     push bx
     push dx
-    call OSAPI_GET_TICKS
+    call vp_ticks
     mov dx, ax
     call vp_xstep
     jnc .tm
     call vp_pstep                   ; ...or A PAUSED SESSION'S BANK, a chunk
     jc .said                        ; nothing left, or no hold: no next
 .tm:
-    call OSAPI_GET_TICKS
+    call vp_ticks
     sub ax, dx
     jnz .arm
     inc ax
@@ -8122,7 +8117,7 @@ vp_lsetup:
     call vp_sopen                   ; key landed (98.3.10.1) - the card,
 .ns:                                ; started on the key's frame with the
 %endif                              ; picture, the last thing done
-    call OSAPI_GET_TICKS
+    call vp_ticks
     mov [vp_t0], ax
     mov [vp_ltk], ax                ; ...and the worker's clock from it
 .out:
@@ -8166,7 +8161,7 @@ vp_lgo:
     mov [vp_lacc], ax
     mov [vp_lacc+2], ax
     mov [vp_lrem], ax
-    call OSAPI_GET_TICKS
+    call vp_ticks
     mov [vp_ltk], ax
     mov byte [vp_lrun], 1
     pop dx
@@ -8830,7 +8825,7 @@ vp_ldblk:
     push es
     call vp_bkkb
     mov [vp_ldkb], ax
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jnc .got
     mov word [vp_msg], vp_s_mem
     jmp .err
@@ -8893,7 +8888,7 @@ vp_ldblk:
     mov word [vp_msg], vp_s_bad
 .free:
     mov dx, [vp_ldseg]
-    call OSAPI_MEM_FREE
+    call vp_mfree
 .err:
     stc
 .out:
@@ -9642,12 +9637,12 @@ vp_rfree:
     mov dx, [vp_rblk]
     or dx, dx
     jz .a
-    call OSAPI_MEM_FREE
+    call vp_mfree
 .a:
     mov dx, [vp_rablk]
     or dx, dx
     jz .z
-    call OSAPI_MEM_FREE
+    call vp_mfree
 .z:
     xor dx, dx
     mov [vp_rblk], dx
@@ -9702,13 +9697,12 @@ vp_sstart:
     je .k0ok
     push ax
     mov ax, [vp_kekb]               ; vp_rdat's buffer for the ENTRY alone:
-    call OSAPI_MEM_CLAIM            ; a refusal leaves the old start
+    call vp_mclaim                  ; a refusal leaves the old start
     jc .k0no
     mov [vp_rdseg], dx
     mov ax, [vp_sel]
     call vp_kent                    ; [vp_ke] and [vp_kload] = the key's
-    mov dx, [vp_rdseg]
-    call OSAPI_MEM_FREE
+    call vp_rdfree
 .k0no:
     pop ax
 .k0ok:
@@ -9810,7 +9804,7 @@ vp_sstart:
     jc .knone
     call vp_kroom
     jnc .kok
-    call OSAPI_MEM_FREE
+    call vp_mfree
 .knone:
     call vp_cptry                   ; ...unless moving OURSELVES too would
     jnc .posted                     ; make room for it (98.3.19.1)
@@ -9876,7 +9870,7 @@ vp_sstart:
     cmp ax, [vp_kload]
     jne .ring
     mov ax, [vp_kbkb]
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jnc .ring
     mov word [vp_msg], vp_s_mem
     jmp .fail
@@ -9987,7 +9981,7 @@ vp_sstart:
     add ax, [vp_lymkb]
     inc byte [vp_lymx]
 .rmx:
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jnc .rgot
     sub ax, bx                      ; no room for the slack: without it
     xor bx, bx
@@ -9996,7 +9990,7 @@ vp_sstart:
     sub ax, [vp_lymkb]
     dec byte [vp_lymx]
 .rm0:
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jnc .rgot
     pop bx
     mov word [vp_msg], vp_s_mem
@@ -12045,7 +12039,7 @@ vp_sfree:
 .f:
     or dx, dx
     jz .n
-    call OSAPI_MEM_FREE
+    call vp_mfree
 .n:
     ret
 
@@ -12485,7 +12479,7 @@ vp_keyat:
     mov [vp_kat_i], ax
     mov word [vp_kat_n], 24
     mov ax, [vp_kekb]               ; (it reads entries and nothing else)
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jc .fail
     mov [vp_rdseg], dx
 .l:
@@ -12514,14 +12508,12 @@ vp_keyat:
     inc word [vp_kat_i]
     jmp short .l
 .got:
-    mov dx, [vp_rdseg]
-    call OSAPI_MEM_FREE
+    call vp_rdfree
     mov ax, [vp_kat_i]
     clc
     jmp short .out
 .bad:
-    mov dx, [vp_rdseg]
-    call OSAPI_MEM_FREE
+    call vp_rdfree
 .fail:
     stc
 .out:
@@ -13057,7 +13049,7 @@ vp_mchg:
     cmp bx, cx
     je .same
 .chg:
-    call OSAPI_GET_TICKS
+    call vp_ticks
     mov [vp_mtk], ax
     mov byte [vp_msync], 1
 .same:
@@ -13098,13 +13090,13 @@ vp_dtcalc:
     push ax
     cmp byte [vp_upause], 0
     je .np
-    call OSAPI_GET_TICKS
+    call vp_ticks
     sub ax, [vp_ptk0]
     add [vp_ptk], ax
-    call OSAPI_GET_TICKS
+    call vp_ticks
     mov [vp_ptk0], ax
 .np:
-    call OSAPI_GET_TICKS
+    call vp_ticks
     sub ax, [vp_t0]
     sub ax, [vp_ptk]
     mov [vp_dt], ax
@@ -13312,7 +13304,7 @@ vp_skkey:
     mov ax, -VP_SKMAXN
 .c2:
     mov [vp_skn], ax
-    call OSAPI_GET_TICKS
+    call vp_ticks
     mov [vp_sktk], ax
     call vp_sktext
     pop dx
@@ -13330,7 +13322,7 @@ vp_skhome:
     call vp_skkey                   ; paused, and a seek on its way...
     mov word [vp_skn], -VP_SKMAXN   ; ...all the way back: frame 0
     call vp_sktext
-    call OSAPI_GET_TICKS
+    call vp_ticks
     mov dx, ax
     mov al, [vp_skwt]
     xor ah, ah
@@ -13530,7 +13522,7 @@ vp_fseek:
     cmp word [vp_ring], 0
     jne .st
     mov ax, [vp_kbkb]
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jc .no
     mov [vp_ring], dx
     mov [vp_rclm], dx
@@ -14367,7 +14359,7 @@ vp_sndoff:
     xchg dx, [vp_aseg]
     or dx, dx
     jz .p
-    call OSAPI_MEM_FREE
+    call vp_mfree
 .p:
     pop dx
     pop ax
@@ -14423,7 +14415,7 @@ vp_sndprep:
 .lpt:                               ; asked per play, before os88spk_init
     call os88spk_lpt                ; builds the table for it
     call vp_ringkb                  ; (RL + 272 of it: the table follows
-    call OSAPI_MEM_CLAIM            ; the control words - and the shaper's
+    call vp_mclaim                  ; the control words - and the shaper's
     jc .ret                         ; family after it, for a card's clip)
     mov [vp_aseg], dx
     push di
@@ -14453,7 +14445,7 @@ vp_sndprep:
     ret
 .spkno:
     mov dx, [vp_aseg]
-    call OSAPI_MEM_FREE
+    call vp_mfree
     mov word [vp_aseg], 0
     ret
 
@@ -14513,7 +14505,7 @@ vp_unmfs:
     mov byte [vp_skwas], 1
     call vp_upaus
 .pz:
-    call OSAPI_GET_TICKS            ; ...and due at once
+    call vp_ticks                   ; ...and due at once
     mov dl, [vp_skwt]
     xor dh, dh
     sub ax, dx
@@ -14742,7 +14734,7 @@ vp_upaus:
                                     ; between the two stores plays its
                                     ; periods and the flag waits for the next.
                                     ; One store each: the hook reads at IF = 0
-    call OSAPI_GET_TICKS
+    call vp_ticks
     mov [vp_ptk0], ax
     cmp byte [vp_snd], 0
     je .out
@@ -14757,7 +14749,7 @@ vp_upaus:
 .out:
     ret
 .resume:
-    call OSAPI_GET_TICKS
+    call vp_ticks
     sub ax, [vp_ptk0]
     add [vp_ptk], ax
     cmp byte [vp_sdefer], 0         ; in paused (98.3.6): the card starts now,
@@ -19472,6 +19464,26 @@ vp_putn:
     pop cx
     pop bx
     pop ax
+    ret
+
+; THE KERNEL CALLS COLD CODE MAKES MOST, as near thunks: a far call is five
+; bytes a site and a near one three. Each is exactly the slot it names, so a
+; site reads as before; none is reached from a play's per-frame path, whose
+; sites keep their far calls (and pay no call more)
+vp_rdfree:                          ; the record buffer [vp_rdseg] back, DX it
+    mov dx, [vp_rdseg]
+vp_mfree:                           ; OSAPI_MEM_FREE
+    call OSAPI_MEM_FREE
+    ret
+vp_mclaim:                          ; OSAPI_MEM_CLAIM
+    call OSAPI_MEM_CLAIM
+    ret
+vp_ticks:                           ; OSAPI_GET_TICKS
+    call OSAPI_GET_TICKS
+    ret
+vp_ems:                             ; OSAPI_DRV_CALL to EMS, BL the verb
+    mov bh, DRVC_EMS
+    call OSAPI_DRV_CALL
     ret
 
 ; vp_div32 - DX:AX /= CX; CX = the remainder
