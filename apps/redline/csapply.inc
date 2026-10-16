@@ -41,9 +41,18 @@ CSA_KNOB    equ 6                   ; a knob the row does not have
 
 cs_cfgname: db 'REDLINE.CFG', 0
 cs_cfgsig:  db 'RLCFG', 0, 0, 0
+%ifdef CS_APPLY_ONLY
+; RLAPPLY keeps both of its own in BSS - CS_APPLY_BSS bytes after its image,
+; zeroed by the loader, which is all they ever were in the image - and has no
+; in-place stamp, writing nothing
+cs_cfg      equ os88_image_end
+cs_cfgrow   equ os88_image_end + CS_CFG_SZ
+CS_APPLY_BSS equ CS_CFG_SZ + 1
+%else
 cs_cfgip:   db 0                    ; os88data.inc's in-place stamp
 cs_cfg:     times CS_CFG_SZ db 0
 cs_cfgrow:  db 0                    ; the row the file names, once checked
+%endif
 
 
 %ifndef CS_APPLY_ONLY               ; Save is REDLINE's: RLAPPLY never writes

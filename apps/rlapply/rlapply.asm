@@ -144,5 +144,5 @@ ra_s_knob:   db 'REDLINE.CFG: bad setting', 0
 %include "redline/csknob.inc"
 %include "redline/csapply.inc"
 
-    OS88_BSS 0
+    OS88_BSS CS_APPLY_BSS            ; csapply.inc's REDLINE.CFG buffer
     OS88_IMAGE_END
