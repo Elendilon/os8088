@@ -130,7 +130,7 @@ PN_MAXN     equ 300                 ; sequence cap (policy: full-stop)
 PN_LIVEDUR  equ 5                   ; live note duration, ticks
 PN_PRIO     equ 0x40                ; tone priority (the package default)
 
-PN_BSS_TOTAL equ 655                ; see the bss layout after OS88_IMAGE_END
+PN_BSS_TOTAL equ 654                ; see the bss layout after OS88_IMAGE_END
 
 ; -----------------------------------------------------------------------------
 ; pn_entry - package entry point (SPEC.md 20.2)
@@ -1054,8 +1054,8 @@ pn_vsync:
     xor cl, ch
     shr cl, 1                       ; ZF: the two steps agree
     jnz .rub
-    mov byte [pn_vkeep], 1          ; SAME STEP: a natural and its sharp, so
-    mov al, dh                      ; the ledger and the dot stay and only
+    mov al, dh                      ; SAME STEP: a natural and its sharp, so
+                                    ; the ledger and the dot stay and only
     shr ch, 1                       ; the sharp glyph comes or goes - CF: the
     jc .unsharp                     ; old note was the sharp
     mov al, dl
@@ -1065,7 +1065,6 @@ pn_vsync:
     call pn_vsrubn
     jmp short .next
 .rub:
-    mov byte [pn_vkeep], 0
     mov al, dh
     push dx
     call pn_vrub
@@ -1196,8 +1195,9 @@ pn_vput:
 ; -----------------------------------------------------------------------------
 ; pn_vrub - draw over note AL's marks in column DI with what lies under them
 ; (the new note is a different step, or none); pn_vsrubn - its sharp glyph
-; alone, [pn_vkeep] = 1 (the same step's ledger and dot stay). AX..DX
-; clobbered
+; alone (the same step's ledger and dot stay). AX..DX clobbered. Both run
+; with [pn_vshow+di] already the NEW note, which is how the sharp's erase
+; knows whether a ledger stays under it
 ; -----------------------------------------------------------------------------
 pn_vrub:
     call pn_vinfo                   ; AX = the step
@@ -1281,8 +1281,8 @@ pn_vsrub:
     lea ax, [bp+1]
     call pn_vcol
     xor cx, cx                      ; ...and row 46 at colx+3 if it is this
-    cmp byte [pn_vkeep], 0          ; column's OWN ledger, which stays
-    je .v3
+    cmp byte [pn_vshow+di], cl      ; column's OWN ledger, which stays: the
+    jne .v3                         ; new note is C4, the C#4's one partner
     mov cl, 46
     jmp short .v3
 .both:
@@ -1871,8 +1871,7 @@ pn_vstp  equ os88_image_end + 649   ; byte: the column's note's step
 pn_vyc   equ os88_image_end + 650   ; word: ...its dot's centre y
 pn_vrs   equ os88_image_end + 652   ; word: ...the staff row its sharp's
                                     ;       vlines cross, 0 for none
-pn_vkeep equ os88_image_end + 654   ; byte: the column keeps its ledger
-                                    ; total 655 = PN_BSS_TOTAL
-%if pn_vkeep + 1 - os88_image_end != PN_BSS_TOTAL
+                                    ; total 654 = PN_BSS_TOTAL
+%if pn_vrs + 2 - os88_image_end != PN_BSS_TOTAL
   %error "PN_BSS_TOTAL does not match the bss layout"
 %endif

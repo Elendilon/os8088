@@ -66455,7 +66455,10 @@ inks.
   already holds rather than incrementing memory and reading it back
   (-9). A clear, a song load and a stopped replay end in one tail,
   `pn_vsay` (the viewer's count and the message), and the plain READY
-  is the tail of MARY READY (-17).
+  is the tail of MARY READY (-17). The sharp's erase reads whether a
+  C#4's ledger stays off the column's NEW note, already in `pn_vshow`
+  (C4 is its one same-step partner), so the per-column `pn_vkeep` byte
+  and its two stores are gone (-11 image, -1 bss).
 
 ## 37. clock.inc — the system clock
 
