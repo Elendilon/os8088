@@ -630,16 +630,18 @@ br_arg:
 ; nothing but where the name came from.
 ; -----------------------------------------------------------------------------
 br_onwake:
+    cmp byte [br_nstate], BN_BODY   ; both hand-overs are a BODY's, asked once
+    jne .arg
     cmp byte [br_fin], 4            ; A FRAMESET'S RE-CLAIM (SPEC.md 71.15):
     jne .net                        ; the worker has parsed the frameset and
-    cmp byte [br_nstate], BN_BODY   ; its children need the page buffers at
-    jne .net                        ; the ceiling, which it may not claim
-    call br_frameclaim
+                                    ; its children need the page buffers at
+    call br_frameclaim              ; the ceiling, which it may not claim. It
+                                    ; leaves [br_fin] at 5 or 0, never 1
 .net:
     cmp byte [br_fin], 1            ; ...AND THE FETCH'S HAND-OVER (SPEC.md
     jne .arg                        ; 71.14): a worker that has drained a page
-    cmp byte [br_nstate], BN_BODY   ; posts this, and the claims it may not
-    jne .arg                        ; make are made here, sized by the page.
+                                    ; posts this, and the claims it may not
+                                    ; make are made here, sized by the page.
     call br_netclaim                ; A stale wake finds [br_fin] != 1 or a
 .arg:                               ; dropped fetch's BN_IDLE, and does nothing
     cmp byte [br_argp], 0           ; not the document's wake, or the document
@@ -2039,11 +2041,12 @@ br_onclick:
     jc .out                         ; that dismisses it, and that click does
                                     ; nothing else (SPEC.md 12.2's shape, and
                                     ; every other app here)
-    push cx                         ; **THE GEOMETRY FIRST, AND IT IS THE CLICK'S
-    push dx                         ; TO TAKE.** Every rect this routine tests
+                                    ; **THE GEOMETRY FIRST, AND IT IS THE CLICK'S
+                                    ; TO TAKE.** Every rect this routine tests
     call br_measure                 ; against is derived from the content box,
-    pop dx                          ; and the content box moves whenever the
-    pop cx                          ; window does - a drag, a resize, an adapter
+                                    ; and the content box moves whenever the
+                                    ; window does - a drag, a resize, an adapter
+                                    ; (br_measure keeps CX and DX, the point)
                                     ; switch, a slide across an extended
                                     ; desktop's seam (SPEC.md 39.7/11.98). A
                                     ; painter runs on some of those and not all,
@@ -2077,13 +2080,11 @@ br_onclick:
     jb .out
     add ax, BR_TBH - 1
     cmp dx, ax
-    ja .nostrip
-    jmp .out                        ; the toolbar's press was the LIBRARY's
+    jbe .out                        ; the toolbar's press was the LIBRARY's
                                     ; (SPEC.md 20.5.1.3.3) and never reaches
                                     ; here; br_onup has the action, and it
                                     ; asks the SAME ok-predicate the greying
                                     ; does (47 rule 5)
-.nostrip:
     cmp cx, [br_sbx]
     jb .page                        ; not in the scroll bar: the PAGE's
     cmp cx, [br_sbx2]

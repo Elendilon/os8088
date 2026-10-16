@@ -115410,6 +115410,11 @@ redirects and frames - and left the same bytes behind.
   saves only ES around the frameset's two copies, `.out` restoring the rest;
   `br_framefetch` stores a child's base word, an offset or `0FFFFh`, through
   one indexed store instead of two.
+- **A click and a wake ask each thing once.** `br_onwake`'s two hand-overs
+  are both a `BN_BODY`'s, so that is asked first and once (`br_frameclaim`
+  leaves `[br_fin]` at 5 or 0, never the netclaim's 1); `br_onclick` stops
+  saving the point around a `br_measure` that keeps it, and its toolbar-strip
+  test is one `jbe`.
 - **The manual sheds what nothing reads.** `BROWSER.HTM` lost its DOCTYPE,
   its `<meta>` charset (the page is pure ASCII), `<html>`/`</html>`,
   `</body>` and its blank lines - 162 bytes of source, and the packed file
