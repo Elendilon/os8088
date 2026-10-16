@@ -167749,6 +167749,13 @@ reference    = len(16)=12 y0(16) y1(16) at(32) n(16)
   15 another entry after it, `at` the picture's offset in the file and `n`
   its first read - a key table entry's two words. It is the hidden chain's
   third kind and lives only in keys, the COPY (98.1.3.7.2) only in frames.
+- **The references are part of the last part's READ**: in a key of more
+  than one part, the word ending the part before it names the last part's
+  length WITH its references (and an ADPCM4 key's reference byte), as
+  98.1.3.8 has it for every read. A writer that adds them after cutting the
+  parts must rewrite that word too - a stale one reads the last part short,
+  and its hidden chain then runs off the bytes read (fixed 2026-10-16; a
+  Mode X key, whose own page alone is two parts, was where it showed).
 - **The page a reference names is BLACK and then the picture**: the key's
   own lists went onto every page, and a pool picture is made over black.
   None of the key's parts carries a hidden record for that page.
