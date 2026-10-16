@@ -1536,17 +1536,9 @@ fr_stepv:
     call fr_incv                    ; DX = this pass's |d| increment
     sub bx, cx                      ; BX = d
 .step:
-    or bx, bx
-    jg .flip
-    jl .grow
-    add bx, dx                      ; d = 0 -> the first pair's +d
-    jmp short .chk
-.flip:
-    neg bx                          ; +d -> -d, the twin, next
-    jmp short .chk
-.grow:
-    neg bx                          ; -d -> the next pair's +d
-    add bx, dx
+    neg bx                          ; +d -> -d, the twin, next: SF says so
+    js .chk                         ; (|d| is far below 32768, so it does)
+    add bx, dx                      ; 0 or -d -> the next pair's +d
 .chk:
     mov di, bx
     or di, di
@@ -1560,7 +1552,10 @@ fr_stepv:
     cmp di, [fr_ch]                 ; ONE edge is skipped, not a terminator -
     jae .step                       ; and a negative row fails this unsigned
     mov bx, di
-    jmp short .out
+.out:
+    pop di
+    pop si
+    ret
 .nextpass:
     inc ax
     cmp ax, 3
@@ -1569,10 +1564,6 @@ fr_stepv:
     mov bx, dx
     shr bx, 1                       ; ...and its first |d|: 2 for pass 1,
     jmp short .chk                  ; 1 for pass 2 - which is inc/2 for both
-.out:
-    pop di
-    pop si
-    ret
 
 ; -----------------------------------------------------------------------------
 ; fr_stepm - step the (pass, row) word pair at [DI] in place

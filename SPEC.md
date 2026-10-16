@@ -72886,6 +72886,13 @@ the run cache's claims (§40.1) are the same.
   shorter number, and the fifth was a space on the strip's white ground that
   nothing else draws under — the strip is pixel-identical and a progress tick
   letters one cell fewer. Its NUL is then the loader's zero. 14 bytes.
+- **`fr_stepv`'s step is `neg`, `js`, `add`.** A `+d` becomes its twin `-d`
+  and stops there (the sign flag says which); a zero or a `-d` takes the
+  increment after the same `neg`. Three instructions where there were six
+  and two jumps, and the success path falls into the return. The assembled
+  routine was run under an emulator against `tools/frref.py`'s model for
+  every canvas height 1-199, every mirror row and every step of every frame
+  - 2,646,700 steps, no disagreement, SI and DI kept. 14 bytes.
 
 ### 39.26 The software renderer's plane loop is gone
 
