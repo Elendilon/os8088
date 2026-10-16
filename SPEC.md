@@ -61451,9 +61451,9 @@ worth a byte of `.text` here and `tools/os88pkgsize.py` prints the sum:
 |---|---|---|---|---|
 | full (shipped) | 7,589 | 1,698 | **9,287** | — |
 | `TMF_HEAP` off | 6,300 | 1,586 | 7,886 | −1,401 (15.1%) |
-| both off (`APP_SMALL`) | 4,400 | 1,313 | **5,713** | −3,574 (38.5%) |
+| both off (`APP_SMALL`) | 3,641 | 1,313 | **4,954** | −4,333 (46.7%) |
 
-(As of §28.12.2's pass; the first pass left them at 8,223 / 6,970 / 4,980 of
+(As of §28.12.3; §28.12.2's pass left the small arm at 4,400 of image; the first pass left them at 8,223 / 6,970 / 4,980 of
 image against 1,707 / 1,581 / 1,317 of bss.)
 
 The first size pass on the package (it had only ever been moved, never
@@ -61587,6 +61587,18 @@ changed. MartyPC, `os8088_5150_cga`, both builds in one boot and then again
 in the other order: `tm_sample` 71,654 → 63,778 cycles, the performance
 page's refresh (median) 247,922 → 234,302, a quiet page's no-change check
 19,786 → 19,456, and the three pages' full paints 1.73–1.81 M → 1.63–1.70 M.
+
+#### 28.12.3 Apps size pass 2b — the small arm draws no button
+
+With `TMF_HEAP` off there is no scroll bar, so the small build could not say
+`OS88UI_BARONLY` and carried the whole button block of `os88ui.inc` -
+`os88ui_btn`, `os88ui_bhit`, the check/radio glyph and its bitmaps, and the
+record gesture - though nothing in it draws a button: its one click target is
+the content (`tm_click`), and the About card (§20.5.1) draws none. It sets
+`OS88UI_NOBTN` (§13.10.6.5.1), which removes those symbols, so a button added
+later does not assemble rather than shipping half-drawn. Image 4,400 → 3,641,
+bss unchanged, the file **3,952 → 3,305 bytes** (4 clusters still on both
+small disks). The full arm, already `OS88UI_BARONLY`, is byte-identical.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 

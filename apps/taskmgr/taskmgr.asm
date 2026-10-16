@@ -6320,6 +6320,13 @@ tm_putw:
 %ifdef TMF_HEAP
 %define OS88UI_BARONLY
 %define OS88UI_SCROLL
+%else
+%define OS88UI_NOBTN            ; the same statement without the bar: the small
+                                ; build has no heap page and so no scroll bar,
+                                ; and the About card draws no button either -
+                                ; os88ui_btn, the glyph and the gesture were
+                                ; ~760 bytes it never reached (apps size pass
+                                ; 2b, SPEC.md 28.12)
 %endif
 %define OS88UI_ABOUT            ; ...and the standard About card (SPEC.md
 %include "os88ui.inc"           ; 20.5.1), which draws no button either
