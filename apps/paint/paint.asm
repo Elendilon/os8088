@@ -5158,9 +5158,11 @@ pt_szdraw:
 ; --- the one control's staging (SPEC.md 20.5.1.3) --------------------------
 ; One button at a time: this package's rects are not one contiguous group,
 ; so the record is pointed at whichever rect the caller staged.
-pt_btlbl: dw 0
+; The rect and the label never change, so the record names them at assembly
+; time and only the flags word is written per draw (apps size pass 2).
+pt_btlbl: dw pt_s_apply
 pt_btflg: dw 0
-    OS88UI_BTNREC pt_btrec, 0, pt_btlbl, pt_btflg, 1
+    OS88UI_BTNREC pt_btrec, pt_brect, pt_btlbl, pt_btflg, 1
 
 pt_szdraw_apply:
     push ax
@@ -5182,18 +5184,9 @@ pt_szdraw_apply:
     ;
     ; No OS88UI_FILL: pt_szdraw white-fills the whole group before the first
     ; box, so this always lands on clean ground.
-    xor ax, ax
-    add ax, [pt_ox]                 ; the rect, in SCREEN coordinates - which
-    mov [pt_brect+0], ax            ; is what pt_cframe/pt_ctext were adding
-    add ax, PT_TOOLW - 2             ; per primitive
-    mov [pt_brect+4], ax
-    mov ax, PT_SZ_AY
-    add ax, [pt_oy]
-    mov [pt_brect+2], ax
-    add ax, PT_SZ_AH - 1
-    mov [pt_brect+6], ax
-    mov si, pt_s_apply
-    mov bx, pt_brect
+    call pt_apwant                  ; the rect, in SCREEN coordinates - which
+                                    ; is what pt_cframe/pt_ctext were adding
+                                    ; per primitive
     mov di, OS88UI_FILL         ; OS88UI_FILL, and it is not optional since the
                                 ; down state (SPEC.md 13.8.4): a RELEASE
                                 ; redraws this button over a PRESSED one,
@@ -5206,16 +5199,10 @@ pt_szdraw_apply:
     je .nodn
     or di, OS88UI_DOWN
 .nodn:
-    push ax                     ; THE ONE CONTROL (SPEC.md 20.5.1.3): BX
-    push bx                     ; already holds this button's rect, SI its
-    mov [pt_btlbl], si          ; label and DI its flags, so the record takes
-    mov [pt_btflg], di          ; all three and the picture is identical
-    mov [pt_btrec+OS88UI_BT_RECTS], bx
-    mov bx, pt_btrec
-    mov al, 1
-    call os88ui_btn
-    pop bx
-    pop ax
+    mov [pt_btflg], di          ; THE ONE CONTROL (SPEC.md 20.5.1.3): the
+    mov bx, pt_btrec            ; record names pt_brect and the label, so DI's
+    mov al, 1                   ; flags are all it takes and the picture is
+    call os88ui_btn             ; identical
     mov byte [pt_pen], CBLACK       ; os88ui_btn leaves the KERNEL's pen live;
                                     ; [pt_pen] is this module's own and the
                                     ; two are not the same variable

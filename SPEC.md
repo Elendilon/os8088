@@ -78479,6 +78479,15 @@ well. The glyph's colour is the well's XOR `CWHITE ^ CBLACK` (grey instead
 when it is the unfunded fill's), and the position stays in AX/BX, which
 `pt_cwell` keeps. **−33 image, −11 file, −20 on the small arm.**
 
+**Apply's record is aimed at assembly time.** `pt_szdraw_apply` computed
+Apply's rect inline — the same eight instructions as `pt_apwant`, which the
+hit test already calls — and wrote the rect pointer and the label into the
+`OS88UI_BTNREC` record on every draw. Neither ever changes, so the record
+names `pt_brect` and `pt_s_apply` where it is declared, the rect comes from
+`pt_apwant`, and only the flags word is written. Two `push`/`pop` pairs that
+guarded registers the shared epilogue restores anyway went with it.
+**−46 image, −29 file, −14 on the small arm.**
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather
