@@ -124590,9 +124590,9 @@ measured on, and MartyPC has no NIC to measure a change to it with).
 
 | | before | after |
 |---|---:|---:|
-| `ftpd.o88` (file) | 12,291 | 11,999 |
-| image | 14,746 | 14,281 |
-| image + bss (the region) | 26,624 | 26,112 |
+| `ftpd.o88` (file) | 12,291 | 11,905 |
+| image | 14,746 | 14,197 |
+| image + bss (the region) | 26,624 | 25,600 |
 
 - **The entry proc's declaration is the NOKEEP form** (§66.6.1.1), moved
   above the `mov al, 1` it sat below - which is what the SDK note says this
@@ -124628,6 +124628,16 @@ measured on, and MartyPC has no NIC to measure a change to it with).
   numbering. `fd_flush_glass` is an `equ` for `fd_paint_now`, which it only
   ever jumped to, so `fd_step` calls the painter direct and every worker
   pass spends one `jmp` less.
+- **`FTPD.CFG` is read and written off one table** (-94 file bytes, image
+  -84, and the region another 512-byte step), `fd_cfg_keys`: key, the
+  setting's address, and either `FK_STR` and a capacity or a byte count. The
+  parse looks a record's key up in it and applies the per-key rules the arms
+  had (a string clamped and terminated, the PASV address only when exactly
+  four bytes, a flag from any record carrying a byte); the save walks it top
+  to bottom, so the file it writes is BYTE-IDENTICAL to the per-key code's -
+  the same keys in the same order (§77.12.1), an empty string or an all-zero
+  value omitted. `fd_cfg_putflag` went, and the record bounds are checked
+  against one end pointer rather than recomputed from the buffer base twice.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 

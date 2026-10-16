@@ -7680,13 +7680,43 @@ fd_cfg_load:
     call fd_pasv_str                ; the field shows whatever survived
     jmp fd_x7
 
+; --- fd_cfg_keys - every key this build knows, IN THE ORDER IT WRITES THEM ----
+; key, the setting's address, and what it holds: FK_STR | capacity for a
+; string (NUL-terminated here, carried WITHOUT one in the file), or a byte
+; count for a fixed value - the PASV address (4) and the two flags (1). One
+; table for both directions, so the reader and the writer cannot disagree
+; about a key: fd_cfg_parse looks a record's key up in it, and fd_cfg_save
+; walks it top to bottom, which is what keeps a saved file BYTE-IDENTICAL to
+; the one the per-key code wrote (A, R, U, P, M, O).
+FK_STR      equ 0x80
+FD_CFGK     equ 4                   ; bytes a row
+fd_cfg_keys:
+    db FC_PASV
+    dw fd_pasv
+    db 4
+    db FC_ROOT
+    dw fd_roots
+    db FK_STR | FD_ROOTMAX
+    db FC_USER
+    dw fd_users
+    db FK_STR | FD_USERMAX
+    db FC_PASS
+    dw fd_passs
+    db FK_STR | FD_USERMAX
+    db FC_MACH
+    dw fd_mach
+    db 1
+    db FC_RO
+    dw fd_ro
+    db 1
+    db FC_END
+%if FD_ROOTMAX > 127 || FD_USERMAX > 127
+  %error "fd_cfg_keys: a capacity has to fit beside FK_STR in seven bits"
+%endif
+
 ; --- fd_cfg_parse - the records, skipping what this build does not know -----
+; fd_cfg_load is the one caller and keeps every register itself.
 fd_cfg_parse:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
     mov si, fd_cfgb
     mov di, fd_cfg_sig
     mov cx, 8
@@ -7697,102 +7727,65 @@ fd_cfg_parse:
     inc si
     inc di
     loop .sig
-    add si, 2                       ; the version: nothing branches on it YET,
-                                    ; because the KEYS carry compatibility and
+    inc si                          ; the version: nothing branches on it YET,
+    inc si                          ; because the KEYS carry compatibility and
                                     ; a version bump is for the day a key has
                                     ; to change MEANING rather than appear
+    mov dx, fd_cfgb
+    add dx, [fd_cfgn]               ; DX = the end of what was read
 .rec:
-    mov bx, si
-    sub bx, fd_cfgb
-    add bx, 2
-    cmp bx, [fd_cfgn]
+    lea bx, [si+2]
+    cmp bx, dx
     ja .out                         ; a truncated record: keep what we have
-    mov al, [si]                    ; the key
-    cmp al, FC_END
-    je .out
-    mov ah, [si+1]                  ; its length
-    add si, 2
-    push ax
-    xor ah, ah
-    mov bx, si
-    sub bx, fd_cfgb
-    pop ax
-    push ax
-    mov al, ah
-    xor ah, ah
-    add bx, ax
-    cmp bx, [fd_cfgn]
-    pop ax
+    mov ax, [si]                    ; AL = the key, AH = its length
+    or al, al                       ; FC_END
+    jz .out
+    mov si, bx
+    mov bl, ah
+    xor bh, bh
+    add bx, si
+    cmp bx, dx
     ja .out                         ; the payload runs off the end
-    cmp al, FC_PASV
-    jne .k_root
-    cmp ah, 4
-    jne .skip
-    mov bx, [si]
-    mov [fd_pasv], bx
-    mov bx, [si+2]
-    mov [fd_pasv+2], bx
-    jmp short .skip
-.k_root:
-    cmp al, FC_ROOT
-    jne .k_user
-    mov di, fd_roots
-    mov cx, FD_ROOTMAX
-    call fd_cfg_getstr
-    jmp short .skip
-.k_user:
-    cmp al, FC_USER
-    jne .k_pass
-    mov di, fd_users
-    mov cx, FD_USERMAX
-    call fd_cfg_getstr
-    jmp short .skip
-.k_pass:
-    cmp al, FC_PASS
-    jne .k_mach
-    mov di, fd_passs
-    mov cx, FD_USERMAX
-    call fd_cfg_getstr
-    jmp short .skip
-.k_mach:
-    cmp al, FC_MACH
-    jne .kro
-    or ah, ah
-    jz .skip
-    mov bl, [si]
-    mov [fd_mach], bl
-    jmp short .skip
-.kro:
-    cmp al, FC_RO
+    mov bx, fd_cfg_keys
+.k:
+    cmp byte [bx], FC_END
+    je .skip                        ; a key this build has never heard of
+    cmp al, [bx]
+    je .hit
+    add bx, FD_CFGK
+    jmp short .k
+.hit:
+    mov di, [bx+1]
+    mov cl, [bx+3]
+    test cl, FK_STR
+    jnz .str
+    ; --- a FIXED value: the PASV address only whole, a flag from any record
+    ; that carries a byte at all - the two rules the per-key arms had
+    cmp ah, cl
+    je .fix
+    cmp cl, 1
     jne .skip
     or ah, ah
     jz .skip
-    mov bl, [si]
-    mov [fd_ro], bl
+.fix:
+    xor ch, ch
+    push si
+.f:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    loop .f
+    pop si
+    jmp short .skip
+.str:
+    and cx, 0x7F                    ; the capacity, CH = 0
+    call fd_cfg_getstr
 .skip:
     mov al, ah                      ; **SKIP BY THE LENGTH**, which is the whole
     xor ah, ah                      ; of what makes this format grow: a key
     add si, ax                      ; this build has never heard of costs it
-    jmp .rec                        ; nothing at all. NEAR: the key ladder above
-                                    ; grew past a short jump's reach
-.out:
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; --- fd_cfg_putflag - AL = the key, AH = the value, appended at DI ----------
-; OFF writes no record at all, which is the same rule fd_cfg_putstr follows
-; for an empty string: the file carries only what was actually set.
-fd_cfg_putflag:
-    or ah, ah
-    jz .out
-    mov [di], al
-    mov byte [di+1], 1
-    mov [di+2], ah
-    add di, 3
+    jmp short .rec                  ; nothing at all
 .out:
     ret
 
@@ -7884,34 +7877,48 @@ fd_cfg_save:
     inc di
     loop .sig
     mov word [di], 1                ; the version
-    add di, 2
-    mov ax, [fd_pasv]               ; ...and the ONE record there is, omitted
-    or ax, [fd_pasv+2]              ; entirely when it is unset rather than
-    jz .end                         ; written as four zeroes
-    mov byte [di], FC_PASV
-    mov byte [di+1], 4
-    add di, 2
-    mov ax, [fd_pasv]
-    mov [di], ax
-    mov ax, [fd_pasv+2]
-    mov [di+2], ax
-    add di, 4
-.end:
-    mov al, FC_ROOT                 ; an EMPTY string is omitted rather than
-    mov si, fd_roots                ; written as a record with nothing in it -
-    call fd_cfg_putstr              ; the absent key IS the default
-    mov al, FC_USER
-    mov si, fd_users
-    call fd_cfg_putstr
-    mov al, FC_PASS
-    mov si, fd_passs
-    call fd_cfg_putstr
-    mov al, FC_MACH                 ; ...and the two flags, each omitted when
-    mov ah, [fd_mach]               ; it is off - the absent key IS the default
-    call fd_cfg_putflag
-    mov al, FC_RO
-    mov ah, [fd_ro]
-    call fd_cfg_putflag
+    inc di
+    inc di
+    mov bx, fd_cfg_keys
+.k:
+    mov al, [bx]
+    or al, al
+    jz .fin
+    mov si, [bx+1]
+    mov cl, [bx+3]
+    test cl, FK_STR
+    jz .fix
+    call fd_cfg_putstr              ; an EMPTY string is omitted rather than
+    jmp short .next                 ; written as a record with nothing in it -
+                                    ; the absent key IS the default
+.fix:
+    ; ...and a fixed value is omitted when every byte of it is zero: an
+    ; unset PASV address rather than four zeroes, a flag that is off
+    xor ch, ch
+    xor ah, ah
+    push cx
+    push si
+.z:
+    or ah, [si]
+    inc si
+    loop .z
+    pop si
+    pop cx
+    or ah, ah
+    jz .next
+    mov [di], al
+    mov [di+1], cl
+    inc di
+    inc di
+.c:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    loop .c
+.next:
+    add bx, FD_CFGK
+    jmp short .k
 .fin:
     mov byte [di], FC_END
     inc di
@@ -7921,7 +7928,6 @@ fd_cfg_save:
     mov bx, fd_cfgb
     mov di, fd_cfgip                ; in place once a full write has landed
     call od_write                   ; (a refusal is silent, as it always was)
-.out:
     jmp fd_x7
 
 ; -----------------------------------------------------------------------------
