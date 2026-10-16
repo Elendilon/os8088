@@ -2230,6 +2230,13 @@ gfx_blit4:
     pop dx
 .hkdonej:                       ; ...and the odd cut's way back, in reach of its
     jmp .hkdone                 ; short `jnz` where .hkdone itself is not
+    nop                         ; PARITY, never executed (kernel size pass 13):
+                                ; the cut's move took an ODD 105 bytes out of
+                                ; .text here, and everything from vga_blit_span
+                                ; down to wm_clip_rows - font_run_x, both mouse
+                                ; ISRs, sch_isr - would otherwise sit at an odd
+                                ; shift, which a 16-bit bus pays for on every
+                                ; word fetch (PERFORMANCE.md Part 7)
 %endif
 %endif
 %ifdef GFX_VGA
@@ -4119,7 +4126,12 @@ gfx_1bpp_off:
 VGA_PN_FOUR equ 0x0104          ; [vga_pn] = 4 planes, [vga_pm] = Map Mask 1 -
                                 ; also stored inline by mouse.inc's cur_rect
 %endif
-
+%ifdef KERN_SMALL
+            db 0                ; PARITY (kernel size pass 13): the pair and
+%endif                          ; gfx_1bpp_on/off above are 16 bytes and the
+                                ; call in gfx_sr_tail 3 - an odd 19 that
+                                ; would put the software renderer and font_char
+                                ; at an odd shift on kern_small
 gfx_sub_st  dw 0                ; buffer offset of the sub-rect's first byte
 gfx_sub_rs  dw 0                ; ...bytes to step the BUFFER past each row
 gfx_sub_ps  dw 0                ; ...and past each plane

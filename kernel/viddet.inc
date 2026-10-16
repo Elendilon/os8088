@@ -939,6 +939,15 @@ vid_apply:
     pop es                      ; ...and the other seven are vid_pop8's own run
     jmp vid_pop7                ; one label in - this routine has no BP in its
                                 ; frame. See vid_pop8's header
+%ifdef KERN_SMALL
+    nop                         ; PARITY, never executed (kernel size pass
+%endif                          ; 13): kern_small's planar residue came out of this
+                                ; file in an ODD total, and gfx_rowbase,
+                                ; gfx_nextrow and gfx_blit4 below would
+                                ; otherwise sit at an odd shift against the
+                                ; base - one of seven such bytes on that
+                                ; kernel, each placed where a run of hot code
+                                ; begins (PERFORMANCE.md Part 7)
 
 ; -----------------------------------------------------------------------------
 ; vid_6845_prog - write R0..R11 of the mono card's CRTC from a 12-byte table

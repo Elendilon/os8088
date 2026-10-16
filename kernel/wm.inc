@@ -8818,23 +8818,12 @@ WSU_HDRW equ WSU_PW / 2         ; ...stopping short of the depth word
 ; A one-shot, wm_dmg_dk's rule: 0 means "the whole window", which is what a
 ; caller that never heard of this inherits.
 %ifdef KERN_BIG
-; --- WHICH DISPLAY A LANDING DECIDED ON (SPEC.md 39.16.4.2) -------------------
-; wm_land_fit asks wm_disp_now ONCE and every step after it is answered from
-; here, because the RESIZE it applies can stop the straddle being true: a
-; 250x303 Arkanoid dropped over the seam takes the CGA's 208x156 and no longer
-; reaches the CGA at all, so wm_kind_bank recorded the HERCULES against a CGA
-; frame and the app's own OSAPI_WM_DISPLAY read the Hercules' 720x348 to lay
-; out a 208-wide window. Two answers to one question, exactly as SPEC.md
-; 39.16.4.1 already had to settle once - and this is the same defect one step
-; further in, where the geometry moves between the two asks rather than the
-; routine.
-;
-; The WINDOW is latched beside the answer so a handler that asks about some
-; OTHER window during the notification gets the truth. .text and not .bss:
-; wm_disp_now is asked from the first mouse press of the session, long before
-; any landing, and 0 is "nothing armed" only because wm_wins is well above it.
-wm_lf_win:  dw 0
-wm_lf_disp: db 0
+; --- WHICH DISPLAY A LANDING DECIDED ON (SPEC.md 39.16.4.2): wm_lf_win and
+; wm_lf_disp are EXTD.DRV's own bytes since kernel size pass 13 (extmod.inc,
+; beside wm_disp_now) - every reader and writer was in that image already.
+wm_lf_pad:  db 0                ; ...less ONE byte, kept for PARITY: three would
+                                ; put ui_task and everything after it at an odd
+                                ; shift against the base (PERFORMANCE.md Part 7)
 %endif
 
 wm_dw_part: db 0                ; the draw in hand is PARTIAL (SPEC.md 11.96.9).

@@ -5319,6 +5319,10 @@ cur_draw:
     out dx, ax
 .done:
     ret
+%else
+    nop                         ; PARITY, never executed (kernel size pass 13):
+                                ; cur_draw's odd 105 would put sch_isr and
+                                ; sch_switch at an odd shift on kern_small
 %endif                          ; GFX_VGA: cur_draw
 
 ; -----------------------------------------------------------------------------

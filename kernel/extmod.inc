@@ -612,8 +612,8 @@ ui_drag_size:
     push word [bx+W_Y]          ; because the snap below can move a window
     push word [bx+W_X]          ; that kept its size
     call wm_disp_now            ; **THE DISPLAY IS DECIDED ONCE, HERE** (SPEC.md
-    mov [wm_lf_disp], al        ; 39.16.4.2). Armed before the first question is
-    mov [wm_lf_win], bx         ; asked and spent at .fin, so the resize this
+    mov [cs:wm_lf_disp], al     ; 39.16.4.2). Armed before the first question is
+    mov [cs:wm_lf_win], bx      ; asked and spent at .fin, so the resize this
                                 ; routine applies cannot change the answer under
                                 ; the steps that follow it
     call ext_kind_of            ; the kind it stands on now (wm_kind_now's own
@@ -694,7 +694,7 @@ ui_drag_size:
                                 ; it for, not the one its new frame sits on
 .fin:
     xor ax, ax                  ; ...and 0 is no window, wm_wins starting well
-    mov [wm_lf_win], ax         ; above it
+    mov [cs:wm_lf_win], ax      ; above it
     push es                     ; ZF = 1 exactly when all four words are what
     push ss                     ; they were: the four on the stack (X lowest,
     pop es                      ; the record's own order) against the record
@@ -1035,6 +1035,27 @@ wm_fit_box:
 .out:
     retf
 
+; --- WHICH DISPLAY A LANDING DECIDED ON (SPEC.md 39.16.4.2) -------------------
+; wm_land_fit asks wm_disp_now ONCE and every step after it is answered from
+; here, because the RESIZE it applies can stop the straddle being true: a
+; 250x303 Arkanoid dropped over the seam takes the CGA's 208x156 and no longer
+; reaches the CGA at all, so wm_kind_bank recorded the HERCULES against a CGA
+; frame and the app's own OSAPI_WM_DISPLAY read the Hercules' 720x348 to lay
+; out a 208-wide window. Two answers to one question, exactly as SPEC.md
+; 39.16.4.1 already had to settle once - and this is the same defect one step
+; further in, where the geometry moves between the two asks rather than the
+; routine.
+;
+; The WINDOW is latched beside the answer so a handler that asks about some
+; OTHER window during the notification gets the truth. IN THE IMAGE, with a
+; real initialiser, and not resident (kernel size pass 13): every reader and
+; writer is in this image, and a fresh load is exactly when "nothing armed" is
+; right - wm_disp_now is asked from the first press after an Extend, long
+; before any landing, and 0 is "nothing armed" only because wm_wins is well
+; above it. CS: on every access, DS being the kernel's here.
+wm_lf_win:  dw 0
+wm_lf_disp: db 0
+
 ; -----------------------------------------------------------------------------
 ; wm_disp_now - WHICH DISPLAY IS THIS WINDOW'S? (SPEC.md 39.16.4.1)
 ; in:       BX = the window
@@ -1052,9 +1073,9 @@ wm_fit_box:
 ; only answer that cannot leave a window unreachable (39.17).
 ; -----------------------------------------------------------------------------
 wm_disp_now:
-    cmp [wm_lf_win], bx         ; **A LANDING DECIDES THIS ONCE** (SPEC.md
+    cmp [cs:wm_lf_win], bx      ; **A LANDING DECIDES THIS ONCE** (SPEC.md
     jne .ask                    ; 39.16.4.2): ui_drag_size arms the latch with
-    mov al, [wm_lf_disp]        ; the answer it acted on, because the RESIZE it
+    mov al, [cs:wm_lf_disp]     ; the answer it acted on, because the RESIZE it
     ret                         ; then applies can stop the straddle being
 .ask:                           ; true - and every step after it re-derived
     push dx                     ; the answer from the new geometry

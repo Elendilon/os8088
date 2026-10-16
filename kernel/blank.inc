@@ -147,16 +147,23 @@ blk_act     db 0                ; mou_isr saw a packet; the UI task spends it
 ; [ss_mins] is the one that does work on both: zero disables the whole feature,
 ; animation and blanker alike, and everything else is the idle period.
 ; -----------------------------------------------------------------------------
+; **THE CARRY ARGUMENT ABOVE IS kern_big's** (kernel size pass 13): kern_small
+; reads and writes no SYSTEM.CFG at all (SPEC.md 51.5) and has no saver page,
+; so nothing there ever named these three bytes - its [ss_idle] keeps its
+; resting BLK_IDLE for ever - and they are kern_big's with the rest of ss_pub.
+%ifdef KERN_BIG
 ss_pub:
 ss_modes    db SS_M_ALL         ; which modes the picker may choose from
 ss_secs     db 30               ; seconds one mode runs before another is
                                 ; picked - the whole point of a screen saver
                                 ; being that nothing sits still
 ss_mins     db SS_MINS          ; minutes of idle before it starts; 0 = never
-%ifdef KERN_BIG
 ss_post     db 0                ; the settings window changed something and
                                 ; the UI task owes it work (SPEC.md 79.7)
-%endif
+%else
+            db 0                ; PARITY on kern_small (kernel size pass 13):
+%endif                          ; three bytes out here would leave wm_clip_rows
+                                ; and ui_task at an odd shift
 
 ss_idle     dw BLK_IDLE         ; [ss_mins] in TICKS, which is the unit
                                 ; blk_pass compares in. Derived, by
@@ -564,6 +571,12 @@ ss_mins2idle:
     pop dx
     pop ax
     ret
+%else
+    nop                         ; PARITY, never executed (kernel size pass 13):
+                                ; an odd 23 out of kern_small's .cold would put
+                                ; dsk_xfer and the FAT walk at an odd shift
+%endif
+%ifdef KERN_BIG                 ; ...and the saver's own entries, below
 
 ; -----------------------------------------------------------------------------
 ; ss_call - one verb into the overlay (module internal)

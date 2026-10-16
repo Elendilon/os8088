@@ -72021,8 +72021,10 @@ So the display is decided **once, at entry**, and `wm_lf_win`/`wm_lf_disp`
 answer every later ask for that window — the bank, the notification, and
 anything the handler calls from inside it. The window is latched beside the
 answer so a handler asking about some *other* window still gets the truth, and
-both live in `.text` with real initialisers because `wm_disp_now` is asked from
-the first mouse press of the session.
+both live in `EXTD.DRV`'s own image with real initialisers (they were `.text`
+until kernel size pass 13; every reader and writer is in the image), because
+`wm_disp_now` is asked from the first mouse press after an Extend and a fresh
+load is exactly when "nothing armed" is the right answer.
 
 **The rule generalises past this routine**: a question whose answer is derived
 from geometry may not be asked either side of a write to that geometry. §12.9's

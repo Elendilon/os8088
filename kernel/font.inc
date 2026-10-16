@@ -954,6 +954,10 @@ font_ink:
 .out:
     pop ax
     ret
+%ifdef KERN_SMALL
+    nop                         ; PARITY, never executed (kernel size pass
+%endif                          ; 13): font_ink's test and font_str leave font_run_x
+                                ; an odd 17 bytes up on kern_small
 
 %ifdef BOOT_PROFILE
 ; -----------------------------------------------------------------------------
@@ -1901,6 +1905,9 @@ fnt_rn_edge:
     ret
 
 %endif
+%ifdef KERN_SMALL
+    nop                         ; PARITY, never executed (kernel size pass 13):
+%endif                          ; font_run_x's own mono test was an odd 7
 ; -----------------------------------------------------------------------------
 ; font_run_cell - internal: one opaque 8x8 cell, byte-aligned, [vid_mono] path
 ; in:       AL = character, CX = x (multiple of 8), DX = y, DI = the cell's
