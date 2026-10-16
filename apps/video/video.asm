@@ -6004,9 +6004,8 @@ vp_einq:
 ;     decode inside a borrow runs with interrupts off and YIELDS (vd_yield,
 ;     at vdec.inc's VD_YCK sites, every VP_XYB record bytes): the cells back,
 ;     a moment with interrupts as the borrow found them, a fresh LOADALL at
-;     the same SI. The sites are a `test ax` outside a session in place
-;     and a `call vd_yield` in one (vd_ypatch): a `test` is what an 8088
-;     pays for them.
+;     the same SI. The sites are jumps over themselves outside a session in
+;     place (vd_ypatch), which is what an 8088 pays for them.
 ;
 ; Not taken - the copy plays as before - on anything but a 286 whose LOADALL
 ; checked out (la_probe, and 16 bytes of the hold read in place against
@@ -6085,7 +6084,7 @@ vp_xipq:
     ret
 %endif
 
-; vp_xipend - a session's end: the sites a `test ax` again
+; vp_xipend - a session's end: the sites jumps over themselves again
 vp_xipend:
     cmp byte [vp_xip], 0
     je .r
@@ -6467,17 +6466,12 @@ vd_ylset:
     pop ax
     ret
 
-; vd_yield - vdec.inc's VD_YCK, patched live: SI past [vd_ylim] inside a
-; borrow whose caller had interrupts on, the cells back, a moment with them
-; on, and the same window borrowed again; short of it, nothing. THE REGION'S
-; STATE IS KEPT ON THE STACK across the moment: an interrupt there may run
-; the hook, whose own borrows reuse it. Every register preserved, flags not;
-; DS the window again on the way out
+; vd_yield - vdec.inc's VD_YCK, SI past [vd_ylim]: inside a borrow whose
+; caller had interrupts on, the cells back, a moment with them on, and the
+; same window borrowed again. THE REGION'S STATE IS KEPT ON THE STACK across
+; the moment: an interrupt there may run the hook, whose own borrows reuse
+; it. Every register preserved; DS the window again on the way out
 vd_yield:
-    cmp si, [cs:vd_ylim]
-    jae .go
-    ret
-.go:
     cmp byte [cs:vp_xact], 0
     je .lim
     cmp byte [cs:vp_xif], 0

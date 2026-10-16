@@ -175533,26 +175533,13 @@ ms on the Victory at its worst rate). The window's state rides on the stack
 across the moment, because an interrupt there may run the hook, whose own
 borrows reuse it.
 
-**An 8088 pays a `test` a site.** A site is three bytes, `test ax, rel16`
-(`A9`), whose immediate is a near call's displacement to `vd_yield`: only
-an in-place session patches the one byte to `E8` (`vd_ypatch`, from a table
-the macro builds, so a site added later is in it), making it `call
-vd_yield`, and `vd_yield` makes the compare; the session's end puts the
-`A9` back. Flags are dead at every site. Measured on MartyPC's 5150, the
-inline compare at every site would have been +410 cycles an empty frame and
-+0.9 to 2.4% a real one; the first build's jump over it (`EB 0A`, twelve
-bytes a site) +146 an empty frame and +0.34 to 0.70% a real one, and the
-`test` is **54 cycles an empty frame under the jumps and 35 to 90 under
-them on VIDBENCH's synthetic frames, ~6 a site** - for 258 bytes fewer.
-It is docs/plans/LOADALL-PLAN.md 9.2's option 1, and its price is the
-in-place play's: a site that is a `call` and a `ret` where it was two NOPs
-and a taken `jb` is **~13 clocks more on a 286, PREDICTED** from Intel's
-table (CALL 7+m, RET 11+m) - 9 to 38 sites a frame on the demo files (82
-the most), a few microseconds of a frame at 16 MHz - against **~9 clocks a
-site back on every 286 play that copies** (the Victory MEASURED the jump at
-6.2 us an empty frame, ~12 clocks a site). The C160 decoder has no sites:
-it is reached only through the shadow, which neither session in place
-takes. The fifteen borrow sites add a compare and a jump each.
+**An 8088 pays a short jump a site.** The sites start as a jump over
+themselves (`EB 0A`) and only an in-place session patches them to two NOPs
+(`vd_ypatch`, from a table the macro builds, so a site added later is in
+it); the session's end puts the jumps back. Measured on MartyPC's 5150, the
+compare at every site would have been +410 cycles an empty frame and +0.9
+to 2.4% a real one; as jumps it is **+146 an empty frame and +0.34 to 0.70%
+a real one**. The fifteen borrow sites add a compare and a jump each.
 
 **Taken** (`vp_xipq`, after `vp_einq` where the ring is sized) only on a
 286 (`[vp_tier]`), for a hold that is WHOLE (`[vp_xfull]`), once this

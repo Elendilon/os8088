@@ -856,18 +856,21 @@ bus cannot move - against the same rows before L1):
 Twice what MartyPC's 5150 measured (+0.34-0.70%): a taken jump empties the
 286's prefetch queue, and everything around it got cheaper. Small frames pay
 the most because their cost is mostly fixed and every list head is a site.
-The options:
+The options, none taken yet:
 
-1. **Out of line - BUILT (2026-10-16, SPEC.md 98.3.18.11).** A site is
-   three bytes, `test ax, rel16` off and `call vd_yield` on - the one byte
-   patched, the immediate already the call's displacement, and the compare
-   moved into `vd_yield` - so a play that never yields falls through
-   instead of jumping: 3 clocks a site on a 286 where three NOPs would have
-   been 9, and **~6 cycles a site fewer on MartyPC's 5150, MEASURED**
-   (VIDBENCH: 54 an empty frame, 35-90 a synthetic one). The C160
-   decoder's eight sites, which no session in place ever reaches, went
-   with them: **258 bytes** in every arm. The on-cost rises by a call/ret,
-   ~13 clocks a site PREDICTED, paid only on an in-place play.
+1. **Out of line - BUILT, MEASURED and NOT TAKEN (the owner, 2026-10-16;
+   docs/reports/VIDEO-VDYCK-2026-10-16.md, the patch beside it as
+   `VIDEO-VDYCK-2026-10-16.patch`).** As a 3-byte `test ax, rel16` patched to `call
+   vd_yield` it saved 258 bytes and ~6 cycles a site on an 8088 (35-90 a
+   frame, MEASURED), and cost a 286 decoding in place ~13 clocks a site
+   (0.25-0.6% of a real frame, PREDICTED). The owner keeps the 286's
+   in-place play as it is. The sketch as first written: a site becomes three bytes - three NOPs off, a `call
+   vd_ychk` on - so a play that never yields falls through instead of
+   jumping (9 clocks a site on a 286, against 7 + the next instruction's
+   length for the jump, and ~3 fewer on an 8088's fetch) and the twenty
+   sites shed ~140 bytes of inline check. The on-cost rises by a call/ret,
+   paid only on an in-place play, where it is noise beside the copy it
+   replaced.
 2. **Fewer sites.** The list heads are what an empty or sparse frame
    meets; a site per span segment and per long span may be enough with
    `VP_XYB` lowered to keep the window's bound.

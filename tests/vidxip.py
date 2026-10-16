@@ -27,10 +27,9 @@ inside a borrow (vp_aput's VP_DSDX), every frame.
 
 Broken on purpose (each measured): vp_xaddr returning the chunk's slot
 offset without the hold's base draws garbage and the windows differ; with
-vd_ypatch's `mov byte [bx], 0xE8` taken out the play is still right but
+vd_ypatch's `mov word [bx], 0x9090` taken out the play is still right but
 no yield opens a window ([vp_simyc], a test build's counter) - the row also
-asserts the yields ran; and with its `mov byte [bx], 0xA9` taken out the
-first site is still a `call` (E8) after the session, which the row reads.
+asserts the yields ran.
 """
 import argparse
 import os
@@ -255,7 +254,7 @@ def one(tmp, sim, snd, v88, bank=False, ekr=0, dry=0):
                    ywin=rw("vp_simyc") if sim else 0, lbk=rb("vp_lbk"),
                    ahead=rb("vp_ahead"), xbn=rw("vp_xbn"),
                    kr=krm,
-                   sites=q.read(base + syms["..@vd_y1"], 1)[0]
+                   sites=u16(q.read(base + syms["..@vd_y1"], 2))
                    if "..@vd_y1" in syms else None)
         os88qemu.pace(q, 1)
         rec = q.read(S("wm_wins") + wi * geom.WIN_SIZE, geom.WIN_SIZE)
@@ -383,9 +382,9 @@ def main():
                        % sim["ywin"])
         if snd and sim["snd"] != 1:
             bad.append("the in-place play had no card (snd %d)" % sim["snd"])
-        if sim["sites"] is not None and sim["sites"] != 0xA9:
-            bad.append("a yield site left live after the session (%02X, "
-                       "where a `test ax` is A9)" % sim["sites"])
+        if sim["sites"] is not None and sim["sites"] != 0x0AEB:
+            bad.append("a yield site left live after the session (%04X)"
+                       % sim["sites"])
         if ship["pix"] != sim["pix"]:
             n = sum(1 for x, y in zip(ship["pix"], sim["pix"]) if x != y)
             bad.append("the window after the play differs in %d pixels" % n)

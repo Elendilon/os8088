@@ -114,8 +114,7 @@
 %else
     jmp %1
 %endif
-    VD_PAR 0                        ; (.seg even, in the dead byte after the
-%endmacro                           ; jump on: VD_PAR, below)
+%endmacro
 
 ; VD_GATEN next[, byte] - VD_GATE for a list whose `next` is in a short
 ; jump's reach (or 0, and .ret a `ret` in reach): not there is a `jnc` to
@@ -154,28 +153,27 @@
 %endmacro
 
 ; VD_YCK - THE IN-PLACE DECODE'S YIELD (SPEC.md 98.3.18.11): SI past
-; [vd_ylim] yields (vd_yield), which on a 286 decoding a record held in XMS
+; [vd_ylim] calls vd_yield, which on a 286 decoding a record held in XMS
 ; through a LOADALL'd DS opens the interrupts for a moment and borrows again
-; at the same SI. A site at each poke list's head, each span segment's and
-; each long span's - never inside a poke segment, the hot loop an 8088 lives
-; in. A SITE IS THREE BYTES: `test ax, rel16` (A9), whose immediate is a
-; call's displacement to vd_yield - so only an in-place session, patching
-; the one byte to E8 (vd_ypatch), makes it `call vd_yield`, and vd_yield
-; makes the compare. Flags are dead at every site. An 8088 - which can never
-; decode in place - pays 4 cycles a site and its fetch where the jump over
-; an inline compare (EB 0A, 12 bytes a site) paid 15 and a refill: ~6 a site
-; less, measured on MartyPC's 5150, and ~13 clocks MORE a site on a 286
-; decoding in place, predicted (a call and a ret for two NOPs). The macro
-; numbers its sites and vd_ytab lists them, so a site added later is in the
-; table; VD_NOYCK (the C160 decoder, never decoded in place: 98.3.18.11's
-; shadow) emits none
+; at the same SI. Everywhere else [vd_ylim] is FFFFh and it is never taken:
+; a compare at each poke list's head, each span segment's and each long
+; span's - never inside a poke segment, the hot loop an 8088 lives in
+; EVERY SITE STARTS AS A JUMP OVER ITSELF, and only an in-place session
+; patches it to two NOPs (vd_ypatch), so an 8088 - which can never decode in
+; place - pays a taken short jump, ~15 cycles, where the compare it skips
+; cost ~41: measured on MartyPC's 5150, the compare at every site was +410
+; cycles an empty frame and +0.9-2.4% a real one. The macro numbers its
+; sites and vd_ytab lists them, so a site added later is in the table
 %assign vd_ny 0
 %macro VD_YCK 0
-%ifndef VD_NOYCK
 %assign vd_ny vd_ny + 1
 ..@vd_y %+ vd_ny:
-    test ax, vd_yield - ($ + 3)     ; A9 rel16, or E8: `call vd_yield`
-%endif
+    jmp short %%ok                  ; 2 bytes: EB 0A, or 90 90 in place
+%%live:                             ; (reached once vd_ypatch has run)
+    cmp si, [cs:vd_ylim]            ; 5
+    jb %%ok                         ; 2
+    call vd_yield                   ; 3
+%%ok:
 %endmacro
 
 %macro VD_NPOKE 2-7 0, 0, 0, 0, 0
@@ -290,17 +288,15 @@
 ; each list's .seg and its round's head - the two jumps a segment takes -
 ; are put on even addresses; an 8088 fetches a byte at a time and does not
 ; care. Each use below is placed for the head length of the list after it
-; (its .seg's offset from its label) - but a VD_GATE pins its own .seg in
-; the dead byte after its jump on, so a gated list needs none: an edit that
-; moves one must move its VD_PAR with it (tools/os88rdiff.py's map shows
-; them). The package is
+; (its .seg's offset from its label): an edit that moves one must move its
+; VD_PAR with it (tools/os88rdiff.py's map shows them). The package is
 ; loaded at a paragraph, so an offset's parity is the address's
 %macro VD_PAR 1
     times (($ - $$ + %1) & 1) db 0x90
 %endmacro
 
 ..@vd_beg:                          ; (the decoder's first byte, for its end)
-    VD_PAR 0                        ; (vd_nmap's entry: its gate pins .seg)
+    VD_PAR 0                        ; (vd_n_p1's .seg, 20 + 22 on)
 ; vd_nmap - vd_native for a SUB2 sub-record (SPEC.md 98.1.3.2.4): DS:SI is
 ; its LIST MAP, a word whose bit k says list k is there, and then those
 ; lists alone. Each list's head shifts the map once - `shr` and a jump, ~35
@@ -322,10 +318,15 @@ vd_ngo1:
                                     ; ret: ten calls were ~250 cycles a frame.
                                     ; The entry falls into the first
     VD_NPOKE vd_n_p1, VD_ST1, 0, vd_n_p2, 1
+    VD_PAR 0
     VD_NPOKE vd_n_p2, VD_ST2, 0, vd_n_p3, 1
+    VD_PAR 0
     VD_NPOKE vd_n_p3, VD_ST3, 0, vd_n_p4, 1
+    VD_PAR 0
     VD_NPOKE vd_n_p4, VD_ST4, 0, vd_n_p5, 1
+    VD_PAR 0
     VD_NPOKE vd_n_p5, VD_ST5, 0, vd_n_p6, 1
+    VD_PAR 0
     VD_NPOKE vd_n_p6, VD_ST6, 0, vd_n_slice, 1
 
 ; VD_NSPAN name, entry, c160, next - a Duff-entered list of spans, four to a
@@ -362,9 +363,8 @@ vd_ngo1:
                                     ; entries zero it)
     shl bx, 1
     jmp [cs:bx + .tab]
-    VD_PAR 0                        ; (the round's head: the site in front of
-.r4:                                ; it is three bytes, so .seg's pad is not
-    %2                              ; enough)
+.r4:
+    %2
 .r3:
     %2
 .r2:
@@ -418,7 +418,6 @@ vd_ngo1:
     VD_NSPAN vd_n_run, VD_RUN, 0, vd_n_slicel, 1
 
 ; the long ones: a span of 256+ bytes, len16 - rare, so a plain loop
-    VD_PAR 1                        ; (a GATEN head is 7 bytes)
 vd_n_slicel:
     VD_GATEN vd_n_runl, vd_map + 1
 .seg:
@@ -445,7 +444,6 @@ vd_n_slicel:
     jnz .e
     jmp short .seg
 
-    VD_PAR 0                        ; (.seg odd, .e even)
 vd_n_runl:
     VD_GATEN 0, vd_map + 1
 .seg:
@@ -473,7 +471,6 @@ vd_n_runl:
     dec dx
     jnz .e
     jmp short .seg
-    VD_PAR 0                        ; (the frame's last list's end, even)
 .ret:
     ret
 
@@ -491,7 +488,7 @@ vd_n_runl:
 ; vd_wmap - DS:SI = the sub-record's list map and its lists, ES the screen,
 ; BP the origin: vd_nmap's contract. Clobbers AX, BX, CX, DX, DI
 ; =============================================================================
-    VD_PAR 0                        ; (vd_wmap's entry: its gate pins .seg)
+    VD_PAR 0                        ; (vd_w_p1's .seg: 10 + 22 on)
 vd_wmap:
     cld
     lodsw
@@ -530,14 +527,15 @@ vd_wmap:
 ; is ~5% of a store that reads and writes the card - where a round of eight
 ; was 1,702 bytes of a package at 55.8 KB of its 60)
     VD_NPOKE vd_w_p1, VD_W1, 0, vd_w_p2, 1, 4
+    VD_PAR 1                        ; (its gate's jump on is SHORT: 21)
     VD_NPOKE vd_w_p2, VD_W2, 0, vd_w_p3, 1, 2
-    VD_PAR 0                        ; (gate 2's head: 3 + 7)
+    VD_PAR 1                        ; (gate 2's head: 19)
     VD_NPOKE vd_w_p3, VD_W3, 0, vd_w_p4, 2, 1     ; (a round of one is
-    VD_PAR 0                                      ; short enough that the
+    VD_PAR 1                                      ; short enough that the
     VD_NPOKE vd_w_p4, VD_W4, 0, vd_w_p5, 2, 1     ; next list is in a short
-    VD_PAR 0                                      ; jump's reach: gate 2)
+    VD_PAR 1                                      ; jump's reach: gate 2)
     VD_NPOKE vd_w_p5, VD_W5, 0, vd_w_p6, 2, 1
-    VD_PAR 0
+    VD_PAR 1
     VD_NPOKE vd_w_p6, VD_W6, 0, vd_w_slice, 2, 1
 
 ; a SLICE of masks: skip, len8, the masks, a read and a write each
@@ -616,7 +614,6 @@ vd_w_slicel:
     jnz .e
     jmp short .seg
 
-    VD_PAR 1                        ; (a GATEN head is 7 bytes)
 vd_w_runl:
     VD_GATEN 0, vd_map + 1
 .seg:
@@ -640,7 +637,6 @@ vd_w_runl:
     dec dx
     jnz .e
     jmp short .seg
-    VD_PAR 0                        ; (the frame's last list's end, even)
 .ret:
     ret
 
@@ -747,7 +743,7 @@ vd_ylim:      dw 0xFFFF             ; VD_YCK's limit: FFFFh but inside an
                                     ; in-place decode (SPEC.md 98.3.18.11)
 %ifndef VD_YIELD
 vd_yield:                           ; (an includer with no in-place decode:
-    ret                             ; never called, its sites never patched)
+    ret                             ; never reached, its sites never patched)
 %else
 ; vd_ytab - every VD_YCK site, for vd_ypatch
 vd_ytab:
@@ -758,9 +754,9 @@ vd_ytab:
 %endrep
 VD_NY       equ vd_ny
 
-; vd_ypatch - AL = 1: every yield site a `call vd_yield` (an in-place
-; session starting), 0: every one a `test ax` again. CS = DS = the package.
-; Preserves all but flags
+; vd_ypatch - AL = 1: every yield site live (an in-place session starting),
+; 0: every one a jump over itself again. CS = DS = the package. Preserves
+; all but flags
 vd_ypatch:
     push bx
     push cx
@@ -769,10 +765,10 @@ vd_ypatch:
     mov si, vd_ytab
 .s:
     mov bx, [si]
-    mov byte [bx], 0xA9             ; test ax, imm16
+    mov word [bx], 0x0AEB           ; jmp short +10
     or al, al
     jz .n
-    mov byte [bx], 0xE8             ; call rel16
+    mov word [bx], 0x9090
 .n:
     inc si
     inc si
@@ -788,7 +784,6 @@ vw_lst:       db 0                  ; ...the list it is in
 vw_abs:       db 0                  ; ...and whether its addresses are absolute
 
 %ifdef VD_C160
-%define VD_NOYCK                     ; (no yield sites: never in place)
 ; =============================================================================
 ; THE C160 DECODER (SPEC.md 98.3.12.1): the same ten lists, written STRAIGHT
 ; to the text screen. A C160 file's addresses are the PACKED image's - a byte
@@ -970,5 +965,4 @@ vd_c_runl:
 ; on from the plain build's - and this evens that out, so what follows keeps
 ; its parity in every arm
     times ((($ - ..@vd_beg) - 4897) & 1) db 0x90
-%undef VD_NOYCK
 %endif
