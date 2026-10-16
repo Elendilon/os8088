@@ -155,12 +155,13 @@ tm_entry:
     call OSAPI_WM_ONTIMER
     mov ax, TM_TICKS
     call OSAPI_WM_TIMER             ; CF = 1: kern_small carries the slot and
-    jnc .armed                      ; not the body (SPEC.md 13.9) - so the
-    mov byte [tm_notimer], 1        ; clock is a worker's, spawned at the first
-.armed:                             ; paint (tm_paint), not here: the loader
-                                    ; has not published us yet
+    adc [tm_clk], ah                ; not the body (SPEC.md 13.9) - so the
+                                    ; clock is a worker's (tm_clk 0 -> 1, AH
+                                    ; being TM_TICKS's high byte, 0), hired at
+                                    ; the first paint, not here: the loader has
+                                    ; not published us yet
     ; --- fresh Timer: 00:00:00 (the bss is zero), seeded now, and RUNNING ---
-    mov byte [tm_run], 1
+    inc byte [tm_run]               ; 0 -> 1
     call tm_stamp
     ; --- the buttons' gesture: the library installs the three slots ---------
     xchg ax, bx                     ; AX = the window
@@ -367,14 +368,12 @@ tm_paint:
     ; OSAPI_TASK_SPAWN requires and an entry proc is not (the loader has not
     ; published us yet). A refusal is transient (the task table is full), so
     ; the flag is set only on success and the next paint tries again.
-    cmp byte [tm_notimer], 0
-    je .clk
-    cmp byte [tm_spawned], 0
+    cmp byte [tm_clk], 1            ; owed a worker and not yet holding one?
     jne .clk
     mov ax, tm_worker
     call OSAPI_TASK_SPAWN           ; keeps BX
     jc .clk
-    mov byte [tm_spawned], 1
+    inc byte [tm_clk]               ; 1 -> 2: hired
     OS88_WORKER_RESTARTABLE_NOKEEP tm_worker ; SPEC.md 66.6.2: the kernel wrote
                                     ; our segment into this worker's frame, and
                                     ; the park is inside OSAPI_TASK_ALIVE at the
@@ -408,8 +407,10 @@ tm_paint:
     call tm_digits                  ; BX = the window still
     mov dl, TM_NB + 1               ; ...then the greying and all three buttons
     call tm_flags
-    cmp byte [tm_abon], 0           ; ...and the About card LAST, over the
-    je .out                         ; content it is opaque about (SPEC.md 20.5.1)
+    cmp byte [tm_btrec+OS88UI_BT_N], 0 ; ...and the About card LAST, over the
+    jne .out                        ; content it is opaque about (SPEC.md
+                                    ; 20.5.1). The card is up exactly while the
+                                    ; record has no buttons (tm_about)
     mov bx, si
     mov si, tm_ablines
     call os88ui_about_d             ; _d: this paint's region is already armed;
@@ -564,10 +565,11 @@ tm_worker:
 ; in:  SI = our window ptr; the UI task, gfx lock HELD
 ; While the card is up the button record is told it has NO buttons, so a
 ; press anywhere in the content reaches tm_onclick and takes the card down
-; rather than pressing the button under it.
+; rather than pressing the button under it - and that zero IS the card's
+; state: no flag byte of its own, so the two cannot disagree. The count's
+; high byte is always 0 (it is 0 or TM_NB), so the stores are bytes.
 tm_about:
-    mov byte [tm_abon], 1
-    mov word [tm_btrec+OS88UI_BT_N], 0
+    mov byte [tm_btrec+OS88UI_BT_N], 0
     mov bx, si
     mov si, tm_ablines
     jmp os88ui_about                ; arms the clip itself; a tail call
@@ -575,22 +577,21 @@ tm_about:
 ; tm_onclick - the library's chain for a press that was not a button's: the
 ;              About card's dismissal (SPEC.md 20.5.1)
 ; in:  CX = x, DX = y, SI = our window ptr; gfx lock held
-; out: CF = 1 the press was spent on the card; clobbers AX and BX, which a
-;      W_ONCLICK may
+; out: CF = 1 the press was spent on the card; keeps SI, clobbers the rest
+;      as a W_ONCLICK may
+;
+; os88ui_abdismiss's cmp/clear/clip/repaint/answer, written out: with the
+; card's state being the button count, the clear and the test are ONE xchg,
+; and the repaint is inline rather than a proc handed over in AX.
 tm_onclick:
-    mov word [tm_btrec+OS88UI_BT_N], TM_NB  ; the buttons are back (harmless
-                                    ; when no card was up: the count is already
-                                    ; this)
-    mov bx, tm_abon
-    mov ax, tm_repaint              ; ...which fills white and draws the page
-    jmp os88ui_abdismiss            ; cmp/clear/clip/repaint/answer: the
-                                    ; library's, and CF is its
-
-; tm_repaint - erase the content and draw it again
-; in:  SI = BX = window ptr; gfx lock held, a clip region armed
-; out: nothing; keeps SI
-tm_repaint:
-    mov al, CWHITE
+    mov al, TM_NB
+    xchg al, [tm_btrec+OS88UI_BT_N] ; the buttons are back, whatever was up,
+    cmp al, 1                       ; and CF = 1 exactly when there were none:
+    jnc .out                        ; no card - CF = 0, the press is not ours
+    mov bx, si
+    call OSAPI_WM_CLIP_SET          ; CF = 1: not visible - spent all the same,
+    jc .out                         ; and the next paint draws no card
+    mov al, CWHITE                  ; --- erase the content, draw it again ---
     call OSAPI_SET_COLOR
     call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
     mov bx, dx                      ; y1 = top
@@ -598,7 +599,10 @@ tm_repaint:
     add cx, TM_CW - 1               ; x2
     add dx, TM_CH - 1               ; y2
     call OSAPI_GFX_FILL             ; AX = x1 already
-    jmp tm_paint                    ; SI = window ptr still
+    call tm_paint                   ; SI = window ptr still; keeps it
+    stc
+.out:
+    ret
 
 ; --- data ----------------------------------------------------------------------
 ; window template (SPEC.md 11: 16 bytes, 8 words), at the kind's position.
@@ -607,7 +611,10 @@ tm_repaint:
 tm_tpl:     dw 330, 60, TM_W, TM_H
             dw tm_ttl, tm_paint, 0, 0
 
-tm_ttl:     db 'Timer', 0
+; The title is the header's NAME FIELD (SPEC.md 20.2, +16): OS88_HEADER
+; NUL-pads it to 16 bytes and refuses a name over 15, so it is a terminated
+; 'Timer' already, in our segment like any other string.
+tm_ttl      equ 16
 tm_s_start: db 'Start', 0
 tm_s_stop:  db 'Stop', 0
 tm_s_reset: db 'Reset', 0
@@ -633,14 +640,15 @@ tm_ab2:     db 'a stopwatch', 0
 
 ; --- the shared controls (SPEC.md 20.5.1) ---------------------------------------
 %define OS88UI_ABOUT            ; the standard About card...
-%define OS88UI_ABDISMISS        ; ...taken down with os88ui_abdismiss
+                                ; (taken down by tm_onclick itself, not
+                                ; OS88UI_ABDISMISS: SPEC.md 111.6)
 %define OS88UI_NOGLYPH          ; no check box or radio drawn here (SPEC.md 13.8.9)
 %include "os88ui.inc"           ; ...and the button, with its gesture
 %if OS88UI_DIS != 1 || (OS88UI_FILL & 1)
 %error "tm_flags greys with an inc: it needs OS88UI_DIS at bit 0 and FILL clear of it"
 %endif
 
-    OS88_BSS 60
+    OS88_BSS 58
     OS88_IMAGE_END
 
 ; --- loader-zeroed bss (SPEC.md 21 step 5) --------------------------------------
@@ -651,12 +659,12 @@ tm_last     equ os88_image_end + 6  ; word: last [ticks] sample
 tm_acc      equ os88_image_end + 8  ; word: tenth-of-tick accumulator
 tm_shown    equ os88_image_end + 10 ; 8: the cells this window is DISPLAYING;
                                     ; all zero = nothing here describes the glass
-tm_str      equ os88_image_end + 18 ; 9: "HH:MM:SS",0 scratch (under the lock)
-tm_notimer  equ os88_image_end + 27 ; byte: OSAPI_WM_TIMER refused (kern_small)
-tm_spawned  equ os88_image_end + 28 ; byte: the worker is running
-tm_abon     equ os88_image_end + 29 ; byte: the About card is up
-tm_rects    equ os88_image_end + 30 ; 3 x 4 words: the buttons, screen, inclusive
-tm_bflags   equ os88_image_end + 54 ; 3 words: OS88UI_FILL, and DIS on the refused one
-%if tm_bflags + 2 * TM_NB - os88_image_end != 60
+tm_str      equ os88_image_end + 18 ; 9: "HH:MM:SS",0 scratch (under the lock);
+                                    ; the NUL at +8 is the loader's, never written
+tm_clk      equ os88_image_end + 27 ; byte: whose clock - 0 the window's timer,
+                                    ; 1 owed a worker (kern_small), 2 hired
+tm_rects    equ os88_image_end + 28 ; 3 x 4 words: the buttons, screen, inclusive
+tm_bflags   equ os88_image_end + 52 ; 3 words: OS88UI_FILL, and DIS on the refused one
+%if tm_bflags + 2 * TM_NB - os88_image_end != 58
 %error "the Timer's bss layout and OS88_BSS disagree"
 %endif

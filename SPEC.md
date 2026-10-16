@@ -185291,7 +185291,7 @@ It landed in v2's wave 3 (§110.10); the Desk Calendar adopted it in wave 4
 ## 111. TIMER — the stopwatch (`apps/timer/timer.asm`)
 
 The kernel's Timer kind (§14) as a package since §14.8: `TIMER.O88`, in
-`APPS/` on every apps disk, 1,589 bytes of image and 60 of bss (§111.6),
+`APPS/` on every apps disk, 1,550 bytes of image and 58 of bss (§111.6),
 the stopwatch icon in its header, label prefix `tm_`. Everything §14 says about
 the Timer's behaviour holds — the window, the layout, the accumulator
 (binding), §14.1's incremental redraw, §14.4's cut line, §47's greying — and
@@ -185357,7 +185357,8 @@ one `OSAPI_FONT_RUN`.
 The standard About card (§20.5.1), two lines — 41px of content holds two.
 While the card is up the button record is told it has NO buttons, so a
 press anywhere in the content reaches the dismissal rather than the button
-under the card. `tests/timerbounce.py` is the gate (soak, MartyPC): it opens
+under the card - and that zero IS the card's state (§111.6): there is no
+flag byte beside it to disagree with it. `tests/timerbounce.py` is the gate (soak, MartyPC): it opens
 `TIMER.O88` and `BOUNCE.O88` by name out of the apps disk's `APPS/`, reads the
 Timer's seconds advancing out of its own bss, presses Stop and then Start
 through the real gesture and reads `tm_run` both ways, and reads the Bounce's
@@ -185399,6 +185400,18 @@ clear prefix), 953 this file's code and data, and 963 `apps/os88ui.inc`.
   1,775 -> 1,589, and that is under the line: LZ4 now fits its in-place
   layout in the 2,048-byte region (1,501 + 512), so the package packs again
   and the FILE is 1,775 -> 1,501.
+- **State that was written twice is kept once.** The About card's flag byte
+  went: the card is up exactly while the button record's count is 0, which
+  `tm_about` already wrote, so `tm_paint` reads the count and `tm_onclick`
+  clears and tests it in one `xchg` - and with the test that cheap, the
+  dismissal is written out rather than handed to `os88ui_abdismiss` (whose
+  own comment says it is not a byte saving in a one-dismissal package; here
+  the repaint proc it needed folds into the dismissal too). The clock's two
+  bytes, "the window timer refused" and "the worker is hired", are one
+  three-state `tm_clk`, set by an `adc` of the refusal's carry. The window
+  title is the header's name field (§20.2, +16, which `OS88_HEADER` NUL-pads
+  and caps at 15 characters) rather than a second 'Timer'. Image 1,589 ->
+  1,550, bss 60 -> 58, the file 1,501 -> 1,467.
 
 ## 112. BOUNCE — the square (`apps/bounce/bounce.asm`)
 
