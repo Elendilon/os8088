@@ -130166,6 +130166,15 @@ machine does being none:
   and nothing read, is gone, and `tk_onresize` is `tk_adapter` itself rather
   than a call to it. The window's title is the menu's name, the same eleven
   characters. Image -36, bss -2, the file -21.
+- **A parity pad after `tk_tantab`.** The pass moved code by odd amounts
+  (the entry proc's 163 bytes, the tangents' 37), which left the game loop's
+  routines - `tk_render`, the AI, the template's - an odd distance from where
+  they were. An 8088 fetches a byte at a time and does not care; a 286 or
+  an 8086 fetches words and does. One `db 0` puts every routine below it
+  back on the parity it had before the pass, on both builds (checked off
+  the two maps: what still differs is the window's callbacks, its strings
+  and the overlay). It costs no image byte, the overlay's own `align 2`
+  giving one back.
 
 ## 86. AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`)
 

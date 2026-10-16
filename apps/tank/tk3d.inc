@@ -877,3 +877,7 @@ TK_RBROWS equ ((TK_RIDGEPK * (TK_SCLYH / 3)) >> 8) + 3
 
 tk_tantab:
 %include "tktan.inc"
+    db 0                            ; THE PARITY PAD (SPEC.md 85.10.7): every
+                                    ; routine below keeps the address parity
+                                    ; it had before apps size pass 2 - free on
+                                    ; an 8088, a fetch on a 16-bit bus
