@@ -356,7 +356,8 @@ fv_sysline:
 fv_draw_list:
     mov cx, FV_LISTX                ; one column: fv_sysline keeps CX
     mov dx, 4
-    mov si, fv_s_fonts
+    mov si, ty_s_fonts              ; os88type.inc's 'FONTS', the folder
+                                    ; this column lists: one copy, not two
     call fv_sysline
     cmp byte [ty_nfam], 0
     jne .rows
@@ -544,7 +545,6 @@ fv_tpl:
     dw fv_title, fv_paint, fv_onkey, fv_onclick
 
 fv_title:      db 'Font Viewer', 0
-fv_s_fonts:    db 'FONTS', 0
 fv_s_none:     db 'No .F88 files', 0
 fv_s_pick:     db 'Click/arrows', 0
 fv_s_spec:     db 'SPECIMEN', 0
