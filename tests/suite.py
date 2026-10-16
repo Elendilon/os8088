@@ -13270,6 +13270,18 @@ SOAK = [
         "pans (98.2.1.2.1), and --bands' writes never climbing back a band "
         "(98.2.1.2.2), each red with its mechanism taken out.",
         needs=("ffmpeg",)),
+    Row("vidlag", "soak", py("tests/vidlag.py"), 35.0,
+        "SPEC.md 98.2.1.1.3: the lag searched, host-side. A frame's ceiling "
+        "under the lag schedule must be the most it may take - safe and "
+        "tight to a hundredth of a period, an allowance between two calls "
+        "included (with the old 'allowance less a call' back, 17 of 31 are "
+        "not); on a clip of Mech2's shape whose bursts fixed allowances cut "
+        "5, 5, 3, 3, 3 frames, --lag 50-200 must cut no more than --lag 200, "
+        "choose more than one allowance and one below the top, and replayed "
+        "as the player schedules it fall a frame behind and never 200 ms; "
+        "--lag's spellings and a version-35 record must read as made. Broken "
+        "on purpose (the search always the top, or its worst pick) it FAILS",
+        needs=("ffmpeg",)),
     Row("vidlayer", "soak", py("tests/vidlayer.py"), 320.0,
         "SPEC.md 98.1.9: THE LAYER, host-side - six seconds of a Mandelbrot "
         "zoom encoded for a 60 KB/s 286, plain and with --layer-disk for 240 "

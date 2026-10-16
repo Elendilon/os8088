@@ -169438,14 +169438,18 @@ in a burst, and catch up after** - owed time's idea (98.2.1.1) on the flip
 schedule, and since the same day **on every play with a card's sound,
 flipped or not**. The schedule above keeps the NEXT frame less than one
 frame behind; with L = MS x fps / 1000 frames it keeps it less than L, so
-a frame's ceiling is `(L + 1) periods - a call - how far behind it starts`.
+a frame's ceiling is `a period + the last call short of L - how far behind
+it starts` (it was `(L + 1) periods - a call - ...`, which is the same
+where L is a whole number of calls and too little where it is not:
+98.2.1.1.3).
 On a file that is not flipped the lag schedule REPLACES owed time
 (98.2.1.1) wherever L is past one frame: owed time pays a run back by
 holding the next frames, the lag schedule by drawing two a period, and a
 card's ring is what lets the second be on time.
 
-**The default is 100 ms** - 2.4 frames at 24 fps, 3 at 30 - and it was
-first `--flip-lag 3` (frames, flipped files only). How far behind a
+**The default was 100 ms** - 2.4 frames at 24 fps, 3 at 30 - and it was
+first `--flip-lag 3` (frames, flipped files only); since 2026-10-16 it is
+the RANGE `50-200`, searched for each burst (98.2.1.1.3). How far behind a
 picture can be without the eye minding is the VIDEO's and not the
 machine's: Bad Carrot's flames ran 186 ms behind on the Victory and read
 smooth, being timed to nothing in the sound, where a face speaking would
@@ -169485,6 +169489,81 @@ average": the attribution compared the room net of the back page's debt
 with the ceiling, and on a flipped file that debt is never zero. It reads
 the 1-second bucket against the ceiling now, and says `the lag schedule N`
 where the schedule's ceiling was under `--peak`.
+
+###### 98.2.1.1.3 The lag searched: a range, and the allowance per burst (2026-10-16)
+
+**`--lag LO-HI` gives the encoder a RANGE, and at each burst it finds the
+allowance in it that cuts the fewest frames** - the default, `50-200`. The
+owner, 2026-10-16: on Mech2 (15 fps, mode 13h, `286-picomem1`, PCM8),
+*"50ms lag cuts over 150 frames, 100ms lag cuts 26, 150ms lag cuts over
+150 frames ... I don't want to find out on another video that another
+number would have been optimal."* One number `--lag MS` is the fixed
+allowance it was (98.2.1.1.2), and a record made before ranges (options
+version 35) reads its number so.
+
+**Half of that answer was a DEFECT, and the fix is the reason the rest is
+cheap.** The schedule's calls come half a period apart, and the next frame
+starts at the first call after this one is drawn - so the most a frame may
+leave the picture behind is not `L - a call`, as the ceiling had it, but
+the LAST CALL SHORT OF L. Where L is a whole number of calls the two are
+the same; where it is not, a frame was held to less than it could take
+and the next still started at the call above, so in a long burst EVERY
+frame had that much less than a period, for nothing. 150 ms at 15 fps is
+2.25 frames, a quarter-frame between two calls: held at 2.0 frames behind,
+each frame got three quarters of a period. Measured on Mech2, cuts at
+fixed allowances before and after:
+
+| `--lag` | frames, at 15 fps | cut before | cut after |
+|---|---|---|---|
+| 100 | 1.5 (a call) | 26 | 26 |
+| 133 | 1.995 (a hair short of 2.0) | 25 | 24 |
+| 150 | 2.25 | **89** | 22 |
+| 200 | 3.0 (a call) | 20 | 20 |
+
+(The 50 ms the owner measured is under a frame, where an unflipped file
+keeps owed time, 98.2.1.1, and not the lag schedule at all.) So an
+allowance between two calls is the call above it: a file made at one
+re-encodes better, one made at a whole number of calls byte for byte as it
+was (Mech2 at 100 ms: only the options record's version differs), and the
+search has only the calls to choose among: `50-200` at
+15 fps is five allowances, the picture at most 33, 67, 100, 133 or 167 ms
+behind (a call short of 67 to 200).
+
+**The search** (`_encode`'s `lag_search`, `lag_best`): a frame that
+starts level with the sound is drawn at the range's top; if it ends
+level, every allowance draws it the same (its ceiling is at least a
+period under any of them) and nothing is decided. If it ends behind, a
+burst has begun: the encoder and page-ahead, snapshotted before that
+frame (`Encoder.__deepcopy__`, which keeps a copy's surfaces seen through
+its own views), are played on copies at every allowance - each until
+`LAG_SETTLE` (1 s) past its picture level again or `LAG_WIN` (4 s), all to
+the same frame - and the burst takes the allowance that cut the fewest
+frames, then left the fewest bytes wrong, then the LEAST LAG. A burst
+longer than the window is searched again from where it has got to. The
+top's own frame is kept when it wins; otherwise the real encoder is put
+back in place (the layer holds it by identity) and the frame drawn again.
+
+On Mech2 at `50-200`: 9 bursts, 20 frames cut (`--lag 200`'s 20, and
+100 ms's 26), four bursts with nothing cut at any allowance kept at 33 ms
+and five at 167, at 1.4 times the clip's frames played to choose (80 s
+against 51 for the fixed encode). After the fix the cuts FALL with every
+call more of lag on each of its bursts, so the top of the range is where
+a burst that cuts goes, and what the search buys is the bottom wherever
+the burst is free: **the top is the most lag the file will ever show, and
+choosing it is the video's question still (98.2.1.1.2)**. `50-150` cut 22,
+as `150` does, and kept the same four at 33 ms.
+
+The summary says what it chose: `lag search: 9 bursts searched at --lag
+50-200, the picture at most 33/67/100/133/167 ms behind; chose 33 ms x4,
+167 ms x5; 1605 frames played to choose (1.4 x the clip)`, and
+`OS88_VENC_LAGDUMP=FILE` writes each search - its frame, its window and
+every allowance's cuts - as JSON. Nothing changes in the file or the
+player. `tests/vidlag.py` is the gate: the ceiling safe and tight for every
+allowance (17 of 31 not, with the old formula back), and on a clip of
+Mech2's shape whose bursts fixed allowances cut 5, 5, 3, 3, 3 frames the
+range cuts no more than its top, chooses below it, and replayed as the
+player schedules it never reaches 200 ms - red with the search always the
+top, or its worst pick.
 
 ##### 98.2.1.3 The disk reserve: bursts banked in the player's ring
 

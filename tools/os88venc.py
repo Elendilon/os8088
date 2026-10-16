@@ -831,7 +831,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 35
+OPTS_VERSION = 36
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -859,14 +859,22 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     30: "60532ee7474b8d76",
                     31: "09f14123f968592f", 32: "413eeac77e2d4441",
                     33: "1cb11afeb374b243", 34: "60df56fd426010fd",
-                    35: "e1090fc6c20c5367"}
-LAG_MS = 100.0          # --lag's default (98.2.1.1.2), the owner's (2026-10-15):
-                        # how far behind a picture may be without the eye
-                        # minding is the VIDEO's - Bad Carrot's flames ran
-                        # 186 ms behind and read smooth, being timed to
-                        # nothing in the sound; lip sync would not - so the
-                        # default is low and a file raises it. 2.4 frames
-                        # at 24 fps (it was --flip-lag 3, flipped files only)
+                    35: "e1090fc6c20c5367", 36: "00e7310bd1a264d8"}
+LAG_MS = "50-200"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
+                        # a RANGE, searched for each burst, where it was one
+                        # number tuned by hand - on Mech2 at 15 fps, 100 ms
+                        # cut 26 frames, 150 cut 89 and 200 cut 20, so no
+                        # number is the clip's. How far behind a picture may
+                        # be without the eye minding is still the VIDEO's
+                        # (Bad Carrot's flames read smooth at 186 ms; lip
+                        # sync would not), so the search takes the LEAST lag
+                        # that cuts the fewest frames, and the top of the
+                        # range is the most a file will ever show
+LAG_WIN = 4.0           # a search plays each candidate this many seconds
+                        # at most...
+LAG_SETTLE = 1.0        # ...or this long past its picture level again,
+                        # whichever is sooner: a cut frame's bytes left wrong
+                        # are redrawn after it, and that is the cut's cost too
 POOL_KB = 2944          # --pool's default: a 4 MB board's ~3 MB of XMS less
                         # 128 KB (98.3.18.2.1)
 
@@ -1012,6 +1020,10 @@ MIGRATIONS = {
     33: [("added", "pages", "2"), ("added", "page_keys", "all")],
     # 35: --key-pool (98.1.3.8.1) - a file made before it had none
     34: [("added", "key_pool", "off")],
+    # 36: --lag takes a RANGE, LO-HI (98.2.1.1.3) - a record's number reads
+    # as the fixed allowance it was (one between two of the schedule's
+    # calls re-encodes as the call above it, which is the ceiling's fix)
+    35: [],
 }
 
 
@@ -1030,6 +1042,45 @@ def screen_arg(v):
     t = str(v).strip().lower()
     n = t.endswith("n")
     return dims(t[:-1] if n else t) + ("n" if n else "")
+
+
+def lag_arg(v):
+    """--lag: MS, the allowance fixed (98.2.1.1.2) - or LO-HI, a range the
+    encoder searches for each burst (98.2.1.1.3), stored as `LO-HI`"""
+    if isinstance(v, (int, float)):
+        return float(v)
+    t = str(v).strip().lower().replace(" ", "")
+    try:
+        if "-" in t[1:]:
+            lo, hi = (float(x) for x in t.split("-", 1))
+            if lo < 0 or hi < lo:
+                raise ValueError
+            return lo if lo == hi else "%g-%g" % (lo, hi)
+        x = float(t)
+        if x < 0:
+            raise ValueError
+        return x
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "%r is not milliseconds, or LO-HI (98.2.1.1.3)" % (v,))
+
+
+def lag_bounds(v):
+    """--lag's (lowest, highest) milliseconds: the same twice when fixed"""
+    v = lag_arg(LAG_MS if v is None else v)
+    if isinstance(v, str):
+        lo, hi = (float(x) for x in v.split("-", 1))
+        return lo, hi
+    return max(0.0, v), max(0.0, v)
+
+
+def lag_best(runs):
+    """THE SEARCH'S PICK (98.2.1.1.3) of its candidates' plays, each a dict
+    of `L` (the allowance, frames), `cut` (frames cut over the window) and
+    `left` (bytes left wrong after them): the fewest cut, then the fewest
+    wrong, then the LEAST LAG - so a burst the range draws whole at every
+    allowance keeps the picture nearest the sound"""
+    return min(runs, key=lambda r: (r["cut"], r["left"], r["L"]))
 
 
 def bank_arg(v):
@@ -3594,6 +3645,23 @@ class Encoder:
     # a frame record's room: self.rec_max, or --frame-cap's (98.1.4.1)
     rec_max = REC_MAX
 
+    def __deepcopy__(self, memo):
+        """A copy whose surfaces are still SEEN through its own views: an
+        np.frombuffer view does not survive a deep copy (preroll()'s note),
+        so the copy's `sv`/`tv` are made again over the copy's bytearrays -
+        every copy, the lag search's snapshots (98.2.1.1.3) among them,
+        rather than a fix at each place one is taken"""
+        import copy
+        new = self.__class__.__new__(self.__class__)
+        memo[id(self)] = new
+        for k, v in self.__dict__.items():
+            setattr(new, k, copy.deepcopy(v, memo))
+        if "sv" in new.__dict__:
+            new.sv = np.frombuffer(new.surf, dtype=np.uint8)
+        if "tv" in new.__dict__:
+            new.tv = np.frombuffer(new.tsurf, dtype=np.uint8)
+        return new
+
     def __init__(self, g, prof, fps, audio_cyc, audio_bps, palette=None):
         self.g = g
         # how wrong a byte is: its differing bits, or for VGA8 how far its
@@ -3825,10 +3893,16 @@ class Encoder:
         clock) holds it at 1"""
         self._begin()
         if self.fgrid:
-            q = self.q
+            q, g = self.q, self.fgrid
             # (a call short of `flag_lag` frames: 98.2.1.1.2's allowance,
-            # one frame on a schedule that cannot catch up)
-            lmax = self.flag_lag * q - self.fgrid
+            # one frame on a schedule that cannot catch up - the last CALL
+            # before it, since the next frame starts at a call: an
+            # allowance between two calls was `flag_lag * q - g`, and a
+            # frame held to that still started the next at the call above
+            # it, so in a burst every frame had that much less than a
+            # period for nothing - 2.25 frames at 15 fps cut 89 frames of
+            # Mech2 where 1.5 cut 26 and 3.0 cut 20, 98.2.1.1.3)
+            lmax = (math.ceil(self.flag_lag * q / g - 1e-9) - 1) * g
             room = (q + lmax - self.flag) * (1.0 - self.spk) \
                 - self.audio_cyc - HOOK_CYC
             self.ceil = min(self.ceil, max(0.0, room))
@@ -7949,13 +8023,16 @@ def _encode(a, keep, tick, readers):
     # than the frames - a card's sound, every half period - can bring a
     # picture that fell behind back to the sound; a period apart (silent,
     # the speaker's clock) it stays behind for good
-    lagf = max(0.0, float(getattr(a, "lag", LAG_MS) or 0)) * fps / 1000.0
+    lo_ms, hi_ms = lag_bounds(getattr(a, "lag", LAG_MS))
+    lagf = hi_ms * fps / 1000.0
     card = bool(afmt) and not spk
+    lagon = False
     if a.flip and prof["avg"] is not None:
         # the flip schedule's calls (98.2.1.1.1): half a period apart off a
         # card's sound, a period silent
         enc.fgrid = enc.q / 2 if card else enc.q
         enc.flag_lag = max(1.0, lagf) if enc.fgrid < enc.q else 1
+        lagon = enc.fgrid < enc.q
     elif card and lagf > 1.0 and enc.owe is not None and not a.live:
         # ...and an UNFLIPPED play with a card's sound, which draws up to
         # two frames a call and so catches up too: the lag schedule in
@@ -7966,6 +8043,19 @@ def _encode(a, keep, tick, readers):
         enc.owe = None
         enc.fgrid = enc.q / 2
         enc.flag_lag = lagf
+        lagon = True
+    # THE RANGE (98.2.1.1.3): the allowances in it that the schedule tells
+    # apart - one a CALL, half a period apart, since an allowance between
+    # two calls is the call above it (begin()) - a frame at least, the
+    # schedule's own floor; the search below picks one each time the
+    # picture starts to fall behind
+    enc.lag_cands = None
+    if lagon and hi_ms > lo_ms:
+        gr = enc.fgrid / enc.q
+        k0 = math.ceil(max(1.0, lo_ms * fps / 1000.0) / gr - 1e-9)
+        k1 = math.ceil(max(1.0, hi_ms * fps / 1000.0) / gr - 1e-9)
+        if k1 > k0:
+            enc.lag_cands = [k * gr for k in range(k0, k1 + 1)]
     if enc.reserve and not a.resident:  # (a disk to keep ahead: 98.2.1.3;
         enc.alead = audio_lead(afmt, rate, abytes)   # resident: none)
     # BUFFER SOUND AHEAD (98.1.8, 98.2.1.3): the file carries the sound's
@@ -8238,6 +8328,142 @@ def _encode(a, keep, tick, readers):
     bl0 = min(max(0.0, enc.disk.level - enc.reserve), enc.bank) \
         if enc.bank else 0.0
     bspan = [bl0, bl0]                  # the bank's lowest and highest
+
+    def au_of(k):
+        """Frame k's sound, as the record carries it"""
+        x = chunk(k) if afmt else b""
+        if spk and afmt:            # THE SPEAKER'S COUNTS, not samples
+            x = vid.spk_counts(x, rate, a.spk_pulses)       # (98.1.1.3)
+        return x
+
+    def step(e, p, k, target, au, fut):
+        """Frame k on encoder `e` and page-ahead `p`: all a frame does to
+        the ENCODER - which the lag search (98.2.1.1.3) plays on copies -
+        and what the writer, the layer and the report take from it"""
+        e.future = fut
+        npal = pal = cell = None
+        if scene_pals and k in pev_at:  # A NEW SCENE (98.1.3.2.3): its
+            pal = pev_at[k]             # colours from this frame, which the
+            e.set_pal(np.frombuffer(                # player loads before it
+                pal, np.uint8)[:768].astype(np.float32).reshape(-1, 3)
+                * (255.0 / 63))                     # decodes the record
+            npal = e.pal                # (...and the layer's, at ITS frame f)
+        c0 = e.stats["cut"]
+        e.last_why = None
+        if p is not None:
+            p.before(k, target)
+        draw = target
+        # (not onto a page just FLIPPED to: page-ahead built that frame
+        # nearer than any cells, and the cells are its fallback - the
+        # options audit, 2026-10-14)
+        if a.coarse_cut != "off" and scene_pals and k in pev_at and k and \
+                not (p is not None and p.flipped):
+            # (a flat byte is ONE store in write mode 3 and up to two by
+            # planes, and a flat run is one RUN: the cells fit a record)
+            cell = a.coarse_cut if a.coarse_cut != "auto" else \
+                coarse_pick(e, target, au)
+            if cell != "full":
+                draw = coarse_target(target, e.pal, cell)
+                e.all3 = e.wm3
+        ops, rec = e.frame(draw, au)
+        e.all3 = False
+        hops = p.after(k, rec, au, target) if p is not None else None
+        left = int(np.count_nonzero(e.screen != target)) \
+            if scene_pals and k in pev_at and k else None
+        c = e.charge(rec, len(au))
+        hs = p.carried(k) if p is not None and (a.flip or npg > 2) else None
+        return dict(ops=ops, rec=rec, hops=hops, draw=draw, npal=npal,
+                    pal=pal, cell=cell, cut=e.stats["cut"] - c0, left=left,
+                    c=c, hs=hs)
+
+    def lag_seed(objs, bufs):
+        """What a lag snapshot SHARES rather than copies: the targets (and
+        the target caches' own), the plan, and each encoder's tables -
+        none of them written once made"""
+        memo = {}
+        for t in bufs:
+            memo[id(t)] = t
+        for o in objs:
+            if o is None:
+                continue
+            encs = [o] if isinstance(o, Encoder) else \
+                [x for x in [getattr(o, "h", None)] +
+                 list(getattr(o, "hs", None) or ()) if x is not None]
+            for x in ("log", "T", "P"):
+                if hasattr(o, x) and not isinstance(o, Encoder):
+                    memo[id(getattr(o, x))] = getattr(o, x)
+            for e in encs:
+                for c in getattr(e, "tcache", {}).values():
+                    memo[id(c[0])] = c[0]
+                for x in ("g", "idx", "base", "rowof", "ct", "csub"):
+                    if x in e.__dict__:
+                        memo[id(e.__dict__[x])] = e.__dict__[x]
+        return memo
+
+    def lag_restore(e, p, snap, bufs):
+        """The REAL encoder and page-ahead put back to `snap`, in place:
+        the layer and the closures above hold them by identity"""
+        memo = lag_seed(snap, bufs)
+        memo[id(snap[0])] = e
+        if p is not None:
+            memo[id(snap[1])] = p
+        d = copy.deepcopy((snap[0].__dict__,
+                           snap[1].__dict__ if p is not None else None), memo)
+        e.__dict__.clear()
+        e.__dict__.update(d[0])
+        e.sv = np.frombuffer(e.surf, dtype=np.uint8)
+        if "tv" in e.__dict__:
+            e.tv = np.frombuffer(e.tsurf, dtype=np.uint8)
+        if p is not None:
+            p.__dict__.clear()
+            p.__dict__.update(d[1])
+
+    def lag_search(snap, k0, buf):
+        """THE LAG SEARCH (98.2.1.1.3): from `snap`, frame k0 - the picture
+        about to fall behind - played on a copy with every allowance in the
+        range, each until LAG_SETTLE seconds past its picture level again
+        or LAG_WIN seconds, all to the same frame; the allowance that cut
+        the fewest frames, then left the fewest bytes wrong, then the
+        least lag. `buf[j]` is frame k0+j's target"""
+        nonlocal lag_simf
+        settle = max(1, int(round(LAG_SETTLE * fps)))
+        most = min(len(buf), max(1, int(round(LAG_WIN * fps))))
+        runs = []
+
+        def play(r, upto):
+            while r["j"] < upto:
+                j = r["j"]
+                x = step(r["e"], r["p"], k0 + j, buf[j],
+                         b"" if a.resident else au_of(k0 + j),
+                         buf[j + 1:j + 1 + r["e"].look])
+                r["cut"] += x["cut"]
+                r["left"] += r["e"].stats["bytes_left"] - r["bl"]
+                r["bl"] = r["e"].stats["bytes_left"]
+                r["j"] += 1
+                if r["level"] is None and r["e"].flag <= 0:
+                    r["level"] = r["j"]
+                r["upto"] = min(most, (r["level"] or most) + settle)
+        for L in enc.lag_cands:
+            e, p = copy.deepcopy(snap, lag_seed(snap, buf))
+            e.flag_lag = L
+            r = dict(L=L, e=e, p=p, j=0, cut=0, left=0, level=None,
+                     bl=e.stats["bytes_left"], upto=most)
+            # (until level and settled: each frame may move `upto`)
+            while r["j"] < r["upto"]:
+                play(r, r["j"] + 1)
+            runs.append(r)
+        end = max(r["upto"] for r in runs)
+        for r in runs:
+            play(r, end)
+            lag_simf += r["j"]
+        best = lag_best(runs)
+        lag_log.append((k0, best["L"], end,
+                        [(r["L"], r["cut"]) for r in runs]))
+        return best["L"]
+
+    import copy
+    lag_log, lag_simf = [], 0
+    lag_since = None                    # frames since the search, in a burst
     f = -1
     while True:
         while len(ahead) < 1 + enc.look:
@@ -8255,50 +8481,64 @@ def _encode(a, keep, tick, readers):
             progress(f)
         else:
             tick("encode", f, nf)
-        au = chunk(f) if afmt else b""
-        if spk and afmt:            # THE SPEAKER'S COUNTS, not samples
-            au = vid.spk_counts(au, rate, a.spk_pulses)     # (98.1.1.3)
+        au = au_of(f)
         if a.resident:              # the sound is ONE block (98.1.7)
             sound.append(au)
             au = b""
-        enc.future = list(ahead)[:enc.look]
-        npal = None
-        if scene_pals and f in pev_at:  # A NEW SCENE (98.1.3.2.3): its
-            p = pev_at[f]               # colours from this frame, which the
-            enc.set_pal(np.frombuffer(              # player loads before it
-                p, np.uint8)[:768].astype(np.float32).reshape(-1, 3)
-                * (255.0 / 63))                     # decodes the record
-            wr.pev.append((f, p[:48]))
-            npal = enc.pal              # (...and the layer's, at ITS frame f)
-        c0 = enc.stats["cut"]
-        enc.last_why = None
-        if pa is not None:
-            pa.before(f, target)
-        draw = target
-        # (not onto a page just FLIPPED to: page-ahead built that frame
-        # nearer than any cells, and the cells are its fallback - the
-        # options audit, 2026-10-14)
-        if a.coarse_cut != "off" and scene_pals and f in pev_at and f and \
-                not (pa is not None and pa.flipped):
-            # (a flat byte is ONE store in write mode 3 and up to two by
-            # planes, and a flat run is one RUN: the cells fit a record)
-            cell = a.coarse_cut if a.coarse_cut != "auto" else \
-                coarse_pick(enc, target, au)
-            coarse_used[cell] = coarse_used.get(cell, 0) + 1
-            if cell != "full":
-                draw = coarse_target(target, enc.pal, cell)
-                enc.all3 = enc.wm3
-        ops, rec = enc.frame(draw, au)
-        enc.all3 = False
-        hops = pa.after(f, rec, au, target) if pa is not None else None
+        fut = list(ahead)[:enc.look]
+        if not enc.lag_cands:
+            x = step(enc, pa, f, target, au, fut)
+        else:
+            # THE LAG, SEARCHED (98.2.1.1.3): a frame that starts level
+            # with the sound is drawn at the range's top first - if it ends
+            # level too, every allowance in the range draws it the same -
+            # and one that ends behind is a BURST, whose allowance the
+            # search picks from where it began; a burst longer than the
+            # search's window is searched again from where it has got to
+            if lag_since is not None and enc.flag <= 0:
+                lag_since = None
+            x = None
+            if lag_since is None or lag_since >= LAG_WIN * fps:
+                bufs = [target] + list(ahead)
+                snap = copy.deepcopy((enc, pa), lag_seed((enc, pa), bufs))
+                burst = lag_since is not None
+                if not burst:
+                    enc.flag_lag = enc.lag_cands[-1]
+                    x = step(enc, pa, f, target, au, fut)
+                    burst = enc.flag > 0
+                if burst:
+                    while len(ahead) < LAG_WIN * fps + 1 + enc.look:
+                        t = next(targets, None)
+                        if t is None:
+                            break
+                        ahead.append(t)
+                    L = lag_search(snap, f, [target] + list(ahead))
+                    lag_since = 0
+                    # (the top's frame is drawn already: kept, as the
+                    # search played it from the same state)
+                    if x is None or L != enc.lag_cands[-1]:
+                        if x is not None:
+                            lag_restore(enc, pa, snap, bufs)
+                        enc.flag_lag = L
+                        x = step(enc, pa, f, target, au, fut)
+            else:
+                x = step(enc, pa, f, target, au, fut)
+            if lag_since is not None:
+                lag_since += 1
+        ops, rec, hops, draw, npal = (x[k] for k in ("ops", "rec", "hops",
+                                                     "draw", "npal"))
+        if x["pal"] is not None:
+            wr.pev.append((f, x["pal"][:48]))
+        if x["cell"] is not None:
+            coarse_used[x["cell"]] = coarse_used.get(x["cell"], 0) + 1
         if scene_pals:              # (each scene's frames and cuts, below)
             if f in pev_at:
                 shot_cut.append([f, 0, 0, 0])
             shot_cut[-1][1] += 1
-            shot_cut[-1][2] += enc.stats["cut"] - c0
-        if scene_pals and f in pev_at and f:
-            pev_cut.append(int(np.count_nonzero(enc.screen != target)))
-        cyc.append(enc.charge(rec, len(au)) + audio_cyc)
+            shot_cut[-1][2] += x["cut"]
+        if x["left"] is not None:
+            pev_cut.append(x["left"])
+        cyc.append(x["c"] + audio_cyc)
         if plog is not None:            # THE PLAN (98.2.1.8): a cut run's
             plog["log"].append(dict(    # first frame is a target
                 why=enc.last_why, b=len(rec) - len(au),
@@ -8329,12 +8569,12 @@ def _encode(a, keep, tick, readers):
                 shot_cut[-1][3] += 1
         if pa is not None and a.flip:  # (98.1.3.7.2: every frame flips)
             wr.frame(ops, enc.surf, au, hidden=hops, flip=pa.vp,
-                     shown=pa.vp, hsurfs=pa.carried(f), built=pa.built,
+                     shown=pa.vp, hsurfs=x["hs"], built=pa.built,
                      copies=pa.copies)
         elif pa is not None and npg > 2:  # (98.1.3.7.1: pages by number)
             wr.frame(ops, enc.surf, au, hidden=hops,
                      flip=pa.vp if pa.flipped else None, shown=pa.vp,
-                     hsurfs=pa.carried(f))
+                     hsurfs=x["hs"])
         elif pa is not None:
             wr.frame(ops, enc.surf, au, hidden=hops, flip=pa.flipped,
                      hsurf=pa.h.surf)
@@ -8764,11 +9004,35 @@ def _encode(a, keep, tick, readers):
             "98.2.1.1.2)"
             % (st["fover"], st["fmaxlag"], st["fmaxlag"] * 1000.0 / fps,
                st.get("fbehind", 0),
+               " - --lag %s searched for each burst" % a.lag
+               if enc.lag_cands else
                " - --lag allows %.1f" % enc.flag_lag
                if enc.flag_lag > 1 else
-               " - --lag %g ms is held to a frame: calls a period apart "
-               "cannot catch up" % a.lag if a.lag * fps / 1000.0 > 1 else "",
+               " - --lag %s ms is held to a frame: calls a period apart "
+               "cannot catch up" % a.lag if hi_ms * fps / 1000.0 > 1 else "",
                st["flate"]))
+    if enc.lag_cands:
+        # THE SEARCH'S ANSWERS (98.2.1.1.3): each burst's allowance, and
+        # what it cost the encoder to find them
+        chose = {}
+        for k0, L, n, tried in lag_log:
+            chose[L] = chose.get(L, 0) + 1
+        gr = enc.fgrid / enc.q          # (an allowance's most behind:
+        most = lambda L: round((L - gr) * 1000.0 / fps)     # a call short)
+        rep("base", "lag search: %d burst%s searched at --lag %s, the "
+            "picture at most %s ms behind; chose %s; %d frames played to "
+            "choose (%.1f x the clip) (98.2.1.1.3)" % (
+                len(lag_log), "" if len(lag_log) == 1 else "s", a.lag,
+                "/".join("%d" % most(L) for L in enc.lag_cands),
+                ", ".join("%d ms x%d" % (most(L), n)
+                          for L, n in sorted(chose.items())) or "none",
+                lag_simf, lag_simf / max(1, nf)))
+        dump = os.environ.get("OS88_VENC_LAGDUMP")
+        if dump:                        # (each search, for the A/B)
+            import json
+            with open(dump, "w") as fh:
+                json.dump(dict(fps=fps, cands=enc.lag_cands, log=lag_log),
+                          fh)
     if getattr(wr, "ring", 0):
         msl = 2 if res["flags"] & vid.F_BIGSP else 1
         rep("base", "ring: a disk reserve of %d KB, %d slots - %d KB of free "
@@ -9360,12 +9624,16 @@ def parser():
                     help="modex: two pages, the player drawing one while "
                          "the other shows - no tearing, at twice the decode "
                          "(98.3.8)")
-    ap.add_argument("--lag", type=float, default=LAG_MS, metavar="MS",
+    ap.add_argument("--lag", type=lag_arg, default=LAG_MS,
+                    metavar="MS|LO-HI",
                     help="with a card's sound: how far the picture may fall "
                          "behind the sound in a burst and catch up after, "
-                         "milliseconds (98.2.1.1.2). The default 100 is "
-                         "~2.4 frames at 24 fps; a scene timed to nothing in "
-                         "the sound can take more. A file with the "
+                         "milliseconds. LO-HI, the default 50-200, is a "
+                         "RANGE: at each burst the encoder plays every "
+                         "allowance in it half a frame apart and keeps the "
+                         "one that cuts the fewest frames, the least lag of "
+                         "those (98.2.1.1.3). One number is that allowance "
+                         "for every burst (98.2.1.1.2). A file with the "
                          "speaker's sound or none never catches up, and is "
                          "held to a frame")
     ap.add_argument("--page-ahead", choices=("auto", "on", "off"),
