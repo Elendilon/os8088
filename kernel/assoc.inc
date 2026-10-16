@@ -1236,19 +1236,18 @@ assoc_locate:
                                 ; standing in B:\APPS) because asc_root_find
                                 ; walks the ROOT directly rather than through
                                 ; dskw_stat, which is what it was written for
+    mov bx, di                  ; BX = DI = the slot, so [bx+di] is its word
     mov al, [disk_drive]        ; DID THIS VOLUME'S CACHE KNOW? (SPEC.md
-    cmp al, [assoc_drv+di]      ; 54.7.6.1) The seed above wrote what the file
+    cmp al, [assoc_drv+bx]      ; 54.7.6.1) The seed above wrote what the file
     jne .learn                  ; says; where the program really is differs
-    mov bx, di                  ; when the file never had it, or had it
-    shl bx, 1                   ; somewhere else - both worth writing back,
-    mov bx, [assoc_clus+bx]     ; and a search is quiet mounts, so no harvest
-    cmp bx, [dsk_cwd]           ; ever saw this
-    je .known
-.learn:
-    call asc_post               ; AL = the volume, still
+    mov dx, [assoc_clus+bx+di]  ; when the file never had it, or had it
+    cmp dx, [dsk_cwd]           ; somewhere else - both worth writing back,
+    je .known                   ; and a search is quiet mounts, so no harvest
+.learn:                         ; ever saw this. (DX is .out's to restore)
+    call asc_post               ; AL = the volume, still; BX survives it
 .known:
-    mov bx, di                  ; ...then the AUTHORITATIVE hint for the one
-    call assoc_hint_here        ; program we actually located - AFTER the seed
+    call assoc_hint_here        ; ...then the AUTHORITATIVE hint for the one
+                                ; program we actually located - AFTER the seed
                                 ; on purpose, so a stale cached cluster for
                                 ; THIS program loses to where it really is
     clc                         ; explicit, not inherited: the helper's last
@@ -2410,12 +2409,12 @@ asc_learn:
     add di, ICO_CAP_REC
     mov si, dsk_secbuf + 96     ; header 32 + icon 64: the block's offset
     mov cx, 8                   ; when the icon is present (SPEC.md 54.6)
-    push ds
-    push ss                     ; dsk_secbuf is .lowbss and SS is LOW_SEG
-    pop ds                      ; (SPEC.md 2.1)
-    cld
-    rep movsw
-    pop ds
+.cp:
+    ss lodsw                    ; dsk_secbuf is .lowbss and SS is LOW_SEG
+    stosw                       ; (SPEC.md 2.1); DF = 0 is SPEC.md 1 rule 3.
+    loop .cp                    ; A loop and not `rep ss movsw`: two prefixes
+                                ; on a string op is the 8086's lost-prefix
+                                ; resume after an interrupt
 .out:
     pop es
     jmp kretc_di

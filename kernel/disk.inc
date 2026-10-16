@@ -8323,11 +8323,13 @@ ico_need:
     call mem_claim_x
     jc .out                     ; CF = 1 is the refusal, as it arrives
     mov [ico_seg], dx
-%ifdef OS88_ASSOC
-    mov word [ico_n], 0         ; ...and [ico_capn] beside it: the capture is
-%else                           ; empty (SPEC.md 54.7.6.2)
-    mov byte [ico_n], 0
-%endif
+%ifndef OS88_ASSOC              ; kern_big needs no store here: [ico_seg] is 0
+    mov byte [ico_n], 0         ; on this path, and the only thing that ever
+%endif                          ; zeroes it is ico_demote, which zeroes the
+                                ; WORD [ico_n] - and so [ico_capn], the
+                                ; capture's count (SPEC.md 54.7.6.2) - in the
+                                ; same breath; at boot both are .bss zeros
+                                ; (kernel size pass 13, -6)
 %ifdef OS88_COMPACT             ; (kern_small: nothing moves, SPEC.md 66.0)
     mov ax, ico_reloc
     mov bx, MEM_P_ICO

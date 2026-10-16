@@ -5923,13 +5923,17 @@ dskw_fmt_line:
 ;      FERR_NODISK when the image itself could not be had. SILENT either way
 ; clobbers: AX on CF=1 (the code), flags
 ;
-; The format image's fifth entry, and the formatter's own load: dskw_fmt_go
-; returns past its caller on a refusal, which is why the far call sits in a
-; nested routine of its own here. The image is dropped again afterwards,
-; WHATEVER held it: no formatter code can be on the stack here (a flush runs
-; on the UI task's idle pass, or from a package's own call), and a format
-; prompt that was holding it reloads it through dskw_fmt_go like every other
-; formatter stub does - one read, in the rare case the two overlap.
+; The format image's fifth entry, and the formatter's own load. dskw_fmt_go
+; returns past ITS CALLER on a refusal, and its caller is this routine, so a
+; refusal answers asc_flush's own caller - CF=1, AX = FERR_NODISK - with
+; fm_fmt_drop skipped: a refused mod_need leaves no image (MODR_SEG is 0 on
+; every .fail), so the drop it skips would have freed nothing (kernel size
+; pass 13: this was two nested routines so the drop always ran). The image is
+; dropped again afterwards, WHATEVER held it: no formatter code can be on the
+; stack here (a flush runs on the UI task's idle pass, or from a package's own
+; call), and a format prompt that was holding it reloads it through
+; dskw_fmt_go like every other formatter stub does - one read, in the rare
+; case the two overlap.
 ; THE HOLD (SPEC.md 54.7.6.4): AL with ASCF_NOFLUSH flushes nothing. With
 ; ASCF_HOLD as well it LOADS the image and keeps it, without it it RELEASES -
 ; loading nothing - and either way that is all it does. A flush leaves the
@@ -5942,25 +5946,17 @@ asc_flush:
     and al, ASCF_HOLD
     mov [asc_hold], al
     jz .rel                     ; (`mov` leaves the `and`'s ZF)
-    call .ld                    ; acquire
-    jmp short .drop
+    call dskw_fmt_go            ; acquire: a refusal answers our caller
 .rel:
-    xor ax, ax                  ; a release answers CF=0, AX=0
+    xor ax, ax                  ; acquire and release answer CF=0, AX=0
     jmp short .drop
 .run:
-    call .go
+    call dskw_fmt_go            ; ...as does a refusal here
+    call far [FMFP + FME_ASCW*4]
 .drop:
     pushf
     call fm_fmt_drop            ; ...which a hold makes a no-op
     popf
-    ret
-.go:
-    call dskw_fmt_go
-    call far [FMFP + FME_ASCW*4]
-    ret
-.ld:
-    call dskw_fmt_go
-    xor ax, ax
     ret
 
 ; OSAPI_ASSOC_FLUSH's far entry (0x0493, SPEC.md 54.5): the rare cold slot
