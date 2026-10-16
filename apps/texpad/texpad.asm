@@ -217,10 +217,21 @@ tp_entry:                       ; (an entry proc answers BX = its window and
     jc .out
     ; RAM seed only when not opened on a .TEX. No floppy, no typeset
     ; under the loader lock (that froze the desktop). A .TEX's load is
-    ; tp_onwake's, into a document still empty.
-    call tp_note_arg
-    cmp byte [tp_needld], 0
-    jne .ready
+    ; tp_onwake's, into a document still empty - so the argument's NAME is
+    ; copied here and nothing is read. Nothing is banked around it either:
+    ; an entry proc owes the loader BX and CF and nothing else (SPEC.md
+    ; 20.2), and both are set below.
+    call OSAPI_ARG_FILE
+    jc .seed
+    mov [tp_dir], dx
+    mov [tp_drv], bl
+    mov di, tp_fname
+    call tp_kname
+    call tp_is_tex
+    jc .seed
+    mov byte [tp_needld], 1
+    jmp short .ready
+.seed:
     call tp_seed
 .ready:
     mov byte [tp_needttl], 1
@@ -233,35 +244,6 @@ tp_entry:                       ; (an entry proc answers BX = its window and
 .out:
     pop si
 tp_seg_ok:                      ; (and the region's relocation proc: a ret)
-    ret
-
-; Copy ARG_FILE name only. Do not READ or typeset here.
-tp_note_arg:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    call OSAPI_ARG_FILE
-    jc .o
-    mov [tp_dir], dx
-    mov [tp_drv], bl
-    mov di, tp_fname
-    call tp_kname
-    call tp_is_tex
-    jc .o
-    mov byte [tp_needld], 1
-.o:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
     ret
 
 ; tp_onwake - W_ONWAKE: typeset the launch document (SPEC.md 54.10/74.1)
@@ -290,12 +272,10 @@ tp_deferred_ld:
     cmp byte [tp_needld], 0
     je .o
     mov byte [tp_needld], 0
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    push ax                         ; what the callers hold across this: the
+    push cx                         ; key or the menu item in AX, a click's
+    push dx                         ; point in CX/DX and the window in SI.
+    push si                         ; BX and DI are theirs to set afterwards
     mov dx, [tp_dir]                ; the DOCUMENT's folder, stood in QUIETLY
     mov bl, [tp_drv]                ; and the instance with it, so tp_load's
     call OSAPI_FILE_GOTO_QM         ; by-name read resolves there. Nothing here
@@ -317,15 +297,11 @@ tp_deferred_ld:
 .there:
     call tp_load
 .moved:
-    pop di
     pop si
     pop dx
     pop cx
-    pop bx
     pop ax
-    jnc .set
-    jmp .ttl
-.set:
+    jc .ttl
     call tp_typeset
 .ttl:
     mov byte [tp_needttl], 1
@@ -361,7 +337,11 @@ tp_claim_src:
 ; heap says no, and the claim is untouched. Preserves every register.
 tp_srcfit:
     cmp [tp_srccap], ax
-    jae .o                      ; (CF=0)
+    jae tp_srcby.o              ; (CF=0)
+
+; AX = bytes, at least 1: the claim regrown to the KB they round up to, at
+; most TP_SRC_KB. CF as tp_srckb. Preserves every register.
+tp_srcby:
     push ax
     add ax, 1023
     mov al, ah
@@ -379,16 +359,11 @@ tp_srcfit:
 tp_srctrim:
     push ax
     mov ax, [tp_srclen]
-    add ax, 1023
-    mov al, ah
-    shr al, 1
-    shr al, 1
-    xor ah, ah
-    or al, al
+    or ax, ax                   ; an empty document still holds one KB
     jnz .k
     inc ax
 .k:
-    call tp_srckb
+    call tp_srcby
     pop ax
     ret
 
@@ -425,27 +400,26 @@ tp_is_tex:
     inc si
     jmp .l
 .dot:
+    push di
+    mov di, tp_s_tex            ; 'TeX', compared with the case folded out
+.c:
     inc si
     mov al, [si]
-    or al, 0x20
-    cmp al, 't'
-    jne .no
-    mov al, [si+1]
-    or al, 0x20
-    cmp al, 'e'
-    jne .no
-    mov al, [si+2]
-    or al, 0x20
-    cmp al, 'x'
-    jne .no
-    pop si
-    pop ax
-    clc
-    ret
+    mov ah, [di]
+    or ax, 0x2020
+    cmp al, ah
+    jne .nd
+    inc di
+    cmp di, tp_s_tex + 3
+    jb .c                       ; (CF=0 out of the last compare: equal)
+.nd:
+    pop di
+    je .o
 .no:
+    stc
+.o:
     pop si
     pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1444,11 +1418,11 @@ tp_draw_about:
 ; that "window" is and paints the answer, which put a second set of chrome
 ; over the menu bar. Every caller was correct about its own registers; the
 ; contract was the thing that could not survive being called from two places.
+;
+; tp_paint keeps AX, CX, DX and DI itself; what it does NOT keep is BX, which
+; tp_retitle takes for the window, and SI is the one this loads.
 tp_redraw:
-    push ax
     push bx
-    push cx
-    push dx
     push si
     mov si, [tp_win]
     or si, si
@@ -1456,10 +1430,7 @@ tp_redraw:
     call tp_paint
 .o:
     pop si
-    pop dx
-    pop cx
     pop bx
-    pop ax
     ret
 
 tp_onabout:
@@ -3666,12 +3637,10 @@ tp_onkey:
     call tp_klook
     jnc .jmp
     jmp .out
+.kesc:
+    mov byte [tp_focus], 1      ; (the typesetter never reads the focus)
 .kset:
     call tp_typeset
-    jmp .draw
-.kesc:
-    call tp_typeset
-    mov byte [tp_focus], 1
     jmp .draw
 .ksave:
     call tp_save
@@ -4357,12 +4326,8 @@ tp_dlg:
     push bx
     push si
     push di
-    mov bx, [tp_win]
-    or bx, bx
-    jnz .w
-    mov bx, si
-.w:
-    mov di, tp_ondlg
+    mov bx, [tp_win]            ; (set by the entry proc: a menu or a key
+    mov di, tp_ondlg            ; cannot arrive before it)
     mov si, tp_fname
     cmp byte [si], 0
     jne .nm
@@ -4551,8 +4516,6 @@ tp_save:
     push dx
     push si
     push es
-    push ds
-    pop es
     cmp byte [tp_fname], 0
     jne .nm
     mov si, tp_s_paper
@@ -5319,10 +5282,8 @@ tp_retitle:
     mov di, tp_ttlbuf
     mov si, tp_s_name
     call tp_cpat
-    mov al, ' '
-    stosb
-    mov al, '-'
-    stosb
+    mov ax, ' -'                ; ' - '
+    stosw
     mov al, ' '
     stosb
     mov si, tp_fname

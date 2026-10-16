@@ -111868,6 +111868,17 @@ and code packs to about a byte a byte, so what moved it is code that went:
   `tp_geom` and so `tp_pagesz` first. The divide takes the memory operand now,
   and `tp_mapy` forms *height - y* as `neg` / `add`, so the two maps the run
   painter calls per run each push one register fewer.
+- **The cold paths bank what their callers hold and no more.** The entry
+  proc reads its argument's name inline (`tp_note_arg` banked seven
+  registers for a caller that owes the loader BX and CF and nothing else);
+  `tp_deferred_ld` keeps AX, CX, DX and SI - the key or the menu item, a
+  click's point and the window, which is what its four callers hold across
+  it; `tp_redraw` keeps BX and SI, the two `tp_paint` does not. `tp_srcfit`
+  and `tp_srctrim` share one KB rounding (`tp_srcby`), `tp_is_tex` compares
+  the extension in a loop against `tp_s_tex` with the case folded out of
+  both, the title's ` - ` is one `stosw` and a `stosb`, `tp_dlg` no longer
+  falls back to SI for a window that always exists before a menu or a key
+  can arrive, and Esc sets the preview's focus and falls into F5's typeset.
 
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 
