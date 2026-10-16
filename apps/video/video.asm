@@ -1027,9 +1027,10 @@ vp_open:
     ; CGA's); 1 through the shadow. The first of the best, else the first -
     ; whose refusal is then the one the card gives
     call vp_dinfo
-    mov byte [vp_rbest], 0
-    mov byte [vp_rscore], 0
-    mov byte [vp_rend], 0
+    xor ax, ax
+    mov [vp_rbest], al
+    mov [vp_rscore], al
+    mov [vp_rend], al
 .rl:
     call vp_parse
     jc .rn
@@ -1132,7 +1133,8 @@ vp_pbad:
 
 ; vp_parse - ES:0 = the header. CF=1 with [vp_msg] set when it refuses
 vp_parse:
-    mov word [vp_nkeys], 0          ; no key in hand until the keyframes
+    xor ax, ax
+    mov [vp_nkeys], ax              ; no key in hand until the keyframes
     mov byte [vp_nkwhy], VOK_NOKEY  ; (and none in the file, until they are)
     mov word [vp_msg], vp_s_notv88  ; pass: a refusal anywhere leaves none
     cmp word [es:0], 'V8'
@@ -1150,15 +1152,17 @@ vp_parse:
     test byte [es:V88_FLAGS], V88F_RESIDENT | V88F_LIVE  ; keys are whole)
     jnz vp_pbad
 .nkp:
-    mov word [vp_spcap], 64         ; A SUPER-PACKET's sectors at most, and
-    mov word [vp_msl], 1            ; the ring's mirror slots: 64 and one -
-    test word [es:V88_FLAGS], V88F_BIGSP    ; or BIGSP's 127, which can
-    jz .nbig                        ; touch three chunks, and two (98.1.4.1)
-    test byte [es:V88_FLAGS], V88F_RESIDENT | V88F_LIVE
+    mov ax, 64                      ; A SUPER-PACKET's sectors at most, and
+    mov cx, 1                       ; the ring's mirror slots: 64 and one -
+    test byte [es:V88_FLAGS+1], V88F_BIGSP >> 8     ; or BIGSP's 127, which
+    jz .nbig                        ; can touch three chunks, and two
+    test byte [es:V88_FLAGS], V88F_RESIDENT | V88F_LIVE     ; (98.1.4.1)
     jnz vp_pbad                        ; (a stream's, played in the bracket)
-    mov word [vp_spcap], VP_SPBIG
-    mov word [vp_msl], 2
+    mov al, VP_SPBIG
+    inc cx
 .nbig:
+    mov [vp_spcap], ax
+    mov [vp_msl], cx
     cmp word [es:V88_FRAMES+2], 0   ; this player counts frames in a word
     jne .long
     mov ax, [es:V88_FRAMES]
@@ -1177,18 +1181,19 @@ vp_parse:
     cmp al, 2                       ; ADPCM4 with a byte two samples - which
     ja .b0                         ; needs an even count (SPEC.md 98.1.1)
     mov [vp_audio], al
-    mov byte [vp_spkpwm], 0         ; SPEAKER COUNTS (98.1.1.3): PCM8's, the
+    xor ah, ah                      ; SPEAKER COUNTS (98.1.1.3): PCM8's, the
     test byte [es:V88_FLAGS], V88F_SPKPWM   ; table already the encoder's
     jz .ncnt
     cmp al, 1
     jne .b0
-    mov byte [vp_spkpwm], 1
+    mov ah, al
 .ncnt:
+    mov [vp_spkpwm], ah
     mov byte [vp_spkp], 1           ; PULSES A SAMPLE (98.1.1.3.1): the
     test byte [es:V88_FLAGS], V88F_SPKMUL   ; counts made for N / pulses,
     jz .np1                         ; which only a speaker file carries
-    cmp byte [vp_spkpwm], 0
-    je .b0
+    or ah, ah
+    jz .b0
     mov ah, [es:V88_SPKP]
     cmp ah, 2
     jb .b0
@@ -1245,7 +1250,7 @@ vp_parse:
     mov bl, [es:di+R_LAYOUT]  ; 1..8, and the canvas inside it
     dec bl
     cmp bl, LAY_TEXT
-    ja .b1
+    ja .b0
     mov [vp_layout], bl
     xor cx, cx                      ; (CX is free until .lay's)
     mov [vp_palo], cx
@@ -1257,7 +1262,7 @@ vp_parse:
     mov ah, [es:di+R_SCREEN]        ; (98.1.3.1.1), and never one a
     or ah, ah                       ; resident or a Live file plays on
     jz .scr0
-    test word [es:V88_FLAGS], V88F_SCREEN ; (announced, so a player before
+    test byte [es:V88_FLAGS+1], V88F_SCREEN >> 8    ; (announced, so a
     jz .b1                          ; this one refuses it at open)
     cmp al, PF_VGA4
     je .scrv
@@ -1279,8 +1284,6 @@ vp_parse:
     jb .scr0                        ; in the canvas's memory image as on the
     mov word [vp_lstr], 40          ; glass - vp_rowaddr's and every page's
 .scr0:
-    cmp al, PF_VGA8                 ; VGA8 is LIN320's and MODEX's, and
-    je .v8                          ; they take nothing else
     cmp al, PF_C512                 ; C512 (98.1.3.5): the text screen as
     je .c512                        ; it is, and its card byte
     cmp al, PF_TEXT                 ; TEXT (98.1.3.6): the text screen not
@@ -1338,6 +1341,8 @@ vp_parse:
     jc .b2
     jmp short .lay
 .v1:
+    cmp al, PF_VGA8                 ; VGA8 is LIN320's and MODEX's, and
+    je .v8                          ; they take nothing else
     cmp bl, LAY_LIN320
     jae .b2
     jmp .lay
@@ -1385,8 +1390,7 @@ vp_parse:
     test byte [es:V88_FLAGS+1], V88F_PALEV >> 8     ; (a PALEV flag on a file
     jz .lay0                        ; that took no table: not a VGA4 one with
     cmp word [vp_pevn], 0           ; its own sixteen)
-    jne .lay0
-    jmp .b2
+    je .b2
 .lay0:
     call vp_lay6                    ; BX = layout x 6
     mov ax, [es:di+R_WB]
@@ -1399,7 +1403,7 @@ vp_parse:
     or ax, ax
     jz .b2
     cmp ax, [vp_laytab+bx+4]        ; rows
-    ja .b2
+    ja .b3
     mov [vp_h], ax
     mov word [vp_page], VP_PAGE     ; (Mode X's page; a screen's below)
     cmp byte [vp_mx200], 0          ; (MODEX AT 320 x 200, 98.1.3.1.1: four
@@ -1432,10 +1436,10 @@ vp_parse:
     mov ax, [vp_h]
     ; PLANES (98.1.3.1, 98.1.3.2): Mode X's four byte-planes, or VGA4's four
     ; bit-planes, and how far apart a RAM image keeps them
-    mov byte [vp_planar], 0
+    xor bx, bx                      ; (BL the kind, from here to .pl3)
     cmp byte [vp_layout], LAY_MODEX
     jne .pl2
-    mov byte [vp_planar], 1
+    inc bx
     mov word [vp_plsp], VP_MXPL
     jmp short .pl3
 .b3:                                ; (.bad, again)
@@ -1444,20 +1448,22 @@ vp_parse:
 .pl2:
     cmp byte [vp_pixfmt], PF_VGA4
     jne .pl3
-    mov byte [vp_planar], 2
+    mov bl, 2
     mul word [vp_lstr]              ; h rows of 80 bytes (40), in paragraphs
     add ax, 15
     mov cl, 4
     shr ax, cl
     mov [vp_plsp], ax
 .pl3:
-    mov byte [vp_sub2], 0           ; SUB2 (98.1.3.2.4): a planar rendition's
+    mov [vp_planar], bl
+    xor ax, ax                      ; SUB2 (98.1.3.2.4): a planar rendition's
     test byte [es:V88_FLAGS+1], V88F_SUB2 >> 8      ; alone - a one-bit
     jz .s2n                         ; one's record is one set of lists, and
-    cmp byte [vp_planar], 0         ; a Live file carries both kinds under
-    je .s2n                         ; the one header
-    mov byte [vp_sub2], 1
+    or bl, bl                       ; a Live file carries both kinds under
+    jz .s2n                         ; the one header
+    inc ax
 .s2n:
+    mov [vp_sub2], al
     mov dl, [vp_pixfmt]             ; (the format, from here to .pgeo)
     ; THE ROW SCALE (98.2.4): each row shown twice by the CRTC, VGA8 only
     mov byte [vp_rs], 0
@@ -1487,9 +1493,9 @@ vp_parse:
     je .b3                          ; Hercules's, which has two
     mov al, [es:di+R_PAGES]
     cmp al, 3
-    jb .b3
+    jb .b3b
     cmp al, 8
-    ja .b3
+    ja .b3b
     mov [vp_npg], al
     push dx
     cbw
@@ -1500,7 +1506,7 @@ vp_parse:
 .fp5:
     or dx, dx
     pop dx
-    jnz .b3
+    jnz .b3b
     mov al, 3
 .fp4:
     mov ah, [es:V88_FLAGS+1]        ; PAGE-AHEAD (98.1.3.7): byte 37 is 3
@@ -1508,34 +1514,37 @@ vp_parse:
     cmp al, 3
     jne .fpn
     or ah, ah
-    jz .b3
+    jz .b3b
     jmp short .fp2
+.b3b:                               ; (.bad, again)
+    stc
+    ret
 .fpn:
     or ah, ah
-    jnz .b3
+    jnz .b3b
     cmp al, 1
     jbe .fl1
     cmp al, 2
-    jne .b3
+    jne .b3b
 .fp2:
     cmp al, 3                       ; PAGE-AHEAD is a stream's, played in the
     jne .fp3                        ; bracket from a key: never RESIDENT, LIVE
     test byte [es:V88_FLAGS], V88F_RESIDENT | V88F_LOOPREC | V88F_LIVE
-    jnz .b3                         ; or looped (98.1.3.7) - its seam would
+    jnz .b3b                        ; or looped (98.1.3.7) - its seam would
 .fp3:                               ; copy into a keep page-ahead never claims
     cmp al, 2                       ; (FLIPPED every frame: never NARROW,
     jne .fp6                        ; whose pages are page-ahead's, 98.1.3.2.5)
     cmp word [vp_lstr], 40
-    je .b3
+    je .b3b
 .fp6:
     cmp byte [vp_screen], 0         ; (a VGA4 file on a screen of its own:
     jne .fl0                        ; two pages in a plane, 98.1.3.2.1)
     cmp byte [vp_layout], LAY_MODEX
     je .fl0
     cmp al, 3                       ; ...or page-ahead on a HERCULES, its
-    jne .b3                         ; second page at B800h (98.3.8.3)
+    jne .b3b                        ; second page at B800h (98.3.8.3)
     cmp byte [vp_layout], LAY_HERC
-    jne .b3
+    jne .b3b
 .fl0:
     sub al, 1                       ; 1 flipped, 2 page-ahead
     mov [vp_flip], al
@@ -1606,28 +1615,29 @@ vp_parse:
     cmp ax, [vp_spcap]
     jae .b4
 .keys:
-    mov byte [vp_flive], 0          ; LIVE (98.3.10): a resident file's -
-    test byte [es:V88_FLAGS], V88F_LIVE ; or a streamed one's, played Live
-    jz .nlv                         ; once it is held in XMS (98.3.18.1) -
-    mov byte [vp_flive], 1          ; and the screen each rendition is for
-.nlv:
-    mov byte [vp_fruns], 0          ; ...and its records' blit runs (98.1.3.4),
-    test byte [es:V88_FLAGS], V88F_RUNS ; a live file's alone
-    jz .nrn
-    cmp byte [vp_flive], 0
-    je .b5
-    mov byte [vp_fruns], 1
+    xor ax, ax                      ; SOUND AHEAD (98.1.8): A, the bytes of a
+    mov [vp_ahead], al              ; lead, and where the start's is - never
+    mov [vp_alb], ax                ; with RESIDENT, LIVE or no sound, and at
+    mov [vp_klead], ax              ; most VP_ALMAX bytes of it - and where
+    mov [vp_klead+2], ax            ; the keys' are, apart (98.1.8.1)
+    mov [vp_fruns], al
+    test byte [es:V88_FLAGS], V88F_LIVE ; LIVE (98.3.10): a resident file's -
+    jz .nlv                         ; or a streamed one's, played Live once
+    inc ax                          ; it is held in XMS (98.3.18.1) - and the
+.nlv:                               ; screen each rendition is for
+    mov [vp_flive], al
+    test byte [es:V88_FLAGS], V88F_RUNS ; ...and its records' blit runs
+    jz .nrn                         ; (98.1.3.4), a live file's alone
+    or al, al
+    jz .b5
+    mov [vp_fruns], al
 .nrn:
-    mov byte [vp_ahead], 0          ; SOUND AHEAD (98.1.8): A, the bytes of a
-    mov word [vp_alb], 0            ; lead, and where the start's is - never
-    mov word [vp_klead], 0          ; with RESIDENT, LIVE or no sound, and at
-    mov word [vp_klead+2], 0        ; most VP_ALMAX bytes of it - and where
-    mov al, [es:V88_AHEAD]          ; the keys' are, apart (98.1.8.1), which
-    test byte [es:V88_FLAGS], V88F_AHEAD    ; only AHEAD has
+    mov al, [es:V88_AHEAD]          ; A, which only AHEAD has
+    test byte [es:V88_FLAGS], V88F_AHEAD
     jnz .ah
     or al, al
     jnz .b5
-    test word [es:V88_FLAGS], V88F_KLEADS
+    test byte [es:V88_FLAGS+1], V88F_KLEADS >> 8
     jnz .b5
     jmp short .nah
 .b5:                                ; (.bad, again)
@@ -1636,10 +1646,9 @@ vp_parse:
 .ah:
     or al, al
     jz .b5
-    cmp byte [vp_resid], 0
-    jne .b5
-    cmp byte [vp_flive], 0
-    jne .b5
+    mov ah, [vp_resid]
+    or ah, [vp_flive]
+    jnz .b5
     cmp byte [vp_audio], 0
     je .b5
     mov [vp_ahead], al
@@ -1655,7 +1664,7 @@ vp_parse:
     mov si, V88_LEAD0
     mov bx, vp_lead0
     call vp_hd32
-    test word [es:V88_FLAGS], V88F_KLEADS
+    test byte [es:V88_FLAGS+1], V88F_KLEADS >> 8
     jz .nah
     mov si, V88_KLEADS              ; (a sector or more in: 0 is "inline")
     mov bx, vp_klead
@@ -1751,21 +1760,40 @@ vp_parse:
     ; --- REPEAT (98.3.9): on if the file asks, and how a lap joins the next -
     ;     its seam record (1), keyframe 0 over a cleared canvas (2), or the
     ;     cleared canvas and the stream from its start (0)
-    xor al, al
+    xor ax, ax
     test byte [es:V88_FLAGS], V88F_REPEAT
     jz .rp
     inc ax
 .rp:
     mov [vp_rep], al
-    mov byte [vp_lkind], 0
+    mov [vp_lkind], ah
     cmp byte [vp_resid], 0          ; (resident with no seam: the block from
     jne .lk                         ; its start, on black - no key to read)
     cmp word [vp_nkeys], 0
     je .lk
     mov byte [vp_lkind], 2
 .lk:
+    push ds                         ; the title, NUL-terminated within its 48
+    push es
+    push ds
+    push es
+    pop ds
+    pop es
+    mov si, V88_TITLE
+    mov di, vp_title
+    mov cx, VP_COLS
+.t:
+    lodsb
+    stosb
+    or al, al
+    jz .td
+    loop .t
+    mov [es:di], cl                 ; (CX = 0)
+.td:
+    pop es
+    pop ds
     test byte [es:V88_FLAGS], V88F_LOOPREC
-    jz .nolp
+    jz .lok
     mov word [vp_msg], vp_s_bad
     cmp word [es:V88_LOOP+LP_L+2], 0
     jne .b7
@@ -1779,7 +1807,9 @@ vp_parse:
     cmp byte [vp_resid], 0          ; RESIDENT: the seam is each block's last
     je .lstr                        ; record, found when it is loaded
     mov byte [vp_lkind], 1
-    jmp .nolp
+.lok:                               ; (.nolp, again: a short jump from the
+    clc                             ; test above; the title is copied ahead
+    ret                             ; of the loop block, which only refuses)
 .b7:                                ; (.bad, again: a short jump from here)
     stc
     ret
@@ -1823,25 +1853,6 @@ vp_parse:
     mov [vp_lkb], ax
     mov byte [vp_lkind], 1
 .nolp:
-    push ds                         ; the title, NUL-terminated within its 48
-    push es
-    push ds
-    push es
-    pop ds
-    pop es
-    mov si, V88_TITLE
-    mov di, vp_title
-    mov cx, VP_COLS
-.t:
-    lodsb
-    stosb
-    or al, al
-    jz .td
-    loop .t
-    mov [es:di], cl                 ; (CX = 0)
-.td:
-    pop es
-    pop ds
     clc
     ret
 .bad:
@@ -2084,14 +2095,15 @@ vp_reask:
 ; if the display has it; else through the SHADOW, in the first other layout
 ; whose mode it has and whose screen holds the canvas
 vp_canp1:
-    mov byte [vp_shadow], 0
     call OSAPI_FSX_CAPS             ; AX = the modes that display has
     mov [vp_caps], ax
-    mov byte [vp_m3ok], 0           ; WRITE MODE 3 (98.1.3.2.4) is a VGA's:
-    test al, 1 << FSXM_VGA12        ; an EGA has modes 0 to 2 and no 12h,
-    jz .m3n                         ; and its colour sub-records are stored
-    mov byte [vp_m3ok], 1           ; a plane at a time (vp_m3pl)
-.m3n:
+    xor cx, cx
+    mov [vp_shadow], cl
+    test al, 1 << FSXM_VGA12        ; WRITE MODE 3 (98.1.3.2.4) is a VGA's:
+    jz .m3n                         ; an EGA has modes 0 to 2 and no 12h,
+    inc cx                          ; and its colour sub-records are stored
+.m3n:                               ; a plane at a time (vp_m3pl)
+    mov [vp_m3ok], cl
     mov al, [vp_layout]
     mov ah, [vp_pixfmt]             ; (AH = the format: vp_try keeps it)
     cmp ah, PF_CGA4                 ; CGA IN COLOUR (98.3.12): its own
@@ -2109,12 +2121,15 @@ vp_canp1:
     call vp_try                     ; TEXT80, and 80 x 100 holds the canvas
     jc .cno
     mov byte [vp_shadow], 1         ; ...always THROUGH THE SHADOW: the
-    jmp .ok                         ; screen's stride is 160, a byte of two
+.okj:                               ; screen's stride is 160, a byte of two
+    jmp .ok
 .c4:
     test byte [vp_caps], 1 << FSXM_CGA320
-    jnz .ok
-.cno:
-    mov word [vp_msg], vp_s_nocol
+    jnz .okj
+.cno:                               ; (a refusal is [vp_msg] and [vp_ok] 0:
+    mov ax, vp_s_nocol              ; no caller reads the carry)
+.say:
+    mov [vp_msg], ax
     ret
 .c512:
     cmp dl, VID_CGA
@@ -2122,9 +2137,8 @@ vp_canp1:
     call vp_try                     ; TEXT80, and the screen's own layout:
     jnc .ok                         ; NATIVE, no shadow (98.1.3.5)
 .c5no:
-    mov word [vp_msg], vp_s_nocmp
-    stc
-    ret
+    mov ax, vp_s_nocmp
+    jmp short .say
 .text:
     cmp byte [vp_cgapal], 0         ; COLOUR: an MDA or a Hercules draws
     je .t1                          ; the attributes as something else
@@ -2134,9 +2148,8 @@ vp_canp1:
     call vp_try                     ; TEXT80, and the screen's own layout:
     jnc .ok                         ; NATIVE, no shadow
 .tno:
-    mov word [vp_msg], vp_s_notxt
-    stc
-    ret
+    mov ax, vp_s_notxt
+    jmp short .say
 .std:
     cmp byte [vp_screen], 0         ; A SCREEN OF ITS OWN (98.1.3.2.1): its
     je .std1                        ; mode on a VGA, never the shadow -
@@ -2149,9 +2162,8 @@ vp_canp1:
 .sc:
     test [vp_caps], cx
     jnz .ok
-    mov word [vp_msg], vp_s_novga
-    stc
-    ret
+    mov ax, vp_s_novga
+    jmp short .say
 .std1:
     call vp_try
     jnc .ok
@@ -2173,10 +2185,9 @@ vp_canp1:
     xor bh, bh                      ; it
     shl bx, 1
     mov ax, [vp_laynotab+bx]
-    mov [vp_msg], ax
-    ret
+    jmp short .say
 .shadow:
-    mov byte [vp_shadow], 1
+    inc byte [vp_shadow]            ; (0 since the entry: 1)
 .ok:
     mov [vp_tlay], al
     mov bl, al                      ; the mode to take
@@ -2401,6 +2412,30 @@ vp_pevload:
     mov dx, [vp_rdseg]              ; (the read's claim, done with)
     call OSAPI_MEM_FREE
     pop word [vp_rdseg]
+    jmp short .chk
+.io:                                ; (the refusals, where the claims above
+    mov dx, [vp_rdseg]              ; reach them with a short jump)
+    call OSAPI_MEM_FREE
+    pop word [vp_rdseg]
+    mov ax, vp_s_io
+    jmp short .fail
+.badv:
+    pop cx
+.bad:
+    mov ax, vp_s_bad
+    jmp short .fail
+.mem1:
+    mov ax, vp_s_mem
+.fail:
+    call vp_pevfree
+.say:
+    mov [vp_msg], ax
+    stc
+    ret
+.mem:
+    mov ax, vp_s_mem
+    jmp short .say
+.chk:
     mov es, [vp_pevseg]             ; THE CHECKS (98.1.6: a hostile file)
     xor si, si
     mov cx, [vp_pevn]
@@ -2432,44 +2467,16 @@ vp_pevload:
     pop cx
     add si, PEV_LEN
     loop .e
-    mov si, 4                       ; ...and entry 0's sixteen the header's
-    mov di, vp_pal
+    mov si, vp_pal                  ; ...and entry 0's sixteen the header's
+    mov di, 4
     mov cx, 48
-.c:
-    mov al, [es:si]
-    cmp al, [di]
+    repe cmpsb                      ; (DF clear since the copy)
     jne .bad
-    inc si
-    inc di
-    loop .c
     mov word [vp_pevp], 0
-    push ax
     mov dx, [vp_pevseg]
     mov ax, vp_smove
     call OSAPI_MEM_MOVABLE
-    pop ax
     clc
-    ret
-.badv:
-    pop cx
-.bad:
-    mov word [vp_msg], vp_s_bad
-    jmp short .fail
-.io:
-    mov dx, [vp_rdseg]
-    call OSAPI_MEM_FREE
-    pop word [vp_rdseg]
-    mov word [vp_msg], vp_s_io
-    jmp short .fail
-.mem1:
-    call vp_pevfree
-.mem:
-    mov word [vp_msg], vp_s_mem
-    stc
-    ret
-.fail:
-    call vp_pevfree
-    stc
     ret
 
 ; vp_pevfree - the palettes a scene's claim, if there is one. Preserves all
@@ -2827,43 +2834,25 @@ vp_mkpic:
     mov [vh_wb], ax
     mov ax, [vp_ph]
     mov [vh_h], ax
-    mov ax, [vp_pwb]
-    mov cl, 3
-    shl ax, cl
     cmp word [vp_ps], 1
-    je .v8own
+    je .own
     mov ax, [vp_pseg]
     mov [vh_sseg], ax
     mov [vh_dseg], ax
     mov byte [vh_lay], 0xFF
     call vp_half
-    mov ax, [vp_pwb]
-    shl ax, 1
-    shl ax, 1
-    cmp word [vp_ps], 2
-    je .sized
-    mov ax, [vh_wb]
-    mov [vh_sstr], ax
-    call vp_half
-    mov ax, [vp_pwb]
-    shl ax, 1
-    jmp short .sized
-.v8own:
-    mov [vp_ppx], ax
-    mov ax, [vp_pwb]
-    mov [vp_pbw], ax
-    mov ax, [vp_ph]
-    jmp short .rows
+    jmp short .h2                   ; (the second pass is the one-bit one's)
 .mono:
     cmp word [vp_ps], 1             ; AT ITS OWN SIZE: the rows out of the
     jne .half                       ; file's layout, dense
     call vp_linear
-    mov ax, [vp_wb]
+.own:                               ; (a one-bit canvas's vp_pwb and vp_ph
+    mov ax, [vp_pwb]                ; are its vp_wb and vp_h: vp_parse)
     mov [vp_pbw], ax
     mov cl, 3
     shl ax, cl
     mov [vp_ppx], ax
-    mov ax, [vp_h]
+    mov ax, [vp_ph]
     jmp short .rows
 .half:
     mov ax, [vp_kshd]               ; HALVED: out of the file's layout...
@@ -2877,7 +2866,8 @@ vp_mkpic:
     mov ax, [vp_pseg]
     mov [vh_dseg], ax
     call vp_half
-    mov ax, [vp_wb]                 ; ...its width half the canvas's
+.h2:
+    mov ax, [vp_pwb]                ; ...its width half the canvas's
     shl ax, 1
     shl ax, 1
     cmp word [vp_ps], 2
@@ -2888,7 +2878,7 @@ vp_mkpic:
     mov ax, [vh_wb]
     mov [vh_sstr], ax
     call vp_half
-    mov ax, [vp_wb]
+    mov ax, [vp_pwb]
     shl ax, 1
 .sized:
     mov [vp_ppx], ax
@@ -3039,6 +3029,7 @@ vp_cmono:
     push dx
     push si
     push di
+    push bp
     push es
     mov bx, 15                      ; the lumas: C160's sixteen as they are,
 .lc:                                ; CGA4's four through its palette byte
@@ -3092,14 +3083,10 @@ vp_cmono:
     mov bl, [vp_layout]
     call vp_rowaddr
     mov si, ax                      ; ES:SI = the row's first byte
-    mov bx, dx                      ; the row's four thresholds
-    and bx, 3
-    shl bx, 1
-    shl bx, 1
-    mov ax, [vp_bayer4+bx]
-    mov [vp_rthr], ax
-    mov ax, [vp_bayer4+bx+2]
-    mov [vp_rthr+2], ax
+    mov bp, dx                      ; BP = the row's four thresholds in
+    and bp, 3                       ; vp_bayer4
+    shl bp, 1
+    shl bp, 1
     mov cx, [vp_pwb]
 .ob:
     push cx
@@ -3134,22 +3121,18 @@ vp_cmono:
     and al, 15
 .lv:
     push bx
-    mov bl, al
-    xor bh, bh
-    mov al, [vp_lum+bx]
-    mov bx, 4                       ; the column: a canvas byte starts on a
+    mov bx, vp_lum
+    xlat
+    mov bx, bp                      ; the column: a canvas byte starts on a
     sub bx, cx                      ; multiple of four poster pixels
-    cmp [vp_rthr+bx], al            ; CF = threshold < luma: lit
+    cmp [vp_bayer4+4+bx], al        ; CF = threshold < luma: lit
     pop bx
     rcl ah, 1
     loop .px
     pop cx
     loop .sb
     push ds
-    push ax
-    mov ax, [vp_pseg]
-    mov ds, ax
-    pop ax
+    mov ds, [vp_pseg]
     mov [di], ah
     pop ds
     inc di
@@ -3159,6 +3142,7 @@ vp_cmono:
     jmp .row
 .done:
     pop es
+    pop bp
     pop di
     pop si
     pop dx
@@ -3680,10 +3664,9 @@ vp_rdpal:
     je .go
     cmp byte [vp_pixfmt], PF_VGA4   ; ...or a VGA4 file's own sixteen
     jne .none                       ; (98.1.3.2.1), when it has them
-    cmp word [vp_palo], 0
-    jne .go
-    cmp word [vp_palo+2], 0
-    jne .go
+    mov ax, [vp_palo]               ; (AX: vp_open's one call keeps none)
+    or ax, [vp_palo+2]
+    jnz .go
     push bx                         ; (the EGA's own: the poster as it is)
     xor bx, bx
 .idn:
@@ -3738,19 +3721,20 @@ vp_rdpal:
     jne .fin
     call vp_v4xlat
 .fin:
-    mov dx, [vp_rdseg]
-    call OSAPI_MEM_FREE
     clc
-    jmp short .out
+    jmp short .fr0
 .bad:
     mov word [vp_msg], vp_s_bad
     jmp short .fr
 .io:
     mov word [vp_msg], vp_s_io
 .fr:
+    stc
+.fr0:
+    pushf                           ; (the read's claim, either way)
     mov dx, [vp_rdseg]
     call OSAPI_MEM_FREE
-    stc
+    popf
     jmp short .out
 .mem:
     mov word [vp_msg], vp_s_mem
@@ -3904,23 +3888,17 @@ vp_inkset:
 ; desktop's mode and its timing is the file's.
 ; Preserves all
 vp_scrset:
-    cmp byte [vp_screen], 0
-    jne .go
-    cmp byte [vp_mx200], 0          ; (MODEX AT 320 x 200: 13h's 400 lines,
-    jne .go                         ; 98.1.3.1.1)
-    cmp byte [vp_pixfmt], PF_VGA4   ; (screen 0: a VGA4 file's own sixteen,
-    je .go                          ; when it has them)
-    jmp .out
-.go:
     push ax
     push bx
     push cx
     push dx
     push si
-    cmp byte [vp_screen], 0
-    jne .crt
-    cmp byte [vp_mx200], 0
-    je .pal
+    mov al, [vp_screen]
+    or al, [vp_mx200]               ; (MODEX AT 320 x 200: 13h's 400 lines,
+    jnz .crt                        ; 98.1.3.1.1)
+    cmp byte [vp_pixfmt], PF_VGA4   ; (screen 0: a VGA4 file's own sixteen,
+    je .pal                         ; when it has them)
+    jmp short .done
 .crt:
     mov dx, 0x3D4
     mov al, 0x11                    ; CR0-7 unprotected (CR11 bit 7)
@@ -3992,7 +3970,6 @@ vp_scrset:
     pop cx
     pop bx
     pop ax
-.out:
     ret
 
 ; vp_crtc - a row scale of 2 (98.2.4): the CRTC's Maximum Scan Line (3D4h
@@ -4072,9 +4049,7 @@ vp_v8mono:
     push es
     call vp_mklum
     cmp byte [vp_layout], LAY_MODEX
-    jne .lin
-    jmp .mx
-.lin:
+    je .mx
     mov es, [vp_kshd]
     xor di, di                      ; DI = the output byte
     xor dx, dx                      ; DX = the row
@@ -4089,35 +4064,28 @@ vp_v8mono:
     mul cx
     pop dx
     mov si, ax                      ; ES:SI = the row's first pixel
-    mov bx, dx                      ; the row's four thresholds, where BX
-    and bx, 3                       ; can index them
-    shl bx, 1
-    shl bx, 1
-    mov ax, [vp_bayer4+bx]
-    mov [vp_rthr], ax
-    mov ax, [vp_bayer4+bx+2]
-    mov [vp_rthr+2], ax
+    mov bp, dx                      ; BP = the row's four thresholds in
+    and bp, 3                       ; vp_bayer4
+    shl bp, 1
+    shl bp, 1
     mov cx, [vp_pwb]
 .byte:
     push cx
     xor ah, ah                      ; AH = the byte, built from the left
     mov cx, 8
 .pix:
-    mov bl, [es:si]
-    inc si
-    xor bh, bh
-    mov al, [vp_lum+bx]
+    es lodsb                        ; (DF clear: vp_mklum)
+    mov bx, vp_lum
+    xlat
     mov bx, si                      ; x & 3 of the pixel just read
     dec bx
     and bx, 3
-    cmp [vp_rthr+bx], al            ; CF = threshold < luma: lit
+    add bx, bp
+    cmp [vp_bayer4+bx], al          ; CF = threshold < luma: lit
     rcl ah, 1
     loop .pix
     push ds
-    push ax
-    mov ax, [vp_pseg]
-    mov ds, ax
-    pop ax
+    mov ds, [vp_pseg]
     mov [di], ah
     pop ds
     inc di
@@ -4191,10 +4159,7 @@ vp_v8mono:
     cmp cx, 8
     jb .mpix
     push ds
-    push ax
-    mov ax, [vp_pseg]
-    mov ds, ax
-    pop ax
+    mov ds, [vp_pseg]
     mov [di], ah
     pop ds
     inc di
@@ -4240,8 +4205,8 @@ vp_v4dims:
     dec ax
     xor dx, dx
     div bx
-    mov cx, ax
-    pop ax
+    pop cx
+    xchg ax, cx
     pop bx
     pop dx
     ret
@@ -4288,9 +4253,11 @@ vp_v4pack:
     mov ax, [vp_lstr]               ; (80, or a NARROW screen's 40)
     mul si
     mov bp, ax                      ; BP = the row in each plane
-    mov word [vp_v4x], 0
-    mov byte [vp_v4n], 0
-    mov word [vp_v4xb], 0xFFFF
+    xor ax, ax
+    mov [vp_v4x], ax
+    mov [vp_v4n], al
+    dec ax
+    mov [vp_v4xb], ax
 .pix:
     mov ax, [vp_v4x]
     cmp ax, [vp_v4w]
