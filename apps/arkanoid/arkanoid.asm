@@ -90,12 +90,13 @@
     OS88_HEADER 'ARKANOID', ark_entry, 1, OS88_STACK_192
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
-                                ; static 62 for ark_worker
+                                ; static 50 for ark_worker
                                 ; over the 64-byte interrupt floor
-                                ; that is 126, and 192 gives 1.52x
+                                ; that is 114, and 192 gives 1.68x
                                 ; (76 and 1.37x before size pass 1,
-                                ; 64 before pass 2 inlined
-                                ; ark_update into the loop)
+                                ; 64 before pass 2 took the loop's
+                                ; helpers' saves and inlined their
+                                ; one-caller routines, SPEC.md 44.12)
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; A brick wall over a ball over the paddle - the whole game in three objects.
@@ -1342,9 +1343,23 @@ ark_focuschk:
 ark_do_paddle:
     mov word [ark_pvel], 0          ; how far the paddle moves THIS frame,
                                     ; signed - the ball reads it on contact
-    call ark_pkey                   ; is the arrow the paddle is following
-    jnc .aged                       ; still down? then it is a HOLD, whatever
-                                    ; int 16h has or has not delivered
+    ; IS THE ARROW THE PADDLE IS FOLLOWING STILL DOWN? Then it is a HOLD,
+    ; whatever int 16h has or has not delivered (SPEC.md 9.7). [ark_pdir] is
+    ; the direction, so the scancode falls out of its sign; a paddle with no
+    ; direction latched at all is "not held" without asking, which is also
+    ; the one case where the answer would be meaningless. The slot takes no
+    ; lock and touches no port, so it is legal from the worker - which is
+    ; where the game loop is (SPEC.md 44.1), and the whole reason the answer
+    ; is a cheap read rather than an event. (This was ark_pkey, inline at its
+    ; one caller, SPEC.md 44.12.)
+    cmp byte [ark_pdir], 0
+    je .aged
+    mov al, KSC_RIGHT
+    jg .ask
+    mov al, KSC_LEFT
+.ask:
+    call OSAPI_KEY_DOWN             ; CF = 1 held
+    jnc .aged
     cmp word [ark_pkeep], ARK_PHOLD ; refill only from BELOW: a tap that is
     jge .held                       ; still inside its own countdown owns it
     mov word [ark_pkeep], ARK_PHOLD
@@ -1358,7 +1373,7 @@ ark_do_paddle:
     xor ax, ax
     mov [ark_pspd], ax              ; stopped, the third speed - and what tells
     mov [ark_pdn], ax               ; ark_onkey that this arrow is free again
-    jmp .out
+    ret
 .live:
     dec word [ark_pkeep]
     mov ax, ARK_PSTEP               ; the promotion, and the whole of it: the
@@ -1430,81 +1445,6 @@ ark_park:
     ret
 
 ; -----------------------------------------------------------------------------
-; ark_pkey - is the arrow the paddle is following still DOWN? (SPEC.md 9.7)
-; out: CF = 1 held, CF = 0 not; preserves every register
-;
-; [ark_pdir] is the direction, so the scancode falls out of its sign. A paddle
-; with no direction latched at all answers "not held" without asking, which is
-; also the one case where the answer would be meaningless.
-;
-; The slot takes no lock and touches no port, so this is legal from the worker
-; task - which is where the game loop is (SPEC.md 44.1), and the whole reason
-; the answer is a cheap read rather than an event.
-; -----------------------------------------------------------------------------
-ark_pkey:
-    push ax
-    cmp byte [ark_pdir], 0
-    je .no
-    mov al, KSC_RIGHT
-    jg .ask
-    mov al, KSC_LEFT
-.ask:
-    call OSAPI_KEY_DOWN             ; CF is the answer, and the pop below
-    pop ax                          ; leaves it alone
-    ret
-.no:
-    clc
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; ark_throw - the sideways speed a SERVE gets from the key the player is on
-; out: AX = -ARK_THRHOLD..+ARK_THRHOLD PIXELS, in quarter units; preserves all
-;      other registers
-;
-; The serve has no incoming direction to build on, so the flick IS the aim, and
-; a paddle standing still serves straight up - honest rather than a hidden
-; default: the player who wants an angle flicks, and the one who does not gets
-; to choose after the first bounce.
-;
-; This is the ONE place that reads the player's intent rather than the paddle's
-; motion, and it has to. Everywhere else - the paddle's kick, the rail clamp - the
-; question is physical, "how fast is this thing actually going", and [ark_pvel]
-; answers it. Here the question is "which way did you ask for", and the two
-; stopped agreeing the moment the paddle stopped being fast: at the 2 px a tick
-; ARK_PSTEP briefly was, a flick moved the paddle 2 pixels in the tick Space is
-; pressed and the old halving took that to 1, so a serve barely left the
-; vertical unless the key had been held for half a second first. The mechanism
-; had gone quiet, not the intent - and reading the intent is what keeps the
-; serve stable while ARK_PSTEP is tuned underneath it, which it has been three
-; times.
-;
-; So the ladder is the STATE MACHINE, and it has exactly three rungs to match.
-; Stopped: nothing is being asked for, straight up. Tapping, at ARK_PSTEP:
-; ARK_THRTAP. Holding, wound up to ARK_PFAST by the typematic repeats:
-; ARK_THRHOLD, harder. The two figures track the two speeds rather than deriving
-; from them - a flick that moves the paddle 5 px a tick has to throw harder
-; than one that moved it 2, or the aim stops matching the gesture.
-;
-; A paddle held against a rail still serves off it, which the physical reading
-; would refuse. That is the intent answering: the player asked for left.
-; -----------------------------------------------------------------------------
-ark_throw:
-    xor ax, ax                      ; no key latched: nothing has been asked
-    cmp word [ark_pkeep], 0         ; for, so the serve goes straight up
-    jle .out
-    mov ax, [ark_thrtap]            ; a flick throws...
-    cmp word [ark_pspd], ARK_PFAST
-    jb .sign
-    mov ax, [ark_thrhold]           ; ...and a hold throws harder
-.sign:
-    cmp byte [ark_pdir], 0          ; the key names the side, all of it
-    jge .out
-    neg ax
-.out:
-    ret
-
-; -----------------------------------------------------------------------------
 ; ark_setspeed - the rally's vertical speed for this level
 ; out: [ark_vymag] = ARK_VYBASE .. ARK_VYMAX, in QUARTER pixels
 ; preserves all registers
@@ -1542,9 +1482,40 @@ ark_setspeed:
 ; -----------------------------------------------------------------------------
 ; ark_do_launch - Space: send the ball off, or fire the laser
 ; in:  [ark_launch] set by the UI task; out: cleared
+;
+; THE SERVE'S SIDEWAYS SPEED, from the key the player is on: -ARK_THRHOLD..
+; +ARK_THRHOLD, in quarter units (this was ark_throw, inline at its one
+; caller below, SPEC.md 44.12).
+;
+; The serve has no incoming direction to build on, so the flick IS the aim, and
+; a paddle standing still serves straight up - honest rather than a hidden
+; default: the player who wants an angle flicks, and the one who does not gets
+; to choose after the first bounce.
+;
+; This is the ONE place that reads the player's intent rather than the paddle's
+; motion, and it has to. Everywhere else - the paddle's kick, the rail clamp - the
+; question is physical, "how fast is this thing actually going", and [ark_pvel]
+; answers it. Here the question is "which way did you ask for", and the two
+; stopped agreeing the moment the paddle stopped being fast: at the 2 px a tick
+; ARK_PSTEP briefly was, a flick moved the paddle 2 pixels in the tick Space is
+; pressed and the old halving took that to 1, so a serve barely left the
+; vertical unless the key had been held for half a second first. The mechanism
+; had gone quiet, not the intent - and reading the intent is what keeps the
+; serve stable while ARK_PSTEP is tuned underneath it, which it has been three
+; times.
+;
+; So the ladder is the STATE MACHINE, and it has exactly three rungs to match.
+; Stopped: nothing is being asked for, straight up. Tapping, at ARK_PSTEP:
+; ARK_THRTAP. Holding, wound up to ARK_PFAST by the typematic repeats:
+; ARK_THRHOLD, harder. The two figures track the two speeds rather than deriving
+; from them - a flick that moves the paddle 5 px a tick has to throw harder
+; than one that moved it 2, or the aim stops matching the gesture.
+;
+; A paddle held against a rail still serves off it, which the physical reading
+; would refuse. That is the intent answering: the player asked for left.
 ; -----------------------------------------------------------------------------
-; clobbers AX and saves nothing: its one caller is the worker
-; loop, which holds no register across it (SPEC.md 44.12)
+; clobbers AX, BX, CX and SI (ark_fire is its tail) and saves nothing: its one
+; caller is the worker loop, which holds no register across it (SPEC.md 44.12)
 ark_do_launch:
     cmp byte [ark_launch], 0
     je .out
@@ -1555,17 +1526,27 @@ ark_do_launch:
     mov ax, [ark_vymag]
     neg ax
     mov [ark_bvy], ax
-    call ark_throw
+    xor ax, ax                      ; no key latched: nothing has been asked
+    cmp word [ark_pkeep], 0         ; for, so the serve goes straight up
+    jle .throw
+    mov ax, [ark_thrtap]            ; a flick throws...
+    cmp word [ark_pspd], ARK_PFAST
+    jb .sign
+    mov ax, [ark_thrhold]           ; ...and a hold throws harder
+.sign:
+    cmp byte [ark_pdir], 0          ; the key names the side, all of it
+    jge .throw
+    neg ax
+.throw:
     mov [ark_bvx], ax
     mov byte [ark_mode], M_PLAY
     mov byte [ark_msg], 1           ; the READY line has to come off
     mov ax, 660
-    call ark_beep
-    jmp .out
+    jmp ark_beep                    ; ...its tail: ark_beep's ret is ours
 .laser:
     cmp byte [ark_laser], 0
     je .out
-    call ark_fire
+    jmp ark_fire                    ; ...and so is ark_fire's
 .out:
     ret
 
@@ -2155,11 +2136,10 @@ ark_do_pu:
 
 ; -----------------------------------------------------------------------------
 ; ark_apply - a capsule was caught
-; in:  AL = kind; preserves all registers
+; in:  AL = kind; clobbers AX and BX: its one caller, ark_do_pu, holds only SI
+;      across it (SPEC.md 44.12)
 ; -----------------------------------------------------------------------------
 ark_apply:
-    push ax
-    push bx
     add word [ark_score], 50
     mov byte [ark_stat], 1
     cmp al, PU_EXPAND
@@ -2199,33 +2179,21 @@ ark_apply:
     mov byte [ark_padwipe], 1
     jmp .done
 .slow:
-    call ark_slower
-.done:
-    mov ax, 1046                    ; the catch chime
-    call ark_beep
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; ark_slower - knock the rally's vertical speed down a notch, never below
-;              ARK_VYFLOOR (a ball with no vy would never come back down)
-; preserves all registers
-;
-; It moves [ark_vymag] rather than [ark_bvy], because vymag is what every
-; paddle bounce restores - changing only the live velocity would last exactly
-; until the next one.
-;
-; The notch is ARK_VYSLOW, a QUARTER of what it was: the old step was a whole
-; pixel a frame off a base of three, so one capsule took a third of the
-; rally's speed away and two made it sluggish. Against the 3.75 base this is
-; an eighth, and the floor is 2.5 rather than 2.
-; -----------------------------------------------------------------------------
-ark_slower:
-    push ax
+    ; SLOW: knock the rally's vertical speed down a notch, never below
+    ; ARK_VYFLOOR - a ball with no vy would never come back down (this was
+    ; ark_slower, inline at its one caller, SPEC.md 44.12).
+    ;
+    ; It moves [ark_vymag] rather than [ark_bvy], because vymag is what every
+    ; paddle bounce restores - changing only the live velocity would last exactly
+    ; until the next one.
+    ;
+    ; The notch is ARK_VYSLOW, a QUARTER of what it was: the old step was a whole
+    ; pixel a frame off a base of three, so one capsule took a third of the
+    ; rally's speed away and two made it sluggish. Against the 3.75 base this is
+    ; an eighth, and the floor is 2.5 rather than 2.
     mov ax, [ark_vymag]
     cmp ax, [ark_vyfloor]
-    jle .out
+    jle .done
     sub ax, [ark_vyslow]
     cmp ax, [ark_vyfloor]
     jge .live
@@ -2233,20 +2201,21 @@ ark_slower:
 .live:
     mov [ark_vymag], ax             ; ...and take the live ball with it, in
     cmp word [ark_bvy], 0           ; whichever direction it is already going
-    jge .set
+    jge .setvy
     neg ax
-.set:
+.setvy:
     mov [ark_bvy], ax
-.out:
-    pop ax
-    ret
+.done:
+    mov ax, 1046                    ; the catch chime
+    jmp ark_beep
 
 ; -----------------------------------------------------------------------------
 ; ark_fire / ark_bolt / ark_do_shots - the laser
 ; ark_fire:     a volley - one bolt out of each muzzle
 ; ark_bolt:     arm one slot; BX = slot, AX = x
 ; ark_do_shots: fly them, and let each break one brick
-; all three preserve every register
+; ark_bolt and ark_do_shots preserve every register they do not say they
+; clobber; ark_fire clobbers AX, BX, CX and SI
 ;
 ; The bolts leave the MUZZLES, not the paddle's centre, and that is what makes
 ; the outermost brick column at either end reachable at all. ark_do_paddle
@@ -2270,11 +2239,9 @@ ark_slower:
 ; rather than a deliberate half-volley - and the muzzles are drawn as a pair,
 ; so the asymmetry would look like a bug rather than a limit.
 ; -----------------------------------------------------------------------------
-ark_fire:
-    push ax
-    push bx
-    push cx
-    push si
+ark_fire:                           ; (clobbers AX, BX, CX, SI: reached by a
+                                    ; tail jump from ark_do_launch, whose one
+                                    ; caller holds nothing, SPEC.md 44.12)
     mov cx, -1                      ; CX = the first free slot, once found
     xor si, si
 .slot:
@@ -2287,7 +2254,7 @@ ark_fire:
     inc si
     cmp si, ARK_MAXSHOT
     jb .slot
-    jmp .out                        ; fewer than two free - no half-volleys
+    ret                             ; fewer than two free - no half-volleys
 .pair:
     mov bx, cx                      ; the left muzzle
     mov ax, [ark_px]
@@ -2298,13 +2265,7 @@ ark_fire:
     dec ax
     call ark_bolt
     mov ax, 2200                    ; one beep for the volley, not one each
-    call ark_beep
-.out:
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp ark_beep
 
 ark_bolt:
     push bx

@@ -80431,7 +80431,7 @@ pass leaves binding:
   one caller, the worker loop, and banked nothing; inline it is the same
   instructions less a `call` and a `ret` every frame, and the death/clear
   pause tests the mode in AL, which it was just loaded into, instead of
-  re-reading `[ark_mode]`. The worker's static stack chain is 62 bytes, not 64.
+  re-reading `[ark_mode]`.
 - **...and so is the draw half.** `ark_render` (the one lock hold a frame,
   everything the sections above say of it unchanged) is the loop's `.draw`
   now: the same instructions less a `call`, a `ret` and six register saves
@@ -80482,6 +80482,13 @@ pass leaves binding:
   same one caller and it holds nothing across them either (it loads the mode
   after the first two, and reads no register after the other four): 21 more
   pairs a frame.
+- **...and their own one-caller routines are inline, or tails.** `ark_pkey`
+  is a block of `ark_do_paddle` and `ark_throw` of `ark_do_launch`;
+  `ark_slower` is `ark_apply`'s Slow arm, and `ark_apply` saves nothing
+  (`ark_do_pu` holds only SI across it). Where a routine ended in
+  `call ark_beep` or `call ark_fire` and then its own `ret`, it jumps
+  instead, and `ark_fire` saves nothing either. The worker's static stack
+  chain is 50 bytes, from 64; it keeps `OS88_STACK_192`.
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
