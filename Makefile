@@ -5468,41 +5468,13 @@ $(shell mkdir -p $(BUILD); \
         [ -f $(VPSTAMP) ] || { rm -f $(BUILD)/.vplayer-* \
                                       $(BUILD)/video.bin $(BUILD)/video.o88; \
                                 touch $(VPSTAMP); })
-VIDSRC := apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc \
-          apps/video/vpicon.inc apps/os88spk.inc apps/os88spkfx.inc \
-          apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
-          apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc
-$(BUILD)/video.bin: $(VIDSRC) $(VPSTAMP) | $(BUILD)
+$(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
+                    apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc $(VPSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ $(VPDEF) -o $@ apps/video/video.asm
 	@echo "video:  $(call FILESIZE,$@) bytes"
 
-# VIDEO.O88 IS A PARTED PACKAGE (SPEC.md 98.3.23), WORD.O88's shape (68.10):
-# the image the kernel launches is apps/video/vidload.asm, a 1.5KB loader
-# that reads two parts and hands its identity to part 0 (20.12.10). video.asm
-# assembles to `.text | .modc`; part 0 is the image with its bss shipped
-# inside it (--pad-bss, the kernel does not zero a part) and part 1 is
-# `.modc`, assembled at VP_P1ORG so it lands at the top of the player's own
-# segment - which is what takes the player past APP_MAX_SIZE's 61,440 to the
-# carve's 65,024. ONE recipe makes both halves and the package, for the
-# reason word.o88's rule gives: a half with no recipe of its own lets make
-# package a stale cut. The image is never compressed (os88pkg declines,
-# --compress-if says so and carries on); both PARTS are OP_COMP. Every
-# variant below - VIDEOD, VIDEOR - is the same three steps through
-# VIDPARTS, the build being the same `.text | .modc`.
-$(BUILD)/vidload.bin: apps/video/vidload.asm apps/video/vpicon.inc apps/os88api.inc \
-                      apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -o $@ apps/video/vidload.asm
-	@echo "vidload: $(call FILESIZE,$@) bytes of parts loader"
-
-# $(call VIDPARTS,<the assembled player .bin>,<the .o88 to write>)
-VIDPARTS = python3 tools/os88ovl.py $(1) -o $(basename $(1)).p1.bin \
-	        --trim $(basename $(1)).p0.bin --pad-bss && \
-	    $(OS88PKG) $(BUILD)/vidload.bin -o $(2) \
-	        --part $(basename $(1)).p0.bin --part $(basename $(1)).p1.bin
-
-$(BUILD)/video.o88: $(BUILD)/vidload.bin $(BUILD)/video.bin tools/os88ovl.py \
-                    tools/os88pkg.py $(PKGZSTAMP)
-	$(call VIDPARTS,$(BUILD)/video.bin,$@)
+$(BUILD)/video.o88: $(BUILD)/video.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/video.bin -o $@
 
 # WIREFRAME (SPEC.md 78): a rotating solid drawn with nothing but
 # OSAPI_GFX_LINE, and a frame-rate readout, so 5.6.4.1's walk can be SEEN
@@ -11109,21 +11081,19 @@ videnchd: $(VIDENC_BASE) $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 \
 # `make 486-video` boots it in 86Box.
 VID486_CYLS ?= 250
 VID486CLIPS ?=
-$(BUILD)/videodiag.bin: $(VIDSRC) | $(BUILD)
+$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -o $@ apps/video/video.asm
-$(BUILD)/videodiag.o88: $(BUILD)/vidload.bin $(BUILD)/videodiag.bin tools/os88ovl.py \
-                        tools/os88pkg.py $(PKGZSTAMP)
-	$(call VIDPARTS,$(BUILD)/videodiag.bin,$@)
+$(BUILD)/videodiag.o88: $(BUILD)/videodiag.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/videodiag.bin -o $@
 # VIDEOR.O88: VIDEOD with the READ LOG (SPEC.md 98.3.22.2) - every chunk the
 # player reads, its file offset, length and sum, and where a damaged
 # super-packet was found, saved in the profile for tools/os88vfit.py --reads
 # to hold against the file. Its room is the layer's and the speaker's info
 # lines, which a card's play of a file with no layer does not draw
-$(BUILD)/videordlog.bin: $(VIDSRC) | $(BUILD)
+$(BUILD)/videordlog.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -DVP_RDLOG -o $@ apps/video/video.asm
-$(BUILD)/videordlog.o88: $(BUILD)/vidload.bin $(BUILD)/videordlog.bin tools/os88ovl.py \
-                         tools/os88pkg.py $(PKGZSTAMP)
-	$(call VIDPARTS,$(BUILD)/videordlog.bin,$@)
+$(BUILD)/videordlog.o88: $(BUILD)/videordlog.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/videordlog.bin -o $@
 .PHONY: vid486
 vid486: $(VIDENC_BASE) $(BUILD)/videodiag.o88 $(BUILD)/vidbench.o88 \
 	$(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 tools/os88hdd.py tools/os88vid.py \

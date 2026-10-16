@@ -92,16 +92,6 @@ region apps/pixelstein/pxstein.asm  # csload's shape exactly: the launch image
                                  # freed inside that call (SPEC.md 97.9).
                                  # Retired by nothing; correct as it stands.
 
-region apps/video/vidload.asm    # WORD's shape (wdload, above) one package
-                                 # along: VIDEO.O88's raw loader (SPEC.md
-                                 # 98.3.23) reads the two parts, hands its
-                                 # identity to part 0 through OSAPI_PKG_REHOME
-                                 # and has its own region freed inside that
-                                 # call. The region that remains is the carve,
-                                 # video.asm declares it, and part 1 is inside
-                                 # the same claim and moves with it. Retired
-                                 # by nothing; correct as it stands.
-
 # --- worker -------------------------------------------------------------------
 #
 # THE FOUR PARK-SAFE PACKAGES ARE GONE FROM THIS LIST and the reason they were

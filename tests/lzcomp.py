@@ -59,10 +59,8 @@ A package's prefix is the header, the icon, the association block and - when
 flags bit 5 says so - the 16-byte DOCUMENT GLYPH (SPEC.md 54.3.2), and
 Compress and Uncompress must agree on it to the byte: the stream starts where
 the prefix ends. CALC.O88 above has no glyph (flags 0x09), so the main row
-cannot reach the glyph rung of the ladder at all. DOS.O88 is the shipped
-package that has one (flags 0x2B) and ships COMPRESSED - VIDEO.O88 has the
-glyph too, but is a parted package since SPEC.md 98.3.23, its image a raw
-loader that Compress refuses - and it goes on a scratch B:
+cannot reach the glyph rung of the ladder at all. DOS.O88 and VIDEO.O88 are
+the shipped packages that have one (flags 0x2B), and they go on a scratch B:
 EXACTLY AS THE BUILD SHIPS THEM - LZ4, which is what a user has - and each is
 taken round the whole loop:
 
@@ -349,15 +347,8 @@ def compress(m, mo, wx, wy, name, fails, quiet=30, item=FM_ICOMP):
     return ""
 
 
-GLYPHS = ("DOS.O88",)                 # the shipped packages whose flags
-                                        # carry LD_HF_GLYPH (0x2B) AND ship
-                                        # compressed. VIDEO.O88 was the
-                                        # second until it became a PARTED
-                                        # package (SPEC.md 98.3.23): its
-                                        # image is a raw loader, and a file
-                                        # with parts is one Compress refuses
-                                        # by design (kernel/compress.inc,
-                                        # beside .no1) - checked
+GLYPHS = ("DOS.O88", "VIDEO.O88")     # the shipped packages whose flags
+                                        # carry LD_HF_GLYPH (0x2B) - checked
                                         # in glyph(), so a build that drops
                                         # the glyph from one stops the row
                                         # rather than quietly testing the

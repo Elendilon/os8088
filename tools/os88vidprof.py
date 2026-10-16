@@ -59,12 +59,7 @@ def pkg_map(defines=()):
         for line in open(mp):
             f = line.split()
             if len(f) == 3 and all(c in "0123456789ABCDEF" for c in f[0]):
-                # VIRTUAL, not real: the two agree in every section that has
-                # no vstart, and a parted package's part 1 (SPEC.md 98.3.23,
-                # 68.10) is assembled at its offset in the SEGMENT, which is
-                # the virtual column - the real one is where it sits in the
-                # FILE, past the image
-                out[f[2]] = int(f[1], 16)
+                out[f[2]] = int(f[0], 16)
         return out, open(os.path.join(d, "p.bin"), "rb").read()
 
 

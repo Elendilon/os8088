@@ -32,35 +32,43 @@
 
     OS88_HEADER 'Video Player', vp_entry, 0x23  ; icon, assoc, doc glyph
 
-%include "video/vpicon.inc"     ; ...the play button, the .V88 association
-                                ; and the document glyph, which the LOADER
-                                ; wears too (apps/video/vidload.asm)
+; --- the icon (SPEC.md 20.2): a play button --------------------------------
+; A solid disc with a play triangle cut out of it, so it reads as one shape
+; on every adapter - no grey, no one-pixel stroke (SPEC.md 39.4). The mask
+; is the disc dilated one pixel, a white underlay round it.
+;
+;   .....######.....    the data; the mask is every pixel but the corners
+;   ..##########..
+;   .####.#######.      (rows 0-2 and 13-15 shown trimmed)
+;   .####..######.
+;   #####....#####
+;   #####.....####
+;   #####.......##
+    OS88_ICON16
+    dw 0x3FFC, 0x7FFE, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF
+    dw 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0x7FFE, 0x3FFC
+    dw 0x07E0, 0x1FF8, 0x3FFC, 0x7BFE, 0x79FE, 0xF87F, 0xF83F, 0xF80F
+    dw 0xF80F, 0xF83F, 0xF87F, 0x79FE, 0x7BFE, 0x3FFC, 0x1FF8, 0x07E0
+    OS88_ICON16_END
 
-; PART 1 - THE TOP OF THIS SEGMENT (SPEC.md 98.3.23, Word's 68.10 shape).
-; VIDEO.O88 is a PARTED package: the kernel launches apps/video/vidload.asm,
-; which reads two parts and hands its identity to part 0 - THIS FILE's image
-; with its bss shipped inside it, padded to VP_P1ORG - and part 1 is every
-; `section .modc` below, assembled at VP_P1ORG so it lands at that offset of
-; this same segment. A near call either way, DS never moves, and a compaction
-; moves part 1 with the region because the two are one claim. What it buys is
-; the segment past APP_MAX_SIZE's 61,440: image + bss is the REGION, and part
-; 1 sits above it up to the carve's 65,024 (op_size's 127 sectors).
-; THE RULE FOR WHAT GOES IN `.modc`: code the kernel never calls by its
-; address - no callback, no menu or button proc, no worker, no relocation
-; proc, no hook - because the kernel bounds every entry point by I_SIZE, which
-; is VP_P1ORG. tools/os88ovlchk.py walks this source and refuses a part-1
-; code label used as anything but a branch target. Speed is not a reason to
-; keep code out: part 1 is the same segment and a near call into it costs
-; what it always did.
-; VP_P1ORG is the next sector up from image + bss, per arm; the assertion at
-; OS88_IMAGE_END says when to raise it (by 512 - it is RAM, the region being
-; VP_P1ORG however much of it is used), and when a size pass leaves a whole
-; sector of slack under it, lower it.
-%ifdef VP_DIAG
-VP_P1ORG    equ 0xE400
-%else
-VP_P1ORG    equ 0xDE00
-%endif
+    OS88_ASSOC16                    ; SPEC.md 54.6: double-click a .V88
+    db 1
+    OS88_ASSOC_EXT 'V88'
+    OS88_ASSOC16_END
+
+; --- what a .V88 wears (SPEC.md 54.3.2) -------------------------------------
+; The disc reduced by majority would be a solid blob with the triangle gone,
+; so a document wears the triangle alone, black on its page.
+    OS88_DOCGLYPH8
+    db 0x40                         ; .#......
+    db 0x70                         ; .###....
+    db 0x7C                         ; .#####..
+    db 0x7E                         ; .######.
+    db 0x7C                         ; .#####..
+    db 0x70                         ; .###....
+    db 0x40                         ; .#......
+    db 0x00                         ; ........
+    OS88_DOCGLYPH8_END
 
 VP_CHUNK    equ 32768               ; a ring slot, and a READ_SEQ call
 VP_XBMIN    equ 128                 ; THE BANK (98.3.18.2): the least worth
@@ -927,12 +935,6 @@ vp_cpname:
 .cpd:
     ret
 
-section .modc vstart=VP_P1ORG align=1  ; PART 1, the top of this segment
-; (SPEC.md 98.3.23): the open, the header's parse and the display walk, run
-; once a file. align=1 is load-bearing: a bin section aligns to 4 by
-; default, and the pad would fall between the image the header records and
-; this section, so tools/os88ovl.py would cut it into part 1 and every label
-; here would be off by it
 ; =============================================================================
 ; vp_open - read and check the header of [vp_name] (SPEC.md 98.1.6)
 ; out: [vp_ok] = 1 playable here; [vp_msg] says why not. Gfx lock held.
@@ -2045,15 +2047,13 @@ vp_recheck:
 ; vp_onresize - W_ONRESIZE: the window landed on another display and its box
 ; changed with it (SPEC.md 39.16.3.3) - the same question asked again. It
 ; MUST NOT DRAW (SPEC.md 11.98): the card's lines are made here, and the
-; repaint that follows draws them. A CALLBACK, so in part 0 (SPEC.md 98.3.23)
-section .text
+; repaint that follows draws them
 vp_onresize:
     call vp_reask
     je .out
     call vp_fmt
 .out:
     ret
-section .modc
 
 ; vp_reask - vp_canplay again, between sessions only: ZF=1 the answer is
 ; what it was (or nothing was asked)
@@ -2259,7 +2259,6 @@ vp_try:
     pop ax
     stc
     ret
-section .text                       ; (part 1 ends: SPEC.md 98.3.23)
 
 ; vp_lay6 - BL = a layout: BX = it x 6, its vp_laytab row, and AX = the
 ; layout. Preserves the rest
@@ -10941,7 +10940,6 @@ vp_lyread:
     stc
     ret
 
-section .modc                       ; PART 1: the bench (SPEC.md 98.3.23)
 ; vp_lybench - a session's first frame, the key just decoded: THIS CPU
 ; TIMED AT THE PLAY'S OWN WORK - the same record decoded again for eight
 ; ticks from a tick's edge, the screen unchanged by it (a key's writes are
@@ -11464,7 +11462,6 @@ vp_bncmix:
     dw 60
     db 0
     db 0xFF
-section .text                       ; (part 1 ends: SPEC.md 98.3.23)
 
 ; vp_ymute - the bench's verdict for the speaker (98.3.18.9): MUTED, the
 ; bank given what the speaker would have taken - [vp_mwhy] 3, which the
@@ -20386,17 +20383,5 @@ vp_dskend     equ vp_etseg + 2
 %if vp_dskend - vo_sav > 2 * VO_SAV
   %error "the desktop's scratch runs past the full screen's save"
 %endif
-VP_BSS_REAL equ 48 + 2 * VO_SAV + 256
-    OS88_BSS VP_P1ORG - OS88_IMAGE_SIZE ; THE REGION RUNS TO PART 1 (SPEC.md
-    OS88_IMAGE_END                      ; 98.3.23): image + bss IS VP_P1ORG,
-                                        ; part 0's length on the disk too
-; ...so the real bss has to fit under it, and part 1 under the carve's
-; 65,024. TIMES of a negative count is an error and of zero emits nothing,
-; so these are assertions and not bytes: when the first fires, raise
-; VP_P1ORG by 512.
-    times -((OS88_IMAGE_SIZE + VP_BSS_REAL) > VP_P1ORG) db 0
-    times -((VP_P1ORG % 512) != 0) db 0 ; part 1 starts a sector up the carve
-section .modc
-vp_p1end:
-    times -((vp_p1end - $$) > 65024 - VP_P1ORG) db 0
-section .text
+    OS88_BSS 48 + 2 * VO_SAV + 256
+    OS88_IMAGE_END
