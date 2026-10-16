@@ -42,7 +42,7 @@ disk needs it. One session per set; one agent per package inside it.
 | set | relieves | packages | status |
 |---|---|---|---|
 | **A** | the system disk | `dos`, `paint`, `notepad`, `deskcal`, `thewire`, `taskmgr`, `fontview`, `rlapply`, `mines` | **claimed** - session 01EWBYzwkv2cwWgUPLisNi9f, 2026-10-16 |
-| **B** | the apps disk: network and office | `browser`, `ftpd`, `telnet`, `OS88NET.COM` (`drivers/net/os88net.asm`, the DOS end of NET.DRV - SPEC.md 62.12; the one file under `drivers/` a set may edit), `texpad`, `artful`, `audio`, `calc` | open |
+| **B** | the apps disk: network and office | `browser`, `ftpd`, `telnet`, `OS88NET.COM` (`drivers/net/os88net.asm`, the DOS end of NET.DRV - SPEC.md 62.12; the one file under `drivers/` a set may edit), `texpad`, `artful`, `audio`, `calc` | **claimed** - session 011caEC6F27qkiqgaFFmYJh3, 2026-10-16 |
 | **C** | the apps disk: games | `tracker`, `wireball`, `tank`, `cyclone`, `missile`, `arkanoid`, `solitaire`, `tamegram` | open |
 | **D** | the apps disk: the owner-constrained and the small | `skies`, `video`, `fractal`, `piano`, `timer`, `midirack`, `chart` | open |
 | **E** | the office and games disks | `pixel`, `pixelstein`, `word`, `drmario` (with `DRMARCO.VGA`/`.HRC`/`.CGA`), `isotron`, `dotdel`, `gorillas` | open |
