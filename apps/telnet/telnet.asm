@@ -201,7 +201,13 @@ te_entry:
     OS88_ALTENTER_ARM               ; SPEC.md 11.2.1.1: nothing tracks a
                                     ; scancode until something asks, and both
                                     ; halves of the chord ride on that map
-    OS88_REGION_MOVABLE te_escape.stay  ; ...a bare `ret` of ours IS the proc
+    OS88_REGION_MOVABLE_NOKEEP te_escape.stay  ; ...a bare `ret` of ours IS
+                                    ; the proc, and the NOKEEP form because
+                                    ; nothing below reads AX, DX or the flags
+                                    ; it spends: DX was te_onclick already, AX
+                                    ; is re-loaded at every use, and the CF this
+                                    ; proc owes the loader is the `clc` at the
+                                    ; foot (apps size pass 2, -6)
     mov word [te_line + LN_BUF], te_hbuf    ; **THE BLOCK'S BUFFER WORDS, and
     mov word [te_line + LN_MAX], TE_HOSTMAX ; they are not optional**: bss
                                             ; arrives ZEROED (SPEC.md 21 step
@@ -226,8 +232,8 @@ te_entry:
                                     ; content origin is what earns font_run's
                                     ; single-store path on the two mono
                                     ; adapters (SPEC.md 11.94)
-    push si
-    mov si, te_menus
+    mov si, te_menus                ; (no frame round SI: .out pops the
+                                    ; caller's, and nothing between reads it)
     call OSAPI_MENU_SET             ; ...and BX is [te_win] from here on: this
     mov al, 1                       ; and the three slots below preserve every
     call OSAPI_WM_SIZABLE           ; register. **RESIZABLE, AND NOTHING REFLOWS.**
@@ -246,9 +252,7 @@ te_entry:
                                     ; for OSAPI_ABOUT_SET's reason below
     mov si, te_about
     call OSAPI_ABOUT_SET            ; 'About Telnet' under our name in the bar
-    pop si                          ; (SPEC.md 12.2). It preserves the flags,
-                                    ; which matters here: wm_create's CF above
-                                    ; still has to ride out of this proc
+                                    ; (SPEC.md 12.2)
     clc
 .out:
     pop si

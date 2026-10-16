@@ -114575,6 +114575,22 @@ which bytes come back — so the assertion is that string, in order, inside
 offset the guest fed matches the fixture's length on twelve of them and stops
 at **82 of 151** on `zmodem`, which is `ansisim`'s own `zmodem_at` to the byte.
 
+### 70.13 What the package costs a DISK (apps size pass 2)
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
+package by its SHIPPED FILE - the LZ4-packed `TELNET.O88` - because the two
+360KB disks it rides, `apps360.img` and `network360.img`, are where the room
+ran out. Nothing below changes what the terminal draws, sends or writes, and
+no per-received-byte path (§70.9's parser, §70.11's receiver, the socket pump)
+was touched; every change is on a callback, the entry proc or a path that runs
+once per sequence or per transfer, and each is the same work in fewer bytes
+and no more cycles. Started at **12,361 bytes, 13 clusters** (image 15,109,
+bss 6,077).
+
+| change | where | file bytes |
+|---|---|---:|
+| the entry proc's region declaration takes `OS88_REGION_MOVABLE_NOKEEP` (nothing after it reads AX, DX or the flags) and a redundant SI frame round `OSAPI_MENU_SET` goes | `te_entry` | -9 |
+
 ## 71. The browser fetches (`apps/browser/brnet.inc`)
 
 docs/plans/completed/NET-STACK-PLAN.md stage D. The rendering half of the browser needed **no
