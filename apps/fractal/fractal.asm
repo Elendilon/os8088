@@ -1042,13 +1042,80 @@ fr_zin_kick:
 ; request before the state it names.
 ;
 ; fr_hire is last, after the clear: it draws on the canvas when there is no
-; worker to fill it. fr_kick_s is the entry for fr_redraw, which has already
-; run fr_org and fr_setup and found nothing it can resume from.
+; worker to fill it.
+;
+; fr_kick ITSELF is one store: it empties the cache's byte count and falls
+; into fr_redraw, whose first test - nothing cached - is the restart, after
+; the same fr_org and fr_setup this ran on its own until apps size pass 2.
+; fr_kick_s is that restart, below fr_redraw's tests, and fr_replay the
+; resume below it.
 ; -----------------------------------------------------------------------------
 fr_kick:
+    and word [fr_cn], 0             ; empty: fr_redraw's first test is then
+                                    ; the restart, after the same fr_org and
+                                    ; fr_setup (apps size pass 2)
+
+; -----------------------------------------------------------------------------
+; fr_redraw - W_PAINT-side repaint: replay the coarse image here, hand the
+;             rest to the worker
+; in:  [fr_win]; gfx lock held (the caller is W_PAINT or fr_abdismiss)
+; out: nothing; clobbers AX, BX, CX, DX, SI, DI (ES and BP preserved)
+;
+; The content arrived white-filled and the view state is untouched, so
+; nothing has to be COMPUTED again - the cache holds every row that was
+; emitted for this view (fr_kick empties it on every view change). What has
+; to be decided is how much of it to put back HERE, holding the gfx lock,
+; and the answer is the pass-0 prefix and no more: that is the whole canvas
+; at quarter vertical resolution, it is what "the picture is back" means,
+; and it is a quarter of the drawing. The rest is left to the worker, which
+; replays it a row per lock hold (fr_take) - the same rows, the same total
+; drawing, none of it in one frozen hold.
+;
+; THE REPLAY is fr_emit's paint loop with the arithmetic removed: the same
+; 4-row bands (fr_band), from the run words instead of fr_line, stopping at
+; [fr_c0n] because everything past that is a refinement and refinements are
+; the worker's to replay. The rows are named by stepping the one state
+; machine (fr_stepv) from (0, rc), never by a second `add 4` - which was a
+; second opinion about what the cache holds, and wrong under a phase (SPEC.md
+; 40.1, 40.6). The walk is bounded by the byte count, not by the row loop, so
+; a truncated cache stops cleanly.
+;
+; So the resume point is the row after the last cached PASS-0 one, which is
+; fr_stepv from (0, c0row) - one step of the one state machine, and it
+; handles both cases without a branch: pass 0 interrupted lands back in pass
+; 0, pass 0 complete lands at the head of pass 1 (and skips a pass a
+; degenerate canvas has no rows for).
+;
+; fr_prog becomes the cached row count, which is a no-op when the cache holds
+; everything (it does, up to its ceiling) and a truthful reduction when it
+; overflowed, because those rows are about to be computed a second time and
+; will be counted a second time.
+;
+; The key compare is belt and braces: fr_setup re-reads W_W/W_H every time
+; and wm_fit can clamp them, a cache built for a different canvas would replay
+; runs at the wrong columns, and one built in a different PHASE would put
+; every row at the wrong height (SPEC.md 40.6). The three words are compared
+; as one string because they were laid out as one.
+;
+; With nothing cached this is exactly the old behaviour, spelled fr_kick.
+; -----------------------------------------------------------------------------
+fr_redraw:
     call fr_org
     call fr_setup                   ; the clamp happens before we return: it is
-fr_kick_s:                          ; what keeps the core's arithmetic in range
+                                    ; what keeps the core's arithmetic in range
+    cmp word [fr_cn], 0
+    je fr_kick_s                    ; nothing cached: restart from row 0 -
+                                    ; which is every fr_kick
+    push es
+    push ds
+    pop es
+    mov si, fr_cw
+    mov di, fr_ccw
+    mov cx, 3
+    repe cmpsw                      ; (fr_cw, fr_ch, fr_mrc) = the cache's?
+    pop es
+    je fr_replay                    ; yes: put the coarse image back
+fr_kick_s:
     cmp word [fr_cseg], 0
     jne .have
     mov ax, FR_CACHE_KB0
@@ -1097,65 +1164,7 @@ fr_kick_s:                          ; what keeps the core's arithmetic in range
     call fr_status
     jmp fr_hire
 
-; -----------------------------------------------------------------------------
-; fr_redraw - W_PAINT-side repaint: replay the coarse image here, hand the
-;             rest to the worker
-; in:  [fr_win]; gfx lock held (the caller is W_PAINT or fr_abdismiss)
-; out: nothing; clobbers AX, BX, CX, DX, SI, DI (ES and BP preserved)
-;
-; The content arrived white-filled and the view state is untouched, so
-; nothing has to be COMPUTED again - the cache holds every row that was
-; emitted for this view (fr_kick empties it on every view change). What has
-; to be decided is how much of it to put back HERE, holding the gfx lock,
-; and the answer is the pass-0 prefix and no more: that is the whole canvas
-; at quarter vertical resolution, it is what "the picture is back" means,
-; and it is a quarter of the drawing. The rest is left to the worker, which
-; replays it a row per lock hold (fr_take) - the same rows, the same total
-; drawing, none of it in one frozen hold.
-;
-; THE REPLAY is fr_emit's paint loop with the arithmetic removed: the same
-; 4-row bands (fr_band), from the run words instead of fr_line, stopping at
-; [fr_c0n] because everything past that is a refinement and refinements are
-; the worker's to replay. The rows are named by stepping the one state
-; machine (fr_stepv) from (0, rc), never by a second `add 4` - which was a
-; second opinion about what the cache holds, and wrong under a phase (SPEC.md
-; 40.1, 40.6). The walk is bounded by the byte count, not by the row loop, so
-; a truncated cache stops cleanly.
-;
-; So the resume point is the row after the last cached PASS-0 one, which is
-; fr_stepv from (0, c0row) - one step of the one state machine, and it
-; handles both cases without a branch: pass 0 interrupted lands back in pass
-; 0, pass 0 complete lands at the head of pass 1 (and skips a pass a
-; degenerate canvas has no rows for).
-;
-; fr_prog becomes the cached row count, which is a no-op when the cache holds
-; everything (it does, up to its ceiling) and a truthful reduction when it
-; overflowed, because those rows are about to be computed a second time and
-; will be counted a second time.
-;
-; The key compare is belt and braces: fr_setup re-reads W_W/W_H every time
-; and wm_fit can clamp them, a cache built for a different canvas would replay
-; runs at the wrong columns, and one built in a different PHASE would put
-; every row at the wrong height (SPEC.md 40.6). The three words are compared
-; as one string because they were laid out as one.
-;
-; With nothing cached this is exactly the old behaviour, spelled fr_kick.
-; -----------------------------------------------------------------------------
-fr_redraw:
-    call fr_org
-    call fr_setup
-    cmp word [fr_cn], 0
-    je fr_kick_s                    ; nothing cached: restart from row 0
-    push es
-    push ds
-    pop es
-    mov si, fr_cw
-    mov di, fr_ccw
-    mov cx, 3
-    repe cmpsw                      ; (fr_cw, fr_ch, fr_mrc) = the cache's?
-    pop es
-    jne fr_kick_s
-
+fr_replay:
     push es                         ; --- fr_replay (inline): the pass-0 prefix
     push bp
     mov bp, [fr_ox]                 ; BP = screen x of column 0

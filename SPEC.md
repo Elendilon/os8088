@@ -72873,6 +72873,11 @@ the run cache's claims (§40.1) are the same.
   into the restart; and the click's range test is one UNSIGNED compare an
   axis, a click above or left of the canvas wrapping past any dimension.
   24 bytes.
+- **`fr_kick` is one store and falls into `fr_redraw`.** Both began with
+  `fr_org` and `fr_setup`; zeroing `[fr_cn]` first makes `fr_redraw`'s
+  "nothing cached" test the restart, so the restart (`fr_kick_s`) sits under
+  its tests and the resume (`fr_replay`) under that, and the cache-key test
+  that was a jump-around near branch is a short one. 5 bytes.
 
 ### 39.26 The software renderer's plane loop is gone
 
