@@ -216,8 +216,6 @@ AP_B_NONE  equ 0xFF
     APBUF ap_arg_name, 16
     APW  ap_arg_dir
     APB  ap_arg_vol
-    APW  ap_elapsed_s              ; seconds played of the current track
-    APW  ap_total_s               ; track duration in seconds (0 = unknown)
     APB  ap_diag                   ; 1 = the window shows the Diagnostics view
     APW  ap_last_s                 ; last elapsed second the dynamic redraw drew
     APW  ap_last_bar               ; last progress-bar fill (px) it drew
@@ -240,8 +238,6 @@ AP_B_NONE  equ 0xFF
     APW ap_rd_len                  ; bytes the current ap_refill_chunk read pulls
     APD ap_data_off
     APD ap_data_end
-    APD ap_got
-    APB ap_src_done
 
 ; --- SND ring stream -------------------------------------------------
     APW ap_grant
@@ -253,14 +249,30 @@ AP_B_NONE  equ 0xFF
     APB ap_hand
     APB ap_sopen
     APB ap_mixing
+    APW ap_rate
+    APB ap_first_paint             ; 1 until ap_onwake does the settled repaint
+
+; --- the PER-TRACK RUN: ap_prep_track zeroes AP_TRK0 .. + AP_TRKLEN in one
+;     REP STOSB, so whatever a new track must start from 0 lives here - the
+;     speaker's too: every speaker play opens a track through ap_prep_track
+AP_TRK0 equ os88_image_end + AP_BSS
+    APD ap_got
+    APD ap_played                  ; total PCM8 bytes the DSP has consumed
+    APW ap_total
+    APW ap_consumed
+    APW ap_consumed_prev           ; last polled verb-3 count (for the delta)
+    APW ap_elapsed_s               ; seconds played of the current track
+    APB ap_src_done
     APB ap_ended
     APB ap_lasthalf
     APB ap_paused
-    APW ap_total
-    APW ap_consumed
-    APW ap_rate
-    APB ap_req
-    APB ap_first_paint             ; 1 until ap_onwake does the settled repaint
+    APB ap_req                     ; (FR_NONE is 0)
+    APW ap_total_s                 ; track duration in seconds (0 = unknown)
+    APD ap_total_pcm               ; total PCM8 bytes in the track (0 = unknown)
+    APB aps_eot                    ; (apspk.inc) this track's source is all made
+    APB aps_lag                    ; ...the last rung is still behind: play on
+    APW aps_crem                   ; ...the clock's remainder, in 1/R samples
+AP_TRKLEN equ os88_image_end + AP_BSS - AP_TRK0
 
 ; --- decoder state (apdec.inc) --------------------------------------
     APB apd_codec
@@ -274,6 +286,8 @@ AP_B_NONE  equ 0xFF
     APB apd_curbyte
     APW   apd_inlen                ; bytes currently in apd_inbuf
     APW   apd_inpos                ; read cursor into apd_inbuf
+APD_ZLEN equ apd_inpos + 2 - apd_bleft  ; apd_start zeroes apd_bleft..here:
+                                   ; keep these eight together, in this order
     APBUF apd_inbuf, APD_INBUF
     APBUF apd_out, APD_SRCSZ
 
@@ -289,12 +303,10 @@ AP_B_NONE  equ 0xFF
     APB apw_winn
     APW apw_pos
     APD apw_lpos
-    APW apw_ckid
     APD apw_cksz
     APB apw_gotfmt
     APW apw_tag
     APW apw_bits
-    APB apw_ok
     APB apw_fmt
     APW apw_rate
     APW apw_balign
@@ -375,31 +387,24 @@ ap_entry:
     call OSAPI_WM_CREATE          ; BX = window ptr, CF on table full
     jc .fail
     mov [ap_win], bx
-    push ax                         ; **THE GESTURE'S TWO SLOTS** (SPEC.md
-    push bx                         ; 20.5.1.3): neither is a template word
-    push si
-    push di
-    push dx
-    mov ax, bx
-    mov bx, apu_btrec
+    xchg ax, bx                     ; **THE GESTURE'S TWO SLOTS** (SPEC.md
+    mov bx, apu_btrec               ; 20.5.1.3): neither is a template word
     mov si, ap_onup
     mov di, ap_ondrag
     mov dx, ap_onclick                ; OUR own click work; the library
                                     ; takes the press FIRST and chains
                                     ; here (SPEC.md 20.5.1.3.3)
-    call os88ui_btninit
-    pop dx
-    pop di
-    pop si
-    pop bx
-    pop ax
+    call os88ui_btninit             ; (which keeps every register)
+    xchg ax, bx                     ; BX = the window again
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, and not beside the
     ; worker's declaration: a package with NO worker is the case that
     ; moves most easily, and putting this at the spawn left exactly
     ; those runs declaring nothing - measured, by the row that reads
     ; MC_RLOC back out of the kernel's own table.
-    OS88_REGION_MOVABLE_NOKEEP      ; nothing kept: this proc preserves no
-                                    ; register, and its CF is the `clc` below
+    OS88_REGION_MOVABLE_NOKEEP ap_reap.out  ; nothing kept: this proc
+                                    ; preserves no register, and its CF is
+                                    ; the `clc` below. The relocation proc is
+                                    ; a bare `ret` we already have
 
     mov si, ap_menus
     call OSAPI_MENU_SET

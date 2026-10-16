@@ -923,46 +923,32 @@ apu_draw_buttons:
     push si
     push di
     call apu_baim                  ; the record, and the ABSOLUTE rects
-    xor di, di
+    mov bx, apu_btrec
+    xor di, di                     ; the button's flag word, 0..12
 .b:
-    cmp di, 7
-    jae .done
-    ; rect -> absolute in a local 4-word buffer
-    mov bx, di
-    mov cl, 3
-    shl bx, cl
-    add bx, apu_rects
-    mov cl, 3
-    ; label + flags
-    mov si, di
-    add si, si
-    mov si, [apu_blabs + si]
-    xor cx, cx                     ; CX = OS88UI_* flags (via DI later)
+    xor cx, cx                     ; CX = OS88UI_* flags
     ; Shuffle / Repeat show the pressed look when toggled on
-    cmp di, AP_B_SHUF
+    cmp di, AP_B_SHUF * 2
     jne .nsh
     cmp byte [ap_shuffle], 0
     je .nsh
     mov cx, OS88UI_LATCH           ; **LATCHED, NOT PRESSED** (SPEC.md
 .nsh:                              ; 20.5.1.4): these two say "this setting is
-    cmp di, AP_B_REP               ; ON", where OS88UI_DOWN now means "a press
+    cmp di, AP_B_REP * 2           ; ON", where OS88UI_DOWN now means "a press
     jne .ndr                       ; is live on this control THIS INSTANT" and
     cmp byte [ap_repeat], 0        ; belongs to the library. They draw the same
     je .ndr                        ; picture, which is why one flag served
     mov cx, OS88UI_LATCH           ; both until the press state stopped being
 .ndr:                              ; the caller's
-    push di
-    mov si, di                     ; the flag into the group's own array, so
-    add si, si                     ; the painter and the record agree
-    mov [apu_bflg+si], cx
-    mov bx, apu_btrec
-    mov ax, di
+    mov [apu_bflg+di], cx          ; the flag into the group's own array, so
+    mov ax, di                     ; the painter and the record agree
+    shr ax, 1
     inc ax                         ; the record's indices are one-based
-    call os88ui_btn
-    pop di
+    call os88ui_btn                ; (preserves every register)
     inc di
-    jmp .b
-.done:
+    inc di
+    cmp di, 7 * 2
+    jb .b
     jmp ap_ret6
 
     OS88UI_BTNREC apu_btrec, apu_arects, apu_blabs, apu_bflg, 7
@@ -1026,37 +1012,17 @@ apu_gt: db '>', 0
 apu_baim:
     push ax
     push bx
-    push cx
-    push si
-    push di
-    xor di, di
-.r:
-    cmp di, 7
-    jae .done
-    mov bx, di
-    mov cl, 3
-    shl bx, cl
-    mov si, bx
-    add si, apu_arects
-    add bx, apu_rects
-    mov ax, [bx+0]
+    xor bx, bx                     ; seven rects, {x1,y1,x2,y2}: an x then
+.r:                                ; a y, fourteen times
+    mov ax, [apu_rects+bx]
     add ax, [apu_ox]
-    mov [si+0], ax
-    mov ax, [bx+2]
+    mov [apu_arects+bx], ax
+    mov ax, [apu_rects+bx+2]
     add ax, [apu_oy]
-    mov [si+2], ax
-    mov ax, [bx+4]
-    add ax, [apu_ox]
-    mov [si+4], ax
-    mov ax, [bx+6]
-    add ax, [apu_oy]
-    mov [si+6], ax
-    inc di
-    jmp short .r
-.done:
-    pop di
-    pop si
-    pop cx
+    mov [apu_arects+bx+2], ax
+    add bx, 4
+    cmp bx, 7 * 8
+    jb .r
     pop bx
     pop ax
     ret

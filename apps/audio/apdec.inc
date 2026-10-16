@@ -85,15 +85,19 @@ apd_idxtab:
 apd_start:
     push ax
     push cx
+    push di
+    push es
     mov [apd_codec], al
     mov [apd_balign], cx
-    mov word [apd_bleft], 0         ; no ADPCM block in progress
-    mov byte [apd_hasbyte], 0       ; no data byte in hand
-    mov byte [apd_hinib], 0
-    mov word [apd_pred], 0
-    mov word [apd_index], 0
-    mov word [apd_inlen], 0         ; input bounce empty
-    mov word [apd_inpos], 0
+    push ds
+    pop es
+    mov di, apd_bleft               ; no ADPCM block in progress, predictor
+    mov cx, APD_ZLEN                ; and index 0, no data byte in hand, the
+    xor al, al                      ; input bounce empty: one run of bss
+    cld                             ; (audio.asm keeps them together)
+    rep stosb
+    pop es
+    pop di
     pop cx
     pop ax
     ret

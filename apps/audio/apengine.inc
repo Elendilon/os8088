@@ -481,9 +481,21 @@ ap_prep_track:
     call ap_ensure_bufs           ; the look-ahead ring: the parser's header
     jc .nomem                     ; window too (whatever it held is dead here)
     call apw_parse                ; CF = 1 rejected, apw_err set
-    jc .parseerr
+    jnc .adopt
+    mov ax, [apw_err]             ; (the refusals sit HERE, inside a short
+    jmp short .say                ; jump of every Jcc that takes one)
+.badfile:
+    mov ax, ap_s_loaderr
+    jmp short .say
+.nomem:
+    mov ax, ap_s_nomem
+.say:
+    mov [ap_msg], ax
+    stc
+    ret
 
     ; --- adopt the parsed record ---------------------------------------
+.adopt:
     mov al, [apw_fmt]
     mov cx, [apw_balign]
     call apd_start
@@ -519,38 +531,20 @@ ap_prep_track:
     mov di, ap_rd_cur              ; a new track: the cursor names no file
     call os88_rseq_new
 
-    xor ax, ax                    ; (FR_NONE is 0 too)
-    mov [ap_got], ax
-    mov [ap_got+2], ax
-    mov [ap_src_done], al
-    mov [ap_total], ax
-    mov [ap_consumed], ax
-    mov [ap_consumed_prev], ax
-    mov [ap_played], ax
-    mov [ap_played+2], ax
-    mov [ap_ended], al
-    mov [ap_lasthalf], al
-    mov [ap_paused], al
-    mov [ap_req], al
-    mov [ap_elapsed_s], ax
+    push es                       ; the per-track run (audio.asm): got,
+    push ds                       ; played, total, consumed, the clock and
+    pop es                        ; the five flags, all from 0
+    mov di, AP_TRK0
+    mov cx, AP_TRKLEN
+    xor al, al
+    cld
+    rep stosb
+    pop es
 
     call ap_calc_duration         ; ap_total_s from datlen / rate / bytes-per-s
 
     call ap_prime                 ; fill the look-ahead ring
     clc
-    ret
-.badfile:
-    mov word [ap_msg], ap_s_loaderr
-    stc
-    ret
-.parseerr:
-    mov ax, [apw_err]
-    mov [ap_msg], ax
-    stc
-    ret
-.nomem:
-    mov word [ap_msg], ap_s_nomem
-    stc
     ret
 
 ; ap_open_card - the prepared track onto the Sound Blaster: the grant, the
@@ -782,14 +776,11 @@ ap_stage_half:
 ;   ADPCM  : samples = (datlen / balign) * spb ; seconds = samples / rate
 ; A rough value is fine; 0 means "unknown".
 ; =============================================================================
-ap_calc_duration:
-    push ax
+ap_calc_duration:                  ; (all three outputs arrive 0: the
+    push ax                        ; per-track run, ap_prep_track)
     push bx
     push cx
     push dx
-    mov word [ap_total_s], 0
-    mov word [ap_total_pcm], 0
-    mov word [ap_total_pcm+2], 0
     mov ax, [apw_datlen]
     mov dx, [apw_datlen+2]
     cmp byte [apw_fmt], AP_FMT_ADPCM
@@ -853,8 +844,8 @@ ap_reap:
     cmp byte [ap_ended], 0
     je .out
     call ap_autoadvance
-.out:
-    ret
+.out:                              ; (a BARE ret: our region's relocation
+    ret                            ; proc too, audio.asm)
 
 ; =============================================================================
 ; ap_autoadvance - a track finished: step the playlist and start the next, or
