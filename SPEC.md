@@ -104135,11 +104135,12 @@ finds it); greedy costs about 3% here.
 
 #### 62.12.3 It needs no memory the program did not already need
 
-The staged body runs `0x3FA0..0x6C57` (it was `0x4A01..0x76CD` before
-§62.12.6 moved the zeros out of the image). `os88net.asm`'s own reserved
-buffers already run to `net_bss1` = **`0x9F89`** (§62.11.7), so every machine
-with the room to run the unpacked program has the room to unpack this one, with
-**12,594 bytes to spare**. `tools/os88sfx.py` asserts the ceiling and refuses in a
+The staged body runs `0x3DDE..0x693A` (it was `0x4A01..0x76CD` before
+§62.12.6's size pass). `os88net.asm`'s own reserved buffers already run to
+`net_bss1` = **`0x9DC7`** (§62.11.7; `0x9F89` before the same pass took 450
+bytes of code out from under them), so every machine with the room to run the
+unpacked program has the room to unpack this one, with **13,453 bytes to
+spare**. `tools/os88sfx.py` asserts the ceiling and refuses in a
 sentence if it is ever crossed, and `net_bss_clear` zeroes the staged body along
 with everything else above the image — by which time it has been read.
 
