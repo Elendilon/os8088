@@ -114347,7 +114347,7 @@ second chunk, which answers **`FERR_NAME`** — so the user is shown `Disk error
 and a 4 KB stump of a 40 KB file, with an innocent disk. The over-8,192 refusal
 below was never reached through that door at all.
 
-`tz_chunk_set` therefore runs in `tz_dlgdone`, on the UI task, with the lock
+The chunk is therefore sized in `tz_dlgdone` (it was a proc of its own, `tz_chunk_set`, until §70.13), on the UI task, with the lock
 held and no disk I/O: the same 105 ms, one question later. The worker stages
 nothing until it reads `[tz_rst]`, so the chunk is still fixed before the first
 byte lands.
@@ -114670,7 +114670,8 @@ so a declared size over 4 GB wraps small, and a 63-character name walked the
 parse into the staging area and read the previous download's digits as this
 file's size.
 
-`tz_frac` now treats `pos >= size` — and a position whose high word survived the
+`tz_bar`'s fraction (it was `tz_frac`, inline since §70.13) now treats
+`pos >= size` — and a position whose high word survived the
 reduction the size's did not — as a FULL bar, which is what a sender that lied
 deserves. `tests/telzm.py` drives it with a sender that declares 1 and sends
 6,144, and asserts that the session is still up afterwards: the symptom of an
@@ -115002,6 +115003,28 @@ bss 6,077).
 | the host box, the button, the pen and both view clamps are derived off the two registers `OSAPI_WM_GEOM` hands back rather than re-read from the words just stored; `con_mono` is `cmp`/`sbb`/`neg`, and the clamps take ZF from the shift (a count in CL is never zero) instead of an `or` after it. Same values to the bit (`tests/telnet.py`'s `viewfits` derivation is unchanged), 46 image bytes, and fewer and cheaper instructions on a path every key, click, paint and worker draw runs | `te_layout` | -41 |
 | `te_in` stores `[te_win]` and FALLS into `te_layout`, so the four callbacks that opened with that pair make one call; `te_hire` (one caller) is inline in `te_paint` with the worker declared `OS88_WORKER_RESTARTABLE_NOKEEP` - no instruction is added to any path, and the paint loses a call, a ret and a frame | `te_paint`, `te_onclick`, `te_onkey`, `te_about` | -11 |
 | the three headers this end composes (`tz_saypos`, `tz_rinit`, `tz_say`) share one tail, `tz_hsend`, that reads the type back out of `[tz_lst]`; `tz_ohdr32` (byte stores of a word) and `tz_zero4` fold into them, and `tz_resend` loads BX once per arm. The same bytes on the wire for every header, every register still kept | `tezm.inc` | -27 |
+| **DEFECT FIXED**: `tz_infodone`'s size parse bounded itself with a count in CX that the multiply re-loaded with 10 on every digit, so the bound never ran out - and a name filling all 63 bytes of the info block leaves the parse ONE PAST the buffer, on `[tz_sseg]`, whose bytes were read as digits (the residue of §70.11.6's 63-character walk). The bound is the pointer now and that block reads a size of 0. The size accumulates in DI:BX rather than in `[tz_fsz]` and `tz_add32` (two callers) is gone, `tz_commit` adding to `[tz_pos]` in place. Once per file | `tz_infodone`, `tz_commit` | -26 |
+| `tz_frac` (one caller) is inline in `tz_bar`, which takes the SI/DI frame and `te_pop6`; its "no size" arm drops straight to the exit instead of returning a zero to be tested. The progress bar is drawn per repaint, and the inline is a call, a ret and five pushes and pops fewer | `tz_bar` | -10 |
+| `tz_cp32`'s three callers passed one of two fixed pairs: `tz_mark0` ([tz_sub0] = [tz_rcv]) replaces it and falls into `tz_touch`, which is now `tz_touchq` with the retry count reset and falls into it; `tz_subok` reaches it as a tail. `tz_poll`'s resume (`min([tz_pos], [tz_sub0])`, §70.11.3) compares and copies inline with no SI/DI frame, and `tz_cmp32` goes. Per subpacket or per recovery, never per byte; `tz_touchq`, the one that IS per byte, is unchanged | `tezm.inc` | -22 |
+| `tz_hex` addresses its prefix off the pointer it ends at and loads the CRC bytes rather than the word twice; `tz_hex2` keeps the nibble in AH instead of a BX frame; `tz_hcrc`'s two epilogues are one, the answer riding the flags through the pops | `tz_hex`, `tz_hex2`, `tz_hcrc` | -7 |
+| `te_say3` and `te_wscroll`, one caller each, are inline in `te_option` and `te_screen`; the option reply stores AL and BL as one word, the NAWS arm joins the reply call instead of making its own, and `te_screen` leaves by two tail jumps. Same bytes to the host, same bounded wait | `te_option`, `te_screen` | -19 |
+| `tz_chunk_set` and `tz_bigmsg`, one caller each, are inline in `tz_dlgdone`, which takes DX into its frame and leaves by `te_pop6`; the cluster in bytes is `BL` shifted into AX with CF as the overflow instead of a `mul` and a test of DX. Once per file, on the UI task | `tz_dlgdone` | -31 |
+| `tz_wake`'s commit and done arms share the one `[tz_req]` clear, the done arm sits on the dispatch's fall-through, and `tz_dcancel` (one caller; all three cancel routes reach it there) is inline | `tz_wake` | -10 |
+| `te_retry` (one caller) is inline at the top of the worker pass, which already keeps every register: the held reply is tested with `jcxz` on its own length instead of a separate compare. Per worker pass, and fewer cycles on it whether or not a reply is held | `te_step` | -9 |
+| the DSR answer stores `ESC [` as one word and measures itself off SI; DECSET/DECRST's show bit is `cmp`/`sbb`/`neg`; `tz_start` tail-jumps to `tz_begin`. Same bytes to the host (the `report` fixture's answer string is unchanged); once per sequence or per transfer | `te_f_dsr`, `te_csidisp`, `tz_start` | -11 |
+| `te_toggle` tests "already on its way" (TS_OPEN, TS_WAIT) as one range after a `dec`, asserted at assembly; `tz_fail` stored `[tz_why]` twice either side of the cancel string, and the first store goes | `te_toggle`, `tz_fail` | -5 |
+
+**Ended at 12,123 bytes, 12 clusters** (image 14,819, bss 6,077 - the claim
+image + bss 290 bytes smaller, and the one heap claim, §70.11.3's 8 KB
+staging area, unchanged): a cluster back on each of the two disks. What it
+did NOT reach is the next cluster and the reason is the shape of what is
+left: of ~7.1 KB of the package's own code packed, the larger halves are
+§70.9's parser and §70.11's receiver on the byte path, which this pass
+leaves alone, and the 2 KB CP437 face (§70.8.6.1) is 975 packed bytes of
+`apps/os88cp437.inc` - shared with DOS, so not this package's to cut. Its
+box-drawing and shade rows, 0xB0..0xDF, are 221 of those bytes and are drawn
+by arithmetic in `tools/cp437font.py` already, so building them at launch is
+the one large disk win left, and it belongs to a shared-include lane.
 
 ## 71. The browser fetches (`apps/browser/brnet.inc`)
 
