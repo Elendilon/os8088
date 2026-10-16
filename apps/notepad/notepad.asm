@@ -1029,17 +1029,15 @@ np_fp_act:
     call np_redrawall
     jmp short .done
 .h1:
-    cmp bx, 1
-    jne .h2
+    dec bx
+    jnz .h2
     call np_dorepall            ; 1 = All
-    mov si, [np_win]
-    call np_redraw
-    call np_pdrawn
-    jmp short .done
+    jmp short .rdraw
 .h2:
-    cmp bx, 2
-    jne .h3
+    dec bx
+    jnz .h3
     call np_dorepl              ; 2 = Repl
+.rdraw:                         ; ...both of which change the count as well
     mov si, [np_win]
     call np_redraw
     call np_pdrawn
@@ -9968,16 +9966,16 @@ np_pdrawn:
     jbe .cap
     mov bx, 13
 .cap:
-    mov si, np_fnum             ; ...and the string is padded to exactly that,
-    mov di, np_fnum             ; so a shorter answer erases the longer one it
+    mov di, np_fnum             ; ...and the string is padded to exactly that,
+    mov si, di                  ; so a shorter answer erases the longer one it
 .len:                           ; replaces and nothing runs into a button
     cmp byte [di], 0
     je .pad
     inc di
     dec bx
     jnz .len
-    mov byte [di], 0            ; longer than the room: it is cut, not spilled
-    jmp short .draw
+    jmp short .draw             ; longer than the room: .draw's NUL cuts it,
+                                ; not spilled
 .pad:
     or bx, bx
     jz .draw
@@ -9990,8 +9988,7 @@ np_pdrawn:
     mov cx, [np_pnx]
     mov dx, [np_pbtny]
     add dx, 2
-    mov al, CBLACK
-    mov ah, CWHITE
+    mov ax, (CWHITE << 8) | CBLACK
     call OSAPI_FONT_RUN
 .out:
     jmp np_ld_6
@@ -10251,8 +10248,7 @@ np_fpclick:
     cmp dx, [np_pt]
     jb .no
 
-    mov bx, [np_pbtny]          ; --- the button row ---
-    cmp dx, bx
+    cmp dx, [np_pbtny]          ; --- the button row ---
     jb .fields
     mov bx, np_btrec            ; **THEY ONLY ARM** (SPEC.md 13.6): Replace
     call os88ui_btnpress        ; All rewrites the document, so none of these

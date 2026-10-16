@@ -58258,6 +58258,11 @@ into bss or the heap. The numbers are the file and the image, both arms.
     the close tested `[np_asking]` to tell "ours is already up" from "the
     window table is full" - and both arms went to the same `.wait`. It is
     one `jc .wait` now.
+13. **The panel's button actions share their tail.** `np_fp_act`'s All and
+    Repl arms each ended in the same redraw-and-recount, and now meet at
+    one; the slot is counted down with `dec bx`. `np_pdrawn` lets its
+    cut-to-fit case reach `.draw`'s own NUL instead of writing one first,
+    and `np_fpclick` compares the button row's top in memory.
 
 ## 28. apps/taskmgr — the Task Manager
 
