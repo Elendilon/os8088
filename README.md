@@ -707,9 +707,10 @@ prompt (`make rczex`), and MBASIC, TE, PIP, SUBMIT and Z80ASM off RunCPM's
 master disk run on it. It is the port that gave the kernel its wake event —
 the emulator runs on the UI task in bounded slices and never blocks, so a
 program waiting for a key costs nothing — and it too spills into a second
-segment, `RUNCPM.OVL`, split by frequency: what a record, a console byte or a
-keystroke touches stays resident, and the per-command half of the disk layer
-goes out. `tools/getruncpm.py` takes the CCP and the master disk at a pinned
+segment, split by frequency: what a record, a console byte or a keystroke
+touches stays resident, and the per-command half of the disk layer goes out
+- into a part of `RUNCPM.O88` itself, with DRI's CCP inside it, so the program
+is one file (SPEC.md 74.3.1). `tools/getruncpm.py` takes the CCP and the master disk at a pinned
 commit out of a committed cache zip (`apps/runcpm/cache/`) and `make runcpmdisk` builds the
 four floppies from them (the 360KB one curated to the programs and texts,
 with a `LEFT-OFF.TXT` naming what it leaves off).
@@ -834,7 +835,7 @@ cleanly and runs wrong when C meets this machine.
 | `build/word*.img`      | 1.44MB / 720KB / 1.2MB / 360KB | Microsoft Word floppies (`make worddisk`) |
 | `build/scribe*.img`    | 1.44MB / 720KB / 1.2MB / 360KB | Scribe, the fork of Word: one parted package + its welcome documents (`make scribedisk`) |
 | `build/cword*.img`     | 1.44MB / 720KB / 1.2MB / 360KB | Word in C: one package, its overlay a part of it, and `WELCOME.RTF` (`make cworddisk`) |
-| `build/runcpm*.img`    | 1.44MB / 720KB / 1.2MB / 360KB | RunCPM, package + `RUNCPM.OVL` + CP/M drive A + the games and applications each holds (`make runcpmdisk`). What drive A carries is chosen per geometry at build time, so the 1.2MB disk fills itself and names what it left off in its own `LEFT-OFF.TXT` |
+| `build/runcpm*.img`    | 1.44MB / 720KB / 1.2MB / 360KB | RunCPM, package (its module and the CCP inside it) + CP/M drive A + the games and applications each holds (`make runcpmdisk`). What drive A carries is chosen per geometry at build time, so the 1.2MB disk fills itself and names what it left off in its own `LEFT-OFF.TXT` |
 | `build/paccman*.img`   | 1.44MB / 720KB / 1.2MB / 360KB | PaccMan, the C Pac-Man: the package and its README, no overlay (`make paccmandisk`) |
 | `build/c64*.img`       | 1.44MB / 720KB / 1.2MB / 360KB | Commodore 64: one package (the ROMs and its overlay are parts of `C64.O88`) + `README.TXT` + `COPYING` (`make c64disk`) |
 | `build/apple2*.img`    | 1.44MB / 720KB / 1.2MB / 360KB | Apple II Plus, package + `WELCOME.BAS` + `README.TXT` + `COPYING` in one `APPLE2/` folder (`make apple2disk`). The Apple II+ ROMs and the overlay are inside the package as parts; the ROMs are fetched at a pin, never committed |
