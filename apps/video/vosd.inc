@@ -230,6 +230,29 @@ vo_show:
     pop ax
     ret
 
+; vo_toast_rep - R in the full screen: Repeat's new state, said for 1.5 s
+vo_toast_rep:
+    push ax
+    mov al, VOK_REPON
+    cmp byte [vp_rep], 0
+    jne .k
+    mov al, VOK_REPOFF
+.k:
+    call vo_toastk
+    pop ax
+    ret
+
+; vo_toastk - AL = a toast's kind: shown, from now. Preserves all
+vo_toastk:
+    push ax
+    push dx
+    mov [vo_toast], al
+    call OSAPI_GET_TICKS
+    mov [vo_ttk], ax
+    mov byte [vo_kind], 0xFF        ; (shown even if it was already)
+    pop dx
+    pop ax                          ; (on into vo_update, which follows)
+
 ; vo_update - the main loop's: what the box should say now - a seek on its
 ; way says its own (vp_skkey), then a toast while it lasts, then "Paused" if
 ; Space paused the play. Preserves all
@@ -257,73 +280,17 @@ vo_update:
     je .sh
     mov al, VOK_PAUSE
 .sh:
-    mov si, vo_s_none
-    cmp al, VOK_PAUSE
-    jne .s1
-    mov si, vo_s_pause
-.s1:
-    cmp al, VOK_REPON
-    jne .s2
-    mov si, vo_s_ron
-.s2:
-    cmp al, VOK_REPOFF
-    jne .s3
-    mov si, vo_s_roff
-.s3:
-    cmp al, VOK_NOKEY
-    jne .s34
-    mov si, vo_s_nokey
-.s34:
-    cmp al, VOK_BIGKEY
-    jne .s35
-    mov si, vo_s_bigkey
-.s35:
-    cmp al, VOK_LOWMEM
-    jne .s4
-    mov si, vo_s_lowmem
-.s4:
-    cmp al, VOK_SNDOFF
-    jne .s45
-    mov si, vo_s_soff
-.s45:
-    cmp al, VOK_SNDON
-    jne .s46
-    mov si, vo_s_son
-.s46:
-    cmp al, VOK_SNDNX
-    jne .s5
-    mov si, vo_s_snx
-.s5:
-    xor ah, ah
+    cbw                             ; (a kind is below 80h: AH = 0)
+    xchg ax, si
+    mov al, [vo_stab+si]            ; its text, a byte past vo_s_none
+    cbw                             ; (all of them inside 128 bytes)
+    add ax, vo_s_none
+    xchg ax, si                     ; SI = the text, AX = the kind
     call vo_show
     pop si
     pop ax
 .ret:
     ret
-
-; vo_toast_rep - R in the full screen: Repeat's new state, said for 1.5 s
-vo_toast_rep:
-    push ax
-    mov al, VOK_REPON
-    cmp byte [vp_rep], 0
-    jne .k
-    mov al, VOK_REPOFF
-.k:
-    call vo_toastk
-    pop ax
-    ret
-
-; vo_toastk - AL = a toast's kind: shown, from now. Preserves all
-vo_toastk:
-    push ax
-    push dx
-    mov [vo_toast], al
-    call OSAPI_GET_TICKS
-    mov [vo_ttk], ax
-    mov byte [vo_kind], 0xFF        ; (shown even if it was already)
-    pop dx
-    pop ax
-    jmp vo_update
 
 ; vo_off - the bracket is ending: nothing shown, the picture whole. The
 ; hook must be idle. Preserves all
@@ -1126,9 +1093,8 @@ vc_setup:
 ; VC_POKE n - the list of n-byte changes, round the box: BX the next range's
 ; start less n-1, so the compare is the whole test while the addresses rise
 %macro VC_POKE 1
-    shr word [cs:vd_map], 1         ; SUB2's list map (98.1.3.2.4)
-    jc .s%1
-    jmp .z%1
+    shr word [cs:vd_map], 1         ; SUB2's list map (98.1.3.2.4): the
+    jnc .z%1                        ; next list is in a short jump's reach
 .s%1:
     lodsb
     xor ah, ah
@@ -1577,6 +1543,21 @@ vo_s_snx:     db 'Next play', 0
 vo_s_nokey:   db 'Seek: no keyframes', 0
 vo_s_bigkey:  db 'Seek: keys too big', 0
 vo_s_lowmem:  db 'Low memory', 0    ; (VO_MAXC: eighteen at most)
+vo_stab:      db 0                  ; vo_update's: each kind's text, its
+              db vo_s_pause - vo_s_none ; offset from vo_s_none (SEEK and
+              db 0                  ; BUF say their own, not through it)
+              db vo_s_ron - vo_s_none
+              db vo_s_roff - vo_s_none
+              db vo_s_nokey - vo_s_none
+              db vo_s_soff - vo_s_none
+              db vo_s_lowmem - vo_s_none
+              db vo_s_son - vo_s_none
+              db vo_s_snx - vo_s_none
+              db 0
+              db vo_s_bigkey - vo_s_none
+%if vo_s_lowmem - vo_s_none > 127 || VOK_PAUSE != 1 || VOK_SEEK != 2 || VOK_REPON != 3 || VOK_REPOFF != 4 || VOK_NOKEY != 5 || VOK_SNDOFF != 6 || VOK_LOWMEM != 7 || VOK_SNDON != 8 || VOK_SNDNX != 9 || VOK_BUF != 10 || VOK_BIGKEY != 11
+%error "vo_stab: a kind out of its order, or a text past cbw's reach"
+%endif
 vo_mode:      db 0                  ; the renderer, 0 none
 vo_rows:      dw VO_ROWS            ; the box's rows of the canvas (TEXT's 1),
 vo_rows2:     dw VO_ROWS * 2        ; ...twice that,
