@@ -9987,8 +9987,9 @@ SOAK = [
     Row("stikmenu", "soak", py("tests/stikmenu.py"), 45.0,
         "SPEC.md 110.12: Locator's Sticky Apps menu, one boot of the VGA XT "
         "on the shipped 360KB system disk. A press on the cell loads "
-        "STIKMENU.DRV and lists DESKCAL.O88 by its CARD (name 'Desk "
-        "Calendar', not running, Arrange/Hide greyed, More live); releasing "
+        "STIKMENU.DRV and lists the disk's two Sticky Apps, DESKCAL.O88 by "
+        "its CARD (name 'Desk Calendar', not running, Arrange/Hide greyed, "
+        "More live) beside STIKNOTE.O88 (SPEC.md 110.13); releasing "
         "on its row POSTS the pick and launches it as a desk window, and the "
         "module is dropped after; a release off the panel posts nothing; "
         "Hide All hides the widget and Show All brings it back; Arrange puts "
@@ -10093,6 +10094,26 @@ SOAK = [
         "Del and Yes empty the list; and three again show the last one's "
         "page and the pager wraps.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
+    Row("stiknote", "soak", py("tests/stiknote.py"), 120.0,
+        "SPEC.md 110.13: Sticky Note on a Hercules 5150 off the shipped 360KB "
+        "system disk - the MID layout. The pad is a desk window and its first "
+        "beat writes STIKNOTE.DAT with the welcome note; the sheet's edge "
+        "and the stack's are ink, both notches the desktop's dither and the "
+        "turned corner's diagonal ink; a pad press ticks a box (the ticked "
+        "record, the file's SN_BOX1); the arrow opens the titled editor, "
+        "New + `Groceries` + `[ ]milk` + Enter + `eggs` is two open boxes in "
+        "the file, Ctrl+T takes one away, Delete + Proceed leaves one note; "
+        "`On desktop` off hides the pad, the editor's close then ends the "
+        "program and its Sticky App row; launched again the editor opens "
+        "alone; and the Color menu is greyed `(color screen)` on 1bpp.",
+        needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
+    Row("stiknotevga", "soak", py("tests/stiknote.py", "--leg", "vga"), 70.0,
+        "SPEC.md 110.13: Sticky Note's PAPERS on a VGA XT, read off the card's "
+        "rendered framebuffer (fbuf): the TALL layout; the pad's sheet yellow "
+        "with a black edge, the editor's page yellow and its list white; "
+        "Color > Pink makes the page and the pad pink and says so in the "
+        "file, the list still white.",
+        needs=("marty",), timeout=600, wants=("build/os8088-360.img",)),
     Row("deskcalgrid", "soak", py("tests/deskcalgrid.py"), 40.0,
         "SPEC.md 110.3: the Desk Calendar's 42-byte grid, read out of the "
         "running guest's bss, is Python calendar's - MONDAY FIRST since v2 "
