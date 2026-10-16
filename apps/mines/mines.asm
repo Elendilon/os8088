@@ -598,6 +598,12 @@ mn_cellxy:
 ; Record: db colour, x1, y1, x2, y2 (cell-relative bytes); 0xFF terminates.
 ; in:  SI -> shape list, CX = cell x, DX = cell y
 ; out: SI -> past the list's 0xFF; preserves every other register
+;
+; SI is LEFT past the terminator on purpose: a list laid out straight after
+; another is drawn by calling again with no reload (the flag over a covered
+; cell). Each coordinate goes to the register gfx_fill wants it in with a
+; one-byte xchg, and the terminator is the one record whose colour byte has
+; bit 7 set - colours are 0..15 - so cbw's sign is the test.
 ; -----------------------------------------------------------------------------
 mn_shape:
     push ax
@@ -610,8 +616,8 @@ mn_shape:
     mov di, dx                      ; cell top
 .rec:
     lodsb                           ; colour (DF=0 per calling convention)
-    cmp al, 0xFF
-    je .done
+    cbw
+    js .done                        ; 0xFF: the end of the list
     call OSAPI_SET_COLOR
     lodsb                           ; x1 (every coordinate is 0..15, so
     cbw                             ; cbw is the zero extension)
@@ -620,16 +626,15 @@ mn_shape:
     lodsb                           ; y1
     cbw
     add ax, di
-    push ax
+    xchg bx, ax
     lodsb                           ; x2
     cbw
     add ax, bp
-    mov cx, ax
+    xchg cx, ax
     lodsb                           ; y2
     cbw
     add ax, di
-    mov dx, ax
-    pop bx                          ; y1
+    xchg dx, ax
     pop ax                          ; x1
     call OSAPI_GFX_FILL
     jmp .rec
@@ -651,17 +656,16 @@ mn_shape:
 mn_draw_cell:
     call mn_cellxy                  ; CX/DX = cell origin
     mov al, [mn_cell+bx]            ; (mn_shape preserves AX)
+    mov si, mn_sh_open
     test al, MN_C_OPEN
     jnz .open
     mov si, mn_sh_covered
-    call mn_shape
+    call mn_shape                   ; SI -> mn_sh_flag, laid out after it
     test al, MN_C_FLAG
-    jz .done
-    mov si, mn_sh_flag
-    call mn_shape
-    jmp .done
+    jnz mn_shape                    ; ...so a flag is one more call, no reload
+.done:
+    ret
 .open:
-    mov si, mn_sh_open
     call mn_shape
     and al, MN_C_ADJ
     jz .done                        ; zero-count cells stay blank
@@ -676,7 +680,6 @@ mn_draw_cell:
     add cx, 4                       ; centre the 8x8 glyph in the 16px cell
     add dx, 4
     call OSAPI_FONT_CHAR_XPARENT
-.done:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -689,31 +692,34 @@ mn_draw_cell:
 mn_draw_cell2:
     cmp byte [mn_mode], MN_M_LOST
     jne mn_draw_cell
-    test byte [mn_cell+bx], MN_C_FLAG
-    jz .unflagged
-    test byte [mn_cell+bx], MN_C_MINE
-    jz mn_draw_wrongflag
-    jmp mn_draw_cell                ; correctly flagged mine keeps its flag
-.unflagged:
-    test byte [mn_cell+bx], MN_C_MINE
-    jz mn_draw_cell
+    mov al, [mn_cell+bx]
+    and al, MN_C_MINE | MN_C_FLAG
+    cmp al, MN_C_FLAG
+    je mn_draw_wrongflag            ; a flag with no mine under it
+    cmp al, MN_C_MINE
+    jne mn_draw_cell                ; a correct flag keeps it; no mine, as played
     ; an unflagged mine: fall into mn_draw_minecell
 
 ; -----------------------------------------------------------------------------
 ; mn_draw_minecell - an exposed mine (loss): black disc with spokes on a
 ; light gray cell, or light red for the mine that was clicked
 ; in:  BX = cell index
-; out: nothing; clobbers AX, CX, DX, SI (BX, DI, BP kept)
+; out: CX/DX = the cell's origin (mn_shape keeps them); clobbers AX, SI
+;      (BX, DI, BP kept)
+;
+; ONE LIST, ONE CALL: the ground is a record in front of mn_sh_mine whose
+; colour byte this writes first - the image is ours and the byte is set
+; before every use, so a second instance or a move cannot see a stale one.
 ; -----------------------------------------------------------------------------
 mn_draw_minecell:
     call mn_cellxy
-    mov si, mn_sh_bggray
+    mov al, CLGRAY
     cmp bl, [mn_boom]
     jne .bg
-    mov si, mn_sh_bgred
+    mov al, CLRED
 .bg:
-    call mn_shape
-    mov si, mn_sh_mine
+    mov [mn_sh_bg], al
+    mov si, mn_sh_bg
     jmp mn_shape
 
 ; -----------------------------------------------------------------------------
@@ -945,7 +951,8 @@ mn_digcol:
     db CBLUE, CGREEN, CRED, CMAGENTA, CBROWN, CCYAN, CBLACK, CDGRAY
 
 ; --- cell shape lists: db colour, x1, y1, x2, y2 (cell-relative); 0xFF ends ----
-mn_sh_covered:                      ; light gray face, 2px bevels
+mn_sh_covered:                      ; light gray face, 2px bevels - and
+                                    ; mn_sh_flag MUST follow it (mn_draw_cell)
     db CLGRAY,  0,  0, 15, 15
     db CWHITE,  0,  0, 15,  1       ; top bevel
     db CWHITE,  0,  0,  1, 15       ; left bevel
@@ -967,14 +974,8 @@ mn_sh_open:                         ; white face, 1px dark gray grid border
     db CDGRAY,  0, 15, 15, 15
     db 0xFF
 
-mn_sh_bggray:                       ; loss backgrounds under the mine glyph
-    db CLGRAY,  0,  0, 15, 15
-    db 0xFF
-
-mn_sh_bgred:
-    db CLRED,   0,  0, 15, 15
-    db 0xFF
-
+mn_sh_bg:                           ; loss: the ground under the mine glyph,
+    db 0,       0,  0, 15, 15       ; its colour written by mn_draw_minecell
 mn_sh_mine:                         ; black disc with spokes
     db CBLACK,  5,  5, 10, 10       ; disc core
     db CBLACK,  6,  4,  9, 11       ; the rounding: the core grown by a row

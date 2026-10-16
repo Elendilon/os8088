@@ -50841,6 +50841,15 @@ content-relative; the procs fetch the content origin via `wm_content`
     candidate is kept when its index is on the board (0..80 as a byte, which
     settles the row) and its column is 0..8 - no row*9 + column rebuilt per
     neighbour. `mn_nbuf` is 9 bytes, and 9 + 71 is exactly `mn_xpts`'s 80.
+  - **Shape lists chain.** `mn_shape` leaves SI past the terminator, so
+    `mn_sh_flag` laid out after `mn_sh_covered` is drawn by a second call
+    with no reload; the ground under an exposed mine is ONE record in front
+    of `mn_sh_mine` whose colour byte `mn_draw_minecell` writes (light gray,
+    or light red for the clicked one) before every use - two lists and two
+    calls became one. The terminator is the one colour byte with bit 7 set,
+    so `cbw`'s sign tests it, and each coordinate reaches its `gfx_fill`
+    register by a one-byte `xchg`. The loss renderer classifies a cell on
+    one masked byte.
 
 ## 24. Packaging toolchain (host side)
 
