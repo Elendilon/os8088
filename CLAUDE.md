@@ -1122,7 +1122,7 @@ whose `LESSONS.md` is what MIDIRack's (SPEC.md §105.9.4, §105.9.5) learned.
   way. **Before declaring, ask what segment words the package holds that point
   INSIDE itself** — almost always none, which is why the proc is a `ret`; the
   two shapes where it is not are a segment the package **stamped** somewhere
-  (scribe, into a pre-parts `.ovl`) and a **re-homed** program whose assets
+  (scribe did, into its pre-parts `.ovl`, until SPEC.md 95.8.8 made it a part) and a **re-homed** program whose assets
   live in its own carve (skies), and for those the bare form is silent
   corruption rather than a missed optimisation.
 - **The package boundary is solved once, not per call site** (§20): calling out
