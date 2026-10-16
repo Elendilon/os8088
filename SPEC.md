@@ -72878,6 +72878,14 @@ the run cache's claims (§40.1) are the same.
   "nothing cached" test the restart, so the restart (`fr_kick_s`) sits under
   its tests and the resume (`fr_replay`) under that, and the cache-key test
   that was a jump-around near branch is a short one. 5 bytes.
+- **Shorter encodings off the hot paths.** `fr_promise` computes its answer
+  as `(pass + 1) >> 2`; the cache's first claim stores its two sizes as
+  bytes onto the loader's zeros; and `fr_status_pct` divides by an 8-bit 10
+  through an `SI` base. Its field is **four cells and not five**
+  (`FR_PCT_CELLS`): `'100%'` is the longest, so four is what erases a
+  shorter number, and the fifth was a space on the strip's white ground that
+  nothing else draws under — the strip is pixel-identical and a progress tick
+  letters one cell fewer. Its NUL is then the loader's zero. 14 bytes.
 
 ### 39.26 The software renderer's plane loop is gone
 

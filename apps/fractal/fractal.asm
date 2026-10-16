@@ -235,14 +235,16 @@ FR_X_ZOOM   equ 128
 FR_X_ZNUM   equ 168
 FR_X_PCT    equ 200                 ; the one that was already aligned
 FR_X_PAL    equ 248
-FR_PCT_CELLS equ 5                  ; the percentage field's WIDTH in cells:
+FR_PCT_CELLS equ 4                  ; the percentage field's WIDTH in cells:
                                     ; '100%' is four and the run is padded to
-                                    ; five, so it erases whatever the last one
+                                    ; four, so it erases whatever the last one
                                     ; wrote whether that was longer or shorter.
-                                    ; Asserted against fr_numbuf at the foot of
-                                    ; this file, because these bss offsets are
-                                    ; hand-computed and the gap to fr_line is
-                                    ; exactly six bytes
+                                    ; It was five until apps size pass 2, and
+                                    ; the fifth cell was a space on the strip's
+                                    ; white ground, which nothing else draws
+                                    ; under. Asserted against fr_numbuf at the
+                                    ; foot of this file, because these bss
+                                    ; offsets are hand-computed
 
 ; --- the restore cache (see the file header) -----------------------------------
 ; ONE WORD per run: colour in bits 15..12, the run's last column in 11..0.
@@ -938,11 +940,10 @@ fr_nowork:
 ; -----------------------------------------------------------------------------
 fr_promise:
     mov bx, [fr_win]
-    xor ax, ax                      ; still rendering: withdraw, and wm_saveu
-    cmp word [fr_pass], 3           ; drops any cache made under the last
-    jb .say                         ; promise with it
-    mov al, OSAPI_SAVEU_ON
-.say:
+    mov ax, [fr_pass]               ; 0..3, so (pass + 1) >> 2 is 1 at rest
+    inc ax                          ; (OSAPI_SAVEU_ON) and 0 while rendering -
+    shr ax, 1                       ; a withdrawal, and wm_saveu drops any
+    shr ax, 1                       ; cache made under the last promise with it
     call OSAPI_WM_SAVEU
     ret
 
@@ -1122,8 +1123,11 @@ fr_kick_s:
     call OSAPI_MEM_CLAIM            ; DX = base segment, CF=1 refused
     jc .have                        ; a refusal is transient: retry every kick
     mov [fr_cseg], dx
-    mov word [fr_ckb], FR_CACHE_KB0
-    mov word [fr_cmax], FR_CACHE_KB0*1024
+    mov byte [fr_ckb], FR_CACHE_KB0 ; BYTE stores onto the loader's zeros:
+    mov byte [fr_cmax+1], (FR_CACHE_KB0*1024) >> 8 ; this runs once an
+                                    ; instance ([fr_cseg] is never 0 again),
+                                    ; [fr_ckb] doubles no further than 32 and
+                                    ; a doubling never sets [fr_cmax]'s low byte
     mov ax, fr_reloc                ; ...and it MOVES (SPEC.md 66.5.7). Safe
     call OSAPI_MEM_MOVABLE          ; from the instant it exists, unlike
                                     ; Tracker's module (66.5.2): nothing has
@@ -1908,33 +1912,36 @@ fr_pctcalc:
 ; only ever increments while a render runs, so the number only grows - and
 ; fr_status draws the field through here too, onto the ground it has just
 ; filled, so there is one way to letter a percentage. The pad is laid first and
-; the digits over it: "100%" is the longest at four, so cell 4 is always a
-; space and cell 5 the NUL.
+; the digits over it: "100%" is the longest at four, so cells 2 and 3 are the
+; only ones a shorter number leaves, and the NUL after cell 3 is the loader's
+; zero - nothing ever writes fr_numbuf+4.
+;
+; The digits are an 8-bit divide: the number is at most 100, so every
+; quotient fits AL and leaves AH for the remainder, and [fr_pct]'s high byte
+; is the reset block's zero, so the word load is the widening.
 ; -----------------------------------------------------------------------------
 fr_status_pct:
-    mov word [fr_numbuf+2], 2020h   ; '  '
-    mov word [fr_numbuf+4], 0020h   ; ' ', NUL
-    mov di, fr_numbuf
-    mov al, [fr_pct]
-    cbw
-    mov bx, 10
+    mov si, fr_numbuf
+    mov word [si+2], 2020h          ; cells 2 and 3: '  ' (cell 4 is the NUL)
+    mov di, si
+    mov ax, [fr_pct]                ; 0..100, AH = 0
+    mov bl, 10
     xor cx, cx
     ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
 .div:
-    xor dx, dx
-    div bx
-    push dx                         ; digits come out backwards
+    div bl                          ; AL = the quotient, AH = the digit
+    push ax                         ; digits come out backwards
     inc cx
-    or ax, ax
+    cbw                             ; quotient <= 10: AH = 0 for the next turn
+    or al, al
     jnz .div
 .wr:
     pop ax
-    add al, '0'
-    mov [di], al
+    add ah, '0'
+    mov [di], ah
     inc di
     loop .wr
     mov byte [di], '%'
-    mov si, fr_numbuf
     mov cx, FR_X_PCT
     ; fall through to fr_text
 
@@ -2267,7 +2274,7 @@ fr_spawned equ fr_flg + 1            ; byte: 1 = this instance owns its worker.
 fr_cfrom   equ fr_spawned + 1        ; byte: 1 = fr_line was REPLAYED, not
                                      ; computed
 fr_abon    equ fr_cfrom + 1          ; byte: the About card is up
-fr_numbuf  equ fr_abon + 1           ; 6 bytes: "100% " + NUL
+fr_numbuf  equ fr_abon + 1           ; 6 bytes: "100%" + NUL, and one spare
 fr_line    equ fr_numbuf + 6         ; 320 bytes: one colour index per column,
                                      ; and one more for FR_SENT after the last
 ; --- the restore cache (see the file header). The runs themselves are a HEAP
@@ -2333,6 +2340,12 @@ fr_bss_end equ fr_paltab + FR_CAP + 1
 %if FR_PCT_CELLS + 1 > fr_line - fr_numbuf
   %error "FR_PCT_CELLS + a NUL does not fit fr_numbuf - widen the gap to fr_line"
 %endif
-%if FR_PCT_CELLS != 5
-  %error "fr_status_pct's pad stores assume a five-cell field"
+%if FR_PCT_CELLS != 4
+  %error "fr_status_pct's pad store and loader-zero NUL assume a four-cell field"
+%endif
+%if OSAPI_SAVEU_ON != 1
+  %error "fr_promise computes the promise as (pass + 1) >> 2, which is 1"
+%endif
+%if (FR_CACHE_KB0 * 1024) & 0FFh
+  %error "fr_kick_s stores fr_cmax's HIGH byte only - the low one is the loader's zero"
 %endif
