@@ -84395,6 +84395,14 @@ per-routine listing comparison, source text and encoded length, says so).
   `TRK_CLC_OR_STC` (the kernel's `CLC_OR_STC`, `db 0A8h` before the `stc`)
   or in a carry computed from the caps bit (`and`/`neg`, `and`/`cmp`) rather
   than in two exits each.
+- **The FT2 screen's copies and re-loads** (`trkui.inc`, -42 file bytes,
+  image -79): `tui_layout_for` copies its layout and colour tables with
+  `rep movsw`/`rep movsb` and folds the mono flag into the colour pick;
+  `tui_btn` stops recomputing the corner it had just computed; the value
+  painters (`tui_val_bpm`, `tui_val_ptn`, `tui_val_cga_*`) stop re-loading
+  the SI/CX/BX/AX that `tui_rdout`, `tui_dec3` and `tui_hexnp` preserve - a
+  strict subset of the instructions they ran, so no frame is slower; and
+  `tui_el_bpm` banks its values through `tui_val_bpm`'s own tail.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
