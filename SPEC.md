@@ -85201,6 +85201,53 @@ not kept.
 It costs Tracker **189 bytes of image** (34,180 -> 34,369), 2 of bss and 140
 of the packed file; no kernel byte.
 
+### 45.26 Apps size pass 2 — the shipped file, not the machine
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
+package by its PACKED file and the clusters it takes, because the 360KB disks
+are full. Tracker rides `apps360.img` (and the larger apps disks) as one
+copy. Nothing below changes what the user sees or hears; every change is
+load-time, menu-time or entry code, and the replayer, the mixers, the
+speaker shaper and every per-frame painter are instruction-identical (a
+per-routine listing comparison, source text and encoded length, says so).
+
+- **`mp_load` keeps its scratch in registers** (-63 file bytes, image -76,
+  bss -13): the six loader temporaries and `mp_vtbuild`'s row counter were
+  bss round trips. P rides BP to the extent check, the sample loop keeps the
+  available and effective lengths in BP and the loop start and length in
+  CX/BX, the title and order copies read with `es lodsb`, and the 1..128 song
+  length is one `dec`/`js`. Same verdict, same table and same volume table
+  for every input, hostile ones included.
+- **The UI task's cold paths in `tracker.asm`** (-35 file bytes, image -61):
+  `trk_legend`'s five string compares are one RANGE test (the five legends
+  are asserted, by a pair of `TIMES`, to be one run of 166 bytes and nothing
+  else); the entry's tier test is `cmp`/`sbb`/`inc` and sets the visualiser
+  pick there rather than re-testing `[trk_cpu0]`; the menu dispatch compares
+  once per pair of items; and the CF-returning helpers end in
+  `TRK_CLC_OR_STC` (the kernel's `CLC_OR_STC`, `db 0A8h` before the `stc`)
+  or in a carry computed from the caps bit (`and`/`neg`, `and`/`cmp`) rather
+  than in two exits each.
+- **The FT2 screen's copies and re-loads** (`trkui.inc`, -42 file bytes,
+  image -79): `tui_layout_for` copies its layout and colour tables with
+  `rep movsw`/`rep movsb` and folds the mono flag into the colour pick;
+  `tui_btn` stops recomputing the corner it had just computed; the value
+  painters (`tui_val_bpm`, `tui_val_ptn`, `tui_val_cga_*`) stop re-loading
+  the SI/CX/BX/AX that `tui_rdout`, `tui_dec3` and `tui_hexnp` preserve - a
+  strict subset of the instructions they ran, so no frame is slower; and
+  `tui_el_bpm` banks its values through `tui_val_bpm`'s own tail.
+- **The body tiles are grouped, over one table of x spans** (`trkwin.inc`,
+  `trklist.inc`, `tools/trkface.py`; -92 file bytes, image -103): the
+  face's two tables and the PlayList editor's were four and six bytes a
+  tile, 436 bytes in all. Every x span any of them uses is now one word pair
+  in `tw_xp` (22 of them), and the tiles are grouped by their rows - `db y1,
+  y2, n` and then n byte offsets into `tw_xp` - which is 354 bytes, read by
+  ONE decoder, `tw_tiles`, where there were two loops. `tools/trkface.py`
+  emits and checks that form; the tile SETS are the old ones exactly (40, 36
+  and 22 rectangles, decoded out of the built image and compared), so every
+  paint is pixel-identical and makes the same number of fills, in an order
+  grouped by rows. The editor's body now sets its pen once rather than once
+  a tile (`tw_fills`), 21 fewer `OSAPI_SET_COLOR` calls a full paint of it.
+
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
 A port of ActionRetro's **ArtfulType** — "a distraction-free Markdown
