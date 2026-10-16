@@ -171,11 +171,11 @@ dc_deli     equ os88_image_end + 72     ; db ...and index - one word
 dc_afirst   equ os88_image_end + 73     ; db the day's first appointment
 DC_BSS_ACNT equ 74
 dc_acnt     equ os88_image_end + DC_BSS_ACNT    ; db ...and how many
-dc_ph       equ os88_image_end + 75     ; db the parser's hour
+dc_ph       equ os88_image_end + 75     ; db spare (was the parser's hour)
 dc_tq       equ os88_image_end + 76     ; db an edit since the last poll
 dc_chirp    equ os88_image_end + 77     ; db the chirp's second note is owed
 dc_rtc      equ os88_image_end + 78     ; db OSAPI_CLK_GET's AL: bit 0 an RTC
-dc_fresh    equ os88_image_end + 79     ; db dc_cappt: armed afresh
+dc_fresh    equ os88_image_end + 79     ; db spare (was dc_cappt's "armed afresh")
 DC_BSS_NOW  equ 80                      ; dw the minute of the day, as the
 DC_BSS_LNOW equ 82                      ; dw last beat read it, and the one the
                                         ; reminders last looked at (0FFFFh none)
