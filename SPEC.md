@@ -169000,7 +169000,8 @@ commit before 98.1.9.13, the last one it assembled at).
 
 **The hot path's own size pass (2026-10-16)** took the routines a play
 runs, under one rule - every change the same speed or faster, per path -
-and found **618 bytes** (`NOLIVESND=1` 616) that were also cycles. The
+and found **620 bytes** (`NOLIVESND=1` 618, `VPDIAG=1` 618) that were
+also cycles. The
 file format and every list's semantics are unchanged; what moved is how
 the decoders (`vdec.inc`) and the hook get from one test to the next:
 
@@ -169028,8 +169029,9 @@ the decoders (`vdec.inc`) and the hook get from one test to the next:
 Measured on MartyPC's 5150: every frame of `tests/vidbench.py`'s
 synthetic set decodes **260-390 cycles faster** to the screen and to RAM
 (an empty frame 1,704 -> 1,441), and `tests/vidfskeys.py --cost`'s hook a
-frame with the text down is faster on every kind measured - 9,770 ->
-9,376 on Hercules, 45,194 -> 41,225 for write mode 3. With the text UP
+frame is faster on every kind measured, the text down and up - down,
+9,767 -> 9,363 on Hercules and 45,194 -> 41,222 for write mode 3. With
+the text UP
 in Mode X flipping a frame read 0.3% slower, and two `nop`s at the hook's
 entry, on either build, move that figure by more than the difference: it
 is where the frame's 640,000 cycles fall against the card's memory and
