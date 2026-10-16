@@ -1429,7 +1429,13 @@ op_lazykb:
 ;
 ; It is a fact about THIS INSTANT and nothing more: between this and op_fetch
 ; the heap can move, so op_fetch refuses for itself and does not trust it.
+;
+; `%define OP_NO_LAZYOK` before os88parts.inc leaves it out, for a package that
+; fetches but never ASKS first - a loader whose lazy part is fetched once at
+; launch, where the toast op_fetch gives is the answer (SPEC.md 20.12.9.2).
+; The default emits it, so every package that does not say so is unchanged.
 ; -----------------------------------------------------------------------------
+%ifndef OP_NO_LAZYOK
 op_lazyok:
     push bx
     push cx
@@ -1472,6 +1478,7 @@ op_lazyok:
     pop bx
     stc
     ret
+%endif                              ; OP_NO_LAZYOK
 
 ; -----------------------------------------------------------------------------
 ; op_fetch - claim and read part AL, now (SPEC.md 20.12.4)

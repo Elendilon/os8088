@@ -920,18 +920,19 @@ vp_onfile:
     jmp vp_ld4
 
 ; vp_cpname - ES:SI = a file's name, NUL-terminated within 13: into vp_name.
-; Clobbers AL, CX, SI, DI
+; vp_cpn - ...or CX characters of it to DI, the NUL after them if it has
+; none there (vp_parse's title). Clobbers AL, CX, SI, DI
 vp_cpname:
     mov di, vp_name
     mov cx, 12
-.cp:
+vp_cpn:
     mov al, [es:si]
     mov [di], al
     inc si
     inc di
     or al, al
     jz .cpd
-    loop .cp
+    loop vp_cpn
     mov [di], cl                    ; (CX = 0)
 .cpd:
     ret
@@ -1776,25 +1777,10 @@ vp_parse:
     je .lk
     mov byte [vp_lkind], 2
 .lk:
-    push ds                         ; the title, NUL-terminated within its 48
-    push es
-    push ds
-    push es
-    pop ds
-    pop es
-    mov si, V88_TITLE
+    mov si, V88_TITLE               ; the title, NUL-terminated within its 48
     mov di, vp_title
     mov cx, VP_COLS
-.t:
-    lodsb
-    stosb
-    or al, al
-    jz .td
-    loop .t
-    mov [es:di], cl                 ; (CX = 0)
-.td:
-    pop es
-    pop ds
+    call vp_cpn
     test byte [es:V88_FLAGS], V88F_LOOPREC
     jz .lok
     mov word [vp_msg], vp_s_bad
@@ -2011,14 +1997,12 @@ vp_canplay:
     je .got
     mov byte [vp_ok], 0
 .next:
-    inc bl                          ; (BL, not BX: the byte keeps the decode
-    jmp short .d                    ; and the hook on their word parity -
-                                    ; tools/os88rdiff.py --hot, PERFORMANCE.md
-                                    ; Part 7. BX < 16 here, so it is the same)
+    inc bx
+    jmp short .d
 .got:
     mov [vp_fsdisp], bl             ; CH for OSAPI_FSX_RUN
-    add sp, 4                       ; (the two banked words; three bytes and
-                                    ; not two pops, for the parity above)
+    pop ax                          ; (the two banked words)
+    pop ax
     mov bl, [vp_fskind]
     and bx, 3
     shl bx, 1
@@ -2154,12 +2138,13 @@ vp_canp1:
     mov ax, vp_s_notxt
     jmp short .say
 .std:
-    cmp byte [vp_screen], 0         ; A SCREEN OF ITS OWN (98.1.3.2.1): its
-    je .std1                        ; mode on a VGA, never the shadow -
-    mov cx, 1 << FSXM_VGA0D         ; 0Dh's for the 320-wide two, 12h's for
-    cmp byte [vp_screen], 2         ; the rest, each then retimed - and the
-    jbe .sc                         ; NARROW two are 320 wide (98.1.3.2.5)
-    cmp byte [vp_screen], VP_SCRN
+    mov bl, [vp_screen]             ; A SCREEN OF ITS OWN (98.1.3.2.1): its
+    or bl, bl                       ; mode on a VGA, never the shadow -
+    jz .std1                        ; 0Dh's for the 320-wide two, 12h's for
+    mov cx, 1 << FSXM_VGA0D         ; the rest, each then retimed - and the
+    cmp bl, 2                       ; NARROW two are 320 wide (98.1.3.2.5)
+    jbe .sc
+    cmp bl, VP_SCRN
     jae .sc
     mov cx, 1 << FSXM_VGA12
 .sc:
@@ -2193,29 +2178,28 @@ vp_canp1:
     inc byte [vp_shadow]            ; (0 since the entry: 1)
 .ok:
     mov [vp_tlay], al
-    mov bl, al                      ; the mode to take
-    call vp_lay6                    ; BX = layout x 6
+    mov [vp_fslay], al              ; THE FULL SCREEN's, kept: a bracket in the
+    mov bl, al                      ; window sets its own (98.3.7) - the mode
+    call vp_lay6                    ; to take: BX = layout x 6
     mov al, [vp_laytab+bx]
     cmp byte [vp_pixfmt], PF_CGA4   ; (mode 4 is CGA's layout at two bits a
     jne .md                         ; pixel)
     mov al, FSXM_CGA320
 .md:
-    cmp byte [vp_screen], 0         ; (a screen of its own: 0Dh or 12h)
-    je .md1
+    mov bl, [vp_screen]             ; (a screen of its own: 0Dh or 12h)
+    or bl, bl
+    jz .md1
     mov al, FSXM_VGA0D
-    cmp byte [vp_screen], 2
+    cmp bl, 2
     jbe .md1
-    cmp byte [vp_screen], VP_SCRN
+    cmp bl, VP_SCRN
     jae .md1
     mov al, FSXM_VGA12
 .md1:
     mov [vp_mode], al
+    mov [vp_fsmode], al
     mov byte [vp_ok], 1
     call vp_mdet                    ; MUTED, if this machine may not play it
-    mov al, [vp_tlay]               ; THE FULL SCREEN's, kept: a bracket in the
-    mov [vp_fslay], al              ; window sets its own (98.3.7)
-    mov al, [vp_mode]
-    mov [vp_fsmode], al
     mov al, [vp_shadow]
     mov [vp_fsshd], al
     mov word [vp_msg], vp_s_ready
@@ -9642,15 +9626,10 @@ vp_sstart:
 .kps:
     cmp byte [vp_livem], 0          ; A LIVE STREAM (98.3.18.1): nothing
     je .kpl                         ; checks its records ahead, so the claim
-    mov ax, [vp_plsp]               ; is the bound, as a keyframe's is
-    mov cx, ax                      ; (VP_MXSHD): plane 3's base + 64 KB, and
-    shl ax, 1                       ; a 16-bit write from any plane stays in
-    add ax, cx                      ; it
-    add ax, 63
-    mov cl, 6
-    shr ax, cl
-    add ax, 64
-    jmp short .kc
+    call vp_plshd                   ; is the bound, as a keyframe's is
+    jmp short .kc                   ; (VP_MXSHD): plane 3's base + 64 KB, and
+                                    ; a 16-bit write from any plane stays in
+                                    ; it - a planar keyframe's own claim
 .kpl:
     mov ax, [vp_plsp]               ; 4 x plsp paragraphs, in KB - 64
     shl ax, 1                       ; paragraphs to the KB (it was 16: the
@@ -11044,11 +11023,11 @@ vp_lybench:
     cmp dx, cx                      ; the BIOS's to a tick (65,536 counts)
     jb .tkd
     mov cx, [vp_lyn]
-    call vp_ldiv                    ; DX:AX = a decode's counts
+    call vp_div32                   ; DX:AX = a decode's counts
     mov cx, 100
-    call vp_lmul
+    call vp_mul32
     mov cx, 1193                    ; ...x 100 / 1,193: in 10 us
-    call vp_ldiv
+    call vp_div32
     or dx, dx
     jz .tt
     mov ax, 0xFFFF
@@ -11203,35 +11182,6 @@ vp_bnsel:
     cld
     rep movsw
 .r:
-    ret
-
-; vp_ldiv - DX:AX / CX -> DX:AX, the long way (no overflow). Every other
-; register kept
-vp_ldiv:
-    push bx
-    mov bx, ax
-    mov ax, dx
-    xor dx, dx
-    div cx
-    xchg ax, bx
-    div cx
-    mov dx, bx
-    pop bx
-    ret
-
-; vp_lmul - DX:AX x CX -> DX:AX (the product under 2^32). Every other
-; register kept
-vp_lmul:
-    push bx
-    mov bx, dx
-    mul cx
-    push dx
-    xchg ax, bx
-    mul cx
-    pop dx
-    add dx, ax
-    mov ax, bx
-    pop bx
     ret
 
 ; vp_bnio - the bench's surface swapped in, or back (98.1.9.13): the origin
@@ -19331,9 +19281,7 @@ vp_putt:
     call vp_putc
     mov al, ah
     call vp_putc
-    jmp near vp_ld4                 ; (NEAR: a short one moves everything
-                                    ; after it, the play path, an odd byte -
-                                    ; tools/os88rdiff.py)
+    jmp short vp_ld4
 
 ; vp_puts - SI = NUL string -> DI, stopping at the line's end (DI's own NUL)
 vp_puts:
@@ -19391,7 +19339,7 @@ vp_putn:
     or bl, bl                       ; ...and with decimals, at least one digit
     jz .o                           ; before the point: "0.05", not ".05"
     mov cl, bl
-    inc cl
+    inc cx                          ; (CL <= 3: CH is not read)
     cmp bh, cl
     jbe .d
 .o:
@@ -19458,7 +19406,7 @@ vp_sstrm:                           ; OSAPI_SND_STREAM
 ; vp_div32 - DX:AX /= CX; CX = the remainder
 vp_div32:
     push bx
-    mov bx, ax
+    xchg ax, bx                     ; (BX the low word)
     mov ax, dx
     xor dx, dx
     div cx
@@ -19469,17 +19417,16 @@ vp_div32:
     pop bx
     ret
 
-; vp_mul32 - DX:AX *= CX (the product must fit 32 bits)
+; vp_mul32 - DX:AX *= CX (the product must fit 32 bits). Every other
+; register kept
 vp_mul32:
     push bx
     mov bx, dx
-    mul cx
+    mul cx                          ; DX:AX = the low word's product
     push dx
-    push ax
-    mov ax, bx
-    mul cx
-    pop bx                          ; the low product's low word
-    pop dx                          ; ...and high
+    xchg ax, bx                     ; (BX its low word)
+    mul cx                          ; AX = the high word's, the low half
+    pop dx
     add dx, ax
     mov ax, bx
     pop bx

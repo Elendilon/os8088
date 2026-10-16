@@ -915,6 +915,26 @@ FAST = [
         "at all",
         wants=("build/small360.img", "build/small.img",
                "build/smallapps360.img", "build/smallapps.img")),
+    Row("lzbclust", "soak", py("tests/unit/t_lzbclust.py"), 1.2,
+        "SPEC.md 20.13.5's rule for LZBPKGS: a package ships LZB only while "
+        "LZB SAVES IT A 1KB CLUSTER on the 360KB disks it rides, because the "
+        "decode costs ~4x LZ4's on every launch (+541 ms on ArtfulType's "
+        "first, measured on a 5150) and the disk only gains a whole cluster. "
+        "A package is chosen against the size it had that day and its next "
+        "edit can move it to the far side of a boundary with every build "
+        "step green - so for each listed name this re-packs build/<name>.bin "
+        "with LZ4 and fails unless the shipped LZB file takes fewer "
+        "clusters, and fails a listed name whose shipped file is not LZB at "
+        "all (the stamp or the rule come apart from the list - the first try "
+        "at the list shipped all of them LZ4 and reported up to date). Red "
+        "on purpose both ways: `mines` added to the list fails as not LZB, "
+        "and Solitaire's small arm packed LZB (3,658 bytes, 4 clusters "
+        "against LZ4's 4,067, 4) fails as saving none. `--candidates` lists "
+        "the LZ4 packages LZB would save one for, as information. SOAK and "
+        "not fast: it re-packs a dozen packages, and which compressor a "
+        "package uses is not 'did you obviously break the OS'",
+        wants=("build/artful.o88", "build/artful.bin",
+               "build/smallapp/calc.o88", "build/smallapp/tank.o88")),
     Row("ktags", "soak", py("tests/unit/t_ktags.py"), 0.1,
         "every owner tag the kernel ships has a TYPE name on the Task "
         "Manager's heap page - SPEC.md 28.4's hex fallback is for a tag this "
@@ -2220,6 +2240,17 @@ SOAK = [
         "A double-click must open TeXPad - it toasted 'Load failed'. Then "
         "HELLO.ZZZ, which nothing declares: the search runs and the verdict "
         "is the old one",
+        needs=("marty",), serial=True),
+    Row("assocflush", "soak", py("tests/assocflush.py"), 170.0,
+        "SPEC.md 54.7.6: what the machine learns is written BACK to the "
+        "volume's ASSOC.DAT. Five boots, every answer read off the floppy "
+        "the guest wrote: a cold B:\\APPS is ONE flush whose rows equal "
+        "os88disk's own builder; browsing it again is none; one new package "
+        "and seventeen cost the flush the same reads (the capture, 54.7.6.2); "
+        "the next boot knows .TEX and .HTM from B:\\MEDIA and reads a third "
+        "as much; a program found by a SWEEP has its row corrected; a full "
+        "disk is tried once a session. Red with the harvest's asc_learn, the "
+        "capture, the location trigger or [asc_wno] taken out",
         needs=("marty",), serial=True),
     Row("assocvol", "soak", py("tests/assocvol.py"), 21.0,
         "SPEC.md 54.3.3, 98.4.7: a .V88 on a bare B: with VIDEO.O88 in "

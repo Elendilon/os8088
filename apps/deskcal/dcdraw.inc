@@ -75,6 +75,9 @@ DC_LINKS    equ 72              ; Dismiss after Snooze
 DC_FLD0     equ 4               ; the first day field's x
 DC_FLDW     equ 24              ; a day field's width
 DC_BOXW     equ 20              ; today's box / the selection's outline
+%if DC_FLDW != 24 || (DC_FLD0 + 2) / 8 != 0 || (DC_FLD0 + 2 + DC_BOXW - 1) / 8 != 3 || (DC_FLD0 + 2 + DC_BOXW + 1) / 8 != 3
+  %error "deskcal: dc_rbox's bytes are 3 x the column and 3 more"
+%endif
 DCG_DOTBY   equ 80h             ; DCG_DOTY's flag: the dot BESIDE the number,
                                 ; 2 x 1 one pixel past its cell, and the box
                                 ; DC_BOXW + 2 wide round both (COMPACT: a
@@ -1804,13 +1807,11 @@ dc_hrem:
 ; --- the strings and the bit records -----------------------------------------
 dc_s_wk:    db 'MTWTFSS', 0     ; over each field, MONDAY first
 dc_s_lt:    db '<', 0
-dc_s_gt:    db '>', 0
 dc_s_plus:  db '+', 0
 dc_s_today: db 'Today', 0
 dc_s_more:  db ' more', 0
-dc_s_more2: db ' >', 0
-dc_s_tasksh: db 'Tasks', 0
-dc_s_remh:  db 'Reminder', 0
+dc_s_more2: db ' '
+dc_s_gt:    db '>', 0           ; (the tail of the slot's ` >`)
 dc_s_allday: db '--:--', 0
 dc_s_norem: db 'No reminders today', 0
 dc_s_noapp: db 'No appointments', 0

@@ -4059,6 +4059,9 @@ disk_mount_x:
                                 ; cache row, and the harvest has to fill it
                                 ; out of the header, or a package the cache
                                 ; does not name can never keep one
+    call asc_learn              ; A ROW TAKEN IS A ROW THIS VOLUME'S FILE LACKS
+                                ; (SPEC.md 54.7.6.1): post its flush and keep
+                                ; the declarations the store cannot hold
     test byte [assoc_hflags], LD_HF_GLYPH
     jz .h_noglyph               ; ships none: the zeros ico_add wrote are the
     mov si, dsk_secbuf+LD_H_GLYPH   ; truth, and a hit reducing the body is
@@ -8256,8 +8259,8 @@ ICO_ROW     equ ICO_R_GLYPH + 8 ; (SPEC.md 54.3.2), which is here because
                                 ; block - so a store that carried only the
                                 ; body would answer a hit with the reduction
                                 ; and DOWNGRADE a slot the seed had resolved.
-                                ; 8 bytes x 48 rows = 384, against the 3,072
-                                ; the claim gave back
+                                ; 8 bytes x 60 rows = 480, against the 5,120
+                                ; the cache's claim gives back
 %if ASC_ROWGLY - ASC_ROWICO != ICO_R_GLYPH - ICO_R_BODY
 %error "asc_gly_pair walks an ASSOC.DAT row and a store row with ONE body of \
 code: the body-to-glyph delta has to be the same in both"
@@ -8268,9 +8271,33 @@ ICO_ROW     equ ICO_R_BODY + DSK_ICO_SIZE   ; (SPEC.md 54.0), so it carries no
 %ifdef KERN_SMALL
 ICO_NROW    equ 24              ; SPEC.md 51.0 leaves this kernel no
 %else                           ; driver-backed volume and fewer packages
-ICO_NROW    equ 48
-%endif
+ICO_NROW    equ 60              ; a full ASSOC.DAT (ASC_NAPP 55) is absorbed
+%endif                          ; WHOLE (SPEC.md 54.7.4), so the store has to
+                                ; hold one and some: 60 x 82 + the capture is
+                                ; 5,108 of a 5KB claim (it was 48, 4KB)
 ICO_KB      equ (ICO_NROW*ICO_ROW + 1023) / 1024
+%ifdef OS88_ASSOC
+; THE CAPTURE (SPEC.md 54.7.6.2): the claim's KB rounding is 200 bytes past
+; the last row, and the harvest keeps there the one thing an ASSOC.DAT row
+; needs that the store does not hold - a declaring package's association
+; block - so the flush never reads a package a second time for it. It costs
+; no heap: those bytes were already claimed and unused.
+ICO_CAP      equ ICO_NROW * ICO_ROW
+ICO_CAP_MAX  equ 11                 ; records: one action's worth - every
+                                    ; declaring program in the tree. HOW MANY
+                                    ; are held is [ico_capn], beside [ico_n],
+                                    ; so the two words that empty the store
+                                    ; empty the capture too
+ICO_CAP_ROWS equ ICO_CAP            ; ICO_CAP_MAX bytes: each record's row
+ICO_CAP_REC  equ ICO_CAP + 12       ; ...and 16-byte records, the header's block
+                                    ; (an EVEN offset: the copy is rep movsw)
+%if ICO_CAP_ROWS + ICO_CAP_MAX > ICO_CAP_REC
+  %error "the capture's row bytes overrun its records"
+%endif
+%if ICO_CAP_REC + ICO_CAP_MAX * 16 > ICO_KB * 1024
+  %error "the capture (SPEC.md 54.7.6.2) no longer fits the icon store's KB rounding: shrink ICO_CAP_MAX, or pay a KB of claim and say so"
+%endif
+%endif
 
 ICO_R_FOLDER equ 0xFE           ; not a row: the built-in folder body
 ICO_R_NONE   equ 0xFF           ; ...and SPEC.md 25's generic icon
@@ -8296,7 +8323,11 @@ ico_need:
     call mem_claim_x
     jc .out                     ; CF = 1 is the refusal, as it arrives
     mov [ico_seg], dx
+%ifdef OS88_ASSOC
+    mov word [ico_n], 0         ; ...and [ico_capn] beside it: the capture is
+%else                           ; empty (SPEC.md 54.7.6.2)
     mov byte [ico_n], 0
+%endif
 %ifdef OS88_COMPACT             ; (kern_small: nothing moves, SPEC.md 66.0)
     mov ax, ico_reloc
     mov bx, MEM_P_ICO
@@ -8345,7 +8376,11 @@ ico_need:
 ; -----------------------------------------------------------------------------
 ico_demote:
     mov word [ico_seg], 0       ; NEITHER A FRAME NOR A `pushf` HERE - see the
-    mov byte [ico_n], 0         ; header: `mem_pg_forget` has banked the lot
+%ifdef OS88_ASSOC
+    mov word [ico_n], 0         ; header: `mem_pg_forget` has banked the lot.
+%else                           ; (A WORD: [ico_capn] goes with the store,
+    mov byte [ico_n], 0         ; SPEC.md 54.7.6.2)
+%endif
     jmp fmv_icostale            ; already. And `fmv_icostale` ENDS IN A `ret`
                                 ; whose caller is this routine's caller, so it
                                 ; IS this routine's epilogue and the tail jump
@@ -8436,7 +8471,7 @@ ico_scan:
 ; keyed on ICO_ROW's value - which meant a `%if` arm per row width, and 80 and
 ; 88 needed different ones. `mul ah` takes ANY width in two bytes: 9 bytes
 ; against 23, and the product cannot leave AX because the store's widest row
-; is ICO_NROW-1 = 47 of them (4,136, and 255 x 88 would still fit). The
+; is ICO_NROW-1 = 59 of them (4,838, and 255 x 88 would still fit). The
 ; 8088 prices `mul r8` at ~70 clocks against the ladder's ~50, and this is
 ; called once per icon RESOLVED - 32 of them on a full listing, so 0.2 ms of
 ; a repaint that spends 71 ms on one row of text (PERFORMANCE.md part 2).
@@ -8592,6 +8627,12 @@ ico_seg:    dw 0                ; the store's claim, 0 = none (refused, or no
 ico_n:      db 0                ; rows in use. It only grows: the store is
                                 ; retired by a PURGE and not by a mount, which
                                 ; is what makes it machine-wide
+%ifdef OS88_ASSOC
+ico_capn:   db 0                ; ...and the capture's records (SPEC.md
+                                ; 54.7.6.2). RIGHT BEHIND [ico_n]: every
+                                ; store that empties the one is a word store
+                                ; that empties both
+%endif
 section .cold
 
 ; -----------------------------------------------------------------------------

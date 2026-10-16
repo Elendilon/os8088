@@ -3208,7 +3208,16 @@ apic_inst_minimize:               ; DOCK.DRV's door (SPEC.md 30.4)
                                   ;          than animates (SPEC.md 79.10). In
                                   ;          both kernels (20.8 rule 4); read
                                   ;          only by kern_big's saver
-osapi_table_end:                  ; 0x0493 today (0x0487 before the HMA and
+    OSAPI_RCSLOT osapi_assoc_flush_x ; 0x0493 - DL = a volume, AL = 0
+                                  ;          incremental / 1 full: bring its
+                                  ;          ASSOC.DAT up to date with the
+                                  ;          packages on it (SPEC.md 54.5,
+                                  ;          54.7.6). Out CF=0 = it describes
+                                  ;          them now; CF=1, AX = FERR_* = it
+                                  ;          could not. Synchronous; a worker
+                                  ;          may not. kern_small refuses
+osapi_table_end:                  ; 0x0499 today (0x0493 before the ASSOC.DAT
+                                  ; flush; 0x0487 before the HMA and
                                   ; quiet cells, appended after main's at the
                                   ; elendilon -> main merge; 0x0475 before the
                                   ; Sticky App's
@@ -3232,8 +3241,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 104*6 + 6*3 + 6 + 12*5 + 3*6 + 8
-%error "os8088 API jump table must be exactly 0x0483 bytes: 43 SLOT (8), 11 XCELL (7), 104 rare (6), 6 JCELL (3), 1 FCELL (6), 16 ICELL (12 of 5, 3 of 6, 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
+%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 105*6 + 6*3 + 6 + 12*5 + 3*6 + 8
+%error "os8088 API jump table must be exactly 0x0489 bytes: 43 SLOT (8), 11 XCELL (7), 105 rare (6), 6 JCELL (3), 1 FCELL (6), 16 ICELL (12 of 5, 3 of 6, 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
 %endif
 
 ; =============================================================================
@@ -5343,6 +5352,9 @@ EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
 %include "disk.inc"
 %include "diskw.inc"          ; the FAT write path (SPEC.md 18.4): after
                                 ; disk.inc, whose constants and layout it uses
+%include "ascw.inc"           ; the ASSOC.DAT flush (SPEC.md 54.7.6), into
+                                ; FORMAT.DRV's image: after assoc.inc, disk.inc
+                                ; and diskw.inc, all three of whose names it uses
 %include "diskops.inc"        ; DISKOPS.DRV, the disk operations - the
                                 ; cloner (SPEC.md 18.99) first: after
                                 ; diskw.inc, whose FERR_* neighbours its own
@@ -6344,7 +6356,8 @@ fm_kinit:             call COLD_SEG:fm_kinit_x
 ; nothing was stored". Both slots already require the caller to test CF.
 section .cold
 osapi_arg_file_x:
-osapi_assoc_set_x:    stc
+osapi_assoc_flush_x:            ; ...and the ASSOC.DAT flush (SPEC.md 54.7.6):
+osapi_assoc_set_x:    stc       ; kern_small has no cache to bring up to date
                     retf
 section .text
 %endif

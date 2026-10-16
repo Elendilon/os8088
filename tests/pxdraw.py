@@ -137,7 +137,10 @@ def main():
     else:
         syms, image = pkg_syms()
         o88path = os88build.at("build/pixel.o88")
-    o88 = open(o88path, "rb").read()
+    import os88pkg                                      # noqa: E402
+    # the IMAGE, not the file: a parted package's image ships packed when
+    # that saves a sector (SPEC.md 20.13.8)
+    o88 = os88pkg.image_unwrap(open(o88path, "rb").read())
     if o88[:syms["op_table"]] != image[:syms["op_table"]]:
         sys.exit("%s is not that tree's pixel.asm - run "
                  "`make build/pixel.o88`" % o88path)

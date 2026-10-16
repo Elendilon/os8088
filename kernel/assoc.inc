@@ -31,16 +31,39 @@
 ; vanishing, and the per-module pass keeps assembling.
 %ifdef OS88_ASSOC
 
-ASSOC_NAPP   equ 12             ; app slots
-ASSOC_NEXT   equ 24             ; extension slots
+ASSOC_NAPP   equ 16             ; app slots - 20 resident bytes each (stem,
+                                ; glyph, cluster, volume, default folder)
+ASSOC_NEXT   equ 32             ; extension slots - 4 each. Both were 12 and
+                                ; 24, and NOTHING FREES A SLOT in a session, so
+                                ; a machine that met more than 7 declaring
+                                ; programs past the five built-ins dropped the
+                                ; rest silently: office360 with apps360 wanted
+                                ; 9, a full hard-disk install 11 and 20 new
+                                ; extensions. 16/32 is that install's 11 and
+                                ; 20 past the built-ins, at 112 resident bytes;
+                                ; the 32/64 a full ASSOC.DAT could declare was
+                                ; 560 and refused (SPEC.md 54.2)
 ASSOC_STICKY equ 0x80           ; ext slot bit 7: claimed by a RUNTIME
                                 ; registration, so a header declaration
                                 ; (SPEC.md 54.5) may not take it back
 ASSOC_IX     equ 0x7F           ; ...and the index under it
-ASSOC_FIND   equ 0xFE           ; [assoc_dapp]: an extension nothing here
+ASSOC_FIND   equ 0xEF           ; [assoc_dapp]: an extension nothing here
                                 ; claims, posted for assoc_run to go and ask
                                 ; every volume about (SPEC.md 54.4.3). 0xFF
-                                ; is "nothing posted", and a slot is < NAPP
+                                ; is "nothing posted", and a slot is < NAPP.
+                                ; BELOW ASSOC_FLUSH, with the slots, so that
+                                ; "a document is pending" is one compare
+                                ; (SPEC.md 54.7.6.3) - it was 0xFE
+ASCF_FULL    equ 1              ; OSAPI_ASSOC_FLUSH's AL (SPEC.md 54.5): read
+                                ; every package the old file does not hold
+ASCF_HOLD    equ 2              ; ...with ASCF_NOFLUSH: ACQUIRE - load the
+                                ; writer and keep it until a release
+ASCF_NOFLUSH equ 4              ; ...flush nothing: acquire (with HOLD) or
+                                ; RELEASE (without), and nothing else
+ASSOC_FLUSH  equ 0xF0           ; [assoc_dapp]: 0xF0 + a volume = flush that
+                                ; volume's ASSOC.DAT (SPEC.md 54.7.6). DVOL_MAX
+                                ; is 8, so 0xF0..0xF7, and nothing else at or
+                                ; above 0xF0 is ever posted but 0xFF
 ASSOC_DECLMAX equ 5             ; extensions one header block can declare
                                 ; (SPEC.md 54.6) - the block is 16 bytes: a
                                 ; count and five 3-byte extensions
@@ -1213,6 +1236,17 @@ assoc_locate:
                                 ; standing in B:\APPS) because asc_root_find
                                 ; walks the ROOT directly rather than through
                                 ; dskw_stat, which is what it was written for
+    mov al, [disk_drive]        ; DID THIS VOLUME'S CACHE KNOW? (SPEC.md
+    cmp al, [assoc_drv+di]      ; 54.7.6.1) The seed above wrote what the file
+    jne .learn                  ; says; where the program really is differs
+    mov bx, di                  ; when the file never had it, or had it
+    shl bx, 1                   ; somewhere else - both worth writing back,
+    mov bx, [assoc_clus+bx]     ; and a search is quiet mounts, so no harvest
+    cmp bx, [dsk_cwd]           ; ever saw this
+    je .known
+.learn:
+    call asc_post               ; AL = the volume, still
+.known:
     mov bx, di                  ; ...then the AUTHORITATIVE hint for the one
     call assoc_hint_here        ; program we actually located - AFTER the seed
                                 ; on purpose, so a stale cached cluster for
@@ -1253,6 +1287,14 @@ assoc_run_x:
     mov al, [assoc_dapp]
     mov byte [assoc_dapp], 0xFF ; consume before running, not after
     push ax
+    cmp al, ASSOC_FLUSH         ; NOT A DOCUMENT AT ALL (SPEC.md 54.7.6.3): a
+    jb .doc                     ; harvest or a search learned something this
+    and ax, 7                   ; volume's ASSOC.DAT does not hold. DL = the
+    xchg ax, dx                 ; volume, AL = 0 incremental (DX is the
+    xor ax, ax                  ; KENT frame's to restore). Silent either
+    call asc_flush              ; way - nothing the user asked for failed
+    jmp .out
+.doc:
 
     mov di, [assoc_pwin]
     or di, di
@@ -1748,9 +1790,11 @@ ASC_ROWCLUS  equ 10             ; the DIRECTORY the program lives in (0 = root),
                                 ; reserved - so SPEC.md 54.7.1's seeding costs
                                 ; the file not one byte
 ASC_ROWICO   equ 16             ; ...the icon's offset inside a row
-ASC_NAPP     equ 32             ; was 16, and the shipped apps disk holds 15 -
-ASC_NEXT     equ 24             ; one package of headroom, with no guard
-ASC_KB       equ 3              ; 32*88 + 16 + 24*4 = 2,928 bytes
+ASC_NAPP     equ 55             ; was 32 (and 16 before that), and apps720
+ASC_NEXT     equ 64             ; held exactly 32 packages while the 1.44MB
+ASC_KB       equ 5              ; apps disk held 34: 55*88 + 16 + 64*4 =
+                                ; 5,112 bytes, the most that fits 5KB with
+                                ; room for 64 extensions (SPEC.md 54.7.1)
 ; ...and that sum is now checked rather than kept up to date by hand. The ext
 ; rows are FOUR bytes, not ASC_ROW: asc_merge_ext walks them with `add di, 4`,
 ; which is the one number here that a reader is likely to get wrong, ASC_ROW
@@ -1929,7 +1973,7 @@ asc_use_x:
     shl bx, 1
     add bx, ax                  ; BX = what the header says the file contains,
     mov ax, dx                  ; less its header. DX = sectors, and at most
-    mov cl, 9                   ; ASC_KB*2 = 6 of them, so this cannot
+    mov cl, 9                   ; ASC_KB*2 = 10 of them, so this cannot
     shl ax, cl                  ; overflow: AX = what the file actually is
     sub ax, ASC_HDR
     cmp bx, ax
@@ -2187,7 +2231,7 @@ asc_slot_of:
     mul bl                      ; only, so AH needs no clearing and DX SURVIVES
     add ax, ASC_HDR             ; - this routine's header says it clobbers AX
     mov si, ax                  ; and CF, and `mul bx` clobbered DX. The row
-                                ; index is < ASC_NAPP, so AL*88 <= 2,728 and
+                                ; index is < ASC_NAPP, so AL*88 <= 4,752 and
                                 ; the product cannot leave AX. ES:SI = the row
     call asc_stem_in            ; stage its stem into the kernel
     call assoc_app_get          ; a full table leaves AL alone and CF set, and
@@ -2304,6 +2348,78 @@ asc_take_x:
     pop si
     jmp kretc_cx
 
+; -----------------------------------------------------------------------------
+; asc_post - post a flush of volume AL's ASSOC.DAT (SPEC.md 54.7.6.3)
+; in:  AL = the volume
+; out: nothing
+; clobbers: AL and the flags - neither caller reads AL after it
+;
+; The two triggers' one door. NOTHING for a volume whose last flush the disk
+; refused this session ([asc_wno]: one attempt, not one per folder), NOTHING
+; for a volume the association cache is not keyed to (a redirected volume's
+; harvest skips asc_use_x, so [asc_vol] is elsewhere - SPEC.md 62.9.2.2), and
+; NOTHING over a pending DOCUMENT: every value below ASSOC_FLUSH is one, and
+; losing a double-click to housekeeping would be a visible defect where losing
+; a flush costs the next boot one post.
+; -----------------------------------------------------------------------------
+asc_post:
+    cmp al, [asc_wno]
+    je .out
+    cmp al, [asc_vol]
+    jne .out
+    cmp byte [assoc_dapp], ASSOC_FLUSH
+    jb .out
+    or al, ASSOC_FLUSH
+    mov [assoc_dapp], al
+    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13)
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; asc_learn - the harvest TOOK a store row: this volume's file lacks it
+;             (SPEC.md 54.7.6.1, 54.7.6.2)
+; in:  AL = the row ico_put just took (never ICO_R_NONE); dsk_secbuf (LOW_SEG)
+;      holds the package's header with its ICON PRESENT - this is the harvest's
+;      icon arm - and [assoc_hflags] its flags
+; out: nothing (all registers preserved)
+;
+; Posts the flush, and keeps the header's association block in the store's
+; claim tail when the package declares, because that block is the one thing
+; a row needs that the store does not hold - and the flush must not read the
+; package a second time for it. Verbatim: the flush applies SPEC.md 54.6's
+; usability test when it reads the record.
+; -----------------------------------------------------------------------------
+asc_learn:
+    call kentc_di               ; KENT: push ax..di
+    push es
+    mov bl, al                  ; BL = the row
+    mov al, [disk_drive]
+    call asc_post
+    test byte [assoc_hflags], 2 ; declares?
+    jz .out
+    mov al, [ico_capn]
+    cmp al, ICO_CAP_MAX
+    jae .out                    ; full: the flush reads this one's header
+    inc byte [ico_capn]
+    mov es, [ico_seg]           ; live: ico_put has just answered a row
+    cbw                         ; AH = 0 (AL < ICO_CAP_MAX)
+    mov di, ax
+    mov [es:di+ICO_CAP_ROWS], bl
+    mov cl, 4
+    shl di, cl                  ; x 16
+    add di, ICO_CAP_REC
+    mov si, dsk_secbuf + 96     ; header 32 + icon 64: the block's offset
+    mov cx, 8                   ; when the icon is present (SPEC.md 54.6)
+    push ds
+    push ss                     ; dsk_secbuf is .lowbss and SS is LOW_SEG
+    pop ds                      ; (SPEC.md 2.1)
+    cld
+    rep movsw
+    pop ds
+.out:
+    pop es
+    jmp kretc_di
+
 ; =============================================================================
 ; Far entries (SPEC.md 2.6): the resident thunks in kernel.asm far-call these,
 ; and these near-call the bodies above - so every routine here keeps its
@@ -2339,6 +2455,14 @@ asc_seg:  dw 0                  ; the claim, 0 = none (refused, or not yet)
 asc_n:    dw 0                  ; app rows in it, 0 = no usable cache
 asc_ne:   dw 0                  ; ...and association rows
 asc_vol:  db 0xFF               ; whose cache it holds, 0xFF = nobody's
+asc_hold: db 0                  ; non-zero = a caller HOLDS the writer
+                                ; (ASCF_HOLD): fm_fmt_drop leaves FORMAT.DRV
+                                ; loaded, so an installer that replaces it on
+                                ; the boot volume still flushes with the copy
+                                ; that matches this kernel (SPEC.md 54.7.6.4)
+asc_wno:  db 0xFF               ; the volume whose last flush the disk REFUSED
+                                ; this session (write-protected, full): no
+                                ; more posts for it (SPEC.md 54.7.6.4)
 
 %endif                          ; OS88_ASSOC - SPEC.md 54.0
 

@@ -133,19 +133,11 @@ cs_fsx_main:
     xchg dx, [cs_shseg]             ; it is 16KB the title page cannot use, and
     or dx, dx                       ; held from the first flight to the close
     jz .noshadow                    ; it was a wall in the heap for the whole
-    call OSAPI_MEM_FREE             ; session. FIRST, so the fallback read in
-.noshadow:                          ; cs_artload has the room it frees
-    jmp cs_artload                  ; THE TITLE BANDS BACK, if cs_r_setup built
-                                    ; its tables over them (88.10.7) - HERE and
-                                    ; not after OSAPI_FSX_RUN returns, because
-                                    ; the kernel repaints the title page before
-                                    ; it does (SPEC.md 53.6). A decode of the
-                                    ; copy kept packed in the region
-                                    ; (88.10.7.1), and a read only when there
-                                    ; is none - the file API being legal
-                                    ; mid-bracket (53.1). A bracket refused
-                                    ; before cs_r_setup ran left them where
-                                    ; they were, and this is a compare
+    call OSAPI_MEM_FREE             ; session
+.noshadow:                          ; THE TITLE BANDS need nothing here: the
+    ret                             ; kernel's repaint of the title page
+                                    ; (SPEC.md 53.6) expands the two it draws
+                                    ; out of cs_artz, in the image (88.10.7.2)
 
 ; -----------------------------------------------------------------------------
 ; cs_stick - the two attitude axes into [cs_kpitch] and [cs_kroll]

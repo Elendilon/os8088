@@ -110,7 +110,7 @@ def run():
     S = os88sym.linear
     blob = open(os.path.join(ROOT, O88), "rb").read()
     image = u16(blob, 8)
-    rows = os88parts.rows(blob[:image])
+    rows = os88parts.image_rows(blob)   # the table is in the IMAGE (20.13.8)
     say("APPLE2.O88: image %d, file %d, %d part(s), flags 0x%02X"
         % (image, len(blob), len(rows), blob[3]))
 
