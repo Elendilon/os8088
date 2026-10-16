@@ -274,6 +274,7 @@ R_RSCALE    equ 36                  ; ...and its row scale, 0/1 or 2
 R_FLIP      equ 37                  ; MODEX: 2 = two pages, flipped (98.3.8)
 R_SCREEN    equ 38                  ; VGA4: the screen it plays on (98.1.3.2.1)
 R_PAGES     equ 39                  ; byte 37 = 4: the pages, 3..8 (98.1.3.7.1)
+VP_HELD     equ 0xFFFE              ; vp_prevn after a HELD record (98.1.3.9)
 ROW_MASK    equ 0x0FFF              ; ...an N-page record's rows, its page and
                                     ; flags above them
 COPY_LEN    equ 6                   ; a COPY's header alone (98.1.3.7.2)
@@ -1478,6 +1479,10 @@ vp_parse:
     mov byte [vp_rs], 1
 .rs1:
     mov al, [es:di+R_FLIP]          ; PAGE FLIPPING (98.3.8): Mode X's own
+    cmp al, 6                       ; (HELD RECORDS, 98.1.3.9: a flipped
+    jne .fp6h                       ; file, vp_flipdec's to read)
+    mov al, 2
+.fp6h:
     cmp al, 5                       ; FLIPPED AND BUILT AHEAD (98.1.3.7.2):
     jne .fp7                        ; byte 37's 4 with every record flipped,
     cmp word [vp_lstr], 40          ; never on a NARROW screen
@@ -16065,6 +16070,8 @@ vp_flipdec:
     mov ax, [vp_prevn]              ; WHAT THE BACK PAGE OWES: nothing, the
     or ax, ax                       ; last record again, or its rows copied
     jz .cur                         ; off the glass (98.3.8.1)
+    cmp ax, VP_HELD                 ; (nothing after a HELD record: it was
+    je .cur                         ; drawn on this page, 98.1.3.9)
     cmp ax, 0xFFFF                  ; (a record past VP_PREVKB, not kept)
     je .copy
     mov ax, [vp_pry1]               ; THE CHEAPER: a row copied is 80 bytes
@@ -16099,10 +16106,30 @@ vp_flipdec:
     mov cx, [si]
     VP_DSEND
     pop ds
+    mov bp, ax                      ; (y0's bit 15: HELD, 98.1.3.9)
     and ax, ROW_MASK                ; (a page and its flags, 98.1.3.7.2)
     and bx, ROW_MASK
+    cmp word [vp_prevn], VP_HELD    ; AFTER A HELD RECORD: the page on the
+    jne .nh                         ; glass is two records behind, and one
+    cmp ax, [vp_pry0]               ; is kept - so the rows of both, and
+    jbe .h0                         ; the copy off the glass for them
+    mov ax, [vp_pry0]
+.h0:
+    cmp bx, [vp_pry1]
+    jae .h1
+    mov bx, [vp_pry1]
+.h1:
+    mov cx, 0xFFFF
+.nh:
     mov [vp_pry0], ax
     mov [vp_pry1], bx
+    test bp, 0x8000                 ; A HELD RECORD (98.1.3.9): drawn on the
+    jz .nhd                         ; page the glass is not showing and NOT
+    cmp byte [vp_fpg], 0            ; shown - the next record goes on the
+    jne .nhd                        ; same page and is - with nothing owed
+    mov word [vp_prevn], VP_HELD    ; to it but its rows (bit 15 is REC_FLIP
+    ret                             ; on a page that is built ahead)
+.nhd:
     cmp byte [vp_fpg], 0            ; (FLIPPED AND BUILT AHEAD: its own lists
     je .kp                          ; and no more - the chain and the audio
     mov cx, [vp_pgend]              ; are never decoded again, 98.3.8.5)
@@ -16795,6 +16822,7 @@ vp_decrec:
     mov cx, [si+4]                  ; next copy covers
     VP_DSEND
     pop ds
+    and ax, ROW_MASK                ; (a HELD record's bit, 98.1.3.9)
     cmp cx, [vp_h]
     jbe .y1
     mov cx, [vp_h]

@@ -838,6 +838,11 @@ HID_MORE = 0x8000               # ...a hidden record's y1: another follows
 FLIP_FPAGE = 5                  # FLIPPED AND BUILT AHEAD (98.1.3.7.2): byte
                                 # 37 5, every frame record flips, on byte
                                 # 39's N pages
+FLIP_HELD = 6                   # FLIPPED WITH HELD RECORDS (98.1.3.9): byte 37
+                                # 2's every frame flipped, but a frame record
+                                # with REC_HELD is drawn on the back page and
+                                # NOT shown - the next is drawn on it too
+REC_HELD = 0x8000               # ...a frame record's y0 bit 15 there
 REC_BUILT = 0x1000              # ...a frame record's y1: its page was BUILT
                                 # ahead, drawn on as it stands, not brought up
 COPY_LEN = 6                    # ...a COPY: a hidden record with y0 bit 15,
@@ -2367,7 +2372,8 @@ class Writer:
             ops, self.g, limit=L_RECMAX))
 
     def frame(self, ops, surf, audio=b"", hidden=None, flip=False,
-              hsurf=None, hsurfs=None, shown=0, built=False, copies=()):
+              hsurf=None, hsurfs=None, shown=0, built=False, copies=(),
+              held=False):
         """`ops` are the frame's writes, already applied to `surf`. PAGE-
         AHEAD (98.1.3.7): `flip`, they were drawn on the page that is shown
         from this frame on; `hidden`, the hidden page's writes after them,
@@ -2386,6 +2392,9 @@ class Writer:
         if built or copies:
             raise V88Error("a record built ahead or a copy, in a file not "
                            "flipped and built ahead (98.1.3.7.2)")
+        if held and (not self.flip or len(self.recs) == self.loop):
+            raise V88Error("a HELD record outside a flipped file, or at its "
+                           "loop (98.1.3.9)")
         if (hidden or flip) and not self.page:
             raise V88Error("a hidden page's record in a file without "
                            "page-ahead")
@@ -2404,11 +2413,24 @@ class Writer:
         if self.flip and len(rec) > PREV_MAX and self.spcap == SP_MAX:
             raise V88Error("frame %d is %d bytes, past a flipped play's %d"
                            % (k, len(rec), PREV_MAX))
+        if held:                        # (98.1.3.9: drawn, not shown)
+            rec = bytearray(rec)
+            rec[3] |= REC_HELD >> 8
+            rec = bytes(rec)
+            self.held = True
         self.recs.append(rec)
         self.last = surf
         if k == self.loop:
             self.loop_surf, self.loop_audio = bytes(surf), audio
-        if k >= self.key0 and (k - self.key0) % self.keyint == 0:
+        # (a key is the picture SHOWN: one due on a held frame is the next
+        # frame's, which shows what it was drawing - 98.1.3.9)
+        due = k >= self.key0 and (k - self.key0) % self.keyint == 0
+        if held:
+            self.kheld = getattr(self, "kheld", False) or due
+            due = False
+        elif getattr(self, "kheld", False):
+            due, self.kheld = True, False
+        if due:
             kop = keyframe_ops(surf, self.g)
             try:
                 # 65,535 is the table's length word; an ADPCM4 file's
@@ -2909,7 +2931,8 @@ class Writer:
                               for k, r, c in keys), default=0))
         struct.pack_into("<IBBBB", hdr, 224, pal,
                          self.rowscale if self.rowscale > 1 else 0,
-                         2 if self.flip else FLIP_FPAGE if self.fpage else
+                         (FLIP_HELD if getattr(self, "held", False) else 2)
+                         if self.flip else FLIP_FPAGE if self.fpage else
                          FLIP_MPAGE if self.mpage else
                          FLIP_PAGE if self.page else 0,
                          self.screen, self.pages if self.mpage else 0)
@@ -3458,6 +3481,9 @@ class Reader:
             raise V88Error("a screen byte of %d (98.1.3.2.1, 98.1.3.1.1)"
                            % scr)
         self.screen = scr
+        self.held = fl == FLIP_HELD     # (98.1.3.9: a flipped file, with
+        if self.held:                   # HELD records)
+            fl = 2
         pg = fl in (FLIP_PAGE, FLIP_MPAGE, FLIP_FPAGE)
         if fl not in (0, 1, 2, FLIP_PAGE, FLIP_MPAGE, FLIP_FPAGE) or (
                 fl >= 2 and not (layout == LAY_MODEX or scr or (
@@ -3768,6 +3794,8 @@ class Reader:
         part in turn, `part` the ones before the last, which end in nothing"""
         g = self.g
         n, y0, y1 = struct.unpack_from("<HHH", rec, 0)
+        if getattr(self, "held", False) and not key:
+            y0 &= ~REC_HELD             # (a HELD record's bit, 98.1.3.9)
         if key and y0 & KEY_MORE:
             if not self.kparts:
                 raise V88Error("a key in parts in a file without KPARTS")
@@ -5210,12 +5238,14 @@ def encode_frames(paths, out, fps, wav=None, layout="cga", title="",
 def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
                     title="", keysecs=KEY_SECS, poster=None, rowscale=1,
                     flip=False, loop=None, repeat=False, cgapal=None,
-                    screen=SCR_480, pev=None, subs=None, kpart=KEY_PART):
+                    screen=SCR_480, pev=None, subs=None, kpart=KEY_PART,
+                    held=()):
     """encode_frames for canvases already in hand (bytes, g.wb a row) - the
     only way to make a VGA8 file without a video (SPEC.md 98.2): silent,
     every changed byte. `pev`: a palette a scene's table (98.1.3.2.3).
     `subs(cv, prev, g)`: a VGA4 frame's sub-records in place of vga4_subs'
-    (a SUB2 file's colour ones, 98.1.3.2.4)"""
+    (a SUB2 file's colour ones, 98.1.3.2.4). `held`: the frames whose
+    records are HELD (98.1.3.9, a flipped file's) - drawn, not shown"""
     rate, spf = max(1, round(fps * 100)), 100
     wr = Writer(g, rate, spf, AUD_NONE, 0, pixfmt, title=title,
                 keysecs=keysecs, palette=palette, rowscale=rowscale,
@@ -5225,13 +5255,13 @@ def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
     wr.kpart = kpart
     surf = g.surface()
     prev = g.canvas(surf)
-    for cv in canvases:
+    for k, cv in enumerate(canvases):
         if g.planes > 1:
             ops = (subs or vga4_subs)(cv, prev, g) if g.bitplanes else \
                 modex_subs(cv, [a != b for a, b in zip(cv, prev)], g)
             g.put(surf, cv)
             prev = cv
-            wr.frame(ops, surf)
+            wr.frame(ops, surf, held=k in held)
             continue
         changed = []
         for y, b in enumerate(g.base):
@@ -5489,7 +5519,9 @@ def palette_at(r, n):
 
 
 def decode_at(r, n):
-    """The canvas after frame `n`, through the keyframe at or before it."""
+    """The canvas after frame `n`, through the keyframe at or before it -
+    the one SHOWN: through a HELD record's run, the frame before it
+    (98.1.3.9)."""
     if not 0 <= n < r.frames:
         raise V88Error("frame %d of %d" % (n, r.frames))
     surf = r.g.surface()
@@ -5514,14 +5546,21 @@ def decode_at(r, n):
         src = r.after_key(r.keys[best[-1]])
     else:
         src = r.records()
-    for rec, _, _ in src:
+    shown = None                    # (98.1.3.9: what the glass shows
+    for rec, _, _ in src:           # through a run of HELD records)
+        held = getattr(r, "held", False) and \
+            struct.unpack_from("<H", rec, 2)[0] & REC_HELD
+        if held and shown is None:
+            shown = bytes(surf)
+        elif not held:
+            shown = None
         if r.page:
             vis, _ = r.apply_page(pages, vis, rec)
             surf = pages[vis]
         else:
             r.apply(surf, rec)
         if f == n:
-            return r.g.canvas(surf)
+            return r.g.canvas(shown if shown is not None else surf)
         f += 1
     raise V88Error("the stream ended before frame %d" % n)
 

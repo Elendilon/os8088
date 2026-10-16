@@ -167800,6 +167800,32 @@ reference    = len(16)=12 y0(16) y1(16) at(32) n(16)
   mostly of the same size, so a seek reads no more bytes but from up to
   eight places instead of one.
 
+#### 98.1.3.9 HELD RECORDS: a flipped frame drawn and not shown (2026-10-16)
+
+**A flipped file's frame record may be drawn on the page the glass is not
+showing and NOT shown**, so the next record is drawn on that page too and
+shows it - two periods of CPU for one picture, none of it seen half drawn.
+It is `--min-fps`'s hold on a flipped file (98.2.1.2, VIDEO-SEEN-PLAN 3a,
+`--flip-hold ahead`). Rendition byte 37 = **6**: byte 37 2's file
+(98.3.8), whose frame records may carry it; a player before this refuses
+6 at open.
+
+- **y0 bit 15 (`REC_HELD`)** marks it; the rows are bits 0-14 as ever. Its
+  lists are a change against the page it is drawn on, as every record's
+  are, and the next record's are a change against what it left.
+- **A key is never held**, and a key due on a held frame is the next
+  frame's: a key is the picture shown.
+- **Never at the loop's frame**, and the encoder holds none where a scene's
+  palette changes (it goes on with the flip, onto the picture shown).
+- **What the player owes the page it leaves**: after a held record the page
+  on the glass is TWO records behind the one about to be shown, and one
+  record is kept - so the record after a held one brings that page up by
+  the copy off the glass of both records' rows (98.3.8.1), never by its
+  own decode again. A writer may hold several frames in a row; the rows are
+  the union of all of them.
+- A reader takes a held record's frame as the frame before it on the glass
+  (`decode_at`): what the file shows, and what its holds are judged by.
+
 #### 98.1.4 The stream: chained super-packets
 
 ```
@@ -169761,7 +169787,18 @@ holds, and a third with the kept ones). GasGas54's options at 20 fps:
 1.9% -> 1.3%, its worst frame 81.5 -> 49.1. **On a flipped file** a hold
 writes nothing - the frame shown is brought up onto the back page and
 shown again whole, which keeps its bytes and lets the lag schedule catch
-up: Bad Carrot's tune 1.8% -> 0.9%, frames cut 43 -> 18. A held frame
+up: Bad Carrot's tune 1.8% -> 0.9%, frames cut 43 -> 18. With
+`--flip-hold ahead`, the default, a flipped file's held frame is a HELD
+RECORD (98.1.3.9) instead: drawn on the page the glass is not showing,
+toward the next frame, which finishes it there and is shown - the held
+period's CPU spent on that picture, the frame cut by the per-frame
+ceiling's case. Last Exile 0:10-0:40 flipped in Mode X on
+`286-speeddemon` (270 of its 400 cuts the ceiling's): the view 24.3%
+broken, 17.4% with the empty hold, 17.5% held ahead - which draws 435
+frames whole against 397, cuts 183 against 229 and has the view a tenth
+broken 9.0 s against 10.3; it pays the frame after each run a copy of
+both records' rows. `--flip-hold empty` is the empty hold, and plays on a
+player before 98.1.3.9. A held frame
 counts with the cut ones wherever passes are compared (`cutf`). Not on a
 layered or Live file; `OS88_VENC_VFRLOG=FILE` logs every decision. No
 format change: a held frame is an ordinary record.
@@ -173835,6 +173872,27 @@ and `[vp_npg]` = N says the pages are named rather than toggled:
   toast on the glass across the flips, and a held leg with it up across the
   copying flip and then ended - with `vo_cfix` a bare `ret` the text is left
   on the next page as picture (880 pixels) and it FAILS.
+
+#### 98.3.8.5.1 Held records (2026-10-16)
+
+**A byte-37-6 file (98.1.3.9) plays as byte 37 2's does**, `vp_flipdec`
+reading y0 bit 15 - not on a page built ahead (98.3.8.5), whose bit 15 is
+`REC_FLIP`. A HELD record is brought up and drawn as any is, its band kept
+(`vp_pry0`/`vp_pry1`), and `[vp_prevn]` set to `VP_HELD` (FFFEh); it then
+returns before `vo_flipon` and `vp_show`, so the page stays hidden and
+`[vp_poff]` names it still. The record after it finds `VP_HELD`, owes its
+page nothing, is drawn on it and shown, and widens the kept band to both
+records' rows with the copy FORCED (`[vp_prevn]` FFFFh, 98.3.8.1) - so the
+page it leaves is brought up off the glass, both records at once. A seek's
+key zeroes `[vp_prevn]`, which ends a run of holds for nothing. **The text
+needs no guard**: `vo_pre` takes the box off the page about to be drawn
+only when that page's bit says it is up, so a second draw on the same page
+finds it down. The shadow's band (98.3.2) masks the bit off the rows.
+**+67 bytes of image, no bss, no kernel byte.** `vidmodexflh`
+(`tests/vidvga8.py --layout modex --flip --held`) is the gate: the glass
+exact at every hold round a held record and a run of two, each drawn as
+the next frame's top over the last one's bottom - and it FAILS with the
+held record shown, with the band not widened and with the copy not forced.
 
 #### 98.3.8.6 The page pool (2026-10-16)
 

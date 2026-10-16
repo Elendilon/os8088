@@ -414,12 +414,29 @@ both passes and wave 2's selection.
 | `--page-ahead on --pages 3` | 1.8% | 55.4 | 41 |
 | ...and `--min-fps 12` (2 of 5 stretches kept) | 1.2% | 53.6 | 30 |
 
-**What a flipped hold could do with a format bit**: a record that draws the
-back page WITHOUT showing it would let the held period draw toward the
-next frame there, as page-ahead's hidden page does - but the page brought
-up after it would then need two records or a copy, and it is a player
-change in VIDEO.O88, which is being size-passed. The empty hold is what
-ships; this is the next step if a flipped file wants more.
+**The held record, BUILT (2026-10-16, SPEC.md 98.1.3.9, 98.3.8.5.1)**: a
+record that draws the back page WITHOUT showing it, so the held period
+draws toward the next frame there as page-ahead's hidden page does - the
+case of a flipped clip the per-frame ceiling cuts, which the owner names
+as Last Exile. Byte 37 = 6, y0 bit 15, and the record after a run of them
+brings its page up by the copy of all their rows. **+67 bytes of player**
+(against the ~100 estimated: the held state rides in `vp_prevn`, and the
+text needed no guard). `--flip-hold ahead` is the default, `empty` the
+hold above. On Last Exile 0:10-0:40, Mode X flipped on `286-speeddemon`:
+
+| | the view broken | s a tenth broken | s visibly broken | whole | cut |
+|---|---:|---:|---:|---:|---:|
+| as today | 24.3% | 14.8 | 3.3 | 321 | 400 |
+| `--min-fps 12 --flip-hold empty` | 17.4% | 10.3 | 2.5 | 397 | 229 |
+| `--min-fps 12 --flip-hold ahead` | 17.5% | **9.0** | **2.3** | **435** | **183** |
+
+The mean is the same and everything that counts breaks is better: 38
+more frames whole, 46 fewer cut, 1.3 s less with a tenth of the view
+broken. What holds it back is its price - the frame after each run pays
+the copy of both records' rows out of its own ceiling - and that price is
+the next thing to look at if a clip wants more (a copy of only the rows
+the two records do not share, or re-decoding the held record where it is
+the smaller).
 
 **Not combined**: a LAYERED file (the layer is the better machine's frames
 drawn over the base's, so a base drawn toward the next frame would have

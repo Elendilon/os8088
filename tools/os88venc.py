@@ -545,6 +545,14 @@ CHOICE_HELP = {
         "size": "Leave out changes not worth their bytes: the smallest "
                 "file for the look",
     },
+    "flip_hold": {
+        "ahead": "With Min fps on a flipped file, a held frame is drawn on "
+                 "the hidden page toward the next one, which finishes it "
+                 "(the default; needs this player)",
+        "empty": "With Min fps on a flipped file, a held frame draws "
+                 "nothing and the picture before is shown again (plays on "
+                 "an older player)",
+    },
     "error": {
         "visible": "When a frame is cut, judge what is wrong as the eye "
                    "sees it (the default)",
@@ -831,7 +839,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 38
+OPTS_VERSION = 39
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -860,7 +868,8 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     31: "09f14123f968592f", 32: "413eeac77e2d4441",
                     33: "1cb11afeb374b243", 34: "60df56fd426010fd",
                     35: "e1090fc6c20c5367", 36: "00e7310bd1a264d8",
-                    37: "096abca8b264506a", 38: "eaf373ad8f1e1fdb"}
+                    37: "096abca8b264506a", 38: "eaf373ad8f1e1fdb",
+                    39: "7a7d4203d99fd27d"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1031,6 +1040,9 @@ MIGRATIONS = {
     # 38: --min-fps and --slow-cost (VIDEO-SEEN-PLAN 3a) - a file made
     # before them ran at one frame rate
     37: [("added", "min_fps", 0.0), ("added", "slow_cost", 2.0)],
+    # 39: --flip-hold (98.1.3.9) - a flipped file made before it held with
+    # nothing
+    38: [("added", "flip_hold", "empty")],
 }
 
 
@@ -3592,19 +3604,34 @@ def vfr_cut(enc, target, au):
 
 
 def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
-            shown=None):
+            shown=None, stay=False):
     """The stretch `ts` encoded on a copy at the hold pattern `pat`: its
     mean view as seen, a frame against the picture it draws (a held one's
     the next shown, and VFR_HOLD more). `first`, what the first frame
     draws when it is not held - a scene start's coarse cells. EMPTY, a
     held frame writes nothing - a FLIPPED file's hold, the picture shown
-    again whole - and is judged against `shown`, what it shows"""
+    again whole - and is judged against `shown`, what it shows. STAY, a
+    flipped file's HELD record (98.1.3.9): drawn toward the next frame on
+    the page the glass is not showing, and judged as EMPTY's is, by the
+    picture still shown"""
     e = enc_clone(enc)
     v, prev = 0.0, tp
+    spx = None                          # (the glass through a STAY's run)
     for j, t in enumerate(ts):
         k = j
         while pat[k]:
             k += 1
+        if stay and k != j:
+            if spx is None:
+                spx = e.spix()[1].copy()
+            e.staying = True
+            _, rec = e.frame(ts[k], au if j == 0 else b"\x80" * len(au))
+            e.charge(rec, len(au))
+            T = e.tpix(shown if shown is not None else t)[1]
+            v += seen_share(spx, T, prev) + cost / 100.0
+            prev = T
+            continue
+        spx = None
         if empty and k != j:
             _, rec = e.frame(e.screen.copy(), au if j == 0 else
                              b"\x80" * len(au))
@@ -3613,7 +3640,7 @@ def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
             v += seen_share(e.spix()[1], T, prev) + cost / 100.0
             prev = T
             continue
-        if not empty or k == j:
+        if not (empty or stay) or k == j:
             shown = ts[k]
         if j == 0 and k == 0 and first is not None and first is not ts[0]:
             e.all3 = e.wm3
@@ -3630,13 +3657,13 @@ def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
 
 
 def vfr_choose(enc, ts, au, fmin, fps, tp, first=None, cost=VFR_HOLD,
-               empty=False, shown=None):
+               empty=False, shown=None, stay=False):
     """-> (hold pattern, rate): the stretch's best rate down to `fmin` -
     the full rate's first frame drawing `first` where that is a scene
     start's coarse cells, so a slower rate is weighed against today's"""
     n = len(ts)
     full = [False] * n
-    base = vfr_try(enc, ts, full, au, tp, first, cost, empty, shown)
+    base = vfr_try(enc, ts, full, au, tp, first, cost, empty, shown, stay)
     best = (base, full, fps)
     for r in VFR_RATES[1:]:
         if r * fps < fmin - 1e-6:
@@ -3645,7 +3672,7 @@ def vfr_choose(enc, ts, au, fmin, fps, tp, first=None, cost=VFR_HOLD,
         if not any(pat):
             continue
         v = vfr_try(enc, ts, pat, au, tp, cost=cost, empty=empty,
-                    shown=shown)
+                    shown=shown, stay=stay)
         if v < best[0] - 1e-9:
             best = (v, pat, r * fps)
     if os.environ.get("OS88_VENC_VFRLOG"):  # (each decision, to look at)
@@ -4718,7 +4745,20 @@ class Flipped:
             # lists and no more - its chain and its audio are not decoded
             # again, 98.3.8.5)
             n = len(rec) - (abytes if getattr(self, "fown", False) else 0)
-            if n > vid.PREV_MAX or rows * 80 * VP_LCW < n:
+            sb = getattr(self, "sband", None)
+            if getattr(self, "staying", False):
+                # A HELD RECORD (98.1.3.9): the next is drawn on this page
+                # too, owing it nothing - and the one after that brings its
+                # page up by the copy of both records' rows, as the player
+                # does (vp_flipdec: the band's union, the copy forced)
+                self.sband = (y0, y1) if sb is None else \
+                    (min(sb[0], y0), max(sb[1], y1))
+                self.prev_c, self.staying = 0.0, False
+            elif sb is not None:
+                self.sband = None
+                rows = max(0, max(sb[1], y1) - min(sb[0], y0))
+                self.prev_c = rows * 80 * self.lcopy + CYC_LCOPY0
+            elif n > vid.PREV_MAX or rows * 80 * VP_LCW < n:
                 self.prev_c = rows * 80 * self.lcopy + CYC_LCOPY0
             else:
                 self.prev_c = getattr(self, "cost0", self.cost)(rec)
@@ -8795,7 +8835,10 @@ def _encode(a, keep, tick, readers):
                 e.stats["exact"] -= 1
                 e.stats["holds"] = e.stats.get("holds", 0) + 1
         elif vfr and not e.vplan and vfut and (draw is target or (
-                scene_pals and k in pev_at)):
+                scene_pals and k in pev_at)) and not (
+                (vempty or vstay) and scene_pals and k in pev_at):
+            # (a flipped file holds no frame its palette changes at: the
+            # palette goes on with the flip, onto the picture shown)
             # (a stretch stops short of the next scene's palette)
             n = 1
             while n < vspan and n <= len(vfut) and \
@@ -8809,7 +8852,7 @@ def _encode(a, keep, tick, readers):
             if vcut:
                 pat, r = vfr_choose(e, [target] + list(vfut)[:n - 1], au,
                                     vfr, fps, e.q_stp, draw, vcost, vempty,
-                                    vshown)
+                                    vshown, vstay)
                 # (the full rate is committed for VFR_AGAIN frames only, so a
                 # stretch that would slow better a frame or two on is asked
                 # again there)
@@ -8827,8 +8870,11 @@ def _encode(a, keep, tick, readers):
             j = 0                       # rate shows, which finishes it -
             while e.vplan[j]:           # or, flipped, nothing at all)
                 j += 1
-            hdraw = None if vempty else vfut[j]
-            ops, rec = e.frame(e.screen.copy() if vempty else hdraw, au)
+            hdraw = None if vempty or vstay else vfut[j]
+            if vstay:                   # (98.1.3.9: drawn on the hidden
+                e.staying = True        # page toward the next, not shown)
+            ops, rec = e.frame(vfut[j] if vstay else
+                               e.screen.copy() if vempty else hdraw, au)
             if e.stats["cut"] > c0:
                 e.stats["cut"] -= 1
             else:
@@ -8844,7 +8890,8 @@ def _encode(a, keep, tick, readers):
         hs = p.carried(k) if p is not None and (a.flip or npg > 2) else None
         return dict(ops=ops, rec=rec, hops=hops, draw=draw, npal=npal,
                     pal=pal, cell=cell, cut=e.stats["cut"] - c0, left=left,
-                    c=c, hs=hs, held=held, hdraw=hdraw)
+                    c=c, hs=hs, held=held, hdraw=hdraw,
+                    stay=bool(held and vstay and vreplay is None))
 
     def lag_seed(objs, bufs):
         """What a lag snapshot SHARES rather than copies: the targets (and
@@ -8953,6 +9000,15 @@ def _encode(a, keep, tick, readers):
     # its period's bytes kept, and the lag schedule's catch-up the frame
     # after it starts level with
     vempty = bool(a.flip)
+    # ...and with --flip-hold ahead (98.1.3.9), a HELD RECORD: drawn on the
+    # page the glass is not showing toward the next frame, which finishes
+    # it there and is shown - the held period's CPU spent on that picture.
+    # A flipped file built ahead keeps the empty hold (its records' bit 15
+    # is REC_FLIP), and so does a loop (the seam is a flipped record too)
+    vstay = vempty and getattr(a, "flip_hold", "ahead") == "ahead" and \
+        not pa_on and a.loop_from is None
+    if vstay:
+        vempty = False
     # WITH PAGE-AHEAD (VIDEO-SEEN-PLAN 3a, wave 2): the plan pass decides
     # the holds, as a plain encode does, and logs them (`H`), each frame
     # drawn after a hold a TARGET; the real passes hold exactly those and
@@ -8970,6 +9026,7 @@ def _encode(a, keep, tick, readers):
     enc.vplan = deque()
     if vreplay is None:
         enc.vrates = {}
+    vstate = None                       # (the glass's screen, a STAY's run)
     vprev, vshown = False, None         # (the frame before held; and the
                                         # target the picture shown is of)
     while True:
@@ -9085,11 +9142,22 @@ def _encode(a, keep, tick, readers):
             # chosen: it is the first half of the next one - or, holding
             # the page shown while the hidden page builds, against the
             # picture still shown)
-            enc.measure((x["hdraw"] if x["hdraw"] is not None else vshown)
-                        if x["held"] and (x["hdraw"] is not None or
-                                          vshown is not None) else target)
+            if x["stay"] and vstate is not None:
+                # (a HELD record's frame shows the page before it: measured
+                # so, against the target that picture was drawn for)
+                drawn, enc.screen = enc.screen, vstate
+                enc.scache = None
+                enc.measure(vshown if vshown is not None else target)
+                enc.screen, enc.scache = drawn, None
+            else:
+                enc.measure((x["hdraw"] if x["hdraw"] is not None else
+                             vshown) if x["held"] and (
+                                 x["hdraw"] is not None or
+                                 vshown is not None) else target)
             if not x["held"]:
                 vshown = target
+                if vstay:
+                    vstate = enc.screen.copy()
             if scene_pals and enc.q_bad and enc.q_bad[-1] >= VIS_AREA:
                 shot_cut[-1][3] += 1
         vprev = bool(x["held"])
@@ -9105,7 +9173,7 @@ def _encode(a, keep, tick, readers):
             wr.frame(ops, enc.surf, au, hidden=hops, flip=pa.flipped,
                      hsurf=pa.h.surf)
         else:
-            wr.frame(ops, enc.surf, au)
+            wr.frame(ops, enc.surf, au, held=x["stay"])
         if lay is not None:
             for lops in lay.push(
                     target, ops, rec, npal, hops=hops,
@@ -9434,6 +9502,8 @@ def _encode(a, keep, tick, readers):
                if enc.vrates else "no stretch slowed - every cut drew "
                "better at the full rate", st.get("holds", 0),
                "showing the picture before it again" if vempty else
+               "drawn on the page the glass is not showing toward the "
+               "frame after it, which is shown (98.1.3.9)" if vstay else
                "the hidden page's to build the frame after it"
                if vreplay is not None else
                "drawing toward the frame after it", vfr))
@@ -9973,6 +10043,14 @@ def parser():
                          "frame draws toward the next one shown (0 off, the "
                          "default; not on a flipped, page-ahead, layered or "
                          "Live file; VIDEO-SEEN-PLAN 3a)")
+    ap.add_argument("--flip-hold", choices=("ahead", "empty"),
+                    default="ahead",
+                    help="--min-fps on a FLIPPED file: AHEAD, a held frame "
+                         "is drawn on the page the glass is not showing, "
+                         "toward the next frame, which finishes it there and "
+                         "is shown (98.1.3.9; a player before it refuses the "
+                         "file); EMPTY, it writes nothing and the picture "
+                         "before is shown again")
     ap.add_argument("--slow-cost", type=float, default=VFR_HOLD,
                     metavar="PTS",
                     help="--min-fps's price of choppiness: each frame a "

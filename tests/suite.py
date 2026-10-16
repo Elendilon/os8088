@@ -12120,6 +12120,18 @@ SOAK = [
         "with vp_show's OUTs skipped it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidmodexflh", "soak", py("tests/vidvga8.py", "--layout", "modex",
+                                  "--flip", "--held"), 31.0,
+        "SPEC.md 98.1.3.9: vidmodexfl's clip with HELD records - one, and a "
+        "run of two - each the next frame's top over the last one's bottom, "
+        "drawn on the back page and not shown. The glass exact at every "
+        "hold round them: a held record's shows the frame before it, the "
+        "next finishes the page and shows it, and the page brought up "
+        "after that is right only by the copy of both records' rows. "
+        "Broken on purpose it FAILS three ways: a held record shown (34, "
+        "35), the band not widened (37, 38), the copy not forced (37)",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidmodexflc", "soak", py("tests/vidvga8.py", "--layout", "modex",
                                   "--flip", "--lcopy"), 35.0,
         "SPEC.md 98.3.8.1: vidmodexfl with every back page brought up by "
