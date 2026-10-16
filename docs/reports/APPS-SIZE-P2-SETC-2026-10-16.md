@@ -38,13 +38,13 @@ cut-point snapshot, read off the built images; image + bss is the header
 | missile | 10,689 | 10,164 | **-525** | **1** on each of apps360, games360, small360, smallapps360 | 15,893 | 14,877 (-1,016) | none. ICBM and ABM tables are one object table and the trail loops walk it once: **-0.70% cycles over 400 frames** (MartyPC 5150 Hercules: 63,034,335 -> 62,595,337), the same end state `C3B7` and the same screen hash |
 | cyclone | 11,410 | 11,089 | **-321** | **1** on each of apps360, games360 (it rides no small disk) | 16,159 | 15,724 (-435) | none. Seven of eight webs ship their symmetric half and a layout-time pass rebuilds the vertex list (host-checked vertex for vertex); every gameplay routine instruction-identical (routine disassembly diff) |
 | arkanoid | 5,285 | 5,031 | **-254** | **1** on each of apps360, games360, small360, smallapps360 | 6,509 | 6,169 (-340) | none. Tuning tables as signed bytes widened at launch (~1 ms); single-caller inlines and dropped register saves on the frame path - instructions removed only, no cycle count taken |
-| tank | 13,559 | 13,319 | **-240** | 0 (14 cl, 7 B over 13) | 22,593 | 22,381 (-212) | the 32 KB shadow claim unchanged. The entry proc is an overlay under `tk_spjunk` (a span set only ever written) and `tk_rowoff`; ridge, sine, vertices and GAME OVER ship as seeds expanded at launch (~20 ms, estimated). Tables checked byte-identical by running `tk_mktabs` out of the image under a host 8086 emulator; one pad byte restores the hot routines' code parity |
-| tank (APP_SMALL) | 14,109 | 13,873 | -236 | 0 (14 cl) | 23,921 | 23,709 (-212) | the 18/17/16 KB ladder unchanged |
+| tank | 13,559 | 13,326 | **-233** | 0 (14 cl, 14 B over 13) | 22,593 | 22,381 (-212) | the 32 KB shadow claim unchanged. The entry proc is an overlay under `tk_spjunk` (a span set only ever written) and `tk_rowoff`; ridge, sine, vertices and GAME OVER ship as seeds expanded at launch (~20 ms, estimated). Tables checked byte-identical by running `tk_mktabs` out of the image under a host 8086 emulator; one pad byte restores the hot routines' code parity |
+| tank (APP_SMALL) | 14,109 | 13,879 | -230 | 0 (14 cl) | 23,921 | 23,709 (-212) | the 18/17/16 KB ladder unchanged |
 | tracker | 26,498 | 26,268 | **-230** | 0 (26 cl, ~670 B short of 25) | 42,962 | 42,603 (-359) | module blob, ring and Scope claim unchanged. Body tiles of the face and the PlayList editor grouped (`tools/trkface.py` emits and checks the new form; tile sets identical, fill order changed, 21 fewer `SET_COLOR`); replayer, mixers, speaker shaper and per-frame painters instruction-identical |
 | solitaire | 4,259 | 4,127 | **-132** | 0 (5 cl, 31 B over 4) | 5,735 | 5,628 (-107) | none. Measured on MartyPC (package's own `tools/solperf.py`): every drop 104-328 cycles lower, every stock click 39-216 lower, New Game/Restart 1.1-2.2k lower net of tick alignment, on CGA, Hercules, VGA and CGA small. **One defect fixed** (below) |
 | solitaire (APP_SMALL) | 4,067 | 3,938 | -129 | 0 (4 cl) | 5,532 | 5,433 (-99) | `t_appsmall` passes (small saves 3.5% against its 3% floor) |
 | tamegram | 3,175 | 3,079 | **-96** | 0 (4 cl, 7 B over 3) | 3,937 | 3,818 (-119) | the 4 KB region unchanged. Short branches, HUD columns in pixels (ten `mul`s off a whole repaint), dead clamps; every core routine instruction-identical. The 7 bytes are left to the other session's LZB move, at the owner's word: the optional 4-byte `tg_onkey` cut was NOT taken because it costs ~450 cycles on an unmapped key |
-| **total (shipped arms)** | **89,190** | **86,573** | **-2,617** | **12** (3 each on apps360, games360, small360, smallapps360) | **152,964** | **150,403** | **-2,561** of image + bss; no heap claim grew |
+| **total (shipped arms)** | **89,190** | **86,580** | **-2,610** | **12** (3 each on apps360, games360, small360, smallapps360) | **152,964** | **150,403** | **-2,561** of image + bss; no heap claim grew |
 
 **The disks** (free clusters of 354, cut point -> now): `apps360.img` 1 -> **4**,
 `games360.img` 80 -> **83**, `small360.img` 55 -> **58**, `smallapps360.img`
@@ -53,7 +53,7 @@ set C package rides them). Solitaire, Tank, TameGram and Wireball also ride
 the 720KB, 1.44MB and 1.2MB apps disks and take the same bytes off each.
 
 **Four packages are within a few bytes of a cluster** and are the cheapest
-room left in the set: Tank 7 B, TameGram 7 B (LZB is expected to cover it),
+room left in the set: TameGram 7 B (LZB is expected to cover it), Tank 14 B,
 Solitaire 31 B, Wireball 184 B. Per handoff 4.2 no change was shaped to land
 on a boundary.
 
@@ -111,7 +111,54 @@ or by check. Tracker's face paints the same tiles in a different order.
 
 ## Coverage
 
-COVERAGE-PLACEHOLDER
+The merged tree built clean (`make -j4`, fast tier 47/47; `make small
+smallapps`; `make KERN_SMALL=1`), and ONE scoped run took the union of the
+eight agents' named rows plus the shared rows handoff 4.4 lists - **93 rows**
+(`os88test.py soak` with `--marty-jobs 4`, 1,189 s):
+
+`trk*` (19: trkface, trkscrl, trkclick, trkspk, trkspkrate, trkspklevel,
+trkspkcovox, trkload, trkscrub, trkspkref, trkspkdrop, trkspkturbo,
+trkspkend, trkbigmod, trkcompact, trkrate, trktxsurf, trklcd, trackmove),
+`wireball*` (5), cycweb, cycplay, cycpu, cycfire, cychs, gfxewalk, gfxlk,
+tank, tankaim, tankspawn, tanksmall, ddsmall, mcperf, mcseg, dispmcfs,
+curshape, dispcorner, shedrelist, win1bpp, arkpuwipe, arkpuwipesmall, tgplay,
+tgui, dispapp, dispapps, dispmodex, dispsize, dispfsx, altenter, appdata,
+regapp, regwork, appsmall, smallreq, movable, `lz*` but `lzdrv*` (16),
+`wseq*` (8), modstr, `assoc*` (8), instassoc.
+
+**91 passed, 2 failed: `tankaim` and `tanksmall`, both Tank's and both this
+pass's**, and both fixed by the Tank agent and re-run green with `tank`,
+`appsmall` and `smallreq` on the rebuilt tree (5/5):
+
+- **`tanksmall`** - on the 128KB machine the small arm's entry proc returned
+  CF=1 and the package refused ITSELF (`LD_EABORT`, no toast). Tank had
+  switched to `OS88_REGION_MOVABLE_NOKEEP`, which leaves the slot's CF in
+  the flags, and on kern_small `OSAPI_MEM_MOVABLE` answers `stc` because
+  nothing moves there (SPEC.md 66.0); nothing later in `tk_entry` set CF
+  again on that kernel. kern_big's slot succeeds, which is why `tank` stayed
+  green. A/B'd against the base on the same machine with only `TANK.O88`
+  swapped. Fix: the keeping form (+7 file B shipped, +6 small, image + bss
+  unchanged - it sits in the entry overlay). **The trap is the SDK's, not
+  Tank's**: any package whose entry proc ends on `_NOKEEP` without setting
+  CF again refuses itself on kern_small and on nothing else, and no row
+  that boots kern_big can see it. The other carriers (TameGram, Font
+  Viewer, Audio, Calc, Redline) were checked: each sets the flags again
+  after it (TameGram's is an explicit `clc`). Worth a line in the SDK note
+  for `OS88_REGION_MOVABLE_NOKEEP`.
+- **`tankaim`** parsed `tksin.inc` as a plain table, which the sine's new
+  seed form broke. It now sums the second differences exactly as
+  `tk_mktabs` does, the 256-entry table it builds is identical to the base
+  file's, it also checks the quarter wave ends at 16,384, and it was broken
+  on purpose (one difference changed: red, "ends at 16322") before being
+  kept.
+
+`make test-full` once afterwards: **54/54**.
+
+Not covered: `lzdrv` and `lzdrv-nohint` (their image cannot be built, see
+Process notes); `tankperf` is not a registered row. Missile's agent saw one
+`mcperf`-harness run end on a different screen hash and its unchanged re-run
+match the base - `mcperf` passed here, but its screen hash may not be fully
+repeatable.
 
 ## Wins no set could take (shared includes, kernel, tools)
 
