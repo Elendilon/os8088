@@ -6660,15 +6660,13 @@ np_onclose:
     pop bx
     pop di
     pop si
-    jnc .up
-    cmp byte [np_asking], 0
-    jne .wait                       ; refused because OURS is up - and it has
-                                    ; just been raised
-    jmp short .wait                 ; refused because the window table is
-                                    ; full: there is nothing to ask with and
-                                    ; nothing safe to do, so stay open and let
-                                    ; the user close something
-.up:
+    jc .wait                        ; refused because OURS is up - and it has
+                                    ; just been raised - or because the window
+                                    ; table is full: there is nothing to ask
+                                    ; with and nothing safe to do, so stay
+                                    ; open and let the user close something.
+                                    ; (It tested [np_asking] to tell the two
+                                    ; apart, and both arms went here.)
     mov byte [np_asking], 1
 .wait:
     stc

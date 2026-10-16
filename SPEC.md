@@ -58254,6 +58254,10 @@ into bss or the heap. The numbers are the file and the image, both arms.
     copied the kernel's name with a loop of their own; `np_adopt` does both
     for both, bounded at 13 and a NUL as `np_arg`'s was (SPEC.md 38.6
     promises 12, and `np_name` holds 14).
+12. **`np_onclose`'s refusal is one branch.** When `os88ui_ask` refuses,
+    the close tested `[np_asking]` to tell "ours is already up" from "the
+    window table is full" - and both arms went to the same `.wait`. It is
+    one `jc .wait` now.
 
 ## 28. apps/taskmgr — the Task Manager
 
