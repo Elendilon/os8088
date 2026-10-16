@@ -27,8 +27,9 @@
 ; A MODULE (SPEC.md 2.8): CS is the image, DS is KERNEL_SEG, SS is LOW_SEG.
 ; Every resident routine it wants is .cold and ends in a near `ret`, so it is
 ; reached through wm_cbd - `call bp / retf` in COLD_SEG - and costs this file
-; eight bytes a call and the kernel nothing (ASWX below). Its own scratch is
-; in the image (below asw_s_name), written before anything reads it.
+; five bytes a call and the kernel nothing (ASWX below). Its own scratch is
+; in the image (asw_v, below asw_s_name), written before anything reads it,
+; and BP addresses it throughout.
 ; =============================================================================
 
 %ifdef OS88_ASSOC
@@ -59,13 +60,21 @@ ASW_KB      equ (ASW_END + 1023) / 1024
   %error "ascw.inc copies a row's icon and glyph as ONE 72-byte run from ASW_STG"
 %endif
 
-; ASWX - call a resident .cold routine from the image: wm_cbd is `call bp /
-; retf`, so every register but BP reaches the routine and comes back as the
-; routine leaves it. BP is this file's to spend and nothing below holds it.
+; ASWX - call a resident .cold routine from the image, through asw_cold below:
+; the routine is NAMED BY THE WORD AFTER THE CALL, so a site is five bytes
+; where `mov bp, x / call COLD_SEG:wm_cbd` was eight, and every register - BP
+; included - reaches the routine and comes back as the routine leaves it,
+; flags too (kernel size pass 13).
 %macro ASWX 1
-    mov bp, %1
-    call COLD_SEG:wm_cbd
+    call asw_cold
+    dw %1
 %endmacro
+
+; THE SCRATCH IS ADDRESSED OFF BP: the block at asw_v, in the image. BP
+; points at it for the whole of ascw_flush_x and nothing below writes BP, so a
+; cell is [cs:bp+asw_x-asw_v], a d8 - a byte shorter at every one of the
+; hundred-odd sites than [cs:asw_x]'s disp16 (kernel size pass 13). Spelled
+; out rather than through a macro: os88ovlchk reads the `cs:` in the source
 
 section .modf
 
@@ -85,11 +94,12 @@ ascw_flush_x:
     push di
     push bp
     push es
-    mov [cs:asw_vol], dl
+    mov bp, asw_v               ; the scratch block's base, held throughout
+    mov [cs:bp+asw_vol-asw_v], dl
     and al, ASCF_FULL           ; the hold bits are asc_flush's, not ours
-    mov [cs:asw_mode], al
-    mov word [cs:asw_seg], 0
-    mov word [cs:asw_err], FERR_NODISK
+    mov [cs:bp+asw_mode-asw_v], al
+    mov word [cs:bp+asw_seg-asw_v], 0
+    mov word [cs:bp+asw_err-asw_v], FERR_NODISK
 
     ; --- 1. a volume that can hold a cache: a FAT one this kernel writes ---
     mov bl, dl
@@ -102,15 +112,15 @@ ascw_flush_x:
 
     ; --- 2. where the user is, banked, and the volume's root ---------------
     mov al, [disk_drive]
-    mov [cs:asw_udrv], al
+    mov [cs:bp+asw_udrv-asw_v], al
     mov ax, [dsk_cwd]
-    mov [cs:asw_ucwd], ax
+    mov [cs:bp+asw_ucwd-asw_v], ax
     mov ax, ASW_KB              ; --- 3. the work claim ---
     mov bx, MEM_K_ASC
     ASWX mem_claim_x
     jc .back                    ; a refusal is the normal path: next time
-    mov [cs:asw_seg], dx
-    mov al, [cs:asw_vol]
+    mov [cs:bp+asw_seg-asw_v], dx
+    mov al, [cs:bp+asw_vol-asw_v]
     xor bx, bx                  ; the root
     ASWX fcp_goto
     jc .ferr
@@ -122,9 +132,9 @@ ascw_flush_x:
     call asw_pkgs
     xor cx, cx
 .fold:
-    cmp cx, [cs:asw_nfold]
+    cmp cx, [cs:bp+asw_nfold-asw_v]
     jae .built
-    mov es, [cs:asw_seg]
+    mov es, [cs:bp+asw_seg-asw_v]
     mov si, cx
     shl si, 1
     mov ax, [es:si+ASW_FOLD]
@@ -138,10 +148,10 @@ ascw_flush_x:
 .built:
     call asw_close              ; CX = the file's size; CF = nothing to write
     jc .same
-    mov es, [cs:asw_seg]        ; --- 7. the same bytes write nothing ---
-    cmp cx, [cs:asw_osz]
+    mov es, [cs:bp+asw_seg-asw_v]        ; --- 7. the same bytes write nothing ---
+    cmp cx, [cs:bp+asw_osz-asw_v]
     jne .write
-    cmp cx, [cs:asw_ofs]
+    cmp cx, [cs:bp+asw_ofs-asw_v]
     jne .write
     push cx
     push ds
@@ -174,31 +184,31 @@ ascw_flush_x:
     xor dx, dx
     call COLD_SEG:dwf_dskw_write_sys
     jnc .wrote
-    mov [cs:asw_err], ax
-    mov al, [cs:asw_vol]        ; --- 9. REFUSED: no more posts for it this
+    mov [cs:bp+asw_err-asw_v], ax
+    mov al, [cs:bp+asw_vol-asw_v]        ; --- 9. REFUSED: no more posts for it this
     mov [asc_wno], al           ; session (write-protected, full, read-only)
     jmp short .back
 .wrote:
     mov byte [asc_vol], 0xFF    ; the next harvest re-absorbs what we wrote
 .same:
-    mov word [cs:asw_err], 0
+    mov word [cs:bp+asw_err-asw_v], 0
     jmp short .back
 .ferr:
-    mov [cs:asw_err], ax
+    mov [cs:bp+asw_err-asw_v], ax
 
     ; --- 10. the capture spent, the user's place back, the claim freed ----
 .back:
     mov byte [ico_capn], 0      ; per ACTION, whatever happened (54.7.6.2)
-    mov al, [cs:asw_udrv]
-    mov bx, [cs:asw_ucwd]
+    mov al, [cs:bp+asw_udrv-asw_v]
+    mov bx, [cs:bp+asw_ucwd-asw_v]
     ASWX fcp_goto               ; a failure leaves what assoc_back's would
-    mov dx, [cs:asw_seg]
+    mov dx, [cs:bp+asw_seg-asw_v]
     or dx, dx
     jz .done
     mov bx, MEM_K_ASC
     ASWX mem_free_x
 .done:
-    mov ax, [cs:asw_err]
+    mov ax, [cs:bp+asw_err-asw_v]
     cmp ax, 1                   ; CF = (AX == 0) ? 0 : 1 - `cmp` borrows only
     cmc                         ; for 0, and the complement is the answer
     pop es
@@ -214,20 +224,20 @@ ascw_flush_x:
 ; asw_begin - every counter, and the new file zeroed (module internal)
 ; -----------------------------------------------------------------------------
 asw_begin:
-    mov es, [cs:asw_seg]
+    mov es, [cs:bp+asw_seg-asw_v]
     mov di, ASW_NEW
     mov cx, ASC_KB * 512        ; words
     xor ax, ax
     cld
     rep stosw
-    mov [cs:asw_nf], ax         ; the FRONT index: declaring packages, up
-    mov word [cs:asw_nb], ASC_NAPP  ; ...the BACK one, the rest, down
-    mov [cs:asw_ne], ax
-    mov [cs:asw_nfold], ax
-    mov [cs:asw_onapp], ax      ; no old file until asw_old finds one
-    mov [cs:asw_onext], ax
-    mov [cs:asw_osz], ax
-    mov [cs:asw_dclus], ax
+    mov [cs:bp+asw_nf-asw_v], ax         ; the FRONT index: declaring packages, up
+    mov word [cs:bp+asw_nb-asw_v], ASC_NAPP  ; ...the BACK one, the rest, down
+    mov [cs:bp+asw_ne-asw_v], ax
+    mov [cs:bp+asw_nfold-asw_v], ax
+    mov [cs:bp+asw_onapp-asw_v], ax      ; no old file until asw_old finds one
+    mov [cs:bp+asw_onext-asw_v], ax
+    mov [cs:bp+asw_osz-asw_v], ax
+    mov [cs:bp+asw_dclus-asw_v], ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -242,8 +252,8 @@ asw_begin:
 ; 54.7, 25.9.4) - never what a compressed file expands to.
 ; -----------------------------------------------------------------------------
 asw_dir:
-    mov [cs:asw_pcl], ax
-    mov word [cs:asw_npkg], 0
+    mov [cs:bp+asw_pcl-asw_v], ax
+    mov word [cs:bp+asw_npkg-asw_v], 0
     ASWX dsk_dirw_start_x
 .sec:
     ASWX dsk_dirw_get_x         ; dsk_secbuf (LOW_SEG = SS) holds a sector
@@ -263,7 +273,7 @@ asw_dir:
     jnz .next                   ; the volume label
     test al, 0x10
     jnz .dir
-    cmp word [cs:asw_pcl], 0
+    cmp word [cs:bp+asw_pcl-asw_v], 0
     jne .pkg
     push si                     ; the ROOT's own ASSOC.DAT?
     push cx
@@ -282,11 +292,11 @@ asw_dir:
     pop si
     jnz .pkg
     mov ax, [ss:si+26]
-    mov [cs:asw_dclus], ax
+    mov [cs:bp+asw_dclus-asw_v], ax
     mov ax, [ss:si+28]
-    mov [cs:asw_dsz], ax
+    mov [cs:bp+asw_dsz-asw_v], ax
     mov ax, [ss:si+30]
-    mov [cs:asw_dszh], ax
+    mov [cs:bp+asw_dszh-asw_v], ax
     jmp .next
 .pkg:
     cmp word [ss:si+8], 'O8'
@@ -296,11 +306,11 @@ asw_dir:
     mov ax, [ss:si+26]
     cmp ax, 2
     jb .next
-    mov di, [cs:asw_npkg]
+    mov di, [cs:bp+asw_npkg-asw_v]
     cmp di, ASW_NPKG
     jae .next                   ; a folder of more than 96 packages: the rest
-    inc word [cs:asw_npkg]      ; stay as their old rows say, or uncached
-    mov es, [cs:asw_seg]
+    inc word [cs:bp+asw_npkg-asw_v]      ; stay as their old rows say, or uncached
+    mov es, [cs:bp+asw_seg-asw_v]
     push ax
     mov ax, ASW_LSZ
     mul di                      ; DX is spent: nothing here holds it
@@ -321,20 +331,20 @@ asw_dir:
     mov bx, [ss:si+28]
     mov [es:di], bx             ; +8  the size's low word
     mov [es:di+2], ax           ; +10 the first cluster
-    mov bx, [cs:asw_pcl]
+    mov bx, [cs:bp+asw_pcl-asw_v]
     mov [es:di+4], bx           ; +12 the folder it is in
     jmp short .next
 .dir:
-    cmp word [cs:asw_pcl], 0    ; folders are collected in the ROOT only:
+    cmp word [cs:bp+asw_pcl-asw_v], 0    ; folders are collected in the ROOT only:
     jne .next                   ; one level, build_assoc's shape
     mov ax, [ss:si+26]
     cmp ax, 2
     jb .next
-    mov di, [cs:asw_nfold]
+    mov di, [cs:bp+asw_nfold-asw_v]
     cmp di, ASW_NFOLD
     jae .next
-    inc word [cs:asw_nfold]
-    mov es, [cs:asw_seg]
+    inc word [cs:bp+asw_nfold-asw_v]
+    mov es, [cs:bp+asw_seg-asw_v]
     shl di, 1
     mov [es:di+ASW_FOLD], ax
 .next:
@@ -357,20 +367,20 @@ asw_dir:
 ; from the store or the header, and the write replaces it.
 ; -----------------------------------------------------------------------------
 asw_old:
-    mov ax, [cs:asw_dclus]
+    mov ax, [cs:bp+asw_dclus-asw_v]
     cmp ax, 2
     jb .no
-    cmp word [cs:asw_dszh], 0
+    cmp word [cs:bp+asw_dszh-asw_v], 0
     jne .no
-    mov dx, [cs:asw_dsz]
-    mov [cs:asw_ofs], dx
+    mov dx, [cs:bp+asw_dsz-asw_v]
+    mov [cs:bp+asw_ofs-asw_v], dx
     add dx, 511
     mov cl, 9
     shr dx, cl
     jz .no
     cmp dx, ASC_KB * 2
     ja .no
-    mov es, [cs:asw_seg]
+    mov es, [cs:bp+asw_seg-asw_v]
     mov bx, ASW_OLD
     ASWX dsk_read_chain_x       ; ES:BX, DX sectors
     jc .no
@@ -390,23 +400,23 @@ asw_old:
     shl bx, 1
     shl bx, 1                   ; the ext rows' bytes
     xor ah, ah
-    mov [cs:asw_onapp], ax
+    mov [cs:bp+asw_onapp-asw_v], ax
     mov cl, ASC_ROW
     mul cl                      ; napp <= 32: the product fits AX
     add ax, bx
     add ax, ASC_HDR             ; what the header says the file holds
-    cmp ax, [cs:asw_ofs]
+    cmp ax, [cs:bp+asw_ofs-asw_v]
     ja .no                      ; ...and more than was read: no cache
-    mov [cs:asw_osz], ax
+    mov [cs:bp+asw_osz-asw_v], ax
     shr bx, 1
     shr bx, 1
-    mov [cs:asw_onext], bx
+    mov [cs:bp+asw_onext-asw_v], bx
     ret
 .no:
     xor ax, ax
-    mov [cs:asw_onapp], ax
-    mov [cs:asw_onext], ax
-    mov [cs:asw_osz], ax
+    mov [cs:bp+asw_onapp-asw_v], ax
+    mov [cs:bp+asw_onext-asw_v], ax
+    mov [cs:bp+asw_osz-asw_v], ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -415,12 +425,12 @@ asw_old:
 asw_pkgs:
     xor cx, cx
 .one:
-    cmp cx, [cs:asw_npkg]
+    cmp cx, [cs:bp+asw_npkg-asw_v]
     jae .out
     mov ax, ASW_LSZ
     mul cx
     add ax, ASW_LIST
-    mov [cs:asw_ent], ax
+    mov [cs:bp+asw_ent-asw_v], ax
     push cx
     call asw_one
     pop cx
@@ -444,18 +454,18 @@ asw_pkgs:
 ;     learned about out, and its folder's next harvest posts again.
 ; -----------------------------------------------------------------------------
 asw_one:
-    mov es, [cs:asw_seg]
+    mov es, [cs:bp+asw_seg-asw_v]
 
     ; --- the old file ---
     xor cx, cx
 .old:
-    cmp cx, [cs:asw_onapp]
+    cmp cx, [cs:bp+asw_onapp-asw_v]
     jae .notold
     mov ax, ASC_ROW
     mul cx
     add ax, ASW_OLD + ASC_HDR
     mov di, ax
-    mov si, [cs:asw_ent]
+    mov si, [cs:bp+asw_ent-asw_v]
     push cx
     push di
     push ds
@@ -472,16 +482,16 @@ asw_one:
     jmp short .old
 
 .notold:
-    mov byte [cs:asw_hblk], 0   ; no association block yet
-    mov byte [cs:asw_hdr], 0    ; ...and no header wanted yet
+    mov byte [cs:bp+asw_hblk-asw_v], 0   ; no association block yet
+    mov byte [cs:bp+asw_hdr-asw_v], 0    ; ...and no header wanted yet
     cmp word [ico_seg], 0       ; a shed store is NOT re-claimed for this
     je .nostore
-    mov si, [cs:asw_ent]
+    mov si, [cs:bp+asw_ent-asw_v]
     mov dx, [es:si+8]
     ASWX ico_key_stem           ; ES:SI = the stem, DX = the size
     ASWX ico_find               ; AL = the row
     jc .nostore
-    mov [cs:asw_row], al
+    mov [cs:bp+asw_row-asw_v], al
 
     ; body and glyph off the store row: one 72-byte run (ICO_R_GLYPH follows
     ; ICO_R_BODY, as ASC_ROWGLY follows ASC_ROWICO - disk.inc asserts it)
@@ -507,7 +517,7 @@ asw_one:
     mov cl, ICO_CAP_MAX
 .capn:
     xor bx, bx
-    mov al, [cs:asw_row]
+    mov al, [cs:bp+asw_row-asw_v]
     jcxz .nocap
 .cap:
     cmp [es:bx+ICO_CAP_ROWS], al
@@ -521,17 +531,17 @@ asw_one:
     push es
     push ds
     pop es
-    mov si, [cs:asw_ent]
+    mov si, [cs:bp+asw_ent-asw_v]
     mov di, assoc_stemb         ; assoc_app_of reads the stem through DS
     mov cx, 8
     push ds
-    mov ds, [cs:asw_seg]
+    mov ds, [cs:bp+asw_seg-asw_v]
     cld
     rep movsb
     pop ds
     pop es
-    mov byte [cs:asw_hdr], 1    ; ...declarations only: the body is the store's
-    cmp byte [cs:asw_mode], 0   ; FULL mode trusts nothing it did not read:
+    mov byte [cs:bp+asw_hdr-asw_v], 1    ; ...declarations only: the body is the store's
+    cmp byte [cs:bp+asw_mode-asw_v], 0   ; FULL mode trusts nothing it did not read:
     jne .hdr                    ; the installer's file must be exact
     mov si, assoc_stemb
     ASWX assoc_app_of
@@ -555,17 +565,17 @@ asw_one:
     cld
     rep movsw
     pop ds
-    mov byte [cs:asw_hblk], 1
+    mov byte [cs:bp+asw_hblk-asw_v], 1
     jmp short .emit
 
 .nostore:
-    cmp byte [cs:asw_mode], 0
+    cmp byte [cs:bp+asw_mode-asw_v], 0
     je .skip                    ; incremental: nothing learned it, leave it out
-    mov byte [cs:asw_hdr], 2    ; full: the header for everything
+    mov byte [cs:bp+asw_hdr-asw_v], 2    ; full: the header for everything
 .hdr:
     call asw_header
     jnc .emit
-    cmp byte [cs:asw_hdr], 2
+    cmp byte [cs:bp+asw_hdr-asw_v], 2
     je .skip                    ; nothing to make a row of
 .emit:
     jmp asw_emit
@@ -577,14 +587,14 @@ asw_one:
 ; in:  CX = the old row, DI = its offset; ES = the claim
 ; -----------------------------------------------------------------------------
 asw_take_old:
-    mov [cs:asw_oix], cl
+    mov [cs:bp+asw_oix-asw_v], cl
     ; does any old association row name it? Then it DECLARES: the front
     call asw_oext
     mov al, 0                   ; AL = "declares": one bit, from the scan
     adc al, 0
     call asw_index              ; AL = 1 front / 0 back -> AL = the new row
     jc .out                     ; full
-    mov [cs:asw_ix], al
+    mov [cs:bp+asw_ix-asw_v], al
     push di
     call asw_rowoff             ; DI = the new row's offset
     pop si                      ; SI = the old row
@@ -597,17 +607,17 @@ asw_take_old:
     rep movsw
     pop ds
     pop di
-    mov si, [cs:asw_ent]
+    mov si, [cs:bp+asw_ent-asw_v]
     mov ax, [es:si+12]          ; ...where it lives NOW (SPEC.md 54.7.1)
     mov [es:di+ASC_ROWCLUS], ax
     ; and its association rows, re-indexed
-    mov cx, [cs:asw_onext]
+    mov cx, [cs:bp+asw_onext-asw_v]
     jcxz .out
     mov ax, ASC_ROW
-    mul word [cs:asw_onapp]
+    mul word [cs:bp+asw_onapp-asw_v]
     add ax, ASW_OLD + ASC_HDR
     mov si, ax
-    mov al, [cs:asw_oix]
+    mov al, [cs:bp+asw_oix-asw_v]
 .ext:
     cmp [es:si+3], al
     jne .nx
@@ -624,13 +634,13 @@ asw_take_old:
 asw_oext:
     push cx
     push si
-    mov cx, [cs:asw_onext]
+    mov cx, [cs:bp+asw_onext-asw_v]
     jcxz .no
     mov ax, ASC_ROW
-    mul word [cs:asw_onapp]
+    mul word [cs:bp+asw_onapp-asw_v]
     add ax, ASW_OLD + ASC_HDR
     mov si, ax
-    mov al, [cs:asw_oix]
+    mov al, [cs:bp+asw_oix-asw_v]
 .s:
     cmp [es:si+3], al
     je .yes
@@ -658,14 +668,14 @@ asw_oext:
 ; LD_H_GLYPH and only behind both (the tool requires all three in front of it).
 ; -----------------------------------------------------------------------------
 asw_header:
-    mov es, [cs:asw_seg]
-    mov si, [cs:asw_ent]
+    mov es, [cs:bp+asw_seg-asw_v]
+    mov si, [cs:bp+asw_ent-asw_v]
     mov ax, [es:si+10]          ; the first cluster
     mov cx, DSK_PEEK
     ASWX dsk_peek_x             ; LOW_SEG:dsk_secbuf, AX = bytes arrived
-    mov es, [cs:asw_seg]        ; (dsk_peek clobbers ES, BX and CX)
+    mov es, [cs:bp+asw_seg-asw_v]        ; (dsk_peek clobbers ES, BX and CX)
     jc .no
-    mov [cs:asw_take], ax
+    mov [cs:bp+asw_take-asw_v], ax
     cmp ax, 32
     jb .no
     cmp word [ss:dsk_secbuf], 'O8'
@@ -673,7 +683,7 @@ asw_header:
     cmp byte [ss:dsk_secbuf+2], PKG_FMT
     jne .no
     mov bl, [ss:dsk_secbuf+3]   ; BL = the flags, for the whole routine
-    cmp byte [cs:asw_hdr], 2
+    cmp byte [cs:bp+asw_hdr-asw_v], 2
     jne .block
     ; --- the icon and the glyph, or the all-zero sentinels ---
     mov di, ASW_STG
@@ -683,7 +693,7 @@ asw_header:
     rep stosw
     test bl, 1
     jz .block
-    cmp word [cs:asw_take], 96
+    cmp word [cs:bp+asw_take-asw_v], 96
     jb .block
     mov si, dsk_secbuf + 32
     mov di, ASW_STG
@@ -693,7 +703,7 @@ asw_header:
     and al, 0x23
     cmp al, 0x23                ; a glyph, behind the icon AND the block
     jne .block
-    cmp word [cs:asw_take], LD_H_GLYPH + 8
+    cmp word [cs:bp+asw_take-asw_v], LD_H_GLYPH + 8
     jb .block
     mov si, dsk_secbuf + LD_H_GLYPH
     mov di, ASW_STG + DSK_ICO_SIZE
@@ -709,13 +719,13 @@ asw_header:
 .based:
     mov si, ax
     add ax, 16
-    cmp ax, [cs:asw_take]
+    cmp ax, [cs:bp+asw_take-asw_v]
     ja .ok                      ; promised and not delivered: no block
     add si, dsk_secbuf
     mov di, ASW_BLK
     mov cx, 8
     call asw_fromlow
-    mov byte [cs:asw_hblk], 1
+    mov byte [cs:bp+asw_hblk-asw_v], 1
 .ok:
     clc
     ret
@@ -752,11 +762,26 @@ asw_fromlow:
     pop ds
     ret
 
+; asw_cold - ASWX's body: far-call the resident .cold routine named by the
+; word after our caller's `call`, through wm_cbd (`call bp / retf` in
+; COLD_SEG), and return PAST that word. Every register reaches the routine and
+; comes back as it left them, BP restored here; `pop` and `ret` write no flag,
+; so the routine's CF is the caller's
+asw_cold:                       ; STKBALANCE-OK: steps its own return address
+    push bp                     ; past the inline word, and pushes and pops
+    mov bp, sp                  ; nothing else
+    add word [bp+2], 2
+    mov bp, [bp+2]
+    mov bp, [cs:bp-2]
+    call COLD_SEG:wm_cbd
+    pop bp
+    ret
+
 ; -----------------------------------------------------------------------------
 ; asw_emit - one row from ASW_STG and the block (asw_one's continuation)
 ; -----------------------------------------------------------------------------
 asw_emit:
-    mov es, [cs:asw_seg]
+    mov es, [cs:bp+asw_seg-asw_v]
     call asw_ndecl              ; AL = usable declarations
     or al, al
     jz .side
@@ -764,9 +789,9 @@ asw_emit:
 .side:
     call asw_index
     jc .out                     ; full: this one is dropped
-    mov [cs:asw_ix], al
+    mov [cs:bp+asw_ix-asw_v], al
     call asw_rowoff             ; DI = the row
-    mov si, [cs:asw_ent]
+    mov si, [cs:bp+asw_ent-asw_v]
     push ds
     push es
     pop ds
@@ -786,7 +811,7 @@ asw_emit:
     mov cx, (DSK_ICO_SIZE + 8) / 2
     rep movsw
     pop ds
-    cmp byte [cs:asw_hblk], 0
+    cmp byte [cs:bp+asw_hblk-asw_v], 0
     je .out
     mov si, ASW_BLK             ; and the extensions it declares
     mov cl, [es:si]
@@ -812,7 +837,7 @@ asw_ndecl:
     push cx
     push si
     xor al, al
-    cmp byte [cs:asw_hblk], 0
+    cmp byte [cs:bp+asw_hblk-asw_v], 0
     je .out
     mov si, ASW_BLK
     mov cl, [es:si]
@@ -852,10 +877,10 @@ asw_dok:
 ; asw_ext - stage the extension at ES:SI against new row [asw_ix]. The ext
 ; table being full drops the rest, assoc_declare's own rule. Preserves CX.
 asw_ext:
-    mov di, [cs:asw_ne]
+    mov di, [cs:bp+asw_ne-asw_v]
     cmp di, ASC_NEXT
     jae .out
-    inc word [cs:asw_ne]
+    inc word [cs:bp+asw_ne-asw_v]
     shl di, 1
     shl di, 1
     add di, ASW_EXT
@@ -865,7 +890,7 @@ asw_ext:
     movsw
     movsb
     pop ds
-    mov al, [cs:asw_ix]
+    mov al, [cs:bp+asw_ix-asw_v]
     stosb
 .out:
     ret
@@ -883,23 +908,23 @@ asw_ext:
 ; -----------------------------------------------------------------------------
 asw_index:
     push bx
-    mov bx, [cs:asw_nb]
+    mov bx, [cs:bp+asw_nb-asw_v]
     or al, al
     jz .back
-    mov ax, [cs:asw_nf]
+    mov ax, [cs:bp+asw_nf-asw_v]
     cmp ax, bx
     jb .front
     cmp bx, ASC_NAPP            ; full, and no plain row to evict
     jae .no
-    inc word [cs:asw_nb]        ; evict the lowest plain row: its index IS the
+    inc word [cs:bp+asw_nb-asw_v]        ; evict the lowest plain row: its index IS the
 .front:                         ; one this front row is about to take
-    inc word [cs:asw_nf]
+    inc word [cs:bp+asw_nf-asw_v]
     jmp short .yes
 .back:
-    cmp [cs:asw_nf], bx
+    cmp [cs:bp+asw_nf-asw_v], bx
     jae .no
     dec bx
-    mov [cs:asw_nb], bx
+    mov [cs:bp+asw_nb-asw_v], bx
     mov ax, bx
 .yes:
     clc
@@ -912,7 +937,7 @@ asw_index:
 
 ; asw_rowoff - DI = row [asw_ix]'s offset in the new file (AX spent)
 asw_rowoff:
-    mov al, [cs:asw_ix]
+    mov al, [cs:bp+asw_ix-asw_v]
     mov ah, ASC_ROW
     mul ah                      ; <= 31 * 88: the product fits AX
     add ax, ASW_NEW + ASC_HDR
@@ -924,34 +949,34 @@ asw_rowoff:
 ; out: CF=0 and CX = its size; CF=1 = no packages, so no file to write
 ; -----------------------------------------------------------------------------
 asw_close:
-    mov es, [cs:asw_seg]
+    mov es, [cs:bp+asw_seg-asw_v]
     mov ax, ASC_NAPP
-    sub ax, [cs:asw_nb]         ; the plain rows
+    sub ax, [cs:bp+asw_nb-asw_v]         ; the plain rows
     mov dx, ax
-    add ax, [cs:asw_nf]
+    add ax, [cs:bp+asw_nf-asw_v]
     or ax, ax
     jz .none
-    mov [cs:asw_napp], ax
+    mov [cs:bp+asw_napp-asw_v], ax
     ; --- the plain rows down against the declaring ones ---
     mov ax, ASC_ROW
     mul dx                      ; DX = 0 after, which nothing reads
     mov cx, ax
     jcxz .exts
     mov ax, ASC_ROW
-    mul word [cs:asw_nb]
+    mul word [cs:bp+asw_nb-asw_v]
     add ax, ASW_NEW + ASC_HDR
     mov si, ax
     mov ax, ASC_ROW
-    mul word [cs:asw_nf]
+    mul word [cs:bp+asw_nf-asw_v]
     add ax, ASW_NEW + ASC_HDR
     mov di, ax
     call asw_move
 .exts:
     mov ax, ASC_ROW
-    mul word [cs:asw_napp]
+    mul word [cs:bp+asw_napp-asw_v]
     add ax, ASW_NEW + ASC_HDR
     mov di, ax                  ; where the ext rows belong
-    mov cx, [cs:asw_ne]
+    mov cx, [cs:bp+asw_ne-asw_v]
     shl cx, 1
     shl cx, 1
     mov si, ASW_EXT
@@ -970,9 +995,9 @@ asw_close:
     mov cx, 7
     cld
     rep movsb
-    mov al, [cs:asw_napp]
+    mov al, [cs:bp+asw_napp-asw_v]
     stosb
-    mov al, [cs:asw_ne]
+    mov al, [cs:bp+asw_ne-asw_v]
     stosb                       ; ...and +9..15 stay the zeros asw_begin wrote
     pop cx
     clc
@@ -1003,6 +1028,7 @@ asw_s_name: db 'ASSOC.DAT', 0   ; the write's name (read through CS, staged)
 ; once (MODULE-SELFCONTAIN-PLAN 3.2). Forty-odd zero bytes cost the compressed
 ; file a few bytes and remove the cliff. Written before it is read: the entry
 ; and asw_begin set every cell.
+asw_v:                            ; ASV's base: every cell below is a d8
 asw_vol:    db 0
 asw_mode:   db 0
 asw_udrv:   db 0                  ; the user's volume...
