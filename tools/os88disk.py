@@ -230,7 +230,20 @@ def validate_o88(path: str) -> bytes:
     lo = 32 if comp else max(32, len(data))
     if not 32 <= image <= (0xFFFF if comp else len(data)):
         fail(f"{path}: header image size {image} out of range")
-    if comp:
+    link = struct.unpack_from("<H", data, 4)[0]
+    if comp and parts:
+        # A PARTED PACKAGE WITH A PACKED IMAGE (SPEC.md 20.13.8): the file is
+        # longer than the image (the parts) and the image's own stream is
+        # SHORTER, and the link word is that stream's length - the one place
+        # the kernel can learn it. ld_check_hdr's ladder, host side.
+        if not 32 < link < image or link > len(data):
+            fail(f"{path}: flags bits 2 and 3 with a packed-image length of "
+                 f"{link} - it must lie between the header and the image "
+                 f"({image}) and inside the {len(data)}-byte file")
+    elif link:
+        fail(f"{path}: link word {link:#06x} on a package that is not parted "
+             "and packed - it must be 0 (SPEC.md 20.2)")
+    elif comp:
         # COMPRESSED: `image` keeps meaning the UNPACKED bytes, so the file is
         # SHORTER than it by design (SPEC.md 20.13.2) - which is the very case
         # the truncated-file guard below refuses without the bit.
