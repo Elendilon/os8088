@@ -79189,6 +79189,7 @@ by taking instructions OUT of the path it is on, and they are measured below.
 | `sol_entry`'s placement: two dead clamps, one register | −10 | −10 | 0 / 0 |
 | `sol_track` keeps the origin once | −6 | −6 | −11 / −11 |
 | `sol_pilexy` reads a pile's column from a table | −5 | −5 | −5 / −5 |
+| six routines lose instructions they did not need | −27 | −27 | −35 / −35 |
 
 **The metric records carry their derived fields.** `sol_metrics` copied a
 record of fourteen bytes into words and then worked out four more from them -
@@ -79247,6 +79248,27 @@ sits in - itself for a tableau column, 3..6 for the foundations, 0 for the
 stock and 1 for the waste - was four compares and their branches, 22 bytes;
 it is `xlatb` over `sol_pcol`, thirteen bytes of table and four of code, and
 the same column for every pile without a branch taken.
+
+**Six routines lose instructions they did not need**, each the same work in
+fewer instructions:
+
+- `sol_oncmd` saved SI and DI that §12.2 lets an `AM_ONCMD` handler clobber
+  (and that every routine below it keeps anyway), banked the menu index in
+  BH where `sol_track` keeps AX, and called `sol_gamecmd` to return from it -
+  it is the next routine down, so the Game menu is a `jz` into it;
+- `sol_abdismiss` is `shr byte [sol_abon], 1`: the flag is 0 or 1, so the
+  shift both answers "was it up" in CF and takes it down;
+- `sol_card` dropped a test for a visible height of 0, which cannot arrive:
+  SI is above 0 past the `jle`, and every caller's DX is a fan step of at
+  least one pixel (§43.2) or the whole card;
+- `sol_drop` aims at a column from half the PITCH where it added half the
+  card and half the gap - the same pixel, the card being an even width,
+  which an `%if` now asserts for both records (the back's two pixels a byte
+  already needed it);
+- `sol_panel` sets the card's white before it measures the lines, where AX
+  is free, rather than saving AX round it later; nothing is drawn between;
+- `sol_shwbase` multiplies through AH, which a byte `mul` overwrites anyway,
+  so DX need not be saved.
 
 ### 43.12 `APP_SMALL` — the small build of this package
 

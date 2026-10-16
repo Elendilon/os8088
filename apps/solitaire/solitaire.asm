@@ -213,6 +213,9 @@ SOL_PH_B    equ SOL_FAND_B * 6 + SOL_FANU_B * 12 + SOL_TOPY_B + SOL_CH_B \
 SOL_PW_S    equ (SOL_CW_S + SOL_GAP_S) * 7 + SOL_MARG_S * 2 - SOL_GAP_S + 2
 SOL_PH_S    equ SOL_FAND_S * 6 + SOL_FANU_S * 12 + SOL_TOPY_S + SOL_CH_S \
                 + SOL_TGAP_S + SOL_CH_S + TITLE_H + 1
+%if SOL_CW_B % 2 || SOL_CW_S % 2
+%error "a card is an even width: the back is two pixels a byte, and sol_drop takes half the pitch as half a card and half a gap"
+%endif
 SOL_BACKMAX equ 704                 ; the back image at the LARGER metrics,
                                     ; (32/2) * 44 bytes of packed 4bpp
 SOL_TABLE   equ CGREEN              ; the felt: green on VGA, black on 1bpp
@@ -659,12 +662,10 @@ SOL_SHW     equ SHW_CARD + CAP_TAB  ; ...one row per tableau column
 ; -----------------------------------------------------------------------------
 sol_shwbase:
     push ax
-    push dx
-    mov dl, SOL_SHW
-    mul dl                          ; AX = pile * SOL_SHW (6*22 = 132, one byte)
-    mov si, ax
+    mov ah, SOL_SHW                 ; (a byte `mul` writes AX alone, so the
+    mul ah                          ; multiplier can ride in AH)
+    mov si, ax                      ; AX = pile * SOL_SHW (6*22 = 132, one byte)
     add si, sol_shw
-    pop dx
     pop ax
     ret
 
@@ -896,10 +897,9 @@ sol_card:
     cmp dx, si                      ; ...and no more than the content
     jbe .vok2
     mov dx, si
-.vok2:
-    or dx, dx
-    jz .out
-    mov [sol_cvis], dx
+.vok2:                              ; (never 0: SI is above 0 from the `jle`,
+    mov [sol_cvis], dx              ; and every caller's DX is a fan step of
+                                    ; at least one pixel, or the card)
     test cl, C_FACEUP
     jnz .face
     call sol_drawback
@@ -1441,14 +1441,11 @@ sol_about:
 ;      All registers preserved.
 ; -----------------------------------------------------------------------------
 sol_abdismiss:
-    cmp byte [sol_abon], 0
-    je .none
-    mov byte [sol_abon], 0
+    shr byte [sol_abon], 1          ; CF = it was up (the flag is 0 or 1),
+    jnc .none                       ; and it is down now either way
     call sol_drawall
     stc
-    ret
 .none:
-    clc
     ret
 %endif   ; SOLF_ABOUT - with no card (APP_SMALL) the click and key paths
                 ; do not ask sol_abdismiss at all
@@ -1483,6 +1480,8 @@ sol_panel:
     push dx
     push si
     push di
+    mov al, CWHITE                  ; the card's ground: set here, where AX
+    call OSAPI_SET_COLOR            ; is free, since measuring draws nothing
     push cx                         ; the two margins, for later
     push si                         ; ...and the list, for the second pass
     xor bx, bx                      ; BX = the widest line
@@ -1531,10 +1530,6 @@ sol_panel:
     mov cx, ax
     add cx, [sol_pnw]
     dec cx
-    push ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop ax
     call sol_fillc
     push ax
     mov al, CBLACK
@@ -2643,14 +2638,11 @@ sol_drop:
     jmp .out
 
 .moved:
-    mov ax, [sol_cw]                ; the hand's top card, centred - and which
-    shr ax, 1                       ; column is that over?
-    add ax, [sol_dox]
-    sub ax, [sol_ox]
+    mov ax, [sol_pitch]             ; the hand's top card, centred - and which
+    shr ax, 1                       ; column is that over? Half a card and
+    add ax, [sol_dox]               ; half a gap is half the pitch, the card
+    sub ax, [sol_ox]                ; being even
     sub ax, [sol_marg]
-    mov bx, [sol_gap]
-    shr bx, 1
-    add ax, bx
     jns .col
     xor ax, ax
 .col:
@@ -2758,23 +2750,18 @@ sol_onkey:
 ; sol_oncmd - AM_ONCMD: run a menu item (SPEC.md 12.2)
 ; in:  AL = item index, AH = menu index, SI = our window, BX = the set;
 ;      caller (the UI task) holds the gfx lock
-; out: nothing; clobbers AX, BX, CX, DX like any window callback
+; out: nothing; may clobber AX, BX, CX, DX, SI, DI and ES (SPEC.md 12.2) -
+;      and keeps SI and DI all the same, every routine below keeping them
 ;
 ; Called exactly like W_ONCLICK, so it draws directly and must not lock,
 ; block or spawn - and it must repaint itself, which every command below
 ; does, because the kernel does not repaint after a menu command returns.
 ; -----------------------------------------------------------------------------
 sol_oncmd:
-    push si
-    push di
-    mov bl, al                      ; the item; sol_track needs AX
-    mov bh, ah                      ; the menu
-    call sol_track
-    or bh, bh
-    jnz .deal
-    call sol_gamecmd
-    jmp .out
-.deal:
+    mov bl, al                      ; the item; sol_track keeps AX, so AH is
+    call sol_track                  ; still the menu after it
+    or ah, ah
+    jz sol_gamecmd                  ; the Game menu: the next routine down
     mov [sol_draw3], bl             ; Draw One is item 0, Draw Three item 1
     mov bh, 0                       ; ...and MENU_DIS (SPEC.md 12.2) greys the
     lea ax, [bx + sol_s_d1x]        ; one in force: an item string that begins
@@ -2782,10 +2769,7 @@ sol_oncmd:
     mov ax, sol_s_d3                ; selected, and each plain label is its
     sub ax, bx                      ; disabled twin one byte on - so the pair
     mov [sol_mi_deal+2], ax         ; is two pointers a byte apart, a radio
-.out:                               ; pair with no kernel support at all
-    pop di
-    pop si
-    ret
+    ret                             ; pair with no kernel support at all
 
 ; -----------------------------------------------------------------------------
 ; sol_gamecmd - the Game menu's commands, shared by the keys and the menu
