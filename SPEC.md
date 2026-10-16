@@ -72866,6 +72866,13 @@ the run cache's claims (§40.1) are the same.
 - **Both declarations take the `_NOKEEP` form** (§66.6.1.1): nothing after
   either reads AX, DX or the slot's CF, so `fr_entry` ends in its own `clc` for
   the loader and `fr_hire` keeps nothing. 9 bytes.
+- **The menu dispatch falls into `fr_kick`.** `fr_oncmd` sits directly above
+  it; the View menu is one `sub al, 2` (Reset is zero, Redraw above, the two
+  zooms below and told apart by one `inc`); `fr_zoom_in` became
+  `fr_zin_kick`, View > Zoom In and the tail of a canvas click in one, falling
+  into the restart; and the click's range test is one UNSIGNED compare an
+  axis, a click above or left of the canvas wrapping past any dimension.
+  24 bytes.
 
 ### 39.26 The software renderer's plane loop is gone
 

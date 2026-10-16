@@ -420,13 +420,10 @@ fr_onclick:
     pop ax
     sub ax, dx
     sub ax, FR_STRIP_H              ; -> canvas-relative
-    js fr_pop7
-    cmp ax, [fr_ch]
-    jge fr_pop7
-    or cx, cx
-    jl fr_pop7
-    cmp cx, [fr_cw]
-    jge fr_pop7
+    cmp ax, [fr_ch]                 ; UNSIGNED, both axes: a click above or
+    jae fr_pop7                     ; left of the canvas wraps to a value no
+    cmp cx, [fr_cw]                 ; dimension reaches, so one compare is
+    jae fr_pop7                     ; the whole range test
     xchg di, ax                     ; DI = y, for the second turn; CX = x
     xor bx, bx
 .axis:
@@ -441,55 +438,8 @@ fr_onclick:
     inc bx
     cmp bl, 4
     jb .axis
-    call fr_zoom_in                 ; ...and only now, with both products taken
-    call fr_kick                    ; fr_setup re-clamps both axes
-    jmp fr_pop7
-
-; -----------------------------------------------------------------------------
-; fr_oncmd - AM_ONCMD: the three menus (SPEC.md 12.2)
-; in:  AL = item index, AH = menu index, SI = the owning window, BX = the set;
-;      gfx lock held, UI task
-; out: nothing; clobbers AX, BX, CX, DX, SI, DI
-;
-; This is the demonstration: every handler is a couple of stores plus
-; fr_kick. It does NOT draw the picture - it white-fills the canvas, resets
-; the state machine and returns, and the worker fills it in. The kernel does
-; not repaint after a handler returns, which fr_kick's clear + status
-; satisfies. The kernel clamps both indices to the counts we declared, so no
-; range check is needed - only an order matching the declaration. Type and
-; palette are stored as BYTES into words whose high byte is the loader's zero
-; and is never written.
-; -----------------------------------------------------------------------------
-fr_oncmd:
-    call fr_abdismiss               ; a menu pick takes the credits down first
-    or ah, ah                       ; (keeping AX and SI), and then does what
-    jnz .m1                         ; it says
-    mov [fr_type], al               ; --- Fractal: the five types ---
-    call fr_defaults                ; a new type brings its own view
-    jmp short .kick
-.m1:
-    dec ah
-    jnz .m2
-    mov [fr_pal], al                ; --- Colour: the four palettes ---
-    jmp short .kick
-.m2:
-    or al, al                       ; --- View: Zoom In / Out / Reset / Redraw
-    jnz .v1
-    call fr_zoom_in
-    jmp short .kick
-.v1:
-    dec al
-    jnz .v2
-    cmp [fr_z], ah                  ; AH = 0 here: Zoom Out stops at level 0
-    je .kick
-    dec word [fr_z]
-    jmp short .kick
-.v2:
-    dec al
-    jnz .kick                       ; item 3 = Redraw: restart, keep the view
-    call fr_defaults
-.kick:
-    jmp fr_kick
+    call fr_zin_kick                ; ...and only now, with both products
+    jmp fr_pop7                     ; taken; fr_kick's fr_setup re-clamps
 
 ; -----------------------------------------------------------------------------
 ; fr_worker - THE background task (SPEC.md 20.6)
@@ -1009,6 +959,62 @@ fr_org:
     ret
 
 ; -----------------------------------------------------------------------------
+; fr_oncmd - AM_ONCMD: the three menus (SPEC.md 12.2)
+; in:  AL = item index, AH = menu index, SI = the owning window, BX = the set;
+;      gfx lock held, UI task
+; out: nothing; clobbers AX, BX, CX, DX, SI, DI
+;
+; This is the demonstration: every handler is a couple of stores plus
+; fr_kick. It does NOT draw the picture - it white-fills the canvas, resets
+; the state machine and returns, and the worker fills it in. The kernel does
+; not repaint after a handler returns, which fr_kick's clear + status
+; satisfies. The kernel clamps both indices to the counts we declared, so no
+; range check is needed - only an order matching the declaration. Type and
+; palette are stored as BYTES into words whose high byte is the loader's zero
+; and is never written.
+; -----------------------------------------------------------------------------
+;
+; It sits directly above fr_kick, which every pick ends in, so the restart is
+; a fall-through or a short jump (apps size pass 2). The View menu is one
+; subtract: items 0..3 less 2 put Reset at zero and Redraw above it, and
+; leave the two zooms below it to be told apart by one more increment.
+;
+; fr_zin_kick is View > Zoom In AND the tail of a click on the canvas: one
+; level deeper if there is one, then the restart. The cap is MEASURED and not
+; chosen (see the file header): zoom is a shift count, so at z = 5 the step
+; reaches the Q4.12 format's 1-ulp floor and z = 6 draws the identical
+; picture. A control that deepened past it would report a zoom the
+; arithmetic cannot deliver.
+; -----------------------------------------------------------------------------
+fr_oncmd:
+    call fr_abdismiss               ; a menu pick takes the credits down first
+    or ah, ah                       ; (keeping AX and SI), and then does what
+    jnz .m1                         ; it says
+    mov [fr_type], al               ; --- Fractal: the five types ---
+.def:
+    call fr_defaults                ; a new type brings its own view
+    jmp short fr_kick
+.m1:
+    dec ah
+    jnz .m2
+    mov [fr_pal], al                ; --- Colour: the four palettes ---
+    jmp short fr_kick
+.m2:
+    sub al, 2                       ; --- View: Zoom In / Out / Reset / Redraw
+    jz .def                         ; item 2 = Reset: the type's own view
+    ja fr_kick                      ; item 3 = Redraw: restart, keep the view
+    inc al                          ; items 0 and 1 are -2 and -1, so this is
+    jnz fr_zin_kick                 ; nonzero for Zoom In and zero for Out
+    cmp [fr_z], ah                  ; AH = 0 here: Zoom Out stops at level 0
+    je fr_kick
+    dec word [fr_z]
+    jmp short fr_kick
+fr_zin_kick:
+    cmp word [fr_z], FR_ZMAX
+    jae fr_kick
+    inc word [fr_z]                 ; ...and falls into fr_kick
+
+; -----------------------------------------------------------------------------
 ; fr_kick - UI-side restart: recompute the geometry, reset the state machine,
 ;           clear the canvas, redraw the status strip, ask the worker to
 ;           start over
@@ -1455,23 +1461,6 @@ fr_trec:
     mov cl, 4
     shl si, cl
     add si, fr_types
-    ret
-
-; -----------------------------------------------------------------------------
-; fr_zoom_in - one level deeper, if there is one
-; in:  [fr_z]; out: [fr_z]; preserves every register (flags go)
-;
-; Two callers - View > Zoom In and a click on the canvas - so the cap lives
-; here rather than at each of them. It is MEASURED and not chosen (see the
-; file header): zoom is a shift count, so at z = 5 the step reaches the Q4.12
-; format's 1-ulp floor and z = 6 draws the identical picture. A control that
-; deepened past it would report a zoom the arithmetic cannot deliver.
-; -----------------------------------------------------------------------------
-fr_zoom_in:
-    cmp word [fr_z], FR_ZMAX
-    jae .out
-    inc word [fr_z]
-.out:
     ret
 
 ; -----------------------------------------------------------------------------
