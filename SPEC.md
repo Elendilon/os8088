@@ -109810,6 +109810,29 @@ first commit of this package and named by no instruction in it — the keys
 are How To Play's (§67.14) and the attract scroll's, and neither banner was
 ever raised. Deleted. Image −62, file −39.
 
+#### 67.26.5 A second sweep, and three stores nothing read
+
+- **`cy_entry`** clamps the template width to `CY_WIN_W + 2` against the
+  screen's directly instead of taking the 1px sides off and putting them back,
+  and drops the centring's negative guard, which the clamp makes unreachable
+  (the width is at most the screen's own).
+- **`cy_oncmd`** steps AX through the Game items with `dec` and tests Help's
+  one item as the single word `0x0100`, so both indices are still tested.
+- **`cy_panel_draw`** steps the pen down 9 pixels a line in DX — which
+  `cy_textw` promises to keep — instead of re-deriving `pny + 6 + 9·line`
+  from the row index every line.
+- **Three dead stores.** `[cy_vkind]` and `[cy_bpp]` were stored by the entry
+  proc and read by nothing (`cy_pal` asks `OSAPI_FSX_CAPS` per display, which
+  is the right question, §39.2.1); `[cy_lspy]` was stored by `cy_lanepos` on
+  every call and read by nothing, the dominant span `[cy_lspm]` being what
+  `cy_lanecap` reads. All three variables are gone. `cy_lanepos` is a FRAME
+  path, so this one is argued rather than left: it lost a `mov [mem], ax` and a
+  `push ax`/`pop ax` pair whose restored AX nothing after it read (the entry
+  push already restores it) and gained nothing, so every call is strictly
+  cheaper than it was.
+
+Image −55, file −60.
+
 ### 67.13 What is deliberately not here
 
 **No high-score file.** The table lives in bss and dies with the instance. It

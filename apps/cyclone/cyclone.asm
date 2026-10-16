@@ -743,8 +743,6 @@ cy_entry:
     mov [cy_scrw], ax
     mov [cy_scrh], bx
     mov [cy_dock], cx
-    mov [cy_vkind], dl
-    mov [cy_bpp], dh
 
     ; Seed the stream once. Every wave, drop and debris vector runs off it.
     call OSAPI_GET_TICKS
@@ -769,20 +767,15 @@ cy_entry:
     mov [cy_tpl + WT_H], ax
 
     mov ax, [cy_scrw]               ; content width: the window, or the screen
-    sub ax, 2                       ; if the screen is narrower than it
-    cmp ax, CY_WIN_W
-    jbe .wok
-    mov ax, CY_WIN_W
+    cmp ax, CY_WIN_W + 2            ; if the screen is narrower than it (the
+    jbe .wok                        ; 1px sides are in both)
+    mov ax, CY_WIN_W + 2
 .wok:
-    add ax, 2
     mov [cy_tpl + WT_W], ax
 
-    mov ax, [cy_scrw]               ; centred horizontally...
-    sub ax, [cy_tpl + WT_W]
-    jns .xok
-    xor ax, ax
-.xok:
-    shr ax, 1
+    neg ax                          ; centred horizontally - and never past the
+    add ax, [cy_scrw]               ; left edge, the width being at most the
+    shr ax, 1                       ; screen's own
     mov [cy_tpl + WT_X], ax
 
     mov ax, [cy_dock]               ; ...and centred in the desktop band
@@ -994,26 +987,19 @@ cy_panel_draw:
     call cy_framec
 
     mov si, [cy_pntxt]
-    mov byte [cy_pnrow], 0          ; the row INDEX, in bss - the pen used to
-.line:                              ; be carried in BX across a far call into
-    cmp byte [si], 0xFF             ; the kernel, which is a register this
-    je .done                        ; loop cannot afford to be wrong about
-    push si
-    mov al, [cy_pnrow]
-    mov ah, 0
-    mov bx, ax
-    shl ax, 1                       ; y = pny + 6 + 9*line
-    shl ax, 1
-    shl ax, 1
-    add ax, bx
-    add ax, [cy_pny]
-    add ax, 6
-    mov dx, ax
-    mov cx, [cy_pnx]
+    mov cx, [cy_pnx]                ; the pen: x = pnx + 8...
     add cx, 8
+    mov dx, [cy_pny]                ; ...and y = pny + 6 + 9*line, stepped.
+    add dx, 6                       ; CX and DX are what cy_textw PROMISES to
+    mov byte [cy_pnrow], 0          ; keep; the row INDEX is in bss - the pen
+.line:                              ; used to be carried in BX across a far
+    cmp byte [si], 0xFF             ; call into the kernel, which is a register
+    je .done                        ; this loop cannot afford to be wrong about
+    push si
     call cy_textw
     pop si
     call cy_strskip
+    add dx, 9
     inc byte [cy_pnrow]
     mov al, [cy_pnrow]
     cmp al, [cy_pnln]
@@ -1258,31 +1244,24 @@ cy_oncmd:
     push si
     or ah, ah                       ; BOTH indices are tested, menu and item.
     jnz .helpm                      ; A menu with one item today is a menu with
-    cmp al, 0                       ; two tomorrow, and the second one then
+    or al, al                       ; two tomorrow, and the second one then
     je .new                         ; dispatches as the first with nothing
-    cmp al, 1                       ; saying so (tamegram's trap)
-    je .pause
-    cmp al, 2
-    je .fs
-    jmp short .out
-.helpm:
-    cmp ah, 1
+    dec ax                          ; saying so (tamegram's trap). AH is 0
+    je .pause                       ; here, so AX steps through the items
+    dec ax
     jne .out
-    or al, al
-    jz .how
+    call cy_go_fsx                  ; item 2
     jmp short .out
 .new:
     call cy_newgame
     jmp short .out
 .pause:
-    mov al, 'p'
-    mov ah, 0
+    mov ax, 'p'
     call cy_key_common
     jmp short .out
-.fs:
-    call cy_go_fsx
-    jmp short .out
-.how:
+.helpm:
+    cmp ax, 0x0100                  ; menu 1, item 0: How To Play
+    jne .out
     ; It used to be `cy_state = CYS_TITLE` plus a repaint, which is wrong in
     ; both directions: from the attract screen - where a player who has just
     ; opened the window IS - it drew the same screen again and the item did
@@ -1985,8 +1964,7 @@ cy_lanepos:
     ; ...and publish the lane's SPAN as well as its centre, because that is
     ; what bounds a mover (cy_setrect). Both vertices are already in hand
     ; here; asking for them again anywhere else would be a second opinion
-    ; about how wide a lane is.
-    push ax
+    ; about how wide a lane is. (AX is spent here: the entry push restores it.)
     mov ax, [cy_vx + si]
     sub ax, cx
     jns .sx
@@ -1998,13 +1976,11 @@ cy_lanepos:
     jns .sy
     neg ax
 .sy:
-    mov [cy_lspy], ax
     cmp ax, [cy_lspx]               ; ...and the dominant of the two, which is
     ja .sm                          ; what cy_lanecap bounds BOTH axes by
     mov ax, [cy_lspx]
 .sm:
     mov [cy_lspm], ax
-    pop ax
 
     add cx, [cy_vx + si]
     add dx, [cy_vy + si]
@@ -4537,8 +4513,8 @@ cy_player_move:
 ; cy_lanepos is NOT reentrant, and this line used to say it was - generalising
 ; the tail comment at cy_lanepos, which claims something narrower and true (the
 ; LIP TEST needs no scratch word, because DI and BX still hold the row offset
-; and the lane). Eighty lines above that tail the routine writes [cy_lspx],
-; [cy_lspy] and [cy_lspm] unconditionally, on every call.
+; and the lane). Eighty lines above that tail the routine writes [cy_lspx]
+; and [cy_lspm] unconditionally, on every call.
 ;
 ; That matters here because THIS routine is the clobberer: cy_setrect calls
 ; cy_lanepos and reads [cy_lspm] eighty lines later, and cy_aim_mouse calls it
@@ -7971,8 +7947,6 @@ CY_TWORDS equ 14
     CWORD cy_cury                   ; re-read position smears permanently
     CBYTE cy_phome                  ; a new level owes the claw its start lane
     CBYTE cy_col                    ; the pen we last set (it cannot be read)
-    CBYTE cy_vkind
-    CBYTE cy_bpp
     CBYTE cy_huddirty
     CBYTE cy_msgdirty
     CBYTE cy_firereq
@@ -8055,7 +8029,6 @@ CY_LAYFULL  equ 0x0101              ; ...so `mov word [cy_needlay], CY_LAYFULL`
     CWORD cy_tmpw
     CWORD cy_tmpbest
     CWORD cy_lspx                   ; the lane's span, published by cy_lanepos
-    CWORD cy_lspy
     CWORD cy_lspm                   ; ...and the dominant of the two
 
     ; --- the lip (67.5.3.1): cy_lip_build's own scratch, which
