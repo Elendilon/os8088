@@ -723,7 +723,11 @@ beside this branch's (`kernsize --json` on both).
 | the next boot's `B:\APPS` | | **7 reads / 38 sectors** against 33 / 198 with no cache; `.TEX` and `.HTM` known from `B:\MEDIA` |
 
 `tests/assocflush.py` is the gate and its legs are §7's table. Each break §7
-names was built and run, and each goes red.
+names was built and run, and each goes red. The final pass ran once, after
+the last wave, and was green: `os88soak.py -k` over the 20 rows the change
+can reach (`assoc*`, `ascabsorb`, `ico*`, `mediadisk`, `rdicon`,
+`dosglyph`, `instassoc`, `instdeep`, `fmtlow`, `fmtreach`, `fmrefuse`) at
+20/20, and `test-full` at 54/54.
 
 **Where the build departed from the plan:**
 
