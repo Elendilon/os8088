@@ -86370,6 +86370,12 @@ back-references. So the pass went after bytes that occur once.
   `call` + `ret` pairs in the file layer are tail `jmp`s; and Style > None
   repaints through `at_refit`, the relayout-clamp-redraw a zoom or a view
   change already runs, instead of its own copy of it. -30 file bytes.
+- **`at_button` writes its own slot.** It computed the rect into a staging
+  `at_brect` and copied it into `at_brects`, and every one of its six callers
+  stored the label word and a `[at_bslot]` byte before calling it. The rect
+  is computed in the slot now, the label is stored from the SI it is handed,
+  and the slot rides in DH beside the default flag in DL. The same three
+  arrays `os88ui_btn` reads, filled the same way. -62 file bytes, -107 image.
 
 ## 47. Disabled controls — the greying standard (binding)
 

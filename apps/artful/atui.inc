@@ -1128,21 +1128,15 @@ at_mdbuttons:
                                     ; a count written after the draws is a
                                     ; count of zero on the pass that matters
     mov si, at_i_save
-    mov [at_btlbl], si
-    mov byte [at_bslot], 0
-    mov dx, 1
+    mov dx, 0001h                   ; DH = slot 0, DL = the default ring
     call at_button                  ; out: CX = width
     sub ax, 80                      ; Cancel (72 wide), 8 gap
     mov si, at_s_cancel
-    mov [at_btlbl+2], si
-    mov byte [at_bslot], 1
-    xor dx, dx
+    mov dx, 0100h                   ; DH = slot 1, DL = no ring
     call at_button
     sub ax, 112                     ; Don't Save (104 wide), 8 gap
     mov si, at_s_dontsave
-    mov [at_btlbl+4], si
-    mov byte [at_bslot], 2
-    xor dx, dx
+    mov dx, 0200h                   ; DH = slot 2, DL = no ring
     call at_button
     jmp short .out
 .single:
@@ -1152,9 +1146,7 @@ at_mdbuttons:
     sub ax, 20                      ; OK is 40 wide: centre it
     mov word [at_btrec+OS88UI_BT_N], 1   ; the count first, as above
     mov si, at_s_ok
-    mov [at_btlbl], si
-    mov byte [at_bslot], 0
-    mov dx, 1
+    mov dx, 0001h                   ; DH = slot 0, DL = the default ring
     call at_button
 .out:
     pop si
@@ -1183,61 +1175,50 @@ at_mdbuttons:
 ; It gains a greyed state it does not use yet - at_button has never had one -
 ; and that is the point of the shared control rather than an accident of it.
 ; -----------------------------------------------------------------------------
-; in: ...and [at_bslot] = which of the group's three rects this one IS,
-;     0-based, set by the caller immediately before (SPEC.md 20.5.1.3). A
-;     group's rects must be contiguous, so the three x/y/width triples this
-;     modal used to keep - and hit-test from, separately - are one array now.
+; in: ...and DH = which of the group's three slots this one IS, 0-based
+;     (SPEC.md 20.5.1.3), DL the default flag. A group's rects must be
+;     contiguous, so the three x/y/width triples this modal used to keep -
+;     and hit-test from, separately - are one array now, and this routine
+;     writes the slot's label word too rather than every caller doing it.
 at_button:
     push ax
     push bx
     push dx
     push si
     push di
-    mov di, dx                      ; DI = the default flag
-    mov [at_btx], ax
-    mov [at_bty], bx
+    push ax                         ; the x, for the rect below
     call OSAPI_FONT_WIDTH           ; AX = the label's width; SI intact
     add ax, 24
-    mov [at_xw], ax                 ; = the button's width, and the answer
-
-    mov ax, [at_btx]                ; ...as a rect, in screen coordinates
-    mov [at_brect+0], ax
-    add ax, [at_xw]
-    dec ax
-    mov [at_brect+4], ax
-    mov ax, [at_bty]
-    mov [at_brect+2], ax
-    add ax, 19
-    mov [at_brect+6], ax
-
-    or di, di                       ; ZF from the flag, and `mov` does not
-    mov di, OS88UI_FILL             ; touch flags - so the test survives the
+    xchg cx, ax                     ; CX = the button's width, and the answer
+    mov di, si                      ; DI = the label
+    or dl, dl                       ; ZF from the flag, and `mov` does not
+    mov ax, OS88UI_FILL             ; touch flags - so the test survives the
     jz .go                          ; register being reused for the answer
-    or di, OS88UI_DEF
+    or al, OS88UI_DEF
 .go:
-    mov bl, [at_bslot]              ; --- into the group's own slot ---
-    xor bh, bh
-    mov ax, bx
-    add ax, ax
-    mov si, ax                      ; SI = slot * 2, the flag array's stride
-    mov [at_btflg+si], di
-    add ax, ax
-    add ax, ax                      ; AX = slot * 8, the rect stride
-    mov si, at_brects
-    add si, ax
-    mov ax, [at_brect+0]            ; the rect this pass just computed
-    mov [si+0], ax
-    mov ax, [at_brect+2]
-    mov [si+2], ax
-    mov ax, [at_brect+4]
-    mov [si+4], ax
-    mov ax, [at_brect+6]
-    mov [si+6], ax
+    mov dl, dh                      ; --- into the group's own slot ---
+    xor dh, dh                      ; DX = the slot
+    mov si, dx
+    add si, si                      ; SI = slot * 2, the word arrays' stride
+    mov [at_btflg+si], ax
+    mov [at_btlbl+si], di
+    add si, si
+    add si, si                      ; SI = slot * 8, the rect stride - and
+    add si, at_brects               ; the rect is computed IN the slot: it was
+                                    ; staged in an at_brect of its own and
+                                    ; copied across (apps size pass 2)
+    pop ax
+    mov [si+0], ax                  ; x1, in screen coordinates
+    add ax, cx
+    dec ax
+    mov [si+4], ax                  ; x2
+    mov [si+2], bx                  ; y1
+    add bx, 19
+    mov [si+6], bx                  ; y2
     mov bx, at_btrec
-    mov al, [at_bslot]
-    inc al                          ; the record's indices are one-based
+    mov al, dl
+    inc ax                          ; the record's indices are one-based
     call os88ui_btn
-    mov cx, [at_xw]
     pop di
     pop si
     pop dx
@@ -1245,8 +1226,6 @@ at_button:
     pop ax
     ret
 
-at_brect:   dw 0, 0, 0, 0           ; the button being drawn, staged
-at_bslot:   db 0                    ; ...and which of the three it is
 at_brects:  dw 0,0,0,0, 0,0,0,0, 0,0,0,0   ; THE GROUP, contiguous
 at_btlbl:   dw 0, 0, 0                     ; its labels, written per pass
 at_btflg:   dw 0, 0, 0                     ; ...and its flags
@@ -1808,16 +1787,12 @@ at_splash:
     sub ax, 76
     mov word [at_btrec+OS88UI_BT_N], 2   ; the splash's pair, count first
     mov si, at_i_new
-    mov [at_btlbl], si
-    mov byte [at_bslot], 0
-    mov dx, 1
+    mov dx, 0001h                   ; DH = slot 0, DL = the default ring
     call at_button
     mov ax, [at_spcx]
     add ax, 12
     mov si, at_i_open
-    mov [at_btlbl+2], si
-    mov byte [at_bslot], 1
-    xor dx, dx
+    mov dx, 0100h                   ; DH = slot 1, DL = no ring
     call at_button
     pop si
     pop dx
