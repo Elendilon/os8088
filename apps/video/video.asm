@@ -919,18 +919,19 @@ vp_onfile:
     jmp vp_ld4
 
 ; vp_cpname - ES:SI = a file's name, NUL-terminated within 13: into vp_name.
-; Clobbers AL, CX, SI, DI
+; vp_cpn - ...or CX characters of it to DI, the NUL after them if it has
+; none there (vp_parse's title). Clobbers AL, CX, SI, DI
 vp_cpname:
     mov di, vp_name
     mov cx, 12
-.cp:
+vp_cpn:
     mov al, [es:si]
     mov [di], al
     inc si
     inc di
     or al, al
     jz .cpd
-    loop .cp
+    loop vp_cpn
     mov [di], cl                    ; (CX = 0)
 .cpd:
     ret
@@ -1771,25 +1772,10 @@ vp_parse:
     je .lk
     mov byte [vp_lkind], 2
 .lk:
-    push ds                         ; the title, NUL-terminated within its 48
-    push es
-    push ds
-    push es
-    pop ds
-    pop es
-    mov si, V88_TITLE
+    mov si, V88_TITLE               ; the title, NUL-terminated within its 48
     mov di, vp_title
     mov cx, VP_COLS
-.t:
-    lodsb
-    stosb
-    or al, al
-    jz .td
-    loop .t
-    mov [es:di], cl                 ; (CX = 0)
-.td:
-    pop es
-    pop ds
+    call vp_cpn
     test byte [es:V88_FLAGS], V88F_LOOPREC
     jz .lok
     mov word [vp_msg], vp_s_bad

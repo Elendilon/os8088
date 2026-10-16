@@ -169192,6 +169192,11 @@ by 21 bytes for 10 fewer in the image - measured and not taken.
   parity pads (`inc bl` and `add sp, 4` where `inc bx` and two pops do)
   are gone, the pass keeping every play routine's parity as a whole. -14
   of image, -27 of file.
+- **The header's title is copied by the name's own loop** (`vp_cpn`, the
+  body of `vp_cpname` given a destination and a count): `vp_parse` swapped
+  DS and ES to copy it with `lodsb`/`stosb`, the same copy the other way
+  round. -16 of image, -3 of file - and -20 in the two knob arms, the
+  same cut packing differently around it.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 
