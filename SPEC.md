@@ -175737,6 +175737,13 @@ from the block mod 2G, and PLACED or not - and its `DI_NAMES` is the
 second copy of `vp_ditab`'s order. The claim grows by the trailer; a
 version 2 reader ignores the bytes after its read log.
 
+**And the name it is saved under was wrong from version 1 on**: `vp_prend`
+asks whether `VPPROFn.DAT` is there with a read of zero bytes and took ANY
+refusal for *no such file* - but a file that IS there refuses a read into
+no room with `FERR_BIG` (20.14.6.3), so every play wrote `VPPROF1.DAT` over
+the last. Only `FERR_NOENT` is free now; any other answer moves on to the
+next n, so a disk error never overwrites a profile either.
+
 ##### 98.3.22.1 What the first profiles changed in the encoder (2026-10-15)
 
 **Three plays on the owner's Victory 286** (docs/reports/VIDPROF-

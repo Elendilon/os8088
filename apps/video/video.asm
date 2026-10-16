@@ -15854,9 +15854,13 @@ vp_prend:
     xor dx, dx
     mov si, vp_prfn
     call OSAPI_FILE_READ            ; zero bytes: is it there?
+    xchg bx, ax                     ; (BX = the refusal)
     pop ax
-    jc .free                        ; (FERR_NOENT: this one is)
-    inc al
+    jnc .next                       ; (an empty one: there)
+    cmp bx, FERR_NOENT              ; ONLY no such file is free: one that is
+    je .free                        ; there refuses FERR_BIG (a read into no
+.next:                              ; room, 20.14.6.3), and that refusal
+    inc al                          ; once overwrote VPPROF1 every play
     cmp al, '9'
     jbe .try
     jmp short .drop                 ; nine already: none written
