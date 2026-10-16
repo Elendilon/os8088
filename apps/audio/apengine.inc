@@ -134,9 +134,8 @@ ap_filesize:
     call ap_nameeq                 ; ZF = 1 if equal (case-insensitive)
     pop cx
     pop si
-    je .hit
-    jmp .loop
-.hit:
+    jne .loop
+    ; the hit
     mov ax, [ap_findbuf+18]
     mov dx, [ap_findbuf+20]
     pop es
@@ -155,32 +154,23 @@ ap_filesize:
 
 ; ap_nameeq - compare NUL strings DS:SI and DS:DI, ASCII case-insensitive
 ;             ZF = 1 when equal.  preserves every register except flags.
-ap_nameeq:
+ap_nameeq:                         ; (equal: ZF = 1 and CF = 0)
     push si
     push di
     push ax
-    push bx
 .l:
-    mov al, [si]
-    mov bl, [di]
-    call ap_upcase                 ; AL
-    xchg al, bl
+    mov al, [di]
     call ap_upcase
-    xchg al, bl
-    cmp al, bl
-    jne .ne
-    or al, al
-    jz .eq
+    mov ah, al
+    mov al, [si]
+    call ap_upcase
+    cmp al, ah
+    jne .d                         ; ZF = 0
     inc si
     inc di
-    jmp .l
-.eq:
-    xor al, al                     ; ZF = 1
-    jmp .done
-.ne:
-    or al, 1                       ; ZF = 0
-.done:
-    pop bx
+    or al, al
+    jnz .l                         ; both NUL: ZF = 1, CF = 0
+.d:
     pop ax
     pop di
     pop si
@@ -449,9 +439,8 @@ ap_prime:
 ; =============================================================================
 ap_open_track:
     APCNT apc_opentk
-    call apl_count
-    or ax, ax
-    jnz .havetrk
+    cmp byte [apl_n], 0
+    jne .havetrk
     mov word [ap_msg], ap_s_nofile
     jmp .refuse
 .havetrk:
@@ -872,16 +861,23 @@ ap_reap:
 ;                  stop at the end of the list.
 ; =============================================================================
 ap_autoadvance:
-    call ap_stream_close
     mov al, 1
-    call apl_advance              ; CF = 1 => list ended, Repeat off
-    jc .end
-    call ap_open_track
+    call ap_step_track            ; CF = 1 => list ended, Repeat off
+    jnc .out
+    mov ax, ap_s_endlist
+    jmp ap_stop_msg
+.out:
     ret
-.end:
-    mov byte [ap_state], AP_ST_STOP
-    mov word [ap_elapsed_s], 0
-    mov word [ap_msg], ap_s_endlist
+
+; ap_step_track - AL = 1 next / 0xFF previous: close the stream, step the
+; list, open what it lands on. CF = 1: the list ended and nothing opened
+ap_step_track:
+    call ap_stream_close
+    call apl_advance
+    jc .out
+    call ap_open_track
+    clc
+.out:
     ret
 
 ; =============================================================================
@@ -899,8 +895,7 @@ ap_cmd_play:
     mov word [ap_msg], ap_s_playing
     ret
 .fresh:
-    call ap_open_track
-    ret
+    jmp ap_open_track
 
 ap_cmd_pause:
     cmp byte [ap_state], AP_ST_PLAY
@@ -913,43 +908,30 @@ ap_cmd_pause:
 
 ap_cmd_stop:
     call ap_stream_close
+    mov ax, ap_s_stopped
+ap_stop_msg:                      ; AX = what the status line says
+    mov [ap_msg], ax
     mov byte [ap_state], AP_ST_STOP
     mov word [ap_elapsed_s], 0
-    mov word [ap_msg], ap_s_stopped
     ret
 
-ap_cmd_next:
-    call ap_stream_close
-    mov al, 1
-    call apl_advance
-    jc .end
-    call ap_open_track
-    ret
-.end:
-    mov word [ap_msg], ap_s_endlist
-    call ap_cmd_stop
+ap_cmd_next:                      ; (Next off the end says Stopped: the
+    mov al, 1                     ; "End of playlist" it once wrote first was
+    call ap_step_track            ; overwritten by ap_cmd_stop's own message)
+    jc ap_cmd_stop
     ret
 
 ap_cmd_prev:
-    call ap_stream_close
-    mov al, 0xFF
-    call apl_advance
-    jc .end
-    call ap_open_track
-    ret
-.end:
-    ret
+    mov al, 0xFF                  ; (Previous wraps, so it ends only on an
+    jmp ap_step_track             ; empty list - and then does nothing)
 
 ap_cmd_shuffle:
     mov al, [ap_shuffle]
     xor al, 1
-    call apl_set_shuffle
-    ret
+    jmp apl_set_shuffle
 
 ap_cmd_repeat:
-    mov al, [ap_repeat]
-    xor al, 1
-    mov [ap_repeat], al
+    xor byte [ap_repeat], 1
     ret
 
 ; =============================================================================
@@ -970,28 +952,17 @@ ap_has_wav_ext:
     jb .cl
 .got:
     cmp cx, 4
-    jb .ne
-    sub si, 4                      ; SI back to the '.' (SI is at the NUL now)
-    mov al, [si]
-    cmp al, '.'
+    jb .ne                         ; (ZF = 0: CX is not 4)
+    cmp byte [si-4], '.'
     jne .ne
-    mov al, [si+1]
-    call ap_upcase
-    cmp al, 'W'
+    mov ax, [si-3]                 ; "WA", any case: AND 0xDF folds exactly
+    and ax, 0xDFDF                 ; the two letters it is compared with, and
+    cmp ax, 'WA'                   ; maps no other byte onto them
     jne .ne
-    mov al, [si+2]
-    call ap_upcase
-    cmp al, 'A'
-    jne .ne
-    mov al, [si+3]
-    call ap_upcase
-    cmp al, 'V'
-    jne .ne
-    xor al, al                    ; ZF = 1
-    jmp .done
+    mov al, [si-1]
+    and al, 0xDF
+    cmp al, 'V'                    ; ZF = 1 iff it is
 .ne:
-    or al, 1                       ; ZF = 0
-.done:
     pop si
     pop cx
     pop ax
@@ -1007,18 +978,13 @@ ap_has_wav_ext:
 ; =============================================================================
 ap_add_file:
     mov [ap_af_flags], al
-    mov [ap_af_dir], dx
-    mov [ap_af_vol], bl
-    mov [ap_af_name], si
 
-    call ap_has_wav_ext
+    call ap_has_wav_ext            ; (preserves every register)
     jne .notwav
 
     ; duplicate? same name + dir + vol -> select it, do not add again
-    mov si, [ap_af_name]
-    mov dx, [ap_af_dir]
-    mov bl, [ap_af_vol]
     call apl_find                  ; out AX = index, CF = 1 not found
+                                   ; (BX..DI preserved: SI, DX, BL still ours)
     jc .fresh
     mov word [ap_msg], ap_s_dup
     test byte [ap_af_flags], AP_ADD_PLAY
@@ -1037,9 +1003,6 @@ ap_add_file:
     mov [apl_cur], al
     jmp .ok
 .fresh:
-    mov si, [ap_af_name]
-    mov dx, [ap_af_dir]
-    mov bl, [ap_af_vol]
     call apl_add                   ; CF = 1 list full
     jc .full
     mov al, [apl_n]
@@ -1073,9 +1036,6 @@ ap_add_file:
     stc
     ret
 
-    APW ap_af_name
-    APW ap_af_dir
-    APB ap_af_vol
     APB ap_af_flags
 
 %ifdef AP_HANDOFF                 ; (only the handoff asks, SPEC.md 86.11.1)

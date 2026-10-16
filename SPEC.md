@@ -131530,7 +131530,13 @@ PCM8 is a pass-through — `apd_pull` copies bytes out of the look-ahead ring.
 IMA/DVI ADPCM is decoded from the **public IMA/DVI specification** — the
 89-entry step table and the 16-entry index table are the ones every
 BSD/public-domain implementation carries; nothing is vendored (§86.17). The
-decoder is **resumable**: `apd_pull(want)` fills up to `want` PCM8 bytes and
+step table is **built at launch** rather than shipped (`apd_mkstep`, ~4 ms on
+a 4.77 MHz 8088): to the unit it is `s[n+1] = s[n] + s[n] / 10 + r[n]` with
+every residual `r[n]` 0 or 1, bar the last entry, which is the predictor's own
+clamp 32767 — so eleven bytes of residual bits ship where 178 bytes of table
+packed to nearly 178 (apps size pass 2: −117 file bytes, image −120, bss +179;
+the table sits at an even address in bss, which the shipped one never was).
+The decoder is **resumable**: `apd_pull(want)` fills up to `want` PCM8 bytes and
 keeps predictor / index / block cursor / nibble phase across calls, so a
 2048-byte stage half never has to line up with an ADPCM block boundary. The
 predictor is a signed 16-bit value clamped to [−32768, 32767] each step; the
@@ -131565,10 +131571,14 @@ Playlist:
 > 02  BEVERLY.WAV
 ```
 
-The transport buttons tile the row gap-free (`apu_hit` takes
-`column = (x − x1) / pitch`, so there is no dead lane between two of them —
-found on the glass). Shuffle and Repeat draw the `OS88UI_DOWN` pressed look
-while toggled on. The worker's one gfx-lock hold each pass redraws only the
+The transport buttons were tiled gap-free by `apu_hit`, which took
+`column = (x − x1) / pitch` so that no dead lane lay between two of them
+(found on the glass). **That is no longer true, and `apu_hit` is gone**: since
+the press went to `os88ui.inc`'s gesture (§20.5.1.3) the library hit-tests
+the DRAWN rects, which leave 2 px between buttons, and nothing called
+`apu_hit` again — apps size pass 2 deleted it as dead code and recorded the
+lane as a defect rather than redrawing the row to close it. Shuffle and Repeat
+draw the latched look (`OS88UI_LATCH`, §20.5.1.4) while toggled on. The worker's one gfx-lock hold each pass redraws only the
 elapsed time and the progress-bar fill, and only while `OSAPI_WM_OBSCURED`
 says the window is visible — a backgrounded player does no UI work. **Every
 self-initiated content repaint arms `OSAPI_WM_CLIP_SET` first** (`apu_repaint`,
@@ -131702,6 +131712,16 @@ number of clusters — a 16-byte-record queue is neither.
 | SND ring grant + driver pool | ~28 KB | `SOUND.DRV`'s claims, released when the player stops |
 
 Comfortable on 640 KB; on 256 KB the look-ahead and ring tiers drop.
+
+**Apps size pass 2** (docs/plans/HANDOFF-APPS-SIZE-P2.md) measured the
+package by the file a floppy carries, from **10,939 bytes** (image 13,393 +
+bss 5,475) on its cut point. What it took, a commit each: the IMA step table
+built at launch (§86.4, −117); the window's text runs through one
+content-relative helper, the clock's digits by `AAM`, the bar's fixed edges
+as constants and the dead `apu_hit` deleted (§86.7, −117); and the playlist
+store rewritten smaller, with its entry-time init gone because the loader
+zeroes a package's bss (§86.10, −108); the callbacks and transport commands sharing their tails — one step-close-open body for Next, Previous and the track end, one name copy out of the kernel's buffer, `ap_add_file` keeping the name, folder and volume in the registers its two callees already preserve, and the four button captions that are the Play menu's own words pointing at its strings (−102). Nothing a playback runs per sample or
+per block was touched.
 
 **On the disk it is 7,468 bytes, not 9,216.** `AUDIO.O88` goes through
 `$(OS88PKG)` behind `$(PKGZSTAMP)` like every other shipped package, so it is
