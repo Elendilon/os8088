@@ -106,7 +106,7 @@
 ; where the end was `jnz` over a near `jmp` - not taken a segment, so 12
 ; cycles a segment less on an 8088, and five bytes a list
 %macro VD_GATE 1
-    shr word [cs:vd_map], 1
+    shr byte [cs:vd_map], 1         ; (a BYTE: lists 0..7 are its low one)
     jc .seg
 .done:
 %ifidn %1, 0
@@ -116,12 +116,14 @@
 %endif
 %endmacro
 
-; VD_GATEN next - VD_GATE for a list whose `next` is in a short jump's
-; reach (or 0, and .ret a `ret` in reach): not there is a `jnc` to it, and
-; there falls into .seg - 12 cycles less a present list, 3 an absent one.
-; The list's 0 is a `jz` to `next` itself, so no .done
-%macro VD_GATEN 1
-    shr word [cs:vd_map], 1
+; VD_GATEN next[, byte] - VD_GATE for a list whose `next` is in a short
+; jump's reach (or 0, and .ret a `ret` in reach): not there is a `jnc` to
+; it, and there falls into .seg - 12 cycles less a present list, 3 an absent
+; one. The list's 0 is a `jz` to `next` itself, so no .done. The map is
+; shifted a BYTE at a time - a word's read-modify-write is 8 cycles more on
+; an 8088 - so lists 8 and 9 (the long spans) name its high byte
+%macro VD_GATEN 1-2 vd_map
+    shr byte [cs:%2], 1
 %ifidn %1, 0
     jnc .ret
 %else
@@ -417,7 +419,7 @@ vd_ngo1:
 
 ; the long ones: a span of 256+ bytes, len16 - rare, so a plain loop
 vd_n_slicel:
-    VD_GATEN vd_n_runl
+    VD_GATEN vd_n_runl, vd_map + 1
 .seg:
     lodsb
     or al, al
@@ -443,7 +445,7 @@ vd_n_slicel:
     jmp short .seg
 
 vd_n_runl:
-    VD_GATEN 0
+    VD_GATEN 0, vd_map + 1
 .seg:
     lodsb
     or al, al
@@ -584,7 +586,7 @@ vd_wfill:
     ret
 
 vd_w_slicel:
-    VD_GATEN vd_w_runl
+    VD_GATEN vd_w_runl, vd_map + 1
 .seg:
     lodsb
     or al, al
@@ -613,7 +615,7 @@ vd_w_slicel:
     jmp short .seg
 
 vd_w_runl:
-    VD_GATEN 0
+    VD_GATEN 0, vd_map + 1
 .seg:
     lodsb
     or al, al

@@ -303,9 +303,7 @@ vo_pre:
     call vo_savbit
     test [vo_drawn], bl
     jz .ret
-    not bl
-    and [vo_drawn], bl
-    not bl
+    xor [vo_drawn], bl              ; (the bit, which is set: cleared)
     shr bl, 1                       ; (bit -> page index)
     mov al, 1
     jmp vo_io
@@ -594,8 +592,7 @@ vo_pgsave:
     shl bh, cl                      ; BH = its bit
     test [vo_drawn], bh
     jz .m
-    not bh
-    and [vo_drawn], bh
+    xor [vo_drawn], bh              ; (set: cleared. vo_io takes BL alone)
     push bx
     mov al, 1
     call vo_io                      ; (its box put back, on its old page)
