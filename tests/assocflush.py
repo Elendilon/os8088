@@ -148,7 +148,7 @@ class Flushes(object):
         os88marty.pace(self.m, guest)
 
 
-NAPP, NEXT = 32, 64                 # ASSOC_NAPP, ASSOC_NEXT (kernel/assoc.inc)
+NAPP, NEXT = 16, 32                 # ASSOC_NAPP, ASSOC_NEXT (kernel/assoc.inc)
 
 
 def ext_map(ui):

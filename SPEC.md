@@ -53956,7 +53956,7 @@ a row rather than a wrong picture, and the shed reclaims the old one.
 Two further consequences belong here rather than there. The store is sized for
 the machine and absorbing is eager, so the measurement that sizes it is the union
 over every volume a machine might mount: **40 distinct shipped programs**
-(§25.9.2), against `ICO_NROW`'s 60 and `ASSOC_NAPP`'s further 32 composed
+(§25.9.2), against `ICO_NROW`'s 60 and `ASSOC_NAPP`'s further 16 composed
 document bodies. And a **shed** now costs a little more
 than a redraw — the absorbed rows go with it — so `ico_need` clears
 `asc_vol` when it re-claims an empty store, which turns that cost back into
@@ -96458,14 +96458,18 @@ assoc_drv[i]     byte      ...on which volume (0xFF = never seen)
 assoc_dfold[i]   byte      build-time folder: 0 root, 1 APPS, 2 GAMES
 ```
 
-`ASSOC_NAPP` = 32, `ASSOC_NEXT` = 64 - what one full `ASSOC.DAT` can declare
-(it carries at most `ASC_NEXT` = 64 extension rows). They were 12 and 24, and
-**nothing frees a slot within a session**, so a machine that met more than seven
+`ASSOC_NAPP` = 16, `ASSOC_NEXT` = 32. They were 12 and 24, and **nothing
+frees a slot within a session**, so a machine that met more than seven
 declaring programs past the five built-ins dropped the rest in silence:
 `office360` mounted beside `apps360` wanted nine, a full hard-disk install
-eleven slots and twenty new extensions. The raise is 20 bytes a slot and 4 an
-extension, ~560 resident bytes on `kern_big` (§54.7.6.5 has the measured
-figure). **Every stride is a power of two** so
+eleven slots and twenty new extensions - and 16/32 is that install exactly,
+eleven slots and 24 extensions past the built-ins. The raise is 20 bytes a slot
+and 4 an extension, **114 resident bytes** on `kern_big` measured (§54.7.6.5).
+The 32/64 one full `ASSOC.DAT` could declare was built and REFUSED at 562
+bytes. A full table still drops a declaring program's association for the rest
+of the session, as it did at 12/24 - but no shipped set reaches 16/32, and
+448 more resident bytes on every machine is the wrong price for headroom
+nothing has asked for yet. **Every stride is a power of two** so
 the lookup the harvest does once per listed file is a shift through CL rather
 than the `mul` an odd stride would force.
 
@@ -97304,7 +97308,7 @@ choices in it are the load-bearing ones:
 
 - **`assoc_app_of`, not `asc_slot_of` — find, never create.** A slot only
   matters if some extension points at it, and the kernel's table is
-  `ASSOC_NAPP` = **32** rows against a disk that may cache 55. Creating a
+  `ASSOC_NAPP` = **16** rows against a disk that may cache 55. Creating a
   slot per package would evict the associations this exists to serve.
 - **After `asc_merge_ext`**, so a package that *declares* its extensions
   (§54.6) has already been given its slot and is found here like anything
@@ -97489,7 +97493,7 @@ and the busiest shipped volume declares 25 rows of which 24 carry a body,
 while the union over *every* shipped volume is **28 distinct `(stem, size)`
 pairs** at the time (40 shipped programs since, §25.9.2) against
 `ICO_NROW`'s 60, with `ASSOC_NAPP` capping composed document bodies at another
-32. A full store is §25's generic icon and not an error.
+16. A full store is §25's generic icon and not an error.
 
 **`asc_vol` changes meaning, and the compare that reads it gains a second
 half.** It said *whose cache the claim holds*; there is no claim, so it says
@@ -97807,11 +97811,12 @@ for one new package and **4.07 s** for seventeen. The next boot then lists
 `B:\MEDIA` before `APPS\` is opened. `tests/assocflush.py` is the gate.
 
 **The 5KB raise and the installer's hold** (§25.9.2, §54.2, §54.7.1,
-§52.10.14) took the total to `kern_big` **+771 resident bytes** against the
-kernel before the writer (`.text` +569, `.bss` +4, `.cold` +198): of the
-raise, **562 are the two slot tables** (`ASSOC_NAPP` 12 -> 32 at 20 bytes a
-slot, `ASSOC_NEXT` 24 -> 64 at 4) and **34 are the hold mode** in
-`asc_flush` and `fm_fmt_drop`. `KERN_SIZE` 98,304 -> 99,328 against a
+§52.10.14) took the total to `kern_big` **+322 resident bytes** against the
+kernel before the writer (`.text` +121, `.bss` +4, `.cold` +197): of the
+raise, **114 are the two slot tables** (`ASSOC_NAPP` 12 -> 16 at 20 bytes a
+slot, `ASSOC_NEXT` 24 -> 32 at 4) and **33 are the hold mode** in
+`asc_flush` and `fm_fmt_drop`. Tables of 32/64 were built first and measured
+at 562 bytes, and refused (§54.2). `KERN_SIZE` 98,304 -> 98,816 against a
 `KERN_BUDGET` of 100,864. `kern_small` is still **+6**: it has no
 associations (§54.0). The heap side is transient - the cache buffer 3 -> 5KB
 for one read, the flush's work claim 8 -> 12KB for one flush - except the

@@ -31,16 +31,18 @@
 ; vanishing, and the per-module pass keeps assembling.
 %ifdef OS88_ASSOC
 
-ASSOC_NAPP   equ 32             ; app slots - 20 resident bytes each (stem,
+ASSOC_NAPP   equ 16             ; app slots - 20 resident bytes each (stem,
                                 ; glyph, cluster, volume, default folder)
-ASSOC_NEXT   equ 64             ; extension slots - 4 each. Both were 12 and
+ASSOC_NEXT   equ 32             ; extension slots - 4 each. Both were 12 and
                                 ; 24, and NOTHING FREES A SLOT in a session, so
                                 ; a machine that met more than 7 declaring
                                 ; programs past the five built-ins dropped the
                                 ; rest silently: office360 with apps360 wanted
                                 ; 9, a full hard-disk install 11 and 20 new
-                                ; extensions. 32/64 is what one full ASSOC.DAT
-                                ; (ASC_NEXT) can declare (SPEC.md 54.2)
+                                ; extensions. 16/32 is that install's 11 and
+                                ; 20 past the built-ins, at 112 resident bytes;
+                                ; the 32/64 a full ASSOC.DAT could declare was
+                                ; 560 and refused (SPEC.md 54.2)
 ASSOC_STICKY equ 0x80           ; ext slot bit 7: claimed by a RUNTIME
                                 ; registration, so a header declaration
                                 ; (SPEC.md 54.5) may not take it back

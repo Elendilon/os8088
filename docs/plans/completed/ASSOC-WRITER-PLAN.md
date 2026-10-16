@@ -772,8 +772,11 @@ can reach (`assoc*`, `ascabsorb`, `ico*`, `mediadisk`, `rdicon`,
    `ASC_NAPP` 32 -> 55 and `ASC_NEXT` 24 -> 64 (`ASC_KB` 3 -> 5, 5,112
    bytes), the icon store 48 -> 60 rows (`ICO_KB` 4 -> 5, so a full file is
    absorbed whole) with the capture 9 -> 11 records in its tail, and the
-   kernel's own slot tables 12/24 -> 32/64 - what one full file can declare,
-   since nothing frees a slot within a session (SPEC.md 54.2). The installer
+   kernel's own slot tables 12/24 -> 16/32, a full hard-disk install's eleven
+   declaring programs and twenty extensions past the built-ins, since nothing
+   frees a slot within a session (SPEC.md 54.2). 32/64, what one full file
+   can declare, was built first and measured at 562 resident bytes against
+   16/32's 114, and refused. The installer
    no longer flushes per copied folder: `OSAPI_ASSOC_FLUSH` grew a HOLD mode
    (`ASSOC_FL_HOLD` with `ASSOC_FL_NOFLUSH`) that loads `FORMAT.DRV` and
    keeps it until released, so `hd_inst` acquires before the first copy,
