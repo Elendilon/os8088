@@ -104716,9 +104716,10 @@ into the entry, so the result of one sum is the start of the next. That last
 part is the reason the pane exists at all — a list you can only read is a log,
 and this is a working surface.
 
-4,780 bytes of image and 478 of bss, so 5,258 of the 60KB a package's region
-may hold (§20.1); 3,849 in the small build (§65.10). No heap claim, no worker
-task, no file of its own.
+4,652 bytes of image and 478 of bss, so 5,130 of the 60KB a package's region
+may hold (§20.1); 3,609 in the small build (§65.10). No heap claim, no worker
+task, no file of its own. On disk it is a 4,262-byte LZ4 file, 3,175 for the
+small build (§65.10.4).
 
 **`tests/dispcalc.py` and `tests/calcflick.py` are the gates**, and
 `tests/dispcalcx.py` is §65.3's — the one that drives an adapter change and a
@@ -105288,10 +105289,12 @@ leaves no room to fold the pane open), made the only shape.
 
 Two integration notes, both Note Pad's rules applied again. The three history
 routines the *arithmetic* calls — `cal_hist_prep`, `cal_hist_prep_un`,
-`cal_hist_push`, reached from every `=`, √ and 1/x — collapse to **one shared
-`ret`** rather than six `%ifdef`s through code that is not the history's. And
-`[cal_linep]` stays in both builds: it reads 0 here, which is exactly what
-`cal_unary_end` already tests for, so that path needs no gate either.
+`cal_hist_push`, reached from every `=`, √ and 1/x — collapsed to **one shared
+`ret`** rather than six `%ifdef`s through code that is not the history's, and
+`[cal_linep]` stayed in both builds, reading 0. **Apps size pass 2 took the
+other side of that trade** (§65.10.4): the call sites still loaded their
+strings, called the `ret` and tested a word that could only read 0, so four
+short gates now take them out of the small build entirely.
 
 **The full build is byte-identical with the gates in**, proven by assembling a
 mechanically de-gated copy and comparing md5; `tests/unit/t_appsmall.py`
@@ -105337,6 +105340,94 @@ there and nowhere else, so none of them banks a register of its own any more
   `[cal_wait]` group is laid out so the stores that set them together are
   word stores. `tests/dispcalc.py` and `tests/dispcalcx.py` read the bss at
   fixed offsets and were moved with it.
+
+#### 65.10.4 Apps size pass 2 — the SHIPPED FILE, on four disks
+
+Pass 2 measures what a package costs a DISK: the LZ4-packed `CALC.O88`, which
+rides `apps360.img` and `office360.img` in the full build and `small360.img`
+and `smallapps360.img` in the small one. Code packs poorly (a byte of code is
+most of a file byte), but a run of pushes or pops matches one elsewhere in the
+image and costs a fraction of its length — so taking out a bracket of saves
+can SHRINK the image and GROW the file. `cal_draw_hdr`'s eight saves are the
+measured case: dropping the four nobody reads is 8 image bytes and 4 MORE file
+bytes, and it was not taken. No bss offset moved in the full build.
+
+| step | full file | full image + bss | small file | small image + bss |
+|---|---:|---:|---:|---:|
+| the cut point | 4,329 | 4,777 + 478 | 3,353 | 3,657 + 192 |
+| 1. cold paths | 4,301 | 4,721 + 478 | 3,327 | 3,614 + 192 |
+| 2. the keystroke path | 4,262 | 4,652 + 478 | 3,287 | 3,545 + 192 |
+| 3. what the small build cannot reach | 4,262 | 4,652 + 478 | **3,175** | **3,419 + 190** |
+
+So **-67 file bytes on each of two disks for the full build and -178 on each
+of two for the small one**, with image + bss down 125 and 240. The clusters
+did not move (5 and 4), and that is the boundary rather than the result.
+
+**1. The cold paths** — none of these runs on a keystroke:
+
+- `cal_entry` keeps no register: the loader reloads everything it reads after
+  the call (`kernel/loader.inc` step 9 takes BX and nothing else), the region
+  declaration names the entry's own `ret` as its proc, and the second
+  `mov al, 1` went, `OSAPI_WM_SNAP` preserving AL.
+- `cal_paste` steps over a leading `-` and reads it again off `cal_pbuf` at
+  the end, where it kept a flag and a second counter in two more registers;
+  it and `cal_hist_load` share `cal_result`, the tail of `cal_clearent` (no
+  error, a RESULT on show, no point).
+- `cal_repaint` is `cal_drawall` entered with CF = 1, so the ground fill runs
+  inside the one save.
+- `View`'s item is TOGGLED rather than copied: `Show` and `Hide` are one XOR
+  of each other applied in step with `[cal_open]`, which drops the two
+  four-byte source strings and two saves.
+
+**2. The keystroke path** — every change REMOVES or cheapens instructions, so
+none can be slower, and it was measured anyway:
+
+- **A register is kept by whoever reads it after, and by nobody else.** The
+  `cq_*` family banked everything; now `cq_div10`, `cq_divmod`, `cq_zero`,
+  `cq_big`, `cq_div10r`, `cq_scale` and `cq_mul32` keep only what a caller
+  reads across them (`cq_mul10` keeps AX for `cal_pack`'s digit and
+  `cal_do_sqrt`'s exponent, CX for `cq_scale`, SI and BX for `cal_addsub`'s
+  operands), and each routine's header says what it clobbers. `cal_fmtv` no
+  longer banks AX, BX or DX (BX it never wrote); `cal_copy`, the one caller
+  owing its own caller every register, banks DX itself. `cal_hit` dropped a
+  push/pop round two routines that keep AX.
+- `cq_mul32` STORES the two partial products that do not overlap and adds only
+  the two cross terms, so the result needs no zeroing first. `cq_div10r`
+  falls into `cq_add16`. `cal_kdigit`'s `m * 10 + d` multiplies the same two
+  operands in the other order and needs two moves where it had six.
+  `cal_rect` adds each extent a byte at a time with its carry.
+- `cal_key`'s tail IS `cal_show`'s body: the two banked the same six registers
+  one inside the other, so a key paid for the save twice. `cal_show` is now a
+  save and a jump into it, paid by the four entries that are not a keystroke.
+
+Measured on MartyPC (`os8088_5150_cga`, the 360KB disks): guest cycles from
+`cal_key`'s entry to its `ret` for each of 56 typed keys - digits, all four
+operators, `=`, `Q`, `R`, `%`, `N`, Backspace, Esc - on both builds, with the
+display fields compared after every key and **identical on all 56**. A digit
+is **314-464 cycles cheaper**, `=` 962-1,058, `R` 1,222, `Q` 1,512; the whole
+sequence **2,106,376 -> 2,042,978 (-3.0%)**. Four keys read dearer, by 1,054
+to 5,486, and none of them repeats at the same key elsewhere in the sequence
+(Backspace and Esc are -294 and -320 there): a timer tick landing inside the
+window is ~6,000 cycles, which is also the size of the eight largest gains.
+
+**3. What the small build cannot reach** — the full build is the same code
+after this step (its data moved, its bss did not), and each piece is gated
+behind the flag that already gates the code that reads it:
+
+- the pane's DATA: the View menu, its two items and the strip's label, 46
+  bytes nothing in that build reads;
+- the history calls IN THE ARITHMETIC (`cal_keq`, `cal_ksqrt`, `cal_krecip`,
+  `cal_unary_end`), with the three unary-line strings and `[cal_linep]`,
+  where the shared `ret` of §65.10.2 used to stand;
+- `cal_abdismiss`'s three call sites and the `clc` / `ret` stub that answered
+  "not spent" every time, `cal_ctl`'s pane test, and the `H` key.
+
+**One defect went with the `H` key.** The small build has no pane, but
+`cal_asctab` still mapped `h`/`H` to `CK_HIST` - which `cal_dispatch` refuses
+only AFTER its choke point has cleared `[cal_wait]` - so `12 +` then `h`
+brought the `12` back into a field that was waiting for a new number
+(§65.2.1). The key does nothing at all there now, as it does nothing to the
+field in the full build.
 
 ## 66. Heap compaction — closing the holes on demand
 
