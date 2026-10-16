@@ -373,7 +373,8 @@ GROUPS = [
      _tearing),
     ("Size vs quality", "When a frame is cut", ("lookahead", "error", "cut",
                                                 "frame_cap", "lag", "min_fps",
-                                                "edges", "attend"), ALWAYS),
+                                                "slow_cost", "edges",
+                                                "attend"), ALWAYS),
     ("Size vs quality", "Aim: size", ("worth",),
      lambda c: None if c["aim"] == "size" else
      "This is --aim size's floor, and the aim is %s. Choose size as the Aim "

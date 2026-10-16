@@ -169717,11 +169717,15 @@ encoded on copies of the encoder at each rate down to F (5/6, 2/3, 1/2,
 frame's record draws toward the next frame shown, which finishes it - an
 empty hold cannot raise the per-frame ceiling, the player drawing the
 records that are due and starting none early. A held frame is judged
-against the picture it draws, plus 2 points for its choppiness
-(`VFR_HOLD`), and at a scene start the full rate's first frame draws the
+against the picture it draws, plus `--slow-cost PTS` points for its
+choppiness (2 by default; higher holds the full rate longer, and the owner
+expects a clip to want its own, which the plan's per-scene editor would
+give), and at a scene start the full rate's first frame draws the
 coarse cut's cells (98.2.1.9), so a slower rate is weighed against what
 the encoder does without it. GasGas 0:40-0:50 at 24 fps: the view 6.8%
-broken, 5.3% with `--min-fps 12`, 5.0% at 20 fps throughout; Take On Me
+broken, 5.3% with `--min-fps 12`, 5.0% at 20 fps throughout - and the
+owner, playing them, found the slowed file and the 20 fps one "very
+similar" and the 24 fps one "lots of tearing liney cars"; Take On Me
 0:15-0:30 5.5% -> 4.8%. Not on a flipped, page-ahead, layered or Live
 file; `OS88_VENC_VFRLOG=FILE` logs every decision. No format change: a
 held frame is an ordinary record.

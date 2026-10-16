@@ -317,8 +317,13 @@ drawn better", and the hold is only the means. Built so:
   draws** (it is the first half of the next one, as a slower file's frame
   is drawn over the same time), plus `VFR_HOLD`, 2 points, for its
   choppiness. Judged against its own moment's target the motion it skips
-  read as breakage and the car was never slowed. `VFR_HOLD` is a GUESS
-  until the owner's eye sets it.
+  read as breakage and the car was never slowed. It is `--slow-cost PTS`
+  (2 by default): the owner, on the three GasGas files, found `--min-fps
+  12` and 20 fps throughout "very similar" and the fixed 24 "lots of
+  tearing liney cars" - 12 fps "not dropping too low, in this clip" - and
+  expects another clip to want more penalty before it drops, so it is an
+  option, and a per-scene one belongs to the scene editor this plan's
+  family has had parked for a while.
 - **At a scene start it competes with the coarse cut** (98.2.1.9): the
   full rate's first frame draws the cells, as today, and a slower rate
   that wins draws the scene in full detail instead.
@@ -343,7 +348,7 @@ The car frames 14-25: 36 63 51 25 36 26 37 19 22 0 0 0 at 24 fps, 36 63 51
 40 4 20 29 0 0 19 5 0 slowed. Its first three are a scene change - its
 palette arrives at frame 15 and the content a frame before - and break at
 20 fps throughout too. The encode takes ~15% longer on GasGas (285 s ->
-328 s) and the default is OFF until the owner has watched it.
+328 s) and the default is OFF.
 
 Not on a flipped file (every record flips, so a held one would show the
 page two frames back), a layered file or a Live one, and in wave 1 not on

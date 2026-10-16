@@ -860,7 +860,7 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     31: "09f14123f968592f", 32: "413eeac77e2d4441",
                     33: "1cb11afeb374b243", 34: "60df56fd426010fd",
                     35: "e1090fc6c20c5367", 36: "00e7310bd1a264d8",
-                    37: "096abca8b264506a", 38: "528143558888df53"}
+                    37: "096abca8b264506a", 38: "eaf373ad8f1e1fdb"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1028,9 +1028,9 @@ MIGRATIONS = {
     # 37: --attend and --edges (VIDEO-SEEN-PLAN 3) - a file made before
     # them spent a cut frame by the error as seen alone
     36: [("added", "attend", 0.0), ("added", "edges", 0.0)],
-    # 38: --min-fps (VIDEO-SEEN-PLAN 3a) - a file made before it ran at
-    # one frame rate
-    37: [("added", "min_fps", 0.0)],
+    # 38: --min-fps and --slow-cost (VIDEO-SEEN-PLAN 3a) - a file made
+    # before them ran at one frame rate
+    37: [("added", "min_fps", 0.0), ("added", "slow_cost", 2.0)],
 }
 
 
@@ -3567,7 +3567,10 @@ VFR_RATES = (1.0, 5.0 / 6, 2.0 / 3, 0.5, 1.0 / 3, 0.25)  # of the frame rate
 VFR_SPAN = 0.5          # the stretch a rate is chosen for, seconds
 VFR_GAIN = 0.0          # ...and taken only this much less broken: the
                         # choppiness is VFR_HOLD, already in the sum
-VFR_HOLD = 0.02         # a held frame's choppiness, as a share broken
+VFR_HOLD = 2.0          # a held frame's choppiness, points of the view
+                        # broken (--slow-cost's default): GasGas's car
+                        # shot slowed to 12 fps at it, and the owner found
+                        # it "very similar" to the 20 fps file
 VFR_AGAIN = 2           # frames until a cut is asked again, after the full
                         # rate won
 
@@ -3588,7 +3591,7 @@ def vfr_cut(enc, target, au):
     return e.stats["cut"] != c0
 
 
-def vfr_try(enc, ts, pat, au, tp, first=None):
+def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD):
     """The stretch `ts` encoded on a copy at the hold pattern `pat`: its
     mean view as seen, a frame against the picture it draws (a held one's
     the next shown, and VFR_HOLD more). `first`, what the first frame
@@ -3607,18 +3610,19 @@ def vfr_try(enc, ts, pat, au, tp, first=None):
             _, rec = e.frame(ts[k], au if j == 0 else b"\x80" * len(au))
         e.charge(rec, len(au))
         T = e.tpix(ts[k])[1]
-        v += seen_share(e.spix()[1], T, prev) + (VFR_HOLD if pat[j] else 0)
+        v += seen_share(e.spix()[1], T, prev) + \
+            (cost / 100.0 if pat[j] else 0.0)
         prev = T
     return v / len(ts)
 
 
-def vfr_choose(enc, ts, au, fmin, fps, tp, first=None):
+def vfr_choose(enc, ts, au, fmin, fps, tp, first=None, cost=VFR_HOLD):
     """-> (hold pattern, rate): the stretch's best rate down to `fmin` -
     the full rate's first frame drawing `first` where that is a scene
     start's coarse cells, so a slower rate is weighed against today's"""
     n = len(ts)
     full = [False] * n
-    base = vfr_try(enc, ts, full, au, tp, first)
+    base = vfr_try(enc, ts, full, au, tp, first, cost)
     best = (base, full, fps)
     for r in VFR_RATES[1:]:
         if r * fps < fmin - 1e-6:
@@ -3626,7 +3630,7 @@ def vfr_choose(enc, ts, au, fmin, fps, tp, first=None):
         pat = vfr_pattern(n, r)
         if not any(pat):
             continue
-        v = vfr_try(enc, ts, pat, au, tp)
+        v = vfr_try(enc, ts, pat, au, tp, cost=cost)
         if v < best[0] - 1e-9:
             best = (v, pat, r * fps)
     if os.environ.get("OS88_VENC_VFRLOG"):  # (each decision, to look at)
@@ -8702,7 +8706,7 @@ def _encode(a, keep, tick, readers):
                     fl.write("f %d: stretch %d, cut %s\n" % (k, n, vcut))
             if vcut:
                 pat, r = vfr_choose(e, [target] + list(vfut)[:n - 1], au,
-                                    vfr, fps, e.q_stp, draw)
+                                    vfr, fps, e.q_stp, draw, vcost)
                 # (the full rate is committed for VFR_AGAIN frames only, so a
                 # stretch that would slow better a frame or two on is asked
                 # again there)
@@ -8841,6 +8845,7 @@ def _encode(a, keep, tick, readers):
             if a.live else "a rate is chosen by the view as seen"))
         vfr = 0.0
     vspan = max(2, int(round(fps * VFR_SPAN)))
+    vcost = float(getattr(a, "slow_cost", VFR_HOLD))
     enc.vplan, enc.vrates = deque(), {}
     while True:
         while len(ahead) < 1 + max(enc.look, vspan - 1 if vfr else 0):
@@ -9820,6 +9825,14 @@ def parser():
                          "frame draws toward the next one shown (0 off, the "
                          "default; not on a flipped, page-ahead, layered or "
                          "Live file; VIDEO-SEEN-PLAN 3a)")
+    ap.add_argument("--slow-cost", type=float, default=VFR_HOLD,
+                    metavar="PTS",
+                    help="--min-fps's price of choppiness: each frame a "
+                         "slower rate holds counts as PTS points of the view "
+                         "broken, so a stretch slows only where the tearing it "
+                         "saves is worth more. Higher holds the full rate "
+                         "longer, lower slows sooner (default %g; "
+                         "VIDEO-SEEN-PLAN 3a)" % VFR_HOLD)
     ap.add_argument("--edges", type=float, default=1.0, metavar="S",
                     help="WHEN A FRAME IS CUT, count the EDGES it leaves: a "
                          "change also worth how much nearer its target's "
