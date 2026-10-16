@@ -1651,8 +1651,13 @@ cp_v2r:
 ; clobbers: AL (the output), flags
 ; -----------------------------------------------------------------------------
 cp_nitems:
-    call COLD_SEG:drv_cp_count_x
+%ifdef OS88_DRIVERS
+    mov al, 0xFF                ; drv_cp_count: an ordinal no class can be, so
+    call COLD_SEG:drvf_drv_cp_class ; the walk runs out and AL is the tally
     add al, [cp_nst]
+%else
+    mov al, [cp_nst]            ; ...and no class publishes a page here
+%endif
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3666,7 +3671,7 @@ cp_sched_click:
     cmp al, ah
     je .done                    ; that row is already live: change nothing
     mov al, ah
-    call KERNEL_SEG:sched_mode_set            ; live on the next tick (SPEC.md 8.2)
+    call cp_schset              ; live on the next tick (SPEC.md 8.2)
     call cp_repost              ; ...and remembered on close (31.8)
                                 ; ui_task step 3 repaints the About box's
                                 ; ...and SAY SO once (SPEC.md 13.13)
@@ -6121,7 +6126,7 @@ cp_drv_mempar:
     pop si                      ; the ROW INDEX again, for drv_memk
     push si
     shl si, 1
-    mov ax, [drv_memk + si]
+    mov ax, [cs:drv_memk + si]
     and ah, 0x7F                ; DRVM_PLUS is a flag, not a digit
     or ax, ax
     jz .next                    ; a row with no figure at all
@@ -6228,7 +6233,7 @@ cp_drv_mem1:
     mov bl, al
     xor bh, bh
     shl bx, 1
-    mov bx, [drv_memk + bx]
+    mov bx, [cs:drv_memk + bx]
     or bx, bx
     jz .out                     ; a row with no figure says nothing rather
                                 ; than '~0K'

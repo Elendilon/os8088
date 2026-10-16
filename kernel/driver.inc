@@ -1437,6 +1437,9 @@ DRVM_NET     equ DRVM_IMG_NET   ; the parallel link claims NOTHING: its packet
                                 ; buffers are bss, and a driver's bss ships
                                 ; INSIDE its image (DRV_H_IMG)
 
+section .modu                   ; CTRL.DRV's: the Drivers page is the only
+                                ; reader, `cs:` from its own image (kernel size
+                                ; pass 13 - 14 bytes that were resident `.text`)
 drv_memk:                       ; one word per drv_tab row, in the same order
     dw DRVM_SND                 ; row 0: sound
     dw DRVM_HDD                 ; row 1: hard disk
@@ -1455,6 +1458,7 @@ drv_memk:                       ; one word per drv_tab row, in the same order
 %if ($ - drv_memk) / 2 != DRV_MAX
   %error "drv_memk has drifted from drv_tab: one word per row, same order"
 %endif
+section .text
 
 ; --- ...AND THE OTHER QUESTION A CLASS CAN BE ASKED (SPEC.md 51.12.1) -------
 ; What a class COULD cost - the ceiling `Hard drives (Up to 32K)` quotes - is
@@ -2754,17 +2758,12 @@ osapi_drv_dlg_x:                ; the cell exists, the body does not
 ;
 ; ONE walk serves both. `drv_cp_count` is `drv_cp_class` asked for an ordinal
 ; no class can have (0xFF against a tally bounded by DRVC_MAX), so the hit is
-; unreachable and what comes back is the tally - which is the count. The two
-; RETURN KINDS stay as they are and must: drv_cp_count is far-called from
-; ctrl.inc and ends `retf`, drv_cp_class is near-called and wrapped by
-; drvf_drv_cp_class, and os88ovlchk.py judges each by the returns in its own
-; extent.
+; unreachable and what comes back is the tally - which is the count. Its one
+; caller, ctrl.inc's cp_nitems, asks exactly that through drvf_drv_cp_class:
+; the far entry of its own it had was six resident bytes for a `mov al`
+; (kernel size pass 13), and kern_small's stub, which answered 0, is cp_nitems
+; reading [cp_nst] alone.
 ; -----------------------------------------------------------------------------
-drv_cp_count_x:
-    mov al, 0xFF                ; ONE WALK. An ordinal no class can be, so the
-    call drv_cp_class_x         ; hit below is unreachable and the walk runs to
-    retf                        ; the end - where the tally IS the count
-
 drv_cp_class_x:
     push bx
     push cx
@@ -4191,7 +4190,12 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     mov al, [drv_cfg+CFG_SCH]
     cmp al, 1
     ja %%up_out                    ; a byte from a future version: leave the
-    call KERNEL_SEG:sched_mode_set    ; mode alone rather than pick nonsense
+    pushf                       ; mode alone rather than pick nonsense. Else
+    cli                         ; sched_mode_set's two stores, written out
+    mov [sch_coop], al          ; (kernel size pass 13): the compare above has
+    mov byte [sch_hold], SCH_WD_TICKS ; already made AL 0 or 1, which is the
+    popf                        ; normalising it did, and a call to a far
+                                ; entry was five bytes against these thirteen
 %%up_out:
     pop di
     pop si
@@ -5888,9 +5892,6 @@ drv_notice_x:
 drv_cp_closed_x:
 drv_shutdown_x:
 drv_task_x:
-    retf
-drv_cp_count_x:
-    xor al, al                  ; no class publishes a Control Panel page
     retf
 section .modu                   ; ...and the stub goes where the body went, or
 drv_status_x:                   ; the two builds would put one name in two

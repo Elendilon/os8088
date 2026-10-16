@@ -1637,7 +1637,9 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 %endmacro
 
 osapi_table:
+apic_gfx_lock:
     OSAPI_SLOT gfx_lock           ; 0x0010
+apic_gfx_unlock:
     OSAPI_SLOT gfx_unlock         ; 0x0018
     OSAPI_SLOT gfx_pixel          ; 0x0020
 apic_gfx_hline:
@@ -1664,8 +1666,10 @@ apic_wm_show:
 apic_wm_front:                    ; DOCK.DRV's door (SPEC.md 30.4)
     OSAPI_RSLOT wm_front           ; 0x0088
 
+apic_wm_content:
     OSAPI_SLOT wm_content         ; 0x008E
     OSAPI_SLOT wm_obscured        ; 0x0096
+apic_task_yield:
     OSAPI_SLOT task_yield         ; 0x009E
     OSAPI_SLOT task_sleep         ; 0x00A6
     OSAPI_ICELL 5                 ; 0x00AE
@@ -3186,6 +3190,7 @@ apic_inst_minimize:               ; DOCK.DRV's door (SPEC.md 30.4)
                                   ;          window, 2 DRAG (W2), 3 RELEASE
                                   ;          the bar. CF = 1 refused, and every
                                   ;          verb refuses on kern_small
+apic_thm_desk:                    ; (cw_thm_desk's door, size pass 13)
 %ifdef OS88_THEME                 ; (vga12.inc's %define of thm_desk on a
     OSAPI_RSLOT thm_desk          ; build with no themes comes later than this)
 %else
@@ -5959,8 +5964,8 @@ cw_gfx_fill_gray equ apic_gfx_fill_gray ; THE CELL IS THE DOOR (size pass 9)
 cw_gfx_fill_pat:        call gfx_fill_pat
                     retf
 %ifdef OS88_THEME              ; (kern_small: vga12.inc aliases it)
-cw_thm_desk:            call thm_desk
-                    retf
+cw_thm_desk equ apic_thm_desk   ; THE CELL IS THE DOOR (size pass 13): the
+                                ; desktop's ground, once per damaged zone
 cw_dock_force:          call dock_force     ; thm_set's way out, and the
                     retf                    ; next one api_thm_set_x's: both
 cw_wm_su_drop_all:      call wm_su_drop_all ; are .cold now, and cw_thm_set
@@ -5993,15 +5998,15 @@ cw_blk_relit:           call blk_relit
 cw_gfx_frame:           call gfx_frame
                     retf
 cw_gfx_hline equ apic_gfx_hline ; THE CELL IS THE DOOR (size pass 9)
-cw_gfx_lock:            call gfx_lock
-                    retf
+cw_gfx_lock equ apic_gfx_lock   ; THE CELL IS THE DOOR (size pass 13): a lock
+                                ; is per OPERATION, so the cell's DS bank is
+                                ; ~50 cycles a lock and the shim was 4 bytes
 cw_gfx_pen_cf equ apic_gfx_pen_cf ; THE CELL IS THE DOOR (size pass 9)
 cw_gfx_pen_live:        call gfx_pen_live
                     retf
 cw_gfx_rowbase:         call gfx_rowbase
                     retf
-cw_gfx_unlock:          call gfx_unlock
-                    retf
+cw_gfx_unlock equ apic_gfx_unlock ; THE CELL IS THE DOOR (size pass 13)
 cw_gfx_xor_fill equ apic_gfx_xor_fill ; THE CELL IS THE DOOR (size pass 9)
 cw_icon_draw:           call icon_draw
                     retf
@@ -6053,8 +6058,7 @@ cw_task_exit equ task_exit      ; NEVER RETURNS - cw_inst_task_die's reason
 %endif
 cw_task_spawn:           call task_spawn
                      retf
-cw_task_yield:          call task_yield
-                    retf
+cw_task_yield equ apic_task_yield ; THE CELL IS THE DOOR (size pass 13)
 cw_toast_show equ apic_toast_show ; THE CELL IS THE DOOR (size pass 9)
 %ifdef KERN_BIG
 cw_ui_svc_open:         call ui_svc_open    ; the service zone's double-click
@@ -6100,10 +6104,13 @@ cw_wm_clip_clear equ apic_wm_clip_clear ; THE CELL IS THE DOOR (size pass 9)
 cw_wm_clip_rows:        call wm_clip_rows
                     retf
 cw_wm_clip_test equ apic_wm_clip_test ; THE CELL IS THE DOOR (size pass 9)
-cw_wm_content:          call wm_content ; NOT the cell: it was app_ball_wipe's
-                    retf                ; and app_ball_fill's on the Bounce
-                                        ; WORKER's 128-byte slice, and ctrl.inc
-                                        ; and hiber.inc still reach it
+cw_wm_content equ apic_wm_content ; THE CELL IS THE DOOR (size pass 13). It
+                                ; was not, while app_ball_wipe and
+                                ; app_ball_fill reached it on the Bounce
+                                ; WORKER's 128-byte slice and two bytes of DS
+                                ; bank mattered; Bounce is a package now
+                                ; (SPEC.md 14.8) and every caller left is on
+                                ; the UI task
 cw_wm_minsize equ apic_wm_minsize ; THE CELL IS THE DOOR (size pass 9)
 %ifdef KERN_BIG                 ; its callers are kern_big only
 cw_wm_snap equ apic_wm_snap ; THE CELL IS THE DOOR (size pass 9)
