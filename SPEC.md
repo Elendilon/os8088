@@ -178854,7 +178854,7 @@ from Tune, so it went: `cs_cfg_load` and `cs_cfg_apply` assemble only with
     the row's probe again: the fingerprint IS the identification, the one
     the user confirmed when the setting was tuned and saved on this board.
 
-It is `apps/rlapply/rlapply.asm`, **2,282 bytes with no bss** (the NEAT's five knobs were 122, the four rows of the first field round's tables, protocols and apply procs 409 more, and the WD76C10's lock sample 32), its 64-byte icon included, and it is the
+It is `apps/rlapply/rlapply.asm`, **1,681 bytes and 42 of bss** (the NEAT's five knobs were 122, the four rows of the first field round's tables, protocols and apply procs 409 more, and the WD76C10's lock sample 32), its 64-byte icon included, and it is the
 shared files assembled `CS_APPLY_ONLY`: the row table and the fingerprint
 with no probe, the knob with no sweep, the file and the apply - so **nothing
 it can run touches a port before the fingerprint has matched**. It has no
@@ -178868,6 +178868,45 @@ damaged`, `REDLINE.CFG: other BIOS`, `REDLINE.CFG: no such row`,
 region movable naming its own `ret`, which buys nothing inside an entry
 proc (`mem_in_nest` pins it there) and is the ratchet's terms
 (`tests/movable.txt`) rather than an exemption with no mechanism in it.
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) took it from
+2,282 bytes of image and a **1,979-byte** shipped file. What only REDLINE
+runs is gated `%ifndef CS_APPLY_ONLY`, so REDLINE assembles byte-identical
+to what it was, and what is RLAPPLY's own - the entry, and csapply.inc's
+`CS_LOADER` half, which only it and the csprobe write harness assemble - was
+tightened:
+  - **Save** - `cs_cfg_new`, `cs_cfg_knob` and `cs_cfg_save`, 127 bytes of
+    code nothing in RLAPPLY calls (file -103). `od_write` stays, being
+    `apps/os88data.inc`'s and ungated.
+  - **The NEAT's named setters** - `cs_ne_put` and `cs_ne_set`, the names
+    csprobe and the sweep call; RLAPPLY's `cs_ap_ne` reaches `cs_kput`
+    itself (24 bytes, file -23).
+  - **The entry proc** banks no register - the loader promises an entry
+    proc nothing back but BX and CF - and counts its way to the toast's
+    string, NUL by NUL, instead of indexing a table of seven pointers
+    (23 bytes, file -23).
+  - **REDLINE.CFG's buffer is bss** - `cs_cfg` and the checked row, 41
+    zero bytes that were image, and Save's in-place stamp gone with Save
+    (image -42, bss +41, file -2: zeros were all but free packed, and the
+    region is the same 2,560 bytes).
+  - **No probe's data** - RLAPPLY runs no probe, so its row table is each
+    row's code and apply proc (4 bytes a row, not 10) with no drop-down
+    names, and the probes' answers (`cs_found`, `cs_pres`, `cs_pval`,
+    `cs_aliased`), the FE3600 allowlist and `cs_fingerprint`'s Compaq
+    signature test are REDLINE's alone (image -290, file -52; the region
+    falls to 2,048 bytes, inside which LZ4 no longer fits in place, so this
+    step ships the file plain).
+  - **`cs_cfg_load` and `cs_cfg_apply`**, RLAPPLY's own: the fingerprint is
+    ONE 11-byte compare (`cs_crc`, `cs_date` and `cs_model` lie in the
+    file's order, +12/+14/+22, and an assembly-time check refuses a gap);
+    the knob count's own range test goes, the length test `24 + 2n` inside
+    26..40 already being n = 1..8; the load keeps the row's APPLY PROC
+    rather than its number, so the WD76C10's lock sample is chosen by
+    `cs_ap_w7` and the apply build can leave out the five rows that cannot
+    write (refused as `CSA_ROW` exactly as an unknown row is); and neither
+    routine banks a register, the entry keeping nothing across them (image
+    -95). The file is LZ4 again inside the 2,048-byte region: **1,520
+    bytes**, 16 under the 1,536 at which it would have to ship plain.
 
 `tests/rltune.py` launches it from `A:\SYSTEM` before REDLINE has saved and
 after, on QEMU, and reads the toast and the window list each time.
