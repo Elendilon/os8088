@@ -920,7 +920,6 @@ wr_rreason:
     call wr_sput
     mov si, bx
     call wr_sput
-    mov byte [di], 0
     mov si, wr_rmsg
     pop di
     pop dx

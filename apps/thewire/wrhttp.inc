@@ -120,12 +120,10 @@ wr_pathbuild:
     mov si, wr_p_pkg                    ; /wire/pkg/<NAME>
     call wr_sput
     mov si, wr_fname
-    call wr_sput
-    jmp short .term
+    jmp short .last
 .cat:
     mov si, wr_f_cat                    ; /wire/catalog.bin
-    call wr_sput
-    jmp short .term
+    jmp short .last
 .pic:
     mov si, wr_p_pic                    ; /wire/pic/<STEM>.PIC
     call wr_sput
@@ -134,10 +132,9 @@ wr_pathbuild:
     mov cx, 8
     call wr_stemcopy
     mov si, wr_x_pic
-    call wr_sput
-.term:
-    mov byte [di], 0
-    ret
+.last:
+    jmp wr_sput                         ; ...which writes the NUL; its ret is
+                                        ; ours, and lands in wr_rs
 
 ; --- wr_hclose - give the handle back, whatever happened ---------------------
 wr_hclose:
@@ -777,9 +774,7 @@ wr_hdrdone:
     call wr_sput
     mov ax, [wr_code]
     call wr_snum
-    mov byte [di], ')'
-    inc di
-    mov byte [di], 0
+    mov word [di], ')'                  ; the parenthesis and its NUL
     mov word [wr_msg], wr_nmsg
     jmp short .fail
 .toobig:

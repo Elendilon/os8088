@@ -1395,16 +1395,18 @@ wr_statbuild:                           ; (no BX: nothing below touches it,
 ; =============================================================================
 
 ; --- wr_sput - the NUL string at DS:SI to DS:DI ------------------------------
+; DI is left ON the NUL, which is written: a caller that is done composing has
+; a terminated string, and one that goes on composing writes over it. Every
+; buffer here has room for the terminator after its longest composition.
 wr_sput:
     push ax
     push si
 .c:
-    mov al, [si]
+    lodsb
+    mov [di], al
     or al, al
     jz .out
-    mov [di], al
     inc di
-    inc si
     jmp short .c
 .out:
     pop si
@@ -2501,7 +2503,6 @@ wr_stemput:
     call wr_stemcopy
     pop si
     call wr_sput
-    mov byte [di], 0
     pop es
     pop si
     pop cx
@@ -2763,7 +2764,6 @@ wr_chaindone:
     mov si, wr_s_addram                 ; the user can put in a drawer (92.8)
 .say:
     call wr_sput
-    mov byte [di], 0
     mov si, wr_omsg
     xor cx, cx
     call OSAPI_TOAST                    ; ES:SI, and ES is ours (SPEC.md 59)
@@ -3115,7 +3115,6 @@ wr_addprog:
     mov si, wr_s_file
 .pl:
     call wr_sput
-    mov byte [di], 0
     mov word [wr_msg], wr_omsg
     ret
 
@@ -3176,7 +3175,6 @@ wr_pkgrun:
     pop es
     mov si, wr_s_fromw
     call wr_sput
-    mov byte [di], 0
     mov word [wr_msg], wr_omsg
     mov si, wr_omsg
     xor cx, cx
@@ -3195,9 +3193,7 @@ wr_pkgrun:
     call wr_sput                        ; a bug report nobody can act on
     pop ax
     call wr_snum
-    mov byte [di], ')'
-    inc di
-    mov byte [di], 0
+    mov word [di], ')'                  ; the parenthesis and its NUL
     mov word [wr_msg], wr_omsg
 .out:
     ret
@@ -3221,11 +3217,9 @@ wr_cfgload:
     mov si, wr_def_host                 ; the defaults FIRST, so every exit
     mov di, wr_host                     ; below leaves a working configuration
     call wr_sput
-    mov byte [di], 0
     mov si, wr_def_pfx
     mov di, wr_pfx
     call wr_sput
-    mov byte [di], 0
     mov word [wr_port], 80
 
     call OSAPI_FILE_HERE                ; DX = our cwd, BL = our drive
@@ -3403,7 +3397,6 @@ wr_cfgparse:
     push si                             ; all: keep the default
     mov si, wr_def_host
     call wr_sput
-    mov byte [di], 0
     pop si
 .hok:
     jcxz .out

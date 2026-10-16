@@ -144831,6 +144831,14 @@ the package had twice or did not need.
   figure's last characters where `Adding` was, until the next file of the set
   rebuilt it. `wr_sline` is `WR_STATB` = 58 bytes now: **+9 bytes of bss**,
   and nothing on the glass changes but the corruption.
+- **`wr_sput` writes its NUL** and leaves DI on it, so a composition that
+  ends in a string is terminated and one that goes on writes over it. Nine
+  `mov byte [di], 0` after a final `wr_sput` went, `wr_pathbuild`'s three
+  arms end in one tail jump to it, and the loop is `lodsb` - fewer cycles a
+  character, and 13 more at the end of a string, so any string of four or
+  more characters is cheaper than before. Every destination was checked for
+  room for the terminator after its longest composition (`wr_sline` is the
+  one that needed it, above).
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 
