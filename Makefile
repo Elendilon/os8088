@@ -5729,6 +5729,9 @@ $(BUILD)/deskcal.bin: $(DESKCALSRC) | $(BUILD)
 $(BUILD)/deskcal.o88: $(BUILD)/deskcal.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/deskcal.bin -o $@
 
+# Its small build, for kern_small's disks, is with the other APP_SMALL rules
+# below ($(SMALLAPPDIR) is defined there).
+
 # Browser (docs/plans/completed/BROWSER-PLAN.md): the text-and-table HTML viewer. Step 1 of
 # that document is the RENDERER, with no network in the machine - it opens a
 # .HTM through the Standard File dialog. tools/htmsim.py is its reference
@@ -11951,10 +11954,11 @@ SMALLAPPSARGS  = $(addprefix APPS:,$(SMALLTOOLS))
 # system-disk package is subtracted here rather than in a second list.
 SMALLSYSAPPS      = $(call SMALLSUB,,$(filter-out $(SMALLOMIT) $(SMALLOMIT_ORPHAN),$(SYSAPPS)))
 SMALLSYSAPPSARGS  = $(addprefix SYSTEM:,$(SMALLSYSAPPS))
-# STIKAPPS/ rides the small system disks too (SPEC.md 24.5.1, 110.7): the
-# Desk Calendar needs no driver and has no small build, so it is the shipped
-# package - the API table is the same on both kernels (SPEC.md 20.8 rule 4)
-SMALLSTIKAPPS     = $(STIKAPPS)
+# STIKAPPS/ rides the small system disks too (SPEC.md 24.5.1, 110.7) - and
+# with the Desk Calendar's SMALL build: the shipped one is a desk widget or
+# nothing (STIK_DESKONLY), and kern_small has no desk layer, so its disks
+# carry the build that keeps the titled fallback and the worker arm
+SMALLSTIKAPPS     = $(SMALLAPPDIR)/deskcal.o88
 SMALLSTIKARGS     = $(addprefix STIKAPPS:,$(SMALLSTIKAPPS))
 
 # --- THE SMALL SYSTEM DISK CARRIES THE WHOLE APPS PAYLOAD (SPEC.md 24.5.6) ----
@@ -12269,6 +12273,17 @@ $(SMALLAPPDIR)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc apps/os88dec.
 
 $(SMALLAPPDIR)/tank.o88: $(SMALLAPPDIR)/tank.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(SMALLAPPDIR)/tank.bin -o $@
+
+# The Desk Calendar's SMALL build, for the kern_small system disks alone ($(SMALLSTIKAPPS)):
+# -DAPP_SMALL leaves STIK_DESKONLY off, so the titled fallback and the worker
+# arm are in it (SPEC.md 110.7). Same source, same bss, same state file
+$(SMALLAPPDIR)/deskcal.bin: $(DESKCALSRC) | $(BUILD)
+	@mkdir -p $(SMALLAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/deskcal/ -DAPP_SMALL -o $@ apps/deskcal/deskcal.asm
+	@echo "deskcal (APP_SMALL): $(call FILESIZE,$@) bytes"
+
+$(SMALLAPPDIR)/deskcal.o88: $(SMALLAPPDIR)/deskcal.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(SMALLAPPDIR)/deskcal.bin -o $@
 
 smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 	@python3 tools/os88pkgsize.py $(BUILD)/notepad.o88 $(SMALLAPPDIR)/notepad.o88
