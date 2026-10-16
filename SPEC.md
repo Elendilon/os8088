@@ -60505,9 +60505,12 @@ worth a byte of `.text` here and `tools/os88pkgsize.py` prints the sum:
 
 | arm | image | bss | claim | vs. full |
 |---|---|---|---|---|
-| full (shipped) | 8,223 | 1,707 | **9,930** | — |
-| `TMF_HEAP` off | 6,970 | 1,581 | 8,551 | −1,379 (13.9%) |
-| both off (`APP_SMALL`) | 4,980 | 1,317 | **6,297** | −3,633 (36.6%) |
+| full (shipped) | 7,589 | 1,698 | **9,287** | — |
+| `TMF_HEAP` off | 6,300 | 1,586 | 7,886 | −1,401 (15.1%) |
+| both off (`APP_SMALL`) | 4,400 | 1,313 | **5,713** | −3,574 (38.5%) |
+
+(As of §28.12.2's pass; the first pass left them at 8,223 / 6,970 / 4,980 of
+image against 1,707 / 1,581 / 1,317 of bss.)
 
 The first size pass on the package (it had only ever been moved, never
 trimmed) took the full arm from 9,245 + 2,269 = 11,514 to the row above and
@@ -60630,6 +60633,16 @@ the file follows UNIQUE bytes.
   `tm_lrun` pads a caption with `REPNE SCASB`/`REP STOSB` as `tm_row_draw`
   pads a row (whose `jcxz` was dead: a row always has its NUL); `tm_htype`
   loads each range's name before its test.
+
+**What it came to**, measured on the shipped file (LZ4-packed) and on the
+360KB disks: the full arm **7,047 → 6,711 bytes** (7 clusters still, on the
+system disk and the apps disk alike), image + bss 8,040 + 1,707 → 7,589 +
+1,698; the `APP_SMALL` arm **4,175 → 3,952 bytes, 5 → 4 clusters** on both
+small disks, image + bss 4,687 + 1,317 → 4,400 + 1,313. No heap claim
+changed. MartyPC, `os8088_5150_cga`, both builds in one boot and then again
+in the other order: `tm_sample` 71,654 → 63,778 cycles, the performance
+page's refresh (median) 247,922 → 234,302, a quiet page's no-change check
+19,786 → 19,456, and the three pages' full paints 1.73–1.81 M → 1.63–1.70 M.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 
