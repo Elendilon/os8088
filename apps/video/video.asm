@@ -19994,12 +19994,10 @@ vp_tquadt:    db 0x00, 0, 0, 0, 0
               db 0xDE, 0, 16, 0, 16
 VP_TQN        equ ($ - vp_tquadt) / 5
 vp_nib:       db 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4
-vp_tqg:       dw 0                  ; the machine's glyphs: segment,
-vp_tqo:       dw 0                  ; offset,
-vp_tqf:       db 0                  ; first code,
-vp_tql:       db 0                  ; last,
-vp_tqok:      db 0                  ; and whether there are any
-vp_tscr:      dw 0                  ; vp_tmono's scratch: its tables
+vp_tqok:      db 0                  ; the TEXT poster has the machine's
+                                    ; glyphs (vp_tqg..vp_tql, the desktop's
+                                    ; scratch: this byte keeps the hook's
+                                    ; words below on their parity)
 vp_c4sets:    db 2, 4, 6, 3, 5, 7, 3, 4, 7  ; CGA4's three sets' colours 1-3
 vp_c16crt:    db 4, 127, 5, 6, 6, 100, 7, 112, 9, 1, 10, 0x20  ; SPEC.md 88.15.2
 vp_tlay:      db 0                  ; the screen's layout (= [vp_layout] native)
@@ -20015,8 +20013,8 @@ vb_td:        dw 0, 0, 0, 0
 vb_n:         dw 0                  ; vp_blit: the canvas's bytes a row
 vp_fruns:     db 0                  ; the file's records carry blit runs
 vp_lfull:     db 0                  ; LIVE (98.3.10.2): blit the band whole
-vx_n:         db 0                  ; ...else these runs: y0, y1, x0, x1
-vx_run:       times VX_MAX * 4 db 0
+vx_n:         db 0                  ; ...else these runs (vx_run, in the
+                                    ; desktop's scratch): y0, y1, x0, x1
 vp_c16st:     db 0                  ; C160: the screen, not the shadow, is
                                     ; the picture (98.3.12.1)
 vp_dy0:       dw 0                  ; the band the next copy covers
@@ -20113,8 +20111,6 @@ vp_rsseg:     dw 0                  ; the seam record (LOOPREC)...
 vp_rsoff:     dw 0
 vp_rlseg:     dw 0                  ; ...and frame L+1's
 vp_rloff:     dw 0
-vp_ldkb:      dw 0                  ; vp_ldblk's claim, KB, and segment
-vp_ldseg:     dw 0
 vp_vseq:      dw 0                  ; frames drawn, every lap counted - the
 vp_aseq:      dw 0                  ; card's clock - and audio frames queued
 vp_afr0:      dw 0                  ; the frame the audio cursor was set at
@@ -20202,9 +20198,8 @@ vp_bx1:       dw 0                  ; the box's inside, screen
 vp_by1:       dw 0
 vp_bx2:       dw 0
 vp_by2:       dw 0
-vp_tx1:       dw 0                  ; the bar's inside, and the thumb
+vp_tx1:       dw 0                  ; the bar's inside
 vp_tx2:       dw 0
-vp_tx:        dw 0
 vp_dkey:      dw 0xFFFF             ; the key the picture is, FFFFh none
 vp_kblk:      db 0                  ; a first bracket's black, owed (98.3.7.1)
 vp_pscale:    dw 0                  ; ...and the scale it was made at
@@ -20288,8 +20283,6 @@ vp_klead:     dd 0                  ; ...the keys' leads' table, apart, or 0
 vp_lpar:      dw 0                  ; ...a lead read past the ring's start
 vp_lsrc:      dw 0xFFFF             ; ...a lead read into the ring, or FFFFh
 vp_alst:      dw 0                  ; ...its bytes staged in the sound ring
-vp_lsin:      dw 0                  ; vp_ldstored: the start in its cluster
-vp_lsrem:     dw 0, 0               ; ...and the bytes still to read or move
 vp_mbuf:      times VP_MBUF db 0    ; vp_fits's "Needs n KB..."
 vp_v4p:       db 0                  ; LIVE IN COLOUR (98.3.10.4): BLITP may walk the
                                     ; clip (vp_v4blit; its repack's words are
@@ -20344,7 +20337,6 @@ vp_lbk:       db 0                  ; ...and the last play's bank (vp_bkind)
 vp_eslow:     db 0xFF               ; the board's speed (vp_espeed): FFh not
                                     ; measured, 0 RAM's, 1 slow, 2 too slow
 vp_er10:      dw 0                  ; ...its time, in tenths of RAM's
-vp_etseg:     dw 0                  ; (vp_erate's segment)
 vp_noinp:     db 0                  ; 1: never in place (a gate's A/B)
 vp_ekr:       dw 0                  ; the in-place ring's slots at most (a gate's)
 vp_eq:        db 0                  ; the frame's quarters held: 0Fh or 3
@@ -20540,7 +20532,23 @@ vp_fsi        equ vp_xzf + 1        ; the bracket's mode (OSAPI_FSX_MODE)
 vp_v4buf      equ vp_fsi + FSI_SIZE ; and Live in colour's repack buffer
                                     ; (vp_v4blit), filled and blitted a few
                                     ; rows at a time in the one call
-vp_dskend     equ vp_v4buf + VP_V4BUF
+vx_run        equ vp_v4buf + VP_V4BUF ; and Live's runs, a pass's: gathered
+                                    ; by the frames' decodes (vp_lrget) only
+                                    ; while Live runs, blitted and spent at
+                                    ; its end (vp_lblit), all of it inside the
+                                    ; worker's one hold of the lock
+vp_tqg        equ vx_run + VX_MAX * 4 ; vp_tmono's (the TEXT poster): the
+vp_tqo        equ vp_tqg + 2        ; machine's glyphs - segment, offset,
+vp_tqf        equ vp_tqo + 2        ; first code and last (a word's two
+vp_tql        equ vp_tqf + 1        ; bytes, written as one) - and its
+vp_tscr       equ vp_tql + 1        ; scratch claim
+vp_tx         equ vp_tscr + 2       ; vp_pbar's: the thumb's x
+vp_ldkb       equ vp_tx + 2         ; vp_ldblk's claim, KB, and segment
+vp_ldseg      equ vp_ldkb + 2       ; (vp_sstart's, between brackets)...
+vp_lsin       equ vp_ldseg + 2      ; ...vp_ldstored's start in its cluster
+vp_lsrem      equ vp_lsin + 2       ; and the bytes still to read or move
+vp_etseg      equ vp_lsrem + 4      ; vp_erate's segment (vp_open's)
+vp_dskend     equ vp_etseg + 2
 %if vp_dskend - vo_sav > 2 * VO_SAV
   %error "the desktop's scratch runs past the full screen's save"
 %endif

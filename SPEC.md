@@ -169015,7 +169015,15 @@ a box clobbering it costs nothing, and none is a word the play reads. The
 fill line and the seek's text share one buffer (`vp_pfbuf` is
 `vp_skbuf`): each is composed and handed to `vo_show`, which copies it.
 `apps/video/rdiffhot.txt` names `vh_addr` rather than `vh_.*`, the
-half-scaler's words being bss now and not routines.
+half-scaler's words being bss now and not routines. **86 more followed**:
+Live's gathered runs (`vx_run`, 64 - written by the frames' decodes only
+while Live runs and spent by the pass's own blit, all inside the worker's
+one hold of the lock, so the hot list names `vx_n` now), the TEXT poster's
+glyph words (`vp_tmono`), the bar's thumb x (`vp_pbar`), a resident
+block's load (`vp_ldblk`, `vp_ldstored`: `vp_sstart`'s, between brackets)
+and the board timing's segment (`vp_erate`). One byte, `vp_tqok`, stays in
+the image for the PARITY of the hook's words after it (`vb_s`..`vb_td`),
+which the hot list checks as it does a routine's.
 
 **And VGA8's palette is a CLAIM** (`[vp_p8seg]`, 1KB from the top): only
 a VGA8 file has 768 bytes of it, and they are read twice - into the DAC at
@@ -169031,9 +169039,9 @@ scratch now, past the rest of it; on `vp_pal` a repack (BLITP refused)
 wrote over a VGA4 file's own sixteen, which a later full screen loads
 into the DAC (`vp_scrset`) - a latent defect, not seen in the field, that
 the move ends. **-720 bytes of bss**; with the scratch, the
-shipped arm is 55,788 + 4,144 = **1,508 under** (599 before the pass's data
-half), `NOLIVESND=1` 1,739, and `VPDIAG=1` assembles again at 57,148 +
-4,144, **148 under** (761 over).
+shipped arm is 55,702 + 4,144 = **1,594 under** (599 before the pass's data
+half), `NOLIVESND=1` 1,825, and `VPDIAG=1` assembles again at 57,062 +
+4,144, **234 under** (761 over).
 
 ### 98.2 The host tools — `tools/os88vid.py`
 
