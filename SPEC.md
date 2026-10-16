@@ -111893,6 +111893,14 @@ and code packs to about a byte a byte, so what moved it is code that went:
   return address is 4 bytes smaller and was built first; `tools/stkbalance.py`
   reads every routine an arm jumps to as returning one word deep, and a pass
   that takes ten exemptions to save four bytes is the wrong trade.)
+- **What a drawing call keeps is not loaded again.** Every API call keeps
+  every register but its documented outputs (`apps/os88api.inc`'s rule), so
+  the run painter's bold strike reuses the SI and AX `OSAPI_FONT_RUN` was
+  just handed instead of reloading both, and sets ES to its own segment once
+  before the walk rather than once per run; the About card loads its ink
+  once (the scan to the next line ends on the NUL, 0, which is `CBLACK`, so
+  AL survives it too); and `tp_xor_span` sets the selection's pen once per
+  span where it was one `OSAPI_SET_COLOR` far call per ROW it inverted.
 
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 

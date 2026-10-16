@@ -1389,12 +1389,11 @@ tp_draw_about:
     mov dx, [tp_oy]
     add dx, 16
     mov si, tp_s_a1             ; thirteen lines, one string after another
-.l:
     mov ax, CBLACK | (CWHITE << 8)
-    push si
-    call OSAPI_FONT_RUN
-    pop si
-.z:
+.l:
+    call OSAPI_FONT_RUN         ; (keeps SI and AX - and the scan below
+.z:                             ; stops with AL at the NUL, 0, which is
+                                ; CBLACK, so the ink survives it too)
     lodsb
     or al, al
     jnz .z
@@ -2272,6 +2271,8 @@ tp_xor_span:
 .ord:
     mov [tp_tmp], ax            ; start
     mov [tp_tmp2], dx           ; end
+    mov al, CBLACK              ; the pen, ONCE: nothing in the walk moves it,
+    call OSAPI_SET_COLOR        ; and it was one far call a row
     xor di, di
 .row:
     cmp di, [tp_erows]
@@ -2340,10 +2341,6 @@ tp_xor_span:
     xchg ax, dx                 ; DX=y, AX=x1
     mov bx, dx
     add dx, 7
-    push ax
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    pop ax
     call OSAPI_GFX_XOR_FILL
     pop di
 .n:
@@ -3412,6 +3409,8 @@ tp_paint_runs:
     mov bx, tp_runs
     mov si, tp_text
     mov di, [tp_nruns]
+    push ds                     ; ES = ours for every run's copy below: nothing
+    pop es                      ; in the loop moves it (the API keeps it)
 .lp:
     or di, di
     jz .o
@@ -3448,8 +3447,6 @@ tp_paint_runs:
     push si
     push di
     push cx
-    push ds
-    pop es
     mov di, tp_cline
     mov cl, [bx+6]
     xor ch, ch
@@ -3462,15 +3459,13 @@ tp_paint_runs:
     pop cx
     mov si, tp_cline
     mov ax, CBLACK | (CWHITE << 8)
-    call OSAPI_FONT_RUN
+    call OSAPI_FONT_RUN         ; (keeps SI and AX, as every API call does)
     test byte [bx], TP_RUN_BOLD
     jnz .bd
     cmp byte [bx+5], 14
     jb .un
 .bd:
     inc cx
-    mov si, tp_cline
-    mov ax, CBLACK | (CWHITE << 8)
     call OSAPI_FONT_STR_XPARENT
 .un:
     pop di
