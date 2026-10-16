@@ -171,32 +171,32 @@ is wrong. Put it back, or renumber BOTH files and rebuild every package"
 
 ; --- kind descriptor table (SPEC.md 29.3) -------------------------------------
 KD_TPL   equ 0                  ; word: wm_create template ptr
-KD_PAD   equ 2                  ; word: 0. This was KD_TASK, a built-in kind's
-                                ; task entry, and Bounce was the last kind
-                                ; with one (SPEC.md 14.8): a package's worker
-                                ; is claimed at run time through SPEC.md 20.6
-                                ; and declared nowhere, so no row names a task
-                                ; and app_launch spawns none. The word stays
-                                ; so the stride keeps its power of two
-KD_POOL  equ 4                  ; word: state pool base, 0 = stateless
-KD_SSIZE equ 6                  ; word: pool stride, bytes per instance
-KD_INIT  equ 8                  ; word: init proc or 0 - in: BX = window,
+KD_POOL  equ 2                  ; word: state pool base, 0 = stateless
+KD_SSIZE equ 4                  ; word: pool stride, bytes per instance
+KD_INIT  equ 6                  ; word: init proc or 0 - in: BX = window,
                                 ; DI = state ptr (0 if stateless), SI =
                                 ; record; preserves all; UI task, no lock,
                                 ; window not yet visible
-KD_NAME  equ 10                 ; word: NUL name string (copied to I_NAME)
-KD_ICON  equ 12                 ; word: 16x16 icon body ptr, 0 = generic
-KD_CAP   equ 14                 ; byte: max simultaneous instances
-KD_WFLAG equ 15                 ; byte: extra W_FLAGS bits OR-ed into the new
+KD_NAME  equ 8                  ; word: NUL name string (copied to I_NAME)
+KD_ICON  equ 10                 ; word: 16x16 icon body ptr, 0 = generic
+KD_CAP   equ 12                 ; byte: max simultaneous instances
+KD_WFLAG equ 13                 ; byte: extra W_FLAGS bits OR-ed into the new
                                 ; window after wm_create (SPEC.md 29.3) -
                                 ; feature bits only (WF_SIZABLE), never 0/1
-KD_SIZE  equ 16                 ; stride
+KD_SIZE  equ 14                 ; stride. NOT A POWER OF TWO since kernel size
+                                ; pass 13: the word after KD_TPL was KD_TASK,
+                                ; a built-in kind's task entry, until Bounce
+                                ; (the last kind with one) became a package
+                                ; (SPEC.md 14.8), and then KD_PAD, a zero kept
+                                ; only so the stride stayed 16. app_launch's
+                                ; `mul` is the same eleven bytes as the shift
+                                ; it replaced, so the pad was a word a row
 
-inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
-    dw app_tpl_about,  0,               0,             0,   0,                app_ttl_about
+inst_kinds:                     ; indexed by KIND_* * KD_SIZE; caps are binding
+    dw app_tpl_about,  0,             0,   0,                app_ttl_about
     dw inst_ico_about
     db 1, 0                     ; About: stateless singleton
-    dw fm_tpl,         0,               fm_pool,       FS_SIZE,  fm_kinit,     fm_ttl
+    dw fm_tpl,         fm_pool,       FS_SIZE,  fm_kinit,     fm_ttl
     dw inst_ico_disk
     db VIEW_SLOTS+1, WF_SIZABLE ; Disk: FOUR of the user's windows, each with
                                 ; its own FS_SIZE-byte state block and its own
@@ -205,11 +205,11 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
                                 ; chooser's (SPEC.md 38.1), which fm_count
                                 ; does not count. The cap and fm_pool's size
                                 ; are one number (files.inc's FM_NSLOT)
-    dw cp_tpl,         0,               0,             0,   cp_kinit,         cp_sname
+    dw cp_tpl,         0,             0,   cp_kinit,         cp_sname
     dw inst_ico_ctrl
     db 1, 0                     ; Control Panel: stateless task-less singleton
 %ifdef KERN_BIG
-    dw hb_tpl,         0,               0,             0,   hb_kinit,         hb_ttl
+    dw hb_tpl,         0,             0,   hb_kinit,         hb_ttl
     dw 0                        ; the generic icon: it is never in the dock
     db 1, 0                     ; Hibernate: stateless task-less singleton
                                 ; (SPEC.md 87.1), painted by its module
@@ -1405,14 +1405,14 @@ app_launch:
     push es
 
     mov [inst_knd], al
-    cbw                         ; SI = kind descriptor. NOTHING IS BANKED HERE
-    mov si, ax                  ; and nothing needs to be: AL is not written
-    mov cl, 4                   ; (only AH is), AH is dead until the `mov ah, 0`
-    shl si, cl                  ; beside KD_WFLAG far below, and CX is zeroed by
-    add si, inst_kinds          ; the very next instruction. The push ax / push
-                                ; cx pair round this restored one register that
-                                ; was about to be overwritten and one that was
-                                ; never touched
+    mov ah, KD_SIZE             ; SI = kind descriptor: kind x KD_SIZE, which
+    mul ah                      ; is 14 and not a power of two (an 8-bit `mul`
+    add ax, inst_kinds          ; writes AX alone), and AL back out of the
+    xchg si, ax                 ; byte it was banked in - eleven bytes, as the
+    mov al, [inst_knd]          ; `cbw` and four-place shift were (kernel size
+                                ; pass 13). AH is dead until the I_KIND store
+                                ; far below, and CX is zeroed by the very
+                                ; next instruction
 
     ; --- cap check: count records of this kind with I_STATE != 0 ------------
     xor cx, cx                  ; CL = count - and DX is free now, where this
@@ -1554,14 +1554,13 @@ app_launch:
     ; PACKAGE's worker is its own to spawn (OSAPI_TASK_SPAWN, SPEC.md 20.6),
     ; after the loader has published it, which is why it is not here either.
     mov bx, [ds:bp+I_WIN]
+    mov bp, wm_show             ; BP is spent: the record's last use was above
     cmp byte [inst_lkhd], 0     ; the Standard File chooser is launched by a
     jne .held                   ; caller that HOLDS the lock (SPEC.md 38.6),
-    call gfx_lock               ; and the lock is not recursive
-    call wm_show
-    call gfx_unlock
-    jmp short .ok
-.held:
-    call wm_show
+    call ui_lcall               ; and the lock is not recursive - so lock,
+    jmp short .ok               ; show and unlock in ui_lcall's six bytes
+.held:                          ; (kernel size pass 13, -4)
+    call bp
 .ok:
     clc
     jmp .out

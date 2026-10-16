@@ -2779,17 +2779,33 @@ dsk_vol_fixed_x:
 ; nothing asks. One whose host is gone answers removable with no unit:
 ; re-validated and never trusted. The host is never an image itself
 ; (clo_mount refuses it), so one step is the whole walk.
+;
+; THE HOST LOOKUP IS WRITTEN HERE, its one caller. It was dsk_img_host, a far
+; routine in .text that this called through KERNEL_SEG and that tail-jumped
+; back into .cold through dskf_dsk_vol_row - in .text "by size alone", for
+; a .cold rung (kernel size pass 13, -13 with the orphan walk's near
+; call). Byte 0 of the claim is the host's volume, dsk_img_swap's own byte; an ORPHAN's is 0xFF (dsk_img_orphan),
+; which no row is. The class alone is the test, as at every other DRVC_IMG
+; site: a live row of any other kind never carries it (dsk_vol_add stamps the
+; class on every row it hands out).
 ; -----------------------------------------------------------------------------
 dsk_vol_rmv:
-    call KERNEL_SEG:dsk_img_host    ; BX = the row whose medium this is
+    cmp byte [bx+DV_CLASS], DRVC_IMG
+    jne .own                    ; not an image: its own medium
+    push ds
+    mov ds, [bx+IMG_DVSEG]
+    mov bl, [0]                 ; the HOST's volume
+    pop ds
+    call dsk_vol_row_x          ; ...its row; CF = 1 = gone (an orphan)
     jc .gone
+.own:
     mov bx, [bx+DV_KIND]        ; BL = the kind, BH = the unit (asserted)...
     xchg bl, bh                 ; ...and BX below 80h is exactly "a BIOS row
     cmp bx, 0x0080              ; whose drive is below 80h": a floppy. CF is
     ret                         ; the answer, BL the unit
 .gone:
-    mov bl, 0xFF                ; `mov` leaves the lookup's CF = 1
-    ret
+    dec bx                      ; BX = 0 off the refused lookup, so BL = 0xFF,
+    ret                         ; and `dec` leaves its CF = 1
 %if DV_UNIT != DV_KIND + 1 || DVK_BIOS != 0
   %error "dsk_vol_rmv reads the kind and the unit as ONE word, BIOS = 0"
 %endif
@@ -3074,7 +3090,7 @@ dsk_vol_del:
     call dsk_fatw_drop          ; AL is still the index; it also puts the
                                 ; live window back if this volume owned it
 %ifdef OS88_IMG
-    call KERNEL_SEG:dsk_img_orphan  ; ...AND AN IMAGE IT HOSTED IS ORPHANED
+    call dsk_img_orphan         ; ...AND AN IMAGE IT HOSTED IS ORPHANED
 %endif                          ; (SPEC.md 18.101.1): AL kept, BX banked above
     cmp al, [disk_drive]
     jne .out
@@ -3090,13 +3106,11 @@ dsk_vol_del:
     ret
 
 %ifdef OS88_IMG
-section .text                   ; ...in the KERNEL SEGMENT, by size alone:
-                                ; .cold had 20 bytes of its rung left and
-                                ; this was 41 there, a 512-byte step on
-                                ; every machine; .text's rung holds it
 ; -----------------------------------------------------------------------------
 ; dsk_img_orphan - orphan every mounted image hosted on volume AL (SPEC.md
-;                  18.101.1). FAR entry: dsk_vol_del's free path, from .cold
+;                  18.101.1). dsk_vol_del's free path, near: it was a far
+;                  routine in .text "by size alone", for a .cold rung, with a
+;                  twin dsk_img_host beside it (kernel size pass 13)
 ; in:  AL = the volume index just freed
 ; out: nothing
 ; clobbers: BX (dsk_vol_del's, banked there)
@@ -3124,33 +3138,7 @@ dsk_img_orphan:
     cmp bx, dsk_vtab + DVOL_MAX*DV_SIZE
     jb .orph
     pop es
-    retf
-
-; -----------------------------------------------------------------------------
-; dsk_img_host - a MOUNTED IMAGE's host row (SPEC.md 18.101.7). FAR entry:
-;                dsk_vol_rmv's, from .cold - here by size, as dsk_img_orphan is
-; in:  BX = a live row
-; out: CF = 0 and BX = the HOST's row if BX was an image's, BX unchanged if
-;      not; CF = 1 = an image whose host is gone (BX = 0)
-; clobbers: BX, flags
-;
-; Byte 0 of the claim is the host's volume, dsk_img_swap's own byte; an
-; ORPHAN's is 0xFF (dsk_img_orphan), which no row is. The class alone is the
-; test, as at every other DRVC_IMG site: a live row of any other kind never
-; carries it (dsk_vol_add stamps the class on every row it hands out).
-; -----------------------------------------------------------------------------
-dsk_img_host:
-    cmp byte [bx+DV_CLASS], DRVC_IMG
-    clc                         ; CLC writes CF alone: ZF is still the cmp's
-    jne .own
-    push es
-    mov es, [bx+IMG_DVSEG]
-    mov bl, [es:0]              ; the HOST's volume
-    pop es
-    jmp COLD_SEG:dskf_dsk_vol_row   ; ...its row, CF = 1 none: its retf is ours
-.own:
-    retf
-section .cold                   ; ...and back to resident cold code
+    ret
 %endif
 
 ; -----------------------------------------------------------------------------

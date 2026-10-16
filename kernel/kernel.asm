@@ -1664,6 +1664,7 @@ apic_wm_show:
 apic_wm_front:                    ; DOCK.DRV's door (SPEC.md 30.4)
     OSAPI_RSLOT wm_front           ; 0x0088
 
+apic_wm_content:                  ; cw_wm_content's door (kernel size pass 13)
     OSAPI_SLOT wm_content         ; 0x008E
     OSAPI_SLOT wm_obscured        ; 0x0096
     OSAPI_SLOT task_yield         ; 0x009E
@@ -5893,8 +5894,9 @@ MARK_FNVEC  equ $ - mark_fvec
 ; more of stack - so it is taken only where every caller is a dialog, a
 ; window being built, the Control Panel or a hibernate step, and NOT for the
 ; drawing shims a repaint calls by the dozen (gfx_fill/lock/unlock/frame,
-; font_run), nor for anything a built-in WORKER calls from its 128-byte slice
-; (task_sleep, task_yield, wm_clip_set, wm_content - the Bounce task's).
+; font_run), nor - until SPEC.md 14.8 made Bounce a package - for anything a
+; built-in WORKER called from its 128-byte slice (task_sleep, task_yield,
+; wm_clip_set, wm_content: the Bounce task's). No kind has a task now.
 ; =============================================================================
 cw_app_launch:          call app_launch
                     retf
@@ -6100,10 +6102,15 @@ cw_wm_clip_clear equ apic_wm_clip_clear ; THE CELL IS THE DOOR (size pass 9)
 cw_wm_clip_rows:        call wm_clip_rows
                     retf
 cw_wm_clip_test equ apic_wm_clip_test ; THE CELL IS THE DOOR (size pass 9)
-cw_wm_content:          call wm_content ; NOT the cell: it was app_ball_wipe's
-                    retf                ; and app_ball_fill's on the Bounce
-                                        ; WORKER's 128-byte slice, and ctrl.inc
-                                        ; and hiber.inc still reach it
+cw_wm_content equ apic_wm_content ; THE CELL IS THE DOOR (kernel size pass
+                                ; 13): it was a shim of its own because
+                                ; app_ball_wipe and app_ball_fill reached it
+                                ; on the Bounce WORKER's 128-byte slice, and
+                                ; Bounce is a package (SPEC.md 14.8). What is
+                                ; left is the UI task's - the Disk window's
+                                ; layout, its self-repaint fill and its click
+                                ; conversion, the Control Panel and the
+                                ; hibernate card - once an operation each
 cw_wm_minsize equ apic_wm_minsize ; THE CELL IS THE DOOR (size pass 9)
 %ifdef KERN_BIG                 ; its callers are kern_big only
 cw_wm_snap equ apic_wm_snap ; THE CELL IS THE DOOR (size pass 9)
