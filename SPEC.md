@@ -84386,6 +84386,15 @@ per-routine listing comparison, source text and encoded length, says so).
   CX/BX, the title and order copies read with `es lodsb`, and the 1..128 song
   length is one `dec`/`js`. Same verdict, same table and same volume table
   for every input, hostile ones included.
+- **The UI task's cold paths in `tracker.asm`** (-35 file bytes, image -61):
+  `trk_legend`'s five string compares are one RANGE test (the five legends
+  are asserted, by a pair of `TIMES`, to be one run of 166 bytes and nothing
+  else); the entry's tier test is `cmp`/`sbb`/`inc` and sets the visualiser
+  pick there rather than re-testing `[trk_cpu0]`; the menu dispatch compares
+  once per pair of items; and the CF-returning helpers end in
+  `TRK_CLC_OR_STC` (the kernel's `CLC_OR_STC`, `db 0A8h` before the `stc`)
+  or in a carry computed from the caps bit (`and`/`neg`, `and`/`cmp`) rather
+  than in two exits each.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
