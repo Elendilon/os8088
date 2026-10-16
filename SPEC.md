@@ -100686,11 +100686,11 @@ rests on. A stub that returns a plausible zero for a call it does not implement
 is a harness that has started lying about the program under test, and it would
 lie in exactly the direction that makes the test pass.
 
-Four knobs, because the paths worth testing are the ones a real file cannot
-easily produce: `FSIZE=` (the reported size is a constant pair, so the 32-bit
-byte count folded into a 16-bit sector count is driven over its whole range
-without a 32MB image), `FAILOPEN=1` (DOS says no), and `ARGS=` (the command
-tail — argument parsing is code nothing else in this tree executes). Only the
+Knobs, because the paths worth testing are the ones a real file cannot
+easily produce: `FAILOPEN=1` (DOS says no), and `ARGS=` (the command tail —
+argument parsing is code nothing else in this tree executes). There was an
+`FSIZE=` for block mode's image arithmetic, and it went with block mode
+(§62.12.6 item 8). Only the
 first `DSF_KB` of the "file" is real memory and a read past it is answered
 **short** rather than with whatever was in RAM.
 
@@ -102674,6 +102674,16 @@ whichever of them is second is refused with `DRVE_TWICE` (§51.2.1) — the RAM
 disk and the cable are mutually exclusive at run time, and that is a stated
 limitation rather than an oversight.
 
+**BLOCK MODE IS REMOVED FROM BOTH ENDS NOW.** `NET.DRV`'s master half went
+first, here, and has published no `DSV_BLK` since; `OS88NET.COM`'s server
+half (`/I:` and the `R`/`W` sector commands) was then reachable from nothing,
+and apps size pass 2 removed it (§62.12.6 item 8). Serving an image again
+needs BOTH ends restored - `NET.DRV`'s `net_blk` and its `DSV_BLK` cell, and
+the server - and the server is in the history: the commit titled *"os88net:
+apps size pass 2 - block mode removed"* deleted it, so that commit's parent
+has the whole of it. `'R'` and `'W'` stay RESERVED in the one-byte command
+space so a restored server cannot collide with a verb added since.
+
 #### 62.10.1 The wire protocol
 
 §62.7's framing is unchanged and this is a second command set inside it: os8088
@@ -102783,8 +102793,8 @@ subtree, and `/W` serves the whole machine with the drives as folders of a
 synthetic root.
 
 The bare argument is the folder because the redirector is what the cable is
-FOR now; block mode's image moved behind **`/I:`**, which is the same
-demotion its `DSV_BLK` cell got. A named folder is **entered rather than
+FOR now; block mode's image moved behind a switch, `/I:`, which was the same
+demotion its `DSV_BLK` cell got - and both are gone (§62.10's note). A named folder is **entered rather than
 remembered** — `chdir` and then `int 21h` 47h — so DOS resolves `..`, a bare
 drive letter and a relative path, and what this program stores is always the
 fully-qualified answer every path it builds is rooted on. Storing the
@@ -103437,7 +103447,7 @@ The banner names it, because a switch nobody can discover is not a switch.
 
 **The startup report names the whole effective setup**: the folder served,
 whether writes are allowed *and why* (`/RO` or not), the port and whether it
-was pinned or scanned for, and the block-mode image if there is one. Every
+was pinned or scanned for (and, while block mode lived, its image). Every
 line is a choice the user made or a default they did not know they took.
 
 **And every file the run touches is named as it is touched**, one line, with
@@ -104135,12 +104145,12 @@ finds it); greedy costs about 3% here.
 
 #### 62.12.3 It needs no memory the program did not already need
 
-The staged body runs `0x3DDE..0x693A` (it was `0x4A01..0x76CD` before
+The staged body runs `0x3ACA..0x6426` (it was `0x4A01..0x76CD` before
 §62.12.6's size pass). `os88net.asm`'s own reserved buffers already run to
-`net_bss1` = **`0x9DC7`** (§62.11.7; `0x9F89` before the same pass took 450
-bytes of code out from under them), so every machine with the room to run the
-unpacked program has the room to unpack this one, with **13,453 bytes to
-spare**. `tools/os88sfx.py` asserts the ceiling and refuses in a
+`net_bss1` = **`0x995C`** (§62.11.7; `0x9F89` before the same pass took 1,581
+bytes of code and block mode's bss out from under them), so every machine with
+the room to run the unpacked program has the room to unpack this one, with
+**13,622 bytes to spare**. `tools/os88sfx.py` asserts the ceiling and refuses in a
 sentence if it is ever crossed, and `net_bss_clear` zeroes the staged body along
 with everything else above the image — by which time it has been read.
 
@@ -104275,6 +104285,26 @@ a DOS user sees on the console changes and nothing on the wire does.
    limit is 64, so nothing that could ever have been served is cut.)
    `listen_once` also lost a `shr bx, 1` whose result the next instruction
    overwrote.
+8. **Block mode is removed** (file −512, image + bss 40,135 → 39,004), by the
+   owner's decision and not by this pass's rules, which forbid removing a
+   feature: `/I:`, the `R`/`W` sector service, `open_image`, `blk_read`,
+   `blk_write`, `get_req`, `seek_lba`, `tick_dot`, the usage line, eight
+   strings and 343 bytes of bss. Nothing could reach it - §62.10's note says
+   why and how it would be restored. `NC_INFO` is NOT block mode's alone:
+   `NET.DRV`'s `net_info` sends it at every Connect and keeps the read-only
+   flag, so it stays as `srv_info` and sends the sector count as the 0 it
+   always was with no image named - the same bytes on the wire. `R` and `W`
+   go to `srv_nop` in `srv_tab`, and an assembly-time check refuses a verb
+   that takes either. Items 4, 6 and 7 describe code this removed in part
+   (`blk_*`, `seek_lba`, the `/I:` copy); they are kept as what was measured.
+   `tests/dosstub`'s `FSIZE=` knob went with it.
+
+**What the pass came to**: `OS88NET.COM` **11,575 → 10,695 bytes (−880)**,
+the packed body 11,468 → 10,588 and the raw image 18,689 → 14,794. It is
+**12 → 11 clusters** on each 1KB-cluster disk that carries it (`apps360`,
+`network360`, `apps720`) and **23 → 21** on the 512-byte-cluster ones (`apps`,
+`apps120`). Image + bss **40,585 → 39,004**; the program allocates nothing
+else and is not resident.
 
 ## 63. The logo (`tools/os88logo.py`, `MEDIA/OS8088.GIF`)
 
