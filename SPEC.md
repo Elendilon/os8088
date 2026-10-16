@@ -131178,7 +131178,13 @@ PCM8 is a pass-through — `apd_pull` copies bytes out of the look-ahead ring.
 IMA/DVI ADPCM is decoded from the **public IMA/DVI specification** — the
 89-entry step table and the 16-entry index table are the ones every
 BSD/public-domain implementation carries; nothing is vendored (§86.17). The
-decoder is **resumable**: `apd_pull(want)` fills up to `want` PCM8 bytes and
+step table is **built at launch** rather than shipped (`apd_mkstep`, ~4 ms on
+a 4.77 MHz 8088): to the unit it is `s[n+1] = s[n] + s[n] / 10 + r[n]` with
+every residual `r[n]` 0 or 1, bar the last entry, which is the predictor's own
+clamp 32767 — so eleven bytes of residual bits ship where 178 bytes of table
+packed to nearly 178 (apps size pass 2: −116 file bytes, image −120, bss +179;
+the table sits at an even address in bss, which the shipped one never was).
+The decoder is **resumable**: `apd_pull(want)` fills up to `want` PCM8 bytes and
 keeps predictor / index / block cursor / nibble phase across calls, so a
 2048-byte stage half never has to line up with an ADPCM block boundary. The
 predictor is a signed 16-bit value clamped to [−32768, 32767] each step; the

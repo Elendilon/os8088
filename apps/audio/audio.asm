@@ -382,6 +382,7 @@ ap_entry:
 %endif
 .nodoc:
     call aplist_init
+    call apd_mkstep               ; the IMA step table (apdec.inc)
 
     mov si, ap_tpl
     call OSAPI_WM_CREATE          ; BX = window ptr, CF on table full
