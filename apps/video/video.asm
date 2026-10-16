@@ -5832,11 +5832,10 @@ vp_eopen:
     push si
     mov bx, (DRVC_EMS << 8) | EMSV_CAPS
     call OSAPI_DRV_CALL
-    jc .out
+    jc .out0
     pop si                          ; (CAPS answered the quarters in SI)
     push si
-    mov cx, si                      ; THE FILE in whole slots, one over
-    mov dx, cx
+    mov dx, si                      ; THE FILE in whole slots, one over
     shr dx, 1
     shr dx, 1
     shr dx, 1
@@ -5850,7 +5849,7 @@ vp_eopen:
     and al, 0xFE                    ; whole slots: pages two at a time
 .try:
     cmp ax, VP_XBMIN / 16
-    jb .out
+    jb .out0
     push ax
     mov bx, (DRVC_EMS << 8) | EMSV_ALLOC
     call OSAPI_DRV_CALL             ; AX = the handle
@@ -5860,17 +5859,19 @@ vp_eopen:
     and cl, 0xFE
     mov ax, cx
     jmp short .try
+.out0:                              ; (.out, where the tries reach it)
+    pop si
+    ret
 .got:
     mov [vp_ehnd], ax
     push cx
-    mov byte [vp_eq], 0x0F          ; ALL FOUR quarters, for the decode in
-    mov al, 0x0F                    ; place (98.3.18.7) - else the two the
+    mov al, 0x0F                    ; ALL FOUR quarters, for the decode in
+    mov [vp_eq], al                 ; place (98.3.18.7) - else the two the
     mov bx, (DRVC_EMS << 8) | EMSV_FRAME    ; hybrid needs
     call OSAPI_DRV_CALL
     jnc .fr
-    mov byte [vp_eq], 3
-    mov al, 3
-    mov bx, (DRVC_EMS << 8) | EMSV_FRAME
+    mov al, 3                       ; (BX as it went: SPEC.md 107.1)
+    mov [vp_eq], al
     call OSAPI_DRV_CALL             ; DX = the frame's segment
 .fr:
     jc .frx                         ; THE RECIPE (SPEC.md 107.4) before CX is
@@ -5893,10 +5894,11 @@ vp_eopen:
     mov [vp_xhave], ax
     mov [vp_xhave+2], ax
     mov [vp_xfull], al
-    call vp_bflush
-    mov byte [vp_xems], 1
-    mov byte [vp_xbank], 1
-    mov byte [vp_xon], 1
+    call vp_bflush                  ; (AX kept)
+    inc ax
+    mov [vp_xems], al
+    mov [vp_xbank], al
+    mov [vp_xon], al
 .out:
     pop si
     ret
@@ -5951,29 +5953,26 @@ vp_emap:
 ; hybrid's FIFO off and empty. CF=1 it does not. Every register kept
 vp_einq:
     mov byte [vp_einp], 0
-    cmp byte [vp_noinp], 0          ; (a gate's: the hybrid, for the A/B)
-    jne .no
+    push ax
+    mov al, [vp_noinp]              ; (a gate's: the hybrid, for the A/B)
+    or al, [vp_eslow]               ; (a slow board: the decode would read
+                                    ; every record through it, 98.3.18.8)
+    or al, [vp_ahead]               ; (sound ahead: its lead is the ring's)
+    or al, [vp_livem]
+    or al, [vp_rep]                 ; (Repeat: its seam is the ring's)
+    jnz .no
     cmp byte [vp_xems], 0
     je .no
     cmp byte [vp_xon], 0
     je .no
-    cmp byte [vp_eslow], 0          ; (a slow board: the decode would read
-    jne .no                         ; every record through it, 98.3.18.8)
     cmp byte [vp_eq], 0x0F
     jne .no
     cmp word [vp_msl], 1            ; (BIGSP: five pages)
     jne .no
-    cmp byte [vp_ahead], 0          ; (sound ahead: its lead is the ring's)
-    jne .no
-    cmp byte [vp_livem], 0
-    jne .no
-    cmp byte [vp_rep], 0            ; (Repeat: its seam is the ring's)
-    jne .no
-    cmp word [vp_clb], 0
-    je .no
-    cmp word [vp_clb], EMS_PAGE     ; (the reader's 16 KB a call)
+    mov ax, [vp_clb]                ; (the reader's 16 KB a call)
+    dec ax
+    cmp ax, EMS_PAGE - 1
     ja .no
-    push ax
     mov ax, [vp_xbn]
     cmp word [vp_ekr], 0            ; (a gate's cap: a ring that WRAPS, the
     je .kr                          ; reader filling while the hook reads)
@@ -5982,13 +5981,16 @@ vp_einq:
     mov ax, [vp_ekr]
 .kr:
     mov [vp_kr], ax
-    pop ax
-    mov byte [vp_einp], 1
-    mov byte [vp_xbank], 0          ; (the FIFO's slots are the ring's now)
+    xor ax, ax
+    mov [vp_xbank], al              ; (the FIFO's slots are the ring's now)
+    inc ax
+    mov [vp_einp], al
     call vp_bflush
+    pop ax
     clc
     ret
 .no:
+    pop ax
     stc
     ret
 
@@ -6071,20 +6073,16 @@ vp_xipq:
     je .no
     cmp byte [vp_xfull], 0          ; (the whole file: the hook never waits
     je .no                          ; on a read)
-    cmp byte [vp_xbank], 0
-    jne .no
-    cmp byte [vp_xems], 0
-    jne .no
+    mov al, [vp_xbank]
+    or al, [vp_xems]
+    or al, [vp_livem]               ; (SOUND AHEAD plays: its lead is read
+                                    ; into the ring, which nothing fills here)
+    or al, [vp_rep]                 ; (Repeat: its seam is the ring's)
+    or al, [vp_resid]
+    or al, [vp_shadow]
+    jnz .no
     cmp byte [vp_snd], VP_SPK       ; (the speaker's clock: 98.3.18.5)
     je .no
-    cmp byte [vp_livem], 0          ; (SOUND AHEAD plays: its lead is read
-    jne .no                         ; into the ring, which nothing fills here)
-    cmp byte [vp_rep], 0            ; (Repeat: its seam is the ring's)
-    jne .no
-    cmp byte [vp_resid], 0
-    jne .no
-    cmp byte [vp_shadow], 0
-    jne .no
 %ifndef LA_SIM
     cmp byte [vp_tier], CPU_286
     jne .no
@@ -6092,11 +6090,9 @@ vp_xipq:
     call vp_xok
     jc .no
     mov word [vp_kr], VP_KBIG
-    mov byte [vp_xip], 1
-    push ax
     mov al, 1
+    mov [vp_xip], al
     call vd_ypatch                  ; the yield sites live
-    pop ax
     clc
     ret
 .no:
@@ -6139,21 +6135,17 @@ vp_xbipq:
     stc
     ret
 %else
-    cmp byte [vp_noinp], 0          ; (a gate's: the copying bank, the A/B)
-    jne .no
-    cmp byte [vp_xbank], 0          ; an XMS bank (EMS has its own, above)
+    mov al, [vp_noinp]              ; (a gate's: the copying bank, the A/B)
+    or al, [vp_xems]                ; (an XMS bank: EMS has its own, above)
+    or al, [vp_livem]
+    or al, [vp_rep]                 ; (Repeat: its seam is the ring's)
+    or al, [vp_shadow]              ; (its decoders have no yield sites)
+    jnz .no
+    cmp byte [vp_xbank], 0
     je .no
-    cmp byte [vp_xems], 0
-    jne .no
     cmp byte [vp_snd], VP_SPK       ; (the speaker's clock: 98.3.18.5)
     je .no
     cmp word [vp_msl], 1            ; (BIGSP: a mirror of two slots)
-    jne .no
-    cmp byte [vp_livem], 0
-    jne .no
-    cmp byte [vp_rep], 0            ; (Repeat: its seam is the ring's)
-    jne .no
-    cmp byte [vp_shadow], 0         ; (its decoders have no yield sites)
     jne .no
     cmp word [vp_xbn], 3            ; (two slots and the mirror, at least)
     jb .no
@@ -6172,10 +6164,11 @@ vp_xbipq:
     mov ax, [vp_ekr]
 .kr:
     mov [vp_kr], ax
+    xor ax, ax
+    mov [vp_xbank], al              ; (the FIFO's slots are the ring's now)
     mov byte [vp_einp], 2
-    mov byte [vp_xbank], 0          ; (the FIFO's slots are the ring's now)
-    call vp_bflush
-    mov al, 1
+    call vp_bflush                  ; (AX kept)
+    inc ax
     call vd_ypatch                  ; the yield sites live
     clc
     ret
@@ -6314,7 +6307,9 @@ vp_xbup:
 ; read in place against OSAPI_XMEM_COPY's. CF = 1 not. Clobbers AX
 vp_xok:
     cmp byte [vp_xchk], 1
-    je .ok
+    jne .chk
+    ret                             ; (CF = 0: the compare was equal)
+.chk:
     cmp byte [vp_xchk], 0
     jne .bad
     mov byte [vp_xchk], 2
@@ -6360,23 +6355,18 @@ vp_xok:
     pop ds
     test byte [vp_xzf], 0x40        ; ZF: every word the same
     jz .bad2
-    mov byte [vp_xchk], 1
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-.ok:
-    clc
-    ret
+    dec byte [vp_xchk]              ; 2 -> 1 (CF = 0 since the test)
+    jmp short .pop
 .bad2:
+    stc
+.pop:
     pop es
     pop di
     pop si
     pop dx
     pop cx
     pop bx
+    ret
 .bad:
     stc
     ret
@@ -6768,17 +6758,15 @@ vp_bksay:
 vp_eend:
     cmp byte [vp_einp], 0
     je .r
+    push ax
+    xor ax, ax
     cmp byte [vp_einp], 2           ; (the XMS bank's: the yield sites off)
     jne .e
-    push ax
-    xor al, al
-    call vd_ypatch
-    pop ax
+    call vd_ypatch                  ; (AX kept)
 .e:
-    mov byte [vp_einp], 0
+    mov [vp_einp], al
     mov byte [vp_xbank], 1
     call vp_bflush
-    push ax
     mov ax, [vp_k]
     mov [vp_kr], ax
     pop ax
@@ -7152,22 +7140,11 @@ vp_bstep:
 .rd:
     cmp byte [vp_xems], 0           ; EMS (98.3.18.6): the tail's two pages
     je .xb                          ; mapped, and READ INTO - no bounce, no
-    mov ax, [vp_xhs]                ; copy up: a disk's read is the fill
-    add ax, [vp_xcnt]
-    cmp ax, [vp_xbn]
-    jb .et
-    sub ax, [vp_xbn]
-.et:
+    call .tail                      ; copy up: a disk's read is the fill
     call vp_emap
     jc .elost
     mov dx, [vp_eseg]
-    xor bx, bx
-    mov cx, VP_CHUNK
-    push ds
-    pop es
-    mov di, vp_xcur
-    mov si, vp_name
-    call OSAPI_FILE_READ_SEQ        ; DX:AX = the bytes
+    call .read                      ; DX:AX = the bytes
     jc .stop
     or ax, ax
     jz .end
@@ -7176,27 +7153,33 @@ vp_bstep:
 .elost:                             ; (the board refused: as XMS's refusal -
     call vp_xfree                   ; the block gone, the stream's cursor
     jmp .lost                       ; sought to the head)
-.xb:
-    call vp_bbnc                    ; DX = the bounce slot
-    xor bx, bx
-    mov cx, VP_CHUNK
-    push ds
-    pop es
-    mov di, vp_xcur
-    mov si, vp_name
-    call OSAPI_FILE_READ_SEQ        ; DX:AX = the bytes (DX 0: a chunk)
-    jc .stop                        ; a disk error: the stream will meet it
-    or ax, ax
-    jz .end                         ; the file ended on a chunk's boundary
-    push ax
-    call vp_bbnc                    ; (DX:AX was the count: the bounce again)
-    mov es, dx                      ; the bounce, up to the tail's slot
+.tail:                              ; AX = the bank's tail slot
     mov ax, [vp_xhs]
     add ax, [vp_xcnt]
     cmp ax, [vp_xbn]
     jb .t
     sub ax, [vp_xbn]
 .t:
+    ret
+.read:                              ; DX:0 <- the stream's next chunk
+    xor bx, bx
+    mov cx, VP_CHUNK
+    push ds
+    pop es
+    mov di, vp_xcur
+    mov si, vp_name
+    call OSAPI_FILE_READ_SEQ        ; (a far cell: no tail jump)
+    ret
+.xb:
+    call vp_bbnc                    ; DX = the bounce slot
+    call .read                      ; DX:AX = the bytes (DX 0: a chunk)
+    jc .stop                        ; a disk error: the stream will meet it
+    or ax, ax
+    jz .end                         ; the file ended on a chunk's boundary
+    push ax
+    call vp_bbnc                    ; (DX:AX was the count: the bounce again)
+    mov es, dx                      ; the bounce, up to the tail's slot
+    call .tail
     call vp_bslot
     pop cx
     push cx
@@ -7211,16 +7194,15 @@ vp_bstep:
     inc word [vp_xcnt]
     cmp cx, VP_CHUNK
     je .ok
+.eof:
     mov [vp_xtl], cx                ; a short chunk: the file's last
     mov byte [vp_xbeof], 1
 .ok:
     clc
     jmp short .out
 .end:                               ; the end on a chunk's boundary: the
-    mov word [vp_xtl], VP_CHUNK     ; last chunk banked was a whole one
-    mov byte [vp_xbeof], 1
-    clc
-    jmp short .out
+    mov cx, VP_CHUNK                ; last chunk banked was a whole one
+    jmp short .eof
 .stop:                              ; (no more banking this play: what is
     mov word [vp_xtl], VP_CHUNK     ; banked is whole chunks, and the
     mov byte [vp_xbeof], 1          ; stream meets the error after them)
@@ -7289,10 +7271,10 @@ vp_bseek:
     je .no
     cmp word [vp_xcnt], 0
     je .no
-    cmp word [vp_clb], VP_CHUNK     ; (a cluster no bigger than a chunk)
+    mov ax, [vp_clb]                ; (a cluster no bigger than a chunk)
+    dec ax
+    cmp ax, VP_CHUNK - 1
     ja .no
-    cmp word [vp_clb], 0
-    je .no
     mov ax, [vp_ssp]
     mov dx, [vp_ssp+2]
     sub ax, [vp_xlo]
@@ -7363,15 +7345,15 @@ vp_bpre:
     cmp byte [vp_einp], 0           ; IN PLACE the ring is the bank: what is
     jne .ip                         ; filled is the ring's (vp_pfc, vp_pfst)
     cmp byte [vp_xbank], 0
-    je .done
+    je .dz
     cmp byte [vp_snd], VP_SPK       ; (vp_xquiet: nothing to fill it for,
     jne .sq                         ; EMS's aside)
     cmp byte [vp_xems], 0
-    je .done
+    je .dz
 .sq:
 .ip:
     cmp byte [vp_xon], 0
-    je .done
+    je .dz
     call vp_pfcap                   ; HOW FAR: the whole bank, or the ask
     mov ax, [vp_hxp]                ; - the KB the encode banked on before
     cmp ax, 0xFFFF                  ; its first frame
@@ -7442,17 +7424,17 @@ vp_bpre:
     cmp byte [vp_pfwait], 0         ; (the gate's hold, tests/vidbank.py)
     jne .lp
 .done:
+    clc
+.box:
+    pushf                           ; (the box cleared, either way)
     xor ax, ax
     mov si, vo_s_none
     call vo_show
-    clc
+    popf
     ret
 .esc:
-    xor ax, ax
-    mov si, vo_s_none
-    call vo_show
     stc
-    ret
+    jmp short .box
 
 ; vp_bshort - a file whose encode banked on XMS ([vp_hxb] KB, 98.3.18.3)
 ; and a machine whose bank is smaller - or none, the file not held whole
@@ -7706,22 +7688,16 @@ vp_mkdtab:
 .z:
     loop .b
     xor al, al
+    mov cx, 0x0002                  ; even rows: left over 0, right over 2
     or bh, bh
-    jnz .odd
-    cmp dh, 0                       ; even rows: left over 0, right over 2
-    jbe .e1
+    jz .t
+    mov cx, 0x0301                  ; odd rows: left over 3, right over 1
+.t:
+    cmp dh, ch
+    jbe .t1
     or al, 2
-.e1:
-    cmp dl, 2
-    jbe .st
-    or al, 1
-    jmp short .st
-.odd:
-    cmp dh, 3                       ; odd rows: left over 3, right over 1
-    jbe .o1
-    or al, 2
-.o1:
-    cmp dl, 1
+.t1:
+    cmp dl, cl
     jbe .st
     or al, 1
 .st:
@@ -7796,9 +7772,8 @@ vp_half:
     mov ch, [vh_wb]
     shr ch, 1                       ; whole source byte pairs
     mov cl, 4
-    mov ax, [vh_sseg]
     push ds
-    mov ds, ax
+    mov ds, [vh_sseg]
     or ch, ch
     jz .last
 .p:
