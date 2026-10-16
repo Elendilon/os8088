@@ -128486,6 +128486,11 @@ is now the same. `tools/stkbalance.py` cannot see this class — the stack is
 balanced throughout, and what is wrong is the *contents* of a register, which
 needs a different gate than a depth walk.
 
+Since apps size pass 2 (§82.15) `ct_render` is **`ct_show`**, and it banks
+exactly that one register: the window goes on the stack before `ch_draw` and
+comes off straight into `SI`, which is where `ct_paint` wants it, so the
+routine falls into `ct_paint` instead of every caller calling the two in turn.
+
 ### 82.11 A label is not a data point
 
 `ct_parse_c` recorded any `K` field as a number, and `ct_pint` on `K"Rent"`
@@ -128664,6 +128669,69 @@ Data > Column (§82.12) reads it again; the export used to copy the Save
 dialog's answer over it, so a column choice after an export parsed `CHART.BMP`
 as SYLK and said *No data in that column.* The export name is staged in
 `ct_ntxt`, `ct_esatof`'s scratch, which no read is using at that moment.
+
+### 82.15 Apps size pass 2: the shipped file
+
+The subject was DISK ROOM (docs/plans/HANDOFF-APPS-SIZE-P2.md): `CHART.O88`
+rides `office360.img` and every larger apps disk, LZ4-packed. Nothing a user
+can see changed, and no heap claim or bss byte moved. Every step below was
+held to a host differential - both builds run under an 8086 core with the
+`OSAPI_*` cells stubbed, over every reader on hand-made and mutated SYLK, DIF
+and BIFF files, every Data column, every Gallery type, the export, the About
+card and a refused claim - comparing the canvas, the exported BMP, every slot
+called and its arguments, the toasts and the series words, and all of it
+identical. `apps/os88chart.inc` is SHEET's too and is not touched here: what
+it holds is recorded with the pass's report.
+
+- **A callback banks only what its contract owes back** (-169 image, -80
+  file). `W_PAINT` owes `SI` and `DF` (§11), `W_ONCLICK` `SI`, and an
+  `AM_ONCMD` handler, the About handler and a file-dialog completion proc owe
+  nothing (§12.2, §38.6); the entry proc owes `BX`, `CF` and `ES`, which the
+  loader's own far call does not restore (§21 step 9). Every one of them
+  pushed everything. So did every routine under them whose only caller
+  reloads what it clobbers: the three readers and `ct_finalize` bank nothing
+  now and `ct_read_by_ext` banks `AX` and `BX` for its caller, once. The two
+  routines every caller called back to back are one - `ct_show` falls into
+  `ct_paint` (§82.10) - the `W_ONCLICK` handler is `ct_abdismiss` itself
+  rather than a `call`/`ret` around it, and the menu, About and completion
+  arms end in tail jumps. `ct_paint` keeps the window in `DI` across the blit
+  and gives it back from there, so the paint is eight push/pop pairs shorter.
+- **SYLK and DIF share one line scanner** (-68 image, -49 file). `ct_eol`
+  answers where the line at `SI` ends, `ct_tonext` steps past the CR/LFs from
+  there, and `ct_difskipline` is the two together. SYLK carried its own copy
+  of both loops and DIF its own of the second plus `ct_is_bot_line`, which is
+  now a length test on `ct_eol`'s answer; SYLK tests `C;` as one word. A DIF
+  open costs one more `call`/`ret` a line (+0.6% of the open's instructions on
+  a 50-row file - a menu command, not a hot path, and dwarfed by its disk
+  read); a SYLK open got cheaper.
+- **BIFF asks whether a record fits once** (-64 image, -54 file). The bound
+  that stops a hostile length wrapping the walk back onto its own header was
+  asked by each cell type before it read and again before the advance, with
+  the same answer; it is asked once, as the header is read, and the next
+  record's offset is kept in `DI`. The header is two `es lodsw`, NUMBER's
+  eight bytes a four-pass loop, and `ct_i32_dbl`'s body is `ct_rkdec`'s
+  integer arm - it had no other caller - which hands a `/100` value to
+  `fp_scale10` where it stands instead of packing it into `ch_dbl` and
+  unpacking it again. That round trip was exact: `ct_rkdec` on both builds
+  agrees byte for byte over 16,216 RK values, all four subtypes.
+- **No `cld`** (-6 image, -1 file). §1 rule 3 promises DF = 0 on entry to
+  every routine and nothing in the package or its includes sets it, so the
+  six `cld`s before its string moves were each a byte of nothing.
+- **The region is declared with `OS88_REGION_MOVABLE_NOKEEP`** (-11 image,
+  -7 file), naming the entry proc's own `ret` as the relocation proc - the
+  region holds no segment word that points inside itself (§66.6.1.1). The
+  keeping form banked AX, DX and the flags for nothing still owed; the entry
+  ends in its own `clc` now, and both refusals reach the `pop es` by a `jc`
+  that already carries the CF the loader wants, so `.fail`'s `stc` went too.
+- **One `Chart` string** (-7 image, -10 file): the menu bar's name and the
+  window title were two copies of the same six bytes, and both readers only
+  read it. The About card's blank line is the NUL that ends the line above.
+- **The read's setup, byte by byte** (-8 image, -8 file): `ct_stage`'s
+  second read reuses the `SI` the probe left (a slot preserves all but its
+  outputs) and its two refusals return where they stand; the extension test
+  finds the name's end testing the byte behind the step; `ct_esatof` points
+  ES at DS through the stack; and `ct_parse_c` turns X and Y 0-based with a
+  `SUB 1` whose borrow is the `CMP 1`/`JB` that refused a missing one.
 
 ## 83. Text input for packages (`apps/os88line.inc`, `apps/os88text.inc`)
 
