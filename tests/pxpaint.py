@@ -75,7 +75,7 @@ if o88[:syms["op_table"]] != image[:syms["op_table"]]:
     sys.exit("build/pixel.o88 is not this tree's pixel.asm - run "
              "`make build/pixel.o88`")
 DISK = "build/pxpaint.img"
-M.scratch_disk(DISK, "build/pixel.o88", "build/PIXEL.GFX",
+M.scratch_disk(DISK, "build/pixel.o88",
                "PICS:apps/pixel/samples/CITY.PCX")
 print("== PiXEL: primitive calls an operation (SPEC.md 106.14) ==")
 with os88ui.boot("build/os8088-360.img", apps=DISK, machine=a.machine) as ui:

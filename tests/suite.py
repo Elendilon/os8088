@@ -9420,7 +9420,7 @@ SOAK = [
         "at the API cells; a change that repaints more than it changed "
         "fails with the counts beside the budget",
         needs=("marty", "nasm"), serial=True,
-        wants=("build/pixel.o88", "build/PIXEL.GFX",
+        wants=("build/pixel.o88",
                "build/os8088-360.img")),
     Row("pxdraw", "soak", py("tests/pxdraw.py"), 200.0,
         "PiXEL's redraw priced in drawing calls (SPEC.md 106.15), on the "
@@ -9436,7 +9436,7 @@ SOAK = [
         "(106.25): a frame's calls under 12, and the stopped frame's glass "
         "identical to a repaint",
         needs=("marty", "nasm"), serial=True,
-        wants=("build/pixel.o88", "build/PIXEL.GFX",
+        wants=("build/pixel.o88",
                "build/os8088-360.img")),
     Row("pxdrawvga", "soak", py("tests/pxdraw.py", "--machine",
                                 "os8088_xt_vga"), 200.0,
@@ -9445,7 +9445,7 @@ SOAK = [
         "same ceilings and the same incremental-equals-repaint identity, "
         "compared as the card rasterised it in colour",
         needs=("marty", "nasm"), serial=True,
-        wants=("build/pixel.o88", "build/PIXEL.GFX",
+        wants=("build/pixel.o88",
                "build/os8088-360.img")),
     Row("pxfolder", "soak", py("tests/pxfolder.py"), 300.0,
         "SPEC.md 106.21 on the VGA XT with a 720 KB B:: a folder of seven "
@@ -9460,7 +9460,7 @@ SOAK = [
         "What survived of pxthumb when the filmstrip, its thumbnails and "
         "PIXEL.THC were withdrawn (2026-10-06)",
         needs=("marty", "nasm"), serial=True,
-        wants=("build/pixel.o88", "build/PIXEL.GFX",
+        wants=("build/pixel.o88",
                "build/os8088-360.img")),
     Row("pxfsx", "soak", py("tests/pxfsx.py"), 1500.0,
         "SPEC.md 106.23, PiXEL's full screen, on MartyPC's VGA XT, CGA 5150 "
@@ -9477,7 +9477,7 @@ SOAK = [
         "mode's colours and whole render are timed by the guest's cycle "
         "counter and printed",
         needs=("marty", "nasm"), serial=True,
-        wants=("build/pixel.o88", "build/PIXEL.GFX",
+        wants=("build/pixel.o88",
                "build/os8088-360.img")),
     Row("pxedithost", "soak", py("tests/pxedit.py", "--host-only"), 13.0,
         "SPEC.md 106.24, PiXEL's editing, the HOST LEG: the EDIT part "
@@ -9498,7 +9498,7 @@ SOAK = [
         "Zoom click, the Eyedropper's pin in Image Info, the Rotate tool. "
         "Each operation's guest time is printed",
         needs=("marty", "nasm"), serial=True,
-        wants=("build/pixel.o88", "build/PIXEL.GFX", "build/os8088.img")),
+        wants=("build/pixel.o88", "build/os8088.img")),
     Row("pxsavehost", "soak", py("tests/pxsave.py", "--host-only"), 14.0,
         "SPEC.md 106.24, PiXEL's Save As, the HOST LEG: the WRITE part "
         "(build/pxwrite.bin) under Unicorn - 336 files over every format, "
@@ -9519,7 +9519,7 @@ SOAK = [
         "over 32K and a selection's BMP on the clipboard; and a disk too "
         "full for the save, which leaves the old file and no temporary",
         needs=("marty", "nasm"), serial=True,
-        wants=("build/pixel.o88", "build/PIXEL.GFX", "build/os8088.img")),
+        wants=("build/pixel.o88", "build/os8088.img")),
     Row("pxbench", "soak", py("tests/pxbench.py"), 700.0,
         "SPEC.md 106.17 on the 5150 with a CGA: the TIME, in guest cycles from "
         "breakpoints, of opening MOUNTAIN.BMP (24-bit: the cube's ordered "

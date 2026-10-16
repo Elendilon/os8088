@@ -83,7 +83,7 @@ for n, d in sorted(PICS.items()):
     open(os.path.join(tmp, n), "wb").write(d)
     files.append("PICS:" + os.path.join(tmp, n))
 DISK = M.scratch_disk(pxtmp.private("pxfolder.img"), "build/pixel.o88",
-                      "build/PIXEL.GFX", *files, "--folder", "SYSTEM/APPDATA",
+                      *files, "--folder", "SYSTEM/APPDATA",
                       size=720)
 NAMES = sorted(PICS)
 

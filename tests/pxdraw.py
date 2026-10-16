@@ -185,7 +185,7 @@ def main():
     for n in FOLDER:
         open(os.path.join(fdir, n), "wb").write(cor[n])
         extra.append(os.path.join(fdir, n))
-    M.scratch_disk(disk, o88path, "build/PIXEL.GFX",
+    M.scratch_disk(disk, o88path,
                    "apps/pixel/samples/CITY.PCX", *extra,
                    "ANIM:apps/pixel/samples/BOUNCE.GIF")
     rows, ok = [], True

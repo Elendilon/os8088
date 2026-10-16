@@ -44362,9 +44362,9 @@ image bytes (apps size pass 2b, §96.44.16).
 code that loads one.** `op_load` sized the table with `op_size`, found nothing
 to claim and returned - so `op_size`, `op_claim`, `op_unpack` (when a lazy row
 is `OP_COMP`), `op_load`'s claim, read and unpack sequence and `op_seg`'s
-eager arms were all in the image, reached from nothing. PiXEL's nine decoder
-parts are that shape (§106.5), and DrMarco's three front screens (§100) are
-the second.
+eager arms were all in the image, reached from nothing. PiXEL's ten lazy
+parts (nine decoders and the colour face's pictures) are that shape
+(§106.5), and DrMarco's three front screens (§100) are the second.
 
 `OP_HAS_CARVE` is derived like the rest (§20.12.9): `OS88_PART` sets it for any
 row that is NOT lazy - a filed part, a scratch part, an `OP_XMS` one - because
@@ -183455,7 +183455,10 @@ command costs since, and 106.16 the colour face's full repaint.)
 PIXEL.O88 carries a parts table (§20.12). Every row is `OP_SEG|OP_COMP|
 OP_LAZY` (below: the compression came back with the speed wave's shadow):
 a flat binary at org 0, appended by `os88pkg.py --part`, fetched into a
-claim of its own when first wanted and dropped after. The header every part
+claim of its own when first wanted and dropped after. The one exception is
+the LAST row, part 9: the colour face's pictures (106.16), an `OP_ASSET`
+with no header and no vectors, which nothing far-calls - it is read through
+`[pxa_seg]` and never dropped. The header every part
 opens with (`apps/pixel/pxpart.inc`):
 
 ```
@@ -184122,7 +184125,7 @@ carries meaning:
   painted by PiXEL (`OS88UI_BOWN`, §13.8.10; `px_lab_col` points every label
   at `px_bpaint`), so the library's press, drag-off and release redraw this
   face and not the standard one. The toolbar's ten and the tool column's six
-  are **`PIXEL.GFX`'s pictures, one `OSAPI_GFX_BLITP` each**: a black frame
+  are **part 9's pictures, one `OSAPI_GFX_BLITP` each**: a black frame
   with its corners left as chrome, a white top-left and a grey bottom-right
   bevel, the icon over its caption (the toolbar's) or alone (the tools'); up,
   pressed (one grey line in at the top and the left, the contents a pixel
@@ -184162,24 +184165,51 @@ one-pixel gap, as MIDIRack's are (§105.9.5). Planar, plane 0 first; 45 faces,
 **27,648 bytes**, `--selfcheck` a soak row (`pixart`) and `--check-asm` the
 Makefile's guard that `pixel.asm`'s `PXA_*` numbers and widths are the art's.
 
-**They are a file beside the package, `PIXEL.GFX`** (5,537 bytes LZ-wrapped
-on the disk; 6 clusters at 360 KB), read at entry - after the window is
-made, so a failed entry holds no claim - into a claim of its own, **only on
-a colour primary**: a Hercules or a CGA machine never reads a byte of it. A
-sidecar and not a part for MIDIRack's reason (§105.9.5: `os88pkg.py` will not
-compress an image with parts), and one more of PiXEL's own: **a picture's
-master is sized from the heap** (106.8), and a 27 KB claim can be the
-difference between 1/1 and 1/2. So the claim goes straight back, and every
-button is the code-drawn bevel, when the heap has less than **256 KB**
-(`PXA_MINFREE`) free beside it; a disk without the file, and a block the card
-refuses (a window straddling two displays, an origin off the grid), draw the
-same bevel. The VGA XT with PiXEL open and no picture reads 455 KB free with
-the pictures held and 482 KB without them (486 KB before this change: the
-records and the face's code are the other 4 KB).
+**They are PART 9 of `PIXEL.O88`** - `OP_ASSET|OP_COMP|OP_LAZY`, the last
+row of the table (106.5), 27,648 bytes packed to 5,529 - fetched at entry,
+after the window is made so a failed entry holds no claim, into a claim of
+its own, **only on a colour primary**: a Hercules or a CGA machine never
+reads a byte of it. PiXEL's master is **sized from the heap** (106.8), and
+a 27 KB claim can be the difference between 1/1 and 1/2, so nothing is read,
+and every button is the code-drawn bevel, unless the heap has **256 KB**
+(`PXA_MINFREE`) free beside the pictures: `px_artload` asks `op_lazyok`
+(the largest run holds the fetch) and `OSAPI_MEM_AVAIL` (the total less the
+pictures' 27 KB is still `PXA_MINFREE`) BEFORE the read, so the refusal
+costs no disk and says nothing, and `op_fetch`'s own toast is only ever a
+read that failed. A block the card refuses (a window straddling
+two displays, an origin off the grid) draws the same bevel. The VGA XT with
+PiXEL open and no picture reads 455 KB free with the pictures held and 482
+KB without them (486 KB before the colour face: the records and the face's
+code are the other 4 KB).
 
-`PIXEL.GFX` rides beside `PIXEL.O88` wherever it ships: the 1.44 MB and
-1.2 MB apps disks, `office360`, every `pixeldisk`, the everything set and the
-live media.
+**The claim is MOVABLE** (§66): `px_mreloc`, the master's proc, re-bases
+`[pxa_seg]` and the row's `zkb` - the word `op_drop` would free - so a 27 KB
+block held for the whole session is no longer a wall in the middle of the
+heap.
+
+**They were a sidecar file, `PIXEL.GFX`, beside the package** until
+§20.13.8 let a parted image be packed; the reason that kept them out
+(§105.9.5's, `os88pkg.py` refusing to compress a parted image) is withdrawn,
+and a file the user never opens is one more line in a disk's listing.
+Eager was weighed and refused twice over: a carve row brings back the
+~836 bytes of carve code §20.12.9.3 took out of a table whose every row is
+lazy, and it would claim 27 KB on every 1bpp machine, where the face is
+never drawn. Lazy and fetched at entry is the old file's behaviour, read
+out of the package's own file, plus the move. Measured, on the disks that carried both files: `PIXEL.O88`
+104,956 + `PIXEL.GFX` 5,537 -> **110,489** bytes in one file (the part's
+stream is the old file's less its 8-byte wrapper); the image 39,102 ->
+**39,094** (the file name and the length check out; the precheck, the
+fetch and the proc's four instructions in), bss unchanged; one cluster back on every
+1KB-cluster disk (`office360`, `pixel360`, `pixel720`: 109 -> 108) and
+the same 216 on the 512-byte ones; and one directory entry fewer on all of
+them. The part is LAST because it is where it lands, and the order was
+measured: putting the part that pads most to its sector last instead (the
+GIF decoder) saves 271 bytes of file and no cluster on any geometry, which
+is not worth renumbering the parts for.
+
+`PIXEL.O88` therefore ships alone wherever it ships: the 1.44 MB and 1.2 MB
+apps disks, `office360`, every `pixeldisk`, the everything set and the live
+media.
 
 **EGA has no MartyPC profile**, so its face is ARITHMETIC here and not a
 picture: a content box of about 640 x 284 passes the gate; the toolbar is 35
@@ -184283,7 +184313,7 @@ and fetches its own before HEAD; a successful decode keeps it, so a folder
 of PNGs reads the part once; a refusal or a cancel that leaves a picture of
 another kind showing (or none) drops it. The HEAD's fetch goes home and
 back (106.5), and the head is freed straight after the header parse, before
-the claims - so an open holds at most the face (`PIXEL.GFX`'s pictures,
+the claims - so an open holds at most the face (part 9's pictures,
 106.16), the view, the previous master, the part, the new master,
 the work claim and the ring: **seven**, and a drop-down's bank or F1's card
 eight. (The REGION is not among them: its owner word is not the package's

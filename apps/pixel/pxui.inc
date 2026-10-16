@@ -3007,7 +3007,7 @@ px_capsync:
 ; =============================================================================
 ; px_bpaint is every button's label on the colour face (OS88UI_OWN): AX =
 ; the index, BX = its rect (screen), DI = its flags with the pressed look
-; resolved. The toolbar's and the tool column's are PIXEL.GFX's pictures,
+; resolved. The toolbar's and the tool column's are part 9's pictures,
 ; ONE OSAPI_GFX_BLITP each - the toolbar's an icon over its caption, inside
 ; the button; every other button, and those when the file is not here or
 ; the card refuses the block (a straddle, an origin off the grid), is a
@@ -3476,57 +3476,50 @@ px_bvband:
     ret
 
 ; =============================================================================
-; PIXEL.GFX - the colour face's pictures (SPEC.md 106.16)
+; THE COLOUR FACE'S PICTURES - part 9 (SPEC.md 106.16)
 ; =============================================================================
-; tools/pixart.py draws them into a file that ships BESIDE the package, read
-; at entry only on a colour primary - a Hercules or a CGA machine never
-; spends a byte or a revolution on it - into a claim of its own, and freed
-; with the window. It is a sidecar and not a part for MIDIRack's reason
-; (SPEC.md 105.9.5), and one more: PiXEL's master is sized from the heap
+; tools/pixart.py draws them, and they ride inside PIXEL.O88 as a compressed
+; lazy part: fetched at entry only on a colour primary - a Hercules or a CGA
+; machine never spends a byte or a revolution on them - into a claim of
+; their own, MOVABLE (px_mreloc follows it), and freed with the window. They
+; were a file beside the package until the parts standard could compress a
+; parted image (SPEC.md 20.13.8). PiXEL's master is sized from the heap
 ; (SPEC.md 106.8), so a machine that cannot spare the pictures' 27 KB beside
-; a picture is left them: under PXA_MINFREE free after the claim, the claim
-; goes back and every button is the code-drawn bevel - a complete face.
+; a picture is left them: under PXA_MINFREE free after the claim, nothing is
+; read and every button is the code-drawn bevel - a complete face.
 
-; px_artload - the pictures, if the primary is colour, the file is here, the
-; heap can spare them and they are the length the numbers say. Preserves all
+; px_artload - the pictures, if the primary is colour and the heap can spare
+; them. Silent when it cannot: op_lazyok is asked first, so op_fetch's own
+; toast is only ever a read that failed. Preserves all
 px_artload:
     push ax
     push bx
     push cx
     push dx
     push si
+    push di
     push es
     call OSAPI_VIDEO                ; DH = the primary's bits per pixel
     cmp dh, 1
     jbe .out
-    mov ax, (PXA_SIZE + 1023) / 1024
-    call OSAPI_MEM_CLAIM            ; DX = the segment
+    mov al, PXPART_GFX
+    call op_lazyok                  ; the largest run holds the fetch...
     jc .out
-    push dx
-    call OSAPI_MEM_AVAIL            ; BX = the KB still free beside it
-    pop si
-    cmp bx, PXA_MINFREE
-    jb .free
-    mov es, si
-    xor bx, bx
-    mov cx, ((PXA_SIZE + 1023) / 1024) * 1024
-    xor dx, dx
-    push si
-    mov si, pxa_name
-    call OSAPI_FILE_READ            ; DX:AX = its size (unwrapped, 20.14)
-    pop si
-    jc .free
-    or dx, dx
-    jnz .free
-    cmp ax, PXA_SIZE
-    jne .free
-    mov [pxa_seg], si
-    jmp short .out
-.free:
-    mov dx, si
-    call OSAPI_MEM_FREE
+    call OSAPI_MEM_AVAIL            ; ...and BX = the KB free in all, which
+    cmp bx, PXA_MINFREE + PXA_KB    ; must leave PXA_MINFREE beside them
+    jb .out
+    mov al, PXPART_GFX
+    call op_fetch                   ; claims, reads, expands (SPEC.md 20.12.4)
+    jc .out
+    mov al, PXPART_GFX
+    call op_seg
+    mov [pxa_seg], ax
+    xchg ax, dx
+    mov ax, px_mreloc               ; the pictures move with the heap: the
+    call OSAPI_MEM_MOVABLE          ; proc re-bases pxa_seg and the row
 .out:
     pop es
+    pop di
     pop si
     pop dx
     pop cx
