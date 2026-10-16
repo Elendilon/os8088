@@ -87713,6 +87713,7 @@ of them consumes the random stream differently, so a game plays out the same.
 | `mc_redraw_trails` walks both kinds with one body | 10,524 | 12,993 | 2,430 |
 | the window sized in registers, `mc_adapter` in three stores | 10,489 | 12,946 | 2,426 |
 | the two kinds are ONE object table; the trail loops walk it once | 10,186 | 12,500 | 2,426 |
+| a new game and a new wave cleared in fewer stores; the credits sized in one walk | 10,164 | 12,451 | 2,426 |
 
 **The ICBM and ABM records are laid out alike**, field for field from
 `[mc_ia]`/`[mc_aa]`, and `MC_ABMD` is the distance between them - asserted
@@ -87729,8 +87730,10 @@ place a target once rather than five times.
 byte run in the arcade's numbering, each 0 or 1: `mc_pick_target` counts them
 as a SUM and walks them as one loop - the same count, the same random draw
 and the same pick - and `mc_destroy` and `mc_nextwave`'s regeneration share
-`mc_tdmg` for the terrain under a target. `mc_destroy` said it preserved every
-register and clobbered CX; it keeps CX now (its one caller saved it anyway).
+`mc_tdmg` for the terrain under a target. **A defect, fixed**: `mc_destroy`
+said it preserved every register and clobbered CX; it keeps CX now. Nothing
+saw it - its one caller, `mc_icbm_land`, saved CX itself - so nothing a
+player could see changed.
 
 `mc_redraw_trails` - the full repaint's, and only the full repaint's - walks
 the ICBMs and then the ABMs through ONE body with the bias in BP (used as a
@@ -87770,6 +87773,12 @@ loop's two-sided one (`mc_recount`, `mc_move_icbm`, `mc_dmg_icbm` and the
 satellite's three tests take it too); the loop bound is `cmp si, bp`, a
 register; and the `push si`/`pop si` around `mc_ipix` and `mc_add_exp`,
 both of which keep SI, came out. What it adds is one pass switch a frame.
+
+MEASURED on the deterministic bench (§48.16.2's `mcbench.inc`, 400 frames on
+`os8088_5150_herc_gla`), base against this change: **63,034,335 -> 62,595,337
+cycles (-0.70%)**, median frame 134,439 -> 131,919, the same 33 frames over
+one tick, the same end state (`C3B7`) and the same final screen
+(`91e91066db9890ee`). It is the same game, drawn the same way, a little faster.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 

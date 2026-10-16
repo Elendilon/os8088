@@ -1245,13 +1245,13 @@ mc_abdraw:
     push dx
     push si
     push di
-    xor cx, cx                      ; CX = widest line, DI = line count
-    xor di, di
+    xor cx, cx                      ; CX = widest line, DI = the panel's
+    mov di, 14                      ; height: 14 of margin and a pitch a line
     mov si, mc_ablines
 .meas:
     cmp byte [si], 0FFh             ; the block's end
     je .done
-    inc di
+    add di, MC_ABLH
     call OSAPI_FONT_WIDTH
     call .next
     cmp ax, cx
@@ -1260,26 +1260,22 @@ mc_abdraw:
     jmp short .meas
 .done:
     add cx, 16
-    cmp cx, [mc_cw]
+    mov ax, [mc_cw]
+    cmp cx, ax
     jbe .wok
-    mov cx, [mc_cw]
+    mov cx, ax
 .wok:
     mov [mc_abw], cx
-    mov ax, di
-    mov bx, MC_ABLH
-    mul bx
-    add ax, 14
-    cmp ax, [mc_ch]
-    jbe .hok
-    mov ax, [mc_ch]
-.hok:
-    mov [mc_abh], ax
-    mov ax, [mc_cw]
-    sub ax, [mc_abw]
+    sub ax, cx                      ; centred across...
     shr ax, 1
     mov [mc_abl], ax
     mov ax, [mc_ch]
-    sub ax, [mc_abh]
+    cmp di, ax
+    jbe .hok
+    mov di, ax
+.hok:
+    mov [mc_abh], di
+    sub ax, di                      ; ...and down
     shr ax, 1
     mov [mc_abt], ax
 
@@ -3164,39 +3160,38 @@ mc_startwave:
 ; -----------------------------------------------------------------------------
 mc_rearm:                           ; every launcher alive and full - and
     push si                         ; then the objects, below: a new wave and
-    xor si, si                      ; a new game both start from this
+    mov si, MC_NBASE - 1            ; a new game both start from this
 .base:
     mov byte [mc_balive + si], 1
     mov byte [mc_bmis + si], MC_MAXMIS
-    inc si
-    cmp si, MC_NBASE
-    jb .base
+    dec si
+    jns .base
     pop si
     ; fall through
 
 mc_clear_objects:
+    push ax
     push si
-    xor si, si
-.i:                                 ; one walk for the ICBM and ABM slots,
-    mov byte [mc_ia + si], 0        ; which are the same count (asserted)
-    mov byte [mc_imirv + si], 0
-    mov byte [mc_aa + si], 0
-    inc si
-    cmp si, MC_MAXICBM
-    jb .i
-%if MC_MAXICBM != MC_MAXABM
-  %error "mc_clear_objects walks the ICBM and ABM slots as one"
+    xor ax, ax
+    mov si, MC_MAXEXP - 1
+.o:                                 ; every object - the ICBMs and then the
+    mov [mc_ia + si], al            ; ABMs, one table (MC_OBJ) - and every
+    mov [mc_ea + si], al            ; burst: sixteen of each (asserted)
+    dec si
+    jns .o
+%if MC_MAXEXP != MC_MAXICBM + MC_MAXABM
+  %error "mc_clear_objects walks the objects and the bursts as one"
 %endif
-    xor si, si
-.e:
-    mov byte [mc_ea + si], 0
-    inc si
-    cmp si, MC_MAXEXP
-    jb .e
-    mov byte [mc_sata], 0
-    mov byte [mc_onscr], 0
-    mov word [mc_fire], 0
+    mov si, MC_MAXICBM - 1
+.m:
+    mov [mc_imirv + si], al
+    dec si
+    jns .m
+    mov [mc_sata], al
+    mov [mc_onscr], al
+    mov [mc_fire], ax
     pop si
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3206,23 +3201,24 @@ mc_clear_objects:
 mc_newgame:
     push ax
     push si
-    mov word [mc_scorelo], 0
-    mov word [mc_scorehi], 0
-    mov word [mc_bnlo], MC_BONSTEP
-    mov word [mc_bnhi], 0
-    mov word [mc_lives], MC_NCITY
-    mov byte [mc_wave], 1
-    xor si, si
-.city:
-    mov byte [mc_calive + si], 1
-    inc si
-    cmp si, MC_NCITY
-    jb .city
-    call mc_rearm
+    xor ax, ax
+    mov [mc_scorelo], ax
+    mov [mc_scorehi], ax
+    mov [mc_bnhi], ax
+    mov [mc_chshown], al
     mov byte [mc_mode], M_READY
+    mov word [mc_bnlo], MC_BONSTEP
+    mov word [mc_lives], MC_NCITY
     mov word [mc_hold], 16
-    mov byte [mc_full], 1
-    mov byte [mc_chshown], 0
+    inc ax                          ; AL = 1 from here
+    mov [mc_wave], al
+    mov [mc_full], al
+    mov si, MC_NCITY - 1
+.city:
+    mov [mc_calive + si], al
+    dec si
+    jns .city
+    call mc_rearm
     pop si
     pop ax
     ret
