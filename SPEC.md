@@ -123554,16 +123554,18 @@ The shape:
   both name it. Every caller far-calls `COLD_SEG:thm_set`: `kmain_o`, the
   settings reader, `CTRL.DRV`, `vid_switch` and `api_thm_set_x`. The 4-byte
   `cw_thm_set` shim is gone.
-- **Its two calls back into `.text` cost one new shim.** `menu_force` is one
+- **Its two calls back into `.text` cost no shim.** `menu_force` is one
   store, so `thm_set` writes `[menu_bdirty]` itself, the way `dock_init`
-  writes `dock_force`'s answer. `dock_force` goes through the new
-  `cw_dock_force`.
+  writes `dock_force`'s answer. `dock_force` is reached through
+  `cw_mem_disp`'s `call bp / retf` with BP = `dock_force` (kernel size pass
+  13: the 4-byte `cw_dock_force` shim it was given at the move is gone).
 - **The cell jumps straight to `api_thm_set_x`** (kernel size pass 13). The
   cell's address and length are ABI, its body is not: 0x046D is now
   §20.3's 8-byte far-jump cell, `push ds / push cs / pop ds / jmp
   COLD_SEG:api_thm_set_x`, and the body ends `pop ds / retf`. The 6-byte
   `api_thm_set` thunk the cell used to near-call is gone. `api_thm_set_x`
-  reaches `wm_su_drop_all` through `cw_wm_su_drop_all`.
+  reaches `wm_su_drop_all` through `cw_mem_disp` the same way (the
+  `cw_wm_su_drop_all` shim is gone with `cw_dock_force`).
 - **`thmv_reap_x` is far-called from `app_close_win` and ends in `retf`.** It
   near-calls `drv_call_ent` and `drv_release` directly, since both are cold
   bodies, and asks neither whether the image is loaded: both refuse a row

@@ -5973,10 +5973,6 @@ cw_gfx_fill_pat:        call gfx_fill_pat
 %ifdef OS88_THEME              ; (kern_small: vga12.inc aliases it)
 cw_thm_desk:            call thm_desk
                     retf
-cw_dock_force:          call dock_force     ; thm_set's way out, and the
-                    retf                    ; next one api_thm_set_x's: both
-cw_wm_su_drop_all:      call wm_su_drop_all ; are .cold now, and cw_thm_set
-                    retf                    ; went (SPEC.md 76.14.14.1)
 %endif
 %ifdef DOCK_OPT
 cw_dock_band:           call dock_band

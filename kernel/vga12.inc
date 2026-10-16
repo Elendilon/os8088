@@ -6405,7 +6405,9 @@ thm_set:
                                 ; written here rather than far-called for -
                                 ; dock_init's precedent - and [menu_bovr] with
                                 ; it, the adjacent byte menu_force asserts
-    call KERNEL_SEG:cw_dock_force ; menu_bcell is a record of
+    mov bp, dock_force          ; ...and dock_force through cw_mem_disp's
+    call ct_cw_mem_disp         ; `call bp / retf` (BP is banked): menu_bcell
+                                ; is a record of
                                 ; CHARACTERS and a dock tile's key is its icon
                                 ; plus its marks - a theme change moves
                                 ; NEITHER, so composing IS the diff finds no
@@ -6431,8 +6433,11 @@ api_thm_set_x:
     pushf                        ; ...its CF is the caller's answer (Windows
     cmp bl, [thm_kind]           ; whose module could not be mounted)
     je .same
-    call KERNEL_SEG:cw_wm_su_drop_all ; A NEW KIND, SET FROM OUTSIDE THE PANEL: the
-.same:                           ; Control Panel's Theme page draws from
+    push bp                      ; A NEW KIND, SET FROM OUTSIDE THE PANEL: the
+    mov bp, wm_su_drop_all       ; Control Panel's Theme page draws from
+    call ct_cw_mem_disp          ; (cw_mem_disp's `call bp / retf`: the 4-byte
+    pop bp                       ; cw_wm_su_drop_all shim went, kernel size
+.same:                           ; pass 13)
                                  ; [thm_kind], and a panel behind another
                                  ; window is repainted from its bank, not its
                                  ; W_PAINT (SPEC.md 11.96.4) - so the bank
