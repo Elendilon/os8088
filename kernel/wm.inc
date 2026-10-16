@@ -11611,7 +11611,14 @@ wm_isrec:
 ; back on. It is .text with a real initialiser because .bss is not zeroed
 ; (-f bin), and 1 is the default because the animation is what elendilon
 ; shipped.
+;
+; NOT kern_small's, though: that kernel reads and writes no SYSTEM.CFG at all
+; (SPEC.md 51.5) and has no Control Panel row for the zoom, so nothing there
+; ever read this byte (kernel size pass 13). The carry argument above is a
+; kern_big build without WM_ANIM (`make ANIMOFF=1`), which still has the map.
+%ifndef KERN_SMALL
 wm_animon   db 1                ; 0 = Off, 1 = On
+%endif
 
 ; -----------------------------------------------------------------------------
 ; wm_nest_pushd / wm_nest_pop - WHICH IMAGES THE MACHINE IS EXECUTING IN

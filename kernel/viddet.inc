@@ -133,9 +133,20 @@ VID_LIVE_W  equ 9               ; words in the live block below
 ; broken by the two words that describe the DESKTOP. Here they are vid_cw and
 ; vid_ch - the active display's clip extent - and the desktop's own vid_w /
 ; vid_h are derived below, out of the run.
+%ifdef GFX_VGA
 vid_tab:
     ;    seg     stride bmask bshift rowadd  wrapbit wrapfix    cw   ch
     dw VGA_SEG,      80,    0,     0,     80,       0,      0, 640, 480
+%else                           ; ...AND THE FIRST ROW IS kern_big's TOO, for the
+vid_tab equ $ - VID_REC         ; fourth's reason one row up: kern_small's walk
+                                ; ends at the equipment word, so [vid_kind] is
+                                ; VID_HERC or VID_CGA there before vid_apply
+                                ; first reads it (SPEC.md 39.27.1) and row 0 was
+                                ; read by nothing. The NAME stays where row 0
+                                ; would be, so vid_apply's `add ax, vid_tab`
+                                ; indexes the same rows on both kernels (kernel
+                                ; size pass 13, -18 on kern_small)
+%endif
     dw VID_HERC_SEG, 90,    3,     2, 0x2000,  0x8000, 0x805A, 720, 348
     dw  0xB800,      80,    1,     1, 0x2000,  0x4000, 0xC050, 640, VID_H_MIN
 %ifdef GFX_VGA                  ; THE FOURTH ROW IS kern_big's ALONE: a build
@@ -317,8 +328,12 @@ vid_6845    db 0x35, 0x2D, 0x2E, 0x07, 0x5B, 0x02
 ; neither caller wants one. The fsx bracket hides it with int 10h and on this
 ; class of machine that int 10h talks to the other card; the reboot path is
 ; only ever taken when a VGA is present, so nothing will print here.
+%ifdef GFX_VGA                  ; vid_mono_text's alone, and on a kernel with no
+                                ; VGA that routine is `clc / ret` (kernel size
+                                ; pass 13, -12 on kern_small)
 vid_6845t   db 0x61, 0x50, 0x52, 0x0F, 0x19, 0x06
             db 0x19, 0x19, 0x02, 0x0D, 0x20, 0x00
+%endif
 
 ; Colour -> ink for the 1bpp adapters (SPEC.md 39.4). 00h = black, FFh =
 ; white, 01h = the 50% dither class, which reuses the machinery gfx_fill_gray
@@ -577,22 +592,28 @@ vid_depth_set:
                                 ; the tight one). Two bytes could be had by
                                 ; dropping this pair; they are a contract
                                 ; change and are not taken.
-    cmp al, VID_VGA             ; **ZF IS THE ANSWER AND IT SURVIVES TO THE
-%ifdef GFX_VGA                  ; `jne` BELOW**, and without a VGA renderer
-    je .colour                  ; the first compare is the whole answer - so
-    cmp al, VID_EGA             ; the `je` is inside the %ifdef too, or it is
-%endif                          ; a jump onto the next instruction. EGA is the
-                                ; same four-plane
+%ifdef GFX_VGA                  ; **ZF IS THE ANSWER AND IT SURVIVES TO THE
+    cmp al, VID_VGA             ; `jne` BELOW**. WITHOUT A VGA RENDERER THERE
+    je .colour                  ; IS NO QUESTION AT ALL: kern_small's kind is a
+    cmp al, VID_EGA             ; CGA or a Hercules on every machine (SPEC.md
+                                ; 39.27.1), and its first compare could only
+                                ; ever answer "1bpp" - so the whole test and
+                                ; its `jne` are a planar kernel's, and AL is
+                                ; not read there (kernel size pass 13). EGA is
+                                ; the same four-plane
 .colour:                        ; 16-colour depth as VGA - mode 10h, just
                                 ; shorter (SPEC.md 39.24) - so `colour` is
                                 ; `al == VID_VGA || al == VID_EGA`, and the
                                 ; two `mov`s between here and the test set no
                                 ; flags. Do not put a flag-setting instruction
                                 ; in this gap.
+%endif
     mov ax, 0x0101              ; 1bpp: AL -> [vid_mono], AH -> [vid_planes].
+%ifdef GFX_VGA
     jne .st                     ; The software renderer IS the direct path
     mov ax, 0x0400              ; there (SPEC.md 39.5); a VGA is 0 and 4.
 .st:
+%endif
     mov [vid_mono], ax          ; ONE word store for the pair the %if above
                                 ; pins side by side - so an ISR can no longer
                                 ; observe mono=1 with planes=4 between two
@@ -760,7 +781,9 @@ vid_apply:
     ; DECLARATION's resting value now, and the %error beside MENU_POPMAX in
     ; menu.inc watches the three facts that could stop that being true.
 
+%ifdef GFX_VGA                  ; (kern_small's vid_depth_set reads no AL)
     mov al, [vid_kind]          ; --- the renderer's DEPTH, in one place
+%endif
     call vid_depth_set          ; (see there: a display swap needs it too)
     mov ax, [vid_seg]           ; font_run's target, [vid_tseg]: see the block
     mov [vid_tseg], ax          ; below for why it is the LIVE [vid_seg]

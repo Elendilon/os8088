@@ -276,12 +276,20 @@ gfx_disink      db CBLACK       ; ...and WHICH DIRECTION a disabled GLYPH
 ; the whole point of the interleave - and a name in the right file is not
 ; worth that. The 8s are the only VGA-specific part and they are two bytes;
 ; docs/plans/MONO-RECLAIM-PLAN.md 1.1 carries the trade.
+; ...and on a kernel with no VGA in it (kern_small, SPEC.md 39.27) there is
+; no pair to keep, so the 8s are not assembled there (kernel size pass 13).
+%ifdef GFX_VGA
 vga_m8l         db 8
+%endif
 gfx_lmsk        db 0            ; rect: left edge bit mask
+%ifdef GFX_VGA
 vga_m8r         db 8
+%endif
 gfx_rmsk        db 0            ; rect: right edge bit mask
+%ifdef GFX_VGA
 %if gfx_lmsk - vga_m8l != 1 || gfx_rmsk - vga_m8r != 1
   %error "vga_m8l/gfx_lmsk and vga_m8r/gfx_rmsk must stay adjacent: the fills load each pair as one word"
+%endif
 %endif
 gfx_pat         dw 0            ; gfx_fill_pat: near ptr to 8 row bytes,
                                 ; set by the caller before every call
