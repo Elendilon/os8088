@@ -249,18 +249,16 @@ dc_today:
     mov cx, DC_Y0
     mov dx, 0x0101
 .ok:
-    cmp cx, [dc_ty]
+    xchg dl, dh                 ; DL = the month, DH = the day: [dc_tm]'s
+    cmp cx, [dc_ty]             ; word (DC_BSS_TD)
     jne .new
-    cmp dh, [dc_tm]
-    jne .new
-    cmp dl, [dc_td]
+    cmp dx, [dc_tm]
     jne .new
     clc
     jmp short .x
 .new:
     mov [dc_ty], cx
-    mov [dc_tm], dh
-    mov [dc_td], dl
+    mov [dc_tm], dx
     stc
 .x:
     pop dx

@@ -138,6 +138,9 @@ dc_sel      equ os88_image_end + DC_BSS_SEL
 dc_ty       equ os88_image_end + DC_BSS_TY
 dc_tm       equ os88_image_end + DC_BSS_TM
 dc_td       equ os88_image_end + DC_BSS_TD
+%if DC_BSS_SEL != DC_BSS_M + 1 || DC_BSS_TD != DC_BSS_TM + 1
+  %error "deskcal: the month and the day are read and written as one word"
+%endif
 dc_win      equ os88_image_end + 50     ; dw our window
 dc_abon     equ os88_image_end + 52     ; db the About card is up
 dc_dow1     equ os88_image_end + 53     ; db the 1st's column (Monday first)
@@ -277,10 +280,8 @@ dc_entry:
     call dc_missed              ; what came due while we were not running
     mov ax, [dc_ty]
     mov [dc_y], ax
-    mov al, [dc_tm]
-    mov [dc_m], al
-    mov al, [dc_td]
-    mov [dc_sel], al
+    mov ax, [dc_tm]             ; today's month and day, one word: the
+    mov [dc_m], ax              ; month on show and the selected day's
     call dc_build
     call dc_arange              ; the day's appointments
     mov byte [dc_pane0], 0FFh
@@ -563,10 +564,8 @@ dc_gotoday:
 .other:
     mov ax, [dc_ty]
     mov [dc_y], ax
-    mov al, [dc_tm]
-    mov [dc_m], al
-    mov al, [dc_td]
-    mov [dc_sel], al
+    mov ax, [dc_tm]             ; today's month and day, one word: the
+    mov [dc_m], ax              ; month on show and the selected day's
     call dc_regrid
 .x:
     pop ax

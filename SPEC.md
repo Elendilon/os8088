@@ -184111,6 +184111,7 @@ at a time, the bytes each saved:
 |---|---:|---:|
 | `dc_aday` deleted - nothing called it; `dc_fenter`'s save and restore of `dc_ebuf`'s first word around `dc_ptime`, which parses a COPY; `dc_build`'s unused `push bp` | -64 | -55 |
 | `dc_build`'s marks compare each date with its day bits masked off against `dc_pack`'s with its own masked - no `MUL` to make the key and no shift per appointment: faster as well as shorter | -16 | -8 |
+| the month and the day are adjacent bytes on both sides (`DC_BSS_M`/`SEL`, `DC_BSS_TM`/`TD`, now asserted), so `dc_entry`, `dc_gotoday`, `dc_istoday`, `dc_today` and `dc_tomorrow` move and compare them as ONE word | -32 | -27 |
 
 ### 110.7 `kern_small`
 

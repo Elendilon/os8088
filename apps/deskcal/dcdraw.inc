@@ -644,11 +644,8 @@ dc_istoday:
     mov ax, [dc_y]
     cmp ax, [dc_ty]
     jne .x
-    mov al, [dc_m]
-    cmp al, [dc_tm]
-    jne .x
-    mov al, [dc_sel]
-    cmp al, [dc_td]
+    mov ax, [dc_m]              ; the month and the day, one word each
+    cmp ax, [dc_tm]             ; (DC_BSS_SEL, DC_BSS_TD)
 .x:
     pop ax
     ret

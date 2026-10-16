@@ -47,8 +47,8 @@ dc_tomorrow:
     push cx
     push dx
     mov ax, [dc_ty]
-    mov dh, [dc_tm]
-    mov dl, [dc_td]
+    mov dx, [dc_tm]             ; DL = the month, DH = the day...
+    xchg dl, dh                 ; ...and the other way round
     push ax
     mov bl, dh
     call dc_dim_of              ; AL = today's month's length
