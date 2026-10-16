@@ -29,9 +29,12 @@ were written the same afternoon. So:
      os88geom's.)
 
   E  every shipped SYSTEM image carries STIKAPPS/DESKCAL.O88, byte for
-     byte build/deskcal.o88, read by t_image's own FAT12 walker and not
-     os88disk's: the four geometries, both small system disks and emu.img
-     (when `make emu` has built it). The live media's list is t_livefull's.
+     byte build/deskcal.o88 - and the two small system disks byte for byte
+     its SMALL build, build/smallapp/deskcal.o88 (STIK_DESKONLY off: the
+     titled fallback and the worker arm, SPEC.md 110.7) - read by t_image's
+     own FAT12 walker and not os88disk's: the four geometries, both small
+     system disks and emu.img (when `make emu` has built it). The live
+     media's list is t_livefull's.
   F  and NO data image does: no apps disk, no category disk, no media disk,
      no small apps disk carries STIKAPPS or a DESKCAL.O88 - a widget
      belongs to the BOOT volume, and its row names a path on it (SPEC.md
@@ -162,6 +165,7 @@ def nasm_eval(names, arm, tmp):
 
 SYSTEM_IMAGES = ["os8088.img", "os8088-120.img", "os8088-720.img",
                  "os8088-360.img"]
+SMALL_SYSTEM = ("small.img", "small360.img")    # ...which take the small build
 # ON DEMAND, so read when they are there and NEWER than the package: `make`
 # builds neither the small pair (`make small`) nor emu.img (`make emu`), and
 # a tree that built one before this change would otherwise go red on an
@@ -393,20 +397,26 @@ def main():
 
         # E / F ------------------------------------------------------------
         build = os.path.join(ROOT, os.environ.get("OS88_BUILD", "build"))
-        pkg = os.path.join(build, "deskcal.o88")
-        want = open(pkg, "rb").read() if os.path.exists(pkg) else None
-        check(want is not None, "build/deskcal.o88 exists",
+        bigpkg = os.path.join(build, "deskcal.o88")
+        bigwant = open(bigpkg, "rb").read() if os.path.exists(bigpkg) else None
+        check(bigwant is not None, "build/deskcal.o88 exists",
               why="every system disk carries it; run `make`")
+        smallpkg = os.path.join(build, "smallapp", "deskcal.o88")
         for img in SYSTEM_IMAGES + OPTIONAL_SYSTEM:
+            pkg, want = bigpkg, bigwant
+            if img in SMALL_SYSTEM:
+                pkg = smallpkg
+                want = (open(pkg, "rb").read() if os.path.exists(pkg)
+                        else None)
             p = os.path.join(build, img)
             if not os.path.exists(p):
                 check(img in OPTIONAL_SYSTEM, "%s is missing" % img,
                       why="`make` builds it; the row reads what was built")
                 continue
-            if (img in OPTIONAL_SYSTEM and want is not None
-                    and os.path.getmtime(p) < os.path.getmtime(pkg)):
-                print("t_stik: %s predates build/deskcal.o88 - not read "
-                      "(rebuild it with its own target)" % img)
+            if img in OPTIONAL_SYSTEM and (want is None or os.path.getmtime(p)
+                                           < os.path.getmtime(pkg)):
+                print("t_stik: %s predates %s - not read (rebuild it with "
+                      "its own target)" % (img, os.path.relpath(pkg, build)))
                 continue
             files = walk(p)
             got = files.get("STIKAPPS/DESKCAL.O88")
@@ -416,8 +426,9 @@ def main():
                       "into each system-disk recipe",
                   got=sorted(k for k in files if k.startswith("SYSTEM/")))
             if got is not None and want is not None:
-                check(got == want, "%s's DESKCAL.O88 is build/deskcal.o88 "
-                      "byte for byte" % img, got=len(got), want=len(want))
+                check(got == want, "%s's DESKCAL.O88 is %s byte for byte"
+                      % (img, os.path.relpath(pkg, build)),
+                      got=len(got), want=len(want))
         for img in DATA_IMAGES + OPTIONAL_DATA:
             p = os.path.join(build, img)
             if not os.path.exists(p):

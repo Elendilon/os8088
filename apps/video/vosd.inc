@@ -649,10 +649,13 @@ vo_iox:
     call vo_page
 vo_iop:                             ; (...or [vo_pgo] the page, vo_cfix's)
     mov [vo_dir], al
-    mov bp, vo_sav
-    or bh, bh
+    mov dx, ds                      ; DX = ours, for the rows' DS, and BX:BP
+    mov bp, vo_sav                  ; = the save: page 0's in our bss, page
+    or bh, bh                       ; 1's its claim's (98.3.13.2)
+    mov bx, dx
     jz .b
-    add bp, VO_SAV
+    xor bp, bp
+    mov bx, [vo_s1seg]
 .b:
     mov al, [vo_dn]
     add al, 2
@@ -683,18 +686,18 @@ vo_iop:                             ; (...or [vo_pgo] the page, vo_cfix's)
     jne .put
     mov si, di                      ; KEEP: the screen -> the save
     mov di, bp
-    push ds
-    pop es
-    push ds
+    mov es, bx
     mov ds, [vp_vseg]
     rep movsb
-    pop ds
+    mov ds, dx
     mov bp, di
     jmp short .n
 .put:
     mov si, bp                      ; PUT BACK: the save -> the screen
     mov es, [vp_vseg]
+    mov ds, bx
     rep movsb
+    mov ds, dx
     mov bp, si
 .n:
     pop cx
@@ -1000,12 +1003,15 @@ vc_setup:
     mul cx
     mov [vc_pls], ax
     xor si, si                      ; SI = the row, x 2
-    mov dx, vo_sav                  ; DX = its row of the save (page 1's
-    mov ax, [vp_foff]               ; past page 0's, vo_io's - the save on
-    cmp ax, [vo_sl0]                ; the page shown, 98.3.8.4)
+    mov dx, vo_sav                  ; DX = its row of the save, [vc_sseg]
+    mov bx, cs                      ; its segment (page 1's is the claim's,
+    mov ax, [vp_foff]               ; vo_io's - the save on the page shown,
+    cmp ax, [vo_sl0]                ; 98.3.8.4, 98.3.13.2)
     je .sv
-    add dx, VO_SAV
+    xor dx, dx
+    mov bx, [vo_s1seg]
 .sv:
+    mov [vc_sseg], bx
 .r:
     mov ax, si
     shr ax, 1
@@ -1193,27 +1199,32 @@ vc_m3b:
     call vc_find
     cmp bx, [cs:vo_rows2]
     jae .scr
-    cmp di, [cs:vc_rs+bx]
-    jb .scr
     mov dx, di                      ; in the box: its byte of the save
-    sub dx, [cs:vc_rs+bx]
+    sub dx, [cs:vc_rs+bx]           ; (short of the range: the screen's -
+    jb .scr                         ; the subtraction is the compare)
     add dx, [cs:vc_rv+bx]
     mov bx, dx
-    mov ah, [cs:vp_m3c]
+    push es
+    les dx, [cs:vc_pls]             ; DX a plane of the save, ES its segment
+    mov ah, [cs:vp_m3c]             ; (vc_sseg, the word after: 98.3.13.2)
     mov cl, [cs:vo_pl]
     xor ch, ch
 .p:
     shr ah, 1
     jnc .c
-    or [cs:bx], al
-    jmp short .n
+    or [es:bx], al                  ; (each path its own tail: no jump
+    add bx, dx                      ; over the other's)
+    loop .p
+    pop es
+    ret
 .c:
     not al
-    and [cs:bx], al
+    and [es:bx], al
     not al
-.n:
-    add bx, [cs:vc_pls]
-    loop .p
+    add bx, dx
+    dec cx                          ; (a byte over LOOP's: what follows
+    jnz .p                          ; keeps its parity)
+    pop es
     ret
 .scr:
     cmp byte [cs:vp_m3ok], 0        ; (no write mode 3: a plane at a time)
@@ -1414,10 +1425,9 @@ vc_sav:
     push bx
     mov bx, dx
     add di, ax
-    push cs
-    pop es
-    mov dl, [cs:vc_mask]
-    mov dh, [cs:vo_pl]
+    mov es, [cs:vc_sseg]
+    mov dx, [cs:vc_mask]            ; DL the planes it reaches, DH the
+                                    ; save's (vo_pl, the byte after)
 .pl:
     shr dl, 1
     jnc .np
@@ -1564,8 +1574,12 @@ vo_pgo:       dw 0
 vo_sl0:       dw 0                  ; the page each of the two saves is on:
 vo_sl1:       dw VP_PAGE            ; 0 and 1, or any two of N (vo_pgsave)
 vo_ttk:       dw 0                  ; ...a toast's, since this tick
+vo_s1seg:     dw 0                  ; the SECOND save's claim (98.3.13.2): a
+                                    ; play on two pages or more's, 0 none
 vc_w:         dw 0                  ; vd_clip: the box's bytes a row
-vc_pls:       dw 0                  ; ...and a plane of the save
+vc_pls:       dw 0                  ; ...and a plane of the save, and the
+vc_sseg:      dw 0                  ; save's segment - ours, or [vo_s1seg]
+                                    ; (vc_m3b loads the two with one LES)
 vc_rs:        times VO_ROWS dw 0    ; ...its rows' ranges, in address order:
 vc_re:        times VO_ROWS dw 0    ; first byte, past the last, and the
 vc_rv:        times VO_ROWS dw 0    ; save's row
@@ -1577,6 +1591,10 @@ vb_n2:        dw 0
 vb_n3:        dw 0
 vo_bpc:       db 0
 vo_cmax:      db 0                  ; the characters the canvas holds
+vc_lst:       db 0                  ; vd_clip: the span list walked (here,
+                                    ; so what follows keeps its parity)...
+vc_mask:      db 1                  ; ...and the planes a store reaches -
+                                    ; which vc_sav reads with vo_pl, a word
 vo_pl:        db 0                  ; the planes a save takes
 vo_mx:        db 0                  ; ...and whether they are the VGA's ports
 vo_ink4:      db 15                 ; sixteen colours' ink: the brightest
@@ -1587,8 +1605,6 @@ vo_dn:        db 0                  ; ...as drawn, for the put-back
 vo_text:      times VO_MAXC + 1 db 0
 vo_bits:      times VO_MAXC + 2 db 0
 vo_nbuf:      times 7 db 0
-vc_mask:      db 1                  ; vd_clip: the planes a store reaches
-vc_lst:       db 0                  ; ...the span list walked
 vc_sk:        db 0                  ; ...skip-coded: [vc_nb] holds
 vc_fillf:     db 0                  ; ...a run, of
 vc_val:       db 0

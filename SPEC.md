@@ -21281,7 +21281,12 @@ its 1 KB claim, or a stale stamp (§2.8.2): QUERY answers CF = 1, which is
 with nothing half-done. **It says nothing**: the widget works, so there is
 no refusal for the user to act on (§47 rule 3). The boot relaunch is
 unaffected - `stik_boot` stays resident (§110.4, §110.9's module-cut entry) -
-so a Sticky App row still launches at boot and comes up titled, and its row is kept.
+so a Sticky App row still launches at boot and its row is kept. **The shipped
+Desk Calendar is built `STIK_DESKONLY`** (§110.7) and so does NOT come up
+titled: `stik_single` asks QUERY before any I/O and a refusal is no launch,
+said - `No desk layer (DESK.DRV)` - because the titled arm is code only a
+machine with no desk layer reaches, and kern_big always has one unless its
+system disk is damaged.
 Each launch of an `OS88_F_DESK` package pays TWO more `drv_find`s of
 `SYSTEM\` for the file that is not there - step 5's and the QUERY's, the
 first refusal not being remembered (a byte to remember it would be resident
@@ -167749,6 +167754,13 @@ reference    = len(16)=12 y0(16) y1(16) at(32) n(16)
   15 another entry after it, `at` the picture's offset in the file and `n`
   its first read - a key table entry's two words. It is the hidden chain's
   third kind and lives only in keys, the COPY (98.1.3.7.2) only in frames.
+- **The references are part of the last part's READ**: in a key of more
+  than one part, the word ending the part before it names the last part's
+  length WITH its references (and an ADPCM4 key's reference byte), as
+  98.1.3.8 has it for every read. A writer that adds them after cutting the
+  parts must rewrite that word too - a stale one reads the last part short,
+  and its hidden chain then runs off the bytes read (fixed 2026-10-16; a
+  Mode X key, whose own page alone is two parts, was where it showed).
 - **The page a reference names is BLACK and then the picture**: the key's
   own lists went onto every page, and a pool picture is made over black.
   None of the key's parts carries a hidden record for that page.
@@ -169453,6 +169465,12 @@ was built and is NOT taken: the two parts compress apart, part 1's code at
 94%, and the 1.5KB loader is raw, so the file was ~4 clusters bigger and
 took `apps360.img` past its 354. It is kept for the day the ceiling bites
 again.
+
+**And the text's second save (2026-10-16)** is a claim a play on two pages
+or more takes (98.3.13.2): **-1,660 bytes of bss for +54 of image**, so
+`video.bin` is **53,700 + 2,484 = 56,184, 5,256 to spare**, `NOLIVESND=1`
+55,955 (5,485) and `VPDIAG=1` 57,724 (3,716) - and every hook call with the
+text up is faster, every one with it down unchanged.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 
@@ -174199,7 +174217,8 @@ again keeps the text for good.
   measured against what that machine needs for the base (`[vp_lyneed]`),
   not the file's ask (`vp_bshort`) - it was said on every play after the
   first, the split being once a file.
-- **Page flipping (98.3.8) keeps one save a page**: the page drawn next has
+- **Page flipping (98.3.8) keeps one save a page** (the second a claim,
+  98.3.13.2): the page drawn next has
   its box put back (`vo_pre`) and is decoded into, and the text is drawn on
   it BEFORE it is shown (`vo_flipon`).
 - **Through the shadow the screen is only a copy**, and the copy goes round
@@ -174286,6 +174305,84 @@ without the text. Broken on purpose, it fails on each of the three paths:
   bytes out;
 - no `vo_flipon`: `modexflip`, 17 of 20;
 - `vo_bparts` copying whole rows: `c160`, 20 of 20.
+
+##### 98.3.13.2 The second save is a claim (2026-10-16)
+
+**The text's two saves were 3,840 bytes of bss** (`vo_sav`, `VO_SAV` =
+1,920 a page), and the second is used only by a play on TWO PAGES OR MORE -
+`--flip` (98.3.8), page-ahead (98.3.8.3) on two pages or N (98.3.8.4), and
+flipped and built ahead (98.3.8.5). `vo_savbit` names it only for
+`[vo_sl1]`'s page, and an unflipped play draws on page 0 and shows page 0.
+So **the second save is a claim** now, `[vo_s1seg]`: 2 KB from the top,
+taken by `vp_sstart` beside the page copy whenever `[vp_flip]` is set, and
+a SESSION claim like the rest - in `vp_smtab`, pinned for every bracket and
+movable between them (`vp_smov`, 98.3.19.2), given back by `vp_sfree`. A
+heap that cannot spare it refuses the play with *Not enough memory*, as the
+page copy's 31 KB always has. It is claimed BEFORE the ring, which sizes
+itself on what is left - which is why it is not claimed at the bracket's
+door, where a ring that took the machine would leave it nothing exactly
+when it matters.
+
+**What it saves is set by the DESKTOP'S SCRATCH, not by the save.** The
+scratch (98.1.9.13's data half) runs 2,436 bytes from `vo_sav` (2,616 with
+`VPDIAG`), past page 0's save and the page table together (2,176), so the
+bss is the sixteen and the scratch: **4,144 -> 2,484 bytes, -1,660**
+(-1,480 with `VPDIAG`), for **+54 bytes of image** in every arm. Taking
+page 0's save and `vc_pg` out as well would buy NOTHING more for the same
+reason, and would put a segment on `vc_find`'s lookup, which every change
+near the box pays. The scratch is the next floor: Live in colour's repack
+buffer (`vp_v4buf`, 1,024) is the largest thing in it.
+
+**Recorded, not built (the owner, 2026-10-16: time, not merit)**: that
+buffer as a claim of its own, taken where Live in colour starts repacking
+(`vp_v4blit`, a VGA4 Live play whose BLITP refused) and freed with the
+session's claims. It is filled and blitted inside one call by the window's
+own code, not by the hook, so it costs the play nothing a frame. The
+scratch would then fall to page 0's save and `vc_pg` (2,176), so the bss
+**-260 bytes, -440 with `VPDIAG`** (ESTIMATED, not built), and a Live play
+in colour holds 1KB more heap while it runs. After it, the next floor is
+page 0's save itself, which is the segment on `vc_find` priced above.
+
+**Every access names its segment, and the play pays nothing for it** -
+every routine it touches is FASTER, the ones it does not are identical and
+at an even shift in all three arms (`tools/os88rdiff.py --hot-file`):
+- `vo_iop` holds the save as BX:BP and its own DS in DX, both free through
+  its rows: the KEEP is `mov es, bx` where it was `push ds / pop es`, and DS
+  comes back as `mov ds, dx` where it was popped - ~34 cycles a row
+  cheaper; the PUT BACK gains `mov ds, bx` and the same restore, ~8 dearer.
+  A flipped frame with the text up makes one of each.
+- `vc_setup` records the save's segment beside its rows (`[vc_sseg]`, CS
+  for page 0). `vc_sav` loads ES from it where it pushed CS, and reads the
+  planes a store reaches and the save's planes as ONE word (`vc_mask` sits
+  in front of `vo_pl`). `vc_m3b` loads the plane stride and the segment
+  with one `LES` (`vc_sseg` follows `vc_pls`) and adds the stride from a
+  register, its range test is the subtraction itself, and its two paths
+  each have their own tail - one of them `dec cx / jnz` for `loop`, a byte
+  longer, so what follows keeps its parity.
+- `vp_sfree`'s zero stores come from AX, a byte shorter each (-9): the odd
+  cut that puts the cold code's shift back on parity.
+
+Measured with `tests/vidfskeys.py --cost` on MartyPC's 5150 and XT VGA,
+every `vp_hook` call to the cycle, the same frames against the base:
+
+| kind | text down, a frame | text up, a frame |
+|---|---|---|
+| `modexflip` | 19,532 -> 19,531 | 597,467 -> 596,620 (-0.14%) |
+| `vga8` | 15,543 -> 15,547 | 72,259 -> 71,951 (-0.43%) |
+| `vga4` | 37,908 -> 37,909 | 126,728 -> 126,205 (-0.41%) |
+| `vga4m3` | 41,217 -> 41,202 | 129,015 -> 127,886 (-0.87%) |
+| `modex` | 9,711 -> 9,722 | 50,562 -> 50,335 (-0.45%) |
+| `herc` | 9,362 -> 9,359 | 31,135 -> 31,018 (-0.38%) |
+| `cga4` | 9,092 -> 9,098 | 33,567 -> 33,422 (-0.43%) |
+| `c512` | 8,750 -> 8,750 | 30,954 -> 30,859 (-0.31%) |
+| `text` | 8,671 -> 8,676 | 13,048 -> 13,021 (-0.21%) |
+| `c160` (the shadow) | 9,290 -> 9,293 | 52,265 -> 52,249 (noise) |
+
+The text-down column runs no changed instruction, and its +/-15 is where the
+frames fall against the ticks. Per routine, every call timed: `vo_iop`
+138,915 -> 137,781 cycles a flipped frame; `vc_sav` -17 a call; `vc_m3b`
+21,987 -> 21,477 a frame (an earlier build that kept the stride in memory
+and saved ES in DX read +387, which is what the `LES` is for).
 
 #### 98.3.14 Seeking in the full screen: Left and Right
 
@@ -175988,7 +176085,7 @@ each word is added. `tools/os88vfit.py --reads` sums the file the same way
 and names every read that differs; a byte changed in the file the guest
 played is named to its chunk.
 
-**The profile is version 2 for both** - a 48-byte header: version 1's 32,
+**The profile is version 2 for both** (version 3 since 98.3.22.3, the same header) - a 48-byte header: version 1's 32,
 then +32 the frame slots that follow, +34 the reads logged after them,
 +36 the damaged super-packets seen and, for the first, +38 the decode's
 chunk, +40 its offset, +42 its sectors, +44 the reader's `[vp_lc]` and +46
@@ -175998,6 +176095,39 @@ start: claimed after the rings were sized, a machine with no XMS had no
 room and profiled nothing, so the diagnostic builds' rings are the claim
 smaller. VIDEOR's room under `APP_MAX_SIZE` is the info card's layer and
 speaker lines, which a card's play of a file with no layer does not draw.
+
+##### 98.3.22.3 Version 3: the info card and the boot's placement, in the file (2026-10-16)
+
+**A field run whose card was not photographed told us nothing but the
+frame times.** GasGas54 paused once on the owner's Victory and played
+clean after a reinstall and a reboot, and the question that left - what
+did this boot do differently? - is one the card answers and the profile
+did not. So version 3 appends a TRAILER after the frame words and the read
+log: `VPDI`, its bytes (u16), its word count (u16), then the words of
+`vp_ditab` in order and the package's CS and SS. Every number the info
+card draws is there - the heap at Play, the ring's slots against the
+file's ask and what it was sized from, the keeper and the card's ring, the
+reader's least lead and its frame, the hook's longest gap, the pauses
+that were the stream's and the longest, stalls, late, the ticks taken,
+the frames drawn, the layer's tests - and beside them where this boot put
+the play: the ring (the bank's bounce in place) and the claim it starts
+in, the XMS block, the bank's and the ring's slots, the card's rate and
+block, the CPU tier, and THE GAP (41.14): the G it chose and the PIT count
+of its 8 KB copy at each of 0, 512, 1 K, 2 K, 4 K and 8 K - `xg_tt`,
+kept only under `XG_TIMES`, which only a `VP_DIAG` build defines, so the
+shipped `VIDEO.O88` and VIDDISK assemble byte-identical. A byte's word
+carries the byte above it; the reader masks it. `tools/os88vfit.py` prints
+the trailer first, as the card read and as placement - the ring's distance
+from the block mod 2G, and PLACED or not - and its `DI_NAMES` is the
+second copy of `vp_ditab`'s order. The claim grows by the trailer; a
+version 2 reader ignores the bytes after its read log.
+
+**And the name it is saved under was wrong from version 1 on**: `vp_prend`
+asks whether `VPPROFn.DAT` is there with a read of zero bytes and took ANY
+refusal for *no such file* - but a file that IS there refuses a read into
+no room with `FERR_BIG` (20.14.6.3), so every play wrote `VPPROF1.DAT` over
+the last. Only `FERR_NOENT` is free now; any other answer moves on to the
+next n, so a disk error never overwrites a profile either.
 
 ##### 98.3.22.1 What the first profiles changed in the encoder (2026-10-15)
 
@@ -185907,21 +186037,27 @@ held draws it lit and cannot leave a stale inversion (§110.9).
 **Keys** reach the widget while it owns the bar (§11.103.4): v1's table -
 Left / Right a day, Up / Down a week, PgUp / PgDn (`,` `.`) a month, `T`
 today, `N` a new appointment, `K` a new task, `Enter` edit, `Del` delete
-(after asking), `Space` a task's box, `Tab` COMPACT's slot - plus `S`
+(pressed twice in a row), `Space` a task's box, `Tab` COMPACT's slot - plus `S`
 snooze and `D` dismiss the ringing reminder, and `Esc`, which is
 `OSAPI_WM_DESK` RELEASE: the bar and the keys go back to the front
 application (on kern_small, where there is no RELEASE, `Esc` selects
 nothing, as v1). While the field is open its keys are `os88line_key`'s and
 only `Enter` and `Esc` come back.
 
-**The menus** are v1's, shown while the widget owns the bar: `Calendar` (New
-Appointment, New Task, Edit Item, Delete Item, Clear Done Tasks, Show Tasks /
-Show Day - live on COMPACT only, greyed `(both shown)` elsewhere - Go to
-Today, Previous Month, Next Month) and `Remind` (the leads), with every v1
-greying (§47). The app-name cell carries About and the kernel's Close,
-through `os88stik.inc`'s negotiator. **The About card** lies over the face
-(its lines are 14 cells at most) until a key, a press or a pick, and its
-take-down is ONE whole-face repaint (`stik_redraw`, §110.11).
+**The menus** are shown while the widget owns the bar: `Calendar` (New
+Appointment, New Task, Edit Item, Delete Item, Clear Done Tasks, Go to
+Today, Previous Month, Next Month, and LAST Show Tasks / Show Reminder /
+Show Day - COMPACT's page, so on TALL and MID, which show both lists, the
+item is not on the menu at all: `dc_entry` takes the count one lower before
+`OSAPI_MENU_SET`, the layout being the session's) and `Remind` (the leads),
+with v1's greying (§47) in the ITEM'S OWN WORDS: each greyable string has
+one `MENU_DIS` byte in front of it, so its greyed form is the live string
+less one byte and needs no twin (`dc_menulive`). The reason is what the key
+says - `N` at 48 answers `Calendar is full (48)` - or plain on the card. The
+app-name cell carries About and the kernel's Close, through `os88stik.inc`'s
+negotiator. **About is one toast**, `Desk Calendar, SPEC 110`, and draws
+nothing on the face: the About card that lay over it, and its take-down
+repaint, went in the size pass (docs/plans/completed/DESKCAL-SIZE-PLAN.md).
 
 **The one-line entry** (`os88line.inc`) takes card 2's HEADING ROW (the
 slot's on COMPACT): content x 4..155, so the `+` stays, rows heading - 3 ..
@@ -185953,14 +186089,20 @@ stays open); a task's at most 23. Editing an appointment keeps its reminder
 and lead while it stays timed, and its FIRED mark only while its time does
 not move (a moved one also loses DUE and SNOOZED). Appointments are kept in
 `(date, time + 1)` order (all day first in its day); the load CHECKS the
-order and the counts, and a payload that fails is DAMAGED (§110.5.2). `Del`
-asks through `os88ui_ask` (`Delete this appointment?` / `Delete this
-task?`) - an ordinary window that lands ABOVE every application and over the
-widget and takes the bar, giving it to `wm_top` when it closes (§11.103.4;
-`deskmodal`). Clear Done Tasks removes every checked task without asking. A
-page is re-derived whenever its list changes shape, as v1. The limits grey
-as v1: `New Appointment (full)` at 48, `New Task (full)` at 32, `(no item)`,
-`(none done)`, `(typing)`.
+order and the counts, and a payload that fails is DAMAGED (§110.5.2).
+**Delete is pressed TWICE**: the first `Del` (or Delete Item) on a selected
+item arms a one-byte latch, `dc_ask`, and says `Delete again to confirm`;
+a second on the very NEXT event, with the same item selected, deletes it.
+Every event handler (`dc_onkey`, `dc_oncmd`, `dc_oncard`) ages the latch
+first (`dc_age`, 2 -> 1 -> 0), so anything in between - another key, a
+press, another command - disarms it. It replaced an `os88ui_ask` question,
+which with the damaged-file question was all the alert and its button kit
+were carried for (1,238 bytes). Clear Done Tasks removes every checked task
+without asking. A page is re-derived whenever its list changes shape, as
+v1. The limits grey as v1 - New Appointment at 48, New Task at 32, Edit and
+Delete Item with nothing selected, Clear Done Tasks with none done, the
+three that would throw away an open field's line while it is open - in
+their own words (the menus, above).
 
 **Remind** sets a lead (At the Time, 5, 15, 30 Min Early, 1 Hour Early, No
 Reminder): the selected TIMED appointment's (FIRED, DUE and SNOOZED cleared,
@@ -186058,8 +186200,8 @@ with the snooze slot in the words v1 left zero:
 `tools/os88stik.py` writes and reads it (`deskcal(snooze=...)`,
 `parse_deskcal()`'s `snoozed` / `due` and `snooze`), and `t_stik` holds the
 offsets, the two new bits and the slot equal to `deskcal.asm`'s by NASM's own
-evaluation. An edit owes a save, held while the field or the Delete question
-is open and until one poll has passed with no edit, as v1.
+evaluation. An edit owes a save, held while the field is open and until one
+poll has passed with no edit, as v1.
 
 **What it costs**: §110.6's package rows.
 
@@ -186109,7 +186251,7 @@ stik_boot:       [ui_rebootq] != 0  -> nothing (a resume or DOS question is up)
 | launched from B:, booted with no disk in B: | the same, naming `(B:)` | the same |
 | a hard-disk install: a row recorded against A: | the same — a row's VOL is a volume index, which is existing shortcut semantics (§26.8.1) | the same |
 | load refused (memory, version) | `ld_say_status`'s sentence | KEPT |
-| `DESK.DRV` missing from the system disk, or no heap for its 1 KB claim (§11.103.10) | the widget comes up TITLED - its QUERY refused, kern_small's path - and nothing is said | KEPT |
+| `DESK.DRV` missing from the system disk, or no heap for its 1 KB claim (§11.103.10) | a `STIK_DESKONLY` widget - the shipped calendar - refuses in its own words, `No desk layer (DESK.DRV)`; one built without it comes up TITLED, kern_small's path, and says nothing | KEPT |
 | state file missing / damaged / position off this screen | the package's own answers (§110.5) | — |
 | hibernate or DOS question pending | nothing is launched | — |
 
@@ -186298,24 +186440,29 @@ GOTO_QM    home
   clamped at launch is not written back as though the user had chosen it -
   the file keeps the place the user DID choose, for the screen they chose it
   on. A wave-2 build compared against "never saved" and wrote a missing file
-  ~2 s after every first launch, and put the damaged-file question up
-  unprompted ~2 s after every launch over a damaged one. **The one exception
+  ~2 s after every first launch, and (when there was a damaged-file
+  question) put it up unprompted ~2 s after every launch over a damaged
+  one. **The one exception
   is the calendar's reminders** (§110.3): a FIRED mark is the payload
   changing, so a launch that finds reminders MISSED, and a reminder going
   off with nobody at the machine, each owe a save at the next quiet poll -
   §110.6 prices both. A launch with nothing missed still writes nothing.
-- **A DAMAGED file is asked about, once, before it is overwritten.** Wave 1
-  never saved over one. Now the first save that is owed - a settled drag
-  away from where the window opened, an edit (`stik_touch`); never a launch
-  by itself - asks `STIK_DAMAGEDQ` (`Replace damaged calendar?`) through
-  `os88ui_ask` with Yes / No, when the package includes `os88ui.inc` with
-  `OS88UI_ALERT` and defines that string. **Yes** clears the damage and the
-  next tick writes a whole new file; **No**, or a dismissed alert, makes the
-  state READ-ONLY for the session (`STIK_S_RDONLY`, §110.5.1's word for it):
-  kept in memory, never written, never asked again. The question is NOT put
-  from the close - the alert is a window of the closing package's own and
-  would die with it - so a damaged file the user never answered for stays
-  exactly as it was found. A package without the alert keeps wave 1's rule.
+- **A DAMAGED file is REPLACED by the first save, and nothing is asked.**
+  Wave 1 never saved over one. A package that defines `STIK_DMGREPLACE` has
+  the first save that is owed - a settled drag away from where the window
+  opened, an edit (`stik_touch`), a close that owes one; never a launch by
+  itself - DELETE the damaged file inside `stik_enter`'s walk and then write
+  afresh. Deleting FIRST is the point: a replace claims its new chain before
+  it frees the old one (§18.4), and the 360KB system disk has room for one
+  copy of a three-cluster state file and not two. The calendar says
+  `Calendar file damaged` at launch, the first beat's toast (`dc_ltp`), and
+  runs empty. A package without `STIK_DMGREPLACE` keeps wave 1's rule. Until
+  the size pass this was a Yes / No `os88ui_ask` (`STIK_DAMAGEDQ`,
+  `Replace damaged calendar?`): Yes did what this does, and No made the
+  session read-only. A first build of the size pass RENAMED the damaged file
+  aside instead (`DESKCAL.BAD`), and on the 360KB system disk that copy's
+  three clusters were exactly what the second save needed - the calendar
+  saved once and went read-only (`deskcaledit` B).
 - **kern_small has no `OSAPI_WM_TIMER`** (its window record stops at 28
   bytes, §13.8.2), so the tick comes from a WORKER there. `stik_made` sees the
   timer refused (CF = 1) and installs `stik_wake` as the window's
@@ -186328,8 +186475,7 @@ GOTO_QM    home
   `OSAPI_GFX_LOCK` around the WHOLE beat - the poll, `STIK_ONTICK` and the
   save - which is kern_big's timer environment exactly: the application's
   tick sees what it sees there, and the save runs under the lock as it does
-  there (its damaged-file question is an `os88ui_ask`, which wants the lock
-  held). One body, `stik_beat`, serves both arms. The worker is
+  there. One body, `stik_beat`, serves both arms. The worker is
   declared restartable (§66.6.2). There is no registration on kern_small,
   whose `OSAPI_DESK_ITEM` is the refusal (§110.7).
 
@@ -186614,6 +186760,40 @@ each (it crossed a 1 KB boundary), so the shipped 360 KB system disk was
 **321 of 354, 33 left**. The state file is three more clusters at runtime,
 in `SYSTEM\APPDATA`, the first time the calendar is closed or moved.
 
+**The size pass** (docs/plans/completed/DESKCAL-SIZE-PLAN.md, on the owner's
+brief: a calendar, appointments and reminders are not worth 23 KB; the
+breakdown it started from is docs/reports/DESKCAL-SIZE-2026-10-16.md). No
+kernel byte moved. MEASURED off the build:
+
+| | image | bss | on disk (lz4) |
+|---|---:|---:|---:|
+| `DESKCAL.O88` before it | 18,976 | 3,709 | 16,171 (16 clusters) |
+| no alert, About a toast, greyed items without twins | 17,040 | 3,709 | |
+| `STIK_DESKONLY` (the titled fallback and the worker arm to the small build) | 16,704 | 3,709 | 14,340 |
+| `os88stik.inc`'s pass | 16,048 | 3,709 | |
+| `deskcal.asm`'s pass | 15,056 | 3,709 | |
+| `dcdate`/`dcdata`/`dcrem`'s pass | 14,464 | 3,709 | |
+| **`dcdraw.inc`'s pass - today** | **13,680** | 3,709 | **12,535 (13 clusters)** |
+| the small build (`build/smallapp/`, kern_small's disks) | 14,016 | 3,709 | 12,791 |
+
+-5,296 bytes of image, 27.9%, and three clusters of the 360 KB system disk:
+346 of 354 against `elendilon-next`'s 349. **Those clusters were a defect
+and not only a saving**: the calendar's state file is three clusters and a
+replace claims its new chain before it frees the old one (§18.4), so the
+second save of a session needed three free clusters beside the first copy
+and SYSTEM.CFG's - and with 6 left it got `FERR_FULL` and went read-only
+for the session (`stik_st` 0x33; `deskcaltask`, `deskcalremind`,
+`deskcalsnooze` and `deskcaledit` all red on `elendilon-next` for exactly
+that). At 347 and below it saves. What the user sees changed is in §110.3:
+Delete pressed twice, About a toast, greyed items in their own words, and
+a damaged file replaced without a question (§110.5.2). The bss did not move:
+2,456 of its 3,709 bytes are the payload's capacity, a file-format constant.
+**Nothing got slower**: `deskcalperf` A/B on one box against
+`elendilon-next`, VGA TALL, the first paint **264 -> 254 ms**, a day select
+70 -> 68, a month 152 -> 146, a tick 13 -> 14, every call count identical
+(19 / 4 / 8 / 1); CGA's first paint is 156 ms in 12 calls. About is now
+0 calls on the cards where its take-down was 6 calls and 54 ms.
+
 ### 110.7 `kern_small`
 
 kern_small reads no SYSTEM.CFG (§51.5), has no shortcuts (`OS88_SHORTCUTS`)
@@ -186635,8 +186815,12 @@ slot, below) (880 Hz, 8 ticks: the worker's 36-tick
 sleep has begun before the beat that could shorten it runs, so there is no
 second note to time), the close box closes at once with nothing to remove,
 a reset brings no calendar back, and opened by hand again it is where it was
-dragged with its data. Nothing about the calendar is a different build on
-kern_small: the same `DESKCAL.O88` is on both kinds of system disk.
+dragged with its data. **The small system disks carry their own build** of
+the calendar, `build/smallapp/deskcal.o88` (`-DAPP_SMALL`, `$(SMALLSTIKAPPS)`):
+the shipped one defines `STIK_DESKONLY`, which leaves out the titled fallback
+and the worker arm below - 336 bytes that only a machine with no desk layer
+can reach - so kern_small's disks take the build that has them. Same source,
+same bss, same state file; `t_stik` holds each system disk to its own build.
 
 **v2: the titled fallback with v2's face** (§110.11, the v2 design's open decision 9's
 default). kern_small has the two cells of §11.103.9 and nothing else of the
@@ -187722,6 +187906,15 @@ STIK_FACE_W  equ 176                  the face's width: a multiple of 8, no wide
                                       On BOTH arms: kern_small's worker kick
                                       reaches it too, and stik_wake tells the
                                       two apart by STIK_S_WORKER
+%define STIK_DESKONLY                 optional: no titled fallback and no
+                                      worker arm - a refused QUERY refuses the
+                                      LAUNCH (stik_single, said). For a build
+                                      that only kern_big runs: the calendar's
+                                      default, and -DAPP_SMALL leaves it off
+                                      (110.7)
+%define STIK_DMGREPLACE               optional: a DAMAGED state file is deleted
+                                      by the first save, which writes afresh
+                                      (110.5.2)
 %define GFXE_TEXT / GFXE_BITS         and os88gfx.inc, whose band (GFXE_BAND_BUF,
                                       GFXE_BAND_W >= STIK_FACE_W, GFXE_BAND_H >= the
                                       tag row) the include composes the tag in
