@@ -8337,9 +8337,10 @@ br_submit:
     mov byte [br_dest], 1
     cmp byte [br_post], 0
     jne .q
-    xor ah, ah
-    mov bl, BR_ACTMAX
-    mul bl
+    mov al, [br_submitform]         ; **THIS FORM'S** action: AL was still the
+    xor ah, ah                      ; method byte (0 for a GET), so every GET
+    mov bl, BR_ACTMAX               ; form on a page submitted to the FIRST
+    mul bl                          ; form's action (apps size pass 2)
     mov si, ax
     add si, br_factions             ; this submit button's action, verbatim
 .act:

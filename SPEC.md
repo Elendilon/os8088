@@ -115348,6 +115348,13 @@ redirects and frames - and left the same bytes behind.
   its message and joins the one `br_errst` call, which is the very sequence
   two of them had inlined. The root and the directory-relative shapes share
   their host check and base, and an absolute href joins them at `br_uputh`.
+- **A DEFECT, FIXED: every GET form submitted to the FIRST form's action.**
+  `br_submit` indexed `br_factions` with AL after AL had been reused for the
+  form's method byte, which is 0 for a GET - so on a page with two forms, the
+  second searched wherever the first one pointed. POST was right all along,
+  because its action is looked up again at the toast. Invisible on FrogFind,
+  which has one form; found by the differential run above (a two-form page
+  submitting form 2 to form 0's `/search`). +3 bytes.
 
 ### 72.1 What the packages did have to change, which is one question
 
