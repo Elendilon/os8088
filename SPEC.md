@@ -58227,6 +58227,12 @@ into bss or the heap. The numbers are the file and the image, both arms.
    text into the note a byte at a time with DS:SI and ES:DI already set up
    for the string move it is now - and a zero count moves nothing, so the
    `jcxz` went with it. `np_saycnt`'s ' replaced' suffix is `np_scpy`.
+7. **`np_fpgeom` derives the panel from registers.** The content's left
+   and right stay in DI across `OSAPI_WM_GEOM` and every edge is one `lea`
+   off them instead of a reload-add-store; the three optional button widths
+   share one test of `[np_fpan]`. `np_fpclick`'s `.hit` arm, unreached
+   since the press stopped firing a button (np_onup reaches `np_fp_act` at
+   the release), is gone.
 
 ## 28. apps/taskmgr — the Task Manager
 

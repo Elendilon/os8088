@@ -9653,52 +9653,41 @@ np_fpgeom:
     call OSAPI_WM_CONTENT       ; AX = content left, DX = content top
     mov [np_pl], ax
     mov [np_pt], dx
-    push ax
+    mov di, ax                  ; DI = the left, which GEOM keeps
     call OSAPI_WM_GEOM          ; CX = content w, DX = content h
-    pop ax
-    add ax, cx
-    dec ax
-    mov [np_pr], ax
-    mov ax, [np_pl]
-    add ax, 4 + NP_FP_LBL
+    add cx, di
+    dec cx
+    mov [np_pr], cx
+    lea ax, [di+4+NP_FP_LBL]
     mov [np_pfx], ax            ; a text box's interior...
-    mov ax, [np_pr]
-    sub ax, 4
-    mov [np_pfr], ax            ; ...left and right
-    call np_fph
-    mov bx, ax
-    mov ax, [np_pt]
-    add ax, bx
-    sub ax, NP_FP_PAD + 1 + NP_FP_ROW
-    mov [np_pbtny], ax          ; the button row's top
-    mov ax, [np_pl]
-    add ax, 4
+    lea ax, [di+4]
     mov [np_pcbx], ax           ; the Regex tick box...
     add ax, 9 + 4 + 16 + 8
     mov [np_pnx], ax            ; ...then 'Rx', then the count
-    mov di, [np_pr]
+    mov di, cx                  ; DI = the right
+    lea ax, [di-4]
+    mov [np_pfr], ax            ; ...the text box's right
+    call np_fph
+    add ax, [np_pt]
+    sub ax, NP_FP_PAD + 1 + NP_FP_ROW
+    mov [np_pbtny], ax          ; the button row's top
     sub di, 3
     xor bx, bx                  ; 0 = the close box
     mov cx, 14
     call np_pbset
-    cmp byte [np_fpan], NP_FPAN_REPL
-    jne .nrepl
-    mov bx, 1                   ; 1 = All
+    xor cx, cx                  ; 1 = All and 2 = Repl are shown only with
+    cmp byte [np_fpan], NP_FPAN_REPL    ; Replace open, and a zero width
+    jne .all                    ; hides one (np_pbset)
     mov cx, 3*8+8
-    call np_pbset
-    mov bx, 2                   ; 2 = Repl
+.all:
+    inc bx
+    call np_pbset               ; ...which keeps CX
+    jcxz .repl
     mov cx, 4*8+8
+.repl:
+    inc bx
     call np_pbset
-    jmp short .next
-.nrepl:
-    mov bx, 1
-    xor cx, cx
-    call np_pbset
-    mov bx, 2
-    xor cx, cx
-    call np_pbset
-.next:
-    mov bx, 3                   ; 3 = Next
+    inc bx                      ; 3 = Next
     mov cx, 4*8+8
     call np_pbset
     pop di
@@ -10321,9 +10310,9 @@ np_fpclick:
     mov byte [np_fcdirty], 1
     call np_fpaint
     jmp short .yes
-.hit:                           ; UNREACHED from the press now: np_fp_act is
-    call np_fp_act              ; the same ladder as a routine of its own, so
-    jmp short .yes              ; np_onup can reach it at the release
+                                ; (a .hit arm calling np_fp_act stood here,
+                                ; unreached since the press stopped firing:
+                                ; np_onup reaches np_fp_act at the release)
 
 .fields:
     mov ax, dx                  ; --- a text box ---
