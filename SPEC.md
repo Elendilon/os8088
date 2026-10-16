@@ -184126,6 +184126,45 @@ at a time, the bytes each saved:
 | ...and four more tails, found by a search of every string: `5 Min Early` in `15 Min Early` (and the toast's lower-case pair), `>` in the slot's ` >`, `Tasks` in `Clear Done Tasks` | -32 | -9 |
 | the title IS `os88stik.inc`'s name tag (`STIK_TAG`, which the package defines as the title), so `dc_title` and the menu's name are labels into `stik_tags` - asserted with `%ifnidn` | -16 | -4 |
 
+**The whole pass: 16,171 -> 15,747 bytes on disk (-424, 2.6%), 18,976 -> 18,384
+of image (-592)**, bss unchanged at 3,709 (the calendar's 1,024 and the
+include's), and no heap claim anywhere. On the 360 KB and 720 KB system disks
+(1,024-byte clusters) that is still 16 clusters; on the 1.44 MB and 1.2 MB ones
+(512-byte clusters) it is **32 -> 31**. Small changes move the packed file by
+a few bytes either way - LZ4 prices a repeated epilogue at a token, so taking
+one `push` out of a common sequence measured +2 to +5 three times over and was
+put back - which is why every row above is a measured file and not a sum.
+
+**No hot path moved the wrong way.** Every change takes instructions out of
+the path it is on, or puts a cheaper one in (`CBW` for `XOR AH, AH`, one word
+move for two byte moves, no `MUL` in `dc_build` or `dc_rbox`); none adds a
+call, a jump or a table walk to a repaint, a tick, a key or a click. The
+shared composer core - `os88gfx.inc`'s glyph and fill, `os88line.inc` and
+`os88stik.inc` - moved by an EVEN amount (`tools/os88rdiff.py` against
+`a123653b`), so a 16-bit bus sees it aligned as it was; some of the calendar's
+own painters moved by an odd one, which on the 8088's 8-bit bus is nothing.
+
+**Not taken, inside the package**: four merges that cost cycles on a gesture,
+each a few to a few tens of cycles against a redraw of milliseconds, all
+ESTIMATES - the toast's lower-case reminder words built from the menu's while
+they are copied (~60 image bytes, ~12 cycles a character on a Remind pick),
+`dc_newa`/`dc_newt`/`dc_plus` sharing their open (~20, one `JMP`), `dc_month`
+and `dc_month_q` sharing the arithmetic (~20, a `CALL`), and `dc_onkey`
+returning through a pushed address (~25, but +24 cycles on a key it ignores).
+**Not taken, outside it** (the pass's rule 4 - recorded for the owner):
+`os88gfx.inc`'s band utilities (`gfxe_bnew`, `bfold`, `bsize`, `bpix`, `bput`)
+are compiled into every `GFXE_BAND` package and the calendar calls none - 187
+image bytes here, and the only other `GFXE_BAND` carriers (Wire, PiXEL) use
+them, so an opt-out gate would be the calendar's alone; `os88line_set` (51
+bytes, unused here, used by Browser, ftpd, Sheet and Weave); `stik_redraw` (29,
+unused by the calendar, the include's only consumer bar the probes); and the
+alert's five button labels for the sets the calendar never asks for (~30).
+
+The rows that run the package: `stik` (fast), `deskcaledit`,
+`deskcaltask`, `deskcalgrid`, `deskcalremind`, `deskcalperf`, `deskcal1bpp`,
+`deskcalcards`, `deskcalsnooze`, `deskmodal`, `stikmove`, `stikmovecga`,
+`stikanchor`, `stiknodesk`, `stikregister` and `stiksmall`.
+
 ### 110.7 `kern_small`
 
 kern_small reads no SYSTEM.CFG (§51.5), has no shortcuts (`OS88_SHORTCUTS`)
