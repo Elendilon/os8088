@@ -9,9 +9,10 @@
 ;
 ;  - **The paddle reflects, it does not re-launch.** A bounce mirrors vy and
 ;    KEEPS vx, then adds where along the paddle it landed (ark_zbias) and how
-;    the paddle itself was moving (ark_english) to the vx it kept. An earlier
-;    version assigned both from a zone table instead, and that is what made
-;    the game feel arbitrary: a ball arriving steeply from the left and one
+;    the paddle itself was moving (its kick, in ark_padbounce) to the vx it
+;    kept. An earlier version assigned both from a zone table instead, and
+;    that is what made the game feel arbitrary: a ball arriving steeply from
+;    the left and one
 ;    drifting in from the right left the paddle identically if they landed in
 ;    the same zone, so a rally had no continuity at all. A serve has no
 ;    incoming direction to build on, so the flick IS the aim: it is thrown the
@@ -597,7 +598,7 @@ ark_vel_src:
 ; a ball arriving steeply from the left and one drifting in from the right left
 ; the paddle identically if they landed in the same zone. Scaled into ark_zbq,
 ; and never read at play time: the bounce reads that copy. A zone's
-; contribution is a vx like ark_english's, so it scales for the same reason -
+; contribution is a vx like the paddle's kick, so it scales for the same reason -
 ; unscaled, an edge hit adds 8 quarters against CGA's ceiling of 9 and
 ; saturates the angle, where on VGA the same 8 is a third of 24.
 ark_zbias:
@@ -1462,45 +1463,6 @@ ark_pkey:
     ret
 
 ; -----------------------------------------------------------------------------
-; ark_english - the sideways kick the paddle's own motion imparts
-; out: AX = -2..+2 PIXELS, in quarter units; preserves all other registers
-;
-; [ark_pvel] is PIXELS, so a held paddle at 8 gives a clean -2..+2 without a
-; table, and a tapping one at 5 gives 1. idiv truncates toward zero, which is
-; what makes a rail-clamped part-move round down to nothing - and what put a
-; tap at 0 while ARK_PSTEP was 2, so that a rally could be steered by holding
-; and not by tapping. At 5 that distinction has gone away on its own, which is
-; the right answer for the same reason it was right before: the number tracks
-; how fast the paddle is really moving, and nothing else.
-; The result is scaled to quarter units at the end, so the arithmetic above
-; stays the pixel arithmetic it reads as.
-; -----------------------------------------------------------------------------
-ark_english:
-    push bx
-    mov ax, [ark_pvel]              ; a few pixels either way, so a BYTE divide:
-    mov bl, 4                       ; AL = pvel / 4, toward zero as the word
-    idiv bl                         ; one was
-    cbw
-    cmp ax, 2
-    jle .lo
-    mov ax, 2
-.lo:
-    cmp ax, -2
-    jge .out
-    mov ax, -2
-.out:
-    shl ax, 1                       ; pixels -> quarter units (ARK_VQ), once,
-    shl ax, 1                       ; here...
-    call ark_scale                  ; ...and then SCALED like everything else,
-    pop bx                          ; so the spin a paddle imparts stays the
-                                    ; same fraction of ark_vxmax on every
-    ret                             ; adapter (SPEC.md 44.3.3). It is the
-                                    ; RESULT that is scaled and not the unit:
-                                    ; scaling ARK_VQ itself rounds 1.48 to 1
-                                    ; and costs CGA a third of the paddle's
-                                    ; authority over the angle
-
-; -----------------------------------------------------------------------------
 ; ark_throw - the sideways speed a SERVE gets from the key the player is on
 ; out: AX = -ARK_THRHOLD..+ARK_THRHOLD PIXELS, in quarter units; preserves all
 ;      other registers
@@ -1511,7 +1473,7 @@ ark_english:
 ; to choose after the first bounce.
 ;
 ; This is the ONE place that reads the player's intent rather than the paddle's
-; motion, and it has to. Everywhere else - ark_english, the rail clamp - the
+; motion, and it has to. Everywhere else - the paddle's kick, the rail clamp - the
 ; question is physical, "how fast is this thing actually going", and [ark_pvel]
 ; answers it. Here the question is "which way did you ask for", and the two
 ; stopped agreeing the moment the paddle stopped being fast: at the 2 px a tick
@@ -1749,9 +1711,31 @@ ark_move1:
 
     call ark_hit_brick              ; --- the wall ---
     jc .brick
-    call ark_hit_paddle             ; --- the paddle ---
-    jc .paddle
 
+    ; --- the paddle: is the candidate rect over it? (ark_hit_paddle, inline
+    ; here at its one caller - AX and BX are already banked, SPEC.md 44.12)
+    cmp word [ark_bvy], 0           ; only ever on the way DOWN, or a ball
+    jle .nopad                      ; clipping the side would stick to it
+    mov ax, dx
+    add ax, [ark_bsz]
+    dec ax
+    cmp ax, [ark_pady]
+    jl .nopad
+    mov bx, [ark_pady]
+    add bx, [ark_ph]
+    cmp dx, bx
+    jge .nopad
+    mov ax, cx
+    add ax, [ark_bsz]
+    dec ax
+    cmp ax, [ark_px]
+    jl .nopad
+    mov bx, [ark_px]
+    add bx, [ark_pw]
+    cmp cx, bx                      ; below is the last test passing - a hit.
+    jb .paddle                      ; Unsigned, where the others are signed:
+                                    ; both sides are on-screen x, positive
+.nopad:
     cmp dx, [ark_floor]             ; --- the floor: a life ---
     jg .lost
 
@@ -1773,73 +1757,36 @@ ark_move1:
     mov ax, 1200
     call ark_beep
     jmp short .hit
-.brick:
-    call ark_reflect
-    jmp .hit
+.brick:                             ; which way to bounce off a brick: this is
+    cmp cx, [ark_bx]                ; only ever a single-pixel move, so exactly
+    je .ybrick                      ; one coordinate changed and that is the
+    neg word [ark_bvx]              ; one to reverse. No geometry, no corner
+    jmp short .hit                  ; cases (it was ark_reflect)
+.ybrick:
+    neg word [ark_bvy]
+    jmp short .hit
 .paddle:
     call ark_padbounce
-    jmp .hit
-.lost:
-    call ark_die
+    jmp short .hit
+.lost:                              ; the ball reached the floor (it was
+    mov ax, 160                     ; ark_die): the long low one
+    mov cx, 6
+    call ark_beep_n
+    dec byte [ark_lives]            ; (the MOVs below keep its flags)
+    mov byte [ark_stat], 1
+    mov word [ark_hold], 12
+    mov al, M_DEAD
+    jg .set
+    mov al, M_OVER
+    mov byte [ark_full], 1
+.set:
+    mov [ark_mode], al
 .hit:
     pop dx
     pop cx
     pop bx
     pop ax
     stc
-    ret
-
-; -----------------------------------------------------------------------------
-; ark_reflect - which way to bounce off a brick
-; in:  CX = the blocked position's x; preserves all registers
-;
-; The step that was blocked names the axis: this is only ever reached from a
-; single-pixel move, so exactly one coordinate changed and that is the one to
-; reverse. No geometry, no corner cases.
-; -----------------------------------------------------------------------------
-ark_reflect:
-    cmp cx, [ark_bx]
-    je .yaxis
-    neg word [ark_bvx]
-    ret
-.yaxis:
-    neg word [ark_bvy]
-    ret
-
-; -----------------------------------------------------------------------------
-; ark_hit_paddle - is the candidate rect over the paddle?
-; in:  CX/DX = the candidate position, from ark_move1;
-; out: CF = 1 hit; preserves all registers
-; -----------------------------------------------------------------------------
-ark_hit_paddle:
-    push ax
-    push bx
-    cmp word [ark_bvy], 0           ; only ever on the way DOWN, or a ball
-    jle .no                         ; clipping the side would stick to it
-    mov ax, dx
-    add ax, [ark_bsz]
-    dec ax
-    cmp ax, [ark_pady]
-    jl .no
-    mov bx, [ark_pady]
-    add bx, [ark_ph]
-    cmp dx, bx
-    jge .no
-    mov ax, cx
-    add ax, [ark_bsz]
-    dec ax
-    cmp ax, [ark_px]
-    jl .no
-    mov bx, [ark_px]
-    add bx, [ark_pw]
-    cmp cx, bx                      ; CF = 1 is the last test passing - a hit.
-    pop bx                          ; Unsigned, where the others are signed:
-    pop ax                          ; both sides are on-screen x, positive
-    ret
-.no:
-    pop bx
-    pop ax
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1851,9 +1798,8 @@ ark_hit_paddle:
 ; powerup parks the ball instead.
 ; -----------------------------------------------------------------------------
 ark_padbounce:
-    push ax
+    push ax                         ; (not CX: nothing below writes it)
     push bx
-    push cx
     push dx
     cmp byte [ark_catch], 0
     je .bounce
@@ -1892,8 +1838,41 @@ ark_padbounce:
     mov [ark_zlast], ax             ; banked for the .minvx tie-break below
     mov bx, ax
     add bx, bx
-    mov dx, [ark_zbq+bx]            ; where along the paddle it landed
-    call ark_english                ; ...and which way the paddle was going
+    mov dx, [ark_zbq+bx]            ; where along the paddle it landed...
+
+    ; ...and which way the paddle was going: the sideways kick its own motion
+    ; imparts, -2..+2 PIXELS in quarter units (this was ark_english, inline at
+    ; its one caller, SPEC.md 44.12). [ark_pvel] is PIXELS, so a held paddle at
+    ; 8 gives a clean -2..+2 without a table, and a tapping one at 5 gives 1.
+    ; idiv truncates toward zero, which is what makes a rail-clamped part-move
+    ; round down to nothing - and what put a tap at 0 while ARK_PSTEP was 2, so
+    ; that a rally could be steered by holding and not by tapping. At 5 that
+    ; distinction has gone away on its own, which is the right answer for the
+    ; same reason it was right before: the number tracks how fast the paddle
+    ; is really moving, and nothing else. The result is scaled to quarter units
+    ; at the end, so the arithmetic stays the pixel arithmetic it reads as.
+    mov ax, [ark_pvel]              ; a few pixels either way, so a BYTE divide:
+    mov bl, 4                       ; AL = pvel / 4, toward zero as the word
+    idiv bl                         ; one was (BX is dead until the ceiling)
+    cbw
+    cmp ax, 2
+    jle .klo
+    mov ax, 2
+.klo:
+    cmp ax, -2
+    jge .kick
+    mov ax, -2
+.kick:
+    shl ax, 1                       ; pixels -> quarter units (ARK_VQ), once,
+    shl ax, 1                       ; here...
+    call ark_scale                  ; ...and then SCALED like everything else,
+                                    ; so the spin a paddle imparts stays the
+                                    ; same fraction of ark_vxmax on every
+                                    ; adapter (SPEC.md 44.3.3). It is the
+                                    ; RESULT that is scaled and not the unit:
+                                    ; scaling ARK_VQ itself rounds 1.48 to 1
+                                    ; and costs CGA a third of the paddle's
+                                    ; authority over the angle
     add ax, dx
     add ax, [ark_bvx]               ; both ADDED to the incoming vx
     mov bx, [ark_vxmax]             ; BX is dead from the zbias lookup above,
@@ -1911,7 +1890,7 @@ ark_padbounce:
     ; ground: the walk takes max(|dx|,|dy|) steps, so it was also the slowest
     ; shot in the game, and it comes straight back to where the paddle already
     ; is. The sign is whichever way it was already going, and a ball with no
-    ; opinion is sent the way the paddle is (ark_english's sign), falling back
+    ; opinion is sent the way the paddle is (the kick's sign), falling back
     ; to the side of the paddle it landed on. Only PADDLE bounces get this -
     ; a brick or a wall may still send it vertical.
     mov bx, [ark_vxmin]
@@ -1946,14 +1925,13 @@ ark_padbounce:
 .beep:
     call ark_beep
     pop dx
-    pop cx
     pop bx
     pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; ark_hit_brick - is the candidate rect over a live brick? If so, break it
-; in:  CX/DX = the candidate position, as ark_hit_paddle;
+; in:  CX/DX = the candidate position, from ark_move1;
 ; out: CF = 1 hit; preserves all registers
 ;
 ; Four corners rather than a cell-range walk: the ball is smaller than a brick
@@ -2400,29 +2378,6 @@ ark_do_shots:
     pop dx
     pop cx
     pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; ark_die - the ball reached the floor
-; preserves all registers
-; -----------------------------------------------------------------------------
-ark_die:
-    push ax
-    push cx
-    mov ax, 160                     ; the long low one
-    mov cx, 6
-    call ark_beep_n
-    dec byte [ark_lives]            ; (the MOVs below keep its flags)
-    mov byte [ark_stat], 1
-    mov word [ark_hold], 12
-    mov al, M_DEAD
-    jg .set
-    mov al, M_OVER
-    mov byte [ark_full], 1
-.set:
-    mov [ark_mode], al
-    pop cx
     pop ax
     ret
 
@@ -4197,7 +4152,8 @@ ark_met_sml:                        ; CGA 640x200: 137 rows of content, all in
 ; read everywhere after. They are bss rather
 ; than equs so one binary can hold two adapters' worth of tuning; every one of
 ; them is in QUARTER pixels except ark_pufall, which is whole ones.
-; ark_english scales its own result rather than owning a word here.
+; The paddle's kick (ark_padbounce) scales its own result rather than owning a
+; word here.
     AWORD ark_vxmax
     AWORD ark_vxmin
     AWORD ark_vybase

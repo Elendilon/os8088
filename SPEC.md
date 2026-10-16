@@ -80460,6 +80460,16 @@ pass leaves binding:
   from it. The walk itself is inline in `ark_pu_compose`, its one caller,
   which now sets ES back to DS for the heart (a letter kind leaves it on the
   font's segment).
+- **The ball's one-caller helpers are inline where the walk calls them.**
+  `ark_reflect`, `ark_hit_paddle` and `ark_die` are blocks of `ark_move1`
+  now, and `ark_english` (the paddle's kick) a block of `ark_padbounce`:
+  each is the same instructions less its call, its `ret` and the saves its
+  caller had already made - `ark_move1` banks AX..DX on entry, and the
+  paddle test ends in `jb .paddle` where it ended in a `ret` that handed the
+  same carry to a `jc`. `ark_padbounce` no longer saves CX, which nothing in
+  it writes. The paddle test runs on every pixel of ball travel that misses
+  the wall, so it is the hottest code the pass touched, and none of these
+  got an instruction more.
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
