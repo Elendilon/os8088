@@ -78472,6 +78472,13 @@ decides its two colours once — the glyph is the well's colour XOR
 `CWHITE ^ CBLACK` — where it asked `pt_thsel` twice. Same calls, same
 rectangles, same order. **−100 image, −58 file, −47 on the small arm.**
 
+**A tool button decides its colours once, too.** `pt_draw_pal`'s per-button
+path compared the tool in hand twice, once for the well and once for the
+glyph, and parked the button's position in `[pt_bx]`/`[pt_by]` across the
+well. The glyph's colour is the well's XOR `CWHITE ^ CBLACK` (grey instead
+when it is the unfunded fill's), and the position stays in AX/BX, which
+`pt_cwell` keeps. **−33 image, −11 file, −20 on the small arm.**
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather

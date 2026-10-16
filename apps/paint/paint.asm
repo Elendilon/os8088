@@ -4921,38 +4921,37 @@ pt_draw_pal:
     jmp short .done
 %endif
 .one:
-    mov [pt_bx], cx
-    mov [pt_by], dx
-    mov byte [pt_pen], CWHITE       ; the well: black when this tool is in hand
-    xor ax, ax
-    mov al, [pt_tool]
-    cmp ax, di
+    xor ax, ax                      ; the well: black when this tool is in
+    mov al, [pt_tool]               ; hand, and its colour decided ONCE (apps
+    cmp ax, di                      ; size pass 2) - the glyph is the other one
+    mov al, CWHITE
     jne .well
-    mov byte [pt_pen], CBLACK
+    mov al, CBLACK
 .well:
+    mov [pt_pen], al
+    push ax
     mov ax, cx
     mov bx, dx
     mov cx, PT_BW - 1
-    mov dx, PT_BW - 1
-    call pt_cwell
-    mov byte [pt_pen], CBLACK       ; ...and the glyph inverts with it
-    xor ax, ax
-    mov al, [pt_tool]
-    cmp ax, di
+    mov dx, cx
+    call pt_cwell                   ; (keeps every register)
+    mov cx, ax
+    mov dx, bx
+    pop ax
+    xor al, CWHITE ^ CBLACK         ; ...and the glyph inverts with it
+    cmp al, CWHITE
     jne .glyph
-    mov byte [pt_pen], CWHITE
     cmp di, PT_T_FILL               ; ...and grey when it cannot be funded
     jne .glyph                      ; (SPEC.md 42.6.2). CDGRAY dithers on a
     cmp byte [pt_havefill], 0       ; 1bpp adapter, which is SPEC.md 47's
     jne .glyph                      ; disabled look for free
-    mov byte [pt_pen], CDGRAY
+    mov al, CDGRAY
 .glyph:
+    mov [pt_pen], al
     mov bx, di
     add bx, bx
     mov si, [pt_ic_tab+bx]
-    mov cx, [pt_bx]
     add cx, 2
-    mov dx, [pt_by]
     add dx, 2
     call pt_glyph16                 ; ONE call a glyph (SPEC.md 42.26), where
     inc di                          ; pt_icon16 was ~30: 201 ms -> 111 for
