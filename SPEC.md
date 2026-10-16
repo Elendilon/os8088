@@ -78504,6 +78504,14 @@ the borrow is −10 image but **+9 file** (the branchy form matched
 and label with one compare is −9 image and +3 file. **−76 image, −33 file,
 −30 on the small arm.**
 
+**`pt_gate` is two doors.** It took AL = 0 for undo and 1 for the
+clipboard, and all six callers named the feature with a constant inside a
+`push ax` / `mov al, n` / `pop ax` bracket. `pt_gate_u` and `pt_gate_c` are
+the two entries, the undo one jumping into the clipboard one's tail, and the
+clipboard commands tail-jump to the routine they gate. The gate's questions,
+its re-ask and its toasts are unchanged. **−27 image, −7 file**; the small arm
+has no gate (42.22.1.3).
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather

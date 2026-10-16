@@ -10878,17 +10878,11 @@ pt_oncmd:
 %ifdef PTF_GIF
 .saveas_gif:
     mov byte [pt_sfmt], 1
-    push ax
-    mov al, 1
-    call pt_gate
-    pop ax
+    call pt_gate_c
     jc .out
     jmp short .saveas
 .gifchk:
-    push ax
-    mov al, 1
-    call pt_gate
-    pop ax
+    call pt_gate_c
     jc .out
     jmp short .save
 %endif
@@ -11054,21 +11048,23 @@ pt_menufix:
     ret
 
 ; -----------------------------------------------------------------------------
-; pt_gate - is this feature funded on this machine?
-; in:  AL = 0 undo / 1 clipboard
+; pt_gate_u / pt_gate_c - is undo / the clipboard funded on this machine?
 ; out: CF=0 go ahead; CF=1 and the toast is already up; preserves all registers
+;
+; Two doors rather than one taking AL (apps size pass 2): every caller named its
+; feature with a constant, and the push/mov/pop around each call cost more than
+; the second entry does.
 ; -----------------------------------------------------------------------------
 %ifdef PTF_GATE
-pt_gate:
-    push si
-    or al, al
-    jnz .clip
 %ifdef PTF_UNDO
+pt_gate_u:
+    push si
     mov si, pt_s_nu
     cmp byte [pt_haveundo], 0
+    jmp short pt_gate_c.test
 %endif
-    jmp short .test
-.clip:
+pt_gate_c:
+    push si
 %ifdef PTF_CLIP
     mov si, pt_s_nc
     cmp byte [pt_haveclip], 0
@@ -11105,34 +11101,25 @@ pt_gate:
 ; -----------------------------------------------------------------------------
 %ifdef PTF_CLIP
 pt_cmd_copy:
-    push ax
-    mov al, 1
-    call pt_gate
+    call pt_gate_c
     jc .out
-    call pt_copy
+    jmp pt_copy
 .out:
-    pop ax
     ret
 
 pt_cmd_cut:
-    push ax
-    mov al, 1
-    call pt_gate
+    call pt_gate_c
     jc .out
     call pt_copy
-    call pt_sel_clear
+    jmp pt_sel_clear
 .out:
-    pop ax
     ret
 
 pt_cmd_paste:
-    push ax
-    mov al, 1
-    call pt_gate
+    call pt_gate_c
     jc .out
-    call pt_paste
+    jmp pt_paste
 .out:
-    pop ax
     ret
 %endif   ; PTF_CLIP
 
@@ -11142,9 +11129,7 @@ pt_cmd_paste:
 %ifdef PTF_UNDO
 ; -----------------------------------------------------------------------------
 pt_undo_cmd:
-    push ax
-    xor al, al
-    call pt_gate
+    call pt_gate_u
     jc .out
     call pt_text_end                ; Ctrl+Z lands mid-sentence otherwise, and
                                     ; the caret would be left on a picture that
@@ -11153,7 +11138,6 @@ pt_undo_cmd:
     call pt_undo_swap
     call pt_marq
 .out:
-    pop ax
     ret
 %else
 ; -----------------------------------------------------------------------------
