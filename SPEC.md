@@ -124607,6 +124607,88 @@ keeps `fd_stage`: its rows are composed in our segment.
 
 What it costs: `ftpd.o88`'s image **+46 bytes** (14,670 -> 14,716).
 
+### 77.52 Apps size pass 2 - the shipped file
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md measures a package by its SHIPPED FILE,
+the LZ4-packed `build/ftpd.o88` (§20.13), because the 360KB apps disk is full.
+FTPD rides two of the six 360KB images (`apps360.img`, `network360.img`) and
+the 720KB/1.44MB/1.2MB apps disks, and ships no data file beside it -
+`apps/ftpd/ftpspeed.txt` goes only onto the on-demand `make ftpspeed`
+floppies. Nothing a client sees changed: every reply's code and text, the
+listing format and `FTPD.CFG`'s bytes are as they were, and **the transfer
+path was not touched** - `fd_step`, `fd_worker`, the send and receive stages,
+`fd_data_ready`, `fd_wake`'s dispatch and `fd_do_read`/`_write`/`_list` are
+byte-identical in what they execute (§77.30's loop is what the KB/s is
+measured on, and MartyPC has no NIC to measure a change to it with).
+
+| | before | after |
+|---|---:|---:|
+| `ftpd.o88` (file) | 12,291 | 11,879 |
+| image | 14,746 | 14,135 |
+| image + bss (the region) | 26,624 | 25,600 |
+
+- **The entry proc's declaration is the NOKEEP form** (§66.6.1.1), moved
+  above the `mov al, 1` it sat below - which is what the SDK note says this
+  site would need, and nothing below the declaration is owed the AX, DX or
+  flags it spends. The four `mov bx, [fd_win]` reloads went with it: every
+  slot the entry proc calls preserves BX. The region falls a 512-byte step
+  because `fd_stage` is 512-aligned above the last scalar.
+- **A handler keeps no register** (-258 file bytes). Every `fd_c_*` is
+  reached from `fd_command`'s table call alone and every `fd_do_*` from
+  `fd_wake`'s, and both of those push everything before the dispatch and pop
+  it after - `fd_do_rnto` was already spending AX, BX and CX on exactly that.
+  So the cold handlers lost their frames and end in a tail jump to
+  `fd_reply`; `fd_do_read`, `_write` and `_list` (once a STAGE) keep theirs.
+  What that let go with them: MODE and STRU are one body with the letter in
+  AH (`fd_c_one`) and TYPE folds case with `and al, 0xDF` as they do (the
+  only bytes it maps onto `A`, `I`, `L` are those letters and their lower
+  case); the eight one-shots that post a request (`CWD` .. `RMD`, `CDUP`
+  falling into `CWD`) are a chain whose links are `mov al, FR_x` and a
+  `cmp ax, imm16` opcode that swallows the next link's load, three bytes a
+  handler; `fd_iswrite` folded into `fd_one`, its one caller; `fd_xrefuse`
+  was a second copy of `fd_xfail`'s three instructions and is now its label;
+  DELE, RMD, MKD and RNTO share three tails (`fd_do_250`, `_ferr`, `_no`),
+  laid between them so every jump to one is short; five composed replies
+  end in `fd_say2`; and the four dotted quads (our address, the PASV
+  override typed back, PORT's host and the 227's first four fields) are one
+  loop, `fd_quad`, with PORT's six fields kept as the BYTES `fd_pbyte`
+  already bounds them to. `fd_c_port` also lost a `mov al, [fd_dhnd]` that
+  fed nothing (`fd_reply` takes the control handle itself).
+- **`fd_ferr_sel` is a word per `FERR_*` code** (-11 file bytes, image
+  -26), indexed by it, where it was a compare-and-branch ladder; a code past
+  the table - `FERR_BIG` and anything new - takes the same catch-all `552`
+  it fell to before, and an `%error` holds the table to `os88api.inc`'s
+  numbering. `fd_flush_glass` is an `equ` for `fd_paint_now`, which it only
+  ever jumped to, so `fd_step` calls the painter direct and every worker
+  pass spends one `jmp` less.
+- **`FTPD.CFG` is read and written off one table** (-94 file bytes, image
+  -84, and the region another 512-byte step), `fd_cfg_keys`: key, the
+  setting's address, and either `FK_STR` and a capacity or a byte count. The
+  parse looks a record's key up in it and applies the per-key rules the arms
+  had (a string clamped and terminated, the PASV address only when exactly
+  four bytes, a flag from any record carrying a byte); the save walks it top
+  to bottom, so the file it writes is BYTE-IDENTICAL to the per-key code's -
+  the same keys in the same order (§77.12.1), an empty string or an all-zero
+  value omitted. `fd_cfg_putflag` went, and the record bounds are checked
+  against one end pointer rather than recomputed from the buffer base twice.
+- **DEFECT FIXED: Server > Sockets lettered over the worker's reply.**
+  `fd_socks` runs on the UI task from a menu pick, at any moment, and it
+  composed each row in `fd_outb2` - the buffer the WORKER composes a 227,
+  229, 257 or 213 in - so a pick landing mid-reply could garble what was
+  sent (apps size pass 1 found it and left it). The rows are composed in
+  `fd_skrow` now, just past the snapshot inside `fd_cfgb`, which is UI-task
+  scratch already (an `%error` holds the pair to `FD_CFGSZ`); the
+  `push bx`/`push cx` around `fd_log` went with it, `fd_log` keeping CX and
+  never naming BX. -3 file bytes.
+- **A session begins in one place** (-23 file bytes, image -58):
+  `fd_session` is what `fd_step`'s accept in `FD_LISTEN` and `fd_second`'s
+  takeover of a stale session (§77.29.1) both did, line for line, so the two
+  cannot drift about what a new session resets. `fd_stale` answers with the
+  compare itself - `cmp ax, FD_YIELD_T` leaves CF=1 exactly when the session
+  is to be KEPT - where three exits each popped and set a flag, and
+  `fd_data_abort`/`fd_data_drop` load their verb and fall into the shared
+  body instead of each calling it.
+
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 
 The demonstration §5.6.4.1 was built for, and the one that says out loud
