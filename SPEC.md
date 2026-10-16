@@ -60175,7 +60175,9 @@ that layout already does.
 
 **Grouping is by OWNER, and a heading is not a claim.** `System` first, then
 one heading per live instance in slot order, each carrying that owner's total
-KB in the SIZE column; every claim it holds is a row **indented two
+KB in the SIZE column and its name WHOLE - a heading fills neither ADDR nor
+TIER, so the name has the fifteen columns left of SIZE, which is exactly
+`I_NAME`'s fifteen (§28.12.2); every claim it holds is a row **indented two
 characters** under it. An owner with no claims still gets its heading — "this
 app holds nothing" is an answer, and its absence would read as the app not
 running.
@@ -61604,6 +61606,21 @@ the file follows UNIQUE bytes.
   heap page and assembles byte-identical. No field crosses a chunk boundary
   it did not cross before (§28.2): ADDR stays in chunk 2, SIZE's figure in 3
   and TIER in 4.
+
+  **...and the group headings, the same day.** A heading row is the owner's
+  name and the group's KB, and the name was cut at seven by `tm_copy7`
+  (`CALCULA`) with eight pad spaces standing between it and the figure. Its
+  field is now everything left of the SIZE column - `TMH_HNAMEC` =
+  `TMH_IND` + `TMH_TYPEC` + 1 + 4 = **15** - and `I_NAME` holds at most 15
+  characters (`kernel/instance.inc`), so every owner name is shown whole;
+  an assembly guard refuses a `TMH_HNAMEC` below 15. `tm_kcol`'s own leading
+  space at column 15 is the separator, so even a full fifteen-character name
+  keeps one blank cell before a three-digit figure (16..18, `K` at 19), and
+  the heading row is 20 characters - content x 167, 43 px short of the bar.
+  It replaces `tm_copy7` and the pad loop with one `tm_copyn` of 15: image
+  7,590 → **7,584**, the file 6,713 → **6,707**. Looked at on all three
+  adapters with `CALCULATOR` and a poked fifteen-`W` `I_NAME` (the widest
+  glyph) on the page, in both the one- and two-column layouts.
 - **The quiet key and the graph**: `tm_quiet` walks the claim table to its
   end by address (no counter on the stack) and starts the totals' span from
   where that walk leaves SI, which IS `tm_kb`; `tm_graph` keeps the
