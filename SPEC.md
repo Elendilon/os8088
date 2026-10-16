@@ -144903,6 +144903,8 @@ the package had twice or did not need.
   `wr_icocopy`, with DS and ES swapped around it; and one `rep movsb` for an
   LZSS match in `wr_lzb`, which copies forward a byte at a time exactly as
   the loop did, so a match that overlaps itself still repeats.
+- **`wr_catck` checks the version and the record size as one word**, the
+  record-size byte being the one after the version (asserted at assembly).
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 

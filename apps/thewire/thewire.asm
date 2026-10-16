@@ -1639,10 +1639,12 @@ wr_catck:
     jne .no
     cmp word [es:WC_MAGIC+2], 'RE'
     jne .no
-    cmp byte [es:WC_VER], WIRE_VER
-    jne .no
-    cmp byte [es:WC_RSZ], WIRE_REC / 16
-    jne .no
+    cmp word [es:WC_VER], ((WIRE_REC / 16) << 8) | WIRE_VER
+    jne .no                             ; the version AND the record size, one
+                                        ; word: WC_RSZ is the byte after it
+%if WC_RSZ != WC_VER + 1
+  %error "wr_catck reads WC_VER and WC_RSZ as one word"
+%endif
     cmp word [es:WC_HSZ], WIRE_HDR
     jne .no
     mov cx, [es:WC_N]
