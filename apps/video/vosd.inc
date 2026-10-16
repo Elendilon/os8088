@@ -730,21 +730,22 @@ vo_row:
     jcxz .e
     mov es, [vo_gseg]
     mov si, vo_text
+    push dx                         ; (a glyph row's alone)
+    mov dx, [vo_gfst]               ; DL = the first glyph, DH = how many
+    sub dh, dl                      ; past it (outside the character loop)
+    add ax, [vo_goff]               ; AX = the row in the glyphs
 .c:
     mov bl, [si]
     inc si
-    sub bl, [vo_gfst]
+    sub bl, dl
     jb .z
-    mov bh, [vo_glst]
-    sub bh, [vo_gfst]
-    cmp bl, bh
+    cmp bl, dh
     ja .z
     xor bh, bh
     shl bx, 1
     shl bx, 1
     shl bx, 1
     add bx, ax
-    add bx, [vo_goff]
     mov bl, [es:bx]
     jmp short .s
 .z:
@@ -753,6 +754,7 @@ vo_row:
     mov [di], bl
     inc di
     loop .c
+    pop dx
     jmp short .e
 .blank:
     jcxz .e
