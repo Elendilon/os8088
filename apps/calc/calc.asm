@@ -565,9 +565,10 @@ cal_onclick:
     call cal_sync                   ; the window may have moved since the last
                                     ; paint; CX/DX are already SCREEN coords,
                                     ; which is what cal_hit wants
+%ifdef CALF_ABOUT
     call cal_abdismiss              ; the credits are up: this press is spent
     jc .out                         ; taking them down and arms nothing, so
-                                    ; the release that follows fires nothing
+%endif                              ; the release that follows fires nothing
     call cal_hit                    ; AX = index + 1, 0 = none
     call os88ui_arm
     call cal_setdown                ; ...and the pressed look, through the one
@@ -679,8 +680,10 @@ cal_cbret:                          ; (cal_onup's way out too)
 cal_onkey:
     push ax
     call cal_sync
+%ifdef CALF_ABOUT
     call cal_abdismiss              ; any key takes the credits down, and is
     jc .out                         ; itself swallowed doing it
+%endif
     call cal_asckey                 ; AL = CK_*, or CK_NONE
     cmp al, CK_NONE
     je .out
@@ -840,7 +843,9 @@ cal_asckey:
 cal_oncmd:
     xchg cx, ax                     ; CL = the item, CH = the menu
     call cal_sync
+%ifdef CALF_ABOUT
     call cal_abdismiss              ; a menu pick takes the credits down first
+%endif
     or ch, ch                       ; and then does what it was asked - a
     jz .edit                        ; deliberate command is not a dismissal
     dec ch                          ; (from here CH = 0, so CX IS the item)
@@ -893,14 +898,10 @@ cal_oncmd:
 ; os88ui_about and not _d: nothing has armed a clip in an About handler, and
 ; the library arms one itself.
 ; -----------------------------------------------------------------------------
-%ifndef CALF_ABOUT
-; No About card (APP_SMALL). cal_abdismiss is called by the click, key and
-; menu paths before they do anything else and answers CF = 1 when it SPENT the
-; event taking the card down - so with no card it must answer "not spent".
-cal_abdismiss:
-    clc
-    ret
-%endif
+; No About card (APP_SMALL) means no cal_abdismiss either: its three call
+; sites - the click, key and menu paths - are behind the same flag, where they
+; used to call a `clc` / `ret` stub that answered "not spent" every time (apps
+; size pass 2).
 
 %ifdef CALF_ABOUT
 cal_about:
@@ -1119,9 +1120,9 @@ cal_btn:
 cal_ctl:
     push ax
     dec ax
+%ifdef CALF_HIST                    ; (with no pane every control is a key)
     cmp ax, CAL_NKEY
     jb .key
-%ifdef CALF_HIST
     je .hdr
     sub ax, CAL_R_HIST              ; a history ROW: the same opaque pass over
     call cal_draw_row               ; the same cells either way up
@@ -1808,7 +1809,9 @@ cal_kop:
 cal_keq:
     cmp byte [cal_op], CAL_OP_NONE
     je .out                         ; nothing pending: '=' does not repeat here
+%ifdef CALF_HIST
     call cal_hist_prep
+%endif
     call cal_reduce
     mov byte [cal_op], CAL_OP_NONE
     jmp short cal_unary_end         ; a RESULT, and the row goes up with it
@@ -1823,16 +1826,20 @@ cal_keq:
 ; rather than extending the answer.
 ; -----------------------------------------------------------------------------
 cal_ksqrt:
+%ifdef CALF_HIST
     mov si, cal_s_sqrt              ; 'sqrt(' <operand> ')' - a root IS a
     mov di, cal_s_rparen            ; calculation, so it earns a history row
     call cal_hist_prep_un           ; exactly as '=' does
+%endif
     call cal_do_sqrt
     jmp short cal_unary_end
 
 cal_krecip:
+%ifdef CALF_HIST
     mov si, cal_s_recip             ; '1/' <operand>, and no suffix: the NUL
     mov di, cal_s_rparen + 1        ; that ends ')' is an empty string
     call cal_hist_prep_un
+%endif
     mov si, cal_one                 ; 1 / x is cal_calc's divide with a
     mov di, cal_cur                 ; constant left operand
     mov al, CK_DIV
@@ -1860,6 +1867,7 @@ cal_kpct:
 
 cal_unary_end:
     mov word [cal_new], 1           ; a RESULT, past no point
+%ifdef CALF_HIST
     cmp byte [cal_err], 0
     jne .out                        ; a refusal is not a calculation, and the
     cmp word [cal_linep], 0         ; line staged for it is dropped unspent
@@ -1867,6 +1875,7 @@ cal_unary_end:
     call cal_hist_push              ; PENDING entry rather than a sum of its
 .out:                               ; own, and a row saying '10 = 20' would be
     mov word [cal_linep], 0         ; a lie about what the user did)
+%endif
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1946,21 +1955,16 @@ cal_reduce:
 ;
 ; Both end in the same body - the operand, the suffix, ' = ' - so a binary
 ; line is a unary one whose prefix is '<acc> <op> ' and whose suffix is empty.
-; -----------------------------------------------------------------------------
-%ifndef CALF_HIST
-; No history (APP_SMALL). These three are called from the ARITHMETIC paths -
-; every `=`, every sqrt and every 1/x - so gating the call sites would have
-; meant six %ifdefs through code that is not the history's. Three entry points
-; on one `ret` instead, which is apps/notepad/notepad.asm's undo treatment.
 ;
-; [cal_linep] STAYS in both builds and simply reads 0 here, which is what
-; cal_unary_end's `cmp word [cal_linep], 0 / je .out` already tests for - so
-; that path needs no gate either.
-cal_hist_prep:
-cal_hist_prep_un:
-cal_hist_push:
-    ret
-%endif
+; WITH NO HISTORY (APP_SMALL) THE CALLS ARE GATED, NOT STUBBED. They were three
+; entry points on one shared `ret`, which was Note Pad's undo treatment and
+; meant no %ifdef through the arithmetic - but every call site still loaded
+; its prefix and suffix, called the `ret` and tested a [cal_linep] that could
+; only read 0, and the three strings rode along: ~50 bytes of the small build
+; that did nothing at all. Four short gates in cal_keq, cal_ksqrt, cal_krecip
+; and cal_unary_end take them out (apps size pass 2); the full build is
+; byte-identical for them.
+; -----------------------------------------------------------------------------
 
 %ifdef CALF_HIST
 cal_hist_prep:
@@ -3119,11 +3123,9 @@ cal_tpl:
 cal_m_name: db 'Calc', 0
 cal_m_edit: db 'Edit', 0
 cal_m_math: db 'Math', 0
-cal_m_view: db 'View', 0
 
 cal_i_edit: dw cal_mi_copy, cal_mi_paste
 cal_i_math: dw cal_mi_sqrt, cal_mi_recip, cal_mi_pct, cal_mi_neg
-cal_i_view: dw cal_mi_hist, cal_mi_clr
 
 cal_mi_copy:  db 'Copy   ^C', 0
 cal_mi_paste: db 'Paste  ^V', 0
@@ -3136,8 +3138,18 @@ cal_mi_neg:   db 'Negate       N', 0
 ; by cal_hist_toggle rather than two items with one of them greyed - an XOR
 ; that turns 'Show' into 'Hide' and back, so the item starts as 'Show' and
 ; the pane starts folded up.
+;
+; ALL OF IT IS THE PANE'S, and the small build has no pane: the View menu,
+; its two items and the strip's label are data nothing in that build reads,
+; and they rode in it as 46 bytes of image and of disk until apps size pass
+; 2 put them behind the same flag as the code that reads them.
+%ifdef CALF_HIST
+cal_m_view:   db 'View', 0
+cal_i_view:   dw cal_mi_hist, cal_mi_clr
 cal_mi_hist:  db 'Show History H', 0
 cal_mi_clr:   db 'Clear History', 0
+cal_s_hist:   db 'History', 0
+%endif
 
 cal_ttl:      db 'Calculator', 0
 
@@ -3156,12 +3168,13 @@ cal_ab3:      db 0                  ; a blank line is a line with no glyphs
 cal_ab4:      db 'Contributed by Elendilon', 0
 %endif
 
-cal_s_hist:   db 'History', 0
 cal_s_error:  db 'Error', 0
 cal_s_copied: db 'Copied', 0
+%ifdef CALF_HIST                    ; the unary keys' history lines
 cal_s_sqrt:   db 'sqrt(', 0
 cal_s_rparen: db ')', 0
 cal_s_recip:  db '1/', 0
+%endif
 cal_s_nocopy: db 'Clipboard full', 0
 
 ; Twenty-six spaces and a NUL: the blank a history row past the end of the
@@ -3243,8 +3256,10 @@ cal_asctab:
     db '%', CK_PCT
     db 'r', CK_RECIP
     db 'R', CK_RECIP
-    db 'h', CK_HIST
+%ifdef CALF_HIST                    ; the pane's key, which a build with
+    db 'h', CK_HIST                 ; no pane has nothing to send to
     db 'H', CK_HIST
+%endif
     db 3,   CK_COPY                 ; Ctrl-C and Ctrl-V, Note Pad's bindings
     db 22,  CK_PASTE                ; (SPEC.md 27.8) - and they cannot collide
     db 0, CK_NONE                   ; with 'c' or 'v', which are bytes of their
@@ -3325,7 +3340,9 @@ cal_e8:      dd 100000000
 %ifdef CALF_HIST
     CALVAR cal_nvis,    2    ; word: history rows that FIT
 %endif
+%ifdef CALF_HIST
     CALVAR cal_linep,   2    ; word: where the answer joins cal_line
+%endif
     ; WHICH CONTROL IS DRAWN DOWN (SPEC.md 13.8/13.8.2), as os88ui_bfind's
     ; index + 1 so that 0 can mean "none". It was DATA, for os88ui_armw's
     ; reason - the bss was hand-numbered then, and two bytes of image were
