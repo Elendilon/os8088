@@ -16,9 +16,10 @@ Boot 1, a DAMAGED file (its appointment count is 60, past the table):
 
   A  it opens EMPTY (the payload is not trusted, SPEC.md 110.3) and says
      `Calendar file damaged`; until the first edit the file on A: is the
-     fixture byte for byte, and the first edit's save SETS IT ASIDE as
-     DESKCAL.BAD - the fixture, byte for byte - and writes afresh
-     (STIK_BADNAME, SPEC.md 110.5.2). Nothing is asked.
+     fixture byte for byte, and the first edit's save DELETES it and writes
+     afresh (STIK_DMGREPLACE, SPEC.md 110.5.2) - and B's saves after it
+     have room, which a set-aside copy would have taken on the 360KB
+     system disk. Nothing is asked.
   B  the one-line entry: `N` and `9:30 Dentist` Enter, then `1230 Lunch`,
      `815 Gym` and `Mum's birthday` - the state file holds four
      appointments on 2026-10-14 IN ORDER: the all-day one first, then 08:15,
@@ -55,7 +56,7 @@ Boot 2, a FULL table (48 appointments):
 
 **BREAK IT ON PURPOSE**: make dc_parse refuse three digits and B's 08:15
 comes back all-day; take dc_check out of dc_entry and A opens the junk
-and sets nothing aside; drop the `jbe .fits` test and E's line is stored;
+and replaces nothing; drop the `jbe .fits` test and E's line is stored;
 take `call dc_age` out of dc_onkey and D's interleaved key no longer
 disarms, so the third Del deletes.
 """
@@ -340,14 +341,14 @@ def boot_damaged(tmp):
     img = disk_with(tmp, "damaged.img", fixture)    # a v1 place: converted
     with os88ui.boot(img, machine="os8088_xt_vga") as ui:
         c = Cal(ui, tmp)
-        print("A: a DAMAGED file opens empty, says so, and is set aside")
+        print("A: a DAMAGED file opens empty, says so, and is replaced")
         check(c.st() & STIK_S_DAMAGED, "the load called it damaged (stik_st %#x)"
               % c.st())
         check(c.bss(os88stik.STIK_HDR_SIZE + os88stik.DESKCAL_STIK_BSS)[0] == 0,
               "...and runs empty: no appointment in memory")
         txt = ui.wait_toast(says="damaged")
         check(txt == "Calendar file damaged", "the launch says %r" % txt)
-        check(c.raw() == fixture and c.raw("DESKCAL.BAD") is None,
+        check(c.raw() == fixture,
               "until an edit the file on A: is the fixture byte for byte")
         c.key("KeyK")
         c.type("First")
@@ -356,8 +357,6 @@ def boot_damaged(tmp):
         check(cal is not None and [t["text"] for t in cal["tasks"]]
               == ["First"], "the first edit wrote afresh: one task, `First` "
               "(%r)" % ((cal or {}).get("tasks"),))
-        check(c.raw("DESKCAL.BAD") == fixture, "...and the damaged file is "
-              "DESKCAL.BAD, the fixture byte for byte")
         check(not c.st() & STIK_S_DAMAGED, "...and no longer damaged "
               "(stik_st %#x)" % c.st())
 

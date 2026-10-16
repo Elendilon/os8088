@@ -52,11 +52,10 @@
 ;                                       build for kern_big, where a refused
 ;                                       QUERY refuses the LAUNCH instead
 ;                                       (SPEC.md 110.7, 110.11)
-;   %define STIK_BADNAME 'DESKCAL.BAD'   optional: a DAMAGED file is
-;                                       renamed to this by the first save,
-;                                       which then writes afresh - nothing
-;                                       asked, nothing lost. Without it a
-;                                       damaged file is never written
+;   %define STIK_DMGREPLACE              optional: a DAMAGED file is
+;                                       DELETED by the first save, which then
+;                                       writes afresh - nothing asked. Without
+;                                       it a damaged file is never written
 ;                                       (SPEC.md 110.5.2)
 ;
 ; and gets STIK_PAY (the payload, STIK_PAYLEN bytes, zero when there was no
@@ -472,8 +471,8 @@ stik_load:
     mov al, STIK_S_DAMAGED
 .rz:
     or [stik_st], al
-    push ds                     ; DAMAGED: run empty, and never overwrite it
-    pop es                      ; silently (stik_save sets it aside, 110.5.2)
+    push ds                     ; DAMAGED: run empty - the first save
+    pop es                      ; replaces it (STIK_DMGREPLACE) or never (110.5.2)
     mov di, stik_file
     mov cx, STIK_HDR_SIZE + STIK_PAYLEN
     xor al, al
@@ -901,30 +900,27 @@ stik_beat:
 
 ; stik_save - the state file, header and payload in one write (SPEC.md
 ; 110.5.1). Not with no home, not once a refusal was for good. A DAMAGED file
-; is renamed to STIK_BADNAME first and then written afresh - or, with no
-; STIK_BADNAME, never written at all (110.5.2). A refusal that may clear keeps
+; is deleted first and then written afresh - or, with no STIK_DMGREPLACE,
+; never written at all (110.5.2). A refusal that may clear keeps
 ; it owed and backs the next try off; one that will not makes the state
 ; read-only for the session. Spends AX..DI and ES (its callers are window
 ; callbacks); out CF = 0 always, which stik_close's answer is
 stik_save:
     test byte [stik_st], STIK_S_NOHOME | STIK_S_RDONLY
     jnz .x
-%ifndef STIK_BADNAME
+%ifndef STIK_DMGREPLACE
     test byte [stik_st], STIK_S_DAMAGED
     jnz .x
 %endif
     call stik_enter             ; CF = 1: not home now - the disk is out, or
     jc .soon                    ; another one is in
-%ifdef STIK_BADNAME
+%ifdef STIK_DMGREPLACE
     test byte [stik_st], STIK_S_DAMAGED
     jz .w
-    mov si, stik_bname          ; an older one set aside goes...
-    call OSAPI_FILE_DELETE
-    mov si, stik_dname          ; ...and this one takes its name. A refusal
-    mov di, stik_bname          ; is the write's to report: it meets the
-    call OSAPI_FILE_RENAME      ; same disk
-    and byte [stik_st], ~STIK_S_DAMAGED & 0xFF
-.w:
+    mov si, stik_dname          ; the damaged file goes FIRST: a replace
+    call OSAPI_FILE_DELETE      ; claims the new chain before it frees the
+    and byte [stik_st], ~STIK_S_DAMAGED & 0xFF  ; old (18.4), and a full
+.w:                             ; system disk has no room for both
 %endif
 %if STIK_PAYVER > 255 || STIK_PAYVER < 0
   %error "os88stik: STIK_PAYVER is a byte, and +13 is its zero"
@@ -2126,9 +2122,6 @@ stik_isopen db 'Already open', 0
 %endif
 %ifdef STIK_DESKONLY
 stik_nodesk db 'No desk layer (DESK.DRV)', 0
-%endif
-%ifdef STIK_BADNAME
-stik_bname  db STIK_BADNAME, 0
 %endif
 %strlen STIK_CAPLEN STIK_CAP
 %if STIK_CAPLEN > 12             ; the row's caption is 13 bytes, its NUL in

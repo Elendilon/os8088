@@ -186032,19 +186032,22 @@ GOTO_QM    home
   changing, so a launch that finds reminders MISSED, and a reminder going
   off with nobody at the machine, each owe a save at the next quiet poll -
   §110.6 prices both. A launch with nothing missed still writes nothing.
-- **A DAMAGED file is SET ASIDE, never asked about and never lost.** Wave 1
-  never saved over one. A package that defines `STIK_BADNAME` (the
-  calendar's is `DESKCAL.BAD`) has the first save that is owed - a settled
-  drag away from where the window opened, an edit (`stik_touch`), a close
-  that owes one; never a launch by itself - delete any older file of that
-  name, RENAME the damaged one to it, and then write afresh, all inside
-  `stik_enter`'s walk. A refused rename is the write's to report: it meets
-  the same disk. The calendar says `Calendar file damaged` at launch, the
-  first beat's toast (`dc_ltp`), and runs empty. A package without
-  `STIK_BADNAME` keeps wave 1's rule. Until the size pass this was a
-  Yes / No `os88ui_ask` (`STIK_DAMAGEDQ`, `Replace damaged calendar?`), No
-  making the session read-only - which kept the file only by keeping
-  everything the user typed from being saved.
+- **A DAMAGED file is REPLACED by the first save, and nothing is asked.**
+  Wave 1 never saved over one. A package that defines `STIK_DMGREPLACE` has
+  the first save that is owed - a settled drag away from where the window
+  opened, an edit (`stik_touch`), a close that owes one; never a launch by
+  itself - DELETE the damaged file inside `stik_enter`'s walk and then write
+  afresh. Deleting FIRST is the point: a replace claims its new chain before
+  it frees the old one (§18.4), and the 360KB system disk has room for one
+  copy of a three-cluster state file and not two. The calendar says
+  `Calendar file damaged` at launch, the first beat's toast (`dc_ltp`), and
+  runs empty. A package without `STIK_DMGREPLACE` keeps wave 1's rule. Until
+  the size pass this was a Yes / No `os88ui_ask` (`STIK_DAMAGEDQ`,
+  `Replace damaged calendar?`): Yes did what this does, and No made the
+  session read-only. A first build of the size pass RENAMED the damaged file
+  aside instead (`DESKCAL.BAD`), and on the 360KB system disk that copy's
+  three clusters were exactly what the second save needed - the calendar
+  saved once and went read-only (`deskcaledit` B).
 - **kern_small has no `OSAPI_WM_TIMER`** (its window record stops at 28
   bytes, §13.8.2), so the tick comes from a WORKER there. `stik_made` sees the
   timer refused (CF = 1) and installs `stik_wake` as the window's
@@ -187460,8 +187463,9 @@ STIK_FACE_W  equ 176                  the face's width: a multiple of 8, no wide
                                       that only kern_big runs: the calendar's
                                       default, and -DAPP_SMALL leaves it off
                                       (110.7)
-%define STIK_BADNAME 'X.BAD'          optional: the name a DAMAGED state file
-                                      is renamed to by the first save (110.5.2)
+%define STIK_DMGREPLACE               optional: a DAMAGED state file is deleted
+                                      by the first save, which writes afresh
+                                      (110.5.2)
 %define GFXE_TEXT / GFXE_BITS         and os88gfx.inc, whose band (GFXE_BAND_BUF,
                                       GFXE_BAND_W >= STIK_FACE_W, GFXE_BAND_H >= the
                                       tag row) the include composes the tag in

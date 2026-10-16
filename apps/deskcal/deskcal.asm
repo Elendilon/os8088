@@ -100,7 +100,7 @@ KSC_DEL     equ 0x53
 %define STIK_DATNAME 'DESKCAL.DAT'
 %define STIK_CAP     'Calendar'
 %define STIK_ISOPEN  'Desk Calendar is open'
-%define STIK_BADNAME  'DESKCAL.BAD'   ; a damaged file is set aside (110.5.2)
+%define STIK_DMGREPLACE         ; a damaged file is replaced (110.5.2)
 %define STIK_ONTICK  dc_tick
 STIK_PAYLEN equ DCP_LEN
 STIK_PAYVER equ DCP_VER
@@ -286,7 +286,7 @@ dc_entry:
     mov [dc_geo], ax            ; our own geometry for that layout
     call dc_check               ; a payload whose counts or order are not
     jnc .ok                     ; ours is a DAMAGED file: empty, and the
-    push es                     ; first save sets it aside (STIK_BADNAME)
+    push es                     ; first save replaces it (STIK_DMGREPLACE)
     push ds                     ; (SPEC.md 110.3, 110.5.2)
     pop es
     mov di, STIK_PAY
@@ -303,7 +303,7 @@ dc_entry:
     test byte [stik_st], STIK_S_DAMAGED
     jz .nd
     mov word [dc_ltp], dc_s_dmg ; ...or that the file was not ours: it runs
-.nd:                            ; empty and the first save sets it aside
+.nd:                            ; empty and the first save replaces it
     call dc_totoday
     call dc_arange              ; the day's appointments
     mov byte [dc_pane0], 0FFh

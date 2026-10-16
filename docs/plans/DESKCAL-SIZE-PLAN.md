@@ -15,7 +15,7 @@ cluster back**.
 
 | tier | what | image (est.) | visible? |
 |---|---|---:|---|
-| A | the yes/no alert out: Delete becomes a press-twice, and a damaged file is set aside | **-1,250** (the cut alone is MEASURED at -1,344; ~+90 back for what replaces it) | yes, slightly |
+| A | the yes/no alert out: Delete becomes a press-twice, and a damaged file is replaced by the first save | **-1,250** (the cut alone is MEASURED at -1,344; ~+90 back for what replaces it) | yes, slightly |
 | B | an internal register convention and a size pass, calendar and `os88stik.inc` | -1,500 to -2,200 | no |
 | C | one geometry walk for both draw and hit test | -400 to -600 | no |
 | D | About as a toast | -330 | yes, slightly |
