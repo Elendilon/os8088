@@ -117,9 +117,27 @@ baseline, so two sets' savings never count the same cluster twice: take
 
 ### 4.1 One agent per package, in a worktree
 
-Run the agents in parallel, each with `isolation: "worktree"` and the brief
+Run the agents in parallel, each in a worktree of its own and with the brief
 in 4.3 filled in for its package. Four cores take eight or nine agents
 building at once, slowly; brief them to build with `make -j2`.
+
+**Make the worktrees YOURSELF, outside `.claude/`, and do not use the Agent
+tool's `isolation: "worktree"`.** Set A used it and paid twice: the harness
+puts those worktrees under `<repo>/.claude/worktrees/`, where every Edit and
+Write is a change inside Claude's own config directory and stops for the
+owner's approval - dozens of "allow" prompts a set - and it cut them from
+`a123653b`, 48 commits behind the session's branch, so every agent's BEFORE
+was a different tree from the one it would be merged into. Instead:
+
+```sh
+git worktree add -b p2-<pkg> /home/user/wt/<pkg> HEAD   # your branch's tip
+```
+
+and name `/home/user/wt/<pkg>` as the agent's working directory in its brief
+(it `cd`s there for every command and edits files by absolute path under it).
+`git worktree remove` each one after its branch is merged.
+`.claude/settings.json` carries allow rules for `.claude/worktrees/**` as a
+fallback for any session that already started the other way.
 
 Two things a worktree does not have and needs:
 
@@ -162,7 +180,7 @@ whole:
 > LZ4-packed `build/<pkg>.o88` and any data file it ships beside it - without
 > costing the machine anything for it.
 >
-> **Set up**: `mkdir -p build && ln -s /home/user/os8088/build/martypc
+> **Set up**: you work in `/home/user/wt/<pkg>` (the session made it; `cd` there for every command and edit files by absolute path under it). `mkdir -p build && ln -s /home/user/os8088/build/martypc
 > build/martypc`, then `make -j2`, then record the BEFORE numbers (file
 > bytes, clusters per disk via `python3 tools/os88diskuse.py --pkg <NAME>`,
 > image and bss, the APP_SMALL arm if any) before the first edit.
