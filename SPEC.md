@@ -175561,6 +175561,82 @@ reached **85-89% on the two 16-colour files, which played perfectly**, and
 unseen (98.2.1.1.2); single frames reached 123-126% on all three with no
 harm. That is what `--lag` and `--peak` are set from.
 
+#### 98.3.23 Part 1: the top of the player's segment (2026-10-16)
+
+**`VIDEO.O88` is a PARTED package, Word's shape (68.10) one package
+along.** `image + bss` is the REGION and `APP_MAX_SIZE` caps it at 61,440;
+the player stood at **60,841** - 599 bytes spare - with its `VPDIAG=1` arm
+already past it and not assembling. The segment runs to 65,536 and a parts
+carve may run to **65,024** (`op_size`'s 127 sectors), so the difference is
+room the player can have without a byte of mechanism in it.
+
+**Three pieces in one file.** The image the kernel launches is
+`apps/video/vidload.asm`, a **1,517-byte** loader that reads two parts and
+hands its identity to part 0 through `OSAPI_PKG_REHOME` (20.12.10); its
+region is then freed. Part 0 is `video.asm`'s image with its bss shipped
+inside it, padded to `VP_P1ORG` (`tools/os88ovl.py --pad-bss`). Part 1 is
+every `section .modc` of `video.asm`, assembled at `vstart=VP_P1ORG` - so
+`op_load`, which lays the carve out at `roundup512(len)` a part, puts it at
+that offset of the PLAYER'S OWN SEGMENT. A call into it and out of it is
+near, `DS` never moves, a compaction moves it with the region (the two are
+one claim), and there is no vector, thunk or relocation proc: **the
+mechanism costs the player's segment nothing**. The icon, the `.V88`
+association and the document glyph are one include, `apps/video/vpicon.inc`,
+read by both roots, so the Disk window and the dock cannot disagree.
+
+**What is in part 1** is code the kernel never calls by its address -
+`tools/os88ovlchk.py` walks `video.asm` (it is in `PKGS`) and refuses a
+part-1 code label used as anything but a branch target, because the kernel
+bounds every entry point by I_SIZE and I_SIZE is `VP_P1ORG`. Today it is the
+OPEN (`vp_open`, `vp_parse`, `vp_pblock`, the display walk `vp_canplay` to
+`vp_try`, 3,134 bytes) and THE BENCH (`vp_lybench` to `vp_bncmix`, 98.1.9.13,
+1,066 bytes): **4,200 bytes**. `vp_onresize`, a `W_ONRESIZE` callback in the
+middle of the walk, stays in part 0 between two section switches, which is
+how the whole move is written - the routines did not move in the source, a
+`section .modc` / `section .text` pair brackets each run where it stands.
+Speed was not a reason to keep anything out: part 1 is the same segment and
+a near call into it costs what it always did. **The play path did not move
+by a byte**: `os88rdiff --hot-file apps/video/rdiffhot.txt` reads every hot
+routine `same` at an even shift (-3,134 before the bench, -4,200 after), on
+all three arms. Two of the tool's own assumptions had to learn the shape: a
+near branch from `.text` into a `vstart` section is resolved in THAT section,
+and a routine matches by name across sections.
+
+| arm | image | bss (to `VP_P1ORG`) | part 1 | used | free of 65,024 |
+|---|---:|---:|---:|---:|---:|
+| default (`VP_P1ORG` 0xDE00) | 51,777 | 5,055 (4,864 real) | 4,200 | 60,841 | **4,183** (191 under `VP_P1ORG`, 3,992 in part 1) |
+| `NOLIVESND=1` (0xDE00) | 51,546 | 5,286 | 4,200 | 60,610 | 4,414 |
+| `VPDIAG=1` (0xE400) | 53,131 | 5,237 | 4,206 | 62,201 | **2,823** - it ASSEMBLES again |
+
+**Growing it.** Part 0 grows by raising `VP_P1ORG` 512 at a time - the
+assertion at `OS88_IMAGE_END` fires when it must, and the slack is RAM, the
+region being `VP_P1ORG` however much of it is used, so a size pass that
+leaves a whole sector under it should lower it. Part 1 grows to 65,024 and
+its assertion says when it cannot. **Past 65,024 the next step is a FAR
+part** - a lazy `OP_SEG` of its own claim with far thunks, PiXEL's shape
+(106.5) - and it has two costs this one does not: a part that is read when
+it is wanted is read off the disk the player was launched from, which on a
+one-drive machine is the disk the user has just swapped for a video's; and
+code reached far cannot call the player's own routines near. Both parts here
+are EAGER for the first reason: everything is read at the launch, while
+`VIDEO.O88`'s disk is in the drive.
+
+**What it costs.** No resident byte and no cycle of a play. On the disk the
+file is **41,467 -> 43,362 bytes** (+1,895: the loader ships raw - a file with
+parts cannot be compressed itself, 20.12.7 - and the image is now two LZ4
+streams, part 0 at 66.6% and part 1 at 93.8%), which is 41 -> 43 clusters on
+a 360KB disk. **The launch is ~0.3 s slower** on a 4.77 MHz 5150 off a
+360KB floppy, measured on MartyPC by the same double-click on the two files
+(plain 9.04/9.01 guest s, parted 9.26/9.39, the harness's navigation inside
+both): ONE more `int 13h` (6 against 5) and the same 81 sectors, the decode
+being the same LZ4 the kernel ran before, in two streams. In RAM the region
+is `VP_P1ORG` plus part 1 where it was image + bss, the same bytes, and the
+loader's own ~2KB region exists only for the length of the launch - which is
+the one new demand: a launch now wants that 2KB beside the carve for a
+moment. `lzglyph` (`tests/lzcomp.py --glyph`) loses VIDEO.O88
+as a subject, because Compress refuses a parted file by design; DOS.O88 still
+carries the glyph rung.
+
 ## 99. Gorillas (`apps/gorillas/gorillas.asm`)
 
 A native 8086 adaptation of the supplied Microsoft QBasic `gorilla.bas`
