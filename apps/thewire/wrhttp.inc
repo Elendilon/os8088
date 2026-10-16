@@ -798,7 +798,8 @@ wr_hdrdone:
 ; wr_finish / wr_failpost - the two ways a transfer ends
 ;
 ; Both are the WORKER's half of SPEC.md 92.5's one byte: everything the
-; handler will read is written first, and [wr_wake] LAST.
+; handler will read is written first, and [wr_wake] LAST - which is wr_post,
+; the tail the two of them and wr_pausepost share.
 ; -----------------------------------------------------------------------------
 wr_finish:
     push ax
@@ -808,15 +809,16 @@ wr_finish:
     mov [wr_catlen], ax                 ; only the catalog reads it, and it is
                                         ; free to write for every kind
     mov byte [wr_state], WS_DONE
-    mov al, [wr_kind]
-    mov [wr_wkind], al
-    mov byte [wr_wake], WW_DONE
-    mov bx, [wr_win]
-    call OSAPI_WM_WAKE
-    call wr_nshow
-    pop bx
-    pop ax
-    ret
+    mov al, WW_DONE
+    jmp short wr_post
+
+wr_failpost:
+    push ax
+    push bx
+    call wr_hclose
+    mov byte [wr_state], WS_FAIL
+    mov al, WW_FAIL
+    jmp short wr_post
 
 ; --- wr_pausepost - the THIRD way out of a pass, and it is not an end -------
 ; The unpacker has reached a boundary the worker may not cross (a claim, a
@@ -826,26 +828,18 @@ wr_finish:
 wr_pausepost:
     push ax
     push bx
-    mov al, [wr_kind]
-    mov [wr_wkind], al
     mov al, [wr_apw]
-    mov [wr_wake], al                   ; ...LAST, after everything the handler
-                                        ; will read (SPEC.md 92.5)
-    mov bx, [wr_win]
-    call OSAPI_WM_WAKE
-    call wr_nshow
-    pop bx
-    pop ax
-    ret
+    ; ...falls into wr_post
 
-wr_failpost:
-    push ax
-    push bx
-    call wr_hclose
-    mov byte [wr_state], WS_FAIL
-    mov al, [wr_kind]
-    mov [wr_wkind], al
-    mov byte [wr_wake], WW_FAIL
+; --- wr_post - AL = the WW_* code: bank the kind, then the ONE BYTE ----------
+; Entered by a jump with AX and BX pushed, and pops them. [wr_wake] is written
+; LAST, after everything the handler will read (SPEC.md 92.5).
+wr_post:
+    ; STKBALANCE-OK: never called - jumped to by the three above with AX and
+    ; BX already pushed, and pops exactly those two
+    mov ah, [wr_kind]
+    mov [wr_wkind], ah
+    mov [wr_wake], al
     mov bx, [wr_win]
     call OSAPI_WM_WAKE
     call wr_nshow

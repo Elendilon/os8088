@@ -144845,6 +144845,12 @@ the package had twice or did not need.
   `WR_ZERO` and cleared by one `rep stosw`, where they were eleven immediate
   stores. `wr_reqn`, `wr_port` and `wr_cfgn` traded places with the three
   that moved in; the bss is the same size.
+- **One post.** `wr_finish`, `wr_failpost` and `wr_pausepost` each banked the
+  kind, wrote the one byte, woke the window and redrew the cell; they set
+  their own state and jump to `wr_post` with the WW_* code in AL, which still
+  writes `[wr_wake]` last. The worker's chain is no deeper: it is a jump.
+  42 bytes of image and only 5 of file - lz4 had already found the copies,
+  which is 4.6 of the handoff's rule in one line.
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 
