@@ -80398,6 +80398,36 @@ cycles, not more. What it leaves binding:
   credits' dismissal). The two callback paths used to clear them after, so a
   flag the worker raised during the draw was dropped.
 
+### 44.12 Size pass 2 — the shipped file
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures the
+LZ4-packed `ARKANOID.O88` on the four 360KB disks it rides (apps, games, and
+both small disks), not image + bss. Nothing a player can see changed. What the
+pass leaves binding:
+
+- **The tuning tables are signed BYTES.** `ark_met_big`/`ark_met_sml` and
+  `ark_vel_src`/`ark_zbias` are written with `ARK_SB`, which refuses a figure
+  outside -128..127 at assembly time, because `cbw` would otherwise widen it to
+  a different number. The content height is the one figure that does not fit,
+  so the records store it less `ARK_CHWBIAS` (200) and `ark_entry`, its only
+  reader, adds the bias back inside an `add` it already made.
+- **One loop widens the record and the velocity family.** `ark_metrics` sets
+  `[ark_vscale]` to 100 and sends the record through `ark_scale` too - at par
+  that is the identity - so the record's last figure, the adapter's scale, is
+  in place by the time the loop reaches `ark_vel_src`. `ark_bw`..`ark_zbq` are
+  one run of 27 words, asserted in the bss. `ark_scale_vel` is gone; the
+  launch pays twelve more `ark_scale` calls, about 1 ms at 4.77 MHz
+  (estimated from instruction timings), once per launch and per adapter
+  change.
+- **There are no clamps after the scaling, by proof.** `ark_scale` is
+  monotonic (round to nearest of one per-cent product, floored at one), so two
+  figures in order before it stay in order after it for ANY percentage. The
+  four relationships the clamps enforced - a serve no flatter than the
+  ceiling, a flick no harder than a hold, Slow's floor under the opening
+  rally, the ceiling over it - are the `%if` assertions on the unscaled
+  constants beside `ARK_VXMAX`, and both shipped records were checked to give
+  the same 27 words as before, figure for figure.
+
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
 A four-channel ProTracker MOD player: `tracker.asm` (shell, menus, the file

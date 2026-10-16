@@ -167,6 +167,22 @@ ARK_CHW_BIG  equ 300                ; content height the layout wants
 ARK_BW_SML   equ 20                 ; ...and CGA's 200 rows
 ARK_RAIL_SML equ 3
 ARK_CHW_SML  equ 137
+ARK_CHWBIAS  equ 200                ; what the metric RECORDS store the content
+                                    ; height less, so 300 and 137 both fit the
+                                    ; signed byte every other figure is
+
+; ARK_SB - the tuning tables are SIGNED BYTES that ark_metrics widens with
+; cbw, so a figure outside -128..127 would come back as a different number
+; rather than as an error. This makes it one.
+%macro ARK_SB 1-*
+%rep %0
+  %if (%1) < -128 || (%1) > 127
+    %error "ARK_SB: a tuning figure does not fit a signed byte"
+  %endif
+    db %1
+%rotate 1
+%endrep
+%endmacro
 
 ; ark_entry's own arithmetic, as constants: content = bricks + both rails, and
 ; the frame is that plus the 1px border either side / the title bar and one
@@ -192,7 +208,8 @@ ARK_MAXROW  equ 6                   ; ...and the most rows either set uses
 ARK_NZONE   equ 5                   ; paddle zones the bounce divides it into
                                     ; (ark_zbias/ark_zbq)
 ARK_CELLS   equ ARK_COLS * ARK_MAXROW
-ARK_NMET    equ 12                  ; words in a metrics record (ark_met_*)
+ARK_NMET    equ 12                  ; bytes in a metrics record (ark_met_*)
+ARK_NVEL    equ 10 + ARK_NZONE      ; ...and in ark_vel_src, zones included
 
 ARK_LIVES   equ 3
 ARK_LIVEMAX equ 6                   ; spare-paddle slots drawn: more than this
@@ -439,8 +456,8 @@ ark_entry:
     add ax, 2
     mov [ark_tpl + WT_W], ax
 
-    mov ax, [ark_chwant]            ; the height the layout wants...
-    add ax, TITLE_H + 1
+    mov ax, [ark_chwant]            ; the height the layout wants (the
+    add ax, TITLE_H + 1 + ARK_CHWBIAS   ; record stores it less ARK_CHWBIAS)...
     mov bx, [ark_dock]              ; ...clamped to the desktop band, and one
     sub bx, MBAR_H + 1              ; pixel short of it, exactly as wm_fit
                                     ; does (SPEC.md 11): the drop shadow is
@@ -557,74 +574,38 @@ ark_track:
     ret
 
 ; -----------------------------------------------------------------------------
-; ark_scale_vel - apply [ark_vscale] to the whole velocity family
-; in:  [ark_vscale] (per cent), just copied out of the metrics record
-; out: the ten ark_v*/ark_thr*/ark_pufall words; preserves all registers
+; The BIG-metric velocity family, in ark_vxmax..ark_pufall order, and then the
+; paddle zones. ark_metrics widens and scales it into the bss words that shadow
+; it (ark_vxmax.. and ark_zbq) in the same pass that copies the metric record,
+; so this table and those fifteen words are one thing in two halves: an entry
+; added here needs its AWORD added there, in the same place.
 ;
-; Called once, from ark_entry, before anything reads a speed. The clamps at the
-; bottom are not belt-and-braces: rounding is per value, so a scale that lands
-; ark_thrhold a quarter above ark_vxmax would let a serve ask for an angle the
-; very next bounce clips - visible as a serve that bends the instant it leaves
-; the paddle. Enforcing the relationships AFTER rounding is what lets the
-; percentage be any number at all rather than one that has been checked by hand.
+; There are no clamps after the scaling, and that is a proof rather than an
+; omission (SPEC.md 44.12). ark_scale is MONOTONIC - round-to-nearest of v
+; times one per-cent figure, floored at one - so two figures in order before it
+; are in order after it, for any percentage at all. The four relationships
+; that matter (a serve no flatter than the ceiling, a flick no harder than a
+; hold, Slow's floor under the opening rally, the ceiling over it) are
+; asserted on the unscaled constants where ARK_VXMAX is declared, and that is
+; the whole of what a clamp here would have enforced.
 ; -----------------------------------------------------------------------------
-ark_scale_vel:
-    push ax
-    push si
-    push di
-    mov si, ark_vel_src             ; the BIG-metric values, in order...
-    mov di, ark_vxmax               ; ...into the bss words that shadow them -
-.each:                              ; and the five paddle zones straight after
-    lodsw                           ; them, into ark_zbq: a zone's contribution
-    call ark_scale                  ; is a vx like ark_english's, so it scales
-    mov [di], ax                    ; for the same reason - unscaled, an edge
-    inc di                          ; hit adds 8 quarters against CGA's ceiling
-    inc di                          ; of 9 and saturates the angle, where on
-    cmp di, ark_zbq + (ARK_NZONE - 1) * 2   ; VGA the same 8 is a third of 24
-    jbe .each
-
-    mov ax, [ark_vxmax]             ; a serve may ASK for the ceiling and no
-    cmp [ark_thrhold], ax           ; more; rounding is what can part them
-    jbe .tap
-    mov [ark_thrhold], ax
-.tap:
-    mov ax, [ark_thrhold]           ; ...and a flick never throws harder than
-    cmp [ark_thrtap], ax            ; a hold
-    jbe .floor
-    mov [ark_thrtap], ax
-.floor:
-    mov ax, [ark_vybase]            ; Slow's floor is a floor, not a target
-    cmp [ark_vyfloor], ax
-    jbe .top
-    mov [ark_vyfloor], ax
-.top:
-    mov ax, [ark_vybase]            ; ...and the ceiling is above wall 1
-    cmp [ark_vytop], ax
-    jae .zb
-    mov [ark_vytop], ax
-.zb:
-    pop di
-    pop si
-    pop ax
-    ret
-
-; --- the BIG-metric velocity family, in ark_vxmax..ark_pufall order -----------
-; This table and those ten bss words are one thing in two halves: the copy
-; loop above walks them in lockstep, so an entry added here needs its AWORD
-; added there, in the same place.
 ark_vel_src:
-    dw ARK_VXMAX, ARK_VXMIN, ARK_VYBASE, ARK_VYSTEP, ARK_VYMAX
-    dw ARK_VYFLOOR, ARK_VYSLOW, ARK_THRTAP, ARK_THRHOLD, ARK_PUFALL
+    ARK_SB ARK_VXMAX, ARK_VXMIN, ARK_VYBASE, ARK_VYSTEP, ARK_VYMAX
+    ARK_SB ARK_VYFLOOR, ARK_VYSLOW, ARK_THRTAP, ARK_THRHOLD, ARK_PUFALL
 
 ; What each fifth of the paddle ADDS to the ball's existing vx. Not a velocity
 ; to replace it with: replacing is what made the bounce feel arbitrary, because
 ; a ball arriving steeply from the left and one drifting in from the right left
-; the paddle identically if they landed in the same zone.
-; The five paddle zones' vx contribution, BIG-metric. ark_scale_vel copies it
-; into ark_zbq scaled for the adapter, and the bounce reads that copy - this
-; table is never read at play time. It must FOLLOW ark_vel_src, as ark_zbq
-; follows ark_pufall: the one loop walks both pairs as fifteen words.
-ark_zbias:   dw -2*ARK_VQ, -1*ARK_VQ, 0, 1*ARK_VQ, 2*ARK_VQ
+; the paddle identically if they landed in the same zone. Scaled into ark_zbq,
+; and never read at play time: the bounce reads that copy. A zone's
+; contribution is a vx like ark_english's, so it scales for the same reason -
+; unscaled, an edge hit adds 8 quarters against CGA's ceiling of 9 and
+; saturates the angle, where on VGA the same 8 is a third of 24.
+ark_zbias:
+    ARK_SB -2*ARK_VQ, -1*ARK_VQ, 0, 1*ARK_VQ, 2*ARK_VQ
+%if ark_zbias + ARK_NZONE - ark_vel_src != ARK_NVEL
+  %error "ark_vel_src and ark_zbias are walked as ARK_NVEL bytes in a row"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; ark_scale - one tuning figure, scaled by [ark_vscale] per cent
@@ -668,7 +649,9 @@ ark_scale:
 ; -----------------------------------------------------------------------------
 ; ark_metrics - the metric record this screen wants, and what it implies
 ; in:  BX = the screen HEIGHT
-; out: ark_bw.. filled, the velocities scaled, ark_pwmax derived
+; out: ark_bw.. filled, the velocities scaled (ark_scale's rounding, so the
+;      speeds and the zones are what a 1:1 record would give), ark_pwmax
+;      derived
 ; clobbers: AX, CX, SI, DI
 ; -----------------------------------------------------------------------------
 ark_metrics:
@@ -677,16 +660,25 @@ ark_metrics:
     jae .metric
     mov si, ark_met_sml
 .metric:
-    mov di, ark_bw                  ; copied wholesale: the bss words below
-    mov cx, ARK_NMET                ; must stay in the record's order
-.mcopy:
-    lodsw
+    mov word [ark_vscale], 100      ; PAR, for the record itself: it goes
+                                    ; through ark_scale like the speeds, and
+                                    ; at 100 per cent that is the identity.
+                                    ; Its last figure IS the scale, so the
+                                    ; speeds after it take the adapter's
+    mov di, ark_bw                  ; widened wholesale: the bss words below
+    mov cx, ARK_NMET + ARK_NVEL     ; must stay in the record's order, and the
+.each:                              ; velocity family must follow them
+    cmp cl, ARK_NVEL
+    jne .same
+    mov si, ark_vel_src             ; ...out of the one shared table
+.same:
+    lodsb
+    cbw
+    call ark_scale
     mov [di], ax
     inc di
     inc di
-    loop .mcopy
-
-    call ark_scale_vel              ; ...and the speeds that record implies
+    loop .each
 
     mov ax, [ark_pw0]               ; the widest an Expand can make it
     add ax, 24
@@ -4190,10 +4182,14 @@ ark_heartend:
 ARK_HEARTW  equ 7
 ARK_HEARTH  equ 6
 
-; --- metrics records (ARK_NMET words each, copied into bss by ark_entry) --------
+; --- metrics records (ARK_NMET signed BYTES each, widened into bss words by
+; ark_metrics) ------------------------------------------------------------------
 ; brick w, brick h, rows, rail, status strip, gap under it, paddle w, paddle h,
-; ball size, paddle inset from the bottom, wanted content height, VELOCITY
-; SCALE (per cent of the ARK_V* constants; see them for why it is one number).
+; ball size, paddle inset from the bottom, wanted content height LESS
+; ARK_CHWBIAS, VELOCITY SCALE (per cent of the ARK_V* constants; see them for
+; why it is one number). Bytes, because every figure fits one - the content
+; height only once ARK_CHWBIAS is taken off it, and ark_entry, its one reader,
+; adds the bias back inside an add it already made (SPEC.md 44.12).
 ;
 ; The scale is NOT the ratio of the content heights, and that is the point.
 ; 100 and 37 make BAND TRAVERSALS PER SECOND match, which is what a player
@@ -4201,9 +4197,9 @@ ARK_HEARTH  equ 6
 ; made CGA feel 2.7x too fast. The measured bands are 198px (VGA), 182px
 ; (Hercules) and 72px (CGA), against one shared 18.2fps frame clock.
 ark_met_big:                        ; VGA 640x480 and Hercules 720x348
-    dw ARK_BW_BIG, 10, 6, ARK_RAIL_BIG, 14, 10, 44, 6, 4, 18, ARK_CHW_BIG, 100
+    ARK_SB ARK_BW_BIG, 10, 6, ARK_RAIL_BIG, 14, 10, 44, 6, 4, 18, ARK_CHW_BIG - ARK_CHWBIAS, 100
 ark_met_sml:                        ; CGA 640x200: 137 rows of content, all in
-    dw ARK_BW_SML,  7, 5, ARK_RAIL_SML, 11,  5, 34, 4, 3, 13, ARK_CHW_SML,  37
+    ARK_SB ARK_BW_SML,  7, 5, ARK_RAIL_SML, 11,  5, 34, 4, 3, 13, ARK_CHW_SML - ARK_CHWBIAS,  37
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
 %define OS88UI_ABOUT            ; the standard About card, and NOTHING else: a
@@ -4230,9 +4226,11 @@ ark_met_sml:                        ; CGA 640x200: 137 rows of content, all in
 %assign ARK_BSS ARK_BSS + (%2)
 %endmacro
 
-; --- the metrics, copied WHOLESALE out of ark_met_* --------------------------
-; These eleven words must stay in this order and stay contiguous: ark_entry
-; copies the record over them with one loop.
+; --- the metrics, widened WHOLESALE out of ark_met_* -------------------------
+; These twelve words must stay in this order and stay contiguous, and the
+; velocity family must follow them: ark_metrics widens the record and then
+; ark_vel_src over all of them with one loop (asserted after ark_zbq).
+%assign ARK_MSTART ARK_BSS
     AWORD ark_bw                    ; brick width
     AWORD ark_bh                    ; brick height
     AWORD ark_rows                  ; brick rows in play
@@ -4243,11 +4241,13 @@ ark_met_sml:                        ; CGA 640x200: 137 rows of content, all in
     AWORD ark_ph                    ; paddle height
     AWORD ark_bsz                   ; ball size
     AWORD ark_pado                  ; paddle inset from the content bottom
-    AWORD ark_chwant                ; content height the layout wants
+    AWORD ark_chwant                ; content height the layout wants, LESS
+                                    ; ARK_CHWBIAS (ark_entry adds it back)
     AWORD ark_vscale                ; velocity scale, PER CENT (SPEC.md 44.3.3)
 
 ; --- the velocity family, ARK_V*/ARK_THR* scaled by [ark_vscale] --------------
-; Written once by ark_scale_vel and read everywhere after. They are bss rather
+; Written by ark_metrics, straight after the record and in the same loop, and
+; read everywhere after. They are bss rather
 ; than equs so one binary can hold two adapters' worth of tuning; every one of
 ; them is in QUARTER pixels except ark_pufall, which is whole ones.
 ; ark_english scales its own result rather than owning a word here.
@@ -4262,6 +4262,9 @@ ark_met_sml:                        ; CGA 640x200: 137 rows of content, all in
     AWORD ark_thrhold
     AWORD ark_pufall                ; capsule fall, WHOLE px/frame
     ABUF  ark_zbq, ARK_NZONE * 2    ; ark_zbias, scaled (SPEC.md 44.3.3)
+%if ARK_BSS - ARK_MSTART != (ARK_NMET + ARK_NVEL) * 2
+  %error "ark_metrics walks ark_bw..ark_zbq as one run of words"
+%endif
 
 ; --- derived ------------------------------------------------------------------
     AWORD ark_pwmax
