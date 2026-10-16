@@ -73,11 +73,11 @@ dc_dow_of:
     mov bx, di
     xor bh, bh
     mov al, [dc_sakt + bx - 1]
-    cbw
+    xor ah, ah
     add si, ax                  ; + t[m-1]
     mov ax, di
     mov al, ah
-    cbw
+    xor ah, ah
     add ax, si                  ; + d
     xor dx, dx
     mov cx, 7
@@ -107,6 +107,7 @@ dc_build:
     push dx
     push si
     push di
+    push bp
     push es
     mov ax, [dc_y]
     mov bl, [dc_m]
@@ -143,20 +144,27 @@ dc_build:
     xor ax, ax
     stosw
     stosw
-    call dc_pack                ; the selected day's packed date, its day
-    and al, 0E0h                ; bits cleared: the MONTH's - a word compare
-    mov dx, ax                  ; against each date with ITS day cleared
     mov cl, [STIK_PAY + DCP_NAPPT]
     cmp cl, DCP_MAXAPPT
     ja .done                    ; not ours to trust: mark nothing
     xor ch, ch
     jcxz .done
+    mov ax, [dc_y]              ; (y - 1980) << 4 | m: the packed date's
+    sub ax, DC_Y0               ; bits 5.. - a word compare against it
+    mov dx, ax
+    mov ax, 16
+    mul dx                      ; AX = (y - 1980) * 16
+    or al, [dc_m]
+    mov dx, ax
     mov si, STIK_PAY + DCP_APPT0
 .a:
     mov ax, [si + DCA_DATE]
     mov bx, ax
     and bx, 31                  ; the day
-    and al, 0E0h                ; ...and its month
+    push cx
+    mov cl, 5
+    shr ax, cl
+    pop cx
     cmp ax, dx
     jne .n
     mov ax, bx                  ; set bit `day` of the 32-bit mask
@@ -175,6 +183,7 @@ dc_build:
     loop .a
 .done:
     pop es
+    pop bp
     pop di
     pop si
     pop dx
@@ -249,16 +258,18 @@ dc_today:
     mov cx, DC_Y0
     mov dx, 0x0101
 .ok:
-    xchg dl, dh                 ; DL = the month, DH = the day: [dc_tm]'s
-    cmp cx, [dc_ty]             ; word (DC_BSS_TD)
+    cmp cx, [dc_ty]
     jne .new
-    cmp dx, [dc_tm]
+    cmp dh, [dc_tm]
+    jne .new
+    cmp dl, [dc_td]
     jne .new
     clc
     jmp short .x
 .new:
     mov [dc_ty], cx
-    mov [dc_tm], dx
+    mov [dc_tm], dh
+    mov [dc_td], dl
     stc
 .x:
     pop dx

@@ -94,7 +94,7 @@ dc_aptr:
 dc_tptr:
     push ax
     push dx
-    cbw
+    xor ah, ah
     mov dl, DCP_TASKSZ
     mul dl
     add ax, STIK_PAY + DCP_TASK0
@@ -132,7 +132,8 @@ dc_arange:
     add si, DCP_APPTSZ
     loop .l
 .x:
-    mov [dc_afirst], ax         ; and [dc_acnt]
+    mov [dc_afirst], al
+    mov [dc_acnt], ah
     pop si
     pop dx
     pop cx
@@ -179,7 +180,7 @@ dc_ains:
     push cx
     mov al, cl
     sub al, ch                  ; the records at and after the place...
-    cbw
+    xor ah, ah
     mov cl, 4
     shl ax, cl                  ; ...in words (16 a record)
     mov cx, ax
@@ -237,7 +238,7 @@ dc_adel:
     sub cl, al
     dec cl                      ; the records after it
     mov al, cl
-    cbw
+    xor ah, ah
     mov cl, 4
     shl ax, cl
     mov cx, ax
@@ -458,7 +459,7 @@ dc_parse:
     shl bx, 1
     shl bx, 1
     add bx, cx
-    cbw
+    xor ah, ah
     add bx, ax
     inc dl
     inc si

@@ -42485,9 +42485,6 @@ out.
 Piano, Recorder, Scribe, Skies, TeXPad, Word and `LOOM.WPV` joined the
 drivers, Weave and Loom — each define tried and kept only where the build
 still succeeded, which is the gate's own safety argument used as a search.
-The Desk Calendar (§110.6.1) had been missed - it landed after that pass, and
-its only buttons are the alert's (§75.3), which arm and fire their own - and
-took both gates at the second apps size pass, for 208 packed bytes.
 
 **Under `OS88UI_NOGEST` THE PACKAGE OWNS `OS88UI_BT_DOWN`.** The record's
 own comment says *"THE LIBRARY'S ... never write it"*, and that is true of a
@@ -42507,8 +42504,7 @@ own "which control is down". That is the contract, and not a trespass.
 only internal caller — so a package that hit-tests with `os88ui_bhit` or by
 hand carries 25 bytes it never reaches. It removes the symbol, refuses
 without `OS88UI_NOGEST`, and is set in ether, hddtool, LOOM, LOOM.WPV, net,
-Paint, Piano, saver, Scribe, Skies, TeXPad, Weave, Word and the Desk
-Calendar.
+Paint, Piano, saver, Scribe, Skies, TeXPad, Weave and Word.
 
 **The gesture's own body got smaller in the same pass, unchanged in
 behaviour.** `os88ui_bfrec` is `os88ui_bfind` over a RECORD's live rects —
@@ -186615,75 +186611,6 @@ each (it crossed a 1 KB boundary), so the shipped 360 KB system disk was
 320 of 354; the review fixes' 229 lz4 bytes crossed one more, and it is
 **321 of 354, 33 left**. The state file is three more clusters at runtime,
 in `SYSTEM\APPDATA`, the first time the calendar is closed or moved.
-
-#### 110.6.1 Apps size pass 2: the shipped file
-
-docs/plans/HANDOFF-APPS-SIZE-P2.md's pass weighs `DESKCAL.O88` by what it
-costs a DISK - the LZ4-packed file on every system disk, big and small - and
-its rules are the pass's: nothing user-visible changes, RAM does not grow, and
-no path a repaint, a tick, a key or a click runs takes a cycle more. So what
-moved is code that was dead or did work twice, and every path a change
-reaches executes fewer instructions, or cheaper ones, than it did. The
-calendar's bss offsets (which `tests/deskcal*.py` and `tools/os88stik.py`
-read) are untouched.
-
-Measured from `a123653b`: **16,171 bytes on disk and 18,976 of image**, bss
-1,024 plus the include's, 16 clusters on each 360 KB system disk. One change
-at a time, the bytes each saved:
-
-| change | image | file |
-|---|---:|---:|
-| `dc_aday` deleted - nothing called it; `dc_fenter`'s save and restore of `dc_ebuf`'s first word around `dc_ptime`, which parses a COPY; `dc_build`'s unused `push bp` | -64 | -55 |
-| `dc_build`'s marks compare each date with its day bits masked off against `dc_pack`'s with its own masked - no `MUL` to make the key and no shift per appointment: faster as well as shorter | -16 | -8 |
-| the month and the day are adjacent bytes on both sides (`DC_BSS_M`/`SEL`, `DC_BSS_TM`/`TD`, now asserted), so `dc_entry`, `dc_gotoday`, `dc_istoday`, `dc_today` and `dc_tomorrow` move and compare them as ONE word | -32 | -27 |
-| `OS88UI_NOGEST` and `OS88UI_NOBFIND` (§20.5.1.3.4): the record-based button gesture and `os88ui_bfind` were compiled in and never called - the calendar's only buttons are the alert's, which arm and fire their own; both gates remove symbols, so the build succeeding IS the check | -224 | -208 |
-| `CBW` for `XOR AH, AH` at the 37 sites where AL is provably 0..127 - a geometry byte, a byte of the face, an index or count the payload's tables bound, a digit - one byte and one cycle less each; not where AL is a lead read out of the file | -32 | -20 |
-| eleven PAIRS of adjacent bss bytes read, written or compared as one word - the selection's kind and index, the slot's page and the page it was taken from, the held button, the hit's bytes, the day's first appointment and count, a list's line and section, card 3's state and appointment - asserted adjacent at the end of `deskcal.asm` | -80 | -59 |
-| `dc_rbox`'s bytes are 3 x the column and 3 more (asserted beside `DC_FLDW`), not a `MUL` and two shifts; `dc_cday1` no longer reloads `[dc_wfx]` it holds and zeroes `[dc_wink]` from AH | -16 | -5 |
-| the composers stop reloading what they hold: `dc_caline`, `dc_ctline` and `dc_crem` read a text's character count from the geometry BEFORE `dc_ln0` takes DI, so no reload and no `mov di, dc_line`, and `dc_cmon`'s month line takes the x the weekday's left in CX | -32 | -6 |
-| three saves of a register nothing writes: `dc_cmon`'s DX around `dc_navlbl` (which keeps it - now said in its header), `dc_rcardw`'s SI and `dc_ptime`'s SI around a copy whose next line reloads it | -16 | -13 |
-| strings that were another string's TAIL point into it: the Calendar menu's name is the title's, COMPACT's `Reminder` page name is `No Reminder`'s, the About card's first line IS the title and its blank line is the NUL of the second | -32 | -6 |
-| ...and four more tails, found by a search of every string: `5 Min Early` in `15 Min Early` (and the toast's lower-case pair), `>` in the slot's ` >`, `Tasks` in `Clear Done Tasks` | -32 | -9 |
-| the title IS `os88stik.inc`'s name tag (`STIK_TAG`, which the package defines as the title), so `dc_title` and the menu's name are labels into `stik_tags` - asserted with `%ifnidn` | -16 | -4 |
-
-**The whole pass: 16,171 -> 15,747 bytes on disk (-424, 2.6%), 18,976 -> 18,384
-of image (-592)**, bss unchanged at 3,709 (the calendar's 1,024 and the
-include's), and no heap claim anywhere. On the 360 KB and 720 KB system disks
-(1,024-byte clusters) that is still 16 clusters; on the 1.44 MB and 1.2 MB ones
-(512-byte clusters) it is **32 -> 31**. Small changes move the packed file by
-a few bytes either way - LZ4 prices a repeated epilogue at a token, so taking
-one `push` out of a common sequence measured +2 to +5 three times over and was
-put back - which is why every row above is a measured file and not a sum.
-
-**No hot path moved the wrong way.** Every change takes instructions out of
-the path it is on, or puts a cheaper one in (`CBW` for `XOR AH, AH`, one word
-move for two byte moves, no `MUL` in `dc_build` or `dc_rbox`); none adds a
-call, a jump or a table walk to a repaint, a tick, a key or a click. The
-shared composer core - `os88gfx.inc`'s glyph and fill, `os88line.inc` and
-`os88stik.inc` - moved by an EVEN amount (`tools/os88rdiff.py` against
-`a123653b`), so a 16-bit bus sees it aligned as it was; some of the calendar's
-own painters moved by an odd one, which on the 8088's 8-bit bus is nothing.
-
-**Not taken, inside the package**: four merges that cost cycles on a gesture,
-each a few to a few tens of cycles against a redraw of milliseconds, all
-ESTIMATES - the toast's lower-case reminder words built from the menu's while
-they are copied (~60 image bytes, ~12 cycles a character on a Remind pick),
-`dc_newa`/`dc_newt`/`dc_plus` sharing their open (~20, one `JMP`), `dc_month`
-and `dc_month_q` sharing the arithmetic (~20, a `CALL`), and `dc_onkey`
-returning through a pushed address (~25, but +24 cycles on a key it ignores).
-**Not taken, outside it** (the pass's rule 4 - recorded for the owner):
-`os88gfx.inc`'s band utilities (`gfxe_bnew`, `bfold`, `bsize`, `bpix`, `bput`)
-are compiled into every `GFXE_BAND` package and the calendar calls none - 187
-image bytes here, and the only other `GFXE_BAND` carriers (Wire, PiXEL) use
-them, so an opt-out gate would be the calendar's alone; `os88line_set` (51
-bytes, unused here, used by Browser, ftpd, Sheet and Weave); `stik_redraw` (29,
-unused by the calendar, the include's only consumer bar the probes); and the
-alert's five button labels for the sets the calendar never asks for (~30).
-
-The rows that run the package: `stik` (fast), `deskcaledit`,
-`deskcaltask`, `deskcalgrid`, `deskcalremind`, `deskcalperf`, `deskcal1bpp`,
-`deskcalcards`, `deskcalsnooze`, `deskmodal`, `stikmove`, `stikmovecga`,
-`stikanchor`, `stiknodesk`, `stikregister` and `stiksmall`.
 
 ### 110.7 `kern_small`
 

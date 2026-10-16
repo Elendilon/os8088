@@ -75,9 +75,6 @@ DC_LINKS    equ 72              ; Dismiss after Snooze
 DC_FLD0     equ 4               ; the first day field's x
 DC_FLDW     equ 24              ; a day field's width
 DC_BOXW     equ 20              ; today's box / the selection's outline
-%if DC_FLDW != 24 || (DC_FLD0 + 2) / 8 != 0 || (DC_FLD0 + 2 + DC_BOXW - 1) / 8 != 3 || (DC_FLD0 + 2 + DC_BOXW + 1) / 8 != 3
-  %error "deskcal: dc_rbox's bytes are 3 x the column and 3 more"
-%endif
 DCG_DOTBY   equ 80h             ; DCG_DOTY's flag: the dot BESIDE the number,
                                 ; 2 x 1 one pixel past its cell, and the box
                                 ; DC_BOXW + 2 wide round both (COMPACT: a
@@ -388,7 +385,7 @@ dc_litinv:
     pop dx
     mov di, ax
     mov al, [dc_lx0]
-    cbw
+    xor ah, ah
     add di, ax
     mov cl, [dc_lx1]
     sub cl, al
@@ -515,7 +512,7 @@ dc_putn:
 ; dc_dec2 - AL (0..99) to AL = the tens digit, AH = the ones digit (ASCII)
 dc_dec2:
     push bx
-    cbw
+    xor ah, ah
     mov bl, 10
     div bl
     add ax, '00'
@@ -619,7 +616,8 @@ dc_hdname:
     jmp short .x
 .other:
     mov ax, [dc_y]
-    mov bx, [dc_m]              ; BL = the month, BH = the day
+    mov bl, [dc_m]
+    mov bh, [dc_sel]
     call dc_dow_of
     call dc_dname
     xor bl, bl
@@ -646,8 +644,11 @@ dc_istoday:
     mov ax, [dc_y]
     cmp ax, [dc_ty]
     jne .x
-    mov ax, [dc_m]              ; the month and the day, one word each
-    cmp ax, [dc_tm]             ; (DC_BSS_SEL, DC_BSS_TD)
+    mov al, [dc_m]
+    cmp al, [dc_tm]
+    jne .x
+    mov al, [dc_sel]
+    cmp al, [dc_td]
 .x:
     pop ax
     ret
@@ -658,7 +659,8 @@ dc_istoday:
 ; -----------------------------------------------------------------------------
 dc_cmon:
     mov ax, [dc_ty]             ; today's day of the week, for its name
-    mov bx, [dc_tm]
+    mov bl, [dc_tm]
+    mov bh, [dc_td]
     call dc_dow_of
     mov [dc_tdow], al
     call dc_tidx
@@ -702,15 +704,17 @@ dc_cmon:
     mov ax, [dc_ty]
     call dc_yr4
     call dc_lnz
-    mov di, [dc_geo]            ; at the weekday's x, which CX still holds:
-    mov dl, [di + DCG_MONY]     ; dc_cline and the string calls keep it
+    mov di, [dc_geo]
+    mov cl, [di + DCG_DOWX]
+    xor ch, ch
+    mov dl, [di + DCG_MONY]
     xor dh, dh
     xor bl, bl
     call dc_cline
 .nav:
     ; --- the nav: `<`, the month on show, `>`
     mov al, [di + DCG_NAVY]
-    cbw
+    xor ah, ah
     mov dx, ax
     add dx, 8
     call dc_vis
@@ -731,13 +735,15 @@ dc_cmon:
     xor ch, ch
     call dc_ctext
 .nr:
-    call dc_navlbl              ; dc_line = the label, CX = its x (DX kept)
+    push dx
+    call dc_navlbl              ; dc_line = the label, CX = its x
+    pop dx
     call dc_cline
 .wk:
     ; --- the weekday letters, Monday first
     mov di, [dc_geo]
     mov al, [di + DCG_WKY]
-    cbw
+    xor ah, ah
     mov dx, ax
     add dx, 8
     call dc_vis
@@ -784,7 +790,7 @@ dc_cmon:
     ret
 
 ; dc_navlbl - the nav's label into dc_line - `August 2026` centred, or
-; COMPACT's `Aug 2026` at its own x - and CX = that x. DX kept
+; COMPACT's `Aug 2026` at its own x - and CX = that x
 dc_navlbl:
     push ax
     push bx
@@ -843,9 +849,10 @@ dc_cday1:
     mov ah, DC_FLDW
     mul ah
     add ax, DC_FLD0
-    mov [dc_wfx], ax            ; the field's x (< 256: AH = 0)
+    mov [dc_wfx], ax            ; the field's x
     mov di, [dc_geo]
-    mov [dc_wink], ah           ; black on white...
+    mov byte [dc_wink], 0       ; black on white...
+    mov ax, [dc_wfx]
     add ax, 2
     mov bp, DC_BOXW             ; BP = the box's width, to the outline
     test byte [di + DCG_DOTY], DCG_DOTBY
@@ -1002,7 +1009,8 @@ dc_chead:
 ; `No appointments` on line 0 when the day has none - card 3's `No reminders
 ; today` again, so an empty day does not read as a paint that stopped
 dc_casec:
-    mov word [dc_li], 0         ; line 0 of section 0 ([dc_lsec])
+    mov byte [dc_lsec], 0
+    mov byte [dc_li], 0
 .l:
     mov di, [dc_geo]
     mov al, [dc_li]
@@ -1103,11 +1111,11 @@ dc_slot:                        ; BL = lines, BH = items, AH = the top
     add al, ah
     cmp al, bh
     jae .blank
-    cbw
+    xor ah, ah
     clc
     jmp short .x
 .blank:
-    cbw
+    xor ah, ah
     stc
 .x:
     pop di
@@ -1177,7 +1185,7 @@ dc_caline:
     push dx
     mov bx, dx
     mov al, [di + DCG_BAR]
-    cbw
+    xor ah, ah
     sub bx, ax
     mov dl, [di + DCG_BARH]
     xor dh, dh
@@ -1203,11 +1211,13 @@ dc_caline:
     call dc_lnz
     mov cx, 8
     call dc_cline
-    mov di, [dc_geo]            ; the text's characters, read BEFORE dc_ln0
-    mov cl, [di + DCG_ATN]      ; takes DI (CH is 0: CX was 8)
     call dc_ln0
     push si
     add si, DCA_TEXT
+    mov di, [dc_geo]
+    mov cl, [di + DCG_ATN]
+    xor ch, ch
+    mov di, dc_line
     call dc_putsn
     call dc_lnz
     pop si
@@ -1216,7 +1226,8 @@ dc_caline:
 
 ; dc_ctsec - the task lines; the last `+N more` while the list pages
 dc_ctsec:
-    mov word [dc_li], 100h      ; line 0 of section 1 ([dc_lsec])
+    mov byte [dc_lsec], 1
+    mov byte [dc_li], 0
 .l:
     mov di, [dc_geo]
     mov al, [dc_li]
@@ -1232,7 +1243,7 @@ dc_ctsec:
     pop dx
     jc .n
     mov al, [di + DCG_TTY]
-    cbw
+    xor ah, ah
     mov [dc_tty], ax
     mov al, [dc_li]
     call dc_tslot
@@ -1280,12 +1291,12 @@ dc_ctline:
     push dx                     ; SELECTED: a black bar under the text
     mov bx, dx
     mov al, [di + DCG_BAR]
-    cbw
+    xor ah, ah
     sub bx, ax
     mov dl, [di + DCG_BARH]
     xor dh, dh
     mov al, [di + DCG_TX]
-    cbw
+    xor ah, ah
     sub ax, 4
     mov cx, STIK_FACE_W - 4
     sub cx, ax
@@ -1294,15 +1305,19 @@ dc_ctline:
     pop dx
     mov bl, GFXE_INV
 .ink:
-    mov cl, [di + DCG_TTN]      ; DI is the geometry and CH is 0 on both paths
-    call dc_ln0                 ; here (CX was 8, or the bar's width), and
-    push si                     ; dc_putsn keeps CX
+    call dc_ln0
+    push si
     add si, DCT_TEXT
+    mov di, [dc_geo]
+    mov cl, [di + DCG_TTN]
+    xor ch, ch
+    mov di, dc_line
     call dc_putsn
     call dc_lnz
     pop si
     mov di, [dc_geo]
     mov cl, [di + DCG_TX]
+    xor ch, ch
     jmp dc_cline
 
 ; -----------------------------------------------------------------------------
@@ -1383,17 +1398,19 @@ dc_crem:
     xor bl, bl                  ; regular: x1 bold fills a time's `0`s
     call dc_cline
     pop bx                      ; BX = the shift
-    mov cl, [di + DCG_R2N]      ; the text's characters (DI the geometry,
-    xor ch, ch                  ; before dc_ln0 takes it)...
-    mov ax, bx
-    shr ax, 1
-    shr ax, 1
-    shr ax, 1
-    sub cx, ax                  ; ...a fewer for each 8 px moved
     call dc_ln0                 ; the text
     mov al, [dc_c3a]
     call dc_aptr
     add si, DCA_TEXT
+    mov di, [dc_geo]
+    mov cl, [di + DCG_R2N]
+    xor ch, ch
+    mov ax, bx
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    sub cx, ax                  ; a character fewer for each 8 px moved
+    mov di, dc_line
     call dc_putsn
     call dc_lnz
     mov di, [dc_geo]
@@ -1468,13 +1485,13 @@ dc_rrect:
     mov [dc_rr1], dx
     mov [dc_rb], cx
     mov al, cl                  ; the x window the compose may skip text
-    cbw                         ; outside of (dc_ctext): bytes CL..CH
+    xor ah, ah                  ; outside of (dc_ctext): bytes CL..CH
     shl ax, 1
     shl ax, 1
     shl ax, 1
     mov [dc_cx0], ax
     mov al, ch
-    cbw
+    xor ah, ah
     inc ax
     shl ax, 1
     shl ax, 1
@@ -1501,7 +1518,7 @@ dc_rrect:
     mov cx, [gfxe_bh]
     call dc_compose
     mov al, [dc_rb]             ; the bytes: x, width, the band's start
-    cbw
+    xor ah, ah
     mov si, ax
     add si, dc_band
     mov cl, 3
@@ -1559,10 +1576,12 @@ dc_rrows:
 dc_rcardw:
     push bx
     push dx
+    push si
     xor bx, bx
     call dc_chgt                ; DX = its rows
     dec dx
     call dc_rrows
+    pop si
     pop dx
     pop bx
     ret
@@ -1572,7 +1591,7 @@ dc_chgt:
     push bx
     mov bx, [stik_lay]
     push ax
-    cbw
+    xor ah, ah
     shl ax, 1
     add bx, ax
     pop ax
@@ -1636,7 +1655,7 @@ dc_fover:
     push di
     mov di, [dc_geo]
     mov al, [di + DCG_HY]
-    cbw
+    xor ah, ah
     sub ax, 3                   ; the field's first row
     cmp dx, ax
     jl .x
@@ -1665,7 +1684,7 @@ dc_frect:
     add bx, [stik_fy]
     mov di, [dc_geo]
     mov al, [di + DCG_HY]
-    cbw
+    xor ah, ah
     add ax, bx
     sub ax, 3
     mov [dc_ln + LN_Y1], ax
@@ -1696,7 +1715,7 @@ dc_fhead:
     push di
     mov di, [dc_geo]
     mov al, [di + DCG_HY]
-    cbw
+    xor ah, ah
     sub ax, 3
     mov bx, ax
     add ax, 11
@@ -1793,7 +1812,8 @@ dc_hbtn:
     pop ax
     mov byte [dc_hk], DCH_BTN
     mov [dc_hb], al
-    mov [dc_hx0], bx            ; and [dc_hx1]
+    mov [dc_hx0], bl
+    mov [dc_hx1], bh
     mov [dc_hy0], si
     mov [dc_hy1], dx
     ret
@@ -1804,7 +1824,7 @@ dc_hbtn:
 ; dc_hmon - card 1 (CX, DX in it; DI the geometry)
 dc_hmon:
     mov al, [di + DCG_NAVY]
-    cbw
+    xor ah, ah
     mov si, ax
     sub si, 2                   ; the nav's light: 2 above, 1 below
     cmp byte [stik_li], 2
@@ -1898,7 +1918,7 @@ dc_hmon:
     mov al, ah                  ; the rows: 8 x the scale
     mov cl, 3
     shl al, cl
-    cbw
+    xor ah, ah
     mov si, [di + DCG_BIGY]
     and si, 0FFh
     mov dx, si
@@ -1910,7 +1930,7 @@ dc_hmon:
     ; a day: the week by the box's rows, the column by the field
     mov al, [di + DCG_W0]
     sub al, [di + DCG_BOXT]
-    cbw
+    xor ah, ah
     sub dx, ax
     jl .r
     mov ax, dx
@@ -1957,7 +1977,7 @@ dc_hday:
     ret
 .shut:
     mov al, [di + DCG_HY]
-    cbw
+    xor ah, ah
     sub ax, 3
     cmp dx, ax
     jl .r
@@ -2106,7 +2126,7 @@ dc_hrem:
     cmp byte [dc_c3k], DC3_RING
     jne .r
     mov al, [di + DCG_LKY]
-    cbw
+    xor ah, ah
     sub ax, 2
     mov si, ax
     mov ax, [dc_qy]
@@ -2117,7 +2137,7 @@ dc_hrem:
     cmp ax, dx
     jg .r
     mov al, [di + DCG_LKX]
-    cbw
+    xor ah, ah
     mov bx, [dc_qx]
     sub bx, ax
     jl .r
@@ -2149,11 +2169,13 @@ dc_hrem:
 ; --- the strings and the bit records -----------------------------------------
 dc_s_wk:    db 'MTWTFSS', 0     ; over each field, MONDAY first
 dc_s_lt:    db '<', 0
+dc_s_gt:    db '>', 0
 dc_s_plus:  db '+', 0
 dc_s_today: db 'Today', 0
 dc_s_more:  db ' more', 0
-dc_s_more2: db ' '
-dc_s_gt:    db '>', 0           ; (the tail of the slot's ` >`)
+dc_s_more2: db ' >', 0
+dc_s_tasksh: db 'Tasks', 0
+dc_s_remh:  db 'Reminder', 0
 dc_s_allday: db '--:--', 0
 dc_s_norem: db 'No reminders today', 0
 dc_s_noapp: db 'No appointments', 0

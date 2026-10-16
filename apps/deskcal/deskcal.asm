@@ -277,8 +277,10 @@ dc_entry:
     call dc_missed              ; what came due while we were not running
     mov ax, [dc_ty]
     mov [dc_y], ax
-    mov ax, [dc_tm]             ; today's month and day, one word: the
-    mov [dc_m], ax              ; month on show and the selected day's
+    mov al, [dc_tm]
+    mov [dc_m], al
+    mov al, [dc_td]
+    mov [dc_sel], al
     call dc_build
     call dc_arange              ; the day's appointments
     mov byte [dc_pane0], 0FFh
@@ -287,7 +289,8 @@ dc_entry:
     jne .mk
     cmp byte [dc_c3k], DC3_RING
     jne .mk
-    mov word [dc_pane], 2       ; [dc_pane0] 0: the day's page to give back
+    mov byte [dc_pane], 2
+    mov byte [dc_pane0], 0
 .mk:
     mov si, dc_tpl
     call OSAPI_WM_CREATE        ; BX = the window, CF = the table is full
@@ -560,8 +563,10 @@ dc_gotoday:
 .other:
     mov ax, [dc_ty]
     mov [dc_y], ax
-    mov ax, [dc_tm]             ; today's month and day, one word: the
-    mov [dc_m], ax              ; month on show and the selected day's
+    mov al, [dc_tm]
+    mov [dc_m], al
+    mov al, [dc_td]
+    mov [dc_sel], al
     call dc_regrid
 .x:
     pop ax
@@ -625,7 +630,7 @@ dc_rbox:
     push dx
     push di
     mov di, [dc_geo]
-    cbw
+    xor ah, ah
     mov bl, 7
     div bl                      ; AL = the week, AH = the column
     mov cl, ah
@@ -640,12 +645,19 @@ dc_rbox:
     xor dh, dh
     add dx, bx
     dec dx
-    mov al, cl                  ; the column: a field is THREE bytes, and
-    add al, al                  ; the box's first pixel is in its first
-    add al, cl                  ; byte and its last in its fourth (the
-    mov cl, al                  ; %if below), so CL = the first byte...
-    add al, 3
-    mov ch, al                  ; ...and CH the last
+    mov al, cl
+    mov ah, DC_FLDW
+    mul ah
+    add ax, DC_FLD0 + 2         ; the box's first pixel...
+    mov cx, ax
+    add ax, DC_BOXW - 1         ; ...and its last
+    push cx
+    mov cl, 3
+    shr ax, cl
+    mov ch, al
+    pop ax
+    shr ax, cl
+    mov cl, al
     xor al, al
     call dc_rrect
     pop di
@@ -678,7 +690,7 @@ dc_rtbox:
     mov bx, dx
     mov di, [dc_geo]
     mov al, [di + DCG_BOX]
-    cbw
+    xor ah, ah
     add dx, ax
     dec dx
     add ax, 7                   ; its bytes: from x 8
@@ -902,10 +914,11 @@ dc_oncard:
 .b:
     cmp bl, DCH_BTN
     jne .a
-    mov ah, [dc_hb]             ; THE BUTTON: lit now, acted on at its release
-    inc ax                      ; [dc_lit] = the card + 1 (<= 3: no carry),
-    mov [dc_lit], ax            ; [dc_lact] = the button
-    dec ax
+    inc al                      ; THE BUTTON: lit now, acted on at its release
+    mov [dc_lit], al
+    dec al
+    mov ah, [dc_hb]
+    mov [dc_lact], ah
     mov bx, [dc_hx0]
     mov [dc_lx0], bx            ; (and dc_lx1)
     mov bx, [dc_hy0]
@@ -1080,7 +1093,7 @@ dc_oncmd:
     je .remind
     cmp al, DCM_TODAY
     jae .month
-    cbw
+    xor ah, ah
     mov bx, ax
     shl bx, 1
     call [dc_cmds + bx]
@@ -1207,8 +1220,10 @@ dc_menulive:
 ; register kept
 dc_selset:
     push ax
-    mov ax, [dc_selk]           ; AL = the kind, AH = the index...
-    mov [dc_selk], bx           ; ...and BL, BH theirs
+    mov al, [dc_selk]
+    mov ah, [dc_seli]
+    mov [dc_selk], bl
+    mov [dc_seli], bh
     call dc_menulive
     cmp ax, bx
     je .x
@@ -1314,7 +1329,7 @@ dc_selrows:
     mov bx, dx                  ; its bar's first row
     mov al, [di + DCG_AP]
 .span:
-    cbw
+    xor ah, ah
     add dx, ax
     dec dx
     clc
@@ -1352,8 +1367,8 @@ dc_pswap:
     jb .s
     xor al, al
 .s:
-    mov ah, 0FFh                ; [dc_pane0]: not taken
-    mov [dc_pane], ax
+    mov [dc_pane], al
+    mov byte [dc_pane0], 0FFh
     call dc_menulive
     call dc_arm
     jc .x
@@ -1559,9 +1574,8 @@ dc_fopen:
 .pg:
     cmp [dc_pane], ah
     je .a
-    mov al, ah                  ; (the mode is spent)
-    mov ah, 0FFh                ; [dc_pane0]: not taken
-    mov [dc_pane], ax
+    mov [dc_pane], ah
+    mov byte [dc_pane0], 0FFh
     call dc_menulive
     inc cx
 .a:
@@ -1610,8 +1624,9 @@ dc_fenter:
     push cx
     push si
     mov si, dc_ebuf
-    call dc_ptime               ; BX = the time, DC_ALLDAY none (on a copy:
-                                ; the parse's trim never reaches dc_ebuf)
+    push word [dc_ebuf]         ; the parse trims: look, then put it back
+    call dc_ptime               ; BX = the time, DC_ALLDAY none
+    pop word [dc_ebuf]
     mov byte [dc_ed], DCE_NEWA
     cmp bx, DC_ALLDAY
     jne .t
@@ -1645,10 +1660,12 @@ dc_ptime:
     push es
     push ds
     pop es
-    mov di, dc_rec              ; the line to dc_rec, which is scratch until
-    mov cx, DC_ESZ              ; dc_cappt builds its record there
+    push si                     ; the line to dc_rec, which is scratch until
+    mov di, dc_rec              ; dc_cappt builds its record there
+    mov cx, DC_ESZ
     cld
     rep movsb
+    pop si
     mov si, dc_rec
     call dc_parse               ; BX = the time
     pop es
@@ -1842,7 +1859,8 @@ dc_ctask:
     call dc_tview               ; its page
     cmp byte [stik_li], 2
     jne .draw
-    mov word [dc_pane], 0FF01h  ; COMPACT: the tasks' page shows it
+    mov byte [dc_pane], 1       ; COMPACT: the tasks' page shows it
+    mov byte [dc_pane0], 0FFh
 .draw:
     call dc_menulive
     call dc_arm
@@ -1880,7 +1898,7 @@ dc_aview:
     push bx
     sub al, [dc_afirst]
     call dc_apage
-    cbw
+    xor ah, ah
     or bh, bh
     jz .z
     div bl
@@ -1899,7 +1917,7 @@ dc_tview:
     push ax
     push bx
     call dc_tpage
-    cbw
+    xor ah, ah
     or bh, bh
     jz .z
     div bl
@@ -1939,6 +1957,37 @@ dc_tpage:
     inc bh
 .x:
     pop di
+    ret
+
+; dc_aday - AL = the day of appointment AL when its date is in the month on
+; show, else 0. Every other register kept
+dc_aday:
+    push bx
+    push cx
+    push si
+    mov ch, ah                  ; AH is kept
+    call dc_aptr
+    mov bx, [si + DCA_DATE]
+    mov ax, [dc_y]              ; the month on show as the date's bits 5..
+    sub ax, DC_Y0
+    mov cl, 4
+    shl ax, cl
+    or al, [dc_m]
+    mov si, bx
+    inc cx                      ; CL = 5
+    shr bx, cl
+    cmp bx, ax
+    mov ax, si
+    jne .no
+    and al, 31
+    jmp short .x
+.no:
+    xor al, al
+.x:
+    mov ah, ch
+    pop si
+    pop cx
+    pop bx
     ret
 
 ; dc_fixsel - appointment AL has gone: a selection of it is nothing now, and
@@ -1986,8 +2035,10 @@ dc_askdel:
     call os88ui_ask             ; CF = 1: another of ours is up (raised)
     jc .x
     mov byte [dc_ask], 1
-    mov ax, [dc_selk]           ; the kind and the index
-    mov [dc_delk], ax
+    mov al, [dc_selk]
+    mov [dc_delk], al
+    mov al, [dc_seli]
+    mov [dc_deli], al
 .x:
     pop es
     pop di
@@ -2108,7 +2159,7 @@ dc_remind:
     push bx
     push si
     push di
-    cbw
+    xor ah, ah
     mov bx, ax
     mov ah, [dc_leads + bx]     ; AH = the lead, or 0FFh: no reminder
     shl bx, 1
@@ -2230,11 +2281,7 @@ dc_tpl:
     dw 375, 42, 178, 357        ; stik_load sizes and places it (STIK_RIGHT)
     dw dc_title, dc_paint, dc_onkey, 0
 
-dc_title    equ stik_tags       ; the title IS the name tag (STIK_TAG, above)...
-dc_m_cal    equ stik_tags + 5   ; ...and the menu's name its tail, `Calendar`
-%ifnidn STIK_TAG, 'Desk Calendar'
-  %error "deskcal: dc_m_cal is the tail of STIK_TAG, `Desk Calendar`"
-%endif
+dc_title:   db 'Desk Calendar', 0
 
     OS88_MENUSET dc_menus, dc_title, dc_oncmd   ; AM_NAME NOT 0: menu_relayout's
                                 ; instance-name fallback sets the cells'
@@ -2254,6 +2301,7 @@ DCM_TODAY   equ 6               ; ...and the three that draw a month
 DCM_PREV    equ 7
 DCM_NEXT    equ 8
 DCM_N       equ 9
+dc_m_cal:   db 'Calendar', 0
 dc_m_rem:   db 'Remind', 0
 dc_i_cal:   dw dc_i_newa, dc_i_newt, dc_i_edit0, dc_i_del0, dc_i_clr0
             dw dc_i_pane0, dc_i_today, dc_i_prev, dc_i_next
@@ -2268,8 +2316,7 @@ dc_i_newt1: db MENU_DIS, 'New Task (typing)', 0
 dc_i_edit1: db MENU_DIS, 'Edit Item (typing)', 0
 dc_i_del:   db 'Delete Item  Del', 0
 dc_i_del0:  db MENU_DIS, 'Delete Item (no item)', 0
-dc_i_clr:   db 'Clear Done '
-dc_s_tasksh: db 'Tasks', 0         ; (COMPACT's page name: the tail)
+dc_i_clr:   db 'Clear Done Tasks', 0
 dc_i_clr0:  db MENU_DIS, 'Clear Done (none done)', 0
 dc_i_showt: db 'Show Tasks  Tab', 0
 dc_i_showr: db 'Show Reminder  Tab', 0
@@ -2280,17 +2327,16 @@ dc_i_prev:  db 'Previous Month', 0
 dc_i_next:  db 'Next Month', 0
 dc_i_rem:   dw dc_r0, dc_r1, dc_r2, dc_r3, dc_r4, dc_r5
 dc_r0:      db 'At the Time', 0
-dc_r2:      db '1'
-dc_r1:      db '5 Min Early', 0     ; (the tail of 15's)
+dc_r1:      db '5 Min Early', 0
+dc_r2:      db '15 Min Early', 0
 dc_r3:      db '30 Min Early', 0
 dc_r4:      db '1 Hour Early', 0
-dc_r5:      db 'No '
-dc_s_remh:  db 'Reminder', 0       ; ...COMPACT's page name is its tail
+dc_r5:      db 'No Reminder', 0
 dc_leads:   db 0, 5, 15, 30, 60, 0FFh   ; ...their leads; 0FFh none
 dc_rlbl:    dw dc_l0, dc_l1, dc_l2, dc_l3, dc_l4, dc_l5
 dc_l0:      db 'at the time', 0     ; ...and the toast's words for them
-dc_l2:      db '1'
-dc_l1:      db '5 min early', 0     ; (the tail of 15's)
+dc_l1:      db '5 min early', 0
+dc_l2:      db '15 min early', 0
 dc_l3:      db '30 min early', 0
 dc_l4:      db '1 hour early', 0
 dc_l5:      db 'off', 0
@@ -2303,12 +2349,13 @@ dc_s_tlong: db 'A task: at most 23', 0
 dc_s_qappt: db 'Delete this appointment?', 0
 dc_s_qtask: db 'Delete this task?', 0
 
-dc_ablines: dw dc_title, dc_ab2, dc_ab3, dc_ab4, 0 ; each line inside the
-%if ($ - dc_ablines) / 2 - 1 != DC_ABN                 ; 176-px face; the first
-  %error "deskcal: DC_ABN is dc_ablines' count"       ; is the title
+dc_ablines: dw dc_ab1, dc_ab2, dc_ab3, dc_ab4, 0
+%if ($ - dc_ablines) / 2 - 1 != DC_ABN
+  %error "deskcal: DC_ABN is dc_ablines' count"
 %endif
-dc_ab2:     db 'A desk widget'
-dc_ab3:     db 0                ; ...whose NUL is the blank line
+dc_ab1:     db 'Desk Calendar', 0   ; each line inside the 176-px face
+dc_ab2:     db 'A desk widget', 0
+dc_ab3:     db 0
 dc_ab4:     db 'SPEC.md 110', 0
 
 %include "dcdate.inc"
@@ -2317,9 +2364,6 @@ dc_ab4:     db 'SPEC.md 110', 0
 
 %define OS88UI_ABOUT
 %define OS88UI_ALERT
-%define OS88UI_NOGEST           ; no gesture install, and so no os88ui_bfind:
-%define OS88UI_NOBFIND          ; the one button set is the alert's, which
-                                ; arms and fires its own (SPEC.md 20.5.1.3.4)
 %define OS88UI_NOGLYPH          ; no check-box glyph: the widget's tick is a
                                 ; composed bit record (SPEC.md 13.16.2.1)
 %include "os88ui.inc"
@@ -2339,13 +2383,3 @@ dc_ab4:     db 'SPEC.md 110', 0
     align 16, db 0              ; os88stik.inc's read lands on a paragraph
     OS88_BSS STIK_BSS_END
     OS88_IMAGE_END
-
-; PAIRS read or written as ONE WORD, the low byte first: the month and the
-; day (on show, and today), the selection's kind and index (and the Delete
-; question's copy), the slot's page and the page it was taken from, the
-; held button's card and action, its bytes, the hit's button bytes, the
-; day's first appointment and count, a list's line and section, card 3's
-; state and appointment
-%if dc_m + 1 != dc_sel || dc_tm + 1 != dc_td || dc_selk + 1 != dc_seli || dc_pane + 1 != dc_pane0 || dc_lit + 1 != dc_lact || dc_lx0 + 1 != dc_lx1 || dc_hx0 + 1 != dc_hx1 || dc_afirst + 1 != dc_acnt || dc_li + 1 != dc_lsec || dc_c3k + 1 != dc_c3a || dc_delk + 1 != dc_deli
-  %error "deskcal: a pair read or written as one word is not adjacent"
-%endif

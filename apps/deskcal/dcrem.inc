@@ -47,8 +47,8 @@ dc_tomorrow:
     push cx
     push dx
     mov ax, [dc_ty]
-    mov dx, [dc_tm]             ; DL = the month, DH = the day...
-    xchg dl, dh                 ; ...and the other way round
+    mov dh, [dc_tm]
+    mov dl, [dc_td]
     push ax
     mov bl, dh
     call dc_dim_of              ; AL = today's month's length
@@ -117,7 +117,7 @@ dc_due:
     mov di, [STIK_PAY + DCP_NAPPT]
     and di, 0FFh                ; DI = how many
 .l:
-    cbw
+    xor ah, ah
     cmp ax, di
     jae .none
     call dc_aptr
@@ -402,12 +402,15 @@ dc_c3sync:
     push ax
     push bx
     push cx
-    mov ax, [dc_c3k]            ; and [dc_c3a]
+    mov al, [dc_c3k]
+    mov ah, [dc_c3a]
     mov bx, [dc_c3t]
     call dc_c3calc
     xor cl, cl
     xchg cl, [dc_c3f]           ; forced, once
-    cmp ax, [dc_c3k]
+    cmp al, [dc_c3k]
+    jne .chg
+    cmp ah, [dc_c3a]
     jne .chg
     cmp bx, [dc_c3t]
     jne .chg
@@ -431,9 +434,9 @@ dc_c3sync:
     jne .quiet
     cmp byte [dc_pane], 2
     je .draw
-    mov ah, [dc_pane]           ; TAKEN: the page it was on, for later
-    mov al, 2                   ; ([dc_pane0])
-    mov [dc_pane], ax
+    mov al, [dc_pane]           ; TAKEN: the page it was on, for later
+    mov [dc_pane0], al
+    mov byte [dc_pane], 2
     call dc_menulive
     jmp short .draw
 .quiet:
@@ -442,8 +445,8 @@ dc_c3sync:
     mov al, [dc_pane0]
     cmp al, 0FFh
     je .draw                    ; the user paged here: it stays
-    mov ah, 0FFh                ; given back, and not taken now
-    mov [dc_pane], ax
+    mov [dc_pane], al           ; given back
+    mov byte [dc_pane0], 0FFh
     call dc_menulive
 .draw:
     cmp byte [dc_abon], 0
