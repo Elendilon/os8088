@@ -2712,26 +2712,16 @@ wr_chaindone:
     mov byte [wr_job], WJ_NONE
     call wr_freefile
     mov di, wr_omsg
-    call wr_selrec
-    push si
-    add si, WC_TITLE
     mov cx, 23
-    call wr_sputn
-    pop si
-    push ds
-    pop es
+    call wr_otitle
     mov si, wr_s_added
     cmp byte [wr_ramjob], 0             ; ...and WHERE it landed, which for an
     je .say                             ; archive run from RAM is not a disk
     mov si, wr_s_addram                 ; the user can put in a drawer (92.8)
 .say:
     call wr_sput
-    mov si, wr_omsg
-    xor cx, cx
-    call OSAPI_TOAST                    ; ES:SI, and ES is ours (SPEC.md 59)
-    mov word [wr_msg], wr_omsg
-    call wr_dend
-    ret
+    call wr_otoast
+    jmp wr_dend                         ; ...whose ret is ours
 
 ; -----------------------------------------------------------------------------
 ; wr_refresh - re-fetch the catalog (File > Refresh)
@@ -3048,6 +3038,31 @@ wr_wrfail:
     mov word [wr_msg], wr_omsg
     ret
 
+; --- wr_ohead / wr_otitle - '<head><title>' into wr_omsg --------------------
+; in:  SI = a NUL head (wr_ohead), DI = where the title goes (wr_otitle), CX =
+;      the title's most cells; out: DI on the end, ES = DS, SI spent
+; The three outcome sentences that name the program - Adding, Loaded and
+; added - each composed the selected record's title the same way.
+wr_ohead:
+    mov di, wr_omsg
+    call wr_sput
+wr_otitle:
+    call wr_selrec
+    add si, WC_TITLE
+    call wr_sputn
+    push ds
+    pop es
+    ret
+
+; --- wr_otoast - wr_omsg is the outcome: the status cell's AND a toast ------
+; Clobbers SI and CX.
+wr_otoast:
+    mov si, wr_omsg
+    mov [wr_msg], si
+    xor cx, cx
+    call OSAPI_TOAST                    ; ES:SI, and ES is ours (SPEC.md 59)
+    ret
+
 ; --- wr_addprog - 'Adding <title>... N of M files' ---------------------------
 ; **THE TWO NUMBERS ARE PASSED IN [wr_pnum] AND [wr_ptot]** rather than derived
 ; here, because there are two chains now and they count different things: the
@@ -3056,15 +3071,9 @@ wr_wrfail:
 ; and the sentence a person reads is the same either way.
 wr_addprog:
     call wr_sv                          ; AX..DI and ES, given back by the ret
-    mov di, wr_omsg
     mov si, wr_s_adding
-    call wr_sput
-    call wr_selrec
-    add si, WC_TITLE
     mov cx, 18
-    call wr_sputn
-    push ds
-    pop es
+    call wr_ohead
     mov byte [di], ' '
     inc di
     mov ax, [wr_pnum]
@@ -3126,37 +3135,21 @@ wr_pkgrun:
     call OSAPI_PKG_START                ; the canonical pairing, where the two
                                         ; used to be the other way round
     jc .bad
-    push ds
-    pop es
-    mov di, wr_omsg                     ; 'Loaded <title> from the Wire'
-    mov si, wr_s_loaded
-    call wr_sput
-    call wr_selrec
-    add si, WC_TITLE
+    mov si, wr_s_loaded                 ; 'Loaded <title> from the Wire'
     mov cx, 23
-    call wr_sputn
-    push ds
-    pop es
+    call wr_ohead
     mov si, wr_s_fromw
     call wr_sput
-    mov word [wr_msg], wr_omsg
-    mov si, wr_omsg
-    xor cx, cx
-    call OSAPI_TOAST
-    ret
+    jmp short wr_otoast                 ; ...whose ret is ours
 .bad:
     mov word [wr_msg], wr_s_fmt         ; the loader's LD_EVER (SPEC.md 20.2.0)
     cmp al, OSAPI_LD_EVER               ; in words: the one refusal here a user
     je .out                             ; can act on
-    push ds
-    pop es
     xor ah, ah
-    push ax
     mov di, wr_omsg                     ; the LD_* code in words, because
     mov si, wr_s_ldfail                 ; 'it did not start' with no number is
     call wr_sput                        ; a bug report nobody can act on
-    pop ax
-    call wr_snum
+    call wr_snum                        ; (AX kept by wr_sput)
     mov word [di], ')'                  ; the parenthesis and its NUL
     mov word [wr_msg], wr_omsg
 .out:

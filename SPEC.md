@@ -144876,6 +144876,11 @@ the package had twice or did not need.
   one unsigned compare for two, and the two 16-bit ones accumulate in BX
   with `mov dx, 10` / `mul dx` instead of banking CX around a `mul cx`. Same
   answers for every input, the port's 16-bit wrap included.
+- **`wr_ohead` / `wr_otitle` and `wr_otoast`.** The three outcome sentences
+  that name the program (`Adding`, `Loaded`, `added to your disk`) composed
+  the selected title the same way three times, and the two that toast set
+  `[wr_msg]` and called `OSAPI_TOAST` the same way twice; each is a routine
+  now. Two ES loads nothing read went with them.
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 
