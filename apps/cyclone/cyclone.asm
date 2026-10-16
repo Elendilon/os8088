@@ -3750,11 +3750,10 @@ cy_startlevel:
     mov [cy_shape], ax
 
     call cy_clearboard              ; ...which zeroes cy_left for us
-    mov byte [cy_needlay], 1
+    mov word [cy_needlay], CY_LAYFULL
     mov byte [cy_state], CYS_WARPIN
     mov byte [cy_wpha], CY_WARP_SPOKE
     mov byte [cy_wstarted], 0
-    mov byte [cy_full], 1
     mov byte [cy_huddirty], 1
     mov word [cy_spawnt], 0
     call cy_zap_recharge            ; SPEC.md 67.23.3: one charge on the house,
@@ -6724,8 +6723,7 @@ cy_over_update:
     dec word [cy_overt]             ; feature can be worse than not having it
     jnz .out
     mov byte [cy_state], CYS_TITLE
-    mov byte [cy_full], 1
-    mov byte [cy_needlay], 1        ; the title screen's playfield stops above
+    mov word [cy_needlay], CY_LAYFULL ; the title screen's playfield stops above
     mov byte [cy_tphase], 0         ; the scroll band, so the geometry differs
     mov byte [cy_wstarted], 0
 .out:
@@ -7740,8 +7738,8 @@ cy_go_fsx:
     ; dismissed: the entry below already owes a whole repaint.
     call cy_pn_off
     mov byte [cy_fsxq], 0
-    mov byte [cy_fsx], 1            ; BEFORE the call: fsx_restore's
-    mov byte [cy_inbr], 1           ; wm_paint_all runs INSIDE fsx_run and
+    mov word [cy_fsx], 0x0101       ; and cy_inbr: BEFORE the call - fsx_restore's
+                                    ; wm_paint_all runs INSIDE fsx_run and
                                     ; re-enters our own W_PAINT
                                     ; the rect this bracket will own is asked
                                     ; INSIDE it, with OSAPI_FSX_SURF - there is
@@ -7750,15 +7748,13 @@ cy_go_fsx:
                                     ; answered the PRIMARY's size and an origin
                                     ; of (0,0) (SPEC.md 53.7.1)
     call cy_pal
-    mov byte [cy_needlay], 1
-    mov byte [cy_full], 1
+    mov word [cy_needlay], CY_LAYFULL
     mov ax, cy_fsx_main
     mov bx, [cy_win]
     xor cx, cx                      ; no flags: the worker freezes, and the
     call OSAPI_FSX_RUN              ; bracket runs the game itself
     ; whether it ran or was refused, we are back on the desktop
-    mov byte [cy_fsx], 0
-    mov byte [cy_inbr], 0
+    mov word [cy_fsx], 0            ; and cy_inbr
                                     ; ...and NOTHING is re-banked here: those
                                     ; four words describe the rect a BRACKET
                                     ; owns and cy_org only reads them while one
@@ -7768,8 +7764,7 @@ cy_go_fsx:
                                     ; re-asks for anyway - and left a pattern
                                     ; for somebody to copy
     call cy_pal
-    mov byte [cy_needlay], 1
-    mov byte [cy_full], 1
+    mov word [cy_needlay], CY_LAYFULL
 .out:
     ret
 
@@ -7784,8 +7779,8 @@ cy_fsx_main:
     mov [cy_scry], bx               ; desktop is NOT collapsed and "fullscreen"
     mov [cy_scrw], cx               ; is this display's rect rather than (0,0)
     mov [cy_scrh], dx               ; plus OSAPI_VIDEO's size - which on a
-    mov byte [cy_needlay], 1        ; two-card machine drew the whole game onto
-    mov byte [cy_full], 1           ; the monitor we were not on
+    mov word [cy_needlay], CY_LAYFULL ; two-card machine drew the whole game
+                                    ; onto the monitor we were not on
 .nosurf:                            ; (CF=1 is impossible here - we ARE the
                                     ; bracket - and leaves what cy_entry banked)
     OS88_ALTENTER_SEED              ; ...and the Alt+Enter that got us here is
@@ -7852,13 +7847,11 @@ cy_fsx_main:
     ; over the desktop (Tracker's [trk_fs] and Missile's [mc_fsx], the one bug
     ; both of them found).
     call cy_cur_erase               ; before the geometry changes under it
-    mov byte [cy_fsx], 0
-    mov byte [cy_inbr], 0
-    mov byte [cy_fsxq], 0
-    mov byte [cy_mheld], 0          ; the hold does not cross the boundary: the
-                                    ; windowed side arms from W_ONCLICK only
-    mov byte [cy_needlay], 1
-    mov byte [cy_full], 1
+    mov word [cy_fsx], 0            ; cy_fsx and cy_inbr...
+    mov word [cy_fsxq], 0           ; ...cy_fsxq, and cy_mheld: the hold does
+                                    ; not cross the boundary, the windowed
+                                    ; side arms from W_ONCLICK only
+    mov word [cy_needlay], CY_LAYFULL
     pop si
     ret
 
@@ -7996,8 +7989,6 @@ CY_TWORDS equ 14
 %endif
     CWORD cy_due                    ; the worker's frame deadline
     CBYTE cy_state
-    CBYTE cy_needlay
-    CBYTE cy_full
     CBYTE cy_hired
     CBYTE cy_pnon                   ; a panel (About or How To Play) is up
     CBYTE cy_wasplay                ; ...and it was a live game it paused
@@ -8021,8 +8012,6 @@ CY_TWORDS equ 14
     CBYTE cy_msgdirty
     CBYTE cy_firereq
     CBYTE cy_firecd
-    CBYTE cy_mheld                  ; the mouse button is down and the press
-                                    ; that put it there was ours (67.11.3)
     CBYTE cy_c_e2                   ; the mover inks for THIS display (cy_pal)
     CBYTE cy_c_es
     CBYTE cy_hsav
@@ -8055,9 +8044,17 @@ CY_TWORDS equ 14
     CWORD cy_overt
 
     ; --- fullscreen -------------------------------------------------------
-    CBYTE cy_fsx                    ; the content box IS the screen
-    CBYTE cy_inbr                   ; ...and the gfx lock is already held
-    CBYTE cy_fsxq                   ; the bracket has been asked to leave
+    ; ONE CBUF, because the bracket's edges set them in WORDS (SPEC.md
+    ; 67.26.2) and the bss split (above) may not fall between two of them
+    CBUF  cy_fsx, 6                 ; the content box IS the screen
+cy_inbr     equ cy_fsx + 1          ; ...and the gfx lock is already held
+cy_fsxq     equ cy_fsx + 2          ; the bracket has been asked to leave
+cy_mheld    equ cy_fsx + 3          ; the mouse button is down and the press
+                                    ; that put it there was ours (67.11.3)
+cy_needlay  equ cy_fsx + 4          ; the geometry is owed a cy_layout...
+cy_full     equ cy_fsx + 5          ; ...and the content a whole repaint
+CY_LAYFULL  equ 0x0101              ; ...so `mov word [cy_needlay], CY_LAYFULL`
+                                    ; owes both in one store
     CBYTE cy_pbtn
 
     ; --- the banner -------------------------------------------------------

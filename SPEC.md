@@ -109767,6 +109767,19 @@ value. Pass 2 counts the depth in BX (as the `cy_scale` index, ×16 for the row)
 instead of in `[cy_dd]`, which is gone. All of it runs at layout time, never
 in a frame. Image −119 bytes, file −109.
 
+#### 67.26.2 The bracket's flags are set in words
+
+Six byte flags were only ever set together at the fullscreen bracket's edges
+and at a level or title change — `[cy_fsx]`, `[cy_inbr]`, `[cy_fsxq]`,
+`[cy_mheld]` and the `[cy_needlay]`/`[cy_full]` pair that owes a relayout and
+a whole repaint. They are ONE `CBUF` now, in that order, so a pair is one
+`mov word` (`CY_LAYFULL` for the last two): five stores of 5 bytes became three
+of 6 at the bracket's exit, and a `needlay`/`full` pair is 6 bytes instead of
+10 at all six places that set both. It has to be one `CBUF` and not six
+`CBYTE`s, because `OS88_BSS_ALIGNED` may cut the bss list between any two
+entries (§77.31.1). Nothing reads them differently, and one store is never
+slower than two. Image −40, file −20.
+
 ### 67.13 What is deliberately not here
 
 **No high-score file.** The table lives in bss and dies with the instance. It
