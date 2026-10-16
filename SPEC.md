@@ -66426,7 +66426,8 @@ inks.
   are ONE 20-byte table, `pn_nstep` = step × 2 + sharp, where they were
   two: the key lookup, the viewer's per-note facts and its same-step
   test split it with a shift, which costs less than the second load it
-  replaces on every one of those paths (-21 image bytes).
+  replaces on every one of those paths (-21 image bytes). Replay's
+  abort silences the speaker through `pn_tone`'s own tail (-4).
 
 ## 37. clock.inc — the system clock
 

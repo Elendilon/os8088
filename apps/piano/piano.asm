@@ -530,8 +530,7 @@ pn_replay:
 .abort:
     xor ax, ax                      ; tone off (same priority: allowed)
     xor cx, cx
-    mov dl, PN_PRIO
-    call OSAPI_SND_TONE
+    call pn_tone_ax
     call pn_key_off
     mov ax, [pn_cnt]
     mov [pn_vcnt], ax
@@ -721,6 +720,7 @@ pn_tone:
     xor bh, bh
     add bx, bx
     mov ax, [pn_freq+bx]
+pn_tone_ax:                         ; ...or AX Hz for CX ticks (0 = silence)
     mov dl, PN_PRIO
     call OSAPI_SND_TONE
     ret
