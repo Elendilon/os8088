@@ -58276,6 +58276,15 @@ into bss or the heap. The numbers are the file and the image, both arms.
     slides move the terminating NUL with the text instead of writing it
     afterwards - a box is NUL-terminated at its length on every path that
     writes one, which item 16 below makes true of `np_fopen` too.
+16. **DEFECT FIXED: a multi-line selection no longer corrupts the
+    pattern.** `np_fopen` seeds the pattern from a one-line selection and
+    checked for a CR AS it copied - so a selection whose CR came after more
+    characters than the old pattern held had already written over the old
+    pattern's NUL when it gave up. `[np_fpatn]` kept the old length, the
+    box showed that many characters of the NEW text, and the matcher, which
+    reads the pattern to its NUL, searched for more than the box showed.
+    It scans the selection with `repne scasb` first and writes nothing
+    unless the whole of it is one line. +3 image bytes, +0 file.
 
 ## 28. apps/taskmgr — the Task Manager
 

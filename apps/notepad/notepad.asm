@@ -10169,17 +10169,24 @@ np_fopen:
     jcxz .nosel
     mov es, [np_dseg]
     mov si, ax
-    mov di, np_fpat
+    mov di, ax
     mov dx, cx
+    mov al, 13
+    repne scasb                 ; ES:DI over the selection, BEFORE a byte of
+    je .nosel                   ; the pattern is touched: more than one line
+                                ; is not a pattern. (It checked as it copied,
+                                ; and a CR found after more characters than
+                                ; the old pattern held had already written
+                                ; over its NUL - the box showed the old
+                                ; length of the new text, and the matcher,
+                                ; which reads to the NUL, searched for more.)
+    mov di, np_fpat
+    mov cx, dx
 .cp:
-    mov al, [es:si]
-    cmp al, 13
-    je .nosel                   ; more than one line: not a pattern
+    es lodsb
     mov [di], al
-    inc si
     inc di
-    dec cx
-    jnz .cp
+    loop .cp
     mov byte [di], 0
     mov [np_fpatn], dx
     mov [np_fpcur], dx
