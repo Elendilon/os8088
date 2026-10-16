@@ -66429,7 +66429,14 @@ inks.
   replaces on every one of those paths (-21 image bytes). Replay's
   abort silences the speaker through `pn_tone`'s own tail (-4). The
   About card's lines are `OS88UI_ABPACK`'s end-to-end form rather than a
-  pointer table (-4; the card is the same pixels).
+  pointer table (-4; the card is the same pixels). On the paint path
+  the viewer's field is its frame one pixel in (the helpers keep their
+  registers) with the staff's x span loaded once, the button row is
+  ONE walk over the five buttons after the message and the "SONGS:"
+  caption - which share no pixel with any button, so the result is the
+  same picture - and the message area takes its pens from `pn_inkw` /
+  `pn_inkk`; and `pn_metrics` stores the black keys' foot as a byte,
+  the word's high byte being the loader's zero (-34 together).
 
 ## 37. clock.inc — the system clock
 

@@ -247,8 +247,8 @@ pn_metrics:
     mov bl, PN_KB_Y2 - PN_KB_Y1
     div bl
     add al, PN_KB_Y1
-    mov ah, 0
-    mov [pn_bky2], ax
+    mov [pn_bky2], al               ; a WORD read as one: its high byte is the
+                                    ; loader's zero and nothing else writes it
     pop dx
     pop bx
     pop ax
@@ -571,15 +571,13 @@ pn_draw_msg:
     push cx
     push dx
     push si
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
+    call pn_inkw
     mov ax, 110
     mov bx, PN_ROW1_Y
     mov cx, PN_CONT_W-3
     mov dx, PN_ROW1_Y+PN_BTN_H-1
     call pn_cfill
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
+    call pn_inkk
     mov si, [pn_msg]
     mov cx, PN_MSG_X
     mov dx, PN_ROW1_Y+4
@@ -965,18 +963,18 @@ pn_draw_viewer:
     mov bx, PN_VW_Y1
     mov cx, PN_VW_X2
     mov dx, PN_VW_Y2
-    call pn_cframe
-    call pn_inkw
-    mov ax, PN_VW_X1+1
-    mov bx, PN_VW_Y1+1
-    mov cx, PN_VW_X2-1
-    mov dx, PN_VW_Y2-1
+    call pn_cframe                  ; (every pn_c* helper keeps its registers,
+    call pn_inkw                    ; so the field is the frame one pixel in)
+    inc ax
+    inc bx
+    dec cx
+    dec dx
     call pn_cfill
     call pn_inkk
+    mov al, PN_ST_X1                ; AH and BH are 0 from the field's corner
+    mov bl, PN_ST_X2
     mov dx, 16                      ; staff lines at y 16/22/28/34/40
 .staff:
-    mov ax, PN_ST_X1
-    mov bx, PN_ST_X2
     call pn_chline
     add dx, 6
     cmp dx, 46
@@ -1545,35 +1543,33 @@ pn_setdown:
     ret
 
 ; -----------------------------------------------------------------------------
-; pn_draw_btns - REPLAY/CLEAR (black), the message, "SONGS:" and the three
-; colored song buttons
+; pn_draw_btns - the message, "SONGS:", then all five buttons: REPLAY/CLEAR
+; (black) and the three colored song buttons
 ; in:  [pn_ox]/[pn_oy], [pn_msg]
 ; out: nothing; preserves all registers
+;
+; ONE walk over the five: the message area and the caption share no pixel
+; with any button (x 110.. and 2..49 against 2..107 and 52..), so drawing
+; them first changes no pixel of the result and lets the buttons be one loop
+; rather than two either side of them (apps size pass 2).
 ; -----------------------------------------------------------------------------
 pn_draw_btns:
     push ax
     push cx
     push dx
     push si
-    mov al, 1
-.each:
-    call pn_btn1
-    inc ax
-    cmp al, 2
-    jbe .each
     call pn_draw_msg
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
+    call pn_inkk
     mov si, pn_l_songs
     mov cx, 2
     mov dx, PN_ROW2_Y+4
     call pn_cstr
-    mov al, 3
-.each2:
+    mov al, 1
+.each:
     call pn_btn1
     inc ax
     cmp al, PN_NBTN
-    jbe .each2
+    jbe .each
     pop si
     pop dx
     pop cx
