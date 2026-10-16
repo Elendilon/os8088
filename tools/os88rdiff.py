@@ -675,7 +675,7 @@ class Side(object):
             if not os.path.isabs(f):
                 roots.add(os.path.normpath(f).split(os.sep)[0])
         if self.src == "kernel/kernel.asm":
-            roots |= {"kernel", "boot", "apps"}
+            roots |= {"kernel", "boot", "apps", "drivers"}
         roots.discard("build")
         roots.discard("..")
         have = git("ls-tree", "-r", "--name-only", self.rev, "--",

@@ -164,10 +164,13 @@ assoc_ext:
 ; disk that has been swapped, so the open path re-checks the name on arrival.
 assoc_clus:  times ASSOC_NAPP dw 0     ; the directory it was last SEEN in
 assoc_drv:   times ASSOC_NAPP db 0xFF  ; ...on which volume (0xFF = never seen)
-assoc_dfold: db 1, 1, 1, 1, 1          ; build-time folder: 0 root, 1 APPS,
-             times ASSOC_NAPP - 5 db 0 ; 2 GAMES. The one part of a default
-                                       ; that cannot be a cluster, because no
-                                       ; cluster is knowable at build time
+; ...and the one part of a default that cannot be a cluster, because no
+; cluster is knowable at build time: its FOLDER. It was a sixteen-byte table,
+; assoc_dfold, that nothing ever wrote - 1 (APPS) for the five built-ins and 0
+; for every declared slot - so assoc_tryvol asks the slot number instead
+; (kernel size pass 13). The built-ins are slots 0..ASSOC_NDEF-1, which the
+; stem table above lays down in that order.
+ASSOC_NDEF   equ 5              ; the built-in defaults, every one in APPS
 
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own, so it costs KERN_CODE_MAX
@@ -1024,10 +1027,10 @@ assoc_tryfold:
 ; a compare on a volume already loaded, and one short read otherwise.
 ;
 ; **AND A PROGRAM WITH NO BUILT-IN FOLDER IS LOOKED FOR IN APPS AND GAMES**,
-; for a disk with no cache at all. assoc_dfold is 0 for every slot past the
-; five built-ins - every DECLARED program (54.6) - and 0 used to mean nothing
-; to try, which left a declared program one folder down unfindable anywhere
-; but through a hint.
+; for a disk with no cache at all. Only the five built-ins (ASSOC_NDEF) have
+; a folder of their own, APPS; every DECLARED program (54.6) had none, which
+; used to mean nothing to try and left a declared program one folder down
+; unfindable anywhere but through a hint.
 ; -----------------------------------------------------------------------------
 assoc_tryvol:
     push bx
@@ -1047,15 +1050,12 @@ assoc_tryvol:
     call assoc_try
     jnc .out
 .fold:
-    mov bx, di                  ; ...then APPS or GAMES: the default's, or
-    mov bl, [assoc_dfold+bx]    ; both for a program with none
-    or bl, bl
-    jnz .one
-    inc bx                      ; (BL = 1: APPS)
-    call assoc_tryfold
+    mov bx, 1                   ; ...then APPS, which is a built-in's own
+    call assoc_tryfold          ; folder and a declared program's first
     jnc .out
-    mov bl, 2                   ; GAMES
-.one:
+    cmp di, ASSOC_NDEF          ; a built-in looks nowhere else: CF = 1 is
+    jb .out                     ; the miss, AX the folder's answer
+    mov bl, 2                   ; ...and a declared one tries GAMES too
     call assoc_tryfold
 .out:
     pop dx                      ; a pop touches no flag, so the CF both rungs
@@ -1679,8 +1679,8 @@ assoc_ext_new:
 ;
 ; A FREE SLOT'S SIDE STATE IS ALREADY ITS BUILD-TIME ONE, which is why only
 ; the glyph is cleared (kernel size pass 5). No slot is ever freed - nothing
-; writes a stem's first byte back to 0 - and assoc_drv, assoc_clus and
-; assoc_dfold are written only for a slot a lookup FOUND, which a free one
+; writes a stem's first byte back to 0 - and assoc_drv and assoc_clus are
+; written only for a slot a lookup FOUND, which a free one
 ; never is (assoc_scan skips it). The glyph is the exception worth its nine
 ; bytes: osapi_assoc_set takes the caller's icon into whatever slot
 ; assoc_app_get handed back, and a caller passing a stem whose first byte is

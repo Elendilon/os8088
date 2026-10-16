@@ -8326,7 +8326,10 @@ ico_need:
 %ifdef OS88_ASSOC
     mov word [ico_n], 0         ; ...and [ico_capn] beside it: the capture is
 %else                           ; empty (SPEC.md 54.7.6.2)
-    mov byte [ico_n], 0
+                                ; ([ico_n] is ALREADY 0 here: .bss starts
+                                ; zeroed and ico_demote, the only writer of
+                                ; [ico_seg] = 0, zeroes the count beside it -
+                                ; kernel size pass 13 dropped the store)
 %endif
 %ifdef OS88_COMPACT             ; (kern_small: nothing moves, SPEC.md 66.0)
     mov ax, ico_reloc

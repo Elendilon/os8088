@@ -97832,8 +97832,14 @@ assoc_glyph[i]   8 bytes   its icon reduced to 8x8, one byte a row
 assoc_ext[j]     4 bytes   3 extension bytes + the app index it names
 assoc_clus[i]    word      the directory it was last SEEN in
 assoc_drv[i]     byte      ...on which volume (0xFF = never seen)
-assoc_dfold[i]   byte      build-time folder: 0 root, 1 APPS, 2 GAMES
 ```
+
+A built-in's FOLDER is not stored: slots `0 .. ASSOC_NDEF-1` (5) are the
+built-ins and every one lives in `APPS`. It was a table, `assoc_dfold[i]`,
+that nothing wrote - 1 for the five and 0 for every declared slot - and
+kernel size pass 13 has `assoc_tryvol` compare the slot number instead
+(-19 bytes). The paragraphs below that name `assoc_dfold` describe that
+byte, which the compare answers identically.
 
 `ASSOC_NAPP` = 16, `ASSOC_NEXT` = 32. They were 12 and 24, and **nothing
 frees a slot within a session**, so a machine that met more than seven
@@ -98210,7 +98216,7 @@ since a cluster means nothing on a disk that has been swapped:
 | 1 | the **hint**: `assoc_drv[i]` / `assoc_clus[i]`, if this program has ever been seen |
 | 2 | the **document's own directory** |
 | 3 | the **root** of a volume |
-| 4 | the folder `assoc_dfold[i]` names on that volume — `APPS` or `GAMES` |
+| 4 | the default's folder on that volume — `APPS` for a built-in (slot < `ASSOC_NDEF`) |
 
 Rungs 3 and 4 are a pair applied per volume (`assoc_tryvol`), and **which
 volumes they are applied to is the whole of this section.** It used to be
@@ -98391,7 +98397,7 @@ through a hint, and the hint pointed somewhere else.
 |---|---|
 | 3 | the volume's **root** |
 | 4 | **the folder the volume's own `ASSOC.DAT` names**: `asc_use_x` seeds the hints from it, and if the program's hint now names this volume, that folder is tried |
-| 5 | the folder `assoc_dfold` names, or **APPS then GAMES** for a program that has none |
+| 5 | `APPS` for a built-in (slot < `ASSOC_NDEF`, what `assoc_dfold` named), or **APPS then GAMES** for a program that has none |
 
 Rung 4 alone clears the report: A/B'd with rung 5's default taken out, the
 program is still found. Rung 5 covers a disk with no cache at all. Rung 4
