@@ -1086,7 +1086,11 @@ vc_setup:
     lodsw                           ; then a skip before each change
     add ax, bp
     mov di, ax
+%if %1 == 1
+    xor cx, cx                      ; (n - 1)
+%else
     mov cx, %1 - 1
+%endif
     call vc_bound
     xor ax, ax
 .e%1:
@@ -1100,8 +1104,10 @@ vc_setup:
     jmp short .s%1
 .h%1:
     mov cx, %1                      ; it reaches a range: cut there
-    call vc_span
+    call vc_span                    ; (CX = 0 after it)
+%if %1 > 1
     mov cx, %1 - 1
+%endif
     call vc_bnext
     xor ax, ax
     dec dx

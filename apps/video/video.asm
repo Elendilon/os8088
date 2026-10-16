@@ -4453,11 +4453,13 @@ vp_rdat:
     sub ax, si                      ; DX:AX = that cluster's start
     add cx, si                      ; the bytes owed from there, 17 bits
     mov [vp_rdend], cx
-    mov word [vp_rdend+2], 0
-    adc word [vp_rdend+2], 0
+    sbb di, di                      ; (the carry, as 0 or FFFFh...
+    neg di                          ; ...as 0 or 1)
+    mov [vp_rdend+2], di
     jnz .disk                       ; past 64 KB: the disk's
-    cmp cx, 0xFFFF                  ; (vp_xrdat rounds CX up to even)
-    je .disk
+    inc cx                          ; (vp_xrdat rounds CX up to even: FFFFh
+    jz .disk                        ; is the disk's)
+    dec cx
     call vp_xrdat                   ; HELD (98.3.18): a copy out of XMS
     jnc .ok
 .disk:
