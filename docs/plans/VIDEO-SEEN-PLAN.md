@@ -434,9 +434,32 @@ The mean is the same and everything that counts breaks is better: 38
 more frames whole, 46 fewer cut, 1.3 s less with a tenth of the view
 broken. What holds it back is its price - the frame after each run pays
 the copy of both records' rows out of its own ceiling - and that price is
-the next thing to look at if a clip wants more (a copy of only the rows
-the two records do not share, or re-decoding the held record where it is
-the smaller).
+the next thing to look at if a clip wants more.
+
+**Both trims of that price MEASURED and REFUSED** (2026-10-16): the
+encoder priced every bring-up after a held run on Last Exile three ways.
+| bring-up after a held run | mean cycles | of that frame's ceiling |
+|---|---:|---:|
+| the hull copy (shipped) | 565,916 | 77.1% |
+| two bands, no gap | 565,976 | 77.1% |
+| the held rows copied, the next record decoded again | 719,952 | 98.1% |
+
+A held record draws toward the next frame across the whole picture (its
+band 179 of the canvas's 180 rows), so the hull IS the canvas and there is
+no gap to skip; and the next record's decode costs more than its rows'
+copy, which is why the player's own rule already takes the copy. The best
+of the three is 0.04% under the hull. **The price is structural**: a page
+two records behind, with one record kept, is brought up by a copy of
+everything the run touched - 77% of the next frame's ceiling here, which
+is the held period's gain paid back a frame later, and why the mean did
+not move. What would escape it is a different FLIPPED FILE, not a better
+hold: every record a change against ITS OWN PAGE (the frame two back,
+98.1.3.7.2's `REC_BUILT` - "drawn on as it stands") so no page is ever
+brought up. It cannot be taken only after a hold (the record after it
+would leave the other page needing the same copy); it is the whole
+flipped encode's question, and UNMEASURED: whether a change against the
+frame two back costs less than bringing a page up plus a change against
+the frame one back.
 
 **Not combined**: a LAYERED file (the layer is the better machine's frames
 drawn over the base's, so a base drawn toward the next frame would have
