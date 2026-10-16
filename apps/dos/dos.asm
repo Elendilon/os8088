@@ -14767,11 +14767,13 @@ dos_pkt_hchk:
     sub ax, dos_pkt_htab            ; below the table wraps to a huge unsigned,
     cmp ax, PKT_NHAND * PKT_HSIZE   ; so one compare catches both ends
     jae .no
-    xor dx, dx
-    mov cx, PKT_HSIZE               ; ...and it must be ON a row boundary, not
-    div cx                          ; merely inside the table
-    or dx, dx
-    jnz .no
+    mov dl, PKT_HSIZE               ; ...and it must be ON a row boundary, not
+    div dl                          ; merely inside the table: AX is under 28,
+    or ah, ah                       ; so a BYTE divide, AH = the remainder.
+    jnz .no                         ; (It was `div cx`, and CX is the CLIENT's
+                                    ; - get_address's buffer size, read after
+                                    ; this returns - which it overwrote with 7;
+                                    ; SPEC.md 96.44.16)
     cmp byte [bx+PKT_HUSED], 0
     je .no
     pop dx

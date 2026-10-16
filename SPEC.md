@@ -159892,6 +159892,11 @@ DEFECTS found reading the code are fixed here, each one byte-negative:
   separator, so `C:\COMMAND.COM` compared its `\` against `c` and only a bare
   `command.com` was ever the built-in shell - the case §96.30's own prose
   names as the reason the match is raw. Two instructions out of the core.
+- **`dos_pkt_hchk` overwrote the client's CX** with the row size, 7: the
+  handle check divided by CX. `get_address` reads the client's buffer size in
+  CX AFTER the check, so it never refused a short buffer, and `release_type`
+  and `terminate` handed the client back a CX it did not pass. A byte divide
+  by DL instead (AX is under 28) - three bytes shorter and faster.
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
