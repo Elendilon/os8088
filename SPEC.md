@@ -142148,10 +142148,10 @@ The second pass measures what the package costs a DISK
 
 | | before | after |
 |---|---|---|
-| file (LZ4) | 3,549 | **3,470** (-79) |
-| image | 4,381 | **4,276** (-105) |
+| file (LZ4) | 3,549 | **3,466** (-83) |
+| image | 4,381 | **4,272** (-109) |
 | bss | 1,542 | 1,541 (`FV_PAD`: the parity moves with the image) |
-| image + bss | 5,923 | **5,817** (-106) — a 6 KB claim either way |
+| image + bss | 5,923 | **5,813** (-110) — a 6 KB claim either way |
 | heap claims | one face (its file's KB) + the pre-shift table | unchanged |
 
 **What the file is made of** (each byte charged its share of the LZ4 stream):
@@ -142188,6 +142188,10 @@ file byte saved.
   `OS88UI_ABEND` byte after them, so the six-word pointer table is not
   shipped; the include's walk over packed text is a few bytes longer than
   over a table, and the card is the same card.
+- **`[fv_pending]` is tested by the shift that clears it** (-4 image, -4
+  file): it only ever holds 0 or 1, so `shr byte [fv_pending], 1` leaves the
+  old value in CF and 0 behind, where an `xchg` through AL and an `or` did
+  the same in ten bytes.
 
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 

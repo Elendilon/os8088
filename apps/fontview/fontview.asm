@@ -131,10 +131,8 @@ fv_entry:
 ; (SPEC.md 6.4, 90).
 ; -----------------------------------------------------------------------------
 fv_onwake:
-    xor al, al
-    xchg al, [fv_pending]
-    or al, al
-    jz .out
+    shr byte [fv_pending], 1        ; it is 0 or 1, so the shift is the test
+    jnc .out                        ; (CF = the old bit) and the clear at once
     cmp byte [ty_nfam], 0
     je .paint
     mov dl, [fv_selected]           ; DL = the row, which every ty_* call
