@@ -58218,6 +58218,11 @@ into bss or the heap. The numbers are the file and the image, both arms.
    32..126 dropped - and each carried the loop; `np_nlfold` is both now
    (`es lodsb` / `stosb`, and the paste's capacity check provably never
    fires). The paste's tail move after the fold is `rep movsb`.
+5. **The find panel's button rects are reached through one pointer.**
+   `np_pbutton` computed the slot's rect address twice, once per arm, and
+   pushed and popped the slot around it; it computes it once into SI. The
+   match count's fixed words (`...`, `Bad pattern`, a blank) are copied
+   by `np_scpy`.
 
 ## 28. apps/taskmgr — the Task Manager
 

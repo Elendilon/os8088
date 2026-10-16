@@ -9981,12 +9981,7 @@ np_pcount:
 .blank:
     mov si, np_m_blank
 .tail:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    or al, al
-    jnz .tail
+    call np_scpy
 .out:
     pop si
     pop di
@@ -10073,55 +10068,42 @@ np_pbutton:
     push dx
     push si
     push di
-    push bx                     ; BX = the 0-based slot, and it stays: the
-    shl bx, 1                   ; group's rects, labels and flags are three
-    mov [np_btlbl+bx], si       ; parallel arrays the record indexes together
-    mov cx, [bx+np_pbw]
-    pop ax                      ; AX = the slot again
+    mov ax, bx                  ; AX = the 0-based slot, for os88ui_btn
+    shl bx, 1                   ; BX = slot * 2: the group's rects, labels
+    mov [np_btlbl+bx], si       ; and flags are parallel arrays the record
+    mov cx, [bx+np_pbw]         ; indexes together
+    mov si, bx
+    shl si, 1
+    shl si, 1
+    add si, np_brects           ; SI = this slot's rect (stride 8)
     jcxz .hide
     mov di, [bx+np_pbx]
     or di, di
     jz .hide
-    push ax
-    add ax, ax
-    add ax, ax
-    add ax, ax                  ; AX = slot * 8, the rect stride
-    mov bx, np_brects
-    add bx, ax
-    mov [bx+0], di
+    mov [si+0], di
     add di, cx
     dec di                      ; ...x2 inclusive
-    mov [bx+4], di
-    mov ax, [np_pbtny]
-    mov [bx+2], ax
-    add ax, NP_FP_BTNH - 1
-    mov [bx+6], ax
-    pop ax
-    push ax
-    add ax, ax
-    mov bx, ax
+    mov [si+4], di
+    mov dx, [np_pbtny]
+    mov [si+2], dx
+    add dx, NP_FP_BTNH - 1
+    mov [si+6], dx
     mov word [np_btflg+bx], OS88UI_FILL
                                 ; np_fpaint fills the panel band before the
                                 ; first button, but a button REDRAWN in place
                                 ; would or its caption onto the old one
                                 ; (os88ui.inc's own note), and this is the
                                 ; cheapest way for that never to become true
-    pop ax
     mov bx, np_btrec
     inc ax                      ; the record's indices are one-based
     call os88ui_btn
     jmp short .out
 .hide:                          ; not shown: ZERO its rect, so os88ui_bfind
-    add ax, ax                  ; cannot answer for a button that is not there
-    add ax, ax
-    add ax, ax
-    mov bx, np_brects
-    add bx, ax
-    xor ax, ax
-    mov [bx+0], ax
-    mov [bx+2], ax
-    mov [bx+4], ax
-    mov [bx+6], ax
+    xor ax, ax                  ; cannot answer for a button that is not there
+    mov [si+0], ax
+    mov [si+2], ax
+    mov [si+4], ax
+    mov [si+6], ax
 .out:
     jmp np_ld_6
 
