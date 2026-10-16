@@ -44277,6 +44277,23 @@ starts 1,024 bytes earlier in the file. The loader is freed at the re-home, so
 that is disk and transient RAM, and the program never knew - it is told the
 streams' sector (`CSH_SEC`) out of the row rather than computing it.
 
+##### 20.12.9.2 `OP_NO_LAZYOK`, for a loader that fetches without asking
+
+`op_lazyok` is the QUESTION half of the lazy surface - *could part AL be had
+right now?* - and it exists so a menu item behind a lazy part can be greyed
+on a fact (§47) before the user picks it. A package that fetches its lazy
+part ONCE, at launch, with no menu in front of it, never asks: the answer is
+`op_fetch`'s own refusal and its toast. The DOS box's loader is that shape
+(§96.44.5.3) and carried the routine anyway, because the table cannot say
+"fetched, but never asked about" - so the include takes a define instead:
+`%define OP_NO_LAZYOK` before `apps/os88parts.inc` leaves `op_lazyok` out.
+
+It is a DEFINE and not a derived flag, for the one reason it differs from
+§20.12.9's: what decides it is the program's CALLS, which no table row sees.
+The default emits the routine, so every package that does not say so
+assembles byte-identical. `apps/dos/dosload.asm` opts in: 2,276 -> 2,210
+image bytes (apps size pass 2b, §96.44.16).
+
 #### 20.12.10 A LOADER hands its identity to one of its own parts
 
 A parted package's image is the thing the kernel launches, and everything else
@@ -163508,6 +163525,43 @@ Sharing the window half's `pop`-ladder epilogues, which pass 1 left on the
 table, is REFUSED on a measurement: every copy is a 3-byte LZ4 match already,
 and replacing the 35 commonest with a `jmp` makes part 0 111 packed bytes
 LARGER.
+
+##### 96.44.16.1 Pass 2b: the structural items
+
+The set A list above, taken by a session of its own. Two of its four items
+are opt-in gates in shared includes that DOS turns on and nobody else does, so
+every other carrier assembles byte-identical:
+
+- **`OP_NO_LAZYOK`** (§20.12.9.2): the loader fetches the core once and never
+  asks first, so `op_lazyok` goes - 2,276 -> 2,210 image bytes of loader.
+- **`CON_NOSCROLLDOWN`** (`apps/os88con.inc`): the DOS console is a teletype
+  and only ever scrolls UP, so `con_scrolldown` - which nothing in the tree
+  calls, Telnet included - goes from part 0: 50,121 -> 50,064 image bytes,
+  19,671 -> 19,635 packed.
+
+Neither crosses a sector, so `DOS.O88` is still **48,172 bytes, 48 clusters**.
+The other two items were measured and are NOT taken:
+
+- **Generating the box-drawing set at launch is REFUSED on a measurement.**
+  The 220 packed bytes above were the set ZEROED; LZ4 already packs the forty
+  box glyphs to ~179, because they are runs of `0x10` and `0x28`. Built - each
+  glyph one word of five indices into a 13-byte alphabet (rows 0-1 and 5-7
+  are always one arm's line, and rows 2-4 take thirteen values over the set),
+  decoded by `con_font` on the pre-EGA path, round-tripped bit-identical by
+  `tools/cp437font.py` - it saved **26 packed bytes for +151 bytes of RAM**
+  (the table and decoder beside a hole that must stay), and **17 packed for
+  +10** with table and decoder parked in the ASCII hole the ROM copy
+  overwrites. Neither is worth a mechanism in a shared include. Telnet's share
+  would be the same 17.
+- **Packing the IMAGE of a parted package needs the kernel** (§20.13.2):
+  `ld_check_hdr` refuses compression bits beside bit 2, and step 6 reads the
+  image at `R = roundup512(image - file)`, where with parts the file is not
+  the image. The least change found carries the packed image length in the
+  link word when bits 2 and 3 are both set and loads it into `[ld_fsz]` -
+  **+28 resident bytes of `.cold` on each kernel**, priced by assembling it and
+  left for the owner. It would take `DOS.O88` to 47,660 (47 clusters) and
+  PiXEL's file from 113,147 to ~105,467; Pixelstein's would be refused by
+  `os88pkg.py`'s region rule and Skies' and Word's loaders cross no sector.
 
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
