@@ -115364,6 +115364,13 @@ redirects and frames - and left the same bytes behind.
   `br_input` stops re-loading the `type` name `br_attreq` already hands back.
   Per control this is bounded work - at most `BR_FMAX` = 12 on a page - and
   not the per-byte parse loop, which no change here touches.
+- **`br_submit` builds the query out of three small pieces.** `br_actptr`
+  (a form's action, also `br_form`'s), `br_amp` (the `&` before every pair
+  but the first, three copies before) and `br_encz` (a NUL string through the
+  encoder, two); a POST and a GET share one toast-then-resolve tail with the
+  string to resolve in DI, `OSAPI_TOAST` keeping every register; the
+  too-long refusal is `br_errst`; and `br_form` stores a form's method with
+  one `adc` off `br_attreq`'s carry.
 
 ### 72.1 What the packages did have to change, which is one question
 

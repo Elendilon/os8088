@@ -7319,23 +7319,16 @@ br_form:
     jae .disabled
     mov [br_formcur], al
     inc byte [br_formn]
-    xor ah, ah
-    mov bx, ax
-    mov byte [bx+br_fmethods], 0   ; GET is the default
     mov di, br_a_method
     mov bx, br_s_post
-    call br_attreq
-    jc .action
-    mov al, [br_formcur]
-    xor ah, ah
-    mov bx, ax
-    mov byte [bx+br_fmethods], 1
-.action:
-    xor ah, ah
-    mov bl, BR_ACTMAX
-    mul bl
-    mov bx, ax
-    add bx, br_factions
+    call br_attreq                  ; CF=0 = POST; AL is kept, the form
+    cbw                             ; AH = 0: AL < BR_FORMMAX. CBW, MOV and
+    mov bx, ax                      ; CMC leave the answer where it is...
+    cmc
+    adc ah, 0                       ; ...and AH = 1 POST, 0 GET (the default)
+    mov [bx+br_fmethods], ah
+    call br_actptr
+    mov bx, si
     mov byte [bx], 0
     mov di, br_a_action
     call br_getattr
@@ -7355,7 +7348,6 @@ br_form:
     pop ax
     ret
 
-; --- br_copyspan - the source span SI..CX -> DS:DI, at most BX bytes ---------
 ; --- br_fldname - the tag's `name` into the record at BX, empty if it has none
 ; ...and br_fldcp, the copy both halves of a field record share: the span
 ; SI..CX into DI, at most BR_NAMEMAX - 1 bytes and NUL-terminated. Four parse
@@ -7379,6 +7371,7 @@ br_fldcp:
 .out:
     ret
 
+; --- br_copyspan - the source span SI..CX -> DS:DI, at most BX bytes ---------
 br_copyspan:
     push ax
     push cx
@@ -8292,24 +8285,18 @@ br_submit:
     mov byte [br_url], 0
     mov byte [br_urlcut], 0
     mov byte [br_dest], 1
-    cmp byte [br_post], 0
-    jne .q
+    or al, al
+    jnz .fields                     ; a POST's pairs are its BODY
     mov al, [br_submitform]         ; **THIS FORM'S** action: AL was still the
-    xor ah, ah                      ; method byte (0 for a GET), so every GET
-    mov bl, BR_ACTMAX               ; form on a page submitted to the FIRST
-    mul bl                          ; form's action (apps size pass 2)
-    mov si, ax
-    add si, br_factions             ; this submit button's action, verbatim
-.act:
-    mov al, [si]
+    call br_actptr                  ; method byte (0 for a GET), so every GET
+.act:                               ; form on a page submitted to the FIRST
+    mov al, [si]                    ; form's action (apps size pass 2)
     or al, al
     jz .q
-    call br_uput
+    call br_uput                    ; this submit button's action, verbatim
     inc si
     jmp .act
 .q:
-    cmp byte [br_post], 0
-    jne .fields
     mov al, '?'
     call br_uput
 .fields:
@@ -8330,51 +8317,28 @@ br_submit:
 .named:
     cmp byte [bx+FLD_NAME], 0
     je .nextf
-    or dx, dx
-    jz .amp0
-    mov al, '&'
-    call br_uput
-.amp0:
-    mov dx, 1
+    call br_amp
     push cx
-    mov si, bx
-    add si, FLD_NAME
-.nm:
-    mov al, [si]
-    or al, al
-    jz .eq
-    call br_encb
-    inc si
-    jmp .nm
-.eq:
+    lea si, [bx+FLD_NAME]
+    call br_encz
     mov al, '='
     call br_uput
-    cmp byte [bx+FLD_TYPE], 1
-    je .choiceval
-    cmp byte [bx+FLD_TYPE], 2
+    lea si, [bx+FLD_VALUE]
+    cmp byte [bx+FLD_TYPE], 1       ; select, checkbox, radio: the value
     jae .choiceval
-    mov es, [br_docseg]
+    mov es, [br_docseg]             ; text: what is typed in the document
     mov si, [bx+FLD_OFS]
     mov cl, [bx+FLD_LEN]
     xor ch, ch
+    jcxz .doneval
 .val:
-    or cx, cx
-    jz .doneval
     mov al, [es:si]
     call br_encb
     inc si
-    dec cx
-    jmp .val
+    loop .val
+    jmp short .doneval
 .choiceval:
-    mov si, bx
-    add si, FLD_VALUE
-.cv:
-    mov al, [si]
-    or al, al
-    jz .doneval
-    call br_encb
-    inc si
-    jmp .cv
+    call br_encz
 .doneval:
     pop cx
 .nextf:
@@ -8397,12 +8361,7 @@ br_submit:
     mov di, br_a_name
     call br_getattr
     jc .hid                         ; an unnamed button is not a control
-    or dx, dx
-    jz .bamp0
-    mov al, '&'
-    call br_uput
-.bamp0:
-    mov dx, 1
+    call br_amp
     call br_henc                    ; the name, percent-encoded
     mov al, '='
     call br_uput
@@ -8423,59 +8382,41 @@ br_submit:
     pop dx
     mov si, ax
     add si, br_hids
-    or dx, dx
-    jz .hloop
-    mov al, '&'
-    call br_uput
+    call br_amp
 .hloop:
-    jcxz .say
     mov al, [si]
     call br_uput                    ; already encoded at parse time
     inc si
-    dec cx
-    jmp .hloop
+    loop .hloop
 .say:
     mov byte [br_dest], 0
     cmp byte [br_urlcut], 0
     je .show
-    cmp byte [br_post], 0
-    jne .posttoo
-    mov si, br_s_urltoo
-    jmp .too
-.posttoo:
     mov si, br_s_datatoo
+    cmp byte [br_post], 0
+    jne .too
+    mov si, br_s_urltoo
 .too:
     mov byte [br_post], 0
-    mov [br_nmsg], si
-    mov byte [br_nstate], BN_ERR
-    call br_status
+    call br_errst
     pop es
-    jmp .out
-.show:
+    jmp short .out
+.show:                              ; a GET toasts and resolves the composed
+    mov si, br_url                  ; URL; the bar is 25 cells, and the whole
+    mov di, si                      ; URL lives in br_url for the harness
     cmp byte [br_post], 0
-    jne .posttoast
-    mov si, br_url                  ; the bar is 25 cells; the whole URL lives
-    mov cx, 120                     ; in br_url for the harness to read
-    push ds
-    pop es
-    call OSAPI_TOAST
-    mov si, br_url
-    call br_resolve
-    jmp .resolved
-.posttoast:
+    je .toast
+    mov al, [br_submitform]         ; a POST resolves its action alone, the
+    call br_actptr                  ; pairs being the body, and says so
+    mov di, si
     mov si, br_s_posting
+.toast:
     mov cx, 120
     push ds
     pop es
-    call OSAPI_TOAST
-    mov al, [br_submitform]
-    xor ah, ah
-    mov bl, BR_ACTMAX
-    mul bl
-    mov si, ax
-    add si, br_factions             ; resolve the action without the body/query
+    call OSAPI_TOAST                ; ...which keeps every register
+    mov si, di
     call br_resolve
-.resolved:
     pop es
     jc .clearpost
                                     ; into a page (NET-STACK-PLAN stage D').
@@ -8497,6 +8438,37 @@ br_submit:
     mov byte [br_post], 0
 .out:                               ; br_resolve refused and has already said
     jmp br_pop6                     ; why on the status line
+
+; --- br_amp - the '&' between two pairs; DX = 0 before the first ---------------
+br_amp:
+    or dx, dx
+    jz .first
+    mov al, '&'
+    call br_uput
+.first:
+    mov dx, 1
+    ret
+
+; --- br_encz - percent-encode the NUL string at DS:SI (SI ends on its NUL) ------
+br_encz:
+    mov al, [si]
+    or al, al
+    jz .out
+    call br_encb
+    inc si
+    jmp br_encz
+.out:
+    ret
+
+; --- br_actptr - SI = form AL's action, in br_factions -------------------------
+br_actptr:
+    push ax
+    mov ah, BR_ACTMAX
+    mul ah
+    add ax, br_factions
+    xchg si, ax
+    pop ax
+    ret
 
 ; --- Latin-1 / CP1252 -> one ASCII char, 0 = drop (BROWSER-PLAN 2.2) ------
 ; GENERATED - do not edit by hand:
