@@ -1704,59 +1704,26 @@ mc_launch_abm:
     push dx
     push si
     push di
-    xor si, si                      ; a free slot?
-.slot:
-    cmp byte [mc_aa + si], 0
-    je .free
-    inc si
-    cmp si, MC_MAXABM
-    jb .slot
-    jmp .out
-.free:
+    mov si, MC_ABMD                 ; a free slot? (the ABM half of the
+    call mc_freeslot_at             ; biased index, see MC_ABMD)
+    jc .out
     push bx
     add bx, bx
     mov ax, [mc_basex + bx]         ; the launcher: the top of the base mound
     pop bx
     mov [mc_aimsx], ax
-    push ax
     mov ax, [mc_groundy]
     sub ax, [mc_objh]
     mov [mc_aimsy], ax
-    pop ax
-    mov [mc_aimtx], cx
+    mov [mc_aimtx], cx              ; ...and the trail's far end, fixed here
     mov [mc_aimty], dx
     mov word [mc_aimspd], MC_ABMSPD
     call mc_aim                     ; -> [mc_aimvx]/[mc_aimvy]/[mc_aimn]
 
-    mov di, si
+    mov di, si                      ; DI = 2 * slot + MC_ABMD
     add di, di
-    mov ax, [mc_aimsx]
-    mov [mc_apx + di], ax           ; where the trail starts, and where it has
-    mov [mc_asx + di], ax           ; been drawn to so far - the same point on
-    push cx                         ; the frame it is launched
-    mov cl, MC_FP
-    shl ax, cl
-    pop cx
-    mov [mc_ax16 + di], ax
-    mov ax, [mc_aimsy]
-    mov [mc_apy + di], ax
-    mov [mc_asy + di], ax
-    push cx
-    mov cl, MC_FP
-    shl ax, cl
-    pop cx
-    mov [mc_ay16 + di], ax
-    mov ax, [mc_aimvx]
-    mov [mc_avx + di], ax
-    mov ax, [mc_aimvy]
-    mov [mc_avy + di], ax
-    mov ax, [mc_aimn]
-    mov [mc_astep + di], ax
-    mov [mc_atx + di], cx           ; ...and the trail's far end, fixed here
-    mov [mc_aty + di], dx
-    mov word [mc_adrw + di], 0
-    mov byte [mc_aarm + si], 0
-    mov byte [mc_aa + si], 1
+    sub di, MC_ABMD
+    call mc_obj_init
 
     dec byte [mc_bmis + bx]         ; the base is one missile lighter, and its
     call mc_bdirty_i                ; pyramid has to lose a dot - THAT pyramid
@@ -1886,10 +1853,8 @@ mc_do_launch:
     inc ax
     mov cx, ax
 .salvo:
-    cmp word [mc_icbleft], 0
-    jle .out
-    cmp byte [mc_onscr], MC_MAXON
-    jae .out
+    call mc_room
+    jc .out
     call mc_launch_icbm
     loop .salvo
 .out:
@@ -1928,10 +1893,7 @@ mc_launch_icbm:
                                     ; arrives. Spending it ends the wave on the
                                     ; next frame and the game with it
 .aim:
-    mov [mc_itgt + si], al
-    call mc_tgt_pos                 ; CX/DX = where that target stands
-    mov [mc_aimtx], cx
-    mov [mc_aimty], dx
+    call mc_tgt_set                 ; [mc_aimtx]/[mc_aimty] = where it stands
 
     mov cx, [mc_cw]                 ; ...from a random column along the top
     call mc_rand_mod
@@ -1956,36 +1918,12 @@ mc_launch_icbm:
 .k1:
     mov al, 1
 .kind:
-    mov [mc_ia + si], al
-    mov [mc_aimspd], bx
-    call mc_aim
-
-    mov di, si
-    add di, di
-    mov ax, [mc_aimsx]
-    mov [mc_ipx + di], ax
-    mov [mc_isx + di], ax
-    mov cl, MC_FP
-    shl ax, cl
-    mov [mc_ix16 + di], ax
-    mov ax, [mc_aimsy]
-    mov [mc_ipy + di], ax
-    mov [mc_isy + di], ax
-    mov cl, MC_FP
-    shl ax, cl
-    mov [mc_iy16 + di], ax
-    call mc_itrail                  ; the trail's line is fixed HERE, and only
+    call mc_launch_at               ; the slot filled at speed BX, counted; the
+                                    ; trail's line is fixed HERE, and only
                                     ; here: a dodge re-aims the bomb, not it
-    mov ax, [mc_aimvx]
-    mov [mc_ivx + di], ax
-    mov ax, [mc_aimvy]
-    mov [mc_ivy + di], ax
-    mov ax, [mc_aimn]
-    mov [mc_istep + di], ax
-
-    mov byte [mc_imirv + si], 0     ; MIRVs from wave MIRVWV = 1, one launch in
-    cmp byte [mc_ia + si], 2        ; five, and never from a smart bomb
-    je .nomirv
+    mov [mc_ia + si], al            ; ...as an ICBM or a smart bomb
+    cmp al, 2                       ; MIRVs from wave MIRVWV = 1, one launch in
+    je .nomirv                      ; five, and never from a smart bomb
     mov cx, 5
     call mc_rand_mod
     or ax, ax
@@ -1995,8 +1933,6 @@ mc_launch_icbm:
     mov [mc_imirv2 + di], ax
     mov byte [mc_imirv + si], 1
 .nomirv:
-    dec word [mc_icbleft]
-    inc byte [mc_onscr]
 .out:
     pop di
     pop si
@@ -2006,120 +1942,83 @@ mc_launch_icbm:
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
 ; mc_freeslot - the first unused ICBM slot
 ; out: CF=0 and SI = the slot; CF=1 all eight are busy
-; preserves every other register
+; mc_freeslot_at - the same walk from SI: 0 for an ICBM, MC_ABMD for an ABM,
+;                  whose SI comes back carrying that bias
+; clobbers AH; preserves every other register
 ; -----------------------------------------------------------------------------
 mc_freeslot:
     xor si, si
+mc_freeslot_at:
+    mov ah, MC_MAXICBM              ; ...which is MC_MAXABM (asserted)
 .each:
     cmp byte [mc_ia + si], 0
-    je .got
+    je .got                         ; equal: CF is clear already
     inc si
-    cmp si, MC_MAXICBM
-    jb .each
+    dec ah
+    jnz .each
     stc
-    ret
 .got:
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
 ; mc_pick_target - a living city or base for an ICBM to aim at
 ; out: CF=0 and AL = 0..5 city / 6..8 base; CF=1 nothing is left standing
 ; preserves every other register
+;
+; mc_balive follows mc_calive (asserted), so the nine targets are ONE byte run
+; in the order the arcade numbers them, and each is 0 or 1 - which makes the
+; count a sum.
 ; -----------------------------------------------------------------------------
 mc_pick_target:
-    push bx
     push cx
-    push dx
     push si
     xor cx, cx                      ; count what is alive
     xor si, si
 .count:
-    cmp byte [mc_calive + si], 0
-    je .c1
-    inc cx
-.c1:
-    inc si
-    cmp si, MC_NCITY
-    jb .count
-    xor si, si
-.countb:
-    cmp byte [mc_balive + si], 0
-    je .c2
-    inc cx
-.c2:
-    inc si
-    cmp si, MC_NBASE
-    jb .countb
-    jcxz .none
-
-    call mc_rand_mod                ; the Nth living target, left to right
-    mov bx, ax
-    xor si, si
-.walk:
-    cmp si, MC_NCITY
-    jae .wb
-    cmp byte [mc_calive + si], 0
-    je .wnext
-    jmp short .wtest
-.wb:
-    mov dx, si
-    sub dx, MC_NCITY
-    push si
-    mov si, dx
-    cmp byte [mc_balive + si], 0
-    pop si
-    je .wnext
-.wtest:
-    or bx, bx
-    jz .got
-    dec bx
-.wnext:
+    add cl, [mc_calive + si]
     inc si
     cmp si, MC_NTGT
-    jb .walk
-.none:
-    pop si
-    pop dx
-    pop cx
-    pop bx
+    jb .count
     stc
-    ret
-.got:
-    mov ax, si
+    jcxz .out
+
+    call mc_rand_mod                ; the Nth living target, left to right,
+    mov si, -1                      ; which there is: AX < the count
+.walk:
+    inc si
+    cmp byte [mc_calive + si], 0
+    je .walk
+    dec ax
+    jns .walk
+    mov ax, si                      ; CF is clear: the CMP against 0 cleared
+.out:                               ; it and DEC does not touch it
     pop si
-    pop dx
     pop cx
-    pop bx
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
-; mc_tgt_pos - where a target index stands
-; in:  AL = 0..5 city / 6..8 base; out: CX = x, DX = y (content coords)
-; preserves every other register
+; mc_tgt_set - aim ICBM slot SI at target AL
+; mc_tgt_aim - where target AL stands, as the aim's far end
+; in:  AL = 0..5 city / 6..8 base (mc_tgt_set: SI = the slot, whose
+;      [mc_itgt] it records); out: CX = x, DX = y (content coords), and
+;      [mc_aimtx]/[mc_aimty] the same; preserves every other register
+;
+; mc_basex follows mc_cityx (asserted), so a target index is a column index.
 ; -----------------------------------------------------------------------------
-mc_tgt_pos:
-    push ax
+mc_tgt_set:
+    mov [mc_itgt + si], al
+mc_tgt_aim:
     push bx
     mov bl, al
     mov bh, 0
-    mov dx, [mc_groundy]
-    cmp bx, MC_NCITY
-    jae .base
     add bx, bx
     mov cx, [mc_cityx + bx]
-    jmp short .out
-.base:
-    sub bx, MC_NCITY
-    add bx, bx
-    mov cx, [mc_basex + bx]
-.out:
+    mov dx, [mc_groundy]
+    mov [mc_aimtx], cx
+    mov [mc_aimty], dx
     pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2227,55 +2126,47 @@ mc_destroy:
     push bx
     mov bl, al
     mov bh, 0
-    cmp bx, MC_NCITY
-    jae .base
-    cmp byte [mc_calive + bx], 0
+    cmp byte [mc_calive + bx], 0    ; ...or [mc_balive], which follows it
     je .out
     mov byte [mc_calive + bx], 0
+    call mc_tdmg                    ; its own span, not the whole band
+    cmp bx, MC_NCITY
+    jae .base
     cmp word [mc_lives], 0
-    jle .cdirty
+    jle .out
     dec word [mc_lives]
-.cdirty:
-    push di                         ; the city's own span, not the whole band
-    mov di, bx
-    add di, di
-    mov ax, [mc_cityx + di]
-    mov cx, [mc_citw]
-    shr cx, 1
-    inc cx
-    push ax
-    sub ax, cx
-    add cx, cx
-    add cx, ax
-    call mc_gdmg
-    pop ax
-    pop di
     jmp short .out
 .base:
-    sub bx, MC_NCITY
-    cmp byte [mc_balive + bx], 0
-    je .out
-    mov byte [mc_balive + bx], 0
-    mov byte [mc_bmis + bx], 0      ; and everything still in its magazine
-    push di
-    mov di, bx
-    add di, di
-    mov ax, [mc_basex + di]
+    mov byte [mc_bmis + bx - MC_NCITY], 0 ; and everything in its magazine
+    sub bl, MC_NCITY
+    call mc_bdirty_i                ; ...and that launcher alone
+.out:
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mc_tdmg - the terrain under target BX (0..5 city / 6..8 base) owes a repaint
+; preserves all registers
+; -----------------------------------------------------------------------------
+mc_tdmg:
+    push ax
+    push bx
+    push cx
+    mov cx, [mc_citw]
+    cmp bx, MC_NCITY
+    jb .w
     mov cx, [mc_basw]
+.w:
+    add bx, bx
+    mov ax, [mc_cityx + bx]         ; mc_basex follows mc_cityx
     shr cx, 1
     inc cx
-    push ax
     sub ax, cx
     add cx, cx
     add cx, ax
     call mc_gdmg
-    pop ax
-    pop di
-    mov cl, bl                      ; ...and that launcher alone
-    mov al, 1
-    shl al, cl
-    or [mc_bdirty], al
-.out:
+    pop cx
     pop bx
     pop ax
     ret
@@ -2301,24 +2192,14 @@ mc_mirv:
     mov cx, 2                       ; two children, budget permitting
 .child:
     push cx
-    cmp word [mc_icbleft], 0
-    jle .done
-    cmp byte [mc_onscr], MC_MAXON
-    jae .done
+    call mc_room
+    jc .done
     call mc_freeslot                ; SI moves to the child's slot
     jc .done
     call mc_pick_target
     jc .done
-    mov [mc_itgt + si], al
-    call mc_tgt_pos
-    mov [mc_aimtx], cx
-    mov [mc_aimty], dx
-    mov ax, [mc_icbspd]
-    mov [mc_aimspd], ax
-    call mc_aim
-    call mc_spawn_child
-    dec word [mc_icbleft]
-    inc byte [mc_onscr]
+    call mc_tgt_set
+    call mc_child
 .done:
     pop cx
     loop .child
@@ -2333,57 +2214,86 @@ mc_mirv:
     ret
 
 ; -----------------------------------------------------------------------------
+; mc_room - may the wave put another ICBM in the sky?
+; out: CF=0 yes; CF=1 its budget is spent or MXICON are already up
+; preserves all registers
+; -----------------------------------------------------------------------------
+mc_room:
+    cmp word [mc_icbleft], 0
+    jle .no
+    cmp byte [mc_onscr], MC_MAXON   ; CF=1 while there is room...
+    cmc                             ; ...and the answer is the other way up
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; mc_child - launch ICBM slot SI at [mc_icbspd] (a MIRV child, a bomber drop)
+; mc_launch_at - ...at BX sixteenths of a pixel a frame
+; in:  SI = the slot, [mc_aimsx]/[mc_aimsy] and [mc_aimtx]/[mc_aimty] set
+; out: the slot flies, counted against the wave; DI = SI*2. mc_child clobbers
+;      BX; preserves every other register
+; -----------------------------------------------------------------------------
+mc_child:
+    mov bx, [mc_icbspd]
+mc_launch_at:
+    mov [mc_aimspd], bx
+    call mc_aim
+    call mc_spawn_child
+    dec word [mc_icbleft]
+    inc byte [mc_onscr]
+    ret
+
+; -----------------------------------------------------------------------------
 ; mc_spawn_child - fill ICBM slot SI from the mc_aim* block
-; in:  SI = slot; preserves all registers
+; in:  SI = slot; out: DI = SI*2; preserves every other register
+; mc_obj_init - fill slot SI/DI of EITHER kind from the mc_aim* block
+; in:  SI = the slot and DI = slot*2, both biased by MC_ABMD for an ABM;
+;      preserves all registers
+;
+; The ICBM and ABM tables are laid out alike from [mc_ia]/[mc_aa] (asserted at
+; MC_ABMD), so one fill serves both: the ABM's far end [mc_atx] is the ICBM's
+; [mc_iex], and so on down the record.
+;
+; The trail's walk is laid on the next frame that DRAWS, not here: mc_update
+; is lock-free, and although laying a walk draws nothing, a walk laid before
+; mc_track has settled the origin would hold the wrong screen coordinates.
 ; -----------------------------------------------------------------------------
 mc_spawn_child:
-    push ax
-    push cx
-    push di
+    mov byte [mc_imirv + si], 0
     mov di, si
     add di, di
-    mov ax, [mc_aimsx]
-    mov [mc_ipx + di], ax
-    mov [mc_isx + di], ax
+mc_obj_init:
+    push ax
+    push cx
     mov cl, MC_FP
-    shl ax, cl
+    mov ax, [mc_aimsx]
+    mov [mc_ipx + di], ax           ; where the trail starts, and where it has
+    mov [mc_isx + di], ax           ; been drawn to so far - the same point on
+    shl ax, cl                      ; the frame it is launched
     mov [mc_ix16 + di], ax
     mov ax, [mc_aimsy]
     mov [mc_ipy + di], ax
     mov [mc_isy + di], ax
-    mov cl, MC_FP
     shl ax, cl
     mov [mc_iy16 + di], ax
-    call mc_itrail
+    mov ax, [mc_aimtx]              ; ...and the trail's far end
+    mov [mc_iex + di], ax
+    mov ax, [mc_aimty]
+    mov [mc_iey + di], ax
     mov ax, [mc_aimvx]
     mov [mc_ivx + di], ax
     mov ax, [mc_aimvy]
     mov [mc_ivy + di], ax
     mov ax, [mc_aimn]
     mov [mc_istep + di], ax
-    mov byte [mc_imirv + si], 0
-    mov byte [mc_ia + si], 1
-    pop di
+    xor ax, ax
+    mov [mc_idrw + di], ax
+    mov [mc_iarm + si], al
+    inc ax
+    mov [mc_ia + si], al
     pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; mc_itrail - arm ICBM slot SI's trail from the mc_aim* block
-; in:  SI = slot, DI = slot*2; preserves all registers
-;
-; The walk itself is laid on the next frame that DRAWS, not here: mc_update is
-; lock-free, and although laying a walk draws nothing, a walk laid before
-; mc_track has settled the origin would hold the wrong screen coordinates.
-; -----------------------------------------------------------------------------
-mc_itrail:
-    push ax
-    mov ax, [mc_aimtx]
-    mov [mc_iex + di], ax
-    mov ax, [mc_aimty]
-    mov [mc_iey + di], ax
-    mov word [mc_idrw + di], 0
-    mov byte [mc_iarm + si], 0
     pop ax
     ret
 
@@ -2489,9 +2399,7 @@ mc_sb_dodge:
     mov di, si
     add di, di
     mov al, [mc_itgt + si]
-    call mc_tgt_pos                 ; CX/DX = its target
-    mov [mc_aimtx], cx
-    mov [mc_aimty], dx
+    call mc_tgt_aim                 ; CX/DX = its target
     mov ax, [mc_sbx]
     mov [mc_aimsx], ax
     mov ax, [mc_sby]
@@ -2537,9 +2445,7 @@ mc_sb_arrive:
     push cx
     push dx
     mov al, [mc_itgt + si]
-    call mc_tgt_pos                 ; CX/DX = the target
-    mov [mc_aimtx], cx
-    mov [mc_aimty], dx
+    call mc_tgt_aim                 ; CX/DX = the target
     push cx
     push dx
     call mc_ipix                    ; CX/DX = the bomb
@@ -2910,10 +2816,6 @@ mc_do_sat:
     cmp word [mc_satfire], 0
     jg .out
     mov word [mc_satfire], 14
-    cmp word [mc_icbleft], 0
-    jle .out
-    cmp byte [mc_onscr], MC_MAXON
-    jae .out
     call mc_sat_drop
     jmp short .out
 .gone:
@@ -2987,25 +2889,19 @@ mc_sat_drop:
     push dx
     push si
     push di
+    call mc_room
+    jc .out
     call mc_freeslot
     jc .out
     call mc_pick_target
     jc .out
-    mov [mc_itgt + si], al
-    call mc_tgt_pos
-    mov [mc_aimtx], cx
-    mov [mc_aimty], dx
+    call mc_tgt_set
     mov ax, [mc_satx]
     mov [mc_aimsx], ax
     mov ax, [mc_saty]
     add ax, 4
     mov [mc_aimsy], ax
-    mov ax, [mc_icbspd]
-    mov [mc_aimspd], ax
-    call mc_aim
-    call mc_spawn_child
-    dec word [mc_icbleft]
-    inc byte [mc_onscr]
+    call mc_child
 .out:
     pop di
     pop si
@@ -3175,13 +3071,10 @@ mc_nextwave:
     call mc_hiscore
     jmp short .out
 .alive:
-    xor cx, cx                      ; how many are standing?
+    xor cx, cx                      ; how many are standing? (each 0 or 1)
     xor si, si
 .count:
-    cmp byte [mc_calive + si], 0
-    je .c1
-    inc cx
-.c1:
+    add cl, [mc_calive + si]
     inc si
     cmp si, MC_NCITY
     jb .count
@@ -3200,22 +3093,8 @@ mc_nextwave:
     jmp short .done
 .give:
     mov byte [mc_calive + si], 1    ; a city came back: that is terrain
-    push cx                         ; damage, not a screen (SPEC.md 48.9)
-    push di
-    mov di, si
-    add di, di
-    mov ax, [mc_cityx + di]
-    mov cx, [mc_citw]
-    shr cx, 1
-    inc cx
-    push ax
-    sub ax, cx
-    add cx, cx
-    add cx, ax
-    call mc_gdmg
-    pop ax
-    pop di
-    pop cx
+    mov bx, si                      ; damage, not a screen (SPEC.md 48.9)
+    call mc_tdmg
     inc cx
     jmp short .regen
 .done:
@@ -7748,6 +7627,7 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MBYTE mc_tcity
     MBUF  mc_calive, MC_NCITY
     MBUF  mc_balive, MC_NBASE
+    OS88_ADJACENT mc_calive, mc_balive, MC_NCITY ; the nine targets, one run
     MBUF  mc_bmis,   MC_NBASE
 
 ; --- input ----------------------------------------------------------------------
@@ -7804,6 +7684,35 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MBUF  mc_adrw,   MC_MAXABM * 2
     MBUF  mc_alen,   MC_MAXABM * 2
     MBUF  mc_aarm,   MC_MAXABM
+
+; MC_ABMD: an ABM's slot is an ICBM slot index biased by this, because the two
+; records are laid out ALIKE from [mc_ia]/[mc_aa] - so mc_obj_init and
+; mc_freeslot_at serve both kinds with no base register: SI = slot + MC_ABMD
+; and DI = 2*slot + MC_ABMD reach [mc_aa + slot] through [mc_ia + si] and
+; [mc_ax16 + 2*slot] through [mc_ix16 + di]. Every field either touches is
+; pinned here; a field added to one record and not the other fails the build.
+MC_ABMD     equ mc_aa - mc_ia
+%if MC_MAXICBM != MC_MAXABM
+  %error "the ICBM and ABM records must be the same length (MC_ABMD)"
+%endif
+%macro MC_ALIKE 2
+  %if ((%2) - (%1)) != MC_ABMD
+    %error "%1 and %2 are not laid out alike (MC_ABMD)"
+  %endif
+%endmacro
+    MC_ALIKE mc_ix16, mc_ax16
+    MC_ALIKE mc_iy16, mc_ay16
+    MC_ALIKE mc_ivx,  mc_avx
+    MC_ALIKE mc_ivy,  mc_avy
+    MC_ALIKE mc_istep, mc_astep
+    MC_ALIKE mc_ipx,  mc_apx
+    MC_ALIKE mc_ipy,  mc_apy
+    MC_ALIKE mc_isx,  mc_asx
+    MC_ALIKE mc_isy,  mc_asy
+    MC_ALIKE mc_iex,  mc_atx
+    MC_ALIKE mc_iey,  mc_aty
+    MC_ALIKE mc_idrw, mc_adrw
+    MC_ALIKE mc_iarm, mc_aarm
     MWORD mc_trlen                  ; mc_tr_lay's answer, out of the registers
 
 ; --- the drain (SPEC.md 48.15) --------------------------------------------------

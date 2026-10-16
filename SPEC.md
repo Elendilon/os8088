@@ -87697,6 +87697,38 @@ is the wrong number to tune on; the tail is the one the eye sees.
 is reused. Verified for the other half at the same time: scanning every lit
 burst on every frame, **0 holed of 124 samples**.
 
+### 48.26 The shipped file: apps size pass 2
+
+Pass 2 measured the package by what it costs a DISK - `MISSILE.O88` as `make`
+leaves it, LZ4-packed - and it is almost all CODE, so the file falls by
+taking code out rather than by moving data. Nothing the player sees moved, and
+no routine the worker runs every frame changed: every cut below is in code a
+launch, a hit, a wave or a repaint runs, never the per-frame loops, and none
+of them consumes the random stream differently, so a game plays out the same.
+
+| | file | image | bss |
+|---|---:|---:|---:|
+| before pass 2 | 10,689 | 13,463 | 2,430 |
+| one slot fill for both kinds, the targets as one run | 10,542 | 13,065 | 2,430 |
+
+**The ICBM and ABM records are laid out alike**, field for field from
+`[mc_ia]`/`[mc_aa]`, and `MC_ABMD` is the distance between them - asserted
+per field, so a field added to one record and not the other fails the build.
+An ABM's slot is therefore an ICBM index biased by `MC_ABMD`, and
+`mc_obj_init` and `mc_freeslot_at` fill and find either kind with the very
+addressing they used for one: no base register, so no instruction got dearer.
+The launch, the MIRV child and the bomber's drop share `mc_launch_at` /
+`mc_child` (aim, fill, count), `mc_room` is the MXICON-and-budget test the
+three of them each spelled out, and `mc_tgt_set`/`mc_tgt_aim` record and
+place a target once rather than five times.
+
+**`mc_balive` follows `mc_calive`** (asserted), so the nine targets are one
+byte run in the arcade's numbering, each 0 or 1: `mc_pick_target` counts them
+as a SUM and walks them as one loop - the same count, the same random draw
+and the same pick - and `mc_destroy` and `mc_nextwave`'s regeneration share
+`mc_tdmg` for the terrain under a target. `mc_destroy` said it preserved every
+register and clobbered CX; it keeps CX now (its one caller saved it anyway).
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
