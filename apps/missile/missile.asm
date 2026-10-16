@@ -306,19 +306,18 @@ mc_entry:
     push si
     push di
     call OSAPI_VIDEO                ; AX=w, BX=h, CX=dock top row, DH=bpp
-    mov [mc_scrw], ax
-    mov [mc_dock], cx
-
     call mc_adapter                 ; everything this code believes about the
                                     ; CARD, which SPEC.md 11.98's handler
-                                    ; re-runs when the machine changes it
+                                    ; re-runs when the machine changes it.
+                                    ; It preserves every register, so the
+    mov si, ax                      ; screen's width and the dock's top row
+    mov di, cx                      ; are still here to keep in SI and DI
 
     ; The window wants to be big: seven eighths of the desktop band, capped so
     ; a 640x480 screen still shows the desktop around it. Fullscreen (SPEC.md
     ; 11.2) is a menu item away for a player who wants the whole thing.
-    mov ax, [mc_scrw]
-    mov bx, ax
     mov cl, 3
+    mov bx, ax
     shr bx, cl
     sub ax, bx                      ; 7/8 of the screen width
     cmp ax, 200
@@ -326,43 +325,37 @@ mc_entry:
     mov ax, 200
 .wok:
     mov [mc_tpl + WT_W], ax
+    sub si, ax                      ; centred horizontally...
+    jns .xok
+    xor si, si
+.xok:
+    shr si, 1
+    mov [mc_tpl + WT_X], si
+    dec ax                          ; (a provisional content width, so
+    dec ax                          ; mc_newgame has somewhere to put the
+    mov [mc_cw], ax                 ; cities - see below)
 
-    mov ax, [mc_dock]               ; the desktop band, less one row: the drop
-    sub ax, MBAR_H + 1              ; shadow is on row y+h, so a frame that
-    mov bx, ax                      ; merely REACHES the dock is already on it
-    mov cl, 3                       ; (SPEC.md 11) - and wm_fit would shave the
-    shr bx, cl                      ; pixel anyway, so taking it here keeps our
-    sub ax, bx                      ; own layout in step with the window the
-    cmp ax, 120                     ; kernel actually made
-    jae .hok
-    mov ax, 120
+    lea ax, [di - (MBAR_H + 1)]     ; the desktop band, less one row: the drop
+    mov bx, ax                      ; shadow is on row y+h, so a frame that
+    shr bx, cl                      ; merely REACHES the dock is already on it
+    sub ax, bx                      ; (SPEC.md 11) - and wm_fit would shave the
+    cmp ax, 120                     ; pixel anyway, so taking it here keeps our
+    jae .hok                        ; own layout in step with the window the
+    mov ax, 120                     ; kernel actually made
 .hok:
     mov [mc_tpl + WT_H], ax
-
-    mov ax, [mc_scrw]               ; centred horizontally...
-    sub ax, [mc_tpl + WT_W]
-    jns .xok
-    xor ax, ax
-.xok:
-    shr ax, 1
-    mov [mc_tpl + WT_X], ax
-    mov ax, [mc_dock]               ; ...and in the band vertically
-    sub ax, MBAR_H
-    sub ax, [mc_tpl + WT_H]
+    sub di, MBAR_H                  ; ...and in the band vertically
+    sub di, ax
     jns .yok
-    xor ax, ax
+    xor di, di
 .yok:
-    shr ax, 1
-    add ax, MBAR_H
-    mov [mc_tpl + WT_Y], ax
+    shr di, 1
+    add di, MBAR_H
+    mov [mc_tpl + WT_Y], di
 
     ; A provisional layout, so mc_newgame has somewhere to put the cities. The
     ; first mc_track replaces every one of these numbers with what the window
     ; really got.
-    mov ax, [mc_tpl + WT_W]
-    sub ax, 2
-    mov [mc_cw], ax
-    mov ax, [mc_tpl + WT_H]
     sub ax, TITLE_H + 1
     mov [mc_ch], ax
     call mc_layout
@@ -464,40 +457,41 @@ mc_adapter:
     mov bx, [mc_win]                ; ONE QUESTION FOR BOTH FACTS, and it is
     call OSAPI_FSX_CAPS             ; about OUR WINDOW'S DISPLAY: AX = the
     mov [mc_caps], ax               ; Mode X mask, DL = that display's VID_*
-    mov dh, 4                       ; kind, which is also how deep it is.
-    cmp dl, VID_VGA                 ; OSAPI_VIDEO's DH answers about the
-    je .bpp                         ; PRIMARY (SPEC.md 39.2.1) - right for
-    cmp dl, VID_EGA                 ; sizing a window and wrong for this, and
-    je .bpp                         ; taking both from one call is what keeps
-    mov dh, 1                       ; mc_mono and mc_caps from disagreeing
-.bpp:                               ; about which monitor this game is on.
-                                    ; BOTH planar kinds are 4bpp - EGA is
-                                    ; VGA's path at 350 rows (SPEC.md 39.24) -
-                                    ; so the depth is two compares, not one
-    mov byte [mc_mono], 0
-    mov byte [mc_ecoarse], 0
-    mov byte [mc_expfr], MC_EXPFR   ; bss is zeroed, and a life of zero kills
-                                    ; every burst on the frame it is lit
-    cmp dh, 1                       ; a 1bpp adapter, or a tier-0 CPU, gets
-    ja .chkcpu                      ; the three-state explosion (SPEC.md
-    mov byte [mc_mono], 1           ; 48.8). Both are FACTS this code can
-    jmp short .coarse               ; test, which is the honest way to spend
-.chkcpu:                            ; an optimisation only the slow machine
-    call OSAPI_CPU_INFO             ; needs (PERFORMANCE.md rule 10). The
-    cmp al, CPU_8086                ; 1bpp half is banked as well, because
-    jne .fine                       ; SPEC.md 48.21's trail pens want it
-.coarse:
-    mov byte [mc_ecoarse], 1
-    mov byte [mc_expfr], MC_EXPFR3
-.fine:
-
-    mov ax, [mc_caps]               ; ...and the menu item says WHY not, from
-    mov dx, mc_s_xcmd               ; the mask read above. mc_cmd_modex
-    test ax, 1 << FSXM_MODEX        ; refuses with the same bit - one
-    jnz .fsxok                      ; predicate for both (SPEC.md 47/53.4)
-    mov dx, mc_s_xcmdn
+                                    ; kind, which is also how deep it is.
+                                    ; OSAPI_VIDEO's DH answers about the
+                                    ; PRIMARY (SPEC.md 39.2.1) - right for
+                                    ; sizing a window and wrong for this, and
+                                    ; taking both from one call is what keeps
+                                    ; mc_mono and mc_caps from disagreeing
+                                    ; about which monitor this game is on.
+    mov bx, mc_s_xcmd               ; ...and the menu item says WHY not, from
+    test ax, 1 << FSXM_MODEX        ; the mask read above. mc_cmd_modex
+    jnz .fsxok                      ; refuses with the same bit - one
+    mov bx, mc_s_xcmdn              ; predicate for both (SPEC.md 47/53.4)
 .fsxok:
-    mov [mc_mi_game+6], dx
+    mov [mc_mi_game+6], bx
+
+    xor bx, bx                      ; BL = mc_mono, CH = mc_ecoarse and
+    mov cx, MC_EXPFR                ; CL = mc_expfr: bss is zeroed, and a life
+                                    ; of zero kills every burst on the frame
+                                    ; it is lit, so every branch writes all
+                                    ; three
+    cmp dl, VID_VGA                 ; BOTH planar kinds are 4bpp - EGA is
+    je .colour                      ; VGA's path at 350 rows (SPEC.md 39.24) -
+    cmp dl, VID_EGA                 ; so the depth is two compares, not one
+    je .colour
+    inc bx                          ; a 1bpp adapter, or a tier-0 CPU, gets
+    jmp short .coarse               ; the three-state explosion (SPEC.md
+.colour:                            ; 48.8). Both are FACTS this code can
+    call OSAPI_CPU_INFO             ; test, which is the honest way to spend
+    cmp al, CPU_8086                ; an optimisation only the slow machine
+    jne .fine                       ; needs (PERFORMANCE.md rule 10). The
+.coarse:                            ; 1bpp half is banked as well, because
+    mov cx, 0x100 + MC_EXPFR3       ; SPEC.md 48.21's trail pens want it
+.fine:
+    mov [mc_mono], bl
+    mov [mc_ecoarse], ch
+    mov [mc_expfr], cl
     jmp mc_pop_4
 
 ; -----------------------------------------------------------------------------
@@ -7527,8 +7521,6 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
 %endmacro
 
 ; --- the screen and the window --------------------------------------------------
-    MWORD mc_scrw
-    MWORD mc_dock
     MBYTE mc_fs                     ; we hold the screen (SPEC.md 11.2)
     MWORD mc_win
     MWORD mc_ox

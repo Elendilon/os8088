@@ -87711,6 +87711,7 @@ of them consumes the random stream differently, so a game plays out the same.
 | before pass 2 | 10,689 | 13,463 | 2,430 |
 | one slot fill for both kinds, the targets as one run | 10,542 | 13,065 | 2,430 |
 | `mc_redraw_trails` walks both kinds with one body | 10,524 | 12,993 | 2,430 |
+| the window sized in registers, `mc_adapter` in three stores | 10,489 | 12,946 | 2,426 |
 
 **The ICBM and ABM records are laid out alike**, field for field from
 `[mc_ia]`/`[mc_aa]`, and `MC_ABMD` is the distance between them - asserted
@@ -87739,6 +87740,11 @@ displacements and the packer had matched the rest. The per-frame trail loops
 (`mc_wipe_trails`, `mc_move_trails`) keep their two copies: one body there
 would cost every frame a bias subtraction per slot, and their packed weight
 is the same story as this one's.
+
+`mc_entry` sizes the window in registers - the screen's width and the dock's
+row stay in SI and DI from `OSAPI_VIDEO`, so `mc_scrw` and `mc_dock` left the
+bss - and `mc_adapter` works its three facts out in BL, CH and CL and stores
+each once rather than setting and then overwriting them.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
