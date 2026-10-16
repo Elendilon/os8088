@@ -79158,6 +79158,45 @@ the bss starts at the image's end - it anchors its walk on the address of an
 instruction that names `sol_pcnt` and checks a second name the same way - and
 `tests/dispapps.py` reads names off nasm's own map, which never assumed it.
 
+#### 43.11.7 The third size pass (apps size pass 2: the DISK)
+
+Apps size pass 2 (docs/plans/HANDOFF-APPS-SIZE-P2.md) weighs a package by
+its SHIPPED FILE - the LZ4-packed `SOLITAIR.O88` and the clusters it takes on
+each 360KB disk it rides - because the disks are full. Its rules are pass
+1's with the measure changed: nothing removed, nothing on the screen moved,
+no hot path slower, and `image + bss` may not grow (on `APP_SMALL` not by a
+byte). Solitaire rides `apps360.img` and `games360.img` in the full build
+and `small360.img` and `smallapps360.img` in the small one.
+
+| | image | bss | image + bss | file (LZ4) |
+|---|---:|---:|---:|---:|
+| full, before | 4,595 | 1,140 | 5,735 | 4,259 |
+| `APP_SMALL`, before | 4,385 | 1,147 | 5,532 | 4,067 |
+
+**Every routine a frame, a click, a drag or a key runs is instruction-identical
+to the build before the pass** - compared routine by routine off nasm's two
+listings, source text and encoded length, so only the values of addresses
+differ. What changed is cold: the entry proc, `sol_metrics` and the set-up
+half of `sol_mkback`, which run at launch and on an adapter change only.
+
+| change | file, full | file, small | image + bss |
+|---|---:|---:|---:|
+| the metric records carry their DERIVED fields | −58 | −52 | −47 / −47 |
+
+**The metric records carry their derived fields.** `sol_metrics` copied a
+record of fourteen bytes into words and then worked out four more from them -
+the column pitch, the tableau's y, the waste's fan step - and the content
+width, which `sol_track` overwrites from the live window before anything
+reads it; `sol_mkback` worked out the back's stride. Every one of them is a
+function of the record and of nothing at run time, so the assembler computes
+them into it (`SOL_METD`) and the copy loop takes eighteen bytes instead of
+fourteen. The two words after each record are the frame that record lays
+out - the same `SOL_PW_*`/`SOL_PH_*` the published preference is made of -
+and `sol_metrics` leaves SI on them, so `sol_entry` reads its window size
+with two `lodsw` where it re-derived the width and picked the height on a
+compare. An assembly-time `%if` keeps the eighteen words contiguous in
+`.bss`.
+
 ### 43.12 `APP_SMALL` — the small build of this package
 
 Note Pad's §27.16 is the pattern and its rules hold. **There is very little to

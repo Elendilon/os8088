@@ -171,7 +171,7 @@ CAP_FND     equ 13                  ; a foundation: its suit, A..K
 CAP_SW      equ 24                  ; the stock and the waste: 52 - 28 dealt
 SOL_PILES   equ CAP_TAB*7 + CAP_FND*4 + CAP_SW*2
 
-SOL_NMET    equ 14                  ; words in a metrics record (sol_met_*)
+SOL_NMET    equ 18                  ; words in a metrics record (sol_met_*)
 
 ; --- THE FIELDS THE TWO PUBLISHED FRAME SIZES ARE A FUNCTION OF -------------
 ; Named once and spent twice - in the metric records at the bottom of this file
@@ -234,10 +234,17 @@ SOL_GHOST   equ CDGRAY              ; empty-slot outlines and their ghost
 ; callback left it pointing at our own segment and never put it back
 ; (SPEC.md 20.1 says it may).
 ; -----------------------------------------------------------------------------
-; sol_metrics - the card metric record this screen wants, and what it implies
+; sol_metrics - the card metric record this screen wants
 ; in:  BX = the screen HEIGHT
-; out: sol_cw.. filled, sol_pitch / sol_taby / sol_wstep / sol_cwid derived
-; clobbers: AX, BX, CX, SI, DI
+; out: sol_cw .. sol_stride filled; SI -> the record's frame width and height
+;      (two words, the frame sol_entry asks for)
+; clobbers: AX, CX, SI, DI
+;
+; EVERYTHING IS IN THE RECORD, the derived fields too (SPEC.md 43.11.7): the
+; pitch, the tableau's y, the waste's fan step and the back's stride are each
+; a function of the record and nothing else, so the assembler works them out
+; once per record rather than this routine working them out per call. The
+; content width is not kept: sol_track reads it off the live window.
 ; -----------------------------------------------------------------------------
 sol_metrics:
     mov si, sol_met_big             ; Hercules' 348 rows still take the big
@@ -256,27 +263,6 @@ sol_metrics:
     stosw
     loop .mcopy
     pop es
-
-    mov ax, [sol_topy]              ; the tableau clears the top row by the
-    add ax, [sol_ch]                ; record's own gap - two of sol_gap on the
-    add ax, [sol_tgap]              ; big record, less on the small one, where
-    mov [sol_taby], ax              ; every pixel here is one sol_colfan does
-                                    ; not have to take from the cards
-    mov ax, [sol_cw]                ; the waste fans right by a third of a
-    mov bl, 3                       ; card, into the empty column the layout
-    div bl                          ; leaves between it and the foundations
-    mov ah, 0
-    mov [sol_wstep], ax
-
-    mov ax, [sol_cw]                ; column pitch
-    add ax, [sol_gap]
-    mov [sol_pitch], ax
-    mov bl, 7                       ; content width = 2 margins + 7 columns
-    mul bl                          ; (7 * 36 is a word: `mul bl` answers AX)
-    add ax, [sol_marg]
-    add ax, [sol_marg]
-    sub ax, [sol_gap]
-    mov [sol_cwid], ax              ; ...and AX, which sol_entry reads
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1337,7 +1323,7 @@ sol_maskrun:
 ; sol_mkback - render the card back into a packed 4bpp image, once
 ; in:  the metrics; called from the entry proc (no lock held, nothing drawn)
 ;      and from sol_onresize, which may not draw either - this writes RAM only
-; out: [sol_backbuf] filled, [sol_stride] set, CF = 0; preserves all
+; out: [sol_backbuf] filled at [sol_stride], CF = 0; preserves all
 ;      registers. sol_backbuf STARTS ON sol_entry (SPEC.md 43.11.6), so this
 ;      must never be called before the entry proc is done with itself
 ;
@@ -1365,9 +1351,6 @@ sol_mkback:
     push dx
     push si
     push di
-    mov ax, [sol_cw]
-    shr ax, 1
-    mov [sol_stride], ax
     mov dl, CBLUE * 0x11            ; DL = the field, in BOTH nibbles, so a
     cmp byte [sol_bpp], 4           ; pixel is a byte masked to its half
     je .have
@@ -2970,16 +2953,42 @@ sol_pofs:
 
 ; --- metrics records (SOL_NMET bytes each, widened into bss by sol_metrics) ------
 ; card w, card h, gap, margin, top row y, face-down fan, face-up fan,
-; rank x, rank y, corner pip x, corner pip y, centre pip x, centre pip y.
+; rank x, rank y, corner pip x, corner pip y, centre pip x, centre pip y,
+; foundation row to tableau - and then the four DERIVED fields, which the
+; assembler works out here rather than sol_metrics at run time (SPEC.md
+; 43.11.7): the column pitch, the tableau's y (the top row cleared by the
+; record's own gap - two of sol_gap on the big record, less on the small one,
+; where every pixel is one sol_colfan does not have to take from the cards),
+; the waste's fan step (a third of a card, into the empty column the layout
+; leaves between it and the foundations) and the card back's stride (two
+; pixels a byte). Then two WORDS that are not copied: the frame sol_entry asks
+; for, which sol_metrics leaves SI pointing at.
 ; The face-up fan must clear the rank glyph's 8 rows or a buried card cannot
 ; be read; both records do.
 ; BYTES, widened by sol_metrics' `cbw` - so every field must stay under 128.
+%macro SOL_MET 1
+    db SOL_CW_%1, SOL_CH_%1, SOL_GAP_%1, SOL_MARG_%1, SOL_TOPY_%1
+    db SOL_FAND_%1, SOL_FANU_%1
+%endmacro
+%macro SOL_METD 1
+    db SOL_TGAP_%1
+    db SOL_CW_%1 + SOL_GAP_%1                       ; sol_pitch
+    db SOL_TOPY_%1 + SOL_CH_%1 + SOL_TGAP_%1        ; sol_taby
+    db SOL_CW_%1 / 3                                ; sol_wstep
+    db SOL_CW_%1 / 2                                ; sol_stride
+    dw SOL_PW_%1, SOL_PH_%1                         ; the frame (not copied)
+%endmacro
 sol_met_big:                        ; VGA 640x480 and Hercules 720x348
-    db SOL_CW_B, SOL_CH_B, SOL_GAP_B, SOL_MARG_B, SOL_TOPY_B, SOL_FAND_B
-    db SOL_FANU_B, 3, 3, 21, 3, 8, 22, SOL_TGAP_B
+    SOL_MET B
+    db 3, 3, 21, 3, 8, 22
+    SOL_METD B
 sol_met_sml:                        ; CGA 640x200, over the dock: 179 rows
-    db SOL_CW_S, SOL_CH_S, SOL_GAP_S, SOL_MARG_S, SOL_TOPY_S, SOL_FAND_S
-    db SOL_FANU_S, 2, 2, 18, 2, 6, 10, SOL_TGAP_S
+    SOL_MET S
+    db 2, 2, 18, 2, 6, 10
+    SOL_METD S
+%if sol_met_sml - sol_met_big != SOL_NMET + 4
+%error "a metrics record is SOL_NMET bytes and the frame's two words"
+%endif
 
 ; --- suit pips, 1 bit per pixel, the leftmost pixel the top bit -------------
 ; Solid for every suit on a colour screen; on 1bpp the two red suits are drawn
@@ -3056,18 +3065,17 @@ sol_entry:
     push ax                         ; the width and the dock row are for the
     push cx                         ; placement below, and for nothing else
 
-    call sol_metrics            ; the card metrics this screen wants, and
-                                ; everything derived from them - re-run by
-                                ; sol_onresize (SPEC.md 11.98)
-    add ax, 2                       ; ...plus the 1px frame either side
+    call sol_metrics            ; the card metrics this screen wants - re-run
+                                ; by sol_onresize (SPEC.md 11.98) - and SI ->
+                                ; the frame that record lays out: the content
+    lodsw                       ; width plus the 1px frame either side...
     mov [sol_tpl + WT_W], ax
-
+    lodsw                           ; ...and the tallest column the game can
+                                    ; build - 6 face-down and 13 face-up - as a
+                                    ; frame height. Both ARE the published
+                                    ; preference's numbers for the record
+                                    ; (the two are one formula, at the top)
     pop dx                          ; DX = the dock's first row
-    mov ax, SOL_PH_B                ; the tallest column the game can build -
-    cmp byte [sol_cw], SOL_CW_B     ; 6 face-down and 13 face-up - as a frame
-    je .tall                        ; height. It IS the published preference's
-    mov ax, SOL_PH_S                ; number for the record sol_metrics took
-.tall:                              ; (the two are one formula, at the top)
     mov bx, dx                      ; ...clamped to the desktop band, and ONE
     sub bx, MBAR_H + 1              ; PIXEL SHORT of it: the kernel tests
                                     ; y+h against the dock's first row with
@@ -3234,8 +3242,8 @@ sol_bssbase equ sol_backbuf + SOL_BACKMAX
 %endmacro
 
 ; --- the metrics, copied WHOLESALE out of sol_met_* --------------------------
-; These thirteen words must stay in this order and stay contiguous: sol_entry
-; copies the record over them with one loop.
+; These eighteen words must stay in this order and stay contiguous:
+; sol_metrics copies the record over them with one loop.
     SWORD sol_cw                    ; card width
     SWORD sol_ch                    ; card height
     SWORD sol_gap                   ; gap between columns
@@ -3254,11 +3262,14 @@ sol_bssbase equ sol_backbuf + SOL_BACKMAX
                                     ; one, which is a decision about a 200-row
                                     ; screen rather than a derived number
 
-; --- derived once, in sol_entry ----------------------------------------------
+; --- ...and the four the record carries ready DERIVED (SPEC.md 43.11.7) -----
     SWORD sol_pitch                 ; card width + gap
     SWORD sol_taby                  ; content y of the tableau
     SWORD sol_wstep                 ; the waste's horizontal fan step
     SWORD sol_stride                ; bytes per row of the back image
+%if sol_stride + 2 - sol_cw != SOL_NMET * 2
+%error "sol_metrics copies SOL_NMET words from sol_cw: keep them contiguous"
+%endif
 
 ; --- refreshed by sol_track, every callback ----------------------------------
     SWORD sol_ox                    ; content origin, screen coords
