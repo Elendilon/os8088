@@ -2269,7 +2269,15 @@ def no_saver(m):
         until(m, booted, "the boot to apply its settings before the saver "
               "is turned off", poll=0.05, guest=300.0)
     m.write(S("ss_idle"), b"\0\0")
-    m.write(S("ss_mins"), b"\0")
+    # [ss_mins] is kern_big's alone since kernel size pass 13: kern_small reads
+    # no SYSTEM.CFG and carries no ss_mins2idle, so nothing there can put the
+    # period back and [ss_idle] is the whole of the setting
+    try:
+        mins = S("ss_mins")
+    except KeyError:
+        mins = None
+    if mins is not None:
+        m.write(mins, b"\0")
 
 
 def _syms():
