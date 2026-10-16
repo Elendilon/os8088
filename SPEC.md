@@ -78530,6 +78530,17 @@ the keeping form's call without its `pushf`/`push`/`pop`/`popf` bracket — the
 proc states its CF with the `clc` 42.6.4 put at its end, so no flag is owed
 across it. **−24 image, −33 file, −32 on the small arm.**
 
+**The callbacks bank what their contracts ask and no more.** W_PAINT owes
+back SI and DF = 0 (§11's `W_PAINT`), W_ONCLICK, W_ONKEY and the ONDRAG
+edge give SI back and may clobber AX–DI and ES (§13.14, §20.3), and a
+relocation proc may clobber all of them (§66.3, author rule 1). `pt_paint`,
+`pt_click` and `pt_onkey` banked six registers each; they bank SI. `pt_ondrag`,
+which writes no SI, and `pt_reloc` bank nothing. The two callbacks Paint
+also calls itself are safe for it: `pt_fsx_main` re-reads the mouse after
+`pt_click`, and `pt_fsx_key` banks the two registers it needs around
+`pt_onkey`. `pt_onup` keeps its saves, because `pt_fsx_main` reads AH, CX
+and DX after it. **−34 image, −26 file, −17 on the small arm.**
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather

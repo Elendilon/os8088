@@ -1261,7 +1261,7 @@ pt_alloc:
 ; pt_reloc - THE HEAP COMPACTOR MOVED ONE OF OUR CLAIMS (SPEC.md 66.2)
 ; in:  BX = the base segment it WAS at, DX = the base it is at NOW.
 ;      DS = CS = ours, ES = KERNEL_SEG. The bytes have already moved.
-; out: nothing; every register preserved
+; out: nothing; may clobber AX-DI and ES (SPEC.md 66.3, author rule 1)
 ;
 ; The kernel packs the data arena down when a claim would otherwise be
 ; refused, and tells each holder afterwards. What it CANNOT do is know what
@@ -1290,11 +1290,8 @@ pt_alloc:
 ; It claims nothing, frees nothing, yields nothing and draws nothing, which
 ; is SPEC.md 66.3 rule 3.
 ; -----------------------------------------------------------------------------
-pt_reloc:
-    push ax
-    push cx
-    push si
-    push di
+pt_reloc:                           ; (a relocation proc may clobber AX-DI and
+                                    ; ES, SPEC.md 66.3 author rule 1: it banks none)
     cmp bx, [pt_base]
     jne .notcv
     mov [pt_base], dx
@@ -1331,10 +1328,6 @@ pt_reloc:
     mov [pt_undelta], ax
 %endif
 .out:
-    pop di
-    pop si
-    pop cx
-    pop ax
     ret
 
 pt_rltab:
@@ -5313,13 +5306,8 @@ pt_onup:
 ; -----------------------------------------------------------------------------
 ; pt_ondrag - W_ONDRAG (SPEC.md 13.8.1): the pointer moved, press still down
 ; -----------------------------------------------------------------------------
-pt_ondrag:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+pt_ondrag:                      ; (W_ONCLICK's rules: it may clobber all but
+                                ; SI, and nothing here writes SI)
     call os88ui_armed           ; PEEK: the arm is the release's to spend
     or ax, ax
     jz .out
@@ -5333,7 +5321,7 @@ pt_ondrag:
     mov [pt_adown], al
     call pt_szdraw_apply
 .out:
-    jmp pt_ld_6
+    ret
 
 pt_szapply:
     push ax
@@ -5782,7 +5770,7 @@ pt_brush:
 ; -----------------------------------------------------------------------------
 ; pt_paint - W_PAINT: chrome, then the picture
 ; in:  SI = window ptr (content already white-filled, gfx lock held)
-; out: nothing; preserves all registers
+; out: nothing; SI and DF = 0 kept, the rest may be clobbered (W_PAINT)
 ; -----------------------------------------------------------------------------
 ; pt_anch - what has moved since the last paint drew it? (SPEC.md 42.19.3)
 ; in:  pt_org and pt_track have run, so [pt_ox]/[pt_oy]/[pt_cw]/[pt_ch] are
@@ -5850,12 +5838,9 @@ pt_anch:
 
 ; -----------------------------------------------------------------------------
 pt_paint:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    push si                         ; W_PAINT owes back SI and DF = 0 and
+                                    ; nothing else (SPEC.md 11's W_PAINT), so
+                                    ; nothing else is banked
     call pt_flush                   ; SPEC.md 42.8.8: a stroke in flight has
     mov bx, si                      ; ink the canvas has not got yet, and this
     call pt_org                     ; is about to draw FROM the canvas
@@ -5970,7 +5955,8 @@ pt_paint:
     mov dx, 24
     call pt_ctext
 .out:
-    jmp pt_ld_6
+    pop si
+    ret
 
 ; =============================================================================
 ; Screen-only drawing in canvas coordinates
@@ -6677,18 +6663,15 @@ pt_fsx_key:
 ; -----------------------------------------------------------------------------
 ; pt_click - W_ONCLICK: route the press to the palette, the strip or a tool
 ; in:  CX = x, DX = y (absolute screen), SI = window ptr; gfx lock held
-; out: nothing; preserves all registers
+; out: nothing; SI kept, AX-DI and ES may be clobbered (a window callback)
 ; -----------------------------------------------------------------------------
 %endif   ; PTF_FSX - the [pt_fs]/[pt_fsx] state bytes stay in both builds and
          ; simply read 0 here, so the dozen places that ask "are we full
          ; screen?" need no gate of their own and keep their one compare
 pt_click:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    push si                         ; W_ONCLICK gives SI back and may clobber
+                                    ; the rest (SPEC.md 13.14); pt_fsx_main,
+                                    ; the other caller, re-reads everything
     cmp byte [pt_mode], PT_M_LIVE
     jne .out
     mov bx, si
@@ -6724,7 +6707,8 @@ pt_click:
     je .done
     call pt_draw_dims
 .done:
-    jmp pt_ld_6
+    pop si
+    ret
 
 ; -----------------------------------------------------------------------------
 ; pt_pal_click - a press in the tool column
@@ -10631,15 +10615,12 @@ pt_bs:
 ; -----------------------------------------------------------------------------
 ; pt_onkey - W_ONKEY: typing, and the two editing keys
 ; in:  AL = ascii, AH = scan, SI = window ptr; gfx lock held
-; out: nothing; preserves all registers
+; out: nothing; SI kept, AX-DI and ES may be clobbered (a window callback)
 ; -----------------------------------------------------------------------------
 pt_onkey:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    push si                         ; W_ONKEY: SI back, the rest free (and
+                                    ; pt_fsx_key, the other caller, banks
+                                    ; what it needs itself)
     cmp byte [pt_mode], PT_M_LIVE
     jne .out
     mov [pt_key], ax
@@ -10744,7 +10725,8 @@ pt_onkey:
     call pt_cmd_fs                  ; the View menu's own routine: the two
 %endif
 .out:                               ; doors onto one command cannot drift
-    jmp pt_ld_6
+    pop si
+    ret
 
 ; =============================================================================
 ; Menus (SPEC.md 12.2)
