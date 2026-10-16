@@ -86384,6 +86384,17 @@ back-references. So the pass went after bytes that occur once.
   itself, the close box's continuation taking `AT_PEND_CLOSE`, a number no
   command has. The orders those subtractions need are assembly-time
   assertions. -36 file bytes.
+- **`at_respan` is the `NOATRESPAN` arm's alone.** §46.3.2 took its one call
+  into that knob, and the routine went on assembling into every shipped
+  build with nothing to call it. -36 file bytes.
+- **The hot code is where it was measured.** Every edit above is in cold
+  code, but deleting `at_draw_cline` moved the caret and scroll group
+  (`at_caret_on` .. `at_sbar`) by an ODD amount, which an 8088 does not
+  notice and an 8086 or a 286 does (PERFORMANCE.md Part 7). `at_bigtext`, a
+  cold routine of odd size, now sits in the gap that left, so all 83
+  keystroke, render, caret and drag routines are byte-identical to the pass's
+  base at an even shift - `tools/os88rdiff.py --hot` is the check - for no
+  pad byte. Hot-path cycles are therefore unchanged, and none were re-taken.
 
 ## 47. Disabled controls — the greying standard (binding)
 
