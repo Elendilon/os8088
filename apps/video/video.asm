@@ -6056,10 +6056,15 @@ vp_xipq:
     jnz .no
     cmp byte [vp_snd], VP_SPK       ; (the speaker's clock: 98.3.18.5)
     je .no
+    mov al, [vp_noinp]              ; (a gate's: the copying hold, the A/B)
 %ifndef LA_SIM
-    cmp byte [vp_tier], CPU_286
-    jne .no
+    cmp byte [vp_tier], CPU_8086    ; a 286 by LOADALL, a 386 by a loaded
+    jne .tier                       ; base (98.3.18.14)
+    inc ax
+.tier:
 %endif
+    or al, al
+    jnz .no
     call vp_xok
     jc .no
     mov word [vp_kr], VP_KBIG
@@ -6123,8 +6128,8 @@ vp_xbipq:
     cmp word [vp_xbn], 3            ; (two slots and the mirror, at least)
     jb .no
 %ifndef LA_SIM
-    cmp byte [vp_tier], CPU_286
-    jne .no
+    cmp byte [vp_tier], CPU_8086    ; a 286 by LOADALL, a 386 by a loaded
+    je .no                          ; base (98.3.18.14)
 %endif
     call vp_xok
     jc .no
@@ -6287,10 +6292,13 @@ vp_xok:
     jne .bad
     mov byte [vp_xchk], 2
 %ifndef LA_SIM
+    cmp byte [vp_tier], CPU_386     ; a 386 loads a base (98.3.18.14): the
+    jae .noprobe                    ; compare below is its whole check
     mov byte [la_csacc], 0x93
     call la_capture
     call la_probe
     jc .bad
+.noprobe:
 %else
     push dx
     mov ax, 64
@@ -6406,6 +6414,8 @@ vp_xbeg:
 ; Every general register and ES preserved
 vp_xld:
 %ifndef LA_SIM
+    cmp byte [cs:vp_tier], CPU_386
+    jae vp_ubld                     ; a 386: a loaded base (98.3.18.14)
     push ax
     push dx
     mov ax, [cs:vp_xpc]
@@ -6431,16 +6441,40 @@ vp_xld:
 ; vp_xfin - VP_DSEND's: the cells back, DS = ours, ES as it was. IF = 0
 vp_xfin:
     push es
-%ifndef LA_SIM
-    call la_restore
-%else
-    push cs
-    pop ds
-%endif
+    call vp_xrst
     pop es
     mov byte [vp_xact], 0
     mov word [vd_ylim], 0xFFFF
     ret
+
+; vp_xrst - the borrow's end, either tier's: DS = ours again (a 286's API
+; cells put back first, la_restore). IF = 0. ES may be anything after it: the
+; callers keep their own. Every general register kept
+vp_xrst:
+%ifndef LA_SIM
+    cmp byte [cs:vp_tier], CPU_386
+    jb la_restore                   ; (...and its ret is ours)
+%endif
+    push cs                         ; a 386's base, or LA_SIM's shadow: one
+    pop ds                          ; real-mode load and it is gone
+    ret
+
+%ifndef LA_SIM
+; vp_ubld - vp_xld on a 386 (SPEC.md 98.3.18.14, 41.15): DS's hidden base
+; loaded with [vp_xpc] through os88ub.inc's moment of protected mode - the
+; same window LOADALL gives a 286, without the API table borrowed. IF = 0.
+; Every general register and ES preserved
+cpu 386
+vp_ubld:
+    push eax
+    push cs
+    pop ds                          ; (ub_set's rule: DS = our image)
+    mov eax, [vp_xpc]
+    call ub_set
+    pop eax
+    ret
+cpu 8086
+%endif
 
 ; vd_ylset - [vd_ylim] = SI + VP_XYB, or FFFFh where that wraps. Preserves
 ; all but flags
@@ -6468,16 +6502,10 @@ vd_yield:
     push word [cs:vp_xpc]
     push word [cs:vp_xpc + 2]
     push es
-%ifndef LA_SIM
-    call la_restore
-%else
-    push cs
-    pop ds
-%endif
+    call vp_xrst
     pop es
-%ifdef LA_SIM
-    inc word [cs:vp_simyc]          ; (a test build: tests/vidxip.py counts)
-%endif
+    inc word [cs:vp_simyc]          ; (tests/vidxip.py counts: every build
+                                    ; since a 386 goes in place on QEMU)
     sti                             ; an interrupt owed since the borrow is
     nop                             ; taken here
     nop
@@ -6588,6 +6616,9 @@ vp_xfill1:
     jmp ..@vp_fillgot
 %ifndef LA_SIM
 %include "os88la.inc"               ; the borrow (SPEC.md 41.13)
+%define UB_DS                       ; ...and a 386's: DS's base alone
+%include "os88ub.inc"               ; (SPEC.md 41.15, 98.3.18.14)
+    UB_DATA
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -6712,6 +6743,12 @@ vp_bksay:
     xchg ax, bx
     shl bx, 1
     mov si, [vp_bknames + bx]
+    cmp bl, 2 * 7                   ; in place (7, 8) on a 386: its own
+    jb .nm                          ; words (98.3.18.14)
+    cmp byte [vp_tier], CPU_386
+    jb .nm
+    mov si, [vp_bknames + bx + 4]
+.nm:
     call vp_puts
     dec bx                          ; BX = 2 x the kind - 2: 0 to 4 for the
     dec bx                          ; three that have a size, 1 to 3 - and
@@ -19576,7 +19613,7 @@ vp_s_file:    db 'File: ', 0
 vp_s_none:    db 'Open a .V88 to play it', 0
 vp_s_ready:   db 'Space plays and pauses; Esc stops', 0
 vp_bknames:   dw vp_s_bk0, vp_s_bk1, vp_s_bk2, vp_s_bk3, vp_s_bk4, vp_s_bk5
-              dw vp_s_bk6, vp_s_bk7, vp_s_bk8
+              dw vp_s_bk6, vp_s_bk7, vp_s_bk8, vp_s_bk9, vp_s_bk10
 vp_s_bk0:     db 'No bank: the disk alone', 0
 vp_s_bk1:     db 'Banked in XMS, ', 0
 vp_s_bk2:     db 'Banked in EMS, ', 0
@@ -19586,6 +19623,8 @@ vp_s_bk5:     db 'XMS bank idle: the speaker', 0
 vp_s_bk6:     db 'EMS too slow: the disk alone', 0
 vp_s_bk7:     db 'XMS in place (LOADALL)', 0
 vp_s_bk8:     db 'XMS bank in place (LOADALL), ', 0
+vp_s_bk9:     db 'XMS in place (386)', 0
+vp_s_bk10:    db 'XMS bank in place (386), ', 0
 vp_s_lydrew:  db 'Layer drew ', 0
 vp_s_lyoff:   db 'Layer off: key ', 0
 vp_s_lyofb:   db 'Layer off: bench ', 0
@@ -20198,9 +20237,7 @@ vp_xpc:       dd 0                  ; ...the open borrow's DS base, linear
 vp_xpend:     times 16 dd 0         ; ...vp_xaddr's handles' bases
 vp_xslo:      times VP_KBIG dd 0    ; ...each slot's chunk, its file offset
 vp_simseg:    dw 0                  ; ...LA_SIM's shadow (a test build)
-%ifdef LA_SIM
-vp_simyc:     dw 0                  ; ...and its yields that opened a window
-%endif
+vp_simyc:     dw 0                  ; ...the yields that opened a window
 %ifndef LA_SIM
               LA_DATA               ; apps/os88la.inc's state
 %endif

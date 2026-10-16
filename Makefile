@@ -3742,7 +3742,7 @@ $(BUILD)/sound.drv: $(BUILD)/sound.bin tools/os88drv.py $(PKGZSTAMP)
 # The store above 1MB (SPEC.md 41.12). An OVERLAY, not a driver: os88drv.py
 # stamps it and names it 'overlay' because its class byte is DRVC_OVL, which
 # the kernel deliberately does not know - so nothing can load it but xm_boot.
-$(BUILD)/xmem.bin: drivers/xmem/xmem.asm drivers/os88drv.inc apps/os88api.inc apps/os88la.inc \
+$(BUILD)/xmem.bin: drivers/xmem/xmem.asm drivers/os88drv.inc apps/os88api.inc apps/os88la.inc apps/os88ub.inc \
                    | $(BUILD)
 	$(NASM) -f bin -w+error -I drivers/ -I apps/ -o $@ drivers/xmem/xmem.asm
 	@echo "xmem:   $(call FILESIZE,$@) bytes"

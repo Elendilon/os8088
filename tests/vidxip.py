@@ -1,25 +1,32 @@
 #!/usr/bin/env python3
-"""VIDEO.O88 decodes a file held in XMS IN PLACE - SPEC.md 98.3.18.11.
+"""VIDEO.O88 decodes a file held in XMS IN PLACE - SPEC.md 98.3.18.11,
+98.3.18.14.
 
-    make && python3 tests/vidxip.py [--arm silent|snd|ahead]
+    make && python3 tests/vidxip.py [--arm silent|snd|ahead|bank...] [--sim]
 
-THE INSTRUCTION IS A 286's AND NO EMULATOR HERE HAS ONE: MartyPC is an 8088,
-QEMU a 386, 86Box unscriptable. So this runs the player built with LA_SIM -
-a test build, never shipped - in which a borrow, instead of executing
-LOADALL, COPIES the 64 KB window out of XMS into a shadow through a flat FS
-and points DS at it. Everything around the instruction is the shipped code:
-vp_xipq's choice, the reader noting offsets and copying nothing, vp_addr's
-handles, every VP_DSDX/VP_DSEND site, the yields at vdec.inc's live sites,
-the session's end turning them off. The instruction itself is proven on the
-owner's 286 by VIDDISK L and XMEM.DRV's attach (SPEC.md 41.13).
+QEMU IS A 386, AND SINCE 98.3.18.14 A 386 GOES IN PLACE TOO: a borrow there
+loads DS's hidden base through a moment of protected mode (apps/os88ub.inc)
+where a 286 executes LOADALL. So the in-place play is the SHIPPED player
+running the shipped instruction sequence - every part of it but the 286's
+instruction itself, which is proven on the owner's 286 by VIDDISK L and
+XMEM.DRV's attach (SPEC.md 41.13): vp_xipq's choice, the reader noting
+offsets and copying nothing, vp_addr's handles, every VP_DSDX/VP_DSEND site,
+the yields at vdec.inc's live sites, the session's end turning them off.
 
-TWO BOOTS, ONE FLOW: the shipped player, then the LA_SIM one. Each opens a
-640 x 200 one-bit clip in the VGA's own layout (so it decodes natively, not
-through the shadow in-place refuses), lets the window's timer load it whole
-into XMS, makes B: a BLANK floppy - nothing can come off the disk - and
-plays it to the last frame. The LA_SIM play must have been IN PLACE
-([vp_xip] seen 1, [vp_xchk] 1), draw every frame with no error, and leave
-the window's pixels identical to the copying play's.
+`--sim` runs the in-place play on the LA_SIM build instead - a test build,
+never shipped, in which a borrow COPIES the 64 KB window out of XMS into a
+shadow through a flat FS. It was this row's only in-place play while a 386
+copied; it is kept so the stand-in still assembles and still plays.
+
+TWO BOOTS, ONE FLOW: the shipped player COPYING - `[vp_noinp]` written 1
+before Play, the gate's A/B, which refuses in place on every tier - then the
+shipped player in place. Each opens a 640 x 200 one-bit clip in the VGA's
+own layout (so it decodes natively, not through the shadow in-place
+refuses), lets the window's timer load it whole into XMS, makes B: a BLANK
+floppy - nothing can come off the disk - and plays it to the last frame. The
+in-place play must have been IN PLACE ([vp_xip] seen 1, [vp_xchk] 1), draw
+every frame with no error, and leave the window's pixels identical to the
+copying play's.
 
 ARM snd adds QEMU's SB16 and a SYSTEM.CFG that wants SOUND.DRV, and a clip
 with sound: the audio is then copied to the card's ring out of the hold,
@@ -28,8 +35,10 @@ inside a borrow (vp_aput's VP_DSDX), every frame.
 Broken on purpose (each measured): vp_xaddr returning the chunk's slot
 offset without the hold's base draws garbage and the windows differ; with
 vd_ypatch's `mov word [bx], 0x9090` taken out the play is still right but
-no yield opens a window ([vp_simyc], a test build's counter) - the row also
-asserts the yields ran.
+no yield opens a window ([vp_simyc], counted in every build) - the row also
+asserts the yields ran. And with vp_ubld's `call ub_set` taken out the
+in-place play reads the package's own bytes as the clip and fails on the
+16-byte check (vp_xok), so the play copies and the row fails on it.
 """
 import argparse
 import os
@@ -102,9 +111,13 @@ def clip(tmp, snd, ahead=0, lev=False):
     return out
 
 
+LASIM = False                           # --sim: the in-place play on LA_SIM
+
+
 def build(tmp, sim, defs=()):
     b = os.path.join(tmp, "video%s.bin" % ("sim" if sim else ""))
     o = os.path.join(tmp, "sim" if sim else "ship", "VIDEO.O88")
+    sim = sim and LASIM
     os.makedirs(os.path.dirname(o), exist_ok=True)
     subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/"]
                    + (["-DLA_SIM"] if sim else [])
@@ -116,10 +129,10 @@ def build(tmp, sim, defs=()):
 
 
 def one(tmp, sim, snd, v88, bank=False, ekr=0, dry=0):
-    tag = "sim" if sim else "ship"
+    tag = "sim" if sim else "ship"      # (sim: the IN-PLACE play)
     defs = ("VP_RDSLOW=%d" % dry,) if dry and sim else ()
     syms, _ = pkg_syms("apps/video/video.asm", ("apps/",),
-                       (("LA_SIM",) if sim else ()) + defs)
+                       (("LA_SIM",) if sim and LASIM else ()) + defs)
     pkg = build(tmp, sim, defs)
     d = os.path.join(tmp, tag)
     disk = os.path.join(d, "d.img")
@@ -192,6 +205,8 @@ def one(tmp, sim, snd, v88, bank=False, ekr=0, dry=0):
         wait(lambda: rb("vp_loaded") == 1, "the clip's header", 30)
         if rb("vp_ok") != 1:
             raise SystemExit("vidxip (%s): the player will not play it" % tag)
+        if not sim:                     # THE COPYING PLAY: the gate's A/B,
+            qpoke(q, [(base + syms["vp_noinp"], b"\1")])   # every tier
         if bank:                        # BIGGER THAN THE POOL: a bank, and
             wait(lambda: rb("vp_xon") == 1 and rb("vp_xbank") == 1,
                  "the bank", 60)        # B: stays, the play reads it
@@ -251,7 +266,7 @@ def one(tmp, sim, snd, v88, bank=False, ekr=0, dry=0):
         res.update(secs=time.time() - t0)
         res.update(diffs=diffs, done=rw("vp_done"), err=rb("vp_err"), xip=xip,
                    chk=rb("vp_xchk"), snd=rb("vp_snd"), yields=yields,
-                   ywin=rw("vp_simyc") if sim else 0, lbk=rb("vp_lbk"),
+                   ywin=rw("vp_simyc"), lbk=rb("vp_lbk"),
                    ahead=rb("vp_ahead"), xbn=rw("vp_xbn"),
                    kr=krm,
                    sites=u16(q.read(base + syms["..@vd_y1"], 2))
@@ -301,9 +316,12 @@ def main():
                                       "bankwrap", "banksnd", "bankdry",
                                       "bankdrysnd"),
                     default="silent")
+    ap.add_argument("--sim", action="store_true",
+                    help="the in-place play on the LA_SIM test build")
     a = ap.parse_args()
     os.chdir(ROOT)
-    global NF
+    global NF, LASIM
+    LASIM = a.sim
     snd = a.arm not in ("silent", "bank", "bankwrap", "bankdry")
     bank = a.arm.startswith("bank")
     # BANKDRY: the bank in place RUN DRY (the owner's Victory at 14 wait
@@ -341,12 +359,12 @@ def main():
                 bad.append("the dry arm never ran dry (%.1f s for %.1f): "
                            "the leg tests nothing"
                            % (sim["secs"], NF / FPS))
-        print("   in-place play (LA_SIM): done %d err %d xip %d check %d "
+        print("   in-place play (%s): done %d err %d xip %d check %d "
               "snd %d; %d yields opened a window"
-              % (sim["done"], sim["err"], sim["xip"], sim["chk"], sim["snd"],
-                 sim["ywin"]))
+              % ("LA_SIM" if LASIM else "386", sim["done"], sim["err"],
+                 sim["xip"], sim["chk"], sim["snd"], sim["ywin"]))
         if ship["xip"]:
-            bad.append("the shipped player went in place on a 386")
+            bad.append("the copying play went in place: [vp_noinp] ignored")
         want = (1, 8) if bank else (4, 7)
         if (ship["lbk"], sim["lbk"]) != want:
             bad.append("the card's bank line: %d copying, %d in place, not "
@@ -371,7 +389,7 @@ def main():
             bad.append("the copying play drew %d of %d (error %d)"
                        % (ship["done"], NF, ship["err"]))
         if sim["xip"] != 1 or sim["chk"] != 1:
-            bad.append("the LA_SIM play was not in place (xip %d, check %d)"
+            bad.append("the in-place play was not in place (xip %d, check %d)"
                        % (sim["xip"], sim["chk"]))
         if sim["done"] != NF or sim["err"]:
             bad.append("the in-place play drew %d of %d (error %d)"

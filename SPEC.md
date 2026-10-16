@@ -75581,6 +75581,41 @@ in the include it costs no resident byte and no ABI, and it is the os88la.inc
 shape - written once, assembled by each caller. The Video Player is the first
 (98.3.18.12).
 
+### 41.15 Tier 2's loaded bases (2026-10-16)
+
+**On a 386 or better, a copy and a read in place both address extended
+memory through a segment's hidden BASE**, set by a moment of protected mode
+- the 386's counterpart of 41.13's LOADALL, and docs/plans/VIDEO-386-PLAN.md
+is the design record. `apps/os88ub.inc`'s `ub_set` writes a descriptor
+(base the linear address, limit 0FFFFh, access 93h - a real-mode segment's
+own), sets CR0.PE, loads DS and/or ES from it, clears PE and returns: about
+6 us, most of it the CMOS port's NMI mask that 41.4's arm also takes. Until
+the register is next loaded, `DS:SI` reaches that address with 16-bit code
+unchanged, and the first ordinary load afterwards leaves the register
+exactly as real mode makes it - no widened limit survives the window.
+
+**The rule is 41.13's**: a base dies at any segment load and every ISR loads
+DS and ES, so between `ub_set` and the caller's own reload interrupts stay
+off, and the caller's data is reached through CS:. A20 must be open (41.2);
+no tier-2 path calls the BIOS's block move, the one thing that might shut it.
+**Which registers** is the includer's choice at assembly time (`UB_DS`,
+`UB_ES`), and FS and GS are not among them: 41.4's rule that only XMEM.DRV
+writes those stands. A PACKAGE executing it is the same decision 41.13 took
+for LOADALL - the Video Player does, for its decode in place (98.3.18.14).
+
+**XMEM.DRV's tier-2 copy is built on it** (41.5): each chunk loads DS's base
+at the source and ES's at the destination and moves with one `rep movsd`,
+where it was a load/store loop through flat FS and GS at ~17-19 clocks a
+dword against `rep movsd`'s ~4 on a 386. MOVS had been ruled out only
+because its destination is ES:(E)DI and a flat ES would have been a widened
+ES left behind; a loaded base is not widened. `XM_UCHUNK` is 2 KB where it
+was 1 - by the same instruction count, `rep movsd` moves 2 KB in about the
+time the loop moved 1 on a 16 MHz 386SX, ~0.3 ms with IF = 0. FS and GS are
+still armed once at attach, because CPU_F_UNREAL is published and says so.
+The image 2,027 -> 2,041 bytes, inside its 2 KB claim; no kernel byte. **The
+speeds are ESTIMATED from instruction counts**, the profile's 0.05 ms a KB
+among them: no VIDDISK `X` has run on a 386 or a 486 yet.
+
 ## 42. Paint — the seventh package (apps/paint/paint.asm)
 
 A bitmap editor over the published package ABI. Prefix `pt_`, embedded
@@ -179239,6 +179274,47 @@ the wrong bytes takes it red at 36 of 39 holds (where the final window
 still matched); `banksnd` adds the SB16, the card's audio copied out of the
 bank through a borrow every frame. VIDEO.O88 +350 bytes, no kernel byte.
 
+
+##### 98.3.18.14 A 386 decodes in place too (2026-10-16)
+
+**On a 386 or better, 98.3.18.11's hold and 98.3.18.13's bank decode in
+place as they do on a 286**, with the borrow's instruction swapped: where a
+286 executes LOADALL, a 386 loads DS's hidden base through a moment of
+protected mode (SPEC.md 41.15, `apps/os88ub.inc`, `vp_ubld`). Nothing else
+changes - the handles, the fifteen `VP_DSDX`/`VP_DSEND` sites, the yields at
+`vdec.inc`'s `VD_YCK` sites, the bounce and the mirror, `vp_xok`'s 16 bytes
+read in place against `OSAPI_XMEM_COPY`'s - because the window the decoder
+sees is the same 64 KB from the same linear address either way. A borrow's
+end is one real-mode `push cs / pop ds` (`vp_xrst`), where a 286 also puts
+the API table back. Before this a 386 always copied: the hold one copy a
+byte and the bank two, where a 286 had none, on the strength of a copy rate
+for unreal mode that had never been measured (docs/plans/VIDEO-386-PLAN.md).
+
+**Taken where a 286's is taken and refused where it is refused**, on 98.3.18.11
+and 98.3.18.13's lists and for their reasons - none of which is the 286's
+instruction, so none is a 386's either. The speaker's clock stays refused on
+every tier: a borrow on a 386 is ~6 us rather than ~150, but the decode
+inside it still runs with interrupts off for up to `VP_XYB` record bytes,
+and one interrupt a sample cannot wait for that. **`[vp_noinp]` now refuses
+the hold in place as well as the bank**, which is what lets a gate on QEMU's
+386 - every gate that used to see a copying play there - ask for the copying
+path as the A/B. The check needs no probe: CR0.PE exists on every tier-2 CPU,
+and the 16-byte compare is what proves the base and the gate.
+
+**The card says so in its own words**: `XMS in place (386)` and `XMS bank in
+place (386), N KB` - the same `[vp_lbk]` 7 and 8, the words chosen by the
+tier when the line is drawn.
+
+**What it buys is the drain's copy on every record**, which on a 386 is a
+load/store loop through FS and GS at ~17-19 clocks a dword before SPEC.md
+41.15 and `rep movsd` after it, ESTIMATED at 0.14 ms a KB on a 386DX-33 by
+instruction count - comparable to the Victory 286's 0.17 by LOADALL - against
+a base load of ~6 us a borrow. `tests/vidxip.py` is the gate, and it is the
+first gate of an in-place play that runs the shipped instruction sequence:
+the shipped player copying (`[vp_noinp]` written) and then in place, on
+QEMU, every arm. `--sim` keeps LA_SIM's stand-in assembling and playing.
+`[vp_simyc]`, the yields that opened a window, is counted in every build now
+(+7 bytes). VIDEO.O88 53,683 -> 53,916 bytes (+233, `os88ub.inc` and its GDT the most of it), bss unchanged; no kernel byte.
 #### 98.3.22 The play's profile: every frame timed on the machine (2026-10-15)
 
 **A `VPDIAG=1` player times every frame it draws and saves the times**, so

@@ -165,6 +165,14 @@ INCLUDES = [
      "`la_restore`). Tier 1 only, behind the INT 6 probe. XMEM.DRV's tier-1 "
      "copy is built on it, so a package that only wants bytes moved wants "
      "OSAPI_XMEM_COPY, not this."),
+    ("os88ub.inc", "41.15",
+     "A 386's segment BASE loaded where it is wanted: `ub_set` puts DS's "
+     "and/or ES's hidden base at any linear address through a moment of "
+     "protected mode, limit 64 KB, so 16-bit code reads and writes extended "
+     "memory unchanged until the register is next loaded. The 386's answer "
+     "to os88la.inc, under the same cli rule. Tier 2 only. XMEM.DRV's "
+     "tier-2 copy is built on it, so a package that only wants bytes moved "
+     "wants OSAPI_XMEM_COPY, not this."),
     ("os88lzw.inc", "106.18",
      "LZW DECODE, GIF's flavour: Paint's reader with Paint taken out - a code "
      "past the table or a non-root after a Clear is refused, a chain cannot "
