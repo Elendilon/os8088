@@ -107,7 +107,6 @@ dc_build:
     push dx
     push si
     push di
-    push bp
     push es
     mov ax, [dc_y]
     mov bl, [dc_m]
@@ -183,7 +182,6 @@ dc_build:
     loop .a
 .done:
     pop es
-    pop bp
     pop di
     pop si
     pop dx

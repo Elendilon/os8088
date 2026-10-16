@@ -1624,9 +1624,8 @@ dc_fenter:
     push cx
     push si
     mov si, dc_ebuf
-    push word [dc_ebuf]         ; the parse trims: look, then put it back
-    call dc_ptime               ; BX = the time, DC_ALLDAY none
-    pop word [dc_ebuf]
+    call dc_ptime               ; BX = the time, DC_ALLDAY none (on a copy:
+                                ; the parse's trim never reaches dc_ebuf)
     mov byte [dc_ed], DCE_NEWA
     cmp bx, DC_ALLDAY
     jne .t
@@ -1957,37 +1956,6 @@ dc_tpage:
     inc bh
 .x:
     pop di
-    ret
-
-; dc_aday - AL = the day of appointment AL when its date is in the month on
-; show, else 0. Every other register kept
-dc_aday:
-    push bx
-    push cx
-    push si
-    mov ch, ah                  ; AH is kept
-    call dc_aptr
-    mov bx, [si + DCA_DATE]
-    mov ax, [dc_y]              ; the month on show as the date's bits 5..
-    sub ax, DC_Y0
-    mov cl, 4
-    shl ax, cl
-    or al, [dc_m]
-    mov si, bx
-    inc cx                      ; CL = 5
-    shr bx, cl
-    cmp bx, ax
-    mov ax, si
-    jne .no
-    and al, 31
-    jmp short .x
-.no:
-    xor al, al
-.x:
-    mov ah, ch
-    pop si
-    pop cx
-    pop bx
     ret
 
 ; dc_fixsel - appointment AL has gone: a selection of it is nothing now, and

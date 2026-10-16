@@ -184092,6 +184092,25 @@ each (it crossed a 1 KB boundary), so the shipped 360 KB system disk was
 **321 of 354, 33 left**. The state file is three more clusters at runtime,
 in `SYSTEM\APPDATA`, the first time the calendar is closed or moved.
 
+#### 110.6.1 Apps size pass 2: the shipped file
+
+docs/plans/HANDOFF-APPS-SIZE-P2.md's pass weighs `DESKCAL.O88` by what it
+costs a DISK - the LZ4-packed file on every system disk, big and small - and
+its rules are the pass's: nothing user-visible changes, RAM does not grow, and
+no path a repaint, a tick, a key or a click runs takes a cycle more. So what
+moved is code that was dead or did work twice, and every path a change
+reaches executes fewer instructions, or cheaper ones, than it did. The
+calendar's bss offsets (which `tests/deskcal*.py` and `tools/os88stik.py`
+read) are untouched.
+
+Measured from `a123653b`: **16,171 bytes on disk and 18,976 of image**, bss
+1,024 plus the include's, 16 clusters on each 360 KB system disk. One change
+at a time, the bytes each saved:
+
+| change | image | file |
+|---|---:|---:|
+| `dc_aday` deleted - nothing called it; `dc_fenter`'s save and restore of `dc_ebuf`'s first word around `dc_ptime`, which parses a COPY; `dc_build`'s unused `push bp` | -64 | -55 |
+
 ### 110.7 `kern_small`
 
 kern_small reads no SYSTEM.CFG (§51.5), has no shortcuts (`OS88_SHORTCUTS`)
