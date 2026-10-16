@@ -50,7 +50,8 @@
 ; =============================================================================
 
 ; --- the unpacker's phase ([wr_aph]) ------------------------------------------
-WAP_HDR     equ 0               ; accumulating the 32-byte file header
+WAP_HDR     equ 0               ; accumulating the 32-byte file header -
+                                ; ZERO, stored from a zeroed AL
 WAP_ENT     equ 1               ; ...or a 64-byte entry header
 WAP_BODY    equ 2               ; ...or feeding an entry's body
 WAP_END     equ 3               ; every entry is complete: a further byte is a
@@ -291,16 +292,14 @@ wr_aentck:
     inc cx                          ; the folders AND the file name
     mov si, wr_ehdr + WA_PATH
 .slot:
-    push cx
-    call wr_anamck
-    pop cx
+    call wr_anamck                  ; (CX kept)
     jc .no
     add si, WARC_SLOT
     loop .slot
-    mov word [wr_aout], 0           ; --- and the body's own state
-    mov word [wr_ain], 0
-    mov byte [wr_lph], 0
-    mov byte [wr_lbits], 0
+    mov [wr_aout], cx               ; --- and the body's own state, from the
+    mov [wr_ain], cx                ; zero `loop` leaves in CX
+    mov [wr_lph], cl
+    mov [wr_lbits], cl
     clc
     jmp short .out
 .no:
@@ -499,19 +498,18 @@ wr_arcstart:
     mov di, wr_fname                ; /wire/pkg/<STEM>.WPK
     mov si, wr_x_wpk
     call wr_stemput
-    mov byte [wr_aph], WAP_HDR      ; --- the unpacker, from the top
-    mov word [wr_acnt], 0
-    mov word [wr_adone], 0
-    mov word [wr_an], 0
+    xor ax, ax                      ; --- the unpacker, from the top
+    mov [wr_aph], al                ; WAP_HDR
+    mov [wr_acnt], ax
+    mov [wr_adone], ax
+    mov [wr_an], ax
     mov byte [wr_ldep], 0xFF        ; ...and no folder banked, so the first
                                     ; entry always stands somewhere
     call wr_freefile                ; a claim from a previous chain, if any
-    xor ax, ax
-    xor bx, bx
+    xor bx, bx                      ; (AX kept: still 0)
     xor cx, cx
     mov dx, WK_ARC
-    call wr_start
-    ret
+    jmp wr_start
 
 ; -----------------------------------------------------------------------------
 ; wr_arcbase - the WW_HDR pause: the claim, `home`, and where we stand

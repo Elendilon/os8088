@@ -144863,6 +144863,14 @@ the package had twice or did not need.
   Twenty-two sites in the handlers and the file chain, each one shorter and
   faster. `wr_oncmd` tells its four items apart with one compare and one
   subtract, the middle two being `wr_do`'s 0 and 1 one lower.
+- **Stores from a register, and saves nobody needed.** `wr_refresh`,
+  `wr_arcstart`, `wr_aentck` and the Content-Length parse write their zeros
+  and their 0xFFFFs from a register (in `wr_aentck` the zero `loop` leaves in
+  CX); `wr_catck` makes N * 256 as `mov ah, cl`, N being at most 255; two
+  loops stopped banking a CX their callee keeps; `wr_saved` stopped pointing
+  ES at a segment `wr_selrec` points elsewhere on the next line; and
+  `wr_stemput`, a once-a-file routine whose callers never read the DI it
+  advanced, saves through `wr_sv`.
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 

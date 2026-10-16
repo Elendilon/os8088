@@ -592,8 +592,9 @@ wr_hdrline:
     ; first and its carry added to the high half's product; either overflowing
     ; saturates, and wr_hdrdone then refuses the length against what the
     ; transfer can actually hold.
-    mov word [wr_clen], 0
-    mov word [wr_clen+2], 0
+    xor ax, ax
+    mov [wr_clen], ax
+    mov [wr_clen+2], ax
 .d:
     mov al, [si]
     cmp al, '0'
@@ -623,8 +624,9 @@ wr_hdrline:
     inc si
     jmp short .d
 .huge:
-    mov word [wr_clen], 0xFFFF          ; ...and wr_hdrdone refuses it, which
-    mov word [wr_clen+2], 0xFFFF        ; no claim and no catalog size reaches
+    mov ax, 0xFFFF                      ; ...and wr_hdrdone refuses it, which
+    mov [wr_clen], ax                   ; no claim and no catalog size reaches
+    mov [wr_clen+2], ax
     jmp short .out
 .status:
     mov si, wr_hbuf                     ; `HTTP/1.0 200 OK`: columns 9..11

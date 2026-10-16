@@ -287,7 +287,7 @@ WR_RAMSLACK equ 16              ; the KB asked for OVER the tree when a store
                                 ; tree alone rather than a refusal
 
 ; --- and what the UI task is in the middle of (the Add chain) ----------------
-WJ_NONE     equ 0
+WJ_NONE     equ 0                   ; ZERO, and stored from a zeroed AL
 WJ_LOAD     equ 1
 WJ_ADD      equ 2
 
@@ -1654,11 +1654,11 @@ wr_catck:
     jz .no
     cmp cx, WIRE_NMAX
     ja .no
-    mov ax, cx                          ; the record array must END inside the
-    push cx                             ; file. N <= 255 and 255 * 256 is
-    mov cl, 8                           ; 0xFF00, so the shift cannot wrap and
-    shl ax, cl                          ; the add is what has to be checked
-    pop cx
+    xor ax, ax                          ; the record array must END inside the
+    mov ah, cl                          ; file: N * 256, and N <= 255 (so CH is
+                                        ; 0) makes it 0xFF00 at most - the
+                                        ; product cannot wrap and the add is
+                                        ; what has to be checked
     add ax, WIRE_HDR
     jc .no
     cmp ax, [wr_catlen]
@@ -1695,9 +1695,7 @@ wr_catck:
     xor bx, bx                          ; --- every record's own fields
 .rec:
     mov ax, bx
-    push cx
-    call wr_recs
-    pop cx
+    call wr_recs                        ; (CX kept)
     test byte [es:si+WC_FLAGS], WF_ARC
     jnz .arcrec                         ; an ARCHIVE is bounded differently and
                                         ; by different fields (below)
@@ -2462,28 +2460,21 @@ wr_do:
     ret
 
 ; --- wr_stemput - '<STEM><ext>' into DS:DI, for the selected record ----------
-; in:  DI = the buffer, SI = a NUL extension (wr_x_o88, wr_x_wpk); DI advanced
+; in:  DI = the buffer, SI = a NUL extension (wr_x_o88, wr_x_wpk); preserves
+;      every register - no caller goes on composing after it
 ;
 ; Three call sites want the same eight-and-three: the chain's first file, the
 ; Save dialog's default name and an archive's own .WPK. They had it three
 ; times over and one of the three banked a register the other two did not.
 wr_stemput:
-    push ax
-    push cx
-    push si
-    push es
+    call wr_sv                          ; AX..DI and ES, given back by the ret
     push si                             ; the extension, banked past wr_recs
     call wr_selrec                  ; ES:SI = the record
     add si, WC_STEM
     mov cx, 8
     call wr_stemcopy
     pop si
-    call wr_sput
-    pop es
-    pop si
-    pop cx
-    pop ax
-    ret
+    jmp wr_sput                         ; ...whose ret is ours
 
 ; --- wr_stemcopy - CX bytes of the space-padded stem at ES:SI to DS:DI -------
 ; A stem is 8 bytes padded with SPACES, and a space is where the name ends.
@@ -2529,8 +2520,6 @@ wr_saved:
     loop .c                             ; bytes of garbage under a status cell
     mov byte [di-1], 0                  ; reading `Could not write ?)33`
 .named:
-    push ds
-    pop es
     call wr_geom
     jc .out
     call wr_selrec
@@ -2749,12 +2738,14 @@ wr_chaindone:
 ; -----------------------------------------------------------------------------
 wr_refresh:
     call wr_sv                          ; AX..DI and ES, given back by the ret
-    mov byte [wr_job], WJ_NONE
-    call wr_freefile
-    mov word [wr_n], 0
-    mov word [wr_sel], 0xFFFF
-    mov word [wr_top], 0
-    mov byte [wr_picok], 0
+    xor ax, ax
+    mov [wr_job], al                    ; WJ_NONE
+    call wr_freefile                    ; (AX kept)
+    mov [wr_n], ax
+    mov [wr_top], ax
+    mov [wr_picok], al
+    dec ax
+    mov [wr_sel], ax                    ; 0xFFFF, nothing selected
     call wr_netcheck
     jc .say
     mov ax, WIRE_CATMAX / 1024          ; the transfer wants the whole ceiling
