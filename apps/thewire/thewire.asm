@@ -801,12 +801,15 @@ wr_icocopy:
                                         ; a blank square (SPEC.md 25.6)
     mov di, wr_icobuf + 2
     mov cx, 32
-.l:
-    mov ax, [es:si]
-    mov [di], ax
-    add si, 2
-    add di, 2
-    loop .l
+    push es                             ; the catalog, kept for the caller
+    push ds
+    push es
+    pop ds                              ; DS = the catalog...
+    pop es                              ; ...and ES = ours, for one movsw run
+    rep movsw
+    push es
+    pop ds
+    pop es
     pop si
     pop di
     pop cx
@@ -843,11 +846,10 @@ wr_rowtext:
     add si, WC_TITLE
     mov di, wr_line
 .c:
-    mov al, [es:si]
+    es lodsb
     cmp al, ' '
     jb .pad                             ; NUL, or a control byte off the wire
     mov [di], al
-    inc si
     inc di
     loop .c
 .pad:
@@ -1415,14 +1417,13 @@ wr_sputn:
     push si
     jcxz .out
 .c:
-    mov al, [es:si]
+    es lodsb
     cmp al, ' '
     jb .out
     cmp al, 0x7F
     jae .out
     mov [di], al
     inc di
-    inc si
     loop .c
 .out:
     pop si
@@ -1676,13 +1677,12 @@ wr_catck:
     mov di, wr_abdate + WR_ABDATEO      ; is on the glass rather than which
     mov cx, 8                           ; build is under it
 .date:
-    mov al, [es:si]
+    es lodsb
     cmp al, '0'                         ; hostile: anything but eight digits
     jb .nodate                          ; leaves the question marks standing
     cmp al, '9'
     ja .nodate
     mov [di], al
-    inc si
     inc di
     loop .date
 .nodate:
@@ -2476,14 +2476,13 @@ wr_stemput:
 wr_stemcopy:
     push ax
 .c:
-    mov al, [es:si]
+    es lodsb
     cmp al, ' '
     jbe .out
     cmp al, 0x7F
     jae .out
     mov [di], al
     inc di
-    inc si
     loop .c
 .out:
     pop ax
@@ -2506,10 +2505,10 @@ wr_saved:
     mov di, wr_savename                 ; SEGMENT**, which is where ES still
     mov cx, 13                          ; points on the way in (SPEC.md 20.1),
 .c:                                     ; and the buffer is valid for THIS CALL
-    mov al, [es:si]                     ; only - so it is copied here, through
+    es lodsb                            ; only - so it is copied here, through
     mov [di], al                        ; an override, BEFORE ES is turned
-    inc si                              ; round below. Without the override
-    inc di                              ; this reads our own image at that
+    inc di                              ; round below. Without the override
+                                        ; this reads our own image at that
     or al, al                           ; offset: it assembles, it runs, and
     jz .named                           ; what reaches OSAPI_FILE_WRITE is four
     loop .c                             ; bytes of garbage under a status cell

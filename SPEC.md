@@ -144895,6 +144895,14 @@ the package had twice or did not need.
   saves through `wr_sv` of its own - the length in CX rather than in
   `wr_cfgn`. `wr_port` took `wr_dbclus`'s word and the archive block closed
   up behind the two it left: **bss -4**.
+- **String instructions in the copy loops**, each one shorter AND faster
+  than the loop it replaced, which is why three of them are on hot paths:
+  `es lodsb` in `wr_rowtext` (a list row's title), `wr_sputn`,
+  `wr_stemcopy`, `wr_saved` and the catalog date; `lodsb` in `wr_take`, the
+  worker's per-byte loop; one `rep movsw` for a row's 64 icon bytes in
+  `wr_icocopy`, with DS and ES swapped around it; and one `rep movsb` for an
+  LZSS match in `wr_lzb`, which copies forward a byte at a time exactly as
+  the loop did, so a match that overlaps itself still repeats.
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 

@@ -452,12 +452,11 @@ wr_lzb:
     mov es, [wr_dseg]
     mov si, di
     sub si, dx
-.copy:
-    mov al, [es:si]
-    mov [es:di], al
-    inc si
-    inc di
-    loop .copy
+    push ds                         ; DS = ES = the decode claim for one
+    push es                         ; movsb run, which copies FORWARD a byte
+    pop ds                          ; at a time - so an overlapping match
+    rep movsb                       ; (distance < length) repeats as LZ77
+    pop ds                          ; wants, exactly as the loop it replaced
     mov [wr_aout], di
 .adv:
     shr byte [wr_lflag], 1

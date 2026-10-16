@@ -457,8 +457,7 @@ wr_take:
     mov ah, [wr_gen]
     cmp ah, [wr_gen0]
     jne .done
-    mov al, [si]
-    inc si
+    lodsb                               ; DS:SI, the chunk in wr_rxb
     dec cx
     cmp byte [wr_state], WS_BODY
     je .body
