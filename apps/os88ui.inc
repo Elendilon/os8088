@@ -379,6 +379,19 @@ OS88UI_OWN equ 128              ; THE PACKAGE PAINTS THIS ONE (SPEC.md 13.8.10).
   %error "OS88UI_BIMG draws buttons, and OS88UI_NOBTN/BARONLY has taken them out"
  %endif
 %endif
+; --- OS88UI_BIMGONLY - every button a bare PICTURE (size pass) ---------------
+; An OPT-OUT, OS88UI_NOGLYPH's shape one step further in: OS88UI_BIMG's body
+; without the CAPTION (a NUL label, drawn with font_run), the caller's INK
+; (OS88UI_INK) and the DEFAULT ring (OS88UI_DEF) - ~90 bytes a package whose
+; every button is an OS88UI_IMG picture carries for nothing (the Video
+; Player, SPEC.md 98.4). Those three flags are then IGNORED, and a caption
+; would be read as a picture record: it is for a package that has none.
+; Unset, every consumer is byte-identical.
+%ifdef OS88UI_BIMGONLY
+ %ifndef OS88UI_BIMG
+  %error "OS88UI_BIMGONLY trims OS88UI_BIMG's body: it needs OS88UI_BIMG"
+ %endif
+%endif
 
 ; --- THE RECORD (SPEC.md 20.5.1.3) -------------------------------------------
 ; One per button GROUP, in the CALLER's data, because that is the shape the
@@ -797,11 +810,13 @@ os88ui_btn:
 
     ; --- the pair: AL = ink, AH = ground -----------------------------------
     mov ax, CBLACK | (CWHITE << 8)
+%ifndef OS88UI_BIMGONLY
     test di, OS88UI_INK
     jz .down
     mov bx, di
     mov al, bh                  ; the caller's ink, out of DI's high byte
 .down:
+%endif
     test di, OS88UI_DIS         ; DISABLED WINS over both (47 rule 1): a greyed
     jz .dn                      ; control is never drawn pressed, and its ink
     mov al, CDGRAY              ; is the grey
@@ -814,17 +829,21 @@ os88ui_btn:
     mov [os88ui_bk], ax
 
     ; --- the inner rect: the caption's or the picture's, centred ------------
+%ifndef OS88UI_BIMGONLY
     test di, OS88UI_IMG
     jz .txt
+%endif
     mov al, [si+1]              ; rows
     xor ah, ah
     mov cx, 16                  ; one word a row: 16 wide
+%ifndef OS88UI_BIMGONLY
     jmp short .cent
 .txt:
     UI_WIDTH                    ; AX = the caption's width; SI intact
     mov cx, ax
     mov ax, 8                   ; ...and a cell is 8 rows
 .cent:                          ; CX = w, AX = h
+%endif
     mov dx, [ds:bp+4]
     sub dx, [ds:bp+0]
     inc dx
@@ -923,6 +942,7 @@ os88ui_btn:
     mov ax, di                  ; CF = OS88UI_DIS, bit 0 - AX is reloaded
     shr al, 1                   ; below before anything reads it
     UI_PEN
+%ifndef OS88UI_BIMGONLY
     test di, OS88UI_DIS
     jnz .rect
     test di, OS88UI_INK
@@ -931,11 +951,13 @@ os88ui_btn:
     mov al, ah
     UI_INK
 .rect:
+%endif
     mov ax, [ds:bp+0]
     mov bx, [ds:bp+2]
     mov cx, [ds:bp+4]
     mov dx, [ds:bp+6]
     UI_FRAME
+%ifndef OS88UI_BIMGONLY
     test di, OS88UI_DEF
     jz .inner
     dec ax
@@ -958,6 +980,7 @@ os88ui_btn:
     UI_RUN                      ; the disabled pen set and font_run screens it
     jmp short .lpen
 .img:
+%endif
     clc
     UI_PEN                      ; a picture's pair is its own, never the grey
     mov ax, [os88ui_ir+0]       ; pen's
