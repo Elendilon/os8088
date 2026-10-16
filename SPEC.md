@@ -51351,6 +51351,65 @@ content-relative; the procs fetch the content origin via `wm_content`
   1,945 -> 1,678; a covered-board redraw and a whole-board (71-cell) flood measure
   1.4-1.9% fewer guest cycles than before (MartyPC, 5150 CGA). Tests that
   read a cell decode `mn_cell` (`tests/minexflag.py`, `tests/minesrc.py`).
+- **Apps size pass 2 (disk)**, docs/plans/HANDOFF-APPS-SIZE-P2.md. The file
+  was 1,678 bytes and shipped PLAIN, because LZ4's in-place layout needed
+  2,096 bytes of a 2,048-byte region; image cuts got it under that line.
+  - **The callbacks bank nothing the kernel does not read back.** `W_PAINT`
+    gives back SI, `W_ONCLICK`/`W_ONRCLICK` SI (13.7's arm), and `W_ONKEY`,
+    `AM_ONCMD` and the About handler nothing (12.2); so the push-everything
+    prologues went, and with them the drawing routines' own banks - each
+    keeps only what its callers read after it (`mn_draw_cell` BX, DI and BP,
+    for the board loop and the flood). The entry proc takes
+    `OS88_REGION_MOVABLE_NOKEEP` and a `clc`, the flag toggle is a block of
+    the click body rather than a routine of its own, and the new-game wipe
+    runs down so its index is its counter. Pictures identical; the redraws
+    and the flood measure 0.4-0.6% fewer guest cycles (MartyPC, 5150 CGA).
+  - **`mn_nlist` lists the cell's whole 3x3 block, the cell included**, and
+    answers SI = `mn_nbuf` itself. The flood finds the cell already OPEN and
+    skips it; `mn_place` bumps a mine's OWN count, which nothing reads (a
+    mine is never opened) and which tops out at 9, inside the nibble. A
+    candidate is kept when its index is on the board (0..80 as a byte, which
+    settles the row) and its column is 0..8 - no row*9 + column rebuilt per
+    neighbour. `mn_nbuf` is 9 bytes, and 9 + 71 is exactly `mn_xpts`'s 80.
+  - **Shape lists chain.** `mn_shape` leaves SI past the terminator, so
+    `mn_sh_flag` laid out after `mn_sh_covered` is drawn by a second call
+    with no reload; the ground under an exposed mine is ONE record in front
+    of `mn_sh_mine` whose colour byte `mn_draw_minecell` writes (light gray,
+    or light red for the clicked one) before every use - two lists and two
+    calls became one. The terminator is the one colour byte with bit 7 set,
+    so its sign tests it (`or al, al` - the first cut used `cbw`, which
+    writes no flags, and walked off the list on the first board that was not
+    all covered), and each coordinate reaches its `gfx_fill`
+    register by a one-byte `xchg`. The loss renderer classifies a cell on
+    one masked byte.
+  - **The wrong-flag X is composed from three running registers** (the
+    falling diagonal's x up, the rising one's down, the shared row up), the
+    cell origin being the one `mn_draw_minecell` already left in CX/DX -
+    the same twenty points in the same order, one `OSAPI_GFX_POINTS`.
+  - **The strip's three lines carry their own x.** Each is led by a byte
+    `(144 - 8 * length) / 2` worked out at build time (`MN_CTEXT`) - the font
+    is 8px a character by contract, so it is exactly what `OSAPI_FONT_WIDTH`
+    answered on every repaint, and the far call is gone with the arithmetic.
+    The counter's "10" reaches its 0 through the single-digit line.
+  - **The About card's lines are packed** (`OS88UI_ABPACK`, 20.5.1.1): end
+    to end with their NULs and an `OS88UI_ABEND`, no pointer table, the first
+    line being the window title's own bytes. The card draws as before.
+  - **Five small cuts.** `[mn_abon]` is 0 or 1, so `mn_abdismiss` tests and
+    clears it with one `shr` whose CF is the answer; `mn_hitcell` stops
+    banking CX round `mn_org` (`OSAPI_WM_CONTENT` keeps it); the Game set
+    declares two items, so `mn_docmd` falls into Flag Mode for anything but
+    item 0 and the region's relocation proc is `mn_org`'s `ret`; the digit's
+    colour is read through SI with no bank; and the clicked cell's one-entry
+    list is the queue's first byte, which the enqueue rewrites with itself.
+  - **A colour is set once per RUN of rects.** A list is `MN_SC` (16) +
+    colour and then that colour's rects, 0xFF ending it: a coordinate is
+    0..15, so one compare tells a colour byte from the next rect's x1 and
+    the same compare's sign finds the 0xFF. The covered face sets the pen 3
+    times for 5 fills, the open face 2 for 5, the exposed mine 2 for 10 -
+    14 colour bytes and that many `OSAPI_SET_COLOR` calls fewer.
+  - `mn_hitcell` bounds the column and row on AL alone (a content point is
+    under 4,096px, so AH is 0, and `mul` reads AL anyway), and the strip's
+    right edge is `mov cx, 143 / add cx, ax`, the shorter order.
 
 ## 24. Packaging toolchain (host side)
 
