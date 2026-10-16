@@ -169017,6 +169017,24 @@ fill line and the seek's text share one buffer (`vp_pfbuf` is
 `apps/video/rdiffhot.txt` names `vh_addr` rather than `vh_.*`, the
 half-scaler's words being bss now and not routines.
 
+**And VGA8's palette is a CLAIM** (`[vp_p8seg]`, 1KB from the top): only
+a VGA8 file has 768 bytes of it, and they are read twice - into the DAC at
+a bracket's door (`vp_dac`) and into the lumas at each picture
+(`vp_mklum`), neither at interrupt time - so the bss keeps the SIXTEEN
+(`vp_pal`, 48: a VGA4 file's own, a scene's, VGA8's first) and the rest is
+held while the file is open, movable through `vp_smove`, and given back by
+the next open with the palettes a scene (`vp_pevfree`). A VGA8 file that
+finds no kilobyte for it is refused with `Not enough memory`, as one that
+found none to read the palette through always was. Live in colour's repack
+buffer (`vp_v4buf`, 1,024), which sat on VGA8's palette, is the desktop's
+scratch now, past the rest of it; on `vp_pal` a repack (BLITP refused)
+wrote over a VGA4 file's own sixteen, which a later full screen loads
+into the DAC (`vp_scrset`) - a latent defect, not seen in the field, that
+the move ends. **-720 bytes of bss**; with the scratch, the
+shipped arm is 55,788 + 4,144 = **1,508 under** (599 before the pass's data
+half), `NOLIVESND=1` 1,739, and `VPDIAG=1` assembles again at 57,148 +
+4,144, **148 under** (761 over).
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |

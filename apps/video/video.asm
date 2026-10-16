@@ -2472,14 +2472,24 @@ vp_pevload:
     stc
     ret
 
-; vp_pevfree - the palettes a scene's claim, if there is one. Preserves all
+; vp_pevfree - the palettes a scene's claim and VGA8's palette's (vp_rdpal),
+; each if there is one: a file's, which the next one's open and a refused
+; load give back. Preserves all
 vp_pevfree:
+    push si
+    mov si, vp_pevseg
+    call .f
+    mov si, vp_p8seg
+    call .f
+    pop si
+    ret
+.f:
     push dx
-    mov dx, [vp_pevseg]
+    xor dx, dx
+    xchg dx, [si]
     or dx, dx
     jz .out
     call OSAPI_MEM_FREE
-    mov word [vp_pevseg], 0
 .out:
     pop dx
     ret
@@ -2812,8 +2822,8 @@ vp_mkpic:
     call vp_v4pack
     jmp .rows4
 .n4:
-    call vp_mkdtab                  ; (its tables share the box's save - and
-                                    ; VGA4's repack buffer, so never for it)
+    call vp_mkdtab                  ; (its tables share the box's save, made
+                                    ; at each picture: VGA4's needs none)
     cmp byte [vp_pixfmt], PF_VGA8   ; 256 COLOURS: the luma dithered to one
     jb .mono                        ; bit, dense at its own size, and halved
     je .v8                          ; in place from there - and CGA's
@@ -3670,10 +3680,12 @@ vp_c16tim:
     loop .crt
     ret
 
-; vp_rdpal - a VGA8 file's palette (98.1.1) into vp_pal - the luma the
-; Preview dithers by is made from it at each picture (vp_mklum). CF=1 with
-; [vp_msg] set: unreadable, or a value past the DAC's 63. Nothing for any
-; other format
+; vp_rdpal - a VGA8 file's palette (98.1.1) into its claim, [vp_p8seg], and
+; its first sixteen into vp_pal - the luma the Preview dithers by is made
+; from it at each picture (vp_mklum); a VGA4 file's own sixteen into vp_pal.
+; CF=1 with [vp_msg] set: unreadable, a value past the DAC's 63, or no heap
+; for the claim. Nothing for any other format. The last file's claim is
+; gone already: vp_open's vp_pevfree
 vp_rdpal:
     mov byte [vo_ink4], 15          ; (the EGA's white, until a palette of
     cmp byte [vp_pixfmt], PF_VGA8   ; its own says another: vp_inkset)
@@ -3713,22 +3725,40 @@ vp_rdpal:
     mov cx, 768
     call vp_rdat
     jc .io
-    push ds
-    pop es
-    mov di, vp_pal
+    mov es, [vp_rdseg]              ; every value a six-bit one, where it
+    mov di, si                      ; landed
     mov cx, 768
+    mov al, 63
+    cld
+.chk:
+    scasb
+    jb .bad
+    loop .chk
+    push ds                         ; THE SIXTEEN into vp_pal: a VGA4 file's
+    pop es                          ; own, or the first of VGA8's
+    mov di, vp_pal
+    mov cl, 48
     push ds
     mov ds, [vp_rdseg]
-    cld
     rep movsb
     pop ds
-    mov si, vp_pal                  ; every value a six-bit one
-    mov cx, 768
-.chk:
-    lodsb
-    cmp al, 63
-    ja .bad
-    loop .chk
+    cmp byte [vp_pixfmt], PF_VGA8   ; VGA8's 256 into a claim of their own
+    jne .p16                        ; (vp_p8seg): what the bracket's DAC and
+    mov ax, 1                       ; the picture's lumas read, and nothing
+    call OSAPI_MEM_CLAIM_HI         ; at interrupt time - so it is movable
+    jc .mfr                         ; (vp_smove), and from the top, being
+    mov [vp_p8seg], dx              ; the file's for as long as it is open
+    mov ax, vp_smove
+    call OSAPI_MEM_MOVABLE
+    mov es, dx
+    xor di, di
+    sub si, 48
+    mov cx, 768 / 2
+    push ds
+    mov ds, [vp_rdseg]
+    rep movsw
+    pop ds
+.p16:
     cmp word [vp_pevn], 0           ; A PALETTE A SCENE (98.1.3.2.3): the
     je .lum0                        ; table, beside the palette it starts at
     call vp_pevload
@@ -3744,6 +3774,9 @@ vp_rdpal:
     jmp short .out
 .bad:
     mov word [vp_msg], vp_s_bad
+    jmp short .fr
+.mfr:
+    mov word [vp_msg], vp_s_mem
     jmp short .fr
 .io:
     mov word [vp_msg], vp_s_io
@@ -3827,8 +3860,20 @@ vp_dac:
     push cx
     push dx
     push si
+    push ds
+    mov dx, 0x3C8                   ; out of its claim (vp_rdpal): vp_dacw's
+    xor al, al                      ; loop, which reads vp_pal and goes on to
+    out dx, al                      ; the sixteen's ink
+    inc dx
     mov cx, 768
-    call vp_dacw
+    xor si, si
+    mov ds, [vp_p8seg]
+    cld
+.l:
+    lodsb
+    out dx, al
+    loop .l
+    pop ds
     pop si
     pop dx
     pop cx
@@ -4025,11 +4070,16 @@ vp_crtc:
 ; vp_mklum - vp_pal's 256 lumas, 0..16, into vp_lum: what vp_v8mono dithers,
 ; (77 r + 150 g + 29 b) >> 8 of the DAC's six bits, then x 17 + 32 >> 6 for
 ; 0..16 against a 4 x 4 Bayer cell - tools/os88vid.py's vga8_lum16. Made at
-; every picture, its table sharing the box's save. Clobbers AX, BX, CX, SI,
-; DI, BP
+; every picture, its table sharing the box's save, out of the palette's own
+; claim (vp_rdpal). Clobbers AX, BX, CX, SI, DI, BP
 vp_mklum:
-    mov si, vp_pal
+    push ds
+    push es
+    push ds
+    pop es
     mov di, vp_lum
+    mov ds, [vp_p8seg]
+    xor si, si
     mov bp, 256
     cld
 .l:
@@ -4051,10 +4101,11 @@ vp_mklum:
     add ax, 32
     mov cl, 6
     shr ax, cl                      ; 0..16
-    mov [di], al
-    inc di
+    stosb
     dec bp
     jnz .l
+    pop es
+    pop ds
     ret
 
 ; vp_v8mono - the VGA8 canvas in [vp_kshd] (LIN320: row y at y x 320) as a
@@ -10562,7 +10613,7 @@ vp_smove:
     ret
 
 vp_smtab:     dw vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd
-              dw vp_pevseg, 0
+              dw vp_pevseg, vp_p8seg, 0
 
 ; -----------------------------------------------------------------------------
 ; vp_spos - DX = the ring (or, resident, the key's claim, or 0): the session
@@ -18378,9 +18429,8 @@ vp_blitb:
 ; -----------------------------------------------------------------------------
 VP_V4PMAX   equ 0x3FF               ; the planes' spacing that fits a segment,
                                     ; its step in bytes clear of DI's bit 14
-VP_V4BUF    equ 1024                ; the repack's buffer: VGA8's palette and
-vp_v4buf    equ vp_pal              ; the half-scaler's first table past it,
-                                    ; neither of which a VGA4 file has
+VP_V4BUF    equ 1024                ; the repack's buffer, in the desktop's
+                                    ; scratch (vp_v4buf, past vp_dskend)
 
 ; vp_v4blit - vp_blitb for a VGA4 shadow: ES:SI = plane 0's first byte, BP =
 ; 80, AX = x, BX = y, CX = the width in pixels, DX = rows; the clip armed.
@@ -19872,7 +19922,8 @@ vp_pry0:      dw 0                  ; the last record's band, for its copy
 vp_pry1:      dw 0                  ; off the glass (98.3.8.1)
 vp_prevn:     dw 0                  ; bytes (0: none owed; FFFFh: not kept,
                                     ; its band copied off the glass)
-vp_palo:      dd 0                  ; VGA8: the palette's offset
+vp_palo:      dd 0                  ; VGA8: the palette's offset...
+vp_p8seg:     dw 0                  ; ...and its claim, 0 none (vp_rdpal)
 vp_pevo:      dd 0                  ; A PALETTE A SCENE (98.1.3.2.3): the
 vp_pevn:      dw 0                  ; table's offset and entries, its claim
 vp_pevseg:    dw 0                  ; (0: none), its bytes, and the next
@@ -20404,8 +20455,10 @@ vp_pfbuf      equ vp_skbuf          ; the line, composed in the seek's own
 %include "os88ui.inc"               ; and no check box or radio at all
 
 ; --- bss: zeroed by the loader, and no bytes of the file ----------------------
-vp_pal        equ os88_image_end    ; VGA8's palette (98.1.1)
-vo_sav        equ vp_pal + 768      ; what the full screen's text covers, a
+vp_pal        equ os88_image_end    ; the SIXTEEN: a VGA4 file's own, or a
+                                    ; scene's (VGA8's 256 are a claim's,
+                                    ; [vp_p8seg]: vp_rdpal)
+vo_sav        equ vp_pal + 48       ; what the full screen's text covers, a
                                     ; save a page (98.3.13)
 vc_pg         equ vo_sav + 2 * VO_SAV ; ...and a 256-byte page -> the first
                                     ; of its rows at or after it (98.3.13.1)
@@ -20413,13 +20466,10 @@ vc_pg         equ vo_sav + 2 * VO_SAV ; ...and a 256-byte page -> the first
 ; is live only in a bracket with the box up (vo_setup clears it at every
 ; entry, and vo_mode is 0 in the window), the tables only while vp_mkpic
 ; makes a picture, which runs on the desktop side alone - so each is made
-; there, every time (vp_mkdtab, vp_mklum) - and never for VGA4, whose
-; repack buffer (vp_v4buf, 1,024 from vp_pal) runs 256 into the first
+; there, every time (vp_mkdtab, vp_mklum) - and never for VGA4, which
+; never needs them
 vp_dtab       equ vo_sav            ; the half-scaler's two tables
 vp_lum        equ vo_sav + 512      ; VGA8's lumas, 0..16 (or CGA's colours')
-%if VP_V4BUF > 768 + 512
-  %error "VGA4's repack buffer reaches past the half-scaler's tables"
-%endif
 ; ...and the info card's text, which only the desktop draws (vp_ptext) and
 ; only the desktop side writes (vp_fmt): a bracket's box clobbers it, so
 ; EVERY exit from the full screen formats it again before the bracket's
@@ -20487,9 +20537,12 @@ vp_rscore     equ vp_rbest + 1      ; its score (bytes)
 vp_xsig       equ vp_rscore + 1     ; vp_xok's reference bytes...
 vp_xzf        equ vp_xsig + 16      ; ...and its compare (a byte)
 vp_fsi        equ vp_xzf + 1        ; the bracket's mode (OSAPI_FSX_MODE)
-vp_dskend     equ vp_fsi + FSI_SIZE
+vp_v4buf      equ vp_fsi + FSI_SIZE ; and Live in colour's repack buffer
+                                    ; (vp_v4blit), filled and blitted a few
+                                    ; rows at a time in the one call
+vp_dskend     equ vp_v4buf + VP_V4BUF
 %if vp_dskend - vo_sav > 2 * VO_SAV
   %error "the desktop's scratch runs past the full screen's save"
 %endif
-    OS88_BSS 768 + 2 * VO_SAV + 256
+    OS88_BSS 48 + 2 * VO_SAV + 256
     OS88_IMAGE_END
