@@ -128486,6 +128486,11 @@ is now the same. `tools/stkbalance.py` cannot see this class — the stack is
 balanced throughout, and what is wrong is the *contents* of a register, which
 needs a different gate than a depth walk.
 
+Since apps size pass 2 (§82.15) `ct_render` is **`ct_show`**, and it banks
+exactly that one register: the window goes on the stack before `ch_draw` and
+comes off straight into `SI`, which is where `ct_paint` wants it, so the
+routine falls into `ct_paint` instead of every caller calling the two in turn.
+
 ### 82.11 A label is not a data point
 
 `ct_parse_c` recorded any `K` field as a number, and `ct_pint` on `K"Rent"`
@@ -128664,6 +128669,33 @@ Data > Column (§82.12) reads it again; the export used to copy the Save
 dialog's answer over it, so a column choice after an export parsed `CHART.BMP`
 as SYLK and said *No data in that column.* The export name is staged in
 `ct_ntxt`, `ct_esatof`'s scratch, which no read is using at that moment.
+
+### 82.15 Apps size pass 2: the shipped file
+
+The subject was DISK ROOM (docs/plans/HANDOFF-APPS-SIZE-P2.md): `CHART.O88`
+rides `office360.img` and every larger apps disk, LZ4-packed. Nothing a user
+can see changed, and no heap claim or bss byte moved. Every step below was
+held to a host differential - both builds run under an 8086 core with the
+`OSAPI_*` cells stubbed, over every reader on hand-made and mutated SYLK, DIF
+and BIFF files, every Data column, every Gallery type, the export, the About
+card and a refused claim - comparing the canvas, the exported BMP, every slot
+called and its arguments, the toasts and the series words, and all of it
+identical. `apps/os88chart.inc` is SHEET's too and is not touched here: what
+it holds is recorded with the pass's report.
+
+- **A callback banks only what its contract owes back** (-169 image, -80
+  file). `W_PAINT` owes `SI` and `DF` (§11), `W_ONCLICK` `SI`, and an
+  `AM_ONCMD` handler, the About handler and a file-dialog completion proc owe
+  nothing (§12.2, §38.6); the entry proc owes `BX`, `CF` and `ES`, which the
+  loader's own far call does not restore (§21 step 9). Every one of them
+  pushed everything. So did every routine under them whose only caller
+  reloads what it clobbers: the three readers and `ct_finalize` bank nothing
+  now and `ct_read_by_ext` banks `AX` and `BX` for its caller, once. The two
+  routines every caller called back to back are one - `ct_show` falls into
+  `ct_paint` (§82.10) - the `W_ONCLICK` handler is `ct_abdismiss` itself
+  rather than a `call`/`ret` around it, and the menu, About and completion
+  arms end in tail jumps. `ct_paint` keeps the window in `DI` across the blit
+  and gives it back from there, so the paint is eight push/pop pairs shorter.
 
 ## 83. Text input for packages (`apps/os88line.inc`, `apps/os88text.inc`)
 

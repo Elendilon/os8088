@@ -113,13 +113,13 @@ FDLG_SAVE equ 1
 ; at all (ct_expdlg) - so an open Chart holds 19KB of heap where it held 51.
 ; The bss is loader-zeroed (SPEC.md 21 step 5), so nothing here clears the
 ; value count or the name.
+;
+; It banks ES and nothing else (apps size pass 2, SPEC.md 82.15): the loader
+; reads BX (the window) and CF back and reloads every other register it uses
+; (SPEC.md 21 step 9), and ES is the one it is handed as KERNEL_SEG by a far
+; call that, unlike wm_pkgcall, does not put it back.
 ; -----------------------------------------------------------------------------
 ct_entry:
-    push ax
-    push cx
-    push dx
-    push si
-    push di
     push es
     call fp_init                        ; stage 4.6: before the first claim,
                                         ; for the reason sheet.asm's own call
@@ -156,27 +156,58 @@ ct_entry:
     stc
 .out:
     pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; ct_show - rasterize ct_wvals[0..ct_valcnt) into ct_chartseg via
+; apps/os88chart.inc's ch_draw, then paint it: it FALLS INTO ct_paint.
+; in:  BX = our window ptr. Out: SI = that window (ct_paint's); clobbers
+;      everything else.
+;
+; The value array lives in THIS PACKAGE's own bss - a single-segment package
+; (SPEC.md 20.1) runs with DS already pointed at that segment, so ch_draw's own
+; DX=array segment parameter is just DS itself, no cross-segment juggling
+; needed (unlike Sheet, which stages the array in a separately claimed segment).
+;
+; THE WINDOW IS BANKED ACROSS ch_draw, which clobbers AX-DX, SI and DI and says
+; so in its own header (SPEC.md 82.10: ct_render banked everything else and NOT
+; BX, which held the window, and the blit that followed wrote 240x160 through
+; whatever ch_draw's arithmetic had left there). It is popped straight into SI,
+; which is where ct_paint wants it - so the two callers that used to call
+; ct_render and then ct_paint one after the other call this once.
+; -----------------------------------------------------------------------------
+ct_show:
+    push bx
+    mov word [ch_arr2], ct_w2vals       ; the second series, if the file had a
+    mov ax, [ct_t2cnt]                  ; second column (82.8)
+    mov [ch_cnt2], ax
+    mov [ch_srcseg2], ds
+    xor ax, ax                          ; the file it charted, which is the
+    cmp [ct_name], al                   ; only name this app has for the data
+    je .titled                          ; - or no title at all before a file
+    mov ax, ct_name
+.titled:
+    mov [ch_title], ax
+    mov cx, [ct_valcnt]
+    mov es, [ct_chartseg]
+    mov dx, ds
+    mov si, ct_wvals                    ; the SCALED words, not the doubles
+    call ch_draw                        ; stage 3.0f: the type comes from
+                                        ; [ch_type], which the Gallery menu
+                                        ; sets; ch_draw falls back to the
+                                        ; column chart for an unknown one
+    pop si                              ; the window, for the paint below
 
 ; -----------------------------------------------------------------------------
 ; ct_paint - W_PAINT: the two bands the picture does not cover, then one
 ; OSAPI_GFX_BLIT4 of the already-rasterized buffer.
 ; In: SI = window ptr; caller holds the gfx lock.
+; Out: SI = that window and DF = 0 - W_PAINT's whole debt (SPEC.md 11): the one
+; dispatch site banks AX-DI and BP and wm_pkgcall puts DS/ES back, so nothing
+; else is banked here. The window is kept in DI, which every slot and
+; os88ui_about_d preserve, and handed back out of it.
 ; -----------------------------------------------------------------------------
 ct_paint:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push es
     mov di, si                          ; the window, banked for the card:
     mov bx, si                          ; SI is spent on the blit below
     call OSAPI_WM_CONTENT               ; ax=content x, dx=content y
@@ -195,72 +226,13 @@ ct_paint:
     mov cx, CH_W
     mov dx, CH_H
     call OSAPI_GFX_BLIT4
-    pop es
     cmp byte [ct_abon], 0               ; ...and the About card LAST, over the
     je .noab                            ; canvas it is opaque about (20.5.1)
-    push si
     mov bx, di                          ; the WINDOW - not SI, which is CH_PXOFF
     mov si, ct_ablines                  ; since the blit
     call os88ui_about_d                 ; _d: this paint's region is armed
-    pop si
 .noab:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; ct_render - rasterize ct_wvals[0..ct_valcnt) into ct_chartseg via
-; apps/os88chart.inc's ch_bars_draw. The value array lives in THIS
-; PACKAGE's own bss - a single-segment package (SPEC.md 20.1) runs with
-; DS already pointed at that segment, so ch_bars_draw's own DX=array
-; segment parameter is just DS itself, no cross-segment juggling needed
-; (unlike Sheet, which stages the array in a separately claimed segment).
-; -----------------------------------------------------------------------------
-ct_render:
-    push ax
-    push bx                             ; ch_draw's own header says it clobbers
-    push cx                             ; ax-dx, si and di. BX was NOT banked
-    push dx                             ; here, and ct_ondlg keeps the WINDOW
-    push si                             ; POINTER in it across this call - so
-    push di                             ; `mov si, bx` fed ct_paint a garbage
-    push es                             ; window and OSAPI_GFX_BLIT4 wrote a
-                                        ; 240x160 image through whatever
-                                        ; coordinates that address happened to
-                                        ; hold: the menu bar and the window's
-                                        ; own frame, destroyed, with no error.
-                                        ; DI is banked for the same reason
-                                        ; before it costs someone else a day.
-    mov word [ch_arr2], ct_w2vals       ; the second series, if the file had a
-    mov ax, [ct_t2cnt]                  ; second column (82.8)
-    mov [ch_cnt2], ax
-    mov ax, ds
-    mov [ch_srcseg2], ax
-    xor ax, ax                          ; the file it charted, which is the
-    cmp [ct_name], al                   ; only name this app has for the data
-    je .titled                          ; - or no title at all before a file
-    mov ax, ct_name
-.titled:
-    mov [ch_title], ax
-    mov cx, [ct_valcnt]
-    mov es, [ct_chartseg]
-    mov dx, ds
-    mov si, ct_wvals                    ; the SCALED words, not the doubles
-    call ch_draw                        ; stage 3.0f: the type comes from
-                                        ; [ch_type], which the Gallery menu
-                                        ; sets; ch_draw falls back to the
-                                        ; column chart for an unknown one
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    mov si, di
     ret
 
 ; -----------------------------------------------------------------------------
@@ -268,6 +240,8 @@ ct_render:
 ; window, gfx lock already held (SPEC.md 12.2). File is 0 Open..., 1 Export
 ; as BMP... - and THOSE ITEM NUMBERS ARE THE DIALOG MODES, FDLG_OPEN and
 ; FDLG_SAVE, so AL goes to OSAPI_FILE_DLG as it arrives (asserted below).
+; An AM_ONCMD handler may clobber AX-DI and ES (SPEC.md 12.2), so nothing is
+; banked here, and every arm that can ends in a tail jump.
 ; -----------------------------------------------------------------------------
 %if FDLG_OPEN != 0 || FDLG_SAVE != 1
     %error "ct_oncmd hands the File item number to OSAPI_FILE_DLG as its mode"
@@ -277,9 +251,6 @@ ct_oncmd:
     je .gallery
     cmp ah, 2
     je .data
-    push bx
-    push si
-    push di
     mov bx, si
     mov di, ct_ondlg
     xor si, si                          ; no default name for Open
@@ -292,14 +263,9 @@ ct_oncmd:
     mov si, ct_s_chartbmp               ; AL = 1 = FDLG_SAVE
 .dlg:
     call OSAPI_FILE_DLG
-    jmp .dlgout
-.say:
-    call ct_toast
-.dlgout:
-    pop di
-    pop si
-    pop bx
     ret
+.say:
+    jmp ct_toast
 ; --- Data: pick the column, and READ THE FILE AGAIN ---------------------------
 ; Re-reading rather than re-filtering what is in memory, because the readers
 ; keep only the two columns they chose - the rest was never stored. The file
@@ -318,17 +284,14 @@ ct_oncmd:
 ; because the menu is in Excel's alphabetical order (Area, Bar, Column, Line)
 ; and CH_T_* is in the order the drawing code was written.
 .gallery:
-    push bx
-    mov bl, al
-    xor bh, bh
-    mov al, [ct_gal_map + bx]           ; bytes: every CH_T_* is under 128,
+    mov bx, ct_gal_map
+    xlatb                               ; bytes: every CH_T_* is under 128,
     cbw                                 ; so CBW is the zero extension
     mov [ch_type], ax
-    pop bx
     cmp word [ct_valcnt], 0
     je .ret                             ; nothing loaded: the type is still
-    call ct_render                      ; remembered for the next Open
-    call ct_paint
+    mov bx, si                          ; remembered for the next Open
+    jmp ct_show
 .ret:
     ret
 
@@ -346,20 +309,20 @@ ct_oncmd:
 ; 20.5.1), and this is the sentence that let it happen.
 ; -----------------------------------------------------------------------------
 ct_about:
-    push bx
-    push si
-    mov byte [ct_abon], 1
-    mov bx, si
+    mov byte [ct_abon], 1               ; a window callback in every respect,
+    mov bx, si                          ; so it may clobber AX-DI and ES
     mov si, ct_ablines
-    call os88ui_about                   ; arms the clip itself: a menu dispatch
-    pop si                              ; arrives without one (SPEC.md 11.3)
-    pop bx
-    ret
+    jmp os88ui_about                    ; arms the clip itself: a menu dispatch
+                                        ; arrives without one (SPEC.md 11.3)
 
 ; -----------------------------------------------------------------------------
-; ct_abdismiss - take the card down if it is up
-; in:  SI = our window ptr; gfx lock held
-; out: CF = 1 the click was spent doing it; preserves every register
+; ct_abdismiss - W_ONCLICK, and it exists for ONE reason: a card the user
+;                cannot click away is not a card. This window is a pure display
+;                otherwise, so the template names this routine directly (it
+;                was reached through a `call ct_abdismiss / ret` wrapper).
+; in:  CX = x, DX = y, SI = our window ptr; gfx lock held
+; out: CF = 1 the click was spent taking the card down. SI is given back, as
+;      W_ONCLICK owes (SPEC.md 12.2); the rest is W_PAINT's to clobber
 ;
 ; ct_paint is one OSAPI_GFX_BLIT4 of the whole canvas, so putting the content
 ; back is the paint itself - there is nothing incremental here to repair.
@@ -367,14 +330,12 @@ ct_about:
 ct_abdismiss:
     cmp byte [ct_abon], 0
     je .none
-    push bx
     mov byte [ct_abon], 0
     mov bx, si
     call OSAPI_WM_CLIP_SET              ; nothing has armed a region for a
     jc .gone                            ; click (SPEC.md 11.3)
     call ct_paint
 .gone:
-    pop bx
     stc
     ret
 .none:
@@ -382,55 +343,36 @@ ct_abdismiss:
     ret
 
 ; -----------------------------------------------------------------------------
-; ct_onclick - W_ONCLICK, and it exists for ONE reason: a card the user cannot
-;              click away is not a card. This window is a pure display
-;              otherwise and the handler does nothing else.
-; in:  CX = x, DX = y, SI = window ptr; gfx lock held
-; -----------------------------------------------------------------------------
-ct_onclick:
-    call ct_abdismiss
-    ret
-
-; -----------------------------------------------------------------------------
 ; ct_toast - in: SI = NUL message; shows it as a menu-bar toast for the
-; default ~3s (SPEC.md 59). Preserves all registers except flags: OSAPI_TOAST
-; preserves every register but its outputs, and it has none (os88api.inc's
-; contract for every slot), so only the two this loads are banked. The kernel
-; COPIES the text (SPEC.md 59.3).
+; default ~3s (SPEC.md 59). Clobbers CX and ES: every caller reaches it as its
+; last act, most of them by a tail jump. The kernel COPIES the text (SPEC.md
+; 59.3).
 ; -----------------------------------------------------------------------------
 ct_toast:
-    push cx
-    push es
     push ds
     pop es
     xor cx, cx
     call OSAPI_TOAST
-    pop es
-    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
 ; ct_ondlg - the Open dialog's completion proc (SPEC.md 38.6). In: AL=mode
 ; (always 0, Open), SI=our window ptr, ES:DI=chosen name (ES=KERNEL_SEG); UI
 ; task, gfx lock HELD, dialog already destroyed - we owe the repaint. A newly
-; opened file starts on Automatic, whatever the last one used.
+; opened file starts on Automatic, whatever the last one used. A completion
+; proc owes no register back (SPEC.md 38.6), so only the window is banked,
+; across ct_takename.
 ; -----------------------------------------------------------------------------
 ct_ondlg:
-    push ax
-    push cx
     push si
-    push di
     mov si, di
     mov di, ct_name
     call ct_takename
-    pop di
     pop si
-    mov word [ct_wantcol], 0
+    xor ax, ax
+    mov [ct_wantcol], ax
     mov ax, ct_s_noval
-    call ct_load_show
-    pop cx
-    pop ax
-    ret
+    jmp ct_load_show
 
 ; -----------------------------------------------------------------------------
 ; ct_load_show - read [ct_name] under [ct_wantcol], render it and repaint, or
@@ -438,30 +380,26 @@ ct_ondlg:
 ; readers (ct_read_by_ext); zero values renders an empty white canvas, same as
 ; Sheet's own chart window with nothing charted yet, and says AX.
 ; in:  SI = our window ptr, AX = the toast for "read, and nothing to chart";
-;      gfx lock held. Preserves every register but AX.
+;      gfx lock held. Clobbers everything: both callers reach it by a tail
+;      jump from a callback that owes no register back.
 ;
-; BX holds the window across the read AND ct_render, both of which bank it -
-; which is the whole of 82.10. It is the one tail of the two callers that used
-; to carry a copy each (ct_ondlg's and Data > Column's ct_reread), differing
-; only in the sentence for an empty result.
+; BX holds the window across the read, which banks it (and AX), and ct_show
+; takes it from there - which is the whole of 82.10. It is the one tail of the
+; two callers that used to carry a copy each (ct_ondlg's and Data > Column's
+; ct_reread), differing only in the sentence for an empty result.
 ; -----------------------------------------------------------------------------
 ct_load_show:
-    push bx
-    push si
     mov bx, si
     call ct_read_by_ext                 ; CF=1: SI = what went wrong
     jc .say
-    call ct_render
-    mov si, bx
-    call ct_paint
+    push ax
+    call ct_show
+    pop si
     cmp word [ct_valcnt], 0
     jne .out
-    mov si, ax
 .say:
-    call ct_toast
+    jmp ct_toast
 .out:
-    pop si
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -470,7 +408,7 @@ ct_load_show:
 ; out: CF=0: ES = [ct_stgseg], the claim to give back, with the file's bytes
 ;            at ES:CT_FOFF and CX of them, and the series' arrays below
 ;      CF=1: SI = the toast to show; nothing is held
-; clobbers AX, DX, SI
+; clobbers AX, BX, DX, SI
 ;
 ; THE PROBE IS A READ WITH NO ROOM. OSAPI_FILE_READ decides FERR_BIG from the
 ; directory entry BEFORE any data I/O, leaves the buffer alone, and answers
@@ -486,7 +424,6 @@ ct_load_show:
 ; and still is - the claim got smaller, the set of files Chart opens did not.
 ; -----------------------------------------------------------------------------
 ct_stage:
-    push bx
     push ds                             ; ES:BX = DS:0 with a capacity of 0:
     pop es                              ; the probe, which writes nothing
     xor bx, bx
@@ -526,14 +463,15 @@ ct_stage:
 .got:
     mov cx, ax                          ; a file this small never exceeds 64KB
 .out:
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
 ; ct_read_by_ext - stage [ct_name] and run the reader its extension names, and
 ; hand the staging back. out: CF=0 read; CF=1 = it was not, SI = the toast.
-; Every other register is preserved - BX in particular (every reader banks it,
-; 82.10), so a caller may keep its window pointer there.
+; AX and BX are preserved - BX in particular, so a caller may keep its window
+; pointer there (82.10) - and they are banked HERE, once, so neither ct_stage nor
+; the three readers nor ct_finalize under them banks anything: this is their
+; only caller and it reads nothing else back. CX, DX, DI and ES are clobbered.
 ;
 ; The extension test is the last four characters against ".DIF" and ".BIF"
 ; (8.3 names arrive uppercase from the kernel, so it is case-sensitive), and
@@ -541,10 +479,7 @@ ct_stage:
 ; -----------------------------------------------------------------------------
 ct_read_by_ext:
     push ax
-    push cx
-    push dx
-    push di
-    push es
+    push bx
     call ct_stage                       ; ES:CT_FOFF = the file, CX bytes
     jc .out
     add cx, CT_FOFF                     ; CX = where the readers stop
@@ -581,10 +516,7 @@ ct_read_by_ext:
     call OSAPI_MEM_FREE                 ; the callback returns
     clc
 .out:
-    pop es
-    pop di
-    pop dx
-    pop cx
+    pop bx
     pop ax
     ret
 
@@ -602,13 +534,6 @@ ct_read_by_ext:
 ; this callback. The file written is byte-identical to ch_bmp_write's.
 ; -----------------------------------------------------------------------------
 ct_expdlg:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
     mov si, di
     mov di, ct_ntxt                     ; NOT ct_name: that is the file being
     call ct_takename                    ; CHARTED, and Data > Column re-reads
@@ -626,15 +551,7 @@ ct_expdlg:
     jnc .say
     mov si, ct_s_experr
 .say:
-    call ct_toast
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp ct_toast                        ; a completion proc owes no register
 
 ; -----------------------------------------------------------------------------
 ; ct_flip - turn the canvas's CH_H pixel rows over in place; its own inverse.
@@ -725,10 +642,10 @@ ct_pint:
 ; the packed double in ch_dbl; SI advances past it. os88fp.inc's fp_atof reads
 ; DS, and every one of these readers has the file staged in ES, so the text is
 ; copied into a DS scratch first - the same shape sheet.asm's sh_esatof uses,
-; and for the same reason.
+; and for the same reason. Clobbers AX: the DIF reader and ct_parse_c both
+; reload it, and keep their counters in CX and DX, which it preserves.
 ; -----------------------------------------------------------------------------
 ct_esatof:
-    push ax
     push cx
     push di
     mov di, ct_ntxt
@@ -767,7 +684,6 @@ ct_esatof:
     call fp_pack_a
     pop di
     pop cx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -924,7 +840,8 @@ ct_record:
 ; row ascending, IN PLACE, then scale both series' doubles into the words the
 ; drawing runs on, and copy those words - the only thing the read leaves
 ; behind - out of the staging claim into ct_w2vals/ct_wvals.
-; in: ES = the staging claim. out: ES = DS. Clobbers DI.
+; in: ES = the staging claim. out: ES = DS. Clobbers AX-DI: its readers reach
+; it by a tail jump, and ct_read_by_ext banks what its own caller reads.
 ;
 ; ct_record already keeps only the lowest column (and caps it at CH_MAXBARS),
 ; so all this has left to do is order it - and it orders the rows and doubles where
@@ -937,11 +854,6 @@ ct_record:
 ; here, so the chart on screen and the words it was drawn from stay together.
 ; -----------------------------------------------------------------------------
 ct_finalize:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
     mov cx, 1                           ; at most CH_MAXBARS=40 items, so an
 .outer:                                 ; O(n^2) sort costs nothing that
     cmp cx, [ct_tcnt]                   ; matters here
@@ -1006,11 +918,6 @@ ct_finalize:
     rep movsw
     push es
     pop ds
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1085,10 +992,6 @@ ct_rkdec:
 ; a counter - which is why ct_biffend, the bound's banked copy, is gone.
 ; -----------------------------------------------------------------------------
 ct_read_biff:
-    push ax
-    push bx
-    push dx
-    push si
     mov si, CT_FOFF
 .rechdr:
     mov ax, si
@@ -1149,10 +1052,6 @@ ct_read_biff:
     mov si, ax                          ; lock held, that is the whole desktop
     jmp .rechdr
 .done:
-    pop si
-    pop dx
-    pop bx
-    pop ax
     jmp ct_finalize
 
 ; -----------------------------------------------------------------------------
@@ -1167,11 +1066,6 @@ ct_read_biff:
 ; ct_record, which keeps only the lowest column.
 ; -----------------------------------------------------------------------------
 ct_read_sylk:
-    push ax
-    push bx
-    push dx
-    push si
-    push di
     mov di, cx                          ; di = end offset
     mov si, CT_FOFF
 .lineloop:
@@ -1197,10 +1091,8 @@ ct_read_sylk:
     jne .advance
     cmp byte [es:si+1], ';'
     jne .advance
-    push si
     add si, 2
     call ct_parse_c                     ; in: si=tokens start, bx=line end
-    pop si
 .advance:
     mov si, bx
 .skipterm:
@@ -1216,11 +1108,6 @@ ct_read_sylk:
     inc si
     jmp .skipterm
 .done:
-    pop di
-    pop si
-    pop dx
-    pop bx
-    pop ax
     jmp ct_finalize
 
 ; -----------------------------------------------------------------------------
@@ -1236,12 +1123,8 @@ ct_read_sylk:
 ; K wins, as it always did.
 ; -----------------------------------------------------------------------------
 ct_parse_c:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    push bx                             ; the line's end and the file's: what
+    push di                             ; ct_read_sylk reads back (it reloads SI)
     xor dx, dx                          ; DX = X, the column (0 = none given)
     xor cx, cx                          ; CX = Y, the row (0 = none given)
     xor di, di                          ; DI = a K value is in ch_dbl
@@ -1319,19 +1202,15 @@ ct_parse_c:
     call ct_record
 .out:
     pop di
-    pop si
-    pop dx
-    pop cx
     pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; ct_difskipline - advance SI past the rest of the current line and every
-; trailing CR/LF (DI = end offset, module-scoped like ct_read_dif's own)
+; trailing CR/LF (DI = end offset, module-scoped like ct_read_dif's own).
+; Clobbers AL.
 ; -----------------------------------------------------------------------------
 ct_difskipline:
-    push ax
 .scan:
     cmp si, di
     jae .out
@@ -1355,17 +1234,14 @@ ct_difskipline:
     inc si
     jmp .eat
 .out:
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; ct_is_bot_line - in: SI=line start, DI=end (exclusive); out: CF=1 if the
 ; line at SI is exactly "BOT" (the real DIF row marker), else CF=0. Does
-; not advance SI.
+; not advance SI. Clobbers AL and BX.
 ; -----------------------------------------------------------------------------
 ct_is_bot_line:
-    push ax
-    push bx
     lea bx, [si+3]                      ; SI < DI <= 33KB: this cannot wrap
     cmp bx, di
     ja .no
@@ -1386,8 +1262,6 @@ ct_is_bot_line:
 .no:
     clc
 .out:
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1408,12 +1282,7 @@ ct_is_bot_line:
 ; counters and the eight-byte round trip through a scratch copy are gone.
 ; -----------------------------------------------------------------------------
 ct_read_dif:
-    push ax                             ; CX is not banked: the length is
-    push bx                             ; copied into DI and CX is the column,
-    push dx                             ; and the one caller, ct_read_by_ext,
-    push si                             ; banks it
-    push di
-    mov di, cx                          ; di = end offset
+    mov di, cx                          ; di = end offset; CX is the column
     mov si, CT_FOFF
 .hdrscan:
     cmp si, di
@@ -1470,17 +1339,12 @@ ct_read_dif:
     inc cx
     jmp .cellloop
 .done:
-    pop di
-    pop si
-    pop dx
-    pop bx
-    pop ax
     jmp ct_finalize
 
 ; --- window template (SPEC.md 11: 16 bytes, 8 words) ---------------------------
 ct_tpl:
     dw 0, 0, CT_WIN_W, CT_WIN_H
-    dw ct_s_title, ct_paint, 0, ct_onclick  ; no onkey; the click is the About
+    dw ct_s_title, ct_paint, 0, ct_abdismiss    ; no onkey; the click is the About
                                         ; card's dismissal and nothing else
 
 ; --- the app menu set (SPEC.md 12.2) -------------------------------------------
