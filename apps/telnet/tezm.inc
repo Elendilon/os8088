@@ -323,17 +323,6 @@ tz_fail:
 
 tz_cancels: db 0x18, 0x18, 0x18, 0x18, 0x18, 8, 8, 8, 8, 8
 
-; --- tz_touch - the clock this transfer is measured against ------------------
-; OSAPI_GET_TICKS is 18.2 Hz and wraps at 65,536, so every comparison below is
-; a SUBTRACTION and never a `cmp` against an absolute (SPEC.md 70.11.2).
-tz_touch:
-    push ax
-    call OSAPI_GET_TICKS
-    mov [tz_tick], ax
-    mov byte [tz_try], 0
-    pop ax
-    ret
-
 ; =============================================================================
 ; SENDING - every header this end composes, and all of them go WHOLE
 ;
@@ -642,27 +631,25 @@ tz_poll:
     ; So: resume at whichever is LOWER, and skip only what is provably already
     ; written. The file's SIZE never moves either way, which is what keeps
     ; OSAPI_FILE_APPEND's cluster-multiple precondition true through a retry.
-    push si
-    push di
     mov word [tz_fill], 0           ; whatever was still filling is DISCARDED
-    mov si, tz_sub0
-    mov di, tz_pos
-    call tz_cmp32
-    jb .straddle                    ; sub0 < pos: part of this subpacket is on
-    mov word [tz_skip], 0           ; the disk already
-    mov si, tz_pos                  ; sub0 >= pos: [tz_pos] IS the honest resume
-    jmp short .rp                   ; and nothing is skipped
-.straddle:
-    mov ax, [tz_pos]
-    sub ax, [tz_sub0]               ; < one subpacket, so one word is enough
-    mov [tz_skip], ax
-    mov si, tz_sub0
+    mov ax, [tz_sub0 + 2]           ; [tz_sub0] against [tz_pos], UNSIGNED and
+    cmp ax, [tz_pos + 2]            ; high word first
+    jne .cmp
+    mov ax, [tz_sub0]
+    cmp ax, [tz_pos]
+.cmp:
+    mov bx, tz_pos                  ; sub0 >= pos: [tz_pos] IS the honest resume
+    mov ax, 0                       ; and nothing is skipped (a MOV, so CF from
+    jae .rp                         ; the compare survives it)
+    mov ax, [tz_pos]                ; sub0 < pos: part of this subpacket is on
+    sub ax, [tz_sub0]               ; the disk already - < one subpacket, so one
+    mov bx, tz_sub0                 ; word is enough
 .rp:
-    mov di, tz_rcv
-    call tz_cp32
-    mov bx, si
-    pop di
-    pop si
+    mov [tz_skip], ax
+    mov ax, [bx]                    ; [tz_rcv] = the resume, BX naming it
+    mov [tz_rcv], ax
+    mov ax, [bx + 2]
+    mov [tz_rcv + 2], ax
     mov al, ZF_RPOS
     call tz_saypos
     call tz_touch
@@ -738,6 +725,22 @@ tz_poll:
     pop ax
     ret
 
+; --- tz_mark0 - [tz_sub0] = [tz_rcv], where the next subpacket starts, and
+; then tz_touch. Every register kept. (Apps size pass 2: it replaces tz_cp32,
+; whose three callers all passed one of two fixed pairs.)
+tz_mark0:
+    push ax
+    mov ax, [tz_rcv]
+    mov [tz_sub0], ax
+    mov ax, [tz_rcv + 2]
+    mov [tz_sub0 + 2], ax
+    pop ax
+; --- tz_touch - the clock this transfer is measured against ------------------
+; OSAPI_GET_TICKS is 18.2 Hz and wraps at 65,536, so every comparison below is
+; a SUBTRACTION and never a `cmp` against an absolute (SPEC.md 70.11.2). It is
+; tz_touchq with the retry count reset, and falls into it.
+tz_touch:
+    mov byte [tz_try], 0
 ; --- tz_touchq - the clock alone, so a retry COUNT survives it ---------------
 tz_touchq:
     push ax
@@ -1343,30 +1346,6 @@ tz_newfile:
     pop cx
     ret
 
-; --- tz_cp32 - the dword at SI -> the dword at DI ----------------------------
-tz_cp32:
-    push ax
-    mov ax, [si]
-    mov [di], ax
-    mov ax, [si+2]
-    mov [di+2], ax
-    pop ax
-    ret
-
-; --- tz_cmp32 - the dword at SI against the dword at DI, UNSIGNED -----------
-; out: CF=1 if [SI] < [DI]. `pop` does not touch the flags, so the answer rides
-; out of the epilogue.
-tz_cmp32:
-    push ax
-    mov ax, [si+2]
-    cmp ax, [di+2]
-    jne .out
-    mov ax, [si]
-    cmp ax, [di]
-.out:
-    pop ax
-    ret
-
 ; --- tz_eq32 - the dwords at SI and DI; ZF=1 if they are equal ---------------
 tz_eq32:
     push ax
@@ -1418,13 +1397,9 @@ tz_subok:
                                     ; ZCRCG would ever have noticed
     cmp byte [tz_sk], TZS_STAGE
     jne .out
-    push si
-    push di
-    mov si, tz_rcv                  ; ...and where the NEXT subpacket starts,
-    mov di, tz_sub0                 ; which is what a CRC error resumes from
-    call tz_cp32
-    pop di
-    pop si
+    pop bx                          ; ...and where the NEXT subpacket starts,
+    pop ax                          ; which is what a CRC error resumes from:
+    jmp tz_mark0                    ; tz_mark0 ends in .out's tz_touch
 .out:
     call tz_touch
     pop bx
@@ -1521,11 +1496,8 @@ tz_frame:
     jne .repos                      ; it is resuming somewhere we are not
     mov bl, TZS_STAGE
     call tz_subgo
-    mov si, tz_rcv                  ; ...and where this subpacket STARTS, which
-    mov di, tz_sub0                 ; is the offset a CRC error resumes from
-    call tz_cp32
-    call tz_touch
-    jmp .out
+    call tz_mark0                   ; ...and where this subpacket STARTS, which
+    jmp .out                        ; is the offset a CRC error resumes from
 .repos:
     mov byte [tz_owe], 2
     jmp .swallow
