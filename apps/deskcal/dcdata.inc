@@ -132,8 +132,7 @@ dc_arange:
     add si, DCP_APPTSZ
     loop .l
 .x:
-    mov [dc_afirst], al
-    mov [dc_acnt], ah
+    mov [dc_afirst], ax         ; and [dc_acnt]
     pop si
     pop dx
     pop cx

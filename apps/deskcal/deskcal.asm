@@ -138,9 +138,6 @@ dc_sel      equ os88_image_end + DC_BSS_SEL
 dc_ty       equ os88_image_end + DC_BSS_TY
 dc_tm       equ os88_image_end + DC_BSS_TM
 dc_td       equ os88_image_end + DC_BSS_TD
-%if DC_BSS_SEL != DC_BSS_M + 1 || DC_BSS_TD != DC_BSS_TM + 1
-  %error "deskcal: the month and the day are read and written as one word"
-%endif
 dc_win      equ os88_image_end + 50     ; dw our window
 dc_abon     equ os88_image_end + 52     ; db the About card is up
 dc_dow1     equ os88_image_end + 53     ; db the 1st's column (Monday first)
@@ -290,8 +287,7 @@ dc_entry:
     jne .mk
     cmp byte [dc_c3k], DC3_RING
     jne .mk
-    mov byte [dc_pane], 2
-    mov byte [dc_pane0], 0
+    mov word [dc_pane], 2       ; [dc_pane0] 0: the day's page to give back
 .mk:
     mov si, dc_tpl
     call OSAPI_WM_CREATE        ; BX = the window, CF = the table is full
@@ -913,11 +909,10 @@ dc_oncard:
 .b:
     cmp bl, DCH_BTN
     jne .a
-    inc al                      ; THE BUTTON: lit now, acted on at its release
-    mov [dc_lit], al
-    dec al
-    mov ah, [dc_hb]
-    mov [dc_lact], ah
+    mov ah, [dc_hb]             ; THE BUTTON: lit now, acted on at its release
+    inc ax                      ; [dc_lit] = the card + 1 (<= 3: no carry),
+    mov [dc_lit], ax            ; [dc_lact] = the button
+    dec ax
     mov bx, [dc_hx0]
     mov [dc_lx0], bx            ; (and dc_lx1)
     mov bx, [dc_hy0]
@@ -1219,10 +1214,8 @@ dc_menulive:
 ; register kept
 dc_selset:
     push ax
-    mov al, [dc_selk]
-    mov ah, [dc_seli]
-    mov [dc_selk], bl
-    mov [dc_seli], bh
+    mov ax, [dc_selk]           ; AL = the kind, AH = the index...
+    mov [dc_selk], bx           ; ...and BL, BH theirs
     call dc_menulive
     cmp ax, bx
     je .x
@@ -1366,8 +1359,8 @@ dc_pswap:
     jb .s
     xor al, al
 .s:
-    mov [dc_pane], al
-    mov byte [dc_pane0], 0FFh
+    mov ah, 0FFh                ; [dc_pane0]: not taken
+    mov [dc_pane], ax
     call dc_menulive
     call dc_arm
     jc .x
@@ -1573,8 +1566,9 @@ dc_fopen:
 .pg:
     cmp [dc_pane], ah
     je .a
-    mov [dc_pane], ah
-    mov byte [dc_pane0], 0FFh
+    mov al, ah                  ; (the mode is spent)
+    mov ah, 0FFh                ; [dc_pane0]: not taken
+    mov [dc_pane], ax
     call dc_menulive
     inc cx
 .a:
@@ -1857,8 +1851,7 @@ dc_ctask:
     call dc_tview               ; its page
     cmp byte [stik_li], 2
     jne .draw
-    mov byte [dc_pane], 1       ; COMPACT: the tasks' page shows it
-    mov byte [dc_pane0], 0FFh
+    mov word [dc_pane], 0FF01h  ; COMPACT: the tasks' page shows it
 .draw:
     call dc_menulive
     call dc_arm
@@ -2002,10 +1995,8 @@ dc_askdel:
     call os88ui_ask             ; CF = 1: another of ours is up (raised)
     jc .x
     mov byte [dc_ask], 1
-    mov al, [dc_selk]
-    mov [dc_delk], al
-    mov al, [dc_seli]
-    mov [dc_deli], al
+    mov ax, [dc_selk]           ; the kind and the index
+    mov [dc_delk], ax
 .x:
     pop es
     pop di
@@ -2353,3 +2344,13 @@ dc_ab4:     db 'SPEC.md 110', 0
     align 16, db 0              ; os88stik.inc's read lands on a paragraph
     OS88_BSS STIK_BSS_END
     OS88_IMAGE_END
+
+; PAIRS read or written as ONE WORD, the low byte first: the month and the
+; day (on show, and today), the selection's kind and index (and the Delete
+; question's copy), the slot's page and the page it was taken from, the
+; held button's card and action, its bytes, the hit's button bytes, the
+; day's first appointment and count, a list's line and section, card 3's
+; state and appointment
+%if dc_m + 1 != dc_sel || dc_tm + 1 != dc_td || dc_selk + 1 != dc_seli || dc_pane + 1 != dc_pane0 || dc_lit + 1 != dc_lact || dc_lx0 + 1 != dc_lx1 || dc_hx0 + 1 != dc_hx1 || dc_afirst + 1 != dc_acnt || dc_li + 1 != dc_lsec || dc_c3k + 1 != dc_c3a || dc_delk + 1 != dc_deli
+  %error "deskcal: a pair read or written as one word is not adjacent"
+%endif

@@ -616,8 +616,7 @@ dc_hdname:
     jmp short .x
 .other:
     mov ax, [dc_y]
-    mov bl, [dc_m]
-    mov bh, [dc_sel]
+    mov bx, [dc_m]              ; BL = the month, BH = the day
     call dc_dow_of
     call dc_dname
     xor bl, bl
@@ -656,8 +655,7 @@ dc_istoday:
 ; -----------------------------------------------------------------------------
 dc_cmon:
     mov ax, [dc_ty]             ; today's day of the week, for its name
-    mov bl, [dc_tm]
-    mov bh, [dc_td]
+    mov bx, [dc_tm]
     call dc_dow_of
     mov [dc_tdow], al
     call dc_tidx
@@ -1006,8 +1004,7 @@ dc_chead:
 ; `No appointments` on line 0 when the day has none - card 3's `No reminders
 ; today` again, so an empty day does not read as a paint that stopped
 dc_casec:
-    mov byte [dc_lsec], 0
-    mov byte [dc_li], 0
+    mov word [dc_li], 0         ; line 0 of section 0 ([dc_lsec])
 .l:
     mov di, [dc_geo]
     mov al, [dc_li]
@@ -1223,8 +1220,7 @@ dc_caline:
 
 ; dc_ctsec - the task lines; the last `+N more` while the list pages
 dc_ctsec:
-    mov byte [dc_lsec], 1
-    mov byte [dc_li], 0
+    mov word [dc_li], 100h      ; line 0 of section 1 ([dc_lsec])
 .l:
     mov di, [dc_geo]
     mov al, [dc_li]
@@ -1809,8 +1805,7 @@ dc_hbtn:
     pop ax
     mov byte [dc_hk], DCH_BTN
     mov [dc_hb], al
-    mov [dc_hx0], bl
-    mov [dc_hx1], bh
+    mov [dc_hx0], bx            ; and [dc_hx1]
     mov [dc_hy0], si
     mov [dc_hy1], dx
     ret
