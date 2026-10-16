@@ -1546,8 +1546,9 @@ pn_setdown:
     je .out
     xchg ax, [pn_down]
     call pn_btn1                    ; the old one, upright
-    mov ax, [pn_down]
-    call pn_btn1                    ; the new one, pressed
+    pop ax                          ; the new one, pressed - pn_btn1 reads
+    push ax                         ; AL alone
+    call pn_btn1
 .out:
     pop ax
     ret
