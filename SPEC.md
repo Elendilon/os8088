@@ -169731,9 +169731,20 @@ the encoder does without it. GasGas 0:40-0:50 at 24 fps: the view 6.8%
 broken, 5.3% with `--min-fps 12`, 5.0% at 20 fps throughout - and the
 owner, playing them, found the slowed file and the 20 fps one "very
 similar" and the 24 fps one "lots of tearing liney cars"; Take On Me
-0:15-0:30 5.5% -> 4.8%. Not on a flipped, page-ahead, layered or Live
-file; `OS88_VENC_VFRLOG=FILE` logs every decision. No format change: a
-held frame is an ordinary record.
+0:15-0:30 5.5% -> 4.8%. **With page-ahead** (98.2.1.8) the plan pass
+decides and logs the holds and every real pass replays them; a held frame
+there writes nothing on the page shown and leaves its period to the hidden
+page, built toward the frame after it - a target - and flipped to; and
+each slowed stretch is kept only where it drew better with page-ahead
+than without (`vfr_page_select`: the page-ahead pass with and without the
+holds, and a third with the kept ones). GasGas54's options at 20 fps:
+1.9% -> 1.3%, its worst frame 81.5 -> 49.1. **On a flipped file** a hold
+writes nothing - the frame shown is brought up onto the back page and
+shown again whole, which keeps its bytes and lets the lag schedule catch
+up: Bad Carrot's tune 1.8% -> 0.9%, frames cut 43 -> 18. A held frame
+counts with the cut ones wherever passes are compared (`cutf`). Not on a
+layered or Live file; `OS88_VENC_VFRLOG=FILE` logs every decision. No
+format change: a held frame is an ordinary record.
 
 ##### 98.2.1.2 What a cut frame spends on: the look-ahead and the error as seen
 

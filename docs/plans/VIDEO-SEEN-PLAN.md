@@ -354,23 +354,77 @@ Not on a flipped file (every record flips, so a held one would show the
 page two frames back), a layered file or a Live one, and in wave 1 not on
 a page-ahead file either.
 
-**Wave 2: variable frame rate WITH page-ahead** (the owner: "page ahead
-is pretty critical to things like gasgas54"). Page-ahead's plan pass is
-the plain encode and its real pass replays the plan's budgets, so both
-must hold the SAME frames: the plan pass decides the rates and records
-its holds in the plan (`plog`, beside each frame's `why`), the real pass
-holds exactly those and decides none of its own, and the prune's third
-pass keeps them. And on a page-ahead file a held frame has a better place
-to draw than the shown page: the HIDDEN page, flipped to when the next
-frame is whole - the held period's CPU spent where nobody sees it torn. Two
-questions it must answer first: a held frame is not a cut, so it is not a
-page-ahead TARGET (a cut run that a hold ends early is shorter, and its
-first frame may move); and the hidden page's spending in a held period is
-the hold's CPU and bytes, which is exactly what the frame after it was
-counting on - so a held period spends on the hidden page only what the
-next frame's whole draw leaves, or the hold buys nothing. A flipped file's
-hold (a record that writes the back page up to the shown one and does not
-flip) is a format question and a wave of its own.
+**Wave 2 (2026-10-16): WITH PAGE-AHEAD - BUILT.** The owner: "page ahead
+is pretty critical to things like gasgas54".
+- **The plan pass decides, the real passes replay.** The plan pass is the
+  plain encode and decides the rates as wave 1 does; it logs the held
+  frames (`H`), each slowed stretch (`S`, with its rate), and makes the
+  frame drawn after a run of holds a page-ahead TARGET (`HT` where it was
+  not one already). Every real pass holds exactly `H` and decides nothing
+  (`vreplay`), so the lag search's copies and the prune's pass agree.
+- **A held frame in a real pass writes NOTHING on the page shown**, so the
+  picture stays whole, and its whole period goes to the hidden page
+  (`PageAhead.after` gives an uncut frame its ceiling less its record),
+  built toward the frame after it and flipped to there. This is page-
+  ahead's own mechanism and the better place for the hold to draw: the
+  held period is spent where nobody sees it torn.
+- **Kept stretch by stretch** (`vfr_page_select`). The plan pass judged its
+  holds without the hidden page, and on GasGas54 at 24 fps they cost
+  page-ahead its 0:07.5 burst (frames 179-189 read 72 30 82 81 85 67 68
+  with them against 28 0 69 77 36 81 20 without) while they won the car
+  shot (18-22 0 against 16 11 3 18). So with holds in the plan the
+  page-ahead pass runs WITH them and WITHOUT them, each slowed stretch is
+  kept where its frames' view as seen was less broken with its holds, a
+  third pass runs with only the kept ones when the verdict is mixed, and
+  the least broken of the passes is the file - page-ahead's prune
+  (98.2.1.8.2), one level up.
+- **A held frame counts with the cut ones** in every comparison (`cutf`):
+  holds turn cuts into holds, and counted apart the plain encode, holding
+  where page-ahead drew, read as cutting less - which alone dropped a
+  page-ahead file that was better on every picture measure.
+
+GasGas54's own options (16 colours 640 x 400, 286-picomem1, peak 5.4,
+page-ahead auto), 0:40-0:50:
+
+| | the view broken | worst | s visibly broken |
+|---|---:|---:|---:|
+| 20 fps, page-ahead | 1.9% | 81.5 | 0.2 |
+| 20 fps, page-ahead + `--min-fps 10` | **1.3%** | **49.1** | **0.1** |
+| 24 fps, page-ahead | 2.3% | 80.6 | 0.2 |
+| 24 fps, page-ahead + `--min-fps 12` (2 of 3 stretches kept) | **2.2%** | 80.6 | 0.2 |
+
+**Wave 3 (2026-10-16): FLIPPED - BUILT, with no format change.** A flipped
+record is drawn on the page the glass is not showing and then shown, so a
+hold drawn toward the next frame would be SEEN half drawn. A flipped
+file's hold writes NOTHING: the back page is brought up to the frame shown
+(98.3.8), which is shown again whole. It gives the frame after it no CPU
+head start - the per-frame ceiling is the same - but it keeps the period's
+bytes, and on a flipped file the LAG SCHEDULE is what cuts (Bad Carrot's
+tune: 32 of its 43 cuts), and the call that draws nothing is a call the
+picture catches up in, so the frame after starts level with the whole of
+its allowance. The rate is chosen the same way, simulated with the empty
+hold (`vfr_try(empty=)`) and the held frame judged against the picture it
+shows. Flipped AND built ahead (98.1.3.7.2) takes the same empty hold in
+both passes and wave 2's selection.
+
+| Bad Carrot 3:05-3:20, the owner's tune (Mode X, 64 greys, flipped, lag 208) | the view broken | worst | frames cut |
+|---|---:|---:|---:|
+| as today | 1.8% | 57.0 | 43 |
+| `--min-fps 12` | **0.9%** | **30.4** | 18 |
+| `--page-ahead on --pages 3` | 1.8% | 55.4 | 41 |
+| ...and `--min-fps 12` (2 of 5 stretches kept) | 1.2% | 53.6 | 30 |
+
+**What a flipped hold could do with a format bit**: a record that draws the
+back page WITHOUT showing it would let the held period draw toward the
+next frame there, as page-ahead's hidden page does - but the page brought
+up after it would then need two records or a copy, and it is a player
+change in VIDEO.O88, which is being size-passed. The empty hold is what
+ships; this is the next step if a flipped file wants more.
+
+**Not combined**: a LAYERED file (the layer is the better machine's frames
+drawn over the base's, so a base drawn toward the next frame would have
+the layer drawing it back - paid for twice), and LIVE (a pass a tick on
+the desktop).
 
 ## 4. The order
 
