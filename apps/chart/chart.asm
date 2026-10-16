@@ -1296,7 +1296,7 @@ ct_read_dif:
 ; --- window template (SPEC.md 11: 16 bytes, 8 words) ---------------------------
 ct_tpl:
     dw 0, 0, CT_WIN_W, CT_WIN_H
-    dw ct_s_title, ct_paint, 0, ct_abdismiss    ; no onkey; the click is the About
+    dw ct_name_app, ct_paint, 0, ct_abdismiss    ; no onkey; the click is the About
                                         ; card's dismissal and nothing else
 
 ; --- the app menu set (SPEC.md 12.2) -------------------------------------------
@@ -1306,7 +1306,8 @@ ct_tpl:
         OS88_MENU ct_m_data, ct_i_data, 9
     OS88_MENUSET_END ct_menus
 
-ct_name_app: db 'Chart', 0
+ct_name_app: db 'Chart', 0              ; the menu bar's name AND the window
+                                         ; title: one string, read-only to both
 ; WHICH COLUMN TO CHART. Excel needs no such menu because it charts a
 ; SELECTION; this app opens a FILE, so nothing in it says which column was
 ; meant and the reader can only fall back on "the lowest one". That is right
@@ -1347,14 +1348,13 @@ ct_it_sca:    db 'Scatter', 0
 ct_it_cmb:    db 'Combination', 0
 
 ct_gal_map:    db CH_T_AREA, CH_T_BAR, CH_T_COLUMN, CH_T_LINE, CH_T_PIE, CH_T_SCATTER, CH_T_COMBO
-ct_s_title:    db 'Chart', 0
 ; --- the About card's lines (SPEC.md 20.5.1) ----------------------------------
 ; The content box is CT_WIN_W - 2 = 258px, so 30 cells less the card's margins.
 ct_ablines:
     dw ct_ab1, ct_ab2, ct_ab3, ct_ab4, 0
 ct_ab1:        db 'Chart for os8088', 0
-ct_ab2:        db 'Charts a column of a sheet', 0
-ct_ab3:        db 0
+ct_ab2:        db 'Charts a column of a sheet'
+ct_ab3:        db 0                     ; the blank line is ct_ab2's own NUL
 ct_ab4:        db 'Contributed by Koriban', 0
 ct_s_chartbmp: db 'CHART.BMP', 0
 ct_s_noexp:    db 'No chart to export.', 0

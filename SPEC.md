@@ -128723,6 +128723,9 @@ it holds is recorded with the pass's report.
   keeping form banked AX, DX and the flags for nothing still owed; the entry
   ends in its own `clc` now, and both refusals reach the `pop es` by a `jc`
   that already carries the CF the loader wants, so `.fail`'s `stc` went too.
+- **One `Chart` string** (-7 image, -10 file): the menu bar's name and the
+  window title were two copies of the same six bytes, and both readers only
+  read it. The About card's blank line is the NUL that ends the line above.
 
 ## 83. Text input for packages (`apps/os88line.inc`, `apps/os88text.inc`)
 
