@@ -144822,6 +144822,15 @@ the package had twice or did not need.
   absolute and returned without using them: the buttons are the gesture
   library's, which takes the press before `wr_onclick` runs. The row test
   borrows on `sub` instead of comparing first.
+- **A DEFECT, fixed: the status cell's compose buffer was one cell wide.**
+  `wr_statbuild` composes the whole line and only then pads or cuts it to
+  48 cells, and during an Add or an archive the line is `[wr_msg]` - the
+  outcome buffer `wr_omsg`, which sat directly after it - plus ` NNNK of
+  MMMK`. With an 18-character title that is up to 57 characters, so the tail
+  was written over the head of `wr_omsg` and every later repaint showed the
+  figure's last characters where `Adding` was, until the next file of the set
+  rebuilt it. `wr_sline` is `WR_STATB` = 58 bytes now: **+9 bytes of bss**,
+  and nothing on the glass changes but the corruption.
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 

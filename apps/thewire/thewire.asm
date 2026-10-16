@@ -216,6 +216,16 @@ WR_LNH      equ 10              ; a description line's pitch: an 8-row face
                                 ; and two of air, which is what gets five of
                                 ; them under the buttons on a VGA
 WR_STATN    equ 48              ; the status cell: 48 cells of 8 = the 384
+WR_STATB    equ 58              ; ...and wr_sline's BYTES, which are more:
+                                ; wr_statbuild COMPOSES and only then pads or
+                                ; cuts to WR_STATN, and its longest
+                                ; composition is 57 and a NUL - `Adding `, an
+                                ; 18-cell title, `255 of 255 files`, then
+                                ; ` 1024K of 1024K` (SPEC.md 92.15.3). At 49 a
+                                ; long title on a big transfer ran into
+                                ; wr_omsg, the very string being shown, and
+                                ; the next repaint read its own tail back as
+                                ; the head of the message
 
 WR_PICMIN   equ 170             ; the pane height at which the picture fits
                                 ; beside a title, a tier line and a
@@ -3544,7 +3554,7 @@ wr_ra       equ os88_image_end + WR_B0 + 14         ; 4 words: Load Program
 wr_rb       equ os88_image_end + WR_B0 + 22         ; 4 words: Add to Disk...
 wr_line     equ os88_image_end + WR_B0 + 30         ; WR_LINEN, the PAINTERS'
 wr_sline    equ os88_image_end + WR_B0 + 30 + WR_LINEN
-WR_OMSGO    equ WR_B0 + 30 + WR_LINEN + WR_STATN + 1
+WR_OMSGO    equ WR_B0 + 30 + WR_LINEN + WR_STATB
 wr_omsg     equ os88_image_end + WR_OMSGO           ; 48: and the OUTCOME's,
                                                     ; which may NOT be wr_line.
                                                     ; [wr_msg] points at it and
@@ -3565,7 +3575,7 @@ wr_omsg     equ os88_image_end + WR_OMSGO           ; 48: and the OUTCOME's,
 ; painter, and the worker reaches wr_dstat only through wr_nshow's lock - so
 ; the worker's status repaint cannot land between a copy and its draw.
 wr_icobuf   equ wr_line
-%if WR_LINEN + WR_STATN + 1 < 66
+%if WR_LINEN + WR_STATB < 66
   %error "wr_icobuf's 66 bytes do not fit wr_line and wr_sline"
 %endif
 WR_B1       equ WR_OMSGO + 48
