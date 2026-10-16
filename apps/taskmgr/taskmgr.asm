@@ -1851,32 +1851,29 @@ tm_sample:
     mov di, tm_snapshot
     TM_SYS_SNAPSHOT
 
-    mov si, tm_state            ; = the snapshot's own T_STATE bytes
-    mov cx, MAX_TASKS
-    mov byte [tm_idle], 0xFF    ; ...and WHICH slot is the idle task, which the
-.ssnap:                         ; snapshot names with a state of its own
-    lodsb                       ; (SPEC.md 28.7)
-    cmp al, 3
-    jne .snotidle
-    mov al, MAX_TASKS
-    sub al, cl                  ; CX counts DOWN from MAX_TASKS: the slot is
-    mov [tm_idle], al           ; MAX_TASKS - CX
-.snotidle:
-    loop .ssnap
-
-    ; --- per-task diffs ------------------------------------------------------
+    ; --- per-task diffs, and WHICH slot is the idle task on the way --------
+    ; The snapshot names the idle task with a state of its own (SPEC.md 28.7).
+    ; It was a separate pass over the same bytes; this loop already reads
+    ; every one of them. The last slot answering 3 wins, as it did.
+    ;
+    ; ES = DS from here to the end (TM_ES_DATA above), which is what lets
+    ; tm_dif bank a counter with two MOVSWs - and advance SI and DI by the
+    ; record's four bytes as it does.
+    mov byte [tm_idle], 0xFF
     mov si, tm_snapshot + SS_TCYC
     mov di, tm_told
     xor bx, bx
 .tdiff:
     mov cl, [tm_pstate+bx]
-    mov ch, [tm_state+bx]
+    mov ch, [tm_state+bx]       ; = the snapshot's own T_STATE bytes
     mov [tm_pstate+bx], ch      ; this sample's state becomes the previous
-    call tm_dif
-    mov [di+tm_tdif-tm_told], ax
-    mov [di+tm_tdif-tm_told+2], dx
-    add si, 4
-    add di, 4
+    cmp ch, 3
+    jne .tnotidle
+    mov [tm_idle], bl
+.tnotidle:
+    call tm_dif                 ; ...and SI, DI step on by 4
+    mov [di+tm_tdif-tm_told-4], ax
+    mov [di+tm_tdif-tm_told-2], dx
     inc bx
     cmp bx, MAX_TASKS
     jb .tdiff
@@ -1907,7 +1904,8 @@ tm_sample:
     mov ax, [si+SSI_KB-SSI_CYC] ; ...and what it holds off the heap, which the
     mov [tm_ikb+di], ax         ; kernel worked out from the owner word rule
     pop di
-    call tm_dif                 ; DX:AX = its callback cycles this interval
+    call tm_dif                 ; DX:AX = its callback cycles this interval,
+                                ; SI and DI on by 4
     ; ...and straight into its ROW: row 1+i is instance i's callback time
     ; plus, if it owns a task, that task's slice (the task diffs above are
     ; already done). Cycles of a task whose instance died this interval belong
@@ -1926,31 +1924,23 @@ tm_sample:
 .rnopop:
     pop bx
 .rnotask:
-    mov [di+tm_rcyc+4-tm_iold], ax
-    mov [di+tm_rcyc+4-tm_iold+2], dx
-    add si, SSI_RECSZ
-    add di, 4
+    mov [di+tm_rcyc-tm_iold], ax
+    mov [di+tm_rcyc-tm_iold+2], dx
+    add si, SSI_RECSZ - 4       ; (tm_dif has already stepped the 4)
     inc bx
     cmp bx, INST_MAX
     jb .isnap
 
     ; --- row 0, the one row the loop above does not fold -------------------
     ; Row 0 is the UI task's remainder (callbacks have already been debited
-    ; off it).
-    mov ax, [tm_tdif]
-    mov [tm_rcyc], ax
-    mov ax, [tm_tdif+2]
-    mov [tm_rcyc+2], ax
-
-    ; ...AND THE IDLE TASK, into the same row (SPEC.md 28.7). It owns no
-    ; instance, so it belongs to no application, and a machine that is 97%
+    ; off it) - AND THE IDLE TASK, into the same row (SPEC.md 28.7). It owns
+    ; no instance, so it belongs to no application, and a machine that is 97%
     ; idle reads as a System row of 97% - which is what the older Windows
     ; Task Manager shows and what a reader expects. Kept in tm_idlec as well
     ; because it is the load meter's numerator, and the meter's denominator
     ; has to be this same total or the two can disagree again.
     xor ax, ax
-    mov [tm_idlec], ax
-    mov [tm_idlec+2], ax
+    cwd
     mov bl, [tm_idle]
     cmp bl, MAX_TASKS           ; 0xFF when no slot answered to state 3
     jae .noidle
@@ -1959,54 +1949,51 @@ tm_sample:
     shl bx, 1
     mov ax, [tm_tdif+bx]
     mov dx, [tm_tdif+bx+2]
+.noidle:
     mov [tm_idlec], ax
     mov [tm_idlec+2], dx
-    add [tm_rcyc], ax
-    adc [tm_rcyc+2], dx
-.noidle:
+    add ax, [tm_tdif]
+    adc dx, [tm_tdif+2]
+    mov [tm_rcyc], ax
+    mov [tm_rcyc+2], dx
 
-
-    xor ax, ax                  ; total = sum of the rows, so the shares of
-    mov [tm_total], ax          ; a fully accounted system add up to 100
-    mov [tm_total+2], ax
+    ; total = sum of the rows, so the shares of a fully accounted system add
+    ; up to 100. In DI:CX rather than in memory: it is summed, normalised and
+    ; read here and nowhere else.
+    xor cx, cx
+    xor di, di
     xor bx, bx
 .tsum:
-    mov ax, [tm_rcyc+bx]
-    mov dx, [tm_rcyc+bx+2]
-    add [tm_total], ax
-    adc [tm_total+2], dx
+    add cx, [tm_rcyc+bx]
+    adc di, [tm_rcyc+bx+2]
     add bx, 4
     cmp bx, TM_ROWS * 4
     jb .tsum
 
-    ; normalize: shift total and every row right until total fits 16 bits
+    ; normalize: how many right shifts bring the total into 16 bits. Every
+    ; row and the meter's numerator take the SAME count (tm_shn) - or the
+    ; shares are ratios of two different scales. It used to shift all
+    ; thirteen rows in MEMORY once per bit, four bits on any machine a 9-tick
+    ; interval holds ~590,000 PIT cycles of; the count is shifted in
+    ; registers per row instead, which is fewer cycles and no second loop.
+    xor si, si
 .tnorm:
-    cmp word [tm_total+2], 0
-    je .tnormed
-    shr word [tm_total+2], 1
-    rcr word [tm_total], 1
-    shr word [tm_idlec+2], 1    ; the meter's numerator rides the SAME shift,
-    rcr word [tm_idlec], 1      ; or it is a ratio of two different scales
-    xor bx, bx
-.tshr:
-    shr word [tm_rcyc+bx+2], 1
-    rcr word [tm_rcyc+bx], 1
-    add bx, 4
-    cmp bx, TM_ROWS * 4
-    jb .tshr
-    jmp .tnorm
+    or di, di
+    jz .tnormed
+    shr di, 1
+    rcr cx, 1
+    inc si
+    jmp short .tnorm
 .tnormed:
 
     ; share_i = row_i*100/total; total 0 -> all 0; clamp keeps DIV safe
     xor bx, bx
     mov di, tm_pct
-    mov cx, [tm_total]
 .pct:
     mov ax, [tm_rcyc+bx]
     mov dx, [tm_rcyc+bx+2]
-    call tm_share
-    mov [di], al
-    inc di
+    call tm_shn
+    stosb                       ; ES = DS (TM_ES_DATA)
     add bx, 4
     cmp bx, TM_ROWS * 4
     jb .pct
@@ -2024,17 +2011,17 @@ tm_sample:
     jcxz .loadok
     mov ax, [tm_idlec]
     mov dx, [tm_idlec+2]
-    call tm_share               ; AX = idle%...
+    call tm_shn                 ; AX = idle%...
     neg ax
     add ax, 100                 ; ...and the load is the rest
 .loadok:
     mov [tm_load], ax
 
     ; --- history push: v = load*TM_GH/100, sweep index advances -------------
-    mov cx, TM_GH
-    mul cx
-    mov cx, 100
-    div cx                      ; AX = 0..TM_GH
+    mov cl, TM_GH               ; byte arithmetic: load <= 100, so load*TM_GH
+    mul cl                      ; is 4,000 at most and the quotient fits AL
+    mov cl, 100
+    div cl                      ; AL = 0..TM_GH
     mov bx, [tm_pos]
     mov [tm_hist+bx], al
     mov [tm_lastcol], bx
@@ -2080,15 +2067,7 @@ tm_sample:
     mov cx, [tm_totkb]          ; barw = usedK*TM_GW/totalK (all KB)
     call tm_scale
     mov [tm_barw], ax
-
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp tm_pop_edsdcba
 
 ; -----------------------------------------------------------------------------
 ; tm_dif - one 32-bit cycle counter's interval delta, and the counter banked
@@ -2098,7 +2077,9 @@ tm_sample:
 ;      a slot reused mid-interval, a rare PIT stamp race, or a task_debit
 ;      that reached back into the previous interval - a wrapped "huge" diff
 ;      would clamp rows to 100%) or the slot APPEARED (free last sample, used
-;      now: its counter was reset at spawn, so the diff is meaningless)
+;      now: its counter was reset at spawn, so the diff is meaningless);
+;      SI and DI each advanced by 4 (the counter's MOVSW bank)
+; in:  ES = DS
 ; clobbers: nothing else
 ; -----------------------------------------------------------------------------
 tm_dif:
@@ -2106,10 +2087,8 @@ tm_dif:
     mov dx, [si+2]
     sub ax, [di]                ; wrap-safe 32-bit difference
     sbb dx, [di+2]
-    push word [si]              ; bank the new value; push/pop leave the
-    pop word [di]               ; flags the sbb set
-    push word [si+2]
-    pop word [di+2]
+    movsw                       ; bank the new value; MOVSW leaves the flags
+    movsw                       ; the sbb set (ES = DS: tm_sample's TM_ES_DATA)
     js .zero
     or cl, cl                   ; appeared-slot rule (SPEC.md 28)
     jnz .keep
@@ -2121,6 +2100,20 @@ tm_dif:
 .keep:
     ret
 
+; tm_shn - tm_share of DX:AX shifted right SI places first: tm_sample's
+;          normalisation, applied per row (SI = the total's shift count)
+; out: AX; clobbers DX
+tm_shn:
+    push si
+.sh:
+    dec si
+    js .go
+    shr dx, 1
+    rcr ax, 1
+    jmp short .sh
+.go:
+    pop si
+                                ; ...and on into tm_share
 ; tm_share - DX:AX's share of CX in percent: 0..100, clamped (a pathological
 ;            part over the total reads 100), and 0 when CX is 0. CX is the
 ;            normalised total, so the divide below cannot overflow
@@ -2798,9 +2791,12 @@ tm_hdrs:
     jmp short tm_pop_dcba
 
 ; THE SHARED EPILOGUE LADDER: a routine that pushed AX..DX (and SI, and DI)
-; in that order jumps here instead of carrying its own pops. Only routines
+; in that order (and ES last, for tm_sample) jumps here instead of carrying
+; its own pops. Only routines
 ; that run once a refresh or less take it - never one called per row or per
 ; chunk, where the jump's few cycles would be paid dozens of times over.
+tm_pop_edsdcba:
+    pop es
 tm_pop_dsdcba:
     pop di
 tm_pop_sdcba:
@@ -6523,8 +6519,8 @@ tm_hist     equ tm_kb + SYSKB_SIZE   ; history ring: column heights 0..40,
 tm_pos      equ tm_hist + TM_GW   ; sweep index = next column to write
 tm_lastcol  equ tm_pos + 2   ; column written by the latest sample
 tm_idlec    equ tm_lastcol + 2   ; the interval's IDLE cycles, dword: the load
-                                 ; meter's numerator (SPEC.md 28.7), normalised
-                                 ; alongside tm_total so the ratio is one scale
+                                 ; meter's numerator (SPEC.md 28.7), shifted by
+                                 ; the total's own count so the ratio is one scale
 tm_idle     equ tm_idlec + 4  ; the idle task's slot, 0xFF = none answered
 tm_load     equ tm_idle + 1   ; latest load, 0..100
 tm_told     equ tm_load + 2   ; previous sch_cycles snapshot
@@ -6604,8 +6600,8 @@ tm_rcyc     equ tm_rowck + TM_NCK * TM_NCHUNK * 2  ; ...and with one page there
                                 ; is no page to record: every `cmp byte
                                 ; [tm_view], n` in the file is inside a gate
 %endif
-tm_total    equ tm_rcyc + TM_ROWS * 4  ; sum of the rows, dword
-tm_pct      equ tm_total + 4  ; per-row share, 0..100
+tm_pct      equ tm_rcyc + TM_ROWS * 4  ; per-row share, 0..100 (the rows'
+                                       ; sum lives in registers, tm_sample)
 tm_usedk    equ tm_pct + TM_ROWS  ; used RAM, KB
 tm_barw     equ tm_usedk + 2  ; RAM bar black width, 0..TM_GW
 

@@ -60576,6 +60576,14 @@ the file follows UNIQUE bytes.
   (everything after them reloads what it uses), counts drawn chunks in a
   borrowed BP instead of on the stack, steps DI a chunk at a time instead of
   multiplying, and hashes with `tm_sumb` — `tm_chunksum` is gone.
+- **The sample (`tm_sample`)**: the idle task is found inside the per-task
+  diff loop rather than in a pass of its own; `tm_dif` banks a counter with
+  two `MOVSW`s (ES = DS there) and steps SI/DI itself; the rows' total is
+  summed in registers (`tm_total` is gone from bss); and the normalisation
+  no longer shifts thirteen dwords in memory once per bit — it counts the
+  bits off the total and `tm_shn` shifts each row (and the meter's
+  numerator) by that count in registers on the way into `tm_share`, which is
+  the same floor division and fewer cycles.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 
