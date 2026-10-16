@@ -1337,33 +1337,6 @@ dos_con_draw:
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; dos_con_say - a string into the console, and drawn, with the lock TAKEN
-; in:  SI = a NUL string; the gfx lock NOT held
-; out: nothing; every register preserved
-;
-; For the paths that write to the console from outside a callback - dos_run's
-; own, which is the wake handler's context (§74.1).
-; -----------------------------------------------------------------------------
-dos_con_say:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    call con_say
-    call OSAPI_GFX_LOCK
-    call dos_con_draw
-    call OSAPI_GFX_UNLOCK
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
 dos_c_hint:  db 13, 10, 'Type a command, the name of a program, or help.'
              db 13, 10, 0
 dos_c_start: db 'Starting ', 0   ; ...and the line that opens one (96.33.20.1)

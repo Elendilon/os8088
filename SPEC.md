@@ -159865,6 +159865,26 @@ foot of `kerndos/kdos.asm`, 33,659 of 33,792, so **the DOS program on the
 shut-down arm is handed two kilobytes more**. That is Task #27's kilobyte -
 the one §96.11.7's character devices borrowed - and one besides.
 
+#### 96.44.16 The second apps size pass: what `DOS.O88` costs a DISK
+
+The shipped `DOS.O88` is §96.44.4's four pieces, and the second apps size pass
+(docs/plans/HANDOFF-APPS-SIZE-P2.md) weighs it by its FILE: the 2,276-byte raw
+loader, then part 0 (the box), part 1 (the core) and part 2 (`kern_dos`),
+each LZ4-packed and each started on a 512-byte boundary (§20.12.3) - so a byte
+saved inside parts 0 and 1 reaches the file only when that part's packed
+length crosses a sector, and a byte saved in part 2, the last, reaches it at
+once. What the pass took, every item a layout or data change and none a change
+to what a DOS program sees (§96's real-DOS rule, docs/DOS-DEBUGGING.md):
+
+- **Dead window code**, superseded and never deleted: `dos_btn_rect` and
+  `dos_sav_rect` (the page button's and Save Shortcut's rects before
+  `dos_bar_rects`/`dos_furn_rects`, §96.32.2), `dos_btn_lbl` with its label
+  table and the two labels only it named (`Memory`, `Done` - the page
+  cycle §96.32.2 retired), `dos_erow_focus`, `dos_lnk_skip` and
+  `dos_con_say`, none of which anything called; and the page button's
+  8-byte `DOS_B_BRECT` cell, which only `dos_btn_rect` wrote. Part 0 222
+  bytes smaller raw, 116 packed.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a
