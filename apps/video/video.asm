@@ -3081,14 +3081,7 @@ vp_cmono:
     mov bl, [vp_layout]
     call vp_rowaddr
     mov si, ax                      ; ES:SI = the row's first byte
-    mov bx, dx                      ; the row's four thresholds
-    and bx, 3
-    shl bx, 1
-    shl bx, 1
-    mov ax, [vp_bayer4+bx]
-    mov [vp_rthr], ax
-    mov ax, [vp_bayer4+bx+2]
-    mov [vp_rthr+2], ax
+    call vp_rthrs                   ; the row's four thresholds
     mov cx, [vp_pwb]
 .ob:
     push cx
@@ -4022,6 +4015,20 @@ vp_mklum:
     jnz .l
     ret
 
+; vp_rthrs - DX = a poster row: its four thresholds, the 4 x 4 Bayer cell's
+; row DX mod 4, into vp_rthr - every one-bit dither's (vp_cmono, both of
+; vp_v8mono's). Clobbers AX, BX
+vp_rthrs:
+    mov bx, dx
+    and bx, 3
+    shl bx, 1
+    shl bx, 1
+    mov ax, [vp_bayer4+bx]
+    mov [vp_rthr], ax
+    mov ax, [vp_bayer4+bx+2]
+    mov [vp_rthr+2], ax
+    ret
+
 ; vp_v8mono - the VGA8 canvas in [vp_kshd] (LIN320: row y at y x 320) as a
 ; one-bit one in [vp_pseg], dense at [vp_pwb] bytes a row: a pixel is lit
 ; when its luma beats the 4 x 4 Bayer cell over it (tools/os88vid.py's
@@ -4054,14 +4061,8 @@ vp_v8mono:
     mul cx
     pop dx
     mov si, ax                      ; ES:SI = the row's first pixel
-    mov bx, dx                      ; the row's four thresholds, where BX
-    and bx, 3                       ; can index them
-    shl bx, 1
-    shl bx, 1
-    mov ax, [vp_bayer4+bx]
-    mov [vp_rthr], ax
-    mov ax, [vp_bayer4+bx+2]
-    mov [vp_rthr+2], ax
+    call vp_rthrs                   ; the row's four thresholds, where BX
+                                    ; can index them
     mov cx, [vp_pwb]
 .byte:
     push cx
@@ -4115,14 +4116,7 @@ vp_v8mono:
     mul cx
     pop dx
     mov bp, ax                      ; BP = the row in each plane
-    mov bx, dx
-    and bx, 3
-    shl bx, 1
-    shl bx, 1
-    mov ax, [vp_bayer4+bx]
-    mov [vp_rthr], ax
-    mov ax, [vp_bayer4+bx+2]
-    mov [vp_rthr+2], ax
+    call vp_rthrs
     mov cx, [vp_pwb]
 .mbyte:
     push cx
