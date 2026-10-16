@@ -120575,8 +120575,9 @@ read. `$(CC_OVLZ)/<NAME>.OVL` (`build/ovlz/`) is the packed copy, written by
 `CC_OVLZ_RULE` in `apps/cc/Makefile.inc` through `tools/os88lz.py --wrap`, and
 it is the one every disk recipe names. `CC_PACKAGE` calls the rule for its own
 third argument; LOOM and COVL, whose rules are open-coded in the top-level
-Makefile, call it by hand, and so does SCRIBE (§95.8), whose assembly overlay
-is read the same way into its own `SC_OVKB` claim. `PKGZ=` writes a plain copy,
+Makefile, call it by hand, and so did SCRIBE (§95.8), whose assembly overlay
+was read the same way into its own `SC_OVKB` claim until it became part 1 of
+its package (§95.8.8). `PKGZ=` writes a plain copy,
 and `--wrap` writes the file unchanged when packing would make it bigger.
 CWORD went first, with a rule of its own (`build/cwordz/`), and that rule is
 gone. Measured, file bytes:
@@ -120586,7 +120587,7 @@ gone. Measured, file bytes:
 | `LOOM.OVL` | 43,702 | **17,929** |
 | `WEAVE.OVL` | 21,198 | **9,480** |
 | `CWORD.OVL` | 18,565 | **8,851** |
-| `SCRIBE.OVL` | 10,121 | **8,348** |
+| `SCRIBE.OVL` (part 1 of `SCRIBE.O88` since §95.8.8) | 10,121 | **8,348** |
 | `RUNCPM.OVL` | 7,389 | **3,526** |
 | `APPLE2.OVL` | 3,971 | **2,472** |
 | `C64.OVL` | 2,323 | **1,597** |
@@ -129558,9 +129559,10 @@ The image was 154 files of a 32MB partition with 30,950KB free:
   of one apps disk. None of it is true at 32MB. They ride `$(LIVEPKGARGS)`,
   which is **live-only and not `$(ALLAPPSARGS)`** — §19.10.1 is that
   arithmetic, and it is the everything-FLOPPY's 1.2MB geometry that refuses
-  them, not this volume. SCRIBE gets a `SCRIBE/` folder of its own because it
-  resolves `SCRIBE.OVL` in the launching instance's directory (§19.2.1), and
-  because its `WELCOME.DOC` is a second copy of the name `WORD/` carries.
+  them, not this volume. SCRIBE gets a `SCRIBE/` folder of its own because its
+  `WELCOME.DOC` is a second copy of the name `WORD/` carries (it also resolved
+  `SCRIBE.OVL` in the launching instance's directory until that module became
+  part of the package, §95.8.8).
 - **`FROTZ.O88` rode `APPS/` with nothing to play.** The library is fetched
   rather than committed (§61), which is why it was skipped — and that is not a
   reason on a target that already acquires two other fetches. All fifteen
@@ -151787,7 +151789,8 @@ The argument for the first is absolute addressing: a module that names its own
 bss names it at an **absolute** address, bss begins where the image ends, and
 two packages have different image sizes — so an include with private variables
 cannot serve a package that overlays it *and* a package that does not. SCRIBE
-reaches this through `SCRIBE.OVL`; PAINT would reach it resident.
+reached this through `SCRIBE.OVL` (part 1 of its own segment since §95.8.8);
+PAINT would reach it resident.
 
 For the same reason **`IMG_ERR` is a number and not a string pointer**. A
 string in an overlaid module sits at a module-relative offset, and a resident
@@ -151961,11 +151964,12 @@ their name. `apps/cword` is on demand for the same reason (§73.12).
 **It IS on the live media** (§80.6), in a `SCRIBE/` folder of its own beside
 `WORD/` — that image is not curated and 49KB is not an argument about a 32MB
 partition. It has to be its own folder rather than a second `.O88` in `APPS/`:
-`SCRIBE.OVL` is resolved in the launching instance's directory (§19.2.1),
-which is the same requirement that gives each Word a folder, and its
-`WELCOME.DOC` is a second copy of the name `WORD/` already carries. It is
-**not** on `build/apps-all.img`: its three files are 56,048 bytes and take that
-disk's 1.2MB RunCPM budget to −104 clusters (§19.10.1).
+its `WELCOME.DOC` is a second copy of the name `WORD/` already carries. (It
+was also because `SCRIBE.OVL` was resolved in the launching instance's
+directory, §19.2.1; that module is part 1 of the package now, §95.8.8.) It is
+**not** on `build/apps-all.img`: its files were 56,048 bytes and took that
+disk's 1.2MB RunCPM budget to −104 clusters (§19.10.1) — 49,170 since §95.8.8,
+which does not change the answer.
 
 **And the two cannot collide, which is §95.2's whole subject and was for a
 while believed the other way round.** The everything-disk kept SCRIBE off with
@@ -152003,7 +152007,8 @@ Two things outweighed it:
 
 1,395 identifiers were renamed across four files and `wddoc.inc`/`wdrtf.inc`/
 `wdutil.inc` became `scdoc.inc`/`scrtf.inc`/`scutil.inc`; `WD_OVKB` became
-`SC_OVKB`, which is read by name in the Makefile and by `os88ovlchk`. **It was
+`SC_OVKB`, which was read by name in the Makefile (gone with the module,
+§95.8.8). **It was
 a pure rename and that is proved rather than assumed**: `build/scribe.bin` had
 the identical MD5 before and after.
 
@@ -152337,6 +152342,11 @@ enforced one level down.
 
 ### 95.8 The file formats live in SCRIBE.OVL
 
+**Since §95.8.8 they live in part 1 of `SCRIBE.O88`, at the top of the
+program's own segment, and there is no `SCRIBE.OVL`.** What follows down to
+§95.8.7 is the module as it was built — the tenants and why are unchanged; the
+stamp, the vectors, the claim and the load at entry are what §95.8.8 deleted.
+
 Scribe was at **60,828 of `APP_MAX_SIZE`'s 61,440** — 612 bytes — and §68.10's
 split trigger is 55,000 resident, so the module had to take more than the
 picture decoder. `scdoc.inc` and `scrtf.inc` are the right tenants: between
@@ -152467,6 +152477,8 @@ also `main`'s **LFSR** now (§94.3); the `BCE9` figure is the pre-merge one.
 
 #### 95.8.6 Loaded at entry, not at first use
 
+*(Retired by §95.8.8: part 1 is read with the package, by the kernel's launch.)*
+
 §68.10 reads a module "the first time one of its features is asked for", and
 for WORD that cost nothing: its module held a picture feature most sessions
 never touch. **§95.8 put Open and Save in this one**, so "first use" became the
@@ -152501,6 +152513,8 @@ shape, and a property of the module load path every overlaid package shares,
 not of this change. 19 resident bytes.
 
 #### 95.8.7 The module carries its package's build stamp
+
+*(Retired by §95.8.8: one file cannot be a stale pair.)*
 
 The two halves are **one assembly cut in two** (§68.10), and the module
 reaches the package's bss, its `.text` data and its vector table by offset —
@@ -152539,6 +152553,83 @@ word is the dispatcher's `cmp bp` (`0xFD83`), refused like any other.
 
 `tests/scsize.py` checks the pair it is handed the same way before it boots,
 reading the stamp out of both files rather than comparing their mtimes.
+
+#### 95.8.8 SCRIBE.OVL is part 1 of SCRIBE.O88, at the top of the program's own segment
+
+**`SCRIBE.OVL` is gone, and so is everything §95.8.3 to §95.8.7 built to
+reach it.** It was a file beside the package that the user saw in the listing
+and never opened, a pair a copy could separate, a claim of its own, and the
+one package region in the tree that could not move — the module kept
+`DS` = the package and was told the package's segment by a stamp in its own
+image and six far vectors in ours, written once at load and meant to last the
+session (§66.6.1.1, `docs/plans/completed/SCRIBE-OVL-PLAN.md`).
+
+**It is WORD's shape one fork along** (§68.10), and the reason is the same
+sentence: `SCRIBE.O88`'s image is now `apps/scribe/scload.asm`, a loader that
+reads two parts and hands its identity to part 0 through `OSAPI_PKG_REHOME`
+(§20.12.10). Part 0 is `scribe.asm`'s image with its bss shipped inside it;
+part 1 is `.modc` — the two file formats and the picture decoders, the same
+tenants — **assembled at `SC_P1ORG`**. Part 0 is exactly `SC_P1ORG` bytes long
+(the header's bss is declared to run up to it, and `scribe.asm` asserts the
+real bss fits), and `op_load` lays the carve out at `roundup512(len)` a part,
+so part 1 lands at that offset **of the program's own segment**. The loader
+checks it does before it re-homes, because the failure would not be a refusal.
+
+So the module is not another segment at all, and what it needed is **deleted
+rather than moved**:
+
+| what | was | is |
+|---|---|---|
+| reaching a package variable from the module (§95.8.3) | `PKG_*` macros, 4–7 instructions borrowing `DS` from a stamped `sc_pkgseg` | the same macro names, one `cs:`-overridden instruction each |
+| calling home (§95.8.2's rule 1) | `call far [sc_v_*]` through six vectors and six `retf` shims | a near `call` |
+| calling in | `sc_ovcall`: `call far` to a dispatcher at module offset 2, a verb table and eight `call`/`retf` wrappers | a near `call` to the routine, then `sc_ovsay` |
+| loading (§95.8.6) | `sc_ovload` at entry: `FILE_HERE`, `GOTO_QM` to the launch folder and back, a `SC_OVKB` claim, `FILE_READ` | the kernel's launch: one carve read by `op_load` |
+| the stale pair (§95.8.7) | `SC_OVSTAMP` in both halves, a CRC the Makefile computed | nothing — there is one file |
+| the region (§66.6.1) | pinned, registered in `tests/movable.txt` | `OS88_REGION_MOVABLE` with a bare `ret`, and `OS88_WORKER_RESTARTABLE sc_worker` — WORD's worker and WORD's argument |
+
+**The rule §95.8.1 made outlives the funnel it was put in**: the formats still
+never speak, and `sc_ovsay` — called after each verb, preserving its flags —
+says what they left in `[sc_ovmsg]`. `push cs / pop ds`, the idiom §95.8.2
+records as wrong twice, is right again for the same reason it was right before
+the split: `CS` is the package.
+
+Measured on the tree it landed on:
+
+| | before | after |
+|---|---:|---:|
+| files on the disk | `SCRIBE.O88` + `SCRIBE.OVL` | `SCRIBE.O88` |
+| file bytes | 34,285 + 8,102 = 42,387 | **43,823** |
+| clusters, 1.44MB / 1.2MB (512 B) | 97 | **100** |
+| clusters, 720KB / 360KB (1 KB) | 51 | **52** |
+| resident image | 43,591 | **43,224** |
+| real bss | 7,902 | **7,890** (declared to `SC_P1ORG` = 51,200) |
+| the module | 9,659 | **9,222** |
+| RAM: the program's region and the module | 51,493 + a 10,240-byte claim | **one 59.0K carve** (60,432 bytes) |
+| the program's own claims | 4 of 8 | **3 of 8** |
+| a cold launch's floppy traffic | 16 reads, 141 sectors (§95.8.6, a 5150) | **7 reads, 86 sectors** (`os8088_xt_vga`) |
+
+**The disk is the one column that got worse, and it is the loader**: 1,485
+bytes that pad to three sectors, against a module 437 bytes smaller and an
+image 367 bytes smaller. The loader's image packs to 1,393 and is declined,
+because that still starts the parts at sector 3 (§20.13.8). A single part —
+image, bss and `.modc` as one LZ4 stream — was built and measured at 43,098
+bytes: **one sector better at 512-byte clusters and nothing at 1KB**, and it
+needs `os88pkg.py`'s rule that a package-image part is exactly `image + bss`
+long relaxed for every package, which is the gate that catches a bss that was
+not shipped. Not taken. Part 0 is first because the adjacency is the design,
+so the part that pads is not the last one.
+
+**Two things it costs that are not bytes.** `kern_small` has no
+`OSAPI_PKG_REHOME` (§20.12.10.7), so SCRIBE launches only on `kern_big` —
+WORD's position exactly, and SCRIBE is on no small disk. And `SC_P1ORG` is the
+region whatever part 0 uses, so it is kept to the next sector up (78 bytes of
+headroom when this landed) and raising it is one line by 512 when the
+assertion at `OS88_IMAGE_END` fires.
+
+`tests/scsize.py`'s PARTS leg is the gate: `I_SIZE` is `SC_P1ORG`, the region's
+claim runs past part 1's end, the bytes at `program:SC_P1ORG` are
+`build/scribe.p1.bin`, the claim is movable, and the program holds exactly the
+document's three claims — and every leg after it runs part 1's code.
 
 ### 95.9 Insert ▸ Picture — the document model
 
@@ -152883,6 +152974,7 @@ of the gate did, on a stale `build/ovlz/` copy (`make scribe` does not
 refresh it; `make scribedisk` does). A word in the module naming the
 resident layout - `os88_image_end`, say - compared in `sc_ovload` would
 refuse the pair as "Old SCRIBE.OVL" for a handful of resident bytes.
+*(Fixed by §95.8.7's build stamp, and moot since §95.8.8: there is one file.)*
 ## 96. DOS — running `.COM` and `.EXE` programs (`apps/dos/`)
 
 **Not an emulator.** This machine is an 8086 in real mode and a DOS `.COM` is

@@ -9117,7 +9117,11 @@ SOAK = [
         wants=("build/word.o88", "build/WELCOME.DOC")),
     Row("scsize", "soak", py("tests/scsize.py"), 140.0,
         "SPEC.md 95.13: SCRIBE's first size pass, and the only row that drives "
-        "SCRIBE at all. SCRIBE.OVL's claim is SC_OVKB; .DOC and .RTF Save As "
+        "SCRIBE at all. SPEC.md 95.8.8's PARTS leg: SCRIBE.O88 is one file, "
+        "the loader re-homes into part 0, I_SIZE is SC_P1ORG, the region's "
+        "claim covers part 1 and holds build/scribe.p1.bin byte for byte at "
+        "SC_P1ORG, the region is movable and the only other claims are the "
+        "document's three (SCRIBE.OVL's own claim is gone); .DOC and .RTF Save As "
         "and re-open give the same document back (the .DOC writer's FKP page "
         "and the RTF reader's stack are arms of one union with Insert > "
         "Picture's row and Sort's arrays); a picture's claim is exactly its "
@@ -9127,11 +9131,10 @@ SOAK = [
         "big' instead, which is how the leg goes red there; and Sort is a "
         "permutation and idempotent; two Undos (a cold command) end in the "
         "cold commands' shared epilogue. Every leg prints a digest, so a "
-        "build of another tree (--src/--pkg/--ovl) can be compared line for "
+        "build of another tree (--src/--pkg) can be compared line for "
         "line: the base tree printed the same eleven, and failed TOOBIG.",
         needs=("marty",), serial=True,
-        wants=("build/scribe.o88", "build/ovlz/SCRIBE.OVL",
-               "build/WELCOME.DOC")),
+        wants=("build/scribe.o88", "build/WELCOME.DOC")),
     Row("wdcaret", "soak", py("tests/wdcaret.py"), 110.0,
         "SPEC.md 27.4.6: a caret move lays the note out ONCE. Leg A counts "
         "wd_walk calls inside one keystroke and requires 1 - the change "
