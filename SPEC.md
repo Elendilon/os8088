@@ -180707,8 +180707,9 @@ to what it was, and what is RLAPPLY's own - the entry, and csapply.inc's
 `CS_LOADER` half, which only it and the csprobe write harness assemble - was
 tightened:
   - **Save** - `cs_cfg_new`, `cs_cfg_knob` and `cs_cfg_save`, 127 bytes of
-    code nothing in RLAPPLY calls (file -103). `od_write` stays, being
-    `apps/os88data.inc`'s and ungated.
+    code nothing in RLAPPLY calls (file -103). `od_write` stayed, being
+    `apps/os88data.inc`'s and ungated, until apps size pass 2b gave it a
+    switch (below).
   - **The NEAT's named setters** - `cs_ne_put` and `cs_ne_set`, the names
     csprobe and the sweep call; RLAPPLY's `cs_ap_ne` reaches `cs_kput`
     itself (24 bytes, file -23).
@@ -180738,6 +180739,12 @@ tightened:
     routine banks a register, the entry keeping nothing across them (image
     -95). The file is LZ4 again inside the 2,048-byte region: **1,520
     bytes**, 16 under the 1,536 at which it would have to ship plain.
+
+Apps size pass 2b: RLAPPLY only ever READS `REDLINE.CFG`, so it sets
+`OD_READONLY` and `apps/os88data.inc` leaves `od_write` out - image 1,681 ->
+1,606, the file **1,520 -> 1,447 bytes**, 2 clusters on every system disk
+either way. A package that sets the switch and calls `od_write` does not
+assemble.
 
 `tests/rltune.py` launches it from `A:\SYSTEM` before REDLINE has saved and
 after, on QEMU, and reads the toast and the window list each time.
