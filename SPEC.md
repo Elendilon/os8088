@@ -44903,6 +44903,23 @@ of them on a 5150 the machine takes the fast decoder. Both knobs stay on both
 sides (`make PKGZ=lzb COMPRESS=lzb`), and `tests/lzship.py --fmt lzb` builds
 and boots the whole set through it, so adding LZB later moves no layout.
 
+**ONE PACKAGE SHIPS LZB, by the owner's decision: `ARTFUL.O88`** (apps size
+pass 2, set B; §46.11). Its rule packs `--compress-if=lzb` whenever `PKGZ` is
+set, so `make PKGZ=` still builds it plain and every other package stays LZ4.
+It is the first time the second of this section's two numbers has been taken
+rather than predicted, on MartyPC's 4.77 MHz 5150 off a 360KB floppy, from
+`ld_run_body_x` to `lz_decomp_x`'s return: **+541 ms on a first launch**
+(1,600.0 -> 2,140.7) and **+411 ms on a second** (1,219.2 -> 1,630.7) - the
+decode adds 764 ms and the smaller file gives 224-352 ms of reading back.
+What it bought is 15,111 -> 13,217 bytes, three clusters on each of the four
+360KB disks ArtfulType rides. The ratio LZB gets is not special to this
+package - a survey of every shipped package found 10-14% off the LZ4 file
+almost everywhere, at about +26 ms of net launch per KB of image off a 360KB
+floppy - so the choice is per package and is decided by how many disks it
+rides against how often it is opened, not by its ratio. Both kernels carry
+the decoder (§20.13.6), `kern_small` included, which is what makes a
+per-package choice possible at all.
+
 **What it is worth, on the geometry that binds** — the 360KB pair, and
 **no cluster totals are written down here.** They move with every package,
 driver, module and face on the disk, so a figure recorded beside them is wrong
@@ -45092,7 +45109,8 @@ That is not a hedge:
 **The disks stay LZ4** (§20.13.5), and the trade is still the one §12.7 of
 `docs/plans/O88-COMPRESSION-PLAN.md` states: LZ4 is 50.6 cycles an output byte and
 LZB is 207, against about ten points of ratio. A disk saving happens once and
-a launch cost happens for ever, and the 5150 has not been asked yet.
+a launch cost happens for ever. §20.13.5 records the one package that ships
+LZB anyway and what its launch was measured to cost.
 
 **The default names no symbol.** `kernel/lz.inc` defines both when neither is
 defined, and only `COMPRESS=lz4` and `COMPRESS=lzb` pass a `-D`. That
