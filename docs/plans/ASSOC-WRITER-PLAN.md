@@ -1,6 +1,7 @@
 # Writing back what the machine learned: `ASSOC.DAT` at runtime
 
-**Status: PLAN. Nothing here is built.** Figures are taken against
+**Status: PLAN. Nothing here is built. The owner's decisions are taken
+(§8).** Figures are taken against
 `elendilon` at `08ca1c2`. A figure marked **ESTIMATE** is counted from
 instruction lengths or from a comparable routine and has not been assembled.
 Every other figure was read off that build.
@@ -16,26 +17,28 @@ The ask, in the owner's words:
 ## 0. The answer in one paragraph
 
 **The writer already exists, and only the installer can reach it.**
-`hd_iassoc`
-(`drivers/hdd/iassoc.inc`, SPEC.md 52.10.14) rebuilds a volume's
+`hd_iassoc` (`drivers/hdd/iassoc.inc`, SPEC.md 52.10.14) rebuilds a volume's
 `ASSOC.DAT` from what is actually on it. It is 984 bytes of code and 56 of
 data, and it lives inside `HDDTOOL.DRV`, where only the hard-disk installer
 can reach it. The plan moves that algorithm into an on-demand kernel module
 (`FORMAT.DRV`, the smallest of them), with one change: it **reuses the rows
 the volume's old file already holds** instead of re-reading every package.
-The resident kernel keeps only three things:
+The resident kernel keeps only these:
 
-- a post at the one point where the mount learns something its cache did
-  not hold;
+- a post at the two points where the machine learns something its cache did
+  not hold: the mount's harvest, and the program search;
+- a capture of each new package's declarations, at the moment the harvest
+  already has its header in hand, so the flush never reads a package again;
 - a two-compare dispatch on the UI task's existing document-open step;
-- the module stub.
+- the module stub, and the public cell `OSAPI_ASSOC_FLUSH`.
 
-That is **~50 resident bytes** (ESTIMATE, all `kern_big`; `kern_small`
-byte-identical). A resident writer would cost ~900. Wave 2 points the
-installer at the same module and deletes `hd_iassoc` from `HDDTOOL.DRV`.
-After that, the tree has one runtime writer of the format instead of two,
-and **the 360KB system disk comes out a cluster lighter than today**, not
-heavier.
+**One flush covers everything one action found, and costs the same whether
+it found one package or twenty** (§3.2.1). That is **~100 resident bytes**
+(ESTIMATE, `kern_big`; `kern_small` gains only the cell, which refuses). A
+resident writer would cost ~900. Wave 2 points the installer at the same
+cell and deletes `hd_iassoc` from `HDDTOOL.DRV`. After that, the tree has
+one runtime writer of the format instead of two, and **the 360KB system
+disk comes out a cluster lighter than today**, not heavier.
 
 ---
 
@@ -138,28 +141,36 @@ answer here (CLAUDE.md: `.cold` is resident).
 |---|---|---:|
 | `asc_post`: post a flush of volume AL unless that volume has refused one this session | `.cold`, `kernel/assoc.inc` | 16 |
 | its call in the harvest, on the store-take arm (§3.2) | `.cold`, `kernel/disk.inc` | 6-10 |
+| the capture: the harvested header flags, and the declaration block of a package that declares, into the store's claim (§3.2.1) | `.cold`, `kernel/disk.inc` | 25-35 |
+| the location trigger in `assoc_locate`'s `.found` (§3.2) | `.cold`, `kernel/assoc.inc` | ~20 |
 | the dispatch at the head of `assoc_run_x` (§3.4) | `.cold`, `kernel/assoc.inc` | 12-16 |
 | the module stub: `dskw_fmt_go`, the far call, the drop | `.cold`, `kernel/diskw.inc`, beside the formatter's four | 10-16 |
 | `FM_NENT` 4 -> 5 | `.bss` (`FMFP`, SPEC.md 2.8.1: an entry is 4 bytes) | 4 |
 | `asc_wno`, the refused-volume byte, initialised 0xFF | `.text` | 1 |
-| **total** | | **~49-63** |
-| *optional:* the location trigger in `assoc_locate`'s `.found` (§3.2) | `.cold` | *~20* |
+| **wave 1 total** | | **~95-120** |
+| `OSAPI_ASSOC_FLUSH`, a rare cell whose body is the stub (§4) | the API table, **both kernels** | 6-10 |
 
 **Against what:** the writer itself, assembled resident, would be about what
-`hd_iassoc` is, ~900-1,000 bytes. The module form leaves ~95% of the feature
-on the disk.
+`hd_iassoc` is, ~900-1,000 bytes. The module form leaves ~90% of the feature
+on the disk. The capture is the largest resident item and it is what buys
+§3.2.1's bound; without it the flush would re-read every new declaring
+package's header.
 
 **The rung, said honestly** (CLAUDE.md's banner, and not as a design input).
-At `08ca1c2` the cold rung has **34 bytes left**, so ~50 bytes of `.cold`
+At `08ca1c2` the cold rung has **34 bytes left**, so ~100 bytes of `.cold`
 would bill a 512-byte step: `KERN_SIZE` 98,304 -> 98,816 against
 `KERN_BUDGET` 100,864, with 2,048 left. The concurrent size pass will move
-that figure before this lands. The plan's number is the **~50 bytes**, not
+that figure before this lands. The plan's number is the **~100 bytes**, not
 the step.
 
-**`kern_small` is byte-identical.** The whole of SPEC.md 54 is behind
-`OS88_ASSOC` (SPEC.md 54.0). The module entry goes inside `%ifdef
-OS88_ASSOC` in `.modf`, so `kern_small`'s `FORMAT.DRV` does not change
-either. `kern_dos` (`KD_BUILD`) carries no `.modf` at all.
+**`kern_small` gains the cell and nothing else.** The whole of SPEC.md 54
+is behind `OS88_ASSOC` (SPEC.md 54.0), and so is everything in wave 1: the
+module entry goes inside `%ifdef OS88_ASSOC` in `.modf`, so `kern_small`'s
+`FORMAT.DRV` does not change either. The cell is the ABI parity rule
+(SPEC.md 54.0's own list): one `.o88` serves both kernels, so the slot
+exists on both and `kern_small`'s refuses with CF=1 through the `stc`/`ret`
+stub `OSAPI_ARG_FILE` and `OSAPI_ASSOC_SET` already share. `kern_dos`
+(`KD_BUILD`) carries no `.modf` at all.
 
 **Why `FORMAT.DRV`, and not `DISKOPS.DRV` or a new file.** Three reasons,
 in order of weight:
@@ -205,8 +216,7 @@ nothing this session, and the next boot's first mount of this volume
 misses on it and posts then. That is self-healing within one session, and
 the alternative costs bytes on the hot path.
 
-**The location trigger (optional, priced separately, ~20 bytes).**
-`assoc_locate`'s `.found` calls `asc_use_x` and then `assoc_hint_here`. In
+**The location trigger (taken, ~20 bytes).** `assoc_locate`'s `.found` calls `asc_use_x` and then `assoc_hint_here`. In
 between, the slot's hint is whatever the volume's own cache said. If that
 is not `([disk_drive], [dsk_cwd])`, then either the cache did not know where
 this program was or it was wrong, and both are worth a flush of
@@ -214,8 +224,90 @@ this program was or it was wrong, and both are worth a flush of
 harvest: quiet mounts skip the harvest (SPEC.md 18.9), and the sweep is
 made of quiet mounts. It also corrects SPEC.md 54.7.1's stale-cluster case
 on disk. Without it, a program found only by sweeping, in a folder nobody
-browses, is swept for again on every boot. Take it if that case is worth
-20 bytes; §8 asks.
+browses, is swept for again on every boot.
+
+**What it buys, exactly.** After the flush, that volume's `ASSOC.DAT` names
+the program's folder, and the next boot does not hunt for it:
+- **When the volume's cache has been read**, which happens at its first
+  mount of the session or on the boot volume at boot, `asc_seed` points the
+  slot's hint at the folder. The double-click goes straight to **rung 1**:
+  one quiet stand in that folder and a name check (SPEC.md 54.4.2).
+- **When it has not**, the program search reaches that volume and asks
+  **its own `ASSOC.DAT`** before trying folders by name (rung 4, SPEC.md
+  54.4.2.3), one short read. It reads that one file, then stands in the
+  right folder.
+- **What is still searched** is the volumes *in front of* the one that
+  answers, in §54.4.2.2's order. A program on B: whose document is on D:
+  still asks the fast volumes first. That order is unchanged and is not
+  this plan's.
+
+### 3.2.1 One flush per action, and its cost does not grow with what it found
+
+The requirement, in the owner's words: *"one flush" is all the things it
+found, not "one thing, in a directory of 20 things, and thus they browse to
+this directory and sit there for over a minute"*. Two properties make that
+true, and the gate asserts both (§7):
+
+**One action, one flush.** The harvest posts once per package it takes,
+but every post is a store to the same byte, and the byte is serviced by the
+UI task **after the whole mount has returned**. A folder of twenty new
+packages therefore posts twenty times and flushes **once**, and that one
+flush writes all twenty rows. The next action that finds something, such
+as opening `GAMES\` after `APPS\`, is a second flush. Each flush writes the
+volume's whole file, so the second one carries the first one's rows as
+well.
+
+**The flush reads directories, never packages.** The harvest is the
+expensive part, one header read per new package. A user who opens a folder
+of twenty unknown programs pays that today, once per boot. The flush must
+not pay it a second time. It cannot count on the sector cache to absorb it
+either: §18.95's cache holds whole tracks up to 32KB, and on a 360KB floppy
+each package's first sector is on a track of its own, so a re-read of
+twenty headers would find the last seven or so still cached and miss on
+the rest (~13 calls, ~5 s). So the flush takes everything a row needs from
+what the harvest already left in RAM:
+
+| a row needs | where the flush takes it from |
+|---|---|
+| stem, size, folder cluster | the walk's own directory entry |
+| icon body, shipped glyph | the icon store row `ico_put` / `ico_glyph_put` filled (SPEC.md 54.7.4) |
+| **whether it declares, and what** | **the capture: new, the one thing the store does not hold** |
+
+**The capture** lives in the store's own claim, so it costs no heap.
+`kern_big`'s store is 48 rows of 82 bytes, 3,936 of a 4,096-byte claim, so
+**160 bytes are already there unused**. The layout is three things at the
+claim's tail:
+- **A "harvested" bit per row** (6 bytes). It is set by the harvest's
+  store-take and clear for a row absorbed from a cache, which is the honest
+  answer for those.
+- **Nine 16-byte declaration records** (144 bytes): the store row's index,
+  then the header's 5 x 3 extension bytes, space-padded. The count is the
+  non-blank ones, read with the header's own usability test
+  (`hd_ia_dok`'s).
+- **A record count** (1 byte), where 10 means "overflowed".
+
+`ico_need` already zeroes `[ico_n]` when it makes the claim. Zeroing the
+capture is the same `rep stosw` the claim needs anyway, and an `%error`
+holds the whole layout inside `ICO_KB`. **The module empties the capture
+when it is done, whatever the outcome**, so the nine records are per
+*action*, not per session.
+
+**What the flush reads for a package it did not have in the old file:**
+- **Harvested, no record, no overflow:** it does not declare, so nothing.
+- **Harvested, with a record:** nothing.
+- **Not harvested** (a row absorbed from *another* volume's cache), **or
+  harvested after an overflow:** one header read.
+
+The tree has **eleven** declaring packages in all (`AUDIO`, `BROWSER`,
+`DOS`, `FONTVIEW`, `MIDIRACK`, `PIXEL`, `SHEET`, `TEXPAD`, `TRACKER`,
+`VIDEO`, `WORD`). The busiest shipped folder holds **eight** (`APPS\` on the
+1.44MB and 1.2MB apps disks), five on the 360KB one. So on every shipped
+floppy one browse's flush reads **no package sector at all**. Its cost is
+bounded by the number of **folders** the walk visits (five on the apps
+floppy), never by the number of **packages** it found. The one place
+nine can overflow is a hard disk holding every declaring package in one
+folder. There the overflow costs a header read per harvested package
+without a record, at milliseconds each.
 
 ### 3.3 The post: `[assoc_dapp]` already has a reader, so the post costs no poll
 
@@ -323,10 +415,10 @@ register is preserved, and it never fails anything.
      fixes the stale-cluster case for free), and carry its association rows,
      re-indexed;
    - **else, in the store** (`ico_find`): the harvest saw it this session.
-     Read its first sector with `dsk_peek_x` (the harvest read that sector
-     moments ago, so on a floppy it is usually still in §18.95's read-ahead)
-     and emit the row and declarations exactly as `hd_ia_row` /
-     `hd_ia_emit` / `hd_ia_decl` do;
+     The body and glyph come from the store row, and the declarations from
+     the capture (§3.2.1). The row is then emitted exactly as `hd_ia_emit`
+     / `hd_ia_decl` emit one. **No package sector is read**, except the
+     one header §3.2.1 names for a declaring package that has no record;
    - **else** -> in **incremental** mode, *omit it*. Nothing has learned
      anything about it, it was not in the file either, so nothing is lost,
      and reading it would make the first flush of a fresh disk pay for
@@ -389,12 +481,14 @@ in the final pass):
 |---|---|---|
 | load `FORMAT.DRV` off the boot volume | 1 call (+ the root if the directory cache is cold) | ms |
 | old `ASSOC.DAT` | 1 | ms |
-| the walk's directory sectors | 0-4, most already in `MEM_P_DIRW` from the browse that posted | ms |
-| headers of packages seen this session | 0-N, mostly still in the read-ahead | ms |
+| the walk's directory sectors | 0-4, one per folder at most; the folder just browsed is still in §18.95's cache | ms |
+| package sectors | **0** on every shipped disk (§3.2.1); after an overflow, one per harvested package without a record | ms |
 | the write: FAT x2, the root sector, data | ~4 | ms |
-| **once per learned change, per volume** | **~6-10 calls, ~2.5-4 s** | **< 0.1 s** |
+| **one action's flush, whatever it found** | **~6-10 calls, ~2.5-4 s** | **< 0.1 s** |
 
-That is paid **once**. What it saves is paid on **every boot**: a read per
+The figure is the same for one new package and for twenty. What grows with
+the package count is the harvest, which the user already pays today when
+they open the folder. That is paid **once**. What it saves is paid on **every boot**: a read per
 uncached package per folder, the bare pages until `APPS\` is browsed, and
 the sweeps (§1).
 
@@ -414,21 +508,43 @@ copy lives on the same disk.
   cluster on the 360KB system disk at worst-case module size, and 0 at
   best.**
 
-How a driver reaches a kernel module is the one decision in this wave:
+**The door is a public cell, `OSAPI_ASSOC_FLUSH`** (the owner's
+decision). A driver reaches it, and **so may any package**. The owner's
+example is the reason: a program that installs itself, or another
+program, copies its files onto a disk and then asks for that disk's
+cache to be brought up to date. A package asks; the kernel writes its own
+file. So this is not `OSAPI_FILE_WRITE_SYS`'s case, and it needs no caller
+test.
 
-- **2a, recommended: a cell, `OSAPI_ASSOC_FLUSH`** (DL = volume, AH =
-  mode). It is driver-callable, behind the same caller test as
-  `OSAPI_FILE_WRITE_SYS` (SPEC.md 19.6.1), since a package has no business
-  writing a hidden system file. Cost: a rare cell, 6 bytes or more
-  (SPEC.md 20.3), whose body is the wave 1 stub. It is an **append**, so
-  `abilock.py --update` runs without a version bump (SPEC.md 20.2.0.1).
-  ~10 resident bytes (ESTIMATE).
-- **2b: zero resident bytes, not recommended.** The installer
-  full-mounts each top-level folder (`OSAPI_FILE_GOTO`, not `_Q`), the
-  harvests post, and the UI task's next pass flushes incrementally. It is
-  free, but it depends on a driver doing a listing mount mid-install, and
-  on an incremental flush happening to cover what a full one would. That
-  is two properties to prove, where 2a has none.
+```
+OSAPI_ASSOC_FLUSH   in:  DL = the volume, AL = 0 incremental / 1 full
+                    out: CF=0 = the volume's ASSOC.DAT now describes it
+                         (written, or already right); CF=1 = it could not:
+                         no module, no heap, not a FAT volume, or the
+                         write refused - and on kern_small, always
+                    every other register preserved
+```
+
+- **Incremental** is wave 1's flush. It reads directories, plus at most
+  the headers §3.2.1 names.
+- **Full** is the installer's. It also reads the header of every package
+  the old file does not hold, so its cost grows with the package count.
+  The caller asked for that: it has just copied those packages.
+- **It is synchronous**: the work is done when the call returns. That is
+  the installer's shape today, and it runs on the caller's thread the way
+  every file call a package makes does. A worker may not call it (SPEC.md
+  20.6 rule 7).
+- **Cost:** a rare cell, 6 bytes or more (SPEC.md 20.3), on both kernels.
+  On `kern_big` its body is the wave 1 stub. On `kern_small` it is the
+  shared refusal.
+- **ABI:** it is an **append**, so `abilock.py --update` runs without a
+  version bump (SPEC.md 20.2.0.1). The C SDK gets its `os88_assoc_flush`
+  in `apps/cc/os88.h` in the same change, or C packages cannot reach it.
+
+The zero-byte alternative, the installer full-mounting each folder so the
+harvests post, was **refused**. It depends on a driver doing a listing
+mount mid-install, and on an incremental flush happening to cover what a
+full one would. That is two properties to prove, where the cell has none.
 
 **One case where wave 2 is weaker than today, and it heals itself.** A
 machine booted **from its hard disk** that installs a newer kernel from a
@@ -455,11 +571,13 @@ install time. Wave 2 delays it to the first browse.
    leaving into a several-second write to disks they may not be looking at.
 4. **Calling `HDDTOOL.DRV` where it is.** It is `HDD.DRV`'s private ABI
    (§2), and loading it costs a 13KB load to run 1KB of code.
-5. **Queueing the learned rows in RAM and appending them.** It would save
-   the walk, but it costs a resident queue, or a claim plus the capture
-   code at the harvest. It also loses what the walk gives for free: dropping
-   packages that are gone, correcting clusters, and never describing a
-   different disk.
+5. **Queueing whole learned rows in RAM and appending them, without a
+   walk.** §3.2.1 does capture in RAM, but only the declarations, the one
+   thing the store lacks. A row queue would also have to carry the folder
+   and volume of each one. It would also lose what the walk gives for free,
+   which is dropping packages that are gone, correcting clusters, and never
+   describing a different disk. The walk costs a read per folder, not per
+   package, and that is cheap enough to keep.
 6. **Persisting `OSAPI_ASSOC_SET`.** A runtime claim is a running program's
    choice for this session, and it is sticky precisely so that a
    declaration arriving on the next mount cannot undo it (`assoc_ext_take`).
@@ -510,8 +628,8 @@ install time. Wave 2 delays it to the first browse.
 5. **More than 32 packages on a volume** (a full hard-disk install, or the
    everything floppy). Rows past the cap are dropped by §3.5 step 6's rule,
    and a dropped package misses on every boot. With the store-take trigger
-   it posts once per session. The flush then reads that package's header,
-   builds the same file and writes nothing (step 7). The cost is one
+   it posts once per session. The flush then builds the same file from the
+   store and the capture and writes nothing (step 7). The cost is one
    module load and a walk per session, on a hard disk where both are
    milliseconds. Raising `ASC_NAPP` is a separate decision. The claim has
    been transient since SPEC.md 54.7.4, so the price is heap at mount and
@@ -538,7 +656,10 @@ disk.
 | QUIET | browse `B:\APPS` a second time in the same session: no flush, no write | the store-take trigger replaced by "every miss" |
 | NOTHING NEW | the shipped (warm) apps disk: no post, no write, all session | the trigger on the hit path |
 | REFUSED | the same disk write-protected: one attempt, then none for the session | `[asc_wno]` not set |
-| LOCATE | (if §3.2's optional trigger is taken) a program found only by sweeping is rung 1 after a restart | that trigger taken out |
+| ONE FLUSH | `B:\APPS` with **one** new package, then a fresh copy with **all** of `APPS\` new: each browse produces **exactly one** `ASSOC.DAT` write, and the flush's own `int 13h` count is **the same** for the two, read off MartyPC's FDC between the end of the harvest and the write | a flush per take (the post serviced inside the harvest), or the store arm re-reading headers instead of reading the capture |
+| CAPTURE | the REBOOT leg's `.TEX`/`.HTM` glyphs come from rows the flush wrote **without** reading `TEXPAD.O88` or `BROWSER.O88` after the harvest | the capture not filled, so the flush writes a declaring package with no association rows; REBOOT then draws the bare page |
+| LOCATE | a program found only by sweeping is rung 1 after a restart | the location trigger taken out |
+| API | a test package copies a package onto a scratch disk and calls `OSAPI_ASSOC_FLUSH` full: the file appears with its row and `CF=0`; on `kern_small` the same call answers `CF=1` and writes nothing | the cell pointed at the refusal on `kern_big` |
 
 If MartyPC cannot present a write-protected floppy, REFUSED moves to QEMU
 (`readonly=on`). It asserts behaviour, never time, so it does not need the
@@ -551,37 +672,38 @@ which must still find a correct `C:\ASSOC.DAT` after an install, and
 `t_mirror`, which loses `iassoc.inc`'s mirror. The fast tier runs inside
 `make` regardless.
 
-## 8. Decisions for the owner
+## 8. Decided (the owner, 2026-10-16)
 
-1. **Writing to disks the user only browsed.** The flush writes a hidden +
-   system file onto any FAT volume that holds os8088 packages its cache
-   does not describe. A disk with no `.O88` on it is never touched, because
-   nothing on it can be a store-take. **Recommended: on, with no
-   setting.** A `SYSTEM.CFG` opt-out would cost a byte or two resident
-   (SPEC.md 51.5.3, docs/plans/completed/SETTINGS-COST.md) if it is wanted.
-2. **The location trigger** (§3.2, ~20 bytes): persist where a sweep found
-   a program. **Recommended: take it.** It is the only path that persists a
-   location learned without a harvest.
-3. **Wave 2's door**: 2a (a cell, ~10 bytes, deterministic) or 2b (zero
-   bytes, two properties to prove). **Recommended: 2a.**
-4. **Immediate or deferred.** The flush runs on the pass after the browse
-   that posted it, so the ~2.5-4 s write lands right after a navigation,
-   once. Deferring it to an idle moment needs a timer, and that is resident
-   bytes. **Recommended: immediate.**
+1. **Writing to disks the user only browsed: yes, any disk.** A FAT volume
+   that holds os8088 packages its cache does not describe gets one. A disk
+   with no `.O88` on it is never touched, because nothing on it can be a
+   store-take. There is no setting.
+2. **The location trigger: taken** (§3.2). After the flush, a program found
+   once is not hunted for again: its volume's cache names the folder, and
+   §3.2 says exactly how much searching that removes.
+3. **The door: a public API cell** (§4), callable by packages as well as
+   drivers, because a program that installs itself may want its disk's
+   cache made current.
+4. **Immediate, and one flush per action** (§3.2.1): everything one
+   navigation or one search found goes in one write, and that write's cost
+   does not grow with the number of packages it found.
+5. **A refused or skipped flush is silent.** No toast. This is the
+   kernel's own housekeeping, and nothing the user asked for failed.
 
 ## 9. The waves
 
 | wave | what | resident (ESTIMATE) | 360KB system disk |
 |---|---|---:|---|
-| 1 | `FME_ASCW` in `FORMAT.DRV` (incremental and full modes), `asc_post`, the harvest trigger, the dispatch, the stub, `asc_wno`, `.modfb`; the new SPEC.md subsection written **first**; the `assocflush` row | ~50 | 0, or +1 if the compressed writer passes 951 bytes |
-| 1b | the location trigger, if taken | ~20 | 0 |
-| 2 | `OSAPI_ASSOC_FLUSH`, installer switched over, `iassoc.inc` deleted, SPEC.md 52.10.14 re-pointed | ~10 | -1 |
-| **net** | | **~60-80** | **-1 to 0** |
+| 1 | `FME_ASCW` in `FORMAT.DRV` (incremental and full modes), `asc_post`, the harvest trigger, the capture, the location trigger, the dispatch, the stub, `asc_wno`, `.modfb`; the new SPEC.md subsection written **first**; the `assocflush` row | ~95-120 | 0, or +1 if the compressed writer passes 951 bytes |
+| 2 | `OSAPI_ASSOC_FLUSH` (both kernels) and `os88_assoc_flush`, installer switched over, `iassoc.inc` deleted, SPEC.md 52.10.14 re-pointed | 6-10 (+ the same on `kern_small`) | -1 |
+| **net** | | **~100-130** `kern_big`, **6-10** `kern_small` | **-1 to 0** |
 
 SPEC.md is updated *before* each change (CLAUDE.md), so wave 1 opens with
 a new subsection after SPEC.md 54.7.5, **"the machine writes back what
-it learned"**: the trigger, the sentinel range in `[assoc_dapp]`, the module entry's contract,
-`[asc_wno]`, and §6's hazards. It also amends 54.7.5's last paragraph (a
+it learned"**. It covers the two triggers, the capture and its layout in the
+store's claim, the sentinel range in `[assoc_dapp]`, the module entry's
+contract, `[asc_wno]`, and §6's hazards. Wave 2 adds the cell's contract to
+SPEC.md 54.5 beside `OSAPI_ASSOC_SET`. It also amends 54.7.5's last paragraph (a
 second runtime writer) and 52.10.14 (wave 2). This plan becomes that
 section's design record and moves to `docs/plans/completed/` in the commit
 that lands the last wave.
