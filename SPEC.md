@@ -142139,6 +142139,46 @@ also the library's: `ty_open` claims 8 KB for a face the shipped set holds in
 1.1–1.7 KB, and `ty_cache` claims 12 KB, sized for 16 rows, for faces of 8, 12
 and 14.
 
+### 90.11 The second apps size pass — the shipped file
+
+The second pass measures what the package costs a DISK
+(docs/plans/HANDOFF-APPS-SIZE-P2.md): `build/fontview.o88` as `make` packs it
+(LZ4, `PKGZ=lz4`), which rides the 360 KB system disk and `office360.img`.
+
+| | before | after |
+|---|---|---|
+| file (LZ4) | 3,549 | **3,480** (-69) |
+| image | 4,381 | **4,286** (-95) |
+| bss | 1,542 | 1,541 (`FV_PAD`'s parity) |
+| image + bss | 5,923 | **5,827** (-96) — a 6 KB claim either way |
+| heap claims | one face (its file's KB) + the pre-shift table | unchanged |
+
+**What the file is made of** (each byte charged its share of the LZ4 stream):
+the header, icon and association block are 112 bytes the packer may not touch;
+`os88type.inc` is ~2,070 of the rest, its own code ~900, its strings and
+window template ~240, `os88ui.inc`'s About card ~150, and the specimen and the
+four state bytes ~67. Code packs to ~95% of itself, so a code byte saved is a
+file byte saved.
+
+**What moved, one idea at a time:**
+
+- **The callbacks bank nothing but SI** (-95 image, -69 file). The entry proc
+  banked SI, DI, CX and ES for the loader, which reads BX and CF back and
+  nothing else (§20.2; TameGram's entry has always returned without them);
+  `fv_onkey`, `fv_onclick`, `fv_paint` and `fv_about` banked AX-DX, which
+  `ui_bill`, `wm_draw_win` and `ui_dispatch` either bank themselves or never
+  read (§11, §12.2, §13). Inside, each routine now preserves exactly what its
+  own callers in the file read after it: `fv_sysline` BX, CX and DX for the
+  catalogue walk, `fv_draw` SI for the window, `fv_draw_sample` ES for the
+  About card - so `fv_pop4`/`fv_pop6` are gone, `fv_redraw` falls into
+  `fv_draw`, `fv_redraw_right` into `fv_draw_right`, which falls into
+  `fv_sysline` at the hint row both panes letter last, and `fv_onclick` into
+  `fv_choose`. The launch name is copied through the ES the loader hands
+  over (`es lodsb`), so DS never moves. Every repaint runs the same calls in
+  the same order with fewer pushes around them: a keystroke's repaint does
+  22 fewer `push`/`pop` pairs (~590 of an 8088's cycles, counted rather than
+  measured), and no instruction on that path was added.
+
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 
 The C toolchain's fourth application is **`apps/paccman/`**, package name
