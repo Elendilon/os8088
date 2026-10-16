@@ -4695,6 +4695,49 @@ np_save:
     ret
 
 ; -----------------------------------------------------------------------------
+; np_nlfold - the line-ending fold np_load and np_paste share (internal)
+; in:  ES:SI = the bytes, CX = how many, ES:DI = where the kept ones go, and
+;      DI <= SI - the fold only drops bytes, so it runs in place
+; out: DI = one past the last byte kept; CF = 1 a byte to keep met [np_cap]
+;      and the fold stopped there. Clobbers AX, CX, SI
+;
+; CR LF folds to one 13 and so does a lone LF, and anything else outside
+; 32..126 is dropped: a file and the clipboard are both bytes another program
+; wrote, and a stray control code would draw as a random glyph.
+; -----------------------------------------------------------------------------
+np_nlfold:
+    xor ah, ah                  ; AH = the byte before
+.f:
+    jcxz .done
+    es lodsb
+    dec cx
+    cmp al, 10
+    jne .notlf
+    cmp ah, 13
+    je .skip                    ; CR LF: the 13 already went in
+    mov al, 13                  ; a lone LF is a line break too
+.notlf:
+    cmp al, 13
+    je .keep
+    cmp al, 32
+    jb .skip
+    cmp al, 126
+    ja .skip
+.keep:
+    cmp di, [np_cap]
+    jae .full
+    stosb
+.skip:
+    mov ah, al
+    jmp short .f
+.done:
+    clc
+    ret
+.full:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
 ; np_load - read NOTES.TXT back into the note (SPEC.md 18.4/27.1)
 ; in:  nothing
 ; out: nothing; the outcome is said as a toast; preserves all registers
@@ -4768,38 +4811,10 @@ np_load:
     mov cx, ax
     xor si, si                  ; ES:SI walks what arrived...
     xor di, di                  ; ...and ES:DI writes the kept characters back
-    xor dx, dx                  ; over it. DI can never outrun SI - the fold
-                                ; only drops bytes - so in place is safe.
-                                ; DL = previous byte, DH = truncation flag
-.fold:
-    jcxz .folded
-    mov al, [es:si]
-    inc si
-    dec cx
-    cmp al, 10
-    jne .notlf
-    cmp dl, 13
-    je .skip                    ; CR LF: the 13 already went in
-    mov al, 13                  ; a lone LF is a line break too
-.notlf:
-    cmp al, 13
-    je .store
-    cmp al, 32
-    jb .skip
-    cmp al, 126
-    ja .skip
-.store:
-    cmp di, [np_cap]
-    jb .room
-    mov dh, 1                   ; unreachable - the fold cannot outgrow what
-    jmp short .folded           ; the read fitted - but a bound is a bound
-.room:
-    mov [es:di], al
-    inc di
-.skip:
-    mov dl, al
-    jmp short .fold
-.folded:
+                                ; over it. DI can never outrun SI - the fold
+                                ; only drops bytes - so in place is safe
+    call np_nlfold
+    sbb dh, dh                  ; DH = the truncation flag, read below
     mov [np_len], di
     call np_clamp               ; a shorter file must not leave the caret
                                 ; past the end of it
@@ -7533,47 +7548,20 @@ np_paste:
     mov si, bx                  ; read...
     mov di, bx                  ; ...and write, both inside the gap
     mov cx, dx
-    xor ax, ax                  ; AL = the byte before, AH = this one
-.f:
-    jcxz .fdone
-    mov ah, [es:si]
-    inc si
-    dec cx
-    cmp ah, 10
-    jne .fnotlf
-    cmp al, 13
-    je .fskip                   ; CR LF: the 13 already went in
-    mov ah, 13                  ; a lone LF is a line break too
-.fnotlf:
-    cmp ah, 13
-    je .fkeep
-    cmp ah, 32
-    jb .fskip
-    cmp ah, 126
-    ja .fskip
-.fkeep:
-    mov [es:di], ah
-    inc di
-.fskip:
-    mov al, ah
-    jmp short .f
-.fdone:
+    call np_nlfold              ; never meets [np_cap]: DI trails SI, and SI
+                                ; stays inside a gap np_gaproom fitted
     mov cx, di
     sub cx, bx                  ; CX = the bytes that survived
     push cx
     mov si, bx
     add si, dx                  ; the first byte past the gap
     mov cx, [np_len]
-    sub cx, si                  ; ...and the tail behind it
-.t:
-    jcxz .tdone
-    mov ah, [es:si]
-    mov [es:di], ah
-    inc si
-    inc di
-    dec cx
-    jmp short .t
-.tdone:
+    sub cx, si                  ; ...and the tail behind it, moved down onto
+    push ds                     ; the end of what survived - forwards, as
+    push es                     ; np_delspan closes a gap (SPEC.md 27.12)
+    pop ds
+    rep movsb
+    pop ds
     pop cx
     sub [np_len], dx
     add [np_len], cx            ; the gap was n; only CX of it is text

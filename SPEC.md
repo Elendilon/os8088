@@ -58213,6 +58213,11 @@ into bss or the heap. The numbers are the file and the image, both arms.
    `np_delspan`, `np_gaproom` and `np_paste`, `[np_utop]` and a record's
    `np_udel` in the undo arena - are one `add [x], cx` each: four bytes where
    there were ten, and fewer cycles, since the 8088 pays for the fetch.
+4. **The line-ending fold is written once.** `np_load` and `np_paste`
+   apply the same rule - CR LF and a lone LF to 13, anything else outside
+   32..126 dropped - and each carried the loop; `np_nlfold` is both now
+   (`es lodsb` / `stosb`, and the paste's capacity check provably never
+   fires). The paste's tail move after the fold is `rep movsb`.
 
 ## 28. apps/taskmgr — the Task Manager
 
