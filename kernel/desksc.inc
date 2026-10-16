@@ -683,11 +683,7 @@ sc_m_new:
     mov bp, fmv_get_icon
     call sc_m_cold              ; dsk_ico = its 64-byte body
     call sc_m_offz
-    mov al, [fcp_cbtype]
-    cmp al, 2
-    jbe .kind
-    mov al, 2
-.kind:
+    call sc_m_kind
     mov [es:di+SC_R_KIND], al
     push di
     add di, SC_R_CAP            ; CAPTION, HEADER and BODY are contiguous, so
@@ -929,12 +925,11 @@ sc_m_dfind:
     mov si, bp
     push ds
     mov ds, dx
+    cld
 .cmp:
     mov ah, [si]                ; bounded by the ROW's, which the kernel has
-    cmp ah, [es:di]             ; terminated: the record's stops at the first
+    cmpsb                       ; terminated: the record's stops at the first
     jne .ne                     ; byte that differs from it
-    inc si
-    inc di
     or ah, ah
     jnz .cmp                    ; equal through the NUL: ZF = 1, CF = 0
 .ne:
@@ -998,25 +993,6 @@ sc_m_lnk:
     push dx
     call sc_m_go                ; ...standing in the ENTRY's folder
     jc .nopath
-    push cs
-    pop es
-    lea di, [cs:cpc_buf + LNK_PATH] ; the path, sc_m_new's: dsk_path's leading
-    call sc_m_wpath             ; `\` lands on the kind byte, written after it
-    jc .nopath
-    lea di, [cs:cpc_buf]        ; (`lea` with `cs:` - the pointer is the
-                                ; IMAGE's, ES = CS, and os88ovlchk is told so)
-    mov ax, 'LK'
-    stosw
-    mov al, LNK_V
-    stosb
-    mov al, [fcp_cbdrv]
-    stosb                       ; LNK_VOL...
-    mov al, [fcp_cbtype]
-    cmp al, 2
-    jbe .kind
-    mov al, 2
-.kind:
-    stosb                       ; ...and LNK_KIND
     push ds                     ; THE LINK'S NAME, the entry's stem and .LNK,
     pop es                      ; into assoc_doc: a name is read through DS
     mov si, fcp_cbname
@@ -1038,14 +1014,27 @@ sc_m_lnk:
     stosw
     xor al, al
     stosb
+    push cs                     ; ...and the RECORD in the image, ES = CS from
+    pop es                      ; here to the write
+    lea di, [cs:cpc_buf + LNK_PATH] ; the path, sc_m_new's: dsk_path's leading
+    call sc_m_wpath             ; `\` lands on the kind byte, written after it
+    jc .nopath
+    lea di, [cs:cpc_buf]        ; (`lea` with `cs:` - the pointer is the
+                                ; IMAGE's, ES = CS, and os88ovlchk is told so)
+    mov ax, 'LK'
+    stosw
+    mov al, LNK_V
+    stosb
+    mov al, [fcp_cbdrv]
+    stosb                       ; LNK_VOL...
+    call sc_m_kind
+    stosb                       ; ...and LNK_KIND
     pop bx                      ; the destination's folder...
     pop ax                      ; ...and volume
     mov [fcp_ddrv], al          ; fmv_reload_all's question: which volumes
     call COLD_SEG:fcpf_fcp_goto ; changed
     jc .err
-    push cs
-    pop es
-    lea bx, [cs:cpc_buf]
+    lea bx, [cs:cpc_buf]        ; ES = CS still: fcp_goto writes AX alone
     mov cx, LNK_SIZE
     xor dx, dx
     mov si, assoc_doc
@@ -1071,6 +1060,17 @@ sc_m_lnk:
     pop ax
     mov bp, fm_paste_res        ; ...which re-lists and repaints what changed
     jmp sc_m_cold
+
+; sc_m_kind - AL = the dragged entry's kind, [fcp_cbtype] bounded to 2 (SPEC.md
+; 26.8.1): 0 document, 1 package, 2 folder - and the shortcut and the link
+; both store it. Clobbers flags
+sc_m_kind:
+    mov al, [fcp_cbtype]
+    cmp al, 2
+    jbe .k
+    mov al, 2
+.k:
+    ret
 
 ; sc_m_go - bank the volume and stand in the dragged entry's folder ([fcp_cb*]),
 ; the first half of the path a shortcut and a link both record (SPEC.md 26.8.1,
