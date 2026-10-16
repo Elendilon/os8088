@@ -133991,6 +133991,29 @@ reflection over a whole turn against `sin` itself. The axis crossings stay
 EXACT, which matters: §88.9.2.2's divide by `cos` depends on cos ±90° being
 exactly zero.
 
+##### 88.5.9.1 …and it SHIPS as its second differences, expanded at launch
+
+The 514 bytes are a slowly falling curve, which is the one shape LZ4 cannot
+touch: no four bytes of it repeat, so they cost the file 516. Its first
+difference falls from 201 to 0 and its **second difference is −3..+1**, so
+the table is two numbers and 256 two-bit codes (`c` = d″ + 2; the single −3,
+between entries 253 and 255, is rounding and gets a code 0 and a one-step
+fix-up). `tools/cssin.py` writes them into `cssin.inc` at the **tail** of the
+table's own 514 bytes behind 450 zeros, and `cs_entry` expands them
+**forwards, in place**, before anything calls `cs_sin` — the writer is at
+`8j + 2` when it reads code byte `j` at `450 + j`, so it never catches the
+codes up, and the table costs no scratch and no claim. The generator
+simulates that loop instruction for instruction, reading each code out of
+the buffer it is writing, and refuses to write a table it does not get back;
+`tests/unit/t_cssin.py` decodes the SHIPPED codes the same way and then holds
+the result to §88.5's snippet and the reflection, exactly as before.
+
+**−385 bytes of the packed program** (part 0, 29,356 → 28,971) for 50 bytes
+of `cs_entry` (`image` 36,070 → 36,120, the region 61,345 → 61,393) and
+3,465 instructions of one launch — ~7 ms at 4.77 MHz, estimated from the
+instruction count. Nothing a frame runs moved: `cs_sin` reads the same 257
+words at the same address.
+
 #### 88.5.4 Levels of detail, all about pixels
 
 The measure is `cs_sizepx`: **0.75 of the model's radius times the vertical

@@ -634,6 +634,42 @@ cs_entry:
     inc di
     loop .name
 
+    ; --- THE SINE TABLE, out of its second differences (SPEC.md 88.5.9.1) ---
+    ; cssin.inc ships the 257 words as two words and 256 two-bit codes at the
+    ; TAIL of the table's own bytes (tools/cssin.py, which simulates exactly
+    ; this loop), and they are expanded forwards here, in place: the writer
+    ; is at 8j+2 when it reads code byte j at CS_SINPK + j, so it never
+    ; catches the codes up. Before ANYTHING calls cs_sin - nothing on the
+    ; title page does, and the bracket is minutes away - and ~5 ms of one
+    ; launch, for ~400 bytes of the file.
+    push ds
+    pop es                          ; ES was the kernel's (the name, above)
+    mov di, cs_sintab
+    mov si, cs_sintab + CS_SINPK
+    xor ax, ax                      ; v = sin 0
+    mov dx, CS_SIND0                ; d = sin 1 - sin 0
+    mov cx, 256
+.sin:
+    stosw                           ; v[256 - cx]
+    add ax, dx
+    test cl, 3
+    jnz .sincode
+    mov bl, [si]                    ; four codes a byte, low pair first
+    inc si
+.sincode:
+    mov bh, bl
+    and bh, 3
+    shr bl, 1
+    shr bl, 1
+    add dl, bh                      ; d += code - 2
+    sub dl, 2
+    cmp cl, CS_SINFIX
+    jne .sinnext
+    dec dx                          ; ...and the one step that is -3
+.sinnext:
+    loop .sin
+    stosw                           ; v[256], sin 90
+
     ; --- OUR REGION IS ALREADY WHAT WE ARE (SPEC.md 88.10.8) -----------------
     ; It is the parts carve the loader read us into, and csload hands it over
     ; in OSAPI_PKG_REHOME's KEEP form (20.12.10.5): the kernel cuts its head
