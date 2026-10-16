@@ -4027,15 +4027,13 @@ vga_xor_fill_vram:
                                 ; directly by menu.inc, so it owes its own
                                 ; adapter check
     cmp byte [vid_mono], 0
-    mov [vga_xorm], al          ; the MASK, never 0 - and stored on BOTH arms:
-    pop ax                      ; `mov` and `pop` write no flag, and a 1bpp
-    jne sw_xor_fill             ; fill never reads it (both vga_solid_rect heads
-                                ; write it before the body does). 1bpp inverts:
-                                ; there is no colour to XOR in. The same four
-                                ; instructions on the VGA arm, one fewer jump
-                                ; on the 1bpp one (kernel size pass 13)
-    jmp vga_solid_rect          ; the body is gfx_fill_raw's, which is the same
-                                ; 155 bytes with two differences
+    jne .sw
+    mov [vga_xorm], al          ; the MASK, never 0 - the body is
+    pop ax                      ; gfx_fill_raw's, which is the same 155 bytes
+    jmp vga_solid_rect          ; with two differences
+.sw:
+    pop ax                      ; 1bpp inverts: there is no colour to XOR in
+    jmp sw_xor_fill
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -4460,23 +4458,22 @@ thm_tink:
 ; wm_tpen_bg / wm_tpen_ink - a title bar's ground / ink (SPEC.md 76.12): the
 ; ACTIVE pair when DI is the front window BP, its INACTIVE pair when it is not
 ; (kernel/wm.inc says why). in: DI, BP; out: [gfx_color]; clobbers flags,
-; as the routine it replaced did. Here and not in wm.inc so the focus
-; test and the pen tail are one short jump apart (kernel size pass 13): the
-; four pen doors thm_tbg/thm_tink/thm_ibg/thm_iink were reached through a
-; near jump each, and the inactive two had no other caller.
+; as the routine it replaced did. Here and not in wm.inc (kernel size pass
+; 13) so the focus test reaches the ACTIVE pen's own door, thm_tbg/thm_tink,
+; with a short `je`, and the inactive pen is written inline: the two inactive
+; doors thm_ibg/thm_iink had no other caller. Both arms are fewer clocks than
+; the near `jmp` to a door each took from wm.inc.
 wm_tpen_bg:
-    push ax
-    mov al, [thm_tbgc]
     cmp di, bp
-    je thm_pen
+    je thm_tbg
+    push ax
     mov al, [thm_ibgc]
     jmp short thm_pen
 wm_tpen_ink:
-    push ax
-    mov al, [thm_tinkc]
     cmp di, bp
-    je thm_pen
-    mov al, [thm_iinkc]
+    je thm_tink
+    push ax
+    mov al, [thm_iinkc]         ; ...and falls into thm_pen
 %endif
 thm_pen:
     mov [gfx_color], al
@@ -4539,6 +4536,13 @@ thm_desk:
 ; cell at 0x046D jumps straight to the cold body (kernel size pass 13), and
 ; THMPAL.DRV's file name is staged by CTRL.DRV, the one code that loads it
 ; (kernel/ctrl.inc, cp_thmv_open)
+    db 0x90                     ; NEVER EXECUTED - nothing falls or jumps here:
+                                ; one byte that keeps every .text routine after
+                                ; it (font_run, the blits, both mouse ISRs,
+                                ; sch_switch) and the four pen routines above
+                                ; at an EVEN shift against kernel size pass
+                                ; 13's base, where the pass's .text total would
+                                ; otherwise be odd (BRIEF 1's parity rule)
 %endif
 
 ; THESE TWO ARE CONTENT PENS AND THE THEME DOES NOT REACH THEM (SPEC.md 76.6).
