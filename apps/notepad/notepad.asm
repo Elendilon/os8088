@@ -10054,11 +10054,10 @@ np_pbutton:
 .out:
     jmp np_ld_6
 
-np_brects:  dw 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0   ; THE GROUP (SPEC.md
-                                ; 20.5.1.3): four rects, contiguous, in screen
-                                ; coordinates - a hidden one is zeroed
-np_btlbl:   dw 0, 0, 0, 0       ; ...its labels, written as each is drawn
-np_btflg:   dw 0, 0, 0, 0       ; ...and its flags
+                                ; np_brects, np_btlbl and np_btflg - the
+                                ; group's three parallel arrays - are bss
+                                ; (NPVAR, below the image): zeros in the
+                                ; image are file bytes for nothing
     OS88UI_BTNREC np_btrec, np_brects, np_btlbl, np_btflg, 4
 
 ; -----------------------------------------------------------------------------
@@ -11282,6 +11281,13 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
 %endif
 
 ; --- the launch document (SPEC.md 54.10) -------------------------------------
+%ifdef NPF_FIND
+    NPVAR np_brects, 32     ; THE GROUP (SPEC.md 20.5.1.3): four rects,
+                            ; contiguous, in screen coordinates - a hidden one
+                            ; is zeroed
+    NPVAR np_btlbl,  8      ; ...its labels, written as each is drawn
+    NPVAR np_btflg,  8      ; ...and its flags
+%endif
     NPVAR np_argp,  1       ; byte: np_arg banked a document and np_onwake has
                             ; not spent it yet. The pair np_load needs is
                             ; already kept - np_dir/np_drv/np_dirok are Save

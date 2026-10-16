@@ -58263,6 +58263,12 @@ into bss or the heap. The numbers are the file and the image, both arms.
     one; the slot is counted down with `dec bx`. `np_pdrawn` lets its
     cut-to-fit case reach `.draw`'s own NUL instead of writing one first,
     and `np_fpclick` compares the button row's top in memory.
+14. **The panel's button arrays are bss.** The group's rects, labels and
+    flags (48 bytes, `np_brects`/`np_btlbl`/`np_btflg`) were zeros in the
+    image; the loader zeroes bss, so they start exactly as they did, and
+    image + bss is unchanged. The scroll bar's 16-byte record was tried the
+    same way and left where it is: it bought the full arm 4 bytes of file
+    and cost the small arm 3.
 
 ## 28. apps/taskmgr — the Task Manager
 
