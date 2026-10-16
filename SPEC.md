@@ -185291,7 +185291,7 @@ It landed in v2's wave 3 (§110.10); the Desk Calendar adopted it in wave 4
 ## 111. TIMER — the stopwatch (`apps/timer/timer.asm`)
 
 The kernel's Timer kind (§14) as a package since §14.8: `TIMER.O88`, in
-`APPS/` on every apps disk, 1,775 bytes of image and 60 of bss (§111.6),
+`APPS/` on every apps disk, 1,589 bytes of image and 60 of bss (§111.6),
 the stopwatch icon in its header, label prefix `tm_`. Everything §14 says about
 the Timer's behaviour holds — the window, the layout, the accumulator
 (binding), §14.1's incremental redraw, §14.4's cut line, §47's greying — and
@@ -185378,6 +185378,27 @@ clear prefix), 953 this file's code and data, and 963 `apps/os88ui.inc`.
   bitmaps): what is left is code, which LZ4 no longer shrinks at all, so the
   package ships PLAIN (`os88pkg` writes it uncompressed when packing does
   not pay) and every image byte from here is a file byte.
+- **Each proc owes what its CALLER reads, and no more.** The file was
+  written to "preserve every register", and nobody it serves asks for that:
+  the entry proc owes BX and CF (the loader reloads everything else after
+  its far call), W_PAINT owes SI and DF, the W_ONCLICK family - W_ONTIMER,
+  W_ONMOUSEUP and W_ONDRAG are its environment exactly - gives SI back and
+  may clobber the rest (`ui_bill` clobbers AX/BX/CX/DX/DI round every one of
+  them anyway), and the worker reloads at the top of its loop. So the
+  internal procs document what they CLOBBER, the pushes nobody read went
+  (about fifty), `tm_tick` FALLS INTO `tm_clipd` and that into `tm_digits`
+  (the worker enters at `tm_clipd` after its own visibility test), the
+  release does the action in one proc rather than two, the two declarations
+  take the `_NOKEEP` forms (§66.6.1.1), the layout and the clock check are
+  inlined into their one caller, and the worker stops reloading ES - it is
+  the task frame's `KERNEL_SEG` and no slot changes it. The digit formatter
+  stops writing the NUL cell (the loader's zero at `tm_str+8` is the line's
+  terminator for ever, since the run's own terminator writes only cells
+  1..8), and the changed-cell scan walks RIGHT TO LEFT so the last
+  difference is met first and terminates the run where it is found. Image
+  1,775 -> 1,589, and that is under the line: LZ4 now fits its in-place
+  layout in the 2,048-byte region (1,501 + 512), so the package packs again
+  and the FILE is 1,775 -> 1,501.
 
 ## 112. BOUNCE — the square (`apps/bounce/bounce.asm`)
 
