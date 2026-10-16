@@ -11019,6 +11019,13 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                                 ; btnpress/btndrag/btnup, btninit and bfind -
                                 ; would be ~230 bytes nothing in the small
                                 ; build reaches (SPEC.md 20.5.1.3.4, 27.16)
+%else
+%define OS88UI_NOBTNINIT        ; ...and WITH it the panel routes its own press
+                                ; into os88ui_btnpress and installs its own
+                                ; up/drag pair (np_onup/np_ondrag), so the
+                                ; gesture's SETUP half - btninit, btnclick,
+                                ; btlist - is 112 bytes it never ran (apps
+                                ; size pass 2b, SPEC.md 20.5.1.3.4, 27.16)
 %endif
 %include "os88ui.inc"
 

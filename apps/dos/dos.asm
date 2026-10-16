@@ -18060,6 +18060,11 @@ DOS_BSS_SIZE equ HB
                                     ; which is one pick out of a SHORT LIST of
                                     ; widths - a radio of five would be 80 px
                                     ; of a column that has 155
+%define OS88UI_NODRGEST             ; ...which is press-press (dos_click_mem ->
+                                    ; os88ui_drpress both ways) and is never
+                                    ; taken down from outside, so its drag,
+                                    ; release and close are out (SPEC.md
+                                    ; 13.14.7, apps size pass 2b)
 %define OS88UI_ABOUT                ; ...and the About card (SPEC.md 96.51).
                                     ; dos_about was a bare `ret` for the whole
                                     ; of this package's life, so the kernel put
@@ -18079,6 +18084,9 @@ DOS_BSS_SIZE equ HB
 %if DOS_BTREC_SZ != OS88UI_BT_SIZE
  %error "DOS_BTREC_SZ mirrors OS88UI_BT_SIZE and they have drifted - the HBSS block is laid out before this include, so the size must be written twice; fix the literal"
 %endif
+%define OS88LINE_NOSET              ; the fields are filled in place and
+                                    ; resynced (96.21.1), never replaced
+                                    ; (apps size pass 2b)
 %include "os88line.inc"
 %endif
 ; --- THE CONSOLE (SPEC.md 96.33), telnet's screen as a shared include -------

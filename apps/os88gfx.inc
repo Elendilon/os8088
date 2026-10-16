@@ -112,6 +112,21 @@
                                         ; places is a band that is almost all
                                         ; paper (docs/plans/completed/GFX-EMBEDDABLE-PLAN.md 8.1.2)
 
+; GFXE_NOBUTIL - the band WITHOUT its utilities (apps size pass 2b, SPEC.md
+; 5.12.9). An OPT-OUT, os88ui.inc's OS88UI_NO* shape: a package that composes
+; into the band through GFXE_TEXT / GFXE_BITS, papers it with gfxe_bclear and
+; commits it itself never reaches the running bounds (gfxe_bnew, gfxe_bfold,
+; gfxe_bsize and their seven words), the pixel (gfxe_bpix) or the commit
+; (gfxe_bput) - the Desk Calendar carried ~190 bytes of them. It keeps the
+; band, its geometry, gfxe_bclear and gfxe_bh. It removes the SYMBOLS, so a
+; package that sets it and calls one does not assemble; every package that
+; does not set it is byte-identical.
+%ifdef GFXE_NOBUTIL
+  %ifndef GFXE_BAND
+    %error "os88gfx.inc: GFXE_NOBUTIL takes the band's utilities out, and no capability has asked for a band"
+  %endif
+%endif
+
 %ifdef GFXE_BAND
 
   %ifndef GFXE_BAND_W
@@ -157,6 +172,7 @@
   %endif
 %endmacro
 
+%ifndef GFXE_NOBUTIL
 ; -----------------------------------------------------------------------------
 ; gfxe_bnew - start a band: seed the running bounds from one point
 ; in:  AX = x, DX = y (in the caller's own drawing space, whatever that is)
@@ -248,6 +264,7 @@ gfxe_bsize:
 .no:
     stc
     ret
+%endif ; GFXE_NOBUTIL
 
 ; -----------------------------------------------------------------------------
 ; gfxe_bclear - paper the band's rows
@@ -293,6 +310,7 @@ gfxe_bclear:
     pop es
     ret
 
+%ifndef GFXE_NOBUTIL
 ; -----------------------------------------------------------------------------
 ; gfxe_bpix - one pixel into the band, in BAND coordinates
 ; in:  AX = x, DX = y; both inside the band - THIS DOES NOT CLIP
@@ -342,6 +360,7 @@ gfxe_bput:
     call OSAPI_GFX_BLIT1
     pop es                          ; `pop` writes no flag, so BLIT1's CF is
     ret                             ; still the caller's answer
+%endif ; GFXE_NOBUTIL
 
 %endif ; GFXE_BAND
 
@@ -1274,6 +1293,7 @@ gfxe_wstepv:
 
 ; --- the library's own state, in the IMAGE (see the header) ------------------
 %ifdef GFXE_BAND
+%ifndef GFXE_NOBUTIL
 gfxe_mnx:   dw 0                    ; the running bounds gfxe_bfold widens
 gfxe_mxx:   dw 0
 gfxe_mny:   dw 0
@@ -1281,7 +1301,8 @@ gfxe_mxy:   dw 0
 gfxe_bx0:   dw 0                    ; ...closed by gfxe_bsize into the band
 gfxe_by0:   dw 0
 gfxe_bw:    dw 0
-gfxe_bh:    dw 0
+%endif
+gfxe_bh:    dw 0                    ; ...whose height gfxe_bclear papers
 %endif
 %ifdef GFXE_STYLED
 gfxe_tsty:  db 0                    ; the style: GFXE_INV / BOLD / X2 / X3

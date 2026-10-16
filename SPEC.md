@@ -8042,6 +8042,20 @@ gfxe_bits    SI = record, CX = x, DX = y      a bit record: db rows, then a word
   its blits, and a `STIK_COMPOSE` that skips the glyphs a slab cannot hold
   saves the rejects as well (§110.6).
 
+#### 5.12.9 `GFXE_NOBUTIL` — the band without its utilities
+
+`GFXE_BAND` brings the band's geometry, `gfxe_bclear`, and a set of
+utilities for a FIGURE: the running bounds (`gfxe_bnew`, `gfxe_bfold`,
+`gfxe_bsize` and seven words), the pixel `gfxe_bpix` and the commit
+`gfxe_bput`. A widget that composes a fixed-size face with `GFXE_TEXT` and
+`GFXE_BITS`, papers it with `gfxe_bclear` and blits it itself reaches none of
+them. `%define GFXE_NOBUTIL` leaves them out (apps size pass 2b) and keeps the
+band, `gfxe_bclear` and `gfxe_bh`: an opt-out in `os88ui.inc`'s `OS88UI_NO*`
+shape, so every package that does not set it is byte-identical, removing the
+symbols so a package that sets it and calls one does not assemble, and
+refusing without a band. The Desk Calendar sets it (§110.6.2), 208 bytes of
+image; WIREFRAME and PiXEL use the bounds and the commit and cannot.
+
 ### 5.13 `gfx_pixel` and `gfx_points` — which to reach for
 
 `OSAPI_GFX_PIXEL` costs **640.87 µs** on the field machine and `OSAPI_GFX_POINTS`
@@ -9835,6 +9849,15 @@ Three knobs, set before the `%include`:
   `OS88TY_NOGETLEAD`. Nothing inside the library calls any of them, so a
   wrong one is an undefined-symbol error at assembly and never a runtime one.
   Every includer sets the ones it does not reach.
+- **`OS88TY_NOGRAY`** (apps size pass 2b) — leaves out `ty_gray` (§47 rule 3)
+  and `ty_flush`'s greying arm, 61 bytes, for an includer that never greys a
+  band. The arm is inside `ty_flush`, so a plain gate would leave a call site
+  passing `stc` drawing live with nothing to say so; the switch therefore
+  RENAMES the entry as well. Under it the flush is **`ty_flushlive`**, which
+  takes no carry argument, and `ty_flush` is not defined - so a call written
+  to pass the carry (§6.5.4) fails the assembly like every other switch here.
+  Font Viewer sets it (§90.12); Word, Scribe and CWORD pass `clc` at their one
+  call site too and could.
 - `OS88TY_SLANT` (§6.5.3) is the one opt-IN.
 
 **`TY_BSS_SIZE` is exact** and `TY_BSS` asserts it against the last label it
@@ -28925,6 +28948,21 @@ frame, mark and label over it. It is named here rather than quietly changed
 because it is the file's most-copied routine and the next author will copy it
 too; **§13.17 is the one to follow.**
 
+#### 13.14.7 `OS88UI_NODRGEST` — a press-press drop-down carries no release half
+
+The control answers two gestures (§13.14): press, drag and release, where
+`os88ui_drdrag` tracks the highlight and `os88ui_drup` picks; and press-press,
+where `os88ui_drpress` alone both opens the list and picks or closes it. A
+package that wires only the second, and never takes a list down from outside
+the control (Esc, a menu) with `os88ui_drclose`, reaches none of those three
+routines. `OS88UI_NODRGEST` takes them out (apps size pass 2b). It is an
+opt-out in `OS88UI_NOGEST`'s shape (§20.5.1.3.4): every package that does not
+set it is byte-identical, it removes the symbols so a package that sets it and
+then calls one of the three does not assemble, and it refuses without
+`OS88UI_DROP`. The DOS box's disk-cache dial is the one consumer (§96.44.16):
+152 bytes of image. Clear Skies, Word, PiXEL and RedLine use the drag and
+release half and cannot set it.
+
 #### 13.15.1 `os88ui_glyph` draws with FILLS now, and shares the radio's shape
 
 It used to be four 12×12 **bitmaps** put down through the masked sprite pass
@@ -42565,6 +42603,19 @@ never draw pressed, silently. Piano names it `pn_down` and its gesture
 writes it, so a W_PAINT mid-press agrees for free; Word and Scribe stage the
 record one control at a time and set it before each `os88ui_btn` from their
 own "which control is down". That is the contract, and not a trespass.
+
+**`OS88UI_NOBTNINIT`** splits the gesture in two (apps size pass 2b). Its
+SETUP half - `os88ui_btninit`, the library's own W_ONCLICK `os88ui_btnclick`
+and the record list head `os88ui_btlist`, 112 bytes - is reached only by a
+package that hands the window to the library; its PRESS half -
+`os88ui_btnpress`/`btndrag`/`btnup` over `os88ui_bfrec` - is also what a
+package that routes its own press into the record calls. `OS88UI_NOBTNINIT`
+takes out the setup half and keeps the press half; `OS88UI_NOGEST` implies it
+and takes out both, so every existing consumer is byte-identical. It removes
+the symbols on the same argument: a package that sets it and calls
+`os88ui_btninit` does not assemble. Note Pad's full build is the one consumer
+(§27.21 item 19): its find panel presses into `os88ui_btnpress` and installs
+its own up and drag procs.
 
 **`OS88UI_NOBFIND`** is the same shape one routine further: under
 `OS88UI_NOGEST` nothing in the file calls `os88ui_bfind` — the gesture is its
@@ -59187,13 +59238,21 @@ into bss or the heap. The numbers are the file and the image, both arms.
     there is no button record in `APP_SMALL` at all - the alert's buttons
     are its own - so the build sets `OS88UI_NOGEST` and `OS88UI_NOBFIND`
     (§20.5.1.3.4) and the ~230 bytes of record-gesture code nothing in it
-    could reach are gone (§27.16.2's table). The full build still carries
-    `os88ui_btninit`/`btnclick`/`btlist`, which it never calls - they share
-    the knob with the gesture it does use.
+    could reach are gone (§27.16.2's table). The full build carried
+    `os88ui_btninit`/`btnclick`/`btlist`, which it never calls, until item
+    19 gave that half a knob of its own.
 18. **File > New zeroes through AX.** `np_new` stored two immediate
     zeros and saved AX around `np_resize`, which keeps it anyway; AX was
     already spent on the toast's string, so its header now says it clobbers
     AX, which it always did.
+19. **The full build leaves the gesture's SETUP half out** (apps size pass
+    2b). The find panel routes its own press into `os88ui_btnpress` and
+    installs its own up/drag pair (`np_onup`/`np_ondrag`), so it reaches the
+    gesture's press half and never `os88ui_btninit`, `os88ui_btnclick` or
+    the record list head. `OS88UI_NOBTNINIT` (§20.5.1.3.4) takes those out:
+    image -112, file 14,875 -> 14,766 (-109), 15 clusters on the system and
+    apps disks either way. The small arm, already `OS88UI_NOGEST`, is
+    byte-identical.
 
 ## 28. apps/taskmgr — the Task Manager
 
@@ -61515,9 +61574,9 @@ worth a byte of `.text` here and `tools/os88pkgsize.py` prints the sum:
 |---|---|---|---|---|
 | full (shipped) | 7,589 | 1,698 | **9,287** | — |
 | `TMF_HEAP` off | 6,300 | 1,586 | 7,886 | −1,401 (15.1%) |
-| both off (`APP_SMALL`) | 4,400 | 1,313 | **5,713** | −3,574 (38.5%) |
+| both off (`APP_SMALL`) | 3,641 | 1,313 | **4,954** | −4,333 (46.7%) |
 
-(As of §28.12.2's pass; the first pass left them at 8,223 / 6,970 / 4,980 of
+(As of §28.12.3; §28.12.2's pass left the small arm at 4,400 of image; the first pass left them at 8,223 / 6,970 / 4,980 of
 image against 1,707 / 1,581 / 1,317 of bss.)
 
 The first size pass on the package (it had only ever been moved, never
@@ -61683,6 +61742,18 @@ changed. MartyPC, `os8088_5150_cga`, both builds in one boot and then again
 in the other order: `tm_sample` 71,654 → 63,778 cycles, the performance
 page's refresh (median) 247,922 → 234,302, a quiet page's no-change check
 19,786 → 19,456, and the three pages' full paints 1.73–1.81 M → 1.63–1.70 M.
+
+#### 28.12.3 Apps size pass 2b — the small arm draws no button
+
+With `TMF_HEAP` off there is no scroll bar, so the small build could not say
+`OS88UI_BARONLY` and carried the whole button block of `os88ui.inc` -
+`os88ui_btn`, `os88ui_bhit`, the check/radio glyph and its bitmaps, and the
+record gesture - though nothing in it draws a button: its one click target is
+the content (`tm_click`), and the About card (§20.5.1) draws none. It sets
+`OS88UI_NOBTN` (§13.10.6.5.1), which removes those symbols, so a button added
+later does not assemble rather than shipping half-drawn. Image 4,400 → 3,641,
+bss unchanged, the file **3,952 → 3,305 bytes** (4 clusters still on both
+small disks). The full arm, already `OS88UI_BARONLY`, is byte-identical.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 
@@ -131088,6 +131159,18 @@ Both are silent, and both only bite past 255 bytes:
 * **`BP` addresses `SS` by default**, so it cannot be used as a memory base for
   a buffer in `DS`.
 
+### 83.4 `OS88LINE_NOSET` — a field nobody replaces carries no `os88line_set`
+
+`os88line_set` (51 bytes) copies a NUL string into the field and puts the
+caret at its end. A package that fills the buffer in place and calls
+`os88line_resync` (§96.21.3), or never replaces a field's contents, reaches
+none of it. `%define OS88LINE_NOSET` before the include leaves it out (apps
+size pass 2b): an opt-out in `os88ui.inc`'s `OS88UI_NO*` shape, so every
+package that does not set it is byte-identical, and it removes the symbol, so
+a package that sets it and calls `os88line_set` does not assemble. The DOS
+box (§96.44.16) and the Desk Calendar (§110.6.2) set it; Browser, ftpd,
+Sheet, Weave, `ETHER.DRV` and `SAVER.DRV` call it.
+
 ## 84. Software floating point (`apps/os88fp.inc`)
 
 An IEEE-754 double, in software, for a machine with no FPU. It is what stage
@@ -145631,6 +145714,14 @@ for a band drawn GREYED, and the specimen never is (`clc` at its one
 `ty_flush`). An `OS88TY_NOGRAY` opt-out beside §6.5.5's others would take
 ~61 image and ~50 file bytes off this package, and off any other carrier that
 never greys.
+
+### 90.12 Apps size pass 2b — the band is never greyed
+
+Font Viewer's one band flush is a face sample, never a greyed control, so it
+sets `OS88TY_NOGRAY` (§6.5.5): `ty_gray` and the greying arm go, and the call
+site is `ty_flushlive` with no `clc` in front of it. Image 4,261 -> 4,199,
+`FONTVIEW.O88` **3,456 -> 3,400 bytes**, 4 clusters either way on the system
+disk and the office disk.
 
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 
@@ -163525,6 +163616,13 @@ Sharing the window half's `pop`-ladder epilogues, which pass 1 left on the
 table, is REFUSED on a measurement: every copy is a 3-byte LZ4 match already,
 and replacing the 35 commonest with a `jmp` makes part 0 111 packed bytes
 LARGER.
+
+**Apps size pass 2b took the include gates** for what part 0 never calls:
+`OS88UI_NODRGEST` (§13.14.7) drops the disk-cache dial's drag, release and
+close, since `dos_click_mem` drives it press-press through `os88ui_drpress`
+alone - part 0 50,121 -> 49,969 raw, 19,671 -> 19,563 packed - and
+`OS88LINE_NOSET` (§83.4) drops `os88line_set`, since the fields are filled in
+place and resynced (§96.21.3): 49,969 -> 49,918 raw, 19,563 -> 19,534 packed.
 
 ##### 96.44.16.1 Pass 2b: the structural items
 
@@ -181825,8 +181923,9 @@ to what it was, and what is RLAPPLY's own - the entry, and csapply.inc's
 `CS_LOADER` half, which only it and the csprobe write harness assemble - was
 tightened:
   - **Save** - `cs_cfg_new`, `cs_cfg_knob` and `cs_cfg_save`, 127 bytes of
-    code nothing in RLAPPLY calls (file -103). `od_write` stays, being
-    `apps/os88data.inc`'s and ungated.
+    code nothing in RLAPPLY calls (file -103). `od_write` stayed, being
+    `apps/os88data.inc`'s and ungated, until apps size pass 2b gave it a
+    switch (below).
   - **The NEAT's named setters** - `cs_ne_put` and `cs_ne_set`, the names
     csprobe and the sweep call; RLAPPLY's `cs_ap_ne` reaches `cs_kput`
     itself (24 bytes, file -23).
@@ -181856,6 +181955,12 @@ tightened:
     routine banks a register, the entry keeping nothing across them (image
     -95). The file is LZ4 again inside the 2,048-byte region: **1,520
     bytes**, 16 under the 1,536 at which it would have to ship plain.
+
+Apps size pass 2b: RLAPPLY only ever READS `REDLINE.CFG`, so it sets
+`OD_READONLY` and `apps/os88data.inc` leaves `od_write` out - image 1,681 ->
+1,606, the file **1,520 -> 1,447 bytes**, 2 clusters on every system disk
+either way. A package that sets the switch and calls `od_write` does not
+assemble.
 
 `tests/rltune.py` launches it from `A:\SYSTEM` before REDLINE has saved and
 after, on QEMU, and reads the toast and the window list each time.
@@ -189564,6 +189669,17 @@ The rows that run the package: `stik` (fast), `deskcaledit`, `deskcaltask`,
 `deskcalsnooze`, `deskmodal`, `stikmove`, `stikmovecga`, `stikanchor`,
 `stiknodesk`, `stikregister` and `stiksmall`; `t_stik` also assembles
 `tests/stikprob`, the include's other consumer.
+
+#### 110.6.2 Apps size pass 2b — the include gates the calendar asked for
+
+The two shared-include wins 110.6.1 recorded and could not take are gates now,
+each an opt-out the calendar sets and every other package is byte-identical
+without:
+
+| gate | what goes | image | file | small file |
+|---|---|---:|---:|---:|
+| `OS88LINE_NOSET` (§83.4) | `os88line_set` - the field is filled in place and resynced | -48 | -26 | -25 |
+| `GFXE_NOBUTIL` (§5.12.9) | `os88gfx.inc`'s band utilities - the face papers and blits its own band | -208 | -182 | -183 |
 
 ### 110.7 `kern_small`
 
