@@ -9849,6 +9849,15 @@ Three knobs, set before the `%include`:
   `OS88TY_NOGETLEAD`. Nothing inside the library calls any of them, so a
   wrong one is an undefined-symbol error at assembly and never a runtime one.
   Every includer sets the ones it does not reach.
+- **`OS88TY_NOGRAY`** (apps size pass 2b) — leaves out `ty_gray` (§47 rule 3)
+  and `ty_flush`'s greying arm, 61 bytes, for an includer that never greys a
+  band. The arm is inside `ty_flush`, so a plain gate would leave a call site
+  passing `stc` drawing live with nothing to say so; the switch therefore
+  RENAMES the entry as well. Under it the flush is **`ty_flushlive`**, which
+  takes no carry argument, and `ty_flush` is not defined - so a call written
+  to pass the carry (§6.5.4) fails the assembly like every other switch here.
+  Font Viewer sets it (§90.12); Word, Scribe and CWORD pass `clc` at their one
+  call site too and could.
 - `OS88TY_SLANT` (§6.5.3) is the one opt-IN.
 
 **`TY_BSS_SIZE` is exact** and `TY_BSS` asserts it against the last label it
@@ -144568,6 +144577,14 @@ for a band drawn GREYED, and the specimen never is (`clc` at its one
 `ty_flush`). An `OS88TY_NOGRAY` opt-out beside §6.5.5's others would take
 ~61 image and ~50 file bytes off this package, and off any other carrier that
 never greys.
+
+### 90.12 Apps size pass 2b — the band is never greyed
+
+Font Viewer's one band flush is a face sample, never a greyed control, so it
+sets `OS88TY_NOGRAY` (§6.5.5): `ty_gray` and the greying arm go, and the call
+site is `ty_flushlive` with no `clc` in front of it. Image 4,261 -> 4,199,
+`FONTVIEW.O88` **3,456 -> 3,400 bytes**, 4 clusters either way on the system
+disk and the office disk.
 
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 
