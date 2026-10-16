@@ -323,19 +323,19 @@ make weave      # WEAVE (WEAVE-SPEC §1.2), the family's runtime: web-style
 make weavedisk  #   apps - markup, script and formulas - compiled at pack time
                 #   into one `.WAB` bundle and interpreted natively. `make
                 #   weavedisk` builds the family's floppy in all three
-                #   geometries: the runtime, `WEAVE.OVL`, `WEAVE.WSM`
-                #   (WEAVE-SPEC §1.2.2's canvas core), the three demo
-                #   bundles, LOOM and its `LOOM.WPV` (WEAVE-SPEC §1.2.4), the
-                #   demo sources and a `CATALOG.TXT` per geometry. TWO
-                #   FOLDERS — `WEAVE/` is the runtime and the compiled
-                #   bundles, `LOOM/` the IDE and the sources — and each is
-                #   WHOLE, because SPEC.md §73.14 resolves an overlay in the
-                #   LAUNCHED-FROM directory: a bundle opens only beside
-                #   WEAVE's three files, a source only beside LOOM's, so
-                #   `LOOM/` carries a second copy of the runtime for the
-                #   bundles Pack writes there (WEAVE-SPEC §11.2 has the
-                #   photographs of the folder-per-project layout refusing by
-                #   either route). `BUNDLES='path/MYAPP.WAB'`
+                #   geometries: the runtime (its overlay and its canvas
+                #   core, WEAVE-SPEC §1.2.2, are PARTS of WEAVE.O88), the
+                #   three demo bundles, LOOM (its overlay and its preview
+                #   module, WEAVE-SPEC §1.2.4, parts of LOOM.O88), the demo
+                #   sources and a `CATALOG.TXT` per geometry. TWO FOLDERS —
+                #   `WEAVE/` is the runtime and the compiled bundles,
+                #   `LOOM/` the IDE and the sources — ONE PROGRAM EACH:
+                #   every part is fetched from the folder its package was
+                #   LAUNCHED from, and a bundle Pack writes into `LOOM/`
+                #   finds WEAVE.O88 in `WEAVE/` through ASSOC.DAT, so the
+                #   second copy of the runtime `LOOM/` used to carry is gone
+                #   (WEAVE-SPEC §1.2.5 and WEAVE-SPEC §11.2).
+                #   `BUNDLES='path/MYAPP.WAB'`
                 #   adds your own to `WEAVE/`, the way `CPMSW=` and `STORIES=`
                 #   do — and the geometry still has to hold them, which is
                 #   what the recipe's cluster arithmetic refuses on
@@ -347,12 +347,10 @@ make loomdisk   #   in-OS IDE that edits a project's sources and packs the
                 #   host half of it every time (the `lmpack` row, four
                 #   seconds), and `python3 tools/os88test.py soak -k
                 #   'weave*'` runs the machine's. `make loomdisk` puts both
-                #   packages, both overlays, WEAVE.WSM, LOOM.WPV, the demo
-                #   bundles and the demo SOURCES on one floppy in all three
-                #   geometries, in the same two folders as `make weavedisk`,
-                #   which is the same shape plus `CATALOG.TXT`: a WHOLE
-                #   program per folder is a correctness requirement on both
-                #   (WEAVE-SPEC §11.2), not a layout choice
+                #   packages (each one file, its modules inside it), the
+                #   demo bundles and the demo SOURCES on one floppy in all
+                #   four geometries, in the same two folders as `make
+                #   weavedisk`, which is the same shape plus `CATALOG.TXT`
 make viddemo    # the VIDEO PLAYER (§98, apps/video/): VIDEO.O88 ships on
 make vencbundle #   every apps disk and plays `.V88` files, made on the host
                 #   by tools/os88venc.py or by the encoder's own window,
