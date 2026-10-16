@@ -20810,8 +20810,9 @@ another widget lost the same strip.
 #### 11.103.2 "Front" means the front ORDINARY window: `wm_top`
 
 `wm_top`'s loop tests **visible and not `WF_DESK`** (`mov ax, [bx]` /
-`and ax, 0x0402` / `cmp ax, 2` in place of a one-bit test: +5 bytes on a
-path that runs per key and per raise). So every caller of it now means "the
+`and ax, 0x0402` / `dec ax` / `dec ax` in place of a one-bit test: +4 bytes
+on a path that runs per key and per raise - the two DECs are a byte under
+`cmp ax, 2` and no slower, kernel size pass 13). So every caller of it now means "the
 frontmost visible APPLICATION window": the key router (§13), Close Window and
 its greying (`ui_loc_gate`), `menu_check`'s promotion (§12), `wm_raise`'s
 outgoing title, `wm_dmg_wins`' pinstripes, `dock_act` (§30), the precover and
@@ -62261,7 +62262,9 @@ border survives the reduction to three inks (§39.4) where a second colour
 would not.
 
 **A desk instance has no tile** (§11.103, `IF_DESK`): `db_key` answers 0 for
-it, `db_hit` reports no tile under it, and DOCK.DRV's twins - `dkx_key`,
+it - I_STATE and I_FLAGS read as one word, so "live and not a widget" is one
+`dec` - `db_hit` asks `db_key` rather than a second copy of the question
+and reports no tile under it, and DOCK.DRV's twins - `dkx_key`,
 `dkx_hit` and `dkx_map`'s count and walk - skip it, so a packed side strip
 does not spend a tile on it either. Its SLOT still exists, so on the stable
 mapping its position is an empty hole - which is why a package with header
