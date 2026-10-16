@@ -7338,9 +7338,7 @@ np_delspan:
 .nomv:
     pop cx
 .close:
-    mov ax, [np_len]
-    sub ax, cx
-    mov [np_len], ax
+    sub [np_len], cx
 .out:
     pop es
     pop di
@@ -7393,9 +7391,7 @@ np_gaproom:
 .nomv:
     pop cx
 .done:
-    mov ax, [np_len]
-    add ax, cx
-    mov [np_len], ax
+    add [np_len], cx
     call np_hmark
 .ok:
     clc
@@ -7579,10 +7575,8 @@ np_paste:
     jmp short .t
 .tdone:
     pop cx
-    mov ax, [np_len]
-    sub ax, dx
-    add ax, cx
-    mov [np_len], ax            ; the gap was n; only CX of it is text
+    sub [np_len], dx
+    add [np_len], cx            ; the gap was n; only CX of it is text
     mov ax, bx
     call np_urec_ins            ; AX = where, CX = how many
     add bx, cx
@@ -7748,9 +7742,7 @@ np_udrop0:
     dec bx
     jmp short .mv
 .shrunk:
-    mov ax, [np_utop]
-    sub ax, cx
-    mov [np_utop], ax
+    sub [np_utop], cx
 .arrays:
     xor bx, bx                  ; shift the four arrays down one, and every
 .sh:                            ; surviving blob offset with them
@@ -7881,12 +7873,8 @@ np_ublob_app:
     mov es, [np_useg]
     call np_ublob_copy
     pop si
-    mov ax, [np_utop]
-    add ax, cx
-    mov [np_utop], ax
-    mov ax, [si+np_udel]
-    add ax, cx
-    mov [si+np_udel], ax
+    add [np_utop], cx
+    add [si+np_udel], cx
 .out:
     pop es
     pop di
@@ -7943,9 +7931,7 @@ np_ublob_pre:
     mov si, ax
     mov di, bx
     call np_ublob_copy
-    mov ax, [np_utop]
-    add ax, cx
-    mov [np_utop], ax
+    add [np_utop], cx
 .out:
     pop es
     pop di
@@ -8187,9 +8173,7 @@ np_undo:
     add ax, dx                  ; the caret lands at the end of what came back
     mov [np_cur], ax
     call np_selclr
-    mov ax, [np_utop]
-    sub ax, dx
-    mov [np_utop], ax           ; the blob is the arena's last, so this is all
+    sub [np_utop], dx           ; the blob is the arena's last, so this is all
     dec byte [np_un]            ; there is to giving it back
     jnz .kept                   ; ...and the LAST record undone gives back the
     call np_uclear              ; whole arena: a Replace All's 16KB blob used

@@ -58208,6 +58208,11 @@ into bss or the heap. The numbers are the file and the image, both arms.
    claim, so the store is one byte and DI IS the staged count - the BX that
    counted beside it is gone - and `np_load`'s `jmp` to the epilogue that
    follows it falls through instead.
+3. **A length kept in memory is updated IN memory.** Seven
+   `mov ax, [x]` / `add ax, cx` / `mov [x], ax` triples - `[np_len]` in
+   `np_delspan`, `np_gaproom` and `np_paste`, `[np_utop]` and a record's
+   `np_udel` in the undo arena - are one `add [x], cx` each: four bytes where
+   there were ten, and fewer cycles, since the 8088 pays for the fetch.
 
 ## 28. apps/taskmgr — the Task Manager
 
