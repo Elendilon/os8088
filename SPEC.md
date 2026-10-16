@@ -128717,6 +128717,12 @@ it holds is recorded with the pass's report.
 - **No `cld`** (-6 image, -1 file). §1 rule 3 promises DF = 0 on entry to
   every routine and nothing in the package or its includes sets it, so the
   six `cld`s before its string moves were each a byte of nothing.
+- **The region is declared with `OS88_REGION_MOVABLE_NOKEEP`** (-11 image,
+  -7 file), naming the entry proc's own `ret` as the relocation proc - the
+  region holds no segment word that points inside itself (§66.6.1.1). The
+  keeping form banked AX, DX and the flags for nothing still owed; the entry
+  ends in its own `clc` now, and both refusals reach the `pop es` by a `jc`
+  that already carries the CF the loader wants, so `.fail`'s `stc` went too.
 
 ## 83. Text input for packages (`apps/os88line.inc`, `apps/os88text.inc`)
 

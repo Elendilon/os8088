@@ -128,7 +128,7 @@ ct_entry:
                                         ; here can recover from it being wrong
     mov ax, CT_CLAIM_CHART_KB
     call OSAPI_MEM_CLAIM
-    jc .fail
+    jc .out                             ; CF=1 is the refusal the loader wants
     mov [ct_chartseg], dx
     mov es, dx                          ; copy the constant 118-byte BMP
     mov si, ch_hdrtpl                   ; header+palette into the buffer
@@ -140,24 +140,28 @@ ct_entry:
                                         ; so no `cld` here or anywhere below
     mov si, ct_tpl
     call OSAPI_WM_CREATE                ; BX = window ptr, CF on table full
-    jc .fail
+    jc .out
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
     ; exists, and not beside any worker's declaration: a package with
     ; NO worker is the case that moves most easily, and putting it at
     ; the spawn left exactly those runs declaring nothing - measured,
     ; by the row that reads MC_RLOC back out of the kernel's own table.
-    OS88_REGION_MOVABLE
+    ;
+    ; The _NOKEEP form, naming the `ret` below as the relocation proc (there
+    ; is nothing in here that points inside the region): it spends AX, DX and
+    ; the flags, none of which is still owed - BX is the window and survives,
+    ; and the `clc` below is the CF the loader reads.
+    OS88_REGION_MOVABLE_NOKEEP ct_entry.ret
     mov si, ct_menus
-    call OSAPI_MENU_SET                 ; preserves CF (SPEC.md 20.3)
+    call OSAPI_MENU_SET
     mov si, ct_about                    ; ...and 'About Chart' above its Close
     call OSAPI_ABOUT_SET                ; (SPEC.md 12.2), which every other
                                          ; package in the tree declares and
                                          ; this one did not
-    jmp .out
-.fail:
-    stc
+    clc
 .out:
     pop es
+.ret:
     ret
 
 ; -----------------------------------------------------------------------------
