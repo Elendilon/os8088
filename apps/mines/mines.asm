@@ -725,7 +725,7 @@ mn_draw_minecell:
 ; -----------------------------------------------------------------------------
 ; mn_draw_wrongflag - a flag with no mine under it (loss): mine + LIGHT-RED X
 ; in:  BX = cell index
-; out: nothing; clobbers AX, CX, DX, SI, DI (BX, BP kept)
+; out: nothing; clobbers AX, CX, DX, SI (BX, DI, BP kept)
 ;
 ; The X may not be CBLACK, and SPEC.md 23 states it as a rule because the
 ; first cut was: all twenty of its pixels land inside the mine glyph under
@@ -752,36 +752,29 @@ mn_draw_minecell:
 ; is always the gray one.
 ; -----------------------------------------------------------------------------
 mn_draw_wrongflag:
-    call mn_draw_minecell
-    push bx
-    call mn_cellxy
+    call mn_draw_minecell           ; ...which leaves CX/DX = the cell origin
     mov al, CLRED                   ; NOT CBLACK - see the header
     call OSAPI_SET_COLOR
-    add cx, 3                       ; the X's top-left, (3,3)
-    add dx, 3
-    xor di, di                      ; two 10px diagonals, corner to corner
-    mov bx, mn_xpts                 ; ...composed here and drawn in ONE call
+    mov ax, cx                      ; AX = the falling diagonal's x, from 3
+    add ax, 3
+    add cx, 12                      ; CX = the rising one's, from 12
+    add dx, 3                       ; DX = the row both are on, from 3
+    mov si, mn_xpts                 ; ...composed here and drawn in ONE call
 .px:
-    mov ax, cx
-    add ax, di
-    mov [bx], ax                    ; (3+i, 3+i)
-    mov ax, dx
-    add ax, di
-    mov [bx+2], ax
-    mov [bx+6], ax                  ; ...and (12-i, 3+i), same row
-    mov ax, cx
-    add ax, 9
-    sub ax, di
-    mov [bx+4], ax
-    add bx, 8
-    inc di
-    cmp di, 10
+    mov [si], ax                    ; (3+i, 3+i)
+    mov [si+2], dx
+    mov [si+4], cx                  ; ...and (12-i, 3+i), same row
+    mov [si+6], dx
+    inc ax
+    inc dx
+    dec cx
+    add si, 8
+    cmp si, mn_xpts + MN_XPTN * 4
     jb .px
     mov si, mn_xpts                 ; SPEC.md 5.6.9: twenty pixels, ONE
     mov cx, MN_XPTN                 ; arrival. It was twenty far calls at
     call OSAPI_GFX_POINTS           ; ~640us each - 12.8ms of a lost board,
-    pop bx                          ; per wrongly flagged cell
-    ret
+    ret                             ; per wrongly flagged cell
 
 ; -----------------------------------------------------------------------------
 ; mn_redraw - the whole content: the strip, then the board

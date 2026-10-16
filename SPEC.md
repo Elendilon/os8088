@@ -50850,6 +50850,10 @@ content-relative; the procs fetch the content origin via `wm_content`
     so `cbw`'s sign tests it, and each coordinate reaches its `gfx_fill`
     register by a one-byte `xchg`. The loss renderer classifies a cell on
     one masked byte.
+  - **The wrong-flag X is composed from three running registers** (the
+    falling diagonal's x up, the rising one's down, the shared row up), the
+    cell origin being the one `mn_draw_minecell` already left in CX/DX -
+    the same twenty points in the same order, one `OSAPI_GFX_POINTS`.
 
 ## 24. Packaging toolchain (host side)
 
