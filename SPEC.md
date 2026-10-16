@@ -139611,6 +139611,33 @@ the union after the way out to the title and the plane in use AND NOTHING ELSE,
 and then each other band to its bytes as a repaint draws it - red with the
 copy one byte out and with a decode that marks every band.
 
+##### 88.10.7.2 …and the kept copy is IN THE IMAGE, so nothing reads it
+
+Kept for the instance's life, `cs_artz` was a `CS_ARTZ_SIZE` run of the bss
+that the launch FILLED - a read of csw.z's last stream through `cs_wldget`'s
+keep arm, a `[cs_artzok]` byte saying it had worked, and `cs_fsx_main` trying
+again on every way out for the launch whose read had failed. The region held
+the room either way, so the bytes might as well arrive with the program:
+`tools/csworlds.py` writes the six packed bands to **`csartz.bin`** instead of
+appending them to csw.z, and `skies.asm` INCBINs it as `cs_artz` at the end of
+the image, held to the index's `CS_ARTZ_SIZE` both ways. `cs_artload`, the
+keep arm, `[cs_artzok]`, `CS_STREAM_ART` and the way out's call are gone, and
+`cs_artes` loses its "nothing kept" test - the copy is always there. The
+refusal that stays is the band that will not expand, which draws the plainer
+page as it always did.
+
+**The launch reads one stream fewer** (the art was a `OSAPI_FILE_READ_AT` and
+a transient claim of its own), the way out of a flight is the same two
+decodes, and the overlay, the union and every frame routine are where they
+were less an even 22 bytes. `image + bss` 58,356 -> **58,281**, the region
+61,393 -> **61,313**: the code that filled the copy was 75 bytes. Part 0 grows
+by the stream - 28,971 -> 33,652 packed, 220 bytes LESS than the two added:
+the code taken out, and the six bands' literal runs repeating the same
+cumulus, which part 0's LZ4 finds where the band-by-band packing could not -
+and csw.z shrinks by it,
+14,759 -> 9,853. `tests/skiesworlds.py` holds the guest's `cs_artz` to
+`build/csartz.bin` now, and the union to the bands exactly as before.
+
 #### 88.10.8 The region is cut to the program, by the kernel
 
 The region is the parts carve the loader read the program into (§20.12.10.5).

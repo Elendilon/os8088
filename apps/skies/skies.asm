@@ -693,11 +693,6 @@ cs_entry:
                                     ; adapter is not known until the window
                                     ; exists (below)
 
-    call cs_artload                 ; the title bands into the union (88.10.7),
-                                    ; before the window that draws them exists.
-                                    ; A refusal here is a plainer page and not
-                                    ; a failed launch
-
     mov al, KSC_SPACE               ; ARMING the scancode reader: the first
     call OSAPI_KEY_DOWN             ; answer is always "up" and this is where
                                     ; the SDK says to spend it (SPEC.md 9.7)
@@ -796,13 +791,7 @@ cs_entry:
     ret
 
 ; -----------------------------------------------------------------------------
-; cs_artload - make sure the title bands are KEPT, packed, in cs_artz
-;              (SPEC.md 88.10.7, 88.10.7.1)
-;
-; out: [cs_artzok] = 1 when cs_artz holds them
-; clobbers: AX, BX, CX, DX, SI, DI, ES, flags - and both callers can afford it:
-;      cs_entry calls cs_wldpick, which clobbers the same seven, next, and
-;      cs_fsx_main is returning to the kernel
+; THE TITLE BANDS (SPEC.md 88.10.7, 88.10.7.1, 88.10.7.2)
 ;
 ; The six bands are 10,480 bytes and no frame reads one: the title page draws
 ; them and the fsx bracket never does. AND THE BRACKET'S OWN TABLES ARE THE
@@ -814,21 +803,13 @@ cs_entry:
 ; and pinned, a wall in the heap that never moved).
 ;
 ; WHAT LEAVING A FLIGHT COSTS IS TWO SMALL DECODES (88.10.7.1). The bands are
-; packed ONE BY ONE and this keeps all six, packed, in cs_artz for the life of
-; the instance; cs_artes expands a band into the union the first time it is
-; DRAWN after cs_r_setup cleared [cs_artok]. So the way out of a flight reads
-; nothing and decodes nothing here: the kernel's repaint of the title page
-; (SPEC.md 53.6) expands the title and the aeroplane in use, and the other four
-; wait until the Plane list shows one. It was a read of the whole stream and a
-; decode of all six every time (88.10.7), and the owner traded the region for
-; that half second back.
-;
-; THE READ IS STILL HERE, for the launch and for the case it failed: with
-; nothing kept, this reads the art stream with cs_wldget, which keeps it
-; rather than expanding it (a destination of paragraph 0), and cs_fsx_main
-; calls this on its way out - inside the bracket, the file API being legal
-; there (SPEC.md 53.1) and the paint after it not being a place to read a
-; disk from. Kept, it is one compare.
+; packed ONE BY ONE, and the six packed streams are cs_artz, IN THE IMAGE
+; (88.10.7.2) - they were read out of csw.z into the bss at every launch, and
+; the region held the room for them either way. cs_artes expands a band into
+; the union the first time it is DRAWN after cs_r_setup cleared [cs_artok], so
+; the way out of a flight reads nothing: the kernel's repaint of the title
+; page (SPEC.md 53.6) expands the title and the aeroplane in use, and the
+; other four wait until the Plane list shows one.
 ;
 ; A BAND HOLDS NO POINTER, which is what made every move of them free: csart.inc
 ; gives OFFSETS from the bands' base, the plane records' CSP_ART goes on
@@ -836,21 +817,10 @@ cs_entry:
 ; out of cs_artes - COMPUTED from DS each time and never cached, because the
 ; region is movable and the union moves with it (SPEC.md 66.6.1.1).
 ;
-; A REFUSAL IS STILL A NORMAL PATH (SPEC.md 20.6, 47) and it is the SAME path:
-; no loader, a disk that will not read, or a band that will not expand all
-; leave its bit of [cs_artok] clear, and clear is the page the blit slot's own
-; refusal already drew - the title lettered in the 8x8 face, or no aeroplane.
-; A launch read that failed kept nothing, so the next way out reads again.
-; -----------------------------------------------------------------------------
-cs_artload:
-    mov al, CS_STREAM_ART
-    xor bx, bx                      ; no destination: KEEP it (cs_wldget)
-    cmp [cs_artzok], bl             ; (BL = 0: a byte under `cmp [m], 0`, and
-    jne .ret                        ; the one that keeps every routine below
-                                    ; at an EVEN shift - 8086 fetch parity)
-    jmp cs_wldget                   ; ...whose CF nobody needs: [cs_artzok]
-.ret:                               ; is the answer
-    ret
+; A REFUSAL IS STILL A NORMAL PATH (SPEC.md 20.6, 47): a band that will not
+; expand leaves its bit of [cs_artok] clear, and clear is the page the blit
+; slot's own refusal already drew - the title lettered in the 8x8 face, or no
+; aeroplane.
 
 ; -----------------------------------------------------------------------------
 ; cs_artes - ES = the bands' segment, with band SI expanded in it
@@ -864,7 +834,7 @@ cs_artload:
 ; union, and this puts a band back from cs_artz the first time it is asked
 ; for afterwards: one OSAPI_DECOMP of that band's own stream into ES:0 of its
 ; own paragraph - csworlds.py refuses a band that is not one - out of our own
-; bss, so no claim and no file. cs_paint asks for the title and the plane in
+; image, so no claim and no file. cs_paint asks for the title and the plane in
 ; use, which is what the way out of a flight pays for; cs_artdraw asks when
 ; the Plane list changes the aeroplane, which is the only other time a band
 ; is wanted.
@@ -897,8 +867,6 @@ cs_artes:
     shl al, cl                      ; AL = the band's bit...
     test [cs_artok], al
     jnz .out                        ; ...there: ZF = 0
-    cmp byte [cs_artzok], 0
-    je .out                         ; nothing kept: ZF = 1
     push ax
     mov cl, 4
     shr si, cl
@@ -1109,28 +1077,6 @@ cs_wldget:
     cmp ax, bx                      ; (BX is dead here - the destination one
     jb .free                        ; below is loaded fresh past .got)
 .got:
-    ; --- A STREAM WITH NO DESTINATION IS KEPT (SPEC.md 88.10.7.1) ----------
-    ; Paragraph 0 is our own image and never a place to expand to, so it is
-    ; how cs_artload says "the bands": their packed stream is copied whole into
-    ; cs_artz rather than expanded, and cs_artes expands a band from there when
-    ; it is first drawn. A stream of any other length is not kept - cs_artz is
-    ; CS_ARTZ_SIZE and a stale index must not overrun it.
-    cmp word [cs_wgpar], 0
-    jne .exp
-    mov cx, [cs_wglen]
-    cmp cx, CS_ARTZ_SIZE
-    jne .free
-    push ds
-    pop es
-    mov di, cs_artz
-    mov si, [cs_wgslk]
-    push ds
-    mov ds, [cs_wgseg]
-    rep movsb
-    pop ds
-    mov byte [cs_artzok], 1
-    jmp short .done
-.exp:
     ; --- and the expansion, ES:0 by contract (SPEC.md 20.13.3) --------------
     ; EVERY WORD IS FETCHED BEFORE DS MOVES. The stream is in the buffer and
     ; the destination is ours, so this is the one place in the package where DS
@@ -2783,10 +2729,6 @@ CS_BEREC equ cs_pbg8 + 1 - cs_vx    ; ...a row of cs_vptab, in bytes
                                     ; and when a read was refused - which is a
                                     ; page without the bands and not a launch
                                     ; that fails
-    ZBYTE cs_artzok                 ; cs_artz holds the bands' PACKED stream
-                                    ; (88.10.7.1): set by the launch read and
-                                    ; never cleared, so every way out of a
-                                    ; flight decodes rather than reads
     ZBYTE cs_cone                   ; the cull's cone factor this frame (88.5.1)
     ZBYTE cs_ownmk                  ; a segment marks its own rows: the
                                     ; panel's, whose drawing is no object's
@@ -3474,13 +3416,6 @@ CS_SWGAP0 equ 2                 ; ticks between two swoops at a thermal's
                                     ; loader reuses on the next launch
                                     ; (SPEC.md 20.2), so a world read minutes
                                     ; later cannot use it
-    ZBUF  cs_artz, CS_ARTZ_SIZE     ; THE BANDS, PACKED, for the instance's
-                                    ; life (SPEC.md 88.10.7.1): the way out of
-                                    ; a flight expands them from here into the
-                                    ; union, so it reads no disk. OSAPI_DECOMP
-                                    ; takes its SOURCE at any DS:SI, so this
-                                    ; needs no alignment - the destination is
-                                    ; the one with the paragraph rule
 
 ; --- THE UNION (SPEC.md 88.10.7): the bracket's tables and the title page's
 ;     bands, which are never wanted at the same time ------------------------
@@ -3489,7 +3424,7 @@ CS_SWGAP0 equ 2                 ; ticks between two swoops at a thermal's
 ; by the windowed page, which no bracket can show. So they share one run, and
 ; the 11KB claim the bands used to hold for the whole session - every flight
 ; included - is gone. [cs_artok] says which of the two is in it, and
-; cs_fsx_main puts the bands back on its way out (cs_artload).
+; cs_artes puts a band back from cs_artz when it is next drawn.
 ;
 ; IT IS THE LAST THING IN THE CHAIN AND IT IS PARAGRAPH-ALIGNED, because the
 ; bands are expanded into it by OSAPI_DECOMP, which wants its destination at
@@ -3525,6 +3460,20 @@ cs_rend     equ cs_lend + CS_ENDN * 2 ; (88.4.5.5), 640 entries each: a view's
 %define OS88UI_NOBFIND          ; hit-tests its own rects: no os88ui_bfind (SPEC.md 20.5.1.3.4)
 %define OS88UI_NOGRADIO       ; check boxes only: no radio ring/dot (SPEC.md 13.15.3)
 %include "os88ui.inc"           ; of which this is the first user
+
+; --- THE BANDS, PACKED, for the instance's life (SPEC.md 88.10.7.1, 88.10.7.2)
+; tools/csworlds.py packs the six one by one into csartz.bin, and cs_artes
+; expands a band from here into the union when it is drawn - so neither the
+; launch nor the way out of a flight reads the disk for them. They were a
+; stream of csw.z read into a CS_ARTZ_SIZE run of the bss at every launch; the
+; region held exactly this room for them either way, so the image is what
+; grew and the claim did not. OSAPI_DECOMP takes its SOURCE at any DS:SI, so
+; this needs no alignment - the destination is the one with the paragraph
+; rule. The two `times` hold the file to the index's CS_ARTZ_SIZE both ways.
+cs_artz:
+    incbin "csartz.bin"
+    times CS_ARTZ_SIZE - ($ - cs_artz) db 0
+    times ($ - cs_artz) - CS_ARTZ_SIZE db 0
 
 ; --- and the OVERLAY, at an address the worlds were assembled against ---------
 ; A world is laid at CS_WLD_AT and the shared vocabulary at CS_VOCAB_AT

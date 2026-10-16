@@ -341,8 +341,9 @@ def main(argv):
                     help="a -DCS_SIZEPROBE object; the overlay goes directly "
                          "on top of the program it measures")
     ap.add_argument("--art", metavar="BANDS", required=True,
-                    help="tools/csart.py --raw's UNPACKED title bands: the "
-                         "last stream in csw.z (SPEC.md 88.10.7)")
+                    help="tools/csart.py --raw's UNPACKED title bands, "
+                         "packed band by band into csartz.bin (SPEC.md "
+                         "88.10.7.2)")
     a = ap.parse_args(argv)
     os.makedirs(a.out, exist_ok=True)
 
@@ -425,9 +426,14 @@ def main(argv):
     # or below it exactly as it read a sector-aligned one.
     #
     # THE ORDER IS THE INDEX: stream N is cs_wstroff[N], and the order lives
-    # here and nowhere else. The art is LAST so the worlds keep their rows.
-    streams = ([("csvocab", vocab)] + [(w, blobs[w]) for w in WORLDS]
-               + [("csart", art)])
+    # here and nowhere else.
+    #
+    # THE BANDS ARE NOT A STREAM ANY MORE (SPEC.md 88.10.7.2): their packed
+    # copy is kept in the region for the instance's life, so it is written to
+    # csartz.bin for skies.asm to INCBIN into the image - which the region
+    # was holding the room for anyway - and the launch reads nothing for it.
+    streams = [("csvocab", vocab)] + [(w, blobs[w]) for w in WORLDS]
+    open(os.path.join(a.out, "csartz.bin"), "wb").write(bytes(bandz))
     tot_raw = tot_z = 0
     lens, offs, packed = {}, [], bytearray()
     for row, (name, blob) in enumerate(streams):
@@ -436,13 +442,9 @@ def main(argv):
             sys.exit("csworlds: %s is %d bytes and the overlay holds %d"
                      % (name, len(blob), CS_VOCAB_MAX if name == "csvocab"
                         else CS_WLD_MAX))
-        if name == "csart":
-            z = bytes(bandz)        # ...already packed, band by band
-        else:
-            z = os88lz.lz4_compress(blob, depth=CS_LZDEPTH)
-            assert os88lz.decompress(z, os88lz.LZ4, len(blob)) == blob, \
-                "csworlds: %s does not expand to the bytes that made it" \
-                % name
+        z = os88lz.lz4_compress(blob, depth=CS_LZDEPTH)
+        assert os88lz.decompress(z, os88lz.LZ4, len(blob)) == blob, \
+            "csworlds: %s does not expand to the bytes that made it" % name
         offs.append(len(packed))
         packed += z
         lens[name] = (len(blob), len(z))
@@ -480,11 +482,10 @@ def main(argv):
     ] + ["%-12s equ CS_VOCAB_AT + %d" % (k, v - CS_VOCAB_AT)
          for k, v in sorted(vsyms.items(), key=lambda kv: kv[1])] + [
         "",
-        "; THE STREAMS, in csw.z's order: the vocabulary, the eight worlds and",
-        "; the title bands (SPEC.md 88.10.7).",
+        "; THE STREAMS, in csw.z's order: the vocabulary and the eight worlds",
+        "; (SPEC.md 88.10.7; the bands left it in 88.10.7.2).",
         "CS_STREAM_VOCAB equ 0",
         "CS_STREAM_WLD0  equ 1",
-        "CS_STREAM_ART   equ %d" % (len(streams) - 1),
         "",
         "; THE EXACT UNPACKED LENGTH of each stream. OSAPI_DECOMP is told what",
         "; a stream expands to and CHECKS it (SPEC.md 20.13.3), so the room the",
@@ -496,12 +497,12 @@ def main(argv):
         "; a stream's packed length is the next offset less its own.",
         "cs_wstroff:  dw " + ", ".join(str(o) for o in offs),
         "",
-        "; THE BANDS, KEPT PACKED (SPEC.md 88.10.7.1). The art stream is the",
-        "; six bands packed ONE BY ONE and laid end to end, and the program",
-        "; keeps the whole of it in its bss for the instance's life and",
-        "; expands a band only when it is first drawn. CS_ARTZ_SIZE sizes",
-        "; that buffer - the packing does not depend on any address, so pass",
-        "; 1 already knows it and the probe sees the number pass 2 will;",
+        "; THE BANDS, KEPT PACKED (SPEC.md 88.10.7.1, 88.10.7.2). csartz.bin",
+        "; is the six bands packed ONE BY ONE and laid end to end, and the",
+        "; program INCBINs it into its image and expands a band only when it",
+        "; is first drawn. CS_ARTZ_SIZE is its length - the packing does not",
+        "; depend on any address, so pass 1 already knows it and the probe",
+        "; sees the number pass 2 will;",
         "; cs_artroff is each band's offset in the UNPACKED bands (the",
         "; cs_art_* names, plus one past the last), and cs_artzoff where its",
         "; packed stream begins in the kept copy (plus one past the last).",
