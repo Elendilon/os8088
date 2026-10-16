@@ -2598,11 +2598,8 @@ vp_pmov:
     push ax
     push dx
     mov dx, [vp_pseg]
-    or dx, dx
-    jz .out
     mov ax, vp_smove
-    call vp_mmov
-.out:
+    call vp_mmovz
     pop dx
     pop ax
     ret
@@ -8667,15 +8664,9 @@ vp_rload:
 vp_rmov:
     push dx
     mov dx, [vp_rblk]
-    or dx, dx
-    jz .a
-    call vp_mmov
-.a:
+    call vp_mmovz
     mov dx, [vp_rablk]
-    or dx, dx
-    jz .z
-    call vp_mmov
-.z:
+    call vp_mmovz
     pop dx
     ret
 
@@ -10429,16 +10420,19 @@ vp_smov:
     xor ax, ax
 .go:
     mov dx, [vp_rclm]
-    call .d
+    call vp_mmovz
     mov dx, [vp_keep]
-    call .d
+    call vp_mmovz
     mov dx, [vp_prevseg]
-    call .d
+    call vp_mmovz
     mov dx, [vp_pevseg]             ; (the hook reads the palettes a scene)
-    call .d
+    call vp_mmovz
     pop dx
     ret
-.d:
+
+; vp_mmovz - DX = a claim, or 0 for none: OSAPI_MEM_MOVABLE on it with AX
+; as it is (the proc, or 0 to pin), and AX kept - vp_smov's and vp_rmov's
+vp_mmovz:
     or dx, dx
     jz .n
     push ax
