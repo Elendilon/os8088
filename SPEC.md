@@ -176568,7 +176568,7 @@ from Tune, so it went: `cs_cfg_load` and `cs_cfg_apply` assemble only with
     the row's probe again: the fingerprint IS the identification, the one
     the user confirmed when the setting was tuned and saved on this board.
 
-It is `apps/rlapply/rlapply.asm`, **1,776 bytes and 41 of bss** (the NEAT's five knobs were 122, the four rows of the first field round's tables, protocols and apply procs 409 more, and the WD76C10's lock sample 32), its 64-byte icon included, and it is the
+It is `apps/rlapply/rlapply.asm`, **1,681 bytes and 42 of bss** (the NEAT's five knobs were 122, the four rows of the first field round's tables, protocols and apply procs 409 more, and the WD76C10's lock sample 32), its 64-byte icon included, and it is the
 shared files assembled `CS_APPLY_ONLY`: the row table and the fingerprint
 with no probe, the knob with no sweep, the file and the apply - so **nothing
 it can run touches a port before the fingerprint has matched**. It has no
@@ -176610,6 +176610,17 @@ tightened:
     signature test are REDLINE's alone (image -290, file -52; the region
     falls to 2,048 bytes, inside which LZ4 no longer fits in place, so this
     step ships the file plain).
+  - **`cs_cfg_load` and `cs_cfg_apply`**, RLAPPLY's own: the fingerprint is
+    ONE 11-byte compare (`cs_crc`, `cs_date` and `cs_model` lie in the
+    file's order, +12/+14/+22, and an assembly-time check refuses a gap);
+    the knob count's own range test goes, the length test `24 + 2n` inside
+    26..40 already being n = 1..8; the load keeps the row's APPLY PROC
+    rather than its number, so the WD76C10's lock sample is chosen by
+    `cs_ap_w7` and the apply build can leave out the five rows that cannot
+    write (refused as `CSA_ROW` exactly as an unknown row is); and neither
+    routine banks a register, the entry keeping nothing across them (image
+    -95). The file is LZ4 again inside the 2,048-byte region: **1,520
+    bytes**, 16 under the 1,536 at which it would have to ship plain.
 
 `tests/rltune.py` launches it from `A:\SYSTEM` before REDLINE has saved and
 after, on QEMU, and reads the toast and the window list each time.

@@ -55,10 +55,15 @@ CSR_SIZE    equ 10
 %endif
 
 ; CS_ROW code, name, probe, CSS_* | (CSP_* << 8), apply - one row, in the
-; layout above (a CS_APPLY_ONLY build never sees the name or the probe)
+; layout above. A CS_APPLY_ONLY build never sees the name or the probe, and
+; leaves out a row that cannot write at all: cs_cfg_load refuses that row as
+; it refuses one it has never heard of (CSA_ROW), and finds a row by its CODE
+; between cs_rows and cs_rows_end, never by its number
 %macro CS_ROW 5
 %ifdef CS_APPLY_ONLY
+ %ifnidn %5, 0
     dw %1, %5
+ %endif
 %else
     dw %1, %2, %3, %4, %5
 %endif
@@ -108,6 +113,7 @@ cs_rows:
     CS_ROW 'W7', cs_n_wd76,     cs_id_w7,      CSS_DATASHEET | (CSP_ATPORT << 8), cs_ap_w7
     CS_ROW 'O3', cs_n_opti283,  cs_id_o3,      CSS_DATASHEET | (CSP_PICK22 << 8), cs_ap_o3
     CS_ROW 'CA', cs_n_cs8230,   cs_id_ca,      CSS_DATASHEET | (CSP_PICK22 << 8), cs_ap_ca
+cs_rows_end:
 
 %ifndef CS_APPLY_ONLY
 cs_n_none:     db 'None / unknown', 0
