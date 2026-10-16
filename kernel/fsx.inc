@@ -920,15 +920,12 @@ fsx_page:
     jae fsx_wait.fail
     mov bx, 0x030A                  ; graphics + video, both lone-Hercules pages
 %ifdef KERN_BIG
-    push ax
     call vid_dual_ok                ; **AND THE SECOND PAGE IS REFUSED ON A
-    pop ax
-    jc .single
+    jc .single                      ; (AX survives it, vid_dual_ok's contract)
     or al, al
     jnz fsx_wait.fail               ; MACHINE THAT HAS A COLOUR CARD TOO**
-    mov bh, 1                      ; dual-card page 0 must not decode B8000h
-    jmp .h0
-.single:
+    mov bh, 1                       ; dual-card page 0 must not decode B8000h,
+.single:                            ; and AL = 0 takes the `jz .h0` below
 %endif                              ; (SPEC.md 53.10). vid_setmode leaves 3BFh
                                     ; bit 1 clear for a reason it states at the
                                     ; write: that page is at B8000, where a CGA
@@ -943,9 +940,8 @@ fsx_page:
                                     ; call can reach here
     or al, al
     jz .h0
-    or bl, 0x80                     ; ...and page 1
-    mov bh, 3                       ; ...whose decode has to be allowed with it
-.h0:
+    or bl, 0x80                     ; ...and page 1, whose decode BH = 3
+.h0:                                ; already allows (kernel size pass 13, -6)
     mov dx, 0x3BF                   ; ALLOW the second page: bit 0 graphics,
     mov al, bh                      ; retain both pages on a lone Hercules
     out dx, al                      ; dual-card page 0 retains only its own RAM

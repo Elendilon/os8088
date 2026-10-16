@@ -11800,9 +11800,9 @@ spend, and their samples dominate.
   bytes on disk and the boot sector does not blank the region), so every
   .bss byte that needs a defined initial value is stored explicitly by its
   module's init routine.
-- `task_spawn` — three callers: `app_launch` (a built-in kind's `KD_TASK`,
-  §29.4), `inst_pkg_spawn` (a package's worker, §20.6) and the SB
-  refill/drain spawns (§34.5). In: AX = entry point (near), **BX = the
+- `task_spawn` — callers: `inst_pkg_spawn` (a package's worker, §20.6)
+  and the SB refill/drain spawns (§34.5). (`app_launch` was a third, for a
+  built-in kind's `KD_TASK`, until §14.8 left no kind with a task.) In: AX = entry point (near), **BX = the
   segment the task runs in — 0 meaning `KERNEL_SEG`**, **CX = the stack the
   task wants in bytes; 0 means the largest class** (§8.7.1), DX = argument
   word — delivered
@@ -26447,7 +26447,7 @@ Loop forever:
    would make one long press dominate the Task Manager's row. `fm_rcmd`,
    the command that follows, gets the `W_ONCLICK` treatment verbatim:
    `inst_win_owner`, `snd_disp_set`, `task_cycles`/`inst_charge` (§8.1).
-3. If `[inst_launch]` is non-zero (§29): AX = [inst_launch] − 1, zero
+3. If the byte `[inst_launch]` is non-zero (§29): AL = [inst_launch] − 1, zero
    `[inst_launch]`, call `app_launch` with AL = kind. Then if
    `[ld_pending]` is non-zero (§21): AX = [ld_pending] − 1, zero
    `[ld_pending]`, call `loader_run`. Then if `[ui_pcmd]` is non-zero:
@@ -29552,7 +29552,7 @@ instance is launched on demand through `app_launch` (§29), which allocates an
 instance record, creates the window from the kind's template (cascaded +16px
 per pool slot so instances don't stack) and runs the kind's init proc if it
 has one. Closing an instance frees all of it, synchronously: no kind has a
-task any more (§29.3's `KD_TASK` word is `KD_PAD`).
+task any more (§29.3's `KD_TASK` word went, as `KD_PAD`, and then for good).
 
 **Timer and Bounce were kinds in this file from the first Clock to §14.8** and
 are the TIMER and BOUNCE packages now (§111, §112; `apps/timer/`,
@@ -30010,8 +30010,9 @@ reference implementation of a worker, which it still is, as a package.
   is 1, `KIND_CTRL` 2 and `KIND_HIBER` 3 on `kern_big` now, the numbering
   `kern_small` already had (§14.6.1: a table position, not an ABI); the two
   icon bodies and the 29 pool rows only they used; `app_launch`'s task arm and
-  its `.rollback`, no kind naming a task any more (`KD_TASK` is `KD_PAD`, a
-  zero word kept so the stride stays a power of two); and the three `cw_`
+  its `.rollback`, no kind naming a task any more (`KD_TASK` was `KD_PAD`, a
+  zero word kept so the stride stayed a power of two, until kernel size pass
+  13 took the word out and the stride to 14 - §29.3); and the three `cw_`
   thunks only they reached (`cw_inst_of_win`, `cw_task_sleep`,
   `cw_inst_task_die`) with the three resident entry thunks for the
   KD_INIT/KD_TASK words.
@@ -38959,7 +38960,7 @@ and the freed row is the next mount's, `dsk_vol_add` handing out the first
 free one. Left naming the index, the image's transfers went to whatever took
 it: another image recursed through `.img`, overwrote `[dsk_imgcur]` and
 traded the wrong claim back, and a partition took the image's writes at its
-host LBAs. So `dsk_vol_del`'s free path far-calls `dsk_img_orphan`, which
+host LBAs. So `dsk_vol_del`'s free path calls `dsk_img_orphan` (`.cold`, near), which
 walks the rows from 3 (an image is never C:) and sets byte 0 of every
 `DRVC_IMG` claim naming the freed index to `0xFF`, which no row is: the image's next transfer fails at the inner
 `dsk_vol_row_x`, *Disk error* and never a sector, and Unmount Image still
@@ -39153,8 +39154,8 @@ protection instead.
 
 **`dsk_vol_rmv` asks the host** (`.cold`; BX = a live row, CF = 1 removable
 with BL = its int 13h unit, CF = 0 fixed). A `DRVC_IMG` row is answered for
-its HOST row, which `dsk_img_host` (a `.text` far entry, by size) finds
-through byte 0 of the claim; any other row answers for itself. Removable is
+its HOST row, found through byte 0 of the claim (the lookup was
+`dsk_img_host`, a `.text` far entry, until kernel size pass 13); any other row answers for itself. Removable is
 a BIOS row whose unit is below 80h - kind and unit read as one word, which
 is below `0x0080` exactly then. The host is never an image (§18.101.2 step
 2), so one step is the whole walk. An **orphaned** image (§18.101.1, byte 0 =
@@ -39196,8 +39197,12 @@ past the first run follows the old file's clusters. Telling that apart needs
 the host's own identity kept in the claim and asked at every image mount,
 which is bytes this section did not spend.
 
-**35 resident bytes** - `.text` +23 for `dsk_img_host`, `.cold` +12 (the
-callers' own tests moved into `dsk_vol_rmv`, which is 19) - and no rung
+**35 resident bytes** when it landed - `.text` +23 for `dsk_img_host`,
+`.cold` +12 (the callers' own tests moved into `dsk_vol_rmv`, which is 19);
+**kernel size pass 13 wrote the host lookup into `dsk_vol_rmv`, its one
+caller, and moved `dsk_img_orphan` beside it in `.cold`**, both having been in
+`.text` for the rung alone - so `dsk_vol_rmv` is 31 bytes, `dsk_img_host` is
+gone, and `dsk_img_orphan` is a near call (resident -13 on `kern_big`) - and no rung
 crossed on any kernel, though it leaves 3 bytes in kern_big's `.cold` rung
 and 3 in kern_emu's image rung. All `.text` would have been 35 there and
 crossed kern_emu's image rung; all `.cold`, kern_big's cold one. kern_small
@@ -45382,8 +45387,10 @@ LINK word (+4), which is zero on every other package:
   comes AFTER the version test, so a package of another format still says
   `LD_EVER` (§20.2.0) however its link word reads; a driver, a module, or a
   package with any other combination is refused exactly as before.
-- **`ld_check_hdr`** then puts that length in `[ld_fsz]` and zeroes the high
-  word, and every test after it is the plain compressed package's, unchanged:
+- **That length goes into `[ld_fsz]`**, the high word zeroed - stored by
+  `ld_hdr_ok` itself, which has the word in AX already (kernel size pass 13;
+  it was `ld_check_hdr`'s, after the call) - and every test after it is the
+  plain compressed package's, unchanged:
   the size ladder, step 6's `R = roundup512(image - file)` and its read, and
   step 6a's stream length.
 
@@ -45412,9 +45419,15 @@ below answers CF = 1 with the status given.
 Word and Pixelstein are declined and byte-identical.
 
 What it cannot refuse it shares with every compressed package since §20.13
-(see 20.13.8.1). **Cost: `.cold` +33 resident bytes on each kernel**, no rung
-crossed - 28 for the store and the gate, 5 more to put the gate after the
-version test.
+(see 20.13.8.1). **Cost: `.cold` +33 resident bytes on each kernel** as it
+landed, no rung crossed - 28 for the store and the gate, 5 more to put the
+gate after the version test; **+27 since kernel size pass 13**, which made the
+store `ld_hdr_ok`'s (one link read and no second zero test, -7) and spent one
+byte of that on a 6-byte `mov` for the 5-byte `and`, which keeps the FAT walk
+after it at an even shift. Re-checked the same way: 75,600 headers through
+both kernels' `ld_check_hdr` in Unicorn, every answer and every output
+identical, the one difference being that a refused package header with a
+link word now leaves it in `[ld_fsz]`, which nothing reads after a refusal.
 
 **THE FORMAT NUMBER DOES NOT MOVE**, by §20.2.0.1's rule and §20.12's argument
 one bit along: every package built before this runs on this kernel unchanged
@@ -51394,11 +51407,10 @@ so the copy buffer each entry claims cannot shed the list being walked; a list
 purged BEFORE its paste is an empty clipboard, and one purged UNDER it - by
 another task's claim while a question is up - ends the paste there. That
 test and the record's copy are ONE read of `[fcp_lseg]` under `pushf`/`cli`
-(`fcp_lrec`, a `.text` far entry): a shed between a second read and the
-`movsb` would copy from `0000:SI`, or from a block already freed. It is 40
-bytes of `.text`, and the 29 of `.cold` it took out of `fcp_lnext` pay for
-the drop's member test below, so `.cold` - at 3 bytes from its next rung -
-did not move. Arming one is refused while a
+in `fcp_lnext` itself: a shed between a second read and the `movsb` would
+copy from `0000:SI`, or from a block already freed. (It shipped as
+`fcp_lrec`, a `.text` far routine with one caller, so as not to move `.cold`
+across a rung; kernel size pass 13 wrote it at its call, -6 resident.) Arming one is refused while a
 paste is running, and one entry put on the clipboard ends any list.
 
 **Delete asks about "N items"** - `Delete 5 items +contents? Del=yes Esc=no`
@@ -62058,13 +62070,9 @@ without its twin, which is the standing arrangement `MAX_TASKS`, `INST_MAX` and
 8. Only the UI task allocates instance records, so allocation never races
    itself; the only non-UI transition is task_exit's 2 → 0 under cli.
 
-### 29.3 Kind descriptor table (.text, `inst_kinds`, stride KD_SIZE = 16)
+### 29.3 Kind descriptor table (.text, `inst_kinds`, stride KD_SIZE = 14)
 
-Per built-in kind: `KD_TPL` (word, wm_create template ptr), `KD_PAD`
-(word, 0 — this was `KD_TASK`, a kind's task entry, until §14.8: Bounce was
-the last kind with one, no row names a task now and `app_launch` spawns
-none; a package's worker is claimed at run time through §20.6 and is
-declared nowhere. The word stays so the stride keeps its power of two),
+Per built-in kind: `KD_TPL` (word, wm_create template ptr),
 `KD_POOL` (word, state pool base, 0 =
 stateless), `KD_SSIZE` (word, pool stride), `KD_INIT` (word, state-init
 proc or 0 — in: BX = window ptr, DI = state ptr or 0, SI = instance
@@ -62076,6 +62084,17 @@ W_FLAGS bits app_launch ORs into the new window right after wm_create;
 only feature bits (WF_SIZABLE — never bits 0/1, and WF_FULL makes no
 sense at create time). The Disk kind sets WF_SIZABLE (§22); every other
 row keeps 0.
+
+**There is no task word.** The second word was `KD_TASK`, a kind's task
+entry, until §14.8: Bounce was the last kind with one, no row names a task now
+and `app_launch` spawns none - a package's worker is claimed at run time
+through §20.6 and is declared nowhere. It stayed for a while as `KD_PAD`, a
+zero kept so the stride was still 16 and `app_launch` could reach a row with a
+four-place shift; kernel size pass 13 took it out, because `mov ah, KD_SIZE /
+mul ah / add ax, inst_kinds / xchg si, ax` and the reload of AL is the same
+eleven bytes as `cbw` and the shift were, and the pad was a word of `.text`
+a row (8 bytes on `kern_big`, 6 on `kern_small`). The `mul` is ~50 clocks a
+built-in launch more, against a window being created.
 
 Pinned caps: About 1 (stateless),
 **Files 4 (stride `FS_SIZE`, pool `fm_pool`)**,
@@ -62124,7 +62143,7 @@ init-less:
 | `inst_pkg_fence` | module-internal (§20.6, §53.1). in AX = a near entry offset, BX = an untrusted window ptr, ES = the caller's DS; out CF=1 refused, or CF=0 and DI = the instance record. `inst_wchk`, `inst_of_win`, I_STATE = 1, I_KIND bit 7, `ES == I_SPTR`, `AX < I_SIZE`. Clobbers DX (the ES scratch) and DI; both callers write DX immediately after it, which is why the scratch costs no bank. Written out twice until size pass 2 — `inst_pkg_spawn` below and `fsx_run` (§53.1), whose copy carried the comment "the fence is `inst_pkg_spawn`'s, verbatim". `inst_pkg_spawn`'s own `I_TASK = 0xFF` test is NOT part of it and now runs after it rather than between the I_STATE and I_KIND arms; every arm answers the same CF=1 with nothing changed, so the order is not observable. |
 | `inst_pkg_spawn` | API slot 0x012F (§20.6). in AX = near worker entry, BX = the package's own window ptr; **caller holds the gfx lock** (exclusion against another *spawner* is `task_spawn`'s own IF=0 window, §8, not this lock). Refuses (CF=1, nothing created) when BX fails `inst_wchk`, names no owner, names a record with I_STATE ≠ 1, that record already has I_TASK ≠ 0xFF, or the **ownership fence** rejects it — the record must be a package (I_KIND bit 7) and AX must satisfy I_SPTR ≤ AX < I_SPTR + I_SIZE, which is what ties the spawn to the *calling* instance — or when `task_spawn` finds the table full. Else `task_spawn` (AX = entry, DX = instance index, off `inst_fhome_idx` — the one place that `(record − inst_tab) >> 5` lives), I_TASK ← slot, CF=0, AL = slot. Preserves every register but AL and the flags. No rollback exists or is needed — the instance is already published and stays live on refusal. |
 | `inst_pkg_alive` | API slot 0x0135 (§20.6). in BX = the package's own window ptr; **gfx lock NOT held**; called from the worker only. Returns with every register and the flags preserved while BX names a record with I_STATE = 1 — and returns unconditionally, without exiting anything, when `sch_cur` = 0: the UI task must never `task_exit` (§8), so a wrong-context call is refused. Otherwise recovers the *running task's* record from `T_INST` (§8) and `jmp inst_task_die` — never returns. A record with I_WIN = 0 (corrupt table: nothing to `wm_destroy`, and BX = 0 there would zero the cold-entry `jmp` at 0800:0000) still exits with BX = the record, so the record, its region and its dock/tm rows are released — that case is `inst_task_die`'s own guard now rather than a second copy of it here, which also means such a record's toast goes with it like any other's. Only T_INST ≥ INST_MAX exits with BX = 0 — no release byte because there is no record — the `sbl_refill_task` precedent (§34.5). |
-| `inst_launch_post` | in AL = kind: one atomic word store of kind+1 into `inst_launch` — the deferred launch channel for lock-held posters (drained by ui_task step 3, §13). Rapid double posts coalesce (last wins). |
+| `inst_launch_post` | no input: one atomic byte store of `KIND_FILES`+1 into `inst_launch` — the deferred launch channel for lock-held posters (drained by ui_task step 3, §13), which since §14.8 is the Disk window's New Window alone, so the kind is a constant (kernel size pass 13: it took AL = kind and stored a word while the Builtins menu posted the Timer and Bounce through it). Rapid double posts coalesce. |
 
 **Sound teardown (§34.3, Phase 1).** Both free points release the
 instance's sound grants inside the teardown window they already own:
