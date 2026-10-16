@@ -129004,6 +129004,13 @@ and DIVs it makes), once per launch. `TK_RIDGEPK` reads the same file a first
 time, emitting nothing: a run's heights lie between its ends, so the tallest
 end is the tallest height, and an `%error` holds the runs to angles 1..255.
 
+**The 25 sampling angles' tangents are thirteen bytes.** A tangent is odd and
+the steepest of them is 171, so `tktan.inc` holds the twelve right of the
+sights and the zero, and `tk_ridgesetup` gives each column its angle's sign
+before the multiply - the same signed word into the same `imul`, and the same
+`tk_ridgex` for 876 scales and centres run both ways on the host. Once a
+bracket, never a frame: **image -20, the file -22**.
+
 #### 85.5.2 The models
 
 `db nverts, db nedges, dw vertices, dw edges`. A vertex is three words — x

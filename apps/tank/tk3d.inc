@@ -538,19 +538,29 @@ tk_nclip:
 ; table lookup per frame.
 ; -----------------------------------------------------------------------------
 tk_ridgesetup:
+    push si
     xor bx, bx
-    mov cx, 25
+    mov cx, -12                     ; CX = the column's angle off the sights
 .p:
-    push cx
-    mov ax, [tk_tantab + bx]
+    mov ax, cx
+    cwd                             ; DX = its sign, 0 or -1
+    xor ax, dx
+    sub ax, dx
+    xchg ax, si                     ; SI = |angle|...
+    mov al, [tk_tantab + si]        ; ...whose tangent is the table's, and a
+    mov ah, 0                       ; tangent is odd, so it takes the angle's
+    xor ax, dx                      ; sign (tktan.inc)
+    sub ax, dx
     imul word [tk_sclx]             ; DX:AX = tan * 256 * sclx
     mov al, ah                      ; ...>> 8
     mov ah, dl
     add ax, [tk_vcx]
     mov [tk_ridgex + bx], ax
     add bx, 2
-    pop cx
-    loop .p
+    inc cx
+    cmp cx, 12
+    jle .p
+    pop si
     ret
 
 ; -----------------------------------------------------------------------------
