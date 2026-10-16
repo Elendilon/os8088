@@ -144810,6 +144810,19 @@ of the image and is shared. The worker's paths keep their shape, because its
 slice is the thinnest in the tree (`t_stkclass`) and its per-byte loop is the
 transfer rate.
 
+#### 92.15.3 Apps size pass 2 - the file on the disk
+
+The second pass measures the package by its SHIPPED FILE, the lz4-packed
+`THEWIRE.O88` (docs/plans/HANDOFF-APPS-SIZE-P2.md), because the 360KB system
+disk is full and this file rides every system disk and `network360.img`.
+Nothing a user sees changed and no string was reworded; every change is code
+the package had twice or did not need.
+
+- **`wr_onclick`'s detail-pane arm was dead.** It re-made the coordinates
+  absolute and returned without using them: the buttons are the gesture
+  library's, which takes the press before `wr_onclick` runs. The row test
+  borrows on `sub` instead of comparing first.
+
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 
 A `.o88` package at org 0 owning a segment (§20.1), prefix `dd_`, embedded

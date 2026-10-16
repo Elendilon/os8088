@@ -1933,7 +1933,14 @@ wr_onclick:
     cmp cx, WR_SBX1                     ; --- the scroll bar
     jb .rows
     cmp cx, WR_SBX2
-    ja .det
+    ja .out                             ; the detail pane: nothing to do on a
+                                        ; press - the buttons are the gesture
+                                        ; library's, which took the press
+                                        ; before this ran (20.5.1.3.3), and
+                                        ; Add to Disk WRITES a floppy, so
+                                        ; neither may fire on a press the user
+                                        ; can still take back. wr_onup has the
+                                        ; action
     add cx, [wr_ox]
     add dx, [wr_oy]
     call wr_sbclick
@@ -1942,25 +1949,14 @@ wr_onclick:
 .rows:
     cmp cx, 1
     jb .out
-    cmp dx, WR_PY + 1
-    jb .out
     mov ax, dx
-    sub ax, WR_PY + 1
+    sub ax, WR_PY + 1                   ; ...which is the row band's own test:
+    jb .out                             ; above it borrows
     mov cl, 4
     shr ax, cl                          ; / WR_ROWH
     cmp ax, [wr_rows]
     jae .out
     call wr_rowclick
-    jmp short .out
-
-.det:
-    cmp cx, WR_DX1
-    jb .out
-    add cx, [wr_ox]                     ; the buttons want absolute again
-    add dx, [wr_oy]
-    jmp short .out                      ; Disk WRITES a floppy, so neither may
-                                        ; fire on a press the user can still
-                                        ; take back. wr_onup has the action
 .out:
     ret
 
