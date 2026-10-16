@@ -66449,7 +66449,11 @@ inks.
   span, and the sharp's erase decides its two rows in one test and
   falls into `pn_vcol`, which falls into `pn_cvline` (moved beside it):
   again fewer instructions on every path a note draws (-19 image bytes,
-  -3 file - what LZ4 had already been charging little for).
+  -3 file - what LZ4 had already been charging little for). On the
+  click and key path, `pn_abdismiss` tests and clears the About flag in
+  one `shr`, and `pn_note` makes the new count from the index it
+  already holds rather than incrementing memory and reading it back
+  (-9).
 
 ## 37. clock.inc — the system clock
 

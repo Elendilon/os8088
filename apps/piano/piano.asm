@@ -675,8 +675,8 @@ pn_note:
 .hi:
     mov [pn_seqd+bx], al
 .first:
-    inc word [pn_cnt]
-    mov ax, [pn_cnt]
+    lea ax, [bx+2]                  ; BX is the count less one: AX the new count
+    mov [pn_cnt], ax
     mov [pn_vcnt], ax
     jmp short .sound
 .full:
@@ -1682,10 +1682,9 @@ pn_about:
 ; covered the viewer, the buttons and the keyboard.
 ; -----------------------------------------------------------------------------
 pn_abdismiss:
-    cmp byte [pn_abon], 0
-    je .none
+    shr byte [pn_abon], 1           ; CF = the card was up (the flag is 0 or
+    jnc .ret                        ; 1), and the shift has taken it down
     push bx
-    mov byte [pn_abon], 0
     mov bx, si
     call OSAPI_WM_CLIP_SET          ; nothing armed a region for a click or a
     jc .gone                        ; key (SPEC.md 11.3)
@@ -1693,9 +1692,7 @@ pn_abdismiss:
 .gone:                              ; three parts it covered, at the origin the
     pop bx                          ; window has NOW - it may have been dragged
     stc                             ; since the card went up
-    ret
-.none:
-    clc
+.ret:
     ret
 
 ; --- the About card's lines (SPEC.md 20.5.1) ----------------------------------
