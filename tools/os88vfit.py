@@ -21,6 +21,10 @@ otherwise - and says how far the model is from the machine:
     the file actually asked of the machine, against what the model said it
     would (the record's price over the profile's period x speed).
 
+Version 3 (98.3.22.3) carries the INFO CARD after them - every number it
+draws, and where that boot put the play: the package, the ring, the XMS
+block, and the gap's own timings of the board's interleave - printed first.
+
 A word of 0 is a frame never drawn (a seek, a stop); a draw of 55 ms or more
 has wrapped channel 2 and is left out, said.
 
@@ -64,9 +68,98 @@ def read_prof(path):
         at = 48 + 4 * na
         h["reads"] = [struct.unpack_from("<IHH", d, at + 8 * i)
                       for i in range(nl)]
+        h["card"] = read_card(d, at + 8 * nl) if h["ver"] >= 3 else None
     else:
         w = struct.unpack_from("<%dH" % (2 * n), d, 32)
     return h, w[0::2], w[1::2]
+
+
+# VERSION 3's TRAILER (SPEC.md 98.3.22.3): the words of video.asm's
+# vp_ditab, in its order, then the package's CS and SS. A byte's word
+# carries its neighbour, so BYTES are masked
+DI_NAMES = ("mrun0", "mfre0", "k", "rneed", "mrun", "mkeep", "msnd", "lmin",
+            "lminf", "gap", "pstrm", "pause", "pmax", "pmaxf", "stall",
+            "late", "dt", "done", "base", "frames", "lysp_lo", "lysp_hi",
+            "lydkb", "lydln", "lytm", "lytl", "rate", "blk", "tier",
+            "rshort", "kr", "xbn", "ring", "rclm", "xbase_lo", "xbase_hi",
+            "xgap", "xgok", "xg_t0", "xg_bt", "xg_best", "xg0", "xg512",
+            "xg1k", "xg2k", "xg4k", "xg8k", "cs", "ss")
+DI_BYTES = ("rneed", "mkeep", "msnd", "tier", "rshort", "xgok")
+XG_GAPS = (0, 512, 1024, 2048, 4096, 8192)
+
+
+def read_card(d, at):
+    """The trailer at `at` as {name: value}, or None if it is not there"""
+    if d[at:at + 4] != b"VPDI":
+        return None
+    ln, n = struct.unpack_from("<HH", d, at + 4)
+    w = struct.unpack_from("<%dH" % n, d, at + 8)
+    c = dict(zip(DI_NAMES, w))
+    for k in DI_BYTES:
+        if k in c:
+            c[k] &= 0xFF
+    c["xbase"] = c.get("xbase_lo", 0) + (c.get("xbase_hi", 0) << 16)
+    c["lysp"] = c.get("lysp_lo", 0) + (c.get("lysp_hi", 0) << 16)
+    return c
+
+
+def print_card(c, fps):
+    """The info card as the player drew it, and where this boot put the
+    play: the heap, the ring and the bank, and the board's interleave as
+    the gap's own measurement found it (os88xgap.inc)"""
+    drawn, of = c["done"] - c["base"], c["frames"] - c["base"]
+    print("   THE CARD (the player's info card, saved with the profile):")
+    print("     Drew %d/%d, stalls %d, pauses %d; late %d, %d ticks of %d"
+          % (drawn, of, c["stall"], c["pause"], c["late"], c["dt"],
+             round(drawn / fps * 18.2065)))
+    if c["mfre0"]:
+        print("     Heap %dK run, %dK free at Play" % (c["mrun0"],
+                                                       c["mfre0"]))
+    if c["mrun"]:
+        print("     Ring %d/%d of %dK; keep %d snd %d%s"
+              % (c["k"], c["rneed"], c["mrun"], c["mkeep"], c["msnd"],
+                 " (SHORT of the file's ask)" if c["rshort"] else ""))
+    if c["lmin"] != 0xFFFF:
+        print("     Lead %d at f%d; hook gap %d" % (c["lmin"], c["lminf"],
+                                                    c["gap"]))
+    print("     Dry %d/%d stream; most %dt f%d"
+          % (c["pstrm"], c["pause"], c["pmax"], c["pmaxf"]))
+    if c["lysp"]:
+        print("     Layer: disk %d KB/s, line %d; key %d/%d"
+              % (c["lydkb"], c["lydln"], c["lytm"], c["lytl"]))
+    print("     sound %d Hz, block %d; CPU tier %d; bank slots %d, ring "
+          "slots in use %d" % (c["rate"], c["blk"], c["tier"], c["xbn"],
+                               c["kr"]))
+    print("   WHERE THIS BOOT PUT IT:")
+    print("     the package at %d (CS %04X), its stack SS %04X"
+          % (c["cs"] * 16, c["cs"], c["ss"]))
+    if c["ring"]:
+        print("     the ring (the bank's bounce) at %d, %d bytes into its "
+              "claim" % (c["ring"] * 16, (c["ring"] - c["rclm"]) * 16))
+    if c["xbase"]:
+        print("     the XMS block at %d" % c["xbase"])
+    if c["xgok"]:
+        g = c["xgap"]
+        ts = [c[k] for k in ("xg0", "xg512", "xg1k", "xg2k", "xg4k",
+                             "xg8k")]
+        if any(ts):
+            t0 = ts[0] or 1
+            print("     the gap's 8 KB copy up, PIT counts (x gap 0): " +
+                  ", ".join("%s %d (%.2f)" % (("%dK" % (x // 1024)) if x >= 1024
+                                              else str(x), t, t / t0)
+                            for x, t in zip(XG_GAPS, ts)))
+        if g:
+            off = (c["ring"] * 16 - c["xbase"]) % (2 * g) if c["ring"] \
+                else None
+            print("     G = %d: the ring sits %s mod %d from the bank%s"
+                  % (g, "?" if off is None else off, 2 * g,
+                     "" if off is None else " - PLACED" if off == g else
+                     " - NOT placed (the claim had no room for the slack?)"))
+        else:
+            print("     G = 0: no placement measured faster than 0 apart")
+    else:
+        print("     the gap was not measured this play (no XMS bank, or "
+              "in place held whole)")
 
 
 def rdsum(buf):
@@ -166,6 +259,8 @@ def main():
           % (os.path.basename(a.v88), r.title, r.frames,
              vid.PF_NAMES[r.pixfmt] if hasattr(vid, "PF_NAMES") else
              r.pixfmt, g.layout, pname))
+    if h.get("card"):
+        print_card(h["card"], r.fps)
     print("   played: %d frames timed of %d; sound %d, flip %d, in place "
           "%s, bank kind %d, late %d"
           % (sum(1 for x in tot if x), h["frames"], h["snd"], h["flip"],

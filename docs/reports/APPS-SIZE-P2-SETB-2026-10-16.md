@@ -27,7 +27,9 @@ covering its package and the session ran the union once at the end (below).
    `DSV_BLK` since SPEC.md 62.10, so nothing on os8088 could reach it; the
    file header and SPEC.md 62.10/62.12 say both ends would have to be
    restored to serve an image again, and which commit to recover from.
-2. **Fourteen package builds ship LZB instead of LZ4** (SPEC.md 20.13.5):
+2. **Fourteen package builds shipped LZB instead of LZ4 - thirteen at the
+   landing** (Arkanoid went back to LZ4 when set C's code pass took it to 5
+   clusters either way; `lzbclust` caught it) (SPEC.md 20.13.5):
    ArtfulType, Arkanoid, Calculator (both arms), Cyclone, Dot Delirium,
    Missile, Sheet, Solitaire, TameGram, Tank (both arms), TeXPad, WireBall -
    each because LZB saves it a cluster on the 360KB disks it rides. Paint,
@@ -67,7 +69,7 @@ fourteen builds is the rest:
 | Missile | 10,689 | 9,219 | 11 -> 10 | apps, games, small, smallapps |
 | Tank | 13,559 | 12,150 | 14 -> 12 | apps, games |
 | Tank, APP_SMALL | 14,109 | 12,670 | 14 -> 13 | small, smallapps |
-| Arkanoid | 5,285 | 4,637 | 6 -> 5 | apps, games, small, smallapps |
+| Arkanoid | 5,285 | 4,637 | 6 -> 5 | apps, games, small, smallapps - **back to LZ4 at the landing**: set C took it to 5,031 LZ4 = 5 clusters, LZB 4,444 = 5 |
 | Solitaire | 4,259 | 3,843 | 5 -> 4 | apps, games |
 | TameGram | 3,175 | 2,939 | 4 -> 3 | apps, games, small, smallapps |
 

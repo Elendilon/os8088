@@ -2141,8 +2141,7 @@ dsh_dirline:
     call dsh_num32                  ; a 65KB file on a 1.44MB floppy is ordinary
 .eol:
     mov si, dsh_s_crlf
-    call dsh_say
-    ret
+    jmp  dsh_say
 
 ; --- dsh_field - CX bytes at SI, verbatim.  clobbers: AL, CX, SI (flags) ----
 ; It was dsh_dirline's own local until /W wanted the same two fields.
@@ -2217,12 +2216,11 @@ dsh_dirtot:
     pop ax
     call dsh_num32
     mov si, dsh_s_bfree
-    call dsh_say
-    ret
+    jmp  dsh_say
 .crlf:
     mov si, dsh_s_crlf              ; no free count: the line still ends, and
-    call dsh_say                    ; `N File(s)` alone is what DOS prints for
-    ret                             ; a listing it could not size
+    jmp  dsh_say                    ; `N File(s)` alone is what DOS prints for
+                                    ; a listing it could not size
 
 ; --- dsh_dfree - DX:AX = bytes free on the volume we are standing on --------
 ; out: CF=0 with DX:AX the byte count; CF=1 = the volume would not answer
@@ -2275,8 +2273,7 @@ dsh_num32:
     loop .sp
 .say:
     mov si, di
-    call dsh_say
-    ret
+    jmp  dsh_say
 
 ; -----------------------------------------------------------------------------
 ; dsh_c_ver / dsh_c_echo / dsh_c_rem
@@ -2316,8 +2313,7 @@ dsh_count:
     mov si, di
     call dsh_say
     mov si, dsh_s_copied
-    call dsh_say
-    ret
+    jmp  dsh_say
 
 ; =============================================================================
 ; THE TABLE
@@ -2466,10 +2462,15 @@ dsh_isshell:
     jmp short .back
 .cmp:
     dec si                          ; .back stopped AT the separator when it
-    inc si                          ; found one and one short of the start when
-.fwd:                               ; it did not; .fwd is the shared step past
-    inc si                          ; it, and this pair makes the no-separator
-    dec si                          ; case land on the same instruction
+.fwd:                               ; found one and AT the start when it did
+    inc si                          ; not; .fwd is the shared step past the
+                                    ; separator, and the `dec` makes the
+                                    ; no-separator case land on the start.
+                                    ; (A `inc si`/`dec si` pair either side
+                                    ; of `.fwd` used to cancel the step, so a
+                                    ; full COMSPEC path compared its `\`
+                                    ; against `c` and was never recognised -
+                                    ; SPEC.md 96.44.16)
     mov di, dsh_s_cmd
 .c:
     mov al, [es:si]

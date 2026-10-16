@@ -41,10 +41,10 @@ disk needs it. One session per set; one agent per package inside it.
 
 | set | relieves | packages | status |
 |---|---|---|---|
-| **A** | the system disk | `dos`, `paint`, `notepad`, `deskcal`, `thewire`, `taskmgr`, `fontview`, `rlapply`, `mines` | **claimed** - session 01EWBYzwkv2cwWgUPLisNi9f, 2026-10-16 |
-| **B** | the apps disk: network and office | `browser`, `ftpd`, `telnet`, `OS88NET.COM` (`drivers/net/os88net.asm`, the DOS end of NET.DRV - SPEC.md 62.12; the one file under `drivers/` a set may edit), `texpad`, `artful`, `audio`, `calc` | **claimed** - session 011caEC6F27qkiqgaFFmYJh3, 2026-10-16 |
-| **C** | the apps disk: games | `tracker`, `wireball`, `tank`, `cyclone`, `missile`, `arkanoid`, `solitaire`, `tamegram` | open |
-| **D** | the apps disk: the owner-constrained and the small | `skies`, `video`, `fractal`, `piano`, `timer`, `midirack`, `chart` | open |
+| **A** | the system disk | `dos`, `paint`, `notepad`, `deskcal`, `thewire`, `taskmgr`, `fontview`, `rlapply`, `mines` | **done** - docs/reports/APPS-SIZE-P2-SETA-2026-10-16.md |
+| **B** | the apps disk: network and office | `browser`, `ftpd`, `telnet`, `OS88NET.COM` (`drivers/net/os88net.asm`, the DOS end of NET.DRV - SPEC.md 62.12; the one file under `drivers/` a set may edit), `texpad`, `artful`, `audio`, `calc` | **done** - docs/reports/APPS-SIZE-P2-SETB-2026-10-16.md |
+| **C** | the apps disk: games | `tracker`, `wireball`, `tank`, `cyclone`, `missile`, `arkanoid`, `solitaire`, `tamegram` | **done** - docs/reports/APPS-SIZE-P2-SETC-2026-10-16.md |
+| **D** | the apps disk: the owner-constrained and the small | `skies`, `video`, `fractal`, `piano`, `timer`, `midirack`, `chart` | **claimed** - session 01LNUrZS6bEfiBG3rnKx8gsX, 2026-10-16 |
 | **E** | the office and games disks | `pixel`, `pixelstein`, `word`, `drmario` (with `DRMARCO.VGA`/`.HRC`/`.CGA`), `isotron`, `dotdel`, `gorillas` | open |
 
 **Not in any set, and why** - each is the owner's to reopen:
@@ -61,6 +61,26 @@ disk needs it. One session per set; one agent per package inside it.
   every disk, so each set records what it found (5) and the owner decides
   whether a shared lane runs after the sets. docs/plans/HANDOFF-APPS-SHARED.md
   is pass 1's list.
+
+### 2.1 Set A's follow-on, owner-approved - IN PROGRESS, and it moves your numbers
+
+On set A's results the owner approved three things outside the sets, run by
+set A's session on the pass branch:
+
+- **`tools/os88pkg.py` packs the image of a package that has PARTS** (today
+  that image ships raw). If it lands it is universal: every parted package's
+  file shrinks - Skies, PiXEL, PIXELSTEIN, C64, Apple II and others in sets D
+  and E. **After it lands, merge the pass branch and re-take your `--save`
+  snapshot** before measuring, or the tool's saving is credited to your set.
+- **`kerndos/` and `apps/os88cp437.inc`/`os88con.inc`** for DOS.O88 (the core
+  inline in part 0, box-drawing glyphs generated at launch). The glyph change
+  is OPT-IN; Telnet (set B) carries the same table and stays byte-identical -
+  its share is recorded for set B to take or leave.
+- **Opt-in gates in `apps/os88ui.inc`, `os88line.inc`, `os88gfx.inc`,
+  `os88type.inc`, `os88data.inc`**, default off, so no package that does not
+  set them changes by a byte. Set A's packages opt in; the per-package saving
+  for every other carrier is listed in set A's follow-on report for each set
+  to take in its own package source.
 
 ## 3. Coordinating over git
 
@@ -117,9 +137,27 @@ baseline, so two sets' savings never count the same cluster twice: take
 
 ### 4.1 One agent per package, in a worktree
 
-Run the agents in parallel, each with `isolation: "worktree"` and the brief
+Run the agents in parallel, each in a worktree of its own and with the brief
 in 4.3 filled in for its package. Four cores take eight or nine agents
 building at once, slowly; brief them to build with `make -j2`.
+
+**Make the worktrees YOURSELF, outside `.claude/`, and do not use the Agent
+tool's `isolation: "worktree"`.** Set A used it and paid twice: the harness
+puts those worktrees under `<repo>/.claude/worktrees/`, where every Edit and
+Write is a change inside Claude's own config directory and stops for the
+owner's approval - dozens of "allow" prompts a set - and it cut them from
+`a123653b`, 48 commits behind the session's branch, so every agent's BEFORE
+was a different tree from the one it would be merged into. Instead:
+
+```sh
+git worktree add -b p2-<pkg> /home/user/wt/<pkg> HEAD   # your branch's tip
+```
+
+and name `/home/user/wt/<pkg>` as the agent's working directory in its brief
+(it `cd`s there for every command and edits files by absolute path under it).
+`git worktree remove` each one after its branch is merged.
+`.claude/settings.json` carries allow rules for `.claude/worktrees/**` as a
+fallback for any session that already started the other way.
 
 Two things a worktree does not have and needs:
 
@@ -162,7 +200,7 @@ whole:
 > LZ4-packed `build/<pkg>.o88` and any data file it ships beside it - without
 > costing the machine anything for it.
 >
-> **Set up**: `mkdir -p build && ln -s /home/user/os8088/build/martypc
+> **Set up**: you work in `/home/user/wt/<pkg>` (the session made it; `cd` there for every command and edit files by absolute path under it). `mkdir -p build && ln -s /home/user/os8088/build/martypc
 > build/martypc`, then `make -j2`, then record the BEFORE numbers (file
 > bytes, clusters per disk via `python3 tools/os88diskuse.py --pkg <NAME>`,
 > image and bss, the APP_SMALL arm if any) before the first edit.
@@ -287,8 +325,48 @@ every set's list into one ranked table here (6) for the owner to pick from.
 
 | set | report | free clusters gained (system 360 / apps 360 / other) |
 |---|---|---|
-| A | - | - |
-| B | - | - |
-| C | - | - |
+| A | docs/reports/APPS-SIZE-P2-SETA-2026-10-16.md | system +1, network +1, small360 +3, smallapps360 +3; apps360 +0 (-2,138 B off the system disk's full arms) |
+| B | docs/reports/APPS-SIZE-P2-SETB-2026-10-16.md | 0 / **+22** / office +12, games +12, small360 +17, smallapps360 +17, network +4 - the code pass is -3,509 file bytes, the rest is the owner's LZB decision (6.2) |
+| C | docs/reports/APPS-SIZE-P2-SETC-2026-10-16.md | 0 / +3 / games360 +3, small360 +3, smallapps360 +3 (-2,610 file bytes across 8 packages; image + bss -2,561) |
 | D | - | - |
 | E | - | - |
+
+### 6.2 What set B changed for EVERY set: thirteen builds ship LZB
+
+**The owner decided, mid-set B, that a package whose disks matter more than
+its launch ships LZB** (SPEC.md 20.13.5). The test is that LZB saves it a
+1KB cluster on the 360KB disks it rides; Paint, Note Pad and the Task
+Manager stay LZ4 whatever it would save them, because they open the common
+documents and must stay quick. On the tree set B landed on, that is
+ArtfulType, Calculator (both arms), Cyclone, Dot Delirium, Missile, Sheet, Solitaire, TameGram, Tank (both arms), TeXPad and WireBall - set C's
+and set E's packages among them, by their Makefile rule only. **Arkanoid was
+on the list and came OFF at set B's landing**: set C's pass took its LZ4 file
+to 5 clusters, the same as LZB's, and `lzbclust` failed on it - which is the
+row working.
+
+- **The list is `LZBPKGS` in the Makefile** and the packer `$(OS88PKGB)`. It
+  falls back to LZ4 on a `COMPRESS=lz4` kernel, which carries no LZB decoder.
+- **A set that shrinks a listed package must re-run `soak -k lzbclust`**:
+  it fails any listed package whose LZB file no longer saves a cluster, and
+  `--candidates` lists the LZ4 ones it would now save one for. Measured on
+  ArtfulType, LZB costs **+541 ms on a first launch** off a 360KB floppy -
+  paid for nothing once the cluster is gone.
+- **Measure an LZB package's savings packed LZB**: a code byte saved under
+  LZB is worth slightly less file than under LZ4, and an LZ4-shaped
+  re-encode can be WORSE under LZB (ArtfulType's splash: -88 under LZ4,
+  +121 under LZB, not taken).
+
+### 6.1 What set A learned that the other sets can use
+
+- **A per-package pass rarely crosses a 1KB cluster**: seven of nine packages
+  lost 200-700 packed bytes and crossed nothing. The APP_SMALL arms are where
+  clusters came back.
+- **The file follows UNIQUE bytes**: de-duplicating a repeated idiom often
+  ADDS file bytes (LZ4 packs a repeat for ~3 bytes). Measure the packed file
+  after every change.
+- **The biggest levers are structural and outside every set**: DOS.O88's
+  three parts are padded to sectors, and three recorded fixes (a packed
+  loader in `tools/os88pkg.py`, the core inline in part 0 in `kerndos/`,
+  box-drawing glyphs generated at launch in `apps/os88cp437.inc`) are worth
+  about a sector each - ~1.5 KB, a cluster or two on every system disk. The
+  set A report's last table is the full list.
