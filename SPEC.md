@@ -88036,6 +88036,12 @@ instruction; `tests/tgplay.py` (soak `tgplay`, `--ref` for the cycles) and
   `tg_toggle_halt` swaps AL and AH instead of copying each way (resuming
   leaves PAUSE as the remembered mode, which nothing reads before the next
   halt rewrites it); `tg_act`'s two flag flips are one `xor` through BX.
+- **Two register saves nobody needed.** `tg_clampc` banked SI around its
+  own use of it for every rect drawn, and no caller holds SI across it
+  (`tg_cell_fill` has spent its inset by then, and every repaint sets SI
+  afresh); `tg_frame` copied the window pointer into BX after `tg_track`,
+  which leaves it there - the two WM calls keep BX. Pure deletions: every
+  cell drawn loses a push and a pop, every frame a move.
 
 ## 50. memory.inc — the claim heap
 

@@ -342,7 +342,8 @@ tg_entry:
 ; in:  SI = window ptr
 ; out: [tg_ox]/[tg_oy], [tg_cwid]/[tg_chgt] and the metrics derived from them;
 ;      CF = OSAPI_WM_GEOM's (1 = not visible; the sizes are filled in either
-;      way). ES = DS. Keeps AX, SI, DI; clobbers BX, CX, DX
+;      way). ES = DS, BX = SI (the WM calls keep it). Keeps AX, SI, DI;
+;      clobbers CX, DX
 ;
 ; Called at the top of every callback and every rendered frame: the window
 ; moves, and wm_fit may have clamped what the entry proc asked for. Reading
@@ -1242,8 +1243,7 @@ tg_frame:
     je tg_fret
     mov si, [tg_win]
     call tg_track                   ; the window may have been dragged;
-    jc tg_fret                      ; hidden: nothing to draw on
-    mov bx, si
+    jc tg_fret                      ; hidden: nothing to draw on. BX = SI
     call OSAPI_WM_CLIP_SET          ; cut to whatever of us still shows
     jc tg_fret                      ; (SPEC.md 11.3); CF=1 = wholly covered
     cmp byte [tg_full], 0
@@ -1483,7 +1483,7 @@ tg_cell_fill:
     ; for every cell drawn)
 
 ; tg_fillc / tg_framec - a filled / outlined rect in content coords, in the
-; pen already set. Clobber AX-DX.
+; pen already set. Clobber AX-DX and SI.
 tg_fillc:
     call tg_clampc
     jc .out
@@ -1501,7 +1501,9 @@ tg_framec:
 ; -----------------------------------------------------------------------------
 ; tg_clampc - clamp a content rect to the content box, then add the origin
 ; in:  AX/BX/CX/DX = x1/y1/x2/y2, inclusive, in content coords
-; out: CF = 1 nothing is left to draw; else AX/BX/CX/DX are screen coords
+; out: CF = 1 nothing is left to draw; else AX/BX/CX/DX are screen coords.
+;      Clobbers SI, which no caller holds across it (tg_cell_fill has spent
+;      its inset by then, and every repaint sets SI afresh)
 ;
 ; The one place this module turns its own rects into the screen's, and the
 ; reason it exists is SPEC.md 11.3: the gfx_* primitives clip to the SCREEN,
@@ -1519,7 +1521,6 @@ tg_clampc:
     jns .y1
     xor bx, bx
 .y1:
-    push si
     mov si, [tg_cwid]
     dec si
     cmp cx, si
@@ -1532,7 +1533,6 @@ tg_clampc:
     jle .y2
     mov dx, si
 .y2:
-    pop si
     cmp ax, cx
     jg .none
     cmp bx, dx
