@@ -6950,11 +6950,23 @@ section .modh
     align 1024, db 0
     db 0
 %endif
-modh_end:
-MODH_SIZE equ modh_end - $$
 section .modhb
 modhb_end:
 MODH_BSS equ modhb_end - $$
+section .modh
+MODH_UNPAD equ $ - $$           ; THE DEAD ZONE, `.modu`'s pad below and for its
+                                ; reason (MODULE-SELFCONTAIN-PLAN 3.2): an image
+                                ; ending fewer than MODH_BSS bytes short of a KB
+                                ; boundary is carried one byte past it, so the
+                                ; claim is the next KB - which the bss needs
+                                ; anyway. Zero bytes outside the zone. It is in
+                                ; the zone since kernel size pass 13 put the
+                                ; attach half of a driver load in this image
+                                ; (driver.inc's DRV_ATTACH hdl): 6 KB -> 7 KB
+                                ; of claim while HIBER.DRV is loaded
+    times (MODH_UNPAD + MODH_BSS > ((MODH_UNPAD + 1023) / 1024) * 1024) * (((MODH_UNPAD + 1023) / 1024) * 1024 + 1 - MODH_UNPAD) db 0
+modh_end:
+MODH_SIZE equ modh_end - $$
 %endif
 
 %ifdef FCP_MOD

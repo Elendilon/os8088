@@ -75274,6 +75274,17 @@ attaches it. Copying that control flow instead would have been the shape that
 drifts, and the thing it drifts away from is `drv_vol_bank`/`drv_vol_back` —
 §51.5.2 is what a missing volume restore costs.
 
+Since kernel size pass 13 `drv_load_at` IS the resident loader, and a CLASS
+row's attach half — the HMA placement, `drv_attach`, `drv_tier` and
+`drv_publish` — is `driver.inc`'s `DRV_ATTACH` macro, expanded in the three
+images that bring a class driver up (the boot blob for `drv_boot`, `CTRL.DRV`'s
+panel for the Drivers and Sound pages, `HIBER.DRV` for the reload after a wake
+or a suspend). Each expansion's `_load` passes its own attach half in DI:SI and
+`drv_load_at` far-calls it at the point the attach always ran, inside the same
+volume bracket. The one resident caller, the screen saver, loads an overlay and
+never reaches it: 266 bytes left resident `.cold` on kern_big, and `HIBER.DRV`'s
+claim went from 6 KB to 7 KB to carry them.
+
 **`xm_boot` is therefore `.cold`, and that is not a saving.** All three
 routines it calls — `drv_load_at`, `drv_call`, `drv_release` — are
 `driver.inc`'s, and `driver.inc` is in the cold segment (§2.6). From `.text`

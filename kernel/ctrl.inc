@@ -5580,7 +5580,7 @@ cp_snd_click:
     cmp ah, [snd_route]
     je .redraw                  ; already the setting: still redraw, because
                                 ; the click clears a stale notice
-    call COLD_SEG:drvf_drv_tier               ; ask the driver to move; AL = why not
+    call cdl_tier               ; ask the driver to move; AL = why not
     jnc .take
     mov [cp_snd_err], al        ; the tier stands where it was, and the notice
     jmp short .redraw           ; line says which of the two reasons
@@ -6756,7 +6756,7 @@ cp_drv_click:
 .try:
     mov byte [bx+DRVR_WANT], 1  ; wanted first, so a failed load still
                                 ; persists the intent: put the disk in and
-    call COLD_SEG:drvf_drv_load               ; the next boot picks it up
+    call cdl_load               ; the next boot picks it up
 .save:
     mov byte [bx+DRVR_ANS], 1   ; a click is an ANSWER, on or off: from here
                                 ; the file keeps this row's want and no sniff
