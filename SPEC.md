@@ -59275,7 +59275,9 @@ is the safe direction — one extra redraw, never a missed one.
 changed.** Both views compose the whole row into `tm_str` first — name, ADDR,
 SIZE/HEAP or ST/CPU/MEM, all of it — zero-pad it to `TM_NCHUNK`×`TM_CHUNK`
 characters, and then hash each `TM_CHUNK`-character chunk on its own
-(`tm_chunksum`, rotate-then-add, so a transposition is not invisible) against
+(`tm_sumb` over the chunk's `TM_CHUNK` bytes, seed 0 — it was a private
+`tm_chunksum` until §28.12.2 — rotate-then-add, so a transposition is not
+invisible) against
 its word in `tm_rowck`. Equal means the pixels on screen are already right:
 **no fill, no legend square, no glyphs** for that chunk. So the erase is
 *inside* the changed branch, which is the ordering the whole thing rests on —
@@ -60645,7 +60647,7 @@ the content before the callback runs. Nothing else ever redraws a heading —
 they are constants, so `tm_elchk` has nothing to compare and none of them is
 behind one.
 
-**The pen is still set before each, and that is deliberate.** `TM_INK CBLACK`
+**The pen is still set before each, and that is deliberate.** `TM_INKX CBLACK`
 no longer feeds the heading, but it is one 46.7 µs call once per repaint and
 removing it would make the pen's value at that point a question somebody has
 to re-answer. It is left where it is; the heading simply no longer reads it.
@@ -61367,9 +61369,12 @@ worth a byte of `.text` here and `tools/os88pkgsize.py` prints the sum:
 
 | arm | image | bss | claim | vs. full |
 |---|---|---|---|---|
-| full (shipped) | 8,223 | 1,707 | **9,930** | — |
-| `TMF_HEAP` off | 6,970 | 1,581 | 8,551 | −1,379 (13.9%) |
-| both off (`APP_SMALL`) | 4,980 | 1,317 | **6,297** | −3,633 (36.6%) |
+| full (shipped) | 7,589 | 1,698 | **9,287** | — |
+| `TMF_HEAP` off | 6,300 | 1,586 | 7,886 | −1,401 (15.1%) |
+| both off (`APP_SMALL`) | 4,400 | 1,313 | **5,713** | −3,574 (38.5%) |
+
+(As of §28.12.2's pass; the first pass left them at 8,223 / 6,970 / 4,980 of
+image against 1,707 / 1,581 / 1,317 of bss.)
 
 The first size pass on the package (it had only ever been moved, never
 trimmed) took the full arm from 9,245 + 2,269 = 11,514 to the row above and
@@ -61417,6 +61422,91 @@ silent:
   field reading of 180 was taken on the heap page's chain, and re-deriving a
   slice from a static walk is exactly what put a task through the canary
   last time.
+
+#### 28.12.2 Apps size pass 2 — what the SHIPPED FILE lost
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
+package by the **LZ4-packed file** on the disks it rides, not by image + bss —
+`TASKMGR.O88` is in `SYSTEM/` on every system disk and on the 360KB apps
+disk, both of which were full. Nothing a user can see changed, and no hot path
+got slower: every change below is fewer instructions on the path it touches.
+The lesson that shaped it is the handoff's 4.6, met in practice: **code that
+repeats packs to nothing**, so taking a repeated sequence out (a macro's
+push/pop, a duplicated epilogue) moves the image and barely moves the file —
+the file follows UNIQUE bytes.
+
+- **The pen (`TM_INKX`)**: twelve of the fourteen pen sites no longer save AX
+  around `OSAPI_SET_COLOR` — each was either loading AX afterwards or could
+  set the pen first. `tm_map_ram` sets the claims' black frame pen ONCE
+  before the walk (FILL_PAT and FILL_GRAY ignore the pen), not per claim.
+  `tm_row_draw` drops the register saves around its run and its tail fill
+  (everything after them reloads what it uses), counts drawn chunks in a
+  borrowed BP instead of on the stack, steps DI a chunk at a time instead of
+  multiplying, and hashes with `tm_sumb` — `tm_chunksum` is gone.
+- **The sample (`tm_sample`)**: the idle task is found inside the per-task
+  diff loop rather than in a pass of its own; `tm_dif` banks a counter with
+  two `MOVSW`s (ES = DS there) and steps SI/DI itself; the rows' total is
+  summed in registers (`tm_total` is gone from bss); and the normalisation
+  no longer shifts thirteen dwords in memory once per bit — it counts the
+  bits off the total and `tm_shn` shifts each row (and the meter's
+  numerator) by that count in registers on the way into `tm_share`, which is
+  the same floor division and fewer cycles.
+- **Launch and the click (cold code)**: `tm_init` writes `[tm_xoff]` only on
+  the no-store answer (the loader zeroes bss) and `tm_layout` takes its first
+  depth from `tm_rowsfit` like the other three; `tm_kinit` is inlined into
+  `tm_entry`, which no longer saves registers nobody reads; `tm_onresize`
+  banks only the height it uses; `tm_hscroll` picks the step (an arrow is a
+  row, the track a page) and then the direction, instead of four arms.
+- **The bss words that were copies**: on the heap arm `tm_hrows` and
+  `tm_maxrow` ARE the scroll block's `total` and `fit` (`tm_hsb+8`/`+10`;
+  `os88ui_sbar` only reads the block), so `tm_hsbset` copies only `pos`, and
+  places the bar with a constant step for the second column rather than a
+  multiply. `tm_elck` is declared directly in front of `tm_rowck` again —
+  `tm_rowck` is DEFINED off its end, so the drift that once left the CPU
+  caption's check words uncleared cannot recur — and `tm_rowck_clear` is one
+  span. `tm_slow` is the byte after `tm_view`, so a view switch resets both
+  in one store.
+- **The process list (`tm_rows`)**: a free slot's row is a constant, so it
+  is ONE string (`tm_s_freerow`) instead of `tm_namef`, three copies and a
+  store — and its tail doubles as the memory pages' dash columns
+  (`tm_s_dash6`/`5`/`4` overlap it). The ST strings carry their separator.
+  `tm_memcol`'s byte-count entry had had no caller since MEM became KB and is
+  gone; `tm_cpucol` writes `'% '` as one word; `tm_namef` stops saving
+  registers its callers reload; `tm_order` takes the class bit straight out
+  of `KIND_PKG`.
+- **The memory and heap pages' text**: the low-memory row and the System
+  row's name-and-address are each ONE constant string; the heap page's TYPE
+  table carries each name IN its record (`TMK_REC` = owner word + eight
+  bytes) instead of a pointer to a separate string, and the TIER names are
+  four-character records whose fifth is the caption's own `'HELD'`; the
+  HELD/PURGE caption's two halves are one helper (`tm_kcnt`); a figure's
+  `'K'` and its terminating NUL are one word store; `tm_cap_xms` asks the
+  CPU tier before it needs AX for anything else. **Defect found, not fixed**:
+  the TYPE column is seven wide (`TMH_TYPEC`) and three names are eight —
+  `Compress`, `Shortcut` and `Disk img` have always shown as `Compres`,
+  `Shortcu` and `Disk im`. The row has exactly one spare column (24 of 25),
+  so `TMH_TYPEC` = 8 would fit if the header and the ADDR/SIZE/TIER columns
+  moved one right — a visible change, left for the owner.
+- **The quiet key and the graph**: `tm_quiet` walks the claim table to its
+  end by address (no counter on the stack) and starts the totals' span from
+  where that walk leaves SI, which IS `tm_kb`; `tm_graph` keeps the
+  interior's left edge in a register instead of recomputing it.
+- **Per-row helpers**: `tm_dmg_hit` derives a chunk's right edge from the
+  left one it already has instead of a second multiply; `tm_row_place` steps
+  to column 1 by `TM_COLW` (there are only ever one or two columns);
+  `tm_lrun` pads a caption with `REPNE SCASB`/`REP STOSB` as `tm_row_draw`
+  pads a row (whose `jcxz` was dead: a row always has its NUL); `tm_htype`
+  loads each range's name before its test.
+
+**What it came to**, measured on the shipped file (LZ4-packed) and on the
+360KB disks: the full arm **7,047 → 6,711 bytes** (7 clusters still, on the
+system disk and the apps disk alike), image + bss 8,040 + 1,707 → 7,589 +
+1,698; the `APP_SMALL` arm **4,175 → 3,952 bytes, 5 → 4 clusters** on both
+small disks, image + bss 4,687 + 1,317 → 4,400 + 1,313. No heap claim
+changed. MartyPC, `os8088_5150_cga`, both builds in one boot and then again
+in the other order: `tm_sample` 71,654 → 63,778 cycles, the performance
+page's refresh (median) 247,922 → 234,302, a quiet page's no-change check
+19,786 → 19,456, and the three pages' full paints 1.73–1.81 M → 1.63–1.70 M.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 
