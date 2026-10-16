@@ -50821,6 +50821,19 @@ content-relative; the procs fetch the content origin via `wm_content`
   1,945 -> 1,678; a covered-board redraw and a whole-board (71-cell) flood measure
   1.4-1.9% fewer guest cycles than before (MartyPC, 5150 CGA). Tests that
   read a cell decode `mn_cell` (`tests/minexflag.py`, `tests/minesrc.py`).
+- **Apps size pass 2 (disk)**, docs/plans/HANDOFF-APPS-SIZE-P2.md. The file
+  was 1,678 bytes and shipped PLAIN, because LZ4's in-place layout needed
+  2,096 bytes of a 2,048-byte region; image cuts got it under that line.
+  - **The callbacks bank nothing the kernel does not read back.** `W_PAINT`
+    gives back SI, `W_ONCLICK`/`W_ONRCLICK` SI (13.7's arm), and `W_ONKEY`,
+    `AM_ONCMD` and the About handler nothing (12.2); so the push-everything
+    prologues went, and with them the drawing routines' own banks - each
+    keeps only what its callers read after it (`mn_draw_cell` BX, DI and BP,
+    for the board loop and the flood). The entry proc takes
+    `OS88_REGION_MOVABLE_NOKEEP` and a `clc`, the flag toggle is a block of
+    the click body rather than a routine of its own, and the new-game wipe
+    runs down so its index is its counter. Pictures identical; the redraws
+    and the flood measure 0.4-0.6% fewer guest cycles (MartyPC, 5150 CGA).
 
 ## 24. Packaging toolchain (host side)
 
