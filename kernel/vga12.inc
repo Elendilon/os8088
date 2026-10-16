@@ -4454,16 +4454,29 @@ thm_tbg:
 thm_tink:
     push ax
     mov al, [thm_tinkc]
-    jmp short thm_pen
 %ifdef KERN_BIG
-thm_ibg:
+    jmp short thm_pen
+
+; wm_tpen_bg / wm_tpen_ink - a title bar's ground / ink (SPEC.md 76.12): the
+; ACTIVE pair when DI is the front window BP, its INACTIVE pair when it is not
+; (kernel/wm.inc says why). in: DI, BP; out: [gfx_color]; clobbers flags,
+; as the routine it replaced did. Here and not in wm.inc so the focus
+; test and the pen tail are one short jump apart (kernel size pass 13): the
+; four pen doors thm_tbg/thm_tink/thm_ibg/thm_iink were reached through a
+; near jump each, and the inactive two had no other caller.
+wm_tpen_bg:
     push ax
+    mov al, [thm_tbgc]
+    cmp di, bp
+    je thm_pen
     mov al, [thm_ibgc]
     jmp short thm_pen
-thm_iink:
+wm_tpen_ink:
     push ax
+    mov al, [thm_tinkc]
+    cmp di, bp
+    je thm_pen
     mov al, [thm_iinkc]
-    jmp short thm_pen
 %endif
 thm_pen:
     mov [gfx_color], al
