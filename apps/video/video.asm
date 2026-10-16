@@ -4673,9 +4673,10 @@ vp_balloc:
     mov [vp_xhave], ax              ; and vp_canlive answer no, whatever
     mov [vp_xhave+2], ax            ; the last file's hold left here
     mov [vp_xfull], al
-    call vp_bflush
-    mov byte [vp_xbank], 1
-    mov byte [vp_xon], 1            ; (and NO timer: it fills while a play
+    call vp_bflush                  ; (AX kept)
+    inc ax
+    mov [vp_xbank], al
+    mov [vp_xon], al                ; (and NO timer: it fills while a play
     clc                             ; reads, VIDEO-XMS-PLAN 4.1)
     ret
 .no:
@@ -4695,17 +4696,19 @@ vp_balloc:
 ; Not after the disk has said no (vp_lyopen says that). Every register kept
 vp_lycarve:
     mov byte [vp_lyb], 0
-    mov word [vp_lycmp], 0
+    mov word [vp_lycmp], 0          ; (0 on every way out but a loan's)
     cmp byte [vp_lyfl], 0
-    je .r
+    je .r0
     cmp byte [vp_lydv], 2           ; (the disk said no already)
-    je .r
+    je .r0
     cmp byte [vp_einp], 0           ; IN PLACE: the board's, the bank's or
     jne .own                        ; the hold's - the ring's claim is a
     cmp byte [vp_xip], 0            ; key's, and the heap past it is free
     je .rg
 .own:
     jmp vp_lyown
+.r0:
+    ret
 .rg:
     push ax
     push bx
@@ -4738,7 +4741,7 @@ vp_lycarve:
     mov cl, [vp_rneed]
     xor ch, ch
     sub cx, ax                      ; CX = what K' is short of the header's
-    jbe .free                       ; ring: lent from the base's bucket, so
+    jbe .c                          ; ring: lent from the base's bucket, so
     cmp byte [vp_xbank], 0          ; paid back in its XMS bank - and with
     je .no2                         ; none to pay it back in, none lent
     cmp byte [vp_xems], 0
@@ -4749,9 +4752,6 @@ vp_lycarve:
     shl ax, cl
     mov [vp_lycmp], ax              ; ...in KB
     pop ax
-    jmp short .c
-.free:
-    mov word [vp_lycmp], 0          ; (all of it the ring's headroom)
 .c:
     mov cx, [vp_k]
     mov [vp_lyk0], cx
@@ -4788,7 +4788,6 @@ vp_lycarve:
     mov cl, 5
     shl ax, cl
     mov [vp_lysht], ax
-    mov word [vp_lycmp], 0
 .x:
     pop cx
     pop bx
@@ -4870,9 +4869,10 @@ vp_lyunc:
     mov ax, [vp_lc]
     cmp ax, [vp_k]
     ja .x                           ; (the ring wrapped: it stays as it is)
-    mov byte [vp_lyb], 0
-    mov word [vp_lyseg], 0
-    mov word [vp_lycmp], 0
+    xor ax, ax
+    mov [vp_lyb], al
+    mov [vp_lyseg], ax
+    mov [vp_lycmp], ax
     mov ax, [vp_lyk0]
     mov [vp_k], ax
     mov [vp_kr], ax
@@ -5069,9 +5069,7 @@ vp_lydisk:
     cmp al, 1
     je .r                           ; (said yes already)
     cmp al, 2
-    jne .no2                        ; (said no already: je .off, written as
-    jmp near .off                   ; nasm emitted it - it sat on a short
-.no2:                               ; jump's edge and took either form)
+    je .off                         ; (said no already)
     mov bx, [vp_lybks]
     or bx, bx
     jz .cpu                         ; (no base's disk in the file)
@@ -5080,7 +5078,32 @@ vp_lydisk:
     jbe .cpu                        ; (the layer's disk no faster)
     mov ax, [vp_dtn]
     sub ax, 3
-    jb .none                        ; (fewer than two timed: no verdict)
+    jnb .tm                         ; (fewer than two timed: no verdict)
+.none:                              ; NO VERDICT IS THE BASE (98.1.9.7): a
+    mov al, 3                       ; machine nothing has shown can carry
+    jmp short .offw                 ; the layer does not read it - kept for
+                                    ; this session only, so a later one that
+                                    ; can time may yet say yes
+.cpu:                               ; NO DISK TEST IN THE FILE: the CPU's
+    cmp word [vp_lytl], VP_LYTMIN   ; yes, or nothing - timed now, or kept
+    jb .none                        ; from key 0 (98.1.9.7, 98.1.9.12)
+    cmp word [vp_lytm], 0
+    jne .r
+    cmp byte [vp_lycv], 1
+    jne .none
+.r:
+    ret
+.off:
+    mov al, 1                       ; (the disk's no: [vp_lywhy] 1)
+.offw:
+    mov byte [vp_lyon], 0
+    mov byte [vp_lyoff], 1
+    mov [vp_lywhy], al
+    ret
+.yes:
+    mov byte [vp_lydv], 1
+    ret
+.tm:
     add ax, 2                       ; AX = the chunks timed
     push bx
     push cx
@@ -5130,27 +5153,7 @@ vp_lydisk:
     cmp ax, bx
     jae .yes
     mov byte [vp_lydv], 2
-.off:
-    mov byte [vp_lyon], 0
-    mov byte [vp_lyoff], 1
-    mov byte [vp_lywhy], 1
-.r:
-    ret
-.yes:
-    mov byte [vp_lydv], 1
-    ret
-.cpu:                               ; NO DISK TEST IN THE FILE: the CPU's
-    cmp word [vp_lytl], VP_LYTMIN   ; yes, or nothing - timed now, or kept
-    jb .none                        ; from key 0 (98.1.9.7, 98.1.9.12)
-    cmp word [vp_lytm], 0
-    jne .r
-    cmp byte [vp_lycv], 1
-    je .r
-.none:                              ; NO VERDICT IS THE BASE (98.1.9.7): a
-    mov byte [vp_lyon], 0           ; machine nothing has shown can carry
-    mov byte [vp_lyoff], 1          ; the layer does not read it - kept for
-    mov byte [vp_lywhy], 3          ; this session only, so a later one that
-    ret                             ; can time may yet say yes
+    jmp short .off
 
 ; vp_lysplit - a file's first session, the CPU just timed (vp_lybench): the
 ; pool SPLIT for the machine this is (98.1.9.2). Both banks were taken at
@@ -5163,18 +5166,21 @@ vp_lydisk:
 ; Not on EMS, whose bank is the base's alone. Clobbers AX, BX, CX, DX
 vp_lysplit:
     cmp byte [vp_lysplt], 0
-    jne .r
+    je .go
+.r0:
+    ret
+.go:
     mov byte [vp_lysplt], 1
     cmp byte [vp_xems], 0
-    jne .r
+    jne .r0
     cmp word [vp_lybkb], 0          ; (no layer bank asked: nothing to split)
-    je .r
+    je .r0
     cmp byte [vp_lydv], 2           ; THE DISK said no (98.1.9.3): this IS
     je .base                        ; the base's machine, timed or not
     cmp byte [vp_lywhy], 3          ; ...or nothing said yes (98.1.9.7): the
     je .base                        ; base keeps its bank
     cmp word [vp_lytm], 0           ; NOT TIMED (a one-bit file from its
-    je .r                           ; first frame has no key to time): no
+    je .r0                          ; first frame has no key to time): no
     cmp byte [vp_lyon], 0           ; knowing - the base keeps its bank
     jne .lay
 .base:
