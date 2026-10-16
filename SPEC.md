@@ -50877,6 +50877,9 @@ content-relative; the procs fetch the content origin via `wm_content`
     the same compare's sign finds the 0xFF. The covered face sets the pen 3
     times for 5 fills, the open face 2 for 5, the exposed mine 2 for 10 -
     14 colour bytes and that many `OSAPI_SET_COLOR` calls fewer.
+  - `mn_hitcell` bounds the column and row on AL alone (a content point is
+    under 4,096px, so AH is 0, and `mul` reads AL anyway), and the strip's
+    right edge is `mov cx, 143 / add cx, ax`, the shorter order.
 
 ## 24. Packaging toolchain (host side)
 

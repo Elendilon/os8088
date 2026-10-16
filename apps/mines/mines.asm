@@ -410,18 +410,19 @@ mn_hitcell:
     jae .none                       ; board is dead after win/lose until 'N'
     mov di, dx                      ; DI = y while mn_org takes AX/BX/DX
     call mn_org                     ; AX = content left, DX = content top
-    sub cx, ax                      ; (CX survives it: WM_CONTENT keeps it)                      ; -> content-relative point
+    sub cx, ax                      ; -> content-relative point (CX
+                                    ; survives mn_org: WM_CONTENT keeps it)
     sub di, dx
     sub di, MN_STRIP_H
     js .none                        ; it landed in the status strip
     xchg ax, cx                     ; column = x / 16
     mov cl, 4
     shr ax, cl
-    cmp ax, MN_COLS
-    jae .none
+    cmp al, MN_COLS                 ; AL alone: a point in the content is
+    jae .none                       ; under 4096 px, so AH is 0 here
     xchg ax, di                     ; DI = column, AX = y; row = y / 16
     shr ax, cl
-    cmp ax, MN_COLS
+    cmp al, MN_COLS                 ; (and mul reads AL alone anyway)
     jae .none
     mov bl, MN_COLS                 ; cell = row*9 + column
     mul bl
@@ -813,8 +814,8 @@ mn_draw_status:
     call OSAPI_SET_COLOR
     mov ax, [mn_ox]
     mov bx, [mn_oy]
-    mov cx, ax
-    add cx, MN_BOARD_W - 1
+    mov cx, MN_BOARD_W - 1          ; (the add takes the long immediate
+    add cx, ax                      ; either way; the mov is shorter)
     lea dx, [bx + MN_STRIP_H - 1]
     call OSAPI_GFX_FILL             ; (preserves AX/BX, like every slot)
     mov cx, ax                      ; the counter's pen, (4,6) - and DX is
