@@ -169324,8 +169324,11 @@ share of where an eye is looking that is broken. GasGas 0:40-0:50 at
 `the view as seen: 6.9% of it broken on average, 96.9% at its worst
 (0:07.5); 1.5 s of 10.0 with a tenth or more of it broken` - the owner had
 put the whole file at "5-10% as seen" before the score existed. Its
-weights are fitted to the owner's scores of nine of the car frames (rms
-2.7 points), and nothing else. It is a REPORT: nothing steers by it yet.
+weights are fitted to the owner's scores, in TWO SETS: colour on nine of
+the car frames (rms 2.7 points), and GREY - a target whose every pixel is
+R = G = B - on eight of Bad Carrot's (rms 7.8), where blur and edges count
+for more and colour nothing; one set for both missed by 11. It is a
+REPORT: nothing steers by it yet.
 
 ###### 98.2.1.2.1 `--cut`: which changes a cut frame keeps (2026-10-06)
 

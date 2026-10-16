@@ -4939,14 +4939,19 @@ AHEAD = 256 << 20       # the most frames read ahead while a pass runs
 # and a broken patch counting SEEN_SPREAD of itself on its neighbours (a
 # fault on an object reads as the object broken); weighted by attention -
 # brightness, and motion against the camera's (the shot's shake taken out by
-# phase correlation). The weights are FITTED to the owner's scores of
-# GasGas 0:40.6-0:41.0 at 24 fps, frames 15-23: rms 2.7 points over nine
-# frames rated 17-62%, the clean frames 0 (the one miss frame 18, 25
-# against 31.5). A report line only: it steers nothing yet
+# phase correlation). TWO SETS OF WEIGHTS, FITTED to the owner's scores:
+# COLOUR on GasGas 0:40.6-0:41.0 at 24 fps, frames 15-23 (rms 2.7 points
+# over nine frames rated 17-62%, the clean frames 0; the one miss frame 18,
+# 25 against 31.5); GREY - a target whose every pixel is R = G = B - on Bad
+# Carrot 3:05-3:20, eight cut frames rated 5-90% (rms 7.8). One set for
+# both missed by 11 points, the car frames at half the owner's: "black and
+# white, so the blur ends up counting for more here, and edges matter
+# more" - and colour nothing, and a broken patch spilling onto none. A
+# report line only: it steers nothing yet
 SEEN_P = 16                 # the patch, canvas pixels
-SEEN_WL, SEEN_WC, SEEN_WB = 0.75, 0.25, 1.0
-SEEN_THR = 0.04             # a patch this wrong is broken (1.0)
-SEEN_SPREAD = 0.75
+#            brightness, colour, edges; broken at; spread; curve
+SEEN_COLOUR = (0.75, 0.25, 1.0, 0.04, 0.75, 1.0)
+SEEN_GREY = (1.0, 0.0, 2.0, 0.12, 0.0, 1.5)
 SEEN_BAD = 0.10             # a frame a tenth of whose view is broken
 
 
@@ -4985,8 +4990,11 @@ def seen_share(S, T, Tp=None):
     S = np.asarray(S, np.float32)
     T = np.asarray(T, np.float32)
     box = _seen_box
+    grey = T.ndim == 2 or float(np.abs(T[..., 0] - T[..., 1]).max()) < 0.01 \
+        and float(np.abs(T[..., 1] - T[..., 2]).max()) < 0.01
+    wl, wc, wb, thr, spread, curve = SEEN_GREY if grey else SEEN_COLOUR
+    lum = np.array([0.299, 0.587, 0.114], np.float32)
     if S.ndim == 3:
-        lum = np.array([0.299, 0.587, 0.114], np.float32)
         lS, lT = S @ lum, T @ lum
         opp = lambda a: (a[..., 0] - a[..., 1],
                          0.5 * (a[..., 0] + a[..., 1]) - a[..., 2])
@@ -4998,7 +5006,7 @@ def seen_share(S, T, Tp=None):
     gS, gT = _seen_grad(box(lS, 1)), _seen_grad(box(lT, 1))
     EB = np.abs(gS - gT)
     act = np.sqrt(np.maximum(box(lT * lT, 3) - box(lT, 3) ** 2, 0))
-    D = (SEEN_WL * EL + SEEN_WC * EC + SEEN_WB * EB) / (1.0 + 4.0 * act)
+    D = (wl * EL + wc * EC + wb * EB) / (1.0 + 4.0 * act)
     if Tp is not None and np.shape(Tp) == np.shape(T):
         Tp = np.asarray(Tp, np.float32)
         lP = Tp @ lum if Tp.ndim == 3 else Tp
@@ -5011,13 +5019,14 @@ def seen_share(S, T, Tp=None):
     h, w = lT.shape
     hh, ww = max(P, h // P * P), max(P, w // P * P)
     if h < P or w < P:
-        return float(np.minimum(1.0, D.mean() / SEEN_THR))
+        return float(np.minimum(1.0, D.mean() / thr) ** curve)
     pool = lambda a: a[:hh, :ww].reshape(hh // P, P, ww // P, P).mean((1, 3))
-    b = np.minimum(1.0, pool(D) / SEEN_THR)
-    pb = np.pad(b, 1, mode="edge")
-    nb = np.max(np.stack([pb[y:y + b.shape[0], x:x + b.shape[1]]
-                          for y in range(3) for x in range(3)]), 0)
-    b = np.maximum(b, SEEN_SPREAD * nb)
+    b = np.minimum(1.0, pool(D) / thr) ** curve
+    if spread:
+        pb = np.pad(b, 1, mode="edge")
+        nb = np.max(np.stack([pb[y:y + b.shape[0], x:x + b.shape[1]]
+                              for y in range(3) for x in range(3)]), 0)
+        b = np.maximum(b, spread * nb)
     pa = pool(np.broadcast_to(att, lT.shape))
     return float((b * pa).sum() / pa.sum())
 

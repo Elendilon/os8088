@@ -100,9 +100,34 @@ spread 0.75. Persistence (a patch broken in the frame before counting
 more) was fitted too and came out 0 on these frames: frame 18, nearly
 frame 17's picture, is the one miss (25 against 31.5).
 
-**Next**: a second clip (Bad Carrot) rated the same way before the score
-is trusted; then the clip's figure into the trial encodes (`--aim`,
-page-ahead's KEEP) beside today's; then section 3.
+**The second clip says the weights are the PICTURE's** (2026-10-16). Bad
+Carrot 3:05-3:20 on the owner's tune (Mode X, 64 greys, flipped, peak 4.8,
+lag 208 ms): eight cut frames, rated blind - the colour weights read them
+2-5 times too high (A 26% against 5, B 81 against 30, G 58 against 12),
+the order right. One set for both clips missed by 11 points on average,
+taking the car frames down to half the owner's - and the owner had said why
+first: "black and white, so the blur ends up counting for more here, and
+edges matter more". So a GREY target (every pixel R = G = B) has its own
+set, fitted on those eight (rms 7.8, "we're just going for general"):
+brightness 1.0, colour 0, edges 2.0, a patch broken at 0.12 on a curve of
+1.5, no spread. The clip reads 2.8% broken on average, worst 78.9%, and
+exactly its 46 cut frames register at all.
+
+| frame | the owner | seen_share (grey) |
+|---|---:|---:|
+| A | 5% | 3% |
+| B | 30% | 35% |
+| C | 50% | 62% |
+| D | 90% | 75% |
+| E | 10% | 9% |
+| F | 5% | 1% |
+| G | 12% | 13% |
+| H | 15% | 6% |
+
+**Next**: the clip's figure into the trial encodes (`--aim`, page-ahead's
+KEEP) beside today's; then section 3. A third kind of picture (a colour
+clip of flat cartoon colour, a 1-bit Hercules file) is a third check
+before the weights are assumed to generalise.
 
 ## 3. Using it in the encoder
 
