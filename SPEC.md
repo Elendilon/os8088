@@ -88018,6 +88018,13 @@ instruction; `tests/tgplay.py` (soak `tgplay`, `--ref` for the cycles) and
   below the band and the band itself, share `tg_band`; the board's frame and
   walk are `tg_draw_all`'s own middle instead of a call. Same calls, same
   order, same pixels; two `call`/`jmp` pairs more against ten `mul`s fewer.
+- **Three clamps that never fired.** `tg_track` clamped the matrix's left
+  edge at 0, but a cell is at most `[tg_cwid]`/32 so the matrix is never
+  wider than the box; the banner's centring clamped at 0 a pen `tg_str`
+  drops anyway (a negative one is dropped the same way, so `sar` replaces
+  the clamp and the shift); and the entry proc floored the REQUESTED cell at
+  1, which no desktop band reaches - `tg_track`'s floor is the one that
+  guards the drawing. Every frame's `tg_track` loses a taken branch.
 
 ## 50. memory.inc — the claim heap
 

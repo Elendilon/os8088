@@ -272,11 +272,12 @@ tg_entry:
     jbe .cap
     mov ax, TG_CSZ_MAX
 .cap:
-    or ax, ax
-    jnz .csz
-    inc ax
-.csz:
-    shl ax, cl                      ; AX = the matrix, 32 cells of it
+    shl ax, cl                      ; AX = the matrix, 32 cells of it. No
+                                    ; floor of 1 here: this is only the
+                                    ; REQUEST, the smallest desktop band
+                                    ; (CGA's 136 rows) holds 3px cells, and
+                                    ; the floor that guards the drawing is
+                                    ; tg_track's
     mov dx, TG_HUD_W                ; content width = max(matrix, HUD)
     cmp ax, dx
     jbe .wid
@@ -388,13 +389,10 @@ tg_track:
     mov [tg_csz], ax
     shl ax, cl
     mov [tg_boardpx], ax
-    mov dx, [tg_cwid]               ; centre the matrix under the HUD
-    sub dx, ax
-    jns .lok
-    xor dx, dx
-.lok:
-    shr dx, 1
-    mov [tg_bx0], dx
+    mov dx, [tg_cwid]               ; centre the matrix under the HUD. It
+    sub dx, ax                      ; cannot be wider than the box: a cell
+    sar dx, 1                       ; is at most [tg_cwid] / 32, and the box
+    mov [tg_bx0], dx                ; is never under TG_HUD_W
     popf
     pop ax
     ret
@@ -1612,13 +1610,10 @@ tg_draw_banner:
     mov al, CWHITE
     call OSAPI_SET_COLOR
     call OSAPI_FONT_WIDTH
-    mov cx, [tg_cwid]
-    sub cx, ax
-    jns .ok
-    xor cx, cx
-.ok:
-    shr cx, 1
-    mov dx, [tg_boardpx]
+    mov cx, [tg_cwid]               ; centred; a banner wider than the box
+    sub cx, ax                      ; comes out negative here, and tg_str
+    sar cx, 1                       ; drops it exactly as it dropped one
+    mov dx, [tg_boardpx]            ; clamped to 0 and then too wide
     shr dx, 1
     add dx, TG_HUD_H - 4
     ; ...into tg_str, which follows it
