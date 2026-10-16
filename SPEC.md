@@ -169077,10 +169077,8 @@ half), `NOLIVESND=1` 1,825, and `VPDIAG=1` assembles again at 57,062 +
 
 **A second pass, on cold CODE (2026-10-16)**, took **936 bytes of
 `.text`** in every arm and no bss against the unparted player it was cut on
-(the shipped arm 55,977 -> 55,041). Merged with the shared-code, data and
-parts lanes above, **846 of them survive in every arm** - part 0's `.text`
-50,923 -> **50,221** (`NOLIVESND=1` 50,692 -> 49,990, `VPDIAG=1` 52,277 ->
-51,575) and part 1 4,196 -> **4,042** (`VPDIAG=1` 4,202 -> 4,048); the
+(the shipped arm 55,977 -> 55,041). Merged with the shared-code and data
+lanes above, **846 of them survive in every arm**; the
 other 90 were sites the shared-code lane had already turned into a call of
 one of its routines, where what is left of the peephole went into the
 routine instead (`vp_kplain`'s chain ORed into AL, `vp_skfirst`'s flags
@@ -169145,6 +169143,28 @@ same `nop`s move the base by 300), not the code, which is identical or
 shorter on that path.
 `os88spk.inc` gave 18 bytes to every includer on the way (its ISRs' grant
 event jumps straight to `os88spk_isr.ev`).
+
+**Where the second pass landed (2026-10-16)**, all four lanes merged onto
+the tree after the #264 squash: `video.bin` **53,646 + 4,144 bss = 57,790
+of `APP_MAX_SIZE`'s 61,440, 3,650 to spare** (599 before), `NOLIVESND=1`
+57,561 (3,879), and `VPDIAG=1` 59,150 (2,290) - it assembles again. Lanes
+that were each even at their own base combine to ODD shifts, so the merge
+took one parity pass of its own, made of three odd cuts in the cold code in
+front of the three stretches that had moved (`vp_pevload`, `vp_crtc` with
+`vp_v8mono`, `vp_bseek`; -17, no pad), and two hot data words put back on
+their parity by MOVING a variable rather than adding a byte (`vp_rchk` after
+`vp_ptk`; the Buffering string past the library includes, which puts
+`os88alt_edge` back). `apps/video/rdiffhot.txt` now names every routine a
+frame reaches (the record's decode, the reader's fill, the page flips,
+Live's pass) and not only the loop's. Measured against the base on
+MartyPC's 5150, a frame decodes **257-385 cycles faster** and the hook a
+frame is faster on every kind, down and up. **A fifth lane, PARTING the
+player** (its open and its bench as a part 1 at the top of its own segment,
+Word's §68.10 shape: the ceiling 61,440 -> 65,024 for no resident byte),
+was built and is NOT taken: the two parts compress apart, part 1's code at
+94%, and the 1.5KB loader is raw, so the file was ~4 clusters bigger and
+took `apps360.img` past its 354. It is kept for the day the ceiling bites
+again.
 
 ### 98.2 The host tools — `tools/os88vid.py`
 
