@@ -78512,6 +78512,15 @@ clipboard commands tail-jump to the routine they gate. The gate's questions,
 its re-ask and its toasts are unchanged. **−27 image, −7 file**; the small arm
 has no gate (42.22.1.3).
 
+**A press on the canvas is one indirect call.** `pt_canvas_click` compared
+the tool in hand against each tool in turn and gave every arm its own
+`call`/`jmp .out`; it is `call [pt_cctab + tool * 2]` now, with the pencil,
+eraser, shape and selection arms tail-jumping into the routine they run and
+the dropper and the fill named in the table directly. The text tool keeps
+its branch, being the one that must not end a text run, and two `times`
+lines refuse an assembly whose table and `PTTOOL` order disagree. Same
+routines, same order. **−33 image, −29 file, −18 on the small arm.**
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather

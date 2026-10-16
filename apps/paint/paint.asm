@@ -6939,56 +6939,15 @@ pt_strip_click:
 pt_canvas_click:
     push ax
     push bx
-    mov al, [pt_tool]
-%ifdef PTF_CLIP
-    cmp al, PT_T_SEL
-    je .sel
-%endif
-    cmp al, PT_T_TEXT
+    mov bl, [pt_tool]
+    cmp bl, PT_T_TEXT
     je .text
     call pt_text_end                ; any other tool ends a text run...
     call pt_sel_drop                ; ...and drawing deselects
-    mov al, [pt_tool]
-    cmp al, PT_T_PENCIL
-    je .pencil
-    cmp al, PT_T_ERASER
-    je .eraser
-    cmp al, PT_T_DROP
-    je .drop
-    cmp al, PT_T_FILL
-    je .fill
-    cmp al, PT_T_RECT
-    je .shape
-    cmp al, PT_T_OVAL
-    je .shape
+    xor bh, bh                      ; then ONE indirect call by the tool index
+    add bx, bx                      ; (apps size pass 2: it was a compare per
+    call [pt_cctab+bx]              ; tool, and every tool's own epilogue)
     jmp short .out
-.pencil:
-    mov al, [pt_col]
-    mov [pt_ink], al
-    call pt_stroke
-    jmp short .out
-.eraser:
-    mov byte [pt_ink], CWHITE
-    call pt_stroke
-    jmp short .out
-.drop:
-    call pt_pick
-    jmp short .out
-.fill:
-    call pt_flood
-    jmp short .out
-.shape:
-    call pt_rubber
-    call pt_shape_commit
-    jmp short .out
-%ifdef PTF_CLIP
-.sel:
-    call pt_text_end
-    call pt_sel_drop
-    call pt_rubber
-    call pt_sel_take
-    jmp short .out
-%endif
 .text:
     call pt_sel_drop
     call pt_text_place
@@ -6996,6 +6955,39 @@ pt_canvas_click:
     pop bx
     pop ax
     ret
+.pencil:
+    mov al, [pt_col]
+    mov [pt_ink], al
+    jmp pt_stroke
+.eraser:
+    mov byte [pt_ink], CWHITE
+    jmp pt_stroke
+.shape:
+    call pt_rubber
+    jmp pt_shape_commit
+%ifdef PTF_CLIP
+.sel:
+    call pt_rubber
+    jmp pt_sel_take
+%endif
+
+; The tool in hand's press, by PTTOOL's own order; the text tool, which is
+; LAST, keeps the branch above because it must not end its own text run
+pt_cctab:
+    dw pt_canvas_click.pencil       ; PT_T_PENCIL
+    dw pt_canvas_click.eraser       ; PT_T_ERASER
+    dw pt_pick                      ; PT_T_DROP
+    dw pt_canvas_click.shape        ; PT_T_RECT
+    dw pt_canvas_click.shape        ; PT_T_OVAL
+%ifdef PTF_CLIP
+    dw pt_canvas_click.sel          ; PT_T_SEL
+%endif
+    dw pt_flood                     ; PT_T_FILL
+%if PT_T_FILL + 1 != PT_T_TEXT
+%error "pt_cctab assumes the text tool is the last one after the fill"
+%endif
+    times (pt_cctab + 2 * PT_T_TEXT) - $ db 0   ; ...and that every tool before
+    times $ - (pt_cctab + 2 * PT_T_TEXT) db 0   ; it has exactly one entry
 
 ; -----------------------------------------------------------------------------
 ; pt_pick - the dropper: adopt the colour under the press
