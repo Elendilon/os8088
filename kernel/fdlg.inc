@@ -1213,6 +1213,9 @@ section .cold                   ; far entries (SPEC.md 2.6): the resident
 ; far-calls in through fdx_go (and os88ui_btn_f), and tools/os88ovlchk.py's own
 ; `EXTRA` table - which files this include as `.cold` - stays true.
 %define OS88UI_KERNEL
+%ifdef KERN_SMALL              ; ...and on kern_small the glyph is CTRL.DRV's
+%define OS88UI_KGLYPH .modu    ; alone, so it goes into that image's section
+%endif                         ; (os88ui.inc says how; kernel size pass 13)
 %define OS88UI_SCROLL          ; SPEC.md 13.10: the Disk window's bar uses it
                                ; OS88UI_SBDRAG - SPEC.md 13.10.5's thumb drag -
                                ; is NOT defined here. It has to be resolved

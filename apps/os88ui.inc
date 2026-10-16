@@ -94,11 +94,22 @@
 ; =============================================================================
 
 %ifdef OS88UI_KERNEL
+  ; OS88UI_KFAR: the block being assembled is NOT in `.cold` but in an
+  ; on-demand image (OS88UI_KGLYPH below), so the three primitives it reaches
+  ; are far calls to their shims rather than near calls to the trampolines
   %macro UI_FRAME 0
+   %ifdef OS88UI_KFAR
+    call KERNEL_SEG:cw_gfx_frame
+   %else
     call ct_cw_gfx_frame
+   %endif
   %endmacro
   %macro UI_FILL 0
+   %ifdef OS88UI_KFAR
+    call KERNEL_SEG:cw_gfx_fill
+   %else
     call ct_cw_gfx_fill
+   %endif
   %endmacro
   %macro UI_RUN 0                   ; text: the OPAQUE run (SPEC.md 6.1), and
     call ct_cw_font_run             ; the only text this file draws
@@ -107,7 +118,11 @@
     call ct_font_width
   %endmacro
   %macro UI_PEN 0
+   %ifdef OS88UI_KFAR
+    call KERNEL_SEG:cw_gfx_pen_cf
+   %else
     call ct_cw_gfx_pen_cf
+   %endif
   %endmacro
   %macro UI_ICON 0                  ; SPEC.md 25.6: the masked 1bpp sprite
     call KERNEL_SEG:cw_icon_draw    ; pass - CX = x, DX = y, SI -> record
@@ -1078,6 +1093,23 @@ os88ui_bhit:
 ; package that draws no check box and no radio carries them for nothing -
 ; Tracker, whose buttons are pictures and captions only (SPEC.md 13.8.9).
 ; Unset, every consumer is byte-identical.
+; OS88UI_KGLYPH (kernel/fdlg.inc, kern_small): the glyph's only caller on
+; that build is the Control Panel, which is CTRL.DRV - so the glyph, its ring
+; and its dot are assembled INTO CTRL.DRV's image there, `.modu`, and the
+; panel near-calls them; kern_big's stay in `.cold`, where the panel reaches
+; them through its CPXC hop (kernel size pass 13). The `section .cold` that
+; ends this block is the one below OS88UI_NOBTN's %endif. The section is
+; NAMED BY THE INCLUDER (OS88UI_KGLYPH = `.modu`) and not spelled here:
+; tools/os88ovlchk.py reads this file as `.cold` for both kernels, and a
+; literal section line here would file the glyph as the image's on kern_big
+; too, where `.cold` is exactly right
+%ifdef OS88UI_KGLYPH
+ %ifndef OS88UI_KERNEL
+  %error "OS88UI_KGLYPH is the kernel's: a package's glyph is in its own image"
+ %endif
+section OS88UI_KGLYPH
+ %define OS88UI_KFAR
+%endif
 %ifdef OS88UI_NOGLYPH
  %ifdef OS88UI_CHK
   %error "OS88UI_CHK draws os88ui_glyph, which OS88UI_NOGLYPH takes out"
@@ -1382,6 +1414,9 @@ os88ui_glyph:
     ret
 
 %endif                          ; OS88UI_NOGLYPH
+%ifdef OS88UI_KGLYPH
+ %undef OS88UI_KFAR
+%endif
 %endif                          ; OS88UI_NOBTN
 %ifdef OS88UI_KERNEL
 section .cold
