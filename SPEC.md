@@ -79184,6 +79184,7 @@ half of `sol_mkback`, which run at launch and on an adapter change only.
 | the metric records carry their DERIVED fields | −58 | −52 | −47 / −47 |
 | `sol_entry` saves no registers | −6 | −6 | 0 / 0 |
 | the 16x16 masks are stored as their left halves | −16 | −19 | 0 / 0 |
+| `sol_entry`'s placement: two dead clamps, one register | −10 | −10 | 0 / 0 |
 
 **The metric records carry their derived fields.** `sol_metrics` copied a
 record of fourteen bytes into words and then worked out four more from them -
@@ -79220,6 +79221,14 @@ saved too little to pay for its own unpacking. Checked on the host: the
 mirrored words are the old tables to the byte, and the loop is ~4-5 ms of
 launch at 4.77 MHz (an estimate from instruction timings: 80 rows of an
 eight-step reversal).
+
+**`sol_entry`'s placement** lost two clamps that could not fire: the slack
+the window is placed a third of the way down is at least the one pixel the
+height is clamped short of the dock by, and the widest frame (258) is
+narrower than the narrowest screen (640), so neither difference can go
+negative. The clamped height's band is kept in BX and the slack taken from
+it, where it was re-derived from the dock row. The same window lands on the
+same pixel.
 
 ### 43.12 `APP_SMALL` — the small build of this package
 

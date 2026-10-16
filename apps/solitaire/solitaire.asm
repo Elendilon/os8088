@@ -3084,9 +3084,10 @@ sol_entry:                          ; (SI and DI are not saved: SPEC.md
                                     ; frame height. Both ARE the published
                                     ; preference's numbers for the record
                                     ; (the two are one formula, at the top)
-    pop dx                          ; DX = the dock's first row
-    mov bx, dx                      ; ...clamped to the desktop band, and ONE
-    sub bx, MBAR_H + 1              ; PIXEL SHORT of it: the kernel tests
+    pop bx                          ; BX = the dock's first row...
+    sub bx, MBAR_H + 1              ; ...and the height clamped to the
+                                    ; desktop band, and ONE PIXEL SHORT of
+                                    ; it: the kernel tests
                                     ; y+h against the dock's first row with
                                     ; `jae`, because the drop shadow lives on
                                     ; row y+h - so a frame that merely REACHES
@@ -3104,23 +3105,17 @@ sol_entry:                          ; (SI and DI are not saved: SPEC.md
 .hok:
     mov [sol_tpl + WT_H], ax
 
-    xchg ax, dx                     ; a third of the slack down...
-    sub ax, MBAR_H
-    sub ax, dx
-    jns .yok
-    xor ax, ax
-.yok:
-    xor dx, dx
+    sub bx, ax                      ; a third of the slack down - which is
+    xchg ax, bx                     ; at least the one pixel above, so never
+    inc ax                          ; negative, and `cwd` is the zero high
+    cwd                             ; word the divide wants
     mov bx, 3
     div bx
     add ax, MBAR_H
     mov [sol_tpl + WT_Y], ax
-    pop ax                          ; ...and centred across
-    sub ax, [sol_tpl + WT_W]
-    jns .xok
-    xor ax, ax
-.xok:
-    shr ax, 1
+    pop ax                          ; ...and centred across: the widest frame
+    sub ax, [sol_tpl + WT_W]        ; (258) is narrower than the narrowest
+    shr ax, 1                       ; screen (640), so this is never negative
     mov [sol_tpl + WT_X], ax
 
     call OSAPI_GET_TICKS            ; seeded ONCE: every later New Game walks
