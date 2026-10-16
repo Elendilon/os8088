@@ -1613,20 +1613,8 @@ sol_ret:                            ; OS88_REGION_MOVABLE's relocation proc:
 sol_pilexy:
     push ax
     push bx
-    cmp al, P_STOCK
-    je .c0
-    cmp al, P_WASTE
-    je .c1
-    cmp al, P_FND0
-    jb .have                        ; a tableau pile IS its column
-    sub al, P_FND0 - 3              ; the foundations take columns 3..6
-    jmp .have
-.c0:
-    xor al, al
-    jmp .have
-.c1:
-    mov al, 1
-.have:
+    mov bx, sol_pcol                ; the pile's column (a table: four
+    xlatb                           ; compares and their branches were bigger)
     mov bl, [sol_pitch]             ; the pitch is far under 256
     mul bl                          ; AX = column * pitch
     add ax, [sol_marg]
@@ -2937,6 +2925,14 @@ sol_ab4:     db 'Contributed by Elendilon', 0
 ; needs two glyphs, and sol_drawface spells it out.
 sol_rankch:
     db 'A', '2', '3', '4', '5', '6', '7', '8', '9', 0, 'J', 'Q', 'K'
+
+; --- the column each pile sits in (sol_pilexy): a tableau pile IS its
+; column, the foundations take columns 3..6, the stock 0 and the waste 1
+sol_pcol:
+    db 0, 1, 2, 3, 4, 5, 6, 3, 4, 5, 6, 0, 1
+%if $ - sol_pcol != SOL_NPILE || P_TAB0 != 0 || P_FND0 != 7 || P_STOCK != 11 || P_WASTE != 12
+%error "sol_pcol is indexed by pile"
+%endif
 
 ; --- where each pile starts in sol_pile (sol_pilebase): the columns, the
 ; foundations, the stock and the waste, each at the depth its kind reaches

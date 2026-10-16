@@ -79188,6 +79188,7 @@ by taking instructions OUT of the path it is on, and they are measured below.
 | the 16x16 masks are stored as their left halves | −16 | −19 | 0 / 0 |
 | `sol_entry`'s placement: two dead clamps, one register | −10 | −10 | 0 / 0 |
 | `sol_track` keeps the origin once | −6 | −6 | −11 / −11 |
+| `sol_pilexy` reads a pile's column from a table | −5 | −5 | −5 / −5 |
 
 **The metric records carry their derived fields.** `sol_metrics` copied a
 record of fourteen bytes into words and then worked out four more from them -
@@ -79240,6 +79241,12 @@ origin) - and nothing but `sol_track` writes either pair, so the two were
 always equal by the time anything compared them. It compares against the
 pair it already has and stores only on a change: two stores fewer on every
 callback, four bytes of `.bss` and six of code.
+
+**`sol_pilexy` reads a pile's column from a table.** Which column a pile
+sits in - itself for a tableau column, 3..6 for the foundations, 0 for the
+stock and 1 for the waste - was four compares and their branches, 22 bytes;
+it is `xlatb` over `sol_pcol`, thirteen bytes of table and four of code, and
+the same column for every pile without a branch taken.
 
 ### 43.12 `APP_SMALL` — the small build of this package
 
