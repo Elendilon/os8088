@@ -776,7 +776,7 @@ ark_layout:
 ; in:  SI = window ptr; caller holds the gfx lock
 ; out: nothing; preserves all registers
 ;
-; The three "owed" flags are cleared here, not just in ark_render's own full
+; The three "owed" flags are cleared here, not just in the worker draw's full
 ; branch: ark_draw_all satisfies all three, and W_PAINT is the OTHER caller
 ; of it. Left set, the worker's very next frame drew the whole board a second
 ; time - most visibly on the launch, where ark_newgame raises [ark_full] and
@@ -1020,7 +1020,7 @@ ark_refocus:
 ; field is exactly the rectangle a notice wants anyway.
 ;
 ; Two rules make it safe against the worker, which is drawing the same content
-; eighteen times a second. [ark_abon] is checked by ark_render UNDER THE LOCK,
+; eighteen times a second. [ark_abon] is checked by the worker UNDER THE LOCK,
 ; right after the clip is armed, and the frame is dropped whole while it is
 ; set - so the worker never paints over the panel and the UI task owns the
 ; content until the panel comes down. And the game is PAUSED while it is up:
@@ -1052,7 +1052,7 @@ ark_about:
 ;
 ; The two UI-task paths that draw outside W_PAINT - the credits going up and
 ; coming down - drew with NO clip armed, so a window over ours took the board
-; across its content (SPEC.md 11.3, the rule ark_render already keeps). Not one
+; across its content (SPEC.md 11.3, the rule the worker's draw keeps). Not one
 ; pixel visible draws nothing and leaves the whole frame owed.
 ; -----------------------------------------------------------------------------
 ark_clipdraw:
@@ -1101,8 +1101,8 @@ ark_abdismiss:
 ;
 ; One frame a tick. The sleep is what sets the frame rate AND what keeps the
 ; machine usable: a worker that spun would starve the UI task it shares the
-; scheduler with. Everything is lock-free except ark_render, which takes the
-; lock for one short burst of drawing (rule 3).
+; scheduler with. Everything is lock-free except the drawing half at .draw,
+; which takes the lock for one short burst (rule 3).
 
 ; -----------------------------------------------------------------------------
 ; ark_worker - THE background task
@@ -1112,8 +1112,8 @@ ark_abdismiss:
 ;
 ; One frame a tick. The sleep is what sets the frame rate AND what keeps the
 ; machine usable: a worker that spun would starve the UI task it shares the
-; scheduler with. Everything is lock-free except ark_render, which takes the
-; lock for one short burst of drawing (rule 3).
+; scheduler with. Everything is lock-free except the drawing half at .draw,
+; which takes the lock for one short burst (rule 3).
 ; -----------------------------------------------------------------------------
 ark_worker:
     call OSAPI_GET_TICKS
@@ -1170,9 +1170,74 @@ ark_worker:
     jmp short .draw
 .next:
     call ark_nextwall
-.draw:
-    call ark_render
+.draw:                              ; ...and DRAW it: the worker's ONE lock
+                                    ; hold a frame. This was ark_render, with
+                                    ; one caller - here - and six saves this
+                                    ; loop never needed (SPEC.md 44.12).
+    ; Rule 5 of SPEC.md 20.6, and the reason the clip exists: windows move and
+    ; get buried while we sleep, and the gfx_* primitives take absolute screen
+    ; coordinates. Without the clip a covered game paints over whatever is on
+    ; top of it. CF = 1 means not one pixel of our content shows - so the
+    ; drawing is skipped and the game keeps running, which is exactly what the
+    ; kernel's own Bounce does. [ark_full] survives the skip, so whatever was
+    ; owed still gets drawn on the first frame that shows.
+    call OSAPI_GFX_LOCK
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov bx, [ark_win]
+    test word [es:bx + W_FLAGS], 2  ; still visible?
+    jz .skip
+    mov si, bx
+    call ark_track                  ; the window may have been dragged
+    mov bx, [ark_win]
+    call OSAPI_WM_CLIP_SET
+    jc .skip
+    cmp byte [ark_abon], 0          ; the credits are up: the UI task owns the
+    jne .skip                       ; content until a click or a key takes them
+                                    ; down, and the game is paused underneath
+    cmp byte [ark_full], 0
+    je .parts
+    call ark_draw_full
+    jmp short .unlock
+.parts:
+    call ark_wipe_pu
+    call ark_wipe_shots
+    call ark_draw_bricks_dirty
+    call ark_move_paddle
+    call ark_move_ball
+    call ark_draw_pu
+    call ark_draw_shots
+    cmp byte [ark_stat], 0
+    je .msg
+    mov byte [ark_stat], 0
+    call ark_draw_status
+.msg:
+    cmp byte [ark_msg], 0
+    je .unlock
+    mov byte [ark_msg], 0
+    call ark_clear_msg
+    call ark_draw_msg
+    jmp short .unlock
+
+    ; --- a frame that drew nothing owes a WHOLE one -------------------------
+    ; the worker's update half ran and moved everything; the screen did not
+    ; follow. Every erase this module does is aimed at where something was
+    ; last DRAWN, so
+    ; one skipped frame is survivable - but that is an invariant six separate
+    ; pieces of state have to keep, and it cost a stranded capsule once
+    ; already (SPEC.md 44.4).
+    ;
+    ; In practice the kernel repaints us anyway: un-hiding goes through
+    ; wm_show, uncovering through wm_paint_dmg, and both end in W_PAINT. That
+    ; is a guarantee this module cannot enforce and does not own - and it is
+    ; being actively narrowed (SPEC.md 11.90/11.91 exist to make W_PAINT run
+    ; LESS often). One byte buys independence from it.
+.skip:
+    mov byte [ark_full], 1
+.unlock:
+    call OSAPI_GFX_UNLOCK
     jmp .loop
+
 
 ; -----------------------------------------------------------------------------
 ; ark_focuschk - pause the rally if the player has gone somewhere else
@@ -1204,7 +1269,7 @@ ark_worker:
 ; Runs on the WORKER, holding no lock. That is what both of those slots are
 ; for: neither takes a lock or touches VRAM - one reads wm_zord, the other one
 ; word - so a background task may ask every frame. Drawing the banner is not
-; done here: [ark_full] makes the next ark_render frame repaint under the gfx
+; done here: [ark_full] makes the worker's next frame repaint under the gfx
 ; lock, where drawing belongs.
 ; -----------------------------------------------------------------------------
 ark_focuschk:
@@ -2098,7 +2163,7 @@ ark_do_pu:
     mov [ark_puy+bx], ax            ; where the capsule was last DRAWN, and
                                     ; ark_draw_pu is the only thing that knows
                                     ; that. Moved here, it drifts from the
-                                    ; pixels the moment ark_render skips a
+                                    ; pixels the moment the worker skips a
                                     ; frame - and then the erase misses
     mov cx, ax                      ; caught? its bottom against the paddle
     add cx, ARK_PUH
@@ -2525,88 +2590,6 @@ ark_build:
 ; =============================================================================
 ; Drawing
 ; =============================================================================
-
-; -----------------------------------------------------------------------------
-; ark_render - the worker's one lock hold a frame
-; preserves all registers
-;
-; Rule 5 of SPEC.md 20.6, and the reason the clip exists: windows move and get
-; buried while we sleep, and the gfx_* primitives take absolute screen
-; coordinates. Without the clip a covered game paints over whatever is on top
-; of it. CF = 1 means not one pixel of our content shows - so the drawing is
-; skipped and the game keeps running, which is exactly what the kernel's own
-; Bounce does. [ark_full] survives the skip, so whatever was owed still gets
-; drawn on the first frame that shows.
-; -----------------------------------------------------------------------------
-ark_render:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    call OSAPI_GFX_LOCK
-    mov ax, KERNEL_SEG
-    mov es, ax
-    mov bx, [ark_win]
-    test word [es:bx + W_FLAGS], 2  ; still visible?
-    jz .skip
-    mov si, bx
-    call ark_track                  ; the window may have been dragged
-    mov bx, [ark_win]
-    call OSAPI_WM_CLIP_SET
-    jc .skip
-    cmp byte [ark_abon], 0          ; the credits are up: the UI task owns the
-    jne .skip                       ; content until a click or a key takes them
-                                    ; down, and the game is paused underneath
-    cmp byte [ark_full], 0
-    je .parts
-    call ark_draw_full
-    jmp short .unlock
-.parts:
-    call ark_wipe_pu
-    call ark_wipe_shots
-    call ark_draw_bricks_dirty
-    call ark_move_paddle
-    call ark_move_ball
-    call ark_draw_pu
-    call ark_draw_shots
-    cmp byte [ark_stat], 0
-    je .msg
-    mov byte [ark_stat], 0
-    call ark_draw_status
-.msg:
-    cmp byte [ark_msg], 0
-    je .unlock
-    mov byte [ark_msg], 0
-    call ark_clear_msg
-    call ark_draw_msg
-    jmp short .unlock
-
-    ; --- a frame that drew nothing owes a WHOLE one -------------------------
-    ; the worker's update half ran and moved everything; the screen did not
-    ; follow. Every erase this module does is aimed at where something was
-    ; last DRAWN, so
-    ; one skipped frame is survivable - but that is an invariant six separate
-    ; pieces of state have to keep, and it cost a stranded capsule once
-    ; already (SPEC.md 44.4).
-    ;
-    ; In practice the kernel repaints us anyway: un-hiding goes through
-    ; wm_show, uncovering through wm_paint_dmg, and both end in W_PAINT. That
-    ; is a guarantee this module cannot enforce and does not own - and it is
-    ; being actively narrowed (SPEC.md 11.90/11.91 exist to make W_PAINT run
-    ; LESS often). One byte buys independence from it.
-.skip:
-    mov byte [ark_full], 1
-.unlock:
-    call OSAPI_GFX_UNLOCK
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; ark_draw_all - the whole content
@@ -3274,7 +3257,7 @@ ark_draw_pu:
 ; dimension over.
 ;
 ; It refuses rather than clamping when `d` is larger than the blank margin -
-; a frame ark_render skipped - because the honest fallback is the old path,
+; a frame the worker skipped - because the honest fallback is the old path,
 ; which erases what it has to and does not care how far anything moved.
 ; -----------------------------------------------------------------------------
 ark_blit_pu:
@@ -3545,7 +3528,7 @@ ark_wipe_pu:
                                     ; of capsule black down the glass every
                                     ; frame - SPEC.md 44.10.6.2
     mov bx, si                      ; since it was last drawn. Two rows in the
-    add bx, bx                      ; ordinary frame; more if ark_render
+    add bx, bx                      ; ordinary frame; more if the worker
     mov ax, [ark_puy+bx]            ; skipped one and the capsule kept moving;
     sub ax, [ark_puold+bx]          ; NONE if it has not moved since, which is
     jbe .next                       ; every frame of the pause after a death

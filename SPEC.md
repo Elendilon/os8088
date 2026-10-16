@@ -80432,6 +80432,12 @@ pass leaves binding:
   instructions less a `call` and a `ret` every frame, and the death/clear
   pause tests the mode in AL, which it was just loaded into, instead of
   re-reading `[ark_mode]`. The worker's static stack chain is 62 bytes, not 64.
+- **...and so is the draw half.** `ark_render` (the one lock hold a frame,
+  everything the sections above say of it unchanged) is the loop's `.draw`
+  now: the same instructions less a `call`, a `ret` and six register saves
+  the loop never needed. The routines `tests/arkpuwipe.py` stubs to a `ret`
+  (`ark_do_ball`, `ark_do_launch`, `ark_do_shots`, `ark_do_paddle`,
+  `ark_draw_msg`) stay routines.
 - **The window's y is placed off the clamp's own register.** The height is
   clamped to `dock - MBAR_H - 1`, so that register less the height is the
   slack less one and cannot be negative; the old re-derivation from
