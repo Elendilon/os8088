@@ -124590,8 +124590,8 @@ measured on, and MartyPC has no NIC to measure a change to it with).
 
 | | before | after |
 |---|---:|---:|
-| `ftpd.o88` (file) | 12,291 | 11,879 |
-| image | 14,746 | 14,135 |
+| `ftpd.o88` (file) | 12,291 | 11,861 |
+| image | 14,746 | 14,089 |
 | image + bss (the region) | 26,624 | 25,600 |
 
 - **The entry proc's declaration is the NOKEEP form** (§66.6.1.1), moved
@@ -124655,6 +124655,13 @@ measured on, and MartyPC has no NIC to measure a change to it with).
   is to be KEPT - where three exits each popped and set a flag, and
   `fd_data_abort`/`fd_data_drop` load their verb and fall into the shared
   body instead of each calling it.
+- **Three more shared tails** (-18 file bytes, image -46): `fd_endsess` is
+  the teardown `fd_bye` and `fd_shutdown` both did once the data handles
+  were gone; `fd_log2` terminates and logs a line composed at `fd_outb2`,
+  which eight sites spelled out, and falls into `fd_log`; and `fd_command`
+  holds the line's end in DX for the parse rather than reading `[fd_lend]`
+  three times a character, with its two refusals (530, 502) sharing one
+  `call fd_reply`.
 
 ## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
 
