@@ -169239,6 +169239,24 @@ late; Hercules 12 -> 4, 3 and 3. The 22 s of cuts from 33 s, silent, played
 on MartyPC's 5150 (`os88vidprof --hdd`): 660 frames, 0 late, 0 stalls,
 401 ticks against 400.5, the hook held off 2 periods at most.
 
+**`--min-fps F`: a VARIABLE FRAME RATE** (options version 37, 0 - off -
+by default; docs/plans/VIDEO-SEEN-PLAN.md 3a). Where the budgets would
+cut a frame, and at a scene's first frame, the next half-second is
+encoded on copies of the encoder at each rate down to F (5/6, 2/3, 1/2,
+1/3, 1/4 of the frame rate) and the least broken, by the view as seen
+(98.2.1.2), is taken for it. A slower rate HOLDS frames, and a held
+frame's record draws toward the next frame shown, which finishes it - an
+empty hold cannot raise the per-frame ceiling, the player drawing the
+records that are due and starting none early. A held frame is judged
+against the picture it draws, plus 2 points for its choppiness
+(`VFR_HOLD`), and at a scene start the full rate's first frame draws the
+coarse cut's cells (98.2.1.9), so a slower rate is weighed against what
+the encoder does without it. GasGas 0:40-0:50 at 24 fps: the view 6.8%
+broken, 5.3% with `--min-fps 12`, 5.0% at 20 fps throughout; Take On Me
+0:15-0:30 5.5% -> 4.8%. Not on a flipped, page-ahead, layered or Live
+file; `OS88_VENC_VFRLOG=FILE` logs every decision. No format change: a
+held frame is an ordinary record.
+
 ##### 98.2.1.2 What a cut frame spends on: the look-ahead and the error as seen
 
 **A frame the budgets cut sends its changes best first, and two things now

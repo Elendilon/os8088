@@ -1,6 +1,6 @@
 # VIDEO-SEEN-PLAN - "error as seen" as a person sees it, and an encoder that spends by it
 
-**Status: section 2's score BUILT as a report line (2a, 2026-10-16), in three sets - colour, grey and 1-bit dither - and judging `--aim quality`'s trials and page-ahead's keep beside today's figure; section 3 BUILT as two options, `--edges 1` the default and `--attend` off; the rest is PLAN.** Recorded from the owner's
+**Status: section 2's score BUILT as a report line (2a, 2026-10-16), in three sets - colour, grey and 1-bit dither - and judging `--aim quality`'s trials and page-ahead's keep beside today's figure; section 3 BUILT as two options, `--edges 1` the default and `--attend` off; 3a's wave 1 BUILT as `--min-fps`, off until watched; the rest is PLAN.** Recorded from the owner's
 review of the GasGas and Bad Carrot comparison encodes, and parked while
 the encoder's choice in one scene is fixed first: the opening car shot of
 GasGas (0:40), which the owner's own tune plays clean on the Victory 286
@@ -294,6 +294,78 @@ a ladder bounded by today's whole-screen mean would let the car break
 
 **Also owed**: the palette step-down is 16 colours' only; the ladder is the
 natural place to give the other formats theirs.
+
+**Wave 1 (2026-10-16): VARIABLE FRAME RATE, `--min-fps F`.** The owner:
+the goal is "variable framerate - slowing down to X when it would have
+drawn better", and the hold is only the means. Built so:
+- **Where**: at the first frame the budgets would cut (on a copy:
+  `vfr_cut`), and at a scene's first frame, the next half-second
+  (`VFR_SPAN`, stopping short of the next scene's palette) is encoded on
+  copies of the encoder at each rate down to F - 5/6, 2/3, 1/2, 1/3, 1/4 of
+  the rate (`VFR_RATES`, `vfr_pattern`: the stretch's first frame held, its
+  last always drawn) - and the rate whose stretch is least broken is
+  committed for it. The full rate's verdict is committed for two frames
+  only (`VFR_AGAIN`), so a cut a frame or two on is asked again: committed
+  for the stretch, the car shot's 12 fps decision never came.
+- **A held frame DRAWS TOWARD THE NEXT FRAME SHOWN**, which finishes it.
+  An EMPTY hold was built first and bought nothing on the car: its frames
+  are cut by the per-frame ceiling, which a hold does not raise (the
+  player draws the records that are due and starts none early), and the
+  frame after an empty hold has two frames' change to draw. Drawn toward
+  the next, the held period's CPU and bytes go into that picture.
+- **Judged by the view as seen, a held frame against the picture it
+  draws** (it is the first half of the next one, as a slower file's frame
+  is drawn over the same time), plus `VFR_HOLD`, 2 points, for its
+  choppiness. Judged against its own moment's target the motion it skips
+  read as breakage and the car was never slowed. `VFR_HOLD` is a GUESS
+  until the owner's eye sets it.
+- **At a scene start it competes with the coarse cut** (98.2.1.9): the
+  full rate's first frame draws the cells, as today, and a slower rate
+  that wins draws the scene in full detail instead.
+- **The report** says which stretches slowed to what; held frames are
+  measured as the decision measured them. `OS88_VENC_VFRLOG=FILE` logs
+  every decision.
+
+Measured (each clip on its own options; GasGas 0:40-0:50 the old tune
+without its layer, page-ahead off, at lag 0; Take On Me 0:15-0:30):
+
+| clip | arm | the view broken | s a tenth broken | s visibly broken |
+|---|---|---:|---:|---:|
+| GasGas | 24 fps | 6.80% | 1.5 | 0.4 |
+| | `--min-fps 12` | **5.31%** | 1.2 | 0.4 |
+| | 20 fps throughout | 5.0% | 0.9 | 0.3 |
+| GasGas, lag 100 | 24 fps | 6.41% | 1.3 | 0.5 |
+| | `--min-fps 12` | 5.86% | 1.1 | 0.4 |
+| Take On Me | 24 fps | 5.5% | 1.9 | 7.8 |
+| | `--min-fps 12` | **4.8%** | 1.6 | 6.2 |
+
+The car frames 14-25: 36 63 51 25 36 26 37 19 22 0 0 0 at 24 fps, 36 63 51
+40 4 20 29 0 0 19 5 0 slowed. Its first three are a scene change - its
+palette arrives at frame 15 and the content a frame before - and break at
+20 fps throughout too. The encode takes ~15% longer on GasGas (285 s ->
+328 s) and the default is OFF until the owner has watched it.
+
+Not on a flipped file (every record flips, so a held one would show the
+page two frames back), a layered file or a Live one, and in wave 1 not on
+a page-ahead file either.
+
+**Wave 2: variable frame rate WITH page-ahead** (the owner: "page ahead
+is pretty critical to things like gasgas54"). Page-ahead's plan pass is
+the plain encode and its real pass replays the plan's budgets, so both
+must hold the SAME frames: the plan pass decides the rates and records
+its holds in the plan (`plog`, beside each frame's `why`), the real pass
+holds exactly those and decides none of its own, and the prune's third
+pass keeps them. And on a page-ahead file a held frame has a better place
+to draw than the shown page: the HIDDEN page, flipped to when the next
+frame is whole - the held period's CPU spent where nobody sees it torn. Two
+questions it must answer first: a held frame is not a cut, so it is not a
+page-ahead TARGET (a cut run that a hold ends early is shorter, and its
+first frame may move); and the hidden page's spending in a held period is
+the hold's CPU and bytes, which is exactly what the frame after it was
+counting on - so a held period spends on the hidden page only what the
+next frame's whole draw leaves, or the hold buys nothing. A flipped file's
+hold (a record that writes the back page up to the shown one and does not
+flip) is a format question and a wave of its own.
 
 ## 4. The order
 

@@ -831,7 +831,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 36
+OPTS_VERSION = 37
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -859,7 +859,8 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     30: "60532ee7474b8d76",
                     31: "09f14123f968592f", 32: "413eeac77e2d4441",
                     33: "1cb11afeb374b243", 34: "60df56fd426010fd",
-                    35: "e1090fc6c20c5367", 36: "25f9e2036a3d5380"}
+                    35: "e1090fc6c20c5367", 36: "25f9e2036a3d5380",
+                    37: "e13ee2ecdb9dc517"}
 LAG_MS = 100.0          # --lag's default (98.2.1.1.2), the owner's (2026-10-15):
                         # how far behind a picture may be without the eye
                         # minding is the VIDEO's - Bad Carrot's flames ran
@@ -1015,6 +1016,9 @@ MIGRATIONS = {
     # 36: --attend and --edges (VIDEO-SEEN-PLAN 3) - a file made before
     # them spent a cut frame by the error as seen alone
     35: [("added", "attend", 0.0), ("added", "edges", 0.0)],
+    # 37: --min-fps (VIDEO-SEEN-PLAN 3a) - a file made before it ran at
+    # one frame rate
+    36: [("added", "min_fps", 0.0)],
 }
 
 
@@ -3492,6 +3496,96 @@ def byte_units(cand):
                 unit.append((gi, k))
                 o = e
     return out, unit
+
+
+# VARIABLE FRAME RATE (--min-fps F, VIDEO-SEEN-PLAN 3a; the owner: "slowing
+# down to X when it would have drawn better"): where the budgets would cut
+# a frame, the next stretch is encoded on copies of the encoder at each
+# rate down to F and the one whose view as seen is least broken is taken.
+# A slower rate HOLDS frames: a held frame's record draws toward the next
+# frame the rate shows, which finishes it, so its period's CPU and bytes go
+# into that picture (an EMPTY hold buys nothing against the per-frame
+# ceiling: the player draws what is due and starts nothing early). A held
+# frame is judged against the picture it is DRAWING - it is the first half
+# of the next one, as a slower file's frame is drawn over the same time -
+# and costs VFR_HOLD besides, the price of the choppiness: so a slower rate
+# is taken only where the tearing it saves is worth more. (Judged against
+# its own moment, the motion it skips read as breakage and the car shot
+# was never slowed)
+VFR_RATES = (1.0, 5.0 / 6, 2.0 / 3, 0.5, 1.0 / 3, 0.25)  # of the frame rate
+VFR_SPAN = 0.5          # the stretch a rate is chosen for, seconds
+VFR_GAIN = 0.0          # ...and taken only this much less broken: the
+                        # choppiness is VFR_HOLD, already in the sum
+VFR_HOLD = 0.02         # a held frame's choppiness, as a share broken
+VFR_AGAIN = 2           # frames until a cut is asked again, after the full
+                        # rate won
+
+
+def vfr_pattern(n, r):
+    """A stretch of `n` frames at `r` of the rate: True where a frame is
+    HELD - the first of a stretch held, its last always drawn"""
+    out = [int((j + 1) * r + 1e-9) == int(j * r + 1e-9) for j in range(n)]
+    out[-1] = False
+    return out
+
+
+def vfr_cut(enc, target, au):
+    """Would the budgets cut `target` now? - on a copy, nothing spent"""
+    e = enc_clone(enc)
+    c0 = e.stats["cut"]
+    e.frame(target, au)
+    return e.stats["cut"] != c0
+
+
+def vfr_try(enc, ts, pat, au, tp, first=None):
+    """The stretch `ts` encoded on a copy at the hold pattern `pat`: its
+    mean view as seen, a frame against the picture it draws (a held one's
+    the next shown, and VFR_HOLD more). `first`, what the first frame
+    draws when it is not held - a scene start's coarse cells"""
+    e = enc_clone(enc)
+    v, prev = 0.0, tp
+    for j, t in enumerate(ts):
+        k = j
+        while pat[k]:
+            k += 1
+        if j == 0 and k == 0 and first is not None and first is not ts[0]:
+            e.all3 = e.wm3
+            _, rec = e.frame(first, au)
+            e.all3 = False
+        else:
+            _, rec = e.frame(ts[k], au if j == 0 else b"\x80" * len(au))
+        e.charge(rec, len(au))
+        T = e.tpix(ts[k])[1]
+        v += seen_share(e.spix()[1], T, prev) + (VFR_HOLD if pat[j] else 0)
+        prev = T
+    return v / len(ts)
+
+
+def vfr_choose(enc, ts, au, fmin, fps, tp, first=None):
+    """-> (hold pattern, rate): the stretch's best rate down to `fmin` -
+    the full rate's first frame drawing `first` where that is a scene
+    start's coarse cells, so a slower rate is weighed against today's"""
+    n = len(ts)
+    full = [False] * n
+    base = vfr_try(enc, ts, full, au, tp, first)
+    best = (base, full, fps)
+    for r in VFR_RATES[1:]:
+        if r * fps < fmin - 1e-6:
+            break
+        pat = vfr_pattern(n, r)
+        if not any(pat):
+            continue
+        v = vfr_try(enc, ts, pat, au, tp)
+        if v < best[0] - 1e-9:
+            best = (v, pat, r * fps)
+    if os.environ.get("OS88_VENC_VFRLOG"):  # (each decision, to look at)
+        with open(os.environ["OS88_VENC_VFRLOG"], "a") as fl:
+            fl.write("frame %d: %d frames, full %.1f%%, best %.1f%% at %g "
+                     "fps\n" % (enc.stats["frames"], n, 100 * base,
+                                 100 * best[0], best[2]))
+    if best[1] is not full and best[0] > base - VFR_GAIN:
+        return full, fps
+    return best[1], best[2]
 
 
 def preroll(enc, target, abytes, most):
@@ -6930,6 +7024,9 @@ def page_auto_why(a):
     lay = a.layout or (PRESETS[a.preset][0] if a.preset else None)
     pf = a.pixfmt or PRESET_PIXFMT.get(a.preset)
     for cond, why in ((a.flip, "--flip pages every frame already"),
+                      (getattr(a, "min_fps", 0.0), "--min-fps holds frames, "
+                       "and page-ahead's two passes would have to hold the "
+                       "same ones"),
                       (a.live, "a Live file plays on the desktop"),
                       (a.resident, "a resident file plays on the desktop"),
                       (a.loop_from is not None, "a looped file"),
@@ -8455,8 +8552,25 @@ def _encode(a, keep, tick, readers):
         if enc.bank else 0.0
     bspan = [bl0, bl0]                  # the bank's lowest and highest
     f = -1
+    # VARIABLE FRAME RATE (--min-fps, VIDEO-SEEN-PLAN 3a): the stretch's
+    # hold pattern, decided where the budgets would first cut
+    vfr = float(getattr(a, "min_fps", 0.0) or 0.0)
+    if vfr and (a.flip or pa_on or lay is not None or a.live or
+                not enc.metric):
+        say("   --min-fps: not on a %s - %s" % (
+            "flipped file" if a.flip else "page-ahead file" if pa_on else
+            "layered file" if lay is not None else "Live file" if a.live
+            else "format with no pixels to judge",
+            "every record flips, and a held one would show the page "
+            "before" if a.flip else "its passes would have to hold the "
+            "same frames" if pa_on else "the layer's frames are the "
+            "base's" if lay is not None else "it draws a pass a tick"
+            if a.live else "a rate is chosen by the view as seen"))
+        vfr = 0.0
+    vspan = max(2, int(round(fps * VFR_SPAN)))
+    vplan, vrates = deque(), {}
     while True:
-        while len(ahead) < 1 + enc.look:
+        while len(ahead) < 1 + max(enc.look, vspan - 1 if vfr else 0):
             t = next(targets, None)
             if t is None:
                 break
@@ -8478,6 +8592,7 @@ def _encode(a, keep, tick, readers):
             sound.append(au)
             au = b""
         enc.future = list(ahead)[:enc.look]
+        held, hdraw = False, None
         npal = None
         if scene_pals and f in pev_at:  # A NEW SCENE (98.1.3.2.3): its
             p = pev_at[f]               # colours from this frame, which the
@@ -8504,7 +8619,46 @@ def _encode(a, keep, tick, readers):
             if cell != "full":
                 draw = coarse_target(target, enc.pal, cell)
                 enc.all3 = enc.wm3
-        ops, rec = enc.frame(draw, au)
+        if vfr and not vplan and ahead and (draw is target or (
+                scene_pals and f in pev_at)):
+            # (a stretch stops short of the next scene's palette)
+            n = 1
+            while n < vspan and n <= len(ahead) and \
+                    not (scene_pals and f + n in pev_at):
+                n += 1
+            vcut = n >= 2 and (draw is not target or
+                               vfr_cut(enc, target, au))
+            if os.environ.get("OS88_VENC_VFRLOG"):
+                with open(os.environ["OS88_VENC_VFRLOG"], "a") as fl:
+                    fl.write("f %d: stretch %d, cut %s\n" % (f, n, vcut))
+            if vcut:
+                pat, r = vfr_choose(enc, [target] + list(ahead)[:n - 1], au,
+                                    vfr, fps, enc.q_stp, draw)
+                # (the full rate is committed for VFR_AGAIN frames only, so a
+                # stretch that would slow better a frame or two on is asked
+                # again there)
+                vplan.extend(pat if any(pat) else pat[:VFR_AGAIN])
+                if pat[0] and draw is not target:
+                    draw = target       # (slowed instead of the cells)
+                    enc.all3 = False
+                    coarse_used[cell] -= 1
+                if any(pat):
+                    vrates[round(r, 1)] = vrates.get(round(r, 1), 0) + 1
+        if vplan and vplan.popleft() and draw is target:
+            held = True                 # (drawn toward the next frame the
+            k = 0                       # rate shows, which finishes it)
+            while vplan[k]:
+                k += 1
+            c0 = enc.stats["cut"]
+            hdraw = ahead[k]
+            ops, rec = enc.frame(hdraw, au)
+            if enc.stats["cut"] > c0:
+                enc.stats["cut"] -= 1
+            else:
+                enc.stats["exact"] -= 1
+            enc.stats["holds"] = enc.stats.get("holds", 0) + 1
+        else:
+            ops, rec = enc.frame(draw, au)
         enc.all3 = False
         hops = pa.after(f, rec, au, target) if pa is not None else None
         if scene_pals:              # (each scene's frames and cuts, below)
@@ -8540,7 +8694,12 @@ def _encode(a, keep, tick, readers):
             bspan[0] = min(bspan[0], bl)
             bspan[1] = max(bspan[1], bl)
         if enc.metric:
-            enc.measure(target)
+            # (a held frame shows the picture before it, whole: it is
+            # measured against the target that picture was drawn for, and
+            # what the hold costs is the rate, which the summary says)
+            # (a held frame against the picture it draws, as its rate was
+            # chosen: it is the first half of the next one)
+            enc.measure(hdraw if held else target)
             if scene_pals and enc.q_bad and enc.q_bad[-1] >= VIS_AREA:
                 shot_cut[-1][3] += 1
         if pa is not None and a.flip:  # (98.1.3.7.2: every frame flips)
@@ -8874,6 +9033,14 @@ def _encode(a, keep, tick, readers):
                 " the lag schedule %d," % st["flip"] if st.get("flip")
                 else "", a.frame_cap, st["cap"])
             if st["cut"] else ""))
+    if vfr:
+        rep("base", "variable frame rate: %s; %d frames held, each drawing "
+            "toward the frame after it (--min-fps %g, VIDEO-SEEN-PLAN 3a)"
+            % ("%d stretches slowed - %s" % (sum(vrates.values()), ", ".join(
+                "%d to %g fps" % (vrates[r], r) for r in sorted(vrates,
+                                                              reverse=True)))
+               if vrates else "no stretch slowed - every cut drew better at "
+               "the full rate", st.get("holds", 0), vfr))
     if st.get("unfit"):
         rep("base", "frames left empty: %d - the cutting did not bring them "
             "under the %d bytes a record holds, so each drew nothing and the "
@@ -9372,6 +9539,14 @@ def parser():
                          "attention - the bright, and what moves against the "
                          "camera - at strength S (1 the map, 0 off, the "
                          "default; VIDEO-SEEN-PLAN 3)")
+    ap.add_argument("--min-fps", type=float, default=0.0, metavar="F",
+                    help="VARIABLE FRAME RATE: where the budgets would cut, "
+                         "slow down - to 5/6, 2/3, 1/2... of the rate, never "
+                         "under F - for as long as that draws the picture "
+                         "better, as the view as seen judges it; a held "
+                         "frame draws toward the next one shown (0 off, the "
+                         "default; not on a flipped, page-ahead, layered or "
+                         "Live file; VIDEO-SEEN-PLAN 3a)")
     ap.add_argument("--edges", type=float, default=1.0, metavar="S",
                     help="WHEN A FRAME IS CUT, count the EDGES it leaves: a "
                          "change also worth how much nearer its target's "
