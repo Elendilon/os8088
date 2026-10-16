@@ -70,9 +70,7 @@ wb_entry:
 .out:
     ret
 
-wb_oncmd:
-    ; Game menu: serial (0), practice (1).
-    jmp wb_launch
+wb_oncmd:                       ; Game menu: serial (0), practice (1)
 wb_launch:
     mov [wb_practice], al
     mov byte [wb_abon], 0

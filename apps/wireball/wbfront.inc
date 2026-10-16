@@ -278,34 +278,31 @@ wb_onkey:
     cmp al, 27
     jne .key
     cmp byte [wb_help], 0
-    je .out
-    jmp .help
+    jne .help
+.out:
+    ret
 .key:
     or al, 0x20
     cmp al, 's'
     je .serial
     cmp al, 'l'
     je .practice
-    cmp al, 'h'
-    je .help
     cmp al, 'm'
     je .sound
-.out:
-    ret
+    cmp al, 'h'
+    jne .out
+.help:
+    xor byte [wb_help], 1
+    jmp wb_frontupdate
 .serial:
     xor al, al
     jmp wb_launch
 .practice:
     mov al, 1
     jmp wb_launch
-.help:
-    xor byte [wb_help], 1
-    call wb_frontupdate
-    ret
 .sound:
     call wb_sound_toggle
-    call wb_frontsoundupdate
-    ret
+    jmp wb_frontsoundupdate
 
 wb_buttonup:
     push cx
@@ -314,28 +311,11 @@ wb_buttonup:
     pop dx
     pop cx
     mov bx, wb_btrec
-    call os88ui_btnup
-    cmp al, 1
-    je .serial
-    cmp al, 2
-    je .practice
-    cmp al, 3
-    je .help
-    cmp al, 4
-    je .sound
-    ret
-.serial:
-    xor al, al
-    jmp wb_launch
-.practice:
-    mov al, 1
-    jmp wb_launch
-.help:
-    xor byte [wb_help], 1
-    jmp wb_frontupdate
-.sound:
-    call wb_sound_toggle
-    jmp wb_frontsoundupdate
+    call os88ui_btnup           ; AX = fired button + 1, or 0
+    xchg bx, ax
+    mov al, [bx+wb_btnkeys]     ; a fired button is its own key's action
+    jmp wb_onkey.key
+wb_btnkeys: db 0,'slhm'
 wb_buttondrag:
     push cx
     push dx

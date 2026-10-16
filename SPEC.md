@@ -185325,6 +185325,20 @@ and 68 physics steps/s at 4.77 MHz. The native UART rate callback keeps an
 original 8250 serviced across vertical-retrace waits; its raw queue drains
 through the ordinary frame parser in the foreground.
 
+### 109.6 The disk size pass
+
+The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures the
+shipped file, LZ4-packed: **14,315 bytes** (image 37,237, bss 1,939) when it
+started. Nothing a frame or the link runs changed shape for it: every
+routine the court, the rate hook and the frame parser run assembles to the
+same instructions.
+
+- **One dispatcher for the splash's keys and buttons.** A fired button is
+  handed to `wb_onkey` as its own key (`wb_btnkeys`: S, L, H, M), so the
+  button handler no longer carries a second copy of the four actions; the
+  menu's handler falls into `wb_launch` instead of jumping to it. -42 file
+  bytes.
+
 ## 110. Sticky Apps (`STIKAPPS\`, `apps/os88stik.inc`)
 
 A **STICKY APP** — a widget — is a small program
