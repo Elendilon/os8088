@@ -776,14 +776,11 @@ ap_stage_half:
 ;   ADPCM  : samples = (datlen / balign) * spb ; seconds = samples / rate
 ; A rough value is fine; 0 means "unknown".
 ; =============================================================================
-ap_calc_duration:
-    push ax
+ap_calc_duration:                  ; (all three outputs arrive 0: the
+    push ax                        ; per-track run, ap_prep_track)
     push bx
     push cx
     push dx
-    mov word [ap_total_s], 0
-    mov word [ap_total_pcm], 0
-    mov word [ap_total_pcm+2], 0
     mov ax, [apw_datlen]
     mov dx, [apw_datlen+2]
     cmp byte [apw_fmt], AP_FMT_ADPCM

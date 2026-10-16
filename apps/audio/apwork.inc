@@ -18,7 +18,6 @@
 
     APB apw_halves                 ; halves fed this pass
     ; (ap_played and ap_consumed_prev are audio.asm's: the per-track run)
-    APD ap_total_pcm               ; total PCM8 bytes in the track (0 = unknown)
 
 ; =============================================================================
 ap_worker:

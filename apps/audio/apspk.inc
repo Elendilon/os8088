@@ -64,14 +64,11 @@ APX_ERR     equ 4                   ; ap_msg says why
     APW aps_posi                    ; ...and whole samples past the next read
     APB aps_dir                     ; aps_skip's direction
     APB aps_rung                    ; the ladder's rung, for the session
-    APB aps_lag                     ; the last rung is still behind: play on
-    APW aps_crem                    ; the clock's remainder, in 1/R samples
     APB aps_mode                    ; SPKFX_PRE_*, APS_COPY or APS_XL
     APW aps_lpt                     ; the Covox's port this play, 0 = speaker
     APW aps_span                    ; samples a span (34.11.9)
     APB aps_exit                    ; APX_*
     APW aps_hk                      ; rate periods, counted by aps_hook
-    APB aps_eot                     ; this track's source is all made
     APW aps_cons0                   ; CONS at the last clock update
     APB aps_btn                     ; mouse buttons as last seen
     APW aps_drawt                   ; aps_hk at the last redraw
@@ -300,23 +297,14 @@ aps_setup:
     pop ax
     ret
 
-; aps_trk_reset - a new track's clock and source flags
-aps_trk_reset:
-    mov byte [aps_eot], 0
-    mov byte [aps_lag], 0
-    mov word [ap_played], 0
-    mov word [ap_played+2], 0
-    mov word [ap_elapsed_s], 0
-    mov word [aps_crem], 0
-    ret
-
 ; -----------------------------------------------------------------------------
 ; aps_open - play the current, prepared track on the speaker. UI task, gfx
 ; lock held (a callback, or ap_onwake with it taken)
 ; -----------------------------------------------------------------------------
 aps_open:
     call aps_dev                    ; the speaker or the Covox, asked now
-    call aps_trk_reset
+                                    ; (a new track's clock and source flags
+                                    ; are ap_prep_track's per-track run)
     call aps_plan
     jc .no
     call aps_setup
@@ -1147,9 +1135,8 @@ aps_skip:
 ; aps_next - apl_cur prepared, planned and set up from an empty ring.
 ; out: AL = 0, or APX_ERR (ap_msg set)
 aps_next:
-    call ap_prep_track
+    call ap_prep_track              ; (the clock and flags: its per-track run)
     jc .err
-    call aps_trk_reset
     call aps_plan
     jc .err
     call aps_setup

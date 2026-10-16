@@ -216,7 +216,6 @@ AP_B_NONE  equ 0xFF
     APBUF ap_arg_name, 16
     APW  ap_arg_dir
     APB  ap_arg_vol
-    APW  ap_total_s               ; track duration in seconds (0 = unknown)
     APB  ap_diag                   ; 1 = the window shows the Diagnostics view
     APW  ap_last_s                 ; last elapsed second the dynamic redraw drew
     APW  ap_last_bar               ; last progress-bar fill (px) it drew
@@ -254,7 +253,8 @@ AP_B_NONE  equ 0xFF
     APB ap_first_paint             ; 1 until ap_onwake does the settled repaint
 
 ; --- the PER-TRACK RUN: ap_prep_track zeroes AP_TRK0 .. + AP_TRKLEN in one
-;     REP STOSB, so whatever a new track must start from 0 lives here
+;     REP STOSB, so whatever a new track must start from 0 lives here - the
+;     speaker's too: every speaker play opens a track through ap_prep_track
 AP_TRK0 equ os88_image_end + AP_BSS
     APD ap_got
     APD ap_played                  ; total PCM8 bytes the DSP has consumed
@@ -267,6 +267,11 @@ AP_TRK0 equ os88_image_end + AP_BSS
     APB ap_lasthalf
     APB ap_paused
     APB ap_req                     ; (FR_NONE is 0)
+    APW ap_total_s                 ; track duration in seconds (0 = unknown)
+    APD ap_total_pcm               ; total PCM8 bytes in the track (0 = unknown)
+    APB aps_eot                    ; (apspk.inc) this track's source is all made
+    APB aps_lag                    ; ...the last rung is still behind: play on
+    APW aps_crem                   ; ...the clock's remainder, in 1/R samples
 AP_TRKLEN equ os88_image_end + AP_BSS - AP_TRK0
 
 ; --- decoder state (apdec.inc) --------------------------------------
