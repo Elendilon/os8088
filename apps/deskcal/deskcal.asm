@@ -2265,7 +2265,8 @@ dc_i_newt1: db MENU_DIS, 'New Task (typing)', 0
 dc_i_edit1: db MENU_DIS, 'Edit Item (typing)', 0
 dc_i_del:   db 'Delete Item  Del', 0
 dc_i_del0:  db MENU_DIS, 'Delete Item (no item)', 0
-dc_i_clr:   db 'Clear Done Tasks', 0
+dc_i_clr:   db 'Clear Done '
+dc_s_tasksh: db 'Tasks', 0         ; (COMPACT's page name: the tail)
 dc_i_clr0:  db MENU_DIS, 'Clear Done (none done)', 0
 dc_i_showt: db 'Show Tasks  Tab', 0
 dc_i_showr: db 'Show Reminder  Tab', 0
@@ -2276,8 +2277,8 @@ dc_i_prev:  db 'Previous Month', 0
 dc_i_next:  db 'Next Month', 0
 dc_i_rem:   dw dc_r0, dc_r1, dc_r2, dc_r3, dc_r4, dc_r5
 dc_r0:      db 'At the Time', 0
-dc_r1:      db '5 Min Early', 0
-dc_r2:      db '15 Min Early', 0
+dc_r2:      db '1'
+dc_r1:      db '5 Min Early', 0     ; (the tail of 15's)
 dc_r3:      db '30 Min Early', 0
 dc_r4:      db '1 Hour Early', 0
 dc_r5:      db 'No '
@@ -2285,8 +2286,8 @@ dc_s_remh:  db 'Reminder', 0       ; ...COMPACT's page name is its tail
 dc_leads:   db 0, 5, 15, 30, 60, 0FFh   ; ...their leads; 0FFh none
 dc_rlbl:    dw dc_l0, dc_l1, dc_l2, dc_l3, dc_l4, dc_l5
 dc_l0:      db 'at the time', 0     ; ...and the toast's words for them
-dc_l1:      db '5 min early', 0
-dc_l2:      db '15 min early', 0
+dc_l2:      db '1'
+dc_l1:      db '5 min early', 0     ; (the tail of 15's)
 dc_l3:      db '30 min early', 0
 dc_l4:      db '1 hour early', 0
 dc_l5:      db 'off', 0

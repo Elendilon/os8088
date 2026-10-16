@@ -2149,12 +2149,11 @@ dc_hrem:
 ; --- the strings and the bit records -----------------------------------------
 dc_s_wk:    db 'MTWTFSS', 0     ; over each field, MONDAY first
 dc_s_lt:    db '<', 0
-dc_s_gt:    db '>', 0
 dc_s_plus:  db '+', 0
 dc_s_today: db 'Today', 0
 dc_s_more:  db ' more', 0
-dc_s_more2: db ' >', 0
-dc_s_tasksh: db 'Tasks', 0
+dc_s_more2: db ' '
+dc_s_gt:    db '>', 0           ; (the tail of the slot's ` >`)
 dc_s_allday: db '--:--', 0
 dc_s_norem: db 'No reminders today', 0
 dc_s_noapp: db 'No appointments', 0
