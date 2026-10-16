@@ -533,22 +533,30 @@ pn_replay:
     call pn_tone_ax
     call pn_key_off
     mov ax, [pn_cnt]
-    mov [pn_vcnt], ax
-    call pn_vsync
-    mov ax, pn_s_stop
-    jmp short pn_say
+    mov si, pn_s_stop
+    jmp short pn_vsay
 
 ; -----------------------------------------------------------------------------
 ; pn_clear - the CLEAR button: empty the sequence and the viewer
 ; in:  [pn_ox]/[pn_oy] stashed; gfx lock held
-; out: nothing; clobbers AX
+; out: nothing; clobbers AX, SI
 ; -----------------------------------------------------------------------------
 pn_clear:
     xor ax, ax
     mov [pn_cnt], ax
+    mov si, pn_s_clear
+                                    ; ...and FALLS INTO pn_vsay
+
+; -----------------------------------------------------------------------------
+; pn_vsay - the viewer shows AX notes and the message area says SI: how a
+; clear, a load and a stopped replay all end (internal)
+; in:  AX = the count for [pn_vcnt], SI = the message; [pn_ox]/[pn_oy]
+; out: AX = the message, SI = the count; the rest preserved
+; -----------------------------------------------------------------------------
+pn_vsay:
     mov [pn_vcnt], ax
     call pn_vsync
-    mov ax, pn_s_clear
+    xchg ax, si
                                     ; ...and FALLS INTO pn_say
 
 ; -----------------------------------------------------------------------------
@@ -626,11 +634,10 @@ pn_load:
     jmp short .pair
 .done:
     mov [pn_cnt], bx
-    mov [pn_vcnt], bx
     mov [pn_last], dx
-    call pn_vsync
-    pop ax
-    jmp short pn_say
+    xchg ax, bx
+    pop si
+    jmp short pn_vsay
 
 ; -----------------------------------------------------------------------------
 ; pn_note - play one note live: record it (full-stop at the cap), SOUND IT,
@@ -1737,7 +1744,6 @@ pn_l_songs:  db 'SONGS:', 0
 pn_l_twk:    db 'TWINKLE', 0
 pn_l_ode:    db 'ODE', 0
 pn_l_mary:   db 'MARY', 0
-pn_s_ready:  db 'READY', 0
 pn_s_replay: db 'REPLAYING...', 0
 pn_s_done:   db 'REPLAY DONE', 0
 pn_s_stop:   db 'STOPPED', 0
@@ -1746,7 +1752,8 @@ pn_s_full:   db 'SEQ FULL', 0
 pn_s_empty:  db 'EMPTY', 0
 pn_s_twk:    db 'TWINKLE READY', 0
 pn_s_ode:    db 'ODE READY', 0
-pn_s_mary:   db 'MARY READY', 0
+pn_s_mary:   db 'MARY '
+pn_s_ready:  db 'READY', 0           ; ...whose tail is the plain READY
 
 ; --- note tables (note ids 0..19 = semitones from C4; SPEC.md 36) --------------
 pn_freq:                            ; equal temperament, Hz

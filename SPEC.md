@@ -66453,7 +66453,9 @@ inks.
   click and key path, `pn_abdismiss` tests and clears the About flag in
   one `shr`, and `pn_note` makes the new count from the index it
   already holds rather than incrementing memory and reading it back
-  (-9).
+  (-9). A clear, a song load and a stopped replay end in one tail,
+  `pn_vsay` (the viewer's count and the message), and the plain READY
+  is the tail of MARY READY (-17).
 
 ## 37. clock.inc — the system clock
 
