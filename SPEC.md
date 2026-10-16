@@ -142147,10 +142147,10 @@ The second pass measures what the package costs a DISK
 
 | | before | after |
 |---|---|---|
-| file (LZ4) | 3,549 | **3,480** (-69) |
-| image | 4,381 | **4,286** (-95) |
-| bss | 1,542 | 1,541 (`FV_PAD`'s parity) |
-| image + bss | 5,923 | **5,827** (-96) — a 6 KB claim either way |
+| file (LZ4) | 3,549 | **3,477** (-72) |
+| image | 4,381 | **4,283** (-98) |
+| bss | 1,542 | 1,542 (`FV_PAD` keeps it even) |
+| image + bss | 5,923 | **5,825** (-98) — a 6 KB claim either way |
 | heap claims | one face (its file's KB) + the pre-shift table | unchanged |
 
 **What the file is made of** (each byte charged its share of the LZ4 stream):
@@ -142178,6 +142178,10 @@ file byte saved.
   the same order with fewer pushes around them: a keystroke's repaint does
   22 fewer `push`/`pop` pairs (~590 of an 8088's cycles, counted rather than
   measured), and no instruction on that path was added.
+- **The region's relocation proc is a `ret` already there** (-3 image, -3
+  file). `OS88_REGION_MOVABLE_NOKEEP` with no argument emits a `jmp` over a
+  `ret` of its own; nothing in the region names the region's segment, so it
+  is handed `fv_ret`, the bare `ret` that ends `fv_choose`.
 
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 

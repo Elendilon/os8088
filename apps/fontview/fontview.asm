@@ -102,8 +102,11 @@ fv_entry:
     ; NO worker is the case that moves most easily, and putting it at
     ; the spawn left exactly those runs declaring nothing - measured,
     ; by the row that reads MC_RLOC back out of the kernel's own table.
-    OS88_REGION_MOVABLE_NOKEEP      ; AX, DX and the flags are all set again
-                                    ; below before anything reads them
+    OS88_REGION_MOVABLE_NOKEEP fv_ret   ; AX, DX and the flags are all set
+                                    ; again below before anything reads them.
+                                    ; The proc is a bare `ret` that is already
+                                    ; here: nothing in the region names the
+                                    ; region's own segment
     mov al, 1
     call OSAPI_WM_SNAP              ; makes fv_x + FV_TEXTX byte-aligned
     mov ax, fv_onwake
