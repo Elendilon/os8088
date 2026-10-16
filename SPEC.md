@@ -115339,6 +115339,14 @@ history and its predicates, form submission and the request it builds, page
 clicks, and the whole fetch state machine through a fake socket driver with
 redirects and frames - and left the same bytes behind.
 
+Altogether `BROWSER.O88` 17,832 -> 17,467 bytes (still 18 clusters), image
+20,945 -> 20,190 and bss unchanged at 5,940, so the claim is 755 bytes
+smaller; `BROWSER.HTM` 2,184 -> 2,046, three clusters to two. No heap claim
+changed size. The renderer's per-byte loops (`br_build`, the paint, the parse
+and layout loops, `br_take`/`br_hdrb`) are untouched; what moved on a parse
+is per tag or per form control, bounded per page, and removes instructions
+except the field helpers' one `call`/`ret`.
+
 - **The predicates are the compare.** `br_okback`, `br_okfwd`, `br_okrel` and
   `br_haveh` answer CF and every caller reads CF and nothing else, so an
   unsigned `cmp x, 1` (which borrows exactly when x is 0) IS the answer and
