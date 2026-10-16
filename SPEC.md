@@ -88005,6 +88005,11 @@ instruction; `tests/tgplay.py` (soak `tgplay`, `--ref` for the cycles) and
   `tg_cell_fill` into `tg_fillc` (a `jmp` fewer for every cell drawn) and the
   banner into `tg_str`. A routine-by-routine disassembly against the base
   differs ONLY in those branches and in moved addresses.
+- **The panel test is made once a tick.** `tg_update` and `tg_frame` each
+  opened by asking whether a panel was up; `tg_worker` asks once, inside the
+  lock, and skips both - nothing between them can raise a panel. 7 image
+  bytes, 1 file byte (LZ4 had been matching the repeat), and a test fewer
+  on every tick.
 
 ## 50. memory.inc — the claim heap
 

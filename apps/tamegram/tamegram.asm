@@ -642,6 +642,11 @@ tg_onclick:
 ; OSAPI_TASK_ALIVE is called with the lock FREE (rule 4: gfx_lock is not
 ; reentrant, and taking it twice never draws again). tests/tgplay.py
 ; breakpoints the three calls inside the hold, so each is written once.
+;
+; While a panel is up the UI task owns the content and the game is frozen:
+; the tick skips both halves, which is the ONE test where each half used to
+; make its own (apps size pass 2) - nothing between them can raise a panel,
+; only the UI task does, and it is shut out by the lock we hold.
 ; -----------------------------------------------------------------------------
 tg_worker:
     push ds                         ; ES = us, for tg_resolve's stosw; every
@@ -652,18 +657,19 @@ tg_worker:
     mov ax, 1
     call OSAPI_TASK_SLEEP
     call OSAPI_GFX_LOCK
+    cmp byte [tg_panel], 0
+    jne .free                       ; a panel is up: the UI task owns us
     call tg_update
     call tg_frame
+.free:
     call OSAPI_GFX_UNLOCK
     jmp .loop
 
 ; -----------------------------------------------------------------------------
 ; tg_update - advance the state machine by one tick
-; in:  gfx lock held
+; in:  gfx lock held, no panel up (tg_worker tests that)
 ; -----------------------------------------------------------------------------
 tg_update:
-    cmp byte [tg_panel], 0
-    jne tg_ret                      ; a panel is up: the UI task owns us
     call tg_do_cmds
     mov al, [tg_mode]
     cmp al, TG_M_FLASH
@@ -1227,16 +1233,14 @@ tg_fret:                            ; ...and the ret tg_frame's refusals and
 
 ; -----------------------------------------------------------------------------
 ; tg_frame - the worker's half of a frame
-; in:  gfx lock HELD by tg_worker
+; in:  gfx lock HELD by tg_worker, no panel up
 ;
 ; A PLAY frame costs the four cells the piece left and the four it arrived at.
 ; [tg_full] is the latch for everything else: a lock, a purge, a settle step,
 ; a mode change or a dismissed About all raise it and buy one whole repaint.
 ; -----------------------------------------------------------------------------
 tg_frame:
-    cmp byte [tg_panel], 0
-    jne tg_fret                     ; the UI task owns the content
-    cmp byte [tg_dirty], 0
+    cmp byte [tg_dirty], 0          ; (no panel is up: tg_worker tests that)
     je tg_fret
     mov si, [tg_win]
     call tg_track                   ; the window may have been dragged;
