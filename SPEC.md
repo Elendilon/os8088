@@ -78573,6 +78573,18 @@ assembles byte-identical**, and the same sweep finds nothing on it. **Small
 arm −614 image, −34 `.bss`, −500 file** — 15 clusters to 14 on both small
 disks.
 
+**A DEFECT the pass found and fixed: Save Gif asked the clipboard's
+question.** Both GIF verbs were gated on `pt_gate`'s clipboard arm, a
+leftover from before the encoder had a claim of its own (`pt_alloc_lzw`,
+`PT_LZW_KB`). With under 4 KB free a GIF save was refused saying **"No RAM
+for clipboard"**; with 4 KB to 16 KB it went through the gate (and, unnamed,
+through the Save dialog) to fail at `pt_save`'s own claim. `pt_gate_g` asks
+the question `pt_menufix` greys the GIF items on — can `OSAPI_MEM_AVAIL`
+fund `PT_LZW_KB` — before anything else happens, and refuses with the GIF
+toast, **"No RAM for GIF here"**. `pt_save`'s own refusal stays behind it, for
+a heap that changes between the two. **+21 image, +19 file**, the one change
+in this pass that spends; the small arm has no GIF writer.
+
 ### 42.23 The canvas may hold ONE BIT a pixel
 
 **A third canvas format, and the first one that is about the DOCUMENT rather

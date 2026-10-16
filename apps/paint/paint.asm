@@ -10838,11 +10838,11 @@ pt_oncmd:
 %ifdef PTF_GIF
 .saveas_gif:
     mov byte [pt_sfmt], 1
-    call pt_gate_c
+    call pt_gate_g
     jc .out
     jmp short .saveas
 .gifchk:
-    call pt_gate_c
+    call pt_gate_g
     jc .out
     jmp short .save
 %endif
@@ -11047,6 +11047,28 @@ pt_gate_c:
     pop si
     clc
     ret
+
+; pt_gate_g - could the GIF encoder's tables be funded? The question
+; pt_menufix greys the two GIF items on and pt_save's own claim answers,
+; asked BEFORE the dialog. Until apps size pass 2 the GIF verbs asked
+; pt_gate_c - the CLIPBOARD's question, a leftover from when the encoder lived
+; in the clipboard's memory - so a heap with no room for either refused a GIF
+; save with "No RAM for clipboard", and one with 4KB but not 16KB let it
+; through to fail later.
+%ifdef PTF_GIF
+pt_gate_g:
+    push si
+    mov si, pt_s_ng
+    push ax
+    push bx                         ; MEM_AVAIL answers in AX and BX
+    call OSAPI_MEM_AVAIL            ; AX = largest free run, KB
+    cmp ax, PT_LZW_KB
+    sbb ax, ax
+    inc ax                          ; ZF = 1 exactly when the tables cannot fit
+    pop bx
+    pop ax
+    jmp short pt_gate_c.test
+%endif
 %endif   ; PTF_GATE
 
 ; -----------------------------------------------------------------------------
