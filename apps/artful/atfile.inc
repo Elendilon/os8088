@@ -56,25 +56,13 @@ at_cmd_newdoc:
     pop ax
     ret
 
-; the New / Open / Quit commands ask about unsaved changes first
-at_cmd_new:
-    push ax
-    mov al, 1
-    call at_confirm
-    pop ax
-    ret
-at_cmd_open:
-    push ax
-    mov al, 2
-    call at_confirm
-    pop ax
-    ret
-at_cmd_quit:
-    push ax
-    mov al, 3
-    call at_confirm
-    pop ax
-    ret
+; the New / Open / Quit commands ask about unsaved changes first: at_cmdtab
+; names at_confirm for all three, and the pending action IS the command's own
+; number, which at_docmd hands over in AL - three stubs that loaded a private
+; 1 / 2 / 3 into AL went in apps size pass 2. The close box's continuation is
+; the one pending action no menu item names, so it takes a number no command
+; has.
+AT_PEND_CLOSE equ AT_CMD_MAX + 1
 
 ; -----------------------------------------------------------------------------
 ; at_onclose - W_ONCLOSE: the close box asks too (SPEC.md 46.7.1, 75.1)
@@ -136,7 +124,7 @@ at_onask:
 .close:
     jmp at_do_close
 .askname:
-    mov byte [at_pend], 4           ; ...and the commit is a CLOSE
+    mov byte [at_pend], AT_PEND_CLOSE ; ...and the commit is a CLOSE
     jmp at_dlg_save
 .failed:
     push ax                         ; the write's verdict, in a WINDOW for
@@ -166,6 +154,7 @@ at_do_close:
     ret
 
 ; at_confirm - run pending action AL now, or after the Save-changes alert
+; in:  AL = AT_CMD_NEW, AT_CMD_OPEN or AT_CMD_QUIT; preserves all registers
 at_confirm:
     push si
     mov [at_pend], al
@@ -188,13 +177,13 @@ at_runpend:
     push ax
     mov al, [at_pend]
     mov byte [at_pend], 0
-    cmp al, 1
+    cmp al, AT_CMD_NEW
     je .new
-    cmp al, 2
+    cmp al, AT_CMD_OPEN
     je .open
-    cmp al, 3
+    cmp al, AT_CMD_QUIT
     je .quit
-    cmp al, 4
+    cmp al, AT_PEND_CLOSE
     je .close                       ; SPEC.md 46.7.1: the close box's Save,
     jmp short .out                  ; continued through the Save As dialog
 .new:

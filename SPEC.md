@@ -86376,6 +86376,14 @@ back-references. So the pass went after bytes that occur once.
   is computed in the slot now, the label is stored from the SI it is handed,
   and the slot rides in DH beside the default flag in DL. The same three
   arrays `os88ui_btn` reads, filled the same way. -62 file bytes, -107 image.
+- **The command's number is the argument.** `at_docmd` hands every routine
+  `at_cmdtab` names its own `AT_CMD_*` in AL, so the eight stubs that loaded a
+  private constant and called through are gone: `at_heading` takes its level
+  as AL - `AT_CMD_H1` + 1, `at_setview` its mode as AL - `AT_CMD_VIEWMD`, and
+  `at_confirm` keeps `AT_CMD_NEW` / `OPEN` / `QUIT` as the pending action
+  itself, the close box's continuation taking `AT_PEND_CLOSE`, a number no
+  command has. The orders those subtractions need are assembly-time
+  assertions. -36 file bytes.
 
 ## 47. Disabled controls — the greying standard (binding)
 
