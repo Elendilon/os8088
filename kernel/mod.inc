@@ -702,6 +702,7 @@ mod_drop:
 ; 0. mod_need cannot be trusted to be the only door, because a thunk with the
 ; test written the wrong way round still assembles.
 ; -----------------------------------------------------------------------------
+%ifndef KERN_SMALL              ; (kern_small writes it out in the blob, kmain_o)
 mod_init_x:
     mov di, mod_fp              ; ONE PASS over the whole array. The row walk
     mov cx, MOD_NSLOT           ; existed only to reach mod_fp - mod_disarm
@@ -716,6 +717,7 @@ mod_init_x:
                                 ; every boot, and this routine's ONE caller is
                                 ; kmain - Chip > Restart being `int 19h`, the
                                 ; BIOS bootstrap, which re-loads the image.
+%endif
 
 section .cold                   ; the far entry, for kmain
 

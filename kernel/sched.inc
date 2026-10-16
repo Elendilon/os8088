@@ -1323,7 +1323,7 @@ task_debit:
     ret
 
 ; -----------------------------------------------------------------------------
-; sched_mode_set - select the scheduling mode (SPEC.md 8.2)
+; cp_schset - sched_mode_set, select the scheduling mode (SPEC.md 8.2)
 ;
 ; Normalises the flag to 0/1 and hands the incoming mode a full watchdog
 ; budget by clearing the hold counter. Both stores are single bytes made
@@ -1351,8 +1351,15 @@ task_debit:
 ; in:       AL = 0 pre-emptive, any non-zero = cooperative
 ; out:      nothing
 ; clobbers: flags (every register preserved, AL included)
+;
+; NOT RESIDENT (kernel size pass 13): its two callers are the settings reader
+; in the boot blob, which writes the two stores out (driver.inc's %1_unpack -
+; its range test has already normalised AL), and the Control Panel's
+; Scheduling radio, so the body is CTRL.DRV's: cp_schset, the panel half. An
+; image's DS is KERNEL_SEG like the kernel's own, so nothing else changes.
 ; -----------------------------------------------------------------------------
-sched_mode_set:
+section .modu
+cp_schset:
     push ax
     pushf
     cli                         ; no tick between the two stores
@@ -1365,7 +1372,8 @@ sched_mode_set:
                                 ; the incoming mode starts with a full budget
     popf
     pop ax
-    retf
+    ret
+section .text
 
 ; -----------------------------------------------------------------------------
 ; sched_mode_get - read the current scheduling mode (SPEC.md 8.2)

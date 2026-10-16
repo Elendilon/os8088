@@ -1698,18 +1698,21 @@ hbm_reload:
 ; in:  DX = the rows; out: nothing; clobbers DX
 hbm_reload_m:
     push ax
+    push bx
     push cx
     xor cx, cx
 .row:
     shr dx, 1
     jnc .next
     mov al, cl
-    call COLD_SEG:drvf_drv_load ; failures show on the Drivers page, as at boot
+    call COLD_SEG:drvf_drv_row  ; BX = the row hdl_load takes
+    call hdl_load               ; failures show on the Drivers page, as at boot
 .next:
     inc cx
     cmp cx, DRV_MAX
     jb .row
     pop cx
+    pop bx
     pop ax
     ret
 

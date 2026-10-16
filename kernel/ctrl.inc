@@ -1651,8 +1651,13 @@ cp_v2r:
 ; clobbers: AL (the output), flags
 ; -----------------------------------------------------------------------------
 cp_nitems:
-    call COLD_SEG:drv_cp_count_x
+%ifdef OS88_DRIVERS
+    mov al, 0xFF                ; drv_cp_count: an ordinal no class can be, so
+    call COLD_SEG:drvf_drv_cp_class ; the walk runs out and AL is the tally
     add al, [cp_nst]
+%else
+    mov al, [cp_nst]            ; ...and no class publishes a page here
+%endif
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3658,7 +3663,7 @@ cp_sched_click:
     cmp al, ah
     je .done                    ; that row is already live: change nothing
     mov al, ah
-    call KERNEL_SEG:sched_mode_set            ; live on the next tick (SPEC.md 8.2)
+    call cp_schset              ; live on the next tick (SPEC.md 8.2)
     call cp_repost              ; ...and remembered on close (31.8)
                                 ; ui_task step 3 repaints the About box's
                                 ; ...and SAY SO once (SPEC.md 13.13)
@@ -5572,7 +5577,7 @@ cp_snd_click:
     cmp ah, [snd_route]
     je .redraw                  ; already the setting: still redraw, because
                                 ; the click clears a stale notice
-    call COLD_SEG:drvf_drv_tier               ; ask the driver to move; AL = why not
+    call cdl_tier               ; ask the driver to move; AL = why not
     jnc .take
     mov [cp_snd_err], al        ; the tier stands where it was, and the notice
     jmp short .redraw           ; line says which of the two reasons
@@ -6113,7 +6118,7 @@ cp_drv_mempar:
     pop si                      ; the ROW INDEX again, for drv_memk
     push si
     shl si, 1
-    mov ax, [drv_memk + si]
+    mov ax, [cs:drv_memk + si]
     and ah, 0x7F                ; DRVM_PLUS is a flag, not a digit
     or ax, ax
     jz .next                    ; a row with no figure at all
@@ -6220,7 +6225,7 @@ cp_drv_mem1:
     mov bl, al
     xor bh, bh
     shl bx, 1
-    mov bx, [drv_memk + bx]
+    mov bx, [cs:drv_memk + bx]
     or bx, bx
     jz .out                     ; a row with no figure says nothing rather
                                 ; than '~0K'
@@ -6748,7 +6753,7 @@ cp_drv_click:
 .try:
     mov byte [bx+DRVR_WANT], 1  ; wanted first, so a failed load still
                                 ; persists the intent: put the disk in and
-    call COLD_SEG:drvf_drv_load               ; the next boot picks it up
+    call cdl_load               ; the next boot picks it up
 .save:
     mov byte [bx+DRVR_ANS], 1   ; a click is an ANSWER, on or off: from here
                                 ; the file keeps this row's want and no sniff

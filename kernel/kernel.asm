@@ -1648,7 +1648,9 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 %endmacro
 
 osapi_table:
+apic_gfx_lock:
     OSAPI_SLOT gfx_lock           ; 0x0010
+apic_gfx_unlock:
     OSAPI_SLOT gfx_unlock         ; 0x0018
     OSAPI_SLOT gfx_pixel          ; 0x0020
 apic_gfx_hline:
@@ -1678,6 +1680,7 @@ apic_wm_front:                    ; DOCK.DRV's door (SPEC.md 30.4)
 apic_wm_content:                  ; cw_wm_content's door (kernel size pass 13)
     OSAPI_SLOT wm_content         ; 0x008E
     OSAPI_SLOT wm_obscured        ; 0x0096
+apic_task_yield:
     OSAPI_SLOT task_yield         ; 0x009E
     OSAPI_SLOT task_sleep         ; 0x00A6
     OSAPI_ICELL 5                 ; 0x00AE
@@ -2479,6 +2482,7 @@ apic_fpg_stepb:
                                   ;          has neither, so this borrows the
                                   ;          panel's - which is the window the
                                   ;          page is drawn in anyway
+apic_wm_ondrag_c:
     OSAPI_RSLOT wm_ondrag_c        ; 0x0334 - BX = window, AX = a near proc in
                                   ;          YOUR segment (0 clears it): the
                                   ;          pointer MOVED while your press
@@ -2494,6 +2498,7 @@ apic_fpg_stepb:
                                   ;          control cannot un-draw itself as
                                   ;          the pointer leaves if nothing
                                   ;          tells it. Call it AFTER wm_create
+apic_wm_timer_c:
     OSAPI_SLOT wm_timer_c         ; 0x033A - BX = window, AX = TICKS from now
                                   ;          (0 cancels). Arms the one-shot
                                   ;          timer (SPEC.md 13.9); W_ONTIMER
@@ -2509,6 +2514,7 @@ apic_fpg_stepb:
                                   ;          billed to you - W_ONCLICK's
                                   ;          environment. Call it AFTER
                                   ;          wm_create
+apic_drv_pkg_call:
     OSAPI_XCELL drv_pkg_call_x      ; 0x0348 - a PACKAGE calls a DRIVER (SPEC.md
                                   ;          20.11). BH = the DRVC_* class, BL
                                   ;          = a verb THAT DRIVER defines, and
@@ -3199,6 +3205,7 @@ apic_inst_minimize:               ; DOCK.DRV's door (SPEC.md 30.4)
                                   ;          window, 2 DRAG (W2), 3 RELEASE
                                   ;          the bar. CF = 1 refused, and every
                                   ;          verb refuses on kern_small
+apic_thm_desk:                    ; (cw_thm_desk's door, size pass 13)
 %ifdef OS88_THEME                 ; (vga12.inc's %define of thm_desk on a
     OSAPI_RSLOT thm_desk          ; build with no themes comes later than this)
 %else
@@ -4481,7 +4488,18 @@ kmain_o:
     pop bx
     pop ax
 %endif
-    call COLD_SEG:mod_init_x    ; on-demand modules (SPEC.md 2.8): point every
+%ifdef KERN_SMALL
+    mov di, mod_fp              ; mod_init, WRITTEN OUT IN THE BLOB on the
+    mov cx, MOD_NSLOT           ; kernel whose blob has the room (kernel size
+.modinit:                       ; pass 13: 10 resident bytes of `.cold` for 20
+    mov word [di], mod_gone     ; of blob). The segment is the cold one by
+    mov word [di+2], COLD_SEG   ; NAME - a blob word tools/os88rom.py moves
+    add di, 4                   ; with it - where mod_disarm, running in
+    loop .modinit               ; `.cold`, takes it from CS
+%else
+    call COLD_SEG:mod_init_x
+%endif
+                                ; on-demand modules (SPEC.md 2.8): point every
                                 ; entry slot at mod_gone. `-f bin` zeroes no
                                 ; .bss, so until this runs those slots hold
                                 ; whatever was in memory - and they are
@@ -5973,8 +5991,8 @@ cw_gfx_fill_gray equ apic_gfx_fill_gray ; THE CELL IS THE DOOR (size pass 9)
 cw_gfx_fill_pat:        call gfx_fill_pat
                     retf
 %ifdef OS88_THEME              ; (kern_small: vga12.inc aliases it)
-cw_thm_desk:            call thm_desk
-                    retf
+cw_thm_desk equ apic_thm_desk   ; THE CELL IS THE DOOR (size pass 13): the
+                                ; desktop's ground, once per damaged zone
 %endif
 %ifdef DOCK_OPT
 cw_dock_band:           call dock_band
@@ -6003,15 +6021,15 @@ cw_blk_relit:           call blk_relit
 cw_gfx_frame:           call gfx_frame
                     retf
 cw_gfx_hline equ apic_gfx_hline ; THE CELL IS THE DOOR (size pass 9)
-cw_gfx_lock:            call gfx_lock
-                    retf
+cw_gfx_lock equ apic_gfx_lock   ; THE CELL IS THE DOOR (size pass 13): a lock
+                                ; is per OPERATION, so the cell's DS bank is
+                                ; ~50 cycles a lock and the shim was 4 bytes
 cw_gfx_pen_cf equ apic_gfx_pen_cf ; THE CELL IS THE DOOR (size pass 9)
 cw_gfx_pen_live:        call gfx_pen_live
                     retf
 cw_gfx_rowbase:         call gfx_rowbase
                     retf
-cw_gfx_unlock:          call gfx_unlock
-                    retf
+cw_gfx_unlock equ apic_gfx_unlock ; THE CELL IS THE DOOR (size pass 13)
 cw_gfx_xor_fill equ apic_gfx_xor_fill ; THE CELL IS THE DOOR (size pass 9)
 cw_icon_draw:           call icon_draw
                     retf
@@ -6063,16 +6081,18 @@ cw_task_exit equ task_exit      ; NEVER RETURNS - cw_inst_task_die's reason
 %endif
 cw_task_spawn:           call task_spawn
                      retf
-cw_task_yield:          call task_yield
-                    retf
+cw_task_yield equ apic_task_yield ; THE CELL IS THE DOOR (size pass 13)
 cw_toast_show equ apic_toast_show ; THE CELL IS THE DOOR (size pass 9)
 %ifdef KERN_BIG
 cw_ui_svc_open:         call ui_svc_open    ; the service zone's double-click
                     retf                    ; (SPEC.md 26.7): desk.inc is cold
                                             ; and ui_sys_open is not
-cw_drv_pkg_call:        call drv_pkg_call_x ; ...and its PAINT, which is the
-                    retf                    ; same door a package reaches a
-                                            ; driver by (SPEC.md 20.11)
+cw_drv_pkg_call equ apic_drv_pkg_call ; ...and its PAINT, which is the same
+                                ; door a package reaches a driver by (SPEC.md
+                                ; 20.11) - and since size pass 13 the door IS
+                                ; that cell: its X stub sets ES to the caller's
+                                ; DS, which desk.inc's one caller has just
+                                ; made ES itself
 %endif
 cw_vga_xor_rect_vram:   call vga_xor_rect_vram
                     retf
@@ -6127,19 +6147,17 @@ cw_wm_snap equ apic_wm_snap ; THE CELL IS THE DOOR (size pass 9)
 %endif                                  ; kern_big's alone (SPEC.md 14.6)
 %ifdef KERN_BIG
 cw_wm_onmouseup equ apic_wm_onmouseup ; THE CELL IS THE DOOR (size pass 9)
-cw_wm_ondrag:           call wm_ondrag
-                    retf
-cw_wm_timer:            call wm_timer       ; SPEC.md 13.10.5.4.2's PAUSE
-                    retf                    ; commit and the Timer's clock
-                                            ; (14.7): the kernel ARMS the same
-                                            ; one-shot a package does. Only the
-                                            ; arm needs a wrapper - it sets
-                                            ; [wm_tarm] and [ui_post] - where
-                                            ; the install (wm_ontimer) and the
-                                            ; cancel are each one store, made
-                                            ; in place. KERN_BIG and not
-                                            ; OS88UI_SBDRAG: the Timer needs it
-                                            ; under SBDRAGOFF=1 as well
+cw_wm_ondrag equ apic_wm_ondrag_c ; THE CELL IS THE DOOR (size pass 13): it
+                                ; answers CF = 0 as well, and fm_kinit_x reads
+                                ; no flag after it
+cw_wm_timer equ apic_wm_timer_c ; SPEC.md 13.10.5.4.2's PAUSE commit: the
+                                ; kernel ARMS the same one-shot a package
+                                ; does, through the same cell since size pass
+                                ; 13 (it answers CF = 0, which fm_ondrag_x
+                                ; does not read). Only the arm needs a door -
+                                ; it sets [wm_tarm] and [ui_post] - where the
+                                ; install (wm_ontimer) and the cancel are each
+                                ; one store, made in place
 ; ...and HIBER.DRV's seven needs go through cw_mem_disp (`call bp / retf`)
 %endif
 cw_wm_dmg_zadd:          push si             ; desk_dmg_zones grows the
@@ -6965,11 +6983,23 @@ section .modh
     align 1024, db 0
     db 0
 %endif
-modh_end:
-MODH_SIZE equ modh_end - $$
 section .modhb
 modhb_end:
 MODH_BSS equ modhb_end - $$
+section .modh
+MODH_UNPAD equ $ - $$           ; THE DEAD ZONE, `.modu`'s pad below and for its
+                                ; reason (MODULE-SELFCONTAIN-PLAN 3.2): an image
+                                ; ending fewer than MODH_BSS bytes short of a KB
+                                ; boundary is carried one byte past it, so the
+                                ; claim is the next KB - which the bss needs
+                                ; anyway. Zero bytes outside the zone. It is in
+                                ; the zone since kernel size pass 13 put the
+                                ; attach half of a driver load in this image
+                                ; (driver.inc's DRV_ATTACH hdl): 6 KB -> 7 KB
+                                ; of claim while HIBER.DRV is loaded
+    times (MODH_UNPAD + MODH_BSS > ((MODH_UNPAD + 1023) / 1024) * 1024) * (((MODH_UNPAD + 1023) / 1024) * 1024 + 1 - MODH_UNPAD) db 0
+modh_end:
+MODH_SIZE equ modh_end - $$
 %endif
 
 %ifdef FCP_MOD
