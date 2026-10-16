@@ -69,12 +69,12 @@ MRA_SIZE    equ MRA_NB * MRA_NS * MRA_FACE
 
 ; =============================================================================
 ; the package-wide bss accumulator (the Audio Player's %assign pattern). It
-; starts 2 KB past mr_ztail and not at os88_image_end: the image's TAIL - the
-; smooth tables' second differences and mrt_unz, read once at entry (SPEC.md
-; 105.6.1) - is the first part of mrk_pring, whose four tenants each write it
-; whole before reading it (SPEC.md 105.8.4), so the tail costs no RAM
+; starts 3 KB past mr_ztail and not at os88_image_end: the image's TAIL -
+; mrt_unz and what it expands, read once at entry (SPEC.md 105.6.1) - lies
+; under mrk_pring and then mrl_ent, two buffers each written before it is
+; read (SPEC.md 105.8.4; an entry only below [mrl_n]), so it costs no RAM
 ; =============================================================================
-mr_bss0     equ mr_ztail + OS88SPK_PRL
+mr_bss0     equ mrl_ent + MRL_MAX * MRL_ENT
 %assign MR_BSS 0
 %macro MRB 1
 %1 equ mr_bss0 + MR_BSS
@@ -389,7 +389,8 @@ mr_s_notbank:   db 'MIDIRACK.BNK is not a bank this player reads', 0
     align 2, db 0
 mr_ztail:
 ; mrt_unz - mrt_tl, mrt_amp, mrt_fn, mrt_fq and mrt_pow into their bss out of
-;           mrt_z: per table a first value and step, then a two-bit code an
+;           mrt_z, then the FM bank and kit out of mrt_zc's columns (SPEC.md
+;           105.6.1). mrt_z: per table a first value and step, then a two-bit code an
 ;           entry whose value less the bias is the step's change. The step is
 ;           a BYTE added with a carry into the value's high byte - exact for a
 ;           word table (steps 0..118) and for a byte table's low byte, whose
@@ -432,13 +433,35 @@ mrt_unz:
     adc bh, 0
     loop .el
     jmp short .tab
-.done:
+.done:                              ; SI = mrt_zc, which MRT_ZTAIL puts right
+.col:                               ; after the stream's end: the FM bank's
+    lodsw                           ; columns, each byte the bss's own plus
+    xchg ax, di                     ; the one BX before it (BX = 0: itself,
+    or di, di                       ; still zero)
+    jz .ret
+    lodsw
+    xchg ax, cx                     ; CL = the count, CH = the stride
+    lodsb
+    cbw
+    xchg ax, bx
+    mov al, ch
+    cbw
+    xchg ax, dx
+    xor ch, ch
+.b:
+    lodsb
+    add al, [di+bx]
+    mov [di], al
+    add di, dx
+    loop .b
+    jmp short .col
+.ret:
     pop bp
     ret
     MRT_ZTAIL
     align 2, db 0                   ; (an even image, as it always was)
-%if ($ - mr_ztail) > OS88SPK_PRL
-  %error "the image's tail has outgrown mrk_pring, which is laid over it"
+%if ($ - mr_ztail) > OS88SPK_PRL + MRL_MAX * MRL_ENT
+  %error "the image's tail has outgrown mrk_pring and mrl_ent, laid over it"
 %endif
     OS88_BSS mr_bss0 + MR_BSS - os88_image_end
     OS88_IMAGE_END

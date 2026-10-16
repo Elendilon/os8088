@@ -544,16 +544,12 @@ def generate():
     for i, n in enumerate(GM_NAMES):
         L.append("    db '%s', 0%s" % (n.replace("'", "''"), '' if i % 8 else '            ; %d' % i))
     L.append('')
-    bank = fm_bank()
-    L.append('; the FM bank: mod 20h 40h 60h 80h E0h, car the same, C0h, transpose')
-    L.append('mrt_fmbank:')
-    for i, p in enumerate(bank):
-        L.append('    db %s   ; %3d %s' % (', '.join('0x%02X' % (b & 0xFF) for b in p), i, GM_NAMES[i]))
-    L.append('')
-    L.append('; the FM kit, keys %d..%d: the same eleven bytes, then the note struck' % (DRUM_LO, DRUM_HI))
-    L.append('mrt_fmdrum:')
-    for i, p in enumerate(fm_drums()):
-        L.append('    db %s   ; key %d' % (', '.join('0x%02X' % (b & 0xFF) for b in p), DRUM_LO + i))
+    L.append('; the FM bank, mod 20h 40h 60h 80h E0h, car the same, C0h, transpose;')
+    L.append('; and the FM kit, keys %d..%d, the same eleven bytes then the note struck.' % (DRUM_LO, DRUM_HI))
+    L.append('; BSS, one run of %d records, filled at entry by mrt_unz from MRT_ZTAIL\'s' % len(FM_RECS()))
+    L.append('; columns (SPEC.md 105.6.1)')
+    L.append('    MRBUF mrt_fmbank, %d' % (128 * 12))
+    L.append('    MRBUF mrt_fmdrum, %d' % ((DRUM_HI - DRUM_LO + 1) * 12))
     L.append('')
     L += _rows('mrt_syn', syn_table(), 'db', 16, "the synth's voicing: duty | env << 2 | octave lift << 5")
     L.append('')
@@ -580,9 +576,60 @@ def generate():
         for i in range(0, len(codes), 16):
             L.append('    db %s' % ', '.join('0x%02X' % b for b in codes[i:i + 16]))
     L.append('    dw 0')
+    L.append('; the FM bank and kit as COLUMNS (a column of 175 like registers packs')
+    L.append('; where a 12-byte record does not), as mrt_unz reads them: per column')
+    L.append('; the address of its first byte, its count, the records\' stride, and')
+    L.append('; minus the field it is a difference from (0: none - it adds the bss\'s')
+    L.append('; zero). The two E0h columns are all zero and do not ship')
+    L.append('mrt_zc:')
+    for f, back, col in fm_columns():
+        L.append('    dw mrt_fmbank + %d' % f)
+        L.append('    db %d, 12, %d' % (len(col), -back & 0xFF))
+        for i in range(0, len(col), 16):
+            L.append('    db %s' % ', '.join('0x%02X' % b for b in col[i:i + 16]))
+    L.append('    dw 0')
     L.append('%endmacro')
     L.append('')
     return '\n'.join(L)
+
+
+def FM_RECS():
+    """The FM bank's 128 records and the kit's 47, as the bss holds them."""
+    return [[b & 0xFF for b in p] for p in fm_bank() + fm_drums()]
+
+
+# the columns stored as their difference from the modulator's same register
+# (each saves about half its packed size: a carrier's envelope is its
+# modulator's, give or take a step)
+FM_DIFF = {7: 2, 8: 3}
+
+
+def fm_columns():
+    """[(field, back, bytes)] for mrt_zc - and refuses a set that uncol()
+    does not read back to the records."""
+    recs = FM_RECS()
+    out = []
+    for f in range(12):
+        col = [r[f] for r in recs]
+        back = 0
+        if f in FM_DIFF:
+            back = f - FM_DIFF[f]
+            col = [(c - r[f - back]) & 0xFF for c, r in zip(col, recs)]
+        if any(col):
+            out.append((f, back, bytes(col)))
+    assert uncol(out, len(recs)) == recs
+    return out
+
+
+def uncol(cols, n):
+    """mrt_unz's column loop, over a zeroed bss: byte = column + [di - back]."""
+    mem = [0] * (12 * n)
+    for f, back, col in cols:
+        di = f
+        for c in col:
+            mem[di] = (c + mem[di - back]) & 0xFF
+            di += 12
+    return [mem[i * 12:i * 12 + 12] for i in range(n)]
 
 
 def SMOOTH():

@@ -179007,13 +179007,24 @@ fetched or transcribed), the synth's voicing per program and its kit.
 image carries `mrt_z` - each one's first value and first step, then two bits
 an entry whose value less a bias is the change in the step (every second
 difference is in -2..2) - which `mrt_unz` expands as `mr_entry`'s first
-call: 1,280 entries at ~120 cycles, ~32 ms at 4.77 MHz (estimated). The tool's `unz()` is the loop
+call: 1,280 entries at ~120 cycles and 1,750 column bytes at ~60, ~54 ms
+at 4.77 MHz together (estimated). The tool's `unz()` is the loop
 line for line and `gen` refuses a stream it does not read back to the table.
-`mrt_z` and `mrt_unz` are the image's TAIL, the first 454 bytes of
-`mrk_pring` (105.8.4) - its fourth tenant, read before any of the others is
-written - so the bss starts 2 KB past the tail rather than at the image's
-end and the change costs no RAM: image + bss is 47,484 before and after, and
-the file is **2,124 bytes smaller** (30,991 -> 28,867).
+**The FM bank and kit ship as COLUMNS** too: 175 records of twelve
+registers pack badly as records and well as columns of like registers, the
+two E0h columns are all zero and do not ship at all, and the carrier's
+attack/decay and sustain/release are stored as their difference from the
+modulator's. `mrt_unz` lays them back into 2,100 bytes of bss, each byte the
+column's plus the one a fixed distance before it (zero distance: the bss's
+own zero), and `gen` refuses columns its `uncol()` does not read back.
+
+`mrt_z`, `mrt_zc` and `mrt_unz` are the image's TAIL (2,284 bytes), laid
+under `mrk_pring` (105.8.4) and then `mrl_ent` (105.3) - two buffers each
+written before it is read (a playlist entry only below `[mrl_n]`), so the
+tail is their first tenant and is spent before either has another - and the
+bss starts 3 KB past the tail rather than at the image's end. The change
+costs no RAM: image + bss is 47,484 before and after, and the file is
+**2,422 bytes smaller** (30,991 -> 28,569).
 
 #### 105.6.2 OPL3, and an emulator that is half of one
 
