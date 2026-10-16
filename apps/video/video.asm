@@ -7887,18 +7887,20 @@ vp_fsenter:                         ; F, Alt+Enter: full screen, PAUSED -
     mov byte [vp_cpent], 0
     jc .out
 .run:
+    xor ax, ax
     cmp byte [vp_lsess], 0          ; LIVE -> the full screen: the worker
     je .rn                          ; stops at the frame it drew, and the
-    mov byte [vp_lrun], 0           ; bracket goes on from it, playing if it
-    mov byte [vp_autop], 0          ; was - the card paused with it, and
+    mov [vp_lrun], al               ; bracket goes on from it, playing if it
+    mov [vp_autop], al              ; was - the card paused with it, and
     cmp byte [vp_upause], 0         ; resumed by the bracket
     jne .lp
     call vp_upaus
     mov byte [vp_autop], 1
+    xor ax, ax
 .lp:
-    mov byte [vp_sfirst], 0
+    mov [vp_sfirst], al
 .rn:
-    mov byte [vp_wantwin], 0
+    mov [vp_wantwin], al
     call vp_srun
 .out:
     pop ax
@@ -7987,8 +7989,9 @@ vp_lplay:
     cmp byte [vp_upause], 0         ; hold the worker off for nothing)
     jne .res
     call vp_upaus                   ; PAUSE: the worker stops where it is,
-    mov byte [vp_lrun], 0           ; and the card, if any, where it is
-    mov byte [vp_bpause], 0
+    xor ax, ax                      ; and the card, if any, where it is
+    mov [vp_lrun], al
+    mov [vp_bpause], al
     call vp_lbtn
     jmp short .out
 .res:
@@ -8007,9 +8010,11 @@ vp_lsetup:
     push cx
     push dx
     push si
-    mov byte [vp_lsess], 1
-    mov byte [vp_ldrain], 0
-    mov byte [vp_shadow], 1
+    mov al, 1
+    mov [vp_lsess], al
+    mov [vp_shadow], al
+    dec ax
+    mov [vp_ldrain], al
     call vp_bandall
     cmp word [vp_krec], 0xFFFF      ; the key, onto the black
     je .nk
@@ -8088,9 +8093,11 @@ vp_lgo:
     mov ax, [vp_keep]
     mov [vp_shseg], ax
     call vp_bandall
-    mov byte [vp_upause], 0
-    mov byte [vp_bpause], 1
-    mov byte [vp_winm], 0
+    xor ax, ax
+    mov [vp_upause], al
+    mov [vp_winm], al
+    inc ax
+    mov [vp_bpause], al
     mov ax, [vp_pdiv]               ; the frame's period in PIT counts: the
     mov bl, [vp_pitper]             ; divisor x the periods a frame
     xor bh, bh
@@ -8213,9 +8220,10 @@ vp_lask:
 vp_lback:
     push si
     call vp_lfeed                   ; (a stream: its ring topped up)
-    mov byte [vp_lrun], 0           ; the box repainted from the shadow
-    mov byte [vp_bpause], 0         ; FIRST, and only then the play resumed:
-    mov byte [vp_shadow], 1         ; a repaint holds the lock, and a card
+    xor ax, ax                      ; the box repainted from the shadow
+    mov [vp_lrun], al               ; FIRST, and only then the play resumed:
+    mov [vp_bpause], al             ; a repaint holds the lock, and a card
+    mov byte [vp_shadow], 1
     mov ax, [vp_keep]               ; resumed before it plays on while the
     mov [vp_shseg], ax              ; worker waits (98.3.10.1)
     call vp_fmt
@@ -8981,16 +8989,8 @@ vp_ldstored:
     mov [vp_lsrem+2], di
     mov bp, [vp_ldseg]              ; BP = where the next piece goes
 .piece:
-    mov cx, [vp_lsrem]
-    or cx, [vp_lsrem+2]
-    jz .move
-    mov cx, 0x8000                  ; 32 KB, or what is left
-    cmp word [vp_lsrem+2], 0
-    jne .c
-    cmp word [vp_lsrem], cx
-    jae .c
-    mov cx, [vp_lsrem]
-.c:
+    call .min                       ; 32 KB, or what is left
+    jcxz .move
     mov [vp_rdseg], bp
     call vp_rdat                    ; (a cluster boundary: SI comes back 0)
     jc .out
@@ -9000,6 +9000,15 @@ vp_ldstored:
     sbb word [vp_lsrem+2], 0
     add bp, 0x0800
     jmp short .piece
+.min:                               ; CX = 32 KB, or [vp_lsrem] if that is less
+    mov cx, 0x8000
+    cmp word [vp_lsrem+2], 0
+    jne .m0
+    cmp [vp_lsrem], cx
+    jae .m0
+    mov cx, [vp_lsrem]
+.m0:
+    ret
 .move:
     mov si, [vp_lsin]               ; down by SI, if it did not start on one
     or si, si
@@ -9011,13 +9020,7 @@ vp_ldstored:
     mov dx, [vp_ldseg]              ; DX:0 the destination, BP:SI the source:
     mov bp, dx                      ; both on 32 KB a piece, so SI stays
 .mv:
-    mov cx, 0x8000
-    cmp word [vp_lsrem+2], 0
-    jne .mc
-    cmp [vp_lsrem], cx
-    jae .mc
-    mov cx, [vp_lsrem]
-.mc:
+    call .min
     jcxz .done
     sub [vp_lsrem], cx
     sbb word [vp_lsrem+2], 0
@@ -9147,12 +9150,8 @@ vp_cbound:
     push dx
     push si
     push di
-    mov al, [vp_layout]
-    xor ah, ah
-    mov bx, ax
-    shl bx, 1
-    add bx, ax
-    shl bx, 1                       ; BX = layout * 6
+    mov bl, [vp_layout]
+    call vp_lay6                    ; BX = layout * 6
     mov cl, [vp_laytab+bx+1]
     xor ch, ch                      ; CX = the banks: the last row of each
     mov di, [vp_laytab+bx+2]        ; is among the canvas's last CX rows
@@ -9357,15 +9356,8 @@ vp_rbnd:
     loop .pa
     jmp .poke
 .slice:                             ; SLICE: a skip, len8, the bytes
-    xor ax, ax
-    cmp si, bp
-    jae .n1
-    lodsb
-    or al, al
-    jz .r1
-    mov cx, ax
-    call .addr
-    jc .r1
+    call .hd
+    jbe .r1
 .sle:
     lodsb
     add di, ax
@@ -9381,15 +9373,8 @@ vp_rbnd:
     jbe .slice
     jmp .no
 .run:                               ; RUN: a skip, len8, the value
-    xor ax, ax
-    cmp si, bp
-    jae .n1
-    lodsb
-    or al, al
-    jz .r1
-    mov cx, ax
-    call .addr
-    jc .r
+    call .hd
+    jbe .r1
 .rue:
     lodsb
     add di, ax
@@ -9405,15 +9390,8 @@ vp_rbnd:
     jbe .run
     jmp .no
 .long:                              ; SLICEL (BX 1) or RUNL (BX 0): a skip,
-    xor ax, ax                      ; len16, the bytes or the value
-    cmp si, bp
-    jae .no
-    lodsb
-    or al, al
-    jz .r
-    mov cx, ax
-    call .addr
-    jc .r
+    call .hd                        ; len16, the bytes or the value
+    jbe .r
 .le:
     xor ax, ax
     lodsb
@@ -9434,6 +9412,18 @@ vp_rbnd:
     cmp di, dx
     jbe .long
     jmp .no
+.hd:                                ; a span list's segment head: CF=1 not
+    xor ax, ax                      ; sound, else ZF=1 the list's end, or
+    cmp si, bp                      ; CX = its spans and DI their address -
+    jae .no                         ; so JBE to a ret leaves with either
+    lodsb
+    or al, al
+    jz .r
+    mov cx, ax
+    call .addr
+    jc .r
+    or cx, cx                       ; (ZF=0, CF=0)
+    ret
 .addr:                              ; a span segment's address into DI, and
     mov ax, bp                      ; AX 0 again
     sub ax, si
@@ -9479,8 +9469,8 @@ vp_rcur:
     mov [vp_fleft], ax
     mov al, [vp_lkind]
     mov [vp_wkind], al
-    mov ax, [vp_lL]
-    cmp byte [vp_wkind], 1
+    cmp al, 1
+    mov ax, [vp_lL]                 ; (MOV: the compare's flags stand)
     je .w
     mov ax, 0xFFFF
 .w:
@@ -9725,12 +9715,13 @@ vp_sstart:
     xor ah, ah
 .kc:
     mov [vp_kkb], al                ; (what vp_zero clears of it)
+    xor dx, dx
     mov byte [vp_nokeep], 1         ; PAGE-AHEAD (98.3.8.3): no keeper - the
-    xor dx, dx                      ; hidden page is half a frame to come,
-    cmp byte [vp_flip], 2           ; which no keeper holds, so out of the
-    je .kok                         ; full screen it stops at the key at or
-    mov byte [vp_nokeep], 0         ; before, as a play without one does
-    mov byte [vp_pcv], 0            ; (the poster holds no frame of this yet)
+    cmp byte [vp_flip], 2           ; hidden page is half a frame to come,
+    je .kok                         ; which no keeper holds, so out of the
+    mov [vp_nokeep], dl             ; full screen it stops at the key at or
+    mov [vp_pcv], dl                ; before, as a play without one does
+                                    ; (the poster holds no frame of this yet)
     call vp_pcanv                   ; THE POSTER IS THE KEEPER (98.3.19.3):
     jc .kel                         ; at the video's own size it IS the
     mov byte [vp_nokeep], 2         ; canvas, one-bit or VGA4, and a play
@@ -9768,8 +9759,7 @@ vp_sstart:
                                     ; walled them off from the ring - 75 KB of
                                     ; Mode X keeper left the ring the 313 KB
                                     ; above it, not the 381 KB the machine had
-    mov word [vp_msg], vp_s_mem
-    jmp .fail
+    jmp .memf
 .kok:
     mov [vp_keep], dx
     cmp byte [vp_flip], 1           ; PAGE FLIPPING: the last record's copy
@@ -9780,8 +9770,7 @@ vp_sstart:
     mov ax, VP_PREVKB               ; (from the top too, for the same
     call OSAPI_MEM_CLAIM_HI         ; reason)
     jnc .pv
-    mov word [vp_msg], vp_s_mem
-    jmp .fail
+    jmp .memf
 .pv:
     mov [vp_prevseg], dx
     mov dx, [vp_keep]               ; (the KEEPER is what is zeroed and is
@@ -9806,15 +9795,16 @@ vp_sstart:
     or ax, ax
     jnz .rkc
     cmp byte [vp_pixfmt], PF_VGA8
-    jb .ring
+    jb .tor
 .rkc:
     cmp ax, [vp_kload]
-    jne .ring
+    jne .tor
     mov ax, [vp_kbkb]
     call OSAPI_MEM_CLAIM
-    jnc .ring
-    mov word [vp_msg], vp_s_mem
-    jmp .fail
+    jnc .tor
+    jmp .memf
+.tor:                               ; (.ring, where the tests above reach
+    jmp .ring                       ; it with a short jump)
 .strm:
     call vp_lyclaim                 ; THE LAYER's slots first (98.1.9)
     ; --- the ring: K slots and the mirror (SPEC.md 98.3). IN THE BRACKET,
@@ -9873,8 +9863,7 @@ vp_sstart:
     inc ax                          ; packet's chunks are all read before it
     cmp cx, ax                      ; is entered (98.1.4.1)
     jae .kok2
-    mov word [vp_msg], vp_s_mem
-    jmp .fail
+    jmp .memf
 .kok2:
     mov [vp_kr], cx                 ; (the ring's slots, for vp_slot)
     call vp_einq                    ; IN PLACE (98.3.18.7): the least ring for
@@ -9934,8 +9923,7 @@ vp_sstart:
     call OSAPI_MEM_CLAIM
     jnc .rgot
     pop bx
-    mov word [vp_msg], vp_s_mem
-    jmp .fail
+    jmp .memf
 .rgot:
     mov [vp_rclm], dx               ; (what is freed, and what moves)
     or bx, bx
@@ -9986,18 +9974,22 @@ vp_sstart:
 .clk2:
     mov [vp_pitper], al
     mov [vp_pdiv], dx
-    mov byte [vp_sess], 1
-    mov byte [vp_sfirst], 1
+    mov al, 1
+    mov [vp_sess], al
+    mov [vp_sfirst], al
     clc
     jmp short .out
+.memf:
+    mov word [vp_msg], vp_s_mem
 .fail:
     call vp_sfree
     call vp_fmt
     call vp_repaint
     cmp byte [vp_lcard], 0          ; A PLAY REFUSED AT THE START: the card
     jne .fc                         ; comes out, as for one that fails on
-    mov byte [vp_card], 1           ; its way (vp_sstop) - it is what says
-    mov byte [vp_relay], 1          ; why, and the owner found the reason
+    mov al, 1                       ; its way (vp_sstop) - it is what says
+    mov [vp_card], al               ; why, and the owner found the reason
+    mov [vp_relay], al
     push bx                         ; hidden behind a closed card
     mov bx, [vp_win]
     call OSAPI_WM_WAKE
@@ -10006,11 +9998,12 @@ vp_sstart:
     stc
 .out:
     pushf                           ; ONE POST A PRESS (98.3.19.1): the
-    cmp byte [vp_cppost], 0         ; play the wake starts again may not
-    jne .cpk                        ; post a second time, and anything else
-    mov byte [vp_cpq], 0            ; ends the press
+    xor ax, ax                      ; play the wake starts again may not
+    cmp [vp_cppost], al             ; post a second time, and anything else
+    jne .cpk                        ; ends the press
+    mov [vp_cpq], al
 .cpk:
-    mov byte [vp_cppost], 0
+    mov [vp_cppost], al
     popf
     pop es
     pop di
@@ -10068,8 +10061,9 @@ vp_lyclaim:
     call vp_lywant                  ; CX = its most slots, 0 none
     jcxz .out
     mov [vp_lyns], cx
-    mov word [vp_lysht], 0
-    mov byte [vp_lybnc], 0          ; THE LAYER BANK'S BOUNCE (98.1.9.4): with
+    xor cx, cx
+    mov [vp_lysht], cx
+    mov [vp_lybnc], cl              ; THE LAYER BANK'S BOUNCE (98.1.9.4): with
     cmp word [vp_lyxn], 0           ; a bank now, or one the SPLIT may grant -
     jne .bq                         ; the base's took the whole pool at the
     cmp byte [vp_lysplt], 0         ; open (--bank auto), and the layer's is
@@ -10083,7 +10077,8 @@ vp_lyclaim:
 .bq:
     mov byte [vp_lybnc], 1
 .set:
-    mov byte [vp_lyfl], 1           ; A LAYER TO PLACE: the ring's top
+    inc byte [vp_lyfl]              ; A LAYER TO PLACE: the ring's top (0
+                                    ; since the entry: 1)
 .out:
     pop cx
     ret
@@ -10101,10 +10096,9 @@ vp_lywant:
     jz .o
     cmp byte [vp_flip], 1
     je .o
-    cmp byte [vp_rep], 0
-    jne .o
-    cmp byte [vp_livem], 0
-    jne .o
+    mov al, [vp_rep]
+    or al, [vp_livem]
+    jnz .o
     cmp word [vp_clb], VP_CHUNK
     ja .o
     mov cx, VP_LYMAX                ; THE PLAYER's choice, not the encode's:
@@ -10130,16 +10124,14 @@ vp_kwant:
 ; play is in the FULL SCREEN, where nothing but a swap reads it back. In the
 ; window the keeper is how the canvas crosses every bracket. Preserves all
 vp_kelig:
-    cmp byte [vp_kneed], 0          ; (the decoder writes INTO it)
-    jne .no
-    cmp byte [vp_resid], 0
-    jne .no
-    cmp byte [vp_livem], 0
-    jne .no
-    cmp byte [vp_flip], 0
-    jne .no
-    cmp byte [vp_fsshd], 0
-    jne .no
+    push ax
+    mov al, [vp_kneed]              ; (the decoder writes INTO it)
+    or al, [vp_resid]
+    or al, [vp_livem]
+    or al, [vp_flip]
+    or al, [vp_fsshd]
+    pop ax
+    jnz .no
     cmp byte [vp_startp], 0         ; F: the full screen, paused
     jne .yes
     call vp_track
@@ -10166,34 +10158,31 @@ vp_pcanv:
     jne .no
     cmp word [vp_pscale], 1
     jne .no
-    cmp byte [vp_kneed], 0
-    jne .no
-    cmp byte [vp_resid], 0
-    jne .no
-    cmp byte [vp_livem], 0
-    jne .no
-    cmp byte [vp_flip], 0
-    jne .no
-    cmp byte [vp_fsshd], 0
-    jne .no
+    push ax
+    mov al, [vp_kneed]
+    or al, [vp_resid]
+    or al, [vp_livem]
+    or al, [vp_flip]
+    or al, [vp_fsshd]
+    jnz .nop
     cmp byte [vp_pixfmt], PF_VGA4   ; 16 colours, on mode 12h's planes -
     jne .p1                         ; but not in ITS OWN sixteen (98.1.3.2.2):
-    cmp word [vp_palo], 0           ; the poster is in the desktop's, and the
-    jne .no                         ; screen's pixel values copied into it
-    cmp word [vp_palo+2], 0         ; would show the stopped picture in the
-    jne .no                         ; wrong colours (the options audit)
-    jmp short .yes
+    mov ax, [vp_palo]               ; the poster is in the desktop's, and the
+    or ax, [vp_palo+2]              ; screen's pixel values copied into it
+    jmp short .z                    ; would show the stopped picture in the
+                                    ; wrong colours (the options audit)
 .p1:
     cmp byte [vp_pixfmt], PF_VGA8   ; ...or one bit, in the desktop's own
-    jae .no                         ; layout - another's is the window's
-    push ax                         ; shadow (98.3.2), which the keeper IS
-    mov al, [vp_layout]
+    jae .nop                        ; layout - another's is the window's
+    mov al, [vp_layout]             ; shadow (98.3.2), which the keeper IS
     cmp al, [vp_dlay]
-    pop ax
+.z:
+    pop ax                          ; (ZF=1: it can)
     jne .no
-.yes:
     clc
     ret
+.nop:
+    pop ax
 .no:
     stc
     ret
@@ -10433,16 +10422,14 @@ vp_cptry:
     mov byte [vp_cpq], 1
     mov al, [vp_cpent]
     mov [vp_cpgo], al
-    pop cx
-    pop bx
-    pop ax
     clc
-    ret
+    jmp short .p
 .no:
+    stc
+.p:
     pop cx
     pop bx
     pop ax
-    stc
     ret
 
 ; vp_smov - AX = vp_smove, or 0: the SESSION's claims - the ring, the keeper
@@ -10527,13 +10514,14 @@ vp_spos:
     xor ax, ax
     mov [vp_base], ax
     mov [vp_kidx], ax
-    mov word [vp_krec], 0xFFFF
+    mov [vp_lpar], ax               ; (a lead's paragraphs past the ring)
+    mov [vp_alst], ax               ; no lead read (98.1.8), none staged,
+    mov [va_pc], ax                 ; and the audio cursor before the ring
+    mov [vp_afr], ax                ; (vp_lfloor reads it from the first fill,
+    dec ax                          ; and its frame until vp_sopen sets it)
+    mov [vp_krec], ax
+    mov [vp_lsrc], ax
     mov byte [vp_aref], 0x80
-    mov word [vp_lpar], 0           ; (a lead's paragraphs past the ring)
-    mov word [vp_lsrc], 0xFFFF      ; no lead read (98.1.8), none staged,
-    mov [vp_alst], ax               ; and the audio cursor before the ring
-    mov [va_pc], ax                 ; (vp_lfloor reads it from the first fill,
-    mov [vp_afr], ax                ; and its frame until vp_sopen sets it)
     mov ax, [vp_sp0]
     mov [vp_ssp], ax
     mov ax, [vp_sp0+2]
@@ -10546,24 +10534,18 @@ vp_spos:
     cmp byte [vp_flip], 2           ; ...and for page-ahead, whose key 0
     je .kpick                       ; carries the hidden page PRELOADED
     cmp byte [vp_pixfmt], PF_VGA8   ; key 0 too for colour: its frame 0 may
-    jb .start                       ; be too big for one record, and the key
+    jb .tos                         ; be too big for one record, and the key
 .kpick:                             ; is the whole picture
     cmp ax, [vp_kload]
-    jne .start
+    jne .tos
     mov [vp_rdseg], dx
     call vp_kfirst                  ; (its first part, 98.1.3.8: the rest
-    jnc .kin                        ; are read as it is decoded)
-    mov word [vp_msg], vp_s_kbad
-    stc
-    ret
-.kin:
+    jc .kbad                        ; are read as it is decoded)
     cmp byte [vp_kneed], 0          ; the key decodes into a keeper that is
     je .kok                         ; only the canvas (98.1.7.3), so its
     mov dx, [vp_rdseg]              ; writes are checked as the block's were
     call vp_rbnd
-    jnc .kok
-    mov word [vp_msg], vp_s_kbad
-    ret
+    jc .kbad
 .kok:
     mov [vp_krec], si
     cmp byte [vp_ahead], 0          ; SOUND AHEAD: the key's lead is its
@@ -10576,6 +10558,12 @@ vp_spos:
     sub ax, [vp_alb]
     mov [vp_lsrc], ax
     jmp short .knl
+.kbad:                              ; (the key's reads' one refusal)
+    mov word [vp_msg], vp_s_kbad
+    stc
+    ret
+.tos:                               ; (.start, where the tests above reach
+    jmp short .start                ; it with a short jump)
 .kapart:                            ; ...or, APART (98.1.8.1), its own read
     cmp byte [vp_snd], 0            ; into the ring past the key's - none for
     je .knl                         ; a muted play, as the start's
@@ -10592,11 +10580,7 @@ vp_spos:
     mov cx, [vp_alb]
     call vp_rdat
     pop word [vp_rdseg]
-    jnc .klin
-    mov word [vp_msg], vp_s_kbad
-    stc
-    ret
-.klin:
+    jc .kbad
     mov [vp_lsrc], si
 .knl:
     mov ax, [vp_ke+KE_K]
@@ -10624,11 +10608,7 @@ vp_spos:
     mov dx, [vp_lead0+2]
     mov cx, [vp_alb]
     call vp_rdat
-    jnc .l0in
-    mov word [vp_msg], vp_s_kbad
-    stc
-    ret
-.l0in:
+    jc .kbad
     mov [vp_lsrc], si
 .nl0:
     ; --- the reader: from the cluster boundary under the stream's start
