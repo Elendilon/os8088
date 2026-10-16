@@ -3159,9 +3159,9 @@ wr_cfgload:
     call wr_sput
     mov word [wr_port], 80
 
-    call OSAPI_FILE_HERE                ; DX = our cwd, BL = our drive
-    mov [wr_dbclus], dx
-    mov [wr_dbdrv], bl
+    call OSAPI_FILE_HERE                ; DX = our cwd, BL = our drive, and
+    push dx                             ; both banked on the stack across the
+    push bx                             ; walk and the parse
     xor dx, dx
     call OSAPI_FILE_GOTO_QM             ; the ROOT of that same volume
     jc .home
@@ -3179,13 +3179,12 @@ wr_cfgload:
     jc .home
     or dx, dx
     jnz .home                           ; longer than the buffer: not ours
-    or ax, ax
-    jz .home
-    mov [wr_cfgn], ax
+    mov cx, ax
+    jcxz .home
     call wr_cfgparse
 .home:
-    mov dx, [wr_dbclus]
-    mov bl, [wr_dbdrv]
+    pop bx
+    pop dx
     call OSAPI_FILE_GOTO_QM
     ret
 
@@ -3261,10 +3260,10 @@ wr_ret:                                 ; a lone `ret`, and so ALSO the
 ; PREFIX, which is forced to start and end with a slash: a request path is
 ; composed by concatenation and a prefix without its slashes composes a URL
 ; that is wrong in a way the server answers 404 to rather than refusing.
+; in:  CX = the file's length, at wr_cfgb; clobbers AX..DI - its one caller,
+;      wr_cfgload, saves them all through wr_sv
 wr_cfgparse:
-    call wr_sv                          ; AX..DI and ES, given back by the ret
     mov si, wr_cfgb
-    mov cx, [wr_cfgn]
     mov di, wr_host                     ; --- the host
     mov bx, WR_HOSTMAX - 1
 .h:
@@ -3400,7 +3399,8 @@ wr_state    equ os88_image_end + 14     ; byte: WS_*
 wr_kind     equ os88_image_end + 15     ; byte: WK_*
 wr_hnd      equ os88_image_end + 16     ; byte: the socket handle, 0 = none
 wr_hstate   equ os88_image_end + 17     ; byte: the header scan's line state
-wr_dbdrv    equ os88_image_end + 18     ; byte: the banked drive (19.9)
+                                        ; +18 is free (wr_cfgload banks the
+                                        ; cwd on the stack now)
 wr_grey     equ os88_image_end + 19     ; byte: bit 0 = Load Program is greyed,
                                         ; bit 1 = Add to Disk... is - written
                                         ; by the painter that greys them
@@ -3459,7 +3459,7 @@ wr_rxp      equ os88_image_end + 86     ; word: the read position in wr_rxb,
                                         ; chunk...
 wr_rxn      equ os88_image_end + 88     ; word: ...and what is left
 WR_ZEROW    equ (90 - WR_ZERO) / 2      ; ...which is where the block ends
-wr_dbclus   equ os88_image_end + 90     ; word: the banked cwd (19.9)
+wr_port     equ os88_image_end + 90     ; word: the server's port
 wr_shown    equ os88_image_end + 92     ; word: the K figure last drawn
 wr_wname    equ os88_image_end + 94     ; word: the name OSAPI_FILE_WRITE was
                                         ; given, banked because a DVK_FILE
@@ -3602,16 +3602,14 @@ wr_asto     equ os88_image_end + WR_B7 + 20         ; word: ...and stored
 wr_aout     equ os88_image_end + WR_B7 + 22         ; word: bytes decoded
 wr_ain      equ os88_image_end + WR_B7 + 24         ; word: stored bytes fed
 wr_bclus    equ os88_image_end + WR_B7 + 26         ; word: the base folder
-wr_port     equ os88_image_end + WR_B7 + 28
-wr_cfgn     equ os88_image_end + WR_B7 + 30
-wr_pnum     equ os88_image_end + WR_B7 + 32         ; word: 'N of M', the N...
-wr_ptot     equ os88_image_end + WR_B7 + 34         ; word: ...and the M
-wr_rlen     equ os88_image_end + WR_B7 + 36         ; word: the bytes handed to
+wr_pnum     equ os88_image_end + WR_B7 + 28         ; word: 'N of M', the N...
+wr_ptot     equ os88_image_end + WR_B7 + 30         ; word: ...and the M
+wr_rlen     equ os88_image_end + WR_B7 + 32         ; word: the bytes handed to
                                                     ; OSAPI_PKG_START
-wr_needkb   equ os88_image_end + WR_B7 + 38         ; word: WC_NEEDKB, banked
+wr_needkb   equ os88_image_end + WR_B7 + 34         ; word: WC_NEEDKB, banked
                                                     ; because OSAPI_DRV_CALL
                                                     ; owns every register
-wr_dvname   equ os88_image_end + WR_B7 + 40         ; word: the folder name
+wr_dvname   equ os88_image_end + WR_B7 + 36         ; word: the folder name
                                                     ; wr_dive is looking for,
                                                     ; banked past a file cell
                                                     ; that owns SI
@@ -3619,19 +3617,19 @@ wr_catkb    equ os88_image_end + WR_B7 + 11         ; byte: the KB the catalog
                                                     ; claim holds now (wr_onwake
                                                     ; shrinks it, wr_refresh
                                                     ; grows it back)
-wr_anb      equ os88_image_end + WR_B7 + 42         ; 13: one path slot, copied
+wr_anb      equ os88_image_end + WR_B7 + 38         ; 13: one path slot, copied
                                                     ; and TERMINATED. SPEC.md
                                                     ; 92.13's twelve-character
                                                     ; name fills its slot with
                                                     ; no NUL, and every kernel
                                                     ; cell reads to one
-wr_abig     equ os88_image_end + WR_B7 + 55         ; byte: this entry is
+wr_abig     equ os88_image_end + WR_B7 + 51         ; byte: this entry is
                                                     ; past the claim and comes
                                                     ; in PIECES (92.13.1)...
-wr_apiece   equ os88_image_end + WR_B7 + 56         ; byte: ...and how many of
+wr_apiece   equ os88_image_end + WR_B7 + 52         ; byte: ...and how many of
                                                     ; them are written. The two
                                                     ; ARE ADJACENT: wr_aentck
                                                     ; clears both with one word
-wr_abrem    equ os88_image_end + WR_B7 + 58         ; dword: the big entry's
+wr_abrem    equ os88_image_end + WR_B7 + 54         ; dword: the big entry's
                                                     ; bytes not yet stored
-WR_BSS      equ WR_B7 + 62
+WR_BSS      equ WR_B7 + 58

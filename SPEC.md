@@ -144889,6 +144889,12 @@ the package had twice or did not need.
   instruction on and the superseded-open arm of `wr_nstep` closes through
   it; and the three RAM-disk verbs load BX as one word. (`NET_CLASS` cannot
   be folded the same way: in a package it is the byte `[net_cls]`.)
+- **`WIRE.CFG` is read with three fewer words of bss.** `wr_cfgload` banks
+  the cwd it walks away from on the stack rather than in `wr_dbclus` and
+  `wr_dbdrv`, and hands `wr_cfgparse` - its one caller, which no longer
+  saves through `wr_sv` of its own - the length in CX rather than in
+  `wr_cfgn`. `wr_port` took `wr_dbclus`'s word and the archive block closed
+  up behind the two it left: **bss -4**.
 
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 
