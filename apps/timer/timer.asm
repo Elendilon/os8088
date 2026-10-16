@@ -247,7 +247,13 @@ tm_tick:
 ; tm_clipd - arm the clip, and letter the digits only where it is visible
 ; in:  BX = window ptr; gfx lock held
 tm_clipd:
-    call OSAPI_WM_CLIP_SET          ; CF = 1: not one visible pixel (SPEC.md
+    cmp byte [tm_btrec+OS88UI_BT_N], 0 ; the About card is up (tm_about): it
+    je tm_keep.out                  ; is opaque over the digits, so the time is
+                                    ; kept and NOT drawn - the dismissal's
+                                    ; repaint letters the whole line again.
+                                    ; Drawing here lettered the seconds through
+                                    ; the card's text (SPEC.md 111.6)
+    call OSAPI_WM_CLIP_SET         ; CF = 1: not one visible pixel (SPEC.md
     jc tm_keep.out                  ; 11.3), and hidden counts. The region dies
                                     ; at the kernel's own gfx_unlock
                                     ; ...and falls into tm_digits

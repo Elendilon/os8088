@@ -185291,7 +185291,7 @@ It landed in v2's wave 3 (§110.10); the Desk Calendar adopted it in wave 4
 ## 111. TIMER — the stopwatch (`apps/timer/timer.asm`)
 
 The kernel's Timer kind (§14) as a package since §14.8: `TIMER.O88`, in
-`APPS/` on every apps disk, 1,540 bytes of image and 56 of bss (§111.6),
+`APPS/` on every apps disk, 1,547 bytes of image and 56 of bss (§111.6),
 the stopwatch icon in its header, label prefix `tm_`. Everything §14 says about
 the Timer's behaviour holds — the window, the layout, the accumulator
 (binding), §14.1's incremental redraw, §14.4's cut line, §47's greying — and
@@ -185419,6 +185419,28 @@ clear prefix), 953 this file's code and data, and 963 `apps/os88ui.inc`.
   painter - the one caller that owes SI back - banks it round `tm_digits`
   instead of `tm_digits` banking it for every caller. Image 1,550 -> 1,540,
   bss 58 -> 56, the file 1,467 -> 1,461.
+- **A DEFECT, FIXED: the seconds were lettered through the About card.**
+  The card is opaque over the digit line, and every firing went on drawing
+  the cells that changed - so a card left up read "Timer for 1:18088" a
+  second later. The package shipped that way (the base commit draws the
+  identical picture). `tm_clipd`, where both clocks enter the drawing, now
+  keeps the time and draws nothing while the record's button count is 0,
+  which is exactly while the card is up; the dismissal's repaint forgets the
+  line and letters all eight cells. +7 image bytes, the file 1,461 -> 1,467,
+  and one byte compare on the per-tick path.
+
+**What the pass bought**: image 2,012 -> 1,547, bss 60 -> 56, the file
+1,813 -> 1,467 (-346 bytes on each of three disks, still two clusters on
+each - one cluster is out of reach, `os88ui.inc` alone being ~705 bytes of
+the image). Measured on MartyPC's 5150 (CGA), `tm_tick` from its entry to
+the dispatcher's `retf`, median of 24 firings: **9,180 -> 8,536 cycles**
+for a firing with no digit to draw and **16,137 -> 15,527** for one with a
+digit - faster on both, the defect fix's compare included. Looked at old
+against new in one boot each, six states (running at 3s, stopped, reset,
+restarted at 2s, About up, About dismissed): the first four are
+pixel-identical, and the two About states differ only in the seconds cell -
+the old package's overdrawn digit on the card, and the clock a second or
+two apart.
 
 ## 112. BOUNCE — the square (`apps/bounce/bounce.asm`)
 
