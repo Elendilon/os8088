@@ -142148,10 +142148,10 @@ The second pass measures what the package costs a DISK
 
 | | before | after |
 |---|---|---|
-| file (LZ4) | 3,549 | **3,460** (-89) |
-| image | 4,381 | **4,264** (-117) |
-| bss | 1,542 | 1,541 (`FV_PAD`: the parity moves with the image) |
-| image + bss | 5,923 | **5,805** (-118) — a 6 KB claim either way |
+| file (LZ4) | 3,549 | **3,456** (-93) |
+| image | 4,381 | **4,261** (-120) |
+| bss | 1,542 | 1,542 (`FV_PAD`: the parity moves with the image) |
+| image + bss | 5,923 | **5,803** (-120) — a 6 KB claim either way |
 | heap claims | one face (its file's KB) + the pre-shift table | unchanged |
 
 **What the file is made of** (each byte charged its share of the LZ4 stream):
@@ -142201,6 +142201,9 @@ file byte saved.
   image, -4 file): `ty_s_fonts` is the folder name `ty_gofonts` walks to, and
   the column it heads lists exactly that folder, so the package's second
   copy went.
+- **A catalogue row's gutter is composed in AX and stored once** (-3 image,
+  -4 file): `'  '`, with `'>'` in its low byte for the selection, where a
+  word of blanks was stored and then a marker byte over it.
 
 ## 91. PACCMAN — pacman.c, written in C (`apps/paccman/`)
 

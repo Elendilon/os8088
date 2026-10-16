@@ -370,11 +370,12 @@ fv_draw_list:
 .row:
     cmp bl, [ty_nfam]
     jae .hint
-    mov word [fv_line], '  '
-    cmp bl, [fv_selected]
-    jne .mark
-    mov byte [fv_line], '>'
+    mov ax, '  '                    ; the row's two-cell gutter, and the
+    cmp bl, [fv_selected]           ; marker in its first cell when it is
+    jne .mark                       ; the selection - composed in AX and
+    mov al, '>'                     ; stored once
 .mark:
+    mov [fv_line], ax
     mov al, bl
     call ty_famname
     mov di, fv_line + 2
