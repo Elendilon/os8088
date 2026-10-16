@@ -79173,11 +79173,13 @@ and `small360.img` and `smallapps360.img` in the small one.
 | full, before | 4,595 | 1,140 | 5,735 | 4,259 |
 | `APP_SMALL`, before | 4,385 | 1,147 | 5,532 | 4,067 |
 
-**Every routine a frame, a click, a drag or a key runs is instruction-identical
-to the build before the pass** - compared routine by routine off nasm's two
-listings, source text and encoded length, so only the values of addresses
-differ. What changed is cold: the entry proc, `sol_metrics` and the set-up
-half of `sol_mkback`, which run at launch and on an adapter change only.
+**The first four rows are COLD**: every routine a frame, a click, a drag or a
+key runs is instruction-identical to the build before them - compared
+routine by routine off nasm's two listings, source text and encoded length,
+so only the values of addresses differ - and what changed is the entry proc,
+`sol_metrics` and the set-up half of `sol_mkback`, which run at launch and on
+an adapter change only. **The rows after them touch hot routines**, each one
+by taking instructions OUT of the path it is on, and they are measured below.
 
 | change | file, full | file, small | image + bss |
 |---|---:|---:|---:|
@@ -79185,6 +79187,7 @@ half of `sol_mkback`, which run at launch and on an adapter change only.
 | `sol_entry` saves no registers | −6 | −6 | 0 / 0 |
 | the 16x16 masks are stored as their left halves | −16 | −19 | 0 / 0 |
 | `sol_entry`'s placement: two dead clamps, one register | −10 | −10 | 0 / 0 |
+| `sol_track` keeps the origin once | −6 | −6 | −11 / −11 |
 
 **The metric records carry their derived fields.** `sol_metrics` copied a
 record of fourteen bytes into words and then worked out four more from them -
@@ -79229,6 +79232,14 @@ narrower than the narrowest screen (640), so neither difference can go
 negative. The clamped height's band is kept in BX and the slack taken from
 it, where it was re-derived from the dock row. The same window lands on the
 same pixel.
+
+**`sol_track` keeps the origin once.** It stored the content origin in
+`sol_ox`/`sol_oy` on every callback and kept a second copy, `sol_lastox`/
+`sol_lastoy`, to tell a moved window (§43.10's shadow is drawn at the old
+origin) - and nothing but `sol_track` writes either pair, so the two were
+always equal by the time anything compared them. It compares against the
+pair it already has and stores only on a change: two stores fewer on every
+callback, four bytes of `.bss` and six of code.
 
 ### 43.12 `APP_SMALL` — the small build of this package
 

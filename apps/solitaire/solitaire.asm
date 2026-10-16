@@ -329,15 +329,13 @@ sol_track:
     mov es, ax
     mov bx, si
     call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
+    cmp ax, [sol_ox]                ; the window moved? every cached sliver is
+    jne .moved                      ; remembered at the OLD origin - which is
+    cmp dx, [sol_oy]                ; the one this routine stored last time,
+    je .same                        ; and nothing else writes these two
+.moved:
     mov [sol_ox], ax
     mov [sol_oy], dx
-    cmp ax, [sol_lastox]            ; the window moved? every cached sliver is
-    jne .moved                      ; remembered at the OLD origin
-    cmp dx, [sol_lastoy]
-    je .same
-.moved:
-    mov [sol_lastox], ax
-    mov [sol_lastoy], dx
     call sol_pinv
 .same:
     mov ax, [es:bx + W_W]
@@ -3365,8 +3363,6 @@ sol_bssbase equ sol_backbuf + SOL_BACKMAX
     SWORD sol_cfa                   ; ...their fan step
     SWORD sol_cfu                   ; ...and the face-up one
     SWORD sol_keepn                 ; leading cards this draw may skip
-    SWORD sol_lastox                ; the origin the shadow below belongs to
-    SWORD sol_lastoy
     SBUF  sol_shw, P_TABN*SOL_SHW   ; what is on the glass, per column (43.10)
 
 ; --- sol_hit -----------------------------------------------------------------
