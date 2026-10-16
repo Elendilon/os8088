@@ -146430,6 +146430,120 @@ of the image and is shared. The worker's paths keep their shape, because its
 slice is the thinnest in the tree (`t_stkclass`) and its per-byte loop is the
 transfer rate.
 
+#### 92.15.3 Apps size pass 2 - the file on the disk
+
+The second pass measures the package by its SHIPPED FILE, the lz4-packed
+`THEWIRE.O88` (docs/plans/HANDOFF-APPS-SIZE-P2.md), because the 360KB system
+disk is full and this file rides every system disk and `network360.img`.
+Nothing a user sees changed and no string was reworded; every change is code
+the package had twice or did not need.
+
+| | before | after |
+|---|---|---|
+| `THEWIRE.O88`, the file | 10,256 | **9,984** (-272) |
+| clusters on the 360KB system disk and `network360.img` (and 720KB) | 11 | **10** |
+| clusters on the 1.44MB and 1.2MB system disks (512-byte) | 21 | **20** |
+| image | 11,925 | **11,457** (-468) |
+| bss | 2,803 | 2,808 (+9 for the defect below, -4) |
+| image + bss (the region) | 14,728 | **14,265** (-463) |
+| heap claims | | unchanged |
+
+**Every hot path it touched is faster**, measured on MartyPC (5150, CGA)
+by calling each routine in the loaded package with interrupts off, base and
+this tree in the same harness: a whole repaint of the no-driver window
+812,057 -> 811,574 cycles; a list row's icon copy 2,745 -> 1,112 and its
+title 1,532 -> 1,478; the worker's loop over 512 body bytes 201,097 ->
+198,025; one 18-byte LZSS match 1,747 -> 1,009 at distance 1 and at 50.
+
+- **`wr_onclick`'s detail-pane arm was dead.** It re-made the coordinates
+  absolute and returned without using them: the buttons are the gesture
+  library's, which takes the press before `wr_onclick` runs. The row test
+  borrows on `sub` instead of comparing first.
+- **A DEFECT, fixed: the status cell's compose buffer was one cell wide.**
+  `wr_statbuild` composes the whole line and only then pads or cuts it to
+  48 cells, and during an Add or an archive the line is `[wr_msg]` - the
+  outcome buffer `wr_omsg`, which sat directly after it - plus ` NNNK of
+  MMMK`. With an 18-character title that is up to 57 characters, so the tail
+  was written over the head of `wr_omsg` and every later repaint showed the
+  figure's last characters where `Adding` was, until the next file of the set
+  rebuilt it. `wr_sline` is `WR_STATB` = 58 bytes now: **+9 bytes of bss**,
+  and nothing on the glass changes but the corruption.
+- **`wr_sput` writes its NUL** and leaves DI on it, so a composition that
+  ends in a string is terminated and one that goes on writes over it. Nine
+  `mov byte [di], 0` after a final `wr_sput` went, `wr_pathbuild`'s three
+  arms end in one tail jump to it, and the loop is `lodsb` - fewer cycles a
+  character, and 13 more at the end of a string, so any string of four or
+  more characters is cheaper than before. Every destination was checked for
+  room for the terminator after its longest composition (`wr_sline` is the
+  one that needed it, above).
+- **`wr_start` zeroes one block.** The nine words a new transfer starts from
+  zero - `wr_got` and `wr_clen` (both halves), `wr_code`, `wr_hline`,
+  `wr_hlen`, `wr_sent`, `wr_msg`, `wr_rxp`, `wr_rxn` - are laid out from
+  `WR_ZERO` and cleared by one `rep stosw`, where they were eleven immediate
+  stores. `wr_reqn`, `wr_port` and `wr_cfgn` traded places with the three
+  that moved in; the bss is the same size.
+- **One post.** `wr_finish`, `wr_failpost` and `wr_pausepost` each banked the
+  kind, wrote the one byte, woke the window and redrew the cell; they set
+  their own state and jump to `wr_post` with the WW_* code in AL, which still
+  writes `[wr_wake]` last. The worker's chain is no deeper: it is a jump.
+  42 bytes of image and only 5 of file - lz4 had already found the copies,
+  which is 4.6 of the handoff's rule in one line.
+- **The two declarations take their `_NOKEEP` forms** (SPEC.md 66.6.1.1).
+  The region names `wr_ret`, the lone `ret` at the end of `wr_upper`, as its
+  relocation proc; `wr_entry` sets AX and DX again before reading them and
+  ends in its own `clc`. `wr_hire` pops AX and nobody reads its flags. And
+  `wr_entry` stopped banking five registers around `os88ui_btninit` to get
+  one of them back: it re-reads `[wr_win]`.
+- **A `wr_sv` routine's every exit is a `ret`**, so a `jmp short .out` onto
+  a bare `ret` is that `ret`, and a `call` followed by one is a tail `jmp`:
+  the callee's own `ret` lands in `wr_rs` as the routine's would have.
+  Twenty-two sites in the handlers and the file chain, each one shorter and
+  faster. `wr_oncmd` tells its four items apart with one compare and one
+  subtract, the middle two being `wr_do`'s 0 and 1 one lower.
+- **Stores from a register, and saves nobody needed.** `wr_refresh`,
+  `wr_arcstart`, `wr_aentck` and the Content-Length parse write their zeros
+  and their 0xFFFFs from a register (in `wr_aentck` the zero `loop` leaves in
+  CX); `wr_catck` makes N * 256 as `mov ah, cl`, N being at most 255; two
+  loops stopped banking a CX their callee keeps; `wr_saved` stopped pointing
+  ES at a segment `wr_selrec` points elsewhere on the next line; and
+  `wr_stemput`, a once-a-file routine whose callers never read the DI it
+  advanced, saves through `wr_sv`.
+- **The three decimal parses** - the port in `WIRE.CFG`, the reply's status
+  code and its Content-Length - test a digit as `sub al, '0'` / `cmp al, 9`,
+  one unsigned compare for two, and the two 16-bit ones accumulate in BX
+  with `mov dx, 10` / `mul dx` instead of banking CX around a `mul cx`. Same
+  answers for every input, the port's 16-bit wrap included.
+- **`wr_ohead` / `wr_otitle` and `wr_otoast`.** The three outcome sentences
+  that name the program (`Adding`, `Loaded`, `added to your disk`) composed
+  the selected title the same way three times, and the two that toast set
+  `[wr_msg]` and called `OSAPI_TOAST` the same way twice; each is a routine
+  now. Two ES loads nothing read went with them.
+- **Smaller exits everywhere else.** `wr_netcheck` had one caller and is
+  inline in `wr_refresh`; `wr_lockarm`, `wr_dall`, `wr_dend`, `wr_dglyph`,
+  `wr_rowrect` and `wr_refresh` end in a tail jump; `wr_dive` returns the
+  CF `OSAPI_FILE_GOTO_QM` gave it, and `wr_ieq` the one its own `or` left;
+  `wr_hclose` takes the handle with one `xchg`, so it is NONE from that
+  instruction on and the superseded-open arm of `wr_nstep` closes through
+  it; and the three RAM-disk verbs load BX as one word. (`NET_CLASS` cannot
+  be folded the same way: in a package it is the byte `[net_cls]`.)
+- **`WIRE.CFG` is read with three fewer words of bss.** `wr_cfgload` banks
+  the cwd it walks away from on the stack rather than in `wr_dbclus` and
+  `wr_dbdrv`, and hands `wr_cfgparse` - its one caller, which no longer
+  saves through `wr_sv` of its own - the length in CX rather than in
+  `wr_cfgn`. `wr_port` took `wr_dbclus`'s word and the archive block closed
+  up behind the two it left: **bss -4**.
+- **String instructions in the copy loops**, each one shorter AND faster
+  than the loop it replaced, which is why three of them are on hot paths:
+  `es lodsb` in `wr_rowtext` (a list row's title), `wr_sputn`,
+  `wr_stemcopy`, `wr_saved` and the catalog date; `lodsb` in `wr_take`, the
+  worker's per-byte loop; one `rep movsw` for a row's 64 icon bytes in
+  `wr_icocopy`, with DS and ES swapped around it; and one `rep movsb` for an
+  LZSS match in `wr_lzb`, which copies forward a byte at a time exactly as
+  the loop did, so a match that overlaps itself still repeats.
+- **`wr_catck` checks the version and the record size as one word**, the
+  record-size byte being the one after the version (asserted at assembly).
+  `wr_arcwrite` lost a `clc` its own `jc` had already made true.
+
 ## 93. DOT DELIRIUM — a maze chase, sized from the surface (`apps/dotdel/`)
 
 A `.o88` package at org 0 owning a segment (§20.1), prefix `dd_`, embedded
