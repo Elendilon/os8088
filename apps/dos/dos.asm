@@ -8183,8 +8183,8 @@ dos_mem_numn:                       ; in a check box's own label. The widths are
 ; -----------------------------------------------------------------------------
 dos_mem_take:
     call dos_mem_parse
-    call dos_mem_fix                ; ...and the arm, which is the other half
-    ret                             ; of this block (SPEC.md 96.36.1)
+    jmp  dos_mem_fix                ; ...and the arm, which is the other half
+                                    ; of this block (SPEC.md 96.36.1)
 
 ; -----------------------------------------------------------------------------
 ; dos_mem_parse - the limit field's digits -> [dos_memkb] (0 = no limit)

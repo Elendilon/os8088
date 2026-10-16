@@ -52,13 +52,12 @@ dos_con_start:
     mov si, dsh_s_ver               ; THE SHELL'S OWN `VER` LINE, which is what
     call con_say                    ; a DOS machine opens with - and sharing it
     mov si, dos_c_hint              ; means the version is stated in one place
-    call con_say
+    jmp  con_say
     ; **AND THE PROMPT IS NOT WRITTEN HERE** (SPEC.md 96.33.2.1), which is the
     ; sentence three lines up taken seriously: a prompt is a statement about
     ; where the shell is STANDING, and on the document path this routine runs
     ; BEFORE the drive is known. `dos_entry` writes it at `.ok`, where both
     ; doors converge and `[dos_vol]` is settled either way.
-    ret
 
 ; -----------------------------------------------------------------------------
 ; dos_prompt - `$P$G`, recomposed (SPEC.md 96.33.2)
@@ -326,8 +325,8 @@ dos_con_run:
     mov byte [dsh_exec], 0
     cmp byte [dsh_more], 0          ; **A SUSPENDED `DIR /P` OWES NO PROMPT**
     je .ranout                      ; (SPEC.md 96.33.9): the listing stopped
-    call dos_con_draw               ; mid-page and printed `Strike a key`, and
-    ret                             ; a prompt under that would be a machine
+    jmp  dos_con_draw               ; mid-page and printed `Strike a key`, and
+                                    ; a prompt under that would be a machine
                                     ; asking two questions at once. The next
                                     ; keystroke resumes it in dos_con_key.
                                     ; **IT STILL DRAWS, THOUGH** - this arm
@@ -354,8 +353,7 @@ dos_con_run:
     call con_say
 .prompt:
     call dos_prompt
-    call dos_con_draw
-    ret
+    jmp  dos_con_draw
 
 ; -----------------------------------------------------------------------------
 ; dos_con_prog - try the typed line as a PROGRAM
@@ -619,8 +617,7 @@ dos_con_open:
     mov byte [dos_fsxgo], 1         ; the console has the screen (96.33.16)
     ret
 .wind:
-    call dos_con_draw
-    ret
+    jmp  dos_con_draw
 .bad:
     ; **THIS ARM IS THE NAME, NOT THE ASSOCIATION** (SPEC.md 96.33.22.1).
     ; dos_path_take_si refuses anything that is not a legal 8.3 path - over
@@ -635,8 +632,7 @@ dos_con_open:
     mov si, dos_c_crlf
     call con_say
     call dos_prompt
-    call dos_con_draw
-    ret
+    jmp  dos_con_draw
 
 ; -----------------------------------------------------------------------------
 ; dos_con_help - `HELP`: every verb, one line each (SPEC.md 96.33.23)
@@ -664,8 +660,7 @@ dos_con_help:
                                     ; here and dos_con_run reads that as `it is
                                     ; launching, the prompt comes with the exit
                                     ; line` - and a built-in has no exit line
-    call dos_con_draw
-    ret
+    jmp  dos_con_draw
 
 ; -----------------------------------------------------------------------------
 ; dos_con_pkg - a `.O88` typed at the prompt: hand it to the OS (96.33.17)
@@ -1172,8 +1167,7 @@ dos_con_starting:
 .said:
     call con_say
     mov si, dos_c_crlf
-    call con_say
-    ret
+    jmp  con_say
 
 ; -----------------------------------------------------------------------------
 ; dos_con_ended - the console's line about a program that has stopped
@@ -1247,8 +1241,8 @@ dos_con_ended:
     call con_say
 .out:
     mov byte [dos_fromcon], 0       ; ...spent, so the NEXT launch - a Run
-    call dos_prompt                 ; click, or a document - is spelled its own
-    ret                             ; way
+    jmp  dos_prompt                 ; click, or a document - is spelled its own
+                                    ; way
 
 ; -----------------------------------------------------------------------------
 ; dos_con_arena - ` (Arena: 343KB)` onto the line a finished program leaves

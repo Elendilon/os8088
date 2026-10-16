@@ -159884,6 +159884,11 @@ to what a DOS program sees (§96's real-DOS rule, docs/DOS-DEBUGGING.md):
   `dos_con_say`, none of which anything called; and the page button's
   8-byte `DOS_B_BRECT` cell, which only `dos_btn_rect` wrote. Part 0 222
   bytes smaller raw, 116 packed.
+- **Fifteen `call X` / `ret` pairs became `jmp X`** - ten in the window half,
+  five in the shell (`dsh_say`), none whose target reads its own return
+  address or swaps the stack (`dos_restore_machine`, `dos_exec_back` and the
+  `dos_be_*` doors are left alone for that reason). A word less stack and a
+  `ret` less time on each, and part 0 -10 / part 1 -4 packed.
 
 DEFECTS found reading the code are fixed here, each one byte-negative:
 
