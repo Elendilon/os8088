@@ -79742,6 +79742,162 @@ the bss starts at the image's end - it anchors its walk on the address of an
 instruction that names `sol_pcnt` and checks a second name the same way - and
 `tests/dispapps.py` reads names off nasm's own map, which never assumed it.
 
+#### 43.11.7 The third size pass (apps size pass 2: the DISK)
+
+Apps size pass 2 (docs/plans/HANDOFF-APPS-SIZE-P2.md) weighs a package by
+its SHIPPED FILE - the LZ4-packed `SOLITAIR.O88` and the clusters it takes on
+each 360KB disk it rides - because the disks are full. Its rules are pass
+1's with the measure changed: nothing removed, nothing on the screen moved,
+no hot path slower, and `image + bss` may not grow (on `APP_SMALL` not by a
+byte). Solitaire rides `apps360.img` and `games360.img` in the full build
+and `small360.img` and `smallapps360.img` in the small one.
+
+| | image | bss | image + bss | file (LZ4) |
+|---|---:|---:|---:|---:|
+| full, before | 4,595 | 1,140 | 5,735 | 4,259 |
+| full, after | **4,410** | **1,218** | **5,628** (−107) | **4,127** (−132) |
+| `APP_SMALL`, before | 4,385 | 1,147 | 5,532 | 4,067 |
+| `APP_SMALL`, after | **4,208** | **1,225** | **5,433** (−99) | **3,938** (−129) |
+
+**The first four rows are COLD**: every routine a frame, a click, a drag or a
+key runs is instruction-identical to the build before them - compared
+routine by routine off nasm's two listings, source text and encoded length,
+so only the values of addresses differ - and what changed is the entry proc,
+`sol_metrics` and the set-up half of `sol_mkback`, which run at launch and on
+an adapter change only. **The rows after them touch hot routines**, each one
+by taking instructions OUT of the path it is on, and they are measured below.
+
+| change | file, full | file, small | image + bss |
+|---|---:|---:|---:|
+| the metric records carry their DERIVED fields | −58 | −52 | −47 / −47 |
+| `sol_entry` saves no registers | −6 | −6 | 0 / 0 |
+| the 16x16 masks are stored as their left halves | −16 | −19 | 0 / 0 |
+| `sol_entry`'s placement: two dead clamps, one register | −10 | −10 | 0 / 0 |
+| `sol_track` keeps the origin once | −6 | −6 | −11 / −11 |
+| `sol_pilexy` reads a pile's column from a table | −5 | −5 | −5 / −5 |
+| six routines lose instructions they did not need | −27 | −27 | −35 / −35 |
+| DEFECT: `sol_colfan`'s fit test read the face-down half as 0 | −4 | −4 | −9 / −9 |
+
+**The metric records carry their derived fields.** `sol_metrics` copied a
+record of fourteen bytes into words and then worked out four more from them -
+the column pitch, the tableau's y, the waste's fan step - and the content
+width, which `sol_track` overwrites from the live window before anything
+reads it; `sol_mkback` worked out the back's stride. Every one of them is a
+function of the record and of nothing at run time, so the assembler computes
+them into it (`SOL_METD`) and the copy loop takes eighteen bytes instead of
+fourteen. The two words after each record are the frame that record lays
+out - the same `SOL_PW_*`/`SOL_PH_*` the published preference is made of -
+and `sol_metrics` leaves SI on them, so `sol_entry` reads its window size
+with two `lodsw` where it re-derived the width and picked the height on a
+compare. An assembly-time `%if` keeps the eighteen words contiguous in
+`.bss`.
+
+**`sol_entry` saves no registers.** It pushed SI and DI and popped them on
+both exits, and nothing asks it to: §20.2's entry contract is BX and CF out,
+and the loader (`ld_start`) reloads every register it reads after the far
+call - DI from `[ld_rec]`, SI and BP before their next use, on the success,
+abort and re-home paths alike. Six bytes, and none of them RAM: the entry
+proc is under the card back (§43.11.6), so its length moves bytes between
+the image and the `.bss` and leaves the sum where it was.
+
+**The 16x16 masks are stored as their left halves.** The four centre pips
+and the empty stock's ring are mirror images: every row's right half is its
+left half with the bits in the other order. So the image carries one byte a
+row (`sol_pipl`, 80 bytes where the words were 160), and the entry proc's
+`.mirror` loop writes the words into `.bss` - `sol_p16s` and `sol_ic_ring`,
+named and read exactly as before. The source bytes sit after the entry
+proc's code, inside the bytes the card back takes over, so they cost no RAM
+either: the 160 bytes of tables left the image for the `.bss` and the sum is
+unchanged. The 8x8 pips stay as they are - a byte a row, and a 4-bit half
+saved too little to pay for its own unpacking. Checked on the host: the
+mirrored words are the old tables to the byte, and the loop is ~4-5 ms of
+launch at 4.77 MHz (an estimate from instruction timings: 80 rows of an
+eight-step reversal).
+
+**`sol_entry`'s placement** lost two clamps that could not fire: the slack
+the window is placed a third of the way down is at least the one pixel the
+height is clamped short of the dock by, and the widest frame (258) is
+narrower than the narrowest screen (640), so neither difference can go
+negative. The clamped height's band is kept in BX and the slack taken from
+it, where it was re-derived from the dock row. The same window lands on the
+same pixel.
+
+**`sol_track` keeps the origin once.** It stored the content origin in
+`sol_ox`/`sol_oy` on every callback and kept a second copy, `sol_lastox`/
+`sol_lastoy`, to tell a moved window (§43.10's shadow is drawn at the old
+origin) - and nothing but `sol_track` writes either pair, so the two were
+always equal by the time anything compared them. It compares against the
+pair it already has and stores only on a change: two stores fewer on every
+callback, four bytes of `.bss` and six of code.
+
+**`sol_pilexy` reads a pile's column from a table.** Which column a pile
+sits in - itself for a tableau column, 3..6 for the foundations, 0 for the
+stock and 1 for the waste - was four compares and their branches, 22 bytes;
+it is `xlatb` over `sol_pcol`, thirteen bytes of table and four of code, and
+the same column for every pile without a branch taken.
+
+**Six routines lose instructions they did not need**, each the same work in
+fewer instructions:
+
+- `sol_oncmd` saved SI and DI that §12.2 lets an `AM_ONCMD` handler clobber
+  (and that every routine below it keeps anyway), banked the menu index in
+  BH where `sol_track` keeps AX, and called `sol_gamecmd` to return from it -
+  it is the next routine down, so the Game menu is a `jz` into it;
+- `sol_abdismiss` is `shr byte [sol_abon], 1`: the flag is 0 or 1, so the
+  shift both answers "was it up" in CF and takes it down;
+- `sol_card` dropped a test for a visible height of 0, which cannot arrive:
+  SI is above 0 past the `jle`, and every caller's DX is a fan step of at
+  least one pixel (§43.2) or the whole card;
+- `sol_drop` aims at a column from half the PITCH where it added half the
+  card and half the gap - the same pixel, the card being an even width,
+  which an `%if` now asserts for both records (the back's two pixels a byte
+  already needed it);
+- `sol_panel` sets the card's white before it measures the lines, where AX
+  is free, rather than saving AX round it later; nothing is drawn between;
+- `sol_shwbase` multiplies through AH, which a byte `mul` overwrites anyway,
+  so DX need not be saved.
+
+**A DEFECT, fixed: `sol_colfan`'s fit test read the face-down half as 0**,
+and had since the package's first version. It priced the column's last
+card as `up * cfu`, then loaded the face-down count from DX - which the
+`mul` had just made the product's high word, 0 - so `cfd * cfa` never
+counted. A column that overflowed by less than its face-down height was
+judged to fit and was not tightened, and its last card ran off the content
+and was clipped there. Read off a CGA game (`[sol_avail]` = 100): six
+face-down cards and nine face-up need 6×3 + 8×12 = 114 rows against 100, the
+test saw 96, and the top card lost 14 of its 28 rows. The fix multiplies
+the face-down half FIRST, while DX still holds it, into SI - which is the
+very value the shrink path below recomputed with a third `mul`, so that one
+goes and the fix is four bytes SMALLER. That column now fans at 10 rows a
+card (82 / 8), the last card is whole and every rank glyph still shows
+(they need 10). It changes the picture only in that window - a column whose
+true height overflows and whose face-up half alone does not.
+
+**Measured** on MartyPC's 4.77 MHz 8088, guest cycles entry to return, with
+`tools/solperf.py` (§43.11.5's tool: one seeded deal, three stock clicks and
+its own twelve-move session) - the build before the hot rows (after the
+cold four) against the final one:
+
+| | CGA | Hercules | VGA | CGA, `APP_SMALL` |
+|---|---:|---:|---:|---:|
+| a drop, five, each lower by | 170..320 | 104..245 | 170..328 | 170..320 |
+| a drop, mean | 354,826 → **354,561** | 443,487 → **443,302** | 282,686 → **282,449** | 354,835 → **354,576** |
+| a stock click with no tick inside, each lower by | 117..171 | 72..171 | 117..216 | 39..72 |
+| a stock click, floor | 117,822 → **117,656** | 131,457 → **131,291** | 98,480 → **96,968** | 117,656 → **117,611** |
+| New Game (one span) | 1,694,313 → 1,698,660 | 2,055,039 → 2,048,072 | 4,102,137 → 4,105,860 | 1,694,219 → 1,698,584 |
+| Restart Deal (one span) | 1,649,196 → 1,653,732 | 2,010,101 → 2,008,832 | 4,056,993 → 4,054,983 | 1,649,075 → 1,647,635 |
+
+New Game and Restart are ONE span each, 1.6 to 4.1 million cycles - six to
+sixteen timer ticks at ~5.7-5.9 thousand cycles a tick, the step every
+stock-click row that a tick landed in shows - so the two builds can differ
+by a whole tick on phase alone; every one of the eight lands within a tick
+of 1.1-2.2 thousand cycles LOWER (+4,347 is one tick more and ~1,350
+fewer, −6,967 one tick fewer and ~1,100 fewer). The drag's outline,
+`sol_dxor`, is instruction-identical and was not re-priced: its spans move
+with where the host's mouse puts the outline, not with the build. Nothing
+in the hot rows moved the dealt game or the moves played, and the colfan
+fix is not reached by this session (no column in it overflows).
+
 ### 43.12 `APP_SMALL` — the small build of this package
 
 Note Pad's §27.16 is the pattern and its rules hold. **There is very little to
