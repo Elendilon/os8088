@@ -629,9 +629,9 @@ at_onclick:
     pop es
     cmp byte [at_fs], 0
     je .win
-    cmp byte [at_modal], 0
-    jne .modal
-    cmp dx, 20
+    cmp byte [at_modal], 0          ; an alert is up: its buttons are the
+    jne .done                       ; library's, which took the press first
+    cmp dx, 20                      ; (SPEC.md 20.5.1.3.3) - nothing is ours
     jb .bar
     mov ax, [at_sbx]
     cmp cx, ax
@@ -647,14 +647,11 @@ at_onclick:
 .bar:
     call at_bar_click
     jmp short .done
-.modal:
-    call at_modal_click
-    jmp short .done
 .win:
     call at_abdismiss               ; the credits are up: this click is spent
-    jc .done                        ; taking them down
-    call at_splash_click
-.done:
+.done:                              ; taking them down - and the splash's own
+                                    ; New / Open are the library's, armed on
+                                    ; the press and fired by at_modal_up
     pop es
     pop bp
     pop di
@@ -1364,19 +1361,9 @@ at_ink      equ at_pair + 2                  ; byte: a pull-down item's ink,
                                              ;   kept because a package cannot
                                              ;   read the pen back
 at_pad64    equ at_ink + 1                   ; byte: keeps the words below even
-at_b1x      equ at_pad64 + 1                 ; the buttons: x, y, width
-at_b1y      equ at_b1x + 2
-at_b1w      equ at_b1y + 2
-at_b2x      equ at_b1w + 2
-at_b2y      equ at_b2x + 2
-at_b2w      equ at_b2y + 2
-at_b3x      equ at_b2w + 2
-at_b3y      equ at_b3x + 2
-at_b3w      equ at_b3y + 2
-at_spx      equ at_b3w + 2                   ; splash geometry
-at_spy      equ at_spx + 2
-at_spw      equ at_spy + 2
-at_sph      equ at_spw + 2
+at_spx      equ at_pad64 + 1                 ; splash geometry (the buttons'
+at_spy      equ at_spx + 2                   ; own rects are at_brects, the
+at_sph      equ at_spy + 2                   ; one copy os88ui_btn reads)
 at_spcx     equ at_sph + 2
 at_btx      equ at_spcx + 2                  ; bigtext/image cursor
 at_bty      equ at_btx + 2
@@ -1410,8 +1397,8 @@ at_apnd     equ at_tby + 2                    ; byte: SPEC.md 46.4.11 - at_type
                                               ; other caller of that proc can
                                               ; inherit it.
 at_suseg    equ at_apnd + 1                   ; word: SPEC.md 46.5.1 - the claim
-at_sukb     equ at_suseg + 2                  ; word: holding the pull-down's
-at_surx1    equ at_sukb + 2                   ; word: banked pixels, and the
+                                              ;   holding the pull-down's
+at_surx1    equ at_suseg + 2                  ; word: banked pixels, and the
 at_sury1    equ at_surx1 + 2                  ; word: rect they came from. 0
 at_surx2    equ at_sury1 + 2                  ; word: in at_suseg is the whole
 at_sury2    equ at_surx2 + 2                  ; word: of "nothing was banked"

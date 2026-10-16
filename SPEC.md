@@ -86356,6 +86356,14 @@ back-references. So the pass went after bytes that occur once.
   `New` and `Open...`, the alert's `Save` and the splash's `New` / `Open...`
   name the fullscreen menu's `at_m_file` / `at_i_*`. -114 image bytes, -8 file
   bytes: the copies were already matches, so this is mostly RAM.
+- **Code nothing reached, and stores nothing read.** `at_btnhit` (the x/y/width
+  ladder §20.5.1.3.3's library replaced) and `at_draw_cline` had no caller at
+  all; `at_modal_click` and `at_splash_click` were pushes and pops round
+  nothing, because `os88ui_btnclick` takes the press first and `at_modal_up`
+  fires on the release; and the nine `at_b1x`..`at_b3w` words, `at_spw` and
+  `at_sukb` were written on every alert, splash and pull-down and read by
+  nothing - the buttons' rects live in `at_brects`, the one copy `os88ui_btn`
+  reads. -140 file bytes, -169 image, -22 bss.
 
 ## 47. Disabled controls — the greying standard (binding)
 

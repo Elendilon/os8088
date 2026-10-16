@@ -1465,25 +1465,6 @@ at_draw_text:
     ret
 
 ; -----------------------------------------------------------------------------
-; at_draw_cline - repaint exactly the caret's line (the keystroke path)
-; out: nothing; preserves all registers
-; -----------------------------------------------------------------------------
-at_draw_cline:
-    push ax
-    push bx
-    call at_caret_off
-    mov ax, [at_caret]
-    call at_line_of
-    call at_line_y
-    jc .done
-    call at_draw_line
-.done:
-    call at_caret_on
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; at_caret_on / at_caret_off - the XOR caret, with bookkeeping
 ; It shows only when: fullscreen editor, no selection, no menu or modal up,
 ; blink phase lit, and its line is on screen. at_caret_off is uncondition-

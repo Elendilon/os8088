@@ -465,7 +465,6 @@ at_subank:
     shr ax, cl                      ; AX = KB, rounded up
     or ax, ax
     jz .no
-    mov [at_sukb], ax
     call OSAPI_MEM_CLAIM            ; out CF=0, DX = base segment
     jc .no
     mov [at_suseg], dx
@@ -1133,27 +1132,18 @@ at_mdbuttons:
     mov byte [at_bslot], 0
     mov dx, 1
     call at_button                  ; out: CX = width
-    mov [at_b1x], ax
-    mov [at_b1y], bx
-    mov [at_b1w], cx
     sub ax, 80                      ; Cancel (72 wide), 8 gap
     mov si, at_s_cancel
     mov [at_btlbl+2], si
     mov byte [at_bslot], 1
     xor dx, dx
     call at_button
-    mov [at_b2x], ax
-    mov [at_b2y], bx
-    mov [at_b2w], cx
     sub ax, 112                     ; Don't Save (104 wide), 8 gap
     mov si, at_s_dontsave
     mov [at_btlbl+4], si
     mov byte [at_bslot], 2
     xor dx, dx
     call at_button
-    mov [at_b3x], ax
-    mov [at_b3y], bx
-    mov [at_b3w], cx
     jmp short .out
 .single:
     mov ax, [at_msx1]
@@ -1166,11 +1156,6 @@ at_mdbuttons:
     mov byte [at_bslot], 0
     mov dx, 1
     call at_button
-    mov [at_b1x], ax
-    mov [at_b1y], bx
-    mov [at_b1w], cx
-    mov word [at_b2w], 0
-    mov word [at_b3w], 0
 .out:
     pop si
     pop dx
@@ -1271,44 +1256,15 @@ at_btflg:   dw 0, 0, 0                     ; ...and its flags
                                        ; OS88UI_BT_N before they draw
 
 ; -----------------------------------------------------------------------------
-; at_btnhit - is the point (CX,DX) inside button (BX=x, AX=y, SI=width)?
-; out: CF=0 hit
+; at_modal_key - a key while an alert is up (AL = ascii)
+;
+; There is no at_modal_click and no at_splash_click: os88ui_btnclick takes the
+; press first and arms whichever button it landed on (SPEC.md 20.5.1.3.3), and
+; at_modal_up fires it on the release - so neither the alert nor the splash
+; has a press of its own to act on, and the empty bodies that stood here went
+; in the second apps size pass, with at_btnhit, the x/y/width ladder they had
+; already stopped calling.
 ; -----------------------------------------------------------------------------
-at_btnhit:
-    cmp cx, bx
-    jb .no
-    push bx
-    add bx, si
-    cmp cx, bx
-    pop bx
-    jae .no
-    cmp dx, ax
-    jb .no
-    push ax
-    add ax, 19
-    cmp dx, ax
-    pop ax
-    ja .no
-    clc
-    ret
-.no:
-    stc
-    ret
-
-; -----------------------------------------------------------------------------
-; at_modal_click / at_modal_key - input while an alert is up
-; click in: CX = x, DX = y;  key in: AL = ascii
-; -----------------------------------------------------------------------------
-at_modal_click:
-    push ax
-    push bx
-    push si
-    pop si                          ; document's fate, so none may fire on a
-    pop bx                          ; press the user can still take back. The
-    pop ax                          ; ladder this replaces was at_btnhit
-    ret                             ; against three separate x/y/width
-                                    ; triples - a second description of the
-                                    ; geometry at_button already owned
 
 ; at_btn_up - the release, for WHICHEVER set of buttons is up
 ; The splash and the modal share ONE record and os88ui.inc keeps ONE arm word
@@ -1833,7 +1789,6 @@ at_splash:
     mov [at_spx], ax
     mov [at_spy], dx
     call OSAPI_WM_GEOM              ; CX = w, DX = h
-    mov [at_spw], cx
     mov [at_sph], dx
     mov ax, cx
     shr ax, 1
@@ -1857,9 +1812,6 @@ at_splash:
     mov byte [at_bslot], 0
     mov dx, 1
     call at_button
-    mov [at_b1x], ax
-    mov [at_b1y], bx
-    mov [at_b1w], cx
     mov ax, [at_spcx]
     add ax, 12
     mov si, at_i_open
@@ -1867,10 +1819,6 @@ at_splash:
     mov byte [at_bslot], 1
     xor dx, dx
     call at_button
-    mov [at_b2x], ax
-    mov [at_b2y], bx
-    mov [at_b2w], cx
-    mov word [at_b3w], 0
     pop si
     pop dx
     pop cx
@@ -1878,21 +1826,3 @@ at_splash:
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; at_splash_click - a windowed click (absolute coords, like every click)
-; in:  CX = x, DX = y
-; -----------------------------------------------------------------------------
-at_splash_click:
-    push ax
-    push bx
-    push si
-    pop si                          ; takes the whole screen, so neither may
-    pop bx                          ; fire on a press the user can still take
-    pop ax                          ; back. at_btn_up has the action. The
-    ret                             ; at_btnhit ladder this replaces was a
-                                    ; second description of the geometry
-                                    ; at_button already owned - and it was
-                                    ; missed when the MODAL was converted,
-                                    ; which is why the splash went on acting
-                                    ; on the press with a record that could
-                                    ; draw it down
