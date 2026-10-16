@@ -3096,11 +3096,10 @@ br_page_click:
     cmp bl, [br_subn]
     jae .fields
     mov al, bl
-    xor ah, ah
-    mov cl, BR_SUBSZ
-    mul cl
-    mov di, ax
-    add di, br_subs
+    push bx
+    call br_subrec
+    mov di, bx
+    pop bx
     cmp si, [di+SUB_OFS]
     jb .substep
     cmp si, [di+SUB_END]
@@ -7431,11 +7430,7 @@ br_input:
     mov al, [br_subn]
     cmp al, BR_SUBMAX
     jae .out
-    xor ah, ah
-    mov bl, BR_SUBSZ
-    mul bl
-    mov bx, ax
-    add bx, br_subs
+    call br_subrec
     mov ax, [br_doclen]             ; ...ITS SPAN, so a click can find it: the
     add ax, [br_onw]                ; button is ordinary document text and has
     mov [bx+SUB_OFS], ax
@@ -7462,13 +7457,9 @@ br_input:
     sub ax, si
     cmp ax, 6
     jb .subchar
-    cmp byte [es:si+1], 'n'
-    jne .subchar
-    cmp byte [es:si+2], 'b'
-    jne .subchar
-    cmp byte [es:si+3], 's'
-    jne .subchar
-    cmp byte [es:si+4], 'p'
+    cmp word [es:si+1], 'nb'        ; a word compares two bytes in memory
+    jne .subchar                    ; order, low first
+    cmp word [es:si+3], 'sp'
     jne .subchar
     cmp byte [es:si+5], ';'
     jne .subchar
@@ -7508,11 +7499,7 @@ br_input:
     mov al, [br_fn]
     cmp al, BR_FMAX
     jae .out                        ; more fields than we can hold: ignored
-    xor ah, ah
-    mov bx, BR_FLDSZ
-    mul bl
-    mov bx, ax                      ; BX = this field's record
-    add bx, br_flds
+    call br_fld                     ; BX = this field's record
     mov [bx+FLD_FORM], dl
     mov byte [bx+FLD_TYPE], 0
     call br_fldname                 ; its name, for the query string
@@ -7560,24 +7547,20 @@ br_input:
     inc si
     jmp .initial
 .blank:
-    push bx
     mov cl, [bx+FLD_W]
     sub cl, [bx+FLD_LEN]
     xor ch, ch
+    jcxz .close
 .sp:
-    or cx, cx
-    jz .close
     mov al, D_NBSP                  ; ...the same reasoning as the button's: a
                                     ; 30-cell field wrapped at its own spaces
                                     ; would put half a box on each line, and
                                     ; typing into it would look broken
     call br_fput
-    dec cx
-    jmp .sp
+    loop .sp
 .close:
     mov al, ']'
     call br_fput
-    pop bx
     inc byte [br_fn]
 .out:
     pop si
@@ -8334,11 +8317,7 @@ br_submit:
     mov al, [br_subhit]             ; 0FFh: Return in a field, no button
     cmp al, 0FFh
     je .hid
-    xor ah, ah
-    mov bl, BR_SUBSZ
-    mul bl
-    mov bx, ax
-    add bx, br_subs
+    call br_subrec
     mov ax, [bx+SUB_ASTART]         ; its tag's span in the retained source,
     mov [br_astart], ax             ; which lives as long as the page does -
     mov ax, [bx+SUB_AEND]           ; br_selcycle reads its options the same
@@ -8424,6 +8403,16 @@ br_submit:
     mov byte [br_post], 0
 .out:                               ; br_resolve refused and has already said
     jmp br_pop6                     ; why on the status line
+
+; --- br_subrec - BX = submit record AL, in br_subs ----------------------------
+br_subrec:
+    push ax
+    mov ah, BR_SUBSZ
+    mul ah
+    add ax, br_subs
+    xchg bx, ax
+    pop ax
+    ret
 
 ; --- br_amp - the '&' between two pairs; DX = 0 before the first ---------------
 br_amp:

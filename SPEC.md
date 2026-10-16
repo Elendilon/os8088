@@ -115388,6 +115388,10 @@ redirects and frames - and left the same bytes behind.
   `br_layout`'s were runs of immediate zeros, five or six bytes a store; with
   AX cleared once each is `mov [x], al` or `mov [x], ax`, three. Once per
   parse and once per layout, and fewer cycles than before.
+- **A record is addressed by its helper.** A text field's record was a
+  hand-inlined copy of `br_fld`; a submit button's, three copies of one
+  multiply, is `br_subrec`. A button value's `&nbsp;` is two word compares and
+  a byte rather than five bytes, and a field's padding is `jcxz`/`loop`.
 
 ### 72.1 What the packages did have to change, which is one question
 
