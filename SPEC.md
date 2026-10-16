@@ -121064,15 +121064,35 @@ back stale pixels.
 
 #### 76.14.10 The Theme page
 
-Three theme radios - **Bright**, **Dark**, **Color** - with **Customize...**
-on the Color row (76.14.14), then the animation pair, and the **Screen
-Saver** button centred under them at pane y 110. **Windows is not a radio**:
-it is a title style of Color, chosen in Customize (76.14.13), so its row went
-and the animation group moved up to pane y 80. The control ids are 1-3 the
-theme rows, 4-5 the animation pair, 6 the Screen Saver button and 7
-Customize. Customize is live only while Color or Windows is (and Color is
-offered at all, 76.12.1); a Windows that `WIN95.DRV` cannot be read for is
-refused at the click that asked for it, with a toast.
+Four theme radios - **Bright**, **Dark**, **Color**, **Windows** - with
+**Customize...** on the Color row (76.14.14), then the animation pair at pane
+y 98, and the **Screen Saver** button in the pane's bottom-right corner
+(112,110), under Customize, so the two buttons make one right-hand column.
+The control ids are 1-4 the theme rows, 5-6 the animation pair, 7 the Screen
+Saver button and 8 Customize.
+
+**Windows is a radio AND a title style of Color** (76.14.13), and the two are
+one bit: the Windows radio sets bit 2 of `[thm_cstrp]` and asks for Windows,
+the Color radio clears it and asks for Color, so the page and Customize's
+style group cannot disagree. Bright and Dark leave the bit alone. The radio is
+**never greyed** - on a 1bpp primary it is the black-and-white row (76.14.6),
+and the fork owner's own machine is a Hercules - and whether `WIN95.DRV`
+reads is the click's to find out: refused, the nearest theme that needs no
+module stands and a toast says why.
+
+**Customize is live wherever Color is OFFERED** (76.12.1) and greys only
+there, through `cp_thm_colgrey`, the predicate behind the Color label and the
+Color radio's refusal. It once greyed on the theme radio as well - live only
+while Color or Windows was - and on VGA a greyed button is dark-grey letters
+in a black frame, so under Bright it looked live and every click on it was
+silently refused. Nothing needed that rule: `THMPAL.DRV` banks the kind it was
+opened over, every change it makes is a Color, and Cancel puts Bright or Dark
+back.
+
+The two designs met here once and each lost a half: Windows as a title style
+removed the radio, which left a 1bpp machine with no way to reach Windows at
+all, and the Screen Saver button went back to the centre. Both are restored
+above.
 
 #### 76.14.11 Measured
 
