@@ -473,6 +473,9 @@ ark_entry:
     mov ax, bx
 .hok:
     mov [ark_tpl + WT_H], ax
+    sub bx, ax                      ; the slack under the band, less one - and
+                                    ; never negative, because the height was
+                                    ; just clamped to exactly that
     sub ax, TITLE_H + 1
     mov [ark_chgt], ax
     call ark_layout
@@ -484,12 +487,7 @@ ark_entry:
 .xok:
     shr ax, 1
     mov [ark_tpl + WT_X], ax
-    mov ax, [ark_dock]
-    sub ax, MBAR_H
-    sub ax, [ark_tpl + WT_H]
-    jns .yok
-    xor ax, ax
-.yok:
+    lea ax, [bx + 1]                ; the slack, dock - MBAR_H - height
     mov bl, 3                       ; a third of the slack above (a BYTE divide:
     div bl                          ; the band is under 768 rows)
     mov ah, 0
@@ -732,7 +730,12 @@ ark_onresize:
     add cx, MBAR_H                  ; which has no menu bar and no dock - put
     mov [ark_dock], cx              ; back into the primary-shaped number every
                                     ; reader of [ark_dock] already subtracts
-                                    ; MBAR_H from
+                                    ; MBAR_H from. Only ark_entry's placement
+                                    ; reads the two in the game, and it has
+                                    ; run: they are banked as what this card
+                                    ; IS, which tests/dispsize.py leg E reads
+                                    ; back as proof the handler asked about the
+                                    ; card the window is on (SPEC.md 39.16.4)
     call ark_metrics                ; ...which reads BX, now THIS card's height:
                                     ; the one number the big/small choice turns
                                     ; on

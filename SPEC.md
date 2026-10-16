@@ -80432,6 +80432,14 @@ pass leaves binding:
   instructions less a `call` and a `ret` every frame, and the death/clear
   pause tests the mode in AL, which it was just loaded into, instead of
   re-reading `[ark_mode]`. The worker's static stack chain is 62 bytes, not 64.
+- **The window's y is placed off the clamp's own register.** The height is
+  clamped to `dock - MBAR_H - 1`, so that register less the height is the
+  slack less one and cannot be negative; the old re-derivation from
+  `[ark_dock]` and its `jns` guard were the same number by a longer road.
+  `[ark_scrw]` and `[ark_dock]` stay banked - in `ark_onresize` as well,
+  where the game no longer reads them - because `tests/dispsize.py` leg E
+  reads them back as the proof that the handler asked about the card the
+  window is on (SPEC.md 39.16.4).
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
