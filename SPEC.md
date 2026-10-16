@@ -114590,6 +114590,7 @@ bss 6,077).
 | change | where | file bytes |
 |---|---|---:|
 | the entry proc's region declaration takes `OS88_REGION_MOVABLE_NOKEEP` (nothing after it reads AX, DX or the flags) and a redundant SI frame round `OSAPI_MENU_SET` goes | `te_entry` | -9 |
+| the host box, the button, the pen and both view clamps are derived off the two registers `OSAPI_WM_GEOM` hands back rather than re-read from the words just stored; `con_mono` is `cmp`/`sbb`/`neg`, and the clamps take ZF from the shift (a count in CL is never zero) instead of an `or` after it. Same values to the bit (`tests/telnet.py`'s `viewfits` derivation is unchanged), 46 image bytes, and fewer and cheaper instructions on a path every key, click, paint and worker draw runs | `te_layout` | -41 |
 
 ## 71. The browser fetches (`apps/browser/brnet.inc`)
 

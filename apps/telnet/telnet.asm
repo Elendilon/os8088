@@ -283,11 +283,9 @@ te_layout:
     ; question for the far display - there is no per-display depth to ask
     ; (SPEC.md 39.14 publishes none), so it is stated rather than hidden.
     call OSAPI_VIDEO                ; DH = bits per pixel, 4 or 1
-    cmp dh, 1
-    mov dh, 0
-    ja .colour
-    mov dh, 1
-.colour:
+    cmp dh, 2                       ; CF = 1bpp...
+    sbb dh, dh
+    neg dh                          ; ...as the 0/1 con_mono is, branch-free
     mov [con_mono], dh
     call te_ice_label               ; ...and the Session item follows the
     call tz_label                   ; adapter, and Receive File follows the
@@ -300,31 +298,20 @@ te_layout:
     mov [con_oy], dx
     mov bx, si
     call OSAPI_WM_GEOM              ; CX = content width, DX = height - and it
-    mov [te_cw], cx                 ; takes BX, which WM_CONTENT has spent
-    mov [te_chh], dx
+    mov [te_cw], cx                 ; takes BX, which WM_CONTENT has spent.
+    mov [te_chh], dx                ; AX is still the content's left: GEOM
+                                    ; preserves everything but CX and DX
     mov word [con_topy], TE_TOPY     ; ...and where OUR chrome ends, because the
                                     ; console does not know this window has a
                                     ; host field above its text (os88con.inc)
-    mov cx, [te_ox]
-    add cx, TE_PAD
-    mov [te_line + LN_X1], cx
-    add cx, [te_cw]
-    sub cx, TE_PAD*2 + 88           ; ...the Connect button's width beside it
-    mov [te_line + LN_X2], cx
-    mov cx, [con_oy]
-    add cx, TE_PAD
-    mov [te_line + LN_Y1], cx
-    add cx, TE_BAR - 1
-    mov [te_line + LN_Y2], cx
-    mov cx, [te_line + LN_X2]
-    add cx, 6
-    mov [te_btn + 0], cx
-    add cx, 78
-    mov [te_btn + 4], cx
-    mov cx, [te_line + LN_Y1]
-    mov [te_btn + 2], cx
-    mov cx, [te_line + LN_Y2]
-    mov [te_btn + 6], cx
+    ; --- every rect below off two registers, not off the words just stored --
+    ; (apps size pass 2: the same arithmetic, 41 bytes shorter, and faster on
+    ; the path every paint, click, key and worker draw runs.) CX becomes the
+    ; content box's FAR edge, so the host box's right end and the visible
+    ; column count are both one subtraction from it.
+    add cx, ax                      ; CX = te_ox + te_cw, the far edge
+    add ax, TE_PAD
+    mov [te_line + LN_X1], ax
 
     ; --- THE TEXT PEN, AND IT IS 8-ALIGNED (SPEC.md 6.1) --------------------
     ; font_run's fast path - the one that writes each cell old-to-final in a
@@ -335,38 +322,24 @@ te_layout:
     ; glyphs arrive. That is the flicker. os88line_pen is the same fix in the
     ; host box above it, and here it also earns the SCROLL, which refuses a
     ; rect whose x1 is not a byte column.
-    mov cx, [te_ox]
-    add cx, TE_PAD + 7
-    and cx, 0FFF8h
-    mov [con_px], cx
-
-    ; --- and how many rows the LIVE content box can show --------------------
-    ; CON_ROWS is 25 and the screen is fixed, but the WINDOW is not: wm_fit
-    ; clamps a 190-row template to the desktop band, which on CGA is 155. The
-    ; rows that did not fit were drawn anyway - the gfx primitives clip to the
-    ; SCREEN, not to the window (SPEC.md 39.7) - so the bottom of the terminal
-    ; was painted over the dock. The window shows the LAST con_vrows rows,
-    ; because a terminal's new output is at the bottom and showing the top of
-    ; the buffer on a short screen means never seeing what just arrived.
-    mov ax, [te_chh]
-    sub ax, TE_TOPY + TE_STATH
-    jns .rows
-    xor ax, ax
-.rows:
-    mov cl, 3
-    shr ax, cl
-    or ax, ax
-    jnz .rnz
-    inc ax                          ; ...never zero: one row is drawn even on
-.rnz:                               ; a window nothing can be read in
-    cmp ax, CON_ROWS
-    jbe .rset
-    mov ax, CON_ROWS
-.rset:
-    mov [con_vrows], ax
-    mov cx, CON_ROWS
-    sub cx, ax
-    mov [con_vtop], cx
+    add ax, 7                       ; (te_ox + TE_PAD + 7) & 0FFF8h: the mask
+    and al, 0F8h                    ; is AL's alone, AH passing through it
+    mov [con_px], ax
+    xchg ax, cx                     ; AX = far edge, CX = the pen
+    sub cx, ax                      ; CX = -(pixels from the pen to the edge)
+    sub ax, TE_PAD + 88             ; ...the Connect button's width beside it
+    mov [te_line + LN_X2], ax
+    add ax, 6
+    mov [te_btn + 0], ax
+    add ax, 78
+    mov [te_btn + 4], ax
+    mov ax, [con_oy]
+    add ax, TE_PAD
+    mov [te_line + LN_Y1], ax
+    mov [te_btn + 2], ax
+    add ax, TE_BAR - 1
+    mov [te_line + LN_Y2], ax
+    mov [te_btn + 6], ax
 
     ; --- and how many COLUMNS it can show -----------------------------------
     ; **THIS IS NOT REFLOW AND MUST NOT BECOME IT.** The screen is 80 columns
@@ -383,16 +356,14 @@ te_layout:
     ; it, because font_run clips to the SCREEN and not to the window
     ; (SPEC.md 39.7) - which is why this had to land with WM_SIZABLE and not
     ; after it.
-    mov ax, [te_ox]
-    add ax, [te_cw]
-    sub ax, [con_px]                 ; ...from the ALIGNED pen to the far edge
-    jns .cols
+    xchg ax, cx
+    neg ax                          ; AX = te_ox + te_cw - con_px, and SF its
+    jns .cols                       ; sign, which NEG sets as SUB would
     xor ax, ax
 .cols:
     mov cl, 3
-    shr ax, cl
-    or ax, ax
-    jnz .cnz
+    shr ax, cl                      ; ZF from the SHIFT: a count in CL is
+    jnz .cnz                        ; never zero, so it sets the flags
     inc ax
 .cnz:
     cmp ax, CON_COLS
@@ -400,6 +371,33 @@ te_layout:
     mov ax, CON_COLS
 .cset:
     mov [con_vcols], ax
+
+    ; --- and how many rows the LIVE content box can show --------------------
+    ; CON_ROWS is 25 and the screen is fixed, but the WINDOW is not: wm_fit
+    ; clamps a 190-row template to the desktop band, which on CGA is 155. The
+    ; rows that did not fit were drawn anyway - the gfx primitives clip to the
+    ; SCREEN, not to the window (SPEC.md 39.7) - so the bottom of the terminal
+    ; was painted over the dock. The window shows the LAST con_vrows rows,
+    ; because a terminal's new output is at the bottom and showing the top of
+    ; the buffer on a short screen means never seeing what just arrived.
+    xchg ax, dx                     ; AX = [te_chh], still in DX from GEOM
+    sub ax, TE_TOPY + TE_STATH
+    jns .rows
+    xor ax, ax
+.rows:
+    mov cl, 3
+    shr ax, cl
+    jnz .rnz
+    inc ax                          ; ...never zero: one row is drawn even on
+.rnz:                               ; a window nothing can be read in
+    cmp ax, CON_ROWS
+    jbe .rset
+    mov ax, CON_ROWS
+.rset:
+    mov [con_vrows], ax
+    mov cx, CON_ROWS
+    sub cx, ax
+    mov [con_vtop], cx
     pop dx
     pop cx
     pop bx
