@@ -7446,19 +7446,11 @@ wm_ownseg:
 ; white caption against a grey one with a black caption, which is what makes
 ; focus readable across a screen without reading any text.
 ;
-; A TAIL CALL is legal here and both targets are NEAR: their `ret` returns to
-; this routine's caller, and the frame has nothing to undo. It would not be
-; legal to a cw_ shim, which ends in `retf` (SPEC.md 2.6).
-%ifdef KERN_BIG
-wm_tpen_bg:
-    cmp di, bp
-    je thm_tbg
-    jmp thm_ibg
-wm_tpen_ink:
-    cmp di, bp
-    je thm_tink
-    jmp thm_iink
-%else                           ; no Color, so the two pairs are one pair and
+; kern_big's two are kernel/vga12.inc's, BESIDE thm_pen (kernel size pass
+; 13): each reads its active byte, asks the focus question and short-jumps to
+; the shared tail, where from here they were a far jump to a six-byte pen
+; door apiece.
+%ifndef KERN_BIG                ; no Color, so the two pairs are one pair and
 wm_tpen_bg  equ thm_bg          ; the focus question has no answer to give
 wm_tpen_ink equ thm_ink
 %endif

@@ -4394,16 +4394,28 @@ thm_tbg:
 thm_tink:
     push ax
     mov al, [thm_tinkc]
-    jmp short thm_pen
 %ifdef KERN_BIG
-thm_ibg:
+    jmp short thm_pen
+
+; wm_tpen_bg / wm_tpen_ink - a title bar's ground / ink (SPEC.md 76.12): the
+; ACTIVE pair when DI is the front window BP, its INACTIVE pair when it is not
+; (kernel/wm.inc says why). in: DI, BP; out: [gfx_color]; clobbers flags,
+; as the routine it replaced did. Here and not in wm.inc (kernel size pass
+; 13) so the focus test reaches the ACTIVE pen's own door, thm_tbg/thm_tink,
+; with a short `je`, and the inactive pen is written inline: the two inactive
+; doors thm_ibg/thm_iink had no other caller. Both arms are fewer clocks than
+; the near `jmp` to a door each took from wm.inc.
+wm_tpen_bg:
+    cmp di, bp
+    je thm_tbg
     push ax
     mov al, [thm_ibgc]
     jmp short thm_pen
-thm_iink:
+wm_tpen_ink:
+    cmp di, bp
+    je thm_tink
     push ax
-    mov al, [thm_iinkc]
-    jmp short thm_pen
+    mov al, [thm_iinkc]         ; ...and falls into thm_pen
 %endif
 thm_pen:
     mov [gfx_color], al
@@ -4462,24 +4474,17 @@ thm_desk:
 %ifdef OS88_THEME
 ; thm_set, api_thm_set_x and thmv_reap_x are .cold (SPEC.md 76.14.14.1), and
 ; textually AFTER gfx_blit1's cold block below, because gfx_blit1_x must stay
-; the segment's first byte
-
-; api_thm_set - the near entry OSAPI_THM_SET's SLOT cell calls, and all that
-; is left of it in .text: the cell's shape is ABI (8 bytes, SPEC.md 20.3) and
-; a SLOT names a .text routine, so it cannot name the cold body itself
-api_thm_set:
-    call COLD_SEG:api_thm_set_x
-    ret
-
-%ifdef KERN_BIG
-thmv_fname: db 'THMPAL.DRV', 0   ; DRVR_TITLE points at this too - no row on
-                                  ; the Drivers page and no caption, so nothing
-                                  ; else ever reads it (ss_fname's reason)
-                                  ; (thmv_row itself is kernel/driver.inc's,
-                                  ; one row past drv_tab - drv_call's bound).
-                                  ; DATA, so .text: DS reads it (SPEC.md 2.6)
-%endif
-
+; the segment's first byte. NOTHING of the set path is left in .text: the
+; cell at 0x046D jumps straight to the cold body (kernel size pass 13), and
+; THMPAL.DRV's file name is staged by CTRL.DRV, the one code that loads it
+; (kernel/ctrl.inc, cp_thmv_open)
+    db 0x90                     ; NEVER EXECUTED - nothing falls or jumps here:
+                                ; one byte that keeps every .text routine after
+                                ; it (font_run, the blits, both mouse ISRs,
+                                ; sch_switch) and the four pen routines above
+                                ; at an EVEN shift against kernel size pass
+                                ; 13's base, where the pass's .text total would
+                                ; otherwise be odd (BRIEF 1's parity rule)
 %endif
 
 ; THESE TWO ARE CONTENT PENS AND THE THEME DOES NOT REACH THEM (SPEC.md 76.6).
@@ -6268,7 +6273,7 @@ section .cold
 ; in:  AL = a THM_* kind (anything out of range is Bright)
 ; out: CF = 0 adopted as asked; CF = 1 it was REFUSED and something else stood
 ;      instead - Windows whose WIN95.DRV could not be mounted (SPEC.md
-;      76.14.1). [thm_kind] always says what is live. kern_small: CF = 0
+;      76.14.1). [thm_kind] always says what is live
 ; clobbers: nothing else
 ;
 ; ALL OF IT IS `.cold` (SPEC.md 76.14.14.1), with api_thm_set_x and
@@ -6278,80 +6283,66 @@ section .cold
 ; far-calls COLD_SEG:thm_set - kmain_o, the settings reader, CTRL.DRV,
 ; vid_switch and api_thm_set_x - so it ends in `retf` and the 4-byte cw_thm_set
 ; shim went with the move. It keeps its NAME, not an `_x`, because the boot
-; ladder (tools/os88ladder.py) and tests/colorpresets_qemu.py both name it
+; ladder (tools/os88ladder.py) and tests/colorpresets_qemu.py both name it.
+;
+; THE ADAPTER IS ASKED ONCE (kernel size pass 13). It was asked three times -
+; for the kind, again for the refusal's fallback and again for the row - and
+; every answer after the first was the first one: BH holds it from here on
+; (0 on a colour primary, FFh on 1bpp), and BL is the ROW from the same
+; ladder that settles the kind, so nothing after thf_apply re-derives either.
+; Only OS88_THEME assembles this, which is kern_big's alone: the kern_small
+; arms it used to carry were never assembled anywhere.
+%if THM_WINMONO != THM_WIN
+  %error "thm_set: a 1bpp Windows row is the kind itself - BL = AL on that arm"
+%endif
 thm_set:
-    push ax
-    push bx
-    push cx
-    push si
-    push di
-    push es
+    call kentc_bp               ; KENT: push ax..bp - the ladder's own order,
+    push es                     ; so the way out is kretfc_es
     cmp al, THM_NKIND           ; a byte from a future version, or from a
     jb .known                   ; settings disk this kernel does not know
     xor al, al
 .known:
-%ifdef KERN_BIG
     cmp al, THM_COLOR
-    jne .kind_ready
-    test byte [thm_cstrp], 4  ; restore the selected Color title-bar style
-    jz .kind_ready
+    jne .ready
+    test byte [thm_cstrp], 4    ; restore the selected Color title-bar style
+    jz .ready
     mov al, THM_WIN
-.kind_ready:
-%endif
-%ifdef KERN_BIG
-    mov bl, al                  ; BL = the ROW, which is the kind until the
-    cmp al, THM_COLOR           ; adapter says otherwise
-    jb .apply
+.ready:
     mov ah, [vid_kind]          ; COLOUR IS A FACT ABOUT THE ADAPTER, and it is
     dec ah                      ; refused HERE rather than at the two callers
     cmp ah, 2                   ; (SPEC.md 76.12.1). The test is the DEPTH of
-    jae .apply                  ; the PRIMARY: VID_VGA and VID_EGA are the two
+    sbb bh, bh                  ; the PRIMARY: VID_VGA and VID_EGA are the two
                                 ; 4-plane kinds, HERC and CGA are 1bpp - and
                                 ; `dec` maps VGA -> FF, HERC -> 0, CGA -> 1,
                                 ; EGA -> 2, so ONE unsigned compare answers
-                                ; both. It is NOT [vid_mono]: on a two-card
-                                ; desktop that byte names the display LAST
-                                ; DRAWN ON (SPEC.md 39.14.3, 5.4.2.4)
-    mov bl, THM_WINMONO         ; WINDOWS IS NOT REFUSED THERE (SPEC.md
-    cmp al, THM_WIN             ; 76.14.6): the buttons, the X and the menus
-    je .apply                   ; mean the same thing on a Hercules, so it
-    xor ax, ax                  ; takes its own black-and-white row. Color is
-    xor bl, bl                  ; refused, and falls back to Bright
+                                ; both, and BH = FFh on 1bpp. It is NOT
+                                ; [vid_mono]: on a two-card desktop that byte
+                                ; names the display LAST DRAWN ON (SPEC.md
+                                ; 39.14.3, 5.4.2.4)
+    mov bl, al                  ; BL = the TABLE ROW: the kind, for Bright and
+    cmp al, THM_COLOR           ; Dark everywhere
+    jb .apply
+    mov bl, THM_COLOR           ; a colour primary: Color, and Windows, which
+    or bh, bh                   ; wears the Color row and its preset (76.14.13)
+    jz .apply
+    mov bl, al                  ; 1bpp: WINDOWS IS NOT REFUSED THERE (SPEC.md
+    cmp al, THM_WIN             ; 76.14.6) - the buttons, the X and the menus
+    je .apply                   ; mean the same thing on a Hercules, so it takes
+    xor ax, ax                  ; its own black-and-white row (THM_WINMONO).
+    mov bl, al                  ; Color is refused, and falls back to Bright
 .apply:
     COLDCALL thf_apply          ; AL = the kind: WIN95.DRV mounted and hooked
     jnc .live                   ; for THM_WIN, unhooked and dropped otherwise
-    mov al, THM_COLOR           ; REFUSED (SPEC.md 76.14.1): the chrome stays
-    mov bl, al                  ; the kernel's, so the nearest palette that
-    mov ah, [vid_kind]          ; needs no module stands - Color on a colour
-    dec ah                      ; adapter, Bright on 1bpp - and [thm_kind]
-    cmp ah, 2                   ; says so, which is what the Control Panel's
-    jae .refused                ; radios read back
-    xor ax, ax
-    xor bl, bl
-.refused:
-%ifdef KERN_BIG
-    and byte [thm_cstrp], 0FBh ; unavailable Windows style must not be saved
-%endif
-    stc
-.live:
+    and byte [thm_cstrp], 0FBh  ; REFUSED (SPEC.md 76.14.1) - and only Windows
+    mov al, bh                  ; can be: the chrome stays the kernel's, so the
+    not al                      ; nearest palette that needs no module stands -
+    and al, THM_COLOR           ; Color on a colour adapter, Bright on 1bpp -
+    mov bl, al                  ; and [thm_kind] says so, which is what the
+    stc                         ; Control Panel's radios read back. The
+.live:                          ; unavailable Windows style is not saved either
     pushf                       ; ...the caller's answer, kept past the copy
-%else
-    mov bl, al
-%endif
     mov [thm_kind], al
-%ifdef KERN_BIG
-    mov bl, al                  ; BL = the TABLE ROW, which is the kind - but
-    cmp al, THM_WIN             ; Windows wears the Color row and its preset
-    jne .rowset                 ; (76.14.13), or its own row on a 1bpp primary
-    mov bl, THM_COLOR
-    mov ah, [vid_kind]          ; .apply's depth test again: VGA -> FF, HERC
-    dec ah                      ; -> 0, CGA -> 1, EGA -> 2
-    cmp ah, 2
-    jae .rowset
-    mov bl, THM_WINMONO
-.rowset:
-%endif
-    mov al, bl
+    xchg ax, bx                 ; AL = the row, BL = the kind
     mov ah, THM_ROW_BYTES       ; byte MUL: AX only
     mul ah
     add ax, thm_tab
@@ -6362,20 +6353,20 @@ thm_set:
     mov cx, THM_ROW_BYTES / 2   ; one copy of the semantic role block
     cld
     rep movsw
-%ifdef KERN_BIG
-    cmp byte [thm_kind], THM_COLOR
+    cmp bl, THM_COLOR
     jne .stripes_done
     mov al, [thm_cstrp]
     and al, 1
-    mov [thm_strp], al           ; Color only; Bright/Dark retain their rows
+    mov [thm_strp], al          ; Color only; Bright/Dark retain their rows
 .stripes_done:
-%endif
     mov word [menu_bdirty], 0x0101  ; THE TWO DIFFING PAINTERS CANNOT SEE
                                 ; THIS (SPEC.md 76.7): menu_force's own answer,
                                 ; written here rather than far-called for -
                                 ; dock_init's precedent - and [menu_bovr] with
                                 ; it, the adjacent byte menu_force asserts
-    call KERNEL_SEG:cw_dock_force ; menu_bcell is a record of
+    mov bp, dock_force          ; ...and dock_force through cw_mem_disp's
+    call ct_cw_mem_disp         ; `call bp / retf` (BP is banked): menu_bcell
+                                ; is a record of
                                 ; CHARACTERS and a dock tile's key is its icon
                                 ; plus its marks - a theme change moves
                                 ; NEITHER, so composing IS the diff finds no
@@ -6383,33 +6374,29 @@ thm_set:
                                 ; the colours they had. wm_paint_all does not
                                 ; cover it: it calls both painters and both
                                 ; are gated
-%ifdef KERN_BIG
     popf                        ; CF: what .apply decided. pop writes no flag
-%else
-    clc
-%endif
-    pop es
-    pop di
-    pop si
-    pop cx                      ; kret_cx's three, inline: the ladder is near
-    pop bx                      ; and in .text, and kretfc_* banks DX, which
-    pop ax                      ; this never pushed
-    retf
+    jmp kretfc_es
 
 ; api_thm_set_x - OSAPI_THM_SET's body (SPEC.md 76.14.14): thm_set, and then
 ; the repaint and the settings write a Control Panel click would have owed.
 ; thm_set alone is what boot and the panel call - they post for themselves.
-; FAR, reached from the resident api_thm_set the SLOT cell near-calls
+; THE CELL JUMPS HERE (SPEC.md 20.3, kernel size pass 13): 0x046D is
+; `push ds / push cs / pop ds / jmp COLD_SEG:api_thm_set_x`, eight bytes, so
+; the caller's DS is the word under the far return and this pops it - the
+; 6-byte resident api_thm_set thunk the cell used to near-call is gone
 api_thm_set_x:
-    push ax
+    ; STKBALANCE-NET: -1 - pops the caller's DS, which its cell (OSAPI_FJCELL) pushed
     push bx
     mov bl, [thm_kind]
     COLDCALL thm_set             ; (.cold to .cold: ROM-PLAN 3.2)
     pushf                        ; ...its CF is the caller's answer (Windows
     cmp bl, [thm_kind]           ; whose module could not be mounted)
     je .same
-    call KERNEL_SEG:cw_wm_su_drop_all ; A NEW KIND, SET FROM OUTSIDE THE PANEL: the
-.same:                           ; Control Panel's Theme page draws from
+    push bp                      ; A NEW KIND, SET FROM OUTSIDE THE PANEL: the
+    mov bp, wm_su_drop_all       ; Control Panel's Theme page draws from
+    call ct_cw_mem_disp          ; (cw_mem_disp's `call bp / retf`: the 4-byte
+    pop bp                       ; cw_wm_su_drop_all shim went, kernel size
+.same:                           ; pass 13)
                                  ; [thm_kind], and a panel behind another
                                  ; window is repainted from its bank, not its
                                  ; W_PAINT (SPEC.md 11.96.4) - so the bank
@@ -6424,13 +6411,12 @@ api_thm_set_x:
                                  ; two RESIDENT bytes is
     popf
     pop bx
-    pop ax
+    pop ds                       ; the cell's push: the caller's DS
     retf
 
 ; --- the Customize window: a window with no instance behind it (SPEC.md
 ; 76.14), blank.inc's ss_row/ss_open/ss_reap_x pattern one more time, for
 ; THMPAL.DRV instead of SAVER.DRV ---------------------------------------
-%ifdef KERN_BIG
 THMV_OPEN    equ 0               ; SI = Color row, DI = 'TP', DX = thm_cstrp
 THMV_BUSY    equ 1               ; CF = window still owns callbacks
 THMV_CLOSE   equ 2               ; destroy child before parent frees image
@@ -6441,28 +6427,30 @@ THMV_ABI_VER equ 4               ; private header word +10, checked on open
 ; resident, and on-demand would be wrong here - and far-called from
 ; instance.inc's panel-close branch, because that is the one place EVERY close
 ; of the panel passes with the gfx lock held - the settings write after it is
-; gated on there being something to write. The opener is CTRL.DRV's
-; (kernel/ctrl.inc, cp_thmv_open), so nothing of the loader is resident.
-; drv_call and drv_release are driver.inc's cold bodies, so they are NEAR
-; from here and drvf_*'s far entries are not needed.
+; gated on there being something to write - and from cp_thmv_open's refusal.
+; The opener is CTRL.DRV's (kernel/ctrl.inc, cp_thmv_open), so nothing of the
+; loader is resident. drv_call and drv_release are driver.inc's cold bodies,
+; so they are NEAR from here and drvf_*'s far entries are not needed.
+;
+; NO "IS IT LOADED?" TEST (kernel size pass 13): both callees ask it
+; themselves. drv_call refuses a row whose DRVR_SEG is 0 (CF = 1, AX = 0,
+; SPEC.md 51.2) before it reads anything else of it, and drv_release returns
+; at once for one - so the never-loaded close, the commonest there is, does
+; exactly nothing either way. drv_call_ent is the door that reads BP off the
+; row itself.
 ; out: nothing (all registers preserved)
 thmv_reap_x:
-    cmp word [thmv_row+DRVR_SEG], 0
-    je .out                      ; never loaded, or already given back
     push ax
     push bx
     push bp
     mov bx, thmv_row
-    mov bp, [bx+DRVR_ENT]
     mov al, THMV_CLOSE           ; the child first: its W_PAINT names the image
-    call drv_call
+    call drv_call_ent
     call drv_release
     pop bp
     pop bx
     pop ax
-.out:
     retf
-%endif
 %endif
 
 section .lowbss                 ; LOW_SEG (SPEC.md 2.1), and not .bss for

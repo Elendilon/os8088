@@ -346,23 +346,21 @@ wn_buttons:
     push es
     push cs
     pop es
-    mov al, CWHITE              ; the lit edges' pen: wn_band draws each
-    test byte [thm_cstrp], 2    ; button's left edge with its band, and no
-    jnz .edges                  ; band is drawn with this pen. Classic keeps
-    mov al, [cs:wn_pair+1]      ; main's white bevel; the new style uses the
-.edges:                         ; title's ink
-    mov [gfx_color], al
     push word [gfx_b1ink]       ; THE PEN, banked and put back: a package's
-    test byte [thm_cstrp], 2     ; Classic restores main's original Windows
-    jnz .classic                ; button colors, but keeps this theme's bar
-    mov ax, [cs:wn_pair]        ; current layout: buttons follow the selected
-    mov [gfx_b1ink], ax         ; preset's title pair
-    jmp short .draw
-.classic:
-    mov al, [thm_bgc]           ; original main layout used the UI chrome face
-    mov ah, CBLACK              ; and black glyphs, independent of title color
-    mov [gfx_b1ink], ax
-.draw:
+                                ; W_PAINT runs later in this same lock hold
+                                ; and expects the resting one
+    mov ax, [cs:wn_pair]        ; the new style: the buttons follow the
+    mov dl, ah                  ; selected preset's title pair, and the lit
+    test byte [thm_cstrp], 2    ; edges are the title's ink. CLASSIC (bit 1)
+    jz .pens                    ; restores main's original Windows buttons -
+    mov al, [thm_bgc]           ; the UI chrome face, black glyphs and the
+    mov ah, CBLACK              ; white bevel - but keeps this theme's bar.
+    mov dl, CWHITE              ; ONE test for both pens (kernel size pass 13)
+.pens:
+    mov [gfx_b1ink], ax         ; AL = ink = the face, AH = paper
+    mov [gfx_color], dl         ; the lit edges' pen: wn_band draws each
+                                ; button's left edge with its band, and no
+                                ; band is drawn with this pen
 
     mov ax, WN_MIN
     mov si, wnb_min

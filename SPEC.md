@@ -41679,6 +41679,17 @@ a rare cold SLOT two bytes *shallower* than the `api_sc` cell it replaced.
   do but cross: `OSAPI_DECOMP`'s routine takes the caller's own DS:SI and
   ES:DI as arguments, so the cell is `call COLD_SEG:lzf_decomp / retf` — the
   far call *is* the whole cell.
+- **The far-jump cell** (`OSAPI_FJCELL`, 8 bytes) is `OSAPI_SLOT`'s DS switch
+  with a far JUMP where the SLOT has its near call: `push ds / push cs / pop
+  ds / jmp COLD_SEG:body`. The `.cold` body pops the DS the cell pushed and
+  returns for it with its own `retf`, so no resident thunk stands between
+  them. One cell has this shape — `OSAPI_THM_SET` at 0x046D, kern_big's
+  inline cell, which `api_thm_set_x` ends `pop ds / retf` for (kernel size
+  pass 13: the 6-byte `api_thm_set` thunk it near-called is gone). It sits
+  inside `OSAPI_ICELL 8` … `OSAPI_IENDJ`, the inline length check without a
+  `retf` of its own, because kern_small's arm of the same cell is seven NOPs
+  and a `retf`. `t_api_abi` decodes it as `FJSLOT` and requires the segment
+  word to be COLD_SEG.
 - **Inline cells** (`OSAPI_ICELL n` … `OSAPI_IEND`, 5 or 6 bytes today) are
   the routine itself, above: `2E`, one `mov` with one memory operand, an
   optional `cbw`, `CB`. `t_api_abi` decodes exactly that and nothing looser,
@@ -123608,17 +123619,30 @@ The shape:
   both name it. Every caller far-calls `COLD_SEG:thm_set`: `kmain_o`, the
   settings reader, `CTRL.DRV`, `vid_switch` and `api_thm_set_x`. The 4-byte
   `cw_thm_set` shim is gone.
-- **Its two calls back into `.text` cost one new shim.** `menu_force` is one
+- **Its two calls back into `.text` cost no shim.** `menu_force` is one
   store, so `thm_set` writes `[menu_bdirty]` itself, the way `dock_init`
-  writes `dock_force`'s answer. `dock_force` goes through the new
-  `cw_dock_force`.
-- **`api_thm_set` stays in `.text` as a 6-byte thunk.** The cell is ABI: an
-  8-byte SLOT at 0x046D (§20.3) that near-calls a `.text` routine, so it
-  cannot name the cold body. `api_thm_set_x` reaches `wm_su_drop_all` through
-  the new `cw_wm_su_drop_all`.
+  writes `dock_force`'s answer. `dock_force` is reached through
+  `cw_mem_disp`'s `call bp / retf` with BP = `dock_force` (kernel size pass
+  13: the 4-byte `cw_dock_force` shim it was given at the move is gone).
+- **The cell jumps straight to `api_thm_set_x`** (kernel size pass 13). The
+  cell's address and length are ABI, its body is not: 0x046D is now
+  §20.3's 8-byte far-jump cell, `push ds / push cs / pop ds / jmp
+  COLD_SEG:api_thm_set_x`, and the body ends `pop ds / retf`. The 6-byte
+  `api_thm_set` thunk the cell used to near-call is gone. `api_thm_set_x`
+  reaches `wm_su_drop_all` through `cw_mem_disp` the same way (the
+  `cw_wm_su_drop_all` shim is gone with `cw_dock_force`).
 - **`thmv_reap_x` is far-called from `app_close_win` and ends in `retf`.** It
-  near-calls `drv_call` and `drv_release` directly, since both are cold
-  bodies. `thmv_fname` is data, so it stays in `.text` (§2.6's rule 1).
+  near-calls `drv_call_ent` and `drv_release` directly, since both are cold
+  bodies, and asks neither whether the image is loaded: both refuse a row
+  whose `DRVR_SEG` is 0 on their own, so the never-loaded close does nothing
+  either way. `cp_thmv_open`'s refusal path far-calls it too, where it had its
+  own copy of the two calls.
+- **THMPAL.DRV's file name is CTRL.DRV's** (kernel size pass 13). `drv_load_at`
+  reads a row's `DRVR_FILE` through DS, so the name must be in the kernel
+  segment while it loads - but only then, and `cp_thmv_open` is the one code
+  that loads `thmv_row`. It stages the name into `cp_sbuf` and stores the
+  pointer in the row before each load. Nothing else reads the row's FILE or
+  TITLE: it is past `DRV_MAX`, so no walk meets it.
 
 ---
 

@@ -1336,7 +1336,9 @@ usbm_row:                       ; ...a label for tests/usbmouse.py, which finds
 ; ss_row each cost a compare in .cold, and .cold has no byte to give
 thmv_row:
     dw PKG_DISP, 0               ; DRVR_DISP, DRVR_SEG
-    dw thmv_fname, thmv_fname    ; DRVR_FILE, DRVR_TITLE - kernel/vga12.inc's
+    dw 0, 0                      ; DRVR_FILE, DRVR_TITLE - the name is CTRL.DRV's,
+                                  ; staged into FILE before each load (kernel/
+                                  ; ctrl.inc, cp_thmv_open); nothing reads TITLE
     dw 0, 0                      ; DRVR_KB, DRVR_ENT
     db DRVC_OVL                  ; DRVR_CLASS - not a class the kernel loads,
                                   ; so this can never take a publication slot
