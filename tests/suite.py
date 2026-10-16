@@ -1956,7 +1956,7 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=300),
     Row("weavecanvas", "soak", py("tests/weavecanvas.py"), 10.0,
         "WEAVE-SPEC 12.1.3: the SHIPPING apps/weave/wspr.inc and "
-        "apps/weave/wwork.inc - WEAVE.WSM's composer and frame loop - run in "
+        "apps/weave/wwork.inc - the canvas core's composer and frame loop - run in "
         "a raw-QEMU BOOT SECTOR with SS != DS and no OS under them, diffed "
         "case by case against the model's own canvas composer. It is the one "
         "differential in this family whose ORACLE HAD TO BE WRITTEN: every "
@@ -2043,7 +2043,8 @@ SOAK = [
         "WEAVE-SPEC 1.7.1 and 12.3: LOOM's PREVIEW PANE against "
         "`weavesim --render --preview`. Wave 7 draws the pane with WEAVE's "
         "own flow walk and WEAVE's own component painter, compiled a second "
-        "time into LOOM.WPV - a second RESIDENT segment (1.2.4) - and "
+        "time into the preview module - a second RESIDENT segment, part 0 "
+        "of LOOM.O88 (1.2.4) - and "
         "NOTHING ELSE IN THIS FAMILY ENTERS THAT MODULE AT ALL: weavegfx "
         "reads the runtime's window and every assertion it makes would pass "
         "with the pane blank. Because the two images run the same TEXT "
@@ -2087,7 +2088,7 @@ SOAK = [
     Row("weavegame", "soak", py("tests/weavegame.py"), 50.0,
         "WEAVE-SPEC 6.10, 12.3, 14: PONG.WAB under MartyPC, and it asks "
         "wireflick's two questions of a sprite canvas "
-        "(SPEC.md 78.9). HOW MANY GFX CALLS A FRAME, read out of WEAVE.WSM's "
+        "(SPEC.md 78.9). HOW MANY GFX CALLS A FRAME, read out of the canvas core's "
         "own frames and blits counters - the only honest way to price a "
         "redraw here (CLAUDE.md: a redraw costs what it CALLS), and 14 "
         "prices a two-sprite frame at 2-4. WHAT THE GLASS SHOWED between the "
@@ -2123,11 +2124,11 @@ SOAK = [
         "`marty` for the boot. 1,500s MEASURED, and it is eleven LAUNCHES rather "
         "than one session: each project is its own instance (WEAVE-SPEC 1.4) "
         "and they cannot all be open at once, so every one costs a package "
-        "load - 55KB of LOOM plus 43KB of LOOM.OVL off an emulated floppy - "
+        "load - LOOM.O88 and its overlay part off an emulated floppy - "
         "and that read is the whole of the time. It is the price of asking "
         "the question on the target rather than on the host",
         needs=("marty", "cc"), serial=True, timeout=3000,
-        wants=("build/loom.o88", "build/LOOM.OVL")),
+        wants=("build/loom.o88",)),
     Row("weavefuzz", "soak", py("tests/weavefuzz.py"), 180.0,
         "a thousand DAMAGED projects through both packers, asking the two "
         "questions a fixture cannot: did they agree about whether it is a "

@@ -41039,8 +41039,8 @@ The tree, and the one part of it that is a correctness requirement:
 | `CWORD/` | `CWORD.O88` (its overlay is a PART of it, §73.14.2), `WELCOME.RTF` |
 | `RUNCPM/`, `RUNCPM/A/0/` | `RUNCPM.O88` (its module and the CCP are its PART, §74.3.1), `LICENSE` and `1STREAD.ME` — and CP/M drive A below them (§74.5) |
 | `C64/` | `C64.O88` (the ROM and the overlay are PARTS of it, §20.12, §73.14.2), `README.TXT` and `COPYING` (`docs/C64-SPEC.md` §14.2) |
-| `WEAVE/` | `WEAVE.O88`, `WEAVE.OVL`, `WEAVE.WSM` and the three demo bundles (`WEAVE-SPEC 1.2`) |
-| `LOOM/` | `LOOM.O88`, `LOOM.OVL`, `LOOM.WPV`, the demo sources — and a second copy of `WEAVE.O88`, `WEAVE.OVL` and `WEAVE.WSM`, so that a bundle Pack writes beside its sources opens where it was written (`WEAVE-SPEC 1.2`, `1.2.4`, `11.2`) |
+| `WEAVE/` | `WEAVE.O88` (its overlay and canvas core are PARTS of it, §73.14.2) and the three demo bundles (`WEAVE-SPEC 1.2`, `1.2.5`) |
+| `LOOM/` | `LOOM.O88` (its overlay and preview module are PARTS of it) and the demo sources. A bundle Pack writes here opens `WEAVE.O88` out of `WEAVE/` through `ASSOC.DAT` (§54.7.1), so the second copy of the runtime this folder carried is gone (`WEAVE-SPEC 1.2.5`, `11.2`) |
 | `MEDIA/` | the module, the two `.TEX` documents and `BROWSER.HTM` — where a File Open starts (§38.10) |
 | `SYSTEM/`, `SYSTEM/DOS/` | the Task Manager (§28.3) and `OS88NET.COM` (§62) |
 | `SYSTEM/APPDATA/` | empty and **built rather than made on demand** (§19.9) — a Weave bundle's `saveState` writes its `.SAV` here (`WEAVE-SPEC 8.3`) |
@@ -120661,8 +120661,8 @@ gone. Measured, file bytes:
 
 | overlay | plain | packed |
 |---|---:|---:|
-| `LOOM.OVL` | 43,702 | **17,929** |
-| `WEAVE.OVL` | 21,198 | **9,480** |
+| `LOOM.OVL` (part 1 of `LOOM.O88` since §73.14.2, `WEAVE-SPEC 1.2.5`) | 43,702 | **17,929** |
+| `WEAVE.OVL` (part 1 of `WEAVE.O88` since §73.14.2) | 21,198 | **9,480** |
 | `CWORD.OVL` (a PART of `CWORD.O88` since §73.14.2) | 18,565 | **8,851** |
 | `SCRIBE.OVL` (part 1 of `SCRIBE.O88` since §95.8.8) | 10,121 | **8,348** |
 | `RUNCPM.OVL` (the PART of `RUNCPM.O88`, with the CCP in it, since §74.3.1) | 7,389 | **3,526** |
@@ -120842,10 +120842,14 @@ the package's own disk, `ALLAPPSFILES`, the live media, the category disks -
 and every `.OVL` mention in tests and docs that means the shipped file; and
 keep reading `build/<NAME>.OVL` in any host tool that wants the module's
 bytes, which it still is. A package that relied on the file form's folder
-rule (WEAVE and LOOM keep a runtime in each folder so a bundle opens beside
-its overlay) can re-read that rule: an eager part is in memory before any
-folder move, and a lazy one is fetched from home - though a bundle still
-needs the runtime's OTHER files (`WEAVE.WSM`) wherever that rule put them.
+rule can re-read that rule: an eager part is in memory before any folder
+move, and a lazy one is fetched from home. WEAVE and LOOM did, and took
+their OTHER modules in as lazy parts too - the canvas core and the preview
+module, each fetched through the same bracket (`apps/weave/wfetch.inc`) -
+so `LOOM/` no longer carries a second copy of the runtime
+(`WEAVE-SPEC 1.2.5`). Both took the LAZY arm for a reason worth knowing:
+a lazy row must follow every eager one and `CC_OVL_ROW` must be last, so an
+eager overlay would have put each package's other module in the carve.
 
 ### 73.15 The peephole pass, and the differential check that lets it ship
 
