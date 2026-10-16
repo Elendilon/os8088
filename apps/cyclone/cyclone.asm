@@ -1191,8 +1191,7 @@ cy_key_common:
     mov byte [cy_fsxq], 1           ; F leaves as well as enters (11.2.1)
     ret
 .fs_in:
-    call cy_go_fsx
-    ret
+    jmp cy_go_fsx
 .pause:
     cmp byte [cy_state], CYS_PLAY
     jne .p2
@@ -1205,20 +1204,15 @@ cy_key_common:
     mov byte [cy_state], CYS_PLAY
     mov byte [cy_full], 1
     ret
-.new:
-    call cy_newgame
-    ret
 .start:
     cmp byte [cy_state], CYS_TITLE
     jne .ret0
-    call cy_newgame
-    ret
+.new:
+    jmp cy_newgame
 .zap:
-    call cy_superzap
-    ret
+    jmp cy_superzap
 .jump:
-    call cy_do_jump
-    ret
+    jmp cy_do_jump
 .fire:
     mov byte [cy_firereq], 1
     ret
@@ -3731,8 +3725,7 @@ cy_newgame:
     mov word [cy_pw_droid], 30000   ; THE PLAY-TEST INSTRUMENT (SPEC.md 67.9.5)
 %endif                              ; and it never ships: see the Makefile
     mov byte [cy_pw_jump], 0
-    call cy_startlevel
-    ret
+                                    ; ...and into cy_startlevel
 
 ; cy_startlevel - pick the shape, clear the board, and begin the warp.
 cy_startlevel:
@@ -3758,8 +3751,7 @@ cy_startlevel:
     mov word [cy_spawnt], 0
     call cy_zap_recharge            ; SPEC.md 67.23.3: one charge on the house,
                                     ; every level, and the line that says so
-    call cy_wavesize
-    ret
+    jmp cy_wavesize
 
 ; cy_wavesize - how many enemies this level owes, and how fast they come.
 ;
@@ -3772,7 +3764,8 @@ cy_wavesize:
     mov ax, [cy_level]
     dec ax
     mov bx, 3
-    mul bx
+    mul bx                          ; AX = (level - 1) * 3, which both ramps
+    push ax                         ; below are built on
     add ax, 8
     cmp ax, 40
     jbe .cap
@@ -3781,32 +3774,20 @@ cy_wavesize:
     mov [cy_towave], ax
     mov [cy_wleft], ax
 
-    mov ax, [cy_level]              ; the kinds available, by level
-    mov bl, 1                       ; L1: flippers
-    cmp ax, 2
-    jb .k
-    mov bl, 2                       ; L2: + tankers
-    cmp ax, 3
-    jb .k
-    mov bl, 3                       ; L3: + spikers
-    cmp ax, 5
-    jb .k
-    mov bl, 4                       ; L5: + fuseballs
-    cmp ax, 7
-    jb .k
-    mov bl, 5                       ; L7: + pulsars
+    mov bx, [cy_level]              ; the kinds available, by level (a level
+    cmp bx, 7                       ; is never 0: cy_newgame starts it at 1)
+    jbe .k
+    mov bx, 7
 .k:
-    mov [cy_kinds], bl
+    mov al, [cy_kindlv - 1 + bx]
+    mov [cy_kinds], al
 
     ; Base climb speed, in depth-units a frame. The tube is
     ; (CY_TOPD - CY_FARD) * 256 = 3,328 units, so 15 a frame is 222 frames -
     ; TWELVE SECONDS at 18.2fps - for a level-1 flipper end to end, rising to
     ; about three seconds by level 15. Each kind then scales this by its own
     ; trait (cy_ekspd), which is where "some enemies ascend faster" lives.
-    mov ax, [cy_level]
-    dec ax
-    mov bx, 3
-    mul bx
+    pop ax                          ; (level - 1) * 3 again
     add ax, 15
     cmp ax, 55
     jbe .sc
@@ -6824,27 +6805,21 @@ cy_hs_init:
     push bx
     push cx
     push di
-    push si
     mov word [cy_hstab], CY_HSMAG0  ; the file's magic leads the table, so the
     mov word [cy_hstab + 2], CY_HSMAG1  ; write sends it from where it lives
-    xor si, si
+    mov bx, cy_hs                   ; BX walks the scores, four bytes a row...
+    mov di, cy_hsn                  ; ...and DI the names, three
     mov cx, CY_NHS
     mov ax, 5000
 .each:
-    mov bx, si
-    shl bx, 1
-    shl bx, 1
-    mov [cy_hs + bx], ax
-    mov word [cy_hs + bx + 2], 0
-    mov di, si                      ; ...and a placeholder name, three bytes
-    add di, di                      ; per row (di = si*3)
-    add di, si
-    mov word [cy_hsn + di], '--'
-    mov byte [cy_hsn + di + 2], '-'
+    mov [bx], ax
+    mov word [bx + 2], 0
+    mov word [di], '--'             ; a placeholder name
+    mov byte [di + 2], '-'
+    add bx, 4
+    add di, 3
     sub ax, 1000
-    inc si
     loop .each
-    pop si
     pop di
     pop cx
     pop bx
@@ -6874,30 +6849,32 @@ cy_hs_submit:
     inc si
     jmp short .find
 .ins:
-    mov di, CY_NHS - 1              ; shuffle the tail down one
-.shift:
-    cmp di, si
-    jbe .put
-    mov bx, di
-    shl bx, 1
-    shl bx, 1
-    mov ax, [cy_hs + bx - 4]
-    mov [cy_hs + bx], ax
-    mov ax, [cy_hs + bx - 2]
-    mov [cy_hs + bx + 2], ax
-    push si                         ; ...and the NAME with it, or the table
-    mov bx, di                      ; would keep the scores in order and
-    add bx, bx                      ; leave every name one row behind
-    add bx, di
-    mov si, bx
-    sub si, 3
-    mov ax, [cy_hsn + si]
-    mov [cy_hsn + bx], ax
-    mov al, [cy_hsn + si + 2]
-    mov [cy_hsn + bx + 2], al
+    ; Shuffle the tail down one row: the rows from SI to CY_NHS-2 move up an
+    ; index, the NAMES with the scores (or the table would keep the scores in
+    ; order and leave every name one row behind). Two backward block moves -
+    ; std, so a row is read before the move overwrites it.
+    push es
+    push ds
+    pop es
+    push si
+    mov bx, CY_NHS - 1
+    sub bx, si                      ; BX = rows to move, 0..CY_NHS-1
+    std
+    mov cx, bx
+    add cx, cx
+    add cx, bx                      ; three bytes a name
+    mov si, cy_hsn + (CY_NHS - 1) * 3 - 1
+    mov di, cy_hsn + CY_NHS * 3 - 1
+    rep movsb
+    mov cx, bx
+    shl cx, 1
+    shl cx, 1                       ; four bytes a score
+    mov si, cy_hs + (CY_NHS - 1) * 4 - 1
+    mov di, cy_hs + CY_NHS * 4 - 1
+    rep movsb
+    cld
     pop si
-    dec di
-    jmp short .shift
+    pop es
 .put:
     mov bx, si
     shl bx, 1
@@ -7040,8 +7017,7 @@ cy_init_begin:
     mov byte [cy_ient], 1
     mov byte [cy_ipos], 0
     mov word [cy_ibuf], '  '
-    mov byte [cy_ibuf + 2], ' '
-    mov byte [cy_ibuf + 3], 0
+    mov word [cy_ibuf + 2], ' '     ; ...and the NUL after the third
     mov byte [cy_msgdirty], 1
     ret
 
@@ -7106,30 +7082,21 @@ cy_init_key:
 cy_init_commit:
     push ax
     push bx
-    push si
-    push di
     mov bx, [cy_hsidx]
     cmp bx, CY_NHS
     jae .done
     mov ax, bx
     add bx, bx
     add bx, ax                      ; row * 3
-    mov si, cy_ibuf
-    mov di, cy_hsn
-    add di, bx
-    mov al, [si]
-    mov [di], al
-    mov al, [si + 1]
-    mov [di + 1], al
-    mov al, [si + 2]
-    mov [di + 2], al
+    mov ax, [cy_ibuf]               ; the three initials, a word and a byte
+    mov [cy_hsn + bx], ax
+    mov al, [cy_ibuf + 2]
+    mov [cy_hsn + bx + 2], al
 .done:
     mov byte [cy_ient], 0
     mov byte [cy_hsdirty], 1
     mov byte [cy_msgdirty], 1
     call cy_hs_save
-    pop di
-    pop si
     pop bx
     pop ax
     ret
@@ -7190,9 +7157,8 @@ cy_title_static:
     mov byte [cy_tphase], CY_TP_SPOKE
     mov byte [cy_wstarted], 0
     mov word [cy_scrt], 0
-    call cy_scroll_reset
+    jmp cy_scroll_reset
 
-    ret
 
 ; CX = string length in cells -> CX = the x that centres it, on a multiple of
 ; 8 so font_run takes its single-store path (SPEC.md 6.1).
@@ -7203,15 +7169,12 @@ cy_centre:
     shl ax, 1
     shl ax, 1
     mov cx, [cy_cwid]
-    cmp cx, ax
-    jb .zero
     sub cx, ax
+    jae .fit
+    xor cx, cx                      ; wider than the window: the left edge
+.fit:
     shr cx, 1
     and cx, 0xFFF8
-    jmp short .out
-.zero:
-    xor cx, cx
-.out:
     pop ax
     ret
 
@@ -7864,6 +7827,11 @@ cy_fsx_main:
 ; offer exactly those (SPEC.md 67.9)
 cy_pu_draw:
     db CYP_ZAP, CYP_JUMP, CYP_LASER, CYP_DROID, CYP_LIFE
+
+; how many kinds a level unlocks (cy_wavesize), for levels 1..7 and on: L1
+; flippers, L2 + tankers, L3 + spikers, L5 + fuseballs, L7 + pulsars
+cy_kindlv:
+    db 1, 2, 3, 3, 4, 4, 5
 
 ; the points a kill is worth, by kind, before the level multiplier
 cy_kindsc:

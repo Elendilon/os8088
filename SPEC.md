@@ -109780,6 +109780,28 @@ of 6 at the bracket's exit, and a `needlay`/`full` pair is 6 bytes instead of
 entries (§77.31.1). Nothing reads them differently, and one store is never
 slower than two. Image −40, file −20.
 
+#### 67.26.3 The cold paths, the classic way
+
+Code nothing in a frame runs, taken the ordinary way and with every result
+unchanged:
+
+- **Tail calls.** Eight `call X` / `ret` pairs on the key, new-game and title
+  paths are `jmp X`, `cy_newgame` falls into `cy_startlevel` (it is the next
+  routine), and the key handler's `.start` falls into `.new`.
+- **`cy_wavesize`** computes `(level − 1) · 3` once for both ramps, and the
+  five-rung ladder of kinds a level unlocks is `cy_kindlv`, seven bytes indexed
+  by the level and clamped at 7 — the same 1, 2, 3, 3, 4, 4, 5 the compares
+  gave.
+- **The high-score table.** `cy_hs_init` walks a score pointer and a name
+  pointer instead of re-deriving `row·4` and `row·3` each pass;
+  `cy_hs_submit`'s shuffle is two backward `rep movsb` (names, then scores)
+  instead of a row loop that re-derived both offsets per row; `cy_init_commit`
+  copies the three initials as a word and a byte.
+- **`cy_init_begin`** blanks the initials and their NUL as two words, and
+  **`cy_centre`** subtracts and tests the borrow instead of comparing first.
+
+Image −89, file −51.
+
 ### 67.13 What is deliberately not here
 
 **No high-score file.** The table lives in bss and dies with the instance. It
