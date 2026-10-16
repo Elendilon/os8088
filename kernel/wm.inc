@@ -4677,7 +4677,14 @@ wm_hit:
     push bp
     push ax                     ; AH is preserved; AL patched on the way out
     mov al, [wm_zn]
-    mov ah, 0
+%ifdef KERN_BIG
+    cbw                         ; AH = 0: [wm_zn] <= MAX_WIN, under 128 - a
+                                ; byte and two clocks under `mov ah, 0`, and
+                                ; the byte that puts everything below back at
+                                ; the parity wm_top's took (kernel size pass
+%else                           ; 13). kern_small's wm_top did not move, so
+    mov ah, 0                   ; neither does this: its hot .text stays even
+%endif
     mov si, wm_zord
     add si, ax                  ; walk front to back
     mov di, 1                   ; 1 until the first visible window is passed
