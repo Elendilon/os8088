@@ -733,6 +733,7 @@ tm_ab2:     db 'a stopwatch', 0
 ; --- the shared controls (SPEC.md 20.5.1) ---------------------------------------
 %define OS88UI_ABOUT            ; the standard About card...
 %define OS88UI_ABDISMISS        ; ...taken down with os88ui_abdismiss
+%define OS88UI_NOGLYPH          ; no check box or radio drawn here (SPEC.md 13.8.9)
 %include "os88ui.inc"           ; ...and the button, with its gesture
 
     OS88_BSS 60

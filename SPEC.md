@@ -185291,8 +185291,8 @@ It landed in v2's wave 3 (§110.10); the Desk Calendar adopted it in wave 4
 ## 111. TIMER — the stopwatch (`apps/timer/timer.asm`)
 
 The kernel's Timer kind (§14) as a package since §14.8: `TIMER.O88`, in
-`APPS/` on every apps disk, 2,012 bytes of image and 60 of bss, the
-stopwatch icon in its header, label prefix `tm_`. Everything §14 says about
+`APPS/` on every apps disk, 1,775 bytes of image and 60 of bss (§111.6),
+the stopwatch icon in its header, label prefix `tm_`. Everything §14 says about
 the Timer's behaviour holds — the window, the layout, the accumulator
 (binding), §14.1's incremental redraw, §14.4's cut line, §47's greying — and
 this section says only what is different about being a package.
@@ -185362,6 +185362,22 @@ under the card. `tests/timerbounce.py` is the gate (soak, MartyPC): it opens
 Timer's seconds advancing out of its own bss, presses Stop and then Start
 through the real gesture and reads `tm_run` both ways, and reads the Bounce's
 square moving and its worker holding a task slot.
+
+### 111.6 Size (apps size pass 2)
+
+The package rides THREE 360KB disks (`apps360`, `small360`, `smallapps360`),
+so its subject in the second apps size pass is the shipped FILE.
+Before the pass: 2,012 bytes of image, 60 of bss, a 1,813-byte LZ4 file - two
+clusters on each disk. Of the image, 96 bytes are the header and icon (the
+clear prefix), 953 this file's code and data, and 963 `apps/os88ui.inc`.
+
+- **`OS88UI_NOGLYPH`** (§13.8.9's opt-out): the Timer draws no check box and
+  no radio, and the glyph's body and shapes were 237 bytes of the library it
+  carried for nothing. Image 2,012 -> 1,775; the file 1,813 -> 1,775 - only
+  38, because what went was the part of the image that PACKED (the 12x12
+  bitmaps): what is left is code, which LZ4 no longer shrinks at all, so the
+  package ships PLAIN (`os88pkg` writes it uncompressed when packing does
+  not pay) and every image byte from here is a file byte.
 
 ## 112. BOUNCE — the square (`apps/bounce/bounce.asm`)
 
