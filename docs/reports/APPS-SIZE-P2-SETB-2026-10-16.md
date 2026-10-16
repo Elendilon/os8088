@@ -258,3 +258,25 @@ at least one launch row for each package the LZB change reached):
   that exercises most of that package's pass): **all assertions passed**,
   including `FTPD.CFG` written and read back byte-exact and STOR's upload
   read off the image by an independent reader.
+
+## Addendum - after the landing, at the owner's word
+
+Two more changes on the same day, measured on the tree set B landed on
+(sets A, B and C merged, `9896ba84`):
+
+- **`OS88LINE_NOEDIT`** (SPEC.md 83.1.2): `apps/os88line.inc`'s
+  `os88line_edit` is now opt-out, and the eight carriers that never call it
+  define the gate. File bytes: Browser -130, FTPD -122, Telnet -118, Sheet
+  -117, WEAVE -113, `LOOM.WPV` -160, `SAVER.DRV` -125, `ETHER.DRV` -128. DOS
+  and DeskCal, the two callers, are unchanged.
+- **Six more packages ship LZB**, the owner's pick from `lzbclust
+  --candidates`: Telnet (12 -> 11 clusters), Audio (10 -> 9), Chart (9 -> 8),
+  Gorillas (13 -> 12), The Wire (10 -> 9, on every system disk - the first
+  LZB package there) and Browser (17 -> 15). Nineteen builds in `LZBPKGS`.
+
+Coverage: one scoped soak of the 71 rows the two reach (`build/soak/
+20261016-153606/`) - **69 ok, 2 FAIL, 0 SKIP**. `btnall` is the
+pre-existing failure above. `apspkcovox` failed on the screen saver coming up
+during its boot (`[blk_on]` set past 722 guest seconds), before Audio was
+launched; `os88bisect.py classify` passes it 0/2 failed on HEAD alone, so it
+was intermittent. `tests/ftpd.py`: all assertions passed.
