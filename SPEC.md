@@ -162406,6 +162406,18 @@ table, is REFUSED on a measurement: every copy is a 3-byte LZ4 match already,
 and replacing the 35 commonest with a `jmp` makes part 0 111 packed bytes
 LARGER.
 
+##### 96.44.16.1 Pass 2b: the structural items
+
+The set A list above, taken by a session of its own. Two of its four items
+are opt-in gates in shared includes that DOS turns on and nobody else does, so
+every other carrier assembles byte-identical:
+
+- **`OP_NO_LAZYOK`** (§20.12.9.2): the loader fetches the core once and never
+  asks first, so `op_lazyok` goes - 2,276 -> 2,210 image bytes of loader.
+- **`CON_NOSCROLLDOWN`** (`apps/os88con.inc`): the DOS console is a teletype
+  and only ever scrolls UP, so `con_scrolldown` - which nothing in the tree
+  calls, Telnet included - goes from part 0.
+
 ### 96.45 The mouse under `kern_dos`, and it was switched OFF rather than missing
 
 INT 33h has always been answered here (§96.10); what it answered with was a

@@ -18102,6 +18102,8 @@ DOS_BSS_SIZE equ HB
                                     ; of them the 80x25 shadow and the 8x8 font,
                                     ; which are .bss and so are a KB of the
                                     ; image rung apiece
+%define CON_NOSCROLLDOWN            ; ...and no con_scrolldown: a teletype
+                                    ; only scrolls UP (SPEC.md 96.44.16.1)
 %define CON_TTY                     ; CR, LF, BS, TAB and BEL, because there is
                                     ; no ANSI parser over this one (SPEC.md
                                     ; 96.33.1) - and con_open, since the
