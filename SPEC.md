@@ -114261,7 +114261,8 @@ so a declared size over 4 GB wraps small, and a 63-character name walked the
 parse into the staging area and read the previous download's digits as this
 file's size.
 
-`tz_frac` now treats `pos >= size` — and a position whose high word survived the
+`tz_bar`'s fraction (it was `tz_frac`, inline since §70.13) now treats
+`pos >= size` — and a position whose high word survived the
 reduction the size's did not — as a FULL bar, which is what a sender that lied
 deserves. `tests/telzm.py` drives it with a sender that declares 1 and sends
 6,144, and asserts that the session is still up afterwards: the symptom of an
@@ -114594,6 +114595,7 @@ bss 6,077).
 | `te_in` stores `[te_win]` and FALLS into `te_layout`, so the four callbacks that opened with that pair make one call; `te_hire` (one caller) is inline in `te_paint` with the worker declared `OS88_WORKER_RESTARTABLE_NOKEEP` - no instruction is added to any path, and the paint loses a call, a ret and a frame | `te_paint`, `te_onclick`, `te_onkey`, `te_about` | -11 |
 | the three headers this end composes (`tz_saypos`, `tz_rinit`, `tz_say`) share one tail, `tz_hsend`, that reads the type back out of `[tz_lst]`; `tz_ohdr32` (byte stores of a word) and `tz_zero4` fold into them, and `tz_resend` loads BX once per arm. The same bytes on the wire for every header, every register still kept | `tezm.inc` | -27 |
 | **DEFECT FIXED**: `tz_infodone`'s size parse bounded itself with a count in CX that the multiply re-loaded with 10 on every digit, so the bound never ran out - and a name filling all 63 bytes of the info block leaves the parse ONE PAST the buffer, on `[tz_sseg]`, whose bytes were read as digits (the residue of §70.11.6's 63-character walk). The bound is the pointer now and that block reads a size of 0. The size accumulates in DI:BX rather than in `[tz_fsz]` and `tz_add32` (two callers) is gone, `tz_commit` adding to `[tz_pos]` in place. Once per file | `tz_infodone`, `tz_commit` | -26 |
+| `tz_frac` (one caller) is inline in `tz_bar`, which takes the SI/DI frame and `te_pop6`; its "no size" arm drops straight to the exit instead of returning a zero to be tested. The progress bar is drawn per repaint, and the inline is a call, a ret and five pushes and pops fewer | `tz_bar` | -10 |
 
 ## 71. The browser fetches (`apps/browser/brnet.inc`)
 

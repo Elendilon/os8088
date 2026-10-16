@@ -637,7 +637,7 @@ tz_poll:
     ; THE FILE and then silently dropped 63,488 bytes while advancing [tz_rcv]
     ; past the hole. The ZEOF check still matched. Strictly worse than the
     ; defect it was fixing, and the same shape of unchecked premise as the
-    ; divide in tz_frac.
+    ; divide in tz_bar (once tz_frac).
     ;
     ; So: resume at whichever is LOWER, and skip only what is provably already
     ; written. The file's SIZE never moves either way, which is what keeps
@@ -2347,6 +2347,8 @@ tz_bar:
     push bx
     push cx
     push dx
+    push si
+    push di
     call con_wpx
     sub ax, 32
     jbe .out                        ; a window too narrow for a bar draws none
@@ -2362,37 +2364,12 @@ tz_bar:
     mov dx, bx
     add dx, 11
     call OSAPI_GFX_FRAME
-    call tz_frac                    ; AX = the filled width in pixels
-    or ax, ax
-    jz .out
-    mov [tz_bf], ax
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, [con_px]
-    add ax, 18
-    mov bx, [con_oy]
-    add bx, TE_TOPY + 50
-    mov cx, ax
-    add cx, [tz_bf]
-    mov dx, bx
-    add dx, 7
-    call OSAPI_GFX_FILL
-.out:
-    jmp te_pop4
 
-; -----------------------------------------------------------------------------
-; tz_frac - out AX = how much of the bar the committed bytes have filled
-;
-; Both figures are shifted right together until the SIZE fits sixteen bits, so
-; the multiply below cannot overflow: pos <= size, so pos*(bw-4) fits DX:AX and
-; the quotient is at most the width.
-; -----------------------------------------------------------------------------
-tz_frac:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
+    ; --- the fraction: AX = how much of the bar the committed bytes fill ----
+    ; (It was tz_frac, a proc with this one caller; inline since apps size
+    ; pass 2.) Both figures are shifted right together until the SIZE fits
+    ; sixteen bits, so the multiply below cannot overflow: pos <= size, so
+    ; pos*(bw-4) fits DX:AX and the quotient is at most the width.
     mov ax, [tz_fsz]
     mov dx, [tz_fsz+2]
     mov si, [tz_pos]
@@ -2421,7 +2398,8 @@ tz_frac:
                                     ; 17-bit position, so SI is the low word of
                                     ; a number it is not
     or ax, ax
-    jz .none                        ; a sender that declared no size at all
+    jz .out                         ; a sender that declared no size at all:
+                                    ; no fill
     mov bx, ax                      ; BX = the size, sixteen bits
     mov ax, si
     cmp ax, bx
@@ -2430,20 +2408,27 @@ tz_frac:
     sub cx, 4
     mul cx                          ; DX:AX = pos * the inner width
     div bx
-    jmp short .out
+    jmp short .have
 .full:
     mov ax, [tz_bw]
     sub ax, 4
-    jmp short .out
-.none:
-    xor ax, ax
+.have:
+    or ax, ax
+    jz .out
+    mov [tz_bf], ax
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    mov ax, [con_px]
+    add ax, 18
+    mov bx, [con_oy]
+    add bx, TE_TOPY + 50
+    mov cx, ax
+    add cx, [tz_bf]
+    mov dx, bx
+    add dx, 7
+    call OSAPI_GFX_FILL
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp te_pop6
 
 ; -----------------------------------------------------------------------------
 ; te_tx_prog - the same line on row 25 of a FULL-SCREEN session
