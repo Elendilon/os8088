@@ -867,7 +867,8 @@ def ladder_leg(bad):
             not {"coarse", "colours"} <= set(v4) or "coarse" in card or \
             "coarse" not in mxk or "colours" in mxk or \
             not all("cut" in k for k in (card, spk, v4, mxk)) or \
-            mxc != ["coarse:auto", "coarse:4x1"]:
+            mxc != ["coarse:auto", "coarse:4x1", "coarseany:auto",
+                    "coarseany:4x1"]:
         bad.append("the rungs offered: card %s, speaker %s, vga4 scenes %s, "
                    "Mode X %s %s" % (card, spk, v4, mxk, mxc))
     # COARSE CELLS ARE A PLANAR SCREEN'S (98.2.1.9): live on Mode X and on

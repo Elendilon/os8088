@@ -343,6 +343,40 @@ leaves - a moving picture blurred across for a frame, which only the view
 as seen can price - and **it is on the owner's list to look at once it is
 built** (2026-10-17), not before.
 
+**BUILT the same day as its own rung, `coarseany:CELL`** (the owner: "we
+can split it between scenes/all, so it can own two different spots on the
+ladder. At scenes, coarse is known acceptable. During fast motion we have
+yet to test"). Its first shape - cells on the stretch's FIRST frame only,
+as the scene rung draws them - bought nothing, and the ladder's own log
+says why: Last Exile's motion stretches are heavy for all twelve frames (6
+to 12 of them cut), so one frame of cells at the head moved a stretch's
+view 37.7% -> 37.2%, 58.2% -> 53.3%, and 39.2% -> 42.7% the wrong way. So
+`coarseany` draws EVERY frame of the stretch the budgets would cut in
+cells at its own time (`coarse_every`), which is the comparison the
+question is really about: the width given up at the full frame rate,
+against the rate given up at the full width. On the same stretches that
+is 37.7% -> 21.6%, 58.2% -> 26.7%, 34.1% -> 21.2%. Last Exile 0:10-0:40,
+Mode X flipped, `286-speeddemon`, whole clip:
+
+| | the view broken | s visibly broken | worst second | cut | in cells |
+|---|---:|---:|---:|---:|---:|
+| cut (no ladder) | 24.3% | 3.3 | 4.79% | 400 | 0 |
+| `lag:100, coarseany:auto` - 24 fps, 4x1 where it would cut | 16.5% | **0.4** | 1.75% | 102 | 297 |
+| the default ladder - 12 fps through the heavy stretches | **3.2%** | 0.6 | **0.71%** | 57 | 0 |
+
+The cells end the TEARING - visibly broken 3.3 s -> 0.4 s, under even the
+half rate's 0.6 - and the score still ranks the half rate far ahead,
+because it charges a held frame `--slow-cost` (2 points) and a 4x1 frame
+its whole lost width. Which of those is the better picture IN PLAY is the
+owner's eye's: the strip and the three files went to the owner. Put in a ladder before the slower rates,
+`coarseany` is passed over exactly as the slow rungs' whole frames beat
+it by the score; behind them it is never reached. A `cut:` rung after it
+is how a person who prefers it says so. Gas Gas Gas (VGA4 at 640x400,
+cells 16x4 and coarser) never took it: 15 of 18 stretches drawn as they
+were, the score rating its cells worse than a cut. It costs the encode:
+every frame the budgets would cut is tried on a copy, so Last Exile took
+2,256 s against 547.
+
 What it was sketched as:
 
     hold to 20 fps

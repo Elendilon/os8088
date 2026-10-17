@@ -560,7 +560,7 @@ FIELD_WHEN = {
 LADDER_SETS = ("lag", "min_fps", "coarse_cut", "step_down", "step_min")
 LADDER_WHY = ("The degrade ladder sets this (Size vs quality, Degrade "
               "ladder).")
-LADDER_RUNGS = 6
+LADDER_RUNGS = 8
 
 
 def _ladder_wrap(d):
@@ -597,10 +597,14 @@ def ladder_options(c):
     out += [("Cut, no frame over %d%% broken" % x, "cut:%d" % x)
             for x in (1, 2, 5, 10, 20)]
     if _coarse(c) is None:              # (Mode X's one cell, VGA4's three)
+        cells = [cell for cell in V.DEGRADE_COARSE
+                 if (cell in ("auto", "4x1")) == (c["layout"] == "modex") or
+                 cell == "auto"]
         out += [("Coarse cells at a scene change (%s)" % cell,
-                 "coarse:%s" % cell) for cell in V.DEGRADE_COARSE
-                if (cell in ("auto", "4x1")) == (c["layout"] == "modex") or
-                cell == "auto"]
+                 "coarse:%s" % cell) for cell in cells]
+        # (...and at ANY cut: a moving picture in cells for a frame)
+        out += [("Coarse cells at any cut (%s)" % cell,
+                 "coarseany:%s" % cell) for cell in cells]
     if _scenes(c) is None:
         out += [("Fewer colours: %d" % n, "colours:%d" % n) for n in (12, 8)]
     return out
@@ -611,6 +615,7 @@ def ladder_label(tok):
     kind, _, v = tok.partition(":")
     return {"lag": "Lag up to %s ms", "slow": "Slow to %s of the rate",
             "coarse": "Coarse cells at a scene change (%s)",
+            "coarseany": "Coarse cells at any cut (%s)",
             "colours": "Fewer colours: %s",
             "cut": "Cut, no frame over %s%% broken"}.get(kind, "%s") % v
 

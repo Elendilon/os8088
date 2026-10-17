@@ -416,6 +416,22 @@ def main():
                   100 * r_off["q_seen"], 100 * r_off["q_seen_worst"],
                   rh_on["cells"],
                   "the same as" if same else "NOT the same as"))
+        # ...and AT ANY CUT (coarseany, 2026-10-17): the ladder's rung on
+        # the same Mode X run draws cells at stretches inside the first
+        # shot too - more cells than the one scene change - and is left
+        # out on the Hercules
+        p_any, r_any = run2("mxany", "--preset", "modex", "--ladder",
+                            "coarseany:4x1", *tight)
+        vid.verify_v88(p_any)
+        h_any, rh_any = run2("hgany", "--preset", "herc", "--ladder",
+                             "coarseany:4x1", *tight)
+        print("   3c: --ladder coarseany:4x1 on Mode X: cells %s, decided %s;"
+              " on a Hercules cells %s, decided %s" % (
+                  r_any["cells"], r_any["ladder"], rh_any["cells"],
+                  rh_any["ladder"]))
+        if r_any["cells"].get("4x1", 0) < 2 or rh_any["cells"]:
+            bad.append("--ladder coarseany:4x1: Mode X cells %r, Hercules "
+                       "%r" % (r_any["cells"], rh_any["cells"]))
         if not r_on["cells"].get("4x1") or r_off["cells"] or \
                 r_on["q_seen"] >= r_off["q_seen"] or \
                 r_on["q_seen_worst"] >= r_off["q_seen_worst"] or \

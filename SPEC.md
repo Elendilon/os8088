@@ -173367,7 +173367,12 @@ format change: a held frame is an ordinary record.
 budgets cannot draw may give, as RUNGS in the order they are tried:
 `lag:MS` (the lag allowance, 98.2.1.1.2), `slow:A/B` (a held frame's
 rate, as `--min-fps`'s), `coarse:auto|WxH` (a scene's first frame in
-cells, 98.2.1.9), `colours:12|8` (a scene's palette stepped down,
+cells, 98.2.1.9), `coarseany:auto|WxH` (2026-10-17: EVERY frame of the
+stretch the budgets would cut drawn in cells at its own time - the frame
+rate kept and the width given up where the picture moves too fast to
+send, on the planar screens of 98.2.5.2; on Last Exile at 24 fps it is
+16.5% of the view broken against the cut's 24.3% and 0.4 s visibly broken
+against 3.3, the half rate's 3.2% and 0.6 - VIDEO-SEEN-PLAN 3a), `colours:12|8` (a scene's palette stepped down,
 98.2.1.9, decided per scene from a first pass as `--step-down` is) and
 `cut:PERCENT` (2026-10-17, the owner: *"some videos accept normal cuts
 better than others"* - the climb STOPS there where no frame of the
