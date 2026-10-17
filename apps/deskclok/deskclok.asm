@@ -324,7 +324,6 @@ KSC_PGDN    equ 0x51
     DKV dk_sgeo, 2
     DKV dk_sbtn, 1
     DKV dk_sav, DKP_LEN         ; the payload as last applied
-    DKV dk_sdrop, 1             ; the size list is open
     DKV dk_sbseg, 2             ; a paint's tall band: its claim, 0 none
     DKV dk_st0, 2               ; ...the tile rows: the first's y, the pitch
     DKV dk_spit, 2

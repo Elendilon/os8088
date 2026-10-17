@@ -193704,15 +193704,20 @@ same composer: `OWNBG`, every pixel composed, a slab at a time.
   `dk_sav` back and close. The clock's tick holds any save while a window of
   its is up (`STIK_ONTICK`'s CF), so a preview is never what the disk says;
   closing the clock with a preview up restores first.
-- **Size** is a drop-down: the box shows the size and an arrow; a press opens
-  the three below it, over the gallery and in the same slabs, and a press on
-  one picks it.
+- **Size** is a button that CYCLES: it shows the size's name, and a press
+  on it - or `Z` - is the next one, Small -> Medium -> Large -> Small,
+  previewed at once like every other control here. It acts on the PRESS, as
+  the check boxes and the tiles do, so it has no pressed state and nothing
+  is drawn twice: the button is drawn once with its new name. It was a
+  drop-down list over the gallery (open, pick, shut - three paints and its
+  own hit test) until 2026-10-17, which a three-way choice did not need
+  (§110.14.8).
 - It is one of the Desk Clock's two FORMS (§110.14.8): a layout of entries
   and a record, painted, walked and pressed by the routines the alarm window
   shares.
 - **Keys**: the arrows walk the gallery (and preview), `F`, `S`, `H` the
-  boxes, `Z` the size, `A` Apply, Enter OK, Esc Cancel (or shuts the open
-  list). OK is the default button: its ring is two pixels thick.
+  boxes, `Z` the size, `A` Apply, Enter OK, Esc Cancel. OK is the default
+  button: its ring is two pixels thick.
 - A colour paint borrows a heap claim ONE TILE ROW tall (17 KB on VGA) for
   its band and lays its slabs on the tile rows, so each preview is composed
   once; refused, it paints with the 4.6 KB band, slower.
@@ -193739,10 +193744,10 @@ tomorrow. Neither is modal and neither takes the keys (§110.3's rules).
 
 #### 110.14.8 What it costs
 
-**No kernel byte.** The shipped `DESKCLOK.O88` is a 20,384-byte image (20,381
-before its paragraph pad) and 5,368 bytes of bss (its band 4,608 of it),
-17,610 bytes packed on the disk - 35 clusters of 512 bytes on the 360 KB
-system disk (§19.3.2), 18 of 1 KB on the 720 KB one. At run time it claims
+**No kernel byte.** The shipped `DESKCLOK.O88` is a 19,696-byte image and
+5,368 bytes of bss (its band 4,608 of it), 17,053 bytes packed on the disk -
+34 clusters of 512 bytes on the 360 KB system disk (§19.3.2), 17 of 1 KB on
+the 720 KB one. At run time it claims
 the face cache (above) and, for a colour settings paint, its tall band.
 `os88stik.inc` gained `STIK_VARFACE`, which neither other Sticky App
 defines, so their builds are unchanged.
@@ -193752,7 +193757,7 @@ defines, so their builds are unchanged.
 and the worker arm are code only a damaged system disk reaches, and there a
 launch is refused in its own words (`No desk layer (DESK.DRV)`). The small
 system disks carry `build/smallapp/deskclok.o88` instead (`-DAPP_SMALL`,
-`$(SMALLSTIKAPPS)`) - 20,800 bytes of image, 5,368 of bss, 17,907 packed -
+`$(SMALLSTIKAPPS)`) - 20,080 bytes of image, 5,368 of bss, 17,344 packed -
 which keeps both, because kern_small has no desk layer; same source, same
 bss, same state file, and `t_stik` holds each system disk to its own build.
 
@@ -193773,6 +193778,14 @@ each block at the parity it was measured at (§110.14.4's table stands).
 | key tables (`dk_keys`), the forms' ink helpers | 20,672 | 17,825 |
 | `GFXE_NOBUTIL`: the tag papers and blits its own band | 20,464 | 17,647 |
 | one face-height routine (`dk_fhgt`), Snooze and Dismiss one quieting | 20,384 | 17,610 |
+
+The size as a CYCLING button rather than a drop-down (§110.14.6) came after,
+on a tree whose shared include had moved the clock to 20,032 / 17,332: it
+took the shipped image to **19,696 (-336)** and the file to **17,053
+(-279)**, the small build's to 20,080 (-336) and 17,344 (-289), the bss
+unchanged at 5,368 (`dk_sdrop`'s byte went into the paragraph pad).
+`os88rdiff.py --hot` reads all 70 hot routines identical at an even shift
+on both builds.
 
 **The forms.** `Desk Clock Settings` and `Alarm` are two LAYOUTS - tables
 of 12-byte entries, a control at a rect, in one type numbering - and two bss
