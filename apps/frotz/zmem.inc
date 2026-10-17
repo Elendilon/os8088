@@ -128,13 +128,15 @@ zm_map:
     jmp short .out
 .hi:
     mov bx, ax
-    and bx, 15                      ; offset = A & 15
-    mov cl, 4
-    shr ax, cl                      ; low 12 bits of A >> 4
-    mov cl, 12
-    shl dx, cl                      ; the high nibbles into bits 12..15
-    or ax, dx
-    add ax, [zf_sseg]               ; segment = base + (A >> 4)
+    and bx, 127                     ; offset = A & 127: a 128-byte GRANULE,
+    mov cl, 7                       ; so the segment is a multiple of 8
+    shr ax, cl                      ; paragraphs along and an identity selector
+    mov cl, 9                       ; on kern_mega (KERN-MEGA-PLAN 10.1 item
+    shl dx, cl                      ; 18). Real mode reads the same byte
+    or ax, dx                       ; AX = A >> 7
+    mov cl, 3
+    shl ax, cl                      ; ...in paragraphs
+    add ax, [zf_sseg]               ; segment = base + 8 x (A >> 7)
     mov es, ax
 .out:
     pop cx
@@ -277,7 +279,7 @@ zm_pw16:
 ; =============================================================================
 ; zm_seek - point the live PC at a story address
 ; in:  DX:AX = story address
-; out: ES:SI addresses it, with SI in 0..15
+; out: ES:SI addresses it, with SI in 0..127 (a granule: zm_map)
 ;
 ; SI is deliberately left tiny rather than taking zm_map's <64K arm: the PC
 ; walks forward with `lods` and wants the whole 32KB window ahead of it before
@@ -291,12 +293,14 @@ zm_addr:
     push cx
     push dx
     mov si, ax
-    and si, 15
-    mov cl, 4
+    and si, 127                     ; a GRANULE, as zm_map
+    mov cl, 7
     shr ax, cl
-    mov cl, 12
+    mov cl, 9
     shl dx, cl
     or ax, dx
+    mov cl, 3
+    shl ax, cl
     add ax, [zf_sseg]
     mov es, ax
     pop dx
