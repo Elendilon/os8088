@@ -313,7 +313,7 @@ short = "Amiga MOD music player"
 ["AUDIO.O88"]
 title = "Audio Player"
 kind = "program"
-summary = "Plays WAV sound files from disk in the background while you work in other programs."
+summary = "Plays WAV sound files from disk. With a Sound Blaster it keeps playing while you work in other programs."
 short = "Background WAV player"
 
 ["MIDIRACK.O88"]
