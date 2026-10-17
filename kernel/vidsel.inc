@@ -403,9 +403,6 @@ section .text                   ; ...and the overlay's three end here
 %endmacro
 section .modu                   ; the Display page's (KSW_SECT, kernel.asm)
 VSW_AVAIL vid
-%ifdef KERN_BIG
-section .text                   ; ...and vid_equip is resident on kern_big:
-%endif                          ; EXTD.DRV's fsx restore reaches it (EXK)
 
 ; -----------------------------------------------------------------------------
 ; vid_equip - tell the BIOS which KIND of display this machine now has
@@ -435,7 +432,13 @@ section .text                   ; ...and vid_equip is resident on kern_big:
 ; that exists, which is the harder half to notice, because the code reads
 ; consistent with the comment right up until you grep.
 ; -----------------------------------------------------------------------------
-vid_equip:
+; VSW_EQUIP %1 - %1_equip, written once: CTRL.DRV's `vid` (vid_switch's),
+; the boot blob's `bvs` (driver.inc) and EXTD.DRV's `ext` (extmod.inc - the
+; fsx bracket's restore onto an extended desktop, which must not need the
+; panel). Three copies of 18 bytes where one resident copy was 32 to keep:
+; every caller is in one of the three images (kernel size pass 13)
+%macro VSW_EQUIP 1
+%1 %+ _equip:
     push ax
     push bx
     push ds
@@ -454,9 +457,9 @@ vid_equip:
     pop bx
     pop ax
     ret
-%ifdef KERN_SMALL
+%endmacro
+VSW_EQUIP vid                   ; (still `.modu`: VSW_AVAIL's section)
 section .text
-%endif
 
 ; -----------------------------------------------------------------------------
 ; vid_mono_text - put the REAL mono card into 80x25 text, when int 10h cannot
@@ -1083,11 +1086,7 @@ section .text
                                 ; plane count
 
     mov [vid_kind], al          ; 2. republish the geometry
-%ifdef KERN_SMALL
-    KSWN vid_equip              ; (in this image on kern_small, KSW_SECT)
-%else
-    %2 vid_equip                ; (resident on kern_big: EXTD.DRV's too)
-%endif
+    call %1 %+ _equip           ; (this image's own: VSW_EQUIP)
     %2 vid_apply
     %2 vid_setmode
 
@@ -2097,7 +2096,7 @@ vid_dual_ok:
     %2 vid_apply                ; republishes the chrome extent AND re-homes
     xor al, al                  ; the pointer onto display 0 - which is what
     %2 vid_ctx_capture          ; a shrinking desktop owes it
-    %2 vid_desk_union           ; ...and BANK BEFORE UNION, the extend path's
+    call %1 %+ _desk_union      ; ...and BANK BEFORE UNION, the extend path's
 .jout:
     jmp short .out              ; order: the union reads display 0's record,
                                 ; which is stale until the capture when a
@@ -2231,16 +2230,27 @@ vid_span_one:
 ; other display is placed to its right, so a bounding box needs only the far
 ; corner.
 ; -----------------------------------------------------------------------------
-vid_desk_union:
-    call kent_di                ; = push ax/bx/cx/dx/si/di. BX is not spent:
-                                ; it is banked so the exit is kret_di's
-                                ; ladder (SPEC.md 15.1.2)
+; VSW_UNION %1, %2 - %1_desk_union, written once (kernel size pass 13): its
+; callers are vid_disp_init, in CTRL.DRV (`vid`) and the boot blob (`bvs`),
+; and EXTD.DRV's ext_two (`ext`) - the fsx bracket's restore onto an extended
+; desktop, which must not need the panel - so each image carries its own and
+; %2 is that image's hop to vid_ctx_ptr. It banked through kent_di/kret_di
+; while it was resident; an image cannot reach the ladder, so the pushes are
+; written out - the same six, the same order
+%macro VSW_UNION 2
+%1 %+ _desk_union:
+    push ax                     ; BX is not spent: banked so the exit is the
+    push bx                     ; ladder's shape (SPEC.md 15.1.2)
+    push cx
+    push dx
+    push si
+    push di
     xor cx, cx                  ; CX/DX = the far corner, exclusive
     xor dx, dx
     xor si, si
 .d:
     mov ax, si
-    call vid_ctx_ptr
+    %2 vid_ctx_ptr
     mov ax, [di+VID_CTX_VX]
     add ax, [di+VID_CTX_CW]
     cmp ax, cx
@@ -2264,6 +2274,16 @@ vid_desk_union:
     mov [vid_h], dx
     dec dx
     mov [vid_hm1], dx
-    jmp kret_di
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endmacro
+section .modu                   ; the Display page's (KSW_SECT, kernel.asm)
+VSW_UNION vid, KSWK
+section .text
 
 %endif  ; KERN_BIG

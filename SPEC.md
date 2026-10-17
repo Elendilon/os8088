@@ -70420,12 +70420,15 @@ displays. So `vid_switch`, `vid_blank`, `vid_avail_test`, `vid_disp_init`,
 (§30.5) are each written once as a macro and expanded twice - into the
 panel's image, and into the boot blob (`bvs_`/`bvw_`/`bdk_`, given back at
 `mem_unblob`), each copy reaching the kernel through its own `KGO_PAIR` hop
-- which is `DRV_ATTACH`'s trade (§51). 299 resident bytes for a twelfth blob
-sector that costs no `int 13h` on any geometry (`t_blobruns`); kern_small
-keeps eleven. What stays resident is what something OUTSIDE the panel
-reaches: `vid_equip` and `vid_desk_union` (EXTD.DRV's fsx-bracket restore),
-`wm_su_drop_all` (`OSAPI_THM_SET`), `vid_dual_ok` (`fsx_page`) and
-`wm_pref_take`/`wm_apply_size` (every window that is sized).
+- which is `DRV_ATTACH`'s trade (§51). `vid_equip` and `vid_desk_union` have
+a THIRD caller that may not need the panel - EXTD.DRV's restore when a
+fullscreen program leaves an extended desktop (§39.18) - so they are
+expanded a third time, into EXTD.DRV (`ext_`). 399 resident bytes for a
+twelfth blob sector that costs no `int 13h` on any geometry (`t_blobruns`);
+kern_small keeps eleven. What stays resident is what something outside the
+panel, the boot and EXTD.DRV reaches: `wm_su_drop_all` (`OSAPI_THM_SET`),
+`vid_dual_ok` (`fsx_page`), `vid_ctx_capture` and `wm_pref_take`/
+`wm_apply_size` (every window that is sized).
 
 #### 39.11.2.1 …and back again — the natural bank
 

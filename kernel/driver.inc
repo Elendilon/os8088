@@ -5218,8 +5218,10 @@ DRV_ATTACH bdl                  ; drv_load and the attach half, for drv_boot
     dw %1
 %endmacro
 VSW_AVAIL bvs
+VSW_EQUIP bvs
 VSW_SWITCH bvs, BSWK, bvw
 VSW_DISP bvs, BSWK
+VSW_UNION bvs, BSWK
 WM_REFIT bvw, BSWK
 %ifdef DOCK_OPT
 DOCK_APPLY bdk, BSWK, BSWC, bvw
