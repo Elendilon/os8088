@@ -215,10 +215,13 @@ THEMES = (
     # this report tracks, and correctly - the whole file is `.modl`, part of
     # the cloner's image, which os88mod.py cuts out of kernel.bin into
     # DISKOPS.DRV, so the only thing it costs a machine is files.inc's thunk.
+    # ascw.inc (SPEC.md 54.7.6.4) is compress.inc's shape beside assoc.inc:
+    # the ASSOC.DAT flush is FORMAT.DRV's fifth entry, all of it image, and
+    # its resident half is the one `dw` on diskw.inc's row.
     ("the file system, end to end",
      ("disk.inc", "dskwin.inc", "diskw.inc", "files.inc", "filecp.inc",
-      "fdlg.inc", "loader.inc", "assoc.inc", "diskops.inc", "lz.inc",
-      "compress.inc")),
+      "fdlg.inc", "loader.inc", "assoc.inc", "ascw.inc", "diskops.inc",
+      "lz.inc", "compress.inc")),
     # deskmod.inc (SPEC.md 11.103.10) is the same shape: DESK.DRV's image is
     # cut out, and what stays is the 16-byte QUERY thunk in `.cold`.
     # extmod.inc (SPEC.md 39.19.6) goes beside dockmod.inc for dockmod's
@@ -226,8 +229,11 @@ THEMES = (
     # what it is to a reader is where a WINDOW lands on a second display. Its
     # row is not zero - exf_sync, the load/drop reconciler, is 35 bytes of
     # `.cold` - so it is not IMAGE_ONLY in tests/unit/t_kernmods.py either.
+    # stikmenu.inc (SPEC.md 110.12) is the Sticky Apps menu: STIKMENU.DRV's
+    # image is cut out, and its two `.cold` thunks are what stays - a MENU,
+    # so it goes beside menu.inc.
     ("the window system and its furniture",
-     ("wm.inc", "ui.inc", "menu.inc", "instance.inc", "desk.inc", "desksc.inc", "dock.inc", "dockmod.inc",
+     ("wm.inc", "ui.inc", "menu.inc", "stikmenu.inc", "instance.inc", "desk.inc", "desksc.inc", "dock.inc", "dockmod.inc",
       "extmod.inc", "winmod.inc", "deskmod.inc", "fsx.inc", "clip.inc",
       "fprog.inc", "toast.inc")),
     # moudiag.inc (SPEC.md 9.4.4) goes with the mouse and NOT with
