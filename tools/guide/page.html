@@ -276,9 +276,9 @@ const EXT = {
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const baseName = p => { const f = p.endsWith("/"); const n = p.replace(/\/$/, "").split("/").pop(); return f ? n + "/" : n; };
 function info(name, pi) {
-  if (pi != null && D.pinfo[pi]) { const [kind, title, summary] = D.pinfo[pi]; return { kind, title, summary, needs: "", described: true }; }
+  if (pi != null && D.pinfo[pi]) { const [kind, title, summary, short] = D.pinfo[pi]; return { kind, title, summary, short, needs: "", described: true }; }
   const e = D.entries[name];
-  if (e) return { kind: e.kind || "document", title: e.title || name, summary: e.summary || "", needs: e.needs || "", described: true };
+  if (e) return { kind: e.kind || "document", title: e.title || name, summary: e.summary || "", short: e.short || "", needs: e.needs || "", described: true };
   if (name.endsWith("/")) return { kind: "folder", title: name.slice(0, -1), summary: "A folder", needs: "", described: false };
   const x = (name.split(".")[1] || "").toUpperCase(), g = EXT[x];
   return { kind: g ? g[0] : "document", title: name, summary: g ? g[1] : "A file", needs: "", described: false };
@@ -372,7 +372,7 @@ function treeRows(d) {
     out.push(`<li><button class="row${e.dir ? " folder" : ""}${e.attr & HIDDEN ? " hidden" : ""}" style="--depth:${depth}" data-path="${esc(e.p)}" ${cur ? 'aria-current="true"' : ""} ${e.dir ? `aria-expanded="${open}"` : ""}>
       <span class="ic">${icon(i.kind)}</span>
       <span class="nm">${e.dir ? `<span class="tw">${open ? "▾" : "▸"}</span>` : ""}${esc(e.name)}</span>
-      <span class="desc">${i.described ? `<b>${esc(i.title)}</b>${i.summary ? " · " + esc(i.summary) : ""}` : (e.dir ? `${ch.length} items` : esc(i.summary))}</span>
+      <span class="desc" title="${esc(i.summary)}">${i.described ? `<b>${esc(i.title)}</b>${(i.short || i.summary) ? " · " + esc(i.short || i.summary) : ""}` : (e.dir ? `${ch.length} items` : esc(i.summary))}</span>
       <span class="size">${e.dir ? "" : kb(e.size)}</span></button></li>`);
     if (open) level(ch, depth + 1);
   }

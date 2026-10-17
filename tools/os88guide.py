@@ -432,8 +432,20 @@ def viddemo_titles(adapter):
     return out
 
 
+def brief(text):
+    """A listing-width phrase out of a longer one: before the first comma,
+    without a parenthesis or a final period."""
+    t = re.sub(r"\s*\([^)]*\)", "", text).split(",")[0].split(":")[0].split(". ")[0].rstrip(".")
+    return t[:1].upper() + t[1:]
+
+
 def path_info(d, path, cpm, vids):
-    """(kind, title, summary) for a file whose meaning is its place, or None."""
+    """(kind, title, summary, short) for a file whose meaning is its place."""
+    r = _path_info(d, path, cpm, vids)
+    return r + (brief(r[2]),) if r else None
+
+
+def _path_info(d, path, cpm, vids):
     m = re.search(r"(?:^|/)A/([0-9A-F])/(?:([^/]+))?$", path)
     if m and cpm:
         area = cpm.get(m.group(1))
