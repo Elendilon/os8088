@@ -811,7 +811,7 @@ menu_es:
 .seg:                           ; ...menu_des joins here with its own word
     or ax, ax
     jnz .set
-    mov ax, cs                  ; 0 = the kernel's own (.text: CS is it)
+    KSEGR ax                    ; 0 = the kernel's own (.text: CS is it)
 .set:
     mov es, ax
     pop ax

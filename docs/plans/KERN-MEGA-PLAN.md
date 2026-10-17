@@ -735,7 +735,11 @@ serial mouse; the keyboard, through mega_k09 and mega_i16 (the BIOS's own
 buffer, so no caller of `int 16h` changed); drives A: and B: listed, a
 folder opened and B: mounted for the first time, through REFLECTED
 `int 13h`; Calculator launched, driven by mouse and keyboard, and closed;
-Fractal, whose worker task and VGA drawing ran to 100%.
+Fractal, whose worker task and VGA drawing ran to 100%; isoTron's windowed
+title screen; the PS/2 mouse (QEMU's aux port, IRQ12) as well as the serial
+one. A fault is reported on the debug port AND on the glass - one line under
+the menu bar, vector, error code, CS:IP and SP - so a machine with no debug
+port can be read by photograph.
 
 **What the bring-up found, in the order it found it** - each is a rule for
 whoever extends this:
@@ -773,17 +777,27 @@ whoever extends this:
    still faults on iron, and since this round it counts only the arms
    kern_mega actually assembles. The resident `.text` sites M1's desktop
    reaches are converted (both mouse ISRs, font_run's unaligned path, the
-   inline API cells); what is left is knob-only, `.boot2` (real mode by
-   construction), and **the on-demand modules - ~390 writes in CTRL.DRV,
+   inline API cells, gfx_points and the clip-table reload, vid_ctx_pre, the
+   compactor's call into a relocation proc - which also far-called a
+   package's proc through its DATA segment, a #GP even QEMU sees); and the
+   ratchet now counts `mov reg, cs` and `mov reg, KERNEL_SEG` into DS or ES
+   as well as `push cs / pop`. What is left is knob-only, real mode by
+   construction (`.boot2`, `.ovl`, the hibernate stub, mega_svc's real-mode
+   half), and **the on-demand modules - ~390 writes in CTRL.DRV,
    DISKOPS.DRV, DOCK.DRV, STIKMENU.DRV and the rest**, which will fault on a
    real 286 the first time each is used.
 
 **What is NOT done, and is M1's remaining work:**
 
-* **The 286 itself.** M1 reflects by clearing CR0.PE, a 386's instruction;
-  on a CPU_286 machine mega_enter declines and the machine stays kern_big.
-  The CPU-reset path (CMOS shutdown byte 0Ah, 40:67) is untestable on QEMU,
-  whose 8042 reset resets the whole machine - it is the Victory 286's check.
+* **The 286's way back is BUILT AND UNTESTED.** A 386 clears CR0.PE; a 286
+  sets CMOS shutdown code 0Ah, points 40:67 at mega_r286 and triple-faults,
+  and the way back into protected mode reloads GDTR, IDTR and LDTR on both
+  CPUs (which QEMU does exercise, through the 386 arm). QEMU cannot test the
+  286 arm - its CPU is a 386, and its reset resets the whole machine - so it
+  is the Victory 286's first check.
+* **The reported fault line on the glass, and on a 286.** The reporter
+  draws through font_run with the gfx state forced clear; a fault inside
+  font_run comes back once and then leaves only the E9 line.
 * **The modules' CS writes** (above), and the drivers that point DS at their
   own image (tests/cswrites.txt's last block - Sound Blaster, NE2000 packet
   shim, LapLink, CH375, the HDD installer).

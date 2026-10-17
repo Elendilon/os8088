@@ -1231,7 +1231,7 @@ gfx_ls_zero dw 0                ; .text with a real initialiser: -f bin zeroes
                                 ; call - and since .pass resolves the FIRST
                                 ; point's box itself, not even that
 %else
-    mov ax, cs                  ; gfx_ls_box reads the clip table through DS,
+    KSEGR ax                    ; gfx_ls_box reads the clip table through DS,
     mov ds, ax                  ; so put the kernel's back - by RELOAD, and
     call gfx_ls_box             ; through no wrapper, because a wrapper is two
     mov ds, [gfx_pt_cseg]       ; more words of the caller's slice. AX is dead
@@ -1271,7 +1271,7 @@ gfx_ls_zero dw 0                ; .text with a real initialiser: -f bin zeroes
 ; it replaces, at a point the slice-class gate (t_stkclass) still walks.
 ; -----------------------------------------------------------------------------
 gfx_pt_miss:
-    mov ax, cs
+    KSEGR ax
     mov ds, ax
     call gfx_ls_box
     mov ds, [gfx_pt_cseg]
@@ -1488,7 +1488,7 @@ gfx_points:
     GFXPT_LOOP 2
 %endif
 .done:
-    mov ax, cs                  ; DS back, by reload rather than by pop: kernel
+    KSEGR ax                    ; DS back, by reload rather than by pop: kernel
     mov ds, ax                  ; code always runs DS = CS = KERNEL_SEG, so
     mov es, [gfx_pt_cseg]       ; there is nothing to remember - and ES back to
     pop cx                      ; the ARRAY, which a second pass re-reads
@@ -1515,7 +1515,7 @@ gfx_points:
     jmp .hook
 %endif
 .out:
-    mov ax, cs                  ; DS back, by reload rather than by pop: kernel
+    KSEGR ax                    ; DS back, by reload rather than by pop: kernel
     mov ds, ax                  ; code always runs DS = CS = KERNEL_SEG, so
     jmp kret_es                 ; there is nothing to remember. THE LEAVE IS
                                 ; NOT HERE - `.done` owns it, because only a

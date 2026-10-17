@@ -46,11 +46,12 @@
 ;     made, and the CPU comes back. That is the disk, the video mode sets and
 ;     the equipment queries.
 ;
-; M1 REFLECTS BY CLEARING CR0.PE, WHICH IS A 386'S. On a 286 the only way
-; back is a CPU reset (the CMOS shutdown byte and 40:67), which QEMU cannot
-; test - its 8042 pulse resets the whole machine, the VGA with it - so on a
-; CPU_286 machine M1 does NOT switch, and kern_mega is kern_big there. M1b,
-; with the Victory 286 to check it on, adds the reset path.
+; TWO WAYS BACK TO REAL MODE. A 386 clears CR0.PE. A 286 cannot - lmsw only
+; sets it - so it resets the CPU: CMOS shutdown code 0Ah sends the BIOS
+; straight to 40:67, which mega_r286 owns, with RAM, A20 and every device as
+; they were. QEMU CANNOT TEST THE 286's ARM: its CPU is a 386 (so it takes the
+; other one), and its reset resets the whole machine, the VGA with it. That
+; arm is the Victory 286's to check.
 ;
 ; THE FAULT REPORTER. Every exception and every software interrupt nobody
 ; handles ends in mega_fault, which writes the vector, the error code, CS:IP,
@@ -134,6 +135,10 @@ mega_idtr   dw 256*8 - 1
             dw MEGA_IDT_LIN & 0xFFFF, MEGA_IDT_LIN >> 16
 mega_rmidtr dw 0x03FF               ; real mode's: the IVT
             dw 0, 0
+mega_nullidt dw 0                   ; the 286's reset: an IDT that holds nothing
+            dw 0, 0
+mega_rss    dw 0                    ; the reflection's stack, across a 286 reset
+mega_rsp    dw 0
 mega_old08  dd 0                    ; the BIOS's own int 08h and int 09h, put
 mega_old09  dd 0                    ; back in the IVT for every reflection
 mega_ses    dw 0                    ; mega_svc's: ES and DS as the caller held
@@ -155,10 +160,10 @@ mega_imr2   db 0
 ;           register but AX, CX, DX, SI, DI and the segment registers kept
 ; -----------------------------------------------------------------------------
 mega_enter:
-    cmp byte [cpu_tier], CPU_386
+    cmp byte [cpu_tier], CPU_286
     jae .cpu
-    mov si, mega_m286
-    jmp mega_say                    ; a 286: M1b's reset path is not built
+    mov si, mega_m86
+    jmp mega_say                    ; an 8088 or 8086: no protected mode at all
 .cpu:
     cmp word [mega_extkb], 192      ; the tables want 1MB + 64KB .. + 82KB
     jae .mem
@@ -296,6 +301,7 @@ mega_enter:
     mov ss, ax
     mov word [k_dsel], MEGA_SEL_KDATA
     mov byte [mega_on], 1
+    mov byte [ss:mega_pm], 1        ; ...and .cold's copy of the same fact
     call mega_frames_fix
 
     ; --- the ROM's halves, in the chains the ISRs already make ---------------
@@ -998,6 +1004,38 @@ mega_fault:
     call mega_hex4
     mov al, 10
     call mega_putc
+    ; --- ...and on the GLASS, for a machine with no debug port: one line
+    ; under the menu bar, through font_run, the way KFZTRACE's strip is
+    ; drawn (sched.inc). Once only: a fault inside the drawing comes back
+    ; here, and the second time the E9 line above is all there is
+    cmp byte [mega_infault], 0
+    jne .dead
+    mov byte [mega_infault], 1
+    push ds
+    pop es
+    mov di, mega_fbuf + MEGA_FB_V
+    mov ax, [ss:bp+20]              ; the vector
+    call mega_bhex2
+    mov di, mega_fbuf + MEGA_FB_E
+    mov ax, [ss:bp+22]              ; the error code
+    call mega_bhex4
+    mov di, mega_fbuf + MEGA_FB_C
+    mov ax, [ss:bp+26]              ; CS
+    call mega_bhex4
+    mov di, mega_fbuf + MEGA_FB_I
+    mov ax, [ss:bp+24]              ; IP
+    call mega_bhex4
+    mov di, mega_fbuf + MEGA_FB_S
+    mov ax, [ss:bp+10]              ; SP as pusha saw it
+    call mega_bhex4
+    mov byte [gfx_lock_flag], 0     ; whatever the fault interrupted, nobody
+    mov word [wm_clip_n], 0         ; is drawing now
+    mov byte [gfx_dis], 0
+    mov cx, 8
+    mov dx, MBAR_H + 8
+    mov si, mega_fbuf
+    mov ax, (CWHITE << 8) | CBLACK
+    call font_run
 .dead:
     hlt
     jmp .dead
@@ -1063,15 +1101,36 @@ mega_svc:
     or al, 0x3F
     out 0xA1, al
     call mega_pic_rm
+    cmp byte [cpu_tier], CPU_386
+    jb .r286
 cpu 386
-    mov eax, cr0                    ; REAL MODE, the 386's way (M1b adds the
-    and al, 0xFE                    ; 286's, a CPU reset)
+    mov eax, cr0                    ; REAL MODE, the 386's way: clear PE
+    and al, 0xFE
     mov cr0, eax
 cpu 286
     db 0xEA                         ; jmp far KERNEL_SEG:.rm - reloads CS as a
     dw .rm, KERNEL_SEG              ; real-mode segment, the same base
+.r286:                              ; REAL MODE, THE 286's WAY: reset the CPU.
+    mov [mega_rss], ss              ; lmsw cannot clear PE, so the BIOS is told
+    mov [mega_rsp], sp              ; where to come back to - 40:67, with CMOS
+    push es                         ; shutdown code 0Ah, "jump there, no POST,
+    mov ax, MEGA_BDA                ; no EOI" - and the CPU is triple-faulted.
+    mov es, ax                      ; RAM, the A20 gate and every device keep
+    mov word [es:0x67], mega_r286   ; their state; the CPU loses its registers,
+    mov word [es:0x69], KERNEL_SEG  ; GDTR, IDTR and LDTR, which is why the way
+    pop es                          ; back reloads all three
+    mov al, 0x8F                    ; NMI off, CMOS index 0Fh
+    out 0x70, al
+    mov al, 0x0A
+    out 0x71, al
+    lidt [mega_nullidt]             ; an IDT with no room in it, then a fault:
+    int 3                           ; nothing can be delivered, the 286 shuts
+.rhang:                             ; down, and the AT's logic resets it
+    hlt
+    jmp .rhang
 .rm:
     lidt [cs:mega_rmidtr]
+.rmc:
     mov ax, ss                      ; LOW_SEG: the selector IS the segment
     mov ss, ax
     mov ax, KERNEL_SEG
@@ -1095,15 +1154,16 @@ cpu 286
     mov ax, KERNEL_SEG
     mov ds, ax
     call mega_pic_pm
-    lidt [mega_idtr]
-cpu 386
-    mov eax, cr0
-    or al, 1
-    mov cr0, eax
-cpu 286
+    lgdt [mega_gdtr]                ; all three again: a 286's reset cleared
+    lidt [mega_idtr]                ; them (and a 386's CR0 path kept them,
+    smsw ax                         ; which costs it nothing to redo). lmsw
+    or al, 1                        ; can SET PE on either CPU
+    lmsw ax
     db 0xEA                         ; jmp far 0x0060:.pm - GDT entry 12 now
     dw .pm, KERNEL_SEG
 .pm:
+    mov ax, MEGA_SEL_LDT
+    lldt ax
     mov ax, MEGA_SEL_KDATA
     mov ds, ax
     mov ax, ss
@@ -1140,6 +1200,23 @@ cpu 286
     popa
     add sp, 4                       ; the BIOS's FLAGS and the vector
     iret
+
+; mega_r286 - where a 286's reset comes back to (40:67, CMOS shutdown 0Ah),
+; in real mode with every register undefined and interrupts off. The stack
+; the reflection was on is put back, the shutdown code cleared so the next
+; reset is a real one, and the reflection carries on at mega_svc's real-mode
+; half - which reloads the IDTR (the reset left it at the IVT anyway).
+mega_r286:
+    cli
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    mov ss, [mega_rss]
+    mov sp, [mega_rsp]
+    mov al, 0x8F
+    out 0x70, al
+    xor al, al
+    out 0x71, al                    ; shutdown code 0: a normal reset next time
+    jmp mega_svc.rm
 
 mega_thm_set:                       ; OSAPI_THM_SET's hand-made hot cell
     mov ds, [cs:k_dsel]
@@ -1364,13 +1441,44 @@ mega_icwb_%1:
     MEGA_ICWB_STUB W_ONRC
     MEGA_ICWB_STUB W_ONCLICK
 
+; mega_bhex4 / mega_bhex2 - AX (AL) as 4 (2) hex digits at ES:DI
+mega_bhex4:
+    push ax
+    mov al, ah
+    call mega_bhex2
+    pop ax
+mega_bhex2:
+    push ax
+    shr al, 4
+    call .n
+    pop ax
+.n:
+    push ax
+    and al, 15
+    add al, '0'
+    cmp al, '9'
+    jbe .o
+    add al, 7
+.o:
+    stosb
+    pop ax
+    ret
+
+mega_infault db 0
+mega_fbuf   db " kern_mega FAULT vv err eeee at cccc:iiii sp ssss - reboot "
+            db 0
+MEGA_FB_V   equ 17
+MEGA_FB_E   equ 24
+MEGA_FB_C   equ 32
+MEGA_FB_I   equ 37
+MEGA_FB_S   equ 45
+
 mega_zero8  dw 0, 0, 0, 0
 mega_ldtd:                          ; the LDT's descriptor (GDT entry 3)
     dw MEGA_LDT_N*8 - 1, MEGA_LDT_LIN & 0xFFFF
     db MEGA_LDT_LIN >> 16, 0x82
     dw 0
-mega_m286   db "kern_mega: a 286 - M1 has no way back from protected mode "
-            db "on one (M1b), so this machine stays in real mode", 10, 0
+mega_m86    db "kern_mega: an 8086-class CPU - staying in real mode", 10, 0
 mega_mmem   db "kern_mega: under 192KB above 1MB - staying in real mode", 10, 0
 mega_ma20   db "kern_mega: the A20 line will not open - staying in real mode", 10, 0
 mega_mon    db "kern_mega: protected mode", 10, 0
@@ -1378,5 +1486,10 @@ mega_mflt   db 10, "kern_mega FAULT vector ", 0
 mega_mfst   db "  stack: ", 0
 mega_mreg   db 10, "  ES DS DI SI BP SP BX DX CX AX SS: ", 0
 
+section .lowbss
+mega_pm     resb 1                  ; 1 = protected mode, for .cold (KDATAR_C):
+                                    ; .lowbss is zeroed, which is the right
+                                    ; answer before mega_enter
+section .text
 cpu 8086
 %endif

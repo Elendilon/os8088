@@ -2941,7 +2941,7 @@ mem_reloc_call:
                                 ; proc that used SI would have moved the fill
     push ds                     ; point onto a live block
     push es
-    mov ax, KERNEL_SEG
+    KDATAR_C ax
     mov es, ax                  ; wm_pkgcall's ES contract: the callback may
                                 ; read the kernel structures it always reads.
                                 ; NAMED and not `push cs`, which in .cold is
@@ -3027,8 +3027,22 @@ mem_reloc_call:
                                 ; is the kernel's own
 .go:
     mov [ss:mem_fptr+2], ax     ; ONE tail: both arms stage the same two words
+%ifdef KERN_MEGA
+    cmp ax, KERNEL_SEG          ; kern_mega: the KERNEL's proc runs under CS
+    jne .mpkg                   ; 0x0060 with DS the data alias (0x0060 being
+    KDATAR_C ax                 ; code); a PACKAGE's with DS its identity
+    mov ds, ax                  ; selector and CS its LDT code alias
+    jmp short .mgo              ; (kernel/mega.inc). FLAGS are nobody's here
+.mpkg:
+    mov ds, ax
+    shr word [ss:mem_fptr+2], 1
+    shr word [ss:mem_fptr+2], 1
+    or byte [ss:mem_fptr+2], 4
+.mgo:
+%else
     mov ds, ax                  ; from the same register, and differ only in
                                 ; the OFFSET they put in the low half
+%endif
     call far [ss:mem_fptr]
     pop es
     pop ds

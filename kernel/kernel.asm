@@ -253,6 +253,43 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     pop ds
  %endif
 %endmacro
+; KSEGR reg / KDATAR reg - "reg = the kernel's DATA segment", the two other
+; spellings KDS/KES replace: `mov reg, cs` from .text and `mov reg, KERNEL_SEG`.
+; Byte for byte today's instruction on every build but kern_mega, which reads
+; the data selector instead (k_dsel, below the API table). .text only, for
+; KDS's reason; .cold has KDATAR_C, which reads a .lowbss flag instead.
+%macro KSEGR 1
+ %ifnidni __?SECT?__, [section .text]
+  %error "KSEGR outside .text: CS is not the kernel's there"
+ %endif
+ %ifdef KERN_MEGA
+    mov %1, [cs:k_dsel]
+ %else
+    mov %1, cs
+ %endif
+%endmacro
+%macro KDATAR 1
+ %ifnidni __?SECT?__, [section .text]
+  %error "KDATAR outside .text: use KDATAR_C in .cold"
+ %endif
+ %ifdef KERN_MEGA
+    mov %1, [cs:k_dsel]
+ %else
+    mov %1, KERNEL_SEG
+ %endif
+%endmacro
+%macro KDATAR_C 1
+ %ifnidni __?SECT?__, [section .cold]
+  %error "KDATAR_C outside .cold"
+ %endif
+    mov %1, KERNEL_SEG
+ %ifdef KERN_MEGA               ; .cold may name neither CS nor its own data
+    cmp byte [ss:mega_pm], 0    ; (os88ovlchk), so the bimodal fact is a
+    je %%rm                     ; .lowbss byte, and a zeroed one is the right
+    mov %1, MEGA_SEL_KDATA      ; answer for every moment before mega_enter.
+%%rm:                           ; CLOBBERS FLAGS on kern_mega - every caller
+ %endif                         ; is checked for that (KERN-MEGA-PLAN 10.1)
+%endmacro
 ; MEGA_ICW var, reg - the body of a five-byte INLINE cell that stores one
 ; register (OSAPI_ICELL). In real mode it is `mov [cs:var], reg`, the store
 ; through CS the cell was written as; kern_mega cannot store through CS, so
@@ -4848,7 +4885,7 @@ kmain:
 %ifdef BOOT_MARK
     call mark_beacon            ; BEFORE anything: no state of ours is needed
 %endif
-    mov ax, KERNEL_SEG          ; the boot sector jumped here with its own
+    KDATAR ax                   ; the boot sector jumped here with its own
     mov ds, ax                  ; segments; setting ours up is our job
     mov es, ax
 %ifdef BOOT_MARK
@@ -4861,6 +4898,9 @@ kmain:
     mov ss, ax                  ; stacks sit in their own segment just above
     mov sp, STK0_TOP            ; the image, so a stack offset stays small and
     sti                         ; the kernel's own 64KB window stays for code
+%ifdef KERN_MEGA
+    mov byte [ss:mega_pm], 0    ; real mode, for .cold's KDATAR_C (mega.inc):
+%endif                          ; nothing promises .lowbss is zero at boot
     cld
 
 %ifdef BOOT_MARK

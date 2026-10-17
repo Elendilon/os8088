@@ -1522,7 +1522,7 @@ vid_ctx_ptr:
 ; boundary assembles and runs wrong, and both callers are here.
 ; -----------------------------------------------------------------------------
 vid_ctx_pre:
-    mov cx, KERNEL_SEG          ; both ends are ours; the caller's ES is not
+    KDATAR cx                   ; both ends are ours; the caller's ES is not
     mov ds, cx
     mov es, cx
     call vid_ctx_ptr            ; DI = the record. It reads no memory, so

@@ -29,6 +29,8 @@ displacement, which the first version of this pattern missed and kern_mega's
 first package launch found; and xchg with such an operand on either side.  A pair:
 `push cs` whose next code line is `pop ds` or `pop es`.  `push cs` on its own
 is a simulated far call (BLOBCALL, COLDCALL) and is legal in protected mode;
+`mov reg, cs` or `mov reg, KERNEL_SEG` followed within five lines by `mov
+ds|es, reg` (the register not reloaded in between) counts as a pair too;
 READS through CS are legal too, a code segment being readable, so neither is
 counted.  Inside a `%macro` a site counts ONCE, where it is written, which is
 where it gets converted.
@@ -63,6 +65,12 @@ XCHG = re.compile(r"^\s*" + LABEL +
                   r"xchg\s+.*\[\s*(?:(?:byte|word|dword)\s+)?cs\s*:", re.I)
 PUSHCS = re.compile(r"^\s*" + LABEL + r"push\s+cs\s*$", re.I)
 POPSEG = re.compile(r"^\s*pop\s+(?:ds|es)\s*$", re.I)
+# ...and the two other spellings of "DS (ES) = the code segment": through a
+# register, from CS or from the KERNEL_SEG constant - which in kern_mega is
+# the kernel's CODE selector as well (kernel/mega.inc), so a store through
+# the register loaded from it faults exactly as a `push cs / pop ds` does
+VIAREG = re.compile(r"^\s*" + r"(?:[A-Za-z_.$@?][\w.$@?#~]*:\s*)?" +
+                    r"mov\s+(\w\w)\s*,\s*(?:cs|KERNEL_SEG)\s*$", re.I)
 SECTION = re.compile(r"^\s*section\s+(\.\w+)", re.I)
 MACRO = re.compile(r"^\s*%(?:i)?macro\b", re.I)
 ENDMACRO = re.compile(r"^\s*%endmacro\b", re.I)
@@ -131,6 +139,18 @@ def scan(path):
                 j += 1
             if j < len(lines) and POPSEG.match(lines[j]):
                 out.append((i + 1, "pair", where))
+        else:
+            m2 = VIAREG.match(l)
+            if m2:
+                r = m2.group(1)
+                for j in range(i + 1, min(i + 6, len(lines))):
+                    if re.match(r"^\s*mov\s+(?:ds|es)\s*,\s*%s\s*$" % r,
+                                lines[j], re.I):
+                        out.append((i + 1, "pair", where))
+                        break
+                    if re.match(r"^\s*(?:mov|xchg|pop|lea|xor|sub|add)\s+%s\b"
+                                % r, lines[j], re.I):
+                        break           # the register was reloaded first
     return out
 
 

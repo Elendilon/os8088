@@ -1816,7 +1816,7 @@ task_yield:
     jz .noyvmm
     push ds
     push ax
-    mov ax, KERNEL_SEG
+    KDATAR ax
     mov ds, ax
     call vmm_poll
     pop ax
