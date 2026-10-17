@@ -104,6 +104,9 @@
     call ct_cw_gfx_frame
    %endif
   %endmacro
+  %macro UI_POINTS 0               ; ES:SI = CX points, ES the caller's DS
+    call KERNEL_SEG:apic_gfx_points ; (an X cell: its own cell is the door)
+  %endmacro
   %macro UI_FILL 0
    %ifdef OS88UI_KFAR
     call KERNEL_SEG:cw_gfx_fill
@@ -176,6 +179,9 @@
   %endmacro
   %macro UI_PIXEL 0
     call OSAPI_GFX_PIXEL
+  %endmacro
+  %macro UI_POINTS 0               ; ES:SI = CX points, ES the caller's DS
+    call OSAPI_GFX_POINTS
   %endmacro
   %macro UI_ICON 0                  ; SPEC.md 25.6: the masked 1bpp sprite
     call OSAPI_ICON_DRAW            ; pass - CX = x, DX = y, SI -> record
@@ -1263,29 +1269,34 @@ OS88UI_GW     equ 12            ; both are 12 x 12
 ; back by the pops.
 
 %ifndef OS88UI_NOGRADIO
-; os88ui_gring - the 12x12 ROUND ring: SIX runs, never a frame (SPEC.md 13.17.1).
+; os88ui_gring - the 12x12 ROUND ring: four runs and ONE call for the four
+; corner pixels, never a frame (SPEC.md 13.17.1).
 ;
-;     ..########..      The top and bottom stop TWO pixels short, and each
-;     .#........#.      side is two vertical runs: the inner one a pixel
-;     ##........##      longer at each end than the outer, which bridges the
-;     ##........##      corner. That is what a 12px circle rasterises to
-;     ##........##      closely enough to read as one. The first cut stopped
-;     ##........##      ONE pixel short with single-pixel sides, and that is
-;     ##........##      a square with its corners nicked: beside a check
-;     ##........##      box's square it read as a check box (MIDIRack's
-;     ##........##      Settings, reported as "ticked squares").
-;     ##........##
-;     .#........#.      Six fills, every one horizontal or vertical (SPEC.md
-;     ..########..      39.4: no thin diagonal, which reads as noise on 1bpp).
-;                       A thin ring with four single-pixel corners is the same
-;                       shape in EIGHT calls, and the two calls are 1.3 ms
-;                       (glyphcost's budget is the bitmap + 2 ms); a frame
-;                       would light the corners and need them knocked out.
+;     ..########..      Each side stops TWO pixels short and one pixel
+;     .#........#.      bridges each corner, which is what a 12px circle
+;     #..........#      rasterises to closely enough to read as one. The
+;     #..........#      first cut stopped ONE pixel short, and that is a
+;     #..........#      square with its corners nipped: beside a check box's
+;     #..........#      square it read as a check box (MIDIRack's Settings,
+;     #..........#      reported as "ticked squares").
+;     #..........#
+;     #..........#      Every run is horizontal or vertical and each corner
+;     #..........#      is a single step (SPEC.md 39.4: no thin diagonal,
+;     .#........#.      which reads as noise on 1bpp). The four corners go
+;     ..########..      through OSAPI_GFX_POINTS in ONE arrival: as four fills
+;                       they were 2.6 ms of a picked radio on the field
+;                       machine, past glyphcost's budget (the bitmap + 2 ms).
+;
+; The points are staged in os88ui_gpts, in THIS routine's own section: CS is
+; the image the code is in (a package, a driver, or CTRL.DRV's `.modu`, which
+; may write to its own image), so the stores are CS-relative and DS = CS for
+; the call - the cell reads the records at ES:SI with ES = the caller's DS.
 os88ui_gring:
     push ax
     push bx
     push cx
     push dx
+    push si
     mov ax, cx
     inc ax
     inc ax                      ; x+2 ..
@@ -1301,23 +1312,36 @@ os88ui_gring:
     sub bx, OS88UI_GW-3         ; y+2 ..
     dec dx
     dec dx                      ; .. y+9
-    UI_FILL                     ; left, outer
+    UI_FILL                     ; left
     add ax, OS88UI_GW-1
     mov cx, ax                  ; x+11
-    UI_FILL                     ; right, outer
-    dec ax
-    mov cx, ax                  ; x+10
-    dec bx                      ; y+1 ..
-    inc dx                      ; .. y+10
-    UI_FILL                     ; right, inner
-    sub ax, OS88UI_GW-3
-    mov cx, ax                  ; x+1
-    UI_FILL                     ; left, inner
+    UI_FILL                     ; right
+    dec ax                      ; AX = x+10
+    dec bx                      ; BX = y+1
+    mov [cs:os88ui_gpts+4], ax  ; top right
+    mov [cs:os88ui_gpts+12], ax ; bottom right
+    mov [cs:os88ui_gpts+2], bx  ; top left's y
+    mov [cs:os88ui_gpts+6], bx  ; top right's y
+    sub ax, OS88UI_GW-3         ; AX = x+1
+    mov [cs:os88ui_gpts], ax    ; top left
+    mov [cs:os88ui_gpts+8], ax  ; bottom left
+    add bx, OS88UI_GW-3         ; BX = y+10
+    mov [cs:os88ui_gpts+10], bx
+    mov [cs:os88ui_gpts+14], bx
+    push ds
+    push cs
+    pop ds                      ; ES:SI on the far side = CS:os88ui_gpts
+    mov si, os88ui_gpts
+    mov cx, 4
+    UI_POINTS                   ; the four corners, one arrival
+    pop ds
+    pop si
     pop dx
     pop cx
     pop bx
     pop ax
     ret
+os88ui_gpts: times 8 dw 0       ; four points, x then y
 
 ; os88ui_gdot - the 6x6 rounded dot, centred: 1 + 2 + 6 + 2 + 1 is the box's 12
 os88ui_gdot:
@@ -3862,8 +3886,8 @@ os88ui_chkhit:
 ; whole is tens of milliseconds to move one dot.
 ;
 ; --- THE LOOK, and why it is not the check box's square ----------------------
-; A 12x12 ROUND RING - top and bottom two pixels short, each side two runs
-; whose inner one bridges the corner (os88ui_gring draws it) - with a 6x6 rounded dot in the middle when it is
+; A 12x12 ROUND RING - each side two pixels short, a pixel bridging each corner
+; (os88ui_gring draws it) - with a 6x6 rounded dot in the middle when it is
 ; picked. It was a box with ONE pixel off each corner, and next to a check box
 ; that read as a ticked square (SPEC.md 13.17.1). It is the same 12 as
 ; OS88UI_GW, so a converted call site keeps its geometry to the pixel.
@@ -3873,8 +3897,8 @@ os88ui_chkhit:
 ;   - IT MUST NOT BE A SQUARE. os88ui_chk's mark is a solid square and a radio
 ;     that is also square says nothing about being one-of-many. A one-pixel
 ;     corner cut was the first answer and it was NOT enough: on the glass it
-;     read as a square with a mark in it. Two pixels short with the corner
-;     bridged is the round ring small 1bpp interfaces have always drawn.
+;     read as a square with a mark in it. Two pixels short and a bridging
+;     pixel is the round ring small 1bpp interfaces have always drawn.
 ;   - IT MUST NOT BE A THIN DIAGONAL OR A DITHER. SPEC.md 39.4: grey rounds to
 ;     black on both 1bpp adapters, so a dithered ring reads as dotted and a
 ;     diagonal reads as noise. Every edge here is a horizontal or vertical RUN.
@@ -3883,8 +3907,8 @@ os88ui_chkhit:
 ;     that has both; matching the neighbour won.
 ;
 ; --- WHAT IT COSTS TO DRAW, honestly -----------------------------------------
-; Eight drawing calls for an unpicked row and eleven for the picked one - the
-; pen, six fills for the ring, three for the dot, and the label. That is
+; Seven drawing calls for an unpicked row and ten for the picked one - the
+; pen, four fills and one GFX_POINTS for the ring, three for the dot, and the label. That is
 ; MORE than os88ui_glyph's normal path, which is ONE masked-sprite call plus
 ; the caller's own label, and the trade is taken on the owner's terms: this is
 ; drawn once and then sits there until someone interacts with it.

@@ -29151,9 +29151,9 @@ to tell a ring from a nipped square. That was a **look question that had
 shipped**, and the report priced the alternatives (about 7 ms for a rounder
 octagon at 8 fills, about 11 for the bitmap's own arc at 12, against 4.5).
 **The field answered it**: MIDIRack's Settings radios were reported as
-"ticked squares" that read as check boxes, so `os88ui_gring` is a 6-fill
-octagon now (two runs a side; the 8-fill thin one measured past `glyphcost`'s
-budget) (§13.17.1) and `tests/radio.py` asserts the bridging pixels and the
+"ticked squares" that read as check boxes, so `os88ui_gring` is the octagon
+now, four runs and one `gfx_points` for its corners (the 8-fill spelling
+measured past `glyphcost`'s budget) (§13.17.1) and `tests/radio.py` asserts the bridging pixels and the
 clear ones beside them, which a nipped square fails.
 
 **The position is held in DI and SI, and that is worth 116 bytes rather than
@@ -29548,9 +29548,8 @@ caller would otherwise have to supply twice and keep in step.
 
 #### 13.17.1 The look — a round ring, and every reason is a constraint
 
-A **12×12 round ring** — top and bottom stopping two pixels short of the
-corner, and each side two vertical runs whose inner one is a pixel longer at
-each end, bridging the corner diagonally — with a **6×6 rounded dot** in the
+A **12×12 round ring** — each side stopping two pixels short of the corner, and
+one pixel bridging each corner diagonally — with a **6×6 rounded dot** in the
 middle when it is picked. Twelve is `OS88UI_GW`, so a
 call site converted from §13.15's glyph keeps its geometry to the pixel.
 
@@ -29561,22 +29560,24 @@ Three things decided the shape and none of them is taste:
   cut took ONE pixel off each corner on the reasoning that this is what a 12 px
   circle rasterises to, and on the glass it was not: beside a check box it read
   as a ticked square (MIDIRack's Settings, reported from the manuals). Two
-  pixels short with the corner bridged is the octagon §13.15.1 priced, and it
-  reads as round on all three adapters.
+  pixels short with a pixel bridging the corner is the octagon §13.15.1 priced,
+  and it reads as round on all three adapters.
 - **It must not be a thin diagonal or a dither** (§39.4): grey rounds to black
   on both 1bpp adapters, so a dithered ring reads as dotted and a diagonal reads
-  as noise. Every edge here is a horizontal or vertical **run**, and the
-  corner is a single step, not a line.
-- **The top and bottom are ONE pixel because `os88ui_chk`'s frame is one
-  pixel.** The sides are two, rows 2 to 9: the inner run is what bridges the
-  corner, and a thin side with four single-pixel corners is the same octagon in
-  EIGHT calls rather than six - 1.3 ms a ring on the field machine, which took
-  the picked radio past `glyphcost`'s budget (the bitmap glyph + 2 ms).
+  as noise. Every edge here is a horizontal or vertical **run**, and the four
+  corner pixels are one pixel each - a single step, not a line.
+- **The ring is ONE pixel because `os88ui_chk`'s frame is one pixel.** A heavier
+  ring is more legible when greyed and would be the odd control out in a column
+  carrying both; matching the neighbour won.
 
-**The ring is six RUNS, never a frame.** `gfx_frame` puts a
-pixel in each corner, which would then have to be knocked out in the ground
-colour — more fills *and* two more pen changes. Six fills, each the last one
-edited (§13.15.1), draw it.
+**The ring is four RUNS and one `OSAPI_GFX_POINTS`, never a frame.**
+`gfx_frame` puts a pixel in each corner, which would then have to be knocked
+out in the ground colour — more fills *and* two more pen changes. Four fills
+draw the sides, and the four corner pixels go to `gfx_points` (§5.6.9) in ONE
+arrival, staged in a 16-byte table beside the routine in its own image (a
+module may write to its own, so CTRL.DRV's copy works the same way). As four
+more fills they cost a picked radio 2.6 ms past the bitmap glyph on the field
+machine, over `glyphcost`'s 2 ms budget.
 
 **The dot is centred exactly**: 1 + 2 + 6 + 2 + 1 is the box's own 12.
 
@@ -29589,11 +29590,10 @@ offset, so the pair cannot separate again.
 
 #### 13.17.2 What it costs to draw, against the glyph it replaces
 
-**Eight drawing calls for an unpicked row and eleven for the picked one** — a pen
-change, six for the ring (top, bottom and two runs a side, §13.17.1), three
-for the dot, and the label. The round ring is two calls more than the nipped
-square it replaced: about 1.3 ms a row on the field machine (§13.15.1's
-pricing). There is no ground
+**Seven drawing calls for an unpicked row and ten for the picked one** — a pen
+change, five for the ring (four runs and one `gfx_points` for the four corner
+pixels, §13.17.1), three for the dot, and the label. The round ring is one
+call more than the nipped square it replaced. There is no ground
 fill (§13.17.4). That is *more* than
 `os88ui_glyph`'s normal path, which is one masked-sprite call plus the caller's
 own label, and the trade is taken on the owner's terms: this is drawn once and

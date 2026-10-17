@@ -20126,7 +20126,7 @@ sc_ovsay:
 ; SC_P1ORG however much of it is used - so it is kept to the next sector up
 ; rather than set at the ceiling.
 ; =============================================================================
-SC_P1ORG equ 0xC800
+SC_P1ORG equ 0xCA00
 
 ; align=1 is load-bearing, not tidiness. A bin section aligns to 4 by default,
 ; and the pad NASM inserts to reach it lands BETWEEN the image size the header
