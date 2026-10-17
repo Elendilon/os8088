@@ -517,7 +517,7 @@ short = "Courier typeface"
 ["HELV.F88"]
 title = "Helvetica"
 kind = "font"
-summary = "A clean sans-serif typeface in Helvetica's proportions, used by Sheet and offered in Word and Font Viewer."
+summary = "A clean sans-serif typeface in Helvetica's proportions, offered in Word and shown in Font Viewer."
 short = "Helvetica typeface"
 
 ["INCONSOL.F88"]
