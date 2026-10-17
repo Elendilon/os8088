@@ -37,7 +37,7 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
-from os88diskuse import survey  # noqa: E402
+from os88fat import Fat12  # noqa: E402
 
 GUIDE = os.path.join(ROOT, "tools", "guide")
 BUILD = os.path.join(ROOT, "build")
@@ -59,7 +59,45 @@ SECTORS = {2880: "1440", 2400: "1200", 1440: "720", 720: "360"}
 # its own, or a set that repeats programs already on the main disks.
 SECTION = {"start": "main", "xt": "main", "emu": "main",
            "live": "main", "all": "own", "progs": "own"}
-SECTION_TITLE = {"main": "Start here", "own": "One program per disk, and the everything set"}
+# Every section but "main" is one expandable item at the end of the disk row:
+# (its title, the line under it). The count of disks is the page's to add.
+SECTION_TITLE = {"main": ["Start here", ""],
+                 "own": ["One program per disk", "and the everything set"],
+                 "viddemo": ["Video demo hard drives", "a whole install, with videos"]}
+
+# The guide's own one-line description of a disk, by release item title or by
+# the disk's role. The release README's sentences are written for a reader
+# choosing a download; these are for a reader looking at the disk.
+BLURB = {
+    "System disk": "Starts os8088. Boot from it in drive A.",
+    "Software disk": "The everyday programs, with sample documents. Goes in drive B.",
+    "Music disk": "Songs and a tracker module for the music programs.",
+    "Office disk": "Writing, spreadsheet, chart and drawing programs.",
+    "Network disk": "Browser, Telnet, FTP server and The Wire, for an Ethernet card.",
+    "Games disk": "Every game on one floppy.",
+    "Emulator system disk": "A system disk whose pointer needs no mouse capture in an emulator.",
+    "Live USB image": "The whole system and every program, for a USB stick.",
+    "Live CD": "The live USB image as a bootable CD. Changes last until power-off.",
+    "Everything set": "Every program, across as many disks as it takes.",
+    "Word processor": "Word, modelled on Word for Windows 1.1a.",
+    "Scribe": "Scribe, a second word processor on the same document format.",
+    "Word processor, C edition": "Word again, written in C.",
+    "CP/M emulator": "Runs CP/M 2.2 programs in a window, with a library of them.",
+    "Commodore 64": "A Commodore 64 in a window.",
+    "Apple II Plus": "An Apple II Plus in a window, with Applesoft BASIC.",
+    "PaccMan": "Arcade-accurate Pac-Man. Best on a 386.",
+    "1942": "Air combat after the arcade game. Needs VGA or CGA.",
+    "REDLINE": "A benchmark that scores your PC against a 4.77 MHz IBM PC.",
+    "MIDIRack": "A MIDI music player with ten songs.",
+    "PiXEL": "An image viewer and editor, with sample pictures.",
+    "Weave": "Weave apps, ready to run.",
+    "Weave editor": "The Weave editor, with the demo apps' sources.",
+    "Video demo": "A ready-installed hard disk with demo videos, for an XT.",
+}
+
+# The video demo drives (`make viddemo`): one per adapter that has a
+# apps/video/demo/<adapter>/ directory, so a new adapter appears by itself.
+VIDDEMO_NAMES = {"cga": "CGA", "herc": "Hercules", "vga": "VGA", "ega": "EGA"}
 
 # A disk's own name, where the release item names a PAIR or a SET.
 ROLE = [
@@ -139,8 +177,43 @@ def role_of(name, item_title, item_files):
 
 
 # --- reading a hard-disk image (FAT16 behind an MBR) --------------------------
+def survey_fat12(path):
+    """Every entry on a floppy: {path: [size, attr]}, in directory order."""
+    v = Fat12(path)
+    files = {}
+
+    def walk(ents, path):
+        for e in ents:
+            if e[0] in (0, 0xE5) or e[11] & 0x08 or e[11] == 0x0F:
+                continue
+            name = Fat12.pretty(e[:11])
+            if name in (".", ".."):
+                continue
+            first = struct.unpack_from("<H", e, 26)[0]
+            size = struct.unpack_from("<I", e, 28)[0]
+            if e[11] & 0x10:
+                files[path + name + "/"] = [0, e[11]]
+                csz = v.spc * v.bps
+                sub = []
+                for c in (v.chain(first) if first else []):
+                    base = v.cluster_off(c)
+                    sub += [bytes(v.img[base + k * 32:base + k * 32 + 32]) for k in range(csz // 32)]
+                walk(sub, path + name + "/")
+            else:
+                files[path + name] = [size, e[11]]
+
+    walk([e for _, _, e in v.entries()], "")
+    return {"free": len(v.free_clusters()), "clusters": v.nclus,
+            "csize": v.spc * v.bps, "files": files}
+
+
 def survey_hdd(path):
     blob = open(path, "rb").read()
+    if blob[0:2] == b"\xDA\xBE":
+        # A SEAGATE ST11 card's disk (tools/os88hdd.py --st11): the card keeps
+        # its record in cylinder 0 and hides it, so the BIOS's sector 0 is the
+        # first sector of physical cylinder 1.
+        blob = blob[blob[4] * blob[5] * 512:]
     base = struct.unpack_from("<I", blob, 446 + 8)[0] * 512
     byts, spc, rsvd, nfat, rootent, tot16, _, fatsz = struct.unpack_from("<HBHBHHBH", blob, base + 11)
     tot = tot16 or struct.unpack_from("<I", blob, base + 32)[0]
@@ -173,11 +246,11 @@ def survey_hdd(path):
             c0 = struct.unpack_from("<H", e, 26)[0]
             size = struct.unpack_from("<I", e, 28)[0]
             if e[11] & 0x10:
-                files[path + name + "/"] = [0, 0]
+                files[path + name + "/"] = [0, e[11]]
                 for c in chain(c0):
                     walk(data0 + (c - 2) * spc, spc, path + name + "/")
             else:
-                files[path + name] = [size, len(chain(c0))]
+                files[path + name] = [size, e[11]]
 
     walk(rootlba, rootsecs, "")
     free = sum(1 for c in range(2, nclus + 2)
@@ -300,6 +373,27 @@ def load_manuals():
 
 
 # --- the data the page is built from ------------------------------------------
+def disk_record(n, set_id, gkey, section, role, geo=None):
+    path = os.path.join(BUILD, n)
+    geo = geo or geo_of(path, n)
+    d = {"id": re.sub(r"[^a-z0-9]+", "-", n.lower()), "file": n, "geo": geo, "set": set_id,
+         "section": section, "group": gkey, "role": role, "built": False}
+    if os.path.exists(path):
+        try:
+            s = None if n.endswith(".iso") else (survey_hdd(path) if geo == "hdd" else survey_fat12(path))
+        except Exception as e:      # an image this reader cannot walk
+            s = None
+            d["error"] = str(e)
+        if s:
+            d.update(built=True, free=s["free"], clusters=s["clusters"], csize=s["csize"],
+                     tree=[[k, v[0], v[1]] for k, v in s["files"].items()])
+        d["bytes"] = os.path.getsize(path)
+        if n.endswith(".iso"):
+            d["built"] = True
+            d["sameas"] = "os8088-usb-img"
+    return d
+
+
 def collect():
     mk = load_mkzip()
     entries = {}
@@ -327,32 +421,25 @@ def collect():
             set_id = "set-" + re.sub(r"[^a-z0-9]+", "-", (gkey + " " + title).lower()).strip("-")
             members = []
             for n in names:
-                path = os.path.join(BUILD, n)
-                geo = geo_of(path, n)
-                did = re.sub(r"[^a-z0-9]+", "-", n.lower())
-                d = {"id": did, "file": n, "geo": geo, "set": set_id,
-                     "section": SECTION.get(gkey, "own"), "group": gkey,
-                     "role": role_of(n, title, files), "built": False}
-                if os.path.exists(path):
-                    try:
-                        s = survey_hdd(path) if geo == "hdd" and n.endswith(".img") else (
-                            None if n.endswith(".iso") else survey(path))
-                    except Exception as e:      # an image this reader cannot walk
-                        s = None
-                        d["error"] = str(e)
-                    if s:
-                        d.update(built=True, free=s["free"], clusters=s["clusters"],
-                                 csize=s["csize"],
-                                 tree=[[k, v[0]] for k, v in s["files"].items()])
-                    d["bytes"] = os.path.getsize(path)
-                    if n.endswith(".iso"):
-                        d["built"] = True
-                        d["sameas"] = "os8088-usb-img"
-                members.append(did)
+                d = disk_record(n, set_id, gkey, SECTION.get(gkey, "own"), role_of(n, title, files))
+                members.append(d["id"])
                 disks.append(d)
             sets.append({"id": set_id, "group": gkey, "groupTitle": gtitle,
-                         "title": title, "desc": desc, "required": required,
-                         "disks": members})
+                         "title": title, "desc": BLURB.get(title.split(",")[0] if title.startswith("Everything") else title, desc),
+                         "required": required, "disks": members})
+    vd = os.path.join(ROOT, "apps", "video", "demo")
+    adapters = sorted(a for a in os.listdir(vd) if os.path.exists(os.path.join(vd, a, "00-VIDS.TXT"))) if os.path.isdir(vd) else []
+    if adapters:
+        members = []
+        for a in adapters:
+            n = "VIDDEMO-%s-ST11R.VHD" % a.upper()
+            d = disk_record(n, "set-viddemo", "viddemo", "viddemo",
+                            "%s demo drive" % VIDDEMO_NAMES.get(a, a.upper()), geo="hdd")
+            members.append(d["id"])
+            disks.append(d)
+        sets.append({"id": "set-viddemo", "group": "viddemo", "groupTitle": "Video demo hard drives",
+                     "title": "Video demo", "desc": BLURB["Video demo"], "required": False,
+                     "disks": members})
     tools = []
     for t in TOOLS:
         t = dict(t)
@@ -373,7 +460,7 @@ def collect():
     except Exception:
         commit, count = "?", "?"
     return {"geos": [{"key": k, "label": l, "hint": h} for k, l, h in GEOS],
-            "sectionTitles": SECTION_TITLE, "sets": sets, "disks": disks,
+            "sectionTitles": SECTION_TITLE, "blurbs": BLURB, "sets": sets, "disks": disks,
             "entries": entries, "manuals": load_manuals(),
             "tools": tools, "firmware": firmware,
             "build": {"commit": commit, "count": count}}
@@ -382,7 +469,7 @@ def collect():
 def missing(data):
     seen = {}
     for d in data["disks"]:
-        for path, _ in d.get("tree", []):
+        for path, *_ in d.get("tree", []):
             n = path.rstrip("/").split("/")[-1] + ("/" if path.endswith("/") else "")
             seen.setdefault(n, set()).add(d["file"])
     return sorted((n, sorted(v)) for n, v in seen.items() if n not in data["entries"])

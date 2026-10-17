@@ -150,6 +150,10 @@ main.panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; ma
 .row[aria-current="true"] .desc b { color: inherit; }
 .row .size { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .row.folder .nm::after { content: "/"; opacity: 0.5; }
+.row.hidden .nm { opacity: 0.7; }
+.tree .sep { display: flex; align-items: center; gap: 10px; padding: 8px 14px 4px calc(14px + var(--depth, 0) * 18px); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); }
+.tree .sep::after { content: ""; flex: 1; border-top: 1px dotted var(--rule-strong); }
+.tree .sep span { white-space: nowrap; }
 .row .tw { display: inline-block; width: 1ch; margin-right: 2px; opacity: 0.6; }
 @media (max-width: 560px) {
   .row { grid-template-columns: 14px minmax(0, 1fr) auto; }
@@ -276,7 +280,7 @@ D.disks.forEach(d => (d.tree || []).forEach(([p]) => { const n = baseName(p); (w
 const things = Object.fromEntries([...D.tools, ...D.firmware].map(t => [t.id, t]));
 
 // --- state -----------------------------------------------------------------
-const st = { geo: "1440", disk: null, item: null, open: {} };
+const st = { geo: "1440", disk: null, item: null, open: {}, secOpen: {} };
 try { const g = localStorage.getItem("os88guide.geo"); if (g && geoLabel[g]) st.geo = g; } catch (e) {}
 
 function disksFor(geo) { return D.disks.filter(d => d.geo === geo); }
@@ -287,7 +291,7 @@ function firstDisk(geo) {
 }
 function go(geo, diskId, item, push) {
   const nd = diskId || firstDisk(geo);
-  if (nd !== st.disk && disk[nd]?.section === "own") st.ownOpen = null;
+  if (nd !== st.disk && disk[nd] && disk[nd].section !== "main") delete st.secOpen[disk[nd].section];
   st.geo = geo; st.disk = nd; st.item = item || null;
   try { localStorage.setItem("os88guide.geo", geo); } catch (e) {}
   if (push !== false) { const h = st.disk + (st.item ? "~" + st.item.replace(/\/$/, "") : ""); history.replaceState(null, "", "#" + h); }
@@ -316,42 +320,57 @@ function drawShelf() {
       `<button class="card" aria-pressed="${t.id === st.disk}" data-disk="${t.id}" title="${esc(t.summary)}"><span class="ic">${icon(st.geo === "tools" ? "tool" : "driver", 16)}</span><span class="role">${esc(t.title)}</span><span class="meta">${t.files.length} file${t.files.length > 1 ? "s" : ""}</span></button>`).join("")}</div>`;
     return;
   }
-  const l = disksFor(st.geo), main = l.filter(d => d.section === "main"), own = l.filter(d => d.section !== "main");
-  const open = st.ownOpen ?? own.some(d => d.id === st.disk);
+  const l = disksFor(st.geo), main = l.filter(d => d.section === "main");
+  const secs = [...new Set(l.map(d => d.section))].filter(k => k !== "main");
+  const isOpen = k => st.secOpen[k] ?? disk[st.disk]?.section === k;
   let h = "";
-  if (main.length || own.length) {
-    h += `<div class="cards">${main.map(card).join("")}${own.length ? `<button class="card more" id="ownToggle" aria-expanded="${open}" aria-controls="ownRow">
-      <span class="ic">${icon("folder", 16)}</span><span class="role"><span class="tw">${open ? "▾" : "▸"}</span>One program per disk</span><span class="meta">and the everything set · ${own.length} disks</span></button>` : ""}</div>`;
+  if (l.length) {
+    h += `<div class="cards">${main.map(card).join("")}${secs.map(k => {
+      const n = l.filter(d => d.section === k).length, [t, sub] = D.sectionTitles[k] || [k, ""], o = isOpen(k);
+      return `<button class="card more" data-sec="${k}" aria-expanded="${o}" aria-controls="sec-${k}">
+      <span class="ic">${icon("folder", 16)}</span><span class="role"><span class="tw">${o ? "▾" : "▸"}</span>${esc(t)}</span><span class="meta">${esc(sub)}${sub ? " · " : ""}${n} ${k === "viddemo" ? "drive" : "disk"}${n > 1 ? "s" : ""}</span></button>`; }).join("")}</div>`;
   }
-  if (own.length && open) h += `<div class="chips ownrow" id="ownRow">${own.map(d =>
-    `<button class="chip" aria-pressed="${d.id === st.disk}" data-disk="${d.id}">${esc(d.role)}<small>${esc(d.file)}</small></button>`).join("")}</div>`;
+  secs.filter(isOpen).forEach(k => { h += `<div class="chips ownrow" id="sec-${k}">${l.filter(d => d.section === k).map(d =>
+    `<button class="chip${d.built ? "" : " na"}" aria-pressed="${d.id === st.disk}" data-disk="${d.id}">${esc(d.role)}<small>${esc(d.file)}</small></button>`).join("")}</div>`; });
   if (!h) h = `<p class="notbuilt">Nothing ships in this size.</p>`;
   el.innerHTML = h;
 }
 
 // --- the disk window ---------------------------------------------------------------
+// Folders a reader rarely wants open, and how big a folder may be before it
+// starts closed. A click remembers the reader's own choice for the session.
+const COLLAPSED = new Set(["FONTS"]);
+const HIDDEN = 0x06;                                // FAT hidden | system
 function treeRows(d) {
-  const rows = d.tree || [], out = [], kids = {};
-  rows.forEach(([p]) => { const par = p.replace(/\/$/, "").split("/").slice(0, -1).join("/"); kids[par] = (kids[par] || 0) + 1; });
-  let hideBelow = null;
-  rows.forEach(([p, size]) => {
-    const isDir = p.endsWith("/"), parts = p.replace(/\/$/, "").split("/"), depth = parts.length - 1, key = d.id + ":" + p;
-    if (hideBelow && p.startsWith(hideBelow)) return;
-    hideBelow = null;
-    const n = baseName(p), i = info(n);
-    let open = true;
-    if (isDir) {
-      const k = kids[parts.join("/")] || 0;
-      open = key in st.open ? st.open[key] : (depth === 0 && k <= 40) || k <= 12;
-      if (!open) hideBelow = p;
-    }
-    const cur = st.item === p;
-    out.push(`<li><button class="row${isDir ? " folder" : ""}" style="--depth:${depth}" data-path="${esc(p)}" ${cur ? 'aria-current="true"' : ""} ${isDir ? `aria-expanded="${open}"` : ""}>
-      <span class="ic">${icon(i.kind)}</span>
-      <span class="nm">${isDir ? `<span class="tw">${open ? "▾" : "▸"}</span>` : ""}${esc(n.replace(/\/$/, ""))}</span>
-      <span class="desc">${i.described ? `<b>${esc(i.title)}</b>${i.summary ? " · " + esc(i.summary) : ""}` : (isDir ? `${kids[parts.join("/")] || 0} items` : esc(i.summary))}</span>
-      <span class="size">${isDir ? "" : kb(size)}</span></button></li>`);
+  const kids = { "": [] };
+  (d.tree || []).forEach(([p, size, attr]) => {
+    const dir = p.endsWith("/"), parts = p.replace(/\/$/, "").split("/"), par = parts.slice(0, -1).join("/");
+    (kids[par] ||= []).push({ p, size, attr: attr || 0, dir, name: parts[parts.length - 1] });
+    if (dir) kids[parts.join("/")] ||= [];
   });
+  const order = (a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name);
+  const out = [];
+  function row(e, depth) {
+    const key = d.id + ":" + e.p, n = baseName(e.p), i = info(n), ch = e.dir ? kids[e.p.replace(/\/$/, "")] : null;
+    let open = false;
+    if (e.dir) open = key in st.open ? st.open[key] : !COLLAPSED.has(e.name) && (depth === 0 ? ch.length <= 40 : ch.length <= 12);
+    const cur = st.item === e.p;
+    out.push(`<li><button class="row${e.dir ? " folder" : ""}${e.attr & HIDDEN ? " hidden" : ""}" style="--depth:${depth}" data-path="${esc(e.p)}" ${cur ? 'aria-current="true"' : ""} ${e.dir ? `aria-expanded="${open}"` : ""}>
+      <span class="ic">${icon(i.kind)}</span>
+      <span class="nm">${e.dir ? `<span class="tw">${open ? "▾" : "▸"}</span>` : ""}${esc(e.name)}</span>
+      <span class="desc">${i.described ? `<b>${esc(i.title)}</b>${i.summary ? " · " + esc(i.summary) : ""}` : (e.dir ? `${ch.length} items` : esc(i.summary))}</span>
+      <span class="size">${e.dir ? "" : kb(e.size)}</span></button></li>`);
+    if (open) level(ch, depth + 1);
+  }
+  function level(list, depth) {
+    const shown = list.filter(e => !(e.attr & HIDDEN)).sort(order), hid = list.filter(e => e.attr & HIDDEN).sort(order);
+    shown.forEach(e => row(e, depth));
+    if (hid.length) {
+      out.push(`<li class="sep" style="--depth:${depth}"><span>Hidden system files · ${hid.length}</span></li>`);
+      hid.forEach(e => row(e, depth));
+    }
+  }
+  level(kids[""], 0);
   return out.join("");
 }
 function drawLeft() {
@@ -383,14 +402,14 @@ function siblingsInOtherSizes(d) {
 function diskChip(x, label) { return `<button class="chip" data-go="${x.geo}|${x.id}">${esc(label || geoLabel[x.geo])}<small>${esc(x.file)}</small></button>`; }
 function drawDiskInfo(d) {
   const s = set[d.set];
-  const progs = (d.tree || []).filter(([p]) => /\.(O88|WAB)$/.test(p));
+  const progs = (d.tree || []).filter(([p]) => /\.(O88|WAB)$/.test(p)).sort((a, b) => info(baseName(a[0])).title.localeCompare(info(baseName(b[0])).title));
   const pair = s.disks.map(id => disk[id]).filter(x => x.id !== d.id && x.geo === d.geo);
   const other = siblingsInOtherSizes(d);
   let h = `<div class="ident"><span class="ic">${icon(d.file.endsWith(".iso") ? "cd" : "disk", 30)}</span><h2>${esc(d.role)}</h2><span class="fn">${esc(d.file)} · ${esc(geoLabel[d.geo])}</span></div>
-    <p class="lede">${esc(s.desc)}</p><dl class="facts">`;
+    <p class="lede">${esc(D.blurbs[d.role] || D.blurbs[s.title] || s.desc)}</p><dl class="facts">`;
   h += `<dt>Release group</dt><dd>${esc(s.groupTitle)}</dd>`;
   if (d.built && d.clusters) h += `<dt>Space</dt><dd>${kb((d.clusters - d.free) * d.csize)} used, ${kb(d.free * d.csize)} free (${(d.clusters - d.free).toLocaleString()} of ${d.clusters.toLocaleString()} clusters)</dd>`;
-  if (pair.length) h += `<dt>Goes with</dt><dd><div class="chips">${pair.map(x => diskChip(x, x.role)).join("")}</div></dd>`;
+  if (pair.length) h += `<dt>${s.group === "viddemo" ? "Other adapters" : "Goes with"}</dt><dd><div class="chips">${pair.map(x => diskChip(x, x.role)).join("")}</div></dd>`;
   if (other.length) h += `<dt>Other sizes</dt><dd><div class="chips">${other.map(x => diskChip(x)).join("")}</div></dd>`;
   h += `</dl>`;
   if (progs.length) {
@@ -442,8 +461,9 @@ function draw() {
 
 // --- events ---------------------------------------------------------------------
 document.addEventListener("click", e => {
-  if (e.target.closest("#ownToggle")) { st.ownOpen = !(st.ownOpen ?? disk[st.disk]?.section === "own"); return drawShelf(); }
-  const tab = e.target.closest("[data-geo]"); if (tab) { st.ownOpen = null; return go(tab.dataset.geo); }
+  const sec = e.target.closest("[data-sec]");
+  if (sec) { const k = sec.dataset.sec; st.secOpen[k] = !(st.secOpen[k] ?? disk[st.disk]?.section === k); return drawShelf(); }
+  const tab = e.target.closest("[data-geo]"); if (tab) { st.secOpen = {}; return go(tab.dataset.geo); }
   const dk = e.target.closest("[data-disk]"); if (dk) return go(st.geo, dk.dataset.disk);
   const g = e.target.closest("[data-go]"); if (g) { const [geo, id] = g.dataset.go.split("|"); return go(geo, id, st.item && disk[id] && (disk[id].tree || []).some(([p]) => p === st.item) ? st.item : findPath(id, st.item)); }
   const tf = e.target.closest("[data-tfile]"); if (tf) return go(st.geo, st.disk, tf.dataset.tfile);
