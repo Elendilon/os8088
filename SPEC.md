@@ -21419,8 +21419,8 @@ with nothing half-done. **It says nothing**: the widget works, so there is
 no refusal for the user to act on (§47 rule 3). The boot relaunch is
 unaffected - `stik_boot` stays resident (§110.4, §110.9's module-cut entry) -
 so a Sticky App row still launches at boot and its row is kept. **The shipped
-Desk Calendar is built `STIK_DESKONLY`** (§110.7) and so does NOT come up
-titled: `stik_single` asks QUERY before any I/O and a refusal is no launch,
+Desk Calendar and Desk Clock are built `STIK_DESKONLY`** (§110.7, §110.14.8)
+and so do NOT come up titled: `stik_single` asks QUERY before any I/O and a refusal is no launch,
 said - `No desk layer (DESK.DRV)` - because the titled arm is code only a
 machine with no desk layer reaches, and kern_big always has one unless its
 system disk is damaged.
@@ -191013,7 +191013,7 @@ stik_boot:       [ui_rebootq] != 0  -> nothing (a resume or DOS question is up)
 | launched from B:, booted with no disk in B: | the same, naming `(B:)` | the same |
 | a hard-disk install: a row recorded against A: | the same — a row's VOL is a volume index, which is existing shortcut semantics (§26.8.1) | the same |
 | load refused (memory, version) | `ld_say_status`'s sentence | KEPT |
-| `DESK.DRV` missing from the system disk, or no heap for its 1 KB claim (§11.103.10) | a `STIK_DESKONLY` widget - the shipped calendar - refuses in its own words, `No desk layer (DESK.DRV)`; one built without it comes up TITLED, kern_small's path, and says nothing | KEPT |
+| `DESK.DRV` missing from the system disk, or no heap for its 1 KB claim (§11.103.10) | a `STIK_DESKONLY` widget - the shipped calendar and clock - refuses in its own words, `No desk layer (DESK.DRV)`; one built without it comes up TITLED, kern_small's path, and says nothing | KEPT |
 | state file missing / damaged / position off this screen | the package's own answers (§110.5) | — |
 | hibernate or DOS question pending | nothing is launched | — |
 
@@ -193329,7 +193329,8 @@ The third Sticky App: a clock pinned to the desk, in nine faces, at three
 sizes, with a daily alarm. `DESKCLOK.O88` ships in `STIKAPPS\` beside the
 Desk Calendar and Sticky Note on every system disk - the four geometries (the
 360KB one gave its typefaces up for it, §24.3.1.5), `emu.img`, both small
-system disks and the live media - and its state is
+system disks (in a build of their own, §110.14.8) and the live media - and
+its state is
 `SYSTEM\APPDATA\DESKCLOK.DAT`. The owner's two mockups are the shape: the
 clock on the desk - a dial over a white panel with the time, the date and the
 alarm's row, the `Desk Clock` tag under it - and `Desk Clock Settings`, a
@@ -193344,8 +193345,9 @@ apps/deskclok/dkdraw.inc     the composer: a 1- or 4-plane band, spans, mask
 apps/deskclok/dkface.inc     the nine faces as PROGRAMS, the time and the date
 apps/deskclok/dkwid.inc      the clock on the desk: layout, paint, the face
                              cache, presses, redraws
-apps/deskclok/dkset.inc      the settings window
-apps/deskclok/dkalm.inc      the alarm window
+apps/deskclok/dkset.inc      the settings window, and the FORM machine both
+                             titled windows are drawn and pressed by
+apps/deskclok/dkalm.inc      the alarm window: its layouts and its fields
 ```
 
 #### 110.14.1 A face of its own size: `STIK_VARFACE`
@@ -193589,6 +193591,9 @@ same composer: `OWNBG`, every pixel composed, a slab at a time.
 - **Size** is a drop-down: the box shows the size and an arrow; a press opens
   the three below it, over the gallery and in the same slabs, and a press on
   one picks it.
+- It is one of the Desk Clock's two FORMS (§110.14.8): a layout of entries
+  and a record, painted, walked and pressed by the routines the alarm window
+  shares.
 - **Keys**: the arrows walk the gallery (and preview), `F`, `S`, `H` the
   boxes, `Z` the size, `A` Apply, Enter OK, Esc Cancel (or shuts the open
   list). OK is the default button: its ring is two pixels thick.
@@ -193618,13 +193623,57 @@ tomorrow. Neither is modal and neither takes the keys (§110.3's rules).
 
 #### 110.14.8 What it costs
 
-**No kernel byte.** `DESKCLOK.O88` is a 25,152-byte image and 5,368 bytes of
-bss (its band 4,608 of it), 20,382 bytes packed on the disk - 40 clusters
-of 512 bytes on the 360 KB system disk (§19.3.2), 20 of 1 KB on the 720 KB
-and small 360 KB ones - which is where §24.3.1.5's room went. At run time it claims the face
-cache (above) and, for a colour settings paint, its tall band. `os88stik.inc`
-gained `STIK_VARFACE`, which neither other Sticky App defines, so their builds
-are unchanged.
+**No kernel byte.** The shipped `DESKCLOK.O88` is a 20,384-byte image (20,381
+before its paragraph pad) and 5,368 bytes of bss (its band 4,608 of it),
+17,610 bytes packed on the disk - 35 clusters of 512 bytes on the 360 KB
+system disk (§19.3.2), 18 of 1 KB on the 720 KB one. At run time it claims
+the face cache (above) and, for a colour settings paint, its tall band.
+`os88stik.inc` gained `STIK_VARFACE`, which neither other Sticky App
+defines, so their builds are unchanged.
+
+**Two builds, as the Desk Calendar's** (§110.7). The shipped one defines
+`STIK_DESKONLY`: kern_big always has the desk layer, so the titled fallback
+and the worker arm are code only a damaged system disk reaches, and there a
+launch is refused in its own words (`No desk layer (DESK.DRV)`). The small
+system disks carry `build/smallapp/deskclok.o88` instead (`-DAPP_SMALL`,
+`$(SMALLSTIKAPPS)`) - 20,800 bytes of image, 5,368 of bss, 17,907 packed -
+which keeps both, because kern_small has no desk layer; same source, same
+bss, same state file, and `t_stik` holds each system disk to its own build.
+
+**The size pass** (2026-10-17) took the shipped image 23,744 -> 20,384 and
+the file 19,428 -> 17,610 with the clock's behaviour kept - and no byte of
+the hot path moved: `tools/os88rdiff.py --hot` reads the composer, the face
+programs and ops, the card's paint and hands and the include's per-second
+paint path identical at an even shift on both builds, `DK_PARITY` pinning
+each block at the parity it was measured at (§110.14.4's table stands).
+
+| change | image | file |
+|---|---|---|
+| before | 23,744 | 19,428 |
+| `STIK_DESKONLY`, and `dkwid.inc`'s titled-only arms gated with it | 23,328 | 19,116 |
+| each menu item stored ONCE with its mark's gutter, written in place by `dk_menulive`; the face and size names are those strings | 22,656 | 18,983 |
+| the settings and the alarm are ONE FORM MACHINE (below) | 21,600 | 18,593 |
+| `OS88UI_MACROS`: no os88ui control is called | 20,832 | 17,935 |
+| key tables (`dk_keys`), the forms' ink helpers | 20,672 | 17,825 |
+| `GFXE_NOBUTIL`: the tag papers and blits its own band | 20,464 | 17,647 |
+| one face-height routine (`dk_fhgt`), Snooze and Dismiss one quieting | 20,384 | 17,610 |
+
+**The forms.** `Desk Clock Settings` and `Alarm` are two LAYOUTS - tables
+of 12-byte entries, a control at a rect, in one type numbering - and two bss
+records (the window, the layout, a pressed button) over ONE set of routines:
+the open beside the clock, the shut, the paint, the slab loop, the compose
+walk, the hit test, the button and the check box, the release. `[dk_fm]`
+names the form; a form's own callbacks set it and a paint puts back the one
+it found. A layout says its own width and whether it has a gallery, and the
+gallery's nine tiles are ONE row of it (`DKST_TILES`: the first tile and the
+rows' pitch), made into a tile's entry as the walk reaches it.
+
+Three defects went with it: picking a size from the settings' LIST stored
+the low byte of the list's x as the size, which `dk_check` then took for a
+payload it never wrote and reset to the DEFAULTS (face, boxes and alarm
+lost); the alarm's OK copied the whole flags byte into the settings' applied
+copy, so a settings Cancel kept a previewed `Seconds` or `Clock face only`;
+and a pressed OK in the alarm window lost its default ring.
 
 #### 110.14.9 What is not done
 
@@ -193634,7 +193683,8 @@ are unchanged.
   be a protocol between `STIKMENU.DRV` and the App, which nothing has yet.
 - **One alarm**, daily; no weekday set, no tune.
 - **Seconds every 2 s on kern_small** (the worker's beat), and the titled
-  fallback's corners are white (no desktop under a titled window).
+  fallback's corners are white (no desktop under a titled window) - the
+  small build's alone: the shipped one has neither arm (§110.14.8).
 - **EGA is checked by its geometry**, not on the glass: MartyPC has no EGA,
   and the MID layout is Hercules'.
 
