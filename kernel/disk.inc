@@ -7786,6 +7786,12 @@ dsk_copy_seg_x:
     push di
     push ds
     push es
+%ifdef KERN_MEGA
+    cmp ax, KERNEL_SEG          ; kern_mega: KERNEL_SEG (0060h) is the kernel's
+    jne .mdst                   ; CODE selector in protected mode, read-only,
+    KDATAR_C ax                 ; so a copy INTO the kernel takes its data
+.mdst:                          ; alias. Callers name the kernel segment as
+%endif                          ; KERNEL_SEG or CS and every one is right here
     mov es, ax
     mov ds, dx                  ; last: no kernel variable is legible below
     shr cx, 1

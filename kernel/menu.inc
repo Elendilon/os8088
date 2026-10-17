@@ -548,8 +548,8 @@ menu_relayout:
                                 ; and the entry value is the frame's to put
                                 ; back at kret_di (kernel size pass 10: 2)
     mov ax, es
-    mov cx, cs
-    cmp ax, cx
+    KSEGR cx                    ; the kernel's DATA segment: wm_strseg's ES
+    cmp ax, cx                  ; for a kernel window (kern_mega's alias)
     jne .pkgset
     xor ax, ax
 .pkgset:

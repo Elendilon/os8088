@@ -881,6 +881,43 @@ whoever extends this:
     gap with no fault: a compaction that moves a driver image patches IVT
     vectors (mem_rr_walk) and not the IDT gates built from them.
 
+12. **The Victory reached it: protected mode, `protected, 286 reset`, the
+    mouse live - THE 286's WAY BACK WORKS ON IRON** (2026-10-17, the fourth
+    disk). Opening A: then faulted, `#GP 0000 at 0C60:73B2`: the `rep movsw`
+    of dsk_copy_seg_x, whose destination was KERNEL_SEG - in protected mode
+    the kernel's read-only CODE selector. Three disk-layer wrappers named
+    the kernel that way (`dsk_copy_in_x`, `dsk_get_dir_x`, `dsk_ico_stage`)
+    and the dock's icon path named it as `mov ax, cs`, and neither ratchet
+    sees a segment handed to a callee in a register. dsk_copy_seg_x takes
+    the data alias for a KERNEL_SEG destination now, once, for every
+    caller. Beside it, menu.inc's "is this a kernel window" asked CS and
+    not the data segment (item 2's trap, harmless only because the strings
+    are at one address either way).
+13. **BOCHS ENFORCES WHAT QEMU DOES NOT, and is now the check before a
+    field run.** Ubuntu's `bochs` 2.7 runs this tree with every segment
+    check a 286 makes: it reproduced item 12 EXACTLY - the same vector,
+    error code, CS:IP and even SP (1A65) as the photograph - from the disk
+    the Victory ran, and passed the fixed one through A:, C:, B:,
+    Calculator and Fractal, then faulted the Sticky Apps menu in
+    STIKMENU.DRV's own image (`2684:0018`, an LDT code alias), which is
+    the module work item 6 lists. The recipe: `BIOS-bochs-legacy` (the
+    default BIOS's 32-bit init crashes before booting anything here),
+    `pci: enabled=0`, `clock: sync=realtime` (otherwise the guest's clock
+    runs far ahead and the screen saver and a double-click's timing are
+    nonsense), `port_e9_hack: enabled=1` so the fault reporter's E9 dump
+    reaches stdout, and `mouse: type=ps2` driven on Xvfb with xdotool's
+    relative moves after Ctrl+middle-click grabs it (the guest moves one
+    pixel per two X pixels). The Debian build has the debugger compiled
+    in and stops at reset, so `c` goes in on stdin. Its CPU is a 386, so
+    the reflection takes CR0 and the 286 RESET path stays the Victory's to
+    prove - which it now has. A tool for it in tools/ is the next
+    instrument, not yet built.
+
+The alternating `kernel-full.bin` noted while measuring kern_big's
+identity is a `make mega` in the same tree: the sub-make leaves something
+in the shared `build/` that kern_big's next assembly reads, so the identity
+check is made in a fresh worktree, HEAD against the change.
+
 Items 7-9 reproduce on QEMU once it is given the Victory's devices - an
 AdLib (`-device adlib`) and a formatted IDE disk (`tools/os88hdd.py
 --noboot --raw`). **That is now the QEMU configuration for kern_mega**, and
@@ -923,6 +960,9 @@ froze there, in real mode (10.1 item 7); the second disk carries the fix.
    Control Panel and anything else that loads a module (KERN-MEGA-PLAN 10.1
    item 6) - each writes its own image through CS. A photographed fault line
    from one of those is a result, not a failure of the run.
+
+**On the fifth disk, after A:**, the steps above stand, and the Sticky Apps
+menu and the Control Panel fault as listed (Bochs has shown the first).
 
 **Not on this run:** pressing Play in the Audio Player or anything else that
 streams digital sound through the Sound Blaster - its IRQ discovery is the
