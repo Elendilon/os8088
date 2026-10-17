@@ -3267,6 +3267,29 @@ def coarse_cell(v):
 # first frame tried at each of these in turn, the first that the budgets
 # draw WHOLE taken, and the last when none is
 COARSE_LADDER = ("full", "16x4", "32x8", "64x8")
+# ...and on MODE X (the owner, 2026-10-17: "is there any reason that
+# doesn't apply to other display types?"). The cells pay where the screen
+# is PLANAR and a flat byte is one store for many pixels: VGA4's write mode
+# 3 (two stores by planes without it) and Mode X's Map Mask 0Fh, an aligned
+# group of four pixels of one colour a store (vid.modex_subs). On Mode X
+# the whole gain is the group's - Last Exile's scene changes drew in 32-51%
+# of their cycles at 4x1, and in exactly as many at 16x4, 32x8 and 64x8 -
+# so its ladder is one cell, the finest. On a PACKED screen a flat byte is
+# only a RUN, 13 cycles a byte against a slice's 18: Take On Me's Hercules
+# scene changes took 87-100% of their cycles in cells, so none there
+COARSE_LADDER_MX = ("full", "4x1")
+
+
+def coarse_screen(g):
+    """Do coarse cells pay on this screen? - a planar one's (VGA4, Mode X)"""
+    return g.layout == vid.LAY_MODEX or bool(getattr(g, "bitplanes", False))
+
+
+def coarse_of(e, target, cell):
+    """`target` in coarse cells of the encoder's colours: VGA4's sixteen,
+    Mode X's whole palette"""
+    return coarse_target(target, e.pal, cell, len(e.pal)
+                         if e.g.layout == vid.LAY_MODEX else 16)
 
 
 def enc_clone(enc):
@@ -3285,20 +3308,21 @@ def coarse_pick(enc, target, au):
     """--coarse-cut auto: the finest of COARSE_LADDER whose frame the
     budgets draw whole - tried on a copy of the encoder, so nothing it
     spends is spent"""
-    for cell in COARSE_LADDER[:-1]:
-        t = target if cell == "full" else \
-            coarse_target(target, enc.pal, cell)
+    lad = COARSE_LADDER_MX if enc.g.layout == vid.LAY_MODEX else \
+        COARSE_LADDER
+    for cell in lad[:-1]:
+        t = target if cell == "full" else coarse_of(enc, target, cell)
         e = enc_clone(enc)
         if cell != "full":
-            e.all3 = e.wm3
+            e.all3 = getattr(e, "wm3", False)
         c0 = e.stats["cut"]
         e.frame(t, au)
         if e.stats["cut"] == c0:
             return cell
-    return COARSE_LADDER[-1]
+    return lad[-1]
 
 
-def coarse_target(target, pal, cell):
+def coarse_target(target, pal, cell, n=16):
     """A COARSE CUT (--coarse-cut WxH): a scene's first frame as flat cells,
     each W x H of the picture the palette colour nearest the cell's mean.
     The new scene lands WHOLE in one frame - flat cells are long runs, and
@@ -3310,10 +3334,10 @@ def coarse_target(target, pal, cell):
     h, w = target.shape
     ph, pw = -h % ch, -w % cw
     t = np.pad(target, ((0, ph), (0, pw)), mode="edge")
-    rgb = np.asarray(pal, np.float32)[:16][t]
+    rgb = np.asarray(pal, np.float32)[:n][t]
     m = rgb.reshape(t.shape[0] // ch, ch, t.shape[1] // cw, cw, 3) \
         .mean((1, 3))
-    d = ((m[:, :, None] - np.asarray(pal, np.float32)[None, None, :16]) ** 2
+    d = ((m[:, :, None] - np.asarray(pal, np.float32)[None, None, :n]) ** 2
          ).sum(-1)
     k = d.argmin(-1).astype(target.dtype)
     out = np.repeat(np.repeat(k, ch, 0), cw, 1)[:h, :w]
@@ -3600,7 +3624,7 @@ VFR_AGAIN = 2           # frames until a cut is asked again, after the full
 # --step-down and --step-min
 DEGRADE_KINDS = ("lag", "slow", "coarse", "colours")
 DEGRADE_DEFAULT = "lag:100,coarse:auto,slow:5/6,colours:12,slow:2/3,slow:1/2"
-DEGRADE_COARSE = ("auto", "16x4", "32x8", "64x8")
+DEGRADE_COARSE = ("auto", "4x1", "16x4", "32x8", "64x8")
 
 
 def degrade_parse(spec):
@@ -8917,11 +8941,12 @@ def _encode(a, keep, tick, readers):
     ptgt = None                         # (the frame before, for a scene's)
     ahead = deque()
     sound = []
+    coarse_used = {}                    # (--coarse-cut: the cells drawn)
+    cells_at = set()                    # (...and the frames they may be at)
     if scene_pals:                      # the output frame each scene starts:
         pev_at = {(s0 + pre if s0 else 0): p for s0, p in scene_pals}
         scene_pre = pre
         wr.pev, pev_cut = [], []        # the pre-roll holds source frame 0
-        coarse_used = {}                # (--coarse-cut: the cells drawn)
         shot_cut = []                   # [first frame, frames, cut,
                                         # frames visibly broken] a scene
     bl0 = min(max(0.0, enc.disk.level - enc.reserve), enc.bank) \
@@ -8958,15 +8983,15 @@ def _encode(a, keep, tick, readers):
         # (not onto a page just FLIPPED to: page-ahead built that frame
         # nearer than any cells, and the cells are its fallback - the
         # options audit, 2026-10-14)
-        if a.coarse_cut != "off" and not lrungs and scene_pals and \
-                k in pev_at and k and not (p is not None and p.flipped):
+        if a.coarse_cut != "off" and not lrungs and k in cells_at and \
+                k and not (p is not None and p.flipped):
             # (a flat byte is ONE store in write mode 3 and up to two by
             # planes, and a flat run is one RUN: the cells fit a record)
             cell = a.coarse_cut if a.coarse_cut != "auto" else \
                 coarse_pick(e, target, au)
             if cell != "full":
-                draw = coarse_target(target, e.pal, cell)
-                e.all3 = e.wm3
+                draw = coarse_of(e, target, cell)
+                e.all3 = getattr(e, "wm3", False)
         held = hdraw = None
         if lsteps is not None and vreplay is None:
             if e.vlagn:
@@ -8979,8 +9004,8 @@ def _encode(a, keep, tick, readers):
             c = plan.get("CC", {}).get(k)
             if c is not None and draw is target:
                 cell = c
-                draw = coarse_target(target, e.pal, c)
-                e.all3 = e.wm3
+                draw = coarse_of(e, target, c)
+                e.all3 = getattr(e, "wm3", False)
         if vreplay is not None:
             if k in vreplay and draw is target:
                 held = True             # (nothing on the page shown: the
@@ -8988,8 +9013,8 @@ def _encode(a, keep, tick, readers):
                 ops, rec = e.frame(e.screen.copy(), au)
                 e.stats["exact"] -= 1
                 e.stats["holds"] = e.stats.get("holds", 0) + 1
-        elif vfr and not e.vplan and vfut and (draw is target or (
-                scene_pals and k in pev_at)) and not (
+        elif vfr and not e.vplan and vfut and (draw is target or
+                                                k in cells_at) and not (
                 (vempty or vstay) and scene_pals and k in pev_at):
             # (a flipped file holds no frame its palette changes at: the
             # palette goes on with the flip, onto the picture shown)
@@ -9007,17 +9032,17 @@ def _encode(a, keep, tick, readers):
                 pat, r, lg, lc, li = degrade_choose(
                     e, [target] + list(vfut)[:n - 1], au, lsteps, fps,
                     e.q_stp, draw, vcost, vempty, vshown, vstay,
-                    (lambda c, t=target: coarse_target(
-                        t, e.pal, c if c != "auto" else
+                    (lambda c, t=target: coarse_of(
+                        e, t, c if c != "auto" else
                         coarse_pick(e, t, au)))
-                    if scene_pals and k in pev_at and k else None)
+                    if k in cells_at and k else None)
                 if lg is not None:      # (the rung's lag, until level)
                     e.flag_lag, e.vlagn = lg, n
                 if lc is not None:
                     cell = lc if lc != "auto" else coarse_pick(e, target, au)
                     if cell != "full":
-                        draw = coarse_target(target, e.pal, cell)
-                        e.all3 = e.wm3
+                        draw = coarse_of(e, target, cell)
+                        e.all3 = getattr(e, "wm3", False)
                 e.vladder[li] = e.vladder.get(li, 0) + 1
                 if li:
                     e.vstretch.append((k, k + n, round(r * fps, 1)))
@@ -9169,6 +9194,7 @@ def _encode(a, keep, tick, readers):
     vfr = float(getattr(a, "min_fps", 0.0) or 0.0)
     lrungs = degrade_rungs(a)
     lsteps = None
+    coarse_on = coarse_screen(enc.g)    # (the cells pay: COARSE_LADDER_MX)
     if lrungs:
         # THE DEGRADE LADDER (--ladder): its rungs in place of --min-fps,
         # --lag's search and --coarse-cut, each kept only where this file
@@ -9177,8 +9203,11 @@ def _encode(a, keep, tick, readers):
         for kind, v in lrungs:
             no = "a sound card's sound (the lag catches up only on its " \
                 "clock)" if kind == "lag" and not lagon else \
-                "scene palettes (--scene-palettes)" if kind in (
-                    "coarse", "colours") and not scene_pals else \
+                "scene palettes (--scene-palettes)" if kind == "colours" \
+                and not scene_pals else \
+                "a planar screen - VGA's 16 colours or Mode X - where a flat "\
+                "cell is one store for many pixels" if kind == "coarse" and \
+                not coarse_on else \
                 "a file that is not Live or layered" if kind == "slow" and (
                     a.live or lay is not None) else \
                 "pixels to judge a rung by" if not enc.metric else None
@@ -9200,6 +9229,24 @@ def _encode(a, keep, tick, readers):
     enc.vlagn, enc.vladder, enc.vlagat, enc.vcellat = 0, {}, {}, {}
     if not hasattr(enc, "vkeep"):
         enc.vkeep = []
+    # THE FRAMES COARSE CELLS MAY BE AT (98.2.1.9): each scene's first - a
+    # palette a scene's own starts, or on a planar screen without them the
+    # same scene pass's cuts, read for the cells alone (one more read of
+    # the clip, at the canvas's size, its colours not used)
+    if coarse_on and (a.coarse_cut != "off" and not lrungs or any(
+            kind == "coarse" for kind, v in enc.vkeep)):
+        if scene_pals:
+            cells_at = set(pev_at)
+        else:
+            cuts = _once(a, ("cuts", lw, lh, crop, rate, spf, a.start, a.end,
+                             ":".join(eq), a.scene_cover, a.scene_min),
+                         lambda: [s0 for s0, px in scene_pass(
+                             a.src, lw, lh, crop, "%d/%d" % (rate, spf),
+                             a.start, a.end, ":".join(eq), cap=1,
+                             cover=a.scene_cover, least=a.scene_min)])
+            cells_at = {s0 + pre for s0 in cuts if s0}
+            say("   coarse cells: %d scene change(s), each drawn in cells "
+                "where it would be cut" % len(cells_at))
     if vfr and (lay is not None or a.live or not enc.metric):
         say("   --min-fps: not on a %s - %s" % (
             "layered file" if lay is not None else "Live file" if a.live
@@ -9796,7 +9843,7 @@ def _encode(a, keep, tick, readers):
                 lwhole, len(lc), ", the rest leaving %.0f pixels a change on "
                 "average" % (sum(lc) / max(1, len(lc) - lwhole))
                 if lwhole < len(lc) else ""))
-    if scene_pals and coarse_used:
+    if coarse_used:
         rep("base", "coarse cuts: %s (--coarse-cut %s)" % (", ".join(
             "%d %s" % (coarse_used[c], "whole" if c == "full" else c)
             for c in COARSE_LADDER + tuple(sorted(set(coarse_used) -
@@ -10066,7 +10113,8 @@ def _encode(a, keep, tick, readers):
                # 3a, wave 2)
                cutf=(st["cut"] + st.get("holds", 0)) / nf,
                cuts=st["cut"], holds=st.get("holds", 0),
-               ladder=dict(enc.vladder) if lsteps is not None else None)
+               ladder=dict(enc.vladder) if lsteps is not None else None,
+               cells=dict(coarse_used))
     if enc.metric and enc.q_frames:     # (98.2.1.8.1's comparison)
         pr = picture_report(enc.q_frames, enc.q_bad, fps)
         res.update(q_worst=pr[1], q_broken=pr[3] / fps)
@@ -10655,14 +10703,16 @@ def parser():
                          "the last scene's pattern stands in the new one and "
                          "fades out over its first frames")
     ap.add_argument("--coarse-cut", type=coarse_cell, default=COARSE_CELL,
-                    help="scene-palettes: draw each scene's first frame as "
-                         "flat cells this size (WxH), each the colour "
+                    help="vga4 and modex: draw each scene's first frame "
+                         "as flat cells this size (WxH), each the colour "
                          "nearest the cell's mean, so a cut BLOCKS IN where "
                          "it would chop - the detail follows in the frames "
                          "after, as a cut frame's remainder does; auto: the "
-                         "finest of whole, 16x4 and 32x8 the budgets draw "
-                         "whole, else 64x8; off: the cut drawn as it comes "
-                         "(default %s)" % COARSE_CELL)
+                         "finest the budgets draw whole - on vga4 of whole, "
+                         "16x4 and 32x8, else 64x8; on modex whole, else 4x1, "
+                         "its four pixels a store; off: the cut drawn as it "
+                         "comes. The planar screens only: on a packed one a "
+                         "flat cell saves little (default %s)" % COARSE_CELL)
     ap.add_argument("--vga4-order", choices=("dark", "planes"),
                     default="dark",
                     help="vga4 with its own sixteen: which slot each colour "

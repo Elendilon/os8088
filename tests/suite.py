@@ -13316,7 +13316,7 @@ SOAK = [
         "on the same clip is short - and a fixed bank is untouched. Broken "
         "on purpose (the first pass returning nothing) it FAILS",
         needs=("ffmpeg",)),
-    Row("vencgui", "soak", py("tests/vencguitest.py"), 90.0,
+    Row("vencgui", "soak", py("tests/vencguitest.py"), 200.0,
         "SPEC.md 98.2.8: the encoder's WINDOW without a window "
         "(tools/os88vencgui.py): every os88venc option on a tab with a "
         "tooltip, the untouched form parsing to the parser's own defaults, "

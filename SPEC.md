@@ -173378,8 +173378,9 @@ Cutting is what is left after the last rung. A rung's lag holds for its
 stretch and then until the picture is level, a frame being the floor. It
 sets `--lag`, `--min-fps`, `--coarse-cut`, `--step-down` and `--step-min`
 itself, which the encoder window greys while it is on; a rung the file
-cannot use (lag without a card's sound, cells or colours without a
-palette a scene, a slower rate on a Live or layered file) is LEFT OUT and
+cannot use (lag without a card's sound, cells off a planar screen,
+fewer colours without a palette a scene, a slower rate on a Live or
+layered file) is LEFT OUT and
 said, nothing else refused. With page-ahead the plan pass decides and the
 real passes replay its holds, lag and cells, and page-ahead's keep and
 its prune judge a file that may hold frames by its picture's measures and
@@ -173392,7 +173393,7 @@ Carrot's flipped tune 1.8% to 1.0%, Take On Me's Hercules file 5.5% to
 4.7%. `slow:5/6` first instead of `lag:100` made the same files. The
 window carries it as Size vs quality's second inner tab, Degrade ladder: a
 checkbox, a rung a row offering only the rungs the form can use, and under
-them Lag, Min fps, Slow cost and Flip hold (Slowing down, not cutting).
+them Lag, Min fps, Slow cost, Flip hold and Coarse cut (Instead of cutting).
 
 ##### 98.2.1.2 What a cut frame spends on: the look-ahead and the error as seen
 
@@ -175256,6 +175257,27 @@ reaches the player, the format or the kernel.
   page it had just built nearly whole. The plan now counts a frame drawn
   in cells as a target, as it does a cut one, and the cells are drawn
   only where no flip came.
+  **On every PLANAR screen since 2026-10-17, not a palette a scene's
+  alone** (the owner: *"is there any reason that doesn't apply to other
+  display types?"*). What the cells buy is a flat byte being ONE store for
+  many pixels, and that is a planar screen's: VGA4's write mode 3 (or two
+  stores by planes without it) and Mode X's Map Mask 0Fh, an aligned group
+  of four pixels of one colour a store (`vid.modex_subs`). Measured as the
+  cycles of a scene change drawn whole from the picture before against the
+  same in cells: Last Exile's Mode X changes took **32-51%** at 4x1 and
+  exactly as many at 16x4, 32x8 and 64x8 - the group IS the gain - so Mode
+  X's `auto` is the whole frame, else **4x1** (`COARSE_LADDER_MX`), a
+  quarter of the width for one frame and every row kept. On a PACKED
+  screen a flat byte is only a RUN, 13 cycles a byte against a slice's 18,
+  and Take On Me's Hercules changes took **87-100%** in cells, dithered the
+  file's own way: so not there, and the window greys `--coarse-cut` with
+  that reason (`coarse_screen`). Where there is no palette a scene, the
+  scenes are found by the same scene pass, run for the cells alone - one
+  more read of the clip at the canvas's size, its colours unused - and
+  `--scene-cover`/`--scene-min` act on it there too. Mode X's cells are
+  the nearest of its whole palette. A ladder's `coarse` rung follows: it is
+  offered on Mode X (`auto`, `4x1`) and on VGA4 with or without a palette a
+  scene, and left out on a packed screen.
 
 ##### 98.2.5.3 What the sixteen-colour options take together (the options audit, 2026-10-14)
 
@@ -175501,8 +175523,9 @@ page-ahead's against `--flip`, a loop and a layer, the prune's against
 page-ahead off, the layer group's against `--flip` - could grey nothing,
 and the window wrote command lines the encoder then refused. They are in
 the context now. The scene options (`--scene-cover`, `--scene-min`,
-`--step-down`, `--scene-hold`, `--coarse-cut`) follow whether a palette a
-scene APPLIES and not its checkbox, which a palette `auto` greys but does
+`--step-down`, `--scene-hold`) follow whether a palette a
+scene APPLIES and not its checkbox (`--coarse-cut` whether the screen is
+planar, and the first two either, 98.2.5.2), which a palette `auto` greys but does
 not clear. `--flip`, `--page-ahead` and `--page-prune` are a group of
 their own, *A second page*, whose rule is the screens with one - Mode X,
 16 colours on a screen of their own, and a Hercules: under the VGA group

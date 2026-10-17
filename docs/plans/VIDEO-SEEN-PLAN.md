@@ -302,12 +302,30 @@ is the trade they want, and the ladder is theirs to reorder per file.
 
 The tab carries the checkbox and six rungs, each a list of the rungs this
 form can use (a card's sound offers `lag`, the speaker does not; `coarse`
-and `colours` only for 16 colours a scene) - and under them **Slowing
-down, not cutting**: Lag, Min fps, Slow cost and Flip hold, moved there off
-**When a frame is cut**. Those are the global settings the ladder stands
-in for (Lag and Min fps grey while it is on; the charge and the held
-frames it uses), and taking them off Choices is what brought that tab back
-inside the default window with the inner tab bar on it.
+on a planar screen, `colours` only for 16 colours a scene) - and under
+them **Instead of cutting**: Lag, Min fps, Slow cost and Flip hold, moved
+there off **When a frame is cut**, and Coarse cut off **Scenes**. Those are
+the global settings the ladder stands in for (Lag, Min fps and Coarse cut
+grey while it is on; the charge and the held frames it uses), and taking
+them off Choices is what brought that tab back inside the default window
+with the inner tab bar on it.
+
+**Coarse cells left a palette a scene's for every PLANAR screen**
+(2026-10-17, SPEC.md 98.2.5.2; the owner: "is there any reason that
+doesn't apply to other display types?"). The gain is a flat byte being one
+store for many pixels, which is VGA4's write mode 3 and Mode X's Map Mask
+0Fh and nobody else's: a scene change drawn in cells took 32-51% of its
+cycles on Last Exile's Mode X (4x1 as cheap as 64x8 - the group of four is
+the gain, so Mode X's ladder is the one cell) and 87-100% on Take On Me's
+Hercules, where a flat byte is only a run. Mode X without a palette a scene
+finds its scenes with the same scene pass, read for the cells alone. On
+Last Exile with no ladder that is 24.3% -> 23.4% of the view broken and 400
+-> 389 frames cut (14 changes in 4x1, 4 whole); WITH the ladder it is the
+same file as before, because all 46 stretches the ladder decides are
+INSIDE shots and the coarse rung acts at a scene's first frame. A cell at
+any would-be cut, not only a scene's first, is the open question that
+leaves - a moving picture blurred across for a frame, which only the view
+as seen can price.
 
 What it was sketched as:
 

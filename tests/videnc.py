@@ -357,6 +357,56 @@ def main():
             bad.append("--ladder slow:2 (not under the rate) was taken")
         except vid.V88Error:
             pass
+        # --- 3c: COARSE CELLS ON A PLANAR SCREEN (98.2.5.2, 2026-10-17):
+        # a clip whose scene changes half way, on Mode X with no palette a
+        # scene - the scene pass finds the change, the cut it would be is
+        # drawn in 4x1 cells, the file is a valid one; and on a Hercules
+        # (a packed screen) no scene pass and no cells, the same bytes as
+        # --coarse-cut off
+        src2 = os.path.join(tmp, "scene.mkv")
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+             "testsrc2=size=320x180:rate=24:duration=1", "-f", "lavfi",
+             "-i", "mandelbrot=size=320x180:rate=24,trim=duration=1",
+             "-filter_complex", "[0:v][1:v]concat=n=2:v=1[v]", "-map",
+             "[v]", "-c:v", "ffv1", src2], check=True)
+
+        def run2(name, *args):
+            a2 = venc.parser().parse_args(
+                [src2, os.path.join(tmp, name + ".V88"), "--quiet",
+                 "--audio", "none"] + list(args))
+            return a2.out, venc.encode(a2, [])
+        # (page-ahead off: with it the change is built ahead and flipped
+        # to, and the cells are only its fallback - 98.2.5.2)
+        tight = ("--disk", "150000", "--avg", "1.0", "--peak", "1.0",
+                 "--owe", "0", "--profile", "floppy", "--reserve", "16",
+                 "--page-ahead", "off")
+        p_on, r_on = run2("mxon", "--preset", "modex", *tight)
+        p_off, r_off = run2("mxoff", "--preset", "modex", "--coarse-cut",
+                            "off", *tight)
+        vid.verify_v88(p_on)
+        h_on, rh_on = run2("hgon", "--preset", "herc", *tight)
+        h_off, rh_off = run2("hgoff", "--preset", "herc", "--coarse-cut",
+                             "off", *tight)
+        same = [bytes(x) for x, a_, i_ in vid.Reader(h_on).records()] == \
+            [bytes(x) for x, a_, i_ in vid.Reader(h_off).records()]
+        # (the records: the options block differs by the option itself)
+        print("   3c: a scene change on Mode X: cells %s, the view %.1f%% "
+              "broken, %.1f%% at its worst (off: cells %s, %.1f%%, %.1f%%); "
+              "on a Hercules cells %s, the frames %s --coarse-cut off's" % (
+                  r_on["cells"], 100 * r_on["q_seen"],
+                  100 * r_on["q_seen_worst"], r_off["cells"],
+                  100 * r_off["q_seen"], 100 * r_off["q_seen_worst"],
+                  rh_on["cells"],
+                  "the same as" if same else "NOT the same as"))
+        if not r_on["cells"].get("4x1") or r_off["cells"] or \
+                r_on["q_seen"] >= r_off["q_seen"] or \
+                r_on["q_seen_worst"] >= r_off["q_seen_worst"] or \
+                rh_on["cells"] or not same:
+            bad.append("coarse cells on a planar screen: Mode X %r (off %r), "
+                       "view %.4f against %.4f, Hercules %r, same bytes %s"
+                       % (r_on["cells"], r_off["cells"], r_on["q_seen"],
+                          r_off["q_seen"], rh_on["cells"], same))
         # --- 3a: W*H for WxH (98.2.1): accepted, and recorded as WxH
         pa = venc.parser().parse_args([src, "o.V88", "--box", "640*480",
                                        "--detail", "2*1", "--screen",

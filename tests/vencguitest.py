@@ -855,12 +855,39 @@ def ladder_leg(bad):
     spk = kinds(dict(base, audio="speaker"))
     v4 = kinds(dict(base, preset="vga4", pixfmt="vga4", palette="colour16",
                     scene_palettes="1", audio="pcm8"))
+    mx = dict(base, preset="modex", pixfmt="vga8", layout="modex",
+              audio="pcm8")
+    mxk = kinds(mx)
+    mxc = [t for _, t in G.ladder_options(G.form_context(mx))
+           if t.startswith("coarse")]
     print("   18: rungs offered - a card's sound %s, the speaker %s, 16 "
-          "colours a scene %s" % (card, spk, v4))
+          "colours a scene %s, Mode X %s (its cells %s)"
+          % (card, spk, v4, mxk, mxc))
     if "lag" not in card or "lag" in spk or "slow" not in spk or \
-            not {"coarse", "colours"} <= set(v4) or "coarse" in card:
-        bad.append("the rungs offered: card %s, speaker %s, vga4 scenes %s"
-                   % (card, spk, v4))
+            not {"coarse", "colours"} <= set(v4) or "coarse" in card or \
+            "coarse" not in mxk or "colours" in mxk or \
+            mxc != ["coarse:auto", "coarse:4x1"]:
+        bad.append("the rungs offered: card %s, speaker %s, vga4 scenes %s, "
+                   "Mode X %s %s" % (card, spk, v4, mxk, mxc))
+    # COARSE CELLS ARE A PLANAR SCREEN'S (98.2.1.9): live on Mode X and on
+    # VGA4 without a palette a scene, greyed on a packed one
+    _, wmx = G.group_state(mx)
+    _, wv4 = G.group_state(dict(base, preset="vga4", pixfmt="vga4",
+                                audio="pcm8"))
+    _, whg = G.group_state(dict(base, preset="herc", audio="pcm8"))
+    print("   18: Coarse cut - Mode X %s, VGA4 %s, Hercules %s; scenes found "
+          "on Mode X %s" % ("live" if wmx.get("coarse_cut") is None else
+                            "greyed", "live" if wv4.get("coarse_cut") is None
+                            else "greyed", "greyed" if whg.get("coarse_cut")
+                            else "live", "yes" if wmx.get("scene_min") is None
+                            else "no"))
+    if wmx.get("coarse_cut") or wv4.get("coarse_cut") or \
+            not whg.get("coarse_cut") or wmx.get("scene_min"):
+        bad.append("coarse cells' greying: Mode X %r, VGA4 %r, Hercules %r, "
+                   "Mode X's scenes %r" % (wmx.get("coarse_cut"),
+                                           wv4.get("coarse_cut"),
+                                           whg.get("coarse_cut"),
+                                           wmx.get("scene_min")))
     a = V.parser().parse_args(["in.mp4", "o.V88", "--ladder",
                                V.DEGRADE_DEFAULT])
     o = V.options_record(a)
