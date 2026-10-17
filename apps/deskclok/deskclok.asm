@@ -313,30 +313,37 @@ KSC_PGDN    equ 0x51
     DKV dk_snm, 1               ; ...and minute
     DKV dk_lsec, 1              ; the second the glass shows
     DKV dk_mono, 1              ; the primary is 1bpp
-    ; the settings window (dkset.inc)
-    DKV dk_swin, 2
+    ; THE FORMS (dkset.inc): the settings window and the alarm window, each
+    ; a record - its window (0 none), its layout, a button pressed + 1
+    ; (DKW_*) - and what only one of them has after it
+    DKV dk_swin, 2              ; the settings
+    DKV dk_sgeo, 2
+    DKV dk_sbtn, 1
     DKV dk_sav, DKP_LEN         ; the payload as last applied
-    DKV dk_sgeo, 2              ; its layout
-    DKV dk_sox, 2               ; its content's origin
-    DKV dk_soy, 2
-    DKV dk_sbtn, 1              ; a button pressed, + 1
     DKV dk_sdrop, 1             ; the size list is open
-    DKV dk_sfold, 1             ; the face before a change
     DKV dk_sbseg, 2             ; a paint's tall band: its claim, 0 none
     DKV dk_st0, 2               ; ...the tile rows: the first's y, the pitch
     DKV dk_spit, 2
-    ; the alarm window (dkalm.inc)
-    DKV dk_awin, 2
+    DKV dk_awin, 2              ; the alarm
     DKV dk_ageo, 2
-    DKV dk_aox, 2
-    DKV dk_aoy, 2
-    DKV dk_aon, 1               ; the edit: on, hour, minute, label
-    DKV dk_ah, 1
-    DKV dk_am, 1
-    DKV dk_afoc, 1              ; the field with the keys: 0 hour, 1 minute,
-                                ; 2 the label
     DKV dk_abtn, 1
+    DKV dk_aon, 1               ; the edit: on, then the hour, the minute
+    DKV dk_ah, 1                ; and the label as the payload has them
+    DKV dk_am, 1                ; (DKP_AH ..), one copy each way
     DKV dk_alab, DK_LABMAX + 1
+    DKV dk_afoc, 1              ; the field with the keys (DKAF_*)
+    DKV dk_fm, 2                ; the form being drawn or pressed: dk_fset / dk_falm
+    DKV dk_wox, 2               ; ...its content's origin on the glass
+    DKV dk_woy, 2
+    DKV dk_tent, 12             ; a gallery tile's entry, made (dk_tileent)
+dk_fset       equ dk_swin
+dk_falm       equ dk_awin
+DKW_WIN     equ 0
+DKW_GEO     equ dk_sgeo - dk_swin
+DKW_BTN     equ dk_sbtn - dk_swin
+    times -((dk_ageo - dk_awin != DKW_GEO) | (dk_abtn - dk_awin != DKW_BTN)) db 0
+DKA_EDIT    equ DKP_LABEL + DK_LABMAX + 1 - DKP_AH  ; dk_ah .. the label's NUL
+    times -((dk_am - dk_ah != DKP_AM - DKP_AH) | (dk_alab - dk_ah != DKP_LABEL - DKP_AH)) db 0
 %assign DKB (DKB + 15) & ~15
     DKV dk_band, DK_BANDSZ
 DK_BSS      equ DKB             ; a multiple of 16
