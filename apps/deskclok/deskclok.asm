@@ -1071,22 +1071,24 @@ dks_about:  db 'Desk Clock - 9 faces', 0
 
 ; dk_menulive - the items as the state stands: the toggles ticked, the face
 ; and the size marked, Snooze and Dismiss greyed when nothing rings (SPEC.md
-; 47). Keeps everything
+; 47). An item is stored ONCE with a two-cell gutter, and its mark is the
+; gutter's first byte - `*` or a space - written here (Sticky Note's Color
+; menu marks the same way). Keeps everything
 dk_menulive:
     push ax
     push bx
     push cx
     push si
     mov si, dk_i_clock + 2 * DKM_ONLY
-    mov bx, dk_t_only
-    mov al, DKF_ONLY
-    call .tog
-    mov bx, dk_t_secs
-    mov al, DKF_SECS
-    call .tog
-    mov bx, dk_t_h24
-    mov al, DKF_H24
-    call .tog
+    mov ah, DKF_ONLY            ; the three toggles: ONLY, SECS, H24
+.tg:
+    mov al, [DKP + DKP_FLAGS]
+    and al, ah
+    cmp al, ah
+    call .mk
+    shl ah, 1
+    cmp ah, DKF_ALARM
+    jb .tg
     mov bx, dk_i_snz            ; ringing: Snooze; snoozed or ringing:
     cmp byte [dk_ring], 0       ; Dismiss
     jne .s
@@ -1101,49 +1103,36 @@ dk_menulive:
     mov bx, dk_i_dis0
 .d:
     mov [si+2], bx
-    mov si, dk_i_face           ; the face marked
-    mov bx, dk_t_faces
-    mov cl, [DKP + DKP_FACE]
-    mov ch, DKF_N
+    mov si, dk_i_face           ; the face marked, then the size
+    mov ah, [DKP + DKP_FACE]
+    mov cx, DKF_N
     call .mark
-    mov si, dk_i_size
-    mov bx, dk_t_sizes
-    mov cl, [DKP + DKP_SIZE]
-    mov ch, 3
+    mov ah, [DKP + DKP_SIZE]
+    mov cl, 3
     call .mark
     pop si
     pop cx
     pop bx
     pop ax
     ret
-; SI = the item's slot, BX = its two strings (DKM_SZ apart), AL = the flag
-.tog:
-    test [DKP + DKP_FLAGS], al
-    jz .t0
-    add bx, DKM_SZ
-.t0:
-    mov [si], bx
-    add si, 2
-    ret
-; SI = the menu's slots, BX = its items' pairs, CL = the marked one, CH = n
+; SI = the menu's slots, AH = the marked one, CX = n
 .mark:
-    push dx
-    xor dl, dl
+    xor al, al
 .m:
-    cmp dl, ch
-    jae .mx
-    mov ax, bx
-    cmp cl, dl
-    jne .m0
-    add ax, DKM_SZ
-.m0:
-    mov [si], ax
-    add si, 2
-    add bx, 2 * DKM_SZ
-    inc dl
-    jmp short .m
-.mx:
-    pop dx
+    cmp al, ah
+    call .mk
+    inc al
+    loop .m
+    ret
+; ZF = 1 marks the item at [SI]; SI to the next slot
+.mk:
+    mov bx, [si]
+    mov byte [bx], ' '
+    jne .k
+    mov byte [bx], '*'
+.k:
+    inc si
+    inc si
     ret
 
 ; --- the clock's window (SPEC.md 110.11, 110.14) ------------------------------
@@ -1172,38 +1161,44 @@ DKM_N       equ 7
 dk_m_clock: db 'Clock', 0
 dk_m_face:  db 'Face', 0
 dk_m_size:  db 'Size', 0
-dk_i_clock: dw dk_i_set, dk_i_alm, 0, 0, 0, 0, 0
-dk_i_face:  times DKF_N dw 0
-dk_i_size:  times 3 dw 0
+dk_i_clock: dw dk_i_set, dk_i_alm, dk_t_only, dk_t_secs, dk_t_h24, 0, 0
+dk_i_face:  dw dk_t_f0, dk_t_f1, dk_t_f2, dk_t_f3, dk_t_f4, dk_t_f5
+            dw dk_t_f6, dk_t_f7, dk_t_f8
+dk_i_size:  dw dk_t_s0, dk_t_s1, dk_t_s2
 dk_i_set:   db 'Settings...  Enter', 0
 dk_i_alm:   db 'Alarm...  A', 0
 dk_i_snz:   db 'Snooze  Z', 0
 dk_i_snz0:  db MENU_DIS, 'Snooze (not ringing)', 0
 dk_i_dis:   db 'Dismiss  D', 0
 dk_i_dis0:  db MENU_DIS, 'Dismiss (not ringing)', 0
-DKM_SZ      equ 24              ; an item's two strings: off, then on
-%macro DK_ITEM 1+
-%%off:  db '  ', %1, 0
-        times DKM_SZ - ($ - %%off) db 0
-%%on:   db '* ', %1, 0          ; marked as Sticky Note's Color menu marks
-        times DKM_SZ - ($ - %%on) db 0
-%endmacro
-dk_t_only:  DK_ITEM 'Clock Face Only  F'
-dk_t_secs:  DK_ITEM 'Show Seconds  S'
-dk_t_h24:   DK_ITEM '24-Hour Clock  H'
-dk_t_faces: DK_ITEM 'Classic'
-            DK_ITEM 'Memphis ', 27h, '80'
-            DK_ITEM 'Neon ', 27h, '90'
-            DK_ITEM 'Mono Digital'
-            DK_ITEM 'Casio LCD'
-            DK_ITEM 'Casio VGA'
-            DK_ITEM 'Red LED'
-            DK_ITEM 'Amber LED'
-            DK_ITEM 'Flip Clock'
-dk_t_sizes: DK_ITEM 'Small'
-            DK_ITEM 'Medium'
-            DK_ITEM 'Large'
+%macro DK_ITEM 2+               ; label, text: the mark's gutter, the text -
+%1:     db '  ', %2, 0          ; and the face's and the size's NAME is the
+%endmacro                       ; text, at the label + 2 (dk_faces, dkss_sizes)
+DK_ITEM dk_t_only, 'Clock Face Only  F'
+DK_ITEM dk_t_secs, 'Show Seconds  S'
+DK_ITEM dk_t_h24,  '24-Hour Clock  H'
+DK_ITEM dk_t_f0,   'Classic'
+DK_ITEM dk_t_f1,   'Memphis ', 27h, '80'
+DK_ITEM dk_t_f2,   'Neon ', 27h, '90'
+DK_ITEM dk_t_f3,   'Mono Digital'
+DK_ITEM dk_t_f4,   'Casio LCD'
+DK_ITEM dk_t_f5,   'Casio VGA'
+DK_ITEM dk_t_f6,   'Red LED'
+DK_ITEM dk_t_f7,   'Amber LED'
+DK_ITEM dk_t_f8,   'Flip Clock'
+DK_ITEM dk_t_s0,   'Small'
+DK_ITEM dk_t_s1,   'Medium'
+DK_ITEM dk_t_s2,   'Large'
 
+; DK_PARITY p - 0 or 1 byte, so the next byte's offset has parity p: the hot
+; code's (the composer, the faces, the clock's paint and its hands) stays at
+; the parity it was measured at whatever the cold code around it does - an
+; odd shift re-prices every word fetch on a 16-bit bus (tools/os88rdiff.py)
+%macro DK_PARITY 1
+    times (($ - $$) + %1) & 1 db 0
+%endmacro
+
+    DK_PARITY 1                 ; dk_lc's, measured (SPEC.md 110.14.4)
 %include "dkdraw.inc"
 %include "dkface.inc"
 

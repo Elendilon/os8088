@@ -117,10 +117,7 @@ dkss_cancel: db 'Cancel', 0
 dkss_apply:  db 'Apply', 0
 dkss_ok:     db 'OK', 0
 dkss_title:  db 'Desk Clock Settings', 0
-dkss_sizes:  dw dkss_s0, dkss_s1, dkss_s2
-dkss_s0:     db 'Small', 0
-dkss_s1:     db 'Medium', 0
-dkss_s2:     db 'Large', 0
+dkss_sizes:  dw dk_t_s0 + 2, dk_t_s1 + 2, dk_t_s2 + 2   ; the Size menu's
 DKS_LROW    equ 12              ; the size list's row
 
 dk_tick12:  db 8                 ; inside a 12-px box, from its third row

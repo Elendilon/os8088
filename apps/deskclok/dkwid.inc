@@ -228,6 +228,8 @@ dk_geom:
     pop ax
     ret
 
+    DK_PARITY 1                 ; the paint and the hands: their measured
+                                ; parity (deskclok.asm's DK_PARITY)
 ; -----------------------------------------------------------------------------
 ; dk_pcard - STIK_PAINTCARD: AL = the card (0), BX..DX its damaged rows
 ; (card-local); [stik_fx], [stik_cy] the card on the glass, the clip armed.
