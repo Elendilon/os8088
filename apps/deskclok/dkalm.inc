@@ -24,9 +24,10 @@ DKAF_MIN    equ 1
 DKAF_AMPM   equ 2
 DKAF_LABEL  equ 3
 
-; the alarm's two layouts - dkset.inc's form machine (DKSE, DKST_*, DKB_*):
-; no gallery, so no preview widths
-dk_ageos:   dw dka_tall, dka_tall, dka_comp
+; the alarm's ONE layout, on every screen class - dkset.inc's form machine
+; (DKSE, DKST_*, DKB_*): no gallery, so no preview widths. It is 92 rows, so
+; CGA's 200 hold it as well as VGA's 480 (SPEC.md 110.14.7)
+dk_ageos:   dw dka_tall, dka_tall, dka_tall
 dka_tall:
     dw 92
     db 0, 0
@@ -43,23 +44,6 @@ dka_tall:
     DKSE DKST_FLD, DKAF_LABEL, 64, 46, 160, 14, 0
     DKSE DKST_BTN, DKB_CANCEL, 96, 70, 60, 16, dkss_cancel
     DKSE DKST_BTN, DKB_OK, 164, 70, 60, 16, dkss_ok
-    db DKST_END
-dka_comp:
-    dw 66
-    db 0, 0
-    dw DKA_W
-    DKSE DKST_CHK, DKF_ALARM, 8, 2, 120, 12, dkas_on
-    DKSE DKST_TEXT, 0, 8, 18, 0, 0, dkas_time
-    DKSE DKST_FLD, DKAF_HOUR, 64, 16, 26, 12, 0
-    DKSE DKST_TEXT, 0, 94, 18, 0, 0, dkas_colon
-    DKSE DKST_FLD, DKAF_MIN, 102, 16, 26, 12, 0
-    DKSE DKST_FLD, DKAF_AMPM, 134, 16, 26, 12, 0
-    DKSE DKST_BTN, DKB_MINUS, 170, 16, 24, 12, dkas_minus
-    DKSE DKST_BTN, DKB_PLUS, 200, 16, 24, 12, dkas_plus
-    DKSE DKST_TEXT, 0, 8, 34, 0, 0, dkas_label
-    DKSE DKST_FLD, DKAF_LABEL, 64, 32, 160, 12, 0
-    DKSE DKST_BTN, DKB_CANCEL, 96, 50, 60, 12, dkss_cancel
-    DKSE DKST_BTN, DKB_OK, 164, 50, 60, 12, dkss_ok
     db DKST_END
 dkas_on:    db 'Alarm on', 0
 dkas_time:  db 'Time:', 0

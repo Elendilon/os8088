@@ -193747,6 +193747,9 @@ Left/Right walk the hour, the minute, the AM/PM (12-hour only) and the label;
 Up/Down and `-`/`+` step the hour or the minute round its dial; a digit types
 into one (the field's last digit becomes its tens); Space ticks the box
 outside the label; letters and Backspace edit the label (16 characters).
+It has ONE layout (`dka_tall`) on every adapter: 92 rows of content, which
+CGA's 200 hold as easily as VGA's 480, so the COMPACT one it had for CGA
+went (-151 bytes of image, -71 of the file, §110.14.8).
 
 **It rings** at its minute, once a day: the tick that sees a new minute
 compares it with the alarm's (or a snooze's), and `[dk_lfire]` keeps it to
@@ -193759,10 +193762,10 @@ tomorrow. Neither is modal and neither takes the keys (§110.3's rules).
 
 #### 110.14.8 What it costs
 
-**No kernel byte.** The shipped `DESKCLOK.O88` is a 19,696-byte image and
-5,368 bytes of bss (its band 4,608 of it), 17,054 bytes packed on the disk -
-34 clusters of 512 bytes on the 360 KB system disk (§19.3.2), 17 of 1 KB on
-the 720 KB one. At run time it claims
+**No kernel byte.** The shipped `DESKCLOK.O88`, on the shared Sticky App
+library (§110.15), is a 16,592-byte image and 5,216 bytes of bss, 14,087
+bytes packed on the disk - 28 clusters of 512 bytes on the 360 KB system
+disk (§19.3.2), 14 of 1 KB on the 720 KB one. At run time it claims
 the face cache (above) and, for a colour settings paint, its tall band.
 `os88stik.inc` gained `STIK_VARFACE`, which neither other Sticky App
 defines, so their builds are unchanged.
@@ -193772,7 +193775,7 @@ defines, so their builds are unchanged.
 and the worker arm are code only a damaged system disk reaches, and there a
 launch is refused in its own words (`No desk layer (DESK.DRV)`). The small
 system disks carry `build/smallapp/deskclok.o88` instead (`-DAPP_SMALL`,
-`$(SMALLSTIKAPPS)`) - 20,080 bytes of image, 5,368 of bss, 17,343 packed -
+`$(SMALLSTIKAPPS)`) - 19,936 bytes of image, 5,368 of bss, 17,277 packed -
 which keeps both, because kern_small has no desk layer; same source, same
 bss, same state file, and `t_stik` holds each system disk to its own build.
 
@@ -193804,7 +193807,11 @@ on both builds. Then `dk_strs` got its one entry back - the size pass had
 put a comment in front of `dw dks_casio` on the same line, so both Casio
 faces drew whatever lay at the string's own first two bytes taken as a
 pointer instead of `CASIO` - for 0 image bytes (the paragraph pad) and the
-file's 17,054.
+file's 17,054. On the library (§110.15) the clock read 16,736 / 14,158, and
+the alarm window's ONE layout (§110.14.7) took it to **16,592 (-144; -151
+before the paragraph pad) and 14,087 (-71)**, the small build's to 19,936
+and 17,277 (-66) - `os88rdiff.py --hot` again all 70 identical at an even
+shift on both.
 
 **The forms.** `Desk Clock Settings` and `Alarm` are two LAYOUTS - tables
 of 12-byte entries, a control at a rect, in one type numbering - and two bss
