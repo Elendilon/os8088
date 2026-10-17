@@ -59,9 +59,9 @@ measured and its source is named.
    while DS and ES point at a claim or at VRAM have to be restructured.
 6. **Packages: ~24 of 58 look clean, ~5 need an SDK fix, ~29 need real
    work.** That is with ring 0 and the identity map. The DOS box cannot run
-   on a 286 under protected mode at all. Its route is kern_dos's handoff
-   (SPEC.md 96.49), which resets to real mode and gives the program the
-   machine.
+   *under* 286 protected mode. It can run *beside* it: drop to real mode for
+   the bracket, run kern_dos from the HMA, and park the kernel in extended
+   memory. That is feasible, ~630KB, and needs no hibernate (2.7).
 7. **Overlap with kern_big is high by line count and low by risk.** About
    38% of the kernel's 147,067 lines sit in the 21 files that contain any
    mode-bound code, and roughly a third of those lines are actually bound.
@@ -283,11 +283,10 @@ for DS. A package that compares CS with DS, or registers CS as its data
 
 * **The DOS box** (SPEC.md 96) runs native real-mode code. It banks and
   rewrites the whole IVT, and its programs call the ROM, program the PIT and
-  PICs, and may close A20. On a 286 under protected mode it is impossible.
-  What remains is the **kern_dos** handoff (SPEC.md 96.49): drop the OS
-  entirely, reset to real mode, give the program the machine, and come back
-  through a resume. kern_mega's resume has to rebuild protected mode, which
-  kern_dos's does not.
+  PICs, and may close A20. It cannot run *under* protected mode on a 286.
+  It can run *beside* it, for the length of an fsx bracket. Section 2.7 is
+  the feasibility check. The DOS box is one program and not part of this
+  design, so 2.7 is a verdict, not a plan.
 * **Hibernate** (`hiber.inc`, `hbstub.inc`). The resume stub lives in the
   text framebuffer and reads the image back with `int 13h`. A protected-mode
   image has state above 1MB, so the stub must be able to land it there. Use
@@ -296,6 +295,71 @@ for DS. A package that compares CS with DS, or registers CS as its data
 * **XMEM.DRV, LOADALL and `ub_set`** (SPEC.md 41.13, 41.15) become
   pointless. Extended memory is just a descriptor away. The video player's
   decode-in-place path is what it is today on a 386, but done properly.
+
+### 2.7 The DOS box: drop to real mode for the bracket — FEASIBLE
+
+The owner's proposal:
+
+* Leave protected mode for the length of the fsx bracket.
+* Carry the "real-mode kernel bits" as a `DOS.O88` part that ships only on
+  kern_mega.
+* Load that part into the HMA.
+* Leave the protected-mode kernel parked, untouched, in extended memory.
+
+The program then gets 600+KB without a hibernate. **This holds up, and most
+of it is already built.**
+
+* **The real-mode kernel bits exist.** kern_dos *is* that part. It is the
+  kernel's own `disk.inc`/`diskw.inc` plus the DOS core, shipped inside
+  `DOS.O88` (SPEC.md 96.49, `kerndos/`). Its image rung is
+  **33KB** (`KD_IMG_KB`, `kerndos/kdlayout.inc`), so it fits the HMA's
+  65,520 bytes with half to spare. `.cold` already runs from the HMA at
+  `vstart=0x10` (SPEC.md 2.10.7), which is the precedent for assembling
+  kern_dos the same way.
+* **What stays in conventional memory**:
+  * the IVT and BDA (1.25KB);
+  * the mount buffers and stack (`KD_LOW_KB` = 3);
+  * the FAT snapshot;
+  * a low entry stub.
+
+  The buffers must stay low: `dsk_runcap` already keeps HMA buffers out of
+  `int 13h`, because a BIOS computes a 20-bit DMA address. The stub's whole
+  job is to re-open A20 before jumping to `FFFF:`, which is how DOS=HIGH
+  survives programs that close the gate. **Estimate: ~5-8KB low, so ~630KB
+  for the program**, against 584KB through today's hibernate path.
+* **The package heap has to go somewhere.** In kern_mega the conventional
+  heap is full of packages. Before the drop, the kernel copies the heap up
+  into extended memory, and on return copies it back *to the same
+  addresses*. Identity selectors mean nothing needs relocating. At the
+  Victory's ~0.3 ms/KB that is ~0.2 s each way.
+* **The transitions:**
+  * **In** is one reset: PIC back to 08h, the BIOS's IVT and BDA banked at
+    boot and restored, shutdown code 0Ah, then 40:67 to the stub. ~412 µs,
+    once.
+  * **Out** is cheap: real mode to protected mode needs no reset, just
+    `lmsw` and a far jump.
+* **The machine has to be big enough.** It needs extended memory for the
+  kernel, the parked heap (up to ~600KB) and the HMA. That is a ~1.6MB
+  machine or more. Below that, the hibernate route kern_dos already uses
+  stays as the fallback.
+* **The risk is not real mode. It is DOS programs that use extended memory
+  themselves**: `int 15h` AH=87h/88h users, VDISK-style RAM disks, and
+  286 DOS extenders (DOS/16M, Phar Lap 286, Lotus 1-2-3 r3). Today none of
+  them can hurt an os8088 that lives in conventional memory. Here they can
+  overwrite the parked kernel. Three defences:
+  1. Report AH=88h as 0.
+  2. Hand out extended memory only through the box's XMS door (SPEC.md
+     96.15), from what lies above the kernel.
+  3. **Checksum the kernel's extended memory on the way out and on the way
+     back in.** On a mismatch, refuse to resume and cold-boot with a message
+     that names the program, instead of running a corrupted kernel.
+  The checksum costs about 0.3 s per 512KB on a 16 MHz 286, which is an
+  estimate. Programs that respect XMS or AH=88h (the ones that worked under
+  HIMEM) are safe. A program that ignores both is caught by the checksum
+  rather than trusted.
+* **Not "every DOS program".** The box's own limits still stand (SPEC.md 96,
+  and DOS-EXEC-PLAN's section 10). What changes is the memory and the speed
+  of getting in and out: no hibernate write, no kernel reload.
 
 ---
 
@@ -537,10 +601,14 @@ ems, ramdisk and hddtool.
 
 ---
 
-## 8. The decision to take first: 286 or 386
+## 8. The floor: 286 — DECIDED (2026-10-17)
 
-The owner said 286+. That choice is the most expensive word in the request,
-so here it is costed against the alternative.
+**The owner has decided: the 286 is the target.** kern_mega is still a
+build for slow, old machines, not for Pentiums, and the 286 is the oddball
+any such build has to meet. The table stays as the record of what that choice
+costs against a 386 floor. The one thing worth keeping from the 386 column is
+a later *tier inside* kern_mega: a 386 could use V86 for unmodified packages
+without changing the 286 build.
 
 | | 286 floor (this file) | 386 floor |
 |---|---|---|
@@ -573,9 +641,15 @@ grid argument does not change.
   * timing.
 * **86Box** has the `286`, `286-525`, `286-sound` and `286-video` profiles
   for looking, but it cannot be scripted.
+* **An 86Box harness is the owner's preferred route.** That means adding to
+  86Box the socket MartyPC's debug server gives this tree: screenshot, key
+  and mouse injection, and guest-memory reads, so that `os88ui` can drive
+  it. It is a big, standalone project and not part of this branch. Until it
+  exists, QEMU carries protected-mode semantics, and 86Box is for looking
+  only.
 * **MAME's `ibm5170`** is a 286 with a debugger and Lua scripting. It is
-  **not evaluated here**, and it is the one candidate for an automatable
-  286.
+  **not evaluated here**. It is the fallback candidate if the 86Box harness
+  stalls.
 * **The owner's Victory 286** is the field reference, and the only place the
   reflection cost has been measured.
 
@@ -590,13 +664,13 @@ symbol reader (kernel bodies above 1MB, behind LDT bases), before a single
 
 | wave | content | boots? |
 |---|---|---|
-| **M0** | decide: the floor (section 8), ring 0, the identity map, whether kern_mega is `KERN_BIG`-additive | — |
+| **M0** | decide: ring 0 (the floor is 286, section 8), the identity map, whether kern_mega is `KERN_BIG`-additive | — |
 | **M1** | protected-mode entry after stage 2. GDT identity map, IDT, PIC remap, a #GP/#NP/#SS reporter. Native IRQ0, keyboard and CMOS. Floppy and video by reflection **with IRQs masked**. Kernel still at 0x0060, with code and data selectors split. The sweep: `[cs:]` writes, `push cs`, the `OSAPI_SLOT` cells. **The `[cs:]` gate lands here.** Only the ~24 clean packages run | QEMU, a desktop |
 | **M2** | native 765 + 8237 floppy. HDD rung 1 absorbed into the kernel. Reflection stays only for ROM-only disks, which refuse if they are slow | QEMU + 86Box 286 |
 | **M3** | LDT allocator. `.cold`, modules and caches above 1MB. Conventional memory becomes package heap. Stable selectors for LDT claims, so no relocation procs | QEMU, measured heap |
 | **M4** | SDK: code aliases for claims (`cc_ovbind`, `os88partsbody.inc`), `OS88_HUGE_INCR`, the shared speaker and pcm includes. The C packages are rebuilt | +11 packages |
 | **M5** | per-package rework, worst first by usefulness rather than by size | — |
-| **M6** | the DOS box through a kern_dos handoff with a protected-mode resume; hibernate | field |
+| **M6** | the DOS box beside protected mode (2.7, its own plan first); hibernate | field |
 | later | ring 3 + call gates (an ABI flag day, SPEC.md 20.2.0.1); a 386 tier inside kern_mega | — |
 
 M1 is the experiment that settles whether this is worth continuing. It needs
@@ -607,7 +681,7 @@ shows what the sweep really costs in a shared file.
 
 ## 11. Open questions
 
-1. **The floor.** 286 or 386 (section 8). Everything else depends on it.
+1. ~~The floor~~ — **286, decided** (section 8).
 2. **Minimum extended memory.** kern_mega needs the GDT (64KB) plus the
    kernel above 1MB. A 1MB 286 (384KB extended) holds today's kern_big-sized
    kernel. A 512KB kernel needs a ~1.6MB machine. Is a kern_mega machine
