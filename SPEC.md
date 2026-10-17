@@ -174881,9 +174881,10 @@ hold FAILS.
 ###### 98.2.1.8.4 Page-ahead ON N PAGES (`--pages`, 2026-10-15)
 
 **`--pages N` (3 to 8, or `max`) writes 98.1.3.7.1's file**: N-1 hidden
-pages, each built toward a scene change of its own (`PageAheadN`). The
-default is 2, today's file, which every player since 98.3.8.3 plays, and a
-2 encodes byte for byte as before in every record and key. `max` is every
+pages, each built toward a scene change of its own (`PageAheadN`). `max`
+is THE DEFAULT since 2026-10-17 (the owner) - every page the file can use,
+two for a layered file; 2 is the file every player since 98.3.8.3 plays,
+and a 2 encodes byte for byte as before in every record and key. `max` is every
 page the screen holds in a plane's 64 KB: Mode X 3, Mode X on 320 x 200 4
 (98.1.3.1.1), sixteen colours on 320 x 200 4 and on 320 x 240 3. A
 Hercules has 2, and a layer refuses more than 2 (98.1.9). The measurement
@@ -176033,6 +176034,22 @@ offers the chosen type first, a name already on the line and a source's
 default name both take its extension, and a name typed or browsed to with
 the other extension moves the box to match - so a speaker WAV is a choice
 the window shows and not a file type buried in a Save dialog.
+
+**A list offers what the file can take** (2026-10-17, the owner: "change
+the options in the dropdown based on the layout, to only what it actually
+supports... and not force the user to guess it"). `FIELD_CHOICES` is the
+table, each rule the encoder's own refusal read the other way, re-read on
+every change the groups are: **Pixfmt** by the layout (CGA mono, composite
+or four colours; Hercules mono; lin80 mono or 16 colours; lin320 and Mode
+X 256; the text layouts their own); **Screen** - 16 colours on lin80 its
+seven, Live or resident 640x480 alone, Mode X 320x240 (its own, which the
+form fills in for a Mode X target and the encoder takes as the default:
+it said 640x480, which no Mode X file plays on, and refused 320x240) or
+320x200; **Palette** on 16 colours up to sixteen, Live or resident `auto`
+alone; **Pages** 2 to what the screen holds (`pages_most`, `page_count`'s
+rule) and `max`; **Coarse cut** Mode X's 4x1 or VGA4's cells; **Frame
+cap** a stream's 32 KB for Live or resident; and **Layer profile** never
+`lossless`. A blank's word stays in every list.
 
 
 #### 98.2.9 The pre-roll: the first picture is whole before the keyframes start
