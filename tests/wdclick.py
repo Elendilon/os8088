@@ -63,7 +63,7 @@ out from its top row TWICE to move one caret bar: measured on a cycle-accurate
          which made a bold cell a refusal, and a style is not a reason to
          cache less
 """
-import os, sys, subprocess, tempfile, argparse, functools
+import os, sys, subprocess, tempfile, argparse, functools, glob
 print = functools.partial(print, flush=True)
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, "tools"); sys.path.insert(0, "tests")
@@ -124,7 +124,13 @@ ap.add_argument("--machine", default="os8088_5150_cga_gla")
 a = ap.parse_args()
 syms, image = pkg_syms()
 DISK = "build/wdclickgate.img"
-M.scratch_disk(DISK, "build/word.o88", "build/WELCOME.DOC")
+# ...AND THE FACES, in the disk's own SYSTEM/FONTS: the 360KB system disk
+# gave them to office360.img (SPEC.md 24.3.1.5), and Word looks on its OWN
+# volume when the system disk has none (apps/os88type.inc's ty_gofonts) - so
+# without them leg G's Font list is the one built-in face and G is vacuous
+M.scratch_disk(DISK, "build/word.o88", "build/WELCOME.DOC",
+               *["SYSTEM/FONTS:" + f
+                 for f in sorted(glob.glob("build/faces/*.f88"))])
 S = lambda n: m.sym(n)
 
 with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
