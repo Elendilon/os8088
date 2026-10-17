@@ -48,11 +48,13 @@ were written the same afternoon. So:
      build; and STIK_HOVER_T / STIK_LEAVE_T are kern_big's DOCK_HOVER_T /
      DOCK_LEAVE_T, which the widget reuses by value (SPEC.md 30.6).
   N  Sticky Note's numbers are the host tool's (SPEC.md 110.13): the
-     payload's layout (stiknote.asm's SNP_* / SN_* against os88stik.py's
+     payload v2's layout (stiknote.asm's SNP_* / SN_* against os88stik.py's
      STIKNOTE_*), the bss fields tests/stiknote.py reads, where the pad's
-     and the editor's presses land, and both geometry tables - each
-     EVALUATED BY NASM - and STIKNOTE.O88 rides every system image beside
-     the calendar (E) and no data image (F).
+     presses land, and its geometry table - each EVALUATED BY NASM - and
+     STIKNOTE.O88 rides every system image beside the calendar (E), with
+     its NOTES folder - SYSTEM/APPDATA/NOTES with STIKNOTE_SLOTS directory
+     slots and WELCOME.TXT, build/notes/WELCOME.TXT byte for byte - and
+     neither rides a data image (F).
   G  the Desk Calendar's numbers are the host tool's: the payload's layout
      (deskcal.asm's DCP_* against os88stik.py's DESKCAL_*), its own bss
      fields the soak rows read out of a running guest (DC_BSS_*), and the
@@ -183,6 +185,8 @@ DATA_IMAGES = ["apps.img", "apps120.img", "apps720.img", "apps360.img",
                "media360.img", "office360.img", "network360.img",
                "games360.img"]
 OPTIONAL_DATA = ["smallapps.img", "smallapps360.img"]   # `make smallapps`
+NOTES_DIR = os88stik.STIKNOTE_DIR      # Sticky Note's notes (SPEC.md 110.13.1)
+NOTES_SLOTS = os88stik.STIKNOTE_SLOTS  # '.', '..' and 30 notes
 
 
 def walk(path):
@@ -198,7 +202,8 @@ def walk(path):
                                  else "")
         key = p + name
         if attr & 0x10:
-            out[key + "/"] = None
+            chain, _ = v.chain(clus)        # a folder: its DIRECTORY SLOTS
+            out[key + "/"] = len(chain) * v.spc * v.byts // 32
             continue
         data = bytearray()
         chain, _ = v.chain(clus)
@@ -254,19 +259,20 @@ def deskcal_equs(tmp):
 
 def stiknote_equs(tmp):
     """stiknote.asm's own numbers, evaluated by NASM - deskcal_equs' shape:
-    the payload, the bss fields the soak row reads, and the pad's and the
-    editor's geometry tables."""
-    names = ["SNP_LEN", "SNP_VER", "SN_MAXN", "SN_POOL", "SNP_N", "SNP_CUR",
-             "SNP_FLAGS", "SNF_DESK", "SNF_INIT", "SNP_COL", "SNP_LENS",
-             "SNP_POOL", "SN_BOX0", "SN_BOX1", "SN_NCOL", "SN_BSS",
-             "sne_win - os88_image_end", "sne_open - os88_image_end",
-             "sne_car - os88_image_end", "sne_top - os88_image_end",
+    the payload, the bss fields the soak row reads, and the pad's geometry
+    tables."""
+    names = ["SNP_LEN", "SNP_VER", "SNP_NAME", "SNP_FLAGS", "SNP_NC",
+             "SNP_TAB", "SN_COLSZ", "SN_MAXC", "SN_BOX0", "SN_BOX1",
+             "SN_NCOL", "SN_HEAD", "SN_MAXKB", "SN_BSS",
+             "sn_n - os88_image_end", "sn_cur - os88_image_end",
+             "sn_hlen - os88_image_end", "sn_doc - os88_image_end",
+             "sn_ask - os88_image_end", "sn_wslot - os88_image_end",
+             "sn_hbuf - os88_image_end",
              "stik_st - os88_image_end", "stik_file - os88_image_end",
              "STIK_FACE_W", "STIK_PAYLEN", "STIK_PAYVER", "SNP_S", "SNP_TW",
              "SNP_BTW", "SNP_PLUSX", "SNP_PREVX", "SNP_NEXTX", "SNP_OPENX",
-             "SNP_BX", "SNP_BTX", "SNE_LW", "SNE_NEWX", "SNE_NEWW",
-             "SNE_DELX", "SNE_DELW", "SNE_CBX", "snp_geos", "SNPG_SZ",
-             "sne_geos", "SNEG_SZ", "snp_lays", "STIKL_SZ"]
+             "SNP_BX", "SNP_BTX", "snp_geos", "SNPG_SZ", "snp_lays",
+             "STIKL_SZ"]
     src = open(os.path.join(ROOT, "apps", "stiknote", "stiknote.asm")).read()
     probe = ("\n    db 'T_STIK_PROBE'\n" +
              "".join("    dw %s\n" % n for n in names))
@@ -283,7 +289,6 @@ def stiknote_equs(tmp):
     i = b.index(b"T_STIK_PROBE") + len("T_STIK_PROBE")
     e = dict(zip(names, struct.unpack_from("<%dH" % len(names), b, i)))
     for key, tab, sz in (("geos", "snp_geos", "SNPG_SZ"),
-                         ("edgeos", "sne_geos", "SNEG_SZ"),
                          ("lays", "snp_lays", "STIKL_SZ")):
         g, n = e[tab], e[sz]
         e[key] = [b[g + k * n:g + (k + 1) * n] for k in range(3)]
@@ -487,6 +492,13 @@ def main():
         check(dkwant is not None, "build/deskclok.o88 exists",
               why="every system disk carries it beside the calendar and the "
                   "note (SPEC.md 110.14); run `make`")
+        wpath = os.path.join(build, "notes", "WELCOME.TXT")
+        welcome = open(wpath, "rb").read() if os.path.exists(wpath) else None
+        check(welcome is not None and welcome.startswith(b"Welcome\r\n")
+              and b"\n" not in welcome.replace(b"\r\n", b""),
+              "build/notes/WELCOME.TXT exists, its line ends CR LF",
+              why="Note Pad's own line ends (SPEC.md 27.1); `make` makes "
+                  "it from apps/stiknote/welcome.txt")
         check(snwant is not None, "build/stiknote.o88 exists",
               why="every system disk carries it beside the calendar "
                   "(SPEC.md 110.13); run `make`")
@@ -545,6 +557,23 @@ def main():
                 check(got == snwant, "%s's STIKNOTE.O88 is "
                       "build/stiknote.o88 byte for byte" % img,
                       got=len(got), want=len(snwant))
+            if img not in SMALL_SYSTEM:
+                # THE NOTES FOLDER (SPEC.md 110.13.1): beside the package,
+                # pre-sized - the kernel never grows a directory (18.5) -
+                # and made to exist by WELCOME.TXT
+                slots = files.get(NOTES_DIR + "/")
+                check(slots is not None and slots >= NOTES_SLOTS,
+                      "%s carries %s/ with %d directory slots or more"
+                      % (img, NOTES_DIR, NOTES_SLOTS), got=slots,
+                      want=NOTES_SLOTS,
+                      why="$(STIKNOTESARG) and $(STIKNOTESOPT) ship it in "
+                          "each system-disk recipe; a folder the kernel "
+                          "made holds 14 notes at 512-byte clusters")
+                got = files.get(NOTES_DIR + "/WELCOME.TXT")
+                check(got is not None and got == welcome,
+                      "%s's %s/WELCOME.TXT is build/notes/WELCOME.TXT "
+                      "byte for byte" % (img, NOTES_DIR),
+                      got=got and len(got), want=welcome and len(welcome))
             got = files.get("STIKAPPS/DESKCLOK.O88")
             check(got is not None, "%s carries STIKAPPS/DESKCLOK.O88" % img,
                   why="the third Sticky App rides $(STIKAPPS) beside the "
@@ -587,24 +616,25 @@ def main():
                 ("STIK_PAYLEN", os88stik.STIKNOTE_PAYLEN),
                 ("SNP_VER", os88stik.STIKNOTE_PAYVER),
                 ("STIK_PAYVER", os88stik.STIKNOTE_PAYVER),
-                ("SN_MAXN", os88stik.STIKNOTE_MAXN),
-                ("SN_POOL", os88stik.STIKNOTE_POOL),
-                ("SNP_N", os88stik.STIKNOTE_N),
-                ("SNP_CUR", os88stik.STIKNOTE_CUR),
+                ("SNP_NAME", os88stik.STIKNOTE_NAME),
                 ("SNP_FLAGS", os88stik.STIKNOTE_FLAGS),
-                ("SNF_DESK", os88stik.STIKNOTE_F_DESK),
-                ("SNF_INIT", os88stik.STIKNOTE_F_INIT),
-                ("SNP_COL", os88stik.STIKNOTE_COL),
-                ("SNP_LENS", os88stik.STIKNOTE_LENS),
-                ("SNP_POOL", os88stik.STIKNOTE_POOL0),
+                ("SNP_NC", os88stik.STIKNOTE_NC),
+                ("SNP_TAB", os88stik.STIKNOTE_TAB),
+                ("SN_COLSZ", os88stik.STIKNOTE_COLSZ),
+                ("SN_MAXC", os88stik.STIKNOTE_MAXC),
                 ("SN_BOX0", os88stik.STIKNOTE_BOX0),
                 ("SN_BOX1", os88stik.STIKNOTE_BOX1),
                 ("SN_NCOL", len(os88stik.STIKNOTE_PAPERS)),
+                ("SN_HEAD", os88stik.STIKNOTE_HEAD),
+                ("SN_MAXKB", os88stik.STIKNOTE_MAXKB),
                 ("SN_BSS", os88stik.STIKNOTE_STIK_BSS),
-                ("sne_win - os88_image_end", os88stik.STIKNOTE_BSS_WIN),
-                ("sne_open - os88_image_end", os88stik.STIKNOTE_BSS_OPEN),
-                ("sne_car - os88_image_end", os88stik.STIKNOTE_BSS_CAR),
-                ("sne_top - os88_image_end", os88stik.STIKNOTE_BSS_TOP),
+                ("sn_n - os88_image_end", os88stik.STIKNOTE_BSS_N),
+                ("sn_cur - os88_image_end", os88stik.STIKNOTE_BSS_CUR),
+                ("sn_hlen - os88_image_end", os88stik.STIKNOTE_BSS_HLEN),
+                ("sn_doc - os88_image_end", os88stik.STIKNOTE_BSS_DOC),
+                ("sn_ask - os88_image_end", os88stik.STIKNOTE_BSS_ASK),
+                ("sn_wslot - os88_image_end", os88stik.STIKNOTE_BSS_WSLOT),
+                ("sn_hbuf - os88_image_end", os88stik.STIKNOTE_BSS_HBUF),
                 ("STIK_FACE_W", os88stik.STIKNOTE_FACE_W),
                 ("SNP_S", os88stik.STIKNOTE_S),
                 ("SNP_TW", os88stik.STIKNOTE_TW),
@@ -615,12 +645,6 @@ def main():
                 ("SNP_OPENX", os88stik.STIKNOTE_OPENX),
                 ("SNP_BX", os88stik.STIKNOTE_BX),
                 ("SNP_BTX", os88stik.STIKNOTE_BTX),
-                ("SNE_LW", os88stik.STIKNOTE_ED_LW),
-                ("SNE_NEWX", os88stik.STIKNOTE_ED_NEW[0]),
-                ("SNE_NEWW", os88stik.STIKNOTE_ED_NEW[1]),
-                ("SNE_DELX", os88stik.STIKNOTE_ED_DEL[0]),
-                ("SNE_DELW", os88stik.STIKNOTE_ED_DEL[1]),
-                ("SNE_CBX", os88stik.STIKNOTE_ED_CBX),
                 ("stik_file - os88_image_end",
                  os88stik.stik_hdr_off(os88stik.STIKNOTE_STIK_BSS)),
                 ("stik_st - os88_image_end",
@@ -636,12 +660,6 @@ def main():
             want = [host[f] for f in os88stik.STIKNOTE_GEO_FIELDS]
             check(list(raw[:len(want)]) == want, "snp_geos' layout %d is "
                   "os88stik.STIKNOTE_GEO[%d]" % (li, li),
-                  got=list(raw[:len(want)]), want=want)
-        for li, raw in enumerate(sn.get("edgeos", [])):
-            host = os88stik.STIKNOTE_ED[li]
-            want = [host[f] for f in os88stik.STIKNOTE_ED_FIELDS]
-            check(list(raw[:len(want)]) == want, "sne_geos' layout %d is "
-                  "os88stik.STIKNOTE_ED[%d]" % (li, li),
                   got=list(raw[:len(want)]), want=want)
         for li, raw in enumerate(sn.get("lays", [])):
             check(raw[4] == os88stik.STIKNOTE_GEO[li]["H"],
