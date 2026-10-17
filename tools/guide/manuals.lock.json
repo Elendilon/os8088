@@ -1072,9 +1072,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "87212abf",
-  "strings": "b4bc3fa128e8c3f7",
-  "why": "lists restricted to what the file takes, Mode X's 320x240 screen, --pages max, the pre-roll's dry run: all below the page's level of detail; checked, unchanged"
+  "stamped": "9eee6705",
+  "strings": "cb5c45c5587af9c4",
+  "why": "the progress pass: the status under the bar says the pass, the step's real count and what runs beside it"
  },
  "TRACKER_O88": {
   "sources": [

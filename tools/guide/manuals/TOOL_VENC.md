@@ -55,9 +55,14 @@ folder. Someone with the tree makes the bundle with `make vencbundle`.
    `.V88` video and a `.WAV` of the sound alone for Audio Player.
 4. Tick **...and make a disk of it** and pick a disk if you want the video
    on a disk image as well (see below).
-5. Click **Encode**. The progress bar and the log under the tabs show how
-   far it has got. **Cancel** stops it; nothing is written, and a file it
-   would have replaced is left as it was.
+5. Click **Encode**. Under the progress bar the encoder says what it is
+   doing: which pass it is on and why, the step with its own count (frames,
+   scenes or trials), how long the step has taken and about how long it
+   has left, and anything running beside it. A step that has nothing to
+   count, such as making the palette, shows a moving bar instead. Some
+   options make the encoder run more than one pass; each starts the bar
+   again. **Cancel** stops it; nothing is written, and a file it would
+   have replaced is left as it was.
 
 The **Made for** list:
 

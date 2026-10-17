@@ -177035,13 +177035,37 @@ comparison taken out, the composite target comes out MONO1.
 **Four things asked for together, each for the workflow the owner named:
 encode, preview, then choose a keyframe for the poster.**
 
-**A progress bar.** `os88venc.encode` takes `progress(step, done, total)`
-and calls it as it goes. The steps are `STEPS`: prepare, read (read and
-dither, frame by frame against the clip's length at the file's rate),
-sound, encode (frame by frame), and write. Each has a share of one bar, and
-the window keeps the last tenth for the floppy and for reading the file back
-to preview. The encode's thread only RECORDS the latest report, and the
-window's pump draws it, so a fast encode cannot flood the Tk queue.
+**A progress bar that says what the encoder is doing** (the owner,
+2026-10-17: *"if it's doing 5 things at once, say that, rather than having
+it try to smooth it into some exact frame count that the textbox below
+contradicts"*). `os88venc.encode` takes `progress(step, done, total,
+note)` and calls it as it goes. `done` of `total` is the REAL count of what
+the step works through - frames read, scenes coloured, trials finished -
+and `total` is 0 where a step has none to give (ffmpeg's palettegen, the
+sound), which the window shows as an INDETERMINATE bar rather than a share
+of nothing. `note` says what goes on beside the count. The steps are the
+encode's own stages, named in `os88vencgui.STEP_TEXT`: prepare, the clip's
+palette, the levels, the SCENE PASS and each scene's colours (which until
+then said nothing at all: a long `--scene-palettes` clip sat on one silent
+step for a minute and more), the planes' order, the cells' scene changes,
+the ladder's colour step-down (a scene each), `--aim quality`'s trials,
+read, sound, encode, a wait, and write. A STREAMED pass reads, dithers and
+encodes at once: its count is the frames ENCODED, and its note the frames
+read and dithered so far and anything a frame is doing that takes longer
+than a frame - the ladder's trials (how many, and whether at once), the
+lag search, a slower rate's trial. Until then that pass spread one count
+over three made-up steps, so the bar said "Reading" with a frame number
+nothing had read. A PASS says which it is as it begins - `step` "pass",
+its note the reason ("page-ahead's pass, with the plan's holds") - and the
+window numbers them; a pass run ALONGSIDE in another process (`PassBg`,
+98.2.1) reports on a lane of its own and is shown on a line of its own
+until the encode's next pass. The bar is the current step's own count, and
+the window adds how long the step has run and, at its rate so far, about
+how long it has left. On the command line `--progress` writes each report
+as `@@progress` and a JSON object (lane, step, done, total, note), a new
+step at once and a step's count at most every quarter second. The encode's
+thread only RECORDS the latest report, and the window's pump draws it, so a
+fast encode cannot flood the Tk queue.
 
 **Cancel.** The callback raises `Cancelled` once the button has been
 pressed, and it is called often enough to stop within a frame. The palette
