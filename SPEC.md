@@ -60768,6 +60768,8 @@ call sites set `BX` themselves.) One routine decides what is in a
 total, `.text` −22, and the two figures on the RAM line become the same word
 plus a constant: **`RAM used` is `SK_KERN + SK_CLAIM`, `HEAP claimed` is
 `SK_CLAIM`**, so they cannot come to disagree about what *claimed* means.
+(§28.4.7 has since replaced `SK_KERN` in that sum with *total − heap*, which
+is the kernel plus the 1.5K below it.)
 
 **The first fix was the view's** and covered half the line: the memory view's
 claimed half subtracted the purgeables with `tm_hsplit` and the RAM half went
@@ -61118,6 +61120,38 @@ looked for the word `DrvBuf` would pass on a page that still lost the 8KB
 somewhere else. Measured red with the two arms reverted at **3 claim rows for
 4 live records** — short by exactly the ring — while the probe it prints on a
 miss found `DrvImg` on screen and the ring's row absent.
+
+### 28.4.7 RAM's fixed half is TAKEN, so the line's two pairs close
+
+**System + IVT + heap = total RAM**, and the process page, the only page
+the small build has (§28.12), did not show it. `RAM used` was
+`SK_KERN + SK_CLAIM` and `HEAP claimed` was `SK_CLAIM`, so the two free
+figures should have been the same number, but RAM's came out **one or two KB
+higher** on every machine. The difference is the 1.5K below `KERNEL_SEG`:
+the IVT, the BIOS data area and the page at 0500. It is neither the kernel's
+nor the heap's, and only the memory view had a row for it (§28's `IVT+BDA`).
+
+The fixed half is now **taken** rather than built: `RAM used` is
+`total − SK_HEAP + SK_CLAIM`, and the process page's System row carries
+`total − SK_HEAP + SK_KCLAIM`. *Total − heap* is everything that is not the
+heap, which is IVT + BIOS + System. With it:
+
+- `RAM total − HEAP size` = `RAM used − HEAP claimed`, so the two free figures
+  agree **exactly**;
+- the rows still partition the bar, because System gains what `used` gained.
+
+**It is taken and not a literal 1.5K added**, because of the rounding. KB
+are rounded differently on each side: `SK_KERN` rounds up (`KERN_KB`), and
+`SK_HEAP` rounds down (`(mem_top − mem_base) >> 6`). The kernel ends on a
+512-byte boundary, so the low term comes out as **1K or 2K**, depending on
+which half-KB the kernel ends in. A constant would leave the pairs a KB apart
+at every other rung.
+
+The low memory is billed to System because the process page has no
+low-memory row of its own, and the memory belongs to the machine rather than
+to any program. The memory view keeps its own `IVT+BDA` row and a System row
+of `SK_KERN`, so there is nothing to bill twice. No kernel byte changed:
+both terms were already in `OSAPI_SYS_KB`'s block.
 
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 

@@ -2045,10 +2045,22 @@ tm_sample:
     ; accounting for 132 - the missing 63 being the DirRead window, which
     ; belongs to no instance and so appears in no column. The map below still
     ; DRAWS it: a map is about addresses, and a cache occupies a real one.
-    mov ax, [tm_kb+SK_KERN]     ; the WHOLE kernel (SPEC.md 2): image,
-                                ; scratch, FAT snapshot, disk buffers and
-                                ; every task stack are one contiguous span,
-                                ; and there is no growth room in it to bill
+    ;
+    ; AND THE LOW 1.5K: the IVT, the BIOS data area and the page at 0500, which
+    ; are below KERNEL_SEG and so neither the kernel's nor the heap's. They
+    ; were in no figure on this page, so RAM's free half came out a KB or two
+    ; over the heap's free half on every machine. So the fixed half is TAKEN
+    ; rather than built: everything that is not the heap is IVT + BIOS +
+    ; System, and that is the total less the heap's size. Taken that way the
+    ; two pairs on the line agree EXACTLY - System + IVT + heap = total - with
+    ; the low term absorbing the KB rounding of the other two (1K or 2K; the
+    ; kernel's figure rounds up and the heap's down), where adding the literal
+    ; 1.5K would leave them a KB apart at every other rung
+    mov ax, [tm_totkb]          ; int 12h's total, less the claim heap: the
+    sub ax, [tm_kb+SK_HEAP]     ; WHOLE kernel (SPEC.md 2) - image, scratch,
+                                ; FAT snapshot, disk buffers and every task
+                                ; stack, one contiguous span with no growth
+                                ; room in it to bill - and the IVT+BDA under it
     add ax, [tm_kb+SK_CLAIM]    ; + everything claimed out of the heap
                                 ; (SPEC.md 50): the clipboard while it is
                                 ; armed, the menu save-under while a menu is
@@ -6010,9 +6022,12 @@ tm_rows:
     mov bx, si
     mov al, [tm_pct+bx]
     call tm_cpucol
-    mov ax, [tm_kb+SK_KERN]     ; the kernel's footprint, whole (SPEC.md 2)
-                                ; - the same term the RAM line above uses, so
-                                ; the rows still sum to the bar
+    mov ax, [tm_totkb]          ; the kernel's footprint, whole (SPEC.md 2),
+    sub ax, [tm_kb+SK_HEAP]     ; and the IVT+BDA under it - the same term the
+                                ; RAM line above uses, so the rows still sum
+                                ; to the bar. This page has no low-memory row
+                                ; of its own (the memory view does), so it is
+                                ; System's: it is the machine's, not a program's
     add ax, [tm_kb+SK_KCLAIM]   ; + the kernel's OWN heap claims (SPEC.md
                                 ; 42.2): the save-under and the clipboard.
                                 ; A package's claim belongs to its own row.
