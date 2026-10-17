@@ -2060,10 +2060,13 @@ vp_reask:
     mov al, [vp_ok]
     mov ah, [vp_fsdisp]
     push ax
-    mov byte [vp_ok], 0
-    call vp_canplay
-    pop ax
-    cmp al, [vp_ok]
+    push word [vp_mute]             ; THE MUTE IS NOT THE DISPLAY'S: vp_canp1
+    mov byte [vp_ok], 0             ; runs vp_mdet, which re-derives it from
+    call vp_canplay                 ; the machine and forgets an M pressed
+    pop word [vp_mute]              ; since the load - Play then ran a file
+    pop ax                          ; the user had unmuted SILENT (98.3.17).
+    cmp al, [vp_ok]                 ; (vp_mwhy, the byte after, comes back
+                                    ; with it: the same machine, the same why)
     jne .ch
     cmp ah, [vp_fsdisp]
 .ch:
@@ -20403,6 +20406,9 @@ vp_mute:      db 0                  ; MUTED (98.3.17): no sound run at all,
 vp_mwhy:      db 0                  ; ...defaulted there: 1 ADPCM4 on a DSP
                                     ; 4.xx, 2 PCM8 past VP_SPKMAX on an 8088
 vp_umute:     db 0                  ; ...and the user's own last choice
+%if vp_mwhy != vp_mute + 1
+  %error "vp_reask keeps vp_mute and vp_mwhy as ONE word: they must be adjacent"
+%endif
 vp_unmq:      db 0                  ; unmuted in the window: play on, synced
 vp_skhere:    db 0                  ; a seek to the frame on the glass
                                     ; over the speaker (S, 98.3.15)
