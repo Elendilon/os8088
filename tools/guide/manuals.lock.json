@@ -267,9 +267,9 @@
   "sources": [
    "apps/deskcal"
   ],
-  "stamped": "0606f018",
-  "strings": "ce550948485c6eb2",
-  "why": "second-launch message corrected to the source's STIK_ISOPEN 'Desk Calendar is open'; Sticky Apps menu shot retaken taller for three rows"
+  "stamped": "d0d605c1",
+  "strings": "32eeb74bb5d87863",
+  "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
  },
  "DESKCLOK_O88": {
   "sources": [
@@ -478,17 +478,17 @@
   "sources": [
    "drivers/hdd"
   ],
-  "stamped": "e4576a70",
-  "strings": "cd66a54799909948",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "d0d605c1",
+  "strings": "3b0c6f26290d2442",
+  "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
  },
  "HDD_DRV": {
   "sources": [
    "drivers/hdd"
   ],
-  "stamped": "e4576a70",
-  "strings": "cd66a54799909948",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "d0d605c1",
+  "strings": "3b0c6f26290d2442",
+  "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
  },
  "HELV_F88": {
   "sources": [],
@@ -678,9 +678,9 @@
   "sources": [
    "dostools/os88cz.asm"
   ],
-  "stamped": "e4576a70",
-  "strings": "e814b061ef25307d",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "d0d605c1",
+  "strings": "17c764321d08c2df",
+  "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
  },
  "OS88NET_COM": {
   "sources": [
@@ -776,17 +776,17 @@
   "sources": [
    "drivers/ramdisk"
   ],
-  "stamped": "e4576a70",
-  "strings": "f1bd87b1659771ed",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "d0d605c1",
+  "strings": "f8094b935197ea0e",
+  "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
  },
  "RAMPAGE_DRV": {
   "sources": [
    "drivers/ramdisk"
   ],
-  "stamped": "d511fdd4",
-  "strings": "f1bd87b1659771ed",
-  "why": "greyed buttons grey their label on VGA too (SPEC.md 13.8.11); page text unchanged"
+  "stamped": "d0d605c1",
+  "strings": "f8094b935197ea0e",
+  "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
  },
  "README_TXT": {
   "sources": [],
@@ -950,9 +950,9 @@
   "sources": [
    "apps/stiknote"
   ],
-  "stamped": "0606f018",
-  "strings": "11940aa5e69c0771",
-  "why": "new page: written from apps/stiknote (menus, keys, pad presses, messages) and SPEC.md 110.13; shots taken on a VGA XT"
+  "stamped": "d0d605c1",
+  "strings": "c5eb21b124ad2c07",
+  "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
  },
  "SYSTEM": {
   "sources": [],
@@ -1008,9 +1008,9 @@
   "sources": [
    "apps/texpad"
   ],
-  "stamped": "9deeee7d",
-  "strings": "ca6e54b0603dfda4",
-  "why": "New/Open/close ask about unsaved changes (alert checked on MartyPC); \\today prints the clock's date; the dirty star is on the top row; letterpaper-overrides-Page-menu note kept, it is intended"
+  "stamped": "d0d605c1",
+  "strings": "c0dea1d8abb85a0e",
+  "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
  },
  "THEWIRE_O88": {
   "sources": [
@@ -1172,9 +1172,9 @@
   "sources": [
    "apps/wireball"
   ],
-  "stamped": "e4576a70",
-  "strings": "d98a1f4921da9aea",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "d0d605c1",
+  "strings": "72c6168584fb83c1",
+  "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
  },
  "WORD": {
   "sources": [],
