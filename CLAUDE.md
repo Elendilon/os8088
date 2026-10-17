@@ -1067,6 +1067,11 @@ whose `LESSONS.md` is what MIDIRack's (SPEC.md §105.9.4, §105.9.5) learned.
   item, the greying predicate and the thunks; everything else goes in the
   module. Moving code to `.cold` or the boot overlay relieves `KERN_CODE_MAX`
   but not `KERN_BUDGET` — a module relieves both.
+  **"Freed when it is done" is GATED**: `tests/unit/t_moddrop.py` (fast)
+  fails `make` for a `mod_tab` row nothing drops, unless
+  `tests/moddrop.txt` says why it is held until restart - `DESK.DRV` held
+  5KB pinned after the last Sticky App closed, until SPEC.md 11.103.10's
+  drop rule. A new module needs its drop on the day it lands.
   **`.cold` IS RESIDENT, and the name is the trap**: it means a cold PATH, not
   a cold LIFETIME. Those bytes are in RAM from boot to power-off exactly like
   `.text`'s and are billed by `KERN_BUDGET` exactly like `.text`'s — all

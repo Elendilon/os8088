@@ -836,6 +836,11 @@ whose `LESSONS.md` is what MIDIRack's (SPEC.md §105.9.4, §105.9.5) learned.
   the test may grow `.text`/`.cold`, and moving code to `.cold` or the boot
   overlay relieves `KERN_CODE_MAX` but not `KERN_BUDGET` — a module relieves
   both. Check `tools/kernsize.py` before and after: a byte costs a byte.
+  **"Freed when it is done" is GATED**: `tests/unit/t_moddrop.py` (fast)
+  fails `make` for a `mod_tab` row nothing drops, unless
+  `tests/moddrop.txt` says why it is held until restart - `DESK.DRV` held
+  5KB pinned after the last Sticky App closed, until SPEC.md 11.103.10's
+  drop rule. A new module needs its drop on the day it lands.
   **docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md is what the mechanism
   REFUSES**, and it refused two of four candidates: `mod_need`'s own transitive
   cone is 155 symbols in 7 files, so a module inside it must be gated rather

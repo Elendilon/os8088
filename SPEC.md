@@ -1823,6 +1823,15 @@ needs a pin (a nesting count per module, held from entry to exit, and for the
 panel from open to close); docs/plans/completed/ONDEMAND-PLAN.md 7.1/7.2 carries that design
 and it is not built.
 
+**Every module HAS a drop, and that is gated.** A module nothing drops holds
+its claim from first use to power-off, pinned - the bytes a module exists to
+give back - and nothing refuses it: the feature works and the heap is merely
+smaller. `DESK.DRV` shipped that way until §11.103.10's drop rule.
+`tests/unit/t_moddrop.py` (fast tier) reads every `mod_tab` row and fails the
+build unless the row's `MOD_*` reaches a `mod_drop` in kernel code, or
+`tests/moddrop.txt` says why that module is held until restart. The list
+turns one way and is empty today.
+
 #### 2.8.4 A refusal is a normal path, and the caller owes the reason
 
 No system disk, no heap, a short read, a stamp mismatch. Every one is CF = 1
@@ -21357,8 +21366,8 @@ pre-cut kernel gave back. Asked at step 5 the module is above the region,
 under the drivers, at boot and mid-session alike, and a closed widget's
 region merges back. A package WITHOUT the header bit (`STIKPROB.O88`) still
 loads it at its QUERY and still pays that placement; and a first Sticky App opened
-mid-session puts the 1 KB pin under whatever application regions are open
-above it - an island they free around, which only a drop rule (below)
+mid-session puts the pin under whatever application regions are open
+above it - an island they free around, which only the drop rule (below)
 would remove. QUERY after a step-5 load is `mod_need`'s `.already`: no
 disk.
 
@@ -21395,14 +21404,39 @@ or on the first Sticky App opened - and never on a gesture after. The measuremen
 is `tools/os88boot.py` over `stikboot`'s shape against `dfb62625`; it has not
 been taken.
 
-**The lifetime: held from the first QUERY that loads it until restart.**
-Widgets are session-long and are normally relaunched at boot (§110.4), so a
-drop rule would buy back a 1 KB claim on a machine that has run a Sticky App, at
-~43 more resident cold bytes (a drop check at the instance reap and after an
-`OS88_F_DESK` entry proc). No entry calls anything that can destroy a window,
-so the image is never freed under its own code - and it is never freed at
-all. What the session pays is the 1 KB AND its place - a pinned island
-where `desk_need` put it (above). A hibernate image carries the claim and
+**The lifetime: held from the first QUERY that loads it until the LAST
+widget goes.** It was held until restart, on the reading that widgets are
+session-long and a drop rule would buy back 1 KB for ~43 cold bytes - and
+§110.15 then made the claim **5 KB**, so a machine that had closed its last
+Sticky App kept 5 KB pinned for the session, reported off the field. The drop
+rule is `desk_drop_x` (`kernel/deskmod.inc`, resident `.cold`, far):
+given a record that is not a widget from here on, it clears that record's
+`IF_DESK` and, when NO record in `inst_tab` carries `IF_DESK`, calls
+`mod_drop MOD_DESK`. Four callers:
+
+| caller | why there |
+|---|---|
+| `app_close_win`'s task-less branch | a widget's close, normally: a `STIK_DESKONLY` build (kern_big's) hires no worker |
+| `inst_task_die`, under the gfx lock | a Sticky App on its worker arm (`os88stik.inc`'s `stik_painted`), whose record is freed on that worker |
+| step 9, for a launch whose window is NOT `WF_DESK` | an `OS88_F_DESK` package that came up titled, so step 5's load is spent |
+| `ld_unreserve` | a launch that failed after step 5 loaded the image |
+
+**"Any record", not "any live record"**, and `ld_alloc` marks an
+`OS88_F_DESK` launch's record `IF_DESK` as soon as its region is claimed,
+still unpublished. The entry proc runs with the gfx lock FREE (§20.2), so a
+widget's worker dying mid-launch would otherwise drop the image between step
+5's load and the entry proc's MAKE - or while the UI task is inside
+`dkd_verb`. With the mark, the launch in flight is a widget to the scan.
+Every free path clears its own record's bit, so a stale one cannot pin the
+image; `inst_alloc` zeroes a reused record anyway. No entry calls anything
+that can destroy a window, so the image is never freed under its own code.
+**+63 resident bytes** on kern_big (`.text` +10, two far calls; `.cold` +53),
+no rung crossed, for 5 KB of heap and the pinned island where `desk_need` put
+it. `tests/stiknodesk.py`'s G is the row: close the last widget and the
+`MOD_DESK` row is 0 with every `DKDFP` slot on `mod_gone` - the task-less
+branch, which is the calendar's; the worker branch has no row of its own. The next widget
+pays §11.103.10's first-load cost again, one sector off the system disk.
+A hibernate image carries the claim and
 the slots together (an ordinary `MEM_K_MOD` claim, `mod_tab` in `.text`,
 its slots in `.bss`), exactly as `DOCK.DRV` and `WIN95.DRV` survive one;
 the stamp is not re-checked on resume and need not be, the kernel in the
@@ -21452,8 +21486,9 @@ the emu disk and the live media (`$(BIGMODS)`, which `$(DRIVERS)` carries).
 **Since §110.15 it also carries the Sticky App library**, appended to the
 image on a paragraph by `incbin` and named by verb 4: the image is **4,494
 bytes** (4,238 of them the library), its file **4,221** packed, and its claim
-**5 KB** where it was 1 - held, as before, from the first QUERY to the
-restart. Not one resident byte: `kernsize` reads `+0` on kern_big and
+**5 KB** where it was 1 - held, as it then was, from the first QUERY to the
+restart, which is what made the drop rule above worth its bytes. Not one
+resident byte: `kernsize` reads `+0` on kern_big and
 kern_emu (kern_small has no `DESK.DRV`).
 
 ## 12. menu.inc
