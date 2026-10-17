@@ -311,6 +311,55 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     mov %1, [ss:mega_seg0]
  %endif
 %endmacro
+; PUSH_CSDATA / CSDO / CSEG - an on-demand MODULE (or the boot overlay) using
+; its OWN image as data, which real mode spells through CS: `push cs / pop es`
+; for the image's buffer, `mov [cs:var], reg` for its variables. In kern_mega's
+; protected mode CS is the image's LDT CODE alias, (S >> 2) | 4, which is
+; read-only, so PUSH_CSDATA pushes the DATA segment S = (CS & ~7) << 2 instead,
+; and `CSDO <instruction with [CSEG x]>` runs that one instruction with DS = S.
+; Both keep the caller's FLAGS (a `dec [CSEG x] / jnz` still works), and both
+; are exactly `push cs` and the bare instruction with `cs:` on every other
+; build. Before mega_enter (the boot) a module's CS is its segment and nothing
+; is converted. NOT for .text or .cold, whose CS is the kernel's own selector.
+%ifdef KERN_MEGA
+ %define CSEG
+%else
+ %define CSEG cs:
+%endif
+%macro PUSH_CSDATA 0
+ %ifidni __?SECT?__, [section .text]
+  %error "PUSH_CSDATA in .text: the kernel's CS is not an image's"
+ %endif
+ %ifidni __?SECT?__, [section .cold]
+  %error "PUSH_CSDATA in .cold: the kernel's CS is not an image's"
+ %endif
+    push cs
+ %ifdef KERN_MEGA
+  cpu 286
+    pushf                       ; (the branch skips no push or pop, so the
+    push bp                     ; stack walker sees one depth either way)
+    mov bp, sp
+    cmp byte [ss:mega_pm], 0
+    je %%rm
+    and word [ss:bp+4], 0xFFF8
+    shl word [ss:bp+4], 2
+%%rm:
+    pop bp
+    popf
+  cpu 8086
+ %endif
+%endmacro
+%macro CSDO 1+
+ %ifdef KERN_MEGA
+    push ds
+    PUSH_CSDATA
+    pop ds
+    %1
+    pop ds
+ %else
+    %1
+ %endif
+%endmacro
 %macro PUSH_KCODE 0
  %ifdef KERN_MEGA
   cpu 286

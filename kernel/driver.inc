@@ -4321,7 +4321,7 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     push si                     ; and its size high word coming back (18.4.1)
     push di
     push es
-    push cs
+    PUSH_CSDATA
     pop es                      ; the file buffer is the IMAGE's (51.5.3) and
     mov bx, %1 %+ _buf          ; the read takes ES:BX, which is what makes
     mov cx, CFG_FBUF            ; that free rather than awkward
@@ -4394,7 +4394,7 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     push si
     push di
     push es
-    push cs
+    PUSH_CSDATA
     pop es
     cld
     mov si, %1 %+ _sig
@@ -4491,7 +4491,7 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     call %1 %+ _ser             ; small and a partial one is a bug waiting for
                                 ; the next format change. CX = its length
 
-    push cs
+    PUSH_CSDATA
     pop es                      ; the buffer is the image's, and this is where
     mov bx, %1 %+ _buf          ; dskw_write_sys reads it from
 %ifdef OS88_SHORTCUTS
@@ -5508,7 +5508,7 @@ cpc_fdtest:
     jne .no                     ; it answered by falling back: no crossing
     mov es, dx                  ; ES:0 = the track buffer
     mov cx, [disk_spt]
-    mov byte [cs:cp_fdn], 2
+    CSDO mov byte [CSEG cp_fdn], 2
 .trk:
     call COLD_SEG:dskf_disk_read    ; LBA AX, one track, track-bounded
     jc .done
@@ -5530,12 +5530,12 @@ cpc_fdtest:
     jne .no
     add ax, cx                  ; the next track's LBA
     add di, bp                  ; ...and the cylinder run's next half
-    dec byte [cs:cp_fdn]
+    CSDO dec byte [CSEG cp_fdn]
     jnz .trk
     jmp short .done
 .no:
     mov byte [drv_cfg+CFG_FDR], 0   ; Auto - and cpc_fdbs then writes byte 509
-    mov byte [cs:cp_fdno], 1        ; as 0, which is what Auto means there
+    CSDO mov byte [CSEG cp_fdno], 1 ; as 0, which is what Auto means there
 .done:
     dec byte [dsk_rah_busy]
     mov dx, si

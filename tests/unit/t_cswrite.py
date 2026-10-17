@@ -63,6 +63,11 @@ WRITE = re.compile(
     re.I)
 XCHG = re.compile(r"^\s*" + LABEL +
                   r"xchg\s+.*\[\s*(?:(?:byte|word|dword)\s+)?cs\s*:", re.I)
+# ...and the conversion's own spelling, `[CSEG x]` (kernel/kernel.asm's CSDO),
+# which is `cs:` on every build but kern_mega: on any line that is not a CSDO
+# it is a write through CS again, and counts as one
+CSEGW = re.compile(r"\[\s*CSEG\b", re.I)
+CSDOL = re.compile(r"^\s*" + LABEL + r"CSDO\b", re.I)
 PUSHCS = re.compile(r"^\s*" + LABEL + r"push\s+cs\s*$", re.I)
 POPSEG = re.compile(r"^\s*pop\s+(?:ds|es)\s*$", re.I)
 # ...and the two other spellings of "DS (ES) = the code segment": through a
@@ -142,7 +147,8 @@ def scan(path):
     lines, code_lines = walk(path)
     out = []
     for i, l, where in code_lines:
-        if WRITE.match(l) or XCHG.match(l):
+        if WRITE.match(l) or XCHG.match(l) or \
+                (CSEGW.search(l) and not CSDOL.match(l)):
             out.append((i + 1, "write", where))
         elif PUSHCS.match(l):
             j = i + 1

@@ -941,6 +941,24 @@ whoever extends this:
     All three were reproduced or checked under Bochs (item 13), Paint's to
     the CS:IP and SP of the photograph.
 
+15. **CTRL.DRV is the first module converted, and the conversion has a
+    shape now.** Closing the Control Panel after a change faulted on the
+    Victory (no photograph), and Bochs reproduced it first time: `#GP 0000
+    at 26E4:095E` with ES = CS, `cpc_ser` building SYSTEM.CFG in the
+    image's own buffer through `push cs / pop es`. A module's CS on
+    kern_mega is its LDT alias (S >> 2) | 4, so its data segment is
+    (CS & ~7) << 2, and two macros in kernel.asm spell that: PUSH_CSDATA
+    for `push cs`, and `CSDO op [CSEG x], ...` for `op [cs:x], ...`, which
+    runs the one instruction with DS = the image and keeps FLAGS. Both are
+    the original bytes off kern_mega, and kern_big was compared identical.
+    All of CTRL.DRV is converted - ctrl.inc, shutdown.inc, driver.inc's
+    settings macros and desksc.inc's `.modc` half, 33 writes and 9 pairs -
+    and the tools learned the spelling: t_cswrite counts a `[CSEG x]`
+    outside CSDO as a write, os88ovlchk reads CSEG as naming the image, and
+    stkbalance knows PUSH_CSDATA and PUSH_KCODE push one word and CSDO
+    moves SP as its instruction does. Bochs saves SYSTEM.CFG through it and
+    the disk verifies.
+
 The alternating `kernel-full.bin` noted while measuring kern_big's
 identity is a `make mega` in the same tree: the sub-make leaves something
 in the shared `build/` that kern_big's next assembly reads, so the identity

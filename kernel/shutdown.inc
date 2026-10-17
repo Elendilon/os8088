@@ -38,25 +38,25 @@ modc_e_shutdown:
     call sd_disp                ; clear the display and reset planar state
     mov ax, [vid_cw]
     shr ax, 1
-    mov [cs:sd_l_cx], ax
+    CSDO mov [CSEG sd_l_cx], ax
     mov bx, ax                  ; ...and kept, for the line's x below
     sub ax, SPL_SPINB*4
     and ax, 0xFFF8
-    mov [cs:sd_l_spp], ax
+    CSDO mov [CSEG sd_l_spp], ax
     mov cl, 3
     shr ax, cl
-    mov [cs:sd_l_spx], ax
+    CSDO mov [CSEG sd_l_spx], ax
     mov ax, [vid_ch]
     shr ax, 1
     sub ax, 42
-    mov [cs:sd_l_spn], ax
+    CSDO mov [CSEG sd_l_spn], ax
     add ax, 58
     mov dx, ax
     lea cx, [bx-140]
     mov si, sd_safe
     mov ax, 0x000F             ; startup splash's white on black
     call sd_text
-    mov byte [cs:sd_last], 0xFF
+    CSDO mov byte [CSEG sd_last], 0xFF
 .loop:
     mov ah, 1                  ; any other key is read and dropped, so the ROM's
     int 0x16                   ; buffer never fills and beeps at a held key
@@ -71,7 +71,7 @@ modc_e_shutdown:
     and al, 15
     cmp al, [cs:sd_last]
     je .idle
-    mov [cs:sd_last], al
+    CSDO mov [CSEG sd_last], al
     call sd_spin
 .idle:
     hlt                        ; wake on IRQ0 or IRQ1; no scheduler or disk I/O
@@ -85,11 +85,11 @@ sd_confirm:
     mov ax, [vid_cw]
     sub ax, 320
     shr ax, 1
-    mov [cs:sd_left], ax
+    CSDO mov [CSEG sd_left], ax
     mov bx, [vid_ch]
     sub bx, 96
     shr bx, 1
-    mov [cs:sd_top], bx
+    CSDO mov [CSEG sd_top], bx
     mov cx, ax
     add cx, 319
     lea dx, [bx+95]
@@ -107,10 +107,10 @@ sd_confirm:
     mov si, sd_save
     call sd_text
     xor ax, ax
-    mov [cs:sd_arm], ax         ; sd_arm and sd_down, one store (%if below)
-    mov [cs:sd_prev], al
+    CSDO mov [CSEG sd_arm], ax   ; sd_arm and sd_down, one store (%if below)
+    CSDO mov [CSEG sd_prev], al
     call sd_rebuttons.draw      ; both buttons, then the pointer on
-    mov byte [cs:sd_active], 1
+    CSDO mov byte [CSEG sd_active], 1
 .poll:
     ; Redraw the pointer only when its hotspot actually moved.
     mov ax, [mouse_x]
@@ -137,12 +137,12 @@ sd_confirm:
     and al, 1
     cmp al, [cs:sd_prev]
     je .track
-    mov [cs:sd_prev], al
+    CSDO mov [CSEG sd_prev], al
     or al, al
     jz .release
     call sd_hit
     mov ah, al
-    mov [cs:sd_arm], ax         ; ...and sd_down, the byte after it
+    CSDO mov [CSEG sd_arm], ax   ; ...and sd_down, the byte after it
     call sd_rebuttons
     jmp .yield
 .release:
@@ -154,7 +154,7 @@ sd_confirm:
     cmp al, 2
     je .cancel
 .clear:
-    mov word [cs:sd_arm], 0     ; and sd_down
+    CSDO mov word [CSEG sd_arm], 0 ; and sd_down
     call sd_rebuttons
 .track:
     cmp byte [cs:sd_prev], 0
@@ -166,7 +166,7 @@ sd_confirm:
 .highlight:
     cmp al, [cs:sd_down]
     je .yield
-    mov [cs:sd_down], al
+    CSDO mov [CSEG sd_down], al
     call sd_rebuttons
 .yield:
     call KERNEL_SEG:cw_task_yield
@@ -185,7 +185,7 @@ sd_confirm:
     call sd_disp
     call KERNEL_SEG:cw_wm_paint_all
     call KERNEL_SEG:cw_gfx_unlock
-    mov byte [cs:sd_active], 0
+    CSDO mov byte [CSEG sd_active], 0
     pop ax
     ret
 
@@ -268,7 +268,7 @@ sd_disp:
 
 sd_text:
     push es
-    push cs
+    PUSH_CSDATA
     pop es
     mov bp, font_run_x         ; ES:SI is the module string; DS stays KERNEL_SEG
     call sd_disp

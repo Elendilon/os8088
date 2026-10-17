@@ -167,7 +167,10 @@ OVLCALL = re.compile(r'\b(?:OVLCALL|OVBCALL)\s+(\w+)')
 # is exactly as live for it as for the plain form. On kern_small the body
 # is in the blob and outlives the mount, so the rule is merely stricter
 # there than it needs to be, which is the safe direction.
-CSMEM = re.compile(r'\[[^]]*\bcs\s*:')
+# `[CSEG x]` is the same thing spelled for kern_mega (kernel/kernel.asm's
+# CSDO): `cs:` on every other build, and under CSDO on kern_mega the image's
+# own data segment - the image's data either way
+CSMEM = re.compile(r'\[[^]]*(?:\bcs\s*:|\bCSEG\b)')
 RESERVE = re.compile(r'^\s*([A-Za-z_]\w*)\s*:?\s*(?:res[bwdqt])\b')
 WORD = re.compile(r'\b\w+\b')
 # A label a MACRO PASTES TOGETHER - `%1 %+ _pack:` in driver.inc's CFG_DATA,

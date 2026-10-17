@@ -3064,7 +3064,7 @@ cp_thm_click:
     push si                     ; 76.14.1): thm_set has adopted the nearest
     push es                     ; theme that needs no module and [thm_kind]
     push cx                     ; says which - the radios below read it back,
-    push cs                     ; and the toast says why they did not move.
+    PUSH_CSDATA                     ; and the toast says why they did not move.
     pop es                      ; The line is in THIS image, so ES is CS
     mov si, cp_s_tnowin         ; (cp_toast is for the kernel's strings)
     xor cx, cx
@@ -5007,10 +5007,10 @@ cp_flush_x:
 %ifdef OS88_DRIVERS
     cmp byte [cs:cp_fdno], 0    ; the save turned Cylinder back to Auto
     je .verdict                 ; (SPEC.md 31.14): ONE line on the bar, so
-    mov byte [cs:cp_fdno], 0    ; it is chosen before the toast and not
+    CSDO mov byte [CSEG cp_fdno], 0 ; it is chosen before the toast and not
     cmp byte [cp_dsave], 0      ; drawn over 'Settings Saved' after it
     jne .fdback
-    push cs
+    PUSH_CSDATA
     pop es                      ; the line is this image's: a toast copies it
     mov si, [cs:cp_fdnop]       ; a POINTER to image data, read `cs:` - the
                                 ; core has no cp_stage (that is .modu's), and
@@ -5029,7 +5029,7 @@ cp_flush_x:
     pop es                      ; mount (disk.inc) - every other line is
     cmp bl, 1                   ; this image's own, out through ES = CS. The
     je .tell                    ; save's verdicts were a resident word table
-    push cs                     ; and three resident lines for a message only
+    PUSH_CSDATA                     ; and three resident lines for a message only
     pop es                      ; this image ever says (kernel size pass 9)
     mov bh, 0                   ; 0 or 2: the verdict IS the table's offset -
     mov si, [cs:bx+cp_dsvt]     ; a POINTER to image data, read `cs:` (SPEC.md

@@ -669,7 +669,7 @@ sc_m_new:
     call sc_m_row               ; AL = a free zone - and CX/DX survive it:
     jc sc_m_ret                     ; sc_m_off, sc_m_kb and the toasts all bank
                                     ; them. ...and the user has been told why not
-    mov [cs:sc_mz], al
+    CSDO mov [CSEG sc_mz], al
     mov bl, 0xFF                ; no row to leave out of the search
     call sc_m_cell              ; [cs:sc_bc] = the nearest free cell
     jc .noroom
@@ -838,12 +838,12 @@ sc_m_add:
     jc .new
     call sc_m_same
     je .ret                     ; the same place: its zone, nothing written
-    mov [cs:sc_mz], al          ; somewhere new: over that row, in place
+    CSDO mov [CSEG sc_mz], al    ; somewhere new: over that row, in place
     jmp short .copy
 .new:
     call sc_m_row               ; AL = a free zone, the claim grown if need be
     jc .no                      ; (DX:CX survives it, as sc_m_new says) - and
-    mov [cs:sc_mz], al          ; the user has been told why not
+    CSDO mov [CSEG sc_mz], al    ; the user has been told why not
 .copy:
     mov si, cx
     call sc_m_off               ; ES:DI = the row
@@ -1013,7 +1013,7 @@ sc_m_lnk:
     mov bx, [fcp_cbcwd]
     call COLD_SEG:fcpf_fcp_goto ; ...standing in the ENTRY's folder
     jc .nopath
-    push cs
+    PUSH_CSDATA
     pop es
     lea di, [cs:cpc_buf + LNK_PATH - 1] ; ONE BEFORE THE FIELD, sc_m_new's way:
     mov cx, SC_PATHMAX + 1 - SC_CAPMAX  ; dsk_path's leading `\` lands on
@@ -1069,7 +1069,7 @@ sc_m_lnk:
     mov [fcp_ddrv], al          ; fmv_reload_all's question: which volumes
     call COLD_SEG:fcpf_fcp_goto ; changed
     jc .err
-    push cs
+    PUSH_CSDATA
     pop es
     lea bx, [cs:cpc_buf]
     mov cx, LNK_SIZE
@@ -1261,10 +1261,10 @@ sc_m_row:
 ; the way, it packs round whatever lands next to it.
 ; -----------------------------------------------------------------------------
 sc_m_cell:
-    mov [cs:sc_px], cx
-    mov [cs:sc_py], dx
-    mov [cs:sc_ex], bl
-    mov word [cs:sc_best], 0xFFFF
+    CSDO mov [CSEG sc_px], cx
+    CSDO mov [CSEG sc_py], dx
+    CSDO mov [CSEG sc_ex], bl
+    CSDO mov word [CSEG sc_best], 0xFFFF
     xor bx, bx                  ; BL = the cell
 .cell:
     cmp bl, [desk_ncell]
@@ -1295,12 +1295,12 @@ sc_m_cell:
     add ax, dx
     cmp ax, [cs:sc_best]
     jae .next
-    mov [cs:sc_best], ax
-    mov [cs:sc_bc], bl
+    CSDO mov [CSEG sc_best], ax
+    CSDO mov [CSEG sc_bc], bl
 .next:
     inc bx
-    jmp short .cell
-.end:
+    jmp .cell                   ; (short where it reaches: kern_mega's CSDO
+.end:                           ; is longer)
     cmp word [cs:sc_best], 0xFFFF
     je .none
     clc
@@ -1318,7 +1318,7 @@ sc_m_cell:
 ; the pointer - its own cell counting as free, so a short drag stays put.
 ; -----------------------------------------------------------------------------
 sc_m_move:
-    mov [cs:sc_mz], al
+    CSDO mov [CSEG sc_mz], al
     mov bp, fm_dgmove
     call sc_m_cold
     call sc_m_xor    ; the outline is up from here on
@@ -1492,7 +1492,7 @@ sc_m_del:
 ; moved by a compaction the write itself triggers. sc_m_serx gives it back.
 ; -----------------------------------------------------------------------------
 sc_m_ser:
-    mov word [cs:sc_tseg], 0
+    CSDO mov word [CSEG sc_tseg], 0
     push ax
     push dx
     push si
@@ -1520,7 +1520,7 @@ sc_m_ser:
     jnz .c
 .none:
     pop es
-    mov [cs:sc_tcnt], dl
+    CSDO mov [CSEG sc_tcnt], dl
     or dl, dl
     jnz .go
     push cx                     ; no shortcut - but a PLACED drive is kept
@@ -1554,7 +1554,7 @@ sc_m_ser:
     call sc_m_mem            ; DX = the claim
     pop cx
     jc .out                     ; CF = 1: the caller refuses the write
-    mov [cs:sc_tseg], dx
+    CSDO mov [CSEG sc_tseg], dx
     push ds
     push es
     pop ds                      ; DS = the settings' segment

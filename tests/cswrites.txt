@@ -34,6 +34,13 @@
 # on a real 286 - and QEMU will not show it, because QEMU does not enforce
 # a code segment's read-only bit (KERN-MEGA-PLAN 9).
 #
+# CONVERTING A MODULE: `push cs` becomes PUSH_CSDATA and `op [cs:x], ...`
+# becomes `CSDO op [CSEG x], ...` (kernel/kernel.asm), both byte-identical off
+# kern_mega. CTRL.DRV - ctrl.inc, shutdown.inc, the settings macros in
+# driver.inc and desksc.inc's .modc half - was the first, after the Victory
+# 286's Control Panel faulted saving SYSTEM.CFG. A `[CSEG x]` outside CSDO
+# counts as a write.
+#
 # THIS IS A RATCHET, NOT A CLEAN GATE, for t_textrules.py's reason. It starts
 # at the tree's count, because kern_big is correct as it stands and the only
 # failure it can prevent today is a NEW site.
@@ -51,19 +58,16 @@
 13 1 kernel/spinner.inc  # the boot spinner's %macro state, drawn from IRQ0 inside int 13h (SPEC.md 15.3.8) during the boot
 37 3 kernel/splash.inc  # the loading screen's state, all of it in stage 2 (SPEC.md 2.9.4)
 3 2 kernel/vidsel.inc  # the adapter pick, in stage 2 and the boot overlay
-14 5 kernel/desksc.inc  # the boot half's scan (.boot2) and CTRL.DRV's (.modc) own scratch
-3 3 kernel/driver.inc  # the settings parser's three %macro pairs - DS/ES = its OWN image, the boot overlay or CTRL.DRV - and CTRL.DRV's (.modc) page writes
+1 3 kernel/desksc.inc  # the boot half's scan (.boot2), in real mode before mega_enter; CTRL.DRV's half is PUSH_CSDATA/CSDO now
 
 # --- .mod*: an on-demand module writing its own image -----------------------
 124 15 kernel/compress.inc  # the cloner and compressor image (.modl, SPEC.md 18.99) keeps its whole state in its own image
 105 5 kernel/stikmenu.inc  # STIKMENU.DRV (.modn, SPEC.md 110.12)
 49 0 kernel/ascw.inc  # the association writer's image (.modf)
 45 11 kernel/hiber.inc  # HIBER.DRV (.modh); real mode by design and replaced on kern_mega (KERN-MEGA-PLAN 2.6)
-16 1 kernel/shutdown.inc  # CTRL.DRV's UI tail (.modu)
 10 3 kernel/winmod.inc  # the window module's image (.modw)
 9 2 kernel/dockmod.inc  # DOCK.DRV (.modk)
 6 2 kernel/diskops.inc  # DISKOPS.DRV (.modl)
-1 3 kernel/ctrl.inc  # CTRL.DRV (.modc/.modu)
 
 # --- drivers: DS/ES = the driver's own image (no driver writes through CS) ---
 0 5 drivers/hdd/inst.inc  # ES = the installer's own buffer for int 13h; a driver-SDK answer for kern_mega is a drivers/os88drv.inc decision (tools/abi.lock.json)
