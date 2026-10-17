@@ -222,11 +222,35 @@ def record_play(q, ui, snd_seg, want, hma):
     # each at a whole half's place in the stream and the two a half apart
     # (the refill worker has usually turned half 0 over by now), written
     # through [sbl_seg]:[sbl_sbase] - the CPU's half of the double buffer
-    # being where the 8237's half is
-    half = u16(drv("sbl_half", 2))
-    at = (u16(drv("sbl_seg", 2)) << 4) + sbase
+    # being where the 8237's half is.
+    #
+    # The two reads are ONE SNAPSHOT: the guest is stopped across them, or
+    # the refill worker turns a half over between the first read and the
+    # second and the pair describes no moment the machine was ever in. And
+    # the demo is not a whole number of halves (RC_D_LEN 8000, a half 2048),
+    # so the stream's LAST half is its tail and then silence: locate() takes
+    # that one as exactly sweep[p:] followed by 0x80s, p a whole half's place
+    # - the shape the row used to call "not the demo's samples" whenever it
+    # happened to look after the worker reached the end.
     sw = recorder.sweep()
-    pos = [sw.find(q.read(at + k * half, half)) for k in (0, 1)]
+
+    def locate(chunk):
+        p = sw.find(chunk)
+        if p >= 0:
+            return p
+        p = len(sw) - len(sw) % half if half else 0
+        n = len(sw) - p
+        if half and 0 < n < half and chunk[:n] == sw[p:] \
+                and chunk[n:] == b"\x80" * (half - n):
+            return p
+        return -1
+    q.hmp("stop")
+    try:
+        half = u16(drv("sbl_half", 2))
+        at = (u16(drv("sbl_seg", 2)) << 4) + sbase
+        pos = [locate(bytes(q.read(at + k * half, half))) for k in (0, 1)]
+    finally:
+        q.hmp("cont")
     want(half and all(p >= 0 and p % half == 0 for p in pos)
          and (pos[1] - pos[0]) % (2 * half) == half,
          "its two halves are the demo's samples at %s, in the stream's "
