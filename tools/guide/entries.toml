@@ -121,7 +121,7 @@ title = "Extended desktop"
 kind = "system"
 summary = "Spreads the desktop across two monitors so windows can be moved from one screen to the other."
 short = "Desktop across two monitors"
-needs = "Two display cards, such as a CGA and a Hercules"
+needs = "Two display cards, such as a VGA or CGA beside a Hercules"
 
 ["FORMAT.DRV"]
 title = "Disk formatter"
@@ -151,7 +151,7 @@ short = "Windows-style window look"
 ["THMPAL.DRV"]
 title = "Color theme presets"
 kind = "system"
-summary = "The Customize window for the Color theme, offering eight preset colour schemes. The Control Panel opens it."
+summary = "The Customize window for the Color theme: eight preset colour schemes and the title bar style. The Control Panel opens it."
 short = "Preset colour schemes"
 
 ["HDDTOOL.DRV"]
