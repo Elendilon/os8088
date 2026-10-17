@@ -240,7 +240,8 @@ def main():
     for f in files:
         macro = None
         tcur = None                  # the `%1 %+ _x:` template label open now
-        for sect, n, line in sections(f):
+        tdecl = False                # ...and declared: FRAMEB below
+        for sect, n, line, raw in sections_raw(f):
             m = MACRO_D.match(line)
             if m:
                 macro = m.group(1)
@@ -265,14 +266,20 @@ def main():
                     tcur = [t.group(1), bool(TDATA.match(rest)), set(),
                             not rest]
                     tmpl[macro].append(tcur)
+                    # a TEMPLATE label can carry the return-kind rule's
+                    # declaration too (FRAMEB, below): kernel.asm's KGO_PAIR,
+                    # CTRL.DRV's and the boot blob's cp_kgo/bvs_kgo, is
+                    # exk_go's shape written once for two images. Its kinds
+                    # stay empty, which is "unjudged" - exactly a raw one's
+                    tdecl = 'ovlchk: builds its own far frame' in raw
                 elif tcur is not None:
                     if tcur[3] and line.strip():
                         tcur[1], tcur[3] = bool(TDATA.match(line)), False
                     r = TRET.match(line)
-                    if r:
+                    if r and not tdecl:
                         tcur[2].add(r.group(1).lower())
                     l = TLADJ.match(line)
-                    if l:
+                    if l and not tdecl:
                         tcur[2].add('retf' if l.group(1).lower()
                                     .startswith('kretfc_') else 'ret')
             m = LABEL.match(line)

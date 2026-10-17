@@ -48,7 +48,7 @@ REG = {
     ("kernel/wm.inc", None, 0): (DEF, "WF_FULL's own equ"),
     ("kernel/wm.inc", None, 1): (DEF, "WM_CHROMELESS's kern_big arm: the word test of WF_FULL | WF_DESK"),
     ("kernel/wm.inc", None, 2): (DEF, "WM_CHROMELESS's kern_small arm: the byte test, unchanged"),
-    ("kernel/wm.inc", "wm_refit", 0): (FULLONLY, "the latch's refit to its display"),
+    ("kernel/wm.inc", "%1_refit", 0): (FULLONLY, "the latch's refit to its display (WM_REFIT: wm_refit and the boot's bvw_refit)"),
     ("kernel/wm.inc", "wm_raise", 0): (FULLONLY, "the INCOMING window covers the screen; a desk window is never raised"),
     ("kernel/wm.inc", "wm_snap_want", 0): (FULLONLY, "a desk window KEEPS the 8-pixel snap: W_X = 7 mod 8 puts its face on the byte grid"),
     ("kernel/wm.inc", "wm_snap_want", 1): (DEF, "the one-byte-test assertion"),
@@ -85,6 +85,10 @@ REG = {
 }
 
 LABEL = re.compile(r"^([A-Za-z_][\w]*):")
+# ...and a label a MACRO pastes (`%1 %+ _refit:` - wm.inc's WM_REFIT, written
+# once for CTRL.DRV's wm_refit and the boot blob's bvw_refit): the routine is
+# named `%1` plus its suffix, which is every expansion of it at once
+TLABEL = re.compile(r"^%1\s*%\+\s*(\w+):")
 MACRO_USE = re.compile(r"^\s*WM_CHROMELESS\s+(\w+)\s*$")
 
 
@@ -101,9 +105,9 @@ def sites():
         rel = os.path.relpath(path, ROOT)
         lab, seen, inmacro = None, {}, False
         for line in open(path, encoding="latin-1"):
-            m = LABEL.match(line)
+            m = LABEL.match(line) or TLABEL.match(line)
             if m:
-                lab = m.group(1)
+                lab = m.group(1) if m.re is LABEL else "%1" + m.group(1)
             code = line.split(";", 1)[0]
             if re.match(r"^\s*%macro\s+WM_CHROMELESS\b", code):
                 inmacro = True

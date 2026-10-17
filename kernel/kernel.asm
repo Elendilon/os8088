@@ -1182,6 +1182,15 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 ; 386 code - so its stage 1 reading one sector more costs no period machine
 ; anything. What it buys is vmm_boot_x in the blob instead of resident `.cold`.
 ; The Makefile adds the sector for KERN_EMU in the same block as for a knob.
+; TWELVE since kernel size pass 13 (docs/plans/completed/ksp13/dispsw.md): the
+; twelfth is the boot's copy of the adapter switch and the Dock setting's
+; apply, which are CTRL.DRV's at run time (KSW_SECT) - drv_boot and kmain_o
+; are the one caller they have outside the panel. KSIG_OFF moved one memory
+; sector down again (5120 -> 4608), file sector 21; t_blobruns priced the
+; sector at no int 13h on any geometry. kern_small has no such copy - no
+; drv_boot, no second display - so it STAYS at eleven, and its KSIG_OFF at
+; 5120: BOOT2_SMALLSEC takes the sector back off, and the Makefile does the
+; same in the block that reads this line. The literal stays kern_big's.
 %ifdef KERN_KNOB
   %define BOOT2_KNOBSEC 1
 %elifdef KERN_EMU
@@ -1189,7 +1198,12 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 %else
   %define BOOT2_KNOBSEC 0
 %endif
-BOOT2_SECS  equ 11 + BOOT2_KNOBSEC ; sectors stage 1 reads before it jumps - the
+%ifdef KERN_SMALL
+  %define BOOT2_SMALLSEC 1
+%else
+  %define BOOT2_SMALLSEC 0
+%endif
+BOOT2_SECS  equ 12 + BOOT2_KNOBSEC - BOOT2_SMALLSEC ; sectors stage 1 reads before it jumps - the
                                 ; loader, its screen and the blob half of
                                 ; the boot overlay, one section to BOOT2_PAD.
                                 ; THE TOTAL IS THIS, so
@@ -4445,8 +4459,8 @@ kmain_o:
                                 ; there
     MARKW 10
 %ifdef KERN_BIG
-    mov bp, vid_disp_init       ; (spw_near: kmain_o holds nothing in BP)
-    call KERNEL_SEG:spw_near    ; ...and if it has BOTH mono cards, programme
+    call bvs_disp_init          ; (the blob's own, driver.inc: KSW_SECT)
+                                ; ...and if it has BOTH mono cards, programme
                                 ; the second one too (SPEC.md 39.13). Here
                                 ; because [vid_avail] is what decides, so this
                                 ; is the earliest it can run; it claims nothing
@@ -5210,29 +5224,97 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 %endif
 
 ; -----------------------------------------------------------------------------
-; KSW_SECT / KSWK - THE ADAPTER SWITCH IS CTRL.DRV's ON kern_small (SPEC.md
-; 39.11.2, kernel size pass 13). vid_switch's one caller there is the Display
-; page - kern_small has no drv_boot to apply SYSTEM.CFG's adapter at boot and
-; no second display - so it and the five routines only it reaches (vid_equip,
-; vid_blank, vid_avail_test, wm_su_drop_all, wm_refit) are assembled into the
-; panel's image, `.modu`, and what they reach in the kernel they reach through
-; the panel's CPXK hop (ctrl.inc's cp_kgo). On kern_big they stay `.text`,
-; where the boot, EXTD.DRV and the dock reach them too. The section is a
-; NAME and not a literal so that tools/os88ovlchk.py, which reads source and
-; evaluates no %if, files the bodies as the `.text` they are on kern_big.
+; KSW_SECT / KSWK - THE ADAPTER SWITCH IS CTRL.DRV's (SPEC.md 39.11.2, kernel
+; size pass 13). Setting a new PRIMARY is the Display page's alone at run time,
+; so vid_switch and the routines only it reaches are assembled into the
+; panel's image, `.modu`, on every kernel, and what they reach in the kernel
+; they reach through the panel's CPXK hop (ctrl.inc's cp_kgo).
+;
+; kern_small went first: there vid_switch's one caller is the Display page -
+; no drv_boot, no second display - and the walk out of it reaches vid_equip
+; and wm_su_drop_all as well, which are KSW_SECT (`.modu` there, `.text` on
+; kern_big, where EXTD.DRV's fsx restore and OSAPI_THM_SET reach them). The
+; section is a NAME for those two so that tools/os88ovlchk.py, which reads
+; source and evaluates no %if, files them as the `.text` they are on kern_big.
+;
+; kern_big followed (docs/plans/completed/ksp13/dispsw.md): vid_switch,
+; vid_blank, vid_avail_test, vid_disp_init, vid_disp_other, wm_refit and the
+; Dock page's dock_apply/dock_reflow are `.modu` there too, written ONCE as a
+; macro each (VSW_AVAIL, VSW_SWITCH, VSW_DISP, WM_REFIT, DOCK_APPLY) because
+; the BOOT reaches them as well - drv_boot applies SYSTEM.CFG's adapter and
+; Dock setting and kmain_o arranges the displays - and so the blob carries a
+; second expansion of each (driver.inc, `bvs_`), reaching the kernel through
+; BSWK/BSWC: the same hop, KGO_PAIR, expanded in the blob. DRV_ATTACH's
+; trade (SPEC.md 51): copies in images that come and go, against one in a
+; segment every machine pays for.
 ; -----------------------------------------------------------------------------
 %ifdef KERN_SMALL
   %define KSW_SECT .modu
-  %define KSW_GO cp_kgo         ; (a NAME too: the scan reads macro bodies,
-  %macro KSWK 1                 ; and on kern_big's reading this is .text
-    call KSW_GO                 ; calling the image's hop - which no kern_big
-    dw %1                       ; byte does)
-  %endmacro
-%else
-  %macro KSWK 1
-    call %1
-  %endmacro
 %endif
+%define KSW_GO cp_kgo           ; (a NAME too: the scan reads macro bodies,
+%define KSW_CGO cp_cgo          ; and on kern_big's reading this is .text
+%macro KSWK 1                   ; calling the image's hop)
+    call KSW_GO
+    dw %1
+%endmacro
+%macro KSWC 1                   ; ...the same into a near `.cold` routine
+    call KSW_CGO
+    dw %1
+%endmacro
+%macro KSWN 1                   ; ...and a plain near call to a routine that is
+    call %1                     ; in the image on kern_small and resident on
+%endmacro                       ; kern_big (vid_equip, wm_su_drop_all): the
+                                ; scan does not read `call %1`
+; (BSWK/BSWC, the blob's pair through bvs_kgo/bvs_cgo, are driver.inc's,
+; beside the blob's expansions: a name of a `.boot2` label written here would
+; be a reference INTO the blob from `.text` - tests/ovlrefs.txt)
+
+; KGO_PAIR - %1_cgo / %1_kgo: CPXC's and CPXK's far hop, built by hand, for an
+; image whose CS is not the kernel's: the call left the address of `dw target`
+; on the stack, and this turns that word into a far return to just past it,
+; with the TARGET SEGMENT's own `retf` (cw_kretf in .text, cold_kretf in .cold)
+; as the near return on top - then RETFs into the target, whose near `ret`
+; lands on that retf and comes back here. Every register and the flags are
+; preserved both ways (MOV, LEA, PUSH, POP and RETF write none), so the kernel
+; routine sees exactly what the site handed it. ONE tail for both: they differ
+; in the segment slot and the retf. DS must be KERNEL_SEG at the site - the
+; kernel half's segment slot is PUSHED from it. Expanded TWICE: `cp` in
+; CTRL.DRV (ctrl.inc) and `bvs` in the boot blob (driver.inc). The CS it
+; stores is the far return's, on the stack, spent before the hop returns - not
+; a published segment, which is what os88ovlchk's CS rule is about.
+%macro KGO_PAIR 1
+%1 %+ _cgo:                     ; ovlchk: builds its own far frame
+    push ax                     ; STKBALANCE-OK: a far frame built by hand, its
+    push ax                     ; four slots spent by the RETF below and by the
+    push ax                     ; target's own return through cold_kretf
+    push ax
+    push bp
+    mov bp, sp                  ; [bp+2] offset, [bp+4] segment, [bp+6] the
+    push bx                     ; near return, [bp+8] the far return's offset
+    mov word [bp+4], COLD_SEG   ; and [bp+10] the call's own return, which
+    mov bx, cold_kretf          ; becomes the far return's CS
+    jmp short %%t
+%1 %+ _kgo:                     ; ovlchk: builds its own far frame
+    push ax                     ; STKBALANCE-OK: the same frame, its target's
+    push ax                     ; return through cw_kretf. The segment slot is
+    push ds                     ; PUSHED: DS is KERNEL_SEG at every site
+    push ax
+    push bp
+    mov bp, sp
+    push bx
+    mov bx, cw_kretf
+%%t:
+    mov [bp+6], bx
+    mov bx, [bp+10]
+    mov [bp+10], cs
+    lea bx, [bx+2]              ; past the `dw`
+    mov [bp+8], bx
+    mov bx, [cs:bx-2]           ; ...which names the target
+    mov [bp+2], bx
+    pop bx
+    pop bp
+    retf
+%endmacro
 
 %include "dskwin.inc"           ; THE FIRST INCLUDE, and that is the whole of
                                 ; the mechanism (SPEC.md 2.1.2): `.lowbss` is
@@ -6523,10 +6605,9 @@ section .text                   ; that is not an error
 ; zones. Drawn on a mount, on a volume going away and on a click on bare
 ; desktop - never in a loop, and the module carries no data at all, so it
 ; moved whole with no section toggle in it.
-%ifndef KERN_SMALL              ; (kern_small: vid_switch, its one caller
-desk_rowcalc:     call COLD_SEG:desk_rowcalc_x ; there, is CTRL.DRV's and makes
-              ret                              ; the far call itself)
-%endif
+; (desk_rowcalc, the `.text` thunk of desk_rowcalc_x, went in kernel size pass
+; 13: its two callers, vid_switch and dock_reflow, are CTRL.DRV's and the
+; blob's and make the far call themselves - KSW_SECT)
 
 ; =============================================================================
 ; THE SHARED-EPILOGUE LADDER (SPEC.md 15.1.2)

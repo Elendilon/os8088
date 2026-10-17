@@ -55249,6 +55249,13 @@ over a cylinder (+213 ms, which the owner accepted), and on the kernel it
 landed on it costs no call anywhere (`t_blobruns`). KSIG_OFF moved
 5632 -> 5120, file sector 21 still.
 
+**TWELVE since kernel size pass 13**, on kern_big and kern_emu's base: the
+twelfth sector is the boot's own copy of the adapter switch and of the Dock
+setting's apply, which are `CTRL.DRV`'s at run time (§39.11.2). It costs no
+`int 13h` on any geometry (`t_blobruns`, 2/2/2/2 and stage 2 unchanged), and
+`KSIG_OFF` moved 5120 -> 4608, file sector 21 still. kern_small has no such
+copy and stays at eleven and 5120 (`BOOT2_SMALLSEC`, kernel.asm).
+
 **Measured** with `tools/os88boot.py`, reset to desktop, against the
 `elendilon-next` it was rebased onto:
 
@@ -62835,8 +62842,9 @@ was 227).
 **The module owns both halves of the table.** `mod_fp` entry 0 is `dkx_hook`,
 which writes this image's landing pads in, and entry 1 is `dkx_unhook`, which
 writes the kernel's own bodies back and forgets an open strip on its way out;
-`dkf_apply` is their only caller and calls each directly, so neither needs a
-kernel entry point. A module is refused unless it was assembled with this very
+`dock_apply` (`dkf_apply` until kernel size pass 13, when it became
+`CTRL.DRV`'s with a boot copy in the blob - §39.11.2) is their only caller and
+calls each directly, so neither needs a kernel entry point. A module is refused unless it was assembled with this very
 kernel — build number and layout stamp both (§2.8.2) — so its copy of the
 basic table is not a guess about the kernel's offsets, it *is* them. That is
 what lets the kernel store the basic table once, as `dkv`'s rest state, with
@@ -70402,6 +70410,22 @@ only it reaches (`vid_equip`, `vid_blank`, `vid_avail_test`, `wm_su_drop_all`,
 panel's `CPXK` hop: 187 resident bytes on the 128 KB machine's kernel, for
 the order above unchanged. `desk_rowcalc`'s resident thunk goes with it - the
 image makes the far call to `desk_rowcalc_x` itself.
+
+**On kern_big (and kern_emu) it is `CTRL.DRV`'s too** (kernel size pass 13,
+docs/plans/completed/ksp13/dispsw.md). Setting a new PRIMARY is the Display
+page's alone at run time; the other caller is the BOOT, where `drv_boot`
+applies `SYSTEM.CFG`'s adapter and Dock setting and `kmain_o` arranges the
+displays. So `vid_switch`, `vid_blank`, `vid_avail_test`, `vid_disp_init`,
+`vid_disp_other`, `wm_refit` and the Dock page's `dock_apply`/`dock_reflow`
+(§30.5) are each written once as a macro and expanded twice - into the
+panel's image, and into the boot blob (`bvs_`/`bvw_`/`bdk_`, given back at
+`mem_unblob`), each copy reaching the kernel through its own `KGO_PAIR` hop
+- which is `DRV_ATTACH`'s trade (§51). 299 resident bytes for a twelfth blob
+sector that costs no `int 13h` on any geometry (`t_blobruns`); kern_small
+keeps eleven. What stays resident is what something OUTSIDE the panel
+reaches: `vid_equip` and `vid_desk_union` (EXTD.DRV's fsx-bracket restore),
+`wm_su_drop_all` (`OSAPI_THM_SET`), `vid_dual_ok` (`fsx_page`) and
+`wm_pref_take`/`wm_apply_size` (every window that is sized).
 
 #### 39.11.2.1 …and back again — the natural bank
 

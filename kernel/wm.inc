@@ -1181,10 +1181,12 @@ wm_nat_take_wh:
 ; A free slot is skipped rather than clamped: W_W/W_H are whatever the last
 ; owner left there, and wm_create fits the record it fills in anyway.
 ; -----------------------------------------------------------------------------
-%ifdef KERN_SMALL                ; (KSW_SECT: kernel.asm - CTRL.DRV's on
-section KSW_SECT                ; kern_small, vid_switch's alone)
-%endif
-wm_refit:
+; WM_REFIT %1, %2 - %1_refit, written once (KSW_SECT, kernel.asm): CTRL.DRV's
+; `wm` and the boot blob's `bvw`, %2 the hop a resident callee is reached
+; through. Its callers are vid_switch, the Display page's arrangement and the
+; Dock page's dock_reflow, and the boot's copies of the two of those
+%macro WM_REFIT 2
+%1 %+ _refit:
     push bx
     push cx
     mov bx, wm_wins
@@ -1194,7 +1196,7 @@ wm_refit:
     jz .skip
     test byte [bx+W_FLAGS], WF_FULL
     jnz .full
-    KSWK wm_apply_size          ; what it ASKED for, then its own answer for
+    %2 wm_apply_size            ; what it ASKED for, then its own answer for
                                 ; the adapter it now finds itself on, then the
                                 ; clamp - SPEC.md 11.100's one sequence, the
                                 ; same three wm_prefer and wm_keeph run. This
@@ -1204,7 +1206,7 @@ wm_refit:
                                 ; the band (39.11.2.1)
     jmp short .told
 .full:
-    KSWK wm_fs_setrect          ; a fullscreen window wants the NEW screen, and
+    %2 wm_fs_setrect            ; a fullscreen window wants the NEW screen, and
                                 ; its bank is the WINDOWED rect - replayed here
                                 ; it would un-fullscreen a window that is still
                                 ; flagged WF_FULL and still owns [wm_fs], with
@@ -1213,7 +1215,7 @@ wm_refit:
                                 ; desktop band, and a fullscreen frame covers
                                 ; the bar and the dock by definition
 .told:
-    KSWK wm_sz_notify           ; ...and NOW tell it, unconditionally and while
+    %2 wm_sz_notify             ; ...and NOW tell it, unconditionally and while
                                 ; the caller's repaint is still ahead of us. An
                                 ; app that relayouts here is painted correctly
                                 ; the first time; and it is told even when its
@@ -1226,9 +1228,16 @@ wm_refit:
     pop cx
     pop bx
     ret
-%ifdef KERN_SMALL
+%endmacro
+section .modu                   ; CTRL.DRV's (KSW_SECT, kernel.asm)
+WM_REFIT wm, KSWK
 section .text
-%endif
+%ifdef KERN_BIG
+    nop                         ; PARITY PAD, never run (it follows
+%endif                          ; wm_nat_take_wh's `ret`): wm_refit's 37 bytes
+                                ; left `.text` here, and an odd hole put
+                                ; wm_paint_all and ui_task at an odd shift
+                                ; (kernel size pass 13, the brief's parity rule)
 
 ; -----------------------------------------------------------------------------
 ; wm_dock_snap - a window left barely over the dock is nudged back above it
@@ -9806,7 +9815,11 @@ wm_su_drop_all:
     mov bx, wm_wins             ; every record, in slot order - wm_idx2ptr's
     mov cx, MAX_WIN             ; answer for 0..MAX_WIN-1, walked by the stride
 .one:
+%ifdef KERN_SMALL
     KSWK wm_su_drop             ; (preserves every register and the flags)
+%else
+    call wm_su_drop             ; (kern_big: resident, OSAPI_THM_SET's too)
+%endif
     add bx, WIN_SIZE
     loop .one
     pop cx

@@ -288,14 +288,18 @@ dkb_band:
 ; raise caches go because a window that did not move can have had the strip
 ; stand up or lie down behind it.
 ; -----------------------------------------------------------------------------
-section .cold
-dock_apply:                     ; (the name its callers knew: they far-call
-dkf_apply:                      ; dkf_apply, and the .text thunk is gone)
+; DOCK_APPLY %1, %2, %3, %4 - %1_apply and %1_reflow, written once (KSW_SECT,
+; kernel.asm): CTRL.DRV's `dock` (the Dock page) and the boot blob's `bdk`
+; (drv_boot's SYSTEM.CFG reader), %2/%3 the hops a resident `.text`/`.cold`
+; callee is reached through, %4 the prefix of the wm_refit it calls. %1_apply
+; is FAR (both callers `push cs / call`); %1_reflow is its near half
+%macro DOCK_APPLY 4
+%1 %+ _apply:
     push ax
     mov al, MOD_DOCK
     test byte [dock_cfg], DOCK_P_MASK | DOCK_F_AUTO
     jz .basic
-    call mod_need
+    %3 mod_need
     jc .fell
     call far [DKFP]            ; dkx_hook: the image takes dkv over, and CF=0
     jmp short .apply
@@ -309,22 +313,25 @@ dkf_apply:                      ; dkf_apply, and the .text thunk is gone)
                                ; mod_gone's refusal, which is exactly right
                                ; and is why it needs no test - and is what
                                ; deleted the cw_dock_drop shim with it
-    call mod_drop              ; no callback executing: settings owns gfx lock
+    %3 mod_drop                ; no callback executing: settings owns gfx lock
     clc
 .apply:
     pushf                     ; retain failure for CP; boot gets basic fallback
-    call KERNEL_SEG:dock_reflow
+    call %1 %+ _reflow
     popf
     pop ax
     retf
+%1 %+ _reflow:                  ; the far half it had in `.text` until kernel
+    %2 dock_geom                ; size pass 13 (docs/plans/completed/ksp13/
+    call COLD_SEG:desk_rowcalc_x ; dispsw.md): one entry, not five shims
+    call %4 %+ _refit
+    %2 wm_su_drop_all
+    %2 dock_force
+    ret
+%endmacro
+section .modu                   ; the Dock page's (KSW_SECT, kernel.asm)
+DOCK_APPLY dock, KSWK, KSWC, wm
 section .text
-dock_reflow:                    ; dkf_apply's far half: one entry, not five shims
-    call dock_geom
-    call desk_rowcalc
-    call wm_refit
-    call wm_su_drop_all
-    call dock_force
-    retf
 
 
 dock_geom:      DKCALL DKI_GEOM
