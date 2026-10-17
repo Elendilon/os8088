@@ -1027,11 +1027,28 @@ whoever extends this:
     keeping the up-to-112 it covered on the stack; and `cs_artes` returns
     ES = the package's own segment with SI the band's offset in it,
     rather than the union's own segment. 56 bytes of image, on every
-    kernel, and Skies flies in Mode X under Bochs and comes back. Still
-    off the grid and NOT started: Frotz's `zmem` (base + addr >> 4),
-    Tracker's pattern walk and RunCPM's 64KB banks - each STARTS (item 16)
-    and faults when used. A generic answer was costed and refused for
-    now: an exact selector per paragraph does not exist in an identity
+    kernel, and Skies flies in Mode X under Bochs and comes back.
+    **Frotz** (`zm_map`, `zm_addr`, a jump's negative wrap, @verify's
+    walk) and **Tracker** (pattern p at blob + 64 + 64p offset 60, a
+    sample at blob + 8 x (start >> 7) offset start & 127) normalise to
+    128-byte granules now - the same bytes in real mode, so neither
+    package has a kern_mega arm: a 136KB v5 story compiled for the test
+    (routines above 64KB, @verify) plays to the same transcript under the
+    harness and on kern_mega, and BEVERLY.MOD plays through a Sound
+    Blaster there. **RunCPM needed nothing** - the `rc_zseg + (off >> 4)`
+    the survey named has `off` a multiple of 512 - and runs MBASIC under
+    Bochs; CWORD, the C64, PaccMan, Weave and Loom all start too. The
+    **DISKOPS compressor** was the kernel's own case: `cmz_far` and
+    `cmz_move` normalised to 0..15 and the header was written at
+    (ES-1):8; kern_mega normalises to granules and writes at (ES-8):120,
+    a package's Uncompress takes `mega_oddsegf` for its body as the loader
+    does, and a package's COMPRESS refuses in protected mode - the encoder
+    wants its source at offset 0, and the body starts past the clear
+    prefix. Plain files round-trip byte-exact. Still open: HDD.DRV's 386
+    XMS ring (SPEC.md 52.1.4) loads ES's hidden base the unreal way and
+    probes A20 through FFFF, neither of which protected mode allows - not
+    reachable on M1, which ships no XMS driver for a package to arm it
+    with. A generic answer was costed and refused for now: an exact selector per paragraph does not exist in an identity
     map (the GDT is full, and a value with RPL bits set names an entry
     shared with its granule), so it would mean rewriting the register's
     VALUE, which breaks every program that does arithmetic on it after.

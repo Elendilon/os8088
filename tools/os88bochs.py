@@ -10,6 +10,7 @@
 
     --sb        give the machine a Sound Blaster 16 (port 220h, IRQ 5, DMA 1),
                 its output written to OUT/sb.wav
+    --b IMG     a 1.2MB floppy for B: in place of build/apps120.img
     --cfg BITS  write a SYSTEM.CFG onto A: wanting the drivers in BITS - one
                 bit per driver by kernel/driver.inc's drv_cfgbit, sound being
                 bit 0 (the Makefile's system.cfg rules are the same bytes)
@@ -151,7 +152,7 @@ def stop():
 class Box(object):
     """One Bochs, its disks in OUT, its E9 output in OUT/e9.out."""
 
-    def __init__(self, out, pkgs, sb=False, cfg=None):
+    def __init__(self, out, pkgs, sb=False, cfg=None, bimg=None):
         if running():
             sys.exit("os88bochs: a Bochs is already running (pids %s) - every "
                      "click would land on whichever window is on top. "
@@ -162,7 +163,7 @@ class Box(object):
         a, b = os.path.join(out, "a.img"), os.path.join(out, "b.img")
         c = os.path.join(out, "c.img")
         shutil.copy(os.path.join(ROOT, "build", "mega.img"), a)
-        shutil.copy(os.path.join(ROOT, "build", "apps120.img"), b)
+        shutil.copy(bimg or os.path.join(ROOT, "build", "apps120.img"), b)
         if cfg is not None:
             f = os.path.join(out, "SYSTEM.CFG")
             with open(f, "wb") as fh:
@@ -355,6 +356,8 @@ def main():
     ap.add_argument("--out", default=os.path.join(ROOT, "build", "bochs"))
     ap.add_argument("--sb", action="store_true")
     ap.add_argument("--cfg", type=lambda v: int(v, 0))
+    ap.add_argument("--b", dest="bimg", help="a 1.2MB image for B: in place "
+                    "of build/apps120.img")
     a = ap.parse_args()
     a.out = os.path.abspath(a.out)
     a.pkgs = [os.path.abspath(p) for p in a.pkgs]
@@ -364,7 +367,8 @@ def main():
         sweep(a.pkgs, a.batch, a.out, sb=a.sb, cfg=a.cfg)
     else:
         os.makedirs(a.out, exist_ok=True)
-        box = Box(a.out, a.pkgs, a.sb, a.cfg)
+        box = Box(a.out, a.pkgs, a.sb, a.cfg,
+                  os.path.abspath(a.bimg) if a.bimg else None)
         box.wait_for("kern_mega:", 240)
         print("running: DISPLAY=%s, E9 in %s" % (DISPLAY, box.e9))
 
