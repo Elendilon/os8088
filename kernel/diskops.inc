@@ -2044,6 +2044,10 @@ clo_fin:
     pop ds                      ; ...and back, before anything reads a global
     push ds
 
+    call clo_volid              ; A SERIAL OF ITS OWN (SPEC.md 18.8.2.1): the
+                                ; copy is stamped, never CL_BOOT - which
+                                ; clo_issrc still compares the source against -
+                                ; and never the source disk or the .IMG
     xor bx, bx                  ; ES:BX = the buffer at offset 0
     xor ax, ax                  ; LBA 0, at last
     mov cx, 1
@@ -2058,6 +2062,13 @@ clo_fin:
     pop si
     pop cx
     pop bx
+    ret
+
+clo_volid:                      ; the target's own serial: diskw.inc's
+    cmp byte [es:38], 0x29      ; DSK_VOLID, on the buffer's sector 0 - and
+    jne .out                    ; only with the extended BPB: without it +39
+    DSK_VOLID 0                 ; is boot code, written as it came
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
