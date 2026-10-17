@@ -168,9 +168,10 @@ STIK_BSS    equ DC_BSS          ; the include's state follows ours
 %define GFXE_BAND_W   176       ; the face: 22 cells, a 704-byte band
 %define GFXE_BAND_H   32
 %define GFXE_BAND_BUF dc_band
-%define GFXE_NOBUTIL            ; the face papers and blits its own band: no
-                                ; bounds, pixel or gfxe_bput (apps size pass
-                                ; 2b, SPEC.md 5.12.9)
+%define GFXE_SCALE              ; the day's x3 and the headings' x2 (5.12.8).
+                                ; No GFXE_BAND: the face papers and blits its
+                                ; own band, so no bounds, pixel or gfxe_bput
+                                ; (SPEC.md 5.12.9)
 
 ; --- bss: OURS FIRST, at fixed offsets - tests read it out of a running guest
 ; (tests/deskcal*.py), and tools/os88stik.py's DESKCAL_BSS_* say where

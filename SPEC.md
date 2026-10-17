@@ -8007,6 +8007,20 @@ gfxe_bits    SI = record, CX = x, DX = y      a bit record: db rows, then a word
              itself one pixel right; GFXE_X2 (4) / GFXE_X3 (8) = the scale
 ```
 
+- **Two dials, and each one that is off removes its STYLE BIT** (Sticky App
+  size pass), so a package that sets a style it did not ask for does not
+  assemble rather than drawing x1 or plain. **The scales are an opt-IN**:
+  `%define GFXE_SCALE` brings `GFXE_X2`, `GFXE_X3`, `gfxe_expand`, its two
+  tables and the scaled general path - the Desk Calendar (its day x3, its
+  headings x2) and `DESKPROB.O88` define it. Without it the general path is
+  x1's alone, a row at a time through the same merge `gfxe_bits` uses, and
+  the Sticky Note and the Desk Clock, which letter at x1 only, carry
+  **~250 bytes less** each. **Bold is an opt-out**: `%define GFXE_NOBOLD`
+  takes `GFXE_BOLD` and two of the straight path's four loop bodies out
+  (~85 bytes of the Desk Clock, which draws no bold). The straight path, the
+  reject and both inks are the same code in every arm, so a glyph costs what
+  the measurement below says whichever dials are set.
+
 - **Any `x`, both senses.** `x` is a band pixel and need not be on the byte
   grid: a row's pattern is built left-aligned in 32 bits and shifted into
   place, so a x3 bold glyph (25 bits) still fits. The INVERSE sense is the
@@ -8056,6 +8070,15 @@ gfxe_bits    SI = record, CX = x, DX = y      a bit record: db rows, then a word
 
 #### 5.12.9 `GFXE_NOBUTIL` — the band without its utilities
 
+**It is the DEFAULT now for a band only `GFXE_TEXT` or `GFXE_BITS` implied**
+(Sticky App size pass): the utilities come with a band asked for BY NAME -
+`%define GFXE_BAND`, or `GFXE_LINE`, which plots through them. The three
+Sticky Apps were the only packages a band reached through TEXT or BITS
+alone and none of them called a utility, so Sticky Note and the Desk Clock
+each shed **201 bytes** they never reached and the Desk Calendar, which had
+opted out already, is byte-identical. WIREFRAME and PiXEL, which name the
+band, are byte-identical too. The opt-out below stays valid.
+
 `GFXE_BAND` brings the band's geometry, `gfxe_bclear`, and a set of
 utilities for a FIGURE: the running bounds (`gfxe_bnew`, `gfxe_bfold`,
 `gfxe_bsize` and seven words), the pixel `gfxe_bpix` and the commit
@@ -8065,8 +8088,9 @@ them. `%define GFXE_NOBUTIL` leaves them out (apps size pass 2b) and keeps the
 band, `gfxe_bclear` and `gfxe_bh`: an opt-out in `os88ui.inc`'s `OS88UI_NO*`
 shape, so every package that does not set it is byte-identical, removing the
 symbols so a package that sets it and calls one does not assemble, and
-refusing without a band. The Desk Calendar sets it (§110.6.2), 208 bytes of
-image; WIREFRAME and PiXEL use the bounds and the commit and cannot.
+refusing without a band. The Desk Calendar set it (§110.6.2), 208 bytes of
+image, and needs no line for it now; WIREFRAME and PiXEL use the bounds and
+the commit and cannot.
 
 ### 5.13 `gfx_pixel` and `gfx_points` — which to reach for
 
