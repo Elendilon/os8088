@@ -9087,15 +9087,8 @@ wm_cov_rect:
     call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     mov di, bx                  ; DI = us, for the walk and for wm_su_rect
     call wm_su_rect             ; AX/BX/CX/DX = our content rect
-    test byte [di+W_FLAGS], WF_FULL
-    jz .rect
-    mov si, di                  ; ...except fullscreen, where the FRAME is the
-    call wm_win_rect            ; content and wm_su_rect insets a title bar
-                                ; that is not there (SPEC.md 11.2). This IS
-                                ; wm_win_rect's WF_FULL answer, and SI is free
-                                ; here: it is pushed at entry and the walk
-                                ; below does not load it until .scan
-.rect:
+                                ; ...the FRAME on a chromeless window -
+                                ; desk or fullscreen - which is the content
     call rect_put               ; <- AX..DX, four adjacent words
     dw wm_cov_c1
     mov si, wm_cov_x1           ; seeded EMPTY, and left that way by a window
@@ -9375,13 +9368,17 @@ wm_bar_span:
 ; wm_su_rect - DI = window -> AX/BX/CX/DX = its content rect, the same four
 ; numbers wm_draw_win's white fill uses
 ;
-; A DESK window's content IS its frame (SPEC.md 11.103.5): wm_damage hands a
-; widget the damage CLIPPED to this rect, and the title inset below would cut
-; its top TITLE_H rows and its borders off every OSAPI_WM_DAMAGE answer.
-; wm_win_rect's chromeless arm has already taken the shadow off.
+; A CHROMELESS window's content IS its frame - a DESK window's (SPEC.md
+; 11.103.5) and a FULLSCREEN one's (SPEC.md 11.2): wm_damage hands a widget the
+; damage CLIPPED to this rect and a fullscreen package the whole of it, and the
+; title inset below would cut its top TITLE_H rows and its borders off every
+; OSAPI_WM_DAMAGE answer. wm_win_rect's chromeless arm has already taken the
+; shadow off. (Until kernel size pass 13 only the desk arm was here, and a
+; fullscreen window's OSAPI_WM_DAMAGE answered the inset rect: the owner's
+; call, taken with the bytes it saves in wm_cov_rect; on kern_small, which has
+; no desk window, the arm costs 3 bytes net and is the defect's fix there.)
 wm_su_rect:
-%ifdef KERN_BIG
-    test byte [di+W_FLAGS+1], WF_DESK >> 8
+    WM_CHROMELESS di
     jz .ord
     push si
     mov si, di
@@ -9389,7 +9386,6 @@ wm_su_rect:
     pop si
     ret
 .ord:
-%endif
     call wm_bar_span
     mov bx, [di+W_Y]
     add bx, TITLE_H

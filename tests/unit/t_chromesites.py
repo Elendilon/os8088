@@ -71,7 +71,7 @@ REG = {
     ("kernel/wm.inc", "wm_clip_subl", 0): (CHROMELESS, "wm_occl_l's frame-and-L: no L to draw back, the frame alone"),
     ("kernel/wm.inc", "wm_clip_sub", 0): (CHROMELESS, "the occupied rect is the frame: no shadow under it"),
     ("kernel/wm.inc", "wm_damage", 0): (FULLONLY, "FULL forces 'whole' because its fill ignores WF_OWNBG; a desk window is OWNBG and gets a sub-rect"),
-    ("kernel/wm.inc", "wm_cov_rect", 0): (FULLONLY, "a desk window reaches its frame through wm_su_rect's own desk arm"),
+    ("kernel/wm.inc", "wm_su_rect", 0): (CHROMELESS, "the content IS the frame: a desk window's and a fullscreen one's"),
     ("kernel/wm.inc", "wm_su_take", 0): (FULLONLY, "a desk window has no WF_SAVEU and never banks"),
     ("kernel/wm.inc", "wm_draw_win", 0): (FULLONLY, "the FULL arm fills white; the desk arm is its own test ahead of it"),
     ("kernel/wm.inc", "wm_grow_erase", 0): (FULLONLY, "MAKE refuses a sizable window"),

@@ -20938,7 +20938,7 @@ as CHROMELESS (it must read `test word [..+W_FLAGS], WF_FULL | WF_DESK`,
 | `wm_snap_want` (and its assertion) | FULL-ONLY | a desk window KEEPS §11.94's snap: `W_X` = 7 mod 8, so the face at `W_X + 1` is on the byte grid (§110.11) |
 | `wm_fullscreen` | FULL-ONLY | the latch's own setter |
 | `wm_damage` | FULL-ONLY | FULL forces "whole" because its fill ignores `WF_OWNBG`; a desk window is OWNBG and gets a sub-rect |
-| `wm_cov_rect` | FULL-ONLY | a desk window reaches the frame through `wm_su_rect` (below) |
+| `wm_su_rect` | CHROMELESS | the content rect IS the frame, a desk window's and a fullscreen one's (below) |
 | `wm_su_take` | FULL-ONLY | a desk window has no `WF_SAVEU`, so it never banks |
 | `wm_draw_win` | FULL-ONLY | the FULL arm fills white; the desk arm is a test of its own before it (below) |
 | `wm_grow_erase`, `wm_grow_paint` | FULL-ONLY | MAKE refuses a sizable window |
@@ -20957,6 +20957,15 @@ arm there does something a widget must not:
   content rect" for `wm_damage`, `wm_cov_rect`, the raise cache and the drag
   cache, and its title inset would otherwise cut the top `TITLE_H` rows and
   the borders off every damage rect `OSAPI_WM_DAMAGE` hands a widget (§110.9).
+  **Since kernel size pass 13 the arm is `WM_CHROMELESS`, so a FULLSCREEN
+  window answers its frame too, on both kernels** - which fixed a defect: until
+  then `OSAPI_WM_DAMAGE` on a fullscreen window answered CF = 1 ("draw the
+  whole content") with AX..DX inset by a title bar and borders the window
+  does not have, so a package that trusted the rect skipped its top 18
+  rows. It also widens a fullscreen window's raise cache (`wm_su_flay`) to
+  the whole frame, and `wm_cov_rect`'s own fullscreen fix-up went with it
+  (the owner's call: kern_big -10 bytes, kern_small +3, where there is no
+  desk arm for the test to share).
 
 #### 11.103.6 The posted drag, and no drag cache
 
