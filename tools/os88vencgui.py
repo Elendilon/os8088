@@ -611,6 +611,85 @@ def ladder_options(c):
     return out
 
 
+# WHAT A LIST OFFERS, BY WHAT THE FILE IS (the owner, 2026-10-17: "change
+# the options in the dropdown based on the layout, to only what it actually
+# supports... and not force the user to guess it"): dest -> the choices the
+# file the form makes can take, in the list's own words (a blank as its
+# word), or None to offer them all. Each is the encoder's own refusal read
+# the other way, so a choice the list leaves out is one the encode refuses
+PIX_BY_LAYOUT = {"cga": ("mono", "cgacomp", "cga4"), "herc": ("mono",),
+                 "lin80": ("mono", "vga4"), "lin320": ("vga8",),
+                 "modex": ("vga8",), "c160": ("c160",),
+                 "text-80x100": ("c512",), "text-80x25": ("text",)}
+VGA4_SCREENS = ("640x480", "320x200", "320x240", "640x350", "640x400",
+                "320x200n", "320x240n")
+
+
+def pages_most(c):
+    """The pages the form's screen holds (os88venc.page_count's rule), or
+    None where the file has no second page"""
+    lay = c["layout"]
+    if lay == "herc":
+        return 2
+    if lay == "modex":
+        scr = vid.SCR_320X200 if c.get("screen") == "320x200" else 0
+    elif c["pixfmt"] == "vga4" and c.get("screen") not in ("", "640x480"):
+        scr = vid.SCREEN_BY_NAME[c["screen"]]
+    else:
+        return None
+    L = vid.LAYOUT_BY_NAME[lay or "lin80"]
+    return min(vid.MPAGE_MAX, 0x10000 // vid.page_bytes(L, scr))
+
+
+def _list_screen(c):
+    if c["layout"] == "modex":
+        return ["320x240", "320x200"]
+    if c["pixfmt"] == "vga4":
+        return ["640x480"] if c["live"] or c["resident"] else \
+            list(VGA4_SCREENS)
+    return None
+
+
+def _list_palette(c):
+    if c["pixfmt"] == "vga8":
+        return None
+    if c["pixfmt"] == "vga4":
+        if c["live"] or c["resident"]:
+            return ["auto"]
+        return [p for p in V.PALETTES if V.palette_kind(p)[1] <= 16]
+    return None
+
+
+def _list_pages(c):
+    most = pages_most(c)
+    return None if most is None else \
+        [str(n) for n in range(2, most + 1)] + ["max"]
+
+
+def _list_coarse(c):
+    if c["layout"] == "modex":
+        return ["auto", "off", "4x1"]
+    if c["pixfmt"] == "vga4":
+        return ["auto", "off", "16x4", "16x8", "32x8", "64x8"]
+    return None
+
+
+FIELD_CHOICES = {
+    "pixfmt": lambda c: ["auto"] + list(PIX_BY_LAYOUT[c["layout"]])
+    if c["layout"] in PIX_BY_LAYOUT else None,
+    "screen": _list_screen,
+    "palette": _list_palette,
+    "pages": _list_pages,
+    "coarse_cut": _list_coarse,
+    # (a Live or resident file's record is a stream's 32 KB, 98.1.4.1)
+    "frame_cap": lambda c: ["auto", "32"] if c["live"] or c["resident"]
+    else None,
+    # (a layer is for a machine with a budget, never the lossless one)
+    "layer_profile": lambda c: [p for p in ["none"] + sorted(V.PROFILES)
+                                if p != "lossless"],
+}
+
+
 # a coarse rung's cell, in words (frame: the whole frame at a time)
 CELL_WORDS = {"frame": "whole frame", "auto": "whole frame",
               "mix": "mixed: only the tiles it must"}
@@ -2709,6 +2788,16 @@ class App(object):
                 w.state(["disabled" if self.why.get(d) else "!disabled"])
         if hasattr(self, "ladrows"):    # (the rungs this file can use)
             self.ladder_show()
+        c = form_context(vals)          # (each list, what this file takes)
+        for d, rule in FIELD_CHOICES.items():
+            cb = [w for w in self.fwidgets.get(d, ())
+                  if isinstance(w, ttk.Combobox)]
+            if not cb:
+                continue
+            want = rule(c)
+            full = dropdown([f for f in fields() if f["dest"] == d][0])
+            cb[0].configure(values=full if want is None else
+                            [x for x in want if x in full or x in want])
 
     def apply_style(self):
         """The speaker's style changed by hand: its high-pass, ratio and

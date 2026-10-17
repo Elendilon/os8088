@@ -406,6 +406,16 @@ def main():
         p_off, r_off = run2("mxoff", "--preset", "modex", "--coarse-cut",
                             "off", *tight)
         vid.verify_v88(p_on)
+        # (--screen 320x240 on Mode X is its own screen, the default - the
+        # same frames as no --screen, where it was refused: the owner)
+        p_240, _ = run2("mx240", "--preset", "modex", "--coarse-cut", "off",
+                        "--screen", "320x240", *tight)
+        same240 = [bytes(x) for x, a_, i_ in vid.Reader(p_240).records()] \
+            == [bytes(x) for x, a_, i_ in vid.Reader(p_off).records()]
+        print("   3c: --screen 320x240 on Mode X: the frames %s no --screen's"
+              % ("the same as" if same240 else "NOT the same as"))
+        if not same240:
+            bad.append("--screen 320x240 on Mode X is not the default")
         h_on, rh_on = run2("hgon", "--preset", "herc", *tight)
         h_off, rh_off = run2("hgoff", "--preset", "herc", "--coarse-cut",
                              "off", *tight)
@@ -1271,9 +1281,12 @@ def main():
 
     def penc(name, *extra):
         out = os.path.join(ptmp, name + ".V88")
+        # (--pages 2: these legs are the two-page builder's, and the
+        # default is MAX - three on Mode X; 5j is the N-page one)
         res = venc.encode(venc.parser().parse_args(
             [cuts, out, "--quiet", "--preset", "modex", "--profile",
-             "286-fast", "--audio", "none", "--fit", "fill"] + list(extra)))
+             "286-fast", "--audio", "none", "--fit", "fill", "--pages",
+             "2"] + list(extra)))
         return vid.Reader(out), res
     rd, resd = penc("default")
     ro, _ = penc("off", "--page-ahead", "off")

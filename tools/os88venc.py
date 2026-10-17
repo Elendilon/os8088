@@ -584,8 +584,8 @@ CHOICE_HELP = {
         "off": "Never: one page, every frame drawn in place",
     },
     "pages": {
-        "2": "One hidden page: a scene change at a time built ahead (the "
-             "default; every player since page-ahead plays it)",
+        "2": "One hidden page: a scene change at a time built ahead "
+             "(every player since page-ahead plays it)",
         "3": "Two hidden pages: two scene changes close together both "
              "built in the calm before them - Mode X has three pages",
         "4": "Three hidden pages - Mode X at 320 x 200 and 16 colours at "
@@ -594,7 +594,8 @@ CHOICE_HELP = {
         "6": "Five hidden pages (a screen with that many)",
         "7": "Six hidden pages (a screen with that many)",
         "8": "Seven hidden pages (a screen with that many)",
-        "max": "Every page the screen holds - the first frames of a burst "
+        "max": "Every page the screen holds (the default; two for a "
+               "layered file) - the first frames of a burst "
                "built ahead too; a player before N pages refuses the file",
     },
     "page_keys": {
@@ -835,7 +836,10 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
                                   > vid.SP_MAX else 1,
                                   d.get("audio", prof["audio"]) != "none")),
                rate=num(d.get("rate", prof["rate"])),
-               audio=d.get("audio", prof["audio"]))
+               audio=d.get("audio", prof["audio"]),
+               # (MODE X's own screen is 320 x 240 - the window said
+               # 640x480 there, which no Mode X file plays on: the owner)
+               screen="320x240" if lay == "modex" else "")
     return out
 
 # THE OPTIONS A FILE WAS MADE WITH (98.2.17): every option, as the encode
@@ -8252,7 +8256,10 @@ def _encode(a, keep, tick, readers):
     # A SCREEN OF ITS OWN (98.1.3.2.1, 98.2.5.1): VGA4 on 320 x 200, 320 x
     # 240, 640 x 350 or 640 x 400 - the box cut to the screen, the canvas
     # at the screen's pixel shape, full screen only
-    scr = vid.SCREEN_BY_NAME[a.screen or "640x480"]
+    # (Mode X's 320x240 is its own screen, the default: not a screen of
+    # its own as VGA4's 320x240 is - the owner, 2026-10-17)
+    scr = vid.SCREEN_BY_NAME[a.screen or "640x480"] \
+        if not (L == vid.LAY_MODEX and a.screen == "320x240") else 0
     if scr:
         # ...or MODE X AT 320 x 200 (98.1.3.1.1): 13h's 400 lines, four
         # pages where 320 x 240 has three, at 13h's pixel shape
@@ -8262,7 +8269,8 @@ def _encode(a, keep, tick, readers):
             raise vid.V88Error(       # (a resident file has no screen byte,
                 "--screen %s is 16-colour VGA's (--pixfmt vga4 on lin80, not "
                 "Live or resident), or 320x200 Mode X's; for black and "
-                "white, --pixfmt vga4 --palette grey2" % a.screen)
+                "white, --pixfmt vga4 --palette grey2 (Mode X's own is "
+                "320x240)" % a.screen)
         bw = min(bw, vid.SCREENS[scr][1])
         bh = min(bh, vid.SCREENS[scr][2])
     # a C512 or a TEXT box is in CELLS, two bytes each (98.1.3.5)
@@ -8738,6 +8746,11 @@ def _encode(a, keep, tick, readers):
     # ON N PAGES (98.2.1.8.4): --pages, which the plan pass takes too - its
     # targets are a scene change's every frame then, not a run's first
     npg = page_count(a, L, scr) if pa_on else 2
+    if npg > 2 and str(getattr(a, "pages", "")) == "max" and (
+            getattr(a, "layer_disk", None) or
+            getattr(a, "layer_profile", None)):
+        npg = 2                         # (MAX: every page the FILE can use,
+                                        # and a layer's is two)
     # ...and FLIPPED AND BUILT AHEAD (98.2.1.8.5): --flip with it, on three
     # pages or more - two flip every frame and the rest build ahead
     if pa_on and a.flip and (npg < 3 or L == vid.LAY_HERC):
@@ -10796,14 +10809,16 @@ def parser():
                          "beside it refuses the file), kept whatever. Two "
                          "passes where it applies")
     ap.add_argument("--pages", choices=("2", "3", "4", "5", "6", "7", "8",
-                                        "max"), default="2",
+                                        "max"), default="max",
                     help="page-ahead ON N PAGES (98.2.1.8.4): the pages a "
-                         "page-ahead file builds on - 2 (the default, one "
-                         "hidden page: every player since 98.1.3.7 plays it), "
-                         "or up to every page the screen holds: Mode X 3, "
+                         "page-ahead file builds on - 2 (one hidden page: "
+                         "every player since 98.1.3.7 plays it), or up to "
+                         "every page the screen holds: Mode X 3, "
                          "Mode X on --screen 320x200 4, 16 colours on "
                          "320x200 4 and 320x240 3, NARROW (320x200n, "
-                         "320x240n) 8 and 6. MAX takes them all. More "
+                         "320x240n) 8 and 6. MAX, the default since "
+                         "2026-10-17, takes them all - two for a layered "
+                         "file, which has no more. More "
                          "pages build two or three scene changes close "
                          "together, and the first frames of a burst, in the "
                          "calm before them; a player before 98.3.8.4 refuses "
@@ -10950,7 +10965,8 @@ def parser():
                          "one a window hosts); 320x200 (mode 0Dh), 320x240, "
                          "640x350 or 640x400, full screen and with room for "
                          "two pages, so --flip (98.2.5.1). The box is cut "
-                         "to it. modex: 320x200 - 13h's 400 lines, four "
+                         "to it. modex: 320x240, its own (the default), or "
+                         "320x200 - 13h's 400 lines, four "
                          "pages where 320 x 240 has three (98.1.3.1.1). "
                          "320x200n and 320x240n: 16 colours NARROW, rows 40 "
                          "bytes apart for eight and six pages, for --pages "

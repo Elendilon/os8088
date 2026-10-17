@@ -891,6 +891,30 @@ def ladder_leg(bad):
                                            wv4.get("coarse_cut"),
                                            whg.get("coarse_cut"),
                                            wmx.get("scene_min")))
+    # WHAT EACH LIST OFFERS FOLLOWS THE FILE (2026-10-17, the owner: "only
+    # what it actually supports... and not force the user to guess it")
+    lists = lambda vals: {d: r(G.form_context(vals))
+                          for d, r in G.FIELD_CHOICES.items()}
+    lmx = lists(mx)
+    lhg = lists(dict(base, preset="herc"))
+    l4s = lists(dict(base, preset="vga4", pixfmt="vga4", screen="320x200"))
+    lv4 = lists(dict(base, live="vga", pixfmt="vga4"))
+    print("   18: Mode X offers screens %s, pages %s, cells %s; Hercules "
+          "formats %s, pages %s; 16 colours on 320x200 pages %s, palettes "
+          "to %s; Live VGA screens %s, palettes %s" % (
+              lmx["screen"], lmx["pages"], lmx["coarse_cut"], lhg["pixfmt"],
+              lhg["pages"], l4s["pages"], l4s["palette"][-1], lv4["screen"],
+              lv4["palette"]))
+    if lmx["screen"] != ["320x240", "320x200"] or \
+            lmx["pages"] != ["2", "3", "max"] or \
+            lmx["pixfmt"] != ["auto", "vga8"] or \
+            lhg["pixfmt"] != ["auto", "mono"] or lhg["pages"] != ["2", "max"] \
+            or l4s["pages"] != ["2", "3", "4", "max"] or \
+            any(V.palette_kind(p)[1] > 16 for p in l4s["palette"]) or \
+            lv4["screen"] != ["640x480"] or lv4["palette"] != ["auto"] or \
+            "lossless" in lmx["layer_profile"]:
+        bad.append("the lists a file can take: Mode X %r, Hercules %r, VGA4 "
+                   "320x200 %r, Live VGA %r" % (lmx, lhg, l4s, lv4))
     a = V.parser().parse_args(["in.mp4", "o.V88", "--ladder",
                                V.DEGRADE_DEFAULT])
     o = V.options_record(a)
