@@ -214,6 +214,10 @@ def main():
     shutil.copy(os.path.join(bdir, "os8088-360.img"), sysimg)
     shutil.copy(os.path.join(bdir, "apps360.img"), appimg)
     before = cfg_bytes(sysimg)
+    _i, _o, _e = os88fat.Fat12(appimg).find("MEDIA")   # B:\MEDIA's first
+    media_clus = _e[26] | _e[27] << 8   # cluster, read off the disk: it was
+                                        # a literal 4 until ASSOC.DAT grew to
+                                        # three clusters and moved it
     print("SYSTEM.CFG before: %d bytes, trailer %r" % (len(before),
                                                        trailer(before)[0]))
 
@@ -369,9 +373,9 @@ def main():
         if shots:
             ui.settle()
             shot(m, os.path.join(shots, "g_selected.png"))
-        media = ui.entry("MEDIA", root)
+        ui.entry("MEDIA", root)         # (raises naming the folder if absent)
         m.key("Enter")
-        ui._wait(lambda: any((ui.fs_of(w) or (0, 0))[1] == 4
+        ui._wait(lambda: any((ui.fs_of(w) or (0, 0))[1] == media_clus
                              for w in ui.windows() if w.visible),
                  "a Disk window on B:\\MEDIA", 30,
                  snapshot=lambda: [(w.title, ui.fs_of(w))
@@ -381,7 +385,7 @@ def main():
         # --- H: a DOCUMENT, opened through its association -----------------
         print("H: drag MEDIA\\GUIDE.TEX out, and double-click it")
         mw = [w for w in ui.windows()
-              if w.visible and (ui.fs_of(w) or (0, 0))[1] == 4][0]
+              if w.visible and (ui.fs_of(w) or (0, 0))[1] == media_clus][0]
         ui.raise_window(mw)
         idx, _ty = ui.entry("GUIDE.TEX", mw)
         row = ui.scroll_to(idx, win=mw)
