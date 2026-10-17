@@ -551,7 +551,7 @@ WEAVE started with no `ARG_FILE` (dock click, Finder click on the package)
 puts up a **placeholder card** (`w_paint_deck`, `apps/weave/weave.c`):
 
 > `WEAVE - no bundle open.`
-> `File > Open Bundle... opens a .WAB, and a double-click on one`
+> `Bundle > Open Bundle... opens a .WAB, and a double-click on one`
 > `opens it directly (the extension is declared in the header).`
 
 **The launcher this section was written for is NOT BUILT**: a window listing
@@ -559,7 +559,7 @@ the `.WAB` files in the instance's current directory plus the recents kept in
 `SYSTEM/APPDATA/` (SPEC.md §19.9's bank/GOTO/act/GOTO-back idiom), one row
 per bundle with its 16×16 icon (the ICON section, §2.12) and its header name,
 selecting a row loading it through §1.5's one load path. It is listed in
-§13.2. Until it lands, `File → Open Bundle...` and a double-click are the two
+§13.2. Until it lands, `Bundle → Open Bundle...` and a double-click are the two
 routes into a bundle, and the ICON section is validated (§10.4) and drawn by
 nothing.
 
@@ -586,7 +586,9 @@ field on the card.
 Loom additionally offers **Preview**: the compiled UI stream rendered in a
 child area by the SAME shared source WEAVE paints with (§1.7.1); no bytecode
 runs, and LOOM's status row says
-`Preview: layout and controls only - Run runs the app`. **The pane draws
+`Preview: layout and controls only - Weave runs the app` (LOOM has no Run
+command of its own: Pack writes the `.WAB` and WEAVE runs it, and the line
+once said `Run runs the app` and named a command that is not there). **The pane draws
 and does not arm**: arming a control needs `apps/weave/wact.c`'s
 press/release pair and the field pool underneath it, and firing it needs the
 event ring, which is the VM's — and a Preview is defined as the thing that
@@ -3602,12 +3604,12 @@ one case per rule, §12):
 
 | trigger | message |
 |---|---|
-| unknown element | `<zap>: not a Weave element; the inventory is closed (WEAVE-SPEC 3.2)` |
+| unknown element | `<zap>: not a Weave element; the inventory is closed` |
 | unknown attribute | `button: no such attribute "pad"; style is bold/invert/align only - two of three adapters are 1bpp` |
-| hover vocabulary | `onhover: no hover exists; pointer movement reaches a package only between press and release (SPEC.md 13.7)` |
-| color vocabulary | `color: no color here; a palette is a canvas's (WEAVE-SPEC 9.2.1) - grey rounds to black on 1bpp (SPEC.md 39.4)` |
-| palette name | `canvas: paper="beige" is not one of the sixteen colours (WEAVE-SPEC 6.10.7)` |
-| pen pair | `canvas: paper="blue" against ink="red": the two share no plane either way and GFX_BLIT1 refuses the pair (SPEC.md 5.4.2.2)` |
+| hover vocabulary | `onhover: no hover exists; pointer movement reaches a package only between press and release` |
+| color vocabulary | `color: no color here; a palette is a canvas's - grey rounds to black on 1bpp` |
+| palette name | `canvas: paper="beige" is not one of the sixteen colours` |
+| pen pair | `canvas: paper="blue" against ink="red": the two share no plane either way and GFX_BLIT1 refuses the pair` |
 | oversize bundle | `bundle is 68112 bytes; the cap is 63488 - the directory size must stand for the resident ask` |
 | ontick over budget | `ontick handler is 91 ops; the cap is 64 - per-frame JS does not fit 10-30k ops/s` |
 | too many atoms | `188 app atoms; the cap is 187 - atom ids are one byte` |
@@ -3617,6 +3619,15 @@ one case per rule, §12):
 Unknown events, bad arity, undeclared identifiers, frame/stack overdepth
 and every §3/§4/§5 limit refuse in the same voice: what was written, the
 bound, the fact.
+
+**A sentence carries no section number.** The reader of a refusal is the
+author of the app, on a machine with no copy of this document, so a
+`(WEAVE-SPEC 3.2)` or `(SPEC.md 13.7)` at the end of the line is noise to
+them - and on LOOM's sidebar it was the part cut off at the window's edge.
+The fact the citation pointed at is already in the sentence; the section is
+in the packer's source beside the check. The same holds for every other
+string either program shows (LOOM's empty screen once ended
+`(WEAVE-SPEC 1.5, 11.2)`).
 
 **The colour row says where colour LIVES** rather than denying it exists:
 a `<canvas>` takes one (§9.2.1), and a refusal that denies a feature the
@@ -3642,7 +3653,7 @@ the runtime is a few hundred bytes under (§1.2).
 The `.WFX` LINE FORMAT keeps its own wording: a cell's left-hand side and a
 plain numeric cell are §11.2's line grammar, not §5.1's formula grammar, so
 `"C9 is outside the 3x4 grid"` and `"1.23456: at most 4 fraction digits;
-16.16 resolves to 1/65536 (WEAVE-SPEC 5.1)"` are the sheet file's sentences.
+16.16 resolves to 1/65536"` are the sheet file's sentences.
 
 ### 10.6 Script errors — at run time
 

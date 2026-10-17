@@ -6,7 +6,7 @@
  * 1.7, in full: "Loom additionally offers Preview - the compiled UI stream
  * rendered in a child area by the SAME shared component includes WEAVE paints
  * with; widgets draw and arm/fire natively but no bytecode runs, and the pane
- * is labelled `Preview: layout and controls only - Run runs the app`."
+ * is labelled `Preview: layout and controls only - Weave runs the app`."
  *
  * ---------------------------------------------------------------------------
  * THE FOUR THINGS IT IS
@@ -248,7 +248,7 @@ static void lm_prev_paint(void)
     int ok;
 
     lm_ed_caret_off();
-    lm_say("Preview: layout and controls only - Run runs the app");
+    lm_say("Preview: layout and controls only - Weave runs the app");
 
     if (lm_pvseg == 0) {
         lm_prev_note(lm_pv_why());

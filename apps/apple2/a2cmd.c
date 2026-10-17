@@ -102,9 +102,9 @@ static int ovl_a2_cmd(int menu, int item, void *win)
              * and Open was live before anything was selected, committing the
              * name `*.BAS` and ending at `Cannot read the file.` With 0 the
              * box starts empty and SPEC.md 38.10's per-application last-picked
-             * name seeds it, which is what the slot is for. cwcmd.c:292 and
-             * weave.c:699 both pass 0; c64cmd.c:251's "*.PRG" is the same
-             * defect one package along and is that package's to fix. */
+             * name seeds it, which is what the slot is for. cwcmd.c, weave.c
+             * and c64cmd.c's Smart attach all pass 0 (the C64's "*.PRG" was
+             * the same defect one package along, and is gone). */
             item = os88_file_dlg(OS88_FDLG_OPEN, win, 0);
         } else if (item == A2_I_SAVE) {
             item = os88_file_dlg(OS88_FDLG_SAVE, win, "PROGRAM.BAS");
