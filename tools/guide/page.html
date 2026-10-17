@@ -58,14 +58,14 @@ code, .mono { font-family: var(--font-mono); font-size: 0.92em; }
 a { color: var(--accent); }
 
 /* --- header ------------------------------------------------------------- */
-header.top { padding-block: 20px 0; display: grid; gap: 16px; }
+header.top { padding-block: 12px 0; display: grid; gap: 10px; }
 .brand-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; justify-content: space-between; }
 .brand { display: flex; align-items: baseline; gap: 12px; }
-.brand h1 { font-family: var(--font-display); font-weight: 600; font-size: var(--step-3); line-height: 1; margin: 0; letter-spacing: 0.01em; }
+.brand h1 { font-family: var(--font-display); font-weight: 600; font-size: var(--step-2); line-height: 1; margin: 0; letter-spacing: 0.01em; }
 .brand .sub { color: var(--ink-2); font-size: var(--step--1); }
 .search { position: relative; flex: 1 1 320px; max-width: 520px; }
 .search input {
-  width: 100%; padding: 9px 12px 9px 34px; border: 1px solid var(--rule-strong); border-radius: 0;
+  width: 100%; padding: 6px 12px 6px 34px; border: 1px solid var(--rule-strong); border-radius: 0;
   background: var(--sheet); color: var(--ink); font: inherit;
 }
 .search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--ink-2); }
@@ -82,32 +82,37 @@ header.top { padding-block: 20px 0; display: grid; gap: 16px; }
 .results .r-kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.75; }
 .results .empty { padding: 10px 12px; color: var(--ink-2); }
 
-.tabs { display: flex; gap: 0; overflow-x: auto; border-bottom: 1px solid var(--rule-strong); scrollbar-width: thin; }
+.tabs { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 1px solid var(--rule-strong); }
 .tabs button {
   flex: 0 0 auto; border: 1px solid transparent; border-bottom: 0; background: none; cursor: pointer;
-  padding: 8px 16px 7px; display: grid; text-align: left; gap: 0; margin-bottom: -1px;
+  padding: 6px 16px 5px; display: grid; text-align: left; gap: 0; margin-bottom: -1px;
 }
 .tabs button .t { font-weight: 600; }
-.tabs button .h { font-size: 11px; color: var(--ink-2); white-space: nowrap; }
 .tabs button[aria-selected="true"] { background: var(--sheet); border-color: var(--rule-strong); }
 .tabs .gap { flex: 0 0 18px; }
 
-.shelf { background: var(--sheet); border: 1px solid var(--rule-strong); border-top: 0; padding: 14px 16px 16px; display: grid; gap: 14px; }
-.shelf h2 { font-family: var(--font-display); font-weight: 500; font-size: var(--step--1); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.shelf { background: var(--sheet); border: 1px solid var(--rule-strong); border-top: 0; padding: 10px 12px; display: grid; gap: 10px; }
+.cards { display: flex; gap: 8px; }
+.cards > .card { flex: 1 1 0; }
+.cards > .card.more { flex: 0 0 auto; }
+@media (max-width: 760px) { .cards { flex-wrap: wrap; } .cards > .card { flex: 1 1 140px; } }
 .card {
-  display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px 10px; text-align: left;
-  border: 1px solid var(--rule); background: var(--paper); padding: 10px 12px; cursor: pointer;
+  display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 0 8px; align-content: start; text-align: left;
+  border: 1px solid var(--rule); background: var(--paper); padding: 6px 10px 7px; cursor: pointer; min-width: 0;
 }
 .card:hover { border-color: var(--rule-strong); }
 .card[aria-pressed="true"] { border-color: var(--rule-strong); background: var(--tint); box-shadow: 2px 2px 0 var(--rule-strong); }
-.card .ic { grid-row: span 3; color: var(--ink); padding-top: 2px; }
-.card .role { font-weight: 600; line-height: 1.25; }
-.card .file { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
-.card .meter { display: block; height: 6px; border: 1px solid var(--rule-strong); background: var(--sheet); position: relative; margin-top: 4px; }
+.card .ic { grid-row: span 2; color: var(--ink); padding-top: 3px; }
+.card .role { font-weight: 600; font-size: 14px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .meta { font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .meta .mono { font-size: 11px; }
+.card .meter { grid-column: 1 / 3; display: block; height: 4px; border: 1px solid var(--rule-strong); background: var(--sheet); position: relative; margin-top: 5px; }
 .card .meter i { position: absolute; inset: 0 auto 0 0; background: var(--ink); }
-.card .use { font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .card.na { opacity: 0.6; }
+.card.more { border-style: dashed; }
+.card.more[aria-expanded="true"] { border-style: solid; border-color: var(--rule-strong); background: var(--well); }
+.card.more .role .tw { display: inline-block; width: 1.2ch; }
+.ownrow { border-top: 1px solid var(--rule); padding-top: 10px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { border: 1px solid var(--rule); background: var(--paper); padding: 4px 10px; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
 .chip:hover { border-color: var(--rule-strong); }
@@ -281,7 +286,9 @@ function firstDisk(geo) {
   const l = disksFor(geo); return l.length ? l[0].id : null;
 }
 function go(geo, diskId, item, push) {
-  st.geo = geo; st.disk = diskId || firstDisk(geo); st.item = item || null;
+  const nd = diskId || firstDisk(geo);
+  if (nd !== st.disk && disk[nd]?.section === "own") st.ownOpen = null;
+  st.geo = geo; st.disk = nd; st.item = item || null;
   try { localStorage.setItem("os88guide.geo", geo); } catch (e) {}
   if (push !== false) { const h = st.disk + (st.item ? "~" + st.item.replace(/\/$/, "") : ""); history.replaceState(null, "", "#" + h); }
   draw();
@@ -291,29 +298,33 @@ function go(geo, diskId, item, push) {
 function drawTabs() {
   const el = document.getElementById("tabs");
   el.innerHTML = D.geos.map((g, i) => (g.key === "tools" ? '<span class="gap"></span>' : "") +
-    `<button role="tab" aria-selected="${g.key === st.geo}" data-geo="${g.key}"><span class="t">${esc(g.label)}</span><span class="h">${esc(g.hint)}</span></button>`).join("");
+    `<button role="tab" aria-selected="${g.key === st.geo}" data-geo="${g.key}" title="${esc(g.hint)}"><span class="t">${esc(g.label)}</span></button>`).join("");
 }
 function card(d) {
   const s = set[d.set], used = d.built && d.clusters ? (d.clusters - d.free) / d.clusters : 0;
   const kind = d.file.endsWith(".iso") ? "cd" : "disk";
-  const use = !d.built ? "Not built yet" : d.clusters ? `${kb(d.free * d.csize)} free of ${kb(d.clusters * d.csize)}` : (d.sameas ? "Same contents as the USB image" : kb(d.bytes || 0));
-  return `<button class="card${d.built ? "" : " na"}" aria-pressed="${d.id === st.disk}" data-disk="${d.id}">
-    <span class="ic">${icon(kind, 24)}</span><span class="role">${esc(d.role)}</span><span class="file">${esc(d.file)}</span>
-    <span>${d.clusters ? `<span class="meter" aria-hidden="true"><i style="width:${(used * 100).toFixed(1)}%"></i></span>` : ""}<span class="use">${esc(use)}</span></span></button>`;
+  const use = !d.built ? "not built yet" : d.clusters ? `${kb(d.free * d.csize)} free` : (d.sameas ? "same as the USB image" : kb(d.bytes || 0));
+  return `<button class="card${d.built ? "" : " na"}" aria-pressed="${d.id === st.disk}" data-disk="${d.id}" title="${esc(d.file)}: ${esc(use)}">
+    <span class="ic">${icon(kind, 16)}</span><span class="role">${esc(d.role)}</span><span class="meta">${esc(use)}</span>
+    ${d.clusters ? `<span class="meter" aria-hidden="true"><i style="width:${(used * 100).toFixed(1)}%"></i></span>` : ""}</button>`;
 }
 function drawShelf() {
   const el = document.getElementById("shelf");
   if (st.geo === "tools" || st.geo === "firmware") {
     const l = st.geo === "tools" ? D.tools : D.firmware;
-    el.innerHTML = `<div><h2>${st.geo === "tools" ? "For your modern computer" : "For add-in cards"}</h2><div class="cards">${l.map(t =>
-      `<button class="card" aria-pressed="${t.id === st.disk}" data-disk="${t.id}"><span class="ic">${icon(st.geo === "tools" ? "tool" : "driver", 24)}</span><span class="role">${esc(t.title)}</span><span class="file">${t.files.length} file${t.files.length > 1 ? "s" : ""}</span><span class="use">${esc(t.summary)}</span></button>`).join("")}</div></div>`;
+    el.innerHTML = `<div class="cards">${l.map(t =>
+      `<button class="card" aria-pressed="${t.id === st.disk}" data-disk="${t.id}" title="${esc(t.summary)}"><span class="ic">${icon(st.geo === "tools" ? "tool" : "driver", 16)}</span><span class="role">${esc(t.title)}</span><span class="meta">${t.files.length} file${t.files.length > 1 ? "s" : ""}</span></button>`).join("")}</div>`;
     return;
   }
   const l = disksFor(st.geo), main = l.filter(d => d.section === "main"), own = l.filter(d => d.section !== "main");
+  const open = st.ownOpen ?? own.some(d => d.id === st.disk);
   let h = "";
-  if (main.length) h += `<div><h2>${esc(D.sectionTitles.main)}</h2><div class="cards">${main.map(card).join("")}</div></div>`;
-  if (own.length) h += `<div><h2>${esc(D.sectionTitles.own)}</h2><div class="chips">${own.map(d =>
-    `<button class="chip" aria-pressed="${d.id === st.disk}" data-disk="${d.id}">${esc(d.role)}<small>${esc(d.file)}</small></button>`).join("")}</div></div>`;
+  if (main.length || own.length) {
+    h += `<div class="cards">${main.map(card).join("")}${own.length ? `<button class="card more" id="ownToggle" aria-expanded="${open}" aria-controls="ownRow">
+      <span class="ic">${icon("folder", 16)}</span><span class="role"><span class="tw">${open ? "▾" : "▸"}</span>One program per disk</span><span class="meta">and the everything set · ${own.length} disks</span></button>` : ""}</div>`;
+  }
+  if (own.length && open) h += `<div class="chips ownrow" id="ownRow">${own.map(d =>
+    `<button class="chip" aria-pressed="${d.id === st.disk}" data-disk="${d.id}">${esc(d.role)}<small>${esc(d.file)}</small></button>`).join("")}</div>`;
   if (!h) h = `<p class="notbuilt">Nothing ships in this size.</p>`;
   el.innerHTML = h;
 }
@@ -431,7 +442,8 @@ function draw() {
 
 // --- events ---------------------------------------------------------------------
 document.addEventListener("click", e => {
-  const tab = e.target.closest("[data-geo]"); if (tab) return go(tab.dataset.geo);
+  if (e.target.closest("#ownToggle")) { st.ownOpen = !(st.ownOpen ?? disk[st.disk]?.section === "own"); return drawShelf(); }
+  const tab = e.target.closest("[data-geo]"); if (tab) { st.ownOpen = null; return go(tab.dataset.geo); }
   const dk = e.target.closest("[data-disk]"); if (dk) return go(st.geo, dk.dataset.disk);
   const g = e.target.closest("[data-go]"); if (g) { const [geo, id] = g.dataset.go.split("|"); return go(geo, id, st.item && disk[id] && (disk[id].tree || []).some(([p]) => p === st.item) ? st.item : findPath(id, st.item)); }
   const tf = e.target.closest("[data-tfile]"); if (tf) return go(st.geo, st.disk, tf.dataset.tfile);
