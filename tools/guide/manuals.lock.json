@@ -866,9 +866,9 @@
   "sources": [
    "apps/sheet"
   ],
-  "stamped": "e4576a70",
-  "strings": "2960e9371dba2549",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "2c8ba025",
+  "strings": "bfdc6bbbc5be137d",
+  "why": "Percent x100, Border over the block, ask before New/Open/Close, .XLS as Normal, what each format keeps (notes, borders) - all checked against SHEET.O88 under MartyPC"
  },
  "SHEET_WAB": {
   "sources": [],
