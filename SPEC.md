@@ -15197,6 +15197,71 @@ it is not live DURING a bracket (`ui_task` is the bracket's caller) and fills
 in the moment one ends. It cannot be built with `MOUDIAG=1`, which draws in
 the same place.
 
+#### 9.8.2 A key BURST is not a hole in the guard - it was the emulator
+
+Reported by an agent, not a person: 70 Backspaces sent into Font Viewer with
+`m.key()` and no advance between them stopped the machine in `sch_stkdie`
+with `STACK OVERFLOW TASK 00 SP 1114 UI TASK`, and only on Inconsol, and only
+with the viewer opened from a `.F88`. The stack was not deep in anything.
+It held **one 22-byte GLaBIOS int 09h frame after another**, about sixty of
+them, each interrupted at `F000:E9B8`..`E9DE`. That is a few instructions
+after the ROM's `sti`, and every saved AX was `0E0E` or `8E8E`, Backspace's
+make and break. The overrun had gone about 1KB below `STK0_BOT`, into the
+other tasks' slices.
+
+**GLaBIOS's handler can nest on itself without beeping**, and that is the
+door 9.8 does not cover. Its int 09h reads port 60h, acknowledges the
+keyboard through port 61h, sends the PIC its EOI and executes `sti`, all
+inside its first ten instructions. From there to its `iret` IRQ1 is open.
+The IBM 5150's (27 OCT 82) sets IF first but sends the EOI only at the end,
+under `cli`, so an ordinary key cannot nest there at all. Only its beep,
+Pause and Print Screen paths EOI early. Measured on MartyPC with keys at a normal
+pace, `kbm_isr` to the acknowledge is ~940 cycles and the acknowledge to the
+`iret` is **550 to 890 cycles**, a break code to a make code that queues a
+key. That is a window of **~190 µs** in which a second keyboard byte
+would nest a second handler.
+
+**No keyboard can put a byte in that window.**
+
+- On an XT the keyboard cannot start clocking its next byte until the PC has
+  acknowledged the last one, and clocking one out takes about a millisecond,
+  five times the window.
+- An AT-class ROM's handler shuts the keyboard interface for its whole length
+  (the IBM AT's sends `0ADh` to the 8042 first and `0AEh` last).
+
+So a handler finishes before the next byte can arrive, on every machine this
+boots on. A tick landing inside the window does not change that: the most an
+interrupted handler costs a task's stack is one frame.
+
+**MartyPC could do it, and that is what was measured.** Its machine took one
+queued key event per call to `machine.run()`, which its own comment calls
+"once per frame", and handed each byte to the PPI the moment the last was
+acknowledged. The debug server's `advance` calls `run()` every quarter of a
+millisecond, so a scripted burst reached the CPU far faster than any serial
+line. A byte arriving between the acknowledge and the `sti` nests at the
+`sti`, every time. Under breakpoints, which slow delivery to the keyboard's
+own 5 ms update, the same 70 keys came 23,862 cycles apart and the stack
+never went past one frame. Why only Inconsol and only from a `.F88` was
+not chased: both change what the UI task is doing when the burst lands, and
+that case is the one the pacing has to survive.
+`tools/martypc/patches/14-keyboard-byte-pacing.patch` paces both the events
+and the bytes to one per millisecond of GUEST time. With it the burst
+survives, a 10-key burst still deletes exactly ten characters, and the 70-key
+one deletes 29 because Inconsol's redraw is slower than the burst and 9.8's
+guard drops the rest, as designed. `soak -k kbdburst` is the row, and it is
+red on a MartyPC built without patch 14.
+
+**The other ROM beep, on scancode `0FFh`, needs no guard either.** Both
+GLaBIOS (`cmp al,0FFh` / `jz` to its beep) and the IBM 5150 (`jmp K62`)
+answer the keyboard's own OVERRUN code with the same EOI-then-beep as a full
+buffer, so it nests too. But it cannot chain. A keyboard sends `0FFh` only
+after its 16-byte buffer filled while the PC acknowledged nothing. Inside the
+beep the PC is acknowledging every byte, in the nested handlers, so a second
+`0FFh` cannot come while the first beep runs. That costs one beep frame on
+one stack, which no slice is short of. The full-buffer beep chains because
+the buffer stays full however fast it is serviced, and that is why only it is
+guarded.
+
 ### 9.9 The PS/2 mouse — the other socket, probed after the serial one
 
 An XT has one place to put a mouse and it is a serial port. Every machine
