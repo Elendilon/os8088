@@ -378,6 +378,27 @@ def main():
                 bad.append("--ladder %s was taken" % no)
             except vid.V88Error:
                 pass
+        # --- 3c': THE SPEED PASS'S MODE X WRITES (VIDEO-SEEN-PLAN 3a):
+        # modex_subs over whole arrays against the loop it replaced, on
+        # canvases of flat groups, pairs, noise and changes of every shape
+        rng = np.random.default_rng(7)
+        gx = vid.Geom(vid.LAY_MODEX, 80, 60)
+        same_subs = 0
+        for t in range(12):
+            pal = rng.integers(0, 2 + t * 20, 256)
+            cvx = pal[rng.integers(0, 256, (60, 80))]
+            cvx = np.repeat(cvx, 4, 1) if t % 3 == 0 else \
+                np.repeat(pal[rng.integers(0, 256, (60, 160))], 2, 1) \
+                if t % 3 == 1 else pal[rng.integers(0, 256, (60, 320))]
+            chx = rng.random((60, 320)) < (0.05 + 0.08 * t)
+            cvb = cvx.astype(np.uint8).tobytes()
+            same_subs += vid.modex_subs(cvb, chx.ravel().tolist(), gx) == \
+                vid.modex_subs_loop(cvb, chx.ravel().tolist(), gx)
+        print("   3c': Mode X writes over arrays: %d of 12 canvases the same "
+              "as the loop's" % same_subs)
+        if same_subs != 12:
+            bad.append("modex_subs differs from modex_subs_loop on %d of 12"
+                       % (12 - same_subs))
         # --- 3c: COARSE CELLS ON A PLANAR SCREEN (98.2.5.2, 2026-10-17):
         # a clip whose scene changes half way, on Mode X with no palette a
         # scene - the scene pass finds the change, the cut it would be is

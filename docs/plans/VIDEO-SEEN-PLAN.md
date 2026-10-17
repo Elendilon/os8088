@@ -443,16 +443,36 @@ frame" in the window, beside "mixed: only the tiles it must" - and a
 ladder that says `auto` still reads as it. A name only: every file above
 is the same.
 
-**OPEN: an encoder speed pass** (the owner, 2026-10-17: "encode times
-aside; add an item to do an encoder optimization pass"). Every rung is
-priced by encoding the stretch on copies of the encoder, and the cell
-rungs multiply it: whole-frame cells try each would-be-cut frame on a
-copy (Last Exile 2,256 s against 547), and mix binary-searches eight
-copies a frame (1.6x that). The candidates: price a frame from its span
-costs without running `frame()` (the search only asks "does it fit"),
-share one copy across a rung's tries instead of deep-copying per try, and
-reuse the previous rung's stretch where the next changes nothing it
-draws (the cut rung already does).
+**THE ENCODER SPEED PASS, first round (2026-10-17)** (the owner: "encode
+times aside; add an item to do an encoder optimization pass"). Measured
+first: Last Exile 0:10-0:15, Mode X flipped on `286-speeddemon`, the
+default ladder (mixed cells), `--jobs 1`, under cProfile - 152 s, of which
+the encoder's COPIES were 32 s (179 of them at 0.18 s), Mode X's `frame`
+64 s, ffmpeg's palette 29 s (once, outside the encoder) and the cells' own
+nearest colour 10 s. What it came to, unprofiled, **90 s -> 60 s** - the
+encoder's own share, the palette taken out, **64 s -> 34 s**:
+
+| change | what it was | the file |
+|---|---|---|
+| a copy SHARES the read-only tables (`ENC_SHARED`) | the geometry's 65,536-entry row lists, deep-copied for every trial | byte-identical |
+| `modex_subs` over whole arrays | a Python loop over every group of four, 43 ms a frame | byte-identical (`modex_subs_loop` kept as the reference; videnc leg 3c') |
+| Mode X's model screen updated in one array write | numpy calls per span, a third of `frame`'s own time | byte-identical |
+| the cells' nearest colour by one matrix product, in float64 | a 14,400 x 256 x 3 difference array, 0.65 s a frame | 0.2% of cells change: the float32 array picked a FARTHER colour by rounding; this is the exact nearest |
+
+Of the three candidates this item was written with: **pricing a frame
+without running `frame()` is REFUSED**, measured - it is not exact: a
+frame whose first estimate overruns its room can still come out whole,
+the fall-back's split spans costing less and a record under its room
+growing the room again, and stopping at the first estimate made a
+different file and a WORSE one (1.7% of the view broken against 0.6%).
+**Sharing a copy** is the first row above - the copy itself was the cost,
+not how often it was taken. **Reusing a rung's stretch** was already
+there: `degrade_choose` keeps the last try where a prefix changes nothing
+it draws (a cut rung, a scene rung away from a scene). Still in the
+profile and not taken: the record writer (`record`/`to_lists`, 12.6 s), a
+tight serializer already; 16-colour VGA's model stores, whose write-mode-3
+read-modify-write is order-dependent and so not a whole-array write; and
+the mix's eight probes a frame, which are its search.
 
 What it was sketched as:
 

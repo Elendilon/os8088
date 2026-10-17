@@ -3383,6 +3383,7 @@ def coarse_pick(enc, target, au):
     for cell in lad[:-1]:
         t = target if cell == "full" else coarse_of(enc, target, cell)
         e = enc_clone(enc)
+        e.probe = True
         if cell != "full":
             e.all3 = getattr(e, "wm3", False)
         c0 = e.stats["cut"]
@@ -3407,9 +3408,15 @@ def coarse_target(target, pal, cell, n=16):
     rgb = np.asarray(pal, np.float32)[:n][t]
     m = rgb.reshape(t.shape[0] // ch, ch, t.shape[1] // cw, cw, 3) \
         .mean((1, 3))
-    d = ((m[:, :, None] - np.asarray(pal, np.float32)[None, None, :n]) ** 2
-         ).sum(-1)
-    k = d.argmin(-1).astype(target.dtype)
+    # (the nearest by |m|^2 - 2 m.p + |p|^2, one matrix product: the
+    # difference array was 0.65 s a frame on Mode X's 256 - the speed pass.
+    # In float64, where it is the exact nearest on every cell: the float32
+    # difference array before it picked a farther colour by rounding on
+    # 0.2% of Last Exile's cells)
+    p = np.asarray(pal, np.float64)[:n]
+    mm = m.reshape(-1, 3).astype(np.float64)
+    d = (p * p).sum(1)[None, :] - 2.0 * (mm @ p.T)
+    k = d.argmin(-1).reshape(m.shape[:2]).astype(target.dtype)
     out = np.repeat(np.repeat(k, ch, 0), cw, 1)[:h, :w]
     return np.ascontiguousarray(out)
 
@@ -3812,6 +3819,7 @@ def vfr_pattern(n, r):
 def vfr_cut(enc, target, au):
     """Would the budgets cut `target` now? - on a copy, nothing spent"""
     e = enc_clone(enc)
+    e.probe = True
     c0 = e.stats["cut"]
     e.frame(target, au)
     return e.stats["cut"] != c0
@@ -4090,9 +4098,22 @@ def _binomial(r):
     return k
 
 
+# what an encoder's copy SHARES with it (Encoder.__deepcopy__): tables
+# made once and only ever read - the geometry, the palette's float copy, the
+# cost tables, the row maps, and the targets ahead, which a step reads
+ENC_SHARED = ("g", "pal", "ct", "wv", "rowof", "base", "idx", "future")
+
+
 class Encoder:
     # a frame record's room: self.rec_max, or --frame-cap's (98.1.4.1)
     rec_max = REC_MAX
+    # A PROBE (vfr_cut, coarse_pick): a copy asked only whether the frame
+    # would be cut. NOT stopped at the first estimate's over-run: a frame
+    # over it there can still come out whole, the fall-back's split spans
+    # costing less and a record under its room growing the room again -
+    # stopping there made a different file, and a worse one (the speed
+    # pass, VIDEO-SEEN-PLAN 3a)
+    probe = False
 
     def __deepcopy__(self, memo):
         """A copy whose surfaces are still SEEN through its own views: an
@@ -4103,6 +4124,14 @@ class Encoder:
         import copy
         new = self.__class__.__new__(self.__class__)
         memo[id(self)] = new
+        # (the READ-ONLY tables are SHARED, not copied: the geometry's
+        # 65,536-entry row lists were most of a copy's 0.18 s, and a trial
+        # copy is taken several times a frame - the encoder speed pass,
+        # VIDEO-SEEN-PLAN 3a. Nothing writes into any of these in place)
+        for k in ENC_SHARED:
+            v = self.__dict__.get(k)
+            if v is not None:
+                memo[id(v)] = v
         for k, v in self.__dict__.items():
             setattr(new, k, copy.deepcopy(v, memo))
         if "sv" in new.__dict__:
@@ -5171,14 +5200,22 @@ class EncoderX(Flipped, Encoder):
         else:
             self.stats["cut"] += 1
             self.torn(chosen, 1)
-        for m, a, bs, run in chosen:     # a span may run on to the next
-            ad = a + np.arange(len(bs))  # row: at full width a plane's
-            ys = self.rowof[ad]          # rows are back to back
-            xs = (ad - self.base[ys]) * 4
-            v = np.frombuffer(bs, np.uint8)
-            for p in range(4):
-                if m >> p & 1:
-                    self.screen[ys, xs + p] = v
+        if chosen:                      # (every span at once - the speed
+            lens = np.fromiter((len(c[2]) for c in chosen), np.int64,
+                               len(chosen))    # pass: the loop a span was
+            st = np.fromiter((c[1] for c in chosen), np.int64,  # a third
+                             len(chosen))       # of a frame's time. Two
+            ms = np.fromiter((c[0] for c in chosen), np.int64,  # spans on
+                             len(chosen))       # one pixel carry the same
+            k = np.cumsum(lens) - lens          # target value, so the
+            ad = np.repeat(st - k, lens) + np.arange(int(lens.sum()))
+            ys = self.rowof[ad]                 # order is no matter)
+            xs = (ad - self.base[ys]) * 4       # (a span may run on to the
+            v = np.frombuffer(b"".join(c[2] for c in chosen), np.uint8)
+            mm = np.repeat(ms, lens)            # next row: at full width a
+            for p in range(4):                  # plane's rows are back to
+                sel = (mm >> p & 1).astype(bool)    # back)
+                self.screen[ys[sel], xs[sel] + p] = v[sel]
         if chosen is not cand:
             self.stats["bytes_left"] += int((target != self.screen).sum())
         g.put(self.surf, self.screen.tobytes())
