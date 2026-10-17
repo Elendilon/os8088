@@ -52,10 +52,13 @@
 ; constantly after boot - int 16h AH=01h on EVERY pass of the UI loop, plus
 ; int 13h/10h/1Ah/12h. Nothing in os8088 touches FS or GS, but BIOS code is
 ; not os8088 code and a 386-aware BIOS may load them for its own purposes and
-; hand them back with real-mode limits. So the tier-2 copy re-arms from the
-; resident GDT - and, because the BIOS is re-entered by INTERRUPTS and not
-; only by kernel calls, it re-arms inside the same cli window as the accesses
-; that depend on it. That is why the copy is chunked (xm_ucopy).
+; hand them back with real-mode limits. So the tier-2 copy does not lean on
+; them at all any more (41.15): each chunk loads DS's and ES's hidden BASES
+; from the resident GDT (apps/os88ub.inc) - and, because the BIOS is
+; re-entered by INTERRUPTS and not only by kernel calls, inside the same cli
+; window as the moves that depend on them. That is why the copy is chunked
+; (xm_ucopy). FS and GS are still armed once, at attach, because CPU_F_UNREAL
+; is published (SPEC.md 20.3) and says so.
 ;
 ; Every 386 instruction in this file sits inside a scoped `cpu 386` island
 ; closed by `cpu 8086`, AND behind a run-time [xm_tier] test. The island is
@@ -140,11 +143,13 @@ XM_MAX_COPY     equ 32768       ; bytes per copy - a SCHEDULER rule, not a
                                 ; speeds drops PIT ticks and overruns the
                                 ; mouse UART's receive buffer (SPEC.md 9).
                                 ; A caller moving more calls twice.
-XM_UCHUNK       equ 1024        ; bytes per tier-2 chunk, each one re-armed
-                                ; and moved inside one cli window (xm_ucopy).
-                                ; ~0.3ms of IF=0 on the slowest tier-2
-                                ; machine - well inside one PIT tick and one
-                                ; 1200-baud mouse byte.
+XM_UCHUNK       equ 2048        ; bytes per tier-2 chunk, each one with its
+                                ; bases loaded and moved inside one cli window
+                                ; (xm_ucopy). ~0.3ms of IF=0 on the slowest
+                                ; tier-2 machine by `rep movsd` - well inside
+                                ; one PIT tick and one 1200-baud mouse byte.
+                                ; It was 1024 when the move was a load/store
+                                ; loop four times slower a dword
 XM_MAX_BLKS     equ 8           ; the fixed block table, entries: a bulk store
                                 ; for a handful of large claims, not a malloc
 XM_HMA_KB       equ 64          ; what a successful HMA claim takes off
@@ -350,83 +355,6 @@ xm_svc:
     dw xm_relall                ; XMV_RELINST: AL = the slot, everything else
                                 ; preserved, which is xm_relall's own contract
 
-; -----------------------------------------------------------------------------
-; xm_arm - enter unreal mode: give FS and GS a 4GB limit (SPEC.md 41.4)
-;
-; out:      FS and GS cached with a base-0, limit-4GB data descriptor;
-;           CPU_F_UNREAL set
-; clobbers: the high half of EAX (flags)
-;
-; TIER 2 ONLY, and it is the CALLERS that test: both reach it from behind a
-; compare of [xm_tier] with CPU_386 - xm_attach directly, and xm_ucopy
-; through xm_copy's own branch - which is SPEC.md 41.9 rule 2's run-time half
-; for this island and for xm_ucopy's.
-;
-; Called once from xm_attach, and then once per XM_UCHUNK-byte chunk from
-; xm_ucopy - inside that chunk's cli window, so that nothing can enter the
-; BIOS between the arm and the accesses that depend on it (see the file
-; header). Calling it repeatedly is a non-event: the transition is idempotent
-; and preserves every 16-bit register and the flags.
-;
-; The whole transition runs inside one pushf/cli ... popf with NMI masked
-; (CMOS index port 0x70 bit 7) across it: a real-mode IVT is meaningless while
-; CR0.PE is set, so an interrupt taken in the window is a triple fault.
-; Nothing in the kernel touches 0x70 outside clock.inc's int 1Ah calls, so
-; there is no conflict; the read of 0x71 after each write to 0x70 is the
-; classic requirement to leave the RTC's index/data pair settled.
-;
-; THAT THE KERNEL'S OWN ISRs ARE LIVE BY THE TIME THIS FIRST RUNS IS NOT NEW
-; (SPEC.md 41.12.1). The kernel used to call it before sched_init, on the
-; reasoning that no kernel ISR was installed yet - a comfort, not a
-; requirement, because xm_ucopy has always re-armed at run time with int 08h
-; hooked and IRQ3/IRQ4 live. If an ISR could break the transition the shipped
-; transport would have been broken since it was written; what protects it is
-; the cli and the NMI mask, and both are here.
-;
-; There is no far jump. CS is never reloaded and keeps its real-mode base,
-; which is what makes the instruction after `mov cr0` reachable at all.
-;
-; Two entries, not three, in the GDT: there is no code descriptor because
-; THERE IS NO FAR JUMP AND CS IS NEVER RELOADED. The whole point of the
-; sequence is the hidden descriptor caches of FS and GS.
-; -----------------------------------------------------------------------------
-xm_arm:
-    push ax
-    pushf
-    cli                         ; --- the transition window ----------------
-    mov al, 0x80
-    out 0x70, al                ; NMI off (bit 7); index 0 is harmless
-    in  al, 0x71                ; settle the RTC index/data pair
-cpu 386                         ; ---- 386-only island, tier 2 only --------
-    xor eax, eax                ; the lgdt base is LINEAR: DS<<4 + xm_gdt.
-    mov ax, ds                  ; DS is OUR segment - a heap claim, and a
-    shl eax, 4                  ; MOVABLE one (SPEC.md 66), so this is
-    add eax, xm_gdt             ; computed on every arm and never baked in
-    mov [xm_gdt + 2], eax
-    lgdt [xm_gdt]               ; (16-bit operand size loads 24 base bits;
-                                ; the image is a heap claim below 1MB, so
-                                ; that is exact)
-    mov eax, cr0
-    or al, 1                    ; CR0.PE - protected mode, briefly
-    mov cr0, eax
-    jmp short .flush1           ; flush the prefetch queue
-.flush1:
-    mov ax, XM_SEL_FLAT
-    mov fs, ax                  ; THE ONLY WRITES TO FS OR GS IN THE TREE.
-    mov gs, ax                  ; Their hidden caches keep the 4GB limit
-    mov eax, cr0                ; after PE goes away again.
-    and al, 0xFE
-    mov cr0, eax
-    jmp short .flush2
-.flush2:
-cpu 8086                        ; ---- island closed -----------------------
-    xor al, al
-    out 0x70, al                ; NMI back on
-    in  al, 0x71
-    popf                        ; --- window closed ------------------------
-    or byte [xm_feat], CPU_F_UNREAL
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; xm_caps - what is left up there? (XMV_CAPS, behind slot 0x015A)
@@ -864,7 +792,8 @@ xm_copy:
     ret
 
 ; -----------------------------------------------------------------------------
-; xm_ucopy - the tier-2 transport: 32-bit moves through FS and GS
+; xm_ucopy - the tier-2 transport: `rep movsd` between two LOADED BASES
+; (SPEC.md 41.5, 41.15; apps/os88ub.inc)
 ;
 ; in:       [xm_src] / [xm_dst] = 32-bit linear ends, BP = bytes (even)
 ; out:      CF = 0 moved - it cannot fail
@@ -872,45 +801,37 @@ xm_copy:
 ;
 ; TIER 2 ONLY, and its one caller is xm_copy's branch on [xm_tier] a few
 ; lines up: that compare is this routine's run-time half of SPEC.md 41.9
-; rule 2, and xm_arm's. It used to repeat the test itself, as xm_arm did.
+; rule 2, and ub_set's.
 ;
-; Load through FS, store through GS, both flat, so the routine never touches
-; ES or DS and serves both directions with one loop. It is a load/store loop
-; and not `rep movsd` for a structural reason: MOVS takes its destination from
-; ES:(E)DI and ES is the ONE segment a string move cannot override - so a flat
-; destination would mean widening ES, which SPEC.md 41.4 forbids precisely
-; because ES is reloaded constantly.
+; Each chunk loads DS's hidden base with the source and ES's with the
+; destination (ub_set, a moment of protected mode), moves the chunk with ONE
+; 16-bit `rep movsd` from DS:0 to ES:0, and reloads both registers in real
+; mode - which leaves them exactly as real mode makes them, limit 0FFFFh, so
+; nothing is left widened behind the copy. That is the whole change from the
+; unreal-mode loop this replaced (2026-10-16, docs/plans/VIDEO-386-PLAN.md
+; section A): a `mov eax, [fs:esi] / mov [gs:edi], eax / add / add / dec /
+; jnz` loop is ~17-19 clocks a dword on a 386 against `rep movsd`'s ~4, and
+; MOVS could not be used then only because its destination is ES:(E)DI and a
+; flat ES would have been a widened ES left behind. A loaded base is not
+; widened, so the objection is gone.
 ;
-; THE COPY RUNS IN XM_UCHUNK-BYTE CHUNKS, AND EACH CHUNK RE-ARMS INSIDE ITS
-; OWN pushf/cli ... popf. That structure is the whole correctness argument,
-; and the obvious cheaper shapes are both wrong:
+; THE COPY RUNS IN XM_UCHUNK-BYTE CHUNKS, EACH INSIDE ITS OWN pushf/cli ...
+; popf, and each chunk loads its bases afresh. That structure is still the
+; whole correctness argument: a hidden base dies at the first segment load,
+; every ISR loads DS and ES, and a 386-aware BIOS reached from an ISR may
+; load anything - so nothing may run between the load and the moves that
+; depend on it. [sch_lock], raised by the kernel around this dispatch, keeps
+; the scratch to one copy at a time and stops a switch between chunks.
 ;
-;   - Re-arming once and then copying with IF=1 does not work. sch_isr chains
-;     `call far [sch_old08]` into the BIOS timer handler on EVERY tick, and
-;     IRQ1 reaches the BIOS keyboard handler the same way. A 386-aware BIOS
-;     that loads FS or GS for its own use hands them back with real-mode
-;     limits - the exact hazard this module exists to defend against - and the
-;     rest of the copy then wraps inside 64KB with no fault, or takes a #GP
-;     into an IVT slot the kernel never fills.
-;   - [sch_lock] does not close that hole either. It stops TASK SWITCHES, not
-;     interrupts, so it cannot protect a loop from an ISR. The KERNEL raises it
-;     around this whole dispatch for the two things it genuinely does: it
-;     keeps the scratch below to one copy at a time, and it stops a switch
-;     landing between two chunks.
-;   - One cli around the whole transfer would be correct but expensive: 32KB
-;     at 386SX speeds is milliseconds of IF=0, which drops PIT ticks and
-;     overruns the 1200-baud mouse UART (SPEC.md 9).
-;
-; A 1KB chunk is ~0.3ms of IF=0 on the slowest tier-2 machine and the arm
-; costs a few microseconds, so the whole cap of 32 chunks adds well under a
-; tick. A 16-bit ISR taken BETWEEN chunks is harmless: the loop keeps its
-; state in [xm_src]/[xm_dst] and BP, and the next chunk re-arms anyway.
-;
-; THE INNER LOOP IS THE HOT PATH and it is the instruction sequence it always
-; was, byte for byte.
+; THE CHUNK IS 2 KB where the loop's was 1: `rep movsd` moves 2 KB in about
+; the time the loop moved 1 on the slowest tier-2 machine (a 16 MHz 386SX,
+; ~0.3 ms with IF = 0), and on a 486 the base load's ~6 us is then ~8% of a
+; chunk rather than ~15%. Unmeasured on iron (VIDEO-386-PLAN section M):
+; retune when VIDDISK X has run on a 386 and a 486.
 ; -----------------------------------------------------------------------------
 xm_ucopy:
     push ax
+    push bx
     push cx
     push dx
     push si
@@ -924,33 +845,33 @@ xm_ucopy:
     mov cx, XM_UCHUNK
 .have:
     sub bp, cx
-    mov dx, cx                  ; the byte count, kept for the odd tail
+    mov dx, cx                      ; the byte count, kept for the tail
     pushf
-    cli                         ; --- one chunk, atomic against every ISR --
-    call xm_arm                 ; re-armed INSIDE the window that uses it
-cpu 386                         ; ---- 386-only island, tier 2 only --------
-    mov esi, [xm_src]
-    mov edi, [xm_dst]
+    cli                             ; --- one chunk, atomic against every ISR
+    push ds
+    push es
+cpu 386                             ; ---- 386-only island, tier 2 only ------
+    mov eax, [xm_src]               ; (the high halves are not ours to keep:
+                                    ; the loop this replaced clobbered three)
+    mov ebx, [xm_dst]
     movzx ecx, cx
-    add [xm_src], ecx           ; advance both ends for the next chunk
+    add [xm_src], ecx               ; both ends on, for the next chunk
     add [xm_dst], ecx
-    shr ecx, 2                  ; whole dwords
-    jz .tail
-.dword:
-    mov eax, [fs:esi]
-    mov [gs:edi], eax
-    add esi, 4
-    add edi, 4
-    dec ecx
-    jnz .dword
-.tail:
-    test dl, 2                  ; the odd tail, moved as a word
+    call ub_set                     ; DS = the source, ES = the destination
+    xor si, si
+    xor di, di
+    mov cx, dx
+    shr cx, 2                       ; whole dwords
+    cld
+    rep movsd
+    test dl, 2                      ; the odd tail, as a word
     jz .cdone
-    mov ax, [fs:esi]
-    mov [gs:edi], ax
+    movsw
 .cdone:
-cpu 8086                        ; ---- island closed -----------------------
-    popf                        ; --- chunk window closed ------------------
+cpu 8086                            ; ---- island closed ---------------------
+    pop es                          ; both reloaded in real mode: the bases
+    pop ds                          ; gone, every register as it was
+    popf                            ; --- chunk window closed ---------------
     jmp short .chunk
 .fin:
     pop bp
@@ -958,6 +879,7 @@ cpu 8086                        ; ---- island closed -----------------------
     pop si
     pop dx
     pop cx
+    pop bx
     pop ax
     clc
     ret
@@ -1312,6 +1234,10 @@ xm_ltrip:
 
 %define LA_NOPROBE                  ; xm_lainit's INT 6 hook is the probe
 %include "os88la.inc"               ; the borrow (apps/os88la.inc)
+%define UB_DS                       ; the copy's source...
+%define UB_ES                       ; ...and its destination
+%include "os88ub.inc"               ; tier 2's loaded bases (apps/os88ub.inc)
+    UB_DATA                         ; ...and their GDT, resident (24 bytes)
 
 ; -----------------------------------------------------------------------------
 ; Data that must outlive attach. A driver has no BSS of its own
@@ -1330,17 +1256,6 @@ xm_feat:        db 0            ; CPU_F_* - what actually VERIFIED. This image
                                 ; CPU_F_A20 is also xm_attach's once-per-image
                                 ; test, so NOTHING may clear that bit
 
-xm_gdt:                         ; entry 0, the null descriptor, which the CPU
-    dw xm_gdt_end - xm_gdt - 1  ; never reads - so it carries the lgdt
-    dd 0                        ; pseudo-descriptor: limit, then the 32-bit
-    dw 0                        ; linear base xm_arm fills
-    dw 0xFFFF                   ; entry 1 (XM_SEL_FLAT): limit 15..0
-    dw 0x0000                   ;   base 15..0
-    db 0x00                     ;   base 23..16
-    db 0x92                     ;   present, ring 0, data, read/write
-    db 0xCF                     ;   G=1 (4KB granules), D/B=1, limit 19..16
-    db 0x00                     ;   base 31..24  -> base 0, limit 4GB
-xm_gdt_end:
 
 ; -----------------------------------------------------------------------------
 ; xm_a20_reopen - make the A20 line open, by the three steps of xm_a20_enable
@@ -1677,6 +1592,97 @@ xm_hma:
     ret
 xm_hma_fp:      dd 0
 xm_hma_name:    db 'COLDHMA.SYS', 0
+; -----------------------------------------------------------------------------
+; xm_arm - enter unreal mode: give FS and GS a 4GB limit (SPEC.md 41.4)
+;
+; out:      FS and GS cached with a base-0, limit-4GB data descriptor;
+;           CPU_F_UNREAL set
+; clobbers: the high half of EAX (flags)
+;
+; TIER 2 ONLY, and it is the CALLER that tests: xm_attach reaches it from
+; behind a compare of [xm_tier] with CPU_386, which is SPEC.md 41.9 rule 2's
+; run-time half for this island.
+;
+; ATTACH-ONLY CODE, in xm_once's region with its GDT: the scratch overlays
+; both once xm_attach has run, which is why moving it here cost nothing.
+; Called once, from xm_attach. It was also called once per chunk from
+; xm_ucopy until the copy moved to loaded bases (41.15, apps/os88ub.inc),
+; whose transition is this one with DS and ES in place of FS and GS.
+; Calling it repeatedly is a non-event: the transition is idempotent and
+; preserves every 16-bit register and the flags.
+;
+; The whole transition runs inside one pushf/cli ... popf with NMI masked
+; (CMOS index port 0x70 bit 7) across it: a real-mode IVT is meaningless while
+; CR0.PE is set, so an interrupt taken in the window is a triple fault.
+; Nothing in the kernel touches 0x70 outside clock.inc's int 1Ah calls, so
+; there is no conflict; the read of 0x71 after each write to 0x70 is the
+; classic requirement to leave the RTC's index/data pair settled.
+;
+; THAT THE KERNEL'S OWN ISRs ARE LIVE BY THE TIME THIS FIRST RUNS IS NOT NEW
+; (SPEC.md 41.12.1). The kernel used to call it before sched_init, on the
+; reasoning that no kernel ISR was installed yet - a comfort, not a
+; requirement, because xm_ucopy has always re-armed at run time with int 08h
+; hooked and IRQ3/IRQ4 live. If an ISR could break the transition the shipped
+; transport would have been broken since it was written; what protects it is
+; the cli and the NMI mask, and both are here.
+;
+; There is no far jump. CS is never reloaded and keeps its real-mode base,
+; which is what makes the instruction after `mov cr0` reachable at all.
+;
+; Two entries, not three, in the GDT: there is no code descriptor because
+; THERE IS NO FAR JUMP AND CS IS NEVER RELOADED. The whole point of the
+; sequence is the hidden descriptor caches of FS and GS.
+; -----------------------------------------------------------------------------
+xm_arm:
+    push ax
+    pushf
+    cli                         ; --- the transition window ----------------
+    mov al, 0x80
+    out 0x70, al                ; NMI off (bit 7); index 0 is harmless
+    in  al, 0x71                ; settle the RTC index/data pair
+cpu 386                         ; ---- 386-only island, tier 2 only --------
+    xor eax, eax                ; the lgdt base is LINEAR: DS<<4 + xm_gdt.
+    mov ax, ds                  ; DS is OUR segment - a heap claim, and a
+    shl eax, 4                  ; MOVABLE one (SPEC.md 66), so this is
+    add eax, xm_gdt             ; computed on every arm and never baked in
+    mov [xm_gdt + 2], eax
+    lgdt [xm_gdt]               ; (16-bit operand size loads 24 base bits;
+                                ; the image is a heap claim below 1MB, so
+                                ; that is exact)
+    mov eax, cr0
+    or al, 1                    ; CR0.PE - protected mode, briefly
+    mov cr0, eax
+    jmp short .flush1           ; flush the prefetch queue
+.flush1:
+    mov ax, XM_SEL_FLAT
+    mov fs, ax                  ; THE ONLY WRITES TO FS OR GS IN THE TREE.
+    mov gs, ax                  ; Their hidden caches keep the 4GB limit
+    mov eax, cr0                ; after PE goes away again.
+    and al, 0xFE
+    mov cr0, eax
+    jmp short .flush2
+.flush2:
+cpu 8086                        ; ---- island closed -----------------------
+    xor al, al
+    out 0x70, al                ; NMI back on
+    in  al, 0x71
+    popf                        ; --- window closed ------------------------
+    or byte [xm_feat], CPU_F_UNREAL
+    pop ax
+    ret
+
+xm_gdt:                         ; entry 0, the null descriptor, which the CPU
+    dw xm_gdt_end - xm_gdt - 1  ; never reads - so it carries the lgdt
+    dd 0                        ; pseudo-descriptor: limit, then the 32-bit
+    dw 0                        ; linear base xm_arm fills
+    dw 0xFFFF                   ; entry 1 (XM_SEL_FLAT): limit 15..0
+    dw 0x0000                   ;   base 15..0
+    db 0x00                     ;   base 23..16
+    db 0x92                     ;   present, ring 0, data, read/write
+    db 0xCF                     ;   G=1 (4KB granules), D/B=1, limit 19..16
+    db 0x00                     ;   base 31..24  -> base 0, limit 4GB
+xm_gdt_end:
+
 xm_once_end:
     times (XM_SCRATCH - (xm_once_end - xm_once)) * \
           ((xm_once_end - xm_once) < XM_SCRATCH) db 0

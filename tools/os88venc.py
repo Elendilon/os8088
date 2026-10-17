@@ -309,9 +309,16 @@ PROFILES = {
     # the table's to price, not speed's
     # avg / peak: the owner's 86Box DX2/66 played 70% / 105% flipped with
     # nothing seen wrong and 80% / 115% with late frames counted (98.2.3.6);
-    # these sit under that boundary, a real machine being slower or faster
+    # these sit under that boundary, a real machine being slower or faster.
+    # XMS: a 386 or better plays IN PLACE now (SPEC.md 98.3.18.14) through a
+    # base loaded by a moment of protected mode - xbor_us ESTIMATED at 6 us
+    # from its instructions (four CMOS port accesses most of it; nothing has
+    # timed one on iron, docs/plans/VIDEO-386-PLAN.md section M). xup and
+    # xdown stay the unmeasured 0.05: the copy up is none at all where the
+    # disk is HDD.DRV's rung 1 (98.3.18.15), which an encode cannot know
     "486-dx2-66": dict(disk=1950000, avg=6.50, peak=10.0, owe=1.6, speed=10, xcopy=0.05,
-                xplay="copy", xup=0.05, xdown=0.05,
+                xplay="inplace", xup=0.05, xdown=0.05, xbor_us=6.0,
+                xbor_n=3, xyield=2048,
                 ring=8, lcopy_us=1.380, cyc_us=CYC_US_486,
                 disk_at=((0.0, 4151 / 2192.0), (0.25, 3157 / 2192.0),
                          (0.5, 1.0), (0.75, 1096 / 2192.0), (1.0, 0.0)),
@@ -4071,15 +4078,17 @@ class Encoder:
         XMS when the machine has a pool - held whole if it fits, banked if
         not (SPEC.md 98.3.18) - so on a profile with `xplay` every frame
         plays from there:
-          - "inplace" (a 286 whose LOADALL checks out: 98.3.18.11, .13):
+          - "inplace" (a 286 whose LOADALL checks out, or any 386:
+            98.3.18.11, .13, .14):
             NO copy down. The decode reads each record where it lies,
             through borrows - `xbor_n` a frame (the super-packet and record
             headers, the record, the sound) and one more every `xyield`
             record bytes (vdec.inc's yields) - each `xbor_us`. The bank's
             copy UP is the reader's, on the disk (set_bank), on EVERY
             chunk: the ring is the bank's slots.
-          - "copy" (98.3.18.2's FIFO: a 386 or better, or a 286 play the
-            in-place paths refuse): a banked record is copied DOWN inside
+          - "copy" (98.3.18.2's FIFO: a play the in-place paths refuse,
+            on any tier - before 98.3.18.14 every 386 play, which is why
+            the 486's profile said so): a banked record is copied DOWN inside
             its frame's period, ahead of its decode - `xdown` ms a KB on
             the CPU, which nothing charged before and `--peak` paid for out
             of slack (LOADALL-PLAN 7.1) - and up on the disk.

@@ -319,8 +319,9 @@ DSV_CPDRAG   equ 32             ; near proc: the TRACKING edge - the pointer
 DSV_PKGCALL  equ 34             ; dw: near proc reached by OSAPI_DRV_CALL -
                                 ; THE FENCE (SPEC.md 20.11). Publish it and a
                                 ; package can call you; leave it 0 and it
-                                ; cannot. HDD.DRV leaves it 0, so no package
-                                ; can reach DSV_BLK and write a raw sector.
+                                ; cannot. HDD.DRV's reaches HDV_ARM and
+                                ; HDV_DISARM and no sector (52.1.4), so no
+                                ; package can reach DSV_BLK through it.
                                 ;
                                 ;   in  BL = a verb YOU define, BH = your class
                                 ;       - except DRVC_EMS, which gets the

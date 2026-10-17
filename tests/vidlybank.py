@@ -19,6 +19,12 @@ the slots and the bank with the whole layer; the play reaches the end and
 DRAWS EVERY LAYER RECORD, none missed - the slots fed from the bank as the
 hook let them go (vp_lydrain), copied down out of XMS.
 
+THE BASE COPIES, ON EVERY TIER: a play that reads a layer is refused in
+place (vp_lyipq, SPEC.md 98.3.18.14), because an in-place base left this
+row's layer reading nothing - the first QEMU run after a 386 went in place
+was red here, and `[vp_noinp]` = 1 made it green, which is how the refusal
+was found. `xip` in the state line must read 0.
+
 ARM nobank: the NEGATIVE CONTROL - the bank's slots zeroed before Play
 (vp_lyxn 0), so the prefill fills the two slots and nothing more. After the
 swap the layer's reader finds no disk and stops, and the play must draw
@@ -150,12 +156,13 @@ def main():
 
         def state():
             return ("done=%d err=%d on=%d got=%d mis=%d skp=%d rd=%d use=%d "
-                    "ns=%d xn=%d xc=%d xq=%d eof=%d xon=%d xfull=%d"
+                    "ns=%d xn=%d xc=%d xq=%d eof=%d xon=%d xfull=%d xip=%d"
                     % (rw("vp_done"), rb("vp_err"), rb("vp_lyon"),
                        rw("vp_lygot"), rw("vp_lymis"), rw("vp_lyskp"),
                        rw("vp_lyrd"), rw("vp_lyuse"), rw("vp_lyns"),
                        rw("vp_lyxn"), rw("vp_lyxc"), rb("vp_lyxq"),
-                       rb("vp_lyeof"), rb("vp_xon"), rb("vp_xfull")))
+                       rb("vp_lyeof"), rb("vp_xon"), rb("vp_xfull"),
+                       rb("vp_xip")))
         wait(lambda: rb("vp_loaded") == 1, "the clip's header", 30)
         print("   opened: %s; lysp %08x bank %d KB prefill %04x"
               % (state(), struct.unpack("<I", q.read(base + syms["vp_lysp"],

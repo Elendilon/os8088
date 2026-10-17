@@ -467,7 +467,12 @@ hd_xfer_ide:
     cld
     cmp byte [hd_bop], 0
     jne .write
-.read:                          ; REP INSW, the 286's own (52.1.2): this
+.read:
+    cmp byte [hd_xa_on], 0      ; ARMED (52.1.4): this sector straight to
+    je .rins                    ; XMS, if it is the armed buffer's
+    call hd_xa_read
+    jnc .advance
+.rins:                          ; REP INSW, the 286's own (52.1.2): this
     db 0xF3, 0x6D               ; rung runs on CPU_286 and up ALONE, so its
     jmp short .advance          ; two opcode bytes are always legal here.
                                 ; ~4 clocks a word against `in ax, dx` /
@@ -1088,6 +1093,8 @@ hd_twins:
 .out:
     ret
 
+%include "hdxms.inc"            ; the read straight into XMS (52.1.4): in
+                                ; what was hd_mbr's alignment pad
 %include "hdsec.inc"
 
 ; =============================================================================
@@ -1536,12 +1543,14 @@ hd_services:
     dw hd_cp_up                 ; DSV_CPUP    - the page acts on the RELEASE
     dw hd_cp_drag               ; DSV_CPDRAG  - ...and follows the pointer
                                 ;               between the edges (13.8.4)
+    dw hd_pkg                   ; DSV_PKGCALL - THE DOOR, and it reaches two
+                                ; verbs, neither a sector: HDV_ARM and
+                                ; HDV_DISARM (52.1.4). No package reaches
+                                ; DSV_BLK through it
 hd_svc_end:                     ; ...AND STOPS HERE, its length in the header
-                                ; (OS88_DRIVER's fourth argument, +15). So
-                                ; DSV_PKGCALL is published 0 without a cell
-                                ; here saying so - no package reaches a raw
-                                ; sector - and a cell added to DSV_* later is
-                                ; 0 for this driver until it writes one
+                                ; (OS88_DRIVER's fourth argument, +15). A cell
+                                ; added to DSV_* later is 0 for this driver
+                                ; until it writes one
 
 
 hd_pcnt:     db 0               ; how many fixed disks the BIOS said it has

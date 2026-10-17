@@ -93,6 +93,12 @@ its own pre-empted instance and updating live while the user types or drags.
    and only after the instruction has run once with INT 6 hooked. A 386
    executes `0F 05` as an invalid opcode, so a tier test alone is not the
    gate - the trap is.
+
+   **`apps/os88ub.inc` is the second (§41.15)**: tier 2's loaded segment
+   base, a `cpu 386` island closed by `cpu 8086` like XMEM.DRV's, reached
+   only behind a run-time test of `CPU_386` and assembled by XMEM.DRV,
+   HDD.DRV and the Video Player. Where the 286's exception needs a trap,
+   this one needs only the tier: CR0.PE exists on every tier-2 CPU.
 2. **Near model.** CS = DS = `KERNEL_SEG` (0x0800) for all kernel code and
    tasks; **SS = `LOW_SEG`** (0x0440), because every task stack lives outside
    the kernel segment (§2.1). ES is scratch — any routine may change and use
@@ -75001,8 +75007,10 @@ claim (§50.4). Deliberately small: this is a bulk store for a handful of
 large claims, not a malloc. Free space is **implicit** — whatever no in-use
 entry covers — so a freed block merges with its neighbours for nothing.
 
-`xm_copy` carries **one ABI over two transports**: `int 15h AH=87h` on tier
-1, unreal mode on tier 2. The caller cannot tell which ran and must not care.
+`xm_copy` carries **one ABI over three transports**: `int 15h AH=87h` on tier
+1, LOADALL on a tier 1 whose instruction checked out (41.13), and on tier 2
+loaded segment bases (41.15) where it was unreal mode's FS and GS. The caller
+cannot tell which ran and must not care.
 
 **`diskops.inc` allocates out of this pool, and the teardown leg is wired
 again.** The disk cloner declares all four published slots and calls every one
@@ -75726,6 +75734,41 @@ left, so measuring there is a KB of every 286 and 386's heap plus a new cell;
 in the include it costs no resident byte and no ABI, and it is the os88la.inc
 shape - written once, assembled by each caller. The Video Player is the first
 (98.3.18.12).
+
+### 41.15 Tier 2's loaded bases (2026-10-16)
+
+**On a 386 or better, a copy and a read in place both address extended
+memory through a segment's hidden BASE**, set by a moment of protected mode
+- the 386's counterpart of 41.13's LOADALL, and docs/plans/VIDEO-386-PLAN.md
+is the design record. `apps/os88ub.inc`'s `ub_set` writes a descriptor
+(base the linear address, limit 0FFFFh, access 93h - a real-mode segment's
+own), sets CR0.PE, loads DS and/or ES from it, clears PE and returns: about
+6 us, most of it the CMOS port's NMI mask that 41.4's arm also takes. Until
+the register is next loaded, `DS:SI` reaches that address with 16-bit code
+unchanged, and the first ordinary load afterwards leaves the register
+exactly as real mode makes it - no widened limit survives the window.
+
+**The rule is 41.13's**: a base dies at any segment load and every ISR loads
+DS and ES, so between `ub_set` and the caller's own reload interrupts stay
+off, and the caller's data is reached through CS:. A20 must be open (41.2);
+no tier-2 path calls the BIOS's block move, the one thing that might shut it.
+**Which registers** is the includer's choice at assembly time (`UB_DS`,
+`UB_ES`), and FS and GS are not among them: 41.4's rule that only XMEM.DRV
+writes those stands. A PACKAGE executing it is the same decision 41.13 took
+for LOADALL - the Video Player does, for its decode in place (98.3.18.14).
+
+**XMEM.DRV's tier-2 copy is built on it** (41.5): each chunk loads DS's base
+at the source and ES's at the destination and moves with one `rep movsd`,
+where it was a load/store loop through flat FS and GS at ~17-19 clocks a
+dword against `rep movsd`'s ~4 on a 386. MOVS had been ruled out only
+because its destination is ES:(E)DI and a flat ES would have been a widened
+ES left behind; a loaded base is not widened. `XM_UCHUNK` is 2 KB where it
+was 1 - by the same instruction count, `rep movsd` moves 2 KB in about the
+time the loop moved 1 on a 16 MHz 386SX, ~0.3 ms with IF = 0. FS and GS are
+still armed once at attach, because CPU_F_UNREAL is published and says so.
+The image 2,027 -> 2,041 bytes, inside its 2 KB claim; no kernel byte. **The
+speeds are ESTIMATED from instruction counts**, the profile's 0.05 ms a KB
+among them: no VIDDISK `X` has run on a 386 or a 486 yet.
 
 ## 42. Paint — the seventh package (apps/paint/paint.asm)
 
@@ -93631,6 +93674,44 @@ status), `hd_at_ident` refuses it as it always did, and the callers that test
 the status after a command (52.1's write check) read ERR in it and fail as
 before. **+16 bytes of HDD.DRV** and no kernel byte. Not a retry: a command
 that fails after the drive came ready still fails, as it did.
+
+
+#### 52.1.4 Rung 1 reads straight into XMS on a 386 (2026-10-16)
+
+**A package may ARM this driver for one buffer of its own**: until it
+disarms, a sector rung 1 would put in that buffer goes to an XMS address
+instead, through ES's hidden base loaded around the sector's `rep insw`
+(SPEC.md 41.15, `drivers/hdd/hdxms.inc`). It is what lets the Video Player's
+fill skip its copy up (98.3.18.15): the layers between `OSAPI_FILE_READ_SEQ`
+and the instruction all carry a segment, and none of them needs to change,
+because nothing between them copies (18.95.1's direct path). docs/plans/
+LOADALL-PLAN.md 4.2 designed it for a 286; this is its 386 half.
+
+**HDD.DRV publishes DSV_PKGCALL for it, and the door reaches two verbs and no
+sector** (`HDV_ARM`, `HDV_DISARM`, `apps/os88api.inc`). Writes are never
+redirected and no verb names a sector, so the reason the door was 0 - no
+package may reach DSV_BLK and write a raw sector (20.11) - still holds.
+`HDV_ARM` takes the buffer (DX:0), its length (whole sectors, at most 32 KB)
+and the XMS address its first byte stands for (DI:SI); it refuses below a
+386 (AX 1), with the A20 gate shut (AX 2, probed at every arm: a shut gate
+would alias the write 1 MB down) and on bad arguments (AX 3). `HDV_DISARM`
+writes an 8-byte MAP to ES:DI, a bit a sector that went to XMS.
+
+**The map makes it exact.** A sector the kernel's cache served, a disk on
+rung 0, a read of a floppy - anything this rung did not move - lands in the
+real buffer as always and its bit is clear, and the package copies up what
+is clear. Only a sector WHOLLY inside the armed buffer at a 512-byte offset
+is redirected; everything else this rung reads is untouched by the arm.
+
+**A 386 only.** A redirected sector is a base load (~6 us) and a `rep insw`
+with interrupts off (~0.25 ms on an ISA disk). A 286's LOADALL borrow is
+~150 us against the ~90 us its copy up of the sector costs, so a borrow a
+sector would cost more than it saves; LOADALL-PLAN 4.2's borrow across a run
+of sectors is the 286's shape and stays parked with its wave L2.
+
+**Its bytes**: the image is 4,096 either side, and so is its claim - the
+416 bytes went into the 451 the `align 512` in front of hd_mbr (52.13.6) was
+padding with nothing. No kernel byte.
 
 ### 52.2 The disk tool — one window, one button
 
@@ -179752,7 +179833,12 @@ no room for the slack is taken without it. Not for EMS, nor in place
 
 On the Victory: the bank's fill modelled 672 -> ~748 KB/s, and every
 drained 32 KB chunk 11.2 -> ~6.6 ms. VIDEO.O88 +444 bytes, no kernel or
-driver byte. `vidxmsgap` and `vidbankgap` write G = 2,048 into the running
+driver byte. **The ring's room is planned with the slack in it** (`vp_kres`, 2026-10-17):
+a ring sized to every slot the free run held left nothing for the 2G on top,
+so at G = 2,048 the 4 KB seldom fitted what the rounding left and the claim
+fell back to an unplaced ring - `vidxmsgap` was red on that for a cycle, and
+the Victory measures 2,048. A layout that loses a slot to it is one whose
+copies all run at the board's fast gap. `vidxmsgap` and `vidbankgap` write G = 2,048 into the running
 player before Play - QEMU's own answer is 0, its copies having no banks to
 find - and hold the ring to the rule against the hold and against the bank
 with every frame still the decode's; VIDDISK X prints `xg_gap answers G`
@@ -179804,6 +179890,94 @@ the mirror is read on every one of thirteen laps, and a mirror copied from
 the wrong bytes takes it red at 36 of 39 holds (where the final window
 still matched); `banksnd` adds the SB16, the card's audio copied out of the
 bank through a borrow every frame. VIDEO.O88 +350 bytes, no kernel byte.
+
+
+##### 98.3.18.14 A 386 decodes in place too (2026-10-16)
+
+**On a 386 or better, 98.3.18.11's hold and 98.3.18.13's bank decode in
+place as they do on a 286**, with the borrow's instruction swapped: where a
+286 executes LOADALL, a 386 loads DS's hidden base through a moment of
+protected mode (SPEC.md 41.15, `apps/os88ub.inc`, `vp_ubld`). Nothing else
+changes - the handles, the fifteen `VP_DSDX`/`VP_DSEND` sites, the yields at
+`vdec.inc`'s `VD_YCK` sites, the bounce and the mirror, `vp_xok`'s 16 bytes
+read in place against `OSAPI_XMEM_COPY`'s - because the window the decoder
+sees is the same 64 KB from the same linear address either way. A borrow's
+end is one real-mode `push cs / pop ds` (`vp_xrst`), where a 286 also puts
+the API table back. Before this a 386 always copied: the hold one copy a
+byte and the bank two, where a 286 had none, on the strength of a copy rate
+for unreal mode that had never been measured (docs/plans/VIDEO-386-PLAN.md).
+
+**Taken where a 286's is taken and refused where it is refused**, on 98.3.18.11
+and 98.3.18.13's lists and for their reasons - none of which is the 286's
+instruction, so none is a 386's either - **plus one refusal on both tiers: a
+play that reads a LAYER** (98.1.9, `vp_lyipq`). The layer's slots, its split
+of the pool and its bank are planned against the COPYING ring, and an
+in-place base left the layer reading nothing: `vidlybank` went red the first
+time QEMU's 386 went in place, and green again with `[vp_noinp]` written. A
+286 had carried that since 98.3.18.11 with no row able to see it. It is a
+defect refused, not an incompatibility in kind (docs/plans/VIDEO-386-PLAN.md
+6). The speaker's clock stays refused on
+every tier: a borrow on a 386 is ~6 us rather than ~150, but the decode
+inside it still runs with interrupts off for up to `VP_XYB` record bytes,
+and one interrupt a sample cannot wait for that. **`[vp_noinp]` now refuses
+the hold in place as well as the bank**, which is what lets a gate on QEMU's
+386 - every gate that used to see a copying play there - ask for the copying
+path as the A/B. The check needs no probe: CR0.PE exists on every tier-2 CPU,
+and the 16-byte compare is what proves the base and the gate.
+
+**The card says so in its own words**: `XMS in place (386)` and `XMS bank in
+place (386), N KB` - the same `[vp_lbk]` 7 and 8, the words chosen by the
+tier when the line is drawn.
+
+**What it buys is the drain's copy on every record**, which on a 386 is a
+load/store loop through FS and GS at ~17-19 clocks a dword before SPEC.md
+41.15 and `rep movsd` after it, ESTIMATED at 0.14 ms a KB on a 386DX-33 by
+instruction count - comparable to the Victory 286's 0.17 by LOADALL - against
+a base load of ~6 us a borrow. `tests/vidxip.py` is the gate, and it is the
+first gate of an in-place play that runs the shipped instruction sequence:
+the shipped player copying (`[vp_noinp]` written) and then in place, on
+QEMU, every arm. `--sim` keeps LA_SIM's stand-in assembling and playing.
+`[vp_simyc]`, the yields that opened a window, is counted in every build now
+(+7 bytes). VIDEO.O88 53,683 -> 53,916 bytes (+233, `os88ub.inc` and its GDT the most of it), bss unchanged; no kernel byte.
+
+##### 98.3.18.15 The fill straight into XMS, and EMS against XMS by cost (2026-10-16)
+
+**A fill reads straight into XMS where HDD.DRV can put it there.** The hold's
+fill (`vp_xstep`), the copying bank's (`vp_bstep`) and the bank in place's
+(`vp_xbread`) each read a chunk into a conventional buffer and copied it up.
+Each now arms HDD.DRV for that buffer first (`vp_harm`, SPEC.md 52.1.4) with
+the chunk's XMS address, disarms after the read (`vp_hdis`, flags kept for
+the `jc` that tests the read), and copies up only the sectors the map leaves
+clear (`vp_xupm`). On a 386 whose disk is rung 1's, that is none of them:
+the bank in place then moves no byte through the CPU twice, the read being
+the only move. Everywhere else - a 286, a floppy, rung 0, no HDD.DRV - the
+map is empty or the arm is refused and the copy is today's; a door that
+refuses for good (no driver, below a 386) is asked once an instance
+(`[vp_hnone]`). **Not armed** under `VP_RDLOG` (its log reads the buffer as
+it landed), for slot 0 of a bank in place (its mirror is copied up from the
+bounce too), or under the speaker's clock, which makes no fill at all
+(98.3.18.5). `[vp_hsk]` counts the sectors not copied up, all plays.
+`VP_NOHARM=1` is the A/B build. Gate: `tests/vidharm.py`, an IDE disk on
+QEMU's 386.
+
+**EMS against XMS is a price now, not a tier** (`vp_epref`). It was "EMS
+below a 386, XMS from one" - written while a 386 always copied twice, on a
+copy rate never measured. A board within `VP_EFAST` of RAM wins on every
+tier, untimed: it copies nothing. A board too slow to bank in (98.3.18.8)
+never wins. Between the two, EMS costs its reads - `[vp_er10]` - 10 tenths
+of RAM's a KB over RAM's - and the pool its copies: `[vp_xr10]`, an XMS KB
+copied in tenths of RAM's read, MEASURED once an instance by `vp_xspeed`
+through `OSAPI_XMEM_COPY` itself (8 KB up out of the package's own image
+into a block claimed for it, two ticks, against `vp_erate`'s RAM passes), so
+a BIOS's reset, a LOADALL borrow or a 386's base load is priced as what it
+costs here. Once a banked byte where the decode goes in place (a 386, or a
+286 whose LOADALL has not failed this instance), twice where it copies; EMS
+wins when its price is the smaller. With no pool nothing is timed and EMS is
+what there is. **No emulator here has both an EMS board and XMS**, so the
+choice is unexercised; `VP_XSPTEST`, a test build, takes the measurement at
+every hold's open, and `tests/vidxspeed.py` holds it to a sane range on
+QEMU and the block given back. VIDEO.O88 53,916 -> 54,514 bytes for this
+section's two halves (+598); HDD.DRV's share is SPEC.md 52.1.4's.
 
 #### 98.3.22 The play's profile: every frame timed on the machine (2026-10-15)
 

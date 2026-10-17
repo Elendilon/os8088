@@ -31,6 +31,17 @@ ARM xms (the default; QEMU's own 128MB):
 ARM idle is arm xms with no play at step 2: the window's timer alone loads
 the file to its end, and a short last chunk is what says it has.
 
+STEP 4's PLAY IS IN PLACE (98.3.18.14): QEMU is a 386, and since a 386
+loads DS's hidden base where a 286 runs LOADALL, a session that starts with
+the hold WHOLE reads its records where they lie and copies nothing. So in
+arms xms and idle the play from the key is the shipped in-place play, out
+of the same hold - which the blank B: proves as it proved the copy - and
+the first play, started with the hold still loading, copies as it always
+did. `--gap` and arm bios are ABOUT the copy, so they write the gate's A/B
+`[vp_noinp]` = 1 before the first play and every play copies; the row
+fails if one went in place anyway. The copying play out of a whole hold is
+also tests/vidxip.py's first leg.
+
 ARM live is 98.3.18.1, LIVE FROM THE HOLD: a 1.2 MB STREAMED Live file for
 the VGA desktop, held whole, B: made blank, and Play must be a live session
 - the worker decoding, the UI task filling its ring out of the hold on its
@@ -53,6 +64,9 @@ BIOS sti's inside AH=87h and shuts A20 on its way out, and an IRQ0 in that
 window reached SOUND.DRV in the HMA), because SeaBIOS puts A20 back as it
 found it; what it proves is that the masked PIC around the call costs the
 copy and the clock nothing - the hold whole, both plays to the last frame.
+Both plays COPY ([vp_noinp], above): the player's own in place on a 386
+needs no transport at all, and would leave the second play nothing to send
+through xm_bios.
 
 ARM nox (`-m 1`, no memory above 1MB): the NEGATIVE CONTROL, and the
 fallback. No hold is taken, the play runs off the disk to the last frame -
@@ -360,14 +374,34 @@ def main():
                      % (msg.decode("ascii", "replace"), rb("vp_ok")))
         if rb("vp_ok") != 1:
             sys.exit("vidxms: the player will not play the clip here")
+        # THE COPYING HOLD, where the arm is about the copy (98.3.18.14):
+        # QEMU is a 386, and a 386 decodes a hold that is WHOLE in place, so
+        # every play after the loader's end would copy nothing. --gap is
+        # where the COPYING ring is placed (98.3.18.12) and arm bios is every
+        # copy through int 15h, so both keep every play copying with the
+        # gate's A/B - [vp_noinp], read at each session's start and written
+        # by nothing in the player. The other arms play the shipped choice:
+        # the second play in place, out of the same hold, which is what B:
+        # blank is there to prove (tests/vidxip.py gates the in place itself)
+        noinp = bool(a.gap) or a.arm == "bios"
+        if noinp:
+            qpoke(q, [(base + syms["vp_noinp"], b"\1")])
 
         gaps = []
+        xips = []
 
         def play(what):
             if a.gap:
                 qpoke(q, [(base + syms["vp_xgap"], struct.pack("<H", a.gap))])
             q.hmp("sendkey p")
             wait(lambda: rb("vp_ready") == 1, what + " to start", 30)
+            xips.append(rb("vp_xip"))   # (the session's: its end clears it)
+            print("   %s: %s" % (what, "IN PLACE (98.3.18.14)" if xips[-1]
+                                 else "copying out of the hold"
+                                 if rb("vp_xon") else "off the disk"))
+            if noinp and xips[-1]:
+                bad.append("%s went in place: [vp_noinp] ignored, so the "
+                           "copy this arm is about never ran" % what)
             # THE GAP (SPEC.md 98.3.18.12): with a G measured (QEMU's is its
             # host's noise; an XG_FORCE build fixes it), the ring starts G
             # mod 2G from the hold, inside its claim
@@ -563,6 +597,12 @@ def main():
                                                rb("vp_err")))
             if not rb("vp_xon"):
                 bad.append("the hold was dropped")
+            # THE GAP ON EVERY PLAY (98.3.18.12): its check sits behind
+            # `not vp_xip`, so a play that went in place would skip it and
+            # the row would pass on one placement instead of two
+            if a.gap and len(gaps) != (1 if a.arm == "idle" else 2):
+                bad.append("the gap was checked on %d plays, not %d"
+                           % (len(gaps), 1 if a.arm == "idle" else 2))
         q.close()
     return report(bad, a.arm)
 

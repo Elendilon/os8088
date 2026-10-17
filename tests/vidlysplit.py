@@ -48,6 +48,10 @@ is three short of it and lends 96 KB, which the split must give back to the
 base's bank - as VP_XBMIN's 128 KB, the least bank there is, four slots,
 and the layer what is left of the ~26.
 
+EVERY ARM'S BASE BANK COPIES: QEMU is a 386, which reads an XMS bank IN
+PLACE since 98.3.18.14, chosen at the session's start before the split runs
+- so `[vp_noinp]` = 1, the gate's A/B, is written before Play.
+
 Both play from KEY 1: the CPU is timed on a key, a one-bit file from its
 first frame has none, and untimed the pool is left as the open took it -
 the base's bank is never risked on a guess. ARM untimed is that: from the
@@ -221,6 +225,12 @@ def main():
             # fast yardstick, 1 - but under VP_LYTMIN that is no CPU verdict
             # at all (98.1.9.12), and QEMU decodes a key inside the 1 ms the
             # floor is, so a yardstick alone cannot make it the base's)
+        # THE COPYING BANK (98.3.18.14): a 386 reads an XMS bank in place,
+        # and that is decided at the session's start, BEFORE vp_lysplit - so
+        # the base's bank would be the ring with [vp_xbank] 0 and the split
+        # would have no FIFO to resize. [vp_noinp], the gate's A/B, keeps
+        # the bank the split is about, as every 386 had it
+        qpoke(q, [(base + syms["vp_noinp"], b"\1")])
         q.hmp("sendkey p")
         wait(lambda: rb("vp_ready") == 1, "the play", 120)
         n1, l1 = rw("vp_xbn") if rb("vp_xbank") else 0, rw("vp_lyxn")
