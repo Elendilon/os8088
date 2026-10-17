@@ -20,7 +20,11 @@ tools/os88venc.py encodes it three ways. Four questions:
    by the wave 0 model on its actual bytes, is under the per-frame ceiling,
    and a replay of both buckets never goes below empty. And the FIRST
    KEYFRAME is a whole picture, exactly its target (SPEC.md 98.2.9's
-   pre-roll): a half-painted key 0 is where a colour play starts.
+   pre-roll): a half-painted key 0 is where a colour play starts - and
+   on a FLIPPED Mode X file for a 286 over noise, where frame 0 overflows
+   the record and frame 1 the CPU's ceiling, key 0 is at frame 2 or later
+   and exact (98.2.9.2). Broken on purpose - preroll() not charging its
+   frames - key 0 is at frame 1 and hundreds of pixels short.
    3b. OWED TIME (98.2.1.1): a cut every fifth frame, a 30% ceiling and
    `--owe 1.6`. Frames must run past their period (or this tests nothing),
    and the silent hook's schedule replayed from the file never finds three
@@ -498,6 +502,34 @@ def main():
         if not k0 or kpic != keep[k0].tobytes():
             bad.append("the first keyframe (frame %d) is not a whole "
                        "picture: no pre-roll" % k0)
+        # ...and the pre-roll is COUNTED with each frame charged (98.2.9.2):
+        # a FLIPPED Mode X file on a 286 - the owner's Last Exile, whose
+        # key 0 came out with black holes - where frame 0 overflows the
+        # record and frame 1 the CPU's ceiling, which a dry run that never
+        # spent its budgets (nor owed the back page) called exact
+        nsrc = os.path.join(tmp, "noise.mkv")
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+             "testsrc2=size=320x180:rate=30:duration=1,noise=alls=100",
+             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=22050",
+             "-t", "1", "-c:v", "ffv1", "-c:a", "pcm_s16le", nsrc],
+            check=True)         # (the sound's share is part of what cuts)
+        a = venc.parser().parse_args(
+            [nsrc, os.path.join(tmp, "prefl.V88"), "--quiet", "--preset",
+             "modex", "--profile", "286-speeddemon", "--flip",
+             "--flip-hold", "empty", "--end", "1"])
+        pkeep = []
+        venc.encode(a, pkeep)
+        r = vid.Reader(a.out)
+        k0 = r.keys[0][0]
+        wrong = sum(1 for x, y in zip(vid.decode_at(r, k0),
+                                      pkeep[k0].tobytes()) if x != y)
+        print("   flipped Mode X on a 286: key 0 at frame %d, %d pixels "
+              "short of its target" % (k0, wrong))
+        if k0 < 2 or wrong:
+            bad.append("flipped Mode X: key 0 at frame %d is %d pixels short "
+                       "of a whole picture: the pre-roll counted short"
+                       % (k0, wrong))
         for f, c in over[:3]:
             bad.append("frame %d costs %.1f%% of its period, over the 50%% "
                        "ceiling" % (f, 100 * c / period))

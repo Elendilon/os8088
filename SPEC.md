@@ -175684,6 +175684,37 @@ every pixel. It needs a pre-roll, key 0 is past it, and key 0's picture
 lights 99.9% of the canvas. Without the split, 10.0% is lit. Without
 re-making the views, the pre-roll is 0 frames and key 0 is 47.2% lit.
 
+#### 98.2.9.2 A dry run that never spent its budgets (2026-10-17)
+
+**The owner's report was key 0 with black holes again**, on a flipped Mode
+X encode of the same anime opening for the 286 SpeedDemon: the preview and
+a play from the start both showed it. The file was self-consistent - key 0
+was exactly the screen after frame 1 - and that screen was the defect.
+
+**The dry run drew its frames and never CHARGED them.** The real loop
+calls `charge` after every frame: the record's cost off the CPU's bucket,
+its bytes off the disk's, and on a flipped file the back page's catch-up,
+owed by the next frame (98.3.8). `preroll` only called `frame`, so its
+copy's buckets stayed full, nothing was ever owed, and the frame after a
+cut one always fitted: a pre-roll of 1 every time the first frame missed by
+one record. On the owner's clip frame 0 overflows the record (57,600 bytes
+of 320 x 180 against 30 KB) and frame 1 the per-frame CPU ceiling, which
+the real run met with the bucket the first frame had emptied and the back
+page's copy owed. Now each dry-run frame is charged as the loop charges
+it, with the look-ahead the loop gives it (the same picture), and the clip
+pre-rolls 2 frames with key 0 whole.
+
+**And the real loop draws the pre-roll the way the dry run counted it**:
+no degrade-ladder decision (a hold, a slower rate, cells at a cut) and no
+lag search on a frame at or before key 0. A hold there draws nothing on
+the page and would leave key 0 short whatever the count. A file with no
+pre-roll is untouched by either, so it is byte-identical to one made before.
+
+`tests/videnc.py` is the gate: noise over the test pattern with a tone,
+`--preset modex --profile 286-speeddemon --flip`, key 0 at frame 2 and
+exactly its target. With `preroll` not charging, key 0 is at frame 1 and
+372 pixels short. Without the tone it never cut at all, so the tone stays.
+
 #### 98.2.10 What a choice sets: the presets' own defaults, and the window shows them
 
 **`os88venc.implied()` is the one answer to "what does this choice set".** A
