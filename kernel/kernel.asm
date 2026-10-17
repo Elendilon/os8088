@@ -295,6 +295,22 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; reach KERNEL_SEG:target (extmod, stikmenu, winmod). `push ds` is that
 ; segment on every build but kern_mega, where DS is the data alias and the
 ; frame wants 0x0060's code selector - the constant, pushed (a 286's push).
+; MEGA_SEG0 ds|es - kern_mega: the segment register for LOW MEMORY (the IVT and
+; the BIOS data area, by segment 0 and a linear offset). In protected mode 0 is
+; the NULL selector: loading it is legal and the first access through it is
+; #GP(0) - which is what the keyboard pointer's shift-state read did on the
+; Victory 286, the first machine to run it with no mouse plugged in. So the
+; register is loaded from a word mega_enter sets to MEGA_SEL_LOW0 (base 0,
+; limit 4FFh) and the boot leaves 0: [cs:k_seg0] in .text, where SS may be
+; anything an ISR interrupted, and .lowbss's copy elsewhere. Every site keeps
+; the zero it computed for its other uses; only the segment load changes.
+%macro MEGA_SEG0 1
+ %ifidni __?SECT?__, [section .text]
+    mov %1, [cs:k_seg0]
+ %else
+    mov %1, [ss:mega_seg0]
+ %endif
+%endmacro
 %macro PUSH_KCODE 0
  %ifdef KERN_MEGA
   cpu 286
@@ -3447,6 +3463,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 ; which then took the first package launch down. The front of `.text` is
 ; the part the early boot already depends on being there.
 k_dsel      dw KERNEL_SEG
+k_seg0      dw 0                ; low memory's segment: 0, MEGA_SEL_LOW0 in
+                                ; protected mode (MEGA_SEG0)
 %endif
 
 ; =============================================================================
@@ -4922,6 +4940,7 @@ kmain:
     mov sp, STK0_TOP            ; the image, so a stack offset stays small and
     sti                         ; the kernel's own 64KB window stays for code
 %ifdef KERN_MEGA
+    mov word [ss:mega_seg0], 0  ; ...and low memory is segment 0 (MEGA_SEG0)
     mov byte [ss:mega_pm], 0    ; real mode, for .cold's KDATAR_C (mega.inc):
 %endif                          ; nothing promises .lowbss is zero at boot
     cld

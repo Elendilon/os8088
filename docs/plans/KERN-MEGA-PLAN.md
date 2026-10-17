@@ -850,7 +850,38 @@ whoever extends this:
     in a scratch build, once through the 8042 and once through port 92h:
     both reopened and switched.
 
-All three reproduce on QEMU once it is given the Victory's devices - an
+11. **Segment 0 is the NULL selector, and QEMU does not fault on it
+    either.** The third Victory run switched - A20 opened - and faulted at
+    once: `#GP err 0000 at 0060:3453`, which is kbm_shf reading the BIOS's
+    shift flags at 0000:0417 through DS = 0. The kernel reads the IVT and the
+    BIOS data area that way all over, to save the byte `mov ax, 40h` costs,
+    and loading a null selector is legal - only the access faults. kbm_shf
+    runs on EVERY UI pass of a machine with no mouse found, which the
+    Victory is (nothing plugged in) and no QEMU run here had been, since
+    QEMU always has a PS/2 mouse. The sites kern_mega reaches after the
+    switch - the keyboard pointer's shift state and buffer, the equipment
+    byte, the video mode byte, CTRL.DRV's EGA records, the Disk window's
+    modifier read, the compactor's IVT walk, the mouse's vector checks, the
+    speaker's IRQ0 restore and the scheduler's stop - load MEGA_SEG0 now:
+    MEGA_SEL_LOW0 (base 0, limit 4FFh) once mega_enter has run, 0 before.
+    **And QEMU let the original run clean** - built with `NOPS2=1` and no
+    serial mouse, so the keyboard pointer was live and its shift read ran
+    every pass, the unfixed kbm_shf did not fault. Its TCG checks no segment
+    on a data access, so this is item 6's blind spot a second time and
+    `tests/unit/t_seg0.py` is item 6's answer a second time: a fast-tier
+    ratchet over `tests/seg0.txt`, on t_cswrite's walker, that goes red with
+    the old kbm_shf put back. What it lists that is still WRONG on kern_mega
+    is the drivers: the Sound Blaster's IRQ discovery is deferred to the
+    first stream, so it runs in protected mode, faults there, and hooks an
+    IVT vector the IDT never reads - **digital audio through a Sound Blaster
+    does not work on M1**, and how a driver hooks an IRQ under kern_mega is a
+    driver-SDK decision (tools/abi.lock.json) rather than a rename. The same
+    holds for HDD.DRV's XMS ring and for any driver loaded from the Control
+    Panel after the switch, whose attach does its IVT work then. A related
+    gap with no fault: a compaction that moves a driver image patches IVT
+    vectors (mem_rr_walk) and not the IDT gates built from them.
+
+Items 7-9 reproduce on QEMU once it is given the Victory's devices - an
 AdLib (`-device adlib`) and a formatted IDE disk (`tools/os88hdd.py
 --noboot --raw`). **That is now the QEMU configuration for kern_mega**, and
 the one with no drivers is the easy case.
@@ -892,6 +923,12 @@ froze there, in real mode (10.1 item 7); the second disk carries the fix.
    Control Panel and anything else that loads a module (KERN-MEGA-PLAN 10.1
    item 6) - each writes its own image through CS. A photographed fault line
    from one of those is a result, not a failure of the run.
+
+**Not on this run:** pressing Play in the Audio Player or anything else that
+streams digital sound through the Sound Blaster - its IRQ discovery is the
+known fault of 10.1 item 11. So does the speaker's SAMPLE player, which
+takes IRQ0 through the IVT (spk_on). A beep or a tune through the FM chip is
+fine to try.
 
 **Timing is not the question yet**: the run answers "does it work", and one
 photograph per outcome is the whole report.

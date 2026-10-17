@@ -1015,7 +1015,11 @@ spk_off:
     push ds
     xor ax, ax
     mov [spk_seg], ax
+%ifdef KERN_MEGA
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
+%else
     mov ds, ax                  ; IRQ0 back to sch_isr
+%endif
     mov word [0x20], sch_isr
     mov [0x22], cs
     pop ds

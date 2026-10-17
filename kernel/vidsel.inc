@@ -438,7 +438,11 @@ vid_equip:
     mov bl, 0x30                ; 11b = monochrome at B000
 .go:
     xor ax, ax                  ; the BIOS data area, by segment 0 and the
+%ifdef KERN_MEGA
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
+%else
     mov ds, ax                  ; LINEAR offset 0x410 = 0040:0010 (a byte
+%endif
     mov al, [0x0410]            ; shorter than mov ax, 40h - size pass 9)
     and al, 0xCF
     or al, bl

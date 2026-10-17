@@ -2704,7 +2704,11 @@ mem_region_reloc:
     call mem_rr_walk
 %ifdef OS88_DRIVERS
     xor ax, ax
+%ifdef KERN_MEGA
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector
+%else
     mov es, ax                  ; ES = 0: the hardware IRQ vectors, the fourth
+%endif
     call mem_rr_walk            ; address space and the only one outside this
 %endif                          ; kernel (SPEC.md 66.6.3.1)
     ; ...AND A WORKER STANDING ON THE OLD SEGMENT is re-entered at the new one

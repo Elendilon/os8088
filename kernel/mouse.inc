@@ -1386,7 +1386,11 @@ mouse_unhook:
     call mou_pall
 
     xor ax, ax
+%ifdef KERN_MEGA
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector
+%else
     mov es, ax
+%endif
     xor bx, bx
 .port:
     cmp word [bx+mou_bases], 0
@@ -1518,7 +1522,11 @@ osapi_mouse:
 .row:
     mov si, [di+mou_ivecs]
     xor ax, ax
+%ifdef KERN_MEGA
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector
+%else
     mov es, ax
+%endif
     mov cx, cs
     cmp [es:si+2], cx               ; still ours? ONE compare, which is what
     je .done                        ; every pass but a theft pays
@@ -2396,7 +2404,11 @@ kbm_pass:
 kbm_shf:
     push ds
     xor ax, ax                  ; segment 0, LINEAR offset: 0040:0017 is
+%ifdef KERN_MEGA
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
+%else
     mov ds, ax                  ; 0000:0417 (a byte shorter than mov ax, 40h).
+%endif
     mov al, [0x417]             ; NOT 0x17 with segment 0: that reads the
     pop ds                      ; middle of the vector table
     ret
@@ -3019,7 +3031,11 @@ kbd_ovflow:
     push bx
     push es
     xor ax, ax                  ; segment 0, LINEAR offsets: 0040:001A is
+%ifdef KERN_MEGA
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector
+%else
     mov es, ax                  ; 0000:041A (size pass 9, a byte shorter). The
+%endif
     mov ax, [es:0x41A]          ; head - where the reader is - and the
     mov bx, [es:0x41C]          ; tail - where the BIOS is about to write -
                                 ; are still 0040-relative VALUES (1Eh..3Dh)

@@ -3901,7 +3901,11 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     cmp al, 0x1A
     jne %%out
     xor ax, ax                  ; DS = 0: the BIOS's records at 0:487h..489h
+%ifdef KERN_MEGA
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
+%else
     mov ds, ax                  ; need no prefix, and nothing below reads the
+%endif
     pushf                       ; kernel's own (kernel size pass 12)
     cli
     and byte [0x487], 0xFD      ; EGA info: not a monochrome monitor

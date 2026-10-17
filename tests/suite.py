@@ -1339,6 +1339,15 @@ FAST = [
         "tests/cswrites.txt with its count and a reason, and the count can "
         "only go down. FAST on t_textrules.py's argument - a rule about how "
         "every kernel file is written belongs in front of the next `make`"),
+    Row("seg0", "fast", py("tests/unit/t_seg0.py"), 0.5,
+        "docs/plans/KERN-MEGA-PLAN.md 10.1 item 11's ratchet: segment 0 in DS "
+        "or ES is how real mode reads the IVT and the BIOS data area, and in "
+        "286 protected mode it is the NULL selector, #GP(0) on the first "
+        "access - the Victory 286's keyboard pointer died of it, and QEMU does "
+        "not fault on it at all. Every file under kernel/ and drivers/ that "
+        "loads one on an arm kern_mega assembles is registered in "
+        "tests/seg0.txt with its count and a reason. FAST for cswrite's "
+        "reason, on the same walker"),
     Row("btngesture", "soak", py("tests/btngesture.py"), 26,
         "SPEC.md 13.7/13.8 ON THE GLASS: a standard button goes DOWN while "
         "held, comes UP when the pointer slides off it, goes down again on the "

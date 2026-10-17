@@ -643,7 +643,11 @@ sched_stop:
     push es
 
     xor ax, ax
+%ifdef KERN_MEGA
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector
+%else
     mov es, ax
+%endif
     mov si, sch_old08           ; the saved vector, word by word, onto 0:20h
     mov di, 0x20                ; (DF = 0 by SPEC.md 1)
     pushf

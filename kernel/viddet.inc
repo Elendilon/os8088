@@ -1065,7 +1065,11 @@ vid_setmode:
     jne .nocga                  ; be VID_HERC or VID_CGA and the mono arm
 %endif                          ; branched away above, so .bios IS the CGA
     xor ax, ax                  ; there and the test is dead weight.
+%ifdef KERN_MEGA
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector
+%else
     mov es, ax                  ; NO PUSH: this routine banks ES at entry and
+%endif
     mov al, [es:0x0465]         ; nothing below reads it - the planar arms and
                                 ; (0000:0465 = 0040:0065, segment 0 being a byte
                                 ; cheaper to load - size pass 9)
@@ -1291,7 +1295,11 @@ vid_cga_equip:
     push ax
     push ds
     xor ax, ax                  ; the BIOS data area, by segment 0 and the
+%ifdef KERN_MEGA
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
+%else
     mov ds, ax                  ; LINEAR offset (0040:0010 = 0000:0410, a byte
+%endif
     mov al, [0x0410]            ; cheaper than mov ax, 40h - size pass 9):
     and al, 0x30                ; equipment flag, bits 5:4 = the display
     cmp al, 0x30                ; 11b = monochrome at B000

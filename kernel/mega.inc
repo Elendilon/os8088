@@ -320,6 +320,8 @@ mega_enter:
     mov word [k_dsel], MEGA_SEL_KDATA
     mov byte [mega_on], 1
     mov byte [ss:mega_pm], 1        ; ...and .cold's copy of the same fact
+    mov word [k_seg0], MEGA_SEL_LOW0 ; low memory's selector (MEGA_SEG0)
+    mov word [ss:mega_seg0], MEGA_SEL_LOW0
     call mega_frames_fix
     call mega_mods_fix
 
@@ -1695,6 +1697,7 @@ mega_mfst   db "  stack: ", 0
 mega_mreg   db 10, "  ES DS DI SI BP SP BX DX CX AX SS: ", 0
 
 section .lowbss
+mega_seg0   resw 1                  ; MEGA_SEG0's word for code outside .text
 mega_pm     resb 1                  ; 1 = protected mode, for .cold (KDATAR_C):
                                     ; .lowbss is zeroed, which is the right
                                     ; answer before mega_enter

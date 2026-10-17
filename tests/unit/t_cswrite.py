@@ -90,13 +90,15 @@ ELIF = re.compile(r"^\s*%elif", re.I)
 ENDIF = re.compile(r"^\s*%endif\b", re.I)
 
 
-def scan(path):
-    """[(line, kind, section)] for every write and pair in one source.
+def walk(path):
+    """(lines, [(i, line, where)]) for every code line of one source that
+    kern_mega ASSEMBLES, `where` being its section or "%macro".
 
-    A site on an arm that kern_mega never assembles - inside `%ifndef
-    KERN_MEGA`, or the `%else` of `%ifdef KERN_MEGA` - is NOT counted: it is
+    A line on an arm that kern_mega never assembles - inside `%ifndef
+    KERN_MEGA`, or the `%else` of `%ifdef KERN_MEGA` - is left out: it is
     real mode's own spelling of something kern_mega does another way, which is
-    exactly what a conversion leaves behind."""
+    exactly what a conversion leaves behind. tests/unit/t_seg0.py walks the
+    same way."""
     with open(path, errors="replace") as f:
         lines = [code(x) for x in f.read().split("\n")]
     out = []
@@ -129,8 +131,17 @@ def scan(path):
         elif ENDMACRO.match(l):
             inmacro = False
         where = "%macro" if inmacro else section
-        if realonly:
-            continue
+        if not realonly:
+            out.append((i, l, where))
+    return lines, out
+
+
+def scan(path):
+    """[(line, kind, section)] for every write and pair in one source, on the
+    arms kern_mega assembles (walk)."""
+    lines, code_lines = walk(path)
+    out = []
+    for i, l, where in code_lines:
         if WRITE.match(l) or XCHG.match(l):
             out.append((i + 1, "write", where))
         elif PUSHCS.match(l):
