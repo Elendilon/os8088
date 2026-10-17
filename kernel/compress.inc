@@ -68,8 +68,11 @@ CMZ_MAXM    equ 0x3FF0          ; the longest match this encoder emits. The
                                 ; keeps every byte a probe or a hash reads
                                 ; under 48KB, which is the streamed window
 CMZ_SBUF    equ 0xC000          ; ...that window, 48KB (SPEC.md 22.22.5)
+%ifdef KERN_MEGA
+CMZ_OBUFK   equ 34              ; (kern_mega: the header's GRANULE comes out of
+%else                           ; the slack, so the slack is a KB more)
 CMZ_OBUFK   equ 33              ; the streamed OUTPUT window, KB: 32KB and
-                                ; the slack one symbol writes past it, and the
+%endif                          ; the slack one symbol writes past it, and the
                                 ; paragraph the 'CZ' header sits in
 CMZ_STRK    equ CMZ_SBUF/1024 + CMZ_OBUFK + CMZ_PREV/1024 ; ...and the claim
                                 ; less prev[] - 89KB
@@ -591,13 +594,21 @@ cmz_tio:
     push ds
     push es
     mov si, es
+%ifdef KERN_MEGA
+    sub si, 8                   ; (ES-8):120, on the grid (cmz_oflush)
+%else
     dec si
+%endif
     mov es, si
     KDATAR_M si
     mov ds, si
     mov si, fm_ebuf
     CSDO mov [CSEG cmz_tsh], bx
+%ifdef KERN_MEGA
+    mov bx, 120
+%else
     mov bx, 8
+%endif
     call far [cs:cmz_tfp]
     jc cmz_ioerr
     call cmz_rearm
@@ -609,19 +620,32 @@ cmz_tio:
     ret
 %endif ; CMZ_STREAM
 
-; cmz_far - DX:AX bytes past the segment BX -> BX:AX, AX 0..15 (module
-;           internal). clobbers: DX, flags
+; cmz_far - DX:AX bytes past the segment BX -> BX:AX, AX 0..15 (0..127 on
+;           kern_mega; module internal). clobbers: DX, flags
 cmz_far:
     push cx
     push ax
-    mov cx, 4
+%ifdef KERN_MEGA
+    mov cx, 7                   ; kern_mega: whole 128-byte GRANULES, so the
+%else                           ; segment stays an identity selector (8
+    mov cx, 4                   ; paragraphs a step) and AX is 0..127
+%endif
 .s:
     shr dx, 1
     rcr ax, 1
     loop .s
+%ifdef KERN_MEGA
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+%endif
     add bx, ax
     pop ax
+%ifdef KERN_MEGA
+    and ax, 127
+%else
     and ax, 15
+%endif
     pop cx
     ret
 
@@ -661,11 +685,19 @@ cmz_move:
 .d:
     ret
 .norm:                          ; DS:AX -> AX:DX, DX = 0..15
-    push cx
+    push cx                     ; (kern_mega: 0..127, AX on the grid - cmz_far)
     mov dx, ax
+%ifdef KERN_MEGA
+    and dx, 127
+    mov cl, 7
+    shr ax, cl
+    mov cl, 3
+    shl ax, cl
+%else
     and dx, 15
     mov cl, 4
     shr ax, cl
+%endif
     mov cx, ds
     add ax, cx
     pop cx
@@ -804,11 +836,19 @@ cmz_oslide:
     mov cx, di
     sub cx, si                  ; what is still live, up to DI
     mov ax, es
+%ifdef KERN_MEGA
+    sub ax, 8                   ; kern_mega: ES:-8 as a granule back, 120 on
+    mov es, ax                  ; - one paragraph back is off the identity
+    mov di, 120                 ; grid
+    rep movsb
+    add ax, 8
+%else
     dec ax
     mov es, ax
     mov di, 8                   ; ...to ES:-8, where the window begins
     rep movsb
     inc ax
+%endif
     mov es, ax
     pop di
     pop ds
@@ -923,9 +963,15 @@ cmz_oflush:
     push ds
     push es
     mov ax, es
+%ifdef KERN_MEGA
+    sub ax, 8                   ; (ES-8):120 - the same byte, on the grid
+    mov es, ax
+    mov bx, 120
+%else
     dec ax
     mov es, ax
     mov bx, 8
+%endif
     xor dx, dx
     KDATAR_M si
     mov ds, si
@@ -1545,12 +1591,18 @@ cmz_compress:
     push ax                     ; ...and the length kept, for the write
     push dx
     mov dx, [cs:cmz_o]
+%ifndef KERN_MEGA
     add dx, 7                   ; the last paragraph before the stream, so the
-    mov es, dx                  ; eight bytes end exactly where it begins
+%endif                          ; eight bytes end exactly where it begins
+    mov es, dx                  ; (kern_mega: the granule before it, at 120)
     call cmz_czhdr
     pop dx
     pop ax
+%ifdef KERN_MEGA
+    mov bx, 120
+%else
     mov bx, 8
+%endif
     jmp short .writeit
 .rpack:                         ; (before .pkghdr, in the pack's jcc reach)
     or ax, ax
@@ -1689,7 +1741,11 @@ cmz_stream:
     CSDO mov byte [CSEG cmz_mode], 1 ; --- ONE pass, written as it goes --------
     mov ax, [cs:cmz_b]          ; the windows off the one claim, and the pack:
     mov dx, ax                  ; source window, CMZ_SBUF
+%ifdef KERN_MEGA
+    add dx, CMZ_SBUF / 16 + 8   ; output window, one GRANULE in (cmz_czhdr)
+%else
     add dx, CMZ_SBUF / 16 + 1   ; output window, one paragraph in
+%endif
     mov bx, ax
     add bx, (CMZ_SBUF / 1024 + CMZ_OBUFK) * 64  ; head[], then prev[]
     mov di, [cs:cmz_w]
@@ -1758,7 +1814,11 @@ cmz_stream:
 ; one's in front of its stream. clobbers: AX, DI, flags
 cmz_czhdr:
     cld
+%ifdef KERN_MEGA
+    mov di, 120                 ; kern_mega: ES is the GRANULE in front (8
+%else                           ; paragraphs back, not 1 - the identity grid)
     mov di, 8
+%endif
     mov ax, DSK_CZ_MAG
     stosw
     mov ax, LZ_LZB              ; ...in the low byte, the reserved 0 in the high
@@ -1996,7 +2056,10 @@ cmz_upkg:
     cld
     rep movsb                   ; the prefix, verbatim - and this leaves SI on
     pop ax                      ; the compressed body, which is where the
-    mov es, ax                  ; decoder wants it
+%ifdef KERN_MEGA                ; decoder wants it - off the identity grid on
+    call KERNEL_SEG:mega_oddsegf ; kern_mega, so a selector for exactly that
+%endif                          ; paragraph, as the loader's (ld_run_body)
+    mov es, ax
     xor di, di                  ; lz_decomp_x REQUIRES this zero, and says why
     mov cx, bx
     mov al, [LD_H_FLAGS]        ; the format, out of the SOURCE header: DS is
@@ -3377,6 +3440,11 @@ cmz_drop:
 cmz_pkg:
     push bx
     push dx
+%ifdef KERN_MEGA
+    cmp byte [ss:mega_pm], 0    ; kern_mega in protected mode: the body
+    jne .no1                    ; starts cmz_x bytes in, a segment OFF the
+%endif                          ; identity grid, and the encoder wants its
+                                ; source at offset 0 (KERN-MEGA-PLAN 10.1)
     cmp word [cs:cmz_u+2], 0
     jne .no1                    ; over 64KB: not an image ld_check_hdr takes
     mov al, [es:LD_H_FLAGS]
