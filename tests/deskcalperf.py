@@ -115,6 +115,18 @@ CELLS = cells()
 STKL_LE = 110
 
 
+def segs_of(m, seg):
+    """The segments a Sticky App's calls come from: its own, and - on a
+    STIK_LIB build - the shared library's in DESK.DRV (SPEC.md 110.15), the
+    segment word of the block's first entry. Counting the package's alone
+    reads 0 for whatever the include draws."""
+    if not os88stik.DESKCAL_LIB:
+        return (seg,)
+    lib = struct.unpack_from("<H", bytes(m.readseg(
+        seg, os88stik.STIKLIB_AT + STKL_LE + 2, 2)))[0]
+    return (seg, lib)
+
+
 def caller(m, rec):
     r = rec.get("regs") or m.regs()
     ip, cs = struct.unpack("<HH", bytes(m.read((r["ss"] << 4) + r["sp"], 4)))
@@ -128,6 +140,8 @@ class Gesture(object):
     call's start: the last call's own blit is not in it."""
 
     def __init__(self, hits, segs, extra=(), start=None):
+        if isinstance(segs, int):       # one segment, as callers wrote it
+            segs = (segs,)
         self.mine = [h for h in hits if h["addr"] in CELLS
                      and h.get("hit") in segs]
         self.extra = dict((a, len([h for h in hits if h["addr"] == a]))
@@ -197,11 +211,9 @@ def ui_leg(tmp, machine, label, results):
         seg = c.wseg
         # ...and the library's (SPEC.md 110.15): the segment word of the
         # block's first entry, a far pointer the bind wrote at load
-        lib = struct.unpack_from("<H", bytes(m.readseg(
-            seg, os88stik.STIKLIB_AT + STKL_LE + 2, 2)))[0]
-        segs = (seg, lib) if os88stik.DESKCAL_LIB else (seg,)
-        print("%s: the calendar at %04X, the library at %04X"
-              % (label, seg, lib))
+        segs = segs_of(m, seg)
+        print("%s: the calendar at %04X, its calls from %s"
+              % (label, seg, " ".join("%04X" % x for x in segs)))
         for o in list(ui.windows()):
             if o.i != c.slot and o.visible:
                 ui.close(o)
