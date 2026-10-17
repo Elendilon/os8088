@@ -172,9 +172,9 @@ short = "RAM disk settings page"
 ["SOUND.DRV"]
 title = "Sound driver"
 kind = "driver"
-summary = "Lets programs play music and sound on an AdLib or Sound Blaster card, beyond the built-in PC speaker."
+summary = "Lets programs play music and sound on an AdLib, Sound Blaster, MPU-401 MIDI interface or Covox, beyond the built-in PC speaker."
 short = "Music and sound on any card"
-needs = "An AdLib or Sound Blaster card"
+needs = "An AdLib, Sound Blaster, MPU-401 or Covox"
 
 ["HDD.DRV"]
 title = "Hard disk driver"
@@ -226,9 +226,9 @@ short = "Animated screen saver"
 ["USBMOUSE.DRV"]
 title = "USB mouse driver"
 kind = "driver"
-summary = "Lets you use a USB mouse plugged into the Book8088's USB socket."
+summary = "Lets you use a USB mouse plugged into a Book8088's USB socket or a PicoMEM card."
 short = "USB mouse on the Book8088"
-needs = "A Book8088 or other CH375 USB controller"
+needs = "A Book8088 (CH375 USB) or a PicoMEM card"
 
 # --- programs: applications -------------------------------------------------
 
