@@ -33,6 +33,7 @@
 
 %include "os88api.inc"
 
+os88_stiklib equ OS88_STIKLIB_AT ; the CALLER's block, in the caller's DS
 STIK_ICON   equ 32              ; every Sticky App's icon body (os88stikc.inc
                                 ; refuses one built otherwise)
 
@@ -71,6 +72,10 @@ STIK_ICON   equ 32              ; every Sticky App's icon body (os88stikc.inc
     STIKLIB_ENT gfxe_bfill, STKE_BFILL
     STIKLIB_ENT gfxe_bits, STKE_BITS
     STIKLIB_ENT gfxe_bclear, STKE_BCLEAR
+    STIKLIB_ENT stik_enter, STKE_ENTER
+    STIKLIB_ENT stik_leave, STKE_LEAVE
+    STIKLIB_ENT stik_goqm, STKE_GOQM
+    STIKLIB_ENT stik_seek, STKE_SEEK
 %if ($ - $$) != STIKLIB_JT + 4 * STIKLIB_NENT
   %error "stiklib: STIKLIB_NENT entries, no more and no fewer"
 %endif

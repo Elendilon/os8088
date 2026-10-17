@@ -5,7 +5,7 @@ behind it.** The owner approved the ABI change on 2026-10-17 and section 4's
 design was built as written: `apps/stiklib.asm`, `incbin`ned into DESK.DRV,
 OSAPI_WM_DESK verb 4, the block at image offset 288, `apps/os88stikc.inc`.
 Two things came out differently from the estimates below, both MEASURED in
-SPEC.md 110.15: the library is **4,222** bytes (section 5 said ~4.5 KB), and
+SPEC.md 110.15: the library is **4,238** bytes (section 5 said ~4.5 KB), and
 the per-package residue is the block's 464 mostly-zero bytes plus ~210 of
 thunks, strings and bind - the state moved from bss into the image, so RAM
 saw only the code leave. The header the poll and the save work on became a

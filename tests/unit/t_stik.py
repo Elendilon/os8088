@@ -269,7 +269,7 @@ def stiknote_equs(tmp):
              "sn_hlen - os88_image_end", "sn_doc - os88_image_end",
              "sn_ask - os88_image_end", "sn_wslot - os88_image_end",
              "sn_hbuf - os88_image_end",
-             "stik_st - os88_image_end", "stik_file - os88_image_end",
+             "stik_st", "stik_file - os88_image_end",
              "STIK_FACE_W", "STIK_PAYLEN", "STIK_PAYVER", "SNP_S", "SNP_TW",
              "SNP_BTW", "SNP_PLUSX", "SNP_PREVX", "SNP_NEXTX", "SNP_OPENX",
              "SNP_BX", "SNP_BTX", "snp_geos", "SNPG_SZ", "snp_lays",
@@ -307,7 +307,7 @@ def deskclok_equs(tmp):
              "dk_ch - os88_image_end", "dk_ring - os88_image_end",
              "dk_snz - os88_image_end", "dk_swin - os88_image_end",
              "dk_awin - os88_image_end", "dk_cok - os88_image_end",
-             "stik_file - os88_image_end", "stik_st - os88_image_end",
+             "stik_file - os88_image_end", "stik_st",
              "STIK_FACE_W", "DK_SZW"]
     src = open(os.path.join(ROOT, "apps", "deskclok", "deskclok.asm")).read()
     probe = ("\n    db 'T_STIK_PROBE'\n" +
@@ -648,9 +648,7 @@ def main():
                 ("SNP_BTX", os88stik.STIKNOTE_BTX),
                 ("stik_file - os88_image_end",
                  os88stik.stik_hdr_off(os88stik.STIKNOTE_STIK_BSS)),
-                ("stik_st - os88_image_end",
-                 os88stik.stik_st_off(os88stik.STIKNOTE_STIK_BSS,
-                                      os88stik.STIKNOTE_PAYLEN))):
+                ("stik_st", os88stik.lib_st_abs())):   # the block
             check(sn.get(name) == want, "stiknote.asm's %s is "
                   "tools/os88stik.py's (%s)" % (name, want),
                   got=sn.get(name), want=want,
@@ -710,9 +708,7 @@ def main():
                 ("dk_cok - os88_image_end", os88stik.DESKCLOK_BSS_COK),
                 ("stik_file - os88_image_end",
                  os88stik.stik_hdr_off(os88stik.DESKCLOK_STIK_BSS)),
-                ("stik_st - os88_image_end",
-                 os88stik.stik_st_off(os88stik.DESKCLOK_STIK_BSS,
-                                      os88stik.DESKCLOK_PAYLEN))):
+                ("stik_st", os88stik.lib_st_abs())):   # the block
             check(dk.get(name) == want, "deskclok.asm's %s is "
                   "tools/os88stik.py's (%s)" % (name, want),
                   got=dk.get(name), want=want,

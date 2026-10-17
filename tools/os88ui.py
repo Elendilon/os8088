@@ -604,7 +604,10 @@ class UI:
     # on the shared library, whose state is in its block (SPEC.md 110.15)
     _WIDGETS = {"Desk Calendar": ("DESKCAL_STIK_BSS", "DESKCAL_PAYLEN",
                                   "DESKCAL_LIB"),
-                "Desk Clock": ("DESKCLOK_STIK_BSS", "DESKCLOK_PAYLEN"),
+                "Desk Clock": ("DESKCLOK_STIK_BSS", "DESKCLOK_PAYLEN",
+                               "DESKCLOK_LIB"),
+                "Sticky Note": ("STIKNOTE_STIK_BSS", "STIKNOTE_PAYLEN",
+                                "STIKNOTE_LIB"),
                 "DeskProbe": (288, 0)}
 
     def _is_desk(self, w):

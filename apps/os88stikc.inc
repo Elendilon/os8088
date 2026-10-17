@@ -126,6 +126,12 @@ STIKD_WAKE      equ STIK_WAKE
     STIK_THUNK stik_tick, STKE_TICK
     STIK_THUNK stik_close, STKE_CLOSE
     STIK_THUNK stik_wake, STKE_WAKE
+%ifdef STIK_WALK                ; the walk to SYSTEM\APPDATA and its find, for
+    STIK_THUNK stik_enter, STKE_ENTER   ; a package with files of its own
+    STIK_THUNK stik_leave, STKE_LEAVE   ; there (os88stik.inc's contracts)
+    STIK_THUNK stik_goqm, STKE_GOQM
+    STIK_THUNK stik_seek, STKE_SEEK
+%endif
 
 ; stik_xcb - the library's way back in (its stik_cb): a far call here runs
 ; the near proc it put in [stik_xt], which this reads before anything else

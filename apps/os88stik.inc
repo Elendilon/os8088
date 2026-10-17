@@ -132,7 +132,9 @@
 ; the state file's buffer still takes. apps/stiklib.asm assembles this file
 ; as that copy (STIK_LIBRARY): DS is the calling package's on every
 ; instruction, everything it knows of it comes from the block, and every
-; callback goes through the package's trampoline (stik_cb).
+; callback goes through the package's trampoline (stik_cb). A package that
+; walks SYSTEM\APPDATA for files of its own with stik_enter, stik_leave,
+; stik_goqm and stik_seek also defines STIK_WALK, for their thunks.
 ; =============================================================================
 
 %ifndef OS88STIK_INC
@@ -213,8 +215,8 @@ STIK_BKMAX      equ 16          ; a refusal that may clear waits 1, 2, 4, 8,
 stik_file   equ os88_image_end + STIK_BSS                   ; header + payload
 STIK_PAY    equ stik_file + STIK_HDR_SIZE
  %endif
-stik_hd     equ OS88_STIKLIB_AT + STKL_HD                   ; the header known
-stik_rec    equ OS88_STIKLIB_AT + STKL_REC                  ; then the rest,
+stik_hd     equ os88_stiklib + STKL_HD                   ; the header known
+stik_rec    equ os88_stiklib + STKL_REC                  ; then the rest,
                                 ; in the same order, in the block
 %else
 stik_file   equ os88_image_end + STIK_BSS                   ; header + payload
@@ -272,10 +274,12 @@ stik_sr0    equ stik_ss + 2      ; dw ...the damaged rows, card-local
 stik_sr1    equ stik_sr0 + 2
 stik_ty     equ stik_sr1 + 2     ; dw the tag row's screen top, as drawn
 %ifdef STIK_FIXED
-stik_fw     equ OS88_STIKLIB_AT + STKL_FW  ; born the widest (STIKD_FW)
+stik_fw     equ os88_stiklib + STKL_FW  ; born the widest (STIKD_FW)
 stik_np     equ stik_ty + 2
- %if stik_np != OS88_STIKLIB_AT + STKL_NP || stik_nx != OS88_STIKLIB_AT + STKL_NX
+ %ifdef STIK_LIBRARY             ; (a client's are a label's: t_stik checks)
+ %if stik_np != os88_stiklib + STKL_NP || stik_nx != os88_stiklib + STKL_NX
   %error "os88stik: the state and os88api.inc's STKL_* have parted"
+ %endif
  %endif
  %ifdef STIK_LIB
 STIK_BSS_END equ STIK_BSS + STIK_HDR_SIZE + STIK_PAYLEN + STIK_SLACK
@@ -302,42 +306,42 @@ STIK_BSS_END equ stik_ty + 2 - os88_image_end
 %endif
 %endif
 %ifdef STIK_FIXED                ; the descriptor and the block's own words
-stik_d_file     equ OS88_STIKLIB_AT + STKL_D_FILE
-stik_d_paylen   equ OS88_STIKLIB_AT + STKL_D_PAYLEN
-stik_d_payver   equ OS88_STIKLIB_AT + STKL_D_PAYVER
-stik_d_flags    equ OS88_STIKLIB_AT + STKL_D_FLAGS
-stik_d_tagw     equ OS88_STIKLIB_AT + STKL_D_TAGW
-stik_d_right    equ OS88_STIKLIB_AT + STKL_D_RIGHT
-stik_d_lays     equ OS88_STIKLIB_AT + STKL_D_LAYS
-stik_d_buf      equ OS88_STIKLIB_AT + STKL_D_BUF
-stik_d_bst      equ OS88_STIKLIB_AT + STKL_D_BST
-stik_d_brows    equ OS88_STIKLIB_AT + STKL_D_BROWS
-stik_d_dname    equ OS88_STIKLIB_AT + STKL_D_DNAME
-stik_d_cap      equ OS88_STIKLIB_AT + STKL_D_CAP
-stik_d_isopen   equ OS88_STIKLIB_AT + STKL_D_ISOPEN
-stik_d_tag      equ OS88_STIKLIB_AT + STKL_D_TAG
-stik_d_paintcard equ OS88_STIKLIB_AT + STKL_D_PAINTCARD
-stik_d_compose  equ OS88_STIKLIB_AT + STKL_D_COMPOSE
-stik_d_oncard   equ OS88_STIKLIB_AT + STKL_D_ONCARD
-stik_d_oncardup equ OS88_STIKLIB_AT + STKL_D_ONCARDUP
-stik_d_onfocus  equ OS88_STIKLIB_AT + STKL_D_ONFOCUS
-stik_d_ontick   equ OS88_STIKLIB_AT + STKL_D_ONTICK
-stik_d_onclose  equ OS88_STIKLIB_AT + STKL_D_ONCLOSE
-stik_d_sizeup   equ OS88_STIKLIB_AT + STKL_D_SIZEUP
-stik_d_pack     equ OS88_STIKLIB_AT + STKL_D_PACK
-stik_d_unpack   equ OS88_STIKLIB_AT + STKL_D_UNPACK
-stik_d_click    equ OS88_STIKLIB_AT + STKL_D_CLICK
-stik_d_mup      equ OS88_STIKLIB_AT + STKL_D_MUP
-stik_d_tick     equ OS88_STIKLIB_AT + STKL_D_TICK
-stik_d_close    equ OS88_STIKLIB_AT + STKL_D_CLOSE
-stik_d_wake     equ OS88_STIKLIB_AT + STKL_D_WAKE
-stik_xcp        equ OS88_STIKLIB_AT + STKL_XCP
-stik_dsys       equ OS88_STIKLIB_AT + STKL_DSYS
-stik_dapp       equ OS88_STIKLIB_AT + STKL_DAPP
-stik_xbits      equ OS88_STIKLIB_AT + STKL_XBITS
-stik_grip       equ OS88_STIKLIB_AT + STKL_GRIP
-stik_le         equ OS88_STIKLIB_AT + STKL_LE
-stik_xt         equ OS88_STIKLIB_AT + STKL_XT
+stik_d_file     equ os88_stiklib + STKL_D_FILE
+stik_d_paylen   equ os88_stiklib + STKL_D_PAYLEN
+stik_d_payver   equ os88_stiklib + STKL_D_PAYVER
+stik_d_flags    equ os88_stiklib + STKL_D_FLAGS
+stik_d_tagw     equ os88_stiklib + STKL_D_TAGW
+stik_d_right    equ os88_stiklib + STKL_D_RIGHT
+stik_d_lays     equ os88_stiklib + STKL_D_LAYS
+stik_d_buf      equ os88_stiklib + STKL_D_BUF
+stik_d_bst      equ os88_stiklib + STKL_D_BST
+stik_d_brows    equ os88_stiklib + STKL_D_BROWS
+stik_d_dname    equ os88_stiklib + STKL_D_DNAME
+stik_d_cap      equ os88_stiklib + STKL_D_CAP
+stik_d_isopen   equ os88_stiklib + STKL_D_ISOPEN
+stik_d_tag      equ os88_stiklib + STKL_D_TAG
+stik_d_paintcard equ os88_stiklib + STKL_D_PAINTCARD
+stik_d_compose  equ os88_stiklib + STKL_D_COMPOSE
+stik_d_oncard   equ os88_stiklib + STKL_D_ONCARD
+stik_d_oncardup equ os88_stiklib + STKL_D_ONCARDUP
+stik_d_onfocus  equ os88_stiklib + STKL_D_ONFOCUS
+stik_d_ontick   equ os88_stiklib + STKL_D_ONTICK
+stik_d_onclose  equ os88_stiklib + STKL_D_ONCLOSE
+stik_d_sizeup   equ os88_stiklib + STKL_D_SIZEUP
+stik_d_pack     equ os88_stiklib + STKL_D_PACK
+stik_d_unpack   equ os88_stiklib + STKL_D_UNPACK
+stik_d_click    equ os88_stiklib + STKL_D_CLICK
+stik_d_mup      equ os88_stiklib + STKL_D_MUP
+stik_d_tick     equ os88_stiklib + STKL_D_TICK
+stik_d_close    equ os88_stiklib + STKL_D_CLOSE
+stik_d_wake     equ os88_stiklib + STKL_D_WAKE
+stik_xcp        equ os88_stiklib + STKL_XCP
+stik_dsys       equ os88_stiklib + STKL_DSYS
+stik_dapp       equ os88_stiklib + STKL_DAPP
+stik_xbits      equ os88_stiklib + STKL_XBITS
+stik_grip       equ os88_stiklib + STKL_GRIP
+stik_le         equ os88_stiklib + STKL_LE
+stik_xt         equ os88_stiklib + STKL_XT
 ; STIK_LCB name - the library calls the package's proc [stik_d_name] (0: none)
 %macro STIK_LCB 1
     push word [stik_d_%1]

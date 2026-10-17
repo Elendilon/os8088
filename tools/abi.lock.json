@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "cf56e915505f551c145a4f2173df97ab321929fa37b5ce1427b077984112a69f",
+  "fingerprint": "8f1aafd27468883dbb2d1ddfecabdf1feb3554632ab5b61fc0ebc2c8e3abde05",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "c6198a0b3125633358b16e84207898f6fd0ab7c2acd5c294cae2a71b03279c3c",
+  "fingerprint": "bc059aff97420c0570ef06fd54afdf6b20ded89ef9d996b9697f5292416ff7ff",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -259,6 +259,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_WM_DESK gains verb 4, LIB (DX = the Sticky App library's paragraph inside DESK.DRV), and the SDK gains the library's ABI: OS88_STIKLIB_AT, STIKLIB_MAGIC/VER/NENT, the STKE_* entry order, the STKL_* block layout and OS88_STIKLIB_BLOCK, which OS88_STIKCARD_END emits only under STIK_LIB (SPEC.md 110.15). A verb added to an existing cell and macros nothing built before uses: every package and driver built before still runs, so no bump; the library versions itself (STIKLIB_VER) against the packages that bind to it.",
+   "to": 11
+  },
+  {
+   "fingerprint": "bc059aff97420c0570ef06fd54afdf6b20ded89ef9d996b9697f5292416ff7ff",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "The Sticky App library's ABI before any package shipped against it: four more entries (STKE_ENTER, LEAVE, GOQM, SEEK - the state file's walk, for Sticky Note's notes folder), STIKLIB_NENT 22 -> 26, and the block's base named by a label (os88_stiklib). STIKLIB_VER stays 1: nothing was ever built against 22. No package or driver built before changes, so no bump.",
+   "to": 10
+  },
+  {
+   "fingerprint": "8f1aafd27468883dbb2d1ddfecabdf1feb3554632ab5b61fc0ebc2c8e3abde05",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "The Sticky App library's ABI before any package shipped against it: four more entries (STKE_ENTER, LEAVE, GOQM, SEEK - the state file's walk, for Sticky Note's notes folder), STIKLIB_NENT 22 -> 26, and the block's base named by a label (os88_stiklib). STIKLIB_VER stays 1: nothing was ever built against 22. No package or driver built before changes, so no bump.",
    "to": 11
   }
  ]

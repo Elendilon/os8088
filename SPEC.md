@@ -21450,8 +21450,8 @@ plain - lz4 would not shrink it), a 1 KB claim, and one cluster on every kern_bi
 the emu disk and the live media (`$(BIGMODS)`, which `$(DRIVERS)` carries).
 
 **Since §110.15 it also carries the Sticky App library**, appended to the
-image on a paragraph by `incbin` and named by verb 4: the image is **4,478
-bytes** (4,222 of them the library), its file **4,206** packed, and its claim
+image on a paragraph by `incbin` and named by verb 4: the image is **4,494
+bytes** (4,238 of them the library), its file **4,221** packed, and its claim
 **5 KB** where it was 1 - held, as before, from the first QUERY to the
 restart. Not one resident byte: `kernsize` reads `+0` on kern_big and
 kern_emu (kern_small has no `DESK.DRV`).
@@ -193854,7 +193854,7 @@ the same register contracts - and three things change underneath:
   buffer, payload length and version, flags, tag width, `STIK_RIGHT`, the
   layouts, the band, its strings, its callbacks and its thunks - then
   `'SYSTEM'`, `'APPDATA'` and the handle's two bit records, the far pointers
-  to the library's 22 entries, and every byte of `os88stik.inc`'s and
+  to the library's 26 entries, and every byte of `os88stik.inc`'s and
   `os88gfx.inc`'s state, in the inline arm's order (`apps/os88api.inc`'s
   `STKL_*`). The state moves from the package's bss into its image - RAM is
   unchanged, the packed file pays a few bytes for 464 mostly-zero ones - and
@@ -193894,23 +193894,47 @@ what was last read or written. `tools/os88stik.py`'s `state_off()` gives
 either arm's offsets past the image, `DESKCAL_LIB` says which the calendar
 is, and `t_stik` has NASM hold the block's addresses to it.
 
-**What it measured** (this branch, the Desk Calendar's kern_big build,
-image / bss / packed file): **13,648 / 3,709 / 12,596 -> 10,704 / 3,560 /
-9,649** - its region 17 KB -> 14 KB. `DESK.DRV` **235 -> 4,478** bytes, file
-241 -> 4,206, claim 1 KB -> 5 KB. Not one resident kernel byte, on any of
-the three kernels. With the calendar alone on the library the machine holds
-1 KB MORE than before (the desk claim grows 4 KB, the region shrinks 3); a
-second and third Sticky App on it each give back their ~3 KB, which is where
-the feature pays (§110.15.1 records each).
+#### 110.15.1 What it measured, and who is on it
 
-#### 110.15.1 Adopting it
+All three Sticky Apps are, on kern_big: the Desk Calendar and the Desk Clock
+inside their `%ifndef APP_SMALL` arm (their kern_small builds keep the
+include linked in, byte for byte), Sticky Note unconditionally (it is on no
+small disk, §24.5.1). Image / bss / packed file, and the region each claims
+(image + bss, in whole KB):
 
-Sticky Note and the Desk Clock adopt it with the same line, `%define
-STIK_LIB` before their `OS88_HEADER` (inside their kern_big arm). What a
-package must already be: `STIK_WIDGET` and `STIK_DESKONLY`, `OS88_F_ICON` with
-`STIK_ICON` = 32 and a Sticky App card (`OS88_F_STIK`), no association block
-or glyph, and `STIK_RIGHT` defined. Its tests read the state with
-`os88stik.state_off(lib, ...)` rather than `widget_off`.
+| package | before | on the library |
+|---|---|---|
+| Desk Calendar | 13,648 / 3,709 / 12,596 (17 KB) | 10,720 / 3,560 / 9,665 (14 KB) |
+| Sticky Note | 8,592 / 1,906 / 7,769 (11 KB) | 5,936 / 1,757 / 5,136 (8 KB) |
+| Desk Clock | 20,032 / 5,368 / 17,332 (25 KB) | 17,072 / 5,216 / 14,449 (22 KB) |
+| `DESK.DRV` | 235 / - / 241 (1 KB) | 4,494 / - / 4,221 (5 KB) |
+
+**RAM**, the regions plus `DESK.DRV`'s claim: one Sticky App up costs **1 KB
+more** than it did (the desk claim grows 4 KB and the region gives back 3),
+two cost **2 KB less**, all three **5 KB less** (54 KB -> 49 KB). **Disk**:
+the three packages' files lose 8,447 bytes and `DESK.DRV`'s gains 3,980,
+**4,467 bytes** off every kern_big system disk. **Kernel**: `kernsize` reads
+`+0` resident on kern_big and kern_emu, and kern_small has no `DESK.DRV`.
+
+**Time.** A call into the library is the package's thunk - a near call, then
+a far call and a `retf` - and a callback the library makes is a far call
+through the package's trampoline. The composer's inner loops are not on
+either side of one: the Desk Clock's 70 hot routines (its faces, the
+composer, its hands) are byte-identical at an even shift
+(`tools/os88rdiff.py`), and the library's paint path (`stik_paint` ..
+`stik_desk`) keeps the parity the clock's `DK_PARITY` pins measured it at.
+
+#### 110.15.2 Adopting it
+
+One line, `%define STIK_LIB` before `OS88_HEADER` (inside a kern_big arm if
+the package has a kern_small build). What a package must already be:
+`STIK_WIDGET` and `STIK_DESKONLY`, `OS88_F_ICON` with `STIK_ICON` = 32 and a
+Sticky App card (`OS88_F_STIK`), no association block or glyph, and
+`STIK_RIGHT` defined. A package that walks the state file's folder for files
+of its own (Sticky Note's notes) also defines `STIK_WALK`, for the thunks to
+`stik_enter`, `stik_leave`, `stik_goqm` and `stik_seek`. Its tests read the
+state with `os88stik.state_off(lib, ...)` rather than `widget_off`, and
+`t_stik` has NASM hold its `stik_st` to `os88stik.lib_st_abs()`.
 
 ## 111. TIMER — the stopwatch (`apps/timer/timer.asm`)
 

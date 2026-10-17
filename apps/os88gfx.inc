@@ -164,10 +164,10 @@
   %define GFXE_DYN_
 %endif
 %ifdef GFXE_DYN_
-  %define GFXE_BH_  word [OS88_STIKLIB_AT + STKL_D_BROWS]
-  %define GFXE_BST_ word [OS88_STIKLIB_AT + STKL_D_BST]
-  %define GFXE_BW_  word [OS88_STIKLIB_AT + STKL_D_BW]
-  %define GFXE_BUF_ word [OS88_STIKLIB_AT + STKL_D_BUF]
+  %define GFXE_BH_  word [os88_stiklib + STKL_D_BROWS]
+  %define GFXE_BST_ word [os88_stiklib + STKL_D_BST]
+  %define GFXE_BW_  word [os88_stiklib + STKL_D_BW]
+  %define GFXE_BUF_ word [os88_stiklib + STKL_D_BUF]
 %else
   %define GFXE_BH_  GFXE_BAND_H
   %define GFXE_BST_ GFXE_BAND_ST
@@ -232,7 +232,7 @@ GFXE_X2     equ 4
 GFXE_X3     equ 8
 %macro GFXE_THUNK 2
 %1:
-    call far [OS88_STIKLIB_AT + STKL_LE + 4 * %2]
+    call far [os88_stiklib + STKL_LE + 4 * %2]
     ret
 %endmacro
 %ifdef GFXE_TEXT
@@ -1490,17 +1490,17 @@ gfxe_wstepv:
 
 ; --- the library's own state, in the IMAGE (see the header) ------------------
 %ifdef GFXE_FIXED_
-gfxe_bh     equ OS88_STIKLIB_AT + STKL_BH       ; ...or, for a Sticky App on
-gfxe_tsty   equ OS88_STIKLIB_AT + STKL_TSTY     ; the shared library, in its
-gfxe_ts     equ OS88_STIKLIB_AT + STKL_TS       ; block (SPEC.md 110.15)
-gfxe_tx     equ OS88_STIKLIB_AT + STKL_TX
-gfxe_ty     equ OS88_STIKLIB_AT + STKL_TY
-gfxe_tl     equ OS88_STIKLIB_AT + STKL_TL
-gfxe_fseg   equ OS88_STIKLIB_AT + STKL_FSEG
-gfxe_foff   equ OS88_STIKLIB_AT + STKL_FOFF
-gfxe_f0     equ OS88_STIKLIB_AT + STKL_F0
-gfxe_f1     equ OS88_STIKLIB_AT + STKL_F1
-gfxe_fmask  equ OS88_STIKLIB_AT + STKL_FMASK
+gfxe_bh     equ os88_stiklib + STKL_BH       ; ...or, for a Sticky App on
+gfxe_tsty   equ os88_stiklib + STKL_TSTY     ; the shared library, in its
+gfxe_ts     equ os88_stiklib + STKL_TS       ; block (SPEC.md 110.15)
+gfxe_tx     equ os88_stiklib + STKL_TX
+gfxe_ty     equ os88_stiklib + STKL_TY
+gfxe_tl     equ os88_stiklib + STKL_TL
+gfxe_fseg   equ os88_stiklib + STKL_FSEG
+gfxe_foff   equ os88_stiklib + STKL_FOFF
+gfxe_f0     equ os88_stiklib + STKL_F0
+gfxe_f1     equ os88_stiklib + STKL_F1
+gfxe_fmask  equ os88_stiklib + STKL_FMASK
 %else
 %ifdef GFXE_BAND
 %ifndef GFXE_NOBUTIL

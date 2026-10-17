@@ -3574,7 +3574,11 @@ STKE_GLYPH      equ 18
 STKE_BFILL      equ 19
 STKE_BITS       equ 20
 STKE_BCLEAR     equ 21
-STIKLIB_NENT    equ 22
+STKE_ENTER      equ 22           ; the state file's walk, for a package that
+STKE_LEAVE      equ 23           ; keeps files of its own beside it
+STKE_GOQM       equ 24           ; (STIK_WALK: Sticky Note's notes folder)
+STKE_SEEK       equ 25
+STIKLIB_NENT    equ 26
 STIKLIB_JT      equ 4            ; the table's offset in the library
 STKF_DMGREPLACE equ 1            ; STKL_D_FLAGS
 STKF_PACK       equ 2
@@ -3658,6 +3662,7 @@ STKL_SIZE       equ STKL_GFXE + 18
     %if ($ - $$) != OS88_STIKLIB_AT
         %error "STIK_LIB: the Sticky App block must follow the icon and the card (offset 288) - no association block, no glyph"
     %endif
+os88_stiklib:                   ; the base: a label, so os88rdiff sees relocations
     dw STIKD_FILE, STIKD_PAYLEN, STIKD_PAYVER, STIKD_FLAGS, STIKD_TAGW
     dw STIKD_RIGHT, STIKD_LAYS, STIKD_BUF, STIKD_BST, STIKD_BW, STIKD_BROWS
     dw STIKD_DNAME, STIKD_CAP, STIKD_ISOPEN, STIKD_TAG

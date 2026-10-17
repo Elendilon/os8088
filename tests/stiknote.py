@@ -80,7 +80,6 @@ import os88stik    # noqa: E402
 BDIR = os.path.join(ROOT, os.environ.get("OS88_BUILD", "build"))
 TITLE = "Sticky Note"
 S = os88stik
-STIK_ST = S.stik_st_off(S.STIKNOTE_STIK_BSS, S.STIKNOTE_PAYLEN)
 STIK_S_DIRTY = 16
 NOTES = S.STIKNOTE_DIR
 TICK9 = (0xFF80, 0x8080, 0x8280, 0x8680, 0xCC80, 0xB880, 0x9080, 0x8080,
@@ -113,7 +112,9 @@ class Note(object):
     def __init__(self, ui, tmp):
         self.ui, self.m, self.tmp = ui, ui.m, tmp
         self.image = image_size()
-        self.woff = S.widget_off(S.STIKNOTE_STIK_BSS, S.STIKNOTE_PAYLEN)
+        # the state is in the Sticky App block (SPEC.md 110.15)
+        self.woff = S.state_off(S.STIKNOTE_LIB, S.STIKNOTE_STIK_BSS,
+                                S.STIKNOTE_PAYLEN, self.image)
         self.pad_i = None
         self.wseg = None
 
@@ -203,7 +204,8 @@ class Note(object):
     def saved(self, what):
         """Wait for the save a change owes, then the state file off A:."""
         os88marty.guest_sleep(self.m, 1.0)
-        self.until(lambda: not self.bss(STIK_ST)[0] & STIK_S_DIRTY, what, 60)
+        self.until(lambda: not self.bss(self.woff["st"])[0] & STIK_S_DIRTY,
+                   what, 60)
         d = self.raw("SYSTEM/APPDATA/STIKNOTE.DAT")
         if d is None:
             return None
