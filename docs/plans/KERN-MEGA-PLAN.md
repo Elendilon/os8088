@@ -797,6 +797,49 @@ whoever extends this:
    half), and **the on-demand modules - ~390 writes in CTRL.DRV,
    DISKOPS.DRV, DOCK.DRV, STIKMENU.DRV and the rest**, which will fault on a
    real 286 the first time each is used.
+7. **A kern_mega conversion must be a no-op in REAL MODE, and the boot is
+   real mode.** The first Victory run (2026-10-17) froze at *Loading Driver
+   2/2 (Hard Drive)* with the floppy motor on - before the switch, in code
+   QEMU had run a hundred times. The boot SNIFFS for drivers (SPEC.md
+   51.3.2: an OPL2 answers, `int 13h AH=08h` reports a fixed disk), and the
+   Victory's PicoMEM has both, so its boot loaded SOUND.DRV and HDD.DRV where
+   every QEMU run here had loaded none. Expanding the compressed SOUND.DRV
+   ran mega_oddsegf and mega_s2seg, which assumed protected mode: in real
+   mode they wrote a "descriptor" into the IVT and handed back segment
+   0030h, the image was expanded over the front of the kernel, and k_dsel
+   read 7400h - so the next IRQ0 chained through 0000:0029. Five places had
+   the same assumption and all now ask the mode first: those two helpers,
+   MEGA_CSELTOP (`[cs:k_dsel]` in `.text`, `[ss:mega_pm]` in `.cold`), the
+   compactor's call into a package's relocation proc, and the module slots,
+   which the boot stores as segments and mega_enter converts
+   (mega_mods_fix - with DOCK.DRV's and WIN95.DRV's vector tables, which
+   those images fill with their own `cs`). A task that predates the switch
+   cannot be converted at all - its stack holds real-mode return frames -
+   so mega_enter now REFUSES the switch if a package or driver task exists,
+   which only AUTOSTART can arrange, and every refusal says why on the glass
+   (`real mode: ...`) as well as on E9.
+8. **Every far call into a driver goes through a selector conversion**, and
+   two did not: the service call (`drv_svc_call_x`, a sound driver's tick
+   and play verbs) and the block call (`drv_blk_call_x`, a driver-backed
+   volume's sectors - opening C: through HDD.DRV was #GP 9CC0 at
+   `0C60:CE8D`). Both are MEGA_PCALL now.
+9. **A reflection must not re-initialise the 8259.** It used to move the
+   PIC's base to 08h for real mode and back to 20h after, and ICW1 resets
+   the edge latches: a serial-mouse byte that arrived while IRQ4 was masked
+   for the call was LOST, the UART kept its line high, never made another
+   edge, and the mouse was dead for the rest of the session. With both
+   drivers loaded the reflections were long enough to hit it every time.
+   The PIC now stays at 20h throughout, mega_enter copies IVT 08h-0Fh to
+   20h-27h so real mode finds the BIOS's handlers there, and the masked edge
+   is still latched when the masks come off. A 286's reset hands control to
+   the BIOS, which might re-initialise the 8259 on the way to 40:67:
+   mega_r286 compares the masks with what it left and re-initialises only
+   if they changed.
+
+All three reproduce on QEMU once it is given the Victory's devices - an
+AdLib (`-device adlib`) and a formatted IDE disk (`tools/os88hdd.py
+--noboot --raw`). **That is now the QEMU configuration for kern_mega**, and
+the one with no drivers is the easy case.
 
 ### 10.2 The Victory 286 check (M1's first field run)
 
@@ -806,8 +849,11 @@ on a real AT, and whether anything on the desktop's path stores through a
 code segment (QEMU lets it; a 286 does not).
 
 **Disks:** A: is `build/mega.img` (1.44MB, `make mega`); B: is the ordinary
-1.2MB apps disk, `build/apps120.img`. No SYSTEM.CFG ships on mega.img, so no
-driver loads and the PicoMEM's sound and network stay out of it.
+1.2MB apps disk, `build/apps120.img`. No SYSTEM.CFG ships on mega.img, but
+that does NOT mean no driver loads: the boot sniffs an OPL2 and a BIOS fixed
+disk (SPEC.md 51.3.2), so on the Victory the PicoMEM's Sound Blaster and its
+C: bring SOUND.DRV and HDD.DRV in (the network stays out). The first run
+froze there, in real mode (10.1 item 7); the second disk carries the fix.
 
 **Steps, and what each outcome means:**
 
@@ -817,13 +863,18 @@ driver loads and the PicoMEM's sound and network stay out of it.
      faulted. Photograph the line - it is vector, error code, CS:IP and SP.
    * No toast and no line (a hang or a reboot): the switch itself failed,
      before the reporter existed.
-2. **Double-click B:.** The first read of a drive the boot did not mount, so
+   * The toast says **`real mode: ...`**: mega_enter refused, and the rest
+     of the toast is why. The desktop is kern_big's and works; photograph it.
+2. **Double-click C:** (HDD.DRV's volume, through the converted block call)
+   and then **move the mouse**.
+3. **Double-click B:.** The first read of a drive the boot did not mount, so
    it is a reflected `int 13h` - on a 286, **a CPU reset per call**. A
    listing means the reset path works. A hang or a spontaneous reboot here
-   means it does not.
-3. **Open APPS, double-click CALC.O88, type `12*12` and Enter** (144), then
+   means it does not. **Then move the mouse**: a pointer that stops after a
+   disk read is 10.1 item 9 coming back.
+4. **Open APPS, double-click CALC.O88, type `12*12` and Enter** (144), then
    **close it and open FRACTAL.O88** (its worker draws the set).
-4. **Expected to FAULT on a 286 and not on QEMU:** the Sticky Apps menu, the
+5. **Expected to FAULT on a 286 and not on QEMU:** the Sticky Apps menu, the
    Control Panel and anything else that loads a module (KERN-MEGA-PLAN 10.1
    item 6) - each writes its own image through CS. A photographed fault line
    from one of those is a result, not a failure of the run.

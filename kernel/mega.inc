@@ -162,18 +162,36 @@ mega_imr2   db 0
 mega_enter:
     cmp byte [cpu_tier], CPU_286
     jae .cpu
-    mov si, mega_m86
-    jmp mega_say                    ; an 8088 or 8086: no protected mode at all
+    mov si, mega_m86                ; an 8088 or 8086: no protected mode at all
+    mov dx, mega_t86
+    jmp short .refuse
 .cpu:
     cmp word [mega_extkb], 192      ; the tables want 1MB + 64KB .. + 82KB
     jae .mem
     mov si, mega_mmem
-    jmp mega_say
+    mov dx, mega_tmem
+    jmp short .refuse
 .mem:
+    call mega_tasks_ok              ; nothing suspended in real mode that the
+    jnc .tasks                      ; switch cannot convert (mega_tasks_ok)
+    mov si, mega_mtask
+    mov dx, mega_ttask
+    jmp short .refuse
+.tasks:
     call mega_a20
     jnc .a20
     mov si, mega_ma20
-    jmp mega_say
+    mov dx, mega_ta20
+.refuse:                            ; ...and every refusal says so on the GLASS
+    call mega_say                   ; as well as the debug port: a field run
+    push es                         ; that stays in real mode must not look
+    push ds                         ; like one that never tried
+    pop es
+    mov si, dx
+    mov cx, 146
+    call toast_show
+    pop es
+    ret
 .a20:
     cli
     in al, 0x70                     ; NMI off across the switch: a real-mode
@@ -303,6 +321,7 @@ mega_enter:
     mov byte [mega_on], 1
     mov byte [ss:mega_pm], 1        ; ...and .cold's copy of the same fact
     call mega_frames_fix
+    call mega_mods_fix
 
     ; --- the ROM's halves, in the chains the ISRs already make ---------------
     mov word [sch_old08], mega_t08  ; THROUGH MEGA_SEL_BCODE, not 0x0060:
@@ -323,6 +342,17 @@ mega_enter:
     mov [es:0x09*4], ax
     mov ax, [mega_old09+2]
     mov [es:0x09*4+2], ax
+    push ds                         ; ...and a COPY of IVT 08h-0Fh at 20h-27h:
+    push cx                         ; the 8259 stays at its protected-mode base
+    push es                         ; through every reflection (mega_svc), so
+    pop ds                          ; an IRQ the BIOS takes in real mode comes
+    mov si, 0x08*4                  ; in on 20h-27h. Those are DOS's vectors,
+    mov di, MEGA_PIC_BASE*4         ; which nothing here has
+    mov cx, 16
+    cld
+    rep movsw
+    pop cx
+    pop ds
     push ds
     pop es
 
@@ -438,20 +468,16 @@ mega_idt_build:
     ret
 
 ; -----------------------------------------------------------------------------
-; the PIC, both ways. ICW2 is the only word that differs, and the IMR the
-; 8259 forgets across an initialisation is kept
+; the PIC to MEGA_PIC_BASE, once at mega_enter and again only if a 286's BIOS
+; re-initialised it during a reset (mega_r286). Never per reflection: ICW1
+; resets the edge latches (mega_svc). The IMR the 8259 forgets is kept
 ; -----------------------------------------------------------------------------
 mega_pic_pm:
-    mov ah, MEGA_PIC_BASE
-    jmp short mega_pic
-mega_pic_rm:
-    mov ah, 0x08
-mega_pic:
     in al, 0x21
     push ax
     mov al, 0x11                    ; ICW1: edge, cascade, ICW4
     out 0x20, al
-    mov al, ah                      ; ICW2: the base
+    mov al, MEGA_PIC_BASE           ; ICW2: the base
     out 0x21, al
     mov al, 0x04                    ; ICW3: the slave on IRQ2
     out 0x21, al
@@ -1113,7 +1139,13 @@ mega_svc:
     mov [mega_imr2], al
     or al, 0x3F
     out 0xA1, al
-    call mega_pic_rm
+    ; NO re-initialisation of the 8259 for real mode: ICW1 resets its edge
+    ; latches, so a byte the serial mouse sent while IRQ4 was masked above
+    ; was LOST - and the UART then holds its line high and never makes the
+    ; next edge, so the mouse was dead for the rest of the session. The PIC
+    ; stays at MEGA_PIC_BASE and real mode finds the BIOS's handlers there
+    ; (mega_enter copies IVT 08h-0Fh to 20h-27h); the masked edge is still
+    ; latched when the masks come off
     cmp byte [cpu_tier], CPU_386
     jb .r286
 cpu 386
@@ -1166,7 +1198,6 @@ cpu 286
     mov bp, sp
     mov ax, KERNEL_SEG
     mov ds, ax
-    call mega_pic_pm
     lgdt [mega_gdtr]                ; all three again: a 286's reset cleared
     lidt [mega_idtr]                ; them (and a 386's CR0 path kept them,
     smsw ax                         ; which costs it nothing to redo). lmsw
@@ -1231,7 +1262,20 @@ mega_r286:
     out 0x71, al                    ; shutdown code 0: a normal reset next time
     mov al, 0x0D                    ; ...and NMI back on (index 0Dh, a read-only
     out 0x70, al                    ; register, bit 7 clear), as mega_enter
-    jmp mega_svc.rm                 ; leaves it
+    in al, 0x21                     ; leaves it. A BIOS that re-initialised
+    mov ah, [mega_imr1]             ; the 8259 on its way here moved its base
+    or ah, 0xB8                     ; back to 08h and cleared the masks, and
+    cmp al, ah                      ; the masks are what says so: put ours
+    je .picok                       ; back (mega_svc's note on why the 8259
+    call mega_pic_pm                ; is otherwise left alone)
+    mov al, [mega_imr1]
+    or al, 0xB8
+    out 0x21, al
+    mov al, [mega_imr2]
+    or al, 0x3F
+    out 0xA1, al
+.picok:
+    jmp mega_svc.rm
 
 mega_thm_set:                       ; OSAPI_THM_SET's hand-made hot cell
     mov ds, [cs:k_dsel]
@@ -1241,7 +1285,8 @@ mega_thm_set:                       ; OSAPI_THM_SET's hand-made hot cell
 ; mega_oddsegf - a selector for ANY paragraph (far; KERN-MEGA-PLAN 3.1)
 ; in:  AX = a real-mode segment. out: AX = a data selector with that base -
 ;      itself when it is on the identity grid, MEGA_SEL_ODD with its base
-;      moved when it is not. Everything else preserved, FLAGS included.
+;      moved when it is not. Everything else preserved, FLAGS included. In
+;      REAL MODE (before mega_enter) AX comes back as it went in.
 ; ONE scratch descriptor: a caller holds MEGA_SEL_ODD only until its next
 ; call here, and nothing that can run in between (an ISR) asks for one.
 ; The loader's decompressor target is the one off-grid segment in M1 (a
@@ -1249,9 +1294,16 @@ mega_thm_set:                       ; OSAPI_THM_SET's hand-made hot cell
 ; lz_decomp_x wants DI = 0).
 ; -----------------------------------------------------------------------------
 mega_oddsegf:
+    pushf
+    cmp word [cs:k_dsel], KERNEL_SEG ; REAL MODE - the boot, before mega_enter:
+    je .grid                        ; a segment is its own answer. The boot
+                                    ; expands every compressed driver it loads
+                                    ; through here, and the protected-mode arm
+                                    ; run in real mode wrote a descriptor into
+                                    ; the IVT and handed back 0030h, so the
+                                    ; driver landed on the API table
     test al, 7
     jz .grid
-    pushf
     push di
     push es
     push ax
@@ -1271,8 +1323,8 @@ mega_oddsegf:
     mov ax, MEGA_SEL_ODD
     pop es
     pop di
-    popf
 .grid:
+    popf
     retf
 
 ; -----------------------------------------------------------------------------
@@ -1337,6 +1389,112 @@ mega_frames_fix:
     pop ax
     ret
 
+; mega_tasks_ok - CF = 0 when every task but the running one is the KERNEL'S
+; (no instance, not a driver's service worker). A package's worker suspended
+; in real mode holds real-mode code segments in its stack - the frame's CS and
+; every far return into the package beneath it - and nothing can find those to
+; convert them, so the switch is refused instead. Only AUTOSTART (SPEC.md
+; 26.10.5) can launch one before mega_enter. Clobbers CX, flags.
+mega_tasks_ok:
+    push bx
+    mov bx, sch_tasks
+    xor cx, cx
+.t:
+    cmp byte [bx+T_STATE], 0
+    je .n
+    cmp cl, [sch_cur]
+    je .n
+    cmp byte [bx+T_INST], 0xFF
+    jne .no
+    test byte [bx+T_FLAGS], TF_SERVICE
+    jnz .no
+.n:
+    add bx, T_SIZE
+    inc cx
+    cmp cx, MAX_TASKS
+    jb .t
+    pop bx                          ; CF = 0 from the compare (CX < MAX_TASKS
+    clc                             ; failed), said outright
+    ret
+.no:
+    pop bx
+    stc
+    ret
+
+; mega_mods_fix - the module slots the BOOT armed hold a real-mode segment
+; (mod_check stores the CODE alias only once mega_pm is set), so every loaded
+; module's block is converted here: a slot naming its image's segment becomes
+; that image's LDT code alias. A disarmed slot (mod_gone, KERNEL_SEG) is
+; already right. mod_fpr's arithmetic, inline: that one is `.cold`.
+mega_mods_fix:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    mov bx, mod_tab
+.r:
+    cmp bx, mod_tab_end
+    jae .done
+    mov ax, [bx+MODR_SEG]
+    or ax, ax
+    jz .n
+    mov dx, ax
+    shr dx, 1
+    shr dx, 1
+    or dl, 4                        ; DX = its code alias
+    mov di, bx
+    shr di, 1
+    mov cx, [di + mod_fpt + 2 - (MOD_TAB_OFF >> 1)]
+    mov di, [di + mod_fpt - (MOD_TAB_OFF >> 1)]
+    sub cx, di
+    shr cx, 1
+    shr cx, 1
+    jcxz .n
+.s:
+    cmp [di+2], ax
+    jne .k
+    mov [di+2], dx
+.k:
+    add di, 4
+    loop .s
+.n:
+    add bx, MODR_SIZE
+    jmp short .r
+.done:
+    mov di, dkv                     ; ...and the two vector tables a module
+    mov cx, DKI_N                   ; writes ITSELF into with `mov reg, cs`
+    call mega_vfix                  ; (DOCK.DRV's dkv, WIN95.DRV's thv): right
+    mov di, thv                     ; in protected mode, a real-mode segment
+    mov cx, THV_N                   ; if the boot hooked them
+    call mega_vfix
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; DI = a table of CX far pointers: every segment that is neither the kernel's
+; code segment nor .cold's - so a module image's, 512-aligned - becomes its
+; LDT code alias. Clobbers AX, CX, DI, flags.
+mega_vfix:
+    mov ax, [di+2]
+    cmp ax, KERNEL_SEG
+    je .k
+    cmp ax, COLD_SEG
+    je .k
+    test ax, 31
+    jnz .k
+    shr ax, 1
+    shr ax, 1
+    or al, 4
+    mov [di+2], ax
+.k:
+    add di, 4
+    loop mega_vfix
+    ret
+
 ; mega_s2segf - mega_s2seg for a FAR caller (.cold): AX = a selector in, the
 ; real-mode segment with its base out, everything else preserved. retf.
 mega_s2segf:
@@ -1351,6 +1509,8 @@ mega_s2segf:
 ; decompressor target was MEGA_SEL_ODD. A base above 1MB has no real-mode
 ; segment and comes back as 0xFFFF, which no BIOS transfer can land on.
 mega_s2seg:
+    cmp word [cs:k_dsel], KERNEL_SEG ; REAL MODE: AX is a segment already
+    je .ret                         ; (mega_oddsegf's note)
     or ax, ax
     jz .ret                         ; the null selector: 0, as it was
     test al, 4
@@ -1502,6 +1662,11 @@ mega_ldtd:                          ; the LDT's descriptor (GDT entry 3)
 mega_m86    db "kern_mega: an 8086-class CPU - staying in real mode", 10, 0
 mega_mmem   db "kern_mega: under 192KB above 1MB - staying in real mode", 10, 0
 mega_ma20   db "kern_mega: the A20 line will not open - staying in real mode", 10, 0
+mega_mtask  db "kern_mega: a package task predates the switch - staying in real mode", 10, 0
+mega_t86    db "real mode: 8086-class CPU", 0
+mega_tmem   db "real mode: under 192KB above 1MB", 0
+mega_ta20   db "real mode: A20 will not open", 0
+mega_ttask  db "real mode: a task predates it", 0
 mega_mon    db "kern_mega: protected mode", 10, 0
 mega_mtoast db "protected, 286 reset", 0
 mega_mtoast3 db "protected, 386 CR0", 0

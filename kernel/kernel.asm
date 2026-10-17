@@ -324,9 +324,18 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     push bp
     mov bp, sp
     pushf
-    shr word [ss:bp+2], 1
-    shr word [ss:bp+2], 1
+ %ifidni __?SECT?__, [section .text]
+    cmp word [cs:k_dsel], KERNEL_SEG    ; REAL MODE - the boot, before
+ %elifidni __?SECT?__, [section .cold]
+    cmp byte [ss:mega_pm], 0    ; (.cold names no CS data: KDATAR_C's flag)
+ %else
+  %error "MEGA_CSELTOP outside .text and .cold"
+ %endif
+    je %%rm                     ; mega_enter, calls drivers and AUTOSTART
+    shr word [ss:bp+2], 1       ; packages too, and a segment is its own
+    shr word [ss:bp+2], 1       ; code segment there
     or byte [ss:bp+2], 4
+%%rm:
     popf
     pop bp
 %endmacro

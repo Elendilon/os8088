@@ -3035,6 +3035,8 @@ mem_reloc_call:
     jmp short .mgo              ; (kernel/mega.inc). FLAGS are nobody's here
 .mpkg:
     mov ds, ax
+    cmp byte [ss:mega_pm], 0    ; ...and in REAL MODE (a compaction during
+    je .mgo                     ; the boot) the segment is its own code
     shr word [ss:mem_fptr+2], 1
     shr word [ss:mem_fptr+2], 1
     or byte [ss:mem_fptr+2], 4

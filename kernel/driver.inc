@@ -2085,7 +2085,11 @@ drv_svc_call_x:
     pop es                      ; ES = KERNEL_SEG: what the driver reads the
     mov ds, [es:drv_fseg]       ; things it was handed through
     call wm_nest_pushd          ; SPEC.md 66.6.3
+%ifdef KERN_MEGA
+    MEGA_PCALL [es:drv_fptr], [es:drv_fseg] ; the CODE alias (kernel/mega.inc)
+%else
     call far [es:drv_fptr]
+%endif
     pop es
     pop ds                      ; ...and DS names the kernel again, which is
     call wm_nest_pop            ; the segment the pop reads
@@ -2140,7 +2144,11 @@ drv_blk_call_x:
     pop es
     mov ds, [es:drv_blkseg]
     call wm_nest_pushd          ; SPEC.md 66.6.3
+%ifdef KERN_MEGA
+    MEGA_PCALL [es:drv_blkfp], [es:drv_blkseg] ; the CODE alias (mega.inc)
+%else
     call far [es:drv_blkfp]
+%endif
     pop es
     pop ds                      ; ...and DS names the kernel again, which is
     jmp wm_nest_pop             ; the segment the pop reads

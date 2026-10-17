@@ -607,9 +607,12 @@ mod_check:
 %ifdef KERN_MEGA
     push ax                     ; kern_mega: the slot is a FAR CALL's, so it
     mov ax, es                  ; holds the image's CODE alias (mega.inc) -
-    shr ax, 1                   ; safe to store rather than derive at every
-    shr ax, 1                   ; call, because a module image never moves
-    or al, 4                    ; (memory.inc pins MEM_K_MOD)
+    cmp byte [ss:mega_pm], 0    ; safe to store rather than derive at every
+    je .rmseg                   ; call, because a module image never moves
+    shr ax, 1                   ; (memory.inc pins MEM_K_MOD). In REAL MODE
+    shr ax, 1                   ; the segment, and mega_enter converts what
+    or al, 4                    ; the boot armed (mega_mods_fix)
+.rmseg:
     mov [di+2], ax
     pop ax
 %else
