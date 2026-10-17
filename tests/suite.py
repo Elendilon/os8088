@@ -1030,6 +1030,17 @@ FAST = [
         "that fits never split, a collection split only between stem groups, "
         "first fit in order, DOCS/APPDATA/CONTENTS.TXT on every disk, a "
         "no-longer-needed disk deleted, an oversized program refused"),
+    Row("guidelock", "fast", py("tests/unit/t_guidelock.py", "--warn"), 2.1,
+        "the project guide (tools/os88guide.py) is checked against what it "
+        "describes: a page whose sources changed the text a user reads since "
+        "it was stamped (tools/guide/manuals.lock.json), and a file on a "
+        "built disk with no line or no page. In THIS tier it only WARNS - "
+        "its lines start `warn:` and the runner shows them on a passing row - "
+        "so no `make` waits on documentation; `guidelock-full` is the same "
+        "check failing. Also proves the fingerprint moves for a menu item, a "
+        "C message and a tool's help text and stands for comments and code. "
+        "~2s: it walks the built disks and hashes the packages' strings",
+        needs=()),
     Row("livefull", "fast", py("tests/unit/t_livefull.py"), 0.2,
         "SPEC.md 80.6: the live USB/CD is the ONE image whose premise is "
         "completeness, and until this row nothing in the tree had ever read "
@@ -1682,6 +1693,14 @@ FULL = [
         "so it cannot answer this tier's question. It is what a change to "
         "tools/os88marty.py runs",
         needs=("marty",), serial=True),
+    Row("guidelock-full", "full", py("tests/unit/t_guidelock.py"), 2.1,
+        "the fast tier's `guidelock` row with teeth, at the owner's word: a "
+        "merge of major work must not leave a page describing text the "
+        "program no longer shows, or a shipped file with no page. Host-side "
+        "and two seconds, so it costs this tier nothing next to the boots; "
+        "paid with `python3 tools/guidelock.py stamp KEY --why ...` after "
+        "reading the page",
+        needs=()),
     Row("bootsmoke", "full", py("tests/bootsmoke.py"), 20.0,
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",

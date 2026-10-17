@@ -166,3 +166,18 @@ longer. A song, picture or sample document can be a few lines plus one shot.
 Do NOT write pages for programs (`.O88`), which have manuals, or for CP/M
 files and demo videos, whose descriptions come from where they are.
 Shot ids are prefixed with the file, e.g. `sound-drv-page`, `charter-f88`.
+
+# Keeping pages true: the guide lock
+
+`tools/guide/manuals.lock.json` pairs every page with the sources it
+describes and a fingerprint of the text a user reads in them (menu items,
+messages, labels, a tool's options). `python3 tools/guidelock.py check`
+reports a page whose sources changed that text since it was stamped, and a
+file on a built disk with no line in entries.toml or, for a program, driver
+or system file, no page. The fast tier (every `make`) only warns; the full
+tier fails until it is paid up.
+
+To pay it: read the page against the change, correct it, then
+`python3 tools/guidelock.py stamp <KEY> --why "what you checked"`. A new
+page is stamped the same way; add `--sources apps/x,drivers/y` when the
+guess is wrong (an alias table in guidelock.py covers the known cases).
