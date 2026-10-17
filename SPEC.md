@@ -55401,18 +55401,17 @@ A link is REMOVED as any file is: Delete in a Disk window.
 
 The folder is in the ROOT of the boot volume, and not in `SYSTEM\`, for the
 boot's sake: the root has just been walked for SYSTEM.CFG, so asking it for
-one more name costs no I/O. **The 720KB, 1.2MB and 1.44MB system disks,
-`emu.img` and the live volume ship it EMPTY** (`AUTOFOLDER` in the Makefile).
-A folder a user can see is how the feature is found, where a feature with no
-folder is a manual nobody has written. kern_small has no autostart and its
-disks do not carry it.
+one more name costs no I/O. **All four kern_big system disks (360KB, 720KB,
+1.2MB, 1.44MB), `emu.img` and the live volume ship it EMPTY** (`AUTOFOLDER`
+in the Makefile). A folder a user can see is how the feature is found, where
+a feature with no folder is a manual nobody has written. kern_small has no
+autostart and its disks do not carry it.
 
-**The 360KB system disk does not carry it, for ROOM.** That disk had 5
-clusters free; the eleventh blob sector took `KERNEL.SYS` over one more, and
-the folder would take another. At 3 free the Sticky Apps calendar can no
-longer save its place on A: (`stikmove`, `stikmovecga` and `stikregister` go
-red; at 4 they pass). Whoever finds that disk a cluster gives it the folder by
-adding `$(AUTOFOLDER)` to `$(IMG360)`.
+**The 360KB system disk went without it at first, for ROOM.** That disk had 5
+clusters free, and at 3 the Sticky Apps calendar could no longer save its
+place on A: (`stikmove`, `stikmovecga` and `stikregister` go red; at 4 they
+pass). §19.3.2's 512-byte clusters (`SYS360SPC`) left it 45 free, and the
+folder takes one.
 
 **`as_boot` is the BLOB's** (§2.5.3.3), called by kmain_o straight after
 `spl_finish`, so it costs no resident byte. A launch must not race the

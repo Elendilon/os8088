@@ -3427,16 +3427,13 @@ MEDIAFOLDER := --folder MEDIA
 # its own would have to handle "the disk is full" on a path nobody tests.
 APPDATAFOLDER := --folder SYSTEM/APPDATA
 # ...and AUTOSTART's folder (SPEC.md 26.10.5), EMPTY, on every kern_big system
-# disk and the live volume: a folder a user can see is how the feature is
-# found, where a feature with no folder is a manual nobody has written. It
-# costs the boot one directory sector (its first, and the whole of an empty
-# one); kern_small has no autostart and its disks do not carry it.
-# **NOT THE 360KB SYSTEM DISK, for now, and it is ROOM and not a decision
-# about the feature**: that disk had 5 clusters free, §26.10's eleventh blob
-# sector took KERNEL.SYS over a cluster and the folder would take another, and
-# at 3 free the Sticky Apps calendar can no longer save its place there
-# (stikmove, stikmovecga and stikregister go red; at 4 they pass). The day a
-# cluster is found for it, $(IMG360) takes $(AUTOFOLDER) like the other three
+# disk - all four geometries, emu.img - and the live volume: a folder a user
+# can see is how the feature is found, where a feature with no folder is a
+# manual nobody has written. It costs the boot one directory sector (its
+# first, and the whole of an empty one); kern_small has no autostart and its
+# disks do not carry it. The 360KB disk went without it while it had 5
+# clusters free; SYS360SPC's 512-byte clusters left it 45, and the folder
+# takes one of them
 AUTOFOLDER := --folder AUTOSTRT
 
 # The logo (SPEC.md 63): 466x100 of monochrome GIF, and the one thing in
@@ -5138,7 +5135,7 @@ $(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(
 	python3 tools/os88disk.py -o $@ --size 360 $(SYS360SPC) \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
-		$(APPDATAFOLDER)
+		$(APPDATAFOLDER) $(AUTOFOLDER)
 
 # AUTOSTARTTEST - the LINKS and AUTOSTART gate's disk (SPEC.md 26.10): the
 # shipped 360KB system disk plus \AUTOSTRT holding a link to the Task Manager
