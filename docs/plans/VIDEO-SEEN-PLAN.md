@@ -287,27 +287,172 @@ a number per rung but the one test every rung shares: the first prefix
 that draws the stretch WHOLE is taken, else the least broken by the view
 as seen. The default ladder came off four clips on their own options:
 
-| clip | today | `lag:100, coarse:auto, slow:5/6, colours:12, slow:2/3, slow:1/2` |
+| clip | today | `lag:100, slow:5/6, colours:12, slow:2/3, coarse:auto, slow:1/2` |
 |---|---:|---:|
 | Last Exile 0:10-0:40, flipped Mode X, 286-speeddemon | 24.3% (400 cut) | **3.2%** (57 cut) |
 | Bad Carrot 3:05-3:20, the owner's flipped tune | 1.8% | **1.0%** |
 | Take On Me 0:15-0:30, Hercules | 5.5% | **4.7%** |
 | GasGas54's options at 24 fps (page-ahead) | 2.3% | **1.7%** |
 
-`slow:5/6` before `lag:100` made the same four files: a stretch that
-needs either needs both before it draws whole. Lag stays first, being the
+Coarse cells were second when this table was taken and are FIFTH since
+2026-10-17 (the owner: "coarse is a type of cut"); every file came out the
+same - Gas Gas Gas 1.7% with its stretches at rungs 2 and 6 as before, Bad
+Carrot 1.0%, and Last Exile and Take On Me by construction (no cells were
+drawn in either). `slow:5/6` before `lag:100` made the same four files: a
+stretch that needs either needs both before it draws whole.
+
+**A CUT RUNG** (2026-10-17, the owner: "lets add 'cut by x%' into the
+ladder. That way we can choose which type of cut we want - some videos
+accept normal cuts better than others"): `cut:X` STOPS the climb where no
+frame of the stretch is more than X% broken as seen, and the frames are
+cut as the budgets cut them. It draws nothing new, so its try is the try
+before it judged again (`degrade_choose` keeps the last), and past it
+every rung is judged so too, by the largest cut rung. It is in no
+default: `lag:100, cut:5, slow:5/6, ...` is a file that would rather tear
+a little than drop to 20 fps, and which one a video is, is the owner's
+eye's. Lag stays first, being the
 rung nobody sees. Most of Last Exile's stretches went to the last rung,
 half the rate - the owner's eye is what says whether 12 fps for that long
 is the trade they want, and the ladder is theirs to reorder per file.
 
 The tab carries the checkbox and six rungs, each a list of the rungs this
 form can use (a card's sound offers `lag`, the speaker does not; `coarse`
-and `colours` only for 16 colours a scene) - and under them **Slowing
-down, not cutting**: Lag, Min fps, Slow cost and Flip hold, moved there off
-**When a frame is cut**. Those are the global settings the ladder stands
-in for (Lag and Min fps grey while it is on; the charge and the held
-frames it uses), and taking them off Choices is what brought that tab back
-inside the default window with the inner tab bar on it.
+on a planar screen, `colours` only for 16 colours a scene) - and under
+them **Instead of cutting**: Lag, Min fps, Slow cost and Flip hold, moved
+there off **When a frame is cut**, and Coarse cut off **Scenes**. Those are
+the global settings the ladder stands in for (Lag, Min fps and Coarse cut
+grey while it is on; the charge and the held frames it uses), and taking
+them off Choices is what brought that tab back inside the default window
+with the inner tab bar on it.
+
+**Coarse cells left a palette a scene's for every PLANAR screen**
+(2026-10-17, SPEC.md 98.2.5.2; the owner: "is there any reason that
+doesn't apply to other display types?"). The gain is a flat byte being one
+store for many pixels, which is VGA4's write mode 3 and Mode X's Map Mask
+0Fh and nobody else's: a scene change drawn in cells took 32-51% of its
+cycles on Last Exile's Mode X (4x1 as cheap as 64x8 - the group of four is
+the gain, so Mode X's ladder is the one cell) and 87-100% on Take On Me's
+Hercules, where a flat byte is only a run. Mode X without a palette a scene
+finds its scenes with the same scene pass, read for the cells alone. On
+Last Exile with no ladder that is 24.3% -> 23.4% of the view broken and 400
+-> 389 frames cut (14 changes in 4x1, 4 whole); WITH the ladder it is the
+same file as before, because all 46 stretches the ladder decides are
+INSIDE shots and the coarse rung acts at a scene's first frame. A cell at
+any would-be cut, not only a scene's first, is the open question that
+leaves - a moving picture blurred across for a frame, which only the view
+as seen can price - and **it is on the owner's list to look at once it is
+built** (2026-10-17), not before.
+
+**BUILT the same day as its own rung, `coarseany:CELL`** (the owner: "we
+can split it between scenes/all, so it can own two different spots on the
+ladder. At scenes, coarse is known acceptable. During fast motion we have
+yet to test"). Its first shape - cells on the stretch's FIRST frame only,
+as the scene rung draws them - bought nothing, and the ladder's own log
+says why: Last Exile's motion stretches are heavy for all twelve frames (6
+to 12 of them cut), so one frame of cells at the head moved a stretch's
+view 37.7% -> 37.2%, 58.2% -> 53.3%, and 39.2% -> 42.7% the wrong way. So
+`coarseany` draws EVERY frame of the stretch the budgets would cut in
+cells at its own time (`coarse_every`), which is the comparison the
+question is really about: the width given up at the full frame rate,
+against the rate given up at the full width. On the same stretches that
+is 37.7% -> 21.6%, 58.2% -> 26.7%, 34.1% -> 21.2%. Last Exile 0:10-0:40,
+Mode X flipped, `286-speeddemon`, whole clip:
+
+| | the view broken | s visibly broken | worst second | cut | in cells |
+|---|---:|---:|---:|---:|---:|
+| cut (no ladder) | 24.3% | 3.3 | 4.79% | 400 | 0 |
+| `lag:100, coarseany:frame` - 24 fps, 4x1 where it would cut | 16.5% | **0.4** | 1.75% | 102 | 297 |
+| the default ladder - 12 fps through the heavy stretches | **3.2%** | 0.6 | **0.71%** | 57 | 0 |
+
+The cells end the TEARING - visibly broken 3.3 s -> 0.4 s, under even the
+half rate's 0.6 - and the score still ranks the half rate far ahead,
+because it charges a held frame `--slow-cost` (2 points) and a 4x1 frame
+its whole lost width. Which of those is the better picture IN PLAY is the
+owner's eye's: the strip and the three files went to the owner. Put in a ladder before the slower rates,
+`coarseany` is passed over exactly as the slow rungs' whole frames beat
+it by the score; behind them it is never reached. A `cut:` rung after it
+is how a person who prefers it says so. Gas Gas Gas (VGA4 at 640x400,
+cells 16x4 and coarser) never took it: 15 of 18 stretches drawn as they
+were, the score rating its cells worse than a cut. It costs the encode:
+every frame the budgets would cut is tried on a copy, so Last Exile took
+2,256 s against 547. The owner on watching it: "overall, a really good
+effect; though it doesn't fit every scene" - the scene-by-scene editor's
+case again - and the half rate alone "gets too jerky AND still cuts".
+
+**A MIXED SCREEN, `coarseany:mix`** (2026-10-17, the owner: "only
+coursifying the parts that can't be afforded until it fits, instead of the
+full frames... I want to see a comparison"). `coarse_mix`: the frame in
+32x8 tiles (`MIX_TILE`, eight of Mode X's groups), ranked by what their
+cells save - the pixels to change at full detail less those in cells -
+and a binary search on copies of the encoder for the FEWEST tiles in
+cells (4x1 on Mode X, 16x4 on VGA4) that let the budgets draw the frame
+whole; the rest at full detail. Last Exile 0:10-0:25, the same options:
+
+| | the view broken | worst frame | s visibly broken | cut | encode |
+|---|---:|---:|---:|---:|---:|
+| cut (no ladder) | 25.3% | 99.7% | 2.4 | 174 | 99 s |
+| `lag:100, coarseany:frame` (whole frames in 4x1) | 18.0% | 94.3% | **0.3** | **21** | 1,042 s |
+| `lag:100, coarseany:mix` | **17.0%** | **79.6%** | 0.5 | 53 | 1,708 s |
+| the default ladder (half rate) | 3.7% | 67.3% | 0.5 | 26 | 242 s |
+
+By the score the mix is the better of the two at 24 fps - a point less
+broken on average and the worst frame 15 points better - and on the
+strip it keeps the girders and the sky sharp where the whole-frame cells
+smear them; what it gives back is a little of the tearing (0.5 s visibly
+broken against 0.3, 53 frames cut against 21), because a mixed frame is
+fitted to the frame's own budget and the disk can still fall short a few
+frames on. A tile's edge between full detail and cells is the thing to
+look for in play. Its price is the search: about eight tries a frame it
+mixes, 1.6x the whole-frame cells' encode.
+
+The owner on watching the four: mix "is a good option, but it doesn't
+win this round, because on its own it's not enough to save the
+additional cuts"; no more tearing seen, and in the heavier scenes it
+"drop[s] to effectively all", which is right - **mix IS mix-then-whole**,
+a frame at a time: where every tile in cells still does not fit, the
+whole frame goes in what `auto` picks (on VGA4 the finest of 16x4, 32x8
+and 64x8 that fits; on Mode X 4x1), so a separate `coarseany:frame` after
+it would add encode time and change nothing.
+
+**THE DEFAULT LADDER, 2026-10-17 (the owner)**: the half rate OUT, the
+scene rung renamed `coarsescene` (`coarse:` still read), and
+`coarseany:mix` the sixth rung in the half rate's place -
+`lag:100, slow:5/6, colours:12, slow:2/3, coarsescene:frame, coarseany:mix`:
+
+| clip | with the half rate | the new default |
+|---|---:|---:|
+| Bad Carrot 3:05-3:20 | 1.0% (worst 33.3%) | **0.4%** (worst 9.2%) - all 5 stretches mixed |
+| Gas Gas Gas, the owner's tune | 1.7% | 2.1% |
+| Take On Me, Hercules (no cells) | 4.7% | 5.0% |
+| Last Exile 0:10-0:25 | 3.7% (0.5 s visibly broken) | 18.9% (1.4 s) |
+
+Last Exile's heavy stretches take rung 6, which is 16 fps AND mixed
+cells, and that scores worse than the same cells at 24 fps alone (17.0%,
+0.5 s - `lag:100, coarseany:mix`): on that clip the slower rate and the
+cells pay twice. The owner on watching it: **"a huge win; that is the
+best bad carrot's heavy sunscene has ever looked"**, and Last Exile
+"still cut a bunch, and needs coarseany/full [`coarseany:frame`], but as a
+default, its better than full cuts" - so the default stands, and Last
+Exile is a clip that wants its own ladder, which is the scene-by-scene
+editor's case once more.
+
+**`frame` for `auto`** (2026-10-17, the owner: "can that become 'full
+frame' or somesuch so its clear to the user that they are doing a full
+frame at a time?"): a coarse rung's whole-frame cell is `frame` - "whole
+frame" in the window, beside "mixed: only the tiles it must" - and a
+ladder that says `auto` still reads as it. A name only: every file above
+is the same.
+
+**OPEN: an encoder speed pass** (the owner, 2026-10-17: "encode times
+aside; add an item to do an encoder optimization pass"). Every rung is
+priced by encoding the stretch on copies of the encoder, and the cell
+rungs multiply it: whole-frame cells try each would-be-cut frame on a
+copy (Last Exile 2,256 s against 547), and mix binary-searches eight
+copies a frame (1.6x that). The candidates: price a frame from its span
+costs without running `frame()` (the search only asks "does it fit"),
+share one copy across a rung's tries instead of deep-copying per try, and
+reuse the previous rung's stretch where the next changes nothing it
+draws (the cut rung already does).
 
 What it was sketched as:
 
