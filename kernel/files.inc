@@ -7742,8 +7742,12 @@ fm_draw_core:
     call fm_scat
     call fm_nfiles              ; the listing MINUS its parent link (19.5):
     call fm_utoa                ; '..' is a way out, not a file
-    mov si, fm_s_files
+    xchg dx, ax                 ; DX = the count (fm_utoa keeps AX; fm_scat
+    mov si, fm_s_files          ; spends AL), DX free until the pen below
     call fm_scat
+    dec dx                      ; ONE file: "1 file", the plural's 's' cut
+    jnz .hdrtrunc               ; off where it lies, in front of the NUL -
+    mov [di-1], dh              ; DH is 0 here (7 bytes, and no second string)
     jmp short .hdrtrunc
 .badhdr:
     mov word [di], ':' | (')' << 8)

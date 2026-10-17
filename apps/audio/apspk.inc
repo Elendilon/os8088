@@ -438,7 +438,10 @@ aps_bracket:
     jmp short .out
 .ndesk:
     mov byte [ap_state], AP_ST_STOP
-    mov word [ap_elapsed_s], 0
+    xor dx, dx                      ; the clock and the bar both back to zero
+    mov [ap_elapsed_s], dx          ; (the bar reads ap_played)
+    mov [ap_played], dx
+    mov [ap_played+2], dx
     call aps_close
     cmp al, APX_STOP
     jne .nstop

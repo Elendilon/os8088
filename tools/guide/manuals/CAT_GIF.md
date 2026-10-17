@@ -18,7 +18,8 @@ In the `PICTURES` folder of the PiXEL disk, in all four sizes.
 ## Opening it
 
 A double-click on a GIF file starts Paint ([[PAINT.O88]]), which cannot open a GIF as
-large as this one: its window opens with an empty canvas. Open the cat in
+large as this one: its window opens with an empty canvas, and the menu bar
+says **GIF larger than 64KB** for a few seconds. Open the cat in
 PiXEL instead. Either double-click another picture in the folder, such as
 `BALLOONS.PNG`, and press `Space` until the cat appears, or start PiXEL and
 choose **File > Open...**.

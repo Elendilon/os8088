@@ -77,9 +77,9 @@
   "sources": [
    "apps/audio"
   ],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": "c66ee02557046ce8",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "Open while paused keeps the paused song (added, not selected); the bar empties with the clock at End of playlist and Stop"
  },
  "AUTOSTRT": {
   "sources": [],
@@ -177,9 +177,9 @@
  },
  "CAT_GIF": {
   "sources": [],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": null,
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "Paint's refusal of a GIF over 64KB is named: the toast GIF larger than 64KB"
  },
  "CHARTER_F88": {
   "sources": [],
@@ -231,9 +231,9 @@
   "sources": [
    "kernel/ctrl.inc"
   ],
-  "stamped": "8a6a203d",
+  "stamped": "d511fdd4",
   "strings": "3ba5d1a1f6727cae",
-  "why": "ksp13: THMPAL.DRV's file name is staged, not resident - no text a user reads changed"
+  "why": "Drivers page: ticking a row no longer wipes the scroll-down arrow; page text unchanged"
  },
  "CWORD": {
   "sources": [],
@@ -594,9 +594,9 @@
   "sources": [
    "apps/midirack"
   ],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": "2d8a5451be064e81",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "Settings' radios are the shared round ring now (SPEC.md 13.17.1); greyed rows' labels grey on VGA"
  },
  "MINES_O88": {
   "sources": [
@@ -770,9 +770,9 @@
   "sources": [
    "drivers/ramdisk"
   ],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": "f1bd87b1659771ed",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "greyed buttons grey their label on VGA too (SPEC.md 13.8.11); page text unchanged"
  },
  "README_TXT": {
   "sources": [],
@@ -784,17 +784,17 @@
   "sources": [
    "apps/redline"
   ],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": "613189b6ce818efd",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "the benchmark's progress panel clears to the window edge: no stray glyph; text unchanged"
  },
  "RLAPPLY_O88": {
   "sources": [
    "apps/rlapply"
   ],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": "9dede25f102f6dff",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "the menu-bar toast leaves no clock digit beside No REDLINE.CFG to apply (kernel, SPEC.md 59.8.2); text unchanged"
  },
  "ROBOMONO_F88": {
   "sources": [],
@@ -1086,9 +1086,9 @@
   "sources": [
    "apps/video"
   ],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": "52e0d90cf0b17d66",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "a paused Live play: the card says Paused at m:ss, and the box shows the frame even when paused before the first pass"
  },
  "VMMOUSE_DRV": {
   "sources": [
