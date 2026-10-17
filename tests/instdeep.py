@@ -416,6 +416,16 @@ def main():
         print("    %-28s %s" % (p, "<dir>" if tree[p][0] else tree[p][1]))
 
     bad = []
+    # THE VOLUME BOOT RECORD'S SERIAL (SPEC.md 18.8.2.1, 52.10.2): the
+    # installer's fresh VBR is built over a zeroed sector, and hd_bpb_fill
+    # wrote BootSig 0x29 with nothing after it - so every installed volume
+    # carried serial 0, whatever the format before it had stamped.
+    vid = struct.unpack_from("<I", v.b, 39)[0]
+    print("  VBR: BootSig %02X, BS_VolID %08X" % (v.b[38], vid))
+    if v.b[38] != 0x29 or vid == 0:
+        bad.append("the installed VBR carries BootSig %02X and serial %08X - "
+                   "a fresh install must stamp one of its own (hd_bpb_fill, "
+                   "SPEC.md 18.8.2.1)" % (v.b[38], vid))
     if "IO.SYS" in tree or "COMMAND.COM" in tree:
         bad.append("the DOS files the fixture partition carries are still "
                    "there - the install KEPT the volume instead of erasing it "
