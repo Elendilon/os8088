@@ -190,6 +190,11 @@ dskw_batch: db 0                ; 1 = a MULTI-FILE operation is running and
                                 ; A .text `db`, not .bss, for dskw_isdir's
                                 ; reason: -f bin zeroes nothing, and the very
                                 ; first write must not see a garbage flag
+%ifdef KERN_SMALL
+            db 0                ; PARITY PAD (kernel size pass 13): with
+%endif                          ; instance.inc's pad kern_big's alone, ui_task
+                                ; is back at an even shift on kern_small and
+                                ; this puts the disk path after it back too
 %ifdef DSKW_WSEQ
 dws_hd0:    dw 0xFFFF           ; the HELD volume's dirty FAT range, banked
 dws_hd1:    dw 0                ; while the machine stands elsewhere (SPEC.md
