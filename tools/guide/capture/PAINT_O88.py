@@ -62,6 +62,13 @@ def _stroke(ui, pts):
     os88marty.guest_sleep(ui.m, 1.0)
 
 
+def _away(ui):
+    """Park the pointer on the desktop, clear of the picture."""
+    w = ui.window("Paint")
+    x, y, ww, hh = ui._rect(w.i)
+    ui.mo.to(min(630, x + ww + 20), 300)
+
+
 def _menu_shot(ui, shot, title, sid):
     """Drop a menu, take the picture, and let it go over nothing."""
     cells = ui.menus()
@@ -70,9 +77,11 @@ def _menu_shot(ui, shot, title, sid):
     ui.mo.to((x0 + x1) // 2, 5)
     ui.mo._edge(True)
     os88marty.guest_sleep(ui.m, 1.5)
-    mx0 = max(0, x0 - 8)
-    shot(sid, rect=(mx0, 0, 200, 22 + 12 * len(items) + 8))
-    ui.mo.to((x0 + x1) // 2 + 260, 300, l=True)
+    mx1, mx2 = ui._word("menu_x1"), ui._word("menu_x2")
+    my2 = ui._word("menu_y2")
+    left = max(0, min(x0, mx1) - 6)
+    shot(sid, rect=(left, 0, max(x1, mx2) - left + 8, my2 + 6))
+    ui.mo.to(600, 300, l=True)
     ui.mo._edge(False)
     os88marty.guest_sleep(ui.m, 1.5)
 
@@ -112,18 +121,19 @@ def capture(ui, shot):
     ui.mo.click(x, y)
     ui.m.type_text("Hello from Paint")
     ui.m.key("Escape")
+    _away(ui)
     ui.settle()
     shot("paint-window", window="Paint")
 
     # a selection round the box
     _tool(ui, 5)
     _drag(ui, (20, 20), (160, 118))
+    _away(ui)
     ui.settle()
     shot("paint-select", window="Paint")
     ui.m.key("Escape")
 
     _menu_shot(ui, shot, "Draw", "paint-menu-draw")
-    _menu_shot(ui, shot, "File", "paint-menu-file")
 
     # the picture full screen, then back
     ui.menu_pick("View", "Full Screen")
@@ -132,21 +142,11 @@ def capture(ui, shot):
     ui.m.type_text("f")
     os88marty.guest_sleep(ui.m, 3.0)
 
-    # a fresh canvas, then open the sample picture
-    ui.menu_pick("File", "New")
-    ui.menu_pick("File", "Open")
+    # save the drawing as a GIF
+    ui.menu_pick("File", "Save as Gif")
     ch = ui.chooser()
     ui.settle()
-    names = [n.upper() for n, _ in ui.listing(win=ch)]
-    print("chooser shows", names)
-    shot("paint-open")
-    if "SAMPLE.BMP" in names:
-        spec = "SAMPLE.BMP"
-    elif "MEDIA" in names:
-        spec = "MEDIA/SAMPLE.BMP"
-    else:
-        spec = "../MEDIA/SAMPLE.BMP"
-    ui.chooser_open(spec)
-    os88marty.guest_sleep(ui.m, 5.0)
-    ui.settle()
-    shot("paint-sample", window="Paint")
+    cx, cy, cw, chh = ui._rect(ch.i)
+    shot("paint-save", rect=(cx - 6, cy - 6, cw + 14, chh + 14))
+    ui.chooser_save("DRAWING.GIF")
+    os88marty.guest_sleep(ui.m, 3.0)

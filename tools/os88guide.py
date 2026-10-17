@@ -282,6 +282,7 @@ def md(text, shots):
     """A small Markdown: #/##/### headings, paragraphs, - lists, 1. lists,
     | tables |, > notes, and ![caption](shot:id) screenshots."""
     out, para, lst, tbl = [], [], None, []
+    nshot = 0                       # the first shot introduces the program: full width
 
     def flush():
         nonlocal para, lst, tbl
@@ -302,17 +303,22 @@ def md(text, shots):
 
     for line in text.splitlines():
         s = line.rstrip()
-        m = re.match(r"^!\[([^\]]*)\]\(shot:([a-z0-9-]+)\)$", s)
+        m = re.match(r"^!\[([^\]]*)\]\(shot:([a-z0-9-]+)\)(?:\{(left|right|full)\})?$", s)
         if m:
             flush()
-            cap, sid = m.group(1), m.group(2)
+            cap, sid, place = m.group(1), m.group(2), m.group(3)
             if sid in shots:
                 src, w, h = shots[sid]
-                out.append('<figure class="shot"><img src="%s" width="%d" height="%d" alt="%s"><figcaption>%s</figcaption></figure>'
-                           % (src, w * 2, h * 2, html.escape(cap), md_inline(cap)))
+                # A shot narrower than half the screen floats beside the text
+                # unless the manual says otherwise; `{full}` keeps it whole.
+                place = place or ("right" if w <= 320 and nshot else "full")
+                nshot += 1
+                out.append('<figure class="shot %s"><button class="zoom" data-zoom="%s" aria-label="Enlarge: %s">'
+                           '<img src="%s" width="%d" height="%d" alt="%s"></button><figcaption>%s</figcaption></figure>'
+                           % (place, src, html.escape(cap), src, w * 2, h * 2, html.escape(cap), md_inline(cap)))
             else:
-                out.append('<figure class="shot pending"><div class="frame"><span>Screenshot to come</span>'
-                           '<code>%s</code></div><figcaption>%s</figcaption></figure>' % (sid, md_inline(cap)))
+                out.append('<figure class="shot pending %s"><div class="frame"><span>Screenshot to come</span>'
+                           '<code>%s</code></div><figcaption>%s</figcaption></figure>' % (place or "full", sid, md_inline(cap)))
             continue
         m = re.match(r"^(#{1,3})\s+(.*)$", s)
         if m:

@@ -277,7 +277,7 @@ short = "Charts from spreadsheet data"
 ["PAINT.O88"]
 title = "Paint"
 kind = "program"
-summary = "A bitmap painting program with eight tools, undo and a clipboard. It opens and saves BMP pictures."
+summary = "A bitmap painting program with eight tools, undo and a clipboard. It opens and saves BMP and GIF pictures."
 short = "Bitmap painting program"
 
 ["PIXEL.O88"]
@@ -611,7 +611,7 @@ short = "Sample sales spreadsheet"
 ["OS8088.GIF"]
 title = "os8088 logo"
 kind = "picture"
-summary = "The os8088 logo as a black-and-white GIF picture. Opens in PiXEL or Paint."
+summary = "The os8088 logo as a black-and-white GIF picture. Double-click it to open it in Paint; PiXEL opens it too."
 short = "Black-and-white logo picture"
 
 ["SAMPLE.BMP"]

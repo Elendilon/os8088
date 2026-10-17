@@ -75,6 +75,13 @@ docs/MARTYPC-DEBUG.md's "Start at tools/os88ui.py" if you need more.
 `shot(id)` takes the whole screen; `shot(id, window="Title")` crops to that
 window; `shot(id, rect=(x, y, w, h))` to a rectangle.
 
+- **Placement.** `![caption](shot:id)` on its own line lets the page decide:
+  the first shot takes the full width, and after it a shot up to 320 pixels wide floats to the right with the text wrapping
+  around it, a wider one takes the full width. Add `{left}`, `{right}` or
+  `{full}` straight after it to choose: a small dialog or a menu reads best
+  beside the paragraph about it, a whole window or a full-screen game at full
+  width. Alternate sides when two floats come close together, and start a
+  new section rather than stack floats. Every shot can be clicked to enlarge.
 - Prefix every shot id with the program, e.g. `notepad-window`,
   `notepad-find`. Ids are lowercase letters, digits and dashes.
 - **3 to 8 shots per program**, each showing something the text describes.

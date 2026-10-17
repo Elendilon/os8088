@@ -201,7 +201,22 @@ main.panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; ma
 .manual th, .manual td { text-align: left; padding: 5px 12px 5px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
 .manual th { font-weight: 600; border-bottom-color: var(--rule-strong); }
 .shot { margin: 10px 0 14px; }
+.shot .zoom { display: block; padding: 0; border: 0; background: none; cursor: zoom-in; max-width: 100%; }
 .shot img { display: block; border: 1px solid var(--rule-strong); image-rendering: pixelated; max-width: 100%; height: auto; }
+.shot.left, .shot.right { max-width: 48%; margin-top: 4px; }
+.shot.left { float: left; margin-right: 18px; }
+.shot.right { float: right; margin-left: 18px; }
+.shot.left img, .shot.right img { width: 100%; }
+.manual h2, .manual h3, .manual .tbl { clear: both; }
+.manual::after { content: ""; display: block; clear: both; }
+@media (max-width: 560px) { .shot.left, .shot.right { float: none; max-width: 100%; margin: 10px 0 14px; } }
+.viewer { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; gap: 10px; padding: max(24px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  background: color-mix(in srgb, var(--paper) 88%, transparent); cursor: zoom-out; }
+.viewer[hidden] { display: none; }
+.viewer figure { margin: 0; display: grid; gap: 8px; justify-items: center; max-width: 100%; max-height: 100%; }
+.viewer img { image-rendering: pixelated; border: 1px solid var(--rule-strong); box-shadow: 4px 4px 0 var(--rule-strong); background: var(--sheet); max-width: 100%; max-height: calc(100vh - 110px); width: auto; height: auto; object-fit: contain; }
+.viewer figcaption { font-size: var(--step--1); color: var(--ink); background: var(--sheet); border: 1px solid var(--rule-strong); padding: 4px 10px; max-width: 70ch; text-align: center; }
+.viewer .close { position: absolute; top: max(12px, env(safe-area-inset-top, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); border: 1px solid var(--rule-strong); background: var(--sheet); padding: 2px 10px; cursor: pointer; }
 .shot .frame { aspect-ratio: 4 / 3; max-width: 100%; border: 1px dashed var(--ink-2); display: grid; place-content: center; gap: 4px; text-align: center; color: var(--ink-2); background:
   repeating-linear-gradient(45deg, transparent 0 7px, var(--well) 7px 8px); }
 .shot figcaption { font-size: var(--step--1); color: var(--ink-2); margin-top: 6px; }
@@ -235,6 +250,7 @@ footer { margin-top: 16px; color: var(--ink-2); font-size: 12px; }
     <section class="win info-win" aria-label="Details"><div class="bar"><span id="rightTitle">Get Info</span></div><div class="body info" id="right"></div></section>
   </main>
   <footer id="foot"></footer>
+<div class="viewer" id="viewer" hidden><button class="close" id="viewerClose">Close</button><figure><img id="viewerImg" alt=""><figcaption id="viewerCap"></figcaption></figure></div>
 </div>
 
 <script>
@@ -479,7 +495,19 @@ function draw() {
 }
 
 // --- events ---------------------------------------------------------------------
+function openViewer(btn) {
+  const img = btn.querySelector("img"), v = document.getElementById("viewer"), vi = document.getElementById("viewerImg");
+  vi.src = btn.dataset.zoom; vi.alt = img.alt;
+  // Integer scale only: pixel art blurs at anything else.
+  const k = Math.max(1, Math.floor(Math.min((innerWidth - 40) / img.naturalWidth, (innerHeight - 120) / img.naturalHeight)));
+  vi.style.width = img.naturalWidth * k + "px";
+  document.getElementById("viewerCap").textContent = img.alt;
+  v.hidden = false; document.getElementById("viewerClose").focus();
+}
+function closeViewer() { document.getElementById("viewer").hidden = true; }
 document.addEventListener("click", e => {
+  const z = e.target.closest("[data-zoom]"); if (z) return openViewer(z);
+  if (e.target.closest("#viewer")) return closeViewer();
   if (e.target.closest("[data-also]")) { st.alsoOpen = !st.alsoOpen; const r = document.getElementById("right"), y = r.scrollTop; drawRight(); r.scrollTop = y; return; }
   const sec = e.target.closest("[data-sec]");
   if (sec) { const k = sec.dataset.sec; st.secOpen[k] = !(st.secOpen[k] ?? disk[st.disk]?.section === k); return drawShelf(); }
@@ -543,7 +571,10 @@ q.addEventListener("keydown", e => {
 });
 res.addEventListener("mousedown", e => { const b = e.target.closest("[data-hit]"); if (b) { e.preventDefault(); pick(+b.dataset.hit); } });
 q.addEventListener("blur", () => setTimeout(() => { res.hidden = true; }, 120));
-document.addEventListener("keydown", e => { if (e.key === "/" && document.activeElement !== q) { e.preventDefault(); q.focus(); } });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !document.getElementById("viewer").hidden) return closeViewer();
+  if (e.key === "/" && document.activeElement !== q) { e.preventDefault(); q.focus(); }
+});
 
 // --- start -----------------------------------------------------------------------------
 (function start() {
