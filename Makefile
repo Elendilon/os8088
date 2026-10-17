@@ -2603,7 +2603,8 @@ ifeq ($(NOOVLCHK),)
 else
 	@echo "os88ovlchk: NOT RUN (NOOVLCHK=1 - the caller states it ran it over this same source)"
 endif
-	$(NASM) -f bin -w+error $(KINC) $(VIDDEF) $(KZDEF) -o $@ $(KERNEL_SRC)
+	$(NASM) -f bin -w+error $(KINC) $(VIDDEF) $(KZDEF) \
+	        --before "[map all $(BUILD)/kernel.map]" -o $@ $(KERNEL_SRC)
 
 $(BUILD)/kernel.bin: $(BUILD)/kernel-full.bin tools/os88mod.py tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
 	python3 tools/os88mod.py $< -k $@ $(KMODARGS) --build $(BUILDNUM)
@@ -2624,6 +2625,7 @@ else
 	          --blob $(BOOT2_PAD) --head $(KZ_HEAD) --defines) && \
 	 echo "os88kz: pass 2 with $$KZD" && \
 	 $(NASM) -f bin -w+error $(KINC) $(VIDDEF) -DKZIP $$KZD \
+	        --before "[map all $(BUILD)/kernel.map]" \
 	        -o $(BUILD)/kernel-full.bin $(KERNEL_SRC) && \
 	 python3 tools/os88mod.py $(BUILD)/kernel-full.bin -k $(BUILD)/kernel.bin \
 	        $(KMODARGS) --build $(BUILDNUM) >/dev/null && \
