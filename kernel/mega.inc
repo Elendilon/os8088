@@ -534,6 +534,45 @@ mega_a20s:                          ; SETTLE: up to 512 probes for a gate to
     loop .p                         ; not open")
 .o:
     ret
+; mega_leds - the keyboard's lock lights from KB_FLAG (DS = the BDA): command
+; EDh and the LED byte (bit 0 Scroll, 1 Num, 2 Caps = KB_FLAG bits 4-6), each
+; ACK read here - unless the byte waiting is the PS/2 mouse's, which is left
+; for IRQ12. 40:97's low bits follow, as the ROM keeps them.
+mega_leds:
+    mov al, [0x17]
+    shr al, 4
+    and al, 7
+    mov ah, al
+    mov al, [0x97]
+    and al, 0xF8
+    or al, ah
+    mov [0x97], al
+    call mega_kbw
+    jnz .out
+    mov al, 0xED
+    out 0x60, al
+    call mega_kack
+    call mega_kbw
+    jnz .out
+    mov al, ah
+    out 0x60, al
+    call mega_kack
+.out:
+    ret
+mega_kack:                          ; wait for the keyboard's ACK and take it
+    xor cx, cx
+.w:
+    in al, 0x64
+    test al, 1
+    jnz .got
+    loop .w
+    ret
+.got:
+    test al, 0x20                   ; the aux port's byte: not ours
+    jnz .ret
+    in al, 0x60
+.ret:
+    ret
 mega_kbw:
     xor cx, cx
 .w:
@@ -645,7 +684,21 @@ mega_k09:
     cmp bl, 0x38
     je .shift
     test al, 0x80
-    jnz .eoi                        ; every other break is nothing
+    jz .make
+    mov cl, 0x40                    ; a LOCK key's break: no longer held
+    cmp bl, 0x3A                    ; (40:18, which is what stops a typematic
+    je .lockup                      ; repeat toggling it again)
+    mov cl, 0x20
+    cmp bl, 0x45
+    je .lockup
+    mov cl, 0x10
+    cmp bl, 0x46
+    jne .eoi                        ; every other break is nothing
+.lockup:
+    not cl
+    and [0x18], cl
+    jmp .eoi
+.make:
     mov cl, 0x40                    ; caps lock
     cmp bl, 0x3A
     je .toggle
@@ -695,8 +748,12 @@ mega_k09:
     and [0x17], cl
     jmp .eoi
 .toggle:
+    test [0x18], cl                 ; held: a repeat, not a press
+    jnz .eoi
+    or [0x18], cl
     xor [0x17], cl
-    jmp .eoi
+    call mega_leds                  ; ...and the light, which is the HOST's
+    jmp .eoi                        ; to set: a keyboard never sets its own
 .plain:
     cmp bl, 0x58
     ja .eoi
@@ -1033,6 +1090,9 @@ mega_fault:
     mov bp, sp
     mov ax, MEGA_SEL_KDATA
     mov ds, ax
+    cmp byte [ss:bp+20], 0x0D
+    je mega_gpfix                   ; a far transfer to an image's DATA segment
+mega_report:                        ; is finished there, not reported
     mov si, mega_mflt
     call mega_puts
     mov ax, [ss:bp+20]              ; the vector
@@ -1410,6 +1470,230 @@ mega_frames_fix:
     pop bx
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; mega_gpfix - #GP(S) where S is an image's segment: a FAR TRANSFER through the
+; data segment that real mode lets code call, finished through S's code alias
+;
+; A loaded image - a driver, a module, a package's region - is 512-aligned, so
+; its segment S is both an identity DATA selector (GDT entry S/8) and, through
+; the LDT, an exact CODE alias (S >> 2) | 4. Kernel code converts at the call
+; (MEGA_PCALL), but an image that far-calls ANOTHER image by the segment it was
+; handed - HDD.DRV into HDDTOOL.DRV and back through hd_tfar and hd_rdisp, the
+; Victory 286's Control Panel Hard Drive page - cannot know it should. Loading
+; S into CS is #GP with S as the error code, and nothing else loads a data
+; identity selector and faults, so the error code says what happened: this
+; decodes the instruction at CS:IP to be sure, and does the transfer itself.
+;
+; Taken: FF /3 and FF /5 (call/jmp far [mem], any 16-bit modrm, with ES, CS, SS
+; or DS overrides), 9A and EA (the immediate forms), CB and CA (retf). Anything
+; else, or a target that is not S, goes to the reporter unchanged. The frame
+; mega_fault built (ES DS DI SI BP SP BX DX CX AX vector error IP CS FLAGS, at
+; [ss:bp]) sits directly below the interrupted stack, so a CALL moves it down
+; four bytes to make room for the return address and a RETF moves it up over
+; the words the transfer popped. Inline, not called: the frame moves.
+; -----------------------------------------------------------------------------
+mega_gpfix:
+    ; STKBALANCE-OK: rewrites the fault frame in place - SP comes back from BP,
+    ; moved by the bytes the emulated CALL pushed or RETF popped
+    mov ax, [ss:bp+22]              ; the error code: S, TI and EXT clear
+    test al, 0x1F                   ; ...512-aligned (and so TI = EXT = 0)
+    jnz mega_report
+    or ax, ax
+    jz mega_report
+    cmp ax, 0xA000                  ; a heap image, not the ROM or video
+    jae mega_report
+    mov [mega_gps], ax
+    mov es, [ss:bp+26]              ; ES:SI = the faulting instruction (a code
+    mov si, [ss:bp+24]              ; selector is readable)
+    mov dx, [ss:bp+2]               ; DX = its data segment: DS unless told
+    xor bx, bx                      ; BL = 1 once a prefix named one
+    mov cx, 4                       ; prefixes, at most
+.pfx:
+    mov al, [es:si]
+    mov di, [ss:bp+0]
+    cmp al, 0x26                    ; ES:
+    je .seg
+    mov di, [ss:bp+26]
+    cmp al, 0x2E                    ; CS:
+    je .seg
+    mov di, ss
+    cmp al, 0x36                    ; SS:
+    je .seg
+    mov di, [ss:bp+2]
+    cmp al, 0x3E                    ; DS:
+    jne .op
+.seg:
+    mov dx, di
+    mov bl, 1
+    inc si
+    loop .pfx
+    jmp mega_report
+.op:
+    cmp al, 0xFF
+    je .ff
+    cmp al, 0x9A
+    je .imm
+    cmp al, 0xEA
+    je .imm
+    cmp al, 0xCB
+    je .retf
+    cmp al, 0xCA
+    je .retf
+    jmp mega_report
+.imm:                               ; 9A/EA ptr16:16
+    mov cx, [es:si+1]               ; CX = the offset
+    mov di, [es:si+3]               ; DI = the segment
+    add si, 5                       ; SI = the next instruction
+    mov ah, al
+    cmp ah, 0x9A
+    jmp .target                     ; ZF = 1: a call
+.ff:                                ; FF /3 or /5 [mem]
+    mov ah, [es:si+1]               ; AH = modrm
+    mov al, ah
+    and al, 0x38
+    cmp al, 0x18                    ; /3: call far
+    je .modrm
+    cmp al, 0x28                    ; /5: jmp far
+    jne mega_report
+.modrm:
+    mov [mega_gpop], al
+    mov al, ah
+    shr al, 6                       ; mod
+    cmp al, 3
+    je mega_report                  ; a register is not a far pointer
+    mov cl, ah
+    and cl, 7                       ; CL = rm
+    xor di, di                      ; DI = the effective address
+    cmp al, 0
+    jne .base
+    cmp cl, 6
+    jne .base
+    mov di, [es:si+2]               ; mod 0 rm 6: [disp16]
+    add si, 4
+    jmp short .ea
+.base:
+    cmp cl, 4
+    je .rsi
+    cmp cl, 5
+    je .rdi
+    cmp cl, 7
+    je .rbx
+    cmp cl, 6
+    je .rbp
+    test cl, 2                      ; 0,1: BX+..; 2,3: BP+..
+    jnz .bp2
+    add di, [ss:bp+12]
+    jmp short .idx
+.bp2:
+    add di, [ss:bp+8]
+    or bl, bl
+    jnz .idx
+    mov dx, ss                      ; BP-based: SS, unless overridden
+.idx:
+    test cl, 1
+    jnz .rdi
+.rsi:
+    add di, [ss:bp+6]
+    jmp short .disp
+.rdi:
+    add di, [ss:bp+4]
+    jmp short .disp
+.rbx:
+    add di, [ss:bp+12]
+    jmp short .disp
+.rbp:
+    add di, [ss:bp+8]
+    or bl, bl
+    jnz .disp
+    mov dx, ss
+.disp:
+    cmp al, 1
+    jne .d16
+    mov al, [es:si+2]
+    cbw
+    add di, ax
+    add si, 3
+    jmp short .ea
+.d16:
+    cmp al, 2
+    jne .d0
+    add di, [es:si+2]
+    add si, 4
+    jmp short .ea
+.d0:
+    add si, 2
+.ea:
+    push ds
+    mov ds, dx
+    mov cx, [di]                    ; CX = the offset
+    mov di, [di+2]                  ; DI = the segment
+    pop ds
+    cmp byte [mega_gpop], 0x18
+.target:                            ; ZF = 1 a call, 0 a jmp; CX:DI the target
+    pushf
+    cmp di, [mega_gps]
+    jne .nottarget
+    mov ax, di                      ; AX = the code alias
+    shr ax, 2
+    or al, 4
+    popf
+    jnz .jmp
+    ; --- CALL: the frame down four bytes, the return address above it -----
+    mov dx, [ss:bp+26]              ; the caller's CS
+    mov bx, si                      ; BX = the return IP
+    xor si, si
+.dn:
+    mov di, [ss:bp+si]
+    mov [ss:bp+si-4], di
+    add si, 2
+    cmp si, 30
+    jb .dn
+    sub bp, 4
+    mov [ss:bp+30], bx              ; the return IP...
+    mov [ss:bp+32], dx              ; ...and CS, where the call put them
+.jmp:
+    mov [ss:bp+24], cx
+    mov [ss:bp+26], ax
+.resume:
+    mov sp, bp
+    pop es
+    pop ds
+    popa
+    add sp, 4                       ; vector and error code
+    iret
+.nottarget:
+    popf
+    jmp mega_report
+.retf:                              ; CB / CA iw: [T] = IP, [T+2] = CS
+    mov cx, [ss:bp+30]
+    mov di, [ss:bp+32]
+    cmp di, [mega_gps]
+    jne mega_report
+    mov dx, 4                       ; DX = the bytes the retf takes away
+    cmp al, 0xCA
+    jne .rup
+    add dx, [es:si+1]
+.rup:
+    mov ax, di
+    shr ax, 2
+    or al, 4
+    mov [ss:bp+24], cx
+    mov [ss:bp+26], ax
+    mov si, 28                      ; the frame UP by DX, top word first
+.up:
+    mov di, [ss:bp+si]
+    push si
+    add si, dx
+    mov [ss:bp+si], di
+    pop si
+    sub si, 2
+    jns .up
+    add bp, dx
+    jmp .resume
+
+mega_gps    dw 0                    ; mega_gpfix's S
+mega_gpop   db 0                    ; ...and FF's /reg
 
 ; mega_tasks_ok - CF = 0 when every task but the running one is the KERNEL'S
 ; (no instance, not a driver's service worker). A package's worker suspended

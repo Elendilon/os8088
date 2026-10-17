@@ -913,6 +913,34 @@ whoever extends this:
     prove - which it now has. A tool for it in tools/ is the next
     instrument, not yet built.
 
+14. **The fifth disk ran everything in 10.2** - the Control Panel's pages
+    too, though CTRL.DRV writes its own image on some paths - and three
+    things past it: the Hard Drive page, Paint, and NumLock.
+    * **An image far-calling another image** (HDD.DRV into HDDTOOL.DRV
+      through `hd_tfar`, and back through `hd_rdisp`) loads a data
+      selector into CS: `#GP 9500 at 2724:03A1` is `hd_tool_call`. A
+      driver cannot know to convert, and the SDK is not changed for it:
+      kern_mega's #GP handler (mega_gpfix) recognises the case by its
+      error code - a 512-aligned identity selector below A000h, which is
+      an image's base and has an exact LDT code alias - decodes the far
+      CALL, JMP or RETF at CS:IP, checks the target, and finishes the
+      transfer through the alias. A fault per such call, which here is a
+      page click; anything that does not match goes to the reporter.
+    * **A package's own segment arithmetic** is section 3's "real rework,
+      one site at a time", and Paint was a site the survey missed: its
+      per-row table (`pt_rowseg`, base + offset >> 4) is off the grid for
+      most rows, `#GP 3588 at 25B4:0830` being `mov es, [pt_rowseg+bx]`.
+      (A #GP error code drops the selector's low two bits, so 3588 is the
+      descriptor named, not the value loaded.) The table holds 128-byte
+      granules now - segment & ~7, offset & 127 - which real mode reads as
+      the same bytes; kern_big's Paint was checked drawing on QEMU.
+    * **NumLock** toggled KB_FLAG but never the keyboard's light, and
+      without the ROM's "held" byte (40:18) a typematic repeat toggled it
+      back. mega_k09 keeps 40:18 and sends EDh with the LED byte now;
+      Bochs's status bar shows the light follow.
+    All three were reproduced or checked under Bochs (item 13), Paint's to
+    the CS:IP and SP of the photograph.
+
 The alternating `kernel-full.bin` noted while measuring kern_big's
 identity is a `make mega` in the same tree: the sub-make leaves something
 in the shared `build/` that kern_big's next assembly reads, so the identity

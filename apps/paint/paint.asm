@@ -1808,8 +1808,8 @@ pt_layout:
     mov cx, [pt_ch]
 .row:
     mov ax, si
-    and ax, 15
-    mov [pt_rowoff+bx], ax          ; 0..15 bytes into its paragraph...
+    and ax, 127
+    mov [pt_rowoff+bx], ax          ; 0..127 bytes into its 128-byte GRANULE...
     mov ax, di
     mov dx, si
     push cx
@@ -1819,8 +1819,11 @@ pt_layout:
     shr dx, cl
     pop cx
     or ax, dx
-    add ax, [pt_base]
-    mov [pt_rowseg+bx], ax          ; ...whose segment is [pt_base] + off>>4
+    and al, 0xF8                    ; (the segment a multiple of 8 paragraphs:
+    add ax, [pt_base]               ; kern_mega's protected mode names memory in
+    mov [pt_rowseg+bx], ax          ; 128-byte steps, docs/plans/KERN-MEGA-PLAN.md
+                                    ; 3; real mode reaches the same byte either
+                                    ; way) ...whose segment is [pt_base] + off>>4
     sub si, [pt_stride]             ; one row up in the file is one row down
     sbb di, 0                       ; in the picture
     inc bx
@@ -16844,7 +16847,7 @@ pt_gbuf equ pt_spbuf                ; the sub-block itself, 255 bytes. A
     PTWORD pt_urbase
 %endif
     PTBUF  pt_rowseg, PT_CH_MAX * 2 ; canvas row -> the paragraph it starts in
-    PTBUF  pt_rowoff, PT_CH_MAX * 2 ; ...and the 0..15 bytes into it. Together
+    PTBUF  pt_rowoff, PT_CH_MAX * 2 ; ...and the 0..127 bytes into it. Together
                                     ; they are the whole of the bottom-up
                                     ; story AND of spanning segments
     PTWORD pt_fseg                  ; the ROM 8x8 font, where the BIOS keeps it
