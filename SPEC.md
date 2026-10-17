@@ -190916,14 +190916,17 @@ evaluation. An edit owes a save, held while the field is open and until one
 poll has passed with no edit, as v1.
 
 **The payload stays v1, 48 appointments and 32 tasks.** `main` cut it to a
-v2 of sixteen and sixteen - a 984-byte file, one cluster - for the 360 KB
-system disk's sake (§24.3.1.3). On this branch the cut buys nothing: the
+v2 of sixteen and sixteen - a 984-byte file, one cluster when the 360 KB
+system disk's clusters were 1 KB and two at today's 512 bytes (§19.3.2) -
+for that disk's sake (§24.3.1.3). On this branch the cut buys nothing: the
 file is PACKED (§110.5.3), so its size is the records in use, and a
 calendar the sixteen-slot table can hold is the same bytes under v1's. The
 cut only ever saved space on a calendar it refused to hold. The worst case
-- both tables full, 2,456 bytes, three clusters and three more while a save
-is in flight, plus SYSTEM.CFG's one - is seven free, and the disk keeps
-eleven. The full-table words still follow the counts (`Calendar is full
+- both tables full, 2,456 bytes - is the file and a second copy while a save
+is in flight, plus SYSTEM.CFG's one: **seven clusters where a cluster is 1 KB**
+(the 720 KB system disk, the small 360 KB one) and **eleven where it is 512
+bytes** (the 360 KB, 1.2 MB and 1.44 MB system disks, §19.3.2) - 5.5 KB
+either way, which every system disk keeps. The full-table words still follow the counts (`Calendar is full
 (48)`, `Task list is full (32)`, spelled from `DC_NAPPT`/`DC_NTASK` with
 `%defstr`).
 
@@ -191177,8 +191180,9 @@ GOTO_QM    home
   opened, an edit (`stik_touch`), a close that owes one; never a launch by
   itself - DELETE the damaged file inside `stik_enter`'s walk and then write
   afresh. Deleting FIRST is the point: a replace claims its new chain before
-  it frees the old one (§18.4), and the 360KB system disk has room for one
-  copy of a three-cluster state file and not two. The calendar says
+  it frees the old one (§18.4), and the 360KB system disk had room for one
+  copy of a three-cluster state file and not two (its clusters were 1 KB
+  then; §19.3.2 made them 512 bytes since, and the file five of them). The calendar says
   `Calendar file damaged` at launch, the first beat's toast (`dc_ltp`), and
   runs empty. A package without `STIK_DMGREPLACE` keeps wave 1's rule. Until
   the size pass this was a Yes / No `os88ui_ask` (`STIK_DAMAGEDQ`,
@@ -191215,9 +191219,11 @@ unless it PACKS its own (`STIK_PACK`, §110.5.3.1 below), when what it packs is
 what is written and the zero tail is not looked for.
 
 What it bought is DISK, on the geometry that runs out first. Sticky Note's
-payload is a 4 KB pool (§110.13.2) and its file was 4,192 bytes - **five
-clusters on a 360 KB disk whatever it held** - where the welcome note is a
-few hundred bytes and one cluster. A payload whose free space sits at its END
+payload is a 4 KB pool (§110.13.2) and its file was 4,192 bytes - **whatever
+it held: nine clusters where a cluster is 512 bytes, five where it is 1 KB**
+(a cluster's size is the DISK's: §19.3.2 has the system disks at 512 bytes
+but the 720 KB one and the small 360 KB one) - where the welcome note is a
+few hundred bytes and one cluster on any of them. A payload whose free space sits at its END
 gets the whole of the saving; Sticky Note keeps its pool's free end zero for
 it (`sn_ztail`: after a delete moves the tail down, and at launch, for a file
 an older build wrote). The Desk Calendar packs (§110.5.3.1): its free space
@@ -191234,10 +191240,11 @@ is the longest legal length, so nothing migrates.
 **The calendar's state file holds the records IN USE, not the table.** Its
 payload is fixed in memory - 8 bytes, 48 appointments of 32 at +8, 32 tasks
 of 28 at +1544, 2,440 in all (§110.3) - and until this it was written that
-way whatever it held: 2,456 bytes, three clusters, for an empty calendar. A
-replace claims its new chain before it frees the old (§18.4), so every save
-wanted three free clusters BESIDE the file, and on the 360 KB system disk,
-which has held seven or fewer since the calendar shipped, that was the
+way whatever it held: 2,456 bytes, for an empty calendar - three clusters of
+1 KB, five of 512 bytes. A replace claims its new chain before it frees the
+old (§18.4), so every save wanted that much free BESIDE the file, and on the
+360 KB system disk, which held seven or fewer 1 KB clusters free until
+§19.3.2 halved its cluster, that was the
 difference between a calendar that saves and one that goes read-only after
 its first save (§110.6's size-pass table).
 
@@ -193167,7 +193174,8 @@ apps/stiknote/sned.inc       the editor: layout, composer, keys, clicks, scroll
 
 4,176 bytes - and a file only as long as the notes in it (§110.5.3): the
 pool's free end is kept zero and the save leaves it off, so the welcome note
-is one cluster on a 360KB disk where the whole pool was five. **One pool and
+is one cluster where the whole pool was nine of 512 bytes (five of 1 KB - a
+cluster's size is the disk's, §19.3.2). **One pool and
 not 24 slots** (the owner's choice): a note may be long while the others are
 short, and a note's place is the sum of the lengths before it, so an insert
 moves the pool's tail up a byte (`sn_ins`) and nothing else moves. A payload
@@ -193574,8 +193582,9 @@ tomorrow. Neither is modal and neither takes the keys (§110.3's rules).
 #### 110.14.8 What it costs
 
 **No kernel byte.** `DESKCLOK.O88` is a 25,152-byte image and 5,368 bytes of
-bss (its band 4,608 of it), 20,382 bytes packed on the disk - 20 clusters at
-360 KB, which is where §24.3.1.5's room went. At run time it claims the face
+bss (its band 4,608 of it), 20,382 bytes packed on the disk - 40 clusters
+of 512 bytes on the 360 KB system disk (§19.3.2), 20 of 1 KB on the 720 KB
+and small 360 KB ones - which is where §24.3.1.5's room went. At run time it claims the face
 cache (above) and, for a colour settings paint, its tall band. `os88stik.inc`
 gained `STIK_VARFACE`, which neither other Sticky App defines, so their builds
 are unchanged.
