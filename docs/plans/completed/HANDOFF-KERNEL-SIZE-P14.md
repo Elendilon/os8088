@@ -41,17 +41,19 @@ had moved by +45. kern_big's cold rung had been crossed again.
 
 | | base `4833dfef` | close | delta |
 |---|---:|---:|---:|
-| **kern_big resident** | 92,757 | **91,542** | **-1,215** |
-| kern_big `.text` / `.bss` / `.cold` | 43,756 / 5,223 / 38,084 | 42,984 / 5,218 / 37,646 | -772 / -5 / -438 |
-| kern_big `KERN_SIZE` | 98,816 | **97,792** | **-1,024** (two rungs: the cold one the unpassed work crossed, and the image one) |
-| kern_big `.boot2` (kernsize's figure) / real blob | 5,129 / - | 5,407 / 5,621 of 5,632 | `BOOT2_SECS` 11 throughout |
+| **kern_big resident** | 92,757 | **90,936** | **-1,821** |
+| kern_big `.text` / `.bss` / `.cold` | 43,756 / 5,223 / 38,084 | 42,630 / 5,218 / 37,394 | -1,126 / -5 / -690 |
+| kern_big `KERN_SIZE` | 98,816 | **97,280** | **-1,536** (three rungs: the cold one the unpassed work crossed, and two image ones) |
+| kern_big `.boot2` (kernsize's figure) / real blob | 5,129 / - | 5,896 / 6,110 of 6,144 | `BOOT2_SECS` 11 -> **12** (dispsw; no extra `int 13h` on any geometry) |
 | **kern_small resident** | 60,260 | **58,912** | **-1,348** |
 | kern_small `.text` / `.bss` / `.cold` | 31,847 / 3,063 / 22,482 | 31,124 / 2,978 / 21,942 | -723 / -85 / -540 |
 | kern_small `KERN_SIZE` | 62,464 | **60,928** | **-1,536** (three rungs) |
-| **kern_emu resident** | 93,016 | **91,799** | **-1,217** |
-| kern_emu `KERN_SIZE` | 99,328 | 97,792 | -1,536 |
+| **kern_emu resident** | 93,016 | **91,193** | **-1,823** |
+| kern_emu `KERN_SIZE` | 99,328 | 97,280 | -2,048 (`BOOT2_SECS` 13: it carries its extra knob sector) |
 
-The goal was met on all three kernels. Every merge reproduced the sum of the
+The goal was met on all three kernels - by the nine agents (-1,215 on
+kern_big) before the owner approved the last two moves, which took it to
+-1,821. Every merge reproduced the sum of the
 branches to within four bytes on either side (branch relaxation re-converging
 on the merged layout).
 
@@ -59,10 +61,13 @@ on the merged layout).
 
 Five concept agents and three whole-kernel agents, each in a worktree of its
 own at `aedadd25` (the brief); then `xfile` on the merged tree (`a7f9ac2e`)
-for the cross-file lists; then the coordinator's one owner-approved item.
+for the cross-file lists; then the coordinator's one owner-approved item;
+then `dispsw` on the merged tree (`9210f7e4`) for the two moves the owner
+approved after xfile priced them.
 
 | agent | subject | big | small | images |
 |---|---|---:|---:|---|
+| **dispsw** | Set Primary and the check-box/radio glyph into `CTRL.DRV` (the owner's call) | **-606** | 0 | **`CTRL.DRV` claim 13 -> 14 KB** (13,793 + 163 of 14,336), `EXTD.DRV` 1,406 -> 1,511 (2 KB), blob 11 -> 12 sectors |
 | **wkgui** | the window system and drawing | **-406** | **-428** | `EXTD.DRV` 1,031 -> 1,406 inside its 2 KB claim |
 | **wkcore** | the core | **-338** | -49 | `HIBER.DRV` claim 6 -> 7 KB (the owner's call, 4) |
 | **xfile** | the cross-file lists, after the merge | -160 | **-715** | kern_small `CTRL.DRV` 4,395 -> 4,878 (5 KB), `FDLG.DRV` +16 bss (2 KB) |
@@ -74,7 +79,7 @@ for the cross-file lists; then the coordinator's one owner-approved item.
 | **desk** | the desk layer, DIAs/Sticky Apps | -16 | -2 | `DOCK.DRV` -10 |
 | coordinator | `wm_su_rect`'s chromeless arm (the owner's call) | -10 | +3 | |
 | merges | | ±4 | ±4 | |
-| **total** | | **-1,215** | **-1,348** | |
+| **total** | | **-1,821** | **-1,348** | |
 
 ### 1.1 What paid, and how
 
@@ -158,13 +163,22 @@ estimated:
   defensive `cld`s (~-20), five-byte rare cells (~-105, an ABI break on
   `main`), the slot tables at 12/24 (-112, reopens a silent drop), kern_small's
   `TP` preset (-7, loses a user's preset), `app_launch`'s at-cap refusal (-6).
-* **NOT YET PUT** (xfile's, after the decisions): kern_big's display-switch
-  cluster into `CTRL.DRV` (~450-580, estimated) and kern_big's check-box and
-  radio glyph there (-207, the kern_small move measured). Both need
-  `CTRL.DRV`'s claim 13 KB -> 14 KB - it has 21 bytes spare - and the
-  cluster also needs blob room (11 bytes left, below). Neither makes a
-  feature need a disk; both hold 1 KB more heap while the panel is open,
-  which is the same kind of trade as `HIBER.DRV`'s.
+* **TAKEN, put after xfile priced them** (`dispsw`, -606 together):
+  * **Set Primary into `CTRL.DRV`**, at the owner's word: *"setting a new
+    primary ... only happens from control panel so yes do it"*. `vid_switch`,
+    `vid_disp_init`, `wm_refit` and the Dock page's apply are written once as
+    macros and expanded in `CTRL.DRV` and in a twelfth blob sector for the
+    boot (a `SYSTEM.CFG` naming a non-default primary). `vid_equip` and
+    `vid_desk_union` are expanded a third time in `EXTD.DRV`, because a
+    fullscreen program leaving an extended desktop is their one caller
+    outside the panel - so nothing outside the Control Panel and the boot
+    needs `CTRL.DRV` (tested with it unloaded, and broken on purpose once).
+    What stayed resident and why is in `ksp13/dispsw.md`.
+  * **The check-box and radio glyph into `CTRL.DRV`** (-207): the panel is
+    its only kernel caller on kern_big too. Packages carry their own copy
+    and are byte-identical.
+  * Together they take `CTRL.DRV`'s claim 13 KB -> 14 KB while the panel is
+    open, the same kind of trade as `HIBER.DRV`'s.
 
 ## 4. WANTS AN ABI BREAK
 
@@ -189,6 +203,18 @@ shape that works - both forms on `OSAPI_MEM_FREE` - measured kern_big **+6**.
   includes `drivers/thmpal/thmrows.inc` by a root-relative path (four agents
   hit it; FIXED twice over - a "." in the include search and `drivers/` in
   the export).
+* **`tests/kdreturn.py --compact module` walled 3+3 KB round the DOS box**
+  for a 6 KB `HIBER.DRV`: with the 7 KB image (wkcore, the owner's call) it
+  could not fit even after the move, and the handoff refused honestly - the
+  row read it as SPEC.md 96.40.8's defect. The holes now add up to the image
+  (4 under, 3 over: the ceiling leaves exactly 4 KB above the box). FIXED.
+* **`tests/kdbigexe.py`'s breakpoint is a flat address that is live KERNEL
+  code until the handoff replaces it**; this pass moved an instruction the
+  handoff executes onto it, so the first recorded "width" was 2135. A hit
+  counts now only while the bytes under it are kern_dos's own. FIXED.
+* **`MSELOFF=1` did not assemble** (`soak -k buildmatrix`): `fm_mods` sat
+  inside `%ifdef FM_MSEL` while the `*.LNK` Alt-drop calls it too. It failed
+  at the pass's base as well. FIXED with no byte of the shipped kernel moved.
 * **`tools/os88marty.py`'s `no_saver` wrote `[ss_mins]` by name**, which
   kern_small no longer has (wkgui, FIXED: it writes it where the symbol
   exists).
@@ -208,16 +234,14 @@ shape that works - both forms on `OSAPI_MEM_FREE` - measured kern_big **+6**.
 
 ## 6. WHAT IS LEFT
 
-* **The boot blob is full**: 5,621 of 5,632 bytes, 11 spare. The next thing
-  that grows it takes the twelfth sector, which costs a 720 KB machine one
-  more `int 13h` (`t_blobruns` went red when wkcore tried it), or first makes
+* **The boot blob is full again**: 6,110 of 6,144 bytes on kern_big, 34
+  spare, at 12 sectors. The next thing that grows it takes a thirteenth
+  (`--sectors 13` prices that at no extra `int 13h` either), or first makes
   `ovc_buf`'s 163 zero bytes nobits with a `mem_init` reserve that covers
   them (xfile's WANTS 3, ESTIMATED).
 * **kern_small's `DISKOPS.DRV` is exactly 7,168 bytes**, as at pass 12's
-  close: one byte more and its claim is 8 KB. kern_big's `CTRL.DRV` has 21
-  bytes of its 13 KB.
-* **Section 3's NOT YET PUT pair** (~650-790 together), which is the largest
-  thing left that needs no disk.
+  close: one byte more and its claim is 8 KB. kern_big's `CTRL.DRV` has 380
+  bytes of its 14 KB.
 * **`.ovl` is 5,118 of 5,120** on kern_big.
 * Carried, untouched: `HDD.DRV` at its floor, the 2A3h PicoMEM ramp in four
   places, the relaxed-jump remainder (pass 11's table says which are
@@ -239,8 +263,30 @@ shape that works - both forms on `OSAPI_MEM_FREE` - measured kern_big **+6**.
 
 ### 7.1 The close
 
-Filled in at the close: the integration soak over the merged tree, the full
-tier, `soak -k buildmatrix`, and `docs/KERNEL-MEMORY.md` re-blessed.
+* **The integration soak**, on the merged nine (`9210f7e4`): **278 rows**,
+  the union of every agent's rows widened to every subject family the pass
+  touched (`assoc*`, `ico*`, `fmt*`, `stik*`, `desk*`, `dock*`, `fdlg*`,
+  `fcp*`, `wseq*`, `fm*`, `thm*`, `disp*`, `cur*`, `small*`, `kd*`,
+  `hibernate*`, `drv*`, `lz*`, `img*`, `cp*`, `hd*`, `snd*`, `heap*`, `reg*`,
+  `rehome*`, `rom*`, `vidpage*`, `wire*`, `int0sweep`...). **276 ok first
+  time; `kdreturncm` and `kdbigexe` failed** - both green at the base and red
+  at the merge, both the ROW (section 5), both green after the fix. `blitcut`
+  was cut off by a container restart and passed on re-run. The whole soak
+  tier was not run: it is the owner's to ask for.
+* `dispsw`'s 30 rows on its own tip (the Display page, the extended desktop,
+  the fsx bracket, the boot, `small128`): 30/30.
+* **The full tier: 55/55** on the close.
+* **`soak -k buildmatrix`: ok** (after the `MSELOFF=1` fix).
+* `make`, `make small`, `make emu`, `make rom` build; `docs/KERNEL-MEMORY.md`
+  re-blessed on all three kernels.
+* **A new fast row, `hotpar`** (`tests/unit/t_hotpar.py`, 0.1 s, at the
+  owner's request): every hot routine starts at the address PARITY it was
+  measured at, on kern_big and - when `build/smallk` is current - kern_small.
+  The kernel build now writes `kernel.map` beside `kernel-full.bin` (no byte
+  of the image), so the row assembles nothing. Broken on purpose with one
+  `nop` in front of the hot `.text` run on each kernel: red, and green on
+  restore. It is the gate for the step section 8 says both passes had to do
+  by hand.
 
 ## 8. METHOD LESSONS
 
@@ -260,6 +306,9 @@ tier, `soak -k buildmatrix`, and `docs/KERNEL-MEMORY.md` re-blessed.
   writing it there. The two biggest single moves (-330, -266) were each one
   reachability argument. A pass briefed for a fixed byte target should weight
   its agents that way.
+* **Parity is a gate now** (`hotpar`, above). Both passes found the hot list
+  at an odd shift part-way through and padded it back by hand; the row pins
+  the parities, so the next pass is told at the first `make` that moves one.
 * **A reference walk misses fall-through entries** (wkcore nearly moved the
   screen saver's path out of resident): verify every moved entry by READING.
 * **A stale row mirror reads as a kernel defect**: two rows had failed since
