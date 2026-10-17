@@ -5400,6 +5400,47 @@ dskw_fmt_put:
     ret
 
 ; -----------------------------------------------------------------------------
+; DSK_VOLID base - a FRESH VOLUME SERIAL for the boot sector at ES:base
+;                  (SPEC.md 18.8.2.1). A MACRO, expanded in each image that
+;                  writes a boot sector - FORMAT.DRV's dskw_format_x here and
+;                  DISKOPS.DRV's clo_volid - so it costs those two files and no
+;                  resident byte.
+; in:  ES:base = a whole boot sector about to be written, whose BS_BootSig
+;      (+38) the CALLER has established is 0x29 - the format by its own
+;      template, clo_volid by asking, since only that byte says +39 is a
+;      serial at all; DS = KERNEL_SEG
+; out: BS_VolID (+39) has had the moment ADDED to it. Every register and DF
+;      preserved; flags clobbered.
+;
+; The disk's identity to this kernel is its boot sector (dsk_bpb_sig), so two
+; disks made here must not share one. ADDED rather than stored: a format's
+; template serial and a clone's source serial both survive as the base, and
+; what goes on top is the moment - the PIT's live count (838 ns, so two
+; stamps in one second differ), [ticks], and the clock's fields as words, the
+; way DOS mixes its date and time into a serial. The latch and both reads sit
+; in one cli window: SPEC.md 34.1's rule for reading the 8254.
+; -----------------------------------------------------------------------------
+%macro DSK_VOLID 1
+    push ax
+    pushf
+    cli
+    mov al, 0x00                ; latch channel 0's count
+    out 0x43, al
+    in al, 0x40
+    mov ah, al
+    in al, 0x40                 ; (byte order is no matter to a sum)
+    add ax, [clk_sec]           ; + the second and the minute
+    add [es:%1+39], ax          ; the serial's LOW word
+    mov ax, [ticks]
+    add ax, [clk_hour]          ; + the hour and the day
+    add ax, [clk_mon]           ; + the month
+    add ax, [clk_year]
+    add [es:%1+41], ax          ; ...and its HIGH word
+    popf
+    pop ax
+%endmacro
+
+; -----------------------------------------------------------------------------
 ; dskw_format_x - lay a fresh FAT12 volume on the floppy in [disk_drive]
 ; in:  AL = a dskw_fmt_tab row (dskw_fmt_probe_x's answer), [disk_drive] = the
 ;      volume. UI task, gfx lock held - dskw_*'s context exactly.
@@ -5479,6 +5520,9 @@ dskw_format_x:
     call dskw_fmt_cpy           ; not-bootable stub. Every byte past the stub
                                 ; is the zeroed scratch's.
     mov word [es:dsk_secbuf+510], 0xAA55    ; rule 1's signature, last
+    DSK_VOLID dsk_secbuf        ; ...and a serial of this disk's own
+                                ; (SPEC.md 18.8.2.1): the template carries
+                                ; BootSig 0x29, so there is nothing to ask
     xor di, di
     jmp short .put
 .notboot:
@@ -5828,10 +5872,10 @@ dskw_fmt_t2:  dw 2              ; BPB_NumHeads: every row is double-sided
               db 0, 0           ; BS_DrvNum, BS_Reserved1: int 13h is told the
                                 ; drive by dsk_xfer, never by this
               db 0x29           ; BS_BootSig: VolID/Lab/Type follow
-              dw 0x0888, 0x8800 ; BS_VolID, os88disk.py's own - a fixed
-                                ; serial, so two disks formatted here are as
-                                ; alike as two images built here (18.8.2's
-                                ; accepted residual)
+              dw 0x0888, 0x8800 ; BS_VolID: os88disk.py's fallback, and only
+                                ; the BASE - DSK_VOLID adds the moment of
+                                ; the format to it, so no two disks formatted
+                                ; here share a serial (SPEC.md 18.8.2.1)
               db 'NO NAME    '  ; BS_VolLab: DOS's own word for a volume
                                 ; nobody has named - which is what this is,
                                 ; since no label ENTRY is written either

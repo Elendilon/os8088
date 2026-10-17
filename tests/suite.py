@@ -9841,7 +9841,9 @@ SOAK = [
         "read, so the manual was installed EXPANDED with its directory hint "
         "gone while every file too big for the buffer was copied raw and "
         "correctly. The tree check passes either way; only the bytes say "
-        "which happened, and one FAT reader reads both sides. It ERASES the "
+        "which happened, and one FAT reader reads both sides. And the fresh "
+        "VBR must carry a serial (SPEC.md 18.8.2.1) - it was 0 on every "
+        "install, red with hd_bpb_fill's two stores taken out. It ERASES the "
         "VHD.",
         needs=("marty",), serial=True, timeout=1200),
     Row("instassoc", "soak", py("tests/instassoc.py"), 85.0,
@@ -13927,7 +13929,10 @@ SOAK = [
         "diskclone - Clone Disk... (SPEC.md 18.99/22.21) driven end to end, "
         "with the assertion that cannot pass for the wrong reason: the two "
         "floppies read back off the guest and diffed byte for byte. Cross "
-        "drive, same drive, the un-swapped-disk guard and Esc",
+        "drive, same drive, the un-swapped-disk guard and Esc. Byte for "
+        "byte BAR BS_VolID: the copy carries a serial of its own (SPEC.md "
+        "18.8.2.1), different from the source's and from the other clone's "
+        "- red on all three with DSK_VOLID emptied",
         needs=("marty",), serial=True),
     Row("fmtlow", "soak", py("tests/fmtlow.py"), 65.0,
         "fmtlow - Format Disk... reclaims a disk it cannot READ (SPEC.md "
@@ -13959,7 +13964,9 @@ SOAK = [
         "byte it recognises (6 in 256) wrote a 360KB file of the 720KB disk "
         "or refused with DataError - the row's two flakes, both reproduced "
         "every time with the byte forced. On os8088_5150_cga_720b_gla. "
-        "Measured at 38-40s",
+        "Each arm's disk must carry a serial of its own, neither the "
+        "template's 0x88000888 nor the other arm's (SPEC.md 18.8.2.1) - "
+        "red on three checks with DSK_VOLID emptied. Measured at 36-40s",
         needs=("marty",), serial=True),
     Row("imgmount", "soak", py("tests/imgmount.py"), 75.0,
         "SPEC.md 18.101: a .IMG mounted as a drive by a double-click, and "
@@ -14011,6 +14018,9 @@ SOAK = [
         "diffed: apps360.img as a FILE on a 720KB B:, written over the 360KB "
         "system disk in A:, and drive 0 read back must BE the image, every "
         "sector - with the positive control that it is not before the write. "
+        "Every sector BAR BS_VolID, which must differ from the image's "
+        "(SPEC.md 18.8.2.1), and the image file on B: must be untouched - "
+        "red with DSK_VOLID emptied. "
         "The round trip diskclone says no 360KB machine can host, on "
         "os8088_5150_cga_720b_gla. FIRST a write made to fail (the first "
         "write int 13h caught at the gate and aimed at absent drive 3) must "

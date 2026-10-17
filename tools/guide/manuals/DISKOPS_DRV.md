@@ -26,6 +26,8 @@ With one drive, os8088 asks you to insert the SOURCE disk and then the
 TARGET disk. If the target looks like the source, it warns
 `Still the SOURCE disk`; press `Enter` to check again or `Y` to go ahead.
 When the copy is done the menu bar says, for example, `Cloned A: to B:`.
+The copy is exact except for its volume serial number: the new disk gets one
+of its own, so os8088 and DOS can always tell the two disks apart.
 
 ![Cloning to an image file instead of a disk.](shot:diskops-drv-image){right}
 
@@ -37,7 +39,8 @@ into one file, such as `DISK.IMG`, on any disk with room for it.
 **Disk > Write Image...** is the reverse. An Open box picks an image file,
 then the window asks `ERASE A: and write DISK.IMG?`. `Enter` writes the
 image onto the floppy in the window's drive. The file must be the size of a
-whole floppy.
+whole floppy. The floppy gets a volume serial number of its own, as a cloned
+disk does, and the image file itself is left as it was.
 
 ## Compress and Uncompress
 

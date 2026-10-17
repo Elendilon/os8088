@@ -33970,6 +33970,89 @@ window removed the FAT re-read at the switch, `dskw_find` keeping its entry
 removed the directory re-read at the open, and they are different sectors, so
 the wins add rather than overlapping. Nothing here had to change for it.
 
+#### 18.8.2.1 …and every disk the MACHINE makes gets a serial of its own
+
+`os88disk.vol_id` settled the disks the HOST builds. The disks the machine
+makes were the same defect one layer over, and were written down as *"18.8.2's
+accepted residual"*: **`Format Disk...`** stamped `dskw_fmt_t2`'s fixed
+0x88000888 on every disk it formatted, and **`Clone Disk...`** and **`Write
+Img...`** (§18.99, §18.99.8) laid the source's sector 0 down verbatim, so a
+clone was its source's twin and every floppy written from one shipped image
+was the twin of every other. Each of those pairs signs the same, and so each
+is one quiet mount away from the old disk's FAT going onto the new one.
+
+So each of them now stamps the disk it produces, on the way to it:
+
+| operation | where | what is stamped |
+|---|---|---|
+| `Format Disk...` | `FORMAT.DRV`, `dskw_format_x` | the boot sector `dskw_format_x` builds, before it is written |
+| `Clone Disk...`, disk to disk | `DISKOPS.DRV`, `clo_volid` from `clo_fin` | the copy of the source's sector 0 in the staging buffer, as it is written LAST (§18.99.2) |
+| `Write Img...` | the same `clo_fin` | the same: the image's sector 0 on its way to the floppy |
+| hard-disk Format and the installer's fresh VBR | `HDDTOOL.DRV`, `hd_bpb_fill` (§52.3) | the BPB both of them write |
+
+**The stamp is an ADD, not a store.** `DSK_VOLID` (a macro in
+`kernel/diskw.inc`, instantiated once in each kernel image that writes a boot
+sector) adds the moment to the serial already there: the 8254's live channel 0
+count, latched and read in one `cli` window (§34.1), and the clock's second
+and minute to the LOW word; `[ticks]` and the clock's hour, day, month and year
+to the HIGH word. That is DOS's own recipe - its serial is the date and time
+words added - with the PIT on top, because it counts in 838 ns: two formats in
+the same second, or two clones of one image a minute apart on a machine whose
+clock was never set, still differ. A format's base is the template's
+0x88000888; a clone's is the SOURCE's serial, so the copy is the source moved
+by a moment rather than a fresh guess.
+
+**Only a boot sector carrying the extended BPB is stamped** - `BS_BootSig` 0x29
+at +38, which is what says +39 is a serial at all. A DOS 2.x disk, or anything
+else without it, is written exactly as it was: there, +39 is boot code.
+
+**What is NEVER modified is the SOURCE.** The source floppy is only read. The
+`.IMG` file `Write Img...` reads is only read. `CL_BOOT`, the kept copy of the
+source's sector 0, is left alone too, because §18.99.3's "is this the source
+disk?" compares the drive against it. And `Clone Disk...` to `IMG` is not
+stamped: the file is a faithful picture of the floppy, as a backup should be,
+and it gets a serial of its own on the day it is written back to a disk. A
+mounted image is a volume of its own index (§18.101), so its twin floppy never
+meets it in one drive.
+
+**It changes nothing the boot path reads.** `boot/boot.asm` and
+`boot/boothd.asm` read BPB fields +11 to +23 and `BPB_HiddSec`, stage 2 reads
+what stage 1 handed it, and §18.93.1's canary is a KERNEL.SYS sector - so a
+system image written by `Write Img...` boots as it did. No host gate reads the
+serial of a disk the machine wrote: `t_volsig` reads the images `make` built,
+and `os88disk.py --verify` does not check the field at all.
+
+**And it fixes §18.99.3's own false positive.** *"Cloning onto a target that
+was cloned from the same source"* was the case where the target prompt said
+`Still the SOURCE disk` about a disk that was not: the old clone's sector 0
+was the source's to the byte. It carries its own serial now, so that warning
+only fires for a disk without the extended BPB.
+
+**What is still a twin is a disk made ELSEWHERE**: two floppies written from
+one image by a host tool (`dd`, RawWrite, WinImage) or by a DISKCOPY old
+enough to copy sector 0 verbatim. Nothing on this machine wrote those, so
+nothing here can stamp them - which is why §110.5.1's unattended save keeps its
+full mount.
+
+The bytes are all in on-demand images: **no resident byte on either kernel**.
+Measured at one commit against the tree before it (`make`, `make small`,
+`make emu`): `KERNEL.SYS` is **byte-identical** on `kern_big`, `kern_small` and
+`kern_emu`, and `kernsize` reads the same on all three. The images: `FORMAT.DRV`
+**+47** (3,022 -> 3,069 on `kern_big`, 1,141 -> 1,188 on `kern_small`; the
+macro expanded inline, without the extended-BPB test because the format's own
+template carries 0x29), `DISKOPS.DRV` **+56** on both kernels (10,112 -> 10,168
+and 7,176 -> 7,232: `clo_volid`, the test, the macro and its call), and
+`HDDTOOL.DRV` **+34** bytes of code that land in the 300-byte pad in front of
+`hd_mbr` (hdsec.inc), so its image stays 16,483. On the disk, packed: +45, +39
+(+63 on `kern_small`) and +36 bytes.
+
+`tests/diskclone.py`, `tests/wimgtrip.py`, `tests/fmtreach.py` and
+`tests/instdeep.py` assert it: a clone and its source, two clones of one
+source, a written disk and its image, two formatted disks and an installed VBR
+must each carry their own serial, every other byte being what it was. With
+`DSK_VOLID` emptied and `hd_bpb_fill`'s two stores taken out, all four go red
+on exactly those checks.
+
 ### 18.8.3 …and the kernel's own window is one of them, PINNED
 
 `FAT_SEG` was a **fallback**: 4,608 bytes reserved on every machine, used by
@@ -36760,7 +36843,8 @@ caller had already coalesced. Slots are a knee rather than a slope: 1 → 156,
 - **The key is §18.8.1's** — the volume index plus `[dsk_sigcur]`, the
   position-sensitive sum of the boot sector this mount read (§18.8.2). A
   switch to another volume and back keeps the cache; a disk swapped for a
-  different one loses it; the residual is the one §18.8.2 already states.
+  different one loses it; the residual is the one §18.8.2.1 states - two
+  disks made identical somewhere other than this machine.
 - **A full mount drops everything and a quiet one does not.** A full mount is
   a navigation or a **Refresh**, and Refresh answered out of a cache is a
   no-op, which is the one thing it must never be.
@@ -37533,6 +37617,11 @@ is why that argument had it backwards for a floppy.
 | `dskw_fmt_probe` | in: `[disk_drive]` = the volume. Out: CF=0 with AL = a row of `dskw_fmt_tab`; CF=1 with AX = `FERR_*` — the volume is not a floppy (`FERR_PROT`), or `FORMAT.DRV` could not be read (`FERR_NODISK`). A medium nothing can read is **not** a refusal (§18.96.3). Clobbers AX, flags. **Reads only**, so it is safe to call before the user has agreed to anything, and that is the point: the confirmation names the size it is about to make. |
 | `dskw_format` | in: AL = a `dskw_fmt_tab` row, `[disk_drive]` = the volume. Out: CF=0; CF=1 with AX = `FERR_IO` / `FERR_WPROT` / `FERR_PROT`. Clobbers flags. Writes the boot sector **first** and the root directory last. |
 | `dskw_fmt_reach` | in: AL = the row just written, `[disk_drive]` = the volume, `[disk_spt]`/`[disk_heads]` still the format's. Out: CF=0 — the volume's **last** sector was written and read back intact; CF=1 — it was not. Clobbers AX, flags. Destroys that sector's contents, so it is callable only on a disk the user has already agreed to erase (§18.96.2). |
+
+The boot sector it writes is `tools/os88disk.py`'s data-floppy sector byte for
+byte **but for its serial**: `dskw_fmt_t2`'s 0x88000888 is only the base, and
+`DSK_VOLID` adds the moment of the format to it, so no two disks formatted
+here share an identity (§18.8.2.1).
 
 **The geometry is two questions and they have two different answers.** How
 many sectors a track holds is a property of the MEDIUM and is read off it —
@@ -38501,6 +38590,11 @@ And the identity check below keeps working across every trip. Were sector 0
 written first, the target would carry the source's boot sector from trip 2
 onward and "is this the source disk?" would answer yes for ever.
 
+**What goes down is the source's sector 0 with a serial of the target's
+own** (§18.8.2.1): `clo_fin` copies `CL_BOOT` into the staging buffer and
+`clo_volid` stamps that copy, when it carries the extended BPB, before the
+write. `CL_BOOT` itself is never touched, because §18.99.3 compares against it.
+
 #### 18.99.3 Is this the source disk? — the check, and why it is a WARNING
 
 A same-drive clone asks for two disks by turns, and the hazard is the user
@@ -38526,11 +38620,14 @@ A:`, and the middle of it is whatever was there before. That is §18.99.5's own
 standard — "a clone that copies half a disk produces a target that mounts and
 lies" — arrived at from the other side, and it is the direction that is silent.
 
-Neither verdict is proof. Two disks can carry identical boot sectors: cloning
-onto a target that was cloned from the same source is exactly that case, and it
-is a thing people do — the target prompt's false positive and the source
-prompt's false negative are that one case seen from each end. So `CLS_SAME` and
-`CLS_NOSRC` are both **warnings with three answers** — Enter re-checks, `Y`
+Neither verdict is proof. Two disks can carry identical boot sectors. Cloning
+onto a target that was cloned from the same source WAS exactly that case, and
+it is a thing people do — the target prompt's false positive and the source
+prompt's false negative were that one case seen from each end. Since §18.8.2.1
+a clone carries a serial of its own, so that case is closed for any source
+with the extended BPB; what is left is a source without one, and two disks
+made identical elsewhere. So `CLS_SAME` and `CLS_NOSRC` are both **warnings
+with three answers** — Enter re-checks, `Y`
 goes anyway, Esc stops — and the habitual key is the safe one, which is §22's
 asymmetry in the place it matters most.
 
@@ -38704,6 +38801,13 @@ ordinary file on an ordinary volume:
 §12.8's progress bar and the refusal paths are the same code; `CL_END` says
 which end is the file, and `clo_imgrun` is `clo_both` with one half of each
 chunk going through the file API instead of `int 13h`.
+
+**The two directions treat the serial differently, and on purpose**
+(§18.8.2.1). `Write Img...` ends in `clo_fin` like a disk-to-disk clone, so
+the floppy it writes gets a serial of its own and the image file is only ever
+read. Clone to `IMG` never calls `clo_fin` and writes the source's sector 0
+into the file VERBATIM: a backup is a faithful picture, and it is stamped on
+the day it becomes a disk again.
 
 **The two ends are addressed completely differently, and that is the whole of
 the difficulty.** The disk end is raw sectors: it wants `[disk_drive]` and the
@@ -39443,7 +39547,7 @@ which machine each is for):
 | BS_DrvNum (36, 1)          | 0                 | 0                 | 0                 | 0                 |
 | BS_Reserved1 (37, 1)       | 0                 | 0                 | 0                 | 0                 |
 | BS_BootSig (38, 1)         | 0x29              | 0x29              | 0x29              | 0x29              |
-| BS_VolID (39, 4)           | 0x88000888 fixed  | 0x88000888 fixed  | 0x88000888 fixed  | 0x88000888 fixed  |
+| BS_VolID (39, 4)           | `vol_id(content)` | `vol_id(content)` | `vol_id(content)` | `vol_id(content)` |
 | BS_VolLab (43, 11)         | `"OS8088APPS "`   | `"OS8088APPS "`   | `"OS8088APPS "`   | `"OS8088APPS "`   |
 | BS_FilSysType (54, 8)      | `"FAT12   "`      | `"FAT12   "`      | `"FAT12   "`      | `"FAT12   "`      |
 | boot code (62..509)        | message stub      | message stub      | message stub      | message stub      |
@@ -40082,8 +40186,9 @@ Six things hold it up.
   the position-sensitive sum of the boot sector this mount read (§18.8.2). A
   switch to another volume and back therefore *keeps* the runs, which is the
   whole win; a disk swapped for a different one loses them; and the residual —
-  two os8088 disks of the same geometry, whose boot sectors `os88disk.py` makes
-  byte-identical — is the one §18.8.2 already states and accepts.
+  two disks whose boot sectors are byte-identical, which `os88disk.py` (§18.8.2)
+  and this machine's own Format, Clone and Write Img (§18.8.2.1) no longer
+  make — is the one §18.8.2.1 states.
 - **A FULL mount drops every run and a quiet one does not.** A full mount is a
   navigation or a **Refresh**, and Refresh answered out of a cache is a no-op,
   which is the one thing it must never be. A quiet mount (§18.9) is a volume
@@ -94719,6 +94824,15 @@ makes a 32MB format about 550 sector writes instead of 65,000.
 `BS_jmpBoot` matters: os8088's own BPB rule 2 (§18.2) rejects a volume whose
 first byte is not EB or E9, so a formatter that left it blank would write a
 volume its own kernel refuses to mount.
+
+**The serial is the volume's own** (§18.8.2.1). `hd_bpb_fill` writes it with
+the rest of the BPB, so the formatter's boot sector and the installer's fresh
+VBR (§52.10.2) both carry one: the clock's date and time as words, the way DOS
+makes a serial, plus `OSAPI_GET_TICKS` and the PIT's live count. It was
+`[ticks]` in both words, and the installer's VBR - built over a zeroed sector,
+with `BootSig` 0x29 and nothing after it - laid serial **0** on every installed
+volume, whatever the format before it had stamped. A volume the installer
+KEEPS keeps its own (§52.10.15).
 
 #### 52.3.1 …to 2GB, and the partition says which FAT16 it is
 
@@ -191341,10 +191455,12 @@ GOTO_QM    home
   turning, so the rest are words.
 - **The SAVE keeps ONE FULL MOUNT in front of it** (`stik_enterf`), and
   nothing else does. A signature cannot tell two disks whose boot sectors are
-  byte-identical, and two are made here every day: `FORMAT.DRV` stamps one
-  serial on every disk it formats (`dskw_fmt_t2`, §18.8.2's accepted
-  residual), and two copies of one image differ in nothing the boot sector
-  holds once both are written to. A quiet stand on the twin of home keeps
+  byte-identical. This machine no longer makes any: since §18.8.2.1 `Format
+  Disk...`, `Clone Disk...` and `Write Img...` each stamp the disk they produce
+  with a serial of its own, and the host tool derives one from the content.
+  But twins still ARRIVE - two floppies written from one image by `dd` or
+  RawWrite, or copied by a DISKCOPY that keeps sector 0 verbatim - and nothing
+  here wrote them, so nothing here could stamp them. A quiet stand on the twin of home keeps
   home's FAT window and its cached sectors - the witness would read home's
   `STIKAPPS` out of the cache and say yes - while a full mount reads the
   platter's own FAT and drops §18.95's cache. Every package's write lives

@@ -291,9 +291,9 @@
   "sources": [
    "kernel/diskops.inc"
   ],
-  "stamped": "e4576a70",
+  "stamped": "faab005c",
   "strings": "676cabf40e203a01",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "Clone and Write Image give the target a serial of its own (SPEC.md 18.8.2.1); added one sentence each, nothing quoted changed"
  },
  "DOCK_DRV": {
   "sources": [
