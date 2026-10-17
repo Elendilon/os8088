@@ -1,0 +1,1183 @@
+{
+ "00-VIDS_TXT": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "1942_O88": {
+  "sources": [
+   "apps/1942"
+  ],
+  "stamped": "e4576a70",
+  "strings": "a912f744a77d6729",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "1STREAD_ME": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "APPDATA": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "APPLE2": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "APPLE2_O88": {
+  "sources": [
+   "apps/apple2"
+  ],
+  "stamped": "e4576a70",
+  "strings": "84a2ce489ed87f7e",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "APPS": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "ARCHIVO_F88": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "ARKANOID_O88": {
+  "sources": [
+   "apps/arkanoid"
+  ],
+  "stamped": "e4576a70",
+  "strings": "be8025f72eec2b00",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "ARTFUL_O88": {
+  "sources": [
+   "apps/artful"
+  ],
+  "stamped": "e4576a70",
+  "strings": "c739282f65a859f0",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "ASSOC_DAT": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "AUDIO_O88": {
+  "sources": [
+   "apps/audio"
+  ],
+  "stamped": "e4576a70",
+  "strings": "c66ee02557046ce8",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "AUTOSTRT": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "BALLOONS_PNG": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "BATTLE1_MID": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "BEVERLY_MOD": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "BOOTHD_SYS": {
+  "sources": [
+   "boot/boothd.asm"
+  ],
+  "stamped": "e4576a70",
+  "strings": "075d3ddf5a3a826e",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "BOUNCE_GIF": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "BOUNCE_O88": {
+  "sources": [
+   "apps/bounce"
+  ],
+  "stamped": "e4576a70",
+  "strings": "48d2f716be01fa6b",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "BROWSER_HTM": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "BROWSER_O88": {
+  "sources": [
+   "apps/browser"
+  ],
+  "stamped": "e4576a70",
+  "strings": "955cbc3c9a274645",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "C64": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "C64_O88": {
+  "sources": [
+   "apps/c64"
+  ],
+  "stamped": "e4576a70",
+  "strings": "3308f2081ea59ce1",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "CALC_O88": {
+  "sources": [
+   "apps/calc"
+  ],
+  "stamped": "e4576a70",
+  "strings": "f83943ee729f93c0",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "CANCAN_MID": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "CATALOG_TXT": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "CAT_GIF": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "CHARTER_F88": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "CHART_O88": {
+  "sources": [
+   "apps/chart"
+  ],
+  "stamped": "e4576a70",
+  "strings": "fe83b9c972b49330",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "CITY_PCX": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "COLDHMA_SYS": {
+  "sources": [
+   "boot/osrom.asm"
+  ],
+  "stamped": "e4576a70",
+  "strings": "8330e47c4eccd94f",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "CONTENTS_TXT": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "COPYING": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "COURIER_F88": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "CTRL_DRV": {
+  "sources": [
+   "kernel/ctrl.inc"
+  ],
+  "stamped": "e4576a70",
+  "strings": "c3b8c67f64d1e0ea",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "CWORD": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "CWORD_O88": {
+  "sources": [
+   "apps/cword"
+  ],
+  "stamped": "e4576a70",
+  "strings": "c8acabba1dfadadf",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "CYCLONE_O88": {
+  "sources": [
+   "apps/cyclone"
+  ],
+  "stamped": "e4576a70",
+  "strings": "ddfc1bf0658edc87",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "DEMO_MID": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "DESKCAL_O88": {
+  "sources": [
+   "apps/deskcal"
+  ],
+  "stamped": "e4576a70",
+  "strings": "ce550948485c6eb2",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "DESK_DRV": {
+  "sources": [
+   "kernel/deskmod.inc"
+  ],
+  "stamped": "e4576a70",
+  "strings": "075d3ddf5a3a826e",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "DISKOPS_DRV": {
+  "sources": [
+   "kernel/diskops.inc"
+  ],
+  "stamped": "e4576a70",
+  "strings": "676cabf40e203a01",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "DOCK_DRV": {
+  "sources": [
+   "kernel/dockmod.inc"
+  ],
+  "stamped": "e4576a70",
+  "strings": "075d3ddf5a3a826e",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "DOCS": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "DOS": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "DOS_O88": {
+  "sources": [
+   "apps/dos"
+  ],
+  "stamped": "e4576a70",
+  "strings": "7e5f0adda8303591",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "DOTDEL_O88": {
+  "sources": [
+   "apps/dotdel"
+  ],
+  "stamped": "e4576a70",
+  "strings": "3b6b57ce5de9f3f3",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "DRMARCO_O88": {
+  "sources": [
+   "apps/drmario"
+  ],
+  "stamped": "e4576a70",
+  "strings": "2b581fc7b0c26a60",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "EMS_DRV": {
+  "sources": [
+   "drivers/ems"
+  ],
+  "stamped": "e4576a70",
+  "strings": "fdc3e9e0668eb9c0",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "ENTERTNR_MID": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "ETHER_DRV": {
+  "sources": [
+   "drivers/ether"
+  ],
+  "stamped": "e4576a70",
+  "strings": "5dbeafabe492b63d",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "EXTD_DRV": {
+  "sources": [
+   "kernel/extmod.inc"
+  ],
+  "stamped": "e4576a70",
+  "strings": "075d3ddf5a3a826e",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "FLOWER_JPG": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "FONTS": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "FONTVIEW_O88": {
+  "sources": [
+   "apps/fontview"
+  ],
+  "stamped": "e4576a70",
+  "strings": "3df195d011cbab16",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "FORMAT_DRV": {
+  "sources": [
+   "kernel/diskw.inc"
+  ],
+  "stamped": "e4576a70",
+  "strings": "ac61036c5a40b5c8",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "FORM_WAB": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "FORM_WJS": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "FORM_WML": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "FRACTAL_O88": {
+  "sources": [
+   "apps/fractal"
+  ],
+  "stamped": "e4576a70",
+  "strings": "6687e78fe155b563",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "FROTZ_O88": {
+  "sources": [
+   "apps/frotz"
+  ],
+  "stamped": "e4576a70",
+  "strings": "84ee586884efb160",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "FTPD_O88": {
+  "sources": [
+   "apps/ftpd"
+  ],
+  "stamped": "e4576a70",
+  "strings": "0bc65f4372efd8fd",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "FURELISE_MID": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "FW_PICOMEM1": {
+  "sources": [
+   "firmware/picomem1/README.md",
+   "firmware/picomem1/SHA256SUMS"
+  ],
+  "stamped": "e4576a70",
+  "strings": "52a90b0aba7759ae",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "GAMES": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "GORILLAS_O88": {
+  "sources": [
+   "apps/gorillas"
+  ],
+  "stamped": "e4576a70",
+  "strings": "a42f0c9c00a04c78",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "GUIDE_TEX": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "HDDTOOL_DRV": {
+  "sources": [
+   "drivers/hdd"
+  ],
+  "stamped": "e4576a70",
+  "strings": "cd66a54799909948",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "HDD_DRV": {
+  "sources": [
+   "drivers/hdd"
+  ],
+  "stamped": "e4576a70",
+  "strings": "cd66a54799909948",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "HELV_F88": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "HIBER_DRV": {
+  "sources": [
+   "kernel/hiber.inc"
+  ],
+  "stamped": "e4576a70",
+  "strings": "aed273c2e9a54bb4",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "HOUSE_PNG": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "INCONSOL_F88": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "INTRO_MID": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "ISOTRON_O88": {
+  "sources": [
+   "apps/isotron"
+  ],
+  "stamped": "e4576a70",
+  "strings": "8d43b3b01f3ba1c0",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "JETBRAIN_F88": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "KERNEL_SYS": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "KOROBEIN_MID": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "LAKE_JPG": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "LICENSE": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "LICENSE_TXT": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "LOOM": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "LOOM_O88": {
+  "sources": [
+   "apps/loom"
+  ],
+  "stamped": "e4576a70",
+  "strings": "54317d60697c4aba",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "MEDIA": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "MIDI": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "MIDIRACK_BNK": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "MIDIRACK_O88": {
+  "sources": [
+   "apps/midirack"
+  ],
+  "stamped": "e4576a70",
+  "strings": "2d8a5451be064e81",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "MINES_O88": {
+  "sources": [
+   "apps/mines"
+  ],
+  "stamped": "e4576a70",
+  "strings": "a0ebb72b7104eee5",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "MISSILE_O88": {
+  "sources": [
+   "apps/missile"
+  ],
+  "stamped": "e4576a70",
+  "strings": "518a0d82ecee0138",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "MOUNTAIN_BMP": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "MOUNTKNG_MID": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "NET_DRV": {
+  "sources": [
+   "drivers/net"
+  ],
+  "stamped": "e4576a70",
+  "strings": "78b9e71c5ade45e4",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "NOTEPAD_O88": {
+  "sources": [
+   "apps/notepad"
+  ],
+  "stamped": "e4576a70",
+  "strings": "b93994888feea78c",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "NOTO_F88": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "OS8088_GIF": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "OS8088_V88": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "OS88CZ_COM": {
+  "sources": [
+   "dostools/os88cz.asm"
+  ],
+  "stamped": "e4576a70",
+  "strings": "e814b061ef25307d",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "OS88NET_COM": {
+  "sources": [
+   "drivers/net/os88net.asm"
+  ],
+  "stamped": "e4576a70",
+  "strings": "cb2f0dc43a9ca116",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "PACCMAN": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "PACCMAN_O88": {
+  "sources": [
+   "apps/paccman"
+  ],
+  "stamped": "e4576a70",
+  "strings": "5457db5dc63f21e3",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "PAINT_O88": {
+  "sources": [
+   "apps/paint"
+  ],
+  "stamped": "e4576a70",
+  "strings": "3dcd43ffda068c4a",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "PAPER_TEX": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "PIANO_O88": {
+  "sources": [
+   "apps/piano"
+  ],
+  "stamped": "e4576a70",
+  "strings": "ed317f5eca4695ad",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "PICTURES": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "PIXEL_O88": {
+  "sources": [
+   "apps/pixel"
+  ],
+  "stamped": "e4576a70",
+  "strings": "40931b541b447702",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "PONG_WAB": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "PONG_WJS": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "PONG_WML": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "PONG_WSP": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "PXSTEIN_O88": {
+  "sources": [
+   "apps/pixelstein"
+  ],
+  "stamped": "e4576a70",
+  "strings": "c16e1c2472ca5437",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "RAMDISK_DRV": {
+  "sources": [
+   "drivers/ramdisk"
+  ],
+  "stamped": "e4576a70",
+  "strings": "f1bd87b1659771ed",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "RAMPAGE_DRV": {
+  "sources": [
+   "drivers/ramdisk"
+  ],
+  "stamped": "e4576a70",
+  "strings": "f1bd87b1659771ed",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "README_MD": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "README_TXT": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "REDLINE_O88": {
+  "sources": [
+   "apps/redline"
+  ],
+  "stamped": "e4576a70",
+  "strings": "613189b6ce818efd",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "RLAPPLY_O88": {
+  "sources": [
+   "apps/rlapply"
+  ],
+  "stamped": "e4576a70",
+  "strings": "9dede25f102f6dff",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "ROBOMONO_F88": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "ROOM_JPG": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "RUNCPM": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "RUNCPM_O88": {
+  "sources": [
+   "apps/runcpm"
+  ],
+  "stamped": "e4576a70",
+  "strings": "67bdba87c78bc549",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SALES_SLK": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SAMPLE_BMP": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SAVER_DRV": {
+  "sources": [
+   "drivers/saver"
+  ],
+  "stamped": "e4576a70",
+  "strings": "98fcc452bb00e1f8",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SCRIBE_O88": {
+  "sources": [
+   "apps/scribe"
+  ],
+  "stamped": "e4576a70",
+  "strings": "4ad8a6b5c8c213aa",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SCWELCOM_RTF": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SHEET_O88": {
+  "sources": [
+   "apps/sheet"
+  ],
+  "stamped": "e4576a70",
+  "strings": "2960e9371dba2549",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SHEET_WAB": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SHEET_WFX": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SHEET_WJS": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SHEET_WML": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SKIES_O88": {
+  "sources": [
+   "apps/skies"
+  ],
+  "stamped": "e4576a70",
+  "strings": "1f8cea67cd346354",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SOLITAIR_O88": {
+  "sources": [
+   "apps/solitaire"
+  ],
+  "stamped": "e4576a70",
+  "strings": "2e0e8b9537fe75d2",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SOUND_DRV": {
+  "sources": [
+   "drivers/sound"
+  ],
+  "stamped": "e4576a70",
+  "strings": "61d798f4ae5a6f01",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SPACEJAM_MID": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "STIKAPPS": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "STIKMENU_DRV": {
+  "sources": [
+   "kernel/stikmenu.inc"
+  ],
+  "stamped": "e4576a70",
+  "strings": "8b9860220a28a7ab",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SYSTEM": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "SYSTEM_CFG": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TALLX_F88": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TAMEGRAM_O88": {
+  "sources": [
+   "apps/tamegram"
+  ],
+  "stamped": "e4576a70",
+  "strings": "a9194b590c7c12d0",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TANK_O88": {
+  "sources": [
+   "apps/tank"
+  ],
+  "stamped": "e4576a70",
+  "strings": "97c64ff43259361b",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TASKMGR_O88": {
+  "sources": [
+   "apps/taskmgr"
+  ],
+  "stamped": "e4576a70",
+  "strings": "cfbdfcec65bb3902",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TELNET_O88": {
+  "sources": [
+   "apps/telnet"
+  ],
+  "stamped": "e4576a70",
+  "strings": "9180c0b4b6d6e72f",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TEXPAD_O88": {
+  "sources": [
+   "apps/texpad"
+  ],
+  "stamped": "e4576a70",
+  "strings": "ecc19d62b0090173",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "THEWIRE_O88": {
+  "sources": [
+   "apps/thewire"
+  ],
+  "stamped": "e4576a70",
+  "strings": "87b20c30500765e6",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "THMPAL_DRV": {
+  "sources": [
+   "drivers/thmpal"
+  ],
+  "stamped": "e4576a70",
+  "strings": "580629fd162b8dd9",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TIMER_O88": {
+  "sources": [
+   "apps/timer"
+  ],
+  "stamped": "e4576a70",
+  "strings": "de7a6242f989b7a6",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TIMES_F88": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TOOL_BURN": {
+  "sources": [
+   "tools/os88burn.py"
+  ],
+  "stamped": "e4576a70",
+  "strings": "2db239ca557b7c88",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TOOL_IMAGER": {
+  "sources": [
+   "tools/os88imager.py"
+  ],
+  "stamped": "e4576a70",
+  "strings": "844554cd614f4179",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TOOL_PROXY": {
+  "sources": [
+   "tools/os88proxy.py",
+   "tools/os88proxygui.py"
+  ],
+  "stamped": "e4576a70",
+  "strings": "854568cce0c8c62d",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TOOL_VENC": {
+  "sources": [
+   "tools/os88venc.py",
+   "tools/os88vencgui.py"
+  ],
+  "stamped": "e4576a70",
+  "strings": "e84587e91947ea3b",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TRACKER_O88": {
+  "sources": [
+   "apps/tracker"
+  ],
+  "stamped": "e4576a70",
+  "strings": "4e39f41bcd912901",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "TURKISH_MID": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "USBMOUSE_DRV": {
+  "sources": [
+   "drivers/usbmouse"
+  ],
+  "stamped": "e4576a70",
+  "strings": "602d648304a770c6",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "VACATION_JPG": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "VIDEO_O88": {
+  "sources": [
+   "apps/video"
+  ],
+  "stamped": "e4576a70",
+  "strings": "52e0d90cf0b17d66",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "VMMOUSE_DRV": {
+  "sources": [
+   "drivers/vmmouse"
+  ],
+  "stamped": "e4576a70",
+  "strings": "4095e5c86a5e295a",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "WEAVE": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "WEAVE_O88": {
+  "sources": [
+   "apps/weave"
+  ],
+  "stamped": "e4576a70",
+  "strings": "2fcfa417921093c4",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "WELCOME_BAS": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "WELCOME_DOC": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "WELCOME_RTF": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "WIN95_DRV": {
+  "sources": [
+   "kernel/winmod.inc"
+  ],
+  "stamped": "e4576a70",
+  "strings": "075d3ddf5a3a826e",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "WIREBALL_O88": {
+  "sources": [
+   "apps/wireball"
+  ],
+  "stamped": "e4576a70",
+  "strings": "d98a1f4921da9aea",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "WORD": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "WORD_O88": {
+  "sources": [
+   "apps/word"
+  ],
+  "stamped": "e4576a70",
+  "strings": "466d7146ee799a0e",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "WRITING_MD": {
+  "sources": [],
+  "stamped": "e4576a70",
+  "strings": null,
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "XMEM_DRV": {
+  "sources": [
+   "drivers/xmem"
+  ],
+  "stamped": "e4576a70",
+  "strings": "9b380de63648dbc5",
+  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ }
+}
