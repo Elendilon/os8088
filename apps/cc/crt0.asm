@@ -87,7 +87,7 @@
 ;
 ; There is no assembly-time APP_MAX_SIZE assertion here, and that is not an
 ; oversight: `%if` cannot compare a section-relative label to a constant
-; (`operands differ by a non-scalar`). The 60KB ceiling is enforced twice
+; (`operands differ by a non-scalar`). The 63.5KB ceiling is enforced twice
 ; downstream instead - tools/os88pkg.py on every build, and ld_check_hdr on
 ; every load (SPEC.md 21) - and the build rule prints the sizes.
 ;

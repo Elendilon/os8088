@@ -8341,13 +8341,23 @@ pkgrun: $(BUILD)/pkgrun.img $(BUILD)/pkgrun360.img
 # they test has any geometry in it. The disk carries BOTH gates' fixtures
 # (tests/pkgbig.py and tests/pkgfence.py) because it is one `--raw` build and
 # one megabyte of it is HUGE.O88.
-$(BUILD)/pkgbig.img: tests/pkgbig/mkfix.py tools/os88disk.py tools/os88pkg.py | $(BUILD)
+#
+# ...and PKGMAX.O88, the one fixture that IS a package (tests/pkgmax.py): a
+# real image + bss of exactly APP_MAX_SIZE, which must LOAD - SPEC.md 20.1.1's
+# 64KB claim, the size two of the loader's words used to wrap on.
+$(BUILD)/pkgbig.img: tests/pkgbig/mkfix.py tests/pkgbig/pkgmax.asm \
+                     apps/os88api.inc tools/os88disk.py tools/os88pkg.py \
+                     | $(BUILD)
 	python3 tests/pkgbig/mkfix.py $(BUILD)/pkgbig
+	$(NASM) -f bin -w+error -I apps/ -o $(BUILD)/pkgbig/pkgmax.bin \
+		tests/pkgbig/pkgmax.asm
+	$(OS88PKG) $(BUILD)/pkgbig/pkgmax.bin -o $(BUILD)/pkgbig/PKGMAX.O88
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--raw $(BUILD)/pkgbig/BIGPKG.O88 --raw $(BUILD)/pkgbig/HUGE.O88 \
 		--raw $(BUILD)/pkgbig/BSSWRAP.O88 --raw $(BUILD)/pkgbig/BSSWORST.O88 \
 		$(BUILD)/pkgbig/BIGPKG.O88 $(BUILD)/pkgbig/HUGE.O88 \
-		$(BUILD)/pkgbig/BSSWRAP.O88 $(BUILD)/pkgbig/BSSWORST.O88
+		$(BUILD)/pkgbig/BSSWRAP.O88 $(BUILD)/pkgbig/BSSWORST.O88 \
+		$(BUILD)/pkgbig/PKGMAX.O88
 	@python3 tools/os88disk.py --verify $@
 
 # --- PKGFMT, the format byte's disk (ON DEMAND: `make pkgfmt`) ---------------
@@ -8370,6 +8380,7 @@ pkgfmt: $(BUILD)/pkgfmt360.img
 #   make pkgbig                          builds the fixture disk
 #   python3 tests/pkgbig.py              runs the mount/size gate on MartyPC
 #   python3 tests/pkgfence.py            ...and the img+bss write-bound gate
+#   python3 tests/pkgmax.py              ...and a package AT the ceiling loads
 pkgbig: $(BUILD)/pkgbig.img
 
 # --- REHOME, the re-home's consumer (ON DEMAND: `make rehome`) --------------

@@ -297,7 +297,7 @@ void draw(void) { static char tmp[80]; f(tmp); } /* the fix                 */
   that triggers a paint of your second window shares it, and so do your UI
   task and your worker, which pre-empt each other. Own the aliasing
   deliberately or do not share the buffer between the two contexts.
-- **It is spent against the 60KB ceiling** rather than against the stack.
+- **It is spent against the 63.5KB ceiling** rather than against the stack.
 
 ### Rule 2 — no string instructions; ES belongs to the kernel
 
@@ -503,13 +503,13 @@ push-immediate sites, so the first row is not something to expect.
 
 ## What it costs: size
 
-`APP_MAX_SIZE` is **0xF000 = 61,440 bytes** and it bounds the image, the bss
-**and their sum**. `ld_check_hdr` enforces all three on every load and
+`APP_MAX_SIZE` is **0xFE00 = 65,024 bytes** (SPEC.md 20.1.1; it was 61,440)
+and it bounds the image, the bss **and their sum**. `ld_check_hdr` enforces all three on every load and
 `os88pkg.py` on every build.
 
 **A C package meets that ceiling two to four times sooner than an assembly
 one.** Read it as a design input: **a C package is a small package**, and a
-feature that wants the whole 60KB is a feature to write in assembly.
+feature that wants the whole 63.5KB is a feature to write in assembly.
 
 What follows in practice:
 

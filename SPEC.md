@@ -3872,7 +3872,7 @@ CWHITE  equ 15
 CLGRAY  equ 7
 CDGRAY  equ 8
 ; loadable programs (§20)
-APP_MAX_SIZE equ 0xF000      ; image + bss budget: 60KB. The ceiling is the
+APP_MAX_SIZE equ 0xFE00      ; image + bss budget: 63.5KB (§20.1.1). The ceiling is the
                              ; SEGMENT - a package links at org 0 and
                              ; addresses itself with 16-bit offsets - and
                              ; what it can ACTUALLY get also depends on
@@ -41560,14 +41560,49 @@ shared with every task, so `[bp+disp]` still addresses SS and a BP-held
 data pointer still needs a `ds:` override. §1's hard rules still apply
 (cpu 8086, register discipline, no bare `sti` in handlers).
 
-Budget: image + zeroed bss ≤ `APP_MAX_SIZE` (0xF000 = 60KB). The ceiling is
-the **segment** — 16-bit offsets from `org 0` — not a pool; what a package can
-actually get also depends on what the heap has contiguous, and a refusal
-there is `LD_ENOMEM` like any other. Multiple package instances
+Budget: image + zeroed bss ≤ `APP_MAX_SIZE` (0xFE00 = 65,024 = 63.5KB). The
+ceiling is the **segment** — 16-bit offsets from `org 0` — not a pool; what a
+package can actually get also depends on what the heap has contiguous, and a
+refusal there is `LD_ENOMEM` like any other. Multiple package instances
 can be resident at once, including two of the same package: each is its own
 copy in its own segment with its own bss, so package state (equ offsets from
 `os88_image_end`) is per-instance automatically. Closing an instance frees
 its region (§29.2 rule 7) and every heap claim it held (§50.2).
+
+#### 20.1.1 Why 65,024 and not 65,536 — and why it was 61,440
+
+**61,440 was the POOL, not the segment.** `APP_MAX_SIZE` was `0xF000` because
+`PKG_SEG` was 60KB; when the pool was deleted the constant stayed, and its
+comment was rewritten to say the ceiling was the segment — which explains a
+64KB limit and not a 60KB one. Nothing in the tree depended on the 4KB
+between them except two 16-bit roundings that `0xF000` happened to keep clear
+of, and those are what set the real number:
+
+1. **The region is `roundup512(image + bss)`** in sixteen bits (§21 step 4),
+   and the largest multiple of 512 a word holds is `0xFE00`. That is the
+   ceiling, and it is exact: `0xFE00 + 511` is `0xFFFF`, so neither of
+   `ld_alloc`'s adds nor `cmz_pkg`'s can carry. §20.12's `OP_PARTMAX` is the
+   same figure for the same reason, which is why Word's carve already ran to
+   65,024 (§68.10).
+2. **The heap's unit is the kilobyte**, so a region over 63KB is a **64KB
+   claim**, and two words that held a KB count as bytes wrapped there.
+   `mem_bytes_kb_x` was `add ax, 1023 / shr` and answered **0 KB** for every
+   input from 64,513 up; it is `dec ax / shr / inc ax` now — ceil for every
+   input ≥ 1, which its banner already required, and a byte shorter. And
+   `ld_alloc`'s `I_SIZE = KB << 10` is 65,536 for 64KB, which is **0** in a
+   word — and `I_SIZE = 0` is how `instance.inc` tells a BUILT-IN, so a
+   63.5KB package would have been swept as one. It **saturates** instead:
+   `sbb ax, 0` after the shift takes the bit that fell out, so a 64KB region
+   reads `0xFFFF`. Both readers of it as a bound (`inst_pkg_fence`, §53.1's
+   hook fence) compare `< I_SIZE`, so the only offset the saturation refuses
+   is `0xFFFF`, which `image + bss ≤ 0xFE00` already did.
+
+What the last 512 bytes cost a package is the KB granularity, and it is worth
+knowing before reaching for them: **63KB + 1 byte is a 64KB claim**, the same
+as 63.5KB. What they cost the kernel is **3 bytes of `.cold`, resident**:
+the `sbb`, with the byte `mem_bytes_kb_x` gave back spent on a parity pad
+behind it, because the hot disk routines that follow it in `.cold` must not
+move by an odd amount (`tests/unit/t_hotpar.py`).
 
 **What owning a segment costs, and what it retires.** It retires the whole
 v2 relocation machinery — the dual assembly, the diff scan, the byte-exact
@@ -44933,7 +44968,7 @@ arm's own.
 
 1. the `add`'s **carry** on `image + bss` — each operand is a 16-bit header
    field and the sum is 17 bits;
-2. **`APP_MAX_SIZE`**, the same 60KB ceiling every other package has. `ld_check_hdr`
+2. **`APP_MAX_SIZE`**, the same 63.5KB ceiling every other package has. `ld_check_hdr`
    applies it to a *file* and this path never goes near it, so without a shared
    body a re-homed program would be bounded by a 16-bit word and nothing else —
    a silent divergence between two ways of starting the same kind of program,
@@ -47063,8 +47098,8 @@ catches a swap is re-running this routine on what the *full read* delivered,
 not the staged copy. Checks: magic; **version = 10** (`PKG_FMT` - a file
 built for another API table, or a v1 or v2 file → "Bad package", §20.2.0); link base = 0; image ≥ 0x20; entry in [0x20, image) (the icon
 rule is enforced by os88pkg, not re-checked); **image+bss ≤ APP_MAX_SIZE,
-fenced on the CARRY**, because both operands are separately bounded at
-0xF000 and their sum reaches 0x1E000, which is seventeen bits (`add dx, ax /
+fenced on the CARRY**, because each operand is a 16-bit header field and
+their sum can pass 0xFFFF, which is seventeen bits (`add dx, ax /
 jc` — see §21's write bound, and `tests/pkgfence.py`); image = file size (guards truncated files and stale
 directories — sound because FAT directory sizes are byte-exact and
 os88disk.py never pads the size field, §24; cluster slack on disk is
@@ -47145,7 +47180,7 @@ on entry. Steps:
 3. `ld_check_hdr` on the peek → status 2/3.
 4. need = roundup512(image + bss). **No second bound test**: `ld_check_hdr`
    has already fenced `image + bss` at APP_MAX_SIZE *on the carry*, so this
-   value is at most 0xF000 by construction and the `> APP_MAX_SIZE → status
+   value is at most 0xFE00 by construction and the `> APP_MAX_SIZE → status
    3` that used to sit here was code that could not run. The `max` with the
    file size went when a package became allowed to be **bigger than its
    image** (§20.12): the region holds the primary segment and the parts are
@@ -52193,7 +52228,7 @@ and non-zero exit + stderr message on any validation failure.
   `OS88_HEADER` macro is what emits them, so a failure here means the image
   was built against an older SDK; image field == file size; entry in
   [0x20, image) (≥ 0x60 with the icon flag); image + bss ≤ `APP_MAX_SIZE`
-  (0xF000); with the icon flag, image ≥ 96; name printable, ≤ 15, NUL-padded
+  (0xFE00); with the icon flag, image ≥ 96; name printable, ≤ 15, NUL-padded
   with nothing after the terminator.
 - `tools/os88disk.py -o OUT.img --size {1440,1200,720,360} [PKG.o88 ...]` —
   builds a FAT12 data floppy per §19. CLI shape unchanged from the os88fs
@@ -62720,7 +62755,7 @@ name, all inside the `cli` window the call exists to keep short.
 | `SSI_TASK` 3 | `I_TASK` | task slot, 0xFF = none |
 | `SSI_WIN` 4 | `I_WIN` | **OPAQUE** — the kernel's own window record. Read it as *has a window* or not at all |
 | `SSI_SEG` 6 | `I_SPTR` | the region's base segment (§20.9's "a SAMPLE, not a handle" still binds) |
-| `SSI_SIZE` 8 | `I_SIZE` | region bytes, 0 for a built-in |
+| `SSI_SIZE` 8 | `I_SIZE` | region bytes, 0 for a built-in; a 64KB region reads `0xFFFF` (§20.1.1) |
 | `SSI_KB` 10 | *(over `I_ICON`)* | KB held off the claim heap |
 | `SSI_NAME` 12 | `I_NAME` | 16 bytes, NUL-terminated |
 | `SSI_CYC` 28 | `I_CYC` | dword, cycles billed |
@@ -114107,11 +114142,12 @@ and inserts nothing.
 
 ### 68.10 Part 1 — the top of Word's own segment, inside WORD.O88
 
-A package's image + bss is capped at `APP_MAX_SIZE` = 61,440, and that is
-the **region** (§20.6), not the segment. Word stood at 61,425 of it. **The
-segment runs to 65,536, and a parted package's carve may run to 65,024**
-(§20.12: `op_size` refuses an unpacked run of 128 sectors), so Word ships as
-a parted package and puts code in the difference.
+A package's image + bss was capped at `APP_MAX_SIZE` = 61,440 when this was
+written, and that was the **region** (§20.6), not the segment. Word stood at
+61,425 of it. **The segment runs to 65,536, and a parted package's carve may
+run to 65,024** (§20.12: `op_size` refuses an unpacked run of 128 sectors), so
+Word ships as a parted package and puts code in the difference. (§20.1.1 has
+since raised `APP_MAX_SIZE` to that same 65,024, for the same reason.)
 
 **`WORD.O88` is three pieces in one file.** Its image is
 `apps/word/wdload.asm`, a 1,357-byte loader that reads two parts and hands
@@ -120143,7 +120179,7 @@ the C's `.data` and before `cc_image_end` is defined.
 
 There is deliberately **no assembly-time `APP_MAX_SIZE` assertion** in the
 runtime: `%if` cannot compare a section-relative label to a constant (`nasm`
-answers `operands differ by a non-scalar`). The 60KB ceiling (§73.9) is
+answers `operands differ by a non-scalar`). The 63.5KB ceiling (§73.9) is
 enforced twice downstream instead — `os88pkg.py` on every build and
 `ld_check_hdr` on every load (§21) — and the build rule prints the sizes.
 
@@ -120397,7 +120433,7 @@ author owns, because the compiler will not mention them:
   pre-empted against each other. Where an assembly package would have used a
   stack buffer and been safe by construction, a C package must either own the
   aliasing deliberately or not share the buffer between the two contexts.
-- **It costs image or bss against the 60KB ceiling** (§73.9) rather than
+- **It costs image or bss against the 63.5KB ceiling** (§73.9) rather than
   costing stack.
 
 And note what the rule buys, because it is not only a prohibition: **§73.5 and
@@ -120704,16 +120740,17 @@ author notices growing, instead of a paragraph in a spec. This is §15.1's
 size-guard idea applied to the stack: the guard that works is the one that
 prints on every build, not the one you remember to run.
 
-### 73.9 The 60KB ceiling, in a language that spends it faster
+### 73.9 The 63.5KB ceiling, in a language that spends it faster
 
-`APP_MAX_SIZE` (0xF000 = **61,440**) bounds the image, the bss and their sum
+`APP_MAX_SIZE` (0xFE00 = **65,024**, §20.1.1; it was 61,440 when this section
+was written) bounds the image, the bss and their sum
 (§20.1, and `ld_check_hdr` enforces all three, §21). An assembly package meets
 that ceiling as an occasional design pressure. **A C package meets it two to
 four times sooner** — the same feature in C is 2–4× the bytes — and that is
 not a fact to discover halfway through a program.
 
 Read as a design input rather than a limit: **a C package is a small
-package**, and a feature that wants the whole 60KB is a feature to write in
+package**, and a feature that wants the whole 63.5KB is a feature to write in
 assembly. What follows from the ceiling in practice:
 
 - One translation unit, `-tiny`, no soft-float (§73.7), and **no `printf`

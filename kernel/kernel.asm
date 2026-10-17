@@ -74,13 +74,16 @@ GLS_SY  equ 12
 GLS_SZ  equ 14
 
 ; loadable programs (SPEC.md 20) - a package's region is a HEAP CLAIM
-APP_MAX_SIZE equ 0xF000         ; the biggest single package: 60KB, and the
-                                ; ceiling is now the SEGMENT rather than a
+APP_MAX_SIZE equ 0xFE00         ; the biggest single package: 63.5KB, and
+                                ; the ceiling is the SEGMENT rather than a
                                 ; pool - a package links at org 0 and
                                 ; addresses itself with 16-bit offsets, so
                                 ; image + bss cannot reach 64KB whatever the
-                                ; heap has free. Mirrored in apps/os88api.inc
-                                ; and tools/os88pkg.py
+                                ; heap has free. 0xFE00 and not 0xFFFF
+                                ; because the region is roundup512(image +
+                                ; bss) in a word (SPEC.md 20.1.1); it was
+                                ; 0xF000, the retired pool's size. Mirrored
+                                ; in apps/os88api.inc and tools/os88pkg.py
 PKG_FILE_HI  equ 16             ; the HIGH word of the biggest FILE the mount
                                 ; will type as a package (SPEC.md 19.1): the
                                 ; file must be under 1MB. It is deliberately

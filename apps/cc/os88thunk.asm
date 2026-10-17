@@ -1339,7 +1339,7 @@ _os88_snd_tone:
 ; section writes [cc_ferr], which os88_ferr() reads back.
 ;
 ; The count is DX:CX, 32 bits. These pass DX = 0 and cap the count at 16, and
-; that costs a package nothing it can reach: image plus bss cap at 60KB, and
+; that costs a package nothing it can reach: image plus bss cap at 63.5KB, and
 ; anything larger lives in a claim, which the _seg forms read straight into.
 ; =============================================================================
 
@@ -1379,7 +1379,7 @@ _os88_file_read:
 ; unsigned os88_file_read_seg(const char *name, unsigned seg, unsigned cap)
 ; The same call with ES = a heap claim's base segment and BX = 0 (SPEC.md
 ; 18.4.1: the transfer walks the SEGMENT, so this is how a package reads
-; something its own 60KB region could never hold).
+; something its own 63.5KB region could never hold).
 CC_GATE _os88_file_read_seg
 %ifdef CC_U__os88_file_read_seg
 _os88_file_read_seg:

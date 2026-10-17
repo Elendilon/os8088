@@ -207,6 +207,7 @@ _MIRROR = {
     "I_WIN": ("kernel/instance.inc", 4),
     "I_SPTR": ("kernel/instance.inc", 6),
     "I_SIZE": ("kernel/instance.inc", 8),
+    "KIND_PKG": ("kernel/instance.inc", 0x80),
     "I_ICON": ("kernel/instance.inc", 10),
     "I_NAME": ("kernel/instance.inc", 12),
     "I_CYC": ("kernel/instance.inc", 28),
@@ -394,7 +395,7 @@ _MIRROR = {
     # which is one of the five host tools that WRITE SHIPPED BYTES, so a drift
     # there does not fail a test - it stamps a package against the wrong
     # ceiling.
-    "APP_MAX_SIZE": ("kernel/kernel.asm", 61440),
+    "APP_MAX_SIZE": ("kernel/kernel.asm", 65024),
     "WCR_SZ": ("kernel/kernel.asm", 8),
     "CP_RX": ("kernel/ctrl.inc", 96),
     "CP_IDRV": ("kernel/ctrl.inc", {"big": 2}),   # no Drivers page on small

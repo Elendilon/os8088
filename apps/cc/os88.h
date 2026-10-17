@@ -58,7 +58,7 @@
  *    A `static` declared inside a function reads correctly and is the idiom.
  *    Two things it costs you, because nothing will remind you: it is not
  *    re-entrant (your worker and your callbacks share it, and they pre-empt
- *    each other), and it is spent against the 60KB ceiling rather than
+ *    each other), and it is spent against the 63.5KB ceiling rather than
  *    against the stack.
  *
  * 2. ES BELONGS TO THE KERNEL. Every callback is entered with ES = KERNEL_SEG
@@ -983,7 +983,7 @@ int os88_snd_tone(int hz, int ticks, int prio);  /* hz 0 = off, ticks 0 = until
  * "where my Save As went" is just a Save.
  *
  * The 32-bit count the slots take is capped at 16 bits here, which costs
- * nothing a package can reach: your image and bss together cap at 60KB, and
+ * nothing a package can reach: your image and bss together cap at 63.5KB, and
  * anything bigger belongs in a claim, which the _seg forms read into.
  * A _seg base MUST BE 512-BYTE ALIGNED (SPEC.md 2.1.1: every disk-visible
  * base is): a claim's own base is (the kernel's guard 6b - KB-granular
@@ -1143,7 +1143,7 @@ void os88_batch_begin(void);
 void os88_batch_end(void);
 
 /* --- memory beyond your region (SPEC.md 50.3) ----------------------------
- * Your image and bss together cap at 60KB (APP_MAX_SIZE), and a C package
+ * Your image and bss together cap at 63.5KB (APP_MAX_SIZE), and a C package
  * meets that two to four times sooner than an assembly one. Anything bigger
  * is a claim: os88_mem_claim() answers a SEGMENT, which the _seg file calls
  * take and os88_peek()/os88_poke() reach a byte at a time. The kernel frees

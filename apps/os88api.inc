@@ -135,9 +135,12 @@ VT_FILE      equ 2               ; AH: a REDIRECTED volume (SPEC.md 62.9) -
                             ; package built against a different value calls
                             ; into empty memory: rebuild EVERY .o88 (and the
                             ; apps floppies) whenever the kernel moves
-APP_MAX_SIZE equ 0xF000     ; image + bss budget: 60KB. The ceiling is the
-                            ; SEGMENT, not a pool: a package links at org 0
-                            ; and addresses itself with 16-bit offsets. Its
+APP_MAX_SIZE equ 0xFE00     ; image + bss budget: 63.5KB (SPEC.md 20.1.1).
+                            ; The ceiling is the SEGMENT, not a pool: a
+                            ; package links at org 0 and addresses itself
+                            ; with 16-bit offsets, and the region is that
+                            ; sum rounded up to 512 in a word. Note that
+                            ; over 63KB the claim is a whole 64KB. Its
                             ; region is an ordinary heap claim, so what it
                             ; can ACTUALLY get also depends on the heap
 ; The REFERENCE screen, not a promise. Since SPEC.md 39 the kernel drives
@@ -2181,6 +2184,7 @@ SSI_WIN    equ 4                ; word: OPAQUE - the kernel's own window record.
                                 ; address you may do anything else with
 SSI_SEG    equ 6                ; word: the region's base segment
 SSI_SIZE   equ 8                ; word: its region in BYTES, 0 for a built-in
+                                ; and 0xFFFF for a 64KB one (SPEC.md 20.1.1)
 SSI_KB     equ 10               ; word: KB it holds off the claim heap
 SSI_NAME   equ 12               ; 16 bytes: its name, NUL-terminated
 SSI_CYC    equ 28               ; dword: cycles billed to its callbacks
