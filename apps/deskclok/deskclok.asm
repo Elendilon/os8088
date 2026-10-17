@@ -803,7 +803,7 @@ dks_almc:   db 'Alarm: ', 0
 ; dk_snooze - Snooze: quiet, and back in DK_SNOOZE minutes. Keeps everything
 dk_snooze:
     cmp byte [dk_ring], 0
-    je .r
+    je dk_quiet.r
     push ax
     mov al, [dk_mm]
     add al, DK_SNOOZE
@@ -816,44 +816,35 @@ dk_snooze:
     jb .h
     xor ah, ah
 .h:
-    mov [dk_snm], al
-    mov [dk_snh], ah
-    mov byte [dk_snz], 1
-    mov byte [dk_ring], 0
-    xor ax, ax                  ; the tone off now
-    push cx
-    push dx
-    xor cx, cx
-    mov dl, 40h
-    call OSAPI_SND_TONE
-    pop dx
-    pop cx
-    call dk_relay
-    call dk_menulive
-    pop ax
-.r:
-    ret
+    xchg al, ah
+    mov [dk_snh], ax            ; (dk_snm follows it)
+    mov al, 1                   ; snoozed
+    jmp short dk_quiet
 
 ; dk_dismiss - Dismiss: quiet until tomorrow's. Keeps everything
 dk_dismiss:
     cmp byte [dk_ring], 0
     jne .go
     cmp byte [dk_snz], 0
-    je .r
+    je dk_quiet.r
 .go:
     push ax
+    xor al, al                  ; not snoozed
+; dk_quiet - AL = snoozed or not, AX pushed: the ringing stopped, the tone
+; off now, the card's rows and the menus again
+dk_quiet:
+    mov [dk_snz], al
+    mov byte [dk_ring], 0
     push cx
     push dx
-    mov byte [dk_ring], 0
-    mov byte [dk_snz], 0
     xor ax, ax
     xor cx, cx
     mov dl, 40h
     call OSAPI_SND_TONE
-    call dk_relay
-    call dk_menulive
     pop dx
     pop cx
+    call dk_relay
+    call dk_menulive
     pop ax
 .r:
     ret
