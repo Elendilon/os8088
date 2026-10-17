@@ -798,6 +798,39 @@ whoever extends this:
    DISKOPS.DRV, DOCK.DRV, STIKMENU.DRV and the rest**, which will fault on a
    real 286 the first time each is used.
 
+### 10.2 The Victory 286 check (M1's first field run)
+
+**What it is for:** the two things no emulator here can say - whether the
+286's way back to real mode (CMOS shutdown 0Ah, 40:67, triple fault) works
+on a real AT, and whether anything on the desktop's path stores through a
+code segment (QEMU lets it; a 286 does not).
+
+**Disks:** A: is `build/mega.img` (1.44MB, `make mega`); B: is the ordinary
+1.2MB apps disk, `build/apps120.img`. No SYSTEM.CFG ships on mega.img, so no
+driver loads and the PicoMEM's sound and network stay out of it.
+
+**Steps, and what each outcome means:**
+
+1. **Boot.** The loading screen and the desktop are kern_big's, in real
+   mode. Then the menu bar says **`protected, 286 reset`** for eight seconds.
+   * No toast, but a black-on-white line under the menu bar: the switch
+     faulted. Photograph the line - it is vector, error code, CS:IP and SP.
+   * No toast and no line (a hang or a reboot): the switch itself failed,
+     before the reporter existed.
+2. **Double-click B:.** The first read of a drive the boot did not mount, so
+   it is a reflected `int 13h` - on a 286, **a CPU reset per call**. A
+   listing means the reset path works. A hang or a spontaneous reboot here
+   means it does not.
+3. **Open APPS, double-click CALC.O88, type `12*12` and Enter** (144), then
+   **close it and open FRACTAL.O88** (its worker draws the set).
+4. **Expected to FAULT on a 286 and not on QEMU:** the Sticky Apps menu, the
+   Control Panel and anything else that loads a module (KERN-MEGA-PLAN 10.1
+   item 6) - each writes its own image through CS. A photographed fault line
+   from one of those is a result, not a failure of the run.
+
+**Timing is not the question yet**: the run answers "does it work", and one
+photograph per outcome is the whole report.
+
 **What is NOT done, and is M1's remaining work:**
 
 * **The 286's way back is BUILT AND UNTESTED.** A 386 clears CR0.PE; a 286

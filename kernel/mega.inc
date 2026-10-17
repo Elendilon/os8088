@@ -332,7 +332,20 @@ mega_enter:
     out 0x70, al
     sti
     mov si, mega_mon
-    jmp mega_say
+    call mega_say
+    push es                         ; ...and on the GLASS, for a field machine
+    push ds                         ; with no debug port: the menu bar says it
+    pop es                          ; for a few seconds (toast_show only
+    mov si, mega_mtoast             ; stages; the UI task's first idle pass
+    cmp byte [cpu_tier], CPU_386    ; ...naming the way BACK it will use,
+    jb .t286                        ; which is the thing a field run is for
+    mov si, mega_mtoast3
+.t286:
+    mov cx, 146                     ; draws it), for eight seconds: long enough
+                                    ; to photograph
+    call toast_show
+    pop es
+    ret
 
 ; -----------------------------------------------------------------------------
 ; mega_idt_build - the IDT, from the IVT as the boot left it
@@ -1216,7 +1229,9 @@ mega_r286:
     out 0x70, al
     xor al, al
     out 0x71, al                    ; shutdown code 0: a normal reset next time
-    jmp mega_svc.rm
+    mov al, 0x0D                    ; ...and NMI back on (index 0Dh, a read-only
+    out 0x70, al                    ; register, bit 7 clear), as mega_enter
+    jmp mega_svc.rm                 ; leaves it
 
 mega_thm_set:                       ; OSAPI_THM_SET's hand-made hot cell
     mov ds, [cs:k_dsel]
@@ -1488,6 +1503,8 @@ mega_m86    db "kern_mega: an 8086-class CPU - staying in real mode", 10, 0
 mega_mmem   db "kern_mega: under 192KB above 1MB - staying in real mode", 10, 0
 mega_ma20   db "kern_mega: the A20 line will not open - staying in real mode", 10, 0
 mega_mon    db "kern_mega: protected mode", 10, 0
+mega_mtoast db "protected, 286 reset", 0
+mega_mtoast3 db "protected, 386 CR0", 0
 mega_mflt   db 10, "kern_mega FAULT vector ", 0
 mega_mfst   db "  stack: ", 0
 mega_mreg   db 10, "  ES DS DI SI BP SP BX DX CX AX SS: ", 0
