@@ -325,7 +325,7 @@ short = "MIDI song player with rack"
 ["VIDEO.O88"]
 title = "Video Player"
 kind = "program"
-summary = "Plays full-motion .V88 videos, in a window or full screen, with sound on a Sound Blaster."
+summary = "Plays full-motion .V88 videos, in a window or full screen, with sound on a Sound Blaster or the PC speaker."
 short = "Plays .V88 videos"
 
 ["TASKMGR.O88"]
