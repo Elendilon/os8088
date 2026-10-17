@@ -61,7 +61,8 @@ Every ten capsules the fall speeds up a little.
 
 When the last virus goes, the panel says **CLEAR!**. Press `Enter` for the
 next level. When a new capsule has no room at the top of the bottle, the game
-is over; press `Enter` to try the level again.
+is over; press `Enter` to try the level again as a new game, with the score
+back at zero. `P` does nothing on either screen.
 
 The three germs under DrMarco dance while their colour is still in the
 bottle. When you clear one of their colour they look dizzy, and when the
