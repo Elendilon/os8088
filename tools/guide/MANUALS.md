@@ -39,6 +39,8 @@ What it needs, if anything (a sound card, VGA, a hard disk, a network card...).
 ## Good to know                          limits, refusals, tips, short list
 ```
 
+Link to another file's page or manual with `[[NAME.EXT]]` (for example `[[CHART.O88]]` or `[[CHARTER.F88]]`); clicking it opens that file's Info. Use it where a reader would want to go next, not on every mention.
+
 Supported Markdown: `#`/`##`/`###` headings, paragraphs, `-` and `1.` lists,
 `| tables |`, `> note`, `**bold**`, `*italic*`, `` `code` ``, links, and
 `![caption](shot:id)` on a line of its own. Nothing else (no HTML, no nested
