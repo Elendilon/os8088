@@ -1030,6 +1030,17 @@ FAST = [
         "that fits never split, a collection split only between stem groups, "
         "first fit in order, DOCS/APPDATA/CONTENTS.TXT on every disk, a "
         "no-longer-needed disk deleted, an oversized program refused"),
+    Row("guidelock", "fast", py("tests/unit/t_guidelock.py", "--warn"), 2.1,
+        "the project guide (tools/os88guide.py) is checked against what it "
+        "describes: a page whose sources changed the text a user reads since "
+        "it was stamped (tools/guide/manuals.lock.json), and a file on a "
+        "built disk with no line or no page. In THIS tier it only WARNS - "
+        "its lines start `warn:` and the runner shows them on a passing row - "
+        "so no `make` waits on documentation; `guidelock-full` is the same "
+        "check failing. Also proves the fingerprint moves for a menu item, a "
+        "C message and a tool's help text and stands for comments and code. "
+        "~2s: it walks the built disks and hashes the packages' strings",
+        needs=()),
     Row("livefull", "fast", py("tests/unit/t_livefull.py"), 0.2,
         "SPEC.md 80.6: the live USB/CD is the ONE image whose premise is "
         "completeness, and until this row nothing in the tree had ever read "
@@ -1692,6 +1703,14 @@ FULL = [
         "so it cannot answer this tier's question. It is what a change to "
         "tools/os88marty.py runs",
         needs=("marty",), serial=True),
+    Row("guidelock-full", "full", py("tests/unit/t_guidelock.py"), 2.1,
+        "the fast tier's `guidelock` row with teeth, at the owner's word: a "
+        "merge of major work must not leave a page describing text the "
+        "program no longer shows, or a shipped file with no page. Host-side "
+        "and two seconds, so it costs this tier nothing next to the boots; "
+        "paid with `python3 tools/guidelock.py stamp KEY --why ...` after "
+        "reading the page",
+        needs=()),
     Row("bootsmoke", "full", py("tests/bootsmoke.py"), 20.0,
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
@@ -4404,6 +4423,25 @@ SOAK = [
         "FAIL with the open's 8 and 18",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
+    Row("vidlysplitinplace", "soak", py("tests/vidlysplit.py", "--inplace"),
+        90.0,
+        "SPEC.md 98.3.18.14: a LAYER beside a base bank read IN PLACE "
+        "(no [vp_noinp], QEMU's 386): [vp_einp] 2, the disk's verdict taken "
+        "on a third chunk read into the in-place ring and timed there (both "
+        "new), the layer read with the open's 18 slots of bank - the split "
+        "cannot resize a bank that is the ring, so the base keeps its 8 - "
+        "and the play to its last frame with no error and the layer drawn. "
+        "Broken on purpose (vp_lyown's segment-as-count defect put back) "
+        "the guest hangs before the play starts",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True,
+        wants=("build/video.o88", "build/os8088.img")),
+    Row("vidlysplitinplacebase", "soak", py("tests/vidlysplit.py", "--inplace",
+                                            "--arm", "base"), 90.0,
+        "SPEC.md 98.3.18.14: vidlysplitinplace on the BASE's machine (key "
+        "0's no kept): the layer off and its bank given back, the base's "
+        "bank in place at the open's 8 slots, the play whole",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True,
+        wants=("build/video.o88", "build/os8088.img")),
     Row("vidlysplituntimed", "soak", py("tests/vidlysplit.py", "--arm", "untimed"), 60.0,
         "SPEC.md 98.1.9.2: the XMS pool split AFTER the CPU is timed - from the first frame of a one-bit file there is no key to time, and the pool stays as the open took it - the base's bank is never risked on a guess. "
         "Broken on purpose (vp_lysplit not called) the layer and base arms "
@@ -4459,10 +4497,17 @@ SOAK = [
         "512 --layer-prefill all: the prefill fills the slots and the bank "
         "with the whole layer and holds (vp_pfwait), B: is BLANKED, and the "
         "play must draw all 89 layer records with none missed, each slot "
-        "fed from the bank as the hook let it go. The base, held whole, may "
-        "decode IN PLACE on the 386 (98.3.18.14; `xip` in its state line) - "
-        "the shipped choice, left alone because every assertion is the "
-        "layer's",
+        "fed from the bank as the hook let it go. The base, held whole, "
+        "decodes IN PLACE on the 386 and the row asserts it (98.3.18.14): "
+        "it was red there until vp_lyown stopped storing its claim's segment "
+        "as the layer's slot count and an in-place hold's fill read and "
+        "timed the disk for the layer's verdict (vp_xfillt)",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
+    Row("vidlybankcopy", "soak", py("tests/vidlybank.py", "--copy"), 60.0,
+        "SPEC.md 98.1.9, 98.3.18.14: vidlybank with the base COPYING out of "
+        "its hold ([vp_noinp] = 1 before Play) - the path every 386 took "
+        "before a 386 went in place, kept gated beside it",
         needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidlybanknone", "soak", py("tests/vidlybank.py", "--arm",
@@ -13462,7 +13507,7 @@ SOAK = [
         "on the same clip is short - and a fixed bank is untouched. Broken "
         "on purpose (the first pass returning nothing) it FAILS",
         needs=("ffmpeg",)),
-    Row("vencgui", "soak", py("tests/vencguitest.py"), 90.0,
+    Row("vencgui", "soak", py("tests/vencguitest.py"), 200.0,
         "SPEC.md 98.2.8: the encoder's WINDOW without a window "
         "(tools/os88vencgui.py): every os88venc option on a tab with a "
         "tooltip, the untouched form parsing to the parser's own defaults, "
@@ -13502,7 +13547,7 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/ctrl.drv",
                "build/sound.drv")),
-    Row("videnc", "soak", py("tests/videnc.py"), 850.0,
+    Row("videnc", "soak", py("tests/videnc.py"), 1550.0,
         "SPEC.md 98.2.1: the encoder front end and its budgets, host-side. "
         "ffmpeg makes a 16:9 source with a still tail and tools/os88venc.py "
         "encodes it: the canvas must be the source's shape in the Hercules "

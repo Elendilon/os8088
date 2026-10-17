@@ -173966,33 +173966,58 @@ format change: a held frame is an ordinary record.
 - by default; docs/plans/VIDEO-SEEN-PLAN.md 3a). The ways a frame the
 budgets cannot draw may give, as RUNGS in the order they are tried:
 `lag:MS` (the lag allowance, 98.2.1.1.2), `slow:A/B` (a held frame's
-rate, as `--min-fps`'s), `coarse:auto|WxH` (a scene's first frame in
-cells, 98.2.1.9) and `colours:12|8` (a scene's palette stepped down,
-98.2.1.9, decided per scene from a first pass as `--step-down` is). Where
+rate, as `--min-fps`'s), `coarsescene:frame|mix|WxH` (a scene's first
+frame in cells, 98.2.1.9; `coarse:` until 2026-10-17, still read), `coarseany:frame|mix|WxH` (2026-10-17: EVERY frame of the
+stretch the budgets would cut drawn in cells at its own time - the frame
+rate kept and the width given up where the picture moves too fast to
+send, on the planar screens of 98.2.5.2; on Last Exile at 24 fps it is
+16.5% of the view broken against the cut's 24.3% and 0.4 s visibly broken
+against 3.3, the half rate's 3.2% and 0.6 - VIDEO-SEEN-PLAN 3a; and
+`coarseany:mix` cells only the fewest 32x8 tiles that let the rest be
+drawn whole at full detail, `coarse_mix`, 17.0% against the whole-frame
+cells' 18.0% on 0:10-0:25), `colours:12|8` (a scene's palette stepped down,
+98.2.1.9, decided per scene from a first pass as `--step-down` is) and
+`cut:PERCENT` (2026-10-17, the owner: *"some videos accept normal cuts
+better than others"* - the climb STOPS there where no frame of the
+stretch is more than that broken as seen, and its frames are cut as the
+budgets cut them; it changes how the rungs before it are judged and draws
+nothing new, so a cut rung's try is the one before it, not encoded
+again). Where
 the budgets would cut a stretch, or at a scene's first frame, each PREFIX
 of the ladder is encoded on copies of the encoder over the next half
 second - its slowest rate, its longest lag and its cells together - and
-the first that shows every frame WHOLE is taken; none, the least broken
-by the view as seen, a held frame at `--slow-cost` (`degrade_choose`).
+the first that shows every frame WHOLE - or, at or past a cut rung, none
+more broken than it accepts (its cut rungs' largest) - is taken; none,
+the least broken by the view as seen, a held frame at `--slow-cost`
+(`degrade_choose`).
 Cutting is what is left after the last rung. A rung's lag holds for its
 stretch and then until the picture is level, a frame being the floor. It
 sets `--lag`, `--min-fps`, `--coarse-cut`, `--step-down` and `--step-min`
 itself, which the encoder window greys while it is on; a rung the file
-cannot use (lag without a card's sound, cells or colours without a
-palette a scene, a slower rate on a Live or layered file) is LEFT OUT and
+cannot use (lag without a card's sound, cells off a planar screen,
+fewer colours without a palette a scene, a slower rate on a Live or
+layered file) is LEFT OUT and
 said, nothing else refused. With page-ahead the plan pass decides and the
 real passes replay its holds, lag and cells, and page-ahead's keep and
 its prune judge a file that may hold frames by its picture's measures and
 not by a count of cut frames - a ladder trades one for the other. The
 encoder window's default ladder (`DEGRADE_DEFAULT`) is `lag:100,
-coarse:auto, slow:5/6, colours:12, slow:2/3, slow:1/2`; on each clip's
-own options it took Last Exile 0:10-0:40 (flipped Mode X, `286-speeddemon`)
-from 24.3% of the view broken to 3.2% and its cut frames 400 to 57, Bad
-Carrot's flipped tune 1.8% to 1.0%, Take On Me's Hercules file 5.5% to
-4.7%. `slow:5/6` first instead of `lag:100` made the same files. The
+slow:5/6, colours:12, slow:2/3, coarsescene:frame, coarseany:mix` since
+2026-10-17: the half rate is out of it (the owner: it "worked great on
+gasgas, and terribly on last exile", too jerky and still cutting) and
+cells at any cut, mixed, are its last rung. On each clip's own options:
+Bad Carrot's flipped tune 1.0% -> 0.4% of the view broken (its worst
+moment 33% -> 9%), Gas Gas Gas 1.7% -> 2.1%, Take On Me's Hercules file
+(no cells there) 4.7% -> 5.0%, Last Exile 0:10-0:25 3.7% -> 18.9% - the
+score cannot see the jerk the owner saw, and a 16 fps stretch in mixed
+cells scores worse than the same cells at 24 (17.0%), so where cells go
+on a ladder is the next thing the owner's eye decides. The ladder before
+that, with the half rate, took Last Exile 0:10-0:40 from 24.3% to 3.2%;
+`slow:5/6` first instead of `lag:100` made the same files. A cut rung is in no default: it
+is the choice a video makes that takes a cut better than a slower rate. The
 window carries it as Size vs quality's second inner tab, Degrade ladder: a
 checkbox, a rung a row offering only the rungs the form can use, and under
-them Lag, Min fps, Slow cost and Flip hold (Slowing down, not cutting).
+them Lag, Min fps, Slow cost, Flip hold and Coarse cut (Instead of cutting).
 
 ##### 98.2.1.2 What a cut frame spends on: the look-ahead and the error as seen
 
@@ -175856,6 +175881,27 @@ reaches the player, the format or the kernel.
   page it had just built nearly whole. The plan now counts a frame drawn
   in cells as a target, as it does a cut one, and the cells are drawn
   only where no flip came.
+  **On every PLANAR screen since 2026-10-17, not a palette a scene's
+  alone** (the owner: *"is there any reason that doesn't apply to other
+  display types?"*). What the cells buy is a flat byte being ONE store for
+  many pixels, and that is a planar screen's: VGA4's write mode 3 (or two
+  stores by planes without it) and Mode X's Map Mask 0Fh, an aligned group
+  of four pixels of one colour a store (`vid.modex_subs`). Measured as the
+  cycles of a scene change drawn whole from the picture before against the
+  same in cells: Last Exile's Mode X changes took **32-51%** at 4x1 and
+  exactly as many at 16x4, 32x8 and 64x8 - the group IS the gain - so Mode
+  X's `auto` is the whole frame, else **4x1** (`COARSE_LADDER_MX`), a
+  quarter of the width for one frame and every row kept. On a PACKED
+  screen a flat byte is only a RUN, 13 cycles a byte against a slice's 18,
+  and Take On Me's Hercules changes took **87-100%** in cells, dithered the
+  file's own way: so not there, and the window greys `--coarse-cut` with
+  that reason (`coarse_screen`). Where there is no palette a scene, the
+  scenes are found by the same scene pass, run for the cells alone - one
+  more read of the clip at the canvas's size, its colours unused - and
+  `--scene-cover`/`--scene-min` act on it there too. Mode X's cells are
+  the nearest of its whole palette. A ladder's `coarsescene` rung follows: it is
+  offered on Mode X (`auto`, `4x1`) and on VGA4 with or without a palette a
+  scene, and left out on a packed screen.
 
 ##### 98.2.5.3 What the sixteen-colour options take together (the options audit, 2026-10-14)
 
@@ -176101,8 +176147,9 @@ page-ahead's against `--flip`, a loop and a layer, the prune's against
 page-ahead off, the layer group's against `--flip` - could grey nothing,
 and the window wrote command lines the encoder then refused. They are in
 the context now. The scene options (`--scene-cover`, `--scene-min`,
-`--step-down`, `--scene-hold`, `--coarse-cut`) follow whether a palette a
-scene APPLIES and not its checkbox, which a palette `auto` greys but does
+`--step-down`, `--scene-hold`) follow whether a palette a
+scene APPLIES and not its checkbox (`--coarse-cut` whether the screen is
+planar, and the first two either, 98.2.5.2), which a palette `auto` greys but does
 not clear. `--flip`, `--page-ahead` and `--page-prune` are a group of
 their own, *A second page*, whose rule is the screens with one - Mode X,
 16 colours on a screen of their own, and a Hercules: under the VGA group
@@ -176236,6 +176283,37 @@ Mode X and VGA4 keep plain arrays, so their count was always right.
 every pixel. It needs a pre-roll, key 0 is past it, and key 0's picture
 lights 99.9% of the canvas. Without the split, 10.0% is lit. Without
 re-making the views, the pre-roll is 0 frames and key 0 is 47.2% lit.
+
+#### 98.2.9.2 A dry run that never spent its budgets (2026-10-17)
+
+**The owner's report was key 0 with black holes again**, on a flipped Mode
+X encode of the same anime opening for the 286 SpeedDemon: the preview and
+a play from the start both showed it. The file was self-consistent - key 0
+was exactly the screen after frame 1 - and that screen was the defect.
+
+**The dry run drew its frames and never CHARGED them.** The real loop
+calls `charge` after every frame: the record's cost off the CPU's bucket,
+its bytes off the disk's, and on a flipped file the back page's catch-up,
+owed by the next frame (98.3.8). `preroll` only called `frame`, so its
+copy's buckets stayed full, nothing was ever owed, and the frame after a
+cut one always fitted: a pre-roll of 1 every time the first frame missed by
+one record. On the owner's clip frame 0 overflows the record (57,600 bytes
+of 320 x 180 against 30 KB) and frame 1 the per-frame CPU ceiling, which
+the real run met with the bucket the first frame had emptied and the back
+page's copy owed. Now each dry-run frame is charged as the loop charges
+it, with the look-ahead the loop gives it (the same picture), and the clip
+pre-rolls 2 frames with key 0 whole.
+
+**And the real loop draws the pre-roll the way the dry run counted it**:
+no degrade-ladder decision (a hold, a slower rate, cells at a cut) and no
+lag search on a frame at or before key 0. A hold there draws nothing on
+the page and would leave key 0 short whatever the count. A file with no
+pre-roll is untouched by either, so it is byte-identical to one made before.
+
+`tests/videnc.py` is the gate: noise over the test pattern with a tone,
+`--preset modex --profile 286-speeddemon --flip`, key 0 at frame 2 and
+exactly its target. With `preroll` not charging, key 0 is at frame 1 and
+372 pixels short. Without the tone it never cut at all, so the tone stays.
 
 #### 98.2.10 What a choice sets: the presets' own defaults, and the window shows them
 
@@ -180428,14 +180506,35 @@ for unreal mode that had never been measured (docs/plans/VIDEO-386-PLAN.md).
 
 **Taken where a 286's is taken and refused where it is refused**, on 98.3.18.11
 and 98.3.18.13's lists and for their reasons - none of which is the 286's
-instruction, so none is a 386's either - **plus one refusal on both tiers: a
-play that reads a LAYER** (98.1.9, `vp_lyipq`). The layer's slots, its split
-of the pool and its bank are planned against the COPYING ring, and an
-in-place base left the layer reading nothing: `vidlybank` went red the first
-time QEMU's 386 went in place, and green again with `[vp_noinp]` written. A
-286 had carried that since 98.3.18.11 with no row able to see it. It is a
-defect refused, not an incompatibility in kind (docs/plans/VIDEO-386-PLAN.md
-6). The speaker's clock stays refused on
+instruction, so none is a 386's either.
+
+**A LAYER plays beside a base in place, on both tiers** (98.1.9.10's own
+design, "IN PLACE the ring is not a ring", which had never run right).
+`vidlybank` went red the first time QEMU's 386 went in place, and three
+defects were under it - a 286 had carried all three since 98.3.18.11 with
+no row able to see them:
+- **`vp_lyown` stored the claim's SEGMENT as the layer's slot count**: DX
+  held the slots and `vp_mclaim` answers the claim in DX, so `[vp_lyns]`
+  read 15072 and the layer was planned against nonsense;
+- **a held file in place was never TIMED**: its fill notes offsets and reads
+  nothing, so the disk's verdict (98.1.9.3) was never taken, and no verdict
+  is the base (98.1.9.7) - `Layer off: not timed`. `vp_xfillt` reads the
+  chunk as well while the verdict is owed - into the ring's first
+  conventional slot, which holds nothing past the key already drawn, timed
+  and thrown away - and takes the verdict at three chunks, so the rest of
+  the ring is only noted;
+- **a bank in place was never timed either**: `vp_fill`'s in-place arm
+  (`vp_eread`, EMS's and the XMS bank's) did not call `vp_dtime`, and the
+  fill before the first frame stops at two chunks where the test needs
+  three. It reads a third while the verdict is owed, timed.
+
+**What is left is a CAPACITY difference, not a refusal.** The split
+(98.1.9.2) runs after the ring is up, and a base bank in place IS the ring,
+so it cannot be resized: on the layer's machine the base keeps the open's
+bank and the layer its own open's share (`vidlysplit`'s clip: 8 and 18
+slots, where copying takes 0 and 25), and on the base's machine the layer's
+bank is given back and the pool past the base's ask stays idle. A held base
+needs no bank, so a hold in place loses nothing. The speaker's clock stays refused on
 every tier: a borrow on a 386 is ~6 us rather than ~150, but the decode
 inside it still runs with interrupts off for up to `VP_XYB` record bytes,
 and one interrupt a sample cannot wait for that. **`[vp_noinp]` now refuses

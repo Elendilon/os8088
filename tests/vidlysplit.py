@@ -52,6 +52,18 @@ EVERY ARM'S BASE BANK COPIES: QEMU is a 386, which reads an XMS bank IN
 PLACE since 98.3.18.14, chosen at the session's start before the split runs
 - so `[vp_noinp]` = 1, the gate's A/B, is written before Play.
 
+`--inplace` (with ARM layer or base) is the other half: no `[vp_noinp]`,
+so the base's bank IS the ring (`[vp_einp]` 2) - and since 98.3.18.14 a
+LAYER plays beside it. The split cannot resize a bank that is the ring, so
+each keeps what the open took: the base's 8 slots, and on the layer's
+machine the layer's 18 (where copying it gets 25), on the base's machine
+none. The play then runs to its last frame with no error and, on the
+layer's machine, the layer drawn - which needs the DISK's verdict, taken on
+a third chunk read into the in-place ring (vp_sstart's `.fill`) and timed
+there (vp_fill's vp_eread arm, which timed nothing before). Broken on purpose
+(vp_lyown storing the claim's segment as its slot count again, the defect
+this arm was written beside) the guest hangs before the play starts.
+
 Both play from KEY 1: the CPU is timed on a key, a one-bit file from its
 first frame has none, and untimed the pool is left as the open took it -
 the base's bank is never risked on a guess. ARM untimed is that: from the
@@ -116,7 +128,12 @@ def main():
     ap.add_argument("--arm", choices=("layer", "base", "untimed",
                                       "diskslow", "flip", "flipcmp"),
                     default="layer")
+    ap.add_argument("--inplace", action="store_true",
+                    help="no [vp_noinp]: the base's bank in place, a layer "
+                         "beside it (98.3.18.14)")
     a = ap.parse_args()
+    if a.inplace and a.arm not in ("layer", "base"):
+        sys.exit("vidlysplit: --inplace is ARM layer's or base's")
     os.chdir(ROOT)
     syms, _ = pkg_syms("apps/video/video.asm", ("apps/",))
     pkg = os88build.at("build/video.o88")
@@ -230,7 +247,8 @@ def main():
         # the base's bank would be the ring with [vp_xbank] 0 and the split
         # would have no FIFO to resize. [vp_noinp], the gate's A/B, keeps
         # the bank the split is about, as every 386 had it
-        qpoke(q, [(base + syms["vp_noinp"], b"\1")])
+        if not a.inplace:
+            qpoke(q, [(base + syms["vp_noinp"], b"\1")])
         q.hmp("sendkey p")
         wait(lambda: rb("vp_ready") == 1, "the play", 120)
         n1, l1 = rw("vp_xbn") if rb("vp_xbank") else 0, rw("vp_lyxn")
@@ -285,6 +303,31 @@ def main():
                 bad.append("the split kept %d slots for the base (the ring "
                            "lent %d KB) and gave the layer %d, not 25"
                            % (n1, cmp, l1))
+        elif a.inplace:
+            einp, xbn = rb("vp_einp"), rw("vp_xbn")
+            lay = a.arm == "layer"
+            print("   in place: einp %d, the base's bank %d slots (the ring), "
+                  "the layer %s with %d" % (einp, xbn, "on" if rb("vp_lyon")
+                                             else "off", l1))
+            if einp != 2:
+                bad.append("the base's bank did not go in place (einp %d)"
+                           % einp)
+            elif xbn != n0 or bool(rb("vp_lyon")) != lay or \
+                    l1 != (l0 if lay else 0):
+                bad.append("in place the split kept %d slots for the base "
+                           "and %d for the layer (layer %s), not the open's "
+                           "%d and %s" % (xbn, l1, "on" if rb("vp_lyon")
+                                          else "off", n0, l0 if lay else 0))
+            wait(lambda: rb("vp_ready") == 0 and rb("vp_played") == 1,
+                 "the play to end", 240)
+            got = rw("vp_lygot")
+            print("   ended: done %d of %d, error %d, the layer drew %d"
+                  % (rw("vp_done"), r.frames, rb("vp_err"), got))
+            if rw("vp_done") != r.frames or rb("vp_err"):
+                bad.append("the play in place drew %d of %d (error %d)"
+                           % (rw("vp_done"), r.frames, rb("vp_err")))
+            if lay and not got:
+                bad.append("the layer drew nothing beside a bank in place")
         elif a.arm == "layer":
             if not rb("vp_lyon"):
                 bad.append("the layer is not read on QEMU - nothing tested")
