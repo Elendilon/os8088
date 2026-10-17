@@ -12071,13 +12071,15 @@ SMALLSYSAPPSARGS  = $(addprefix SYSTEM:,$(SMALLSYSAPPS))
 # with the Desk Calendar's SMALL build: the shipped one is a desk widget or
 # nothing (STIK_DESKONLY), and kern_small has no desk layer, so its disks
 # carry the build that keeps the titled fallback and the worker arm. The
-# Desk Clock has one build, and it keeps both. STICKY NOTE IS NOT HERE
+# Desk Clock is the same (SPEC.md 110.14.8): desk-only on kern_big, its SMALL
+# build here. STICKY NOTE IS NOT HERE
 # (SPEC.md 24.5.1, the owner's decision): kern_small has no desk layer and no
 # associations, so it would be a window showing one note that can neither
 # live on the desk nor hand the note to Note Pad - Note Pad, worse.
 # tests/unit/t_smallreq.py's FORBIDDEN holds it off
-SMALLSTIKAPPS     = $(SMALLAPPDIR)/deskcal.o88 \
-                    $(filter-out $(BUILD)/deskcal.o88 $(BUILD)/stiknote.o88,$(STIKAPPS))
+SMALLSTIKAPPS     = $(SMALLAPPDIR)/deskcal.o88 $(SMALLAPPDIR)/deskclok.o88 \
+                    $(filter-out $(BUILD)/deskcal.o88 $(BUILD)/stiknote.o88 \
+                                 $(BUILD)/deskclok.o88,$(STIKAPPS))
 SMALLSTIKARGS     = $(addprefix STIKAPPS:,$(SMALLSTIKAPPS))
 
 # --- THE SMALL SYSTEM DISK CARRIES THE WHOLE APPS PAYLOAD (SPEC.md 24.5.6) ----
@@ -12403,6 +12405,16 @@ $(SMALLAPPDIR)/deskcal.bin: $(DESKCALSRC) | $(BUILD)
 
 $(SMALLAPPDIR)/deskcal.o88: $(SMALLAPPDIR)/deskcal.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(SMALLAPPDIR)/deskcal.bin -o $@
+
+# ...and the Desk Clock's, for the same disks and the same reason (SPEC.md
+# 110.14.8): -DAPP_SMALL leaves STIK_DESKONLY off
+$(SMALLAPPDIR)/deskclok.bin: $(DESKCLOKSRC) | $(BUILD)
+	@mkdir -p $(SMALLAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/deskclok/ -DAPP_SMALL -o $@ apps/deskclok/deskclok.asm
+	@echo "deskclok (APP_SMALL): $(call FILESIZE,$@) bytes"
+
+$(SMALLAPPDIR)/deskclok.o88: $(SMALLAPPDIR)/deskclok.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(SMALLAPPDIR)/deskclok.bin -o $@
 
 smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 	@python3 tools/os88pkgsize.py $(BUILD)/notepad.o88 $(SMALLAPPDIR)/notepad.o88

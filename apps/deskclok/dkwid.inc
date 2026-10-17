@@ -27,8 +27,10 @@ dk_lays:
 DK_SZW:     db 80, 112, 152     ; an analog face's width: Small, Medium, Large
             db 96, 128, 176     ; ...a digital one's
 DK_PANW     equ 128             ; the info panel: 16 cells
+%ifndef STIK_DESKONLY
 DK_TITMIN   equ 96              ; the titled fallback's frame floor
 DK_TITHMIN  equ 64 - TITLE_H - 1
+%endif
 
 ; -----------------------------------------------------------------------------
 ; dk_sizeup - STIK_SIZEUP: the face, the panel and the card for the payload as
@@ -134,12 +136,14 @@ dk_geom:
     jae .w1
     mov ax, DK_PANW
 .w1:
+%ifndef STIK_DESKONLY           ; the titled fallback's frame has a floor
     test byte [stik_wf], STIK_W_DESK
     jnz .w2
     cmp ax, DK_TITMIN
     jae .w2
     mov ax, DK_TITMIN
 .w2:
+%endif
     mov [dk_cw], ax
     sub ax, [dk_faw]
     shr ax, 1
@@ -210,12 +214,14 @@ dk_geom:
     sub bx, [dk_pt]
     mov [dk_ph], bx
 .tit:
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jnz .x
     cmp word [dk_ch], DK_TITHMIN
     jae .x
     mov word [dk_ch], DK_TITHMIN
 .x:
+%endif
     pop dx
     pop cx
     pop bx
@@ -242,13 +248,17 @@ dk_pcard:
     mov ax, KERNEL_SEG
     mov es, ax
     call dk_mode                ; [ck_np]: four planes or one
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jz .white
+%endif
     call dk_gsample             ; the desktop's pattern, off the glass
+%ifndef STIK_DESKONLY
     jmp short .gnd
 .white:
     call ck_gwhite
 .gnd:
+%endif
     call ck_font
     call dk_cprep               ; the face's static layer, cached
     mov bx, [dk_cw]
@@ -1561,8 +1571,10 @@ dk_oncard:
     mov [dk_clkt], bx
     mov [dk_clkx], cx
     mov [dk_clky], dx
+%ifndef STIK_DESKONLY
     test byte [stik_wf], STIK_W_DESK
     jz .x
+%endif
     mov bx, si                  ; the kernel's drag, once we return
     mov al, 2
     call OSAPI_WM_DESK

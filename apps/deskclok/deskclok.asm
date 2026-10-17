@@ -119,6 +119,9 @@ STIK_PAYVER equ DKP_VER
 STIK_ICON   equ 32
 STIK_BSS    equ DK_BSS          ; the include's state follows ours
 %define STIK_WIDGET
+%ifndef APP_SMALL               ; kern_big's build: a desk widget or nothing.
+%define STIK_DESKONLY           ; The small build (make small) keeps the
+%endif                          ; titled fallback and the worker arm (110.7)
 %define STIK_VARFACE            ; the width and the card are the settings'
 %define STIK_SIZEUP   dk_sizeup
 %define STIK_COLOR              ; the titled fallback's save-under: 4 planes

@@ -31,7 +31,9 @@ were written the same afternoon. So:
   E  every shipped SYSTEM image carries STIKAPPS/DESKCAL.O88, byte for
      byte build/deskcal.o88 - and the two small system disks byte for byte
      its SMALL build, build/smallapp/deskcal.o88 (STIK_DESKONLY off: the
-     titled fallback and the worker arm, SPEC.md 110.7) - read by t_image's
+     titled fallback and the worker arm, SPEC.md 110.7) - and the same for
+     the Desk Clock, build/deskclok.o88 and build/smallapp/deskclok.o88
+     (SPEC.md 110.14.8) - read by t_image's
      own FAT12 walker and not os88disk's: the four geometries, both small
      system disks and emu.img (when `make emu` has built it). The live
      media's list is t_livefull's.
@@ -549,10 +551,17 @@ def main():
                       "others (SPEC.md 110.14) - on the 360KB disk too, "
                       "which gave its typefaces up for it (SPEC.md 24.3.1.5)",
                   got=sorted(k for k in files if k.startswith("STIKAPPS/")))
-            if got is not None and dkwant is not None:
-                check(got == dkwant, "%s's DESKCLOK.O88 is "
-                      "build/deskclok.o88 byte for byte" % img,
-                      got=len(got), want=len(dkwant))
+            dkp, dkw = dkpkg, dkwant
+            if img in SMALL_SYSTEM:             # the Desk Clock's SMALL build
+                dkp = os.path.join(build, "smallapp", "deskclok.o88")
+                dkw = open(dkp, "rb").read() if os.path.exists(dkp) else None
+                check(dkw is not None, "build/smallapp/deskclok.o88 exists",
+                      why="the small system disks take the Desk Clock's "
+                          "small build (SPEC.md 110.14.8); `make small`")
+            if got is not None and dkw is not None:
+                check(got == dkw, "%s's DESKCLOK.O88 is %s byte for byte"
+                      % (img, os.path.relpath(dkp, build)),
+                      got=len(got), want=len(dkw))
         for img in DATA_IMAGES + OPTIONAL_DATA:
             p = os.path.join(build, img)
             if not os.path.exists(p):
