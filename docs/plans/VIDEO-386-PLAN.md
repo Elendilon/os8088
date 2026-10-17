@@ -158,16 +158,21 @@ measures the CPU side honestly and the disk side pessimistically.
 
 ## 6. Open items found on the way
 
-- **A layered play, in place: REFUSED, on both tiers** (`vp_lyipq`). The
-  final pass found it. `vidlybank` and `vidlybanknone` went red: the base was
-  held whole and went in place, and the layer then read nothing (its slot
-  count read 15072, planned against a ring that was no longer there). With
-  `[vp_noinp]` written they went green again. The bank in place had the same
-  shape: it decides before `vp_lysplit` and skipped the layer's split. Both
-  have been true on a 286 since 98.3.18.11/.13 with no row able to see them.
-  The refusal is the safe stop. The real fix is planning the layer's slots,
-  split and bank for an in-place ring. Once that exists the refusal comes out,
-  because nothing about a layer is incompatible with reading in place.
+- **A layered play, in place: FIXED 2026-10-17, no refusal** (SPEC.md
+  98.3.18.14). The final pass found it: `vidlybank` went red once QEMU's 386
+  went in place, and a refusal (`vp_lyipq`) shipped for a day while it was
+  diagnosed. It was three defects, all on a 286 since 98.3.18.11/.13:
+  `vp_lyown` stored its claim's segment as the layer's slot count (15072),
+  a held file in place was never timed for the disk's verdict (its fill
+  reads nothing; `vp_xfillt` reads and times it while the verdict is owed),
+  and a bank in place was never timed either (no `vp_dtime` on the
+  `vp_eread` arm, and two chunks where the test needs three).
+  Gates: `vidlybank` (in place, asserted), `vidlybankcopy`,
+  `vidlysplitinplace`, `vidlysplitinplacebase`. **What stays is capacity**:
+  the split cannot resize a base bank that IS the ring, so in place each bank
+  keeps the open's share (8 and 18 slots in `vidlysplit`'s clip, where copying
+  gives 0 and 25). Resizing it would mean the split running before the ring is
+  sized, and the split needs the CPU timed on a key that the ring reads.
 - **The ring at THE GAP when G = 2048** (98.3.18.12) - FIXED 2026-10-17, the
   owner's call: `vp_kres` reserves the slack, so the ring is planned with it
   and a layout that loses a slot to it copies at the fast gap. What it was:

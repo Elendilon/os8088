@@ -20,7 +20,11 @@ tools/os88venc.py encodes it three ways. Four questions:
    by the wave 0 model on its actual bytes, is under the per-frame ceiling,
    and a replay of both buckets never goes below empty. And the FIRST
    KEYFRAME is a whole picture, exactly its target (SPEC.md 98.2.9's
-   pre-roll): a half-painted key 0 is where a colour play starts.
+   pre-roll): a half-painted key 0 is where a colour play starts - and
+   on a FLIPPED Mode X file for a 286 over noise, where frame 0 overflows
+   the record and frame 1 the CPU's ceiling, key 0 is at frame 2 or later
+   and exact (98.2.9.2). Broken on purpose - preroll() not charging its
+   frames - key 0 is at frame 1 and hundreds of pixels short.
    3b. OWED TIME (98.2.1.1): a cut every fifth frame, a 30% ceiling and
    `--owe 1.6`. Frames must run past their period (or this tests nothing),
    and the silent hook's schedule replayed from the file never finds three
@@ -352,11 +356,135 @@ def main():
         if not lad.get(1) or rl["cuts"] >= cut0:
             bad.append("--ladder slow:1/2 decided %r and cut %d frames "
                        "against %d" % (lad, rl["cuts"], cut0))
-        try:
-            venc.degrade_parse("slow:2")
-            bad.append("--ladder slow:2 (not under the rate) was taken")
-        except vid.V88Error:
-            pass
+        # ...and A CUT RUNG (2026-10-17): cut:100 accepts any breakage, so
+        # put first every stretch stops there - cut, nothing held, the
+        # slower rate behind it never tried; cut:0 is not a rung
+        path, rc, _ = run("tightcut", "--preset", "herc", "--disk", "20000",
+                          "--avg", "0.30", "--peak", "0.50", "--owe", "0",
+                          "--rate", "5512", "--profile", "floppy",
+                          "--reserve", "16", "--ladder", "cut:100,slow:1/2")
+        vid.verify_v88(path)
+        lc = rc.get("ladder") or {}
+        print("   3b: --ladder cut:100,slow:1/2: %d stretches decided (%s), "
+              "%d held" % (sum(lc.values()), ", ".join(
+                  "rung %d: %d" % kv for kv in sorted(lc.items())),
+                  rc["holds"]))
+        if not lc.get(1) or set(lc) - {0, 1} or rc["holds"]:
+            bad.append("--ladder cut:100,slow:1/2 decided %r and held %d"
+                       % (lc, rc["holds"]))
+        for no in ("slow:2", "cut:0"):
+            try:
+                venc.degrade_parse(no)
+                bad.append("--ladder %s was taken" % no)
+            except vid.V88Error:
+                pass
+        # --- 3c': THE SPEED PASS'S MODE X WRITES (VIDEO-SEEN-PLAN 3a):
+        # modex_subs over whole arrays against the loop it replaced, on
+        # canvases of flat groups, pairs, noise and changes of every shape
+        rng = np.random.default_rng(7)
+        gx = vid.Geom(vid.LAY_MODEX, 80, 60)
+        same_subs = 0
+        for t in range(12):
+            pal = rng.integers(0, 2 + t * 20, 256)
+            cvx = pal[rng.integers(0, 256, (60, 80))]
+            cvx = np.repeat(cvx, 4, 1) if t % 3 == 0 else \
+                np.repeat(pal[rng.integers(0, 256, (60, 160))], 2, 1) \
+                if t % 3 == 1 else pal[rng.integers(0, 256, (60, 320))]
+            chx = rng.random((60, 320)) < (0.05 + 0.08 * t)
+            cvb = cvx.astype(np.uint8).tobytes()
+            same_subs += vid.modex_subs(cvb, chx.ravel().tolist(), gx) == \
+                vid.modex_subs_loop(cvb, chx.ravel().tolist(), gx)
+        print("   3c': Mode X writes over arrays: %d of 12 canvases the same "
+              "as the loop's" % same_subs)
+        if same_subs != 12:
+            bad.append("modex_subs differs from modex_subs_loop on %d of 12"
+                       % (12 - same_subs))
+        # --- 3c: COARSE CELLS ON A PLANAR SCREEN (98.2.5.2, 2026-10-17):
+        # a clip whose scene changes half way, on Mode X with no palette a
+        # scene - the scene pass finds the change, the cut it would be is
+        # drawn in 4x1 cells, the file is a valid one; and on a Hercules
+        # (a packed screen) no scene pass and no cells, the same bytes as
+        # --coarse-cut off
+        src2 = os.path.join(tmp, "scene.mkv")
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+             "testsrc2=size=320x180:rate=24:duration=1", "-f", "lavfi",
+             "-i", "mandelbrot=size=320x180:rate=24,trim=duration=1",
+             "-filter_complex", "[0:v][1:v]concat=n=2:v=1[v]", "-map",
+             "[v]", "-c:v", "ffv1", src2], check=True)
+
+        def run2(name, *args):
+            a2 = venc.parser().parse_args(
+                [src2, os.path.join(tmp, name + ".V88"), "--quiet",
+                 "--audio", "none"] + list(args))
+            return a2.out, venc.encode(a2, [])
+        # (page-ahead off: with it the change is built ahead and flipped
+        # to, and the cells are only its fallback - 98.2.5.2)
+        tight = ("--disk", "150000", "--avg", "1.0", "--peak", "1.0",
+                 "--owe", "0", "--profile", "floppy", "--reserve", "16",
+                 "--page-ahead", "off")
+        p_on, r_on = run2("mxon", "--preset", "modex", *tight)
+        p_off, r_off = run2("mxoff", "--preset", "modex", "--coarse-cut",
+                            "off", *tight)
+        vid.verify_v88(p_on)
+        # (--screen 320x240 on Mode X is its own screen, the default - the
+        # same frames as no --screen, where it was refused: the owner)
+        p_240, _ = run2("mx240", "--preset", "modex", "--coarse-cut", "off",
+                        "--screen", "320x240", *tight)
+        same240 = [bytes(x) for x, a_, i_ in vid.Reader(p_240).records()] \
+            == [bytes(x) for x, a_, i_ in vid.Reader(p_off).records()]
+        print("   3c: --screen 320x240 on Mode X: the frames %s no --screen's"
+              % ("the same as" if same240 else "NOT the same as"))
+        if not same240:
+            bad.append("--screen 320x240 on Mode X is not the default")
+        h_on, rh_on = run2("hgon", "--preset", "herc", *tight)
+        h_off, rh_off = run2("hgoff", "--preset", "herc", "--coarse-cut",
+                             "off", *tight)
+        same = [bytes(x) for x, a_, i_ in vid.Reader(h_on).records()] == \
+            [bytes(x) for x, a_, i_ in vid.Reader(h_off).records()]
+        # (the records: the options block differs by the option itself)
+        print("   3c: a scene change on Mode X: cells %s, the view %.1f%% "
+              "broken, %.1f%% at its worst (off: cells %s, %.1f%%, %.1f%%); "
+              "on a Hercules cells %s, the frames %s --coarse-cut off's" % (
+                  r_on["cells"], 100 * r_on["q_seen"],
+                  100 * r_on["q_seen_worst"], r_off["cells"],
+                  100 * r_off["q_seen"], 100 * r_off["q_seen_worst"],
+                  rh_on["cells"],
+                  "the same as" if same else "NOT the same as"))
+        # ...and AT ANY CUT (coarseany, 2026-10-17): the ladder's rung on
+        # the same Mode X run draws cells at stretches inside the first
+        # shot too - more cells than the one scene change - and is left
+        # out on the Hercules
+        p_any, r_any = run2("mxany", "--preset", "modex", "--ladder",
+                            "coarseany:4x1", *tight)
+        vid.verify_v88(p_any)
+        h_any, rh_any = run2("hgany", "--preset", "herc", "--ladder",
+                             "coarseany:4x1", *tight)
+        print("   3c: --ladder coarseany:4x1 on Mode X: cells %s, decided %s;"
+              " on a Hercules cells %s, decided %s" % (
+                  r_any["cells"], r_any["ladder"], rh_any["cells"],
+                  rh_any["ladder"]))
+        # ...and MIX: only the tiles the budget cannot draw in cells - the
+        # rest at full detail, so its frames are fewer pixels off
+        p_mix, r_mix = run2("mxmix", "--preset", "modex", "--ladder",
+                            "coarseany:mix", *tight)
+        vid.verify_v88(p_mix)
+        print("   3c: --ladder coarseany:mix on Mode X: cells %s, decided %s"
+              % (r_mix["cells"], r_mix["ladder"]))
+        if not r_mix["cells"].get("mix"):
+            bad.append("--ladder coarseany:mix drew no mixed frame: %r"
+                       % r_mix["cells"])
+        if r_any["cells"].get("4x1", 0) < 2 or rh_any["cells"]:
+            bad.append("--ladder coarseany:4x1: Mode X cells %r, Hercules "
+                       "%r" % (r_any["cells"], rh_any["cells"]))
+        if not r_on["cells"].get("4x1") or r_off["cells"] or \
+                r_on["q_seen"] >= r_off["q_seen"] or \
+                r_on["q_seen_worst"] >= r_off["q_seen_worst"] or \
+                rh_on["cells"] or not same:
+            bad.append("coarse cells on a planar screen: Mode X %r (off %r), "
+                       "view %.4f against %.4f, Hercules %r, same bytes %s"
+                       % (r_on["cells"], r_off["cells"], r_on["q_seen"],
+                          r_off["q_seen"], rh_on["cells"], same))
         # --- 3a: W*H for WxH (98.2.1): accepted, and recorded as WxH
         pa = venc.parser().parse_args([src, "o.V88", "--box", "640*480",
                                        "--detail", "2*1", "--screen",
@@ -405,6 +533,34 @@ def main():
         if not k0 or kpic != keep[k0].tobytes():
             bad.append("the first keyframe (frame %d) is not a whole "
                        "picture: no pre-roll" % k0)
+        # ...and the pre-roll is COUNTED with each frame charged (98.2.9.2):
+        # a FLIPPED Mode X file on a 286 - the owner's Last Exile, whose
+        # key 0 came out with black holes - where frame 0 overflows the
+        # record and frame 1 the CPU's ceiling, which a dry run that never
+        # spent its budgets (nor owed the back page) called exact
+        nsrc = os.path.join(tmp, "noise.mkv")
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+             "testsrc2=size=320x180:rate=30:duration=1,noise=alls=100",
+             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=22050",
+             "-t", "1", "-c:v", "ffv1", "-c:a", "pcm_s16le", nsrc],
+            check=True)         # (the sound's share is part of what cuts)
+        a = venc.parser().parse_args(
+            [nsrc, os.path.join(tmp, "prefl.V88"), "--quiet", "--preset",
+             "modex", "--profile", "286-speeddemon", "--flip",
+             "--flip-hold", "empty", "--end", "1"])
+        pkeep = []
+        venc.encode(a, pkeep)
+        r = vid.Reader(a.out)
+        k0 = r.keys[0][0]
+        wrong = sum(1 for x, y in zip(vid.decode_at(r, k0),
+                                      pkeep[k0].tobytes()) if x != y)
+        print("   flipped Mode X on a 286: key 0 at frame %d, %d pixels "
+              "short of its target" % (k0, wrong))
+        if k0 < 2 or wrong:
+            bad.append("flipped Mode X: key 0 at frame %d is %d pixels short "
+                       "of a whole picture: the pre-roll counted short"
+                       % (k0, wrong))
         for f, c in over[:3]:
             bad.append("frame %d costs %.1f%% of its period, over the 50%% "
                        "ceiling" % (f, 100 * c / period))
@@ -1146,9 +1302,12 @@ def main():
 
     def penc(name, *extra):
         out = os.path.join(ptmp, name + ".V88")
+        # (--pages 2: these legs are the two-page builder's, and the
+        # default is MAX - three on Mode X; 5j is the N-page one)
         res = venc.encode(venc.parser().parse_args(
             [cuts, out, "--quiet", "--preset", "modex", "--profile",
-             "286-fast", "--audio", "none", "--fit", "fill"] + list(extra)))
+             "286-fast", "--audio", "none", "--fit", "fill", "--pages",
+             "2"] + list(extra)))
         return vid.Reader(out), res
     rd, resd = penc("default")
     ro, _ = penc("off", "--page-ahead", "off")

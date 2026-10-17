@@ -139,7 +139,7 @@ the file you are making is greyed out, and its tooltip says why.
 | Colour | The palette choices for each colour format, with a **Palette** panel showing the colours as swatches. Hover a swatch to see its number and colour |
 | Sound | The sound format, rate and volume, buffer sound ahead, ADPCM, and the PC speaker's shaping |
 | Budget | The machine's disk rate, processor share and memory, an XMS bank for a 286 or better, and a layer for a faster disk |
-| Size vs quality | **Choices**: holding still areas steady, fewer pixels, tearing and second pages, slowing down instead of cutting, and what is cut when a frame does not fit. **Degrade ladder**: tick **Use the degrade ladder** and set its rungs |
+| Size vs quality | **Choices**: holding still areas steady, fewer pixels, tearing and second pages, and what is cut when a frame does not fit. **Degrade ladder**: tick **Use the degrade ladder** and choose its rungs - a lag, a slower frame rate, fewer colours, coarse cells for a whole frame or for only the parts that do not fit, or a cut that is small enough - tried in order where a frame would be cut; under them, **Instead of cutting** holds the lag, frame-rate and coarse-cell settings the ladder replaces |
 | Loop and keys | Where a repeating play loops from, Repeat, resident and Live files, keyframe spacing and the poster |
 | Advanced | How many processor cores the encoder uses, and any setting no other tab has |
 

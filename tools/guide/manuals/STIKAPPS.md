@@ -3,17 +3,19 @@
 `STIKAPPS` holds the Sticky Apps: small programs that belong to the desktop
 itself rather than to a window. A Sticky App sits on the desktop under every
 window, stays where you put it, and comes back by itself every time the
-machine starts, until you close it. The Desk Calendar is the Sticky App that
-comes with os8088.
+machine starts, until you close it. Three come with os8088: the Desk
+Calendar, Sticky Note and Desk Clock.
 
-![The Sticky Apps menu on a fresh start, with the Desk Calendar ready to add.](shot:stikapps-menu)
+![The Sticky Apps menu on a fresh start, with each Sticky App ready to add.](shot:stikapps-menu)
 
 ## Where it is
 
 The folder is at the top level of the system disk, in every size, and on the
 emulator system disk and the live USB image and CD. It holds
-`DESKCAL.O88`, the Desk Calendar. Sticky Apps always come from the disk the
-machine started from, so no software disk carries this folder.
+[[DESKCAL.O88]], the Desk Calendar, [[STIKNOTE.O88]], Sticky Note, and
+[[DESKCLOK.O88]], Desk Clock. The small 128KB system disks carry the folder
+without Sticky Note. Sticky Apps always come from the disk the machine
+started from, so no software disk carries this folder.
 
 ## Using Sticky Apps
 
@@ -48,7 +50,8 @@ its place. Double-click the icon to try again, or delete it.
 - Only programs made as Sticky Apps work this way. An ordinary program
   copied into this folder does not appear in the menu, and runs as an
   ordinary window.
-- A Sticky App saves its own state, such as the calendar's appointments, in
-  `SYSTEM/APPDATA` on the system disk, so keep that disk writable.
-- Leave `DESKCAL.O88` here. Moved somewhere else, it is no longer listed in
-  the Sticky Apps menu.
+- A Sticky App saves its own state, such as the calendar's appointments or
+  Sticky Note's notes, in `SYSTEM/APPDATA` on the system disk, so keep that
+  disk writable.
+- Leave the Sticky Apps here. Moved somewhere else, a Sticky App is no
+  longer listed in the Sticky Apps menu.

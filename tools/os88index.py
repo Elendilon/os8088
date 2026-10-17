@@ -137,7 +137,14 @@ INCLUDES = [
      "`STIK_LAYOUT`s (picked by the screen's height) and a card painter "
      "(`stik_slabs` + `STIK_COMPOSE` into os88gfx.inc's band), it owns every "
      "other pixel, the gestures, the hover and focus states and the titled "
-     "fallback on kern_small."),
+     "fallback on kern_small. A kern_big widget (`STIK_DESKONLY`) that adds "
+     "`%define STIK_LIB` before its OS88_HEADER carries none of the code: "
+     "it far-calls the ONE copy in DESK.DRV (§110.15)."),
+    ("os88stikc.inc", "110.15",
+     "The Sticky App library's CLIENT, and you do not include it: "
+     "os88stik.inc does for a package built `%define STIK_LIB` - the "
+     "descriptor's values, the thunks into DESK.DRV's copy, the trampoline "
+     "the library calls back through, and the bind in `stik_load`."),
     ("os88line.inc", "83",
      "A one-line text field: caret, horizontal scroll, focus, click-to-position "
      "and the editing keys. The caller owns a 20-byte block."),

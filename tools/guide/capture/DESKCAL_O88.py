@@ -116,7 +116,7 @@ def capture(ui, shot):
     ui.mo.to((x0 + x1) // 2, 5)
     ui.mo._edge(True)
     os88marty.guest_sleep(m, 8.0)
-    shot("deskcal-stickymenu", rect=(152, 0, 344, 222), settle=False)
+    shot("deskcal-stickymenu", rect=(152, 0, 344, 340), settle=False)
     ui.mo.to(200, 440, l=True)
     ui.mo._edge(False)
     os88marty.guest_sleep(m, 2.0)

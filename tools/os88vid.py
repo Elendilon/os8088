@@ -2081,6 +2081,54 @@ def vga4_pack(cv, w, h, step=1, xlat=None):
 
 
 def modex_subs(cv, changed, g):
+    """modex_subs_loop's writes, worked out over whole arrays (the encoder
+    speed pass, VIDEO-SEEN-PLAN 3a: the loop was 43 ms a frame on a 320 x
+    180 canvas and the encoder asks it several times a frame). The same
+    classification - a group of one colour, a pair, a plane's own - and the
+    same spans; `tests/videnc.py` holds the two to the same answer"""
+    import numpy as np
+    w, h, wb = g.w, g.h, g.wb
+    G = np.frombuffer(bytes(cv), np.uint8)[:h * w].reshape(h, wb, 4)
+    C = np.asarray(changed, dtype=bool)[:h * w].reshape(h, wb, 4)
+    n = C.sum(2)
+    any_ = n > 0
+    addr = np.asarray(g.base, np.int64)[:h, None] + np.arange(wb)[None, :]
+    grpm = any_ & (n >= 2) & (G == G[:, :, :1]).all(2)
+    rest = any_ & ~grpm
+    ga = addr[grpm]
+    gsa = np.zeros(PLANE, np.uint8)
+    gsa[ga] = G[:, :, 0][grpm]
+    gsurf = bytearray(gsa.tobytes())
+    psurf = []
+    for p_ in range(4):
+        ps = np.zeros(PLANE, np.uint8)
+        ps[addr.ravel()] = G[:, :, p_].ravel()
+        psurf.append(bytearray(ps.tobytes()))
+    pv = [np.frombuffer(bytes(g.valid), np.uint8).copy() for _ in range(4)]
+    for p_ in range(4):
+        pv[p_][ga] = 0
+    pair, psv, per = {}, {}, [None] * 4
+    for hh in (0, 2):
+        pm = rest & C[:, :, hh] & C[:, :, hh + 1] & \
+            (G[:, :, hh] == G[:, :, hh + 1])
+        pa = addr[pm]
+        pair[hh] = pa.tolist()
+        sv = np.zeros(PLANE, np.uint8)
+        sv[pa] = G[:, :, hh][pm]
+        psv[hh] = bytearray(sv.tobytes())
+        pv[hh][pa] = 0
+        pv[hh + 1][pa] = 0
+        for p_ in (hh, hh + 1):
+            per[p_] = addr[rest & ~pm & C[:, :, p_]].tolist()
+    pvalid = [bytearray(v.tobytes()) for v in pv]
+    return [(0x0F, spans(ga.tolist(), gsurf, g, gaps=False)),
+            (0x03, spans(pair[0], psv[0], g, gaps=False)),
+            (0x0C, spans(pair[2], psv[2], g, gaps=False))] + \
+        [(1 << p_, spans(per[p_], psurf[p_], g, valid=pvalid[p_]))
+         for p_ in range(4)]
+
+
+def modex_subs_loop(cv, changed, g):
     """A MODEX frame's writes (98.1.3.1): the canvas `cv` (a pixel a byte)
     at the pixels `changed` flags. An aligned group of four pixels of ONE
     colour with two or more of them changed is one byte under Map Mask 0Fh

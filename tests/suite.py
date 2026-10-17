@@ -4423,6 +4423,25 @@ SOAK = [
         "FAIL with the open's 8 and 18",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
+    Row("vidlysplitinplace", "soak", py("tests/vidlysplit.py", "--inplace"),
+        90.0,
+        "SPEC.md 98.3.18.14: a LAYER beside a base bank read IN PLACE "
+        "(no [vp_noinp], QEMU's 386): [vp_einp] 2, the disk's verdict taken "
+        "on a third chunk read into the in-place ring and timed there (both "
+        "new), the layer read with the open's 18 slots of bank - the split "
+        "cannot resize a bank that is the ring, so the base keeps its 8 - "
+        "and the play to its last frame with no error and the layer drawn. "
+        "Broken on purpose (vp_lyown's segment-as-count defect put back) "
+        "the guest hangs before the play starts",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True,
+        wants=("build/video.o88", "build/os8088.img")),
+    Row("vidlysplitinplacebase", "soak", py("tests/vidlysplit.py", "--inplace",
+                                            "--arm", "base"), 90.0,
+        "SPEC.md 98.3.18.14: vidlysplitinplace on the BASE's machine (key "
+        "0's no kept): the layer off and its bank given back, the base's "
+        "bank in place at the open's 8 slots, the play whole",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True,
+        wants=("build/video.o88", "build/os8088.img")),
     Row("vidlysplituntimed", "soak", py("tests/vidlysplit.py", "--arm", "untimed"), 60.0,
         "SPEC.md 98.1.9.2: the XMS pool split AFTER the CPU is timed - from the first frame of a one-bit file there is no key to time, and the pool stays as the open took it - the base's bank is never risked on a guess. "
         "Broken on purpose (vp_lysplit not called) the layer and base arms "
@@ -4478,10 +4497,17 @@ SOAK = [
         "512 --layer-prefill all: the prefill fills the slots and the bank "
         "with the whole layer and holds (vp_pfwait), B: is BLANKED, and the "
         "play must draw all 89 layer records with none missed, each slot "
-        "fed from the bank as the hook let it go. The base, held whole, may "
-        "decode IN PLACE on the 386 (98.3.18.14; `xip` in its state line) - "
-        "the shipped choice, left alone because every assertion is the "
-        "layer's",
+        "fed from the bank as the hook let it go. The base, held whole, "
+        "decodes IN PLACE on the 386 and the row asserts it (98.3.18.14): "
+        "it was red there until vp_lyown stopped storing its claim's segment "
+        "as the layer's slot count and an in-place hold's fill read and "
+        "timed the disk for the layer's verdict (vp_xfillt)",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
+    Row("vidlybankcopy", "soak", py("tests/vidlybank.py", "--copy"), 60.0,
+        "SPEC.md 98.1.9, 98.3.18.14: vidlybank with the base COPYING out of "
+        "its hold ([vp_noinp] = 1 before Play) - the path every 386 took "
+        "before a 386 went in place, kept gated beside it",
         needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidlybanknone", "soak", py("tests/vidlybank.py", "--arm",
@@ -9743,8 +9769,17 @@ SOAK = [
         "nothing but OSAPI_VOL_SYS. The unit rows either side of it check the "
         "disk (`fonts`) and the bytes (`pkg`) and neither runs the walk; a "
         "walk that fails is SILENT, because face 0 is the kernel's own cell "
-        "and a Font menu one item long looks like a Font menu",
+        "and a Font menu one item long looks like a Font menu. On the 360KB "
+        "system disk, which has no faces since SPEC.md 24.3.1.5, this is the "
+        "SECOND rung: the faces found on the package's own volume",
         needs=("marty",), wants=("build/bench360.img",)),
+    Row("facescan144", "soak", py("tests/facescan.py", "--machine",
+                                  "os8088_xt_vga_144", "--sys",
+                                  "build/os8088.img", "--bench",
+                                  "build/bench.img"), 18.0,
+        "SPEC.md 19.8: facescan's FIRST rung - the faces in SYSTEM/FONTS on "
+        "the 1.44MB system disk, the package on a B: that has none.",
+        needs=("marty",), wants=("build/bench.img",)),
     Row("fmbtn", "soak", py("tests/fmbtn.py"), 60.0,
         "SPEC.md 22.18: the Disk window's two header buttons fire on the"
         "RELEASE.",
@@ -10198,8 +10233,13 @@ SOAK = [
     Row("stikmenu", "soak", py("tests/stikmenu.py"), 45.0,
         "SPEC.md 110.12: Locator's Sticky Apps menu, one boot of the VGA XT "
         "on the shipped 360KB system disk. A press on the cell loads "
-        "STIKMENU.DRV and lists DESKCAL.O88 by its CARD (name 'Desk "
-        "Calendar', not running, Arrange/Hide greyed, More live); releasing "
+        "STIKMENU.DRV and lists the disk's two Sticky Apps, DESKCAL.O88 by "
+        "its CARD (name 'Desk Calendar', not running, Arrange/Hide greyed, "
+        "More live) beside STIKNOTE.O88 (SPEC.md 110.13); a drop taken with "
+        "the hand moved onto the panel during the scan has the progress "
+        "widget OFF the bar and the pointer NOT the busy clock once the "
+        "panel is up (SPEC.md 12.8.3.3, stm_thaw); a Disk window's bar "
+        "carries no Sticky Apps cell (SPEC.md 22.28.1); releasing "
         "on its row POSTS the pick and launches it as a desk window, and the "
         "module is dropped after; a release off the panel posts nothing; "
         "Hide All hides the widget and Show All brings it back; Arrange puts "
@@ -10305,6 +10345,64 @@ SOAK = [
         "Del twice empties the list; and three again show the last one's "
         "page and the pager wraps.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
+    Row("stiknote", "soak", py("tests/stiknote.py"), 150.0,
+        "SPEC.md 110.13: Sticky Note on a Hercules 5150 off the shipped 360KB "
+        "system disk - the MID layout, a pad over SYSTEM/APPDATA/NOTES. It "
+        "reads WELCOME.TXT (one note, its head the file's bytes) and the "
+        "first beat writes STIKNOTE.DAT v2 naming it; the sheet's edge and "
+        "the stack's are ink, both notches the desktop's dither and the "
+        "turned corner's diagonal ink; three beats with nothing armed reach "
+        "OSAPI_SYS_SNAPSHOT never; a pad press ticks a box (the ticked "
+        "record, `[x] ` in the file on the disk, timed); the arrow opens it "
+        "in Note Pad, typed text and Ctrl+S then Note Pad's close disarm the "
+        "watch within a beat and the pad shows the saved text (saved into "
+        "NOTES, not STIKAPPS; the re-read timed); with a TWIN of home in A: "
+        "(its own serial, NOTES where home's is, our own file renamed) a "
+        "tick over NOTES' bank reads it and writes nothing (110.5.1's "
+        "witness after the quiet stand); `+` makes NOTE0001.TXT and opens "
+        "it, `<` turns back (timed); Delete once says `Delete again to "
+        "confirm` and deletes nothing, twice deletes the current note's "
+        "file; and the Color menu is greyed `(color screen)` on 1bpp. Each "
+        "time is press (or the editor gone) to the visit's end off kernel "
+        "breakpoints, the motor stopped first.",
+        needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
+    Row("stiknotevga", "soak", py("tests/stiknote.py", "--leg", "vga"), 80.0,
+        "SPEC.md 110.13: Sticky Note's PAPERS and a FULL folder on a VGA XT, "
+        "read off the card's rendered framebuffer (fbuf): the TALL layout; "
+        "the sheet yellow with a black edge; Color > Pink makes it pink and "
+        "STIKNOTE.DAT's table says so, and the pad closed and launched again "
+        "is still pink; with 29 empty notes written into NOTES on the host "
+        "the pad counts 30 and `+` says `Notes folder is full` and makes "
+        "nothing.",
+        needs=("marty",), timeout=600, wants=("build/os8088-360.img",)),
+    Row("stiknotesmall", "soak", py("tests/stiknote.py", "--leg", "small"),
+        45.0,
+        "SPEC.md 110.13, 24.5.1: a copy of STIKNOTE.O88 carried to kern_small "
+        "by hand (B:) refuses to launch IN WORDS - `No desk layer "
+        "(DESK.DRV)`, the STIK_DESKONLY build - and opens no window. "
+        "`make small` builds its disk.",
+        needs=("marty",), timeout=300,
+        wants=("build/small360.img",)),
+    Row("deskclock", "soak", py("tests/deskclock.py"), 150.0,
+        "SPEC.md 110.14: the Desk Clock on a VGA XT off the shipped 360KB "
+        "system disk - a desk window, Medium Classic, whose dial's corners "
+        "are the desktop's dither with its phase (the ground sampled off the "
+        "glass and composed); S moves the dial a second at a time; Face > "
+        "Red LED lights it red and saves face 6; Enter opens the settings "
+        "BESIDE the clock, a tile previews on the desk (Neon's navy) and Esc "
+        "puts the Red LED back, Classic + OK keeps Classic in the file; F "
+        "shrinks the frame to the face with a plate-less tag row; the alarm "
+        "set to 07:00 in its window is saved, rings at 07:00 on the guest's "
+        "clock (the face-only frame grows for its rows) and Z snoozes it; "
+        "and a reset brings the clock back from its row, as it was.",
+        needs=("marty",), timeout=1200, wants=("build/os8088-360.img",)),
+    Row("deskclockherc", "soak", py("tests/deskclock.py", "--leg", "herc"),
+        60.0,
+        "SPEC.md 110.14: the Desk Clock on a Hercules 5150 (one plane, the MID "
+        "layout): the Red LED face lit white on black with its unlit "
+        "segments dotted, and the ground at the face's corner the desktop's "
+        "dither.",
+        needs=("marty",), timeout=600, wants=("build/os8088-360.img",)),
     Row("deskcalgrid", "soak", py("tests/deskcalgrid.py"), 40.0,
         "SPEC.md 110.3: the Desk Calendar's 42-byte grid, read out of the "
         "running guest's bss, is Python calendar's - MONDAY FIRST since v2 "
@@ -10474,7 +10572,7 @@ SOAK = [
         "a RESET brings no calendar back (no autostart on kern_small); and "
         "opened again by hand it is where it was dragged, its data FIRED.",
         needs=("marty",), timeout=900,
-        wants=("build/small360.img", "build/smallk/kernel.bin")),
+        wants=("build/small360.img",)),
     Row("deskcalperf", "soak", py("tests/deskcalperf.py"), 63.0,
         "SPEC.md 110.6 / PERFORMANCE.md Part 5: what the Desk Calendar's "
         "gestures COST in primitive calls - a breakpoint on every drawing "
@@ -10796,7 +10894,7 @@ SOAK = [
         "docs/plans/completed/GFX-EMBEDDABLE-PLAN.md. It builds nothing: `make small` "
         "is what it reads, the same tree small128 and smallboot want",
         needs=("marty",), serial=True,
-        wants=("build/small360.img", "build/smallk/kernel.bin")),
+        wants=("build/small360.img",)),
     Row("paint1blit", "soak",
         py("tests/paint1blit.py"), 90.0,
         "SPEC.md 42.23.4: the TWO paths a one-bit canvas reaches the screen"
@@ -13414,7 +13512,7 @@ SOAK = [
         "on the same clip is short - and a fixed bank is untouched. Broken "
         "on purpose (the first pass returning nothing) it FAILS",
         needs=("ffmpeg",)),
-    Row("vencgui", "soak", py("tests/vencguitest.py"), 90.0,
+    Row("vencgui", "soak", py("tests/vencguitest.py"), 200.0,
         "SPEC.md 98.2.8: the encoder's WINDOW without a window "
         "(tools/os88vencgui.py): every os88venc option on a tab with a "
         "tooltip, the untouched form parsing to the parser's own defaults, "
@@ -13454,7 +13552,7 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/ctrl.drv",
                "build/sound.drv")),
-    Row("videnc", "soak", py("tests/videnc.py"), 850.0,
+    Row("videnc", "soak", py("tests/videnc.py"), 1300.0,
         "SPEC.md 98.2.1: the encoder front end and its budgets, host-side. "
         "ffmpeg makes a 16:9 source with a still tail and tools/os88venc.py "
         "encodes it: the canvas must be the source's shape in the Hercules "

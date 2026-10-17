@@ -53,6 +53,12 @@ kind = "folder"
 summary = "Ten demo songs for MIDIRack, from Fur Elise and The Entertainer to original game music."
 short = "Demo songs for MIDIRack"
 
+["NOTES/"]
+title = "Notes"
+kind = "folder"
+summary = "Sticky Note's notes, one text file each, inside SYSTEM/APPDATA on the system disk."
+short = "Sticky Note's notes"
+
 ["STIKAPPS/"]
 title = "Sticky Apps"
 kind = "folder"
@@ -352,6 +358,18 @@ kind = "program"
 summary = "A calendar widget on the desktop showing today, the month, your appointments and tasks, with reminders that ring."
 short = "Desktop calendar widget"
 
+["STIKNOTE.O88"]
+title = "Sticky Note"
+kind = "program"
+summary = "A pad of notes and checklists on the desktop: each note is a text file you write in Note Pad, and you tick its boxes with a click."
+short = "Notes and checklists on the desktop"
+
+["DESKCLOK.O88"]
+title = "Desk Clock"
+kind = "program"
+summary = "A clock on the desktop in nine faces and three sizes, with the date and a daily alarm with Snooze and Dismiss."
+short = "Desktop clock with an alarm"
+
 ["RLAPPLY.O88"]
 title = "Redline Apply"
 kind = "program"
@@ -563,6 +581,12 @@ title = "Read Me"
 kind = "document"
 summary = "Notes on what is on this disk and how to use it. On the system disk it is the whole os8088 manual. Double-click to read it in Note Pad."
 short = "Read this first"
+
+["WELCOME.TXT"]
+title = "Welcome note"
+kind = "document"
+summary = "The first note on the Sticky Note pad, with a short checklist of how the pad works. Opens in Note Pad."
+short = "Sticky Note's first note"
 
 ["LICENSE.TXT"]
 title = "Font licence"

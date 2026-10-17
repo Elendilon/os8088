@@ -2745,9 +2745,9 @@ menu_loc_set:
     dw 0                        ; AM_ONCMD: kernel-dispatched
 %ifdef KERN_BIG
     dw 2                        ; AM_COUNT: File and Sticky Apps (SPEC.md
-%else                           ; 110.12); File alone on kern_small (SPEC.md
-    dw 1                        ; 14.6, 14.8)
-%endif
+%else                           ; 110.12) - THIS set's alone: a Disk window's
+    dw 1                        ; bar does not carry it (22.28.1); File alone
+%endif                          ; on kern_small (SPEC.md 14.6, 14.8)
     dw menu_s_file,    menu_items_file,    MENU_FILE_N
 %ifdef KERN_BIG
     dw menu_s_stik,    0,                  0

@@ -14,7 +14,7 @@ def _sticky_menu(ui, shot, sid):
     ui.mo.to((x0 + x1) // 2, 5)
     ui.mo._edge(True)
     os88marty.guest_sleep(ui.m, 8.0)
-    shot(sid, rect=(max(0, x0 - 40), 0, 360, 232), settle=False)
+    shot(sid, rect=(max(0, x0 - 40), 0, 360, 342), settle=False)
     ui.mo.to(200, 440, l=True)
     ui.mo._edge(False)
     os88marty.guest_sleep(ui.m, 2.0)
