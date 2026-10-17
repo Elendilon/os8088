@@ -454,19 +454,17 @@ sn_new:
     mov byte [sn_byo], 0
     call sn_walk
     jc .noh
-    xor ax, ax
+    mov ax, [sn_used]           ; the lowest clear bit of the 32: AX = its
+    mov dx, [sn_used + 2]       ; number, 33 when there is none
+    xor cx, cx
 .f:
-    push ax
-    mov bx, sn_used
-    call sn_btest
-    pop ax
-    jz .free
-    inc ax
+    inc cx
+    shr dx, 1
+    rcr ax, 1
+    jc .f
+    xchg ax, cx
     cmp al, 32
-    jb .f
-    jmp short .full
-.free:
-    inc ax
+    ja .full
     aam                         ; AH = the tens, AL = the units
     add ax, '00'
     xchg al, ah
@@ -488,9 +486,7 @@ sn_new:
     push ds
     pop es
     mov si, sn_nname
-    mov di, STIK_PAY + SNP_NAME
-    call sn_cpy
-    call stik_touch
+    call sn_setname
     call sn_rdin                ; its place, the count, its head; home
     call sn_paint
     jmp sn_open
@@ -752,26 +748,39 @@ sn_menulive:
 .n:
     mov [sn_i_note + 2 * SNM_NEXT], bx
     call sn_pencur              ; the Color menu: the current paper marked,
-    xor cx, cx                  ; every one greyed on a 1bpp screen or with
-    mov si, sn_i_col            ; no note to colour
+    mov dl, [sn_mono]           ; every one greyed on a 1bpp screen or with
+    cmp byte [sn_n], 0          ; no note to colour (DL = 0 live)
+    jne .m
+    inc dx
+.m:
+    xor cx, cx
+    mov si, sn_i_col
 .c:
     mov bx, cx
     mov ah, [sn_pens + bx]
     shl bx, 1
-    mov bx, [sn_colstr + bx]    ; BX = its three strings: off, on, greyed
-    cmp byte [sn_mono], 0
-    jne .g
-    cmp byte [sn_n], 0
-    je .g
+    mov bx, [sn_colstr + bx]    ; BX = its item: two marks, the name, the
+    lea di, [bx + 2]            ; why - the name's end is its first byte
+.z:                             ; at or below a space
+    inc di
+    cmp byte [di], ' '
+    ja .z
+    or dl, dl
+    jnz .g
+    mov word [bx], '  '         ; `  Pink`, or `* Pink`
+    mov byte [di], 0
     cmp ah, al
     jne .s
-    add bx, SN_COLSZS
+    mov byte [bx], '*'
     jmp short .s
 .g:
-    add bx, 2 * SN_COLSZS
+    inc bx                      ; greyed: `Pink (color screen)`
+    mov byte [bx], MENU_DIS
+    mov byte [di], ' '
 .s:
     mov [si], bx
-    add si, 2
+    inc si
+    inc si
     inc cx
     cmp cx, SN_NCOL
     jb .c
@@ -844,14 +853,11 @@ sn_i_next0: db MENU_DIS, 'Next Note (last)', 0
 sn_i_open:  db 'Open Note  Enter', 0
 sn_i_open0: db MENU_DIS, 'Open Note (none)', 0
 sn_i_col:   dw 0, 0, 0, 0, 0    ; sn_menulive fills these from sn_colstr
-SN_COLSZS   equ 24              ; each colour's three strings, 24 bytes apart
+; ONE string a paper, three ways (sn_menulive): `  Name` and `* Name` with the
+; byte after the name a NUL, and `Name (color screen)` greyed - one in, its
+; mark byte MENU_DIS and that NUL a space
 %macro SN_COLOR 1
-%%off:  db '  ', %1, 0
-        times SN_COLSZS - ($ - %%off) db 0
-%%on:   db '* ', %1, 0
-        times SN_COLSZS - ($ - %%on) db 0
-%%dis:  db MENU_DIS, %1, ' (color screen)', 0
-        times SN_COLSZS - ($ - %%dis) db 0
+    db '  ', %1, 0, '(color screen)', 0
 %endmacro
 sn_colstr:  dw sn_cy, sn_cp, sn_cg, sn_cb, sn_cw
 sn_cy:      SN_COLOR 'Yellow'

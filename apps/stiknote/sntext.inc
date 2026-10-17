@@ -195,15 +195,23 @@ sn_walk:
     jmp short .sw
 .nm:
     mov si, sn_doc
+    call sn_setname
+    clc
+.r:
+    ret
+
+; sn_setname - SI = a note's name: the payload's current one, owed a save
+; when it moved - the page is remembered, not an edit (ES = DS). AL, CX, SI,
+; DI spent
+sn_setname:
+    push si
     mov di, STIK_PAY + SNP_NAME
     call sn_streq
-    je .same
-    mov si, sn_doc
+    pop si
+    je .r
     mov di, STIK_PAY + SNP_NAME
     call sn_cpy
-    call stik_touch             ; the page is remembered - not an edit
-.same:
-    clc
+    jmp stik_touch
 .r:
     ret
 
