@@ -2455,14 +2455,13 @@ fm_menus:
     dw menu_loc_name            ; AM_NAME: still 'Locator' (SPEC.md 12.3)
     dw fm_oncmd_x               ; AM_ONCMD: our own handler - the cold
                                 ; body, like fm_tpl's three above
-%ifdef KERN_BIG
-    dw 5                        ; AM_COUNT: the four below and Sticky Apps
-%else                           ; (SPEC.md 110.12), the bar's fifth and last
     dw 4                        ; AM_COUNT, both builds (SPEC.md 22.28): no
-%endif
                                 ; Builtins cell any more - a Disk window is a
                                 ; program of its own and Builtins is the
-                                ; DESKTOP's - and one cell left spare
+                                ; DESKTOP's - and one cell left spare. NOR A
+                                ; STICKY APPS CELL, for the same reason
+                                ; (SPEC.md 22.28.1): the desktop's widgets are
+                                ; the desktop's menu, menu_loc_set's alone
     dw fm_s_mfile, fm_items_file, FM_NFILE  ; 'Close Window' retired: the app-name
                                         ; cell carries Close now (SPEC.md
                                         ; 12.7), and a Disk window OWNS that
@@ -2483,13 +2482,6 @@ fm_menus:
                                         ; File menu's items act ON
     dw fm_s_root, fm_items_disk, FM_NDISK   ; 'Disk' - the root title's own
                                         ; four bytes (SPEC.md 22.28)
-%ifdef KERN_BIG
-    dw menu_s_stik, 0, 0                ; the desktop's widgets (SPEC.md
-                                        ; 110.12): menu_track hands this cell
-                                        ; to STIKMENU.DRV, so fm_oncmd_x never
-                                        ; sees it. The kernel's own string, as
-                                        ; every title of this set is
-%endif
 section .cold                   ; ...and back to cold code
 
 

@@ -25103,9 +25103,10 @@ CMD_STIK   equ CMD_FILES + 1   ; kern_big: the Sticky Apps menu's pick,
                    ; POSTED from under the lock (§110.12)
 ```
 
-**On kern_big and kern_emu both sets carry a second title, `Sticky Apps`**
-(§110.12): `menu_loc_set`'s second cell and `fm_menus`' fifth, the last
-`MENU_APPMAX` allows. It is a cell with NO items, and `menu_track` hands a
+**On kern_big and kern_emu the desktop's set carries a second title, `Sticky
+Apps`** (§110.12): `menu_loc_set`'s second cell. `fm_menus` carried it too,
+as its fifth, until §22.28.1 took it off the Disk window's bar. It is a cell
+with NO items, and `menu_track` hands a
 kernel cell (`MB_SEG` 0, which no package's cell is) with `MB_NITEM` 0 to
 `STIKMENU.DRV` instead of dropping it - the module draws and tracks its own
 panel and POSTS what was picked as `CMD_STIK`, so `menu_track` answers 0FFFFh
@@ -26042,6 +26043,59 @@ changes nothing on a disk that reads. `tests/czto.py`'s `arm` leg is the gate: a
 opened with the motor running and every read failing reads `[fpg_on]` 0 at
 the first failed attempt and 1 from the second. With this block taken out it
 reads 0 at every one.
+
+#### 12.8.3.3 A hold that turns INTERACTIVE ends the freeze itself
+
+§12.8.3's model is that the freeze IS a gfx-lock hold, and for every hold it
+was written about that is true: the disk work runs to the end of the hold and
+`gfx_unlock` takes the widget and the busy clock (§7.5) down. **One hold is
+not like that.** `menu_track` holds the lock for the whole life of a bar menu,
+and the Sticky Apps menu (§110.12) does its disk work INSIDE that hold - the
+`mod_need` that loads `STIKMENU.DRV`, the walk of every `STIKAPPS\`, the
+page's pictures - and then puts a panel up and waits, under the same hold, for
+as long as the user takes to pick. So the widget sat on the bar and the
+pointer stayed the busy clock the whole time the panel was open: the widget
+said *the machine is frozen at a file* over a menu that was waiting for the
+user, and the clock came up whenever the hand left the bar during the scan
+(`cur_busy_on` refuses on the bar's own rows, so it is the panel the user was
+moving onto) and was still the pointer's picture while they read the list.
+Seen on MartyPC's VGA XT and its 5150/Hercules alike, it went away at the
+close - "never" is the panel's whole life, which on a stay-up drop is as long
+as the user leaves it.
+
+**So a hold that turns interactive takes `gfx_unlock`'s two steps itself, at
+the point it turns**: `fpg_finish` (the widget down and its cells given back,
+`[fpg_warm]` zeroed so the next freeze warms up from nothing) and, when the
+clock is worn, `cur_shape_set` back to `[cur_shprev]`. That is
+`STIKMENU.DRV`'s `stm_thaw`, which `stm_loadpics` falls into - so after the
+drop's load and scan and after each page turn's reads - with the pointer off
+the glass or owed a hide, `cur_shape_set`'s precondition (gfx_lock's promise
+at the drop, `stm_loop`'s own `cursor_hide` at a turn). The panel's
+`cur_unlazy` and `cursor_show` then put the ARROW up. It also makes a turn
+whose reads armed the clock balance: the clock's DOWN arm used to show the
+pointer underneath `stm_loop`'s hide, and its own show then took the refcount
+to +1 for the rest of the hold.
+
+**`fpg_finish` stays callable from exactly the sites that say why** - this is
+the third, after `gfx_unlock` and `fsx_run` - and only at a point where the
+hold's disk work is over and the screen is about to be the user's. It costs
+**no resident byte** on either kernel: both steps are reached through `SMK`
+and `gfx_unlock`'s copy is untouched. `STIKMENU.DRV`'s image is +20 bytes
+(14,758 -> 14,778, inside the same 15 KB claim) and its packed file +23. A
+kernel `fpg_thaw` that `gfx_unlock` and the module both called would be +4
+resident bytes (its `ret` and one more `call`) for the same behaviour, which is
+the shape to take when a SECOND hold needs it; with one customer the copy is
+the module's.
+
+**Refused: no widget and no clock while a menu is tracking.** A flag set by
+`menu_track` and a compare in `fpg_arm` and in `cur_busy_on` is ~24 resident
+bytes on `kern_big`, and it is the wrong answer on the machine that matters:
+on a floppy-booted 5150 the drop's scan is a second or more (§110.12.2), and
+§12.8.3.2's rule is that anything that long has to say it is working. The
+widget never overlapped the panel - the panel hangs below the bar, and with
+§22.28.1 the only title it hangs from is the bare desktop's, well left of the
+widget's cells - so there was no save-under conflict to make cooperate
+either. What was wrong was the widget's LIFETIME, not where it drew.
 
 #### 12.8.4 An unlocked painter and the mouse ISR are TWO PAINTERS
 
@@ -51770,6 +51824,27 @@ Builtins and the two view commands going; **kern_small -31** (`.text` -16,
 `CLV_MNTDLG` and `CLV_UNMNT`. `tests/imgmount.py`'s leg 8 is the gate, and
 `diskclone`, `modstr`, `wimgtrip`, `fmtreach` and `fmtlow` reach the moved
 items through the Disk cell.
+
+#### 22.28.1 Sticky Apps left the Disk window's bar too
+
+`kern_big` gave the Disk window's set a fifth cell, `Sticky Apps`, when
+§110.12 shipped - the desktop's widgets, on a Disk window's bar. That is the
+same mistake Builtins was: **a Disk window is a program of its own, not a
+part of the desktop**, so the menu that starts, stops, hides and arranges the
+desktop's widgets belongs to the desktop's bar - `menu_loc_set`, the bar with
+no window in front or with a desk widget in front (§11.103.2) - and the Disk
+window's menus stay its own. `fm_menus`' `AM_COUNT` is 4 on both builds again
+and `FM_NMENUS` already said so; the cell was the last, so nothing renumbers
+and `fm_menu_base` is untouched (`menu_track` handed it to `STIKMENU.DRV`, so
+it never reached `fm_oncmd`).
+
+No other kernel-owned window carries a menu set: Locator's two sets are the
+only kernel sets, a desk window hands the bar to Locator, and the Control
+Panel, the file dialog and the progress windows name none - so `menu_loc_set`
+is now the one bar the cell is on. **kern_big -6 bytes of `.text`**, measured:
+the cell's three words (`AM_COUNT` is a word either way, and the title's
+string stays for `menu_loc_set`); kern_small unchanged, the cell having been
+`KERN_BIG`'s alone.
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
@@ -192913,7 +192988,8 @@ It landed in v2's wave 3 (§110.10); the Desk Calendar adopted it in wave 4
 ### 110.12 The Sticky Apps menu (`kernel/stikmenu.inc`, `STIKMENU.DRV`)
 
 Locator's bar carries a **`Sticky Apps`** title on kern_big and kern_emu
-(§12.3), beside File on the bare desktop and after Disk on a Disk window. It
+(§12.3), beside File on the bare desktop - and only there: a Disk window's bar
+is that program's own and does not carry it (§22.28.1). It
 **discovers** every Sticky App the machine can reach, lists each by what the
 App says about itself, and starts, stops, hides, shows and arranges them.
 The owner's mockup is the shape: a two-line header, a row per App - its
@@ -193116,7 +193192,8 @@ fallback, no `DESK.DRV`) is listed and toggled but not arranged or hidden.
 | kern_small | 0 | 0 | +8 | image 429 (429), cold 46 (54): the card's ladder step alone |
 | `STIKMENU.DRV` (on demand) | | | | 4,040 bytes on the disk ('CZ'), a 14,758-byte image - most of it the scratch (64 entries, a page of pictures, the band), zeros that pack to nothing and come back zero at every load - a 15 KB claim from the press to the act, beside the save-under |
 
-The `.text` is the title, the two set entries, `menu_track`'s test, `CMD_STIK`
+The `.text` is the title, the two set entries (one since §22.28.1 took the
+Disk window's back out, -6), `menu_track`'s test, `CMD_STIK`
 and its handler, the module's row and file name, and the loader's step; the
 `.bss` the two slots; the `.cold` the two thunks and the ladder. No rung was
 crossed on any kernel, measured against main `a123653b` built alongside.
