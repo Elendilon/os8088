@@ -3409,6 +3409,24 @@ def until(m, cond, what="that condition", poll=1.0, limit=600.0, guest=None):
         time.sleep(poll)
 
 
+def faces(folder="SYSTEM/FONTS"):
+    """The typefaces as os88disk arguments, for a row's own scratch disk.
+
+    The 360KB system disk carries no SYSTEM/FONTS since SPEC.md 24.3.1.5 -
+    they went to office360.img - and a program that sets type (Word, Scribe,
+    ArtfulType, PiXEL) looks on its OWN volume when the system disk has none
+    (apps/os88type.inc's ty_gofonts). So a row that boots os8088-360.img with
+    its program on a scratch B: puts the faces there, or its Font list is the
+    one built-in face and every leg about a chosen face is vacuous.
+    """
+    import glob
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    return ["%s:%s" % (folder, f) for f in
+            sorted(glob.glob(os.path.join(here, "..", "build", "faces",
+                                          "*.f88")))]
+
+
 def scratch_disk(path, *files, **kw):
     """Build a row's scratch floppy, and REBUILD it when an input has moved.
 
