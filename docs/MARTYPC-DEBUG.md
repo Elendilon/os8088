@@ -1531,6 +1531,19 @@ l, r)`; the CLI verbs are `key`, `type` and `mouse dx dy [--click]`. `key`
 names a **MartyKey** variant — `KeyC`, `Enter`, `ArrowUp`, `Digit1` — and a
 bare `'c'` is refused rather than guessed at.
 
+**Queued keys reach the guest at one byte a millisecond of GUEST time**, and
+no faster, however many are queued and whatever the batch size
+(`patches/14-keyboard-byte-pacing.patch`). Without the patch the rate was one
+key event per call to `machine.run()`. Under `advance` that is every 0.25 ms.
+Each byte went to the PPI the instant the last was acknowledged, a few
+instructions before the ROM's int 09h `sti`. So a burst of `key()` calls
+nested one int 09h inside the next until it overran the stack it landed on,
+and read as a kernel stack overflow (SPEC.md 9.8.2). A millisecond is the
+keyboard's serial line, so nothing a person types is slowed. A script that
+types faster than the application consumes still overflows the BIOS buffer
+and loses its newest keys to SPEC.md 9.8's guard, exactly as the hardware
+would. That is the application being slow, not the harness.
+
 **The speed scaler is forced to 1.0 by the `mouse` command, and that is what
 makes counting in pixels work at all.** MartyPC's mouse defaults to
 `DEFAULT_MOUSE_SPEED = 0.25` (`devices/mouse.rs`), so an unscaled `dx` of 60

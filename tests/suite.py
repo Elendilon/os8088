@@ -5391,6 +5391,22 @@ SOAK = [
         "written to for a year is where a too-fragmented part would first "
         "show up. Host-side, one second, and it reads THE SHIPPED SYSTEM DISK: since SPEC.md 96.44.5 flipped $(SYSROOT) to the parted package there is no gate disk to read instead, so this row also answers `did a shipped floppy lose kern_dos`.",
         wants=("build/os8088-360.img", "build/kerndos.bin")),
+    Row("kbdburst", "soak", py("tests/kbdburst.py"), 30.0,
+        "A SCRIPTED KEY BURST MUST NOT NEST int 09h (SPEC.md 9.8.2). An agent "
+        "sent 70 Backspaces into Font Viewer with m.key() and no advance "
+        "between, and the UI task's stack - and ~1KB of .lowbss beneath it - "
+        "filled with GLaBIOS int 09h frames, each interrupted a few "
+        "instructions after the ROM's sti. It was the HARNESS: MartyPC took a "
+        "queued key per machine.run() call and handed each byte to the PPI "
+        "the instant the last was acknowledged, and `advance` calls run() "
+        "every 0.25 ms. No keyboard's serial line can do that, and the ROM's "
+        "acknowledge-to-iret window is ~190 us, so the kernel needs nothing; "
+        "tools/martypc/patches/14-keyboard-byte-pacing.patch paces bytes to "
+        "one a millisecond. Legs: a 10-key burst deletes EXACTLY 10 (pacing "
+        "must not drop keys), the 70-key burst on Inconsol survives with the "
+        "BIOS buffer drained, and one more paced key still lands. Red on a "
+        "MartyPC built without patch 14 (leg B stops in sch_stkdie).",
+        needs=("marty",)),
     Row("kdkbd", "soak", py("tests/kdkbd.py"), 60.0,
         "KERN_DOS KEEPS THE BIOS KEY BUFFER OFF FULL (SPEC.md 96.50). "
         "Reported off an 86Box 386: hold a direction key in Prince of Persia "
