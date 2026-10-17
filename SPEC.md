@@ -191295,25 +191295,58 @@ back at every boot - `stikboot`'s E leg is that case).
 A widget runs for hours while the user swaps the disk under it - at 360 KB
 that is the only way to reach another disk - so `stik_save` cannot trust
 §19.9's "the disk it was launched from, which is in the drive by
-definition". Its walk is:
+definition". Its walk (`stik_enterf`, then `stik_enter`) is:
 
 ```
-GOTO       the volume's ROOT          a FULL mount: the disk may be another one
-GOTO_QM    home (the banked folder)   a word, inside the volume just mounted
+GOTO       the volume's ROOT          a FULL mount - the SAVE's alone, below
+GOTO_QM    home (the banked folder)   a word while the spindle turns, else a
+                                      QUIET mount: this disk's boot sector
 FIND       our own name there         IS THIS HOME? no -> not home now
 GOTO_QM    root, SYSTEM, APPDATA      words; FIND per component as §19.9
 WRITE      header + payload, one call
 GOTO_QM    home
 ```
 
-- **ONE full mount, first.** `dsk_bpb_sig` cannot tell two os8088-built disks
-  of one geometry apart (§18.8.2: their boot sectors are byte-identical), so a
-  quiet mount on a swapped disk could reuse the other disk's banked FAT
-  window and the write would allocate from the wrong FAT. A full mount reads
-  this disk's own. Every step after it is in the same callback with the lock
-  held and the spindle turning, which is §18.9.3's batch argument exactly,
-  so the rest are `OSAPI_FILE_GOTO_QM` - the quiet stand that MOVES the
-  instance, which is what §19.9's reason for refusing `GOTO_Q` asked for.
+- **The home stand is the question of WHICH DISK, and the kernel answers
+  it** - `OSAPI_FILE_GOTO_QM` to home, which is `fcp_goto`. While a floppy's
+  motor is still turning no hand can have swapped the medium, and it is a
+  word (§18.9.1's `dsk_media_ok`); otherwise it is a QUIET mount
+  (§18.9.1.1), which reads this disk's boot sector, signs it (`dsk_bpb_sig`)
+  and keeps the banked FAT window and §18.95's cache only when the signature
+  is the one they were banked under. `tools/os88disk.py` derives every
+  volume's serial from its content (§18.8.2, `t_volsig`), so two disks it
+  built sign differently, as does any disk whose boot sector differs from
+  home's: it is mounted as ITSELF, its own FAT read, before the witness
+  below is asked of it - and a
+  cluster the new disk does not have allocated stands at its root
+  (`disk_mount`'s 2a), where our own file is not. Every step after it is in
+  the same callback with the lock held (§18.9.3's argument) and the spindle
+  turning, so the rest are words.
+- **The SAVE keeps ONE FULL MOUNT in front of it** (`stik_enterf`), and
+  nothing else does. A signature cannot tell two disks whose boot sectors are
+  byte-identical, and two are made here every day: `FORMAT.DRV` stamps one
+  serial on every disk it formats (`dskw_fmt_t2`, §18.8.2's accepted
+  residual), and two copies of one image differ in nothing the boot sector
+  holds once both are written to. A quiet stand on the twin of home keeps
+  home's FAT window and its cached sectors - the witness would read home's
+  `STIKAPPS` out of the cache and say yes - while a full mount reads the
+  platter's own FAT and drops §18.95's cache. Every package's write lives
+  with that residual (each file cell's `inst_vol_enter` is a quiet stand), but
+  a package writes when the user says to, looking at the disk in the drive;
+  the save is the one write a Sticky App makes with NOBODY looking - a beat
+  after a drag, hours after a swap - which is what this section is for. It
+  was a full mount on EVERY visit: the load, the save and each of Sticky
+  Note's, where it read the root for a listing and dropped the cache the walk
+  then read back a sector at a time (§110.13.2 measures what that cost).
+- **A banked folder is one word after the witness.** `stik_enter` takes DX =
+  a folder of home's volume the caller banked on an earlier visit, or 0 for
+  the walk above, and answers AX = the first cluster of our own file in home,
+  the witness's own answer. Sticky Note banks `NOTES` that way (§110.13.2)
+  and keeps the AX beside it, so its bank is THIS disk's and not every disk's
+  that passes the witness. The library's own two visits - the load, and the
+  save, which is a CREATE or a REPLACE - walk: what is written where no name
+  was just found goes where a walk says, never where a cluster is remembered
+  (`apps/os88data.inc`'s rule).
 - **Home is the folder holding our own file.** A disk on which the banked
   folder does not hold a file of the package's own name is not home, and the
   save stays owed. Every shipped disk carries `SYSTEM\APPDATA`, so without
@@ -193402,9 +193435,44 @@ one by NAME (adding or deleting a note does not move it) or, when the name is
 gone, by its place; marks the `NOTEnnnn` numbers 1..32 in use for New; and
 drops a colour entry whose note it did not meet. Every access stands in the
 folder through the include's `stik_enter` first - the same "is this disk
-still home?" a save asks (§110.5.1) - so a page turn is a remount, a walk and
-a read: decision 4 accepted that cost, and `stiknote`'s leg measures it on the
-4.77 MHz XT.
+still home?" a save asks (§110.5.1) - so a page turn is the home stand, the
+witness, a walk and a read: decision 4 accepted that cost, and `stiknote`'s
+legs measure it on the 4.77 MHz XT.
+
+**`NOTES` is BANKED** (`sn_go`). The first visit walks - `SYSTEM`, `APPDATA`
+and `NOTES` each found by name in its parent, `NOTES` made when it is gone -
+and keeps `NOTES`' first cluster in `[sn_ndir]` with `stik_enter`'s witness,
+the first cluster of our own file in home, beside it. Every later visit is
+the home stand and the witness and then ONE `OSAPI_FILE_GOTO_QM` to the
+bank, a word; a disk that passes the witness with our file somewhere else
+walks instead. What a banked visit does there is by NAME or a count: a page
+turn and the re-read after the editor walk the folder and read a head, a
+tick reads its note by name before it rewrites it, Delete deletes by name -
+so a bank that is not `NOTES` any more (the folder deleted under the pad)
+can only find nothing, and a banked walk that counts NO notes drops nothing
+and walks by name once before it believes it (`sn_rdin`). What is written
+where no name was just found walks first (`sn_gow`): New's file, the folder
+itself, and the note handed to the editor, which saves there - §110.5.1's
+rule, `apps/os88data.inc`'s. None of these makes the save's full mount: a
+tick, New and Delete are writes the user just asked for, and stand quietly
+as every package's write does (§110.5.1's last case is the save's alone).
+
+**What a visit costs**, measured by `stiknote` (press to the visit's end,
+off the kernel's breakpoints, the motor stopped as it is between two human
+presses; `int 13h` on the 5150 is 0.2-0.4 s a call here):
+
+| | the full mount and the walk | the quiet stand and the bank |
+|---|---:|---:|
+| a page turn | 0.56-0.63 s (visit 0.44-0.51) | **0.43-0.51 s** (0.31-0.37) |
+| a tick | 2.62-2.79 s (visit 2.50-2.67) | **1.91-1.96 s** (1.79-1.85) |
+| the re-read after Note Pad closes (visit) | 1.65-1.69 s | **0.84-0.87 s** |
+
+What is left is the floor of the design: the boot sector the home stand
+reads (§18.9.1.1), the home folder's sector the witness reads - on the
+shipped disks one `int 13h` fill carries it and `NOTES` together - and the
+note itself; a tick adds `OSAPI_FILE_WRITE`'s six transfers (the data, both
+FATs, the entry). The "7.0 s" a page turn was once reported at was the
+harness: it timed `n.press`, whose own pause is 4.5 guest seconds.
 
 | off | size | field (payload v2, 285 bytes) |
 |---|---|---|
@@ -193512,11 +193580,11 @@ or hard at the width with none - 21 cells for text, 19 for a box's).
 
 **No kernel byte.** Measured, at each step of the size pass:
 
-| `stiknote.o88` | the editor (`84157fc4`) | the pad over files | + the shared include's pass | + the shared library (§110.15) | + About as a toast |
-|---|---:|---:|---:|---:|---:|
-| image | 16,912 | 9,104 | 8,592 | 5,936 | **5,664** |
-| bss | 6,485 | 1,906 | 1,906 | 1,757 | **1,757** |
-| packed on the disk | 14,524 | 8,202 | 7,769 | 5,136 | **4,890** |
+| `stiknote.o88` | the editor (`84157fc4`) | the pad over files | + the shared include's pass | + the shared library (§110.15) | + About as a toast | + `NOTES` banked (§110.13.2) |
+|---|---:|---:|---:|---:|---:|---:|
+| image | 16,912 | 9,104 | 8,592 | 5,936 | 5,664 | **5,712** |
+| bss | 6,485 | 1,906 | 1,906 | 1,757 | 1,757 | **1,757** |
+| packed on the disk | 14,524 | 8,202 | 7,769 | 5,136 | 4,890 | **4,941** |
 
 At rest it claims no heap; while a tick is being written, the note's size in
 KB, freed at once. Editing costs Note Pad's instance (~20 KB) only while it is
@@ -193530,6 +193598,15 @@ that put the pad back are gone, and with them os88ui.inc's About code
 it dropped the packed file below a cluster boundary at the end of the pass. It
 dropped 5,136 to 4,890, so 11 to 10 clusters of 512 bytes (the 360 KB, 1.2 MB
 and 1.44 MB system disks) and 6 to 5 of 1 KB (the 720 KB one).
+
+**The bank** (`sn_go`, `sn_gow`, `sn_rdin`'s second look and `sn_walk`'s
+refusal) is +60 bytes of code, an even shift for everything after it, +48 of
+image after the paragraph, +51 packed - still 10 clusters and 5 - and its
+five bss bytes sit in the slack before `sn_hbuf`'s paragraph. The library's
+half is +14 bytes of `DESK.DRV` (`stik_enterf`, §110.5.1), the same +14 in
+the Desk Calendar's and the Desk Clock's kern_small builds, which link the
+include in; their kern_big builds differ in one byte, the `STIKLIB_VER` their
+bind compares (§110.15.2), and every kernel is byte-identical.
 
 #### 110.13.7 What is not done
 
@@ -194062,7 +194139,11 @@ the package has a kern_small build). What a package must already be:
 Sticky App card (`OS88_F_STIK`), no association block or glyph, and
 `STIK_RIGHT` defined. A package that walks the state file's folder for files
 of its own (Sticky Note's notes) also defines `STIK_WALK`, for the thunks to
-`stik_enter`, `stik_leave`, `stik_goqm` and `stik_seek`. Its tests read the
+`stik_enter`, `stik_leave`, `stik_goqm` and `stik_seek` - `stik_enter` taking
+DX = a folder it banked, or 0 for `SYSTEM\APPDATA`, and answering AX = the
+witness to bank it under (§110.5.1). That contract is `STIKLIB_VER` 2: a
+version-1 caller sets no DX, so a package and a library of different
+versions refuse to bind (`No desk layer (DESK.DRV)`) rather than meet. Its tests read the
 state with `os88stik.state_off(lib, ...)` rather than `widget_off`, and
 `t_stik` has NASM hold its `stik_st` to `os88stik.lib_st_abs()`.
 

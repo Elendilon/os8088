@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "8f1aafd27468883dbb2d1ddfecabdf1feb3554632ab5b61fc0ebc2c8e3abde05",
+  "fingerprint": "a6a0ec291813bb95a2c126918561dc8c3f4cdccee2b4e217f48fe60fd2de450c",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "bc059aff97420c0570ef06fd54afdf6b20ded89ef9d996b9697f5292416ff7ff",
+  "fingerprint": "a65f78ce5c1471a3a11b74d98c547a938277b34a47c22ed2e5654e9a0cd20722",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -273,6 +273,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "The Sticky App library's ABI before any package shipped against it: four more entries (STKE_ENTER, LEAVE, GOQM, SEEK - the state file's walk, for Sticky Note's notes folder), STIKLIB_NENT 22 -> 26, and the block's base named by a label (os88_stiklib). STIKLIB_VER stays 1: nothing was ever built against 22. No package or driver built before changes, so no bump.",
+   "to": 11
+  },
+  {
+   "fingerprint": "a65f78ce5c1471a3a11b74d98c547a938277b34a47c22ed2e5654e9a0cd20722",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "STIKLIB_VER 1 -> 2 (SPEC.md 110.5.1, 110.15.2): the Sticky App library's STKE_ENTER now takes DX (a folder the caller banked, or 0 for SYSTEM\\APPDATA by a walk) and answers AX (the witness, our own file's first cluster), and its first stand is OSAPI_FILE_GOTO_QM rather than a full OSAPI_FILE_GOTO. The block's layout and the entry table are unchanged; a version-1 caller would not set DX, so the library's own version moves and a package and a DESK.DRV of different versions refuse to bind. No kernel cell, header or package format changes, so PKG_FMT and DRV_VER stay: a version-1 Sticky App meeting a version-2 DESK.DRV is refused at its own bind in words, which is the fence STIKLIB_VER exists to be, and none has shipped (the library has not reached main).",
+   "to": 10
+  },
+  {
+   "fingerprint": "a6a0ec291813bb95a2c126918561dc8c3f4cdccee2b4e217f48fe60fd2de450c",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "STIKLIB_VER 1 -> 2 (SPEC.md 110.5.1, 110.15.2): the Sticky App library's STKE_ENTER now takes DX (a folder the caller banked, or 0 for SYSTEM\\APPDATA by a walk) and answers AX (the witness, our own file's first cluster), and its first stand is OSAPI_FILE_GOTO_QM rather than a full OSAPI_FILE_GOTO. The block's layout and the entry table are unchanged; a version-1 caller would not set DX, so the library's own version moves and a package and a DESK.DRV of different versions refuse to bind. No kernel cell, header or package format changes, so PKG_FMT and DRV_VER stay: a version-1 Sticky App meeting a version-2 DESK.DRV is refused at its own bind in words, which is the fence STIKLIB_VER exists to be, and none has shipped (the library has not reached main).",
    "to": 11
   }
  ]

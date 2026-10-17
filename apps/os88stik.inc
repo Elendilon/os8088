@@ -134,7 +134,9 @@
 ; instruction, everything it knows of it comes from the block, and every
 ; callback goes through the package's trampoline (stik_cb). A package that
 ; walks SYSTEM\APPDATA for files of its own with stik_enter, stik_leave,
-; stik_goqm and stik_seek also defines STIK_WALK, for their thunks.
+; stik_goqm and stik_seek also defines STIK_WALK, for their thunks -
+; stik_enter taking DX = a folder it banked on an earlier visit (0: walk to
+; SYSTEM\APPDATA) and answering AX = the witness it banks it under.
 ; =============================================================================
 
 %ifndef OS88STIK_INC
@@ -708,7 +710,7 @@ stik_load:
     call OSAPI_FILE_HERE        ; HOME, banked ONCE: every save comes back
     mov [stik_hdx], dx           ; here, and asks whether this is still it
     mov [stik_hbl], bl           ; (SPEC.md 110.5.1)
-    call stik_enter             ; standing in SYSTEM\APPDATA, or CF = 1
+    call stik_enter0            ; standing in SYSTEM\APPDATA, or CF = 1
     jc .none
     call stik_io
     test bl, 15
@@ -1260,7 +1262,7 @@ stik_save:
     test byte [stik_st], STIK_S_DAMAGED
     jnz .x
 %endif
-    call stik_enter             ; CF = 1: not home now - the disk is out, or
+    call stik_enterf            ; CF = 1: not home now - the disk is out, or
     jc .soon                    ; another one is in
 %ifdef STIK_LIBRARY
   %define STIK_DMGREPLACE_
@@ -1499,39 +1501,87 @@ stik_close:
     jz .r
     jmp stik_save               ; ...which answers CF = 0 too
 
-; stik_enter - walk to SYSTEM\APPDATA on HOME's volume, having asked whether
-; the disk in the drive is still home (SPEC.md 110.5.1). ONE full
-; OSAPI_FILE_GOTO first - the disk may have been swapped, and only a full
-; mount re-reads its FAT (18.8.2 cannot tell two os8088 disks apart) - then
-; the quiet stand that moves the instance, a word inside the volume just
-; mounted. out CF = 1 not there, and the instance is home again. Spends AX..DI
-; and ES
-stik_enter:
+; stik_enterf - stik_enter0 behind ONE FULL MOUNT: the SAVE's (SPEC.md
+; 110.5.1). The save is the one write a Sticky App makes with nobody looking -
+; a beat after a drag, perhaps hours after the user swapped the disk - and a
+; quiet stand trusts a boot sector's signature, which two disks FORMATTED here
+; share (dskw_fmt_t2 stamps one serial: 18.8.2's accepted residual). A full
+; mount reads this disk's own FAT and drops 18.95's cache, so the witness and
+; the walk after it read the platter and not the last disk's sectors. Every
+; stand after it is a word. CF = 1 not mounted (nothing marked: still home)
+stik_enterf:
     mov bl, [stik_hbl]
     xor dx, dx
     call OSAPI_FILE_GOTO        ; the root, mounted afresh
-    jc .r                       ; ...and not marked: still home, nothing to
-    mov dx, [stik_hdx]           ; undo
-    call stik_goqm
-    jc .no
+    jnc stik_enter0
+    ret
+; stik_enter0 - stik_enter with DX = 0: SYSTEM\APPDATA, by a walk. What
+; this file's own two visits make - the load, and a save, which is a CREATE
+; or a REPLACE and so goes where a walk says, never where a cluster is
+; remembered (apps/os88data.inc's rule)
+stik_enter0:
+    xor dx, dx
+; stik_enter - IS THE DISK IN THE DRIVE STILL HOME? Then stand in a folder of
+; it (SPEC.md 110.5.1). in DX = a folder of HOME's volume the caller banked
+; on an earlier visit, or 0 for SYSTEM\APPDATA by a walk. out CF = 0 standing
+; there, DX kept, AX = the first cluster of our own file in home - the
+; witness's answer, which a caller banking a folder keeps beside it and
+; compares, so the bank is THIS disk's and not every disk that passes;
+; CF = 1 not there, and the instance is home again. Spends BX, CX, SI, DI, ES.
+;
+; The first stand is OSAPI_FILE_GOTO_QM to home, and that is the whole
+; question of WHICH DISK, answered by the kernel: a word while the spindle
+; is still turning, when no hand can have swapped the medium (18.9.1); else
+; a QUIET mount (18.9.1.1), which reads this disk's boot sector, signs it
+; (dsk_bpb_sig) and keeps the banked FAT window and 18.95's cache only when
+; the signature is the one they were banked under - and os88disk derives
+; every volume's serial from its content, so two different disks sign
+; differently (18.8.2). A swapped disk is therefore mounted as ITSELF, its
+; own FAT read, before a byte of it is believed. It was a FULL mount on
+; every visit, which read the root for a listing and dropped 18.95's cache
+; that the walk below then read back a sector at a time; only the save
+; (stik_enterf) still makes one, for the one case a signature cannot tell.
+;
+; Then the witness, unchanged: our own file in the banked folder (FIND).
+; Every stand after it is a word - the volume was just stood on, the motor
+; is turning (18.9.1) and this is one callback with the lock held (18.9.3's
+; argument) - so a banked folder is ONE word and the walk is one per
+; component, each found BY NAME in its parent
+stik_enter:
+    push dx                     ; the folder asked for
+    mov dx, [stik_hdx]
+    call stik_goqm              ; HOME: a word, or a quiet mount. A refusal
+    jc .x                       ; marks nothing: still home, nothing to undo
     mov si, stik_name
     call stik_seek              ; IS THIS HOME? our own file in our folder
     jc .no
-    cmp ax, OSAPI_FT_DIR
+    cmp al, OSAPI_FT_DIR        ; (a type is 0..3: AH is 0)
     je .no
-    xor dx, dx
-    call stik_goqm              ; the root again, a word
-    jc .no
+    pop ax
+    push ax
+    xchg ax, dx                 ; DX = the folder asked for, AX = the witness
+    push ax
+    call stik_goqm              ; it - or, DX = 0, the root - a word
+    jc .n2
+    or dx, dx
+    jnz .ok                     ; a banked folder: there (CF = 0, the OR's)
     mov si, stik_dsys
     call stik_dive
-    jc .no
+    jc .n2
     mov si, stik_dapp
     call stik_dive
-    jnc .r
+    jc .n2
+.ok:
+    pop ax                      ; (POP writes no flag: CF = 0 still)
+    pop dx
+    ret
+.n2:
+    pop ax
 .no:
     call stik_leave
     stc
-.r:
+.x:
+    pop dx
     ret
 
 ; stik_leave - home, quietly. AX and the flags kept; spends BX..DI

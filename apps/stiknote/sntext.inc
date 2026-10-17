@@ -30,16 +30,40 @@
 
 ; -----------------------------------------------------------------------------
 ; sn_go - stand in SYSTEM\APPDATA\NOTES on HOME (os88stik.inc's stik_enter:
-; is the disk in the drive still home?), making the folder when it is gone.
-; [sn_ndir] = its first cluster. CF = 1 it cannot be reached, and the
+; is the disk in the drive still home?). CF = 1 it cannot be reached, and the
 ; instance is home again. Spends AX..DI and ES
+;
+; NOTES IS BANKED (SPEC.md 110.13.2). The first visit walks - SYSTEM, APPDATA
+; and NOTES each found by name in its parent, NOTES made when it is gone - and
+; keeps NOTES' first cluster in [sn_ndir] with the witness's answer in
+; [sn_okey]: the first cluster of our own file in home. Every later visit is
+; stik_enter's home stand and witness and then ONE word to the bank, which is
+; trusted only on a disk whose copy of us is at the cluster it was at: a disk
+; that passes the witness but is laid out otherwise walks. What is done there
+; is by name or a count, so a bank that is not NOTES any more - a folder
+; deleted under the pad - can only find nothing, and a banked walk that
+; counts no notes walks by name once before it is believed (sn_rdin, by
+; [sn_bank]). What is WRITTEN where no name was just found - a new note, the
+; folder itself, a note handed to the editor - stands on a WALK: sn_gow,
+; apps/os88data.inc's rule
 ; -----------------------------------------------------------------------------
+sn_gow:
+    mov word [sn_ndir], 0       ; by name, whatever is banked
 sn_go:
     test byte [stik_st], STIK_S_NOHOME
     stc
     jnz .r                      ; no SYSTEM\APPDATA: no notes either
-    call stik_enter             ; in SYSTEM\APPDATA, or CF = 1
-    jc .r
+    mov dx, [sn_ndir]
+    call stik_enter             ; HOME? then the bank, or (0) SYSTEM\APPDATA
+    jc .r                       ; ...AX = our own file's first cluster
+    mov [sn_bank], dx           ; how we came: the bank, or 0 a walk
+    or dx, dx
+    jz .walk
+    cmp ax, [sn_okey]           ; the disk the bank was made on? (CF = 0
+    jne sn_gow                  ; when it is) - else by name, from home
+    ret
+.walk:
+    mov [sn_okey], ax
     mov si, sn_dnotes
     call stik_seek              ; AX = its type, DX = its first cluster
     jnc .got
@@ -48,15 +72,16 @@ sn_go:
     call stik_seek
     jc .no
 .got:
-    cmp ax, OSAPI_FT_DIR
+    cmp al, OSAPI_FT_DIR        ; (a type is 0..3)
     jne .no                     ; a FILE called NOTES
-    mov [sn_ndir], dx
     call stik_goqm
-    jnc .r
+    jc .no
+    mov [sn_ndir], dx           ; banked once it has been stood in
+.r:
+    ret
 .no:
     call stik_leave
     stc
-.r:
     ret
 
 ; sn_read - the current note again: AL = 0 by its NAME (and by [sn_want],
@@ -70,10 +95,19 @@ sn_read:
 ; sn_rdin - sn_read's, standing in NOTES already: the walk, the head, home
 sn_rdin:
     call sn_walk
+    jnc .h
+    cmp word [sn_bank], 0       ; NO NOTES, BY THE BANK (sn_walk dropped
+    je .l                       ; nothing): by name, once
+    call sn_gow
+    jc .r                       ; (sn_go is home again on a refusal)
+    call sn_walk
     jc .l
+.h:
     call sn_rhead
 .l:
     jmp stik_leave
+.r:
+    ret
 
 ; sn_rhead - the current note's first SN_HEAD bytes into sn_hbuf, [sn_hlen]
 ; of them (0 with no notes, or a read refused). OSAPI_FILE_READ_AT is RAW,
@@ -180,6 +214,12 @@ sn_walk:
     cmp ax, FERR_NOENT          ; the end, not a failure
     stc
     jne .r
+    cmp [sn_n], ah              ; NONE, AND WE CAME BY THE BANK (sn_go): it
+    jne .some                   ; may not be NOTES any more. Nothing dropped,
+    cmp word [sn_bank], 0       ; CF = 1, and sn_rdin walks to it by name
+    stc                         ; (AH = 0: FERR_NOENT's high byte)
+    jne .r
+.some:
     push ds
     pop es
     mov cl, [STIK_PAY + SNP_NC] ; a colour no note is wearing goes
