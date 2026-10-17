@@ -8,16 +8,16 @@ and in its file format: this edition reads and writes **RTF** files only,
 holds smaller documents, and has no Undo.
 
 This manual describes the C edition completely. Where it behaves like the
-other Word, the text says so briefly; the Microsoft Word manual has more
+other Word, the text says so briefly; the [[WORD.O88]] manual has more
 detail on those parts.
 
-![The C edition with its welcome document open.](shot:cword-window)
+![The C edition with its welcome document open.](shot:cword-window){full}
 
 ## Starting it
 
 The C edition comes on its own floppy. Put that disk in a drive, open it and
 double-click **CWORD.O88**. Then use **File > Open...** to open
-**WELCOME.RTF**, the welcome document beside it. The disk also has an empty
+[[WELCOME.RTF]], the welcome document beside it. The disk also has an empty
 **DOCS** folder for your own documents.
 
 Once the program has run, double-clicking an `.RTF` file opens it in the C
@@ -99,20 +99,20 @@ Cut, Copy and Paste are on the Edit menu only. The captions beside them
 and Copy are grey with nothing selected, and Paste is grey when the
 clipboard is empty.
 
-![The Edit menu: Undo and Repeat are grey, and Cut, Copy and Paste have no working keys.](shot:cword-edit-menu)
+![The Edit menu: Undo and Repeat are grey, and Cut, Copy and Paste have no working keys.](shot:cword-edit-menu){full}
 
 **The Character dialog** has the seven check boxes and OK and Cancel. Its
 Position and Color line is a label. The underline boxes are named Word
 Underline and Double Underline.
 
-![The C edition's Character dialog.](shot:cword-character)
+![The C edition's Character dialog.](shot:cword-character){full}
 
 **The Paragraph dialog** has Alignment (Left, Centered, Right, Justified),
 Line Spacing (Single, 1 1/2 Lines, Double), a **Space Before** check box, and
 three Indents boxes. The indent boxes cannot be typed into in this edition;
 use `Ctrl+N`, `Ctrl+T` and `Ctrl+G` instead.
 
-![The C edition's Paragraph dialog.](shot:cword-paragraph)
+![The C edition's Paragraph dialog.](shot:cword-paragraph){full}
 
 **The ruler** has the Style box, four alignment buttons (L C R J), three
 spacing buttons (1, 5 for one and a half, 2) and two buttons for a blank
@@ -159,7 +159,7 @@ Computer History Museum credit.
 ## Files
 
 RTF in and out. Use **Save As** to name a document, for example in the
-**DOCS** folder. The RTF it writes can be opened by Word, Scribe and other
+**DOCS** folder. The RTF it writes can be opened by Word, [[SCRIBE.O88]] and other
 programs that read RTF.
 
 ## Good to know

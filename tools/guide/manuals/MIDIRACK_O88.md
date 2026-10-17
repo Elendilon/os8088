@@ -22,10 +22,11 @@ to open MIDIRack and play it.
 Opened on its own, MIDIRack looks for songs and lists them for you. It tries
 a `MIDI` folder beside itself, then `\MEDIA\MIDI\`, then `\MIDI\`, then the
 folder it was started from. The software disks carry ten demo songs in
-`MEDIA\MIDI\`, so the playlist comes up full and the first song is loaded,
+`MEDIA\MIDI\`, such as [[FURELISE.MID]], so the playlist comes up full and the first song is loaded,
 ready to play. The Playlist pane's title shows the folder they came from.
 
 MIDIRack needs no sound card: with none, it plays through the PC speaker.
+A card is reached through [[SOUND.DRV]], switched on in the Control Panel.
 
 ## Playing a song
 
@@ -88,7 +89,7 @@ have is greyed.
 | Sound Blaster synth | MIDIRack's own synthesiser, played through the Sound Blaster's sample output |
 | PC speaker synth | The same synthesiser, played through the PC speaker |
 | MIDI out (MPU-401) | Sends the song to a MIDI module or keyboard on an MPU-401 interface, which makes the sound |
-| SB wavetable (bank) | Real instrument samples, mixed by the computer and played on the Sound Blaster. It needs the file `MIDIRACK.BNK` beside MIDIRack |
+| SB wavetable (bank) | Real instrument samples, mixed by the computer and played on the Sound Blaster. It needs the file [[MIDIRACK.BNK]] beside MIDIRack |
 | Covox (parallel port) | MIDIRack's synthesiser played on a Covox sound device on the printer port |
 
 The FM chip and MIDI out cost the computer almost nothing while they play.
@@ -134,13 +135,15 @@ single tone, and the desktop stays usable while it plays.
 
 ## MIDI Info
 
+![MIDI Info for the loaded song.](shot:midirack-info){full}
+
+![The Options menu.](shot:midirack-options-menu){right}
+
 **MIDI Info** (the button, **Options > MIDI Info...** or `I`) shows details
 of the loaded song: its file size, the MIDI format and number of tracks, its
 timing, its length in time and measures, how many notes it has on how many
 channels, and the first text written in the file, which is often its title.
 Click or press any key to close it.
-
-![MIDI Info for the loaded song.](shot:midirack-info){right}
 
 **About** (or **Options > About MIDIRack**) shows who made MIDIRack, and
 closes the same way. **Quit** (or **File > Quit**) closes MIDIRack.
@@ -162,8 +165,6 @@ closes the same way. **Quit** (or **File > Quit**) closes MIDIRack.
 | Options | Show Levels | Turn the Channel Rack's level bars on and off |
 | Options | Play in Background | The speaker plays the melody only, and the desktop stays usable |
 | Options | About MIDIRack | Who made MIDIRack |
-
-![The Options menu.](shot:midirack-options-menu){left}
 
 ## Keys
 

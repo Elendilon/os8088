@@ -9,7 +9,7 @@ status line, saving and restoring your game, sound, colour and pictures.
 Frotz is a program of its own written for os8088, named after the Frotz
 interpreters on other computers. It plays stories of every version, 1 to 8.
 
-![Frotz before a story is opened.](shot:frotz-window)
+![Frotz before a story is opened.](shot:frotz-window){full}
 
 ## Starting Frotz
 
@@ -39,18 +39,18 @@ Copy the story file onto a floppy on any PC; os8088 reads ordinary PC disks.
 
 ## Opening a story
 
+![Choosing a story with File > Open Story....](shot:frotz-open){right}
+
 Choose **File > Open Story...**. The Open dialog lists the files on the
 disk; find the story and open it. The window takes the story's name and the
 game begins.
-
-![Choosing a story with File > Open Story....](shot:frotz-open)
 
 Frotz checks the story's size before it reads a byte. If the story cannot
 fit in this machine's free memory, the window says **Story too large for
 this machine** and nothing is loaded. A file that is not a story at all is
 refused with **Not a Z-machine story file**.
 
-![A file that is not a story, refused.](shot:frotz-notstory)
+![A file that is not a story, refused.](shot:frotz-notstory){full}
 
 ## Playing
 
@@ -85,6 +85,8 @@ Restoring works the same way: type `restore`, press `Enter` twice, and pick
 the saved game in the Open dialog. If you cancel either dialog, the story
 keeps waiting; press `Enter` to bring the dialog back.
 
+![The File menu.](shot:frotz-file-menu){left}
+
 **File > Save Game...** and **File > Restore Game...** open the same two
 dialogs. Use them after you have typed `save` or `restore`, in place of
 pressing `Enter` at the prompt. Picked at any other time they do not save
@@ -104,11 +106,9 @@ close the window.
 | About Frotz | Shows what Frotz is and who made it. Press a key or click to put it away |
 | Close | Closes this Frotz and the story in it |
 
-![The About card.](shot:frotz-about)
+![The About card.](shot:frotz-about){full}
 
 ## The File menu
-
-![The File menu.](shot:frotz-file-menu){right}
 
 | Item | What it does |
 |---|---|

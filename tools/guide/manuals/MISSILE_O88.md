@@ -6,7 +6,7 @@ firing counter-missiles that burst in the sky and destroy anything caught
 in the blast. The waves, the scoring and the explosions follow the original
 arcade game.
 
-![Wave 2 in a window. Four incoming missiles are on their way down to the cities.](shot:missile-window)
+![Wave 2 in a window. Four incoming missiles are on their way down to the cities.](shot:missile-window){full}
 
 ## Starting Missile Command
 
@@ -77,7 +77,7 @@ Press `F` or `Alt+Enter`, or choose **Game > Full Screen**, to play on the
 whole screen. The menu bar and the arrow pointer go away and only the
 crosshair is left. Press `Esc` or `F` to go back to the window.
 
-![The game in full screen, just after the last city fell.](shot:missile-full)
+![The game in full screen, just after the last city fell.](shot:missile-full){full}
 
 On a VGA card, **Game > Mode X** (or `M`) gives the game a low-resolution
 320 by 240 screen of its own. `Esc` or `F` brings you back. On any other

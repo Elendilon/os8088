@@ -5,7 +5,7 @@ the left names every face in the `SYSTEM/FONTS` folder; the box on the right
 shows a sample line in the face you pick. The sample is yours to change:
 type into it and see your own words in each face.
 
-![Font Viewer showing Charter, one of the installed faces.](shot:fontview-window)
+![Font Viewer showing Charter, one of the installed faces.](shot:fontview-window){full}
 
 ## Starting Font Viewer
 
@@ -13,11 +13,11 @@ Font Viewer is in the `APPS` folder of the system disk. The Office disk
 carries a copy at its top level too. Double-click **FONTVIEW.O88** to open
 it on the first face in the list.
 
-The quicker way is from the faces themselves. Open the system disk, then
-`SYSTEM`, then `FONTS`, and double-click any `.F88` file. Font Viewer opens
-with that face already chosen.
+![The FONTS folder on the system disk. Double-click a face to see it.](shot:fontview-folder){right}
 
-![The FONTS folder on the system disk. Double-click a face to see it.](shot:fontview-folder)
+The quicker way is from the faces themselves. Open the system disk, then
+`SYSTEM`, then `FONTS`, and double-click any `.F88` file, such as [[CHARTER.F88]]. Font Viewer opens
+with that face already chosen.
 
 You can open more than one Font Viewer at a time.
 
@@ -46,7 +46,7 @@ The sample holds up to 127 characters. A long sample wraps onto more lines,
 and lines that do not fit in the box are not shown. The sample stays the same
 when you change faces, so you can compare faces on the same words.
 
-![A sample typed into the Times face.](shot:fontview-typed)
+![A sample typed into the Times face.](shot:fontview-typed){full}
 
 ## Menus
 
@@ -64,7 +64,7 @@ Font Viewer reads the typeface files (`.F88`) in `SYSTEM/FONTS` on the disk
 the machine started from, and nothing else. It never changes them, and it
 does not save the sample.
 
-The same faces are the ones Word and the other programs with a font choice
+The same faces are the ones [[WORD.O88]] and the other programs with a font choice
 offer, so Font Viewer is a quick way to pick one before you use it there.
 
 ## Good to know

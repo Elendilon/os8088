@@ -4,19 +4,19 @@ Loom is where Weave apps are made. A Weave app starts as a few plain text
 files: one describes what is in the app's window, one says what happens
 when you use it, and, if the app needs them, one holds a spreadsheet's
 starting cells and one draws the pictures for a game. Loom edits those
-files, checks them, and packs them into the single `.WAB` file that Weave
+files, checks them, and packs them into the single `.WAB` file that [[WEAVE.O88]]
 runs, all on the machine itself.
 
 The quickest way to learn it is to open one of the three demo apps, change
 something small, pack it and run it.
 
-![Loom with the Greeter's layout open, and a new line typed under the title.](shot:loom-window)
+![Loom with the Greeter's layout open, and a new line typed under the title.](shot:loom-window){full}
 
 ## Starting Loom
 
 Loom is on the Weave disk, in the `LOOM` folder, together with the source
 files of the three demo apps. Double-click a `.WML` file, such as
-`FORM.WML`, and Loom opens with that app's files ready to edit.
+[[FORM.WML]], and Loom opens with that app's files ready to edit.
 Double-clicking a `.WJS` file opens its app in the same way. You can also
 double-click `LOOM.O88` and use **File > Open Project...**.
 
@@ -28,7 +28,7 @@ says so: **Pack needs 112KB; the largest free run is 60KB.**
 ## What an app is made of
 
 An app's files sit together in one folder and share one name: the Greeter
-is `FORM.WML` with `FORM.WJS` beside it. Only the `.WML` file is required;
+is `FORM.WML` with [[FORM.WJS]] beside it. Only the `.WML` file is required;
 it is the one you open.
 
 | File | What it is for |
@@ -160,7 +160,7 @@ files: a `-` means the project has no file of that kind, and a `*` means the
 file has changes you have not saved. Click a file to edit it, or press
 `Ctrl-N` to go to the next one.
 
-![The Greeter's script, one Ctrl-N along.](shot:loom-script)
+![The Greeter's script, one Ctrl-N along.](shot:loom-script){full}
 
 Click in the text to put the caret there, and type. Long lines are not
 wrapped; the view slides sideways as the caret moves along them.
@@ -185,7 +185,7 @@ copy and paste and no undo.
 **File > Pack Bundle** (`Ctrl-P`) turns the project into a `.WAB` file. It
 saves every changed file first, then checks and packs the lot, and writes
 the `.WAB` into the same folder as the sources, with the same name:
-`FORM.WML` packs to `FORM.WAB`. The status line says **Packing...** while it
+`FORM.WML` packs to [[FORM.WAB]]. The status line says **Packing...** while it
 works and then, for example, **Packed FORM.WAB, 800 bytes. Reload it in
 Weave with ^R.** The list on the left says **Packed** and the size.
 
@@ -200,7 +200,7 @@ The demo apps that Weave's own folder holds are left alone. Packing
 `FORM.WML` in the `LOOM` folder writes a new `LOOM/FORM.WAB`, and
 `WEAVE/FORM.WAB` stays as it was.
 
-![The packed Greeter running in Weave, with its new line under the title.](shot:loom-run)
+![The packed Greeter running in Weave, with its new line under the title.](shot:loom-run){full}
 
 ## When a pack fails
 
@@ -210,7 +210,7 @@ something is wrong, nothing is written. The list on the left says **Pack
 failed** with the file and line, Loom jumps to that line, and the status
 line says what is wrong.
 
-![A tag Weave does not have: Loom stops at line 9 and says so.](shot:loom-error)
+![A tag Weave does not have: Loom stops at line 9 and says so.](shot:loom-error){full}
 
 Fix the line and press `Ctrl-P` again. If you have moved away, click the
 file name or the line number under **Pack failed** to jump back to the
@@ -225,7 +225,7 @@ line says **Preview: layout and controls only**. Choose **View > Edit** to
 go back to the text. Preview packs the project to draw it, so a mistake
 shows up here just as it would in a pack.
 
-![The Greeter in Preview.](shot:loom-preview)
+![The Greeter in Preview.](shot:loom-preview){full}
 
 ## The File menu
 

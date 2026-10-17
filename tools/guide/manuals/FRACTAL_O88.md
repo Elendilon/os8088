@@ -6,7 +6,7 @@ on it to zoom in on that spot. The drawing goes on in the background, so you
 can keep using the desktop, move windows and run other programs while it
 works.
 
-![The Mandelbrot set, finished, in the Spectrum colours.](shot:fractal-window)
+![The Mandelbrot set, finished, in the Spectrum colours.](shot:fractal-window){full}
 
 ## Starting Fractal
 
@@ -24,7 +24,7 @@ A whole picture takes a minute or two on an IBM PC/XT. Fractal does not make
 you wait for all of it: the first pass paints the whole picture in coarse
 bands four rows tall, and two more passes fill in the detail.
 
-![A quarter of the way through: the whole picture is there, in coarse bands.](shot:fractal-progress)
+![A quarter of the way through: the whole picture is there, in coarse bands.](shot:fractal-progress){right}
 
 The strip along the top of the window shows the picture's name, the zoom
 level, how much of the picture is done, and the colour scheme.
@@ -36,23 +36,23 @@ zoom starts a new drawing.
 
 ## Zooming in
 
+![One click on the small bulb at the top: Zoom 1, centred on the click.](shot:fractal-zoom){left}
+
 Click a point on the picture. Fractal moves that point to the middle and
 zooms in one level, so each click takes you closer to the spot you clicked.
 There are five levels, `Zoom 0` to `Zoom 4`. At `Zoom 4` a click still moves
 the picture but goes no deeper.
-
-![One click on the small bulb at the top: Zoom 1, centred on the click.](shot:fractal-zoom)
 
 **View > Zoom Out** goes back one level, and **View > Reset** goes back to
 the picture's starting view.
 
 ## The Fractal menu
 
+![The second Fractal menu: the five pictures.](shot:fractal-menu){right}
+
 The menu bar has two menus called Fractal. The first holds **About
 Fractal**, which shows who made it (click the picture to put it away), and
 **Close**. The second chooses the picture:
-
-![The second Fractal menu: the five pictures.](shot:fractal-menu)
 
 | Item | What it draws |
 |---|---|
@@ -64,7 +64,7 @@ Fractal**, which shows who made it (click the picture to put it away), and
 
 Each picture opens at its own starting view, at `Zoom 0`.
 
-![Julia Rabbit in the Ice colours.](shot:fractal-julia)
+![Julia Rabbit in the Ice colours.](shot:fractal-julia){full}
 
 ## The Colour menu
 

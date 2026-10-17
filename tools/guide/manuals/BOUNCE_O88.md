@@ -4,7 +4,7 @@ Bounce is a tiny demonstration program. A small black square bounces around
 inside its own window, turning round whenever it meets an edge. It moves on
 its own while you carry on working in other windows.
 
-![A Bounce window with the square on its way to the bottom edge.](shot:bounce-window)
+![A Bounce window with the square on its way to the bottom edge.](shot:bounce-window){full}
 
 ## Starting Bounce
 
@@ -15,7 +15,7 @@ You can open several Bounces at once. Each new one opens on top of the
 last, so drag it aside to see them both. Each square starts in the top-left
 corner and keeps its own path.
 
-![Two Bounces side by side, each with its own square.](shot:bounce-two)
+![Two Bounces side by side, each with its own square.](shot:bounce-two){full}
 
 ## Watching it
 
@@ -35,9 +35,9 @@ when the window comes back.
 | About Bounce | Shows a small card with the program's name. Click in the window to put it away |
 | Close | Closes this Bounce |
 
-![The About card. The square carries on bouncing over it.](shot:bounce-about)
-
 ## Good to know
+
+![The About card. The square carries on bouncing over it.](shot:bounce-about){right}
 
 - Bounce has no keys, no settings and saves nothing.
 - The square keeps moving while the About card is up and cuts gaps in the

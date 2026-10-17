@@ -9,7 +9,7 @@ It shows all three of the Apple's screens: 40 by 24 text, lo-res blocks and
 hi-res graphics. You can type BASIC programs, load and save them as `.BAS`
 files, paste listings in from other programs, and hear the Apple's speaker.
 
-![The welcome program's first screen.](shot:apple2-window)
+![The welcome program's first screen.](shot:apple2-window){full}
 
 ## Starting the Apple II Plus
 
@@ -17,10 +17,10 @@ The program comes on a disk of its own, in a folder called `APPLE2`. Open the
 folder and double-click **APPLE2.O88**. The window's title is **Apple II Plus
 Emulator**, and its menu bar is headed **Apple II+**.
 
-The folder also holds **WELCOME.BAS**, a short demonstration written for
+The folder also holds [[WELCOME.BAS]], a short demonstration written for
 os8088. Double-click it and the Apple starts with the program already
 loaded; type `RUN` at the `]` prompt to run it, or `LIST` to read it.
-`README.TXT` has notes about the program and `COPYING` is its licence.
+[[README.TXT]] has notes about the program and [[COPYING]] is its licence.
 
 The Apple needs a 49KB block of free memory for its own memory. Its ROMs are
 inside APPLE2.O88 itself, so the program still starts wherever you copy it.
@@ -52,7 +52,7 @@ front is stored as part of the program; a line without one runs at once. Try
 `LIST` shows the program, `NEW` clears it, `HOME` clears the screen. `GR` and
 `HGR` switch to the graphics screens and `TEXT` back.
 
-![Typing at the prompt: a sum, and part of a listing.](shot:apple2-prompt)
+![Typing at the prompt: a sum, and part of a listing.](shot:apple2-prompt){full}
 
 The Apple II Plus has no lower case, so every letter you type arrives as a
 capital.
@@ -89,7 +89,7 @@ of the status row names it: **TEXT**, **LORES** or **HIRES**, with **MIXED**
 when four lines of text sit under a graphics picture and **PG2** when the
 second page is showing.
 
-![The lo-res screen of the welcome program, with four rows of text under it.](shot:apple2-lores)
+![The lo-res screen of the welcome program, with four rows of text under it.](shot:apple2-lores){full}
 
 The window is black and white. A lo-res colour is shown as black or white by
 how bright it is, and hi-res is shown without its colours. For colour, use
@@ -110,7 +110,7 @@ Apple with it loaded.
 ## Copy and paste
 
 **Edit > Copy** puts the text screen on the clipboard, one line per row, so you
-can paste it into Note Pad or any other program.
+can paste it into [[NOTEPAD.O88]] or any other program.
 
 **Edit > Paste** types the clipboard into the Apple, as fast as the Apple reads
 it. Lower case becomes capitals. So a BASIC listing written in Note Pad and
@@ -147,7 +147,7 @@ menu bar while they are on, and `Esc` goes to the Apple.
 
 ## The Machine menu
 
-![The Machine menu.](shot:apple2-machine)
+![The Machine menu.](shot:apple2-machine){full}
 
 | Item | Key | What it does |
 |---|---|---|
@@ -159,7 +159,7 @@ menu bar while they are on, and `Esc` goes to the Apple.
 | Flashing text | | Show FLASH text flashing. A `*` means it is on |
 | Mute | | Silence the speaker, or turn it back on |
 
-![Power On asks before it clears the Apple's memory.](shot:apple2-power)
+![Power On asks before it clears the Apple's memory.](shot:apple2-power){right}
 
 **Power On** asks **Are you sure you want to reboot? (All data will be
 lost!)**. Click **Yes** or press `Enter` or `Y` to go ahead; any other key, or

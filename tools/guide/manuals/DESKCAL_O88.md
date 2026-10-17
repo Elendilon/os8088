@@ -5,7 +5,7 @@ today's date, the month, the appointments of the day you pick, a list of
 tasks to tick off, and the next reminder. It stays where you put it, and once
 it is open it comes back by itself every time the machine starts.
 
-![Desk Calendar on the desktop, with a reminder ringing on its bottom card.](shot:deskcal-desktop)
+![Desk Calendar on the desktop, with a reminder ringing on its bottom card.](shot:deskcal-desktop){full}
 
 ## Starting Desk Calendar
 
@@ -23,7 +23,7 @@ way round.
 
 ## The three cards
 
-![The three cards: the month, the day and its tasks, and the next reminder.](shot:deskcal-widget)
+![The three cards: the month, the day and its tasks, and the next reminder.](shot:deskcal-widget){right}
 
 **The month.** The big number at the top is today's date, with the weekday
 and month beside it. Under it is a month of days, with the week starting on
@@ -54,8 +54,6 @@ Click the `+` at the right of the day card's heading. A typing line opens in
 its place. Type the entry and press `Enter` to keep it, or `Esc` to throw it
 away.
 
-![The typing line open on the day card.](shot:deskcal-entry)
-
 What you type decides what it becomes:
 
 | You type | It becomes |
@@ -63,6 +61,8 @@ What you type decides what it becomes:
 | `9:30 Dentist` or `09:30 Dentist` | an appointment at 09:30 on the selected day |
 | `930 Dentist` or `0930 Dentist` | the same: three or four digits are a time |
 | `Dentist` | an all-day appointment |
+
+![The typing line open on the day card.](shot:deskcal-entry){left}
 
 Times are 24-hour: `14:00`, not `2:00`. A first word that is not a real time,
 such as `24:00` or `3 apples`, is taken as part of the text.
@@ -77,6 +77,8 @@ long entry.
 
 ## Changing and deleting
 
+![The Calendar menu.](shot:deskcal-menu){right}
+
 Click an appointment or a task to select it; it turns white on black. Click it
 again, or press `Enter`, to edit it in the typing line.
 
@@ -88,17 +90,17 @@ delete it. Anything else in between cancels.
 
 ## Reminders
 
+![The Remind menu.](shot:deskcal-remind-menu){right}
+
 A timed appointment gets a reminder when you make it. By default the reminder
 goes off at the appointment's own time. The **Remind** menu changes how early.
-
-![The Remind menu.](shot:deskcal-remind-menu){left}
 
 If an appointment is selected, your choice applies to that appointment. If
 not, it becomes the default for new appointments. The menu bar says which.
 **No Reminder** turns reminders off for that appointment, or for new ones.
 All-day appointments never have a reminder.
 
-![A reminder ringing on the third card.](shot:deskcal-ringing){right}
+![A reminder ringing on the third card.](shot:deskcal-ringing){left}
 
 When a reminder goes off, the speaker chirps, the menu bar shows the time and
 text (for example `09:30 Dentist`), and the third card rings: it shows the
@@ -137,8 +139,6 @@ The calendar's menus show while it has the menu bar. Click any card to give
 it the bar. Press `Esc` to hand the bar and the keyboard back to the window
 in front.
 
-![The Calendar menu.](shot:deskcal-menu){left}
-
 | Item | Key | What it does |
 |---|---|---|
 | New Appointment | `N` | Opens the typing line for an appointment on the selected day |
@@ -170,18 +170,18 @@ Calendar** and **Close**.
 
 ## The Sticky Apps menu
 
-![The Sticky Apps menu, with Desk Calendar ticked On.](shot:deskcal-stickymenu)
+![The Sticky Apps menu, with Desk Calendar ticked On.](shot:deskcal-stickymenu){right}
 
 Desk Calendar is a Sticky App: a small program that belongs to the desktop.
 When no window is in front, the desktop's menu bar has a **Sticky Apps**
-menu. It lists every Sticky App on the system disk. Pick one marked `Add` to
+menu ([[STIKMENU.DRV]]). It lists every Sticky App on the system disk. Pick one marked `Add` to
 open it, or one ticked `On` to close it.
 
 - **Arrange Sticky Apps...** lines the open ones up down the right of the
   screen.
 - **Hide All Sticky Apps** hides them without closing them. The same item
   then reads **Show All Sticky Apps**.
-- **More Sticky Apps...** opens The Wire, the online software library.
+- **More Sticky Apps...** opens [[THEWIRE.O88]], the online software library.
 
 ## Files
 

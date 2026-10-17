@@ -4,7 +4,7 @@ Arkanoid is a brick-breaking game. You move a paddle along the bottom of the
 window and bounce a ball up into a wall of coloured bricks. Break every brick
 to clear the wall, and keep the ball from getting past your paddle.
 
-![A rally under way. Some bricks are gone and an L capsule is falling.](shot:arkanoid-window)
+![A rally under way. Some bricks are gone and an L capsule is falling.](shot:arkanoid-window){full}
 
 ## Starting Arkanoid
 
@@ -60,6 +60,8 @@ back to its normal speed.
 | A capsule caught | 50 |
 | A wall cleared | 100 |
 
+![The end of a game.](shot:arkanoid-over){right}
+
 When the last brick goes the game says **WALL CLEARED** and builds the next
 wall. Each new wall starts with the ball on the paddle, and the ball gets a
 little faster with every wall.
@@ -67,9 +69,9 @@ little faster with every wall.
 You start with three balls. When the last one is lost the game shows
 **GAME OVER**. Press `N` to start again.
 
-![The end of a game.](shot:arkanoid-over){right}
-
 ## Pausing
+
+![The game paused.](shot:arkanoid-pause){left}
 
 Press `P`, or choose **Game > Pause**, to stop the game. Press `P` or `Space`
 to carry on.
@@ -77,8 +79,6 @@ to carry on.
 The game also pauses on its own when you click another window or the
 desktop, so you never lose a ball you were not watching. Coming back does not
 restart it: press `Space` when you are ready.
-
-![The game paused.](shot:arkanoid-pause){left}
 
 ## Menus and keys
 

@@ -10,14 +10,14 @@ description, if the page gives one. It cannot open secure (`https`) sites by
 itself, because the encryption they use would take minutes on this machine.
 The os8088 web proxy, running on a modern computer, does that work for it.
 
-![The Browser showing its own manual page, opened from the floppy.](shot:browser-window)
+![The Browser showing its own manual page, opened from the floppy.](shot:browser-window){full}
 
 ## Starting the Browser
 
 The Browser is **BROWSER.O88** in the `APPS` folder. Double-click it to open
 an empty Browser. Double-clicking any `.HTM` file also opens it, with that
 page loaded. The `MEDIA` folder on the software disk has one to try:
-**BROWSER.HTM**, the Browser's own short manual. You can open more than one
+[[BROWSER.HTM]], the Browser's own short manual. You can open more than one
 Browser at a time.
 
 Pages on a disk need nothing else. Pages on the network need a network
@@ -47,7 +47,7 @@ The scroll bar on the right works with the mouse: click its arrows, click
 above or below the thumb to move a window at a time, or drag the thumb.
 Double-click the title bar to make the window fill the screen.
 
-![The bottom of the same page: a form, and links.](shot:browser-scrolled)
+![The bottom of the same page: a form, and links.](shot:browser-scrolled){full}
 
 Click a link to follow it. The toolbar's **Back** and **Fwd** buttons step
 through the pages you have visited, and **Reload** fetches the current page
@@ -69,14 +69,14 @@ The Browser follows a link from a page on a disk only if the link is a full
 `http://` address. A link that only makes sense next to the page on its
 server answers **Relative link: this page has no server**.
 
-![An address typed on a machine with no network driver loaded.](shot:browser-nolink)
+![An address typed on a machine with no network driver loaded.](shot:browser-nolink){full}
 
 With no network driver loaded, an address answers **No link driver**. See
 *Getting on the network* below.
 
 ## Secure sites
 
-![Clicking an https link: the Browser refuses it straight away and says why.](shot:browser-https)
+![Clicking an https link: the Browser refuses it straight away and says why.](shot:browser-https){full}
 
 The Browser refuses `https` addresses at once rather than trying for minutes
 and failing. Clicking such a link shows **Https is not supported**. Typing
@@ -124,7 +124,7 @@ The History menu says **(empty)** until you have visited a page.
 ## Getting on the network
 
 The Browser, Telnet and the FTP Server reach the network through the
-**Ethernet** driver. It works with an **NE1000** or **NE2000** network card,
+**Ethernet** driver, [[ETHER.DRV]]. It works with an **NE1000** or **NE2000** network card,
 or a card that is compatible with one, which most clone cards of the period
 are.
 
@@ -163,7 +163,7 @@ page has three buttons:
   **Buf 4K** or **Buf 8K**. More is faster, and costs memory. It is greyed
   while a connection is open.
 
-A DOS PC joined to this machine by the **Parallel link** can also carry the
+A DOS PC joined to this machine by the **Parallel link** ([[NET.DRV]]) can also carry the
 Browser's connections, if that PC is on a network. The Browser uses a network
 card first when it has both.
 

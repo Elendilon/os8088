@@ -10,7 +10,7 @@ rename files, change drives and start programs by typing, the way you would
 at an MS-DOS prompt. When a program ends, what it left on its screen stays in
 the window, followed by a line that says how it ended.
 
-![The DOS window after running OS88NET.COM with the argument /?. The program's help text stayed in the console when it ended.](shot:dos-window)
+![The DOS window after running OS88NET.COM with the argument /?. The program's help text stayed in the console when it ended.](shot:dos-window){full}
 
 ## Starting DOS
 
@@ -67,7 +67,7 @@ says how it went, for example:
 The exit code is the number the program handed back when it finished, and
 the arena is the memory the program was given.
 
-![OS88NET.COM run with no arguments. With no parallel port to use, it says so and ends.](shot:dos-ended)
+![OS88NET.COM run with no arguments. With no parallel port to use, it says so and ends.](shot:dos-ended){full}
 
 To run the same program again, press `Enter` with nothing typed, or click
 **Run**.
@@ -94,7 +94,7 @@ Type `help` for a list. These are the commands the prompt understands:
 | `A:` | A drive letter on its own changes drive |
 | `NAME [arg]` | Runs a program, or opens a document with it |
 
-![HELP lists every command, one line each.](shot:dos-help)
+![HELP lists every command, one line each.](shot:dos-help){full}
 
 `DIR` lists names, sizes and folders, with the number of files at the end.
 It shows no dates, and it lists files in the order the disk holds them.
@@ -108,7 +108,7 @@ Each drive remembers its own current folder. After `B:`, `CD APPS`, `A:` and
 `B:` again, you are back in `B:\APPS`. A drive that is not there answers
 `Invalid drive specification`, and you stay where you were.
 
-![VER, and a redirection to a file, which the prompt refuses.](shot:dos-ver){left}
+![VER, and a redirection to a file, which the prompt refuses.](shot:dos-ver){full}
 
 You can add `> NUL` to the end of a command to hide what it prints. Sending
 the output to a file, such as `DIR > LIST.TXT`, is refused with `Cannot
@@ -124,7 +124,7 @@ text screen, all 80 columns and 25 lines. This is useful on CGA, where the
 window shows only 17 lines. Press `Esc` or `Alt+Enter` to come back to the
 window. The prompt works the same in both places.
 
-![The console on the full text screen. The corner says how to leave.](shot:dos-fullscreen)
+![The console on the full text screen. The corner says how to leave.](shot:dos-fullscreen){full}
 
 ## Setup
 
@@ -132,7 +132,7 @@ window. The prompt works the same in both places.
 apply to the next run. The command box sits at the top of the page, so you
 can see and change what will run. **Return** goes back to the console.
 
-![The Setup page, with the memory choices on the right.](shot:dos-setup)
+![The Setup page, with the memory choices on the right.](shot:dos-setup){full}
 
 **Arguments** is the text the program receives after its name, up to 127
 characters. Pressing `Enter` here runs the program again with the new
@@ -182,13 +182,13 @@ the program itself always uses the default settings.
 
 ## The Program menu
 
-![The Program menu.](shot:dos-menu){right}
-
 | Item | Key | What it does |
 |---|---|---|
 | Run | `Enter` in the command box | Runs the program the command box names |
 | Setup | | Opens the Setup page |
 | Full Screen | `Alt+Enter` | Puts the console on the whole text screen |
+
+![The Program menu.](shot:dos-menu){right}
 
 The **DOS** menu has **About DOS** and **Close**, which closes this window.
 
@@ -230,6 +230,6 @@ was launched from, and can reach every drive.
   machine while it runs and can do anything the hardware allows.
 - `Esc` belongs to the running program. To leave a program, use its own way
   out.
-- **OS88NET.COM**, in `SYSTEM\DOS` on the apps disk, is a DOS program for
+- [[OS88NET.COM]], in `SYSTEM\DOS` on the apps disk, is a DOS program for
   another PC: run on an MS-DOS machine joined to this one by a parallel
   cable, it shares that machine's files as a drive here.

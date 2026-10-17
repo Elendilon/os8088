@@ -33,10 +33,10 @@ choices shows the current settings.
 | `H` | Open the help page. `H` or `Esc` comes back |
 | `Enter`, `F` or `Alt+Enter` | Start the game |
 
+![The help page.](shot:drmarco-help){right}
+
 You can also click **ENTER START GAME** or **H HOW TO PLAY**. The help page
 lists the keys. Click it, or press `H` or `Esc`, to go back.
-
-![The help page.](shot:drmarco-help){right}
 
 Level 0 has 4 viruses in the bottle, and each level adds 4 more, up to 84 on
 level 20. Higher levels also stack the viruses higher up the bottle.

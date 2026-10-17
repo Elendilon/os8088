@@ -9,7 +9,7 @@ to move files between a modern computer and an old PC.
 The window is a log: it shows each command the client sends and what
 happened, and the line under the toolbar says what the server is doing.
 
-![The FTP Server, stopped and ready to start.](shot:ftpd-window)
+![The FTP Server, stopped and ready to start.](shot:ftpd-window){full}
 
 ## Starting the FTP Server
 
@@ -17,12 +17,12 @@ The FTP Server is **FTPD.O88** in the `APPS` folder (on the network disk it
 is at the top of the disk). Double-click it to open the window. The server
 does nothing until you press **Start**.
 
-It needs a network card. Load the **Ethernet** driver for an NE1000 or
+It needs a network card. Load the **Ethernet** driver, [[ETHER.DRV]], for an NE1000 or
 NE2000 card: open the **Control Panel**, choose the **Drivers** page and tick
 **Ethernet**. The machine gets its address by itself from your router, or you
 can set one by hand on the Control Panel's Ethernet page with **Set Up**. The
-Browser's manual explains these steps in full. A DOS PC joined by the
-**Parallel link** can carry the connection instead, if that PC is on a
+[[BROWSER.O88]] manual explains these steps in full. A DOS PC joined by the
+**Parallel link** ([[NET.DRV]]) can carry the connection instead, if that PC is on a
 network.
 
 ## Serving files
@@ -31,8 +31,6 @@ Press **Start**. The line under the toolbar changes to something like
 **Listening port 21 at 192.168.1.60**: that address is the one to give your
 FTP program. Connect to it on port 21. When a client is logged in the line
 says **Client connected**. Press the button again to stop the server.
-
-![With no network driver loaded, Start stops at once and says why.](shot:ftpd-nodriver)
 
 If the server cannot start, the line says why:
 
@@ -43,6 +41,8 @@ If the server cannot start, the line says why:
 | Port 21 is in use | Another FTP Server window is already running |
 | No such Root folder | Fix the Root setting (see below) |
 | No free task - close an app and retry | Close another program, then press Start again |
+
+![With no network driver loaded, Start stops at once and says why.](shot:ftpd-nodriver){right}
 
 Start is never greyed: fix what the line said and press it again.
 
@@ -62,8 +62,6 @@ Click **Setup**, or choose **Server > Setup...**, to open the settings page.
 Click **Done** to go back to the log. The settings are saved when you leave
 the page or close the window. An empty box means the default.
 
-![The Setup page.](shot:ftpd-setup){right}
-
 | Setting | What it does |
 |---|---|
 | PASV addr | The address to give clients for passive transfers, when they reach this machine through a router (see below). Empty: the machine's own address |
@@ -72,6 +70,8 @@ the page or close the window. An empty box means the default.
 | Password | The password that goes with User |
 | Read Only | The same box as on the toolbar |
 | Serve every drive (ignores Root) | Share every drive: the client sees `A`, `B`, `C` and so on as folders at the top |
+
+![The Setup page.](shot:ftpd-setup){left}
 
 The user name may be typed in any case; the password must match exactly. The
 password is kept in plain text in the server's settings file, so treat it as
@@ -91,14 +91,14 @@ come in from outside through a router or port forwarding:
 
 ## The Server menu
 
-![The Server menu.](shot:ftpd-menu-server){left}
-
 | Item | What it does |
 |---|---|
 | Start / Stop | Start or stop the server, like the button |
 | Clear Log | Empty the log |
 | Setup... | Open the settings page, like the Setup button |
 | Sockets | Write a list of the network connections into the log, for finding a fault |
+
+![The Server menu.](shot:ftpd-menu-server){right}
 
 **Ftpd > About Ftpd** shows who made it. **Ftpd > Close** stops the server
 and closes the window.

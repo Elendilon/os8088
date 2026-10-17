@@ -9,6 +9,8 @@ dot to move on to the next board. It plays in a window or full screen.
 
 ## Starting Dot Delirium
 
+![The title screen, with the high scores and the demo game.](shot:dotdel-title){left}
+
 Dot Delirium is on the games disk, at the top level, and in the `GAMES`
 folder of the 720KB, 1.2MB and 1.44MB software disks. Double-click
 **DOTDEL.O88**. It needs nothing special and plays on VGA, EGA, Hercules and
@@ -17,8 +19,6 @@ CGA.
 The window opens on the title screen: the name, the high-score table and a
 demo game playing underneath. Press `Enter` or `Space`, or click in the
 window, to start a game.
-
-![The title screen, with the high scores and the demo game.](shot:dotdel-title){left}
 
 ## Playing
 

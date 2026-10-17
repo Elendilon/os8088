@@ -206,7 +206,8 @@ main.panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; ma
 .shot.left, .shot.right { max-width: 48%; margin-top: 4px; }
 .shot.left { float: left; margin-right: 18px; }
 .shot.right { float: right; margin-left: 18px; }
-.shot.left img, .shot.right img { width: 100%; }
+.shot.left img, .shot.right img { width: auto; max-width: 100%; max-height: 22rem; }
+.shot.full { clear: both; }
 .manual h2, .manual h3, .manual .tbl { clear: both; }
 .manual::after { content: ""; display: block; clear: both; }
 @media (max-width: 560px) { .shot.left, .shot.right { float: none; max-width: 100%; margin: 10px 0 14px; } }

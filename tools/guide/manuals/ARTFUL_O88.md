@@ -8,19 +8,19 @@ file it saves is ordinary text that any computer can read.
 
 It is a port of ActionRetro's ArtfulType for the classic Macintosh.
 
-![Writing in ArtfulType: headings, bold, italic, code and a link, styled as you type.](shot:artful-writer)
+![Writing in ArtfulType: headings, bold, italic, code and a link, styled as you type.](shot:artful-writer){full}
 
 ## Starting ArtfulType
 
 ArtfulType is in the `APPS` folder of the apps disk, and at the top of the
 Office disk. Double-click **ARTFUL.O88**. You can also double-click any `.MD`
 file to open it straight into the writing screen. The Office disk's `MEDIA`
-folder has `WRITING.MD`, a short guide to ArtfulType that also shows off its
+folder has [[WRITING.MD]], a short guide to ArtfulType that also shows off its
 styling.
 
-Started on its own, ArtfulType opens a small window, the start card:
+![The start card.](shot:artful-splash){right}
 
-![The start card.](shot:artful-splash)
+Started on its own, ArtfulType opens a small window, the start card.
 
 Click **New** (or press `N` or `Enter`) to start an empty document, or
 **Open...** (or press `O`) to choose a file. Either one takes the whole
@@ -78,6 +78,8 @@ You do not have to type the marks yourself. Select some text and use the
 
 ## Two views
 
+![The View menu, open over the Writer view.](shot:artful-view-menu){right}
+
 The **View** menu has two ways to look at the same file:
 
 - **Writer** hides the marks and shows the styling, with headings scaled
@@ -85,9 +87,7 @@ The **View** menu has two ways to look at the same file:
 - **Markdown** shows every character exactly as it is in the file, at one
   size, on a white menu bar.
 
-![The View menu, open over the Writer view.](shot:artful-view-menu)
-
-![The same file in the Markdown view.](shot:artful-markdown)
+![The same file in the Markdown view.](shot:artful-markdown){full}
 
 The view only changes how the text looks. The file is the same either way.
 
@@ -118,7 +118,7 @@ for a name. If the document has unsaved changes, New, Open and Quit ask
 
 Undo goes back up to fifteen steps, and a run of typing counts as one step.
 If memory is short, Undo and Redo stay grey.
-The clipboard is the system's, so you can copy between ArtfulType, Note Pad
+The clipboard is the system's, so you can copy between ArtfulType, [[NOTEPAD.O88]]
 and other programs.
 
 ## The Style menu

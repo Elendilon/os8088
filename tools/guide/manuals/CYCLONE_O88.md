@@ -14,10 +14,10 @@ Cyclone 88 is in the `GAMES` folder of the software disk, and at the top
 level of the games disk. Double-click **CYCLONE.O88**. It runs in a window
 and needs nothing special. It plays on VGA, Hercules and CGA alike.
 
+![The title screen, with the high scores scrolling.](shot:cyclone-title){left}
+
 The window opens on the title screen. A web warps in and out, and the high
 scores and a list of the enemies and powerups scroll past underneath.
-
-![The title screen, with the high scores scrolling.](shot:cyclone-title){left}
 
 **Press `Enter` to start**, as the screen says, or click in the window. The
 space bar does not start a game.
@@ -34,6 +34,8 @@ space bar does not start a game.
 | `N` | Start a new game |
 | `F` or `Alt+Enter` | Play full screen, and back |
 | `Esc` | Leave full screen |
+
+![How To Play.](shot:cyclone-help){right}
 
 You can aim with the mouse too. Click in the window and the claw moves to the
 lane in the direction of the pointer, seen from the middle of the web, and
@@ -108,8 +110,6 @@ mouse aiming.
 | Help | How To Play | A panel with the keys and the rules |
 | Cyclone 88 | About Cyclone 88 | Who made it |
 | Cyclone 88 | Close | Close the game |
-
-![How To Play.](shot:cyclone-help){right}
 
 The How To Play and About panels pause a game in progress. Any key or click
 puts them away.

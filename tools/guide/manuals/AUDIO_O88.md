@@ -3,7 +3,7 @@
 Audio Player plays `.WAV` sound files. It reads a song from the disk a
 little at a time as it plays, so even a long recording needs very little
 memory, and with a Sound Blaster the music carries on in the background
-while you work in Note Pad, Sheet or any other program.
+while you work in [[NOTEPAD.O88]], [[SHEET.O88]] or any other program.
 
 It keeps a playlist of up to 48 songs and can play them in order, shuffled,
 or round and round.
@@ -19,7 +19,7 @@ file to open Audio Player and play that file at once.
 Each double-click on a `.WAV` opens a new Audio Player window. To queue
 several songs in one player, use **File > Open...** instead.
 
-Audio Player plays through a Sound Blaster. With no card it plays through
+Audio Player plays through a Sound Blaster, using [[SOUND.DRV]]. With no card it plays through
 the PC speaker, or through a Covox if one is chosen in the Control Panel
 (see below).
 
@@ -39,13 +39,13 @@ the playlist. The `>` mark in the playlist is the current song.
 | Shuf | | Shuffle: play the playlist in a random order |
 | Rep | | Repeat: after the last song, start the playlist again |
 
+![Paused on the second song, with Repeat on.](shot:audio-paused){right}
+
 `Space` and `Enter` switch between playing and pausing. **Shuf** and **Rep**
 stay pressed in while they are on.
 
 When a song ends, the next one starts. After the last song the player stops
 and says **End of playlist**, unless Repeat is on.
-
-![Paused on the second song, with Repeat on.](shot:audio-paused){right}
 
 ## Building a playlist
 
@@ -66,6 +66,8 @@ The playlist remembers which folder and disk each song came from, so one
 list can hold songs from several places.
 
 ## Playing on the PC speaker or a Covox
+
+![The Play menu.](shot:audio-play-menu){left}
 
 With no Sound Blaster, Audio Player plays through the PC speaker. The
 speaker needs the whole computer to play a recording, so while it plays the
@@ -107,12 +109,10 @@ would say speaker.
 | Play | Repeat | Repeat on or off |
 | Audio Player | About Audio Player | Who made Audio Player |
 
-![The Play menu.](shot:audio-play-menu){right}
+![The About card.](shot:audio-about){right}
 
 **About Audio Player** shows a card with the version, the formats and the
 rates. Click or press a key to close it.
-
-![The About card.](shot:audio-about){left}
 
 ## Files
 

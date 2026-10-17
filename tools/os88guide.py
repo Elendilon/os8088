@@ -304,6 +304,11 @@ def survey_hdd(path):
 
 
 # --- manuals ----------------------------------------------------------------
+def plain(s):
+    """A caption as alt text: no link brackets, no markup."""
+    return re.sub(r"[*`]", "", re.sub(r"\[\[([^\]]+)\]\]", r"\1", s))
+
+
 def md_inline(s):
     s = html.escape(s, quote=False)
     code = []
@@ -315,7 +320,7 @@ def md_inline(s):
     s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
     s = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", s)
     s = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r'<a href="\2" target="_blank" rel="noopener">\1</a>', s)
-    s = re.sub(r"\[\[([A-Z0-9_.]+)\]\]", r'<a href="#" data-item="\1">\1</a>', s)
+    s = re.sub(r"\[\[([A-Z0-9_.]+/?)\]\]", r'<a href="#" data-item="\1">\1</a>', s)
     return re.sub(r"\x00(\d+)\x00", lambda m: code[int(m.group(1))], s)
 
 
@@ -356,7 +361,7 @@ def md(text, shots):
                 nshot += 1
                 out.append('<figure class="shot %s"><button class="zoom" data-zoom="%s" aria-label="Enlarge: %s">'
                            '<img src="%s" width="%d" height="%d" alt="%s"></button><figcaption>%s</figcaption></figure>'
-                           % (place, src, html.escape(cap), src, w * 2, h * 2, html.escape(cap), md_inline(cap)))
+                           % (place, src, html.escape(plain(cap)), src, w * 2, h * 2, html.escape(plain(cap)), md_inline(cap)))
             else:
                 out.append('<figure class="shot pending %s"><div class="frame"><span>Screenshot to come</span>'
                            '<code>%s</code></div><figcaption>%s</figcaption></figure>' % (place or "full", sid, md_inline(cap)))

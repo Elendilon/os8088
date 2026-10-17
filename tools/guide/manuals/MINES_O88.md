@@ -4,7 +4,7 @@ Minesweeper is the classic mine-finding puzzle. Ten mines are hidden under a
 board of 9 by 9 covered squares. Uncover every square that does not hold a
 mine and you win. Uncover a mine and the game is over.
 
-![A game in progress: some squares opened, two mines flagged.](shot:mines-window)
+![A game in progress: some squares opened, two mines flagged.](shot:mines-window){full}
 
 ## Starting Minesweeper
 
@@ -23,6 +23,8 @@ many of its eight neighbours hold a mine. A square with no mines around it
 shows nothing, and all its neighbours open by themselves, so one click can
 open a whole empty region.
 
+![Flag mode on: the strip says F=FLAG.](shot:mines-flagmode){right}
+
 Use the numbers to work out where the mines must be. When you are sure a
 square holds a mine, mark it with a flag:
 
@@ -35,8 +37,6 @@ The number at the left of the strip above the board counts down as you place
 flags: it shows ten less the flags on the board. It never goes below 0.
 
 ## Flag mode
-
-![Flag mode on: the strip says F=FLAG.](shot:mines-flagmode){right}
 
 If your mouse has one button, or you prefer to flag with the left button,
 press `F` or choose **Game > Flag Mode**. The strip shows **F=FLAG**, and

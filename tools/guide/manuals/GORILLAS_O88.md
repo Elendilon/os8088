@@ -6,9 +6,11 @@ exploding bananas at each other. You set the angle and the speed of each
 throw, and the wind and gravity bend its path. Play against the computer or
 against a friend at the same keyboard.
 
-![Kong's turn to throw, with angle 62 and velocity 58 typed in.](shot:gorillas-aim)
+![Kong's turn to throw, with angle 62 and velocity 58 typed in.](shot:gorillas-aim){full}
 
 ## Starting Gorillas
+
+![The opening screen.](shot:gorillas-intro){left}
 
 Gorillas is at the top level of the Games disk, and in the `GAMES` folder of
 the larger software disks. Double-click **GORILLAS.O88**.
@@ -16,9 +18,9 @@ the larger software disks. Double-click **GORILLAS.O88**.
 The game opens with its title tune and a marquee of lights around the two
 gorillas. Press any key to go straight to the setup, or let the tune finish.
 
-![The opening screen.](shot:gorillas-intro){right}
-
 ## Setting up a match
+
+![Setup asking for the gravity.](shot:gorillas-setup){right}
 
 The setup asks six questions, one at a time. Type an answer and press
 `Enter`, or press `Enter` alone to take the default. `Backspace` deletes a
@@ -32,8 +34,6 @@ character.
 4. **Gravity**: 0.001 to 9999.999, with up to three decimal places (default
    9.8, the Earth's). Lower gravity gives longer, higher throws.
 5. **Gameplay music?**: Yes or No (default Yes). `Y` and `N` work too.
-
-![Setup asking for the gravity.](shot:gorillas-setup){left}
 
 Finally press `V` to watch the gorillas dance to the intro music, or `P` or
 `Enter` to start playing. Any key ends the dance.
@@ -49,12 +49,12 @@ way the wind blows, and a longer arrow means a stronger wind.
    downwards.
 2. Type the velocity, 0 to 360, and press `Enter` to throw.
 
+![A banana in flight. The text stays hidden until it lands.](shot:gorillas-flight){left}
+
 The first digit you type replaces the old value. `Backspace` removes a digit,
 `Tab` switches between the two fields, and the arrow keys change the
 selected value by one (`Up` and `Right` raise it, `Down` and `Left` lower
 it). Each player's last angle and velocity are kept for the next turn.
-
-![A banana in flight. The text stays hidden until it lands.](shot:gorillas-flight){right}
 
 A banana that hits a building blows a crater in it, and the crater stays. A
 banana can also come back down on the gorilla that threw it. Whoever is hit,
@@ -62,11 +62,11 @@ the other player scores the point.
 
 ## Scoring
 
+![A direct hit. The gorilla on the left is gone in the blast.](shot:gorillas-point){right}
+
 After a hit, the gorilla that scored does a victory dance. Then a new
 skyline starts on its own after a short pause, or press `Enter` to go on
 sooner. The players take turns to throw first on each new skyline.
-
-![A direct hit. The gorilla on the left is gone in the blast.](shot:gorillas-point){left}
 
 The first player to reach the winning score wins the match. A final
 scorecard lists both scores; press any key to set up another match.
@@ -77,7 +77,7 @@ Press `F` or `Alt+Enter`, or choose **Game > Full Screen**, to play on the
 whole screen. Press `Esc`, `F` or `Alt+Enter` to go back to the window. The
 throw and the city are kept.
 
-![Full screen on a VGA card, in the original game's colours.](shot:gorillas-full)
+![Full screen on a VGA card, in the original game's colours.](shot:gorillas-full){full}
 
 On VGA, full screen uses the colours of the original game. On CGA it uses a
 four-colour picture, where the window is black and white. Hercules is black
