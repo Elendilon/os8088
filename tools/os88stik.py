@@ -388,20 +388,26 @@ def dat(payload=b"", x=None, y=None, screen=None, payver=None, cont=False):
 
 
 def parse_dat(data, paylen, payver, packed=False):
-    """The package's own test (os88stik.inc's stik_load): the EXACT size, the
+    """The package's own test (os88stik.inc's stik_load): the size, the
     magic, the header version, the payload's version and length. Raises
     DiaError naming the first refusal - a file that is not exactly this is
     DAMAGED to the package, never partly read. `packed` is a package with
     STIK_PACK (SPEC.md 110.5.3): the payload may be SHORTER than `paylen`,
     and is then exactly the header's length - the caller unpacks it."""
     data = bytes(data)
+    # AS LONG AS ITS CONTENT (SPEC.md 110.5.3): a save writes the payload
+    # less its zero tail, so 0..paylen bytes follow the header and +14 says
+    # how many; the reader gives the tail back as zeros. A PACKED one
+    # (STIK_PACK) is 1..paylen and handed back as it stands - the caller
+    # unpacks it
     if packed:
         if not STIK_HDR_SIZE < len(data) <= STIK_HDR_SIZE + paylen:
             raise DiaError("%d bytes, not 1..%d of payload"
                            % (len(data), paylen))
         paylen = len(data) - STIK_HDR_SIZE
-    elif len(data) != STIK_HDR_SIZE + paylen:
-        raise DiaError("%d bytes, not %d" % (len(data), STIK_HDR_SIZE + paylen))
+    elif not STIK_HDR_SIZE <= len(data) <= STIK_HDR_SIZE + paylen:
+        raise DiaError("%d bytes, not %d..%d" % (len(data), STIK_HDR_SIZE,
+                                                 STIK_HDR_SIZE + paylen))
     if data[:2] != STIK_HDR_MAGIC:
         raise DiaError("no 'DA' magic")
     ver, flags, x, y, sw, sh, pv, z, ln = struct.unpack_from(
@@ -410,16 +416,23 @@ def parse_dat(data, paylen, payver, packed=False):
         raise DiaError("header version %d" % ver)
     if pv != payver:
         raise DiaError("payload version %d, not %d" % (pv, payver))
-    if ln != paylen:
-        raise DiaError("payload length %d, not %d" % (ln, paylen))
+    if ln != len(data) - STIK_HDR_SIZE:
+        raise DiaError("payload length %d, not the file's %d"
+                       % (ln, len(data) - STIK_HDR_SIZE))
     cont = bool(flags & STIK_HF_CONT)
     out = {"pos": bool(flags & STIK_HF_POS), "x": x, "y": y, "cont": cont,
            # the FACE a widget reads it as (SPEC.md 110.11): its own origin,
            # or a v1 file's titled frame - a border in, a title bar down
            "face": [x, y] if cont else [x + 1, y + TITLE_H],
            "screen": [sw, sh], "payver": pv, "paylen": ln,
-           "payload": data[STIK_HDR_SIZE:]}
+           "payload": data[STIK_HDR_SIZE:] + bytes(paylen - ln)}
     return out
+
+
+def trim_payload(payload):
+    """What os88stik.inc's stik_save writes of a payload: all of it but its
+    zero tail (SPEC.md 110.5.3)."""
+    return bytes(payload).rstrip(b"\0")
 
 
 # --- the Desk Calendar's payload ----------------------------------------------
@@ -547,6 +560,257 @@ def parse_deskcal(p):
             "snooze": snooze}
 
 
+# --- Sticky Note's payload (SPEC.md 110.13) ------------------------------------
+# stiknote.asm's SNP_* / SN_*; tests/unit/t_stik.py holds every one of these to
+# the package's own build, evaluated by NASM
+STIKNOTE_PAYVER = 1
+STIKNOTE_MAXN = 24               # notes...
+STIKNOTE_POOL = 4096             # ...sharing one pool of text
+STIKNOTE_N = 0                   # db notes in use
+STIKNOTE_CUR = 1                 # db the current one: the pad's page and the
+                                 # editor's selection
+STIKNOTE_FLAGS = 2               # db STIKNOTE_F_*
+STIKNOTE_F_DESK = 1              # the pad is on the desktop
+STIKNOTE_F_INIT = 0x80           # the welcome note was made once
+STIKNOTE_COL = 4                 # 24 db: each note's paper
+STIKNOTE_LENS = 28               # 24 dw: each note's length, in pool order
+STIKNOTE_POOL0 = 80              # the text, note after note
+STIKNOTE_PAYLEN = STIKNOTE_POOL0 + STIKNOTE_POOL    # 4176
+STIKNOTE_BOX0, STIKNOTE_BOX1 = 1, 2   # a body line's first byte: a box
+STIKNOTE_PAPERS = ("yellow", "pink", "green", "blue", "white")
+STIKNOTE_STIK_BSS = 2064         # stiknote.asm's SN_BSS: its own state first
+STIKNOTE_BSS_WIN = 0             # dw the editor's window, 0 never made
+STIKNOTE_BSS_OPEN = 4            # db the editor is up
+STIKNOTE_BSS_CAR = 8             # dw the caret, an offset into the note
+STIKNOTE_BSS_TOP = 10            # dw the editor's first body line on show
+STIKNOTE_FACE_W = 192            # 24 cells: the sheet and the stack behind it
+STIKNOTE_RIGHT = 472             # the default face x: screen width - 472
+STIKNOTE_S = 4                   # the stack's offset, both ways
+STIKNOTE_TW, STIKNOTE_BTW = 21, 19    # the pad's cells: a text line, a box line
+# the pad's geometry for each layout (snpad.inc's snp_geos), card-local rows
+STIKNOTE_GEO_FIELDS = ("H", "BW", "HY", "PINY", "RY", "RH", "B0", "P", "NV",
+                       "FY", "OY", "K", "BOXY", "LOFF")
+STIKNOTE_GEO = {
+    0: dict(H=156, BW=2, HY=8, PINY=6, RY=21, RH=2, B0=29, P=12, NV=8,
+            FY=134, OY=133, K=12, BOXY=0xFF, LOFF=2),
+    1: dict(H=124, BW=1, HY=6, PINY=6, RY=17, RH=1, B0=23, P=10, NV=7,
+            FY=104, OY=102, K=10, BOXY=0xFF, LOFF=1),
+    2: dict(H=92, BW=1, HY=4, PINY=4, RY=14, RH=1, B0=18, P=9, NV=6,
+            FY=76, OY=76, K=8, BOXY=0, LOFF=1),
+}
+# ...where on the card a press lands (snpad.inc's SNP_*X)
+STIKNOTE_PLUSX, STIKNOTE_PREVX, STIKNOTE_NEXTX, STIKNOTE_OPENX = 170, 56, 128, 150
+STIKNOTE_BX, STIKNOTE_BTX = 10, 26
+# the editor's (sned.inc's sne_geos): content-local rows, in its order
+STIKNOTE_ED_FIELDS = ("TBH", "BY", "BH", "BTY", "BBW", "CBY", "LHY", "L0",
+                      "LP", "ICY", "TY", "RY", "RH", "B0", "P", "LOFF", "BOXY",
+                      "SBH", "AH", "AX", "AY", "HMIN")
+STIKNOTE_ED = {
+    0: dict(TBH=28, BY=6, BH=16, BTY=4, BBW=2, CBY=9, LHY=6, L0=22, LP=15,
+            ICY=0xFE, TY=6, RY=17, RH=2, B0=25, P=12, LOFF=2, BOXY=0xFF,
+            SBH=16, AH=16, AX=2, AY=2, HMIN=110),
+    1: dict(TBH=24, BY=4, BH=15, BTY=4, BBW=1, CBY=7, LHY=4, L0=17, LP=12,
+            ICY=0xFF, TY=4, RY=14, RH=1, B0=20, P=10, LOFF=1, BOXY=0xFF,
+            SBH=14, AH=12, AX=3, AY=2, HMIN=96),
+    2: dict(TBH=20, BY=3, BH=13, BTY=3, BBW=1, CBY=6, LHY=3, L0=14, LP=10,
+            ICY=0xFF, TY=3, RY=13, RH=1, B0=17, P=9, LOFF=1, BOXY=0,
+            SBH=12, AH=11, AX=3, AY=2, HMIN=84),
+}
+STIKNOTE_ED_LW = 144             # the list's width: the page starts here
+STIKNOTE_ED_NEW = (8, 64)        # the bar's buttons: x, width
+STIKNOTE_ED_DEL = (80, 72)
+STIKNOTE_ED_CBX = 168            # ...and the On desktop box
+
+
+def stiknote(notes=(), cur=0, desk=True, init=True):
+    """A Sticky Note payload: `notes` is a list of (text, paper) - the text a
+    str whose first line is the title and whose body lines may begin with
+    STIKNOTE_BOX0 / BOX1 (a box, open or ticked), the paper an index into
+    STIKNOTE_PAPERS."""
+    notes = list(notes)
+    if len(notes) > STIKNOTE_MAXN:
+        raise DiaError("%d notes, at most %d" % (len(notes), STIKNOTE_MAXN))
+    p = bytearray(STIKNOTE_PAYLEN)
+    p[STIKNOTE_N] = len(notes)
+    p[STIKNOTE_CUR] = cur if notes else 0
+    p[STIKNOTE_FLAGS] = (STIKNOTE_F_DESK if desk else 0) | \
+        (STIKNOTE_F_INIT if init else 0)
+    at = STIKNOTE_POOL0
+    for k, (text, paper) in enumerate(notes):
+        b = text.encode("latin-1")
+        if at + len(b) > STIKNOTE_PAYLEN:
+            raise DiaError("the notes are more than %d bytes" % STIKNOTE_POOL)
+        if not 0 <= paper < len(STIKNOTE_PAPERS):
+            raise DiaError("paper %d" % paper)
+        p[STIKNOTE_COL + k] = paper
+        struct.pack_into("<H", p, STIKNOTE_LENS + 2 * k, len(b))
+        p[at:at + len(b)] = b
+        at += len(b)
+    return bytes(p)
+
+
+def parse_stiknote(p):
+    """The payload back, with stiknote.asm's own refusals (sn_check): the
+    count, the current note, the papers, the lengths and their sum."""
+    p = bytes(p)
+    if len(p) != STIKNOTE_PAYLEN:
+        raise DiaError("%d bytes, not %d" % (len(p), STIKNOTE_PAYLEN))
+    n, cur, fl = p[STIKNOTE_N], p[STIKNOTE_CUR], p[STIKNOTE_FLAGS]
+    if n > STIKNOTE_MAXN:
+        raise DiaError("%d notes" % n)
+    if (n and cur >= n) or (not n and cur):
+        raise DiaError("current note %d of %d" % (cur, n))
+    lens = struct.unpack_from("<%dH" % STIKNOTE_MAXN, p, STIKNOTE_LENS)
+    if any(lens[n:]):
+        raise DiaError("a length past the count")
+    if sum(lens) > STIKNOTE_POOL:
+        raise DiaError("%d bytes of text" % sum(lens))
+    notes, at = [], STIKNOTE_POOL0
+    for k in range(n):
+        if p[STIKNOTE_COL + k] >= len(STIKNOTE_PAPERS):
+            raise DiaError("note %d's paper" % k)
+        text = p[at:at + lens[k]].decode("latin-1")
+        at += lens[k]
+        title, _, body = text.partition("\n")
+        notes.append({"text": text, "title": title,
+                      "paper": STIKNOTE_PAPERS[p[STIKNOTE_COL + k]],
+                      "body": stiknote_paras(body) if "\n" in text else []})
+    return {"n": n, "cur": cur, "desk": bool(fl & STIKNOTE_F_DESK),
+            "init": bool(fl & STIKNOTE_F_INIT), "notes": notes}
+
+
+def stiknote_paras(body):
+    """A note's body as paragraphs: (kind, text) with kind None for text,
+    False for an open box and True for a ticked one."""
+    out = []
+    for line in body.split("\n"):
+        if line[:1] == chr(STIKNOTE_BOX0):
+            out.append((False, line[1:]))
+        elif line[:1] == chr(STIKNOTE_BOX1):
+            out.append((True, line[1:]))
+        else:
+            out.append((None, line))
+    return out
+
+
+# --- the Desk Clock's payload (SPEC.md 110.14.5) --------------------------------
+# deskclok.asm's DKP_* / DKF_* / DK_*; tests/unit/t_stik.py holds every one of
+# these to the package's own numbers, evaluated by NASM
+DESKCLOK_PAYLEN = 32
+DESKCLOK_PAYVER = 1
+DESKCLOK_FACE = 0                # db the face, 0..8
+DESKCLOK_FLAGS = 1               # db DESKCLOK_F_*
+DESKCLOK_F_ONLY = 1              # `Clock face only`
+DESKCLOK_F_SECS = 2              # seconds shown
+DESKCLOK_F_H24 = 4               # 24-hour
+DESKCLOK_F_ALARM = 8             # the alarm is set
+DESKCLOK_F_INIT = 0x80           # the defaults were made once
+DESKCLOK_SIZE = 2                # db 0 Small, 1 Medium, 2 Large
+DESKCLOK_AH = 3                  # db the alarm's hour, 0..23
+DESKCLOK_AM = 4                  # db ...its minute
+DESKCLOK_LABEL = 5               # 17: the label, 0..16 characters and a NUL
+DESKCLOK_LABMAX = 16
+DESKCLOK_FACES = ("Classic", "Memphis '80", "Neon '90", "Mono Digital",
+                  "Casio LCD", "Casio VGA", "Red LED", "Amber LED",
+                  "Flip Clock")
+DESKCLOK_ANALOG = 3              # faces 0..2 have hands
+DESKCLOK_SIZES = ("Small", "Medium", "Large")
+DESKCLOK_SZW = ((80, 112, 152), (96, 128, 176))   # a face's width: dial, digital
+DESKCLOK_STIK_BSS = 5088         # deskclok.asm's DK_BSS: its own state first
+DESKCLOK_BSS_WIN = 251           # dw the clock's window
+DESKCLOK_BSS_CW = 271            # dw the card's width...
+DESKCLOK_BSS_CH = 273            # dw ...and height
+DESKCLOK_BSS_RING = 382          # db 0 quiet, 1 ringing, 2 rung out
+DESKCLOK_BSS_SNZ = 383           # db snoozed
+DESKCLOK_BSS_SWIN = 388          # dw the settings window, 0 none
+DESKCLOK_BSS_AWIN = 437          # dw the alarm window, 0 none
+DESKCLOK_BSS_COK = 136           # db the face cache holds the face
+
+
+def deskclok(face=0, only=False, secs=False, h24=True, alarm=False, size=1,
+             ah=7, am=0, label="Wake up", init=True):
+    """A Desk Clock payload: what dk_check accepts, the face an index into
+    DESKCLOK_FACES and the size into DESKCLOK_SIZES."""
+    if not 0 <= face < len(DESKCLOK_FACES):
+        raise DiaError("face %d" % face)
+    if not 0 <= size < len(DESKCLOK_SIZES):
+        raise DiaError("size %d" % size)
+    if not (0 <= ah < 24 and 0 <= am < 60):
+        raise DiaError("alarm %d:%d" % (ah, am))
+    lab = label.encode("latin-1")
+    if len(lab) > DESKCLOK_LABMAX or any(c < 32 or c > 126 for c in lab):
+        raise DiaError("label %r" % label)
+    p = bytearray(DESKCLOK_PAYLEN)
+    p[DESKCLOK_FACE] = face
+    p[DESKCLOK_FLAGS] = ((DESKCLOK_F_ONLY if only else 0) |
+                         (DESKCLOK_F_SECS if secs else 0) |
+                         (DESKCLOK_F_H24 if h24 else 0) |
+                         (DESKCLOK_F_ALARM if alarm else 0) |
+                         (DESKCLOK_F_INIT if init else 0))
+    p[DESKCLOK_SIZE] = size
+    p[DESKCLOK_AH] = ah
+    p[DESKCLOK_AM] = am
+    p[DESKCLOK_LABEL:DESKCLOK_LABEL + len(lab)] = lab
+    return bytes(p)
+
+
+def parse_deskclok(p):
+    """The payload back, with deskclok.asm's own refusals (dk_check): a
+    payload it would replace with the defaults raises DiaError."""
+    p = bytes(p)
+    if len(p) != DESKCLOK_PAYLEN:
+        raise DiaError("%d bytes, not %d" % (len(p), DESKCLOK_PAYLEN))
+    fl = p[DESKCLOK_FLAGS]
+    if not fl & DESKCLOK_F_INIT:
+        raise DiaError("no INIT mark: the defaults")
+    if p[DESKCLOK_FACE] >= len(DESKCLOK_FACES) or p[DESKCLOK_SIZE] >= 3:
+        raise DiaError("face %d, size %d" % (p[DESKCLOK_FACE], p[DESKCLOK_SIZE]))
+    if p[DESKCLOK_AH] >= 24 or p[DESKCLOK_AM] >= 60:
+        raise DiaError("alarm %d:%d" % (p[DESKCLOK_AH], p[DESKCLOK_AM]))
+    lab = p[DESKCLOK_LABEL:DESKCLOK_LABEL + DESKCLOK_LABMAX + 1]
+    if 0 not in lab:
+        raise DiaError("the label has no NUL")
+    lab = lab[:lab.index(0)]
+    if any(c < 32 or c > 126 for c in lab):
+        raise DiaError("the label is not printable")
+    return {"face": p[DESKCLOK_FACE],
+            "face_name": DESKCLOK_FACES[p[DESKCLOK_FACE]],
+            "only": bool(fl & DESKCLOK_F_ONLY),
+            "secs": bool(fl & DESKCLOK_F_SECS),
+            "h24": bool(fl & DESKCLOK_F_H24),
+            "alarm": bool(fl & DESKCLOK_F_ALARM),
+            "size": p[DESKCLOK_SIZE],
+            "ah": p[DESKCLOK_AH], "am": p[DESKCLOK_AM],
+            "label": lab.decode("latin-1")}
+
+
+def stiknote_wrap(body, w=STIKNOTE_TW, wb=STIKNOTE_BTW):
+    """sntext.inc's WALK, mirrored: the body cut into visual lines - a
+    paragraph that does not fit breaks after its last space (the space is
+    not drawn), or hard at the width when it has none. Each line is (kind,
+    first, text): `kind` as stiknote_paras', `first` True on a paragraph's
+    first line, which is the one a box is drawn on."""
+    out = []
+    for kind, text in stiknote_paras(body):
+        width = w if kind is None else wb
+        first, s = True, text
+        while True:
+            if len(s) <= width:
+                out.append((kind, first, s))
+                break
+            if s[width] == " ":
+                cut, nxt = width, width + 1
+            else:
+                sp = s.rfind(" ", 0, width)
+                cut, nxt = (sp, sp + 1) if sp > 0 else (max(width, 1),
+                                                        max(width, 1))
+                if sp == 0:
+                    cut, nxt = 0, 1
+            out.append((kind, first, s[:cut]))
+            first, s = False, s[nxt:]
+    return out
+
+
 # =============================================================================
 # --selfcheck
 # =============================================================================
@@ -633,9 +897,33 @@ def selfcheck():
     ok(c["cont"] and c["pos"] and c["face"] == [376, 184] and
        dat(b"", x=1, y=2, screen=(3, 4), cont=True)[3] == 3,
        "a face origin round-trips with +3 = POS | CONT")
+    # AS LONG AS ITS CONTENT (SPEC.md 110.5.3): the zero tail is not written
+    t = trim_payload(b"ab\0c\0\0\0")
+    ok(t == b"ab\0c", "the trim keeps an inner zero and drops the tail")
+    sh = parse_dat(dat(t), 7, 1)
+    ok(sh["paylen"] == 4 and sh["payload"] == b"ab\0c\0\0\0",
+       "a short file reads back zero-padded to the payload's length")
+    ok(parse_dat(dat(b""), 7, 1)["payload"] == bytes(7),
+       "an all-zero payload is a header alone")
+    refuses(lambda: parse_dat(dat(b"x" * 8), 7, 1), "a payload too long")
+    refuses(lambda: parse_dat(dat(b"xy")[:-1], 7, 1),
+            "a file shorter than +14 says")
     w = widget_off(288, 0)
     ok(w["stik_wf"] == stik_st_off(288, 0) + 37 and w["stik_hv"] == w["stik_wf"] + 1,
        "the widget's fields follow v1's 37 bytes")
+
+    # the Desk Clock's payload
+    dk = deskclok(face=6, only=True, secs=True, alarm=True, ah=21, am=0,
+                  label="Back up files")
+    ok(len(dk) == DESKCLOK_PAYLEN, "a Desk Clock payload is 32 bytes")
+    pk = parse_deskclok(dk)
+    ok(pk["face_name"] == "Red LED" and pk["only"] and pk["secs"]
+       and pk["h24"] and pk["alarm"] and (pk["ah"], pk["am"]) == (21, 0)
+       and pk["label"] == "Back up files", "a Desk Clock payload round-trips")
+    ok(trim_payload(dk) == dk[:DESKCLOK_LABEL + len("Back up files")],
+       "...and its file is its content: the label's NUL and on are left off")
+    refuses(lambda: parse_deskclok(bytes(32)), "a payload with no INIT mark")
+    refuses(lambda: deskclok(label="X" * 17), "a 17-character label")
 
     # the Desk Calendar's payload
     pay = deskcal(appts=[((2026, 10, 13), 570, "Dentist"),
@@ -670,8 +958,9 @@ def selfcheck():
     ok(len(pf) <= 1024, "a few entries are one cluster (%d bytes)" % len(pf))
     ok(parse_deskcal(parse_dat(pf, DESKCAL_PAYLEN, DESKCAL_PAYVER, packed=True)
                      ["payload"]) == dc, "a packed file parses the same")
-    refuses(lambda: parse_dat(pf, DESKCAL_PAYLEN, DESKCAL_PAYVER),
-            "packed, not unpacked")
+    ok(parse_dat(pf, DESKCAL_PAYLEN, DESKCAL_PAYVER)["payload"]
+       == pk + bytes(DESKCAL_PAYLEN - len(pk)),
+       "unpacked, a packed file is its records zero-padded - not spread")
     refuses(lambda: deskcal_unpack(pk[:-1]), "packed, a byte short")
     refuses(lambda: deskcal_unpack(pk + b"\0"), "packed, a byte long")
     fullp = deskcal([((2026, 1, 1), i, "A") for i in range(DESKCAL_NAPPT)],
@@ -697,6 +986,39 @@ def selfcheck():
        == APPT_REMIND | APPT_FIRED | APPT_SNOOZED, "flags bits 2 and 3")
     ok(d2["snooze"] == {"date": [2026, 10, 13], "time": 1265},
        "the slot reads back beside the snoozed appointment")
+
+    # Sticky Note (SPEC.md 110.13): the payload round trip and its refusals
+    sp = stiknote([("Welcome\nhi\n\x01one\n\x02two", 0), ("Shop", 2)],
+                  cur=1)
+    ok(len(sp) == STIKNOTE_PAYLEN == 4176, "a Sticky Note payload is 4,176")
+    sn = parse_stiknote(sp)
+    ok(sn["n"] == 2 and sn["cur"] == 1 and sn["desk"] and sn["init"],
+       "the counts and the flags back")
+    ok(sn["notes"][0]["title"] == "Welcome" and sn["notes"][1]["paper"]
+       == "green" and sn["notes"][1]["body"] == [],
+       "a title, a paper, a note with no body")
+    ok(sn["notes"][0]["body"] == [(None, "hi"), (False, "one"),
+                                  (True, "two")], "the boxes, open and ticked")
+    bad = bytearray(sp)
+    bad[STIKNOTE_N] = 25
+    refuses(lambda: parse_stiknote(bytes(bad)), "25 notes")
+    bad = bytearray(sp)
+    bad[STIKNOTE_CUR] = 2
+    refuses(lambda: parse_stiknote(bytes(bad)), "the current note past them")
+    bad = bytearray(sp)
+    struct.pack_into("<H", bad, STIKNOTE_LENS + 4, 1)
+    refuses(lambda: parse_stiknote(bytes(bad)), "a length past the count")
+    refuses(lambda: stiknote([("x" * 4097, 0)]), "4,097 bytes of text")
+    # the walk: a break after the last space, a hard one without, a box's
+    # narrower width
+    ok(stiknote_wrap("Notes stay on the desk.") ==
+       [(None, True, "Notes stay on the"), (None, False, "desk.")],
+       "a break after the last space that fits")
+    ok(stiknote_wrap("x" * 25) == [(None, True, "x" * 21),
+                                   (None, False, "xxxx")], "a hard break")
+    ok(stiknote_wrap("\x01Ctrl+T toggles one more") ==
+       [(False, True, "Ctrl+T toggles one"), (False, False, "more")],
+       "a box line wraps at 19")
 
     for f_ in fails:
         print("os88stik: FAIL  %s" % f_)

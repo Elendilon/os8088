@@ -54,7 +54,7 @@ DOCK
 One tile per program. A click restores, puts away or raises it; right-click offers Close. Control Panel > Dock moves it Left or Right and can auto-hide it to a 1-pixel line that opens when the pointer rests on it.
 
 DESKTOP
-Drag an item from a disk window onto the desktop to make a SHORTCUT. Enter opens it; Del or File > Remove Shortcut removes it (the file stays). Any icon, drives included, can be dragged. Up to 15, kept in SYSTEM.CFG on A:.
+Drag an item from a disk window onto the desktop to make a SHORTCUT. Enter opens it; Del or File > Remove Shortcut removes it (the file stays). Up to 15, kept in SYSTEM.CFG on A:.
 
 Hold Alt as you drop an item on a disk window to make a LINK (NAME.LNK) there; the original stays put. Links in AUTOSTRT at the boot disk's root open at every start; hold Shift to skip them.
 
@@ -73,7 +73,7 @@ Double-click a drive icon. Up to four windows. Refresh re-reads after a floppy s
 Double-click opens a folder, runs a program, or opens a document in its program (found on any mounted disk). Right-click an item or empty space for a menu, including Open in New Window and Paste Into.
 
 FILE MENU
-Open, New Folder, Rename, Delete. Compress packs a file (programs still read it, so it only saves room); Uncompress undoes it, Uncompress To joins a split set. Format Disk, Clone Disk (floppy to floppy or to a .IMG file) and Write Img (an image back onto a floppy) need a floppy window. Nav holds New Window, Up One Folder, Root Folder and the drives.
+Open, New Folder, Rename, Delete. Compress packs a file (programs still read it, so it only saves room); Uncompress undoes it, Uncompress To joins a split set. Format Disk, Clone Disk (floppy to floppy or to a .IMG file) and Write Img (an image back onto a floppy) need a floppy window.
 
 KEYS
   Enter     open
@@ -143,7 +143,13 @@ THE WIRE: the Wire desktop icon, shown while a network link is up, opens os8088.
 
 GAMES: F full screen and P pause in most. Arkanoid: Space serves. Tank: arrows or WASD, Space fires. Cyclone: Z superzapper, J jump. Clear Skies: arrows fly, W/S throttle, A/D rudder, B brakes, R back to the runway; full throttle, pull back at 55 knots. Missile: 1/2/3 fire from a base. Solitaire: A finishes. TameGram: Space rotates, Enter drops, C colour-blind. Pixelstein: Ctrl fires, Space opens doors, Shift runs, Tab map. DrMarco: Z/X rotate, H help.
 
-DESK CALENDAR (STIKAPPS): sits on the desktop under every window. Click it for its keys and menus; Esc lets go. Arrows pick a day, PgUp/PgDn the month, T today. + adds a line: "9:30 Dentist" is an appointment, anything else a task. Enter or two clicks edit a line, Del deletes, a click ticks a task's box. A reminder rings: S snoozes 5 minutes, D dismisses. Drag it by its name tag; it returns at every start until its x closes it. On a 128KB machine it is an ordinary window.
+STICKY APPS (STIKAPPS) live on the desktop under every window and return at each start until their x closes them. Drag one by its name tag; click it for keys and menus, Esc lets go. On 128KB each is a window.
+
+DESK CALENDAR: arrows pick a day, PgUp/PgDn the month, T today. + adds a line: "9:30 Dentist" is an appointment, anything else a task. Enter edits, Del deletes, a click ticks a task. A reminder rings: S snoozes, D dismisses.
+
+STICKY NOTE: Enter opens its editor; + adds a note, < > turn pages, line 1 is the title. [ ] makes a check box; Ctrl+T or a click ticks it. 24 notes at most, 4KB.
+
+DESK CLOCK: nine faces, three sizes, a daily alarm (A); Enter opens Settings.
 
 More disks: Frotz (Infocom stories), Word, CWord, RunCPM, C64, Apple II, Weave/Loom. Word keeps Word 1.1's keys: Ctrl+C centres, Shift+Del cuts, Shift+Ins pastes.
 
@@ -208,7 +214,7 @@ Here: tick os88net in Drivers, then Connect on its page. Linked means a Link dri
 
 Tick Hard Drive in Drivers; each FAT partition becomes a drive. Its page: Format (make and format a partition, click twice to confirm), Mount, and Install, which copies os8088 to a partition so the machine starts with no floppy. Install keeps existing files unless Erase is ticked; the partition you started from is never offered.
 
-Hibernate (chip menu) writes everything to C:\HIBERNAT.IMG and stops. At the next start choose Resume to get every window back, or Discard. It needs the Hard Drive driver.
+Hibernate (chip menu) writes everything to C:\HIBERNAT.IMG and stops. At the next start choose Resume to get every window back, or Discard.
 
 
 ----------------------------
@@ -263,7 +269,7 @@ Disk error (at start)
 12. LIMITS, SWITCHING OFF
 ----------------------------
 
-A folder shows 64 items (32 on a 128KB machine, which also has no drivers and does not save settings). Programs run as memory allows; Task Manager shows how much.
+A folder shows 64 items (32 on a 128KB machine, which also has no drivers and does not save settings).
 
 Restart reboots at once. Shut Down asks first (Enter yes, Esc no), saves settings, stops the drives and says when to switch off; close your work first. Never switch off or remove a disk while its light is on.
 

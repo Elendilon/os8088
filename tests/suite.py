@@ -9724,8 +9724,17 @@ SOAK = [
         "nothing but OSAPI_VOL_SYS. The unit rows either side of it check the "
         "disk (`fonts`) and the bytes (`pkg`) and neither runs the walk; a "
         "walk that fails is SILENT, because face 0 is the kernel's own cell "
-        "and a Font menu one item long looks like a Font menu",
+        "and a Font menu one item long looks like a Font menu. On the 360KB "
+        "system disk, which has no faces since SPEC.md 24.3.1.5, this is the "
+        "SECOND rung: the faces found on the package's own volume",
         needs=("marty",), wants=("build/bench360.img",)),
+    Row("facescan144", "soak", py("tests/facescan.py", "--machine",
+                                  "os8088_xt_vga_144", "--sys",
+                                  "build/os8088.img", "--bench",
+                                  "build/bench.img"), 18.0,
+        "SPEC.md 19.8: facescan's FIRST rung - the faces in SYSTEM/FONTS on "
+        "the 1.44MB system disk, the package on a B: that has none.",
+        needs=("marty",), wants=("build/bench.img",)),
     Row("fmbtn", "soak", py("tests/fmbtn.py"), 60.0,
         "SPEC.md 22.18: the Disk window's two header buttons fire on the"
         "RELEASE.",
@@ -10179,8 +10188,9 @@ SOAK = [
     Row("stikmenu", "soak", py("tests/stikmenu.py"), 45.0,
         "SPEC.md 110.12: Locator's Sticky Apps menu, one boot of the VGA XT "
         "on the shipped 360KB system disk. A press on the cell loads "
-        "STIKMENU.DRV and lists DESKCAL.O88 by its CARD (name 'Desk "
-        "Calendar', not running, Arrange/Hide greyed, More live); releasing "
+        "STIKMENU.DRV and lists the disk's two Sticky Apps, DESKCAL.O88 by "
+        "its CARD (name 'Desk Calendar', not running, Arrange/Hide greyed, "
+        "More live) beside STIKNOTE.O88 (SPEC.md 110.13); releasing "
         "on its row POSTS the pick and launches it as a desk window, and the "
         "module is dropped after; a release off the panel posts nothing; "
         "Hide All hides the widget and Show All brings it back; Arrange puts "
@@ -10286,6 +10296,46 @@ SOAK = [
         "Del twice empties the list; and three again show the last one's "
         "page and the pager wraps.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
+    Row("stiknote", "soak", py("tests/stiknote.py"), 120.0,
+        "SPEC.md 110.13: Sticky Note on a Hercules 5150 off the shipped 360KB "
+        "system disk - the MID layout. The pad is a desk window and its first "
+        "beat writes STIKNOTE.DAT with the welcome note; the sheet's edge "
+        "and the stack's are ink, both notches the desktop's dither and the "
+        "turned corner's diagonal ink; a pad press ticks a box (the ticked "
+        "record, the file's SN_BOX1); the arrow opens the titled editor, "
+        "New + `Groceries` + `[ ]milk` + Enter + `eggs` is two open boxes in "
+        "the file, Ctrl+T takes one away, Delete + Proceed leaves one note; "
+        "`On desktop` off hides the pad, the editor's close then ends the "
+        "program and its Sticky App row; launched again the editor opens "
+        "alone; and the Color menu is greyed `(color screen)` on 1bpp.",
+        needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
+    Row("stiknotevga", "soak", py("tests/stiknote.py", "--leg", "vga"), 70.0,
+        "SPEC.md 110.13: Sticky Note's PAPERS on a VGA XT, read off the card's "
+        "rendered framebuffer (fbuf): the TALL layout; the pad's sheet yellow "
+        "with a black edge, the editor's page yellow and its list white; "
+        "Color > Pink makes the page and the pad pink and says so in the "
+        "file, the list still white.",
+        needs=("marty",), timeout=600, wants=("build/os8088-360.img",)),
+    Row("deskclock", "soak", py("tests/deskclock.py"), 150.0,
+        "SPEC.md 110.14: the Desk Clock on a VGA XT off the shipped 360KB "
+        "system disk - a desk window, Medium Classic, whose dial's corners "
+        "are the desktop's dither with its phase (the ground sampled off the "
+        "glass and composed); S moves the dial a second at a time; Face > "
+        "Red LED lights it red and saves face 6; Enter opens the settings "
+        "BESIDE the clock, a tile previews on the desk (Neon's navy) and Esc "
+        "puts the Red LED back, Classic + OK keeps Classic in the file; F "
+        "shrinks the frame to the face with a plate-less tag row; the alarm "
+        "set to 07:00 in its window is saved, rings at 07:00 on the guest's "
+        "clock (the face-only frame grows for its rows) and Z snoozes it; "
+        "and a reset brings the clock back from its row, as it was.",
+        needs=("marty",), timeout=1200, wants=("build/os8088-360.img",)),
+    Row("deskclockherc", "soak", py("tests/deskclock.py", "--leg", "herc"),
+        60.0,
+        "SPEC.md 110.14: the Desk Clock on a Hercules 5150 (one plane, the MID "
+        "layout): the Red LED face lit white on black with its unlit "
+        "segments dotted, and the ground at the face's corner the desktop's "
+        "dither.",
+        needs=("marty",), timeout=600, wants=("build/os8088-360.img",)),
     Row("deskcalgrid", "soak", py("tests/deskcalgrid.py"), 40.0,
         "SPEC.md 110.3: the Desk Calendar's 42-byte grid, read out of the "
         "running guest's bss, is Python calendar's - MONDAY FIRST since v2 "

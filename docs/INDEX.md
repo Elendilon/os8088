@@ -349,6 +349,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | DOTDEL | `apps/dotdel/dotdel.asm` | §93 | yes |
 | DRMARCO | `apps/drmario/drmario.asm` | §100 | no |
 | Desk Calendar | `apps/deskcal/deskcal.asm` | §110.3 | yes |
+| Desk Clock | `apps/deskclok/deskclok.asm` | §110.14 | yes |
 | EXCITEBIKE | `apps/excitebike/excitebike.asm` | §102 | no |
 | FONT VIEWER | `apps/fontview/fontview.asm` | §90 | yes |
 | FPTEST | `apps/fptest/fptest.asm` |  | no |
@@ -381,6 +382,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | SKIES | `apps/skies/csload.asm` | §88 | no |
 | SKIES | `apps/skies/skies.asm` | §88 | yes |
 | SOLITAIRE | `apps/solitaire/solitaire.asm` | §43 | yes |
+| Sticky Note | `apps/stiknote/stiknote.asm` | §110.13 | yes |
 | TAMEGRAM | `apps/tamegram/tamegram.asm` | §49 | yes |
 | TANK | `apps/tank/tank.asm` | §85 | yes |
 | TELNET | `apps/telnet/telnet.asm` | §70 | yes |

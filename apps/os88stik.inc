@@ -25,7 +25,9 @@
 ;   %define STIK_DATNAME 'DESKCAL.DAT'   the state file's 8.3 name
 ;   %define STIK_CAP    'Calendar'      the row's caption (<= 12 chars) - what
 ;                                       a downgraded row's icon says (110.4)
-;   STIK_PAYLEN equ n                   the payload's EXACT length
+;   STIK_PAYLEN equ n                   the payload's length in memory (a
+;                                       file holds it less its zero tail,
+;                                       SPEC.md 110.5.3)
 ;   STIK_PAYVER equ v                   ...and its version
 ;   STIK_ICON   equ 32                  the 64-byte icon body in the image
 ;                                       (+32 with OS88_F_ICON)
@@ -47,6 +49,23 @@
 ;   %define STIK_ISOPEN 'Desk Calendar is open'   optional: the toast a SECOND
 ;                                       launch is refused with (<= 24 chars,
 ;                                       SPEC.md 59.10); 'Already open' if not
+;   %define STIK_COLOR                  optional, STIK_WIDGET's: the cards are
+;                                       painted in colours other than 0 and
+;                                       15, so the titled fallback's
+;                                       save-under keeps all four planes
+;   %define STIK_VARFACE                optional, STIK_WIDGET's: the face's
+;                                       WIDTH and LAYOUT are the package's at
+;                                       run time (SPEC.md 110.14.1) - STIK_FACE_W
+;                                       is then the WIDEST face, [stik_fw]
+;                                       the face now, and the package's
+;   %define STIK_SIZEUP proc            ...sets [stik_fw] (a multiple of 8) and
+;                                       may point [stik_lay] at a layout entry
+;                                       of its own; called with [stik_li]
+;                                       chosen and the state file READ, and
+;                                       again by stik_resize. Keeps every
+;                                       register. [stik_np] = 1: the tag row
+;                                       at rest is the desktop, no plate.
+;                                       It implies STIK_REDRAW
 ;   %define STIK_DESKONLY                optional, a widget's: no titled
 ;                                       fallback and no worker arm - the
 ;                                       build for kern_big, where a refused
@@ -65,7 +84,8 @@
 ;                                       CF = 1 it is not yours - DAMAGED. Both
 ;                                       keep BX, DX and ES and may spend AX,
 ;                                       CX, SI, DI. Without them the file is
-;                                       STIK_PAYLEN exactly, as ever
+;                                       the payload less its ZERO TAIL, which
+;                                       a load gives back as zeros
 ;   %define STIK_DMGREPLACE              optional: a DAMAGED file is
 ;                                       DELETED by the first save, which then
 ;                                       writes afresh - nothing asked. Without
@@ -213,7 +233,21 @@ stik_ss     equ stik_sc + 1      ; dw ...the slab's first card row
 stik_sr0    equ stik_ss + 2      ; dw ...the damaged rows, card-local
 stik_sr1    equ stik_sr0 + 2
 stik_ty     equ stik_sr1 + 2     ; dw the tag row's screen top, as drawn
+%ifdef STIK_VARFACE
+stik_fw     equ stik_ty + 2      ; dw the face's width NOW (SPEC.md 110.14.1)
+stik_np     equ stik_fw + 2      ; db 1: no plate - the tag row at rest is ground
+STIK_BSS_END equ stik_np + 1 - os88_image_end
+%else
 STIK_BSS_END equ stik_ty + 2 - os88_image_end
+%endif
+%endif
+%ifdef STIK_VARFACE
+ %ifndef STIK_WIDGET
+  %error "os88stik: STIK_VARFACE is a widget's"
+ %endif
+ %ifndef STIK_REDRAW
+  %define STIK_REDRAW           ; stik_resize redraws a face of the same size
+ %endif
 %endif
 %if OSAPI_DI_SIZE < STIK_SLACK
   %error "os88stik: stik_rec is the read's slack before it is the row"
@@ -235,6 +269,24 @@ STIK_BSS_END equ stik_ty + 2 - os88_image_end
 %else
     mov ax, [es:%1+W_X]
     mov dx, [es:%1+W_Y]
+%endif
+%endmacro
+
+; STIK_ADDFW1 reg / STIK_MOVFW reg - the face's width (less one: its last
+; column), a constant or [stik_fw] (STIK_VARFACE)
+%macro STIK_ADDFW1 1
+%ifdef STIK_VARFACE
+    add %1, [stik_fw]
+    dec %1
+%else
+    add %1, STIK_FACE_W - 1
+%endif
+%endmacro
+%macro STIK_MOVFW 1
+%ifdef STIK_VARFACE
+    mov %1, [stik_fw]
+%else
+    mov %1, STIK_FACE_W
 %endif
 %endmacro
 
@@ -302,8 +354,16 @@ STIK_GX     equ STIK_FACE_W - 18                 ; ...and its grip
 %if STIK_PW > STIK_FACE_W
   %error "os88stik: STIK_TAG is wider than the face"
 %endif
+%ifndef STIK_VARFACE
 %if STIK_NX < STIK_XX + STIK_XW + 1 || STIK_NX + STIK_TAGW > STIK_GX - 1
   %error "os88stik: STIK_TAG crowds the handle's x or its grip"
+%endif
+%else
+%ifndef STIK_SIZEUP
+  %error "os88stik: STIK_VARFACE wants STIK_SIZEUP"
+%endif
+STIK_NAMEMIN equ 2 * (STIK_XX + STIK_XW + 1) + STIK_TAGW  ; the handle letters
+                                ; its name only on a face at least this wide
 %endif
 
 ; STIK_LAYOUT band, facey, tagh, h0,g0 [, h1,g1 [, h2,g2 [, h3,g3]]] - one
@@ -364,6 +424,109 @@ STIK_GX     equ STIK_FACE_W - 18                 ; ...and its grip
 ; stik_painted, stik_org, stik_place, stik_ctop, stik_slabs, stik_redraw,
 ; stik_redrawr, stik_blit - keeps the contract its header states.
 ; -----------------------------------------------------------------------------
+%ifdef STIK_WIDGET
+; STIK_WSIZE - the WIDGET's size and default place (SPEC.md 110.11), AX, BX =
+; the screen and DI = the template: the layout by the screen's HEIGHT, the
+; template's size, and - with STIK_RIGHT - its place. A state file's place
+; overrides it (STIK_WPLACE). Spends AX..DX and SI
+%macro STIK_WSIZE 0
+    push ax
+    xor cx, cx                  ; TALL at 400 rows or more, MID from 300 -
+    mov si, STIK_LAYOUTS        ; Hercules' 348 AND EGA's 350, which the
+    cmp bx, 400                 ; adapter's kind would have called VGA -
+    jae %%l                      ; COMPACT below (SPEC.md 110.11)
+    inc cx
+    add si, STIKL_SZ
+    cmp bx, 300
+    jae %%l
+    inc cx
+    add si, STIKL_SZ
+%%l:
+    mov [stik_li], cl
+    mov [stik_lay], si
+%ifdef STIK_VARFACE
+    call STIK_SIZEUP            ; [stik_fw], and perhaps a layout of its own
+    mov si, [stik_lay]
+%endif
+    mov al, [si+STIKL_N]         ; DX = the whole column: every card and the
+    call stik_ctop              ; gap under it, then the tag row (CX)
+    mov dx, bx
+    mov cl, [si+STIKL_TAG]
+    add dx, cx
+%ifndef STIK_DESKONLY
+    mov bl, [si+STIKL_N]         ; ...and CX the tag row plus the last gap
+    xor bh, bh
+    shl bx, 1
+    mov al, [bx+si+STIKL_CARDS-1]
+    xor ah, ah
+    add cx, ax
+    test byte [stik_wf], STIK_W_DESK
+    jnz %%d
+    sub dx, cx                  ; the titled fallback: no tag, no last gap
+    mov [stik_fh], dx
+    add dx, TITLE_H + 1
+    jmp short %%h
+%%d:
+%endif
+    mov [stik_fh], dx
+%%h:
+    mov [di+WT_H], dx
+%ifdef STIK_VARFACE
+    mov cx, [stik_fw]
+    inc cx
+    inc cx
+    mov [di+WT_W], cx
+%else
+    mov word [di+WT_W], STIK_FACE_W + 2
+%endif
+    pop ax
+%ifdef STIK_RIGHT
+    sub ax, STIK_RIGHT + 1       ; the default place: the face STIK_RIGHT in
+    mov [di+WT_X], ax           ; from the right edge, at the layout's y -
+    mov ax, [si+STIKL_FY]        ; a state file's place overrides it
+%ifndef STIK_DESKONLY
+    test byte [stik_wf], STIK_W_DESK
+    jnz %%y
+    sub ax, TITLE_H
+%%y:
+%endif
+    mov [di+WT_Y], ax
+%endif
+%endmacro
+
+; STIK_WPLACE - the restored place (AX, BX = the screen, DI = the template,
+; [stik_fh] known): SI out = its y. Spends AX..DX
+%macro STIK_WPLACE 0
+    ; --- stik_wplace, written in place: the restored place
+    mov si, [stik_file+STIK_H_X] ; the FACE's origin out of the header - a v1
+    mov dx, [stik_file+STIK_H_Y] ; file's titled frame converted - anchored
+    test byte [stik_file+STIK_H_FLAGS], STIK_HF_CONT ; with the face's size,
+    jnz %%f                      ; into the template's FRAME
+    inc si                      ; v1: a titled frame, so the face is a
+    add dx, TITLE_H             ; border in and a title bar down
+%%f:
+    push dx
+    mov cx, [stik_file+STIK_H_SW]
+    STIK_MOVFW dx
+    call stik_anchor
+    dec si                      ; the face is one column in from the frame,
+    mov [di+WT_X], si           ; in both forms
+    pop si
+    mov ax, bx
+    mov cx, [stik_file+STIK_H_SH]
+    mov dx, [stik_fh]
+    call stik_anchor
+%ifndef STIK_DESKONLY
+    test byte [stik_wf], STIK_W_DESK
+    jnz %%dy
+    sub si, TITLE_H             ; wm_create clamps it onto the glass
+%%dy:
+%endif
+    mov [di+WT_Y], si
+%endmacro
+
+%endif
+
 stik_load:
     push ax
     push bx
@@ -410,59 +573,11 @@ stik_load:
     or byte [stik_wf], STIK_W_DESK
 .q:
 %endif
+%ifndef STIK_VARFACE
     call OSAPI_VIDEO            ; AX = width, BX = height
-    push ax
-    xor cx, cx                  ; TALL at 400 rows or more, MID from 300 -
-    mov si, STIK_LAYOUTS        ; Hercules' 348 AND EGA's 350, which the
-    cmp bx, 400                 ; adapter's kind would have called VGA -
-    jae .l                      ; COMPACT below (SPEC.md 110.11)
-    inc cx
-    add si, STIKL_SZ
-    cmp bx, 300
-    jae .l
-    inc cx
-    add si, STIKL_SZ
-.l:
-    mov [stik_li], cl
-    mov [stik_lay], si
-    mov al, [si+STIKL_N]         ; DX = the whole column: every card and the
-    call stik_ctop              ; gap under it, then the tag row (CX)
-    mov dx, bx
-    mov cl, [si+STIKL_TAG]
-    add dx, cx
-%ifndef STIK_DESKONLY
-    mov bl, [si+STIKL_N]         ; ...and CX the tag row plus the last gap
-    xor bh, bh
-    shl bx, 1
-    mov al, [bx+si+STIKL_CARDS-1]
-    xor ah, ah
-    add cx, ax
-    test byte [stik_wf], STIK_W_DESK
-    jnz .d
-    sub dx, cx                  ; the titled fallback: no tag, no last gap
-    mov [stik_fh], dx
-    add dx, TITLE_H + 1
-    jmp short .h
-.d:
-%endif
-    mov [stik_fh], dx
-.h:
-    mov [di+WT_H], dx
-    mov word [di+WT_W], STIK_FACE_W + 2
-    pop ax
-%ifdef STIK_RIGHT
-    sub ax, STIK_RIGHT + 1       ; the default place: the face STIK_RIGHT in
-    mov [di+WT_X], ax           ; from the right edge, at the layout's y -
-    mov ax, [si+STIKL_FY]        ; a state file's place overrides it
-%ifndef STIK_DESKONLY
-    test byte [stik_wf], STIK_W_DESK
-    jnz .y
-    sub ax, TITLE_H
-.y:
-%endif
-    mov [di+WT_Y], ax
-%endif
-%endif ; STIK_WIDGET
+    STIK_WSIZE
+%endif                          ; (STIK_VARFACE: after the read, at .out -
+%endif ; STIK_WIDGET            ; the size is the payload's)
 %ifdef STIK_DESKONLY
     call stik_single            ; before any I/O: a refused second launch
     jc .ret                     ; costs no disk call
@@ -503,6 +618,18 @@ stik_load:
 .none:
     or byte [stik_st], STIK_S_NOHOME
 .out:
+%ifdef STIK_VARFACE
+    pop di                      ; the template
+    push di
+    call OSAPI_VIDEO            ; the payload is read: the layout, the
+    STIK_WSIZE                  ; package's size, the template - and the
+    test byte [stik_fl], STIK_F_PLACED ; saved place, anchored with the
+    jz .np                      ; face's size as it is now (SPEC.md 110.14.1)
+    call OSAPI_VIDEO
+    STIK_WPLACE
+    mov [stik_wy], si
+.np:
+%endif
     clc
 .ret:
     pop di                      ; (the template; POP writes no flags)
@@ -517,17 +644,16 @@ stik_load:
 .got:
     or dx, dx
     jnz .bad
-%ifdef STIK_PACK
-    sub ax, STIK_HDR_SIZE       ; PACKED: a payload of 1..STIK_PAYLEN bytes,
-    jbe .bad                    ; the header's own length (SPEC.md 110.5.3)
+    sub ax, STIK_HDR_SIZE       ; AS LONG AS ITS CONTENT (SPEC.md 110.5.3):
+%ifdef STIK_PACK                ; 0..STIK_PAYLEN payload bytes - 1.. PACKED -
+    jbe .bad                    ; and the header's own length says how many
+%else
+    jb .bad
+%endif
     cmp ax, STIK_PAYLEN
     ja .bad
     cmp [stik_file+STIK_H_LEN], ax
     jne .bad
-%else
-    cmp ax, STIK_HDR_SIZE + STIK_PAYLEN
-    jne .bad                    ; the EXACT size, or it is not ours
-%endif
     cmp word [stik_file+STIK_H_MAGIC], STIK_HDR_MAGIC
     jne .bad
     cmp byte [stik_file+STIK_H_VER], STIK_HDR_VER
@@ -539,41 +665,27 @@ stik_load:
     call STIK_UNPACK            ; zero (bss): spread it, or CF = 1 not ours
     jc .bad
 %else
-    cmp word [stik_file+STIK_H_LEN], STIK_PAYLEN
-    jne .bad
+    push ds                     ; the tail the save left off comes back zero
+    pop es                      ; - the read may have put STIK_SLACK's bytes
+    mov di, STIK_PAY            ; there
+    add di, ax
+    mov cx, STIK_PAYLEN
+    sub cx, ax
+    xor al, al
+    cld
+    rep stosb
 %endif
     test byte [stik_file+STIK_H_FLAGS], STIK_HF_POS
     jz .home
+%ifdef STIK_VARFACE
+    or byte [stik_fl], STIK_F_PLACED ; placed once the size is known (.out)
+    jmp .home
+%else
     pop di                      ; the template
     push di
     call OSAPI_VIDEO            ; AX = width, BX = height
 %ifdef STIK_WIDGET
-    ; --- stik_wplace, written in place: the restored place
-    mov si, [stik_file+STIK_H_X] ; the FACE's origin out of the header - a v1
-    mov dx, [stik_file+STIK_H_Y] ; file's titled frame converted - anchored
-    test byte [stik_file+STIK_H_FLAGS], STIK_HF_CONT ; with the face's size,
-    jnz .f                      ; into the template's FRAME
-    inc si                      ; v1: a titled frame, so the face is a
-    add dx, TITLE_H             ; border in and a title bar down
-.f:
-    push dx
-    mov cx, [stik_file+STIK_H_SW]
-    mov dx, STIK_FACE_W
-    call stik_anchor
-    dec si                      ; the face is one column in from the frame,
-    mov [di+WT_X], si           ; in both forms
-    pop si
-    mov ax, bx
-    mov cx, [stik_file+STIK_H_SH]
-    mov dx, [stik_fh]
-    call stik_anchor
-%ifndef STIK_DESKONLY
-    test byte [stik_wf], STIK_W_DESK
-    jnz .dy
-    sub si, TITLE_H             ; wm_create clamps it onto the glass
-.dy:
-%endif
-    mov [di+WT_Y], si
+    STIK_WPLACE
 %else
     mov cx, [stik_file+STIK_H_SW]
     mov dx, [di+WT_W]
@@ -590,6 +702,7 @@ stik_load:
     mov [stik_wy], si            ; ...and stik_made gives back what that clamp
     or byte [stik_fl], STIK_F_PLACED ; took to keep it off the dock
     jmp .home
+%endif
 
 ; stik_anchor - one axis of a saved place, onto this screen (SPEC.md 110.5.2)
 ; in:  SI = the saved coordinate, CX = the screen's extent when it was saved,
@@ -693,7 +806,11 @@ stik_made:
 .t:
     mov al, 1
     call OSAPI_WM_OWNBG         ; every pixel is ours (OSAPI_WM_DAMAGE wants it)
-    mov al, OSAPI_SAVEU_ON | OSAPI_SAVEU_1BPP   ; ...and two colours, as v1
+%ifdef STIK_COLOR
+    mov al, OSAPI_SAVEU_ON      ; ...in the colours it is drawn in: a widget
+%else                           ; whose cards are not two-colour (STIK_COLOR,
+    mov al, OSAPI_SAVEU_ON | OSAPI_SAVEU_1BPP   ; Sticky Note's papers) keeps
+%endif                          ; four planes; the rest two, as v1
     call OSAPI_WM_SAVEU
 .cb:
 %endif
@@ -975,9 +1092,20 @@ stik_save:
     pop ax                      ; STIK_PACK made
     popf
 %else
-    mov word [stik_file+STIK_H_LEN], STIK_PAYLEN
+    push ds                     ; AS LONG AS ITS CONTENT (SPEC.md 110.5.3):
+    pop es                      ; the payload less its ZERO TAIL - which a
+    mov di, STIK_PAY + STIK_PAYLEN - 1  ; load gives back as zeros, so the
+    mov cx, STIK_PAYLEN         ; payload in memory is the same either way
+    xor al, al                  ; and a notes file holding one note is one
+    std                         ; cluster and not five
+    repe scasb
+    cld
+    je .zt                      ; all zero: CX = 0
+    inc cx                      ; stopped ON a non-zero byte: it is kept
+.zt:
+    mov [stik_file+STIK_H_LEN], cx
     call stik_io
-    mov cx, STIK_HDR_SIZE + STIK_PAYLEN
+    add cx, STIK_HDR_SIZE
     call OSAPI_FILE_WRITE
 %endif
     call stik_leave             ; AX and the flags kept
@@ -1355,8 +1483,13 @@ stik_pbody:
     dec dx
     dec ax
     call stik_desk              ; at x - 1...
+%ifdef STIK_VARFACE
+    add ax, [stik_fw]
+    inc ax
+%else
     add ax, STIK_FACE_W + 1
-    call stik_desk              ; ...and x + STIK_FACE_W
+%endif
+    call stik_desk              ; ...and x + the face's width
 .cards:
     mov di, [stik_fy]            ; DI = the walk's screen y, SI its pair
     mov si, [stik_lay]
@@ -1436,7 +1569,7 @@ stik_rowc:
     dec dx
     mov ax, [stik_fx]
     mov cx, ax
-    add cx, STIK_FACE_W - 1
+    STIK_ADDFW1 cx
 ; stik_cut - AX..DX (inclusive) intersected with the paint's damage: CF = 1
 ; empty, else AX..DX the intersection
 stik_cut:
@@ -1504,7 +1637,7 @@ stik_tgap:
     xor ax, ax
     mov bx, [stik_gh]
     shr bx, 1
-    mov cx, STIK_FACE_W
+    STIK_MOVFW cx
     mov dx, 1
     call gfxe_bfill             ; ...and the rule, black
     pop di
@@ -1515,7 +1648,7 @@ stik_tgap:
     sub dx, bx
     inc dx                      ; its rows
     mov ax, [stik_fx]
-    mov cx, STIK_FACE_W
+    STIK_MOVFW cx
     call stik_blit
     pop si
     ret
@@ -1618,7 +1751,7 @@ stik_slabs:
     inc dx
     add bx, [stik_cy]
     mov ax, [stik_fx]
-    mov cx, STIK_FACE_W
+    STIK_MOVFW cx
     call stik_blit
     add bp, GFXE_BAND_H
     cmp bp, [stik_sr1]
@@ -1688,6 +1821,21 @@ stik_tagdraw:
     mov [stik_ty], dx            ; the tag row's screen top
     cmp al, STIK_P_HAND
     jae .hand
+%ifdef STIK_VARFACE
+    cmp byte [stik_np], 0       ; NO PLATE (face-only, or a face narrower
+    jne .bare                   ; than the plate): the row is the desktop
+    cmp word [stik_fw], STIK_PW
+    jae .plate
+.bare:
+    test byte [stik_wf], STIK_W_PLATE
+    jnz .out                    ; rest <-> focus: nothing to see
+    xor ax, ax
+    mov cx, [stik_fw]
+    dec cx
+    call stik_tagrows
+    jmp .out
+.plate:
+%endif
     push ax                     ; --- the PLATE: white, or inverse focused -
     cbw                         ; REST 0 / FOCUS 1, so the paper is AX - 1
     dec ax                      ; and the name's style is AL itself
@@ -1696,6 +1844,20 @@ stik_tagdraw:
     mov [gfxe_tsty], al
     mov cx, 4
     call stik_tagname
+%ifdef STIK_VARFACE
+    call stik_vpx               ; AX = the plate's x in the face
+    or ax, ax
+    jz .pl
+    test byte [stik_wf], STIK_W_PLATE
+    jnz .pl
+    mov cx, ax                  ; the ground left of it...
+    dec cx
+    xor ax, ax
+    call stik_tagrows
+.pl:
+    call stik_vpx
+    add ax, [stik_fx]            ; ...the plate...
+%else
 %if STIK_PX > 0
     test byte [stik_wf], STIK_W_PLATE
     jnz .pl
@@ -1706,16 +1868,30 @@ stik_tagdraw:
 %endif
     mov ax, [stik_fx]            ; ...the plate...
     add ax, STIK_PX
+%endif
     mov cx, STIK_PW
     jmp short .put
 .hand:
     xor ax, ax                  ; --- the HANDLE: a black bar
     call gfxe_bclear
     mov byte [gfxe_tsty], GFXE_INV  ; the name in white, centred...
+%ifdef STIK_VARFACE
+    mov cx, [stik_fw]           ; ...on a face wide enough for it beside the
+    cmp cx, STIK_NAMEMIN        ; x and the grip: a narrower one is a handle
+    jb .nn                      ; of the x and the grip alone
+    sub cx, STIK_TAGW
+    shr cx, 1
+    call stik_tagname
+.nn:
+    mov si, stik_grip           ; ...the grip...
+    mov cx, [stik_fw]
+    sub cx, 18
+%else
     mov cx, STIK_NX
     call stik_tagname
     mov si, stik_grip           ; ...the grip...
     mov cx, STIK_GX
+%endif
     mov dx, [gfxe_bh]
     sub dx, 7
     shr dx, 1
@@ -1737,7 +1913,7 @@ stik_tagdraw:
     mov si, stik_xbits
     call gfxe_bits
     mov ax, [stik_fx]
-    mov cx, STIK_FACE_W
+    STIK_MOVFW cx
 .put:
     mov bx, [stik_ty]
     mov dx, [gfxe_bh]
@@ -1747,10 +1923,20 @@ stik_tagdraw:
     jae .out
     test byte [stik_wf], STIK_W_PLATE
     jnz .out
+%ifdef STIK_VARFACE
+    call stik_vpx               ; ...and the ground right of it
+    add ax, STIK_PW
+    mov cx, [stik_fw]
+    cmp ax, cx
+    jae .out
+    dec cx
+    call stik_tagrows
+%else
 %if STIK_PX + STIK_PW < STIK_FACE_W
     mov ax, STIK_PX + STIK_PW    ; ...and the ground right of it
     mov cx, STIK_FACE_W - 1
     call stik_tagrows
+%endif
 %endif
 .out:
     ret
@@ -1783,6 +1969,140 @@ stik_boxy:
     sub bx, cx
     shr bx, 1
     ret
+
+%ifdef STIK_VARFACE
+; stik_vpx - AX = the plate's x in a face of [stik_fw] (no narrower than the
+; plate: the caller has asked). Nothing else changes
+stik_vpx:
+    mov ax, [stik_fw]
+    sub ax, STIK_PW
+    shr ax, 1
+    ret
+
+; -----------------------------------------------------------------------------
+; stik_resize - the package's answer to STIK_SIZEUP has changed (a setting:
+; SPEC.md 110.14.1). SI = the window, lock held. The layout and [stik_fw] are
+; asked again; a frame of another size is HIDDEN, re-sized from its top-left
+; and SHOWN - there is no move cell, and the kernel's Arrange does the same -
+; kept on its display, and a titled fallback goes through OSAPI_WM_RESIZE and
+; is drawn again whole (a pure shrink is no damage there). The same size is
+; one stik_redraw. Every register kept
+; -----------------------------------------------------------------------------
+stik_resize:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov di, si                  ; DI = the window
+    call STIK_SIZEUP
+    mov si, [stik_lay]
+    mov al, [si+STIKL_N]         ; DX = the whole column: every card and the
+    call stik_ctop              ; gap under it, then the tag row
+    mov dx, bx
+    xor cx, cx
+    mov cl, [si+STIKL_TAG]
+    add dx, cx
+%ifndef STIK_DESKONLY
+    mov bl, [si+STIKL_N]         ; ...and CX the tag row plus the last gap
+    xor bh, bh
+    shl bx, 1
+    mov al, [bx+si+STIKL_CARDS-1]
+    xor ah, ah
+    add cx, ax
+    test byte [stik_wf], STIK_W_DESK
+    jnz .d
+    sub dx, cx                  ; titled: no tag, no last gap...
+    mov [stik_fh], dx
+    add dx, TITLE_H + 1         ; ...and a title bar
+    jmp short .h
+.d:
+%endif
+    mov [stik_fh], dx
+.h:
+    mov cx, [stik_fw]
+    inc cx
+    inc cx                      ; CX, DX = the frame
+    mov byte [stik_tagp], STIK_P_NONE
+    mov si, di
+    cmp cx, [es:si+W_W]
+    jne .chg
+    cmp dx, [es:si+W_H]
+    jne .chg
+    call stik_redraw            ; the same frame: the face again
+    jmp .x
+.chg:
+    mov bx, si
+%ifndef STIK_DESKONLY
+    test byte [stik_wf], STIK_W_DESK
+    jnz .desk
+    call OSAPI_WM_RESIZE        ; the titled fallback
+    call stik_redraw            ; ...and a shrink is no damage: draw it
+    jmp .x
+.desk:
+%endif
+    mov byte [stik_hv], STIK_HV_HIDDEN
+    mov al, [es:si+W_FLAGS]
+    push ax                     ; AL bit 1: it was on the glass
+    test al, 2
+    jz .poke
+    call OSAPI_WM_HIDE
+.poke:
+    mov [es:si+W_W], cx
+    mov [es:si+W_H], dx
+    push cx
+    push dx
+    call OSAPI_WM_DISPLAY       ; AX = its width, BX = height (CX DX SI)
+    pop dx
+    pop cx
+    mov si, di
+    push bx
+    mov bx, [es:si+W_X]          ; the RIGHT edge on the display, the face
+    add bx, cx                  ; kept on the byte grid (W_X = 7 mod 8)
+    cmp bx, ax
+    jle .xok
+    sub ax, cx
+    and ax, 0FFF8h
+    dec ax
+    jns .xs
+    mov ax, 7
+.xs:
+    mov [es:si+W_X], ax
+.xok:
+    pop bx                      ; ...and the BOTTOM, at the bar at worst
+    mov ax, [es:si+W_Y]
+    add ax, dx
+    cmp ax, bx
+    jle .yok
+    sub bx, dx
+    cmp bx, MBAR_H
+    jge .ys
+    mov bx, MBAR_H
+.ys:
+    mov [es:si+W_Y], bx
+.yok:
+    pop ax
+    test al, 2
+    jz .x
+    mov bx, si
+    call OSAPI_WM_SHOW          ; the new frame painted, by the kernel
+    test byte [stik_wf], STIK_W_FOCUS
+    jz .x                       ; it held the bar, and the hide gave it to
+    call OSAPI_WM_FRONT         ; the front window: a desk window's FRONT
+.x:                             ; takes it back, raising nothing (11.103.4)
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
 
 ; stik_tagsync - the tag to what the state asks, drawn only on a change of the
 ; picture, under OSAPI_WM_CLIP_SET (lock held). Spends AX..DI, BP and ES
@@ -1820,7 +2140,11 @@ stik_hit:
     mov di, [stik_lay]
     lea bx, [di+STIKL_CARDS]
     xor ax, ax
+%ifdef STIK_VARFACE
+    cmp cx, [stik_fw]
+%else
     cmp cx, STIK_FACE_W
+%endif
     jae .no                     ; a ground column (unsigned: -1 too)
 .c:
     cmp al, [di+STIKL_N]
