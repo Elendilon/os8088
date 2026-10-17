@@ -231,9 +231,9 @@
   "sources": [
    "kernel/ctrl.inc"
   ],
-  "stamped": "e4576a70",
-  "strings": "c3b8c67f64d1e0ea",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "8a6a203d",
+  "strings": "3ba5d1a1f6727cae",
+  "why": "ksp13: THMPAL.DRV's file name is staged, not resident - no text a user reads changed"
  },
  "CWORD": {
   "sources": [],
@@ -976,9 +976,9 @@
   "sources": [
    "apps/taskmgr"
   ],
-  "stamped": "e4576a70",
-  "strings": "cfbdfcec65bb3902",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "8a6a203d",
+  "strings": "1473638a0dbc623b",
+  "why": "the IVT+Pad row (02aae095): described on both pages, folded into System on a short screen"
  },
  "TELNET_O88": {
   "sources": [

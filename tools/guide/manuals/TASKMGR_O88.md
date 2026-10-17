@@ -59,13 +59,16 @@ The list has one line per running program:
 
 | Column | What it shows |
 |---|---|
-| NAME | The program. **System** is os8088 itself; built-in windows such as a Disk window are listed under it, indented |
+| NAME | The program. **IVT+Pad** is the first line: 2K at the very bottom of memory that belongs to the machine's BIOS, with a half-K beside it nothing can use. **System** is os8088 itself; built-in windows such as a Disk window are listed under it, indented |
 | ST | What it was doing at the last reading (see below) |
 | CPU | Its share of the processor's work over the last half second |
 | MEM | The memory it holds, in K: its own room plus any extra blocks it asked for |
 
 The CPU figures add up to 100% between them, counting System. Lines with
-dashes are free places for more programs.
+dashes are free places for more programs. IVT+Pad, System and the heap add
+up to all of the machine's memory, and the MEM figures add up to RAM used.
+On a screen too short for every line, such as a CGA, IVT+Pad is counted
+into System rather than pushing a program off the list.
 
 The ST column:
 
@@ -97,8 +100,8 @@ The list under it has four columns. **ADDR** is where the item starts in
 memory, as a hexadecimal number. **SIZE** is how big it is, and **HEAP** is the
 extra memory it has asked for on top.
 
-- **IVT+BDA** is the small area at the very bottom that belongs to the
-  machine's BIOS.
+- **IVT+Pad** is the 2K at the very bottom: the area that belongs to the
+  machine's BIOS, and a half-K beside it that nothing can use.
 - **System** is os8088, split into its program and data (**Code+data**), the
   working space of the running programs (**Stacks**) and its copy of the
   disk's file table (**FAT snap**).

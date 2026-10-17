@@ -9,11 +9,10 @@ folder opens a Disk window on that folder.
 ## Where it is
 
 The folder must be at the top level of the disk the machine starts from,
-beside `SYSTEM` and `APPS`. The 720KB, 1.2MB and 1.44MB system disks, the
-emulator system disk and the live USB image and CD all carry it, empty. The
-360KB system disk has no room for it; make it yourself if you want it (see
-below). An `AUTOSTRT` folder on any other disk, or inside another folder,
-does nothing.
+beside `SYSTEM` and `APPS`. Every system disk carries it, empty: all four
+sizes, the emulator system disk and the live USB image and CD. If it has
+gone, make it again (see below). An `AUTOSTRT` folder on any other disk, or
+inside another folder, does nothing.
 
 ## Adding a program
 
@@ -35,8 +34,8 @@ Some programs write their own link. REDLINE's **Apply on boot** button puts
 `RLAPPLY.LNK` here, and a shortcut saved by the DOS box starts its DOS
 program when it is placed here.
 
-On a 360KB system disk, open **A:**, choose **New Folder** from the Disk
-window's File menu (or press `N`), and name it `AUTOSTRT`.
+If the folder has been deleted, open **A:**, choose **New Folder** from the
+Disk window's File menu (or press `N`), and name it `AUTOSTRT`.
 
 ## Skipping and removing
 
