@@ -173869,7 +173869,24 @@ too heavy for the rest.
   length - since all three go on at once. THE PASS BEFORE THE FRAMES - the
   levels', or the palette's - reads the clip beside the frames' own decode,
   read ahead the same way. `--aim quality`'s trials run at once
-  (98.2.1.4). What stays on
+  (98.2.1.4). THREE MORE that read nothing back into the frames (the
+  owner, 2026-10-17: "16 threads, and it is using 6%"): **the ladder's
+  trials** - every prefix at a stretch (98.2.1.9's `--ladder`) is a trial
+  on a copy of the encoder and none reads another's, so they run at once,
+  one a process, today's draw here meanwhile, and the same rule reads them
+  in order (`TrialPool`: the encoder pickled with its read-only tables left
+  out, given once a pool, and its pure caches emptied); **page-ahead's pass
+  without the holds** beside the one with them, in a process of its own
+  (`PassBg`, 98.2.1.8.3) - not for a caller filling `keep` (the gate),
+  which the passes fill one after another; and **the picture as played**
+  (`Meter`) - `measure()` feeds only the report and the pass comparisons,
+  so each frame's screen and target go to one of up to three workers, eight
+  frames a task with the two before them that its flicker and its view are
+  against, and the sums are made in order, to the bit. A copy of the
+  encoder shares its meter and a pickle leaves it out. `--jobs 1`, or a
+  pool's own worker, runs all three here as before. `videnc` leg 3e holds
+  the file AND the report to the serial encode's with each counted as
+  having run. What stays on
   one core is THE ENCODER ITSELF - each frame's budgets are what the last
   left, so frames cannot be encoded side by side - ffmpeg's `palettegen`,
   whose time grows with the colours the clip holds, and `cgacomp`'s
@@ -175291,7 +175308,12 @@ built by `EncoderX`: the candidates are the five sub-records' spans
 pixel is the palette and the dither; the budgets, the ranking and the
 measured retry are the same code (VIDEO-PLAN W11a).
 - **One palette for the clip**: ffmpeg's `palettegen` over every frame at
-  the canvas size, reduced to the DAC's six bits and sorted darkest first,
+  the canvas size - the CLIP's frames, `--start` to `--end`, its `-t` an
+  INPUT option: palettegen writes its one frame at the end of its input, so
+  the output `-t` the frame reads use never fired here, and until
+  2026-10-17 a trimmed clip's palette was its start to the end of the FILE
+  (28 s and the closing credits' colours for 4 s of Last Exile) - reduced
+  to the DAC's six bits and sorted darkest first,
   with **true black at index 0** whatever the clip holds (the two nearest
   colours are merged to make room). Index 0 is what the screen round the
   canvas shows and what a keyframe is written onto, so the bars are black

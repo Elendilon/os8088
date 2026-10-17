@@ -474,6 +474,41 @@ tight serializer already; 16-colour VGA's model stores, whose write-mode-3
 read-modify-write is order-dependent and so not a whole-array write; and
 the mix's eight probes a frame, which are its search.
 
+**THE ENCODER SPEED PASS, second round (2026-10-17)** (the owner: "I have
+a 9800X3D, 8 cores, 16 threads... its using 6% of the total processor").
+WHY, measured with py-spy on the owner's command (Last Exile 6.5-14.5,
+Mode X, `286-picomem1`, `--ladder coarseany:mix,lag:50`, `--pages max`):
+the main process was busy the whole run and nothing else was - the dither
+pool, the only other worker, waits on it. Of its time 35% was the
+ladder's trials, ALL in the plan pass, one after another; 20% the
+picture's measure, again in every pass; the rest the frames. And before
+the plan pass read a frame, **28 s of ffmpeg's `palettegen` on one core,
+whatever the clip's length** - the `-t` it was given was an OUTPUT option,
+which never fires for a filter that writes at the end of its input, so
+the palette was the clip's start to the end of the FILE (SPEC.md 98.2.3).
+
+| change | the file |
+|---|---|
+| the palette's `-t` on the input: 28 s -> 0.5 s for a 4 s clip | CHANGES - the clip's own colours; Last Exile 6.5-14.5 came out 0 frames cut against 4, page-ahead kept where it was dropped |
+| the ladder's trials at once (`TrialPool`) | byte-identical |
+| page-ahead's pass without the holds alongside (`PassBg`) | byte-identical |
+| the picture's measure in workers (`Meter`) | byte-identical |
+
+The three byte-identical rows were checked by `cmp` of the file and the
+report against the tree before, and `videnc` leg 3e holds them so (red
+when a meter task is sent without its two frames before). On a 4-core
+box: the 4 s slice **104 s -> 38 s**, of which the palette was 28; the
+8 s slice **189 s -> 80.5 s**. A ladder stretch costs its slowest trial
+and not their sum (5.8 s against 13.7 s at one of them). Two defects found
+on the way: `set_xplay`'s cost closures priced a deep copy's frames by the
+ORIGINAL encoder's bank (objects now: `PlayCost`, `XmsCost`), and
+`_encode`'s ladder block rebound `keep` - the gate's target list - to its
+rung list, so every target went into `enc.vkeep`. Measured and NOT taken:
+a faster `to_lists` body (the same on real frames' spans), and caching the
+dither across passes (streamed, the encoder waits on it 3% of the time).
+What is still on one core is the frames of each pass, which is the
+encoder's nature (SPEC.md 98.2.1, *Every core*).
+
 What it was sketched as:
 
     hold to 20 fps

@@ -485,6 +485,69 @@ def main():
                        "view %.4f against %.4f, Hercules %r, same bytes %s"
                        % (r_on["cells"], r_off["cells"], r_on["q_seen"],
                           r_off["q_seen"], rh_on["cells"], same))
+        # --- 3e: THE ENCODE SPREAD OVER THE CORES (98.2.1, the speed pass's
+        # second round, 2026-10-17): the ladder's trials (TrialPool), page-
+        # ahead's pass without the holds beside the one with them (PassBg)
+        # and the picture's measure (Meter) each in other processes - and
+        # the file and the report the ones the same encode makes with all
+        # three made here, in order. --jobs 4 both times (it is in the
+        # options record); the serial run has the three switched off. Each
+        # is counted as having RUN, or a parallel encode that fell back to
+        # the serial one would pass
+        import contextlib
+        import io
+        made = {"trial": 0, "pass": 0, "meter": 0}
+        k_tp, k_mf, k_pa = venc.trial_pool, venc.meter_for, \
+            venc.pass_alongside
+
+        def tp(*x):
+            r = k_tp(*x)
+            made["trial"] += r is not None
+            return r
+
+        def mf(*x):
+            r = k_mf(*x)
+            made["meter"] += r is not None
+            return r
+
+        def pa_(*x):
+            r = k_pa(*x)
+            made["pass"] += bool(r)
+            return r
+        par = {}
+        try:
+            for arm in ("serial", "parallel"):
+                if arm == "serial":
+                    venc.trial_pool = venc.meter_for = lambda *x: None
+                    venc.pass_alongside = lambda *x: False
+                else:
+                    venc.trial_pool, venc.meter_for, venc.pass_alongside = \
+                        tp, mf, pa_
+                a3 = venc.parser().parse_args(
+                    [src2, os.path.join(tmp, "par%s.V88" % arm), "--audio",
+                     "none", "--jobs", "4", "--preset", "modex",
+                     "--ladder", "coarseany:4x1,cut:5"] + list(tight[:-2]))
+                fo = io.StringIO()
+                with contextlib.redirect_stdout(fo):
+                    venc.encode(a3, None)
+                with open(a3.out, "rb") as fv:
+                    par[arm] = (fv.read(), fo.getvalue())
+        finally:
+            venc.trial_pool, venc.meter_for, venc.pass_alongside = \
+                k_tp, k_mf, k_pa
+        print("   3e: the encode over the cores - trial pools %d, passes "
+              "alongside %d, meters %d; the file %s, the report %s the "
+              "serial encode's" % (
+                  made["trial"], made["pass"], made["meter"],
+                  "the same as" if par["serial"][0] == par["parallel"][0]
+                  else "NOT the same as",
+                  "the same as" if par["serial"][1] == par["parallel"][1]
+                  else "NOT the same as"))
+        if not all(made.values()) or par["serial"] != par["parallel"]:
+            bad.append("the encode over the cores: ran %r, the file %s, the "
+                       "report %s" % (made, par["serial"][0] ==
+                                      par["parallel"][0],
+                                      par["serial"][1] == par["parallel"][1]))
         # --- 3a: W*H for WxH (98.2.1): accepted, and recorded as WxH
         pa = venc.parser().parse_args([src, "o.V88", "--box", "640*480",
                                        "--detail", "2*1", "--screen",
