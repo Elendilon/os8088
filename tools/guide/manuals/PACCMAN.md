@@ -4,7 +4,8 @@ The `PACCMAN` folder holds PaccMan, the arcade-accurate Pac-Man, and its
 notes:
 
 - `PACCMAN.O88`, the game;
-- `README.MD`, the notes on the port. Double-click it to read it.
+- `README.TXT`, the keys, the menus and where the game came from.
+  Double-click it to read it.
 
 ## Where it is
 

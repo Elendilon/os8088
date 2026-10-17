@@ -210,6 +210,12 @@ te_entry:
                                     ; foot (apps size pass 2, -6)
     mov word [te_line + LN_BUF], te_hbuf    ; **THE BLOCK'S BUFFER WORDS, and
     mov word [te_line + LN_MAX], TE_HOSTMAX ; they are not optional**: bss
+    mov byte [te_line + LN_FOCUS], 1        ; ...and the BOX HAS THE KEYS at
+                                            ; open: a host is the one thing a
+                                            ; fresh window can be told, and
+                                            ; typing went nowhere until the
+                                            ; box was clicked. te_toggle hands
+                                            ; them to the session on connect
                                             ; arrives ZEROED (SPEC.md 21 step
                                             ; 5), so an unset LN_BUF points at
                                             ; offset 0 - the package's own
@@ -620,7 +626,8 @@ te_onup:                            ; ...and AX and BX are the only two
     or ax, ax
     jz .uout
     call te_toggle
-    call te_button                  ; the caption follows the state
+    call te_chrome                  ; the caption follows the state, and the
+                                    ; field's caret the focus te_toggle moved
 .uout:
     pop bx
     pop ax
@@ -1033,6 +1040,9 @@ te_toggle:
     jbe .out                        ; ...on its way: a second click is not a
                                     ; second connection
     mov byte [te_state], TS_OPEN    ; TS_IDLE, TS_DOWN and TS_ERR all connect
+    mov byte [te_line + LN_FOCUS], 0 ; ...and the keys go to the SESSION, as
+                                    ; Return already gave them: a click on
+                                    ; Connect left them in the box
     mov byte [te_want], 0           ; ...and a close asked for on a session
     mov word [te_msg], 0            ; that has already ended is not owed
     call te_reset

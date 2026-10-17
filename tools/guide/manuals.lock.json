@@ -137,9 +137,9 @@
   "sources": [
    "apps/browser"
   ],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": "955cbc3c9a274645",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "a typed https address says Https is not supported, as a clicked one does; with no link driver the page being read stays live under the refusal"
  },
  "C64": {
   "sources": [],
@@ -171,9 +171,9 @@
  },
  "CATALOG_TXT": {
   "sources": [],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": null,
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "checked: the Weave disk's CATALOG.TXT says how a user puts their own bundle on a disk (copy it, double-click it) instead of naming the Makefile's BUNDLES="
  },
  "CAT_GIF": {
   "sources": [],
@@ -311,9 +311,9 @@
   "sources": [
    "apps/dos"
   ],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": "7e5f0adda8303591",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "CD walks a whole path (CD \\SYSTEM\\DOS) and a failed CD stays put; a missing program says Bad command or file name with or without a tail; HELP's last line says only NUL is a redirect target"
  },
  "DOTDEL_O88": {
   "sources": [
@@ -630,9 +630,9 @@
   "sources": [
    "drivers/net"
   ],
-  "stamped": "e4576a70",
-  "strings": "78b9e71c5ade45e4",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "9bf50a723a7a10f7",
+  "why": "checked: only OS88NET.COM's /? help column moved (the /N line's indent); nothing the NET.DRV page says"
  },
  "NOTEPAD_O88": {
   "sources": [
@@ -672,23 +672,23 @@
   "sources": [
    "drivers/net/os88net.asm"
   ],
-  "stamped": "e4576a70",
-  "strings": "cb2f0dc43a9ca116",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "ea878454d744fb04",
+  "why": "checked: the /N line of the /? text gained the space that lines its description up with the others; the page's option table is unchanged"
  },
  "PACCMAN": {
   "sources": [],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": null,
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "the folder holds README.TXT, the player's read-me"
  },
  "PACCMAN_O88": {
   "sources": [
    "apps/paccman"
   ],
-  "stamped": "e4576a70",
-  "strings": "5457db5dc63f21e3",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "2eacb02ecd0d6758",
+  "why": "the disk's read-me is README.TXT, the player's notes in plain ASCII, where it was the developer README.md; the page links [[README.TXT]]"
  },
  "PAINT_O88": {
   "sources": [
@@ -774,17 +774,11 @@
   "strings": "f1bd87b1659771ed",
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
  },
- "README_MD": {
-  "sources": [],
-  "stamped": "e4576a70",
-  "strings": null,
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
- },
  "README_TXT": {
   "sources": [],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": null,
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "PaccMan's disk carries a README.TXT now; listed with the other program read-mes"
  },
  "REDLINE_O88": {
   "sources": [
@@ -984,9 +978,9 @@
   "sources": [
    "apps/telnet"
   ],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": "9180c0b4b6d6e72f",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "the host box has the keyboard when the window opens"
  },
  "TEXPAD_O88": {
   "sources": [
@@ -1047,9 +1041,9 @@
    "tools/os88proxy.py",
    "tools/os88proxygui.py"
   ],
-  "stamped": "e4576a70",
-  "strings": "854568cce0c8c62d",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "3238a0f33fee57d6",
+  "why": "the start-up line and the window label name File > Open Location..., the Browser's real menu item; the page quotes the new start-up line"
  },
  "TOOL_VENC": {
   "sources": [

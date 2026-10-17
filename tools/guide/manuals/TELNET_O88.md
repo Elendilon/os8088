@@ -22,8 +22,8 @@ connection instead, if that PC is on a network.
 
 ## Connecting
 
-Click the box at the top of the window and type the name or address of the
-computer to reach. Add a colon and a port number if it is not the usual
+The box at the top of the window has the keyboard when Telnet opens: type
+the name or address of the computer to reach. Add a colon and a port number if it is not the usual
 Telnet port, 23: for example `bbs.example.com:2323`. Press `Return` or click
 **Connect**.
 

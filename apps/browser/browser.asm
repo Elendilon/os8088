@@ -9050,7 +9050,9 @@ br_glyphlast  equ br_bpp + 1              ; OSAPI_FONT_GLYPHS' AH, the last code
 br_frameurl   equ br_glyphlast + 1        ; BR_UBUF: the frameset's own URL,
                                           ; banked while its children own the
                                           ; bar (br_frameclose puts it back)
-BR_BSS      equ (br_frameurl + BR_UBUF - os88_image_end)
+br_keep       equ br_frameurl + BR_UBUF  ; byte: br_go kept the page (no link
+                                          ; driver), so the worker may not fetch
+BR_BSS      equ (br_keep + 1 - os88_image_end)
 
 ; --- what the code assumes about the layout above ----------------------------
 %if br_wsp != br_on + 1 || br_pre != br_any + 1

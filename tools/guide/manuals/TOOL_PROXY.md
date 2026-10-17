@@ -36,7 +36,7 @@ It installs PyInstaller, checks the proxy, and writes `dist\os88proxy.exe`.
 On the command line: `python3 tools/os88proxy.py`
 
 It prints the address to type on os8088, for example
-`on os8088:  Browser > Open Location  ->  192.168.1.50:8088`. Press `Ctrl+C`
+`on os8088:  Browser, File > Open Location...  ->  192.168.1.50:8088`. Press `Ctrl+C`
 to stop it.
 
 In the window, click **Start**. The state beside it changes from **Stopped**

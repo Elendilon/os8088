@@ -8,7 +8,7 @@ double-click **B:**. Double-click **PACCMAN.O88** to start it. See
 ## What is on it
 
 - **PACCMAN.O88**: the game.
-- **README.MD**: the notes on the port, and where the original came from.
+- **README.TXT**: the game's keys, menus and scoring, and where it came from.
 
 PaccMan plays at full arcade speed on a 386. On a 4.77 MHz PC or XT it runs
 at about a quarter of that speed, and is still playable.
