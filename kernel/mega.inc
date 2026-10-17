@@ -495,22 +495,42 @@ mega_pic_pm:
 ; -----------------------------------------------------------------------------
 mega_a20:
     call mega_a20t
-    jnc .ret
+    jnc .ret                        ; already open: do not poke a working line
+    pushf                           ; --- the FAST gate, port 92h -----------
+    cli
     in al, 0x92
+    test al, 2                      ; set (an absent port reads FFh) and the
+    jnz .nofast                     ; line still shut: not the gate here
     or al, 2
     and al, 0xFE                    ; bit 0 is a RESET
     out 0x92, al
-    call mega_a20t
+.nofast:
+    popf
+    call mega_a20s
     jnc .ret
-    call mega_kbw
-    mov al, 0xD1                    ; write the output port...
+    pushf                           ; --- the 8042, in ONE window: between D1h
+    cli                             ; and DFh the next byte written to 60h is
+    call mega_kbw                   ; its output port, and a keyboard ISR's
+    jnz .kbx                        ; own traffic there can reset the CPU
+    mov al, 0xD1
     out 0x64, al
     call mega_kbw
-    mov al, 0xDF                    ; ...A20 on, reset line high
+    jnz .kbx
+    mov al, 0xDF                    ; A20 on, reset line high
     out 0x60, al
     call mega_kbw
-    call mega_a20t
-.ret:
+.kbx:
+    popf
+    call mega_a20s                  ; ...and the controller acknowledges long
+.ret:                               ; before the line moves, hence the settle
+    ret
+mega_a20s:                          ; SETTLE: up to 512 probes for a gate to
+    mov cx, 512                     ; take (XMEM.DRV's XM_A20_SETTLE, whose
+.p:                                 ; sequence this is - the first version
+    call mega_a20t                  ; here probed once, and on the Victory 286
+    jnc .o                          ; that read SHUT: "real mode: A20 will
+    loop .p                         ; not open")
+.o:
     ret
 mega_kbw:
     xor cx, cx
@@ -519,30 +539,30 @@ mega_kbw:
     test al, 2
     loopnz .w
     ret
-mega_a20t:                          ; CF = 1 the gate is SHUT
-    push ds
-    push es
+mega_a20t:                          ; CF = 1 the gate is SHUT. Complement
+    push ds                         ; the word at FFFF:0510 and see whether
+    push es                         ; 0000:0500 moved, then complement it back
+    push bx                         ; (whichever word it landed on), inside
+    pushf                           ; one cli: an ISR touching low memory in
+    cli                             ; between would make the probe lie
     xor ax, ax
-    mov ds, ax
-    dec ax
     mov es, ax
-    mov ax, [0x0500]
-    push ax
-    mov byte [0x0500], 0x5A
-    cmp byte [es:0x0510], 0x5A
-    jne .open
-    mov byte [0x0500], 0xA5
-    cmp byte [es:0x0510], 0xA5
-    jne .open
-    stc
-    jmp short .out
-.open:
-    clc
-.out:
-    pop ax
-    mov [0x0500], ax
+    dec ax
+    mov ds, ax
+    mov bx, [es:0x0500]
+    not word [0x0510]
+    mov ax, [es:0x0500]
+    not word [0x0510]
+    popf
+    cmp ax, bx                      ; equal: the flip went a megabyte up
+    pop bx
     pop es
     pop ds
+    je .open
+    stc
+    ret
+.open:
+    clc
     ret
 
 ; -----------------------------------------------------------------------------

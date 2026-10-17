@@ -836,6 +836,20 @@ whoever extends this:
    mega_r286 compares the masks with what it left and re-initialises only
    if they changed.
 
+10. **A20 is XMEM.DRV's sequence, not a shorter one.** The second Victory
+    run reached the desktop and refused the switch with `real mode: A20
+    will not open`. mega_a20 probed once after each poke, and the 8042
+    acknowledges its output-port write long before the line moves; it also
+    ran the D1h/DFh pair with interrupts on, where a keyboard ISR can take
+    the controller's pending command. XMEM.DRV's sequence had already opened
+    this machine's gate (docs/reports/LOADALL-VICTORY286-2026-10-14.md), so
+    mega_a20 is that sequence now: a probe inside `cli` that complements the
+    alias and puts it back, port 92h only when it does not read as absent,
+    the 8042 pair in one `cli` window, and 512 probes of settle after each.
+    QEMU's BIOS leaves the gate open, so it was checked by shutting it first
+    in a scratch build, once through the 8042 and once through port 92h:
+    both reopened and switched.
+
 All three reproduce on QEMU once it is given the Victory's devices - an
 AdLib (`-device adlib`) and a formatted IDE disk (`tools/os88hdd.py
 --noboot --raw`). **That is now the QEMU configuration for kern_mega**, and
