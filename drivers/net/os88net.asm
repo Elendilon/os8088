@@ -3897,7 +3897,7 @@ s_help:
     db '  /RO       refuse every write. Read-only, whatever os8088 asks.',13,10
     db '  /P:base   pin the parallel port, in hex - /P:378, /P:278,',13,10
     db '            /P:3BC. Default: scan and use the first that answers.',13,10
-    db '  /N       serve SOCKETS as well as files: os8088 packages then',13,10
+    db '  /N        serve SOCKETS as well as files: os8088 packages then',13,10
     db '            reach the network through this machine. Needs a packet',13,10
     db '            driver loaded (the one mTCP uses) and a DHCP server.',13,10
     db '            IT TAKES THE NETWORK for the run - do not start mTCP',13,10

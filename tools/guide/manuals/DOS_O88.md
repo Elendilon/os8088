@@ -78,7 +78,7 @@ Type `help` for a list. These are the commands the prompt understands:
 
 | Command | What it does |
 |---|---|
-| `CD [path]` | Changes folder. `CD ..` goes up one level |
+| `CD [path]` | Changes folder. `CD ..` goes up one level, and a path such as `CD \SYSTEM\DOS` goes down as many as it names. A folder that is not there answers `Path not found`, and you stay where you were |
 | `COPY a b` | Copies a file. Wildcards such as `*.*` are allowed |
 | `DEL name` | Deletes a file. `ERASE` is the same |
 | `DIR [/P] [/W]` | Lists this folder. `/P` stops after each screenful, `/W` shows names only, in columns |
@@ -115,7 +115,8 @@ the output to a file, such as `DIR > LIST.TXT`, is refused with `Cannot
 redirect to that file`, and the command does not run.
 
 A name the prompt does not know, and that is not a program in the current
-folder, answers `Bad command or file name`.
+folder, answers `Bad command or file name`, with or without anything typed
+after it.
 
 ## Full screen
 

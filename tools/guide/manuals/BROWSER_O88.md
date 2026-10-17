@@ -71,16 +71,17 @@ server answers **Relative link: this page has no server**.
 
 ![An address typed on a machine with no network driver loaded.](shot:browser-nolink){full}
 
-With no network driver loaded, an address answers **No link driver**. See
-*Getting on the network* below.
+With no network driver loaded, an address answers **No link driver**, and
+the page you were reading stays in the window, still scrolling and with its
+links still working. See *Getting on the network* below.
 
 ## Secure sites
 
 ![Clicking an https link: the Browser refuses it straight away and says why.](shot:browser-https){full}
 
 The Browser refuses `https` addresses at once rather than trying for minutes
-and failing. Clicking such a link shows **Https is not supported**. Typing
-one into the location bar shows **Not an http URL**.
+and failing. Clicking such a link, or typing one into the location bar,
+shows **Https is not supported**.
 
 To reach secure sites, and most of today's web, run the **os8088 web proxy**
 on a modern computer (Windows, macOS or Linux) on the same network. It has

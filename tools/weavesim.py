@@ -6625,17 +6625,20 @@ def catalog_text(geometry, loom):
     else:
         o.append("THE EDITOR IS NOT ON THIS DISK")
         o.append("-" * 28)
-        o.append("  LOOM and the demo sources are on the 720KB, 1.2MB and")
-        o.append("  1.44MB builds of this disk; this geometry has no room")
-        o.append("  for them. `make loomdisk` builds a disk of the editor's")
-        o.append("  own in all four sizes.")
+        o.append("  LOOM and the demo sources are on the larger sizes of")
+        o.append("  this disk and on the LOOM disk; this one has no room")
+        o.append("  for them.")
         o.append("")
+    # **A USER'S NOTE, NOT A BUILD NOTE.** This said `BUNDLES=` in the
+    # Makefile puts your own on a disk - true, and a developer's instruction
+    # on a floppy whose reader has no Makefile. BUNDLES= is the Makefile's
+    # own business and its comment says so there (WEAVE-SPEC §13.1)
     o.append("YOUR OWN BUNDLES")
     o.append("-" * 28)
-    o.append("  BUNDLES='path/to/MYAPP.WAB' in the Makefile puts your own on")
-    o.append("  a disk of your own, beside these. They must already be valid")
-    o.append("  8.3 names, and the geometry still has to hold them - the")
-    o.append("  disk build says so if it does not.")
+    o.append("  A .WAB is an ordinary file. Copy one onto this disk with")
+    o.append("  the Disk window, like any other file, and double-click it:")
+    o.append("  WEAVE opens it. Its name has to be a plain 8.3 name, such")
+    o.append("  as MYAPP.WAB.")
     o.append("")
     o.append("This is the %dKB disk." % geometry)
     return "\r\n".join(o) + "\r\n"

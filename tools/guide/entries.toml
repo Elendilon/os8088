@@ -805,12 +805,6 @@ kind = "folder"
 summary = "PaccMan and its README."
 short = "PaccMan and its notes"
 
-["README.MD"]
-title = "Read Me"
-kind = "document"
-summary = "Notes on the program: what it is, its keys and where it came from."
-short = "Notes on the program"
-
 ["REDLINE.O88"]
 title = "REDLINE"
 kind = "program"

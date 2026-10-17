@@ -861,6 +861,10 @@ dos_pkg_go:
     jmp short .badend
 .badname:
     mov si, dos_s_nopkg
+    cmp byte [dos_ispkg], 2         ; ...a stem the FOLDER did not hold and
+    jne .sayname                    ; the tables did not either is a name the
+    mov si, dsh_s_bad               ; box does not know, whatever followed it
+.sayname:                           ; (SPEC.md 96.33.21.2)
     call con_say
     mov si, dos_pkgn
     call con_say
@@ -1038,12 +1042,17 @@ dos_con_ext:
     pop si                          ; the tail, and the stack is BALANCED from
     push si                         ; here - `.no` is reached from the dotted
     call dsh_skipsp                 ; path too, where nothing was pushed, so
-    cmp byte [si], 0                ; this arm may not leave a word behind it
-    pop si                          ; (`pop` writes no flag, so the compare
-    je .no                          ; above rides through it)
-    mov byte [dos_ispkg], 1         ; the kernel's assoc_app_of decides, and
-    clc                             ; refuses in its own words if it cannot
-    ret
+    mov al, [si]                    ; this arm may not leave a word behind it
+    pop si
+    or al, al
+    je .no
+    cmp al, '/'                     ; ...and a SWITCH is not a document: `FOO
+    je .no                          ; /?` is a program asked for its help, and
+                                    ; FOO not being here is the whole answer
+    mov byte [dos_ispkg], 2         ; the kernel's assoc_app_of decides - and
+    clc                             ; 2 and not 1 is what lets a refusal say
+    ret                             ; `Bad command or file name`, the answer
+                                    ; the same name gets with no tail
 .no:
     stc
     ret
@@ -1357,7 +1366,7 @@ dos_c_help:  db 'HELP', 0          ; SPEC.md 96.33.23. DOS 3.3 has no HELP
     %assign DH_LINES DH_LINES + 1
 %endmacro
 dos_h_text:
-    DHL 'CD [path]     Change directory. CD .. goes up.'
+    DHL 'CD [path]     Change directory. CD .. goes up, CD \A\B goes down.'
     DHL 'COPY a b      Copy a file. Wildcards allowed.'
     DHL 'DEL name      Delete a file. ERASE is the same.'
     DHL 'DIR [/P][/W]  List this folder. /P pages it, /W is columns.'
@@ -1372,7 +1381,7 @@ dos_h_text:
     DHL 'XCOPY a b     Copy a folder and all under it.'
     DHL 'A:            A drive letter on its own changes drive.'
     DHL 'NAME [arg]    Run a program, or open a document with it.'
-    DHL "cmd > file    Send output to a file, or to NUL."
+    DHL "cmd > NUL     Hide what a command prints. No other target."
     db 0
 %if DH_LINES > 16
   %error "HELP is over SIXTEEN lines: CGA's band is 17 rows ([con_vrows], measured), and the prompt that follows takes one - so a seventeenth line scrolls the first off a machine nobody tests on. Cut a line, or give HELP a pager and the part 96.33.23.2 costs."

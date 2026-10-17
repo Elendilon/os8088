@@ -492,13 +492,16 @@ dsh_home:
 ; in:  SI = an ASCIZ spec in our segment
 ; out: CF=0 and we are standing there; CF=1 = there is no such folder, and
 ;      where we stand is then whatever the attempt left (the caller banks)
-; clobbers: AX, BX, CX, DX, DI, flags
+; clobbers: AX, BX, CX, DX, SI, DI, flags (SI is the walk's, and none of the
+;           three callers reads it after)
 ;
-; ONE COMPONENT PAST THE ROOT, which is dos_fh_core's own limit (a separator
-; anywhere past a leading one is "path not found", code 3) and not a new one
-; invented here. `C:\PRINCE` resolves and `C:\A\B` does not - and that is
-; exactly the reach INSTALL.EXE asks for. dos_walk_pbuf is the upgrade when
-; something wants deeper, and it is isolated to this routine.
+; ANY DEPTH, DOWNWARD (SPEC.md 96.30.9). dos_fh_core splits the spec at its
+; LAST separator into a folder part (dos_fpbuf, [dos_fhpath]) and a leaf, and
+; this used to hand dos_cd_go the leaf alone - so `CD \SYSTEM\DOS` looked for
+; DOS at the root and said `Path not found`. The folder part is walked with
+; dos_walk_at, the routine AH=3Dh's own names already resolve through
+; (96.12.3), and the leaf is then dos_cd_go's, so a last `..` still works.
+; A `..` INSIDE the folder part does not: the walk only goes down.
 dsh_cdto:
     mov dx, si
     mov ax, ds
@@ -508,10 +511,20 @@ dsh_cdto:
     jc .no
     mov al, [dos_fdrv]
     cmp al, 0xFF
-    je .nodrv                       ; no letter: wherever we already are
-    call dos_vol_to
+    jne .drv
+    mov al, [dos_vol]               ; no letter: this drive - and the MACHINE
+.drv:                               ; stood on it too, which the walk below
+    call dos_vol_to                 ; resolves against
     jc .no
-.nodrv:
+    cmp byte [dos_fhpath], 0
+    je .leaf
+    mov si, dos_fpbuf
+    mov al, [dos_fabs]              ; from the root, or from here
+    call dos_walk_at                ; DX = the folder it ended in
+    jc .no
+    mov [dos_curdir], dx
+    mov byte [dos_fabs], 0          ; ...and the leaf is relative to THAT
+.leaf:
     call dos_cd_go
     jc .no
     clc
@@ -1305,11 +1318,15 @@ dsh_dir_go:
     xor al, al
     ret
 .chdir:
-    mov si, dsh_a1                  ; ...and CD just stands there. In a /C
-    call dsh_cdto                   ; shell dsh_tail puts us back afterwards,
-    jc .nopath                      ; which is what a child shell's exit does
-    xor al, al                      ; under DOS
-    ret
+    call dsh_bank                   ; a walk that fails half way down has
+    mov si, dsh_a1                  ; moved us, and DOS's CD moves nowhere
+    call dsh_cdto                   ; when it fails - so we go back. In a /C
+    jc .cdno                        ; shell dsh_tail puts us back afterwards,
+    xor al, al                      ; which is what a child shell's exit does
+    ret                             ; under DOS
+.cdno:
+    call dsh_home
+    jmp short .nopath
 .ioerr:
     call dsh_home
     mov si, dsh_s_ioerr

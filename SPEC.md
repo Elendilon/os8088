@@ -127486,7 +127486,10 @@ server wants to know and the rest is what somebody debugging one wants.
 `fd_log_clear` blanks the ring on the path where the listener actually opened.
 
 **Only that path.** A start that FAILED has just written the reason, and that
-has to stay on the glass. And it needs no lock: `fd_hire` is below it, so
+has to stay on the glass. Every refusal writes it, at `fd_start`'s one `.fail`
+tail: for a while only the refused worker did, so a machine with no driver read
+`No network driver` on the status line under a log whose last line was still
+`Ready - press Start`. And it needs no lock: `fd_hire` is below it, so
 there is no worker yet and nothing else can be inside `fd_log` (§77.42).
 
 Every slot becomes `FD_LOGW` spaces and a NUL rather than an empty string —
@@ -130219,6 +130222,13 @@ floppy drive and a Gotek take them — so the live media are additions to the
 release zip, not replacements for anything in it.
 
 ### 80.4 Writing the media on a Mac, guided
+
+**`tools/os88imager.py` (`make imager`, docs/IMAGER.md) is the guide now**:
+the same filtering, typed-identifier confirmation and read-back verify, for
+every image a build makes - the floppies as well as the two live images -
+plus §80.5's geometry question and the settings carried across a re-image
+below. What follows is how `make burn`, the first guide and still shipped,
+does it for the two live images alone; the imager keeps every rule in it.
 
 `tools/os88burn.py` (`make burn`) is the interactive text-mode guide that
 puts the two images on real media, because the raw alternative is `dd`
@@ -148428,8 +148438,13 @@ speed and `vm/xt-paccman` is where to watch that.
 
 **The disks, the machine and the gates.** `make paccmandisk` builds
 `build/paccman.img`, `paccman720.img`, `paccman120.img` and `paccman360.img` —
-the package and `README.md` at the root of each, no folder needed because there
-is no `.OVL` — and every one is `os88disk.py --verify`ed in its own recipe. The
+the package and `README.TXT` at the root of each, no folder needed because there
+is no `.OVL` — and every one is `os88disk.py --verify`ed in its own recipe.
+**The README on the disk is the PLAYER'S**, `apps/paccman/README.TXT` in plain
+ASCII with the MIT text in it, the way the C64 and Apple II disks carry theirs;
+it was `README.md`, the developer notes beside this section, whose build steps
+and UTF-8 dashes and section signs reached a floppy reader as noise.
+`README.md` stays in the tree for whoever builds it. The
 360KB disk uses 77 of 354 clusters. `make allapps` places a `PACCMAN/` folder
 beside `GAMES/PACMAN.O88` on `build/apps-all.img` (2,720 of 2,847 clusters) and
 on `apps-all-120.img`, and `make live` carries it by derivation.
@@ -155487,11 +155502,10 @@ it cannot (§96.30.6), having written nothing — sends the shell to its own
 arena stream and delete. On one volume a `MOVE` of a 100KB file is a
 directory write, and needs no heap at all.
 
-**A path is one component past the root**, which is `dos_fh_core`'s own limit
-(a separator anywhere past a leading one is code 3, "path not found") and not
-a new one invented here. `C:\PRINCE` resolves; `C:\A\B` does not. That is
-exactly the reach the measured case needs, and `dos_walk_pbuf` — which already
-walks arbitrary depth for `AH=3Bh` — is the upgrade, isolated to one routine.
+**A path was one component past the root**, which was `dos_fh_core`'s own
+limit when this was written. `C:\PRINCE` resolved and `C:\A\B` did not; that
+was exactly the reach the measured case needed, and `dos_walk_at` was named as
+the upgrade, isolated to one routine. §96.30.9 is that upgrade taken.
 
 **A `CD` inside a `/C` command does not reach the program that shelled out.**
 Under DOS the child shell's directory dies with it, and running in-process is
@@ -155770,12 +155784,11 @@ which is the absolute case the rule was written for; anywhere else the cut
 drops it. `A:\README.TXT` was never affected and still is not — its folder part
 is `A:`, which §96.30's `.colon` arm already handles as a whole.
 
-**What this does NOT fix, and it is a limit rather than a bug in the cut**:
-`SUB\DEEPER\FILE` now hands `dsh_cdto` the string `SUB\DEEPER`, and
-`dos_cd_go` takes one component, so it descends into `DEEPER` from where it
-stands rather than walking both. That was a total failure before and is a
-one-level walk now; a multi-component relative path wants `dos_cd_go` to loop,
-which is `AH=3Bh`'s body and a change to what a DOS PROGRAM sees.
+**What this did NOT fix, and it was a limit rather than a bug in the cut**:
+`SUB\DEEPER\FILE` handed `dsh_cdto` the string `SUB\DEEPER`, and `dos_cd_go`
+takes one component, so it descended into `DEEPER` from where it stood rather
+than walking both. §96.30.9 walks both, in `dsh_cdto` and not in `dos_cd_go`,
+so what a DOS PROGRAM sees through `AH=3Bh` is unchanged.
 
 **2. `DIR <folder>` listed the folder you were standing in.** §96.33.9.2's sort
 claims the listing up front so a `/P` run sorts as ONE listing across its
@@ -155795,6 +155808,36 @@ wrong by listing a plausible directory rather than by failing.
 The page's own bracket is unchanged and the two now agree about which folder
 the listing is of.
 
+
+##### 96.30.9 `CD \A\B` walks the whole path, and a `CD` that fails moves nowhere
+
+`CD \SYSTEM\DOS` answered `Path not found` from `B:\`, and `HELP` never said
+`CD` stopped one folder down. Nothing was missing but the call:
+`dos_fh_core` has split a name at its LAST separator since §96.12.3, leaving
+the folder part in `dos_fpbuf` with `[dos_fhpath]` set, and `dsh_cdto` handed
+`dos_cd_go` the leaf alone — so `DOS` was looked for at the root.
+
+`dsh_cdto` walks the folder part now with `dos_walk_at`, the routine a DOS
+program's own `SUB\FILE.DAT` already resolves through, from the root when the
+spec led with a separator and from where we stand when it did not, and gives
+the leaf to `dos_cd_go` as before — so a closing `..` still works and
+`CD \A\B\..` is `\A`. **A `..` inside the folder part does not**: the walk
+goes down and only down (§19.2.4). The machine is stood on the drive first even
+when the spec named none, because the walk resolves where the MACHINE is and
+`dos_cd_go` where the BOX is, and those two are only the same after a stand
+(§96.48).
+
+Every verb that names a folder gets the same reach for nothing, since
+`dsh_resolve` resolves its folder part through `dsh_cdto`: `TYPE
+\SYSTEM\DOS\README.TXT`, `MD A\B\C`, `COPY X \A\B`.
+
+**A walk can fail half way down, and DOS's `CD` moves nowhere when it fails**,
+so `CD` banks where it stands and goes back on a refusal. It is the only
+caller that needs to: `dsh_resolve` brackets every call already.
+
+The cost is the DOS core's: 38 bytes against 8 of slack, so `CORE_MAX` went
+15,312 → 15,344, which both hosts reserve (§96.44). `kern_dos` took it inside
+its kilobyte rung.
 
 ##### 96.30.5 It is the interpreter the windowed prompt wants
 
@@ -157028,10 +157071,19 @@ about a program worth going to look for.
 **ONLY WITH A DOCUMENT**, and that is the whole of the rule. A bare word that
 resolves to nothing is a TYPO and `Bad command or file name` is its answer;
 the tail is what turns the word into a claim. Measured, both arms: `NOTPAD`
-answers `Bad command or file name: NOTPAD` exactly as it always did, and
-`NOTPAD README.TXT` answers `Cannot open NOTPAD` — which names the half that
-was wrong, where the other message would have the user looking at the
-document.
+answers `Bad command or file name: NOTPAD` exactly as it always did, and so
+does `NOTPAD README.TXT` when the lookup finds nothing — which names the half
+that was wrong, where a message about the file would have the user looking at
+the document. It said `Cannot open NOTPAD` for a while, and the manuals pass
+found what that costs: `OS88CZ /?` and `OS88CZ` on a disk without the program
+gave two different answers about one missing name. The lookup arm marks itself
+with `[dos_ispkg]` = 2 rather than 1, and `dos_pkg_go`'s refusal reads it;
+`Cannot open` stays the answer for a name the user spelled as a package
+(`NOSUCH.O88`, §96.33.17), which is a file that is not there. **A tail that
+starts with `/` is a SWITCH and not a document**, so it turns nothing into a
+claim: `OS88CZ /?` where there is no `OS88CZ` is refused at once, as the bare
+word is, and never reaches the lookup - it used to, and its tail was then
+checked as a document and answered `File not found - /?`.
 
 **WHAT THE LOOKUP CAN REACH IS SESSION STATE**, and that is worth stating
 plainly because it was first written down here as a clean per-volume boundary
