@@ -1160,3 +1160,75 @@ shows what the sweep really costs in a shared file.
    be driven like `os88marty`.
 5. **Whether a kern_mega machine still wants the 360KB system disk.** A 286
    has a 1.2MB or 1.44MB drive. The geometry set could shrink to two.
+
+---
+
+## 12. After the waves: protected mode is discoverable, and XMS becomes RAM
+
+The owner's framing, 2026-10-17: under kern_mega **there is no XMS - it is
+just RAM.** Everything above 1MB is reachable by a descriptor, so the machinery
+real mode needed to reach it - XMEM.DRV, `int 15h AH=87h` and its CPU reset,
+LOADALL (SPEC.md 41.13), unreal mode (`ub_set`, SPEC.md 41.15) - has nothing
+left to do, and the parts of it that load a segment register the real-mode way
+cannot run at all. Two things follow, and they are the end of this plan.
+
+### 12.1 A driver or package must be able to ASK
+
+Today nothing can tell kern_mega in protected mode from kern_big: the API
+table is the same, and so is everything `OSAPI_CPU_INFO` answers. The
+proposal is one more `CPU_F_*` bit in AH - **`CPU_F_PM` (0x10): segments are
+SELECTORS** - set by `mega_enter` and never on any other kernel, so a binary
+built before it reads 0 and keeps its real-mode behaviour on every machine it
+already ran on. It is an SDK addition and not a re-contract (SPEC.md
+20.2.0.1: `abilock.py --update` without a `PKG_FMT` bump). What the bit
+promises, written once in os88api.inc beside the other four:
+
+* segment arithmetic must stay on the 8-paragraph grid (section 3.1, item 18);
+* no LOADALL, no unreal mode, no `int 15h AH=87h`, no `int 15h AH=88h`
+  sizing of memory a program then addresses itself;
+* the `OSAPI_XMEM_*` cells are the kernel's own and work from any context
+  (12.2).
+
+A refusal on the bit is the ordinary path (SPEC.md 47): a feature that has no
+protected-mode route yet greys itself with the reason rather than faulting.
+
+### 12.2 The routes, by kind of user
+
+**Most XMS users never touch extended memory themselves** - they call
+`OSAPI_XMEM_ALLOC`, `_COPY` and `_FREE`, with an opaque 32-bit base. Those
+keep their ABI byte for byte if kern_mega implements the five cells itself:
+a pool above its own tables (the GDT, LDT and IDT end at 0x124800; a 1MB 286
+has 384KB above 1MB), and COPY as a `rep movsw` through a scratch descriptor
+- no BIOS, no reset, and so no reason for the UI-task-only rule (os88api.inc's
+note on tier 1), which kern_mega can drop. XMEM.DRV is then not shipped on
+kern_mega at all (section 7 already said so). These users, from the survey:
+
+| user | what it keeps in XMS | route |
+|---|---|---|
+| `apps/os88partsbody.inc` | lazy and scratch parts (SPEC.md 20.12) | the cells, unchanged |
+| `apps/os88xgap.inc` | the shared gap buffer | the cells, unchanged |
+| DOS box (`apps/dos`) | the box's XMS door (2.7) | the cells - and M6's question |
+| Pixel editor | undo and layers | the cells, unchanged |
+| RAM disk (`drivers/ramdisk`) | the store and its image | the cells, unchanged |
+| EMS (`drivers/ems`) | EMS pages backed by XMS | the cells; the page frame is a descriptor rebase, which is a cheaper EMS than the copy |
+| Video player (`apps/video`) | the XMS bank, through the cells | the cells, unchanged |
+| Task Manager | shows the pool | CAPS, unchanged |
+
+**Three users reach past the cells**, and they are the ones that need a new
+route rather than an implementation:
+
+| user | what it does | the protected-mode route |
+|---|---|---|
+| `apps/os88ub.inc` (Video player) | loads a segment register's HIDDEN base above 1MB (unreal) and addresses the bank in place | a selector: the bank IS addressable, which is section 4 item 5 |
+| `apps/os88la.inc` (Video player, the 286) | LOADALL for the same in-place reach | the same selector - LOADALL is a 286 instruction kern_mega must never let a package run |
+| `drivers/hdd/hdxms.inc` (HDD.DRV rung 1) | `rep insw` with ES's hidden base at the XMS address, and an A20 probe through FFFF | the same selector, and the probe deleted: `mega_enter` verified A20 and the bit says so |
+
+So the one new cell the section needs is **`OSAPI_XMEM_SEL`**: DX:AX = a base
+you own, CX = a window of up to 64KB inside it -> an LDT data selector whose
+descriptor covers exactly that window, freed with the block. It is a refusal
+(CF = 1) on every other kernel, which is what lets one binary carry both
+routes and choose by `CPU_F_PM` rather than by build. The selector is stable
+across a compaction (3.2), so no relocation proc is owed for it. This is M3's
+LDT allocator used from outside the kernel for the first time, so it lands
+after M3, and 12.1's bit can land now - it costs a byte of `mega_enter` and
+makes every refusal above writable today.
