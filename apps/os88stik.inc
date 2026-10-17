@@ -119,6 +119,20 @@
 ;               begun its next sleep before the beat runs, and ignores it.
 ;
 ; SPEC.md 110.5 and 110.5.2 are the contract.
+;
+; THE SHARED LIBRARY (SPEC.md 110.15). A kern_big widget - STIK_DESKONLY -
+; that adds ONE line, `%define STIK_LIB` BEFORE its OS88_HEADER, carries none
+; of the code below: OS88_STIKCARD_END puts a fixed block at image offset
+; OS88_STIKLIB_AT (a descriptor assembled from the defines above, a few
+; constants, the far pointers and the state), this file emits a five-byte
+; thunk per routine (os88stikc.inc), and stik_load binds them to the ONE copy
+; of this code that rides in DESK.DRV (OSAPI_WM_DESK's LIB). The labels, the
+; defines and the calls are the same either way; what moves is the state,
+; from the package's bss into its block - and STIK_BSS_END says how much bss
+; the state file's buffer still takes. apps/stiklib.asm assembles this file
+; as that copy (STIK_LIBRARY): DS is the calling package's on every
+; instruction, everything it knows of it comes from the block, and every
+; callback goes through the package's trampoline (stik_cb).
 ; =============================================================================
 
 %ifndef OS88STIK_INC
@@ -167,8 +181,21 @@ STIK_F_QUIT     equ 16          ; stik_quit's OSAPI_WM_CLOSE is posted: the
 STIK_BKMAX      equ 16          ; a refusal that may clear waits 1, 2, 4, 8,
                                 ; then 16 polls before the next try
 
+%ifdef STIK_LIB
+  %define STIK_FIXED            ; the state is in the Sticky App block
+  %ifndef STIK_DESKONLY
+    %error "os88stik: STIK_LIB is a STIK_DESKONLY widget's - the library is DESK.DRV's"
+  %endif
+  %ifndef STIK_WIDGET
+    %error "os88stik: STIK_LIB is a STIK_DESKONLY widget's - the library is DESK.DRV's"
+  %endif
+%endif
+%ifdef STIK_LIBRARY
+  %define STIK_FIXED
+%else
 %if STIK_BSS % 16
   %error "os88stik: STIK_BSS must be a multiple of 16 - the read wants a paragraph"
+%endif
 %endif
 %ifdef STIK_PACK
  %ifndef STIK_UNPACK
@@ -181,9 +208,20 @@ STIK_BKMAX      equ 16          ; a refusal that may clear waits 1, 2, 4, 8,
  %endif
 %endif
 
+%ifdef STIK_FIXED
+ %ifdef STIK_LIB
 stik_file   equ os88_image_end + STIK_BSS                   ; header + payload
 STIK_PAY    equ stik_file + STIK_HDR_SIZE
+ %endif
+stik_hd     equ OS88_STIKLIB_AT + STKL_HD                   ; the header known
+stik_rec    equ OS88_STIKLIB_AT + STKL_REC                  ; then the rest,
+                                ; in the same order, in the block
+%else
+stik_file   equ os88_image_end + STIK_BSS                   ; header + payload
+STIK_PAY    equ stik_file + STIK_HDR_SIZE
+stik_hd     equ stik_file                                   ; ...its header
 stik_rec    equ stik_file + STIK_HDR_SIZE + STIK_PAYLEN       ; 128: the row
+%endif
 stik_name   equ stik_rec + OSAPI_DI_SIZE                     ; 13: our 8.3 name
 stik_hdx    equ stik_name + 13                               ; the banked folder
 stik_hbl    equ stik_hdx + 2                                 ; ...and its drive
@@ -233,7 +271,16 @@ stik_ss     equ stik_sc + 1      ; dw ...the slab's first card row
 stik_sr0    equ stik_ss + 2      ; dw ...the damaged rows, card-local
 stik_sr1    equ stik_sr0 + 2
 stik_ty     equ stik_sr1 + 2     ; dw the tag row's screen top, as drawn
-%ifdef STIK_VARFACE
+%ifdef STIK_FIXED
+stik_fw     equ OS88_STIKLIB_AT + STKL_FW  ; born the widest (STIKD_FW)
+stik_np     equ stik_ty + 2
+ %if stik_np != OS88_STIKLIB_AT + STKL_NP || stik_nx != OS88_STIKLIB_AT + STKL_NX
+  %error "os88stik: the state and os88api.inc's STKL_* have parted"
+ %endif
+ %ifdef STIK_LIB
+STIK_BSS_END equ STIK_BSS + STIK_HDR_SIZE + STIK_PAYLEN + STIK_SLACK
+ %endif
+%elifdef STIK_VARFACE
 stik_fw     equ stik_ty + 2      ; dw the face's width NOW (SPEC.md 110.14.1)
 stik_np     equ stik_fw + 2      ; db 1: no plate - the tag row at rest is ground
 STIK_BSS_END equ stik_np + 1 - os88_image_end
@@ -249,8 +296,53 @@ STIK_BSS_END equ stik_ty + 2 - os88_image_end
   %define STIK_REDRAW           ; stik_resize redraws a face of the same size
  %endif
 %endif
+%ifndef STIK_FIXED
 %if OSAPI_DI_SIZE < STIK_SLACK
   %error "os88stik: stik_rec is the read's slack before it is the row"
+%endif
+%endif
+%ifdef STIK_FIXED                ; the descriptor and the block's own words
+stik_d_file     equ OS88_STIKLIB_AT + STKL_D_FILE
+stik_d_paylen   equ OS88_STIKLIB_AT + STKL_D_PAYLEN
+stik_d_payver   equ OS88_STIKLIB_AT + STKL_D_PAYVER
+stik_d_flags    equ OS88_STIKLIB_AT + STKL_D_FLAGS
+stik_d_tagw     equ OS88_STIKLIB_AT + STKL_D_TAGW
+stik_d_right    equ OS88_STIKLIB_AT + STKL_D_RIGHT
+stik_d_lays     equ OS88_STIKLIB_AT + STKL_D_LAYS
+stik_d_buf      equ OS88_STIKLIB_AT + STKL_D_BUF
+stik_d_bst      equ OS88_STIKLIB_AT + STKL_D_BST
+stik_d_brows    equ OS88_STIKLIB_AT + STKL_D_BROWS
+stik_d_dname    equ OS88_STIKLIB_AT + STKL_D_DNAME
+stik_d_cap      equ OS88_STIKLIB_AT + STKL_D_CAP
+stik_d_isopen   equ OS88_STIKLIB_AT + STKL_D_ISOPEN
+stik_d_tag      equ OS88_STIKLIB_AT + STKL_D_TAG
+stik_d_paintcard equ OS88_STIKLIB_AT + STKL_D_PAINTCARD
+stik_d_compose  equ OS88_STIKLIB_AT + STKL_D_COMPOSE
+stik_d_oncard   equ OS88_STIKLIB_AT + STKL_D_ONCARD
+stik_d_oncardup equ OS88_STIKLIB_AT + STKL_D_ONCARDUP
+stik_d_onfocus  equ OS88_STIKLIB_AT + STKL_D_ONFOCUS
+stik_d_ontick   equ OS88_STIKLIB_AT + STKL_D_ONTICK
+stik_d_onclose  equ OS88_STIKLIB_AT + STKL_D_ONCLOSE
+stik_d_sizeup   equ OS88_STIKLIB_AT + STKL_D_SIZEUP
+stik_d_pack     equ OS88_STIKLIB_AT + STKL_D_PACK
+stik_d_unpack   equ OS88_STIKLIB_AT + STKL_D_UNPACK
+stik_d_click    equ OS88_STIKLIB_AT + STKL_D_CLICK
+stik_d_mup      equ OS88_STIKLIB_AT + STKL_D_MUP
+stik_d_tick     equ OS88_STIKLIB_AT + STKL_D_TICK
+stik_d_close    equ OS88_STIKLIB_AT + STKL_D_CLOSE
+stik_d_wake     equ OS88_STIKLIB_AT + STKL_D_WAKE
+stik_xcp        equ OS88_STIKLIB_AT + STKL_XCP
+stik_dsys       equ OS88_STIKLIB_AT + STKL_DSYS
+stik_dapp       equ OS88_STIKLIB_AT + STKL_DAPP
+stik_xbits      equ OS88_STIKLIB_AT + STKL_XBITS
+stik_grip       equ OS88_STIKLIB_AT + STKL_GRIP
+stik_le         equ OS88_STIKLIB_AT + STKL_LE
+stik_xt         equ OS88_STIKLIB_AT + STKL_XT
+; STIK_LCB name - the library calls the package's proc [stik_d_name] (0: none)
+%macro STIK_LCB 1
+    push word [stik_d_%1]
+    call stik_cb
+%endmacro
 %endif
 
 ; STIK_PLACE reg - AX, DX = the place a window's record means to the state
@@ -298,6 +390,8 @@ STIK_BSS_END equ stik_ty + 2 - os88_image_end
 %ifndef GFXE_BITS
   %error "os88stik: STIK_WIDGET composes with os88gfx.inc - define GFXE_BITS"
 %endif
+%ifndef STIK_LIBRARY             ; (the library knows the package by its
+                                ; descriptor, and none of these is its)
 %ifndef STIK_TAG
   %error "os88stik: STIK_WIDGET wants STIK_TAG, the name tag (= the title)"
 %endif
@@ -319,6 +413,7 @@ STIK_BSS_END equ stik_ty + 2 - os88_image_end
 %if STIK_FACE_W > GFXE_BAND_W
   %error "os88stik: the band is narrower than the face (GFXE_BAND_W)"
 %endif
+%endif ; STIK_LIBRARY
 STIK_HOVER_T equ 5               ; the dock's DOCK_HOVER_T and DOCK_LEAVE_T
 STIK_LEAVE_T equ 14              ; (kernel/dock.inc, SPEC.md 30.6) by value -
                                 ; tests/unit/t_stik.py holds them equal
@@ -345,6 +440,7 @@ STIKL_MAX   equ 4
 STIKL_SZ    equ STIKL_CARDS + 2 * STIKL_MAX
 STIK_XX     equ 3               ; the handle's close box: face x 3..12
 STIK_XW     equ 10
+%ifndef STIK_LIBRARY
 %strlen STIK_TAGLEN STIK_TAG
 STIK_TAGW   equ STIK_TAGLEN * 8
 STIK_PW     equ STIK_TAGW + 8    ; the plate: the name and 4 px each side
@@ -365,6 +461,7 @@ STIK_GX     equ STIK_FACE_W - 18                 ; ...and its grip
 STIK_NAMEMIN equ 2 * (STIK_XX + STIK_XW + 1) + STIK_TAGW  ; the handle letters
                                 ; its name only on a face at least this wide
 %endif
+%endif ; STIK_LIBRARY
 
 ; STIK_LAYOUT band, facey, tagh, h0,g0 [, h1,g1 [, h2,g2 [, h3,g3]]] - one
 ; layout: each card with the gap UNDER it; refused at assembly time when the
@@ -407,6 +504,10 @@ STIK_NAMEMIN equ 2 * (STIK_XX + STIK_XW + 1) + STIK_TAGW  ; the handle letters
   %endif
 %endmacro
 %endif ; STIK_WIDGET
+
+%ifdef STIK_LIB
+%include "os88stikc.inc"        ; the CLIENT: thunks, its strings, the bind
+%else ; the code - inline, or apps/stiklib.asm's one copy
 
 ; -----------------------------------------------------------------------------
 ; stik_load - the entry proc's half (SPEC.md 110.5, 110.5.2)
@@ -466,7 +567,11 @@ STIK_NAMEMIN equ 2 * (STIK_XX + STIK_XW + 1) + STIK_TAGW  ; the handle letters
 %macro STIK_WSIZE 0
     push ax
     xor cx, cx                  ; TALL at 400 rows or more, MID from 300 -
+%ifdef STIK_LIBRARY
+    mov si, [stik_d_lays]
+%else
     mov si, STIK_LAYOUTS        ; Hercules' 348 AND EGA's 350, which the
+%endif
     cmp bx, 400                 ; adapter's kind would have called VGA -
     jae %%l                      ; COMPACT below (SPEC.md 110.11)
     inc cx
@@ -479,7 +584,11 @@ STIK_NAMEMIN equ 2 * (STIK_XX + STIK_XW + 1) + STIK_TAGW  ; the handle letters
     mov [stik_li], cl
     mov [stik_lay], si
 %ifdef STIK_VARFACE
+%ifdef STIK_LIBRARY
+    STIK_LCB sizeup             ; (none: [stik_fw] stays the descriptor's)
+%else
     call STIK_SIZEUP            ; [stik_fw], and perhaps a layout of its own
+%endif
     call stik_colh              ; ...shared with stik_resize: CX the width
     mov [di+WT_W], cx
 %else
@@ -488,8 +597,16 @@ STIK_NAMEMIN equ 2 * (STIK_XX + STIK_XW + 1) + STIK_TAGW  ; the handle letters
 %endif
     mov [di+WT_H], dx
     pop ax
+%ifdef STIK_LIBRARY
+  %define STIK_RIGHT
+%endif
 %ifdef STIK_RIGHT
+%ifdef STIK_LIBRARY
+    sub ax, [stik_d_right]
+    dec ax
+%else
     sub ax, STIK_RIGHT + 1       ; the default place: the face STIK_RIGHT in
+%endif
     mov [di+WT_X], ax           ; from the right edge, at the layout's y -
     mov ax, [si+STIKL_FY]        ; a state file's place overrides it
 %ifndef STIK_DESKONLY
@@ -506,22 +623,22 @@ STIK_NAMEMIN equ 2 * (STIK_XX + STIK_XW + 1) + STIK_TAGW  ; the handle letters
 ; [stik_fh] known): SI out = its y. Spends AX..DX
 %macro STIK_WPLACE 0
     ; --- stik_wplace, written in place: the restored place
-    mov si, [stik_file+STIK_H_X] ; the FACE's origin out of the header - a v1
-    mov dx, [stik_file+STIK_H_Y] ; file's titled frame converted - anchored
-    test byte [stik_file+STIK_H_FLAGS], STIK_HF_CONT ; with the face's size,
+    mov si, [stik_hd+STIK_H_X] ; the FACE's origin out of the header - a v1
+    mov dx, [stik_hd+STIK_H_Y] ; file's titled frame converted - anchored
+    test byte [stik_hd+STIK_H_FLAGS], STIK_HF_CONT ; with the face's size,
     jnz %%f                      ; into the template's FRAME
     inc si                      ; v1: a titled frame, so the face is a
     add dx, TITLE_H             ; border in and a title bar down
 %%f:
     push dx
-    mov cx, [stik_file+STIK_H_SW]
+    mov cx, [stik_hd+STIK_H_SW]
     STIK_MOVFW dx
     call stik_anchor
     dec si                      ; the face is one column in from the frame,
     mov [di+WT_X], si           ; in both forms
     pop si
     mov ax, bx
-    mov cx, [stik_file+STIK_H_SH]
+    mov cx, [stik_hd+STIK_H_SH]
     mov dx, [stik_fh]
     call stik_anchor
 %ifndef STIK_DESKONLY
@@ -592,7 +709,12 @@ stik_load:
     call stik_io
     test bl, 15
     jnz .home                   ; a misplaced STIK_BSS: no home, said nowhere
+%ifdef STIK_LIBRARY
+    mov cx, [stik_d_paylen]
+    add cx, STIK_HDR_SIZE + STIK_SLACK
+%else
     mov cx, STIK_HDR_SIZE + STIK_PAYLEN + STIK_SLACK
+%endif
     call OSAPI_FILE_READ        ; DX:AX = its size
     jnc .got
     cmp ax, FERR_NOENT
@@ -610,8 +732,14 @@ stik_load:
                                 ; replaces it (STIK_DMGREPLACE) or never
                                 ; (110.5.2). ES = DS still: stik_io's, which
                                 ; the read and STIK_UNPACK keep
+%ifdef STIK_LIBRARY
+    mov di, bx                  ; (BX = stik_file: stik_io's, kept)
+    mov cx, [stik_d_paylen]
+    add cx, STIK_HDR_SIZE
+%else
     mov di, stik_file
     mov cx, STIK_HDR_SIZE + STIK_PAYLEN
+%endif
     xor al, al
     cld
     rep stosb
@@ -641,12 +769,21 @@ stik_load:
     or dx, dx
     jnz .bad
     sub ax, STIK_HDR_SIZE       ; AS LONG AS ITS CONTENT (SPEC.md 110.5.3):
+%ifdef STIK_LIBRARY
+    jb .bad                     ; 0..STIK_PAYLEN payload bytes - 1.. PACKED -
+    jnz .gn                     ; and the header's own length says how many
+    test byte [stik_d_flags], STKF_PACK
+    jnz .bad
+.gn:
+    cmp ax, [stik_d_paylen]
+%else
 %ifdef STIK_PACK                ; 0..STIK_PAYLEN payload bytes - 1.. PACKED -
     jbe .bad                    ; and the header's own length says how many
 %else
     jb .bad
 %endif
     cmp ax, STIK_PAYLEN
+%endif
     ja .bad
     cmp [bx+STIK_H_LEN], ax     ; (BX = stik_file still: stik_io's, which
     jne .bad                    ; the read keeps - and so does STIK_UNPACK)
@@ -654,9 +791,37 @@ stik_load:
     jne .bad
     cmp byte [bx+STIK_H_VER], STIK_HDR_VER
     jne .bad
+%ifdef STIK_LIBRARY
+    mov cl, [stik_d_payver]
+    cmp [bx+STIK_H_PAYVER], cl
+    jne .bad
+    test byte [stik_d_flags], STKF_PACK
+    jz .tail
+    xchg ax, cx                 ; CX = the payload's length, the rest of it
+    STIK_LCB unpack             ; zero (bss): spread it, or CF = 1 not ours
+    jc .bad
+    jmp short .hd
+.tail:
+    mov di, bx                  ; the tail the save left off comes back zero
+    add di, STIK_HDR_SIZE
+    add di, ax
+    mov cx, [stik_d_paylen]
+    sub cx, ax
+    xor al, al
+    cld
+    rep stosb
+.hd:
+    mov si, bx                  ; the header, as known from here on (the
+    mov di, stik_hd             ; save writes it back: stik_hdo)
+    mov cx, STIK_HDR_SIZE / 2
+    cld
+    rep movsw
+%else
     cmp byte [bx+STIK_H_PAYVER], STIK_PAYVER
     jne .bad
-%ifdef STIK_PACK
+%endif
+%ifdef STIK_LIBRARY
+%elifdef STIK_PACK
     xchg ax, cx                 ; CX = the payload's length, the rest of it
     call STIK_UNPACK            ; zero (bss): spread it, or CF = 1 not ours
     jc .bad
@@ -682,15 +847,15 @@ stik_load:
 %ifdef STIK_WIDGET
     STIK_WPLACE
 %else
-    mov cx, [stik_file+STIK_H_SW]
+    mov cx, [stik_hd+STIK_H_SW]
     mov dx, [di+WT_W]
-    mov si, [stik_file+STIK_H_X]
+    mov si, [stik_hd+STIK_H_X]
     call stik_anchor            ; SI = x on this screen
     mov [di+WT_X], si
     mov ax, bx
-    mov cx, [stik_file+STIK_H_SH]
+    mov cx, [stik_hd+STIK_H_SH]
     mov dx, [di+WT_H]
-    mov si, [stik_file+STIK_H_Y]
+    mov si, [stik_hd+STIK_H_Y]
     call stik_anchor
     mov [di+WT_Y], si           ; wm_create clamps it onto the glass (39.7)
 %endif
@@ -748,7 +913,9 @@ stik_single:
     inc ax
     cmp al, MAX_WIN
     jb .slot                    ; (not taken: CF = 0, none found)
-%ifdef STIK_DESKONLY
+%ifdef STIK_LIBRARY
+    ret                         ; (the package's bind asked QUERY first)
+%elifdef STIK_DESKONLY
     mov al, 0                   ; QUERY (stik_load's, asked here so that a
     call OSAPI_WM_DESK          ; refusal costs no disk call): no desk layer
     jnc .r                      ; - DESK.DRV missing, or no heap for it - is
@@ -758,14 +925,20 @@ stik_single:
     ret
 %endif
 .found:
+%ifdef STIK_LIBRARY
+    mov si, [stik_d_isopen]
+%else
     mov si, stik_isopen
 .say:
+%endif
     push ds
     pop es
     xor cx, cx
     call OSAPI_TOAST            ; the entry proc's own toast: the loader then
     stc                         ; says nothing over it (SPEC.md 20.12.4)
+%ifndef STIK_LIBRARY
 .r:
+%endif
     ret
 
 ; -----------------------------------------------------------------------------
@@ -804,11 +977,19 @@ stik_made:
     call OSAPI_WM_SAVEU
 .cb:
 %endif
+%ifdef STIK_LIBRARY              ; (the package's thunks: a callback is a
+    mov ax, [stik_d_click]      ; near proc in ITS segment, SPEC.md 20.2)
+    call OSAPI_WM_ONCLICK
+    mov ax, [stik_d_mup]
+    call OSAPI_WM_ONMOUSEUP
+    mov ax, [stik_d_wake]
+%else
     mov ax, stik_click
     call OSAPI_WM_ONCLICK
     mov ax, stik_mup
     call OSAPI_WM_ONMOUSEUP
     mov ax, STIK_WAKE           ; the hover edge's wake - and kern_small's
+%endif
     call OSAPI_WM_ONWAKE        ; worker kick, which stik_wake tells apart
     mov byte [stik_tagp], STIK_P_NONE
     call OSAPI_GET_TICKS
@@ -838,7 +1019,7 @@ stik_made:
 %ifdef STIK_WIDGET
     mov si, bx                  ; THE PLACE ON RECORD is where it opened: the
     call stik_place             ; poll owes a save only for another one, so a
-    or byte [stik_file+STIK_H_FLAGS], STIK_HF_CONT ; ...a FACE's from now on: a
+    or byte [stik_hd+STIK_H_FLAGS], STIK_HF_CONT ; ...a FACE's from now on: a
                                 ; v1 file is converted by its next save, once
 %else
     STIK_PLACE bx
@@ -848,9 +1029,15 @@ stik_made:
     call stik_hdr               ; save would pair this place with the old
                                 ; screen; STIK_HF_POS is left as the file had
                                 ; it, so a close still writes a missing file
+%ifdef STIK_LIBRARY
+    mov ax, [stik_d_tick]
+    call OSAPI_WM_ONTIMER
+    mov ax, [stik_d_close]
+%else
     mov ax, stik_tick
     call OSAPI_WM_ONTIMER
     mov ax, stik_close
+%endif
     call OSAPI_WM_ONCLOSE
     mov ax, 1                   ; the first tick: the window is up by then
     call OSAPI_WM_TIMER         ; CF = 1: kern_small, which has no timer -
@@ -998,7 +1185,11 @@ stik_beat:
     cmp cx, OSAPI_DI_CAP - OSAPI_DI_STIK ; the path's 45 bytes, its NUL in
     ja .poll                    ; them: a longer one is not remembered
     mov di, stik_rec + OSAPI_DI_CAP
+%ifdef STIK_LIBRARY
+    mov si, [stik_d_cap]
+%else
     mov si, stik_cap
+%endif
     mov cx, OSAPI_DI_BODY - OSAPI_DI_CAP
     rep movsb                   ; the caption (and the header the kernel
     mov si, STIK_ICON           ; stamps), then the picture
@@ -1030,7 +1221,10 @@ stik_beat:
     mov [stik_px], ax
     mov [stik_py], dx
 .app:
-%ifdef STIK_ONTICK
+%ifdef STIK_LIBRARY
+    STIK_LCB ontick             ; CF = 1: the package is mid-edit - any save
+    jc .arm                     ; owed waits for a later poll (SPEC.md 110.5)
+%elifdef STIK_ONTICK
     call STIK_ONTICK            ; CF = 1: the package is mid-edit - any save
     jc .arm                     ; owed waits for a later poll (SPEC.md 110.5)
 %endif
@@ -1052,35 +1246,92 @@ stik_beat:
 stik_save:
     test byte [stik_st], STIK_S_NOHOME | STIK_S_RDONLY
     jnz .x
-%ifndef STIK_DMGREPLACE
+%ifdef STIK_LIBRARY
+    test byte [stik_st], STIK_S_DAMAGED
+    jz .e
+    test byte [stik_d_flags], STKF_DMGREPLACE
+    jz .x                       ; (CF = 0: the TEST's)
+.e:
+%elifndef STIK_DMGREPLACE
     test byte [stik_st], STIK_S_DAMAGED
     jnz .x
 %endif
     call stik_enter             ; CF = 1: not home now - the disk is out, or
     jc .soon                    ; another one is in
-%ifdef STIK_DMGREPLACE
+%ifdef STIK_LIBRARY
+  %define STIK_DMGREPLACE_
+%elifdef STIK_DMGREPLACE
+  %define STIK_DMGREPLACE_
+%endif
+%ifdef STIK_DMGREPLACE_
     test byte [stik_st], STIK_S_DAMAGED
     jz .w
+%ifdef STIK_LIBRARY
+    mov si, [stik_d_dname]
+%else
     mov si, stik_dname          ; the damaged file goes FIRST: a replace
+%endif
     call OSAPI_FILE_DELETE      ; claims the new chain before it frees the
     and byte [stik_st], ~STIK_S_DAMAGED & 0xFF  ; old (18.4), and a full
 .w:                             ; system disk has no room for both
 %endif
-%if STIK_PAYVER > 255 || STIK_PAYVER < 0
-  %error "os88stik: STIK_PAYVER is a byte, and +13 is its zero"
-%endif
-    mov word [stik_file+STIK_H_MAGIC], STIK_HDR_MAGIC
-    mov byte [stik_file+STIK_H_VER], STIK_HDR_VER
-    mov word [stik_file+STIK_H_PAYVER], STIK_PAYVER  ; +13 = 0
-%ifdef STIK_PACK
-    call STIK_PACK              ; CX = the payload's bytes in use, squeezed
-    mov [stik_file+STIK_H_LEN], cx
+    mov word [stik_hd+STIK_H_MAGIC], STIK_HDR_MAGIC
+    mov byte [stik_hd+STIK_H_VER], STIK_HDR_VER
+%ifdef STIK_LIBRARY
+    mov al, [stik_d_payver]
+    xor ah, ah                  ; (+13 = 0)
+    mov [stik_hd+STIK_H_PAYVER], ax
+    test byte [stik_d_flags], STKF_PACK
+    jz .np
+    STIK_LCB pack               ; CX = the payload's bytes in use, squeezed
+    mov [stik_hd+STIK_H_LEN], cx
+    call stik_hdo
     call stik_io
     add cx, STIK_HDR_SIZE
     call OSAPI_FILE_WRITE
     pushf
     push ax
-    mov cx, [stik_file+STIK_H_LEN]
+    mov cx, [stik_hd+STIK_H_LEN]
+    STIK_LCB unpack             ; spread back - it cannot refuse what
+    pop ax                      ; STIK_PACK made
+    popf
+    jmp short .wr
+.np:
+    push ds                     ; AS LONG AS ITS CONTENT (SPEC.md 110.5.3)
+    pop es
+    mov cx, [stik_d_paylen]
+    mov di, [stik_d_file]
+    add di, cx
+    add di, STIK_HDR_SIZE - 1
+    xor al, al
+    std
+    repe scasb
+    cld
+    je .zl                      ; all zero: CX = 0
+    inc cx                      ; stopped ON a non-zero byte: it is kept
+.zl:
+    mov [stik_hd+STIK_H_LEN], cx
+    call stik_hdo
+    call stik_io
+    add cx, STIK_HDR_SIZE
+    call OSAPI_FILE_WRITE
+.wr:
+%else
+%if STIK_PAYVER > 255 || STIK_PAYVER < 0
+  %error "os88stik: STIK_PAYVER is a byte, and +13 is its zero"
+%endif
+    mov word [stik_hd+STIK_H_PAYVER], STIK_PAYVER  ; +13 = 0
+%endif
+%ifdef STIK_LIBRARY
+%elifdef STIK_PACK
+    call STIK_PACK              ; CX = the payload's bytes in use, squeezed
+    mov [stik_hd+STIK_H_LEN], cx
+    call stik_io
+    add cx, STIK_HDR_SIZE
+    call OSAPI_FILE_WRITE
+    pushf
+    push ax
+    mov cx, [stik_hd+STIK_H_LEN]
     call STIK_UNPACK            ; spread back - it cannot refuse what
     pop ax                      ; STIK_PACK made
     popf
@@ -1096,7 +1347,7 @@ stik_save:
     je .zt                      ; all zero: CX = 0
     inc cx                      ; stopped ON a non-zero byte: it is kept
 .zt:
-    mov [stik_file+STIK_H_LEN], cx
+    mov [stik_hd+STIK_H_LEN], cx
     call stik_io
     add cx, STIK_HDR_SIZE
     call OSAPI_FILE_WRITE
@@ -1126,13 +1377,35 @@ stik_save:
     mov [stik_bn], al
     ret
 
+%ifdef STIK_LIBRARY
+; stik_hdo - the header as known, into the state file's buffer before a
+; write (stik_load took it out after the read). ES = DS out; CX kept, SI and
+; DI spent
+stik_hdo:
+    push cx
+    push ds
+    pop es
+    mov si, stik_hd
+    mov di, [stik_d_file]
+    mov cx, STIK_HDR_SIZE / 2
+    cld
+    rep movsw
+    pop cx
+    ret
+%endif
+
 ; stik_io - the state file's registers: ES:BX = stik_file, SI = its name,
 ; DX = 0 (the count's high word)
 stik_io:
     push ds
     pop es
+%ifdef STIK_LIBRARY
+    mov bx, [stik_d_file]
+    mov si, [stik_d_dname]
+%else
     mov bx, stik_file
     mov si, stik_dname
+%endif
     xor dx, dx
     ret
 
@@ -1146,14 +1419,14 @@ stik_kwin:
 ; stik_crepos - stik_close's: no place on the record at all (STIK_HF_POS
 ; clear, so a close writes a missing file), or stik_repos's answer
 stik_crepos:
-    test byte [stik_file+STIK_H_FLAGS], STIK_HF_POS
+    test byte [stik_hd+STIK_H_FLAGS], STIK_HF_POS
     jz stik_pos
 ; stik_repos - AX, DX = the place now: another place than the one on record
 ; is owed a save (stik_pos). Keeps AX, BX and DX
 stik_repos:
-    cmp ax, [stik_file+STIK_H_X]
+    cmp ax, [stik_hd+STIK_H_X]
     jne stik_pos
-    cmp dx, [stik_file+STIK_H_Y]
+    cmp dx, [stik_hd+STIK_H_Y]
     jne stik_pos
     ret
 
@@ -1161,22 +1434,22 @@ stik_repos:
 ; it is on, and owed a save. Keeps AX, BX and DX; spends CX
 stik_pos:
 %ifdef STIK_WIDGET
-    or byte [stik_file+STIK_H_FLAGS], STIK_HF_POS | STIK_HF_CONT
+    or byte [stik_hd+STIK_H_FLAGS], STIK_HF_POS | STIK_HF_CONT
 %else
-    or byte [stik_file+STIK_H_FLAGS], STIK_HF_POS
+    or byte [stik_hd+STIK_H_FLAGS], STIK_HF_POS
 %endif
     or byte [stik_st], STIK_S_DIRTY
 ; stik_hdr - AX, DX = a place: into the header, with the screen it is on.
 ; Keeps AX, BX and DX; spends CX
 stik_hdr:
-    mov [stik_file+STIK_H_X], ax
-    mov [stik_file+STIK_H_Y], dx
+    mov [stik_hd+STIK_H_X], ax
+    mov [stik_hd+STIK_H_Y], dx
     push ax
     push bx
     push dx
     call OSAPI_VIDEO
-    mov [stik_file+STIK_H_SW], ax
-    mov [stik_file+STIK_H_SH], bx
+    mov [stik_hd+STIK_H_SW], ax
+    mov [stik_hd+STIK_H_SH], bx
     pop dx
     pop bx
     pop ax
@@ -1194,7 +1467,9 @@ stik_hdr:
 ; A window callback: spends AX..DI and ES
 ; -----------------------------------------------------------------------------
 stik_close:
-%ifdef STIK_ONCLOSE
+%ifdef STIK_LIBRARY
+    STIK_LCB onclose
+%elifdef STIK_ONCLOSE
     call STIK_ONCLOSE
 %endif
     test byte [stik_st], STIK_S_ROW
@@ -1479,7 +1754,11 @@ stik_pbody:
     mov al, [stik_ci]
     push si
     push di
+%ifdef STIK_LIBRARY
+    STIK_LCB paintcard
+%else
     call STIK_PAINTCARD
+%endif
     pop di
     pop si
 .gap:
@@ -1632,15 +1911,25 @@ stik_blit:
     call stik_push              ; AX..DI, BP and ES banked (stik_pop_8)
     push ax
     push dx
+%ifdef STIK_LIBRARY
+    mov ax, [stik_d_bst]
+    mul si
+    add ax, [stik_d_buf]
+%else
     mov ax, GFXE_BAND_ST
     mul si
     add ax, GFXE_BAND_BUF
+%endif
     mov si, ax
     pop dx
     pop ax
     push ds
     pop es
+%ifdef STIK_LIBRARY
+    mov bp, [stik_d_bst]
+%else
     mov bp, GFXE_BAND_ST
+%endif
     call OSAPI_GFX_BLIT1
     jmp stik_pop_8
 
@@ -1657,6 +1946,15 @@ stik_slabs:
     mov [stik_sc], al
     mov [stik_sr0], bx
     mov [stik_sr1], dx
+%ifdef STIK_LIBRARY
+  %define STIK_BH_ [stik_d_brows]
+    mov ax, bx                  ; BP = the slab's first card row
+    xor dx, dx
+    div word STIK_BH_
+    mul word STIK_BH_
+    mov bp, ax
+%else
+  %define STIK_BH_ GFXE_BAND_H
 %if (GFXE_BAND_H & (GFXE_BAND_H - 1)) == 0
     mov bp, bx                  ; BP = the slab's first card row: the first
     and bp, -GFXE_BAND_H        ; slab touched (BX >= 0)
@@ -1668,22 +1966,32 @@ stik_slabs:
     mul cx
     mov bp, ax
 %endif
+%endif
 .slab:
     mov cx, [stik_ch]
     sub cx, bp
-    cmp cx, GFXE_BAND_H
+    cmp cx, STIK_BH_
     jbe .n
-    mov cx, GFXE_BAND_H
+    mov cx, STIK_BH_
 .n:
     mov [gfxe_bh], cx
     mov ax, 0FFFFh
     call gfxe_bclear            ; white paper: a card is never themed
-%ifdef STIK_COMPOSE
+%ifdef STIK_LIBRARY
+  %define STIK_COMPOSE_
+%elifdef STIK_COMPOSE
+  %define STIK_COMPOSE_
+%endif
+%ifdef STIK_COMPOSE_
     mov al, [stik_sc]
     mov bx, bp
     mov cx, [gfxe_bh]
     push bp
+%ifdef STIK_LIBRARY
+    STIK_LCB compose
+%else
     call STIK_COMPOSE
+%endif
     pop bp
 %endif
     mov bx, [stik_sr0]           ; the rows of this slab that are damaged
@@ -1706,7 +2014,7 @@ stik_slabs:
     mov ax, [stik_fx]
     STIK_MOVFW cx
     call stik_blit
-    add bp, GFXE_BAND_H
+    add bp, STIK_BH_
     cmp bp, [stik_sr1]
     jle .slab
     jmp stik_pop_8
@@ -1732,7 +2040,11 @@ stik_want:
 ; stik_tagname - STIK_TAG into the band at x = CX, centred down the tag row,
 ; in the style [gfxe_tsty]. gfxe_text's spend
 stik_tagname:
+%ifdef STIK_LIBRARY
+    mov si, [stik_d_tag]
+%else
     mov si, stik_tags
+%endif
     mov dx, [gfxe_bh]
     sub dx, 8
     shr dx, 1
@@ -1770,7 +2082,13 @@ stik_tagdraw:
 %ifdef STIK_VARFACE
     cmp byte [stik_np], 0       ; NO PLATE (face-only, or a face narrower
     jne .bare                   ; than the plate): the row is the desktop
+%ifdef STIK_LIBRARY
+    mov cx, [stik_d_tagw]
+    add cx, 8                   ; the plate: the name and 4 px each side
+    cmp [stik_fw], cx
+%else
     cmp word [stik_fw], STIK_PW
+%endif
     jae .plate
 .bare:
     test byte [stik_wf], STIK_W_PLATE
@@ -1815,7 +2133,12 @@ stik_tagdraw:
     mov ax, [stik_fx]            ; ...the plate...
     add ax, STIK_PX
 %endif
+%ifdef STIK_LIBRARY
+    mov cx, [stik_d_tagw]
+    add cx, 8
+%else
     mov cx, STIK_PW
+%endif
     jmp short .put
 .hand:
     xor ax, ax                  ; --- the HANDLE: a black bar
@@ -1823,9 +2146,15 @@ stik_tagdraw:
     mov byte [gfxe_tsty], GFXE_INV  ; the name in white, centred...
 %ifdef STIK_VARFACE
     mov cx, [stik_fw]           ; ...on a face wide enough for it beside the
+%ifdef STIK_LIBRARY
+    sub cx, [stik_d_tagw]       ; x and the grip: a narrower one is a handle
+    cmp cx, 2 * (STIK_XX + STIK_XW + 1)  ; of the x and the grip alone
+    jl .nn
+%else
     cmp cx, STIK_NAMEMIN        ; x and the grip: a narrower one is a handle
     jb .nn                      ; of the x and the grip alone
     sub cx, STIK_TAGW
+%endif
     shr cx, 1
     call stik_tagname
 .nn:
@@ -1871,7 +2200,12 @@ stik_tagdraw:
     jnz .out
 %ifdef STIK_VARFACE
     call stik_vpx               ; ...and the ground right of it
+%ifdef STIK_LIBRARY
+    add ax, [stik_d_tagw]
+    add ax, 8
+%else
     add ax, STIK_PW
+%endif
     mov cx, [stik_fw]
     cmp ax, cx
     jae .out
@@ -1931,7 +2265,12 @@ stik_colh:
 ; plate: the caller has asked). Nothing else changes
 stik_vpx:
     mov ax, [stik_fw]
+%ifdef STIK_LIBRARY
+    sub ax, [stik_d_tagw]
+    sub ax, 8
+%else
     sub ax, STIK_PW
+%endif
     shr ax, 1
     ret
 
@@ -1949,7 +2288,11 @@ stik_resize:
     mov ax, KERNEL_SEG
     mov es, ax
     mov di, si                  ; DI = the window
+%ifdef STIK_LIBRARY
+    STIK_LCB sizeup
+%else
     call STIK_SIZEUP
+%endif
     call stik_colh              ; CX, DX = the frame
     mov byte [stik_tagp], STIK_P_NONE
     mov si, di
@@ -2140,7 +2483,9 @@ stik_click:
     inc ax
     mov [stik_press], al
     dec ax
-%ifdef STIK_ONCARD
+%ifdef STIK_LIBRARY
+    STIK_LCB oncard             ; SI = the window: W_ONCLICK's environment
+%elifdef STIK_ONCARD
     call STIK_ONCARD            ; SI = the window: W_ONCLICK's environment
 %endif
     jmp short .after
@@ -2193,7 +2538,12 @@ stik_mup:
     or al, al
     jz .out
     mov byte [stik_press], 0
-%ifdef STIK_ONCARDUP
+%ifdef STIK_LIBRARY
+  %define STIK_ONCARDUP_
+%elifdef STIK_ONCARDUP
+  %define STIK_ONCARDUP_
+%endif
+%ifdef STIK_ONCARDUP_
     push dx
     push ax
     call stik_org               ; AX, DX = the face (CX kept)
@@ -2204,7 +2554,11 @@ stik_mup:
     add bx, dx
     pop dx
     sub dx, bx                  ; card-relative y
+%ifdef STIK_LIBRARY
+    STIK_LCB oncardup           ; SI = the window, as W_ONMOUSEUP's
+%else
     call STIK_ONCARDUP          ; SI = the window, as W_ONMOUSEUP's
+%endif
 %endif
 .out:
     ret
@@ -2291,7 +2645,11 @@ stik_focus:
     cmp al, ah
     je .r                       ; no change
     xor byte [stik_wf], STIK_W_FOCUS
-%ifdef STIK_ONFOCUS
+%ifdef STIK_LIBRARY
+    shr al, 1                   ; 1 gained, 0 lost
+    mov si, [stik_win]
+    STIK_LCB onfocus
+%elifdef STIK_ONFOCUS
     shr al, 1                   ; 1 gained, 0 lost
     mov si, [stik_win]
     call STIK_ONFOCUS
@@ -2397,14 +2755,45 @@ stik_arm:
     call OSAPI_WM_TIMER         ; CF = 1 on kern_small: there is no timer, and
     ret                         ; the worker's beat is the whole of it
 
+%ifndef STIK_LIBRARY
 ; the name, and the handle's two bit records (GFXE_BITS: db rows, then words)
 stik_tags   db STIK_TAG, 0
 stik_xbits  db 6                ; the x, 6 x 6, two in from the box's corner
             dw 08400h, 04800h, 03000h, 03000h, 04800h, 08400h
 stik_grip   db 7                ; the grip: three dotted lines, 13 wide
             dw 0AAA8h, 0, 0, 0AAA8h, 0, 0, 0AAA8h
+%endif
 %endif ; STIK_WIDGET
 
+%ifdef STIK_LIBRARY
+; -----------------------------------------------------------------------------
+; stik_cb - the library's call INTO the package (SPEC.md 110.15): `push word
+; [stik_d_x]` / `call stik_cb`. The word is a near proc in the package, or 0
+; for none (CF = 0 back, nothing called). The package's trampoline
+; (os88stikc.inc's stik_xcb) is far-called at DS - the package's segment NOW,
+; never a stored one, its region being movable (SPEC.md 66.6.1.1) - and it
+; `call`s [stik_xt], which it reads before anything else can write it. Every
+; register and the flags are the callee's on the way back
+; -----------------------------------------------------------------------------
+stik_cb:
+    push bp
+    mov bp, sp
+    push ax
+    mov ax, [bp+4]              ; the proc
+    or ax, ax
+    jz .none
+    mov [stik_xt], ax
+    pop ax
+    pop bp
+    mov [stik_xcp+2], ds
+    call far [stik_xcp]
+    ret 2
+.none:
+    pop ax
+    pop bp
+    clc
+    ret 2
+%else
 stik_dname  db STIK_DATNAME, 0
 stik_dsys   db 'SYSTEM', 0
 stik_dapp   db 'APPDATA', 0
@@ -2422,5 +2811,7 @@ stik_nodesk db 'No desk layer (DESK.DRV)', 0
 %endif                          ; the kernel's picture header (SPEC.md 26.8.1)
 stik_cap    db STIK_CAP, 0
             times OSAPI_DI_BODY - OSAPI_DI_CAP - ($ - stik_cap) db 0
+%endif ; STIK_LIBRARY
 
+%endif ; STIK_LIB
 %endif ; OS88STIK_INC

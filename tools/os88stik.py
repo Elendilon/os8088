@@ -223,6 +223,52 @@ def widget_off(stik_bss, paylen):
     return out
 
 
+# THE SHARED LIBRARY (SPEC.md 110.15). A package built `%define STIK_LIB`
+# keeps os88stik.inc's state in its Sticky App BLOCK at image offset
+# STIKLIB_AT (apps/os88api.inc's OS88_STIKLIB_AT, STKL_*), not past its image,
+# and the header the poll and the save work on is the block's copy (stik_hd):
+# the state file's buffer holds what was last read or written. The order of
+# the fields is the inline arm's, so only the base moves. tests/unit/t_stik.py
+# has NASM evaluate the block's addresses against these.
+STIKLIB_AT = 288
+STIKLIB_NENT = 22
+STKL_HD = 110 + 4 * STIKLIB_NENT + 2
+STKL_REC = STKL_HD + STIK_HDR_SIZE
+STKL_FW = 64
+DESKCAL_LIB = True              # the Desk Calendar's kern_big build
+
+
+def lib_st_abs():
+    """A STIK_LIB package's stik_st, as an offset in its SEGMENT."""
+    return STIKLIB_AT + STKL_REC + SC_REC + 13 + 2 + 1
+
+
+def lib_hdr_abs():
+    """...and its stik_hd, the Sticky App header as known."""
+    return STIKLIB_AT + STKL_HD
+
+
+def state_off(lib, stik_bss, paylen, image):
+    """{"st", "hdr", every WIDGET_FIELDS name, "stik_fw"}: offsets PAST THE
+    IMAGE - what a gate adds the image size to - for either arm. `image` is
+    the running package's (its header word at +8)."""
+    if lib:
+        st = lib_st_abs() - image
+        out = {"st": st, "hdr": lib_hdr_abs() - image,
+               "stik_fw": STIKLIB_AT + STKL_FW - image}
+    else:
+        st = stik_st_off(stik_bss, paylen)
+        out = {"st": st, "hdr": stik_hdr_off(stik_bss)}
+    off = st + 1 + 2 + 2 + 2 + 1 + 1 + 24 + 1 + 2 + 1
+    for name, size in WIDGET_FIELDS:
+        out[name] = off
+        off += size
+    if not lib:
+        out["stik_fw"] = off
+    out["end"] = off
+    return out
+
+
 class DiaError(ValueError):
     pass
 

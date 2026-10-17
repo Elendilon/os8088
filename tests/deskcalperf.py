@@ -174,8 +174,7 @@ def ui_leg(tmp, machine, label, results):
             # UNCOVER the widget and repaint that part in the same count
             box["c"] = Cal(ui, tmp, check=check, bare=False)
             c = box["c"]
-            st_off = os88stik.stik_st_off(os88stik.DESKCAL_STIK_BSS,
-                                        os88stik.DESKCAL_PAYLEN)
+            st_off = c.woff["st"]
             ui._wait(lambda: c.bss(st_off)[0] & 3 == 3,
                      "the first tick's registration", 120)
             # 09:00 Standup was missed: its FIRED and DUE marks owe the one

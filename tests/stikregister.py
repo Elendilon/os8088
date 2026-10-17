@@ -51,7 +51,6 @@ import os88stik    # noqa: E402
 ROOT = os.path.join(HERE, "..")
 BDIR = os.path.join(ROOT, os.environ.get("OS88_BUILD", "build"))
 TITLE = "Desk Calendar"
-STIK_ST = os88stik.stik_st_off(os88stik.DESKCAL_STIK_BSS, os88stik.DESKCAL_PAYLEN)
 STIK_S_ROW, STIK_S_DIRTY = 2, 16
 LD_EABORT = 4
 
@@ -96,6 +95,9 @@ def main():
     sysimg = os.path.join(tmp, "os8088-360.img")
     shutil.copy(os.path.join(BDIR, "os8088-360.img"), sysimg)
     image = image_size()
+    so = os88stik.state_off(os88stik.DESKCAL_LIB, os88stik.DESKCAL_STIK_BSS,
+                            os88stik.DESKCAL_PAYLEN, image)
+    STIK_ST = so["st"]          # in the Sticky App block (SPEC.md 110.15)
 
     with os88ui.boot(sysimg, machine="os8088_xt_vga") as ui:
         m = ui.m
@@ -144,7 +146,7 @@ def main():
         # build wrote one ~2 s after every first launch. The file comes with
         # the close (D) or a drag (stikmove)
         def hdr():
-            return m.readseg(wseg, image + os88stik.DESKCAL_STIK_BSS, 4)
+            return m.readseg(wseg, image + so["hdr"], 4)
         os88marty.guest_sleep(m, 7.0)
         check(not hdr()[3] & os88stik.STIK_HF_POS and not st() & STIK_S_DIRTY,
               "untouched, nothing is owed (stik_st = %#x, header flags %#x)"

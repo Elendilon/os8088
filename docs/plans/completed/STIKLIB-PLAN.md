@@ -1,6 +1,17 @@
 # STIKLIB-PLAN: one copy of the Sticky App library, shared by every Sticky App
 
-**PLAN, nothing built.** Written 2026-10-17 on `main-size-pass` (base
+**BUILT - SPEC.md 110.15 is the contract and this file is the design record
+behind it.** The owner approved the ABI change on 2026-10-17 and section 4's
+design was built as written: `apps/stiklib.asm`, `incbin`ned into DESK.DRV,
+OSAPI_WM_DESK verb 4, the block at image offset 288, `apps/os88stikc.inc`.
+Two things came out differently from the estimates below, both MEASURED in
+SPEC.md 110.15: the library is **4,222** bytes (section 5 said ~4.5 KB), and
+the per-package residue is the block's 464 mostly-zero bytes plus ~210 of
+thunks, strings and bind - the state moved from bss into the image, so RAM
+saw only the code leave. The header the poll and the save work on became a
+copy in the block (`stik_hd`), which section 2.1 did not foresee.
+
+Written 2026-10-17 on `main-size-pass` (base
 `84157fc4`, after the shared-code size pass `2ec2298e`). It answers the
 owner's question: can the code every Sticky App carries
 (`apps/os88stik.inc` and the parts of `apps/os88gfx.inc` it turns on) be on
