@@ -628,9 +628,12 @@ def leg_vs(tmp):
         def inb(p):
             if p == 0x21:
                 return st["pic"]
-            if p == 0x08:
-                st["cnt"] -= 1.0 if race else 0.0
+            if p == 0x08:           # the 8237's status: pm_runaway never
+                st["tc08"] = st.get("tc08", 0) + 1      # reads it (leg_sb)
                 return 0
+            if p == 0x61:           # port B, the bus cycle pm_runaway paces
+                st["cnt"] -= 1.0 if race else 0.0       # itself by - leg_sb's
+                return 0            # model, which this leg had not followed
             if p == 0x03:
                 v = int(st["cnt"]) & 0xFFFF
                 st["ff"] ^= 1
