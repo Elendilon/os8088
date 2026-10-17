@@ -371,10 +371,17 @@ GROUPS = [
      ("bands", "flip", "page_ahead", "pages", "page_keys", "key_pool",
       "page_prune"),
      _tearing),
+    # (the DEGRADE LADDER's inner tab carries the ladder, and under it the
+    # time-side choices it stands in for: the lag and the frame-rate floor
+    # it sets itself, and the charge and the held frames it uses - which
+    # also took Choices back inside the default window, VIDEO-SEEN-PLAN 3a)
+    ("Size vs quality", "Degrade ladder", ("ladder",), ALWAYS),
+    ("Size vs quality", "Slowing down, not cutting", ("lag", "min_fps",
+                                                      "slow_cost",
+                                                      "flip_hold"), ALWAYS),
     ("Size vs quality", "When a frame is cut", ("lookahead", "error", "cut",
-                                                "frame_cap", "lag", "min_fps",
-                                                "slow_cost", "flip_hold",
-                                                "edges", "attend"), ALWAYS),
+                                                "frame_cap", "edges",
+                                                "attend"), ALWAYS),
     ("Size vs quality", "Aim: size", ("worth",),
      lambda c: None if c["aim"] == "size" else
      "This is --aim size's floor, and the aim is %s. Choose size as the Aim "
@@ -522,15 +529,70 @@ FIELD_WHEN = {
     "ahead_frames": lambda c: None if c["ahead"] != "off" else
     "Buffer sound ahead is off.",
 }
+# THE DEGRADE LADDER (Size vs quality, its second inner tab): the options
+# a ladder sets itself, greyed while one is on - and the rungs this file
+# can use, each (label, --ladder's token)
+LADDER_SETS = ("lag", "min_fps", "coarse_cut", "step_down", "step_min")
+LADDER_WHY = ("The degrade ladder sets this (Size vs quality, Degrade "
+              "ladder).")
+LADDER_RUNGS = 6
+
+
+def _ladder_wrap(d):
+    was = FIELD_WHEN.get(d)
+    FIELD_WHEN[d] = lambda c: LADDER_WHY if c.get("ladder") else (
+        was(c) if was else None)
+
+
+for _d in LADDER_SETS:
+    _ladder_wrap(_d)
+
+
+def ladder_options(c):
+    """The rungs the form's file can use, in the order the list shows them:
+    (label, token) - lag a card's sound's and not Live's, a slower rate not
+    Live's or a layer's, cells and fewer colours a palette a scene's"""
+    out = []
+    if c["audio"] not in ("none", "speaker") and not c.get("live"):
+        out += [("Lag up to %d ms" % ms, "lag:%d" % ms)
+                for ms in (50, 100, 150, 200, 300)]
+    if not c.get("live") and not c.get("layer_disk") and \
+            not c.get("layer_profile"):
+        try:
+            fps = float(c.get("fps") or 0)
+        except ValueError:
+            fps = 0.0
+        for a, b in ((5, 6), (2, 3), (1, 2), (1, 3), (1, 4)):
+            out.append(("Slow to %d/%d of the rate%s" % (
+                a, b, " (%.3g fps)" % (fps * a / b) if fps else ""),
+                "slow:%d/%d" % (a, b)))
+    if _scenes(c) is None:
+        out += [("Coarse cells at a scene change (%s)" % cell,
+                 "coarse:%s" % cell) for cell in V.DEGRADE_COARSE]
+        out += [("Fewer colours: %d" % n, "colours:%d" % n) for n in (12, 8)]
+    return out
+
+
+def ladder_label(tok):
+    """A --ladder token's words, for one the form's file cannot use too"""
+    kind, _, v = tok.partition(":")
+    return {"lag": "Lag up to %s ms", "slow": "Slow to %s of the rate",
+            "coarse": "Coarse cells at a scene change (%s)",
+            "colours": "Fewer colours: %s"}.get(kind, "%s") % v
+
+
 assert len({g[1] for g in GROUPS}) == len(GROUPS), "a header names a group"
 GROUP_OF = {d: g for g in GROUPS for d in g[2]}
+# the groups on Size vs quality's second inner tab rather than its first
+LADDER_PAGE = ("Degrade ladder", "Slowing down, not cutting")
 TAB_OF = {d: g[0] for d, g in GROUP_OF.items()}
 # the fields a group's rule reads: a change to one re-judges every group
 CONTEXT_FIELDS = ("preset", "pixfmt", "profile", "live", "layout", "audio",
                   "text_colour", "comp_dither", "spk_shape", "aim",
                   "resident", "buffer_sound_ahead", "screen", "palette",
                   "scene_palettes", "flip", "loop_from", "repeat",
-                  "layer_disk", "layer_profile", "page_ahead", "step_down")
+                  "layer_disk", "layer_profile", "page_ahead", "step_down",
+                  "ladder", "fps")
 # the choices that IMPLY others (os88venc.implied): changing one refills them
 IMPLYING = ("preset", "pixfmt", "profile", "live")
 # a free-text option's COMMON values, offered in an editable list: the sound
@@ -651,12 +713,13 @@ def blank_fill(dest, values, sfps=None):
 # it, a Save dialog of that type, started beside the .V88 under its name
 SAVE_FILE = {"spk_preview": ("The speaker preview", ".wav",
                              [("WAV sound", "*.wav")])}
+# ...under the right-hand column rather than across the tab, where the
+# left-hand one already reaches the window's bottom
+NOTE_IN_COLUMN = ("Size vs quality",)
 # a line under a tab's fields: what no one field says
 TAB_NOTES = {
-    "Size vs quality": "Each of these gives up some of the picture for a "
-                       "smaller file, fewer bytes a second or less of the "
-                       "player's time - or spends them on it. Each is "
-                       "greyed where its file cannot use it.",
+    "Size vs quality": "Each trades picture for bytes or the player's "
+                       "time; greyed where the file cannot use it.",
     "Budget": "XT-IDE and other disk controllers the CPU copies for "
               "cost CPU the picture would have had: every byte read is "
               "the 8088's work, where an ST11M or ST11R's DMA is not. The "
@@ -824,7 +887,8 @@ def form_context(values):
                 loop_from=g("loop_from"), layer_disk=g("layer_disk"),
                 layer_profile=g("layer_profile"),
                 page_ahead=g("page_ahead") or "auto",
-                step_down=g("step_down") or "on")
+                step_down=g("step_down") or "on",
+                ladder=g("ladder"), fps=g("fps") or imp.get("fps", ""))
 
 
 def group_state(values):
@@ -1910,6 +1974,16 @@ class App(object):
         for t in TABS:
             pages[t] = ttk.Frame(nb, padding=6)
             nb.add(pages[t], text=t)
+        # SIZE VS QUALITY's two inner tabs: its choices, and the degrade
+        # ladder (VIDEO-SEEN-PLAN 3a) - the owner's "a second inner tab"
+        inner = ttk.Notebook(pages["Size vs quality"])
+        inner.pack(fill="both", expand=True)
+        pages["Size vs quality"].configure(padding=(6, 2, 6, 0))
+        sq = ttk.Frame(inner, padding=(4, 2, 4, 0))
+        self.ladpage = ttk.Frame(inner, padding=6)
+        inner.add(sq, text="Choices")
+        inner.add(self.ladpage, text="Degrade ladder")
+        pages["Size vs quality"] = sq
         # --- the GROUPS (98.2.8.2): an outline with a header round the
         # options that go together, down one column - or, on a tab of more
         # than TAB_ROWS options, two, split in the table's order where the
@@ -1918,6 +1992,8 @@ class App(object):
         fl = {f["dest"]: f for f in fields()}
         tabgroups = {t: [] for t in TABS}
         for tab, name, dests, _ in GROUPS:
+            if name in LADDER_PAGE:         # (its own inner tab, below)
+                continue
             tabgroups[tab].append((name, [fl[d] for d in dests if d in fl]))
         other = [f for d, f in fl.items() if d not in GROUP_OF]
         if other:                       # an option no group names yet
@@ -1935,6 +2011,7 @@ class App(object):
         self.fwidgets = {}              # option -> its label and widgets
         self.gwhy, self.why = {}, {}    # why a group, an option, is off
         self.grppend = False
+        lastcol = {}
         for t in TABS:
             gs = [g for g in tabgroups[t] if g[1]]
             cols = [gs]
@@ -1948,6 +2025,7 @@ class App(object):
             fw = 22 if len(cols) == 1 else 11
             for ci, col in enumerate(cols):
                 cf = ttk.Frame(pages[t])
+                lastcol[t] = cf
                 cf.grid(row=0, column=ci, sticky="nwe",
                         padx=(0 if ci == 0 else 10, 0))
                 # every group in a column lines its fields up, by the
@@ -1956,7 +2034,21 @@ class App(object):
                          for f in g[1]) + 6
                 for name, fs in col:
                     self.group_box(cf, name, fs, fw, lw, start)
+        self.ladder_page(self.ladpage, start)
+        lf = ttk.Frame(self.ladpage)
+        lf.grid(row=2 + LADDER_RUNGS, column=0, columnspan=2, sticky="nwe",
+                pady=(10, 0))
+        for tab, name, dests, _ in GROUPS:
+            if name in LADDER_PAGE and name != "Degrade ladder":
+                fs = [fl[d] for d in dests if d in fl]
+                self.group_box(lf, name, fs, 22, max(
+                    norm.measure(f["label"]) for f in fs) + 6, start)
         for t, text in TAB_NOTES.items():   # a word the fields cannot say
+            if t in NOTE_IN_COLUMN:
+                ttk.Label(lastcol[t], text=text, foreground="#555",
+                          wraplength=310, justify="left").pack(
+                    anchor="w", pady=(4, 0))
+                continue
             ttk.Label(pages[t], text=text, foreground="#555",
                       wraplength=600, justify="left").grid(
                 row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
@@ -2438,6 +2530,90 @@ class App(object):
             self.vars[f["dest"]] = v
             self.fwidgets[f["dest"]] = ws
 
+    def ladder_page(self, page, start):
+        """THE DEGRADE LADDER's inner tab: a checkbox that turns it on, and
+        a rung a row - each a list of the rungs this file can use - which
+        compose --ladder. Its variable is the option's, so a file loaded
+        sets the rungs, and the rungs set it"""
+        v = WordVar("ladder", start.get("ladder", ""))
+        self.vars["ladder"] = v
+        self.ladon = tk.StringVar(value="1" if v.get() else "")
+        self.ladsync = False
+        top = ttk.Checkbutton(page, text="Use the degrade ladder",
+                              variable=self.ladon, onvalue="1", offvalue="",
+                              command=self.ladder_toggle)
+        top.grid(row=0, column=0, columnspan=2, sticky="w")
+        Tip(top, "Where the budgets would cut a stretch of frames, try "
+                 "these in order, each on top of the ones before - the "
+                 "first that draws the stretch whole is taken, else the "
+                 "least broken - and only then cut. It sets Lag, Min fps, "
+                 "Coarse cut, Step down and Step min itself.")
+        self.ladrows = []
+        for i in range(LADDER_RUNGS):
+            lab = ttk.Label(page, text="Rung %d" % (i + 1))
+            lab.grid(row=1 + i, column=0, sticky="w", pady=(2, 0))
+            cb = ttk.Combobox(page, state="readonly", width=44)
+            cb.grid(row=1 + i, column=1, sticky="w", padx=4, pady=(2, 0))
+            cb.bind("<<ComboboxSelected>>", lambda e: self.ladder_compose())
+            self.ladrows.append((lab, cb))
+        ttk.Label(page, text="...then the frames are cut (When a frame is "
+                  "cut, on Choices). With the ladder on, it sets Lag and "
+                  "Min fps below itself.", foreground="#555",
+                  wraplength=560, justify="left").grid(
+            row=1 + LADDER_RUNGS, column=0, columnspan=2, sticky="w",
+            pady=(6, 0))
+        v.trace_add("write", lambda *a: self.ladder_show())
+        self.ladder_show()
+
+    def ladder_toggle(self):
+        if self.ladon.get():
+            self.vars["ladder"].set(self.vars["ladder"].get() or
+                                    V.DEGRADE_DEFAULT)
+        else:
+            self.vars["ladder"].set("")
+
+    def ladder_compose(self):
+        """The rungs as chosen -> --ladder (a "(none)" left out)"""
+        if self.ladsync:
+            return
+        toks = [self.ladtok.get(cb.get()) for _, cb in self.ladrows]
+        self.vars["ladder"].set(",".join(t for t in toks if t) if
+                                self.ladon.get() else "")
+
+    def ladder_show(self):
+        """--ladder -> the checkbox and the rungs, each list the rungs this
+        file can use - and a rung it cannot, kept and marked, so a change
+        of format leaves what was chosen where it can be seen"""
+        if self.ladsync:
+            return
+        self.ladsync = True
+        try:
+            vals = {k: x.get() for k, x in self.vars.items()}
+            vals["_out"] = self.out.get() if hasattr(self, "out") else ""
+            opts = ladder_options(form_context(vals))
+            spec = self.vars["ladder"].get()
+            toks = [t.strip() for t in spec.split(",") if t.strip()]
+            self.ladon.set("1" if toks else "")
+            self.ladtok = {"(none)": ""}
+            for lab, tok in opts:
+                self.ladtok[lab] = tok
+            have = {tok: lab for lab, tok in opts}
+            for i, (lab, cb) in enumerate(self.ladrows):
+                tok = toks[i] if i < len(toks) else ""
+                names = ["(none)"] + [lb for lb, _ in opts]
+                cur = have.get(tok, "(none)")
+                if tok and tok not in have:
+                    cur = ladder_label(tok) + " - not for this file"
+                    self.ladtok[cur] = tok
+                    names.append(cur)
+                cb.configure(values=names)
+                cb.set(cur)
+                st = "!disabled" if toks else "disabled"
+                cb.state([st])
+                lab.state([st])
+        finally:
+            self.ladsync = False
+
     def avg_list(self):
         """--avg's dropdown: AUTO, the default, and the fixed share the
         chosen profile carried before it was (os88venc.profile_avg) - so the
@@ -2473,6 +2649,8 @@ class App(object):
         for d, ws in self.fwidgets.items():
             for w in ws:
                 w.state(["disabled" if self.why.get(d) else "!disabled"])
+        if hasattr(self, "ladrows"):    # (the rungs this file can use)
+            self.ladder_show()
 
     def apply_style(self):
         """The speaker's style changed by hand: its high-pass, ratio and

@@ -332,6 +332,31 @@ def main():
                  / period, low[0], low[1]))
         if not cut:
             bad.append("the tight profile cut nothing: it tests nothing")
+        # --- 3b: THE DEGRADE LADDER (--ladder, VIDEO-SEEN-PLAN 3a): the
+        # tight encode again with one rung, a slower rate - it decides at
+        # the stretches the budgets would cut, the file is a valid one, and
+        # it cuts fewer frames than the encode without it; and a rung that
+        # is not one is refused
+        cut0 = res["cuts"]
+        path, rl, _ = run("tightlad", "--preset", "herc", "--disk", "20000",
+                          "--avg", "0.30", "--peak", "0.50", "--owe", "0",
+                          "--rate", "5512", "--profile", "floppy",
+                          "--reserve", "16", "--ladder", "slow:1/2")
+        vid.verify_v88(path)
+        lad = rl.get("ladder") or {}
+        print("   3b: --ladder slow:1/2 at 20 KB/s, 30%%/50%%: %d stretches "
+              "decided (%s), %d frames cut and %d held, against %d cut "
+              "without it" % (sum(lad.values()), ", ".join(
+                  "rung %d: %d" % kv for kv in sorted(lad.items())),
+                  rl["cuts"], rl["holds"], cut0))
+        if not lad.get(1) or rl["cuts"] >= cut0:
+            bad.append("--ladder slow:1/2 decided %r and cut %d frames "
+                       "against %d" % (lad, rl["cuts"], cut0))
+        try:
+            venc.degrade_parse("slow:2")
+            bad.append("--ladder slow:2 (not under the rate) was taken")
+        except vid.V88Error:
+            pass
         # --- 3a: W*H for WxH (98.2.1): accepted, and recorded as WxH
         pa = venc.parser().parse_args([src, "o.V88", "--box", "640*480",
                                        "--detail", "2*1", "--screen",

@@ -278,7 +278,38 @@ decision AHEAD - the look-ahead already prices the next frames, so a hold
 is chosen when the frame after it fits whole in two periods and does not
 in one.
 
-**The ladder, made the user's.** Every step is ordered and bounded, e.g.:
+**THE LADDER IS BUILT** (2026-10-16, SPEC.md 98.2.1.2's `--ladder`, the
+encoder window's Size vs quality -> Degrade ladder): the owner's "a 'Use
+Degrade Ladder' checkbox at the top of said tab... pick from an option for
+each rung (from options supported by the current mode and settings) -
+which overrides the global settings for how we degrade". Its bound is not
+a number per rung but the one test every rung shares: the first prefix
+that draws the stretch WHOLE is taken, else the least broken by the view
+as seen. The default ladder came off four clips on their own options:
+
+| clip | today | `lag:100, coarse:auto, slow:5/6, colours:12, slow:2/3, slow:1/2` |
+|---|---:|---:|
+| Last Exile 0:10-0:40, flipped Mode X, 286-speeddemon | 24.3% (400 cut) | **3.2%** (57 cut) |
+| Bad Carrot 3:05-3:20, the owner's flipped tune | 1.8% | **1.0%** |
+| Take On Me 0:15-0:30, Hercules | 5.5% | **4.7%** |
+| GasGas54's options at 24 fps (page-ahead) | 2.3% | **1.7%** |
+
+`slow:5/6` before `lag:100` made the same four files: a stretch that
+needs either needs both before it draws whole. Lag stays first, being the
+rung nobody sees. Most of Last Exile's stretches went to the last rung,
+half the rate - the owner's eye is what says whether 12 fps for that long
+is the trade they want, and the ladder is theirs to reorder per file.
+
+The tab carries the checkbox and six rungs, each a list of the rungs this
+form can use (a card's sound offers `lag`, the speaker does not; `coarse`
+and `colours` only for 16 colours a scene) - and under them **Slowing
+down, not cutting**: Lag, Min fps, Slow cost and Flip hold, moved there off
+**When a frame is cut**. Those are the global settings the ladder stands
+in for (Lag and Min fps grey while it is on; the charge and the held
+frames it uses), and taking them off Choices is what brought that tab back
+inside the default window with the inner tab bar on it.
+
+What it was sketched as:
 
     hold to 20 fps
     a pixel cut up to 0.x% (as seen)

@@ -839,7 +839,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 39
+OPTS_VERSION = 40
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -869,7 +869,7 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     33: "1cb11afeb374b243", 34: "60df56fd426010fd",
                     35: "e1090fc6c20c5367", 36: "00e7310bd1a264d8",
                     37: "096abca8b264506a", 38: "eaf373ad8f1e1fdb",
-                    39: "7a7d4203d99fd27d"}
+                    39: "7a7d4203d99fd27d", 40: "4fffe628a862c24e"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1043,6 +1043,8 @@ MIGRATIONS = {
     # 39: --flip-hold (98.1.3.9) - a flipped file made before it held with
     # nothing
     38: [("added", "flip_hold", "empty")],
+    # 40: --ladder (VIDEO-SEEN-PLAN 3a) - a file made before it had none
+    39: [("added", "ladder", "")],
 }
 
 
@@ -3587,6 +3589,89 @@ VFR_AGAIN = 2           # frames until a cut is asked again, after the full
                         # rate won
 
 
+# THE DEGRADE LADDER (--ladder, VIDEO-SEEN-PLAN 3a, the owner's "a second
+# inner tab of size vs quality"): the ways a frame the budgets cannot draw
+# may give - lag, a slower rate, coarse cells at a scene change, fewer
+# colours - as RUNGS in the order they are tried. Where the budgets would
+# cut, each prefix of the ladder is encoded on copies of the encoder over
+# the next stretch, and the first that draws every frame it shows WHOLE is
+# taken; none, the least broken by the view as seen. Cutting is what is
+# left after the last rung. It overrides --lag, --min-fps, --coarse-cut,
+# --step-down and --step-min
+DEGRADE_KINDS = ("lag", "slow", "coarse", "colours")
+DEGRADE_DEFAULT = "lag:100,coarse:auto,slow:5/6,colours:12,slow:2/3,slow:1/2"
+DEGRADE_COARSE = ("auto", "16x4", "32x8", "64x8")
+
+
+def degrade_parse(spec):
+    """--ladder's rungs -> [(kind, value)]: lag ms, slow a fraction of the
+    rate, coarse a cell (or auto), colours 12 or 8"""
+    out = []
+    for part in (spec or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        kind, _, val = part.partition(":")
+        kind, val = kind.strip().lower(), val.strip().lower()
+        try:
+            if kind == "lag":
+                v = float(val)
+                ok = 0 < v <= 2000
+            elif kind == "slow":
+                a, _, b = val.partition("/")
+                v = float(a) / float(b) if b else float(a)
+                ok = 0.05 <= v < 1
+            elif kind == "coarse":
+                v, ok = val, val in DEGRADE_COARSE
+            elif kind == "colours":
+                v = int(val)
+                ok = v in (12, 8)
+            else:
+                ok = False
+        except (ValueError, ZeroDivisionError):
+            ok = False
+        if not ok:
+            raise vid.V88Error("--ladder: %r is not a rung (lag:MS, "
+                               "slow:A/B, coarse:auto|WxH, colours:12|8)"
+                               % part)
+        out.append((kind, v))
+    return out
+
+
+def degrade_rungs(a):
+    """The file's ladder, parsed once - [] when there is none"""
+    c = getattr(a, "_ladr", None)
+    if c is None or c[0] != getattr(a, "ladder", ""):
+        c = a._ladr = (getattr(a, "ladder", ""),
+                       degrade_parse(getattr(a, "ladder", "")))
+    return c[1]
+
+
+def degrade_steps(rungs, fps, fgrid=None):
+    """The prefixes the ladder tries, each (index, rate, lag frames, cell):
+    a prefix's slowest rate, its longest lag and its coarse cell - one a
+    rung that changes nothing a stretch can try (fewer colours is a
+    scene's, decided before) left out"""
+    out, r, lag, cell = [], 1.0, None, None
+    for i, (kind, v) in enumerate(rungs):
+        if kind == "slow" and v < r:
+            r = v
+        elif kind == "lag":
+            f = v * fps / 1000.0
+            if fgrid:                   # (a call's grid: 98.2.1.1.3)
+                f = math.ceil(max(1.0, f) / fgrid - 1e-9) * fgrid
+            if lag is None or f > lag:
+                lag = f
+        elif kind == "coarse":
+            cell = v
+        else:
+            continue
+        step = (i + 1, r, lag, cell)
+        if not out or out[-1][1:] != step[1:]:
+            out.append(step)
+    return out
+
+
 def vfr_pattern(n, r):
     """A stretch of `n` frames at `r` of the rate: True where a frame is
     HELD - the first of a stretch held, its last always drawn"""
@@ -3604,7 +3689,7 @@ def vfr_cut(enc, target, au):
 
 
 def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
-            shown=None, stay=False):
+            shown=None, stay=False, lag=None, count=False):
     """The stretch `ts` encoded on a copy at the hold pattern `pat`: its
     mean view as seen, a frame against the picture it draws (a held one's
     the next shown, and VFR_HOLD more). `first`, what the first frame
@@ -3613,9 +3698,13 @@ def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
     again whole - and is judged against `shown`, what it shows. STAY, a
     flipped file's HELD record (98.1.3.9): drawn toward the next frame on
     the page the glass is not showing, and judged as EMPTY's is, by the
-    picture still shown"""
+    picture still shown. LAG, the lag allowance the stretch is drawn at
+    (the ladder's). COUNT -> (that, the frames it shows that were cut)"""
     e = enc_clone(enc)
+    if lag is not None:
+        e.flag_lag = lag
     v, prev = 0.0, tp
+    cuts = 0
     spx = None                          # (the glass through a STAY's run)
     for j, t in enumerate(ts):
         k = j
@@ -3642,18 +3731,49 @@ def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
             continue
         if not (empty or stay) or k == j:
             shown = ts[k]
+        c0 = e.stats["cut"]
         if j == 0 and k == 0 and first is not None and first is not ts[0]:
             e.all3 = e.wm3
             _, rec = e.frame(first, au)
             e.all3 = False
+            cuts += 1                   # (cells: not the picture, whole)
         else:
             _, rec = e.frame(ts[k], au if j == 0 else b"\x80" * len(au))
+        if k == j and e.stats["cut"] != c0:
+            cuts += 1
         e.charge(rec, len(au))
         T = e.tpix(ts[k])[1]
         v += seen_share(e.spix()[1], T, prev) + \
             (cost / 100.0 if pat[j] else 0.0)
         prev = T
-    return v / len(ts)
+    return (v / len(ts), cuts) if count else v / len(ts)
+
+
+def degrade_choose(enc, ts, au, steps, fps, tp, first=None, cost=VFR_HOLD,
+                  empty=False, shown=None, stay=False, coarse=None):
+    """THE DEGRADE LADDER at a stretch (--ladder): today's draw, then each
+    of the ladder's prefixes (`steps`, degrade_steps), each encoded on a
+    copy - the first that shows every frame WHOLE, else the least broken.
+    `coarse(cell)` is the stretch's first frame in cells, where it is a
+    scene's first -> (hold pattern, rate, lag frames, cell, rung index)"""
+    n = len(ts)
+    full = [False] * n
+    v, cuts = vfr_try(enc, ts, full, au, tp, first, cost, empty, shown,
+                      stay, count=True)
+    best = (v, full, 1.0, None, None, 0)
+    if cuts == 0:
+        return best[1:]
+    for i, r, lag, cell in steps:
+        pat = vfr_pattern(n, r) if r < 1.0 else full
+        cf = coarse(cell) if cell is not None and coarse is not None and \
+            not pat[0] else first
+        v, cuts = vfr_try(enc, ts, pat, au, tp, cf, cost, empty, shown,
+                          stay, lag=lag, count=True)
+        if cuts == 0:
+            return pat, r, lag, cell if cf is not first else None, i
+        if v < best[0] - 1e-9:
+            best = (v, pat, r, lag, cell if cf is not first else None, i)
+    return best[1:]
 
 
 def vfr_choose(enc, ts, au, fmin, fps, tp, first=None, cost=VFR_HOLD,
@@ -7240,7 +7360,11 @@ def vfr_plan(plan, kept):
     H = set(F for F in plan.get("H") or () if inn(F))
     T = dict((F, t) for F, t in plan["T"].items()
              if F not in (plan.get("HT") or ()) or inn(F))
-    return dict(plan, H=H, T=T, S=ks)
+    out = dict(plan, H=H, T=T, S=ks)
+    for x in ("LG", "CC"):              # (--ladder: its lag and cells)
+        if x in plan:
+            out[x] = dict((F, v) for F, v in plan[x].items() if inn(F))
+    return out
 
 
 def vfr_page_select(c, plan, res, held, keep, tick, readers):
@@ -7285,7 +7409,7 @@ def vfr_page_select(c, plan, res, held, keep, tick, readers):
         best = min(runs, key=lambda x: x[0].get("q_seen", 0.0))
         if best[3] is not None:
             shutil.move(best[3], c.out)
-        note = ("   --min-fps with page-ahead: %d of %d slowed stretches drew "
+        note = ("   holding frames with page-ahead: %d of %d slowed stretches drew "
                 "better with their holds; the file is the pass %s - the "
                 "view %.1f%% broken, against %.1f%% with every hold and "
                 "%.1f%% with none (VIDEO-SEEN-PLAN 3a)" % (
@@ -7388,7 +7512,13 @@ def page_passes(a, keep, tick, readers, mode="on"):
             res2, h2, plan = vfr_page_select(c, plan, res2, h2, keep, tick,
                                              readers)
             c._paplan = plan
-        worse, better = page_compare(res2, res1)
+        # (a file that may HOLD frames - --min-fps, --ladder - trades cut
+        # frames for held ones by design, and the passes hold differently:
+        # its picture's measures judge it, and not a count of either - the
+        # count alone dropped a page-ahead file better on every one of them)
+        held = bool(getattr(a, "min_fps", 0) or degrade_rungs(a))
+        meas = PAGE_PICTURE if held else PAGE_MEASURES
+        worse, better = page_compare(res2, res1, meas)
         pg = res2.get("page") or {}
         drop = mode == "auto" and (worse or not better or
                                    not pg.get("flips"))
@@ -7426,7 +7556,7 @@ def page_passes(a, keep, tick, readers, mode="on"):
                 # (a pruned build's scene change is cut again by design:
                 # the frames cut cannot judge a prune, the picture can)
                 w32, b32 = page_compare(res3, res2, PAGE_PICTURE)
-                w3, b3 = page_compare(res3, res1)
+                w3, b3 = page_compare(res3, res1, meas)
                 if p3.get("flips") and (
                         (not w32 and b32) or
                         (drop and not w3 and b3)):
@@ -7679,6 +7809,9 @@ def ladder_on(a):
     """--step-down on (the default since 2026-10-14) and a palette a scene
     for it to step: a file without scenes has nothing to step and is made
     as before, so the default costs it nothing"""
+    if degrade_rungs(a):                 # (--ladder: its FEWER COLOURS rung)
+        return any(k == "colours" for k, v in degrade_rungs(a)) and \
+            bool(getattr(a, "scene_palettes", False))
     return getattr(a, "step_down", "off") == "on" and \
         bool(getattr(a, "scene_palettes", False))
 
@@ -7735,6 +7868,9 @@ def ladder_steps(a, res, tick=None):
         return {}, ["   step-down: no scenes to step (--scene-palettes)"]
     pn = palette_kind(a.palette)[1]
     least = int(getattr(a, "step_min", 8) or 8)     # (--step-min)
+    if degrade_rungs(a):                 # (--ladder: its rung's colours)
+        least = min([v for k, v in degrade_rungs(a) if k == "colours"] or
+                    [least])
     rungs = [n for n in (12, 8) if least <= n < pn]
     jobs = getattr(a, "jobs", None) or os.cpu_count() or 1
     fps = g["rate"] / float(g["spf"])
@@ -8480,6 +8616,9 @@ def _encode(a, keep, tick, readers):
     # picture that fell behind back to the sound; a period apart (silent,
     # the speaker's clock) it stays behind for good
     lo_ms, hi_ms = lag_bounds(getattr(a, "lag", LAG_MS))
+    lad_lags = [v for kind, v in degrade_rungs(a) if kind == "lag"]
+    if degrade_rungs(a):                 # (--ladder: its lag rungs, a frame
+        lo_ms = hi_ms = max(lad_lags) if lad_lags else 0.0  # the floor)
     lagf = hi_ms * fps / 1000.0
     card = bool(afmt) and not spk
     lagon = False
@@ -8505,6 +8644,8 @@ def _encode(a, keep, tick, readers):
     # two calls is the call above it (begin()) - a frame at least, the
     # schedule's own floor; the search below picks one each time the
     # picture starts to fall behind
+    if degrade_rungs(a) and lagon:
+        enc.flag_lag = 1                # (the ladder raises it a stretch)
     enc.lag_cands = None
     if lagon and hi_ms > lo_ms:
         gr = enc.fgrid / enc.q
@@ -8817,8 +8958,8 @@ def _encode(a, keep, tick, readers):
         # (not onto a page just FLIPPED to: page-ahead built that frame
         # nearer than any cells, and the cells are its fallback - the
         # options audit, 2026-10-14)
-        if a.coarse_cut != "off" and scene_pals and k in pev_at and k and \
-                not (p is not None and p.flipped):
+        if a.coarse_cut != "off" and not lrungs and scene_pals and \
+                k in pev_at and k and not (p is not None and p.flipped):
             # (a flat byte is ONE store in write mode 3 and up to two by
             # planes, and a flat run is one RUN: the cells fit a record)
             cell = a.coarse_cut if a.coarse_cut != "auto" else \
@@ -8827,6 +8968,19 @@ def _encode(a, keep, tick, readers):
                 draw = coarse_target(target, e.pal, cell)
                 e.all3 = e.wm3
         held = hdraw = None
+        if lsteps is not None and vreplay is None:
+            if e.vlagn:
+                e.vlagn -= 1
+            elif e.flag_lag != lbase and getattr(e, "flag", 0) <= 0:
+                e.flag_lag = lbase      # (level again: the ladder's floor)
+        if vreplay is not None and lsteps is not None:
+            # (the plan's rungs, replayed: its lag and its cells)
+            e.flag_lag = plan.get("LG", {}).get(k, lbase)
+            c = plan.get("CC", {}).get(k)
+            if c is not None and draw is target:
+                cell = c
+                draw = coarse_target(target, e.pal, c)
+                e.all3 = e.wm3
         if vreplay is not None:
             if k in vreplay and draw is target:
                 held = True             # (nothing on the page shown: the
@@ -8849,7 +9003,34 @@ def _encode(a, keep, tick, readers):
             if os.environ.get("OS88_VENC_VFRLOG") and e is enc:
                 with open(os.environ["OS88_VENC_VFRLOG"], "a") as fl:
                     fl.write("f %d: stretch %d, cut %s\n" % (k, n, vcut))
-            if vcut:
+            if vcut and lsteps is not None:
+                pat, r, lg, lc, li = degrade_choose(
+                    e, [target] + list(vfut)[:n - 1], au, lsteps, fps,
+                    e.q_stp, draw, vcost, vempty, vshown, vstay,
+                    (lambda c, t=target: coarse_target(
+                        t, e.pal, c if c != "auto" else
+                        coarse_pick(e, t, au)))
+                    if scene_pals and k in pev_at and k else None)
+                if lg is not None:      # (the rung's lag, until level)
+                    e.flag_lag, e.vlagn = lg, n
+                if lc is not None:
+                    cell = lc if lc != "auto" else coarse_pick(e, target, au)
+                    if cell != "full":
+                        draw = coarse_target(target, e.pal, cell)
+                        e.all3 = e.wm3
+                e.vladder[li] = e.vladder.get(li, 0) + 1
+                if li:
+                    e.vstretch.append((k, k + n, round(r * fps, 1)))
+                    if r < 1.0:
+                        e.vrates[round(r * fps, 1)] = \
+                            e.vrates.get(round(r * fps, 1), 0) + 1
+                    if lg is not None:
+                        for f in range(k, k + n):
+                            e.vlagat[f] = lg
+                    if lc is not None:
+                        e.vcellat[k] = cell
+                e.vplan.extend(pat if any(pat) else pat[:VFR_AGAIN])
+            elif vcut:
                 pat, r = vfr_choose(e, [target] + list(vfut)[:n - 1], au,
                                     vfr, fps, e.q_stp, draw, vcost, vempty,
                                     vshown, vstay)
@@ -8891,7 +9072,8 @@ def _encode(a, keep, tick, readers):
         return dict(ops=ops, rec=rec, hops=hops, draw=draw, npal=npal,
                     pal=pal, cell=cell, cut=e.stats["cut"] - c0, left=left,
                     c=c, hs=hs, held=held, hdraw=hdraw,
-                    stay=bool(held and vstay and vreplay is None))
+                    stay=bool(held and vstay and vreplay is None),
+                    lag=e.flag_lag if lsteps is not None else None)
 
     def lag_seed(objs, bufs):
         """What a lag snapshot SHARES rather than copies: the targets (and
@@ -8985,6 +9167,39 @@ def _encode(a, keep, tick, readers):
     # VARIABLE FRAME RATE (--min-fps, VIDEO-SEEN-PLAN 3a): the stretch's
     # hold pattern, decided where the budgets would first cut
     vfr = float(getattr(a, "min_fps", 0.0) or 0.0)
+    lrungs = degrade_rungs(a)
+    lsteps = None
+    if lrungs:
+        # THE DEGRADE LADDER (--ladder): its rungs in place of --min-fps,
+        # --lag's search and --coarse-cut, each kept only where this file
+        # can use it - the rest said, and left out
+        keep, why = [], []
+        for kind, v in lrungs:
+            no = "a sound card's sound (the lag catches up only on its " \
+                "clock)" if kind == "lag" and not lagon else \
+                "scene palettes (--scene-palettes)" if kind in (
+                    "coarse", "colours") and not scene_pals else \
+                "a file that is not Live or layered" if kind == "slow" and (
+                    a.live or lay is not None) else \
+                "pixels to judge a rung by" if not enc.metric else None
+            if no:
+                why.append("%s:%s needs %s" % (kind, v if kind != "slow"
+                                               else "%.3g" % v, no))
+            else:
+                keep.append((kind, v))
+        for w in why:
+            say("   --ladder: %s - left out" % w)
+        lsteps = degrade_steps(keep, fps, enc.fgrid / enc.q
+                                 if enc.fgrid else None)
+        enc.vkeep = keep
+        rs = [v for kind, v in keep if kind == "slow"]
+        vfr = fps * min(rs) if rs else fps  # (the ladder decides, or nothing
+        if not lsteps:                      # left to decide with)
+            lsteps, vfr = None, 0.0
+    lbase = enc.flag_lag
+    enc.vlagn, enc.vladder, enc.vlagat, enc.vcellat = 0, {}, {}, {}
+    if not hasattr(enc, "vkeep"):
+        enc.vkeep = []
     if vfr and (lay is not None or a.live or not enc.metric):
         say("   --min-fps: not on a %s - %s" % (
             "layered file" if lay is not None else "Live file" if a.live
@@ -9017,6 +9232,8 @@ def _encode(a, keep, tick, readers):
     # built toward the frame after it and flipped to
     vreplay = (plan.get("H") or set()) if vfr and plan is not None \
         else None
+    if vreplay is not None and lsteps is not None:
+        enc.vladder = dict(plan.get("LD") or {})  # (the plan's decisions)
     if vreplay is not None:
         enc.vrates = {}
         for _, _, r in plan.get("S") or ():
@@ -9131,6 +9348,10 @@ def _encode(a, keep, tick, readers):
                     plog["P"][f] = getattr(enc, "pal", None)
                     plog.setdefault("HT", set()).add(f)
                 plog["S"] = list(enc.vstretch)
+                if lsteps is not None:
+                    plog["LG"], plog["CC"] = dict(enc.vlagat), \
+                        dict(enc.vcellat)
+                    plog["LD"] = dict(enc.vladder)
             pcut = short
             ptgt = target.copy() if npg > 2 else None
         if enc.bank:                # HOW DEEP THE BANK IS DRAWN (98.2.1.3.3)
@@ -9492,6 +9713,18 @@ def _encode(a, keep, tick, readers):
                 " the lag schedule %d," % st["flip"] if st.get("flip")
                 else "", a.frame_cap, st["cap"])
             if st["cut"] else ""))
+    if lsteps is not None and enc.vladder:
+        tot = sum(enc.vladder.values())
+        rep("base", "degrade ladder: %d stretch(es) the budgets would cut - "
+            "%s (--ladder %s, VIDEO-SEEN-PLAN 3a)" % (
+                tot, ", ".join(
+                    ("%d drawn as they were" % c) if i == 0 else
+                    ("%d at rung %d (%s)" % (c, i, ", ".join(
+                        "%s:%s" % (kk, ("%.3g" % vv) if kk == "slow" else
+                                   ("%g" % vv) if kk == "lag" else vv)
+                        for kk, vv in enc.vkeep[:i])))
+                    for i, c in sorted(enc.vladder.items())),
+                getattr(a, "ladder", "")))
     if vfr:
         rep("base", "variable frame rate: %s; %d frames held, each %s "
             "(--min-fps %g, VIDEO-SEEN-PLAN 3a)"
@@ -9613,6 +9846,9 @@ def _encode(a, keep, tick, readers):
             "98.2.1.1.2)"
             % (st["fover"], st["fmaxlag"], st["fmaxlag"] * 1000.0 / fps,
                st.get("fbehind", 0),
+               " - the degrade ladder's lag, raised a stretch at a time "
+               "from a frame" if lsteps is not None and any(
+                   kk == "lag" for kk, vv in enc.vkeep) else
                " - --lag %s searched for each burst" % a.lag
                if enc.lag_cands else
                " - --lag allows %.1f" % enc.flag_lag
@@ -9829,7 +10065,8 @@ def _encode(a, keep, tick, readers):
                # read as cutting less than one that drew - VIDEO-SEEN-PLAN
                # 3a, wave 2)
                cutf=(st["cut"] + st.get("holds", 0)) / nf,
-               cuts=st["cut"])
+               cuts=st["cut"], holds=st.get("holds", 0),
+               ladder=dict(enc.vladder) if lsteps is not None else None)
     if enc.metric and enc.q_frames:     # (98.2.1.8.1's comparison)
         pr = picture_report(enc.q_frames, enc.q_bad, fps)
         res.update(q_worst=pr[1], q_broken=pr[3] / fps)
@@ -10043,6 +10280,17 @@ def parser():
                          "frame draws toward the next one shown (0 off, the "
                          "default; not on a flipped, page-ahead, layered or "
                          "Live file; VIDEO-SEEN-PLAN 3a)")
+    ap.add_argument("--ladder", default="", metavar="RUNGS",
+                    help="THE DEGRADE LADDER: where the budgets would cut, "
+                         "the RUNGS in order, each on top of those before - "
+                         "lag:MS, slow:A/B (of the frame rate), coarse:auto|"
+                         "WxH (cells at a scene change), colours:12|8 (a "
+                         "scene's palette stepped down) - the first that "
+                         "draws the stretch whole taken, else the least "
+                         "broken; then the cut. It sets --lag, --min-fps, "
+                         "--coarse-cut, --step-down and --step-min itself. "
+                         "Blank: off, the default (VIDEO-SEEN-PLAN 3a; the "
+                         "window's default ladder is %s)" % DEGRADE_DEFAULT)
     ap.add_argument("--flip-hold", choices=("ahead", "empty"),
                     default="ahead",
                     help="--min-fps on a FLIPPED file: AHEAD, a held frame "
