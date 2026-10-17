@@ -123,7 +123,6 @@ SN_C_NEW    equ 0x0E            ; Ctrl+N
 %define STIK_CAP     'Sticky Note'
 %define STIK_ISOPEN  'Sticky Note is open'
 %define STIK_DMGREPLACE         ; a damaged file is replaced by the first save
-%define STIK_REDRAW             ; stik_redraw: the face again once About is down
 %define STIK_ONTICK  sn_tick
 %define STIK_DESKONLY           ; kern_big only: no titled fallback, no worker
                                 ; arm (SPEC.md 110.13, the plan's decision F)
@@ -169,7 +168,6 @@ SN_WZ       equ SNB
     SNV sn_ndir, 2              ; ...NOTES' first cluster (sn_go)...
     SNV sn_dvol, 1              ; ...and the volume: OSAPI_PKG_START's ES:DI
     SNV sn_stem, 8              ; sn_colfind's stem
-    SNV sn_abwin, 2             ; the About card is up (its window), 0 not
     SNV sn_mono, 1              ; the primary is 1bpp: no colours
     SNV sn_ask, 1               ; Delete's latch: 2 armed by this event
     SNV sn_opq, 1               ; an open is owed to the wake
@@ -379,7 +377,7 @@ sn_launch:
     push ds
     pop es
     mov di, sn_doc
-    mov si, sn_ab3              ; "": the document's extension names the
+    mov si, sn_empty            ; "": the document's extension names the
     xor cx, cx                  ; program
     xor dx, dx
     call OSAPI_PKG_START
@@ -712,7 +710,6 @@ sn_pens:    db CYELLOW, CLMAGENTA, CLGREEN, CLCYAN, CWHITE
 ; -----------------------------------------------------------------------------
 sn_oncmd:
     call sn_age
-    call sn_abdismiss
     cmp ah, 1
     je .col
     xor ah, ah
@@ -790,41 +787,13 @@ sn_menulive:
     jb .c
     ret
 
-; -----------------------------------------------------------------------------
-; the About card (SPEC.md 12.2, 20.5.1), over the pad
-; -----------------------------------------------------------------------------
+; sn_about - the About item (SPEC.md 12.2, 20.5.1): one toast, as the Desk
+; Calendar's, and the pad is never covered. W_ONCLICK's terms: SI given back
 sn_about:
-    call sn_abdismiss
-    mov [sn_abwin], si
-    mov bx, si
-    mov si, sn_ablines
-    jmp os88ui_about            ; arms the clip itself
-
-; sn_abdraw - the card over the pad's paint (SI = the pad) while it is up
-sn_abdraw:
-    cmp word [sn_abwin], 0
-    je .r
-    mov bx, si
-    mov si, sn_ablines
-    call os88ui_about_d
-    mov si, bx
-.r:
-    ret
-
-; sn_abdismiss - the card down if it is up: the pad drawn again whole, and
-; CF = 1 the event was that. Every register kept
-sn_abdismiss:
-    cmp word [sn_abwin], 0
-    je .no
-    mov word [sn_abwin], 0
     push si
-    mov si, [stik_win]
-    call stik_redraw
+    mov si, sn_s_about
+    call sn_toast
     pop si
-    stc
-    ret
-.no:
-    clc
     ret
 
 ; --- the pad's window (SPEC.md 110.11, 110.13) --------------------------------
@@ -879,17 +848,13 @@ sn_s_nos:   db 'Note not saved', 0
 sn_s_big:   db 'Note is over 16 KB', 0
 sn_s_qdel:  db 'Delete again to confirm', 0
 
-sn_ablines: dw sn_ab1, sn_ab2, sn_ab3, sn_ab4, 0
-sn_ab1:     db 'Sticky Note', 0     ; each line inside the 192-px face
-sn_ab2:     db 'Notes on the desk', 0
-sn_ab3:     db 0                    ; (also OSAPI_PKG_START's empty name)
-sn_ab4:     db 'SPEC.md 110.13', 0
+sn_s_about: db 'Sticky Note, SPEC 110.13', 0
+sn_empty:   db 0                    ; OSAPI_PKG_START's empty program name
 
 %include "sntext.inc"
 
-%define OS88UI_ABOUT
-%define OS88UI_NOBTN            ; no push button and no check box: the About
-%define OS88UI_NOGLYPH          ; card alone (ours are composed bit records)
+%define OS88UI_MACROS           ; no os88ui control: About is a toast (the
+                                ; Desk Calendar's arrangement)
 %include "os88ui.inc"
 %include "os88gfx.inc"
 %include "os88stik.inc"

@@ -193411,19 +193411,26 @@ or hard at the width with none - 21 cells for text, 19 for a box's).
 
 #### 110.13.6 What it costs
 
-**No kernel byte, and no shared-include byte.** Measured at this build:
+**No kernel byte.** Measured, at each step of the size pass:
 
-| `stiknote.o88` | the editor (`84157fc4`) | the pad over files |
-|---|---:|---:|
-| image | 16,912 | **9,104** |
-| bss | 6,485 | **1,906** (band 768, head 512, the include's 530 - its payload 285 of it) |
-| packed on the disk | 14,524 | **8,202** |
-| heap at rest | none | none |
-| heap while ticking | none | the note's size in KB, freed at once |
+| `stiknote.o88` | the editor (`84157fc4`) | the pad over files | + the shared include's pass | + the shared library (§110.15) | + About as a toast |
+|---|---:|---:|---:|---:|---:|
+| image | 16,912 | 9,104 | 8,592 | 5,936 | **5,664** |
+| bss | 6,485 | 1,906 | 1,906 | 1,757 | **1,757** |
+| packed on the disk | 14,524 | 8,202 | 7,769 | 5,136 | **4,890** |
 
-Editing costs Note Pad's instance (~20 KB) only while it is open. The size
-pass after the rewrite took the Color menu's fifteen padded strings down to
-five, one a paper composed three ways (-240).
+At rest it claims no heap; while a tick is being written, the note's size in
+KB, freed at once. Editing costs Note Pad's instance (~20 KB) only while it is
+open. The size pass after the rewrite took the Color menu's fifteen padded
+strings down to five, one a paper composed three ways (-240).
+
+**About is one toast, as the Desk Calendar's** (`sn_about`, `Sticky Note, SPEC
+110.13`): the card over the pad, its dismissal on the next event and the redraw
+that put the pad back are gone, and with them os88ui.inc's About code
+(`OS88UI_MACROS`). The owner's rule for it was a disk CLUSTER: taken only if
+it dropped the packed file below a cluster boundary at the end of the pass. It
+dropped 5,136 to 4,890, so 11 to 10 clusters of 512 bytes (the 360 KB, 1.2 MB
+and 1.44 MB system disks) and 6 to 5 of 1 KB (the 720 KB one).
 
 #### 110.13.7 What is not done
 

@@ -122,8 +122,7 @@ snp_widths:
 ; card over it while it is up there
 ; -----------------------------------------------------------------------------
 snp_paint:
-    call stik_paint
-    jmp sn_abdraw
+    jmp stik_paint
 
 ; snp_redraw - the card again, whole, outside a paint (lock held)
 snp_redraw:
@@ -786,8 +785,6 @@ sn_dec:
 ; -----------------------------------------------------------------------------
 snp_oncard:
     call sn_age                 ; an event: Delete's latch one older
-    call sn_abdismiss
-    jc .none
     call snp_hit
     mov [snp_press], al
     ret
@@ -937,8 +934,6 @@ snp_rline:
 ; opens the note, Del deletes it (twice), Ctrl+N a new one
 snp_onkey:
     call sn_age
-    call sn_abdismiss
-    jc .r
     cmp ah, KSC_LEFT
     jne .k1
     jmp sn_prev
