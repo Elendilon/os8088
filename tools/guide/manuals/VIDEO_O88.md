@@ -25,7 +25,7 @@ is a copy your browser can play, with the video's own sound.
 ![Trackmania: sixteen colours on a CGA card and an RGB monitor.](video:cga/07-cga16)
 ![The same clip in about 450 colours, on a CGA card's composite output.](video:cga/09-cmp5o)
 ![Star Wars: playing in its window, on a Hercules card.](video:herc/04-adpcm)
-![Steamboat Willie: playing Live, while the desktop keeps working.](video:cga/11-live)
+![Steamboat Willie: a video made to play Live, on the desktop.](video:cga/11-live)
 
 All of these, and more, are on the video demo hard drives: one for a CGA
 card and one for a Hercules card, each with os8088 installed and its videos
