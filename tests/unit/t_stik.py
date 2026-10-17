@@ -181,6 +181,8 @@ DATA_IMAGES = ["apps.img", "apps120.img", "apps720.img", "apps360.img",
                "media360.img", "office360.img", "network360.img",
                "games360.img"]
 OPTIONAL_DATA = ["smallapps.img", "smallapps360.img"]   # `make smallapps`
+NOTES_DIR = "SYSTEM/APPDATA/NOTES"     # Sticky Note's notes (SPEC.md 110.13.1)
+NOTES_SLOTS = 32                        # '.', '..' and 30 notes
 
 
 def walk(path):
@@ -196,7 +198,8 @@ def walk(path):
                                  else "")
         key = p + name
         if attr & 0x10:
-            out[key + "/"] = None
+            chain, _ = v.chain(clus)        # a folder: its DIRECTORY SLOTS
+            out[key + "/"] = len(chain) * v.spc * v.byts // 32
             continue
         data = bytearray()
         chain, _ = v.chain(clus)
@@ -485,6 +488,13 @@ def main():
         check(dkwant is not None, "build/deskclok.o88 exists",
               why="every system disk carries it beside the calendar and the "
                   "note (SPEC.md 110.14); run `make`")
+        wpath = os.path.join(build, "notes", "WELCOME.TXT")
+        welcome = open(wpath, "rb").read() if os.path.exists(wpath) else None
+        check(welcome is not None and welcome.startswith(b"Welcome\r\n")
+              and b"\n" not in welcome.replace(b"\r\n", b""),
+              "build/notes/WELCOME.TXT exists, its line ends CR LF",
+              why="Note Pad's own line ends (SPEC.md 27.1); `make` makes "
+                  "it from apps/stiknote/welcome.txt")
         check(snwant is not None, "build/stiknote.o88 exists",
               why="every system disk carries it beside the calendar "
                   "(SPEC.md 110.13); run `make`")
@@ -543,6 +553,23 @@ def main():
                 check(got == snwant, "%s's STIKNOTE.O88 is "
                       "build/stiknote.o88 byte for byte" % img,
                       got=len(got), want=len(snwant))
+            if img not in SMALL_SYSTEM:
+                # THE NOTES FOLDER (SPEC.md 110.13.1): beside the package,
+                # pre-sized - the kernel never grows a directory (18.5) -
+                # and made to exist by WELCOME.TXT
+                slots = files.get(NOTES_DIR + "/")
+                check(slots is not None and slots >= NOTES_SLOTS,
+                      "%s carries %s/ with %d directory slots or more"
+                      % (img, NOTES_DIR, NOTES_SLOTS), got=slots,
+                      want=NOTES_SLOTS,
+                      why="$(STIKNOTESARG) and $(STIKNOTESOPT) ship it in "
+                          "each system-disk recipe; a folder the kernel "
+                          "made holds 14 notes at 512-byte clusters")
+                got = files.get(NOTES_DIR + "/WELCOME.TXT")
+                check(got is not None and got == welcome,
+                      "%s's %s/WELCOME.TXT is build/notes/WELCOME.TXT "
+                      "byte for byte" % (img, NOTES_DIR),
+                      got=got and len(got), want=welcome and len(welcome))
             got = files.get("STIKAPPS/DESKCLOK.O88")
             check(got is not None, "%s carries STIKAPPS/DESKCLOK.O88" % img,
                   why="the third Sticky App rides $(STIKAPPS) beside the "
