@@ -8,7 +8,7 @@ document with **File > Open...**.
 ## What is on it
 
 - **SCRIBE.O88**: the word processor. See [[SCRIBE.O88]].
-- **SCWELCOM.RTF** and **WELCOME.DOC**: two copies of the welcome
+- **SCWELCOM.RTF** and **SCWELCOM.DOC**: two copies of Scribe's welcome
   document, one in RTF and one in Word's own format.
 - **DOCS**: an empty folder for your own documents. Leave the disk writable
   so Scribe can save there.

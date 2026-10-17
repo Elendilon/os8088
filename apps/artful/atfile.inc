@@ -172,6 +172,36 @@ at_confirm:
     pop si
     ret
 
+; at_wreplace - New or Open from the WINDOWED state: the start card's two
+; buttons and keys and the windowed bar's File menu (SPEC.md 46.7.2)
+; in:  AL = AT_CMD_NEW or AT_CMD_OPEN; UI task, gfx lock held; preserves all
+;      registers
+;
+; Both land in the fullscreen editor whatever they do, and both used to throw
+; an EDITED document away first without asking - a WRITING.MD typed into and
+; taken back to the start card was gone at the next New. The question is the
+; fullscreen editor's own (at_confirm's at_alert, which Ctrl+N already asks
+; through), and at_alert draws on the fullscreen surface, so an edited
+; document goes there FIRST and is asked about over itself: Save / Cancel /
+; Don't, with Cancel leaving the user in the editor with it. A clean one
+; takes exactly the path it always took.
+at_wreplace:
+    cmp byte [at_dirty], 0
+    jne .ask
+    cmp al, AT_CMD_NEW
+    jne .open
+    call at_cmd_newdoc
+    jmp at_fs_enter
+.open:
+    jmp at_dlg_open                 ; (its completion enters fullscreen)
+.ask:
+    call at_fs_enter                ; preserves AX
+    cmp byte [at_fs], 0
+    je .o                           ; refused - another window owns the
+    jmp at_confirm                  ; screen: the card stays, nothing lost
+.o:
+    ret
+
 ; at_runpend - the pending action, once the changes question is settled
 at_runpend:
     push ax

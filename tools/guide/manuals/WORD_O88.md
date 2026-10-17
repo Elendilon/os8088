@@ -240,7 +240,7 @@ those parts of the window.
 | Close | | Closes the window |
 | Save | `Shift+F12` or `Ctrl+S` | Saves under the current name |
 | Save As... | `F12` | Saves under a new name |
-| Exit | | Closes the window, like Close |
+| Exit | `Alt+F4` | Closes the window, like Close |
 
 If the document has changes, New, Open, Close and Exit first ask **Do you
 want to save changes to** the document. **Yes** saves first, **No** throws

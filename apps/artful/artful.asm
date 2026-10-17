@@ -566,11 +566,12 @@ at_onkey:
     call at_fs_enter
     jmp short .done
 .new:
-    call at_cmd_newdoc
-    call at_fs_enter
+    mov al, AT_CMD_NEW              ; asks first when the document is edited
+    call at_wreplace                ; (SPEC.md 46.7.2)
     jmp short .done
 .open:
-    call at_dlg_open
+    mov al, AT_CMD_OPEN
+    call at_wreplace
 .done:
     pop es
     pop bp
@@ -649,11 +650,12 @@ at_koncmd:
     call at_fs_enter                ; Write: the current document, fullscreen
     jmp short .out
 .new:
-    call at_cmd_newdoc
-    call at_fs_enter
+    mov al, AT_CMD_NEW              ; asks first when the document is edited
+    call at_wreplace                ; (SPEC.md 46.7.2)
     jmp short .out
 .open:
-    call at_dlg_open
+    mov al, AT_CMD_OPEN
+    call at_wreplace
 .out:
     ret
 

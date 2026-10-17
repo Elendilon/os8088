@@ -1261,11 +1261,12 @@ at_modal_up:
     jne .md
     cmp al, 1                       ; --- the SPLASH: New, then Open ---
     jne .spopen
-    call at_cmd_newdoc              ; a fresh document...
-    call at_fs_enter                ; ...and the whole screen
-    jmp short .out
+    mov al, AT_CMD_NEW              ; a fresh document and the whole
+    call at_wreplace                ; screen - asking first when the one
+    jmp short .out                  ; we have is edited (SPEC.md 46.7.2)
 .spopen:
-    call at_dlg_open
+    mov al, AT_CMD_OPEN
+    call at_wreplace
     jmp short .out
 .md:
     cmp al, 1                       ; --- the MODAL: Save, Cancel, Don't ---

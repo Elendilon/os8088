@@ -10272,7 +10272,15 @@ scribedisk: $(BUILD)/scribe.img $(BUILD)/scribe720.img \
 $(BUILD)/SCWELCOM.RTF: tools/os88rtf.py tools/os88doc.py apps/scribe/welcome.wtx | $(BUILD)
 	python3 tools/os88rtf.py apps/scribe/welcome.wtx -o $@
 
-SCRIBEDISK := $(BUILD)/scribe.o88 $(BUILD)/WELCOME.DOC $(BUILD)/SCWELCOM.RTF
+# ...and SCWELCOM.DOC, the SAME page as a native .DOC, where the disk used to
+# carry Word's own WELCOME.DOC: a Scribe disk whose sample document opens on
+# "WELCOME TO MICROSOFT WORD" is the fork's identity leaking, and the page
+# itself says it is on the disk twice. The .DOC is still the sample Scribe
+# reads that format from (SPEC.md 95.2).
+$(BUILD)/SCWELCOM.DOC: tools/os88doc.py apps/scribe/welcome.wtx | $(BUILD)
+	python3 tools/os88doc.py apps/scribe/welcome.wtx -o $@
+
+SCRIBEDISK := $(BUILD)/scribe.o88 $(BUILD)/SCWELCOM.DOC $(BUILD)/SCWELCOM.RTF
 
 $(BUILD)/scribe.img: $(SCRIBEDISK) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(SCRIBEDISK) --folder DOCS
@@ -13929,9 +13937,10 @@ LIVESYSARGS := $(addprefix SYSTEM:,$(filter-out $(APPSYS),$(SYSAPPS))) \
 # SCRIBE took the budget NEGATIVE. The note over $(ALLAPPSFILES) has the
 # arithmetic. A live volume with 26MB free has no such trade in it.
 #
-# SCRIBE GETS A FOLDER rather than a second .O88 in APPS/: its WELCOME.DOC is
-# a second copy of the name WORD/ already carries, which only separate folders
-# allow. (It was also because SCRIBE.OVL was resolved in the launching
+# SCRIBE GETS A FOLDER rather than a second .O88 in APPS/. Its sample .DOC
+# was Word's own WELCOME.DOC, a second copy of the name WORD/ already carries,
+# which only separate folders allow; it is SCWELCOM.DOC, Scribe's own page,
+# now. (It was also because SCRIBE.OVL was resolved in the launching
 # instance's directory; that module is a part of SCRIBE.O88 now, SPEC.md
 # 95.8.8, so the folder holds one program file and its two documents.)
 #

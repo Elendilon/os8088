@@ -163,8 +163,9 @@ such as **The disk is full.** or **That file is protected.**
 
 ## Good to know
 
-- **New** on the start card starts an empty document without asking. Use
-  `W` to get back to the one you were writing.
+- **New** and **Open...** on the start card ask about unsaved changes over
+  the writing screen first. Use `W` to get back to the document you were
+  writing without starting another.
 - Closing the window with its close box asks **Save changes before
   closing?** if there is unsaved work.
 - If the document cannot hold a paste, ArtfulType says **Not enough room in

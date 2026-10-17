@@ -59067,6 +59067,20 @@ the only honest answer: there is nothing to ask with, and closing after a
 silent save is exactly the behaviour §75 was written to remove. The user
 closes something else and tries again.
 
+#### 27.15.4 File > New asks the same question
+
+New used to empty an edited note without a word while closing the same note
+asked — two ways of throwing the document away, and only one of them
+guarded. `np_asknew` is the close question with a second ending: the same
+`np_dirty`, the same alert and the same `np_onask`, with `[np_qnew]` set when
+it is New's. `np_onask` reads and clears it in one `xchg`: Save (or Discard)
+then empties the note through `np_new` and repaints instead of calling
+`OSAPI_WM_CLOSE`, and an unnamed note's Save As carries it across the dialog
+as `[np_qclose]` = 2 where a close's is 1. **A close beats a New**: when the
+close box is clicked while New's question is up, `np_onclose` clears
+`[np_qnew]` before the refusal raises that question, so the answer closes the
+window — the words on the alert are the same either way.
+
 
 ### 27.16 `APP_SMALL` — the small build of this package
 
@@ -88201,6 +88215,24 @@ surface exists: `at_alert` for the questions asked *inside* the writing
 surface, `os88ui_ask` for the one question that can only be asked when there
 is no writing surface to ask it on.
 
+#### 46.7.2 …and so do the start card and the windowed File menu
+
+"New/Open/Quit ask first" was true of the fullscreen editor's own menu and
+Ctrl+N and of nothing else. The start card's **New** and **Open** (its
+buttons, `Enter`/`N`/`O`) and the windowed bar's **File > New** and **Open**
+called `at_cmd_newdoc` and `at_dlg_open` directly, so a document edited
+fullscreen and taken back to the card was thrown away by the next New
+without a word. All four go through `at_wreplace` now. A clean document takes
+exactly the path it took before. An edited one enters the fullscreen editor
+FIRST and is asked there, through `at_confirm` — the question Ctrl+N already
+asks — rather than through `os88ui_ask`: both commands end in the fullscreen
+editor whatever is answered, the question then sits over the document it is
+about, and Cancel leaves the user in the editor with it. That is §46.7.1's
+line between the two alerts kept rather than crossed: the question is asked
+on the writing surface because there is one to ask it on. A refused
+`OSAPI_FULLSCREEN` (another window holds the screen) leaves the card up and
+the document untouched.
+
 ### 46.9 The document is a heap claim, and it grows
 
 The gap buffer was 20,480 bytes of **bss**, and the reason given for it was
@@ -112751,7 +112783,10 @@ disarms), CAPS and NUM from the BIOS keyboard flag byte at 0040:0017 (polled
 by the worker because a lock key alone emits no key event), and OVR —
 overtype, toggled by Ins: a typed printable REPLACES the character under the
 caret (recorded as delete + insert, so it undoes) except at a ¶ or the end,
-where it inserts. File > Close and Exit close the window: there is no
+where it inserts. File > Close and Exit close the window, and so does
+`Alt+F4`, the key the Exit item has always printed beside it — the kernel
+has no window-close key, so the package that prints the caption keeps it
+(Scribe, §95, the same): there is no
 self-close API slot, so the UI half hides the window and raises a flag, and
 the worker destroys the record and dies inside its next `OSAPI_TASK_ALIVE` —
 the kernel's own teardown path frees the task, region and claims. Both
@@ -114270,7 +114305,9 @@ second set of chrome over the menu bar.
 Text, sections, quotes, lists and ruled tables; `\documentclass` with
 `letterpaper` / `legalpaper` / `a4paper` / `a5paper`, `10pt` / `11pt` /
 `12pt`, `twoside`, `article` / `book`; `\title` / `\author` / `\date` /
-`\maketitle`; `\section` / `\subsection` / `\chapter`; `\textbf`, `\emph`,
+`\maketitle` (and `\today`, the system clock's date spelled as LaTeX
+spells it — `October 17, 2026` — in the text and inside `\date{}`; it was
+the fixed string `August 2026`); `\section` / `\subsection` / `\chapter`; `\textbf`, `\emph`,
 `\textit`, `\texttt`; `center`, `quote`, `abstract`, `itemize`, `enumerate`,
 `tabular`; and the dimension setters (`\parindent`, `\parskip`,
 `\baselineskip`, `\tabcolsep`, `\oddsidemargin`, `\topmargin`, `\textwidth`).
@@ -114826,6 +114863,38 @@ and code packs to about a byte a byte, so what moved it is code that went:
   which it shares). Measured on MartyPC's VGA XT: **+5,976 guest cycles a key
   (1.25 ms at 4.77 MHz)**, on a letter that costs ~690,000 and an arrow
   ~87,500. +13 file bytes.
+
+### 69.12 Throwing an edited document away asks first
+
+Three things replace the document in the window — **closing it** (the close
+box, TeXPad > Close, every door of §75.1), **File > New** / Ctrl+N and
+**File > Open** / Ctrl+O — and none of them asked, so an edited source went
+without a word. Each now goes through `tp_askdirty`, which answers CF = 0 on a
+document whose `[tp_dirty]` is clear and otherwise puts up §75.3's alert,
+`OS88UI_ASAVE`, reading `Save changes to PAPER.TEX?`: Note Pad's question
+(§27.15), in Note Pad's machinery. `tp_onclose` is the negotiator, installed
+in the entry proc; `[tp_qact]` (`TPQ_CLOSE`, `TPQ_NEW`, `TPQ_OPEN`) carries
+what the answer goes on to do across the alert, and `tp_onask` does it: Save
+writes through `tp_save` — which answers in CF now, so a failed write leaves
+the document open and still edited — Discard goes straight on, and Cancel or
+a dismissal does nothing. A close asked while New's or Open's question is up
+takes the question over (`TPQ_CLOSE` is stored on the refusal too), because
+closing is the stronger intent and the words are the same. Save writes the
+document's own name, as Ctrl+S does — an untitled one becomes `UNTITLED.TEX`
+in the current folder — rather than raising Save As.
+
+`[tp_dirty]` is a flag where Note Pad keeps a checksum (§27.15's argument);
+it is the flag the title bar's `*` has always shown, so the question asks
+exactly when the window says there is something to lose.
+
+**There is still no Undo**, and that is a design item rather than a defect:
+an undo needs a record of each edit (or a copy of the source) and TeXPad's
+source claim is sized to its contents (§69.4); the question above is what
+stops the one irreversible loss.
+
+File > New also retitles the window now. It reseeded the document and left
+the title saying the old name, so the window read `TeXPad - PAPER.TEX` over a
+document whose own row said `UNTITLED.TEX`.
 
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 
@@ -130431,9 +130500,10 @@ The image was 154 files of a 32MB partition with 30,950KB free:
   which is **live-only and not `$(ALLAPPSARGS)`** — §19.10.1 is that
   arithmetic, and it is the everything-FLOPPY's 1.2MB geometry that refuses
   them, not this volume. SCRIBE gets a `SCRIBE/` folder of its own because its
-  `WELCOME.DOC` is a second copy of the name `WORD/` carries (it also resolved
-  `SCRIBE.OVL` in the launching instance's directory until that module became
-  part of the package, §95.8.8).
+  sample `.DOC` was Word's `WELCOME.DOC`, a second copy of the name `WORD/`
+  carries — it is Scribe's own `SCWELCOM.DOC` now (§95.2) — and it also
+  resolved `SCRIBE.OVL` in the launching instance's directory until that
+  module became part of the package, §95.8.8.
 - **`FROTZ.O88` rode `APPS/` with nothing to play.** The library is fetched
   rather than committed (§61), which is why it was skipped — and that is not a
   reason on a target that already acquires two other fetches. All fifteen
@@ -152843,9 +152913,10 @@ their name. `apps/cword` is on demand for the same reason (§73.12).
 **It IS on the live media** (§80.6), in a `SCRIBE/` folder of its own beside
 `WORD/` — that image is not curated and 49KB is not an argument about a 32MB
 partition. It has to be its own folder rather than a second `.O88` in `APPS/`:
-its `WELCOME.DOC` is a second copy of the name `WORD/` already carries. (It
-was also because `SCRIBE.OVL` was resolved in the launching instance's
-directory, §19.2.1; that module is part 1 of the package now, §95.8.8.) It is
+its sample `.DOC` was Word's `WELCOME.DOC`, a second copy of the name `WORD/`
+already carries — Scribe's own `SCWELCOM.DOC` now (§95.2). (It was also
+because `SCRIBE.OVL` was resolved in the launching instance's directory,
+§19.2.1; that module is part 1 of the package now, §95.8.8.) It is
 **not** on `build/apps-all.img`: its files were 56,048 bytes and took that
 disk's 1.2MB RunCPM budget to −104 clusters (§19.10.1) — 49,170 since §95.8.8,
 which does not change the answer.
@@ -152923,10 +152994,18 @@ a disk was rebuilt. An extension has one owner.
 SCRIBE still opens and saves `.DOC`: File ▸ Open and Save As are untouched and
 it reads and writes exactly the bytes WORD does. What it does not do is take
 the double-click away — so on the floppy `make scribedisk` builds, where SCRIBE
-is the only package, the `WELCOME.DOC` it carries has **no owner at all** and a
-double-click on it does nothing. That is this section working rather than
+is the only package, the `SCWELCOM.DOC` it carries has **no owner at all** and
+a double-click on it does nothing. That is this section working rather than
 failing; the document is opened from File ▸ Open, and `SCWELCOM.RTF` is on the
 same disk because RTF is what §95.4 makes Scribe's own format.
+
+**The two are ONE page in two formats**, both built from
+`apps/scribe/welcome.wtx` — `tools/os88rtf.py` writes the RTF and
+`tools/os88doc.py` the `.DOC` — so its text says nothing that is true of only
+one of them. Until the manuals pass the disk carried Word's own `WELCOME.DOC`
+and the `.wtx` was a copy of Word's, so Scribe's welcome said *"This document
+is a native Word .DOC file"* from inside an RTF and opened on *"WELCOME TO
+MICROSOFT WORD"*.
 
 `apps/cword` arrived at the same place from the other side and is the
 precedent — it claims `.RTF` (`cword.c`'s `os88_assoc_set`) rather than fight
@@ -153648,7 +153727,9 @@ the body is scanned.
 the strip simply stopped mid-word at the right edge of the screen — no error,
 no ellipsis, just a sentence with its end missing. The success line is built
 from a width and a height, so it is the longest that has to fit:
-`1280x65535 - not placed` is 23.
+`1280x65535 placed` is 17. (It said `- not placed` from the stage that read
+a picture without inserting it, and went on saying so after §95.9.3 made the
+command place one, so every success read as a failure.)
 
 #### 95.9.3 What the command actually does
 
@@ -153770,8 +153851,11 @@ rather than to infer.
 `sc_habout` → `sc_abopen`, a 344 × 104 panel centred in the content box with an
 OK button, refusing below 360 × 128 content with the version line as a toast
 instead (§47). Five lines: `Scribe`, `os8088 word processor`,
-`Forked from WORD (SPEC.md 86)`, **`Ported by Jorge Gonzalez`** and
-**`Updated by Koriban`**.
+`Forked from Word 1.1a for os8088`, **`Ported by Jorge Gonzalez`** and
+**`Updated by Koriban`**. The third line read `Forked from WORD (SPEC.md 86)`
+until the manuals pass: a section number is no text to put in front of a
+user, and that one was not even Scribe's (this is §95; §86 is something
+else).
 
 **The fourth line is INHERITED and its absence is §95.10's failure mode in
 miniature.** WORD's card has carried `Ported by Jorge Gonzalez` since §68.2,

@@ -781,6 +781,12 @@ kind = "document"
 summary = "A sample document introducing Scribe. Open it from Scribe's File menu; Scribe does not take a double-click."
 short = "Sample Scribe document"
 
+["SCWELCOM.DOC"]
+title = "Scribe welcome (Word format)"
+kind = "document"
+summary = "Scribe's welcome document as a Word .DOC file. Open it from Scribe's File menu; a double-click opens Word."
+short = "Sample Scribe document, .DOC"
+
 ["DOCS/"]
 title = "Documents"
 kind = "folder"
