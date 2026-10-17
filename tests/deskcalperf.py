@@ -10,8 +10,12 @@ that is what this counts: a breakpoint on every DRAWING cell of the API table
 (OSAPI_FONT_RUN, OSAPI_GFX_FILL, OSAPI_GFX_BLIT1, OSAPI_GFX_DESK, ... - the
 set is read out of apps/os88api.inc by name), and at each stop the FAR
 RETURN ADDRESS read off the guest's stack, so a call is counted only when it
-came from the calendar's own segment (its include, os88stik.inc, is in that
-segment too: the tag and the gaps are the widget's). MartyPC is
+came from the calendar's own segment OR from the shared Sticky App library's
+(SPEC.md 110.15): on kern_big the include, os88stik.inc, is not in the
+calendar's segment but in DESK.DRV's, and the paint walk, the tag and the gaps
+are the widget's all the same. The library's segment is read off the
+package's own block - its entry table's far pointers, bound at load. Counting
+the calendar's segment alone read 0 calls for a first paint and a reveal. MartyPC is
 cycle-accurate on a 4.77 MHz 8088, so the cycles between the first and the
 last call of a gesture are 5150 time; a stopped guest does not count cycles.
 
@@ -107,6 +111,10 @@ def cells():
 CELLS = cells()
 
 
+# apps/os88api.inc STKL_LE: the library's entry table in the block
+STKL_LE = 110
+
+
 def caller(m, rec):
     r = rec.get("regs") or m.regs()
     ip, cs = struct.unpack("<HH", bytes(m.read((r["ss"] << 4) + r["sp"], 4)))
@@ -119,9 +127,9 @@ class Gesture(object):
     entry, so the composing before the first blit is in it) to the LAST
     call's start: the last call's own blit is not in it."""
 
-    def __init__(self, hits, seg, extra=(), start=None):
+    def __init__(self, hits, segs, extra=(), start=None):
         self.mine = [h for h in hits if h["addr"] in CELLS
-                     and h.get("hit") == seg]
+                     and h.get("hit") in segs]
         self.extra = dict((a, len([h for h in hits if h["addr"] == a]))
                           for a in extra)
         self.n = len(self.mine)
@@ -187,12 +195,19 @@ def ui_leg(tmp, machine, label, results):
         hits, _ = measure(m, launch)
         c = box["c"]
         seg = c.wseg
+        # ...and the library's (SPEC.md 110.15): the segment word of the
+        # block's first entry, a far pointer the bind wrote at load
+        lib = struct.unpack_from("<H", bytes(m.readseg(
+            seg, os88stik.STIKLIB_AT + STKL_LE + 2, 2)))[0]
+        segs = (seg, lib) if os88stik.DESKCAL_LIB else (seg,)
+        print("%s: the calendar at %04X, the library at %04X"
+              % (label, seg, lib))
         for o in list(ui.windows()):
             if o.i != c.slot and o.visible:
                 ui.close(o)
         os88marty.guest_sleep(m, 1.0)
         r = {}
-        first = Gesture(hits, seg)
+        first = Gesture(hits, segs)
         print("%s: first paint      %s" % (label, first))
         r["first_paint"] = first.row()
         budget = 14 if compact else 20
@@ -223,7 +238,7 @@ def ui_leg(tmp, machine, label, results):
                 hits = [h for h in hits if not (
                     h["addr"] in CELLS and h.get("regs")
                     and h["regs"]["bx"] >= ty)]
-            return Gesture(hits, seg, extra=extra, start=comp_at)
+            return Gesture(hits, segs, extra=extra, start=comp_at)
 
         print("%s: About, a toast" % label)
         c.front()
@@ -299,7 +314,7 @@ def ui_leg(tmp, machine, label, results):
         lnow0 = lnow()
         hits, _ = measure(m, lambda: os88marty.guest_sleep(m, 8.0),
                           extra=(tick_at,))
-        idle = Gesture(hits, seg, extra=(tick_at,))
+        idle = Gesture(hits, segs, extra=(tick_at,))
         lnow1 = lnow()
         print("%s: idle             %s, %d beats, minute %d -> %d"
               % (label, idle, idle.extra[tick_at], lnow0, lnow1))

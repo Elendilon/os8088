@@ -325,11 +325,14 @@ def herc(tmp):
         ui.wait_toast(says="Saved")
         os88marty.guest_sleep(m, 1.0)
         c0 = cycles(m)
-        ui.close(ed)
+        ui.close(ed)                # returns once the window is gone: the
+        c1 = cycles(m)              # beat is counted from there, not from
+        print("      Note Pad's own close: %.2f guest s"   # the click
+              % ((c1 - c0) / os88marty.GUEST_HZ))
         n.until(lambda: n.st()["wslot"] == 0, "the watch to see the close")
-        gone = (cycles(m) - c0) / os88marty.GUEST_HZ
-        check(gone <= BEAT + 1.0, "the watch disarmed within a beat of the "
-              "close (%.2f guest s)" % gone)
+        gone = (cycles(m) - c1) / os88marty.GUEST_HZ
+        check(gone <= BEAT + 0.5, "the watch disarmed within a beat of the "
+              "editor's window going (%.2f guest s)" % gone)
         n.until(lambda: n.st()["head"].startswith(b"Hi Welcome"),
                 "the pad to show the saved text", 30)
         print("      close to the pad's new head: %.2f guest s"
@@ -485,9 +488,15 @@ def vga(tmp):
 
 
 def small(tmp):
+    # THE SHIPPED PACKAGE, carried by hand: BDIR is <tree>/smallk on this leg,
+    # and no small build of Sticky Note exists (it is on no small disk,
+    # SPEC.md 24.5.1) - the package is the tree's own, one directory up
+    # small360.img is the tree's too: `make small` writes the 128KB disks
+    # beside the shipped ones and keeps only kern_small itself in smallk/
+    tree = os.path.dirname(os.path.abspath(BDIR))
     apps = os88marty.scratch_disk(os.path.join(tmp, "snsmall.img"),
-                                  os.path.join(BDIR, "stiknote.o88"))
-    with os88ui.boot(os.path.join(BDIR, "small360.img"), apps=apps,
+                                  os.path.join(tree, "stiknote.o88"))
+    with os88ui.boot(os.path.join(tree, "small360.img"), apps=apps,
                      machine="os8088_5150_cga") as ui:
         print("L: kern_small refuses it, in words")
         try:
