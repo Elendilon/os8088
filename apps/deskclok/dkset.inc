@@ -779,6 +779,19 @@ dk_sent:
     mov dx, [di+8]
     ret
 
+; dk_iblk / dk_iwht - the ink black, or white (ck_ink). Keep everything
+dk_iwht:
+    push ax
+    mov al, LC_WHT
+    jmp short dk_iset
+dk_iblk:
+    push ax
+    mov al, LC_BLK
+dk_iset:
+    call ck_ink
+    pop ax
+    ret
+
 ; dk_frame - AX, BX, CX, DX a rect: its 1-px edge in the current ink
 dk_frame:
     push ax
@@ -813,8 +826,7 @@ dk_frame:
 ; a check box: a 12-px box, the tick when its flag is set, the label - the
 ; settings' and the alarm's
 dk_schk:
-    mov al, LC_BLK
-    call ck_ink
+    call dk_iblk
     call dk_sent
     mov cx, 12
     mov dx, 12
@@ -852,8 +864,7 @@ dk_schk:
     ret
 
 dk_stext:
-    mov al, LC_BLK
-    call ck_ink
+    call dk_iblk
     call ck_sc1
     mov cx, [di+2]
     mov dx, [di+4]
@@ -861,15 +872,13 @@ dk_stext:
     jmp ck_text
 
 dk_srule:
-    mov al, LC_BLK
-    call ck_ink
+    call dk_iblk
     call dk_sent
     jmp ck_rect
 
 ; the size: a box, the size's name, a cell with the arrow
 dk_sdropd:
-    mov al, LC_BLK
-    call ck_ink
+    call dk_iblk
     call dk_sent
     call dk_frame
     push ax
@@ -913,15 +922,9 @@ dk_slist:
     add bx, dx
     dec bx                      ; under the box, sharing its bottom edge
     mov dx, 3 * DKS_LROW + 2
-    push ax
-    mov al, LC_WHT
-    call ck_ink
-    pop ax
+    call dk_iwht
     call ck_rect
-    push ax
-    mov al, LC_BLK
-    call ck_ink
-    pop ax
+    call dk_iblk
     call dk_frame
     inc bx
     xor si, si
@@ -935,17 +938,13 @@ dk_slist:
     cmp dl, [DKP + DKP_SIZE]
     jne .t
     push ax                     ; the current one inverse
-    mov al, LC_BLK
-    call ck_ink
+    call dk_iblk
     pop ax
     inc ax
     sub cx, 2
     mov dx, DKS_LROW
     call ck_rect
-    push ax
-    mov al, LC_WHT
-    call ck_ink
-    pop ax
+    call dk_iwht
     dec ax
 .t:
     push si
@@ -958,8 +957,7 @@ dk_slist:
     mov si, [dkss_sizes + si]
     call ck_text
     pop si
-    mov al, LC_BLK
-    call ck_ink
+    call dk_iblk
     pop cx
     pop bx
     pop ax
@@ -972,8 +970,7 @@ dk_slist:
 ; a tile: the face's preview, its name; the selected one in a double border
 ; with its name on a black bar behind a ticked box
 dk_stile:
-    mov al, LC_BLK
-    call ck_ink
+    call dk_iblk
     call dk_sent
     call dk_frame
     mov si, [di+1]
@@ -1061,8 +1058,7 @@ dk_stile:
     jne .nm
     push ax                     ; selected: a black bar and a ticked box
     push dx
-    mov al, LC_BLK
-    call ck_ink
+    call dk_iblk
     pop dx
     pop ax
     push ax
@@ -1077,12 +1073,7 @@ dk_stile:
     pop dx
     pop bx
     pop ax
-    push ax
-    push dx
-    mov al, LC_WHT
-    call ck_ink
-    pop dx
-    pop ax
+    call dk_iwht
     push ax
     push bx
     push dx
@@ -1091,17 +1082,13 @@ dk_stile:
     mov cx, 8
     mov dx, 8
     call ck_rect
-    push ax
-    mov al, LC_BLK
-    call ck_ink
-    pop ax
+    call dk_iblk
     mov cx, ax
     mov dx, bx
     inc dx
     mov si, dk_tick8
     call ck_bits
-    mov al, LC_WHT
-    call ck_ink
+    call dk_iwht
     pop dx
     pop bx
     pop ax
@@ -1111,10 +1098,7 @@ dk_stile:
     add cx, 60
     jmp short .tx
 .nm:
-    push ax
-    mov al, LC_BLK
-    call ck_ink
-    pop ax
+    call dk_iblk
     mov cx, ax
     add cx, 56
 .tx:
@@ -1131,8 +1115,7 @@ dk_tick8:   db 5                  ; inside an 8-px box, from its second row
 
 ; the status line: `Selected: Red LED`
 dk_sstat:
-    mov al, LC_BLK
-    call ck_ink
+    call dk_iblk
     call ck_sc1
     mov cx, [di+2]
     mov dx, [di+4]
@@ -1151,8 +1134,7 @@ dk_sstat:
 ; a button, either form's: its edge, its label centred; OK the default (a
 ; second edge, two px thick, a px out); a pressed one inverse
 dk_sbtnd:
-    mov al, LC_BLK
-    call ck_ink
+    call dk_iblk
     call dk_sent
     push ax
     mov si, [dk_fm]
@@ -1162,10 +1144,7 @@ dk_sbtnd:
     pop ax
     jne .up
     call ck_rect                ; pressed: black, the label white
-    push ax
-    mov al, LC_WHT
-    call ck_ink
-    pop ax
+    call dk_iwht
     jmp short .lb
 .up:
     call dk_frame
@@ -1178,10 +1157,7 @@ dk_sbtnd:
     push dx
     mov si, [ck_pp]             ; the ring is black whatever the label is
     push word [si]
-    push ax
-    mov al, LC_BLK
-    call ck_ink
-    pop ax
+    call dk_iblk
     sub ax, 3
     sub bx, 3
     add cx, 6
@@ -1528,6 +1504,7 @@ dk_sface:
 dk_skey:
     push ax
     push bx
+    push si
     mov word [dk_fm], dk_fset
     cmp byte [dk_sdrop], 0
     je .k
@@ -1539,86 +1516,37 @@ dk_skey:
     cmp al, 27
     je .x
 .k:
-    mov bl, [DKP + DKP_FACE]
-    cmp ah, KSC_LEFT
-    je .l
-    cmp ah, KSC_RIGHT
-    je .r
-    cmp ah, KSC_UP
-    je .u
-    cmp ah, KSC_DOWN
-    je .d
-    cmp al, 13
-    je .ok
-    cmp al, 27
-    je .can
-    or al, 20h
-    cmp al, 'a'
-    je .app
-    cmp al, 'f'
-    je .only
-    cmp al, 's'
-    je .secs
-    cmp al, 'h'
-    je .h24
-    cmp al, 'z'
-    je .size
-    jmp short .x
-.l:
-    dec bl
-    jns .f
-    mov bl, DKF_N - 1
-    jmp short .f
-.r:
-    inc bl
-    cmp bl, DKF_N
-    jb .f
-    xor bl, bl
-    jmp short .f
-.u:
-    sub bl, 3
-    jns .f
-    add bl, DKF_N
-    jmp short .f
-.d:
-    add bl, 3
-    cmp bl, DKF_N
-    jb .f
-    sub bl, DKF_N
-.f:
-    mov al, bl
-    call dk_sface
-    jmp short .x
-.ok:
-    mov al, DKB_OK
-    call dk_sfire
-    jmp short .x
-.can:
-    call dk_scancel
-    jmp short .x
-.app:
-    call dk_sapply
-    jmp short .x
-.only:
-    mov al, DKF_ONLY
-    jmp short .tg
-.secs:
-    mov al, DKF_SECS
-    jmp short .tg
-.h24:
-    mov al, DKF_H24
-.tg:
-    call dk_stoggle
-    jmp short .x
-.size:
-    mov al, [DKP + DKP_SIZE]
-    inc al
-    cmp al, 3
-    jb .sz
-    xor al, al
-.sz:
-    call dk_ssize
+    mov si, dk_kset
+    call dk_keys
 .x:
+    pop si
     pop bx
     pop ax
     ret
+dk_kset:    DKKEY 80h + KSC_LEFT, -1, dk_kgal     ; the gallery, round it
+            DKKEY 80h + KSC_RIGHT, 1, dk_kgal
+            DKKEY 80h + KSC_UP, -3, dk_kgal
+            DKKEY 80h + KSC_DOWN, 3, dk_kgal
+            DKKEY 13, DKB_OK, dk_sfire
+            DKKEY 27, 0, dk_scancel
+            DKKEY 'a', 0, dk_sapply
+            DKKEY 'f', DKF_ONLY, dk_stoggle
+            DKKEY 's', DKF_SECS, dk_stoggle
+            DKKEY 'h', DKF_H24, dk_stoggle
+            DKKEY 'z', 0, dk_kzsize
+            db 0
+
+; dk_kgal - AL = a step: the gallery's face that far on, previewed
+dk_kgal:
+    call dk_fstep
+    jmp dk_sface
+
+; dk_kzsize - Z: the next size, round the three
+dk_kzsize:
+    mov al, [DKP + DKP_SIZE]
+    inc ax
+    cmp al, 3
+    jb .s
+    xor al, al
+.s:
+    jmp dk_ssize

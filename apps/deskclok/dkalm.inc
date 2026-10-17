@@ -159,8 +159,7 @@ dk_apaint:
 ; a field: its edge; inverse when it has the keys - except the label, which
 ; shows a caret after its text
 dk_afld:
-    mov al, LC_BLK
-    call ck_ink
+    call dk_iblk
     call dk_sent
     call dk_frame
     call dk_afstr               ; dk_line = its text
@@ -177,8 +176,7 @@ dk_afld:
     sub cx, 2
     sub dx, 2
     call ck_rect
-    mov al, LC_WHT
-    call ck_ink
+    call dk_iwht
     pop ax
 .t:
     call ck_sc1
@@ -339,44 +337,27 @@ dk_astep:
     pop ax
     ret
 
-; dk_akey - W_ONKEY for the window
+; dk_akey - W_ONKEY for the window: the keys of dk_kalm1, then - outside
+; the label - dk_kalm2's, the AM/PM's A and P, and the digits; in the label,
+; Backspace and a character
 dk_akey:
     push ax
     push bx
+    push si
     mov word [dk_fm], dk_falm
-    mov bl, [dk_afoc]
-    cmp al, 13
-    je .ok
-    cmp al, 27
-    je .can
-    cmp al, 9
-    je .tab
-    cmp ah, KSC_RIGHT
-    je .tab
-    cmp ah, KSC_LEFT
-    je .btab
-    cmp ah, KSC_UP
-    je .up
-    cmp ah, KSC_DOWN
-    je .dn
-    cmp bl, DKAF_LABEL
+    mov si, dk_kalm1
+    call dk_keys
+    jnc .x
+    cmp byte [dk_afoc], DKAF_LABEL
     je .lab
-    cmp al, '+'
-    je .up
-    cmp al, '='
-    je .up
-    cmp al, '-'
-    je .dn
-    cmp al, ' '
-    je .on
-    cmp bl, DKAF_AMPM
+    mov si, dk_kalm2
+    call dk_keys
+    jnc .x
+    cmp byte [dk_afoc], DKAF_AMPM
     jne .dig
-    or al, 20h
-    cmp al, 'a'
-    je .amp
-    cmp al, 'p'
-    je .amp
-    jmp .x
+    mov si, dk_kalm3
+    call dk_keys
+    jmp short .x
 .dig:
     cmp al, '0'
     jb .x
@@ -384,93 +365,83 @@ dk_akey:
     ja .x
     sub al, '0'
     call dk_adigit
-    jmp .x
-.amp:
-    call dk_aampm
-    jmp .x
-.on:
-    xor byte [dk_aon], DKF_ALARM
-    call dk_fall
-    jmp .x
-.ok:
-    call dk_aok
-    jmp .x
-.can:
-    call dk_ashut
-    jmp .x
-.tab:
-    mov al, bl
-    inc al
-    cmp al, DKAF_LABEL + 1
-    jb .t
-    xor al, al
-.t:
-    call dk_afocus
-    jmp .x
-.btab:
-    mov al, bl
-    dec al
-    jns .bt
-    mov al, DKAF_LABEL
-.bt:
-    cmp al, DKAF_AMPM           ; backwards past the AM/PM under 24 hours
-    jne .t
-    test byte [DKP + DKP_FLAGS], DKF_H24
-    jz .t
-    dec al
-    jmp short .t
-.up:
-    mov al, 1
-    call dk_astep
-    jmp short .x
-.dn:
-    mov al, -1
-    call dk_astep
     jmp short .x
 .lab:
-    cmp al, 8                   ; the label: Backspace, or a character
-    je .bs
-    cmp al, ' '
-    jb .x
-    cmp al, 126
-    ja .x
-    push di
-    mov di, dk_alab
-    xor bx, bx
+    xor bx, bx                  ; BX = the label's length
 .ln:
-    cmp byte [di+bx], 0
+    cmp byte [dk_alab + bx], 0
     je .le
     inc bx
     jmp short .ln
 .le:
-    cmp bx, DK_LABMAX
-    jae .full
-    mov [di+bx], al
-    mov byte [di+bx+1], 0
-.full:
-    pop di
-    call dk_fall
-    jmp short .x
-.bs:
-    push di
-    mov di, dk_alab
-    xor bx, bx
-.bn:
-    cmp byte [di+bx], 0
-    je .be
-    inc bx
-    jmp short .bn
-.be:
+    cmp al, 8                   ; Backspace...
+    jne .ch
     or bx, bx
-    jz .bx
-    mov byte [di+bx-1], 0
-.bx:
-    pop di
+    jz .rd
+    dec bx
+    jmp short .z
+.ch:
+    cmp al, ' '                 ; ...or a character
+    jb .x
+    cmp al, 126
+    ja .x
+    cmp bx, DK_LABMAX
+    jae .rd
+    mov [dk_alab + bx], al
+    inc bx
+.z:
+    mov byte [dk_alab + bx], 0
+.rd:
     call dk_fall
 .x:
+    pop si
     pop bx
     pop ax
     ret
+dk_kalm1:   DKKEY 13, 0, dk_aok             ; OK
+            DKKEY 27, 0, dk_ashut           ; Cancel
+            DKKEY 9, 1, dk_ktab             ; Tab, Right: the next field
+            DKKEY 80h + KSC_RIGHT, 1, dk_ktab
+            DKKEY 80h + KSC_LEFT, -1, dk_ktab
+            DKKEY 80h + KSC_UP, 1, dk_astep
+            DKKEY 80h + KSC_DOWN, -1, dk_astep
+            db 0
+dk_kalm2:   DKKEY '+', 1, dk_astep
+            DKKEY '=', 1, dk_astep
+            DKKEY '-', -1, dk_astep
+            DKKEY ' ', 0, dk_kaon           ; Space ticks the box
+            db 0
+dk_kalm3:   DKKEY 'a', 0, dk_aampm          ; on the AM/PM: A or P turns it
+            DKKEY 'p', 0, dk_aampm
+            db 0
+
+; dk_ktab - AL = +1 / -1: the next field, or the one before, round the four
+; - and backwards past the AM/PM under 24 hours (dk_afocus steps forwards
+; past it)
+dk_ktab:
+    mov ah, al
+    add al, [dk_afoc]
+    jns .p
+    mov al, DKAF_LABEL
+.p:
+    cmp al, DKAF_LABEL
+    jbe .b
+    xor al, al
+.b:
+    or ah, ah
+    jns .f
+    cmp al, DKAF_AMPM
+    jne .f
+    test byte [DKP + DKP_FLAGS], DKF_H24
+    jz .f
+    dec ax
+.f:
+    jmp dk_afocus
+
+; dk_kaon - the box: the alarm on or off, in the edit
+dk_kaon:
+    xor byte [dk_aon], DKF_ALARM
+    jmp dk_fall
 
 ; dk_adigit - AL = a digit typed into the hour or the minute: the field's
 ; last digit becomes its tens, the new one its units - and a value its dial

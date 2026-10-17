@@ -894,6 +894,54 @@ dk_onclose:
     ret
 
 ; -----------------------------------------------------------------------------
+; dk_keys - AL = a key's ASCII, AH = its scan code, SI = a KEY TABLE: the
+; first entry the key matches runs, AL = its byte, and CF = 0 out; CF = 1
+; none, AX as it came. An entry (DKKEY): db the key - ASCII, a letter in
+; lower case matching either case, or 80h + a scan code - db its byte, dw its
+; proc; 0 ends the table. Keeps BX, CX, SI
+; -----------------------------------------------------------------------------
+%macro DKKEY 3
+    db %1, %2
+    dw %3
+%endmacro
+dk_keys:
+    push bx
+    push cx
+    push si
+    mov bl, al                  ; BL = the ASCII, a letter lower case...
+    cmp bl, 'A'
+    jb .s
+    cmp bl, 'Z'
+    ja .s
+    or bl, 20h
+.s:
+    or bl, bl
+    jns .h
+    mov bl, 0FFh                ; ...past 7Fh none of the table's
+.h:
+    mov bh, ah                  ; BH = the scan code's entry
+    or bh, 80h
+.e:
+    mov cl, [si]
+    or cl, cl
+    stc
+    jz .x
+    add si, 4
+    cmp cl, bl
+    je .hit
+    cmp cl, bh
+    jne .e
+.hit:
+    mov al, [si-3]
+    call [si-2]
+    clc
+.x:
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 ; dk_onkey - W_ONKEY, while the clock owns the bar (AL = ASCII, AH = the
 ; scancode, SI = the window; lock held). Every action has a key:
 ;   Enter  Settings        A  Alarm...          F  Clock face only
@@ -904,92 +952,60 @@ dk_onclose:
 dk_onkey:
     push ax
     push bx
-    cmp ah, KSC_LEFT
-    je .fl
-    cmp ah, KSC_RIGHT
-    je .fr
-    cmp ah, KSC_UP
-    je .su
-    cmp ah, KSC_DOWN
-    je .sd
-    cmp al, 13
-    je .set
-    cmp al, 27
-    je .esc
-    or al, 20h
-    cmp al, 'a'
-    je .alm
-    cmp al, 'f'
-    je .only
-    cmp al, 's'
-    je .secs
-    cmp al, 'h'
-    je .h24
-    cmp al, 'z'
-    je .snz
-    cmp al, 'd'
-    je .dis
-    jmp short .x
-.fl:
-    mov al, [DKP + DKP_FACE]
-    dec al
-    jns .fs
-    mov al, DKF_N - 1
-    jmp short .fs
-.fr:
-    mov al, [DKP + DKP_FACE]
-    inc al
-    cmp al, DKF_N
-    jb .fs
-    xor al, al
-.fs:
-    call dk_setface
-    jmp short .x
-.su:
-    mov al, [DKP + DKP_SIZE]
-    inc al
-    cmp al, 3
-    jb .ss
-    jmp short .x
-.sd:
-    mov al, [DKP + DKP_SIZE]
-    dec al
-    js .x
-.ss:
-    call dk_setsize
-    jmp short .x
-.set:
-    call dk_setopen
-    jmp short .x
-.alm:
-    call dk_almopen
-    jmp short .x
-.only:
-    mov al, DKF_ONLY
-    jmp short .tg
-.secs:
-    mov al, DKF_SECS
-    jmp short .tg
-.h24:
-    mov al, DKF_H24
-.tg:
-    call dk_toggle
-    jmp short .x
-.snz:
-    call dk_snooze
-    jmp short .x
-.dis:
-    call dk_dismiss
-    jmp short .x
-.esc:
-    cmp byte [dk_ring], 0
-    jne .dis
-    mov bx, [dk_win]
-    mov al, 3
-    call OSAPI_WM_DESK          ; RELEASE: the bar to the front application
-.x:
+    push si
+    mov si, dk_kclock
+    call dk_keys
+    pop si
     pop bx
     pop ax
+    ret
+dk_kclock:  DKKEY 80h + KSC_LEFT, -1, dk_kface
+            DKKEY 80h + KSC_RIGHT, 1, dk_kface
+            DKKEY 80h + KSC_UP, 1, dk_ksize
+            DKKEY 80h + KSC_DOWN, -1, dk_ksize
+            DKKEY 13, 0, dk_setopen
+            DKKEY 27, 0, dk_kesc
+            DKKEY 'a', 0, dk_almopen
+            DKKEY 'f', DKF_ONLY, dk_toggle
+            DKKEY 's', DKF_SECS, dk_toggle
+            DKKEY 'h', DKF_H24, dk_toggle
+            DKKEY 'z', 0, dk_snooze
+            DKKEY 'd', 0, dk_dismiss
+            db 0
+
+; dk_kface - AL = -1 / +1: the face before or after, round the nine
+dk_kface:
+    call dk_fstep
+    jmp short dk_setface
+
+; dk_fstep - AL = a step, -8..8: AL = the face that far from the payload's,
+; round the nine (the clock's keys, and the settings' gallery's)
+dk_fstep:
+    add al, [DKP + DKP_FACE]
+    jns .p
+    add al, DKF_N
+.p:
+    cmp al, DKF_N
+    jb .r
+    sub al, DKF_N
+.r:
+    ret
+
+; dk_ksize - AL = -1 / +1: the size smaller or larger, and no further
+dk_ksize:
+    add al, [DKP + DKP_SIZE]
+    cmp al, 3
+    jb dk_setsize
+    ret
+
+; dk_kesc - Esc: Dismiss a ringing alarm, else RELEASE - the bar to the
+; front application. BX spent
+dk_kesc:
+    cmp byte [dk_ring], 0
+    jne dk_dismiss
+    mov bx, [dk_win]
+    mov al, 3
+    call OSAPI_WM_DESK
     ret
 
 ; dk_setface / dk_setsize / dk_toggle - one setting changed from the clock
