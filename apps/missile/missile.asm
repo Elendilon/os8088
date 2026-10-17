@@ -6297,7 +6297,7 @@ mc_sshad_clr:
 
 ; mc_runc - one opaque run in CONTENT coordinates (the mc_textc of SPEC.md 6.1)
 ; in:  SI = string, CX = x, DX = y, AL = ink, AH = background, [mc_runw] = the
-;      field's PIXEL width (the Mode X fallback has to erase it by hand)
+;      field's PIXEL width (the Mode X twin, mx_run, letters exactly that span)
 ; preserves all registers.  On the Mode X surface the kernel's drawing slots
 ; are off limits (SPEC.md 53.7), so it falls back to the twins there.
 mc_runc:
@@ -6315,37 +6315,19 @@ mc_runc:
     mov dx, bx
     pop bx
     pop ax
-    cmp byte [mc_fsx], 0
-    jne .fsx
     add cx, [mc_ox]
     add dx, [mc_oy]
+    cmp byte [mc_fsx], 0
+    jne .fsx
     call OSAPI_FONT_RUN
     jmp short .out
-.fsx:
-    push ax
-    mov al, ah
-    call mc_setcol
-    push cx
-    push dx
-    push si
-    mov ax, cx                      ; the field's own span, cleared
-    mov bx, dx
-    mov cx, ax
-    add cx, [mc_runw]
-    dec cx
-    mov dx, bx
-    add dx, 7
-    call mc_fillc
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    call mc_setcol
-    call mc_textc
-.out:
-    pop dx
-    pop cx
-    ret
+.fsx:                               ; ONE opaque pass on Mode X too: every
+    call mx_run                     ; pixel of the span written once, with
+    call mc_setcol                  ; its final colour. It was a black fill
+.out:                               ; and then the glyphs a pixel at a time,
+    pop dx                          ; which in M_OVER/ENDA/ENDC - repainted
+    pop cx                          ; every frame - left the banner part-drawn
+    ret                             ; on a 4.77MHz XT. The ink stays the pen
 
 ; -----------------------------------------------------------------------------
 ; mc_draw_msg - the banner in the middle of the sky
@@ -7136,6 +7118,138 @@ mx_text:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+;
+; mx_run - mc_runc's Mode X twin: SI = string, CX = x, DX = y (absolute),
+; AL = ink, AH = ground, [mc_runw] = the span's PIXEL width. OPAQUE - each
+; column of the span gets one map-mask OUT and its eight pixels are written
+; ink or ground in the same pass, so no pixel is ever written twice and the
+; span is never blank between an erase and its letters (SPEC.md 6.1's rule,
+; on a surface the kernel's FONT_RUN cannot reach). A NUL ends the text and
+; the rest of the span is ground; a byte outside 32..126 is a blank cell.
+; Preserves all registers.
+mx_run:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov bx, ax                      ; BL = ink, BH = ground
+    mov ax, dx                      ; DI = y*80 + x/4, the column's top
+    push cx
+    mov cl, 4
+    shl ax, cl
+    mov di, ax
+    shl ax, 1
+    shl ax, 1
+    add di, ax
+    pop cx
+    mov ax, cx
+    shr ax, 1
+    shr ax, 1
+    add di, ax
+    and cl, 3                       ; CH = the plane pattern, 11h rolled to
+    mov ch, 11h                     ; x & 3: its low nibble is the map mask
+    rol ch, cl                      ; and its carry out is the next byte
+    mov cl, 1                       ; CL = the glyph bit; the first ROR makes
+    mov bp, [mc_runw]               ; it 80h and stages the first cell
+    mov es, [mc_fsi+FSI_SEG]
+    mov dx, 0x3C4
+.col:
+    or bp, bp
+    jz .done
+    ror cl, 1
+    jnc .same
+    call mx_cell
+.same:
+    mov al, 2                       ; SEQ index 2: map mask
+    mov ah, ch
+    and ah, 0Fh
+    out dx, ax
+    push di
+    push si
+    mov si, mc_gbuf
+.row:
+    mov al, bh
+    test [si], cl
+    jz .put
+    mov al, bl
+.put:
+    mov [es:di], al
+    add di, 80
+    inc si
+    cmp si, mc_gbuf + 8
+    jb .row
+    pop si
+    pop di
+    rol ch, 1
+    jnc .nadv
+    inc di                          ; plane 3 -> 0: the next byte address
+.nadv:
+    dec bp
+    jmp short .col
+.done:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; mx_cell - stage the glyph for the character at [SI] into mc_gbuf and step
+; SI past it - or, at the NUL, stay on it and stage a blank. Preserves all
+; registers but SI.
+mx_cell:
+    push ax
+    push cx
+    push di
+    push es
+    mov di, mc_gbuf
+    lodsb
+    or al, al
+    jnz .have
+    dec si                          ; the NUL: every cell after it is blank
+    jmp short .blank
+.have:
+    cmp al, 32
+    jb .blank
+    cmp al, 126
+    ja .blank
+    xor ah, ah
+    sub al, 32
+    mov cl, 3
+    shl ax, cl                      ; (c-32)*8
+    add ax, [mc_gtab]
+    push si
+    mov si, ax
+    mov es, [mc_gseg]
+    mov cx, 8
+.cp:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .cp
+    pop si
+    jmp short .out
+.blank:
+    xor ax, ax
+    mov [di], ax
+    mov [di+2], ax
+    mov [di+4], ax
+    mov [di+6], ax
+.out:
+    pop es
+    pop di
+    pop cx
     pop ax
     ret
 

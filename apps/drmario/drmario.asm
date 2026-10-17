@@ -389,7 +389,9 @@ dm_input:
 .pause:
     test dx, 40h
     jz .enter
-    xor byte [dm_paused], 1
+    cmp byte [dm_state], 3          ; nothing runs after GAME OVER or a clear:
+    jae .enter                      ; P there would only paint PAUSED over the
+    xor byte [dm_paused], 1         ; label that says what Enter does
     push dx
     call dm_audio_quiet
     call dm_audio_open
@@ -407,7 +409,11 @@ dm_input:
     cmp byte [dm_state], 3
     jb .play
     cmp byte [dm_state], 4
-    jne .restart
+    je .clear
+    mov word [dm_score], 0          ; GAME OVER ends the game: the retry is a
+    mov word [dm_score+2], 0        ; new one at this level, scored from zero
+    jmp short .restart              ; as the cartridge's next game is. A clear
+.clear:                             ; carries the score on, as N does not
     cmp byte [dm_level], 20
     jae .restart
     inc byte [dm_level]

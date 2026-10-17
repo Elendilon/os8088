@@ -327,9 +327,9 @@
   "sources": [
    "apps/drmario"
   ],
-  "stamped": "e4576a70",
-  "strings": "2b581fc7b0c26a60",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "1aec5c4536fddfd4",
+  "why": "Enter after game over retries as a new game from score 0; P ignored on the clear and game-over screens"
  },
  "EMS_DRV": {
   "sources": [
@@ -419,9 +419,9 @@
   "sources": [
    "apps/frotz"
   ],
-  "stamped": "e4576a70",
-  "strings": "84ee586884efb160",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "d537d1f582955449",
+  "why": "Save/Restore Game greyed outside the story's own prompt; Story > Start/Stop Transcript works (stream 2, SCRIPT.TXT on Enter); .SAV double-click refusal; refusal under the splash"
  },
  "FTPD_O88": {
   "sources": [
@@ -898,9 +898,9 @@
   "sources": [
    "apps/skies"
   ],
-  "stamped": "e4576a70",
-  "strings": "1f8cea67cd346354",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "130e89fbca526ee9",
+  "why": "Instructions line names no speed (the prompt computes it per aeroplane); ALT reads 0 below ground - page unchanged"
  },
  "SOLITAIR_O88": {
   "sources": [

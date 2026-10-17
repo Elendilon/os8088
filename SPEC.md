@@ -89080,6 +89080,21 @@ transition. The sweep is worth keeping: it is the one thing in this game that
 forgives a dropped pixel anywhere, and after §48.8's and §48.9's arithmetic
 it is also the only full repaint left in ordinary play.
 
+#### 48.9.5 …and Mode X had kept the pair §48.9.3 took out
+
+§48.9.3's opaque run is `OSAPI_FONT_RUN`, and on the Mode X surface no kernel
+drawing slot is legal (§53.7), so `mc_runc` fell back to its twins there: a
+black `mx_fill` of the whole span, then `mx_text` plotting each lit pixel
+with a map-mask `out` of its own. In `M_OVER`, `M_ENDA` and `M_ENDC` the
+banner is repainted every frame (ABMs can still cross it), so on a 4.77 MHz
+XT the strip was blank-then-lettering in *every* frame and the glass only
+ever showed part of it — `THE E`, `THE END - N`. `mx_run` is the opaque run
+on that surface: one map-mask `out` per COLUMN of the span and each of its
+eight pixels written ink or ground in the same pass, so a repaint writes the
+picture already there and no pixel passes through black. `mc_srun`'s status
+fields take the same path. `mx_text` stays for the About card's lines, which
+are letters on a panel filled once.
+
 ### 48.10 `mc_blob` cut the calls and multiplied the pixels
 
 A field log from the target machine — an 8088 with a Hercules card, played
@@ -102391,6 +102406,30 @@ Files cannot be pre-arranged, because `@save` and `@restore` are opcodes the
 It costs one keypress, which is one fewer than the Infocom interpreters asked
 for, and every step happens on the task that is allowed to do it.
 
+**File > Save Game and Restore Game are step 2's other door, and only that.**
+The image the dialog writes is the one `@save` staged, and only `@restore`
+applies what is read, so at any other moment the items have nothing to act on
+— and they used to act anyway, writing whatever the staging claim last held
+and reading a file nothing then applied. They are greyed (§47) whenever
+`[zf_req]` is not theirs, reading `Save Game (type SAVE)` and `Restore (type
+RESTORE)`, and `zf_menufix` re-points them at the post and again at the answer,
+from the worker that sees both. The command handler tests `[zf_req]` too,
+because a pick can race the answer.
+
+**The transcript is stream 2 and nothing else.** Story > Start Transcript
+toggles `[zt_s2on]`, the same byte `@output_stream 2` sets, and the item reads
+Stop Transcript while it is on — however it was turned on. A v1-3 story has no
+`@output_stream` to ask with: Infocom's SCRIPT verb *stores* Flags 2 bit 0, so
+`zm_pb16`/`zm_pw16` hand a store that reaches `$11` to `zt_f2sync`, which
+real Frotz's own store path also watches. The buffer (`ZI_SCRKB`) is claimed
+by `zi_load` on every path; it once sat after the undo refusal's notice, so
+only a machine too small for undo ever had one. The typed command is echoed
+into it, and `SCRIPT.TXT` is written on RETURN rather than on every key — a
+whole-file replace per letter typed is seconds of floppy per word on the XT —
+and only when something was added (`[zi_scrdirty]`). Bit 0 survives a restart
+and a restore (Standard 11.1's "Rst", `zt_f2keep`); a new story starts with it
+off.
+
 The key ring is a byte ring with separate head and tail cursors. It needs no
 critical section: each side writes exactly one of the two cursors, and a byte
 write is atomic against an interrupt on an 8086.
@@ -102537,6 +102576,19 @@ spends disk instead of RAM — 50KB for a Bronze save, 13KB for Photopia, 10KB
 for Balances, all of which the disks hold.
 
 The disk has a `SAVES` folder and the file dialog starts in it.
+
+Frotz claims `.SAV` (§54.6) so a double-click on a save opens the interpreter,
+but a save cannot be opened *into* anything: Quetzal's `IFhd` names a release,
+serial and checksum and not a file, and the save is in `SAVES/` rather than
+beside its story. So a `.SAV` reaching `zi_dlg_story` — by double-click or
+through Open Story — is answered by name before a byte is read: `A saved game:
+open its story, then RESTORE.`
+
+A refusal with **no story open** is drawn under the splash's own lines and
+kept in `[zf_why]` so a repaint draws it again; `zw_notice` only puts text
+into the story's window when there is a story. It used to start a text window
+for it — hard against the title bar, a scroll bar with nothing to scroll —
+which the next uncover then painted the splash over.
 
 ### 61.11 What it does not do
 
@@ -134286,6 +134338,11 @@ all; and no longer `OSAPI_FILE_GOTO`, which is a remount for display at every
 step and made the save about six seconds of floppy. The first save of a session
 is a full write; every one after it is one sector.
 
+The panel's **HIGH** is the table's first row (`tk_hs_top`), taken when the
+table is READ (`tk_hs_load`, built-in rows or the file) and again at game over.
+It was taken only at game over, so the first game of every session showed
+HIGH 0 beside a table whose top row said 6000.
+
 **The write happens inside the fsx bracket**, at the moment the initials are
 committed. That is legal — the file API is UI-task-context-only and a bracket
 IS the UI task (§53.7) — and it is a choice rather than the only option:
@@ -152495,7 +152552,10 @@ box, which is the tightest of the three.
 
 `[dd_abon]` gates it, `dd_paint` draws it last, and any click, key or menu
 pick takes it down — which also un-suspends the game, §93.5.6's third
-not-drawing test being the flag itself.
+not-drawing test being the flag itself. The click or key that does it is
+**spent**: `dd_onkey` tests the flag before `dd_key_common`, so Enter on the
+card puts it away and does not also start a game behind it (it once did, and
+the game then ran frozen under the card until a click).
 
 ## 94. Picture decoders (`apps/os88img.inc`)
 
@@ -180971,6 +181031,13 @@ states. The head and body stay fixed. Pause freezes the clock, phases and
 reaction counters. Mode reentry preserves poses
 and invalidates all four actor shadows.
 
+The two terminal states take Enter and nothing else. After a clear it is the
+next level with the score carried on; after GAME OVER it is the same level as
+a NEW game, the score back at zero exactly as N's restart is, because a game
+over ends the game and the cartridge's next game is scored from zero too (it
+once kept the score, which made a top-out a free continue). P is ignored in
+both, so PAUSED never replaces the label that says what Enter does.
+
 The asset compiler emits original geometric mascot poses and open/closed eye
 patches for DrMarco. His complete portrait remains in the static background;
 mascot pixels are stored only in their animation streams. Trusted animation
@@ -193196,7 +193263,11 @@ kind's task measured at, +10…24 over the floor six at once (§8.7). The loop
 is the one §20.6 names: `OSAPI_TASK_ALIVE`, sleep 2, `OSAPI_GFX_LOCK`,
 `test [es:bx+W_FLAGS], 2` with ES = KERNEL_SEG, `OSAPI_WM_CLIP_SET`, step,
 the new square black, the colour white, `bn_wipe`, unlock; a hidden or
-wholly covered window steps and draws nothing. §20.6 pointed at
+wholly covered window steps and draws nothing — and so does a window with
+its About card up (`[bn_abon]`, tested under the lock), which is Fractal's
+rule (§40): the card is the UI task's until a click takes it down, and the
+repaint that does so draws the square where it has got to. Without it the
+square went on bouncing through the card and cut holes in its text. §20.6 pointed at
 `app_bounce_task` as the reference for a worker "written as a package writes
 it"; it points here now, and the reference is a package.
 
