@@ -267,9 +267,17 @@
   "sources": [
    "apps/deskcal"
   ],
-  "stamped": "e4576a70",
+  "stamped": "0606f018",
   "strings": "ce550948485c6eb2",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "second-launch message corrected to the source's STIK_ISOPEN 'Desk Calendar is open'; Sticky Apps menu shot retaken taller for three rows"
+ },
+ "DESKCLOK_O88": {
+  "sources": [
+   "apps/deskclok"
+  ],
+  "stamped": "0606f018",
+  "strings": "9c05a589765551da",
+  "why": "new page: written from apps/deskclok (Clock/Face/Size menus, key tables of the clock, settings and alarm windows, panel strings) and SPEC.md 110.14; shots taken on a VGA XT"
  },
  "DESK_DRV": {
   "sources": [
@@ -642,6 +650,12 @@
   "strings": "b93994888feea78c",
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
  },
+ "NOTES": {
+  "sources": [],
+  "stamped": "0606f018",
+  "strings": null,
+  "why": "new folder page: SYSTEM/APPDATA/NOTES, from SPEC.md 110.13.1 and the Makefile's system-disk recipes"
+ },
  "NOTO_F88": {
   "sources": [],
   "stamped": "e4576a70",
@@ -926,9 +940,9 @@
  },
  "STIKAPPS": {
   "sources": [],
-  "stamped": "e4576a70",
+  "stamped": "0606f018",
   "strings": null,
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "the folder holds three Sticky Apps (Desk Calendar, Sticky Note, Desk Clock); Sticky Note is not on the small disks; menu shot retaken taller"
  },
  "STIKMENU_DRV": {
   "sources": [
@@ -937,6 +951,14 @@
   "stamped": "e4576a70",
   "strings": "8b9860220a28a7ab",
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "STIKNOTE_O88": {
+  "sources": [
+   "apps/stiknote"
+  ],
+  "stamped": "0606f018",
+  "strings": "11940aa5e69c0771",
+  "why": "new page: written from apps/stiknote (menus, keys, pad presses, messages) and SPEC.md 110.13; shots taken on a VGA XT"
  },
  "SYSTEM": {
   "sources": [],
@@ -1135,6 +1157,14 @@
   "stamped": "e4576a70",
   "strings": null,
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "WELCOME_TXT": {
+  "sources": [
+   "apps/stiknote/welcome.txt"
+  ],
+  "stamped": "0606f018",
+  "strings": "550be98fc7fd1525",
+  "why": "new page for the welcome note, checked against apps/stiknote/welcome.txt"
  },
  "WIN95_DRV": {
   "sources": [

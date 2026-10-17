@@ -14,7 +14,7 @@ Desk Calendar is on the system disk, in the `STIKAPPS` folder. Double-click
 **Sticky Apps** menu on the desktop's menu bar (see below).
 
 Only one Desk Calendar can be open. If you try to open a second, the menu bar
-says **Already open**.
+says **Desk Calendar is open**.
 
 It opens near the top right of the screen as three white cards with the
 desktop showing between them, and a name tag, **Desk Calendar**, under them.

@@ -118,7 +118,7 @@ and say so in your report.
   SALES.SLK, WRITING.MD, songs) are on `build/office360.img`,
   `build/media360.img` or the 1.44MB `build/apps.img`; use whichever disk
   has what your shot needs. The system disk has APPS (core programs),
-  STIKAPPS (Desk Calendar), SYSTEM (The Wire, Task Manager, FONTS).
+  STIKAPPS (Desk Calendar, Sticky Note, Desk Clock), SYSTEM (The Wire, Task Manager, FONTS).
 - A sound card: `--machine os8088_xt_vga_sb` is the VGA XT with a Sound
   Blaster (`tools/martypc/configs/os8088_machines.toml` lists every machine).
 - MartyPC has no network card. Show what a program does without one, and say
