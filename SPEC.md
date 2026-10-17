@@ -175575,13 +175575,23 @@ Options version 26 takes a version-25 record's flag as `on` or `off`.
   Everywhere else `auto` is one plain pass, as before.
 - **Where it applies, the plan pass IS the plain encode, and its file is
   kept.** Both passes' reports are held (`_Held`), the encoder window's
-  PROGRESS lines going straight through. The page-ahead file is shipped
-  only if `page_compare` finds its picture better somewhere and worse
-  nowhere: the mean error as seen, the worst second, the seconds visibly
-  broken, the view as seen and its seconds a tenth broken (98.2.1.2's
-  `seen_share`, since 2026-10-16) and the frames cut. Otherwise the plain file and its report are
-  shipped, with one line saying why: *page-ahead: DROPPED - it made the
-  worst second worse (...)*, or *no flip*, or *it bettered nothing*. A plan
+  PROGRESS lines going straight through. **The view as seen decides**
+  (`page_verdict`, since 2026-10-17): the page-ahead file is shipped when
+  its view as seen (98.2.1.2's `seen_share`) is less broken than the plain
+  encode's, and neither the seconds a tenth of the view is broken nor the
+  seconds visibly broken is worse by more than one frame's time - what the
+  view gains by breaking for longer is not kept. The whole screen's mean
+  error as seen, its worst second and the frames cut are said beside it and
+  do not decide. Until then the file had to be better somewhere and worse
+  NOWHERE of all six, which the owner found dropped page-ahead on every
+  GasGas ladder encode - one of them a third less broken by the view
+  (3.9% against 2.6%), ten fewer frames cut, dropped because the mean came
+  out a hair worse - and on a picture busy enough to cut, one of six nearly
+  always does: the mean is VIDEO-SEEN-PLAN 1's own example of a measure
+  that hides a band torn off a car. Otherwise the plain file and its report are
+  shipped, with one line saying why: *page-ahead: DROPPED - the view as
+  seen worse (...)*, or *the seconds a tenth of the view broken worse by
+  more than a frame (...)*, or *no flip*. A plan
   pass with no cut frame never runs the second pass at all.
 - **What it costs is the second pass's time**: a Mode X or own-screen
   16-colour encode takes about twice as long as it did.
@@ -175590,7 +175600,8 @@ Options version 26 takes a version-25 record's flag as `on` or `off`.
 - `tests/videnc.py` 5h is the gate. A Mode X clip of five stills with hard
   cuts must come out page-ahead and flipping with the option left at its
   default, plain with `off`, and plain when the page pass is made to look
-  worse: `page_compare` is forced, so the drop is tested and not hoped for.
+  worse: `page_verdict` is forced, so the drop is tested and not hoped
+  for; 5h' holds the verdict itself to its rule on four made-up pairs.
 
 **What it did is always said** (the owner, 2026-10-14): every encode of a
 screen page-ahead is about - Mode X, Hercules, 16 colours - ends with one
@@ -175627,11 +175638,12 @@ whole. This judges each build:
   build. That was the first version, and on Gas Gas Gas the pass without
   the 8 builds that hurt came out no better than the pass with them.
 - **Which file ships**: the third pass replaces the second if its PICTURE
-  is better than the second's somewhere and worse nowhere (the error as
-  seen, the worst second, the seconds visibly broken, the view as seen and
-  its seconds a tenth broken: `PAGE_PICTURE`), or if 98.2.1.8.1
-  would drop the second and the third passes 98.2.1.8.1's test against the
-  plain encode. The frames cut are not asked between the two page passes: a
+  passes 98.2.1.8.1's verdict against the second's (`page_verdict`: the
+  view as seen decides, the seconds it and the picture are broken may be no
+  worse by more than a frame - until 2026-10-17 better somewhere and worse
+  nowhere of `PAGE_PICTURE`), or if 98.2.1.8.1
+  would drop the second and the third passes 98.2.1.8.1's verdict against
+  the plain encode. The frames cut are not asked between the two page passes: a
   pruned build's scene change is cut again by design, so they nearly always
   rise. On Gas Gas Gas they rose 11.8% to 12.0%, and that alone refused a
   prune when they were asked. Auto's test against the plain encode then applies as before. The

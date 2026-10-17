@@ -8202,12 +8202,9 @@ def page_passes(a, keep, tick, readers, mode="on"):
         # frames for held ones by design, and the passes hold differently:
         # its picture's measures judge it, and not a count of either - the
         # count alone dropped a page-ahead file better on every one of them)
-        held = bool(getattr(a, "min_fps", 0) or degrade_rungs(a))
-        meas = PAGE_PICTURE if held else PAGE_MEASURES
-        worse, better = page_compare(res2, res1, meas)
+        ok, worse, better, whynot = page_verdict(res2, res1)
         pg = res2.get("page") or {}
-        drop = mode == "auto" and (worse or not better or
-                                   not pg.get("flips"))
+        drop = mode == "auto" and (not ok or not pg.get("flips"))
         prune = getattr(a, "page_prune", "rescue")
         note = None
         pruned = None
@@ -8243,15 +8240,13 @@ def page_passes(a, keep, tick, readers, mode="on"):
                 p3 = res3.get("page") or {}
                 # (a pruned build's scene change is cut again by design:
                 # the frames cut cannot judge a prune, the picture can)
-                w32, b32 = page_compare(res3, res2, PAGE_PICTURE)
-                w3, b3 = page_compare(res3, res1, meas)
-                if p3.get("flips") and (
-                        (not w32 and b32) or
-                        (drop and not w3 and b3)):
+                ok32, w32, b32, _ = page_verdict(res3, res2)
+                ok3, w3, b3, why3 = page_verdict(res3, res1)
+                if p3.get("flips") and (ok32 or (drop and ok3)):
                     shutil.move(d.out, a.out)
                     res2, h2, pg = res3, h3, p3
-                    worse, better = w3, b3
-                    drop = False
+                    worse, better, whynot = w3, b3, why3
+                    drop = mode == "auto" and not ok3
                     pruned = (len(hurt), nb)
                     note = ("   page-ahead: PRUNED - %d of %d builds that "
                             "made their own stretch worse left out; better "
@@ -8295,24 +8290,26 @@ def page_passes(a, keep, tick, readers, mode="on"):
                 print(page_line("KEPT (--page-ahead on)", res1, res2, pg,
                                 pruned))
             return res2
-        if drop or worse or not better or not pg.get("flips"):
+        if drop or not pg.get("flips"):
             r0 = plain()
             if not a.quiet:
                 if note:
                     print(note)
                 print("   page-ahead: DROPPED - %s; the file is the plain "
-                      "encode (98.2.1.8.1)" % (
-                          "it made %s worse" % ", ".join(worse) if worse
-                          else "no flip" if not pg.get("flips") else
-                          "it bettered nothing"))
+                      "encode (98.2.1.8.1)%s" % (
+                          "no flip" if not pg.get("flips") else whynot,
+                          "; it was better %s" % ", ".join(better)
+                          if better and pg.get("flips") else ""))
                 print(page_line("DROPPED", res1, res2, pg, pruned))
             return r0
         sys.stdout.write(h2.text())
         if not a.quiet:
             if note:
                 print(note)
-            print("   page-ahead: KEPT - better %s, worse nowhere "
-                  "(98.2.1.8.1)" % ", ".join(better))
+            print("   page-ahead: KEPT - the view as seen decides: better "
+                  "%s; worse %s (98.2.1.8.1)" % (", ".join(better),
+                                                 ", ".join(worse) or
+                                                 "nowhere"))
             print(page_line("KEPT", res1, res2, pg, pruned))
         return res2
     finally:
@@ -8400,6 +8397,44 @@ def page_compare(p, b, measures=PAGE_MEASURES):
         elif p[k] < b[k] - 1e-9:
             better.append("%s (%.3g against %.3g)" % (name, p[k], b[k]))
     return worse, better
+
+
+# WHICH FILE PAGE-AHEAD SHIPS (98.2.1.8.1, the owner, 2026-10-17: "with
+# the ladder, no matter how I configure it, it always drops page ahead"):
+# THE VIEW AS SEEN decides - the measure VIDEO-SEEN-PLAN 1 built to read as
+# the eye does, which the ladder and the frame rate already choose by - and
+# the seconds it is broken by a tenth or more, and the seconds visibly
+# broken, may be no worse by more than a frame: what the view gains by
+# breaking for longer is not kept. The whole screen's means (the error as
+# seen, its worst second) and the frames cut are said and do not decide:
+# better somewhere and worse NOWHERE, the rule before, dropped a page-ahead
+# file whose view was a third less broken because one of six came out a
+# hair worse - and on a picture busy enough to cut, one nearly always does
+PAGE_DECIDES = "q_seen"
+PAGE_GUARDS = ("q_seen_broken", "q_broken")
+
+
+def page_verdict(p, b):
+    """(ship `p` rather than `b`?, [worse], [better], why not): the view as
+    seen decides, the guards may be no worse by more than one frame's time,
+    and the rest of page_compare's measures are reported (PAGE_DECIDES)"""
+    worse, better = page_compare(p, b, PAGE_MEASURES)
+    if PAGE_DECIDES not in p or PAGE_DECIDES not in b:
+        return not worse and bool(better), worse, better, \
+            "it bettered nothing" if not worse else "it made %s worse" % \
+            ", ".join(worse)
+    frame = 1.0 / (p.get("fps") or b.get("fps") or 24.0)
+    names = dict(PAGE_MEASURES)
+    if p[PAGE_DECIDES] >= b[PAGE_DECIDES] - 1e-9:
+        return False, worse, better, "%s %s (%.3g against %.3g)" % (
+            names[PAGE_DECIDES], "no better" if abs(
+                p[PAGE_DECIDES] - b[PAGE_DECIDES]) <= 1e-9 else "worse",
+            p[PAGE_DECIDES], b[PAGE_DECIDES])
+    for k in PAGE_GUARDS:
+        if k in p and k in b and p[k] > b[k] + frame + 1e-9:
+            return False, worse, better, "%s worse by more than a frame " \
+                "(%.3g s against %.3g)" % (names[k], p[k], b[k])
+    return True, worse, better, None
 
 
 def pass_tick(tick, label):

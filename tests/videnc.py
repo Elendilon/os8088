@@ -1344,7 +1344,7 @@ def main():
     # hard cut between them, on 286-fast - a whole new 320 x 180 picture is
     # past one record, so each cut is a target. Left at its default the
     # file must be page-ahead and KEPT, flipping; --page-ahead off must be
-    # plain; and a page pass made WORSE on purpose (page_compare forced to
+    # plain; and a page pass made WORSE on purpose (page_verdict forced to
     # say so) must be DROPPED for the plain encode
     ptmp = tempfile.mkdtemp()
     cuts = os.path.join(ptmp, "cuts.mkv")
@@ -1374,12 +1374,13 @@ def main():
         return vid.Reader(out), res
     rd, resd = penc("default")
     ro, _ = penc("off", "--page-ahead", "off")
-    real = venc.page_compare
-    venc.page_compare = lambda p, b, *m: (["the test's say-so"], [])
+    real = venc.page_verdict
+    venc.page_verdict = lambda p, b: (False, ["the test's say-so"], [],
+                                      "the test's say-so")
     try:
         rw_, _ = penc("worse")
     finally:
-        venc.page_compare = real
+        venc.page_verdict = real
     fl = (resd.get("page") or {}).get("flips", 0)
     print("   5h: page-ahead by default %s with %d flips; off %s; a worse "
           "page pass %s" % ("ON" if rd.page else "off", fl,
@@ -1393,6 +1394,30 @@ def main():
     if rw_.page:
         bad.append("page-ahead: a page pass that made the picture worse "
                    "was kept")
+    # --- 5h': THE VIEW AS SEEN DECIDES (98.2.1.8.1, the owner's GasGas,
+    # 2026-10-17): a page pass whose view is a third less broken ships
+    # though the whole screen's mean came out a hair worse; one whose view
+    # is worse does not, whatever else it bettered; and one whose view
+    # gains by breaking for longer - the seconds a tenth broken worse by
+    # more than a frame - does not either
+    plain_r = dict(fps=20.0, q_seen=0.039, q_seen_broken=0.70, q_broken=0.7,
+                   q_vis=0.0040, q_worst=0.020, cutf=0.10)
+    cases = (("better view, worse mean", dict(plain_r, q_seen=0.026,
+                                              q_vis=0.0042, q_worst=0.024,
+                                              cutf=0.09), True),
+             ("worse view", dict(plain_r, q_seen=0.040, q_vis=0.001,
+                                 cutf=0.01), False),
+             ("better view, broken longer", dict(plain_r, q_seen=0.030,
+                                                 q_seen_broken=0.80), False),
+             ("better view, a frame longer", dict(plain_r, q_seen=0.030,
+                                                  q_seen_broken=0.75), True))
+    got = [(n, venc.page_verdict(r, plain_r)[0]) for n, r, _ in cases]
+    print("   5h': page-ahead's verdict - %s" % ", ".join(
+        "%s: %s" % (n, "ships" if k else "dropped") for n, k in got))
+    for (n, r, want), (_, k) in zip(cases, got):
+        if k != want:
+            bad.append("page-ahead's verdict on '%s' %s" % (
+                n, "shipped it" if k else "dropped it"))
     # --- 5h.1: NO READABLE KEY 0, NO PAGE-AHEAD (98.1.3.7; the owner's
     # GASGAS4, 2026-10-14): a page-ahead file's key 0 is the hidden page's
     # first picture, and a key 0 the player cannot read left that page
@@ -1413,7 +1438,7 @@ def main():
                    "was made page-ahead")
     # --- 5i: PAGE-AHEAD PRUNED (98.2.1.8.2): the same clip, with ONE build
     # said to have made its own stretch worse (page_hurt forced) and the
-    # whole page pass said to be worse than the plain encode (page_compare
+    # whole page pass said to be worse than the plain encode (page_verdict
     # forced on its FIRST call only, so every later comparison is real).
     # rescue must run a third pass and ship it, one flip short; off must
     # run none and ship the plain file; always, with nothing forced worse,
@@ -1431,11 +1456,11 @@ def main():
     def first_worse():
         seen = []
 
-        def cmp(p, b, *m):
+        def cmp(p, b):
             if not seen:
                 seen.append(1)
-                return ["the test's say-so"], []
-            return real(p, b, *m)
+                return False, ["the test's say-so"], [], "the test's say-so"
+            return real(p, b)
         return cmp
     arms = {}
     venc._encode = counted
@@ -1444,13 +1469,13 @@ def main():
         for arm in ("rescue", "off", "always"):
             del calls[:]
             if arm != "always":
-                venc.page_compare = first_worse()
+                venc.page_verdict = first_worse()
             r, res = penc("prune_" + arm, "--page-prune", arm)
-            venc.page_compare = real
+            venc.page_verdict = real
             arms[arm] = (bool(r.page), (res.get("page") or {})
                          .get("flips", 0), len(calls))
     finally:
-        venc._encode, venc.page_hurt, venc.page_compare = \
+        venc._encode, venc.page_hurt, venc.page_verdict = \
             real_e, real_h, real
     print("   5i: %d builds; rescue %s; off %s; always %s (page-ahead, "
           "flips, passes)" % (len(starts), arms["rescue"], arms["off"],
