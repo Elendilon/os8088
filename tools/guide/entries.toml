@@ -805,6 +805,12 @@ kind = "document"
 summary = "A sample document introducing Scribe. Open it from Scribe's File menu; Scribe does not take a double-click."
 short = "Sample Scribe document"
 
+["SCWELCOM.DOC"]
+title = "Scribe welcome (Word format)"
+kind = "document"
+summary = "Scribe's welcome document as a Word .DOC file. Open it from Scribe's File menu; a double-click opens Word."
+short = "Sample Scribe document, .DOC"
+
 ["DOCS/"]
 title = "Documents"
 kind = "folder"
@@ -828,12 +834,6 @@ title = "PaccMan"
 kind = "folder"
 summary = "PaccMan and its README."
 short = "PaccMan and its notes"
-
-["README.MD"]
-title = "Read Me"
-kind = "document"
-summary = "Notes on the program: what it is, its keys and where it came from."
-short = "Notes on the program"
 
 ["REDLINE.O88"]
 title = "REDLINE"

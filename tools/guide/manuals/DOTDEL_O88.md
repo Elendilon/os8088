@@ -81,7 +81,7 @@ bigger. Press `F` or `Esc` to go back to the window.
 | Dot Delirium | About Dot Delirium | The keys and who made it |
 | Dot Delirium | Close | Close the game |
 
-![The About card. Click in the window to put it away.](shot:dotdel-about){right}
+![The About card. Click in the window or press a key to put it away.](shot:dotdel-about){right}
 
 **Thin** and **Full** choose the shape of the board, and which looks right
 depends on your monitor. The window starts in Thin. On a CGA display the
@@ -91,8 +91,8 @@ board is always the full shape, and Thin is greyed out with the reason
 The sound effects are simple tones and need no sound card. They are on
 when the game opens.
 
-While the About card is up the game stands still. Click in the window to put
-it away.
+While the About card is up the game stands still. Click in the window or
+press any key to put it away; that click or key does nothing else.
 
 ## High scores
 

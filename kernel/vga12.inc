@@ -2748,10 +2748,10 @@ gfx_blitp:
     je .no                      ; whose left edge is a mask
 .xal:
     and di, 0xBFFF              ; (bit 14 asked for a walk: not a step)
-    or cx, cx
-    jz .no
-    or dx, dx
-    jz .no
+    or cx, cx                   ; an empty OR NEGATIVE block is refused: a
+    jle .no                     ; negative width passes the x + w - 1 clip and
+    or dx, dx                   ; one `rep movsb` per plane then crossed the
+    jle .no                     ; whole framebuffer (PaccMan, SPEC.md 91).
     or ax, ax
     js .no
 %ifdef KERN_BIG

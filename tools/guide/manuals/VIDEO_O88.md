@@ -160,7 +160,8 @@ The card beside the picture says, line by line:
 - how much it reads from the disk each second, and its sound: `silent`,
   `sound PCM8` or `sound ADPCM4`, and how it will play (`speaker`,
   `Covox`, `muted`);
-- where Play will start, such as `At key 3 of 110, 0:04`;
+- where Play will start, such as `At key 3 of 110, 0:04`, or, while a play
+  is paused, where it stopped, such as `Paused at 0:04`;
 - what Play will do, or why it cannot play here;
 - after a play, how it went: frames drawn (`Drew 105/105`), stalls (frames
   that waited for the disk), and the time it took against the time it

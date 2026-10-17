@@ -10,9 +10,9 @@ double-spaced paragraph, and a table of useful keys.
 
 ## Where it is
 
-At the top of the Word disk and the Scribe disk in every size, in the
-`MEDIA` folder of the Office disk, in the `WORD` folder of the everything
-set, and in the `WORD` and `SCRIBE` folders of the live USB image and CD.
+At the top of the Word disk in every size, in the `MEDIA` folder of the
+Office disk, in the `WORD` folder of the everything set, and in the `WORD`
+folder of the live USB image and CD.
 
 ## Opening it
 

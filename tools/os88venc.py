@@ -519,9 +519,10 @@ CHOICE_HELP = {
     },
     "profile": {
         "5150-st225": "IBM 5150/XT with a Seagate ST-225 hard disk: "
-                      "96 KB/s, half the CPU on average (the default)",
+                      "119 KB/s, half the CPU on average (the default; "
+                      "an older kernel's track reads want --disk 96000)",
         "5150-xtide": "IBM 5150/XT with an XT-IDE, or any disk the CPU "
-                      "copies for: 91 KB/s at half the machine, and less "
+                      "copies for: 96 KB/s at half the machine, and less "
                       "as the picture and the speaker take more of it - "
                       "the copy is charged",
         "5150-picomem2": "IBM 5150/XT with a PicoMEM 2: 150 KB/s, 22 kHz "
@@ -645,8 +646,10 @@ CHOICE_HELP = {
     "audio": {
         "pcm8": "8-bit sound for a Sound Blaster",
         "adpcm4": "Sound Blaster 4-bit ADPCM: half the bytes, noisier",
-        "speaker": "The PC speaker, for a machine with no sound card "
-                   "(5.5 kHz; takes about half an 8088)",
+        "speaker": "The PC speaker, for a machine with no sound card: "
+                   "about half an 8088 at the default 5.5 kHz, and about "
+                   "78% of one at the 8 kHz the herc-spk and cga-spk "
+                   "presets choose",
         "none": "Silent",
     },
     "buffer_sound_ahead": {

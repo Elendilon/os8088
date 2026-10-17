@@ -48,7 +48,7 @@ feel what they were up against).
 > (legacy BIOS), in QEMU, or burned to a CD-R.
 > **[docs/LIVE-MEDIA.md](docs/LIVE-MEDIA.md)** walks through all of it:
 > grab the images from a [release](https://github.com/jggonz/os8088/releases)
-> or `make live`, then `make burn` guides you through writing the stick on a
+> or `make live`, then `make imager` guides you through writing the stick on a
 > Mac — it shows only the drives that could be the right answer, makes you
 > type the disk's name before erasing anything, and verifies every byte it
 > wrote by reading it back.

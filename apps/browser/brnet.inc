@@ -216,16 +216,28 @@ br_go:
                                     ; (clicking in it, which is how this was
                                     ; reported). One draw at the one place the
                                     ; text changes, which is here
-    call br_free_all
-    mov ax, BR_MAXKB                ; claim only the source until the page arrives
-    call br_srcclaim
-    jc .nomem
+    mov byte [br_keep], 0           ; **A FETCH THAT CANNOT GET PAST ITS FIRST
+    call net_find                   ; STEP KEEPS THE PAGE.** br_free_all used
+    jc .keep                        ; to run here unconditionally, so with no
+    jnz .fresh                      ; link driver (or no partner on the cable)
+.keep:                              ; the worker's .open failed a tick later
+    inc byte [br_keep]              ; under a page still DRAWN but no longer
+    jmp short .claimed              ; held: no scroll, dead links. Asked here,
+.fresh:                             ; the page and its buffers stay; the fetch
+    call br_free_all                ; still starts and fails in the worker as
+    mov ax, BR_MAXKB                ; before, so the state line, the promise
+    call br_srcclaim                ; and its withdrawal are unchanged - and
+    jc .nomem                       ; [br_keep] makes the worker refuse even
+.claimed:                           ; if a driver appears in between, since
+                                    ; it may not take the OLD page's source
     mov byte [br_frameappend], 0
     mov byte [br_framecount], 0
     mov byte [br_frameidx], 0
     mov byte [br_framecut], 0
     cmp byte [br_nopush], 0         ; the history, unless this trip IS
     jne .nohist                     ; the history: Back, Forward and Reload all
+    cmp byte [br_keep], 0           ; ...or the page is KEPT, which is not a
+    jne .nohist                     ; new place either
     call br_hpush                   ; come through here and none of them is a
 .nohist:                            ; new place (BROWSER-PLAN 5)
     xor ax, ax
@@ -323,7 +335,7 @@ br_split:
     mov word [br_port], 80          ; test serves both
     mov bx, br_s_schemes            ; https:// ?
     call br_hrefpfx
-    jnc .bad                        ; ...refused by name (SPEC.md 71.2)
+    jnc .https                      ; ...refused by name (SPEC.md 71.2)
     mov bx, br_s_scheme             ; http:// - stepped over if present
     call br_hrefpfx
     jc .host                        ; ...NOT present: SI is already the host
@@ -393,6 +405,10 @@ br_split:
     mov byte [di], 0
     clc
     jmp short .out
+.https:                             ; ...and the NAME is said: this answered
+    mov word [br_nmsg], br_s_nohttps ; br_go's catch-all `Not an http URL`
+    jmp short .bad                  ; for a typed https://, where a clicked
+                                    ; link said the promised words
 .long:
     mov word [br_nmsg], br_s_urltoo
 .bad:
@@ -463,6 +479,8 @@ br_nstep:
     jc .nodrv                       ; (apps/os88sock.inc, SPEC.md 20.11.1)
     jz .nolink                      ; ...and NETV_STATE's NSTF_SOCK with it,
                                     ; which is OS88SOCK_STATE's half
+    cmp byte [br_keep], 0           ; br_go found none and KEPT the page, so
+    jne .nodrv                      ; there is no source claim of this fetch's
     mov bh, NET_CLASS
     mov bl, NETV_OPEN
     mov si, br_host

@@ -1742,6 +1742,10 @@ gives). Four rules follow:
    turned off — `Show status bar`, `Allow keyset joysticks` — wears the `*`
    AND `MENU_DIS` together. The marker is two glyphs so both spellings are
    the same width; the longest, `* Pause emulation  Alt+P`, is exactly 24.
+   **Every other item on a menu that carries check items starts with the OFF
+   marker's two blanks as well**, so the labels form one column - Preferences'
+   `Restore display state`, `Advance frame`, `Emulation speed`, `Mouse grab`
+   and `Settings...` once started two cells left of the rest.
    The kernel reads the item strings through the set's `items` pointer at
    draw time, so swapping a pointer is enough and `os88_menu_set` is not
    called again.
@@ -1759,7 +1763,7 @@ Live items:
 
 | item | caption | note |
 |---|---|---|
-| File > Smart attach... | Alt+A | the Standard File dialog on `*.PRG` (§11.3) |
+| File > Smart attach... | Alt+A | the Standard File dialog, Open form (§11.3) |
 | File > Reset > Reset machine CPU | Alt+F9 | **and it CLEARS THE PAUSE, which is VICE's own order**: `machine_reset_action` calls `ui_pause_disable()` straight after `machine_trigger_reset()`. `c64_adv` is cleared with it and `c64_menu_state` re-runs. The body is a latch (`c64_reset_req` = 1) spent by `ovl_reset_service()` at the top of the next wake, out of the desktop's lock |
 | File > Reset > Power cycle machine | Alt+F12 | caption kept; the item is the route (§7.5). **RAM pattern fill: VICE's C64 factory pattern** (`src/ram.c`, `ram_init_with_pattern`) — the eight-byte period `00 00 FF FF FF FF 00 00` with every other 16K block inverted, **not zeros**; `Reset machine CPU` does not touch RAM. The latch is `c64_reset_req` = 2, because `c64_zfill` over 65,536 bytes is about a quarter of a second on the target and `os88_oncmd` runs under the gfx lock |
 | File > Exit emulator | Alt+Q | **`os88_wm_close`, the kernel's own close path** (§15.2). Answered in the RESIDENT `os88_oncmd`, because it is a latch and nothing else; `c64_exit_req` is set there and the top of `os88_onwake` spends it — sets `C64_ST_DEAD`, calls `os88_wm_close`, and returns with nothing after the call |
@@ -1815,7 +1819,11 @@ the item's own first byte for `OS88_MENU_DIS` before calling `os88_oncmd`.
 
 ### 11.3 Program loading
 
-**File > Smart attach... (Alt+A)** opens the Standard File dialog on `*.PRG`.
+**File > Smart attach... (Alt+A)** opens the Standard File dialog (Open
+form, no default name - SPEC.md 38.9: the dialog does not filter by
+extension, so the `*.PRG` this once passed was a NAME no file has, sitting in
+the box. The box starts on SPEC.md 38.10's last-picked name, and Open is
+greyed until a row is selected).
 `os88_file_dlg` answers −1 when another modal dialog already owns the screen,
 and that is said — `A file dialog is already open.` — rather than swallowed.
 

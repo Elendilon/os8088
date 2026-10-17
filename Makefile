@@ -3611,6 +3611,14 @@ SYSDOCRAW := $(BUILD)/readme-plain.txt
 
 # --- WHAT THE 360KB SYSTEM DISK ALONE LEAVES OFF (SPEC.md 24.3) --------------
 #
+# **TODAY IT IS THREE PACKAGES AND NO TYPEFACE**: $(SYS360OMIT) below holds
+# BROWSER.O88, TELNET.O88 and MINES.O88, and all ten faces ride os8088-360.img
+# - lz4 packing (SPEC.md 20.13) gave back the room JETBRAIN, COURIER and TALLX
+# were taken off for, and FACES360 filters by the same list, which names no
+# face. What follows down to SYS360OMIT is the RECORD of how the list moved,
+# kept because each entry is an argument the next squeeze will want again; read
+# its present tense as the tense it was written in.
+#
 # That geometry is **354 clusters of 1,024 bytes** and it carries the whole
 # driver set, both kernel-module sets, the manual, the logo, ten typefaces with
 # their licence and the six core packages. It had 352 in use and 2 free before
@@ -8807,7 +8815,14 @@ paccman: $(BUILD)/paccman.o88
 # package sits at the root beside its README and nothing can be separated from
 # anything. The day the size line passes 50,000 and pmc_intro.c moves out,
 # this grows a folder, the way CWORD's disk carries one.
-PACCMANDISK := $(BUILD)/paccman.o88 apps/paccman/README.md
+#
+# THE README IS THE PLAYER'S, apps/paccman/README.TXT - plain ASCII, the way
+# the C64 and APPLE2 disks carry theirs. It was README.md, the DEVELOPER's
+# notes in UTF-8: build steps and SPEC.md section numbers for someone at a
+# floppy drive, and every long dash and section sign drawn as two or three
+# junk glyphs in Note Pad. README.md stays in the tree for the developer,
+# and the MIT text rides in README.TXT as the licence asks.
+PACCMANDISK := $(BUILD)/paccman.o88 apps/paccman/README.TXT
 
 $(BUILD)/paccman.img: $(PACCMANDISK) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(PACCMANDISK)
@@ -10346,7 +10361,15 @@ scribedisk: $(BUILD)/scribe.img $(BUILD)/scribe720.img \
 $(BUILD)/SCWELCOM.RTF: tools/os88rtf.py tools/os88doc.py apps/scribe/welcome.wtx | $(BUILD)
 	python3 tools/os88rtf.py apps/scribe/welcome.wtx -o $@
 
-SCRIBEDISK := $(BUILD)/scribe.o88 $(BUILD)/WELCOME.DOC $(BUILD)/SCWELCOM.RTF
+# ...and SCWELCOM.DOC, the SAME page as a native .DOC, where the disk used to
+# carry Word's own WELCOME.DOC: a Scribe disk whose sample document opens on
+# "WELCOME TO MICROSOFT WORD" is the fork's identity leaking, and the page
+# itself says it is on the disk twice. The .DOC is still the sample Scribe
+# reads that format from (SPEC.md 95.2).
+$(BUILD)/SCWELCOM.DOC: tools/os88doc.py apps/scribe/welcome.wtx | $(BUILD)
+	python3 tools/os88doc.py apps/scribe/welcome.wtx -o $@
+
+SCRIBEDISK := $(BUILD)/scribe.o88 $(BUILD)/SCWELCOM.DOC $(BUILD)/SCWELCOM.RTF
 
 $(BUILD)/scribe.img: $(SCRIBEDISK) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(SCRIBEDISK) --folder DOCS
@@ -13395,10 +13418,10 @@ APPS_SYS := $(APPSYS)
 # does not have to eject the disk it booted from to reach it; and in SYSTEM/
 # rather than the root because it is machinery and not a program to go and
 # find - the same argument that put TASKMGR.O88 there (SPEC.md 28.3). DOS/
-# below it is what says which machine it is for: a .COM in SYSTEM/ beside a
-# .O88 invites a double-click, which gives 'Bad package' (the loader refuses
-# anything that is not a v3 package) and reads as a broken file rather than
-# as a file for another computer.
+# below it is what says which machine it is for. A double-click on it runs it
+# in the DOS window (SPEC.md 96), which on this machine, with no cable partner
+# to serve, prints why and ends; it used to answer 'Bad package', which read
+# as a broken file rather than as a file for another computer.
 APPS_DOS := $(BUILD)/os88net.com
 
 # OS88CZ.COM (SPEC.md 20.17.4): the split set's DOS end - join a set off a
@@ -13694,9 +13717,9 @@ OFFICEARGS360 := $(OFFICE_PKGS) \
 # OS88NET.COM GOES IN SYSTEM/DOS/, exactly as it does on the apps disks
 # (SPEC.md 24.2), and NOT at the root: it is an MS-DOS .COM for the machine
 # at the OTHER END of the parallel cable, and a .COM sitting beside four
-# .O88s invites a double-click that gives 'Bad package' - which reads as a
-# broken file rather than as a file for another computer. The root of this
-# disk is for programs that run on this machine.
+# .O88s invites a double-click - which runs it in the DOS window to tell the
+# user it has nothing to serve here (it answered 'Bad package' once). The
+# root of this disk is for programs that run on this machine.
 NETWORK_PKGS := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
                 $(BUILD)/thewire.o88
 NETWORK360 := $(NETWORK_PKGS) $(NETWORK_DATA) $(APPS_DOS)
@@ -14032,9 +14055,10 @@ LIVESYSARGS := $(addprefix SYSTEM:,$(filter-out $(APPSYS),$(SYSAPPS))) \
 # SCRIBE took the budget NEGATIVE. The note over $(ALLAPPSFILES) has the
 # arithmetic. A live volume with 26MB free has no such trade in it.
 #
-# SCRIBE GETS A FOLDER rather than a second .O88 in APPS/: its WELCOME.DOC is
-# a second copy of the name WORD/ already carries, which only separate folders
-# allow. (It was also because SCRIBE.OVL was resolved in the launching
+# SCRIBE GETS A FOLDER rather than a second .O88 in APPS/. Its sample .DOC
+# was Word's own WELCOME.DOC, a second copy of the name WORD/ already carries,
+# which only separate folders allow; it is SCWELCOM.DOC, Scribe's own page,
+# now. (It was also because SCRIBE.OVL was resolved in the launching
 # instance's directory; that module is a part of SCRIBE.O88 now, SPEC.md
 # 95.8.8, so the folder holds one program file and its two documents.)
 #

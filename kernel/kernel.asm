@@ -2952,6 +2952,7 @@ api_gfx_blitp:                    ; (named: SPEC.md 5.4.3.6's walk far-calls it)
                                   ;          frees, so the work is ld_start's
                                   ;          step 8a, one instruction after
                                   ;          this returns
+apic_gfx_points:                  ; os88ui_gring's corners from CTRL.DRV
     OSAPI_XCELL gfx_points        ; 0x0404 - X: draw a set of pixels the CALLER
                                   ;          computed (SPEC.md 5.6.9). ES:SI =
                                   ;          CX records of two words each, x

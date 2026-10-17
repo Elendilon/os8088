@@ -63,9 +63,9 @@
   "sources": [
    "apps/artful"
   ],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": "c739282f65a859f0",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "start card New/Open ask about unsaved changes over the writing screen (checked on MartyPC)"
  },
  "ASSOC_DAT": {
   "sources": [],
@@ -77,9 +77,9 @@
   "sources": [
    "apps/audio"
   ],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": "c66ee02557046ce8",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "Open while paused keeps the paused song (added, not selected); the bar empties with the clock at End of playlist and Stop"
  },
  "AUTOSTRT": {
   "sources": [],
@@ -137,9 +137,9 @@
   "sources": [
    "apps/browser"
   ],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": "955cbc3c9a274645",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "a typed https address says Https is not supported, as a clicked one does; with no link driver the page being read stays live under the refusal"
  },
  "C64": {
   "sources": [],
@@ -151,9 +151,9 @@
   "sources": [
    "apps/c64"
   ],
-  "stamped": "e4576a70",
+  "stamped": "86ee3df0",
   "strings": "3308f2081ea59ce1",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "checked: Smart attach dialog opens with Open greyed until a file is picked, Preferences items aligned; the page describes neither in detail"
  },
  "CALC_O88": {
   "sources": [
@@ -171,15 +171,15 @@
  },
  "CATALOG_TXT": {
   "sources": [],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": null,
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "checked: the Weave disk's CATALOG.TXT says how a user puts their own bundle on a disk (copy it, double-click it) instead of naming the Makefile's BUNDLES="
  },
  "CAT_GIF": {
   "sources": [],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": null,
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "Paint's refusal of a GIF over 64KB is named: the toast GIF larger than 64KB"
  },
  "CHARTER_F88": {
   "sources": [],
@@ -231,9 +231,9 @@
   "sources": [
    "kernel/ctrl.inc"
   ],
-  "stamped": "8a6a203d",
+  "stamped": "d511fdd4",
   "strings": "3ba5d1a1f6727cae",
-  "why": "ksp13: THMPAL.DRV's file name is staged, not resident - no text a user reads changed"
+  "why": "Drivers page: ticking a row no longer wipes the scroll-down arrow; page text unchanged"
  },
  "CWORD": {
   "sources": [],
@@ -245,9 +245,9 @@
   "sources": [
    "apps/cword"
   ],
-  "stamped": "e4576a70",
-  "strings": "c8acabba1dfadadf",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "55642792",
+  "strings": "e29c72eb33b83e26",
+  "why": "Undo, Cut/Copy/Paste keys, Ctrl+F Search, Alt+F4, Y/N/C on the save prompt, draggable ruler markers, labelled indent boxes, Confirm Changes and RTF keeping every format, all driven under MartyPC"
  },
  "CYCLONE_O88": {
   "sources": [
@@ -319,9 +319,9 @@
   "sources": [
    "apps/dos"
   ],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": "7e5f0adda8303591",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "CD walks a whole path (CD \\SYSTEM\\DOS) and a failed CD stays put; a missing program says Bad command or file name with or without a tail; HELP's last line says only NUL is a redirect target"
  },
  "DOTDEL_O88": {
   "sources": [
@@ -335,9 +335,9 @@
   "sources": [
    "apps/drmario"
   ],
-  "stamped": "e4576a70",
-  "strings": "2b581fc7b0c26a60",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "1aec5c4536fddfd4",
+  "why": "Enter after game over retries as a new game from score 0; P ignored on the clear and game-over screens"
  },
  "EMS_DRV": {
   "sources": [
@@ -427,9 +427,9 @@
   "sources": [
    "apps/frotz"
   ],
-  "stamped": "e4576a70",
-  "strings": "84ee586884efb160",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "d537d1f582955449",
+  "why": "Save/Restore Game greyed outside the story's own prompt; Story > Start/Stop Transcript works (stream 2, SCRIPT.TXT on Enter); .SAV double-click refusal; refusal under the splash"
  },
  "FTPD_O88": {
   "sources": [
@@ -576,9 +576,9 @@
   "sources": [
    "apps/loom"
   ],
-  "stamped": "e4576a70",
-  "strings": "54317d60697c4aba",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "7ec8cb8a",
+  "strings": "59bb257edd8ea46a",
+  "why": "checked: New Project starter packs as-is (page updated), Preview status line text updated; pack refusals lost their spec citations (page quotes none)"
  },
  "MEDIA": {
   "sources": [],
@@ -602,9 +602,9 @@
   "sources": [
    "apps/midirack"
   ],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": "2d8a5451be064e81",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "Settings' radios are the shared round ring now (SPEC.md 13.17.1); greyed rows' labels grey on VGA"
  },
  "MINES_O88": {
   "sources": [
@@ -638,17 +638,17 @@
   "sources": [
    "drivers/net"
   ],
-  "stamped": "e4576a70",
-  "strings": "78b9e71c5ade45e4",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "9bf50a723a7a10f7",
+  "why": "checked: only OS88NET.COM's /? help column moved (the /N line's indent); nothing the NET.DRV page says"
  },
  "NOTEPAD_O88": {
   "sources": [
    "apps/notepad"
   ],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": "b93994888feea78c",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "New asks about unsaved changes (checked on MartyPC)"
  },
  "NOTES": {
   "sources": [],
@@ -686,23 +686,23 @@
   "sources": [
    "drivers/net/os88net.asm"
   ],
-  "stamped": "e4576a70",
-  "strings": "cb2f0dc43a9ca116",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "ea878454d744fb04",
+  "why": "checked: the /N line of the /? text gained the space that lines its description up with the others; the page's option table is unchanged"
  },
  "PACCMAN": {
   "sources": [],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": null,
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "the folder holds README.TXT, the player's read-me"
  },
  "PACCMAN_O88": {
   "sources": [
    "apps/paccman"
   ],
-  "stamped": "e4576a70",
-  "strings": "5457db5dc63f21e3",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "066560d2",
+  "strings": "2eacb02ecd0d6758",
+  "why": "merge of two fixes: the disk's read-me is README.TXT (plain ASCII), and full screen mid-game draws correctly; both reflected on the page"
  },
  "PAINT_O88": {
   "sources": [
@@ -784,37 +784,31 @@
   "sources": [
    "drivers/ramdisk"
   ],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": "f1bd87b1659771ed",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
- },
- "README_MD": {
-  "sources": [],
-  "stamped": "e4576a70",
-  "strings": null,
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "greyed buttons grey their label on VGA too (SPEC.md 13.8.11); page text unchanged"
  },
  "README_TXT": {
   "sources": [],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": null,
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "PaccMan's disk carries a README.TXT now; listed with the other program read-mes"
  },
  "REDLINE_O88": {
   "sources": [
    "apps/redline"
   ],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": "613189b6ce818efd",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "the benchmark's progress panel clears to the window edge: no stray glyph; text unchanged"
  },
  "RLAPPLY_O88": {
   "sources": [
    "apps/rlapply"
   ],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": "9dede25f102f6dff",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "the menu-bar toast leaves no clock digit beside No REDLINE.CFG to apply (kernel, SPEC.md 59.8.2); text unchanged"
  },
  "ROBOMONO_F88": {
   "sources": [],
@@ -866,9 +860,9 @@
   "sources": [
    "apps/scribe"
   ],
-  "stamped": "e4576a70",
-  "strings": "4ad8a6b5c8c213aa",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "9002627c285a05c8",
+  "why": "Exit lists Alt+F4, which Scribe now handles; the welcome files are SCWELCOM.RTF and SCWELCOM.DOC; the Insert Picture 'not placed' note removed (the message reads 'WxH placed'); About box line checked on MartyPC"
  },
  "SCWELCOM_RTF": {
   "sources": [],
@@ -880,9 +874,9 @@
   "sources": [
    "apps/sheet"
   ],
-  "stamped": "e4576a70",
-  "strings": "2960e9371dba2549",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "2c8ba025",
+  "strings": "bfdc6bbbc5be137d",
+  "why": "Percent x100, Border over the block, ask before New/Open/Close, .XLS as Normal, what each format keeps (notes, borders) - all checked against SHEET.O88 under MartyPC"
  },
  "SHEET_WAB": {
   "sources": [],
@@ -912,9 +906,9 @@
   "sources": [
    "apps/skies"
   ],
-  "stamped": "e4576a70",
-  "strings": "1f8cea67cd346354",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "130e89fbca526ee9",
+  "why": "Instructions line names no speed (the prompt computes it per aeroplane); ALT reads 0 below ground - page unchanged"
  },
  "SOLITAIR_O88": {
   "sources": [
@@ -1006,17 +1000,17 @@
   "sources": [
    "apps/telnet"
   ],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": "9180c0b4b6d6e72f",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "the host box has the keyboard when the window opens"
  },
  "TEXPAD_O88": {
   "sources": [
    "apps/texpad"
   ],
-  "stamped": "e4576a70",
-  "strings": "ecc19d62b0090173",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "ca6e54b0603dfda4",
+  "why": "New/Open/close ask about unsaved changes (alert checked on MartyPC); \\today prints the clock's date; the dirty star is on the top row; letterpaper-overrides-Page-menu note kept, it is intended"
  },
  "THEWIRE_O88": {
   "sources": [
@@ -1069,9 +1063,9 @@
    "tools/os88proxy.py",
    "tools/os88proxygui.py"
   ],
-  "stamped": "e4576a70",
-  "strings": "854568cce0c8c62d",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "3238a0f33fee57d6",
+  "why": "the start-up line and the window label name File > Open Location..., the Browser's real menu item; the page quotes the new start-up line"
  },
  "TOOL_VENC": {
   "sources": [
@@ -1114,9 +1108,9 @@
   "sources": [
    "apps/video"
   ],
-  "stamped": "e4576a70",
+  "stamped": "d511fdd4",
   "strings": "52e0d90cf0b17d66",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "a paused Live play: the card says Paused at m:ss, and the box shows the frame even when paused before the first pass"
  },
  "VMMOUSE_DRV": {
   "sources": [
@@ -1136,9 +1130,9 @@
   "sources": [
    "apps/weave"
   ],
-  "stamped": "e4576a70",
-  "strings": "2fcfa417921093c4",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "7ec8cb8a",
+  "strings": "ac1b906ade71c22c",
+  "why": "checked: no-bundle and refusal screens now name Bundle > Open Bundle..., which the page already says"
  },
  "WELCOME_BAS": {
   "sources": [],
@@ -1192,9 +1186,9 @@
   "sources": [
    "apps/word"
   ],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": "466d7146ee799a0e",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "Exit lists Alt+F4, which Word now handles (checked on MartyPC)"
  },
  "WRITING_MD": {
   "sources": [],

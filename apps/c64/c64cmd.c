@@ -228,8 +228,16 @@ static void ovl_cmd(int menu, int item, void *win)
              * time, machine-wide - and the first draft discarded it, so
              * picking Smart attach... with somebody else's Save box up did
              * nothing at all and said nothing at all, which is the silent
-             * no-op SPEC.md 47 forbids. */
-            if (os88_file_dlg(OS88_FDLG_OPEN, win, "*.PRG") < 0)
+             * no-op SPEC.md 47 forbids.
+             *
+             * THE THIRD ARGUMENT IS A DEFAULT NAME AND NOT A FILTER, and OPEN
+             * takes 0 for it (apps/apple2/a2cmd.c says the whole of it):
+             * SPEC.md 38.9 - the dialog does no filtering by extension - so
+             * "*.PRG" here was a name no file has. With 0 the box starts on
+             * SPEC.md 38.10's last-picked name for this application, and Open
+             * stays greyed until a row is selected (38.8) rather than sitting
+             * live over nothing. */
+            if (os88_file_dlg(OS88_FDLG_OPEN, win, 0) < 0)
                 c64_say("A file dialog is already open.");
             return;
         }

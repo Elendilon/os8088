@@ -1023,6 +1023,10 @@ cs_k_spd:                           ; knots: v(16.7) x 1.944 / 128
     ret
 cs_k_alt:                           ; feet: metres x 3.281
     mov ax, [cs_py+1]
+    or ax, ax                       ; the crash frame can end BELOW the
+    jns .pos                        ; ground, and an unsigned multiply read
+    xor ax, ax                      ; -241 m as 18,428 ft: under the ground
+.pos:                               ; is 0
     mov bx, 210
     mul bx
     mov cl, 6

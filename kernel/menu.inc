@@ -1538,6 +1538,14 @@ menu_draw_clock:
     dec cx                      ; ordinary clock run paints it white for free
     rep movsb                   ; ...and the message from cell 1, on the grid
                                 ; (CX >= 1 here anyway: the `jb` above)
+.cut:                           ; ...and NO PIECE OF A CLOCK WORD after it: a
+    scasb                       ; strip that ends inside the line ate the
+    jae .hash                   ; front of a word, and what it left was a stray
+    mov [di-1], al              ; digit beside the message (SPEC.md 59.8.2).
+    jmp short .cut              ; Blanked to the next space - or the NUL, the
+                                ; `jae` (AL = ' ' >= the cell) taking both.
+                                ; scasb and not cmp/stosb: EIGHT bytes, even,
+                                ; so ui_task's parity holds (t_hotpar)
 
 .hash:
     xor ax, ax                  ; --- one check word over the composed FIELD,

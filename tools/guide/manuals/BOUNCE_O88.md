@@ -37,11 +37,11 @@ when the window comes back.
 
 ## Good to know
 
-![The About card. The square carries on bouncing over it.](shot:bounce-about){right}
+![The About card.](shot:bounce-about){right}
 
 - Bounce has no keys, no settings and saves nothing.
-- The square keeps moving while the About card is up and cuts gaps in the
-  card as it passes. Click in the window to put the card away.
+- The square is not drawn while the About card is up. Click in the window
+  to put the card away, and the square is back where it has bounced to.
 - If the machine is already running as many background jobs as it can, a
   new Bounce opens with its square standing still in the corner. Close
   another program and the square starts moving the next time the window is

@@ -27458,6 +27458,36 @@ is the right one — MIDIRack (§105.9.5) paints every button of its colour face
 and none of its mono one. Six bytes in `os88ui_btn` under the define; a
 package that does not set it assembles **byte-identical**.
 
+#### 13.8.11 A greyed CAPTION on a colour VGA takes the grey as its INK
+
+§47 rule 1 greys the frame **and** the label. `os88ui_btn`'s plain body (and
+`os88ui_chk`'s and `os88ui_rad`'s labels) set the disabled pen and then handed
+`font_run` `CBLACK`, on the belief that `font_run` greys whatever it is given.
+It does on the two 1bpp adapters and in a window that declared two colours
+(§6.1.12, §11.96.17.1) — the checkerboard — and **not on a colour VGA**, which
+greys with a colour (§6.1.12's last paragraph): there the ink it is HANDED is
+what lands. So every greyed standard button on a VGA drew a grey frame round a
+solid black caption, and RAMPAGE.DRV's Preserve, Preserve As and Clear read as
+live with nothing mounted. `OS88UI_BIMG`'s body (§13.8.9) already handed it
+`CDGRAY` and was right.
+
+The caption's ink is now the grey when the control is disabled:
+
+- **a package** passes `CDGRAY` (`OS88UI_DISAL`), because it cannot read the
+  pen back (there is no `OSAPI_GET_COLOR`) — **unless it says `%define
+  OS88UI_1BPP`**, which every package that declares `OSAPI_SAVEU_1BPP` does:
+  colour 8 is a third colour such a window has promised not to draw, and its
+  greying is `font_run`'s checkerboard already. Browser, Note Pad, TeXpad, the
+  FTP server, Telnet and the Desk Calendar say it;
+- **the kernel's copy** passes `[gfx_color]`, which is exactly the pen
+  `UI_PEN` just chose — `CDGRAY`, or `CBLACK` for a declared window
+  (`gfx_pen_dis`) — and which `UI_INK` has already set to a caller's
+  `OS88UI_INK`, so the kernel arm drops the high-byte copy and costs **no
+  resident byte** (`kernsize`: +0 on both kernels).
+
+The 1bpp adapters draw the same pixels as before: `font_ink` substitutes
+`[gfx_disink]` for any ink a disabled run is handed.
+
 ### 13.9 A window's TIMER — `W_ONTIMER` (API 0x0342)
 
 **Call me back in N ticks.** `OSAPI_WM_TIMER` (BX = window, AX = ticks from
@@ -29202,11 +29232,15 @@ identical; the radio differs by 40 pixels of 144 clear and 56 set, the check
 mark by 32. The bitmap radio was a **circle** and `os88ui_gring` is four runs,
 so what draws today is a **square with its four corner pixels nipped off**.
 §13.17.1's rule — *the corners must be clear, so it is not a rectangle* — is
-satisfied by both, so `tests/radio.py` passes on either: the rule is too weak
-to tell a ring from a nipped square. That is a **look question that has
-shipped**, and the report prices the alternatives (about 7 ms for a rounder
-octagon at 8 fills, about 11 for the bitmap's own arc at 12, against today's
-4.5); nothing has been changed on the strength of it.
+satisfied by both, so `tests/radio.py` passed on either: the rule was too weak
+to tell a ring from a nipped square. That was a **look question that had
+shipped**, and the report priced the alternatives (about 7 ms for a rounder
+octagon at 8 fills, about 11 for the bitmap's own arc at 12, against 4.5).
+**The field answered it**: MIDIRack's Settings radios were reported as
+"ticked squares" that read as check boxes, so `os88ui_gring` is the octagon
+now, four runs and one `gfx_points` for its corners (the 8-fill spelling
+measured past `glyphcost`'s budget) (§13.17.1) and `tests/radio.py` asserts the bridging pixels and the
+clear ones beside them, which a nipped square fails.
 
 **The position is held in DI and SI, and that is worth 116 bytes rather than
 four.** `UI_FILL` wants AX, BX, CX and DX, so an x or y living in any of them is
@@ -29598,29 +29632,38 @@ bytes.
 so `os88ui_radhit` can refuse a greyed group without being handed a flag the
 caller would otherwise have to supply twice and keep in step.
 
-#### 13.17.1 The look — a rounded box, and every reason is a constraint
+#### 13.17.1 The look — a round ring, and every reason is a constraint
 
-A **12×12 rounded box** — a rectangle with one pixel off each corner — with a
-**6×6 rounded dot** in the middle when it is picked. Twelve is `OS88UI_GW`, so a
+A **12×12 round ring** — each side stopping two pixels short of the corner, and
+one pixel bridging each corner diagonally — with a **6×6 rounded dot** in the
+middle when it is picked. Twelve is `OS88UI_GW`, so a
 call site converted from §13.15's glyph keeps its geometry to the pixel.
 
 Three things decided the shape and none of them is taste:
 
 - **It must not be a square.** `os88ui_chk`'s mark is a solid square, and a
-  radio that is also square says nothing about being one-of-many. At 12 px a
-  one-pixel corner cut is what a circle rasterises to, and it is what small 1bpp
-  interfaces have always drawn.
+  radio that is also square says nothing about being one-of-many. The first
+  cut took ONE pixel off each corner on the reasoning that this is what a 12 px
+  circle rasterises to, and on the glass it was not: beside a check box it read
+  as a ticked square (MIDIRack's Settings, reported from the manuals). Two
+  pixels short with a pixel bridging the corner is the octagon §13.15.1 priced,
+  and it reads as round on all three adapters.
 - **It must not be a thin diagonal or a dither** (§39.4): grey rounds to black
   on both 1bpp adapters, so a dithered ring reads as dotted and a diagonal reads
-  as noise. Every edge here is a horizontal or vertical **run**.
+  as noise. Every edge here is a horizontal or vertical **run**, and the four
+  corner pixels are one pixel each - a single step, not a line.
 - **The ring is ONE pixel because `os88ui_chk`'s frame is one pixel.** A heavier
   ring is more legible when greyed and would be the odd control out in a column
   carrying both; matching the neighbour won.
 
-**The ring is four RUNS, never a frame.** `gfx_frame` puts a pixel in each
-corner, which would then have to be knocked out in the ground colour — four more
-fills *and* two more pen changes. Four runs that stop one pixel short are the
-same shape for less.
+**The ring is four RUNS and one `OSAPI_GFX_POINTS`, never a frame.**
+`gfx_frame` puts a pixel in each corner, which would then have to be knocked
+out in the ground colour — more fills *and* two more pen changes. Four fills
+draw the sides, and the four corner pixels go to `gfx_points` (§5.6.9) in ONE
+arrival, staged in a 16-byte table beside the routine in its own image (a
+module may write to its own, so CTRL.DRV's copy works the same way). As four
+more fills they cost a picked radio 2.6 ms past the bitmap glyph on the field
+machine, over `glyphcost`'s 2 ms budget.
 
 **The dot is centred exactly**: 1 + 2 + 6 + 2 + 1 is the box's own 12.
 
@@ -29633,8 +29676,10 @@ offset, so the pair cannot separate again.
 
 #### 13.17.2 What it costs to draw, against the glyph it replaces
 
-**Five drawing calls for an unpicked row and eight for the picked one** — a pen
-change, four for the ring, three for the dot, and the label. There is no ground
+**Seven drawing calls for an unpicked row and ten for the picked one** — a pen
+change, five for the ring (four runs and one `gfx_points` for the four corner
+pixels, §13.17.1), three for the dot, and the label. The round ring is one
+call more than the nipped square it replaced. There is no ground
 fill (§13.17.4). That is *more* than
 `os88ui_glyph`'s normal path, which is one masked-sprite call plus the caller's
 own label, and the trade is taken on the owner's terms: this is drawn once and
@@ -47737,7 +47782,9 @@ those mirrors, and `fm_clamp_scroll` is the one routine that writes the
 scroll position back into the block.
 
 All coordinates below are content-relative. Header line at (6,6):
-`"Drive B:  N files"` (drive letter from this window's `FS_DRV`) or, when
+`"Drive B:  N files"` - `"1 file"` when N is one, the `s` cut off the
+staged string in front of its NUL (7 resident bytes, `.cold` on `kern_big`)
+- (drive letter from this window's `FS_DRV`) or, when
 its listing came from a failed mount (`FS_MOK` = 0),
 `"No os8088 disk (B:)"` (19 chars — short enough to clear
 the buttons at the default width; it was "No os8088 disk in drive B:"
@@ -50670,7 +50717,8 @@ not, is the right trade.
 
 ### 22.21 `Clone Disk...` — one mode, four prompts, Esc at every one
 
-The File menu's seventh item, immediately under `Format Disk...` and greyed by
+The Disk menu's second item (§22.28; it was the File menu's seventh until
+the Disk menu took the volume commands), immediately under `Format Disk...` and greyed by
 the same predicate: `fm_fmt_ok` is already "this window's volume is a BIOS
 floppy", which is exactly what a clone needs, so `fm_bar_gate` sets both words
 from one test and the two items can never disagree about the same disk (§47
@@ -50742,8 +50790,8 @@ the moment nothing of the module is on the stack.
 
 ##### A SECOND clone is refused as itself
 
-Nothing gates the File menu on `FS_EDIT`: `fm_bar_gate` greys `Clone Disk...`
-and `Write Img...` on `fm_fmt_ok` alone, and a status-line prompt is not modal,
+Nothing gates the Disk menu on `FS_EDIT`: `fm_bar_gate` greys `Clone Disk...`
+and `Write Image...` on `fm_fmt_ok` alone, and a status-line prompt is not modal,
 so a second Disk window — or the same one — can pick either item while a clone
 is sitting at `CLS_SRC` with a live claim. Three things follow, and all three
 are the contract:
@@ -50811,7 +50859,7 @@ BPB as this one's geometry. The mount's own verdict, `[dsk_mntok]`, is what
 travels into `CL_MOK`.
 
 
-#### 22.21.5 `IMG` on the ring, and `Write Img...` beside it
+#### 22.21.5 `IMG` on the ring, and `Write Image...` beside it
 
 The target ring gained one more stop. `clo_nextvol` walks A:, B:, … and then
 **`IMG`** before wrapping, so the image file is a *target* rather than a mode —
@@ -50826,7 +50874,8 @@ line drops the erasure clause for it:
 There is no erasure to name: a file is named in a Save box, and replacing one
 there is what a Save box means.
 
-**`Write Img...`** is the File menu's eighth item, under `Clone Disk...`, and
+**`Write Image...`** (once `Write Img...`) is the Disk menu's third item
+(once the File menu's eighth), under `Clone Disk...`, and
 greyed by the same predicate as both of its neighbours — `fm_fmt_ok`, "this
 window's volume is a BIOS floppy" — so `fm_bar_gate` sets three words from one
 test and the three items can never disagree about one disk. Its confirmation is
@@ -59341,6 +59390,20 @@ A refusal that is not "mine is already up" leaves the note **open**, which is
 the only honest answer: there is nothing to ask with, and closing after a
 silent save is exactly the behaviour §75 was written to remove. The user
 closes something else and tries again.
+
+#### 27.15.4 File > New asks the same question
+
+New used to empty an edited note without a word while closing the same note
+asked — two ways of throwing the document away, and only one of them
+guarded. `np_asknew` is the close question with a second ending: the same
+`np_dirty`, the same alert and the same `np_onask`, with `[np_qnew]` set when
+it is New's. `np_onask` reads and clears it in one `xchg`: Save (or Discard)
+then empties the note through `np_new` and repaints instead of calling
+`OSAPI_WM_CLOSE`, and an unnamed note's Save As carries it across the dialog
+as `[np_qclose]` = 2 where a close's is 1. **A close beats a New**: when the
+close box is clicked while New's question is up, `np_onclose` clears
+`[np_qnew]` before the refusal raises that question, so the answer closes the
+window — the words on the alert are the same either way.
 
 
 ### 27.16 `APP_SMALL` — the small build of this package
@@ -68261,7 +68324,10 @@ inks.
 
 - Window: "Piano", 224×177 at (250,100) → content 222×158 — the authored
   frame, which `wm_fit` clamps onto the live screen (§39.7), so at 640x200
-  the keyboard row is cut off at the dock (§39.9). Content layout, top to
+  the window is shorter than designed and the KEYBOARD is drawn with
+  shorter keys to fit it (`pn_metrics`, §11.98; the black keys keep their
+  41/67 share and both letter rows move with them) rather than being cut
+  off at the dock (§39.9). Content layout, top to
   bottom (all coordinates content-relative):
   - **Note viewer** — a CBLUE 1px frame (2,2)–(219,49), white field, five
     black staff lines (treble: E4 G4 B4 D5 F5) at y 40/34/28/22/16,
@@ -73361,12 +73427,16 @@ the Activate button, unchanged and now shared).
 **`vid_dual_ok` is the predicate**, and it is the §31.3 idiom rather than a
 test written out three times — `vid_disp_init` acts on it, §31.10.2's row is
 drawn only when it says yes, and a click in that row's band is refused when it
-says no. `[vid_avail] == VID_A_HERC | VID_A_CGA` exactly.
-A VGA machine's CGA row *is* the VGA doing mode 6 (§39.11.1) and cannot be a
-second display; a VGA + Hercules pairing is a real machine this build does not
-extend. The renderer split is general and this gate is not, deliberately —
-what is missing for VGA is the mode set ordering and a second `vid_ctx` kind
-that decodes A000, not anything in §39.14.
+says no. It answers yes for **a mono card and a colour card**: Hercules +
+CGA, and a VGA + a real Hercules (`VID_A_VGA | VID_A_HERC | VID_A_CGA`,
+docs/plans/completed/DUAL-DISPLAY-VGA.md). The HERC bit is evidence - only
+a probe that found memory at B0000 sets it - where a VGA machine's CGA bit
+is synthetic: that row *is* the VGA doing mode 6 (§39.11.1), so a VGA alone
+(`VID_A_VGA | VID_A_CGA`) is one display and is refused. A machine with a
+VGA, a Hercules and a real CGA is indistinguishable from one without the
+CGA and pairs the VGA with the Hercules. (This paragraph used to say a VGA +
+Hercules pairing was not extended; `vid_dual_ok`'s header in
+`kernel/vidsel.inc` is the account of the change.)
 
 #### 39.19.1 The default is Single, because a card is not a monitor
 
@@ -88469,6 +88539,24 @@ surface exists: `at_alert` for the questions asked *inside* the writing
 surface, `os88ui_ask` for the one question that can only be asked when there
 is no writing surface to ask it on.
 
+#### 46.7.2 …and so do the start card and the windowed File menu
+
+"New/Open/Quit ask first" was true of the fullscreen editor's own menu and
+Ctrl+N and of nothing else. The start card's **New** and **Open** (its
+buttons, `Enter`/`N`/`O`) and the windowed bar's **File > New** and **Open**
+called `at_cmd_newdoc` and `at_dlg_open` directly, so a document edited
+fullscreen and taken back to the card was thrown away by the next New
+without a word. All four go through `at_wreplace` now. A clean document takes
+exactly the path it took before. An edited one enters the fullscreen editor
+FIRST and is asked there, through `at_confirm` — the question Ctrl+N already
+asks — rather than through `os88ui_ask`: both commands end in the fullscreen
+editor whatever is answered, the question then sits over the document it is
+about, and Cancel leaves the user in the editor with it. That is §46.7.1's
+line between the two alerts kept rather than crossed: the question is asked
+on the writing surface because there is one to ask it on. A refused
+`OSAPI_FULLSCREEN` (another window holds the screen) leaves the card up and
+the document untouched.
+
 ### 46.9 The document is a heap claim, and it grows
 
 The gap buffer was 20,480 bytes of **bss**, and the reason given for it was
@@ -89356,6 +89444,21 @@ Four repaints to one, measured with a counter across a real wave 1 → 2
 transition. The sweep is worth keeping: it is the one thing in this game that
 forgives a dropped pixel anywhere, and after §48.8's and §48.9's arithmetic
 it is also the only full repaint left in ordinary play.
+
+#### 48.9.5 …and Mode X had kept the pair §48.9.3 took out
+
+§48.9.3's opaque run is `OSAPI_FONT_RUN`, and on the Mode X surface no kernel
+drawing slot is legal (§53.7), so `mc_runc` fell back to its twins there: a
+black `mx_fill` of the whole span, then `mx_text` plotting each lit pixel
+with a map-mask `out` of its own. In `M_OVER`, `M_ENDA` and `M_ENDC` the
+banner is repainted every frame (ABMs can still cross it), so on a 4.77 MHz
+XT the strip was blank-then-lettering in *every* frame and the glass only
+ever showed part of it — `THE E`, `THE END - N`. `mx_run` is the opaque run
+on that surface: one map-mask `out` per COLUMN of the span and each of its
+eight pixels written ink or ground in the same pass, so a repaint writes the
+picture already there and no pixel passes through black. `mc_srun`'s status
+fields take the same path. `mx_text` stays for the About card's lines, which
+are letters on a panel filled once.
 
 ### 48.10 `mc_blob` cut the calls and multiplied the pixels
 
@@ -101969,6 +102072,21 @@ a strip in the gap floats in white space and touches neither the widget nor
 the margin — but two toasts that pad differently depending on which home they
 landed in is a defect by itself.
 
+### 59.8.2 …and it leaves no FRAGMENT of the clock
+
+"Longer messages eat the date first and the time last" was true by the cell
+and wrong by the word. A strip that ends inside the clock's line leaves the
+rest of that line standing, and when the strip is one cell short of the field
+what stands is one digit: Redline Apply's `No REDLINE.CFG to apply` (23
+glyphs, 24 cells) was reported off the glass with the clock's last `0` glued to
+its `y`, and any message between 7 and 23 glyphs left the tail of a date word
+the same way. **So the cells after the strip are blanked up to the next space
+of the clock's line** — the field's NUL stopping it too — and what survives is
+whole words: a 15-glyph message shows the time, a 23-glyph one shows nothing
+beside it. Eight bytes of `.text` on both kernels (`menu_draw_clock`'s
+`.cut`), and the composed field is hashed after it as before, so the cut is
+part of the picture the clock compares against rather than a second pass.
+
 ### 59.9 …and it prefers the gap, where it covers nothing at all
 
 §59.8 chose the clock because a message must not cover a menu title, and read
@@ -102533,7 +102651,7 @@ the reason on screen and stops. That is §47's refusal path, and it is a normal
 outcome on a small machine, not an error:
 
 ```
-Anchorhead needs 508K and this machine has 149K free.
+Story too large for this machine.
 ```
 
 `HEAP_SEG` is `0x1640`, so the heap is 551KB on a 640KB machine and 167KB on a
@@ -102666,7 +102784,7 @@ Files cannot be pre-arranged, because `@save` and `@restore` are opcodes the
 *story* executes. The handshake:
 
 1. The worker stages the Quetzal image into the staging claim — a memory copy,
-   which it may do — sets `[zf_req]`, prints `Press RETURN to choose a save
+   which it may do — sets `[zf_req]`, prints `Press RETURN to choose a
    file.` and waits on the ordinary input path.
 2. The user presses RETURN. That is a **key callback, on the UI task**, which
    sees `[zf_req]` and raises `OSAPI_FILE_DLG`.
@@ -102676,6 +102794,30 @@ Files cannot be pre-arranged, because `@save` and `@restore` are opcodes the
 
 It costs one keypress, which is one fewer than the Infocom interpreters asked
 for, and every step happens on the task that is allowed to do it.
+
+**File > Save Game and Restore Game are step 2's other door, and only that.**
+The image the dialog writes is the one `@save` staged, and only `@restore`
+applies what is read, so at any other moment the items have nothing to act on
+— and they used to act anyway, writing whatever the staging claim last held
+and reading a file nothing then applied. They are greyed (§47) whenever
+`[zf_req]` is not theirs, reading `Save Game (type SAVE)` and `Restore (type
+RESTORE)`, and `zf_menufix` re-points them at the post and again at the answer,
+from the worker that sees both. The command handler tests `[zf_req]` too,
+because a pick can race the answer.
+
+**The transcript is stream 2 and nothing else.** Story > Start Transcript
+toggles `[zt_s2on]`, the same byte `@output_stream 2` sets, and the item reads
+Stop Transcript while it is on — however it was turned on. A v1-3 story has no
+`@output_stream` to ask with: Infocom's SCRIPT verb *stores* Flags 2 bit 0, so
+`zm_pb16`/`zm_pw16` hand a store that reaches `$11` to `zt_f2sync`, which
+real Frotz's own store path also watches. The buffer (`ZI_SCRKB`) is claimed
+by `zi_load` on every path; it once sat after the undo refusal's notice, so
+only a machine too small for undo ever had one. The typed command is echoed
+into it, and `SCRIPT.TXT` is written on RETURN rather than on every key — a
+whole-file replace per letter typed is seconds of floppy per word on the XT —
+and only when something was added (`[zi_scrdirty]`). Bit 0 survives a restart
+and a restore (Standard 11.1's "Rst", `zt_f2keep`); a new story starts with it
+off.
 
 The key ring is a byte ring with separate head and tail cursors. It needs no
 critical section: each side writes exactly one of the two cursors, and a byte
@@ -102823,6 +102965,19 @@ spends disk instead of RAM — 50KB for a Bronze save, 13KB for Photopia, 10KB
 for Balances, all of which the disks hold.
 
 The disk has a `SAVES` folder and the file dialog starts in it.
+
+Frotz claims `.SAV` (§54.6) so a double-click on a save opens the interpreter,
+but a save cannot be opened *into* anything: Quetzal's `IFhd` names a release,
+serial and checksum and not a file, and the save is in `SAVES/` rather than
+beside its story. So a `.SAV` reaching `zi_dlg_story` — by double-click or
+through Open Story — is answered by name before a byte is read: `A saved game:
+open its story, then RESTORE.`
+
+A refusal with **no story open** is drawn under the splash's own lines and
+kept in `[zf_why]` so a repaint draws it again; `zw_notice` only puts text
+into the story's window when there is a story. It used to start a text window
+for it — hard against the title bar, a scroll bar with nothing to scroll —
+which the next uncover then painted the splash over.
 
 ### 61.11 What it does not do
 
@@ -105459,11 +105614,12 @@ cache-coherency hazard at all (the far side does its own file I/O through
 file. `drivers/net/net.asm`'s block half keeps its source and still builds —
 the `DEBUG.DRV` precedent (§58), used once already to make room for
 `RAMDISK.DRV` — and the RAM disk KEEPS its row, because it is the only thing
-that can exercise a redirected volume in a container. **Keeping the row is
-not keeping both attached**: one class is one publication slot, so ticking
-whichever of them is second is refused with `DRVE_TWICE` (§51.2.1) — the RAM
-disk and the cable are mutually exclusive at run time, and that is a stated
-limitation rather than an oversight.
+that can exercise a redirected volume in a container. When this was
+written, keeping the row was not keeping both attached - both drivers
+declared class 5, one class is one publication slot, and the second was
+refused with `DRVE_TWICE` (§51.2.1). **That limitation is gone**: §62.9.19
+moved the RAM disk to `DRVC_FILE2`, so the RAM disk and the cable attach at
+once and each verb goes to the mounted volume's class.
 
 **BLOCK MODE IS REMOVED FROM BOTH ENDS NOW.** `NET.DRV`'s master half went
 first, here, and has published no `DSV_BLK` since; `OS88NET.COM`'s server
@@ -112278,9 +112434,9 @@ the only question is which one.
 ### 67.20 Initials, and where a package can flush
 
 The table takes three initials per row, entered on game over, and the whole
-thing is written to `CYCLONE.HS` in the instance's own directory (§19.2.1) —
-which is wherever the game was launched from, so it lands beside the package
-on the apps disk.
+thing is written to `CYCLONE.HS` in `SYSTEM/APPDATA/` on the volume the game
+was launched from (§19.9, `apps/os88data.inc`) — it was the instance's own
+directory (§19.2.1), beside the package, until APPDATA arrived.
 
 **A package has no close callback, and that is the constraint the design turns
 on.** The Control Panel writes `SYSTEM.CFG` when its window closes (§31.8),
@@ -112866,19 +113022,11 @@ Image −64, file −42.
 
 ### 67.13 What is deliberately not here
 
-**No high-score file.** The table lives in bss and dies with the instance. It
-would want a file, and the file slots are UI-task only (§20.6) while the game
-loop is a worker — so it means staging a write through a callback, and a game
-that writes to the boot floppy on every game over is 2+ seconds of frozen UI
-(§31.8) at exactly the moment the player wants to press Enter again.
-
-**No initials entry.** It is a modal text field over a running attract screen,
-which is a second input mode for three characters.
-
-**No high-score initials.** This and the file above are *open questions rather
-than declined ones* — they are the two things a score-attack game most wants,
-and they are deferred together because they are one feature: a table worth
-keeping is a table worth naming.
+**The high-score file and the initials are no longer in this list.** This
+section first deferred both, as *open questions rather than declined ones*,
+and they shipped together as one feature: §67.20 is the contract (three
+initials entered on game over, the table kept in `CYCLONE.HS` in
+`SYSTEM/APPDATA/`, §19.9).
 
 **No sound beyond `OSAPI_SND_TONE`.** The tone tier is worker-safe by
 construction (§34.3) and needs no driver; FM would need one loaded and would
@@ -112983,7 +113131,10 @@ disarms), CAPS and NUM from the BIOS keyboard flag byte at 0040:0017 (polled
 by the worker because a lock key alone emits no key event), and OVR —
 overtype, toggled by Ins: a typed printable REPLACES the character under the
 caret (recorded as delete + insert, so it undoes) except at a ¶ or the end,
-where it inserts. File > Close and Exit close the window: there is no
+where it inserts. File > Close and Exit close the window, and so does
+`Alt+F4`, the key the Exit item has always printed beside it — the kernel
+has no window-close key, so the package that prints the caption keeps it
+(Scribe, §95, the same): there is no
 self-close API slot, so the UI half hides the window and raises a flag, and
 the worker destroys the record and dies inside its next `OSAPI_TASK_ALIVE` —
 the kernel's own teardown path frees the task, region and claims. Both
@@ -114502,7 +114653,9 @@ second set of chrome over the menu bar.
 Text, sections, quotes, lists and ruled tables; `\documentclass` with
 `letterpaper` / `legalpaper` / `a4paper` / `a5paper`, `10pt` / `11pt` /
 `12pt`, `twoside`, `article` / `book`; `\title` / `\author` / `\date` /
-`\maketitle`; `\section` / `\subsection` / `\chapter`; `\textbf`, `\emph`,
+`\maketitle` (and `\today`, the system clock's date spelled as LaTeX
+spells it — `October 17, 2026` — in the text and inside `\date{}`; it was
+the fixed string `August 2026`); `\section` / `\subsection` / `\chapter`; `\textbf`, `\emph`,
 `\textit`, `\texttt`; `center`, `quote`, `abstract`, `itemize`, `enumerate`,
 `tabular`; and the dimension setters (`\parindent`, `\parskip`,
 `\baselineskip`, `\tabcolsep`, `\oddsidemargin`, `\topmargin`, `\textwidth`).
@@ -115058,6 +115211,38 @@ and code packs to about a byte a byte, so what moved it is code that went:
   which it shares). Measured on MartyPC's VGA XT: **+5,976 guest cycles a key
   (1.25 ms at 4.77 MHz)**, on a letter that costs ~690,000 and an arrow
   ~87,500. +13 file bytes.
+
+### 69.12 Throwing an edited document away asks first
+
+Three things replace the document in the window — **closing it** (the close
+box, TeXPad > Close, every door of §75.1), **File > New** / Ctrl+N and
+**File > Open** / Ctrl+O — and none of them asked, so an edited source went
+without a word. Each now goes through `tp_askdirty`, which answers CF = 0 on a
+document whose `[tp_dirty]` is clear and otherwise puts up §75.3's alert,
+`OS88UI_ASAVE`, reading `Save changes to PAPER.TEX?`: Note Pad's question
+(§27.15), in Note Pad's machinery. `tp_onclose` is the negotiator, installed
+in the entry proc; `[tp_qact]` (`TPQ_CLOSE`, `TPQ_NEW`, `TPQ_OPEN`) carries
+what the answer goes on to do across the alert, and `tp_onask` does it: Save
+writes through `tp_save` — which answers in CF now, so a failed write leaves
+the document open and still edited — Discard goes straight on, and Cancel or
+a dismissal does nothing. A close asked while New's or Open's question is up
+takes the question over (`TPQ_CLOSE` is stored on the refusal too), because
+closing is the stronger intent and the words are the same. Save writes the
+document's own name, as Ctrl+S does — an untitled one becomes `UNTITLED.TEX`
+in the current folder — rather than raising Save As.
+
+`[tp_dirty]` is a flag where Note Pad keeps a checksum (§27.15's argument);
+it is the flag the title bar's `*` has always shown, so the question asks
+exactly when the window says there is something to lose.
+
+**There is still no Undo**, and that is a design item rather than a defect:
+an undo needs a record of each edit (or a copy of the source) and TeXPad's
+source claim is sized to its contents (§69.4); the question above is what
+stops the one irreversible loss.
+
+File > New also retitles the window now. It reseeded the document and left
+the title saying the old name, so the window read `TeXPad - PAPER.TEX` over a
+document whose own row said `UNTITLED.TEX`.
 
 ### 68.15 Insert ▸ Picture is SCRIBE's, not Word's
 
@@ -120834,8 +121019,10 @@ Paragraph; Search, Replace and Go To; Sort, Renumber and Table of Contents;
 **View > Draft and View > Page** (§73.12.1); **the Font list, built from the
 system disk's `SYSTEM/FONTS/` folder, which sets the document in a proportional face**
 (§19.8, §73.12.2); Open and Save through the Standard File dialog with **RTF**
-as the file format; New / Open / Close / Exit with Word's save-changes prompt;
-and About.
+as the file format, carrying every character and paragraph format the editor
+can set; New / Open / Close / Exit with Word's save-changes prompt; one level
+of Undo; draggable indent markers; Replace's Confirm Changes; and About
+(§73.12.4).
 
 **The kernel bar reads 'Microsoft Word'**, and that is the whole reason this
 program registers a kernel menu set at all. Nine menus is more than
@@ -120864,8 +121051,8 @@ right on VGA and is wrong on two adapters of three.**
 **What is present and greyed** (§47 — grey a fact): the Print family, Spelling,
 Thesaurus, Hyphenate, the whole Macro menu, Outline, footnotes, annotations,
 fields, tables, styles beyond the one dictionary, Paste Link, Summary Info,
-Glossary, and Undo — which is greyed as a fact about this build rather than
-about the platform.
+Glossary and Repeat. Undo is greyed only while there is nothing to undo, or
+no 9KB of heap for its snapshot (§73.12.4).
 
 **Three collisions are the BIOS's and not decisions.** int 16h folds Ctrl-H,
 Ctrl-I and Ctrl-M into BkSp, Tab and Enter, so italic, hidden text and one
@@ -121174,27 +121361,92 @@ case on purpose: `tools/wordfmt.py` is a deliberate second implementation,
 §68.4.2. A binary layout is worth reading back independently; markup has no
 spec to disagree about.)
 
-**The source is a second file, and that is what this section is for.** cword's
-RTF reader carries the text and its **character** formatting; every paragraph
-arrives in the default format, which `ovl_put()` says in as many words — the
-mark's attribute byte is a paragraph-dictionary index, and the reader has
-nothing to put in it. Two character spans narrow the same way: `\ulw` and
-`\uldb` both fold into one underline in the model, and there is no small caps
-at all. So the Word document's demonstrations of centring, hanging indents and
-double spacing, and the sentences *naming* them, would be **claims the screen
-does not keep** — which is the one thing a shipped sample may not be. It is the
-same argument §47 makes about greying: state a fact, never a guess.
+**The source is a second file, and that is what this section is for.** It
+was first because cword's RTF reader carried only bold, italic and one
+underline, so the Word document's demonstrations would have been **claims the
+screen does not keep** — which is the one thing a shipped sample may not be,
+the same argument §47 makes about greying. Since §73.12.4 the reader and the
+writer carry every format the editor can set, and the document WEARS them: a
+centred heading in double underline, word underline, small caps, a hanging
+indent, a centred and a flush-right paragraph. What stays a second file is
+what the screen still does not keep: Draft view sets every paragraph single
+spaced and ragged right with no space before, so the document says those are
+kept in the file rather than demonstrating them, and its key list is this
+port's own (§73.12.4) rather than the assembly port's.
 
-What is left is the same document — the same greeting, the same demonstration
-that formatting survived a save and a load, the same key list, the same credit
-— with the paragraph-format demonstration replaced by a sentence about setting
-those formats **in the program**, which is true, and the three narrowed spans
-named in the text rather than worn by it.
+**The generator's numbers are the writer's** (`\li`/`\fi`/`\ri` in 144-twip
+cells, `\sl360`/`\sl480`, Open Space `\sb240`), so a file `tools/os88rtf.py`
+makes is the shape of one cword saves and the reader maps it back exactly.
 
-**The generator still emits the full paragraph properties** (`\qc`, `\li`,
-`\fi`, `\ri`, `\sl`, `\sb`) when the markup carries them. A file is not the
-place to encode one reader's narrowing: the RTF is correct for anything else
-that opens it, and correct here the day the reader learns to apply them.
+#### 73.12.4 What the manuals found, and what each fix is
+
+The project guide's manual for this program (`tools/guide/manuals/CWORD_O88.md`)
+was written by driving it, and ten of the things it had to describe as broken
+were. Each is fixed in the program's own idiom and none costs a kernel byte;
+the package grew from 30,452 + 24,624 to **32,096 + 24,682** bytes resident
+(image + bss; 56,778 of `APP_MAX_SIZE`'s 61,440) and its overlay from 14,106
+to **18,116**.
+
+- **Undo is Word 1.1a's: one level, and Undo undoes itself.** Before the first
+  edit of a GROUP the whole document — text, attribute bytes and the 64-entry
+  paragraph dictionary, 8,384 bytes — is copied into a heap claim of its own
+  (`CW_U_KB` = 9KB, claimed on the first edit and declared MOVABLE, §66);
+  Undo SWAPS the claim and the document, so the next Undo is the Redo. A group
+  is a run of typing (Enter included) or of Backspace/Del for as long as the
+  caret stays where the last key left it, or any one command — a format, a
+  cut, a paste, a dialog's OK, a ruler drag, Sort, Renumber, Table of Contents
+  or a whole Replace. The snapshot is a `rep movsb` per group (~10 ms on the
+  target) and never per keystroke. C cannot write `es:`, so the two movers
+  (`cw_farput`, `cw_farswap`) are hand-written beside `cw_memmove` in
+  `apps/cword/cwmove.inc`. New and Open drop it; a machine with no 9KB to
+  spare leaves Undo greyed, which is the fact. `Ctrl+Z` and `Alt+BkSp` reach
+  it; an XT ROM does not enqueue `Alt+BkSp`, so `Ctrl+Z` is the key the
+  welcome document names.
+- **The indent markers drag.** A press on a marker polls the mouse until the
+  release, as `cw_track_menu()` does, repainting only the RULER once per cell
+  crossed; the paragraph is laid out once, on the release. Dragging the left
+  indent leaves the first line where it is on the page, which is how a hanging
+  indent is made with the mouse.
+- **Format Paragraph's indents** are three labelled boxes, From Left, First
+  Line and From Right, in inches to a tenth (`0.5"` is five ruler cells); a
+  box reached by Tab or a click has its text selected, so typing replaces it.
+  They were three unlabelled edits with no buffer behind them, every one
+  showing the last number formatted anywhere and taking no keys.
+- **Replace's Confirm Changes asks.** Each match is selected and a small panel
+  — placed in the half of the window the match is not in — asks Replace this
+  occurrence? Yes (`Y`), No (`N`), Cancel (`Esc`). The panel comes down
+  through `cw_uncover()`, the dropdowns' own repaint of what a panel covered,
+  so a question costs a few rows and not a 1.8-second full repaint. Replace
+  always runs top to bottom, whatever direction Search was last set to.
+- **Ctrl+F is Search**, as `CW_C_FIND`'s name and the welcome document always
+  said (it opened Format Character).
+- **The Edit and File menus' captions are keys.** `Shift+Del` Cut, `Ctrl+Ins`
+  Copy and `Shift+Ins` Paste are decoded from the KEYPAD scan code plus the
+  BIOS shift flags (0040:0017), which is apps/word's decoding (§68.3): Shift
+  inverts NumLock on the keypad, so the chords arrived as '.' and '0' and
+  TYPED those over the selection. `Alt+F4` exits; `Shift+F12`, `Ctrl+F12` and
+  `F12` are bound but arrive only from a ROM that passes the F11/F12 codes
+  through int 16h function 00h, which most do not.
+- **The save prompt answers to its letters**: `Y`, `N`, `C` (`N` did nothing).
+- **Saving keeps every format.** The writer emits `\ulw`, `\uldb`, `\scaps`
+  and `\v` beside `\b`, `\i` and `\ul`, and a `\pard` with `\qc`/`\qr`/
+  `\qj`, `\li`/`\fi`/`\ri`, `\sl` and `\sb` wherever the paragraph format
+  changes; the reader maps each paragraph mark's PAP back into the dictionary
+  (`ovl_pap_now()`), and the last paragraph's into `cw_pap_now`. `\scaps` is
+  one new keyword row (`CW_IRRB_SCAPS`, placed after every existing row so
+  nothing renumbered). The dictionary and the character bits moved into
+  `cwrtfio.c` beside the document, so `apps/cword/cwrtfrt.c` — the host
+  harness — round-trips all of it (its check 5).
+- **The disk's warm ASSOC.DAT names .RTF.** The header carries a 16-byte
+  association block (`CC_ASSOC`, `apps/cword/cwassoc.inc`, §54.6), which is
+  what `tools/os88disk.py` writes the cache row from; with only the run-time
+  `os88_assoc_set()` a double-click on `WELCOME.RTF` on a fresh boot found no
+  program until CWORD had once been run.
+- **An F8 selection is visible.** `cw_moved()` changed the selection after the
+  caret had already moved, so `cw_show()`'s off/on XOR pair drew and erased the
+  new range in one call; it now takes the old selection off and puts the new
+  one on itself.
+
 
 ### 73.13 The build targets, and what is deliberately not in `all`
 
@@ -123150,7 +123402,7 @@ itself (`getruncpm.py --select --reserve-clusters`, which the Makefile hands
   77. **213 files in 7 folders, 2,722 of 2,847 clusters** — 125 clusters,
   62KB, free to save into (the Disk window says `Free 64K`).
 * **1.2MB**: **four of the five**, and the one that comes off is the
-  LARGEST — `H/3`, WordStar 3.30, 519 clusters. This is the geometry where
+  LARGEST — `H/3`, Turbo Pascal 3.01A, 519 clusters. This is the geometry where
   the pricing order has to be overruled, and the arithmetic is why: 2,371
   clusters against 1.44MB's 2,847, five areas costing 1,997, so all five
   leave `A/0` 136 and the ranked fill stops halfway through the `.COM`s at
@@ -123160,7 +123412,7 @@ itself (`getruncpm.py --select --reserve-clusters`, which the Makefile hands
   rather than the programs. At four areas the games are 1,473 clusters,
   `A/0` gets 660 and carries **63 of the 77** — every `.COM`, both `.DOC`s,
   four `.LIB`s and four `.Z80` sources, which is MORE master disk than the
-  1.44MB disk holds. Turbo Pascal (`D/0`) stays and WordStar goes because
+  1.44MB disk holds. WordStar (`D/0`) stays and Turbo Pascal goes because
   the choice is by size; `GAMES.TXT` names it, under the heading that says
   it is on the 1.44MB disk. **162 files in 6 folders, 2,246 of 2,371
   clusters** — 125 clusters, 62KB, free to save into, the same headroom the
@@ -127772,7 +128024,10 @@ server wants to know and the rest is what somebody debugging one wants.
 `fd_log_clear` blanks the ring on the path where the listener actually opened.
 
 **Only that path.** A start that FAILED has just written the reason, and that
-has to stay on the glass. And it needs no lock: `fd_hire` is below it, so
+has to stay on the glass. Every refusal writes it, at `fd_start`'s one `.fail`
+tail: for a while only the refused worker did, so a machine with no driver read
+`No network driver` on the status line under a log whose last line was still
+`Ready - press Start`. And it needs no lock: `fd_hire` is below it, so
 there is no worker yet and nothing else can be inside `fd_log` (§77.42).
 
 Every slot becomes `FD_LOGW` spaces and a NUL rather than an empty string —
@@ -130506,6 +130761,13 @@ release zip, not replacements for anything in it.
 
 ### 80.4 Writing the media on a Mac, guided
 
+**`tools/os88imager.py` (`make imager`, docs/IMAGER.md) is the guide now**:
+the same filtering, typed-identifier confirmation and read-back verify, for
+every image a build makes - the floppies as well as the two live images -
+plus §80.5's geometry question and the settings carried across a re-image
+below. What follows is how `make burn`, the first guide and still shipped,
+does it for the two live images alone; the imager keeps every rule in it.
+
 `tools/os88burn.py` (`make burn`) is the interactive text-mode guide that
 puts the two images on real media, because the raw alternative is `dd`
 against a typed device node and a mistyped node is somebody's backup drive.
@@ -130663,9 +130925,10 @@ The image was 154 files of a 32MB partition with 30,950KB free:
   which is **live-only and not `$(ALLAPPSARGS)`** — §19.10.1 is that
   arithmetic, and it is the everything-FLOPPY's 1.2MB geometry that refuses
   them, not this volume. SCRIBE gets a `SCRIBE/` folder of its own because its
-  `WELCOME.DOC` is a second copy of the name `WORD/` carries (it also resolved
-  `SCRIBE.OVL` in the launching instance's directory until that module became
-  part of the package, §95.8.8).
+  sample `.DOC` was Word's `WELCOME.DOC`, a second copy of the name `WORD/`
+  carries — it is Scribe's own `SCWELCOM.DOC` now (§95.2) — and it also
+  resolved `SCRIBE.OVL` in the launching instance's directory until that
+  module became part of the package, §95.8.8.
 - **`FROTZ.O88` rode `APPS/` with nothing to play.** The library is fetched
   rather than committed (§61), which is why it was skipped — and that is not a
   reason on a target that already acquires two other fetches. All fifteen
@@ -131011,7 +131274,8 @@ permutation: it stages an `origidx[]` and rewrites each item by its own shift.
 
 `+5` carries bold, underline, alignment and number format in one byte
 (`SH_FMT_*`). **Its numeric value IS the BIFF XF index** that the writer emits,
-which is what `SH_BIFF_XF_CAP` = 64 means — six used bits. **The two spare bits
+which is why there are 64 of them — six used bits (the reader's
+`SH_BIFF_XF_CAP` is 128, the border XFs of §81.22.3 sitting after them). **The two spare bits
 are not spare.** Putting anything else there would silently change every XF in
 every file this app writes. The value-model tag that a later stage needs
 therefore goes in a **new byte**, never in bits 6-7.
@@ -131536,6 +131800,24 @@ its OK handler.** `sh_fdlg_apply` only sets `sh_savepend`; `.doOK` calls
 a window slot the first still holds is how one ends up orphaned behind the
 other, and `MAX_WIN` is 12.
 
+#### 81.15.1 The format picked is the format written
+
+The rule above left one door open: the file dialog takes whatever name is
+typed, and the extension is what decides. Picking *Normal* and typing
+`T.XLS` wrote **SYLK** into a file called `T.XLS` — `.XLS` was not one of
+the three extensions, so it fell to the default — and the percent format and
+the borders the user had just set were gone on reopening, because SYLK as
+written then carried neither (§81.22.3).
+
+Two changes close it. **`.XLS` IS Normal**: `sh_namefmt` maps both `.BIF`
+and `.XLS` to the BIFF writer and reader, since `.XLS` is what every real
+Excel file of the period is called and what a person picking Normal types;
+Sheet also declares it as a fourth association. And **the choice is
+remembered** in `sh_wantfmt`: when the typed name implies a different
+format, `sh_ondlg` rewrites its extension to the chosen one, so `T.TXT` after
+Normal becomes `T.BIF` rather than a SYLK file. `sh_namefmt` is now the one
+rule — the writer, the reader and the dialog's preselection all ask it.
+
 ### 81.16 A formula must not wear the last cell it referenced
 
 `sh_getcell2` reads a cell's format byte, `SH_T_*` tag and text offset into
@@ -131585,6 +131867,53 @@ on answering the older question, correctly and uselessly, and report nothing.
 not duplicated, and `sh_fdlg_apply` walks the normalised range over it. A
 single-cell selection is a 1x1 range, so the old behaviour is a special case of
 the new one rather than a branch. One `sh_repaint` runs after the whole block.
+
+#### 81.17.1 The repaint after a format took a COLUMN for a window
+
+`sh_repaint`'s contract is `SI` = the window, and the block walk in
+`sh_fdlg_apply` used `SI` for the block's last column and then repainted.
+Column A is 0, so the geometry of "window" 0 was read out of the kernel's
+segment and the menu bar, the formula box and the status line were drawn
+where those bytes put them: a lasting copy of Sheet's own menu bar and
+reference box on the desktop above the window, and `Ready` drawn into the
+system menu bar, where its last letters showed as `eadSheet`. It happened
+after the FIRST Format dialog because Number, Alignment and Font are the
+dialogs that walk the block. `SI` is reloaded from `[sh_ownwin]` before the
+repaint.
+
+#### 81.17.2 Border applies to the SELECTION too
+
+Border was the fourth command written before blocks existed: it read and wrote
+the anchor cell alone, so *Outline* on `C4:E6` framed `C4`. `sh_bdlg_walk` does
+both halves over the block. **Each edge box means that side of the BLOCK** —
+Left is the left edge of the cells in its first column, Top the top edge of its
+first row — so Outline, which is all four, draws one frame round the block, and
+Shade means every cell. A cell's *mask* is the bits the dialog governs there
+(Shade, plus each block side it lies on); an inner edge set earlier is outside
+every mask and is kept. The dialog opens on what the block already has: an edge
+box is ticked when every cell on that side carries it. A single cell is a 1x1
+block whose four sides are its own, so the old behaviour is the special case.
+
+**Left and top are drawn one pixel IN.** A cell's gridlines are its own first
+column and row, so a left or top edge drawn there landed on the gridline and
+could not be seen — the frame Outline draws showed only its right and bottom
+sides, on one cell as on a block. Right and bottom were always visible because
+their pixel sits beside the *next* cell's gridline; `sh_drawborders` puts left
+and top beside this cell's own, so every edge is the same two-pixel line with
+gridlines on and one pixel with them off.
+
+This is Excel's meaning for Outline and not for the four edge boxes — Excel
+draws Left on *every* cell of a block — and that is deliberate: this dialog
+couples Outline to the four boxes (ticking it ticks them), so with Excel's
+meaning Outline on a block would rule every cell. One meaning for both is the
+one the dialog can show.
+
+#### 81.17.3 Percent multiplies by 100
+
+Percent appended a `%` to the digits, so `0.5` showed `0.5%`. Excel's Percent
+shows the value times a hundred and `0.5` is `50%`. `sh_numfmt` scales the
+accumulator by `fp_scale10` with 2 before formatting; only the display is
+scaled — the cell, the formula bar and every file keep `0.5`.
 
 ### 81.18 Copy, Cut and Paste move a BLOCK, as tab-separated text
 
@@ -131868,6 +132197,85 @@ it is still an error and that is the honest one to show. 75 bytes.
 Both measured with a host-side reader that shares no code with SHEET (the one
 this project's fork uses as its second opinion, `tools/os88sheetfmt.py` there),
 before and after, on this tree's build under MartyPC.
+
+#### 81.22.3 What each format carries: formats, borders and notes
+
+A Normal save lost the borders and every save lost the notes; SYLK lost
+Percent. What each format now carries, as far as the format itself can:
+
+| | Normal (`.BIF`/`.XLS`) | SYLK | DIF |
+|---|---|---|---|
+| number format, alignment | all four | all four (`$`, `%`, `;K`) | no |
+| bold, underline | yes | no | no |
+| borders and Shade | yes | yes (`;S`) | no |
+| notes | yes (`NOTE`) | yes (`;A`) | no |
+
+**BIFF has nowhere to put a border but the cell's XF**, and the 64 XFs are one
+per format byte (§81.4). So `sh_bxf_collect` gathers every distinct
+(format, border) pair in the border table — over every sheet, since a workbook
+writes its XFs once — and each gets an XF after the 64, `SH_BXF_BASE` + its
+index, with `XF_BORDER_34`'s four edges thin and black and `XF_AREA_34`'s fill
+pattern 2 for Shade. `sh_biff_xfof` gives a bordered cell its pair's XF; a
+bordered cell with no record of its own goes out as a `BLANK` (0201H) so the
+border has a cell to ride on. Past `SH_BXF_CAP` = 64 pairs a border is not
+written and nothing else is lost. The reader keeps `SH_BIFF_XF_CAP` = 128 XFs
+and a border byte for each (`sh_xf_bord`, any line style an edge and any fill
+pattern Shade), and `sh_biff_applyfmt` adds the border whether or not the
+record carried a value. A note is a `NOTE` record (001CH: row, column, length,
+text) after the sheet's cells.
+
+**SYLK's style field `;S`** carries the four edges as `L R T B` and Shade as
+`S`, each border in an `F` record of its own (`F;X3;Y4;SLT`) that the reader
+applies without touching the format; Excel's `D`, `I` and `M` letters are
+passed over. **A note is SYLK's comment field**, a `C` record carrying only
+`;A`, so it needs no value and disturbs none: a `;` in the text is doubled and
+a line break is ESC `" :"`, which is what Excel writes. Percent is `F`'s own
+`%` code.
+
+**DIF carries values only**, by its definition, and still does.
+
+### 81.23 New, Open and Close ask before throwing work away
+
+New and Open replaced the workbook without a word, and closing the window
+did the same. `[sh_modified]` is set by every routine that changes the
+document — `sh_addcell`, `sh_removecell`, the border and note tables' add and
+remove, `sh_fmt_one`, `sh_clear_one` — and cleared by New, by a read that
+said `Loaded`, and by a save that kept EVERYTHING: a truncated file, or SYLK
+or DIF keeping one sheet of several, leaves it set.
+
+`sh_ask_unsaved` puts §75.3's standard alert in front of all three —
+*Save changes to SHEET1.SLK?*, Save / Discard / Cancel, the question Note Pad
+and Word ask — with the action owed in `[sh_pend]`. **Save writes under the
+current name and goes on only if the save kept everything**; otherwise the
+status line says what happened and the workbook is still there, so Discard is
+a choice made knowing. Closing is §75.1's negotiator, `sh_onclose`, finishing
+with `OSAPI_WM_CLOSE`. A refused ask — an alert already up — changes nothing,
+`[sh_pend]` included, so the question already on the screen keeps the action
+it was asked for.
+
+#### 81.23.1 New resets the whole workbook
+
+New cleared the cells and the anchor but not the selection's EXTENT, so the
+fresh sheet came up with the old document's block (`A1:D9`) still framed. It
+resets `sh_selcol2`/`sh_selrow2`, the defined names (a new workbook has none)
+and the Sheets menu's tick too, and no longer repaints itself: it painted
+through whatever `SI` the New dialog's callback held, and its one caller
+repaints once after setting the status line.
+
+### 81.24 Row Height and Column Width are the whole sheet's, and stay so
+
+Both set one size for every row or column — `[sh_cellw]`, `[sh_cellh]` — and
+that is kept rather than fixed. Per-column widths would be cheap to STORE (256
+bytes, or a column-width record in each format), but every piece of geometry in
+Sheet is a multiply by the one size: `sh_geom` divides the content by
+`[sh_cellw]` to count the visible columns, the hit test, the selection frame,
+the gridlines, the scroll bars and the row blit all compute a cell's position
+as index × size. Per-column widths turn each of those into a running sum over
+the columns to the left, which is a redesign of the drawing and hit-testing
+layer, not a feature on top of it; per-row heights over 16,384 rows would need
+a sparse table as well. Neither is a file-format question — BIFF's `COLWIDTH`
+and SYLK's `F;W` exist — it is that the window could not draw what the file
+said.
 
 ### 81.30 The menu tick is a SOLID SQUARE
 
@@ -134572,6 +134980,11 @@ all; and no longer `OSAPI_FILE_GOTO`, which is a remount for display at every
 step and made the save about six seconds of floppy. The first save of a session
 is a full write; every one after it is one sector.
 
+The panel's **HIGH** is the table's first row (`tk_hs_top`), taken when the
+table is READ (`tk_hs_load`, built-in rows or the file) and again at game over.
+It was taken only at game over, so the first game of every session showed
+HIGH 0 beside a table whose top row said 6000.
+
 **The write happens inside the fsx bracket**, at the moment the initials are
 committed. That is legal — the file API is UI-task-context-only and a bracket
 IS the UI task (§53.7) — and it is a choice rather than the only option:
@@ -134987,7 +135400,7 @@ flags)`** (`apengine.inc`), so the add rules live in one place:
 
 | route | flags | behaviour |
 |---|---|---|
-| File ▸ Open (fdlg completion) | `AP_ADD_CUR | AP_ADD_IDLE` | add, select; start it **only if nothing is playing** — Open must not interrupt the current song |
+| File ▸ Open (fdlg completion) | `AP_ADD_CUR | AP_ADD_IDLE` | add, select and start it **only while stopped** — Open must not interrupt the current song, PLAYING OR PAUSED; while one is, the file is added and NOT selected, because the title line and Play both read `apl_cur` |
 | launch document (§86.11) | `AP_ADD_CUR | AP_ADD_PLAY` | add, select, play it now — a double-click means "play this" |
 | handoff from a second instance (§86.11.1) | `AP_ADD_CUR | AP_ADD_PLAY` | same |
 | startup `OSAPI_ARG_FILE` | `AP_ADD_CUR | AP_ADD_PLAY` | same |
@@ -135006,8 +135419,12 @@ Disk-window folders, via a file *move*), documented as a limitation in §86.20.
 `ap_onfile` copies the chosen name out of the kernel buffer (valid only during
 the call), banks `OSAPI_FILE_HERE`, and calls `ap_add_file` with `AP_ADD_CUR |
 AP_ADD_IDLE`. So Open **adds to the playlist and selects**, and begins playback
-only when the player is idle — a deliberate choice so that queueing up the next
-song never cuts off the one playing. File ▸ Clear (`ap_stream_close` +
+only when the player is STOPPED — a deliberate choice so that queueing up the
+next song never cuts off the one playing, nor the one paused (a pause used to
+count as idle, so Open dropped the paused song for the new one). While a song
+is playing or paused the new entry is appended and not selected: it is the
+next track the playlist reaches, and the title line keeps naming the song in
+the stream. File ▸ Clear (`ap_stream_close` +
 `apl_clear`) empties the list and stops.
 
 Open in another folder **moves the instance** (§38.10): every by-name file
@@ -135883,11 +136300,11 @@ cannot afford on every press):
 
 - **The disk's transport must be int 13h.** A `DVK_DRV` volume whose driver
   answers `DSV_GEOM` with CF = 1 — §52.1's rung 1, the IDE task file, which
-  the resume stub cannot speak (§87.5) — is refused: `Hibernate needs a
-  BIOS-known hard disk`.
+  the resume stub cannot speak (§87.5) — is refused: `Needs a BIOS hard
+  disk`.
 - **There must be room**: `dskw_dfree` on the root plus the size of the
   `HIBERNAT.IMG` already there, if any, must cover `[mem_top]` × 16 + 4,096.
-  `Not enough room for the hibernation file`.
+  `Not enough room on disk`.
 
 ### 87.3 The two files
 
@@ -135938,7 +136355,7 @@ memory it has just put back.
 
 A pointer whose build, stamp, memory size or adapter differ from the kernel
 reading it names an image this kernel cannot enter, and `hb_ask` says so —
-`Hibernation file is from another build` — and deletes it. The same-build
+`Hibernation: other build` — and deletes it. The same-build
 requirement is what makes the whole design cheap: the fresh kernel's code and
 the image's are byte-identical, so the restore may write over the running
 kernel's `.text` without the machine noticing, and every kernel address the
@@ -147809,6 +148226,21 @@ nothing, because `pmc_abdismiss` re-marks what the card covered.
 hook — the place the UI task really gets in — and reads **4 bands of 36**;
 with the test removed it reads 36.
 
+**AND THE ROW ITSELF IS RE-TESTED after the re-lock**, which is the second
+re-check the break did not have. The UI task can PAINT in the window, not only
+raise the card: Full Screen pressed mid-game is `wm_fullscreen` repainting the
+window whole, and `pmc_repaint` composes all 36 bands inside that callback and
+cleans them. The span the worker tested before it let go is then clean
+(`dmin` = `PMC_TILES_X`, `dmax` = 0), and drawing it anyway asked
+`gfx_blitp` for a band of −27 columns — x 432, width −216 — which its wrap
+test (a SUM, `x + w − 1 < [vid_cw]`) passes, so one `rep movsb` of 65,509
+bytes a plane a row went across the whole framebuffer. That was the "growing
+garbage" of MartyPC's VGA XT, only ever mid-game because only a play frame
+dirties more than `PMC_HOLD_BANDS` bands and so breaks at all, and it never
+healed because every band it covered was clean. `pmcuitest`'s "repainted
+mid-break" row cleans every band from the yield hook and counts blits asked
+for with no width: **0**, and 2 with the re-test removed.
+
 **A CALLBACK MARKS AND THE WORKER DRAWS, for the same reason the break
 exists.** `N` and `Game > New Game` mark all 36 bands, and composing them from
 inside the callback is one uninterruptible ~2.5 s hold of the kernel's gfx
@@ -148714,8 +149146,13 @@ speed and `vm/xt-paccman` is where to watch that.
 
 **The disks, the machine and the gates.** `make paccmandisk` builds
 `build/paccman.img`, `paccman720.img`, `paccman120.img` and `paccman360.img` —
-the package and `README.md` at the root of each, no folder needed because there
-is no `.OVL` — and every one is `os88disk.py --verify`ed in its own recipe. The
+the package and `README.TXT` at the root of each, no folder needed because there
+is no `.OVL` — and every one is `os88disk.py --verify`ed in its own recipe.
+**The README on the disk is the PLAYER'S**, `apps/paccman/README.TXT` in plain
+ASCII with the MIT text in it, the way the C64 and Apple II disks carry theirs;
+it was `README.md`, the developer notes beside this section, whose build steps
+and UTF-8 dashes and section signs reached a floppy reader as noise.
+`README.md` stays in the tree for whoever builds it. The
 360KB disk uses 77 of 354 clusters. `make allapps` places a `PACCMAN/` folder
 beside `GAMES/PACMAN.O88` on `build/apps-all.img` (2,720 of 2,847 clusters) and
 on `apps-all-120.img`, and `make live` carries it by derivation.
@@ -149217,7 +149654,7 @@ File menu's items carry a `MENU_DIS` prefix from it.
 | `A transfer is already running` | the state machine is in flight |
 | `Needs its files on a disk - use Add to Disk` | `WF_DISK`, Load only - on an archive record too, where it is tested BEFORE the RAM disk decision (92.13.1) |
 | `Available as a floppy from os8088.com` | `WF_FLOPPY`, both |
-| `Needs NNNK free on the disk` | the Save completion's `OSAPI_FILE_DFREE` |
+| `Not enough room on that disk` | the Save completion's `OSAPI_FILE_DFREE` (no figure: the reason is a fixed string) |
 | `Needs a newer os8088 - update the system disk` | both: the record's `WC_PKGFMT` is above this Wire's `PKG_FMT` (92.2) |
 | `Made for an older os8088` | both: `WC_PKGFMT` is below it |
 | `Needs a newer Wire - update the system disk` | both: `WC_NEEDW` is above `WIRE_LEVEL` |
@@ -152781,7 +153218,10 @@ box, which is the tightest of the three.
 
 `[dd_abon]` gates it, `dd_paint` draws it last, and any click, key or menu
 pick takes it down — which also un-suspends the game, §93.5.6's third
-not-drawing test being the flag itself.
+not-drawing test being the flag itself. The click or key that does it is
+**spent**: `dd_onkey` tests the flag before `dd_key_common`, so Enter on the
+card puts it away and does not also start a game behind it (it once did, and
+the game then ran frozen under the card until a click).
 
 ## 94. Picture decoders (`apps/os88img.inc`)
 
@@ -153067,9 +153507,10 @@ their name. `apps/cword` is on demand for the same reason (§73.12).
 **It IS on the live media** (§80.6), in a `SCRIBE/` folder of its own beside
 `WORD/` — that image is not curated and 49KB is not an argument about a 32MB
 partition. It has to be its own folder rather than a second `.O88` in `APPS/`:
-its `WELCOME.DOC` is a second copy of the name `WORD/` already carries. (It
-was also because `SCRIBE.OVL` was resolved in the launching instance's
-directory, §19.2.1; that module is part 1 of the package now, §95.8.8.) It is
+its sample `.DOC` was Word's `WELCOME.DOC`, a second copy of the name `WORD/`
+already carries — Scribe's own `SCWELCOM.DOC` now (§95.2). (It was also
+because `SCRIBE.OVL` was resolved in the launching instance's directory,
+§19.2.1; that module is part 1 of the package now, §95.8.8.) It is
 **not** on `build/apps-all.img`: its files were 56,048 bytes and took that
 disk's 1.2MB RunCPM budget to −104 clusters (§19.10.1) — 49,170 since §95.8.8,
 which does not change the answer.
@@ -153147,10 +153588,18 @@ a disk was rebuilt. An extension has one owner.
 SCRIBE still opens and saves `.DOC`: File ▸ Open and Save As are untouched and
 it reads and writes exactly the bytes WORD does. What it does not do is take
 the double-click away — so on the floppy `make scribedisk` builds, where SCRIBE
-is the only package, the `WELCOME.DOC` it carries has **no owner at all** and a
-double-click on it does nothing. That is this section working rather than
+is the only package, the `SCWELCOM.DOC` it carries has **no owner at all** and
+a double-click on it does nothing. That is this section working rather than
 failing; the document is opened from File ▸ Open, and `SCWELCOM.RTF` is on the
 same disk because RTF is what §95.4 makes Scribe's own format.
+
+**The two are ONE page in two formats**, both built from
+`apps/scribe/welcome.wtx` — `tools/os88rtf.py` writes the RTF and
+`tools/os88doc.py` the `.DOC` — so its text says nothing that is true of only
+one of them. Until the manuals pass the disk carried Word's own `WELCOME.DOC`
+and the `.wtx` was a copy of Word's, so Scribe's welcome said *"This document
+is a native Word .DOC file"* from inside an RTF and opened on *"WELCOME TO
+MICROSOFT WORD"*.
 
 `apps/cword` arrived at the same place from the other side and is the
 precedent — it claims `.RTF` (`cword.c`'s `os88_assoc_set`) rather than fight
@@ -153872,7 +154321,9 @@ the body is scanned.
 the strip simply stopped mid-word at the right edge of the screen — no error,
 no ellipsis, just a sentence with its end missing. The success line is built
 from a width and a height, so it is the longest that has to fit:
-`1280x65535 - not placed` is 23.
+`1280x65535 placed` is 17. (It said `- not placed` from the stage that read
+a picture without inserting it, and went on saying so after §95.9.3 made the
+command place one, so every success read as a failure.)
 
 #### 95.9.3 What the command actually does
 
@@ -153994,8 +154445,11 @@ rather than to infer.
 `sc_habout` → `sc_abopen`, a 344 × 104 panel centred in the content box with an
 OK button, refusing below 360 × 128 content with the version line as a toast
 instead (§47). Five lines: `Scribe`, `os8088 word processor`,
-`Forked from WORD (SPEC.md 86)`, **`Ported by Jorge Gonzalez`** and
-**`Updated by Koriban`**.
+`Forked from Word 1.1a for os8088`, **`Ported by Jorge Gonzalez`** and
+**`Updated by Koriban`**. The third line read `Forked from WORD (SPEC.md 86)`
+until the manuals pass: a section number is no text to put in front of a
+user, and that one was not even Scribe's (this is §95; §86 is something
+else).
 
 **The fourth line is INHERITED and its absence is §95.10's failure mode in
 miniature.** WORD's card has carried `Ported by Jorge Gonzalez` since §68.2,
@@ -154091,8 +154545,9 @@ measurements, the alternatives and the waves; this section is the contract.
 
 ### 96.1 What it is, and where it lives
 
-A `SYSAPPS` package — `SYSTEM/DOS.O88` on all four system-disk geometries and
-on no apps disk (§24.3), for §92's reason: a `.COM` can be sitting on any
+A system-disk package — `APPS/DOS.O88` on all four system-disk geometries
+(`SYSROOTARG` in the Makefile; it was `SYSTEM/` until it became the parted
+`kdos/DOS.O88`) and on no apps disk (§24.3), for §92's reason: a `.COM` can be sitting on any
 floppy, so the program that runs it belongs on the disk the machine booted
 from. **`COM` and `EXE` are BUILT-IN associations** (`assoc_ext` in `kernel/assoc.inc`,
 §54.2), not a declaration in the package's own header — and that is the one
@@ -155773,11 +156228,10 @@ it cannot (§96.30.6), having written nothing — sends the shell to its own
 arena stream and delete. On one volume a `MOVE` of a 100KB file is a
 directory write, and needs no heap at all.
 
-**A path is one component past the root**, which is `dos_fh_core`'s own limit
-(a separator anywhere past a leading one is code 3, "path not found") and not
-a new one invented here. `C:\PRINCE` resolves; `C:\A\B` does not. That is
-exactly the reach the measured case needs, and `dos_walk_pbuf` — which already
-walks arbitrary depth for `AH=3Bh` — is the upgrade, isolated to one routine.
+**A path was one component past the root**, which was `dos_fh_core`'s own
+limit when this was written. `C:\PRINCE` resolved and `C:\A\B` did not; that
+was exactly the reach the measured case needed, and `dos_walk_at` was named as
+the upgrade, isolated to one routine. §96.30.9 is that upgrade taken.
 
 **A `CD` inside a `/C` command does not reach the program that shelled out.**
 Under DOS the child shell's directory dies with it, and running in-process is
@@ -156056,12 +156510,11 @@ which is the absolute case the rule was written for; anywhere else the cut
 drops it. `A:\README.TXT` was never affected and still is not — its folder part
 is `A:`, which §96.30's `.colon` arm already handles as a whole.
 
-**What this does NOT fix, and it is a limit rather than a bug in the cut**:
-`SUB\DEEPER\FILE` now hands `dsh_cdto` the string `SUB\DEEPER`, and
-`dos_cd_go` takes one component, so it descends into `DEEPER` from where it
-stands rather than walking both. That was a total failure before and is a
-one-level walk now; a multi-component relative path wants `dos_cd_go` to loop,
-which is `AH=3Bh`'s body and a change to what a DOS PROGRAM sees.
+**What this did NOT fix, and it was a limit rather than a bug in the cut**:
+`SUB\DEEPER\FILE` handed `dsh_cdto` the string `SUB\DEEPER`, and `dos_cd_go`
+takes one component, so it descended into `DEEPER` from where it stood rather
+than walking both. §96.30.9 walks both, in `dsh_cdto` and not in `dos_cd_go`,
+so what a DOS PROGRAM sees through `AH=3Bh` is unchanged.
 
 **2. `DIR <folder>` listed the folder you were standing in.** §96.33.9.2's sort
 claims the listing up front so a `/P` run sorts as ONE listing across its
@@ -156081,6 +156534,36 @@ wrong by listing a plausible directory rather than by failing.
 The page's own bracket is unchanged and the two now agree about which folder
 the listing is of.
 
+
+##### 96.30.9 `CD \A\B` walks the whole path, and a `CD` that fails moves nowhere
+
+`CD \SYSTEM\DOS` answered `Path not found` from `B:\`, and `HELP` never said
+`CD` stopped one folder down. Nothing was missing but the call:
+`dos_fh_core` has split a name at its LAST separator since §96.12.3, leaving
+the folder part in `dos_fpbuf` with `[dos_fhpath]` set, and `dsh_cdto` handed
+`dos_cd_go` the leaf alone — so `DOS` was looked for at the root.
+
+`dsh_cdto` walks the folder part now with `dos_walk_at`, the routine a DOS
+program's own `SUB\FILE.DAT` already resolves through, from the root when the
+spec led with a separator and from where we stand when it did not, and gives
+the leaf to `dos_cd_go` as before — so a closing `..` still works and
+`CD \A\B\..` is `\A`. **A `..` inside the folder part does not**: the walk
+goes down and only down (§19.2.4). The machine is stood on the drive first even
+when the spec named none, because the walk resolves where the MACHINE is and
+`dos_cd_go` where the BOX is, and those two are only the same after a stand
+(§96.48).
+
+Every verb that names a folder gets the same reach for nothing, since
+`dsh_resolve` resolves its folder part through `dsh_cdto`: `TYPE
+\SYSTEM\DOS\README.TXT`, `MD A\B\C`, `COPY X \A\B`.
+
+**A walk can fail half way down, and DOS's `CD` moves nowhere when it fails**,
+so `CD` banks where it stands and goes back on a refusal. It is the only
+caller that needs to: `dsh_resolve` brackets every call already.
+
+The cost is the DOS core's: 38 bytes against 8 of slack, so `CORE_MAX` went
+15,312 → 15,344, which both hosts reserve (§96.44). `kern_dos` took it inside
+its kilobyte rung.
 
 ##### 96.30.5 It is the interpreter the windowed prompt wants
 
@@ -157062,7 +157545,7 @@ about what they are running on is worse than either alone.
 
 `Program > Full Screen` puts the same 80x25 buffer on the real text screen,
 which is the only place the whole of it fits: the band shows 25 rows on
-Hercules and VGA and **15 on CGA**, where an 80-column program's output is
+Hercules and VGA and **17 on CGA** (§96.32), where an 80-column program's output is
 eighty columns wide on all three.
 
 **The renderer is `os88con.inc`'s and the bracket is this box's** (§70.8.13),
@@ -157314,10 +157797,19 @@ about a program worth going to look for.
 **ONLY WITH A DOCUMENT**, and that is the whole of the rule. A bare word that
 resolves to nothing is a TYPO and `Bad command or file name` is its answer;
 the tail is what turns the word into a claim. Measured, both arms: `NOTPAD`
-answers `Bad command or file name: NOTPAD` exactly as it always did, and
-`NOTPAD README.TXT` answers `Cannot open NOTPAD` — which names the half that
-was wrong, where the other message would have the user looking at the
-document.
+answers `Bad command or file name: NOTPAD` exactly as it always did, and so
+does `NOTPAD README.TXT` when the lookup finds nothing — which names the half
+that was wrong, where a message about the file would have the user looking at
+the document. It said `Cannot open NOTPAD` for a while, and the manuals pass
+found what that costs: `OS88CZ /?` and `OS88CZ` on a disk without the program
+gave two different answers about one missing name. The lookup arm marks itself
+with `[dos_ispkg]` = 2 rather than 1, and `dos_pkg_go`'s refusal reads it;
+`Cannot open` stays the answer for a name the user spelled as a package
+(`NOSUCH.O88`, §96.33.17), which is a file that is not there. **A tail that
+starts with `/` is a SWITCH and not a document**, so it turns nothing into a
+claim: `OS88CZ /?` where there is no `OS88CZ` is refused at once, as the bare
+word is, and never reaches the lookup - it used to, and its tail was then
+checked as a document and answered `File not found - /?`.
 
 **WHAT THE LOOKUP CAN REACH IS SESSION STATE**, and that is worth stating
 plainly because it was first written down here as a clean per-volume boundary
@@ -178448,6 +178940,16 @@ in-window play**; everything else keeps it.
   finished on the UI task's wake - `[vp_lend]`, which `vp_sstop` clears,
   so a session ended another way before that wake runs does not hand its
   end to the next one.
+- **A PAUSE shows the frame and says where it is.** Space on a Live play
+  stops the worker where it is (`vp_upaus`), and the pause does two things
+  the worker would otherwise owe: it blits the rows the shadow holds and the
+  box has not had (`vp_lblit`) - and if NOTHING has been decoded since the
+  start, decodes the first frame and blits the whole band. A Space queued
+  behind the start's load used to pause before the worker's first pass, and
+  the box stayed black for good over a shadow nobody ever drew. And the info
+  card's line 4 is re-lettered (`vp_lline4`, one line and not the card):
+  `Paused at 0:04` while paused, and where the play started while it runs -
+  it was formatted before the play and went on saying `At the start`.
 - **Live with SOUND** is 98.3.10.1.
 - **Live in COLOUR** is 98.3.10.4.
 - **Not built**: **Live fed from the disk**, which the owner's rule drops
@@ -178968,7 +179470,7 @@ ticks, until the owner found that too fast to press twice:
   is none.
 - **After it lands:** the play goes on if it was playing; if Space had paused
   it, it stays paused on the key with `Paused` back.
-- **A file with no keyframes** says `No seeking`.
+- **A file with no keyframes** says `Seek: no keyframes`.
 - **Space** is ignored while a seek is on its way.
 
 **Home jumps to the start** (`vp_skhome`), at once. It is Left's seek taken
@@ -180869,7 +181371,8 @@ and both gorillas, including the thrower. Setup selects a winning score from
 Enter advances angle to velocity, then throws; Tab selects the other field;
 digits replace a field, Backspace edits it, arrows adjust it. N opens match
 setup, P pauses, F or Alt+Enter toggles full
-screen, and Escape returns to the desktop. After the celebration and an eighteen-tick pause, the next skyline starts
+screen, and Escape leaves full screen back to the window (in a window it
+does nothing). After the celebration and an eighteen-tick pause, the next skyline starts
 automatically. Enter can skip the pause. Throwers alternate across rounds.
 Each player retains her own last angle and velocity across turns and skylines,
 including when facing the computer. A new match resets both players to angle
@@ -181372,6 +181875,13 @@ eight ticks once per 264-tick cycle (about 4.8 seconds), including terminal
 states. The head and body stay fixed. Pause freezes the clock, phases and
 reaction counters. Mode reentry preserves poses
 and invalidates all four actor shadows.
+
+The two terminal states take Enter and nothing else. After a clear it is the
+next level with the score carried on; after GAME OVER it is the same level as
+a NEW game, the score back at zero exactly as N's restart is, because a game
+over ends the game and the cartridge's next game is scored from zero too (it
+once kept the score, which made a top-out a free continue). P is ignored in
+both, so PAUSED never replaces the label that says what Enter does.
 
 The asset compiler emits original geometric mascot poses and open/closed eye
 patches for DrMarco. His complete portrait remains in the static background;
@@ -183471,8 +183981,9 @@ two drop-downs and a field:
 - **Chipset** - what the board is (§103.6.1);
 - **Target** - what Tune sets the bus to: **Fastest tested** (the default:
   the verified sweep of §103.6.3, the fastest that read right SET) or
-  **Mfg spec** (the data sheet's value, safe on any board of the row).
-  Greyed wherever Tune is;
+  **Mfg spec** (the data sheet's value, safe on any board of the row), or
+  **Bus clock x2**, the experiment (C&T NEAT only, §103.6.3.3). Greyed
+  wherever Tune is;
 - **the state field**, framed and read-only: what the bus is running at NOW
   - `Stock: BIOS timing`, `Tuned: 8 waits` or `Mfg spec: 10 waits`. It is this
   session's: a setting lasts until a reset, and the chipset's registers are
@@ -183785,7 +184296,7 @@ x2 experiment (§103.6.3.3) and is otherwise swept by Fastest tested.
   CS8230's 04h-06h and 08h, SCAMP 00h, 05h-07h and 14h-16h, the OPTi's
   10h-14h and the WD76C10's 1872h, 2872h, 9872h, E472h and FC72h.
 
-#### 103.6.3 The two Targets, and the verified sweep
+#### 103.6.3 The Targets, and the verified sweep
 
 - **Mfg spec** programs the data sheet's values. It was a button of its
   own, `Book value`, which the field run found unclear; as a Target it is
@@ -191169,8 +191680,10 @@ Reminder): the selected TIMED appointment's (FIRED, DUE and SNOOZED cleared,
 re-armed) or the DEFAULT for new ones, the toast saying which. v1's click on
 a line's mark column is gone with the mark.
 
-**A damaged state file** opens EMPTY and its first save asks `Replace
-damaged calendar?` (§110.5.2), as v1.
+**A damaged state file** opens EMPTY with the toast `Calendar file
+damaged`, and its first save REPLACES it without asking (§110.5.2,
+`STIK_DMGREPLACE`). v1 asked `Replace damaged calendar?`; the size pass
+retired the question.
 
 **Date maths** (`dcdate.inc`) is v1's - Sakamoto's day of the week, the
 `0x15AA` month mask, navigation clamped to January 1980 .. December 2099 -
@@ -194459,7 +194972,11 @@ kind's task measured at, +10…24 over the floor six at once (§8.7). The loop
 is the one §20.6 names: `OSAPI_TASK_ALIVE`, sleep 2, `OSAPI_GFX_LOCK`,
 `test [es:bx+W_FLAGS], 2` with ES = KERNEL_SEG, `OSAPI_WM_CLIP_SET`, step,
 the new square black, the colour white, `bn_wipe`, unlock; a hidden or
-wholly covered window steps and draws nothing. §20.6 pointed at
+wholly covered window steps and draws nothing — and so does a window with
+its About card up (`[bn_abon]`, tested under the lock), which is Fractal's
+rule (§40): the card is the UI task's until a click takes it down, and the
+repaint that does so draws the square where it has got to. Without it the
+square went on bouncing through the card and cut holes in its text. §20.6 pointed at
 `app_bounce_task` as the reference for a worker "written as a package writes
 it"; it points here now, and the reference is a package.
 

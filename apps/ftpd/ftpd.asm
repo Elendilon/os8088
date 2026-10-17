@@ -6390,10 +6390,9 @@ fd_start:
     mov si, fd_lhnd                 ; so the port goes back, exactly as .badroot
     call fd_hclose                  ; gives it back - one of NET_SOCKS held for
                                     ; the window's life is the SPEC.md 77.28 leak
-    mov si, fd_e_nowork
-    call fd_log                     ; ...and the log has just said "Listening",
-                                    ; which this contradicts - so it says so
-    jmp short .fail                 ; there too, before fd_msg carries it
+    mov si, fd_e_nowork             ; ...and the log has just said "Listening",
+    jmp short .fail                 ; which this contradicts - so .fail says
+                                    ; so there too, before fd_msg carries it
 .badroot:
     mov si, fd_lhnd                 ; the port is open and nothing is going to
     call fd_hclose                  ; serve on it, so it goes back rather than
@@ -6409,6 +6408,12 @@ fd_start:
 .noport:
     mov si, fd_e_noport
 .fail:
+    call fd_log                     ; **EVERY REFUSAL IS LOGGED**, not only the
+                                    ; one after "Listening": the status line
+                                    ; said `No network driver` while the log's
+                                    ; last line still said `Ready - press
+                                    ; Start`, the two disagreeing about one
+                                    ; click. No worker yet, so no lock is owed
     mov [fd_msg], si
     mov byte [fd_st], FD_ERR
 .out:
@@ -8181,6 +8186,7 @@ fd_tpl:
 
 %define OS88UI_NOGEST           ; presses routed by hand: no gesture install (SPEC.md 20.5.1.3.4)
 %define OS88UI_NOGRADIO       ; check boxes only: no radio ring/dot (SPEC.md 13.15.3)
+%define OS88UI_1BPP             ; OSAPI_SAVEU_1BPP: a greyed caption keeps its ink (SPEC.md 13.8.11)
 %include "os88ui.inc"
 %define OS88LINE_NOEDIT         ; nothing here calls os88line_edit (SPEC.md 83.1.2)
 %include "os88line.inc"             ; the Setup page's address field. AFTER

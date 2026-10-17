@@ -16,7 +16,7 @@ arcade game written in C.
 ![The attract screen: Shadow, Speedy, Bashful and Pokey, better known as Blinky, Pinky, Inky and Clyde.](shot:paccman-attract){right}
 
 PaccMan has a disk of its own. Open that disk and double-click
-**PACCMAN.O88**. Beside it is [[README.MD]], the notes on the port. The
+**PACCMAN.O88**. Beside it is [[README.TXT]], the keys and where the game came from. The
 window opens on the attract screen, which introduces the ghosts one by one
 and the points for a dot and a power pill.
 
@@ -107,6 +107,3 @@ speaker has one, so you hear the most important sound of the moment.
   levels.
 - A paused window ignores the game keys, so a key you press while paused
   does not move Pac-Man afterwards.
-- Pressing `F` in the middle of a game can leave the screen scrambled.
-  Switch to full screen on the attract screen, before the game
-  starts, and it draws correctly.

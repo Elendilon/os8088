@@ -579,6 +579,13 @@ SC_K_F1      equ 0x3B           ; F1 - Help: opens the About box (the only
 SC_K_F4      equ 0x3E           ; F4 - repeat search down (SPEC.md 68.7)
 SC_K_F5      equ 0x3F           ; F5 - Go To... (keys.cmd EditGoTo)
 SC_K_F8      equ 0x42           ; F8 - extend selection (status EXT)
+SC_K_AF4     equ 0x6B           ; Alt-F4 - File > Exit, the caption the menu
+                                ; has always printed beside it. int 16h hands
+                                ; Alt+F1..F10 over as AL = 0 + scans 0x68..0x71
+                                ; on every ROM back to the 5150's, and nothing
+                                ; between the BIOS and this handler claims it:
+                                ; the kernel has no window-close key, so the
+                                ; package that prints the caption keeps it
 SC_K_SF4     equ 0x57           ; Shift-F4 - repeat search up (Shift-F1..F10
                                 ; are scans 0x54..0x5D)
 SC_K_HOME    equ 0x47           ; the caret keys, int 16h scan codes
@@ -8155,6 +8162,8 @@ sc_onkey:
     jnz .typing
     cmp ah, SC_K_F1
     je .kf1                         ; F1 - the About box (the help there is)
+    cmp ah, SC_K_AF4
+    je .kaf4                        ; Alt-F4 - File > Exit, same door
     cmp ah, SC_K_F4
     je .kf4                         ; F4 / Shift-F4 - repeat the search down
     cmp ah, SC_K_SF4                ; / up (SPEC.md 68.7)
@@ -8440,6 +8449,10 @@ sc_onkey:
 .kf1:
     call sc_habout                  ; F1: the About box (bounds+settle inside)
     jmp .out
+.kaf4:
+    call sc_a_close                ; Alt-F4: File > Exit - the dirty prompt
+    jmp .out                        ; first, then the hide and the worker's
+                                    ; teardown; nothing left to repaint
 .kf4:
     call sc_donext                  ; F4: repeat search down (SPEC.md 68.7)
     jmp .redraw
@@ -16922,10 +16935,10 @@ sc_pictfree:
     mov word [sc_npic], 0
     jmp sc_ld_5
 
-; sc_pictsay - AX = width, BX = height: "Picture 240x160 read - placing it
-; is not built yet". The last clause is there on purpose. A command that
-; reports a success it did not have is worse than one that refuses (47), and
-; this stage genuinely reads the file and genuinely does not insert it.
+; sc_pictsay - AX = width, BX = height: "240x160 placed", said once the
+; picture is in the text (sc_pictput has run). The first stage read the file
+; and did not insert it, and said exactly that; the wording outlived the stage
+; and reported every real placement as a failure.
 sc_pictsay:
     push ax
     push bx
@@ -17630,8 +17643,8 @@ sc_abopen:
     inc cx
     mov dx, bx
     call OSAPI_GFX_FILL_GRAY
-    ; the FIVE lines (SPEC.md 95.12): the name, the version, where the authentic
-    ; UI came from - the Computer History Museum's Opus release - and then the
+    ; the FIVE lines (SPEC.md 95.12): the name, the version, the program it
+    ; was forked from - in words, never a section number - and then the
     ; two credits. The fork INHERITED the first of them: Word's card carries
     ; 'Ported by Jorge Gonzalez' and this box was cut from that one with the
     ; line dropped, which is how a fork loses an attribution silently
@@ -19863,7 +19876,7 @@ sc_s_sp4:   db '    ', 0
 sc_s_sp3:   db '   ', 0
 sc_s_about: db 'Scribe', 0
 sc_s_abou2: db 'os8088 word processor', 0
-sc_s_abou3: db 'Forked from WORD (SPEC.md 86)', 0
+sc_s_abou3: db 'Forked from Word 1.1a for os8088', 0
 sc_s_abou4: db 'Ported by Jorge Gonzalez', 0
 sc_s_abou5: db 'Updated by Koriban', 0
 sc_s_ok:    db 'OK', 0
@@ -19962,9 +19975,11 @@ sc_e_nomem:   db 'No memory', 0      ; the staging claim was refused (50.3)
 ; strip simply stopped mid-word at the right edge of the screen - no error, no
 ; ellipsis, just a sentence with its end missing. The success line is built
 ; from a width and a height, so it is the longest possible one that has to
-; fit: '1280x65535 - not placed' is 23.
+; fit: '1280x65535 placed' is 17. It read ' - not placed' from the stage that
+; read a picture and did not insert it, and kept saying so after 95.9.3 made
+; the command place one - a success reported as a failure.
 sc_s_pictx:   db 'x', 0
-sc_s_pict2:   db ' - not placed', 0
+sc_s_pict2:   db ' placed', 0
 sc_e_pictio:  db 'Cannot read that file', 0
 sc_e_pictbig: db 'That file is too big', 0
 sc_e_pict0:   db 'Not a picture file', 0
@@ -20111,7 +20126,7 @@ sc_ovsay:
 ; SC_P1ORG however much of it is used - so it is kept to the next sector up
 ; rather than set at the ceiling.
 ; =============================================================================
-SC_P1ORG equ 0xC800
+SC_P1ORG equ 0xCA00
 
 ; align=1 is load-bearing, not tidiness. A bin section aligns to 4 by default,
 ; and the pad NASM inserts to reach it lands BETWEEN the image size the header

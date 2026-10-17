@@ -1879,6 +1879,7 @@ dc_s_about: db 'Desk Calendar, SPEC 110', 0
                                 ; no control: the cards draw their own, and
                                 ; there is no alert and no About card
                                 ; (SPEC.md 110.3, 110.11)
+%define OS88UI_1BPP             ; OSAPI_SAVEU_1BPP: a greyed caption keeps its ink (SPEC.md 13.8.11)
 %include "os88ui.inc"
 %define OS88LINE_NOSET          ; the field is filled in place and resynced,
                                 ; never replaced (apps size pass 2b)

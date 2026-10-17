@@ -26,6 +26,9 @@ anything it needs.
 - In the `APPLE2` folder of the Apple II Plus disk and the everything set:
   notes on the Apple II Plus emulator, including how fast it runs on an XT.
 - At the top of the 1942 disk: the game's keys and what each screen needs.
+- At the top of the PaccMan disk, and in the `PACCMAN` folder of the
+  everything set: PaccMan's keys, menus and scoring, and the licence of the
+  program it was ported from.
 - At the top of the REDLINE disk: how to run the benchmark and read its
   views.
 

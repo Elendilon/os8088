@@ -106,8 +106,13 @@ next one when clicked. The change shows at the next typeset.
 | Export PS... | | Writes them as a PostScript file |
 
 A new document is called `UNTITLED.TEX`. Use **Save As...** to give it a
-real name. The window title shows the document's name with a `*` after it
-while there are unsaved changes.
+real name. The top row shows the document's name with a `*` after it while
+there are unsaved changes.
+
+When there are unsaved changes, **New**, **Open...** and closing the window
+first ask **Save changes to** the document: **Save** saves it under its
+current name and goes on, **Discard** goes on without saving, and **Cancel**
+leaves everything as it is.
 
 **Export PDF...** and **Export PS...** open the file dialog with the
 document's name filled in. Type the name for the new file, such as
@@ -172,7 +177,8 @@ page numbers (No#, Ft, Hd or Out), body type size, and characters used.
   `\textheight`.
 - **Characters:** `\%`, `\&`, `\$`, `\#`, `\_`, `\{`, `\}`, `\textbackslash`,
   `~` for a space that does not break, `%` to start a comment, and `\TeX`,
-  `\LaTeX` and `\today`.
+  `\LaTeX` and `\today`, which prints the date from the system clock, such
+  as `October 17, 2026` (also inside `\date{}`).
 
 A blank line starts a new paragraph. A command TeXPad does not know is
 skipped along with what it encloses, so a document written for full LaTeX
@@ -192,11 +198,9 @@ the folder you choose in the file dialog.
 - Settings written in the source win. If `\documentclass` says
   `letterpaper`, typesetting goes back to Letter even after you pick A4 on
   the Page menu. Change the source to change the paper for good.
-- `\today` always prints "August 2026".
 - When the document is full, typing stops and TeXPad says **Document full
   (8K)**. A very long document can also be too large to export, and the
   export says **Export too large**.
-- There is no Undo, and TeXPad does not ask about unsaved changes when you
-  close it. Save before closing.
+- There is no Undo.
 - **TeXPad > About TeXPad** shows who made it. **TeXPad > Close** closes
   this TeXPad.

@@ -94,7 +94,9 @@ preserves the board; Enter resumes it. Changing setup discards the old board.
 - Z/X: turn counterclockwise/clockwise; Up also turns clockwise.
 - P: pause; N: restart at the current level.
 - M: cycle FEVER / CHILL / OFF (also available in the launcher).
-- Enter after a clear: next level; Enter after game over: retry.
+- Enter after a clear: next level, the score carried on; Enter after game
+  over: retry the level as a new game, scored from zero. P does nothing on
+  either screen.
 - Escape or Alt+Enter: restore the desktop.
 
 Match at least four cells of one color horizontally or vertically. Viruses

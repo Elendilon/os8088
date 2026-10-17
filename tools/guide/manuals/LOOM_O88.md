@@ -221,7 +221,7 @@ mistake.
 **View > Preview** shows the app's card as Weave will lay it out, without
 running anything: buttons do not press and fields do not take typing. A
 grid or a game area appears as an empty frame of the right size. The status
-line says **Preview: layout and controls only**. Choose **View > Edit** to
+line says **Preview: layout and controls only - Weave runs the app**. Choose **View > Edit** to
 go back to the text. Preview packs the project to draw it, so a mistake
 shows up here just as it would in a pack.
 
@@ -239,10 +239,9 @@ shows up here just as it would in a pack.
 
 **New Project...** suggests the name `MAIN.WML`; type another name to use
 that instead. If the file is already there, Loom opens it rather than
-writing over it. The starter app has one card with one label in it.
-Before you pack it, give its card an `id`: change `<card>` to
-`<card id="main">`, or the pack stops at line 2 with **card: attribute
-"id" is required**.
+writing over it. The starter app has one card with one label in it, and it
+packs as it stands, so `Ctrl-P` straight away gives you a `.WAB` to open in
+Weave.
 
 Save, Save All and Pack Bundle are grey until a project is open.
 

@@ -6882,7 +6882,7 @@ SOAK = [
         "command or file name` (the stem is looked up ONLY when a document "
         "follows it, and without that rule every unresolved word on the "
         "machine reaches the package launcher); a typo WITH a tail answers "
-        "`Cannot open NOTPAD`, naming the half that was wrong rather than "
+        "`Bad command or file name: NOTPAD`, the no-tail answer naming the half that was wrong rather than "
         "sending the user to look at the document; OPEN of an unclaimed "
         "extension refuses in words, there being no window to look at; and a "
         "program on ANOTHER volume is asserted NEITHER way, which is a "

@@ -39,6 +39,12 @@
                                     ; widest slice we could be given
                                     ; (there is no self-close slot: SPEC.md
                                     ; 65.2, and apps/cword/cwcmd.c says how)
+%define CC_ASSOC "cword/cwassoc.inc" ; .RTF is ours BEFORE the first run, in
+                                    ; the header the disk's warm ASSOC.DAT is
+                                    ; written from (SPEC.md 54.6)
+%define CC_HAS_ONMOVE               ; void os88_onmove(unsigned, unsigned) -
+                                    ; Undo's snapshot is a movable claim
+                                    ; (SPEC.md 66, 73.12.4)
 %define CC_HAS_OVL                  ; ...and half of this program is in
                                     ; its overlay (SPEC.md 73.14)...
 %define CC_OVL_PART                 ; ...which is PART 0 of CWORD.O88 and not

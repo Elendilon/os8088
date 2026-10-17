@@ -831,8 +831,15 @@ ap_stream_close:
     cmp byte [ap_mixing], 0
     jne .drain                     ; bounded: the worker re-checks ap_sopen
     call ap_free_ring
-    mov byte [ap_ended], 0
-    mov byte [ap_lasthalf], 0
+    xor ax, ax
+    mov [ap_ended], al
+    mov [ap_lasthalf], al
+    ; nothing is in the stream now, so the clock AND the bar read zero: the
+    ; bar is drawn from ap_played, and zeroing only ap_elapsed_s left a full
+    ; bar beside 00:00 after "End of playlist" (and a stale one after Stop)
+    mov [ap_played], ax
+    mov [ap_played+2], ax
+    mov [ap_elapsed_s], ax
     pop ax
     ret
 
@@ -902,8 +909,7 @@ ap_cmd_stop:
     mov ax, ap_s_stopped
 ap_stop_msg:                      ; AX = what the status line says
     mov [ap_msg], ax
-    mov byte [ap_state], AP_ST_STOP
-    mov word [ap_elapsed_s], 0
+    mov byte [ap_state], AP_ST_STOP ; (the clock and the bar: ap_stream_close)
     ret
 
 ap_cmd_next:                      ; (Next off the end says Stopped: the
@@ -973,6 +979,18 @@ ap_add_file:
     call ap_has_wav_ext            ; (preserves every register)
     jne .notwav
 
+    ; Open while a track is PLAYING OR PAUSED adds the file and leaves the
+    ; current track alone, selection included: the title line and Play both
+    ; read apl_cur, so selecting the new entry would name it over the song
+    ; still in the stream and Play would resume the old audio under the new
+    ; name. A paused song is the user's as much as a playing one.
+    test byte [ap_af_flags], AP_ADD_IDLE
+    jz .flagsok
+    cmp byte [ap_state], AP_ST_STOP
+    je .flagsok
+    and byte [ap_af_flags], ~(AP_ADD_CUR | AP_ADD_IDLE) & 0xFF
+.flagsok:
+
     ; duplicate? same name + dir + vol -> select it, do not add again
     call apl_find                  ; out AX = index, CF = 1 not found
                                    ; (BX..DI preserved: SI, DX, BL still ours)
@@ -991,6 +1009,8 @@ ap_add_file:
     mov [apl_cur], al
     jmp .startcur
 .selonly:
+    test byte [ap_af_flags], AP_ADD_CUR
+    jz .ok                         ; busy: not even selected
     mov [apl_cur], al
     jmp .ok
 .fresh:
@@ -998,20 +1018,16 @@ ap_add_file:
     jc .full
     mov al, [apl_n]
     dec al                         ; index of the entry just added
-    mov ah, al                     ; keep it
     test byte [ap_af_flags], AP_ADD_CUR | AP_ADD_PLAY
     jz .notcur
     mov [apl_cur], al
 .notcur:
     mov word [ap_msg], ap_s_added
 
-    test byte [ap_af_flags], AP_ADD_PLAY
-    jnz .startcur
-    test byte [ap_af_flags], AP_ADD_IDLE
+    ; PLAY starts it; IDLE survived the busy test above only if the player
+    ; is stopped, so it starts it too
+    test byte [ap_af_flags], AP_ADD_PLAY | AP_ADD_IDLE
     jz .ok
-    cmp byte [ap_state], AP_ST_PLAY
-    je .ok                         ; Open while playing: added, not interrupted
-    mov [apl_cur], ah
 .startcur:
     call ap_stream_close
     call ap_open_track             ; sets ap_msg itself
