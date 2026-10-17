@@ -352,11 +352,28 @@ def main():
         if not lad.get(1) or rl["cuts"] >= cut0:
             bad.append("--ladder slow:1/2 decided %r and cut %d frames "
                        "against %d" % (lad, rl["cuts"], cut0))
-        try:
-            venc.degrade_parse("slow:2")
-            bad.append("--ladder slow:2 (not under the rate) was taken")
-        except vid.V88Error:
-            pass
+        # ...and A CUT RUNG (2026-10-17): cut:100 accepts any breakage, so
+        # put first every stretch stops there - cut, nothing held, the
+        # slower rate behind it never tried; cut:0 is not a rung
+        path, rc, _ = run("tightcut", "--preset", "herc", "--disk", "20000",
+                          "--avg", "0.30", "--peak", "0.50", "--owe", "0",
+                          "--rate", "5512", "--profile", "floppy",
+                          "--reserve", "16", "--ladder", "cut:100,slow:1/2")
+        vid.verify_v88(path)
+        lc = rc.get("ladder") or {}
+        print("   3b: --ladder cut:100,slow:1/2: %d stretches decided (%s), "
+              "%d held" % (sum(lc.values()), ", ".join(
+                  "rung %d: %d" % kv for kv in sorted(lc.items())),
+                  rc["holds"]))
+        if not lc.get(1) or set(lc) - {0, 1} or rc["holds"]:
+            bad.append("--ladder cut:100,slow:1/2 decided %r and held %d"
+                       % (lc, rc["holds"]))
+        for no in ("slow:2", "cut:0"):
+            try:
+                venc.degrade_parse(no)
+                bad.append("--ladder %s was taken" % no)
+            except vid.V88Error:
+                pass
         # --- 3c: COARSE CELLS ON A PLANAR SCREEN (98.2.5.2, 2026-10-17):
         # a clip whose scene changes half way, on Mode X with no palette a
         # scene - the scene pass finds the change, the cut it would be is

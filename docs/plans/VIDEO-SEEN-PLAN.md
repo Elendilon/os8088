@@ -287,15 +287,30 @@ a number per rung but the one test every rung shares: the first prefix
 that draws the stretch WHOLE is taken, else the least broken by the view
 as seen. The default ladder came off four clips on their own options:
 
-| clip | today | `lag:100, coarse:auto, slow:5/6, colours:12, slow:2/3, slow:1/2` |
+| clip | today | `lag:100, slow:5/6, colours:12, slow:2/3, coarse:auto, slow:1/2` |
 |---|---:|---:|
 | Last Exile 0:10-0:40, flipped Mode X, 286-speeddemon | 24.3% (400 cut) | **3.2%** (57 cut) |
 | Bad Carrot 3:05-3:20, the owner's flipped tune | 1.8% | **1.0%** |
 | Take On Me 0:15-0:30, Hercules | 5.5% | **4.7%** |
 | GasGas54's options at 24 fps (page-ahead) | 2.3% | **1.7%** |
 
-`slow:5/6` before `lag:100` made the same four files: a stretch that
-needs either needs both before it draws whole. Lag stays first, being the
+Coarse cells were second when this table was taken and are FIFTH since
+2026-10-17 (the owner: "coarse is a type of cut"); every file came out the
+same - Gas Gas Gas 1.7% with its stretches at rungs 2 and 6 as before, Bad
+Carrot 1.0%, and Last Exile and Take On Me by construction (no cells were
+drawn in either). `slow:5/6` before `lag:100` made the same four files: a
+stretch that needs either needs both before it draws whole.
+
+**A CUT RUNG** (2026-10-17, the owner: "lets add 'cut by x%' into the
+ladder. That way we can choose which type of cut we want - some videos
+accept normal cuts better than others"): `cut:X` STOPS the climb where no
+frame of the stretch is more than X% broken as seen, and the frames are
+cut as the budgets cut them. It draws nothing new, so its try is the try
+before it judged again (`degrade_choose` keeps the last), and past it
+every rung is judged so too, by the largest cut rung. It is in no
+default: `lag:100, cut:5, slow:5/6, ...` is a file that would rather tear
+a little than drop to 20 fps, and which one a video is, is the owner's
+eye's. Lag stays first, being the
 rung nobody sees. Most of Last Exile's stretches went to the last rung,
 half the rate - the owner's eye is what says whether 12 fps for that long
 is the trade they want, and the ladder is theirs to reorder per file.
@@ -325,7 +340,8 @@ same file as before, because all 46 stretches the ladder decides are
 INSIDE shots and the coarse rung acts at a scene's first frame. A cell at
 any would-be cut, not only a scene's first, is the open question that
 leaves - a moving picture blurred across for a frame, which only the view
-as seen can price.
+as seen can price - and **it is on the owner's list to look at once it is
+built** (2026-10-17), not before.
 
 What it was sketched as:
 

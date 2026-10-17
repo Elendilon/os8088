@@ -576,8 +576,8 @@ for _d in LADDER_SETS:
 def ladder_options(c):
     """The rungs the form's file can use, in the order the list shows them:
     (label, token) - lag a card's sound's and not Live's, a slower rate not
-    Live's or a layer's, cells a planar screen's (Mode X's one, VGA4's
-    three) and fewer colours a palette a scene's"""
+    Live's or a layer's, a cut any file's, cells a planar screen's (Mode
+    X's one, VGA4's three) and fewer colours a palette a scene's"""
     out = []
     if c["audio"] not in ("none", "speaker") and not c.get("live"):
         out += [("Lag up to %d ms" % ms, "lag:%d" % ms)
@@ -592,6 +592,10 @@ def ladder_options(c):
             out.append(("Slow to %d/%d of the rate%s" % (
                 a, b, " (%.3g fps)" % (fps * a / b) if fps else ""),
                 "slow:%d/%d" % (a, b)))
+    # (a CUT: the climb stops where no frame is more broken than this, and
+    # the frames are cut - any file's, a picture to judge it by being all)
+    out += [("Cut, no frame over %d%% broken" % x, "cut:%d" % x)
+            for x in (1, 2, 5, 10, 20)]
     if _coarse(c) is None:              # (Mode X's one cell, VGA4's three)
         out += [("Coarse cells at a scene change (%s)" % cell,
                  "coarse:%s" % cell) for cell in V.DEGRADE_COARSE
@@ -607,7 +611,8 @@ def ladder_label(tok):
     kind, _, v = tok.partition(":")
     return {"lag": "Lag up to %s ms", "slow": "Slow to %s of the rate",
             "coarse": "Coarse cells at a scene change (%s)",
-            "colours": "Fewer colours: %s"}.get(kind, "%s") % v
+            "colours": "Fewer colours: %s",
+            "cut": "Cut, no frame over %s%% broken"}.get(kind, "%s") % v
 
 
 assert len({g[1] for g in GROUPS}) == len(GROUPS), "a header names a group"
@@ -2577,8 +2582,11 @@ class App(object):
         Tip(top, "Where the budgets would cut a stretch of frames, try "
                  "these in order, each on top of the ones before - the "
                  "first that draws the stretch whole is taken, else the "
-                 "least broken - and only then cut. It sets Lag, Min fps, "
-                 "Coarse cut, Step down and Step min itself.")
+                 "least broken - and only then cut. A Cut rung stops there "
+                 "instead, where no frame is more broken than it says: for "
+                 "a video that takes a cut better than a slower rate. It "
+                 "sets Lag, Min fps, Coarse cut, Step down and Step min "
+                 "itself.")
         self.ladrows = []
         for i in range(LADDER_RUNGS):
             lab = ttk.Label(page, text="Rung %d" % (i + 1))

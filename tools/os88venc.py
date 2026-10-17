@@ -3621,15 +3621,20 @@ VFR_AGAIN = 2           # frames until a cut is asked again, after the full
 # the next stretch, and the first that draws every frame it shows WHOLE is
 # taken; none, the least broken by the view as seen. Cutting is what is
 # left after the last rung. It overrides --lag, --min-fps, --coarse-cut,
-# --step-down and --step-min
-DEGRADE_KINDS = ("lag", "slow", "coarse", "colours")
-DEGRADE_DEFAULT = "lag:100,coarse:auto,slow:5/6,colours:12,slow:2/3,slow:1/2"
+# --step-down and --step-min. A CUT is a rung too (the owner, 2026-10-17:
+# "some videos accept normal cuts better than others"): cut:X stops the
+# climb at that rung where no frame of the stretch is more than X% broken
+# as seen, and the frames are cut as the budgets cut them. Coarse cells are
+# a kind of cut, so the default ladder tries them late - rung 5
+DEGRADE_KINDS = ("lag", "slow", "coarse", "colours", "cut")
+DEGRADE_DEFAULT = "lag:100,slow:5/6,colours:12,slow:2/3,coarse:auto,slow:1/2"
 DEGRADE_COARSE = ("auto", "4x1", "16x4", "32x8", "64x8")
 
 
 def degrade_parse(spec):
     """--ladder's rungs -> [(kind, value)]: lag ms, slow a fraction of the
-    rate, coarse a cell (or auto), colours 12 or 8"""
+    rate, coarse a cell (or auto), colours 12 or 8, cut the most a frame of
+    the stretch may be broken as seen, a percentage"""
     out = []
     for part in (spec or "").split(","):
         part = part.strip()
@@ -3650,13 +3655,17 @@ def degrade_parse(spec):
             elif kind == "colours":
                 v = int(val)
                 ok = v in (12, 8)
+            elif kind == "cut":
+                v = float(val.rstrip("%"))
+                ok = 0 < v <= 100
             else:
                 ok = False
         except (ValueError, ZeroDivisionError):
             ok = False
         if not ok:
             raise vid.V88Error("--ladder: %r is not a rung (lag:MS, "
-                               "slow:A/B, coarse:auto|WxH, colours:12|8)"
+                               "slow:A/B, coarse:auto|WxH, colours:12|8, "
+                               "cut:PERCENT)"
                                % part)
         out.append((kind, v))
     return out
@@ -3672,11 +3681,12 @@ def degrade_rungs(a):
 
 
 def degrade_steps(rungs, fps, fgrid=None):
-    """The prefixes the ladder tries, each (index, rate, lag frames, cell):
-    a prefix's slowest rate, its longest lag and its coarse cell - one a
-    rung that changes nothing a stretch can try (fewer colours is a
-    scene's, decided before) left out"""
-    out, r, lag, cell = [], 1.0, None, None
+    """The prefixes the ladder tries, each (index, rate, lag frames, cell,
+    cut): a prefix's slowest rate, its longest lag, its coarse cell and the
+    most breakage it accepts (a fraction, None for none - its cut rungs'
+    largest) - one a rung that changes nothing a stretch can try (fewer
+    colours is a scene's, decided before) left out"""
+    out, r, lag, cell, tol = [], 1.0, None, None, None
     for i, (kind, v) in enumerate(rungs):
         if kind == "slow" and v < r:
             r = v
@@ -3688,9 +3698,11 @@ def degrade_steps(rungs, fps, fgrid=None):
                 lag = f
         elif kind == "coarse":
             cell = v
+        elif kind == "cut":
+            tol = max(tol or 0.0, v / 100.0)
         else:
             continue
-        step = (i + 1, r, lag, cell)
+        step = (i + 1, r, lag, cell, tol)
         if not out or out[-1][1:] != step[1:]:
             out.append(step)
     return out
@@ -3723,12 +3735,13 @@ def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
     flipped file's HELD record (98.1.3.9): drawn toward the next frame on
     the page the glass is not showing, and judged as EMPTY's is, by the
     picture still shown. LAG, the lag allowance the stretch is drawn at
-    (the ladder's). COUNT -> (that, the frames it shows that were cut)"""
+    (the ladder's). COUNT -> (that, the frames it shows that were cut, the
+    most broken frame's view as seen, no hold's charge in it)"""
     e = enc_clone(enc)
     if lag is not None:
         e.flag_lag = lag
     v, prev = 0.0, tp
-    cuts = 0
+    cuts, worst = 0, 0.0
     spx = None                          # (the glass through a STAY's run)
     for j, t in enumerate(ts):
         k = j
@@ -3741,7 +3754,8 @@ def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
             _, rec = e.frame(ts[k], au if j == 0 else b"\x80" * len(au))
             e.charge(rec, len(au))
             T = e.tpix(shown if shown is not None else t)[1]
-            v += seen_share(spx, T, prev) + cost / 100.0
+            q = seen_share(spx, T, prev)
+            v, worst = v + q + cost / 100.0, max(worst, q)
             prev = T
             continue
         spx = None
@@ -3750,7 +3764,8 @@ def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
                              b"\x80" * len(au))
             e.charge(rec, len(au))
             T = e.tpix(shown if shown is not None else t)[1]
-            v += seen_share(e.spix()[1], T, prev) + cost / 100.0
+            q = seen_share(e.spix()[1], T, prev)
+            v, worst = v + q + cost / 100.0, max(worst, q)
             prev = T
             continue
         if not (empty or stay) or k == j:
@@ -3767,33 +3782,39 @@ def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
             cuts += 1
         e.charge(rec, len(au))
         T = e.tpix(ts[k])[1]
-        v += seen_share(e.spix()[1], T, prev) + \
-            (cost / 100.0 if pat[j] else 0.0)
+        q = seen_share(e.spix()[1], T, prev)
+        v, worst = v + q + (cost / 100.0 if pat[j] else 0.0), max(worst, q)
         prev = T
-    return (v / len(ts), cuts) if count else v / len(ts)
+    return (v / len(ts), cuts, worst) if count else v / len(ts)
 
 
 def degrade_choose(enc, ts, au, steps, fps, tp, first=None, cost=VFR_HOLD,
                   empty=False, shown=None, stay=False, coarse=None):
     """THE DEGRADE LADDER at a stretch (--ladder): today's draw, then each
     of the ladder's prefixes (`steps`, degrade_steps), each encoded on a
-    copy - the first that shows every frame WHOLE, else the least broken.
-    `coarse(cell)` is the stretch's first frame in cells, where it is a
-    scene's first -> (hold pattern, rate, lag frames, cell, rung index)"""
+    copy - the first that shows every frame WHOLE, or past a cut rung no
+    frame more broken than it accepts; else the least broken. `coarse(cell)`
+    is the stretch's first frame in cells, where it is a scene's first ->
+    (hold pattern, rate, lag frames, cell, rung index)"""
     n = len(ts)
     full = [False] * n
-    v, cuts = vfr_try(enc, ts, full, au, tp, first, cost, empty, shown,
-                      stay, count=True)
+    got = vfr_try(enc, ts, full, au, tp, first, cost, empty, shown,
+                  stay, count=True)
+    v, cuts, worst = got
     best = (v, full, 1.0, None, None, 0)
     if cuts == 0:
         return best[1:]
-    for i, r, lag, cell in steps:
+    was = (1.0, None, False)            # (what the try before drew with)
+    for i, r, lag, cell, tol in steps:
         pat = vfr_pattern(n, r) if r < 1.0 else full
         cf = coarse(cell) if cell is not None and coarse is not None and \
             not pat[0] else first
-        v, cuts = vfr_try(enc, ts, pat, au, tp, cf, cost, empty, shown,
+        if (r, lag, cf is not first and cell) != was:
+            got = vfr_try(enc, ts, pat, au, tp, cf, cost, empty, shown,
                           stay, lag=lag, count=True)
-        if cuts == 0:
+            was = (r, lag, cf is not first and cell)
+        v, cuts, worst = got            # (a cut rung alone: the same draw)
+        if cuts == 0 or (tol is not None and worst <= tol + 1e-9):
             return pat, r, lag, cell if cf is not first else None, i
         if v < best[0] - 1e-9:
             best = (v, pat, r, lag, cell if cf is not first else None, i)
@@ -9768,7 +9789,8 @@ def _encode(a, keep, tick, readers):
                     ("%d drawn as they were" % c) if i == 0 else
                     ("%d at rung %d (%s)" % (c, i, ", ".join(
                         "%s:%s" % (kk, ("%.3g" % vv) if kk == "slow" else
-                                   ("%g" % vv) if kk == "lag" else vv)
+                                   ("%g" % vv) if kk == "lag" else
+                                   ("%g%%" % vv) if kk == "cut" else vv)
                         for kk, vv in enc.vkeep[:i])))
                     for i, c in sorted(enc.vladder.items())),
                 getattr(a, "ladder", "")))
@@ -10333,9 +10355,11 @@ def parser():
                          "the RUNGS in order, each on top of those before - "
                          "lag:MS, slow:A/B (of the frame rate), coarse:auto|"
                          "WxH (cells at a scene change), colours:12|8 (a "
-                         "scene's palette stepped down) - the first that "
-                         "draws the stretch whole taken, else the least "
-                         "broken; then the cut. It sets --lag, --min-fps, "
+                         "scene's palette stepped down), cut:PERCENT (the "
+                         "frames cut, where none is more than that broken "
+                         "as seen) - the first that draws the stretch whole "
+                         "taken, else the least broken; then the cut. It "
+                         "sets --lag, --min-fps, "
                          "--coarse-cut, --step-down and --step-min itself. "
                          "Blank: off, the default (VIDEO-SEEN-PLAN 3a; the "
                          "window's default ladder is %s)" % DEGRADE_DEFAULT)

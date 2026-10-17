@@ -173367,13 +173367,21 @@ format change: a held frame is an ordinary record.
 budgets cannot draw may give, as RUNGS in the order they are tried:
 `lag:MS` (the lag allowance, 98.2.1.1.2), `slow:A/B` (a held frame's
 rate, as `--min-fps`'s), `coarse:auto|WxH` (a scene's first frame in
-cells, 98.2.1.9) and `colours:12|8` (a scene's palette stepped down,
-98.2.1.9, decided per scene from a first pass as `--step-down` is). Where
+cells, 98.2.1.9), `colours:12|8` (a scene's palette stepped down,
+98.2.1.9, decided per scene from a first pass as `--step-down` is) and
+`cut:PERCENT` (2026-10-17, the owner: *"some videos accept normal cuts
+better than others"* - the climb STOPS there where no frame of the
+stretch is more than that broken as seen, and its frames are cut as the
+budgets cut them; it changes how the rungs before it are judged and draws
+nothing new, so a cut rung's try is the one before it, not encoded
+again). Where
 the budgets would cut a stretch, or at a scene's first frame, each PREFIX
 of the ladder is encoded on copies of the encoder over the next half
 second - its slowest rate, its longest lag and its cells together - and
-the first that shows every frame WHOLE is taken; none, the least broken
-by the view as seen, a held frame at `--slow-cost` (`degrade_choose`).
+the first that shows every frame WHOLE - or, at or past a cut rung, none
+more broken than it accepts (its cut rungs' largest) - is taken; none,
+the least broken by the view as seen, a held frame at `--slow-cost`
+(`degrade_choose`).
 Cutting is what is left after the last rung. A rung's lag holds for its
 stretch and then until the picture is level, a frame being the floor. It
 sets `--lag`, `--min-fps`, `--coarse-cut`, `--step-down` and `--step-min`
@@ -173386,11 +173394,14 @@ real passes replay its holds, lag and cells, and page-ahead's keep and
 its prune judge a file that may hold frames by its picture's measures and
 not by a count of cut frames - a ladder trades one for the other. The
 encoder window's default ladder (`DEGRADE_DEFAULT`) is `lag:100,
-coarse:auto, slow:5/6, colours:12, slow:2/3, slow:1/2`; on each clip's
-own options it took Last Exile 0:10-0:40 (flipped Mode X, `286-speeddemon`)
-from 24.3% of the view broken to 3.2% and its cut frames 400 to 57, Bad
-Carrot's flipped tune 1.8% to 1.0%, Take On Me's Hercules file 5.5% to
-4.7%. `slow:5/6` first instead of `lag:100` made the same files. The
+slow:5/6, colours:12, slow:2/3, coarse:auto, slow:1/2` - coarse cells
+fifth since 2026-10-17, being a kind of cut (the owner), which made the
+same four files as second did; on each clip's own options it took Last
+Exile 0:10-0:40 (flipped Mode X, `286-speeddemon`) from 24.3% of the view
+broken to 3.2% and its cut frames 400 to 57, Bad Carrot's flipped tune
+1.8% to 1.0%, Take On Me's Hercules file 5.5% to 4.7%. `slow:5/6` first
+instead of `lag:100` made the same files. A cut rung is in no default: it
+is the choice a video makes that takes a cut better than a slower rate. The
 window carries it as Size vs quality's second inner tab, Degrade ladder: a
 checkbox, a rung a row offering only the rungs the form can use, and under
 them Lag, Min fps, Slow cost, Flip hold and Coarse cut (Instead of cutting).
