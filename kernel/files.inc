@@ -8466,6 +8466,9 @@ fm_mfocus:
     mov [fm_lsel], ax
     ret
 
+%endif                          ; (FM_MSEL, reopened below: fm_mods is the
+                                ; Alt-drop's too, SPEC.md 26.10.4, so a build
+%if %isdef(FM_MSEL) || %isdef(OS88_SHORTCUTS) ; with links and no multi-select
 ; fm_mods - the BIOS's shift state (0040:0017): AL bit 3 = Alt (an Alt-drop
 ; makes a LINK, SPEC.md 26.10.4), bit 2 = Ctrl, bits 0-1 = Shift, and nothing
 ; else; AH = 0. A Standard File chooser picks ONE file, so
@@ -8482,6 +8485,8 @@ fm_mods:
     and al, 0x0F
 .k:
     ret
+%endif                          ; - MSELOFF=1 - still has it)
+%ifdef FM_MSEL
 
 ; fm_mwalk - call BX for every entry of DI's set but '..' (19.5), with AX =
 ; its index and fm_onam / [fm_odir] / [fm_ftype] staged out of THIS window's
