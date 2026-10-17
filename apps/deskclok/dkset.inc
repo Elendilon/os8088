@@ -1254,8 +1254,7 @@ dk_fclick:
     call dk_stoggle
     jmp short .x
 .aon:
-    xor [dk_aon], al            ; the alarm's own box: its edit
-    call dk_fall
+    call dk_kaon                ; the alarm's own box: its edit
     jmp short .x
 .d:
     cmp ah, DKST_DROP
