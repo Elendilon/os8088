@@ -4,6 +4,15 @@
 
     python3 tools/os88bochs.py sweep [--batch N] [--out DIR] PKG.o88 ...
     python3 tools/os88bochs.py boot [--out DIR]     boot and leave it running
+    python3 tools/os88bochs.py stop                 end every Bochs on the display
+    python3 tools/os88bochs.py dbg [--out DIR] CMD...  break in, run debugger
+                                                    commands, print, carry on
+
+    --sb        give the machine a Sound Blaster 16 (port 220h, IRQ 5, DMA 1),
+                its output written to OUT/sb.wav
+    --cfg BITS  write a SYSTEM.CFG onto A: wanting the drivers in BITS - one
+                bit per driver by kernel/driver.inc's drv_cfgbit, sound being
+                bit 0 (the Makefile's system.cfg rules are the same bytes)
 
 WHY BOCHS. QEMU's TCG checks no segment on a data access and lets code write
 through CS, so on QEMU kern_mega runs code that faults on a real 286 - every
@@ -52,7 +61,7 @@ boot: floppy
 port_e9_hack: enabled=1
 mouse: enabled=1, type=ps2, toggle=ctrl+mbutton
 clock: sync=realtime, time0=local
-log: {log}
+{sb}log: {log}
 panic: action=report
 error: action=report
 info: action=ignore
@@ -102,16 +111,71 @@ def xvfb():
         time.sleep(2)
 
 
+def running():
+    """PIDs of every Bochs on the box. ONE AT A TIME: the mouse, the keys and
+    the screenshots all go to the X display, and with two machines on it they
+    land on whichever window is on top - which reads exactly like a guest that
+    froze. `bochs` execs `bochs-bin`, so that is the name to look for."""
+    r = subprocess.run(["pgrep", "-x", "bochs-bin"], capture_output=True,
+                       text=True)
+    return [int(p) for p in r.stdout.split()]
+
+
+def dbg(out, cmds):
+    """Break into the running Bochs, run CMDS, print what they said, and
+    continue it."""
+    e9 = os.path.join(out, "e9.out")
+    n = os.path.getsize(e9)
+    for p in running():
+        os.kill(p, 2)               # SIGINT: Bochs stops at its prompt
+    time.sleep(1.5)
+    with open(os.path.join(out, "dbg.fifo"), "w") as fh:
+        fh.write("\n".join(cmds) + "\nc\n")
+    time.sleep(2 + 0.3 * len(cmds))
+    with open(e9, "rb") as f:
+        f.seek(n)
+        sys.stdout.write(f.read().decode("latin-1"))
+
+
+def stop():
+    subprocess.run(["pkill", "-f", "^sleep 86400"])
+    for p in running():
+        os.kill(p, 15)
+    end = time.time() + 10
+    while running() and time.time() < end:
+        time.sleep(0.5)
+    for p in running():
+        os.kill(p, 9)
+
+
 class Box(object):
     """One Bochs, its disks in OUT, its E9 output in OUT/e9.out."""
 
-    def __init__(self, out, pkgs):
+    def __init__(self, out, pkgs, sb=False, cfg=None):
+        if running():
+            sys.exit("os88bochs: a Bochs is already running (pids %s) - every "
+                     "click would land on whichever window is on top. "
+                     "`os88bochs.py stop` ends it" %
+                     " ".join(map(str, running())))
         self.out = out
         self.e9 = os.path.join(out, "e9.out")
         a, b = os.path.join(out, "a.img"), os.path.join(out, "b.img")
         c = os.path.join(out, "c.img")
         shutil.copy(os.path.join(ROOT, "build", "mega.img"), a)
         shutil.copy(os.path.join(ROOT, "build", "apps120.img"), b)
+        if cfg is not None:
+            f = os.path.join(out, "SYSTEM.CFG")
+            with open(f, "wb") as fh:
+                fh.write(b"O88CFG\0\0" + (3).to_bytes(2, "little") + b"DW" +
+                         bytes([1, 2]) + cfg.to_bytes(2, "little") + b"\0\0")
+            subprocess.run([sys.executable, os.path.join(ROOT, "tools",
+                                                         "os88fat.py"),
+                            "del", a, "SYSTEM.CFG"], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+            subprocess.run([sys.executable, os.path.join(ROOT, "tools",
+                                                         "os88fat.py"),
+                            "add", a, f], check=True,
+                           stdout=subprocess.DEVNULL)
         stage = os.path.join(out, "stage")
         shutil.rmtree(stage, ignore_errors=True)
         os.makedirs(stage)
@@ -133,19 +197,32 @@ class Box(object):
                        check=True, stdout=subprocess.DEVNULL)
         rc = os.path.join(out, "bochsrc")
         with open(rc, "w") as f:
-            f.write(BOCHSRC.format(a=a, b=b, c=c, cy=GEOM[0], hd=GEOM[1],
-                                   sp=GEOM[2],
-                                   log=os.path.join(out, "bochs.log")))
+            f.write(BOCHSRC.format(
+                a=a, b=b, c=c, cy=GEOM[0], hd=GEOM[1], sp=GEOM[2],
+                log=os.path.join(out, "bochs.log"),
+                sb=("sound: waveoutdrv=file, waveout=%s\n"
+                    "sb16: enabled=1, midimode=0, wavemode=1, "
+                    "dmatimer=600000\n" % os.path.join(out, "sb.wav"))
+                if sb else ""))
         for n in os.listdir(out):
             if n.endswith(".lock"):
                 os.remove(os.path.join(out, n))
         xvfb()
         self.f = open(self.e9, "wb")
+        # The debugger reads a FIFO, held open by a `sleep` of its own so the
+        # machine outlives this process (`boot`) and `dbg` can still reach it
+        fifo = os.path.join(out, "dbg.fifo")
+        if os.path.exists(fifo):
+            os.remove(fifo)
+        os.mkfifo(fifo)
         self.p = subprocess.Popen(["bochs", "-q", "-f", rc], cwd=out,
-                                  stdin=subprocess.PIPE, stdout=self.f,
-                                  stderr=subprocess.STDOUT, env=ENV)
-        self.p.stdin.write(b"c\n")
-        self.p.stdin.flush()
+                                  stdin=os.open(fifo, os.O_RDWR),
+                                  stdout=self.f, stderr=subprocess.STDOUT,
+                                  env=ENV)
+        self.hold = subprocess.Popen("exec sleep 86400 > '%s'" % fifo,
+                                     shell=True)
+        with open(fifo, "w") as fh:
+            fh.write("c\n")
 
     @staticmethod
     def _stage(stage, src, name):
@@ -177,6 +254,7 @@ class Box(object):
         time.sleep(1)
 
     def stop(self):
+        self.hold.kill()
         self.p.terminate()
         try:
             self.p.wait(10)
@@ -185,7 +263,7 @@ class Box(object):
         self.f.close()
 
 
-def sweep(pkgs, batch, out, quiet_secs=60):
+def sweep(pkgs, batch, out, quiet_secs=60, sb=False, cfg=None):
     os.makedirs(out, exist_ok=True)
     left = list(pkgs)
     report = []
@@ -195,7 +273,7 @@ def sweep(pkgs, batch, out, quiet_secs=60):
         todo, left = left[:batch], left[batch:]
         d = os.path.join(out, "boot%02d" % boot)
         os.makedirs(d, exist_ok=True)
-        box = Box(d, todo)
+        box = Box(d, todo, sb, cfg)
         try:
             if not box.wait_for("kern_mega:", 240):
                 report.append(("(boot)", "no kern_mega line in 240s"))
@@ -264,19 +342,29 @@ def sweep(pkgs, batch, out, quiet_secs=60):
 
 
 def main():
+    if sys.argv[1:2] == ["dbg"]:
+        rest, out = sys.argv[2:], os.path.join(ROOT, "build", "bochs")
+        if rest[:1] == ["--out"]:
+            out, rest = rest[1], rest[2:]
+        dbg(os.path.abspath(out), rest)
+        return
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=("sweep", "boot"))
+    ap.add_argument("cmd", choices=("sweep", "boot", "stop"))
     ap.add_argument("pkgs", nargs="*")
     ap.add_argument("--batch", type=int, default=6)
     ap.add_argument("--out", default=os.path.join(ROOT, "build", "bochs"))
+    ap.add_argument("--sb", action="store_true")
+    ap.add_argument("--cfg", type=lambda v: int(v, 0))
     a = ap.parse_args()
     a.out = os.path.abspath(a.out)
     a.pkgs = [os.path.abspath(p) for p in a.pkgs]
-    if a.cmd == "sweep":
-        sweep(a.pkgs, a.batch, a.out)
+    if a.cmd == "stop":
+        stop()
+    elif a.cmd == "sweep":
+        sweep(a.pkgs, a.batch, a.out, sb=a.sb, cfg=a.cfg)
     else:
         os.makedirs(a.out, exist_ok=True)
-        box = Box(a.out, a.pkgs)
+        box = Box(a.out, a.pkgs, a.sb, a.cfg)
         box.wait_for("kern_mega:", 240)
         print("running: DISPLAY=%s, E9 in %s" % (DISPLAY, box.e9))
 

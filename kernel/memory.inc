@@ -2710,7 +2710,10 @@ mem_region_reloc:
     mov es, ax                  ; ES = 0: the hardware IRQ vectors, the fourth
 %endif
     call mem_rr_walk            ; address space and the only one outside this
-%endif                          ; kernel (SPEC.md 66.6.3.1)
+%ifdef KERN_MEGA                ; kernel (SPEC.md 66.6.3.1) - and on kern_mega
+    call KERNEL_SEG:mega_ivt_syncf ; the IDT reads those vectors, not the IVT
+%endif
+%endif
     ; ...AND A WORKER STANDING ON THE OLD SEGMENT is re-entered at the new one
     ; (SPEC.md 66.6.2). The other half of mem_frameless's 66.6.2 arm: that one
     ; decided the move was allowed, this makes it true. A region that owns no

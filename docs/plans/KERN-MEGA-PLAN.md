@@ -959,6 +959,83 @@ whoever extends this:
     moves SP as its instruction does. Bochs saves SYSTEM.CFG through it and
     the disk verifies.
 
+16. **Every package STARTS under Bochs, and the sweep is a tool now.**
+    `tests/megarun` is a package that starts every package in its folder
+    one every five seconds and names each on port E9 first;
+    `tools/os88bochs.py sweep` builds a C: disk with it as `0RUN.O88` (so
+    it lists first) beside a batch of packages, boots `build/mega.img`
+    under Bochs, opens the folder with the mouse and charges a `kern_mega
+    FAULT` - or a minute with no new E9 line - to the package last named;
+    the next boot carries on after it, and every start is screenshotted.
+    The 44 shipped packages: all 44 start and draw, Sheet included alone
+    (in a batch of six it is refused `04` for memory). Two mechanisms got
+    them there, neither a package change:
+    * **A CS: write** (`mov [cs:x], ax`, 125 sites in tests/cswrites.txt
+      and more in packages) is completed by the #GP handler (`mega_gpw`):
+      the instruction is decoded for length, copied to a trampoline with
+      its CS: prefix turned into DS:, and run there with DS = the image's
+      data segment; a DS or ES holding a CODE selector (`push cs / pop
+      ds`) is swapped for its data segment and the instruction re-run.
+      A fault per write - fine for a settings store, wrong for a loop, so
+      the kernel's own sites are still converted (CSDO, PUSH_CSDATA) and
+      the ratchet stays.
+    * **The modules**: STIKMENU, the compressor, the association writer,
+      the WIN95 theme and DOCK take CSDO/PUSH_CSDATA/KDATAR_M where they
+      wrote through CS, and CSDO is two far helpers (`mega_dsimg`,
+      `mega_csdata`) rather than an inline expansion, which took
+      STIKMENU over `MOD_MAX_KB` when it was one.
+    `mem_reloc_call` far-called a relocation proc through the region's
+    DATA segment, which is what Sheet faulted on.
+
+17. **Segment 0 is emulated for code the kernel does not own, and the IDT
+    follows the IVT.** A driver hooks its IRQ through `ES = 0`
+    (SB.DRV's IRQ discovery at the first stream, USBMOUSE.DRV), and the
+    IDT is built once at the switch - so the hook faulted, and had it not,
+    the IDT would never have seen it. `mega_null0` takes a #GP(0) whose DS
+    or ES is the null selector, puts LOW0 in it and runs that ONE
+    instruction under the trap flag with IF off; `mega_db` puts the 0 back
+    (unless the instruction loaded the register itself) and calls
+    `mega_ivt_sync`. No decoding: the CPU runs whatever it is, and a REP
+    string op traps per element. `mega_ivt_sync` compares IVT 08h-0Fh and
+    70h-77h with a 64-byte copy and, on a difference, writes back any
+    LDT alias a driver stamped as its CS (`mov [es:si+2], cs` stores the
+    PROTECTED-mode selector, which the next reflection would jump through)
+    as the segment it stands for, refreshes IVT 20h-27h (where a real-mode
+    IRQ lands, the 8259 staying at 20h) and rebuilds IDT 22h-27h and
+    70h-77h through a new IDT alias, MEGA_SEL_IDT (GDT entry 7). **Not
+    20h and 21h**: their IVT cells hold the BIOS's halves for a
+    reflection while the IDT runs the kernel's, and the first build that
+    rebuilt them handed the tick and the keyboard to the EOI stub - a
+    desktop that froze the moment a driver hooked anything. The memory
+    compactor's IVT walk (`mem_rr_walk`, a driver image moving) calls
+    `mega_ivt_syncf` after it. Under Bochs with an SB16 and SYSTEM.CFG
+    wanting SOUND.DRV, a WAV double-clicked on C: plays to the end through
+    DMA 1 and IRQ 5 - 0.4 s of output in Bochs's capture, the length of
+    the file. `os88bochs.py --sb --cfg BITS` is that machine, and `dbg`
+    breaks into the running Bochs, runs debugger commands and continues,
+    which is how IDT 20h was seen to have become `mega_eoi1`. ONE BOCHS AT
+    A TIME: clicks go to the top window of the display, and two machines
+    on it read exactly like a guest that froze, which cost an
+    hour here; `boot` refuses while one runs and `stop` ends them.
+
+18. **Off-grid packages are one site at a time, and two are done.** 1942
+    derived band segments 2,688 bytes apart; the strides are whole
+    128-byte granules now. Clear Skies decompresses three things into its
+    own segment at addresses that are not multiples of 8 paragraphs - the
+    vocabulary wherever the image ends, every art band 1,360 bytes along -
+    so `cs_xpand` expands at the granule below and moves the bytes up,
+    keeping the up-to-112 it covered on the stack; and `cs_artes` returns
+    ES = the package's own segment with SI the band's offset in it,
+    rather than the union's own segment. 56 bytes of image, on every
+    kernel, and Skies flies in Mode X under Bochs and comes back. Still
+    off the grid and NOT started: Frotz's `zmem` (base + addr >> 4),
+    Tracker's pattern walk and RunCPM's 64KB banks - each STARTS (item 16)
+    and faults when used. A generic answer was costed and refused for
+    now: an exact selector per paragraph does not exist in an identity
+    map (the GDT is full, and a value with RPL bits set names an entry
+    shared with its granule), so it would mean rewriting the register's
+    VALUE, which breaks every program that does arithmetic on it after.
+
 The alternating `kernel-full.bin` noted while measuring kern_big's
 identity is a `make mega` in the same tree: the sub-make leaves something
 in the shared `build/` that kern_big's next assembly reads, so the identity

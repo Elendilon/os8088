@@ -79,6 +79,8 @@ MEGA_SEL_WIN    equ 0x20            ; data, a WINDOW whose base is moved to
 MEGA_SEL_ODD    equ 0x30            ; data, base moved per use: a selector for
                                     ; a segment OFF the 8-paragraph grid
                                     ; (mega_oddsegf)
+MEGA_SEL_IDT    equ 0x38            ; data, base MEGA_IDT_LIN: the IDT, for
+                                    ; mega_ivt_sync's rebuilt gates
 MEGA_SEL_BCODE  equ 0x28            ; code, base KERNEL_SEG x 16: the
                                     ; BOOTSTRAP's CS between the first lmsw
                                     ; and the far jump into the real tables,
@@ -264,8 +266,11 @@ mega_enter:
 .gcopy:
     or bx, bx
     jz .gz
-    cmp bx, 6                       ; the bootstrap has six; 6 and 7 are spare
-    jb .gmov
+    cmp bx, 6                       ; the bootstrap has six; 6 is ODD's,
+    jb .gmov                        ; written per use, and 7 the IDT's alias
+    mov si, mega_idtd
+    cmp bx, MEGA_SEL_IDT >> 3
+    je .gmov
 .gz:
     mov si, mega_zero8
 .gmov:
@@ -357,6 +362,7 @@ mega_enter:
     pop ds
     push ds
     pop es
+    call mega_ivt_sync              ; its copy of the IRQ vectors, from now
 
     call mega_pic_pm                ; IRQ0-7 to 20h-27h
     in al, 0x70                     ; NMI back on
@@ -396,6 +402,15 @@ mega_enter:
 mega_idt_build:
     xor bx, bx                      ; BL = the vector
 .v:
+    call mega_idt_gate
+    inc bx
+    cmp bx, 256
+    jb .v
+    ret
+
+; mega_idt_gate - one gate: BX = the vector, ES:DI = where it goes -> DI past
+; it. Clobbers AX, CX, DX, SI. mega_ivt_sync rebuilds the IRQ rows with it.
+mega_idt_gate:
     mov ax, bx
     cmp al, 0x10
     jae .notx
@@ -464,9 +479,6 @@ mega_idt_build:
     stosw
     xor ax, ax
     stosw
-    inc bx
-    cmp bx, 256
-    jb .v
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1092,6 +1104,8 @@ mega_fault:
     mov ds, ax
     cmp byte [ss:bp+20], 0x0D
     je mega_gpfix                   ; a far transfer to an image's DATA segment
+    cmp byte [ss:bp+20], 0x01
+    je mega_db                      ; mega_null0's step
 mega_report:                        ; is finished there, not reported
     mov si, mega_mflt
     call mega_puts
@@ -1715,8 +1729,10 @@ mega_gpfix:
 mega_gpw:
     ; STKBALANCE-OK: returns by iret from the fault frame, never by ret
     mov ax, [ss:bp+26]              ; AX = the image's data segment, from CS
-    call mega_cs2ds
-    jc mega_report
+    call mega_cs2ds                 ; (.cold's CS has none: DX = 0, and only
+    jnc .dsok                       ; the CS: arm needs one)
+    xor ax, ax
+.dsok:
     mov dx, ax
     mov es, [ss:bp+26]              ; ES:SI = the instruction
     mov si, [ss:bp+24]
@@ -1768,9 +1784,11 @@ mega_gpw:
     jcxz .noreg
     jmp mega_gpfix.resume           ; the same instruction, again
 .noreg:
-    jmp mega_report
+    jmp mega_null0                  ; ...or segment 0 in DS or ES
 .tramp:
     ; --- a CS: write: BX = prefix bytes, AL = the opcode -------------------
+    or dx, dx
+    jz mega_report                  ; a CS: write from .cold
     mov di, bx                      ; DI = the instruction's length so far
     inc di                          ; ...with the opcode
     mov ah, 0                       ; AH = the immediate's bytes
@@ -1936,6 +1954,201 @@ mega_cs2ds:
 .no:
     stc
     ret
+
+; -----------------------------------------------------------------------------
+; mega_null0 - SEGMENT 0 in DS or ES (KERN-MEGA-PLAN 10.1 item 17)
+;
+; Real-mode code reaches the IVT and the BDA through segment 0. In protected
+; mode 0 is the NULL selector and the first access through it is #GP(0) - and
+; a DRIVER does it to hook its IRQ (SB.DRV, USBMOUSE.DRV) where the kernel's
+; own sites take MEGA_SEG0. So the instruction is RUN rather than rewritten:
+; the null register becomes LOW0 for exactly one instruction, under the trap
+; flag with IF off, and mega_db puts the 0 back and re-reads the IRQ vectors
+; into the IDT (mega_ivt_sync), which a hook written after mega_enter would
+; otherwise never reach. No decoding: whatever the instruction is, the CPU
+; runs it. A REP string op traps after each element and comes back here for
+; the next, which is slow and correct.
+; -----------------------------------------------------------------------------
+mega_null0:
+    ; STKBALANCE-OK: returns by iret from the fault frame, never by ret
+    xor al, al                      ; AL = what mega_db puts back: 1 DS, 2 ES,
+    cmp word [ss:bp+2], 0           ; 4 IF was on
+    jne .es
+    mov word [ss:bp+2], MEGA_SEL_LOW0
+    or al, 1
+.es:
+    cmp word [ss:bp+0], 0
+    jne .any
+    mov word [ss:bp+0], MEGA_SEL_LOW0
+    or al, 2
+.any:
+    or al, al
+    jz .no                          ; neither: a #GP(0) of some other kind
+    cmp byte [mega_n0], 0
+    jne .no                         ; already stepping one: never nests
+    test byte [ss:bp+29], 0x02
+    jz .noif
+    or al, 4
+.noif:
+    mov [mega_n0], al
+    and byte [ss:bp+29], 0xFD       ; IF off for the step...
+    or byte [ss:bp+29], 0x01        ; ...and TF on
+    jmp mega_gpfix.resume
+.no:
+    jmp mega_report
+
+; mega_db - #DB, the trap after mega_null0's one instruction. Anything else
+; that arrives here is a real debug exception and is reported.
+mega_db:
+    ; STKBALANCE-OK: returns by iret from the fault frame, never by ret
+    mov al, [mega_n0]
+    or al, al
+    jz .rep
+    mov byte [mega_n0], 0
+    test al, 1
+    jz .es
+    cmp word [ss:bp+2], MEGA_SEL_LOW0 ; ...unless the instruction loaded DS
+    jne .es                         ; itself (LDS from the IVT)
+    mov word [ss:bp+2], 0
+.es:
+    test al, 2
+    jz .f
+    cmp word [ss:bp+0], MEGA_SEL_LOW0
+    jne .f
+    mov word [ss:bp+0], 0
+.f:
+    and byte [ss:bp+29], 0xFE       ; TF off
+    test al, 4
+    jz .sync
+    or byte [ss:bp+29], 0x02        ; IF back
+.sync:
+    call mega_ivt_sync
+    jmp mega_gpfix.resume
+.rep:
+    jmp mega_report
+
+; -----------------------------------------------------------------------------
+; mega_ivt_sync - the IRQ vectors, IVT to IDT, when they have changed
+;
+; in:   protected mode, DS = KDATA. Every register preserved but FLAGS.
+;
+; IVT 0Ah-0Fh are IDT 22h-27h and IVT 70h-77h are IDT 70h-77h. They are
+; compared against the copy taken at the last sync (64 bytes) and the gates
+; rebuilt only on a difference, so the common case is one REPE CMPSW. A
+; vector a driver stamped with its own CS holds a PROTECTED-MODE selector -
+; the image's LDT code alias - which real mode cannot use and the next
+; reflection would jump through, so it is written back as the segment
+; ((alias & ~7) << 2) first, and the gate builder turns it into the alias.
+; mega_ivt_syncf is the far door, for a kernel site that writes a vector
+; through MEGA_SEG0 (which does not trap).
+; -----------------------------------------------------------------------------
+mega_ivt_syncf:
+    cmp word [cs:k_dsel], KERNEL_SEG
+    je .rm                          ; before mega_enter there is no IDT to sync
+    push ds
+    push word MEGA_SEL_KDATA
+    pop ds
+    call mega_ivt_sync
+    pop ds
+.rm:
+    retf
+
+mega_ivt_sync:
+    pushf
+    cli                             ; no IRQ through a gate half rebuilt
+    pusha
+    push es
+    mov ax, MEGA_SEL_LOW0
+    mov es, ax
+    cld
+    mov si, 0x08 * 4                ; --- an alias written back as a segment
+    call .fixrow
+    mov si, 0x70 * 4
+    call .fixrow
+    mov si, 0x08 * 4                ; --- changed since the last time?
+    mov di, mega_ivtsh
+    call .cmprow
+    jne .build
+    mov si, 0x70 * 4
+    mov di, mega_ivtsh + 32
+    call .cmprow
+    je .out
+.build:
+    push ds                         ; the copy, for next time
+    pop es
+    mov ax, MEGA_SEL_LOW0
+    mov ds, ax
+    mov si, 0x08 * 4
+    mov di, mega_ivtsh
+    mov cx, 16
+    rep movsw
+    mov si, 0x70 * 4
+    mov cx, 16
+    rep movsw
+    push ds                         ; ...IVT 20h-27h, which is where an IRQ
+    pop es                          ; lands in REAL mode too, the PIC staying
+    mov si, 0x08 * 4                ; at 20h across a reflection
+    mov di, 0x20 * 4
+    mov cx, 16
+    rep movsw
+    push ss                         ; (any data selector but LOW0, for ES -
+    pop es                          ; DS is put right from it below)
+    mov ax, MEGA_SEL_KDATA
+    mov ds, ax
+    mov ax, MEGA_SEL_IDT            ; ...and the gates - from IRQ2: IRQ0 and
+    mov es, ax                      ; IRQ1 are the kernel's own here (sch_isr,
+    mov bx, 0x22                    ; kbm_isr), and their IVT cells hold the
+    mov di, 0x22 * 8                ; BIOS's halves FOR A REFLECTION (mega_enter)
+.g1:
+    call mega_idt_gate
+    inc bx
+    cmp bx, 0x28
+    jb .g1
+    mov bx, 0x70
+    mov di, 0x70 * 8
+.g2:
+    call mega_idt_gate
+    inc bx
+    cmp bx, 0x78
+    jb .g2
+.out:
+    pop es
+    popa
+    popf
+    ret
+.cmprow:                            ; LOW0:SI = 8 IVT cells, KDATA:DI = their
+    push ds                         ; copy -> ZF = 1 the same. CMPSW reads
+    push es                         ; DS:SI against ES:DI, so the two swap
+    pop ds                          ; for it and back
+    pop es
+    mov cx, 16
+    repe cmpsw
+    push ds
+    push es
+    pop ds
+    pop es
+    ret
+.fixrow:                            ; ES:SI = 8 IVT cells
+    mov cx, 8
+.fx:
+    mov ax, [es:si+2]
+    mov dx, ax
+    and dl, 7
+    cmp dl, 4                       ; TI = 1, RPL 0: an LDT selector...
+    jne .fn
+    cmp ax, MEGA_LDT_N * 8
+    jae .fn
+    and al, 0xF8                    ; ...the image it is the alias of
+    shl ax, 1
+    shl ax, 1
+    mov [es:si+2], ax
+.fn:
+    add si, 4
+    loop .fx
+    ret
+
+mega_n0     db 0                    ; mega_null0 -> mega_db: what to put back
+mega_ivtsh  times 32 dw 0           ; IVT 08h-0Fh and 70h-77h at the last sync
 
 MEGA_TRN    equ 12                  ; the longest instruction it will copy
 mega_tramp:                         ; ...run here, at KERNEL_SEG (written
@@ -2254,6 +2467,9 @@ MEGA_FB_I   equ 37
 MEGA_FB_S   equ 45
 
 mega_zero8  dw 0, 0, 0, 0
+mega_idtd   dw 256*8 - 1, MEGA_IDT_LIN & 0xFFFF ; the IDT as DATA (GDT entry
+            db MEGA_IDT_LIN >> 16, 0x92         ; 7), for mega_ivt_sync
+            dw 0
 mega_ldtd:                          ; the LDT's descriptor (GDT entry 3)
     dw MEGA_LDT_N*8 - 1, MEGA_LDT_LIN & 0xFFFF
     db MEGA_LDT_LIN >> 16, 0x82
