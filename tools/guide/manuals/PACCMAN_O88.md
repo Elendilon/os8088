@@ -107,6 +107,3 @@ speaker has one, so you hear the most important sound of the moment.
   levels.
 - A paused window ignores the game keys, so a key you press while paused
   does not move Pac-Man afterwards.
-- Pressing `F` in the middle of a game can leave the screen scrambled.
-  Switch to full screen on the attract screen, before the game
-  starts, and it draws correctly.

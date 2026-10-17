@@ -147523,6 +147523,21 @@ nothing, because `pmc_abdismiss` re-marks what the card covered.
 hook — the place the UI task really gets in — and reads **4 bands of 36**;
 with the test removed it reads 36.
 
+**AND THE ROW ITSELF IS RE-TESTED after the re-lock**, which is the second
+re-check the break did not have. The UI task can PAINT in the window, not only
+raise the card: Full Screen pressed mid-game is `wm_fullscreen` repainting the
+window whole, and `pmc_repaint` composes all 36 bands inside that callback and
+cleans them. The span the worker tested before it let go is then clean
+(`dmin` = `PMC_TILES_X`, `dmax` = 0), and drawing it anyway asked
+`gfx_blitp` for a band of −27 columns — x 432, width −216 — which its wrap
+test (a SUM, `x + w − 1 < [vid_cw]`) passes, so one `rep movsb` of 65,509
+bytes a plane a row went across the whole framebuffer. That was the "growing
+garbage" of MartyPC's VGA XT, only ever mid-game because only a play frame
+dirties more than `PMC_HOLD_BANDS` bands and so breaks at all, and it never
+healed because every band it covered was clean. `pmcuitest`'s "repainted
+mid-break" row cleans every band from the yield hook and counts blits asked
+for with no width: **0**, and 2 with the re-test removed.
+
 **A CALLBACK MARKS AND THE WORKER DRAWS, for the same reason the break
 exists.** `N` and `Game > New Game` mark all 36 bands, and composing them from
 inside the callback is one uninterruptible ~2.5 s hold of the kernel's gfx
