@@ -5832,10 +5832,11 @@ $(BUILD)/deskcal.o88: $(BUILD)/deskcal.bin tools/os88pkg.py $(PKGZSTAMP)
 # Its small build, for kern_small's disks, is with the other APP_SMALL rules
 # below ($(SMALLAPPDIR) is defined there).
 
-# Sticky Note (SPEC.md 110.13): the second STICKY APP - a pad on the desk and
-# an editor window behind it - in STIKAPPS/ beside the Desk Calendar.
+# Sticky Note (SPEC.md 110.13): the second STICKY APP - a pad on the desk over
+# a folder of .TXT notes, which Note Pad edits - in STIKAPPS/ beside the Desk
+# Calendar.
 STIKNOTESRC := apps/stiknote/stiknote.asm apps/stiknote/sntext.inc \
-               apps/stiknote/snpad.inc apps/stiknote/sned.inc \
+               apps/stiknote/snpad.inc \
                apps/os88stik.inc apps/os88ui.inc apps/os88gfx.inc \
                apps/os88api.inc
 $(BUILD)/stiknote.bin: $(STIKNOTESRC) | $(BUILD)

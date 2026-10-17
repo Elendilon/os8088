@@ -3,5 +3,5 @@ Notes on your desk.
 [ ] + makes a note
 [ ] The arrow edits one
 [x] Click a box to tick
-Each note is a .TXT
-in SYSTEM\APPDATA\NOTES
+Notes are .TXT files
+in APPDATA\NOTES.
