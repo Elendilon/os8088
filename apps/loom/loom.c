@@ -497,7 +497,7 @@ static void lm_paint_empty(void)
      * the sentence is worth. */
     lm_row(0, "LOOM - no project open.");
     lm_row(2, "File > Open Project... opens a .WML; a double-click on a .WML");
-    lm_row(3, "or a .WJS opens its project directly (WEAVE-SPEC 1.5, 11.2).");
+    lm_row(3, "or a .WJS opens its project directly.");
 }
 
 /* lm_repaint - draw the content.
