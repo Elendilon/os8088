@@ -50475,7 +50475,8 @@ not, is the right trade.
 
 ### 22.21 `Clone Disk...` — one mode, four prompts, Esc at every one
 
-The File menu's seventh item, immediately under `Format Disk...` and greyed by
+The Disk menu's second item (§22.28; it was the File menu's seventh until
+the Disk menu took the volume commands), immediately under `Format Disk...` and greyed by
 the same predicate: `fm_fmt_ok` is already "this window's volume is a BIOS
 floppy", which is exactly what a clone needs, so `fm_bar_gate` sets both words
 from one test and the two items can never disagree about the same disk (§47
@@ -50547,8 +50548,8 @@ the moment nothing of the module is on the stack.
 
 ##### A SECOND clone is refused as itself
 
-Nothing gates the File menu on `FS_EDIT`: `fm_bar_gate` greys `Clone Disk...`
-and `Write Img...` on `fm_fmt_ok` alone, and a status-line prompt is not modal,
+Nothing gates the Disk menu on `FS_EDIT`: `fm_bar_gate` greys `Clone Disk...`
+and `Write Image...` on `fm_fmt_ok` alone, and a status-line prompt is not modal,
 so a second Disk window — or the same one — can pick either item while a clone
 is sitting at `CLS_SRC` with a live claim. Three things follow, and all three
 are the contract:
@@ -50616,7 +50617,7 @@ BPB as this one's geometry. The mount's own verdict, `[dsk_mntok]`, is what
 travels into `CL_MOK`.
 
 
-#### 22.21.5 `IMG` on the ring, and `Write Img...` beside it
+#### 22.21.5 `IMG` on the ring, and `Write Image...` beside it
 
 The target ring gained one more stop. `clo_nextvol` walks A:, B:, … and then
 **`IMG`** before wrapping, so the image file is a *target* rather than a mode —
@@ -50631,7 +50632,8 @@ line drops the erasure clause for it:
 There is no erasure to name: a file is named in a Save box, and replacing one
 there is what a Save box means.
 
-**`Write Img...`** is the File menu's eighth item, under `Clone Disk...`, and
+**`Write Image...`** (once `Write Img...`) is the Disk menu's third item
+(once the File menu's eighth), under `Clone Disk...`, and
 greyed by the same predicate as both of its neighbours — `fm_fmt_ok`, "this
 window's volume is a BIOS floppy" — so `fm_bar_gate` sets three words from one
 test and the three items can never disagree about one disk. Its confirmation is
@@ -67984,7 +67986,10 @@ inks.
 
 - Window: "Piano", 224×177 at (250,100) → content 222×158 — the authored
   frame, which `wm_fit` clamps onto the live screen (§39.7), so at 640x200
-  the keyboard row is cut off at the dock (§39.9). Content layout, top to
+  the window is shorter than designed and the KEYBOARD is drawn with
+  shorter keys to fit it (`pn_metrics`, §11.98; the black keys keep their
+  41/67 share and both letter rows move with them) rather than being cut
+  off at the dock (§39.9). Content layout, top to
   bottom (all coordinates content-relative):
   - **Note viewer** — a CBLUE 1px frame (2,2)–(219,49), white field, five
     black staff lines (treble: E4 G4 B4 D5 F5) at y 40/34/28/22/16,
@@ -73084,12 +73089,16 @@ the Activate button, unchanged and now shared).
 **`vid_dual_ok` is the predicate**, and it is the §31.3 idiom rather than a
 test written out three times — `vid_disp_init` acts on it, §31.10.2's row is
 drawn only when it says yes, and a click in that row's band is refused when it
-says no. `[vid_avail] == VID_A_HERC | VID_A_CGA` exactly.
-A VGA machine's CGA row *is* the VGA doing mode 6 (§39.11.1) and cannot be a
-second display; a VGA + Hercules pairing is a real machine this build does not
-extend. The renderer split is general and this gate is not, deliberately —
-what is missing for VGA is the mode set ordering and a second `vid_ctx` kind
-that decodes A000, not anything in §39.14.
+says no. It answers yes for **a mono card and a colour card**: Hercules +
+CGA, and a VGA + a real Hercules (`VID_A_VGA | VID_A_HERC | VID_A_CGA`,
+docs/plans/completed/DUAL-DISPLAY-VGA.md). The HERC bit is evidence - only
+a probe that found memory at B0000 sets it - where a VGA machine's CGA bit
+is synthetic: that row *is* the VGA doing mode 6 (§39.11.1), so a VGA alone
+(`VID_A_VGA | VID_A_CGA`) is one display and is refused. A machine with a
+VGA, a Hercules and a real CGA is indistinguishable from one without the
+CGA and pairs the VGA with the Hercules. (This paragraph used to say a VGA +
+Hercules pairing was not extended; `vid_dual_ok`'s header in
+`kernel/vidsel.inc` is the account of the change.)
 
 #### 39.19.1 The default is Single, because a card is not a monitor
 
@@ -102247,7 +102256,7 @@ the reason on screen and stops. That is §47's refusal path, and it is a normal
 outcome on a small machine, not an error:
 
 ```
-Anchorhead needs 508K and this machine has 149K free.
+Story too large for this machine.
 ```
 
 `HEAP_SEG` is `0x1640`, so the heap is 551KB on a 640KB machine and 167KB on a
@@ -102380,7 +102389,7 @@ Files cannot be pre-arranged, because `@save` and `@restore` are opcodes the
 *story* executes. The handshake:
 
 1. The worker stages the Quetzal image into the staging claim — a memory copy,
-   which it may do — sets `[zf_req]`, prints `Press RETURN to choose a save
+   which it may do — sets `[zf_req]`, prints `Press RETURN to choose a
    file.` and waits on the ordinary input path.
 2. The user presses RETURN. That is a **key callback, on the UI task**, which
    sees `[zf_req]` and raises `OSAPI_FILE_DLG`.
@@ -105173,11 +105182,12 @@ cache-coherency hazard at all (the far side does its own file I/O through
 file. `drivers/net/net.asm`'s block half keeps its source and still builds —
 the `DEBUG.DRV` precedent (§58), used once already to make room for
 `RAMDISK.DRV` — and the RAM disk KEEPS its row, because it is the only thing
-that can exercise a redirected volume in a container. **Keeping the row is
-not keeping both attached**: one class is one publication slot, so ticking
-whichever of them is second is refused with `DRVE_TWICE` (§51.2.1) — the RAM
-disk and the cable are mutually exclusive at run time, and that is a stated
-limitation rather than an oversight.
+that can exercise a redirected volume in a container. When this was
+written, keeping the row was not keeping both attached - both drivers
+declared class 5, one class is one publication slot, and the second was
+refused with `DRVE_TWICE` (§51.2.1). **That limitation is gone**: §62.9.19
+moved the RAM disk to `DRVC_FILE2`, so the RAM disk and the cable attach at
+once and each verb goes to the mounted volume's class.
 
 **BLOCK MODE IS REMOVED FROM BOTH ENDS NOW.** `NET.DRV`'s master half went
 first, here, and has published no `DSV_BLK` since; `OS88NET.COM`'s server
@@ -111992,9 +112002,9 @@ the only question is which one.
 ### 67.20 Initials, and where a package can flush
 
 The table takes three initials per row, entered on game over, and the whole
-thing is written to `CYCLONE.HS` in the instance's own directory (§19.2.1) —
-which is wherever the game was launched from, so it lands beside the package
-on the apps disk.
+thing is written to `CYCLONE.HS` in `SYSTEM/APPDATA/` on the volume the game
+was launched from (§19.9, `apps/os88data.inc`) — it was the instance's own
+directory (§19.2.1), beside the package, until APPDATA arrived.
 
 **A package has no close callback, and that is the constraint the design turns
 on.** The Control Panel writes `SYSTEM.CFG` when its window closes (§31.8),
@@ -112580,19 +112590,11 @@ Image −64, file −42.
 
 ### 67.13 What is deliberately not here
 
-**No high-score file.** The table lives in bss and dies with the instance. It
-would want a file, and the file slots are UI-task only (§20.6) while the game
-loop is a worker — so it means staging a write through a callback, and a game
-that writes to the boot floppy on every game over is 2+ seconds of frozen UI
-(§31.8) at exactly the moment the player wants to press Enter again.
-
-**No initials entry.** It is a modal text field over a running attract screen,
-which is a second input mode for three characters.
-
-**No high-score initials.** This and the file above are *open questions rather
-than declined ones* — they are the two things a score-attack game most wants,
-and they are deferred together because they are one feature: a table worth
-keeping is a table worth naming.
+**The high-score file and the initials are no longer in this list.** This
+section first deferred both, as *open questions rather than declined ones*,
+and they shipped together as one feature: §67.20 is the contract (three
+initials entered on game over, the table kept in `CYCLONE.HS` in
+`SYSTEM/APPDATA/`, §19.9).
 
 **No sound beyond `OSAPI_SND_TONE`.** The tone tier is worker-safe by
 construction (§34.3) and needs no driver; FM would need one loaded and would
@@ -122864,7 +122866,7 @@ itself (`getruncpm.py --select --reserve-clusters`, which the Makefile hands
   77. **213 files in 7 folders, 2,722 of 2,847 clusters** — 125 clusters,
   62KB, free to save into (the Disk window says `Free 64K`).
 * **1.2MB**: **four of the five**, and the one that comes off is the
-  LARGEST — `H/3`, WordStar 3.30, 519 clusters. This is the geometry where
+  LARGEST — `H/3`, Turbo Pascal 3.01A, 519 clusters. This is the geometry where
   the pricing order has to be overruled, and the arithmetic is why: 2,371
   clusters against 1.44MB's 2,847, five areas costing 1,997, so all five
   leave `A/0` 136 and the ranked fill stops halfway through the `.COM`s at
@@ -122874,7 +122876,7 @@ itself (`getruncpm.py --select --reserve-clusters`, which the Makefile hands
   rather than the programs. At four areas the games are 1,473 clusters,
   `A/0` gets 660 and carries **63 of the 77** — every `.COM`, both `.DOC`s,
   four `.LIB`s and four `.Z80` sources, which is MORE master disk than the
-  1.44MB disk holds. Turbo Pascal (`D/0`) stays and WordStar goes because
+  1.44MB disk holds. WordStar (`D/0`) stays and Turbo Pascal goes because
   the choice is by size; `GAMES.TXT` names it, under the heading that says
   it is on the 1.44MB disk. **162 files in 6 folders, 2,246 of 2,371
   clusters** — 125 clusters, 62KB, free to save into, the same headroom the
@@ -135597,11 +135599,11 @@ cannot afford on every press):
 
 - **The disk's transport must be int 13h.** A `DVK_DRV` volume whose driver
   answers `DSV_GEOM` with CF = 1 — §52.1's rung 1, the IDE task file, which
-  the resume stub cannot speak (§87.5) — is refused: `Hibernate needs a
-  BIOS-known hard disk`.
+  the resume stub cannot speak (§87.5) — is refused: `Needs a BIOS hard
+  disk`.
 - **There must be room**: `dskw_dfree` on the root plus the size of the
   `HIBERNAT.IMG` already there, if any, must cover `[mem_top]` × 16 + 4,096.
-  `Not enough room for the hibernation file`.
+  `Not enough room on disk`.
 
 ### 87.3 The two files
 
@@ -135652,7 +135654,7 @@ memory it has just put back.
 
 A pointer whose build, stamp, memory size or adapter differ from the kernel
 reading it names an image this kernel cannot enter, and `hb_ask` says so —
-`Hibernation file is from another build` — and deletes it. The same-build
+`Hibernation: other build` — and deletes it. The same-build
 requirement is what makes the whole design cheap: the fresh kernel's code and
 the image's are byte-identical, so the restore may write over the running
 kernel's `.text` without the machine noticing, and every kernel address the
@@ -148931,7 +148933,7 @@ File menu's items carry a `MENU_DIS` prefix from it.
 | `A transfer is already running` | the state machine is in flight |
 | `Needs its files on a disk - use Add to Disk` | `WF_DISK`, Load only - on an archive record too, where it is tested BEFORE the RAM disk decision (92.13.1) |
 | `Available as a floppy from os8088.com` | `WF_FLOPPY`, both |
-| `Needs NNNK free on the disk` | the Save completion's `OSAPI_FILE_DFREE` |
+| `Not enough room on that disk` | the Save completion's `OSAPI_FILE_DFREE` (no figure: the reason is a fixed string) |
 | `Needs a newer os8088 - update the system disk` | both: the record's `WC_PKGFMT` is above this Wire's `PKG_FMT` (92.2) |
 | `Made for an older os8088` | both: `WC_PKGFMT` is below it |
 | `Needs a newer Wire - update the system disk` | both: `WC_NEEDW` is above `WIRE_LEVEL` |
@@ -153805,8 +153807,9 @@ measurements, the alternatives and the waves; this section is the contract.
 
 ### 96.1 What it is, and where it lives
 
-A `SYSAPPS` package — `SYSTEM/DOS.O88` on all four system-disk geometries and
-on no apps disk (§24.3), for §92's reason: a `.COM` can be sitting on any
+A system-disk package — `APPS/DOS.O88` on all four system-disk geometries
+(`SYSROOTARG` in the Makefile; it was `SYSTEM/` until it became the parted
+`kdos/DOS.O88`) and on no apps disk (§24.3), for §92's reason: a `.COM` can be sitting on any
 floppy, so the program that runs it belongs on the disk the machine booted
 from. **`COM` and `EXE` are BUILT-IN associations** (`assoc_ext` in `kernel/assoc.inc`,
 §54.2), not a declaration in the package's own header — and that is the one
@@ -156776,7 +156779,7 @@ about what they are running on is worse than either alone.
 
 `Program > Full Screen` puts the same 80x25 buffer on the real text screen,
 which is the only place the whole of it fits: the band shows 25 rows on
-Hercules and VGA and **15 on CGA**, where an 80-column program's output is
+Hercules and VGA and **17 on CGA** (§96.32), where an 80-column program's output is
 eighty columns wide on all three.
 
 **The renderer is `os88con.inc`'s and the bracket is this box's** (§70.8.13),
@@ -178587,7 +178590,7 @@ ticks, until the owner found that too fast to press twice:
   is none.
 - **After it lands:** the play goes on if it was playing; if Space had paused
   it, it stays paused on the key with `Paused` back.
-- **A file with no keyframes** says `No seeking`.
+- **A file with no keyframes** says `Seek: no keyframes`.
 - **Space** is ignored while a seek is on its way.
 
 **Home jumps to the start** (`vp_skhome`), at once. It is Left's seek taken
@@ -180467,7 +180470,8 @@ and both gorillas, including the thrower. Setup selects a winning score from
 Enter advances angle to velocity, then throws; Tab selects the other field;
 digits replace a field, Backspace edits it, arrows adjust it. N opens match
 setup, P pauses, F or Alt+Enter toggles full
-screen, and Escape returns to the desktop. After the celebration and an eighteen-tick pause, the next skyline starts
+screen, and Escape leaves full screen back to the window (in a window it
+does nothing). After the celebration and an eighteen-tick pause, the next skyline starts
 automatically. Enter can skip the pause. Throwers alternate across rounds.
 Each player retains her own last angle and velocity across turns and skylines,
 including when facing the computer. A new match resets both players to angle
@@ -183069,8 +183073,9 @@ two drop-downs and a field:
 - **Chipset** - what the board is (§103.6.1);
 - **Target** - what Tune sets the bus to: **Fastest tested** (the default:
   the verified sweep of §103.6.3, the fastest that read right SET) or
-  **Mfg spec** (the data sheet's value, safe on any board of the row).
-  Greyed wherever Tune is;
+  **Mfg spec** (the data sheet's value, safe on any board of the row), or
+  **Bus clock x2**, the experiment (C&T NEAT only, §103.6.3.3). Greyed
+  wherever Tune is;
 - **the state field**, framed and read-only: what the bus is running at NOW
   - `Stock: BIOS timing`, `Tuned: 8 waits` or `Mfg spec: 10 waits`. It is this
   session's: a setting lasts until a reset, and the chipset's registers are
@@ -183383,7 +183388,7 @@ x2 experiment (§103.6.3.3) and is otherwise swept by Fastest tested.
   CS8230's 04h-06h and 08h, SCAMP 00h, 05h-07h and 14h-16h, the OPTi's
   10h-14h and the WD76C10's 1872h, 2872h, 9872h, E472h and FC72h.
 
-#### 103.6.3 The two Targets, and the verified sweep
+#### 103.6.3 The Targets, and the verified sweep
 
 - **Mfg spec** programs the data sheet's values. It was a button of its
   own, `Book value`, which the field run found unclear; as a Target it is
@@ -190762,8 +190767,10 @@ Reminder): the selected TIMED appointment's (FIRED, DUE and SNOOZED cleared,
 re-armed) or the DEFAULT for new ones, the toast saying which. v1's click on
 a line's mark column is gone with the mark.
 
-**A damaged state file** opens EMPTY and its first save asks `Replace
-damaged calendar?` (§110.5.2), as v1.
+**A damaged state file** opens EMPTY with the toast `Calendar file
+damaged`, and its first save REPLACES it without asking (§110.5.2,
+`STIK_DMGREPLACE`). v1 asked `Replace damaged calendar?`; the size pass
+retired the question.
 
 **Date maths** (`dcdate.inc`) is v1's - Sakamoto's day of the week, the
 `0x15AA` month mask, navigation clamped to January 1980 .. December 2099 -
