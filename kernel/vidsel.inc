@@ -372,6 +372,9 @@ section .text                   ; ...and the overlay's three end here
 ; out:      CF = 0 yes, CF = 1 no
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
+%ifdef KERN_SMALL                ; (KSW_SECT: kernel.asm, above the includes)
+section KSW_SECT
+%endif
 vid_avail_test:
     push ax
     push cx
@@ -447,6 +450,9 @@ vid_equip:
     pop bx
     pop ax
     ret
+%ifdef KERN_SMALL
+section .text
+%endif
 
 ; -----------------------------------------------------------------------------
 ; vid_mono_text - put the REAL mono card into 80x25 text, when int 10h cannot
@@ -582,7 +588,8 @@ vid_reboot:
 ; 2.9.6), which stage 1 reads before it jumps and kmain gives back after
 ; spl_finish - so this is drawing code that exists for exactly as long as there
 ; is a loading screen to draw on, and then stops existing. The resident cost is
-; 4 bytes (ovw_font_run_x) plus the two SPLCALL sites.
+; 4 bytes (ovw_font_run_x, since kernel size pass 13 spw_near's `call bp`
+; and no shim at all) plus the two SPLCALL sites.
 ;
 ; **That is only possible since SPEC.md 2.5.1.** The overlay used to BE the FAT
 ; window, so the first mount ate it - and drv_boot's own mount is the very
@@ -861,10 +868,13 @@ spl_mdraw:
     mov es, ax                  ; font_run_x is the ES:SI entry
     mov si, spl_mline
     mov ax, (CBLACK << 8) | CWHITE
-    call KERNEL_SEG:ovw_font_run_x  ; ONE opaque run: ink white, ground black,
+    push bp                     ; (every register kept: spw_near takes the
+    mov bp, font_run_x          ; routine in BP)
+    call KERNEL_SEG:spw_near    ; ONE opaque run: ink white, ground black,
                                 ; which is the loading screen on all three
                                 ; adapters whatever the theme says about a
                                 ; desktop that has not been drawn yet
+    pop bp
     dec byte [spl_busy]
     pop es
     pop si
@@ -993,6 +1003,9 @@ section .text
 %if VID_KIND_MAX != VID_EGA
   %error "vid_blank, vid_blank_kind and vid_unblank_kind decide WHICH CARD by comparing against VID_HERC BY NAME and then treating `kind-1 >= 2` as PLANAR and everything else as the CGA (SPEC.md 39.18.1), vga12.inc's thm_set spells the same `kind-1 >= 2` for `is the primary a colour adapter` (SPEC.md 76.12.1), and vid_avail_test's `cmp al, VID_KIND_MAX` is the range that rests on it. A FIFTH kind is silently PLANAR to the dispatch and to the theme, and silently a CGA to vid_blank. Give it an arm in each of them before raising VID_KIND_MAX"
 %endif
+%ifdef KERN_SMALL                ; (vid_blank and vid_switch: KSW_SECT)
+section KSW_SECT
+%endif
 vid_blank:
     push ax
     mov ah, [vid_kind]          ; the kind being LEFT
@@ -1005,7 +1018,7 @@ vid_blank:
     jne .out                    ; modes (39.11.1) and darking it is the bug
 .dark:
     mov al, ah                  ; dark the card being LEFT
-    call vid_blank_kind
+    KSWK vid_blank_kind
 .out:
     pop ax
     ret
@@ -1050,7 +1063,7 @@ vid_switch:
     call vid_avail_test
     jc .refuse
 
-    call cur_unlazy              ; 1. the cursor's save-under is the old
+    KSWK cur_unlazy             ; 1. the cursor's save-under is the old
     call vid_blank              ; geometry's - and so is the tube we are
     call wm_su_drop_all         ; walking away from, and so is every raise
                                 ; cache (SPEC.md 39.14.8.1): wm_su_ck compares
@@ -1061,8 +1074,8 @@ vid_switch:
 
     mov [vid_kind], al          ; 2. republish the geometry
     call vid_equip
-    call vid_apply
-    call vid_setmode
+    KSWK vid_apply
+    KSWK vid_setmode
 
 %ifdef KERN_BIG
     call vid_disp_init          ; 3. ...and the OTHER card follows the switch:
@@ -1077,7 +1090,11 @@ vid_switch:
                                 ; adapter may not be the edge it was on
                                 ; (SPEC.md 30.5.1)
 %endif
-    call desk_rowcalc           ; 4. the two things vid_apply does not own
+%ifdef KERN_SMALL
+    call COLD_SEG:desk_rowcalc_x ; 4. the two things vid_apply does not own
+%else                           ; (desk_rowcalc is that far call's resident
+    call desk_rowcalc           ; thunk, which kern_small no longer needs)
+%endif
     call wm_refit
 %ifdef KERN_BIG
     push ax                     ; ...and the THEME, which can be a fact about
@@ -1092,8 +1109,8 @@ vid_switch:
                                 ; also re-forces the two painters, which the
                                 ; pair below wanted anyway
 %endif
-    call menu_force             ; ...and the two the CHROME does not: setmode
-    call dock_force             ; cleared the framebuffer, so the bar's logo
+    KSWK menu_force             ; ...and the two the CHROME does not: setmode
+    KSWK dock_force             ; cleared the framebuffer, so the bar's logo
                                 ; and rule and the whole dock strip are gone,
                                 ; and both modules keep a record of what they
                                 ; last put on the glass (SPEC.md 12.9/30.3).
@@ -1105,6 +1122,9 @@ vid_switch:
     clc
 .refuse:                        ; (`jc` arrives with CF = 1)
     retf
+%ifdef KERN_SMALL
+section .text
+%endif
 
 ; =============================================================================
 ; The per-display context (SPEC.md 39.12) - kern_big only
@@ -1679,7 +1699,8 @@ vid_ctx_init:
     mov es, cx
     mov word [vid_ndisp], 1     ; one display, display 0 current (a pair)
     xor al, al
-    call KERNEL_SEG:cw_vid_ctx_ptr
+    mov bp, vid_ctx_ptr         ; (spw_near's `call bp`: kmain_o, the one
+    call KERNEL_SEG:spw_near    ; caller, holds nothing in BP)
     xor ax, ax                  ; display 0 sits at the virtual origin
     mov [es:di+VID_CTX_VX], ax
     mov [es:di+VID_CTX_VY], ax
@@ -2166,11 +2187,9 @@ vid_span_one:
 ; nothing, and wm_init has not run yet - so wm_refit there would clamp records
 ; whose used bit is whatever the machine left in memory.
 ; -----------------------------------------------------------------------------
-vid_disp_relayout:
-    call vid_disp_init
-    call desk_rowcalc
-    call wm_refit
-    retf
+; (THE BODY IS CTRL.DRV's since kernel size pass 13: the Display page was its
+; one caller, and it now makes the three calls itself - ctrl.inc, the
+; arrangement's click - through its CPXK hop, with desk_rowcalc_x far)
 
 ; -----------------------------------------------------------------------------
 ; vid_desk_union - the desktop spans every display (SPEC.md 39.16)

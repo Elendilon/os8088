@@ -2244,6 +2244,8 @@ clk_tier:   resb 1              ; CLK_T_*: which rung answered. [clk_rtc] is
 clk_cent:   resb 1              ; the AT chip's century byte at CMOS 32h if
                                 ; this BIOS keeps one, 0 if it does not -
                                 ; clk_at_write must not invent one
+%ifdef OS88_RTC                 ; (the four rungs' own state: kern_small has
+                                ; no rung to keep it for - kernel size pass 13)
 clk_rb:     resb 1              ; the AT chip's Register B, as we found it:
                                 ; DM and 24/12 are read and obeyed, never set
 clk_rbin:   resb 1              ; 0 = decode the raw bytes as BCD, else binary
@@ -2259,6 +2261,7 @@ clk_rp24:   resb 1              ; ...and bit 0 = the chip is running 24-hour,
                                 ; clk_rp_pd byte used to follow, carrying THAT
                                 ; sentence as its own comment while having no
                                 ; reader, no writer and no %if of its own)
+%endif
 
 clk_str:    resb 25             ; the bar's line, longest form 24 glyphs + NUL
                                 ; (drawn under the gfx lock, UI task only).

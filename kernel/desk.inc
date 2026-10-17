@@ -291,7 +291,9 @@ desk_init:
     xor cl, cl
 .zloop:
     mov bl, cl
-    call COLD_SEG:dkf_dsk_vol_slot ; FAR: window -> cold, no .text thunk. It clobbers
+    mov bp, dsk_vol_slot_x      ; FAR: window -> cold, no .text thunk - through
+    call COLD_SEG:wm_cbd        ; wm_cbd (BP: kmain_o, desk_init's one caller,
+                                ; holds nothing in it). It clobbers
     xor al, al                  ; "BX (the output), flags", so AL is free
     cmp byte [bx+DV_KIND], DVK_FREE
     je .zskip                   ; the probe retired it - do not hand it back.
@@ -365,7 +367,8 @@ desk_init:
     xor cl, cl
 .kloop:
     mov bl, cl
-    call COLD_SEG:dkf_dsk_vol_slot ; FAR: window -> cold; BX = the row
+    mov bp, dsk_vol_slot_x      ; FAR: window -> cold; BX = the row
+    call COLD_SEG:wm_cbd
     cmp byte [bx+DV_KIND], DVK_BIOS
     jne .knext                  ; a driver's volume, or a free row
     mov dl, [bx+DV_UNIT]
@@ -1685,10 +1688,13 @@ desk_pic:
     add si, byte 4
     jmp short .icon
 .svcico:                        ; THE DRIVER DRAWS IT (SPEC.md 26.7): no glyph
-    push ds                     ; in here, so a machine with no network card
-    pop es                      ; carries none. drv_pkg_call refuses (CF = 1)
+                                ; in here, so a machine with no network card
+                                ; carries none. drv_pkg_call refuses (CF = 1)
     mov bh, [desk_svc_cls]      ; when no such driver is published, so one
-    mov bl, [desk_svc_vrb]      ; that went away draws nothing
+    mov bl, [desk_svc_vrb]      ; that went away draws nothing. ES = our DS
+                                ; is the X cell's own first act (api_x), and
+                                ; it gives ES back after - nothing here reads
+                                ; it: desk_cap's caption rect reloads it
     call KERNEL_SEG:cw_drv_pkg_call
     ret
 .link:                          ; THE CACHE: the stored picture, drawn

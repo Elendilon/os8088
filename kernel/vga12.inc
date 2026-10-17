@@ -4472,7 +4472,7 @@ thm_desk:
 %endif
 
 %ifdef OS88_THEME
-; thm_set, api_thm_set_x and thmv_reap_x are .cold (SPEC.md 76.14.14.1), and
+; thm_set and api_thm_set_x are .cold (SPEC.md 76.14.14.1), and
 ; textually AFTER gfx_blit1's cold block below, because gfx_blit1_x must stay
 ; the segment's first byte. NOTHING of the set path is left in .text: the
 ; cell at 0x046D jumps straight to the cold body (kernel size pass 13), and
@@ -5212,11 +5212,14 @@ gfx_bp_hk:   resb 1             ; ...and did THIS gfx_blitp take the whole-shape
                                 ; and every refusal above reaches that exit
 %endif
 
+%ifdef GFX_VGA                  ; (a VGA body's: kern_small has none to read
+                                ; it - kernel size pass 13)
 vga_xorm        resb 1          ; vga_solid_rect: 0 = replace, else XOR with it. The
                                 ; ONE difference between gfx_fill_raw's VGA
                                 ; body and gfx_xor_fill_raw's, and both heads
                                 ; write it before the body reads it, so .bss's
                                 ; guaranteed zero is not being relied on
+%endif
 gfx_cl_x1       resw 1          ; gfx_clip_run: the primitive's own rect,
 gfx_cl_y1       resw 1          ; held while the raw body runs per fragment
 gfx_cl_x2       resw 1
@@ -6276,8 +6279,8 @@ section .cold
 ;      76.14.1). [thm_kind] always says what is live
 ; clobbers: nothing else
 ;
-; ALL OF IT IS `.cold` (SPEC.md 76.14.14.1), with api_thm_set_x and
-; thmv_reap_x below: a theme change, a preset, a panel close and a boot are
+; ALL OF IT IS `.cold` (SPEC.md 76.14.14.1), with api_thm_set_x below (and
+; the panel close's reap, drv_cp_closed_x's tail): a theme change, a preset, a panel close and a boot are
 ; human cadence, and the three were 223 bytes of `.text` that kern_big's image
 ; rung could not hold beside Sticky App v2's desk layer. A FAR body: every caller
 ; far-calls COLD_SEG:thm_set - kmain_o, the settings reader, CTRL.DRV,
@@ -6422,35 +6425,11 @@ THMV_BUSY    equ 1               ; CF = window still owns callbacks
 THMV_CLOSE   equ 2               ; destroy child before parent frees image
 THMV_ABI_VER equ 4               ; private header word +10, checked on open
 
-; thmv_reap_x - the Control Panel is closing: destroy the Customize window and
-; give THMPAL.DRV's image back (SPEC.md 76.14.14). RESIDENT - `.cold` is
-; resident, and on-demand would be wrong here - and far-called from
-; instance.inc's panel-close branch, because that is the one place EVERY close
-; of the panel passes with the gfx lock held - the settings write after it is
-; gated on there being something to write - and from cp_thmv_open's refusal.
-; The opener is CTRL.DRV's (kernel/ctrl.inc, cp_thmv_open), so nothing of the
-; loader is resident. drv_call and drv_release are driver.inc's cold bodies,
-; so they are NEAR from here and drvf_*'s far entries are not needed.
-;
-; NO "IS IT LOADED?" TEST (kernel size pass 13): both callees ask it
-; themselves. drv_call refuses a row whose DRVR_SEG is 0 (CF = 1, AX = 0,
-; SPEC.md 51.2) before it reads anything else of it, and drv_release returns
-; at once for one - so the never-loaded close, the commonest there is, does
-; exactly nothing either way. drv_call_ent is the door that reads BP off the
-; row itself.
-; out: nothing (all registers preserved)
-thmv_reap_x:
-    push ax
-    push bx
-    push bp
-    mov bx, thmv_row
-    mov al, THMV_CLOSE           ; the child first: its W_PAINT names the image
-    call drv_call_ent
-    call drv_release
-    pop bp
-    pop bx
-    pop ax
-    retf
+; (thmv_reap_x, the Customize window's reap, is the tail of driver.inc's
+; drv_cp_closed_x since kernel size pass 13: the panel's close is the one
+; place every close passes, and that routine runs immediately before it with
+; every register already banked. cp_thmv_open's refusal spells the same two
+; calls in CTRL.DRV.)
 %endif
 
 section .lowbss                 ; LOW_SEG (SPEC.md 2.1), and not .bss for

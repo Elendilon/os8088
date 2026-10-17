@@ -803,8 +803,13 @@ sch_idle_start:
     mov cx, SCH_IDLE_STK        ; the smallest class: its own footprint is 4
                                 ; bytes and the rest is the floor (SPEC.md 8.7)
     mov dx, 0x00FF              ; DL -> T_INST = 0xFF, "owns no instance"
-    call KERNEL_SEG:cw_task_spawn ; FAR: `.boot2` -> resident, through the shim
-    jc .out                       ; driver.inc already needed
+%ifdef KERN_SMALL                ; FAR: `.ovl` -> resident. kern_small has no
+    mov bp, task_spawn          ; other caller, so spw_near's `call bp` (kmain_o
+    call KERNEL_SEG:spw_near    ; holds nothing in BP); kern_big shares the
+%else                           ; shim driver.inc's task path needs anyway
+    call KERNEL_SEG:cw_task_spawn
+%endif
+    jc .out
     mov [sch_idleslot], al      ; the ONE identifier for the idle task: the
                                 ; scan skips this index and the fallback picks
                                 ; it, and both need the index anyway.
@@ -2694,7 +2699,12 @@ sch_dphex2:
 
 sch_s_over: db 'STACK OVERFLOW  TASK ', 0   ; grep the tree for this sentence
 sch_s_sp:   db '  SP ', 0                ; and SPEC.md 8.8 is the first hit
-sch_s_in:   db '  ', 0
+sch_s_in    equ fm_s_colsp + 1  ; '  ', 0 - the tail of the Disk window's
+                                ; ':  ' (files.inc), both .text (kernel size
+                                ; pass 13)
+%ifdef KERN_BIG
+            db 0                ; PARITY PAD (kernel size pass 13):
+%endif                          ; wm_paint_all at an even shift on kern_big
 sch_s_ui:   db 'UI TASK', 0
 
 ; -----------------------------------------------------------------------------

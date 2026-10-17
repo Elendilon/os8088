@@ -903,7 +903,9 @@ What moved with it, and why each is boot-only:
   at all, which is what flips that row.
 - **`hb_probe_x`** (kern_big): one caller, after `drv_boot` and before
   `spl_finish`. It reaches the three routines it needs through the existing
-  `drvf_`/`dkf_` far shims plus one new one, `drvf_drv_find` (4 bytes).
+  `drvf_`/`dkf_` far shims plus one new one, `drvf_drv_find` (4 bytes) -
+  which kernel size pass 13 retired again: `drv_find` is reached through
+  `wm_cbd` with BP, which `kmain_o` holds nothing in.
 - **`wm_init` and `files_init_x` went the OTHER way**, `.ovl` → `.ovlw` on
   kern_small, to make the blob room: `kmain_o` reaches them before the mount,
   which is all `.ovlw` asks.
@@ -914,7 +916,8 @@ body — five `mov [label], al` stores are *smaller* than the table walk they
 replace, so `.ovlw` shrank by 6 as well), and the **`dsk_flop_add` and
 `dsk_vol_slot` thunks** (6 bytes each of `.text`, whose one caller was
 `desk_init` in `.ovlw` — it far-calls `dsk_flop_add_x` in its own half and
-`dkf_dsk_vol_slot` in `.cold` directly now).
+`dsk_vol_slot_x` in `.cold` directly now - through `wm_cbd` with BP since
+kernel size pass 13, whose `dkf_dsk_vol_slot` far entry had no other caller).
 
 **A KNOB build's blob is a sector LONGER, and a shipped one's is not.** A knob
 kernel ships nowhere, so its boot may read one sector more where a shipped
@@ -21216,9 +21219,10 @@ module (§2.8), and its slot block `DKDFP` has `DKD_NENT` = 4 entries:
 | 2 | `dkd_show` | `wm_show_b`'s desk arm (§11.103.3): the visible bit, `wm_win_rect` and `wm_paint_dmg` through their resident far shims | `wm_show_b`, for a `WF_DESK` window | unreachable: only MAKE, in the image, sets `WF_DESK` |
 | 3 | `dkd_key` | `fdlg_top_x`'s desk arm (§11.103.4). In: BX = `wm_top`'s answer. CF = 0 and BX = `[menu_win]` when it is a desk window, CF = 1 "stand" (BX kept) otherwise | `fdlg_top_x`, with no chooser up | CF = 1, BX kept - stand: wm_top's answer, exactly right with no widget |
 
-**QUERY is the load point.** The resident half of `osapi_wm_desk_x` is a
-12-byte `.cold` thunk: AL = 0 calls `desk_need` (below) and returns its CF;
-every other verb is `jmp far [DKDFP]`. Three reasons make QUERY the
+**QUERY is the load point.** The resident half of `osapi_wm_desk_x` is an
+8-byte `.cold` thunk: AL = 0 jumps to `desk_need` (below), which is FAR and
+returns its CF with `retf` (the loader's step 5 reaches it with `COLDCALL`,
+kernel size pass 13); every other verb is `jmp far [DKDFP]`. Three reasons make QUERY the
 place:
 
 - every Sticky App asks it first, inside its entry proc (`os88stik.inc`'s
@@ -31701,7 +31705,8 @@ The code, the three strings and the line buffer are all in `.ovl`. It is
 drawing code that exists for exactly as long as there is a loading screen to
 draw on: it arrives on the boot sector's own sector run, is claimed high by
 `ovl_relocate` (§2.5.1), and is freed by `kmain` the line after `drv_boot`
-returns. The resident cost is **`ovw_font_run_x`, four bytes**, plus the two
+returns. The resident cost was **`ovw_font_run_x`, four bytes** (none since
+kernel size pass 13: `spl_mdraw` reaches `font_run_x` through `spw_near`), plus the two
 `OVLCALL` sites. No `.text` rung, no `.bss`, no `KERN_BUDGET` step, and — while
 it fits the overlay's existing KB rung — not a byte of the RAM floor §2.5.1.1
 describes either.
@@ -31850,8 +31855,8 @@ reads as a hang — but nothing says what is being read.
 
 **§15.6's line cannot say it, and the reason is structural.** That line is one
 `font_run` into the framebuffer (§15.6.3) and `font_run` lives in `.text` —
-which is precisely what stage 2 is reading. `spl_mdraw`'s far call to
-`ovw_font_run_x` is the whole of the dependency, and there is no font either:
+which is precisely what stage 2 is reading. `spl_mdraw`'s far call into
+`font_run_x` (through `spw_near`) is the whole of the dependency, and there is no font either:
 `[font_seg]:[font_base]` is not set until `font_init` runs, in `kmain`.
 
 ##### 15.6.5.1 NOT BIOS teletype, and that is the measurement worth keeping
@@ -53892,13 +53897,13 @@ land while another task is inside one of the driver's other verbs, so both
 drivers answer it above their own claim, where `NETV_IDENT` is answered and for
 the same reason.
 
-**Double-click** → `ui_svc_open`, which is `ui_tm_open` (§28.3) with a
+**Double-click** → `cw_ui_svc_open` (a far body: `desk_click` is `.cold`), which is `ui_tm_open` (§28.3) with a
 different descriptor (§28.3.2): a running instance whose header name matches
 the record's is fronted with `inst_restore`, otherwise the boot volume is
 quiet-mounted, the loader is given the record's file inside `SYSTEM/`, and the
 user's volume and folder go back. A failure raises the kernel's one-line
 notice with the record's lead and the `LD_*` reason. `desk_click` is `.cold`
-and `ui_sys_open` is not, so it goes out through `cw_ui_svc_open` — with **no
+and `ui_sys_open` is not, so it goes out through the far body `cw_ui_svc_open` — with **no
 gfx lock held**, which is that routine's contract and why the deselect and its
 redraw happen inside their own lock hold first.
 
@@ -67987,7 +67992,7 @@ immediate back out of `build/kernel.bin` and asserts all twelve lengths —
 zero kernel bytes, and the only thing in the tree that covers the eleven the
 mask decides. `tests/dtfield.py` row 3 is February, which is the branch.
 **`clk_mlen` must not spend AH**: `clk_fld_adj` carries the ±1 step there
-across both `cw_clk_mlen` calls and `clk_step` opens `add al, ah`, so the
+across both `clk_mlen` calls and `clk_step` opens `add al, ah`, so the
 3-bytes-cheaper `mov ax, mask / shr ax, cl` form breaks the Date/Time ±
 button and nothing here would see it.
 
@@ -68336,7 +68341,10 @@ one caller's copy), so none of
 them can leave and none can become a `retf` body (§2.6.1). They get the
 ordinary `.text` thunk instead — **six of them, `cw_clk_mlen`,
 `cw_clk_put_mon`, `cw_clk_put2`, `cw_clk_put4`, `cw_clk_h12h`, `cw_clk_ampm`,
-24 bytes** — and the module far-calls those. Duplicating the six into the
+24 bytes** — and the module far-calls those. (Kernel size pass 13 retired the
+six: `CTRL.DRV` reaches the near bodies through its own `CPXK` hop,
+`ctrl.inc`'s `cp_kgo`, which is `fdlg.inc`'s `fdx_go` one image along, so
+the 24 bytes are back and the trade below still holds.) Duplicating the six into the
 image instead would have saved those 24 bytes and cost a second copy of
 `clk_mlen`, which is the leap-year rule with a range it is only exact over;
 24 bytes is not worth a second opinion about February.
@@ -68820,6 +68828,13 @@ role one block plays):
 | `fdlg_rqcb`, `fdlg_rqwin`, `fdlg_rqrec`, `fdlg_rqsp` | the requester: completion proc, window, record and `I_SPTR` |
 | `fdlg_name` | the name handed back, 13 bytes |
 | `fdlg_sdrv`, `fdlg_scwd` | where the chooser opened (§38.10's seed) and, from the close on, where it stood |
+
+On kern_small, where the dialog's code is `FDLG.DRV` (§38.0), every row but
+`fdlg_win`, `fdlg_blk`, `fdlg_ttl` (the caption `fm_kinit` adopts) and
+`fdlg_name` is the IMAGE's bss - `.moddb`, in the claim's KB rounding, zeroed
+by `mod_need` with the rest of it and read `[cs:x]` (kernel size pass 13: 16
+resident bytes). `fdlg_open` writes every one of them before anything reads
+it, and `fdlg_reap_x` drops the image only once no chooser is up.
 
 **The Save form's name box is the Disk window's line editor**, as status-line
 edit mode **8** (`Save as:`, §22). Typing, Backspace and the 8.3 filter are
@@ -70368,6 +70383,16 @@ overlay code (§2.5) and is dead FAT by the time the Control Panel can change
 the adapter under it, so the arithmetic is resident - `desk_rowcalc_x`, in
 `.cold` and ending in a `retf` - and the overlay far-calls that body by name
 (the `ovw_desk_rowcalc` shim it bounced through went in kernel size pass 9).
+
+**On kern_small `vid_switch` is `CTRL.DRV`'s** (kernel size pass 13). Its one
+caller there is the Display page - that build has no `drv_boot` to apply
+`SYSTEM.CFG`'s adapter and no second display - so it and the five routines
+only it reaches (`vid_equip`, `vid_blank`, `vid_avail_test`, `wm_su_drop_all`,
+`wm_refit`) are assembled into the panel's image (`KSW_SECT` in `kernel.asm`,
+`.modu` there and `.text` on kern_big) and reach the kernel through the
+panel's `CPXK` hop: 187 resident bytes on the 128 KB machine's kernel, for
+the order above unchanged. `desk_rowcalc`'s resident thunk goes with it - the
+image makes the far call to `desk_rowcalc_x` itself.
 
 #### 39.11.2.1 …and back again — the natural bank
 
@@ -73286,7 +73311,8 @@ collapse, which is the invariant kept by construction rather than by care.
 
 - **The Control Panel** (§31.10.2's arrangement row, inside `CTRL.DRV`, +50
   image bytes and no resident ones) calls `exf_sync`, then
-  `vid_disp_relayout`, then `exf_sync` again: the first loads before anything
+  `vid_disp_init`, `desk_rowcalc_x` and `wm_refit` - what `vid_disp_relayout`
+  was, written out in the image since kernel size pass 13 - then `exf_sync` again: the first loads before anything
   moves and the second drops after the collapse. A refusal skips the relayout
   and toasts the panel's own `Needs Sys Disk A:` (§2.8.4) — the panel is
   itself a module, so the system disk is normally in the drive at the click,
@@ -73294,7 +73320,7 @@ collapse, which is the invariant kept by construction rather than by care.
   Heap exhaustion gets the same words.
 - **The boot** (`drv_boot_x`, in `.ovl`, +5 bytes and none resident) calls it
   once, right after `SYSTEM.CFG`'s two arrangement bytes are stored and before
-  `vid_switch`/`cw_vid_disp_init` can extend — after `drvf_drv_mounted` and
+  `vid_switch`/`vid_disp_init` (through `spw_near`) can extend — after `drvf_drv_mounted` and
   the settings read that requests `DOCK.DRV`, and reaching nothing in `.ovlw`
   after that mount (os88ovlchk rule 2e). A Single machine drops an empty row and reads no disk.
   **A refused boot load is Single, with `SYSTEM.CFG` untouched** until the
@@ -92832,8 +92858,10 @@ unchanged and only the parser's own tables take `cs:`.
 - **`drv_cfgname` and `drv_sysname`.** `dskw_read`, `dskw_stat` and
   `dskw_write_sys` each read a filename through `DS` — a name in an image is a
   filename read out of the kernel at the image's offset.
-- **Four far entries**, sixteen bytes: `drvf_drv_vol_bank`, `drvf_drv_vol_back`,
-  `drvf_drv_mounted`, `drvf_ss_mins2idle`. A call out of an image is far.
+- **Three far entries**, twelve bytes: `drvf_drv_vol_bank`, `drvf_drv_vol_back`,
+  `drvf_drv_mounted` (`drvf_ss_mins2idle` was a fourth until kernel size pass
+  13: the boot's reader reaches `ss_mins2idle` through `wm_cbd`). A call out
+  of an image is far.
 
 **Written once, emitted twice.** `CFG_DATA` / `CFG_SHARED` / `CFG_BOOT` /
 `CFG_SAVE` are macros taking the image's label prefix, and the two
@@ -123600,9 +123628,10 @@ boot blob had room for (2.9.14). kern_small carries the record untouched.
 row (`thmv_row`) sits one row past `drv_tab`, outside `DRV_MAX`, so
 `drv_call`'s one range test reaches it with no compare in `.cold`, and
 `mem_rr_tab` names its segment so a compaction can move it (66.6.3). The
-panel's close branch in `instance.inc` far-calls the resident `thmv_reap_x`
-(`.cold`, §76.14.14.1) on EVERY close, before and independent of the settings
-write: the window goes first, then the image.
+panel's close branch in `instance.inc` far-calls the resident `drv_cp_closed_x`
+on EVERY close, before and independent of the settings write, and its tail is
+the reap (`.cold`, §76.14.14.1): the drivers are told, then the window goes
+first, then the image.
 
 **Verification.** `tests/colorpresets_qemu.py` drives each preset through the
 chooser's own click handler and asserts the desktop, both title pairs and the
@@ -123612,8 +123641,8 @@ across a reboot.
 
 ##### 76.14.14.1 The theme's set path is `.cold`
 
-`thm_set`, `api_thm_set_x` (`OSAPI_THM_SET`'s body) and `thmv_reap_x` live
-in `.cold` on kern_big and kern_emu (§2.6) — they are still resident. Each
+`thm_set`, `api_thm_set_x` (`OSAPI_THM_SET`'s body) and the Customize
+window's reap live in `.cold` on kern_big and kern_emu (§2.6) — they are still resident. Each
 runs at human cadence: a theme or preset change, a display switch, the
 boot's one palette resolve and a Control Panel close. None of them runs from
 an ISR or from the loading screen's IRQ0 path, and the cold segment is up
@@ -123642,12 +123671,15 @@ The shape:
   `api_thm_set` thunk the cell used to near-call is gone. `api_thm_set_x`
   reaches `wm_su_drop_all` through `cw_mem_disp` the same way (the
   `cw_wm_su_drop_all` shim is gone with `cw_dock_force`).
-- **`thmv_reap_x` is far-called from `app_close_win` and ends in `retf`.** It
-  near-calls `drv_call_ent` and `drv_release` directly, since both are cold
-  bodies, and asks neither whether the image is loaded: both refuse a row
-  whose `DRVR_SEG` is 0 on their own, so the never-loaded close does nothing
-  either way. `cp_thmv_open`'s refusal path far-calls it too, where it had its
-  own copy of the two calls.
+- **The reap is `drv_cp_closed_x`'s tail** (kernel size pass 13; it was
+  `thmv_reap_x`, a far body of its own). `app_close_win`'s panel branch
+  far-calls `drv_cp_closed_x` immediately before it, with every register
+  already banked, so the reap is four instructions there: it near-calls
+  `drv_call_ent` and `drv_release` directly, since both are cold bodies, and
+  asks neither whether the image is loaded - both refuse a row whose
+  `DRVR_SEG` is 0 on their own, so the never-loaded close does nothing either
+  way. `cp_thmv_open`'s refusal path spells the same two calls through
+  `drvf_drv_call` and `drvf_drv_release`.
 - **THMPAL.DRV's file name is CTRL.DRV's** (kernel size pass 13). `drv_load_at`
   reads a row's `DRVR_FILE` through DS, so the name must be in the kernel
   segment while it loads - but only then, and `cp_thmv_open` is the one code
@@ -129232,7 +129264,8 @@ nothing, which is the shape §2.8.4 refuses. So the button reports out of
 already borrows for the same reason: one set of words for *no system disk*,
 *not on the system disk*, *not a valid driver* and *not enough memory* is one
 less thing for the reader to map. `drv_load_at` has already written the cause
-into `ss_row`'s `DRVR_ERR` by the time `ssf_cfg` answers CF = 1, so naming it
+into `ss_row`'s `DRVR_ERR` by the time `ss_open` (`SSV_CFG`, which the panel
+calls through its `CPXC` hop) answers CF = 1, so naming it
 costs one byte read and no string of its own.
 
 **A refusal that is not about the disk does not say the disk**, which is

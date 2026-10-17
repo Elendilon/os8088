@@ -543,7 +543,7 @@ section .cold
 ; this file that can multiply at all. SS_MAXMIN is what a word of ticks holds.
 ;
 ; kern_big's ALONE now: its three callers - SYSTEM.CFG's reader
-; (drvf_ss_mins2idle), ss_set_x and the blanker's wake - are all kern_big's,
+; (through wm_cbd), ss_set_x and the blanker's wake - are all kern_big's,
 ; and kern_small, which reads no SYSTEM.CFG and has no saver, keeps [ss_idle]
 ; at its resting BLK_IDLE for ever (kernel size pass 13, -23 there).
 ; -----------------------------------------------------------------------------
@@ -919,14 +919,9 @@ ssf_frame:      cmp byte [blk_sv], 0    ; blk_pass's gate, on this side of the
                                 ; and the only caller is here
 .none:
                 retf
-ssf_cfg:        mov al, SSV_CFG ; ss_cfg_x was a two-instruction wrapper with
-                call ss_open    ; exactly ONE caller - this - and it is named
-                retf            ; in no dw table, no OSAPI slot and nowhere in
-                                ; SPEC.md, unlike ss_set_x/ss_start_x/
-                                ; ss_stop_x. So it is this routine's own two
-                                ; instructions now. ctrl.inc:2399's `call
-                                ; COLD_SEG:ssf_cfg` is the external entry and
-                                ; does not move
+; (ssf_cfg - `mov al, SSV_CFG / call ss_open / retf` - went in kernel size
+; pass 13: its one caller, the Control Panel's saver button, makes the two
+; instructions itself through CTRL.DRV's CPXC hop)
 %endif
 
 section .text

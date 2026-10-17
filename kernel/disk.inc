@@ -5537,6 +5537,10 @@ dsk_fatw_claim:
 ; LOW_SEG for the life of the machine. Both rows are out of mem_rr_tab with it.
 section .cold                   ; ...and back, or every routine below joins it
 
+; dsk_fatw_drop - give volume AL's FAT window back (SPEC.md 18.8.4). Its two
+; callers are dsk_vol_del (OS88_DRIVERS, not kern_dos) and HIBER.DRV's sweep
+; (kern_big), so kern_small and kern_dos carry no body (kernel size pass 13)
+%ifdef OS88_DRIVERS
 dsk_fatw_drop:
     push ax
     push bx
@@ -5571,6 +5575,10 @@ dsk_fatw_drop:
     pop bx
     pop ax
     ret
+%elifdef KERN_SMALL
+    nop                         ; PARITY PAD, never executed (kernel size pass
+                                ; 13): dsk_next_clus_x back at an even shift
+%endif                          ; OS88_DRIVERS
 
 ; -----------------------------------------------------------------------------
 ; dsk_fc_bad - dsk_free_clus_x's first three refusals share this one near jump.
@@ -8968,10 +8976,13 @@ dkf_dsk_chdir_q:     call dsk_chdir_q_x
                  retf
 dkf_dsk_copy_seg:    call dsk_copy_seg_x
                  retf
-dkf_dsk_vol_fixed:   call dsk_vol_fixed_x    ; kern_dos's (kerndos/kdentry.inc)
-                 retf
-dkf_dsk_vol_slot:    call dsk_vol_slot_x
-                 retf
+%ifdef KD_BUILD                 ; kern_dos's alone (kerndos/kdentry.inc): no
+dkf_dsk_vol_fixed:   call dsk_vol_fixed_x    ; kernel caller (kernel size
+                 retf                        ; pass 13)
+%endif
+; (dkf_dsk_vol_slot went in kernel size pass 13: desk_init, its one caller,
+; is boot-only and reaches dsk_vol_slot_x through wm_cbd with BP, which kmain
+; holds nothing in)
 
 
 ; =============================================================================

@@ -1181,6 +1181,9 @@ wm_nat_take_wh:
 ; A free slot is skipped rather than clamped: W_W/W_H are whatever the last
 ; owner left there, and wm_create fits the record it fills in anyway.
 ; -----------------------------------------------------------------------------
+%ifdef KERN_SMALL                ; (KSW_SECT: kernel.asm - CTRL.DRV's on
+section KSW_SECT                ; kern_small, vid_switch's alone)
+%endif
 wm_refit:
     push bx
     push cx
@@ -1191,7 +1194,7 @@ wm_refit:
     jz .skip
     test byte [bx+W_FLAGS], WF_FULL
     jnz .full
-    call wm_apply_size          ; what it ASKED for, then its own answer for
+    KSWK wm_apply_size          ; what it ASKED for, then its own answer for
                                 ; the adapter it now finds itself on, then the
                                 ; clamp - SPEC.md 11.100's one sequence, the
                                 ; same three wm_prefer and wm_keeph run. This
@@ -1201,7 +1204,7 @@ wm_refit:
                                 ; the band (39.11.2.1)
     jmp short .told
 .full:
-    call wm_fs_setrect          ; a fullscreen window wants the NEW screen, and
+    KSWK wm_fs_setrect          ; a fullscreen window wants the NEW screen, and
                                 ; its bank is the WINDOWED rect - replayed here
                                 ; it would un-fullscreen a window that is still
                                 ; flagged WF_FULL and still owns [wm_fs], with
@@ -1210,7 +1213,7 @@ wm_refit:
                                 ; desktop band, and a fullscreen frame covers
                                 ; the bar and the dock by definition
 .told:
-    call wm_sz_notify           ; ...and NOW tell it, unconditionally and while
+    KSWK wm_sz_notify           ; ...and NOW tell it, unconditionally and while
                                 ; the caller's repaint is still ahead of us. An
                                 ; app that relayouts here is painted correctly
                                 ; the first time; and it is told even when its
@@ -1223,6 +1226,9 @@ wm_refit:
     pop cx
     pop bx
     ret
+%ifdef KERN_SMALL
+section .text
+%endif
 
 ; -----------------------------------------------------------------------------
 ; wm_dock_snap - a window left barely over the dock is nudged back above it
@@ -9794,6 +9800,9 @@ wm_su_slot:
 ; the pixels behind it were read off a different card, at a different stride,
 ; and possibly with a different number of planes. vid_setmode has just cleared
 ; the framebuffer as well, so there is nothing to keep.
+%ifdef KERN_SMALL                ; (KSW_SECT: CTRL.DRV's on kern_small,
+section KSW_SECT                ; where vid_switch is its one caller)
+%endif
 wm_su_drop_all:
     pushf
     push bx
@@ -9801,13 +9810,16 @@ wm_su_drop_all:
     mov bx, wm_wins             ; every record, in slot order - wm_idx2ptr's
     mov cx, MAX_WIN             ; answer for 0..MAX_WIN-1, walked by the stride
 .one:
-    call wm_su_drop             ; (preserves every register and the flags)
+    KSWK wm_su_drop             ; (preserves every register and the flags)
     add bx, WIN_SIZE
     loop .one
     pop cx
     pop bx
     popf
     ret
+%ifdef KERN_SMALL
+section .text
+%endif
 
 ; wm_su_drop - forget window BX's cache and give the memory back
 ; preserves every register and the flags

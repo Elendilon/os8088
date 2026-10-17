@@ -1629,11 +1629,10 @@ app_close_win:
                                 ; is staging it into the blob that is about to
                                 ; be written rather than the one after
 %endif
-%ifdef KERN_BIG
-    call COLD_SEG:thmv_reap_x   ; ...and the Customize window, BEFORE the
+                                ; (...and the Customize window, BEFORE the
                                 ; write and ungated by it: a close with nothing
-                                ; to save is still a close (SPEC.md 76.14.14)
-%endif
+                                ; to save is still a close, SPEC.md 76.14.14 -
+                                ; drv_cp_closed_x's own tail on kern_big)
     call COLD_SEG:cpf_cp_flush_close ; to here (SPEC.md 31.8): one floppy write per
                                 ; session instead of one per click. Only the
                                 ; TASK-LESS branch needs it - the panel owns
@@ -1667,6 +1666,9 @@ app_close_win:
 .out:
     pop di
     ret
+    db 0                        ; PARITY PAD, never executed (kernel size pass
+                                ; 13): ui_task and everything to the end of
+                                ; .text back at an even shift on both kernels
 
 ; -----------------------------------------------------------------------------
 ; inst_minimize - send a window's instance to the dock
@@ -2369,9 +2371,9 @@ inst_fpick:  resb INST_MAX      ; 0 = the user has never chosen a folder for
 inst_fname:  resb INST_MAX * INST_FNSZ  ; ...and the name it picked there,
                                 ; NUL-terminated; an empty string = none
 
+%ifdef OS88_COMPACT             ; (kern_small has no compactor to ask)
 inst_parkreq: resb 1            ; SPEC.md 66.5: the compactor is asking every
                                 ; package worker to stand still
-%ifdef OS88_COMPACT
 inst_parksafe: resb INST_MAX    ; ...and which instances said the kernel may
                                 ; park them while they are BLOCKED IN IT, not
                                 ; only at OSAPI_TASK_ALIVE (SPEC.md 66.5.4).

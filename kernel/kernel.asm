@@ -1310,8 +1310,14 @@ section .modhb   nobits vfollows=.modh ; HIBER.DRV's own scratch: the DOS
 %ifdef FCP_MOD
   %define MOD_BSS 1             ; ...and THIS is what mod_need's zeroing hangs
                                 ; off: a build with no module bss has nothing
-                                ; to zero and must not carry the code. Widen it
-                                ; when a second module declares one.
+                                ; to zero and must not carry the code. FDLG.DRV
+                                ; declares the second (`.moddb`, kernel size
+                                ; pass 13) and FDLG_MOD is kern_small's exactly
+                                ; as FCP_MOD is, so one condition covers both;
+                                ; widen it if a module ever declares one alone.
+%ifndef FDLG_MOD
+ %error "MOD_BSS hangs off FCP_MOD and FDLG.DRV's .moddb needs it: they are one build's"
+%endif
 section .modp    start=MODP_START vstart=0
 ; ...AND ITS OWN BSS (docs/plans/MODULE-SELFCONTAIN-PLAN.md 3.1). A module runs
 ; from a heap claim and mod_need sizes that claim in whole KB
@@ -1329,6 +1335,9 @@ section .modpb   nobits vfollows=.modp
 %endif
 %ifdef FDLG_MOD
 section .modd    start=MODD_START vstart=0
+section .moddb   nobits vfollows=.modd ; FDLG.DRV's own scratch: one dialog's
+                                ; state (fdlg.inc), zeroed by mod_need with the
+                                ; rest of the claim's tail (kernel size pass 13)
 %endif
 %ifdef DOCK_OPT
 section .modk    start=MODK_START vstart=0
@@ -3858,10 +3867,8 @@ ovw_sch_fast_on:    call sch_fast_on
 ovw_band_init:      call band_init
                     retf
 %endif
-%ifdef DOCK_OPT
-ovw_dock_geom:      call dock_geom
-                    retf
-%endif
+; (ovw_dock_geom went in kernel size pass 13: vid_init, in the blob, reaches
+; dock_geom through spw_near with the BP it already banks)
 ; ...and the MOUSE's (SPEC.md 9.4.7). mouse_init's boot half is in the
 ; overlay and everything mou_hotplug or mouse_unhook can reach stayed resident,
 ; so the port writers the probe uses and the round counter it resets are edges
@@ -3890,11 +3897,9 @@ ovw_mou_lockon:     call mou_lockon     ; ...and one for SPEC.md 9.11:
                                         ; nothing can reach
 %endif
 %endif
-ovw_font_run_x:     call font_run_x     ; SPEC.md 15.6's status line composes
-                    retf                ; into the OVERLAY, so its string is
-                                        ; reached ES:CS and not through DS -
-                                        ; which is font_run_x's entry and not
-                                        ; font_run's
+; (ovw_font_run_x went in kernel size pass 13 too: spl_mdraw, its one caller,
+; reaches font_run_x - the ES:SI entry, since SPEC.md 15.6's status line is
+; composed into the OVERLAY and reached ES:CS - through spw_near)
 
 ; ...AND THE CLOCK'S FIVE ARE DOWN TO TWO (SPEC.md 37.94). The five were port
 ; helpers that the READ path (overlay) and the WRITE path shared, and the
@@ -4440,7 +4445,8 @@ kmain_o:
                                 ; there
     MARKW 10
 %ifdef KERN_BIG
-    call KERNEL_SEG:cw_vid_disp_init          ; ...and if it has BOTH mono cards, programme
+    mov bp, vid_disp_init       ; (spw_near: kmain_o holds nothing in BP)
+    call KERNEL_SEG:spw_near    ; ...and if it has BOTH mono cards, programme
                                 ; the second one too (SPEC.md 39.13). Here
                                 ; because [vid_avail] is what decides, so this
                                 ; is the earliest it can run; it claims nothing
@@ -5109,12 +5115,15 @@ osapi_video:
                                 ; [vid_pwm1]+1 IS [vid_w].
     mov cx, [vid_dock_y0]
     mov dl, [vid_kind]
-    mov dh, 4
-    cmp byte [vid_mono], 0
-    je .r
-    mov dh, 1
-.r:
-    ret
+    mov dh, [vid_planes]        ; the bpp IS the plane count: 4 on a planar
+    ret                         ; adapter, 1 where [vid_mono] = 1 - the one
+                                ; fact vid_depth_set stores as a word, so the
+                                ; two cannot disagree (kernel size pass 13: it
+                                ; was a compare on [vid_mono] and two moves)
+%ifdef KERN_BIG
+    db 0                        ; PARITY PAD, never executed (kernel size pass
+%endif                          ; 13): gfx_blit4, font_run, the ISRs and the
+                                ; scheduler back at an even shift on kern_big
 
 osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 
@@ -5181,6 +5190,49 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
     call cur_unlazy
 %%spent:
 %endmacro
+
+; -----------------------------------------------------------------------------
+; THE TRAMPOLINES A BUILD DOES NOT PAY FOR (SPEC.md 2.6.2, kernel size pass 13)
+; A `ct_` trampoline (below the includes) is 6 bytes that save 2 a CALL site,
+; so at 2 sites it costs 2 and at 3 it is a wash - and the count is per BUILD.
+; Where a target has 2 call sites on one kernel and more on the other, that
+; kernel names the far call straight through the trampoline's own name:
+; `call ct_x` is `call KERNEL_SEG:x` there, and no site changes. CALL sites
+; only - a tail `jmp ct_x` would become a far jump to a `retf` body, so a
+; target with one cannot go on this list. Counted off the assembled listing
+; (the calls and jumps whose target is the trampoline's address), not the
+; source: FDK and os88ui.inc's UI_* macros reach these too.
+; -----------------------------------------------------------------------------
+%ifdef KERN_BIG
+  %define ct_cw_wm_clip_test KERNEL_SEG:cw_wm_clip_test ; 2 sites (small: 3)
+%else
+  %define ct_cw_snd_beep KERNEL_SEG:cw_snd_beep         ; 2 sites (big: 4)
+%endif
+
+; -----------------------------------------------------------------------------
+; KSW_SECT / KSWK - THE ADAPTER SWITCH IS CTRL.DRV's ON kern_small (SPEC.md
+; 39.11.2, kernel size pass 13). vid_switch's one caller there is the Display
+; page - kern_small has no drv_boot to apply SYSTEM.CFG's adapter at boot and
+; no second display - so it and the five routines only it reaches (vid_equip,
+; vid_blank, vid_avail_test, wm_su_drop_all, wm_refit) are assembled into the
+; panel's image, `.modu`, and what they reach in the kernel they reach through
+; the panel's CPXK hop (ctrl.inc's cp_kgo). On kern_big they stay `.text`,
+; where the boot, EXTD.DRV and the dock reach them too. The section is a
+; NAME and not a literal so that tools/os88ovlchk.py, which reads source and
+; evaluates no %if, files the bodies as the `.text` they are on kern_big.
+; -----------------------------------------------------------------------------
+%ifdef KERN_SMALL
+  %define KSW_SECT .modu
+  %define KSW_GO cp_kgo         ; (a NAME too: the scan reads macro bodies,
+  %macro KSWK 1                 ; and on kern_big's reading this is .text
+    call KSW_GO                 ; calling the image's hop - which no kern_big
+    dw %1                       ; byte does)
+  %endmacro
+%else
+  %macro KSWK 1
+    call %1
+  %endmacro
+%endif
 
 %include "dskwin.inc"           ; THE FIRST INCLUDE, and that is the whole of
                                 ; the mechanism (SPEC.md 2.1.2): `.lowbss` is
@@ -5930,34 +5982,31 @@ MARK_FNVEC  equ $ - mark_fvec
 ; =============================================================================
 cw_app_launch:          call app_launch
                     retf
-cw_app_close_win:       call app_close_win  ; the Standard File chooser's
-                    retf                ; close (SPEC.md 38.7)
+%ifndef KERN_SMALL              ; (kern_small: FDLG.DRV's fdt_go, kernel size
+cw_app_close_win:       call app_close_win  ; pass 13) the Standard File chooser's
+%endif
+cw_kretf:           retf                ; close (SPEC.md 38.7) - AND cw_kretf,
+                                        ; THE .text `retf` an image's hand-built
+                                        ; far hop lands a near `ret` on: DOCK.DRV's
+                                        ; dkk_* stubs, EXTD.DRV's exk_go and
+                                        ; CTRL.DRV's cp_kgo. It was a byte of its
+                                        ; own, kern_big's alone (DOCK_OPT); this
+                                        ; one is on both kernels and costs none
+                                        ; (kernel size pass 13). Nothing may go
+                                        ; between the call and it: cw_app_close_win
+                                        ; IS the near call and this retf
 cw_clk_snapshot:        call clk_snapshot
                     retf
 
-; --- ...and the six the Date/Time page's editor needs (SPEC.md 37.93) -------
-; clk_fld_str and clk_fld_adj moved into CTRL.DRV, and these are everything
-; they reach on the way. Not one of them could go with them: clk_fmt draws
-; the menu bar from five of these and clk_inc_sec's day carry reaches the
-; sixth, so all six keep a RESIDENT near caller and none can become a retf
-; body (SPEC.md 2.6.1). 329 bytes of .text left and 24 came back, so the move
-; is 305; duplicating the six into the image instead would have saved those
-; 24 and cost a second copy of clk_mlen, which is the leap-year rule.
-cw_clk_mlen:            call clk_mlen
-                    retf
-cw_clk_put_mon:         call clk_put_mon
-                    retf
-cw_clk_put2:            call clk_put2
-                    retf
-cw_clk_put4:            call clk_put4
-                    retf
-cw_clk_h12h:            call clk_h12h
-                    retf
-cw_clk_ampm:            call clk_ampm
-                    retf
-cw_cur_unlazy:          call cur_unlazy     ; gfx_blit1_x's (SPEC.md 5.4.2), and
-                    retf                    ; on BOTH builds since 5.4.2.5's
-                                            ; decision was reversed
+; (...and the six the Date/Time page's editor reached here - cw_clk_mlen,
+; _put_mon, _put2, _put4, _h12h, _ampm - went in kernel size pass 13: CTRL.DRV
+; reaches the near bodies through its own CPXK hop, ctrl.inc's cp_kgo, so the
+; 24 bytes SPEC.md 37.93 paid for them are back and there is still one copy
+; of clk_mlen, the leap-year rule)
+%ifdef KERN_SMALL
+cw_cur_unlazy:          call cur_unlazy     ; gfx_blit1_x's (SPEC.md 5.4.2), on
+                    retf                    ; kern_small; kern_big's one caller
+%endif                                      ; is DOCK.DRV, through spw_near
 %ifdef KERN_BIG
 cw_cur_lazyrect:        call cur_lazyrect   ; ...and SPEC.md 7.1.4.5's rect
                     retf                    ; form, which is the one a BAND asks
@@ -5997,12 +6046,6 @@ cw_thm_desk equ apic_thm_desk   ; THE CELL IS THE DOOR (size pass 13): the
 %ifdef DOCK_OPT
 cw_dock_band:           call dock_band
                        retf
-cw_kretf:           retf                    ; DOCK.DRV's dkk_* stubs return
-                                            ; through this. (cw_dock_apply
-                                            ; fell into it until size pass 9:
-                                            ; the Dock page and the settings
-                                            ; reader far-call dkf_apply now,
-                                            ; whose own return is far)
 cw_gfx_clip_query:      call gfx_clip_query ; CLIPQF: shared region query
                     retf                    ; from .cold (SPEC.md 30.6.1)
 %endif
@@ -6025,8 +6068,6 @@ cw_gfx_lock equ apic_gfx_lock   ; THE CELL IS THE DOOR (size pass 13): a lock
                                 ; is per OPERATION, so the cell's DS bank is
                                 ; ~50 cycles a lock and the shim was 4 bytes
 cw_gfx_pen_cf equ apic_gfx_pen_cf ; THE CELL IS THE DOOR (size pass 9)
-cw_gfx_pen_live:        call gfx_pen_live
-                    retf
 cw_gfx_rowbase:         call gfx_rowbase
                     retf
 cw_gfx_unlock equ apic_gfx_unlock ; THE CELL IS THE DOOR (size pass 13)
@@ -6040,8 +6081,10 @@ cw_icon_draw16:         call icon_draw16
                     retf
 cw_inst_find_kind:      call inst_find_kind
                     retf
+%ifndef KERN_SMALL              ; (kern_small: FDLG.DRV's FDKT hop)
 cw_inst_fhome_idx:      call inst_fhome_idx
                     retf
+%endif
 cw_inst_win_owner:      call inst_win_owner
                     retf
 ; ...and the instance store's. (apps.inc's three kinds had three more here -
@@ -6054,22 +6097,22 @@ cw_inst_ptr:            call inst_ptr
 cw_mem_disp equ spw_near        ; `call bp` / `retf` - viddet.inc's splash door
                                 ; is the same three bytes, and it stays where
                                 ; SPL_RESIDENT needs it (size pass 10)
-cw_menu_activate:       call menu_activate
-                    retf
+%ifndef KERN_SMALL              ; (kern_small: FDLG.DRV's FDKT hop - and so
+cw_menu_activate:       call menu_activate  ; are menu_draw_bar and wm_pkgcall
+                    retf                    ; below; DESK.DRV and DOCK.DRV
+%endif                                      ; keep them on kern_big)
 ; ...and menu_kbnav's two, which went cold with it (SPEC.md 12.10)
 cw_menu_item_dis:       call menu_item_dis
                     retf
 cw_mou_clamp:           call mou_clamp
                     retf
-; ...and the BOOT OVERLAY's (docs/plans/LAST-DROP-BYTES.md rows 15 and 17):
-; dock_init and menu_init moved into `.boot2`; menu_init has exactly one
-; outbound call left, and dock_init now has NONE - what it asked cw_dock_force
-; for was "the whole strip is owed", which is two words it writes itself, so
-; the shim went with the call.
-cw_menu_relayout:       call menu_relayout
-                    retf
+; (...and the BOOT OVERLAY's: menu_init's one outbound call, cw_menu_relayout,
+; is spw_near's `call bp` since kernel size pass 13 - and dock_init has none,
+; what it asked cw_dock_force for being two words it writes itself)
+%ifndef KERN_SMALL
 cw_menu_draw_bar:       call menu_draw_bar
                     retf
+%endif
 cw_menu_popup:          call menu_popup
                     retf
 cw_snd_beep:            call snd_beep
@@ -6079,14 +6122,15 @@ cw_snd_disp_set:        call snd_disp_set
 %ifdef KERN_BIG                 ; its callers are kern_big only
 cw_task_exit equ task_exit      ; NEVER RETURNS - cw_inst_task_die's reason
 %endif
-cw_task_spawn:           call task_spawn
+%ifndef KERN_SMALL              ; (drv_task_x's; kern_small's one caller,
+cw_task_spawn:           call task_spawn ; sch_idle_start, uses spw_near)
                      retf
+%endif
 cw_task_yield equ apic_task_yield ; THE CELL IS THE DOOR (size pass 13)
 cw_toast_show equ apic_toast_show ; THE CELL IS THE DOOR (size pass 9)
 %ifdef KERN_BIG
-cw_ui_svc_open:         call ui_svc_open    ; the service zone's double-click
-                    retf                    ; (SPEC.md 26.7): desk.inc is cold
-                                            ; and ui_sys_open is not
+; (cw_ui_svc_open, the service zone's double-click, is ui.inc's own far body
+; since kernel size pass 13 - SPEC.md 26.7)
 cw_drv_pkg_call equ apic_drv_pkg_call ; ...and its PAINT, which is the same
                                 ; door a package reaches a driver by (SPEC.md
                                 ; 20.11) - and since size pass 13 the door IS
@@ -6096,27 +6140,16 @@ cw_drv_pkg_call equ apic_drv_pkg_call ; ...and its PAINT, which is the same
 %endif
 cw_vga_xor_rect_vram:   call vga_xor_rect_vram
                     retf
-cw_vid_avail_test:      call vid_avail_test
-                    retf
-%ifdef KERN_BIG                 ; vid_disp_init is dual display's and so is
-                                ; its shim - cw_vid_dual_ok below already had
-                                ; the guard and this one was missed, so
-                                ; kern_small stopped assembling entirely
-cw_vid_disp_init:       call vid_disp_init
-                    retf
-%endif
+; (cw_vid_disp_init went in kernel size pass 13: its two callers, kmain_o and
+; drv_boot_x, are the blob's and reach vid_disp_init through spw_near)
 %ifdef KERN_BIG
 ; vidsel.inc's whole dual-display half is inside one %ifdef KERN_BIG, so these
 ; bodies do not exist in the small build.
-cw_vid_dual_ok:         call vid_dual_ok
-                    retf
-; ...and these two are the BOOT OVERLAY's, not cold code's: vid_ctx_init went
-; into `.boot2` (docs/plans/LAST-DROP-BYTES.md row 13) and calls both. They are `cw_`
-; rather than `ovw_` for the reason the clock's pair is - `ovw_` names the
-; overlay, and what these actually name is "resident, reached from another
-; address space", which is the same shim whichever side asks.
-cw_vid_ctx_ptr:         call vid_ctx_ptr
-                    retf
+; ...and this one is the BOOT OVERLAY's and EXTD.DRV's: vid_ctx_init went
+; into the overlay (docs/plans/LAST-DROP-BYTES.md row 13) and calls it, and so
+; does the Extend. It is `cw_` rather than `ovw_` for the reason the clock's
+; pair is. (cw_vid_ctx_ptr, vid_ctx_init's other one, is spw_near's `call bp`
+; since kernel size pass 13.)
 cw_vid_ctx_capture:     call vid_ctx_capture
                     retf
 ; ...and EXTD.DRV's one hop that is on OSAPI_WM_DISPLAY's path (wm_disp_now's
@@ -6182,8 +6215,10 @@ cw_wm_paint_all:        call wm_paint_all
                     retf
 cw_wm_paint_dmg:         call wm_paint_dmg
                      retf
+%ifndef KERN_SMALL
 cw_wm_pkgcall:          call wm_pkgcall
                     retf
+%endif
 cw_wm_show equ apic_wm_show ; THE CELL IS THE DOOR (size pass 9)
 %ifdef WM_ANIM
 cw_inst_unmin:          call inst_unmin
@@ -6207,9 +6242,12 @@ cw_wm_win_rect:         call wm_win_rect
 ; `.cold` CALLERS ONLY. An on-demand module (`.modc`/`.modd`/...) and the boot
 ; overlay run at another CS and keep the far call; fdlg.inc, which is `.cold`
 ; on kern_big and FDLG.DRV on kern_small, reaches these through its FDK macro.
-; The sites-per-target figures are kern_big's / kern_small's, measured when
-; this block was written; a target whose count falls to 3 or below is paying
-; for its trampoline, and goes back to the plain far call.
+; The sites-per-target figures are kern_big's / kern_small's, calls and tail
+; jumps both, re-measured off the listing at kernel size pass 13; a target
+; whose CALL count falls to 2 is paying for its trampoline and goes back to
+; the plain far call (3 is a wash) - on that build alone, through the
+; %define block above the includes. ct_cw_font_run's are mostly TAILS, which
+; a far call cannot replace for less, so it stays at 2.
 section .cold
 osapi_vol_kind_x:               ; (see osapi_vol_kind's header above)
     push bx
@@ -6219,39 +6257,43 @@ osapi_vol_kind_x:               ; (see osapi_vol_kind's header above)
     retf                        ; CF alone)
 
 ct_cw_gfx_fill:     call KERNEL_SEG:cw_gfx_fill
-                    ret                     ; 23 / 18 sites
+                    ret                     ; 13 / 14 sites
 ct_cw_gfx_unlock:   call KERNEL_SEG:cw_gfx_unlock
-                    ret                     ; 15 / 10 sites
+                    ret                     ; 11 / 8 sites
 ct_cw_gfx_lock:     call KERNEL_SEG:cw_gfx_lock
-                    ret                     ; 14 / 10 sites
+                    ret                     ; 12 / 8 sites
 ct_cw_font_run:     call KERNEL_SEG:cw_font_run
-                    ret                     ; 10 / 10 sites
+                    ret                     ; 2 / 3 sites
 ct_cw_wm_content:   call KERNEL_SEG:cw_wm_content
-                    ret                     ; 9 / 3 sites
+                    ret                     ; 3 / 3 sites
 ct_cw_mem_disp:     call KERNEL_SEG:cw_mem_disp
-                    ret                     ; 8 / 6 sites
+                    ret                     ; 10 / 8 sites
 ct_toast_say:       call KERNEL_SEG:toast_say
-                    ret                     ; 8 / 8 sites
+                    ret                     ; 4 / 4 sites
 ct_cw_gfx_frame:    call KERNEL_SEG:cw_gfx_frame
-                    ret                     ; 8 / 7 sites
+                    ret                     ; 5 / 7 sites
 ct_font_width:      call KERNEL_SEG:font_width
-                    ret                     ; 7 / 5 sites
+                    ret                     ; 3 / 4 sites
 ct_fpg_begin:       call KERNEL_SEG:fpg_begin
-                    ret                     ; 6 / 5 sites
-ct_cw_inst_win_owner: call KERNEL_SEG:cw_inst_win_owner
-                    ret                     ; 6 / 5 sites
-ct_cw_gfx_xor_fill: call KERNEL_SEG:cw_gfx_xor_fill
-                    ret                     ; 5 / 3 sites
-ct_cw_wm_clip_test: call KERNEL_SEG:cw_wm_clip_test
-                    ret                     ; 5 / 3 sites
-ct_cw_snd_beep:     call KERNEL_SEG:cw_snd_beep
-                    ret                     ; 5 / 2 sites
-ct_fpg_end:         call KERNEL_SEG:fpg_end
-                    ret                     ; 4 / 4 sites
-ct_cw_task_yield:   call KERNEL_SEG:cw_task_yield
                     ret                     ; 4 / 3 sites
+ct_cw_inst_win_owner: call KERNEL_SEG:cw_inst_win_owner
+                    ret                     ; 5 / 4 sites
+ct_cw_gfx_xor_fill: call KERNEL_SEG:cw_gfx_xor_fill
+                    ret                     ; 3 / 3 sites
+%ifndef KERN_BIG                ; (kern_big: the far call itself - above)
+ct_cw_wm_clip_test: call KERNEL_SEG:cw_wm_clip_test
+                    ret                     ; - / 3 sites
+%else                           ; (kern_small: the far call itself - above)
+ct_cw_snd_beep:     call KERNEL_SEG:cw_snd_beep
+                    ret                     ; 4 / - sites
+%endif
+ct_fpg_end:         call KERNEL_SEG:fpg_end
+                    ret                     ; 3 / 3 sites
+; (ct_cw_task_yield went in kernel size pass 13: 3 / 2 sites, a wash on
+; kern_big and 2 bytes on kern_small - and the three far calls skip a near
+; call and a ret each, on loops that yield every pass)
 ct_cw_gfx_pen_cf:   call KERNEL_SEG:cw_gfx_pen_cf
-                    ret                     ; 4 / 4 sites
+                    ret                     ; 7 / 7 sites
 ct_cw_gfx_hline:    call KERNEL_SEG:cw_gfx_hline
                     ret                     ; 4 / 4 sites
 section .text
@@ -6481,8 +6523,10 @@ section .text                   ; that is not an error
 ; zones. Drawn on a mount, on a volume going away and on a click on bare
 ; desktop - never in a loop, and the module carries no data at all, so it
 ; moved whole with no section toggle in it.
-desk_rowcalc:     call COLD_SEG:desk_rowcalc_x
-              ret
+%ifndef KERN_SMALL              ; (kern_small: vid_switch, its one caller
+desk_rowcalc:     call COLD_SEG:desk_rowcalc_x ; there, is CTRL.DRV's and makes
+              ret                              ; the far call itself)
+%endif
 
 ; =============================================================================
 ; THE SHARED-EPILOGUE LADDER (SPEC.md 15.1.2)
@@ -7015,6 +7059,9 @@ MODP_BSS equ modpb_end - $$
 section .modd
 modd_end:
 MODD_SIZE equ modd_end - $$
+section .moddb
+moddb_end:
+MODD_BSS equ moddb_end - $$
 %endif
 
 ; ...and each of them has to fit the claim mod_need makes for it. MOD_MAX_KB
@@ -7063,6 +7110,9 @@ MODD_SIZE equ modd_end - $$
 %ifdef FDLG_MOD
  %if MODD_SIZE > MOD_MAX_KB*1024
 %error "the file dialog module is over MOD_MAX_KB - mod_need would refuse it at run time"
+ %endif
+ %if MODD_SIZE + MODD_BSS > ((MODD_SIZE + 1023) / 1024) * 1024
+%error "FDLG.DRV's bss does not fit its claim's KB rounding - see MODULE-SELFCONTAIN-PLAN 3.2"
  %endif
 %endif
 
