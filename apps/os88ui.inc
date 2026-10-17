@@ -1093,16 +1093,16 @@ os88ui_bhit:
 ; package that draws no check box and no radio carries them for nothing -
 ; Tracker, whose buttons are pictures and captions only (SPEC.md 13.8.9).
 ; Unset, every consumer is byte-identical.
-; OS88UI_KGLYPH (kernel/fdlg.inc, kern_small): the glyph's only caller on
-; that build is the Control Panel, which is CTRL.DRV - so the glyph, its ring
-; and its dot are assembled INTO CTRL.DRV's image there, `.modu`, and the
-; panel near-calls them; kern_big's stay in `.cold`, where the panel reaches
-; them through its CPXC hop (kernel size pass 13). The `section .cold` that
-; ends this block is the one below OS88UI_NOBTN's %endif. The section is
+; OS88UI_KGLYPH (kernel/fdlg.inc, both kernels): the glyph's only caller in
+; the kernel is the Control Panel, which is CTRL.DRV - so the glyph, its ring
+; and its dot are assembled INTO CTRL.DRV's image, `.modu`, and the panel
+; near-calls them (kernel size pass 13: kern_small first, then kern_big). The
+; drivers that draw a glyph on a panel page of their own (RAMDISK, SAVER,
+; ETHER) include this file themselves and carry their own. The `section .cold`
+; that ends this block is the one below OS88UI_NOBTN's %endif. The section is
 ; NAMED BY THE INCLUDER (OS88UI_KGLYPH = `.modu`) and not spelled here:
-; tools/os88ovlchk.py reads this file as `.cold` for both kernels, and a
-; literal section line here would file the glyph as the image's on kern_big
-; too, where `.cold` is exactly right
+; tools/os88ovlchk.py reads this file as `.cold`, which is what every other
+; block of it is in the kernel, so the panel's call is written CPXN
 %ifdef OS88UI_KGLYPH
  %ifndef OS88UI_KERNEL
   %error "OS88UI_KGLYPH is the kernel's: a package's glyph is in its own image"

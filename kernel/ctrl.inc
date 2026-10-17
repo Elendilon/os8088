@@ -264,9 +264,9 @@ CP_B1Y2   equ CP_PR0Y + CP_PROWH + CP_GW + 3  ; 61: row 1 (Cooperative) bottom
     dw %1
 %endmacro
 ; ...and CPXN, a plain near call to a routine os88ui.inc assembles INTO this
-; image on kern_small (OS88UI_KGLYPH): tools/os88ovlchk.py files that file as
-; `.cold` on both kernels, so the call is written through %1, which that scan
-; does not read - fdlg.inc's FDX/FDENT idiom
+; image (OS88UI_KGLYPH): tools/os88ovlchk.py files that file as `.cold` on
+; both kernels, so the call is written through %1, which that scan does not
+; read - fdlg.inc's FDX/FDENT idiom
 %macro CPXN 1
     call %1
 %endmacro
@@ -2654,11 +2654,7 @@ cp_gemit:
     mov byte [cp_skip], 0       ; ...one-shot (a `mov` writes no flags)
     jne .out
 %endif
-%ifdef KERN_SMALL
-    CPXN os88ui_glyph           ; IN THIS IMAGE on kern_small (OS88UI_KGLYPH)
-%else
-    CPXC os88ui_glyph           ; ...and resident `.cold` on kern_big
-%endif
+    CPXN os88ui_glyph           ; IN THIS IMAGE (OS88UI_KGLYPH, fdlg.inc)
 %ifdef KERN_BIG
 .out:
 %endif
