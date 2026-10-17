@@ -130859,7 +130859,8 @@ permutation: it stages an `origidx[]` and rewrites each item by its own shift.
 
 `+5` carries bold, underline, alignment and number format in one byte
 (`SH_FMT_*`). **Its numeric value IS the BIFF XF index** that the writer emits,
-which is what `SH_BIFF_XF_CAP` = 64 means — six used bits. **The two spare bits
+which is why there are 64 of them — six used bits (the reader's
+`SH_BIFF_XF_CAP` is 128, the border XFs of §81.22.3 sitting after them). **The two spare bits
 are not spare.** Putting anything else there would silently change every XF in
 every file this app writes. The value-model tag that a later stage needs
 therefore goes in a **new byte**, never in bits 6-7.
@@ -131384,6 +131385,24 @@ its OK handler.** `sh_fdlg_apply` only sets `sh_savepend`; `.doOK` calls
 a window slot the first still holds is how one ends up orphaned behind the
 other, and `MAX_WIN` is 12.
 
+#### 81.15.1 The format picked is the format written
+
+The rule above left one door open: the file dialog takes whatever name is
+typed, and the extension is what decides. Picking *Normal* and typing
+`T.XLS` wrote **SYLK** into a file called `T.XLS` — `.XLS` was not one of
+the three extensions, so it fell to the default — and the percent format and
+the borders the user had just set were gone on reopening, because SYLK as
+written then carried neither (§81.22.3).
+
+Two changes close it. **`.XLS` IS Normal**: `sh_namefmt` maps both `.BIF`
+and `.XLS` to the BIFF writer and reader, since `.XLS` is what every real
+Excel file of the period is called and what a person picking Normal types;
+Sheet also declares it as a fourth association. And **the choice is
+remembered** in `sh_wantfmt`: when the typed name implies a different
+format, `sh_ondlg` rewrites its extension to the chosen one, so `T.TXT` after
+Normal becomes `T.BIF` rather than a SYLK file. `sh_namefmt` is now the one
+rule — the writer, the reader and the dialog's preselection all ask it.
+
 ### 81.16 A formula must not wear the last cell it referenced
 
 `sh_getcell2` reads a cell's format byte, `SH_T_*` tag and text offset into
@@ -131433,6 +131452,53 @@ on answering the older question, correctly and uselessly, and report nothing.
 not duplicated, and `sh_fdlg_apply` walks the normalised range over it. A
 single-cell selection is a 1x1 range, so the old behaviour is a special case of
 the new one rather than a branch. One `sh_repaint` runs after the whole block.
+
+#### 81.17.1 The repaint after a format took a COLUMN for a window
+
+`sh_repaint`'s contract is `SI` = the window, and the block walk in
+`sh_fdlg_apply` used `SI` for the block's last column and then repainted.
+Column A is 0, so the geometry of "window" 0 was read out of the kernel's
+segment and the menu bar, the formula box and the status line were drawn
+where those bytes put them: a lasting copy of Sheet's own menu bar and
+reference box on the desktop above the window, and `Ready` drawn into the
+system menu bar, where its last letters showed as `eadSheet`. It happened
+after the FIRST Format dialog because Number, Alignment and Font are the
+dialogs that walk the block. `SI` is reloaded from `[sh_ownwin]` before the
+repaint.
+
+#### 81.17.2 Border applies to the SELECTION too
+
+Border was the fourth command written before blocks existed: it read and wrote
+the anchor cell alone, so *Outline* on `C4:E6` framed `C4`. `sh_bdlg_walk` does
+both halves over the block. **Each edge box means that side of the BLOCK** —
+Left is the left edge of the cells in its first column, Top the top edge of its
+first row — so Outline, which is all four, draws one frame round the block, and
+Shade means every cell. A cell's *mask* is the bits the dialog governs there
+(Shade, plus each block side it lies on); an inner edge set earlier is outside
+every mask and is kept. The dialog opens on what the block already has: an edge
+box is ticked when every cell on that side carries it. A single cell is a 1x1
+block whose four sides are its own, so the old behaviour is the special case.
+
+**Left and top are drawn one pixel IN.** A cell's gridlines are its own first
+column and row, so a left or top edge drawn there landed on the gridline and
+could not be seen — the frame Outline draws showed only its right and bottom
+sides, on one cell as on a block. Right and bottom were always visible because
+their pixel sits beside the *next* cell's gridline; `sh_drawborders` puts left
+and top beside this cell's own, so every edge is the same two-pixel line with
+gridlines on and one pixel with them off.
+
+This is Excel's meaning for Outline and not for the four edge boxes — Excel
+draws Left on *every* cell of a block — and that is deliberate: this dialog
+couples Outline to the four boxes (ticking it ticks them), so with Excel's
+meaning Outline on a block would rule every cell. One meaning for both is the
+one the dialog can show.
+
+#### 81.17.3 Percent multiplies by 100
+
+Percent appended a `%` to the digits, so `0.5` showed `0.5%`. Excel's Percent
+shows the value times a hundred and `0.5` is `50%`. `sh_numfmt` scales the
+accumulator by `fp_scale10` with 2 before formatting; only the display is
+scaled — the cell, the formula bar and every file keep `0.5`.
 
 ### 81.18 Copy, Cut and Paste move a BLOCK, as tab-separated text
 
@@ -131716,6 +131782,85 @@ it is still an error and that is the honest one to show. 75 bytes.
 Both measured with a host-side reader that shares no code with SHEET (the one
 this project's fork uses as its second opinion, `tools/os88sheetfmt.py` there),
 before and after, on this tree's build under MartyPC.
+
+#### 81.22.3 What each format carries: formats, borders and notes
+
+A Normal save lost the borders and every save lost the notes; SYLK lost
+Percent. What each format now carries, as far as the format itself can:
+
+| | Normal (`.BIF`/`.XLS`) | SYLK | DIF |
+|---|---|---|---|
+| number format, alignment | all four | all four (`$`, `%`, `;K`) | no |
+| bold, underline | yes | no | no |
+| borders and Shade | yes | yes (`;S`) | no |
+| notes | yes (`NOTE`) | yes (`;A`) | no |
+
+**BIFF has nowhere to put a border but the cell's XF**, and the 64 XFs are one
+per format byte (§81.4). So `sh_bxf_collect` gathers every distinct
+(format, border) pair in the border table — over every sheet, since a workbook
+writes its XFs once — and each gets an XF after the 64, `SH_BXF_BASE` + its
+index, with `XF_BORDER_34`'s four edges thin and black and `XF_AREA_34`'s fill
+pattern 2 for Shade. `sh_biff_xfof` gives a bordered cell its pair's XF; a
+bordered cell with no record of its own goes out as a `BLANK` (0201H) so the
+border has a cell to ride on. Past `SH_BXF_CAP` = 64 pairs a border is not
+written and nothing else is lost. The reader keeps `SH_BIFF_XF_CAP` = 128 XFs
+and a border byte for each (`sh_xf_bord`, any line style an edge and any fill
+pattern Shade), and `sh_biff_applyfmt` adds the border whether or not the
+record carried a value. A note is a `NOTE` record (001CH: row, column, length,
+text) after the sheet's cells.
+
+**SYLK's style field `;S`** carries the four edges as `L R T B` and Shade as
+`S`, each border in an `F` record of its own (`F;X3;Y4;SLT`) that the reader
+applies without touching the format; Excel's `D`, `I` and `M` letters are
+passed over. **A note is SYLK's comment field**, a `C` record carrying only
+`;A`, so it needs no value and disturbs none: a `;` in the text is doubled and
+a line break is ESC `" :"`, which is what Excel writes. Percent is `F`'s own
+`%` code.
+
+**DIF carries values only**, by its definition, and still does.
+
+### 81.23 New, Open and Close ask before throwing work away
+
+New and Open replaced the workbook without a word, and closing the window
+did the same. `[sh_modified]` is set by every routine that changes the
+document — `sh_addcell`, `sh_removecell`, the border and note tables' add and
+remove, `sh_fmt_one`, `sh_clear_one` — and cleared by New, by a read that
+said `Loaded`, and by a save that kept EVERYTHING: a truncated file, or SYLK
+or DIF keeping one sheet of several, leaves it set.
+
+`sh_ask_unsaved` puts §75.3's standard alert in front of all three —
+*Save changes to SHEET1.SLK?*, Save / Discard / Cancel, the question Note Pad
+and Word ask — with the action owed in `[sh_pend]`. **Save writes under the
+current name and goes on only if the save kept everything**; otherwise the
+status line says what happened and the workbook is still there, so Discard is
+a choice made knowing. Closing is §75.1's negotiator, `sh_onclose`, finishing
+with `OSAPI_WM_CLOSE`. A refused ask — an alert already up — changes nothing,
+`[sh_pend]` included, so the question already on the screen keeps the action
+it was asked for.
+
+#### 81.23.1 New resets the whole workbook
+
+New cleared the cells and the anchor but not the selection's EXTENT, so the
+fresh sheet came up with the old document's block (`A1:D9`) still framed. It
+resets `sh_selcol2`/`sh_selrow2`, the defined names (a new workbook has none)
+and the Sheets menu's tick too, and no longer repaints itself: it painted
+through whatever `SI` the New dialog's callback held, and its one caller
+repaints once after setting the status line.
+
+### 81.24 Row Height and Column Width are the whole sheet's, and stay so
+
+Both set one size for every row or column — `[sh_cellw]`, `[sh_cellh]` — and
+that is kept rather than fixed. Per-column widths would be cheap to STORE (256
+bytes, or a column-width record in each format), but every piece of geometry in
+Sheet is a multiply by the one size: `sh_geom` divides the content by
+`[sh_cellw]` to count the visible columns, the hit test, the selection frame,
+the gridlines, the scroll bars and the row blit all compute a cell's position
+as index × size. Per-column widths turn each of those into a running sum over
+the columns to the left, which is a redesign of the drawing and hit-testing
+layer, not a feature on top of it; per-row heights over 16,384 rows would need
+a sparse table as well. Neither is a file-format question — BIFF's `COLWIDTH`
+and SYLK's `F;W` exist — it is that the window could not draw what the file
+said.
 
 ### 81.30 The menu tick is a SOLID SQUARE
 
