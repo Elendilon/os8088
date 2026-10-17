@@ -72,7 +72,7 @@ opens a program, `ui.menu_pick("File", "Open...")` picks a menu item,
 `ui.m.type_text("hello")` and `ui.m.key("Enter")` type, `ui.window("Note Pad")`
 finds a window, `ui.mo` is the mouse (`tools/os88mouse.py`). Read
 docs/MARTYPC-DEBUG.md's "Start at tools/os88ui.py" if you need more.
-`shot(id)` takes the whole screen; `shot(id, window="Title")` crops to that
+`shot(id)` takes the whole screen (all 480 rows of a 320x240 game, which MartyPC's first display area would cut to 400); `shot(id, window="Title")` crops to that
 window; `shot(id, rect=(x, y, w, h))` to a rectangle.
 
 - **Placement.** `![caption](shot:id)` on its own line lets the page decide:

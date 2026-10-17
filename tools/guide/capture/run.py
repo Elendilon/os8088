@@ -57,6 +57,18 @@ def main(argv):
                 ui.settle()
             w, h, data = ui.m.fbuf()
             x0, y0, x1, y1 = 0, 0, w, h
+            if window is None and rect is None:
+                # MartyPC sizes a VGA's first aperture at 400 rows in some
+                # modes, which cuts the bottom 40 lines off a 320x240 Mode X
+                # screen: read the whole field and crop to 480 rows instead.
+                v = ui.m.video()
+                aps = v.get("apertures") or []
+                if v.get("type") == "vga" and aps and aps[0]["h"] < 480:
+                    a0 = aps[0]
+                    full = max(range(len(aps)), key=lambda i: aps[i]["w"] * aps[i]["h"])
+                    w, h, data = ui.m.fbuf(full)
+                    x0, y0 = a0["x"] - aps[full]["x"], a0["y"] - aps[full]["y"]
+                    x1, y1 = x0 + a0["w"], min(h, y0 + 480)
             if rect is not None:
                 x0, y0 = max(0, rect[0]), max(0, rect[1])
                 x1, y1 = min(w, rect[0] + rect[2]), min(h, rect[1] + rect[3])
