@@ -179267,7 +179267,12 @@ no room for the slack is taken without it. Not for EMS, nor in place
 
 On the Victory: the bank's fill modelled 672 -> ~748 KB/s, and every
 drained 32 KB chunk 11.2 -> ~6.6 ms. VIDEO.O88 +444 bytes, no kernel or
-driver byte. `vidxmsgap` and `vidbankgap` write G = 2,048 into the running
+driver byte. **The ring's room is planned with the slack in it** (`vp_kres`, 2026-10-17):
+a ring sized to every slot the free run held left nothing for the 2G on top,
+so at G = 2,048 the 4 KB seldom fitted what the rounding left and the claim
+fell back to an unplaced ring - `vidxmsgap` was red on that for a cycle, and
+the Victory measures 2,048. A layout that loses a slot to it is one whose
+copies all run at the board's fast gap. `vidxmsgap` and `vidbankgap` write G = 2,048 into the running
 player before Play - QEMU's own answer is 0, its copies having no banks to
 find - and hold the ring to the rule against the hold and against the bank
 with every frame still the decode's; VIDDISK X prints `xg_gap answers G`

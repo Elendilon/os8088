@@ -10382,7 +10382,12 @@ vp_sstart:
 ; is up (98.3.17), and a ring that took every slot refused it - and less
 ; the claim a seek reads its key's ENTRY into after the ring (98.3.14),
 ; which would otherwise quietly refuse: the entry, not the record, which is
-; read into the ring (vp_spos). 0 at the least. Preserves all but AX, flags
+; read into the ring (vp_spos) - and less THE GAP's slack (98.3.18.12), the
+; 2G the ring's claim takes on top of its slots, which a ring sized to every
+; slot the run holds left no room for: at G = 2048 the 4 KB rarely fit what
+; the rounding left, the claim fell back to an unplaced ring (vp_sstart's
+; `.rmx` retry), and the Victory's copies ran at their slow gap. 0 at the
+; least. Preserves all but AX, flags
 vp_kres:
     cmp byte [vp_audio], 0
     je .a
@@ -10402,10 +10407,19 @@ vp_kres:
     jz .r                           ; the mirror (vp_bbnc) - XMS's: EMS reads
                                     ; into its frame
     sub ax, VP_CHUNK / 1024
-    jnc .r
+    jc .z
+.r:
+    push bx                         ; THE GAP's slack: BX = its KB, 0 where
+    push ax                         ; the session will not place
+    xor ax, ax
+    call vp_xgpad
+    pop ax
+    sub ax, bx
+    pop bx
+    jnc .rr
 .z:
     xor ax, ax
-.r:
+.rr:
     ret
 
 ; vp_xmsbk - ZF=0: the session's bank is XMS's - [vp_xbank], and not EMS's

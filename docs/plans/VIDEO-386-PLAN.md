@@ -168,9 +168,11 @@ measures the CPU side honestly and the disk side pessimistically.
   The refusal is the safe stop. The real fix is planning the layer's slots,
   split and bank for an in-place ring. Once that exists the refusal comes out,
   because nothing about a layer is incompatible with reading in place.
-- **The ring at THE GAP when G = 2048** (98.3.18.12). `vidxms`, `vidxmsbios`
-  and `vidxmsgap` fail on `origin/elendilon` too, so the defect is not this
-  branch's. The ring is sized to every slot the free run holds and the 2G of
+- **The ring at THE GAP when G = 2048** (98.3.18.12) - FIXED 2026-10-17, the
+  owner's call: `vp_kres` reserves the slack, so the ring is planned with it
+  and a layout that loses a slot to it copies at the fast gap. What it was:
+  `vidxms`, `vidxmsbios` and `vidxmsgap` failed on `origin/elendilon` too, so
+  the defect was not this branch's. The ring is sized to every slot the free run holds and the 2G of
   slack is then claimed on top of it. G = 1024 needs 2 KB of slack, which the
   slot rounding usually leaves; G = 2048 needs 4 KB, which it often does not.
   The claim then falls back to an unplaced ring (`.rmx`'s retry), and the
