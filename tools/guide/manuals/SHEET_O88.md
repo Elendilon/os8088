@@ -13,8 +13,8 @@ workbook.
 
 Sheet is on the Office disk, at the top level of the disk. On the larger
 applications disks it is in the `APPS` folder. Double-click **SHEET.O88** to
-start with an empty sheet, or double-click a spreadsheet file (`.SLK`, `.DIF`
-or `.BIF`) to open Sheet on that file. The Office disk has a sample in its
+start with an empty sheet, or double-click a spreadsheet file (`.SLK`, `.DIF`,
+`.BIF` or `.XLS`) to open Sheet on that file. The Office disk has a sample in its
 `MEDIA` folder, [[SALES.SLK]].
 
 Sheet needs about 100KB of free memory. If the machine cannot spare that,
@@ -168,13 +168,18 @@ OK. They apply to every cell in the selection.
 
 | Dialog | Choices |
 |---|---|
-| Number | **General** (as typed), **Currency** (a `$` in front), **Comma** (thousands separated by commas), **Percent** (a `%` after the number) |
+| Number | **General** (as typed), **Currency** (a `$` in front), **Comma** (thousands separated by commas), **Percent** (the number times 100 with a `%` after it, so `0.5` shows `50%`) |
 | Alignment | **General** (numbers right, labels left), **Left**, **Center**, **Right** |
 | Font | **Normal**, **Bold**, **Underline**, **Bold, Underline** |
 | Border | tick any of **Outline**, **Left**, **Right**, **Top**, **Bottom** and **Shade** |
 
-Percent only adds the sign. It does not multiply by 100, so type `15` to see
-`15%`. Border applies to the selected cell, not to a whole block.
+Percent changes only how the number looks: a cell showing `50%` still
+holds `0.5`, and a formula using it gets `0.5`.
+
+Border works on the whole selection. **Left**, **Right**, **Top** and
+**Bottom** draw that side of the selected block, so **Outline**, which ticks
+all four, draws a frame round it. **Shade** shades every cell in the block.
+Lines already drawn inside the block are kept.
 
 **Row Height...** and **Column Width...** ask for a number. Column width is
 in characters, from 1 to 40; row height is in pixels, from 8 to 48. Both
@@ -253,7 +258,7 @@ The **Sheets** menu lists **Sheet1** to **Sheet4**; the one you are looking
 at is marked. Choose another to switch to it. A formula reaches another
 sheet with a reference like `Sheet3!B2`.
 
-Only the Normal (`.BIF`) file format keeps all four sheets. SYLK and DIF
+Only the Normal (`.BIF` or `.XLS`) file format keeps all four sheets. SYLK and DIF
 save the sheet you are looking at, and the status line says so.
 
 ## Macros
@@ -279,13 +284,18 @@ sheet.
 
 | Item | What it does |
 |---|---|
-| New... | asks Worksheet, Chart or Macro Sheet. Each one empties the workbook and starts a new one called `SHEET1.SLK` |
+| New... | asks Worksheet, Chart or Macro Sheet. Each one empties the workbook, its names included, and starts a new one called `SHEET1.SLK` |
 | Open... | opens a spreadsheet file |
 | Save | saves under the current name |
 | Save As... | asks for the file format, then for the name |
 | Print... | Sheet cannot print; it says so |
 
-New and Open do not ask about unsaved work. Save first.
+If the workbook has changes that are not saved, New, Open and closing the
+window first ask **Save changes to** the file. **Save** saves it under its
+current name and carries on, **Discard** carries on without saving, and
+**Cancel** leaves everything as it was. If the save could not keep
+everything, for example because a SYLK file keeps only one sheet, Sheet stops
+and says so on the status line instead of carrying on.
 
 To quit, choose **Close** from the Sheet menu at the top of the screen.
 
@@ -295,14 +305,17 @@ Sheet reads and writes three formats and picks one by the file's extension.
 
 | Format | Extension | Keeps |
 |---|---|---|
-| Normal | `.BIF` | Excel's own format: values, labels, formulas, formats and all four sheets |
-| SYLK | `.SLK` | values, labels, formulas and formats, one sheet |
+| Normal | `.BIF` or `.XLS` | Excel's own format: values, labels, formulas, number formats, alignment, bold and underline, borders, notes and all four sheets |
+| SYLK | `.SLK` | values, labels, formulas, number formats, alignment, borders and notes, one sheet |
 | DIF | `.DIF` | values and labels only, one sheet |
 
 Save As starts on the format the current name has, so OK alone keeps the file
-in its format. Saving recalculates every formula first, so the file holds
+in its format. The format you pick is the one that is saved: if the name you
+type ends in an extension for another format, Sheet changes the extension to
+match, so `REPORT.TXT` saved as Normal becomes `REPORT.BIF`. Saving recalculates every formula first, so the file holds
 up-to-date results. These files also open in Excel and in other spreadsheets
-that read these formats. Notes are not saved in any of them.
+that read these formats. Defined names, row height and column width are not
+saved in any of them.
 
 ## Good to know
 
