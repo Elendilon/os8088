@@ -275,7 +275,8 @@ const EXT = {
 };
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const baseName = p => { const f = p.endsWith("/"); const n = p.replace(/\/$/, "").split("/").pop(); return f ? n + "/" : n; };
-function info(name) {
+function info(name, pi) {
+  if (pi != null && D.pinfo[pi]) { const [kind, title, summary] = D.pinfo[pi]; return { kind, title, summary, needs: "", described: true }; }
   const e = D.entries[name];
   if (e) return { kind: e.kind || "document", title: e.title || name, summary: e.summary || "", needs: e.needs || "", described: true };
   if (name.endsWith("/")) return { kind: "folder", title: name.slice(0, -1), summary: "A folder", needs: "", described: false };
@@ -356,15 +357,15 @@ const COLLAPSED = new Set(["FONTS"]);
 const HIDDEN = 0x06;                                // FAT hidden | system
 function treeRows(d) {
   const kids = { "": [] };
-  (d.tree || []).forEach(([p, size, attr]) => {
+  (d.tree || []).forEach(([p, size, attr, pi]) => {
     const dir = p.endsWith("/"), parts = p.replace(/\/$/, "").split("/"), par = parts.slice(0, -1).join("/");
-    (kids[par] ||= []).push({ p, size, attr: attr || 0, dir, name: parts[parts.length - 1] });
+    (kids[par] ||= []).push({ p, size, attr: attr || 0, dir, pi, name: parts[parts.length - 1] });
     if (dir) kids[parts.join("/")] ||= [];
   });
   const order = (a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name);
   const out = [];
   function row(e, depth) {
-    const key = d.id + ":" + e.p, n = baseName(e.p), i = info(n), ch = e.dir ? kids[e.p.replace(/\/$/, "")] : null;
+    const key = d.id + ":" + e.p, n = baseName(e.p), i = info(n, e.pi), ch = e.dir ? kids[e.p.replace(/\/$/, "")] : null;
     let open = false;
     if (e.dir) open = key in st.open ? st.open[key] : !COLLAPSED.has(e.name) && (depth === 0 ? ch.length <= 40 : ch.length <= 12);
     const cur = st.item === e.p;
@@ -420,11 +421,15 @@ function drawDiskInfo(d) {
   const other = siblingsInOtherSizes(d);
   let h = `<div class="ident"><span class="ic">${icon(d.file.endsWith(".iso") ? "cd" : "disk", 30)}</span><h2>${esc(d.role)}</h2><span class="fn">${esc(d.file)} · ${esc(geoLabel[d.geo])}</span></div>
     <p class="lede">${esc(D.blurbs[d.role] || D.blurbs[s.title] || s.desc)}</p><dl class="facts">`;
-  h += `<dt>Release group</dt><dd>${esc(s.groupTitle)}</dd>`;
+  const g = D.geos.find(x => x.key === d.geo);
+  if (g && d.geo !== "hdd") h += `<dt>Drive</dt><dd>${esc(g.hint)}</dd>`;
   if (d.built && d.clusters) h += `<dt>Space</dt><dd>${kb((d.clusters - d.free) * d.csize)} used, ${kb(d.free * d.csize)} free (${(d.clusters - d.free).toLocaleString()} of ${d.clusters.toLocaleString()} clusters)</dd>`;
   if (pair.length) h += `<dt>${s.group === "viddemo" ? "Other adapters" : "Goes with"}</dt><dd><div class="chips">${pair.map(x => diskChip(x, x.role)).join("")}</div></dd>`;
   if (other.length) h += `<dt>Other sizes</dt><dd><div class="chips">${other.map(x => diskChip(x)).join("")}</div></dd>`;
   h += `</dl>`;
+  const slug = t => t.toLowerCase().replace(/,.*$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const page = D.diskpages[slug(d.role)] || D.diskpages[slug(s.title)];
+  if (page) h += `<div class="manual">${page}</div>`;
   if (progs.length) {
     h += `<div class="eyebrow">Programs on this disk</div><ul class="prog-list">${progs.map(([p]) => { const n = baseName(p), i = info(n);
       return `<li><button data-path="${esc(p)}"><span>${esc(i.title)}</span><span class="mono">${esc(n)}</span></button></li>`; }).join("")}</ul>`;
@@ -432,8 +437,9 @@ function drawDiskInfo(d) {
   return h;
 }
 function drawItemInfo(d, path) {
-  const n = baseName(path), i = info(n), man = D.manuals[n.replace(/\/$/, "").replace(/\./g, "_")] || D.manuals[n];
-  const size = (d.tree.find(([p]) => p === path) || [0, 0])[1];
+  const row = d.tree.find(([p]) => p === path) || [path, 0];
+  const n = baseName(path), i = info(n, row[3]), man = row[3] == null && (D.manuals[n.replace(/\/$/, "").replace(/\./g, "_")] || D.manuals[n]);
+  const size = row[1];
   const seen = (where[n] || []).map(([id]) => disk[id]);
   const byGeo = {};
   seen.forEach(x => { (byGeo[x.geo] ||= []).push(x); });

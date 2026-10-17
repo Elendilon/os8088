@@ -49,11 +49,18 @@ def main(argv):
     os.makedirs(OUT, exist_ok=True)
     with os88ui.boot(os.path.join(ROOT, a.image), apps=os.path.join(ROOT, a.apps),
                      machine=a.machine) as ui:
-        def shot(sid, window=None, pad=6):
-            ui.m.settle() if hasattr(ui.m, "settle") else None
+        def shot(sid, window=None, pad=6, rect=None, settle=True):
+            """Write build/guide/shots/<sid>.png: the whole screen, the window
+            whose title starts with `window` (plus `pad` pixels of desktop),
+            or an explicit (x, y, w, h) `rect`."""
+            if settle:
+                ui.settle()
             w, h, data = ui.m.fbuf()
             x0, y0, x1, y1 = 0, 0, w, h
-            if window is not None:
+            if rect is not None:
+                x0, y0 = max(0, rect[0]), max(0, rect[1])
+                x1, y1 = min(w, rect[0] + rect[2]), min(h, rect[1] + rect[3])
+            elif window is not None:
                 win = ui.window(window)
                 x, y, ww, hh = ui._rect(win.i)
                 x0, y0 = max(0, x - pad), max(0, y - pad)

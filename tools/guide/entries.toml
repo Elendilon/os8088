@@ -589,3 +589,277 @@ summary = "Original 1990s-style game music as a MIDI song. Plays in MIDIRack."
 title = "Turkish March"
 kind = "music"
 summary = "Mozart's Rondo alla Turca as a MIDI song. Plays in MIDIRack."
+
+# --- the one-program disks, the everything set and the demo drives ------------
+
+["1942.O88"]
+title = "1942"
+kind = "program"
+summary = "Air combat after the 1942 arcade game: 32 stages, one or two players, music on an AdLib or Sound Blaster."
+needs = "A VGA or CGA card"
+
+["APPLE2.O88"]
+title = "Apple II Plus"
+kind = "program"
+summary = "An Apple II Plus in a window, with Applesoft BASIC and the monitor built in."
+
+["APPLE2/"]
+title = "Apple II Plus"
+kind = "folder"
+summary = "The Apple II Plus program, its README, its licence and a BASIC program to load."
+
+["C64.O88"]
+title = "Commodore 64"
+kind = "program"
+summary = "A Commodore 64 in a window, with its KERNAL, BASIC and character ROMs built in."
+
+["C64/"]
+title = "Commodore 64"
+kind = "folder"
+summary = "The Commodore 64 program and its licence."
+
+["COPYING"]
+title = "Licence"
+kind = "document"
+summary = "The program's licence, the GNU General Public License."
+
+["WELCOME.BAS"]
+title = "Welcome program"
+kind = "document"
+summary = "An Applesoft BASIC program to load into the Apple II Plus."
+
+["CWORD.O88"]
+title = "Word, C edition"
+kind = "program"
+summary = "Word written again in C: the same menus, ruler and documents."
+
+["CWORD/"]
+title = "Word, C edition"
+kind = "folder"
+summary = "The C edition of Word and its welcome document."
+
+["WORD/"]
+title = "Word"
+kind = "folder"
+summary = "Word and its welcome document."
+
+["WELCOME.RTF"]
+title = "Welcome document"
+kind = "document"
+summary = "A sample document introducing the word processor. Double-click to open it."
+
+["SCRIBE.O88"]
+title = "Scribe"
+kind = "program"
+summary = "A word processor on Word's document format, with its own program and choices."
+
+["SCWELCOM.RTF"]
+title = "Scribe welcome"
+kind = "document"
+summary = "A sample document introducing Scribe. Double-click to open it."
+
+["DOCS/"]
+title = "Documents"
+kind = "folder"
+summary = "A place to keep your documents."
+
+["FROTZ.O88"]
+title = "Frotz"
+kind = "program"
+summary = "Plays interactive fiction: text adventures in the Infocom story format."
+
+["PACCMAN.O88"]
+title = "PaccMan"
+kind = "program"
+summary = "Arcade-accurate Pac-Man with the four ghosts and their personalities. Full speed wants a 386."
+
+["PACCMAN/"]
+title = "PaccMan"
+kind = "folder"
+summary = "PaccMan and its README."
+
+["README.MD"]
+title = "Read Me"
+kind = "document"
+summary = "Notes on the program: what it is, its keys and where it came from."
+
+["REDLINE.O88"]
+title = "REDLINE"
+kind = "program"
+summary = "A benchmark that times 25 workloads and scores your PC against a 4.77 MHz IBM PC."
+
+["MIDIRACK.BNK"]
+title = "MIDIRack instruments"
+kind = "music"
+summary = "The wavetable instruments MIDIRack plays through a Sound Blaster."
+
+["RUNCPM.O88"]
+title = "RunCPM"
+kind = "program"
+summary = "Runs CP/M 2.2 programs in a window: games, WordStar, Turbo Pascal and more."
+
+["RUNCPM/"]
+title = "RunCPM"
+kind = "folder"
+summary = "The CP/M emulator and its drive A, with the master disk and the software collection."
+
+["1STREAD.ME"]
+title = "RunCPM read me"
+kind = "document"
+summary = "RunCPM's own notes on what is on drive A and how to start."
+
+["LICENSE"]
+title = "Licence"
+kind = "document"
+summary = "RunCPM's licence."
+
+["CONTENTS.TXT"]
+title = "Contents"
+kind = "document"
+summary = "Which disk of the everything set holds which program."
+
+["PICTURES/"]
+title = "Pictures"
+kind = "folder"
+summary = "Sample pictures in many formats to open in PiXEL."
+
+["BALLOONS.PNG"]
+title = "Balloons"
+kind = "picture"
+summary = "A sample PNG picture."
+
+["BOUNCE.GIF"]
+title = "Bounce"
+kind = "picture"
+summary = "A sample GIF picture."
+
+["CAT.GIF"]
+title = "Cat"
+kind = "picture"
+summary = "A sample GIF picture."
+
+["CITY.PCX"]
+title = "City"
+kind = "picture"
+summary = "A sample PCX picture."
+
+["FLOWER.JPG"]
+title = "Flower"
+kind = "picture"
+summary = "A sample JPEG photograph."
+
+["HOUSE.PNG"]
+title = "House"
+kind = "picture"
+summary = "A sample PNG picture."
+
+["MOUNTAIN.BMP"]
+title = "Mountain"
+kind = "picture"
+summary = "A sample BMP picture."
+
+["ROOM.JPG"]
+title = "Room"
+kind = "picture"
+summary = "A sample JPEG photograph."
+
+["VACATION.JPG"]
+title = "Vacation"
+kind = "picture"
+summary = "A sample JPEG photograph."
+
+["WEAVE.O88"]
+title = "Weave"
+kind = "program"
+summary = "Runs Weave apps: programs made of markup, script and formulas, packed into one .WAB file."
+
+["WEAVE/"]
+title = "Weave"
+kind = "folder"
+summary = "The Weave runtime and the demo apps, ready to run."
+
+["LOOM.O88"]
+title = "Loom"
+kind = "program"
+summary = "The Weave editor: change an app's sources and pack it into a .WAB on the machine."
+
+["LOOM/"]
+title = "Loom"
+kind = "folder"
+summary = "The Weave editor and the demo apps' sources."
+
+["CATALOG.TXT"]
+title = "Catalog"
+kind = "document"
+summary = "What each Weave app on this disk is, and how to open it."
+
+["FORM.WAB"]
+title = "Form demo"
+kind = "program"
+summary = "A Weave app: a form with fields and buttons. Double-click to run it in Weave."
+
+["PONG.WAB"]
+title = "Pong demo"
+kind = "program"
+summary = "A Weave app: the game Pong. Double-click to run it in Weave."
+
+["SHEET.WAB"]
+title = "Sheet demo"
+kind = "program"
+summary = "A Weave app: a small spreadsheet. Double-click to run it in Weave."
+
+["FORM.WML"]
+title = "Form markup"
+kind = "document"
+summary = "The Form demo's layout, in Weave markup. Open it in Loom."
+
+["FORM.WJS"]
+title = "Form script"
+kind = "document"
+summary = "The Form demo's script. Open it in Loom."
+
+["PONG.WML"]
+title = "Pong markup"
+kind = "document"
+summary = "The Pong demo's layout, in Weave markup. Open it in Loom."
+
+["PONG.WJS"]
+title = "Pong script"
+kind = "document"
+summary = "The Pong demo's game logic. Open it in Loom."
+
+["PONG.WSP"]
+title = "Pong sprites"
+kind = "picture"
+summary = "The Pong demo's sprite art, as text. Open it in Loom."
+
+["SHEET.WML"]
+title = "Sheet markup"
+kind = "document"
+summary = "The Sheet demo's layout, in Weave markup. Open it in Loom."
+
+["SHEET.WJS"]
+title = "Sheet script"
+kind = "document"
+summary = "The Sheet demo's script. Open it in Loom."
+
+["SHEET.WFX"]
+title = "Sheet formulas"
+kind = "document"
+summary = "The Sheet demo's cell formulas. Open it in Loom."
+
+["VMMOUSE.DRV"]
+title = "Emulator pointer"
+kind = "driver"
+summary = "Moves the pointer straight to where your real mouse is, in emulators that support it, with no capture."
+needs = "A 386 or later, in an emulator"
+
+["SYSTEM.CFG"]
+title = "Settings"
+kind = "system"
+summary = "The system's saved settings. On this disk it turns the emulator pointer on."
+
+["00-VIDS.TXT"]
+title = "About these videos"
+kind = "document"
+summary = "What each demo video is, what it needs, and how to play it."

@@ -121,6 +121,10 @@ TOOLS = [
                 "today's web, including secure (https) sites.",
      "files": [("tools/os88proxy.py", "The proxy, run from a terminal."),
                ("tools/os88proxygui.py", "The same proxy with a window. Also builds the Windows .exe.")]},
+    {"id": "tool-imager", "title": "Disk imager",
+     "summary": "Writes any os8088 image to a real floppy, USB stick, CompactFlash "
+                "card or CD on a Mac, and checks every byte it wrote.",
+     "files": [("tools/os88imager.py", "The imager. `make imager` runs the same thing.")]},
     {"id": "tool-burn", "title": "Media burner",
      "summary": "A guided way to write the live USB image to a flash drive, "
                 "or burn the live CD, on a Mac.",
@@ -348,6 +352,17 @@ def md(text, shots):
     return "\n".join(out)
 
 
+def load_pages(sub):
+    """tools/guide/<sub>/*.md, keyed by file name: the disk pages."""
+    d = os.path.join(GUIDE, sub)
+    out = {}
+    if os.path.isdir(d):
+        for fn in sorted(os.listdir(d)):
+            if fn.endswith(".md"):
+                out[fn[:-3]] = md(open(os.path.join(d, fn), encoding="utf-8").read(), {})
+    return out
+
+
 def load_manuals():
     d = os.path.join(GUIDE, "manuals")
     shots_dir = os.path.join(BUILD, "guide", "shots")
@@ -373,7 +388,73 @@ def load_manuals():
 
 
 # --- the data the page is built from ------------------------------------------
-def disk_record(n, set_id, gkey, section, role, geo=None):
+# --- descriptions that depend on WHERE a file is, not only its name ----------
+CPM_EXT = {
+    "COM": ("program", "A CP/M program"), "SUB": ("data", "A CP/M batch file, run with SUBMIT"),
+    "ASM": ("document", "Assembly language source"), "Z80": ("document", "Z80 assembly source"),
+    "MAC": ("document", "Assembly language source"), "PAS": ("document", "Turbo Pascal source"),
+    "INC": ("document", "Turbo Pascal source, included by another"), "TXT": ("document", "Documentation"),
+    "DOC": ("document", "Documentation"), "ME": ("document", "Read this first"),
+    "HLP": ("document", "Help text"), "LIB": ("data", "A library for the assembler"),
+    "LBR": ("data", "A CP/M library archive"), "OVR": ("program", "Part of a program, loaded as it runs"),
+}
+
+
+def cpm_areas():
+    """RunCPM's user areas, from tools/getcpmsw.py's own table."""
+    try:
+        import getcpmsw
+    except Exception:
+        return {}
+    out = {"0": ("User area 0", "RunCPM's master disk: the CP/M command processor, its utilities and their documentation.", {})}
+    for _, dest, what, how, titles in getcpmsw.AREAS:
+        area = dest.split("/")[1]
+        progs = {}
+        for t, d in titles:
+            for name in t.split("/"):
+                progs[name] = d
+        out[area] = ("User area %d" % int(area, 16), "%s. Type %s at the A> prompt to reach it." % (what[:1].upper() + what[1:], how), progs)
+    return out
+
+
+def viddemo_titles(adapter):
+    """Each video's lines from the folder's own 00-VIDS.TXT."""
+    p = os.path.join(ROOT, "apps", "video", "demo", adapter, "00-VIDS.TXT")
+    out, cur = {}, None
+    for line in open(p, encoding="utf-8", errors="replace"):
+        if re.match(r"^\S+\.V88\s*$", line):
+            cur = line.strip()
+            out[cur] = []
+        elif cur and line.startswith("  ") and line.strip():
+            out[cur].append(line.strip())
+        elif cur and not line.strip() and out[cur]:
+            cur = None
+    return out
+
+
+def path_info(d, path, cpm, vids):
+    """(kind, title, summary) for a file whose meaning is its place, or None."""
+    m = re.search(r"(?:^|/)A/([0-9A-F])/(?:([^/]+))?$", path)
+    if m and cpm:
+        area = cpm.get(m.group(1))
+        if not m.group(2):
+            return ("folder", area[0], area[1]) if area else None
+        name = m.group(2)
+        stem, _, ext = name.partition(".")
+        if area and stem in area[2] and ext == "COM":
+            return ("program", stem, area[2][stem][:1].upper() + area[2][stem][1:] + ".")
+        k = CPM_EXT.get(ext)
+        return (k[0], name, k[1] + ".") if k else ("data", name, "A file this area's programs use.")
+    if re.search(r"(?:^|/)A/$", path) and cpm:
+        return ("folder", "Drive A", "CP/M's drive A. Each folder inside it is one user area.")
+    name = path.split("/")[-1]
+    if name in vids:
+        v = vids[name]
+        return ("video", v[0], " · ".join(v[1:]))
+    return None
+
+
+def disk_record(n, set_id, gkey, section, role, geo=None, vids=None, pinfo=None):
     path = os.path.join(BUILD, n)
     geo = geo or geo_of(path, n)
     d = {"id": re.sub(r"[^a-z0-9]+", "-", n.lower()), "file": n, "geo": geo, "set": set_id,
@@ -385,8 +466,17 @@ def disk_record(n, set_id, gkey, section, role, geo=None):
             s = None
             d["error"] = str(e)
         if s:
-            d.update(built=True, free=s["free"], clusters=s["clusters"], csize=s["csize"],
-                     tree=[[k, v[0], v[1]] for k, v in s["files"].items()])
+            cpm = CPM if any(k.endswith("RUNCPM.O88") for k in s["files"]) else None
+            tree = []
+            for k, v in s["files"].items():
+                row = [k, v[0], v[1]]
+                pi = path_info(d, k, cpm, vids or {}) if pinfo is not None else None
+                if pi:
+                    if pi not in pinfo:
+                        pinfo.append(pi)
+                    row.append(pinfo.index(pi))
+                tree.append(row)
+            d.update(built=True, free=s["free"], clusters=s["clusters"], csize=s["csize"], tree=tree)
         d["bytes"] = os.path.getsize(path)
         if n.endswith(".iso"):
             d["built"] = True
@@ -401,7 +491,9 @@ def collect():
     if os.path.exists(p):
         with open(p, "rb") as f:
             entries = tomllib.load(f)
-    disks, sets = [], []
+    global CPM
+    CPM = cpm_areas()
+    disks, sets, pinfo = [], [], []
     for gkey, gtitle, _ in mk.GROUPS:
         if gkey == "about":
             continue
@@ -421,7 +513,7 @@ def collect():
             set_id = "set-" + re.sub(r"[^a-z0-9]+", "-", (gkey + " " + title).lower()).strip("-")
             members = []
             for n in names:
-                d = disk_record(n, set_id, gkey, SECTION.get(gkey, "own"), role_of(n, title, files))
+                d = disk_record(n, set_id, gkey, SECTION.get(gkey, "own"), role_of(n, title, files), pinfo=pinfo)
                 members.append(d["id"])
                 disks.append(d)
             sets.append({"id": set_id, "group": gkey, "groupTitle": gtitle,
@@ -434,7 +526,8 @@ def collect():
         for a in adapters:
             n = "VIDDEMO-%s-ST11R.VHD" % a.upper()
             d = disk_record(n, "set-viddemo", "viddemo", "viddemo",
-                            "%s demo drive" % VIDDEMO_NAMES.get(a, a.upper()), geo="hdd")
+                            "%s demo drive" % VIDDEMO_NAMES.get(a, a.upper()), geo="hdd",
+                            vids=viddemo_titles(a), pinfo=pinfo)
             members.append(d["id"])
             disks.append(d)
         sets.append({"id": "set-viddemo", "group": "viddemo", "groupTitle": "Video demo hard drives",
@@ -460,8 +553,8 @@ def collect():
     except Exception:
         commit, count = "?", "?"
     return {"geos": [{"key": k, "label": l, "hint": h} for k, l, h in GEOS],
-            "sectionTitles": SECTION_TITLE, "blurbs": BLURB, "sets": sets, "disks": disks,
-            "entries": entries, "manuals": load_manuals(),
+            "sectionTitles": SECTION_TITLE, "blurbs": BLURB, "sets": sets, "disks": disks, "pinfo": pinfo,
+            "entries": entries, "manuals": load_manuals(), "diskpages": load_pages("disks"),
             "tools": tools, "firmware": firmware,
             "build": {"commit": commit, "count": count}}
 
@@ -469,7 +562,9 @@ def collect():
 def missing(data):
     seen = {}
     for d in data["disks"]:
-        for path, *_ in d.get("tree", []):
+        for path, *rest in d.get("tree", []):
+            if len(rest) > 2:
+                continue
             n = path.rstrip("/").split("/")[-1] + ("/" if path.endswith("/") else "")
             seen.setdefault(n, set()).add(d["file"])
     return sorted((n, sorted(v)) for n, v in seen.items() if n not in data["entries"])

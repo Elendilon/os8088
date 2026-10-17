@@ -1,0 +1,99 @@
+# Writing a manual for the project guide
+
+The guide (`tools/os88guide.py`) shows every released disk; clicking a program
+opens its manual in the Info window. A manual is written for a PERSON USING
+os8088, and should be able to stand on its own as that program's manual.
+
+## Files
+
+| file | what |
+|---|---|
+| `tools/guide/manuals/<NAME>_<EXT>.md` | the manual, e.g. `NOTEPAD_O88.md` for `NOTEPAD.O88` |
+| `tools/guide/capture/<NAME>_<EXT>.py` | its screenshot script (one `capture(ui, shot)` function) |
+| `build/guide/shots/<id>.png` | the screenshots it takes. Never committed |
+
+`tools/guide/manuals/CALC_O88.md` and `tools/guide/capture/CALC_O88.py` are the
+worked example. Match their tone and shape.
+
+## The shape of a manual
+
+```
+# <Program name, as its window or menu bar calls it>
+
+One or two paragraphs: what the program is and what you can do with it.
+
+![Caption saying what the picture shows.](shot:<prefix>-window)
+
+## Starting <Program>
+Where it lives (which folder) and how to open it; whether several can be open.
+What it needs, if anything (a sound card, VGA, a hard disk, a network card...).
+
+## <The main things you do with it>      one section per real task, in the
+## ...                                   order a new user meets them
+
+## The <X> menu                          a table: Item | Key | What it does
+## Keys                                  only if there are keys not on a menu
+
+## Files                                 what it opens and saves, and where
+
+## Good to know                          limits, refusals, tips, short list
+```
+
+Supported Markdown: `#`/`##`/`###` headings, paragraphs, `-` and `1.` lists,
+`| tables |`, `> note`, `**bold**`, `*italic*`, `` `code` ``, links, and
+`![caption](shot:id)` on a line of its own. Nothing else (no HTML, no nested
+lists, no code blocks).
+
+## Rules for the words
+
+- **User-facing only.** Never mention SPEC.md, section numbers (§), `OSAPI_*`,
+  kernel internals, the assembler, cycle counts, memory layouts, or how the
+  program is built. Say what the user sees and does.
+- **Every fact comes from the source.** Menu items, keys, limits and messages
+  are in the package's source (`apps/<dir>/`, its strings and key tables) and in
+  its SPEC.md section. Read those; do not guess and do not describe a feature
+  the program does not have. Use the exact menu and item names the program
+  shows.
+- Plain, direct sentences. Active voice. No em-dashes, no "not X but Y", no
+  marketing. Short paragraphs.
+- Name other programs by their window names (Note Pad, TeXPad, Paint...).
+- Length follows the program: a small game is ~300 words, Paint or Sheet can
+  be 1,500+. Cover every menu item and every key; skip nothing a user can
+  touch.
+
+## Screenshots
+
+    python3 tools/guide/capture/run.py <NAME>_<EXT> [--apps build/<disk>.img] [--machine os8088_xt_vga]
+
+boots the 360KB system disk with `build/apps360.img` in B: on a VGA XT under
+MartyPC (one boot, about a minute), runs your `capture(ui, shot)`, and writes
+the PNGs. `ui` is `tools/os88ui.py`'s UI: `ui.path("B:/APPS/NOTEPAD.O88")`
+opens a program, `ui.menu_pick("File", "Open...")` picks a menu item,
+`ui.m.type_text("hello")` and `ui.m.key("Enter")` type, `ui.window("Note Pad")`
+finds a window, `ui.mo` is the mouse (`tools/os88mouse.py`). Read
+docs/MARTYPC-DEBUG.md's "Start at tools/os88ui.py" if you need more.
+`shot(id)` takes the whole screen; `shot(id, window="Title")` crops to that
+window; `shot(id, rect=(x, y, w, h))` to a rectangle.
+
+- Prefix every shot id with the program, e.g. `notepad-window`,
+  `notepad-find`. Ids are lowercase letters, digits and dashes.
+- **3 to 8 shots per program**, each showing something the text describes.
+  The first is the program open and doing something real (not an empty
+  window), placed right after the opening paragraphs.
+- Programs on other disks: pass `--apps build/word360.img` and so on (the
+  disk list is in `build/`; files are at the root or in a folder - check with
+  `python3 tools/os88fat.py ls build/<disk>.img`).
+- Fullscreen programs and games: a whole-screen `shot(id)` once the game is
+  running. If a program cannot be reached on this machine (it needs a network
+  card, a 286, a sound card MartyPC lacks), use a screenshot of what CAN be
+  shown and say in the text what it needs.
+- LOOK at every PNG you take (open it) before you put it in the manual. A
+  shot that shows the wrong thing is worse than none.
+
+## Budget
+
+These are pictures for a manual, not tests. One to three capture runs per
+program, no soak rows, no `make test-*`, no rebuilding the kernel or disks.
+Do not edit shared files (`entries.toml`, `page.html`, `os88guide.py`,
+`capture/run.py`, other programs' manuals). Do not commit. If a description
+in `tools/guide/entries.toml` is wrong, say so in your report instead.
