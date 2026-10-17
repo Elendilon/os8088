@@ -1329,6 +1329,16 @@ FAST = [
         "pixel twice and flashes on the target machine, so every call site is "
         "registered in tests/textsites.txt with a reason and the count can only "
         "go down"),
+    Row("cswrite", "fast", py("tests/unit/t_cswrite.py"), 0.5,
+        "docs/plans/KERN-MEGA-PLAN.md 2.4's ratchet: a write through CS and a "
+        "`push cs / pop ds|es` are free in real mode and a #GP in 286 "
+        "protected mode, where code is read-only. kern_mega shares most of "
+        "kernel/ with kern_big, so a new site in a shared file assembles and "
+        "runs here while it breaks a build nobody can boot yet. Every file "
+        "under kernel/ and drivers/ that uses either idiom is registered in "
+        "tests/cswrites.txt with its count and a reason, and the count can "
+        "only go down. FAST on t_textrules.py's argument - a rule about how "
+        "every kernel file is written belongs in front of the next `make`"),
     Row("btngesture", "soak", py("tests/btngesture.py"), 26,
         "SPEC.md 13.7/13.8 ON THE GLASS: a standard button goes DOWN while "
         "held, comes UP when the pointer slides off it, goes down again on the "

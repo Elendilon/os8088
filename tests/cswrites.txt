@@ -1,0 +1,78 @@
+# tests/cswrites.txt - the CS-write registry (docs/plans/KERN-MEGA-PLAN.md 2.4)
+#
+# Real mode lets code treat its own segment as data: `mov [cs:x], ax` writes
+# through CS, and `push cs / pop ds` makes DS the code segment. 286 PROTECTED
+# MODE allows neither. A code segment is never writable, and DS loaded from
+# CS is read-only, so both fault on the first store. kern_mega shares most of
+# kernel/ with kern_big (KERN-MEGA-PLAN 7), so these are the sites its M1 wave
+# converts, and this file stops the number growing until then.
+#
+# ONE LINE PER FILE: <writes> <pairs> <path>  # <reason>
+#
+# tests/unit/t_cswrite.py is the gate and says exactly what counts. A file not
+# in this list may use neither idiom. A file in it may not exceed its counts,
+# and may not fall below them either: a conversion lowers the line, so the diff
+# shows the work was done. `t_cswrite.py --list` prints every site with its
+# SECTION, which is the M1 worklist.
+#
+# THE SECTION DECIDES THE CONVERSION, so the reasons below are grouped by it:
+#   .boot2         stage 2 of the boot, which runs in real mode before
+#                  kern_mega switches. These can stay as they are, if the
+#                  switch is placed after them
+#   .mod*          an on-demand MODULE writing its own image, which SPEC.md
+#                  2.8 allows (docs/plans/MODULE-SELFCONTAIN-PLAN.md). This is
+#                  ~390 of the 473 writes, so the CS-write problem is mostly a
+#                  module problem, and kern_mega keeps its modules resident
+#                  (KERN-MEGA-PLAN 4)
+#   .text / .cold  resident code that kern_mega runs in protected mode
+#
+# THIS IS A RATCHET, NOT A CLEAN GATE, for t_textrules.py's reason. It starts
+# at the tree's count, because kern_big is correct as it stands and the only
+# failure it can prevent today is a NEW site.
+
+# --- the API table and its stubs ---------------------------------------------
+6 14 kernel/kernel.asm  # OSAPI_SLOT's `push cs / pop ds` (the hot cell, one site in its %macro), the X/N stubs, and the inline cells that store a kernel variable through CS; kern_mega needs the cells' OFFSETS kept, so they become XCELL-shaped jumps (KERN-MEGA-PLAN 2.4)
+
+# --- resident: ISRs, where DS is the interrupted code's ---------------------
+15 5 kernel/sched.inc  # sch_isr: the heartbeat's IP capture (khb_*) and the chain's stack swap write kernel variables before DS is the kernel's; the pairs re-point DS/ES at the kernel on the yield and bracket paths
+3 4 kernel/mouse.inc  # mou_isr / mou_p2_isr / kbm_isr: the private-stack SP save (SPEC.md 9.10) happens before any register is free
+
+# --- resident: drawing state reached while DS is the caller's ---------------
+7 7 kernel/font.inc  # font_run's renderer keeps its send state through CS while DS:SI is the caller's string, an audit counter %macro does the same, and one pair is in the .boot2 font probe
+2 5 kernel/vga12.inc  # the 1bpp band pen and the plane loops: state through CS while DS is a source band
+13 0 kernel/spinner.inc  # the boot spinner's %macro state, drawn from IRQ0 inside int 13h (SPEC.md 15.3.8)
+
+# --- resident: ES = the kernel for a routine that takes ES:DI ---------------
+0 5 kernel/menu.inc  # ES = a menu cell's own segment when that is the kernel (menu_seg's .kseg, SPEC.md 12.2)
+0 3 kernel/wm.inc  # wm_strseg: ES = the kernel for a kernel-owned string
+0 1 kernel/ui.inc  # ES = the menu set's owner segment, which for the Locator's set is kernel .text (SPEC.md 12.2)
+0 1 kernel/viddet.inc  # ES = the kernel for a rep movsw that the splash can call with the boot sector's ES
+0 1 kernel/vmmouse.inc  # kern_emu only: vmm_dsp's ES = the kernel, which the driver image reads its arguments through
+0 2 kernel/xmem.inc  # xm_dsp's ES = the kernel, which XMEM.DRV reads its arguments through; obsolete on kern_mega (KERN-MEGA-PLAN 2.6)
+3 5 kernel/driver.inc  # the X-stub ES swap at drv_pkg_disp (SPEC.md 66.6.3), three %macro pairs, and CTRL.DRV's (.modc) page writes
+
+# --- .boot2: real mode before any switch -------------------------------------
+37 0 kernel/splash.inc  # the loading screen's state, all of it in stage 2 (SPEC.md 2.9.4)
+3 0 kernel/vidsel.inc  # the adapter pick, in stage 2
+14 5 kernel/desksc.inc  # the boot half's scan (.boot2) and CTRL.DRV's (.modc) own scratch
+
+# --- .mod*: an on-demand module writing its own image -----------------------
+124 12 kernel/compress.inc  # the cloner and compressor image (.modl, SPEC.md 18.99) keeps its whole state in its own image
+105 5 kernel/stikmenu.inc  # STIKMENU.DRV (.modn, SPEC.md 110.12)
+49 0 kernel/ascw.inc  # the association writer's image (.modf)
+45 10 kernel/hiber.inc  # HIBER.DRV (.modh); real mode by design and replaced on kern_mega (KERN-MEGA-PLAN 2.6)
+16 1 kernel/shutdown.inc  # CTRL.DRV's UI tail (.modu)
+10 3 kernel/winmod.inc  # the window module's image (.modw)
+9 2 kernel/dockmod.inc  # DOCK.DRV (.modk)
+6 1 kernel/diskops.inc  # DISKOPS.DRV (.modl)
+1 3 kernel/ctrl.inc  # CTRL.DRV (.modc/.modu)
+
+# --- knob only ---------------------------------------------------------------
+5 0 kernel/hbmark.inc  # DOSRMARK=1's resume trace (%macro), which no shipped kernel assembles
+
+# --- drivers: DS/ES = the driver's own image (no driver writes through CS) ---
+0 3 drivers/hdd/inst.inc  # ES = the installer's own buffer for int 13h; a driver-SDK answer for kern_mega is a drivers/os88drv.inc decision (tools/abi.lock.json)
+0 3 drivers/net/pktdrv.inc  # pk_recv: DS = the driver's own receive buffer, for a packet driver calling in
+0 2 drivers/sound/sb.inc  # the Sound Blaster ISR points DS at its own image
+0 1 drivers/net/lplink.inc  # ES = the driver's own buffer
+0 1 drivers/usbmouse/usbmouse.asm  # the CH375 poll points DS at its own image

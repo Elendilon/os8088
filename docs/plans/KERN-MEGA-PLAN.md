@@ -1,6 +1,6 @@
 # `kern_mega` — a 286+ protected-mode kernel
 
-**Status: RESEARCH. Nothing is built** (2026-10-17, branch `protected-mode`,
+**Status: RESEARCH, with ONE piece built: 2.4.1's CS-write ratchet** (2026-10-17, branch `protected-mode`,
 cut from `elendilon` at `c783a6a`). The owner asked what a 286+ protected-mode
 build would take: one with room for the kernel to grow to 512KB, though
 nothing requires it to. They asked three things:
@@ -227,14 +227,57 @@ kernel and for every package. In protected mode a selector names *one*
 descriptor, either code or data, never both. A readable code segment can be
 loaded into DS, but only for reading.
 
-* **The kernel**: 468 `[cs:]` writes (led by `compress.inc` 124,
-  `stikmenu.inc` 102, `ascw.inc` 49, `hiber.inc` 45 and `splash.inc` 35),
-  95 `push cs / pop ds|es` pairs, and every `OSAPI_SLOT` cell, which is
-  literally `push ds / push cs / pop ds`. These turn into a data-alias
-  selector loaded from a variable. That is mechanical, macro-able and
-  greppable. The ISRs that write through CS do so because DS is unknown on
-  entry. They become `push ds / mov ds, [cs:k_dsel]`: 17 clocks for the
-  segment load in protected mode against 2 in real mode.
+* **The kernel**: **473** writes through CS and **105** `push cs / pop ds|es`
+  pairs, in 26 files under kernel/ and 5 under drivers/. The original
+  survey's 468 and 95 were a coarser grep. The counts are exact now, because
+  `tests/unit/t_cswrite.py` counts them and holds them to
+  `tests/cswrites.txt` (2.4.1). **The SECTION of a site decides how it
+  converts, and the split is lopsided**:
+
+  | section | writes | what it is | kern_mega's conversion |
+  |---|---|---|---|
+  | `.mod*` | ~390 | on-demand MODULES writing their own image, which SPEC.md 2.8 allows (compress 124, stikmenu 105, ascw 49, hiber 45, shutdown 16, winmod 10, dockmod 9, diskops 6) | each module gets a data alias for its image. kern_mega keeps modules resident (section 4), so this is per-module restructuring and not a rename |
+  | `.boot2` | ~41 | stage 2 of the boot, in real mode (splash 37, vidsel 3, desksc 1) | **none**, if the switch to protected mode comes after stage 2, which 2.1 already places it |
+  | `.text`, `.cold`, `%macro` | ~42 | ISRs saving SP or state before DS is the kernel's (sched 15, mouse 3), renderer state kept through CS while DS is the caller's (font, vga12), the API's inline cells, the boot spinner, a knob's trace | per site: `push ds / mov ds, [cs:k_dsel]` or a register freed |
+
+  So **the CS-write problem is a module problem, not a kernel-wide one**. The
+  resident share is about forty sites. The pairs have three distinct
+  meanings, which is why they are not one macro:
+  * "DS = the kernel", in an ISR or an API stub;
+  * "ES = the kernel", for a routine that takes ES:DI;
+  * "DS = my own image", in a driver.
+
+  **The API cells cannot simply grow.** `OSAPI_SLOT` is 8 bytes exactly, and
+  the table's offsets ARE the ABI (SPEC.md 20.3). So kern_mega's hot cell
+  becomes `OSAPI_XCELL`'s shape (`push bp / mov bp, target / jmp api_pm`,
+  7 bytes plus one of padding), with the segment load done once in the
+  shared stub. The rare 6-byte cells already go through shared `api_r*`
+  routines, so only those change.
+
+  The ISRs that write through CS do so because DS is unknown on entry. They
+  become `push ds / mov ds, [cs:k_dsel]`: 17 clocks for the segment load in
+  protected mode against 2 in real mode.
+
+#### 2.4.1 The ratchet — BUILT (2026-10-17)
+
+`tests/unit/t_cswrite.py` is in the fast tier, so every `make` runs it.
+* A file under kernel/ or drivers/ that is not in `tests/cswrites.txt` may
+  use neither idiom.
+* A registered file may not exceed its counts, or fall below them: a
+  conversion lowers the line.
+* `--list` prints every site with its section, which is M1's worklist.
+
+It is a ratchet and not a clean gate for `t_textrules.py`'s reason. kern_big
+is correct as it stands, so the only failure worth preventing today is a NEW
+site in a file kern_mega will share.
+
+**The macro sweep is NOT done ahead of M1, on purpose.** A macro that
+expanded to today's bytes on kern_big would be easy to prove harmless with
+`cmp`. But one name cannot carry the three meanings above, the module half is
+restructuring rather than renaming, and which sites run before the switch is
+decided by where M1 puts the switch. A rename now would write those guesses
+into 31 files. The ratchet holds the line instead, and the conversion
+happens site by site, once, in M1.
 * **The packages**: ~1,064 `[cs:]` writes in 16 packages, plus the shared
   `apps/os88spk.inc` (59), `os88spkfx.inc` (29) and `os88pcm.inc` (4).
   * The worst are pixel (593), weave (153), excitebike (104) and video (84).
@@ -580,9 +623,9 @@ estimate, not a measurement.
 **The real cost of the overlap is permanent.** Every change to a shared file
 from then on has to stay correct under both models. For example, a new
 `[cs:]` write in `wm.inc` is fine on kern_big and a #GP on kern_mega. That
-needs a gate in the fast tier: a script that refuses `[cs:]` writes and
-`push cs / pop ds` outside an allow-listed macro, in `t_movable.py`'s
-ratchet shape. Without it the shared 85% rots in one direction only.
+needs a gate in the fast tier, and that gate is **built**: 2.4.1's
+`t_cswrite.py` holds both idioms to a per-file registry. Without it the
+shared 85% rots in one direction only.
 
 **Packages** (58 live, 51 assembly and 7 C):
 
@@ -665,7 +708,7 @@ symbol reader (kernel bodies above 1MB, behind LDT bases), before a single
 | wave | content | boots? |
 |---|---|---|
 | **M0** | decide: ring 0 (the floor is 286, section 8), the identity map, whether kern_mega is `KERN_BIG`-additive | — |
-| **M1** | protected-mode entry after stage 2. GDT identity map, IDT, PIC remap, a #GP/#NP/#SS reporter. Native IRQ0, keyboard and CMOS. Floppy and video by reflection **with IRQs masked**. Kernel still at 0x0060, with code and data selectors split. The sweep: `[cs:]` writes, `push cs`, the `OSAPI_SLOT` cells. **The `[cs:]` gate lands here.** Only the ~24 clean packages run | QEMU, a desktop |
+| **M1** | protected-mode entry after stage 2. GDT identity map, IDT, PIC remap, a #GP/#NP/#SS reporter. Native IRQ0, keyboard and CMOS. Floppy and video by reflection **with IRQs masked**. Kernel still at 0x0060, with code and data selectors split. The sweep: `[cs:]` writes, `push cs`, the `OSAPI_SLOT` cells, worked off `t_cswrite.py --list` (the gate itself is built, 2.4.1). Only the ~24 clean packages run | QEMU, a desktop |
 | **M2** | native 765 + 8237 floppy. HDD rung 1 absorbed into the kernel. Reflection stays only for ROM-only disks, which refuse if they are slow | QEMU + 86Box 286 |
 | **M3** | LDT allocator. `.cold`, modules and caches above 1MB. Conventional memory becomes package heap. Stable selectors for LDT claims, so no relocation procs | QEMU, measured heap |
 | **M4** | SDK: code aliases for claims (`cc_ovbind`, `os88partsbody.inc`), `OS88_HUGE_INCR`, the shared speaker and pcm includes. The C packages are rebuilt | +11 packages |
