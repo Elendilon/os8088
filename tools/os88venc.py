@@ -3450,9 +3450,14 @@ def vga8_palette(src, w, h, crop, fps_expr, start, end, eq, poll=None,
         cmd = ["ffmpeg", "-v", "error", "-nostdin", "-y"]
         if start:
             cmd += ["-ss", "%.3f" % start]
-        cmd += ["-i", src]
+        # (-t ON THE INPUT: palettegen writes its one frame at the end of
+        # its input, so an OUTPUT -t - ffmpeg_video's, where frames flow -
+        # never fired, and every clip's palette was its start to the END
+        # OF THE FILE: 28 s and the closing credits' colours for a 4 s
+        # clip of Last Exile - the encoder speed pass, 2026-10-17)
         if end:
             cmd += ["-t", "%.3f" % (end - (start or 0))]
+        cmd += ["-i", src]
         cmd += ["-an", "-vf", ",".join(vf), "-frames:v", "1", out]
         run_polled(cmd, poll)
         from PIL import Image
@@ -3913,9 +3918,216 @@ def vfr_try(enc, ts, pat, au, tp, first=None, cost=VFR_HOLD, empty=False,
     return (v / len(ts), cuts, worst) if count else v / len(ts)
 
 
+# THE TRIAL POOL (the encoder speed pass's second round, 2026-10-17: "I
+# have 16 threads and it is using 6% of them"). The ladder's prefixes at a
+# stretch are each a trial encode on a COPY of the encoder (degrade_choose),
+# and no trial reads another's: they run at once, one a process, and the
+# same rule picks among them - so the file is the one the trials made one
+# after another, byte for byte. A trial is the encoder pickled with its
+# read-only tables left out (each worker was given those once, when the pool
+# was made) and the caches that are only caches emptied
+TRIAL_SHARED = ("g", "ct", "csub", "rowof", "base", "idx", "wv")
+TRIAL_CACHES = (("tcache", dict), ("scache", None), ("meter", None))
+
+
+def _tr_init(blob):
+    global _TR
+    import pickle
+    _TR = pickle.loads(blob)
+
+
+def _tr_run(blob):
+    import io
+    import pickle
+
+    class Up(pickle.Unpickler):
+        def persistent_load(self, pid):
+            return _TR[pid]
+    fn, args = Up(io.BytesIO(blob)).load()
+    return fn(*args)
+
+
+METER_BATCH = 8         # frames a Meter's task measures
+METER_AHEAD = 4         # ...and how many tasks a worker may have waiting
+
+
+def _mt_run(cfg, prefix, calls):
+    """Meter's worker: `calls` measured as measure() would - each (screen,
+    target, palette) - after `prefix`, the two before them, measured only
+    for the frames before that a frame's flicker and view are against"""
+    m = Encoder.__new__(Encoder)
+    m.dmode, m.ppb, m.blur_r = cfg
+    m.look, m.meter = 0, None
+    m.q_prev = m.q_tprev = (None, None)
+    m.q_stp = None
+    out = []
+    for j, (scr, tgt, pal) in enumerate(prefix + calls):
+        m.screen, m.dpal, m.tcache, m.scache = scr, pal, {}, None
+        r = m.measure_of(tgt)
+        if j >= len(prefix):
+            out.append(r)
+    return out
+
+
+class Meter:
+    """THE PICTURE AS PLAYED, MEASURED ELSEWHERE (the encoder speed pass's
+    second round, 2026-10-17): measure() reads nothing back into the
+    encode - its sums are the report's, and the pass comparisons' after it
+    - so a frame's measure is a copy of its screen and target sent to a
+    worker, METER_BATCH frames a task, each with the two frames before it
+    that its flicker and its view are against. The results come back in
+    order and are summed in order, so the report is the one measure() made
+    here, to the bit. The target before (q_stp, the ladder's) is kept here.
+    A copy of the encoder shares its meter, and a pickle leaves it out
+    (TrialPool): neither measures"""
+
+    def __init__(self, e, jobs):
+        self.pool = worker_pool(jobs)
+        self.cfg = (e.dmode, e.ppb, e.blur_r)
+        self.jobs = jobs
+        self.batch, self.prev = [], []
+        from collections import deque
+        self.seq = deque()              # ("job", result) / ("bad", shot)
+        self.acc = Encoder.__new__(Encoder)     # (the sums)
+        a = self.acc
+        a.q_vis = a.q_wrong = a.q_flick = a.q_tflick = 0.0
+        a.q_frames, a.q_bad, a.q_seen = [], [], []
+
+    def __deepcopy__(self, memo):
+        return self
+
+    def put(self, e, target):
+        e.q_stp = e.tpix(target)[1]
+        self.batch.append((e.screen.copy(), np.array(target), e.dpal))
+        if len(self.batch) >= METER_BATCH:
+            self.send()
+
+    def send(self):
+        if not self.batch:
+            return
+        while sum(1 for k, _ in self.seq if k == "job") >= \
+                METER_AHEAD * self.jobs:
+            self.take(1)
+        self.seq.append(("job", self.pool.apply_async(
+            _mt_run, (self.cfg, self.prev, self.batch))))
+        self.prev = (self.prev + self.batch)[-2:]
+        self.batch = []
+
+    def mark(self, shot):
+        if self.batch:                  # (its frame is in this batch: the
+            self.send()                 # check waits on it, in order)
+        self.seq.append(("bad", shot))
+
+    def take(self, jobs=None):
+        """The results in, in order - `jobs` tasks of them, or all"""
+        a = self.acc
+        while self.seq and (jobs is None or jobs > 0):
+            k, v = self.seq.popleft()
+            if k == "bad":
+                if a.q_bad and a.q_bad[-1] >= VIS_AREA:
+                    v[3] += 1
+                continue
+            for r in v.get():
+                if r is not None:
+                    a.measured(r)
+            if jobs is not None:
+                jobs -= 1
+
+    def finish(self, e):
+        """Every frame's measure in, and the sums `e`'s, as measure() would
+        have left them; the pool ended"""
+        self.send()
+        self.take()
+        self.close()
+        a = self.acc
+        e.q_vis, e.q_wrong, e.q_flick, e.q_tflick = \
+            a.q_vis, a.q_wrong, a.q_flick, a.q_tflick
+        e.q_frames, e.q_bad, e.q_seen = a.q_frames, a.q_bad, a.q_seen
+        e.meter = None
+
+    def close(self):
+        if self.pool is not None:
+            self.pool.terminate()
+            self.pool.join()
+            self.pool = None
+
+
+def meter_for(e, a):
+    """A Meter for `e`'s pass, or None where measure() is best made here:
+    one job, no pixels to measure, or this process a pool's worker"""
+    import multiprocessing
+    jobs = min(METER_JOBS, getattr(a, "jobs", None) or os.cpu_count() or 1)
+    if jobs <= 1 or not e.metric or e.dmode not in ("bits", "pal", "idx") \
+            or multiprocessing.current_process().daemon:
+        return None
+    return Meter(e, jobs)
+
+
+METER_JOBS = 3          # measure is about a fifth of a frame's time here
+
+
+class TrialPool:
+    """`jobs` processes to try ladder prefixes on (the note above), made
+    for one pass's encoder `enc`; .close() ends them. With one job, or
+    inside another pool's worker, None (trial_pool) - the trials then run
+    here, in order, as they did"""
+
+    def __init__(self, enc, jobs):
+        import pickle
+        self.objs = [enc.__dict__[k] for k in TRIAL_SHARED
+                     if enc.__dict__.get(k) is not None]
+        self.ids = {id(o): i for i, o in enumerate(self.objs)}
+        self.pool = worker_pool(jobs, _tr_init, (pickle.dumps(
+            self.objs, pickle.HIGHEST_PROTOCOL),))
+
+    def submit(self, fn, enc, *args):
+        """fn(a copy of `enc`, *args) in a worker -> .get()"""
+        import io
+        import pickle
+        ids = self.ids
+        saved = {k: enc.__dict__[k] for k, _ in TRIAL_CACHES
+                 if k in enc.__dict__}
+        for k, empty in TRIAL_CACHES:   # (the caches stay here: a worker
+            if k in saved:              # makes its own)
+                enc.__dict__[k] = empty() if empty else None
+
+        class Down(pickle.Pickler):
+            def persistent_id(self, obj):
+                return ids.get(id(obj))
+        f = io.BytesIO()
+        try:
+            Down(f, pickle.HIGHEST_PROTOCOL).dump((fn, (enc,) + args))
+        finally:
+            enc.__dict__.update(saved)
+        return self.pool.apply_async(_tr_run, (f.getvalue(),))
+
+    def close(self):
+        self.pool.terminate()
+        self.pool.join()
+
+
+def trial_pool(enc, a, most):
+    """A TrialPool of up to `most` processes for `enc`, or None where the
+    trials are best run here: one job (--jobs 1), or this process a pool's
+    worker already (--aim quality's trials), which may start none"""
+    import multiprocessing
+    jobs = min(most, getattr(a, "jobs", None) or os.cpu_count() or 1)
+    if jobs <= 1 or multiprocessing.current_process().daemon:
+        return None
+    return TrialPool(enc, jobs)
+
+
+def _ladder_trial(e, ts, pat, au, tp, first, cost, empty, shown, stay,
+                  lag, ac):
+    """A ladder prefix's trial (degrade_choose), in a worker"""
+    return vfr_try(e, ts, pat, au, tp, first, cost, empty, shown, stay,
+                   lag=lag, count=True,
+                   every=coarse_every(ac) if ac else None)
+
+
 def degrade_choose(enc, ts, au, steps, fps, tp, first=None, cost=VFR_HOLD,
-                  empty=False, shown=None, stay=False, coarse=None,
-                  scene=False):
+                   empty=False, shown=None, stay=False, coarse=None,
+                   scene=False, pool=None):
     """THE DEGRADE LADDER at a stretch (--ladder): today's draw, then each
     of the ladder's prefixes (`steps`, degrade_steps), each encoded on a
     copy - the first that shows every frame WHOLE, or past a cut rung no
@@ -3923,9 +4135,35 @@ def degrade_choose(enc, ts, au, steps, fps, tp, first=None, cost=VFR_HOLD,
     is the stretch's first frame in a prefix's scene cell where the stretch
     is a scene's first (`scene`); a prefix's ANY cell draws each of the
     stretch's frames the budgets would cut in cells (coarse_every) ->
-    (hold pattern, rate, lag frames, scene cell, rung index, any cell)"""
+    (hold pattern, rate, lag frames, scene cell, rung index, any cell).
+    With a `pool` (TrialPool) every prefix's trial runs at once, today's
+    draw here meanwhile, and the same rule reads them in order"""
     n = len(ts)
     full = [False] * n
+    # (each prefix's draw: a trial where it draws other than the one
+    # before it - a cut rung alone draws the same - and the scene cells
+    # made once a cell, here, before any trial: none changes the encoder)
+    tries, cfs, was = [], {}, (1.0, None, False, None)
+    for i, r, lag, sc, tol, ac in steps:
+        cell = sc if scene else None
+        if coarse is None:
+            ac = None
+        pat = vfr_pattern(n, r) if r < 1.0 else full
+        if cell is not None and coarse is not None and not pat[0]:
+            if cell not in cfs:
+                cfs[cell] = coarse(cell)
+            cf = cfs[cell]
+        else:
+            cf = first
+        key = (r, lag, cf is not first and cell, ac)
+        tries.append([i, r, lag, cell, tol, ac, pat, cf, key != was, None])
+        was = key
+    if pool is not None:
+        for t in tries:
+            if t[8]:
+                i, r, lag, cell, tol, ac, pat, cf = t[:8]
+                t[9] = pool.submit(_ladder_trial, enc, ts, pat, au, tp, cf,
+                                   cost, empty, shown, stay, lag, ac)
     got = vfr_try(enc, ts, full, au, tp, first, cost, empty, shown,
                   stay, count=True)
     v, cuts, worst = got
@@ -3936,19 +4174,12 @@ def degrade_choose(enc, ts, au, steps, fps, tp, first=None, cost=VFR_HOLD,
     best = (v, full, 1.0, None, None, 0, None)
     if cuts == 0:
         return best[1:]
-    was = (1.0, None, False, None)      # (what the try before drew with)
-    for i, r, lag, sc, tol, ac in steps:
-        cell = sc if scene else None
-        if coarse is None:
-            ac = None
-        pat = vfr_pattern(n, r) if r < 1.0 else full
-        cf = coarse(cell) if cell is not None and coarse is not None and \
-            not pat[0] else first
-        if (r, lag, cf is not first and cell, ac) != was:
-            got = vfr_try(enc, ts, pat, au, tp, cf, cost, empty, shown,
-                          stay, lag=lag, count=True,
-                          every=coarse_every(ac) if ac else None)
-            was = (r, lag, cf is not first and cell, ac)
+    for i, r, lag, cell, tol, ac, pat, cf, new, job in tries:
+        if new:
+            got = job.get() if job is not None else vfr_try(
+                enc, ts, pat, au, tp, cf, cost, empty, shown, stay,
+                lag=lag, count=True,
+                every=coarse_every(ac) if ac else None)
         v, cuts, worst = got            # (a cut rung alone: the same draw)
         if os.environ.get("OS88_VENC_LADLOG"):
             with open(os.environ["OS88_VENC_LADLOG"], "a") as fl:
@@ -4101,6 +4332,52 @@ def _binomial(r):
 # what an encoder's copy SHARES with it (Encoder.__deepcopy__): tables
 # made once and only ever read - the geometry, the palette's float copy, the
 # cost tables, the row maps, and the targets ahead, which a step reads
+def own_price(e, base, rec):
+    """`base(rec)` - or, where `base` is None, the encoder's CLASS price,
+    which set_xplay's wrappers stand in front of on the instance"""
+    return type(e).cost(e, rec) if base is None else base(rec)
+
+
+def price_base(e):
+    """What a wrapper of `e.cost` asks below it: None for the class's own
+    price (a bound method of `e` - held as None, so a copy or a pickle of
+    the wrapper asks ITS encoder), else the wrapper already there"""
+    c = e.cost
+    return None if getattr(c, "__self__", None) is e else c
+
+
+class PlayCost:
+    """set_xplay's THE PLAY AS PROFILED: the table's price scaled, and its
+    KB and fixed costs. An object and not a closure, so an encoder PICKLES
+    (the trial pool, TrialPool) and a deep copy's price is its own"""
+
+    def __init__(self, e, base, k, kb_us, fix_us, us):
+        self.e, self.base = e, base
+        self.k, self.kb_us, self.fix_us, self.us = k, kb_us, fix_us, us
+
+    def __call__(self, rec):
+        return own_price(self.e, self.base, rec) * self.k + \
+            (self.kb_us / 1024.0 * len(rec) + self.fix_us) * self.us
+
+
+class XmsCost:
+    """set_xplay's borrows and copies down, on top of the price below it -
+    asked of the encoder it prices for. A closure here made a deep copy
+    ask the ORIGINAL encoder's bank whether a frame was banked: the trial
+    copies of a copying FIFO priced every frame by the real encode's level
+    and not their own"""
+
+    def __init__(self, e, base):
+        self.e, self.base = e, base
+
+    def __call__(self, rec):
+        e = self.e
+        c = own_price(e, self.base, rec)
+        if e.xmode == "copy" and not e._xbanked():
+            return c                    # (the disk reads into the ring)
+        return c + e.xfix + e.xbyte * len(rec)
+
+
 ENC_SHARED = ("g", "pal", "ct", "wv", "rowof", "base", "idx", "future")
 
 
@@ -4274,6 +4551,7 @@ class Encoder:
         self.q_seen, self.q_stp = [], None  # ...the VIEW as seen (seen_share)
                                             # and the target before
         self.tcache, self.scache = {}, None     # (tpix, spix)
+        self.meter = None                   # (measure's: Meter)
         # PAGE-AHEAD (98.2.1.8): the hidden page's record this frame, its
         # (cycles, bytes) - charged with the frame's own - and what the plan
         # pass reads off a frame: which budget cut it, and its disk refill
@@ -4305,7 +4583,7 @@ class Encoder:
         # a flipped file's back page is the last record decoded AGAIN, out
         # of the copy the player kept: the table's price alone (cost0),
         # which borrows nothing and was timed at 0.95 of it
-        self.cost0 = table = self.cost
+        self.cost0 = self.cost
         self.xmode = mode
         self.xfix = self.xbyte = 0.0
         key = "modex" if self.g.layout == vid.LAY_MODEX else \
@@ -4316,8 +4594,8 @@ class Encoder:
             # THE PLAY AS PROFILED (SPEC.md 98.3.22.1): the whole in-place
             # draw measured, borrows and all - in place of xbor_*
             k, kb_us, fix_us = play
-            self.cost = lambda rec: table(rec) * k + \
-                (kb_us / 1024.0 * len(rec) + fix_us) * us
+            self.cost = PlayCost(self, price_base(self), k, kb_us,
+                                 fix_us, us)
             return
         if mode == "inplace":
             self.xfix = prof["xbor_us"] * prof.get("xbor_n", 3) * us
@@ -4326,14 +4604,7 @@ class Encoder:
             self.xbyte = prof["xdown"] * 1000.0 / 1024 * us
         if not (self.xfix or self.xbyte):
             return
-        base = self.cost
-
-        def cost(rec):
-            c = base(rec)
-            if self.xmode == "copy" and not self._xbanked():
-                return c                # (the disk reads into the ring)
-            return c + self.xfix + self.xbyte * len(rec)
-        self.cost = cost
+        self.cost = XmsCost(self, price_base(self))
 
     def _xbanked(self):
         """...a banked frame on the copying FIFO: while the bank holds
@@ -4879,35 +5150,70 @@ class Encoder:
         """THE PICTURE AS PLAYED, a frame (the report's `picture:` line):
         its error as seen, its pixels wrong, and its FLICKER - pixels that
         go back to what they were two frames ago, as a dither pattern
-        swapping back and forth does"""
+        swapping back and forth does. With a `meter` (Meter) it is measured
+        in another process, and only the target before is kept here"""
+        if getattr(self, "meter", None) is not None:
+            self.meter.put(self, target)
+            return
+        r = self.measure_of(target)
+        if r is not None:
+            self.measured(r)
+
+    def measure_of(self, target):
+        """measure()'s frame -> (its mean error as seen, its share VISIBLY
+        wrong, the view as seen, its pixels wrong, the flicker back and the
+        source's, each None where there is no frame two before) - the
+        frames before it the only state it keeps; None, no pixels"""
         S = self.spix()[1]
         if S is None:
-            return
+            return None
         T = self.tpix(target)[1]
         ev = self.dist(self.sblur(), self.tblur(target))
         m = float(ev.mean())
-        self.q_vis += m
         # VISIBLY WRONG (2026-10-09): the share of the frame whose picture,
         # as the eye averages it, is off by VIS_BAD or more - a band torn
         # off a scene and left behind is most of a frame wrong by a lot,
         # which the mean over a whole clip of pixels made 0.11%
-        self.q_frames.append(m)
-        self.q_bad.append(float((ev > VIS_BAD).mean()))
-        self.q_seen.append(seen_share(S, T, self.q_stp))
+        bad = float((ev > VIS_BAD).mean())
+        seen = seen_share(S, T, self.q_stp)
         self.q_stp = T
         ne = S != T
         if ne.ndim == 3:
             ne = ne.any(2)
-        self.q_wrong += float(ne.mean())
-        for now, hist, k in ((S, "q_prev", "q_flick"),
-                             (T, "q_tprev", "q_tflick")):
+        fl = []
+        for now, hist in ((S, "q_prev"), (T, "q_tprev")):
             p1, p2 = getattr(self, hist)
             if p2 is not None:
-                a, b = now == p2, now != p1
-                if a.ndim == 3:
-                    a, b = a.all(2), b.any(2)
-                setattr(self, k, getattr(self, k) + float((a & b).sum()))
+                x, y = now == p2, now != p1
+                if x.ndim == 3:
+                    x, y = x.all(2), y.any(2)
+                fl.append(float((x & y).sum()))
+            else:
+                fl.append(None)
             setattr(self, hist, (now, p1))
+        return m, bad, seen, float(ne.mean()), fl[0], fl[1]
+
+    def measured(self, r):
+        """measure_of()'s frame added to the report's sums"""
+        m, bad, seen, wrong, fl, tfl = r
+        self.q_vis += m
+        self.q_frames.append(m)
+        self.q_bad.append(bad)
+        self.q_seen.append(seen)
+        self.q_wrong += wrong
+        if fl is not None:
+            self.q_flick += fl
+        if tfl is not None:
+            self.q_tflick += tfl
+
+    def when_bad(self, shot):
+        """`shot` (shot_cut's) counted VISIBLY broken where the frame just
+        measured was - when its measure is in: at once, or with a meter as
+        it reads its frames back, in order"""
+        if getattr(self, "meter", None) is not None:
+            self.meter.mark(shot)
+        elif self.q_bad and self.q_bad[-1] >= VIS_AREA:
+            shot[3] += 1
 
     def order(self, p, a):
         """rank()'s order for spans of priority `p` at addresses `a`, by
@@ -7592,13 +7898,103 @@ def vfr_plan(plan, kept):
     return out
 
 
-def vfr_page_select(c, plan, res, held, keep, tick, readers):
+class _Sink(object):
+    """A stdout that keeps nothing (a background pass's progress lines)"""
+
+    def write(self, t):
+        return len(t)
+
+    def flush(self):
+        pass
+
+
+def _pass_bg(tx, d):
+    """PassBg's process: the pass, its report held, sent back"""
+    import contextlib
+    readers = []
+    h = _Held(_Sink())
+    try:
+        with contextlib.redirect_stdout(h):
+            r = page_real(d, None, lambda step, done, total: None, readers)
+        tx.send((True, (r, h.lines + ([h.part] if h.part else []))))
+    except BaseException as x:          # (said where the pass was asked)
+        try:
+            tx.send((False, x))
+        except Exception:
+            tx.send((False, RuntimeError(repr(x))))
+    finally:
+        for rd in readers:
+            rd.close()
+        tx.close()
+
+
+class PassBg(object):
+    """A REAL PASS IN ANOTHER PROCESS (the encoder speed pass's second
+    round, 2026-10-17): page-ahead's pass without the plan's holds reads
+    nothing the pass with them makes, so it runs alongside it - its own
+    reader, its own pool, its file `d.out` - and .result() is what
+    page_real(d) would have returned here, with its report held. FORKED
+    on Linux while this process has no other thread (worker_pool's rule),
+    else spawned; .close() ends it however the encode ends"""
+
+    def __init__(self, d):
+        import multiprocessing
+        import threading
+        self.out, self.done = d.out, False
+        ctx = multiprocessing.get_context(
+            "fork" if sys.platform.startswith("linux") and
+            threading.active_count() == 1 else "spawn")
+        self.rx, tx = ctx.Pipe(False)
+        self.p = ctx.Process(target=_pass_bg, args=(tx, d))
+        self.p.start()
+        tx.close()
+
+    def result(self):
+        """-> (res, _Held with its report)"""
+        try:
+            ok, v = self.rx.recv()
+        except EOFError:
+            raise vid.V88Error("a page-ahead pass ended without its file "
+                               "(its process exited %s)" % self.p.exitcode)
+        finally:
+            self.p.join()
+            self.done = True
+        if not ok:
+            raise v
+        r, lines = v
+        h = _Held(sys.stdout)
+        h.lines = list(lines)
+        return r, h
+
+    def close(self):
+        if self.p.is_alive():
+            self.p.terminate()
+        self.p.join()
+        if not self.done:               # (its file, never read)
+            try:
+                os.remove(self.out)
+            except OSError:
+                pass
+
+
+def pass_alongside(a, keep):
+    """May a real pass run in another process here? Not inside a pool's
+    worker (which may start none), not at --jobs 1, and not for the gate,
+    whose `keep` the passes fill one after another"""
+    import multiprocessing
+    jobs = getattr(a, "jobs", None) or os.cpu_count() or 1
+    return keep is None and jobs > 1 and \
+        not multiprocessing.current_process().daemon
+
+
+def vfr_page_select(c, plan, res, held, keep, tick, readers, bg=None):
     """--min-fps WITH PAGE-AHEAD (VIDEO-SEEN-PLAN 3a, wave 2): the page-ahead
     pass with the plan's holds (`res`, its report `held`) against one
     without them, stretch by stretch - each slowed stretch kept where its
     frames' view as seen was less broken with its holds - and, when the
     verdict is mixed, a third pass with the kept ones. The best of them by
-    the view as seen is the file. -> (res, held report, plan)"""
+    the view as seen is the file. `bg`, the pass without them already
+    running alongside (vfr_page_start). -> (res, held report, plan)"""
     import contextlib
     import copy
     import shutil
@@ -7622,7 +8018,15 @@ def vfr_page_select(c, plan, res, held, keep, tick, readers):
         runs.append((r, h, pl, d.out))
         return r
     try:
-        rb = run(vfr_plan(plan, []))
+        if bg is not None:
+            d, job = bg
+            tmp.append(d.out)
+            tick("again", 0, 0)
+            rb, h = job.result()
+            readers.remove(job)
+            runs.append((rb, h, d._paplan, d.out))
+        else:
+            rb = run(vfr_plan(plan, []))
         qa, qb = res.get("q_seenf"), rb.get("q_seenf")
         if not qa or not qb or len(qa) != len(qb):
             kept = list(range(len(S)))
@@ -7653,6 +8057,27 @@ def vfr_page_select(c, plan, res, held, keep, tick, readers):
                 os.remove(o)
             except OSError:
                 pass
+
+
+def vfr_page_start(c, plan, keep, readers):
+    """vfr_page_select's pass WITHOUT the holds, started in another process
+    before the pass with them (PassBg) -> (its namespace, the job), or
+    None where it must wait its turn (pass_alongside)"""
+    import copy
+    import tempfile
+    if not pass_alongside(c, keep):
+        return None
+    d = copy.copy(c)
+    d._paplan = vfr_plan(plan, [])
+    fd, d.out = tempfile.mkstemp(suffix=".v88")
+    os.close(fd)
+    try:
+        job = PassBg(d)
+    except Exception:
+        os.remove(d.out)
+        raise
+    readers.append(job)                 # (ended however encode ends)
+    return d, job
 
 
 def page_passes(a, keep, tick, readers, mode="on"):
@@ -7727,6 +8152,10 @@ def page_passes(a, keep, tick, readers, mode="on"):
         c = copy.copy(a)
         c._paok, c._paplan = True, plan
         c._ladok, c._steps = True, steps
+        # (the pass without the holds reads nothing this one makes: it
+        # runs alongside - vfr_page_start)
+        bg = vfr_page_start(c, plan, keep, readers) \
+            if plan and plan.get("S") else None
         h2 = _Held(sys.stdout)
         with contextlib.redirect_stdout(h2):
             res2 = page_real(c, keep, tick, readers)
@@ -7735,7 +8164,7 @@ def page_passes(a, keep, tick, readers, mode="on"):
             # plan pass chose them without the hidden page, so each slowed
             # stretch is kept only where it drew better WITH page-ahead
             res2, h2, plan = vfr_page_select(c, plan, res2, h2, keep, tick,
-                                             readers)
+                                             readers, bg)
             c._paplan = plan
         # (a file that may HOLD frames - --min-fps, --ladder - trades cut
         # frames for held ones by design, and the passes hold differently:
@@ -9247,7 +9676,8 @@ def _encode(a, keep, tick, readers):
                     (lambda c, t=target: coarse_of(
                         e, t, c if c != "auto" else
                         coarse_pick(e, t, au), au))
-                    if coarse_on and k else None, k in cells_at)
+                    if coarse_on and k else None, k in cells_at,
+                    pool=trials())
                 if lg is not None:      # (the rung's lag, until level)
                     e.flag_lag, e.vlagn = lg, n
                 if lc is not None:
@@ -9425,7 +9855,7 @@ def _encode(a, keep, tick, readers):
         # THE DEGRADE LADDER (--ladder): its rungs in place of --min-fps,
         # --lag's search and --coarse-cut, each kept only where this file
         # can use it - the rest said, and left out
-        keep, why = [], []
+        kept, why = [], []
         for kind, v in lrungs:
             no = "a sound card's sound (the lag catches up only on its " \
                 "clock)" if kind == "lag" and not lagon else \
@@ -9441,13 +9871,13 @@ def _encode(a, keep, tick, readers):
                 why.append("%s:%s needs %s" % (kind, v if kind != "slow"
                                                else "%.3g" % v, no))
             else:
-                keep.append((kind, v))
+                kept.append((kind, v))
         for w in why:
             say("   --ladder: %s - left out" % w)
-        lsteps = degrade_steps(keep, fps, enc.fgrid / enc.q
+        lsteps = degrade_steps(kept, fps, enc.fgrid / enc.q
                                  if enc.fgrid else None)
-        enc.vkeep = keep
-        rs = [v for kind, v in keep if kind == "slow"]
+        enc.vkeep = kept
+        rs = [v for kind, v in kept if kind == "slow"]
         vfr = fps * min(rs) if rs else fps  # (the ladder decides, or nothing
         if not lsteps:                      # left to decide with)
             lsteps, vfr = None, 0.0
@@ -9518,6 +9948,18 @@ def _encode(a, keep, tick, readers):
     if vreplay is None:
         enc.vrates = {}
     vstate = None                       # (the glass's screen, a STAY's run)
+    tpool = []                          # (the ladder's trials: TrialPool,
+                                        # made at the first stretch decided)
+    enc.meter = meter_for(enc, a)       # (measure's, in other processes)
+    if enc.meter is not None:
+        readers.append(enc.meter)       # (closed however encode ends)
+
+    def trials():
+        if not tpool:
+            tpool.append(trial_pool(enc, a, 1 + len(lsteps)))
+            if tpool[0] is not None:
+                readers.append(tpool[0])    # (closed however encode ends)
+        return tpool[0]
     vprev, vshown = False, None         # (the frame before held; and the
                                         # target the picture shown is of)
     while True:
@@ -9654,8 +10096,8 @@ def _encode(a, keep, tick, readers):
                 vshown = target
                 if vstay:
                     vstate = enc.screen.copy()
-            if scene_pals and enc.q_bad and enc.q_bad[-1] >= VIS_AREA:
-                shot_cut[-1][3] += 1
+            if scene_pals:
+                enc.when_bad(shot_cut[-1] if shot_cut else None)
         vprev = bool(x["held"])
         if pa is not None and a.flip:  # (98.1.3.7.2: every frame flips)
             wr.frame(ops, enc.surf, au, hidden=hops, flip=pa.vp,
@@ -9736,6 +10178,12 @@ def _encode(a, keep, tick, readers):
         if not a.quiet and f % 300 == 299:
             print("   frame %d of %d" % (f + 1, nf if not stream else
                                          est + pre), file=sys.stderr)
+    if tpool and tpool[0] is not None:
+        readers.remove(tpool[0])
+        tpool[0].close()
+    if enc.meter is not None:
+        readers.remove(enc.meter)
+        enc.meter.finish(enc)
     nf = f + 1
     if wr.keys and not a.resident and enc.cpu.per is not None:
         # THE BASE'S YARDSTICK (98.3.18.9): key 0's decode on the machine
