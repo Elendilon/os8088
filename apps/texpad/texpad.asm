@@ -5508,6 +5508,7 @@ tp_seed_s:
     %define OS88UI_NOGLYPH          ; no check box or radio drawn here (SPEC.md 13.8.9)
     %define OS88UI_NOGEST           ; presses routed by hand: no gesture install (SPEC.md 20.5.1.3.4)
     %define OS88UI_NOBFIND          ; hit-tests its own rects: no os88ui_bfind (SPEC.md 20.5.1.3.4)
+    %define OS88UI_1BPP             ; OSAPI_SAVEU_1BPP: a greyed caption keeps its ink (SPEC.md 13.8.11)
     %include "os88ui.inc"
 
 ; ---- bss --------------------------------------------------------------------

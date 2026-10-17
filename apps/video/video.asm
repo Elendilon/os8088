@@ -8369,13 +8369,52 @@ vp_lplay:
     xor ax, ax                      ; and the card, if any, where it is
     mov [vp_lrun], al
     mov [vp_bpause], al
+    push bx                         ; ...AND WHAT THE SHADOW HOLDS IS PUT IN
+    push cx                         ; THE BOX: rows decoded and not yet
+    push dx                         ; blitted are owed, and a paused worker
+    push si                         ; never pays them. A Space queued behind
+    push di                         ; the start's load paused the play before
+    push bp                         ; the worker's first pass, and the box
+    mov ax, [vp_done]               ; stayed black for good: nothing decoded
+    cmp ax, [vp_base]               ; yet, so the first frame is decoded now
+    jne .shown                      ; (the worker's own vp_frame, under the
+    push es                         ; lock we hold and with the worker's ES =
+    push ds                         ; ours, where a callback's is the
+    pop es                          ; kernel's; CF = none, and the box
+    call vp_frame                   ; shows what the shadow has) - and with
+    pop es
+    call vp_bandall                 ; the WHOLE band, not the frame's runs:
+.shown:                             ; those are what it changed against the
+                                    ; frame before, and the box shows black
+    call vp_lblit                   ; nothing owed the blit is a compare
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
     call vp_lbtn
-    jmp short .out
+    jmp short .l4
 .res:
     call vp_lgo
     call vp_lbtn
+.l4:
+    call vp_lline4                  ; the card's "where", paused or playing
 .out:
     pop ax
+    ret
+
+; vp_lline4 - a live session paused or resumed: the info card's line 4 again,
+; "Paused at 0:05" or where the play started. Nothing else on the card moves,
+; so one line is drawn and not the card (vp_fmt never ran for a Live pause,
+; and the card went on saying "At the start" over a paused frame). Lock held
+vp_lline4:
+    push bx
+    call vp_fmt
+    call vp_clip
+    mov bx, 4
+    call vp_ptext1
+    pop bx
     ret
 
 ; vp_lsetup - a live session, just started: the shadow black and the key the
@@ -8604,6 +8643,7 @@ vp_lback:
     mov byte [vp_autop], 0
     call vp_lgo
     call vp_lbtn                    ; (Pause, not Play, on its button)
+    call vp_lline4                  ; (vp_fmt above said "Paused at")
 .out:
     pop si
     ret
@@ -18457,13 +18497,21 @@ vp_buttons:
 ; vp_ptext - the info card's lines from BX on, each an opaque run the full
 ; width, so nothing is erased first (PERFORMANCE.md rule 2). Nothing while
 ; the card is in
+vp_ptext1:                          ; ...or line BX alone
+    push ax
+    mov ax, bx
+    inc ax
+    jmp short vp_ptx
 vp_ptext:
     push ax
+    mov ax, VP_LINES
+vp_ptx:
     push bx
     push cx
     push dx
     push si
     push di                         ; (vp_ld6's rung, the even one)
+    mov di, ax                      ; DI = the line to stop before
     cmp byte [vp_lcard], 0
     je .out
     mov ax, VP_LINE
@@ -18478,7 +18526,7 @@ vp_ptext:
     mov cx, [vp_cx0]
     add cx, [vp_lcardx]
 .l:
-    cmp bx, VP_LINES
+    cmp bx, di
     jae .out
 %ifdef VP_DIAG
     cmp byte [vp_lbin], 0           ; the buttons in the card: its text ends
@@ -19430,6 +19478,8 @@ vp_fmt:
     call vp_puts
     jmp .msg
 .sess:
+    cmp byte [vp_lrun], 0           ; a LIVE play running: where it started,
+    jne .nos                        ; as before it ran (its frame moves)
     mov si, vp_s_pausedat
     call vp_puts
     mov ax, [vp_done]

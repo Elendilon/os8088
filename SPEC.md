@@ -27372,6 +27372,36 @@ is the right one — MIDIRack (§105.9.5) paints every button of its colour face
 and none of its mono one. Six bytes in `os88ui_btn` under the define; a
 package that does not set it assembles **byte-identical**.
 
+#### 13.8.11 A greyed CAPTION on a colour VGA takes the grey as its INK
+
+§47 rule 1 greys the frame **and** the label. `os88ui_btn`'s plain body (and
+`os88ui_chk`'s and `os88ui_rad`'s labels) set the disabled pen and then handed
+`font_run` `CBLACK`, on the belief that `font_run` greys whatever it is given.
+It does on the two 1bpp adapters and in a window that declared two colours
+(§6.1.12, §11.96.17.1) — the checkerboard — and **not on a colour VGA**, which
+greys with a colour (§6.1.12's last paragraph): there the ink it is HANDED is
+what lands. So every greyed standard button on a VGA drew a grey frame round a
+solid black caption, and RAMPAGE.DRV's Preserve, Preserve As and Clear read as
+live with nothing mounted. `OS88UI_BIMG`'s body (§13.8.9) already handed it
+`CDGRAY` and was right.
+
+The caption's ink is now the grey when the control is disabled:
+
+- **a package** passes `CDGRAY` (`OS88UI_DISAL`), because it cannot read the
+  pen back (there is no `OSAPI_GET_COLOR`) — **unless it says `%define
+  OS88UI_1BPP`**, which every package that declares `OSAPI_SAVEU_1BPP` does:
+  colour 8 is a third colour such a window has promised not to draw, and its
+  greying is `font_run`'s checkerboard already. Browser, Note Pad, TeXpad, the
+  FTP server, Telnet and the Desk Calendar say it;
+- **the kernel's copy** passes `[gfx_color]`, which is exactly the pen
+  `UI_PEN` just chose — `CDGRAY`, or `CBLACK` for a declared window
+  (`gfx_pen_dis`) — and which `UI_INK` has already set to a caller's
+  `OS88UI_INK`, so the kernel arm drops the high-byte copy and costs **no
+  resident byte** (`kernsize`: +0 on both kernels).
+
+The 1bpp adapters draw the same pixels as before: `font_ink` substitutes
+`[gfx_disink]` for any ink a disabled run is handed.
+
 ### 13.9 A window's TIMER — `W_ONTIMER` (API 0x0342)
 
 **Call me back in N ticks.** `OSAPI_WM_TIMER` (BX = window, AX = ticks from
@@ -29116,11 +29146,14 @@ identical; the radio differs by 40 pixels of 144 clear and 56 set, the check
 mark by 32. The bitmap radio was a **circle** and `os88ui_gring` is four runs,
 so what draws today is a **square with its four corner pixels nipped off**.
 §13.17.1's rule — *the corners must be clear, so it is not a rectangle* — is
-satisfied by both, so `tests/radio.py` passes on either: the rule is too weak
-to tell a ring from a nipped square. That is a **look question that has
-shipped**, and the report prices the alternatives (about 7 ms for a rounder
-octagon at 8 fills, about 11 for the bitmap's own arc at 12, against today's
-4.5); nothing has been changed on the strength of it.
+satisfied by both, so `tests/radio.py` passed on either: the rule was too weak
+to tell a ring from a nipped square. That was a **look question that had
+shipped**, and the report priced the alternatives (about 7 ms for a rounder
+octagon at 8 fills, about 11 for the bitmap's own arc at 12, against 4.5).
+**The field answered it**: MIDIRack's Settings radios were reported as
+"ticked squares" that read as check boxes, so `os88ui_gring` is the 8-fill
+octagon now (§13.17.1) and `tests/radio.py` asserts the bridging pixels and the
+clear ones beside them, which a nipped square fails.
 
 **The position is held in DI and SI, and that is worth 116 bytes rather than
 four.** `UI_FILL` wants AX, BX, CX and DX, so an x or y living in any of them is
@@ -29512,29 +29545,34 @@ bytes.
 so `os88ui_radhit` can refuse a greyed group without being handed a flag the
 caller would otherwise have to supply twice and keep in step.
 
-#### 13.17.1 The look — a rounded box, and every reason is a constraint
+#### 13.17.1 The look — a round ring, and every reason is a constraint
 
-A **12×12 rounded box** — a rectangle with one pixel off each corner — with a
-**6×6 rounded dot** in the middle when it is picked. Twelve is `OS88UI_GW`, so a
+A **12×12 round ring** — each side stopping two pixels short of the corner, and
+one pixel bridging each corner diagonally — with a **6×6 rounded dot** in the
+middle when it is picked. Twelve is `OS88UI_GW`, so a
 call site converted from §13.15's glyph keeps its geometry to the pixel.
 
 Three things decided the shape and none of them is taste:
 
 - **It must not be a square.** `os88ui_chk`'s mark is a solid square, and a
-  radio that is also square says nothing about being one-of-many. At 12 px a
-  one-pixel corner cut is what a circle rasterises to, and it is what small 1bpp
-  interfaces have always drawn.
+  radio that is also square says nothing about being one-of-many. The first
+  cut took ONE pixel off each corner on the reasoning that this is what a 12 px
+  circle rasterises to, and on the glass it was not: beside a check box it read
+  as a ticked square (MIDIRack's Settings, reported from the manuals). Two
+  pixels short with a pixel bridging the corner is the octagon §13.15.1 priced,
+  and it reads as round on all three adapters.
 - **It must not be a thin diagonal or a dither** (§39.4): grey rounds to black
   on both 1bpp adapters, so a dithered ring reads as dotted and a diagonal reads
-  as noise. Every edge here is a horizontal or vertical **run**.
+  as noise. Every edge here is a horizontal or vertical **run**, and the four
+  corner pixels are one pixel each - a single step, not a line.
 - **The ring is ONE pixel because `os88ui_chk`'s frame is one pixel.** A heavier
   ring is more legible when greyed and would be the odd control out in a column
   carrying both; matching the neighbour won.
 
-**The ring is four RUNS, never a frame.** `gfx_frame` puts a pixel in each
-corner, which would then have to be knocked out in the ground colour — four more
-fills *and* two more pen changes. Four runs that stop one pixel short are the
-same shape for less.
+**The ring is four RUNS and four pixels, never a frame.** `gfx_frame` puts a
+pixel in each corner, which would then have to be knocked out in the ground
+colour — more fills *and* two more pen changes. Eight fills, each the last one
+edited (§13.15.1), draw it.
 
 **The dot is centred exactly**: 1 + 2 + 6 + 2 + 1 is the box's own 12.
 
@@ -29547,8 +29585,11 @@ offset, so the pair cannot separate again.
 
 #### 13.17.2 What it costs to draw, against the glyph it replaces
 
-**Five drawing calls for an unpicked row and eight for the picked one** — a pen
-change, four for the ring, three for the dot, and the label. There is no ground
+**Nine drawing calls for an unpicked row and twelve for the picked one** — a pen
+change, eight for the ring (four runs and four corner pixels, §13.17.1), three
+for the dot, and the label. The round ring is four of them: about 2.5 ms a row
+more on the field machine than the nipped square it replaced (§13.15.1's
+pricing). There is no ground
 fill (§13.17.4). That is *more* than
 `os88ui_glyph`'s normal path, which is one masked-sprite call plus the caller's
 own label, and the trade is taken on the owner's terms: this is drawn once and
@@ -47542,7 +47583,9 @@ those mirrors, and `fm_clamp_scroll` is the one routine that writes the
 scroll position back into the block.
 
 All coordinates below are content-relative. Header line at (6,6):
-`"Drive B:  N files"` (drive letter from this window's `FS_DRV`) or, when
+`"Drive B:  N files"` - `"1 file"` when N is one, the `s` cut off the
+staged string in front of its NUL (7 resident bytes, `.cold` on `kern_big`)
+- (drive letter from this window's `FS_DRV`) or, when
 its listing came from a failed mount (`FS_MOK` = 0),
 `"No os8088 disk (B:)"` (19 chars — short enough to clear
 the buttons at the default width; it was "No os8088 disk in drive B:"
@@ -101683,6 +101726,21 @@ a strip in the gap floats in white space and touches neither the widget nor
 the margin — but two toasts that pad differently depending on which home they
 landed in is a defect by itself.
 
+### 59.8.2 …and it leaves no FRAGMENT of the clock
+
+"Longer messages eat the date first and the time last" was true by the cell
+and wrong by the word. A strip that ends inside the clock's line leaves the
+rest of that line standing, and when the strip is one cell short of the field
+what stands is one digit: Redline Apply's `No REDLINE.CFG to apply` (23
+glyphs, 24 cells) was reported off the glass with the clock's last `0` glued to
+its `y`, and any message between 7 and 23 glyphs left the tail of a date word
+the same way. **So the cells after the strip are blanked up to the next space
+of the clock's line** — the field's NUL stopping it too — and what survives is
+whole words: a 15-glyph message shows the time, a 23-glyph one shows nothing
+beside it. Eight bytes of `.text` on both kernels (`menu_draw_clock`'s
+`.cut`), and the composed field is hashed after it as before, so the cut is
+part of the picture the clock compares against rather than a second pass.
+
 ### 59.9 …and it prefers the gap, where it covers nothing at all
 
 §59.8 chose the clock because a message must not cover a menu title, and read
@@ -134701,7 +134759,7 @@ flags)`** (`apengine.inc`), so the add rules live in one place:
 
 | route | flags | behaviour |
 |---|---|---|
-| File ▸ Open (fdlg completion) | `AP_ADD_CUR | AP_ADD_IDLE` | add, select; start it **only if nothing is playing** — Open must not interrupt the current song |
+| File ▸ Open (fdlg completion) | `AP_ADD_CUR | AP_ADD_IDLE` | add, select and start it **only while stopped** — Open must not interrupt the current song, PLAYING OR PAUSED; while one is, the file is added and NOT selected, because the title line and Play both read `apl_cur` |
 | launch document (§86.11) | `AP_ADD_CUR | AP_ADD_PLAY` | add, select, play it now — a double-click means "play this" |
 | handoff from a second instance (§86.11.1) | `AP_ADD_CUR | AP_ADD_PLAY` | same |
 | startup `OSAPI_ARG_FILE` | `AP_ADD_CUR | AP_ADD_PLAY` | same |
@@ -134720,8 +134778,12 @@ Disk-window folders, via a file *move*), documented as a limitation in §86.20.
 `ap_onfile` copies the chosen name out of the kernel buffer (valid only during
 the call), banks `OSAPI_FILE_HERE`, and calls `ap_add_file` with `AP_ADD_CUR |
 AP_ADD_IDLE`. So Open **adds to the playlist and selects**, and begins playback
-only when the player is idle — a deliberate choice so that queueing up the next
-song never cuts off the one playing. File ▸ Clear (`ap_stream_close` +
+only when the player is STOPPED — a deliberate choice so that queueing up the
+next song never cuts off the one playing, nor the one paused (a pause used to
+count as idle, so Open dropped the paused song for the new one). While a song
+is playing or paused the new entry is appended and not selected: it is the
+next track the playlist reaches, and the title line keeps naming the song in
+the stream. File ▸ Clear (`ap_stream_close` +
 `apl_clear`) empties the list and stops.
 
 Open in another folder **moves the instance** (§38.10): every by-name file
@@ -178067,6 +178129,16 @@ in-window play**; everything else keeps it.
   finished on the UI task's wake - `[vp_lend]`, which `vp_sstop` clears,
   so a session ended another way before that wake runs does not hand its
   end to the next one.
+- **A PAUSE shows the frame and says where it is.** Space on a Live play
+  stops the worker where it is (`vp_upaus`), and the pause does two things
+  the worker would otherwise owe: it blits the rows the shadow holds and the
+  box has not had (`vp_lblit`) - and if NOTHING has been decoded since the
+  start, decodes the first frame and blits the whole band. A Space queued
+  behind the start's load used to pause before the worker's first pass, and
+  the box stayed black for good over a shadow nobody ever drew. And the info
+  card's line 4 is re-lettered (`vp_lline4`, one line and not the card):
+  `Paused at 0:04` while paused, and where the play started while it runs -
+  it was formatted before the play and went on saying `At the start`.
 - **Live with SOUND** is 98.3.10.1.
 - **Live in COLOUR** is 98.3.10.4.
 - **Not built**: **Live fed from the disk**, which the owner's rule drops

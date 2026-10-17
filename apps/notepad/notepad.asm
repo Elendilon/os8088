@@ -11027,6 +11027,7 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                                 ; btlist - is 112 bytes it never ran (apps
                                 ; size pass 2b, SPEC.md 20.5.1.3.4, 27.16)
 %endif
+%define OS88UI_1BPP             ; OSAPI_SAVEU_1BPP: a greyed caption keeps its ink (SPEC.md 13.8.11)
 %include "os88ui.inc"
 
 ; ...and it is ABOVE the bss counter below because that block sizes a field

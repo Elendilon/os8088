@@ -6857,9 +6857,14 @@ cp_drv_line1:
     call cp_drv_rowy                ; DX = this row's glyph top
     add dx, CP_DSTDY
     mov ax, CP_PLX                  ; ...and NOT CP_PMX: see above
-    call cp_drv_line
-.out:
-    jmp kretm_si
+    mov cx, CP_DSX1 - 1             ; ...and its tail stops short of the
+    call cp_drv_linex               ; SCROLL ARROWS on the right, which share
+.out:                               ; the row's scan lines too: a clear to the
+    jmp kretm_si                    ; pane's edge wiped a band through the
+                                    ; down arrow, and the click path does not
+                                    ; redraw the arrows (the longest reason,
+                                    ; drv_e2's 22 cells from CP_PLX, ends at
+                                    ; 197)
 
 %endif ; OS88_DRIVERS
 
@@ -6893,7 +6898,16 @@ cp_drv_line1:
 ; nothing to its left, passes CP_PMX.
 ; -----------------------------------------------------------------------------
 cp_drv_line:
+    push cx
+    mov cx, CP_PRGT             ; ...to the pane's own last column
+    call cp_drv_linex
+    pop cx
+    ret
+
+; cp_drv_linex - the same, the tail cleared only to pane column CX
+cp_drv_linex:
     call kentm_si                ; KENT: push ax..si
+    push cx                     ; the clear's last column, pane-relative
 
     add ax, di                  ; AX = the line's left, in screen x
     mov bx, ax                  ; BX = it, kept clear of the calls below
@@ -6919,9 +6933,9 @@ cp_drv_line:
     pop bx
     add bx, ax                  ; BX = one past the string's last column
 .clear:
+    pop cx
+    add cx, di                  ; the caller's last column, in screen x
     mov ax, bx
-    lea cx, [di+CP_PRGT]
-                                ; the PANE's last column, not the content's
     cmp ax, cx
     ja .out                     ; the string filled the line: nothing to clear
     mov bx, dx
