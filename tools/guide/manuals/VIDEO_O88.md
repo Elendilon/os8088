@@ -12,15 +12,34 @@ Videos are made on a modern computer with the os8088 video encoder, a
 separate program that turns an ordinary video file into a `.V88`. Its
 page in this guide is **Video encoder**, under Tools.
 
+## What it plays
+
+A video is black and white, or in colour: CGA's own four colours, sixteen
+colours on an RGB monitor, hundreds on a composite monitor, a picture built
+out of coloured text characters, or 16 and 256 colours on a VGA. These are
+some of the demo videos, made for a 4.77 MHz IBM PC with a hard disk. Each
+is a copy your browser can play, with the video's own sound.
+
+![Take On Me: black and white, full screen on a Hercules card.](video:herc/07-pcm11)
+![Sonic 2: a picture made of 80 x 25 coloured text characters, on a CGA card.](video:cga/01-cotxt)
+![Trackmania: sixteen colours on a CGA card and an RGB monitor.](video:cga/07-cga16)
+![The same clip in about 450 colours, on a CGA card's composite output.](video:cga/09-cmp5o)
+![Star Wars: playing in its window, on a Hercules card.](video:herc/04-adpcm)
+![Steamboat Willie: playing Live, while the desktop keeps working.](video:cga/11-live)
+
+All of these, and more, are on the video demo hard drives: one for a CGA
+card and one for a Hercules card, each with os8088 installed and its videos
+in `MEDIA`. Their page in this guide is **Video demo**, under Hard disk & CD.
+
 ## Starting Video Player
 
 Double-click a `.V88` file and Video Player opens with it. You can also
 open the `APPS` folder and double-click **VIDEO.O88**, then pick a video
 with **File > Open...** or the eject button.
 
-One video comes with os8088: [[OS8088.V88]], a short looping animation of
-the os8088 logo, in the `MEDIA` folder of the 720KB, 1.2MB and 1.44MB disks
-and of the 360KB media disk.
+The floppy disks carry one video, [[OS8088.V88]], a short looping animation
+of the os8088 logo, in the `MEDIA` folder of the 720KB, 1.2MB and 1.44MB
+disks and of the 360KB media disk. The demo hard drives carry the rest.
 
 The window's title names the video, for example **Video Player - os8088**.
 
