@@ -418,10 +418,14 @@ vs_play:
     ret
 
 ; vs_race - a card WE configured: is channel 1 racing now the DSP plays?
-; pm_runaway masks it and sets [sbl_drqmask] if so (SPEC.md 34.10.5)
+; pm_runaway masks it and sets [sbl_drqmask] if so (SPEC.md 34.10.5).
+; It asks only while [pm_rchk] has ticks left, which sb.inc loads at every
+; stream start; this bench asks ONCE a stream, so it loads one - without it
+; the counter sits at 0 and the question is never asked at all
 vs_race:
     pushf
     cli
+    mov byte [pm_rchk], 1
     call pm_runaway
     popf
     ret
