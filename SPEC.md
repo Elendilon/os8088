@@ -60834,7 +60834,7 @@ total, `.text` −22, and the two figures on the RAM line become the same word
 plus a constant: **`RAM used` is `SK_KERN + SK_CLAIM`, `HEAP claimed` is
 `SK_CLAIM`**, so they cannot come to disagree about what *claimed* means.
 (§28.4.7 has since replaced `SK_KERN` in that sum with *total − heap*, which
-is the kernel plus the 1.5K below it.)
+is the kernel plus the 2K `IVT+Pad` row below it.)
 
 **The first fix was the view's** and covered half the line: the memory view's
 claimed half subtracted the purgeables with `tm_hsplit` and the RAM half went
@@ -61186,37 +61186,65 @@ somewhere else. Measured red with the two arms reverted at **3 claim rows for
 4 live records** — short by exactly the ring — while the probe it prints on a
 miss found `DrvImg` on screen and the ring's row absent.
 
-### 28.4.7 RAM's fixed half is TAKEN, so the line's two pairs close
+### 28.4.7 `IVT+Pad` — a constant 2K row, so every total closes in whole KB
 
-**System + IVT + heap = total RAM**, and the process page, the only page
-the small build has (§28.12), did not show it. `RAM used` was
-`SK_KERN + SK_CLAIM` and `HEAP claimed` was `SK_CLAIM`, so the two free
-figures should have been the same number, but RAM's came out **one or two KB
-higher** on every machine. The difference is the 1.5K below `KERNEL_SEG`:
-the IVT, the BIOS data area and the page at 0500. It is neither the kernel's
-nor the heap's, and only the memory view had a row for it (§28's `IVT+BDA`).
+**IVT + System + heap size = total RAM, in whole KB, on both pages.** The
+process page (the only page the small build has, §28.12) used to show
+`RAM used` as `SK_KERN + SK_CLAIM` beside `HEAP claimed/size`, and RAM's free
+half came out one or two KB over the heap's. Two things were missing:
 
-The fixed half is now **taken** rather than built: `RAM used` is
-`total − SK_HEAP + SK_CLAIM`, and the process page's System row carries
-`total − SK_HEAP + SK_KCLAIM`. *Total − heap* is everything that is not the
-heap, which is IVT + BIOS + System. With it:
+- **The 1.5K below `KERNEL_SEG`:** the IVT, the BIOS data area and the page
+  at 0500. It is neither the kernel's nor the heap's, and only the memory view
+  had a row for it.
+- **The rounding:** the kernel ends on a 512-byte boundary, so on any
+  machine exactly one of the kernel and the heap is an odd half-KB. Which one
+  depends on the build and, on kern_big, on whether the machine has VGA (a
+  machine without VGA gets back the 512-byte VGA buffer). `SK_KERN` rounds the
+  half up and `SK_HEAP` rounds it down.
+
+**Claims are whole KB** (`mem_claim` takes KB), so a heap of 67.5K can only
+ever hold 67K of claims. The whole-KB `SK_HEAP` is therefore the usable heap
+exactly, and the odd half-KB is dead memory whichever side it lands on. The
+one exception is a re-homed program's trimmed carve (§20.12.10.5, kern_big),
+which can end below a KB boundary; it stays rounded down, as before.
+
+So the Task Manager shows:
+
+| row | figure |
+|---|---|
+| `IVT+Pad` | **always 2K**: the 1.5K plus the odd half-KB |
+| System | total − `SK_HEAP` − 2: the kernel in whole KB, rounded **down** |
+| heap size | `SK_HEAP` |
+| RAM used | total − `SK_HEAP` + `SK_CLAIM` |
+
+`IVT+Pad` is a **constant** row on both pages, above System (`tm_s_lowrow`
+on the process page, `tm_s_low` on the memory view), and `tm_sysk` is the one
+place the System figure is computed. On the memory view, Code+data takes the
+same half-KB as System (`SK_IMG − (SK_KERN − System)`), so the three buffer
+rows still sum to the System row. With that:
 
 - `RAM total − HEAP size` = `RAM used − HEAP claimed`, so the two free figures
-  agree **exactly**;
-- the rows still partition the bar, because System gains what `used` gained.
+  agree exactly;
+- IVT+Pad + System + every program row = RAM used, so the rows partition the
+  bar.
 
-**It is taken and not a literal 1.5K added**, because of the rounding. KB
-are rounded differently on each side: `SK_KERN` rounds up (`KERN_KB`), and
-`SK_HEAP` rounds down (`(mem_top − mem_base) >> 6`). The kernel ends on a
-512-byte boundary, so the low term comes out as **1K or 2K**, depending on
-which half-KB the kernel ends in. A constant would leave the pairs a KB apart
-at every other rung.
+**No half-KB figure is shown anywhere, and no kernel byte changed**: every
+term was already in `OSAPI_SYS_KB`'s block. A half-KB display was weighed
+and dropped. With whole-KB claims, the only figures that could ever carry a
+half were the kernel and the heap size, and putting the half into a constant
+row removes it from both.
 
-The low memory is billed to System because the process page has no
-low-memory row of its own, and the memory belongs to the machine rather than
-to any program. The memory view keeps its own `IVT+BDA` row and a System row
-of `SK_KERN`, so there is nothing to bill twice. No kernel byte changed:
-both terms were already in `OSAPI_SYS_KB`'s block.
+The process page draws `TM_PROWS` = `TM_ROWS` + 1 rows: row 0 is
+`IVT+Pad`, row 1 System, and instances from row 2. `TM_ROWS` still sizes the
+per-row data (`tm_rcyc`, `tm_pct`), whose index 0 is System.
+
+**On a screen too short for every row, the process page folds `IVT+Pad` into
+System.** That means a CGA, whose two columns hold exactly the 13 rows the
+list had before. `tm_pshort` compares the columns' capacity with `TM_PROWS`;
+when short, the list starts at System and System shows its figure plus the
+2K, so the totals still close and no program row is pushed off the bottom.
+That push-off is the loss §28.1.2 fixed, and `tmcol2` is the gate for it. The
+memory view never folds: it lists no free slots, so it has the room.
 
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 
