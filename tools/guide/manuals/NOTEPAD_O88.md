@@ -124,8 +124,8 @@ A new note is called `NOTES.TXT`, so **Save** on a brand-new note writes
 an open, a short message such as **Saved LETTER.TXT** appears in the corner
 of the window.
 
-**New** does not ask before it empties the note, so save first if you want
-to keep it.
+If the note has unsaved changes, **New** first asks **Save changes to** the
+note, the same question closing the window asks.
 
 ## The Edit and Find menus
 

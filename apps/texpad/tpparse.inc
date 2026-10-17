@@ -1382,10 +1382,24 @@ tp_plain_arg:
     ; named command: textbackslash -> '\'; else skip
     dec si
     call tp_argname
-    jne .grp
+    jne .today
     mov al, '\'
     stosb
     dec cx
+    jmp .lp
+.today:
+    push si                     ; \today in an argument - \date{\today}, the
+    mov si, tp_cn_today         ; spelling every LaTeX paper uses - is the
+    call tp_cmdent              ; date and not nothing, which is what the
+    pop si                      ; "else skip" below made it
+    jne .grp
+    push si
+    mov si, tp_nbuf
+    xchg si, di
+    call tp_today_di
+    xchg si, di                 ; DI back on tp_wbuf's next byte
+    call tp_cpatn               ; under the ceiling, CX counted down
+    pop si
     jmp .lp
 .esc:
     stosb
@@ -1602,6 +1616,7 @@ tp_cn_bsl:
     TPC 'normalsize', tp_c_norm
     TPC 'TeX', tp_c_tex
     TPC 'LaTeX', tp_c_latex
+tp_cn_today:                    ; named so tp_plain_arg can ask for it too
     TPC 'today', tp_c_today
     db 0
 
@@ -1630,8 +1645,9 @@ tp_strlen:
     pop si
     ret
 
-; \TeX, \LaTeX and \today set a fixed string: they sit in front of
-; tp_emit_csi so that the last of them falls into it
+; \TeX and \LaTeX set a fixed string and \today the date off the system
+; clock: they sit in front of tp_emit_csi so that the last of them falls into
+; it
 tp_c_tex:
     mov si, tp_s_tex
     jmp short tp_emit_csi
@@ -1641,7 +1657,10 @@ tp_c_latex:
     jmp short tp_emit_csi
 
 tp_c_today:
-    mov si, tp_s_today
+    mov si, tp_nbuf             ; free here: a heading composes into it only
+    xchg si, di                 ; AFTER its argument is read, and \today in
+    call tp_today_di            ; an argument goes through tp_plain_arg
+    xchg si, di
 
 tp_emit_csi:
     ; SI = DS NUL string, current style
@@ -1674,6 +1693,50 @@ tp_emit_csi:
     add [tp_x], dx
 .o:
     pop dx
+    pop bx
+    pop ax
+    ret
+
+; DI = a buffer of 19 bytes or more: today's date as LaTeX's \today spells it,
+; "October 17, 2026", off OSAPI_CLK_GET - the menu bar's own clock - and
+; NUL-terminated. It was the fixed string 'August 2026', the month the
+; package was written in. Preserves every register.
+tp_today_di:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call OSAPI_CLK_GET          ; CX = year, DH = month 1..12, DL = day
+    push cx
+    mov si, tp_s_months
+    mov cl, dh
+    xor ch, ch
+    dec cx                      ; the names to step over
+    jle .got                    ; (a month of 0 cannot happen; it reads Jan)
+.skip:
+    lodsb
+    or al, al
+    jnz .skip
+    loop .skip
+.got:
+    call tp_cpat                ; ES = DS from here on
+    mov al, ' '
+    stosb
+    mov al, dl
+    call tp_u8_di
+    mov ax, ', '
+    stosw
+    pop ax                      ; the year
+    call tp_u16_di
+    mov byte [di], 0
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -2756,7 +2819,10 @@ tp_s_rbr:       db ']', 0
 tp_s_bsl:       db '\', 0
 tp_s_tex:       db 'TeX', 0
 tp_s_latex:     db 'LaTeX', 0
-tp_s_today:     db 'August 2026', 0
+tp_s_months:    db 'January', 0, 'February', 0, 'March', 0, 'April', 0
+                db 'May', 0, 'June', 0, 'July', 0, 'August', 0
+                db 'September', 0, 'October', 0, 'November', 0
+                db 'December', 0
 tp_s_endtab:    db 'end{tabular}', 0
 tp_s_lit:       db '%&$#_{}'        ; what a backslash makes a plain character
 TP_NLIT         equ $ - tp_s_lit

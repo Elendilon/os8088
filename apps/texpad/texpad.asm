@@ -154,6 +154,8 @@ tp_entry:                       ; (an entry proc answers BX = its window and
     ; The proc is a bare `ret` of ours: nothing here holds a segment of
     ; its own region.
     OS88_REGION_MOVABLE tp_seg_ok
+    mov ax, tp_onclose          ; SPEC.md 75.1: every way of closing us asks
+    call OSAPI_WM_ONCLOSE       ; first, so an edited document is never lost
     mov ax, tp_onup             ; SPEC.md 13.7/13.8.1: the bar's seven fire on
     call OSAPI_WM_ONMOUSEUP     ; the RELEASE and follow the pointer between
     mov ax, tp_ondrag           ; the edges. Not template words, so they are
@@ -3639,11 +3641,11 @@ tp_onkey:
     call tp_save
     jmp .draw
 .kopen:
-    call tp_open_dlg
+    call tp_cmd_open            ; as File > Open, the question and all
     jmp .out
 .knew:
-    call tp_new                 ; as File > New
-    jmp .draw
+    call tp_cmd_new             ; as File > New, the question and all; it
+    jmp .out                    ; repaints itself when it does anything
 .kcopy:
     call tp_copy_all
     jmp .draw
@@ -4223,13 +4225,14 @@ tp_oncmd:
 .fe:
     or ah, ah
     jnz .edit
-    mov bx, tp_new              ; a document that REPLACES this one is set on
-    or al, al                   ; arrival - File > Open and a double-clicked
-    jz .cr                      ; .TEX already were, and a blank preview
+    or al, al                   ; a document that REPLACES this one is set on
+    jz tp_cmd_new               ; arrival - File > Open and a double-clicked
+                                ; .TEX already were, and a blank preview
                                 ; beside a fresh document was the odd one out
-                                ; (SPEC.md 69.1)
+                                ; (SPEC.md 69.1). Both ask first when the
+                                ; document is edited (SPEC.md 69.12)
     cmp al, 2
-    jb tp_open_dlg              ; 1 Open...
+    jb tp_cmd_open              ; 1 Open...
     mov bx, tp_save
     je .cr
     cmp al, 5
@@ -4297,12 +4300,126 @@ tp_mpage:   db 0x00, 0x01, 0x02, 0x03   ; Letter, Legal, A4, A5
 tp_open_dlg:
     mov byte [tp_dlgmode], 0
     mov al, FDLG_OPEN
-    jmp short tp_dlg
+    jmp tp_dlg
 
-; File > New and Ctrl+N: the seed document, set
+; File > New and Ctrl+N: the seed document, set - and the title told, which
+; it was not: the window went on saying 'TeXPad - PAPER.TEX' over a document
+; whose own row said UNTITLED.TEX
 tp_new:
     call tp_seed
+    push bx                     ; (tp_retitle spends BX on the window)
+    call tp_retitle
+    pop bx
     jmp tp_typeset
+
+; -----------------------------------------------------------------------------
+; THE SAVE-CHANGES QUESTION (SPEC.md 69.12). Three things throw the document
+; in the window away - closing it, File > New and File > Open - and an EDITED
+; one is asked about first, with SPEC.md 75.3's alert, the way Note Pad asks:
+; Save / Discard / Cancel. The question is a separate window and not modal, so
+; asking returns at once and tp_onask does the rest when it is answered.
+; -----------------------------------------------------------------------------
+TPQ_CLOSE equ 1
+TPQ_NEW   equ 2
+TPQ_OPEN  equ 3
+
+; File > New, Ctrl+N: ask, or replace the document now and repaint
+tp_cmd_new:
+    mov al, TPQ_NEW
+    call tp_askdirty
+    jc .o                       ; asked: the answer does the rest
+    call tp_new
+    jmp tp_redraw
+.o:
+    ret
+
+; File > Open, Ctrl+O: ask, or raise the dialog now
+tp_cmd_open:
+    mov al, TPQ_OPEN
+    call tp_askdirty
+    jc tp_cmd_new.o
+    jmp tp_open_dlg
+
+; tp_onclose - the CLOSE NEGOTIATOR (SPEC.md 75.1): SI = our window, UI task,
+; gfx lock held. CF = 0 close now, CF = 1 not yet (the question is up)
+tp_onclose:
+    mov al, TPQ_CLOSE           ; ...and tp_askdirty's CF is the answer
+
+; AL = TPQ_*: CF = 0 when the document is not edited and the caller may go
+; ahead; CF = 1 when it is - the question has been put up (or, refused because
+; it is already up, RAISED - SPEC.md 75.3.1), and tp_onask carries out AL when
+; it is answered. Preserves every register but the flags.
+tp_askdirty:
+    cmp byte [tp_dirty], 0
+    jne .ask
+    clc
+    ret
+.ask:
+    push ax
+    push bx
+    push si
+    push di
+    push es
+    push ax
+    mov di, tp_qbuf             ; 'Save changes to NAME?' - 29 characters at
+    mov si, tp_s_qsave          ; most, under OS88UI_AMAX
+    call tp_cpat                ; (ES = DS from here)
+    mov si, tp_fname
+    cmp byte [si], 0
+    jne .nm
+    mov si, tp_s_noload
+.nm:
+    call tp_cpat
+    mov word [di], '?'          ; '?' and the NUL in one store
+    mov ax, KERNEL_SEG          ; os88ui_ask reads our caption out of the
+    mov es, ax                  ; window record through ES (SPEC.md 20.1)
+    mov bx, [tp_win]
+    mov si, tp_qbuf
+    mov di, tp_onask
+    mov al, OS88UI_ASAVE
+    call os88ui_ask
+    pop ax
+    jc .o                       ; one is up already, and it has been raised:
+                                ; its action stands
+    mov [tp_qact], al
+.o:
+    pop es
+    pop di
+    pop si
+    pop bx
+    pop ax
+    stc
+    ret
+
+; tp_onask - the alert's completion: AL = 0 Save, 1 Discard, 2 Cancel or
+; OS88UI_ACANCEL (dismissed); SI = our window, UI task, gfx lock held, the
+; alert already gone and what it covered already repainted
+tp_onask:
+    mov ah, [tp_qact]
+    mov byte [tp_qact], 0
+    or al, al
+    jz .save
+    cmp al, 1
+    je .go                      ; Discard
+    ret                         ; Cancel / dismissed: nothing happens
+.save:
+    call tp_save                ; CF = 1: it failed and said so - and the
+    jc .out                     ; document is still here, still edited
+.go:
+    cmp ah, TPQ_NEW
+    je .new
+    cmp ah, TPQ_OPEN
+    je tp_open_dlg
+    cmp ah, TPQ_CLOSE
+    jne .out
+    mov bx, si
+    call OSAPI_WM_CLOSE         ; deferred (SPEC.md 75.2)
+    ret
+.new:
+    call tp_new
+    jmp tp_redraw
+.out:
+    ret
 
 tp_dlg:
     push bx
@@ -4519,10 +4636,12 @@ tp_save:
     call tp_retitle
     mov si, tp_s_saved
     call tp_toast
-    jmp .out
+    clc                         ; CF = 0 saved, CF = 1 not: the save-changes
+    jmp .out                    ; question's Save stays open on a failure
 .err:
     mov si, tp_s_werr
     call tp_toast
+    stc
 .out:
     pop es
     pop si
@@ -5444,6 +5563,7 @@ tp_s_hello:     db 'HELLO.TEX', 0
 tp_s_paper:     db 'PAPER.TEX', 0
 tp_s_untitled:  db 'UNTITLED.TEX', 0
 tp_s_noload:    db '(new)', 0
+tp_s_qsave:     db 'Save changes to ', 0
 tp_s_lt:        db '<', 0           ; the page arrows, in button order
                 db '>', 0
 tp_s_stale:     db '(edit)', 0
@@ -5504,6 +5624,9 @@ tp_seed_s:
     db 0
 
 %define OS88UI_SCROLL           ; SPEC.md 13.10: the shared scroll bar
+%define OS88UI_ALERT            ; SPEC.md 75.3's alert: the save-changes
+                                ; question before a close, a New or an Open
+                                ; throws an edited document away (69.12)
 %define OS88UI_SBUPD            ; ...and its whole-or-thumb choice, for both bars (13.10.3.2)
     %define OS88UI_NOGLYPH          ; no check box or radio drawn here (SPEC.md 13.8.9)
     %define OS88UI_NOGEST           ; presses routed by hand: no gesture install (SPEC.md 20.5.1.3.4)
@@ -5655,6 +5778,8 @@ tp_seed_s:
     TPB tp_ttlbuf,   32         ; the window's title: OSAPI_WM_TITLE keeps the
                                 ; pointer and reads it on every repaint
     TPB tp_nbuf,     48
+    TPB tp_qbuf,     32         ; the save-changes question (SPEC.md 69.12)
+    TPB tp_qact,     1          ; ...and what its answer goes on to do: TPQ_*
     TPB_UNION                   ; ...the typesetter's own scratch
     TPB tp_cmd,      32
     TPB tp_arg,      182

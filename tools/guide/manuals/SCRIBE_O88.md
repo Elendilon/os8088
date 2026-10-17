@@ -18,7 +18,7 @@ Table of Contents work on the whole document or on a selection.
 
 Scribe comes on its own floppy. Put that disk in a drive, open it and
 double-click **SCRIBE.O88**. The disk also holds two copies of the welcome
-document, [[SCWELCOM.RTF]] and [[WELCOME.DOC]], and an empty **DOCS** folder
+document, [[SCWELCOM.RTF]] and [[SCWELCOM.DOC]], and an empty **DOCS** folder
 for your own work. Open a document with **File > Open...**.
 
 Double-clicking a `.DOC` file opens Microsoft Word ([[WORD.O88]]), not Scribe, even when
@@ -194,7 +194,7 @@ six-inch column with a tick where each page starts. **View > Ribbon**,
 | Close | | Closes the window |
 | Save | `Shift+F12` or `Ctrl+S` | Saves under the current name |
 | Save As... | `F12` | Saves under a new name |
-| Exit | | Closes the window |
+| Exit | `Alt+F4` | Closes the window |
 
 Save All and Find are grey. New, Open, Close and Exit ask **Do you want to
 save changes to** the document when it has changes: **Yes**, **No** or
@@ -252,8 +252,6 @@ it, for example in the **DOCS** folder.
   first is not drawn.
 - A centred or right aligned picture can run past the right margin. Clicking
   on a picture puts the caret at its left edge.
-- After a picture goes in, the message shows its size and ends with **not
-  placed**. The picture is in the document all the same.
 - A document holds about 30 KB of text and up to eight pictures. The memory
   of a deleted picture comes back at the next File > New or Open.
 - Closing the window with its close box does not ask about unsaved changes.

@@ -63,9 +63,9 @@
   "sources": [
    "apps/artful"
   ],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": "c739282f65a859f0",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "start card New/Open ask about unsaved changes over the writing screen (checked on MartyPC)"
  },
  "ASSOC_DAT": {
   "sources": [],
@@ -638,9 +638,9 @@
   "sources": [
    "apps/notepad"
   ],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": "b93994888feea78c",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "New asks about unsaved changes (checked on MartyPC)"
  },
  "NOTO_F88": {
   "sources": [],
@@ -852,9 +852,9 @@
   "sources": [
    "apps/scribe"
   ],
-  "stamped": "e4576a70",
-  "strings": "4ad8a6b5c8c213aa",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "9002627c285a05c8",
+  "why": "Exit lists Alt+F4, which Scribe now handles; the welcome files are SCWELCOM.RTF and SCWELCOM.DOC; the Insert Picture 'not placed' note removed (the message reads 'WxH placed'); About box line checked on MartyPC"
  },
  "SCWELCOM_RTF": {
   "sources": [],
@@ -992,9 +992,9 @@
   "sources": [
    "apps/texpad"
   ],
-  "stamped": "e4576a70",
-  "strings": "ecc19d62b0090173",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "9deeee7d",
+  "strings": "ca6e54b0603dfda4",
+  "why": "New/Open/close ask about unsaved changes (alert checked on MartyPC); \\today prints the clock's date; the dirty star is on the top row; letterpaper-overrides-Page-menu note kept, it is intended"
  },
  "THEWIRE_O88": {
   "sources": [
@@ -1162,9 +1162,9 @@
   "sources": [
    "apps/word"
   ],
-  "stamped": "e4576a70",
+  "stamped": "9deeee7d",
   "strings": "466d7146ee799a0e",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "Exit lists Alt+F4, which Word now handles (checked on MartyPC)"
  },
  "WRITING_MD": {
   "sources": [],
