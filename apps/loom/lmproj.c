@@ -690,7 +690,7 @@ static void lm_open_pend(void *win)
     lm_mkname(lm_stem, "WML");
     os88_strcpy(lm_argname, lm_line, sizeof(lm_argname));
     if (!ovl_openproj(win, lm_argname))
-        lm_say("LOOM.OVL is missing; a project cannot be opened.");
+        lm_say("LOOM could not load its overlay; a project cannot be opened.");
 }
 
 /* ============================================================================
@@ -840,7 +840,7 @@ static void lm_pack(void)
     ok = ovl_pack();
     if (!ok && !lm_failed()) {
         lm_pack_free();
-        lm_say("LOOM.OVL is missing or stale; no bundle can be packed.");
+        lm_say("LOOM could not load its overlay; no bundle can be packed.");
         lm_side_paint();
         lm_status_paint(0);
         return;

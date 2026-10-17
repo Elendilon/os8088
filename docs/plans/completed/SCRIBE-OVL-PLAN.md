@@ -1,9 +1,21 @@
 # SCRIBE's overlay stops stamping segments — and then stops being a sidecar
 
-**Status: NOT STARTED. This is the planning the owner asked for before the
-work.** It is the last `region` exemption in `tests/movable.txt` that has any
-work behind it (SPEC.md §66.6.1.1) — `apps/skies/csload.asm`, the other one,
-has nothing to declare and never will.
+**Status: DONE, and by none of the three options as written - SPEC.md 95.8.8
+is the contract.** Read §2.3's sentence *"C is INDEPENDENT of B and does not
+retire the exemption on its own: a part is a claim with a segment of its own"*
+with this correction: that is true of a part the package far-calls, and it is
+not true of the shape WORD had already shipped (SPEC.md 68.10). There part 1 is
+assembled at `SC_P1ORG` and op_load lays it down at that offset of the
+PROGRAM'S OWN SEGMENT, so it is not another segment at all: the stamp, the six
+vectors, the shims, the dispatcher, the build stamp, the launch-folder dance
+and the `SC_OVKB` claim were all DELETED rather than moved, and the region and
+the worker both declare plainly. So C *was* B, and A never had to be written.
+What it cost and bought is measured in SPEC.md 95.8.8. The rest of this file is
+the plan as it stood, kept as the reasoning behind it.
+
+It was the last `region` exemption in `tests/movable.txt` that had any work
+behind it (SPEC.md §66.6.1.1) — `apps/skies/csload.asm`, the other one, has
+nothing to declare and never will.
 
 The one-line version: **SCRIBE is the only package in the tree that writes its
 own segment into memory the kernel does not know about**, so a bare

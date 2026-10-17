@@ -677,6 +677,22 @@ op_claim:
 
 %endif                              ; OP_HAS_CARVE
 
+; ...and the standard READS NOTHING for a table with neither a carve nor a
+; row it fetches - every lazy row OP_SELF, the package reading each one for
+; itself (MIDIRack's faces, SPEC.md 105.9.5) - so op_read, op_say, op_clbget,
+; their four refusals and os88_rseq are reached from nothing there. A table
+; with either assembles to the byte it did (SPEC.md 20.12.9.4)
+; ...UNLESS the package asks: `%define OP_WANT_READ` before os88parts.inc
+; keeps op_read, op_clbget and os88_rseq for a package that reads its OP_SELF
+; rows with them (Excitebike's xb_partget, SPEC.md 102.10) - a DEFINE and not
+; a derived flag, for OP_NO_LAZYOK's reason: what decides it is the program's
+; CALLS, which no table row sees (SPEC.md 20.12.9.2, 20.12.9.4)
+%ifdef OP_WANT_READ
+%assign OP_HAS_READ 1
+%else
+%assign OP_HAS_READ OP_HAS_CARVE || OP_HAS_FETCH
+%endif
+%if OP_HAS_READ
 ; -----------------------------------------------------------------------------
 ; op_read - the carved run, OP_CHUNK bytes at a time
 ; out: CF=0; CF=1 = the file could not be read
@@ -768,6 +784,7 @@ op_read:
     pop bp
     stc
     ret
+%endif                              ; OP_HAS_READ
 %if OP_HAS_COMP && OP_HAS_CARVE
 ; GATED (SPEC.md 20.12.9): op_unpack - only a table with an OP_COMP row IN THE CARVE can reach it (a lazy one is op_fetch's)
 
@@ -1286,6 +1303,12 @@ op_seg:
     pop bx
     ret
 
+%if OP_HAS_CARVE || OP_HAS_FETCH
+; GATED (SPEC.md 20.12.9.4): op_say and the refusals below it - only the carve
+; and op_fetch refuse, so a table whose every row is lazy AND OP_SELF (the
+; package reads and refuses for itself, SPEC.md 102.10, 105.9.5) reaches
+; neither - even one that asked for op_read with OP_WANT_READ
+
 ; -----------------------------------------------------------------------------
 ; op_say - put SI's string up and refuse (module-internal)
 ; in:  SI = a NUL-terminated string in our segment; out: CF=1
@@ -1297,7 +1320,9 @@ op_say:
     call OSAPI_TOAST
     stc
     ret
+%endif                              ; OP_HAS_CARVE || OP_HAS_FETCH
 
+%if OP_HAS_READ
 ; -----------------------------------------------------------------------------
 ; op_clbget - this volume's bytes per cluster, asked AT MOST ONCE
 ; out: CF=0 and [op_clb] filled; CF=1 = the volume would not answer
@@ -1335,6 +1360,7 @@ op_clbget:
     pop bx
     stc
     ret
+%endif                              ; OP_HAS_READ
 %if OP_HAS_FETCH
 ; GATED (SPEC.md 20.12.9, 20.12.9.1): op_lazykb, op_lazyok, op_fetch and op_drop - the whole lazy surface, and the last three are public entry points a table with no lazy row THE STANDARD fetches has nothing to call. A row marked OP_SELF is one the package reads for itself, and a table whose every lazy row is one carries none of this
 ;
@@ -1976,17 +2002,20 @@ op_scrub:
     ret
 %endif                              ; OP_HAS_ZERO
 
+%if OP_HAS_CARVE || OP_HAS_FETCH
 ; --- refusals, in the package's own words (SPEC.md 47, 59) -------------------
 ; TOAST_MAX is 24 characters and a cut message reads like a bug in the thing
 ; it is reporting on, so these are short on purpose.
+%if OP_HAS_READ
 op_s_big:   db 'Parts do not fit', 0
 op_s_mem:   db 'Not enough memory', 0
 op_s_disk:  db 'No disk to read from', 0
 op_s_read:  db 'Cannot read my parts', 0
+%endif
 %if OP_HAS_FETCH
 op_s_lazy:  db 'Not a fetchable part', 0
 %endif
-%if OP_HAS_COMP
+%if OP_HAS_COMP && (OP_HAS_CARVE || OP_HAS_ZLAZY)
 op_s_zbad:  db 'A part will not unpack', 0
 %endif
 %if OP_HAS_ZLAZY
@@ -1994,6 +2023,9 @@ op_s_spent: db 'That part was dropped', 0   ; ...and cannot come back: a
 %endif                                      ; compressed lazy row's packed
                                             ; length is where the segment went
                                             ; (SPEC.md 20.12.7.4)
+%endif                              ; OP_HAS_CARVE || OP_HAS_FETCH
 
+%if OP_HAS_READ
 %include "os88rseq.inc"         ; os88_rseq: op_read's and op_xload's READ_AT,
                                 ; on READ_SEQ's walk (SPEC.md 18.4.8.1)
+%endif
