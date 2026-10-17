@@ -48,8 +48,11 @@ sys.path.insert(0, HERE)
 import dispapps                                                # noqa: E402
 import os88ui                                                  # noqa: E402
 
+# THE TYPEFACES ARE ON office360.img (SPEC.md 24.3.1.5): the 360KB system
+# disk gave SYSTEM/FONTS and the Font Viewer to it, so B: is that disk and
+# the repro's folder is B:/SYSTEM/FONTS, where it was A:'s
 SYS = os.environ.get("OS88_SYSIMG", "build/os8088-360.img")
-APPS = os.environ.get("OS88_APPSIMG", "build/apps360.img")
+APPS = os.environ.get("OS88_APPSIMG", "build/office360.img")
 MACHINE = "os8088_xt_vga"
 FRAMES = 70                     # ~1 s of guest at the VGA's 70 Hz
 
@@ -64,7 +67,7 @@ def check(leg, ok, msg):
 
 with os88ui.boot(SYS, apps=APPS, machine=MACHINE) as ui:
     m = ui.m
-    ui.path("A:/SYSTEM/FONTS")
+    ui.path("B:/SYSTEM/FONTS")
     ui.open("CHARTER.F88")              # the open-by-association path the
     m.advance(frames=FRAMES * 10)       # report took; Inconsol is three down
     m.run()
