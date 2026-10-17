@@ -245,7 +245,7 @@
   "sources": [
    "apps/cword"
   ],
-  "stamped": "9deeee7d",
+  "stamped": "55642792",
   "strings": "e29c72eb33b83e26",
   "why": "Undo, Cut/Copy/Paste keys, Ctrl+F Search, Alt+F4, Y/N/C on the save prompt, draggable ruler markers, labelled indent boxes, Confirm Changes and RTF keeping every format, all driven under MartyPC"
  },
