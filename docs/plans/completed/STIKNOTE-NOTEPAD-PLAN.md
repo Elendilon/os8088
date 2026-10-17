@@ -1,8 +1,13 @@
 # STIKNOTE-NOTEPAD-PLAN: Sticky Note as a pad over a folder of text files
 
-**PLAN, nothing built.** Written 2026-10-17 on `main-size-pass` (elendilon
-with main's Sticky Note and Desk Clock merged, `573b5f88`). It is the first
-item of that branch's size pass and not the only one.
+**BUILT, all five waves - SPEC.md §110.13 is the contract and this file is
+the design record behind it.** Written 2026-10-17 on `main-size-pass`
+(elendilon with main's Sticky Note and Desk Clock merged, `573b5f88`), and
+built on that branch the same day. `stiknote.o88` went from a 16,912-byte
+image and 6,485 bytes of bss (14,524 packed) to **9,104 and 1,906 (8,202
+packed)** - the estimate below was 8.5-9.5K and ~3K. The text below is the
+plan as it was decided; where the build went another way is §6, and is the
+part to read first.
 
 **The change:** Sticky Note stops being a text editor. Its notes become
 ordinary `.TXT` files in `SYSTEM\APPDATA\NOTES` on the boot volume. The pad on
@@ -311,3 +316,40 @@ design, with legs that:
   carried there by hand;
 - measure the page-turn time and the tick's rewrite on the 4.77 MHz XT
   (decision 4's cost, stated rather than predicted).
+
+## 6. What the build found (2026-10-17)
+
+Five places the code went where this plan did not say, each recorded in
+SPEC.md §110.13 too:
+
+1. **`OSAPI_PKG_START`'s document arm takes the document's folder from where
+   the caller STANDS, not from the locator's directory word.** With no
+   poster, `assoc_run_x`'s `.curvol` reads `[dsk_cwd]` / `[disk_drive]` and
+   overwrites the two words the locator staged. The first build launched from
+   home (`STIKAPPS\`): Note Pad opened an empty `WELCOME.TXT` and Ctrl+S
+   wrote it into `STIKAPPS\`. `sn_launch` now stands in `NOTES` (`sn_go`) for
+   the call. The locator's directory word and volume are still filled in, as
+   §21.5.3 asks.
+2. **The watch keeps `SSI_WIN`, not `SSI_SEG` (§3.4 step 2).** A compaction
+   MOVES a movable region (SPEC.md §66), and Note Pad's is movable and grows
+   its own claim while the user types, so the segment can change under a
+   live editor and the pad would re-read early and stop watching. The window
+   record does not move. Reuse of the slot by a new instance in the same two
+   seconds is the same hole either way.
+3. **§3.1's "both small disks" was superseded by decision E** before the build:
+   the folder ships on the four geometries, `emu.img` and the live media, and
+   on no small disk.
+4. **Every access stands in the folder through `stik_enter`**, the include's
+   home check with its full remount - a page turn is a remount, a walk and a
+   read, not only §3.3's walk and read. It is the same safety a save has
+   (§110.5.1); the final pass's 5150-class measurement prices it.
+5. **The in-place `OSAPI_FILE_WRITE_AT` tick (§3.5) is not built**; the tick is
+   the full rewrite through a claim. The head is patched and one pad line
+   redrawn on success, and a file whose brackets moved is read again.
+
+The welcome note, the editor, the pool, the marker bytes, `On desktop` and
+os88ui's alert and buttons all left as §3.6 said. The size pass after the
+rewrite took the Color menu's fifteen 24-byte padded strings down to five,
+one a paper composed three ways (-240 bytes of image); a table-driven sheet
+edge pass was built, measured at -16 image and +15 packed, and not taken.
+

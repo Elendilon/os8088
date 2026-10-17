@@ -10190,7 +10190,11 @@ SOAK = [
         "on the shipped 360KB system disk. A press on the cell loads "
         "STIKMENU.DRV and lists the disk's two Sticky Apps, DESKCAL.O88 by "
         "its CARD (name 'Desk Calendar', not running, Arrange/Hide greyed, "
-        "More live) beside STIKNOTE.O88 (SPEC.md 110.13); releasing "
+        "More live) beside STIKNOTE.O88 (SPEC.md 110.13); a drop taken with "
+        "the hand moved onto the panel during the scan has the progress "
+        "widget OFF the bar and the pointer NOT the busy clock once the "
+        "panel is up (SPEC.md 12.8.3.3, stm_thaw); a Disk window's bar "
+        "carries no Sticky Apps cell (SPEC.md 22.28.1); releasing "
         "on its row POSTS the pick and launches it as a desk window, and the "
         "module is dropped after; a release off the panel posts nothing; "
         "Hide All hides the widget and Show All brings it back; Arrange puts "
@@ -10296,26 +10300,39 @@ SOAK = [
         "Del twice empties the list; and three again show the last one's "
         "page and the pager wraps.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
-    Row("stiknote", "soak", py("tests/stiknote.py"), 120.0,
+    Row("stiknote", "soak", py("tests/stiknote.py"), 150.0,
         "SPEC.md 110.13: Sticky Note on a Hercules 5150 off the shipped 360KB "
-        "system disk - the MID layout. The pad is a desk window and its first "
-        "beat writes STIKNOTE.DAT with the welcome note; the sheet's edge "
-        "and the stack's are ink, both notches the desktop's dither and the "
-        "turned corner's diagonal ink; a pad press ticks a box (the ticked "
-        "record, the file's SN_BOX1); the arrow opens the titled editor, "
-        "New + `Groceries` + `[ ]milk` + Enter + `eggs` is two open boxes in "
-        "the file, Ctrl+T takes one away, Delete + Proceed leaves one note; "
-        "`On desktop` off hides the pad, the editor's close then ends the "
-        "program and its Sticky App row; launched again the editor opens "
-        "alone; and the Color menu is greyed `(color screen)` on 1bpp.",
+        "system disk - the MID layout, a pad over SYSTEM/APPDATA/NOTES. It "
+        "reads WELCOME.TXT (one note, its head the file's bytes) and the "
+        "first beat writes STIKNOTE.DAT v2 naming it; the sheet's edge and "
+        "the stack's are ink, both notches the desktop's dither and the "
+        "turned corner's diagonal ink; three beats with nothing armed reach "
+        "OSAPI_SYS_SNAPSHOT never; a pad press ticks a box (the ticked "
+        "record, `[x] ` in the file on the disk, timed); the arrow opens it "
+        "in Note Pad, typed text and Ctrl+S then Note Pad's close disarm the "
+        "watch within a beat and the pad shows the saved text (saved into "
+        "NOTES, not STIKAPPS); `+` makes NOTE0001.TXT and opens it, `<` "
+        "turns back (timed); Delete once says `Delete again to confirm` and "
+        "deletes nothing, twice deletes the current note's file; and the "
+        "Color menu is greyed `(color screen)` on 1bpp.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
-    Row("stiknotevga", "soak", py("tests/stiknote.py", "--leg", "vga"), 70.0,
-        "SPEC.md 110.13: Sticky Note's PAPERS on a VGA XT, read off the card's "
-        "rendered framebuffer (fbuf): the TALL layout; the pad's sheet yellow "
-        "with a black edge, the editor's page yellow and its list white; "
-        "Color > Pink makes the page and the pad pink and says so in the "
-        "file, the list still white.",
+    Row("stiknotevga", "soak", py("tests/stiknote.py", "--leg", "vga"), 80.0,
+        "SPEC.md 110.13: Sticky Note's PAPERS and a FULL folder on a VGA XT, "
+        "read off the card's rendered framebuffer (fbuf): the TALL layout; "
+        "the sheet yellow with a black edge; Color > Pink makes it pink and "
+        "STIKNOTE.DAT's table says so, and the pad closed and launched again "
+        "is still pink; with 29 empty notes written into NOTES on the host "
+        "the pad counts 30 and `+` says `Notes folder is full` and makes "
+        "nothing.",
         needs=("marty",), timeout=600, wants=("build/os8088-360.img",)),
+    Row("stiknotesmall", "soak", py("tests/stiknote.py", "--leg", "small"),
+        45.0,
+        "SPEC.md 110.13, 24.5.1: a copy of STIKNOTE.O88 carried to kern_small "
+        "by hand (B:) refuses to launch IN WORDS - `No desk layer "
+        "(DESK.DRV)`, the STIK_DESKONLY build - and opens no window. "
+        "`make small` builds its disk.",
+        needs=("marty",), timeout=300,
+        wants=("build/small360.img",)),
     Row("deskclock", "soak", py("tests/deskclock.py"), 150.0,
         "SPEC.md 110.14: the Desk Clock on a VGA XT off the shipped 360KB "
         "system disk - a desk window, Medium Classic, whose dial's corners "
@@ -10505,7 +10522,7 @@ SOAK = [
         "a RESET brings no calendar back (no autostart on kern_small); and "
         "opened again by hand it is where it was dragged, its data FIRED.",
         needs=("marty",), timeout=900,
-        wants=("build/small360.img", "build/smallk/kernel.bin")),
+        wants=("build/small360.img",)),
     Row("deskcalperf", "soak", py("tests/deskcalperf.py"), 63.0,
         "SPEC.md 110.6 / PERFORMANCE.md Part 5: what the Desk Calendar's "
         "gestures COST in primitive calls - a breakpoint on every drawing "
@@ -10827,7 +10844,7 @@ SOAK = [
         "docs/plans/completed/GFX-EMBEDDABLE-PLAN.md. It builds nothing: `make small` "
         "is what it reads, the same tree small128 and smallboot want",
         needs=("marty",), serial=True,
-        wants=("build/small360.img", "build/smallk/kernel.bin")),
+        wants=("build/small360.img",)),
     Row("paint1blit", "soak",
         py("tests/paint1blit.py"), 90.0,
         "SPEC.md 42.23.4: the TWO paths a one-bit canvas reaches the screen"
