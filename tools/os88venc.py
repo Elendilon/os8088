@@ -3307,8 +3307,11 @@ def coarse_mix(e, target, au):
     (Mode X's 4x1, VGA4's 16x4) that the budgets draw the frame whole: a
     binary search on copies of the encoder over the tiles ranked by what
     their cells save - the pixels to change at full detail less those in
-    cells. None where the frame fits whole as it is; every tile in cells
-    where even that does not fit"""
+    cells. None where the frame fits whole as it is; where even every tile
+    in cells does not fit, the whole frame in what `auto` picks - the
+    finest cell that does, else the coarsest (the owner: "try mix, and if
+    that still cuts, try full" - so mix IS the two stacked, a frame at a
+    time)"""
     if not vfr_cut(e, target, au):
         return None
     cell = COARSE_LADDER_MX[1] if e.g.layout == vid.LAY_MODEX else \
@@ -3325,17 +3328,20 @@ def coarse_mix(e, target, au):
         return p.reshape(ny, th, nx, tw).sum((1, 3)).ravel()
     save = tiles(target != scr).astype(np.int64) - tiles(c != scr)
     order = [i for i in np.argsort(-save, kind="stable") if save[i] > 0]
-    if not order:
-        return c
 
     def mixed(k):
         m = np.zeros(ny * nx, bool)
         m[order[:k]] = True
         m = np.repeat(np.repeat(m.reshape(ny, nx), th, 0), tw, 1)[:h, :w]
         return np.where(m, c, target).astype(target.dtype)
+    def whole():                        # (auto's whole-frame cell)
+        k = coarse_pick(e, target, au)
+        return c if k in ("full", cell) else coarse_of(e, target, k)
+    if not order:
+        return whole()
     lo, hi = 1, len(order)
     if vfr_cut(e, mixed(hi), au):
-        return c
+        return whole()
     while lo < hi:                      # (the fewest tiles that fit)
         mid = (lo + hi) // 2
         if vfr_cut(e, mixed(mid), au):
@@ -3684,8 +3690,14 @@ VFR_AGAIN = 2           # frames until a cut is asked again, after the full
 # scene's first frame, coarseany:CELL at the first frame of ANY stretch the
 # budgets would cut - a moving picture drawn in cells for a frame and put
 # right by the frames after
-DEGRADE_KINDS = ("lag", "slow", "coarse", "coarseany", "colours", "cut")
-DEGRADE_DEFAULT = "lag:100,slow:5/6,colours:12,slow:2/3,coarse:auto,slow:1/2"
+# The scene rung is COARSESCENE since 2026-10-17 (it was "coarse", which a
+# ladder written before still says and degrade_parse still reads). The
+# default lost its half rate the same day - the owner: it "worked great on
+# gasgas, and terribly on last exile", too jerky and still cutting - and
+# took coarse cells at any cut, mixed, in its place
+DEGRADE_KINDS = ("lag", "slow", "coarsescene", "coarseany", "colours", "cut")
+DEGRADE_DEFAULT = "lag:100,slow:5/6,colours:12,slow:2/3,coarsescene:auto," \
+    "coarseany:mix"
 DEGRADE_COARSE = ("auto", "mix", "4x1", "16x4", "32x8", "64x8")
 
 
@@ -3700,6 +3712,8 @@ def degrade_parse(spec):
             continue
         kind, _, val = part.partition(":")
         kind, val = kind.strip().lower(), val.strip().lower()
+        if kind == "coarse":            # (the scene rung's first name)
+            kind = "coarsescene"
         try:
             if kind == "lag":
                 v = float(val)
@@ -3708,7 +3722,7 @@ def degrade_parse(spec):
                 a, _, b = val.partition("/")
                 v = float(a) / float(b) if b else float(a)
                 ok = 0.05 <= v < 1
-            elif kind in ("coarse", "coarseany"):
+            elif kind in ("coarsescene", "coarseany"):
                 v, ok = val, val in DEGRADE_COARSE
             elif kind == "colours":
                 v = int(val)
@@ -3722,8 +3736,8 @@ def degrade_parse(spec):
             ok = False
         if not ok:
             raise vid.V88Error("--ladder: %r is not a rung (lag:MS, "
-                               "slow:A/B, coarse:auto|WxH, coarseany:auto|"
-                               "WxH, colours:12|8, "
+                               "slow:A/B, coarsescene:auto|mix|WxH, "
+                               "coarseany:auto|mix|WxH, colours:12|8, "
                                "cut:PERCENT)"
                                % part)
         out.append((kind, v))
@@ -3756,7 +3770,7 @@ def degrade_steps(rungs, fps, fgrid=None):
                 f = math.ceil(max(1.0, f) / fgrid - 1e-9) * fgrid
             if lag is None or f > lag:
                 lag = f
-        elif kind == "coarse":
+        elif kind == "coarsescene":
             cell = v
         elif kind == "coarseany":
             acell = v
@@ -9345,7 +9359,7 @@ def _encode(a, keep, tick, readers):
                 and not scene_pals else \
                 "a planar screen - VGA's 16 colours or Mode X - where a flat "\
                 "cell is one store for many pixels" if kind in (
-                    "coarse", "coarseany") and not coarse_on else \
+                    "coarsescene", "coarseany") and not coarse_on else \
                 "a file that is not Live or layered" if kind == "slow" and (
                     a.live or lay is not None) else \
                 "pixels to judge a rung by" if not enc.metric else None
@@ -9373,7 +9387,7 @@ def _encode(a, keep, tick, readers):
     # same scene pass's cuts, read for the cells alone (one more read of
     # the clip, at the canvas's size, its colours not used)
     if coarse_on and (a.coarse_cut != "off" and not lrungs or any(
-            kind == "coarse" for kind, v in enc.vkeep)):
+            kind == "coarsescene" for kind, v in enc.vkeep)):
         if scene_pals:
             cells_at = set(pev_at)
         else:
@@ -10471,8 +10485,10 @@ def parser():
     ap.add_argument("--ladder", default="", metavar="RUNGS",
                     help="THE DEGRADE LADDER: where the budgets would cut, "
                          "the RUNGS in order, each on top of those before - "
-                         "lag:MS, slow:A/B (of the frame rate), coarse:auto|"
-                         "WxH (cells at a scene change), colours:12|8 (a "
+                         "lag:MS, slow:A/B (of the frame rate), coarsescene:"
+                         "auto|mix|WxH (cells at a scene change), coarseany:"
+                         "auto|mix|WxH (cells at any frame it would cut; mix: "
+                         "only the tiles it must), colours:12|8 (a "
                          "scene's palette stepped down), cut:PERCENT (the "
                          "frames cut, where none is more than that broken "
                          "as seen) - the first that draws the stretch whole "

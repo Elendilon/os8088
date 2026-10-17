@@ -280,7 +280,8 @@ def _scene_cuts(c):
     if _scenes(c) is None:
         return None
     if _coarse(c) is None and (c.get("coarse_cut", "auto") != "off" or
-                               "coarse" in c.get("ladder", "")):
+                               "coarsescene" in c.get("ladder", "") or
+                               "coarse:" in c.get("ladder", "")):
         return None
     return ("Scenes are found for a palette a scene, or for coarse cells on "
             "VGA's 16 colours or Mode X.")
@@ -601,7 +602,7 @@ def ladder_options(c):
                  if (cell in ("auto", "4x1")) == (c["layout"] == "modex") or
                  cell in ("auto", "mix")]
         out += [("Coarse cells at a scene change (%s)" % cell,
-                 "coarse:%s" % cell) for cell in cells]
+                 "coarsescene:%s" % cell) for cell in cells]
         # (...and at ANY cut: a moving picture in cells for a frame)
         out += [("Coarse cells at any cut (%s)" % cell,
                  "coarseany:%s" % cell) for cell in cells]
@@ -614,6 +615,7 @@ def ladder_label(tok):
     """A --ladder token's words, for one the form's file cannot use too"""
     kind, _, v = tok.partition(":")
     return {"lag": "Lag up to %s ms", "slow": "Slow to %s of the rate",
+            "coarsescene": "Coarse cells at a scene change (%s)",
             "coarse": "Coarse cells at a scene change (%s)",
             "coarseany": "Coarse cells at any cut (%s)",
             # ("mix": only the tiles the budget cannot draw, VIDEO-SEEN 3a)
@@ -2638,6 +2640,8 @@ class App(object):
             opts = ladder_options(form_context(vals))
             spec = self.vars["ladder"].get()
             toks = [t.strip() for t in spec.split(",") if t.strip()]
+            toks = ["coarsescene:" + t[7:] if t.startswith("coarse:") else t
+                    for t in toks]      # (the scene rung's first name)
             self.ladon.set("1" if toks else "")
             self.ladtok = {"(none)": ""}
             for lab, tok in opts:

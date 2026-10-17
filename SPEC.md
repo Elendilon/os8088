@@ -173366,8 +173366,8 @@ format change: a held frame is an ordinary record.
 - by default; docs/plans/VIDEO-SEEN-PLAN.md 3a). The ways a frame the
 budgets cannot draw may give, as RUNGS in the order they are tried:
 `lag:MS` (the lag allowance, 98.2.1.1.2), `slow:A/B` (a held frame's
-rate, as `--min-fps`'s), `coarse:auto|WxH` (a scene's first frame in
-cells, 98.2.1.9), `coarseany:auto|WxH` (2026-10-17: EVERY frame of the
+rate, as `--min-fps`'s), `coarsescene:auto|mix|WxH` (a scene's first
+frame in cells, 98.2.1.9; `coarse:` until 2026-10-17, still read), `coarseany:auto|WxH` (2026-10-17: EVERY frame of the
 stretch the budgets would cut drawn in cells at its own time - the frame
 rate kept and the width given up where the picture moves too fast to
 send, on the planar screens of 98.2.5.2; on Last Exile at 24 fps it is
@@ -173402,13 +173402,18 @@ real passes replay its holds, lag and cells, and page-ahead's keep and
 its prune judge a file that may hold frames by its picture's measures and
 not by a count of cut frames - a ladder trades one for the other. The
 encoder window's default ladder (`DEGRADE_DEFAULT`) is `lag:100,
-slow:5/6, colours:12, slow:2/3, coarse:auto, slow:1/2` - coarse cells
-fifth since 2026-10-17, being a kind of cut (the owner), which made the
-same four files as second did; on each clip's own options it took Last
-Exile 0:10-0:40 (flipped Mode X, `286-speeddemon`) from 24.3% of the view
-broken to 3.2% and its cut frames 400 to 57, Bad Carrot's flipped tune
-1.8% to 1.0%, Take On Me's Hercules file 5.5% to 4.7%. `slow:5/6` first
-instead of `lag:100` made the same files. A cut rung is in no default: it
+slow:5/6, colours:12, slow:2/3, coarsescene:auto, coarseany:mix` since
+2026-10-17: the half rate is out of it (the owner: it "worked great on
+gasgas, and terribly on last exile", too jerky and still cutting) and
+cells at any cut, mixed, are its last rung. On each clip's own options:
+Bad Carrot's flipped tune 1.0% -> 0.4% of the view broken (its worst
+moment 33% -> 9%), Gas Gas Gas 1.7% -> 2.1%, Take On Me's Hercules file
+(no cells there) 4.7% -> 5.0%, Last Exile 0:10-0:25 3.7% -> 18.9% - the
+score cannot see the jerk the owner saw, and a 16 fps stretch in mixed
+cells scores worse than the same cells at 24 (17.0%), so where cells go
+on a ladder is the next thing the owner's eye decides. The ladder before
+that, with the half rate, took Last Exile 0:10-0:40 from 24.3% to 3.2%;
+`slow:5/6` first instead of `lag:100` made the same files. A cut rung is in no default: it
 is the choice a video makes that takes a cut better than a slower rate. The
 window carries it as Size vs quality's second inner tab, Degrade ladder: a
 checkbox, a rung a row offering only the rungs the form can use, and under
@@ -175294,7 +175299,7 @@ reaches the player, the format or the kernel.
   scenes are found by the same scene pass, run for the cells alone - one
   more read of the clip at the canvas's size, its colours unused - and
   `--scene-cover`/`--scene-min` act on it there too. Mode X's cells are
-  the nearest of its whole palette. A ladder's `coarse` rung follows: it is
+  the nearest of its whole palette. A ladder's `coarsescene` rung follows: it is
   offered on Mode X (`auto`, `4x1`) and on VGA4 with or without a palette a
   scene, and left out on a packed screen.
 

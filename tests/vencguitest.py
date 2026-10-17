@@ -864,10 +864,11 @@ def ladder_leg(bad):
           "colours a scene %s, Mode X %s (its cells %s)"
           % (card, spk, v4, mxk, mxc))
     if "lag" not in card or "lag" in spk or "slow" not in spk or \
-            not {"coarse", "colours"} <= set(v4) or "coarse" in card or \
-            "coarse" not in mxk or "colours" in mxk or \
+            not {"coarsescene", "colours"} <= set(v4) or \
+            "coarsescene" in card or \
+            "coarsescene" not in mxk or "colours" in mxk or \
             not all("cut" in k for k in (card, spk, v4, mxk)) or \
-            mxc != ["coarse:auto", "coarse:mix", "coarse:4x1",
+            mxc != ["coarsescene:auto", "coarsescene:mix", "coarsescene:4x1",
                     "coarseany:auto", "coarseany:mix", "coarseany:4x1"]:
         bad.append("the rungs offered: card %s, speaker %s, vga4 scenes %s, "
                    "Mode X %s %s" % (card, spk, v4, mxk, mxc))

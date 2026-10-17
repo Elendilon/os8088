@@ -405,6 +405,48 @@ frames on. A tile's edge between full detail and cells is the thing to
 look for in play. Its price is the search: about eight tries a frame it
 mixes, 1.6x the whole-frame cells' encode.
 
+The owner on watching the four: mix "is a good option, but it doesn't
+win this round, because on its own it's not enough to save the
+additional cuts"; no more tearing seen, and in the heavier scenes it
+"drop[s] to effectively all", which is right - **mix IS mix-then-whole**,
+a frame at a time: where every tile in cells still does not fit, the
+whole frame goes in what `auto` picks (on VGA4 the finest of 16x4, 32x8
+and 64x8 that fits; on Mode X 4x1), so a separate `coarseany:auto` after
+it would add encode time and change nothing.
+
+**THE DEFAULT LADDER, 2026-10-17 (the owner)**: the half rate OUT, the
+scene rung renamed `coarsescene` (`coarse:` still read), and
+`coarseany:mix` the sixth rung in the half rate's place -
+`lag:100, slow:5/6, colours:12, slow:2/3, coarsescene:auto, coarseany:mix`:
+
+| clip | with the half rate | the new default |
+|---|---:|---:|
+| Bad Carrot 3:05-3:20 | 1.0% (worst 33.3%) | **0.4%** (worst 9.2%) - all 5 stretches mixed |
+| Gas Gas Gas, the owner's tune | 1.7% | 2.1% |
+| Take On Me, Hercules (no cells) | 4.7% | 5.0% |
+| Last Exile 0:10-0:25 | 3.7% (0.5 s visibly broken) | 18.9% (1.4 s) |
+
+Last Exile's heavy stretches take rung 6, which is 16 fps AND mixed
+cells, and that scores worse than the same cells at 24 fps alone (17.0%,
+0.5 s - `lag:100, coarseany:mix`): on that clip the slower rate and the
+cells pay twice. The owner on watching it: **"a huge win; that is the
+best bad carrot's heavy sunscene has ever looked"**, and Last Exile
+"still cut a bunch, and needs coarseany/full [`coarseany:auto`], but as a
+default, its better than full cuts" - so the default stands, and Last
+Exile is a clip that wants its own ladder, which is the scene-by-scene
+editor's case once more.
+
+**OPEN: an encoder speed pass** (the owner, 2026-10-17: "encode times
+aside; add an item to do an encoder optimization pass"). Every rung is
+priced by encoding the stretch on copies of the encoder, and the cell
+rungs multiply it: whole-frame cells try each would-be-cut frame on a
+copy (Last Exile 2,256 s against 547), and mix binary-searches eight
+copies a frame (1.6x that). The candidates: price a frame from its span
+costs without running `frame()` (the search only asks "does it fit"),
+share one copy across a rung's tries instead of deep-copying per try, and
+reuse the previous rung's stretch where the next changes nothing it
+draws (the cut rung already does).
+
 What it was sketched as:
 
     hold to 20 fps
