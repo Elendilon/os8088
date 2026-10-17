@@ -223,6 +223,24 @@ def key_of(name):
     return name.rstrip("/").replace(".", "_")
 
 
+# --- what to do about it ---------------------------------------------------------
+# Printed under the list whenever a page is owed, so the instruction travels
+# with the warning and nobody has to find this file to learn the rule.
+HOWTO = [
+    "How to pay a stale page: the manual describes the program AS IT IS NOW,",
+    "at the level of detail it already has. Change it only where a first-time",
+    "writer, reading today's program, would have written it differently. A",
+    "change below the page's level of detail (an internal figure, a new",
+    "message for a rare case, a fix) needs no words at all: stamp it unchanged",
+    "and say why. Never write history - no 'now', 'new', 'no longer', 'used",
+    "to', 'since': a manual is the current state, not a changelog, and it must",
+    "not grow with every commit. Then: python3 tools/guidelock.py stamp KEY",
+    "--why \"what you checked\". A file with no page or line: write the line in",
+    "tools/guide/entries.toml, and for a program, driver or system file a page",
+    "in tools/guide/manuals/ (tools/guide/MANUALS.md is the brief).",
+]
+
+
 # --- the checks ----------------------------------------------------------------
 def check():
     """Everything owed, as (kind, message) pairs."""
@@ -290,6 +308,9 @@ def cmd_check(a):
     tag = "warn: " if a.warn else ""
     for kind, msg in owed:
         print("%sguide %s: %s" % (tag, kind, msg))
+    if owed:
+        for line in HOWTO:
+            print("%s  %s" % (tag, line))
     if not built_all:
         print("guidelock: some on-demand disks are not built, so pages for files on no disk were not looked for")
     print("guidelock: %d owed" % len(owed))

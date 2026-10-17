@@ -177,7 +177,17 @@ file on a built disk with no line in entries.toml or, for a program, driver
 or system file, no page. The fast tier (every `make`) only warns; the full
 tier fails until it is paid up.
 
-To pay it: read the page against the change, correct it, then
+**A manual is the current state, never a history.** When a page is flagged,
+ask what a first-time writer, reading today's program, would have written,
+at the page's current level of detail. Change only that. Most flagged
+changes need no words: an internal figure, a message for a rare case, a fix
+or a reworded label the page never quoted. Stamp those unchanged with the
+reason. Never write "now", "new", "no longer", "used to" or "since": the
+reader of a manual does not care what the program was, and a page that
+grows a sentence with every commit stops being a manual and becomes a
+changelog.
+
+To pay it: read the page against the change, correct it if it needs it, then
 `python3 tools/guidelock.py stamp <KEY> --why "what you checked"`. A new
 page is stamped the same way; add `--sources apps/x,drivers/y` when the
 guess is wrong (an alias table in guidelock.py covers the known cases).

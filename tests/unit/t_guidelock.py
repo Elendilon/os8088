@@ -47,12 +47,14 @@ def main():
     if WARN:
         for kind, msg in owed:
             print("warn: guide %s: %s" % (kind, msg))
+        if owed:
+            for line in guidelock.HOWTO:
+                print("warn:   " + line)
     else:
         check(not owed, "the project guide is paid up",
               "a page stamped against sources that have since changed what a "
               "user reads, or a file on a disk with no page, is a guide that "
-              "tells somebody something untrue - read the page, fix it, and "
-              "`python3 tools/guidelock.py stamp KEY --why ...`",
+              "tells somebody something untrue. " + " ".join(guidelock.HOWTO),
               got=" | ".join("%s: %s" % o for o in owed[:6])
               + (" ... (%d in all)" % len(owed) if len(owed) > 6 else ""))
 
