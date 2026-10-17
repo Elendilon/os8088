@@ -737,7 +737,10 @@ folder opened and B: mounted for the first time, through REFLECTED
 `int 13h`; Calculator launched, driven by mouse and keyboard, and closed;
 Fractal, whose worker task and VGA drawing ran to 100%; isoTron's windowed
 title screen; the PS/2 mouse (QEMU's aux port, IRQ12) as well as the serial
-one. A fault is reported on the debug port AND on the glass - one line under
+one; the Sticky Apps menu (STIKMENU.DRV) and the Control Panel (CTRL.DRV,
+every page), the first on-demand modules to run in protected mode; a desktop
+shortcut dropped, which wrote SYSTEM.CFG through a reflected `int 13h` write
+(the image verifies clean afterwards). A fault is reported on the debug port AND on the glass - one line under
 the menu bar, vector, error code, CS:IP and SP - so a machine with no debug
 port can be read by photograph.
 
@@ -762,10 +765,18 @@ whoever extends this:
    dispatcher, a new task's frame - stored the DATA segment, which is also
    what every near pointer in the record is relative to. MEGA_PCALL,
    MEGA_CSELTOP and mega_frame_cs convert at the call.
-4. **Off-grid arithmetic is real and has one customer so far**: the
+4. **Off-grid arithmetic is real, and it is the FILE LAYER's**: the
    decompressor wants DI = 0, so the loader points ES at the body's own
-   paragraph, 4 along from the region's base. mega_oddsegf gives it a
-   selector.
+   paragraph, 4 along from the region's base, and diskw's by-name I/O
+   normalised every caller's ES:BX to an offset of 0..15 by moving whole
+   paragraphs into the segment. On kern_mega dskw_norm moves whole 128-byte
+   GRANULES (offset 0..127, the segment staying an identity selector), the
+   entry points store the segment the caller's selector stands for
+   (mega_s2segf), and the two places that need an exact paragraph - a
+   compressed file's expansion target, and lz's 64KB slide of it - ask
+   mega_oddsegf for a selector. The module loader's slot table holds the
+   CODE alias (modules never move), and the modules' `*_go` trampolines push
+   the kernel's code selector rather than DS (PUSH_KCODE).
 5. **Bimodal state has to be where the early boot can read it.** k_dsel -
    the data selector KDS/KES read - was first placed with the rest of
    mega.inc, late in `.text`, and the boot splash calls vid_apply while that

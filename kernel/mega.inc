@@ -1322,6 +1322,12 @@ mega_frames_fix:
     pop ax
     ret
 
+; mega_s2segf - mega_s2seg for a FAR caller (.cold): AX = a selector in, the
+; real-mode segment with its base out, everything else preserved. retf.
+mega_s2segf:
+    call mega_s2seg
+    retf
+
 ; AX = a selector -> AX = the real-mode segment with the same base. READ OFF
 ; THE DESCRIPTOR rather than assumed: an identity selector's base is N x 16 by
 ; construction, but GDT entries 1-7 are the kernel's own and MEGA_SEL_ODD's

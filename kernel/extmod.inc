@@ -1175,7 +1175,7 @@ ext_two:
 exk_go:                         ; ovlchk: builds its own far frame
     push ax                     ; STKBALANCE-OK: a far frame built by hand, its
     push ax                     ; four slots spent by the RETF below and by the
-    push ds                     ; target's own return through cw_kretf. The
+    PUSH_KCODE                  ; target's own return through cw_kretf. The
     push ax                     ; segment slot is PUSHED: DS is KERNEL_SEG
     push bp                     ; throughout the image
     mov bp, sp                  ; [bp+2] offset, [bp+4] segment, [bp+6] the

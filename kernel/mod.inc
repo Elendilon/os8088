@@ -604,7 +604,17 @@ mod_check:
     cmp ax, bp
     jae .badarm
     mov [di], ax                ; offset...
+%ifdef KERN_MEGA
+    push ax                     ; kern_mega: the slot is a FAR CALL's, so it
+    mov ax, es                  ; holds the image's CODE alias (mega.inc) -
+    shr ax, 1                   ; safe to store rather than derive at every
+    shr ax, 1                   ; call, because a module image never moves
+    or al, 4                    ; (memory.inc pins MEM_K_MOD)
+    mov [di+2], ax
+    pop ax
+%else
     mov [di+2], es              ; ...and segment, which ES IS: it was loaded
+%endif
                                 ; from [bx+MODR_SEG] at the top of this
                                 ; routine and no segment register is written
                                 ; in between

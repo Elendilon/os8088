@@ -365,7 +365,13 @@ lz_cross:
 ; clobbers: AX
 lz_dbump:
     mov ax, es
+%ifdef KERN_MEGA
+    call KERNEL_SEG:mega_s2segf ; kern_mega: ES is a selector - the segment it
+    add ax, 0x1000              ; stands for, 64KB on, and a selector for THAT,
+    call KERNEL_SEG:mega_oddsegf ; which may be the scratch one (mega.inc)
+%else
     add ax, 0x1000
+%endif
     mov es, ax
     inc byte [bp+LZ_F_BUMP]     ; ...and the match-offset bound stops being a
     ret                         ; compare from here on (LZ_F_BUMP): a count of

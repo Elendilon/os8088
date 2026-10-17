@@ -290,6 +290,20 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %%rm:                           ; CLOBBERS FLAGS on kern_mega - every caller
  %endif                         ; is checked for that (KERN-MEGA-PLAN 10.1)
 %endmacro
+; PUSH_KCODE - the KERNEL'S CODE SEGMENT onto the stack, from a module whose
+; DS is the kernel's: the far frame the modules' `*_go` trampolines build to
+; reach KERNEL_SEG:target (extmod, stikmenu, winmod). `push ds` is that
+; segment on every build but kern_mega, where DS is the data alias and the
+; frame wants 0x0060's code selector - the constant, pushed (a 286's push).
+%macro PUSH_KCODE 0
+ %ifdef KERN_MEGA
+  cpu 286
+    push word KERNEL_SEG
+  cpu 8086
+ %else
+    push ds
+ %endif
+%endmacro
 ; MEGA_ICW var, reg - the body of a five-byte INLINE cell that stores one
 ; register (OSAPI_ICELL). In real mode it is `mov [cs:var], reg`, the store
 ; through CS the cell was written as; kern_mega cannot store through CS, so

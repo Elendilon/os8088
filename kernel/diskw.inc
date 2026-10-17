@@ -275,7 +275,15 @@ dskw_wrp:
     push di
     push bp
     push es
+%ifdef KERN_MEGA
+    push ax                     ; kern_mega: the caller's ES is a SELECTOR,
+    mov ax, es                  ; and dskw_norm's arithmetic wants the segment
+    call KERNEL_SEG:mega_s2segf ; it stands for (kernel/mega.inc)
+    mov [dskw_seg], ax
+    pop ax
+%else
     mov [dskw_seg], es          ; the caller's buffer segment, for the data
+%endif
     mov [dskw_src], bx          ; loop (which re-loads ES per transfer)
     mov [dskw_len], cx
     mov [dskw_lenhi], dx
@@ -343,7 +351,15 @@ dskw_read_x:
     push di
     push bp
     push es
+%ifdef KERN_MEGA
+    push ax                     ; kern_mega: the SEGMENT, not the selector
+    mov ax, es                  ; (dskw_wrp's note above)
+    call KERNEL_SEG:mega_s2segf
+    mov [dskw_seg], ax
+    pop ax
+%else
     mov [dskw_seg], es
+%endif
     mov [dskw_src], bx
     mov [dskw_cap], cx
     mov [dskw_caphi], dx
@@ -1922,14 +1938,29 @@ dskw_rbody:
                                 ; lose it
     mov cx, [dskw_seg]          ; where the expansion LANDS, banked before R
     mov [dskw_czseg], cx        ; goes into [dskw_seg]
+%ifdef KERN_MEGA
+    push ax                     ; kern_mega: the expansion LANDS at an exact
+    mov ax, [dskw_src]          ; paragraph (lz wants DI = 0), which may be
+    mov cl, 4                   ; off the grid - so it is banked as the real
+    shr ax, cl                  ; paragraph, and dskw_czexp asks for a
+    add [dskw_czseg], ax        ; selector for it
+    pop ax
+%endif
     add ax, [dskw_src]          ; R's low nibble is the OFFSET - and a plain
     mov [dskw_src], ax          ; read's own 0..15 survives, R being 0
+%ifdef KERN_MEGA
+    and word [dskw_src], 127    ; (0..127 on kern_mega: granules, as above)
+%else
     and word [dskw_src], 15     ; there...
+%endif
     mov cl, 4
     shr ax, cl                  ; ...and the rest is paragraphs, the high
     mov cl, 12                  ; word carrying what does not fit
     shl dx, cl
     or ax, dx
+%ifdef KERN_MEGA
+    and al, 0xF8
+%endif
     add [dskw_seg], ax
     call dskw_size32            ; [dskw_rem] / [dskw_tail], off [dskw_len]
     jc .czbad                   ; >= 32MB: impossible on this media, so the
@@ -2181,7 +2212,15 @@ dskw_czexp:
     sbb al, 0                   ; hint's U, so the top byte is all there is -
     jc .bad                     ; and a file shorter than the header borrows
     mov ah, al                  ; out of it and is refused here...
+%ifdef KERN_MEGA
+    push ax                     ; (AH is the length's top byte: kept)
+    mov ax, [dskw_czseg]        ; kern_mega: a real paragraph, maybe off the
+    call KERNEL_SEG:mega_oddsegf ; grid - a selector for it
+    mov es, ax
+    pop ax
+%else
     mov es, [dskw_czseg]        ; ...ES:0 = where it expands: source and
+%endif
     xor di, di                  ; destination are one buffer, the packed bytes
                                 ; R paragraphs up and the expansion walking
                                 ; down onto them...
@@ -2232,8 +2271,15 @@ dskw_norm:
     mov ax, [dskw_src]
     mov cl, 4
     shr ax, cl                  ; whole paragraphs of the offset...
+%ifdef KERN_MEGA
+    and al, 0xF8                ; ...in kern_mega, whole 128-byte GRANULES
+    add [dskw_seg], ax          ; only, so the segment stays an identity
+    shl ax, cl                  ; selector (kernel/mega.inc) and the offset
+    sub [dskw_src], ax          ; is 0..127. offset + 512 still cannot carry
+%else
     add [dskw_seg], ax          ; ...move into the segment
     and word [dskw_src], 15
+%endif
     ret
 
 ; -----------------------------------------------------------------------------
