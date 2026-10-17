@@ -265,12 +265,17 @@ def survey_hdd(path):
 # --- manuals ----------------------------------------------------------------
 def md_inline(s):
     s = html.escape(s, quote=False)
-    s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+    code = []
+
+    def keep(m):                    # a code span is literal: nothing inside it is markup
+        code.append("<code>%s</code>" % m.group(2).strip())
+        return "\x00%d\x00" % (len(code) - 1)
+    s = re.sub(r"(``?)(.+?)\1", keep, s)
     s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
     s = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", s)
     s = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r'<a href="\2" target="_blank" rel="noopener">\1</a>', s)
     s = re.sub(r"\[\[([A-Z0-9_.]+)\]\]", r'<a href="#" data-item="\1">\1</a>', s)
-    return s
+    return re.sub(r"\x00(\d+)\x00", lambda m: code[int(m.group(1))], s)
 
 
 def md(text, shots):
