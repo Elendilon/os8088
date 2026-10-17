@@ -23,9 +23,9 @@
 ; Addressing a blob that exceeds 64KB (BEVERLY.MOD is 116,085 bytes) on an
 ; 8086: nothing ever offsets more than 64KB from one base. The header is
 ; within blobseg's first 1084 bytes; pattern p lives at segment
-; blobseg + 67 + 64*p, offset 12 (1084 + 1024*p = ((67 + 64*p) << 4) + 12);
-; each sample gets a normalized base seg = blobseg + (start >> 4),
-; off = start & 15, with its play length capped at MP_MAXSMP bytes so
+; blobseg + 64 + 64*p, offset 60 (1084 + 1024*p = ((64 + 64*p) << 4) + 60);
+; each sample gets a normalized base seg = blobseg + 8 * (start >> 7),
+; off = start & 127, with its play length capped at MP_MAXSMP bytes so
 ; off + position (+ one mix step) can never wrap a 16-bit offset.
 ;
 ; Timing (research-ft2-reference): tick rate = BPM*2/5 Hz, speed = ticks
@@ -37,6 +37,12 @@
 ; conversion pass: out = 128 + (sum >> 2).
 ; =============================================================================
 
+MP_PSEG    equ 64               ; pattern 0, paragraphs into the blob, and the
+MP_POFF    equ 60               ; offset in that segment: whole 128-byte
+                                ; GRANULES, so every segment derived from the
+                                ; blob is an identity selector on kern_mega
+                                ; (KERN-MEGA-PLAN 10.1 item 18; 67 and 12 were
+                                ; the paragraph split of the same 1084)
 MP_MAXSMP  equ 60000            ; per-sample play-length cap, bytes: keeps
                                 ; off + pos + step*chunk < 65536 in the mixer
                                 ; even at a 4000 Hz mix rate (step int <= 7)
@@ -279,14 +285,16 @@ mp_load:
     mov ax, [mp_run_lo]
     mov dx, [mp_run_hi]
     mov bx, ax
-    and bx, 15
+    and bx, 127
     mov [di+MS_OFF], bx
-    mov cx, 4
+    mov cx, 7
 .sh4:
     shr dx, 1
     rcr ax, 1
-    loop .sh4                   ; AX = start >> 4 (hi bits beyond 20 only on
-    add ax, [mp_blobseg]        ; hostile files whose samples are unplayable)
+    loop .sh4                   ; AX = start >> 7, GRANULES (hi bits beyond 20
+    mov cl, 3                   ; only on hostile files whose samples are
+    shl ax, cl                  ; unplayable) - 8 paragraphs each
+    add ax, [mp_blobseg]
     mov [di+MS_SEG], ax
     ; available = bytes remaining in the file from the start, capped 0xFFFF
     mov ax, [mp_bloblen_lo]
@@ -621,7 +629,7 @@ mp_timeat:
 .pok:
     mov cl, 6
     shl ax, cl
-    add ax, 67
+    add ax, MP_PSEG
     add ax, [mp_blobseg]
     mov es, ax
     pop bx
@@ -632,7 +640,7 @@ mp_timeat:
     xor ah, ah
     mov cl, 4
     shl ax, cl
-    add ax, 12
+    add ax, MP_POFF
     mov di, ax                  ; ES:DI = the row's first cell
     mov ch, 4
 .cell:
@@ -931,7 +939,7 @@ mp_cellp:
     mov bx, di
     mov cl, 6
     shl bx, cl                  ; pattern * 64 paragraphs
-    add bx, 67
+    add bx, MP_PSEG
     add bx, [mp_blobseg]
     mov es, bx
     mov bl, al
@@ -944,7 +952,7 @@ mp_cellp:
     shl bx, 1
     shl bx, 1                   ; ch * 4
     add si, bx
-    add si, 12
+    add si, MP_POFF
     ret
 
 ; =============================================================================
@@ -1658,7 +1666,7 @@ mp_readrow:
                                 ; as 0 and forces EVERY pattern to 0
     mov cl, 6
     shl ax, cl
-    add ax, 67
+    add ax, MP_PSEG
     add ax, [mp_blobseg]
     mov es, ax
     mov word [mp_crec], mp_chans
@@ -1676,7 +1684,7 @@ mp_readrow:
     shl ax, 1
     shl ax, 1
     add si, ax
-    add si, 12
+    add si, MP_POFF
     ; decode into mp_wper / mp_wsmp / MP_EFF / MP_PARM
     mov al, [es:si]             ; b0
     mov ah, [es:si+1]
