@@ -299,9 +299,17 @@ def main():
             fast = a.arm == "spkfast"
             for leg in (("key 1",) if fast else ("frame 0", "key 1")):
                 if leg == "key 1":
-                    s0 = rw("vp_sel")
-                    q.hmp("sendkey right")
-                    wait(lambda: rw("vp_sel") != s0, "Right to key 1", 20)
+                    # STEP TO KEY 1 FROM WHERE THE LAST PLAY STOPPED, one
+                    # confirmed key at a time. The frame-0 leg's Esc lands
+                    # however far the guest got after its 30 frames - the
+                    # stop, the reads and the sendkey between are HOST round
+                    # trips - and on a loaded box that was frame 282, the
+                    # last key, where one Right has nowhere to go
+                    while rw("vp_sel") != 1:
+                        s0 = rw("vp_sel")
+                        q.hmp("sendkey %s" % ("right" if s0 < 1 else "left"))
+                        wait(lambda: rw("vp_sel") != s0,
+                             "a step from key %d toward key 1" % s0, 20)
                 qpoke(q, [(base + syms["vp_played"], b"\0")])
                 q.hmp("sendkey p")
                 wait(lambda: rb("vp_ready") == 1, "the play to start", 120)
