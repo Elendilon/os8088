@@ -230,7 +230,8 @@ def deskcal_equs(tmp):
              "DCA_FLAGS", "DCA_LEAD", "DCA_TEXT", "DCT_TEXT", "DCP_LEAD",
              "DCP_FLAGS", "DCA_REMIND", "DCA_FIRED", "DCA_SNOOZED",
              "DCA_DUE", "DCP_SNZT", "DCP_SNZD", "DC_SNOOZE", "DCT_DONE",
-             "stik_st - os88_image_end", "stik_file - os88_image_end",
+             "stik_st", "stik_hd", "stik_li", "stik_fw",
+             "stik_file - os88_image_end",
              "dc_line - os88_image_end", "dc_band - os88_image_end",
              "GFXE_BAND_W", "GFXE_BAND_H", "STIK_FACE_W",
              "STIK_PAYLEN", "STIK_PAYVER", "dc_geos", "DCG_SZ", "DCG_BELLX",
@@ -268,7 +269,7 @@ def stiknote_equs(tmp):
              "sn_hlen - os88_image_end", "sn_doc - os88_image_end",
              "sn_ask - os88_image_end", "sn_wslot - os88_image_end",
              "sn_hbuf - os88_image_end",
-             "stik_st - os88_image_end", "stik_file - os88_image_end",
+             "stik_st", "stik_file - os88_image_end",
              "STIK_FACE_W", "STIK_PAYLEN", "STIK_PAYVER", "SNP_S", "SNP_TW",
              "SNP_BTW", "SNP_PLUSX", "SNP_PREVX", "SNP_NEXTX", "SNP_OPENX",
              "SNP_BX", "SNP_BTX", "snp_geos", "SNPG_SZ", "snp_lays",
@@ -306,7 +307,7 @@ def deskclok_equs(tmp):
              "dk_ch - os88_image_end", "dk_ring - os88_image_end",
              "dk_snz - os88_image_end", "dk_swin - os88_image_end",
              "dk_awin - os88_image_end", "dk_cok - os88_image_end",
-             "stik_file - os88_image_end", "stik_st - os88_image_end",
+             "stik_file - os88_image_end", "stik_st",
              "STIK_FACE_W", "DK_SZW"]
     src = open(os.path.join(ROOT, "apps", "deskclok", "deskclok.asm")).read()
     probe = ("\n    db 'T_STIK_PROBE'\n" +
@@ -647,9 +648,7 @@ def main():
                 ("SNP_BTX", os88stik.STIKNOTE_BTX),
                 ("stik_file - os88_image_end",
                  os88stik.stik_hdr_off(os88stik.STIKNOTE_STIK_BSS)),
-                ("stik_st - os88_image_end",
-                 os88stik.stik_st_off(os88stik.STIKNOTE_STIK_BSS,
-                                      os88stik.STIKNOTE_PAYLEN))):
+                ("stik_st", os88stik.lib_st_abs())):   # the block
             check(sn.get(name) == want, "stiknote.asm's %s is "
                   "tools/os88stik.py's (%s)" % (name, want),
                   got=sn.get(name), want=want,
@@ -709,9 +708,7 @@ def main():
                 ("dk_cok - os88_image_end", os88stik.DESKCLOK_BSS_COK),
                 ("stik_file - os88_image_end",
                  os88stik.stik_hdr_off(os88stik.DESKCLOK_STIK_BSS)),
-                ("stik_st - os88_image_end",
-                 os88stik.stik_st_off(os88stik.DESKCLOK_STIK_BSS,
-                                      os88stik.DESKCLOK_PAYLEN))):
+                ("stik_st", os88stik.lib_st_abs())):   # the block
             check(dk.get(name) == want, "deskclok.asm's %s is "
                   "tools/os88stik.py's (%s)" % (name, want),
                   got=dk.get(name), want=want,
@@ -792,9 +789,12 @@ def main():
                  ("GFXE_BAND_H", 32),
                  ("stik_file - os88_image_end",
                   os88stik.stik_hdr_off(os88stik.DESKCAL_STIK_BSS)),
-                 ("stik_st - os88_image_end",
-                  os88stik.stik_st_off(os88stik.DESKCAL_STIK_BSS,
-                                     os88stik.DESKCAL_PAYLEN))]
+                 # the shared library's block (SPEC.md 110.15): the state
+                 # is at fixed SEGMENT offsets, not past the image
+                 ("stik_st", os88stik.lib_st_abs()),
+                 ("stik_hd", os88stik.lib_hdr_abs()),
+                 ("stik_li", os88stik.state_off(True, 0, 0, 0)["stik_li"]),
+                 ("stik_fw", os88stik.state_off(True, 0, 0, 0)["stik_fw"])]
         # v2: the calendar is a DESK widget - header flag bit 6, OS88_F_DESK
         # (SPEC.md 20.2, 110.3) - read off the BUILT package's header
         dbin = os.path.join(ROOT, os.environ.get("OS88_BUILD", "build"),

@@ -41,6 +41,10 @@
 ; nothing written twice.
 ; =============================================================================
 
+%define STIK_LIB                ; the Sticky App code is the ONE copy in
+%define STIK_WALK               ; DESK.DRV (SPEC.md 110.15), and the notes'
+                                ; walk uses its stik_enter .. stik_seek. Before
+                                ; the header: OS88_STIKCARD_END lays its block
 %include "os88api.inc"
 
     OS88_HEADER 'Sticky Note', sn_entry, OS88_F_ICON | OS88_F_DESK | OS88_F_STIK

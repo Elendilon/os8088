@@ -147,7 +147,35 @@
  %endif
 %endif
 
+; THE STICKY APP LIBRARY (SPEC.md 110.15) gives this file two more arms, both
+; for GFXE_TEXT / GFXE_BITS only. A package built `%define STIK_LIB` is a
+; CLIENT: it keeps the styles and the band's geometry, finds the state words
+; in its Sticky App block (OS88_STIKLIB_AT) and gets a five-byte thunk per
+; routine into the ONE copy of the code, which rides in DESK.DRV.
+; apps/stiklib.asm is that copy (STIK_LIBRARY): the same code, the band's
+; buffer, stride, width and rows read from the CALLER's descriptor, since DS
+; is the caller's on every instruction of it.
+%ifdef STIK_LIB
+  %define GFXE_FIXED_
+  %define GFXE_THUNK_
+%endif
+%ifdef STIK_LIBRARY
+  %define GFXE_FIXED_
+  %define GFXE_DYN_
+%endif
+%ifdef GFXE_DYN_
+  %define GFXE_BH_  word [os88_stiklib + STKL_D_BROWS]
+  %define GFXE_BST_ word [os88_stiklib + STKL_D_BST]
+  %define GFXE_BW_  word [os88_stiklib + STKL_D_BW]
+  %define GFXE_BUF_ word [os88_stiklib + STKL_D_BUF]
+%else
+  %define GFXE_BH_  GFXE_BAND_H
+  %define GFXE_BST_ GFXE_BAND_ST
+  %define GFXE_BW_  GFXE_BAND_W
+%endif
+
 %ifdef GFXE_BAND
+%ifndef GFXE_DYN_
 
   %ifndef GFXE_BAND_W
     %error "os88gfx.inc: GFXE_BAND wants GFXE_BAND_W (a multiple of 8)"
@@ -181,9 +209,13 @@
   %define GFXE_BAND_POW2
 %endif
 
+%endif ; GFXE_DYN_
+
 ; AX = y -> AX = the row's byte offset; clobbers CL (and DX, BX on the mul arm)
 %macro GFXE_ROWOFF 0
-  %ifdef GFXE_BAND_POW2
+  %ifdef GFXE_DYN_
+    mul GFXE_BST_
+  %elifdef GFXE_BAND_POW2
     mov cl, GFXE_BAND_SH
     shl ax, cl
   %else
@@ -191,6 +223,29 @@
     mul bx
   %endif
 %endmacro
+%endif ; GFXE_BAND
+
+%ifdef GFXE_THUNK_
+GFXE_INV    equ 1               ; the library has every style
+GFXE_BOLD   equ 2
+GFXE_X2     equ 4
+GFXE_X3     equ 8
+%macro GFXE_THUNK 2
+%1:
+    call far [os88_stiklib + STKL_LE + 4 * %2]
+    ret
+%endmacro
+%ifdef GFXE_TEXT
+    GFXE_THUNK gfxe_text, STKE_TEXT
+    GFXE_THUNK gfxe_glyph, STKE_GLYPH
+    GFXE_THUNK gfxe_bfill, STKE_BFILL
+%endif
+%ifdef GFXE_BITS
+    GFXE_THUNK gfxe_bits, STKE_BITS
+%endif
+    GFXE_THUNK gfxe_bclear, STKE_BCLEAR
+%else ; the code itself, below, to the state words
+%ifdef GFXE_BAND
 
 %ifndef GFXE_NOBUTIL
 ; -----------------------------------------------------------------------------
@@ -300,6 +355,21 @@ gfxe_bclear:
     push ax
     push ds
     pop es
+%ifdef GFXE_DYN_
+    mov di, GFXE_BUF_
+    mov ax, [gfxe_bh]
+    mul GFXE_BST_                   ; the bytes (DX spent)
+    mov cx, ax
+    pop ax
+    cld
+    shr cx, 1                       ; a word at a time...
+    rep stosw
+    jnc .e
+    stosb                           ; ...and an odd stride's last byte
+.e:
+    pop es
+    ret
+%else
     mov di, GFXE_BAND_BUF
     mov ax, [gfxe_bh]
 %if (GFXE_BAND_ST & 1) != 0
@@ -329,6 +399,7 @@ gfxe_bclear:
 %endif
     pop es
     ret
+%endif ; GFXE_DYN_
 
 %ifndef GFXE_NOBUTIL
 ; -----------------------------------------------------------------------------
@@ -579,7 +650,7 @@ gfxe_col:
     mov cl, 3
     shr ax, cl
     add di, ax
-    mov cx, GFXE_BAND_ST
+    mov cx, GFXE_BST_
     sub cx, ax
     ret
 
@@ -587,12 +658,18 @@ gfxe_col:
 ; and four, in the style's ink; it stops at the first all-zero remainder.
 ; Clobbers AX, BX, CX, DX, DI, flags
 gfxe_merge:
+%ifdef GFXE_DYN_
+    add di, GFXE_BUF_           ; the band's own address, once
+  %define GFXE_MB_ di
+%else
+  %define GFXE_MB_ GFXE_BAND_BUF + di
+%endif
     test byte [gfxe_tsty], GFXE_INV
     jnz .w
 .k:
     mov bl, dh                  ; black ink: clear the bits
     not bl
-    and [GFXE_BAND_BUF + di], bl
+    and [GFXE_MB_], bl
     inc di
     dec cx
     jz gfxe_rmr                 ; the stride's end
@@ -605,7 +682,7 @@ gfxe_merge:
     jnz .k                      ; ...until nothing is left
     ret
 .w:
-    or [GFXE_BAND_BUF + di], dh ; white ink: set them
+    or [GFXE_MB_], dh           ; white ink: set them
     inc di
     dec cx
     jz gfxe_rmr
@@ -653,6 +730,17 @@ gfxe_rmr:
     or ax, dx                   ; ...ORed one pixel right
   %endif
     shr ax, cl                  ; ...in place
+%ifdef GFXE_DYN_                ; (BX = the band, BP = its stride)
+  %if %1
+    or [bx + di], ah
+    or [bx + di + 1], al
+  %else
+    not ax
+    and [bx + di], ah
+    and [bx + di + 1], al
+  %endif
+    add di, bp
+%else
   %if %1
     or [GFXE_BAND_BUF + di], ah ; white ink: set the bits
     or [GFXE_BAND_BUF + di + 1], al
@@ -662,6 +750,7 @@ gfxe_rmr:
     and [GFXE_BAND_BUF + di + 1], al
   %endif
     add di, GFXE_BAND_ST
+%endif
     dec ch
     jnz %%r
     jmp .adv
@@ -682,7 +771,7 @@ gfxe_glyph:
     mov bl, 3
 .s:
     mov [gfxe_ts], bl
-    cmp dx, GFXE_BAND_H         ; THE REJECT: below the band...
+    cmp dx, GFXE_BH_            ; THE REJECT: below the band...
     jge .adv
     xor bh, bh
     mov cl, 3
@@ -690,7 +779,7 @@ gfxe_glyph:
     add bx, dx
     jle .adv                    ; ...or above it: nothing to draw
 %else
-    cmp dx, GFXE_BAND_H         ; THE REJECT: below the band...
+    cmp dx, GFXE_BH_            ; THE REJECT: below the band...
     jge .adv
     mov bx, dx
     add bx, 8                   ; BX = y + 8, the glyph's end
@@ -716,14 +805,20 @@ gfxe_glyph:
     mov ax, [gfxe_tx]           ; --- THE STRAIGHT PATH (x1)
     mov cl, 3
     shr ax, cl
+%ifdef GFXE_DYN_
+    inc ax                      ; (DEC keeps the compare's CF)
+    cmp ax, GFXE_BST_
+    dec ax
+%else
     cmp ax, GFXE_BAND_ST - 1
+%endif
     jae .gen                    ; the stride's last byte, or past it
     mov bp, ax                  ; BP = the byte column
     mov ax, 8                   ; BX = y + 8: the rows to the glyph's end
-    cmp bx, GFXE_BAND_H
+    cmp bx, GFXE_BH_
     jle .e
     sub ax, bx                  ; ...clipped at the band's foot
-    add ax, GFXE_BAND_H
+    add ax, GFXE_BH_
 .e:
     or dx, dx
     jns .t
@@ -740,6 +835,10 @@ gfxe_glyph:
     mov ch, al
     mov cl, [gfxe_tx]
     and cl, 7                   ; the pixel phase
+%ifdef GFXE_DYN_
+    mov bx, GFXE_BUF_           ; the straight path's band and stride
+    mov bp, GFXE_BST_
+%endif
     test byte [gfxe_tsty], GFXE_INV
     jnz .wi
 %ifndef GFXE_NOBOLD
@@ -771,7 +870,7 @@ gfxe_glyph:
     inc word [gfxe_ty]
     or bx, bx
     js .nx                      ; above the band
-    cmp bx, GFXE_BAND_H
+    cmp bx, GFXE_BH_
     jge .adv                    ; below it: the rest are too
     xor dl, dl                  ; DX = the row, left-aligned...
   %ifndef GFXE_NOBOLD
@@ -804,7 +903,7 @@ gfxe_glyph:
     mov al, [es:si]
     inc si
     mov bx, [gfxe_ty]           ; a glyph row whose copies are all off the
-    cmp bx, GFXE_BAND_H         ; band is never expanded: below it, the rest
+    cmp bx, GFXE_BH_            ; band is never expanded: below it, the rest
     jge .adv                    ; are too...
     mov cl, [gfxe_ts]
     xor ch, ch
@@ -812,7 +911,7 @@ gfxe_glyph:
     jg .vis
     add [gfxe_ty], cx           ; ...above it, step over this one
 .over:
-    add di, GFXE_BAND_ST
+    add di, GFXE_BST_
     loop .over
     jmp short .rnx
 .vis:
@@ -824,7 +923,7 @@ gfxe_glyph:
     inc word [gfxe_ty]
     or bx, bx
     js .skip                    ; above the band
-    cmp bx, GFXE_BAND_H
+    cmp bx, GFXE_BH_
     jge .skip                   ; below it
     push ax
     push cx
@@ -837,7 +936,7 @@ gfxe_glyph:
     pop cx
     pop ax
 .skip:
-    add di, GFXE_BAND_ST
+    add di, GFXE_BST_
     dec cl
     jnz .rep
 .rnx:
@@ -854,6 +953,11 @@ gfxe_glyph:
     ret
 %endif ; GFXE_SCALE
 
+%ifdef GFXE_DYN_
+  %define GFXE_TB_ cs:            ; the library's own tables are its image's
+%else
+  %define GFXE_TB_
+%endif
 %ifdef GFXE_SCALE
 ; gfxe_expand - AL = a glyph row -> DX:AX, left-aligned: [gfxe_ts] copies of
 ; each bit - a NIBBLE at a time out of gfxe_x2t / gfxe_x3t, never a bit at a
@@ -875,17 +979,17 @@ gfxe_expand:
     and bx, 0Fh
     cmp byte [gfxe_ts], 2
     jne .three
-    mov dl, [gfxe_x2t + bx]     ; x2: a byte a nibble, DX the row's 16
+    mov dl, [GFXE_TB_ gfxe_x2t + bx]     ; x2: a byte a nibble, DX the row's 16
     mov bl, al
-    mov dh, [gfxe_x2t + bx]
+    mov dh, [GFXE_TB_ gfxe_x2t + bx]
     xor ax, ax
     jmp short .bold
 .three:
     shl bx, 1                   ; x3: 12 bits a nibble, a word each
-    mov cx, [gfxe_x3t + bx]     ; CX = the low nibble's
+    mov cx, [GFXE_TB_ gfxe_x3t + bx]     ; CX = the low nibble's
     mov bl, al
     shl bx, 1
-    mov dx, [gfxe_x3t + bx]     ; DX = the high one's...
+    mov dx, [GFXE_TB_ gfxe_x3t + bx]     ; DX = the high one's...
     push cx
     mov cl, 4
     shl dx, cl                  ; ...in DX's top 12 bits
@@ -997,9 +1101,9 @@ gfxe_bfill:
 .x0:
     mov si, ax
     add si, cx                  ; SI = x end, exclusive
-    cmp si, GFXE_BAND_W
+    cmp si, GFXE_BW_
     jle .x1
-    mov si, GFXE_BAND_W
+    mov si, GFXE_BW_
 .x1:
     cmp si, ax
     jle .out
@@ -1010,9 +1114,9 @@ gfxe_bfill:
 .y0:
     mov di, bx
     add di, dx                  ; DI = y end, exclusive
-    cmp di, GFXE_BAND_H
+    cmp di, GFXE_BH_
     jle .y1
-    mov di, GFXE_BAND_H
+    mov di, GFXE_BH_
 .y1:
     sub di, bx                  ; (its flags are the compare's)
     jle .out
@@ -1039,6 +1143,9 @@ gfxe_bfill:
     GFXE_ROWOFF                 ; the first row's offset
     pop di
     add di, ax                  ; ...at the first byte column
+%ifdef GFXE_DYN_
+    add di, GFXE_BUF_           ; ...of the band itself (gfxe_fbyte's [di])
+%endif
 .row:
     push di
     mov al, [gfxe_fmask]        ; the first byte
@@ -1058,7 +1165,7 @@ gfxe_bfill:
     call gfxe_fbyte
 .rowx:
     pop di
-    add di, GFXE_BAND_ST
+    add di, GFXE_BST_
     dec bp
     jnz .row
 .out:
@@ -1066,14 +1173,19 @@ gfxe_bfill:
 
 ; gfxe_fbyte - AL = a mask: those bits of the band byte at DI set (GFXE_INV)
 ; or cleared. Keeps everything but AL and the flags
+%ifdef GFXE_DYN_
+  %define GFXE_FB_ di             ; (gfxe_bfill added the band to DI)
+%else
+  %define GFXE_FB_ GFXE_BAND_BUF + di
+%endif
 gfxe_fbyte:
     test byte [gfxe_tsty], GFXE_INV
     jnz .o
     not al
-    and [GFXE_BAND_BUF + di], al
+    and [GFXE_FB_], al
     ret
 .o:
-    or [GFXE_BAND_BUF + di], al
+    or [GFXE_FB_], al
     ret
 %endif ; GFXE_TEXT
 
@@ -1099,7 +1211,7 @@ gfxe_bits:
     inc word [gfxe_ty]
     or bx, bx
     js .skip
-    cmp bx, GFXE_BAND_H
+    cmp bx, GFXE_BH_
     jge .skip
     mov dx, ax                  ; the row's 16 bits, left-aligned in 32
     xor ax, ax
@@ -1374,7 +1486,22 @@ gfxe_wstepv:
     ret
 %endif ; GFXE_WALK
 
+%endif ; GFXE_THUNK_
+
 ; --- the library's own state, in the IMAGE (see the header) ------------------
+%ifdef GFXE_FIXED_
+gfxe_bh     equ os88_stiklib + STKL_BH       ; ...or, for a Sticky App on
+gfxe_tsty   equ os88_stiklib + STKL_TSTY     ; the shared library, in its
+gfxe_ts     equ os88_stiklib + STKL_TS       ; block (SPEC.md 110.15)
+gfxe_tx     equ os88_stiklib + STKL_TX
+gfxe_ty     equ os88_stiklib + STKL_TY
+gfxe_tl     equ os88_stiklib + STKL_TL
+gfxe_fseg   equ os88_stiklib + STKL_FSEG
+gfxe_foff   equ os88_stiklib + STKL_FOFF
+gfxe_f0     equ os88_stiklib + STKL_F0
+gfxe_f1     equ os88_stiklib + STKL_F1
+gfxe_fmask  equ os88_stiklib + STKL_FMASK
+%else
 %ifdef GFXE_BAND
 %ifndef GFXE_NOBUTIL
 gfxe_mnx:   dw 0                    ; the running bounds gfxe_bfold widens
@@ -1422,3 +1549,4 @@ gfxe_lsy:   dw 0
 gfxe_le1:   dw 0
 gfxe_le2:   dw 0
 %endif
+%endif ; GFXE_FIXED_

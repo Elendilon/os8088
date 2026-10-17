@@ -27,6 +27,9 @@
 ; the selected day an OUTLINE: nothing is carried by colour (SPEC.md 39.4).
 ; =============================================================================
 
+%ifndef APP_SMALL               ; kern_big's: the Sticky App code is the ONE
+%define STIK_LIB                ; copy in DESK.DRV (SPEC.md 110.15). Before
+%endif                          ; the header: OS88_STIKCARD_END lays its block
 %include "os88api.inc"
 
     OS88_HEADER 'Desk Calendar', dc_entry, OS88_F_ICON | OS88_F_DESK | OS88_F_STIK

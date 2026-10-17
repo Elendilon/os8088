@@ -144,7 +144,7 @@ dkd_verb:
     cmp al, 1
     je .make
     cmp al, 3
-    ja .no                      ; any verb nobody defined
+    ja .lib                     ; LIB, or any verb nobody defined
     jb .drag                    ; 2, DRAG (0 never arrives: the thunk's)
     cmp bx, [menu_win]          ; --- RELEASE
     jne .ok                     ; not the bar's owner: nothing to give back
@@ -154,6 +154,13 @@ dkd_verb:
     call KERNEL_SEG:cw_menu_draw_bar
     pop bx
 .ok:
+    clc
+    retf
+.lib:
+    cmp al, 4                   ; --- LIB (SPEC.md 110.15): DX = the Sticky
+    jne .no                     ; App library's paragraph, at the end of
+    mov dx, cs                  ; this image - where its own org 0 is
+    add dx, (dkd_lib - modj_hdr) >> 4
     clc
     retf
 .no:
@@ -306,6 +313,19 @@ dkd_key:
     stc
     pop si
     retf
+
+; -----------------------------------------------------------------------------
+; THE STICKY APP LIBRARY (SPEC.md 110.15) - apps/stiklib.asm, assembled as a
+; package-side binary of its own and carried here, on a paragraph, because
+; this image's lifetime is the one it needs: loaded by the first Sticky App's
+; QUERY (or the loader's step 5 for it), pinned, held until the restart. No
+; kernel code calls it and it calls no kernel code but the API cells; every
+; Sticky App built STIK_LIB far-calls it with its own DS. It costs the kernel
+; nothing resident: LIB above is the only line that knows it is here
+; -----------------------------------------------------------------------------
+    times (16 - (($ - $$) % 16)) % 16 db 0
+dkd_lib:
+    incbin "stiklib.bin"
 
 section .text
 %endif

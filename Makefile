@@ -2601,7 +2601,8 @@ endif
 KERNNAME   := kernel.sys
 KERNFILE   := $(BUILD)/$(KERNNAME)
 
-$(BUILD)/kernel-full.bin: $(KERNEL_SRC) $(KERNEL_INC) $(ASSOCICO) $(FONTINC) $(BUILDINC) tools/os88ovlchk.py | $(BUILD)
+$(BUILD)/kernel-full.bin: $(KERNEL_SRC) $(KERNEL_INC) $(ASSOCICO) $(FONTINC) $(BUILDINC) tools/os88ovlchk.py \
+                          $(BUILD)/stiklib.bin | $(BUILD)
 ifeq ($(NOOVLCHK),)
 	@python3 tools/os88ovlchk.py
 else
@@ -5820,8 +5821,8 @@ $(BUILD)/calc.o88: $(BUILD)/calc.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
 DESKCALSRC := apps/deskcal/deskcal.asm apps/deskcal/dcdate.inc \
               apps/deskcal/dcdraw.inc apps/deskcal/dcdata.inc \
               apps/deskcal/dcrem.inc \
-              apps/os88stik.inc apps/os88ui.inc apps/os88line.inc \
-              apps/os88gfx.inc apps/os88api.inc
+              apps/os88stik.inc apps/os88stikc.inc apps/os88ui.inc \
+              apps/os88line.inc apps/os88gfx.inc apps/os88api.inc
 $(BUILD)/deskcal.bin: $(DESKCALSRC) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/deskcal/ -o $@ apps/deskcal/deskcal.asm
 	@echo "deskcal: $(call FILESIZE,$@) bytes"
@@ -5831,6 +5832,17 @@ $(BUILD)/deskcal.o88: $(BUILD)/deskcal.bin tools/os88pkg.py $(PKGZSTAMP)
 
 # Its small build, for kern_small's disks, is with the other APP_SMALL rules
 # below ($(SMALLAPPDIR) is defined there).
+
+# THE STICKY APP LIBRARY (SPEC.md 110.15): apps/os88stik.inc and the text half
+# of apps/os88gfx.inc assembled ONCE, as a package-side binary that is not a
+# package. kernel/deskmod.inc `incbin`s it into DESK.DRV, so the kernel build
+# depends on it ($(BUILD) is on the kernel's include path), and every Sticky
+# App built `%define STIK_LIB` far-calls that copy instead of carrying its own
+STIKLIBSRC := apps/stiklib.asm apps/os88stik.inc apps/os88gfx.inc \
+              apps/os88api.inc
+$(BUILD)/stiklib.bin: $(STIKLIBSRC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ apps/stiklib.asm
+	@echo "stiklib: $(call FILESIZE,$@) bytes"
 
 # Sticky Note (SPEC.md 110.13): the second STICKY APP - a pad on the desk over
 # a folder of .TXT notes, which Note Pad edits - in STIKAPPS/ beside the Desk

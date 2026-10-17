@@ -21271,6 +21271,7 @@ CF answers.
 | 1 | MAKE | BX = your window | make it a desk window - **in your ENTRY PROC only**, between `OSAPI_WM_CREATE` and its return. **Refused (CF = 1)** for a window not in use, VISIBLE, `WF_FULL` or `WF_SIZABLE`, for a window that already HAS an owner, with no load in progress, and for a window the loading package did not make. That is how MAKE knows its caller for nothing: `wm_owner` is published only at the loader's step 9, AFTER the entry proc returns (§21), so the window being set up is the one nobody owns yet; `[ld_base]` is the loading package's segment from step 5 until step 9's show and 0 otherwise, so `W_SEG` = `[ld_base]` (non-zero) says the window is ITS, made in this load; and the loader's `[ld_rec]` is still unpublished (`I_STATE` = 0), which a callback that step 9's own repaint reaches is not (§110.9). Effect: `WF_DESK \| WF_NOANIM \| WF_OWNBG` on, `WF_SAVEU \| WF_1BPP` off, and the z entry ROTATED to `[0]` (each entry below it moves up one, in order). **`IF_DESK` is step 9's, not MAKE's**: the loader sets it on the record when the window the entry proc RETURNS is `WF_DESK`, so an instance is tile-less exactly when its own window is a widget - a Sticky App that also opens an ordinary window and returns that one keeps its tile, and the window it can be minimized by |
 | 2 | DRAG | BX = your DESK window | post the kernel's outline drag of BX (§11.103.6): `[ui_dragy]` = BX, which the content press compares with the window PRESSED once its `W_ONCLICK` has returned, and honours only for a `WF_DESK` one - so it is for your desk window's own `W_ONCLICK`, on the UI task, and never for a fullscreen window. Posted before a press, the press's seed wipes it; naming another window it does not match; from a worker it is a race. Anywhere else it moves nothing, but an ARMED press is handed one `W_ONDRAG` at an unmoved point. CF = 0. The drag eats the release: no `W_ONMOUSEUP` follows (nor after a refused post, which skipped the arm) |
 | 3 | RELEASE | BX = your window | if `[menu_win]` is BX, the bar - and with it the keys - goes to `wm_top` (the front application window, or Locator) and is redrawn. From a callback, under the lock (a widget's `W_ONKEY` on Esc). CF = 0 |
+| 4 | LIB | - | DX = the paragraph of the **Sticky App library** at the end of `DESK.DRV`'s image (§110.15): its version words at DX:0 and DX:2, its entry table from DX:4. Only after a QUERY that loaded the layer; `os88stik.inc`'s `STIK_LIB` arm asks it in `stik_load` and nothing else should. CF = 0. In the image's `dkd_verb`, so it costs no resident byte; kern_small's `mod_gone` refuses it |
 
 **`OSAPI_GFX_DESK`**, a rare cell (`OSAPI_RSLOT thm_desk`): AX, BX = x1, y1
 and CX, DX = x2, y2, inclusive, with the gfx lock held - a `W_PAINT`. It lays
@@ -21447,6 +21448,13 @@ above (`desk_need` +24, the step-5 call +3, the thunk -4: `.cold` +23,
 nothing else). The image is **235 bytes** (stored
 plain - lz4 would not shrink it), a 1 KB claim, and one cluster on every kern_big system disk in all four geometries,
 the emu disk and the live media (`$(BIGMODS)`, which `$(DRIVERS)` carries).
+
+**Since §110.15 it also carries the Sticky App library**, appended to the
+image on a paragraph by `incbin` and named by verb 4: the image is **4,494
+bytes** (4,238 of them the library), its file **4,221** packed, and its claim
+**5 KB** where it was 1 - held, as before, from the first QUERY to the
+restart. Not one resident byte: `kernsize` reads `+0` on kern_big and
+kern_emu (kern_small has no `DESK.DRV`).
 
 ## 12. menu.inc
 
@@ -193811,6 +193819,122 @@ only`, the alarm saved, ringing at 07:00 on the guest's clock and snoozed, and
 the clock back after a reset - and the `herc` leg (`deskclockherc`), the Red
 LED face on one plane. `t_stik` (fast) holds the payload and the bss fields to
 the host tool and walks every system image for `STIKAPPS/DESKCLOK.O88`.
+
+### 110.15 The Sticky App library: one copy, in `DESK.DRV`
+
+**The owner's decision (2026-10-17)**, on docs/plans/completed/STIKLIB-PLAN.md:
+the code every Sticky App carried - `apps/os88stik.inc` and the
+`GFXE_TEXT`/`GFXE_BITS` half of `apps/os88gfx.inc` - is on the disk once and
+on the heap once, and a kern_big widget far-calls that copy. The ABI change
+it needs (a fifth `OSAPI_WM_DESK` verb, and the library's own table) was
+approved with it; `tools/abi.lock.json` records it with no bump, every
+package and driver built before still running.
+
+**Where it lives.** `apps/stiklib.asm` assembles the two includes ONCE, as a
+package-side binary that is not a package (`STIK_LIBRARY`), and
+`kernel/deskmod.inc` `incbin`s it at the end of `DESK.DRV`'s image on a
+paragraph. That module's lifetime is exactly the one the library needs: a
+`STIK_DESKONLY` widget cannot launch without it (§110.7), the loader's step 5
+loads it for an `OS88_F_DESK` package before the region is claimed
+(§11.103.10), and it is pinned and held until the restart - so the library is
+there wherever it is called, never moves, and is never freed under a caller.
+The first launch reads one file of ~4 KB where it read one sector; nothing
+else pays a disk call for it.
+
+**How a package uses it: one line.** `%define STIK_LIB` BEFORE `OS88_HEADER`
+(the Desk Calendar guards it with `%ifndef APP_SMALL`, its kern_small build
+keeping the include linked in). The package's own source is otherwise
+unchanged - the same `STIK_*` defines, the same `stik_*` and `gfxe_*` names,
+the same register contracts - and three things change underneath:
+
+- **`OS88_STIKCARD_END` lays a fixed BLOCK** at image offset
+  `OS88_STIKLIB_AT` = 288 (header 32 + icon 64 + card 192, so the package
+  carries `OS88_F_ICON` and `OS88_F_STIK` and no association block or glyph):
+  a descriptor assembled from the package's defines - its state file's
+  buffer, payload length and version, flags, tag width, `STIK_RIGHT`, the
+  layouts, the band, its strings, its callbacks and its thunks - then
+  `'SYSTEM'`, `'APPDATA'` and the handle's two bit records, the far pointers
+  to the library's 26 entries, and every byte of `os88stik.inc`'s and
+  `os88gfx.inc`'s state, in the inline arm's order (`apps/os88api.inc`'s
+  `STKL_*`). The state moves from the package's bss into its image - RAM is
+  unchanged, the packed file pays a few bytes for 464 mostly-zero ones - and
+  `STIK_BSS_END` is then the state file's buffer and its read slack alone.
+- **`os88stik.inc` includes `os88stikc.inc`** in place of its code: a
+  five-byte thunk per routine (`call far [stik_le + 4n]` / `ret`), the
+  trampoline the library calls back through, the strings, and `stik_load`'s
+  BIND - QUERY, LIB, the version words, the segment into every far pointer -
+  then the library's own `stik_load`. A refusal anywhere in the bind is the
+  one a desk-only widget always said, `No desk layer (DESK.DRV)`.
+- **`os88gfx.inc` emits thunks** for `gfxe_text`, `_glyph`, `_bfill`,
+  `_bits` and `_bclear`, defines every style, and finds its words in the
+  block.
+
+**How the library reaches the package.** DS is the CALLING package's on
+every instruction, which is what keeps every API call it makes the package's
+(the kernel knows a caller by its DS, §50.3) and lets its ~200 state
+references stay `[disp16]` - the block is at the same offset in every
+package. What differs between packages it reads from the descriptor: the
+band's buffer, stride, width and rows (the composer's straight path holds
+the buffer in BX and the stride in BP, so it is no slower than the inline
+one), the payload's length and version, whether the file is packed, the tag
+width the plate is cut from. It always runs `STIK_VARFACE`'s code - a fixed
+face is a variable one whose `[stik_fw]` the descriptor seeds - and every
+callback goes `push word [stik_d_x]` / `call stik_cb`, which far-calls the
+package's trampoline at the package's segment AS IT IS NOW (a region is
+movable, §66.6.1.1, so no segment is ever stored) and skips a 0. The
+kernel's callbacks are near procs in the package's segment (§20.2), so
+`stik_made` installs the package's thunks, read from the descriptor, and
+§20.8 rule 5 holds: the kernel calls package procs, and only thunks far-call.
+
+**One shape is different, and the gates read it.** The header the poll and
+the save work on - the place on record - is the block's copy (`stik_hd`):
+`stik_load` copies it out of the state file's buffer after a good read and
+`stik_save` copies it back before every write, so the buffer in bss holds
+what was last read or written. `tools/os88stik.py`'s `state_off()` gives
+either arm's offsets past the image, `DESKCAL_LIB` says which the calendar
+is, and `t_stik` has NASM hold the block's addresses to it.
+
+#### 110.15.1 What it measured, and who is on it
+
+All three Sticky Apps are, on kern_big: the Desk Calendar and the Desk Clock
+inside their `%ifndef APP_SMALL` arm (their kern_small builds keep the
+include linked in, byte for byte), Sticky Note unconditionally (it is on no
+small disk, §24.5.1). Image / bss / packed file, and the region each claims
+(image + bss, in whole KB):
+
+| package | before | on the library |
+|---|---|---|
+| Desk Calendar | 13,648 / 3,709 / 12,596 (17 KB) | 10,720 / 3,560 / 9,665 (14 KB) |
+| Sticky Note | 8,592 / 1,906 / 7,769 (11 KB) | 5,936 / 1,757 / 5,136 (8 KB) |
+| Desk Clock | 20,032 / 5,368 / 17,332 (25 KB) | 17,072 / 5,216 / 14,449 (22 KB) |
+| `DESK.DRV` | 235 / - / 241 (1 KB) | 4,494 / - / 4,221 (5 KB) |
+
+**RAM**, the regions plus `DESK.DRV`'s claim: one Sticky App up costs **1 KB
+more** than it did (the desk claim grows 4 KB and the region gives back 3),
+two cost **2 KB less**, all three **5 KB less** (54 KB -> 49 KB). **Disk**:
+the three packages' files lose 8,447 bytes and `DESK.DRV`'s gains 3,980,
+**4,467 bytes** off every kern_big system disk. **Kernel**: `kernsize` reads
+`+0` resident on kern_big and kern_emu, and kern_small has no `DESK.DRV`.
+
+**Time.** A call into the library is the package's thunk - a near call, then
+a far call and a `retf` - and a callback the library makes is a far call
+through the package's trampoline. The composer's inner loops are not on
+either side of one: the Desk Clock's 70 hot routines (its faces, the
+composer, its hands) are byte-identical at an even shift
+(`tools/os88rdiff.py`), and the library's paint path (`stik_paint` ..
+`stik_desk`) keeps the parity the clock's `DK_PARITY` pins measured it at.
+
+#### 110.15.2 Adopting it
+
+One line, `%define STIK_LIB` before `OS88_HEADER` (inside a kern_big arm if
+the package has a kern_small build). What a package must already be:
+`STIK_WIDGET` and `STIK_DESKONLY`, `OS88_F_ICON` with `STIK_ICON` = 32 and a
+Sticky App card (`OS88_F_STIK`), no association block or glyph, and
+`STIK_RIGHT` defined. A package that walks the state file's folder for files
+of its own (Sticky Note's notes) also defines `STIK_WALK`, for the thunks to
+`stik_enter`, `stik_leave`, `stik_goqm` and `stik_seek`. Its tests read the
+state with `os88stik.state_off(lib, ...)` rather than `widget_off`, and
+`t_stik` has NASM hold its `stik_st` to `os88stik.lib_st_abs()`.
 
 ## 111. TIMER — the stopwatch (`apps/timer/timer.asm`)
 
