@@ -99,22 +99,9 @@ dk_geom:
     mov al, [DK_SZW + bx]
     xor ah, ah
     mov [dk_faw], ax
-    cmp byte [dk_kind], 0
-    jne .dig
-    call dk_sy                  ; a dial: as tall as it is wide, to the eye
-    jmp short .ev
-.dig:
-    mov bl, [DKP + DKP_FACE]    ; a digital face: its own share of its width
+    mov bl, [DKP + DKP_FACE]
     xor bh, bh
-    mov cl, [dk_fhr + bx]
-    xor ch, ch
-    mul cx
-    mov al, ah
-    mov ah, dl
-    call dk_sy
-.ev:
-    inc ax
-    and al, 0FEh                ; even: the centre lies between two rows
+    call dk_fhgt
     mov [dk_fah], ax
     mov al, 2                   ; the big time's scale down
     xor ah, ah
@@ -226,6 +213,25 @@ dk_geom:
     pop cx
     pop bx
     pop ax
+    ret
+
+; dk_fhgt - AX = a face's width, BX = the face: AX = its height - a dial as
+; tall as it is wide to the eye, a digital face its own share of its width
+; (dk_fhr) - even, so the centre lies between two rows. Keeps the rest
+dk_fhgt:
+    push dx
+    mov dl, [dk_fhr + bx]
+    or dl, dl
+    jz .s
+    xor dh, dh
+    mul dx
+    mov al, ah
+    mov ah, dl
+.s:
+    call dk_sy
+    inc ax
+    and al, 0FEh
+    pop dx
     ret
 
     DK_PARITY 1                 ; the paint and the hands: their measured

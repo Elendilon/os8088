@@ -975,9 +975,7 @@ dk_stile:
     call dk_frame
     mov si, [di+1]
     and si, 0FFh                ; SI = the face
-    mov cl, [DKP + DKP_FACE]
-    xor ch, ch
-    cmp si, cx
+    call dk_tsel
     jne .pv
     push ax
     push bx
@@ -985,82 +983,58 @@ dk_stile:
     push dx
     add ax, 2                   ; the second border
     add bx, 2
-    sub dx, 4
-    mov cx, [di+6]
     sub cx, 4
+    sub dx, 4
     call dk_frame
     pop dx
     pop cx
     pop bx
     pop ax
 .pv:
-    push ax
-    push bx
-    push si
-    ; the preview: the face program at the layout's preview size
-    mov di, [dk_sgeo]
-    mov cl, [di + DKSG_PWA]
+    push ax                     ; the preview: the face program at the
+    push bx                     ; layout's preview size...
+    mov bx, [dk_sgeo]
+    mov al, [bx + DKSG_PWA]
     cmp si, DKF_ANALOG
     jb .w
-    mov cl, [di + DKSG_PWD]
+    mov al, [bx + DKSG_PWD]
 .w:
-    xor ch, ch
-    mov [dk_fw], cx
-    mov ax, cx
-    cmp si, DKF_ANALOG
-    jb .ah
-    mov dl, [dk_fhr + si]
-    xor dh, dh
-    mul dx
-    mov al, ah
-    mov ah, dl
-.ah:
-    call dk_sy
-    inc ax
-    and al, 0FEh
+    xor ah, ah
+    mov [dk_fw], ax
+    mov bx, si
+    call dk_fhgt                ; AX = its height
     mov [dk_fh], ax
-    pop si
     pop bx
-    pop ax
-    push ax
-    push bx
-    push si
-    mov di, 112                 ; centred across the tile...
-    sub di, [dk_fw]
-    sar di, 1
-    add ax, di
-    mov [ck_ox], ax
-    call dk_tileent             ; DI = the tile's entry again
-    mov cx, [di+8]              ; ...and in the rows over its name
+    mov cx, [di+8]              ; ...in the rows over its name...
     sub cx, 14
-    sub cx, [dk_fh]
+    sub cx, ax
     sar cx, 1
     add cx, 3
-    add bx, cx
-    mov [ck_oy], bx
+    add cx, bx
+    mov [ck_oy], cx
+    pop ax
+    mov cx, 112                 ; ...and centred across the tile
+    sub cx, [dk_fw]
+    sar cx, 1
+    add cx, ax
+    mov [ck_ox], cx
+    push si
     shl si, 1
     shl si, 1
     mov si, [dk_faces + si + 2]
     call dk_face
-    mov word [ck_ox], 0
-    mov word [ck_oy], 0
     pop si
-    pop bx
-    pop ax
+    xor cx, cx
+    mov [ck_ox], cx
+    mov [ck_oy], cx
     ; the name
-    call dk_tileent
     mov dx, bx
     add dx, [di+8]
     sub dx, 11                  ; DX = the name's row
-    mov cl, [DKP + DKP_FACE]
-    xor ch, ch
-    cmp si, cx
+    mov cx, ax
+    call dk_tsel
     jne .nm
-    push ax                     ; selected: a black bar and a ticked box
-    push dx
-    call dk_iblk
-    pop dx
-    pop ax
+    call dk_iblk                ; selected: a black bar and a ticked box
     push ax
     push bx
     push dx
@@ -1077,6 +1051,7 @@ dk_stile:
     push ax
     push bx
     push dx
+    push si
     add ax, 5                   ; the box, white, its tick black
     mov bx, dx
     mov cx, 8
@@ -1089,19 +1064,17 @@ dk_stile:
     mov si, dk_tick8
     call ck_bits
     call dk_iwht
+    pop si
     pop dx
     pop bx
     pop ax
-    mov si, [di+1]
-    and si, 0FFh
-    mov cx, ax                  ; right of the box
-    add cx, 60
+    mov cx, ax                  ; the name right of the box
+    add cx, 60 - 56
     jmp short .tx
 .nm:
     call dk_iblk
-    mov cx, ax
-    add cx, 56
 .tx:
+    add cx, 56
     call ck_sc1
     mov byte [ck_gbold], 1
     shl si, 1
@@ -1110,6 +1083,15 @@ dk_stile:
     call ck_textc
     mov byte [ck_gbold], 0
     ret
+
+; dk_tsel - ZF = 1: the tile at DI is the face the payload has. Keeps all
+dk_tsel:
+    push ax
+    mov al, [di+1]
+    cmp al, [DKP + DKP_FACE]
+    pop ax
+    ret
+
 dk_tick8:   db 5                  ; inside an 8-px box, from its second row
             dw 0600h, 0C00h, 5800h, 7000h, 2000h
 
