@@ -202,7 +202,12 @@ TM_BAR_Y2   equ 80              ; RAM bar frame bottom
 TM_HDR_Y    equ 87              ; process-list header line
 TM_ROW_Y    equ 97              ; first process row
 TM_ROW_H    equ 11              ; row pitch, px
-TM_ROWS     equ INST_MAX + 1    ; "System" plus one row per instance slot
+TM_ROWS     equ INST_MAX + 1    ; "System" plus one row per instance slot -
+                                ; the per-row DATA (tm_rcyc, tm_pct)...
+TM_PROWS    equ TM_ROWS + 1     ; ...and the rows DRAWN, which have IVT+Pad
+                                ; above System (SPEC.md 28.4.7)
+TM_LOWKB    equ 2               ; IVT+Pad: the 1.5K under KERNEL_SEG and the
+                                ; half-KB the whole-KB heap and System leave
 TM_W        equ 232             ; the window's own width - the template's, and
                                 ; one column's. Two columns add TM_COLW.
 TM_RW       equ 223             ; the rows' right edge, content-relative. It
@@ -627,7 +632,7 @@ TM_DEEPEST  equ TMH_ROWS        ; the heap page's, and it is 47
 %elifdef TMF_MEM
 TM_DEEPEST  equ TMM_ROWS        ; ...or the memory view's 19
 %else
-TM_DEEPEST  equ TM_ROWS         ; ...or the process list's own 13
+TM_DEEPEST  equ TM_PROWS        ; ...or the process list's own 14
 %endif
 
 ; ...but the heap page's 47 is how many rows it can COMPOSE, and a check word
@@ -659,7 +664,7 @@ TM_SHOWN    equ TM_DEEPEST      ; a shallower list: its own depth is the bound
 TMR_CPU     equ TM_SHOWN        ; the virtual row index it draws as: past
                                 ; every row any list on this arm can show
 TM_NCK      equ TM_SHOWN + 1    ; ...so tm_rowck holds one more row than that
-%if TM_SHOWN < TM_ROWS
+%if TM_SHOWN < TM_PROWS
   %error "taskmgr: tm_rowck is no longer sized for the process list"
 %endif
 %ifdef TMF_MEM
@@ -1221,7 +1226,21 @@ tm_s_hdr:   db 'NAME'
             db 'CPU'
             times TM_CPUC - 3      db ' '
             db 'MEM', 0
-tm_s_sys:   db 'System', 0      ; row 0: the kernel's own share
+tm_s_sys:   db 'System', 0      ; row 1: the kernel's own share
+; Row 0, IVT+Pad (SPEC.md 28.4.7), one constant: no state, no CPU, 2K
+tm_s_lowrow:
+            db 'IVT+Pad'
+            times TM_NAMEF - 7     db ' '
+            times TM_STC + 1       db ' '
+            db '  -'
+            times TM_CPUC - 3      db ' '
+            db '  2K', 0
+%if $ - tm_s_lowrow != TM_ROWC + 1
+  %error "taskmgr: the IVT+Pad row is no longer exactly one row long"
+%endif
+%if TM_LOWKB != 2
+  %error "taskmgr: tm_s_lowrow and tm_s_low print TM_LOWKB as a literal"
+%endif
 ; The ST column, each WITH the separator the CPU column needs after it - the
 ; one place every state string is copied, so the space is data rather than a
 ; store after every copy (TM_STC + 1)
@@ -1296,13 +1315,14 @@ tm_s_sys0:  db 'System   0600', 0   ; the memory list's System row up to its
 ; table int 1Eh points at (DPT_AT, 0580). It is the SAME 1,536 bytes on every
 ; machine and every build: KERNEL_SEG is an SDK constant, not a ladder rung,
 ; so the whole row is one literal and draws for three string copies. The size
-; is printed as 1.5K because that is what it is - tm_kcol's whole kilobytes
-; would read 1K or 2K and either is the very rounding this row exists to
-; stop hiding. ' 1.5K' is tm_kcol's five columns, leading space included.
+; is printed as 2K, IVT+Pad, and SPEC.md 28.4.7 is why: claims are whole
+; KB, so the heap is the whole KB SK_HEAP reports and the kernel is shown
+; rounded DOWN, and the 1.5K plus the half-KB those two leave is always 2.
+; '   2K' is tm_kcol's five columns, leading space included.
 %if KERNEL_SEG * 16 != 1536
-  %error "taskmgr: the low-memory row is a 1.5K literal and KERNEL_SEG moved"
+  %error "taskmgr: the low-memory row is 1.5K plus a half-KB and KERNEL_SEG moved"
 %endif
-tm_s_low:   db 'IVT+BDA  0000  1.5K     -', 0   ; ...the whole row: a dash in
+tm_s_low:   db 'IVT+Pad  0000    2K     -', 0   ; ...the whole row: a dash in
                                 ; HEAP after its own gap, as the buffer rows
                                 ; have - it is not a claim
 
@@ -2045,10 +2065,18 @@ tm_sample:
     ; accounting for 132 - the missing 63 being the DirRead window, which
     ; belongs to no instance and so appears in no column. The map below still
     ; DRAWS it: a map is about addresses, and a cache occupies a real one.
-    mov ax, [tm_kb+SK_KERN]     ; the WHOLE kernel (SPEC.md 2): image,
-                                ; scratch, FAT snapshot, disk buffers and
-                                ; every task stack are one contiguous span,
-                                ; and there is no growth room in it to bill
+    ;
+    ; AND THE LOW 1.5K: the IVT, the BIOS data area and the page at 0500, which
+    ; are below KERNEL_SEG and so neither the kernel's nor the heap's. They
+    ; were in no figure on this page, so RAM's free half came out a KB or two
+    ; over the heap's free half on every machine. So the fixed half is TAKEN
+    ; rather than built: everything that is not the heap is IVT+Pad + System,
+    ; and that is the total less the heap's size (SPEC.md 28.4.7)
+    mov ax, [tm_totkb]          ; int 12h's total, less the claim heap: the
+    sub ax, [tm_kb+SK_HEAP]     ; WHOLE kernel (SPEC.md 2) - image, scratch,
+                                ; FAT snapshot, disk buffers and every task
+                                ; stack, one contiguous span with no growth
+                                ; room in it to bill - and the IVT+BDA under it
     add ax, [tm_kb+SK_CLAIM]    ; + everything claimed out of the heap
                                 ; (SPEC.md 50): the clipboard while it is
                                 ; armed, the menu save-under while a menu is
@@ -3389,8 +3417,8 @@ tm_rows_mem:
     call tm_copy                ; at the bottom of low memory
     mov byte [di], ' '
     inc di
-    mov ax, [tm_kb+SK_KERN]     ; the kernel, whole (SPEC.md 2)
-    call tm_kcol
+    call tm_sysk                ; the kernel, whole KB rounded down: IVT+Pad
+    call tm_kcol                ; above has its tail (SPEC.md 28.4.7)
     mov byte [di], ' '          ; the HEAP column's own gap (tm_s_mhdr)
     inc di
     mov ax, [tm_kb+SK_KCLAIM]   ; ...and the kernel's own heap claims, KB
@@ -3419,10 +3447,13 @@ tm_rows_mem:
     ; now and there are three rows. Neither fix touched this file's
     ; arithmetic, because there is none: the rows have read the published
     ; block since the window left the kernel.
+    call tm_sysk                ; ...and Code+data takes the half-KB System
+    xchg ax, cx                 ; gave IVT+Pad (SPEC.md 28.4.7), so the three
+    add cx, [tm_kb+SK_IMG]      ; still sum to the System row
+    sub cx, [tm_kb+SK_KERN]
     mov bx, tm_s_bimg           ; NO square: the image is drawn in the same
-    mov cx, [tm_kb+SK_IMG]      ; gray as the System row above it, and a
-    xor dx, dx                  ; square that repeats one is not a legend
-    call tm_buf_row
+    xor dx, dx                  ; gray as the System row above it, and a
+    call tm_buf_row             ; square that repeats one is not a legend
     mov bx, tm_s_bstk
     mov cx, [tm_kb+SK_STK]
     add cx, [tm_kb+SK_STK0]
@@ -5992,11 +6023,22 @@ tm_rows:
     ; were half a second ago - a free slot always is - and tm_rowsum below
     ; decides whether any of it is worth drawing.
     mov di, tm_str
-    or si, si
-    jnz .inst
+    mov bx, si                  ; BX = the LOGICAL row: a screen too short for
+    call tm_pshort              ; every row has no IVT+Pad row, and System
+    adc bx, 0                   ; carries its 2K instead (SPEC.md 28.4.7)
+    cmp bx, 1
+    ja .inst
+    je .sys
 
-    ; row 0: the kernel - task 0 minus everything debited to an instance
+    ; row 0: IVT+Pad, one constant (SPEC.md 28.4.7)
     push si
+    mov si, tm_s_lowrow
+    call tm_copy
+    pop si
+    jmp .draw
+
+.sys:                           ; row 1: the kernel - task 0 minus everything
+    push si                     ; debited to an instance
     mov si, tm_s_sys
     xor al, al                  ; the one row that is never indented
     call tm_namef
@@ -6007,12 +6049,15 @@ tm_rows:
 .sysst:
     call tm_copy                ; (the separator is in the string)
     pop si
-    mov bx, si
-    mov al, [tm_pct+bx]
+    mov al, [tm_pct]            ; task 0's share: tm_pct is by instance + 1
     call tm_cpucol
-    mov ax, [tm_kb+SK_KERN]     ; the kernel's footprint, whole (SPEC.md 2)
-                                ; - the same term the RAM line above uses, so
-                                ; the rows still sum to the bar
+    call tm_sysk                ; the kernel, whole KB, rounded DOWN - the row
+                                ; above carries its tail (SPEC.md 28.4.7), so
+                                ; the rows still sum to the RAM line's used
+    call tm_pshort              ; ...and when there is no such row, System
+    jnc .nofold                 ; carries IVT+Pad itself
+    add ax, TM_LOWKB
+.nofold:
     add ax, [tm_kb+SK_KCLAIM]   ; + the kernel's OWN heap claims (SPEC.md
                                 ; 42.2): the save-under and the clipboard.
                                 ; A package's claim belongs to its own row.
@@ -6020,8 +6065,8 @@ tm_rows:
     jmp .draw
 
 .inst:
-    mov bx, si
-    dec bx
+    dec bx                      ; logical row - 2: IVT+Pad and System are
+    dec bx                      ; above the first instance
     mov bl, [tm_ord+bx]         ; BX = the instance this ROW shows, held to
     xor bh, bh                  ; the end; [tm_rowi] is the same thing for the
     mov [tm_rowi], bl           ; stretches where BX is needed for something
@@ -6092,11 +6137,42 @@ tm_rows:
 
 .rnext:
     inc si
-    cmp si, TM_ROWS
+    cmp si, TM_PROWS
     jb .row
 .rdone:
 
     jmp tm_pop_dsdcba
+
+; -----------------------------------------------------------------------------
+; tm_pshort - can this screen NOT show every process row? (SPEC.md 28.4.7)
+; out: CF = 1 when column 0 and the later columns hold fewer than TM_PROWS -
+;      a CGA, where the list fitted exactly before IVT+Pad joined it
+; clobbers: nothing else
+; -----------------------------------------------------------------------------
+tm_pshort:
+    push ax
+    push dx
+    mov ax, [tm_cols]
+    dec ax
+    mul word [tm_col2rows]
+    add ax, [tm_pcolrows]
+    cmp ax, TM_PROWS            ; CF = capacity < TM_PROWS
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_sysk - the System row's kernel figure: whole KB, rounded DOWN (SPEC.md
+;           28.4.7). Everything not the heap, less IVT+Pad's constant 2K
+; in:  [tm_totkb], [tm_kb]
+; out: AX = KB
+; clobbers: nothing else
+; -----------------------------------------------------------------------------
+tm_sysk:
+    mov ax, [tm_totkb]
+    sub ax, [tm_kb+SK_HEAP]
+    sub ax, TM_LOWKB
+    ret
 
 ; -----------------------------------------------------------------------------
 ; tm_cpucol - the CPU column: share right-aligned in 3, then '%', then the

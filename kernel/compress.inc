@@ -1376,7 +1376,14 @@ cmz_verb:
     mov ax, [di+FS_SEL]
     cmp ax, [di+FS_N]           ; 0xFFFF (no selection) also fails this
     jae .none
-    call COLD_SEG:fmf_fm_stage_onam ; fm_onam + [fm_odir] + [fm_ftype]
+%ifdef KERN_SMALL                ; (DISKOPS.DRV is exactly 7 KB there: the
+    call COLD_SEG:fmf_fm_stage_onam ; far entry stays rather than a byte more
+%else                           ; of image)
+    push bp                     ; ...and wm_cbd on kern_big, whose image has
+    mov bp, fm_stage_onam       ; the room - kernel size pass 13
+    call COLD_SEG:wm_cbd
+    pop bp
+%endif                          ; fm_onam + [fm_odir] + [fm_ftype]
     cmp byte [fm_odir], 0
     jne .none
     cmp word [fm_ftype], 3

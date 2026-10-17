@@ -4812,9 +4812,12 @@ vp_lyown:
     add ax, [vp_lymkb]              ; [slots][mirror][the bank's bounce]
     cmp bx, ax
     jb .less
-    call vp_mclaim
-    jc .less
-    mov [vp_lyseg], dx
+    push dx                         ; (DX is the SLOTS: vp_mclaim answers
+    call vp_mclaim                  ; the claim in it, which was stored as
+    mov cx, dx                      ; the count - [vp_lyns] read 15072, a
+    pop dx                          ; segment, and the layer in place read
+    jc .less                        ; nothing: tests/vidlybank.py)
+    mov [vp_lyseg], cx
     jmp short .out
 .less:
     sub ax, bx
@@ -6194,8 +6197,6 @@ vp_xipq:
     jnz .no
     cmp byte [vp_snd], VP_SPK       ; (the speaker's clock: 98.3.18.5)
     je .no
-    call vp_lyipq                   ; (a LAYER: 98.3.18.14)
-    jc .no
     mov al, [vp_noinp]              ; (a gate's: the copying hold, the A/B)
 %ifndef LA_SIM
     cmp byte [vp_tier], CPU_8086    ; a 286 by LOADALL, a 386 by a loaded
@@ -6267,8 +6268,6 @@ vp_xbipq:
     jne .no
     cmp word [vp_xbn], 3            ; (two slots and the mirror, at least)
     jb .no
-    call vp_lyipq                   ; (a LAYER: 98.3.18.14)
-    jc .no
 %ifndef LA_SIM
     cmp byte [vp_tier], CPU_8086    ; a 286 by LOADALL, a 386 by a loaded
     je .no                          ; base (98.3.18.14)
@@ -6296,23 +6295,6 @@ vp_xbipq:
     stc
     ret
 %endif
-
-; vp_lyipq - CF=1: this play reads a LAYER (98.1.9; vp_lywant), and in
-; place is refused for it (SPEC.md 98.3.18.14). Not an incompatibility in
-; kind: the layer's slots, its split of the pool and its bank are planned
-; against the COPYING ring, and an in-place session - its ring cut to the
-; least and the pool's bank taken as the ring - leaves the layer reading
-; nothing (tests/vidlybank.py, red until this). A 286 has had it since
-; 98.3.18.11; a 386 met it the day it went in place. Refused until the
-; layer is planned for an in-place ring (docs/plans/VIDEO-386-PLAN.md 6).
-; Every register kept
-vp_lyipq:
-    push cx
-    call vp_lywant
-    cmp cx, 1
-    cmc                             ; CF = CX >= 1
-    pop cx
-    ret
 
 ; vp_xbaddr - vp_addr in the XMS bank: AX = a chunk, BX = an offset in it ->
 ; DX = a handle, SI its offset (vp_xmk). Clobbers AX, BX, CX
@@ -6972,6 +6954,49 @@ vp_xfill1:
     adc word [vp_cur + FSEQ_OFF + 2], 0
     mov ax, cx
     jmp ..@vp_fillgot
+; vp_xfillt - vp_xfill1 with THE DISK's verdict owed (98.1.9.7): the chunk
+; is READ as well - into the ring's first conventional slot, which in place
+; holds nothing past the key already drawn, timed (vp_dtime) and thrown away,
+; the hold having it - so a layered file held in place is timed on its first
+; play as a copying one is, where it used to be never timed and so never
+; layered ("Layer off: not timed", tests/vidlybank.py). Three chunks timed
+; and the verdict is taken (vp_lydisk) - two past the first, its own rule -
+; so the rest of the ring is only noted, not read. BX = the chunk's slot.
+; On into vp_fill's publishing with AX = the bytes, as vp_xfill1; a read
+; that fails is only noted, as vp_xfill1 would have
+vp_xfillt:
+    push bx                         ; the chunk's slot
+    push word [vp_cur+FSEQ_OFF+2]   ; where it starts in the file
+    push word [vp_cur+FSEQ_OFF]
+    mov dx, [vp_ring]               ; DX:BX = the scratch
+    xor bx, bx
+    mov cx, VP_CHUNK
+    push ds
+    pop es
+    mov di, vp_cur
+    mov si, vp_name
+    call OSAPI_FILE_READ_SEQ        ; AX = the bytes, the cursor moved on
+    pop si
+    pop di                          ; DI:SI = where it started
+    pop bx
+    jnc .ok
+    mov [vp_cur+FSEQ_OFF], si       ; (failed: the cursor put back, and only
+    mov [vp_cur+FSEQ_OFF+2], di     ; noted - vp_xfill1 re-seeks it)
+    jmp vp_xfill1
+.ok:
+    shl bx, 1
+    shl bx, 1
+    mov [vp_xslo + bx], si          ; noted, as vp_xfill1 notes it
+    mov [vp_xslo + bx + 2], di
+    call vp_dtime                   ; (the fill timed, 98.1.9.3)
+    cmp word [vp_dtn], 3
+    jb .got
+    push ax
+    call vp_lydisk                  ; ...and its verdict, now
+    pop ax
+.got:
+    jmp ..@vp_fillgot
+
 %ifndef LA_SIM
 %include "os88la.inc"               ; the borrow (SPEC.md 41.13)
 %define UB_DS                       ; ...and a 386's: DS's base alone
@@ -8369,13 +8394,52 @@ vp_lplay:
     xor ax, ax                      ; and the card, if any, where it is
     mov [vp_lrun], al
     mov [vp_bpause], al
+    push bx                         ; ...AND WHAT THE SHADOW HOLDS IS PUT IN
+    push cx                         ; THE BOX: rows decoded and not yet
+    push dx                         ; blitted are owed, and a paused worker
+    push si                         ; never pays them. A Space queued behind
+    push di                         ; the start's load paused the play before
+    push bp                         ; the worker's first pass, and the box
+    mov ax, [vp_done]               ; stayed black for good: nothing decoded
+    cmp ax, [vp_base]               ; yet, so the first frame is decoded now
+    jne .shown                      ; (the worker's own vp_frame, under the
+    push es                         ; lock we hold and with the worker's ES =
+    push ds                         ; ours, where a callback's is the
+    pop es                          ; kernel's; CF = none, and the box
+    call vp_frame                   ; shows what the shadow has) - and with
+    pop es
+    call vp_bandall                 ; the WHOLE band, not the frame's runs:
+.shown:                             ; those are what it changed against the
+                                    ; frame before, and the box shows black
+    call vp_lblit                   ; nothing owed the blit is a compare
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
     call vp_lbtn
-    jmp short .out
+    jmp short .l4
 .res:
     call vp_lgo
     call vp_lbtn
+.l4:
+    call vp_lline4                  ; the card's "where", paused or playing
 .out:
     pop ax
+    ret
+
+; vp_lline4 - a live session paused or resumed: the info card's line 4 again,
+; "Paused at 0:05" or where the play started. Nothing else on the card moves,
+; so one line is drawn and not the card (vp_fmt never ran for a Live pause,
+; and the card went on saying "At the start" over a paused frame). Lock held
+vp_lline4:
+    push bx
+    call vp_fmt
+    call vp_clip
+    mov bx, 4
+    call vp_ptext1
+    pop bx
     ret
 
 ; vp_lsetup - a live session, just started: the shadow black and the key the
@@ -8604,6 +8668,7 @@ vp_lback:
     mov byte [vp_autop], 0
     call vp_lgo
     call vp_lbtn                    ; (Pause, not Play, on its button)
+    call vp_lline4                  ; (vp_fmt above said "Paused at")
 .out:
     pop si
     ret
@@ -13062,7 +13127,11 @@ vp_main:
     cmp byte [vp_einp], 0           ; (IN PLACE the ring is the board's: two
     je .fl                          ; chunks are the first super-packet's,
     cmp word [vp_lc], 2             ; and the prefill or the play reads the
-    jae .fld                        ; rest)
+    jb .fl                          ; rest - and a THIRD while THE DISK's
+    cmp byte [vp_dton], 0           ; verdict is owed, two timed past the
+    je .fld                         ; first being its rule, 98.1.9.3; it is
+    cmp word [vp_dtn], 3            ; taken at .fld)
+    jae .fld
 .fl:
     call vp_fill                    ; stream that fits is read whole
     jc .fld
@@ -15133,11 +15202,16 @@ vp_fill:
     cmp byte [vp_einp], 0           ; IN PLACE (98.3.18.7): into the board's
     je .conv                        ; pages, which ARE the ring
     call vp_eread
-    jnc .got
-    jmp short .ioerr
+    jc .ioerr
+    call vp_dtime                   ; (a disk read: timed, 98.1.9.3 - it was
+    jmp .got                        ; not, so a layer was never timed here)
 .conv:
     cmp byte [vp_xip], 0            ; HELD, IN PLACE (98.3.18.11): nothing
-    jne vp_xfill1                   ; is copied - the chunk's offset is noted
+    je .cv                          ; is copied - the chunk's offset is noted
+    call vp_dtneed                  ; ...unless THE DISK's verdict is owed
+    jc vp_xfill1                    ; (98.1.9.7): then it is READ too, timed
+    jmp vp_xfillt                   ; and thrown away (98.3.18.14)
+.cv:
     mov cl, 11
     shl bx, cl
     add bx, [vp_ring]
@@ -18457,13 +18531,21 @@ vp_buttons:
 ; vp_ptext - the info card's lines from BX on, each an opaque run the full
 ; width, so nothing is erased first (PERFORMANCE.md rule 2). Nothing while
 ; the card is in
+vp_ptext1:                          ; ...or line BX alone
+    push ax
+    mov ax, bx
+    inc ax
+    jmp short vp_ptx
 vp_ptext:
     push ax
+    mov ax, VP_LINES
+vp_ptx:
     push bx
     push cx
     push dx
     push si
     push di                         ; (vp_ld6's rung, the even one)
+    mov di, ax                      ; DI = the line to stop before
     cmp byte [vp_lcard], 0
     je .out
     mov ax, VP_LINE
@@ -18478,7 +18560,7 @@ vp_ptext:
     mov cx, [vp_cx0]
     add cx, [vp_lcardx]
 .l:
-    cmp bx, VP_LINES
+    cmp bx, di
     jae .out
 %ifdef VP_DIAG
     cmp byte [vp_lbin], 0           ; the buttons in the card: its text ends
@@ -19430,6 +19512,8 @@ vp_fmt:
     call vp_puts
     jmp .msg
 .sess:
+    cmp byte [vp_lrun], 0           ; a LIVE play running: where it started,
+    jne .nos                        ; as before it ran (its frame moves)
     mov si, vp_s_pausedat
     call vp_puts
     mov ax, [vp_done]

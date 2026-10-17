@@ -2779,17 +2779,33 @@ dsk_vol_fixed_x:
 ; nothing asks. One whose host is gone answers removable with no unit:
 ; re-validated and never trusted. The host is never an image itself
 ; (clo_mount refuses it), so one step is the whole walk.
+;
+; THE HOST LOOKUP IS WRITTEN HERE, its one caller. It was dsk_img_host, a far
+; routine in .text that this called through KERNEL_SEG and that tail-jumped
+; back into .cold through dskf_dsk_vol_row - in .text "by size alone", for
+; a .cold rung (kernel size pass 13, -13 with the orphan walk's near
+; call). Byte 0 of the claim is the host's volume, dsk_img_swap's own byte; an ORPHAN's is 0xFF (dsk_img_orphan),
+; which no row is. The class alone is the test, as at every other DRVC_IMG
+; site: a live row of any other kind never carries it (dsk_vol_add stamps the
+; class on every row it hands out).
 ; -----------------------------------------------------------------------------
 dsk_vol_rmv:
-    call KERNEL_SEG:dsk_img_host    ; BX = the row whose medium this is
+    cmp byte [bx+DV_CLASS], DRVC_IMG
+    jne .own                    ; not an image: its own medium
+    push ds
+    mov ds, [bx+IMG_DVSEG]
+    mov bl, [0]                 ; the HOST's volume
+    pop ds
+    call dsk_vol_row_x          ; ...its row; CF = 1 = gone (an orphan)
     jc .gone
+.own:
     mov bx, [bx+DV_KIND]        ; BL = the kind, BH = the unit (asserted)...
     xchg bl, bh                 ; ...and BX below 80h is exactly "a BIOS row
     cmp bx, 0x0080              ; whose drive is below 80h": a floppy. CF is
     ret                         ; the answer, BL the unit
 .gone:
-    mov bl, 0xFF                ; `mov` leaves the lookup's CF = 1
-    ret
+    dec bx                      ; BX = 0 off the refused lookup, so BL = 0xFF,
+    ret                         ; and `dec` leaves its CF = 1
 %if DV_UNIT != DV_KIND + 1 || DVK_BIOS != 0
   %error "dsk_vol_rmv reads the kind and the unit as ONE word, BIOS = 0"
 %endif
@@ -3074,7 +3090,7 @@ dsk_vol_del:
     call dsk_fatw_drop          ; AL is still the index; it also puts the
                                 ; live window back if this volume owned it
 %ifdef OS88_IMG
-    call KERNEL_SEG:dsk_img_orphan  ; ...AND AN IMAGE IT HOSTED IS ORPHANED
+    call dsk_img_orphan         ; ...AND AN IMAGE IT HOSTED IS ORPHANED
 %endif                          ; (SPEC.md 18.101.1): AL kept, BX banked above
     cmp al, [disk_drive]
     jne .out
@@ -3090,13 +3106,11 @@ dsk_vol_del:
     ret
 
 %ifdef OS88_IMG
-section .text                   ; ...in the KERNEL SEGMENT, by size alone:
-                                ; .cold had 20 bytes of its rung left and
-                                ; this was 41 there, a 512-byte step on
-                                ; every machine; .text's rung holds it
 ; -----------------------------------------------------------------------------
 ; dsk_img_orphan - orphan every mounted image hosted on volume AL (SPEC.md
-;                  18.101.1). FAR entry: dsk_vol_del's free path, from .cold
+;                  18.101.1). dsk_vol_del's free path, near: it was a far
+;                  routine in .text "by size alone", for a .cold rung, with a
+;                  twin dsk_img_host beside it (kernel size pass 13)
 ; in:  AL = the volume index just freed
 ; out: nothing
 ; clobbers: BX (dsk_vol_del's, banked there)
@@ -3124,33 +3138,7 @@ dsk_img_orphan:
     cmp bx, dsk_vtab + DVOL_MAX*DV_SIZE
     jb .orph
     pop es
-    retf
-
-; -----------------------------------------------------------------------------
-; dsk_img_host - a MOUNTED IMAGE's host row (SPEC.md 18.101.7). FAR entry:
-;                dsk_vol_rmv's, from .cold - here by size, as dsk_img_orphan is
-; in:  BX = a live row
-; out: CF = 0 and BX = the HOST's row if BX was an image's, BX unchanged if
-;      not; CF = 1 = an image whose host is gone (BX = 0)
-; clobbers: BX, flags
-;
-; Byte 0 of the claim is the host's volume, dsk_img_swap's own byte; an
-; ORPHAN's is 0xFF (dsk_img_orphan), which no row is. The class alone is the
-; test, as at every other DRVC_IMG site: a live row of any other kind never
-; carries it (dsk_vol_add stamps the class on every row it hands out).
-; -----------------------------------------------------------------------------
-dsk_img_host:
-    cmp byte [bx+DV_CLASS], DRVC_IMG
-    clc                         ; CLC writes CF alone: ZF is still the cmp's
-    jne .own
-    push es
-    mov es, [bx+IMG_DVSEG]
-    mov bl, [es:0]              ; the HOST's volume
-    pop es
-    jmp COLD_SEG:dskf_dsk_vol_row   ; ...its row, CF = 1 none: its retf is ours
-.own:
-    retf
-section .cold                   ; ...and back to resident cold code
+    ret
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -5549,6 +5537,10 @@ dsk_fatw_claim:
 ; LOW_SEG for the life of the machine. Both rows are out of mem_rr_tab with it.
 section .cold                   ; ...and back, or every routine below joins it
 
+; dsk_fatw_drop - give volume AL's FAT window back (SPEC.md 18.8.4). Its two
+; callers are dsk_vol_del (OS88_DRIVERS, not kern_dos) and HIBER.DRV's sweep
+; (kern_big), so kern_small and kern_dos carry no body (kernel size pass 13)
+%ifdef OS88_DRIVERS
 dsk_fatw_drop:
     push ax
     push bx
@@ -5583,6 +5575,10 @@ dsk_fatw_drop:
     pop bx
     pop ax
     ret
+%elifdef KERN_SMALL
+    nop                         ; PARITY PAD, never executed (kernel size pass
+                                ; 13): dsk_next_clus_x back at an even shift
+%endif                          ; OS88_DRIVERS
 
 ; -----------------------------------------------------------------------------
 ; dsk_fc_bad - dsk_free_clus_x's first three refusals share this one near jump.
@@ -5778,45 +5774,29 @@ dsk_free_clus_x:
     clc
 .out:
     jmp dskw_find.out           ; the same six pops (a pop writes no flag)
-.slow:
-    call dsk_free_slow
-    jmp short .out
 .bad:
     stc
     jmp short .out
 
-; -----------------------------------------------------------------------------
-; dsk_free_slow - the per-cluster fallback (module internal)
-; in:  a successful mount
-; out: CF=0, AX = free clusters
-; clobbers: AX (the output), CF
-;
-; A windowed FAT bigger than DSK_FAT_SECS: dsk_next_clus reloads the window as
-; the scan crosses it, which is the I/O this walk exists to keep honest.
-; -----------------------------------------------------------------------------
-dsk_free_slow:
-    push si
-    push di
-    xor di, di
-    mov si, 2
-.scan:
+; .slow - the per-cluster fallback: a windowed FAT12 bigger than DSK_FAT_SECS,
+; where dsk_next_clus reloads the window as the scan crosses it, which is the
+; I/O this walk exists to keep honest. Both ways here leave SI = 2 and DI = 0
+; from .fat (dsk_fat_ofs_x spends BX and DX alone), so it walks from there and
+; answers through .counted. It was dsk_free_slow, a routine of its own with
+; one caller, its own SI/DI bank and its own copy of the start - all of which
+; the frame above already is (kernel size pass 13)
+.slow:
     cmp si, [dsk_maxclus]
-    ja .done
+    ja .counted
     mov ax, si
     call dsk_next_clus_x
-    jc .next
+    jc .snext
     test ax, ax
-    jnz .next
+    jnz .snext
     inc di
-.next:
+.snext:
     inc si
-    jmp short .scan
-.done:
-    mov ax, di
-    clc
-    pop di
-    pop si
-    ret
+    jmp short .slow
 
 ; -----------------------------------------------------------------------------
 ; dsk_next_clus - read one FAT entry from the snapshot
@@ -8280,7 +8260,7 @@ ICO_NROW    equ 24              ; SPEC.md 51.0 leaves this kernel no
 ICO_NROW    equ 60              ; a full ASSOC.DAT (ASC_NAPP 55) is absorbed
 %endif                          ; WHOLE (SPEC.md 54.7.4), so the store has to
                                 ; hold one and some: 60 x 82 + the capture is
-                                ; 5,108 of a 5KB claim (it was 48, 4KB)
+                                ; 5,107 of a 5KB claim (it was 48, 4KB)
 ICO_KB      equ (ICO_NROW*ICO_ROW + 1023) / 1024
 %ifdef OS88_ASSOC
 ; THE CAPTURE (SPEC.md 54.7.6.2): the claim's KB rounding is 200 bytes past
@@ -8294,13 +8274,12 @@ ICO_CAP_MAX  equ 11                 ; records: one action's worth - every
                                     ; are held is [ico_capn], beside [ico_n],
                                     ; so the two words that empty the store
                                     ; empty the capture too
-ICO_CAP_ROWS equ ICO_CAP            ; ICO_CAP_MAX bytes: each record's row
-ICO_CAP_REC  equ ICO_CAP + 12       ; ...and 16-byte records, the header's block
-                                    ; (an EVEN offset: the copy is rep movsw)
-%if ICO_CAP_ROWS + ICO_CAP_MAX > ICO_CAP_REC
-  %error "the capture's row bytes overrun its records"
-%endif
-%if ICO_CAP_REC + ICO_CAP_MAX * 16 > ICO_KB * 1024
+ICO_CAP_RSZ  equ 17                 ; a RECORD: the store row it is for, then
+                                    ; the header's 16-byte block - one stride,
+                                    ; so a record is one `mul` and its row byte
+                                    ; one `stosb` (kernel size pass 13: it was
+                                    ; a row array and a 16-byte record array)
+%if ICO_CAP + ICO_CAP_MAX * ICO_CAP_RSZ > ICO_KB * 1024
   %error "the capture (SPEC.md 54.7.6.2) no longer fits the icon store's KB rounding: shrink ICO_CAP_MAX, or pay a KB of claim and say so"
 %endif
 %endif
@@ -8329,11 +8308,12 @@ ico_need:
     call mem_claim_x
     jc .out                     ; CF = 1 is the refusal, as it arrives
     mov [ico_seg], dx
-%ifdef OS88_ASSOC
-    mov word [ico_n], 0         ; ...and [ico_capn] beside it: the capture is
-%else                           ; empty (SPEC.md 54.7.6.2)
-    mov byte [ico_n], 0
-%endif
+                                ; ([ico_n] is ALREADY 0 here on both kernels:
+                                ; .bss starts zeroed, and ico_demote, the only
+                                ; thing that zeroes [ico_seg], zeroes the WORD
+                                ; [ico_n] - and so [ico_capn], the capture's
+                                ; count (SPEC.md 54.7.6.2) - in the same
+                                ; breath. Kernel size pass 13 dropped the store)
 %ifdef OS88_COMPACT             ; (kern_small: nothing moves, SPEC.md 66.0)
     mov ax, ico_reloc
     mov bx, MEM_P_ICO
@@ -9002,10 +8982,13 @@ dkf_dsk_chdir_q:     call dsk_chdir_q_x
                  retf
 dkf_dsk_copy_seg:    call dsk_copy_seg_x
                  retf
-dkf_dsk_vol_fixed:   call dsk_vol_fixed_x    ; kern_dos's (kerndos/kdentry.inc)
-                 retf
-dkf_dsk_vol_slot:    call dsk_vol_slot_x
-                 retf
+%if %isdef(KD_BUILD) || %isdef(KERN_BIG) ; kern_dos's (kerndos/kdentry.inc)
+dkf_dsk_vol_fixed:   call dsk_vol_fixed_x    ; and STIKMENU.DRV's (stm_isfixed,
+                 retf                        ; kern_big): kern_small has no
+%endif                                       ; caller (kernel size pass 13)
+; (dkf_dsk_vol_slot went in kernel size pass 13: desk_init, its one caller,
+; is boot-only and reaches dsk_vol_slot_x through wm_cbd with BP, which kmain
+; holds nothing in)
 
 
 ; =============================================================================

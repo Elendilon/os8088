@@ -1030,6 +1030,17 @@ FAST = [
         "that fits never split, a collection split only between stem groups, "
         "first fit in order, DOCS/APPDATA/CONTENTS.TXT on every disk, a "
         "no-longer-needed disk deleted, an oversized program refused"),
+    Row("guidelock", "fast", py("tests/unit/t_guidelock.py", "--warn"), 2.1,
+        "the project guide (tools/os88guide.py) is checked against what it "
+        "describes: a page whose sources changed the text a user reads since "
+        "it was stamped (tools/guide/manuals.lock.json), and a file on a "
+        "built disk with no line or no page. In THIS tier it only WARNS - "
+        "its lines start `warn:` and the runner shows them on a passing row - "
+        "so no `make` waits on documentation; `guidelock-full` is the same "
+        "check failing. Also proves the fingerprint moves for a menu item, a "
+        "C message and a tool's help text and stands for comments and code. "
+        "~2s: it walks the built disks and hashes the packages' strings",
+        needs=()),
     Row("livefull", "fast", py("tests/unit/t_livefull.py"), 0.2,
         "SPEC.md 80.6: the live USB/CD is the ONE image whose premise is "
         "completeness, and until this row nothing in the tree had ever read "
@@ -1109,6 +1120,16 @@ FAST = [
         "build/os8088.img: the cost of the leak is paid by an unrelated row, "
         "hours later, wearing a message about the wrong subject "
         ""),
+    Row("hotpar", "fast", py("tests/unit/t_hotpar.py"), 0.1,
+        "every HOT routine - gfx_blit4, gfx_blit1_x, font_run, both mouse "
+        "ISRs, kbm_isr, cur_move, sch_isr, sch_switch, ui_task, dsk_xfer, "
+        "dsk_runcap, dsk_next_clus_x, wm_paint_all - starts at the address "
+        "PARITY it was measured at, on kern_big and (when build/smallk is "
+        "current) kern_small. On a 16-bit bus an odd word fetch is two cycles, "
+        "and a cold-code edit or a re-relaxed branch moves the hot code by an "
+        "odd amount with every row green: passes 12 and 13 each found the "
+        "whole list odd part-way through. Reads the kernel.map the build "
+        "writes, so it assembles nothing"),
     Row("canary", "fast", py("tests/unit/t_canary.py"), 0.1,
         "SPEC.md 18.93.1's canary offset re-derived from every shipped image's "
         "own BPB: it has to name a sector a transfer run reads AFTER the head "
@@ -1701,6 +1722,14 @@ FULL = [
         "so it cannot answer this tier's question. It is what a change to "
         "tools/os88marty.py runs",
         needs=("marty",), serial=True),
+    Row("guidelock-full", "full", py("tests/unit/t_guidelock.py"), 2.1,
+        "the fast tier's `guidelock` row with teeth, at the owner's word: a "
+        "merge of major work must not leave a page describing text the "
+        "program no longer shows, or a shipped file with no page. Host-side "
+        "and two seconds, so it costs this tier nothing next to the boots; "
+        "paid with `python3 tools/guidelock.py stamp KEY --why ...` after "
+        "reading the page",
+        needs=()),
     Row("bootsmoke", "full", py("tests/bootsmoke.py"), 20.0,
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
@@ -4413,6 +4442,25 @@ SOAK = [
         "FAIL with the open's 8 and 18",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
+    Row("vidlysplitinplace", "soak", py("tests/vidlysplit.py", "--inplace"),
+        90.0,
+        "SPEC.md 98.3.18.14: a LAYER beside a base bank read IN PLACE "
+        "(no [vp_noinp], QEMU's 386): [vp_einp] 2, the disk's verdict taken "
+        "on a third chunk read into the in-place ring and timed there (both "
+        "new), the layer read with the open's 18 slots of bank - the split "
+        "cannot resize a bank that is the ring, so the base keeps its 8 - "
+        "and the play to its last frame with no error and the layer drawn. "
+        "Broken on purpose (vp_lyown's segment-as-count defect put back) "
+        "the guest hangs before the play starts",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True,
+        wants=("build/video.o88", "build/os8088.img")),
+    Row("vidlysplitinplacebase", "soak", py("tests/vidlysplit.py", "--inplace",
+                                            "--arm", "base"), 90.0,
+        "SPEC.md 98.3.18.14: vidlysplitinplace on the BASE's machine (key "
+        "0's no kept): the layer off and its bank given back, the base's "
+        "bank in place at the open's 8 slots, the play whole",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True,
+        wants=("build/video.o88", "build/os8088.img")),
     Row("vidlysplituntimed", "soak", py("tests/vidlysplit.py", "--arm", "untimed"), 60.0,
         "SPEC.md 98.1.9.2: the XMS pool split AFTER the CPU is timed - from the first frame of a one-bit file there is no key to time, and the pool stays as the open took it - the base's bank is never risked on a guess. "
         "Broken on purpose (vp_lysplit not called) the layer and base arms "
@@ -4468,10 +4516,17 @@ SOAK = [
         "512 --layer-prefill all: the prefill fills the slots and the bank "
         "with the whole layer and holds (vp_pfwait), B: is BLANKED, and the "
         "play must draw all 89 layer records with none missed, each slot "
-        "fed from the bank as the hook let it go. The base, held whole, may "
-        "decode IN PLACE on the 386 (98.3.18.14; `xip` in its state line) - "
-        "the shipped choice, left alone because every assertion is the "
-        "layer's",
+        "fed from the bank as the hook let it go. The base, held whole, "
+        "decodes IN PLACE on the 386 and the row asserts it (98.3.18.14): "
+        "it was red there until vp_lyown stopped storing its claim's segment "
+        "as the layer's slot count and an in-place hold's fill read and "
+        "timed the disk for the layer's verdict (vp_xfillt)",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
+    Row("vidlybankcopy", "soak", py("tests/vidlybank.py", "--copy"), 60.0,
+        "SPEC.md 98.1.9, 98.3.18.14: vidlybank with the base COPYING out of "
+        "its hold ([vp_noinp] = 1 before Play) - the path every 386 took "
+        "before a 386 went in place, kept gated beside it",
         needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidlybanknone", "soak", py("tests/vidlybank.py", "--arm",
@@ -5400,6 +5455,22 @@ SOAK = [
         "written to for a year is where a too-fragmented part would first "
         "show up. Host-side, one second, and it reads THE SHIPPED SYSTEM DISK: since SPEC.md 96.44.5 flipped $(SYSROOT) to the parted package there is no gate disk to read instead, so this row also answers `did a shipped floppy lose kern_dos`.",
         wants=("build/os8088-360.img", "build/kerndos.bin")),
+    Row("kbdburst", "soak", py("tests/kbdburst.py"), 30.0,
+        "A SCRIPTED KEY BURST MUST NOT NEST int 09h (SPEC.md 9.8.2). An agent "
+        "sent 70 Backspaces into Font Viewer with m.key() and no advance "
+        "between, and the UI task's stack - and ~1KB of .lowbss beneath it - "
+        "filled with GLaBIOS int 09h frames, each interrupted a few "
+        "instructions after the ROM's sti. It was the HARNESS: MartyPC took a "
+        "queued key per machine.run() call and handed each byte to the PPI "
+        "the instant the last was acknowledged, and `advance` calls run() "
+        "every 0.25 ms. No keyboard's serial line can do that, and the ROM's "
+        "acknowledge-to-iret window is ~190 us, so the kernel needs nothing; "
+        "tools/martypc/patches/14-keyboard-byte-pacing.patch paces bytes to "
+        "one a millisecond. Legs: a 10-key burst deletes EXACTLY 10 (pacing "
+        "must not drop keys), the 70-key burst on Inconsol survives with the "
+        "BIOS buffer drained, and one more paced key still lands. Red on a "
+        "MartyPC built without patch 14 (leg B stops in sch_stkdie).",
+        needs=("marty",)),
     Row("kdkbd", "soak", py("tests/kdkbd.py"), 60.0,
         "KERN_DOS KEEPS THE BIOS KEY BUFFER OFF FULL (SPEC.md 96.50). "
         "Reported off an 86Box 386: hold a direction key in Prince of Persia "
@@ -6830,7 +6901,7 @@ SOAK = [
         "command or file name` (the stem is looked up ONLY when a document "
         "follows it, and without that rule every unresolved word on the "
         "machine reaches the package launcher); a typo WITH a tail answers "
-        "`Cannot open NOTPAD`, naming the half that was wrong rather than "
+        "`Bad command or file name: NOTPAD`, the no-tail answer naming the half that was wrong rather than "
         "sending the user to look at the document; OPEN of an unclaimed "
         "extension refuses in words, there being no window to look at; and a "
         "program on ANOTHER volume is asserted NEITHER way, which is a "
@@ -9717,8 +9788,17 @@ SOAK = [
         "nothing but OSAPI_VOL_SYS. The unit rows either side of it check the "
         "disk (`fonts`) and the bytes (`pkg`) and neither runs the walk; a "
         "walk that fails is SILENT, because face 0 is the kernel's own cell "
-        "and a Font menu one item long looks like a Font menu",
+        "and a Font menu one item long looks like a Font menu. On the 360KB "
+        "system disk, which has no faces since SPEC.md 24.3.1.5, this is the "
+        "SECOND rung: the faces found on the package's own volume",
         needs=("marty",), wants=("build/bench360.img",)),
+    Row("facescan144", "soak", py("tests/facescan.py", "--machine",
+                                  "os8088_xt_vga_144", "--sys",
+                                  "build/os8088.img", "--bench",
+                                  "build/bench.img"), 18.0,
+        "SPEC.md 19.8: facescan's FIRST rung - the faces in SYSTEM/FONTS on "
+        "the 1.44MB system disk, the package on a B: that has none.",
+        needs=("marty",), wants=("build/bench.img",)),
     Row("fmbtn", "soak", py("tests/fmbtn.py"), 60.0,
         "SPEC.md 22.18: the Disk window's two header buttons fire on the"
         "RELEASE.",
@@ -9780,7 +9860,9 @@ SOAK = [
         "read, so the manual was installed EXPANDED with its directory hint "
         "gone while every file too big for the buffer was copied raw and "
         "correctly. The tree check passes either way; only the bytes say "
-        "which happened, and one FAT reader reads both sides. It ERASES the "
+        "which happened, and one FAT reader reads both sides. And the fresh "
+        "VBR must carry a serial (SPEC.md 18.8.2.1) - it was 0 on every "
+        "install, red with hd_bpb_fill's two stores taken out. It ERASES the "
         "VHD.",
         needs=("marty",), serial=True, timeout=1200),
     Row("instassoc", "soak", py("tests/instassoc.py"), 85.0,
@@ -10172,8 +10254,13 @@ SOAK = [
     Row("stikmenu", "soak", py("tests/stikmenu.py"), 45.0,
         "SPEC.md 110.12: Locator's Sticky Apps menu, one boot of the VGA XT "
         "on the shipped 360KB system disk. A press on the cell loads "
-        "STIKMENU.DRV and lists DESKCAL.O88 by its CARD (name 'Desk "
-        "Calendar', not running, Arrange/Hide greyed, More live); releasing "
+        "STIKMENU.DRV and lists the disk's two Sticky Apps, DESKCAL.O88 by "
+        "its CARD (name 'Desk Calendar', not running, Arrange/Hide greyed, "
+        "More live) beside STIKNOTE.O88 (SPEC.md 110.13); a drop taken with "
+        "the hand moved onto the panel during the scan has the progress "
+        "widget OFF the bar and the pointer NOT the busy clock once the "
+        "panel is up (SPEC.md 12.8.3.3, stm_thaw); a Disk window's bar "
+        "carries no Sticky Apps cell (SPEC.md 22.28.1); releasing "
         "on its row POSTS the pick and launches it as a desk window, and the "
         "module is dropped after; a release off the panel posts nothing; "
         "Hide All hides the widget and Show All brings it back; Arrange puts "
@@ -10279,6 +10366,64 @@ SOAK = [
         "Del twice empties the list; and three again show the last one's "
         "page and the pager wraps.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
+    Row("stiknote", "soak", py("tests/stiknote.py"), 150.0,
+        "SPEC.md 110.13: Sticky Note on a Hercules 5150 off the shipped 360KB "
+        "system disk - the MID layout, a pad over SYSTEM/APPDATA/NOTES. It "
+        "reads WELCOME.TXT (one note, its head the file's bytes) and the "
+        "first beat writes STIKNOTE.DAT v2 naming it; the sheet's edge and "
+        "the stack's are ink, both notches the desktop's dither and the "
+        "turned corner's diagonal ink; three beats with nothing armed reach "
+        "OSAPI_SYS_SNAPSHOT never; a pad press ticks a box (the ticked "
+        "record, `[x] ` in the file on the disk, timed); the arrow opens it "
+        "in Note Pad, typed text and Ctrl+S then Note Pad's close disarm the "
+        "watch within a beat and the pad shows the saved text (saved into "
+        "NOTES, not STIKAPPS; the re-read timed); with a TWIN of home in A: "
+        "(its own serial, NOTES where home's is, our own file renamed) a "
+        "tick over NOTES' bank reads it and writes nothing (110.5.1's "
+        "witness after the quiet stand); `+` makes NOTE0001.TXT and opens "
+        "it, `<` turns back (timed); Delete once says `Delete again to "
+        "confirm` and deletes nothing, twice deletes the current note's "
+        "file; and the Color menu is greyed `(color screen)` on 1bpp. Each "
+        "time is press (or the editor gone) to the visit's end off kernel "
+        "breakpoints, the motor stopped first.",
+        needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
+    Row("stiknotevga", "soak", py("tests/stiknote.py", "--leg", "vga"), 80.0,
+        "SPEC.md 110.13: Sticky Note's PAPERS and a FULL folder on a VGA XT, "
+        "read off the card's rendered framebuffer (fbuf): the TALL layout; "
+        "the sheet yellow with a black edge; Color > Pink makes it pink and "
+        "STIKNOTE.DAT's table says so, and the pad closed and launched again "
+        "is still pink; with 29 empty notes written into NOTES on the host "
+        "the pad counts 30 and `+` says `Notes folder is full` and makes "
+        "nothing.",
+        needs=("marty",), timeout=600, wants=("build/os8088-360.img",)),
+    Row("stiknotesmall", "soak", py("tests/stiknote.py", "--leg", "small"),
+        45.0,
+        "SPEC.md 110.13, 24.5.1: a copy of STIKNOTE.O88 carried to kern_small "
+        "by hand (B:) refuses to launch IN WORDS - `No desk layer "
+        "(DESK.DRV)`, the STIK_DESKONLY build - and opens no window. "
+        "`make small` builds its disk.",
+        needs=("marty",), timeout=300,
+        wants=("build/small360.img",)),
+    Row("deskclock", "soak", py("tests/deskclock.py"), 150.0,
+        "SPEC.md 110.14: the Desk Clock on a VGA XT off the shipped 360KB "
+        "system disk - a desk window, Medium Classic, whose dial's corners "
+        "are the desktop's dither with its phase (the ground sampled off the "
+        "glass and composed); S moves the dial a second at a time; Face > "
+        "Red LED lights it red and saves face 6; Enter opens the settings "
+        "BESIDE the clock, a tile previews on the desk (Neon's navy) and Esc "
+        "puts the Red LED back, Classic + OK keeps Classic in the file; F "
+        "shrinks the frame to the face with a plate-less tag row; the alarm "
+        "set to 07:00 in its window is saved, rings at 07:00 on the guest's "
+        "clock (the face-only frame grows for its rows) and Z snoozes it; "
+        "and a reset brings the clock back from its row, as it was.",
+        needs=("marty",), timeout=1200, wants=("build/os8088-360.img",)),
+    Row("deskclockherc", "soak", py("tests/deskclock.py", "--leg", "herc"),
+        60.0,
+        "SPEC.md 110.14: the Desk Clock on a Hercules 5150 (one plane, the MID "
+        "layout): the Red LED face lit white on black with its unlit "
+        "segments dotted, and the ground at the face's corner the desktop's "
+        "dither.",
+        needs=("marty",), timeout=600, wants=("build/os8088-360.img",)),
     Row("deskcalgrid", "soak", py("tests/deskcalgrid.py"), 40.0,
         "SPEC.md 110.3: the Desk Calendar's 42-byte grid, read out of the "
         "running guest's bss, is Python calendar's - MONDAY FIRST since v2 "
@@ -10448,7 +10593,7 @@ SOAK = [
         "a RESET brings no calendar back (no autostart on kern_small); and "
         "opened again by hand it is where it was dragged, its data FIRED.",
         needs=("marty",), timeout=900,
-        wants=("build/small360.img", "build/smallk/kernel.bin")),
+        wants=("build/small360.img",)),
     Row("deskcalperf", "soak", py("tests/deskcalperf.py"), 63.0,
         "SPEC.md 110.6 / PERFORMANCE.md Part 5: what the Desk Calendar's "
         "gestures COST in primitive calls - a breakpoint on every drawing "
@@ -10770,7 +10915,7 @@ SOAK = [
         "docs/plans/completed/GFX-EMBEDDABLE-PLAN.md. It builds nothing: `make small` "
         "is what it reads, the same tree small128 and smallboot want",
         needs=("marty",), serial=True,
-        wants=("build/small360.img", "build/smallk/kernel.bin")),
+        wants=("build/small360.img",)),
     Row("paint1blit", "soak",
         py("tests/paint1blit.py"), 90.0,
         "SPEC.md 42.23.4: the TWO paths a one-bit canvas reaches the screen"
@@ -13388,7 +13533,7 @@ SOAK = [
         "on the same clip is short - and a fixed bank is untouched. Broken "
         "on purpose (the first pass returning nothing) it FAILS",
         needs=("ffmpeg",)),
-    Row("vencgui", "soak", py("tests/vencguitest.py"), 90.0,
+    Row("vencgui", "soak", py("tests/vencguitest.py"), 200.0,
         "SPEC.md 98.2.8: the encoder's WINDOW without a window "
         "(tools/os88vencgui.py): every os88venc option on a tab with a "
         "tooltip, the untouched form parsing to the parser's own defaults, "
@@ -13428,7 +13573,7 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/ctrl.drv",
                "build/sound.drv")),
-    Row("videnc", "soak", py("tests/videnc.py"), 850.0,
+    Row("videnc", "soak", py("tests/videnc.py"), 1300.0,
         "SPEC.md 98.2.1: the encoder front end and its budgets, host-side. "
         "ffmpeg makes a 16:9 source with a still tail and tools/os88venc.py "
         "encodes it: the canvas must be the source's shape in the Hercules "
@@ -13803,7 +13948,10 @@ SOAK = [
         "diskclone - Clone Disk... (SPEC.md 18.99/22.21) driven end to end, "
         "with the assertion that cannot pass for the wrong reason: the two "
         "floppies read back off the guest and diffed byte for byte. Cross "
-        "drive, same drive, the un-swapped-disk guard and Esc",
+        "drive, same drive, the un-swapped-disk guard and Esc. Byte for "
+        "byte BAR BS_VolID: the copy carries a serial of its own (SPEC.md "
+        "18.8.2.1), different from the source's and from the other clone's "
+        "- red on all three with DSK_VOLID emptied",
         needs=("marty",), serial=True),
     Row("fmtlow", "soak", py("tests/fmtlow.py"), 65.0,
         "fmtlow - Format Disk... reclaims a disk it cannot READ (SPEC.md "
@@ -13835,7 +13983,9 @@ SOAK = [
         "byte it recognises (6 in 256) wrote a 360KB file of the 720KB disk "
         "or refused with DataError - the row's two flakes, both reproduced "
         "every time with the byte forced. On os8088_5150_cga_720b_gla. "
-        "Measured at 38-40s",
+        "Each arm's disk must carry a serial of its own, neither the "
+        "template's 0x88000888 nor the other arm's (SPEC.md 18.8.2.1) - "
+        "red on three checks with DSK_VOLID emptied. Measured at 36-40s",
         needs=("marty",), serial=True),
     Row("imgmount", "soak", py("tests/imgmount.py"), 75.0,
         "SPEC.md 18.101: a .IMG mounted as a drive by a double-click, and "
@@ -13887,6 +14037,9 @@ SOAK = [
         "diffed: apps360.img as a FILE on a 720KB B:, written over the 360KB "
         "system disk in A:, and drive 0 read back must BE the image, every "
         "sector - with the positive control that it is not before the write. "
+        "Every sector BAR BS_VolID, which must differ from the image's "
+        "(SPEC.md 18.8.2.1), and the image file on B: must be untouched - "
+        "red with DSK_VOLID emptied. "
         "The round trip diskclone says no 360KB machine can host, on "
         "os8088_5150_cga_720b_gla. FIRST a write made to fail (the first "
         "write int 13h caught at the gate and aimed at absent drive 3) must "

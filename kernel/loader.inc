@@ -259,7 +259,11 @@ ld_unreserve:
 ;      magic is ours and the VERSION is not (SPEC.md 20.2.0) and LD_EBAD for
 ;      anything else - ld_check_hdr's two answers, so it reads them as they
 ;      come. The driver loader and the re-home arm ignore AL on the refusal
-; clobbers: AL, flags
+; clobbers: AX, flags - and [ld_fsz], with a PACKAGE's non-zero link word
+;      (SPEC.md 20.13.8). AH is dead at all three callers: ld_check_hdr and
+;      drv_check document AX clobbered, and the re-home arm's next call,
+;      ld_hdr_size, writes it. Nothing reads [ld_fsz] after the re-home's
+;      check: steps 3 to 6a are its only readers, all behind it
 ;
 ; ONE BODY FOR TWO LOADERS. A package header and a driver header agree on
 ; every field this tests - magic 0, version 2, link 4, the three dispatcher
@@ -289,15 +293,24 @@ ld_hdr_ok:
                                              ; It was a second routine that
                                              ; re-read both fields after this
                                              ; one refused (kernel size pass 12)
-    cmp word [es:si+LD_H_LINK], 0            ; org 0 or it is not v3 -
-    je .disp                                 ; UNLESS it is a PACKAGE whose
-    cmp byte [es:si+LD_H_VER], PKG_FMT       ; flags carry BOTH bit 2 and bit
-    jne ld_hdr_size.bad                      ; 3: then the word is the packed
-    mov al, [es:si+LD_H_FLAGS]               ; IMAGE's length, because with
-    not al                                   ; parts the file is not it
-    test al, 0x0C                            ; (SPEC.md 20.13.8). A driver,
-    jnz ld_hdr_size.bad                      ; or any other combination, is
-.disp:                                       ; refused as it always was
+    mov ax, [es:si+LD_H_LINK]                ; org 0 or it is not v3 -
+    or ax, ax                                ; UNLESS it is a PACKAGE whose
+    jz .disp                                 ; flags carry BOTH bit 2 and bit
+    cmp byte [es:si+LD_H_VER], PKG_FMT       ; 3: then the word is the packed
+    jne ld_hdr_size.bad                      ; IMAGE's length, because with
+    mov [ld_fsz], ax                         ; parts the file is not it
+    mov word [ld_fsz+2], 0                   ; (SPEC.md 20.13.8) - and it
+    mov al, [es:si+LD_H_FLAGS]               ; BECOMES [ld_fsz] here, for
+    not al                                   ; ld_check_hdr's ladder. A driver,
+    test al, 0x0C                            ; or any other combination, is
+    jnz ld_hdr_size.bad                      ; refused as it always was
+.disp:                                       ; (the store before the flags
+                                             ; test is free: a refusal ends
+                                             ; the load, and nothing reads
+                                             ; [ld_fsz] after one). `mov`
+                                             ; and not the 5-byte `and`: the
+                                             ; byte keeps the FAT walk below
+                                             ; at an even shift (pass 13)
     cmp word [es:si+LD_H_DISP], 0D5FFh       ; call bp
     jne ld_hdr_size.bad
     cmp byte [es:si+LD_H_DISP+2], 0CBh       ; retf - and without the pair the
@@ -415,16 +428,12 @@ ld_check_hdr:
     ; let a non-zero link word through only beside flags bits 2 AND 3, and it
     ; is the packed image's length - the one figure everything below reads
     ; [ld_fsz] for, the size ladder, step 6's R and read and step 6a's stream.
-    ; So it simply BECOMES [ld_fsz], and every test after this is the plain
-    ; compressed package's, unchanged: a length at or past the image still
-    ; takes the ladder's refusal, and zero (bits 2 and 3, no length) does too,
-    ; the file being longer than the image with the compression bits set.
-    mov ax, [es:si+LD_H_LINK]
-    or ax, ax
-    jz .flen
-    mov [ld_fsz], ax
-    and word [ld_fsz+2], 0
-.flen:
+    ; So it simply BECOMES [ld_fsz] - ld_hdr_ok stores it, the link word
+    ; being in AX there already (kernel size pass 13, -7) - and every test
+    ; after this is the plain compressed package's, unchanged: a length at or
+    ; past the image still takes the ladder's refusal, and zero (bits 2 and
+    ; 3, no length) does too, the file being longer than the image with the
+    ; compression bits set.
     mov ax, [es:si+LD_H_IMG]
     cmp ax, LD_HDR_SIZE
     jb ld_hdr_size.bad                                 ; image smaller than the header
@@ -1093,9 +1102,10 @@ ld_alloc:
 %ifdef KERN_BIG
     test byte [ld_cfmt], LD_F_DESK >> 3
     jz .rec                     ; OS88_F_DESK (SPEC.md 11.103.9, 30): the LAST
-    call desk_need              ; (DESK.DRV first, ABOVE the region claimed
+    COLDCALL desk_need          ; (DESK.DRV first, ABOVE the region claimed
                                 ; below - SPEC.md 11.103.10; CF is not ours:
-                                ; a refusal is the entry proc's QUERY's)
+                                ; a refusal is the entry proc's QUERY's;
+                                ; FAR, being QUERY's own body)
     mov di, inst_tab + INST_MAX * I_RECSZ ; free record, scanning down, so
 .dscan:                         ; the widget's empty tile position is at the
     sub di, I_RECSZ             ; far end of the strip. None free: inst_alloc

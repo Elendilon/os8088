@@ -318,7 +318,9 @@ menu_init:
     xor bx, bx
     mov [menu_win], bx
     mov word [menu_sseg], 0     ; the save-under is claimed by menu_drop for
-    call KERNEL_SEG:cw_menu_relayout ; as long as a menu is actually down, not
+    mov bp, menu_relayout       ; (spw_near's `call bp`: kmain_o, the one
+    call KERNEL_SEG:spw_near    ; caller, holds nothing in BP) as long as a
+                                ; menu is actually down, not
                                 ; here for the session (SPEC.md 12.4/50.2)
     pop dx
     pop bx
@@ -1535,6 +1537,14 @@ menu_draw_clock:
     dec cx                      ; ordinary clock run paints it white for free
     rep movsb                   ; ...and the message from cell 1, on the grid
                                 ; (CX >= 1 here anyway: the `jb` above)
+.cut:                           ; ...and NO PIECE OF A CLOCK WORD after it: a
+    scasb                       ; strip that ends inside the line ate the
+    jae .hash                   ; front of a word, and what it left was a stray
+    mov [di-1], al              ; digit beside the message (SPEC.md 59.8.2).
+    jmp short .cut              ; Blanked to the next space - or the NUL, the
+                                ; `jae` (AL = ' ' >= the cell) taking both.
+                                ; scasb and not cmp/stosb: EIGHT bytes, even,
+                                ; so ui_task's parity holds (t_hotpar)
 
 .hash:
     xor ax, ax                  ; --- one check word over the composed FIELD,
@@ -1737,6 +1747,11 @@ menu_track:
     pop cx
     pop bx
     ret
+%ifdef KERN_BIG
+    db 0                        ; PARITY PAD, never executed (kernel size pass
+%endif                          ; 13): the Sticky Apps menu's cell left
+                                ; menu_popup .. ui_cmd - ui_task in it - at an
+                                ; odd shift on kern_big (tests/unit/t_hotpar.py)
 
 ; -----------------------------------------------------------------------------
 ; menu_popup - drop a menu anywhere on screen and track it while a button
@@ -1981,13 +1996,17 @@ menu_drop:
     sub bx, [menu_y1]
     inc bx                      ; BX = rows
     mul bx                      ; AX = bytes for one plane
+%ifdef GFX_VGA
     mul word [vid_planes_w]     ; ...times the planes this adapter HAS: 4 on
                                 ; VGA, 1 on Hercules and CGA (SPEC.md 39.2).
                                 ; The _w twin, because vid_planes itself is a
                                 ; BYTE and a word read of it takes the low
                                 ; half of this very variable with it - 0x0404,
                                 ; a thousand planes, and a claim bigger than
-                                ; the fixed one it replaced
+                                ; the fixed one it replaced. A VGA kernel's
+%endif                          ; alone: kern_small's planes are always 1
+                                ; (SPEC.md 39.27.1), and x1 is no multiply
+                                ; (kernel size pass 13)
     call mem_bytes_kb           ; ...as KB, rounded UP, and never 0: a rect
                                 ; this small still needs somewhere to go
     mov bx, MEM_P_MSAVE         ; TRIVIAL-purgeable (SPEC.md 12.4.2)
@@ -2725,9 +2744,9 @@ menu_loc_set:
     dw 0                        ; AM_ONCMD: kernel-dispatched
 %ifdef KERN_BIG
     dw 2                        ; AM_COUNT: File and Sticky Apps (SPEC.md
-%else                           ; 110.12); File alone on kern_small (SPEC.md
-    dw 1                        ; 14.6, 14.8)
-%endif
+%else                           ; 110.12) - THIS set's alone: a Disk window's
+    dw 1                        ; bar does not carry it (22.28.1); File alone
+%endif                          ; on kern_small (SPEC.md 14.6, 14.8)
     dw menu_s_file,    menu_items_file,    MENU_FILE_N
 %ifdef KERN_BIG
     dw menu_s_stik,    0,                  0

@@ -1041,7 +1041,7 @@ drv_f_net:   db 'NET.DRV', 0
 drv_t_net:   db 'os88net', 0
 %ifdef KERN_BIG
 drv_f_ram:   db 'RAMDISK.DRV', 0
-drv_t_ram:   db 'Ram Disk', 0
+drv_t_ram:   db 'Ram Disk', 0   ; ...whose 'Disk', 0 is files.inc's fm_s_root
 %endif
 %ifdef KERN_EMU
 drv_f_vmm:   db 'VMMOUSE.DRV', 0 ; SPEC.md 9.11's absolute pointer, kern_emu
@@ -1336,7 +1336,9 @@ usbm_row:                       ; ...a label for tests/usbmouse.py, which finds
 ; ss_row each cost a compare in .cold, and .cold has no byte to give
 thmv_row:
     dw PKG_DISP, 0               ; DRVR_DISP, DRVR_SEG
-    dw thmv_fname, thmv_fname    ; DRVR_FILE, DRVR_TITLE - kernel/vga12.inc's
+    dw 0, 0                      ; DRVR_FILE, DRVR_TITLE - the name is CTRL.DRV's,
+                                  ; staged into FILE before each load (kernel/
+                                  ; ctrl.inc, cp_thmv_open); nothing reads TITLE
     dw 0, 0                      ; DRVR_KB, DRVR_ENT
     db DRVC_OVL                  ; DRVR_CLASS - not a class the kernel loads,
                                   ; so this can never take a publication slot
@@ -1437,6 +1439,9 @@ DRVM_NET     equ DRVM_IMG_NET   ; the parallel link claims NOTHING: its packet
                                 ; buffers are bss, and a driver's bss ships
                                 ; INSIDE its image (DRV_H_IMG)
 
+section .modu                   ; CTRL.DRV's: the Drivers page is the only
+                                ; reader, `cs:` from its own image (kernel size
+                                ; pass 13 - 14 bytes that were resident `.text`)
 drv_memk:                       ; one word per drv_tab row, in the same order
     dw DRVM_SND                 ; row 0: sound
     dw DRVM_HDD                 ; row 1: hard disk
@@ -1455,6 +1460,7 @@ drv_memk:                       ; one word per drv_tab row, in the same order
 %if ($ - drv_memk) / 2 != DRV_MAX
   %error "drv_memk has drifted from drv_tab: one word per row, same order"
 %endif
+section .text
 
 ; --- ...AND THE OTHER QUESTION A CLASS CAN BE ASKED (SPEC.md 51.12.1) -------
 ; What a class COULD cost - the ceiling `Hard drives (Up to 32K)` quotes - is
@@ -2441,6 +2447,21 @@ drv_cp_closed_x:
     inc cl
     cmp cl, DRVC_MAX
     jbe .cls
+%ifdef OS88_THEME
+    ; ...and THEN the Customize window (SPEC.md 76.14.14): destroy THMPAL.DRV's
+    ; child first - its W_PAINT names the image - and give the image back.
+    ; This is what thmv_reap_x was, a far body of its own behind one far call
+    ; from app_close_win's panel branch, which calls this routine immediately
+    ; before; written here it needs neither its own bank nor the call (kernel
+    ; size pass 13). NO "IS IT LOADED?" TEST: drv_call refuses a row whose
+    ; DRVR_SEG is 0 (CF = 1, AX = 0) before reading anything else of it, and
+    ; drv_release returns at once for one, so the never-loaded close does
+    ; nothing either way. drv_call_ent reads BP off the row itself.
+    mov bx, thmv_row
+    mov al, THMV_CLOSE
+    call drv_call_ent
+    call drv_release
+%endif
     jmp kretfc_bp
 
 ; -----------------------------------------------------------------------------
@@ -2762,17 +2783,12 @@ osapi_drv_dlg_x:                ; the cell exists, the body does not
 ;
 ; ONE walk serves both. `drv_cp_count` is `drv_cp_class` asked for an ordinal
 ; no class can have (0xFF against a tally bounded by DRVC_MAX), so the hit is
-; unreachable and what comes back is the tally - which is the count. The two
-; RETURN KINDS stay as they are and must: drv_cp_count is far-called from
-; ctrl.inc and ends `retf`, drv_cp_class is near-called and wrapped by
-; drvf_drv_cp_class, and os88ovlchk.py judges each by the returns in its own
-; extent.
+; unreachable and what comes back is the tally - which is the count. Its one
+; caller, ctrl.inc's cp_nitems, asks exactly that through drvf_drv_cp_class:
+; the far entry of its own it had was six resident bytes for a `mov al`
+; (kernel size pass 13), and kern_small's stub, which answered 0, is cp_nitems
+; reading [cp_nst] alone.
 ; -----------------------------------------------------------------------------
-drv_cp_count_x:
-    mov al, 0xFF                ; ONE WALK. An ordinal no class can be, so the
-    call drv_cp_class_x         ; hit below is unreachable and the walk runs to
-    retf                        ; the end - where the tally IS the count
-
 drv_cp_class_x:
     push bx
     push cx
@@ -2859,8 +2875,12 @@ section .cold                   ; ...and the section drvvol.inc left us in is
 
 
 ; -----------------------------------------------------------------------------
-; drv_load - bring one driver up (SPEC.md 51.3)
-; in:  AL = row index
+; drv_load_at - bring one driver up: load into a row-shaped record (SPEC.md 51.3)
+; in:  BX = a 16-byte DRVR_-shaped record, DRVR_FILE and DRVR_CLASS live;
+;      for any row that is NOT DRVC_OVL, DI:SI = a FAR proc - the caller's
+;      attach half (DRV_ATTACH below) - which this calls once the image is
+;      read, checked and its bss zeroed: in BX = the row, ES = the image's
+;      claim; out CF = 0 attached, CF = 1 and AL = the DRVE_* to bank
 ; out: CF = 0 loaded (or already was); CF = 1 and [row+DRVR_ERR] = DRVE_*
 ; clobbers: nothing else (flags)
 ;
@@ -2875,70 +2895,30 @@ section .cold                   ; ...and the section drvvol.inc left us in is
 ; DI and BP are saved for drv_tier's reason: the attach at the end of this is a
 ; far call into code the kernel did not write, and the Control Panel's Drivers
 ; page calls this holding both as its pane origin.
-; -----------------------------------------------------------------------------
-drv_load_x:
-    call kentc_bp               ; KENT: push ax..bp
-
-
-
-
-
-
-    push es
-
-    call drv_vol_bank           ; this goes to A: to find the .DRV, and the
-                                ; user may have been anywhere (SPEC.md 51.5.2)
-    call drv_row_x              ; BX = the row for the whole routine
-%ifdef KERN_BIG                 ; ...and everything below is shared with
-    jmp short drv_load_row      ; drv_load_at, which is kern_big's alone
-
-; -----------------------------------------------------------------------------
-; drv_load_at - load into a row-shaped record that is NOT in drv_tab
-; in:  BX = a 16-byte DRVR_-shaped record, DRVR_FILE and DRVR_CLASS live
-; out: exactly drv_load's - CF = 0 loaded, CF = 1 and DRVR_ERR = the DRVE_*
-; clobbers: nothing else (flags)
 ;
-; The whole of drv_load below the row lookup, reached with the row supplied
-; instead of indexed: the volume bracket, the mount, drv_find, the ONE
-; MEM_K_DRV claim, the read, drv_check and the shared failure tail. It exists
-; so an OVERLAY the kernel owns (SPEC.md 52.11) is loaded by this body and not
-; by a second copy of it - the copy being the shape that drifts, and the
-; volume bracket being exactly what went missing the last time this path was
-; duplicated in spirit (SPEC.md 51.5.2).
+; THE RESIDENT HALF IS THE LOAD AND THE ATTACH IS NOT (kernel size pass 13).
+; Every caller that brings up a CLASS driver - drv_boot, the Drivers and Sound
+; pages, HIBER.DRV's reload - is in the blob or a module, and the resident
+; caller, the screen saver, loads an OVERLAY (ss_row, DRVC_OVL), which stops
+; after the bss exactly as XMEM.DRV's and THMPAL.DRV's do. So the attach half -
+; the HMA placement, drv_attach, drv_tier and drv_publish, 266 bytes - is
+; DRV_ATTACH below, expanded in each of those three images, and reached from
+; here through the far pointer the caller passes in DI:SI. That is
+; SPEC.md 51.5.3's trade again: copies in images that come and go, against one
+; in a segment every machine pays for.
 ;
-; A DRVC_OVL row stops after drv_check: an overlay has no class, so it can
-; neither publish nor be sent DRVV_TIER or DRVV_READY, and ITS OWNER ATTACHES
-; IT. That is the same division HDD.DRV and HDDTOOL.DRV already run on; here
-; the owner is the kernel. On that path DRVR_SEG and DRVR_ENT come back live
-; with nothing yet called, and the owner owes drv_release if it refuses.
-;
-; BEHIND %ifdef KERN_BIG, and it has to be: XMEM.DRV is its only caller and
-; kern_small has no store above 1MB (SPEC.md 41.11), so an unguarded
-; drv_load_at would be twenty-odd bytes of kern_big's feature charged to the
-; 128KB-floor product - docs/history/KERN-SPLIT-PLAN.md 2's first leak, "a hook left
-; outside its %ifdef", which is silent and which `make kernsplit` is the check
-; for. HDD.DRV loads HDDTOOL.DRV through the file API and not through this, so
-; nothing in kern_small wants it.
+; An OVERLAY stops after drv_check: it has no class, so it can neither
+; publish nor be sent DRVV_TIER or DRVV_READY, and ITS OWNER ATTACHES IT. That
+; is the same division HDD.DRV and HDDTOOL.DRV already run on; here the owner
+; is the kernel (SPEC.md 52.11) - XMEM.DRV, SAVER.DRV and THMPAL.DRV. On that
+; path DRVR_SEG and DRVR_ENT come back live with nothing yet called, and the
+; owner owes drv_release if it refuses.
 ; -----------------------------------------------------------------------------
 drv_load_at:
     call kentc_bp               ; KENT: push ax..bp
-
-
-
-
-
-
     push es
-    call drv_vol_bank
-drv_load_row:
-%endif                          ; ...and the SHARED body starts here. The
-                                ; %endif belongs on this line and nowhere
-                                ; lower: it sat 88 lines down for one build,
-                                ; which took the whole middle of drv_load -
-                                ; the mount, drv_find, the claim, the read and
-                                ; drv_check - out of kern_small. It assembled
-                                ; without a word, because every label the
-                                ; guarded region defined was also inside it
+    call drv_vol_bank           ; this goes to A: to find the .DRV, and the
+                                ; user may have been anywhere (SPEC.md 51.5.2)
     DDG 1
     mov al, [bx+DRVR_CLASS]     ; ONE DRIVER PER CLASS AT A TIME, and this is
     call drv_cls_idx            ; the only place that can say so: a class IS
@@ -3049,23 +3029,19 @@ drv_load_row:
                                 ; to publish and no verb the kernel may send.
                                 ; Its owner attaches it (drv_load_at above)
 %endif
-%ifdef HMA_DRV
-    call drv_hma_try            ; ...and a DRIVER may go up into the HMA now,
-%endif                          ; before a byte of it has run (HMA-PLAN 5)
-
-    mov byte [bx+DRVR_ERR], DRVE_OK ; the previous attempt's code is cleared
-                                ; BEFORE the attach and not after it, because
-                                ; drv_attach may BANK one of its own off the
-                                ; DRVV_READY call (DRVE_TWICE) - stamped
-                                ; afterwards, this line wiped it and the row
-                                ; read 'Loaded' about a driver that had just
-                                ; reported a bug. Every earlier failure path
-                                ; returns before here with its own code, and
-                                ; .nohwal below still overwrites this one
-    DDG 8
-    call drv_attach             ; the far call into the driver itself
-    jc .nohwal                  ; ...which may say WHY in AL (SPEC.md 51.2)
-    DDG 9                       ; (a `mov`: CF = 0 from the `jc` stands)
+.attach:                        ; (named: tests/lzdrv.py stops HERE, the image
+                                ; read, checked and zeroed and nothing run)
+    mov bp, sp                  ; THE ATTACH IS THE CALLER'S (kernel size pass
+    call far [bp+4]             ; 13): the KENT above banked its DI:SI at
+                                ; SS:SP+4, and a CLASS row's caller - drv_load,
+                                ; written once per image that loads one (the
+                                ; blob, CTRL.DRV, HIBER.DRV) - passed its own
+                                ; attach half there: the HMA placement, the
+                                ; DRVE_OK stamp, the attach and the READY call,
+                                ; answering CF and AL = the DRVE_* to bank.
+                                ; INSIDE the volume bracket, as it always ran.
+                                ; BP is the file size and is spent by now
+    jc .fail
     jmp short .out
 
 %ifdef KERN_BIG
@@ -3087,22 +3063,8 @@ drv_load_row:
     jmp short .fail
 .nomem:
 .big:                           ; ...and two for DRVE_MEM
-    mov al, DRVE_MEM
-    jmp short .fail
-.nohwal:
-    ; A refusing attach MAY hand back a DRVE_* in AL, and most do not: the
-    ; verb's contract was CF alone for a long time, so anything outside the
-    ; table - DRVE_OK included, since a refusal is not OK - means "no
-    ; hardware" and the driver simply did not say. That is the whole
-    ; compatibility rule, and it is why the two drivers that predate this now
-    ; set AL explicitly rather than leaving it to whatever their last compare
-    ; happened to load.
-    cmp al, DRVE_OK
-    je .nohw
-    cmp al, DRVE_NERR
-    jb .fail
-.nohw:
-    mov al, DRVE_HW
+    mov al, DRVE_MEM            ; ...and falls into the tail: the attach's
+                                ; refusal map that sat between is %1_att's
 .fail:                          ; ONE TAIL, and drv_release runs on every arm.
     call drv_release            ; It is a NO-OP when DRVR_SEG is 0 - its own
                                 ; first three instructions test exactly that -
@@ -3223,44 +3185,6 @@ drv_hma_door:
 .no:
     ret
 
-; -----------------------------------------------------------------------------
-; drv_hma_try - run a just-loaded driver from the HMA instead (module internal;
-;               docs/plans/HMA-PLAN.md 5)
-; in:  BX = the row: DRVR_SEG/DRVR_KB/DRVR_ENT live, the image checked and its
-;      bss zeroed, and NOTHING of it run yet; ES = that image's claim, which
-;      drv_load_row loaded for the read and dskw_read_x, drv_check and
-;      drv_bss all keep
-; out: nothing. Either the row names a segment in the HMA, the claim is freed
-;      and DRVR_DISP/DRVR_ENT are offsets from DRV_HMA_ORG - or nothing at all
-;      changed and the driver runs from the heap as it always did
-; clobbers: AX, DX, ES - its one caller, drv_load_row, is the body both load
-;      entries bank AX..BP and ES around, and spends none of the three after
-;
-; COLDHMA.SYS's tail decides, and it decides on the BYTES: it carries a
-; relocation table for each driver the build assembled twice, keyed by a hash
-; of the org-0 image - which covers the header's bss byte, so the table's own
-; image + bss is the length it copies - and copies, reads back and relocates
-; in the HMA. A driver it has no table for, a pool with no room and a copy
-; that does not read back all leave the claim exactly as drv_load filled it.
-; That is what lets this be the last step of a load rather than a load of its
-; own. A CALL and not written at its site: inline, it pushed six of
-; drv_load_row's refusals out of short range, 18 bytes for the 4 a call costs.
-; -----------------------------------------------------------------------------
-drv_hma_try:
-    mov al, ROMF_HPLACE         ; ES = the checked image, its bss zeroed
-    call drv_hma_door           ; CF = 0: AX = the segment it runs at now
-    jc .out
-    xchg ax, [bx+DRVR_SEG]      ; the row names the HMA from here...
-    xchg dx, ax                 ; ...and DX the claim it was read into
-    and word [bx+DRVR_KB], 0    ; no heap held
-    mov word [bx+DRVR_DISP], DRV_HMA_ORG + PKG_DISP
-    add byte [bx+DRVR_ENT+1], DRV_HMA_ORG >> 8  ; (the low byte is the same)
-    push bx
-    mov bx, MEM_K_DRV
-    call mem_free_x             ; the claim: nothing points into it
-    pop bx
-.out:
-    ret
 %endif
 
 drv_bss:
@@ -3306,33 +3230,78 @@ drv_bss:
     stc
     jmp short .out
 
-; -----------------------------------------------------------------------------
-; drv_attach - the far call that lets a driver claim its hardware
-; in:  BX = row ptr with DRVR_SEG and DRVR_ENT live
-; out: CF = 0 attached and its services published; CF = 1 refused - and the
-;      contract is that it hooked NOTHING
-; clobbers: flags
-; -----------------------------------------------------------------------------
-drv_attach:
-    push ax
+section .modc                   ; IMAGE CODE (see VGC_FORCE's banner below):
+                                ; the macro emits nothing here; each expansion
+                                ; lands in the blob, CTRL.DRV or HIBER.DRV
+; =============================================================================
+; DRV_ATTACH - drv_load and the ATTACH HALF of a load, written once per image
+;              that brings up a CLASS driver (kernel size pass 13)
+; in:  %1 = the image's label prefix
+;
+; Expanded in the boot blob (bdl, drv_boot), CTRL.DRV's panel (cdl, the
+; Drivers and Sound pages) and HIBER.DRV (hdl, the reload after a wake or a
+; suspend). drv_load_at above is the resident half and calls %1_att back
+; through DI:SI. Every resident body these reach is a far entry that already
+; existed for a module or the blob: drvf_drv_row, drvf_drv_load_at,
+; drvf_drv_call, drvf_drv_cls_svc and mmf_mem_free. drv_cls_idx and
+; drv_cls_fp_x are eight instructions between them, so they are written out
+; here (%1_clsidx) rather than given a resident far entry each.
+; =============================================================================
+%macro DRV_ATTACH 1
+
+; %1_load - drv_load: bring one drv_tab row up (SPEC.md 51.3)
+; in:  BX = the row - every caller has it in hand (drv_boot_want, cp_drvrow;
+;      hbm_reload_m asks drvf_drv_row), so the index entry went with drv_load_x
+; out: CF = 0 loaded (or already was); CF = 1 and [row+DRVR_ERR] = DRVE_*
+; clobbers: nothing else (flags)
+%1 %+ _load:
     push si
-    push bp
-    push es
-    mov al, DRVV_ATTACH
-    call drv_call_ent           ; out: CF, and SI = its service table
-    jc .no
+    push di
+    mov di, %1 %+ _att          ; THIS image's attach half, which drv_load_at
+    mov si, cs                  ; far-calls through DI:SI
+    call COLD_SEG:drvf_drv_load_at
+    pop di
+    pop si
+    ret
+
+; %1_att - drv_load_at's hook for a CLASS row: drv_attach, at its one call
+; in:  BX = the row, DRVR_SEG and DRVR_ENT live; ES = the checked image's
+;      claim. FAR - drv_load_at reaches it through its caller's DI:SI
+; out: CF = 0 attached and its services published; CF = 1 refused, AL = the
+;      DRVE_* to bank - and the contract is that the driver hooked NOTHING
+; clobbers: everything but BX - drv_load_at's own bank (KENT and ES) is what
+;      its caller gets back, so neither drv_attach's four pushes nor its
+;      write of a refusal's AL into the banked AX survive the merge
+%1 %+ _att:
+%ifdef HMA_DRV
+    call %1 %+ _hma             ; ...and a DRIVER may go up into the HMA now,
+%endif                          ; before a byte of it has run (HMA-PLAN 5)
+
+    mov byte [bx+DRVR_ERR], DRVE_OK ; the previous attempt's code is cleared
+                                ; BEFORE the attach and not after it, because
+                                ; the READY call below may BANK one of its own
+                                ; (DRVE_TWICE) - stamped afterwards, this line
+                                ; wiped it and the row read 'Loaded' about a
+                                ; driver that had just reported a bug. Every
+                                ; earlier failure path returns before here
+                                ; with its own code, and .nohwal below still
+                                ; overwrites this one
+    DDG 8
+    mov al, DRVV_ATTACH         ; the far call into the driver itself
+    call %1 %+ _call            ; out: CF, and SI = its service table
+    jc .nohwal                  ; ...which may say WHY in AL (SPEC.md 51.2)
     mov es, [bx+DRVR_SEG]
-    call drv_publish            ; SI is an offset in ES, so copy it now
+    call %1 %+ _publish         ; SI is an offset in ES, so copy it now
     cmp byte [bx+DRVR_CLASS], DRVC_SOUND
     jne .notier                 ; a tier is SND_RT_*: it means nothing to a
                                 ; class that is not sound, and sending it
                                 ; would hand the SOUND driver's own row a
                                 ; verb on the disk driver's attach
     mov ah, [snd_route]         ; ...then hand it the persisted tier, which
-    call drv_tier_x               ; may take memory back off it (SPEC.md 34.8).
+    call %1 %+ _tier            ; may take memory back off it (SPEC.md 34.8).
 .notier:
     mov al, DRVV_READY          ; ...and only now, when the slot is armed and
-    call drv_call_ent           ; every API cell will answer it, tell the
+    call %1 %+ _call            ; every API cell will answer it, tell the
                                 ; driver so (SPEC.md 51.2.2). This is where a
                                 ; disk driver re-mounts what its settings say
                                 ; it had mounted last time
@@ -3346,29 +3315,73 @@ drv_attach:
                                 ; reported reason over 'Loaded' now, so the
                                 ; sentence arrives beside the driver's name
 .rdy:
+    DDG 9
     clc                         ; A refusal is STILL not a failed attach: the
-                                ; driver is up at whatever tier it could reach,
+    retf                        ; driver is up at whatever tier it could reach,
                                 ; and the Sound page shows which
-    jmp short .out
-.no:                            ; A REFUSAL KEEPS ITS AL. drv_load's .nohwal
-    push bp                     ; banks the reason the driver gave - DRVE_BUSY
-    mov bp, sp                  ; is "found it and cannot have it" - and the
-    mov [bp+8], al              ; `pop ax` below put the CALLER's AL back over
-    pop bp                      ; it, so every refusal read DRVE_HW. Nothing
-                                ; answered a reason until SPEC.md 9.12's mouse
-                                ; refused a flash drive. So the driver's AL is
-                                ; written INTO the saved AX (SS:BP+8, over es,
-                                ; bp and si), and CF is still the driver's:
-                                ; push, mov and pop write no flag
+.nohwal:
+    ; A REFUSAL KEEPS ITS AL - DRVE_BUSY is "found it and cannot have it".
+    ; A refusing attach MAY hand back a DRVE_* in AL, and most do not: the
+    ; verb's contract was CF alone for a long time, so anything outside the
+    ; table - DRVE_OK included, since a refusal is not OK - means "no
+    ; hardware" and the driver simply did not say. That is the whole
+    ; compatibility rule, and it is why the two drivers that predate this now
+    ; set AL explicitly rather than leaving it to whatever their last compare
+    ; happened to load.
+    cmp al, DRVE_OK
+    je .nohw
+    cmp al, DRVE_NERR
+    jb .no
+.nohw:
+    mov al, DRVE_HW
+.no:                            ; (CF = 1 already off the `jb`; the
+    stc                         ; DRVE_HW arm needs it set)
+    retf
+
+%ifdef HMA_DRV
+; -----------------------------------------------------------------------------
+; %1_hma - drv_hma_try: run a just-loaded driver from the HMA instead (image
+;          internal; docs/plans/HMA-PLAN.md 5)
+; in:  BX = the row: DRVR_SEG/DRVR_KB/DRVR_ENT live, the image checked and its
+;      bss zeroed, and NOTHING of it run yet; ES = that image's claim, which
+;      drv_load_row loaded for the read and dskw_read_x, drv_check and
+;      drv_bss all keep
+; out: nothing. Either the row names a segment in the HMA, the claim is freed
+;      and DRVR_DISP/DRVR_ENT are offsets from DRV_HMA_ORG - or nothing at all
+;      changed and the driver runs from the heap as it always did
+; clobbers: AX, DX, ES - its one caller, %1_att, runs inside drv_load_at's
+;      bank of AX..BP and ES, which spends none of the three after
+;
+; COLDHMA.SYS's tail decides, and it decides on the BYTES: it carries a
+; relocation table for each driver the build assembled twice, keyed by a hash
+; of the org-0 image - which covers the header's bss byte, so the table's own
+; image + bss is the length it copies - and copies, reads back and relocates
+; in the HMA. A driver it has no table for, a pool with no room and a copy
+; that does not read back all leave the claim exactly as drv_load filled it.
+; That is what lets this be the last step of a load rather than a load of its
+; own.
+; -----------------------------------------------------------------------------
+%1 %+ _hma:
+    cmp word [api_coldseg], HMA_SEG ; drv_hma_door, written out: .cold is
+    jne .out                    ; not up there, so neither is the pool
+    mov al, ROMF_HPLACE         ; ES = the checked image, its bss zeroed
+    call far [rom_mfp]          ; CF = 0: AX = the segment it runs at now
+    jc .out
+    xchg ax, [bx+DRVR_SEG]      ; the row names the HMA from here...
+    xchg dx, ax                 ; ...and DX the claim it was read into
+    and word [bx+DRVR_KB], 0    ; no heap held
+    mov word [bx+DRVR_DISP], DRV_HMA_ORG + PKG_DISP
+    add byte [bx+DRVR_ENT+1], DRV_HMA_ORG >> 8  ; (the low byte is the same)
+    push bx
+    mov bx, MEM_K_DRV
+    call COLD_SEG:mmf_mem_free  ; the claim: nothing points into it
+    pop bx
 .out:
-    pop es
-    pop bp
-    pop si
-    pop ax
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
-; drv_tier - tell the published driver which tier the user wants (SPEC.md 34.8)
+; %1_tier - drv_tier: tell the published driver which tier the user wants (SPEC.md 34.8)
 ; in:  AH = SND_RT_*
 ; out: CF = 0 it took (or there was nothing to tell); CF = 1 it refused, and
 ;      AL = the DRVE_* saying why
@@ -3403,8 +3416,14 @@ drv_attach:
 ; for the same reason and gives this the clobber list its header claims - the
 ; caller's requested tier is what it stores on the way out.
 ; -----------------------------------------------------------------------------
-drv_tier_x:
-    call kentc_bp               ; KENT: push ax..bp - AH, the tier, among them
+%1 %+ _tier:
+    push ax                     ; AH, the tier, among them
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
     push es
     cmp ah, SND_RT_AUTO
     je .ok                      ; unset: leave attach's answer alone
@@ -3412,22 +3431,27 @@ drv_tier_x:
     or bx, bx
     jz .ok                      ; nothing is published: nothing to tell
     mov al, DRVV_TIER
-    call drv_call_ent           ; out: CF, AL = why not, SI = the table it
+    call %1 %+ _call            ; out: CF, AL = why not, SI = the table it
     jc .no                      ; now has
     mov es, [bx+DRVR_SEG]
-    call drv_publish
+    call %1 %+ _publish
 .ok:
     clc
 .no:
     mov bp, sp                  ; AL IS THE OUTPUT and only AH comes back: AL
     mov [bp+14], al             ; is written over the banked AX's low byte
-    jmp kretc_es                ; (SS:SP+14, over es, bp, di, si, dx, cx and
-                                ; bx), and the ladder puts the rest back -
-                                ; `mov` and `pop` write no flag, so CF is the
-                                ; driver's (kernel size pass 10, -7)
+    pop es                      ; (SS:SP+14, over es, bp, di, si, dx, cx and
+    pop bp                      ; bx), and the pops put the rest back -
+    pop di                      ; `mov` and `pop` write no flag, so CF is the
+    pop si                      ; driver's
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
-; drv_publish - take a copy of an attached driver's service table
+; %1_publish - drv_publish: take a copy of an attached driver's service table
 ; in:  ES = the driver's segment, SI = its service table offset, BX = the row
 ; out: nothing (all registers preserved)
 ;
@@ -3444,13 +3468,13 @@ drv_tier_x:
 ; segment it is an offset into, so a later consumer has everything it needs to
 ; stage its own.
 ; -----------------------------------------------------------------------------
-drv_publish:
+%1 %+ _publish:
     push ax
     push cx
     push si
     push di
     mov al, [bx+DRVR_CLASS]
-    call drv_cls_svc_x            ; DI = this CLASS's copy, not the one copy
+    call COLD_SEG:drvf_drv_cls_svc ; DI = this CLASS's copy, not the one copy
     jnc .tab                    ; DRVC_POINT and DRVC_EMS keep no copy, and
     cmp al, DRVC_EMS            ; still have an owner and a dispatcher
     jne .owner                  ; (drv_cls_svc) - and EMS's door, DSV_PKGCALL,
@@ -3501,10 +3525,15 @@ drv_publish:
 
 .owner:
     mov al, [bx+DRVR_CLASS]     ; which row these belong to, so a detach can
-    call drv_cls_idx            ; take them away again...
-    shl di, 1
-    mov [di+drv_owner], bx      ; ...and the far pointer this class's
-    call drv_cls_fp_x           ; CLSCF: a loaded row's class - every class has an fptr
+    xor ah, ah                  ; take them away again... drv_cls_idx and
+    dec ax                      ; drv_cls_fp_x, written out WITHOUT their range
+    shl ax, 1                   ; test: every row that reaches here has a class
+    xchg di, ax                 ; in 1..DRVC_MAX - a drv_tab row whose header
+    mov [di+drv_owner], bx      ; drv_check held to it, or the [drv_owner] row
+    shl di, 1                   ; this wrote - and DRVC_OVL rows stop before
+    add di, drv_fptr            ; the attach. ...and the far pointer this
+                                ; class's dispatcher goes through (AX is spent:
+                                ; it is banked above)
                                 ; ...the dispatcher goes through (AL survives:
                                 ; drv_cls_idx writes DI alone)
 %ifdef HMA_DRV
@@ -3523,6 +3552,16 @@ drv_publish:
     pop cx
     pop ax
     ret
+
+; %1_call - drv_call_ent: AL = the verb, BX = the row -> the driver's answer,
+;           through drv_call's far entry
+%1 %+ _call:
+    mov bp, [bx+DRVR_ENT]
+    call COLD_SEG:drvf_drv_call
+    ret
+%endmacro
+
+section .cold
 
 ; -----------------------------------------------------------------------------
 ; drv_unload - take one driver back down (SPEC.md 51.3)
@@ -3566,7 +3605,7 @@ drv_unload_x:
     je .free
     mov dx, [ticks]
 .tk:
-    call ct_cw_task_yield
+    call KERNEL_SEG:cw_task_yield
     cmp byte [drv_wcnt], 0
     je .free
     cmp dx, [ticks]
@@ -4167,20 +4206,28 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
 %endif                          ; machine's to decide (_load's sentinel)
     call %1 %+ _want_set
 %ifdef DOCK_OPT
-    call COLD_SEG:dkf_apply     ; the map above stored [dock_cfg]; the band,
+    BLOBCALL bdk_apply          ; (the blob's own dock_apply, FAR-bodied as
+                                ; the Dock page's is - KSW_SECT, kernel.asm)
+                                ; the map above stored [dock_cfg]; the band,
                                 ; the strip and the drive column are DERIVED
                                 ; from it (SPEC.md 30.5), which is not a store.
                                 ; No window exists yet, so the refit inside it
                                 ; walks an empty table
 %endif
-    call COLD_SEG:drvf_ss_mins2idle   ; the map above stored [ss_mins]; the
+    mov bp, ss_mins2idle        ; (wm_cbd: the boot's reader holds nothing
+    call COLD_SEG:wm_cbd        ; in BP) the map above stored [ss_mins]; the
                                 ; TICKS blk_pass compares against are derived
                                 ; from it and clamped (SPEC.md 79.4), which is
                                 ; not a store and so cannot be a map row
     mov al, [drv_cfg+CFG_SCH]
     cmp al, 1
     ja %%up_out                    ; a byte from a future version: leave the
-    call KERNEL_SEG:sched_mode_set    ; mode alone rather than pick nonsense
+    pushf                       ; mode alone rather than pick nonsense. Else
+    cli                         ; sched_mode_set's two stores, written out
+    mov [sch_coop], al          ; (kernel size pass 13): the compare above has
+    mov byte [sch_hold], SCH_WD_TICKS ; already made AL 0 or 1, which is the
+    popf                        ; normalising it did, and a call to a far
+                                ; entry was five bytes against these thirteen
 %%up_out:
     pop di
     pop si
@@ -5025,7 +5072,8 @@ drv_boot_x:
 %ifdef KERN_BIG
     mov ah, [vid_kind]
 %endif
-    call KERNEL_SEG:vid_switch
+    BLOBCALL bvs_switch         ; (the blob's own vid_switch, FAR-bodied as
+                                ; the panel's is - KSW_SECT, kernel.asm)
     jc .vnosw                   ; no such adapter here: stay on the probe's
 %ifdef KERN_BIG                 ; answer
     cmp ah, [vid_kind]
@@ -5039,7 +5087,7 @@ drv_boot_x:
     ; applies: the adapter was already right, or was refused, and neither is a
     ; statement about the desktop. No spl_reset - the primary's card is never
     ; re-programmed here, so the loading screen is untouched.
-    call KERNEL_SEG:cw_vid_disp_init
+    call bvs_disp_init          ; (the blob's own: KSW_SECT, kernel.asm)
 %endif
 .load:
     ; --- HOW MANY are we about to read? (SPEC.md 15.6) -----------------------
@@ -5073,8 +5121,8 @@ drv_boot_x:
     mov [ddg_row], cl
     mov byte [ddg_step], 0
 %endif
-    mov al, cl
-    call COLD_SEG:drvf_drv_load
+    call bdl_load               ; DRV_ATTACH's, in this blob (below): BX is
+                                ; the row drv_boot_want left
     jnc .ok
     cmp byte [bx+DRVR_ANS], 0   ; A DEFAULT THE MACHINE CHOSE that failed
     je .drop                    ; (SPEC.md 51.3.2): say nothing and stop
@@ -5160,6 +5208,46 @@ drv_boot_want:                  ; CL = a row: ZF = 1 when it has no file or is
 ; (SPEC.md 31.5): app_launch takes its own locks, so this must run with none
 ; held - which is why it is the last thing kmain does before ui_task.
 ; -----------------------------------------------------------------------------
+DRV_ATTACH bdl                  ; drv_load and the attach half, for drv_boot
+                                ; (kernel size pass 13) - given back with the
+                                ; rest of the blob
+%ifdef KERN_BIG
+; ...AND THE BOOT'S ADAPTER SWITCH, the same trade (KSW_SECT, kernel.asm): the
+; Display page's vid_switch, vid_disp_init and wm_refit and the Dock page's
+; dock_apply are CTRL.DRV's, and the boot is the one caller they have outside
+; the panel - drv_boot applies SYSTEM.CFG's adapter and Dock setting, kmain_o
+; arranges the displays. So the blob carries its own expansion of each, `bvs_`,
+; reaching the kernel through BSWK/BSWC (KGO_PAIR bvs below), given back at
+; mem_unblob with the rest of it. The text is the panel's, macro for macro.
+%define BSW_GO bvs_kgo          ; KSWK's and KSWC's shape through the blob's
+%define BSW_CGO bvs_cgo         ; own pair (KGO_PAIR bvs, below)
+%macro BSWK 1
+    call BSW_GO
+    dw %1
+%endmacro
+%macro BSWC 1
+    call BSW_CGO
+    dw %1
+%endmacro
+VSW_AVAIL bvs
+VSW_EQUIP bvs
+VSW_SWITCH bvs, BSWK, bvw
+VSW_DISP bvs, BSWK
+VSW_UNION bvs, BSWK
+WM_REFIT bvw, BSWK
+%ifdef DOCK_OPT
+DOCK_APPLY bdk, BSWK, BSWC, bvw
+%endif
+KGO_PAIR bvs
+%endif
+
+section .modu                   ; ...and for the Drivers and Sound pages, in
+DRV_ATTACH cdl                  ; CTRL.DRV's panel half: cp_drv_click and
+                                ; cp_snd_click are both .modu
+section .modh                   ; ...and for HIBER.DRV's reload after a wake or
+DRV_ATTACH hdl                  ; a suspend (hbm_reload_m). Here and not in
+                                ; hiber.inc because that file is %included
+                                ; before this one, and the macro is defined here
 section .cold                   ; ...and back: drv_notice_x runs AFTER the first
                                 ; desktop paint and opens the Control Panel, so
                                 ; it is resident cold code and not this
@@ -5304,9 +5392,10 @@ drvf_drv_row:            call drv_row_x
                     retf
 ; ...and three the BOOT OVERLAY needs (SPEC.md 2.5.2): xm_boot_x moved into the
 ; blob and reaches the driver layer exactly as a module does.
-%ifdef KERN_BIG                 ; drv_load_at is dual-image loading's and does
-                                ; not exist in the small kernel - and neither
-                                ; does xm_boot_x, the only thing that calls this
+%ifdef KERN_BIG                 ; drv_load_at is not in the small kernel. Its
+                                ; far callers: xm_boot_x and THMPAL.DRV's
+                                ; panel (overlays), and every DRV_ATTACH
+                                ; expansion's %1_load (kernel size pass 13)
 drvf_drv_load_at:        call drv_load_at
                     retf
 %endif
@@ -5314,37 +5403,23 @@ drvf_drv_call:           call drv_call
                     retf
 drvf_drv_release:        call drv_release
                     retf
-drvf_drv_cp_call:        call drv_cp_call_x
-                    retf
 drvf_drv_cls_svc:        call drv_cls_svc_x
                     retf
 drvf_drv_unload:         call drv_unload_x
-                    retf
-drvf_drv_tier:           call drv_tier_x
-                    retf
-drvf_drv_load:           call drv_load_x
-                    retf
-drvf_drv_cp_class:       call drv_cp_class_x
                     retf
 
 ; ...and the four SPEC.md 51.5.3's parser needs. drvf_drv_cfg_save is gone with
 ; the body it wrapped: the save half is inside CTRL.DRV now, so cp_flush_x
 ; reaches it with a near call and these are what IT has to cross for.
-; drvf_ss_mins2idle wraps a body in blank.inc rather than this file, which is
-; fine and is the first of these that does - a far entry is four bytes wherever
-; the body lives, and .cold reaches .cold near.
 drvf_drv_vol_bank:       call drv_vol_bank
                     retf
 drvf_drv_vol_back:       call drv_vol_back
                     retf
-%ifdef KERN_BIG
-drvf_drv_find:           call drv_find   ; hb_probe_x, from the blob
-                         retf
-%endif
 drvf_drv_mounted:        call drv_mounted
                     retf
-drvf_ss_mins2idle:       call ss_mins2idle
-                    retf
+; (drvf_drv_find and drvf_ss_mins2idle went in kernel size pass 13: their one
+; caller each - hb_probe_x and the settings reader's unpack - is in the blob,
+; with nothing in BP, and reaches the near body through wm_cbd)
 
 section .modc                   ; CTRL.DRV's image (SPEC.md 2.8)
 
@@ -5874,9 +5949,6 @@ drv_cp_closed_x:
 drv_shutdown_x:
 drv_task_x:
     retf
-drv_cp_count_x:
-    xor al, al                  ; no class publishes a Control Panel page
-    retf
 section .modu                   ; ...and the stub goes where the body went, or
 drv_status_x:                   ; the two builds would put one name in two
 drv_errstg:                     ; different segments (the one status a row
@@ -5935,11 +6007,15 @@ drvf_drv_cls_svc:
 drvf_drv_cp_class:
 drvf_drv_cp_call:
 drvf_drv_row:
-drvf_drv_tier:
-drvf_drv_load:
 drvf_drv_unload:
     stc
     retf
+section .modu                   ; ...and the panel's two names for drv_load and
+cdl_load:                       ; drv_tier, which are DRV_ATTACH's in CTRL.DRV
+cdl_tier:                       ; itself on kern_big (kernel size pass 13) and
+    stc                         ; refuse here as the stubs above do: CF = 1,
+    ret                         ; AL untouched
+section .cold
 
 
 section .boot2

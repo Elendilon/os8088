@@ -1184,7 +1184,12 @@ wm_nat_take_wh:
 ; A free slot is skipped rather than clamped: W_W/W_H are whatever the last
 ; owner left there, and wm_create fits the record it fills in anyway.
 ; -----------------------------------------------------------------------------
-wm_refit:
+; WM_REFIT %1, %2 - %1_refit, written once (KSW_SECT, kernel.asm): CTRL.DRV's
+; `wm` and the boot blob's `bvw`, %2 the hop a resident callee is reached
+; through. Its callers are vid_switch, the Display page's arrangement and the
+; Dock page's dock_reflow, and the boot's copies of the two of those
+%macro WM_REFIT 2
+%1 %+ _refit:
     push bx
     push cx
     mov bx, wm_wins
@@ -1194,7 +1199,7 @@ wm_refit:
     jz .skip
     test byte [bx+W_FLAGS], WF_FULL
     jnz .full
-    call wm_apply_size          ; what it ASKED for, then its own answer for
+    %2 wm_apply_size            ; what it ASKED for, then its own answer for
                                 ; the adapter it now finds itself on, then the
                                 ; clamp - SPEC.md 11.100's one sequence, the
                                 ; same three wm_prefer and wm_keeph run. This
@@ -1204,7 +1209,7 @@ wm_refit:
                                 ; the band (39.11.2.1)
     jmp short .told
 .full:
-    call wm_fs_setrect          ; a fullscreen window wants the NEW screen, and
+    %2 wm_fs_setrect            ; a fullscreen window wants the NEW screen, and
                                 ; its bank is the WINDOWED rect - replayed here
                                 ; it would un-fullscreen a window that is still
                                 ; flagged WF_FULL and still owns [wm_fs], with
@@ -1213,7 +1218,7 @@ wm_refit:
                                 ; desktop band, and a fullscreen frame covers
                                 ; the bar and the dock by definition
 .told:
-    call wm_sz_notify           ; ...and NOW tell it, unconditionally and while
+    %2 wm_sz_notify             ; ...and NOW tell it, unconditionally and while
                                 ; the caller's repaint is still ahead of us. An
                                 ; app that relayouts here is painted correctly
                                 ; the first time; and it is told even when its
@@ -1226,6 +1231,16 @@ wm_refit:
     pop cx
     pop bx
     ret
+%endmacro
+section .modu                   ; CTRL.DRV's (KSW_SECT, kernel.asm)
+WM_REFIT wm, KSWK
+section .text
+%ifdef KERN_BIG
+    nop                         ; PARITY PAD, never run (it follows
+%endif                          ; wm_nat_take_wh's `ret`): wm_refit's 37 bytes
+                                ; left `.text` here, and an odd hole put
+                                ; wm_paint_all and ui_task at an odd shift
+                                ; (kernel size pass 13, the brief's parity rule)
 
 ; -----------------------------------------------------------------------------
 ; wm_dock_snap - a window left barely over the dock is nudged back above it
@@ -4638,7 +4653,7 @@ wm_top_bpd:
 ; router, Close Window, menu_check's promotion, the pinstripes, dock_act,
 ; OSAPI_WM_TOP - means "the front ORDINARY window", and with only widgets up
 ; this answers 0, which is Locator. One word test where the bit test stood:
-; visible AND NOT WF_DESK is `(W_FLAGS & 0x0402) == 2`, +5 bytes on kern_big.
+; visible AND NOT WF_DESK is `(W_FLAGS & 0x0402) == 2`, +4 bytes on kern_big.
 ; -----------------------------------------------------------------------------
 wm_top:
     push ax
@@ -4655,9 +4670,10 @@ wm_top:
     call wm_idx2ptr
 %ifdef KERN_BIG
     mov ax, [bx+W_FLAGS]        ; AL is spent: wm_idx2ptr has had it, and the
-    and ax, WF_DESK | 2         ; next pass reloads it from [si]
-    cmp ax, 2
-    je .done
+    and ax, WF_DESK | 2         ; next pass reloads it from [si]. 0, 2, 400h
+    dec ax                      ; or 402h, and only 2 - visible, not a desk
+    dec ax                      ; window - reaches zero: two DECs, a byte
+    jz .done                    ; under `cmp ax, 2`, no slower (size pass 13)
 %else
     test byte [bx+W_FLAGS], 2
     jnz .done
@@ -4684,7 +4700,14 @@ wm_hit:
     push bp
     push ax                     ; AH is preserved; AL patched on the way out
     mov al, [wm_zn]
-    mov ah, 0
+%ifdef KERN_BIG
+    cbw                         ; AH = 0: [wm_zn] <= MAX_WIN, under 128 - a
+                                ; byte and two clocks under `mov ah, 0`, and
+                                ; the byte that puts everything below back at
+                                ; the parity wm_top's took (kernel size pass
+%else                           ; 13). kern_small's wm_top did not move, so
+    mov ah, 0                   ; neither does this: its hot .text stays even
+%endif
     mov si, wm_zord
     add si, ax                  ; walk front to back
     mov di, 1                   ; 1 until the first visible window is passed
@@ -6494,6 +6517,7 @@ wm_clip_seed:
     mov word [wm_clip_n], 1
     ret
 
+%ifndef OS88_SHORTCUTS
 ; -----------------------------------------------------------------------------
 ; wm_clip_rect - arm clipping to a bare screen rect's visible region
 ; in:  AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); caller HOLDS the gfx
@@ -6557,6 +6581,13 @@ wm_clip_rect:
     pop bx
     pop ax
     retf
+%endif                          ; ...ITS ONE CALLER IS desk_zone_redraw, which is
+                                ; `%ifndef OS88_SHORTCUTS` (desk.inc): on a
+                                ; kernel with shortcuts the selection is a
+                                ; posted cell repaint (desk_cmark) and nothing
+                                ; flips a zone under a region of its own, so
+                                ; the body went unreached on kern_big and
+                                ; kern_emu (kernel size pass 13, -68)
 
 %ifdef KERN_SMALL
 ; -----------------------------------------------------------------------------
@@ -7438,19 +7469,11 @@ wm_ownseg:
 ; white caption against a grey one with a black caption, which is what makes
 ; focus readable across a screen without reading any text.
 ;
-; A TAIL CALL is legal here and both targets are NEAR: their `ret` returns to
-; this routine's caller, and the frame has nothing to undo. It would not be
-; legal to a cw_ shim, which ends in `retf` (SPEC.md 2.6).
-%ifdef KERN_BIG
-wm_tpen_bg:
-    cmp di, bp
-    je thm_tbg
-    jmp thm_ibg
-wm_tpen_ink:
-    cmp di, bp
-    je thm_tink
-    jmp thm_iink
-%else                           ; no Color, so the two pairs are one pair and
+; kern_big's two are kernel/vga12.inc's, BESIDE thm_pen (kernel size pass
+; 13): each reads its active byte, asks the focus question and short-jumps to
+; the shared tail, where from here they were a far jump to a six-byte pen
+; door apiece.
+%ifndef KERN_BIG                ; no Color, so the two pairs are one pair and
 wm_tpen_bg  equ thm_bg          ; the focus question has no answer to give
 wm_tpen_ink equ thm_ink
 %endif
@@ -8742,10 +8765,16 @@ wm_su_scrsz: dw 0               ; scratch begins, and how big that is
 ; the cheapest regression test the whole feature has - and because the first
 ; version of this DID cost it 17 bytes, by writing [vid_planes_w] into a word
 ; nothing else could ever have put anything different in.
+;
+; **AND SINCE KERNEL SIZE PASS 13 kern_small READS NO DEPTH AT ALL.** The one
+; display it has is a CGA or a Hercules on every machine (SPEC.md 39.27.1), so
+; [vid_planes_w] was 1 for ever and each of its six readers here was a x1
+; multiply, a 1-against-1 compare or a plane loop that ran once; all six are
+; KERN_BIG's now and the word itself is a planar kernel's (viddet.inc). So the
+; name is defined on kern_big alone, and a new reader on kern_small is a build
+; error rather than a read of a word that is not there.
 %ifdef KERN_BIG
 %define WM_SU_PW wm_su_pw
-%else
-%define WM_SU_PW vid_planes_w
 %endif
 wm_su_fbase: dw 0               ; ...and where the fragment being restored
                                 ; STARTS, which is what wm_su_edge patches
@@ -8793,8 +8822,9 @@ wm_su_pw: dw 4                  ; HOW DEEP THE DISPLAY THIS CACHE IS ON IS, in
 ; THE BUFFER'S HEADER IS THESE, IN THIS ORDER: WSU_X1..WSU_Y2, WSU_EXT and
 ; (kern_big) WSU_PW are wm_su_x1..wm_su_y2, wm_su_kex and wm_su_pw laid end to
 ; end, so wm_su_take writes the header with ONE rep movsw and wm_su_ck checks
-; it with ONE repe cmpsw. kern_small's depth is [vid_planes_w] and is written
-; and compared beside the run.
+; it with ONE repe cmpsw. kern_small has no depth to bank (one plane, always:
+; SPEC.md 39.27.1), so its run stops short of WSU_PW and the word stays
+; unwritten.
 %if wm_su_kex - wm_su_x1 != WSU_EXT || WSU_X1 != 0 || WSU_Y2 != 6
   %error "wm_su_x1..y2 and wm_su_kex must be the buffer header's first twelve bytes, in order"
 %endif
@@ -8811,23 +8841,12 @@ WSU_HDRW equ WSU_PW / 2         ; ...stopping short of the depth word
 ; A one-shot, wm_dmg_dk's rule: 0 means "the whole window", which is what a
 ; caller that never heard of this inherits.
 %ifdef KERN_BIG
-; --- WHICH DISPLAY A LANDING DECIDED ON (SPEC.md 39.16.4.2) -------------------
-; wm_land_fit asks wm_disp_now ONCE and every step after it is answered from
-; here, because the RESIZE it applies can stop the straddle being true: a
-; 250x303 Arkanoid dropped over the seam takes the CGA's 208x156 and no longer
-; reaches the CGA at all, so wm_kind_bank recorded the HERCULES against a CGA
-; frame and the app's own OSAPI_WM_DISPLAY read the Hercules' 720x348 to lay
-; out a 208-wide window. Two answers to one question, exactly as SPEC.md
-; 39.16.4.1 already had to settle once - and this is the same defect one step
-; further in, where the geometry moves between the two asks rather than the
-; routine.
-;
-; The WINDOW is latched beside the answer so a handler that asks about some
-; OTHER window during the notification gets the truth. .text and not .bss:
-; wm_disp_now is asked from the first mouse press of the session, long before
-; any landing, and 0 is "nothing armed" only because wm_wins is well above it.
-wm_lf_win:  dw 0
-wm_lf_disp: db 0
+; --- WHICH DISPLAY A LANDING DECIDED ON (SPEC.md 39.16.4.2): wm_lf_win and
+; wm_lf_disp are EXTD.DRV's own bytes since kernel size pass 13 (extmod.inc,
+; beside wm_disp_now) - every reader and writer was in that image already.
+wm_lf_pad:  db 0                ; ...less ONE byte, kept for PARITY: three would
+                                ; put ui_task and everything after it at an odd
+                                ; shift against the base (PERFORMANCE.md Part 7)
 %endif
 
 wm_dw_part: db 0                ; the draw in hand is PARTIAL (SPEC.md 11.96.9).
@@ -9085,15 +9104,8 @@ wm_cov_rect:
     call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
     mov di, bx                  ; DI = us, for the walk and for wm_su_rect
     call wm_su_rect             ; AX/BX/CX/DX = our content rect
-    test byte [di+W_FLAGS], WF_FULL
-    jz .rect
-    mov si, di                  ; ...except fullscreen, where the FRAME is the
-    call wm_win_rect            ; content and wm_su_rect insets a title bar
-                                ; that is not there (SPEC.md 11.2). This IS
-                                ; wm_win_rect's WF_FULL answer, and SI is free
-                                ; here: it is pushed at entry and the walk
-                                ; below does not load it until .scan
-.rect:
+                                ; ...the FRAME on a chromeless window -
+                                ; desk or fullscreen - which is the content
     call rect_put               ; <- AX..DX, four adjacent words
     dw wm_cov_c1
     mov si, wm_cov_x1           ; seeded EMPTY, and left that way by a window
@@ -9373,13 +9385,17 @@ wm_bar_span:
 ; wm_su_rect - DI = window -> AX/BX/CX/DX = its content rect, the same four
 ; numbers wm_draw_win's white fill uses
 ;
-; A DESK window's content IS its frame (SPEC.md 11.103.5): wm_damage hands a
-; widget the damage CLIPPED to this rect, and the title inset below would cut
-; its top TITLE_H rows and its borders off every OSAPI_WM_DAMAGE answer.
-; wm_win_rect's chromeless arm has already taken the shadow off.
+; A CHROMELESS window's content IS its frame - a DESK window's (SPEC.md
+; 11.103.5) and a FULLSCREEN one's (SPEC.md 11.2): wm_damage hands a widget the
+; damage CLIPPED to this rect and a fullscreen package the whole of it, and the
+; title inset below would cut its top TITLE_H rows and its borders off every
+; OSAPI_WM_DAMAGE answer. wm_win_rect's chromeless arm has already taken the
+; shadow off. (Until kernel size pass 13 only the desk arm was here, and a
+; fullscreen window's OSAPI_WM_DAMAGE answered the inset rect: the owner's
+; call, taken with the bytes it saves in wm_cov_rect; on kern_small, which has
+; no desk window, the arm costs 3 bytes net and is the defect's fix there.)
 wm_su_rect:
-%ifdef KERN_BIG
-    test byte [di+W_FLAGS+1], WF_DESK >> 8
+    WM_CHROMELESS di
     jz .ord
     push si
     mov si, di
@@ -9387,7 +9403,6 @@ wm_su_rect:
     pop si
     ret
 .ord:
-%endif
     call wm_bar_span
     mov bx, [di+W_Y]
     add bx, TITLE_H
@@ -9684,10 +9699,15 @@ wm_su_bytes:
     mul si
     or dx, dx
     jnz .big
+%ifdef KERN_BIG                 ; (kern_small: WM_SU_PW is [vid_planes_w], which
+                                ; is 1 on every machine that kernel drives -
+                                ; SPEC.md 39.27.1 - so the multiply and its
+                                ; overflow test were x1: kernel size pass 13)
     mov si, [WM_SU_PW]          ; the display THIS CACHE IS ON (4.3), not the
     mul si                      ; one that happens to be current
     or dx, dx
     jnz .big
+%endif
     mov [wm_su_fsz], ax
     jmp short .out
 .big:
@@ -9738,10 +9758,12 @@ wm_su_scrset:
     mov [wm_su_scrb], di
     mov ax, si
     add ax, ax                  ; two byte columns...
+%ifdef KERN_BIG                 ; (x1 on kern_small, wm_su_bytes' reason)
     mov cx, [WM_SU_PW]
     mul cx                      ; ...x planes, of the tallest fragment
     or dx, dx
     jnz .big
+%endif
     mov [wm_su_scrsz], ax
     jmp short .out
 .big:
@@ -9791,6 +9813,9 @@ wm_su_slot:
 ; the pixels behind it were read off a different card, at a different stride,
 ; and possibly with a different number of planes. vid_setmode has just cleared
 ; the framebuffer as well, so there is nothing to keep.
+%ifdef KERN_SMALL                ; (KSW_SECT: CTRL.DRV's on kern_small,
+section KSW_SECT                ; where vid_switch is its one caller)
+%endif
 wm_su_drop_all:
     pushf
     push bx
@@ -9798,13 +9823,20 @@ wm_su_drop_all:
     mov bx, wm_wins             ; every record, in slot order - wm_idx2ptr's
     mov cx, MAX_WIN             ; answer for 0..MAX_WIN-1, walked by the stride
 .one:
-    call wm_su_drop             ; (preserves every register and the flags)
+%ifdef KERN_SMALL
+    KSWK wm_su_drop             ; (preserves every register and the flags)
+%else
+    call wm_su_drop             ; (kern_big: resident, OSAPI_THM_SET's too)
+%endif
     add bx, WIN_SIZE
     loop .one
     pop cx
     pop bx
     popf
     ret
+%ifdef KERN_SMALL
+section .text
+%endif
 
 ; wm_su_drop - forget window BX's cache and give the memory back
 ; preserves every register and the flags
@@ -9897,12 +9929,17 @@ wm_su_ck:
     pop si
     pop di                      ; a pop touches no flag, so ZF survives
     jne .no
-%ifndef KERN_BIG
-    mov ax, [WM_SU_PW]          ; ...and the DEPTH the bytes were laid out to
-    cmp ax, [es:WSU_PW]         ; (SPEC.md 11.96.17): a two-colour claim
-    jne .no                     ; withdrawn, or a window that has crossed to a
-%endif                          ; display of another depth, leaves a buffer
-                                ; that means something else at the same stride
+                                ; ...and on kern_big the run includes the
+                                ; DEPTH the bytes were laid out to (SPEC.md
+                                ; 11.96.17): a two-colour claim withdrawn, or
+                                ; a window that has crossed to a display of
+                                ; another depth, leaves a buffer that means
+                                ; something else at the same stride.
+                                ; kern_small compared [vid_planes_w] here, beside
+                                ; the run, and no longer does: every display it
+                                ; drives is one plane deep (SPEC.md 39.27.1), so
+                                ; every buffer is banked at 1 and the compare
+                                ; was 1 against 1 (kernel size pass 13)
     mov ax, si                  ; ...and the segment, for wm_su_try. CF = 0
     jmp short .out              ; already: the compare that just said EQUAL
 .no:
@@ -10187,10 +10224,12 @@ wm_su_take:
     xor di, di                  ; outside the claim has to be kept in step -
     mov cx, WSU_HDRW            ; ...AND THE DEPTH (SPEC.md 11.96.17), which
     rep movsw                   ; wm_su_flay has just decided and which the
-%ifndef KERN_BIG                ; bytes below are laid out to: one run, the
-    mov ax, [WM_SU_PW]          ; three being laid end to end in .text (see
-    stosw                       ; the %if under wm_su_kex). kern_small's depth
-%endif                          ; is [vid_planes_w] and follows the run
+                                ; bytes below are laid out to: one run, the
+                                ; three being laid end to end in .text (see
+                                ; the %if under wm_su_kex). kern_small banks
+                                ; no depth: it is 1 on every machine it drives
+                                ; and wm_su_ck no longer asks (kernel size pass
+                                ; 13); WSU_PW's word is left unwritten there
     pop si
     mov di, WSU_IMG             ; ...and the fragments start after it, in index
     mov word [wm_su_fn], 0      ; order and back to back - gfx_save walks DI
@@ -10301,6 +10340,11 @@ wm_su_edge:
     sub ax, [WSE_Y1]         ; every walk below is bounded by
     inc ax
     mov [wm_su_srow], ax
+%ifdef KERN_BIG                 ; ...ONE PLANE ON kern_small, ALWAYS (SPEC.md
+                                ; 39.27.1): there [wm_su_nrow] IS [wm_su_srow],
+                                ; an `equ` below, and no plane has a tail to
+                                ; step over, so neither word is computed
+                                ; (kernel size pass 13)
     mov cx, [WM_SU_PW]          ; ...x planes = the bytes gfx_save writes for
     mul cx                      ; one screen column, so the second column's
     mov [wm_su_nrow], ax        ; scratch starts that far past the first
@@ -10312,6 +10356,7 @@ wm_su_edge:
     mul bx
     mov [wm_su_pext], ax        ; the rows of each plane this rect does not
                                 ; cover, one whole buffer row each
+%endif
     mov ax, [wm_su_scrb]        ; ...and the scratch is past EVERY FRAGMENT's
     mov [wm_su_scr], ax         ; image (SPEC.md 11.96.11.1), not just this
                                 ; one's. Derived here it was the same address
@@ -10417,12 +10462,16 @@ wm_su_edge:
 wm_su_merge:
     push si
     push di
-    push bp
+%ifdef KERN_BIG                 ; (kern_small: one plane, so no plane loop -
+    push bp                     ; the walk below runs once and the tail step
+%endif                          ; that only fed the next plane goes with it)
     mov dh, dl
     not dh                      ; ...and the bits to take from the screen
     mov bx, [wm_su_bpr]
+%ifdef KERN_BIG
     mov bp, [WM_SU_PW]
 .plane:
+%endif
     mov cx, [wm_su_srow]
 .row:
     mov al, [es:di]
@@ -10434,10 +10483,12 @@ wm_su_merge:
     inc si
     add di, bx
     loop .row
+%ifdef KERN_BIG
     add di, [wm_su_pext]        ; past the rows of this plane the rect does not
     dec bp                      ; cover, and on to the next plane's copy of it
     jnz .plane
     pop bp
+%endif
     pop di
     pop si
     ret
@@ -11578,7 +11629,14 @@ wm_isrec:
 ; back on. It is .text with a real initialiser because .bss is not zeroed
 ; (-f bin), and 1 is the default because the animation is what elendilon
 ; shipped.
+;
+; NOT kern_small's, though: that kernel reads and writes no SYSTEM.CFG at all
+; (SPEC.md 51.5) and has no Control Panel row for the zoom, so nothing there
+; ever read this byte (kernel size pass 13). The carry argument above is a
+; kern_big build without WM_ANIM (`make ANIMOFF=1`), which still has the map.
+%ifndef KERN_SMALL
 wm_animon   db 1                ; 0 = Off, 1 = On
+%endif
 
 ; -----------------------------------------------------------------------------
 ; wm_nest_pushd / wm_nest_pop - WHICH IMAGES THE MACHINE IS EXECUTING IN
@@ -11822,16 +11880,22 @@ wm_fs_save: resw 4                  ; its windowed x/y/w/h, restored on exit
 ; --- wm_su_edge's scratch (SPEC.md 11.96.2) ----------------------------------
 ; Derived from the banked rect at every restore and never read before it is
 ; written, so unlike the five wm_su_* words above these want no initialiser.
+%ifdef KERN_BIG
 wm_su_nrow: resw 1                  ; scratch bytes per column = restored rows
                                     ; x planes, which is what gfx_save wrote
+%endif
 wm_su_bpr:  resw 1                  ; bytes per buffer row (the BANKED rect's)
 wm_su_scr:  resw 1                  ; offset of the two screen columns
 wm_su_lm:   resb 1                  ; bits of the left edge byte the rect owns
 wm_su_rm:   resb 1                  ; ...and of the right
 ; --- and what bounds it to the rect being restored (SPEC.md 11.96.8) ---------
 wm_su_srow: resw 1                  ; rows of THIS restore, per plane
+%ifdef KERN_BIG
 wm_su_pext: resw 1                  ; ...and the rows of the plane it does not
                                     ; cover, which the walk steps over
+%else
+wm_su_nrow equ wm_su_srow           ; one plane: rows x 1 (kernel size pass 13)
+%endif
 wm_su_rofs: resw 1                  ; where its first row sits in the buffer
 wm_su_dol:  resw 1                  ; 0 = the restore reaches the banked rect's
 wm_su_dor:  resw 1                  ; left / right edge byte column

@@ -2557,7 +2557,7 @@ cs_i7:       db 'P         pause', 0
 cs_i8:       db 'R         back to the runway', 0
 cs_i9:       db 'M, Q      map; engine sound on/off', 0
 cs_i10:      db 'Esc or F  back to this window', 0
-cs_i11:      db 'Full throttle; pull back at 55 knots.', 0
+cs_i11:      db 'Full throttle; pull back when told.', 0
 cs_i12:      db 'Click, or press a key, to return.', 0
 cs_i13:      db 'F1 to F7  step a setting, in flight', 0   ; in the blank
                                                           ; separator's place:

@@ -58,7 +58,7 @@
 13 1 kernel/spinner.inc  # the boot spinner's %macro state, drawn from IRQ0 inside int 13h (SPEC.md 15.3.8) during the boot
 37 3 kernel/splash.inc  # the loading screen's state, all of it in stage 2 (SPEC.md 2.9.4)
 3 2 kernel/vidsel.inc  # the adapter pick, in stage 2 and the boot overlay
-1 3 kernel/desksc.inc  # the boot half's scan (.boot2), in real mode before mega_enter; CTRL.DRV's half is PUSH_CSDATA/CSDO now
+0 4 kernel/desksc.inc  # the boot half's scan (.boot2), in real mode before mega_enter; CTRL.DRV's half is PUSH_CSDATA/CSDO now
 
 # --- .mod*: an on-demand module writing its own image -----------------------
 45 11 kernel/hiber.inc  # HIBER.DRV (.modh); real mode by design and replaced on kern_mega (KERN-MEGA-PLAN 2.6)

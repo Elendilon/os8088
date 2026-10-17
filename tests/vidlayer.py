@@ -275,10 +275,12 @@ def main():
                 # PAGE-AHEAD AND A LAYER (98.2.1.8.3): the base built ahead
                 # on two pages, the layer for the 486 drawn on the page
                 # shown - whose model must keep both pages, or the decode
-                # ends elsewhere
+                # ends elsewhere. (--pages 2 named: the default is MAX, which
+                # a layer holds to two and a plain Mode X file takes as
+                # three, so the plain encode it is held against says 2)
                 ("page486", ["--preset", "modex", "--profile", "286-fast",
                              "--disk", str(BASE_DISK), "--page-ahead",
-                             "on"],
+                             "on", "--pages", "2"],
                  ["--layer-profile", "486-dx2-66", "--layer-disk",
                   str(LAYER_DISK)]))
         for arm, bopt, lopt in arms:

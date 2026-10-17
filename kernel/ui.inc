@@ -732,8 +732,11 @@ ui_task:
     call wm_close_pass          ; (SPEC.md 75.2)
 .clr_done:
     xor ax, ax                  ; deferred instance launch (posted by
-    xchg ax, [inst_launch]      ; lock-held handlers via inst_launch_post);
-    or ax, ax                   ; consumed before running, not after
+    xchg al, [inst_launch]      ; lock-held handlers via inst_launch_post);
+    or al, al                   ; consumed before running, not after. A BYTE
+                                ; since kernel size pass 13: 8 clocks less of
+                                ; every idle pass, the word's second bus cycle
+                                ; each way
     jz .chk_ld
     dec ax                      ; stored as kind + 1
     call app_launch             ; in: AL = kind; does its own locking
@@ -2580,18 +2583,27 @@ ui_d_svc:
 %endif
 
 ; -----------------------------------------------------------------------------
-; ui_tm_open / ui_svc_open - front a system package, or load it off the
-;                            system disk (SPEC.md 28.3, 26.7)
+; ui_tm_open / cw_ui_svc_open - front a system package, or load it off the
+;                               system disk (SPEC.md 28.3, 26.7)
 ; in:  nothing; UI task, no lock held
 ; out: nothing (all registers preserved)
+;
+; cw_ui_svc_open is FAR: its one caller is desk.inc's service zone, which is
+; `.cold`, and it was a near entry behind a kernel.asm shim of its own that
+; did nothing but `call` it and `retf` (kernel size pass 13: one body, -2)
 ; -----------------------------------------------------------------------------
 %ifndef KERN_SMALL
-ui_svc_open:
+cw_ui_svc_open:
     mov word [ui_desc], ui_d_svc
-    jmp short ui_sys_open
+    call ui_sys_open
+    retf
 %endif
 ui_tm_open:
-    mov word [ui_desc], ui_d_tm ; ...and on into the body
+%ifndef KERN_SMALL
+    mov word [ui_desc], ui_d_tm ; ...and on into the body. kern_small has no
+%endif                          ; service zone, so ui_d_tm is the only value
+                                ; [ui_desc] ever holds there and its resting
+                                ; value already is it (kernel size pass 13, -6)
 
 ; -----------------------------------------------------------------------------
 ; ui_sys_open - the body both of them are
@@ -2907,11 +2919,8 @@ ui_cmd:
     ret                         ; it and writes SYSTEM.CFG
 %endif
 
-.about:
-    mov al, KIND_ABOUT
-    jmp .launch
 .ctrl:
-    call COLD_SEG:cpf_cp_open   ; NOT .launch: the panel's code is a file now
+    call COLD_SEG:cpf_cp_open   ; NOT app_launch: the panel's code is a file now
     ret                         ; (SPEC.md 2.8.4), so opening it can fail for
                                 ; a reason app_launch knows nothing about.
                                 ; NOT a far tail jump: cpf_cp_open ends in
@@ -2921,8 +2930,14 @@ ui_cmd:
 .tasks:
     jmp ui_tm_open              ; not a kind any more: it is a package on the
                                 ; system disk (SPEC.md 28)
-.launch:                        ; About's alone now: Timer and Bounce are
-                                ; packages on the apps disk (SPEC.md 14.8)
+.about:                         ; THE ONE KIND ui_cmd LAUNCHES - Timer and
+                                ; Bounce are packages on the apps disk (SPEC.md
+                                ; 14.8) - and AL is ALREADY it: CMD_ABOUT - 1,
+                                ; the `dec ax` above, is KIND_ABOUT (kernel
+                                ; size pass 13, -4)
+%if CMD_ABOUT - 1 != KIND_ABOUT
+  %error "ui_cmd's .about takes AL = CMD_ABOUT - 1 as KIND_ABOUT"
+%endif
     call app_launch             ; takes its own locks; out CF = tables full
     jnc .done
 .beep:

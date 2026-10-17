@@ -148,21 +148,23 @@ sc_open:
     call sc_row                 ; ES:BX = the record
     mov ax, [es:bx+SC_R_VOL]    ; AL = the volume...
     mov ah, [es:bx+SC_R_KIND]   ; ...AH = the kind
-    lea di, [bx+SC_R_PATH]
-    mov word [sc_wsp], sc_seg   ; ...in the claim, which may MOVE
+    lea di, [bx+SC_R_PATH]      ; ...in the claim, which may MOVE
 
 ; sc_walk - the open BY PATH that sc_open and a LINK share (SPEC.md 26.8.5,
 ;           26.10.3)
 ; in:  AL = the volume, AH = the kind (1 package, else a document or a
-;      folder - what the entry IS decides), DI = the path below the root, an
-;      offset in the segment held by the WORD [sc_wsp] points at
+;      folder - what the entry IS decides), DI = the path below the root:
+;      BELOW SP an offset in the shortcut table's claim, [sc_seg]; ABOVE it,
+;      a record on the STACK - a link's (lnk_open)
 ; out: nothing; clobbers AX..DI, ES, flags
 ;
-; [sc_wsp] is a pointer to a segment word and not a segment, because the
-; walk mounts and a mount may compact the heap: the shortcut table is a
-; movable claim and is re-read at every component through [sc_seg] itself.
-; A link's record is on the STACK, whose segment is a constant
-; (sc_lowseg), and the boot's autostart hands it the same.
+; THE OFFSET SAYS WHOSE IT IS, so no caller names a segment. The walk mounts
+; and a mount may compact the heap, so the shortcut table - a movable claim -
+; is re-read through [sc_seg] at every component; a link's record is on the
+; stack, whose segment is SS. A table offset is under SC_MAX * SC_REC, and
+; task 0's stack, the one context that walks, is above STK0_BOT, which
+; kernel.asm's foot proves the larger. A link's record is ABOVE SP by
+; construction: lnk_open called this from beneath it.
 sc_walk:
     xchg ax, bp                 ; BP holds both for the walk
     call drv_vol_bank
@@ -171,8 +173,12 @@ sc_walk:
     mov ax, bp
     call fcp_goto               ; CF = no disk, or no such folder
     jc .nf
-    mov si, [sc_wsp]            ; re-read: a mount may compact the heap
-    mov es, [si]
+    mov es, [sc_seg]            ; re-read: a mount may compact the heap
+    cmp di, sp
+    jb .tab                     ; ...a table offset, or a link's record:
+    push ss                     ; above SP, so on the stack
+    pop es
+.tab:
     mov si, assoc_doc
     mov cx, SC_CAPMAX
 .cc:
@@ -256,15 +262,14 @@ sc_walk:
 ; ([ui_rebootq]) stands everything down: that image IS the session.
 ; -----------------------------------------------------------------------------
 stik_boot:
-    cmp byte [ui_rebootq], 0
-    jne .r0
-    cmp byte [sc_nrows], 0      ; no row, no work and no I/O: what every
-    je .r0                      ; machine without a widget pays
-    call kentc_bp
-    push es
+    call kentc_bp               ; the bank FIRST, so both refusals below are
+    push es                     ; one exit (kernel size pass 13, -6): a boot
+    cmp byte [ui_rebootq], 0    ; pays it once and nothing else does
+    jne .x
     mov cl, [sc_nrows]
     xor ch, ch
-    mov al, DESK_SC0
+    jcxz .x                     ; no row, no work and no I/O: what every
+    mov al, DESK_SC0            ; machine without a widget pays
 .l:
     call sc_row                 ; ES:BX = the row
     jc .n
@@ -282,9 +287,8 @@ stik_boot:
 .n:
     inc ax
     loop .l
+.x:
     jmp kretc_es
-.r0:
-    ret
 
 ; -----------------------------------------------------------------------------
 ; lnk_is - is the document in assoc_doc a LINK? (SPEC.md 26.10)
@@ -338,26 +342,26 @@ lnk_open:
     mov cx, LNK_SIZE
     xor dx, dx
     call dskw_read_x            ; a bigger file is FERR_BIG, before any I/O:
-    jc .notours                 ; Microsoft's header alone is 76 bytes. A
-                                ; SHORTER one is not refused by length - the
+    mov bp, bx                  ; Microsoft's header alone is 76 bytes. A
+    jc .notours                 ; SHORTER one is not refused by length - the
                                 ; signature has to match, the volume is bounded
                                 ; and the path terminated below, so its unread
                                 ; tail is stack bytes that can only fail to
-                                ; name anything (5 bytes, kept out)
-    cmp word [es:bx+LNK_SIG], 'LK'
+                                ; name anything (5 bytes, kept out). SS:BP =
+                                ; the record, which needs no segment prefix
+    cmp word [bp+LNK_SIG], 'LK'
     jne .notours
-    cmp byte [es:bx+LNK_VER], LNK_V
+    cmp byte [bp+LNK_VER], LNK_V
     jne .pop                    ; ours, in a format this kernel does not read
-    mov ax, [es:bx+LNK_VOL]     ; AL = the volume, AH = the kind
+    mov ax, [bp+LNK_VOL]        ; AL = the volume, AH = the kind
     cmp al, LNK_SELF
     jne .abs
     mov al, [assoc_ddrv]        ; THE LINK'S OWN VOLUME, so a link travels
 .abs:                           ; with the disk it names
     cmp al, DVOL_MAX
     jae .pop                    ; the file is hostile: no row has that index
-    lea di, [bx+LNK_PATH]
-    mov byte [es:di+SC_PATHMAX-1], 0    ; ...and terminated, whatever it said
-    mov word [sc_wsp], sc_lowseg
+    lea di, [bp+LNK_PATH]       ; ABOVE SP: sc_walk reads it through SS
+    mov byte [bp+LNK_PATH+SC_PATHMAX-1], 0  ; ...terminated, whatever it said
     call sc_walk
 .pop:
     add sp, LNK_SIZE
@@ -553,8 +557,6 @@ section .text
 sc_reloc:
     mov [sc_seg], dx
     ret
-sc_lowseg   dw LOW_SEG          ; ...a link's record is on the STACK, and
-                                ; sc_walk takes the WORD naming its segment
 
 ; --- the File menu's item and the right-click's, ONE string ------------------
 ; desk_select points item 1 at the MENU_DIS byte or past it, the Close Window
@@ -581,7 +583,6 @@ sc_bdg      db 1, 10            ; the badge: 10x10, one word across - a box
 section .bss
 ; =============================================================================
 sc_seg      resw 1              ; the table's claim, 0 = no shortcuts
-sc_wsp      resw 1              ; sc_walk's record: the word naming its segment
 sc_nrows    resb 1              ; rows the claim holds, 0..SC_MAX
 
 ; =============================================================================
@@ -680,11 +681,7 @@ sc_m_new:
     mov bp, fmv_get_icon
     call sc_m_cold              ; dsk_ico = its 64-byte body
     call sc_m_offz
-    mov al, [fcp_cbtype]
-    cmp al, 2
-    jbe .kind
-    mov al, 2
-.kind:
+    call sc_m_kind
     mov [es:di+SC_R_KIND], al
     push di
     add di, SC_R_CAP            ; CAPTION, HEADER and BODY are contiguous, so
@@ -703,17 +700,12 @@ sc_m_new:
                                 ; this returns, the lock being ours
 
     ; --- the path, and a package's own name: standing in the entry's folder -
-    call COLD_SEG:drvf_drv_vol_bank
-    mov al, [fcp_cbdrv]
-    mov bx, [fcp_cbcwd]
-    call COLD_SEG:fcpf_fcp_goto
+    call sc_m_go
     jc .bad
-    call sc_m_offz
-    add di, SC_R_PATH - 1       ; ONE BEFORE THE FIELD, so dsk_path's leading
-    mov cx, SC_PATHMAX + 1 - SC_CAPMAX  ; `\` lands on the spare byte and
-    call COLD_SEG:dsk_path_x    ; the field is the path BELOW THE ROOT. The
-    jnc .path                   ; folder's REAL path, which a window's FS_PATH
-                                ; is not when it was opened part-way down
+    call sc_m_offz              ; (a mount may have moved the claim)
+    add di, SC_R_PATH           ; dsk_path's leading `\` lands on the spare
+    call sc_m_wpath             ; byte, and the field is the path BELOW THE
+    jnc .path                   ; ROOT and the entry's name
 
     ; The refusals, HERE and not after the caption code: every jump to them is
     ; then short, and the caption falls into .done (kernel size pass 12, -11)
@@ -729,16 +721,6 @@ sc_m_new:
     jmp sc_m_say
 
 .path:
-    add di, cx                  ; (it records navigation). CX = the path's
-    cmp cx, 1                   ; length, so ES:DI = its NUL - and the root
-    je .nm
-                                ; answers `\`, which is no folder at all
-    mov byte [es:di], '\'
-    inc di
-.nm:
-    mov si, fcp_cbname
-    mov cx, SC_CAPMAX
-    rep movsb                   ; `APPS\CALC.O88` (SPEC.md 26.8.1)
     call sc_m_offz
     cmp byte [es:di+SC_R_KIND], 1
     jne .capx
@@ -941,12 +923,11 @@ sc_m_dfind:
     mov si, bp
     push ds
     mov ds, dx
+    cld
 .cmp:
     mov ah, [si]                ; bounded by the ROW's, which the kernel has
-    cmp ah, [es:di]             ; terminated: the record's stops at the first
+    cmpsb                       ; terminated: the record's stops at the first
     jne .ne                     ; byte that differs from it
-    inc si
-    inc di
     or ah, ah
     jnz .cmp                    ; equal through the NUL: ZF = 1, CF = 0
 .ne:
@@ -1008,41 +989,8 @@ sc_m_same:
 sc_m_lnk:
     push ax                     ; the destination, for after the path
     push dx
-    call COLD_SEG:drvf_drv_vol_bank
-    mov al, [fcp_cbdrv]
-    mov bx, [fcp_cbcwd]
-    call COLD_SEG:fcpf_fcp_goto ; ...standing in the ENTRY's folder
+    call sc_m_go                ; ...standing in the ENTRY's folder
     jc .nopath
-    PUSH_CSDATA
-    pop es
-    lea di, [cs:cpc_buf + LNK_PATH - 1] ; ONE BEFORE THE FIELD, sc_m_new's way:
-    mov cx, SC_PATHMAX + 1 - SC_CAPMAX  ; dsk_path's leading `\` lands on
-    call COLD_SEG:dsk_path_x    ; the kind byte, written after it
-    jc .nopath
-    add di, cx
-    cmp cx, 1                   ; the root answers `\`, which is no folder
-    je .nm
-    mov byte [es:di], '\'
-    inc di
-.nm:
-    cld
-    mov si, fcp_cbname
-    mov cx, SC_CAPMAX
-    rep movsb                   ; `APPS\CALC.O88`
-    lea di, [cs:cpc_buf]        ; (`lea` with `cs:` - the pointer is the
-                                ; IMAGE's, ES = CS, and os88ovlchk is told so)
-    mov ax, 'LK'
-    stosw
-    mov al, LNK_V
-    stosb
-    mov al, [fcp_cbdrv]
-    stosb                       ; LNK_VOL...
-    mov al, [fcp_cbtype]
-    cmp al, 2
-    jbe .kind
-    mov al, 2
-.kind:
-    stosb                       ; ...and LNK_KIND
     push ds                     ; THE LINK'S NAME, the entry's stem and .LNK,
     pop es                      ; into assoc_doc: a name is read through DS
     mov si, fcp_cbname
@@ -1064,14 +1012,27 @@ sc_m_lnk:
     stosw
     xor al, al
     stosb
+    PUSH_CSDATA                 ; ...and the RECORD in the image, ES = CS from
+    pop es                      ; here to the write (its DATA segment)
+    lea di, [cs:cpc_buf + LNK_PATH] ; the path, sc_m_new's: dsk_path's leading
+    call sc_m_wpath             ; `\` lands on the kind byte, written after it
+    jc .nopath
+    lea di, [cs:cpc_buf]        ; (`lea` with `cs:` - the pointer is the
+                                ; IMAGE's, ES = CS, and os88ovlchk is told so)
+    mov ax, 'LK'
+    stosw
+    mov al, LNK_V
+    stosb
+    mov al, [fcp_cbdrv]
+    stosb                       ; LNK_VOL...
+    call sc_m_kind
+    stosb                       ; ...and LNK_KIND
     pop bx                      ; the destination's folder...
     pop ax                      ; ...and volume
     mov [fcp_ddrv], al          ; fmv_reload_all's question: which volumes
     call COLD_SEG:fcpf_fcp_goto ; changed
     jc .err
-    PUSH_CSDATA
-    pop es
-    lea bx, [cs:cpc_buf]
+    lea bx, [cs:cpc_buf]        ; ES = CS still: fcp_goto writes AX alone
     mov cx, LNK_SIZE
     xor dx, dx
     mov si, assoc_doc
@@ -1097,6 +1058,53 @@ sc_m_lnk:
     pop ax
     mov bp, fm_paste_res        ; ...which re-lists and repaints what changed
     jmp sc_m_cold
+
+; sc_m_kind - AL = the dragged entry's kind, [fcp_cbtype] bounded to 2 (SPEC.md
+; 26.8.1): 0 document, 1 package, 2 folder - and the shortcut and the link
+; both store it. Clobbers flags
+sc_m_kind:
+    mov al, [fcp_cbtype]
+    cmp al, 2
+    jbe .k
+    mov al, 2
+.k:
+    ret
+
+; sc_m_go - bank the volume and stand in the dragged entry's folder ([fcp_cb*]),
+; the first half of the path a shortcut and a link both record (SPEC.md 26.8.1,
+; 26.10.4). out: CF = 1 its folder is gone - the volume banked either way, so
+; the caller puts it back; clobbers AX, BX, flags
+sc_m_go:
+    call COLD_SEG:drvf_drv_vol_bank
+    mov al, [fcp_cbdrv]
+    mov bx, [fcp_cbcwd]
+    call COLD_SEG:fcpf_fcp_goto
+    ret
+
+; sc_m_wpath - ...and the second: ES:DI = the 45-byte path field, standing in
+; the entry's folder (sc_m_go) -> the path BELOW THE ROOT and the entry's name,
+; `APPS\CALC.O88`, NUL. It starts ONE BEFORE THE FIELD, so dsk_path's leading
+; `\` lands on the byte in front, which the caller writes after. The folder's
+; REAL path, which a window's FS_PATH is not when it was opened part-way down
+; (it records navigation). out: CF = 1 it will not fit; clobbers AX, CX, SI,
+; DI, flags
+sc_m_wpath:
+    dec di
+    mov cx, SC_PATHMAX + 1 - SC_CAPMAX
+    call COLD_SEG:dsk_path_x
+    jc .r
+    add di, cx                  ; CX = the path's length, so ES:DI = its NUL -
+    cmp cx, 1                   ; and the root answers `\`, which is no folder
+    je .nm                      ; at all (CF = 0 out of either compare)
+    mov byte [es:di], '\'
+    inc di
+.nm:
+    cld
+    mov si, fcp_cbname
+    mov cx, SC_CAPMAX
+    rep movsb                   ; `APPS\CALC.O88` (SPEC.md 26.8.1)
+.r:
+    ret
 
 ; sc_m_mem - the table's claims, one door: AX = KB (0 = free the claim at DX),
 ; DX = the claim (0 = a new one), CX = a new claim's relocation proc (0 = pin
@@ -1834,56 +1842,43 @@ ovl_sc_load:
 section .boot2
 
 as_boot:
-    mov al, [dsk_bootvol]
     xor bx, bx
-    call COLD_SEG:fcpf_fcp_goto ; the boot volume's ROOT
+    call .go                    ; the boot volume's ROOT
     jc .out
-    push ds
+    push cs
     pop es
-    mov di, assoc_doc           ; a name dskw_stat reads goes through DS, so
-    mov si, as_s_dir            ; the blob's own is staged
-    mov cx, as_s_dirn
-.nm:
-    mov al, [cs:si]
-    stosb
-    inc si
-    loop .nm
+    mov si, as_s_dir            ; a name dskw_stat reads goes through DS, so
+    mov cx, as_s_dirn           ; the blob's own is staged
+    call .cp
     mov si, assoc_doc
     call COLD_SEG:dwf_dskw_stat ; AL = its attribute, BX = its first cluster
     jc .out
     test al, 0x10
     jz .out                     ; a FILE called AUTOSTRT starts nothing
-    mov [cs:as_dir], bx
-    xor cx, cx                  ; the ordinal, 0 to start
+    mov dx, bx                  ; DX = the folder, for the whole walk: nothing
+                                ; below writes it, and assoc_run_x preserves
+    xor cx, cx                  ; every register. The ordinal, 0 to start
 .next:
-    mov al, [dsk_bootvol]       ; stand there again: the open before this one
-    mov bx, [cs:as_dir]         ; went wherever its link pointed
-    call COLD_SEG:fcpf_fcp_goto
+    mov bx, dx                  ; stand there again: the open before this one
+    call .go                    ; went wherever its link pointed
     jc .root
-    push cs
-    pop es
-    mov di, as_find
+    push cs                     ; ES:DI = the answer's room, in the blob and
+    pop es                      ; not on task 0's stack: a link that names a
+    mov di, as_find             ; link is followed only while 320 bytes of it
+                                ; are left (LNK_SPMIN)
     xor al, al                  ; no hidden or system entries
     call COLD_SEG:dsk_find_x    ; CX = the next ordinal; CF = the end
     jc .root
     push cx
     mov si, di                  ; its 8.3 name, NUL, into the document locator
-    mov di, assoc_doc           ; every open reads (SPEC.md 21.5)
-    mov cx, 13
-.cp:
-    mov al, [cs:si]
-    mov [di], al
-    inc si
-    inc di
-    loop .cp
+    mov cx, 13                  ; every open reads (SPEC.md 21.5)
+    call .cp
     mov bp, lnk_is
     call COLD_SEG:wm_cbd        ; ZF = 1: a .LNK - anything else there is
     jne .nl                     ; not started
-    push ds
-    xor ax, ax
-    mov ds, ax
-    test byte [0x417], 3        ; 0040:0017, KB_FLAG: either Shift
-    pop ds
+    mov ah, 2                   ; the ROM's own read of 0040:0017, KB_FLAG
+    int 0x16
+    test al, 3                  ; ...either Shift
     jnz .skip
     mov byte [assoc_dapp], ASSOC_FIND
     mov word [assoc_pwin], 0
@@ -1899,16 +1894,27 @@ as_boot:
     xor cx, cx
     call KERNEL_SEG:cw_toast_show   ; COPIED, so a blob string outlives it
 .root:
-    mov al, [dsk_bootvol]       ; ...and the boot volume's root again, where
-    xor bx, bx                  ; the boot left it
-    call COLD_SEG:fcpf_fcp_goto
+    xor bx, bx                  ; ...and the boot volume's root again, where
+    call .go                    ; the boot left it
 .out:
     retf
+.go:                            ; stand in folder BX of the boot volume
+    mov al, [dsk_bootvol]
+    call COLD_SEG:fcpf_fcp_goto
+    ret
+.cp:                            ; CX bytes from ES:SI into assoc_doc
+    mov di, assoc_doc
+.c:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .c
+    ret
 
 as_s_dir:   db 'AUTOSTRT', 0
 as_s_dirn   equ $ - as_s_dir
 as_s_skip:  db 'Autostart skipped', 0
-as_dir:     dw 0
 as_find:    times DSK_FIND_SZ db 0
 
 section .modc                   ; ...and the image's own scratch, IN the

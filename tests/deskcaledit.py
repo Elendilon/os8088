@@ -79,7 +79,6 @@ ROOT = os.path.join(HERE, "..")
 BDIR = os.path.join(ROOT, os.environ.get("OS88_BUILD", "build"))
 TITLE = "Desk Calendar"
 TODAY = (2026, 10, 14)
-STIK_ST = os88stik.stik_st_off(os88stik.DESKCAL_STIK_BSS, os88stik.DESKCAL_PAYLEN)
 STIK_S_DIRTY, STIK_S_DAMAGED = 16, 8
 DC_BSS_ASK = 70                 # deskcal.asm's dc_ask: Delete's latch
 
@@ -137,8 +136,11 @@ class Cal(object):
         self.wseg = struct.unpack_from("<H", m.read(
             ui._S("wm_wins") + w.i * geom.WIN_SIZE + geom.W_SEG, 2))[0]
         self.image = image_size(m, self.wseg)
-        self.woff = os88stik.widget_off(os88stik.DESKCAL_STIK_BSS,
-                                       os88stik.DESKCAL_PAYLEN)
+        # the state's offsets past the image: the kern_big build keeps it
+        # in its Sticky App block (SPEC.md 110.15), so they need the image
+        self.woff = os88stik.state_off(os88stik.DESKCAL_LIB,
+                                       os88stik.DESKCAL_STIK_BSS,
+                                       os88stik.DESKCAL_PAYLEN, self.image)
         if bare:
             for o in list(ui.windows()):
                 if o.i != self.slot and o.visible:
@@ -156,7 +158,7 @@ class Cal(object):
         return self.bss(self.woff[name])[0]
 
     def st(self):
-        return self.bss(STIK_ST)[0]
+        return self.bss(self.woff["st"])[0]
 
     def ed(self):
         return self.bss(os88stik.DESKCAL_BSS_ED)[0]

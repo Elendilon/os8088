@@ -246,6 +246,34 @@ CPH_CCUST equ 8                             ; 7 is the Screen Saver's
 CP_B0Y1   equ CP_PR0Y - 4                     ; 22: row 0 (Pre-emptive) top
 CP_B0Y2   equ CP_PR0Y + CP_GW + 3             ; 41: row 0 bottom = row 1 top-1
 CP_B1Y2   equ CP_PR0Y + CP_PROWH + CP_GW + 3  ; 61: row 1 (Cooperative) bottom
+
+; --- CPXK / CPXC - the panel image's own way back into the kernel -----------
+; A kernel routine only this image calls needs no resident shim: `CPXK x` is a
+; five-byte far hop into the near .text routine x, `CPXC x` the same into a
+; near .cold one, through cp_kgo / cp_cgo below (fdlg.inc's fdx_go and
+; extmod.inc's exk_go, one image along). Five bytes is what the far call to
+; the shim was, so the sites cost nothing and every shim they replace is four
+; resident bytes back (kernel size pass 13); the price is the device, once,
+; and ~300 cycles a hop on paths that are a click or a page paint.
+%macro CPXK 1
+    call cp_kgo
+    dw %1
+%endmacro
+%macro CPXC 1
+    call cp_cgo
+    dw %1
+%endmacro
+; ...and CPXN, a plain near call to a routine os88ui.inc assembles INTO this
+; image (OS88UI_KGLYPH): tools/os88ovlchk.py files that file as `.cold` on
+; both kernels, so the call is written through %1, which that scan does not
+; read - fdlg.inc's FDX/FDENT idiom
+%macro CPXN 1
+    call %1
+%endmacro
+%macro CPXF 1                   ; ...and the FAR-bodied one (a `retf`): this
+    push cs                     ; image's vid_switch and dock_apply, whose
+    call %1                     ; boot copies drv_boot far-calls (KSW_SECT)
+%endmacro
 section .text
 
 
@@ -1276,7 +1304,7 @@ cp_onup_x:
     call cp_drv_ev              ; gesture, so the probe below must not run
 %ifdef KERN_BIG
     jnc .done
-    call COLD_SEG:os88ui_fire_f ; AX = what the press armed, and it is CLEARED
+    CPXC os88ui_fire             ; AX = what the press armed, and it is CLEARED
     or ax, ax
     jz .done
     mov bx, ax                  ; BL = the armed control
@@ -1312,7 +1340,7 @@ cp_ondrag_x:
     mov ax, DSV_CPDRAG          ; SPEC.md 13.8.4, and cp_onup_x's reasoning
     call cp_drv_ev
     jnc .ddone
-    call COLD_SEG:os88ui_armed_f
+    CPXC os88ui_armed
     or ax, ax
     jz .ddone
     mov bx, ax
@@ -1651,8 +1679,13 @@ cp_v2r:
 ; clobbers: AL (the output), flags
 ; -----------------------------------------------------------------------------
 cp_nitems:
-    call COLD_SEG:drv_cp_count_x
+%ifdef OS88_DRIVERS
+    mov al, 0xFF                ; drv_cp_count: an ordinal no class can be, so
+    CPXC drv_cp_class_x          ; the walk runs out and AL is the tally
     add al, [cp_nst]
+%else
+    mov al, [cp_nst]            ; ...and no class publishes a page here
+%endif
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1665,7 +1698,11 @@ cp_drv_item:
     cmp al, CP_ITEMS            ; the static/driver boundary is a RECORD-space
     jb .static                  ; question, so it is the table's length and
     sub al, CP_ITEMS            ; not the count of rows on screen
-    call COLD_SEG:drvf_drv_cp_class   ; CF=1 if the driver went away under us
+%ifdef OS88_DRIVERS
+    CPXC drv_cp_class_x          ; CF=1 if the driver went away under us
+%else                           ; (kern_small: the refusing stub, CF = 1)
+    call COLD_SEG:drvf_drv_cp_class
+%endif
     jc .gone
 .static:                        ; (`jb` arrives with CF = 1)
     ret
@@ -2617,7 +2654,7 @@ cp_gemit:
     mov byte [cp_skip], 0       ; ...one-shot (a `mov` writes no flags)
     jne .out
 %endif
-    call COLD_SEG:os88ui_glyph_f
+    CPXN os88ui_glyph           ; IN THIS IMAGE (OS88UI_KGLYPH, fdlg.inc)
 %ifdef KERN_BIG
 .out:
 %endif
@@ -2658,11 +2695,16 @@ cp_krect:
     mov bx, os88ui_krect
     ret
 
+; --- cp_kgo / cp_cgo - CPXK's and CPXC's far hop, built by hand (kernel.asm's
+; KGO_PAIR, which says how; the boot blob carries the same pair as bvs_kgo /
+; bvs_cgo for its copies of the adapter switch)
+KGO_PAIR cp
+
 cp_wfill:   mov byte [gfx_color], CWHITE ; ...a fill in the GROUND, which is
                                     ; what six sites set the pen for first
 cp_fill:    call KERNEL_SEG:cw_gfx_fill
             ret
-cp_penlive: call KERNEL_SEG:cw_gfx_pen_live
+cp_penlive: CPXK gfx_pen_live
             ret
 cp_drvrow:  call COLD_SEG:drvf_drv_row
             ret
@@ -2670,7 +2712,11 @@ cp_clssvc:  call COLD_SEG:drvf_drv_cls_svc
             ret
 cp_pencf:   call KERNEL_SEG:cw_gfx_pen_cf
             ret
+%ifdef OS88_DRIVERS
+cp_drvcall: CPXC drv_cp_call_x
+%else                           ; (kern_small: driver.inc's refusing stub)
 cp_drvcall: call COLD_SEG:drvf_drv_cp_call
+%endif
             ret
 
 ; cp_repost - a setting that changes the WORLD: remembered on close (SPEC.md
@@ -2843,18 +2889,20 @@ cp_thm_cust_btn:
 ; HERE IN THE PANEL'S IMAGE, NOT IN .cold: the button that calls it is this
 ; image's, so the loader costs the kernel nothing. What stays resident is the
 ; row (kernel/driver.inc), drv_call's range test and the reap that every panel
-; close runs (thmv_reap_x). The window is handed the three addresses it edits -
+; close runs (drv_cp_closed_x's tail). The window is handed the three addresses it edits -
 ; the Color row, the struct's 'TP' record and [thm_cstrp] - so it needs no
 ; symbol and the kernel needs no preset table and no call to set one.
 ; -----------------------------------------------------------------------------
 cp_thmv_open:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    mov bx, thmv_row
+    call kentm_bp               ; KENT: push ax..bp (AX too: the caller reads
+    mov bx, thmv_row            ; [thmv_row+DRVR_ERR] for itself afterwards)
+    CPSTAGE cp_thmv_fname       ; THE FILE NAME IS STAGED, not resident (kernel
+    mov [bx+DRVR_FILE], si      ; size pass 13): drv_load_at reads it through
+                                ; DS, and this is the one code that loads the
+                                ; row, so the name lives in this image and
+                                ; cp_sbuf carries it for the length of the
+                                ; call. Nothing else reads thmv_row's FILE or
+                                ; TITLE - it is past DRV_MAX, so no walk meets it
     call COLD_SEG:drvf_drv_load_at  ; CF = 0 immediately once it is already live
     jc .no
     push es
@@ -2874,20 +2922,18 @@ cp_thmv_open:
     mov al, THMV_OPEN
     call COLD_SEG:drvf_drv_call
     jnc .out
-    mov bp, [bx+DRVR_ENT]       ; it loaded and then refused: give it back,
-    mov al, THMV_CLOSE          ; thmv_reap_x's two steps
-    call COLD_SEG:drvf_drv_call
-    call COLD_SEG:drvf_drv_release
-.no:
+    mov bx, thmv_row            ; it loaded and then refused: give it back -
+    mov bp, [bx+DRVR_ENT]       ; the panel close's own two steps (the tail
+    mov al, THMV_CLOSE          ; of drv_cp_closed_x), through the two far
+    call COLD_SEG:drvf_drv_call ; entries. The row and the entry are loaded
+    call COLD_SEG:drvf_drv_release  ; again: a refusing driver may answer in
+.no:                            ; BX, and drv_call spends BP
     stc
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp kretm_bp                ; pops and a ret: CF survives
+cp_thmv_fname: db 'THMPAL.DRV', 0   ; staged into cp_sbuf above (ss_fname's
+                                ; shape, one image along: no row on the
+                                ; Drivers page and no caption)
 %endif
 
 ; cp_thm_colpen - the pen for the Color row: greyed unless this machine has
@@ -2953,7 +2999,8 @@ cp_thm_click:
     jc .donej                   ; 13.8.3): opening a window is not a safe
                                 ; prefix action, so a mis-aimed press has to
                                 ; be cancellable by sliding off
-    call COLD_SEG:ssf_cfg       ; the overlay, and then its window (79.7)
+    mov al, SSV_CFG             ; the overlay, and then its window (79.7):
+    CPXC ss_open                 ; ssf_cfg's two instructions, from here
     jnc .donej
     mov al, [ss_row+DRVR_ERR]   ; ...and the ONE refusal on this page that the
     or al, al                   ; user is standing in front of, so it is said
@@ -3062,17 +3109,12 @@ cp_thm_click:
 %ifdef KERN_BIG
     jnc .tok                    ; WIN95.DRV could not be mounted (SPEC.md
     push si                     ; 76.14.1): thm_set has adopted the nearest
-    push es                     ; theme that needs no module and [thm_kind]
-    push cx                     ; says which - the radios below read it back,
-    PUSH_CSDATA                     ; and the toast says why they did not move.
-    pop es                      ; The line is in THIS image, so ES is CS
-    mov si, cp_s_tnowin         ; (cp_toast is for the kernel's strings)
-    xor cx, cx
-    call KERNEL_SEG:cw_toast_show
-    pop cx
-    pop es
-    pop si
-.tok:
+    mov si, cp_s_tnowin         ; theme that needs no module and [thm_kind]
+    call sc_m_say               ; says which - the radios below read it back,
+    pop si                      ; and the toast says why they did not move.
+.tok:                           ; The line is in THIS image, so sc_m_say
+                                ; (ES = CS) and not cp_toast, which is for
+                                ; the kernel's strings
 %endif
     call cp_repost              ; remembered on close (SPEC.md 31.8)
                                 ; ui_task repaints the world (SPEC.md 13)
@@ -3295,7 +3337,7 @@ cp_dock_click:
     je .done                    ; already the setting: change nothing
     mov ah, [dock_cfg]
     mov [dock_cfg], al
-    call COLD_SEG:dkf_apply
+    CPXF dock_apply             ; IN THIS IMAGE (KSW_SECT, kernel.asm)
     jnc .changed
     mov [dock_cfg], ah          ; failed enable: keep the working preference
     push si
@@ -3666,7 +3708,7 @@ cp_sched_click:
     cmp al, ah
     je .done                    ; that row is already live: change nothing
     mov al, ah
-    call KERNEL_SEG:sched_mode_set            ; live on the next tick (SPEC.md 8.2)
+    call cp_schset              ; live on the next tick (SPEC.md 8.2)
     call cp_repost              ; ...and remembered on close (31.8)
                                 ; ui_task step 3 repaints the About box's
                                 ; ...and SAY SO once (SPEC.md 13.13)
@@ -3722,7 +3764,7 @@ cp_radios:
 ; clobbers: nothing (flags)
 ; -----------------------------------------------------------------------------
 cp_vid_rowok:
-    call KERNEL_SEG:cw_vid_avail_test
+    call vid_avail_test         ; in this image (KSW_SECT, kernel.asm)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3896,7 +3938,7 @@ cp_vid_msel:
 ; -----------------------------------------------------------------------------
 cp_vid_mode:
     call kentm_si                ; KENT: push ax..si
-    call KERNEL_SEG:cw_vid_dual_ok
+    CPXK vid_dual_ok
     jc .done
 
     call cp_blbl                ; --- the row's label (SPEC.md 31.10.3).
@@ -4099,7 +4141,7 @@ cp_vid_click:
     jc .done
 %endif
     mov al, [cp_vsel]
-    call KERNEL_SEG:vid_switch
+    CPXF vid_switch             ; IN THIS IMAGE (KSW_SECT, kernel.asm)
     jc .done                    ; refused: the adapter went away under us
     call cp_repost              ; ...remembered on close (SPEC.md 31.8)
                                 ; ...and the whole screen is a new shape
@@ -4161,7 +4203,7 @@ cp_vid_click:
     jl .done
     cmp dx, CPV_MB2
     jg .done
-    call KERNEL_SEG:cw_vid_dual_ok
+    CPXK vid_dual_ok
     jc .done                    ; not drawn on this machine, so not clickable
     mov ax, cx                  ; AH = 0: cx is pane-relative and CP_PRGT is
     sub ax, CP_PGX              ; 221, so this cannot carry
@@ -4195,7 +4237,10 @@ cp_vid_click:
     ; window, so DI/BP describe a rectangle that may no longer exist.
     call COLD_SEG:exf_sync      ; Extend: EXTD.DRV FIRST (SPEC.md 39.19.6)
     jc .mref                    ; refused, and [vid_dmode] is Single again
-    call KERNEL_SEG:vid_disp_relayout
+    call vid_disp_init           ; (vid_disp_relayout's three, written out:
+    call COLD_SEG:desk_rowcalc_x ; it was a resident far body this image
+    call wm_refit                ; alone called - kernel size pass 13; the
+                                 ; first and last are this image's own now)
     call COLD_SEG:exf_sync      ; Single: the image goes AFTER the collapse
     call cp_repost              ; ...and SAY SO once (SPEC.md 13.13)
 %endif
@@ -4788,16 +4833,16 @@ clk_fld_str:
     jne .two                    ; the day, the minute, the second
     cmp byte [clk_h12], 0       ; the hour
     je .two
-    call KERNEL_SEG:cw_clk_h12h ; AL = 1..12, still zero-padded below
+    CPXK clk_h12h ; AL = 1..12, still zero-padded below
 .two:
-    call KERNEL_SEG:cw_clk_put2
+    CPXK clk_put2
     jmp short .done
 .mon:
-    call KERNEL_SEG:cw_clk_put_mon
+    CPXK clk_put_mon
     jmp short .done
 .mer:
     mov al, [clk_sn_hour]       ; 6: the meridiem
-    call KERNEL_SEG:cw_clk_ampm ; AL = 'A' or 'P'
+    CPXK clk_ampm ; AL = 'A' or 'P'
     mov [bx], al
     inc bx
     mov byte [bx], 'M'
@@ -4805,7 +4850,7 @@ clk_fld_str:
     jmp short .done
 .year:
     mov ax, [clk_sn_year]
-    call KERNEL_SEG:cw_clk_put4
+    CPXK clk_put4
 .done:
     mov byte [bx], 0
     mov si, clk_fbuf
@@ -4852,7 +4897,7 @@ clk_fld_adj:
     or ch, ch
     jnz .have
     mov al, [clk_mon]           ; the day: max = this month's length
-    call KERNEL_SEG:cw_clk_mlen
+    CPXK clk_mlen
     mov ch, al
 .have:
     mov al, [bx+clk_sec]
@@ -4886,7 +4931,7 @@ clk_fld_adj:
 
 .fixday:                        ; the month (or the leap year) may have got
     mov al, [clk_mon]           ; shorter under the current day
-    call KERNEL_SEG:cw_clk_mlen
+    CPXK clk_mlen
     cmp [clk_day], al
     jbe .done
     mov [clk_day], al
@@ -5079,7 +5124,7 @@ cp_flush_cfg:
 ; -----------------------------------------------------------------------------
 sc_m_say:
     push es
-    push cs
+    PUSH_CSDATA                 ; the IMAGE's data segment (kern_mega)
     jmp short cp_toast1
 cp_toast:
     push es
@@ -5580,7 +5625,7 @@ cp_snd_click:
     cmp ah, [snd_route]
     je .redraw                  ; already the setting: still redraw, because
                                 ; the click clears a stale notice
-    call COLD_SEG:drvf_drv_tier               ; ask the driver to move; AL = why not
+    call cdl_tier               ; ask the driver to move; AL = why not
     jnc .take
     mov [cp_snd_err], al        ; the tier stands where it was, and the notice
     jmp short .redraw           ; line says which of the two reasons
@@ -6121,7 +6166,7 @@ cp_drv_mempar:
     pop si                      ; the ROW INDEX again, for drv_memk
     push si
     shl si, 1
-    mov ax, [drv_memk + si]
+    mov ax, [cs:drv_memk + si]
     and ah, 0x7F                ; DRVM_PLUS is a flag, not a digit
     or ax, ax
     jz .next                    ; a row with no figure at all
@@ -6228,7 +6273,7 @@ cp_drv_mem1:
     mov bl, al
     xor bh, bh
     shl bx, 1
-    mov bx, [drv_memk + bx]
+    mov bx, [cs:drv_memk + bx]
     or bx, bx
     jz .out                     ; a row with no figure says nothing rather
                                 ; than '~0K'
@@ -6756,7 +6801,7 @@ cp_drv_click:
 .try:
     mov byte [bx+DRVR_WANT], 1  ; wanted first, so a failed load still
                                 ; persists the intent: put the disk in and
-    call COLD_SEG:drvf_drv_load               ; the next boot picks it up
+    call cdl_load               ; the next boot picks it up
 .save:
     mov byte [bx+DRVR_ANS], 1   ; a click is an ANSWER, on or off: from here
                                 ; the file keeps this row's want and no sniff
@@ -6812,9 +6857,14 @@ cp_drv_line1:
     call cp_drv_rowy                ; DX = this row's glyph top
     add dx, CP_DSTDY
     mov ax, CP_PLX                  ; ...and NOT CP_PMX: see above
-    call cp_drv_line
-.out:
-    jmp kretm_si
+    mov cx, CP_DSX1 - 1             ; ...and its tail stops short of the
+    call cp_drv_linex               ; SCROLL ARROWS on the right, which share
+.out:                               ; the row's scan lines too: a clear to the
+    jmp kretm_si                    ; pane's edge wiped a band through the
+                                    ; down arrow, and the click path does not
+                                    ; redraw the arrows (the longest reason,
+                                    ; drv_e2's 22 cells from CP_PLX, ends at
+                                    ; 197)
 
 %endif ; OS88_DRIVERS
 
@@ -6848,7 +6898,16 @@ cp_drv_line1:
 ; nothing to its left, passes CP_PMX.
 ; -----------------------------------------------------------------------------
 cp_drv_line:
+    push cx
+    mov cx, CP_PRGT             ; ...to the pane's own last column
+    call cp_drv_linex
+    pop cx
+    ret
+
+; cp_drv_linex - the same, the tail cleared only to pane column CX
+cp_drv_linex:
     call kentm_si                ; KENT: push ax..si
+    push cx                     ; the clear's last column, pane-relative
 
     add ax, di                  ; AX = the line's left, in screen x
     mov bx, ax                  ; BX = it, kept clear of the calls below
@@ -6874,9 +6933,9 @@ cp_drv_line:
     pop bx
     add bx, ax                  ; BX = one past the string's last column
 .clear:
+    pop cx
+    add cx, di                  ; the caller's last column, in screen x
     mov ax, bx
-    lea cx, [di+CP_PRGT]
-                                ; the PANE's last column, not the content's
     cmp ax, cx
     ja .out                     ; the string filled the line: nothing to clear
     mov bx, dx

@@ -6480,6 +6480,8 @@ np_oncmd:
     call np_save
     jmp short .draw
 .new:
+    call np_asknew                  ; an edited note is asked about first
+    jc .out                         ; (SPEC.md 27.15.4): the answer does it
     call np_new
 .draw:
     mov byte [np_follow], 1
@@ -6659,6 +6661,9 @@ np_onclose:
     pop bx
     pop di
     pop si
+    mov byte [np_qnew], 0           ; a CLOSE now, whatever the question up
+                                    ; was put up for: the words are the same,
+                                    ; and closing is the stronger intent
     jc .wait                        ; refused because OURS is up - and it has
                                     ; just been raised - or because the window
                                     ; table is full: there is nothing to ask
@@ -6692,6 +6697,8 @@ np_onclose:
 ; -----------------------------------------------------------------------------
 np_onask:
     mov byte [np_asking], 0
+    xor ah, ah                      ; AH = 1 when the question was File >
+    xchg ah, [np_qnew]              ; New's (np_asknew), read AND cleared
     or al, al
     jz .save                        ; 0 = Save (the default, and Enter)
     cmp al, 1
@@ -6707,17 +6714,66 @@ np_onask:
                                     ; so the user still has the document and
                                     ; can pick Don't Save if they mean it
 .close:
+    or ah, ah
+    jnz .new
     mov bx, si
     call OSAPI_WM_CLOSE             ; DEFERRED (SPEC.md 75.2): this returns and
     ret                             ; the window goes on the next UI pass
+.new:
+    call np_new                     ; ...or New, which is what was asked
+    mov byte [np_follow], 1
+    jmp np_redraw                   ; SI is our window
 .saveas:
     push si
     mov al, FDLG_SAVE
     call np_dlgopen                 ; SI is still our window
     pop si
     jc .out                         ; refused: stay open
-    mov byte [np_qclose], 1         ; ...and its commit is a QUIT (np_ondlg)
+    inc ah                          ; ...and its commit is a QUIT (1) or a
+    mov [np_qclose], ah             ; NEW (2) (np_ondlg)
 .out:
+    ret
+
+; -----------------------------------------------------------------------------
+; np_asknew - File > New's question (SPEC.md 27.15.4)
+; in:  SI = our window; the UI task, gfx lock HELD
+; out: CF = 0 the note is not edited, go ahead; CF = 1 it is, and the
+;      save-changes question is up (or was up already and has been raised),
+;      np_onask doing the New when it is answered. Preserves all registers
+;
+; New used to empty an edited note without a word, while closing the same
+; note asked. It is the close question with a second ending: the alert, the
+; completion and the Save As that a never-saved note goes through are all
+; np_onclose's.
+; -----------------------------------------------------------------------------
+np_asknew:
+    call np_dirty
+    jnc .o                          ; nothing unsaved: CF = 0
+    push ax
+    push bx
+    push si
+    push di
+    push es
+    call np_qcompose
+    mov ax, KERNEL_SEG              ; os88ui_ask reads our caption out of the
+    mov es, ax                      ; window record through ES (SPEC.md 20.1)
+    mov bx, si
+    mov si, np_qbuf
+    mov di, np_onask
+    mov al, OS88UI_ASAVE
+    call os88ui_ask
+    jc .up                          ; one is up already, raised: its intent
+                                    ; stands (a close stays a close)
+    mov byte [np_asking], 1
+    mov byte [np_qnew], 1
+.up:
+    pop es
+    pop di
+    pop si
+    pop bx
+    pop ax
+    stc
+.o:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6782,9 +6838,15 @@ np_ondlg:
                                     ; with the document still in hand
     or al, al
     jz .draw
+    cmp al, 2
+    je .new                         ; np_asknew's Save As: then New
     mov bx, si
     call OSAPI_WM_CLOSE             ; deferred; no repaint is owed after it
     ret
+.new:
+    call np_new
+    mov byte [np_follow], 1
+    jmp short .draw
 .load:
     call np_load
 .draw:
@@ -11027,6 +11089,7 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                                 ; btlist - is 112 bytes it never ran (apps
                                 ; size pass 2b, SPEC.md 20.5.1.3.4, 27.16)
 %endif
+%define OS88UI_1BPP             ; OSAPI_SAVEU_1BPP: a greyed caption keeps its ink (SPEC.md 13.8.11)
 %include "os88ui.inc"
 
 ; ...and it is ABOVE the bss counter below because that block sizes a field
@@ -11332,6 +11395,9 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                             ; only about ours
     NPVAR np_qclose, 1      ; byte: the Save As dialog now on screen was
                             ; started by that alert, so its commit is a QUIT
+                            ; (1) or, for File > New's question, a NEW (2)
+    NPVAR np_qnew, 1        ; byte: the alert up is File > New's, not the
+                            ; close negotiator's (SPEC.md 27.15.4)
     NPVAR np_abon, 1        ; byte: the About card is up (SPEC.md 20.5.1)
     NPVAR np_qbuf, OS88UI_AMAX + 1  ; the alert's line, composed around the
                             ; document's name. Not np_tbuf, which is 30 bytes

@@ -27,6 +27,9 @@
 ; the selected day an OUTLINE: nothing is carried by colour (SPEC.md 39.4).
 ; =============================================================================
 
+%ifndef APP_SMALL               ; kern_big's: the Sticky App code is the ONE
+%define STIK_LIB                ; copy in DESK.DRV (SPEC.md 110.15). Before
+%endif                          ; the header: OS88_STIKCARD_END lays its block
 %include "os88api.inc"
 
     OS88_HEADER 'Desk Calendar', dc_entry, OS88_F_ICON | OS88_F_DESK | OS88_F_STIK
@@ -168,9 +171,10 @@ STIK_BSS    equ DC_BSS          ; the include's state follows ours
 %define GFXE_BAND_W   176       ; the face: 22 cells, a 704-byte band
 %define GFXE_BAND_H   32
 %define GFXE_BAND_BUF dc_band
-%define GFXE_NOBUTIL            ; the face papers and blits its own band: no
-                                ; bounds, pixel or gfxe_bput (apps size pass
-                                ; 2b, SPEC.md 5.12.9)
+%define GFXE_SCALE              ; the day's x3 and the headings' x2 (5.12.8).
+                                ; No GFXE_BAND: the face papers and blits its
+                                ; own band, so no bounds, pixel or gfxe_bput
+                                ; (SPEC.md 5.12.9)
 
 ; --- bss: OURS FIRST, at fixed offsets - tests read it out of a running guest
 ; (tests/deskcal*.py), and tools/os88stik.py's DESKCAL_BSS_* say where
@@ -1865,7 +1869,7 @@ dc_s_tlong: db 'A task: at most 23', 0
 dc_s_qdel:  db 'Delete again to confirm', 0
 dc_s_dmg:   db 'Calendar file damaged', 0
 
-dc_s_about: db 'Desk Calendar, SPEC 110', 0
+dc_s_about: db 'Desk Calendar for os8088', 0
 
 %include "dcdate.inc"
 %include "dcdata.inc"
@@ -1875,6 +1879,7 @@ dc_s_about: db 'Desk Calendar, SPEC 110', 0
                                 ; no control: the cards draw their own, and
                                 ; there is no alert and no About card
                                 ; (SPEC.md 110.3, 110.11)
+%define OS88UI_1BPP             ; OSAPI_SAVEU_1BPP: a greyed caption keeps its ink (SPEC.md 13.8.11)
 %include "os88ui.inc"
 %define OS88LINE_NOSET          ; the field is filled in place and resynced,
                                 ; never replaced (apps size pass 2b)

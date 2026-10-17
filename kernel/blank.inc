@@ -147,16 +147,23 @@ blk_act     db 0                ; mou_isr saw a packet; the UI task spends it
 ; [ss_mins] is the one that does work on both: zero disables the whole feature,
 ; animation and blanker alike, and everything else is the idle period.
 ; -----------------------------------------------------------------------------
+; **THE CARRY ARGUMENT ABOVE IS kern_big's** (kernel size pass 13): kern_small
+; reads and writes no SYSTEM.CFG at all (SPEC.md 51.5) and has no saver page,
+; so nothing there ever named these three bytes - its [ss_idle] keeps its
+; resting BLK_IDLE for ever - and they are kern_big's with the rest of ss_pub.
+%ifdef KERN_BIG
 ss_pub:
 ss_modes    db SS_M_ALL         ; which modes the picker may choose from
 ss_secs     db 30               ; seconds one mode runs before another is
                                 ; picked - the whole point of a screen saver
                                 ; being that nothing sits still
 ss_mins     db SS_MINS          ; minutes of idle before it starts; 0 = never
-%ifdef KERN_BIG
 ss_post     db 0                ; the settings window changed something and
                                 ; the UI task owes it work (SPEC.md 79.7)
-%endif
+%else
+            db 0                ; PARITY on kern_small (kernel size pass 13):
+%endif                          ; three bytes out here would leave wm_clip_rows
+                                ; and ui_task at an odd shift
 
 ss_idle     dw BLK_IDLE         ; [ss_mins] in TICKS, which is the unit
                                 ; blk_pass compares in. Derived, by
@@ -535,10 +542,14 @@ section .cold
 ; which fails structurally rather than proportionally, in the one place in
 ; this file that can multiply at all. SS_MAXMIN is what a word of ticks holds.
 ;
-; Both builds: the period is a setting on kern_small too (see ss_pub).
+; kern_big's ALONE now: its three callers - SYSTEM.CFG's reader
+; (through wm_cbd), ss_set_x and the blanker's wake - are all kern_big's,
+; and kern_small, which reads no SYSTEM.CFG and has no saver, keeps [ss_idle]
+; at its resting BLK_IDLE for ever (kernel size pass 13, -23 there).
 ; -----------------------------------------------------------------------------
 SS_MAXMIN   equ 59              ; 59 x 1092 = 64,428, inside a word
 
+%ifdef KERN_BIG
 ss_mins2idle:
     push ax
     push dx
@@ -560,8 +571,13 @@ ss_mins2idle:
     pop dx
     pop ax
     ret
+%else
+    nop                         ; PARITY, never executed (kernel size pass 13):
+                                ; an odd 23 out of kern_small's .cold would put
+                                ; dsk_xfer and the FAT walk at an odd shift
+%endif
+%ifdef KERN_BIG                 ; ...and the saver's own entries, below
 
-%ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
 ; ss_call - one verb into the overlay (module internal)
 ; in:  AL = SSV_*, every other register that verb's own argument
@@ -903,14 +919,9 @@ ssf_frame:      cmp byte [blk_sv], 0    ; blk_pass's gate, on this side of the
                                 ; and the only caller is here
 .none:
                 retf
-ssf_cfg:        mov al, SSV_CFG ; ss_cfg_x was a two-instruction wrapper with
-                call ss_open    ; exactly ONE caller - this - and it is named
-                retf            ; in no dw table, no OSAPI slot and nowhere in
-                                ; SPEC.md, unlike ss_set_x/ss_start_x/
-                                ; ss_stop_x. So it is this routine's own two
-                                ; instructions now. ctrl.inc:2399's `call
-                                ; COLD_SEG:ssf_cfg` is the external entry and
-                                ; does not move
+; (ssf_cfg - `mov al, SSV_CFG / call ss_open / retf` - went in kernel size
+; pass 13: its one caller, the Control Panel's saver button, makes the two
+; instructions itself through CTRL.DRV's CPXC hop)
 %endif
 
 section .text

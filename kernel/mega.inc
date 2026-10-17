@@ -1373,10 +1373,6 @@ mega_r286:
 .picok:
     jmp mega_svc.rm
 
-mega_thm_set:                       ; OSAPI_THM_SET's hand-made hot cell
-    mov ds, [cs:k_dsel]
-    jmp api_thm_set
-
 ; -----------------------------------------------------------------------------
 ; mega_oddsegf - a selector for ANY paragraph (far; KERN-MEGA-PLAN 3.1)
 ; in:  AX = a real-mode segment. out: AX = a data selector with that base -
@@ -2402,6 +2398,16 @@ mega_hex2:
 mega_sl_%[mega_i]:
     mov ds, [cs:k_dsel]
     jmp mega_slt_%[mega_i]
+ %assign mega_i mega_i + 1
+%endrep
+
+; ---- ...and OSAPI_FJCELL's: DS = the kernel's data, then the far jump to the
+; .cold body, which pops the DS the cell pushed and retf's for it
+%assign mega_i 0
+%rep mega_nfj
+mega_fj_%[mega_i]:
+    mov ds, [cs:k_dsel]
+    jmp COLD_SEG:mega_fjt_%[mega_i]
  %assign mega_i mega_i + 1
 %endrep
 

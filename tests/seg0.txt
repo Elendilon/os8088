@@ -15,7 +15,7 @@
 1 kernel/sched.inc  # sched_init's vector install (.boot2)
 2 kernel/splash.inc  # the loading screen (.boot2)
 2 kernel/disk.inc  # the boot overlay's mount-time setup (.ovl)
-2 kernel/desksc.inc  # the boot half's scan (.boot2), and sc_walk's ES = 0 "no document" SENTINEL (.cold), which nothing reads through
+1 kernel/desksc.inc  # sc_walk's ES = 0 "no document" SENTINEL (.cold), which nothing reads through
 1 kernel/font.inc  # FONT_PICK, font_init's int 10h AH=11h probe at boot (ES = 0 for "no answer")
 4 kernel/kernel.asm  # kmain's boot timer, read at the first desktop frame - before mega_enter - and BOOT_MARK=1's three (a knob)
 1 kernel/mega.inc  # mega_a20t, the A20 probe mega_enter runs before it switches

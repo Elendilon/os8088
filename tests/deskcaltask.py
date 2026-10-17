@@ -126,7 +126,7 @@ def rec_bad(img, x, y, rec, w):
 
 
 def main():
-    from deskcalperf import measure, Gesture
+    from deskcalperf import measure, Gesture, segs_of
     tmp = tempfile.mkdtemp(prefix="deskcaltask-")
     img = os.path.join(tmp, "os8088-360.img")
     shutil.copy(os.path.join(BDIR, "os8088-360.img"), img)
@@ -177,7 +177,7 @@ def main():
                 tag_y = w.y + w.h - g_tag()
                 hits = [h for h in hits
                         if not (h.get("regs") and h["regs"]["bx"] >= tag_y)]
-                gst = Gesture(hits, c.wseg)
+                gst = Gesture(hits, segs_of(c.m, c.wseg))
                 ui._wait(lambda: done(k), "task %d to be DONE in memory" % k,
                          30)
                 b = frame_now()
