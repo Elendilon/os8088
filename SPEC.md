@@ -52766,7 +52766,7 @@ hand there keeps its place and its data in its own state file.
 cannot do** (the owner's decision, 2026-10-17). kern_small has no desk layer,
 so a Sticky App there is a titled window that never reopens by itself
 (§110.7), and no associations (§54.0), so the pad that
-docs/plans/STIKNOTE-NOTEPAD-PLAN.md makes of Sticky Note cannot hand a note to
+docs/plans/completed/STIKNOTE-NOTEPAD-PLAN.md makes of Sticky Note cannot hand a note to
 Note Pad there - `OSAPI_PKG_START` drops the document. What is left is a
 window showing one note at a time, which is Note Pad, worse, and Note Pad is
 on the disk. `$(SMALLSTIKAPPS)` filters it out and `t_smallreq`'s FORBIDDEN
@@ -190515,6 +190515,7 @@ A:\STIKAPPS\STIKNOTE.O88       ...and the second Sticky App (§110.13)
 A:\STIKAPPS\DESKCLOK.O88       ...and the third (§110.14)
 A:\SYSTEM\APPDATA\DESKCAL.DAT    its state (§19.9), written at runtime, never shipped
 A:\SYSTEM\APPDATA\STIKNOTE.DAT   ...and the second's
+A:\SYSTEM\APPDATA\NOTES\        ...whose notes are .TXT files, shipped (110.13.1)
 A:\SYSTEM\APPDATA\DESKCLOK.DAT   ...and the third's
 ```
 
@@ -191230,14 +191231,14 @@ unless it PACKS its own (`STIK_PACK`, §110.5.3.1 below), when what it packs is
 what is written and the zero tail is not looked for.
 
 What it bought is DISK, on the geometry that runs out first. Sticky Note's
-payload is a 4 KB pool (§110.13.2) and its file was 4,192 bytes - **whatever
-it held: nine clusters where a cluster is 512 bytes, five where it is 1 KB**
-(a cluster's size is the DISK's: §19.3.2 has the system disks at 512 bytes
-but the 720 KB one and the small 360 KB one) - where the welcome note is a
-few hundred bytes and one cluster on any of them. A payload whose free space sits at its END
-gets the whole of the saving; Sticky Note keeps its pool's free end zero for
-it (`sn_ztail`: after a delete moves the tail down, and at launch, for a file
-an older build wrote). The Desk Calendar packs (§110.5.3.1): its free space
+payload v1 was a 4 KB pool and its file was 4,192 bytes - **whatever it held:
+nine clusters where a cluster is 512 bytes, five where it is 1 KB** (a
+cluster's size is the DISK's: §19.3.2 has the system disks at 512 bytes but
+the 720 KB one and the small 360 KB one) - where the welcome note was a few
+hundred bytes and one cluster on any of them. A payload whose free space sits
+at its END gets the whole of the saving; Sticky Note's v2 (§110.13.2) is a
+name and a table of papers whose unused entries are the tail, so a file with
+no coloured note is under 30 bytes. The Desk Calendar packs (§110.5.3.1): its free space
 is in the MIDDLE of its payload, between the appointments and the tasks, so a
 zero tail alone would have bought it nothing.
 
@@ -193127,177 +193128,215 @@ The second Sticky App: notes and checklists on the desk, kept where they were
 put. `STIKNOTE.O88` ships in `STIKAPPS\` beside the Desk Calendar on every
 system disk - the four geometries (the 360KB one gave Paint up for it,
 §24.3.1.4), `emu.img` and the live media, but **not the small system disks**
-(§24.5.1) - and its
-state is `SYSTEM\APPDATA\STIKNOTE.DAT`. The owner's two mockups are the
-shape: a pad on the desk, and an editor window behind it.
+(§24.5.1) - and its state is `SYSTEM\APPDATA\STIKNOTE.DAT`. **A note is a
+plain text file** and Note Pad edits it: the program is the pad on the desk
+and nothing else (docs/plans/completed/STIKNOTE-NOTEPAD-PLAN.md is the design
+record, and every decision in its table is the owner's).
 
 ```
-apps/stiknote/stiknote.asm   header, card, payload, bss, entry, menus, the tick
-apps/stiknote/sntext.inc     the note model: the pool, the wrap walk, the edits
+apps/stiknote/stiknote.asm   header, card, payload, bss, entry, commands, menus, tick
+apps/stiknote/sntext.inc     the notes: the folder walk, the head, the text's walk
 apps/stiknote/snpad.inc      the pad: three layouts, its composer, its presses
-apps/stiknote/sned.inc       the editor: layout, composer, keys, clicks, scroll
+apps/stiknote/welcome.txt    WELCOME.TXT, the first note (CR LF added by make)
 ```
 
-#### 110.13.1 Two windows, one program
+#### 110.13.1 A folder of text files
 
-- **The PAD** is the Sticky App's own window - the one the instance is bound
-  to, so the boot relaunch (§110.4), the Sticky Apps menu (§110.12) and the
-  handle's x all mean it. It wears §110.11's treatment with ONE card: a
-  sheet on a stack of sheets (the one under it showing four pixels right and
-  below), its bottom-right corner turned, holding the CURRENT note - a pin,
-  the title and `+` over a rule, the body's lines with their boxes, and
-  `<  n / N  >` with the open-in-window arrow along the foot. The face is
-  192 px (24 cells, `STIK_FACE_W` as a `%define`: the include tests it with
-  `%ifndef`, so an `equ` silently loses to its 176).
-- **The EDITOR** is an ordinary titled window opened from the pad (the
-  arrow, `+`, Note > Open Editor): New, Delete and `On desktop` along the
-  top, the notes listed on the left, the current note on the right with its
-  scroll bar, the count and `Saved` / `Edited` / `Not saved` along the
-  bottom, and the grow box. It is a package's **second window** (§42.1):
-  unbound, so it has no dock tile and no Task Manager row. The kernel asks
-  `OSAPI_WM_ONCLOSE` before its close box hides it (`app_close_win` asks
-  any window first, §75.1): with the pad on the desk the editor hides; with
-  the pad OFF it, the editor was the program's only window, so the close is
-  refused and the PROGRAM closes through the pad's `stik_quit` - the row
-  removed, the state saved - and the teardown takes the editor with it.
-- **`On desktop`** is a flag in the payload. Off hides the pad; the program
-  then lives while the editor is up, and a launch with it off opens the
-  editor (the loader shows the bound window after the entry proc returns, so
-  the FIRST beat hides the pad - `[sn_boot]`). The editor's minimize box is
-  a plain hide for an unbound window (`inst_minimize`), which with the pad
-  off the desk would leave nothing on the glass, so the beat that notices
-  turns the pad back on. A pad the Sticky Apps menu's Show All brought back
-  is on the desk again. Off with no editor up opens the editor.
-- The pad's current note and the editor's selection are ONE note
-  (`SNP_CUR`): paging the pad selects in the list, and the other way.
-- **A press on the pad** acts only on its controls - `+`, the arrow, `<`,
-  `>` and a box; the rest of the card only hands the widget the bar, as the
-  calendar's margins do (`os88ui.widget_activate` presses one).
+```
+A:\SYSTEM\APPDATA\NOTES\            the notes: 32 directory slots, shipped
+A:\SYSTEM\APPDATA\NOTES\WELCOME.TXT ...and the one that makes it exist
+A:\SYSTEM\APPDATA\NOTES\NOTE0001.TXT  what New makes: the lowest NOTEnnnn free
+```
 
-#### 110.13.2 The payload, v1
+- **A note is ANY `*.TXT` in `SYSTEM\APPDATA\NOTES`** on the boot volume, in
+  directory order: one Note Pad saved there, one copied in from a Disk window
+  or a DOS PC. Anything else in the folder is skipped.
+- **The folder ships pre-sized** (`os88disk.py --dir-slots
+  SYSTEM/APPDATA/NOTES=32`, `$(STIKNOTESARG)` / `$(STIKNOTESOPT)` beside
+  `$(STIKARGS)` in each system-disk recipe), because the kernel never grows a
+  directory (§18.5): 32 slots is `.`, `..` and 30 notes. It costs **three
+  clusters** on the 1.44MB, 1.2MB and 360KB system disks (two of directory at
+  512 bytes, one of `WELCOME.TXT`) and **two** on the 720KB one (1 KB
+  clusters) - measured, `os88disk.py --verify`. A folder that is missing (a
+  disk not built here, a user who deleted it) is made by the first access
+  with `OSAPI_FILE_MKDIR`, one cluster: 14 notes at 512-byte clusters, 30 at
+  1 KB. A full folder says `Notes folder is full`.
+- **The text is Note Pad's**: CR LF line ends (a lone CR or LF reads as one),
+  and a byte outside 32..126 is not drawn and takes no cell - `np_nlfold`
+  drops it. **Line 1 is the TITLE.**
+- **A check box is TEXT**: `[ ] ` or `[x] ` (`[X] `) at a line's start. The
+  pad draws the box glyph in their place and hides the four bytes; Note Pad
+  and a DOS PC show the brackets, which read correctly.
+- Each note is at least one cluster. That is the price of a file per note,
+  and the 360KB system disk is where it is paid.
 
-| off | size | field |
+#### 110.13.2 The pad, and the payload v2
+
+The PAD is the Sticky App's own window - the one the instance is bound to, so
+the boot relaunch (§110.4), the Sticky Apps menu (§110.12) and the handle's x
+all mean it. It wears §110.11's treatment with ONE card: a sheet on a stack of
+sheets (the one under it showing four pixels right and below), its
+bottom-right corner turned, holding the CURRENT note - a pin, the title and
+`+` over a rule, the body's lines with their boxes, and `<  n / N  >` with the
+open arrow along the foot. The face is 192 px (24 cells, `STIK_FACE_W` as a
+`%define`: the include tests it with `%ifndef`, so an `equ` silently loses to
+its 176). It is built `STIK_DESKONLY` (§110.5.2): a desk window or no launch,
+and `snp_put`'s titled arm is gated out with the include's.
+
+**It reads on demand and holds one note's top.** Turning to a note is ONE
+`OSAPI_FILE_FIND` walk of the folder (`sn_walk`) and ONE `OSAPI_FILE_READ_AT`
+of 512 bytes (`sn_rhead`, kern_big's whole-sector read, §18.4.4.2) - the pad
+shows a title and at most eight lines of 21 cells, under 210 bytes of file
+even with CR LF on every line, and a longer note shows its top. A COMPRESSED
+note (FIND's +22) is read whole by `OSAPI_FILE_READ`, which expands it, into
+the same 512 bytes or not at all. The walk counts the notes, finds the current
+one by NAME (adding or deleting a note does not move it) or, when the name is
+gone, by its place; marks the `NOTEnnnn` numbers 1..32 in use for New; and
+drops a colour entry whose note it did not meet. Every access stands in the
+folder through the include's `stik_enter` first - the same "is this disk
+still home?" a save asks (§110.5.1) - so a page turn is a remount, a walk and
+a read: decision 4 accepted that cost, and `stiknote`'s leg measures it on the
+4.77 MHz XT.
+
+| off | size | field (payload v2, 285 bytes) |
 |---|---|---|
-| +0 | 1 | notes in use, 0..24 |
-| +1 | 1 | the current note |
-| +2 | 1 | flags: bit 0 on the desk, bit 7 the welcome note was made |
-| +4 | 24 | each note's paper, 0..4 (yellow, pink, green, blue, white) |
-| +28 | 48 | each note's length, a word, in list order |
-| +80 | 4,096 | the POOL: the notes' text, one after the other |
+| +0 | 13 | the current note's 8.3 name, NUL |
+| +13 | 1 | reserved, 0 |
+| +14 | 1 | colour entries in use, 0..30 |
+| +15 | 30 x 9 | each: the note's 8-byte stem, space-padded, then its paper 1..4 |
 
-4,176 bytes - and a file only as long as the notes in it (§110.5.3): the
-pool's free end is kept zero and the save leaves it off, so the welcome note
-is one cluster where the whole pool was nine of 512 bytes (five of 1 KB - a
-cluster's size is the disk's, §19.3.2). **One pool and
-not 24 slots** (the owner's choice): a note may be long while the others are
-short, and a note's place is the sum of the lengths before it, so an insert
-moves the pool's tail up a byte (`sn_ins`) and nothing else moves. A payload
-whose counts, current note, papers or lengths do not add up is DAMAGED
-(`sn_check`), and the include's §110.5.2 path replaces it at the first save
-(`STIK_DMGREPLACE`). A
-first launch with no file writes the WELCOME note, once.
+**The state file is the sidecar**, because a trailer inside the note does not
+survive Note Pad (`np_nlfold` drops every byte outside 32..126) and a
+printable one would be text the user edits. Only a note whose paper is NOT
+yellow has an entry, and the zero tail (§110.5.3) writes only the entries in
+use. A renamed or copied note loses its colour. A v1 file (the 4 KB pool) is
+DAMAGED to this build and replaced by the first save (`STIK_DMGREPLACE`):
+nothing is carried over (decision A). `sn_check` refuses a count over 30 or a
+paper past 4.
 
-A note is lines separated by LF. **Line 0 is its TITLE** - the list's row,
-the pad's header - and is one line, as wide as the page: typing past it is
-refused, and a join that would overflow it toasts `The title would not
-fit`. **A body line whose first byte is `SN_BOX0` (1) or `SN_BOX1` (2) is a
-CHECK BOX**, open or ticked; the marker is never drawn as a character and
-the caret never stands on it (`sn_norm`). Typing `[ ]`, `[]` or `[x]` at a
-line's start makes one (the space typed after it is swallowed); Ctrl+T and
-Note > Check Box toggle one; Enter on a box continues the list and Enter on
-an EMPTY box ends it; Backspace just after the marker takes the box away,
-and a join takes the second line's marker with the LF. A click on a box
-ticks it, on the pad and in the editor alike.
+#### 110.13.3 Editing is Note Pad's
 
-#### 110.13.3 The walk, and what a keystroke draws
+**The arrow, Enter and Note > Open Note** hand the note to `OSAPI_PKG_START`'s
+document arm with an EMPTY program name (§21.5.3), so the `.TXT` association
+picks the program: Note Pad, unless the user chose another. Note Pad adopts
+the name (`np_arg`), so Ctrl+S writes back to the note.
 
-Nothing is cached: the body is cut into VISUAL lines for a width in cells
-whenever a line is wanted (`sn_body` / `sn_vline` / `sn_vadv`) - a line that
-does not fit breaks after its last space, or hard at the width with none.
-The pad's widths are 21 cells (text) and 19 (a box's, indented); the
-editor's follow its window. `tools/os88stik.py`'s `stiknote_wrap` is the
-walk's mirror. A whole 4KB note is a few milliseconds of walk on the target,
-against a line table every insert would have to patch.
+- **It runs in the pad's W_ONWAKE, not in the press.** The slot wants the gfx
+  lock FREE (§21.5) and a press holds it, so the press records the open and
+  posts `OSAPI_WM_WAKE`; `sn_wake` (the include's `STIK_WAKE`, which then runs
+  the hover edge exactly as `stik_wake` always does) makes the launch.
+- **It stands in NOTES for the call.** `assoc_run_x` takes the document's
+  folder from where the caller STANDS (`.curvol`, no poster), not from the
+  locator's directory word - the first build stood at home, and Note Pad
+  opened an empty `WELCOME.TXT` there and saved it into `STIKAPPS\`.
+- **THE WATCH.** `OSAPI_SYS_SNAPSHOT` before and after the launch: the
+  instance slot that came alive across it is what the association started -
+  every launch runs on the UI task and the UI task is inside the call - so no
+  program name is needed. Its slot and its `SSI_WIN` are kept, and each beat
+  (`STIK_ONTICK`, the include's two seconds) takes a snapshot ONLY while one
+  is armed; when the slot is no longer live or holds another window, the
+  editor is gone and the pad reads its note again. The window and not
+  `SSI_SEG`, because a compaction MOVES a movable region (§66) and Note Pad's
+  is. No new slot (a refusal the kernel has already said, a program that keeps
+  one instance) arms nothing, and the pad reads again at the next page turn.
+  The snapshot goes into the composing band, which holds nothing between
+  paints, so the watch costs no bss.
+- **Last save wins** (decision 3): a tick while Note Pad has the note open is
+  the same as two Note Pads on one file.
 
-A keystroke redraws **the lines it changed and no more** (`sne_after`): the
-caret's line and the one before it (a wrap can pull a word back) to its
-paragraph's end when the body kept its line count, to the page's foot when
-it did not (with the scroll bar), the title row and its list row for a title
-edit, the page whole when the scroll moved. A caret move redraws its old
-line and its new one. The pad, which shows the same note, is not redrawn per
-keystroke: it is owed one at the next beat (`[snp_dirty]`), so a burst of
-typing is one pad redraw - and one save (`STIK_ONTICK` holds the save while
-edits land).
+#### 110.13.4 New, Delete, tick, papers
 
-#### 110.13.4 Every pixel composed
+- **New** (`+`, Ctrl+N, Note > New Note) writes `NOTEnnnn.TXT`, the lowest
+  number 1..32 the walk found free, holding `New note` + CR LF (a write wants
+  a byte, and line 1 is the title); the pad turns to it and it opens as the
+  arrow opens one.
+- **Delete** (Del, Note > Delete Note) is the Desk Calendar's press-again
+  latch (decision C): the first arms a byte that any other event ages away
+  (`sn_age`) and says `Delete again to confirm`; a second on the very next
+  event deletes the file with `OSAPI_FILE_DELETE`, and the note now in its
+  place is current. No alert dialog - os88ui's left the package with it.
+- **A tick** (a press on a box) reads the WHOLE file into a heap claim sized
+  by `OSAPI_FILE_READ`'s size probe, flips the byte between the brackets,
+  writes it back with `OSAPI_FILE_WRITE` and frees the claim - which works on
+  a compressed note too, and allocates nothing at rest. The head is patched
+  and only that line of the pad redrawn. A file over 16 KB (Note Pad's own
+  ceiling, so not one Note Pad made) is refused, `Note is over 16 KB`; a file
+  whose brackets are no longer where the head said is read again instead.
+  The in-place one-sector `OSAPI_FILE_WRITE_AT` the plan left to a
+  measurement is NOT built.
+- **Papers**: Color > a paper sets the current note's entry in the payload
+  (yellow removes it). A colour adapter draws the sheet in it - the band is
+  composed 1 = paper and blitted with `OSAPI_GFX_BLIT1_PEN` AL = the paper,
+  AH = black - in yellow (`CYELLOW`), pink (`CLMAGENTA`), green (`CLGREEN`),
+  blue (`CLCYAN`) or white. A 1bpp adapter does not read the pen, so the
+  papers are white there, and **the Color menu greys every item `(color
+  screen)`** (§47), as it does with no note. The pen is reset after the pad's
+  slabs so the include's tag is drawn in the default one.
 
-Both windows are composed into one 480 x 32 band and put down with
-`OSAPI_GFX_BLIT1` a slab at a time - no fill-then-letter anywhere, no font
-call (§6.1's rule kept by construction). The editor is `OWNBG`; its paint
-composes only the slabs `OSAPI_WM_DAMAGE` touches. The pad's two NOTCHES -
-the card's top right and bottom left, where the stack's offset leaves the
-desktop showing - are `OSAPI_GFX_DESK`'s on a desk window and never in a
-blit: the top rows blit 188 columns, the bottom rows from face x 4, which is
-off the byte grid and which kern_big's BLIT1 takes (§5.4.2.8: the band's
-first byte is the byte column holding x, its first `x & 7` pixels skipped -
-the band is NOT shifted, which the first cut assumed and drew black). A desk
-window only exists on kern_big; the titled fallback draws the notches as
-paper.
+**A press on the pad** acts only on its controls - `+`, the arrow, `<`, `>`
+and a box; the rest of the card only hands the widget the bar, as the
+calendar's margins do. Keys while the pad owns them: Left/Right turn, Enter
+opens, Del deletes, Ctrl+N is New.
 
-#### 110.13.5 Colour
+#### 110.13.5 Every pixel composed
 
-Every note has a PAPER, and a colour adapter draws the pad's sheet and the
-editor's page in it: the band is composed 1 = paper and blitted with
-`OSAPI_GFX_BLIT1_PEN` AL = the paper, AH = black, so text, rules and edges
-are black on yellow (`CYELLOW`), pink (`CLMAGENTA`), green (`CLGREEN`), blue
-(`CLCYAN`) or white. Yellow is a new note's. The editor's list, bar, scroll
-bar and status stay white: a slab whose rows hold the page is three blits -
-list, page, bar - and one when the paper is white. The pen is set before
-each blit (the lock's release puts it back to `CWHITE`), and reset after the
-pad's slabs so the include's tag is drawn in the default pen. A 1bpp adapter
-does not read the pen, so the papers are white there, and **the Color menu
-greys every item `(color screen)`** (§47). The titled fallback's save-under
-keeps four planes for a pink sheet (`%define STIK_COLOR`, os88stik.inc's one
-change).
+The pad is composed into one 192 x 32 band and put down with
+`OSAPI_GFX_BLIT1` a slab at a time - no fill-then-letter, no font call (§6.1's
+rule kept by construction). Its two NOTCHES - the card's top right and bottom
+left, where the stack's offset leaves the desktop showing - are
+`OSAPI_GFX_DESK`'s and never in a blit: the top rows blit 188 columns, the
+bottom rows from face x 4, which is off the byte grid and which kern_big's
+BLIT1 takes (§5.4.2.8: the band's first byte is the byte column holding x,
+its first `x & 7` pixels skipped).
 
-#### 110.13.6 The three layouts
+| layout | pad card | body lines | pitch |
+|---|---|---|---|
+| TALL (VGA) | 156 rows | 8 | 12 |
+| MID (Hercules, EGA) | 124 | 7 | 10 |
+| COMPACT (CGA) | 92 | 6 | 9 |
 
-| layout | pad card | body lines | pitch | editor opens |
-|---|---|---|---|---|
-| TALL (VGA) | 156 rows | 8 | 12 | 384 x 248 |
-| MID (Hercules, EGA) | 124 | 7 | 10 | 384 x 212 |
-| COMPACT (CGA) | 92 | 6 | 9 | 384 x the desk band |
+`tools/os88stik.py`'s `STIKNOTE_GEO` is the table and `t_stik` holds it to
+`snp_geos`; its `stiknote_wrap` mirrors the text walk (`sn_body` /
+`sn_vline` / `sn_vadv`: a line that does not fit breaks after its last space,
+or hard at the width with none - 21 cells for text, 19 for a box's).
 
-The editor is resizable from 344 to 480 content columns (the band's width)
-and from the layout's least height; the list is 144 wide and the page takes
-the rest. `tools/os88stik.py`'s `STIKNOTE_GEO` / `STIKNOTE_ED` are both
-tables, and `t_stik` holds them to `snp_geos` / `sne_geos`.
+#### 110.13.6 What it costs
 
-#### 110.13.7 What it costs
+**No kernel byte, and no shared-include byte.** Measured at this build:
 
-**No kernel byte.** `STIKNOTE.O88` is a 17,488-byte image and 6,485 bytes of
-bss (the band is 1,920 of it, the payload 4,192), 14,762 bytes packed on the
-disk. `os88stik.inc` gained `STIK_COLOR`, which the Desk Calendar does not
-define, so its build is unchanged.
+| `stiknote.o88` | the editor (`84157fc4`) | the pad over files |
+|---|---:|---:|
+| image | 16,912 | **9,104** |
+| bss | 6,485 | **1,906** (band 768, head 512, the include's 530 - its payload 285 of it) |
+| packed on the disk | 14,524 | **8,202** |
+| heap at rest | none | none |
+| heap while ticking | none | the note's size in KB, freed at once |
 
-#### 110.13.8 What is not done
+Editing costs Note Pad's instance (~20 KB) only while it is open. The size
+pass after the rewrite took the Color menu's fifteen padded strings down to
+five, one a paper composed three ways (-240).
 
-- **No thumb drag**: the scroll bar's arrows step a line and its track a page.
-- **No selection, clipboard or undo**, `os88text.inc`'s boundary (§83.2).
-- **No caret blink**, and the caret is drawn whether or not the editor is in
-  front.
-- **The pad's tag shows the FOCUSED plate while the editor is in front**: the
-  editor is unbound, so `OSAPI_MENU_OWNER` answers the program's bound window.
+#### 110.13.7 What is not done
+
+- **No live pad while typing**: the pad shows what Note Pad last SAVED, read
+  again when Note Pad closes (decision 7 accepted it, with `On desktop` and
+  colour in the editor).
+- **A missed close is a stale pad until the next page turn**: the watch
+  follows the newest editor only.
+- **No refresh for a note changed by anything but our own editor** (a DOS PC,
+  a Disk window copy) until the page is turned.
 - **Hercules is checked on MartyPC** (`stiknote`); QEMU cannot show it.
 
-`tests/stiknote.py` is the gate (soak): the `herc` leg on a Hercules 5150 -
-the welcome note's first save, the stack and the notches pixel for pixel,
-a box ticked on the pad, a note typed in the editor with its boxes, Ctrl+T,
-Delete, the desk flag and the close that ends the program, the relaunch off
-the desk, the greyed Color menu - and the `vga` leg (`stiknotevga`), the
-papers read off the card's rendered framebuffer. `t_stik` (fast) holds the
-payload, the bss fields and both geometry tables to the host tool and walks
-every system image for `STIKAPPS/STIKNOTE.O88`.
+`tests/stiknote.py` is the gate (soak): the `herc` leg on a Hercules 5150 off
+the shipped 360KB disk - WELCOME.TXT read off the folder, the stack and the
+notches pixel for pixel, a tick written to the file and drawn, the open in
+Note Pad and the re-read when it closes, the watch silent while nothing is
+armed, New, Delete twice, the greyed Color menu, and the page turn and the
+tick timed on the 4.77 MHz machine - and the `vga` leg (`stiknotevga`), the
+papers read off the card's rendered framebuffer and a paper surviving a
+relaunch. `t_stik` (fast) holds the payload, the bss fields and the geometry
+table to the host tool and walks every system image for
+`STIKAPPS/STIKNOTE.O88` and the NOTES folder (its slots, `WELCOME.TXT`).
 
 ### 110.14 Desk Clock (`apps/deskclok/`)
 

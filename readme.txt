@@ -147,7 +147,7 @@ STICKY APPS (STIKAPPS) live on the desktop under every window and return at each
 
 DESK CALENDAR: arrows pick a day, PgUp/PgDn the month, T today. + adds a line: "9:30 Dentist" is an appointment, anything else a task. Enter edits, Del deletes, a click ticks a task. A reminder rings: S snoozes, D dismisses.
 
-STICKY NOTE: Enter opens its editor; + adds a note, < > turn pages, line 1 is the title. [ ] makes a check box; Ctrl+T or a click ticks it. 24 notes at most, 4KB.
+STICKY NOTE: a note is a .TXT file in SYSTEM\APPDATA\NOTES. Enter or the arrow opens it in Note Pad, + makes one, < > turn pages, Del twice deletes. A click ticks a [ ] box.
 
 DESK CLOCK: nine faces, three sizes, a daily alarm (A); Enter opens Settings.
 
