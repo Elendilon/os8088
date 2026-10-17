@@ -524,6 +524,27 @@ def _path_info(d, path, cpm, vids):
 
 
 TEXTS = None
+ENTRIES = {}
+
+
+def readme_info(d, path, text):
+    """A README that is not os8088's own names whose it is: the program whose
+    folder it is in, or whose disk it is on."""
+    if "os8088 - READ ME" in text[:200]:
+        return None
+    parts = path.split("/")
+    owner = None
+    if len(parts) > 1:
+        e = ENTRIES.get(parts[-2] + "/")
+        if e and e.get("kind") == "folder":
+            owner = e.get("title")
+        if re.match(r"^[0-9A-F]$", parts[-2]):        # a RunCPM user area
+            first = text.strip().splitlines()[0] if text.strip() else ""
+            owner = re.split(r"\s+(?:Copyright|-|\(c\))", first)[0].strip() or None
+    owner = owner or d["role"]
+    return ("document", "%s read me" % owner,
+            "Notes from %s: what it is and how to use it. Double-click to read it in Note Pad." % owner,
+            "%s's read me" % owner)
 
 
 def disk_record(n, set_id, gkey, section, role, geo=None, vids=None, pinfo=None):
@@ -548,6 +569,14 @@ def disk_record(n, set_id, gkey, section, role, geo=None, vids=None, pinfo=None)
                         pinfo.append(pi)
                     row.append(pinfo.index(pi))
                 tree.append(row)
+            for row in tree:
+                t = s.get("texts", {}).get(row[0])
+                if t is not None and row[0].split("/")[-1] in ("README.TXT", "README.MD") and pinfo is not None:
+                    ri = readme_info(d, row[0], t)
+                    if ri:
+                        if ri not in pinfo:
+                            pinfo.append(ri)
+                        row[3:] = [pinfo.index(ri)]
             d.update(built=True, free=s["free"], clusters=s["clusters"], csize=s["csize"], tree=tree)
             if s.get("texts") and TEXTS is not None:
                 d["texts"] = {}
@@ -569,9 +598,10 @@ def collect():
     if os.path.exists(p):
         with open(p, "rb") as f:
             entries = tomllib.load(f)
-    global CPM, TEXTS
+    global CPM, TEXTS, ENTRIES
     CPM = cpm_areas()
     TEXTS = []
+    ENTRIES = entries
     disks, sets, pinfo = [], [], []
     for gkey, gtitle, _ in mk.GROUPS:
         if gkey == "about":
