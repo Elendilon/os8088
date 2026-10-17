@@ -730,7 +730,7 @@ short = "Commodore 64 emulator"
 ["C64/"]
 title = "Commodore 64"
 kind = "folder"
-summary = "The Commodore 64 program and its licence."
+summary = "The Commodore 64 program, its README and its licence."
 short = "Commodore 64 and licence"
 
 ["COPYING"]
@@ -832,7 +832,7 @@ short = "CP/M 2.2 emulator"
 ["RUNCPM/"]
 title = "RunCPM"
 kind = "folder"
-summary = "The CP/M emulator and its drive A, with the master disk and the software collection."
+summary = "The CP/M emulator and its drive A with the master disk, on the everything set."
 short = "CP/M emulator and software"
 
 ["1STREAD.ME"]
