@@ -180637,7 +180637,13 @@ window was on then. The only way to play it was to swap the primary.
   is shown before the play goes on. **`W_ONRESIZE` asks too** (`vp_onresize`),
   so the card is right as the window lands on a display of another kind; it
   must not draw (SPEC.md 11.98) and only makes the card's lines, which the
-  repaint that follows draws.
+  repaint that follows draws. **The ask leaves the MUTE alone** (98.3.17):
+  `vp_canp1` runs `vp_mdet`, which re-derives `[vp_mute]` from the machine
+  and cannot tell "the user never chose" from "the user unmuted", so a file
+  muted by default and unmuted with M played SILENT at the next Play until
+  `vp_reask` kept `[vp_mute]` and `[vp_mwhy]` (adjacent, one word) across
+  it. A display has nothing to say about the sound: the mute default is the
+  CPU's and the card's. `vidspkunmute` and `vidspk2` are the rows.
 - **A rendition that plays on the window's display still wins** (98.1.7):
   the renditions are scored by what plays HERE, and one that needs another
   display scores as one through the shadow does.
