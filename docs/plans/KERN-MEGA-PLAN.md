@@ -1011,7 +1011,11 @@ whoever extends this:
     `mega_ivt_syncf` after it. Under Bochs with an SB16 and SYSTEM.CFG
     wanting SOUND.DRV, a WAV double-clicked on C: plays to the end through
     DMA 1 and IRQ 5 - 0.4 s of output in Bochs's capture, the length of
-    the file. `os88bochs.py --sb --cfg BITS` is that machine, and `dbg`
+    the file. ETHER.DRV needed nothing new - it hooks no vector and polls
+    - and with `--ne2k` (an NE2000 at 300h on Bochs's own slirp) the Wire
+    zone comes up and the Browser fetches a page served on the host at
+    10.0.2.2: DHCP, ARP, TCP and HTTP, all in protected mode.
+    `os88bochs.py --sb --cfg BITS` is that machine, and `dbg`
     breaks into the running Bochs, runs debugger commands and continues,
     which is how IDT 20h was seen to have become `mega_eoi1`. ONE BOCHS AT
     A TIME: clicks go to the top window of the display, and two machines
