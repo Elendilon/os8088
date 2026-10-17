@@ -60,7 +60,8 @@ dk_faces:                       ; the names are the Face menu's items
     dw dk_t_f8 + 2, dkp_flip
 
     DK_PARITY 1                 ; the programs and the ops: their measured
-dk_strs:                        ; parity (deskclok.asm's DK_PARITY)    dw dks_casio
+                                ; parity (deskclok.asm's DK_PARITY)
+dk_strs:    dw dks_casio
 dks_casio:  db 'CASIO', 0
 
 ; --- 1. CLASSIC: a white dial, black hands, ticks and 12/3/6/9 --------------

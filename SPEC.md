@@ -193745,7 +193745,7 @@ tomorrow. Neither is modal and neither takes the keys (§110.3's rules).
 #### 110.14.8 What it costs
 
 **No kernel byte.** The shipped `DESKCLOK.O88` is a 19,696-byte image and
-5,368 bytes of bss (its band 4,608 of it), 17,053 bytes packed on the disk -
+5,368 bytes of bss (its band 4,608 of it), 17,054 bytes packed on the disk -
 34 clusters of 512 bytes on the 360 KB system disk (§19.3.2), 17 of 1 KB on
 the 720 KB one. At run time it claims
 the face cache (above) and, for a colour settings paint, its tall band.
@@ -193757,7 +193757,7 @@ defines, so their builds are unchanged.
 and the worker arm are code only a damaged system disk reaches, and there a
 launch is refused in its own words (`No desk layer (DESK.DRV)`). The small
 system disks carry `build/smallapp/deskclok.o88` instead (`-DAPP_SMALL`,
-`$(SMALLSTIKAPPS)`) - 20,080 bytes of image, 5,368 of bss, 17,344 packed -
+`$(SMALLSTIKAPPS)`) - 20,080 bytes of image, 5,368 of bss, 17,343 packed -
 which keeps both, because kern_small has no desk layer; same source, same
 bss, same state file, and `t_stik` holds each system disk to its own build.
 
@@ -193785,7 +193785,11 @@ took the shipped image to **19,696 (-336)** and the file to **17,053
 (-279)**, the small build's to 20,080 (-336) and 17,344 (-289), the bss
 unchanged at 5,368 (`dk_sdrop`'s byte went into the paragraph pad).
 `os88rdiff.py --hot` reads all 70 hot routines identical at an even shift
-on both builds.
+on both builds. Then `dk_strs` got its one entry back - the size pass had
+put a comment in front of `dw dks_casio` on the same line, so both Casio
+faces drew whatever lay at the string's own first two bytes taken as a
+pointer instead of `CASIO` - for 0 image bytes (the paragraph pad) and the
+file's 17,054.
 
 **The forms.** `Desk Clock Settings` and `Alarm` are two LAYOUTS - tables
 of 12-byte entries, a control at a rect, in one type numbering - and two bss
