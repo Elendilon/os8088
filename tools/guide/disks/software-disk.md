@@ -12,4 +12,5 @@ each kind of file, on any disk.
 - **APPS**: the everyday programs.
 - **GAMES**: the games.
 - **MEDIA**: sample documents, pictures, music and video to open.
-- **SYSTEM**: settings the programs on this disk start with.
+- **SYSTEM**: settings the programs on this disk start with, and in `DOS`
+  two small tools to copy onto a PC running MS-DOS.

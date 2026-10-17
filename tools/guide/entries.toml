@@ -766,7 +766,7 @@ short = "Word and its welcome file"
 ["WELCOME.RTF"]
 title = "Welcome document"
 kind = "document"
-summary = "A sample document introducing the word processor. Double-click to open it."
+summary = "A sample document introducing the word processor. Open it from the program's File menu, or double-click it once the program has run."
 short = "Sample welcome document"
 
 ["SCRIBE.O88"]
@@ -778,7 +778,7 @@ short = "Word processor on Word files"
 ["SCWELCOM.RTF"]
 title = "Scribe welcome"
 kind = "document"
-summary = "A sample document introducing Scribe. Double-click to open it."
+summary = "A sample document introducing Scribe. Open it from Scribe's File menu; Scribe does not take a double-click."
 short = "Sample Scribe document"
 
 ["DOCS/"]
@@ -868,7 +868,7 @@ short = "Sample PNG picture"
 ["BOUNCE.GIF"]
 title = "Bounce"
 kind = "picture"
-summary = "A sample GIF picture."
+summary = "A sample GIF picture: a ten-frame animation that PiXEL plays."
 short = "Sample GIF picture"
 
 ["CAT.GIF"]

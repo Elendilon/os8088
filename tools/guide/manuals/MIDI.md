@@ -7,8 +7,9 @@ music and a demo of MIDI effects.
 
 ## Where it is
 
-Inside `MEDIA`, as `MEDIA/MIDI`, on the 720KB, 1.2MB and 1.44MB software
-disks, on the music disk and on MIDIRack's own disk.
+Inside `MEDIA`, as `MEDIA/MIDI`: all ten songs on the 1.44MB and 1.2MB
+software disks, the music disk and MIDIRack's own disk; the 720KB software
+disk has room for two of them, BATTLE1.MID and INTRO.MID.
 
 ## Using it
 

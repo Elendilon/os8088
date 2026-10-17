@@ -13,9 +13,9 @@ programs' own settings in `SYSTEM/APPDATA`.
 - **APPS**: the core programs, so a machine with one floppy drive can still
   edit text, paint and run DOS programs.
 - **STIKAPPS**: Sticky Apps, the widgets that live on the desktop itself.
-- **SYSTEM**: the system's own folders. `FONTS` holds the typefaces,
-  `APPDATA` the programs' settings, and `DOS` small tools to copy onto a PC
-  running DOS.
+- **SYSTEM**: the system's own folders and programs. `FONTS` holds the
+  typefaces and `APPDATA` the programs' settings, beside Task Manager, The
+  Wire and Redline Apply.
 - **MEDIA**: a picture or two to open.
 - **README.TXT**: the os8088 manual as a text file.
 - The hidden system files at the bottom are the system itself and its
