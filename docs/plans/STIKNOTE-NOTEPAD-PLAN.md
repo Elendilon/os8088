@@ -22,13 +22,15 @@ in the commit that lands it and this file moves to `docs/plans/completed/`.
 | 2 | knowing when Note Pad is done | poll the instance table the Task Manager reads (`OSAPI_SYS_SNAPSHOT`), and only while a Note Pad *we* launched is open |
 | 3 | a tick on the pad while Note Pad has the file | last save wins: it is a text file, and two Note Pads on one `.TXT` do the same |
 | 4 | reading notes | read the real file on demand (open, page turn, refresh); no directory slurp held in RAM |
-| 5 | `kern_small` | there is no autostart, restore or shortcut there (§110.7), so a Sticky App costs RAM only when launched by hand: it stays on the small disks and the user decides |
+| 5 | `kern_small` | first: it stays on the small disks, the user's RAM to spend. **Superseded by E** |
 | 6 | paper colour and other per-note data | a sidecar or a trailer inside the note are both acceptable; fewest disk reads wins (§3.7 picks) |
 | 7 | what is lost (live pad while typing, `On desktop` off mode, colour in the editor) | accepted |
 | A | v1's notes file | no conversion: v1 is not in wide use, and v2 replaces it |
 | B | how many notes | 30 for now (32 directory slots, the nearest to main's 24); 14 may be enough, to be settled with jggonz |
 | C | Delete's confirm | the Desk Calendar's press-again latch, with no alert dialog |
 | D | which editor | by association, as long as Sticky Note can tell which program it launched; otherwise Note Pad by name. It can (§3.4) |
+| E | `kern_small` | **Sticky Note comes off the 128 KB disks.** A window that shows one note and cannot reopen on the desk is Note Pad, worse (§3.9). DONE ahead of the plan: SPEC.md §24.5.1, `$(SMALLSTIKAPPS)`, `t_smallreq`'s FORBIDDEN |
+| F | the titled fallback | `kern_big` needs none, so **both** Sticky Apps being size-passed build `STIK_DESKONLY`, as the Desk Calendar does (§3.10) |
 
 ## 2. What already exists (no kernel byte)
 
@@ -116,9 +118,9 @@ wants the gfx lock free (§21.5), and `W_ONCLICK` runs with it held. The press
 records what to open and posts `OSAPI_WM_WAKE`. The window's `OSAPI_WM_ONWAKE`
 handler then runs on the UI task with the lock free, and does the steps below.
 This is Note Pad's own pattern for its launch document (`np_onwake`).
-`kern_big`'s Sticky App include leaves the wake handler to the package; only
-`kern_small`'s worker arm installs one (`stik_wake`), and that build does not
-launch (§3.9).
+The Sticky App include installs a wake handler (`stik_wake`) only in its
+worker arm, which `STIK_DESKONLY` leaves out (§3.10), so the pad window's
+wake is the package's to install.
 
 **The watch, decisions 2 and D.** The snapshot DIFF needs no program name.
 Whatever became live between the two snapshots is what the association
@@ -133,8 +135,8 @@ association arm is the one taken, as decision D asked.
    its slot number and its `SSI_SEG`. No new slot means the launch was
    refused, and the kernel has already said why on the glass (§21.5.3): no
    watch is armed.
-3. While armed, each Sticky App beat (the include's two-second tick, or the
-   worker's on `kern_small`) takes a snapshot. When that slot is no longer
+3. While armed, each Sticky App beat (the include's two-second tick)
+   takes a snapshot. When that slot is no longer
    live, or its `SSI_SEG` differs (the slot was reused), the editor is gone:
    disarm, and owe a re-read of the current note.
 4. Nothing is polled when no watch is armed.
@@ -168,16 +170,18 @@ already has it.
   rewrites the file. The head is 512 bytes and the box is always inside it,
   but the file can be longer. So the rewrite reads the WHOLE file into a
   temporary heap claim, patches it, writes it with `OSAPI_FILE_WRITE`, and
-  frees the claim. That path works on both kernels and on a compressed file.
+  frees the claim. That path works on a compressed file too.
   - A file over 16 KB (Note Pad's own ceiling, so not one Note Pad made)
     refuses the tick with a toast.
   - Last save wins (decision 3).
-  - Considered and **not** taken in wave 1: an in-place one-sector
+  - Considered, and left to a measurement: an in-place one-sector
     `OSAPI_FILE_WRITE_AT` at offset 0, which `os88data.inc` already uses. It
-    is faster and allocates nothing. But `kern_small` has no `WRITE_AT`
-    (§18.4.7.4), so the full rewrite is needed anyway, and `WRITE_AT` is raw
-    against a compressed file (it would need the `FIND` +22 test). Add it only
-    if the final pass measures the full rewrite as too slow on the 5150.
+    is faster and allocates nothing, so a full disk can still take a tick.
+    `kern_small`'s lack of `WRITE_AT` (§18.4.7.4) was the reason against it,
+    and decision E removed that. What remains is that `WRITE_AT` is raw
+    against a compressed file, so it needs the `FIND` +22 test and the full
+    rewrite behind it. Wave 4 builds the full rewrite, and the final pass's
+    5150 figure decides whether the in-place arm earns its bytes.
 
 ### 3.6 Leaving out the editor
 
@@ -231,46 +235,49 @@ launch and watch, new/delete/tick and the sidecar table. Every figure is
 re-measured when built. `tools/os88pkgsize.py` reads image + bss off the
 built `.o88`.
 
-### 3.9 `kern_small` (decision 5), and what it cannot do
-
-Sticky Note stays in the small disks' `STIKAPPS\`. It never starts by itself
-there (§110.7), so its RAM is the user's choice.
+### 3.9 `kern_small`: not shipped (decision E)
 
 **`kern_small` cannot hand a document to a program.** `assoc.inc` is gated
 out of that kernel (§54.0, KERN-SMALL-MODULE-SPLIT W0). `OSAPI_PKG_START`'s
 document arm there runs the NAME and silently drops the document
 (`ld_pkg_byname`'s `%else` arm), and `OSAPI_ARG_FILE` always answers CF = 1,
-*launched empty* (`kernel.asm`'s shared refusing body). Note Pad
-would open empty, not on the note, and an empty name opens nothing at all.
+*launched empty* (`kernel.asm`'s shared refusing body). Note Pad would open
+empty, not on the note.
 
-So on `kern_small` the pad shows, pages, ticks, makes and deletes notes, but
-it cannot open one in an editor through this route. The options, for the
-owner (§4, E):
+Three answers were offered: grey the arrow, a hand-off file, or kernel bytes.
+The owner took a fourth: a window showing one note at a time that never
+reopens on the desk (§110.7) is Note Pad, worse, and Note Pad is on that
+disk. So Sticky Note leaves the small system disks (SPEC.md §24.5.1), and the
+pad needs no `kern_small` arm at all. That is what makes decision F free for
+it.
 
-1. **Grey the arrow** with its reason, `Edit (not on 128KB)` in §47's form.
-   The pad stays a viewer with ticks and New; the user edits in Note Pad by
-   opening `SYSTEM\APPDATA\NOTES\*.TXT` with Ctrl+O. No extra bytes beyond
-   the greying string. **Recommended:** small is on a RAM diet, and this asks
-   nothing of anyone else.
-2. **A hand-off file.** Sticky Note writes the note's name to a file in
-   `SYSTEM\APPDATA` that Note Pad's SMALL build reads at launch. That is a
-   protocol between two packages, a disk read at every small Note Pad launch,
-   and bytes in Note Pad.
-3. **Give `kern_small` a real `OSAPI_ARG_FILE`** and the document arm. That is
-   resident kernel bytes on the machine whose budget is a diet
-   (KERN-SMALL-CUT-PLAN), and it is refused by that rule unless the owner
-   says otherwise.
+### 3.10 `STIK_DESKONLY` for both (decision F)
 
-The worker arm's beat needs no snapshot under option 1, since nothing is
-ever launched. The 128 KB machine's heap and the pad's page-turn time are
-measured on `small128`'s machine in the final pass.
+The Desk Calendar's shipped build already defines `STIK_DESKONLY`: no titled
+fallback, no worker arm, and a refused desk QUERY refuses the launch, said in
+words. Measured on `da5434c3`, the include alone:
+
+| package | today | with `STIK_DESKONLY` | the include's share |
+|---|---:|---:|---:|
+| `stiknote.bin` | 16,912 | 16,608 | −304 |
+| `deskclok.bin` | 23,744 | 23,376 | −368 |
+
+Each package has its own titled-fallback code on top of that, which
+`STIK_DESKONLY` should gate too: `snpad.inc`'s notches-as-paper branch, and
+`dkwid.inc`'s four `STIK_W_DESK` tests. It is unmeasured until gated.
+
+- **Sticky Note:** `STIK_DESKONLY` only. It has no small build, because it is
+  not on the small disks (E).
+- **Desk Clock:** stays on the small disks, so it takes the calendar's
+  arrangement: the shipped build defines `STIK_DESKONLY`, and an `-DAPP_SMALL`
+  build in `$(SMALLAPPDIR)` keeps the fallback and the worker arm for
+  `$(SMALLSTIKAPPS)`. `t_stik` already holds each system disk to its own
+  build for the calendar. That is a row of this branch's size pass, not of
+  this plan.
 
 ## 4. Decisions
 
-A to D are taken (§1). One is open:
-
-- **E. Editing on `kern_small`** (§3.9): grey the arrow (recommended), a
-  hand-off file, or kernel bytes.
+All are taken (§1, A to F). None is open.
 
 ## 5. Waves, and the rows
 
@@ -284,7 +291,8 @@ packages' sizes) and names its rows. The union runs once after the last wave.
 2. **The pad reads the folder** (view only): walk, head read, CR LF,
    textual boxes, `< >`, the current note by name. Drop the editor (§3.6).
 3. **The editor**: the arrow and `+`, the launch from the window's wake, the
-   snapshot watch, the re-read on close, and `kern_small`'s answer (E).
+   snapshot watch, the re-read on close. `STIK_DESKONLY` (F), with the pad's
+   own fallback branch gated.
 4. **New, Delete, tick, papers** (the sidecar table).
 5. **Docs**: SPEC.md §110.13 rewritten, `readme.txt` (still exactly 8,088
    packed), the attribution re-measured, this file to `completed/`.
@@ -299,6 +307,7 @@ design, with legs that:
   forever, the row must go red);
 - tick a box and read the file back on the host;
 - New and Delete, a full folder at 30, a paper colour surviving a relaunch;
-- run the `kern_small` leg on the 128 KB machine;
+- refuse to launch on `kern_small`, in words (`STIK_DESKONLY`), for a copy
+  carried there by hand;
 - measure the page-turn time and the tick's rewrite on the 4.77 MHz XT
   (decision 4's cost, stated rather than predicted).

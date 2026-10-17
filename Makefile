@@ -12071,9 +12071,13 @@ SMALLSYSAPPSARGS  = $(addprefix SYSTEM:,$(SMALLSYSAPPS))
 # with the Desk Calendar's SMALL build: the shipped one is a desk widget or
 # nothing (STIK_DESKONLY), and kern_small has no desk layer, so its disks
 # carry the build that keeps the titled fallback and the worker arm. The
-# others (Sticky Note, the Desk Clock) have one build, and it keeps both
+# Desk Clock has one build, and it keeps both. STICKY NOTE IS NOT HERE
+# (SPEC.md 24.5.1, the owner's decision): kern_small has no desk layer and no
+# associations, so it would be a window showing one note that can neither
+# live on the desk nor hand the note to Note Pad - Note Pad, worse.
+# tests/unit/t_smallreq.py's FORBIDDEN holds it off
 SMALLSTIKAPPS     = $(SMALLAPPDIR)/deskcal.o88 \
-                    $(filter-out $(BUILD)/deskcal.o88,$(STIKAPPS))
+                    $(filter-out $(BUILD)/deskcal.o88 $(BUILD)/stiknote.o88,$(STIKAPPS))
 SMALLSTIKARGS     = $(addprefix STIKAPPS:,$(SMALLSTIKAPPS))
 
 # --- THE SMALL SYSTEM DISK CARRIES THE WHOLE APPS PAYLOAD (SPEC.md 24.5.6) ----

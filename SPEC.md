@@ -52762,6 +52762,17 @@ driver and a few KB of heap, so none of §24.5's three grounds applies; what
 kern_small lacks is the autostart, not the widget, and a widget launched by
 hand there keeps its place and its data in its own state file.
 
+**Except STICKY NOTE, on a fourth ground: a program whose JOB the machine
+cannot do** (the owner's decision, 2026-10-17). kern_small has no desk layer,
+so a Sticky App there is a titled window that never reopens by itself
+(§110.7), and no associations (§54.0), so the pad that
+docs/plans/STIKNOTE-NOTEPAD-PLAN.md makes of Sticky Note cannot hand a note to
+Note Pad there - `OSAPI_PKG_START` drops the document. What is left is a
+window showing one note at a time, which is Note Pad, worse, and Note Pad is
+on the disk. `$(SMALLSTIKAPPS)` filters it out and `t_smallreq`'s FORBIDDEN
+holds it out. The Desk Calendar and the Desk Clock stay: a calendar and a
+clock in a window are still a calendar and a clock.
+
 #### 24.5.3 …and the readers left with nothing to read
 
 §24.5's two data files come off because **the program that opens them is not
@@ -191673,7 +191684,8 @@ have is `OSAPI_CLK_GET` (the cell is in both kernels, §20.8 rule 4; its
 `clk_rtc` is 0, the PIT clock of §37.0.1) and the whole of a Sticky App's own state:
 a widget launched by hand on kern_small opens where it was left, with its
 data, because both live in its state file. A registration refused there is
-silent. The small system disks carry `STIKAPPS\` too (§24.5.1).
+silent. The small system disks carry `STIKAPPS\` too (§24.5.1), less Sticky
+Note.
 
 **The worker arm, end to end** (wave 4's `stiksmall`, MartyPC's 128 KB 5150
 with a CGA, off `make small`'s 360 KB system disk): the first paint hires the
@@ -193114,7 +193126,8 @@ running row's close removing its row.
 The second Sticky App: notes and checklists on the desk, kept where they were
 put. `STIKNOTE.O88` ships in `STIKAPPS\` beside the Desk Calendar on every
 system disk - the four geometries (the 360KB one gave Paint up for it,
-§24.3.1.4), `emu.img`, both small system disks and the live media - and its
+§24.3.1.4), `emu.img` and the live media, but **not the small system disks**
+(§24.5.1) - and its
 state is `SYSTEM\APPDATA\STIKNOTE.DAT`. The owner's two mockups are the
 shape: a pad on the desk, and an editor window behind it.
 

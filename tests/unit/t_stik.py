@@ -526,11 +526,19 @@ def main():
                       % (img, os.path.relpath(pkg, build)),
                       got=len(got), want=len(want))
             got = files.get("STIKAPPS/STIKNOTE.O88")
-            check(got is not None, "%s carries STIKAPPS/STIKNOTE.O88" % img,
-                  why="the second Sticky App rides $(STIKAPPS) beside the "
-                      "first (SPEC.md 110.13) - on the 360KB disk too, which "
-                      "gave Paint up for it (SPEC.md 24.3.1.4)",
-                  got=sorted(k for k in files if k.startswith("STIKAPPS/")))
+            if img in SMALL_SYSTEM:
+                check(got is None, "%s carries no STIKAPPS/STIKNOTE.O88" % img,
+                      why="kern_small has no desk layer and no associations: "
+                          "the owner took Sticky Note off the 128KB disks "
+                          "(SPEC.md 24.5.1)")
+                got = None
+            else:
+                check(got is not None, "%s carries STIKAPPS/STIKNOTE.O88" % img,
+                      why="the second Sticky App rides $(STIKAPPS) beside the "
+                          "first (SPEC.md 110.13) - on the 360KB disk too, "
+                          "which gave Paint up for it (SPEC.md 24.3.1.4)",
+                      got=sorted(k for k in files
+                                 if k.startswith("STIKAPPS/")))
             if got is not None and snwant is not None:
                 check(got == snwant, "%s's STIKNOTE.O88 is "
                       "build/stiknote.o88 byte for byte" % img,
