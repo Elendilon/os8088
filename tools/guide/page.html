@@ -213,7 +213,8 @@ main.panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; ma
 .vid figcaption { font-size: 0.8rem; color: var(--ink-2); margin-top: 4px; }
 .vid { clear: both; }
 .vgrid { clear: both; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 14px; margin: 10px 0 14px; align-items: start; }
-.vgrid .vid { margin: 0; }
+.vgrid .vid, .vgrid .shot { margin: 0; float: none; max-width: none; min-width: 0; }
+.vgrid .shot img { width: 100%; height: auto; max-height: none; }
 .vgrid .vid video { max-height: 14rem; }
 .manual h2, .manual h3, .manual .tbl { clear: both; }
 .manual::after { content: ""; display: block; clear: both; }

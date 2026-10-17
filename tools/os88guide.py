@@ -345,7 +345,8 @@ def md(text, shots):
     def flush():
         nonlocal para, lst, tbl, vids
         if vids:
-            # A run of videos with no blank line between them is a gallery.
+            # A run of videos or shots with no blank line between them is a
+            # gallery, side by side.
             out.append(vids[0] if len(vids) == 1 else '<div class="vgrid">%s</div>' % "".join(vids))
             vids = []
         if para:
@@ -381,11 +382,14 @@ def md(text, shots):
                 vids.append('<figure class="shot pending full"><div class="frame"><span>Video to come</span>'
                             '<code>%s</code></div><figcaption>%s</figcaption></figure>' % (html.escape(name), md_inline(cap)))
             continue
-        if vids and s:
+        if vids and s and not s.startswith("!["):
             flush()
         m = re.match(r"^!\[([^\]]*)\]\(shot:([a-z0-9-]+)\)(?:\{(left|right|full)\})?$", s)
         if m:
-            flush()
+            if para or lst or tbl:
+                v, vids = vids, []
+                flush()
+                vids = v
             cap, sid, place = m.group(1), m.group(2), m.group(3)
             if sid in shots:
                 src, w, h = shots[sid]
@@ -393,11 +397,11 @@ def md(text, shots):
                 # unless the manual says otherwise; `{full}` keeps it whole.
                 place = place or ("right" if w <= 320 and nshot else "full")
                 nshot += 1
-                out.append('<figure class="shot %s"><button class="zoom" data-zoom="%s" aria-label="Enlarge: %s">'
+                vids.append('<figure class="shot %s"><button class="zoom" data-zoom="%s" aria-label="Enlarge: %s">'
                            '<img src="%s" width="%d" height="%d" alt="%s"></button><figcaption>%s</figcaption></figure>'
                            % (place, src, html.escape(plain(cap)), src, w * 2, h * 2, html.escape(plain(cap)), md_inline(cap)))
             else:
-                out.append('<figure class="shot pending %s"><div class="frame"><span>Screenshot to come</span>'
+                vids.append('<figure class="shot pending %s"><div class="frame"><span>Screenshot to come</span>'
                            '<code>%s</code></div><figcaption>%s</figcaption></figure>' % (place or "full", sid, md_inline(cap)))
             continue
         m = re.match(r"^(#{1,3})\s+(.*)$", s)

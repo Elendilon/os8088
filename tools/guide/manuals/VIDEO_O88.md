@@ -6,7 +6,7 @@ move between the two while it plays. The window shows a still picture from
 the video, a bar to pick where to start, and a row of buttons, with an
 information card beside it when you want one.
 
-![The os8088 logo video playing in its window, on the desktop.](shot:video-window){full}
+![Star Wars playing in its window, on a 4.77 MHz IBM PC with a Hercules card.](shot:video-herc-window){full}
 
 Videos are made on a modern computer with the os8088 video encoder, a
 separate program that turns an ordinary video file into a `.V88`. Its
@@ -36,6 +36,8 @@ in `MEDIA`. Their page in this guide is **Video demo**, under Hard disk & CD.
 Double-click a `.V88` file and Video Player opens with it. You can also
 open the `APPS` folder and double-click **VIDEO.O88**, then pick a video
 with **File > Open...** or the eject button.
+
+![The os8088 logo video playing in its window.](shot:video-window){right}
 
 The floppy disks carry one video, [[OS8088.V88]], a short looping animation
 of the os8088 logo, in the `MEDIA` folder of the 720KB, 1.2MB and 1.44MB
@@ -100,6 +102,8 @@ rest of the desktop keeps working. You can move the mouse, use the menus,
 drag the window and work in other windows while the video plays. The logo
 video is one of these.
 
+![Steamboat Willie playing Live, with the Calculator in use beside it.](shot:video-live){full}
+
 A Live video is read into memory before it starts, which takes a few
 seconds from a floppy. It then plays with no disk use at all. Live play
 needs the picture at its own size in the window and a black-and-white
@@ -132,6 +136,11 @@ points says **Seek: no keyframes**.
 
 Some videos only play on the whole screen: 256-colour videos, colour CGA
 videos, and videos made of text characters.
+
+![Sin City on the whole screen of a Hercules card.](shot:video-herc-full){full}
+
+![Trackmania in sixteen colours on a CGA card.](shot:video-cga-colour)
+![Sonic 2, drawn in coloured text characters on a CGA card.](shot:video-cga-text)
 
 ## Keys in the window
 
