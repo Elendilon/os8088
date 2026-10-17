@@ -4,7 +4,7 @@
 ; the clock, Enter, or Clock > Settings.
 ;
 ;   [x] Clock face only            (Hide date, alarms and desktop label.)
-;   [ ] Seconds   [x] 24-hour      Size: [Medium   v]
+;   [ ] Seconds   [x] 24-hour      Size: [ Medium ]
 ;   Choose a face                  three rows of three previews
 ;   Selected: Red LED              [Cancel] [Apply] [ OK ]
 ;
@@ -31,7 +31,11 @@ DKST_END    equ 0               ; the entry types: the clickable ones...
 DKST_CHK    equ 1               ; param = the flag (DKF_*; DKF_ALARM is the
                                 ; alarm's edit, dk_aon); ptr = the label -
                                 ; bold for `Clock face only`
-DKST_DROP   equ 2               ; the size
+DKST_SIZE   equ 2               ; the size: a button that cycles
+                                ; Small, Medium, Large on each press -
+                                ; param = DKB_SIZE, so it is never drawn
+                                ; pressed (dk_sbtnd), ptr = 0: its label is
+                                ; the size's name
 DKST_TILE   equ 3               ; param = the face (made by dk_tileent)
 DKST_BTN    equ 4               ; param = DKB_*; ptr = the label
 DKST_FLD    equ 5               ; the alarm's: param = DKAF_*
@@ -47,6 +51,7 @@ DKB_APPLY   equ 1
 DKB_OK      equ 2               ; the default: a ring
 DKB_MINUS   equ 3
 DKB_PLUS    equ 4
+DKB_SIZE    equ 5               ; (the size's: never a DKST_BTN)
 DKSG_CH     equ 0               ; a layout: dw the content's height,
 DKSG_PWA    equ 2               ; db an analog preview's width (0: no gallery
 DKSG_PWD    equ 3               ; - the alarm's), db a digital one's,
@@ -77,7 +82,7 @@ dks_tall:
     DKSE DKST_CHK, DKF_SECS, 8, 40, 100, 12, dkss_secs
     DKSE DKST_CHK, DKF_H24, 120, 40, 100, 12, dkss_h24
     DKSE DKST_TEXT, 0, 228, 42, 0, 0, dkss_size
-    DKSE DKST_DROP, 0, 276, 38, 84, 16, 0
+    DKSE DKST_SIZE, DKB_SIZE, 276, 38, 84, 16, 0
     DKSE DKST_RULE, 0, 8, 60, 352, 1, 0
     DKSE DKST_TEXT, 0, 8, 66, 0, 0, dkss_choose
     DKS_TILES 80, 92, 88
@@ -96,7 +101,7 @@ dks_mid:
     DKSE DKST_CHK, DKF_SECS, 8, 32, 100, 12, dkss_secs
     DKSE DKST_CHK, DKF_H24, 120, 32, 100, 12, dkss_h24
     DKSE DKST_TEXT, 0, 228, 34, 0, 0, dkss_size
-    DKSE DKST_DROP, 0, 276, 30, 84, 14, 0
+    DKSE DKST_SIZE, DKB_SIZE, 276, 30, 84, 14, 0
     DKSE DKST_RULE, 0, 8, 48, 352, 1, 0
     DKSE DKST_TEXT, 0, 8, 52, 0, 0, dkss_choose
     DKS_TILES 64, 62, 60
@@ -114,7 +119,7 @@ dks_comp:
     DKSE DKST_CHK, DKF_SECS, 160, 2, 90, 12, dkss_secs
     DKSE DKST_CHK, DKF_H24, 264, 2, 90, 12, dkss_h24
     DKSE DKST_TEXT, 0, 8, 17, 0, 0, dkss_size
-    DKSE DKST_DROP, 0, 56, 14, 84, 12, 0
+    DKSE DKST_SIZE, DKB_SIZE, 56, 14, 84, 12, 0
     DKSE DKST_STAT, 0, 160, 17, 200, 8, 0
     DKS_TILES 29, 31, 30
     DKSE DKST_BTN, DKB_CANCEL, 152, 124, 64, 12, dkss_cancel
@@ -134,14 +139,13 @@ dkss_apply:  db 'Apply', 0
 dkss_ok:     db 'OK', 0
 dkss_title:  db 'Desk Clock Settings', 0
 dkss_sizes:  dw dk_t_s0 + 2, dk_t_s1 + 2, dk_t_s2 + 2   ; the Size menu's
-DKS_LROW    equ 12              ; the size list's row
 
 dk_tick12:  db 8                 ; inside a 12-px box, from its third row
             dw 00C0h, 01C0h, 0380h, 3700h, 3E00h, 1C00h, 0800h, 0000h
 
 dk_stpl:    dw 0, MBAR_H + 4, DK_SETW + 2, 0
             dw dkss_title, dk_spaint, dk_skey, dk_sclick
-            dw dk_fset, dk_sgeos, dk_sclose, dk_smup, dk_sinit
+            dw dk_fset, dk_sgeos, dk_sclose, dk_smup, dk_sapplied
 
 ; -----------------------------------------------------------------------------
 ; dk_setopen / dk_almopen - a form's window: in front if it is up, else made
@@ -241,13 +245,8 @@ dk_fopen:
     pop si
     ret
 
-; dk_sinit - DKT_INIT: what Cancel goes back to; the size list shut
-dk_sinit:
-    call dk_sapplied
-    mov byte [dk_sdrop], 0
-    ret
-
-; dk_sapplied / dk_srestore - the payload to dk_sav, and back. Keep all
+; dk_sapplied / dk_srestore - the payload to dk_sav, and back. Keep all.
+; dk_sapplied is the settings' DKT_INIT too: what Cancel goes back to
 dk_sapplied:
     push si
     push di
@@ -678,9 +677,9 @@ dk_ffind:
     jne .e
     ret
 
-; dk_sdropent - DI = the settings' drop entry. AX spent
-dk_sdropent:
-    mov ax, DKST_DROP
+; dk_ssizeent - DI = the settings' size button. AX spent
+dk_ssizeent:
+    mov ax, DKST_SIZE | (DKB_SIZE << 8)
     jmp short dk_ffind
 
 ; dk_tileent - SI = a face: DI = its tile's entry, made at dk_tent from the
@@ -716,8 +715,8 @@ dk_tileent:
     ret
 
 ; -----------------------------------------------------------------------------
-; dk_fcomp - slab [ck_y0] of the form: white, every control whose rows it
-; reaches, and the settings' size list over them when it is open. Keeps all
+; dk_fcomp - slab [ck_y0] of the form: white, and every control whose rows
+; it reaches. Keeps all
 ; -----------------------------------------------------------------------------
 dk_fcomp:
     push ax
@@ -733,12 +732,6 @@ dk_fcomp:
     mov word [ck_oy], 0
     mov bp, .one
     call dk_fwalk
-    cmp word [dk_fm], dk_fset
-    jne .x
-    cmp byte [dk_sdrop], 0
-    je .x
-    call dk_slist
-.x:
     pop bp
     pop di
     pop si
@@ -767,7 +760,7 @@ dk_fcomp:
 .n:
     clc
     ret
-dk_sdraw:   dw dk_schk, dk_sdropd, dk_stile, dk_sbtnd, dk_afld, dk_stext
+dk_sdraw:   dw dk_schk, dk_sbtnd, dk_stile, dk_sbtnd, dk_afld, dk_stext
             dw dk_srule, dk_sstat
 
 ; the entry at DI: AX, BX, CX, DX = its rect
@@ -874,97 +867,6 @@ dk_srule:
     call dk_iblk
     call dk_sent
     jmp ck_rect
-
-; the size: a box, the size's name, a cell with the arrow
-dk_sdropd:
-    call dk_iblk
-    call dk_sent
-    call dk_frame
-    push ax
-    push bx
-    add ax, cx                  ; the arrow's cell: its left edge...
-    sub ax, 14
-    mov cx, 1
-    call ck_rect
-    add ax, 4                   ; ...and the arrow, 7 wide, 4 deep
-    sub dx, 4
-    shr dx, 1
-    add bx, dx
-    mov cx, 7
-    mov dx, 1
-.ar:
-    call ck_rect
-    inc ax
-    inc bx
-    sub cx, 2
-    jg .ar
-    pop bx
-    pop ax
-    call ck_sc1
-    mov cx, ax
-    add cx, 5
-    mov dx, [di+8]
-    sub dx, 8
-    shr dx, 1
-    add dx, bx
-    mov bl, [DKP + DKP_SIZE]
-    xor bh, bh
-    shl bx, 1
-    mov si, [dkss_sizes + bx]
-    jmp ck_text
-
-; dk_slist - the size list, open under its box: three rows, the size
-; inverse. Over the gallery, in the same slab - nothing drawn twice
-dk_slist:
-    call dk_sdropent            ; DI = the drop's entry
-    call dk_sent
-    add bx, dx
-    dec bx                      ; under the box, sharing its bottom edge
-    mov dx, 3 * DKS_LROW + 2
-    call dk_iwht
-    call ck_rect
-    call dk_iblk
-    call dk_frame
-    inc bx
-    xor si, si
-.r:
-    cmp si, 3
-    jae .x
-    push ax
-    push bx
-    push cx
-    mov dx, si
-    cmp dl, [DKP + DKP_SIZE]
-    jne .t
-    push ax                     ; the current one inverse
-    call dk_iblk
-    pop ax
-    inc ax
-    sub cx, 2
-    mov dx, DKS_LROW
-    call ck_rect
-    call dk_iwht
-    dec ax
-.t:
-    push si
-    call ck_sc1
-    mov cx, ax
-    add cx, 5
-    mov dx, bx
-    add dx, 2
-    shl si, 1
-    mov si, [dkss_sizes + si]
-    call ck_text
-    pop si
-    call dk_iblk
-    pop cx
-    pop bx
-    pop ax
-    add bx, DKS_LROW
-    inc si
-    jmp short .r
-.x:
-    ret
 
 ; a tile: the face's preview, its name; the selected one in a double border
 ; with its name on a black bar behind a ticked box
@@ -1113,7 +1015,8 @@ dk_sstat:
     ret
 
 ; a button, either form's: its edge, its label centred; OK the default (a
-; second edge, two px thick, a px out); a pressed one inverse
+; second edge, two px thick, a px out); a pressed one inverse. The settings'
+; size is one too, its label the size's name
 dk_sbtnd:
     call dk_iblk
     call dk_sent
@@ -1171,6 +1074,13 @@ dk_sbtnd:
     shr dx, 1
     add dx, bx
     mov si, [di+10]
+    or si, si
+    jnz .t
+    mov bl, [DKP + DKP_SIZE]    ; the size's button: its name
+    xor bh, bh
+    shl bx, 1
+    mov si, [dkss_sizes + bx]
+.t:
     call ck_textc
     mov byte [ck_gbold], 0
     ret
@@ -1179,7 +1089,7 @@ dk_sbtnd:
 ; THE GESTURES
 ; -----------------------------------------------------------------------------
 ; dk_fhit - CX, DX on the form's content: DI = the control there (a check
-; box, the drop, a tile, a button, a field), CF = 1 none. Keeps the rest
+; box, the size, a tile, a button, a field), CF = 1 none. Keeps the rest
 dk_fhit:
     push ax
     push bp
@@ -1229,13 +1139,6 @@ dk_fclick:
     call dk_forg
     sub cx, [dk_wox]
     sub dx, [dk_woy]
-    cmp si, dk_fset
-    jne .hit
-    cmp byte [dk_sdrop], 0
-    je .hit
-    call dk_slisthit            ; the list is up: a pick, or it goes
-    jmp short .x
-.hit:
     call dk_fhit
     jc .x
     mov ax, [di]                ; AL = the type, AH = its param
@@ -1257,11 +1160,9 @@ dk_fclick:
     call dk_kaon                ; the alarm's own box: its edit
     jmp short .x
 .d:
-    cmp ah, DKST_DROP
+    cmp ah, DKST_SIZE           ; the size: the next one, on the press
     jne .t
-    mov byte [dk_sdrop], 1
-    call dk_slistrect
-    call dk_wrect
+    call dk_kzsize
     jmp short .x
 .t:
     cmp ah, DKST_TILE
@@ -1362,62 +1263,7 @@ dk_sentredraw:
     pop ax
     ret
 
-; dk_slistrect - AX, BX .. CX, DX = the size list's rect, open
-dk_slistrect:
-    push di
-    call dk_sdropent
-    call dk_sent
-    add bx, dx
-    dec bx
-    add cx, ax
-    dec cx
-    mov dx, bx
-    add dx, 3 * DKS_LROW + 1
-    pop di
-    ret
-
-; dk_slisthit - CX, DX: a row of the open list picks its size; anywhere else
-; shuts the list. Either way it is drawn shut
-dk_slisthit:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-    call dk_sdropent
-    sub cx, [di+2]
-    jl .shut
-    cmp cx, [di+6]
-    jge .shut
-    mov ax, dx
-    sub ax, [di+4]
-    sub ax, [di+8]
-    jl .shut
-    xor dx, dx
-    mov bx, DKS_LROW
-    div bx
-    cmp ax, 3
-    jae .shut
-    mov byte [dk_sdrop], 0
-    push ax                     ; (dk_slistrect's AX is the list's x)
-    call dk_slistrect
-    call dk_wrect
-    pop ax
-    call dk_ssize               ; AL = the row: the size
-    jmp short .x
-.shut:
-    mov byte [dk_sdrop], 0
-    call dk_slistrect
-    call dk_wrect
-.x:
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; dk_ssize - AL = a size, previewed; the drop again
+; dk_ssize - AL = a size, previewed; its button again
 dk_ssize:
     cmp al, [DKP + DKP_SIZE]
     je .r
@@ -1425,7 +1271,7 @@ dk_ssize:
     call dk_spreview
     push ax
     push di
-    call dk_sdropent
+    call dk_ssizeent
     call dk_sentredraw
     pop di
     pop ax
@@ -1481,26 +1327,15 @@ dk_sface:
     pop si
     ret
 
-; dk_skey - W_ONKEY for the window: Enter OK, Esc Cancel (or the list shut),
-; the arrows walk the gallery, F S H the boxes, Z the size, A Apply
+; dk_skey - W_ONKEY for the window: Enter OK, Esc Cancel, the arrows walk
+; the gallery, F S H the boxes, Z the size, A Apply
 dk_skey:
     push ax
     push bx
     push si
     mov word [dk_fm], dk_fset
-    cmp byte [dk_sdrop], 0
-    je .k
-    mov byte [dk_sdrop], 0      ; a key shuts the list first
-    push ax
-    call dk_slistrect
-    call dk_wrect
-    pop ax
-    cmp al, 27
-    je .x
-.k:
     mov si, dk_kset
     call dk_keys
-.x:
     pop si
     pop bx
     pop ax
@@ -1523,7 +1358,8 @@ dk_kgal:
     call dk_fstep
     jmp dk_sface
 
-; dk_kzsize - Z: the next size, round the three
+; dk_kzsize - Z, or a press on the size's button: the next size, round the
+; three
 dk_kzsize:
     mov al, [DKP + DKP_SIZE]
     inc ax

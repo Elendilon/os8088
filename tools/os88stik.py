@@ -781,7 +781,7 @@ DESKCLOK_BSS_CH = 273            # dw ...and height
 DESKCLOK_BSS_RING = 382          # db 0 quiet, 1 ringing, 2 rung out
 DESKCLOK_BSS_SNZ = 383           # db snoozed
 DESKCLOK_BSS_SWIN = 388          # dw the settings window, 0 none
-DESKCLOK_BSS_AWIN = 432          # dw the alarm window, 0 none
+DESKCLOK_BSS_AWIN = 431          # dw the alarm window, 0 none
 DESKCLOK_BSS_COK = 136           # db the face cache holds the face
 
 
