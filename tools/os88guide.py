@@ -363,6 +363,9 @@ def load_pages(sub):
     return out
 
 
+ONLY = None                    # --manuals: publish just these (a review round)
+
+
 def load_manuals():
     d = os.path.join(GUIDE, "manuals")
     shots_dir = os.path.join(BUILD, "guide", "shots")
@@ -373,6 +376,8 @@ def load_manuals():
         if not fn.endswith(".md"):
             continue
         key = fn[:-3].upper()
+        if ONLY is not None and key not in ONLY:
+            continue
         text = open(os.path.join(d, fn), encoding="utf-8").read()
         shots = {}
         if os.path.isdir(shots_dir):
@@ -598,8 +603,12 @@ def main(argv):
     ap.add_argument("--fragment", action="store_true")
     ap.add_argument("--zip", action="store_true")
     ap.add_argument("--missing", action="store_true")
+    ap.add_argument("--manuals", help="comma-separated manual keys to include, e.g. WORD_O88,CALC_O88")
     ap.add_argument("-o", "--out", default=os.path.join(BUILD, "guide"))
     a = ap.parse_args(argv)
+    global ONLY
+    if a.manuals:
+        ONLY = set(k.strip().upper() for k in a.manuals.split(","))
     data = collect()
     if a.missing:
         for n, where in missing(data):
