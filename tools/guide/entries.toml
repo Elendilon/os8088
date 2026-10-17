@@ -458,8 +458,8 @@ short = "Wireframe tank battle"
 ["SKIES.O88"]
 title = "Clear Skies"
 kind = "program"
-summary = "A simple 3D flight simulator: take off in a Cessna, fly over Paris and land again."
-short = "Simple 3D flight simulator"
+summary = "A 3D flight simulator: five aircraft, from a Cessna to a glider and an amphibian, over nine places from Paris to Nepal."
+short = "3D flight simulator"
 
 ["PXSTEIN.O88"]
 title = "Pixelstein 3D"
