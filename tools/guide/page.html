@@ -75,10 +75,11 @@ header.top { padding-block: 8px 0; display: grid; gap: 6px; }
   background: var(--sheet); border: 1px solid var(--rule-strong); box-shadow: 3px 3px 0 var(--rule-strong);
   max-height: 60vh; overflow: auto;
 }
-.results button { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; text-align: left; border: 0; background: none; padding: 7px 12px; cursor: pointer; }
+.results button { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding-block: 5px; width: 100%; text-align: left; border: 0; background: none; padding: 7px 12px; cursor: pointer; }
 .results button[aria-selected="true"], .results button:hover { background: var(--accent); color: var(--accent-ink); }
-.results .r-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.results .r-title small { color: inherit; opacity: 0.75; margin-left: 6px; }
+.results .r-title { display: grid; min-width: 0; line-height: 1.3; }
+.results .r-title b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.results .r-title small { font-family: var(--font-mono); font-size: 11px; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .results .r-kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.75; }
 .results .empty { padding: 10px 12px; color: var(--ink-2); }
 
@@ -528,7 +529,7 @@ function search() {
   if (!words.length) { res.hidden = true; return; }
   hits = IDX.map(e => [score(e, words), e]).filter(([s]) => s > 0).sort((a, b) => b[0] - a[0]).slice(0, 14).map(x => x[1]);
   sel = 0;
-  res.innerHTML = hits.length ? hits.map((e, i) => `<button role="option" aria-selected="${i === sel}" data-hit="${i}">${icon(e.ic)}<span class="r-title">${esc(e.t)}<small>${esc(e.sub)}</small></span><span class="r-kind">${e.k}</span></button>`).join("")
+  res.innerHTML = hits.length ? hits.map((e, i) => `<button role="option" aria-selected="${i === sel}" data-hit="${i}">${icon(e.ic)}<span class="r-title"><b>${esc(e.t)}</b><small>${esc(e.sub)}</small></span><span class="r-kind">${e.k}</span></button>`).join("")
     : `<div class="empty">Nothing matches “${esc(q.value)}”.</div>`;
   res.hidden = false;
 }
