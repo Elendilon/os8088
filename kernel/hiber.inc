@@ -336,7 +336,8 @@ hb_probe_x:
     call COLD_SEG:dkf_dsk_chdir_q
     jc .back
     mov si, hb_s_ptr
-    call COLD_SEG:drvf_drv_find ; the directory sectors themselves
+    mov bp, drv_find            ; (wm_cbd: kmain_o holds nothing in BP)
+    call COLD_SEG:wm_cbd        ; the directory sectors themselves
     jc .back
     mov byte [ui_rebootq], UI_RBQ_ASK
 .back:
@@ -1698,18 +1699,21 @@ hbm_reload:
 ; in:  DX = the rows; out: nothing; clobbers DX
 hbm_reload_m:
     push ax
+    push bx
     push cx
     xor cx, cx
 .row:
     shr dx, 1
     jnc .next
     mov al, cl
-    call COLD_SEG:drvf_drv_load ; failures show on the Drivers page, as at boot
+    call COLD_SEG:drvf_drv_row  ; BX = the row hdl_load takes
+    call hdl_load               ; failures show on the Drivers page, as at boot
 .next:
     inc cx
     cmp cx, DRV_MAX
     jb .row
     pop cx
+    pop bx
     pop ax
     ret
 

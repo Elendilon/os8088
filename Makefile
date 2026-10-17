@@ -912,8 +912,12 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # sector down with it - 5632, memory sector 11, file sector 11 + 10 = 21, the
 # same file sector - so the band argument above is untouched. SPEC.md 26.10.5
 # took it to ELEVEN for autostart's walk, and the probe moved down once more:
-# 5120, memory sector 10, file sector 10 + 11 = 21.
-KSIG_OFF := 5120
+# 5120, memory sector 10, file sector 10 + 11 = 21. Kernel size pass 13 took
+# kern_big to TWELVE for the boot's copy of the adapter switch
+# (docs/plans/completed/ksp13/dispsw.md): 4608, memory sector 9, file sector
+# 9 + 12 = 21. kern_small stays at eleven and 5120 - the KERN_SMALL block
+# beside the knob's below takes the sector back off.
+KSIG_OFF := 4608
 #
 # A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
 # whole of this line's second job. It used to answer 0, and a fabricated zero is
@@ -2005,6 +2009,15 @@ BOOT2_SECS := $(shell echo $$(( $(BOOT2_SECS) + 1 )))
 BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 KSIG_OFF   := $(shell echo $$(( $(KSIG_OFF) - 512 )))
 endif
+# ...and kern_small ONE SECTOR SHORTER than the literal: kernel.asm's
+# BOOT2_SMALLSEC. The twelfth sector is kern_big's boot copy of the adapter
+# switch, and kern_small has no drv_boot to carry one (kernel size pass 13), so
+# it keeps the eleven - and the 5120 - it had, file sector 21 either way.
+ifneq ($(KERN_SMALL),)
+BOOT2_SECS := $(shell echo $$(( $(BOOT2_SECS) - 1 )))
+BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
+KSIG_OFF   := $(shell echo $$(( $(KSIG_OFF) + 512 )))
+endif
 
 # EVERY KNOB IN $(KNOBS) IS IN THIS STAMP TOO, and the seven that were not are
 # what this note is for: BOOTDIAG, PICOMEM (NOPICOMEM now), PM_BASE, PM_SB_PORT, ETHPROF,
@@ -2594,7 +2607,8 @@ ifeq ($(NOOVLCHK),)
 else
 	@echo "os88ovlchk: NOT RUN (NOOVLCHK=1 - the caller states it ran it over this same source)"
 endif
-	$(NASM) -f bin -w+error $(KINC) $(VIDDEF) $(KZDEF) -o $@ $(KERNEL_SRC)
+	$(NASM) -f bin -w+error $(KINC) $(VIDDEF) $(KZDEF) \
+	        --before "[map all $(BUILD)/kernel.map]" -o $@ $(KERNEL_SRC)
 
 $(BUILD)/kernel.bin: $(BUILD)/kernel-full.bin tools/os88mod.py tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
 	python3 tools/os88mod.py $< -k $@ $(KMODARGS) --build $(BUILDNUM)
@@ -2615,6 +2629,7 @@ else
 	          --blob $(BOOT2_PAD) --head $(KZ_HEAD) --defines) && \
 	 echo "os88kz: pass 2 with $$KZD" && \
 	 $(NASM) -f bin -w+error $(KINC) $(VIDDEF) -DKZIP $$KZD \
+	        --before "[map all $(BUILD)/kernel.map]" \
 	        -o $(BUILD)/kernel-full.bin $(KERNEL_SRC) && \
 	 python3 tools/os88mod.py $(BUILD)/kernel-full.bin -k $(BUILD)/kernel.bin \
 	        $(KMODARGS) --build $(BUILDNUM) >/dev/null && \
@@ -3412,16 +3427,13 @@ MEDIAFOLDER := --folder MEDIA
 # its own would have to handle "the disk is full" on a path nobody tests.
 APPDATAFOLDER := --folder SYSTEM/APPDATA
 # ...and AUTOSTART's folder (SPEC.md 26.10.5), EMPTY, on every kern_big system
-# disk and the live volume: a folder a user can see is how the feature is
-# found, where a feature with no folder is a manual nobody has written. It
-# costs the boot one directory sector (its first, and the whole of an empty
-# one); kern_small has no autostart and its disks do not carry it.
-# **NOT THE 360KB SYSTEM DISK, for now, and it is ROOM and not a decision
-# about the feature**: that disk had 5 clusters free, §26.10's eleventh blob
-# sector took KERNEL.SYS over a cluster and the folder would take another, and
-# at 3 free the Sticky Apps calendar can no longer save its place there
-# (stikmove, stikmovecga and stikregister go red; at 4 they pass). The day a
-# cluster is found for it, $(IMG360) takes $(AUTOFOLDER) like the other three
+# disk - all four geometries, emu.img - and the live volume: a folder a user
+# can see is how the feature is found, where a feature with no folder is a
+# manual nobody has written. It costs the boot one directory sector (its
+# first, and the whole of an empty one); kern_small has no autostart and its
+# disks do not carry it. The 360KB disk went without it while it had 5
+# clusters free; SYS360SPC's 512-byte clusters left it 45, and the folder
+# takes one of them
 AUTOFOLDER := --folder AUTOSTRT
 
 # The logo (SPEC.md 63): 466x100 of monochrome GIF, and the one thing in
@@ -5109,11 +5121,21 @@ $(BUILD)/ftpapps.img: $(FTPDFILES) tools/os88disk.py
 # ...and this one alone takes $(COREAPPSARGS360)/$(FACESARG360) - the 354
 # clusters that geometry has do not hold MINES.O88 and JETBRAIN.F88 as well as
 # SPEC.md 70.9's parser, and §24.3 carries the arithmetic.
+#
+# SYS360SPC IS THE ONE SHIPPED IMAGE OFF THE IBM CLUSTER SIZE (SPEC.md
+# 19.3.2): 512-byte clusters, a 3-sector FAT and the data area at LBA 14, which
+# takes this disk - the only full one - from 11KB free to 22KB by halving the
+# slack each of its files pays. IBM DOS 3.30 reads it correctly, because it
+# takes SecPerClus and FATSz16 from the boot sector; kern_small never boots it
+# (small360.img is its own, at --fatcap 2). tests/unit/t_image.py's CLUSTERS
+# is what fails if this flag is lost, and autostart360.img below takes it too
+# because it is this disk plus four files.
+SYS360SPC := --spc 1
 $(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 \
+	python3 tools/os88disk.py -o $@ --size 360 $(SYS360SPC) \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
-		$(APPDATAFOLDER)
+		$(APPDATAFOLDER) $(AUTOFOLDER)
 
 # AUTOSTARTTEST - the LINKS and AUTOSTART gate's disk (SPEC.md 26.10): the
 # shipped 360KB system disk plus \AUTOSTRT holding a link to the Task Manager
@@ -5138,7 +5160,7 @@ $(BUILD)/astest/.made: tools/os88lnk.py | $(BUILD)
 	touch $@
 
 $(BUILD)/autostart360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py $(BUILD)/astest/.made
-	python3 tools/os88disk.py -o $@ --size 360 \
+	python3 tools/os88disk.py -o $@ --size 360 $(SYS360SPC) \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(FACESARG360) \
 		$(BUILD)/astest/CALC.LNK AUTOSTRT:$(BUILD)/astest/BADVER.LNK \

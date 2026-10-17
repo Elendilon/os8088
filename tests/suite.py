@@ -1030,6 +1030,17 @@ FAST = [
         "that fits never split, a collection split only between stem groups, "
         "first fit in order, DOCS/APPDATA/CONTENTS.TXT on every disk, a "
         "no-longer-needed disk deleted, an oversized program refused"),
+    Row("guidelock", "fast", py("tests/unit/t_guidelock.py", "--warn"), 2.1,
+        "the project guide (tools/os88guide.py) is checked against what it "
+        "describes: a page whose sources changed the text a user reads since "
+        "it was stamped (tools/guide/manuals.lock.json), and a file on a "
+        "built disk with no line or no page. In THIS tier it only WARNS - "
+        "its lines start `warn:` and the runner shows them on a passing row - "
+        "so no `make` waits on documentation; `guidelock-full` is the same "
+        "check failing. Also proves the fingerprint moves for a menu item, a "
+        "C message and a tool's help text and stands for comments and code. "
+        "~2s: it walks the built disks and hashes the packages' strings",
+        needs=()),
     Row("livefull", "fast", py("tests/unit/t_livefull.py"), 0.2,
         "SPEC.md 80.6: the live USB/CD is the ONE image whose premise is "
         "completeness, and until this row nothing in the tree had ever read "
@@ -1109,6 +1120,16 @@ FAST = [
         "build/os8088.img: the cost of the leak is paid by an unrelated row, "
         "hours later, wearing a message about the wrong subject "
         ""),
+    Row("hotpar", "fast", py("tests/unit/t_hotpar.py"), 0.1,
+        "every HOT routine - gfx_blit4, gfx_blit1_x, font_run, both mouse "
+        "ISRs, kbm_isr, cur_move, sch_isr, sch_switch, ui_task, dsk_xfer, "
+        "dsk_runcap, dsk_next_clus_x, wm_paint_all - starts at the address "
+        "PARITY it was measured at, on kern_big and (when build/smallk is "
+        "current) kern_small. On a 16-bit bus an odd word fetch is two cycles, "
+        "and a cold-code edit or a re-relaxed branch moves the hot code by an "
+        "odd amount with every row green: passes 12 and 13 each found the "
+        "whole list odd part-way through. Reads the kernel.map the build "
+        "writes, so it assembles nothing"),
     Row("canary", "fast", py("tests/unit/t_canary.py"), 0.1,
         "SPEC.md 18.93.1's canary offset re-derived from every shipped image's "
         "own BPB: it has to name a sector a transfer run reads AFTER the head "
@@ -1682,6 +1703,14 @@ FULL = [
         "so it cannot answer this tier's question. It is what a change to "
         "tools/os88marty.py runs",
         needs=("marty",), serial=True),
+    Row("guidelock-full", "full", py("tests/unit/t_guidelock.py"), 2.1,
+        "the fast tier's `guidelock` row with teeth, at the owner's word: a "
+        "merge of major work must not leave a page describing text the "
+        "program no longer shows, or a shipped file with no page. Host-side "
+        "and two seconds, so it costs this tier nothing next to the boots; "
+        "paid with `python3 tools/guidelock.py stamp KEY --why ...` after "
+        "reading the page",
+        needs=()),
     Row("bootsmoke", "full", py("tests/bootsmoke.py"), 20.0,
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
@@ -5407,6 +5436,22 @@ SOAK = [
         "written to for a year is where a too-fragmented part would first "
         "show up. Host-side, one second, and it reads THE SHIPPED SYSTEM DISK: since SPEC.md 96.44.5 flipped $(SYSROOT) to the parted package there is no gate disk to read instead, so this row also answers `did a shipped floppy lose kern_dos`.",
         wants=("build/os8088-360.img", "build/kerndos.bin")),
+    Row("kbdburst", "soak", py("tests/kbdburst.py"), 30.0,
+        "A SCRIPTED KEY BURST MUST NOT NEST int 09h (SPEC.md 9.8.2). An agent "
+        "sent 70 Backspaces into Font Viewer with m.key() and no advance "
+        "between, and the UI task's stack - and ~1KB of .lowbss beneath it - "
+        "filled with GLaBIOS int 09h frames, each interrupted a few "
+        "instructions after the ROM's sti. It was the HARNESS: MartyPC took a "
+        "queued key per machine.run() call and handed each byte to the PPI "
+        "the instant the last was acknowledged, and `advance` calls run() "
+        "every 0.25 ms. No keyboard's serial line can do that, and the ROM's "
+        "acknowledge-to-iret window is ~190 us, so the kernel needs nothing; "
+        "tools/martypc/patches/14-keyboard-byte-pacing.patch paces bytes to "
+        "one a millisecond. Legs: a 10-key burst deletes EXACTLY 10 (pacing "
+        "must not drop keys), the 70-key burst on Inconsol survives with the "
+        "BIOS buffer drained, and one more paced key still lands. Red on a "
+        "MartyPC built without patch 14 (leg B stops in sch_stkdie).",
+        needs=("marty",)),
     Row("kdkbd", "soak", py("tests/kdkbd.py"), 60.0,
         "KERN_DOS KEEPS THE BIOS KEY BUFFER OFF FULL (SPEC.md 96.50). "
         "Reported off an 86Box 386: hold a direction key in Prince of Persia "
