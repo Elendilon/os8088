@@ -326,6 +326,10 @@ mega_enter:
     mov byte [mega_on], 1
     mov byte [ss:mega_pm], 1        ; ...and .cold's copy of the same fact
     mov word [k_seg0], MEGA_SEL_LOW0 ; low memory's selector (MEGA_SEG0)
+    or byte [cpu_feat], CPU_F_PM | CPU_F_A20 ; OSAPI_CPU_INFO says so
+                                    ; (KERN-MEGA-PLAN 12.1), and A20 is
+                                    ; VERIFIED open - mega_a20 did, and no
+                                    ; XMEM.DRV runs here to say it
     mov word [ss:mega_seg0], MEGA_SEL_LOW0
     call mega_frames_fix
     call mega_mods_fix
@@ -469,6 +473,9 @@ mega_idt_gate:
     mov dx, mega_eoi2               ; IRQ8-15 the ROM owned
     jmp .put
 .irqm:
+    mov dx, mega_fdisr              ; IRQ6 the ROM owned: the floppy's flag,
+    cmp al, 0x26                    ; which the native path waits on
+    je .put
     mov dx, mega_eoi1               ; IRQ0-7 the ROM owned
 .put:
     mov ax, dx                      ; an INTERRUPT gate (IF off), DPL 0
@@ -1209,6 +1216,32 @@ mega_svc:
     hlt
     jmp .hang
 .refl:
+    cmp byte [ss:bp+20], 0x13       ; a floppy transfer, natively if it can
+    jne .refl1                      ; be (mega_fd13)
+    call mega_fd13
+    jc .refl1
+    pop es
+    pop ds
+    popa
+    add sp, 2                       ; the vector
+    iret
+.refl1:
+    cmp byte [ss:bp+20], 0x13       ; a FIXED disk's int 13h, reflected: said
+    jne .refl2                      ; once on port E9, because HDD.DRV's rung 1
+    test byte [ss:bp+14], 0x80      ; is meant to leave a BIOS-known drive
+    jz .refl2                       ; nothing to reflect (SPEC.md 52.1.1) and a
+    cmp byte [ss:bp+19], 0x02       ; field run should be able to see which it
+    jb .refl2                       ; got. Transfers only (02h/03h), not the
+    cmp byte [ss:bp+19], 0x03       ; one-off questions
+    ja .refl2
+    cmp byte [mega_hdsaid], 0
+    jne .refl2
+    mov byte [mega_hdsaid], 1
+    push si
+    mov si, mega_mhd13
+    call mega_say
+    pop si
+.refl2:
     mov ax, [ss:bp+0]               ; ES and DS as SEGMENTS
     mov [mega_ses], ax
     call mega_s2seg
@@ -2462,6 +2495,709 @@ mega_bhex2:
     stosb
     pop ax
     ret
+
+; =============================================================================
+; THE FLOPPY, NATIVELY (KERN-MEGA-PLAN 10, M2): int 13h AH=02h/03h on drive
+; 0 or 1, run by the 765 and the 8237 in protected mode instead of reflected.
+; A reflected transfer is ~200 ms of real mode with every IRQ but the BIOS's
+; own masked (mega_svc), so the pointer and the sound stopped for each one;
+; this one waits for IRQ6 with interrupts ON, so they do not.
+;
+; IT IS AN ACCELERATOR, NOT A SECOND DRIVER. It shares the BIOS's own state in
+; the BDA - the rate last programmed at 40:8B, the recalibrated bits at
+; 40:3E, the motor at 40:3F/40:40 - and it hands back to the BIOS everything
+; it does not recognise: a call that is not dsk_xfer's, a geometry it does not
+; know, the change line set, a
+; buffer that crosses a DMA page, any other function, and ANY failure but a
+; write-protected disk. The BIOS then does what it always did, so the native
+; path can only ever be faster or equal. Eight fallbacks in a row switch it
+; off for the session ([mega_fdoff]) and say so on port E9.
+; =============================================================================
+MEGA_FD_DOR equ 0x3F2               ; digital output: motors, DMA, drive
+MEGA_FD_MSR equ 0x3F4               ; main status: RQM, DIO
+MEGA_FD_DAT equ 0x3F5
+MEGA_FD_CCR equ 0x3F7               ; write: data rate. read: DIR, bit 7
+
+; mega_fdisr - IRQ6, in protected mode: the BIOS's own flag (40:3E bit 7),
+; which is what both this path and a reflected BIOS call wait on
+mega_fdisr:
+    push ax
+    push ds
+    mov ax, MEGA_BDA
+    mov ds, ax
+    or byte [0x3E], 0x80
+    mov al, 0x20
+    out 0x20, al
+    pop ds
+    pop ax
+    iret
+
+; mega_fd13 - in: BP = mega_svc's frame, DS = KDATA, IF = 0.
+; out: CF = 0 handled - the frame holds the answer (AH status, AL sectors, CF
+; in FLAGS); CF = 1 not taken, reflect it. Preserves DS; clobbers the rest
+mega_fd13:
+    cmp byte [mega_fdoff], 0
+    jne .no
+    mov ax, [ss:bp+18]              ; AH = the function, AL = the count
+    cmp ah, 2
+    je .fn
+    cmp ah, 3
+    jne .no
+.fn:
+    mov [mega_fdop], ah
+    or al, al
+    jz .no
+    cmp al, 72                      ; a cylinder of the largest geometry; the
+    ja .no                          ; DMA count below must fit 16 bits
+    mov [mega_fdn], al
+    mov dx, [ss:bp+14]              ; DL = drive, DH = head
+    cmp dl, 1
+    ja .no
+    cmp dh, 1
+    ja .no
+    mov [mega_fdd], dl
+    mov [mega_fdh], dh
+    mov cx, [ss:bp+16]              ; CH = cylinder, CL = sector (a floppy's
+    test cl, 0xC0                   ; cylinder has no bits 9:8)
+    jnz .no
+    mov [mega_fdc], ch
+    mov [mega_fds], cl
+    cmp byte [mega_fdx], 0          ; only dsk_xfer's own transfers: the EOT
+    je .no                          ; in dsk_dpt is ITS volume's, and a run
+                                    ; across a head with a wrong one reads the
+                                    ; wrong sectors without failing
+    ; --- the media, from the volume and the drive - NOT 40:90, whose
+    ; encoding is the BIOS's own (Bochs's says 25h for an established 1.2MB
+    ; disk). Nine sectors in a 1.2MB drive is a 360KB disk: 300 kbps and
+    ; every cylinder stepped twice; nine anywhere else is 250; 15 and 18 are
+    ; 500. A guess that is wrong fails the transfer, and that falls back
+    mov al, [dsk_dpt+4]
+    mov ah, 0x10                    ; 500 kbps
+    cmp al, 18
+    je .rate
+    cmp al, 15
+    je .rate
+    cmp al, 9
+    jne .no
+    call mega_fdtype                ; AL = the drive's CMOS type
+    mov ah, 0x90                    ; 250 kbps
+    cmp al, 2
+    jne .t250
+    mov ah, 0x70                    ; 300 kbps, double-stepped
+    jmp short .rate
+.t250:
+    cmp al, 1
+    jb .no
+    cmp al, 4
+    ja .no
+.rate:
+    mov [mega_fdms], ah
+    ; --- the buffer, as a 24-bit address that must not cross a 64KB page --
+    mov ax, [ss:bp+0]               ; ES
+    call mega_selbase               ; DX:AX = its base
+    jc .no
+    add ax, [ss:bp+12]              ; + BX
+    adc dx, 0
+    or dh, dh
+    jnz .no                         ; above 16MB: the 8237 cannot reach it
+    mov [mega_fdlin], ax
+    mov [mega_fdlin+2], dl
+    xor ch, ch
+    mov cl, [mega_fdn]
+    xchg ch, cl                     ; CX = sectors x 256...
+    shl cx, 1                       ; ...x 2 = bytes (<= 36864)
+    dec cx                          ; the 8237 counts N - 1
+    mov [mega_fdcnt], cx
+    add ax, cx
+    jc .no                          ; it would cross: the BIOS says 09h
+    ; --- taken: from here every exit restores the motor count -------------
+    mov ax, MEGA_BDA                ; ES = the BIOS's data for everything below
+    mov es, ax                      ; (the caller's ES is its BUFFER)
+    inc byte [sch_lock]             ; nothing switches under the 765
+    sti
+    call mega_fdgo                  ; CF = 1 fall back; else AH = status
+    cli
+    pushf
+    push ax
+    mov ax, MEGA_BDA
+    mov es, ax
+    mov al, [dsk_dpt+2]
+    mov [es:0x40], al               ; the motor-off count, ROM's own value
+    and byte [es:0x3F], 0x7F        ; ...and no write in progress
+    pop ax
+    popf
+    dec byte [sch_lock]
+    jc .fall
+    mov [es:0x41], ah               ; the BIOS's last status
+    mov byte [mega_fdfail], 0
+    push cx                         ; the first one per drive, on port E9:
+    mov cl, [mega_fdd]              ; a field run can see the path was taken
+    mov ch, 1
+    shl ch, cl
+    test [mega_fdsaid], ch
+    jnz .said
+    or [mega_fdsaid], ch
+    push si
+    push ax
+    mov si, mega_mfdon
+    call mega_puts
+    mov al, 'A'
+    add al, cl
+    call mega_putc
+    mov al, 10
+    call mega_putc
+    pop ax
+    pop si
+.said:
+    pop cx
+    mov al, [mega_fdn]
+    or ah, ah
+    jz .ok
+    xor al, al                      ; write protected: nothing moved
+.ok:
+    mov [ss:bp+18], ax
+    and byte [ss:bp+26], 0xFE       ; CF in the caller's FLAGS
+    or ah, ah
+    jz .done
+    or byte [ss:bp+26], 1
+.done:
+    clc
+    ret
+.fall:
+    push si
+    mov si, mega_mfdfb
+    call mega_puts
+    mov al, [mega_fdstep]           ; ...the step it got to, and the 765's
+    call mega_hex2                  ; ST0 ST1 ST2
+    mov al, ' '
+    call mega_putc
+    mov ax, [mega_fdres]
+    call mega_hex4
+    mov al, [mega_fdres+2]
+    call mega_hex2
+    mov al, ' '
+    call mega_putc
+    mov al, [mega_fdd]              ; the drive, the media byte, the CHS
+    call mega_hex2
+    mov al, [mega_fdms]
+    call mega_hex2
+    mov al, ' '
+    call mega_putc
+    mov al, [mega_fdc]
+    call mega_hex2
+    mov al, [mega_fdh]
+    call mega_hex2
+    mov al, [mega_fds]
+    call mega_hex2
+    mov al, [mega_fdn]
+    call mega_hex2
+    mov al, 10
+    call mega_putc
+    pop si
+    inc byte [mega_fdfail]
+    cmp byte [mega_fdfail], 8
+    jb .no
+    mov byte [mega_fdoff], 1
+    push si
+    push cx
+    push es
+    mov si, mega_mfdoff
+    call mega_say
+    push ds                         ; ...and on the GLASS, which is all a
+    pop es                          ; field machine shows: toast_show only
+    mov si, mega_tfdoff             ; stages it, the UI task draws it
+    mov cx, 146
+    call toast_show
+    pop es
+    pop cx
+    pop si
+.no:
+    stc
+    ret
+
+; mega_fdgo - the transfer itself, IF = 1 and the switch lock held. ES = BDA.
+; out: CF = 1 fall back to the BIOS; CF = 0 and AH = 0 done, or 03h write
+; protected. Clobbers AX BX CX DX SI DI
+mega_fdgo:
+    mov cl, [mega_fdd]
+    mov al, 0x10
+    shl al, cl                      ; this drive's motor bit
+    mov byte [es:0x40], 0xFF        ; no motor-off while we work
+    in al, 0x21
+    and al, 0xBF                    ; IRQ6 open: the BIOS wants it so too
+    out 0x21, al
+    mov ah, [es:0x3F]
+    mov dl, 1
+    shl dl, cl                      ; this drive's 3F bit
+    test ah, dl
+    pushf                           ; ZF = 1: the motor was OFF
+    and ah, 0xCF                    ; 3F: bits 4-5 = the drive selected
+    or ah, dl
+    push cx
+    mov ch, cl
+    mov cl, 4
+    shl ch, cl
+    or ah, ch
+    pop cx
+    cmp byte [mega_fdop], 3
+    jne .nw
+    or ah, 0x80                     ; bit 7: a write in progress
+.nw:
+    mov [es:0x3F], ah
+    mov al, ah
+    and al, 0x0F                    ; the motors as DOR bits 4-7
+    mov cl, 4
+    shl al, cl
+    or al, 0x0C                     ; not reset, DMA on
+    or al, [mega_fdd]               ; ...this drive selected
+    mov dx, MEGA_FD_DOR
+    out dx, al
+    popf
+    jnz .spun
+    mov al, [dsk_dpt+10]            ; motor start, 1/8 s
+    xor ah, ah
+    mov cl, 9
+    mul cl
+    add ax, 3
+    shr ax, 1
+    shr ax, 1                       ; ...in ticks: 125 / 55 ~ 9 / 4
+    call mega_fdtk
+.spun:
+    mov byte [mega_fdstep], 1
+    mov dx, MEGA_FD_CCR
+    in al, dx
+    mov [mega_fddir], al            ; bit 7: the change line, a disk put in or
+                                    ; taken out since the last step pulse -
+                                    ; cleared by the recalibrate below, which
+                                    ; is forced for it (the kernel gives 06h
+                                    ; no meaning of its own: it retries, and
+                                    ; a swapped disk is found by the volume)
+    mov al, [mega_fdms]
+    and al, 0xC0                    ; the rate the BIOS established...
+    and byte [es:0x8B], 0x3F
+    or [es:0x8B], al                ; ...as the one last programmed (so a
+    rol al, 1                       ; reflected call does not skip it)
+    rol al, 1
+    out dx, al
+    mov byte [mega_fdstep], 2
+    mov al, 0x03                    ; SPECIFY, from the parameter table
+    call mega_fdout
+    jc .fall
+    mov al, [dsk_dpt+0]
+    call mega_fdout
+    jc .fall
+    mov al, [dsk_dpt+1]
+    and al, 0xFE                    ; DMA, not PIO
+    call mega_fdout
+    jc .fall
+    mov byte [mega_fdstep], 3
+    ; --- recalibrate if the BIOS's reset left this drive needing it ---------
+    mov cl, [mega_fdd]
+    mov dl, 1
+    shl dl, cl
+    test byte [mega_fddir], 0x80
+    jnz .uncal                      ; the change line forces it
+    test [es:0x3E], dl
+    jnz .cal
+.uncal:
+    not dl
+    and [es:0x3E], dl               ; the BIOS's view too: not calibrated
+    mov si, 2                       ; twice: a 765 steps 77 tracks at most
+.recal:
+    and byte [es:0x3E], 0x7F
+    mov al, 0x07
+    call mega_fdout
+    jc .fall
+    mov al, [mega_fdd]
+    call mega_fdout
+    jc .fall
+    mov byte [mega_fdstep], 0x31
+    call mega_fdirq
+    jc .fall
+    mov byte [mega_fdstep], 0x32
+    call mega_fdsense
+    mov [mega_fdres], ax
+    jc .fall
+    mov byte [mega_fdstep], 0x33
+    test al, 0x10                   ; ST0 EC: track 0 not reached yet
+    jz .calok
+    dec si
+    jnz .recal
+    jmp .fall
+.calok:
+    test byte [mega_fddir], 0x80    ; was it the change line? A recalibrate
+    jz .calset                      ; at track 0 pulses nothing, so a seek to
+    push bx                         ; cylinder 1 clears it; still set after
+    mov bl, 1                       ; that is NO DISK - the BIOS's to report
+    call mega_fdseek
+    pop bx
+    jc .fall
+    mov dx, MEGA_FD_CCR
+    in al, dx
+    test al, 0x80
+    jnz .fall
+.calset:
+    mov cl, [mega_fdd]
+    mov dl, 1
+    shl dl, cl
+    or [es:0x3E], dl
+.cal:
+    mov byte [mega_fdstep], 4
+    ; --- seek, every call: the 765 knows where it is, and a seek to where
+    ; it already is is one IRQ. The cylinder is PHYSICAL - doubled for a
+    ; 360KB disk in a 1.2MB drive (40:90 bit 5)
+    mov bl, [mega_fdc]
+    test byte [mega_fdms], 0x20
+    jz .ss
+    shl bl, 1
+.ss:
+    call mega_fdseek
+    jc .fall
+    xor bh, bh                      ; ...and the BIOS's cylinder byte made
+    mov bl, [mega_fdd]              ; unknown, so its next call seeks rather
+    mov byte [es:0x94+bx], 0xFF     ; than trusting a number of ours
+    mov cl, [dsk_dpt+9]             ; head settle, ms
+    call mega_fdms_wait
+    ; --- the 8237, channel 2 ---------------------------------------------
+    cli
+    mov al, 0x06
+    out 0x0A, al                    ; channel 2 masked
+    out 0x0C, al                    ; the byte flip-flop cleared
+    mov al, 0x46                    ; single, increment, WRITE to memory
+    cmp byte [mega_fdop], 3
+    jne .dm
+    mov al, 0x4A                    ; ...or READ from it
+.dm:
+    out 0x0B, al
+    mov ax, [mega_fdlin]
+    out 0x04, al
+    mov al, ah
+    out 0x04, al
+    mov al, [mega_fdlin+2]
+    out 0x81, al                    ; the page, bits 16-23
+    mov ax, [mega_fdcnt]
+    out 0x05, al
+    mov al, ah
+    out 0x05, al
+    mov al, 0x02
+    out 0x0A, al                    ; channel 2 open
+    sti
+    mov byte [mega_fdstep], 6
+    ; --- READ / WRITE DATA: MT MFM SK, as the BIOS's own ------------------
+    and byte [es:0x3E], 0x7F
+    mov al, 0xE6
+    cmp byte [mega_fdop], 3
+    jne .cm
+    mov al, 0xC5
+.cm:
+    call mega_fdout
+    jc .fall
+    mov al, [mega_fdh]
+    shl al, 1
+    shl al, 1
+    or al, [mega_fdd]
+    call mega_fdout
+    jc .fall
+    mov al, [mega_fdc]
+    call mega_fdout
+    jc .fall
+    mov al, [mega_fdh]
+    call mega_fdout
+    jc .fall
+    mov al, [mega_fds]
+    call mega_fdout
+    jc .fall
+    mov al, 2                       ; 512 bytes
+    call mega_fdout
+    jc .fall
+    mov al, [dsk_dpt+4]             ; EOT: dsk_xfer wrote the volume's spt
+    call mega_fdout
+    jc .fall
+    mov al, [dsk_dpt+5]
+    call mega_fdout
+    jc .fall
+    mov al, [dsk_dpt+6]
+    call mega_fdout
+    jc .fall
+    call mega_fdirq
+    jc .fall
+    mov byte [mega_fdstep], 7
+    mov di, mega_fdres              ; the seven result bytes
+    mov cx, 7
+.res:
+    call mega_fdin
+    jc .fall
+    mov [di], al
+    inc di
+    loop .res
+    mov byte [mega_fdstep], 8
+    mov al, [mega_fdres]            ; ST0
+    test al, 0xC0
+    jz .good
+    test byte [mega_fdres+1], 0x02  ; ST1 NW: write protected - a fact, not
+    jz .fall                        ; a failure to fall back on
+    mov ah, 0x03
+    clc
+    ret
+.good:
+    xor ah, ah
+    clc
+    ret
+.fall:
+    stc
+    ret
+
+; mega_fdseek - SEEK drive [mega_fdd], head [mega_fdh], to PHYSICAL cylinder
+; BL, and check it got there. CF = 1 it did not. Clobbers AX
+mega_fdseek:
+    and byte [es:0x3E], 0x7F
+    mov al, 0x0F
+    call mega_fdout
+    jc .x
+    mov al, [mega_fdh]
+    shl al, 1
+    shl al, 1
+    or al, [mega_fdd]
+    call mega_fdout
+    jc .x
+    mov al, bl
+    call mega_fdout
+    jc .x
+    call mega_fdirq
+    jc .x
+    mov byte [mega_fdstep], 5
+    call mega_fdsense               ; AL = ST0, AH = PCN
+    jc .x
+    test al, 0xC0
+    jnz .no
+    cmp ah, bl
+    je .x                           ; (ZF: CF is clear from the cmp)
+.no:
+    stc
+.x:
+    ret
+
+; one byte to the 765 / from it, as soon as it asks. CF = 1 it never did
+mega_fdout:
+    push cx
+    push dx
+    push ax
+    mov dx, MEGA_FD_MSR
+    xor cx, cx
+.w:
+    in al, dx
+    and al, 0xC0
+    cmp al, 0x80                    ; RQM, and DIO = to the controller
+    je .go
+    loop .w
+    pop ax
+    pop dx
+    pop cx
+    stc
+    ret
+.go:
+    pop ax
+    inc dx
+    out dx, al
+    pop dx
+    pop cx
+    clc
+    ret
+mega_fdin:
+    push cx
+    push dx
+    mov dx, MEGA_FD_MSR
+    xor cx, cx
+.w:
+    in al, dx
+    and al, 0xC0
+    cmp al, 0xC0                    ; RQM, and DIO = to the CPU
+    je .go
+    loop .w
+    pop dx
+    pop cx
+    stc
+    ret
+.go:
+    inc dx
+    in al, dx
+    pop dx
+    pop cx
+    clc
+    ret
+
+; SENSE INTERRUPT STATUS -> AL = ST0, AH = the present cylinder
+mega_fdsense:
+    mov al, 0x08
+    call mega_fdout
+    jc .x
+    call mega_fdin
+    jc .x
+    push ax
+    call mega_fdin
+    mov ah, al
+    pop dx
+    mov al, dl
+.x:
+    ret
+
+; wait for IRQ6 (40:3E bit 7), at most two seconds, halting between - CF = 1
+; it never came. Clears the flag
+mega_fdirq:
+    push ax
+    push bx
+    mov bx, [ticks]
+.l:
+    test byte [es:0x3E], 0x80
+    jnz .ok
+    mov ax, [ticks]
+    sub ax, bx
+    cmp ax, 37
+    ja .to
+    hlt
+    jmp short .l
+.ok:
+    and byte [es:0x3E], 0x7F
+    pop bx
+    pop ax
+    clc
+    ret
+.to:
+    pop bx
+    pop ax
+    stc
+    ret
+
+; AX ticks of nothing, halting
+mega_fdtk:
+    push bx
+    push cx
+    mov cx, ax
+    mov bx, [ticks]
+.l:
+    mov ax, [ticks]
+    sub ax, bx
+    cmp ax, cx
+    jae .x
+    hlt
+    jmp short .l
+.x:
+    pop cx
+    pop bx
+    ret
+
+; CL milliseconds: port 61h bit 4 is the AT's refresh request, which toggles
+; every 15 us, so a millisecond is ~66 toggles. Each toggle is bounded, so a
+; board that does not toggle it waits a bounded time rather than for ever
+mega_fdms_wait:
+    push ax
+    push cx
+    push dx
+    xor ch, ch
+    jcxz .x
+.ms:
+    mov dx, 66
+.t:
+    in al, 0x61
+    and al, 0x10
+    mov ah, al
+    push cx
+    mov cx, 200
+.e:
+    in al, 0x61
+    and al, 0x10
+    cmp al, ah
+    loope .e
+    pop cx
+    dec dx
+    jnz .t
+    loop .ms
+.x:
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; mega_fdtype - AL = the CMOS diskette type of drive [mega_fdd] (1 360KB, 2
+; 1.2MB, 3 720KB, 4 1.44MB), read once - index 10h, A in the high nibble
+mega_fdtype:
+    mov al, [mega_fdcmos]
+    cmp al, 0xFF
+    jne .have
+    pushf
+    cli
+    mov al, 0x10                    ; NMI stays on: bit 7 clear, as mega_enter
+    out 0x70, al                    ; left it
+    in al, 0x71
+    popf
+    mov [mega_fdcmos], al
+.have:
+    cmp byte [mega_fdd], 0
+    jne .b
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+.b:
+    and al, 0x0F
+    ret
+
+; mega_selbase - AX = a selector -> DX:AX = its 24-bit base, CF = 1 for the
+; null one. The LDT is i x 512 by construction; the GDT is read
+mega_selbase:
+    or ax, ax
+    jz .no
+    test al, 4
+    jz .gdt
+    and al, 0xF8
+    mov dx, ax
+    mov cl, 10
+    shr dx, cl
+    mov cl, 6
+    shl ax, cl
+    clc
+    ret
+.gdt:
+    push es
+    push bx
+    and al, 0xF8
+    mov bx, ax
+    mov ax, MEGA_SEL_WIN
+    mov es, ax
+    mov ax, [es:bx+2]
+    xor dh, dh
+    mov dl, [es:bx+4]
+    pop bx
+    pop es
+    clc
+    ret
+.no:
+    stc
+    ret
+
+mega_fdoff  db 0                    ; 1: switched off for the session
+mega_fdfail db 0                    ; fallbacks in a row
+mega_fdop   db 0                    ; 02h / 03h
+mega_fdn    db 0                    ; sectors
+mega_fdd    db 0                    ; drive
+mega_fdh    db 0                    ; head
+mega_fdc    db 0                    ; cylinder (logical)
+mega_fds    db 0                    ; sector
+mega_fdms   db 0                    ; 40:90's byte for the drive
+mega_fdlin  dw 0, 0                 ; the buffer's 24-bit address
+mega_fdcnt  dw 0                    ; bytes - 1
+mega_fdres  times 7 db 0            ; ST0 ST1 ST2 C H R N
+mega_mfdoff db "kern_mega: native floppy OFF - eight fallbacks in a row", 10, 0
+mega_mfdon  db "kern_mega: native floppy ", 0
+mega_tfdoff db "native floppy off: BIOS from now", 0
+mega_mfdfb  db "kern_mega: floppy fell back to the BIOS at step ", 0
+mega_fdstep db 0
+mega_fdsaid db 0
+mega_hdsaid db 0
+mega_mhd13  db "kern_mega: a fixed-disk transfer went to the BIOS (int 13h reflected)", 10, 0
+mega_fdcmos db 0xFF                 ; CMOS byte 10h, once read
+mega_fdx    db 0                    ; 1 while dsk_xfer's int 13h is in flight
+mega_fddir  db 0                    ; the CCR read: bit 7 the change line
 
 mega_infault db 0
 mega_fbuf   db " kern_mega FAULT vv err eeee at cccc:iiii sp ssss - reboot "

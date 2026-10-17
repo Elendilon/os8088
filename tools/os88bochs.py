@@ -11,7 +11,8 @@
     --sb        give the machine a Sound Blaster 16 (port 220h, IRQ 5, DMA 1),
                 its output written to OUT/sb.wav
     --ne2k      an NE2000 at 300h on Bochs's own slirp: the host is 10.0.2.2
-    --b IMG     a 1.2MB floppy for B: in place of build/apps120.img
+    --b IMG     a floppy for B: in place of build/apps120.img - any of the
+                four sizes, and --btype 1_2 or 1_44 is the drive it is in
     --cfg BITS  write a SYSTEM.CFG onto A: wanting the drivers in BITS - one
                 bit per driver by kernel/driver.inc's drv_cfgbit, sound being
                 bit 0 (the Makefile's system.cfg rules are the same bytes)
@@ -56,7 +57,7 @@ vgaromimage: file=/usr/share/vgabios/vgabios.bin
 vga: extension=vbe
 pci: enabled=0
 floppya: 1_44={a}, status=inserted
-floppyb: 1_2={b}, status=inserted
+floppyb: type={btype}, {bmedia}={b}, status=inserted
 ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
 ata0-master: type=disk, path={c}, mode=flat, cylinders={cy}, heads={hd}, spt={sp}
 boot: floppy
@@ -153,7 +154,8 @@ def stop():
 class Box(object):
     """One Bochs, its disks in OUT, its E9 output in OUT/e9.out."""
 
-    def __init__(self, out, pkgs, sb=False, cfg=None, bimg=None, ne2k=False):
+    def __init__(self, out, pkgs, sb=False, cfg=None, bimg=None, ne2k=False,
+                 btype="1_2"):
         if running():
             sys.exit("os88bochs: a Bochs is already running (pids %s) - every "
                      "click would land on whichever window is on top. "
@@ -201,6 +203,9 @@ class Box(object):
         with open(rc, "w") as f:
             f.write(BOCHSRC.format(
                 a=a, b=b, c=c, cy=GEOM[0], hd=GEOM[1], sp=GEOM[2],
+                btype=btype, bmedia={368640: "360k", 737280: "720k",
+                                     1228800: "1_2", 1474560: "1_44"}
+                [os.path.getsize(b)],
                 log=os.path.join(out, "bochs.log"),
                 sb=("sound: waveoutdrv=file, waveout=%s\n"
                     "sb16: enabled=1, midimode=0, wavemode=1, "
@@ -359,6 +364,8 @@ def main():
     ap.add_argument("--out", default=os.path.join(ROOT, "build", "bochs"))
     ap.add_argument("--sb", action="store_true")
     ap.add_argument("--ne2k", action="store_true")
+    ap.add_argument("--btype", default="1_2", help="B:'s DRIVE: 1_2 or 1_44 "
+                    "(the media is the image's own size)")
     ap.add_argument("--cfg", type=lambda v: int(v, 0))
     ap.add_argument("--b", dest="bimg", help="a 1.2MB image for B: in place "
                     "of build/apps120.img")
@@ -372,7 +379,8 @@ def main():
     else:
         os.makedirs(a.out, exist_ok=True)
         box = Box(a.out, a.pkgs, a.sb, a.cfg,
-                  os.path.abspath(a.bimg) if a.bimg else None, a.ne2k)
+                  os.path.abspath(a.bimg) if a.bimg else None, a.ne2k,
+                  a.btype)
         box.wait_for("kern_mega:", 240)
         print("running: DISPLAY=%s, E9 in %s" % (DISPLAY, box.e9))
 

@@ -1935,6 +1935,19 @@ CPU_F_X87           equ 0x08     ; an 8087/287/387 IS IN THE SOCKET, probed
                                  ; `cpu 8086` already, so rule 1 stands with
                                  ; no exception and the gate here is a
                                  ; RUN-TIME one (SPEC.md 1 rule 1, 84.6).
+CPU_F_PM            equ 0x10     ; SEGMENTS ARE SELECTORS: kern_mega is in
+                                 ; 286 protected mode (docs/plans/
+                                 ; KERN-MEGA-PLAN.md 12.1). Never set on any
+                                 ; other kernel, so a binary built before the
+                                 ; bit reads 0 and keeps the real-mode
+                                 ; behaviour it always had. When it is set:
+                                 ; segment arithmetic must stay on the
+                                 ; 8-paragraph grid (a value that is not a
+                                 ; multiple of 8 is not a valid selector), and
+                                 ; LOADALL, unreal mode and int 15h AH=87h are
+                                 ; refused by the CPU - a feature with no
+                                 ; protected-mode route greys itself with the
+                                 ; reason rather than faulting
 ;
 ; --- volumes (SPEC.md 18.7/51.8) --------------------------------------------
 ; A DRVC_DISK DRIVER's slots, not an application's: the four that CHANGE
@@ -2333,7 +2346,8 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; CPU_286 / CPU_386, AH = feature bits (the
                                  ; CPU_F_* below): bit 0 A20 verified open,
                                  ; bit 1 HMA claimed, bit 2 unreal mode armed,
-                                 ; bit 3 an x87 is in the socket. Preserves
+                                 ; bit 3 an x87 is in the socket, bit 4
+                                 ; protected mode (kern_mega only). Preserves
                                  ; every register but AX. Any context - it
                                  ; reads two bytes.
 %define OSAPI_XMEM_CAPS     KERNEL_SEG:0x015A   ; no inputs; out AX = extended-

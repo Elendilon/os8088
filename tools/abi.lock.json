@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "a6a0ec291813bb95a2c126918561dc8c3f4cdccee2b4e217f48fe60fd2de450c",
+  "fingerprint": "5789efa6c1a21c735d88301555d0f23779a48f80c0642b3c083562e322260acc",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "a65f78ce5c1471a3a11b74d98c547a938277b34a47c22ed2e5654e9a0cd20722",
+  "fingerprint": "f6b96691b63aaadc9ac2d1aa13bd629b550f14c7142a9340ca2268425c26a8b8",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -287,6 +287,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "STIKLIB_VER 1 -> 2 (SPEC.md 110.5.1, 110.15.2): the Sticky App library's STKE_ENTER now takes DX (a folder the caller banked, or 0 for SYSTEM\\APPDATA by a walk) and answers AX (the witness, our own file's first cluster), and its first stand is OSAPI_FILE_GOTO_QM rather than a full OSAPI_FILE_GOTO. The block's layout and the entry table are unchanged; a version-1 caller would not set DX, so the library's own version moves and a package and a DESK.DRV of different versions refuse to bind. No kernel cell, header or package format changes, so PKG_FMT and DRV_VER stay: a version-1 Sticky App meeting a version-2 DESK.DRV is refused at its own bind in words, which is the fence STIKLIB_VER exists to be, and none has shipped (the library has not reached main).",
+   "to": 11
+  },
+  {
+   "fingerprint": "f6b96691b63aaadc9ac2d1aa13bd629b550f14c7142a9340ca2268425c26a8b8",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "CPU_F_PM (0x10): a new OSAPI_CPU_INFO feature bit, set only by kern_mega in protected mode; nothing built before it changes behaviour (KERN-MEGA-PLAN 12.1)",
+   "to": 10
+  },
+  {
+   "fingerprint": "5789efa6c1a21c735d88301555d0f23779a48f80c0642b3c083562e322260acc",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "CPU_F_PM (0x10): a new OSAPI_CPU_INFO feature bit, set only by kern_mega in protected mode; nothing built before it changes behaviour (KERN-MEGA-PLAN 12.1)",
    "to": 11
   }
  ]

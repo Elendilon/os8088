@@ -102485,8 +102485,11 @@ of this moves again.
 ### 60.1 The three tiers, and how they are detected
 
 `[cpu_tier]` is `CPU_8086` (0), `CPU_286` (1) or `CPU_386` (2), and
-`[cpu_feat]` carries three verified bits: bit 0 A20 open, bit 1 HMA claimed,
-bit 2 unreal mode armed. Both are **initialised `.text` data, not `.bss`**:
+`[cpu_feat]` carries verified bits: bit 0 A20 open, bit 1 HMA claimed,
+bit 2 unreal mode armed, bit 3 a coprocessor socketed (§84.6) and bit 4,
+`CPU_F_PM`, kern_mega's protected mode - set by `mega_enter` and on no other
+kernel, so segments are selectors when it is set
+(docs/plans/KERN-MEGA-PLAN.md 12.1). Both are **initialised `.text` data, not `.bss`**:
 `-f bin` zeroes nothing at boot, so the answer a machine reads when the probe
 never ran has to be the safe one — the §31.3 / `snd_live` idiom and §34.7.
 

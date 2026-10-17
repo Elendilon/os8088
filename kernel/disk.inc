@@ -1851,7 +1851,13 @@ dsk_xfer:
                                 ; there is parked on IRQ6 waiting for DMA
                                 ; (SPEC.md 15.3.8), so what the ISR spends is a
                                 ; gap the machine was going to spend idle
+%ifdef KERN_MEGA
+    mov byte [mega_fdx], 1      ; kern_mega: this is a transfer the native
+%endif                          ; floppy path may take (mega_fd13)
     int 0x13
+%ifdef KERN_MEGA
+    mov byte [mega_fdx], 0      ; (`mov` leaves CF alone)
+%endif
     CURXFER_OFF                  ; `mov` leaves the flags alone, so int 13h's CF
     jnc .ok                     ; still reaches this branch
     mov [dsk_ioerr], ah         ; keep the status for diskw.inc's mapping
