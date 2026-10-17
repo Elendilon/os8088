@@ -1109,6 +1109,16 @@ FAST = [
         "build/os8088.img: the cost of the leak is paid by an unrelated row, "
         "hours later, wearing a message about the wrong subject "
         ""),
+    Row("hotpar", "fast", py("tests/unit/t_hotpar.py"), 0.1,
+        "every HOT routine - gfx_blit4, gfx_blit1_x, font_run, both mouse "
+        "ISRs, kbm_isr, cur_move, sch_isr, sch_switch, ui_task, dsk_xfer, "
+        "dsk_runcap, dsk_next_clus_x, wm_paint_all - starts at the address "
+        "PARITY it was measured at, on kern_big and (when build/smallk is "
+        "current) kern_small. On a 16-bit bus an odd word fetch is two cycles, "
+        "and a cold-code edit or a re-relaxed branch moves the hot code by an "
+        "odd amount with every row green: passes 12 and 13 each found the "
+        "whole list odd part-way through. Reads the kernel.map the build "
+        "writes, so it assembles nothing"),
     Row("canary", "fast", py("tests/unit/t_canary.py"), 0.1,
         "SPEC.md 18.93.1's canary offset re-derived from every shipped image's "
         "own BPB: it has to name a sector a transfer run reads AFTER the head "

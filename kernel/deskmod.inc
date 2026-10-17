@@ -57,16 +57,17 @@ section .cold
 ; -----------------------------------------------------------------------------
 osapi_wm_desk_x:
     or al, al
-    jnz .v
-    call desk_need              ; preserves every register; CF is the answer
-    retf
-.v:
+    jz desk_need                ; QUERY IS desk_need, which ends in `retf`
     jmp far [DKDFP + DKD_VERB]  ; MAKE / DRAG / RELEASE: the image's
 
 ; -----------------------------------------------------------------------------
 ; desk_need - mod_need MOD_DESK, INSIDE whatever drv_vol bracket is open
-;             (SPEC.md 11.103.10), near, resident .cold
+;             (SPEC.md 11.103.10), FAR, resident .cold
 ; in:  nothing. out: CF = mod_need's answer; every register preserved
+;
+; FAR because it IS QUERY's body (kernel size pass 13): the cell jumps here,
+; and the loader's step 5, in `.cold` beside it, calls it with COLDCALL.
+; It was a near proc behind QUERY's `call desk_need / retf`.
 ;
 ; TWO CALLERS: QUERY above, and the loader's step 5 for a package whose header
 ; carries OS88_F_DESK - BEFORE the package's region is claimed, so the 1 KB
@@ -96,7 +97,7 @@ desk_need:
     mov [drv_vol_drv], al       ; nor `mov` writes a flag)
     pop word [drv_vol_cwd]
     pop ax
-    ret
+    retf
 
 ; =============================================================================
 ; DESK.DRV - the module image
@@ -281,8 +282,10 @@ dkd_show:
 ; -----------------------------------------------------------------------------
 ; dkd_key - does a WIDGET own the bar? (SPEC.md 11.103.4, 12.6), far, from
 ;           fdlg_top_x with no chooser up
+; in:  BX = wm_top's answer, which stands unless a widget owns the bar
 ; out: CF = 0 and BX = [menu_win], a desk window: the key goes to IT;
-;      CF = 1 "stand" - wm_top's answer (BX spent). AX and the rest kept
+;      CF = 1 "stand" - BX kept, as mod_gone keeps it with no image. AX and
+;      the rest kept
 ;
 ; Never a HIDDEN one: every hide repaints through menu_draw_bar, whose
 ; menu_check takes the bar off a window that is not visible. A stale
@@ -290,14 +293,18 @@ dkd_show:
 ; without WF_DESK.
 ; -----------------------------------------------------------------------------
 dkd_key:
-    mov bx, [menu_win]
-    or bx, bx
+    push si
+    mov si, [menu_win]
+    or si, si
     jz .s
-    test byte [bx+W_FLAGS+1], WF_DESK >> 8
-    jnz .y                      ; CF = 0 (test clears it): BX = the widget
+    test byte [si+W_FLAGS+1], WF_DESK >> 8
+    jz .s
+    mov bx, si                  ; CF = 0 (the test cleared it): the widget
+    pop si
+    retf
 .s:
     stc
-.y:
+    pop si
     retf
 
 section .text

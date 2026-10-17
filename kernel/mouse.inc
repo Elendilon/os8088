@@ -4025,11 +4025,17 @@ cur_vis:
 ; clobbers: ax, bx, cx, dx, si, di, bp, es
 ; -----------------------------------------------------------------------------
 cur_put_1:
-    cmp byte [vid_mono], 0
-    jne cur_put_mono
-    call cur_geom               ; the NEW cell's geometry FIRST: cur_saveu's
-    call cur_saveu              ; cur_rect reads it out of [cur_cellx/y], and
-    jmp cur_draw                ; cur_draw out of [cur_off] (size pass 9)
+%ifdef GFX_VGA                  ; ...AND ONLY A KERNEL WITH A VGA HAS A SIDE TO
+    cmp byte [vid_mono], 0      ; DISPATCH TO: kern_small's [vid_kind] is a
+    jne cur_put_mono            ; CGA or a Hercules for the life of the machine
+    call cur_geom               ; (SPEC.md 39.27.1), so [vid_mono] is 1 before
+    call cur_saveu              ; the first arrow is drawn and the planar half
+    jmp cur_draw                ; was never reached there. The label FALLS
+%endif                          ; INTO cur_put_mono on that build (a label,
+                                ; never an `equ`: SPEC.md 39.27.5), and the
+                                ; ISR's put pays no compare (kernel size pass
+                                ; 13, with the get, the move and the four
+                                ; planar bodies below)
 
 ; -----------------------------------------------------------------------------
 ; cur_put_mono - save the cell under the cursor and draw the arrow into it, in
@@ -4097,8 +4103,9 @@ cur_put_mono:
     ret
 
 cur_get_1:
-    cmp byte [vid_mono], 0
-    jne cur_get_mono
+%ifdef GFX_VGA                  ; cur_put_1's reason: the planar half and its
+    cmp byte [vid_mono], 0      ; dispatch are a VGA kernel's alone, and on
+    jne cur_get_mono            ; kern_small this falls into cur_get_mono
     ; fall through to cur_restoreu
 
 ; -----------------------------------------------------------------------------
@@ -4131,6 +4138,7 @@ cur_restoreu:
     pop word [vga_pn]           ; ...and the caller's arm is its own again
     pop es
     ret
+%endif                          ; GFX_VGA: cur_get_1's dispatch and the restore
 
 ; -----------------------------------------------------------------------------
 ; cur_get_mono - put cur_put_mono's bytes back, replaying its geometry
@@ -4166,6 +4174,7 @@ cur_get_mono:
 .out:
     ret
 
+%ifdef GFX_VGA                  ; the planar save and its rect: a VGA kernel's
 ; -----------------------------------------------------------------------------
 ; cur_saveu - copy the cell under (cur_drawn_x, cur_drawn_y) into cur_save via
 ;             vga_save_vram. vga_save_vram clips the rect at the screen edges
@@ -4212,6 +4221,7 @@ cur_rect:
     mov dx, bx
     add dx, CUR_GH-1
     ret
+%endif                          ; GFX_VGA
 
 ; -----------------------------------------------------------------------------
 ; cur_geom - where the cursor cell is, and how much of it is on the screen
@@ -5002,8 +5012,9 @@ cur_move:
 %endif
 cur_move_1:
     CURLOG 'm'                  ; ...from HERE (cur_drawn is still the old one)
-    cmp byte [vid_mono], 0
-    jne cur_move_mono
+%ifdef GFX_VGA                  ; cur_put_1's reason: kern_small falls straight
+    cmp byte [vid_mono], 0      ; into cur_move_mono, every move a compare
+    jne cur_move_mono           ; and a taken jump cheaper
     mov [cur_drawn_x], ax       ; planar: the save is four planes through Read
     mov [cur_drawn_y], bx       ; Map Select and cannot take a background from
     call cur_restoreu           ; a buffer, so it stays erase-then-draw. The
@@ -5015,6 +5026,7 @@ cur_move_1:
     call cur_geom               ; ...and the new cell's geometry, which the
     call cur_saveu              ; save and the draw both read (see cur_put_1)
     jmp cur_draw
+%endif
 
 cur_move_mono:
     push ax
@@ -5246,6 +5258,8 @@ cur_mvbg:
     mov bl, [es:di]
     ret
 
+%ifdef GFX_VGA                  ; ...and the PLANAR draw, whose only callers are
+                                ; the two planar arms above (kernel size pass 13)
 ; -----------------------------------------------------------------------------
 ; cur_draw - paint the arrow at (cur_drawn_x, cur_drawn_y) on a PLANAR screen:
 ;            white pass with the cur_and outline mask, black pass with the
@@ -5305,6 +5319,11 @@ cur_draw:
     out dx, ax
 .done:
     ret
+%else
+    nop                         ; PARITY, never executed (kernel size pass 13):
+                                ; cur_draw's odd 105 would put sch_isr and
+                                ; sch_switch at an odd shift on kern_small
+%endif                          ; GFX_VGA: cur_draw
 
 ; -----------------------------------------------------------------------------
 ; cursor bitmap - classic Mac arrow, hot spot (0,0), black body 11 rows tall

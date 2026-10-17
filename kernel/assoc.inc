@@ -164,10 +164,13 @@ assoc_ext:
 ; disk that has been swapped, so the open path re-checks the name on arrival.
 assoc_clus:  times ASSOC_NAPP dw 0     ; the directory it was last SEEN in
 assoc_drv:   times ASSOC_NAPP db 0xFF  ; ...on which volume (0xFF = never seen)
-assoc_dfold: db 1, 1, 1, 1, 1          ; build-time folder: 0 root, 1 APPS,
-             times ASSOC_NAPP - 5 db 0 ; 2 GAMES. The one part of a default
-                                       ; that cannot be a cluster, because no
-                                       ; cluster is knowable at build time
+; ...and the one part of a default that cannot be a cluster, because no
+; cluster is knowable at build time: its FOLDER. It was a sixteen-byte table,
+; assoc_dfold, that nothing ever wrote - 1 (APPS) for the five built-ins and 0
+; for every declared slot - so assoc_tryvol asks the slot number instead
+; (kernel size pass 13). The built-ins are slots 0..ASSOC_NDEF-1, which the
+; stem table above lays down in that order.
+ASSOC_NDEF   equ 5              ; the built-in defaults, every one in APPS
 
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own, so it costs KERN_CODE_MAX
@@ -1024,10 +1027,10 @@ assoc_tryfold:
 ; a compare on a volume already loaded, and one short read otherwise.
 ;
 ; **AND A PROGRAM WITH NO BUILT-IN FOLDER IS LOOKED FOR IN APPS AND GAMES**,
-; for a disk with no cache at all. assoc_dfold is 0 for every slot past the
-; five built-ins - every DECLARED program (54.6) - and 0 used to mean nothing
-; to try, which left a declared program one folder down unfindable anywhere
-; but through a hint.
+; for a disk with no cache at all. Only the five built-ins (ASSOC_NDEF) have
+; a folder of their own, APPS; every DECLARED program (54.6) had none, which
+; used to mean nothing to try and left a declared program one folder down
+; unfindable anywhere but through a hint.
 ; -----------------------------------------------------------------------------
 assoc_tryvol:
     push bx
@@ -1047,15 +1050,12 @@ assoc_tryvol:
     call assoc_try
     jnc .out
 .fold:
-    mov bx, di                  ; ...then APPS or GAMES: the default's, or
-    mov bl, [assoc_dfold+bx]    ; both for a program with none
-    or bl, bl
-    jnz .one
-    inc bx                      ; (BL = 1: APPS)
-    call assoc_tryfold
+    mov bl, 1                   ; ...then APPS, which is a built-in's own
+    call assoc_tryfold          ; folder and a declared program's first
     jnc .out
-    mov bl, 2                   ; GAMES
-.one:
+    cmp di, ASSOC_NDEF          ; a built-in looks nowhere else: CF = 1 is
+    jb .out                     ; the miss, AX the folder's answer
+    mov bl, 2                   ; ...and a declared one tries GAMES too
     call assoc_tryfold
 .out:
     pop dx                      ; a pop touches no flag, so the CF both rungs
@@ -1236,19 +1236,18 @@ assoc_locate:
                                 ; standing in B:\APPS) because asc_root_find
                                 ; walks the ROOT directly rather than through
                                 ; dskw_stat, which is what it was written for
+    mov bx, di                  ; BX = DI = the slot, so [bx+di] is its word
     mov al, [disk_drive]        ; DID THIS VOLUME'S CACHE KNOW? (SPEC.md
-    cmp al, [assoc_drv+di]      ; 54.7.6.1) The seed above wrote what the file
+    cmp al, [assoc_drv+bx]      ; 54.7.6.1) The seed above wrote what the file
     jne .learn                  ; says; where the program really is differs
-    mov bx, di                  ; when the file never had it, or had it
-    shl bx, 1                   ; somewhere else - both worth writing back,
-    mov bx, [assoc_clus+bx]     ; and a search is quiet mounts, so no harvest
-    cmp bx, [dsk_cwd]           ; ever saw this
-    je .known
-.learn:
-    call asc_post               ; AL = the volume, still
+    mov dx, [assoc_clus+bx+di]  ; when the file never had it, or had it
+    cmp dx, [dsk_cwd]           ; somewhere else - both worth writing back,
+    je .known                   ; and a search is quiet mounts, so no harvest
+.learn:                         ; ever saw this. (DX is .out's to restore)
+    call asc_post               ; AL = the volume, still; BX survives it
 .known:
-    mov bx, di                  ; ...then the AUTHORITATIVE hint for the one
-    call assoc_hint_here        ; program we actually located - AFTER the seed
+    call assoc_hint_here        ; ...then the AUTHORITATIVE hint for the one
+                                ; program we actually located - AFTER the seed
                                 ; on purpose, so a stale cached cluster for
                                 ; THIS program loses to where it really is
     clc                         ; explicit, not inherited: the helper's last
@@ -1371,13 +1370,9 @@ assoc_run_x:
     jz .out
     mov bp, wm_wake_call        ; assoc_run's second phase (SPEC.md 54.10): the
     call ct_cw_mem_disp         ; launched window is on the glass, so the
-    jmp short .out              ; package may now spend the document it was
-                                ; handed
-
-%ifdef OS88_SHORTCUTS
-.lnk:                           ; the slot word is still on the stack, which
-    jmp short .out              ; is the one .out pops
-%endif
+.lnk:                           ; package may now spend the document it was
+    jmp short .out              ; handed - and a LINK's way out (SPEC.md
+                                ; 26.10.3), its slot word the one .out pops
 .noassoc:
     push ax                     ; the word .out pops
     call assoc_back             ; no volume knows it: the package route's own
@@ -1679,8 +1674,8 @@ assoc_ext_new:
 ;
 ; A FREE SLOT'S SIDE STATE IS ALREADY ITS BUILD-TIME ONE, which is why only
 ; the glyph is cleared (kernel size pass 5). No slot is ever freed - nothing
-; writes a stem's first byte back to 0 - and assoc_drv, assoc_clus and
-; assoc_dfold are written only for a slot a lookup FOUND, which a free one
+; writes a stem's first byte back to 0 - and assoc_drv and assoc_clus are
+; written only for a slot a lookup FOUND, which a free one
 ; never is (assoc_scan skips it). The glyph is the exception worth its nine
 ; bytes: osapi_assoc_set takes the caller's icon into whatever slot
 ; assoc_app_get handed back, and a caller passing a stem whose first byte is
@@ -2381,7 +2376,9 @@ asc_post:
 ; in:  AL = the row ico_put just took (never ICO_R_NONE); dsk_secbuf (LOW_SEG)
 ;      holds the package's header with its ICON PRESENT - this is the harvest's
 ;      icon arm - and [assoc_hflags] its flags
-; out: nothing (all registers preserved)
+; out: nothing. AX, DX, BP and ES preserved; BX, CX, SI and DI are NOT - its
+;      one caller, the harvest, holds nothing in them across the call (it
+;      reloads SI, and BX, CX and DI are set afresh before each read)
 ;
 ; Posts the flush, and keeps the header's association block in the store's
 ; claim tail when the package declares, because that block is the one thing
@@ -2390,7 +2387,7 @@ asc_post:
 ; usability test when it reads the record.
 ; -----------------------------------------------------------------------------
 asc_learn:
-    call kentc_di               ; KENT: push ax..di
+    push ax
     push es
     mov bl, al                  ; BL = the row
     mov al, [disk_drive]
@@ -2402,23 +2399,24 @@ asc_learn:
     jae .out                    ; full: the flush reads this one's header
     inc byte [ico_capn]
     mov es, [ico_seg]           ; live: ico_put has just answered a row
-    cbw                         ; AH = 0 (AL < ICO_CAP_MAX)
-    mov di, ax
-    mov [es:di+ICO_CAP_ROWS], bl
-    mov cl, 4
-    shl di, cl                  ; x 16
-    add di, ICO_CAP_REC
+    mov ah, ICO_CAP_RSZ
+    mul ah                      ; AL < ICO_CAP_MAX: the record's offset
+    add ax, ICO_CAP
+    xchg di, ax
+    mov al, bl
+    stosb                       ; the row, then its block
     mov si, dsk_secbuf + 96     ; header 32 + icon 64: the block's offset
     mov cx, 8                   ; when the icon is present (SPEC.md 54.6)
-    push ds
-    push ss                     ; dsk_secbuf is .lowbss and SS is LOW_SEG
-    pop ds                      ; (SPEC.md 2.1)
-    cld
-    rep movsw
-    pop ds
+.cp:
+    ss lodsw                    ; dsk_secbuf is .lowbss and SS is LOW_SEG
+    stosw                       ; (SPEC.md 2.1); DF = 0 is SPEC.md 1 rule 3.
+    loop .cp                    ; A loop and not `rep ss movsw`: two prefixes
+                                ; on a string op is the 8086's lost-prefix
+                                ; resume after an interrupt
 .out:
     pop es
-    jmp kretc_di
+    pop ax
+    ret
 
 ; =============================================================================
 ; Far entries (SPEC.md 2.6): the resident thunks in kernel.asm far-call these,
