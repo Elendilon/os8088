@@ -173794,33 +173794,58 @@ format change: a held frame is an ordinary record.
 - by default; docs/plans/VIDEO-SEEN-PLAN.md 3a). The ways a frame the
 budgets cannot draw may give, as RUNGS in the order they are tried:
 `lag:MS` (the lag allowance, 98.2.1.1.2), `slow:A/B` (a held frame's
-rate, as `--min-fps`'s), `coarse:auto|WxH` (a scene's first frame in
-cells, 98.2.1.9) and `colours:12|8` (a scene's palette stepped down,
-98.2.1.9, decided per scene from a first pass as `--step-down` is). Where
+rate, as `--min-fps`'s), `coarsescene:frame|mix|WxH` (a scene's first
+frame in cells, 98.2.1.9; `coarse:` until 2026-10-17, still read), `coarseany:frame|mix|WxH` (2026-10-17: EVERY frame of the
+stretch the budgets would cut drawn in cells at its own time - the frame
+rate kept and the width given up where the picture moves too fast to
+send, on the planar screens of 98.2.5.2; on Last Exile at 24 fps it is
+16.5% of the view broken against the cut's 24.3% and 0.4 s visibly broken
+against 3.3, the half rate's 3.2% and 0.6 - VIDEO-SEEN-PLAN 3a; and
+`coarseany:mix` cells only the fewest 32x8 tiles that let the rest be
+drawn whole at full detail, `coarse_mix`, 17.0% against the whole-frame
+cells' 18.0% on 0:10-0:25), `colours:12|8` (a scene's palette stepped down,
+98.2.1.9, decided per scene from a first pass as `--step-down` is) and
+`cut:PERCENT` (2026-10-17, the owner: *"some videos accept normal cuts
+better than others"* - the climb STOPS there where no frame of the
+stretch is more than that broken as seen, and its frames are cut as the
+budgets cut them; it changes how the rungs before it are judged and draws
+nothing new, so a cut rung's try is the one before it, not encoded
+again). Where
 the budgets would cut a stretch, or at a scene's first frame, each PREFIX
 of the ladder is encoded on copies of the encoder over the next half
 second - its slowest rate, its longest lag and its cells together - and
-the first that shows every frame WHOLE is taken; none, the least broken
-by the view as seen, a held frame at `--slow-cost` (`degrade_choose`).
+the first that shows every frame WHOLE - or, at or past a cut rung, none
+more broken than it accepts (its cut rungs' largest) - is taken; none,
+the least broken by the view as seen, a held frame at `--slow-cost`
+(`degrade_choose`).
 Cutting is what is left after the last rung. A rung's lag holds for its
 stretch and then until the picture is level, a frame being the floor. It
 sets `--lag`, `--min-fps`, `--coarse-cut`, `--step-down` and `--step-min`
 itself, which the encoder window greys while it is on; a rung the file
-cannot use (lag without a card's sound, cells or colours without a
-palette a scene, a slower rate on a Live or layered file) is LEFT OUT and
+cannot use (lag without a card's sound, cells off a planar screen,
+fewer colours without a palette a scene, a slower rate on a Live or
+layered file) is LEFT OUT and
 said, nothing else refused. With page-ahead the plan pass decides and the
 real passes replay its holds, lag and cells, and page-ahead's keep and
 its prune judge a file that may hold frames by its picture's measures and
 not by a count of cut frames - a ladder trades one for the other. The
 encoder window's default ladder (`DEGRADE_DEFAULT`) is `lag:100,
-coarse:auto, slow:5/6, colours:12, slow:2/3, slow:1/2`; on each clip's
-own options it took Last Exile 0:10-0:40 (flipped Mode X, `286-speeddemon`)
-from 24.3% of the view broken to 3.2% and its cut frames 400 to 57, Bad
-Carrot's flipped tune 1.8% to 1.0%, Take On Me's Hercules file 5.5% to
-4.7%. `slow:5/6` first instead of `lag:100` made the same files. The
+slow:5/6, colours:12, slow:2/3, coarsescene:frame, coarseany:mix` since
+2026-10-17: the half rate is out of it (the owner: it "worked great on
+gasgas, and terribly on last exile", too jerky and still cutting) and
+cells at any cut, mixed, are its last rung. On each clip's own options:
+Bad Carrot's flipped tune 1.0% -> 0.4% of the view broken (its worst
+moment 33% -> 9%), Gas Gas Gas 1.7% -> 2.1%, Take On Me's Hercules file
+(no cells there) 4.7% -> 5.0%, Last Exile 0:10-0:25 3.7% -> 18.9% - the
+score cannot see the jerk the owner saw, and a 16 fps stretch in mixed
+cells scores worse than the same cells at 24 (17.0%), so where cells go
+on a ladder is the next thing the owner's eye decides. The ladder before
+that, with the half rate, took Last Exile 0:10-0:40 from 24.3% to 3.2%;
+`slow:5/6` first instead of `lag:100` made the same files. A cut rung is in no default: it
+is the choice a video makes that takes a cut better than a slower rate. The
 window carries it as Size vs quality's second inner tab, Degrade ladder: a
 checkbox, a rung a row offering only the rungs the form can use, and under
-them Lag, Min fps, Slow cost and Flip hold (Slowing down, not cutting).
+them Lag, Min fps, Slow cost, Flip hold and Coarse cut (Instead of cutting).
 
 ##### 98.2.1.2 What a cut frame spends on: the look-ahead and the error as seen
 
@@ -175684,6 +175709,27 @@ reaches the player, the format or the kernel.
   page it had just built nearly whole. The plan now counts a frame drawn
   in cells as a target, as it does a cut one, and the cells are drawn
   only where no flip came.
+  **On every PLANAR screen since 2026-10-17, not a palette a scene's
+  alone** (the owner: *"is there any reason that doesn't apply to other
+  display types?"*). What the cells buy is a flat byte being ONE store for
+  many pixels, and that is a planar screen's: VGA4's write mode 3 (or two
+  stores by planes without it) and Mode X's Map Mask 0Fh, an aligned group
+  of four pixels of one colour a store (`vid.modex_subs`). Measured as the
+  cycles of a scene change drawn whole from the picture before against the
+  same in cells: Last Exile's Mode X changes took **32-51%** at 4x1 and
+  exactly as many at 16x4, 32x8 and 64x8 - the group IS the gain - so Mode
+  X's `auto` is the whole frame, else **4x1** (`COARSE_LADDER_MX`), a
+  quarter of the width for one frame and every row kept. On a PACKED
+  screen a flat byte is only a RUN, 13 cycles a byte against a slice's 18,
+  and Take On Me's Hercules changes took **87-100%** in cells, dithered the
+  file's own way: so not there, and the window greys `--coarse-cut` with
+  that reason (`coarse_screen`). Where there is no palette a scene, the
+  scenes are found by the same scene pass, run for the cells alone - one
+  more read of the clip at the canvas's size, its colours unused - and
+  `--scene-cover`/`--scene-min` act on it there too. Mode X's cells are
+  the nearest of its whole palette. A ladder's `coarsescene` rung follows: it is
+  offered on Mode X (`auto`, `4x1`) and on VGA4 with or without a palette a
+  scene, and left out on a packed screen.
 
 ##### 98.2.5.3 What the sixteen-colour options take together (the options audit, 2026-10-14)
 
@@ -175929,8 +175975,9 @@ page-ahead's against `--flip`, a loop and a layer, the prune's against
 page-ahead off, the layer group's against `--flip` - could grey nothing,
 and the window wrote command lines the encoder then refused. They are in
 the context now. The scene options (`--scene-cover`, `--scene-min`,
-`--step-down`, `--scene-hold`, `--coarse-cut`) follow whether a palette a
-scene APPLIES and not its checkbox, which a palette `auto` greys but does
+`--step-down`, `--scene-hold`) follow whether a palette a
+scene APPLIES and not its checkbox (`--coarse-cut` whether the screen is
+planar, and the first two either, 98.2.5.2), which a palette `auto` greys but does
 not clear. `--flip`, `--page-ahead` and `--page-prune` are a group of
 their own, *A second page*, whose rule is the screens with one - Mode X,
 16 colours on a screen of their own, and a Hercules: under the VGA group

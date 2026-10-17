@@ -13414,7 +13414,7 @@ SOAK = [
         "on the same clip is short - and a fixed bank is untouched. Broken "
         "on purpose (the first pass returning nothing) it FAILS",
         needs=("ffmpeg",)),
-    Row("vencgui", "soak", py("tests/vencguitest.py"), 90.0,
+    Row("vencgui", "soak", py("tests/vencguitest.py"), 200.0,
         "SPEC.md 98.2.8: the encoder's WINDOW without a window "
         "(tools/os88vencgui.py): every os88venc option on a tab with a "
         "tooltip, the untouched form parsing to the parser's own defaults, "
@@ -13454,7 +13454,7 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/ctrl.drv",
                "build/sound.drv")),
-    Row("videnc", "soak", py("tests/videnc.py"), 850.0,
+    Row("videnc", "soak", py("tests/videnc.py"), 1550.0,
         "SPEC.md 98.2.1: the encoder front end and its budgets, host-side. "
         "ffmpeg makes a 16:9 source with a still tail and tools/os88venc.py "
         "encodes it: the canvas must be the source's shape in the Hercules "
