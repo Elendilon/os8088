@@ -1400,9 +1400,11 @@ dk_slisthit:
     cmp ax, 3
     jae .shut
     mov byte [dk_sdrop], 0
+    push ax                     ; (dk_slistrect's AX is the list's x)
     call dk_slistrect
     call dk_wrect
-    call dk_ssize
+    pop ax
+    call dk_ssize               ; AL = the row: the size
     jmp short .x
 .shut:
     mov byte [dk_sdrop], 0
