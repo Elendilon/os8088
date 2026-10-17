@@ -5602,7 +5602,7 @@ tp_s_a1:        db 'TeXPad for os8088', 0       ; tp_draw_about walks these
                 db 0
                 db 'A paper-oriented SUBSET of the markup, set in', 0
                 db 'the kernel 8x8 monofont. No math engine, no', 0
-                db 'figures, no colour - see SPEC.md 69.2.', 0
+                db 'figures, no colour.', 0
                 db 0
                 db 'F5 typesets.  File exports PDF 1.4 and PostScript.', 0
                 db 0

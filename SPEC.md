@@ -191512,7 +191512,7 @@ one `MENU_DIS` byte in front of it, so its greyed form is the live string
 less one byte and needs no twin (`dc_menulive`). The reason is what the key
 says - `N` at 48 answers `Calendar is full (48)` - or plain on the card. The
 app-name cell carries About and the kernel's Close, through `os88stik.inc`'s
-negotiator. **About is one toast**, `Desk Calendar, SPEC 110`, and draws
+negotiator. **About is one toast**, `Desk Calendar for os8088`, and draws
 nothing on the face: the About card that lay over it, and its take-down
 repaint, went in the size pass (docs/plans/completed/DESKCAL-SIZE-PLAN.md).
 
@@ -194121,8 +194121,8 @@ KB, freed at once. Editing costs Note Pad's instance (~20 KB) only while it is
 open. The size pass after the rewrite took the Color menu's fifteen padded
 strings down to five, one a paper composed three ways (-240).
 
-**About is one toast, as the Desk Calendar's** (`sn_about`, `Sticky Note, SPEC
-110.13`): the card over the pad, its dismissal on the next event and the redraw
+**About is one toast, as the Desk Calendar's** (`sn_about`, `Sticky Note for
+os8088`): the card over the pad, its dismissal on the next event and the redraw
 that put the pad back are gone, and with them os88ui.inc's About code
 (`OS88UI_MACROS`). The owner's rule for it was a disk CLUSTER: taken only if
 it dropped the packed file below a cluster boundary at the end of the pass. It

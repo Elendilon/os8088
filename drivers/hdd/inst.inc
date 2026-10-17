@@ -1201,7 +1201,7 @@ hd_bp:      dw 0                ; hd_bn_save's own cursor into hd_bbuf
 hd_bvdrv:   db 0                ; ...and the volume it has to put back
 hd_bvclus:  dw 0
 hd_s_bfile: db 'INSTBNCH.TXT', 0
-hd_s_bhdr:  db 'os8088 install, SPEC.md 52.10.9', 13, 10
+hd_s_bhdr:  db 'os8088 install timings', 13, 10
             db '      fC   fS   dC   dS   tk', 13, 10, 0
             ; ...the ROW's own columns: 3 for the label, then five 5-wide
             ; fields. The window's legend is 5 spaces in and this is 3,
