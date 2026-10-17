@@ -1143,7 +1143,7 @@ vp_parse:
     mov word [vp_msg], vp_s_ver
     cmp word [es:4], 1              ; version 1, and no flag this player
     jne vp_pbad                        ; does not know (98.1.1.2)
-    test word [es:V88_FLAGS], ~V88F_KNOWN
+    test word [es:V88_FLAGS], ~V88F_KNOWN & 0xFFFF
     jnz vp_pbad
     mov word [vp_msg], vp_s_bad
     test byte [es:V88_FLAGS+1], V88F_KPARTS >> 8    ; (parts: never in a
