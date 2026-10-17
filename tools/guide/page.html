@@ -1,0 +1,506 @@
+<title>os8088 Disk Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Pixelify+Sans:wght@500;600&display=swap">
+<style>
+/* Layout: a selection header (size tabs, then the disks of that size as
+   labelled floppies), and below it two System-1 windows side by side: the
+   disk's own window on the left, the Get Info window on the right. */
+:root {
+  --paper: #eef0f3;
+  --sheet: #fbfbfc;
+  --ink: #15171c;
+  --ink-2: #555b67;
+  --rule: #c5c9d1;
+  --rule-strong: #15171c;
+  --well: #e3e6eb;
+  --accent: #2443a0;
+  --accent-ink: #ffffff;
+  --tint: #dde4f6;
+  --warn: #8a5a00;
+  --font-display: "Pixelify Sans", "Chicago", "Geneva", ui-monospace, monospace;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 0.9375rem;
+  --step-1: 1.125rem;
+  --step-2: 1.5rem;
+  --step-3: 2rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #101216; --sheet: #171a1f; --ink: #e6e8ec; --ink-2: #9aa1ad;
+    --rule: #2e333c; --rule-strong: #c9cdd5; --well: #1d2027;
+    --accent: #8ea6f2; --accent-ink: #0d1020; --tint: #1f2844; --warn: #e0b45a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #101216; --sheet: #171a1f; --ink: #e6e8ec; --ink-2: #9aa1ad;
+  --rule: #2e333c; --rule-strong: #c9cdd5; --well: #1d2027;
+  --accent: #8ea6f2; --accent-ink: #0d1020; --tint: #1f2844; --warn: #e0b45a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-size: var(--step-0); line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 48px;
+}
+.wrap { max-width: 1320px; margin: 0 auto; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.92em; }
+a { color: var(--accent); }
+
+/* --- header ------------------------------------------------------------- */
+header.top { padding-block: 20px 0; display: grid; gap: 16px; }
+.brand-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; justify-content: space-between; }
+.brand { display: flex; align-items: baseline; gap: 12px; }
+.brand h1 { font-family: var(--font-display); font-weight: 600; font-size: var(--step-3); line-height: 1; margin: 0; letter-spacing: 0.01em; }
+.brand .sub { color: var(--ink-2); font-size: var(--step--1); }
+.search { position: relative; flex: 1 1 320px; max-width: 520px; }
+.search input {
+  width: 100%; padding: 9px 12px 9px 34px; border: 1px solid var(--rule-strong); border-radius: 0;
+  background: var(--sheet); color: var(--ink); font: inherit;
+}
+.search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--ink-2); }
+.search kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); border: 1px solid var(--rule); padding: 0 5px; }
+.results {
+  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px);
+  background: var(--sheet); border: 1px solid var(--rule-strong); box-shadow: 3px 3px 0 var(--rule-strong);
+  max-height: 60vh; overflow: auto;
+}
+.results button { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; text-align: left; border: 0; background: none; padding: 7px 12px; cursor: pointer; }
+.results button[aria-selected="true"], .results button:hover { background: var(--accent); color: var(--accent-ink); }
+.results .r-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.results .r-title small { color: inherit; opacity: 0.75; margin-left: 6px; }
+.results .r-kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.75; }
+.results .empty { padding: 10px 12px; color: var(--ink-2); }
+
+.tabs { display: flex; gap: 0; overflow-x: auto; border-bottom: 1px solid var(--rule-strong); scrollbar-width: thin; }
+.tabs button {
+  flex: 0 0 auto; border: 1px solid transparent; border-bottom: 0; background: none; cursor: pointer;
+  padding: 8px 16px 7px; display: grid; text-align: left; gap: 0; margin-bottom: -1px;
+}
+.tabs button .t { font-weight: 600; }
+.tabs button .h { font-size: 11px; color: var(--ink-2); white-space: nowrap; }
+.tabs button[aria-selected="true"] { background: var(--sheet); border-color: var(--rule-strong); }
+.tabs .gap { flex: 0 0 18px; }
+
+.shelf { background: var(--sheet); border: 1px solid var(--rule-strong); border-top: 0; padding: 14px 16px 16px; display: grid; gap: 14px; }
+.shelf h2 { font-family: var(--font-display); font-weight: 500; font-size: var(--step--1); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 8px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.card {
+  display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px 10px; text-align: left;
+  border: 1px solid var(--rule); background: var(--paper); padding: 10px 12px; cursor: pointer;
+}
+.card:hover { border-color: var(--rule-strong); }
+.card[aria-pressed="true"] { border-color: var(--rule-strong); background: var(--tint); box-shadow: 2px 2px 0 var(--rule-strong); }
+.card .ic { grid-row: span 3; color: var(--ink); padding-top: 2px; }
+.card .role { font-weight: 600; line-height: 1.25; }
+.card .file { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+.card .meter { display: block; height: 6px; border: 1px solid var(--rule-strong); background: var(--sheet); position: relative; margin-top: 4px; }
+.card .meter i { position: absolute; inset: 0 auto 0 0; background: var(--ink); }
+.card .use { font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.card.na { opacity: 0.6; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--rule); background: var(--paper); padding: 4px 10px; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
+.chip:hover { border-color: var(--rule-strong); }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.chip small { font-family: var(--font-mono); font-size: 11px; opacity: 0.7; }
+
+/* --- the two windows -------------------------------------------------------- */
+main.panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; margin-top: 22px; align-items: start; }
+@media (min-width: 960px) { main.panes { grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); } }
+.win { background: var(--sheet); border: 1px solid var(--rule-strong); box-shadow: 3px 3px 0 var(--rule-strong); min-width: 0; }
+.bar {
+  position: relative; height: 22px; border-bottom: 1px solid var(--rule-strong); display: flex; align-items: center; justify-content: center;
+  background: repeating-linear-gradient(to bottom, var(--sheet) 0 3px, var(--rule-strong) 3px 4px) 0 4px / 100% 13px no-repeat, var(--sheet);
+}
+.bar span { background: var(--sheet); padding: 0 10px; font-family: var(--font-mono); font-weight: 500; font-size: 13px; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar::before { content: ""; position: absolute; left: 8px; top: 4px; width: 11px; height: 11px; border: 1px solid var(--rule-strong); background: var(--sheet); }
+.info-win { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+@media (min-width: 960px) { .info-win .body { max-height: calc(100vh - 70px); overflow: auto; } }
+.body { padding: 16px 18px 20px; min-width: 0; }
+
+.disk-head { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--rule); font-size: var(--step--1); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.disk-head b { color: var(--ink); font-weight: 600; }
+.tree { list-style: none; margin: 0; padding: 4px 0 8px; }
+.row {
+  display: grid; grid-template-columns: 14px minmax(7.5rem, auto) minmax(0, 1fr) auto; gap: 0 10px; align-items: baseline;
+  width: 100%; text-align: left; border: 0; background: none; cursor: pointer; padding: 5px 14px 5px calc(14px + var(--depth, 0) * 18px);
+}
+.row:hover { background: var(--well); }
+.row[aria-current="true"] { background: var(--accent); color: var(--accent-ink); }
+.row[aria-current="true"] .desc, .row[aria-current="true"] .size { color: inherit; opacity: 0.85; }
+.row .ic { align-self: center; display: flex; }
+.row .nm { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; }
+.row .desc { color: var(--ink-2); font-size: var(--step--1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.row .desc b { color: var(--ink); font-weight: 500; }
+.row[aria-current="true"] .desc b { color: inherit; }
+.row .size { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.row.folder .nm::after { content: "/"; opacity: 0.5; }
+.row .tw { display: inline-block; width: 1ch; margin-right: 2px; opacity: 0.6; }
+@media (max-width: 560px) {
+  .row { grid-template-columns: 14px minmax(0, 1fr) auto; }
+  .row .desc { grid-column: 2 / 4; white-space: normal; }
+}
+.notbuilt { padding: 22px 18px; color: var(--ink-2); }
+.notbuilt code { color: var(--ink); }
+
+/* --- the info window ------------------------------------------------------------- */
+.info h2 { font-family: var(--font-body); font-weight: 600; font-size: var(--step-2); line-height: 1.2; margin: 0; text-wrap: balance; }
+.info .ident { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 2px 14px; align-items: start; margin-bottom: 14px; }
+.info .ident .ic { grid-row: span 2; padding-top: 4px; }
+.info .ident .fn { font-family: var(--font-mono); font-size: 13px; color: var(--ink-2); }
+.info .lede { font-size: var(--step-1); line-height: 1.45; margin: 0 0 16px; max-width: 62ch; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 18px; margin: 0 0 18px; padding: 12px 0; border-block: 1px solid var(--rule); font-size: var(--step--1); }
+.facts dt { color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; padding-top: 2px; }
+.facts dd { margin: 0; font-variant-numeric: tabular-nums; min-width: 0; }
+.facts dd .chips { gap: 4px; }
+.facts dd .chip { padding: 1px 8px; font-size: 12px; }
+.needs { color: var(--warn); }
+.eyebrow { font-family: var(--font-display); font-weight: 500; font-size: var(--step--1); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin: 22px 0 8px; }
+.manual { max-width: 68ch; }
+.manual h2 { font-size: var(--step-1); margin: 26px 0 6px; }
+.manual h3 { font-size: var(--step-0); margin: 18px 0 4px; }
+.manual h4 { font-size: var(--step-0); margin: 14px 0 4px; color: var(--ink-2); }
+.manual p, .manual li { margin: 0 0 10px; }
+.manual ul, .manual ol { padding-left: 1.3em; margin: 0 0 10px; }
+.manual .note { border-left: 3px solid var(--ink); padding: 6px 12px; background: var(--well); margin: 0 0 12px; font-size: var(--step--1); }
+.manual .tbl { overflow-x: auto; margin: 0 0 14px; }
+.manual table { border-collapse: collapse; font-size: var(--step--1); min-width: 100%; }
+.manual th, .manual td { text-align: left; padding: 5px 12px 5px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.manual th { font-weight: 600; border-bottom-color: var(--rule-strong); }
+.shot { margin: 14px 0 18px; }
+.shot img { display: block; border: 1px solid var(--rule-strong); image-rendering: pixelated; max-width: 100%; height: auto; }
+.shot .frame { aspect-ratio: 4 / 3; max-width: 100%; border: 1px dashed var(--ink-2); display: grid; place-content: center; gap: 4px; text-align: center; color: var(--ink-2); background:
+  repeating-linear-gradient(45deg, transparent 0 7px, var(--well) 7px 8px); }
+.shot figcaption { font-size: var(--step--1); color: var(--ink-2); margin-top: 6px; }
+.nomanual { color: var(--ink-2); border: 1px dashed var(--rule); padding: 12px 14px; font-size: var(--step--1); }
+.members { display: grid; gap: 6px; margin: 0 0 12px; }
+.prog-list { columns: 2 12rem; column-gap: 18px; padding: 0; margin: 0; list-style: none; font-size: var(--step--1); }
+.prog-list li { break-inside: avoid; padding: 2px 0; }
+.prog-list button { border: 0; background: none; padding: 0; cursor: pointer; text-align: left; }
+.prog-list button:hover span { text-decoration: underline; }
+.prog-list .mono { color: var(--ink-2); font-size: 11px; margin-left: 6px; }
+footer { margin-top: 28px; color: var(--ink-2); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand-row">
+      <div class="brand"><h1>os8088</h1><span class="sub">Disk guide: what ships, and what each thing does</span></div>
+      <div class="search">
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9.5 9.5 13 13" stroke="currentColor" stroke-width="1.5"/></svg>
+        <input id="q" type="search" placeholder="Find a disk, program, file or tool" autocomplete="off" aria-label="Search the guide" aria-controls="results">
+        <kbd>/</kbd>
+        <div class="results" id="results" role="listbox" hidden></div>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Disk size"></nav>
+  </header>
+  <section class="shelf" id="shelf" aria-label="Disks"></section>
+  <main class="panes">
+    <section class="win" aria-label="Disk contents"><div class="bar"><span id="leftTitle">Disk</span></div><div id="left"></div></section>
+    <section class="win info-win" aria-label="Details"><div class="bar"><span id="rightTitle">Get Info</span></div><div class="body info" id="right"></div></section>
+  </main>
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const D = /*@DATA@*/null;
+
+// --- 12x12 one-bit icons ---------------------------------------------------------
+const BM = {
+  folder:  ["............",".####.......","#....#......","############","#..........#","#..........#","#..........#","#..........#","#..........#","#..........#","############","............"],
+  program: ["############","############","#..........#","#..........#","#..........#","#..........#","#..........#","#..........#","#..........#","#..........#","############","............"],
+  document:["..#######...","..#.....##..","..#.....#.#.","..#.....####","..#........#","..#.####...#","..#........#","..#.######.#","..#........#","..#.#####..#","..#........#","..##########"],
+  music:   ["......##....","......####..","......#..##.","......#...#.","......#.....","......#.....","......#.....","..#####.....",".######.....",".######.....","..####......","............"],
+  driver:  ["..#.#..#.#..",".##########.",".#........#.","##........##",".#..####..#.",".#..####..#.","##........##",".#........#.",".##########.","..#.#..#.#..","............","............"],
+  font:    ["............",".....##.....","....####....","....#..#....","...##..##...","...#....#...","..########..","..#......#..",".##......##.",".#........#.","............","............"],
+  picture: ["############","#..........#","#.......##.#","#.......##.#","#..........#","#....#.....#","#...###....#","#..#####.#.#","#.########.#","############","............","............"],
+  video:   ["############","#.##.##.##.#","############","#..........#","#....#.....#","#....##....#","#....###...#","#....##....#","#....#.....#","############","#.##.##.##.#","############"],
+  system:  [".....##.....","..#.####.#..",".##########.","..###..###..",".###....###.","####....####","####....####",".###....###.","..###..###..",".##########.","..#.####.#..",".....##....."],
+  data:    ["############","#...#......#","############","#...#......#","############","#...#......#","############","#...#......#","############","............","............","............"],
+  "dos-tool":["############","#..........#","#.###......#","#.#...#....#","#.#....#...#","#.#...#....#","#.###......#","#......###.#","#..........#","############","............","............"],
+  disk:    ["###########.","#.#.....#.##","#.#.....#..#","#.#######..#","#..........#","#.########.#","#.#......#.#","#.#......#.#","#.#......#.#","#.#......#.#","############","............"],
+  cd:      ["....####....","..##....##..",".#........#.",".#...##...#.","#...#..#...#","#...#..#...#",".#...##...#.",".#........#.","..##....##..","....####....","............","............"],
+  tool:    ["#########...","#.......##..","#.#.....#.#.","#..#....####","#.#........#","#..........#","#....####..#","#..........#","############","............","............","............"],
+};
+function icon(kind, size) {
+  const b = BM[kind] || BM.document, s = size || 12;
+  let r = "";
+  b.forEach((row, y) => { for (let x = 0; x < row.length; x++) if (row[x] === "#") r += `M${x} ${y}h1v1h-1z`; });
+  return `<svg width="${s}" height="${s}" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true"><path d="${r}" fill="currentColor"/></svg>`;
+}
+
+// --- what a file is, when nobody has said ---------------------------------------
+const EXT = {
+  O88: ["program", "A program"], DRV: ["driver", "A driver"], SYS: ["system", "A system file"], DAT: ["data", "System data"],
+  F88: ["font", "A typeface"], MID: ["music", "A MIDI song"], MOD: ["music", "A tracker module"], WAV: ["music", "A sound recording"],
+  TEX: ["document", "A TexPad document"], DOC: ["document", "A Word document"], RTF: ["document", "A document"], MD: ["document", "A text document"],
+  TXT: ["document", "A text file"], HTM: ["document", "A web page"], SLK: ["data", "A spreadsheet"], GIF: ["picture", "A picture"],
+  JPG: ["picture", "A photograph"], BMP: ["picture", "A picture"], PIX: ["picture", "A picture"], V88: ["video", "A video"],
+  COM: ["dos-tool", "A DOS program"], EXE: ["dos-tool", "A DOS program"], WAB: ["program", "A Weave app"], OVL: ["program", "Part of a program"],
+  ROM: ["system", "A ROM image"], BAS: ["document", "A BASIC program"],
+};
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const baseName = p => { const f = p.endsWith("/"); const n = p.replace(/\/$/, "").split("/").pop(); return f ? n + "/" : n; };
+function info(name) {
+  const e = D.entries[name];
+  if (e) return { kind: e.kind || "document", title: e.title || name, summary: e.summary || "", needs: e.needs || "", described: true };
+  if (name.endsWith("/")) return { kind: "folder", title: name.slice(0, -1), summary: "A folder", needs: "", described: false };
+  const x = (name.split(".")[1] || "").toUpperCase(), g = EXT[x];
+  return { kind: g ? g[0] : "document", title: name, summary: g ? g[1] : "A file", needs: "", described: false };
+}
+const kb = n => n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : n >= 1024 ? Math.round(n / 1024).toLocaleString() + " KB" : n.toLocaleString() + " bytes";
+
+// --- indexes ---------------------------------------------------------------
+const disk = Object.fromEntries(D.disks.map(d => [d.id, d]));
+const set = Object.fromEntries(D.sets.map(s => [s.id, s]));
+const geoLabel = Object.fromEntries(D.geos.map(g => [g.key, g.label]));
+const where = {};                                   // file name -> [[diskId, path]]
+D.disks.forEach(d => (d.tree || []).forEach(([p]) => { const n = baseName(p); (where[n] ||= []).push([d.id, p]); }));
+const things = Object.fromEntries([...D.tools, ...D.firmware].map(t => [t.id, t]));
+
+// --- state -----------------------------------------------------------------
+const st = { geo: "1440", disk: null, item: null, open: {} };
+try { const g = localStorage.getItem("os88guide.geo"); if (g && geoLabel[g]) st.geo = g; } catch (e) {}
+
+function disksFor(geo) { return D.disks.filter(d => d.geo === geo); }
+function firstDisk(geo) {
+  if (geo === "tools") return D.tools[0].id;
+  if (geo === "firmware") return D.firmware[0].id;
+  const l = disksFor(geo); return l.length ? l[0].id : null;
+}
+function go(geo, diskId, item, push) {
+  st.geo = geo; st.disk = diskId || firstDisk(geo); st.item = item || null;
+  try { localStorage.setItem("os88guide.geo", geo); } catch (e) {}
+  if (push !== false) { const h = st.disk + (st.item ? "~" + st.item.replace(/\/$/, "") : ""); history.replaceState(null, "", "#" + h); }
+  draw();
+}
+
+// --- header ------------------------------------------------------------------
+function drawTabs() {
+  const el = document.getElementById("tabs");
+  el.innerHTML = D.geos.map((g, i) => (g.key === "tools" ? '<span class="gap"></span>' : "") +
+    `<button role="tab" aria-selected="${g.key === st.geo}" data-geo="${g.key}"><span class="t">${esc(g.label)}</span><span class="h">${esc(g.hint)}</span></button>`).join("");
+}
+function card(d) {
+  const s = set[d.set], used = d.built && d.clusters ? (d.clusters - d.free) / d.clusters : 0;
+  const kind = d.file.endsWith(".iso") ? "cd" : "disk";
+  const use = !d.built ? "Not built yet" : d.clusters ? `${kb(d.free * d.csize)} free of ${kb(d.clusters * d.csize)}` : (d.sameas ? "Same contents as the USB image" : kb(d.bytes || 0));
+  return `<button class="card${d.built ? "" : " na"}" aria-pressed="${d.id === st.disk}" data-disk="${d.id}">
+    <span class="ic">${icon(kind, 24)}</span><span class="role">${esc(d.role)}</span><span class="file">${esc(d.file)}</span>
+    <span>${d.clusters ? `<span class="meter" aria-hidden="true"><i style="width:${(used * 100).toFixed(1)}%"></i></span>` : ""}<span class="use">${esc(use)}</span></span></button>`;
+}
+function drawShelf() {
+  const el = document.getElementById("shelf");
+  if (st.geo === "tools" || st.geo === "firmware") {
+    const l = st.geo === "tools" ? D.tools : D.firmware;
+    el.innerHTML = `<div><h2>${st.geo === "tools" ? "For your modern computer" : "For add-in cards"}</h2><div class="cards">${l.map(t =>
+      `<button class="card" aria-pressed="${t.id === st.disk}" data-disk="${t.id}"><span class="ic">${icon(st.geo === "tools" ? "tool" : "driver", 24)}</span><span class="role">${esc(t.title)}</span><span class="file">${t.files.length} file${t.files.length > 1 ? "s" : ""}</span><span class="use">${esc(t.summary)}</span></button>`).join("")}</div></div>`;
+    return;
+  }
+  const l = disksFor(st.geo), main = l.filter(d => d.section === "main"), own = l.filter(d => d.section !== "main");
+  let h = "";
+  if (main.length) h += `<div><h2>${esc(D.sectionTitles.main)}</h2><div class="cards">${main.map(card).join("")}</div></div>`;
+  if (own.length) h += `<div><h2>${esc(D.sectionTitles.own)}</h2><div class="chips">${own.map(d =>
+    `<button class="chip" aria-pressed="${d.id === st.disk}" data-disk="${d.id}">${esc(d.role)}<small>${esc(d.file)}</small></button>`).join("")}</div></div>`;
+  if (!h) h = `<p class="notbuilt">Nothing ships in this size.</p>`;
+  el.innerHTML = h;
+}
+
+// --- the disk window ---------------------------------------------------------------
+function treeRows(d) {
+  const rows = d.tree || [], out = [], kids = {};
+  rows.forEach(([p]) => { const par = p.replace(/\/$/, "").split("/").slice(0, -1).join("/"); kids[par] = (kids[par] || 0) + 1; });
+  let hideBelow = null;
+  rows.forEach(([p, size]) => {
+    const isDir = p.endsWith("/"), parts = p.replace(/\/$/, "").split("/"), depth = parts.length - 1, key = d.id + ":" + p;
+    if (hideBelow && p.startsWith(hideBelow)) return;
+    hideBelow = null;
+    const n = baseName(p), i = info(n);
+    let open = true;
+    if (isDir) {
+      const k = kids[parts.join("/")] || 0;
+      open = key in st.open ? st.open[key] : (depth === 0 && k <= 40) || k <= 12;
+      if (!open) hideBelow = p;
+    }
+    const cur = st.item === p;
+    out.push(`<li><button class="row${isDir ? " folder" : ""}" style="--depth:${depth}" data-path="${esc(p)}" ${cur ? 'aria-current="true"' : ""} ${isDir ? `aria-expanded="${open}"` : ""}>
+      <span class="ic">${icon(i.kind)}</span>
+      <span class="nm">${isDir ? `<span class="tw">${open ? "▾" : "▸"}</span>` : ""}${esc(n.replace(/\/$/, ""))}</span>
+      <span class="desc">${i.described ? `<b>${esc(i.title)}</b>${i.summary ? " · " + esc(i.summary) : ""}` : (isDir ? `${kids[parts.join("/")] || 0} items` : esc(i.summary))}</span>
+      <span class="size">${isDir ? "" : kb(size)}</span></button></li>`);
+  });
+  return out.join("");
+}
+function drawLeft() {
+  const el = document.getElementById("left"), t = document.getElementById("leftTitle");
+  const th = things[st.disk];
+  if (th) {
+    t.textContent = th.title;
+    el.innerHTML = `<div class="disk-head"><span><b>${th.files.length}</b> file${th.files.length > 1 ? "s" : ""}</span><span class="mono">${esc(th.dir || "tools/")}</span></div><ul class="tree">${th.files.map(([p, note, size]) =>
+      `<li><button class="row" data-tfile="${esc(p)}" ${st.item === p ? 'aria-current="true"' : ""}><span class="ic">${icon(th.dir ? "driver" : "tool")}</span><span class="nm">${esc(p.split("/").pop())}</span><span class="desc">${esc(note)}</span><span class="size">${kb(size)}</span></button></li>`).join("")}</ul>`;
+    return;
+  }
+  const d = disk[st.disk];
+  if (!d) { t.textContent = "Disk"; el.innerHTML = `<p class="notbuilt">Nothing ships in this size.</p>`; return; }
+  t.textContent = d.file.toUpperCase();
+  if (!d.built || !d.tree) {
+    el.innerHTML = `<p class="notbuilt">${d.sameas ? "This CD holds the same volume as the live USB image." : `This disk has not been built in this copy of the guide. Its layout appears once <code>${esc(d.file)}</code> exists in <code>build/</code>.`}</p>`;
+    return;
+  }
+  const files = d.tree.filter(([p]) => !p.endsWith("/")).length;
+  el.innerHTML = `<div class="disk-head"><span><b>${files}</b> files</span><span>${kb((d.clusters - d.free) * d.csize)} used · <b>${kb(d.free * d.csize)}</b> free</span></div><ul class="tree">${treeRows(d)}</ul>`;
+}
+
+// --- the info window -------------------------------------------------------------------
+function siblingsInOtherSizes(d) {
+  const s = set[d.set];
+  if (s.group === "progs") return s.disks.map(id => disk[id]).filter(x => x.id !== d.id);
+  return D.disks.filter(x => x.id !== d.id && x.role === d.role && x.group === d.group && x.geo !== d.geo);
+}
+function diskChip(x, label) { return `<button class="chip" data-go="${x.geo}|${x.id}">${esc(label || geoLabel[x.geo])}<small>${esc(x.file)}</small></button>`; }
+function drawDiskInfo(d) {
+  const s = set[d.set];
+  const progs = (d.tree || []).filter(([p]) => /\.(O88|WAB)$/.test(p));
+  const pair = s.disks.map(id => disk[id]).filter(x => x.id !== d.id && x.geo === d.geo);
+  const other = siblingsInOtherSizes(d);
+  let h = `<div class="ident"><span class="ic">${icon(d.file.endsWith(".iso") ? "cd" : "disk", 30)}</span><h2>${esc(d.role)}</h2><span class="fn">${esc(d.file)} · ${esc(geoLabel[d.geo])}</span></div>
+    <p class="lede">${esc(s.desc)}</p><dl class="facts">`;
+  h += `<dt>Release group</dt><dd>${esc(s.groupTitle)}</dd>`;
+  if (d.built && d.clusters) h += `<dt>Space</dt><dd>${kb((d.clusters - d.free) * d.csize)} used, ${kb(d.free * d.csize)} free (${(d.clusters - d.free).toLocaleString()} of ${d.clusters.toLocaleString()} clusters)</dd>`;
+  if (pair.length) h += `<dt>Goes with</dt><dd><div class="chips">${pair.map(x => diskChip(x, x.role)).join("")}</div></dd>`;
+  if (other.length) h += `<dt>Other sizes</dt><dd><div class="chips">${other.map(x => diskChip(x)).join("")}</div></dd>`;
+  h += `</dl>`;
+  if (progs.length) {
+    h += `<div class="eyebrow">Programs on this disk</div><ul class="prog-list">${progs.map(([p]) => { const n = baseName(p), i = info(n);
+      return `<li><button data-path="${esc(p)}"><span>${esc(i.title)}</span><span class="mono">${esc(n)}</span></button></li>`; }).join("")}</ul>`;
+  }
+  return h;
+}
+function drawItemInfo(d, path) {
+  const n = baseName(path), i = info(n), man = D.manuals[n.replace(/\/$/, "").replace(/\./g, "_")] || D.manuals[n];
+  const size = (d.tree.find(([p]) => p === path) || [0, 0])[1];
+  const seen = (where[n] || []).map(([id]) => disk[id]);
+  const byGeo = {};
+  seen.forEach(x => { (byGeo[x.geo] ||= []).push(x); });
+  let h = `<div class="ident"><span class="ic">${icon(i.kind, 30)}</span><h2>${esc(i.title)}</h2><span class="fn">${esc(n)}</span></div>`;
+  if (i.summary) h += `<p class="lede">${esc(i.summary)}</p>`;
+  h += `<dl class="facts">`;
+  if (i.needs) h += `<dt>Needs</dt><dd class="needs">${esc(i.needs)}</dd>`;
+  h += `<dt>On this disk</dt><dd class="mono">${esc(d.file)}: ${esc(path.replace(/\/$/, ""))}${size ? " · " + kb(size) : ""}</dd>`;
+  const geos = D.geos.filter(g => byGeo[g.key]);
+  if (seen.length > 1) h += `<dt>Also on</dt><dd>${geos.map(g => `<div class="chips" style="margin-bottom:4px">${byGeo[g.key].filter(x => x.id !== d.id).map(x => diskChip(x, (g.key === d.geo ? "" : g.label + " ") + x.role)).join("")}</div>`).join("")}</dd>`;
+  h += `</dl>`;
+  if (man) h += `<div class="manual">${man.html}</div>`;
+  else if (!n.endsWith("/")) h += `<div class="nomanual">${i.kind === "program" ? "The manual for this program has not been written yet." : "No further guide for this file."}</div>`;
+  return h;
+}
+function drawThingInfo(th) {
+  const man = D.manuals[th.id.toUpperCase().replace(/-/g, "_")];
+  let h = `<div class="ident"><span class="ic">${icon(th.dir ? "driver" : "tool", 30)}</span><h2>${esc(th.title)}</h2><span class="fn">${esc(th.dir || th.files.map(f => f[0].split("/").pop()).join(", "))}</span></div><p class="lede">${esc(th.summary)}</p>`;
+  if (st.item) { const f = th.files.find(f => f[0] === st.item); if (f) h += `<dl class="facts"><dt>File</dt><dd class="mono">${esc(f[0])} · ${kb(f[2])}</dd><dt>What it is</dt><dd>${esc(f[1])}</dd></dl>`; }
+  h += man ? `<div class="manual">${man.html}</div>` : `<div class="nomanual">The guide for this has not been written yet.</div>`;
+  return h;
+}
+function drawRight() {
+  const el = document.getElementById("right"), t = document.getElementById("rightTitle");
+  const th = things[st.disk];
+  if (th) { t.textContent = th.title; el.innerHTML = drawThingInfo(th); return; }
+  const d = disk[st.disk];
+  if (!d) { t.textContent = "Get Info"; el.innerHTML = ""; return; }
+  if (st.item && d.tree) { t.textContent = baseName(st.item).replace(/\/$/, "") + " Info"; el.innerHTML = drawItemInfo(d, st.item); }
+  else { t.textContent = d.role; el.innerHTML = drawDiskInfo(d); }
+  el.scrollTop = 0;
+}
+function draw() {
+  drawTabs(); drawShelf(); drawLeft(); drawRight();
+  const b = D.build;
+  document.getElementById("foot").textContent = `Read from the disks built at commit ${b.commit} (build ${b.count}). Generated by tools/os88guide.py.`;
+}
+
+// --- events ---------------------------------------------------------------------
+document.addEventListener("click", e => {
+  const tab = e.target.closest("[data-geo]"); if (tab) return go(tab.dataset.geo);
+  const dk = e.target.closest("[data-disk]"); if (dk) return go(st.geo, dk.dataset.disk);
+  const g = e.target.closest("[data-go]"); if (g) { const [geo, id] = g.dataset.go.split("|"); return go(geo, id, st.item && disk[id] && (disk[id].tree || []).some(([p]) => p === st.item) ? st.item : findPath(id, st.item)); }
+  const tf = e.target.closest("[data-tfile]"); if (tf) return go(st.geo, st.disk, tf.dataset.tfile);
+  const it = e.target.closest("a[data-item]"); if (it) { e.preventDefault(); return openName(it.dataset.item); }
+  const r = e.target.closest("[data-path]");
+  if (r) {
+    const p = r.dataset.path;
+    if (p.endsWith("/") && r.classList.contains("row")) { const key = st.disk + ":" + p; st.open[key] = r.getAttribute("aria-expanded") !== "true"; }
+    return go(st.geo, st.disk, p);
+  }
+});
+function findPath(diskId, item) {
+  if (!item) return null;
+  const n = baseName(item), d = disk[diskId];
+  const hit = d && (d.tree || []).find(([p]) => baseName(p) === n);
+  return hit ? hit[0] : null;
+}
+function openName(n) {
+  const hits = where[n] || where[n + "/"] || [];
+  if (!hits.length) return;
+  const here = hits.find(([id]) => disk[id].geo === st.geo && disk[id].section === "main") || hits.find(([id]) => disk[id].geo === st.geo) ||
+    hits.find(([id]) => disk[id].section === "main") || hits[0];
+  go(disk[here[0]].geo, here[0], here[1]);
+}
+
+// --- search ------------------------------------------------------------------------
+const IDX = [];
+D.disks.forEach(d => IDX.push({ k: "Disk", ic: d.file.endsWith(".iso") ? "cd" : "disk", t: d.role, sub: `${d.file} · ${geoLabel[d.geo]}`, txt: `${d.role} ${d.file} ${set[d.set].title} ${geoLabel[d.geo]}`, run: () => go(d.geo, d.id) }));
+Object.keys(where).forEach(n => { const i = info(n); IDX.push({ k: i.kind === "program" ? "Program" : i.kind === "folder" ? "Folder" : "File", ic: i.kind, t: i.title, sub: n, txt: `${n} ${i.title} ${i.summary}`, run: () => openName(n), boost: i.kind === "program" ? 2 : i.described ? 1 : 0 }); });
+[...D.tools, ...D.firmware].forEach(t => IDX.push({ k: D.tools.includes(t) ? "Tool" : "Firmware", ic: t.dir ? "driver" : "tool", t: t.title, sub: t.files.map(f => f[0].split("/").pop()).join(", "), txt: `${t.title} ${t.summary} ${t.files.map(f => f[0]).join(" ")}`, run: () => go(D.tools.includes(t) ? "tools" : "firmware", t.id), boost: 2 }));
+const q = document.getElementById("q"), res = document.getElementById("results");
+let hits = [], sel = 0;
+function score(e, words) {
+  const t = e.t.toLowerCase(), s = e.sub.toLowerCase(), x = e.txt.toLowerCase();
+  let sc = 0;
+  for (const w of words) {
+    if (t.startsWith(w) || s.startsWith(w)) sc += 6; else if (t.includes(w) || s.includes(w)) sc += 4; else if (x.includes(w)) sc += 1; else return 0;
+  }
+  return sc + (e.boost || 0);
+}
+function search() {
+  const words = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) { res.hidden = true; return; }
+  hits = IDX.map(e => [score(e, words), e]).filter(([s]) => s > 0).sort((a, b) => b[0] - a[0]).slice(0, 14).map(x => x[1]);
+  sel = 0;
+  res.innerHTML = hits.length ? hits.map((e, i) => `<button role="option" aria-selected="${i === sel}" data-hit="${i}">${icon(e.ic)}<span class="r-title">${esc(e.t)}<small>${esc(e.sub)}</small></span><span class="r-kind">${e.k}</span></button>`).join("")
+    : `<div class="empty">Nothing matches “${esc(q.value)}”.</div>`;
+  res.hidden = false;
+}
+function pick(i) { const e = hits[i]; if (!e) return; res.hidden = true; q.blur(); e.run(); }
+q.addEventListener("input", search);
+q.addEventListener("focus", search);
+q.addEventListener("keydown", e => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); sel = (sel + (e.key === "ArrowDown" ? 1 : -1) + hits.length) % Math.max(hits.length, 1); [...res.querySelectorAll("[data-hit]")].forEach((b, i) => b.setAttribute("aria-selected", i === sel)); }
+  else if (e.key === "Enter") { e.preventDefault(); pick(sel); }
+  else if (e.key === "Escape") { res.hidden = true; q.blur(); }
+});
+res.addEventListener("mousedown", e => { const b = e.target.closest("[data-hit]"); if (b) { e.preventDefault(); pick(+b.dataset.hit); } });
+q.addEventListener("blur", () => setTimeout(() => { res.hidden = true; }, 120));
+document.addEventListener("keydown", e => { if (e.key === "/" && document.activeElement !== q) { e.preventDefault(); q.focus(); } });
+
+// --- start -----------------------------------------------------------------------------
+(function start() {
+  const h = decodeURIComponent(location.hash.slice(1));
+  if (h) {
+    const [id, item] = h.split("~");
+    if (disk[id]) return go(disk[id].geo, id, item ? findPath(id, item) || (item + "/") : null, false);
+    if (things[id]) return go(D.tools.includes(things[id]) ? "tools" : "firmware", id, null, false);
+  }
+  go(st.geo, null, null, false);
+})();
+</script>
