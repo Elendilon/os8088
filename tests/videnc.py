@@ -429,6 +429,16 @@ def main():
               " on a Hercules cells %s, decided %s" % (
                   r_any["cells"], r_any["ladder"], rh_any["cells"],
                   rh_any["ladder"]))
+        # ...and MIX: only the tiles the budget cannot draw in cells - the
+        # rest at full detail, so its frames are fewer pixels off
+        p_mix, r_mix = run2("mxmix", "--preset", "modex", "--ladder",
+                            "coarseany:mix", *tight)
+        vid.verify_v88(p_mix)
+        print("   3c: --ladder coarseany:mix on Mode X: cells %s, decided %s"
+              % (r_mix["cells"], r_mix["ladder"]))
+        if not r_mix["cells"].get("mix"):
+            bad.append("--ladder coarseany:mix drew no mixed frame: %r"
+                       % r_mix["cells"])
         if r_any["cells"].get("4x1", 0) < 2 or rh_any["cells"]:
             bad.append("--ladder coarseany:4x1: Mode X cells %r, Hercules "
                        "%r" % (r_any["cells"], rh_any["cells"]))

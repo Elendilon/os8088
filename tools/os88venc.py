@@ -3285,11 +3285,64 @@ def coarse_screen(g):
     return g.layout == vid.LAY_MODEX or bool(getattr(g, "bitplanes", False))
 
 
-def coarse_of(e, target, cell):
+def coarse_of(e, target, cell, au=b""):
     """`target` in coarse cells of the encoder's colours: VGA4's sixteen,
-    Mode X's whole palette"""
+    Mode X's whole palette - or, for MIX, only the tiles it must be"""
+    if cell == "mix":
+        m = coarse_mix(e, target, au)
+        return target if m is None else m
     return coarse_target(target, e.pal, cell, len(e.pal)
                          if e.g.layout == vid.LAY_MODEX else 16)
+
+
+# A MIXED SCREEN (the owner, 2026-10-17: "only coursifying the parts that
+# can't be afforded until it fits, instead of the full frames"): the frame
+# in tiles, and the fewest of them drawn in cells - those whose cells save
+# most first - that lets the rest be drawn whole at full detail
+MIX_TILE = (32, 8)                      # (W, H) pixels: Mode X's 8 groups
+
+
+def coarse_mix(e, target, au):
+    """`target` with just enough of its tiles in the screen's finest cell
+    (Mode X's 4x1, VGA4's 16x4) that the budgets draw the frame whole: a
+    binary search on copies of the encoder over the tiles ranked by what
+    their cells save - the pixels to change at full detail less those in
+    cells. None where the frame fits whole as it is; every tile in cells
+    where even that does not fit"""
+    if not vfr_cut(e, target, au):
+        return None
+    cell = COARSE_LADDER_MX[1] if e.g.layout == vid.LAY_MODEX else \
+        COARSE_LADDER[1]
+    c = coarse_target(target, e.pal, cell, len(e.pal)
+                      if e.g.layout == vid.LAY_MODEX else 16)
+    scr = e.screen.reshape(target.shape)
+    tw, th = MIX_TILE
+    h, w = target.shape
+    ny, nx = -(-h // th), -(-w // tw)
+
+    def tiles(a):
+        p = np.pad(a, ((0, ny * th - h), (0, nx * tw - w)))
+        return p.reshape(ny, th, nx, tw).sum((1, 3)).ravel()
+    save = tiles(target != scr).astype(np.int64) - tiles(c != scr)
+    order = [i for i in np.argsort(-save, kind="stable") if save[i] > 0]
+    if not order:
+        return c
+
+    def mixed(k):
+        m = np.zeros(ny * nx, bool)
+        m[order[:k]] = True
+        m = np.repeat(np.repeat(m.reshape(ny, nx), th, 0), tw, 1)[:h, :w]
+        return np.where(m, c, target).astype(target.dtype)
+    lo, hi = 1, len(order)
+    if vfr_cut(e, mixed(hi), au):
+        return c
+    while lo < hi:                      # (the fewest tiles that fit)
+        mid = (lo + hi) // 2
+        if vfr_cut(e, mixed(mid), au):
+            lo = mid + 1
+        else:
+            hi = mid
+    return mixed(lo)
 
 
 def enc_clone(enc):
@@ -3633,7 +3686,7 @@ VFR_AGAIN = 2           # frames until a cut is asked again, after the full
 # right by the frames after
 DEGRADE_KINDS = ("lag", "slow", "coarse", "coarseany", "colours", "cut")
 DEGRADE_DEFAULT = "lag:100,slow:5/6,colours:12,slow:2/3,coarse:auto,slow:1/2"
-DEGRADE_COARSE = ("auto", "4x1", "16x4", "32x8", "64x8")
+DEGRADE_COARSE = ("auto", "mix", "4x1", "16x4", "32x8", "64x8")
 
 
 def degrade_parse(spec):
@@ -3737,6 +3790,8 @@ def coarse_every(cell):
     """coarseany's draw for a frame of a stretch: `cell` (or auto's pick)
     where the budgets would cut the frame, None where it fits whole"""
     def every(e, t, au):
+        if cell == "mix":
+            return coarse_mix(e, t, au)
         c = cell if cell != "auto" else coarse_pick(e, t, au)
         if c == "full" or (cell != "auto" and not vfr_cut(e, t, au)):
             return None
@@ -9059,7 +9114,7 @@ def _encode(a, keep, tick, readers):
             cell = a.coarse_cut if a.coarse_cut != "auto" else \
                 coarse_pick(e, target, au)
             if cell != "full":
-                draw = coarse_of(e, target, cell)
+                draw = coarse_of(e, target, cell, au)
                 e.all3 = getattr(e, "wm3", False)
         held = hdraw = None
         if lsteps is not None and vreplay is None:
@@ -9073,7 +9128,7 @@ def _encode(a, keep, tick, readers):
             c = plan.get("CC", {}).get(k)
             if c is not None and draw is target:
                 cell = c
-                draw = coarse_of(e, target, c)
+                draw = coarse_of(e, target, c, au)
                 e.all3 = getattr(e, "wm3", False)
         if vreplay is not None:
             if k in vreplay and draw is target:
@@ -9103,14 +9158,14 @@ def _encode(a, keep, tick, readers):
                     e.q_stp, draw, vcost, vempty, vshown, vstay,
                     (lambda c, t=target: coarse_of(
                         e, t, c if c != "auto" else
-                        coarse_pick(e, t, au)))
+                        coarse_pick(e, t, au), au))
                     if coarse_on and k else None, k in cells_at)
                 if lg is not None:      # (the rung's lag, until level)
                     e.flag_lag, e.vlagn = lg, n
                 if lc is not None:
                     cell = lc if lc != "auto" else coarse_pick(e, target, au)
                     if cell != "full":
-                        draw = coarse_of(e, target, cell)
+                        draw = coarse_of(e, target, cell, au)
                         e.all3 = getattr(e, "wm3", False)
                 e.vladder[li] = e.vladder.get(li, 0) + 1
                 if li:

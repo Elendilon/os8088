@@ -375,7 +375,35 @@ is how a person who prefers it says so. Gas Gas Gas (VGA4 at 640x400,
 cells 16x4 and coarser) never took it: 15 of 18 stretches drawn as they
 were, the score rating its cells worse than a cut. It costs the encode:
 every frame the budgets would cut is tried on a copy, so Last Exile took
-2,256 s against 547.
+2,256 s against 547. The owner on watching it: "overall, a really good
+effect; though it doesn't fit every scene" - the scene-by-scene editor's
+case again - and the half rate alone "gets too jerky AND still cuts".
+
+**A MIXED SCREEN, `coarseany:mix`** (2026-10-17, the owner: "only
+coursifying the parts that can't be afforded until it fits, instead of the
+full frames... I want to see a comparison"). `coarse_mix`: the frame in
+32x8 tiles (`MIX_TILE`, eight of Mode X's groups), ranked by what their
+cells save - the pixels to change at full detail less those in cells -
+and a binary search on copies of the encoder for the FEWEST tiles in
+cells (4x1 on Mode X, 16x4 on VGA4) that let the budgets draw the frame
+whole; the rest at full detail. Last Exile 0:10-0:25, the same options:
+
+| | the view broken | worst frame | s visibly broken | cut | encode |
+|---|---:|---:|---:|---:|---:|
+| cut (no ladder) | 25.3% | 99.7% | 2.4 | 174 | 99 s |
+| `lag:100, coarseany:auto` (whole frames in 4x1) | 18.0% | 94.3% | **0.3** | **21** | 1,042 s |
+| `lag:100, coarseany:mix` | **17.0%** | **79.6%** | 0.5 | 53 | 1,708 s |
+| the default ladder (half rate) | 3.7% | 67.3% | 0.5 | 26 | 242 s |
+
+By the score the mix is the better of the two at 24 fps - a point less
+broken on average and the worst frame 15 points better - and on the
+strip it keeps the girders and the sky sharp where the whole-frame cells
+smear them; what it gives back is a little of the tearing (0.5 s visibly
+broken against 0.3, 53 frames cut against 21), because a mixed frame is
+fitted to the frame's own budget and the disk can still fall short a few
+frames on. A tile's edge between full detail and cells is the thing to
+look for in play. Its price is the search: about eight tries a frame it
+mixes, 1.6x the whole-frame cells' encode.
 
 What it was sketched as:
 

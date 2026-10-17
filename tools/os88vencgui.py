@@ -599,7 +599,7 @@ def ladder_options(c):
     if _coarse(c) is None:              # (Mode X's one cell, VGA4's three)
         cells = [cell for cell in V.DEGRADE_COARSE
                  if (cell in ("auto", "4x1")) == (c["layout"] == "modex") or
-                 cell == "auto"]
+                 cell in ("auto", "mix")]
         out += [("Coarse cells at a scene change (%s)" % cell,
                  "coarse:%s" % cell) for cell in cells]
         # (...and at ANY cut: a moving picture in cells for a frame)
@@ -616,6 +616,7 @@ def ladder_label(tok):
     return {"lag": "Lag up to %s ms", "slow": "Slow to %s of the rate",
             "coarse": "Coarse cells at a scene change (%s)",
             "coarseany": "Coarse cells at any cut (%s)",
+            # ("mix": only the tiles the budget cannot draw, VIDEO-SEEN 3a)
             "colours": "Fewer colours: %s",
             "cut": "Cut, no frame over %s%% broken"}.get(kind, "%s") % v
 

@@ -173372,7 +173372,10 @@ stretch the budgets would cut drawn in cells at its own time - the frame
 rate kept and the width given up where the picture moves too fast to
 send, on the planar screens of 98.2.5.2; on Last Exile at 24 fps it is
 16.5% of the view broken against the cut's 24.3% and 0.4 s visibly broken
-against 3.3, the half rate's 3.2% and 0.6 - VIDEO-SEEN-PLAN 3a), `colours:12|8` (a scene's palette stepped down,
+against 3.3, the half rate's 3.2% and 0.6 - VIDEO-SEEN-PLAN 3a; and
+`coarseany:mix` cells only the fewest 32x8 tiles that let the rest be
+drawn whole at full detail, `coarse_mix`, 17.0% against the whole-frame
+cells' 18.0% on 0:10-0:25), `colours:12|8` (a scene's palette stepped down,
 98.2.1.9, decided per scene from a first pass as `--step-down` is) and
 `cut:PERCENT` (2026-10-17, the owner: *"some videos accept normal cuts
 better than others"* - the climb STOPS there where no frame of the
