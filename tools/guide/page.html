@@ -445,8 +445,8 @@ function drawDiskInfo(d) {
   if (pair.length) h += `<dt>${s.group === "viddemo" ? "Other adapters" : "Goes with"}</dt><dd><div class="chips">${pair.map(x => diskChip(x, x.role)).join("")}</div></dd>`;
   if (other.length) h += `<dt>Other sizes</dt><dd><div class="chips">${other.map(x => diskChip(x)).join("")}</div></dd>`;
   h += `</dl>`;
-  const slug = t => t.toLowerCase().replace(/,.*$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  const page = D.diskpages[slug(d.role)] || D.diskpages[slug(s.title)];
+  const slug = (t, cut) => (cut ? t.replace(/,.*$/, "") : t).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const page = D.diskpages[slug(d.role)] || D.diskpages[slug(d.role, 1)] || D.diskpages[slug(s.title, 1)];
   if (page) h += `<div class="manual">${page}</div>`;
   if (progs.length) {
     h += `<div class="eyebrow">Programs on this disk</div><ul class="prog-list">${progs.map(([p]) => { const n = baseName(p), i = info(n);
