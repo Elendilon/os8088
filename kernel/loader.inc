@@ -240,6 +240,9 @@ ld_lname_cp:
 ld_unreserve:
     push bx
     mov di, [ld_rec]
+%ifdef KERN_BIG
+    COLDCALL desk_drop_x        ; ld_alloc's early IF_DESK off, and DESK.DRV
+%endif                          ; with it if nobody else is a widget (11.103.10)
     call KERNEL_SEG:cw_xm_release_rec   ; DI = the record
     call ld_slot
     call mem_free_owner_x
@@ -1127,6 +1130,12 @@ ld_alloc:
     call mem_claim_hi_x ; from the TOP down, away from the data claims
     jc .nomem                   ; growing up from the bottom (SPEC.md 50.3)
     mov [ld_base], dx
+%ifdef KERN_BIG
+    test byte [ld_cfmt], LD_F_DESK >> 3
+    jz .nodesk                  ; a widget ON ITS WAY: desk_drop_x counts it
+    or byte [di+I_FLAGS], IF_DESK   ; from here, unpublished, so a widget's
+.nodesk:                        ; worker dying mid-launch keeps the image the
+%endif                          ; entry proc is about to call (11.103.10)
 %ifndef KERN_SMALL
     mov word [ld_rehome], 0     ; NO RE-HOME UNTIL ONE IS ASKED FOR, and it is
                                 ; cleared HERE rather than by the arm that
@@ -1323,10 +1332,13 @@ ld_start:
     pop es
 %ifdef KERN_BIG
     test byte [bx+W_FLAGS+1], WF_DESK >> 8
-    jz .ndesk                   ; the window it RETURNS is a widget: the
-    or byte [di+I_FLAGS], IF_DESK   ; instance is tile-less (SPEC.md 11.103.9).
-.ndesk:                         ; Here and not in MAKE, so a Sticky App returning an
-%endif                          ; ordinary window keeps the tile it needs
+    jnz .isdesk                 ; the window it RETURNS is a widget: the
+    COLDCALL desk_drop_x        ; instance is tile-less (SPEC.md 11.103.9).
+    jmp short .ndesk            ; Here and not in MAKE, so a Sticky App
+.isdesk:                        ; returning an ordinary window keeps the tile
+    or byte [di+I_FLAGS], IF_DESK   ; it needs - and an ordinary window is not
+.ndesk:                         ; a widget, so ld_alloc's early mark comes off
+%endif                          ; and DESK.DRV goes if nobody is one (11.103.10)
     mov bp, inst_bind_win
     call ct_cw_mem_disp         ; DI = record, BX = window (from the entry)
     mov byte [di+I_STATE], 1    ; publish - the LAST record write

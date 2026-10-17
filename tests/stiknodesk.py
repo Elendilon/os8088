@@ -38,10 +38,14 @@ so a fixture that never had the module cannot pass for one that lost it.
     A  the calendar is up, B a DESK window (WF_DESK, no title bar), C the
        module HELD (the row's segment non-zero, the hover slot not mod_gone),
        D the row kept the same way, E the volume put back the same way, and
-    F  the module's 1 KB claim is ABOVE the calendar's region: the loader's
+    F  the module's claim is ABOVE the calendar's region: the loader's
        step 5 took it for an OS88_F_DESK package BEFORE the region, so a
        closed widget's region is not stranded above a pinned island
-       (SPEC.md 11.103.10).
+       (SPEC.md 11.103.10), and
+    G  closing that widget - the LAST one - gives the claim back:
+       desk_drop_x, in app_close_win's task-less branch (a STIK_DESKONLY
+       calendar hires no worker), finds no IF_DESK record left, so the MOD_DESK row is 0 and every DKDFP slot
+       names mod_gone again (SPEC.md 11.103.10's lifetime).
   bdrive  `present` with the row on B: (a second copy of the shipped disk in
        the B: drive) - every claim again, and E is the DRIVE half of the
        pair: the boot ends on A:, where it was, and not mounted on B:.
@@ -49,7 +53,9 @@ so a fixture that never had the module cannot pass for one that lost it.
 **BREAK IT ON PURPOSE** (docs/WRITING-TESTS.md 1): move stik_boot's loop into
 DESK.DRV (the cut design's first draft) and `absent` A fails - nothing is
 relaunched, so nothing refuses; drop desk_need's save of drv_vol_cwd / drv_vol_drv and E fails on both
-legs; take the loader's step-5 `call desk_need` out and `present` F fails; make osapi_wm_desk_x's QUERY answer CF = 0 without mod_need and
+legs; take the loader's step-5 `call desk_need` out and `present` F fails;
+take app_close_win's `call COLD_SEG:desk_drop_x` out and `present` G fails
+(the image is held to restart, as it was before the drop rule); make osapi_wm_desk_x's QUERY answer CF = 0 without mod_need and
 `absent` A fails (a window comes up), and `present` C fails: nothing loads
 the image.
 """
@@ -216,6 +222,19 @@ def leg(name, tmp):
             wseg = struct.unpack("<H", bytes(m.read(rec + geom.W_SEG, 2)))[0]
             check(seg > wseg, "the module at %#06x, the calendar's region at "
                   "%#06x" % (seg, wseg))
+            print(" G: the last widget closed, DESK.DRV goes with it")
+            ui.close(w)
+            os88marty.guest_sleep(m, 1.0)
+            seg2 = struct.unpack("<H", bytes(m.read(
+                ui._S("mod_tab") + MOD_DESK * MODR_SIZE, 2)))[0]
+            raw = bytes(m.read(ui._S("DKDFP"), DKD_NENT * 4))
+            back = [struct.unpack_from("<HH", raw, k * 4)
+                    for k in range(DKD_NENT)]
+            check(seg2 == 0, "mod_tab's MOD_DESK row is 0 again (%#06x): "
+                  "the 5 KB claim is given back" % seg2)
+            check(all((sg << 4) + off == gone for off, sg in back),
+                  "every DKDFP slot names mod_gone again (%r)"
+                  % ["%05X" % ((sg << 4) + off) for off, sg in back])
 
 
 def main():

@@ -1656,6 +1656,9 @@ app_close_win:
                                 ; whose procs live in a freed region is a wild
                                 ; call
     call mem_free_rec           ; ...then every heap claim (SPEC.md 50.4)
+%ifdef KERN_BIG
+    call COLD_SEG:desk_drop_x   ; ...and DESK.DRV, if that was the last
+%endif                          ; widget (SPEC.md 11.103.10)
     mov byte [di+I_STATE], 0    ; record (and any package region) free
     jmp .out
 .tasked:
@@ -1868,6 +1871,11 @@ inst_task_die:
                                 ; and THE SWEEP runs either way, because a
                                 ; package can have made windows it never bound
                                 ; to the record (SPEC.md 20.2)
+%ifdef KERN_BIG
+    call COLD_SEG:desk_drop_x   ; DESK.DRV, if that was the last widget - a
+%endif                          ; Sticky App on its worker arm closes HERE,
+                                ; on that worker (SPEC.md 11.103.10), and
+                                ; under the lock
     call gfx_unlock
     call mem_free_rec           ; every heap claim, region included (50.4)
     mov bx, di                  ; I_STATE is offset 0: the release byte

@@ -20,11 +20,11 @@
 ; and only MAKE, in this image, sets WF_DESK. With no image every slot is
 ; mod_gone (CF = 1, registers kept), which is the right answer for each.
 ;
-; THE LIFETIME: held from the first QUERY that loads it until restart. There
-; is no mod_drop anywhere - widgets are session-long, and a drop check would
-; cost resident bytes the cut exists to save. No entry calls anything that
-; can destroy a window, so the image could never be freed under its own code
-; even if a drop were added.
+; THE LIFETIME: held from the first QUERY that loads it until the LAST widget
+; goes - desk_drop_x below, from the instance teardowns and the loader
+; (SPEC.md 11.103.10). It was held until restart, and a 5 KB claim stayed
+; pinned after the last Sticky App closed. No entry calls anything that can
+; destroy a window, so the image is never freed under its own code.
 ;
 ; DS = KERNEL_SEG on every entry (api_rsc, cur_shape_pass, wm_show_b,
 ; fdlg_top_x), so the kernel's data is plain references. Kernel code is
@@ -97,6 +97,40 @@ desk_need:
     mov [drv_vol_drv], al       ; nor `mov` writes a flag)
     pop word [drv_vol_cwd]
     pop ax
+    retf
+
+; -----------------------------------------------------------------------------
+; desk_drop_x - DESK.DRV goes when no instance is a widget (SPEC.md 11.103.10)
+;               FAR, resident .cold
+; in:  DI = an instance record that is NOT a widget from here on: one being
+;      freed, or one just launched with an ordinary window. Its IF_DESK is
+;      cleared, so a freed record never carries a stale one
+; out: nothing; every register preserved, flags spent
+;
+; THE RULE IS "ANY RECORD", NOT "ANY LIVE RECORD": ld_alloc marks an
+; OS88_F_DESK launch's record IF_DESK while it is still unpublished, so a
+; worker-arm widget dying mid-launch (inst_task_die, on that worker) cannot
+; drop the image between step 5's desk_need and the entry proc's MAKE - the
+; entry proc runs with the gfx lock FREE (SPEC.md 20.2). Every other caller
+; is on the UI task, outside the image, so the drop never frees code that is
+; running (mod_drop's banner).
+; -----------------------------------------------------------------------------
+desk_drop_x:
+    push si
+    push ax
+    and byte [di+I_FLAGS], ~IF_DESK & 0xFF
+    mov si, inst_tab
+.scan:
+    test byte [si+I_FLAGS], IF_DESK
+    jnz .keep                   ; a widget, or one on its way: keep it
+    add si, I_RECSZ
+    cmp si, inst_tab + INST_MAX * I_RECSZ
+    jb .scan
+    mov al, MOD_DESK
+    call mod_drop               ; not loaded: an empty row, and nothing done
+.keep:
+    pop ax
+    pop si
     retf
 
 ; =============================================================================
