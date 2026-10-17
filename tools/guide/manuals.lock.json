@@ -1078,9 +1078,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "2fbc0e0a",
-  "strings": "253a84e75da9f03f",
-  "why": "degrade ladder rungs (cut, coarsescene/coarseany, frame/mix) and the Instead of cutting group on the ladder tab: the Size vs quality row rewritten; the rest of the page is below this level"
+  "stamped": "87212abf",
+  "strings": "b4bc3fa128e8c3f7",
+  "why": "lists restricted to what the file takes, Mode X's 320x240 screen, --pages max, the pre-roll's dry run: all below the page's level of detail; checked, unchanged"
  },
  "TRACKER_O88": {
   "sources": [
