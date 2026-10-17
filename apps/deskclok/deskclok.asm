@@ -1209,7 +1209,12 @@ DK_ITEM dk_t_s2,   'Large'
 %include "dkdraw.inc"
 %include "dkface.inc"
 
+%define OS88UI_MACROS           ; no os88ui control: the forms draw their
+                                ; own (dkset.inc) and About is a toast
 %include "os88ui.inc"
+    DK_PARITY 0                 ; the include's paint path (stik_paint ..
+                                ; stik_desk) at its measured parity: what
+                                ; STIK_DESKONLY took out ahead of it is odd
 %include "os88gfx.inc"
 %include "os88stik.inc"
 %include "dkwid.inc"            ; AFTER os88stik.inc: its STIKL_* and macros
