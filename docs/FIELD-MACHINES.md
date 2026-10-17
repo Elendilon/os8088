@@ -749,9 +749,9 @@ milliseconds are not.
 
 *What to boot.* Two 360 KB disks built from the commit the request quotes, no
 knobs: the plain system floppy in A: and **`make weavedisk`**'s
-`build/weave360.img` in B:. It carries `WEAVE.O88`, `WEAVE.OVL`, `WEAVE.WSM`
-and the bundles in one folder, and they have to be together or the canvas
-refuses at open (WEAVE-SPEC §10.3).
+`build/weave360.img` in B:. It carries `WEAVE.O88` - its overlay and canvas
+core inside it as parts (WEAVE-SPEC §1.2.5) - and the bundles in its `WEAVE`
+folder.
 
 *What to do — four gestures.*
 

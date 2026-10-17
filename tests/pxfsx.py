@@ -80,7 +80,7 @@ def check(what, ok, detail=""):
 
 
 PICS = ["VACATION.JPG", "BALLOONS.PNG", "CAT.GIF"]
-DISK = M.scratch_disk("build/pxfsx.img", "build/pixel.o88", "build/PIXEL.GFX",
+DISK = M.scratch_disk("build/pxfsx.img", "build/pixel.o88",
                       *["PICS:apps/pixel/samples/" + n for n in PICS],
                       "--folder", "SYSTEM/APPDATA", size=720)
 

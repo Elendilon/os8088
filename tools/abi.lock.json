@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "3cf36f886c742af219afd51a71d5011eebb31eab26b2c90efc5d888ac2f7f18d",
+  "fingerprint": "06c9101d35eed8566c182d69d33a2ff2ff56019b2f80180757785be43ca61e2b",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "04299b1fe9b67e84a6a842593cb8bc404e4a4a5d535f863153ca3ebf39b85a0b",
+  "fingerprint": "fbdc85c52f370a28591564d7006f8750e0f5b45dae366fa6aba77324305c7876",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -220,17 +220,31 @@
    "to": 11
   },
   {
-   "fingerprint": "04299b1fe9b67e84a6a842593cb8bc404e4a4a5d535f863153ca3ebf39b85a0b",
+   "fingerprint": "572a9f011fb308ce2e6775b294b8fb46b8285ea629a7aca0a66926238c86516e",
    "from": 10,
    "guard": "PKG_FMT",
-   "reason": "SDK: HDV_ARM/HDV_DISARM on DRVC_DISK's door (SPEC.md 52.1.4) and the os88ub.inc reader through the XMEM token (41.15) - constants and contracts ADDED; nothing built before moves",
+   "reason": "Merge of main's OS88_F_STIK (header flags bit 7) and OS88_STIKCARD/OS88_STIKROW/OS88_STIKCARD_END: the Sticky App card (SPEC.md 110.12), the last block of the clear prefix. ADDITIVE - no cell moved and no header field changed meaning; every package built before still runs (none sets bit 7), so no PKG_FMT bump",
    "to": 10
   },
   {
-   "fingerprint": "3cf36f886c742af219afd51a71d5011eebb31eab26b2c90efc5d888ac2f7f18d",
+   "fingerprint": "ef925cb40537ed0d4070dacf97b71659b87e42e5f57dabe3e9f0b2c9c99720f9",
    "from": 11,
    "guard": "DRV_VER",
-   "reason": "SDK: HDV_ARM/HDV_DISARM on DRVC_DISK's door (SPEC.md 52.1.4) and the os88ub.inc reader through the XMEM token (41.15) - constants and contracts ADDED; nothing built before moves",
+   "reason": "Merge of main's OS88_F_STIK (header flags bit 7) and OS88_STIKCARD/OS88_STIKROW/OS88_STIKCARD_END: the Sticky App card (SPEC.md 110.12), the last block of the clear prefix. ADDITIVE - no cell moved and no header field changed meaning; every package built before still runs (none sets bit 7), so no PKG_FMT bump",
+   "to": 11
+  },
+  {
+   "fingerprint": "fbdc85c52f370a28591564d7006f8750e0f5b45dae366fa6aba77324305c7876",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "Merge of video-386+: HDV_ARM/HDV_DISARM on DRVC_DISK's door (SPEC.md 52.1.4) and os88ub.inc as the tier-2 reader through the XMEM token (41.15) - constants and contracts ADDED; nothing built before moves",
+   "to": 10
+  },
+  {
+   "fingerprint": "06c9101d35eed8566c182d69d33a2ff2ff56019b2f80180757785be43ca61e2b",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "Merge of video-386+: HDV_ARM/HDV_DISARM on DRVC_DISK's door (SPEC.md 52.1.4) and os88ub.inc as the tier-2 reader through the XMEM token (41.15) - constants and contracts ADDED; nothing built before moves",
    "to": 11
   }
  ]

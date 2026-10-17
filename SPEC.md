@@ -1663,8 +1663,9 @@ finished. Both builds carry `CTRL.DRV`, the Control Panel (§31),
 (§18.99). `kern_big` also carries `HIBER.DRV` (§87), the optional
 `DOCK.DRV`, advanced Dock behavior (§30.5), `EXTD.DRV`, the extended
 desktop's placement policy (§39.19.6), `WIN95.DRV`, the Windows theme's
-chrome (§76.14), and `DESK.DRV`, the desk layer's verbs, hover edge, show
-and key arms (§11.103.10); `kern_small` instead carries
+chrome (§76.14), `DESK.DRV`, the desk layer's verbs, hover edge, show
+and key arms (§11.103.10), and `STIKMENU.DRV`, Locator's Sticky Apps menu
+(§110.12); `kern_small` instead carries
 `FILECP.DRV` and `FDLG.DRV` (§22.3, §38.0), bodies `kern_big` keeps resident.
 **On the disk every one is a `'CZ'` container** (§20.13.5): `os88mod.py`
 checks each image the way `mod_check` will and then wraps it, `mod_need`
@@ -1759,10 +1760,11 @@ in the tree.
   bytes) allocated and never armed on each kernel, made an eighth entry a hard
   NASM error in whichever module grew, and could not be per-build because the
   host tool scraped it with a regex. Removing it was −36 bytes on `kern_big`
-  and −38 on `kern_small`. `MOD_MAX` is 9 on `kern_big` (eight images and
+  and −38 on `kern_small`. `MOD_MAX` is 10 on `kern_big` (nine images and
   `MOD_SETS`, §2.8.7) and 5 on `kern_small`. BIG has `MOD_HIBER` 3,
   `MOD_DOCK` 4, `MOD_EXT` 5, `MOD_WIN` 6, `MOD_DESK` 7 (`DKD_NENT` 4,
-  §11.103.10) and `MOD_SETS` 8; SMALL has `MOD_FCP` 3 and `MOD_FDLG` 4.
+  §11.103.10), `MOD_STIKM` 8 (`SMN_NENT` 2, §110.12) and `MOD_SETS` 9;
+  SMALL has `MOD_FCP` 3 and `MOD_FDLG` 4.
 - **`mod_fpr` indexes by `MOD_TAB_OFF` and not `mod_tab`, and that is an
   ASSEMBLER constraint rather than a taste.** An expression like
   `mod_fpt - mod_tab/2` is label arithmetic nasm 3 refuses outright
@@ -3922,6 +3924,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/extmod.inc` | EXTD.DRV, `kern_big` only: the extended desktop's placement policy — bringing display 1 up, landing and the straddle fit, which display a window is on, the fsx bracket's collapse, and the second display's arms that run on a user's action (its ground, the zoom and fullscreen boxes, a drag's floor, fsx caps) — prefix `ext_`/`exk_`; the resident half is `exf_sync` in **`.cold`** and the `EXTCALL` sites (§39.19.6) |
 | `kernel/winmod.inc` | WIN95.DRV, `kern_big` only: the Windows theme's chrome — the title bar with its three buttons on the right, which button a point is on, a held button's rect, the size grip and the pull-down that stays open on a click — prefix `wn_`/`wnx_`/`wnk_`; the resident half is `thv`, its five `jmp far` doors and `thf_apply` in **`.cold`** (§76.14) |
 | `kernel/deskmod.inc` | DESK.DRV, `kern_big` only: the desk layer's code that runs only where a widget exists — `OSAPI_WM_DESK`'s MAKE, DRAG and RELEASE, the hover edge's body, a desk window's show and the widget's key arm — prefix `dkd_`; the resident half is `osapi_wm_desk_x`'s QUERY thunk and `desk_need` in **`.cold`** (which load it - `desk_need` is also the loader's step 5's, for an `OS88_F_DESK` package, and keeps an open `drv_vol` bracket's pair) and the slot calls in `cur_shape_pass`, `wm_show_b` and `fdlg_top_x` (§11.103.10) |
+| `kernel/stikmenu.inc` | STIKMENU.DRV, `kern_big` only: Locator's Sticky Apps menu (§110.12) — the scan of every reachable `STIKAPPS\`, the card reader, the panel's composer and tracker, and the posted pick's launch, close, hide, show and arrange — prefix `stm_`/`smn_`; the resident half is `stm_track_x` and `stm_act_x` in **`.cold`** (load, track, drop; the posted act, drop), `menu_track`'s test for the item-less kernel cell and `ui_cmd`'s `CMD_STIK` |
 | `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_`. **`.cold`** (§2.6) |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
 | `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, and the frame clock/present — prefix `fsx_` |
@@ -24991,7 +24994,17 @@ CMD_CLOSE  equ 8   ; --- Locator: File ---
 CMD_SCDEL  equ 9   ;   (OS88_SHORTCUTS only, §26.8.5; FILES is then 10)
 CMD_FILES  equ 9   ; no menu of its own since §14.8: the desktop's drive
                    ; zone posts it (§26.1), so the id stays
+CMD_STIK   equ CMD_FILES + 1   ; kern_big: the Sticky Apps menu's pick,
+                   ; POSTED from under the lock (§110.12)
 ```
+
+**On kern_big and kern_emu both sets carry a second title, `Sticky Apps`**
+(§110.12): `menu_loc_set`'s second cell and `fm_menus`' fifth, the last
+`MENU_APPMAX` allows. It is a cell with NO items, and `menu_track` hands a
+kernel cell (`MB_SEG` 0, which no package's cell is) with `MB_NITEM` 0 to
+`STIKMENU.DRV` instead of dropping it - the module draws and tracks its own
+panel and POSTS what was picked as `CMD_STIK`, so `menu_track` answers 0FFFFh
+and neither `ui_dispatch` route sees the cell at all.
 
 The ids are contiguous **within** a menu, because that is what makes
 `ui_loc_base[cell] + item` work; they are internal constants and renumber
@@ -25090,12 +25103,21 @@ After confirmation, pending Control Panel/RTC settings are flushed while
 the module stays resident. If settings remain dirty, shutdown is cancelled
 with a toast. Drivers detach with the scheduler alive, then the graphics
 lock is acquired and `sched_stop` restores the BIOS timer, mouse and speaker
-state without entering the reboot path. Interrupts other than IRQ0 are
-masked, the floppy motor is stopped, and no tasks or disk I/O run again.
-The primary display shows the startup splash's spinning 8088 and
+state without entering the reboot path. Interrupts other than IRQ0 and
+IRQ1 are masked, the floppy motor is stopped, and no tasks or disk I/O run
+again. The primary display shows the startup splash's spinning 8088 and
 "You can now turn off your computer." indefinitely. The animation uses the
 BIOS clock and halts between ticks; it never invokes INT 19h or powers off
-the machine. The spinner composer is shared source between the boot blob
+the machine.
+
+IRQ1 stays open so that **Ctrl-Alt-Del still warm-resets** a machine the
+user decides to restart after all. `sched_stop`'s `mouse_unhook` has already
+handed int 09h back to the ROM, so the key reaches the BIOS's own handler,
+which answers it as it would on a machine with no OS: 1234h at 0040:0072
+and the reset vector, POST and all. The halt loop reads and drops every
+other key through int 16h, so the ROM's buffer never fills and beeps at a
+held one. Until this was opened the mask was 0FEh and the three keys did
+nothing at all. The spinner composer is shared source between the boot blob
 and CTRL.DRV; it adds no resident animation code or buffer. CTRL.DRV gains
 one final entry, CPE_SHUTDOWN, and one far-pointer slot in CPFP. The entry
 remains in the `.modc` header, after the optional settings-core entry and
@@ -40993,8 +41015,8 @@ program never needs a disk list edited:
   one disk: the tree below is a correctness requirement, and a program's
   folder holds its overlay and its documents. `APPS\`, `GAMES\` and `MEDIA\`
   are *collections* of independent programs and are split only when one
-  outgrows a whole floppy, between same-stem groups (`GAMES\DRMARCO.O88`
-  keeps `DRMARCO.VGA` beside it). Any other folder bigger than a floppy is
+  outgrows a whole floppy, between same-stem groups (a `GAMES\X.O88` keeps
+  any `X.*` data file beside it). Any other folder bigger than a floppy is
   refused by name: it needs a decision, not a bigger set.
 - **Placement is first fit in payload order**, so the set is a function of the
   payload alone. It is not stable against growth — a folder early in the order
@@ -41033,11 +41055,11 @@ The tree, and the one part of it that is a correctness requirement:
 | `APPS/` | the thirteen tools, plus `FROTZ.O88` |
 | `GAMES/` | the six games |
 | `WORD/` | `WORD.O88`, `WELCOME.DOC` |
-| `CWORD/` | `CWORD.O88`, `CWORD.OVL`, `WELCOME.RTF` |
-| `RUNCPM/`, `RUNCPM/A/0/` | `RUNCPM.O88`, `RUNCPM.OVL`, the CCP and its `LICENSE` — and CP/M drive A below them (§74.5) |
-| `C64/` | `C64.O88` (the ROM is a PART of it, §20.12), `C64.OVL`, `README.TXT` and `COPYING` (`docs/C64-SPEC.md` §14.2) |
-| `WEAVE/` | `WEAVE.O88`, `WEAVE.OVL`, `WEAVE.WSM` and the three demo bundles (`WEAVE-SPEC 1.2`) |
-| `LOOM/` | `LOOM.O88`, `LOOM.OVL`, `LOOM.WPV`, the demo sources — and a second copy of `WEAVE.O88`, `WEAVE.OVL` and `WEAVE.WSM`, so that a bundle Pack writes beside its sources opens where it was written (`WEAVE-SPEC 1.2`, `1.2.4`, `11.2`) |
+| `CWORD/` | `CWORD.O88` (its overlay is a PART of it, §73.14.2), `WELCOME.RTF` |
+| `RUNCPM/`, `RUNCPM/A/0/` | `RUNCPM.O88` (its module and the CCP are its PART, §74.3.1), `LICENSE` and `1STREAD.ME` — and CP/M drive A below them (§74.5) |
+| `C64/` | `C64.O88` (the ROM and the overlay are PARTS of it, §20.12, §73.14.2), `README.TXT` and `COPYING` (`docs/C64-SPEC.md` §14.2) |
+| `WEAVE/` | `WEAVE.O88` (its overlay and canvas core are PARTS of it, §73.14.2) and the three demo bundles (`WEAVE-SPEC 1.2`, `1.2.5`) |
+| `LOOM/` | `LOOM.O88` (its overlay and preview module are PARTS of it) and the demo sources. A bundle Pack writes here opens `WEAVE.O88` out of `WEAVE/` through `ASSOC.DAT` (§54.7.1), so the second copy of the runtime this folder carried is gone (`WEAVE-SPEC 1.2.5`, `11.2`) |
 | `MEDIA/` | the module, the two `.TEX` documents and `BROWSER.HTM` — where a File Open starts (§38.10) |
 | `SYSTEM/`, `SYSTEM/DOS/` | the Task Manager (§28.3) and `OS88NET.COM` (§62) |
 | `SYSTEM/APPDATA/` | empty and **built rather than made on demand** (§19.9) — a Weave bundle's `saveState` writes its `.SAV` here (`WEAVE-SPEC 8.3`) |
@@ -41191,7 +41213,7 @@ each needed a mechanism**:
 |-----|------|------------------------------------------------------------|
 | 0   | 2    | magic: bytes `'O','8'` (word 0x384F)                      |
 | 2   | 1    | format version = **10** (`PKG_FMT`): the segment-per-package layout, built against the API table as §20.3 lays it out now. Anything else — 1 to 9 included — is refused (§20.2.0) |
-| 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; **bit 3 = the image is COMPRESSED and the file is SHORTER than it, bit 4 = which format (0 = LZ4, 1 = LZB)** — docs/plans/O88-COMPRESSION-PLAN.md; **bit 5 = a 16-byte DOCUMENT-GLYPH block follows the association block (§54.3.2)**; **bit 6 = `OS88_F_DESK`, the package makes a desk window (§11.103.9): kern_big's loader takes its instance record from the top of the table down**; bit 7 zero |
+| 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; **bit 3 = the image is COMPRESSED and the file is SHORTER than it, bit 4 = which format (0 = LZ4, 1 = LZB)** — docs/plans/O88-COMPRESSION-PLAN.md; **bit 5 = a 16-byte DOCUMENT-GLYPH block follows the association block (§54.3.2)**; **bit 6 = `OS88_F_DESK`, the package makes a desk window (§11.103.9): kern_big's loader takes its instance record from the top of the table down**; **bit 7 = `OS88_F_STIK`, a 192-byte STICKY APP CARD follows the rest of the clear prefix (§110.12)** |
 | 4   | 2    | link base — must be **0**: a v3 package links at org 0. **The one exception is a package with parts AND a packed image (flags bits 2 and 3 both)**: there it is the packed image's length in the file, because the file is not the image (§20.13.8) |
 | 6   | 2    | entry offset (≥ 0x20; ≥ 0x60 with icon; < image size)      |
 | 8   | 2    | image size = resident bytes: header + icon + code + data. Equals the file size exactly — **unless flags bit 2 is set, when it may be smaller and the file's tail is the package's (§20.12)**. |
@@ -44353,6 +44375,91 @@ The default emits the routine, so every package that does not say so
 assembles byte-identical. `apps/dos/dosload.asm` opts in: 2,276 -> 2,210
 image bytes (apps size pass 2b, §96.44.16).
 
+##### 20.12.9.3 `OP_HAS_CARVE`, for a table with nothing in the carve
+
+**A table whose every row is `OP_LAZY` has no carve, and still assembled the
+code that loads one.** `op_load` sized the table with `op_size`, found nothing
+to claim and returned - so `op_size`, `op_claim`, `op_unpack` (when a lazy row
+is `OP_COMP`), `op_load`'s claim, read and unpack sequence and `op_seg`'s
+eager arms were all in the image, reached from nothing. PiXEL's ten lazy
+parts (nine decoders and the colour face's pictures) are that shape
+(§106.5), and DrMarco's three front screens (§100) are the second.
+
+`OP_HAS_CARVE` is derived like the rest (§20.12.9): `OS88_PART` sets it for any
+row that is NOT lazy - a filed part, a scratch part, an `OP_XMS` one - because
+each of those is in the carve. Without it `op_load` is the name copy and
+`clc`, which is exactly what it computed before, and `op_seg` answers a lazy
+row's banked segment or 0. **Every table with an eager row assembles
+byte-identical**, and nothing it earns is a feature: the gated code could not
+run.
+
+Measured, image bytes: PiXEL's `pixel.bin` **39,938 -> 39,102** (-836, the
+file 105,467 -> 104,956, no cluster on `office360.img`), and DrMarco's
+`drmario.bin` 33,247 -> **32,411** against the same source without the gate.
+
+##### 20.12.9.4 `OP_HAS_READ`, for a table that reads nothing itself
+
+**A table with no carve and no row the standard fetches - every row lazy and
+every one `OP_SELF` - still assembled the code that reads.** `op_read`,
+`op_say`, `op_clbget`, the four refusals they toast (`op_s_big`, `op_s_mem`,
+`op_s_disk`, `op_s_read`), `op_s_zbad` and the `os88rseq.inc` include have
+exactly two callers between them, `op_load`'s carve (§20.12.9.3) and
+`op_fetch` (§20.12.9.1), and such a table has neither. MIDIRack's faces
+(§105.9.5) are the first: one `OP_LAZY | OP_COMP | OP_SELF` row the package
+reads for itself, at entry, from code in its image's tail.
+
+`OP_HAS_READ` is `OP_HAS_CARVE || OP_HAS_FETCH`, assigned in
+`apps/os88partsbody.inc` after the table, and `op_s_zbad` keeps its own
+condition narrowed to `OP_HAS_COMP && (OP_HAS_CARVE || OP_HAS_ZLAZY)` - its
+two users. `op_load` (the name copy), `op_seg` and `op_row` stay: they are
+public, and a package may ask `op_seg` about an `OP_SELF` row and be told 0.
+**Every other includer assembles byte-identical** - each has a carve or a
+fetched row, so every gate is true for it - checked by assembling each one
+against both bodies and comparing: `drmario`, `pixel`, `pxstein`, `csload`,
+`skies`, `dosload`, `dos`, `wdload`, `telnet`, `c64`, `apple2`, `mseg`
+(plain, `-DMSEG_COMP`, `-DMSEG_LZC`), `msegbig` and `rehome`.
+
+Measured: the standard's whole emission in `midirack.bin` - table, `op_load`,
+`op_seg`, `op_row` - is **102 bytes against 372** without the gate, and those
+270 are what let it fit the 3,072-byte tail at all (§105.9.5).
+
+##### 20.12.9.5 `OP_WANT_READ`, for an `OP_SELF` table that reads with the standard
+
+**`op_say` and the standard's refusal strings were assembled into a table
+that could not reach them.** Only the carve (`op_load`'s claim, read and
+unpack, §20.12.9.3) and `op_fetch` ever refuse, and a table whose every row is
+`OP_LAZY | OP_SELF` has neither - the package reads its parts itself and says
+what failed in its own words. Excitebike is that table (§102.10): its game art
+is read inside an fsx bracket after the mode is set, where `op_fetch`'s toast
+would compose the menu bar into the app's framebuffer (§53.7), so every row is
+`OP_SELF`, and it carried 111 bytes of `op_say` and five strings for nothing.
+
+Its parts are read by `xb_partget`, which is `op_fetch`'s claim, read, expand
+and shrink with a carry flag in place of the toast, and it reads them with the
+standard's own `op_read` and `op_clbget`. §20.12.9.4 removes those two from
+exactly this kind of table, so a package that wants them says so:
+`%define OP_WANT_READ` before `apps/os88parts.inc` keeps `op_read`,
+`op_clbget` and `os88rseq.inc`. It is a DEFINE and not a derived flag, for
+`OP_NO_LAZYOK`'s reason (§20.12.9.2): what decides it is the program's CALLS,
+which no table row sees. MIDIRack, which reads its row with `READ_AT` itself,
+does not define it.
+
+`op_say` and the refusal strings are gated on `OP_HAS_CARVE || OP_HAS_FETCH`,
+derived like the rest (§20.12.9), so a table that asked for `op_read` still
+carries no toast it cannot reach. The condition is TRUE for every other table in the tree - each has
+an eager row or a lazy one the standard fetches - so **every other includer
+assembles byte-identical**, which was checked by building `all` and the
+`mseg`, `msegbig`, `msegz`, `mseglz`, `rehome` and `rehomex` benches with and
+without the gate into two trees: 194 `.o88`, `.bin`, `.drv` and `.img` files,
+and only Excitebike's two differ. The C packages with parts (`c64`, `apple2`)
+were not rebuilt, and need not be: both tables have an eager row. Excitebike's
+`excitebike.bin` is 31,649 -> **31,538** against the same source without it,
+and that is what puts its packed image on 48 sectors (24,539 bytes) and the
+1.44MB and 1.2MB game floppies back on the cluster count they had with the
+art beside the package. `op_seg` is NOT gated, though it answers 0 for every
+row of such a table: it is a published entry point (the C SDK's thunk calls
+it), and refusing to assemble a call to it is not this gate's decision.
+
 #### 20.12.10 A LOADER hands its identity to one of its own parts
 
 A parted package's image is the thing the kernel launches, and everything else
@@ -44903,8 +45010,9 @@ step-2 peek all at once — every byte any of them reads is already in the first
 sector and already plain.
 
 The clear prefix is therefore **32 bytes**, plus 64 with an icon, plus 16 with
-an association block, plus 16 with a document glyph (§54.3.2): at most
-**128**, always inside the first sector, and **always a multiple of 16** —
+an association block, plus 16 with a document glyph (§54.3.2), plus 192 with
+a Sticky App card (§110.12): at most **320**, always inside the first sector,
+and **always a multiple of 16** —
 `ld_expand` puts the expanded body's destination a SEGMENT along (§20.14),
 which is why the glyph block is sixteen bytes for eight of glyph.
 
@@ -52176,6 +52284,44 @@ take the same list, as they took 24.3.1.1's; every network row opens the
 browser off `B:`. `tests/btnall.py` and `tests/btngesture.py`, which launched
 both off `A:`, now launch them off the apps disk they already boot with.
 
+#### 24.3.1.3 Mines leaves the 360KB system disk
+
+**`SYS360OMIT` gains `MINES.O88`**, by the owner's decision, for §110.12's
+Sticky Apps menu. `STIKMENU.DRV` must ride the system disk - `mod_need`
+reads a module off the boot volume (§2.8) - and it is four clusters, which
+took the disk from 345 to 349 of 354. That left five free, and **five is too
+few for the Desk Calendar's own first save**: its 2,456-byte state file (v1:
+three clusters, and three more while a save writes the new copy before it
+frees the old, §18.4) and the SYSTEM.CFG its registration rewrites want seven
+between them. Measured on
+`deskcaltask`, which saves both: it fails with five and six clusters free and
+passes with seven. A system disk on which the one Sticky App it ships cannot
+keep its own state is not shippable, so something had to go.
+
+Mines is a GAME, which 24.3's argument - programs the boot disk's own drivers
+make useful - never covered; it is the smallest package on the disk that is
+not a system program, and it stays on `apps360.img` (`GAMES/`) and
+`games360.img`, and on every 720KB, 1.44MB and 1.2MB disk. Every row that
+opens Mines on the 360KB machine already opens it off `B:`.
+
+| the 360KB system disk | clusters |
+|---|---|
+| main, before §110.12 | 345 of 354, 9 free |
+| with `STIKMENU.DRV` | 349 of 354, 5 free - the calendar's save refused |
+| `MINES.O88` and its `GAMES/` folder off | **346 of 354, 8 free** (measured) |
+
+(Timer and Bounce were never on a system disk: §14.8 made them packages on
+the apps disks alone.)
+
+**On this branch the calendar's payload stays v1** (§110.3): its state file is
+PACKED to the records in use (§110.5.3), so `main`'s sixteen-entry v2 saved
+no space on any calendar it could hold, and it is reverted. The disk is
+**343 of 354, 11 free**. Mines still stays off, by the owner's decision.
+`MINES.O88` is two clusters, but on this disk its `GAMES/` folder is a third.
+Moving it into `APPS/` would put it on an installed hard disk twice. And
+Sticky Apps, which `main` keeps adding, are more of a system program than a
+game is.
+
 ### 24.4 The MEDIA DISK — a third shipped disk, at 360KB alone
 
 `build/media360.img` is a data floppy carrying `MEDIA/BEVERLY.MOD` and
@@ -52215,8 +52361,8 @@ something the last data file left on the disk happens to provide.
 ordinary FAT12 volume of the kind §24.1 already describes, and every
 mechanism it meets already covers "another volume has the file on it", which
 is what a removable disk is. It was a pure DATA volume until §105.10 put
-MIDIRack at its root - the player, `MIDIRACK.GFX` and the ten songs in
-`MEDIA\MIDI\`, at 360KB alone - so it now carries ONE package, on the disk
+MIDIRack at its root - the player (its pictures a part of it since
+§105.9.5) and the ten songs in `MEDIA\MIDI\`, at 360KB alone - so it now carries ONE package, on the disk
 whose subject is music already, and `os88disk.py`'s `ASSOC.DAT` for it is
 that package's (§54.7).
 
@@ -97594,6 +97740,15 @@ decoded and bit 7 can switch back from page 1. On a dual-card machine
 page 0 leaves 3BFh = 1 and page 1 refuses. The bracket's mode restore
 takes the configuration back to the desktop's 3BFh = 1 on exit.
 
+**A HERCULES'S PAGE 1 IS NOT CLEARED BY THE MODE SET.** `fsx_mode`'s
+Hercules arm clears the 32KB at `[vid_seg]`, page 0, and nothing else -
+it cannot reach B8000 without the decode this section allows, and the
+kernel spends no resident byte on a page only a flipping app reads. So page
+1 holds whatever the LAST program to flip left there, and an app that
+spends it initialises it, as every page-flipping consumer here does
+(WireBall's court on every page; the Video Player's black, §98.3.8.3).
+Mode X has no such page: its arm clears all 256KB.
+
 **TANK ATTACK (§85) is the consumer that asked for it**, and it is the first
 thing in this tree to page-flip at all. Its Mode X backend draws into the
 page nobody is looking at and calls this; what it had before was the CRTC
@@ -113252,8 +113407,8 @@ copy of `WORD.O88` without it was a Word whose module refused. The
 launch-folder banking, the claim, the vectors and 12 bytes of bss went with it.
 §73.14 is that far design for a **compiled** package and remains the right
 one there. A C package's code is not near-callable from a vstart the compiler
-does not control, and `CWORD.OVL` is 18,565 bytes, more than this carve's
-headroom.
+does not control, and CWORD's overlay is 14,106 bytes (a part of `CWORD.O88`
+since §73.14.2), more than this carve's headroom.
 
 **Past the headroom** the next step is a far part: a lazy `OP_SEG` of its own
 claim, reached the way §73.14's overlay is, or large bss buffers moved into
@@ -120004,22 +120159,26 @@ made to. It is split by §73.14's overlay along the line between **what a
 keystroke touches** and **what a menu command touches**:
 
 ```
-resident   image  35,886   the chrome, the layout, the glass shadow, the
-                           document model, the keyboard, the mouse, and the
-                           type library (§6.3) the chosen face is set through
-           bss    24,511   the document (4,000 chars + 4,000 attribute bytes),
+resident   image  30,452   the chrome, the layout, the glass shadow, the
+                           document model, the keyboard, the mouse, the
+                           type library (§6.3) the chosen face is set through,
+                           and the parts standard that reads the overlay
+           bss    24,624   the document (4,000 chars + 4,000 attribute bytes),
                            the RTF staging buffer (6,000), the shadow
                            (2 x 24 x 128 = 6,144), the type library's band and
                            face table (1,933)
            -------------
-           total  60,397   98% of APP_MAX_SIZE; 1,043 bytes spare
-CWORD.OVL        18,564    the dialogs, RTF in and out, search, Sort,
-                           Renumber, Table of Contents, the clipboard, the
-                           paragraph dictionary and the Font list
+           total  55,076   90% of APP_MAX_SIZE; 6,364 bytes spare
+overlay          14,106    PART 0 of CWORD.O88 (§73.14.2), 8,423 packed: the
+                           dialogs, RTF in and out, search, Sort, Renumber,
+                           Table of Contents, the clipboard, the paragraph
+                           dictionary and the Font list
 ```
 
-`cc8086.py` reports **158 functions, 26 frame bytes maximum against the 96-byte
-cap, 1,327 sites lowered, 76 functions moved to `.modc`, 47 resident shims**.
+`cc8086.py` reports **159 functions, 26 frame bytes maximum against the 96-byte
+cap, 1,332 sites lowered, 76 functions moved to `.modc`, 48 resident shims**
+(measured at §73.14.2; the peephole pass of §73.15 is what took the figures
+below the ones this table first carried).
 
 **Those numbers moved a long way for §73.12.2**, and the direction is the
 point: the resident image got SMALLER while the program grew a typeface engine
@@ -120231,7 +120390,7 @@ line of this program changes. So the space was found first, in the order
 from code that runs once per command and was resident only because nobody had
 needed the bytes yet:
 
-| moved to `CWORD.OVL` | why it is module code |
+| moved to the overlay | why it is module code |
 |---|---|
 | the whole RTF engine's helpers — the parser, the control-word scanner, the writer, the property setters | they run inside `ovl_file_load` / `ovl_file_store`, which were already out there. Only the TABLES stayed, because they are data and data is resident by construction (§73.14) |
 | the clipboard's three commands | once per Cut / Copy / Paste |
@@ -120241,10 +120400,12 @@ needed the bytes yet:
 | **the Font list itself** — its geometry, its painter, its hit test, the scan and the pick | once per visit to the Font box |
 
 That last row is worth stating plainly rather than leaving in a table, because
-it is the one that costs something a user can notice: **choosing a typeface
-needs `CWORD.OVL` on the disk.** It is the right side of the line — a face is
-chosen about as often as a document is opened — and the refusal is the ordinary
-one, a toast naming the missing file and a list that does not drop down.
+it was the one that cost something a user could notice: **choosing a typeface
+needed `CWORD.OVL` on the disk.** It is the right side of the line — a face is
+chosen about as often as a document is opened — and the refusal was the
+ordinary one, a toast naming the missing file and a list that did not drop
+down. Since §73.14.2 the overlay is an eager part of `CWORD.O88`, read at
+launch, so there is no file to be missing and the refusal is gone.
 
 **The type LIBRARY, though, is resident whole**, and that was decided the other
 way. `ty_putn`, `ty_flush` and `ty_advof` are the redraw path and could never
@@ -120384,8 +120545,8 @@ for the caller to do about it and nothing to tell the user.
 
 #### 73.12.3 `WELCOME.RTF` — the document, and the two things it may not claim
 
-`cworddisk` puts **`WELCOME.RTF`** in the root of all three geometries, beside
-`CWORD.O88` and `CWORD.OVL`, exactly as §68.5's disk puts `WELCOME.DOC` beside
+`cworddisk` puts **`WELCOME.RTF`** in the root of all four geometries, beside
+`CWORD.O88` (whose overlay is a part of it, §73.14.2), exactly as §68.5's disk puts `WELCOME.DOC` beside
 Word: a disk that demonstrates the product the moment it is double-clicked.
 It is generated **deterministically** by `tools/os88rtf.py` from
 `apps/cword/welcome.wtx`, so the shipped file rebuilds byte for byte.
@@ -120432,9 +120593,9 @@ rules that turn `apps/<dir>/<name>.c` plus `apps/<dir>/<name>.asm` into
 |---|---|
 | `cc-smoke` | `build/ccsmoke.img` — `apps/cc/ccsmoke.c`, the toolchain's smoke test and the SDK's worked example of the two files a C package is made of |
 | `chello` | `build/chello.img` + `build/chello360.img` — `tests/chello/`, the capability gate that first proved a compiled package can hold a window |
-| `covl` | `build/covl.img` + `build/covl360.img` — `tests/covl/`, the capability gate for the OVERLAY (§73.14) |
-| `cword` | `build/cword.o88` + `build/CWORD.OVL` (§73.12) |
-| `cworddisk` | `build/cword.img`, `cword720.img`, `cword360.img`, each carrying both files plus `WELCOME.RTF` and an empty `DOCS/` (§73.12.3), and each `os88disk.py --verify`ed |
+| `covl` | `build/covl.img` + `build/covl360.img` — `tests/covl/`, the capability gate for the OVERLAY (§73.14), and since §73.14.2 for its LAZY part arm |
+| `cword` | `build/cword.o88`, its overlay inside it as part 0 (§73.12, §73.14.2) - and `build/CWORD.OVL`, the plain cut the host readers want, which no disk carries |
+| `cworddisk` | `build/cword.img`, `cword720.img`, `cword120.img`, `cword360.img`, each carrying `CWORD.O88`, `WELCOME.RTF` and an empty `DOCS/` (§73.12.3), and each `os88disk.py --verify`ed |
 | `386-c-word` | boots `$(IMG)` in A: and `build/cword.img` in B: on `vm/386-c-word` |
 | `allapps` | the everything set, `build/apps-all-N.img` and `build/apps-all-120-N.img` — every application on as many floppies as it takes (§19.10). Outside this section, only it and the live media (§80) — whose payload is this set's — need the compiler, which is why all of them are on demand |
 | `clean-cc` | removes `build/cc`, which plain `clean` spares |
@@ -120543,7 +120704,11 @@ than the UI task's ~700 bytes of headroom can hold C frames for, so the task
 stack is the limit that binds.
 
 **Loading is on demand and needs no kernel byte.** `cc_ovneed` claims
-`ceil(size / 1024)` KB and reads `<CC_PKG_NAME>.OVL` into it. It does **not**
+`ceil(size / 1024)` KB and reads `<CC_PKG_NAME>.OVL` into it. (That is the
+FILE form, which every overlay shipped as until §73.14.2 made the module a
+PART of the package's own `.O88`; CWORD and COVL take that form now, and the
+paragraphs below that are about the file - the stamp, the missing-file
+refusal - are about the packages that still ship one.) It does **not**
 visit a folder first: every file name a package passes the file API already
 resolves in that instance's own directory (§19.2.1), which is the folder it
 was launched from. The KB is computed at run time from a `.data` word holding
@@ -120557,7 +120722,9 @@ is believed. A rebuilt package beside a stale module is something a user can
 produce with a file copy, and every offset in both vector tables would be
 wrong. It catches a stale **pair**, not every stale pair: two builds whose
 resident image and module were both the same size would pass it, and that is
-worth stating rather than implying.
+worth stating rather than implying. A part carries no stamp (§73.14.2): its
+bytes are the package's own file, located by a table in the image it was
+built with, so there is no pair to go stale.
 
 **Refusal is an ordinary path** (§47). No heap, a disk without the file, a
 stamp mismatch, or a **worker task** asking: the reason is toasted, `AX` is 0,
@@ -120594,9 +120761,11 @@ which is what says the argument fixup reached every one of four arguments;
 a resident routine that toasts, **which is the case §68.10 could not prove for
 the assembly module**; and the counters go up by exactly one per press, ten
 presses running, because a mechanism that leaks two bytes of stack per call
-works for a while and then does not. The refusal screen is the second half:
+works for a while and then does not. The refusal screen was the second half -
 build the disk without the `.OVL` and every number stays 0 with the reason in
-the menu bar.
+the menu bar - until §73.14.2 put the module inside `COVL.O88`, where there is
+no file to leave off; the gate is the LAZY part arm's now, and its refusals are
+the parts standard's (`op_fetch`'s, and the home bracket's).
 
 #### 73.14.1 The overlay ships PACKED, as a `'CZ'` file beside the package
 
@@ -120616,22 +120785,23 @@ read. `$(CC_OVLZ)/<NAME>.OVL` (`build/ovlz/`) is the packed copy, written by
 `CC_OVLZ_RULE` in `apps/cc/Makefile.inc` through `tools/os88lz.py --wrap`, and
 it is the one every disk recipe names. `CC_PACKAGE` calls the rule for its own
 third argument; LOOM and COVL, whose rules are open-coded in the top-level
-Makefile, call it by hand, and so does SCRIBE (§95.8), whose assembly overlay
-is read the same way into its own `SC_OVKB` claim. `PKGZ=` writes a plain copy,
+Makefile, call it by hand, and so did SCRIBE (§95.8), whose assembly overlay
+was read the same way into its own `SC_OVKB` claim until it became part 1 of
+its package (§95.8.8). `PKGZ=` writes a plain copy,
 and `--wrap` writes the file unchanged when packing would make it bigger.
 CWORD went first, with a rule of its own (`build/cwordz/`), and that rule is
 gone. Measured, file bytes:
 
 | overlay | plain | packed |
 |---|---:|---:|
-| `LOOM.OVL` | 43,702 | **17,929** |
-| `WEAVE.OVL` | 21,198 | **9,480** |
-| `CWORD.OVL` | 18,565 | **8,851** |
-| `SCRIBE.OVL` | 10,121 | **8,348** |
-| `RUNCPM.OVL` | 7,389 | **3,526** |
-| `APPLE2.OVL` | 3,971 | **2,472** |
-| `C64.OVL` | 2,323 | **1,597** |
-| `COVL.OVL` (the gate) | 110 | 102 |
+| `LOOM.OVL` (part 1 of `LOOM.O88` since §73.14.2, `WEAVE-SPEC 1.2.5`) | 43,702 | **17,929** |
+| `WEAVE.OVL` (part 1 of `WEAVE.O88` since §73.14.2) | 21,198 | **9,480** |
+| `CWORD.OVL` (a PART of `CWORD.O88` since §73.14.2) | 18,565 | **8,851** |
+| `SCRIBE.OVL` (part 1 of `SCRIBE.O88` since §95.8.8) | 10,121 | **8,348** |
+| `RUNCPM.OVL` (the PART of `RUNCPM.O88`, with the CCP in it, since §74.3.1) | 7,389 | **3,526** |
+| `APPLE2.OVL` (part 1 of `APPLE2.O88` since §73.14.2, lazy - APPLE2-SPEC 15.5.1) | 3,403 | **2,356** |
+| `C64.OVL` (part 1 of `C64.O88` since §73.14.2; C64-SPEC §13.3) | 2,323 | **1,597** |
+| `COVL.OVL` (the gate; a part since §73.14.2) | 110 | 102 |
 
 **The one risk is the directory entry, and it is closed.** A packed file's
 unpacked size lives in its directory entry (§20.14.1), and a copy made by a
@@ -120645,6 +120815,174 @@ the image and not from FIND, §20.14.6.3's short-claim case cannot arise here.
 **`tests/unit/t_pkgzrules.py` holds it** (fast tier): a disk that names
 `$(BUILD)/<NAME>.OVL` - the plain cut - fails the build, alongside every
 shipped package rule that does not pack (§20.13.5).
+
+#### 73.14.2 The overlay as a PART of the package — `CC_OVL_PART`
+
+**The module can ride inside `<NAME>.O88` instead of beside it**, as the last
+row of the package's parts table (§20.12). The user sees one program file,
+which is what the owner asked for: a `<NAME>.OVL` is a file the PROGRAM needs
+and the user never opens, it scrolls past in every listing, and a copy that
+takes the `.O88` and leaves it behind is a program whose every command
+refuses. It is OPT-IN, per package - so a package that has not adopted it
+assembles byte for byte as it did, and ships its `.OVL` exactly as §73.14.1
+says.
+
+**What a package writes.** In the shim, beside `CC_HAS_OVL`:
+
+```
+%define CC_HAS_OVL
+%define CC_OVL_PART          ; the module is a part of <NAME>.O88
+%define CC_OVL_LAZY          ; OPTIONAL: fetch it on first use, not at launch
+%define CC_OVL_PLAIN         ; OPTIONAL: store it unpacked (no OP_COMP)
+```
+
+and in the Makefile, `part` as `CC_PACKAGE`'s fifth argument (an open-coded
+rule, like COVL's, passes `--part-compress lz4 --part $(BUILD)/<NAME>.OVL` to
+`os88pkg.py` itself, as its LAST `--part`):
+
+```
+$(eval $(call CC_PACKAGE,cword,cword,CWORD.OVL,,part))
+$(eval $(call CC_PACKAGE,c64,c64,C64.OVL,$(BUILD)/c64-rom/C64.ROM,part))
+```
+
+The two cannot disagree silently: `os88pkg.py` refuses a `--part` count that
+is not the table's file-backed rows, in both directions. `make` still writes
+`$(BUILD)/<NAME>.OVL` - the plain cut `tools/os88ovl.py` makes, which
+`tests/unit/t_ctoolchain.py` and the symbol readers read - and `os88pkg.py`
+appends it as the last part; no `$(CC_OVLZ)` copy is made, so a disk recipe
+still naming one fails as `No rule to make target`, which is the reminder to
+take it off every disk list.
+
+**The table.** A package whose overlay is its only part writes nothing:
+`CC_IMAGE_END` emits a one-row table, after the compiled C. A package that
+already has a table (C64 and the Apple II, whose ROM is part 0) adds the row
+itself, LAST, and counts it:
+
+```
+    CC_PARTS_BEGIN 2
+      OS88_PART OP_ASSET, OP_COMP   ; 0 the ROM, as before
+      CC_OVL_ROW                    ; 1 the overlay
+    CC_PARTS_END
+```
+
+LAST because `CC_PACKAGE` appends the module as the last `--part`, and
+because a lazy row must follow every eager one anyway (`os88pkg.py` refuses
+the other order); `CC_IMAGE_END` `%error`s a table without the row or with it
+anywhere else. The row is `OP_SEG` - it is code the package far-calls - with
+`OP_COMP` unless `CC_OVL_PLAIN`, and `OP_LAZY` with `CC_OVL_LAZY`.
+
+**The stamp is gone, and `cc_ovsize`, `cc_ovfile` and the three `cc_ovm_*`
+refusals with it.** The stamp caught a stale PAIR of files; a part is bytes of
+the package's own file, located by a table inside the image it was assembled
+with. A compressed part is still checked whole: `op_unpack` and `op_fetch`
+refuse a stream that does not decode to exactly the row's `len` (§20.13.4).
+The module is sized by the row (`os88pkg.py` fills `len`), not by a word in
+the image.
+
+##### 73.14.2.1 The two arms, and which one to pick
+
+| | EAGER (`CC_OVL_PART`) | LAZY (`+ CC_OVL_LAZY`) |
+|---|---|---|
+| when it is read | at launch, by `op_load` in `cc_entry`, in the same carve read as every other eager part - right behind the image the kernel just read | the first time an `ovl_*` function is called, by `op_fetch` from `cc_ovneed` - §73.14's on-demand load, out of the package's own file |
+| the claim | the parts CARVE, top-down (`op_claim`, §20.12.10.8) | a claim of its own, through `op_fetch`'s door (bottom-up), shrunk to the part |
+| movable | yes when the overlay is the carve's ONLY part: `cc_ovcarve` is the proc, and it re-bases `[op_base]`, re-derives the module's segment through `op_seg` and re-binds. PINNED, at the top, when the carve also holds the package's own parts, because the C may have banked `os88_part_seg()` of one (C64's and the Apple II's ROM pointers are) and only the package can say it has not | yes, from the moment it is bound (`cc_ovreloc`) |
+| where `[cc_ovseg]` lives | a word of the runtime's bss, written once by `cc_ovinit` | **the row's own `zkb`**: `op_fetch` banks the claim's base there and `op_seg` reads it there, so `cc_ovseg` is `%define`d to that word and the relocation proc's one store keeps the binder, `op_seg`, `op_drop` and the thunk's `retf` in step - there is no second copy to forget |
+| `cc_ovneed` | the worker gate and nothing else | the worker gate, the row's `OP_FETCHED`, then the HOME BRACKET and `op_fetch` |
+| a refusal | the LAUNCH refuses, with the parts standard's toast (`Not enough memory`, `Cannot read my parts`, ...), and no window whose every menu says no ever opens | the CALL refuses with `op_fetch`'s toast, `AX` = 0 and the call skipped, as §73.14's refusal always was |
+| resident code, CWORD measured | +1,100 image bytes over the file form | +924 |
+
+**The home bracket is the lazy arm's, and it closes a hole the file form
+had.** `op_fetch` reads the part out of `op_name` - the package's own file -
+by NAME, and a name resolves in the folder the instance stands in (§19.2.1),
+which the Standard File dialog and a document launch's goto both move. So
+`cc_ovinit` banks `OSAPI_FILE_HERE` at launch, after `op_load`, and
+`cc_ovneed` stands there with `OSAPI_FILE_GOTO_QM` for the fetch and comes
+back - PiXEL's bracket (§106.5), QM on both legs because nothing lists either
+folder, and no call at all when the instance is already home. The file form
+had the same hole: `CWORD.OVL` was resolved wherever the instance stood, so a
+document opened from another folder opened a program whose every command then
+refused (the Makefile carried a paragraph on keeping `WELCOME.RTF` beside it
+for exactly that). A home volume that cannot be reached - the program's
+floppy swapped out on a one-drive machine - refuses with the standard's own
+`No disk to read from`.
+
+**Why the lazy arm takes `op_fetch`'s bottom-up door, against §50.3.2.** That
+rule sends a block whose base IS a CS to the top because such a block is
+PINNED, and a pinned block mid-arena splits it for good. The lazy overlay is
+declared movable the instant it is bound, so the compactor packs it like any
+other movable claim - and a top-down claim would not even be tidy here,
+because `op_fetch` claims the read's window (R plus the packed bytes,
+cluster-rounded) and SHRINKS to the part, and a shrink keeps the base: on a
+top-down claim that leaves the shrunk tail as a hole directly above it. The
+parts standard is untouched by this section; nothing outside `apps/cc/`
+changed.
+
+**Which to pick.** Eager when the module is used in practically every
+session - CWORD's is every command but typing: Open, Save, every dialog, the
+Font list - because then lazy only moves the read to the first command, after
+the motor has stopped, and on a one-drive machine after the program's disk
+may have been swapped for a document's. Lazy when a session can plausibly
+never call it and its RAM is worth deferring, which is §73.14's original
+argument - and COVL takes it so the arm has a gate. The size row above is the
+price in resident bytes of either: the eager arm carries the carve's sizing,
+claim, read and unpack (`op_size`, `op_claim`, `op_read`, `op_unpack`,
+`op_seg`'s walk), the lazy one `op_fetch` and `op_drop` (a one-row table whose
+C never asks `os88_part_lazyok()` is built without `op_lazyok`, §20.12.9.2)
+and the bracket. A package that ALREADY carries a carve - C64, the Apple II -
+pays almost none of the eager arm's figure, because it is code it already
+has.
+
+##### 73.14.2.2 What it cost and bought, measured
+
+CWORD (eager) and COVL (lazy), against the file form at the same commit:
+
+| | before | after |
+|---|---|---|
+| `cword` image + bss | 29,352 + 24,522 = 53,874 | 30,452 + 24,624 = **55,076** (6,364 spare of `APP_MAX_SIZE`) |
+| CWORD's module | 14,110 (stamp included) | 14,106 |
+| CWORD on a disk | `CWORD.O88` 19,580 + `CWORD.OVL` 8,444 - two files, 56 sectors | `CWORD.O88` **29,415** (its part 8,423 bytes of LZ4) - one file, 58 sectors |
+| `cword360.img` / `cword720.img` | 34 clusters, 4 files | 34 clusters, 3 files |
+| `cword.img` / `cword120.img` | 63 clusters, 4 files | 65 clusters, 3 files |
+| `covl` image + bss | 1,802 + 152 | 2,730 + 256 |
+| COVL on a disk | 1,438 + 99, two files | 2,646, one file |
+| `c64` image + bss (eager; it already had a carve) | 30,188 + 12,936 | 30,004 + 12,936 - the arm alone; 29,840 + 12,930 once the C's refusal machinery went too (C64-SPEC §13.3) |
+| C64 on a disk | `C64.O88` 39,378 + `C64.OVL` 1,538, two files | `C64.O88` **40,401**, one file |
+| `c64.img`/`c64120.img`, `c64720.img`/`c64360.img` | 127, 65 clusters | 125, 64 |
+
+**The two sectors are the parts standard's code, packed**, and they are
+deliberate: the alternative was a private fetch of ~200 bytes inside `crt0`,
+which is exactly the "packer and expander of its own outside the standard"
+§20.12.7.4 retired. On the 1KB-cluster geometries the one file lands in the
+clusters the pair took; on the 512-byte ones it is two sectors more than the
+pair, for one directory entry fewer. The bss grows by `OP_BSS` (102), the
+standard's own words.
+
+**C64 is the case the size row predicts**: a package that already had a
+carve for its ROM, so its EAGER arm came out 184 image bytes SMALLER than the
+file form rather than larger - the carve's code was already resident, and the
+file form's stamp, claim, read and refusals were deleted. The lazy arm,
+measured on the same tree, was 584 bytes larger than the file form and bought
+nothing on the disk, because C64 read its module at the first wake of every
+session anyway (C64-SPEC §13.3).
+
+**How to adopt it** (WEAVE, LOOM; C64, the Apple II and RunCPM have, §74.3.1): define
+`CC_OVL_PART` (and `CC_OVL_LAZY` if the module is not used by every session)
+in the shim; if the package has a parts table, add `CC_OVL_ROW` as its last
+row and bump the count; add `part` as `CC_PACKAGE`'s fifth argument (LOOM's
+open-coded rules pass `--part-compress lz4 --part $(BUILD)/LOOM.OVL` to
+`os88pkg.py` instead); take `$(CC_OVLZ)/<NAME>.OVL` off every disk list -
+the package's own disk, `ALLAPPSFILES`, the live media, the category disks -
+and every `.OVL` mention in tests and docs that means the shipped file; and
+keep reading `build/<NAME>.OVL` in any host tool that wants the module's
+bytes, which it still is. A package that relied on the file form's folder
+rule can re-read that rule: an eager part is in memory before any folder
+move, and a lazy one is fetched from home. WEAVE and LOOM did, and took
+their OTHER modules in as lazy parts too - the canvas core and the preview
+module, each fetched through the same bracket (`apps/weave/wfetch.inc`) -
+so `LOOM/` no longer carries a second copy of the runtime
+(`WEAVE-SPEC 1.2.5`). Both took the LAZY arm for a reason worth knowing:
+a lazy row must follow every eager one and `CC_OVL_ROW` must be last, so an
+eager overlay would have put each package's other module in the carve.
 
 ### 73.15 The peephole pass, and the differential check that lets it ship
 
@@ -120914,7 +121252,7 @@ surface names ONE RunCPM file:
 | `Bdos Err on X:` texts and the wait-and-warm-boot | `RunCPM/disk.h` `_error` |
 | the FCB and directory-entry layouts, name rules, extent/record synthesis, every file operation's return code | `RunCPM/disk.h`, `abstraction_posix.h` |
 | drives A..P / users 0..F as folders, `AUTOEXEC.TXT`, `$$$.SUB`, `PUN.TXT`/`LST.TXT` capture | `RunCPM/disk.h`, `cpm.h`, `globals.h` |
-| the command processor | `RunCPM/CCP/CCP-DR.60K` — Digital Research's CCP, run on the Z80, loaded from the launch folder |
+| the command processor | `RunCPM/CCP/CCP-DR.60K` — Digital Research's CCP, run on the Z80, carried inside the package's part (§74.3.1) |
 | HostOS code 0x08 (new; 0x00–0x07 are RunCPM's) | `abstraction_*.h` |
 | the terminal geometry: 80×25 | `abstraction_runvt.h`; `TE.COM`'s configuration block on the master disk |
 
@@ -120929,8 +121267,9 @@ estimate, ERA/REN/MAKE, the error texts) are named from the first wave and
 `RUNCPM.OVL` exists the moment the measured size line says so (§73.14). The
 Z80's 64KB is **not** in the package: it is `os88_mem_claim(64)`, its own
 segment, and the launch refuses (quoting what it asked and
-`os88_mem_largest_kb()`) if that claim, the 2KB CCP claim or one file claim
-cannot be had. *Numbers: wave 1 (window, terminal, shadow, banner, wake,
+`os88_mem_largest_kb()`) if that claim or one file claim cannot be had - and
+before it, in the parts standard's words, if the carve holding the module and
+the CCP cannot (§74.3.1; it was a 2KB CCP claim of its own until then). *Numbers: wave 1 (window, terminal, shadow, banner, wake,
 quiet goto, harness — no Z80, no BDOS, no files yet) measured
 `image=12590 bss=6473`, 42 functions, largest frame 30 bytes; **wave 2 (the
 Z80 core, the movers, the slice driver, the console side of BDOS/BIOS,
@@ -120969,12 +121308,12 @@ record, a punched byte, a console byte or a keystroke touches (`F_READ`/
 `F_WRITE`, the random records, the capture files, the open-file table's
 loader `rc_oft_get`, the directory cache) stays resident.** The module is
 first called by `rc_boot` on the first wake (`ovl_patch_cpm`, after
-`ovl_banner2`), before any folder move, so `RUNCPM.OVL` resolves in the
-launch folder like the CCP; `ovl_patch_cpm` answers 1, and a 0 — no heap, no
-file, a stale module, each toasted by `cc_ovneed` — stops the machine with
-`Unable to load RUNCPM.OVL.` / `CPU halted.` on the terminal, the window kept
-up as for a missing CCP; every later `ovl_*` call therefore finds the module
-in. **Wave 5 (the About panel, the flush counters key, the panel-as-damage
+`ovl_banner2`). *(Until §74.3.1 that call was the module's load: `RUNCPM.OVL`
+resolved in the launch folder like the CCP, and a 0 — no heap, no file, a
+stale module, each toasted by `cc_ovneed` — stopped the machine with `Unable
+to load RUNCPM.OVL.` / `CPU halted.` on the terminal. The module is an eager
+part of the package now, read at launch, so neither the load nor that text
+exists.)* **Wave 5 (the About panel, the flush counters key, the panel-as-damage
 close, the 642-px window) measures `image=39356 bss=11689` resident (51,045)
 + a 7,389-byte `RUNCPM.OVL`**, 128 functions, 23 in the module, 55 resident
 shims, 20 loading call sites, largest frame 30 — +780 image / +102 bss for
@@ -121206,17 +121545,18 @@ HL and DE end past the block and BC = 0xFFFF as upstream's post-decrement
 leaves it) rather than ~50 µs a byte on the UI task.
 
 **The command processor is DRI's CCP, run on the Z80, and the boot is
-`main.c`'s loop (wave 3, `rc_boot`).** `CCP-DR.60K` is read ONCE, in
-`os88_main`, from the launch folder — before any folder move, the way an
-`.OVL` is resolved — into a **2KB claim** (`os88_mem_claim(2)`; the launch
-refuses with the same "what was asked / what there is" toast as the 64KB
-claim, `RunCPM: 2KB? n KB`, if it cannot be had), and every lap of the loop
+`main.c`'s loop (wave 3, `rc_boot`).** `CCP-DR.60K` is in memory from
+launch: it rides at offset 0 of the package's one part, the module, which
+`op_load` reads with the image (§74.3.1; until then it was read ONCE, in
+`os88_main`, from the launch folder into a 2KB claim of its own, refused as
+`RunCPM: 2KB? n KB`), and every lap of the loop
 — the first, after the clock estimate; and every warm boot: BIOS WBOOT, BDOS
 0, `^C` on an empty line at the prompt, a disk error's key — does exactly
 `main.c` 110–140: CCPHEAD (`\r\nRunCPM Version 6.9 (CCP-DR.60K) - CP/M
 2.2\r\n`), `_PatchCPM` (IOBYTE 3Dh and DSKByte only on a cold start:
 `Status != STATUS_RESTART`), `Status = 0`, the CCP copied to 0xE400 out of
-its claim with `rc_zzcopy_in`, **`AUTOEXEC.TXT` poked on EVERY boot**
+the part with `rc_zzcopy_in` (its segment ASKED, `os88_part_seg`, every
+time and never banked - the carve moves), **`AUTOEXEC.TXT` poked on EVERY boot**
 (upstream's `BOOTONLY FALSE`, globals.h 305) — its first 125 bytes at
 CCPaddr+8, cut at the first control character, a NUL after it, its length
 at CCPaddr+7, which is the DRI CCP's own command buffer (`+6` the max 0x7F,
@@ -121225,8 +121565,8 @@ the CCP runs the line before its first prompt and prints its answer, not the
 line — Z80reset (PC, IFF, I, R cleared; SP is the CCP's own), C = DSKByte,
 PC = CCPaddr, run. **The file is READ ONCE, at launch** (`rc_ax_load` in
 `os88_main`, beside the CCP, from the launch folder before any move), and
-**the poke is made ONCE, INTO THE CCP CLAIM** (+7 the length, +8 the text
-and its NUL) — every boot copies the CCP out of that claim, so every boot's
+**the poke is made ONCE, INTO THE PART'S COPY OF THE CCP** (+7 the length,
++8 the text and its NUL) — every boot copies the CCP out of the part, so every boot's
 copy carries the same bytes to CCPaddr+7.. that upstream's poke after its
 `_RamLoad` puts there, with no buffer of their own (apps size pass 1: the
 126-byte `rc_axbuf` cache it replaced); upstream re-reads it from FILEBASE on every lap, which is a host
@@ -121242,19 +121582,17 @@ from the directory entry, so a 125-byte read would silently ignore any
 `AUTOEXEC.TXT` over 125 bytes, where upstream's `_RamLoad(AUTOEXEC, cmd,
 125)` delivers the first 125 bytes of a file of any size) — into the Z80
 claim's TPA at the loader's 512-aligned landing, with the TPA up to the CCP
-(~57KB) as the capacity, the first 125 bytes copied into the claim and the
+(~57KB) as the capacity, the first 125 bytes copied into the part and the
 TPA cleared behind them; a file above ~57KB is FERR_BIG and ignored, the one remaining
-cap, stated. **So a warm boot is a 2KB claim-to-claim copy and no disk at
+cap, stated. **So a warm boot is a 2KB part-to-claim copy and no disk at
 all**, and `rc_slice` runs the CCP's prompt in what is left of the same
 slice: CCPHEAD and the next `A>` are ONE flush — `^C` on the bottom row is
 one `gfx_scroll` and one fill, not two of each (harness: `^C at the bottom
-row: warm boot + prompt, one flush`, 5 calls / 1 scroll / 1 fill). A disk without `CCP-DR.60K` is not a
-refused launch: `main.c` 118's `Unable to load CP/M CCP.\r\nCPU halted.`
-follows CCPHEAD on the terminal, and — **one stated deviation** — the
-machine goes idle with the window up so the text can be read (upstream
-breaks out of the loop and the process ends, taking its terminal with it if
-it was launched by a double-click); the close box ends it and Alt+L still
-loads a `.COM`. **The exit** — BIOS BOOT (`EXIT.COM`) and HALT — is `main.c`
+row: warm boot + prompt, one flush`, 5 calls / 1 scroll / 1 fill). `main.c`
+118's `Unable to load CP/M CCP.` has no case here: the CCP is inside the
+package's part, so a launch that has a window has the CCP (§74.3.1 - a disk
+without `CCP-DR.60K` used to idle the machine under that text, with the
+window up). **The exit** — BIOS BOOT (`EXIT.COM`) and HALT — is `main.c`
 141–160: the machine stops, `\r\n` goes into the terminal model and is
 **not drawn** (upstream's `\r\n` is for a host shell that outlives the
 process; here nothing outlives the window, which the worker destroys within
@@ -121796,9 +122134,9 @@ the programs and the texts (§74.5), and it ships at 350/354 with 4KB free —
 `pip test.txt=info.txt` and `type test.txt` on it are
 `build/port-shots/wave6-360-pip.png`.
 
-The CCP is `CCP-DR.60K`, loaded once at launch from the launch folder — before
-any folder move, like the `.OVL` — into a 2KB claim and copied to 0xE400 on
-every warm boot with CCPHEAD printed above it; `AUTOEXEC.TXT` is read from the
+The CCP is `CCP-DR.60K`, at the head of the package's one part (§74.3.1) and
+in memory from launch, copied to 0xE400 on every warm boot with CCPHEAD
+printed above it; `AUTOEXEC.TXT` is read from the
 launch folder once at launch and poked on every warm boot — identical to
 upstream's read-on-every-boot default here, because CP/M cannot reach the
 launch folder (wave 3 — the mechanics are in §74's command-processor
@@ -121831,6 +122169,98 @@ b:` then `pip b:=a:*.sub` — twelve files across the two slots
 info.sub`, `a:`: 2 `int 13h` calls in all, `wave4b-b-drive.png`;
 `B\0\INFO.SUB` walked equals A's); `exit` closes the window
 (`wave4b-exit.png`).
+
+#### 74.3.1 One file: the module and the CCP are the package's PART
+
+**`RUNCPM.O88` is the only file the program is.** It shipped as three -
+the package, `RUNCPM.OVL` (§73.14's module) and `CCP-DR.60K` - and the two
+beside it were files the program needs and the user never opens: they
+scrolled past in every listing, and a copy that took the `.O88` and left
+either behind was a window whose machine could not boot. Both are inside it
+now, as its ONE part (§20.12): the module, adopted through §73.14.2's
+`CC_OVL_PART`, with the CCP `incbin`'d at offset 0 of `.modc` ahead of the
+compiled code (`apps/runcpm/runcpm.asm`; the shim fails to assemble unless it
+lands at 0 and is exactly `RC_CCPSIZE`). `LICENSE` and `1STREAD.ME` are
+documents and stay files, and drive `A\0` is the emulated machine's DISK -
+the user's files - and stays a folder.
+
+**The CCP is the program's data, not a choice.** Upstream picks one CCP at
+COMPILE time (`globals.h`'s `CCP_DR` / `CCP_CCPZ` / `CCP_ZCPR2` / `CCP_ZCPR3`
+/ `CCP_Z80`, each with its own address, file name and `$$$.SUB` FCB), and this
+port compiles `CCP_DR`'s in (`rccpm.c`: `RC_CCPADDR`, `RC_BATCHFCB` at
++0x7AC, `F_CCPVERSION` 0x00). A different file under that name was never a
+second CCP here, it was a wrong machine. The master disk's `CCP.SUB` /
+`CCPZ.SUB` / `ZCPR2.SUB` / `Z80CCP.SUB` build `CCP-*.BIN` files ON drive A,
+which upstream's user copies to the host and recompiles for; here that is
+still the shape - rebuild the package - and it is stated rather than hidden
+that a hand-rebuilt `CCP-DR.60K` dropped beside the package (which CP/M could
+never reach anyway, the launch folder being outside `A\0..P\F`) is no longer
+read.
+
+**EAGER, because every session uses both within a second of launch.** The
+first wake prints `ovl_banner2` and calls `ovl_patch_cpm`, and the CCP's
+first act is a `DIR` or a `.COM` load - `F_SFIRST` or `F_OPEN`, module code -
+while the CCP itself is copied on that same wake and `AUTOEXEC.TXT` is poked
+into it in `os88_main`. So `op_load` reads both in the carve right behind the
+image, with the motor still running, and a machine without the RAM is
+refused at LAUNCH in the standard's words rather than opening a window that
+cannot boot - which is why `Unable to load RUNCPM.OVL.`, `Unable to load CP/M
+CCP.`, the `RunCPM: 2KB?` refusal and the module's stamp are all gone. The
+lazy arm was built and measured: 176 bytes less image than the eager one and
+the same 52 sectors of file, and it would have needed the part fetched in `os88_main`
+anyway for the `AUTOEXEC.TXT` poke - lazy in name only.
+
+**Why the CCP is INSIDE the module rather than a row of its own.** Both were
+built. As its own row (plain, part 0, the module part 1) it cost two things:
+a part is sector-aligned, so the file was **26,702 bytes, 53 sectors** - one
+more than the three files it replaced on the 512-byte-cluster geometries
+(2,048 bytes is four sectors plain, and LZ4 takes it only to 1,762, still four
+once padded) - and a carve holding the package's own part beside the module
+stays PINNED (§73.14.2.1: crt0 cannot know the C banked no segment), where
+the `RUNCPM.OVL` claim it replaced was movable. Inside the module it is one
+LZ4 stream with the code (6,726 -> **4,916**), no row and no padding, and the
+carve is the overlay ALONE as far as crt0 can see, so `cc_ovcarve` declares it
+movable with no shared code touched. What makes that safe is on the C side:
+the CCP's segment is ASKED (`os88_part_seg(RC_CCP_PART)` + `RC_CCP_OFF`) at
+each use - `rc_boot`'s copy, `rc_ax_load`'s poke - and banked nowhere, so the
+relocation proc re-binding the module is the whole of the move. It is never
+executed in the module: it is Z80 code, copied out, and the module's DS is
+still the package's. The Makefile names the CCP as a prerequisite of
+`runcpm.bin` and not as a `--part`: it is assembled in.
+
+**Measured, against the three files at the same commit:**
+
+| | before | after |
+|---|---|---|
+| image + bss | 29,966 + 10,453 | **30,836 + 10,551** (+870: the parts standard's carve - `op_load`, `op_size`, `op_claim`, `op_read`, `op_unpack`, `op_seg` - against `cc_ovneed`'s file path, stamp and refusals, the CCP's file read and the two `Unable to load` paths; +98 bss: `OP_BSS`, less `rc_ccpseg`/`rc_ccplen`) |
+| the module | 4,682 (stamp included) | 6,726 (4,678 of code, the CCP's 2,048) |
+| on a disk | `RUNCPM.O88` 20,607 + `RUNCPM.OVL` 3,155 + `CCP-DR.60K` 2,048 = 25,810, three files, 52 sectors, 27 clusters of 1KB | `RUNCPM.O88` **26,420**, one file, 52 sectors, 26 clusters of 1KB (the image 21,490 of LZ4, the part 4,916) |
+| launch claims | the CCP's 2KB, and on the first wake the module's 5KB - two, the CCP's pinned | one carve of 8KB, movable (read off `mem_tab` on MartyPC) |
+
+**The carve is 1KB more than the two claims it replaces, and that is
+measured and kept.** `op_claim` cuts an eager compressed carve for the
+in-place expansion - the unpacked part, one sector below it, and the packed
+run in whole clusters (§20.12.10.8) - so 6,726 bytes unpacked from 4,916
+packed is 7,680, an 8KB claim of which the top 1,466 bytes are dead once
+`op_unpack` is done. The Apple II gives that tail back (`os88_mem_regrow` in
+place, APPLE2-SPEC 1.5), and that was built here and REFUSED on two
+measurements: its ~30 resident bytes took the packed image over a sector
+boundary, so the file went to 53 sectors and 27 clusters - a sector or a
+cluster more on every geometry, for a heap kilobyte only while RunCPM runs -
+and with the part
+then starting on an ODD sector the run's head slack on a 1KB-cluster disk
+was 512 bytes, so the carve read 8KB on the glass with the shrink in it and
+bought nothing there at all.
+
+On the four `make runcpmdisk` floppies the root loses two entries and the
+`A\0` fill keeps every file: `runcpm.img` 2,722 clusters before and after,
+214 -> 212 files; `runcpm120.img` 2,246 and 2,246, 160 -> 158;
+`runcpm360.img` 329 -> **328**, 59 -> 57; and `runcpm720.img`, where the
+1KB cluster the package gave back is spent by `--select`, 698 and 698 with
+`A\0` carrying one more master-disk file (`ABDOS.60K`, 70 -> 71), 89 -> 88.
+`apps/runcpm/hosttest/rcuitest.c` models the part: one claim at launch, the
+CCP at the part's segment and never read as a file (a read of the name fails
+the harness), and its disk-without-the-CCP scene is gone with the case.
 
 ### 74.4 What is present and greyed, and what is absent
 
@@ -121874,10 +122304,8 @@ package); the 64-bit clock estimate (replaced, stated); `INFO.COM`'s host
 name (its table predates HostOS 0x08 — a third-party binary, not edited);
 `::CPU HALTED::` (DEBUG-only upstream — this port toasts the fact and then
 does exactly what BOOT does: the "\r\n", the exit path, the self-close);
-`Unable to load CP/M CCP.` leaves the window up rather than ending the
-process (stated in §74: the text would otherwise never be read), and
-`Unable to load RUNCPM.OVL.` does the same for the module (§74's numbers
-paragraph). **A toast is the BAR's strip, and the bar is under a fullscreen
+`Unable to load CP/M CCP.` (the CCP cannot be missing: it is inside the
+package, §74.3.1). **A toast is the BAR's strip, and the bar is under a fullscreen
 window** (§11.2's fullscreen, `Alt+F` here, §74.2 — a shipped mode: `menu_draw_bar` early-outs on
 `wm_fs_vis`, and `toast_pass` retires the strip after `TOAST_TICKS` all the
 same), so a refusal stated only by a toast would reach a fullscreen user as a
@@ -121901,8 +122329,9 @@ embedding, ABDOS, the alternate cores, and the three master-disk files above
 Package `RUNCPM`, directory `apps/runcpm/`, images `build/runcpm.img` /
 `runcpm720.img` / `runcpm120.img` / `runcpm360.img` (each `--verify`'d), 86Box machine
 `vm/386-runcpm` (a copy of `vm/386-c-word` with the B: image and uuid
-changed), on `apps-all.img` as a folder of its own `RUNCPM\` (§19.10 — the
-CCP, the `.OVL` and drive `A\0` must sit beside the package, below).
+changed), on `apps-all.img` as a folder of its own `RUNCPM\` (§19.10 — drive
+`A\0` must sit beside the package, below; the CCP and the module are inside
+it, §74.3.1).
 `tools/getruncpm.py` takes RunCPM's files at the pinned commit at build time
 (`make runcpm-src`, the stamp `build/runcpm-src.stamp`) out of the
 **committed `apps/runcpm/cache/cpmcache.zip`** (§74.6.1), reaching GitHub
@@ -121918,16 +122347,16 @@ pixel: a two-row window strip with its close box over a dark field carrying
 a large green `A>`; read at 1bpp — field and strip black, glyph and close
 box white — so it is the same picture on every adapter, with one stated
 deviation, a white row between strip and field where the colour edge was,
-§20.2), `RUNCPM.OVL`
-(from wave 4's split — beside the package, where `cc_ovneed` resolves it,
-§73.14), `CCP-DR.60K`, `LICENSE` and `1STREAD.ME` in its root
+§20.2, and its one part: the module with DRI's CCP at its head, §74.3.1 -
+until then `RUNCPM.OVL` and `CCP-DR.60K` were files beside it), `LICENSE`
+and `1STREAD.ME` in its root
 and drive A user 0 as
 far as the geometry holds it, chosen at recipe time by `getruncpm.py --select
 <kb>` — the texts and submit files first (they are ~18 clusters and make
 the disk explain itself), then the programs, then documentation, libraries
 and sources; **the cluster budget is DERIVED, not a constant**: the recipe
 passes `--reserve` with the root files that ride beside `A/0` (the package,
-the `.OVL`, the CCP, LICENSE, the read-me — and nothing of this tree's:
+LICENSE, the read-me — and nothing of this tree's:
 `HELLO.COM`, the 49-byte hand-assembled hello wave 2's gate loaded from the
 root of `build/runcpm.img`, is still built (`build/HELLO.COM`, for a hand
 test of Alt+L's launch-folder path on a scratch image) and ships on no
@@ -121998,8 +122427,9 @@ with the 39,412-byte package and its 7,389-byte module; wave 4's 360KB disk carr
 and libraries filled it to the last cluster and no session could save —
 and wave 2's 24,848-byte package left it 62 files: `--reserve` re-shaped
 the selection by itself each time). **The everything set (§19.10) carries the
-same package as a folder of its own, `RUNCPM\`** — the package, the
-`.OVL`, the CCP, LICENSE, 1STREAD.ME and `A\0` below it. That folder carries
+same package as a folder of its own, `RUNCPM\`** — the package, LICENSE,
+1STREAD.ME and `A\0` below it (the `.OVL` and the CCP beside the package
+until §74.3.1). That folder carries
 no games. Since the set replaced the single floppy (2026-09-30) its `A\0` is
 priced WHOLE by `tools/os88allapps.py` — the fill an otherwise empty disk of
 the geometry holds, which is **all 77 files at 1.44MB and at 1.2MB** — where
@@ -122017,7 +122447,7 @@ directory slots; `make allapps`
 therefore acquires `tools/getruncpm.py`'s stamp as a prerequisite, which it
 can because it already needs the C toolchain — 112 files in 11 folders,
 2,212 of 2,847 clusters, booted to `A>` from `RUNCPM\` (the `.OVL` and the
-CCP resolve in the launch folder, and so does `A\0`: wave 6's
+CCP resolved in the launch folder then, before §74.3.1, and `A\0` still does: wave 6's
 `build/port-shots/wave6-all-a-prompt.png`). **A/0
 holds more entries than the Disk window's
 32-entry listing cap** (§19): that is a DISPLAY cap — `OSAPI_FILE_FIND` and
@@ -129599,9 +130029,10 @@ The image was 154 files of a 32MB partition with 30,950KB free:
   of one apps disk. None of it is true at 32MB. They ride `$(LIVEPKGARGS)`,
   which is **live-only and not `$(ALLAPPSARGS)`** — §19.10.1 is that
   arithmetic, and it is the everything-FLOPPY's 1.2MB geometry that refuses
-  them, not this volume. SCRIBE gets a `SCRIBE/` folder of its own because it
-  resolves `SCRIBE.OVL` in the launching instance's directory (§19.2.1), and
-  because its `WELCOME.DOC` is a second copy of the name `WORD/` carries.
+  them, not this volume. SCRIBE gets a `SCRIBE/` folder of its own because its
+  `WELCOME.DOC` is a second copy of the name `WORD/` carries (it also resolved
+  `SCRIBE.OVL` in the launching instance's directory until that module became
+  part of the package, §95.8.8).
 - **`FROTZ.O88` rode `APPS/` with nothing to play.** The library is fetched
   rather than committed (§61), which is why it was skipped — and that is not a
   reason on a target that already acquires two other fetches. All fifteen
@@ -151828,7 +152259,8 @@ The argument for the first is absolute addressing: a module that names its own
 bss names it at an **absolute** address, bss begins where the image ends, and
 two packages have different image sizes — so an include with private variables
 cannot serve a package that overlays it *and* a package that does not. SCRIBE
-reaches this through `SCRIBE.OVL`; PAINT would reach it resident.
+reached this through `SCRIBE.OVL` (part 1 of its own segment since §95.8.8);
+PAINT would reach it resident.
 
 For the same reason **`IMG_ERR` is a number and not a string pointer**. A
 string in an overlaid module sits at a module-relative offset, and a resident
@@ -152002,11 +152434,12 @@ their name. `apps/cword` is on demand for the same reason (§73.12).
 **It IS on the live media** (§80.6), in a `SCRIBE/` folder of its own beside
 `WORD/` — that image is not curated and 49KB is not an argument about a 32MB
 partition. It has to be its own folder rather than a second `.O88` in `APPS/`:
-`SCRIBE.OVL` is resolved in the launching instance's directory (§19.2.1),
-which is the same requirement that gives each Word a folder, and its
-`WELCOME.DOC` is a second copy of the name `WORD/` already carries. It is
-**not** on `build/apps-all.img`: its three files are 56,048 bytes and take that
-disk's 1.2MB RunCPM budget to −104 clusters (§19.10.1).
+its `WELCOME.DOC` is a second copy of the name `WORD/` already carries. (It
+was also because `SCRIBE.OVL` was resolved in the launching instance's
+directory, §19.2.1; that module is part 1 of the package now, §95.8.8.) It is
+**not** on `build/apps-all.img`: its files were 56,048 bytes and took that
+disk's 1.2MB RunCPM budget to −104 clusters (§19.10.1) — 49,170 since §95.8.8,
+which does not change the answer.
 
 **And the two cannot collide, which is §95.2's whole subject and was for a
 while believed the other way round.** The everything-disk kept SCRIBE off with
@@ -152044,7 +152477,8 @@ Two things outweighed it:
 
 1,395 identifiers were renamed across four files and `wddoc.inc`/`wdrtf.inc`/
 `wdutil.inc` became `scdoc.inc`/`scrtf.inc`/`scutil.inc`; `WD_OVKB` became
-`SC_OVKB`, which is read by name in the Makefile and by `os88ovlchk`. **It was
+`SC_OVKB`, which was read by name in the Makefile (gone with the module,
+§95.8.8). **It was
 a pure rename and that is proved rather than assumed**: `build/scribe.bin` had
 the identical MD5 before and after.
 
@@ -152378,6 +152812,11 @@ enforced one level down.
 
 ### 95.8 The file formats live in SCRIBE.OVL
 
+**Since §95.8.8 they live in part 1 of `SCRIBE.O88`, at the top of the
+program's own segment, and there is no `SCRIBE.OVL`.** What follows down to
+§95.8.7 is the module as it was built — the tenants and why are unchanged; the
+stamp, the vectors, the claim and the load at entry are what §95.8.8 deleted.
+
 Scribe was at **60,828 of `APP_MAX_SIZE`'s 61,440** — 612 bytes — and §68.10's
 split trigger is 55,000 resident, so the module had to take more than the
 picture decoder. `scdoc.inc` and `scrtf.inc` are the right tenants: between
@@ -152508,6 +152947,8 @@ also `main`'s **LFSR** now (§94.3); the `BCE9` figure is the pre-merge one.
 
 #### 95.8.6 Loaded at entry, not at first use
 
+*(Retired by §95.8.8: part 1 is read with the package, by the kernel's launch.)*
+
 §68.10 reads a module "the first time one of its features is asked for", and
 for WORD that cost nothing: its module held a picture feature most sessions
 never touch. **§95.8 put Open and Save in this one**, so "first use" became the
@@ -152542,6 +152983,8 @@ shape, and a property of the module load path every overlaid package shares,
 not of this change. 19 resident bytes.
 
 #### 95.8.7 The module carries its package's build stamp
+
+*(Retired by §95.8.8: one file cannot be a stale pair.)*
 
 The two halves are **one assembly cut in two** (§68.10), and the module
 reaches the package's bss, its `.text` data and its vector table by offset —
@@ -152580,6 +153023,83 @@ word is the dispatcher's `cmp bp` (`0xFD83`), refused like any other.
 
 `tests/scsize.py` checks the pair it is handed the same way before it boots,
 reading the stamp out of both files rather than comparing their mtimes.
+
+#### 95.8.8 SCRIBE.OVL is part 1 of SCRIBE.O88, at the top of the program's own segment
+
+**`SCRIBE.OVL` is gone, and so is everything §95.8.3 to §95.8.7 built to
+reach it.** It was a file beside the package that the user saw in the listing
+and never opened, a pair a copy could separate, a claim of its own, and the
+one package region in the tree that could not move — the module kept
+`DS` = the package and was told the package's segment by a stamp in its own
+image and six far vectors in ours, written once at load and meant to last the
+session (§66.6.1.1, `docs/plans/completed/SCRIBE-OVL-PLAN.md`).
+
+**It is WORD's shape one fork along** (§68.10), and the reason is the same
+sentence: `SCRIBE.O88`'s image is now `apps/scribe/scload.asm`, a loader that
+reads two parts and hands its identity to part 0 through `OSAPI_PKG_REHOME`
+(§20.12.10). Part 0 is `scribe.asm`'s image with its bss shipped inside it;
+part 1 is `.modc` — the two file formats and the picture decoders, the same
+tenants — **assembled at `SC_P1ORG`**. Part 0 is exactly `SC_P1ORG` bytes long
+(the header's bss is declared to run up to it, and `scribe.asm` asserts the
+real bss fits), and `op_load` lays the carve out at `roundup512(len)` a part,
+so part 1 lands at that offset **of the program's own segment**. The loader
+checks it does before it re-homes, because the failure would not be a refusal.
+
+So the module is not another segment at all, and what it needed is **deleted
+rather than moved**:
+
+| what | was | is |
+|---|---|---|
+| reaching a package variable from the module (§95.8.3) | `PKG_*` macros, 4–7 instructions borrowing `DS` from a stamped `sc_pkgseg` | the same macro names, one `cs:`-overridden instruction each |
+| calling home (§95.8.2's rule 1) | `call far [sc_v_*]` through six vectors and six `retf` shims | a near `call` |
+| calling in | `sc_ovcall`: `call far` to a dispatcher at module offset 2, a verb table and eight `call`/`retf` wrappers | a near `call` to the routine, then `sc_ovsay` |
+| loading (§95.8.6) | `sc_ovload` at entry: `FILE_HERE`, `GOTO_QM` to the launch folder and back, a `SC_OVKB` claim, `FILE_READ` | the kernel's launch: one carve read by `op_load` |
+| the stale pair (§95.8.7) | `SC_OVSTAMP` in both halves, a CRC the Makefile computed | nothing — there is one file |
+| the region (§66.6.1) | pinned, registered in `tests/movable.txt` | `OS88_REGION_MOVABLE` with a bare `ret`, and `OS88_WORKER_RESTARTABLE sc_worker` — WORD's worker and WORD's argument |
+
+**The rule §95.8.1 made outlives the funnel it was put in**: the formats still
+never speak, and `sc_ovsay` — called after each verb, preserving its flags —
+says what they left in `[sc_ovmsg]`. `push cs / pop ds`, the idiom §95.8.2
+records as wrong twice, is right again for the same reason it was right before
+the split: `CS` is the package.
+
+Measured on the tree it landed on:
+
+| | before | after |
+|---|---:|---:|
+| files on the disk | `SCRIBE.O88` + `SCRIBE.OVL` | `SCRIBE.O88` |
+| file bytes | 34,285 + 8,102 = 42,387 | **43,823** |
+| clusters, 1.44MB / 1.2MB (512 B) | 97 | **100** |
+| clusters, 720KB / 360KB (1 KB) | 51 | **52** |
+| resident image | 43,591 | **43,224** |
+| real bss | 7,902 | **7,890** (declared to `SC_P1ORG` = 51,200) |
+| the module | 9,659 | **9,222** |
+| RAM: the program's region and the module | 51,493 + a 10,240-byte claim | **one 59.0K carve** (60,432 bytes) |
+| the program's own claims | 4 of 8 | **3 of 8** |
+| a cold launch's floppy traffic | 16 reads, 141 sectors (§95.8.6, a 5150) | **7 reads, 86 sectors** (`os8088_xt_vga`) |
+
+**The disk is the one column that got worse, and it is the loader**: 1,485
+bytes that pad to three sectors, against a module 437 bytes smaller and an
+image 367 bytes smaller. The loader's image packs to 1,393 and is declined,
+because that still starts the parts at sector 3 (§20.13.8). A single part —
+image, bss and `.modc` as one LZ4 stream — was built and measured at 43,098
+bytes: **one sector better at 512-byte clusters and nothing at 1KB**, and it
+needs `os88pkg.py`'s rule that a package-image part is exactly `image + bss`
+long relaxed for every package, which is the gate that catches a bss that was
+not shipped. Not taken. Part 0 is first because the adjacency is the design,
+so the part that pads is not the last one.
+
+**Two things it costs that are not bytes.** `kern_small` has no
+`OSAPI_PKG_REHOME` (§20.12.10.7), so SCRIBE launches only on `kern_big` —
+WORD's position exactly, and SCRIBE is on no small disk. And `SC_P1ORG` is the
+region whatever part 0 uses, so it is kept to the next sector up (78 bytes of
+headroom when this landed) and raising it is one line by 512 when the
+assertion at `OS88_IMAGE_END` fires.
+
+`tests/scsize.py`'s PARTS leg is the gate: `I_SIZE` is `SC_P1ORG`, the region's
+claim runs past part 1's end, the bytes at `program:SC_P1ORG` are
+`build/scribe.p1.bin`, the claim is movable, and the program holds exactly the
+document's three claims — and every leg after it runs part 1's code.
 
 ### 95.9 Insert ▸ Picture — the document model
 
@@ -152924,6 +153444,7 @@ of the gate did, on a stale `build/ovlz/` copy (`make scribe` does not
 refresh it; `make scribedisk` does). A word in the module naming the
 resident layout - `os88_image_end`, say - compared in `sc_ovload` would
 refuse the pair as "Old SCRIBE.OVL" for a handful of resident bytes.
+*(Fixed by §95.8.7's build stamp, and moot since §95.8.8: there is one file.)*
 ## 96. DOS — running `.COM` and `.EXE` programs (`apps/dos/`)
 
 **Not an emulator.** This machine is an 8086 in real mode and a DOS `.COM` is
@@ -176906,6 +177427,19 @@ two frames a call as ever. Only these are different:
   02 had taken the Hercules's page 1 off the bus for the two-card machine's
   sake. Page 1 is now claimed only where no other card has mapped B8000,
   and it decodes only while 3BFh bit 1 allows it, as on the card.
+- **Page 1 is made BLACK at every bracket's start** (2026-10-16), by
+  `vp_hpg2` once the decode is allowed and page 0 is shown: the mode set
+  clears page 0 alone (§53.10), and `vp_kput` blacks the CANVAS on each
+  page and not the screen round it. Reported off the field: a 600 x 290
+  video played after a 720 x 348 one showed the bigger video's picture
+  round the smaller one at every flip, Paused included - the last play's
+  page 1, outside the rectangle anything here wrote. The whole 32KB is
+  cleared rather than the margin, the page being hidden and the canvas
+  then drawn over it either way. **+17 bytes of `video.o88`'s image, no
+  kernel byte.** `vidpageherc` is the gate: a hold in its first play
+  writes a pattern on page 1 round the canvas, and every later play's
+  holds must show no pixel lit there - with the clear taken out, 35,904
+  sampled pixels are lit at every hold that shows page 1 and it FAILS.
 
 #### 98.3.8.4 Page-ahead on N pages (2026-10-15)
 
@@ -179926,7 +180460,7 @@ SHA-256 in `tools/drmario_assets.py`, which refuses any other bytes. Their
 same kind of departure as `apps/c64/rom/`. So `make` builds `DRMARCO.O88` on
 any clone and it ships like every other game: `GAMES/` on the 1.44MB, 1.2MB
 and 720KB apps disks, `games360.img`, the everything floppy and the live
-media, with `DRMARCO.VGA/.HRC/.CGA` beside it. It is NOT on `apps360.img`
+media - ONE file, its three front screens being parts of it (below). It is NOT on `apps360.img`
 (full, 24.6.1), the 360KB combo, or the kern_small disks, where image + bss
 was 56,333 bytes in one claim against a 53,760-byte arena (37,720 since the
 apps size pass; that ground is unmeasured on the 128KB machine since). `make drmarcodisk`
@@ -179975,12 +180509,36 @@ A desktop splash supplies controls and settings. `front.inc` draws a generated
 capsule-logo/checkerboard scene with DrMarco and virus sprites; H opens a help
 page using the existing gameplay portrait and tile graphics. VGA gets 432x264
 color art; Hercules gets 432x264 line drawings and CGA gets 432x132 line drawings.
-The supporting `DRMARCO.VGA`, `.HRC`, and `.CGA` files ship beside the package.
-Each has a DMF1 header, dimensions/depth, two row-offset directories and bounded
+The three front screens `DRMARCO.VGA`, `.HRC` and `.CGA` are PARTS of
+`DRMARCO.O88` (§20.12): `OP_ASSET | OP_LAZY | OP_COMP` rows, so they cost the
+launch nothing and the one wanted is fetched, expanded and banked when the
+splash first needs it. They were three files beside the package, which a user
+scrolled past in every Disk window and had to keep together when copying.
+The table's order is HRC, CGA, VGA, and `[dm_artkind]` is the row plus one:
+the VGA stream pads most to its sector (14,364 bytes packed, 484 short of
+one) and the LAST part is not padded at all, so it goes last - 413 bytes off
+the file against VGA first. Each screen is still the file it was, with a
+DMF1 header, dimensions/depth, two row-offset directories and bounded
 repeat/literal row streams (four native VGA planes per color row, packed bits
 per monochrome row). Repeated rows share directory offsets, including across
-the two pages. Only the current adapter's resource is loaded into
-an instance-owned movable claim. The painter uses bounded REP span decoding
+the two pages. Only the current adapter's screen is fetched, into a claim
+that is declared movable: its proc rewrites the row's `zkb` as well as
+`[dm_artseg]`, because the row is where `op_drop` finds the claim it frees
+(§20.12.7.4). A change of adapter class drops the screen it leaves first.
+The header checks the loader made of a loose file are gone with the file:
+the part's length is the row's `len` and the row decoder still bounds every
+packet by it.
+
+What it bought, measured on the tree it landed on: four files of 21,320 +
+26,947 + 10,112 + 5,139 bytes - 64 clusters at 360KB - became one of
+**48,156**, 48 clusters, because the parts are LZ4 (§20.12.7.4) and the parted
+image is packed as well (§20.13.8). `games360.img` went 259 -> 243 of 354
+clusters, the 1.44MB and 1.2MB apps disks 1,636 -> 1,603, and `make
+drmarcodisk`'s floppies 80 -> 64 (360KB). The image grew 835 bytes for the
+standard's code and the bss 104 for its own words, after §20.12.9.3 took
+836 bytes of eager-load code back out of it. LZB parts would be 45,008 bytes,
+four clusters fewer again, for a fetch ~4x slower to expand (§20.13.5) - a
+per-package choice that is the owner's, and not taken. The painter uses bounded REP span decoding
 into the idle fullscreen font cache, then presents up to 16 rows per OS blit.
 Mode entry rebuilds that cache; the game queue holds a single-row packed
 fallback. No framebuffer or extra pixel storage is added. A real window
@@ -180138,19 +180696,28 @@ VGA keeps its terrain ring in offscreen video RAM after the two display
 pages, followed by the sprite cache. The original-art build scrolls a cyclic
 native backdrop through the same display paths.
 
-Three instance-owned claims hold two sprite banks and terrain/canvas data; the
-loader releases them. Each is sized at assembly time from what is read or
-composed into it, not a flat 64KB: a sprite claim is the larger of its VGA and
-CGA bank (the first also holds the desktop's rendered menu labels, see 101.5),
-and the canvas is the largest of the scene, the splash cache, `1942L.GFX` and
-CGA's 32KB composition (the cartridge
-build keeps 64KB for its upper-half world bank). The original-art build
-claims 61+46+7KB where it claimed 192KB. Every bank read passes its exact size
-as `OSAPI_FILE_READ`'s capacity, so a longer file is refused, never overrun. The XT target remains 640KB RAM. Enter/F enters or
-resumes the FSX bracket; Escape/F restores the desktop. An executable-resident
-bitmap says `1942  LOADING GRAPHICS` before the first disk read, including
-resume and scenery reloads. It does not depend on the graphics being loaded.
-Missing or invalid graphics return to the launcher with an error.
+The instance holds ONE claim for its whole life, the canvas, sized at
+assembly time from what is composed into it: the desktop splash cache or
+CGA's 32KB composition, 61KB (the cartridge build keeps 64KB for its
+upper-half world bank). Everything the game READS is a part of `1942.O88`
+(101.6) fetched into a claim of its own on the way into the FSX bracket: the
+two sprite banks for the adapter in use are held for the bracket and dropped
+on every way out of it (`n_dropgfx`), and the latch cache, a scene and the
+effects bank are copied where they are used and dropped at once. So the
+desktop holds 61KB where it held 61+46+7KB, and the bracket adds 18KB of
+banks on VGA and 53KB on CGA, plus one transient scene claim while a scene
+loads (op_fetch's R plus the packed read: 62KB on VGA, 16KB on CGA). The four
+rendered menu labels (101.5) live in the instance's bss. The XT target
+remains 640KB RAM. Enter/F enters or resumes the FSX bracket; Escape/F
+restores the desktop. **The heap is asked on the desktop first** (`n_fsxroom`):
+both banks plus the largest scene, each priced as `op_fetch` will claim it -
+because the fetches run after the mode is set, where a refusal's toast would
+be drawn into the game's own framebuffer (§53.7). A heap that cannot hold
+them leaves the window saying so; what is left to refuse inside the bracket is
+a disk that will not read. An executable-resident bitmap says
+`1942  LOADING GRAPHICS` before the first disk read, including resume and
+scenery reloads. It does not depend on the graphics being loaded. A part
+that cannot be fetched returns to the launcher with an error.
 
 ### 101.2 Graphics files
 
@@ -180163,9 +180730,10 @@ streams represent horizontal phases. Width bit 7 identifies compiled CGA
 The host gate decodes their opcodes and checks store bounds. Other streams
 contain offset/count records terminated by FFFFh; VGA runs contain color
 bytes, CGA runs contain a type (opaque or AND-mask/OR-data) and data.
-Offsets use an 80-byte destination stride. The guest verifies expected
-length and 16-bit byte checksum before following offsets. These checks
-catch accidental damage, not malicious executable files.
+Offsets use an 80-byte destination stride. A bank is a part of the package
+built with it (101.6), so its length is its row's and a stream that does not
+expand to exactly that is refused by `op_fetch`; the size and 16-bit checksum
+the guest checked while banks were separate files - a stale pair - are gone.
 
 `1942L.GFX` holds four planes of the deduplicated VGA sprite cache. Grouped-mask display
 lists are generated into the package. The host refuses segment/cache overflow.
@@ -180190,9 +180758,10 @@ CGA row sampling uses floor(y*6/5); VGA uses the cartridge rows directly.
 Pause freezes scrolling; fullscreen resume reconstructs the same route
 position after the video mode and graphics caches are reloaded.
 
-Original-art builds retain `SEA.V42`, `REEF.V42`, `PORT.V42` (`N42B`, length,
-adapter byte 0, reserved byte, four 64x240 planes), and `.C42` equivalents
-(adapter byte 1, 80x200 packed bytes). Families cycle every four stages.
+Original-art builds retain `SEA.V42`, `REEF.V42`, `PORT.V42` (four 64x240
+planes) and `.C42` equivalents (80x200 packed bytes) - headerless since they
+became parts, the row carrying the length the `N42B` header did. Families
+cycle every four stages.
 Generated sprite/palette JSON beside the binaries supports independent tests.
 Source-selection stamps ensure switching between cartridge and original art
 rebuilds the matching package and disks.
@@ -180219,7 +180788,8 @@ completion/escape controls, results bonus boundaries, extra lives, two-player
 turns, sound controls, natural spawning, all aircraft kinds, bosses, victory,
 scenery/route transitions,
 ring wrapping, pause/resume, palette cycling, full-refresh equivalence and
-missing/damaged file rejection. The independent terrain reference reads
+refused parts (a scene row whose length no longer matches its stream, a bank
+row pointed past the end of the file). The independent terrain reference reads
 CHR, metatiles and route bytes directly from the local cartridge rather than
 using the generated world bank or guest cache. VGA scanout mode is checked
 separately from plane contents. Performance includes rendering, presentation
@@ -180323,7 +180893,9 @@ edits in `apps/1942/sfx/CREDITS.md`). Music stays on FM. The bank contains a
 16-byte N42S header and 1024/3072/4096 bytes of unsigned 8-bit mono PCM at
 8000 Hz; its length, header and checksum are checked before use.
 A page-safe 13KB DMA claim holds three prepared 4096-byte rings and their
-control words at offsets 0, 4112 and 8224. The bank is read and validated at
+control words at offsets 0, 4112 and 8224. The bank, a part (101.6), is
+fetched only when the card can play it and the heap can hold it - asked first,
+so a busy heap is FM effects and not a toast inside the bracket - copied to
 offset zero, then expanded in place, last sample first. Each one-shot is
 padded with silence and played directly through SND_STREAM's external-ring
 interface. Starting an effect copies no samples. No mixer or refill worker
@@ -180331,13 +180903,10 @@ is needed.
 At most one pending sample starts per game frame; louder events take priority
 over shots. Mute/pause cancels effects; exit closes the stream before freeing
 the claim. Missing samples, memory or unsupported DSP fall back to FM.
-The 360KB original-art disk omits the optional bank for space; the cartridge
-360KB disk and 1.44MB disk include it. **The 360KB disk carries every bank
-lz4-packed** (§20.14): raw, the original-art set is 355 data clusters of 354
-and never fitted, and every bank is read with `OSAPI_FILE_READ`, the
-transparent read, so the package's size and checksum tests see the same bytes
-(230 of 354 packed). The 1.44MB disk keeps them raw. The old tone path already
-used hardware tones, so richer sound does not promise an XT speedup.
+The bank rides inside `1942.O88` on every disk (101.6), the 360KB one
+included, where as a separate file it was left off for space. The old tone
+path already used hardware tones, so richer sound does not promise an XT
+speedup.
 Both palette sets at $A770/$A790 are available for the cartridge's final area.
 Original-art builds implement the same game rules using original fallback
 assets and native schedules. No extracted cartridge content is committed.
@@ -180372,6 +180941,59 @@ which is idle on the desktop, and `n_launch` invalidates them because the
 graphics load refills that claim. Kernels without window timers decode the cache during entry and
 show the static splash.
 
+### 101.6 The banks are parts of `1942.O88`
+
+`1942.O88` is the whole game. Its twelve data files - two sprite banks and
+their continuations, the VGA latch cache, the effects bank and six scenes
+(two worlds in a cartridge build) - were sidecars beside it, and are
+`OP_ASSET, OP_LAZY | OP_COMP` parts now (§20.12, §20.12.7.4), lz4-packed by
+`os88pkg.py`. **Every row is lazy because only the adapter in use is ever
+read**: a VGA machine never touches a CGA byte, nothing is read at launch, and
+the table has no carve (§20.12.9.3). `op_fetch` claims, reads and expands a
+part; the banks are held for the bracket, the rest is copied and dropped.
+`OP_NO_LAZYOK`: the one question asked ahead, `n_fsxroom`, prices the parts
+with `op_lazykb` itself, and the effects bank asks the same way before it
+fetches.
+
+| row | part | unpacked | packed |
+|---|---|---:|---:|
+| 0 | `1942V.GFX` | 15,053 | 12,270 |
+| 1 | `1942VX.GFX` | 2,330 | 2,083 |
+| 2 | `1942L.GFX` | 16,312 | 6,672 |
+| 3 | `1942C.GFX` | 46,356 | 27,750 |
+| 4 | `1942CX.GFX` | 6,630 | 4,743 |
+| 5 | `1942.SFX` | 8,208 | 7,729 |
+| 6-8 | `SEA` `REEF` `PORT.V42` | 61,440 each | 41,904 / 41,826 / 37,737 |
+| 9-11 | `SEA` `PORT` `REEF.C42` | 16,000 each | 5,875 / 5,560 / 5,117 |
+
+**The row order is the Makefile's `N1942PARTS`** and `video.inc`'s `N_P_*`
+(`n_scenerow` maps a scene to its row), and `tests/n1942.py --assets-only`
+checks every row against the file the code names. **`REEF.C42` is last**
+because it pads most to its sector (510 bytes) and the last part is not
+padded; and the scenes lost their 8-byte `N42B` header, which nothing read
+once the row carried the length - together the two are what bring the file
+under a 1,024-byte cluster, 233,469 bytes against 233,472.
+
+Measured against the tree before, original art: the image 36,738 -> 37,671
+bytes (the standard's fetch code, +933) and the bss 4,800 -> 6,438 (`OP_BSS`
+and the menu labels' 1,536, which were in the sprite claim). The file is
+233,469 bytes, its image packed (§20.13.8).
+
+| disk | before | after |
+|---|---|---|
+| `1942-360.img` | 14 files, 229 clusters, **no effects bank** | 3 files, 235 clusters, with it |
+| `1942.img` (1.44MB) | 15 files, 719 clusters, banks raw | 3 files, 469 clusters |
+| `make allapps`, 1.44MB set | 2 disks, 4,705 clusters | 2 disks, 4,455 |
+| `make allapps`, 1.2MB set | **3 disks**, 4,710 clusters | **2 disks**, 4,455 |
+
+On the 360KB disk the banks were already lz4-packed files, so the parts save
+only their cluster rounding against a sector's padding each and the standard's
+code: 2 clusters, and 11 directory entries. The effects bank it now carries
+costs 8 - it was left off for space, and one file that serves every geometry
+has no reason to. The 1.44MB disk carried the banks raw, so there the
+compression is most of the 250. On the everything set the game
+leaves its own `1942\` folder for `GAMES\`: one file needs no folder.
+
 ## 102. Excitebike — native motocross racer (`apps/excitebike/excitebike.asm`)
 
 A standalone native game in the shape of DrMarco (§100) and 1942 (§101): a
@@ -180403,14 +181025,15 @@ blob under `apps/excitebike/`.
 `make excitebike` builds `build/excbike.o88` (header name `EXCITEBIKE`; the
 file is `EXCBIKE.O88` because an 8.3 stem is at most 8 characters);
 `make excitebikedisk` builds four standalone floppies (1.44MB, 720KB, 1.2MB,
-360KB, each `os88disk.py --verify`'d in the recipe) carrying the package,
-`README.md`, `EXBV.GFX`, `EXBC.GFX`, `EXBH.GFX` and the three `EXBSPL.*` files; `make
+360KB, each `os88disk.py --verify`'d in the recipe) carrying the package and
+`README.md` - the art files `EXBV.GFX`, `EXBC.GFX`, `EXBH.GFX` and the three
+`EXBSPL.*` are PARTS of the package (102.10), not files beside it; `make
 excitebiketest` runs the front-end gate. The package is `local` in
 `apps/RETIRED.txt` (§20.16): it is not in `all`, on the standard images, the
 allapps floppy or the live media. Its art is committed, so it needs no
 user-supplied asset; whether it should ship is the maintainer's decision.
 Nothing here spends a kernel byte: no new `OSAPI_*` slot, no driver, no kernel
-change. The package's image is 31,344 bytes and its bss 9,596 (40,940; the apps size pass, 102.9; wave 7:
+change. The package's image is 31,538 bytes and its bss 9,696 (41,234; the art as parts, 102.10; the apps size pass, 102.9: 31,344 + 9,596; wave 7:
 53,590; wave 6: 53,366), against the loader's 61,440.
 
 **Waves.** This is wave 7 of 7 (plan section 16): the compilers, the
@@ -180716,8 +181339,8 @@ exceeding one fails the build with the name and the number:**
 | `EXBH.GFX` | 16,384 | (wave 6) |
 | each `EXBSPL.*` | 24,000 | 12,457 / 3,498 / 4,866 |
 | `EXB.SND` | 3,072 | 297 |
-| package image + bss | 61,440 | 40,940 (image 31,344 + bss 9,596; wave 4: 46,413) |
-| whole game on a 360KB disk | 130 KB | 52 KB (56 of 354 clusters: the art files and `README.md` ride LZ-wrapped, 102.9) |
+| package image + bss | 61,440 | 41,234 (image 31,538 + bss 9,696, 102.10; wave 4: 46,413) |
+| whole game on a 360KB disk | 130 KB | 52 KB (55 of 354 clusters: the art is six compressed parts of `EXCBIKE.O88` and `README.md` rides LZ-wrapped, 102.10) |
 | sprite claim (VGA / CGA) | 44 / 17 KB | 28.4 / 10.3 KB (29,113 / 10,578 bytes, 28 poses) |
 | band dictionary | 72 columns | 61 |
 
@@ -180726,9 +181349,12 @@ exceeding one fails the build with the name and the number:**
 length; `+6` word checksum; `+8` byte format 1, byte adapter (0 VGA, 1 CGA, 2 Hercules);
 `+10` word record count (10); `+12` a directory of (word offset, word length).
 The checksum is the 16-bit sum of every byte of the file with the checksum word
-taken as zero; the guest verifies magic, length, the compiled-in checksum
-(`EXB_GFX_*_SUM`, an `equ` the compiler writes into `exbtables.inc`) and the sum
-itself before following any offset in the file. Records, by id (`EXBR_*`):
+taken as zero. The compiler still writes it (and `EXB_GFX_*_SUM` into
+`exbtables.inc`, which `tests/excitebike_assets.py` holds the file to), but
+**the guest no longer verifies it**: since 102.10 the file is a part of the
+package itself, expanded by the kernel's bounded decoder to exactly its row's
+length, so a stale or damaged PAIR - what the magic, the length and the sum
+were for - cannot happen. Records, by id (`EXBR_*`):
 0 TILES (VGA 32 bytes a tile, plane-major, 8 rows a plane; CGA 16 bytes, two a
 line, 2 bits a pixel through the ink map; Hercules the same 16 bytes with a PAIR of card pixels a
 game pixel, 102.7.1); 1 BAND (16 tile ids a column: rows
@@ -181683,8 +182309,8 @@ and track told apart and the rider readable - and are unchanged.
 and 360KB, each `os88disk.py --verify`'d in the recipe. `tests/excitebike_geom.py` (`make
 excitebikegeom`) holds them to more. `--host` (row `excitebikegeomhost`, no emulator) walks each of
 the four with `tests/unit/t_image.py`'s FAT12 reader - deliberately not os88disk's - and requires
-the geometry the name says (sectors per track 18, 9, 15, 9), exactly the eight files
-(`EXCBIKE.O88`, `README.MD`, `EXBV.GFX`, `EXBC.GFX`, `EXBH.GFX`, `EXBSPL.VGA`, `.CGA`, `.HRC`) in the
+the geometry the name says (sectors per track 18, 9, 15, 9), exactly the two files
+(`EXCBIKE.O88` and `README.MD`; it was eight until the art became parts, 102.10) in the
 root with every chain whole and of the right length for its size, the same bytes in all four
 geometries and `EXCBIKE.O88` equal to `build/excbike.o88`; its negative control damages one FAT
 entry in the package's chain and the same walk must fail. `--boot G` (rows `excitebikeboot360`,
@@ -181699,9 +182325,10 @@ hand on 86Box's `286-525` by pointing that profile's `fdd_02_fn` at `build/excit
 nothing here can drive.
 
 **102.8.3 The low-memory refusal, and the bug it found.** Before wave 7 every refused claim of the
-bracket ended as `EXB?.GFX MISSING`, a sentence about files. `XB_ERR_MEM` = 3 is the new answer
+bracket ended as `EXB?.GFX MISSING`, a sentence about files (since 102.10 the non-memory sentence is
+`CANNOT LOAD THE RACE`: there are no such files any more). `XB_ERR_MEM` = 3 is the new answer
 (`const.inc`): `xb_nomem` is set by each of the three `OSAPI_MEM_CLAIM` sites of the bracket (the art
-claim in `xb_gfx_load`, the sprite claim in `xb_spr_load`, the 48KB dictionary claim in `xc_init`) and
+claim in `xb_partget`, called by `xb_gfx_load`, the sprite claim in `xb_spr_load`, the 48KB dictionary claim in `xc_init`) and
 `xb_fsassetfail` turns it into `xb_error` = XB_ERR_MEM, which the splash prints on its last line as
 **`NOT ENOUGH MEMORY`**. Everything the attempt claimed is freed (the leave path is the one every
 refusal already took). Writing the test found a real defect underneath: **`xb_spr_load` treated the
@@ -181815,6 +182442,65 @@ cost the CGA what it saved the VGA, and leave the splash rows with nowhere to li
 A delta-coded splash (each row stored as its difference from the row above: the VGA file
 12,457 -> 6,553 bytes, its desktop claim 13 -> 7 KB) was built and REVERTED: a help-page reveal
 step measured 68 ms against `tests/excitebike_front.py`'s 55 ms gate. It is the largest win left.
+
+### 102.10 The art files are parts of the package (2026-10)
+
+The six art files rode beside `EXCBIKE.O88` on every floppy that carried it: three splash screens
+(`EXBSPL.VGA`, `.HRC`, `.CGA`) and three game art sets (`EXBV.GFX`, `EXBC.GFX`, `EXBH.GFX`). Nobody
+opens them - they are the program's, read by it and by nothing else - so they were six names in the
+Disk window a player had to keep with the game. They are now **six rows of the package's own part
+table** (§20.12), every one `OP_ASSET`, `OP_LAZY | OP_COMP | OP_SELF`. `README.md` is a document and
+stays a file.
+
+**Every row is lazy, because no launch wants all six, and only the current adapter's two are ever
+read.** A splash screen is read when the window first paints on an adapter class and freed when it
+leaves it (`xb_frontload`, `front.inc`), and the claim stays MOVABLE across a fullscreen visit
+exactly as before (§66): it is a plain claim the package made, so its relocation proc is the one
+word it always was. A game art set is read in the bracket under the loading screen and freed the
+moment the back end is built from it (`xb_gfx_load`, `video.inc`), also as before. There is no carve:
+a part every launch wanted would have been an eager row, and none is. `OP_COMP` everywhere: LZ4 takes
+the splash screens to 38-63% and the art sets to 40%, which is a sector or more on every row.
+
+**`OP_SELF`, and not `op_fetch`, because of where the art is read.** `op_fetch` refuses with a toast,
+and a toast composes the menu bar - a drawing slot, which §53.7 forbids once `OSAPI_FSX_MODE` has run.
+The loading screen is drawn after the mode set and exists so the read happens under it; moving the
+read in front of the bracket would have put ~1.4 s of frozen splash between Enter and anything
+happening (Set 153's art read). So the package reads its parts itself: `xb_partget` is `op_fetch`'s
+arithmetic to the letter (§20.12.7.4: the read starts on the cluster at or below the part, lands
+`R = roundup512(len - packed)` up the claim and expands down onto its base, and the claim is then
+shrunk to the part), over the standard's own `op_clbget`, `op_read` and read cursor, and it returns
+CF instead of toasting. **A refused CLAIM still sets `xb_nomem`**, so a machine with too little
+memory still reads `NOT ENOUGH MEMORY` on the splash (102.8.3); anything else - an unreadable floppy,
+a stream that will not expand - is `CANNOT LOAD THE RACE`, where it was `EXB?.GFX MISSING`, and the
+splash's own failure is `Graphics unavailable` (it used to tell the user to keep `EXBSPL.*` together).
+`OP_SELF` also keeps `op_fetch`, `op_drop`, `op_lazykb` and `op_lazyok` out of the image (§20.12.9.1):
+measured, the same rows fetched with `op_fetch` made the image **32,325** bytes against 31,538 - +984
+over the package before this, and two sectors more of packed image, which is a cluster more on every
+512-byte-cluster floppy.
+
+**What the guest stopped checking.** The magic, length and checksum `xb_gfx_load` verified, and the
+EXF1 header `xb_frontload` verified, were there against a stale or damaged FILE beside the package.
+The bytes are the package's own now, expanded by the kernel's bounded decoder to exactly the row's
+length, and `op_read` refuses a short read - so those checks had nothing left to catch, and went. The
+splash decoder's per-packet bounds stay: they index the data.
+
+**Order.** `os88pkg.py` starts each part on a sector and does not pad the last, so the row that
+would pad most goes last. Packed: `EXBSPL.HRC` 2,727, `EXBC.GFX` 5,038, `EXBH.GFX` 5,062, `EXBV.GFX`
+5,428, `EXBSPL.VGA` 4,755, `EXBSPL.CGA` 2,193 - the CGA splash pads 367 bytes and is last.
+
+| | before | after |
+|---|---:|---:|
+| image / bss | 31,341 / 9,596 | 31,538 / 9,696 |
+| `EXCBIKE.O88` | 24,296 | 50,833 (the image packed to 24,539, then six parts) |
+| the six art files beside it | 25,251 bytes in six files | none |
+| files in each game floppy's root | 8 | 2 |
+| clusters, 360KB / 720KB | 56 / 56 | **55 / 55** |
+| clusters, 1.44MB / 1.2MB | 109 / 109 | 109 / 109 |
+
+The image's +197 is the standard's load path (the part table, the name copy, `op_read`, `op_clbget`,
+`op_seg`, the read cursor) and `xb_partget`, less the two loaders and their checks; the bss's +100 is
+the standard's `OP_BSS`. What lets the 1.44MB and 1.2MB floppies break even rather than lose a
+cluster is §20.12.9.5: 111 bytes of the standard's refusal machinery this table cannot reach.
 
 
 ## 103 REDLINE — CPU and graphics benchmarks (`apps/redline/`)
@@ -183285,64 +183971,103 @@ the card's 8-pixel grid, five faces at a pitch of 48, and the rack the rest
 so the panes' last rows line up across the window: Load Directory with Eject
 and Loop, Add and Remove with the transport's bottom edge.
 
-**The faces are a file beside the package, `MIDIRACK.GFX`**, read at entry
-into a claim of its own (11 KB) **only on a colour primary**, so a Hercules
-or a CGA machine never reads it. **The file carries five of the fifteen**
-(apps size pass 2): the up faces, then an 86-byte recipe - the pressed
-frame's three rows a plane, the two bytes a moved row fixes a plane, the
-greyed wipe's row - 3,686 bytes where it was 10,800, **780 LZ-wrapped where
-it was 2,025, one cluster where it was two**. `mra_derive` makes the other
-ten in the claim, which is STATE-major (the five up, the five pressed, the
-five greyed) so the up faces are read straight to where they stay: a
-pressed face is its up face's row above, a pixel right, between the pressed
-frame's rows with two bytes a row set to the frame's; a greyed face wipes
-the contents to the face's grey and embosses the shape - the up face's
-COLOURED pixels above row 14, its BLACK ones from it - white a pixel down and
-right, dark grey on top. `tools/os88midart.py`'s `derive_pressed()` and
-`derive_greyed()` are those loops and its selfcheck holds them to the fifteen
-faces it draws, with a negative control; `--check-asm` holds the package's
-`MRA_` numbers to its own. `mra_load` and `mra_derive` live in the image's
-tail (105.6.1), so they cost no RAM. MEASURED on MartyPC's VGA XT, against
-the claim and the screen: the claim's 10,800 bytes are the generator's to
-the byte and the window is pixel-identical to the fifteen-face file's; the
-load is **413.8 ms where it was 364.5 - +49.3 ms** of launch, and only on a
-colour primary: the read and its LZ expansion fall 361.6 -> 281.1 ms and the
-derivation is ~132 ms. A file from before pass 2 is refused by its size
-(the transport is then code-drawn) and so is this one by an older package. It is a
-sidecar and not a part (§20.12) for one measured reason: `os88pkg.py` refuses
-to compress an image that has parts, and this image packs 30 KB to 25. A disk
-without the file, a heap without the room, a block the card refuses (a window
-straddling two displays, §5.4.3) - each is the code-drawn bevelled button
-with the caption, a complete face rather than a broken one.
+**The faces are PART 0 of `MIDIRACK.O88`** (§20.12) - an `OP_ASSET`,
+`OP_LAZY | OP_COMP | OP_SELF` row - read at entry into a claim of its own
+(11 KB) **only on a colour primary**, so a Hercules or a CGA machine never
+reads a byte of it. **The part carries five of the fifteen** (apps size pass
+2): the up faces, then an 86-byte recipe - the pressed frame's three rows a
+plane, the two bytes a moved row fixes a plane, the greyed wipe's row -
+3,686 bytes where it was 10,800, **772 packed** (LZ4, `--part-compress`'s
+default). `mra_derive` makes the other ten in the claim, which is
+STATE-major (the five up, the five pressed, the five greyed) so the up faces
+are expanded straight to where they stay: a pressed face is its up face's
+row above, a pixel right, between the pressed frame's rows with two bytes a
+row set to the frame's; a greyed face wipes the contents to the face's grey
+and embosses the shape - the up face's COLOURED pixels above row 14, its
+BLACK ones from it - white a pixel down and right, dark grey on top.
+`tools/os88midart.py`'s `derive_pressed()` and `derive_greyed()` are those
+loops and its selfcheck holds them to the fifteen faces it draws, with a
+negative control; `--check-asm` holds the package's `MRA_` numbers to its
+own, and `t_midtab` holds the BUILT package's part 0 to what the generator
+draws. MEASURED on MartyPC's VGA XT when it was a file, against the claim and
+the screen: the claim's 10,800 bytes are the generator's to the byte and the
+window is pixel-identical to the fifteen-face file's; the load was **413.8
+ms**, of which the derivation is ~132 ms.
+
+**Why `OP_SELF` and not `op_fetch`.** `mra_load` and `mra_derive` live in the
+image's TAIL (§105.6.1) - read once, by `mr_entry`, and then laid over by
+`mrk_pring` and `mrl_ent` - so they cost no RAM, and so do the part table
+and `op_load`, which are there too. The standard's fetch is ~800 bytes and
+the tail had 248 spare, so the package reads its one part itself, which is
+what `OP_SELF` is for (§20.12.9.1): the row's packed stream, at its own
+SECTOR (`READ_AT`'s unit on `kern_big`, §18.4.4.2; `kern_small` draws no
+colour and ships no MIDIRack), read `R = roundup512(len - packed)` up the
+claim and expanded down onto its base with `OSAPI_DECOMP` - §20.12.7.4's
+arithmetic, ~60 bytes. With no carve and no fetched row the standard then
+reads nothing itself, and §20.12.9.4 gates what that leaves unreachable: its
+whole emission here is 102 bytes against 372, the tail 2,992 of its 3,072.
+`op_load`'s bss is laid over `mrt_z`, the tables' stream `mrt_unz` has
+already spent, so `mr_entry` banks the kernel's name pointer across that
+call and makes `op_load` its second rather than its first. **The claim is
+MOVABLE** (§66): `mra_seg` is the only word that names it and a paint
+reloads ES from it per face, so `mra_reloc` is one store.
+
+**It was `MIDIRACK.GFX` beside the package** for one measured reason that
+§20.13.8 has withdrawn: `os88pkg.py` refused to compress an image that has
+parts, and this one packs 36 KB to 28. It is the program's own art and no
+user opens it, so it is not a document and it is not a file. A heap
+without the room, a read that fails, a block the card refuses (a window
+straddling two displays, §5.4.3) - each is still the code-drawn bevelled
+button with the caption, a complete face rather than a broken one.
 
 ### 105.10 Disks and cost
 
-`MIDIRACK.O88` is **36,320 bytes of image and 10,414 of bss (29,486 bytes,
-28.8 KB, packed)**, measured at v1.0.20261003 - MIDI out (§105.8.5) and the
+`MIDIRACK.O88` is **36,490 bytes of image and 10,914 of bss, and ONE FILE of
+29,956 bytes**: the image packed to 29,141 (§20.13.8), its sector's 43 bytes
+of padding, and part 0, the colour face's pictures, 772 (§105.9.5). It was
+36,310 / 11,082 and two files, 28,965 bytes and `MIDIRACK.GFX`'s 780: the
+image grew 180 bytes and its bss shrank 168, because all but 12 of the
+growth is in the tail that bss is laid over, so the REGION grew **12 bytes**
+(`mr_entry`'s name bank and `mra_reloc`). MIDI out (§105.8.5) and the
 wavetable (§105.8.6) took it from the 32,416 / 9,710 / 25.8 KB this section
-first gave. §105.9.4's caches are ~2.4 KB of that bss and §105.9.5's colour
-face ~2.1 KB of the image. It rides `APPS\` on the 1.44 MB, 1.2 MB and 720 KB
-apps disks with the songs LZ-wrapped in `MEDIA\MIDI\` (ten songs, 27
-clusters) and `MIDIRACK.GFX` beside it (1 cluster since apps size pass 2,
-105.9.5). **The 720 KB disk
-carries two songs and not the pictures** (BATTLE1 and INTRO, 7 clusters; the
-player is 29) **and is FULL: 713 of 713 clusters**, so the next byte anything
-on it grows by is a curation decision for that disk, not a build fix. **The
-360 KB apps disk carries none**: it is curated (§24.6.1) and had 12. At 360 KB
-the player, its pictures and all ten songs ride the MEDIA disk
-(`media360.img`, 207 of 354), the floppy whose subject is music already. All
-three are decisions with this section's date on them.
+first gave; §105.9.4's caches are ~2.4 KB of the bss and §105.9.5's colour
+face ~2.1 KB of the image. **The disks lost a file and kept their clusters**
+- 59 sectors either way, so 1,603 of 2,847 on the 1.44 MB apps disk and
+1,603 of 2,371 on the 1.2 MB both before and after, 206 of 354 on
+`media360.img`, 269 of 354 on `midirack360.img`; the live media's 2 KB
+clusters save one. It rides `APPS\` on the 1.44 MB, 1.2 MB and 720 KB apps
+disks with the songs LZ-wrapped in `MEDIA\MIDI\` (ten songs, 27 clusters).
+**The 720 KB disk carries two songs** (BATTLE1 and INTRO, 7 clusters; the
+player is 30) and, since the pictures stopped being a file it could leave
+off, **the colour face too: 640 of 713 clusters**, one more than without it.
+**The 360 KB apps disk carries none**: it is curated (§24.6.1) and had 12. At
+360 KB the player and all ten songs ride the MEDIA disk (`media360.img`, 206
+of 354), the floppy whose subject is music already. All three are decisions
+with this section's date on them.
 
 **`make midirackdisk`** is the player's own floppy in all four geometries:
-`MIDIRACK.O88`, `MIDIRACK.GFX` and `MIDIRACK.BNK` (unwrapped, §105.8.6) at
-the root, the ten songs in `MEDIA\MIDI\` and `SYSTEM\APPDATA\` for its
-settings - 270 of 354 clusters at 360 KB, the bank being 206 of them. It
+`MIDIRACK.O88` and `MIDIRACK.BNK` (unwrapped, §105.8.6) at the root, the ten
+songs in `MEDIA\MIDI\` and `SYSTEM\APPDATA\` for its settings - 269 of 354
+clusters at 360 KB, the bank being 206 of them. **The bank stays a file, and
+it is not a part for four reasons**, each one sufficient: it is OPTIONAL and
+a part is not - the apps disks carry the player without it, the wavetable
+greys and says why, and a part cannot be absent from a file, so the same
+`MIDIRACK.O88` would have to be two files with one name or 206 KB on every
+apps disk, which the 720 KB and 360 KB ones cannot hold; it is SWAPPABLE by
+design - `make mrwttest` puts `os88midbank.py synth`'s CC0 bank beside the
+very package `midirackdisk` puts GeneralUser's beside, and the format is the
+documented container any SoundFont `os88midbank.py build` reads becomes; it
+is FETCHED and never committed (§105.8.6), so a part would make `all`'s
+package depend on the network; and it is someone else's work under its own
+licence, which a separate file keeps separable. It
 needs `make midibank` (the fetch, once). The bank also rides `APPS\` on the
 everything set and the live media (§80), whose premise is completeness; no
 other shipped floppy carries it. The `kern_small` disks leave it off (§24.5's table): its outputs are
 a driver's and a rate bracket's, and the songs go with it. **The Wire** (§92)
-serves it as an ARCHIVE (§92.13) - the player, `MIDIRACK.GFX` and the ten
-songs in a `MIDI\` folder beside it, the first place §105.3.1 looks - and
+serves it as an ARCHIVE (§92.13) - the player and the ten songs in a
+`MIDI\` folder beside it, the first place §105.3.1 looks; the archive packed
+before §105.9.5 made the pictures a part also carries `MIDIRACK.GFX`, which
+this package no longer reads - and
 **never the bank**, which is over `WIRE_FILEMAX` in either kind of record.
 `SOUND.DRV` grew 603 bytes of image for §34.12 and 420 for §34.13 (5,098 to
 5,997 bytes on the system disk, packed); no kernel byte moved.
@@ -183358,9 +184083,12 @@ loops or advances; and the captures (`MARTYPC_WAV`) carry the song's notes.
 **`tests/mrdraw.py`** prices the window (§105.9.4) - rows `mrdraw` (the 5150's
 Hercules) and `mrdrawvga` (the VGA XT, the colour face): every drawing call
 per gesture under a ceiling a repaint blows through, and the picture the
-caches drew identical to a forced repaint's. `tests/unit/t_midtab.py` (soak)
-also holds `tools/os88midart.py`'s selfcheck and the four numbers the package
-states about `MIDIRACK.GFX`.
+caches drew identical to a forced repaint's - and `mrdrawvga` first asserts
+that part 0 WAS read (`mra_seg` non-zero), because a miss falls back to the
+code-drawn buttons in silence and would pass every other assertion.
+`tests/unit/t_midtab.py` (soak) also holds `tools/os88midart.py`'s selfcheck,
+the numbers the package states about its faces, and the built package's
+part 0 against the generator's bytes.
 
 Three more rows: `midirackmpu` (MIDI out, on a 5150 whose ONLY card is
 MartyPC's recording MPU-401 - so `SOUND.DRV` attaches on it alone, booted
@@ -183552,7 +184280,10 @@ command costs since, and 106.16 the colour face's full repaint.)
 PIXEL.O88 carries a parts table (§20.12). Every row is `OP_SEG|OP_COMP|
 OP_LAZY` (below: the compression came back with the speed wave's shadow):
 a flat binary at org 0, appended by `os88pkg.py --part`, fetched into a
-claim of its own when first wanted and dropped after. The header every part
+claim of its own when first wanted and dropped after. The one exception is
+the LAST row, part 9: the colour face's pictures (106.16), an `OP_ASSET`
+with no header and no vectors, which nothing far-calls - it is read through
+`[pxa_seg]` and never dropped. The header every part
 opens with (`apps/pixel/pxpart.inc`):
 
 ```
@@ -184219,7 +184950,7 @@ carries meaning:
   painted by PiXEL (`OS88UI_BOWN`, §13.8.10; `px_lab_col` points every label
   at `px_bpaint`), so the library's press, drag-off and release redraw this
   face and not the standard one. The toolbar's ten and the tool column's six
-  are **`PIXEL.GFX`'s pictures, one `OSAPI_GFX_BLITP` each**: a black frame
+  are **part 9's pictures, one `OSAPI_GFX_BLITP` each**: a black frame
   with its corners left as chrome, a white top-left and a grey bottom-right
   bevel, the icon over its caption (the toolbar's) or alone (the tools'); up,
   pressed (one grey line in at the top and the left, the contents a pixel
@@ -184259,24 +184990,51 @@ one-pixel gap, as MIDIRack's are (§105.9.5). Planar, plane 0 first; 45 faces,
 **27,648 bytes**, `--selfcheck` a soak row (`pixart`) and `--check-asm` the
 Makefile's guard that `pixel.asm`'s `PXA_*` numbers and widths are the art's.
 
-**They are a file beside the package, `PIXEL.GFX`** (5,537 bytes LZ-wrapped
-on the disk; 6 clusters at 360 KB), read at entry - after the window is
-made, so a failed entry holds no claim - into a claim of its own, **only on
-a colour primary**: a Hercules or a CGA machine never reads a byte of it. A
-sidecar and not a part for MIDIRack's reason (§105.9.5: `os88pkg.py` will not
-compress an image with parts), and one more of PiXEL's own: **a picture's
-master is sized from the heap** (106.8), and a 27 KB claim can be the
-difference between 1/1 and 1/2. So the claim goes straight back, and every
-button is the code-drawn bevel, when the heap has less than **256 KB**
-(`PXA_MINFREE`) free beside it; a disk without the file, and a block the card
-refuses (a window straddling two displays, an origin off the grid), draw the
-same bevel. The VGA XT with PiXEL open and no picture reads 455 KB free with
-the pictures held and 482 KB without them (486 KB before this change: the
-records and the face's code are the other 4 KB).
+**They are PART 9 of `PIXEL.O88`** - `OP_ASSET|OP_COMP|OP_LAZY`, the last
+row of the table (106.5), 27,648 bytes packed to 5,529 - fetched at entry,
+after the window is made so a failed entry holds no claim, into a claim of
+its own, **only on a colour primary**: a Hercules or a CGA machine never
+reads a byte of it. PiXEL's master is **sized from the heap** (106.8), and
+a 27 KB claim can be the difference between 1/1 and 1/2, so nothing is read,
+and every button is the code-drawn bevel, unless the heap has **256 KB**
+(`PXA_MINFREE`) free beside the pictures: `px_artload` asks `op_lazyok`
+(the largest run holds the fetch) and `OSAPI_MEM_AVAIL` (the total less the
+pictures' 27 KB is still `PXA_MINFREE`) BEFORE the read, so the refusal
+costs no disk and says nothing, and `op_fetch`'s own toast is only ever a
+read that failed. A block the card refuses (a window straddling
+two displays, an origin off the grid) draws the same bevel. The VGA XT with
+PiXEL open and no picture reads 455 KB free with the pictures held and 482
+KB without them (486 KB before the colour face: the records and the face's
+code are the other 4 KB).
 
-`PIXEL.GFX` rides beside `PIXEL.O88` wherever it ships: the 1.44 MB and
-1.2 MB apps disks, `office360`, every `pixeldisk`, the everything set and the
-live media.
+**The claim is MOVABLE** (§66): `px_mreloc`, the master's proc, re-bases
+`[pxa_seg]` and the row's `zkb` - the word `op_drop` would free - so a 27 KB
+block held for the whole session is no longer a wall in the middle of the
+heap.
+
+**They were a sidecar file, `PIXEL.GFX`, beside the package** until
+§20.13.8 let a parted image be packed; the reason that kept them out
+(§105.9.5's, `os88pkg.py` refusing to compress a parted image) is withdrawn,
+and a file the user never opens is one more line in a disk's listing.
+Eager was weighed and refused twice over: a carve row brings back the
+~836 bytes of carve code §20.12.9.3 took out of a table whose every row is
+lazy, and it would claim 27 KB on every 1bpp machine, where the face is
+never drawn. Lazy and fetched at entry is the old file's behaviour, read
+out of the package's own file, plus the move. Measured, on the disks that carried both files: `PIXEL.O88`
+104,956 + `PIXEL.GFX` 5,537 -> **110,489** bytes in one file (the part's
+stream is the old file's less its 8-byte wrapper); the image 39,102 ->
+**39,094** (the file name and the length check out; the precheck, the
+fetch and the proc's four instructions in), bss unchanged; one cluster back on every
+1KB-cluster disk (`office360`, `pixel360`, `pixel720`: 109 -> 108) and
+the same 216 on the 512-byte ones; and one directory entry fewer on all of
+them. The part is LAST because it is where it lands, and the order was
+measured: putting the part that pads most to its sector last instead (the
+GIF decoder) saves 271 bytes of file and no cluster on any geometry, which
+is not worth renumbering the parts for.
+
+`PIXEL.O88` therefore ships alone wherever it ships: the 1.44 MB and 1.2 MB
+apps disks, `office360`, every `pixeldisk`, the everything set and the live
+media.
 
 **EGA has no MartyPC profile**, so its face is ARITHMETIC here and not a
 picture: a content box of about 640 x 284 passes the gate; the toolbar is 35
@@ -184380,7 +185138,7 @@ and fetches its own before HEAD; a successful decode keeps it, so a folder
 of PNGs reads the part once; a refusal or a cancel that leaves a picture of
 another kind showing (or none) drops it. The HEAD's fetch goes home and
 back (106.5), and the head is freed straight after the header parse, before
-the claims - so an open holds at most the face (`PIXEL.GFX`'s pictures,
+the claims - so an open holds at most the face (part 9's pictures,
 106.16), the view, the previous master, the part, the new master,
 the work claim and the ring: **seven**, and a drop-down's bank or F1's card
 eight. (The REGION is not among them: its owner word is not the package's
@@ -189690,8 +190448,9 @@ not the payload's `+4`, which is the snooze slot's minute):
 - The save a firing, a snooze or a dismiss owes waits for a quiet poll, as
   every edit's (`STIK_ONTICK`'s CF, §110.5).
 
-**The state file** is v1's 2,456 bytes - §110.5's header and this payload -
-with the snooze slot in the words v1 left zero:
+**The state file** is at most 2,456 bytes - §110.5's header and this payload,
+packed to the records in use (§110.5.3) - with the snooze slot in the words
+v1 left zero:
 
 ```
 +0     db n_appt (0..48), n_task (0..32), lead_default, flags
@@ -189718,6 +190477,18 @@ with the snooze slot in the words v1 left zero:
 offsets, the two new bits and the slot equal to `deskcal.asm`'s by NASM's own
 evaluation. An edit owes a save, held while the field is open and until one
 poll has passed with no edit, as v1.
+
+**The payload stays v1, 48 appointments and 32 tasks.** `main` cut it to a
+v2 of sixteen and sixteen - a 984-byte file, one cluster - for the 360 KB
+system disk's sake (§24.3.1.3). On this branch the cut buys nothing: the
+file is PACKED (§110.5.3), so its size is the records in use, and a
+calendar the sixteen-slot table can hold is the same bytes under v1's. The
+cut only ever saved space on a calendar it refused to hold. The worst case
+- both tables full, 2,456 bytes, three clusters and three more while a save
+is in flight, plus SYSTEM.CFG's one - is seven free, and the disk keeps
+eleven. The full-table words still follow the counts (`Calendar is full
+(48)`, `Task list is full (32)`, spelled from `DC_NAPPT`/`DC_NTASK` with
+`%defstr`).
 
 **What it costs**: §110.6's package rows.
 
@@ -191382,7 +192153,7 @@ table below), the state file read back off the guest's own drive by
 
 | row | asserts |
 |---|---|
-| `deskcaledit` | MartyPC's VGA XT, the clock at 2026-10-14. A DAMAGED state file opens empty and its first edit puts `Replace damaged calendar?` up with the file on A: the fixture byte for byte, until Yes; `9:30 Dentist`, `1230 Lunch`, `815 Gym` and `Mum's birthday` are four appointments IN ORDER, all-day first and the three timed ones armed (H:MM, HHMM and HMM each by what the guest wrote); a clicked line and Enter open the field holding `09:30 Dentist`, and `Doctor` keeps the reminder; Del asks, Yes deletes; 26 characters are refused (`At most 25 letters`, the field still open, nothing written); Calendar > Delete Item picked with the field OPEN shuts it and asks on a bar with nothing inked between the question's app name and the clock (§110.9's polish pass; 305 ink pixels without `dc_askdel`'s clear). A second boot with 48 appointments: New Appointment greyed `(full)`, `N` answering `Calendar is full (48)` |
+| `deskcaledit` | MartyPC's VGA XT, the clock at 2026-10-14. A DAMAGED state file opens empty and its first edit puts `Replace damaged calendar?` up with the file on A: the fixture byte for byte, until Yes; `9:30 Dentist`, `1230 Lunch`, `815 Gym` and `Mum's birthday` are four appointments IN ORDER, all-day first and the three timed ones armed (H:MM, HHMM and HMM each by what the guest wrote); a clicked line and Enter open the field holding `09:30 Dentist`, and `Doctor` keeps the reminder; Del asks, Yes deletes; 26 characters are refused (`At most 25 letters`, the field still open, nothing written); Calendar > Delete Item picked with the field OPEN shuts it and asks on a bar with nothing inked between the question's app name and the clock (§110.9's polish pass; 305 ink pixels without `dc_askdel`'s clear). A second boot with 48 appointments: New Appointment greyed in its own words, `N` answering `Calendar is full (48)` |
 | `deskcaltask` | MartyPC's Hercules 5150 (TALL, a 1bpp framebuffer it reads whole). Three typed tasks in order, their boxes four ground columns off the window's frame with a ground row under each; Clear Done greyed `(none done)`; a click on a box checks it and the window differs in the 6x6 mark and nothing else, with ZERO runs through the package's own `dc_run` (a breakpoint counter at the label a NASM map of the running image names; selecting a row, two runs, is its control); Space on the selected task the same; Clear Done Tasks leaves the unchecked one; Del and Yes empty the list; and a PAGED list (six tasks): a delete that ends paging starts the list at its top, and a pager that goes away is erased - row 4 ground, every pixel |
 
 Both are verified to fail on a broken build: a parser that refuses three
@@ -191631,6 +192402,241 @@ that writes the bit; a v1 Sticky App's file is byte for byte what it was.
 
 It landed in v2's wave 3 (§110.10); the Desk Calendar adopted it in wave 4
 (§110.3).
+
+### 110.12 The Sticky Apps menu (`kernel/stikmenu.inc`, `STIKMENU.DRV`)
+
+Locator's bar carries a **`Sticky Apps`** title on kern_big and kern_emu
+(§12.3), beside File on the bare desktop and after Disk on a Disk window. It
+**discovers** every Sticky App the machine can reach, lists each by what the
+App says about itself, and starts, stops, hides, shows and arranges them.
+The owner's mockup is the shape: a two-line header, a row per App - its
+picture, its name, its description, and at the right a tick and `On` or an
+`Add` button - then `Arrange Sticky Apps...`, `Hide All Sticky Apps`, `More
+Sticky Apps...` and a hint line, `Drag a Sticky App to move it.`
+
+#### 110.12.1 The CARD: what a Sticky App says about itself
+
+A Sticky App answers "what are you" **without being launched**, in a block of
+its own header: the **Sticky App card**, flagged by header flags **bit 7,
+`OS88_F_STIK`** (§20.2), the last free bit.
+
+| off | size | field |
+|---|---|---|
+| +0 | 2 | `'SA'` |
+| +2 | 1 | the card's version, 1 |
+| +3 | 1 | 0 |
+| +4 | 24 | the NAME: 1..23 printable characters, NUL-padded |
+| +28 | 36 | the DESCRIPTION: 0..35 printable characters, NUL-padded |
+| +64 | 128 | the 32x32 PICTURE: 32 rows of 4 bytes, bit 7 of a row's first byte the leftmost pixel, 1 = ink |
+
+- **It is the LAST block of the clear prefix** (§20.13.1): it follows the
+  icon, the association block and the document glyph, whichever the flags
+  declare, so it starts at 32 + 64·bit0 + 16·bit1 + 16·bit5 and every older
+  reader finds its own block where it always was. The prefix becomes **at
+  most 320 bytes** and is still a multiple of 16 inside the first sector, so
+  a COMPRESSED Sticky App's card is read with no decoder - one sector, the
+  mount's own icon-harvest argument.
+- **What it cost the kernel is a step over it**: each of the two clear-prefix
+  ladders - the loader's (`ld_run_body_x`'s step 6a, `LD_HF_STIK` /
+  `LD_STIK_SIZE` in `loader.inc`) and the on-machine compressor's
+  (`cmz_cpre`) - adds 192 for bit 7. That is on every kernel, kern_small
+  included, because the Desk Calendar ships on every system disk; it is
+  **+8 bytes of `.cold`** on each.
+- **No `PKG_FMT` bump** (§20.2.0.1): nothing built before sets bit 7, so
+  everything built before still runs; the ABI lock records it without one.
+  A card-bearing package on an OLDER kernel takes the old prefix, expands its
+  body from inside the card and is refused as bad data, which is the right
+  answer by a harmless route - and a Sticky App ships on the system disk
+  beside its own kernel.
+- **The SDK writes it**: `OS88_STIKCARD 'Name', 'Description'`, then 32
+  `OS88_STIKROW '..##..'` lines of exactly 32 characters (`#` is ink), then
+  `OS88_STIKCARD_END`, right after the last block the header's flags declare.
+  The macros assert the card's place, the two lengths and the row count, so
+  a wrong card fails at ASSEMBLY; `OS88_HEADER` keeps its flags as
+  `OS88_HDR_FLAGS` so the first macro can find its place.
+- **`tools/os88pkg.py` validates it** (`stik_card_problem`: the magic, the
+  version, each field NUL-terminated inside itself, printable, an empty name
+  refused, zeros after the NUL) and `clear_prefix` counts it.
+  `tests/unit/t_stikcard.py` (fast tier) breaks each rule, keeps the card
+  verbatim through compression, holds the kernel's two ladders and the menu's
+  offsets to the tool's, and walks every shipped system image's `STIKAPPS/`
+  for a valid card; `t_pkg` checks it independently off the file.
+- **The Desk Calendar's card** is `'Desk Calendar'`, `'Dates, tasks &
+  reminders'` and today's page over the month's grid (§110.3), at +96.
+
+**Why not the other two shapes.** A SIDECAR file (`DESKCAL.STK`) changes no
+format and costs every App a second file that can be left behind on a copy -
+the App would list as a bare name. LAUNCHING each App to ask it is a load per
+App per menu drop, ~400 ms of `int 13h` apiece on the target before anything
+is drawn. The owner chose the card.
+
+#### 110.12.2 Discovery: `STIKAPPS\` on the boot volume and the fixed disks
+
+Every drop scans: the BOOT volume first (`[dsk_bootvol]` - its copy is the
+one a Sticky App row names, §110.4), then every other volume that is a FIXED
+disk - `hb_pick1`'s test (`dsk_vol_fixed_x` AL = 1, and not a redirected
+`DVK_FILE` volume, so not the RAM disk or the cable) less a mounted disk
+IMAGE (`DRVC_IMG`), which is a floppy's contents. On each: its root quietly
+(`fcp_goto`), `STIKAPPS` by name (`dskw_stat`), into it, then
+`dsk_find_x` by ordinal - stateless, so the header peeks between the calls
+cannot disturb it - and for each `.O88` its first sector (`dsk_peek_x`, 512
+bytes). It is LISTED when its magic is `'O8'`, bit 7 is set, the file holds
+the whole card and the card passes the menu's own check (`stm_cardok`: the
+validator's tests less "zeros after the NUL"). A NAME already listed is
+skipped, so the boot volume's copy wins over a hard disk's. **Up to
+`STM_MAX` = 64 are listed** - the owner wants many - and the machine's own
+place is banked round the whole walk (`drv_vol_bank`). An entry keeps its
+card's TEXT (96 bytes: the volume, the file, the program name, the name, the
+description and the first cluster); the 32x32 PICTURES are read again, out
+of each file's first sector, for the page on show only (`stm_loadpics`, at
+most `STM_PGMAX` = 8 of them) - on a floppy the scan's own reads are still in
+the track cache for the first page. 64 whole cards would not fit the
+module's 16 KB ceiling (`MOD_MAX_KB`); 64 entries do.
+
+An App is **RUNNING** when a live package instance's `I_NAME` - its header's
+program name, the loader's copy - is the App's: `stik_single`'s test (§110.5.2)
+from the kernel's side. The header says how many are (`1 Sticky App active`,
+`N Sticky Apps active`, `No Sticky Apps active`).
+
+**What a drop costs the target**, in `int 13h` calls (PERFORMANCE.md's unit):
+the module (1-2 on a floppy, `mod_need`), the boot volume's root and folder
+(0-2: the track cache of §18.95 holds most of a floppy's directory), one
+header peek per `.O88` (often 0 - DESKCAL's first sector is in the folder's
+track), and the same per fixed disk. On a floppy-booted 5150 with one App
+that is ~2-3 calls, about a second, before the panel is drawn; the title is
+lit the whole time. A press RELEASED in that second is the common case there,
+so the panel then STAYS UP for a click (`stm_loop`'s one difference from
+`menu_drop`); on a machine fast enough that the release lands after the
+panel, it behaves as every bar menu does.
+
+#### 110.12.3 The panel: composed a slab at a time, every pixel once
+
+The panel is a column of SLABS - the header, a rule, one per App, a rule,
+the three items, a rule, the hint - each **composed into a 1bpp band in the
+module and drawn by ONE `gfx_blit1`** (§5.4.2): the frame's two columns,
+the text, the picture, the tick, the button box, all in the band, so a slab
+is one primitive call and no pixel is written twice (§6.1's rule, which a
+fill-then-text menu would break on every row). Two fills draw the shadow.
+Every pen is on the byte grid (the panel's x is the title's, rounded down to
+8), so a slab is composed with byte ORs and blitted on the fast path. Text is
+the ROM 8x8 off `[font_seg]:[font_base]`; the Apps' names are BOLD (each row
+ORed with itself one pixel right); the tick is an 8x8 with 2-px strokes,
+which a 1bpp adapter keeps (§13.16.2.1).
+
+- **Three layouts**, by the primary's height (`[vid_ph]`), the widget's own
+  thresholds (§110.11): **TALL** at 400 rows or more (VGA) is the owner's
+  mockup - a 56-row App with the picture and the name-and-description block
+  both centred on its middle, the name and the description 18 rows apart,
+  18-row items, 11-row rules and two cells of margin; **MID** at 300-399
+  (Hercules, EGA) is a 40-row App with one cell of margin; **COMPACT** below
+  that (CGA's 200) is a 20-row App whose picture is its row PAIRS ORed, 16
+  rows, which on CGA's tall pixels is about square. Each layout carries its
+  own rows AND columns (`LY_*`), so the composers name no number.
+- **The width** is the widest name or description in cells plus the
+  layout's furniture either side of it (the margin, the picture and the gap
+  left of the text; the gap, the right column and the frame right of it),
+  and at least the hint with the header's margin either side; the panel
+  shifts left rather than leave the primary.
+- **PAGES.** As many Apps as the screen holds are shown at once; when there
+  are more, the last App row is followed by a **pager** - `Next page (1 of
+  3)`, and `First page (3 of 3)` on the last - and the page size is what
+  fits WITH it, at most `STM_PGMAX` = 8. A release (or, with the panel
+  staying up, a click) on the pager turns the page and the panel STAYS UP
+  for the next click: its pictures are read, every App slot and the pager
+  are recomposed, and nothing else is drawn, because every page has the same
+  slots - a short last page's empty ones are the frame alone and no pick.
+  On VGA that is five a page, on Hercules and EGA five, on CGA four.
+- **The save-under is up to TWO parts**: the rows one segment holds
+  (`STM_SAVEMAX` = 61,440 bytes, so `gfx_save` cannot wrap) and the rest. A
+  paged VGA panel is 440 rows, ~80 KB, so it takes both; one smaller takes
+  one. Either refused, neither is kept and the close repaints.
+- **The save-under's first part is `menu_drop`'s** (§12.4.2): `[menu_sseg]`,
+  `MEM_P_MSAVE`, `menu_reloc`, sized from the rect - ~34 KB on VGA and ~4 KB
+  on CGA for one App - and its second, when there is one, the module's own
+  `MEM_K_MOD` claim, freed at the close. A part shed while the menu is down
+  makes the close a repaint, with `menu_drop`'s `[menu_bdirty]` care. An open dock's hole is put away while it is down
+  (§30.6.1).
+- **The theme**: the band is composed 1 = ink and put in the pen's polarity -
+  Bright and Windows keep the default pen and invert the band (the blit's
+  fast path), any other theme gets `thm_inkc`/`thm_bgc` as the pen on a
+  planar adapter, and a 1bpp adapter inverts when the theme's ink is dark.
+  A GREYED item (Arrange and Hide with no widget, `No Sticky Apps found`) is
+  a checkerboard on 1bpp - which is what grey is there (§47) - and the
+  theme's `thm_disc` pen on a planar adapter.
+- **The highlight** recomposes the slab inverted INSIDE the frame and blits
+  it: two blits per move, the menu's XOR without the XOR.
+- **The arrow stays on the glass** while the panel is up, as it does over
+  WIN95.DRV's click-to-open menu (§76.14) and over no other pull-down. The
+  mouse ISR draws it only while the lock is free and the tracker holds the
+  lock, so the tracker draws it: `cur_unlazy` and `cursor_show` once the
+  panel is up, and on every MOVE `cursor_hide`, the highlight moved under it,
+  `cursor_show` where the pointer now is - a still pointer redraws nothing.
+  It is hidden again before the restore, so `menu_track`'s `gfx_unlock` puts
+  it back the way it always has.
+- **The stay-up click is drained**: when the panel stayed up because the press
+  was released during the scan, the click that later picks or dismisses it
+  leaves a press and a release in the event ring, and `evq_drain` empties it
+  at the close (`wn`'s own step) so neither reaches what the panel covered.
+
+#### 110.12.4 What a pick does
+
+A pick is not done under the lock - `menu_track` holds it and a launch takes
+it (§21.5) - so the module records it and POSTS `CMD_STIK` (`ui_post_cmd`),
+answers `menu_track` 0FFFFh, and stays loaded; `ui_cmd`'s `CMD_STIK` runs the
+module's ACT entry on `ui_task` with nothing held and drops it. A drop with
+no pick drops the module at once.
+
+| pick | what it does |
+|---|---|
+| an App with `Add` | `STIKAPPS\NAME.O88` off the volume it was found on: `sc_open`'s walk and its loader call (`ldf_ld_pkg_start`), a refusal saying the loader's own sentence; the App's first tick registers its row (§110.5) |
+| an App with the tick and `On` | **closes it** - `app_close_win` under the lock, as the user's own close, so the App's negotiator (`stik_close`) removes its Sticky App row and saves. Not `OSAPI_WM_CLOSE`, whose pass clears the negotiator first |
+| `Arrange Sticky Apps...` | a column down the right of the desktop band, `STM_ARR_R` = 64 px in from its edge (the drive zones' column), from `MBAR_H` + 4, 8 px apart, wrapping left; each desk window hidden, placed with `W_X` 7 mod 8 (the face on the grid, §110.11) and its natural rect banked, and shown - there is no move cell (§110.11) - and the App's own poll saves the place |
+| `Hide All Sticky Apps` | `wm_hide` on every desk window: nothing closed, nothing written, their timers still run |
+| `Show All Sticky Apps` | the same item while every desk window is hidden: `wm_show` on each. Hidden is DERIVED - a used, invisible `WF_DESK` window - since nothing else leaves one hidden at a moment this menu can run, and no byte records it. A Restart brings them back anyway (§110.4) |
+| `More Sticky Apps...` | The Wire (§92), as the desktop's service zone opens it; with no driver registered the module names `THEWIRE.O88` itself, and The Wire explains what it needs (§92.9) |
+| the pager | the next page, the panel kept up (110.12.3) - not a pick, nothing posted |
+| the hint | nothing: it is not a pick |
+
+Arrange and Hide/Show act on DESK windows; an App up TITLED (§110.7's
+fallback, no `DESK.DRV`) is listed and toggled but not arranged or hidden.
+
+#### 110.12.5 What it costs
+
+| | `.text` | `.bss` | `.cold` | rungs left after |
+|---|---:|---:|---:|---|
+| kern_big | **+72** | **+8** | **+47** | image 272 (352), cold 78 (125) |
+| kern_emu | +72 | +8 | +47 | image **13** (93), cold 78 (125) |
+| kern_small | 0 | 0 | +8 | image 429 (429), cold 46 (54): the card's ladder step alone |
+| `STIKMENU.DRV` (on demand) | | | | 4,040 bytes on the disk ('CZ'), a 14,758-byte image - most of it the scratch (64 entries, a page of pictures, the band), zeros that pack to nothing and come back zero at every load - a 15 KB claim from the press to the act, beside the save-under |
+
+The `.text` is the title, the two set entries, `menu_track`'s test, `CMD_STIK`
+and its handler, the module's row and file name, and the loader's step; the
+`.bss` the two slots; the `.cold` the two thunks and the ladder. No rung was
+crossed on any kernel, measured against main `a123653b` built alongside.
+**kern_emu's image rung is the one to watch**: 93 left before this, 13 now. The 360 KB system disk went 345 → 349 of 354
+clusters (`STIKMENU.DRV` is four), which left the Desk Calendar too little
+room to save; §24.3.1.3 took Mines off that disk, and it is 346, 8 free.
+
+#### 110.12.6 What is not done
+
+- **Hercules is not looked at on the glass here**: QEMU cannot show it
+  (docs/HERCULES-TESTING.md). Its layout is TALL on 1bpp, the two halves
+  CGA and VGA each check; a MartyPC or 86Box look is owed.
+- **The other Apps in the mockup** (Sticky Note, Desk Clock, Calculator) are
+  not built: the menu lists what `STIKAPPS\` holds, so today it lists one.
+- **A keyboard-only drop**: like every bar menu, the panel is reached by the
+  pointer or the keyboard mouse (§9.6); it does not step by item as
+  `menu_kbnav` does for a pull-down.
+- **No cache of the scan**: every drop reads `STIKAPPS\` again - a directory
+  walk and one header peek per App. That is what makes a newly copied App
+  appear with no refresh; on a floppy with MANY Apps it is a peek apiece
+  (~400 ms each where the track cache misses), so the scan is the thing to
+  cache when a machine first carries dozens.
+
+`tests/stikmenu.py` is the row (soak): one boot of the VGA XT on the shipped
+360 KB system disk, the panel read out of the module's own image, and every
+pick - Add, a release off the panel, Hide All and Show All, Arrange, and the
+running row's close removing its row.
 
 ## 111. TIMER — the stopwatch (`apps/timer/timer.asm`)
 

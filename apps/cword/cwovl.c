@@ -4,8 +4,8 @@
  * #included by cword.c - one translation unit (SPEC.md 73.1) - but NOT in the
  * same segment as the rest of it. Every function here is named `ovl_*`, which
  * is the whole of the marking that puts its code in `.modc` and ships it as
- * CWORD.OVL beside CWORD.O88 (SPEC.md 73.14). The module is read into a heap
- * claim the first time one of these is called and stays for the session.
+ * PART 0 of CWORD.O88 (SPEC.md 73.14, 73.14.2). The module is read into a heap
+ * claim at launch, right behind the image, and stays for the session.
  *
  * WHY THIS IS THE LINE. A package's image and bss share 61,440 bytes and that
  * ceiling IS the segment (SPEC.md 33). What decides which side of the line a

@@ -362,11 +362,19 @@ def stik_rows(data):
 # the state file
 # =============================================================================
 
-def dat(payload=b"", x=None, y=None, screen=None, payver=1, cont=False):
+def dat(payload=b"", x=None, y=None, screen=None, payver=None, cont=False):
     """A Sticky App state file: header + payload. A position needs all of x, y and
     the screen it was saved on; `cont` says they are a widget's FACE origin
-    (STIK_HF_CONT), which only a STIK_WIDGET package writes."""
+    (STIK_HF_CONT), which only a STIK_WIDGET package writes.
+
+    `payver` None is the payload's OWN version: the Desk Calendar's
+    (DESKCAL_PAYVER) for a payload of the calendar's length, and 1 - the
+    probes' - for anything else. A fixed 1 here wrote every calendar fixture
+    as v1 the day the calendar's payload went to v2, and the calendar called
+    each one damaged."""
     payload = bytes(payload)
+    if payver is None:
+        payver = DESKCAL_PAYVER if len(payload) == DESKCAL_PAYLEN else 1
     pos = x is not None
     if pos and (y is None or screen is None):
         raise DiaError("a position is x, y AND the screen it was saved on")
@@ -637,7 +645,8 @@ def selfcheck():
     ok(len(pay) == DESKCAL_PAYLEN == 2440, "the payload is 2,440 bytes")
     full = dat(pay, x=400, y=40, screen=(640, 480), payver=DESKCAL_PAYVER)
     ok(len(full) == 2456, "the whole file is 2,456 bytes, five sectors")
-    dc = parse_deskcal(parse_dat(full, DESKCAL_PAYLEN, 1)["payload"])
+    dc = parse_deskcal(parse_dat(full, DESKCAL_PAYLEN,
+                                 DESKCAL_PAYVER)["payload"])
     ok([a["text"] for a in dc["appts"]] == ["Earlier", "Birthday", "Dentist"],
        "kept sorted by (date, time + 1): all-day FIRST in its day")
     ok(dc["appts"][2]["time"] == 570 and dc["appts"][2]["remind"],
@@ -651,21 +660,22 @@ def selfcheck():
        and pack_date(1980, 1, 1) == 0x21, "the date's two ends")
     refuses(lambda: pack_date(2100, 1, 1), "the year 2100")
     bad = bytearray(pay)
-    bad[0] = 49
-    refuses(lambda: parse_deskcal(bytes(bad)), "49 appointments")
+    bad[0] = DESKCAL_NAPPT + 1
+    refuses(lambda: parse_deskcal(bytes(bad)), "%d appointments" % bad[0])
     # PACKED (SPEC.md 110.5.3): the records in use, the tasks behind them
     pk = deskcal_pack(pay)
     ok(len(pk) == 8 + 3 * 32 + 2 * 28, "packed: 8 + 3 x 32 + 2 x 28 bytes")
     ok(deskcal_unpack(pk) == pay, "...and it spreads back to the payload")
     pf = dat(pk, payver=DESKCAL_PAYVER)
     ok(len(pf) <= 1024, "a few entries are one cluster (%d bytes)" % len(pf))
-    ok(parse_deskcal(parse_dat(pf, DESKCAL_PAYLEN, 1, packed=True)
+    ok(parse_deskcal(parse_dat(pf, DESKCAL_PAYLEN, DESKCAL_PAYVER, packed=True)
                      ["payload"]) == dc, "a packed file parses the same")
-    refuses(lambda: parse_dat(pf, DESKCAL_PAYLEN, 1), "packed, not unpacked")
+    refuses(lambda: parse_dat(pf, DESKCAL_PAYLEN, DESKCAL_PAYVER),
+            "packed, not unpacked")
     refuses(lambda: deskcal_unpack(pk[:-1]), "packed, a byte short")
     refuses(lambda: deskcal_unpack(pk + b"\0"), "packed, a byte long")
-    fullp = deskcal([((2026, 1, 1), i, "A") for i in range(48)],
-                    [("T", False)] * 32)
+    fullp = deskcal([((2026, 1, 1), i, "A") for i in range(DESKCAL_NAPPT)],
+                    [("T", False)] * DESKCAL_NTASK)
     ok(deskcal_pack(fullp) == fullp, "FULL tables pack to the fixed layout")
     ok(len(deskcal_pack(deskcal())) == 8, "an empty one is its 8 bytes")
     # v2: DUE, SNOOZED and the snooze slot (+4 minute, +6 date)

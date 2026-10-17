@@ -16806,7 +16806,10 @@ vp_flipto:
 ; second page and the machine has none to give - a colour card at B800h too,
 ; which fsx_page refuses it on (SPEC.md 53.10). Else, page-ahead on a
 ; Hercules, the second page's decode ALLOWED (3BFh = 3) for the whole play,
-; page 0 shown: the bracket's restore puts 3BFh back. Preserves all but flags
+; page 0 shown, and page 1 made BLACK: the mode set clears page 0 only, and
+; vp_kput blacks the canvas and not the screen round it, so a smaller video
+; after a bigger one showed the last play's picture there at every flip
+; (98.3.8.3). The bracket's restore puts 3BFh back. Preserves all but flags
 vp_hpg2:
     cmp byte [vp_flip], 2
     jne .ok
@@ -16822,6 +16825,17 @@ vp_hpg2:
     out dx, al
     xor ax, ax
     call vp_show
+    push cx                         ; ...and the whole of page 1 black, now
+    push di                         ; it is hidden and its decode is allowed
+    push es
+    mov es, [vp_vseg]
+    mov di, VP_HPAGE
+    mov cx, VP_HPAGE / 2
+    cld
+    rep stosw                       ; (AX = 0 from the show)
+    pop es
+    pop di
+    pop cx
     pop dx
     pop ax
 .ok:

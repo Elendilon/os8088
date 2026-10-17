@@ -1,12 +1,17 @@
 ; Native XT DrMarco. Contracts and deliberate adaptations: SPEC.md 100.
 %include "os88api.inc"
-OS88_HEADER 'DRMARCO', dm_entry, 1, OS88_STACK_256
+OS88_HEADER 'DRMARCO', dm_entry, 1 | OS88_F_PARTS, OS88_STACK_256
 OS88_ICON16
     dw 0,0x03c0,0x07e0,0x0e70,0x1c38,0x381c,0x7038,0xe070
     dw 0xc0e0,0xc1c0,0x6380,0x7700,0x3e00,0x1c00,0,0
     dw 0,0x03c0,0x07e0,0x0ff0,0x1ff8,0x3ffc,0x7ff8,0xfff0
     dw 0xffe0,0xffc0,0x7f80,0x7f00,0x3e00,0x1c00,0,0
 OS88_ICON16_END
+; The three front screens are PARTS of this file (SPEC.md 100, 20.12), one per
+; adapter class and each fetched only when that class is on the glass - they
+; were DRMARCO.VGA/.HRC/.CGA beside the package. Nothing here asks op_lazyok.
+%define OP_NO_LAZYOK
+%include "os88parts.inc"
 %macro SAVE 0
  push ax
  push bx
@@ -29,6 +34,10 @@ OS88_ICON16_END
 %endmacro
 
 dm_entry:
+    push es                     ; op_load spends ES, which arrives KERNEL_SEG
+    call op_load                ; SI is still the kernel's name: FIRST. Every
+    pop es                      ; row is lazy, so this copies the name and
+    jc .out                     ; claims nothing
     mov si, dm_tpl
     call OSAPI_WM_CREATE
     jc .out
@@ -481,7 +490,7 @@ dm_hi: db 'HI ',0
 %include "os88ui.inc"
 %include "os88alt.inc"
 
-%assign DM_BSS 0
+%assign DM_BSS OP_BSS          ; the parts standard's bss comes first
 %macro VAR 2
  %1 equ os88_image_end + DM_BSS
  %assign DM_BSS DM_BSS + %2
@@ -508,6 +517,7 @@ VAR dm_reveal,2
 VAR dm_artseg,2
 VAR dm_artsize,2
 VAR dm_artkind,1
+VAR dm_artrow,2
 VAR dm_fsi,FSI_SIZE
 VAR dm_seed,2
 VAR dm_started,1

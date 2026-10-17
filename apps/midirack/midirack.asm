@@ -35,7 +35,7 @@
 %include "os88api.inc"
 %include "sndpkg.inc"
 
-    OS88_HEADER 'MIDIRack', mr_entry, OS88_F_ICON | OS88_F_ASSOC, OS88_STACK_384
+    OS88_HEADER 'MIDIRack', mr_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_PARTS, OS88_STACK_384
 
 ; --- embedded 16x16 icon (SPEC.md 20.2): a rack unit with a keyboard --------
     OS88_ICON16
@@ -52,15 +52,22 @@
     OS88_ASSOC_EXT 'SMF'
     OS88_ASSOC16_END
 
-; --- THE COLOUR FACE'S PICTURES (SPEC.md 105.9.5): MIDIRACK.GFX ------------
-; tools/os88midart.py draws the transport's fifteen faces - five of them into a file that
-; ships BESIDE the package and is read only on a colour primary - a Hercules
-; or a CGA machine never spends a byte or a revolution on it, and a disk
-; without it plays exactly the same with code-drawn buttons. It is a sidecar
-; and not a part (SPEC.md 20.12) for one measured reason: os88pkg.py refuses
-; to compress an image that has parts, and this image is 30 KB packed to 25.
-; Every number below that is not arithmetic is the generator's, which compares
-; them (--check-asm)
+; --- THE COLOUR FACE'S PICTURES (SPEC.md 105.9.5): PART 0 OF THIS FILE -----
+; tools/os88midart.py draws the transport's fifteen faces, and five of them
+; (with a recipe for the other ten) are the one PART of MIDIRACK.O88 (SPEC.md
+; 20.12): OP_LAZY, so a launch reads none of it, and OP_COMP, LZ4 on the disk.
+; Only a COLOUR PRIMARY reads it - a Hercules or a CGA machine never spends a
+; byte or a revolution on it - and mra_load reads it ITSELF (OP_SELF, SPEC.md
+; 20.12.9.1): it is read once, at entry, by code in the image's tail, and the
+; standard's fetch would have been ~800 bytes that do not fit there. It was
+; MIDIRACK.GFX beside the package until the image could be packed with parts
+; in it (SPEC.md 20.13.8). A heap without the room is the code-drawn bevelled
+; button with the caption, a complete face rather than a broken one. Every
+; number below that is not arithmetic is the generator's, which compares them
+; (--check-asm)
+%define OP_BSS_AT mrt_z             ; the standard's bss, over the tables'
+                                    ; stream mrt_unz has spent (THE TAIL)
+%include "os88parts.inc"
 MRA_W       equ 48                  ; a face: whole bytes, so BLITP takes it
 MRA_H       equ 30
 MRA_NB      equ 5                   ; Prev, Play, Pause, Stop, Next
@@ -73,7 +80,7 @@ MRA_SIZE    equ MRA_NB * MRA_NS * MRA_FACE
 ; bytes a moved row fixes a plane, the greyed wipe's row. The generator's
 ; derive_pressed() / derive_greyed() are the loops; these are its numbers.
 ; The claim is STATE-major: up faces 0..4, pressed 5..9, greyed 10..14
-MRA_FSIZE   equ 3686                ; the file: 5 faces + 72 + 8 + 6
+MRA_FSIZE   equ 3686                ; the part: 5 faces + 72 + 8 + 6
 MRA_SH0     equ 3                   ; pressed: rows SH0..SH1-1 are the row
 MRA_SH1     equ 28                  ; above, a pixel right...
 MRA_A0      equ 0x1F                ; ...these bits of its first byte and
@@ -222,7 +229,12 @@ MR_FILEMAX  equ 63                  ; KB: the largest file taken whole
 ;            window afterwards: no drawing and no worker here.
 ; =============================================================================
 mr_entry:
-    call mrt_unz                    ; the smooth tables, first (105.6.1)
+    push si                         ; the kernel's name for this file
+    call mrt_unz                    ; the smooth tables, first (105.6.1) -
+    pop si                          ; their spent stream is op_load's bss
+    push es                         ; op_load spends ES, and OSAPI_ARG_FILE
+    call op_load                    ; below reads through KERNEL_SEG's. The
+    pop es                          ; one row is lazy: a name copy, CF = 0
     call OSAPI_CPU_INFO
     mov [mr_cpu], al
     call OSAPI_SND_CAPS             ; AX = caps
@@ -504,15 +516,17 @@ mrt_unz:
     MRT_ZTAIL
 
 ; -----------------------------------------------------------------------------
-; mra_load - the colour face's pictures, MIDIRACK.GFX beside us, into a claim
-; of their own (SPEC.md 105.9.5). Only on a COLOUR PRIMARY: a Hercules or a
-; CGA machine never reads it. Silent when the file is not there, the heap is
-; short or the file is not exactly MRA_FSIZE (a file from before pass 2, the
-; fifteen faces whole, is refused that way) - the transport is then
-; code-drawn, which is a complete face and not a broken one. UI task, at
-; entry only, so it lives in the tail (a read and a claim, SPEC.md 20.6
-; rule 7). The claim is STATE-major - the five up faces, the five pressed,
-; the five greyed - so the file's up faces land where they stay
+; mra_load - the colour face's pictures, part 0 of this file, into a claim of
+; their own (SPEC.md 105.9.5). Only on a COLOUR PRIMARY: a Hercules or a CGA
+; machine never reads it. Silent when the heap is short or the read fails -
+; the transport is then code-drawn, which is a complete face and not a broken
+; one. UI task, at entry only, so it lives in the tail (a read and a claim,
+; SPEC.md 20.6 rule 7). OP_SELF's read (SPEC.md 20.12.9.1): the packed stream
+; at the part's own SECTOR - READ_AT's unit on kern_big (SPEC.md 18.4.4.2),
+; and kern_small draws no colour - R up the claim, expanded down onto its
+; base (SPEC.md 20.12.7.4, the standard's arithmetic). The claim is
+; STATE-major - the five up faces, the five pressed, the five greyed - so the
+; part's up faces land where they stay, and it is MOVABLE (mra_reloc)
 ; -----------------------------------------------------------------------------
 mra_load:
     push ax
@@ -526,30 +540,62 @@ mra_load:
     call OSAPI_VIDEO                ; DH = the primary's bits per pixel
     cmp dh, 1
     jbe .out
+    mov si, op_table + OP_T_ROWS    ; SI = part 0's row
+    mov cx, [si+OP_R_ZKB]           ; CX = its packed bytes
+    mov bx, [si+OP_R_LEN]           ; BX = what they expand to: the derive's
+    cmp bx, MRA_FSIZE               ; input, or a package packed wrong
+    jne .out
+    sub bx, cx                      ; BX = R = roundup512(len - packed): where
+    jbe .out                        ; the stream is read, a sector boundary
+    add bx, 511                     ; up the claim (a disk-visible base is
+    and bx, ~511                    ; 512-aligned)
+    mov ax, [si+OP_R_OFF]           ; DX:AX = the part's byte offset
+    mov dx, ax
+    push cx
+    mov cl, 9
+    shl ax, cl
+    mov cl, 7
+    shr dx, cl
+    pop cx
+    push ax
+    push dx
     mov ax, MRA_CLAIM / 1024
     call OSAPI_MEM_CLAIM            ; DX = the segment
+    mov bp, dx
+    pop dx
+    pop ax
     jc .out
-    push dx
-    mov es, dx
-    xor bx, bx
-    mov cx, MRA_FSIZE
-    xor dx, dx
-    mov si, mra_name
-    call OSAPI_FILE_READ            ; DX:AX = its size (unwrapped, 20.14)
-    pop si
+    mov es, bp
+    push cx                         ; (the packed bytes, for the decoder)
+    add cx, 511
+    and cx, ~511                    ; CX = the capacity: whole sectors, the
+    mov si, op_name                 ; file ending inside the last one
+    call OSAPI_FILE_READ_AT         ; DX:AX = the bytes delivered
+    pop cx
     jc .free
-    or dx, dx
-    jnz .free
-    cmp ax, MRA_FSIZE
-    jne .free
-    mov [mra_seg], si
+    cmp ax, cx
+    jb .free
     push ds
-    mov ds, si                      ; DS = ES = the claim
-    call mra_derive
+    mov al, [op_table + OP_T_FMT]   ; (ours: DS is the stream's a line on)
+    xor ah, ah
+    mov dx, MRA_FSIZE
+    mov si, bx
+    mov ds, bp                      ; DS:SI = the stream, ES:0 its output
+    xor di, di
+    xor bx, bx
+    call OSAPI_DECOMP
+    jc .zbad
+    call mra_derive                 ; DS = ES = the claim, and BP spent
+    mov dx, es
     pop ds
+    mov [mra_seg], dx
+    mov ax, mra_reloc               ; nothing points into it but mra_seg
+    call OSAPI_MEM_MOVABLE
     jmp short .out
+.zbad:
+    pop ds
 .free:
-    mov dx, si
+    mov dx, bp
     call OSAPI_MEM_FREE
 .out:
     pop es
@@ -561,8 +607,6 @@ mra_load:
     pop bx
     pop ax
     ret
-
-mra_name:   db 'MIDIRACK.GFX', 0
 
 ; mra_derive - the ten faces the file does not carry, each button's pressed
 ; and greyed from its up face. DS = ES = the claim; clobbers all but those.
@@ -745,7 +789,16 @@ mra_grey:
     jbe .row
     pop bx
     ret
+; THE PART TABLE (SPEC.md 20.12.3), and the standard's code after it - both in
+; the tail, because only mr_entry reads either: one row, nothing in a carve,
+; so op_load is the name copy (SPEC.md 20.12.9.3)
+OS88_PARTS_BEGIN 1
+    OS88_PART OP_ASSET, OP_LAZY | OP_COMP | OP_SELF     ; 0  the faces
+OS88_PARTS_END
     align 2, db 0                   ; (an even image, as it always was)
+%if mra_load - mrt_z < OP_BSS
+  %error "op_load's bss is laid over mrt_z, which mrt_unz has spent by then: it must fit"
+%endif
 %if ($ - mr_ztail) > OS88SPK_PRL + MRL_MAX * MRL_ENT
   %error "the image's tail has outgrown mrk_pring and mrl_ent, laid over it"
 %endif

@@ -68,9 +68,11 @@
  * through - is resident. Everything that runs ONCE PER COMMAND is in the
  * overlay (every function named `ovl_*`, wherever it is written): the dialogs,
  * RTF in and out, Sort, Renumber, Table of Contents, the clipboard, the
- * paragraph dictionary, and the Font list. It ships as CWORD.OVL beside
- * CWORD.O88 and is read into a heap claim the first time one of those is asked
- * for. The split is not arbitrary - it is exactly the line between what a
+ * paragraph dictionary, and the Font list. It ships as PART 0 of CWORD.O88
+ * (SPEC.md 73.14.2) and op_load reads it into a heap claim of its own at
+ * launch, right behind the image - it was a CWORD.OVL beside the package, read
+ * the first time a command needed it, until the C SDK's overlay became a part.
+ * The split is not arbitrary - it is exactly the line between what a
  * keystroke touches and what a menu command touches, so nothing in the inner
  * loop ever pays for it.
  *
@@ -107,16 +109,22 @@
  * ---------------------------------------------------------------------------
  * Measured by tools/os88pkg.py and tools/os88ovl.py on the shipping package:
  *
- *     resident image  36,326   the code above, its strings, the Opus tables,
- *                              and apps/os88type.inc (SPEC.md 6.3)
- *              bss    24,533   the document (4,000 + 4,000), the RTF staging
+ *     resident image  30,452   the code above, its strings, the Opus tables,
+ *                              apps/os88type.inc (SPEC.md 6.3) and the parts
+ *                              standard that reads the overlay at launch
+ *              bss    24,624   the document (4,000 + 4,000), the RTF staging
  *                              buffer (6,000), the glass shadow (6,144), the
  *                              type library's band and face table (1,933)
  *              -------------
- *              total  60,859   99% of APP_MAX_SIZE; 581 bytes spare
- *     CWORD.OVL       18,565   the dialogs, RTF in and out, search, Sort,
- *                              Renumber, Table of Contents, the clipboard, the
- *                              paragraph dictionary, the Font list
+ *              total  55,076   90% of APP_MAX_SIZE; 6,364 bytes spare
+ *     the overlay     14,106   PART 0 of CWORD.O88, 8,423 packed: the dialogs,
+ *                              RTF in and out, search, Sort, Renumber, Table
+ *                              of Contents, the clipboard, the paragraph
+ *                              dictionary, the Font list
+ *
+ * (Measured at SPEC.md 73.14.2. The "581 bytes spare" and "there are 581
+ * bytes left" this header once carried were 60,859 of 61,440 before the
+ * peephole pass of SPEC.md 73.15.)
  *
  * THE TIGHTEST NUMBER IN THE PACKAGE IS CW_RTF_MAX, the RTF staging buffer, at
  * 6,000 bytes - which is why a document that is 4,000 characters of dense
@@ -708,15 +716,19 @@ static int  cw_pap_of(int para_end);
 static void cw_toast(const char *s);
 
 /* THE OVERLAY'S DOORS (SPEC.md 73.14). Every one of these is named `ovl_*`,
- * so tools/cc8086.py emits its code into CWORD.OVL instead of into this
- * segment and turns each call below into a far call preceded by a
- * load-on-demand check.
+ * so tools/cc8086.py emits its code into the overlay instead of into this
+ * segment and turns each call below into a far call preceded by the
+ * overlay's door (cc_ovneed: the worker gate, on the eager arm this package
+ * takes - SPEC.md 73.14.2).
  *
  * EACH ANSWERS 0 WHEN IT DID NOT HAPPEN, and that is the contract that makes
- * the refusal path free: a module that cannot be loaded - no heap, or a disk
- * without the file - toasts the reason and returns 0 without the call taking
- * place at all, which is indistinguishable here from a dialog the user
- * cancelled. Nothing in this file tests for it and nothing has to.
+ * the refusal path free: a call the overlay's door refuses toasts the reason
+ * and returns 0 without the call taking place at all, which is
+ * indistinguishable here from a dialog the user cancelled. Since the overlay
+ * became an eager part the only refusal left at that door is the WORKER's
+ * (SPEC.md 73.14) - a machine without the RAM for it refuses the LAUNCH, with
+ * the parts standard's own toast, and never opens a window whose every menu
+ * says no. Nothing in this file tests for it and nothing has to.
  *
  * The five things out there are the five that run ONCE PER COMMAND: the
  * dialogs, RTF in and out, search, and the three utilities. Nothing a
