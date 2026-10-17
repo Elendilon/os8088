@@ -4194,7 +4194,9 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
 %endif                          ; machine's to decide (_load's sentinel)
     call %1 %+ _want_set
 %ifdef DOCK_OPT
-    call COLD_SEG:dkf_apply     ; the map above stored [dock_cfg]; the band,
+    BLOBCALL bdk_apply          ; (the blob's own dock_apply, FAR-bodied as
+                                ; the Dock page's is - KSW_SECT, kernel.asm)
+                                ; the map above stored [dock_cfg]; the band,
                                 ; the strip and the drive column are DERIVED
                                 ; from it (SPEC.md 30.5), which is not a store.
                                 ; No window exists yet, so the refit inside it
@@ -5058,7 +5060,8 @@ drv_boot_x:
 %ifdef KERN_BIG
     mov ah, [vid_kind]
 %endif
-    call KERNEL_SEG:vid_switch
+    BLOBCALL bvs_switch         ; (the blob's own vid_switch, FAR-bodied as
+                                ; the panel's is - KSW_SECT, kernel.asm)
     jc .vnosw                   ; no such adapter here: stay on the probe's
 %ifdef KERN_BIG                 ; answer
     cmp ah, [vid_kind]
@@ -5072,8 +5075,7 @@ drv_boot_x:
     ; applies: the adapter was already right, or was refused, and neither is a
     ; statement about the desktop. No spl_reset - the primary's card is never
     ; re-programmed here, so the loading screen is untouched.
-    mov bp, vid_disp_init       ; (spw_near's `call bp`: drv_boot_x holds
-    call KERNEL_SEG:spw_near    ; nothing in BP, kernel size pass 13)
+    call bvs_disp_init          ; (the blob's own: KSW_SECT, kernel.asm)
 %endif
 .load:
     ; --- HOW MANY are we about to read? (SPEC.md 15.6) -----------------------
@@ -5197,6 +5199,35 @@ drv_boot_want:                  ; CL = a row: ZF = 1 when it has no file or is
 DRV_ATTACH bdl                  ; drv_load and the attach half, for drv_boot
                                 ; (kernel size pass 13) - given back with the
                                 ; rest of the blob
+%ifdef KERN_BIG
+; ...AND THE BOOT'S ADAPTER SWITCH, the same trade (KSW_SECT, kernel.asm): the
+; Display page's vid_switch, vid_disp_init and wm_refit and the Dock page's
+; dock_apply are CTRL.DRV's, and the boot is the one caller they have outside
+; the panel - drv_boot applies SYSTEM.CFG's adapter and Dock setting, kmain_o
+; arranges the displays. So the blob carries its own expansion of each, `bvs_`,
+; reaching the kernel through BSWK/BSWC (KGO_PAIR bvs below), given back at
+; mem_unblob with the rest of it. The text is the panel's, macro for macro.
+%define BSW_GO bvs_kgo          ; KSWK's and KSWC's shape through the blob's
+%define BSW_CGO bvs_cgo         ; own pair (KGO_PAIR bvs, below)
+%macro BSWK 1
+    call BSW_GO
+    dw %1
+%endmacro
+%macro BSWC 1
+    call BSW_CGO
+    dw %1
+%endmacro
+VSW_AVAIL bvs
+VSW_EQUIP bvs
+VSW_SWITCH bvs, BSWK, bvw
+VSW_DISP bvs, BSWK
+VSW_UNION bvs, BSWK
+WM_REFIT bvw, BSWK
+%ifdef DOCK_OPT
+DOCK_APPLY bdk, BSWK, BSWC, bvw
+%endif
+KGO_PAIR bvs
+%endif
 
 section .modu                   ; ...and for the Drivers and Sound pages, in
 DRV_ATTACH cdl                  ; CTRL.DRV's panel half: cp_drv_click and

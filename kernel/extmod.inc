@@ -1186,7 +1186,7 @@ ext_extend_b:
 ; The three sequences the Extend arm and the bracket's restore both make.
 ext_kapply_eq:
     call ext_kapply
-    EXK vid_equip
+    call ext_equip              ; (this image's own: VSW_EQUIP, below)
     ret
 ext_kapply:
     mov [vid_kind], al
@@ -1194,8 +1194,14 @@ ext_kapply:
     ret
 ext_two:
     mov word [vid_ndisp], 2     ; ndisp = 2, cur = 0: one word (vidsel.inc)
-    EXK vid_desk_union
+    call ext_desk_union         ; (this image's own: VSW_UNION, below)
     ret
+; ...and the two of vidsel.inc's this image needs WITHOUT the panel: the
+; bracket's restore (vid_fsx_leave, EXT_FSX's EXTF_LEAVE) runs with nothing but
+; this image mounted, and both bodies are CTRL.DRV's otherwise (kernel size
+; pass 13, KSW_SECT in kernel.asm)
+VSW_EQUIP ext
+VSW_UNION ext, EXK
 
 %ifdef SEAMCUT
 ; -----------------------------------------------------------------------------

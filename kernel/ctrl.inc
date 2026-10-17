@@ -264,15 +264,15 @@ CP_B1Y2   equ CP_PR0Y + CP_PROWH + CP_GW + 3  ; 61: row 1 (Cooperative) bottom
     dw %1
 %endmacro
 ; ...and CPXN, a plain near call to a routine os88ui.inc assembles INTO this
-; image on kern_small (OS88UI_KGLYPH): tools/os88ovlchk.py files that file as
-; `.cold` on both kernels, so the call is written through %1, which that scan
-; does not read - fdlg.inc's FDX/FDENT idiom
+; image (OS88UI_KGLYPH): tools/os88ovlchk.py files that file as `.cold` on
+; both kernels, so the call is written through %1, which that scan does not
+; read - fdlg.inc's FDX/FDENT idiom
 %macro CPXN 1
     call %1
 %endmacro
-%macro CPXF 1                   ; ...and the FAR-bodied one (a `retf`):
-    push cs                     ; kern_small's vid_switch, which kern_big's
-    call %1                     ; boot far-calls - KSW_SECT in kernel.asm
+%macro CPXF 1                   ; ...and the FAR-bodied one (a `retf`): this
+    push cs                     ; image's vid_switch and dock_apply, whose
+    call %1                     ; boot copies drv_boot far-calls (KSW_SECT)
 %endmacro
 section .text
 
@@ -2654,11 +2654,7 @@ cp_gemit:
     mov byte [cp_skip], 0       ; ...one-shot (a `mov` writes no flags)
     jne .out
 %endif
-%ifdef KERN_SMALL
-    CPXN os88ui_glyph           ; IN THIS IMAGE on kern_small (OS88UI_KGLYPH)
-%else
-    CPXC os88ui_glyph           ; ...and resident `.cold` on kern_big
-%endif
+    CPXN os88ui_glyph           ; IN THIS IMAGE (OS88UI_KGLYPH, fdlg.inc)
 %ifdef KERN_BIG
 .out:
 %endif
@@ -2699,45 +2695,10 @@ cp_krect:
     mov bx, os88ui_krect
     ret
 
-; --- cp_kgo / cp_cgo - CPXK's and CPXC's far hop, built by hand: the call left
-; the address of `dw target` on the stack, and this turns that word into a
-; far return to just past it, with the TARGET SEGMENT's own `retf` (cw_kretf
-; in .text, cold_kretf in .cold) as the near return on top - then RETFs into
-; the target, whose near `ret` lands on that retf and comes back here. Every
-; register and the flags are preserved both ways (MOV, LEA, PUSH, POP and
-; RETF write none), so the kernel routine sees exactly what the site handed
-; it. ONE tail for both: they differ in the segment slot and the retf.
-cp_cgo:                         ; ovlchk: builds its own far frame
-    push ax                     ; STKBALANCE-OK: a far frame built by hand, its
-    push ax                     ; four slots spent by the RETF below and by the
-    push ax                     ; target's own return through cold_kretf
-    push ax
-    push bp
-    mov bp, sp                  ; [bp+2] offset, [bp+4] segment, [bp+6] the
-    push bx                     ; near return, [bp+8] the far return's offset
-    mov word [bp+4], COLD_SEG   ; and [bp+10] the call's own return, which
-    mov bx, cold_kretf          ; becomes the far return's CS
-    jmp short cp_kgo.t
-cp_kgo:                         ; ovlchk: builds its own far frame
-    push ax                     ; STKBALANCE-OK: the same frame, its target's
-    push ax                     ; return through cw_kretf. The segment slot is
-    push ds                     ; PUSHED: DS is KERNEL_SEG throughout the image
-    push ax
-    push bp
-    mov bp, sp
-    push bx
-    mov bx, cw_kretf
-.t:
-    mov [bp+6], bx
-    mov bx, [bp+10]
-    mov [bp+10], cs
-    lea bx, [bx+2]              ; past the `dw`
-    mov [bp+8], bx
-    mov bx, [cs:bx-2]           ; ...which names the target
-    mov [bp+2], bx
-    pop bx
-    pop bp
-    retf
+; --- cp_kgo / cp_cgo - CPXK's and CPXC's far hop, built by hand (kernel.asm's
+; KGO_PAIR, which says how; the boot blob carries the same pair as bvs_kgo /
+; bvs_cgo for its copies of the adapter switch)
+KGO_PAIR cp
 
 cp_wfill:   mov byte [gfx_color], CWHITE ; ...a fill in the GROUND, which is
                                     ; what six sites set the pen for first
@@ -3376,7 +3337,7 @@ cp_dock_click:
     je .done                    ; already the setting: change nothing
     mov ah, [dock_cfg]
     mov [dock_cfg], al
-    call COLD_SEG:dkf_apply
+    CPXF dock_apply             ; IN THIS IMAGE (KSW_SECT, kernel.asm)
     jnc .changed
     mov [dock_cfg], ah          ; failed enable: keep the working preference
     push si
@@ -3803,11 +3764,7 @@ cp_radios:
 ; clobbers: nothing (flags)
 ; -----------------------------------------------------------------------------
 cp_vid_rowok:
-%ifdef KERN_SMALL
-    CPXN vid_avail_test         ; in this image on kern_small (KSW_SECT)
-%else
-    CPXK vid_avail_test
-%endif
+    call vid_avail_test         ; in this image (KSW_SECT, kernel.asm)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4184,11 +4141,7 @@ cp_vid_click:
     jc .done
 %endif
     mov al, [cp_vsel]
-%ifdef KERN_SMALL
-    CPXF vid_switch             ; IN THIS IMAGE on kern_small (KSW_SECT)
-%else
-    call KERNEL_SEG:vid_switch
-%endif
+    CPXF vid_switch             ; IN THIS IMAGE (KSW_SECT, kernel.asm)
     jc .done                    ; refused: the adapter went away under us
     call cp_repost              ; ...remembered on close (SPEC.md 31.8)
                                 ; ...and the whole screen is a new shape
@@ -4284,9 +4237,10 @@ cp_vid_click:
     ; window, so DI/BP describe a rectangle that may no longer exist.
     call COLD_SEG:exf_sync      ; Extend: EXTD.DRV FIRST (SPEC.md 39.19.6)
     jc .mref                    ; refused, and [vid_dmode] is Single again
-    CPXK vid_disp_init           ; (vid_disp_relayout's three, written out:
+    call vid_disp_init           ; (vid_disp_relayout's three, written out:
     call COLD_SEG:desk_rowcalc_x ; it was a resident far body this image
-    CPXK wm_refit                ; alone called - kernel size pass 13)
+    call wm_refit                ; alone called - kernel size pass 13; the
+                                 ; first and last are this image's own now)
     call COLD_SEG:exf_sync      ; Single: the image goes AFTER the collapse
     call cp_repost              ; ...and SAY SO once (SPEC.md 13.13)
 %endif

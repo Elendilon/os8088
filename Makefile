@@ -912,8 +912,12 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # sector down with it - 5632, memory sector 11, file sector 11 + 10 = 21, the
 # same file sector - so the band argument above is untouched. SPEC.md 26.10.5
 # took it to ELEVEN for autostart's walk, and the probe moved down once more:
-# 5120, memory sector 10, file sector 10 + 11 = 21.
-KSIG_OFF := 5120
+# 5120, memory sector 10, file sector 10 + 11 = 21. Kernel size pass 13 took
+# kern_big to TWELVE for the boot's copy of the adapter switch
+# (docs/plans/completed/ksp13/dispsw.md): 4608, memory sector 9, file sector
+# 9 + 12 = 21. kern_small stays at eleven and 5120 - the KERN_SMALL block
+# beside the knob's below takes the sector back off.
+KSIG_OFF := 4608
 #
 # A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
 # whole of this line's second job. It used to answer 0, and a fabricated zero is
@@ -2004,6 +2008,15 @@ ifneq ($(BOOT2_XSEC),)
 BOOT2_SECS := $(shell echo $$(( $(BOOT2_SECS) + 1 )))
 BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 KSIG_OFF   := $(shell echo $$(( $(KSIG_OFF) - 512 )))
+endif
+# ...and kern_small ONE SECTOR SHORTER than the literal: kernel.asm's
+# BOOT2_SMALLSEC. The twelfth sector is kern_big's boot copy of the adapter
+# switch, and kern_small has no drv_boot to carry one (kernel size pass 13), so
+# it keeps the eleven - and the 5120 - it had, file sector 21 either way.
+ifneq ($(KERN_SMALL),)
+BOOT2_SECS := $(shell echo $$(( $(BOOT2_SECS) - 1 )))
+BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
+KSIG_OFF   := $(shell echo $$(( $(KSIG_OFF) + 512 )))
 endif
 
 # EVERY KNOB IN $(KNOBS) IS IN THIS STAMP TOO, and the seven that were not are
