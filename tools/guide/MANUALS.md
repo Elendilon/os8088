@@ -97,6 +97,31 @@ window; `shot(id, rect=(x, y, w, h))` to a rectangle.
 - LOOK at every PNG you take (open it) before you put it in the manual. A
   shot that shows the wrong thing is worse than none.
 
+## When a capture will not boot
+
+`run.py` reads the kernel's symbols from `build/kernel.bin`. If that and the
+images in `build/` ever disagree, every boot fails with "...reach the desktop
+did not happen". Do NOT run `make` in `build/` (other agents are using it).
+Build a private tree and point the run at it:
+
+    python3 -c "import sys; sys.path.insert(0,'tools'); import os88build; print(os88build.tree(targets=('os8088-360.img','apps360.img')).apply())"
+    OS88_BUILD=<that tree> python3 tools/guide/capture/run.py <KEY> --image <that tree>/os8088-360.img --apps <that tree>/apps360.img
+
+and say so in your report.
+
+## Where things are
+
+- `build/apps360.img` is the 360KB software disk: APPS (most programs),
+  GAMES, and only three documents in MEDIA. The other sample files (pictures,
+  SALES.SLK, WRITING.MD, songs) are on `build/office360.img`,
+  `build/media360.img` or the 1.44MB `build/apps.img`; use whichever disk
+  has what your shot needs. The system disk has APPS (core programs),
+  STIKAPPS (Desk Calendar), SYSTEM (The Wire, Task Manager, FONTS).
+- A sound card: `--machine os8088_xt_vga_sb` is the VGA XT with a Sound
+  Blaster (`tools/martypc/configs/os8088_machines.toml` lists every machine).
+- MartyPC has no network card. Show what a program does without one, and say
+  in the text what it needs.
+
 ## Budget
 
 These are pictures for a manual, not tests. One to three capture runs per
