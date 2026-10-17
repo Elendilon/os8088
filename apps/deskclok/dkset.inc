@@ -647,22 +647,21 @@ dk_fwalk:
     add di, DKS_ESZ
     jmp short .e
 .t:
-    push di
     xor si, si
 .tl:
-    call dk_tileent
+    call dk_tileent             ; DI = tile SI
     push si
     call bp
     pop si
-    jc .ts
+    jc .x
     inc si
     cmp si, DKF_N
     jb .tl
-    pop di
+    push ax
+    mov ax, DKST_TILES
+    call dk_ffind               ; DI = the gallery's row again
+    pop ax
     jmp short .n
-.ts:
-    inc sp                      ; the gallery's row dropped (INC keeps CF)
-    inc sp
 .x:
     pop si
     ret
