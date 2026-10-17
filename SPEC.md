@@ -179909,14 +179909,35 @@ for unreal mode that had never been measured (docs/plans/VIDEO-386-PLAN.md).
 
 **Taken where a 286's is taken and refused where it is refused**, on 98.3.18.11
 and 98.3.18.13's lists and for their reasons - none of which is the 286's
-instruction, so none is a 386's either - **plus one refusal on both tiers: a
-play that reads a LAYER** (98.1.9, `vp_lyipq`). The layer's slots, its split
-of the pool and its bank are planned against the COPYING ring, and an
-in-place base left the layer reading nothing: `vidlybank` went red the first
-time QEMU's 386 went in place, and green again with `[vp_noinp]` written. A
-286 had carried that since 98.3.18.11 with no row able to see it. It is a
-defect refused, not an incompatibility in kind (docs/plans/VIDEO-386-PLAN.md
-6). The speaker's clock stays refused on
+instruction, so none is a 386's either.
+
+**A LAYER plays beside a base in place, on both tiers** (98.1.9.10's own
+design, "IN PLACE the ring is not a ring", which had never run right).
+`vidlybank` went red the first time QEMU's 386 went in place, and three
+defects were under it - a 286 had carried all three since 98.3.18.11 with
+no row able to see them:
+- **`vp_lyown` stored the claim's SEGMENT as the layer's slot count**: DX
+  held the slots and `vp_mclaim` answers the claim in DX, so `[vp_lyns]`
+  read 15072 and the layer was planned against nonsense;
+- **a held file in place was never TIMED**: its fill notes offsets and reads
+  nothing, so the disk's verdict (98.1.9.3) was never taken, and no verdict
+  is the base (98.1.9.7) - `Layer off: not timed`. `vp_xfillt` reads the
+  chunk as well while the verdict is owed - into the ring's first
+  conventional slot, which holds nothing past the key already drawn, timed
+  and thrown away - and takes the verdict at three chunks, so the rest of
+  the ring is only noted;
+- **a bank in place was never timed either**: `vp_fill`'s in-place arm
+  (`vp_eread`, EMS's and the XMS bank's) did not call `vp_dtime`, and the
+  fill before the first frame stops at two chunks where the test needs
+  three. It reads a third while the verdict is owed, timed.
+
+**What is left is a CAPACITY difference, not a refusal.** The split
+(98.1.9.2) runs after the ring is up, and a base bank in place IS the ring,
+so it cannot be resized: on the layer's machine the base keeps the open's
+bank and the layer its own open's share (`vidlysplit`'s clip: 8 and 18
+slots, where copying takes 0 and 25), and on the base's machine the layer's
+bank is given back and the pool past the base's ask stays idle. A held base
+needs no bank, so a hold in place loses nothing. The speaker's clock stays refused on
 every tier: a borrow on a 386 is ~6 us rather than ~150, but the decode
 inside it still runs with interrupts off for up to `VP_XYB` record bytes,
 and one interrupt a sample cannot wait for that. **`[vp_noinp]` now refuses

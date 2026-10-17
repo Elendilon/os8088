@@ -4394,6 +4394,25 @@ SOAK = [
         "FAIL with the open's 8 and 18",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
+    Row("vidlysplitinplace", "soak", py("tests/vidlysplit.py", "--inplace"),
+        90.0,
+        "SPEC.md 98.3.18.14: a LAYER beside a base bank read IN PLACE "
+        "(no [vp_noinp], QEMU's 386): [vp_einp] 2, the disk's verdict taken "
+        "on a third chunk read into the in-place ring and timed there (both "
+        "new), the layer read with the open's 18 slots of bank - the split "
+        "cannot resize a bank that is the ring, so the base keeps its 8 - "
+        "and the play to its last frame with no error and the layer drawn. "
+        "Broken on purpose (vp_lyown's segment-as-count defect put back) "
+        "the guest hangs before the play starts",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True,
+        wants=("build/video.o88", "build/os8088.img")),
+    Row("vidlysplitinplacebase", "soak", py("tests/vidlysplit.py", "--inplace",
+                                            "--arm", "base"), 90.0,
+        "SPEC.md 98.3.18.14: vidlysplitinplace on the BASE's machine (key "
+        "0's no kept): the layer off and its bank given back, the base's "
+        "bank in place at the open's 8 slots, the play whole",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True,
+        wants=("build/video.o88", "build/os8088.img")),
     Row("vidlysplituntimed", "soak", py("tests/vidlysplit.py", "--arm", "untimed"), 60.0,
         "SPEC.md 98.1.9.2: the XMS pool split AFTER the CPU is timed - from the first frame of a one-bit file there is no key to time, and the pool stays as the open took it - the base's bank is never risked on a guess. "
         "Broken on purpose (vp_lysplit not called) the layer and base arms "
@@ -4449,10 +4468,17 @@ SOAK = [
         "512 --layer-prefill all: the prefill fills the slots and the bank "
         "with the whole layer and holds (vp_pfwait), B: is BLANKED, and the "
         "play must draw all 89 layer records with none missed, each slot "
-        "fed from the bank as the hook let it go. The base, held whole, may "
-        "decode IN PLACE on the 386 (98.3.18.14; `xip` in its state line) - "
-        "the shipped choice, left alone because every assertion is the "
-        "layer's",
+        "fed from the bank as the hook let it go. The base, held whole, "
+        "decodes IN PLACE on the 386 and the row asserts it (98.3.18.14): "
+        "it was red there until vp_lyown stopped storing its claim's segment "
+        "as the layer's slot count and an in-place hold's fill read and "
+        "timed the disk for the layer's verdict (vp_xfillt)",
+        needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
+        wants=("build/os8088.img", "build/video.o88")),
+    Row("vidlybankcopy", "soak", py("tests/vidlybank.py", "--copy"), 60.0,
+        "SPEC.md 98.1.9, 98.3.18.14: vidlybank with the base COPYING out of "
+        "its hold ([vp_noinp] = 1 before Play) - the path every 386 took "
+        "before a 386 went in place, kept gated beside it",
         needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidlybanknone", "soak", py("tests/vidlybank.py", "--arm",
