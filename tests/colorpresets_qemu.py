@@ -5,7 +5,7 @@ Build the image first. --ega and --mono-smoke want a knob kernel, built into
 a PRIVATE tree so build/ stays the shipping one (CLAUDE.md's knob trap):
   make BUILD=build-ega VIDEO=ega
   OS88_TREE=$PWD/build-ega OS88_BUILD=$PWD/build-ega \
-      python3 tests/colorpresets_qemu.py --ega --image build-ega/os8088-360.img
+      python3 tests/colorpresets_qemu.py --ega --image build-ega/os8088-720.img
 and the same with `KERN_SMALL=1 VIDEO=cga` and --mono-smoke. This is not an
 EGA hardware emulation: QEMU's standard VGA runs the actual EGA BIOS mode 10h.
 The debugger calls the existing guest functions and restores CPU state and
@@ -258,7 +258,10 @@ THM_COLOR = 2
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--qemu', default='qemu-system-i386')
-    ap.add_argument('--image', default=os88build.at('build/os8088-360.img'))
+    # 720KB and not 360KB: the row LAUNCHES PAINT.O88 out of the system disk's
+    # APPS/, and since SPEC.md 24.3.1.1 the 360KB system disk does not carry
+    # it (the Sticky Apps took its clusters); every other geometry does
+    ap.add_argument('--image', default=os88build.at('build/os8088-720.img'))
     ap.add_argument('--ega', action='store_true')
     ap.add_argument('--visual-only', action='store_true', help='skip save/reboot phase')
     ap.add_argument('--mono-smoke', action='store_true', help='small kernel forced CGA; use OS88_BUILD')
