@@ -1320,6 +1320,18 @@ FAST = [
         "and not soak on t_textrules.py's argument - it is a rule about how "
         "every package is written, so the place it belongs is in front of "
         "the next `make` rather than the next soak run"),
+    Row("moddrop", "fast", py("tests/unit/t_moddrop.py"), 0.2,
+        "SPEC.md 2.8.3's ratchet: every mod_tab row is DROPPED somewhere, "
+        "or tests/moddrop.txt says why it is held until restart. A module "
+        "nothing drops holds its claim from first use to power-off and "
+        "PINNED - exactly the bytes a module exists to give back - and "
+        "nothing refuses it, so the feature works and the heap is merely "
+        "smaller. DESK.DRV shipped that way, with 'no mod_drop anywhere' in "
+        "its own banner and a 5 KB claim priced as 1 (SPEC.md 11.103.10). "
+        "FAST and not soak, though it is about the kernel: new features keep "
+        "arriving as modules, a new mod_tab row is the one path every one of "
+        "them takes, and the place to refuse it is the next `make`. It reads "
+        "that a drop is WRITTEN; that it is reached is stiknodesk's G"),
     Row("toast", "fast", py("tests/unit/t_toast.py"), 1.1,
         "EVERY FIXED TOAST MESSAGE FITS THE BAR (SPEC.md 59.10). toast_show "
         "copies at most TOAST_MAX = 24 characters and drops the rest "
