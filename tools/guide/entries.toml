@@ -107,7 +107,7 @@ short = "Support for desktop widgets"
 ["DISKOPS.DRV"]
 title = "Disk operations"
 kind = "system"
-summary = "Copies a whole floppy sector for sector, and compresses or expands files from the Disk window."
+summary = "Copies a whole floppy sector for sector, to another floppy or to an image file and back, and compresses or expands files."
 short = "Copy disks, compress files"
 
 ["DOCK.DRV"]
@@ -1012,14 +1012,14 @@ short = "Sheet demo formulas"
 ["VMMOUSE.DRV"]
 title = "Emulator pointer"
 kind = "driver"
-summary = "Moves the pointer straight to where your real mouse is, in emulators that support it, with no capture."
+summary = "The Absolute mouse: moves the pointer straight to where your real mouse is, in emulators that support it, with no capture."
 short = "Pointer for emulators"
 needs = "A 386 or later, in an emulator"
 
 ["SYSTEM.CFG"]
 title = "Settings"
 kind = "system"
-summary = "The system's saved settings. On this disk it turns the emulator pointer on."
+summary = "The system's saved settings, written when the Control Panel closes. The emulator disk ships one that turns the Absolute mouse on."
 short = "Saved system settings"
 
 ["00-VIDS.TXT"]
