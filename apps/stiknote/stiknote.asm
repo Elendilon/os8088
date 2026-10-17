@@ -165,7 +165,8 @@ SN_WZ       equ SNB
     SNV sn_cz, 1                ; the current note's FIND +22 (compressed)
     SNV sn_hlen, 2              ; the head's bytes
     SNV sn_doc, 13              ; THE DOCUMENT: the current note's name...
-    SNV sn_ndir, 2              ; ...NOTES' first cluster (sn_go)...
+    SNV sn_ndir, 2              ; ...NOTES' first cluster, BANKED (sn_go;
+                                ; 0 = walk to it by name)...
     SNV sn_dvol, 1              ; ...and the volume: OSAPI_PKG_START's ES:DI
     SNV sn_stem, 8              ; sn_colfind's stem
     SNV sn_mono, 1              ; the primary is 1bpp: no colours
@@ -193,6 +194,10 @@ SN_WZ       equ SNB
     SNV sn_t2, 2
     SNV sn_t3, 2
     SNV sn_line, 8              ; `nn / nn`
+    SNV sn_okey, 2              ; NOTES' bank (sn_ndir) is THIS disk's: our
+                                ; own file's first cluster when it was made
+    SNV sn_bank, 2              ; how sn_go came to NOTES: the bank's
+                                ; cluster, or 0 by a walk
 %assign SNB (SNB + 15) & ~15
     SNV sn_hbuf, SN_HEAD        ; the current note's top (a paragraph: the
                                 ; compressed arm's OSAPI_FILE_READ wants one)
@@ -367,9 +372,11 @@ sn_wake:
 sn_launch:
     cmp byte [sn_n], 0
     je .r
-    call sn_go                  ; STANDING IN NOTES: the association's run
+    call sn_gow                 ; STANDING IN NOTES: the association's run
     jc .r                       ; takes the document's folder from where the
-                                ; caller stands (assoc_run_x's .curvol)
+                                ; caller stands (assoc_run_x's .curvol) -
+                                ; and the editor WRITES there, so it is a
+                                ; folder walked to by name (sn_gow)
     mov al, [stik_hbl]
     mov [sn_dvol], al           ; sn_doc, sn_ndir, sn_dvol: the locator
     call sn_live
@@ -449,7 +456,7 @@ sn_paint:
 ; sn_new - a new note: NOTEnnnn.TXT, the lowest number free, holding a title;
 ; it is current, and it opens in the editor as the arrow does
 sn_new:
-    call sn_go
+    call sn_gow                 ; a CREATE: where a walk says (sn_go)
     jc .nos
     mov al, [sn_cur]            ; the numbers in use NOW, and the current
     mov [sn_want], al           ; note kept

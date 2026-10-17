@@ -25,7 +25,20 @@ herc (default) - a 5150 with a Hercules card: the MID layout, 1bpp pixels
      is printed.
   E  the arrow opens the note in NOTE PAD (a new instance, and the watch is
      armed); typed text and Ctrl+S, then Note Pad's close: the watch disarms
-     within a beat and the pad shows the saved text.
+     within a beat and the pad shows the saved text; the re-read is timed.
+  E2 ANOTHER os8088 DISK IS NOT HOME: a TWIN of home in A: - home as the
+     guest has it, with a serial of its own and STIKAPPS\\STIKNOTE.O88
+     renamed, so NOTES and the very note on the pad are where home's are -
+     the motor let stop, and a tick over NOTES' bank (SPEC.md 110.13.2)
+     reads that disk and writes NOTHING, the pad unchanged: the quiet home
+     stand mounts it as itself and the witness refuses it (110.5.1). Then
+     home goes back. (The apps disk, which shares nothing, is stikswap's.)
+
+  THE TIMES (D, E, F) are a press - or, for E, the editor's window gone - to
+  the END of the visit: the first stand after its first file cell, which is
+  stik_leave going home, off the kernel's own breakpoints (VISIT). The
+  pointer's travel and the double-click gap are spent before the clock
+  starts and the floppy motor has stopped, as between two human presses.
   F  `+` makes NOTE0001.TXT (`New note` + CR LF), it is current, and it opens
      in Note Pad; `<` turns back to WELCOME.TXT, timed on the 4.77 MHz XT.
   G  Delete is the press-again latch: the first says `Delete again to
@@ -47,7 +60,8 @@ small - kern_small, a copy of STIKNOTE.O88 carried there by hand (B:)
      not carry it (SPEC.md 24.5.1). Needs `make small`.
 
 **BREAK IT ON PURPOSE**: make sn_tick poll without `[sn_wslot]` (drop its
-`jz .x`) and C goes red; take sn_go out of sn_launch and E's Note Pad opens
+`jz .x`) and C goes red; let stik_enter go to a banked folder before its
+witness and E2 goes red (the tick writes onto the apps disk); take sn_go out of sn_launch and E's Note Pad opens
 an empty note in STIKAPPS\\ and the pad never shows `Hi`; drop sn_setpen's
 call from snp_pcard and I reads white; draw the notches as paper (snp_put's
 titled arm) and B fails.
@@ -104,6 +118,53 @@ def image_size():
 
 def cycles(m):
     return int(m.status().get("cycles", 0))
+
+
+VISIT = ("osapi_file_goto", "osapi_file_goto_qm", "dwf_dskw_read",
+         "dwf_dskw_read_at", "dwf_dskw_write")
+
+
+def visit(hits, c0, after):
+    """(c0 to the visit's end, the visit's own length), GUEST seconds. A
+    visit to NOTES starts at its first stand after `after` (OSAPI_FILE_GOTO
+    or _QM, whichever stik_enter makes) and ends at the first stand AFTER
+    its first file cell - stik_leave going home, which every one of the
+    three operations makes once its read or write is done. A save the beat
+    owes comes later, and is not counted."""
+    hz = os88marty.GUEST_HZ
+    t0 = io = None
+    for h in hits:
+        if h["hit"] < after:
+            continue
+        goto = h["name"].startswith("osapi_file_goto")
+        if t0 is None:
+            if goto:
+                t0 = h["hit"]
+        elif io is None:
+            if not goto:
+                io = h["hit"]
+        elif goto:
+            return (h["hit"] - c0) / hz, (h["hit"] - t0) / hz
+    raise SystemExit("no whole visit in the trace: %r" % (
+        [(h["name"], h["hit"] - c0) for h in hits],))
+
+
+def twin(src, tmp):
+    """ANOTHER os8088 disk laid out like home: `src` (home as the guest has
+    it) with a serial of its own (BS_VolID, +0x27) and STIKAPPS\\STIKNOTE.O88
+    renamed - so NOTES and the very WELCOME.TXT the pad shows are where
+    home's are, byte for byte, and our own file is not. The banked NOTES
+    would take its note for ours; only the witness tells them apart."""
+    b = bytearray(open(src, "rb").read())
+    v = os88flush.Volume(bytes(b))
+    sa = [e for e in v.listdir("") if e.name == "STIKAPPS"][0]
+    at = (v.data_lba + (sa.cluster - 2) * v.spc) * 512
+    i = b.index(b"STIKNOTEO88", at, at + 512 * v.spc)
+    b[i + 7] = ord("X")
+    b[0x27] ^= 0x5A
+    out = os.path.join(tmp, "twin.img")
+    open(out, "wb").write(bytes(b))
+    return out
 
 
 class Note(object):
@@ -179,21 +240,42 @@ class Note(object):
     def until(self, cond, what, guest=30):
         self.ui._wait(cond, what, guest, snapshot=lambda: repr(self.st()))
 
-    def timed(self, act, cond, what, guest=60):
-        """act(), then wait for cond: the GUEST seconds between."""
-        c0 = cycles(self.m)
-        act()
-        self.until(cond, what, guest)
-        return (cycles(self.m) - c0) / os88marty.GUEST_HZ
+    def timed(self, pt, cond, what, guest=60):
+        """A press at `pt`, then cond: (press to the visit's end, the visit),
+        GUEST seconds, off the kernel's own breakpoints (VISIT).
 
-    def volume(self):
-        out = os.path.join(self.tmp, "flushed.img")
+        The pointer's travel and os88mouse's double-click gap are spent BEFORE
+        the clock starts, and nothing is paced inside it: an earlier shape of
+        this timed n.press, whose own os88marty.pace(1.0) is 4.5 guest seconds,
+        so every figure it printed was that pause plus the machine's work
+        (7.0 s for a page turn whose visit was 0.5)."""
+        mo = self.ui.mo
+        mo.to(*pt)
+        os88marty.guest_sleep(self.m, 2.5)  # the floppy motor has STOPPED
+        mo._sep()                           # (2.03 s, SPEC.md 18.9.1), as it
+                                            # has between two human presses
+        with os88marty.bp_trace(self.m, *VISIT, on_hit=lambda m, r:
+                                cycles(m)) as tr:
+            c0 = cycles(self.m)
+            mo._edge(True)
+            mo._edge(False)
+            self.until(cond, what, guest)
+            os88marty.guest_sleep(self.m, 1.0)  # the visit's leave, if a poll
+        return visit(tr.hits, c0, c0)           # saw the head before it
+
+
+    def volume(self, name="flushed.img"):
+        return os88flush.Volume(open(self.flush(name), "rb").read())
+
+    def flush(self, name):
+        """A: as the guest has it, into a file of its own: the path."""
+        out = os.path.join(self.tmp, name)
         self.m.pause()
         try:
             self.m.flush(0, out)
         finally:
             self.m.run()
-        return os88flush.Volume(open(out, "rb").read())
+        return out
 
     def raw(self, path):
         try:
@@ -296,10 +378,11 @@ def herc(tmp):
                  if kind is False and first)        # the first OPEN box
         text = wrap[k][2]
         off = welcome.index(b"[ ] " + text.encode()) + 1
-        secs = n.timed(lambda: n.press(n.box_xy(k)),
-                       lambda: n.st()["head"][off:off + 1] == b"x",
-                       "the tick to land in the head")
-        print("      the tick, press to written: %.2f guest s" % secs)
+        secs, vis = n.timed(n.box_xy(k),
+                            lambda: n.st()["head"][off:off + 1] == b"x",
+                            "the tick to land in the head")
+        print("      the tick, press to written: %.2f guest s (the visit "
+              "%.2f)" % (secs, vis))
         d = n.raw(NOTES + "/WELCOME.TXT")
         check(d is not None and d[off - 1:off + 3] == b"[x] "
               and d[:off - 1] == welcome[:off - 1],
@@ -325,20 +408,41 @@ def herc(tmp):
         ui.wait_toast(says="Saved")
         os88marty.guest_sleep(m, 1.0)
         c0 = cycles(m)
-        ui.close(ed)                # returns once the window is gone: the
-        c1 = cycles(m)              # beat is counted from there, not from
-        print("      Note Pad's own close: %.2f guest s"   # the click
-              % ((c1 - c0) / os88marty.GUEST_HZ))
-        n.until(lambda: n.st()["wslot"] == 0, "the watch to see the close")
-        gone = (cycles(m) - c1) / os88marty.GUEST_HZ
-        check(gone <= BEAT + 0.5, "the watch disarmed within a beat of the "
-              "editor's window going (%.2f guest s)" % gone)
-        n.until(lambda: n.st()["head"].startswith(b"Hi Welcome"),
-                "the pad to show the saved text", 30)
-        print("      close to the pad's new head: %.2f guest s"
-              % ((cycles(m) - c0) / os88marty.GUEST_HZ))
+        with os88marty.bp_trace(m, *VISIT, on_hit=lambda mm, r:
+                                cycles(mm)) as tr:
+            ui.close(ed)            # returns once the window is gone: the
+            c1 = cycles(m)          # beat is counted from there, not from
+            print("      Note Pad's own close: %.2f guest s"   # the click
+                  % ((c1 - c0) / os88marty.GUEST_HZ))
+            n.until(lambda: n.st()["wslot"] == 0,
+                    "the watch to see the close")
+            gone = (cycles(m) - c1) / os88marty.GUEST_HZ
+            check(gone <= BEAT + 0.5, "the watch disarmed within a beat of "
+                  "the editor's window going (%.2f guest s)" % gone)
+            n.until(lambda: n.st()["head"].startswith(b"Hi Welcome"),
+                    "the pad to show the saved text", 30)
+            os88marty.guest_sleep(m, 1.0)
+        secs, vis = visit(tr.hits, c0, c1)
+        print("      close to the pad's new head: %.2f guest s (the "
+              "re-read's visit %.2f)" % (secs, vis))
         check(n.raw("STIKAPPS/WELCOME.TXT") is None, "Note Pad saved into "
               "NOTES, not into STIKAPPS")
+
+        print("E2: another os8088 disk in A: is not home")
+        home = n.flush("home.img")      # the system disk as it stands
+        m.mount(0, twin(home, tmp))
+        os88marty.guest_sleep(m, 3.0)   # the motor stops: the next stand
+        head = n.st()["head"]           # must ASK which disk this is
+        m.disk(reset=True)
+        n.press(n.box_xy(k))            # a tick, over NOTES' bank
+        os88marty.guest_sleep(m, 2.0)
+        d = m.disk()
+        check(d.get("writes", 0) == 0 and d.get("reads", 0) > 0,
+              "the tick read the twin and wrote nothing to it (%r)" % d)
+        check(n.st()["head"] == head, "the pad is unchanged - the twin's "
+              "WELCOME.TXT was not taken for ours")
+        m.mount(0, home)
+        os88marty.guest_sleep(m, 3.0)
 
         print("F: + makes a note, < turns back")
         before = set(o.i for o in ui.windows())
@@ -353,12 +457,12 @@ def herc(tmp):
         n.until(lambda: n.st()["wslot"] == 0, "the watch to disarm")
         check(n.raw(NOTES + "/NOTE0001.TXT") == b"New note\r\n",
               "the file on the disk")
-        secs = n.timed(lambda: n.press(n.at(S.STIKNOTE_PREVX + 2,
-                                            g["FY"] + 3)),
-                       lambda: n.st()["cur"] == 0
-                       and n.st()["head"].startswith(b"Hi Welcome"),
-                       "the page to turn back")
-        print("      the page turn, press to head: %.2f guest s" % secs)
+        secs, vis = n.timed(n.at(S.STIKNOTE_PREVX + 2, g["FY"] + 3),
+                            lambda: n.st()["cur"] == 0
+                            and n.st()["head"].startswith(b"Hi Welcome"),
+                            "the page to turn back")
+        print("      the page turn, press to head: %.2f guest s (the visit "
+              "%.2f)" % (secs, vis))
         check(n.st()["doc"] == "WELCOME.TXT", "WELCOME.TXT current again")
         n.press(n.at(S.STIKNOTE_NEXTX + 2, g["FY"] + 3))
         n.until(lambda: n.st()["cur"] == 1, "the page to turn on")

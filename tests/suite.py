@@ -10356,10 +10356,15 @@ SOAK = [
         "record, `[x] ` in the file on the disk, timed); the arrow opens it "
         "in Note Pad, typed text and Ctrl+S then Note Pad's close disarm the "
         "watch within a beat and the pad shows the saved text (saved into "
-        "NOTES, not STIKAPPS); `+` makes NOTE0001.TXT and opens it, `<` "
-        "turns back (timed); Delete once says `Delete again to confirm` and "
-        "deletes nothing, twice deletes the current note's file; and the "
-        "Color menu is greyed `(color screen)` on 1bpp.",
+        "NOTES, not STIKAPPS; the re-read timed); with a TWIN of home in A: "
+        "(its own serial, NOTES where home's is, our own file renamed) a "
+        "tick over NOTES' bank reads it and writes nothing (110.5.1's "
+        "witness after the quiet stand); `+` makes NOTE0001.TXT and opens "
+        "it, `<` turns back (timed); Delete once says `Delete again to "
+        "confirm` and deletes nothing, twice deletes the current note's "
+        "file; and the Color menu is greyed `(color screen)` on 1bpp. Each "
+        "time is press (or the editor gone) to the visit's end off kernel "
+        "breakpoints, the motor stopped first.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
     Row("stiknotevga", "soak", py("tests/stiknote.py", "--leg", "vga"), 80.0,
         "SPEC.md 110.13: Sticky Note's PAPERS and a FULL folder on a VGA XT, "

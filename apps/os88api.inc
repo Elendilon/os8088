@@ -3550,7 +3550,12 @@ OS88_HDR_FLAGS equ 0
 ; (`call` / `retf`), in STKE_* order.
 ; -----------------------------------------------------------------------------
 STIKLIB_MAGIC   equ 0x4C53       ; 'SL'
-STIKLIB_VER     equ 1            ; this block's layout and the entry table
+STIKLIB_VER     equ 2            ; this block's layout and the entry table -
+                                 ; and the entries' contracts: 2 is
+                                 ; STKE_ENTER taking DX (a banked folder, or
+                                 ; 0 for SYSTEM\APPDATA) and answering AX
+                                 ; (SPEC.md 110.5.1), which a version-1
+                                 ; caller would not set
 OS88_STIKLIB_AT equ 288          ; header 32 + icon 64 + Sticky App card 192
 STKE_LOAD       equ 0            ; the entries, in the library's table order
 STKE_MADE       equ 1
