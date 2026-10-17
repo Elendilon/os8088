@@ -167,6 +167,19 @@ main.panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; ma
 .info .ident { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 2px 14px; align-items: start; margin-bottom: 14px; }
 .info .ident .ic { grid-row: span 2; padding-top: 4px; }
 .info .ident .fn { font-family: var(--font-mono); font-size: 13px; color: var(--ink-2); }
+.ihead { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 4px 14px; align-items: center; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--rule); }
+.ihead .ic { display: flex; }
+.ihead .where { display: grid; justify-items: end; gap: 2px; font-size: 12px; color: var(--ink-2); text-align: right; min-width: 0; }
+.ihead .where .mono { font-size: 12px; overflow-wrap: anywhere; }
+.also { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font-size: 12px; }
+.also:hover { text-decoration: underline; }
+@media (max-width: 560px) { .ihead { grid-template-columns: 36px minmax(0, 1fr); } .ihead .where { grid-column: 2; justify-items: start; text-align: left; } }
+.alsolist { display: grid; gap: 6px; padding: 0 0 12px; margin: -2px 0 14px; border-bottom: 1px solid var(--rule); }
+.alsolist .arow { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.alsolist .glabel { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); }
+.alsolist .chip { padding: 1px 8px; font-size: 12px; }
+.needs-line { display: flex; gap: 12px; align-items: baseline; margin: -6px 0 16px; color: var(--warn); font-size: var(--step--1); }
+.needs-line span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); }
 .info .lede { font-size: var(--step-1); line-height: 1.45; margin: 0 0 16px; max-width: 62ch; }
 .facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 18px; margin: 0 0 18px; padding: 12px 0; border-block: 1px solid var(--rule); font-size: var(--step--1); }
 .facts dt { color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; padding-top: 2px; }
@@ -280,7 +293,7 @@ D.disks.forEach(d => (d.tree || []).forEach(([p]) => { const n = baseName(p); (w
 const things = Object.fromEntries([...D.tools, ...D.firmware].map(t => [t.id, t]));
 
 // --- state -----------------------------------------------------------------
-const st = { geo: "1440", disk: null, item: null, open: {}, secOpen: {} };
+const st = { geo: "1440", disk: null, item: null, open: {}, secOpen: {}, alsoOpen: false };
 try { const g = localStorage.getItem("os88guide.geo"); if (g && geoLabel[g]) st.geo = g; } catch (e) {}
 
 function disksFor(geo) { return D.disks.filter(d => d.geo === geo); }
@@ -424,14 +437,13 @@ function drawItemInfo(d, path) {
   const seen = (where[n] || []).map(([id]) => disk[id]);
   const byGeo = {};
   seen.forEach(x => { (byGeo[x.geo] ||= []).push(x); });
-  let h = `<div class="ident"><span class="ic">${icon(i.kind, 30)}</span><h2>${esc(i.title)}</h2><span class="fn">${esc(n)}</span></div>`;
+  const others = seen.filter(x => x.id !== d.id), geos = D.geos.filter(g => (byGeo[g.key] || []).some(x => x.id !== d.id));
+  let h = `<div class="ihead"><span class="ic">${icon(i.kind, 30)}</span><h2>${esc(i.title)}</h2>
+    <div class="where"><span class="mono">${esc(path.replace(/\/$/, ""))}${size ? " · " + kb(size) : ""}</span>
+    ${others.length ? `<button class="also" data-also aria-expanded="${st.alsoOpen}">Also on ${others.length} other disk${others.length > 1 ? "s" : ""} <span aria-hidden="true">${st.alsoOpen ? "▾" : "▸"}</span></button>` : ""}</div></div>`;
+  if (others.length && st.alsoOpen) h += `<div class="alsolist">${geos.map(g => `<div class="arow"><span class="glabel">${esc(g.label)}</span><div class="chips">${byGeo[g.key].filter(x => x.id !== d.id).map(x => diskChip(x, x.role)).join("")}</div></div>`).join("")}</div>`;
   if (i.summary) h += `<p class="lede">${esc(i.summary)}</p>`;
-  h += `<dl class="facts">`;
-  if (i.needs) h += `<dt>Needs</dt><dd class="needs">${esc(i.needs)}</dd>`;
-  h += `<dt>On this disk</dt><dd class="mono">${esc(d.file)}: ${esc(path.replace(/\/$/, ""))}${size ? " · " + kb(size) : ""}</dd>`;
-  const geos = D.geos.filter(g => byGeo[g.key]);
-  if (seen.length > 1) h += `<dt>Also on</dt><dd>${geos.map(g => `<div class="chips" style="margin-bottom:4px">${byGeo[g.key].filter(x => x.id !== d.id).map(x => diskChip(x, (g.key === d.geo ? "" : g.label + " ") + x.role)).join("")}</div>`).join("")}</dd>`;
-  h += `</dl>`;
+  if (i.needs) h += `<p class="needs-line"><span>Needs</span>${esc(i.needs)}</p>`;
   if (man) h += `<div class="manual">${man.html}</div>`;
   else if (!n.endsWith("/")) h += `<div class="nomanual">${i.kind === "program" ? "The manual for this program has not been written yet." : "No further guide for this file."}</div>`;
   return h;
@@ -461,6 +473,7 @@ function draw() {
 
 // --- events ---------------------------------------------------------------------
 document.addEventListener("click", e => {
+  if (e.target.closest("[data-also]")) { st.alsoOpen = !st.alsoOpen; const r = document.getElementById("right"), y = r.scrollTop; drawRight(); r.scrollTop = y; return; }
   const sec = e.target.closest("[data-sec]");
   if (sec) { const k = sec.dataset.sec; st.secOpen[k] = !(st.secOpen[k] ?? disk[st.disk]?.section === k); return drawShelf(); }
   const tab = e.target.closest("[data-geo]"); if (tab) { st.secOpen = {}; return go(tab.dataset.geo); }
