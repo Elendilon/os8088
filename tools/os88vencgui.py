@@ -599,21 +599,28 @@ def ladder_options(c):
             for x in (1, 2, 5, 10, 20)]
     if _coarse(c) is None:              # (Mode X's one cell, VGA4's three)
         cells = [cell for cell in V.DEGRADE_COARSE
-                 if (cell in ("auto", "4x1")) == (c["layout"] == "modex") or
-                 cell in ("auto", "mix")]
-        out += [("Coarse cells at a scene change (%s)" % cell,
-                 "coarsescene:%s" % cell) for cell in cells]
+                 if (cell in ("frame", "4x1")) == (c["layout"] == "modex") or
+                 cell in ("frame", "mix")]
+        out += [("Coarse cells at a scene change (%s)" % CELL_WORDS.get(
+            cell, cell), "coarsescene:%s" % cell) for cell in cells]
         # (...and at ANY cut: a moving picture in cells for a frame)
-        out += [("Coarse cells at any cut (%s)" % cell,
+        out += [("Coarse cells at any cut (%s)" % CELL_WORDS.get(cell, cell),
                  "coarseany:%s" % cell) for cell in cells]
     if _scenes(c) is None:
         out += [("Fewer colours: %d" % n, "colours:%d" % n) for n in (12, 8)]
     return out
 
 
+# a coarse rung's cell, in words (frame: the whole frame at a time)
+CELL_WORDS = {"frame": "whole frame", "auto": "whole frame",
+              "mix": "mixed: only the tiles it must"}
+
+
 def ladder_label(tok):
     """A --ladder token's words, for one the form's file cannot use too"""
     kind, _, v = tok.partition(":")
+    if kind.startswith("coarse"):
+        v = CELL_WORDS.get(v, v)
     return {"lag": "Lag up to %s ms", "slow": "Slow to %s of the rate",
             "coarsescene": "Coarse cells at a scene change (%s)",
             "coarse": "Coarse cells at a scene change (%s)",
@@ -2599,7 +2606,7 @@ class App(object):
         for i in range(LADDER_RUNGS):
             lab = ttk.Label(page, text="Rung %d" % (i + 1))
             lab.grid(row=1 + i, column=0, sticky="w", pady=(2, 0))
-            cb = ttk.Combobox(page, state="readonly", width=44)
+            cb = ttk.Combobox(page, state="readonly", width=56)
             cb.grid(row=1 + i, column=1, sticky="w", padx=4, pady=(2, 0))
             cb.bind("<<ComboboxSelected>>", lambda e: self.ladder_compose())
             self.ladrows.append((lab, cb))
@@ -2642,6 +2649,8 @@ class App(object):
             toks = [t.strip() for t in spec.split(",") if t.strip()]
             toks = ["coarsescene:" + t[7:] if t.startswith("coarse:") else t
                     for t in toks]      # (the scene rung's first name)
+            toks = [t[:-5] + ":frame" if t.startswith("coarse") and
+                    t.endswith(":auto") else t for t in toks]   # (and auto)
             self.ladon.set("1" if toks else "")
             self.ladtok = {"(none)": ""}
             for lab, tok in opts:

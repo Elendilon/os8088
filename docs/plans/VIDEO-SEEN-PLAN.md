@@ -361,7 +361,7 @@ Mode X flipped, `286-speeddemon`, whole clip:
 | | the view broken | s visibly broken | worst second | cut | in cells |
 |---|---:|---:|---:|---:|---:|
 | cut (no ladder) | 24.3% | 3.3 | 4.79% | 400 | 0 |
-| `lag:100, coarseany:auto` - 24 fps, 4x1 where it would cut | 16.5% | **0.4** | 1.75% | 102 | 297 |
+| `lag:100, coarseany:frame` - 24 fps, 4x1 where it would cut | 16.5% | **0.4** | 1.75% | 102 | 297 |
 | the default ladder - 12 fps through the heavy stretches | **3.2%** | 0.6 | **0.71%** | 57 | 0 |
 
 The cells end the TEARING - visibly broken 3.3 s -> 0.4 s, under even the
@@ -391,7 +391,7 @@ whole; the rest at full detail. Last Exile 0:10-0:25, the same options:
 | | the view broken | worst frame | s visibly broken | cut | encode |
 |---|---:|---:|---:|---:|---:|
 | cut (no ladder) | 25.3% | 99.7% | 2.4 | 174 | 99 s |
-| `lag:100, coarseany:auto` (whole frames in 4x1) | 18.0% | 94.3% | **0.3** | **21** | 1,042 s |
+| `lag:100, coarseany:frame` (whole frames in 4x1) | 18.0% | 94.3% | **0.3** | **21** | 1,042 s |
 | `lag:100, coarseany:mix` | **17.0%** | **79.6%** | 0.5 | 53 | 1,708 s |
 | the default ladder (half rate) | 3.7% | 67.3% | 0.5 | 26 | 242 s |
 
@@ -411,13 +411,13 @@ additional cuts"; no more tearing seen, and in the heavier scenes it
 "drop[s] to effectively all", which is right - **mix IS mix-then-whole**,
 a frame at a time: where every tile in cells still does not fit, the
 whole frame goes in what `auto` picks (on VGA4 the finest of 16x4, 32x8
-and 64x8 that fits; on Mode X 4x1), so a separate `coarseany:auto` after
+and 64x8 that fits; on Mode X 4x1), so a separate `coarseany:frame` after
 it would add encode time and change nothing.
 
 **THE DEFAULT LADDER, 2026-10-17 (the owner)**: the half rate OUT, the
 scene rung renamed `coarsescene` (`coarse:` still read), and
 `coarseany:mix` the sixth rung in the half rate's place -
-`lag:100, slow:5/6, colours:12, slow:2/3, coarsescene:auto, coarseany:mix`:
+`lag:100, slow:5/6, colours:12, slow:2/3, coarsescene:frame, coarseany:mix`:
 
 | clip | with the half rate | the new default |
 |---|---:|---:|
@@ -431,10 +431,17 @@ cells, and that scores worse than the same cells at 24 fps alone (17.0%,
 0.5 s - `lag:100, coarseany:mix`): on that clip the slower rate and the
 cells pay twice. The owner on watching it: **"a huge win; that is the
 best bad carrot's heavy sunscene has ever looked"**, and Last Exile
-"still cut a bunch, and needs coarseany/full [`coarseany:auto`], but as a
+"still cut a bunch, and needs coarseany/full [`coarseany:frame`], but as a
 default, its better than full cuts" - so the default stands, and Last
 Exile is a clip that wants its own ladder, which is the scene-by-scene
 editor's case once more.
+
+**`frame` for `auto`** (2026-10-17, the owner: "can that become 'full
+frame' or somesuch so its clear to the user that they are doing a full
+frame at a time?"): a coarse rung's whole-frame cell is `frame` - "whole
+frame" in the window, beside "mixed: only the tiles it must" - and a
+ladder that says `auto` still reads as it. A name only: every file above
+is the same.
 
 **OPEN: an encoder speed pass** (the owner, 2026-10-17: "encode times
 aside; add an item to do an encoder optimization pass"). Every rung is

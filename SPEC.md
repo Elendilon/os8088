@@ -173366,8 +173366,8 @@ format change: a held frame is an ordinary record.
 - by default; docs/plans/VIDEO-SEEN-PLAN.md 3a). The ways a frame the
 budgets cannot draw may give, as RUNGS in the order they are tried:
 `lag:MS` (the lag allowance, 98.2.1.1.2), `slow:A/B` (a held frame's
-rate, as `--min-fps`'s), `coarsescene:auto|mix|WxH` (a scene's first
-frame in cells, 98.2.1.9; `coarse:` until 2026-10-17, still read), `coarseany:auto|WxH` (2026-10-17: EVERY frame of the
+rate, as `--min-fps`'s), `coarsescene:frame|mix|WxH` (a scene's first
+frame in cells, 98.2.1.9; `coarse:` until 2026-10-17, still read), `coarseany:frame|mix|WxH` (2026-10-17: EVERY frame of the
 stretch the budgets would cut drawn in cells at its own time - the frame
 rate kept and the width given up where the picture moves too fast to
 send, on the planar screens of 98.2.5.2; on Last Exile at 24 fps it is
@@ -173402,7 +173402,7 @@ real passes replay its holds, lag and cells, and page-ahead's keep and
 its prune judge a file that may hold frames by its picture's measures and
 not by a count of cut frames - a ladder trades one for the other. The
 encoder window's default ladder (`DEGRADE_DEFAULT`) is `lag:100,
-slow:5/6, colours:12, slow:2/3, coarsescene:auto, coarseany:mix` since
+slow:5/6, colours:12, slow:2/3, coarsescene:frame, coarseany:mix` since
 2026-10-17: the half rate is out of it (the owner: it "worked great on
 gasgas, and terribly on last exile", too jerky and still cutting) and
 cells at any cut, mixed, are its last rung. On each clip's own options:

@@ -3696,9 +3696,13 @@ VFR_AGAIN = 2           # frames until a cut is asked again, after the full
 # gasgas, and terribly on last exile", too jerky and still cutting - and
 # took coarse cells at any cut, mixed, in its place
 DEGRADE_KINDS = ("lag", "slow", "coarsescene", "coarseany", "colours", "cut")
-DEGRADE_DEFAULT = "lag:100,slow:5/6,colours:12,slow:2/3,coarsescene:auto," \
+DEGRADE_DEFAULT = "lag:100,slow:5/6,colours:12,slow:2/3,coarsescene:frame," \
     "coarseany:mix"
-DEGRADE_COARSE = ("auto", "mix", "4x1", "16x4", "32x8", "64x8")
+# A coarse rung's cell: FRAME, the whole frame in the finest cell that
+# fits (it was "auto", still read - the owner, 2026-10-17: so it is "clear
+# to the user that they are doing a full frame at a time"), MIX, only the
+# tiles it must, or a cell of the user's own
+DEGRADE_COARSE = ("frame", "mix", "4x1", "16x4", "32x8", "64x8")
 
 
 def degrade_parse(spec):
@@ -3723,7 +3727,9 @@ def degrade_parse(spec):
                 v = float(a) / float(b) if b else float(a)
                 ok = 0.05 <= v < 1
             elif kind in ("coarsescene", "coarseany"):
-                v, ok = val, val in DEGRADE_COARSE
+                v, ok = val, val in DEGRADE_COARSE + ("auto",)
+                if v == "frame":        # (auto, inside: coarse_pick's)
+                    v = "auto"
             elif kind == "colours":
                 v = int(val)
                 ok = v in (12, 8)
@@ -3736,8 +3742,8 @@ def degrade_parse(spec):
             ok = False
         if not ok:
             raise vid.V88Error("--ladder: %r is not a rung (lag:MS, "
-                               "slow:A/B, coarsescene:auto|mix|WxH, "
-                               "coarseany:auto|mix|WxH, colours:12|8, "
+                               "slow:A/B, coarsescene:frame|mix|WxH, "
+                               "coarseany:frame|mix|WxH, colours:12|8, "
                                "cut:PERCENT)"
                                % part)
         out.append((kind, v))
@@ -9922,7 +9928,8 @@ def _encode(a, keep, tick, readers):
                     ("%d at rung %d (%s)" % (c, i, ", ".join(
                         "%s:%s" % (kk, ("%.3g" % vv) if kk == "slow" else
                                    ("%g" % vv) if kk == "lag" else
-                                   ("%g%%" % vv) if kk == "cut" else vv)
+                                   ("%g%%" % vv) if kk == "cut" else
+                                   "frame" if vv == "auto" else vv)
                         for kk, vv in enc.vkeep[:i])))
                     for i, c in sorted(enc.vladder.items())),
                 getattr(a, "ladder", "")))
@@ -10486,9 +10493,10 @@ def parser():
                     help="THE DEGRADE LADDER: where the budgets would cut, "
                          "the RUNGS in order, each on top of those before - "
                          "lag:MS, slow:A/B (of the frame rate), coarsescene:"
-                         "auto|mix|WxH (cells at a scene change), coarseany:"
-                         "auto|mix|WxH (cells at any frame it would cut; mix: "
-                         "only the tiles it must), colours:12|8 (a "
+                         "frame|mix|WxH (cells at a scene change), coarseany:"
+                         "frame|mix|WxH (cells at any frame it would cut; "
+                         "frame: the whole frame in the finest cell that "
+                         "fits, mix: only the tiles it must), colours:12|8 (a "
                          "scene's palette stepped down), cut:PERCENT (the "
                          "frames cut, where none is more than that broken "
                          "as seen) - the first that draws the stretch whole "
