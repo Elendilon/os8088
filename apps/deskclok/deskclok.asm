@@ -139,6 +139,10 @@ STIK_BSS    equ DK_BSS          ; the include's state follows ours
 %define GFXE_BAND_W   176       ; the tag's band: the include's, in ours
 %define GFXE_BAND_H   16
 %define GFXE_BAND_BUF dk_band
+%define GFXE_NOBUTIL            ; the tag papers and blits its own band (the
+                                ; include's stik_blit): no bounds, pixel or
+                                ; gfxe_bput - the Desk Calendar's (SPEC.md
+                                ; 5.12.9)
 
 DKP         equ STIK_PAY
 DK_BANDSZ   equ 4608            ; the composer's band: four planes of a
@@ -1228,10 +1232,12 @@ DK_ITEM dk_t_s2,   'Large'
 %define OS88UI_MACROS           ; no os88ui control: the forms draw their
                                 ; own (dkset.inc) and About is a toast
 %include "os88ui.inc"
-    DK_PARITY 0                 ; the include's paint path (stik_paint ..
-                                ; stik_desk) at its measured parity: what
-                                ; STIK_DESKONLY took out ahead of it is odd
 %include "os88gfx.inc"
+%ifdef STIK_DESKONLY            ; the include's paint path (stik_paint ..
+    DK_PARITY 0                 ; stik_desk) at its measured parity: what
+%else                           ; STIK_DESKONLY takes out ahead of it is
+    DK_PARITY 1                 ; an odd number of bytes
+%endif
 %include "os88stik.inc"
 %include "dkwid.inc"            ; AFTER os88stik.inc: its STIKL_* and macros
 %include "dkset.inc"
