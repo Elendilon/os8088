@@ -40225,7 +40225,7 @@ armed once `SPL_RESIDENT` sectors are aboard, and the loop used to test
 `[lba]` for that — true while the kernel started at LBA 1 and *sectors done*
 and *sector number* were the same quantity. They are not any more: `[lba]`
 starts at 33 on the 1.44MB geometry, 14 on the 720KB one and 12 on the 360KB
-one, all three already past `SPL_RESIDENT`, so the splash was far-called
+one (14 since §19.3.2), all three already past `SPL_RESIDENT`, so the splash was far-called
 before a byte of it had landed and the machine hung with a black screen
 inside `KERNEL_SEG`. Sectors done is now counted on its own.
 
@@ -40244,23 +40244,29 @@ free clusters of the kernel's own bytes read as a FAT. Modelling that reading
 against the old image reproduced the figure to the byte.
 
 **Verified on PC-DOS 3.30 and MS-DOS 5.00 alike**, so it was not a quirk of
-one vintage that a later one fixes. A boot-sector BPB is what DOS reads for a
-hard-disk *partition*; for a standard floppy format it is not consulted at
-all — which is why the fix is not "write a better BPB" but "put nothing where
-DOS is going to look". The image is a byte-exact standard format on every
-geometry it is built for:
+one vintage that a later one fixes — which is why the fix is not "write a
+better BPB" but "put nothing where DOS is going to look". **What DOS ignores
+is narrower than this section once said**, and it was measured later
+(docs/reports/CLUSTER-SIZE-2026-10-17.md, IBM DOS 3.30): it looks for a
+floppy's FAT at LBA 1 whatever `RsvdSecCnt` says — a disk with two extra
+reserved sectors reads as 0 bytes free and a garbage root, which is this
+failure exactly — but it takes `SecPerClus` and `FATSz16` from the boot
+sector, whatever the OEM name, so a floppy with 512-byte clusters and the FAT
+that goes with them reads correctly. That freedom is the one §19.3.2 spends.
+DOS 2.x, 3.0 and 3.1 key a floppy on its media byte alone and would not
+follow it. Every image is a standard format in every other field:
 
 | | 1.44MB | 720KB | 360KB |
 |---|---:|---:|---:|
 | `BytsPerSec` | 512 | 512 | 512 |
-| `SecPerClus` | 1 | 2 | 2 |
+| `SecPerClus` | 1 | 2 | **1** (§19.3.2; IBM's is 2) |
 | `RsvdSecCnt` | 1 | 1 | 1 |
 | `NumFATs` | 2 | 2 | 2 |
 | `RootEntCnt` | 224 | 112 | 112 |
 | `TotSec16` | 2880 | 1440 | 720 |
 | `Media` | F0h | F9h | FDh |
-| `FATSz16` | 9 | 3 | 2 |
-| data area at LBA | 33 | 14 | 12 |
+| `FATSz16` | 9 | 3 | **3** (IBM's is 2) |
+| data area at LBA | 33 | 14 | **14** (IBM's is 12) |
 
 That is also what made the 720KB disk cheap to add rather than a port: its
 column is the DOS format nobody had to invent, so DOS and os8088 read it for
@@ -40346,6 +40352,52 @@ document saved early is split across a few gaps and reads back in more calls
 than it would have. The gaps fill and are gone; a disk that had none never
 pays it.
 
+
+#### 19.3.2 The 360KB system disk has 512-byte clusters
+
+**It is the one shipped image that is full**, and a cluster of 1KB is half a
+kilobyte of slack a file on average. At 512 bytes the disk goes from **343 of
+354 clusters (11KB free) to 661 of 706 (22KB free)** for the same payload, on
+the tree it landed on —
+the FAT growing 2 → 3 sectors, twice, is already netted out of that, and the
+data area moves from LBA 12 to 14. `$(SYS360SPC)` (`--spc 1`, `os88disk.py`'s
+`spcfat`) is the whole mechanism: `GEOMETRY` stays the IBM table, and every
+other 360KB recipe keeps it unless it asks.
+
+Why this disk and no other (the arithmetic is the report's, section 6):
+
+- **Every reader it needs reads it.** IBM DOS 3.30 takes the cluster size and
+  the FAT size from the boot sector (§19.3); `kern_big`'s FAT code reads
+  `[dsk_spc]` everywhere and already runs both HD floppies at 512 bytes, and
+  `DSK_FAT_SECS`' 9 covers a 3-sector FAT. The boot path derives the data
+  area from the BPB (§19.3), and the canary's band (§18.93.1) and the blob's
+  run counts are unchanged at 360KB, which `t_canary` and `t_blobruns` check
+  against the built image.
+- **`kern_small` never boots it.** That kernel's `DSK_FAT_SECS` is 2, so it
+  refuses this disk at mount rule 10, and no 360KB layout at 512 bytes fits a
+  2-sector FAT (it needs 680 clusters or fewer, so a root past rule 7's 512
+  entries). Its system disk is `small360.img`, at `--fatcap 2`.
+- **The data disks gain too little to give that up.** The 360KB apps and
+  category disks would gain 3-7KB each, and every one has room already;
+  moving them is what would cost a 128KB machine the shipped data disks. The
+  720KB pair gains 10-14KB with 73KB and more free, and its data area at LBA
+  18 would take the canary out of its band.
+
+**What a user sees**: a folder this disk ships holds 16 entries rather than 32,
+as on the 1.44MB system disk — `SYSTEM/APPDATA` holds 2 of them, `SYSTEM/FONTS`
+13 — and a folder the kernel makes on it holds 14 (§18.5's `FERR_DIRFULL`,
+which a directory never grows past). The CPU that scales with the cluster count
+is a free count ~7 ms longer per mount and a first allocation ~57 ms longer
+on the full disk; the `int 13h` count does not change, because contiguous
+clusters are one transfer at any cluster size (§18.4.2).
+
+**On-machine FORMAT is unchanged**: `dskw_fmt_tab`'s 360KB row still writes
+IBM's 1KB clusters, because it is the one row `kern_small` can mount and the
+one DOS 2.x reads.
+
+`tests/unit/t_image.py`'s `CLUSTERS` names the image and its `(1, 3)`, so a
+recipe that loses the flag fails the fast tier rather than shipping a fuller
+disk. `autostart360.img` takes the flag too, being this disk plus four files.
 
 ### 19.4 The listing is sorted by name, in the mount
 

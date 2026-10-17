@@ -166,6 +166,31 @@ def fatcap(size, cap):
     fail(f"no cluster size brings a {size}KB volume under a {cap}-sector FAT")
 
 
+def spcfat(size, spc):
+    """(spc, fatsz) for `size` at `spc` sectors a cluster - the smallest FAT
+    that covers the cluster count it leaves (SPEC.md 19.3.2).
+
+    `GEOMETRY` stays the IBM table and every recipe that does not ask keeps
+    it. What this is for is the 360KB SYSTEM disk, which takes 512-byte
+    clusters to win back the half-cluster of slack each of its files pays:
+    the FAT grows 2 -> 3 sectors, the data area moves to LBA 14, and IBM DOS
+    3.30 reads the result correctly because it takes SecPerClus and FATSz16
+    from the boot sector (docs/reports/CLUSTER-SIZE-2026-10-17.md). Growing
+    the FAT can only shrink the cluster count, so the first FAT that covers
+    its own clusters is the answer. Past DSK_FAT_SECS (9) is refused, as
+    mount rule 10 would refuse it.
+    """
+    if spc not in (1, 2, 4, 8, 16, 32, 64):
+        fail(f"--spc {spc}: a power of two from 1 to 64 (mount rule 4)")
+    _, _, tot, _, _, root_ent, _ = GEOMETRY[size]
+    for fatsz in range(1, 10):
+        lay = Layout(spc, 1, 2, root_ent, tot, fatsz)
+        if (((lay.nclus + 2) * 3 + 1) // 2 + SECTOR - 1) // SECTOR <= fatsz:
+            return spc, fatsz
+    fail(f"--spc {spc}: a {size}KB volume needs more than a 9-sector FAT, "
+         "which mount rule 10 refuses on a floppy")
+
+
 GEOMETRY = {
     1440: (18, 2, 2880, 1, 9, 224, 0xF0),
     1200: (15, 2, 2400, 1, 7, 224, 0xF9),
@@ -1014,6 +1039,8 @@ def build(args) -> int:
         spt, heads, tot, spc, fatsz, root_ent, media = GEOMETRY[args.size]
         if args.fatcap:
             spc, fatsz = fatcap(args.size, args.fatcap)
+        elif args.spc:
+            spc, fatsz = spcfat(args.size, args.spc)
 
     # --- the system disk (SPEC.md 19.3) --------------------------------------
     # The kernel is an ordinary FILE, KERNEL.SYS, allocated FIRST and
@@ -1823,6 +1850,11 @@ def main() -> int:
                          "sectors-per-cluster to get there (SPEC.md 51.0): "
                          "what lets kern_small, whose DSK_FAT_SECS is 2, "
                          "still read a 720KB or 1.44MB disk")
+    ap.add_argument("--spc", type=int, default=0, metavar="N",
+                    help="format with N sectors a cluster instead of the "
+                         "geometry's IBM standard, and the smallest FAT that "
+                         "covers the result (SPEC.md 19.3.2): what gives the "
+                         "360KB system disk 512-byte clusters")
     ap.add_argument("--size", type=int, choices=(1440, 1200, 720, 360),
                     help="disk size in KB: 1440 (18 spt), 1200 (15 spt, "
                          "5.25\" HD), 720 or 360 (9 spt; 80 and 40 "
@@ -1929,6 +1961,9 @@ def main() -> int:
         return verify(args.verify)
     if args.size and args.hdd:
         ap.error("--size and --hdd are mutually exclusive")
+    if args.spc and (args.fatcap or args.hdd):
+        ap.error("--spc takes neither --fatcap nor --hdd: each chooses the "
+                 "cluster size")
     if not args.output or not (args.size or args.hdd):
         ap.error("-o and --size (or --hdd) are required to build")
     return build(args)

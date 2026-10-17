@@ -5109,8 +5109,18 @@ $(BUILD)/ftpapps.img: $(FTPDFILES) tools/os88disk.py
 # ...and this one alone takes $(COREAPPSARGS360)/$(FACESARG360) - the 354
 # clusters that geometry has do not hold MINES.O88 and JETBRAIN.F88 as well as
 # SPEC.md 70.9's parser, and §24.3 carries the arithmetic.
+#
+# SYS360SPC IS THE ONE SHIPPED IMAGE OFF THE IBM CLUSTER SIZE (SPEC.md
+# 19.3.2): 512-byte clusters, a 3-sector FAT and the data area at LBA 14, which
+# takes this disk - the only full one - from 11KB free to 22KB by halving the
+# slack each of its files pays. IBM DOS 3.30 reads it correctly, because it
+# takes SecPerClus and FATSz16 from the boot sector; kern_small never boots it
+# (small360.img is its own, at --fatcap 2). tests/unit/t_image.py's CLUSTERS
+# is what fails if this flag is lost, and autostart360.img below takes it too
+# because it is this disk plus four files.
+SYS360SPC := --spc 1
 $(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 \
+	python3 tools/os88disk.py -o $@ --size 360 $(SYS360SPC) \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(APPDATAFOLDER)
@@ -5138,7 +5148,7 @@ $(BUILD)/astest/.made: tools/os88lnk.py | $(BUILD)
 	touch $@
 
 $(BUILD)/autostart360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py $(BUILD)/astest/.made
-	python3 tools/os88disk.py -o $@ --size 360 \
+	python3 tools/os88disk.py -o $@ --size 360 $(SYS360SPC) \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSROOTARG) $(COREAPPSARGS360) $(SYSDOC) $(FACESARG360) \
 		$(BUILD)/astest/CALC.LNK AUTOSTRT:$(BUILD)/astest/BADVER.LNK \
