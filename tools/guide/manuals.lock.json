@@ -245,9 +245,9 @@
   "sources": [
    "apps/cword"
   ],
-  "stamped": "e4576a70",
-  "strings": "c8acabba1dfadadf",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "55642792",
+  "strings": "e29c72eb33b83e26",
+  "why": "Undo, Cut/Copy/Paste keys, Ctrl+F Search, Alt+F4, Y/N/C on the save prompt, draggable ruler markers, labelled indent boxes, Confirm Changes and RTF keeping every format, all driven under MartyPC"
  },
  "CYCLONE_O88": {
   "sources": [

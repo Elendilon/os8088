@@ -120671,8 +120671,10 @@ Paragraph; Search, Replace and Go To; Sort, Renumber and Table of Contents;
 **View > Draft and View > Page** (§73.12.1); **the Font list, built from the
 system disk's `SYSTEM/FONTS/` folder, which sets the document in a proportional face**
 (§19.8, §73.12.2); Open and Save through the Standard File dialog with **RTF**
-as the file format; New / Open / Close / Exit with Word's save-changes prompt;
-and About.
+as the file format, carrying every character and paragraph format the editor
+can set; New / Open / Close / Exit with Word's save-changes prompt; one level
+of Undo; draggable indent markers; Replace's Confirm Changes; and About
+(§73.12.4).
 
 **The kernel bar reads 'Microsoft Word'**, and that is the whole reason this
 program registers a kernel menu set at all. Nine menus is more than
@@ -120701,8 +120703,8 @@ right on VGA and is wrong on two adapters of three.**
 **What is present and greyed** (§47 — grey a fact): the Print family, Spelling,
 Thesaurus, Hyphenate, the whole Macro menu, Outline, footnotes, annotations,
 fields, tables, styles beyond the one dictionary, Paste Link, Summary Info,
-Glossary, and Undo — which is greyed as a fact about this build rather than
-about the platform.
+Glossary and Repeat. Undo is greyed only while there is nothing to undo, or
+no 9KB of heap for its snapshot (§73.12.4).
 
 **Three collisions are the BIOS's and not decisions.** int 16h folds Ctrl-H,
 Ctrl-I and Ctrl-M into BkSp, Tab and Enter, so italic, hidden text and one
@@ -121011,27 +121013,92 @@ case on purpose: `tools/wordfmt.py` is a deliberate second implementation,
 §68.4.2. A binary layout is worth reading back independently; markup has no
 spec to disagree about.)
 
-**The source is a second file, and that is what this section is for.** cword's
-RTF reader carries the text and its **character** formatting; every paragraph
-arrives in the default format, which `ovl_put()` says in as many words — the
-mark's attribute byte is a paragraph-dictionary index, and the reader has
-nothing to put in it. Two character spans narrow the same way: `\ulw` and
-`\uldb` both fold into one underline in the model, and there is no small caps
-at all. So the Word document's demonstrations of centring, hanging indents and
-double spacing, and the sentences *naming* them, would be **claims the screen
-does not keep** — which is the one thing a shipped sample may not be. It is the
-same argument §47 makes about greying: state a fact, never a guess.
+**The source is a second file, and that is what this section is for.** It
+was first because cword's RTF reader carried only bold, italic and one
+underline, so the Word document's demonstrations would have been **claims the
+screen does not keep** — which is the one thing a shipped sample may not be,
+the same argument §47 makes about greying. Since §73.12.4 the reader and the
+writer carry every format the editor can set, and the document WEARS them: a
+centred heading in double underline, word underline, small caps, a hanging
+indent, a centred and a flush-right paragraph. What stays a second file is
+what the screen still does not keep: Draft view sets every paragraph single
+spaced and ragged right with no space before, so the document says those are
+kept in the file rather than demonstrating them, and its key list is this
+port's own (§73.12.4) rather than the assembly port's.
 
-What is left is the same document — the same greeting, the same demonstration
-that formatting survived a save and a load, the same key list, the same credit
-— with the paragraph-format demonstration replaced by a sentence about setting
-those formats **in the program**, which is true, and the three narrowed spans
-named in the text rather than worn by it.
+**The generator's numbers are the writer's** (`\li`/`\fi`/`\ri` in 144-twip
+cells, `\sl360`/`\sl480`, Open Space `\sb240`), so a file `tools/os88rtf.py`
+makes is the shape of one cword saves and the reader maps it back exactly.
 
-**The generator still emits the full paragraph properties** (`\qc`, `\li`,
-`\fi`, `\ri`, `\sl`, `\sb`) when the markup carries them. A file is not the
-place to encode one reader's narrowing: the RTF is correct for anything else
-that opens it, and correct here the day the reader learns to apply them.
+#### 73.12.4 What the manuals found, and what each fix is
+
+The project guide's manual for this program (`tools/guide/manuals/CWORD_O88.md`)
+was written by driving it, and ten of the things it had to describe as broken
+were. Each is fixed in the program's own idiom and none costs a kernel byte;
+the package grew from 30,452 + 24,624 to **32,096 + 24,682** bytes resident
+(image + bss; 56,778 of `APP_MAX_SIZE`'s 61,440) and its overlay from 14,106
+to **18,116**.
+
+- **Undo is Word 1.1a's: one level, and Undo undoes itself.** Before the first
+  edit of a GROUP the whole document — text, attribute bytes and the 64-entry
+  paragraph dictionary, 8,384 bytes — is copied into a heap claim of its own
+  (`CW_U_KB` = 9KB, claimed on the first edit and declared MOVABLE, §66);
+  Undo SWAPS the claim and the document, so the next Undo is the Redo. A group
+  is a run of typing (Enter included) or of Backspace/Del for as long as the
+  caret stays where the last key left it, or any one command — a format, a
+  cut, a paste, a dialog's OK, a ruler drag, Sort, Renumber, Table of Contents
+  or a whole Replace. The snapshot is a `rep movsb` per group (~10 ms on the
+  target) and never per keystroke. C cannot write `es:`, so the two movers
+  (`cw_farput`, `cw_farswap`) are hand-written beside `cw_memmove` in
+  `apps/cword/cwmove.inc`. New and Open drop it; a machine with no 9KB to
+  spare leaves Undo greyed, which is the fact. `Ctrl+Z` and `Alt+BkSp` reach
+  it; an XT ROM does not enqueue `Alt+BkSp`, so `Ctrl+Z` is the key the
+  welcome document names.
+- **The indent markers drag.** A press on a marker polls the mouse until the
+  release, as `cw_track_menu()` does, repainting only the RULER once per cell
+  crossed; the paragraph is laid out once, on the release. Dragging the left
+  indent leaves the first line where it is on the page, which is how a hanging
+  indent is made with the mouse.
+- **Format Paragraph's indents** are three labelled boxes, From Left, First
+  Line and From Right, in inches to a tenth (`0.5"` is five ruler cells); a
+  box reached by Tab or a click has its text selected, so typing replaces it.
+  They were three unlabelled edits with no buffer behind them, every one
+  showing the last number formatted anywhere and taking no keys.
+- **Replace's Confirm Changes asks.** Each match is selected and a small panel
+  — placed in the half of the window the match is not in — asks Replace this
+  occurrence? Yes (`Y`), No (`N`), Cancel (`Esc`). The panel comes down
+  through `cw_uncover()`, the dropdowns' own repaint of what a panel covered,
+  so a question costs a few rows and not a 1.8-second full repaint. Replace
+  always runs top to bottom, whatever direction Search was last set to.
+- **Ctrl+F is Search**, as `CW_C_FIND`'s name and the welcome document always
+  said (it opened Format Character).
+- **The Edit and File menus' captions are keys.** `Shift+Del` Cut, `Ctrl+Ins`
+  Copy and `Shift+Ins` Paste are decoded from the KEYPAD scan code plus the
+  BIOS shift flags (0040:0017), which is apps/word's decoding (§68.3): Shift
+  inverts NumLock on the keypad, so the chords arrived as '.' and '0' and
+  TYPED those over the selection. `Alt+F4` exits; `Shift+F12`, `Ctrl+F12` and
+  `F12` are bound but arrive only from a ROM that passes the F11/F12 codes
+  through int 16h function 00h, which most do not.
+- **The save prompt answers to its letters**: `Y`, `N`, `C` (`N` did nothing).
+- **Saving keeps every format.** The writer emits `\ulw`, `\uldb`, `\scaps`
+  and `\v` beside `\b`, `\i` and `\ul`, and a `\pard` with `\qc`/`\qr`/
+  `\qj`, `\li`/`\fi`/`\ri`, `\sl` and `\sb` wherever the paragraph format
+  changes; the reader maps each paragraph mark's PAP back into the dictionary
+  (`ovl_pap_now()`), and the last paragraph's into `cw_pap_now`. `\scaps` is
+  one new keyword row (`CW_IRRB_SCAPS`, placed after every existing row so
+  nothing renumbered). The dictionary and the character bits moved into
+  `cwrtfio.c` beside the document, so `apps/cword/cwrtfrt.c` — the host
+  harness — round-trips all of it (its check 5).
+- **The disk's warm ASSOC.DAT names .RTF.** The header carries a 16-byte
+  association block (`CC_ASSOC`, `apps/cword/cwassoc.inc`, §54.6), which is
+  what `tools/os88disk.py` writes the cache row from; with only the run-time
+  `os88_assoc_set()` a double-click on `WELCOME.RTF` on a fresh boot found no
+  program until CWORD had once been run.
+- **An F8 selection is visible.** `cw_moved()` changed the selection after the
+  caret had already moved, so `cw_show()`'s off/on XOR pair drew and erased the
+  new range in one call; it now takes the old selection off and puts the new
+  one on itself.
+
 
 ### 73.13 The build targets, and what is deliberately not in `all`
 
