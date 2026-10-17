@@ -20,7 +20,7 @@ short = "The everyday programs"
 ["AUTOSTRT/"]
 title = "Startup items"
 kind = "folder"
-summary = "Shortcuts placed here open automatically after the machine boots. Hold Shift during boot to skip them."
+summary = "Links placed here (made with an Alt-drop) open automatically after the machine boots. Hold Shift during boot to skip them."
 short = "Programs that run at boot"
 
 ["DOS/"]
@@ -62,7 +62,7 @@ short = "Widgets that live on the desktop"
 ["SYSTEM/"]
 title = "System folder"
 kind = "folder"
-summary = "Files the system needs to run: drivers, settings, fonts and system programs. Best left as it is."
+summary = "The system's own folders: the typefaces, the programs' settings, and Task Manager, The Wire and Redline Apply."
 short = "Files the system runs on"
 
 # --- the system itself --------------------------------------------------------
@@ -499,61 +499,61 @@ short = "Share files over a cable"
 ["ARCHIVO.F88"]
 title = "Archivo Narrow"
 kind = "font"
-summary = "A bold, narrow sans-serif typeface, for Word, Font Viewer and other programs that let you choose a font."
+summary = "A bold, narrow sans-serif typeface, for Word, the C edition of Word and Scribe; Font Viewer shows it."
 short = "Archivo Narrow typeface"
 
 ["CHARTER.F88"]
 title = "Charter"
 kind = "font"
-summary = "A sturdy hand-drawn serif typeface, for Word, Font Viewer and other programs that let you choose a font."
+summary = "A sturdy hand-drawn serif typeface, for Word, the C edition of Word and Scribe; Font Viewer shows it."
 short = "Charter typeface"
 
 ["COURIER.F88"]
 title = "Courier"
 kind = "font"
-summary = "A typewriter-style monospaced typeface, for Word, Font Viewer and other programs that let you choose a font."
+summary = "A typewriter-style monospaced typeface, for Word, the C edition of Word and Scribe; Font Viewer shows it."
 short = "Courier typeface"
 
 ["HELV.F88"]
 title = "Helvetica"
 kind = "font"
-summary = "A clean sans-serif typeface in Helvetica's proportions, offered in Word and shown in Font Viewer."
+summary = "A clean sans-serif typeface in Helvetica's proportions, for Word, the C edition of Word and Scribe; Font Viewer shows it."
 short = "Helvetica typeface"
 
 ["INCONSOL.F88"]
 title = "Inconsolata"
 kind = "font"
-summary = "A compact monospaced typeface for code and tables, for Word, Font Viewer and other programs with a font choice."
+summary = "A compact monospaced typeface for code and tables, for Word, the C edition of Word and Scribe; Font Viewer shows it."
 short = "Inconsolata typeface"
 
 ["JETBRAIN.F88"]
 title = "JetBrains Mono"
 kind = "font"
-summary = "A bold monospaced typeface designed for code, for Word, Font Viewer and other programs with a font choice."
+summary = "A bold monospaced typeface designed for code, for Word, the C edition of Word and Scribe; Font Viewer shows it."
 short = "JetBrains Mono typeface"
 
 ["NOTO.F88"]
 title = "Noto Serif"
 kind = "font"
-summary = "A bold, condensed serif typeface, for Word, Font Viewer and other programs that let you choose a font."
+summary = "A bold, condensed serif typeface, for Word, the C edition of Word and Scribe; Font Viewer shows it."
 short = "Noto Serif typeface"
 
 ["ROBOMONO.F88"]
 title = "Roboto Mono"
 kind = "font"
-summary = "A heavy monospaced typeface, for Word, Font Viewer and other programs that let you choose a font."
+summary = "A heavy monospaced typeface, for Word, the C edition of Word and Scribe; Font Viewer shows it."
 short = "Roboto Mono typeface"
 
 ["TALLX.F88"]
 title = "Tallx"
 kind = "font"
-summary = "The system's own 8 by 8 screen font as a typeface, for Word, Font Viewer and other programs with a font choice."
+summary = "os8088's own 8 by 8 letter design as a typeface, for Word, the C edition of Word and Scribe; Font Viewer shows it."
 short = "Tallx typeface"
 
 ["TIMES.F88"]
 title = "Times"
 kind = "font"
-summary = "A light book serif in Times Roman's proportions, used by the Browser and offered in Word and Font Viewer."
+summary = "A light book serif in Times Roman's proportions, for Word, the C edition of Word and Scribe; Font Viewer shows it."
 short = "Times typeface"
 
 # --- documents ----------------------------------------------------------------
