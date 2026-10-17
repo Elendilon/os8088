@@ -333,6 +333,8 @@ mega_enter:
     mov word [ss:mega_seg0], MEGA_SEL_LOW0
     call mega_frames_fix
     call mega_mods_fix
+    call mega_coldup                ; M3: `.cold` above 1MB, its rung to the
+    call mega_xminit                ; heap - and the XMEM pool behind the cells
 
     ; --- the ROM's halves, in the chains the ISRs already make ---------------
     mov word [sch_old08], mega_t08  ; THROUGH MEGA_SEL_BCODE, not 0x0060:
@@ -3198,6 +3200,431 @@ mega_mhd13  db "kern_mega: a fixed-disk transfer went to the BIOS (int 13h refle
 mega_fdcmos db 0xFF                 ; CMOS byte 10h, once read
 mega_fdx    db 0                    ; 1 while dsk_xfer's int 13h is in flight
 mega_fddir  db 0                    ; the CCR read: bit 7 the change line
+
+; =============================================================================
+; M3: MEMORY ABOVE 1MB (KERN-MEGA-PLAN 10, wave M3; 12.2). Two things live
+; there once mega_enter has run, and both are reached by a DESCRIPTOR, which
+; is the whole of what protected mode adds:
+;
+;   * `.cold`, copied up and its GDT entry re-based (mega_coldup). Its
+;     selector does not change, so no far reference anywhere is touched - not
+;     the API table's, not a module's, not a task frame's - and its 37KB rung
+;     in conventional memory becomes package heap through the ROM path's own
+;     word ([rom_vgabw], mem_floor_ax), the planar decoder's buffers moving to
+;     the bottom of the dead rung exactly as they do when a ROM adopts `.cold`.
+;   * the XMEM pool, from MEGA_XPOOL to the top of extended memory, served by
+;     the kernel itself behind the four published cells (xm_dsp's kern_mega
+;     arm): XMEM.DRV's allocator, its block table and its error codes, with
+;     the copy a `rep movsw` through two scratch descriptors - no BIOS, no
+;     reset, no LOADALL. Every package that uses those cells gets the memory
+;     with no change (12.2's table).
+;
+; THE TWO SCRATCH DESCRIPTORS are GDT entries 1FFEh and 1FFFh, the identity
+; selectors for segments FFF0 and FFF8 - the top of the BIOS ROM, which
+; nothing loads as a segment (the ROM is reached at F000). They are written
+; through MEGA_SEL_WIN, as mega_oddsegf writes its own, and are only ever
+; held for the length of one copy under the switch lock.
+; =============================================================================
+MEGA_SEL_XA equ 0xFFF0              ; scratch: the copy's source
+MEGA_SEL_XB equ 0xFFF8              ; scratch: the copy's destination
+MEGA_COLD_LIN equ 0x125000          ; `.cold`, above the IDT (0x124000+800h)
+MEGA_XPOOL  equ 0x130000            ; the pool: 64KB-aligned, as XMEM.DRV's
+                                    ; arithmetic needs (its base's low word
+                                    ; is 0), and above `.cold`'s 37KB
+                                    ; (kernel.asm checks `.cold` fits, after
+                                    ; COLD_SIZE is known)
+
+; mega_xdesc - BX = a GDT selector, DX:AX = a 24-bit base -> a 64KB data
+; descriptor there. Clobbers nothing
+mega_xdesc:
+    push es
+    push di
+    mov di, MEGA_SEL_WIN
+    mov es, di
+    mov di, bx
+    and di, 0xFFF8
+    mov word [es:di], 0xFFFF
+    mov [es:di+2], ax
+    mov [es:di+4], dl
+    mov byte [es:di+5], 0x92
+    mov word [es:di+6], 0
+    pop di
+    pop es
+    ret
+
+; mega_lincopy - CX bytes (even, 2..65534) from linear [mega_xsrc] to linear
+; [mega_xdst], DS = KDATA. Clobbers AX BX CX DX SI DI; DS and ES preserved
+mega_lincopy:
+    mov bx, MEGA_SEL_XA
+    mov ax, [mega_xsrc]
+    mov dx, [mega_xsrc+2]
+    call mega_xdesc
+    mov bx, MEGA_SEL_XB
+    mov ax, [mega_xdst]
+    mov dx, [mega_xdst+2]
+    call mega_xdesc
+    push ds
+    push es
+    mov ax, MEGA_SEL_XA
+    mov ds, ax
+    mov ax, MEGA_SEL_XB
+    mov es, ax
+    xor si, si
+    xor di, di
+    shr cx, 1
+    cld
+    rep movsw
+    pop es
+    pop ds
+    ret
+
+; -----------------------------------------------------------------------------
+; mega_coldup - `.cold` above 1MB, and its rung to the heap. In mega_enter,
+; with the real tables loaded and nothing executing in `.cold` (mega_enter is
+; .text, called from kmain's .text). CF = 1 and nothing moved when the machine
+; has too little extended memory for it
+; -----------------------------------------------------------------------------
+mega_coldup:
+    mov ax, [mega_extkb]
+    cmp ax, (MEGA_XPOOL - 0x100000) / 1024
+    jb .no                          ; (mega_enter already refused under 192)
+    mov word [mega_xsrc], (COLD_RAM << 4) & 0xFFFF
+    mov word [mega_xsrc+2], COLD_RAM >> 12
+    mov word [mega_xdst], MEGA_COLD_LIN & 0xFFFF
+    mov word [mega_xdst+2], MEGA_COLD_LIN >> 16
+    mov cx, (COLD_SIZE + 1) & 0xFFFE
+    call mega_lincopy
+    ; --- the descriptor: COLD_SEG:COLD_VSTART is the copy's first byte -----
+    push es
+    mov ax, MEGA_SEL_WIN
+    mov es, ax
+    mov di, COLD_SEG & 0xFFF8
+    mov word [es:di+2], (MEGA_COLD_LIN - COLD_VSTART) & 0xFFFF
+    mov byte [es:di+4], (MEGA_COLD_LIN - COLD_VSTART) >> 16
+    pop es
+    ; --- ...and the rung: the decoder's buffers to its bottom, the floor
+    ; onto it - [rom_vgabw] is both (mem_floor_ax, ROM-PLAN 3.4.2)
+    mov word [rom_vgabw], COLD_RAM
+    mov ax, COLD_RAM
+%if VGABUF_PARA
+    test byte [vid_avail], VID_A_VGA
+    jz .floor
+    add ax, VGABUF_PARA
+.floor:
+%endif
+    mov [mem_base], ax
+    mov byte [mega_coldhi], 1
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; THE XMEM POOL'S SERVICES - XMEM.DRV's XMV_* table, in the kernel. The block
+; table, the first-fit walk, the 1KB granularity and every error code are
+; that image's (drivers/xmem/xmem.asm, whose notes say why each is what it
+; is); only the transport differs. Entered by xm_dsp's kern_mega arm with DS
+; = KDATA and ES = KDATA, which is what the overlay was handed too
+; -----------------------------------------------------------------------------
+MX_BLKSZ    equ 8
+MX_OFF      equ 0                   ; word: KB from the pool base
+MX_KB       equ 2                   ; word: size in KB, 0 = a free entry
+MX_OWN      equ 4                   ; byte: the instance (0xFF the kernel)
+
+; mega_xminit - the pool behind the cells, from mega_enter
+mega_xminit:
+    mov ax, [mega_extkb]
+    sub ax, (MEGA_XPOOL - 0x100000) / 1024
+    jbe .none
+    cmp ax, 15360 - (MEGA_XPOOL - 0x100000) / 1024
+    jbe .ok                         ; the 8237 and a 286 both stop at 16MB
+    mov ax, 15360 - (MEGA_XPOOL - 0x100000) / 1024
+.ok:
+    mov word [xm_svc+XMV_CAPS], mx_caps
+    mov word [xm_svc+XMV_ALLOC], mx_alloc
+    mov word [xm_svc+XMV_FREE], mx_free
+    mov word [xm_svc+XMV_COPY], mx_copy
+    mov word [xm_svc+XMV_RELINST], mx_relall
+    mov byte [mega_xmnat], 1
+    mov [xm_kb], ax                 ; THE GATE, last (xmem.inc's note)
+.none:
+    ret
+
+mx_caps:
+    push si
+    mov ax, [xm_kb]
+    xor bl, bl
+    mov si, mx_tab
+.scan:
+    sub ax, [si+MX_KB]
+    cmp word [si+MX_KB], 0
+    jne .next
+    inc bl
+.next:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .scan
+    mov dx, MEGA_XPOOL >> 16
+    xor cx, cx
+    pop si
+    ret
+
+mx_alloc:
+    push bx
+    push cx
+    push si
+    push di
+    push bp
+    add ax, 1023
+    adc dx, 0
+    jc .norun
+    call mx_tokb
+    jc .norun
+    xchg ax, cx                     ; CX = KB wanted
+    or cx, cx
+    jnz .slot
+    inc cx
+.slot:
+    mov di, mx_tab - MX_BLKSZ
+.fscan:
+    add di, MX_BLKSZ
+    cmp di, mx_tab_end
+    jae .full
+    cmp word [di+MX_KB], 0
+    jne .fscan
+    xor bp, bp                      ; the candidate, KB from the base
+.restart:
+    mov dx, bp
+    add dx, cx
+    jc .norun
+    cmp dx, [xm_kb]
+    ja .norun
+    mov si, mx_tab
+.scan:
+    mov ax, [si+MX_KB]
+    or ax, ax
+    jz .snext
+    add ax, [si+MX_OFF]
+    cmp bp, ax
+    jae .snext
+    cmp [si+MX_OFF], dx
+    jae .snext
+    xchg bp, ax
+    jmp short .restart
+.snext:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .scan
+    pushf
+    cli
+    mov [di+MX_OFF], bp
+    mov [di+MX_KB], cx
+    mov [di+MX_OWN], bl
+    popf
+    mov ax, bp
+    mov dx, bp
+    mov cl, 10
+    shl ax, cl
+    mov cl, 6
+    shr dx, cl
+    add dx, MEGA_XPOOL >> 16
+    jmp short .out
+.norun:
+    mov al, 2
+    jmp short .fail
+.full:
+    mov al, 1
+.fail:
+    cbw
+    stc
+.out:
+    pop bp
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
+mx_free:
+    push ax
+    push cx
+    push dx
+    push si
+    test ax, 0x03FF
+    jnz .bad
+    call mx_rel
+    jc .bad
+    mov si, mx_tab
+    pushf
+    cli
+.scan:
+    cmp word [si+MX_KB], 0
+    je .next
+    cmp [si+MX_OFF], ax
+    jne .next
+    cmp [si+MX_OWN], bl
+    jne .next
+    mov word [si+MX_KB], 0
+    mov byte [si+MX_OWN], 0xFF
+    popf
+    jmp short .out
+.next:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .scan
+    popf
+.bad:
+    stc
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+mx_relall:
+    push si
+    pushf
+    cli
+    mov si, mx_tab
+.scan:
+    cmp [si+MX_OWN], al
+    jne .next
+    mov word [si+MX_KB], 0
+    mov byte [si+MX_OWN], 0xFF
+.next:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .scan
+    popf
+    pop si
+    ret
+
+; DX:AX = linear (mx_rel, as KB from the pool base) or bytes (mx_tokb, as
+; KB) -> AX; CF = 1 below the pool or 64MB or more. Clobbers CL, DX
+mx_rel:
+    sub dx, MEGA_XPOOL >> 16
+    jc mx_tokb.out
+mx_tokb:
+    cmp dh, 0x04
+    cmc
+    jc .out
+    mov cl, 10
+    shr ax, cl
+    mov cl, 6
+    shl dx, cl
+    or ax, dx
+.out:
+    ret
+
+; DX:AX = linear, CX = bytes, BL = the caller -> CF = 0 inside one of its
+; blocks. Clobbers nothing
+mx_chk:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    mov di, ax
+    and di, 0x03FF
+    add di, cx
+    add di, 1023
+    mov cl, 10
+    shr di, cl
+    call mx_rel
+    jc .no
+    add di, ax
+    jc .no
+    mov si, mx_tab
+.scan:
+    cmp [si+MX_OWN], bl
+    jne .next
+    cmp word [si+MX_KB], 0
+    je .next
+    mov cx, [si+MX_OFF]
+    cmp cx, ax
+    ja .next
+    add cx, [si+MX_KB]
+    cmp cx, di
+    jae .out
+.next:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .scan
+.no:
+    stc
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; mx_copy - ES:SI = the kernel's XMC_ block. out CF = 0 done; CF = 1 and AX
+; = 2 not inside a block the caller owns / 3 bad length. Clobbers nothing
+; else (the cell banked what it needs)
+mx_copy:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov cx, [es:si+XMC_LEN]
+    mov ax, 3
+    jcxz .fail
+    test cl, 1
+    jnz .fail
+    cmp cx, 32768
+    ja .fail
+    mov ax, [es:si+XMC_EXT]
+    mov dx, [es:si+XMC_EXT+2]
+    mov bl, [es:si+XMC_INST]
+    call mx_chk
+    mov ax, 2
+    jc .fail
+    mov ax, [es:si+XMC_CONV]        ; the conventional end, below 1MB
+    mov dx, [es:si+XMC_CONV+2]
+    cmp dx, 0x10
+    mov bx, 3
+    jae .failbx
+    mov di, [es:si+XMC_EXT]
+    mov bx, [es:si+XMC_EXT+2]
+    cmp byte [es:si+XMC_DIR], 0
+    jne .in
+    mov [mega_xsrc], ax             ; out: conventional -> extended
+    mov [mega_xsrc+2], dx
+    mov [mega_xdst], di
+    mov [mega_xdst+2], bx
+    jmp short .go
+.in:
+    mov [mega_xsrc], di             ; in: extended -> conventional
+    mov [mega_xsrc+2], bx
+    mov [mega_xdst], ax
+    mov [mega_xdst+2], dx
+.go:
+    call mega_lincopy
+    clc
+    jmp short .out
+.failbx:
+    mov ax, bx
+.fail:
+    stc
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+mx_tab      times XM_MAX_BLKS * MX_BLKSZ db 0
+mx_tab_end  equ mx_tab + XM_MAX_BLKS * MX_BLKSZ
+mega_xsrc   dw 0, 0                 ; mega_lincopy's two linear ends
+mega_xdst   dw 0, 0
+mega_xmnat  db 0                    ; 1: the cells are served from here
+mega_coldhi db 0                    ; 1: `.cold` runs above 1MB
 
 mega_infault db 0
 mega_fbuf   db " kern_mega FAULT vv err eeee at cccc:iiii sp ssss - reboot "

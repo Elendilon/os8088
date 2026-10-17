@@ -404,6 +404,16 @@ xm_have:
 
 ; -----------------------------------------------------------------------------
 xm_dsp:
+%ifdef KERN_MEGA
+    cmp byte [mega_xmnat], 0        ; kern_mega in protected mode: the pool is
+    je .drv                         ; the kernel's own (mega.inc, mx_*), BP a
+    push es                         ; near routine there, ES = KDATA as the
+    KES                             ; overlay's ES was
+    call bp
+    pop es                          ; (`pop` leaves CF alone)
+    ret
+.drv:
+%endif
     push ds
     push es
     KES

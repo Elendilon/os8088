@@ -1067,6 +1067,96 @@ AdLib (`-device adlib`) and a formatted IDE disk (`tools/os88hdd.py
 --noboot --raw`). **That is now the QEMU configuration for kern_mega**, and
 the one with no drivers is the easy case.
 
+### 10.3 M2 and M3 as built (2026-10-17)
+
+**M2 - the floppy is native; the fixed disk already was.**
+
+1. **`int 13h` AH=02h/03h on drive 0 or 1 is run by the 765 and the 8237**
+   (`mega_fd13`, entered from `mega_svc` before it reflects anything). It
+   waits for IRQ6 with interrupts ON, so the pointer and the sound no
+   longer stop for every floppy transfer - which is what a reflected call
+   did, masking every IRQ but the BIOS's own for ~200 ms. The IDT's IRQ6
+   gate is `mega_fdisr`, which sets the BIOS's own flag (40:3E bit 7), so a
+   reflected call and the native path wait on the same bit.
+2. **It is an accelerator, not a second driver.** It shares the BIOS's
+   state - the recalibrated bits (40:3E), the motor bytes (40:3F/40:40,
+   whose countdown `mega_t08` already ran), the last data rate (40:8B) -
+   and hands everything it does not recognise to the BIOS: another
+   function (reset, format, parameters stay reflected - short or rare), a
+   call that is not `dsk_xfer`'s, a buffer across a DMA page, and ANY
+   failure but a write-protected disk. The BIOS then does what it always
+   did, so the path can only be faster or equal. Eight fallbacks in a row
+   switch it off for the session, on E9 and in a toast.
+3. **The media is derived, not read from 40:90.** That byte's encoding is
+   the BIOS's own - Bochs's says 25h for an established 1.2MB disk, with a
+   double-step bit no 1.2MB disk wants - so the rate comes from the
+   volume's sectors per track (`dsk_xfer` writes it into the parameter
+   table as EOT before every call) and the drive's CMOS type: 18 and 15
+   are 500 kbps, 9 in a 1.2MB drive is 300 kbps double-stepped, 9
+   elsewhere 250. Only `dsk_xfer`'s calls are taken (`[mega_fdx]`),
+   because only for those is that EOT the volume's: a run across a head
+   with a wrong one would read the wrong sectors WITHOUT failing. A wrong
+   rate guess fails (missing address mark) and falls back - QEMU showed
+   exactly that once, for A:'s boot sector read while B:'s spt was still
+   in the table.
+4. **The change line** (CCR bit 7) is cleared natively by a step pulse - a
+   recalibrate and, since a recalibrate at track 0 pulses nothing, a seek
+   to cylinder 1. Still set after that is no disk, the BIOS's to report.
+   The kernel gives 06h no meaning of its own (it retries; a swapped disk
+   is found by the volume), so nothing is lost by not reporting it.
+5. **Checked under Bochs** - 1.44MB in A:, and in B: 1.2MB, 720KB in a
+   1.44MB drive and 360KB in a 1.2MB drive (double-stepped, 300 kbps): a
+   60KB file copied C: to B: is byte-identical on every one, every
+   transfer native (`kern_mega: native floppy A`/`B` on E9, no fallback) -
+   and under QEMU. One defect on the way is worth the note: replacing the
+   40:90 read also deleted the line that pointed ES at the BDA, so the
+   waits polled, and the motor bookkeeping WROTE, through the caller's ES
+   - its buffer. A boot that does nothing but list a disk cannot see that;
+   a byte-compare of a copy can.
+6. **The fixed disk needs nothing**: HDD.DRV's rung 1 (ATA PIO) already
+   serves a BIOS-known IDE drive on a 286 (SPEC.md 52.1.1), and a 60KB
+   read from C: under Bochs reflected no transfer at all - `mega_svc` says
+   on E9 the first time a fixed-disk transfer IS reflected, which is what
+   a ROM-only controller (the Victory's PicoMEM) will show. "Absorbing rung
+   1 into the kernel" is only owed for the kernel's OWN boot partition,
+   and kern_mega has no hard-disk boot image yet, so it waits for one.
+7. **`CPU_F_PM` (0x10)** is `OSAPI_CPU_INFO`'s new feature bit, set by
+   `mega_enter` with `CPU_F_A20` (verified there) and on no other kernel -
+   section 12.1, an SDK addition with no format bump.
+
+**M3 - `.cold` and the XMEM pool above 1MB.**
+
+8. **`.cold` runs above 1MB** (`mega_coldup`): copied to 0x125000, its GDT
+   descriptor re-based so COLD_SEG:COLD_VSTART is the copy's first byte.
+   The selector does not change, so no far reference anywhere is touched,
+   and its 37KB rung becomes heap through the ROM path's own word -
+   `[rom_vgabw]` moves the planar decoder's buffers to the bottom of the
+   dead rung and `mem_floor_ax` drops the floor onto it (ROM-PLAN 3.4.2).
+   Measured: the Task Manager's heap 534K -> 570K on Bochs. Nothing in real
+   mode may run the old copy, and nothing does: every vector the kernel
+   installs is in `.text` (the IVT was read back under Bochs), and a
+   reflection runs only the BIOS.
+9. **The XMEM cells are served by the kernel** (section 12.2): `xm_dsp`'s
+   kern_mega arm calls `mx_caps`/`mx_alloc`/`mx_free`/`mx_copy`/
+   `mx_relall`, which are XMEM.DRV's block table, first-fit walk, 1KB
+   granularity and error codes over a pool from 0x130000 to the top of
+   extended memory (16MB at most), with the copy a `rep movsw` through two
+   scratch descriptors - GDT 1FFEh/1FFFh, the identity selectors of
+   segments FFF0/FFF8, which nothing loads. `tests/megaxm` (on demand,
+   `make megarun` builds it) allocates 64KB, writes and reads back sixteen
+   4KB patterns and frees it: `caps 3B40`, `alloc 00130000`, `ok` on Bochs.
+10. **What M3 still owes**, and why it did not fit this round: MODULES and
+    CACHES above 1MB, and LDT claims with stable selectors. A module's data
+    segment is derived from its code alias ((CS & ~7) << 2, `mega_dsimg`)
+    and its claim's segment is a real segment the file layer reads into and
+    normalises (`dskw_norm`, `mega_s2segf`); above 1MB neither is true, and
+    the disk caches are DMA and reflection targets that real mode cannot
+    reach. The shape that works is code/data selector PAIRS from the top of
+    the LDT (entries 1280-2047 alias segments A000-FFE0, which nothing far-
+    calls), with `mega_cs2ds`'s rule extended to "data = code + 8" there and
+    a bounce for any transfer that must go through the BIOS - which is a
+    round of its own, not a corner of this one.
+
 ### 10.2 The Victory 286 check (M1's first field run)
 
 **What it is for:** the two things no emulator here can say - whether the

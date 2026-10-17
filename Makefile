@@ -12377,7 +12377,14 @@ $(BUILD)/megarun.bin: tests/megarun/megarun.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarun/megarun.asm
 $(BUILD)/megarun.o88: $(BUILD)/megarun.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megarun.bin -o $@
-megarun: $(BUILD)/megarun.o88 $(BUILD)/mega.img
+# MEGAXM (tests/megaxm): the XMEM cells end to end from a package - alloc,
+# copy out, copy in, compare, free - with the verdict on port E9. kern_mega's
+# pool is its reason (KERN-MEGA-PLAN 12.2); any kernel with a store runs it.
+$(BUILD)/megaxm.bin: tests/megaxm/megaxm.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megaxm/megaxm.asm
+$(BUILD)/megaxm.o88: $(BUILD)/megaxm.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megaxm.bin -o $@
+megarun: $(BUILD)/megarun.o88 $(BUILD)/megaxm.o88 $(BUILD)/mega.img
 .PHONY: megarun
 
 MEGADIR := $(BUILD)/megak

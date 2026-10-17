@@ -7257,6 +7257,11 @@ COLD_SIZE equ cold_end - $$
 %if COLD_VSTART + COLD_SIZE > 0xFF00
   %error "`.cold` runs past FF00 at COLD_VSTART - lower HMA_COLD_AT (an offset past FFFF wraps, in RAM as in the HMA)"
 %endif
+%ifdef KERN_MEGA
+ %if MEGA_COLD_LIN + COLD_SIZE > MEGA_XPOOL
+  %error "kern_mega: `.cold` no longer fits between the IDT and the XMEM pool (mega.inc) - raise MEGA_XPOOL by 64KB"
+ %endif
+%endif
 
 section .ovl
 ovl_end:
