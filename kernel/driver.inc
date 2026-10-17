@@ -5715,15 +5715,15 @@ drv_pkg_call_x:
                                 ; writes word [di+2], 0, both the segment half
                                 ; and nothing else (see drv_fptr's declaration)
     push es                     ; SPEC.md 66.6.3, AND THE ONE SITE WHERE ES IS
-    push cs                     ; NOT ALREADY THE KERNEL'S: this cell is an X
-    pop es                      ; stub, so ES is the CALLING PACKAGE's and the
+    KES                         ; NOT ALREADY THE KERNEL'S: this cell is an X
+                                ; stub, so ES is the CALLING PACKAGE's and the
     call COLD_SEG:wm_nest_pushd_x   ; driver reads its buffer through it - the
     pop es                      ; push is ES-relative, so it is borrowed for
                                 ; three instructions and handed straight back.
                                 ; .text, so the far entry (SPEC.md 2.6.1)
     call KERNEL_SEG:drv_pkg_disp
-    push cs                     ; DS IS THE DRIVER'S at the return and the pop
-    pop ds                      ; below restores the caller's, so borrowing it
+    KDS                         ; DS IS THE DRIVER'S at the return and the pop
+                                ; below restores the caller's, so borrowing it
     call COLD_SEG:wm_nest_pop_x ; costs nothing; the pair writes no flag, which
                                 ; is what keeps the driver's CF the answer
 .done:
@@ -5788,6 +5788,9 @@ drv_pkg_disp:
 drv_hmadisp: dw DRV_HMA_ORG + PKG_DISP
 %else
     push ds                     ; the TARGET segment: DS is the driver's
+ %ifdef KERN_MEGA
+    MEGA_CSELTOP                ; ...as its CODE alias (kernel/mega.inc)
+ %endif
     push word [cs:drv_fptr]     ; ...and PKG_DISP, which nothing writes
     retf
 %endif

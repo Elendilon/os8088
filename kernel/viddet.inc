@@ -609,8 +609,8 @@ vid_apply:
     push di
     push es
 
-    push cs                     ; rep movsw writes through ES, and we may be
-    pop es                      ; called from the splash, where ES is the
+    KES                         ; rep movsw writes through ES, and we may be
+                                ; called from the splash, where ES is the
                                 ; boot sector's
 
     mov al, [vid_kind]          ; AL * 18 -> the record. AH is 0 after the

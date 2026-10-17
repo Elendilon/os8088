@@ -1005,6 +1005,9 @@ ld_run_body_x:
     shr ax, cl                  ; the prefix in PARAGRAPHS...
     mov cx, es
     add ax, cx                  ; ...is where the body's segment starts
+%ifdef KERN_MEGA
+    call KERNEL_SEG:mega_oddsegf ; off the identity grid: a selector for it
+%endif
     pop cx
     sub cx, bx                  ; the body's length
     sub dx, bx                  ; ...and what it must produce
@@ -1251,7 +1254,11 @@ ld_start:
                                 ; loaded, and [ld_base] names that one for
                                 ; mem_frameless
     mov ds, [ld_base]           ; DS = the package's own segment, read through
+%ifdef KERN_MEGA
+    MEGA_PCALL [es:ld_fp], [es:ld_base] ; the CODE alias (kernel/mega.inc)
+%else
     call far [es:ld_fp]         ; DS while DS still names the kernel and
+%endif
     pop ds                      ; loaded in one instruction - the ordering
                                 ; this step's contract wants. The far pointer
                                 ; is then read through ES, the only register

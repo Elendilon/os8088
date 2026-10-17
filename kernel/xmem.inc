@@ -203,7 +203,14 @@ xm_sniff:
     jc .out                     ; no such service
     or ax, ax
     jz .out                     ; a 1MB AT
+%ifdef KERN_MEGA
+    mov [mega_extkb], ax        ; kern_mega OWNS the memory above 1MB - its
+                                ; descriptor tables and, later, the kernel
+                                ; itself (KERN-MEGA-PLAN 4) - so XMEM.DRV, the
+                                ; HMA .cold and every transport stay out
+%else
     mov byte [xm_row+DRVR_WANT], 1
+%endif
 .out:
     pop ax
     retf                        ; FAR, and the shim that used to own this
@@ -399,8 +406,8 @@ xm_have:
 xm_dsp:
     push ds
     push es
-    push cs
-    pop es                      ; ES = KERNEL_SEG: what the image reads the
+    KES
+                                ; ES = KERNEL_SEG: what the image reads the
     mov ds, [es:xm_row+DRVR_SEG]    ; things it was handed through
     call COLD_SEG:wm_nest_pushd_x   ; SPEC.md 66.6.3 - .text, so far
     call far [es:xm_row+DRVR_DISP]
@@ -654,8 +661,8 @@ xm_release_rec:
     push es
     call inst_idx               ; AL = the instance slot, ONCE for the two
     push ax                     ; releases below (the driver eats AX)
-    push cs                     ; FIRST, AND ON EVERY MACHINE: the instance's
-    pop es                      ; EXPANDED memory (SPEC.md 107.1), which an
+    KES                         ; FIRST, AND ON EVERY MACHINE: the instance's
+                                ; EXPANDED memory (SPEC.md 107.1), which an
     mov bx, DRVC_EMS * 256 + EMSV_GONE ; 8088 can have and the store above
     call drv_pkg_call_x         ; 1MB it cannot. EMS.DRV's own door, with ES
     pop ax                      ; = the kernel (a package's call never has

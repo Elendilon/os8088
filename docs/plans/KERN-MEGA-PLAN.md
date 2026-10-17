@@ -1,6 +1,6 @@
 # `kern_mega` — a 286+ protected-mode kernel
 
-**Status: RESEARCH, with ONE piece built: 2.4.1's CS-write ratchet** (2026-10-17, branch `protected-mode`,
+**Status: M1 IS UNDER WAY, AND kern_mega BOOTS INTO 286 PROTECTED MODE ON QEMU** (section 10.1) - plus 2.4.1's CS-write ratchet (2026-10-17, branch `protected-mode`,
 cut from `elendilon` at `c783a6a`). The owner asked what a 286+ protected-mode
 build would take: one with room for the kernel to grow to 512KB, though
 nothing requires it to. They asked three things:
@@ -681,6 +681,10 @@ grid argument does not change.
   * a 386 instruction (NASM's `cpu 286` does);
   * a non-zero descriptor high word, which needs an assertion in the GDT
     builder;
+  * **a store through a code segment, or past a segment's limit** -
+    MEASURED in M1 (10.1, item 6): the mouse ISR wrote through CS on every
+    packet and nothing faulted. 2.4.1's ratchet is the only instrument for
+    that rule until a 286 runs it;
   * timing.
 * **86Box** has the `286`, `286-525`, `286-sound` and `286-video` profiles
   for looking, but it cannot be scripted.
@@ -716,7 +720,81 @@ symbol reader (kernel bodies above 1MB, behind LDT bases), before a single
 | **M6** | the DOS box beside protected mode (2.7, its own plan first); hibernate | field |
 | later | ring 3 + call gates (an ABI flag day, SPEC.md 20.2.0.1); a 386 tier inside kern_mega | — |
 
-M1 is the experiment that settles whether this is worth continuing. It needs
+M1 is the experiment that settles whether this is worth continuing.
+
+### 10.1 M1 as built (2026-10-17)
+
+`make mega` builds kern_mega into build/megak/ and `build/mega.img`, a 1.44MB
+system disk that pairs with the shipped build/apps.img. kernel/mega.inc is
+the switch; the rest is a sweep of the shared files, every arm of it
+`%ifdef KERN_MEGA`, and **kern_big assembles byte-identical with all of it
+in** (compared against a clean-HEAD build).
+
+**What runs in protected mode, on QEMU:** the desktop and menus; the
+serial mouse; the keyboard, through mega_k09 and mega_i16 (the BIOS's own
+buffer, so no caller of `int 16h` changed); drives A: and B: listed, a
+folder opened and B: mounted for the first time, through REFLECTED
+`int 13h`; Calculator launched, driven by mouse and keyboard, and closed;
+Fractal, whose worker task and VGA drawing ran to 100%.
+
+**What the bring-up found, in the order it found it** - each is a rule for
+whoever extends this:
+
+1. **A selector is not a segment, and the BIOS only takes segments.** The
+   reflection hands DS and ES to the ROM as real-mode segments, and the first
+   version assumed every GDT selector was an identity one. The loader's
+   scratch selector (MEGA_SEL_ODD) went down as segment 0x0030, and the
+   floppy's DMA put a sector of the package over the API table, where no
+   watchpoint could see it. mega_s2seg now reads the base out of the
+   descriptor.
+2. **"Is this the kernel?" is asked by comparing a DS with CS**, and in
+   protected mode the kernel's DS is its data alias: wm_create filed the
+   Disk window as a package's. kbm_isr's `.selfchain` guard is the same
+   question asked the other way - "is the vector I chain to my own CS?" -
+   and swallowed every key until the ROM-half chains were given a different
+   selector for the same code (MEGA_SEL_BCODE).
+3. **A far call into a package needs the package's CODE alias.** Every place
+   the kernel enters one - wm_pkgcall, the loader's entry call, the driver
+   dispatcher, a new task's frame - stored the DATA segment, which is also
+   what every near pointer in the record is relative to. MEGA_PCALL,
+   MEGA_CSELTOP and mega_frame_cs convert at the call.
+4. **Off-grid arithmetic is real and has one customer so far**: the
+   decompressor wants DI = 0, so the loader points ES at the body's own
+   paragraph, 4 along from the region's base. mega_oddsegf gives it a
+   selector.
+5. **Bimodal state has to be where the early boot can read it.** k_dsel -
+   the data selector KDS/KES read - was first placed with the rest of
+   mega.inc, late in `.text`, and the boot splash calls vid_apply while that
+   part of the image is still arriving: KES read 0 and the video block was
+   copied over the API table. It sits beside the table now.
+6. **QEMU DOES NOT ENFORCE A CODE SEGMENT'S READ-ONLY BIT.** The mouse ISR
+   stored through CS on every packet and nothing faulted. So **QEMU-green is
+   not 286-green for 2.4's rule**: tests/cswrites.txt is the list of what
+   still faults on iron, and since this round it counts only the arms
+   kern_mega actually assembles. The resident `.text` sites M1's desktop
+   reaches are converted (both mouse ISRs, font_run's unaligned path, the
+   inline API cells); what is left is knob-only, `.boot2` (real mode by
+   construction), and **the on-demand modules - ~390 writes in CTRL.DRV,
+   DISKOPS.DRV, DOCK.DRV, STIKMENU.DRV and the rest**, which will fault on a
+   real 286 the first time each is used.
+
+**What is NOT done, and is M1's remaining work:**
+
+* **The 286 itself.** M1 reflects by clearing CR0.PE, a 386's instruction;
+  on a CPU_286 machine mega_enter declines and the machine stays kern_big.
+  The CPU-reset path (CMOS shutdown byte 0Ah, 40:67) is untestable on QEMU,
+  whose 8042 reset resets the whole machine - it is the Victory 286's check.
+* **The modules' CS writes** (above), and the drivers that point DS at their
+  own image (tests/cswrites.txt's last block - Sound Blaster, NE2000 packet
+  shim, LapLink, CH375, the HDD installer).
+* **A package with a stack of its own** drawing unaligned text: font_run's
+  kern_mega state is SS-relative and assumes LOW_SEG.
+* **Interrupts during a reflected call** are the BIOS's alone: the mouse and
+  every driver IRQ are masked for its length, so the pointer stops for a
+  floppy transfer as it did before SPEC.md 7.4. M2's native floppy driver is
+  what gives that back.
+* **The modules stay on-demand** and the kernel stays in conventional
+  memory: section 4's prize is M3's. It needs
 no package changes, reaches a desktop with a third of the catalogue, and
 shows what the sweep really costs in a shared file.
 

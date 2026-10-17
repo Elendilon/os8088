@@ -613,12 +613,14 @@ sch_rhook:
     xchg ax, [sch_rpend]        ; AX = the periods owed, and none after (IF=0)
     mov si, [sch_rwin]          ; the window record lives for the bracket
     mov bp, [sch_rbp]
-    push cs
-    pop es
+    KES
     mov ds, [si+W_SEG]          ; the package's own segment...
+%ifdef KERN_MEGA
+    MEGA_PCALL [cs:si+W_DISP], [cs:si+W_SEG]               ; W_SEG is DATA; the call wants its code alias
+%else
     call far [cs:si+W_DISP]     ; ...and its dispatcher, which near-calls BP
-    push cs
-    pop ds
+%endif
+    KDS
     cli                         ; the hook may have sti'd
     sub word [sch_rbusy], 0x0101
 .skip:
@@ -1032,9 +1034,17 @@ task_spawn:
 ; validates - so they are one body rather than two that look alike.
 ; -----------------------------------------------------------------------------
 sch_frame:
+%ifdef KERN_MEGA
+    call mega_frame_ds          ; kern_mega: DS = the segment's DATA selector
+%else                           ; (the kernel's alias for the kernel's own)
     mov ax, bp
+%endif
     stosw                       ; DS  = the task's own segment
+%ifdef KERN_MEGA
+    mov ax, [cs:k_dsel]         ; ...and ES the kernel's DATA, not its code
+%else
     mov ax, KERNEL_SEG
+%endif
     stosw                       ; ES  = the kernel, always (SPEC.md 20.1)
     xor ax, ax
     stosw                       ; BP
@@ -1049,6 +1059,9 @@ sch_frame:
     mov ax, si
     stosw                       ; IP  = entry
     mov ax, bp
+%ifdef KERN_MEGA
+    call mega_frame_cs          ; ...and CS its CODE alias (kernel/mega.inc)
+%endif
     stosw                       ; CS  = the task's own segment
     mov ax, 0x0202
     stosw                       ; FLAGS: IF=1, reserved bit 1 set
@@ -1829,8 +1842,7 @@ task_yield:
     push bp
     push es
     push ds
-    push cs                     ; caller's DS is on the stack; we need ours
-    pop ds
+    KDS                         ; caller's DS is on the stack; we need ours
                                 ; NO sch_account HERE (SPEC.md 8.1.1). It used
                                 ; to charge the slice unconditionally, and on a
                                 ; machine with one runnable task that is 500
@@ -1861,8 +1873,7 @@ sch_isr:
     push bp
     push es
     push ds
-    push cs
-    pop ds
+    KDS
 %ifdef KBD_DIAG
     call kbg_irq0               ; KBDDIAG=1 (SPEC.md 9.8.1): inside a bracket,
 %endif                          ; the keyboard's hardware state, each tick
@@ -2514,8 +2525,7 @@ sch_stkdie:
     ; reports. Silent, it is indistinguishable from a wild jump; one solid bar
     ; and a task number turn it into a diagnosis a photograph can carry.
     ; Registers are free: the next instruction halts for ever.
-    push cs
-    pop ds
+    KDS
     mov bx, [vid_rseg]
     or bx, bx
     jz .nomark                  ; no adapter yet: nothing to say it on

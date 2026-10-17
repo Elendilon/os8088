@@ -2977,8 +2977,8 @@ gfx_blitp:
     cmp ah, 0x10
     jb .fpl
     pop di
-    push cs
-    pop ds                      ; the kernel's again, for the teardown
+    KDS
+                                ; the kernel's again, for the teardown
     jmp short .rowsdone
 .row:
     cmp bx, [vid_ch]
@@ -4949,8 +4949,7 @@ gfx_scroll:
     pop ds                      ; DS = ES = the target for the movs
     cld
     rep movsb
-    push cs
-    pop ds
+    KDS
     add bx, [vgas_step]
     dec word [vgas_rows]
     jnz .lr
@@ -4988,8 +4987,7 @@ gfx_scroll:
     push es
     pop ds                      ; DS = ES = the target for the movs
     rep movsb
-    push cs
-    pop ds
+    KDS
     add di, bx
     dec word [vgas_rows]
     jnz .lr
@@ -5051,8 +5049,7 @@ vgas_bankcopy:                  ; (no DS bank, for the linear copy's reason)
     push es
     pop ds
     rep movsb
-    push cs
-    pop ds
+    KDS
     sub di, [vgas_nb]           ; back to the row's own byte: rep movsb left DI
                                 ; nb past it, and the advance below is
                                 ; column-preserving, so it has to start from
@@ -5079,8 +5076,7 @@ vgas_bankcopy:                  ; (no DS bank, for the linear copy's reason)
     pop ds
     cld
     rep movsb
-    push cs
-    pop ds
+    KDS
     add bx, [vgas_step]
     dec word [vgas_rows]
     jnz .r

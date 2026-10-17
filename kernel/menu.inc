@@ -576,8 +576,7 @@ menu_relayout:
     mov si, menu_loc_name
 .kseg:                          ; ...the ONE place the three kernel-data
     mov word [menu_seg], 0      ; names set the segment (kernel size pass 9:
-    push cs                     ; it was written out three times)
-    pop es
+    KES                         ; it was written out three times)
 .have_name:
     mov [menu_namep], si
 
@@ -717,8 +716,8 @@ menu_ab_cell:
 
     push di                     ; --- 'About ' + the name, into menu_abstr ---
     mov di, menu_abstr
-    push cs
-    pop es                      ; the prefix is ours...
+    KES
+                                ; the prefix is ours...
     mov si, menu_s_abpfx
     call menu_ab_cat
     call menu_es                ; ...the name is the owner's (SPEC.md 12.2)
@@ -745,8 +744,8 @@ menu_ab_cell:
     add bx, bx                  ; ...to a word offset
     mov word [menu_abitems + bx], menu_s_appclose
 
-    push cs                     ; --- the cell, over the label's own rect ---
-    pop es                      ; the copy is kernel data now, so measure it
+    KES                         ; --- the cell, over the label's own rect ---
+                                ; the copy is kernel data now, so measure it
     mov si, menu_abstr + MENU_ABPFX_LEN
     call font_width_x           ; AX = the label's pixel width
     mov [ss:di + MB_TITLE], si
@@ -1247,8 +1246,8 @@ menu_bent:
     add ax, MENU_TITLE_PAD / 2  ; the cell's pen x (SPEC.md 12.2: no MB_TX)
     call menu_bpad              ; spaces up to this cell's pen
     pop ax
-    push cs
-    pop es                      ; this cell's own segment (SPEC.md 12.2)
+    KES
+                                ; this cell's own segment (SPEC.md 12.2)
     or cx, cx
     jz .seg
     mov es, cx
@@ -2500,8 +2499,8 @@ menu_trunc:
     push ds                     ; no: copy the prefix into our own buffer.
     push es                     ; The source is ES:SI (the owner's) and the
     pop ds                      ; destination kernel .bss, so the copy runs
-    push cs                     ; with the segments SWAPPED for one `rep
-    pop es                      ; movsb` - no override on it, for the same
+    KES                         ; with the segments SWAPPED for one `rep
+                                ; movsb` - no override on it, for the same
     mov di, menu_tbuf           ; reason - and ES is left KERNEL_SEG, which
     mov cl, MENU_MAXCH          ; is the answer anyway. CX ran out to 0 above
     rep movsb

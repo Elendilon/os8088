@@ -2369,8 +2369,8 @@ ui_dispatch:
     or bx, bx
     jz .ret                     ; a window with no menus cannot be here
     push es                     ; the set is the OWNER's data (SPEC.md 12.2):
-    push cs                     ; Locator's lives in kernel .text, a
-    pop es                      ; package's in its own segment - so this
+    KES                         ; Locator's lives in kernel .text, a
+                                ; package's in its own segment - so this
     mov di, [menu_win]          ; read must go through the owner's segment,
     or di, di                   ; like every other read of the set. Through
     jz .ownset                  ; DS it tested a random word of kernel .text

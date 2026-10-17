@@ -24,7 +24,9 @@ them to `tests/cswrites.txt`, textrules' shape:
 
 WHAT COUNTS.  A write: the destination of mov, add, sub, adc, sbb, inc, dec,
 or, and, xor, not, neg, the shifts and rotates, and pop, when that destination
-is `[cs:...]`; and xchg with a `[cs:...]` operand on either side.  A pair:
+is `[cs:...]` - or `[byte cs:...]`, NASM's spelling for the 8-bit
+displacement, which the first version of this pattern missed and kern_mega's
+first package launch found; and xchg with such an operand on either side.  A pair:
 `push cs` whose next code line is `pop ds` or `pop es`.  `push cs` on its own
 is a simulated far call (BLOBCALL, COLDCALL) and is legal in protected mode;
 READS through CS are legal too, a code segment being readable, so neither is
@@ -55,8 +57,10 @@ WRITE = re.compile(
     r"^\s*" + LABEL +
     r"(?:mov|add|sub|adc|sbb|inc|dec|or|and|xor|not|neg|"
     r"shl|shr|sal|sar|rol|ror|rcl|rcr|pop)\s+"
-    r"(?:(?:byte|word|dword)\s+)?\[\s*cs\s*:", re.I)
-XCHG = re.compile(r"^\s*" + LABEL + r"xchg\s+.*\[\s*cs\s*:", re.I)
+    r"(?:(?:byte|word|dword)\s+)?\[\s*(?:(?:byte|word|dword)\s+)?cs\s*:",
+    re.I)
+XCHG = re.compile(r"^\s*" + LABEL +
+                  r"xchg\s+.*\[\s*(?:(?:byte|word|dword)\s+)?cs\s*:", re.I)
 PUSHCS = re.compile(r"^\s*" + LABEL + r"push\s+cs\s*$", re.I)
 POPSEG = re.compile(r"^\s*pop\s+(?:ds|es)\s*$", re.I)
 SECTION = re.compile(r"^\s*section\s+(\.\w+)", re.I)
@@ -71,13 +75,44 @@ def code(line):
     return line.split(";", 1)[0].rstrip()
 
 
+IFDEF = re.compile(r"^\s*%(ifdef|ifndef|elifdef|elifndef)\s+(\w+)", re.I)
+IFANY = re.compile(r"^\s*%if", re.I)
+ELSE = re.compile(r"^\s*%else\b", re.I)
+ELIF = re.compile(r"^\s*%elif", re.I)
+ENDIF = re.compile(r"^\s*%endif\b", re.I)
+
+
 def scan(path):
-    """[(line, kind, section)] for every write and pair in one source."""
+    """[(line, kind, section)] for every write and pair in one source.
+
+    A site on an arm that kern_mega never assembles - inside `%ifndef
+    KERN_MEGA`, or the `%else` of `%ifdef KERN_MEGA` - is NOT counted: it is
+    real mode's own spelling of something kern_mega does another way, which is
+    exactly what a conversion leaves behind."""
     with open(path, errors="replace") as f:
         lines = [code(x) for x in f.read().split("\n")]
     out = []
     section, inmacro = ".text", False
+    stack = []                      # per %if: True = this arm excludes mega
     for i, l in enumerate(lines):
+        m = IFDEF.match(l)
+        if m and m.group(1).lower() in ("ifdef", "ifndef"):
+            neg = m.group(1).lower() == "ifndef"
+            stack.append(["mega" if m.group(2) == "KERN_MEGA" else None, neg])
+            continue
+        if IFANY.match(l) and not m:
+            stack.append([None, False])
+            continue
+        if ELIF.match(l) and stack:
+            stack[-1] = [None, False]
+            continue
+        if ELSE.match(l) and stack:
+            stack[-1][1] = not stack[-1][1]
+            continue
+        if ENDIF.match(l) and stack:
+            stack.pop()
+            continue
+        realonly = any(f[0] == "mega" and f[1] for f in stack)
         m = SECTION.match(l)
         if m:
             section = m.group(1)
@@ -86,6 +121,8 @@ def scan(path):
         elif ENDMACRO.match(l):
             inmacro = False
         where = "%macro" if inmacro else section
+        if realonly:
+            continue
         if WRITE.match(l) or XCHG.match(l):
             out.append((i + 1, "write", where))
         elif PUSHCS.match(l):

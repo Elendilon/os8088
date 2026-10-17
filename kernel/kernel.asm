@@ -215,6 +215,109 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
  %endif
 %endif
 
+; --- kern_mega (docs/plans/KERN-MEGA-PLAN.md) ----------------------------------
+; kern_big, booted in real mode exactly as it is, then switched into 286
+; PROTECTED MODE at the end of kmain (KERN-MEGA-PLAN 10, wave M1). ADDITIVE for
+; KERN_EMU's reason above: it implies KERN_BIG, so the big feature set is the
+; feature set. Refused with KERN_SMALL (a 128KB machine has no extended memory
+; to hold the descriptor tables) and with KERN_EMU (two additive builds are a
+; product nobody has asked for).
+%ifdef KERN_MEGA
+ %ifdef KERN_SMALL
+%error "KERN_MEGA and KERN_SMALL are both defined - kern_mega is big"
+ %endif
+ %ifdef KERN_EMU
+%error "KERN_MEGA and KERN_EMU are both defined - pick one"
+ %endif
+ %ifndef KERN_BIG
+  %define KERN_BIG
+ %endif
+%endif
+
+; KDS / KES - "DS (ES) = the kernel's data", from code running in .text.
+; In real mode that is `push cs / pop ds`, and on every build but kern_mega it
+; still is, byte for byte. In 286 protected mode CS is 0x0060 as READABLE CODE
+; and a store through a register loaded from it faults, so kern_mega reads the
+; selector out of [cs:k_dsel] instead - KERNEL_SEG until mega_enter switches,
+; the data alias after, so the one spelling is right in both modes
+; (docs/plans/KERN-MEGA-PLAN.md 2.4). Neither form touches FLAGS. ONLY from
+; .text: in .cold, a module or the blob, CS is something else.
+%macro KDS 0
+ %ifnidni __?SECT?__, [section .text]
+  %error "KDS outside .text: CS is not the kernel's there"
+ %endif
+ %ifdef KERN_MEGA
+    mov ds, [cs:k_dsel]
+ %else
+    push cs
+    pop ds
+ %endif
+%endmacro
+; MEGA_ICW var, reg - the body of a five-byte INLINE cell that stores one
+; register (OSAPI_ICELL). In real mode it is `mov [cs:var], reg`, the store
+; through CS the cell was written as; kern_mega cannot store through CS, so
+; the cell jumps to a stub that does it through the data alias (MEGA_ICW_STUB
+; in kernel/mega.inc) and spends the last byte on a NOP.
+%macro MEGA_ICW 2
+ %ifdef KERN_MEGA
+    jmp strict near mega_icw_%1
+    nop
+ %else
+    mov [cs:%1], %2
+ %endif
+%endmacro
+; MEGA_CSELTOP - kern_mega: the word on top of the stack, a 512-aligned DATA
+; segment, becomes its CODE alias (LDT entry seg/32, selector (seg >> 2) | 4,
+; kernel/mega.inc). Every register and FLAGS preserved.
+%macro MEGA_CSELTOP 0
+    push bp
+    mov bp, sp
+    pushf
+    shr word [ss:bp+2], 1
+    shr word [ss:bp+2], 1
+    or byte [ss:bp+2], 4
+    popf
+    pop bp
+%endmacro
+; MEGA_PCALL off, seg - kern_mega's `call far` to {off, seg} where seg is a
+; package's, a driver's or a module's DATA segment: in protected mode the far
+; call needs the CODE alias, so the frame is built on the stack and entered by
+; a retf. Every register and FLAGS reach the callee as they would have.
+%macro MEGA_PCALL 2
+ cpu 286
+    push cs
+    push word %%back
+    push word %2
+    MEGA_CSELTOP
+    push word %1
+    retf
+%%back:
+ cpu 8086
+%endmacro
+; MEGA_ICWB field - the body of a five-byte INLINE cell that installs a
+; handler: `mov [byte cs:bx+field], ax`, BX = the window, AX = the proc. The
+; same shape as MEGA_ICW one step along: kern_mega jumps to a stub that does
+; the store through the data alias (kernel/mega.inc).
+%macro MEGA_ICWB 1
+ %ifdef KERN_MEGA
+    jmp strict near mega_icwb_%1
+    nop
+ %else
+    mov [byte cs:bx+%1], ax
+ %endif
+%endmacro
+%macro KES 0
+ %ifnidni __?SECT?__, [section .text]
+  %error "KES outside .text: CS is not the kernel's there"
+ %endif
+ %ifdef KERN_MEGA
+    mov es, [cs:k_dsel]
+ %else
+    push cs
+    pop es
+ %endif
+%endmacro
+
 ; BANDCOMP - the 1bpp band composer (SPEC.md 5.9), and since SPEC.md 5.9.6 it
 ; is a KNOB again rather than kern_big's default. `make BAND=1` compiles it in
 ; and puts wm_draw_title's interior on ONE composed blit; the default build
@@ -467,7 +570,9 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %ifdef KERN_BIG                 ; ...and kern_big's HMA holds more than `.cold`
   %ifdef ROM_COLD               ; when COLDHMA.SYS put it there: drivers and
     %ifndef NO_HMA_DRV          ; their buffers, in the pool under it, through
+     %ifndef KERN_MEGA          ; (not kern_mega: the HMA is its own)
       %define HMA_DRV 1         ; the same tail (docs/plans/HMA-PLAN.md 5).
+     %endif
     %endif                      ; NO_HMA_DRV is the A/B its bytes are priced
   %endif                        ; against, and nothing else
 %endif
@@ -1506,6 +1611,7 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 ;      for by a data buffer - the stub STAGES the name into kernel scratch,
 ;      the dsk_get_dir idiom of SPEC.md 2.1
 ; =============================================================================
+%ifndef KERN_MEGA
 %macro OSAPI_SLOT 1                 ; 8 bytes exactly (a hot cell)
     push ds
     push cs
@@ -1514,6 +1620,26 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
     pop ds
     retf
 %endmacro
+%else
+; kern_mega's hot cell (docs/plans/KERN-MEGA-PLAN.md 2.4): `push cs / pop ds`
+; would hand the routine a READ-ONLY DS, and the selector load that replaces
+; it is five bytes, which does not fit eight. So the cell calls a per-cell stub
+; that loads DS and jumps on - the routine's near `ret` comes back here, and
+; BP, every register and FLAGS reach it as the caller left them, exactly as
+; the real-mode cell does. The stubs are emitted after the table
+; (MEGA_SLOT_STUBS, kernel/mega.inc).
+%assign mega_nslot 0
+%macro OSAPI_SLOT 1                 ; 8 bytes exactly (a hot cell)
+    push ds
+    call near mega_sl_%[mega_nslot]
+    pop ds
+    retf
+    nop                             ; never reached: the length is the ABI
+    nop
+    %xdefine mega_slt_%[mega_nslot] %1
+    %assign mega_nslot mega_nslot + 1
+%endmacro
+%endif
 
 %macro OSAPI_XCELL 1                ; 7 bytes: %1 is a .text routine (hot)
     push bp                         ; 55        the CALLER's, under the frame
@@ -1674,11 +1800,11 @@ apic_wm_front:                    ; DOCK.DRV's door (SPEC.md 30.4)
     OSAPI_IEND
 apic_osapi_set_color:
     OSAPI_ICELL 5                 ; 0x00B3
-    mov [cs:gfx_color], al
+    MEGA_ICW gfx_color, al
     OSAPI_IEND
     OSAPI_SLOT osapi_mouse        ; 0x00B8
     OSAPI_ICELL 5                 ; 0x00C0
-    mov [cs:osapi_seed], ax
+    MEGA_ICW osapi_seed, ax
     OSAPI_IEND
     OSAPI_SLOT osapi_rand         ; 0x00C5
     OSAPI_RSLOT osapi_snd_caps     ; 0x00CD - sound (SPEC.md 34): what the PC
@@ -1828,7 +1954,7 @@ apic_osapi_mem_avail:
                                   ;          docs/plans/completed/PAINT-NOTES.md's resize
                                   ;          complaint - wm_resize is the app
                                   ;          asking, this is the app answering
-    mov [byte cs:bx+W_ONSIZE], ax
+    MEGA_ICWB W_ONSIZE
     OSAPI_IEND
     OSAPI_RSLOT osapi_file_here    ; 0x01C1 - where the file API's names
                                   ;          resolve (SPEC.md 18.4/19.2)
@@ -2308,7 +2434,7 @@ apic_fpg_stepb:
                                   ;          half of OSAPI_WM_ONSIZE, which
                                   ;          asks BEFORE and takes an answer
                                   ;          (SPEC.md 11.98)
-    mov [byte cs:bx+W_ONSZ], ax
+    MEGA_ICWB W_ONSZ
     OSAPI_IEND
     OSAPI_RSLOT wm_keeph           ; 0x02F0 - BX = window, AL = 0 clear / non-0
                                   ;          set. "My layout is FIXED: if I
@@ -2549,7 +2675,7 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          OSAPI_WM_CREATE like
                                   ;          OSAPI_WM_ONRESIZE - a side table,
                                   ;          not a template word
-    mov [byte cs:bx+W_ONWK], ax
+    MEGA_ICWB W_ONWK
     OSAPI_IEND
     OSAPI_RSLOT osapi_file_goto_qm ; 0x035C - DX = folder cluster, BL = volume:
                                   ;          OSAPI_FILE_GOTO_Q's quiet stand
@@ -2639,7 +2765,7 @@ apic_wm_minsize:
                                   ;          OSAPI_WM_CREATE like
                                   ;          OSAPI_WM_ONWAKE - a side table,
                                   ;          not a template word
-    mov [byte cs:bx+W_ONRC], ax
+    MEGA_ICWB W_ONRC
     OSAPI_IEND
     OSAPI_RNCELL dwf_dskw_rmany ; 0x0385  N: SI = a NUL 8.3 name, AL = 0 an
                                   ;         EMPTY folder only / non-zero the
@@ -2685,7 +2811,7 @@ apic_wm_minsize:
     jmp strict near gfx_blit1_pen   ; 3 bytes; the body is retf-ended
     nop                             ; ...and these two are never reached
  %else
-    mov [cs:gfx_b1ink], ax          ; AL -> ink, AH -> paper
+    MEGA_ICW gfx_b1ink, ax          ; AL -> ink, AH -> paper
  %endif
 %else
     nop                             ; kern_small: no pen to set, and the
@@ -2701,7 +2827,7 @@ apic_wm_minsize:
                                   ;          the draw puts CWHITE/CBLACK back,
                                   ;          so a site that forgets cannot
                                   ;          tint the next icon (SPEC.md 25.6)
-    mov [cs:ico_c1], ax
+    MEGA_ICW ico_c1, ax
     OSAPI_IEND
     OSAPI_XCELL icon_draw_x     ; 0x039D - CX = x, DX = y, SI -> a masked
                                   ;          1bpp record in YOUR segment: a
@@ -3108,7 +3234,7 @@ apic_inst_minimize:               ; DOCK.DRV's door (SPEC.md 30.4)
                                   ;          so the button control can see a
                                   ;          press before the package does
                                   ;          (SPEC.md 20.5.1.3.3)
-    mov [byte cs:bx+W_ONCLICK], ax
+    MEGA_ICWB W_ONCLICK
     OSAPI_IEND
     OSAPI_RNCELL dwf_dskw_read_seq ; 0x0455  N: A STREAMING READ (SPEC.md
                                   ;          18.4.8): SI = name, DX:BX = the
@@ -3160,10 +3286,15 @@ apic_inst_minimize:               ; DOCK.DRV's door (SPEC.md 30.4)
                                    ; theme to set at all (76.13) and spends
                                    ; the length as NOPs, gfx_blit1_pen's own
                                    ; precedent (0x0393 above)
-%ifdef KERN_BIG
-    push ds
-    push cs
+%ifdef KERN_MEGA
+    push ds                       ; kern_mega: OSAPI_SLOT's own kern_mega
+    call near mega_thm_set        ; arm, by hand (the stub is in mega.inc)
     pop ds
+    nop
+    nop
+%elifdef KERN_BIG
+    push ds
+    KDS
     call api_thm_set
     pop ds
 %else
@@ -3244,6 +3375,18 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %endif
 %if OSAPI_TABLE_LEN != 43*8 + 11*7 + 105*6 + 6*3 + 6 + 12*5 + 3*6 + 8
 %error "os8088 API jump table must be exactly 0x0489 bytes: 43 SLOT (8), 11 XCELL (7), 105 rare (6), 6 JCELL (3), 1 FCELL (6), 16 ICELL (12 of 5, 3 of 6, 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
+%endif
+
+%ifdef KERN_MEGA
+; kern_mega's DATA SEGMENT WORD (KDS/KES above, kernel/mega.inc), and it is
+; HERE, beside the API table, and not with the rest of mega.inc's state on
+; purpose: the boot splash calls vid_apply out of `.text` while the rest of
+; the kernel image is still on its way in, and vid_apply's KES reads this
+; word. Placed at the end of mega.inc it read 0 at that moment - ES became
+; segment 0 and the video block was copied over the API table at 0x600+0x179,
+; which then took the first package launch down. The front of `.text` is
+; the part the early boot already depends on being there.
+k_dsel      dw KERNEL_SEG
 %endif
 
 ; =============================================================================
@@ -3338,8 +3481,8 @@ api_x:
     push es                     ; ...and its ES
     push ds
     pop es                      ; ES = the caller's DS
-    push cs
-    pop ds                      ; DS = KERNEL_SEG
+    KDS
+                                ; DS = KERNEL_SEG
     call bp
 .done:
     pop es
@@ -3361,8 +3504,8 @@ api_rxc:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the targe
     push es
     push ds
     pop es                      ; ES = the caller's DS
-    push cs
-    pop ds                      ; DS = KERNEL_SEG (api_far reads its word by it)
+    KDS
+                                ; DS = KERNEL_SEG (api_far reads its word by it)
     call KERNEL_SEG:api_far     ; COLD_SEG:BP, and the body's retf lands here
     jmp short api_x.done
 
@@ -3376,8 +3519,7 @@ api_rsc:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the targe
     pop bp
     mov bp, [cs:bp]
     push ds
-    push cs
-    pop ds
+    KDS
     call KERNEL_SEG:api_far     ; COLD_SEG:BP
     pop ds
     pop bp
@@ -3386,8 +3528,7 @@ api_rs:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target
     pop bp
     mov bp, [cs:bp]
     push ds
-    push cs
-    pop ds
+    KDS
     call bp
     pop ds
     pop bp
@@ -3468,8 +3609,8 @@ api_rn:  ; STKBALANCE-OK: pops the rare cell's return address - it IS the target
     call api_cpname             ; caller DS:SI -> KERNEL:api_name, <= 13 bytes
     pop es                      ; the caller's ES back: it is the buffer
     pop di                      ; and its DI, which the callee may need
-    push cs
-    pop ds                      ; DS = KERNEL
+    KDS
+                                ; DS = KERNEL
     call inst_vol_enter         ; this instance's own folder (SPEC.md 19.2.1);
     mov si, api_name            ; preserves every register and the flags
     call KERNEL_SEG:api_far     ; COLD_SEG:BP, the cold file door
@@ -3514,8 +3655,8 @@ api_fdlg_open:
     pop es                      ; the caller's ES back: it is the buffer
     pop di                      ; and its DI, which fdlg_open needs as an
                                 ; input (the completion proc's offset)
-    push cs
-    pop ds                      ; DS = KERNEL
+    KDS
+                                ; DS = KERNEL
     call COLD_SEG:fdf_fdlg_open
     pop si
     pop ds
@@ -3612,8 +3753,8 @@ api_ff_go:
     push si
     push bx
     mov bx, ds                  ; the caller's segment, for the fence
-    push cs
-    pop ds                      ; DS = KERNEL
+    KDS
+                                ; DS = KERNEL
     mov [dsk_fdraw], al
     call inst_vol_enter         ; this instance's own folder; preserves
                                 ; everything including the flags
@@ -3721,11 +3862,25 @@ api_file_write_sys:             ; no segment being a driver's - so the two
     stc                         ; every register .refuse gave back untouched
     retf                        ; (kernel size pass 11)
 %else
+%ifndef KERN_MEGA
 api_file_append_sys:
     mov word [cs:api_sysfp], dwf_dskw_append_sys    ; ...the same fence, the
     jmp short api_file_sysc                         ; other verb (18.4.4)
 api_file_write_sys:
     mov word [cs:api_sysfp], dwf_dskw_write_sys
+%else                           ; kern_mega: code is read-only, so through
+api_file_append_sys:            ; the kernel's data alias instead
+    push ds
+    KDS
+    mov word [api_sysfp], dwf_dskw_append_sys
+    pop ds
+    jmp short api_file_sysc
+api_file_write_sys:
+    push ds
+    KDS
+    mov word [api_sysfp], dwf_dskw_write_sys
+    pop ds
+%endif
 api_file_sysc:
     push ds
     push si
@@ -3734,8 +3889,8 @@ api_file_sysc:
     push bx                     ; the caller's buffer offset: live, and
     mov bx, ds                  ; drv_owns_seg wants a register
     push ds                     ; ...AND THE CALLER'S DS IS KEPT, because
-    push cs                     ; api_copyname below reads the name through
-    pop ds                      ; it. The fence needs DS = KERNEL to reach
+    KDS                         ; api_copyname below reads the name through
+                                ; it. The fence needs DS = KERNEL to reach
     call COLD_SEG:dvf_drv_owns_seg ; drv_tab, and the first version of this stub
     pop ds                      ; switched and never switched back - so it
                                 ; staged 13 bytes of KERNEL image as the file
@@ -3747,8 +3902,8 @@ api_file_sysc:
     call api_cpname             ; caller DS:SI -> KERNEL:api_name, <= 13 bytes
     pop es                      ; the caller's ES back: it is the buffer
     pop di
-    push cs
-    pop ds                      ; DS = KERNEL
+    KDS
+                                ; DS = KERNEL
                                 ; NO V (SPEC.md 19.2.1): the installer names
                                 ; the volume it is building and must not have
                                 ; its own instance's folder put underneath it
@@ -3780,8 +3935,8 @@ api_file_rename:
     mov di, api_name2
     call api_copyname           ; new name
     pop es
-    push cs
-    pop ds                      ; DS = KERNEL
+    KDS
+                                ; DS = KERNEL
     call inst_vol_enter         ; V, as the three above (SPEC.md 19.2.1):
                                 ; BOTH names resolve in the calling
                                 ; instance's directory, which is the only
@@ -3894,8 +4049,8 @@ ovw_font_run_x:     call font_run_x     ; SPEC.md 15.6's status line composes
 ; port helpers are a copy in each image now, near-called - SPEC.md 37.94.)
 ; -----------------------------------------------------------------------------
 api_cpname:                     ; ...the same into KERNEL:api_name, which is
-    push cs                     ; what four of the five callers want, and the
-    pop es                      ; three instructions they each wrote out ahead
+    KES                         ; what four of the five callers want, and the
+                                ; three instructions they each wrote out ahead
     mov di, api_name            ; of it (ES = KERNEL on the way out)
 api_copyname:
     push ax                     ; AX and CX ONLY, and both are arguments the
@@ -4803,6 +4958,11 @@ kmain:
                                 ; fight over the same pixels
 %endif
 
+%ifdef KERN_MEGA
+    call mega_enter             ; 286 protected mode from here on, or - on a
+                                ; machine M1 cannot drive - real mode exactly
+                                ; as it is (docs/plans/KERN-MEGA-PLAN.md 10)
+%endif
     jmp ui_task                 ; task 0 becomes the UI task; never returns
 
 ; =============================================================================
@@ -5292,6 +5452,8 @@ EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
                               ; clock depends on, and before nothing - kmain
                               ; forward-references bprof_mark through the macro
 %include "sched.inc"
+%include "mega.inc"             ; kern_mega's protected mode, after the API
+                                ; table its slot stubs are emitted for
 %include "events.inc"
 %include "clock.inc"            ; the system clock (SPEC.md 37): after
                                 ; sched.inc, whose [ticks] it advances from
@@ -5795,8 +5957,7 @@ mark_beacon:
 
 mark_faulted:
     cli
-    push cs
-    pop ds
+    KDS
     call mark_stamp
 .h:
     hlt                         ; and STAY here: the screen is the report

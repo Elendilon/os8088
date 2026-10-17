@@ -354,8 +354,7 @@ WMIN_H     equ 64               ; (SPEC.md 11.1; mirrored in apps/os88api.inc)
 ; the OWNER's segment. One place decides which that is.
 ; -----------------------------------------------------------------------------
 wm_strseg:
-    push cs
-    pop es
+    KES
     cmp word [di+W_SEG], 0
     je .out
     mov es, [di+W_SEG]
@@ -418,8 +417,8 @@ wm_pkgcall:
 %endif
     push ds
     push es
-    push cs
-    pop es                      ; ES = KERNEL_SEG: the record lives here and
+    KES
+                                ; ES = KERNEL_SEG: the record lives here and
                                 ; the callback may read it
 %ifdef SNAPAUDIT
     mov [snap_cur], si          ; SPEC.md 11.94.2: everything drawn from here
@@ -445,9 +444,13 @@ wm_pkgcall:
                                 ; (SPEC.md 66.6.1), and the push reads it from
                                 ; DS, so the segment costs no register here at
                                 ; all - AX and BX are the CALLBACK's
+%ifdef KERN_MEGA
+    MEGA_PCALL [es:si+W_DISP], [es:si+W_SEG]               ; ...and off to its dispatcher: W_SEG is DATA,
+%else                           ; the call wants its code alias (mega.inc)
     call far [es:si+W_DISP]     ; ...and off to its dispatcher
-    push cs                     ; DS IS THE PACKAGE'S at the return, and `.out`
-    pop ds                      ; below restores the caller's, so borrowing it
+%endif
+    KDS                         ; DS IS THE PACKAGE'S at the return, and `.out`
+                                ; below restores the caller's, so borrowing it
     call COLD_SEG:wm_nest_pop_x ; for two instructions costs nothing. ES is no
                                 ; safer - a callback may clobber it (SPEC.md
                                 ; 13). A CALLBACK ANSWERS IN THE FLAGS (an
@@ -1358,7 +1361,12 @@ wm_create:
 %endif                              ; dispatcher's fixed offset, and the
     mov ax, cs                      ; segment the caller called us in. Ours
     cmp si, ax                      ; means a KERNEL window, which is what
+%ifdef KERN_MEGA
+    je .kwin                        ; (kern_mega: the kernel's DS is its DATA
+    cmp si, MEGA_SEL_KDATA          ; alias, not CS - mega.inc)
+%endif
     jne .pkgseg                     ; W_SEG = 0 says (SPEC.md 20.1)
+.kwin:
     xor si, si
 .pkgseg:
 %ifdef HMA_DRV

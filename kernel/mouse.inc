@@ -372,7 +372,15 @@ MOU_PSTK    equ 128             ; 2.4x the 54 the chain measures on the deepest
                                 ; against an unknown
 
 %macro MOUPRIV_ENTER 0
+ %ifdef KERN_MEGA                ; kern_mega: code is read-only, so through the
+    push ds                     ; data alias - and the SP banked is the one
+    mov ds, [cs:k_dsel]         ; from BEFORE this push, which is what LEAVE
+    mov [mou_psave], sp         ; must restore. `add` writes FLAGS, and at an
+    add word [mou_psave], 2     ; ISR's first instructions nobody's FLAGS are
+    pop ds                      ; live: the interrupted code's are on the stack
+ %else
     mov [cs:mou_psave], sp      ; taken BEFORE the push below, so LEAVE's
+ %endif
     push ax                     ; restore lands on the un-pushed SP either way
     mov ax, ss
     cmp ax, LOW_SEG             ; **ONLY ON A TASK STACK.** SS is LOW_SEG for
@@ -2128,8 +2136,7 @@ mou_p2_isr:
     push bp
     push ds
     push es
-    push cs
-    pop ds
+    KDS
     cld
 %ifdef MOU_DIAG
     inc word [mou_p2irq]        ; COUNTED BEFORE THE TESTS BELOW: "the line
@@ -2704,8 +2711,7 @@ KBM_5SCAN   equ 0x4C            ; the keypad's centre key, make code
 kbm_isr:
     push ax
     push ds
-    push cs
-    pop ds
+    KDS
 %ifdef KBD_DIAG
     call kbg_pre                ; KBDDIAG=1 (SPEC.md 9.8.1): the 8042's status
 %endif                          ; and the BIOS buffer, before anything reads
@@ -2785,8 +2791,8 @@ kbm_isr:
 %ifdef KBD_DIAG
     pushf                       ; KBDDIAG=1 (SPEC.md 9.8.1): CALL the ROM rather
     call far [cs:kbm_old9]      ; than jump to it, so what it did can be read
-    push cs                     ; when it returns. Its iret restores OUR flags,
-    pop ds                      ; IF = 0, and the ROM preserves every register
+    KDS                         ; when it returns. Its iret restores OUR flags,
+                                ; IF = 0, and the ROM preserves every register
     call kbg_post
     pop ds
     pop ax
@@ -3337,10 +3343,24 @@ kbd_ovb     db 0                ; ...and one the ISR has asked for and no pass
 ; could starve the real mouse out of ever being found (SPEC.md 9.5).
 ; -----------------------------------------------------------------------------
 mou_isr:                        ; IRQ4, and...
+%ifdef KERN_MEGA
+    push ds                     ; kern_mega: through the data alias
+    mov ds, [cs:k_dsel]
+    mov byte [mou_lfired], MOU_L4
+    pop ds
+%else
     mov byte [cs:mou_lfired], MOU_L4 ; ...the ONE thing the two entries
+%endif
     jmp short mou_isr_body      ; disagree about: which LINE fired. Not which
 mou_isr3:                       ; PORT has the byte - that is scanned for
+%ifdef KERN_MEGA
+    push ds                     ; kern_mega: through the data alias
+    mov ds, [cs:k_dsel]
+    mov byte [mou_lfired], MOU_L3
+    pop ds
+%else
     mov byte [cs:mou_lfired], MOU_L3 ; below - but nothing else can tell
+%endif
                                 ; mou_lockon that. STAMPED FIRST, through CS
                                 ; and with no register, so the private-stack
                                 ; switch below is ONE copy for both doors
@@ -3355,8 +3375,7 @@ mou_isr_body:
     push bp
     push ds
     push es
-    push cs
-    pop ds
+    KDS
     cld
 
     ; --- whoever is holding a byte, take it ---------------------------------
