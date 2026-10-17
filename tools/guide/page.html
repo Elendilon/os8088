@@ -220,6 +220,7 @@ main.panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; ma
 .shot .frame { aspect-ratio: 4 / 3; max-width: 100%; border: 1px dashed var(--ink-2); display: grid; place-content: center; gap: 4px; text-align: center; color: var(--ink-2); background:
   repeating-linear-gradient(45deg, transparent 0 7px, var(--well) 7px 8px); }
 .shot figcaption { font-size: var(--step--1); color: var(--ink-2); margin-top: 6px; }
+.filetext { font-family: var(--font-mono); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--well); border: 1px solid var(--rule); padding: 10px 12px; margin: 0 0 12px; max-height: 70vh; overflow: auto; }
 .nomanual { color: var(--ink-2); border: 1px dashed var(--rule); padding: 12px 14px; font-size: var(--step--1); }
 .members { display: grid; gap: 6px; margin: 0 0 12px; }
 .prog-list { columns: 2 12rem; column-gap: 18px; padding: 0; margin: 0; list-style: none; font-size: var(--step--1); }
@@ -467,8 +468,10 @@ function drawItemInfo(d, path) {
   if (others.length && st.alsoOpen) h += `<div class="alsolist">${geos.map(g => `<div class="arow"><span class="glabel">${esc(g.label)}</span><div class="chips">${byGeo[g.key].filter(x => x.id !== d.id).map(x => diskChip(x, x.role)).join("")}</div></div>`).join("")}</div>`;
   if (i.summary) h += `<p class="lede">${esc(i.summary)}</p>`;
   if (i.needs) h += `<p class="needs-line"><span>Needs</span>${esc(i.needs)}</p>`;
+  const ti = d.texts && d.texts[path];
   if (man) h += `<div class="manual">${man.html}</div>`;
-  else if (!n.endsWith("/")) h += `<div class="nomanual">${i.kind === "program" ? "The manual for this program has not been written yet." : "No further guide for this file."}</div>`;
+  else if (!n.endsWith("/") && ti == null) h += `<div class="nomanual">${i.kind === "program" ? "The manual for this program has not been written yet." : "No further guide for this file."}</div>`;
+  if (ti != null) h += `<div class="eyebrow">What this file says${d.texts && seen.length > 1 ? " (on " + esc(d.file) + ")" : ""}</div><pre class="filetext">${esc(D.texts[ti])}</pre>`;
   return h;
 }
 function drawThingInfo(th) {

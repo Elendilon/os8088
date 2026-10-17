@@ -38,6 +38,7 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 from os88fat import Fat12  # noqa: E402
+from os88lz import cz_unwrap  # noqa: E402
 
 GUIDE = os.path.join(ROOT, "tools", "guide")
 BUILD = os.path.join(ROOT, "build")
@@ -181,6 +182,30 @@ def role_of(name, item_title, item_files):
 
 
 # --- reading a hard-disk image (FAT16 behind an MBR) --------------------------
+# Plain-text files whose words the guide shows under their page, read off the
+# disk itself - so a README.TXT that differs per disk shows its own text.
+TEXT_EXT = ("TXT", "ME", "MD")
+TEXT_NAMES = ("LICENSE", "COPYING")
+TEXT_MAX = 64 * 1024
+
+
+def as_text(name, body):
+    """The words of a plain-text file, or None if it is not one."""
+    stem, _, ext = name.partition(".")
+    if ext not in TEXT_EXT and name not in TEXT_NAMES:
+        return None
+    try:
+        body = cz_unwrap(body)
+    except Exception:
+        return None
+    if len(body) > TEXT_MAX:
+        return None
+    t = body.replace(b"\x1a", b"").decode("cp437", "replace").replace("\r\n", "\n")
+    if sum(1 for c in t if c < " " and c not in "\n\t") > len(t) // 50:
+        return None
+    return t
+
+
 def survey_fat12(path):
     """Every entry on a floppy: {path: [size, attr]}, in directory order."""
     v = Fat12(path)
@@ -205,10 +230,18 @@ def survey_fat12(path):
                 walk(sub, path + name + "/")
             else:
                 files[path + name] = [size, e[11]]
+                if first and (name.partition(".")[2] in TEXT_EXT or name in TEXT_NAMES):
+                    csz = v.spc * v.bps
+                    body = b"".join(bytes(v.img[v.cluster_off(c):v.cluster_off(c) + csz])
+                                    for c in v.chain(first))[:size]
+                    t = as_text(name, body)
+                    if t is not None:
+                        texts[path + name] = t
 
+    texts = {}
     walk([e for _, _, e in v.entries()], "")
     return {"free": len(v.free_clusters()), "clusters": v.nclus,
-            "csize": v.spc * v.bps, "files": files}
+            "csize": v.spc * v.bps, "files": files, "texts": texts}
 
 
 def survey_hdd(path):
@@ -255,11 +288,19 @@ def survey_hdd(path):
                     walk(data0 + (c - 2) * spc, spc, path + name + "/")
             else:
                 files[path + name] = [size, e[11]]
+                if c0 and (ext in TEXT_EXT or name in TEXT_NAMES):
+                    body = b"".join(blob[base + (data0 + (c - 2) * spc) * byts:
+                                         base + (data0 + (c - 2) * spc + spc) * byts]
+                                    for c in chain(c0))[:size]
+                    t = as_text(name, body)
+                    if t is not None:
+                        texts[path + name] = t
 
+    texts = {}
     walk(rootlba, rootsecs, "")
     free = sum(1 for c in range(2, nclus + 2)
                if struct.unpack_from("<H", blob, fat0 + c * 2)[0] == 0)
-    return {"free": free, "clusters": nclus, "csize": spc * byts, "files": files}
+    return {"free": free, "clusters": nclus, "csize": spc * byts, "files": files, "texts": texts}
 
 
 # --- manuals ----------------------------------------------------------------
@@ -482,6 +523,9 @@ def _path_info(d, path, cpm, vids):
     return None
 
 
+TEXTS = None
+
+
 def disk_record(n, set_id, gkey, section, role, geo=None, vids=None, pinfo=None):
     path = os.path.join(BUILD, n)
     geo = geo or geo_of(path, n)
@@ -505,6 +549,12 @@ def disk_record(n, set_id, gkey, section, role, geo=None, vids=None, pinfo=None)
                     row.append(pinfo.index(pi))
                 tree.append(row)
             d.update(built=True, free=s["free"], clusters=s["clusters"], csize=s["csize"], tree=tree)
+            if s.get("texts") and TEXTS is not None:
+                d["texts"] = {}
+                for k, t in s["texts"].items():
+                    if t not in TEXTS:
+                        TEXTS.append(t)
+                    d["texts"][k] = TEXTS.index(t)
         d["bytes"] = os.path.getsize(path)
         if n.endswith(".iso"):
             d["built"] = True
@@ -519,8 +569,9 @@ def collect():
     if os.path.exists(p):
         with open(p, "rb") as f:
             entries = tomllib.load(f)
-    global CPM
+    global CPM, TEXTS
     CPM = cpm_areas()
+    TEXTS = []
     disks, sets, pinfo = [], [], []
     for gkey, gtitle, _ in mk.GROUPS:
         if gkey == "about":
@@ -581,7 +632,7 @@ def collect():
     except Exception:
         commit, count = "?", "?"
     return {"geos": [{"key": k, "label": l, "hint": h} for k, l, h in GEOS],
-            "sectionTitles": SECTION_TITLE, "blurbs": BLURB, "sets": sets, "disks": disks, "pinfo": pinfo,
+            "sectionTitles": SECTION_TITLE, "blurbs": BLURB, "sets": sets, "disks": disks, "pinfo": pinfo, "texts": TEXTS,
             "entries": entries, "manuals": load_manuals(), "diskpages": load_pages("disks"),
             "tools": tools, "firmware": firmware,
             "build": {"commit": commit, "count": count}}

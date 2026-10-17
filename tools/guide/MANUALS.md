@@ -129,3 +129,38 @@ program, no soak rows, no `make test-*`, no rebuilding the kernel or disks.
 Do not edit shared files (`entries.toml`, `page.html`, `os88guide.py`,
 `capture/run.py`, other programs' manuals). Do not commit. If a description
 in `tools/guide/entries.toml` is wrong, say so in your report instead.
+
+# File pages: drivers, system files, typefaces, folders and data
+
+Every other file on a disk gets a page too, in the same place and the same
+way: `tools/guide/manuals/<NAME>_<EXT>.md` (a folder is its name alone:
+`FONTS.md` for `FONTS/`), with an optional capture script beside the others.
+They are shorter than a program's manual and answer four questions:
+
+1. **What it is and what it does for you**, in a sentence or two.
+2. **What is inside it**, in user terms: "the Control Panel's pages, loaded
+   when you open it and freed when you close it", "ten songs by...", "the
+   typeface Charter in sizes...". No offsets, formats or internals beyond
+   what a curious user would want.
+3. **Why it is on this disk**, and what happens if it is missing or which
+   disks carry it (some names are on several disks with DIFFERENT contents,
+   such as README.TXT: say what each one is).
+4. **Using it**, from the user's side: where it shows up (a Control Panel
+   page, a menu, a double-click that opens it in a program), how to turn it
+   on or off, what it needs. A screenshot of that is welcome where there is
+   something to see (the Control Panel page that switches a driver on, a
+   song open in its player, a picture open in Paint or PiXEL, a typeface in
+   Font Viewer). Skip screenshots where there is nothing to see.
+
+**Plain-text files show their own words.** For `.TXT`, `.ME`, `.MD`,
+LICENSE and COPYING the guide reads the file off each disk and prints it
+under your page, per disk. So a text file's page is a short description
+(what it is, who it is for, which disks carry which version) and never a
+copy of the text.
+
+Shape: `# <title>` (the title from entries.toml), a short opening, then `##`
+sections as needed. 100 to 400 words; a driver with real settings may run
+longer. A song, picture or sample document can be a few lines plus one shot.
+Do NOT write pages for programs (`.O88`), which have manuals, or for CP/M
+files and demo videos, whose descriptions come from where they are.
+Shot ids are prefixed with the file, e.g. `sound-drv-page`, `charter-f88`.

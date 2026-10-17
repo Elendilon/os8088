@@ -561,8 +561,8 @@ short = "Times typeface"
 ["README.TXT"]
 title = "Read Me"
 kind = "document"
-summary = "The os8088 manual as a plain text file. Double-click to read it in Note Pad."
-short = "The os8088 manual"
+summary = "Notes on what is on this disk and how to use it. On the system disk it is the whole os8088 manual. Double-click to read it in Note Pad."
+short = "Read this first"
 
 ["LICENSE.TXT"]
 title = "Font licence"
