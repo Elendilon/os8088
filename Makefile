@@ -3185,7 +3185,7 @@ SYSAPPSARGS := $(addprefix SYSTEM:,$(SYSAPPS))
 # Measured at 360KB (`tools/os88disk.py --verify build/os8088-360.img`): 313
 # of 354 clusters in use before DESKCAL.O88 and its folder; SPEC.md 110.6 has
 # the figure after.
-STIKAPPS := $(BUILD)/deskcal.o88 $(BUILD)/stiknote.o88
+STIKAPPS := $(BUILD)/deskcal.o88 $(BUILD)/stiknote.o88 $(BUILD)/deskclok.o88
 STIKARGS := $(addprefix STIKAPPS:,$(STIKAPPS))
 
 # --- ...and DOS (SPEC.md 96) is in the system disk's APPS/, not SYSTEM/ ------
@@ -3584,19 +3584,28 @@ SYSDOCRAW := $(BUILD)/readme-plain.txt
 # Mines bought. The owner took PAINT.O88 off this geometry - 24.3.1.1's own
 # candidate, the largest package the Wire can give back - and it stays on
 # apps360.img and on every 720KB, 1.44MB and 1.2MB disk.
+#
+# **AND THE TYPEFACES, WITH THE FONT VIEWER, FOR THE THIRD** (SPEC.md
+# 24.3.1.5): DESKCLOK.O88, the Desk Clock (SPEC.md 110.14), did not fit what
+# Paint bought once Sticky Note's first save was counted. The owner moved
+# SYSTEM/FONTS - ten faces and their licence, fourteen clusters - to
+# office360.img, beside the programs that set type in them (Word, ArtfulType,
+# PiXEL and the Font Viewer), and FONTVIEW.O88 goes with them: on this disk it
+# would list a folder that is no longer here. apps/os88type.inc's ty_gofonts
+# looks on the program's OWN volume when the system disk has no SYSTEM/FONTS,
+# which is what makes office360's copy the one those programs find.
 SYS360OMIT := $(BUILD)/browser.o88 $(BUILD)/telnet.o88 $(BUILD)/mines.o88 \
-              $(BUILD)/paint.o88
+              $(BUILD)/paint.o88 $(BUILD)/fontview.o88
 CORE_TOOLS360 := $(filter-out $(SYS360OMIT),$(CORE_TOOLS))
 CORE_GAMES360 := $(filter-out $(SYS360OMIT),$(CORE_GAMES))
 COREAPPS360 := $(CORE_TOOLS360) $(CORE_GAMES360)
 COREAPPSARGS360 := $(addprefix APPS:,$(CORE_TOOLS360)) \
                    $(addprefix GAMES:,$(CORE_GAMES360))
-FACES360 := $(filter-out $(SYS360OMIT),$(FACES))
-# SYSTEM/FONTS: and not FONTS:, which is what this line said when it arrived -
-# SPEC.md 19.8.1 moved the folder INTO SYSTEM/ for the root's sake, and
-# ty_gofonts walks to exactly one folder, so a face at the root is bytes
-# nothing can open. tests/unit/t_fonts.py is the gate and it caught this.
-FACESARG360 := $(addprefix SYSTEM/FONTS:,$(FACES360)) SYSTEM/FONTS:$(FACELIC)
+# NO FACES at 360KB (SPEC.md 24.3.1.5): office360.img carries SYSTEM/FONTS
+# instead. Both stay variables, empty, so every 360KB gate disk that copies the
+# shipped disk's shape ($(FACESARG360) below) keeps copying it.
+FACES360 :=
+FACESARG360 :=
 
 SYSDOC := $(BUILD)/readme.txt
 
@@ -5608,6 +5617,20 @@ $(BUILD)/stiknote.bin: $(STIKNOTESRC) | $(BUILD)
 
 $(BUILD)/stiknote.o88: $(BUILD)/stiknote.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/stiknote.bin -o $@
+
+# Desk Clock (SPEC.md 110.14): the third STICKY APP - nine faces, three sizes,
+# an alarm - in STIKAPPS/ beside the Desk Calendar and Sticky Note.
+DESKCLOKSRC := apps/deskclok/deskclok.asm apps/deskclok/dkdraw.inc \
+               apps/deskclok/dkface.inc apps/deskclok/dkwid.inc \
+               apps/deskclok/dkset.inc apps/deskclok/dkalm.inc \
+               apps/os88stik.inc apps/os88ui.inc apps/os88gfx.inc \
+               apps/os88api.inc
+$(BUILD)/deskclok.bin: $(DESKCLOKSRC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/deskclok/ -o $@ apps/deskclok/deskclok.asm
+	@echo "deskclok: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/deskclok.o88: $(BUILD)/deskclok.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/deskclok.bin -o $@
 
 # Browser (docs/plans/completed/BROWSER-PLAN.md): the text-and-table HTML viewer. Step 1 of
 # that document is the RENDERER, with no network in the machine - it opens a
@@ -11248,8 +11271,13 @@ $(BUILD)/weaveband.img: $(BUILD)/wbband.o88 tools/os88disk.py
 $(BUILD)/bench.img: $(BENCHIMGPKGS) $(BENCHDATA) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BENCHIMGPKGS) $(BENCHDATA)
 
-$(BUILD)/bench360.img: $(BENCHIMGPKGS) $(BENCHDATA) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(BENCHIMGPKGS) $(BENCHDATA)
+# bench360.img carries SYSTEM/FONTS too (SPEC.md 24.3.1.5): the 360KB system
+# disk has no faces any more, so tests/facescan.py's FACETEST, standing on B:,
+# finds them by ty_gofonts' SECOND rung - the program's own volume - which is
+# the rung office360.img is there for. bench.img does not, and facescan144
+# boots the 1.44MB system disk, so the FIRST rung has its row as well.
+$(BUILD)/bench360.img: $(BENCHIMGPKGS) $(BENCHDATA) $(FACES) $(FACELIC) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BENCHIMGPKGS) $(BENCHDATA) $(FACESARG)
 
 # --- the BROWSER's test disk (docs/plans/completed/BROWSER-PLAN.md 10 step 1) -----------------
 # The renderer with no network in the machine: the package plus tests/htm/'s
@@ -13363,9 +13391,15 @@ $(MEDIAIMG360): $(MEDIA_DISK_DATA) $(LOGOVID) $(BUILD)/midirack.o88 \
 OFFICE_PKGS := $(BUILD)/artful.o88 $(BUILD)/calc.o88 $(BUILD)/chart.o88 \
                $(BUILD)/fontview.o88 $(BUILD)/paint.o88 $(BUILD)/sheet.o88 \
                $(BUILD)/texpad.o88 $(BUILD)/word.o88 $(BUILD)/pixel.o88
-OFFICE360 := $(OFFICE_PKGS) $(PXGFX) $(OFFICE_DATA)
+#
+# SYSTEM/FONTS RIDES HERE AT 360KB (SPEC.md 24.3.1.5): the 360KB system disk
+# gave the faces up for the Desk Clock, and this is the disk whose programs set
+# type in them. ty_gofonts finds them here because it falls back to the
+# program's own volume when the system disk has no SYSTEM/FONTS.
+OFFICE360 := $(OFFICE_PKGS) $(PXGFX) $(OFFICE_DATA) $(FACES) $(FACELIC)
 OFFICEARGS360 := $(OFFICE_PKGS) $(PXGFX) \
                  $(addprefix MEDIA:,$(OFFICE_DATA)) \
+                 $(FACESARG) \
                  $(MEDIAFOLDER) $(APPDATAFOLDER)
 
 # --- network360 --------------------------------------------------------------
