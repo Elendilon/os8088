@@ -4036,8 +4036,8 @@ def main(argv):
                     "os88ladder: the IBM 5150 ROM is not in tools/martypc/"
                     "roms/, so this measures the GLaBIOS twin. The page will "
                     "say so.\n")
-        sys.stderr.write("os88ladder: booting %s on %s - this is minutes, "
-                         "not seconds\n" % (os.path.basename(image), machine))
+        sys.stderr.write("os88ladder: booting %s on %s - this takes a "
+                         "minute or so\n" % (os.path.basename(image), machine))
         t0 = time.time()
         w = walk(image, machine, defines, lad, cons, build=build)
         sys.stderr.write("os88ladder: walked %d phases in %.0f s of host time\n"
