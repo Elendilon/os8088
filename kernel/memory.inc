@@ -2966,7 +2966,12 @@ mem_reloc_call:
     ; [dsk_dseg] were its two rows, and no volume donates now. The argument is
     ; unchanged and the rows it was made about are not the only ones.
     mov word [ss:mem_fptr], cw_mem_disp
+%ifdef KERN_MEGA
+    mov word [ss:mem_fptr+2], KERNEL_SEG ; kern_mega: the far call takes the
+                                ; kernel's CODE selector; AX is its data alias
+%else
     mov [ss:mem_fptr+2], ax     ; AX is KERNEL_SEG from the ES load above
+%endif
     mov ds, ax                  ; DS = KERNEL_SEG: a kernel proc's own
     mov bp, mem_region_reloc    ; THE KERNEL'S HALF, for the reason above and
     call far [ss:mem_fptr]      ; SPEC.md 66.6.1's: a region, a driver image

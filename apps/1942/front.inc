@@ -34,15 +34,21 @@ n_frontgeom:
 
 ; The cache is 24 independent six-row bands (12 on compact mono CGA).
 ; VGA: four native planes followed by the packed fallback, 2592 bytes/band.
-; Mono: one native plane, 336 bytes/band (12 trailing pad bytes). Both strides are paragraph aligned.
-N_FRONT_END equ 24*2592            ; end of the splash cache in the canvas claim
+; Mono: one native plane, 336 bytes/band (12 trailing pad bytes). The STRIDES
+; are 2688 and 384, multiples of 128 bytes and not just of a paragraph: a band
+; is handed to OSAPI_DECOMP at ES:0, and kern_mega's protected mode names
+; memory in 8-paragraph steps (docs/plans/KERN-MEGA-PLAN.md 3), so a 162- or
+; 21-paragraph stride put most bands' segments where it cannot reach them.
+N_FRONT_VSTRIDE equ 2688/16         ; ...in paragraphs
+N_FRONT_MSTRIDE equ 384/16
+N_FRONT_END equ 24*2688            ; end of the splash cache in the canvas claim
 N_FRONT_LABEL equ 24*16           ; one rendered menu label (n_frontlabel)
 n_frontsegment:
     mov ax,[n_frontband]
-    mov bx,21
+    mov bx,N_FRONT_MSTRIDE
     cmp byte [n_frontwant],1
     jne .mono
-    mov bx,162
+    mov bx,N_FRONT_VSTRIDE
 .mono:
     mul bx
     add ax,[n_canvas]

@@ -1497,10 +1497,10 @@ mega_gpfix:
     ; STKBALANCE-OK: rewrites the fault frame in place - SP comes back from BP,
     ; moved by the bytes the emulated CALL pushed or RETF popped
     mov ax, [ss:bp+22]              ; the error code: S, TI and EXT clear
+    or ax, ax
+    jz mega_gpw                     ; #GP(0): a WRITE through a code segment
     test al, 0x1F                   ; ...512-aligned (and so TI = EXT = 0)
     jnz mega_report
-    or ax, ax
-    jz mega_report
     cmp ax, 0xA000                  ; a heap image, not the ROM or video
     jae mega_report
     mov [mega_gps], ax
@@ -1692,8 +1692,301 @@ mega_gpfix:
     add bp, dx
     jmp .resume
 
+; -----------------------------------------------------------------------------
+; mega_gpw - #GP(0) from a WRITE through a code segment, done as the code meant
+;
+; Real mode lets an image use its own segment as data, and on kern_mega that
+; segment is read-only. The kernel's own modules are converted at the source
+; (PUSH_CSDATA, CSDO); the PACKAGES - some 1,240 such writes and 146
+; `push cs / pop` pairs across 37 of them, Pixel alone 594 - run on every
+; kernel, so they are met here instead, without a change to any package:
+;   * DS or ES is a CODE selector - a package's LDT alias, or the kernel's
+;     0x0060 - because the code said `push cs / pop ds`: the register gets the
+;     image's DATA segment, which is also the value real mode would have put
+;     there, and the instruction runs again;
+;   * the instruction carries a CS: prefix: CS cannot be made writable, so the
+;     one instruction is copied to mega_tramp with DS: in place of CS:, run
+;     there with DS = the image's data segment, and control comes back after
+;     it with DS as it was - FLAGS from the instruction, IF as the caller had
+;     it. IF is off while it runs, so nothing else reaches the trampoline.
+; A fault per write, so a hot loop is slow and right: converting it at the
+; source is the fast path. Anything this cannot decode is reported as before.
+; -----------------------------------------------------------------------------
+mega_gpw:
+    ; STKBALANCE-OK: returns by iret from the fault frame, never by ret
+    mov ax, [ss:bp+26]              ; AX = the image's data segment, from CS
+    call mega_cs2ds
+    jc mega_report
+    mov dx, ax
+    mov es, [ss:bp+26]              ; ES:SI = the instruction
+    mov si, [ss:bp+24]
+    mov cx, 4                       ; prefixes, at most
+    xor bx, bx                      ; BX = where the CS: prefix is, +1
+.pfx:
+    mov al, [es:si+bx]
+    cmp al, 0x2E
+    je .csp
+    cmp al, 0x26
+    je .np
+    cmp al, 0x36
+    je .np
+    cmp al, 0x3E
+    je .np
+    cmp al, 0xF3
+    je .np
+    cmp al, 0xF2
+    je .np
+    cmp al, 0xF0
+    jne .op
+.np:
+    inc bx
+    loop .pfx
+    jmp mega_report
+.csp:
+    mov [mega_tcs], bx
+    inc word [mega_tcs]
+    inc bx
+    loop .pfx
+    jmp mega_report
+.op:
+    cmp word [mega_tcs], 0
+    jne .tramp
+    ; --- no CS: prefix - a code selector in DS or ES -----------------------
+    mov cx, 0                       ; CX = registers fixed
+    mov ax, [ss:bp+2]
+    call mega_cs2ds
+    jc .es
+    mov [ss:bp+2], ax
+    inc cx
+.es:
+    mov ax, [ss:bp+0]
+    call mega_cs2ds
+    jc .fixed
+    mov [ss:bp+0], ax
+    inc cx
+.fixed:
+    jcxz .noreg
+    jmp mega_gpfix.resume           ; the same instruction, again
+.noreg:
+    jmp mega_report
+.tramp:
+    ; --- a CS: write: BX = prefix bytes, AL = the opcode -------------------
+    mov di, bx                      ; DI = the instruction's length so far
+    inc di                          ; ...with the opcode
+    mov ah, 0                       ; AH = the immediate's bytes
+    cmp al, 0xA2
+    je .moffs
+    cmp al, 0xA3
+    je .moffs
+    mov cl, al                      ; ALU r/m,reg: 00-3F with low bits 0/1
+    cmp al, 0x40
+    jae .grp
+    and cl, 0x06
+    jnz mega_report                 ; (a reg,r/m or AL,imm form: no write)
+    jmp .modrm
+.grp:
+    cmp al, 0x80
+    je .ib
+    cmp al, 0x82
+    je .ib
+    cmp al, 0x83
+    je .ib
+    cmp al, 0x81
+    je .iw
+    cmp al, 0xC6
+    je .ib
+    cmp al, 0xC7
+    je .iw
+    cmp al, 0xC0
+    je .ib
+    cmp al, 0xC1
+    je .ib
+    cmp al, 0x86
+    jb mega_report
+    cmp al, 0x89
+    jbe .modrm                      ; xchg, mov r/m,reg
+    cmp al, 0x8C
+    je .modrm
+    cmp al, 0x8F
+    je .modrm
+    cmp al, 0xD0
+    jb mega_report
+    cmp al, 0xD3
+    jbe .modrm
+    cmp al, 0xFE
+    jae .modrm
+    cmp al, 0xF6
+    je .modrm
+    cmp al, 0xF7
+    je .modrm
+    jmp mega_report
+.iw:
+    inc ah
+.ib:
+    inc ah
+.modrm:
+    push bx
+    mov bl, [es:si+bx+1]            ; the modrm byte, after the opcode
+    inc di
+    mov bh, bl
+    and bh, 0xC0
+    cmp bh, 0xC0
+    je .bad                         ; a register: no memory written
+    cmp bh, 0x40
+    je .d1
+    cmp bh, 0x80
+    je .d2
+    and bl, 7                       ; mod 0: only rm 6 has a displacement
+    cmp bl, 6
+    jne .dn
+.d2:
+    inc di
+.d1:
+    inc di
+.dn:
+    pop bx
+    mov al, [es:si+bx]              ; F6/F7 /0 and /1 (TEST) carry an immediate
+    cmp al, 0xF6
+    je .test
+    cmp al, 0xF7
+    jne .len
+.test:
+    push bx
+    mov bl, [es:si+bx+1]
+    test bl, 0x30
+    pop bx
+    jnz .len
+    mov ah, 1
+    cmp al, 0xF6
+    je .len
+    inc ah
+    jmp short .len
+.bad:
+    pop bx
+    jmp mega_report
+.moffs:
+    add di, 2                       ; A2/A3: a 16-bit address
+.len:
+    mov al, ah
+    xor ah, ah
+    add di, ax                      ; DI = the whole length
+    cmp di, MEGA_TRN
+    ja mega_report
+    ; --- copy it, CS: made DS:, NOPs after --------------------------------
+    push ds
+    pop es                          ; ES = the kernel's data, for the copy
+    mov cx, di
+    push ds
+    mov ds, [ss:bp+26]              ; DS:SI = the instruction, through CS's
+    xor bx, bx                      ; selector (readable)
+.cp:
+    mov al, [si+bx]
+    cmp al, 0x2E
+    jne .cp1
+    cmp bx, [es:mega_tcs]           ; THE prefix (BX = its index + 1 - 1)
+    jae .cp1
+    mov al, 0x3E
+.cp1:
+    mov [es:mega_tramp+bx], al
+    inc bx
+    loop .cp
+    pop ds
+.nop:
+    cmp bx, MEGA_TRN
+    jae .copied
+    mov byte [mega_tramp+bx], 0x90
+    inc bx
+    jmp short .nop
+.copied:
+    mov word [mega_tcs], 0
+    mov ax, [ss:bp+24]              ; back to just past it
+    add ax, di
+    mov [mega_tret], ax
+    mov ax, [ss:bp+26]
+    mov [mega_tret+2], ax
+    mov ax, [ss:bp+2]               ; DS as it was, put back after
+    mov [mega_tds], ax
+    mov [ss:bp+2], dx               ; ...and the image's for the instruction
+    mov byte [mega_tif], 0x90       ; IF: back on after, if it was on
+    test byte [ss:bp+29], 0x02
+    jz .noif
+    mov byte [mega_tif], 0xFB       ; sti
+.noif:
+    and byte [ss:bp+29], 0xFD       ; ...and off while it runs
+    mov word [ss:bp+24], mega_tramp
+    mov word [ss:bp+26], KERNEL_SEG
+    jmp mega_gpfix.resume
+
+; AX = a CODE selector -> AX = the DATA segment with its base, CF = 0; CF = 1
+; for anything else (a data selector, the null one, .cold's code). The LDT is
+; nothing but the 512-aligned images' code aliases, (S >> 2) | 4.
+mega_cs2ds:
+    test al, 4
+    jnz .ldt
+    cmp ax, KERNEL_SEG
+    jne .no
+    mov ax, MEGA_SEL_KDATA
+    clc
+    ret
+.ldt:
+    and al, 0xF8
+    shl ax, 2
+    clc
+    ret
+.no:
+    stc
+    ret
+
+MEGA_TRN    equ 12                  ; the longest instruction it will copy
+mega_tramp:                         ; ...run here, at KERNEL_SEG (written
+    times MEGA_TRN nop              ; through the data alias: same bytes)
+    mov ds, [cs:mega_tds]
+mega_tif:   nop                     ; sti, when the caller's IF was on
+    jmp far [cs:mega_tret]
+mega_tds    dw 0
+mega_tret   dw 0, 0
+mega_tcs    dw 0                    ; the CS: prefix's index + 1, 0 = none
+
 mega_gps    dw 0                    ; mega_gpfix's S
 mega_gpop   db 0                    ; ...and FF's /reg
+
+; -----------------------------------------------------------------------------
+; mega_dsimg / mega_csdata - an image's own DATA segment, for PUSH_CSDATA and
+; CSDO (kernel/kernel.asm). FAR, and called from the image: the CS a far call
+; pushes IS the caller's, so it is read off the return address rather than
+; passed. In real mode that CS is the segment itself; in protected mode it is
+; the LDT code alias (S >> 2) | 4, so S = (CS & ~7) << 2. FLAGS and every
+; register but the answer preserved.
+; -----------------------------------------------------------------------------
+mega_dsimg:                         ; out: DS = the caller's image, as data
+    push bp
+    mov bp, sp
+    pushf
+    push ax
+    mov ax, [ss:bp+4]               ; the caller's CS
+    cmp word [cs:k_dsel], KERNEL_SEG
+    je .rm
+    and al, 0xF8
+    shl ax, 2
+.rm:
+    mov ds, ax
+    pop ax
+    popf
+    pop bp
+    retf
+
+mega_csdata:                        ; the word under the return address - the
+    push bp                         ; caller's `push cs` - made its data
+    mov bp, sp                      ; segment
+    pushf
+    cmp word [cs:k_dsel], KERNEL_SEG
+    je .rm
+    and byte [ss:bp+6], 0xF8
+    shl word [ss:bp+6], 2
+.rm:
+    popf
+    pop bp
+    retf
 
 ; mega_tasks_ok - CF = 0 when every task but the running one is the KERNEL'S
 ; (no instance, not a driver's service worker). A package's worker suspended

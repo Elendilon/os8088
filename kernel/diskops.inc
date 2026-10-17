@@ -2445,7 +2445,7 @@ clo_issrc:
     mov cx, 256
     cld
     repe cmpsw
-    mov ax, KERNEL_SEG
+    KDATAR_M ax
     mov ds, ax                  ; DS back before the flags are read: `mov`
     jne .no                     ; leaves them alone, and this is the one
     clc                         ; every byte the same: it IS the source disk
@@ -2942,9 +2942,9 @@ clo_unmnt:
                                 ; DESK_SVZ, which is DVOL_MAX, and FS_DRV is a
                                 ; volume; the range test here was a third)             ; BX = its row, ZF = 1 if it is an image's
     jne .not
-    mov [cs:clo_mvol], al
+    CSDO mov [CSEG clo_mvol], al
     mov ax, [bx+IMG_DVSEG]
-    mov [cs:clo_mseg], ax
+    CSDO mov [CSEG clo_mseg], ax
     push ds
     pop es                      ; ES = the kernel's DS...
     mov si, IMG_M_NAME
@@ -2970,8 +2970,8 @@ clo_unmnt:
 ; clo_mount's own exit
 ; -----------------------------------------------------------------------------
 clo_umount:
-    mov [cs:clo_mvol], al
-    mov [cs:clo_mseg], es
+    CSDO mov [CSEG clo_mvol], al
+    CSDO mov [CSEG clo_mseg], es
 .st:                            ; (clo_unmnt's: both cells already stored)
     mov ax, [es:IMG_M_ATTR]     ; the attribute and byte 12 as they were
     mov [dskw_raw+DE_ATTR], ax  ; (adjacent in both: asserted below)
@@ -3084,7 +3084,7 @@ clo_mount:
     pop si                      ; SI = the sectors, from here to the row
     jc .nomem
     mov es, dx
-    mov [cs:clo_mseg], dx
+    CSDO mov [CSEG clo_mseg], dx
     xchg ax, di                 ; AL = the attribute, AH = byte 12
     mov cx, ax                  ; CX = IMG_FLG: the attribute's read-only
     and cx, IMGF_RO             ; bit IS IMGF_RO (asserted below), so the
@@ -3124,7 +3124,7 @@ clo_mount:
     xor dx, dx                  ; found by IMG_DVSEG and never by DV_UNIT
     CLO_KCALL dsk_vol_add       ; AL = the volume, CF = no row free
     jc .full
-    mov [cs:clo_mvol], al
+    CSDO mov [CSEG clo_mvol], al
     call clo_mrowal             ; BX = its row (ZF unread: it is ours)
     mov [bx+IMG_DVSEG], es      ; ...and now dsk_xfer can serve it
     lea di, [bx+DV_LBL]         ; the desktop label: the name up to its dot,
@@ -3319,7 +3319,7 @@ clo_msname:
 
 ; clo_mtoast - one of this image's strings, SI, as a toast
 clo_mtoast:
-    push cs
+    PUSH_CSDATA
     pop es
 .es:
     xor cx, cx

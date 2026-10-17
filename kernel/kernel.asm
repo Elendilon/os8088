@@ -322,7 +322,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; build. Before mega_enter (the boot) a module's CS is its segment and nothing
 ; is converted. NOT for .text or .cold, whose CS is the kernel's own selector.
 %ifdef KERN_MEGA
- %define CSEG
+ %define CSEG ds:               ; DS named outright: a [bp+x] must not fall to SS
 %else
  %define CSEG cs:
 %endif
@@ -335,29 +335,29 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
  %endif
     push cs
  %ifdef KERN_MEGA
-  cpu 286
-    pushf                       ; (the branch skips no push or pop, so the
-    push bp                     ; stack walker sees one depth either way)
-    mov bp, sp
-    cmp byte [ss:mega_pm], 0
-    je %%rm
-    and word [ss:bp+4], 0xFFF8
-    shl word [ss:bp+4], 2
-%%rm:
-    pop bp
-    popf
-  cpu 8086
+    call KERNEL_SEG:mega_csdata ; ...made the image's DATA segment (mega.inc)
  %endif
 %endmacro
 %macro CSDO 1+
  %ifdef KERN_MEGA
     push ds
-    PUSH_CSDATA
-    pop ds
+    call KERNEL_SEG:mega_dsimg  ; DS = the image's data segment (mega.inc)
     %1
     pop ds
  %else
     %1
+ %endif
+%endmacro
+; KDATAR_M reg - KDATAR_C's twin for an on-demand MODULE (.mod*): the kernel's
+; DATA segment, KERNEL_SEG in real mode and the data alias once mega_enter has
+; run. Clobbers FLAGS on kern_mega.
+%macro KDATAR_M 1
+    mov %1, KERNEL_SEG
+ %ifdef KERN_MEGA
+    cmp byte [ss:mega_pm], 0
+    je %%rm
+    mov %1, MEGA_SEL_KDATA
+%%rm:
  %endif
 %endmacro
 %macro PUSH_KCODE 0

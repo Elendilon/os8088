@@ -12237,6 +12237,17 @@ $(BUILD)/emu.img: $(EMUDRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSROOT) $(COREAPPS) $(
 #       -debugcon file:build/megak/e9.log -global isa-debugcon.iobase=0xe9
 # where the debug console is what kern_mega's fault reporter writes to as
 # well as the screen.
+# MEGARUN (tests/megarun): the package tools/os88bochs.py's SWEEP starts from a
+# folder of packages, to find which of them fault under kern_mega on Bochs -
+# the emulator that checks a 286's segments (KERN-MEGA-PLAN 10.1 items 13, 16).
+# A test instrument: on demand, and on no shipped disk.
+$(BUILD)/megarun.bin: tests/megarun/megarun.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarun/megarun.asm
+$(BUILD)/megarun.o88: $(BUILD)/megarun.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarun.bin -o $@
+megarun: $(BUILD)/megarun.o88 $(BUILD)/mega.img
+.PHONY: megarun
+
 MEGADIR := $(BUILD)/megak
 mega: $(BUILD)/mega.img
 	@echo "mega: $< - kern_mega on 1.44MB. Pair it with the SHIPPED build/apps.img."
