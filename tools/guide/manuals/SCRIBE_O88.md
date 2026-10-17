@@ -7,7 +7,7 @@ in a document: `.BMP`, `.PCX` and `.PIX` files, in up to 16 colours or in
 black and white. Its own format is RTF, which keeps those pictures in full
 colour.
 
-![Scribe with its welcome document open.](shot:scribe-window)
+![Scribe with its welcome document open.](shot:scribe-window){full}
 
 You can set text in bold, italic, underline, word underline, double
 underline and small caps, hide text, and give each paragraph its own
@@ -18,10 +18,10 @@ Table of Contents work on the whole document or on a selection.
 
 Scribe comes on its own floppy. Put that disk in a drive, open it and
 double-click **SCRIBE.O88**. The disk also holds two copies of the welcome
-document, **SCWELCOM.RTF** and **WELCOME.DOC**, and an empty **DOCS** folder
+document, [[SCWELCOM.RTF]] and [[WELCOME.DOC]], and an empty **DOCS** folder
 for your own work. Open a document with **File > Open...**.
 
-Double-clicking a `.DOC` file opens Microsoft Word, not Scribe, even when
+Double-clicking a `.DOC` file opens Microsoft Word ([[WORD.O88]]), not Scribe, even when
 both are on the same disk. Scribe never takes over a double-click; open your
 documents from inside it.
 
@@ -105,7 +105,7 @@ Before 0 li or 1 li). Justified text shows as left aligned on screen.
 ## The ribbon
 
 **Font** lists **Pica**, the built-in screen face, and the typefaces in the
-system disk's `SYSTEM/FONTS` folder. Picking one shows the whole document in
+system disk's `SYSTEM/FONTS` folder, such as [[CHARTER.F88]] and [[TIMES.F88]]. Picking one shows the whole document in
 that face; it is not saved in the file. **Pts** always reads 10. After the
 B I K and U W D buttons come two grey superscript and subscript buttons, and
 the **¶** button, which shows and hides paragraph marks.
@@ -117,9 +117,9 @@ it into the document at the caret and tells you its width and height. Press
 `Enter` to start an empty paragraph first: a picture is drawn only when it
 begins a line.
 
-![The Insert menu. Picture and Table of Contents work.](shot:scribe-insert-menu)
+![The Insert menu. Picture and Table of Contents work.](shot:scribe-insert-menu){full}
 
-![Choosing a picture file.](shot:scribe-picture-dialog)
+![Choosing a picture file.](shot:scribe-picture-dialog){full}
 
 Scribe reads:
 
@@ -185,7 +185,7 @@ six-inch column with a tick where each page starts. **View > Ribbon**,
 
 ## The File menu
 
-![The File menu. Scribe has no printing items.](shot:scribe-file-menu)
+![The File menu. Scribe has no printing items.](shot:scribe-file-menu){full}
 
 | Item | Key | What it does |
 |---|---|---|
@@ -226,7 +226,7 @@ The clipboard is shared with Note Pad, Word and the other programs.
 | Window | **1** and the document's name |
 | Help | About... (also `F1`) |
 
-![The About box.](shot:scribe-about)
+![The About box.](shot:scribe-about){full}
 
 ## Files
 

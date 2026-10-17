@@ -10,7 +10,7 @@ Its disk comes with the CP/M master disk (the standard commands, Microsoft
 BASIC, an assembler, a text editor and more). The larger disks add arcade
 games, dungeon crawlers, WordStar and Turbo Pascal.
 
-![RunCPM after starting, with a listing of the programs on drive A.](shot:runcpm-window)
+![RunCPM after starting, with a listing of the programs on drive A.](shot:runcpm-window){full}
 
 ## Starting RunCPM
 
@@ -60,9 +60,9 @@ A program is any file ending in `.COM`. Type its name without the `.COM` to
 run it. `Ctrl-C` at the prompt restarts the command processor, and many programs
 stop when you press it.
 
-![Microsoft BASIC-85 running a short program.](shot:runcpm-mbasic)
+![Microsoft BASIC-85 running a short program.](shot:runcpm-mbasic){full}
 
-The disk carries `1STREAD.ME`, RunCPM's own notes on what is on the master
+The disk carries [[1STREAD.ME]], RunCPM's own notes on what is on the master
 disk. Type `TYPE 1STREAD.ME` to read it. A file called `LEFT-OFF.TXT` names
 the master disk's files that did not fit on this size of disk.
 
@@ -98,7 +98,7 @@ The 360KB disk carries the master disk's programs and no games. Each disk has
 a file called `GAMES.TXT` in user area 0 that lists what is on it; type
 `TYPE GAMES.TXT`.
 
-![The arcade games in user area 5 of the 1.44MB disk.](shot:runcpm-user)
+![The arcade games in user area 5 of the 1.44MB disk.](shot:runcpm-user){full}
 
 **Tell a game what terminal it is on before you play it.** Run its setup
 program once (`LADCONF`, `CATCONF`, `TINST` for Turbo Pascal, `WINSTALL` for
@@ -106,7 +106,7 @@ WordStar) and choose **10) Heathkit/Zenith H19 (ANSI)**. Do not choose the
 DEC VT-100 entry: LADDER and CATCHUM send their screen positions wrongly with
 it. Turbo Pascal needs no setup and starts with `Terminal: ANSI`.
 
-![Turbo Pascal starting in user area 8.](shot:runcpm-turbo)
+![Turbo Pascal starting in user area 8.](shot:runcpm-turbo){full}
 
 ## The terminal
 

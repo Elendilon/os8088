@@ -6,7 +6,7 @@ with simple patterns if you want them. It saves ordinary text files with DOS
 line endings, so a PC running DOS can read what you write, and it reads text
 files written on DOS or on Unix.
 
-![A short note in Note Pad.](shot:notepad-window)
+![A short note in Note Pad.](shot:notepad-window){full}
 
 ## Starting Note Pad
 
@@ -46,7 +46,8 @@ will go, and it lands where you let go. A plain click inside a selection
 just puts the caret there.
 
 **Cut**, **Copy** and **Paste** use the system clipboard, so you can copy
-text between Note Pad and other programs such as TeXPad and ArtfulType.
+text between Note Pad and other programs such as TeXPad ([[TEXPAD.O88]]) and
+ArtfulType ([[ARTFUL.O88]]).
 
 ## Undo
 
@@ -62,13 +63,13 @@ the window. Type what you are looking for and press `Enter`: Note Pad selects
 the next match and scrolls to it. The counter beside the **Rx** box shows
 which match you are on and how many there are, for example `2/10`.
 
-![The Find panel, with the second of ten matches selected.](shot:notepad-find)
+![The Find panel, with the second of ten matches selected.](shot:notepad-find){full}
 
 Press `Ctrl-R`, or choose **Find > Replace...**, to add a **Repl** box for
 the replacement text. `Tab` moves between the Find box, the Repl box and
 the note.
 
-![The Replace panel.](shot:notepad-replace)
+![The Replace panel.](shot:notepad-replace){full}
 
 The buttons on the panel:
 
@@ -146,7 +147,7 @@ to keep it.
 If you close a Note Pad whose note has changed since it was last saved or
 opened, it asks first.
 
-![Note Pad asking before it closes.](shot:notepad-close)
+![Note Pad asking before it closes.](shot:notepad-close){full}
 
 **Save** saves the note and closes the window. If the note has never been
 saved, the Save As dialog comes up first. **Discard** closes without saving,

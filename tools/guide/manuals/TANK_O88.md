@@ -97,13 +97,13 @@ leave the game.
 
 ![The end of a game: press N for a new game or F to go back.](shot:tank-over){full}
 
+![The window after the game, with the new score in the table.](shot:tank-scores){left}
+
 Then press `N` to play again or `F` to go back to the desktop.
 
 The high scores are saved on the disk Tank Attack was started from, in the
 file `TANK.HS` in the `SYSTEM\APPDATA` folder, so they are there the next
 time you play.
-
-![The window after the game, with the new score in the table.](shot:tank-scores){full}
 
 ## The Game menu
 

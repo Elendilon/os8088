@@ -8,18 +8,18 @@ an animated GIF, and edit: turn, flip, crop and resize, change brightness and
 contrast, and apply effects such as blur, sharpen and sepia. Edits can be
 undone, and the result saved as PNG, GIF, BMP, PCX or PIX.
 
-![PiXEL showing a photograph, with the Navigator, Histogram and Image Info panels on the right.](shot:pixel-window)
+![PiXEL showing a photograph, with the Navigator, Histogram and Image Info panels on the right.](shot:pixel-window){full}
 
 ## Starting PiXEL
 
 PiXEL has a disk of its own, with the program at the top and sample
-pictures in the `PICTURES` folder. It is also at the top of the Office disk
+pictures, such as [[FLOWER.JPG]] and [[CITY.PCX]], in the `PICTURES` folder. It is also at the top of the Office disk
 and in the `APPS` folder of the larger apps disks. Double-click
 **PIXEL.O88** to start it with an empty window, then open a picture.
 
 Double-clicking a `.JPG`, `.PNG`, `.PCX`, `.TIF` or `.PIX` file starts PiXEL
 with that picture. Each picture opened this way gets its own PiXEL window.
-BMP and GIF files open in Paint when double-clicked; use PiXEL's **File >
+BMP and GIF files open in Paint ([[PAINT.O88]]) when double-clicked; use PiXEL's **File >
 Open...** for those.
 
 PiXEL works on VGA, EGA, CGA and Hercules screens. It needs a machine with
@@ -87,7 +87,7 @@ whole screen and shows the picture in the best mode the display has: 256
 colours at 320x240 on a VGA, sixteen colours on an EGA, sixteen colours at
 160x100 on a CGA, and black and green at 720x348 on a Hercules.
 
-![The same photograph full screen in 256 colours.](shot:pixel-full)
+![The same photograph full screen in 256 colours.](shot:pixel-full){full}
 
 **View > Screen** names the mode full screen will use, for example
 `Screen: 320x240, 256`. Choose it to turn to the next mode the display
@@ -141,7 +141,7 @@ An animated GIF plays when you choose **File > Play Animation**, or press
 | Eyedropper | `E` | Shows the position, colour and colour number of the pixel under the pointer in the status bar. Click to pin it as the **Picked** line of Image Info |
 | Rotate | `R` | Click to turn the picture a quarter turn clockwise, right-click to turn it anticlockwise |
 
-![A selection made with the Marquee tool.](shot:pixel-select)
+![A selection made with the Marquee tool.](shot:pixel-select){full}
 
 With a selection made, the arrow keys move it one picture pixel at a time,
 `Enter` crops to it, and `Esc` removes it. **Edit > Select All** (`Ctrl-A`)
@@ -157,7 +157,7 @@ numbers, for example `Blur needs 302K; 120K free`.
 
 ### The Image menu
 
-![The Image menu.](shot:pixel-menu-image)
+![The Image menu.](shot:pixel-menu-image){full}
 
 | Item | What it does |
 |---|---|
@@ -174,7 +174,7 @@ numbers, for example `Blur needs 302K; 120K free`.
 
 ### The Effects menu
 
-![The Effects menu.](shot:pixel-menu-effects)
+![The Effects menu.](shot:pixel-menu-effects){full}
 
 | Item | What it does |
 |---|---|
@@ -196,7 +196,7 @@ first row and the down and up arrows change the second, `Enter` presses
 **OK** and `Esc` presses **Cancel**. There is no preview: the change is made
 when you press OK.
 
-![The Brightness/Contrast card.](shot:pixel-card)
+![The Brightness/Contrast card.](shot:pixel-card){full}
 
 ### Undo
 
@@ -212,7 +212,7 @@ you choose the format from the drop-down (the up and down arrows also step
 through it). **Save...** then opens the file dialog for the folder and
 name.
 
-![The Save As card with its Format list.](shot:pixel-saveas)
+![The Save As card with its Format list.](shot:pixel-saveas){full}
 
 | Format | What is written |
 |---|---|
@@ -279,7 +279,7 @@ it into Note Pad. PiXEL does not copy the picture itself; use Save As.
 | Hide Panels | | Hides the panels to give the canvas more room. It then reads Show Panels |
 | Keyboard Help | `F1` | Shows the key card |
 
-![The key card, from View > Keyboard Help.](shot:pixel-help)
+![The key card, from View > Keyboard Help.](shot:pixel-help){full}
 
 ## Files
 

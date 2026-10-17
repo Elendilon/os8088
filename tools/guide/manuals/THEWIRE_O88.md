@@ -10,7 +10,7 @@ disk, or add it to a floppy to keep. A machine with a network card and one
 The Wire needs a network card. This picture shows it on a machine without
 one, where it says so and tells you what to do.
 
-![The Wire on a machine with no network card.](shot:thewire-nocard)
+![The Wire on a machine with no network card.](shot:thewire-nocard){full}
 
 ## Starting The Wire
 
@@ -25,7 +25,9 @@ to open it:
 
 ## What it needs
 
-The Wire needs an NE1000 or NE2000 network card, the **ETHER.DRV** driver and
+![The File menu on a machine with no network card.](shot:thewire-file-menu){right}
+
+The Wire needs an NE1000 or NE2000 network card, the [[ETHER.DRV]] driver and
 a working connection to the internet. Turn the driver on in **Control Panel >
 Drivers**.
 
@@ -128,8 +130,6 @@ work, and clicking one anyway shows the reason on the bottom line:
 
 ## The File menu
 
-![The File menu on a machine with no network card.](shot:thewire-file-menu){left}
-
 | Item | What it does |
 |---|---|
 | Refresh | Fetches the list again from os8088.com |
@@ -143,7 +143,7 @@ The **The Wire** menu at the left of the bar has **About The Wire** and
 The About card also shows the date of the list it fetched, or question marks
 when there is none yet.
 
-![The About card, before any list has been fetched.](shot:thewire-about)
+![The About card, before any list has been fetched.](shot:thewire-about){full}
 
 ## When something goes wrong
 

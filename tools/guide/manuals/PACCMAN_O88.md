@@ -9,16 +9,16 @@ turn blue and you can eat them instead.
 It is a port of Andre Weissflog's pacman.c, a faithful re-creation of the
 arcade game written in C.
 
-![A game in progress. Blinky has left the ghost house; the other three are still waiting.](shot:paccman-play)
+![A game in progress. Blinky has left the ghost house; the other three are still waiting.](shot:paccman-play){full}
 
 ## Starting PaccMan
 
+![The attract screen: Shadow, Speedy, Bashful and Pokey, better known as Blinky, Pinky, Inky and Clyde.](shot:paccman-attract){right}
+
 PaccMan has a disk of its own. Open that disk and double-click
-**PACCMAN.O88**. Beside it is **README.MD**, the notes on the port. The
+**PACCMAN.O88**. Beside it is [[README.MD]], the notes on the port. The
 window opens on the attract screen, which introduces the ghosts one by one
 and the points for a dot and a power pill.
-
-![The attract screen: Shadow, Speedy, Bashful and Pokey, better known as Blinky, Pinky, Inky and Clyde.](shot:paccman-attract){left}
 
 Press any key to start a game, except `F`, which switches full screen.
 

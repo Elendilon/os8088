@@ -15,7 +15,7 @@ WireBall is in the `GAMES` folder of the software disk, and at the top
 level of the games disk. Double-click **WIREBALL.O88**. A window opens with
 the title picture, two monitors joined by a cable, and four buttons:
 
-![The WireBall window, ready to start a match.](shot:wireball-splash){right}
+![The WireBall window, ready to start a match.](shot:wireball-splash){full}
 
 | Button | Key | What it does |
 |---|---|---|
@@ -49,7 +49,7 @@ ball speeds up every two returns, up to a limit, and slows down again for
 the next serve. When someone reaches 11 the top line says **LEFT wins!** or
 **RIGHT wins!**; press `N` to play again.
 
-![How to Play, the window's own list of keys.](shot:wireball-help){left}
+![How to Play, the window's own list of keys.](shot:wireball-help){full}
 
 In Practice you are always the LEFT paddle, and the computer plays the
 right. Practice never touches the serial ports.
@@ -91,7 +91,7 @@ Press `Esc` to go back.
 Sound is on when WireBall starts. You hear short tones for a wall bounce, a
 paddle hit, a point, each serve, the link being made, and a little tune for
 the winner. They come from the PC speaker, or from the sound card if one is
-set up. `M`, or the **Sound** button, turns them off and on.
+set up with the sound driver, [[SOUND.DRV]]. `M`, or the **Sound** button, turns them off and on.
 
 ## The WireBall menu
 

@@ -6,15 +6,15 @@ appears on the right. TeXPad knows a paper-oriented part of LaTeX: titles,
 sections, lists, quotes and ruled tables. When the page looks right, it
 writes a PDF or a PostScript file you can print or read on another computer.
 
-![TeXPad with the sample paper: source on the left, page 1 on the right.](shot:texpad-window)
+![TeXPad with the sample paper: source on the left, page 1 on the right.](shot:texpad-window){full}
 
 ## Starting TeXPad
 
 TeXPad is in the `APPS` folder of the apps disk, and at the top of the
 Office disk. Double-click **TEXPAD.O88** to start with a new document, or
 double-click any `.TEX` file to open it in TeXPad, already typeset. Two
-documents to try are in the `MEDIA` folder: `PAPER.TEX`, a short sample
-paper, and `GUIDE.TEX`, a guide to the markup written in that markup.
+documents to try are in the `MEDIA` folder: [[PAPER.TEX]], a short sample
+paper, and [[GUIDE.TEX]], a guide to the markup written in that markup.
 
 You can open more than one TeXPad at a time. The window can be resized.
 
@@ -53,9 +53,9 @@ TeXPad does not typeset while you type. Press `F5`, click
 **Typeset**, or choose **View > Typeset** when you want to see your changes.
 While the preview is older than the source, the top row says **(edit)**.
 
-![The new paragraph is in the source, and the top row says (edit) until F5.](shot:texpad-edit)
+![The new paragraph is in the source, and the top row says (edit) until F5.](shot:texpad-edit){full}
 
-![After F5 the paragraph is on the page.](shot:texpad-typeset)
+![After F5 the paragraph is on the page.](shot:texpad-typeset){full}
 
 Opening a document, double-clicking one and **File > New** all typeset
 straight away.
@@ -75,7 +75,7 @@ are:
 | `Page Up`, `Left`, `[` | Previous page |
 | `Page Down`, `Right`, `]` | Next page |
 
-![Page 2 of the sample paper, with its table.](shot:texpad-page2)
+![Page 2 of the sample paper, with its table.](shot:texpad-page2){full}
 
 **View > Wider Source** and **View > Wider Preview** move the line between
 the two panes.
@@ -113,7 +113,7 @@ while there are unsaved changes.
 document's name filled in. Type the name for the new file, such as
 `PAPER.PDF`, and press **Save**.
 
-![Exporting a PDF: the file dialog asks for a name.](shot:texpad-export)
+![Exporting a PDF: the file dialog asks for a name.](shot:texpad-export){full}
 
 The PDF is version 1.4 and the PostScript is Level 1, so almost any reader
 or printer takes them. Text is set in Courier, the same fixed-width letters

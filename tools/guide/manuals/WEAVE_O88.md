@@ -7,14 +7,14 @@ formulas. All of it is packed into one file whose name ends in `.WAB`, and
 Weave is what opens that file and runs it in a window.
 
 Three apps come with it: a greeting form, a picnic budget spreadsheet and a
-game of Pong. You can change any of them, or make your own, with Loom.
+game of Pong. You can change any of them, or make your own, with Loom ([[LOOM.O88]]).
 
-![The Greeter app, after greeting Ada three times with Shout it ticked.](shot:weave-form)
+![The Greeter app, after greeting Ada three times with Shout it ticked.](shot:weave-form){full}
 
 ## Starting Weave
 
 Weave is on the Weave disk, in the `WEAVE` folder, beside the three demo
-apps `FORM.WAB`, `SHEET.WAB` and `PONG.WAB`. Double-click any `.WAB` file
+apps [[FORM.WAB]], [[SHEET.WAB]] and [[PONG.WAB]]. Double-click any `.WAB` file
 and Weave opens with that app running. A `.WAB` file opens in Weave from any
 folder, as long as `WEAVE.O88` is still on the disk.
 
@@ -28,7 +28,7 @@ needs 42KB; the largest free run is 30KB**.
 If you double-click `WEAVE.O88` itself, the window opens with no app in it
 and says how to open one.
 
-![Weave started on its own, with no app open.](shot:weave-empty)
+![Weave started on its own, with no app open.](shot:weave-empty){full}
 
 ## Using an app
 
@@ -70,7 +70,7 @@ The Picnic Budget is a small spreadsheet. It lists three items and their
 costs, and works out the total, the total rounded to a whole number, the
 average, and whether the picnic comes in under 25.
 
-![The budget after changing Bread to 4.25: the total and the average follow.](shot:weave-sheet)
+![The budget after changing Bread to 4.25: the total and the average follow.](shot:weave-sheet){right}
 
 Click a cell to select it. The line under the grid shows the cell's
 position and value, such as `R2C2 = 3`. That line shows whole numbers only;
@@ -93,11 +93,11 @@ comparisons such as `<` and `>=`, cell names like `B4`, ranges like
 `B2:B4`, and the functions `SUM`, `MIN`, `MAX`, `AVG`, `COUNT`, `IF`, `ABS`
 and `ROUND`. A division by zero shows `#DIV0`.
 
+![The Show total button's message.](shot:weave-alert){left}
+
 A formula that came with the app shows as `=?` in the formula bar, because
 the app carries the worked-out formula and not its text. Typing over it
 replaces it.
-
-![The Show total button's message.](shot:weave-alert){right}
 
 **Show total** opens a message with the total as a whole number.
 **Cider +1** adds one to the cost of the cider.
@@ -107,13 +107,13 @@ replaces it.
 Pong is the game, for one player against the computer. You are the cyan
 paddle on the left; the computer plays the magenta one on the right.
 
-![A rally in Weave Pong.](shot:weave-pong)
-
 | Key or button | What it does |
 |---|---|
 | **Serve** | Put the ball in play. Serves alternate between the two ends |
 | `A` | Move your paddle up |
 | `Z` | Move your paddle down |
+
+![A rally in Weave Pong.](shot:weave-pong){right}
 
 The ball bounces off the top and bottom. Where it hits a paddle decides how
 steeply it comes back: the middle sends it back flat, an edge sends it away
@@ -125,13 +125,13 @@ high on each hit and low on each point.
 
 ## The Bundle menu
 
-![The Bundle menu.](shot:weave-menu){right}
-
 | Item | Key | What it does |
 |---|---|---|
 | Open Bundle... | | Choose a `.WAB` file to run in this window |
 | Reload | `Ctrl-R` | Read the app's file again and start it from the beginning |
 | Bundle Info | | Show technical details of the app |
+
+![The Bundle menu.](shot:weave-menu){right}
 
 **Reload** is for when you have just changed an app in Loom and packed it
 again: click the Weave window and press `Ctrl-R` to see the new version
@@ -173,5 +173,5 @@ name share one save file. None of the three demos saves anything.
 - A game area reads the letters, the digits and the space bar. The arrow
   keys do not reach it, which is why Pong uses `A` and `Z`.
 - Weave does not run on a 128KB machine.
-- To make your own app, or change one of these, use Loom. The sources of
+- To make your own app, or change one of these, use Loom ([[LOOM.O88]]). The sources of
   all three demos are in the `LOOM` folder.

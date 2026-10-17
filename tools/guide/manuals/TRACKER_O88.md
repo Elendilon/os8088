@@ -15,11 +15,12 @@ in other programs.
 
 Tracker is in the `APPS` folder of the software disks. Double-click
 **TRACKER.O88** to open it empty, or double-click a `.MOD` file to open
-Tracker and play that module. `BEVERLY.MOD`, the Beverly Hills Cop theme, is
+Tracker and play that module. [[BEVERLY.MOD]], the Beverly Hills Cop theme, is
 in the `MEDIA` folder of the 1.44MB, 1.2MB and 720KB software disks, and on
 the media disk at 360KB.
 
-Tracker plays through a Sound Blaster. With no card it plays through the PC
+Tracker plays through a Sound Blaster, with the sound driver ([[SOUND.DRV]])
+loaded. With no card it plays through the PC
 speaker, or through a Covox if one is chosen in the Control Panel (see
 below).
 
@@ -68,11 +69,11 @@ Off.
 
 ## The playlist
 
+![The PlayList editor with two modules.](shot:tracker-playlist){right}
+
 Every module you open goes on the playlist. **File > Add to PlayList...**
 adds one without playing it. When a module ends, Tracker moves on to the
 next one, as the repeat button says.
-
-![The PlayList editor with two modules.](shot:tracker-playlist){right}
 
 **File > PlayList Editor**, the PlayList button or `E` opens the editor
 beside the player. Click a module to select it, and click it again to play

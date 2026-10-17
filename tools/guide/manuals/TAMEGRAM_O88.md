@@ -6,7 +6,7 @@ Containment Matrix, and falls toward one of its four edges. Line up eight
 squares of one colour and they are purged. TameGram was designed and written
 by Jason Page.
 
-![A game in progress: units piled against the edges, the status at the top.](shot:tamegram-window)
+![A game in progress: units piled against the edges, the status at the top.](shot:tamegram-window){full}
 
 ## Starting TameGram
 
@@ -16,6 +16,8 @@ game starts as soon as the window opens. You can open more than one TameGram
 at a time.
 
 ## How the game works
+
+![How to Play.](shot:tamegram-howto){right}
 
 Every unit is four squares in one of seven shapes, and belongs to one of two
 **factions**: AMBER (yellow) or GREEN. The **VECTOR** says which way the
@@ -94,8 +96,6 @@ until you unlock it. The status shows **LOCK** while it is on.
 
 **Help > How to Play** puts the rules and the list of keys over the matrix.
 The game waits while the card is up. Any key or click closes it.
-
-![How to Play.](shot:tamegram-howto)
 
 **TameGram > About TameGram** shows the credits on the same kind of card.
 **TameGram > Close** closes the game.

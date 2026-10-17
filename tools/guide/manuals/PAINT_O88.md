@@ -6,15 +6,15 @@ has one level of undo, a clipboard for cutting and pasting parts of the
 picture, and a full-screen view. Pictures are saved as BMP or GIF files, and
 Paint opens both.
 
-![Paint with a box, a filled oval, a freehand line and some text.](shot:paint-window)
+![Paint with a box, a filled oval, a freehand line and some text.](shot:paint-window){full}
 
 ## Starting Paint
 
 Paint is in the `APPS` folder of the apps disks and at the top of the Office
 disk. Double-click **PAINT.O88** to start it with a blank canvas.
-Double-clicking a `.BMP` or `.GIF` file also starts Paint, with that picture
-open. You can have more than one Paint open at a time; each has its own
-picture.
+Double-clicking a `.BMP` or `.GIF` file, such as [[SAMPLE.BMP]] or
+[[OS8088.GIF]], also starts Paint, with that picture open. You can have more
+than one Paint open at a time; each has its own picture.
 
 Paint works on every display. On a colour (VGA or EGA) screen you get all
 sixteen colours. On a CGA or Hercules screen the palette offers three:
@@ -66,6 +66,8 @@ square in the strip, or choose **Draw > Filled Shapes**, to switch.
 
 ### Text
 
+![The Draw menu.](shot:paint-menu-draw){right}
+
 Pick the text tool, click on the canvas and type. The letters go into the
 picture in the current colour, at the text size shown in the strip. A thin
 bar shows where the next letter will go.
@@ -82,7 +84,7 @@ through them, or choose a size from the **Draw** menu.
 
 Drag a rectangle with the selection tool. A dotted outline marks it.
 
-![A selection drawn round the blue box.](shot:paint-select)
+![A selection drawn round the blue box.](shot:paint-select){full}
 
 - **Edit > Copy** (`Ctrl-C`) copies the selected part of the picture.
 - **Edit > Cut** (`Ctrl-X`) copies it and then fills it with white.
@@ -124,7 +126,7 @@ resize**. On a CGA screen the canvas cannot be resized at all.
 to Paint. The canvas grows to fill it, with the tools down the left and the
 strip along the bottom, and every tool works as it does in the window.
 
-![Paint full screen, with the canvas grown to 590 by 390.](shot:paint-full)
+![Paint full screen, with the canvas grown to 590 by 390.](shot:paint-full){full}
 
 Press `Ctrl-F` or `F` again to go back to the window. `Esc` also goes back
 when there is no text being typed and nothing selected. Open and Save are
@@ -141,7 +143,7 @@ not available in full screen; Paint says **Leave Full Screen first**.
 | Save Gif | Saves the picture as a GIF file under its current name |
 | Save as Gif... | Asks for a name, then saves as GIF |
 
-![The Save As dialog, with the name PICTURE.GIF filled in.](shot:paint-save)
+![The Save As dialog, with the name PICTURE.GIF filled in.](shot:paint-save){right}
 
 The kind of file is set by the item you choose, and Paint changes the
 name's ending to match. **Save Gif** on `PICTURE.BMP` writes
@@ -164,8 +166,6 @@ When there is not enough memory for undo or the clipboard, the items say
 **No RAM for undo here**.
 
 ## The Draw menu
-
-![The Draw menu.](shot:paint-menu-draw)
 
 | Item | What it does |
 |---|---|
@@ -202,7 +202,8 @@ is from what is inside it, not from its name.
 - It reads GIF files, including interlaced ones. A GIF file larger than 64KB
   cannot be opened.
 - Any other kind of file gets **Only BMP and GIF**. A compressed BMP gets
-  **No compressed BMP**, and a JPEG is refused.
+  **No compressed BMP**, and a JPEG is refused. PiXEL ([[PIXEL.O88]]) opens
+  JPEG pictures and many other kinds.
 
 While a picture loads Paint says **Decoding BMP** or **Decoding GIF**, then
 **Opened**. A picture bigger than the screen or the memory allows is

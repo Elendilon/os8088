@@ -144,8 +144,6 @@ touches the water crashes.
 
 ## Settings
 
-![The Settings page.](shot:skies-settings){left}
-
 Choose **Flight > Settings** in the window. Each setting trades detail for
 speed, which matters on a slow PC:
 
@@ -160,6 +158,8 @@ speed, which matters on a slow PC:
 | Haze (`F6`) | on or off | Let the horizon fade into the distance |
 | Texture (`F7`) | on or off | A pattern on the ground, so you can judge height and speed |
 
+![The Settings page.](shot:skies-settings){left}
+
 Click **Done**, or press any key, to go back. In flight, the `F` keys step
 through the same choices, and the message strip says what the setting is
 now, for example **DETAIL LEVEL: HIGH**.
@@ -171,7 +171,7 @@ Distance Ultra, Size Full and both fills on.
 
 ## Instructions
 
-![The Instructions page.](shot:skies-instructions){right}
+![The Instructions page.](shot:skies-instructions){full}
 
 **Flight > Instructions** shows a short list of the keys in the window.
 Click, or press a key, to go back.

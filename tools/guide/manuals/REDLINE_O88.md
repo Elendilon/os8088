@@ -10,7 +10,7 @@ the video adapter and the BIOS.
 On a 286 or 386, REDLINE's second tab, **Tune**, can identify the chipset and
 make the expansion bus faster for 8-bit cards.
 
-![REDLINE's Summary after a benchmark on a 4.77 MHz XT with VGA. Every score is close to 1.00x, because this machine is the reference PC.](shot:redline-summary)
+![REDLINE's Summary after a benchmark on a 4.77 MHz XT with VGA. Every score is close to 1.00x, because this machine is the reference PC.](shot:redline-summary){full}
 
 ## Starting REDLINE
 
@@ -25,7 +25,7 @@ all 25 workloads three times and averages the three runs. While it works, a
 second window, **REDLINE Graphics Lab**, appears and the drawing tests run
 inside it. A progress bar shows how far the run has got.
 
-![A benchmark in progress: the Graphics Lab draws one of its tests while the bar shows progress.](shot:redline-running)
+![A benchmark in progress: the Graphics Lab draws one of its tests while the bar shows progress.](shot:redline-running){full}
 
 For steady numbers, close other programs first and keep the mouse still
 while the benchmark runs. Moving the pointer makes the machine do extra work
@@ -78,25 +78,25 @@ The buttons along the bottom choose a view, and so do the keys.
   workload's raw timing and how it was taken, and every one of the three
   samples. It is several pages long.
 
-![Compare: every workload's bar across the window.](shot:redline-compare)
+![Compare: every workload's bar across the window.](shot:redline-compare){full}
 
 `Tab` steps through the three views in turn. `F1` opens Detailed at its
 first page, which explains how the numbers were measured.
 
-![Detailed: the report, with the hardware inventory at the top and the raw timings below.](shot:redline-detailed)
+![Detailed: the report, with the hardware inventory at the top and the raw timings below.](shot:redline-detailed){full}
 
 ## Saving the report
 
 Press **Save...**, the `S` key, or choose **Bench > Save Report**. REDLINE
 writes the Detailed report as **REDLINE.TXT** in the folder it was opened
-from, ready to read in Note Pad or to copy to another computer.
+from, ready to read in Note Pad ([[NOTEPAD.O88]]) or to copy to another computer.
 
 ## The Tune tab
 
 The **Tune** tab (`H`, or **Bench > Tune**) is for AT-class machines: 286
 and 386 PCs with an ISA bus. **Benchmark** (`B`) goes back.
 
-![The Tune tab on an 8088. There is nothing to tune on this machine, so Tune and Apply on boot are greyed.](shot:redline-tune)
+![The Tune tab on an 8088. There is nothing to tune on this machine, so Tune and Apply on boot are greyed.](shot:redline-tune){full}
 
 An AT chipset slows every 8-bit card access down to the speed of the first
 IBM AT, and many BIOSes slow it further. Tune finds out how fast your
@@ -141,12 +141,12 @@ is why **Apply on boot** exists: it writes the setting to
 `SYSTEM\APPDATA\REDLINE.CFG` on the boot disk and adds a start-up shortcut
 for **Redline Apply** (`SYSTEM\RLAPPLY.O88`), which puts the setting back
 after every boot and refuses on any other board or BIOS. See Redline Apply's
-own manual for its messages. On an 8088 or 8086 the Tune tab touches no
+own manual, [[RLAPPLY.O88]], for its messages. On an 8088 or 8086 the Tune tab touches no
 hardware at all: an XT's bus has nothing to tune.
 
 ## The Bench menu
 
-![The Bench menu.](shot:redline-menu){right}
+![The Bench menu.](shot:redline-menu){full}
 
 | Item | Key | What it does |
 |---|---|---|

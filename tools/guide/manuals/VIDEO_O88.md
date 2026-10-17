@@ -6,10 +6,11 @@ move between the two while it plays. The window shows a still picture from
 the video, a bar to pick where to start, and a row of buttons, with an
 information card beside it when you want one.
 
-![The os8088 logo video playing in its window, on the desktop.](shot:video-window)
+![The os8088 logo video playing in its window, on the desktop.](shot:video-window){full}
 
 Videos are made on a modern computer with the os8088 video encoder, a
-separate program that turns an ordinary video file into a `.V88`.
+separate program that turns an ordinary video file into a `.V88`. Its
+page in this guide is **Video encoder**, under Tools.
 
 ## Starting Video Player
 
@@ -17,7 +18,7 @@ Double-click a `.V88` file and Video Player opens with it. You can also
 open the `APPS` folder and double-click **VIDEO.O88**, then pick a video
 with **File > Open...** or the eject button.
 
-One video comes with os8088: **OS8088.V88**, a short looping animation of
+One video comes with os8088: [[OS8088.V88]], a short looping animation of
 the os8088 logo, in the `MEDIA` folder of the 720KB, 1.2MB and 1.44MB disks
 and of the 360KB media disk.
 
@@ -92,7 +93,7 @@ Press **F** or **Alt+Enter**, or choose **File > Full screen**, to show the
 picture on the whole screen. It goes there paused; press Space to play.
 F, Alt+Enter or Esc bring it back to the window.
 
-![On the whole screen, paused. The word Paused sits in the corner of the picture.](shot:video-fullscreen-paused)
+![On the whole screen, paused. The word Paused sits in the corner of the picture.](shot:video-fullscreen-paused){full}
 
 | Key | On the whole screen |
 |---|---|
@@ -127,7 +128,7 @@ videos, and videos made of text characters.
 
 ## The File menu
 
-![The File menu.](shot:video-file-menu){right}
+![The File menu.](shot:video-file-menu){full}
 
 | Item | Key | What it does |
 |---|---|---|
@@ -165,7 +166,7 @@ The card beside the picture says, line by line:
   that waited for the disk), and the time it took against the time it
   should take, in ticks of about 1/18 second.
 
-![The information card beside the picture.](shot:video-info)
+![The information card beside the picture.](shot:video-info){full}
 
 The stalls are the answer to "is this disk fast enough for this video?". A
 play with no stalls kept up the whole way. The card comes out by itself
@@ -175,8 +176,8 @@ when a video cannot play, to say why.
 
 A video has no sound, 8-bit sound (PCM8) or 4-bit sound (ADPCM4).
 
-- **With a Sound Blaster**, and the sound driver loaded from the Control
-  Panel's Sound page, both kinds play through the card. Live videos play
+- **With a Sound Blaster**, and the sound driver ([[SOUND.DRV]]) loaded from
+  the Control Panel's Sound page, both kinds play through the card. Live videos play
   their sound only on a Sound Blaster.
 - **With no sound card**, 8-bit sound plays through the PC speaker. On an
   8088 a video whose sound is faster than 8,000 samples a second opens

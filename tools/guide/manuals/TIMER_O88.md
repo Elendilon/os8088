@@ -3,7 +3,7 @@
 Timer is a stopwatch. It counts up in hours, minutes and seconds, and you
 start, stop and reset it with three buttons under the time.
 
-![A Timer that has been running for five seconds.](shot:timer-window)
+![A Timer that has been running for five seconds.](shot:timer-window){full}
 
 ## Starting Timer
 
@@ -23,7 +23,7 @@ A new Timer starts counting at once, from `00:00:00`.
 | Stop | Stops the count and keeps the time on the display |
 | Reset | Puts the time back to `00:00:00` |
 
-![Stopped at eight seconds: Stop is greyed and Start is ready.](shot:timer-stopped)
+![Stopped at eight seconds: Stop is greyed and Start is ready.](shot:timer-stopped){right}
 
 The button that would do nothing is greyed: Start while the Timer is
 running, Stop while it is stopped. Reset always works. If you reset a
@@ -40,7 +40,7 @@ then slide off it before letting go, nothing happens.
 | About Timer | Shows who made it. Click in the window to put it away |
 | Close | Closes this Timer |
 
-![The About card over the Timer's window.](shot:timer-about)
+![The About card over the Timer's window.](shot:timer-about){full}
 
 ## Good to know
 

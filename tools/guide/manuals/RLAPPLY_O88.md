@@ -1,6 +1,7 @@
 # Redline Apply
 
-Redline Apply puts back the bus timing that REDLINE tuned for your machine.
+Redline Apply puts back the bus timing that REDLINE ([[REDLINE.O88]]) tuned
+for your machine.
 It has no window. You start it, it does its one job in a moment, says what it
 did on the menu bar, and is gone.
 
@@ -10,7 +11,7 @@ PicoMEM or an 8-bit VGA move their bytes in less time. That setting lives in
 the chipset, and the chipset forgets it at every reset or power-off: the BIOS
 puts its own timing back. Redline Apply is what puts yours back again.
 
-![Redline Apply in the SYSTEM folder of the system disk.](shot:rlapply-folder)
+![Redline Apply in the SYSTEM folder of the system disk.](shot:rlapply-folder){full}
 
 ## Starting Redline Apply
 
@@ -37,7 +38,7 @@ there is nothing to tune, and it says so.
 3. At every boot, Redline Apply reads `REDLINE.CFG`, checks the fingerprint
    against the BIOS it finds, and writes the setting into the chipset.
 
-![REDLINE's Tune tab, where the setting is made. On this 8088 there is nothing to tune, so Tune and Apply on boot are greyed.](shot:rlapply-tune)
+![REDLINE's Tune tab, where the setting is made. On this 8088 there is nothing to tune, so Tune and Apply on boot are greyed.](shot:rlapply-tune){full}
 
 The fingerprint is the safety catch. A setting tuned on one board is never
 written to a different board, or to the same board after its BIOS has
@@ -52,7 +53,7 @@ Apply's job alone.
 Redline Apply reports in one short message on the menu bar, which stays for
 about three seconds.
 
-![The message on the menu bar, here on a machine that has never been tuned.](shot:rlapply-toast)
+![The message on the menu bar, here on a machine that has never been tuned.](shot:rlapply-toast){full}
 
 | Message | What it means |
 |---|---|

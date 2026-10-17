@@ -2,7 +2,7 @@
 
 The video encoder runs on your modern computer, not on os8088. It turns an
 ordinary video file (an MP4, an MKV, anything ffmpeg can read) into a `.V88`
-file that Video Player plays on os8088. It fits every frame to the machine
+file that Video Player ([[VIDEO.O88]]) plays on os8088. It fits every frame to the machine
 the video is made for: how fast its disk reads, how much of the processor
 the picture may use, and what its screen can show.
 

@@ -4,7 +4,7 @@ Solitaire is Klondike, the patience game most people know simply as
 solitaire. Build the four suits up from ace to king on the foundations,
 using the seven columns of the table to sort the cards out.
 
-![A deal in progress, with a few moves already played.](shot:solitaire-window)
+![A deal in progress, with a few moves already played.](shot:solitaire-window){full}
 
 ## Starting Solitaire
 
@@ -47,6 +47,8 @@ card and the last card of any column.
 
 ## Dealing
 
+![Draw Three: the waste fans out three cards.](shot:solitaire-three){left}
+
 Click the stock to deal. In **Draw One** a single card goes onto the waste;
 in **Draw Three** three cards go over at once, fanned so you can see them,
 and only the top one can be played. `Space` deals as well.
@@ -54,8 +56,6 @@ and only the top one can be played. `Space` deals as well.
 When the stock is empty it shows a ring. Click it to turn the whole waste
 back over onto the stock and go through it again. You can do this as often
 as you like.
-
-![Draw Three: the waste fans out three cards.](shot:solitaire-three){left}
 
 ## Winning
 
@@ -74,12 +74,12 @@ time, until nothing more fits.
 
 ## The Deal menu
 
-![The Deal menu: Draw One is in force, so it is grey.](shot:solitaire-deal){right}
-
 | Item | What it does |
 |---|---|
 | Draw One | Each click on the stock deals one card |
 | Draw Three | Each click on the stock deals three cards |
+
+![The Deal menu: Draw One is in force, so it is grey.](shot:solitaire-deal){right}
 
 The mode in force is grey. A new Solitaire starts in Draw One, and a change
 applies from the next deal without starting a new game.

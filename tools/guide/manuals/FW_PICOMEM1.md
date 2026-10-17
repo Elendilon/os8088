@@ -45,9 +45,10 @@ fixes.
 ## Using the card with os8088
 
 Once the firmware is on, turn on what you want on the Control Panel's
-**Drivers** page: **Sound** for the Sound Blaster, **Ethernet** for the
-network card, **USB Mouse** for a mouse plugged into the card, and **EMS**
-for its expanded memory.
+**Drivers** page: **Sound** ([[SOUND.DRV]]) for the Sound Blaster, **Ethernet**
+([[ETHER.DRV]]) for the network card, **USB Mouse** ([[USBMOUSE.DRV]]) for a
+mouse plugged into the card, and **EMS** ([[EMS.DRV]]) for its expanded
+memory.
 
 ## The files
 

@@ -6,7 +6,7 @@ above the next C. Every note you play is written on a staff at the top of
 the window and remembered, so you can play your tune back. Three songs are
 built in to listen to and play along with.
 
-![Piano after a few bars typed on the keyboard, the notes written on the staff.](shot:piano-window)
+![Piano after a few bars typed on the keyboard, the notes written on the staff.](shot:piano-window){full}
 
 ## Starting Piano
 
@@ -14,7 +14,7 @@ Open the disk that holds it, then the `APPS` folder, and double-click
 **PIANO.O88**.
 
 Piano needs no sound card: the notes come out of the PC speaker, which
-every machine has. If the sound driver is loaded for a card that can play
+every machine has. If the sound driver ([[SOUND.DRV]]) is loaded for a card that can play
 tones, the notes come from the card instead.
 
 ## Playing notes
@@ -40,6 +40,8 @@ older ones scroll off to the left.
 
 ## Recording and replaying
 
+![A replay under way: the message says REPLAYING... and the sounding key is lit.](shot:piano-replay){right}
+
 Piano records every note you play, with the time between notes. The
 message to the right of the buttons says what is happening.
 
@@ -49,8 +51,6 @@ message to the right of the buttons says what is happening.
 - Click the mouse anywhere to stop a replay early. The message says
   **STOPPED**.
 - **CLEAR** throws the recording away and empties the viewer.
-
-![A replay under way: the message says REPLAYING... and the sounding key is lit.](shot:piano-replay)
 
 The recording holds 300 notes. After that the keys still play, but the
 message says **SEQ FULL** and nothing more is recorded until you press
@@ -69,19 +69,19 @@ CLEAR.
 
 ## The built-in songs
 
+![Ode to Joy loaded and written on the staff.](shot:piano-song){left}
+
 The **SONGS** row holds three buttons: **TWINKLE** (Twinkle Twinkle Little
 Star), **ODE** (Ode to Joy) and **MARY** (Mary Had a Little Lamb). Clicking
 one puts that song in place of your recording and writes its notes on the
 staff. Press **REPLAY** to hear it.
-
-![Ode to Joy loaded and written on the staff.](shot:piano-song)
 
 Loading a song replaces whatever you had recorded. Notes you play after it
 are added to the end of the song.
 
 ## The menus
 
-![The Songs menu.](shot:piano-songs-menu){right}
+![The Songs menu.](shot:piano-songs-menu){full}
 
 The menus do the same as the buttons in the window.
 

@@ -7,15 +7,15 @@ cells and update when those cells change. You can format numbers as currency
 or percentages, sort a table, chart a column, and keep four sheets in one
 workbook.
 
-![Sheet with the sample sales figures open. Column C holds formulas that multiply each month's units by 25.](shot:sheet-window)
+![Sheet with the sample sales figures open. Column C holds formulas that multiply each month's units by 25.](shot:sheet-window){full}
 
 ## Starting Sheet
 
 Sheet is on the Office disk, at the top level of the disk. On the larger
 applications disks it is in the `APPS` folder. Double-click **SHEET.O88** to
 start with an empty sheet, or double-click a spreadsheet file (`.SLK`, `.DIF`
-or `.BIF`) to open Sheet on that file. The Office disk has a sample,
-`MEDIA/SALES.SLK`.
+or `.BIF`) to open Sheet on that file. The Office disk has a sample in its
+`MEDIA` folder, [[SALES.SLK]].
 
 Sheet needs about 100KB of free memory. If the machine cannot spare that,
 Sheet does not open.
@@ -78,7 +78,7 @@ A formula starts with `=` and can use numbers, cell references, the operators
 below, parentheses and functions. `=B2*25`, `=SUM(B2:B13)` and
 `=IF(B2>100,1,0)` are all formulas.
 
-![Typing a formula: the formula bar shows it as you type.](shot:sheet-formula)
+![Typing a formula: the formula bar shows it as you type.](shot:sheet-formula){full}
 
 | Operator | Meaning |
 |---|---|
@@ -108,7 +108,7 @@ defined names. Pick one and click OK, and it goes into the cell you are
 typing in (a new formula starts if you were not typing). A function arrives
 with its opening parenthesis.
 
-![Formula > Paste Function... lists every function.](shot:sheet-functions)
+![Formula > Paste Function... lists every function.](shot:sheet-functions){full}
 
 When a formula has an opening parenthesis without its partner, Sheet keeps
 what you typed as a label and says `Unbalanced ( ) - kept as text.`
@@ -164,7 +164,7 @@ The Format menu changes how cells look. **Number...**, **Alignment...** and
 **Font...** open a small dialog with a list of choices; pick one and click
 OK. They apply to every cell in the selection.
 
-![Format > Number... offers four number formats.](shot:sheet-number)
+![Format > Number... offers four number formats.](shot:sheet-number){full}
 
 | Dialog | Choices |
 |---|---|
@@ -201,7 +201,7 @@ becomes `=A2*B2`. Fill adjusts references the same way.
 
 ## The Formula menu
 
-![The Formula menu, inside Sheet's own menu bar.](shot:sheet-menu)
+![The Formula menu, inside Sheet's own menu bar.](shot:sheet-menu){full}
 
 | Item | What it does |
 |---|---|
@@ -227,7 +227,7 @@ to the right holds numbers too, it becomes a second series for the Scatter
 and Combination types. The chart is live: change a number in that column and
 the chart changes with it. A chart shows up to 40 values.
 
-![Data > Chart Column... on the Revenue column.](shot:sheet-chart)
+![Data > Chart Column... on the Revenue column.](shot:sheet-chart){full}
 
 **Chart Gallery...** chooses the chart type: **Area**, **Bar**,
 **Column**, **Line**, **Pie**, **Scatter** or **Combination**. The chart
@@ -235,7 +235,7 @@ redraws at once. **Export Chart as BMP...** saves the chart as a picture
 (`CHART.BMP` unless you type another name) that Paint and PiXEL can open.
 
 To work on the chart further, or chart a saved file without Sheet, use the
-**Chart** program.
+**Chart** program, [[CHART.O88]].
 
 ## The Options menu
 

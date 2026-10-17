@@ -6,18 +6,18 @@ computer's screen as 80 columns by 25 rows of text in sixteen colours, draws
 the menus and pictures that boards make out of ANSI characters, and can
 receive files from a board by Zmodem.
 
-![Telnet with an address typed into the host box, ready to connect.](shot:telnet-window)
+![Telnet with an address typed into the host box, ready to connect.](shot:telnet-window){full}
 
 ## Starting Telnet
 
 Telnet is **TELNET.O88** in the `APPS` folder. Double-click it to open it.
 
-Telnet needs a network connection. Load the **Ethernet** driver for an
+Telnet needs a network connection. Load the **Ethernet** driver ([[ETHER.DRV]]) for an
 NE1000 or NE2000 network card: open the **Control Panel**, choose the
 **Drivers** page and tick **Ethernet**. The machine gets its address by
 itself from your router, or you can set one by hand on the Control Panel's
-Ethernet page with **Set Up**. The Browser's manual explains these steps in
-full. A DOS PC joined to this machine by the **Parallel link** can carry the
+Ethernet page with **Set Up**. The Browser's manual, [[BROWSER.O88]], explains these
+steps in full. A DOS PC joined to this machine by the **Parallel link** ([[NET.DRV]]) can carry the
 connection instead, if that PC is on a network.
 
 ## Connecting
@@ -34,7 +34,7 @@ choose **Session > Connect / Close**, to hang up. When the other computer
 ends the session the line says **Disconnected**, and **Connect** starts a new
 one.
 
-![With no network driver loaded, the connection fails and the bottom line says why.](shot:telnet-failed)
+![With no network driver loaded, the connection fails and the bottom line says why.](shot:telnet-failed){full}
 
 When a connection cannot be made, the bottom line gives the reason:
 
@@ -77,7 +77,7 @@ If your machine has no mouse, os8088 uses the arrow keys, `Home`, `End`,
 **Scroll Lock** to give those keys to the board instead. The About card says
 so too.
 
-![The About card, with the Scroll Lock tip.](shot:telnet-about){right}
+![The About card, with the Scroll Lock tip.](shot:telnet-about){full}
 
 ## Receiving files
 
@@ -102,8 +102,6 @@ stopped** means the board went quiet during the transfer.
 
 ## The Session menu
 
-![The Session menu.](shot:telnet-menu-session){left}
-
 | Item | Key | What it does |
 |---|---|---|
 | Connect / Close | | Connect to the host in the box, or hang up |
@@ -111,6 +109,8 @@ stopped** means the board went quiet during the transfer.
 | iCE Colours | | Show bright backgrounds instead of blinking text |
 | Full Screen | `Ctrl-]` | Switch between the window and full screen |
 | Receive File (Zmodem)... | | Start receiving a file the board is sending |
+
+![The Session menu.](shot:telnet-menu-session){left}
 
 Some boards draw with sixteen background colours and expect a terminal set
 to **iCE colours**; others use blinking text. Choose **iCE Colours** to

@@ -8,7 +8,7 @@ text, and give each paragraph its own alignment, line spacing and indents.
 Search and Replace, Sort, Renumber and Table of Contents work on the whole
 document or on a selection.
 
-![Word with its welcome document open, showing bold, italic, a centred heading, a hanging indent and a flush-right line.](shot:word-window)
+![Word with its welcome document open, showing bold, italic, a centred heading, a hanging indent and a flush-right line.](shot:word-window){full}
 
 Word shows your document in Draft view: the text is set in the system's own
 screen face, with bold, italic and the underlines drawn over it. You can also
@@ -18,7 +18,7 @@ system disk.
 ## Starting Word
 
 Word comes on its own floppy. Put that disk in a drive, open it and
-double-click **WORD.O88**, or double-click **WELCOME.DOC** beside it to open
+double-click **WORD.O88**, or double-click [[WELCOME.DOC]] beside it to open
 Word with the welcome document already loaded. Double-clicking any `.DOC`
 file opens it in Word.
 
@@ -99,7 +99,7 @@ Tick the ones you want and click **OK**, or press `Enter`. `Esc` cancels.
 Pressing an underlined letter ticks its box. The Font, Points, Color,
 Position and Character Spacing parts are shown but cannot be changed.
 
-![The Character dialog, with its seven check boxes.](shot:word-character)
+![The Character dialog, with its seven check boxes.](shot:word-character){full}
 
 ## Paragraph formats
 
@@ -133,7 +133,7 @@ the paragraph at the caret; drag a marker to move that indent.
 **Spacing** (Line 1, 1.5 or 2, and Before 0 li or 1 li). Click a box or press
 `Tab` to move to it, and type a number such as `0.5`.
 
-![The Paragraph dialog.](shot:word-paragraph)
+![The Paragraph dialog.](shot:word-paragraph){full}
 
 ## The ribbon
 
@@ -142,7 +142,8 @@ and U W D), two grey superscript and subscript buttons, and a ¶ button at the
 right.
 
 - **Font** lists **Pica**, the built-in screen face, and the typefaces in
-  the system disk's `SYSTEM/FONTS` folder. Pick one and the whole document is
+  the system disk's `SYSTEM/FONTS` folder, such as [[CHARTER.F88]] and
+  [[TIMES.F88]]. Pick one and the whole document is
   shown in it. Pick Pica to go back. The typeface is how Word shows the
   document; it is not saved in the file.
 - **Pts** always reads 10.
@@ -175,14 +176,14 @@ how many changes it made. With it, Word selects each match and asks
 **Replace this occurrence?** with Yes, No and Cancel. In the replacement,
 `^m` puts back the text that matched and `^c` puts in the clipboard.
 
-![The Replace dialog.](shot:word-replace)
+![The Replace dialog.](shot:word-replace){full}
 
 **Edit > Go To...** (`F5`) asks for a page number and moves to the top of
 that page.
 
 ## Utilities
 
-![The Utilities menu. Renumber and Sort work; the rest are grey.](shot:word-utilities)
+![The Utilities menu. Renumber and Sort work; the rest are grey.](shot:word-utilities){full}
 
 These commands, and Table of Contents, work on the selected paragraphs, or
 on the whole document when nothing is selected. Each one can be taken back
@@ -223,14 +224,14 @@ each followed by a tab and its page number.
 wraps it to a six-inch column drawn in the middle of the window, with a tick
 in the margin where each page starts. The ruler then measures the column.
 
-![Page view, with the text column's edges drawn.](shot:word-page)
+![Page view, with the text column's edges drawn.](shot:word-page){full}
 
 **View > Ribbon**, **View > Ruler** and **View > Status Bar** show and hide
 those parts of the window.
 
 ## The File menu
 
-![The File menu. The printing items are grey.](shot:word-file-menu)
+![The File menu. The printing items are grey.](shot:word-file-menu){full}
 
 | Item | Key | What it does |
 |---|---|---|

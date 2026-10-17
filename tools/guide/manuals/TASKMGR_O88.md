@@ -9,7 +9,7 @@ handed out and who holds it.
 Task Manager only watches. It cannot stop or close a program; close a program
 from its own window as usual.
 
-![Task Manager with Note Pad and Calculator running.](shot:taskmgr-window)
+![Task Manager with Note Pad and Calculator running.](shot:taskmgr-window){full}
 
 ## Starting Task Manager
 
@@ -112,7 +112,7 @@ This page and the next are redrawn about every two seconds.
 
 ## The third page: memory blocks
 
-![The memory blocks page.](shot:taskmgr-heap){left}
+![The memory blocks page.](shot:taskmgr-heap){full}
 
 This page lists every block of memory that has been handed out, grouped
 under the program that holds it, with the system's own first.

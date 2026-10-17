@@ -137,8 +137,6 @@ the window sixteen colours. On a slower PC that item is greyed and says why.
 **Mode** lists the full-screen modes this display offers; pick the one to
 use. See Display modes below.
 
-![The Detail menu.](shot:pxstein-menu-detail){right}
-
 **Detail**
 
 | Item | What it does |
@@ -177,6 +175,8 @@ second one where there is a choice:
 - **Hercules**: full screen in black and white.
 
 ## Speed and memory
+
+![The Detail menu.](shot:pxstein-menu-detail){right}
 
 On a 4.77 MHz PC, Auto starts full screen at Textured with Low res, and the
 window at Flat. On a 286 or faster it starts at the best detail.

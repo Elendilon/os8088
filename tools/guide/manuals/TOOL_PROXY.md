@@ -23,7 +23,8 @@ the window as a single Windows program that needs no Python.
   needs Tk; on Linux install the `python3-tk` package.
 - The `.exe` needs nothing at all. Copy the one file anywhere and
   double-click it.
-- The os8088 machine needs a network card and the Browser.
+- The os8088 machine needs a network card, its driver ([[ETHER.DRV]]) and the
+  Browser ([[BROWSER.O88]]).
 
 To build the `.exe` yourself, on a Windows computer with python.org's
 Python (with "Add python.exe to PATH" ticked), run
