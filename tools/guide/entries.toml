@@ -470,7 +470,7 @@ short = "First-person maze shooter"
 ["ISOTRON.O88"]
 title = "isoTron"
 kind = "program"
-summary = "A light-wall duel against the computer on a raised 3D arena that grows taller each time you win."
+summary = "A light-wall duel against the computer on a raised 3D arena that rises a level after two wins in a row."
 short = "Light-wall duel in 3D"
 
 ["WIREBALL.O88"]
@@ -707,7 +707,7 @@ title = "1942"
 kind = "program"
 summary = "Air combat after the 1942 arcade game: 32 stages, one or two players, music on an AdLib or Sound Blaster."
 short = "1942-style air combat"
-needs = "A VGA or CGA card"
+needs = "A colour VGA or CGA card"
 
 ["APPLE2.O88"]
 title = "Apple II Plus"
