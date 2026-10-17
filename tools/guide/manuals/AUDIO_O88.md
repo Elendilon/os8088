@@ -50,12 +50,13 @@ and says **End of playlist**, unless Repeat is on.
 ## Building a playlist
 
 **File > Open...** shows the Open dialog. Pick a `.WAV` file and it is added
-to the end of the playlist and becomes the current song.
+to the end of the playlist.
 
 ![Choosing a song in the Open dialog.](shot:audio-open){left}
 
-- If a song is playing, it keeps playing, and the new one waits its turn.
-- If nothing is playing, or the player is paused, the new song starts
+- If a song is playing or paused, it is left as it is, and the new one
+  waits its turn at the end of the list. Play goes on with the paused song.
+- If nothing is playing, the new song becomes the current one and starts
   straight away.
 - A file that is already on the list is not added twice; it is selected
   instead.
