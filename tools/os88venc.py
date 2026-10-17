@@ -3994,9 +3994,16 @@ def preroll(enc, target, abytes, most):
     # frame it called exact, and a pre-roll counted short (98.2.9.1)
     e.sv = np.frombuffer(e.surf, dtype=np.uint8)
     e.tv = np.frombuffer(e.tsurf, dtype=np.uint8)
+    # ...and each frame is CHARGED as the real loop charges it (98.2.9.2):
+    # without it the copy's buckets never emptied, so the frame after a cut
+    # one always had a whole period's CPU and disk and came out exact, and
+    # a flipped file's back-page cost was never owed - a pre-roll of 1 where
+    # the budgets needed more, and key 0 a half-painted screen again
+    e.future = [target] * e.look
     for n in range(max(1, most)):
         cut = e.stats["cut"]
-        e.frame(target, b"\x80" * abytes)
+        rec = e.frame(target, b"\x80" * abytes)[1]
+        e.charge(rec, abytes)
         if e.stats["cut"] == cut:
             return n
     return most
@@ -9166,9 +9173,11 @@ def _encode(a, keep, tick, readers):
                 ops, rec = e.frame(e.screen.copy(), au)
                 e.stats["exact"] -= 1
                 e.stats["holds"] = e.stats.get("holds", 0) + 1
-        elif vfr and not e.vplan and vfut and (draw is target or
-                                                k in cells_at) and not (
+        elif vfr and not (pre and k <= pre) and not e.vplan and vfut and (
+                draw is target or k in cells_at) and not (
                 (vempty or vstay) and scene_pals and k in pev_at):
+            # (nor a PRE-ROLL frame: the still is painted in plainly, as
+            # preroll() counted it, or key 0 is not whole - 98.2.9.2)
             # (a flipped file holds no frame its palette changes at: the
             # palette goes on with the flip, onto the picture shown)
             # (a stretch stops short of the next scene's palette)
@@ -9483,7 +9492,8 @@ def _encode(a, keep, tick, readers):
             au = b""
         fut = list(ahead)[:enc.look]
         vfut = list(ahead) if vfr else ()
-        if not enc.lag_cands:
+        if not enc.lag_cands or (pre and f <= pre):
+            # (the pre-roll at the allowance preroll() counted it with)
             x = step(enc, pa, f, target, au, fut, vfut)
         else:
             # THE LAG, SEARCHED (98.2.1.1.3): a frame that starts level
