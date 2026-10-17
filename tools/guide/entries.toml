@@ -944,22 +944,22 @@ summary = "What each Weave app on this disk is, and how to open it."
 short = "List of Weave apps here"
 
 ["FORM.WAB"]
-title = "Form demo"
+title = "Greeter demo"
 kind = "program"
-summary = "A Weave app: a form with fields and buttons. Double-click to run it in Weave."
-short = "Weave form demo"
+summary = "A Weave app: type a name and it greets you, with a meter that counts the greetings. Double-click to run it in Weave."
+short = "Weave demo: greets you"
 
 ["PONG.WAB"]
 title = "Pong demo"
 kind = "program"
-summary = "A Weave app: the game Pong. Double-click to run it in Weave."
+summary = "A Weave app: Pong against the computer. A and Z move your paddle. Double-click to run it in Weave."
 short = "Weave Pong demo"
 
 ["SHEET.WAB"]
-title = "Sheet demo"
+title = "Picnic Budget demo"
 kind = "program"
-summary = "A Weave app: a small spreadsheet. Double-click to run it in Weave."
-short = "Weave spreadsheet demo"
+summary = "A Weave app: a small budget spreadsheet for a picnic. Double-click to run it in Weave."
+short = "Weave demo: picnic budget"
 
 ["FORM.WML"]
 title = "Form markup"
@@ -982,13 +982,13 @@ short = "Pong demo layout"
 ["PONG.WJS"]
 title = "Pong script"
 kind = "document"
-summary = "The Pong demo's game logic. Open it in Loom."
+summary = "The Pong demo's script: the serve, the paddles, hits and scoring. Open it in Loom."
 short = "Pong demo game logic"
 
 ["PONG.WSP"]
 title = "Pong sprites"
-kind = "picture"
-summary = "The Pong demo's sprite art, as text. Open it in Loom."
+kind = "document"
+summary = "The Pong demo's sprite art, drawn as text. Open the project's PONG.WML in Loom to edit it."
 short = "Pong demo sprite art"
 
 ["SHEET.WML"]
@@ -1006,7 +1006,7 @@ short = "Sheet demo script"
 ["SHEET.WFX"]
 title = "Sheet formulas"
 kind = "document"
-summary = "The Sheet demo's cell formulas. Open it in Loom."
+summary = "The Picnic Budget demo's cell formulas. Open the project's SHEET.WML in Loom to edit it."
 short = "Sheet demo formulas"
 
 ["VMMOUSE.DRV"]
