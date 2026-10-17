@@ -194,6 +194,11 @@ def callsites(defines=("KERN_BIG",), build="build"):
             # KERNEL_SEG:cw_vid_disp_init`), and the phase is still
             # vid_disp_init's.
             name = re.sub(r"^(?:cw|ovw|spw)_", "", name)
+            # ...and the blob's OWN copy of a CTRL.DRV routine is named for
+            # the panel's: `bvs_disp_init` is VSW_DISP expanded into the blob
+            # (kernel.asm's KSW_SECT, kernel size pass 13), and the phase is
+            # still vid_disp_init's
+            name = re.sub(r"^bvs_", "vid_", name)
             out.append((base(emit[i + 1][0]), name))
         return out
 
