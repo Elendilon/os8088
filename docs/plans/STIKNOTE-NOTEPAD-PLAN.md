@@ -25,12 +25,16 @@ in the commit that lands it and this file moves to `docs/plans/completed/`.
 | 5 | `kern_small` | there is no autostart, restore or shortcut there (§110.7), so a Sticky App costs RAM only when launched by hand: it stays on the small disks and the user decides |
 | 6 | paper colour and other per-note data | a sidecar or a trailer inside the note are both acceptable; fewest disk reads wins (§3.7 picks) |
 | 7 | what is lost (live pad while typing, `On desktop` off mode, colour in the editor) | accepted |
+| A | v1's notes file | no conversion: v1 is not in wide use, and v2 replaces it |
+| B | how many notes | 30 for now (32 directory slots, the nearest to main's 24); 14 may be enough, to be settled with jggonz |
+| C | Delete's confirm | the Desk Calendar's press-again latch, with no alert dialog |
+| D | which editor | by association, as long as Sticky Note can tell which program it launched; otherwise Note Pad by name. It can (§3.4) |
 
 ## 2. What already exists (no kernel byte)
 
 | need | the slot or tool | note |
 |---|---|---|
-| open a file in Note Pad | `OSAPI_PKG_START` document arm, §21.5.3 | `ES:DI` = 13-byte name, folder cluster word, volume byte. **Both names upper case** (§21.5.3.2). Returns once the instance is registered and shown |
+| open a file in Note Pad | `OSAPI_PKG_START` document arm, §21.5.3 | `ES:DI` = 13-byte name, folder cluster word, volume byte. **Both names upper case** (§21.5.3.2). **The UI task with the gfx lock FREE** (§21.5), which a click handler is not. The association launch is CALLED, not posted (`ld_pkg_byname`'s `COLDCALL assoc_run_x`), so the instance is registered and shown when the call returns. **`kern_big` only:** `kern_small` has no associations (§54.0) and runs the name with the document silently dropped (§3.9) |
 | Note Pad opening it | `OSAPI_ARG_FILE` in Note Pad's `np_arg` / `np_onwake` | already the double-click path; Note Pad adopts the name, so Ctrl+S writes back to it |
 | list the folder | `OSAPI_FILE_FIND` (ordinal walk) | +0 name, +14 type (`< OSAPI_FT_DIR` = a file), +18 size, +22 bit 0 = compressed. **No date or time** |
 | read the top of a note | `OSAPI_FILE_READ_AT` | |
@@ -107,7 +111,21 @@ Pad is the default, and a user who re-associated `.TXT` gets their own
 editor. The locator is the note's name, the NOTES folder's cluster (banked
 by the walk) and the home volume.
 
-**The watch, decision 2:**
+**It runs in the pad window's WAKE, not in the click.** `OSAPI_PKG_START`
+wants the gfx lock free (§21.5), and `W_ONCLICK` runs with it held. The press
+records what to open and posts `OSAPI_WM_WAKE`. The window's `OSAPI_WM_ONWAKE`
+handler then runs on the UI task with the lock free, and does the steps below.
+This is Note Pad's own pattern for its launch document (`np_onwake`).
+`kern_big`'s Sticky App include leaves the wake handler to the package; only
+`kern_small`'s worker arm installs one (`stik_wake`), and that build does not
+launch (§3.9).
+
+**The watch, decisions 2 and D.** The snapshot DIFF needs no program name.
+Whatever became live between the two snapshots is what the association
+launched: Note Pad, or whatever the user associated `.TXT` with. Nothing else
+can start an instance in that window, because every launch runs on the UI
+task and the UI task is inside our wake handler for the whole call. So the
+association arm is the one taken, as decision D asked.
 
 1. Just before the launch, take `OSAPI_SYS_SNAPSHOT` and keep a bitmask of the
    live instance slots (12 bits).
@@ -131,10 +149,10 @@ watches the newest one, and the pad re-reads whatever is current when any
 watched editor closes. A missed close costs one stale pad until the next
 click, page turn or refresh. Every one of those reads the file anyway.
 
-**On `kern_small`** the tick is a worker (§110.7), and a worker may not touch
-a file (§20.6 rule 7). The snapshot is legal there, and the re-read is
-handed to the UI task through the wake path the include already uses for a
-save.
+**A program that opens no new instance** - a refusal, a full instance
+table, a single-instance program already running - leaves nothing to
+watch. The pad then re-reads at the next click or page turn, as decision 4
+already has it.
 
 ### 3.5 New, Delete, tick
 
@@ -142,9 +160,10 @@ save.
   least one byte, and line 1 is the title). The pad turns to it, then it opens
   in the editor as the arrow does.
 - **Delete** stays on the pad's menu and keys. It removes the file with
-  `OSAPI_FILE_DELETE` after a confirm. **Recommended:** the calendar's
-  press-again latch (`Delete again to confirm`), which drops os88ui's alert
-  dialog (726 bytes) from the package (§4, open decision C).
+  `OSAPI_FILE_DELETE` after the calendar's press-again latch (decision C):
+  the first press arms a one-byte latch that any other event clears and says
+  `Delete again to confirm`. os88ui's alert dialog (726 bytes) leaves the
+  package.
 - **A tick** flips the byte between the brackets in the head buffer and
   rewrites the file. The head is 512 bytes and the box is always inside it,
   but the file can be longer. So the rewrite reads the WHOLE file into a
@@ -192,8 +211,8 @@ in use. Only notes with a NON-DEFAULT paper get an entry; yellow is
 copied note loses its colour (accepted, decision 7).
 
 `STIK_PAYVER` goes 1 -> 2. A v1 file is DAMAGED to the new build and is
-replaced at the first save (`STIK_DMGREPLACE`). **That loses a v1 user's
-notes**, so it is open decision A (§4).
+replaced at the first save (`STIK_DMGREPLACE`), so its notes are not carried
+over. Decision A accepts that: v1 is not in wide use.
 
 ### 3.8 What it should cost (ESTIMATES, to be measured)
 
@@ -212,29 +231,46 @@ launch and watch, new/delete/tick and the sidecar table. Every figure is
 re-measured when built. `tools/os88pkgsize.py` reads image + bss off the
 built `.o88`.
 
-### 3.9 `kern_small` (decision 5)
+### 3.9 `kern_small` (decision 5), and what it cannot do
 
-No change of shipping: Sticky Note stays in the small disks' `STIKAPPS\`. It
-never starts by itself there (§110.7), so its RAM is the user's choice. The
-small build of Note Pad (§27.16) is the editor there. The worker arm needs
-§3.4's hand-off. On `kern_small` the 128 KB machine's free heap holds both
-programs: ~10 KB plus 13.5 KB against a ~50 KB arena. That is measured on
-`small128`'s machine in the final pass.
+Sticky Note stays in the small disks' `STIKAPPS\`. It never starts by itself
+there (§110.7), so its RAM is the user's choice.
 
-## 4. Open decisions for the owner
+**`kern_small` cannot hand a document to a program.** `assoc.inc` is gated
+out of that kernel (§54.0, KERN-SMALL-MODULE-SPLIT W0). `OSAPI_PKG_START`'s
+document arm there runs the NAME and silently drops the document
+(`ld_pkg_byname`'s `%else` arm), and `OSAPI_ARG_FILE` always answers CF = 1,
+*launched empty* (`kernel.asm`'s shared refusing body). Note Pad
+would open empty, not on the note, and an empty name opens nothing at all.
 
-- **A. v1 notes.** Sticky Note v1 merged to `main` on 2026-10-16 (#266). If no
-  user has v1 notes worth keeping, v2 replaces the file (recommended:
-  nothing to build). If some do, the package converts a v1 pool into
-  `NOTEnnnn.TXT` files once at launch: ~150 bytes, carried forever, for one
-  day of v1.
-- **B. 30 notes.** 32 directory slots is 1 KB of every system disk. 64 would
-  be 62 notes for 2 KB.
-- **C. Delete's confirm.** The press-again latch (recommended, −726 bytes)
-  or keep the dialog.
-- **D. Which editor.** By association (recommended: the user's `.TXT` program)
-  or always `NOTEPAD.O88` (§21.5.3's plain arm, which also reports
-  failures to the caller rather than to the user).
+So on `kern_small` the pad shows, pages, ticks, makes and deletes notes, but
+it cannot open one in an editor through this route. The options, for the
+owner (§4, E):
+
+1. **Grey the arrow** with its reason, `Edit (not on 128KB)` in §47's form.
+   The pad stays a viewer with ticks and New; the user edits in Note Pad by
+   opening `SYSTEM\APPDATA\NOTES\*.TXT` with Ctrl+O. No extra bytes beyond
+   the greying string. **Recommended:** small is on a RAM diet, and this asks
+   nothing of anyone else.
+2. **A hand-off file.** Sticky Note writes the note's name to a file in
+   `SYSTEM\APPDATA` that Note Pad's SMALL build reads at launch. That is a
+   protocol between two packages, a disk read at every small Note Pad launch,
+   and bytes in Note Pad.
+3. **Give `kern_small` a real `OSAPI_ARG_FILE`** and the document arm. That is
+   resident kernel bytes on the machine whose budget is a diet
+   (KERN-SMALL-CUT-PLAN), and it is refused by that rule unless the owner
+   says otherwise.
+
+The worker arm's beat needs no snapshot under option 1, since nothing is
+ever launched. The 128 KB machine's heap and the pad's page-turn time are
+measured on `small128`'s machine in the final pass.
+
+## 4. Decisions
+
+A to D are taken (§1). One is open:
+
+- **E. Editing on `kern_small`** (§3.9): grey the arrow (recommended), a
+  hand-off file, or kernel bytes.
 
 ## 5. Waves, and the rows
 
@@ -247,8 +283,8 @@ packages' sizes) and names its rows. The union runs once after the last wave.
    the file on every system image. The host tool learns payload v2.
 2. **The pad reads the folder** (view only): walk, head read, CR LF,
    textual boxes, `< >`, the current note by name. Drop the editor (§3.6).
-3. **Note Pad**: the arrow, the snapshot watch, the re-read on close,
-   `kern_small`'s hand-off.
+3. **The editor**: the arrow and `+`, the launch from the window's wake, the
+   snapshot watch, the re-read on close, and `kern_small`'s answer (E).
 4. **New, Delete, tick, papers** (the sidecar table).
 5. **Docs**: SPEC.md §110.13 rewritten, `readme.txt` (still exactly 8,088
    packed), the attribution re-measured, this file to `completed/`.
