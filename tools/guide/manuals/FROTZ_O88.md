@@ -48,7 +48,12 @@ game begins.
 Frotz checks the story's size before it reads a byte. If the story cannot
 fit in this machine's free memory, the window says **Story too large for
 this machine** and nothing is loaded. A file that is not a story at all is
-refused with **Not a Z-machine story file**.
+refused with **Not a Z-machine story file**. The reason appears under the
+empty window's own lines and stays there until you open a story.
+
+A saved game (`.SAV`) opens Frotz too, but a saved game does not say which
+story it belongs to, so Frotz says **A saved game: open its story, then
+RESTORE.** Open the story, then type `restore`.
 
 ![A file that is not a story, refused.](shot:frotz-notstory){full}
 
@@ -88,9 +93,10 @@ keeps waiting; press `Enter` to bring the dialog back.
 ![The File menu.](shot:frotz-file-menu){left}
 
 **File > Save Game...** and **File > Restore Game...** open the same two
-dialogs. Use them after you have typed `save` or `restore`, in place of
-pressing `Enter` at the prompt. Picked at any other time they do not save
-or restore the game you are playing.
+dialogs, in place of pressing `Enter` at the prompt. They can be chosen only
+while the story is waiting for one: at any other time they are greyed and
+read **Save Game (type SAVE)** and **Restore (type RESTORE)**, which is what
+to do instead.
 
 Saved games use the standard Quetzal format, so a game saved here can be
 carried on with Frotz on another computer, and the other way round.
@@ -113,24 +119,25 @@ close the window.
 | Item | What it does |
 |---|---|
 | Open Story... | Opens a story file and starts it |
-| Save Game... | Opens the Save dialog for a save the story has asked for |
-| Restore Game... | Opens the Open dialog for a restore the story has asked for |
+| Save Game... | Opens the Save dialog for a save the story has asked for; greyed otherwise |
+| Restore Game... | Opens the Open dialog for a restore the story has asked for; greyed otherwise |
 
 ## The Story menu
 
 | Item | What it does |
 |---|---|
-| Transcript | Writes the transcript the story is keeping out to `SCRIPT.TXT` now |
+| Start Transcript / Stop Transcript | Starts or stops a written copy of the game in `SCRIPT.TXT` |
 
 Many stories have a `script` command that keeps a written copy of the game,
-which on old computers went to the printer. Frotz writes that copy to a text
-file called `SCRIPT.TXT`, in the folder you last chose a file in, and brings
-it up to date with each key you press. It holds about 16,000 characters;
-when it fills, the window says **Transcript full - it stops here.**
-
-> In this version a transcript is only kept when the story started short of
-> memory (the window said **No room for undo**). On most machines `script`
-> writes nothing, and Story > Transcript does not start a transcript itself.
+which on old computers went to the printer, and `unscript` to stop it.
+**Story > Start Transcript** does the same for any story, and the item reads
+**Stop Transcript** while a transcript is running, however it was started.
+Frotz writes the copy, your commands included, to a text file called
+`SCRIPT.TXT` in the folder you last chose a file in, and brings it up to
+date each time you press `Enter`. It holds about 16,000 characters; when it
+fills, the window says **Transcript full - it stops here.** The item is
+greyed before a story is open, and reads **Transcript (NoRam)** when the
+machine had no memory left for it.
 
 ## Keys
 
