@@ -1072,9 +1072,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "7611af64",
-  "strings": "7991b5f4887aff8f",
-  "why": "rows for --poster-image and --desktop-posters cover every format and --desktop-size added; the GUI field follows the same options"
+  "stamped": "227dc24c",
+  "strings": "a737a59c5c9ef917",
+  "why": "row for --desktop-clip added beside the other desktop poster options"
  },
  "TRACKER_O88": {
   "sources": [

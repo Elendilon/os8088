@@ -620,6 +620,20 @@ def main():
             if got != want:
                 bad.append("desktop posters, %s: %r, not %r"
                            % (name, got, want))
+        # ...and --desktop-clip (the owner's Mechwarrior 2: a ground a few
+        # levels off black was a field of dots): a near-black cell is black
+        # SOLID, and with the clip at 0 the same field lights a grid
+        nb = np.full((40, 64, 3), 6 * 63 / 255.0)     # (6 levels up)
+        for c, want in ((16.0, True), (0.0, False)):
+            for kind, fn in (("colour", vid.desktop_poster_rgb),
+                             ("mono", vid.desktop_mono_rgb)):
+                lit = sum(1 for b in fn(nb, 64, 40, 1, c) if b)
+                ok = (lit == 0) == want
+                print("   --desktop-clip %g, %s, a ground 6 levels off "
+                      "black: %d bytes lit" % (c, kind, lit))
+                if not ok:
+                    bad.append("--desktop-clip %g lit %d bytes of a %s "
+                               "near-black ground" % (c, lit, kind))
         try:
             run("desk-live", "--preset", "vga4", "--live", "vga",
                 "--desktop-size", "half", "--end", "1")

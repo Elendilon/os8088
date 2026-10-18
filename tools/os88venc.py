@@ -877,7 +877,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 44
+OPTS_VERSION = 45
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -909,7 +909,8 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     37: "096abca8b264506a", 38: "eaf373ad8f1e1fdb",
                     39: "7a7d4203d99fd27d", 40: "4fffe628a862c24e",
                     41: "9c78d785df0d94a4", 42: "6f2cb773837bd222",
-                    43: "ec2917558c23907f", 44: "1baaf8c2dacb6f7b"}
+                    43: "ec2917558c23907f", 44: "1baaf8c2dacb6f7b",
+                    45: "9f36a470662f10ba"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1098,6 +1099,9 @@ MIGRATIONS = {
     # was the colour set, at the size the window shows
     43: [("revalue", "desktop_posters", {"on": "colour"}),
          ("added", "desktop_size", "fit")],
+    # 45: --desktop-clip (98.1.3.11) - a file made before it dithered every
+    # cell of its desktop posters
+    44: [("added", "desktop_clip", 0.0)],
 }
 
 
@@ -8520,11 +8524,11 @@ def desk_choice(pixfmt, cgapal, own, pw, ph, mode, size, custom):
 TH_C, TH_M = vid.TH_COLOUR, vid.TH_MONO
 
 
-def desk_picture(rgb, pw, ph, ts, kind):
+def desk_picture(rgb, pw, ph, ts, kind, clip=0.0):
     """One desktop poster from a picture in six-bit RGB at the Preview's
     own size"""
     return (vid.desktop_poster_rgb if kind == "c" else
-            vid.desktop_mono_rgb)(rgb, pw, ph, ts)
+            vid.desktop_mono_rgb)(rgb, pw, ph, ts, clip)
 
 
 def desk_posters(a, wr, g, palette, lw, lh, crop, rate, spf, eq, rep):
@@ -8534,6 +8538,7 @@ def desk_posters(a, wr, g, palette, lw, lh, crop, rate, spf, eq, rep):
     mode = getattr(a, "desktop_posters", "auto")
     size = getattr(a, "desktop_size", "fit")
     custom = getattr(a, "poster_image", None)
+    dclip = getattr(a, "desktop_clip", 0.0) or 0.0
     pf = wr.pixfmt
     pev = list(getattr(wr, "pev", None) or [])
     base = bytes((palette or vid.STD16)[:48 if pf == vid.PF_VGA4 else 768])
@@ -8558,11 +8563,12 @@ def desk_posters(a, wr, g, palette, lw, lh, crop, rate, spf, eq, rep):
         for fr, p in pev:
             if f is not None and fr <= f:
                 pal = bytes(p[:48])
-        key = (hash(cv), len(cv), pal, ts, kind)
+        key = (hash(cv), len(cv), pal, ts, kind, dclip)
         pk = _DESK_CACHE.get(key)
         if pk is None:
             rgb = vid.canvas_rgb(pf, cv, g, pal, wr.cgapal, rs)
-            pk = _DESK_CACHE[key] = desk_picture(rgb, pw, ph, ts, kind)
+            pk = _DESK_CACHE[key] = desk_picture(rgb, pw, ph, ts, kind,
+                                                 dclip)
         return pk
     cpk = None
     if custom:
@@ -8583,7 +8589,7 @@ def desk_posters(a, wr, g, palette, lw, lh, crop, rate, spf, eq, rep):
                 (pw, ph), Image.BOX if pw <= lw and ph <= lh else
                 Image.NEAREST))
         rgb = fr.astype(np.float64) * 63.0 / 255.0
-        cpk = {k: desk_picture(rgb, pw, ph, ts, k)
+        cpk = {k: desk_picture(rgb, pw, ph, ts, k, dclip)
                for k in vid.thumb_kinds(fl)}
     wr.thumbs = dict(scale=ts, flags=fl, make=make, custom=cpk)
     sets = " and ".join(n for b, n in ((TH_C, "in the desktop's sixteen"),
@@ -12019,6 +12025,14 @@ def parser():
                          "colours of their own or too big for the window; "
                          "colour, mono or both for every file; off for "
                          "none (98.1.3.11)")
+    ap.add_argument("--desktop-clip", type=float, default=16.0,
+                    help="--clip for the desktop posters: how close a "
+                         "cell must be to one of the desktop's sixteen "
+                         "(or to black or white) to be drawn as that "
+                         "colour SOLID rather than dithered - in levels "
+                         "(0-255) on every channel - so a ground that is "
+                         "nearly black is black, not a field of dots. 0 "
+                         "dithers every cell. Default 16 (98.1.3.11)")
     ap.add_argument("--desktop-size", choices=("fit", "half", "quarter"),
                     default="fit",
                     help="the Preview's size on the desktop: fit (the "

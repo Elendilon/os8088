@@ -172853,7 +172853,12 @@ it is cheaper than the decode it replaces.
   of its own or shown smaller. They are stored at the size the window
   shows (own size where it fits a 640 x 480 desktop's window, else half)
   unless `--desktop-size` says otherwise. `--poster-image FILE|@SECS`
-  adds the custom one, in the same sets.
+  adds the custom one, in the same sets. **`--desktop-clip`** is
+  `--clip`'s rule for them (default 16 levels): a cell within that of
+  its nearest colour on every channel, or of black or white for the
+  black and white set, is that colour SOLID and passes on no error. The
+  owner's Mechwarrior 2 has a ground a few levels off black, and its
+  poster lit 1,769 pixels of it before and none after.
 - **The player** reads the set the desktop shows best: colour on a VGA's
   or an EGA's, else the other; black and white on a CGA's or a
   Hercules', else colour, which `OSAPI_GFX_BLIT4` then reduces (§39.4).
@@ -174949,7 +174954,8 @@ format is seen in: colour, black and white, or both for CGA's colours.
 `colour`, `mono` and `both` store that set for any file, and `off` stores
 no key pictures. `--desktop-size half` or `quarter` makes that the
 Preview's size whatever the room (then Play goes full screen; refused
-with `--live`). A custom poster is a picture FILE scaled and cropped as
+with `--live`). `--desktop-clip N` (options version 45, default 16; 0
+before it) is `--clip` for the posters. A custom poster is a picture FILE scaled and cropped as
 the clip is, or `@SECS`, the clip's own frame that many seconds after
 `--start`, on a key or not. It is stored even with `off`, and for any
 file. The encoder's info names what it stored. A version-43 record's `on`

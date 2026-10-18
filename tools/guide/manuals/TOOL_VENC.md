@@ -184,6 +184,7 @@ use:
 | `--poster K`, `--poster-at S` | Which keyframe is the poster, by number or by time |
 | `--poster-image FILE` or `@S` | A picture of your own to show when the file opens, or the video's own frame S seconds in. A play still starts at a keyframe |
 | `--desktop-posters` | A picture of each keyframe stored for the desktop's Preview, sharper than the one Video Player makes itself. `auto` (the default) stores them for 256 colours, CGA colours and 16-colour videos in colours of their own or too big for the window; `colour`, `mono` (black and white) or `both` for any video; `off` for none, which keeps the file smaller |
+| `--desktop-clip N` | Like `--clip`, for those keyframe pictures: a colour within N levels of one the desktop has is drawn solid, so a background that is nearly black stays black instead of dotted. The default is 16; 0 dithers everything |
 | `--desktop-size` | How big the Preview is on the desktop: `fit` (the default) as big as there is room for, or `half` or `quarter` of the video's size. A smaller Preview means Play goes full screen |
 | `--preview-png DIR` | Also save the screen once a second as PNG pictures in that folder |
 | `--quiet` | Print less |

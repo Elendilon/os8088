@@ -2246,30 +2246,49 @@ def _cells(rgb, w, h, scale):
     return ow, oh, m
 
 
-def desktop_poster(cv, w, h, palette, scale, xlat=None):
+def desktop_poster(cv, w, h, palette, scale, xlat=None, clip=0.0):
     """A VGA4 canvas (a pixel a byte, values 0..15 in `palette`'s six-bit
     sixteen) as its COLOUR desktop poster at `scale`"""
     import numpy as np
     fp = np.frombuffer(bytes(palette[:48]), np.uint8).astype(
         np.float64).reshape(16, 3)
     a = np.frombuffer(bytes(cv), np.uint8)[:w * h].reshape(h, w) & 15
-    return desktop_poster_rgb(fp[a], w, h, scale)
+    return desktop_poster_rgb(fp[a], w, h, scale, clip)
 
 
-def desktop_poster_rgb(rgb, w, h, scale):
-    """A picture in six-bit RGB, an (h, w, 3) array, as a COLOUR desktop
-    poster at `scale` (98.1.3.11): packed as vga4_pack packs, each output
-    pixel its cell's mean colour, error-diffused (Floyd-Steinberg) onto
-    STD16. -> the packed bytes"""
+def _desk_lut():
+    """The nearest of the desktop's sixteen to each of the 64^3 colours"""
     import numpy as np
-    ow, oh, m = _cells(rgb, w, h, scale)
     lt = _DESK_LUT.get("q")
-    if lt is None:              # (the nearest of the sixteen, 64^3 colours)
+    if lt is None:
         std = np.frombuffer(STD16, np.uint8).astype(np.int32).reshape(16, 3)
         g6 = np.arange(64, dtype=np.int32)
         cube = np.stack(np.meshgrid(g6, g6, g6, indexing="ij"), -1)
         d = ((cube[..., None, :] - std) ** 2).sum(-1)
         lt = _DESK_LUT["q"] = d.argmin(-1).astype(np.uint8).tobytes()
+    return lt
+
+
+def desktop_poster_rgb(rgb, w, h, scale, clip=0.0):
+    """A picture in six-bit RGB, an (h, w, 3) array, as a COLOUR desktop
+    poster at `scale` (98.1.3.11): packed as vga4_pack packs, each output
+    pixel its cell's mean colour, error-diffused (Floyd-Steinberg) onto
+    STD16 - but a cell within `clip` levels (0..255, as --clip counts them)
+    on every channel of its nearest is that colour SOLID, and passes on no
+    error: a near-black ground is black, not a field of dots. -> the
+    packed bytes"""
+    import numpy as np
+    ow, oh, m = _cells(rgb, w, h, scale)
+    lt = _desk_lut()
+    std = np.frombuffer(STD16, np.uint8).astype(np.float64).reshape(16, 3)
+    mi = np.clip(np.rint(m), 0, 63).astype(np.int64)
+    nk = np.frombuffer(lt, np.uint8)[(mi[..., 0] << 12) | (mi[..., 1] << 6) |
+                                     mi[..., 2]]
+    if clip:
+        solid = (np.abs(m - std[nk]).max(-1) <= clip * 63.0 / 255.0).tolist()
+    else:
+        solid = None
+    nk = nk.tolist()
     sr, sg, sb = STD16[0::3], STD16[1::3], STD16[2::3]
     obw = (ow + 1) // 2
     out = bytearray(obw * oh)
@@ -2281,6 +2300,13 @@ def desktop_poster_rgb(rgb, w, h, scale):
             r1, g1, b1 = R[y + 1], G[y + 1], B[y + 1]
         o = y * obw
         for x in range(ow):
+            if solid is not None and solid[y][x]:
+                k = nk[y][x]
+                if x & 1:
+                    out[o + (x >> 1)] |= k
+                else:
+                    out[o + (x >> 1)] = k << 4
+                continue
             r, g_, b = r0[x], g0[x], b0[x]
             ri = 0 if r < 0 else 63 if r > 63 else int(r + 0.5)
             gi = 0 if g_ < 0 else 63 if g_ > 63 else int(g_ + 0.5)
@@ -2310,15 +2336,21 @@ def desktop_poster_rgb(rgb, w, h, scale):
     return bytes(out)
 
 
-def desktop_mono_rgb(rgb, w, h, scale):
+def desktop_mono_rgb(rgb, w, h, scale, clip=0.0):
     """The same picture as a MONO desktop poster at `scale` (98.1.3.11):
     each cell's mean luma - the player's, (77 r + 150 g + 29 b) >> 8 on the
     six bits - error-diffused onto black and white, OSAPI_GFX_BLIT1's rows
-    of (width + 7) / 8 bytes, the leftmost pixel bit 7, 1 = white"""
+    of (width + 7) / 8 bytes, the leftmost pixel bit 7, 1 = white. A cell
+    within `clip` levels of black or white is it, SOLID, as the colour
+    poster's are"""
     import numpy as np
     rgb = np.asarray(rgb, np.float64)
     lum = (77 * rgb[..., 0] + 150 * rgb[..., 1] + 29 * rgb[..., 2]) / 256.0
     ow, oh, m = _cells(lum[..., None], w, h, scale)
+    c6 = clip * 63.0 / 255.0
+    solid = (np.where(m[..., 0] <= c6, 0, np.where(m[..., 0] >= 63 - c6, 1,
+                                                   -1)).tolist()
+             if clip else None)
     L = m[..., 0].tolist()
     obw = (ow + 7) // 8
     out = bytearray(obw * oh)
@@ -2328,6 +2360,10 @@ def desktop_mono_rgb(rgb, w, h, scale):
         r1 = None if last else L[y + 1]
         o = y * obw
         for x in range(ow):
+            if solid is not None and solid[y][x] >= 0:
+                if solid[y][x]:
+                    out[o + (x >> 3)] |= 0x80 >> (x & 7)
+                continue
             v = r0[x]
             on = v >= 31.5
             e = v - (63.0 if on else 0.0)
