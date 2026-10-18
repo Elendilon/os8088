@@ -190,9 +190,12 @@ sc_walk:
     inc si
     or al, al
     loopnz .cc
-    xor di, di                  ; the END: this component is the entry itself
-.sep:
-    mov byte [si], 0
+    jnz .nf                     ; 13 characters and no end: no 8.3 name, and
+    xor di, di                  ; a .LNK's path is hostile. The END: this
+    jmp short .stat             ; component is the entry, its NUL stored -
+.sep:                           ; and a 12-character one has SI at +13, which
+    mov byte [si], 0            ; is assoc_dclus and not assoc_doc
+.stat:
     mov si, assoc_doc
     call dskw_stat_x            ; AL = attribute, BX = first cluster
     jc .nf

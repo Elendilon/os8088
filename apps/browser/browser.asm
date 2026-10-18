@@ -4161,6 +4161,8 @@ br_fold:
     cmp al, 0x7E                    ; would otherwise be emitted as a MARKER
     jbe .emit
 .latin:
+    cmp al, 0x80                    ; DEL, raw or decoded: br_l1tab is
+    jb .drop                        ; 0x80..0xFF and nothing below it
     mov bl, al
     sub bl, 0x80
     xor bh, bh
@@ -5415,12 +5417,15 @@ br_tentity:
     jb .space
     cmp al, 0x7E
     jbe .known
+    cmp al, 0x80                    ; &#127; is DEL, and br_l1tab starts
+    jb .qmark                       ; at 0x80
     mov bl, al
     sub bl, 0x80
     xor bh, bh
     mov al, [bx+br_l1tab]
     or al, al
     jnz .known
+.qmark:
     mov al, '?'
     jmp short .known
 .wide:
