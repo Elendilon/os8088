@@ -2139,26 +2139,115 @@ def vga4_pack(cv, w, h, step=1, xlat=None):
     return bytes(out), obw, ow, oh
 
 
-# DESKTOP POSTERS (98.1.3.11, 2026-10-18): a sixteen-colour file's keys,
-# each a picture the Preview blits as it stands - in the DESKTOP's sixteen,
-# at the scale its box shows it - made here from the key's own canvas: each
-# cell of `scale` x `scale` pixels averaged in the file's colours, then
-# error-diffused to the desktop's. Its slot's bytes 40..51, which only a
-# RESIDENT file's block uses:
-R_THUMB = 40                    # u32 the table's offset, u16 its entries,
-THUMB_FMT = "<IHHHBB"           # u16 width, u16 height, u8 scale, u8 flags
-TH_CUSTOM = 1                   # ...flags bit 0: one more entry after the
-                                # keys' - the CUSTOM poster, shown at open
+# DESKTOP POSTERS (98.1.3.11, 2026-10-18): the picture the Preview's box
+# shows for each key - and a CUSTOM one - made here and blitted as it
+# stands: the key's canvas in its own colours, each cell of `scale` x
+# `scale` of the Preview's pixels averaged, then error-diffused onto the
+# desktop's sixteen (a COLOUR set, packed for OSAPI_GFX_BLIT4) or onto
+# black and white (a MONO set, OSAPI_GFX_BLIT1's rows, 1 = white). The
+# slot's six bytes: a stream's at 40 (a resident file's block fields), a
+# resident file's at 56 (a stream's scene palettes)
+R_THUMB = 40                    # u32 the table's offset, u8 the scale (1, 2
+R_THUMBR = 56                   # or 4), u8 the flags
+THUMB_FMT = "<IBB"
+TH_CUSTOM = 1                   # flags: a CUSTOM picture after the keys'
+TH_KEYS = 2                     # ...a picture a key
+TH_COLOUR = 4                   # ...each picture in the desktop's sixteen
+TH_MONO = 8                     # ...and/or in black and white
+TH_SIZE = 16                    # ...the scale is the Preview's own choice:
+                                # its box is never larger
+TH_FLAGS = 31
 TH_ENT = "<IHBB"                # an entry: offset, packed bytes, packing
-                                # (PK_NONE, PK_LZ4), 0
+                                # (PK_NONE, PK_LZ4), 0. Picture-major: each
+                                # picture's colour entry, then its mono one
 _DESK_LUT = {}
+
+
+def thumb_dims(pixfmt, g, rowscale=1):
+    """The Preview's picture at the video's own size, (width, rows) in
+    pixels - the player's vp_pwb x 8 by vp_ph (98.4): a CGA4 or C160 byte
+    is two of its bytes, a C512 or TEXT cell four pixels, VGA8's rows its
+    row scale's and its width its pixels, TEXT's four rows a cell"""
+    if pixfmt == PF_VGA8:
+        return g.w, g.h * rowscale
+    if pixfmt in (PF_CGA4, PF_C160):
+        return g.wb * 4, g.h
+    if pixfmt in (PF_C512, PF_TEXT):
+        return g.wb * 2, g.h * (4 if pixfmt == PF_TEXT else 1)
+    return g.wb * 8, g.h
+
+
+def canvas_rgb(pixfmt, cv, g, palette=None, cgapal=None, rowscale=1,
+               font=None):
+    """A canvas (as Geom.canvas gives it) as the Preview sees it at its own
+    size, an (rows, width, 3) array of six-bit RGB: one bit as black and
+    white, VGA8 and VGA4 through `palette` (VGA4's sixteen, the desktop's
+    when None), CGA4 through `cgapal`'s four, C160 and C512's attributes
+    as the sixteen two pixels wide, TEXT each cell's quarters between its
+    two colours by the glyph's share of them"""
+    import numpy as np
+    pw, ph = thumb_dims(pixfmt, g, rowscale)
+    s16 = np.frombuffer(STD16, np.uint8).astype(np.float64).reshape(16, 3)
+    c = np.frombuffer(bytes(cv), np.uint8)
+    wb, h = g.wb, g.h
+    if pixfmt in (PF_MONO1, PF_CGACOMP):
+        bits = np.unpackbits(c[:wb * h].reshape(h, wb), axis=1)
+        return np.repeat(bits[:, :, None] * 63.0, 3, axis=2)
+    if pixfmt in (PF_VGA8, PF_VGA4):
+        pal = np.frombuffer(bytes(palette or STD16), np.uint8).astype(
+            np.float64).reshape(-1, 3)
+        idx = c[:g.w * h].reshape(h, g.w)
+        if pixfmt == PF_VGA4:
+            idx = idx & 15
+        out = pal[idx]
+        return np.repeat(out, rowscale, axis=0) if pixfmt == PF_VGA8 \
+            else out
+    if pixfmt == PF_CGA4:
+        cols = np.array([s16[k] for k in cga4_colours(cgapal)])
+        b = c[:wb * h].reshape(h, wb)
+        v = np.stack([(b >> (6 - 2 * i)) & 3 for i in range(4)], axis=2)
+        return cols[v.reshape(h, wb * 4)]
+    if pixfmt in (PF_C160, PF_C512):
+        if pixfmt == PF_C512:           # (its attributes, C160's bytes)
+            c = c[:wb * h].reshape(h, wb)[:, 1::2].reshape(-1)
+            wb //= 2
+        b = c[:wb * h].reshape(h, wb)
+        v = np.stack([b >> 4, b >> 4, b & 15, b & 15], axis=2)
+        return s16[v.reshape(h, wb * 4)]
+    if pixfmt == PF_TEXT:
+        import os88txtfont
+        out = np.zeros((ph, pw, 3))
+        cells, q = wb // 2, {}
+        for y in range(h):
+            for x in range(cells):
+                ch, at = cv[y * wb + 2 * x], cv[y * wb + 2 * x + 1]
+                if ch not in q:
+                    q[ch] = os88txtfont.quads(ch, font)
+                fg, bg = s16[at & 15], s16[at >> 4]
+                for qi, n in enumerate(q[ch]):
+                    yy, xx = y * 4 + (qi >> 1) * 2, x * 4 + (qi & 1) * 2
+                    out[yy:yy + 2, xx:xx + 2] = (bg * (16 - n) + fg * n) / 16
+        return out
+    raise V88Error("no Preview picture for pixel format %d" % pixfmt)
+
+
+def _cells(rgb, w, h, scale):
+    """rgb averaged over `scale` x `scale` cells: (ow, oh, means) - the
+    last row of cells padded with the last row, as vga4_pack's rows round"""
+    import numpy as np
+    ow, oh = w // scale, (h + scale - 1) // scale
+    rgb = np.asarray(rgb, np.float64)
+    pad = oh * scale - h
+    if pad:
+        rgb = np.concatenate([rgb, np.repeat(rgb[-1:], pad, axis=0)])
+    m = rgb[:oh * scale, :ow * scale].reshape(oh, scale, ow, scale,
+                                             rgb.shape[2]).mean(axis=(1, 3))
+    return ow, oh, m
 
 
 def desktop_poster(cv, w, h, palette, scale, xlat=None):
     """A VGA4 canvas (a pixel a byte, values 0..15 in `palette`'s six-bit
-    sixteen) as the Preview's desktop poster at `scale`: packed as
-    vga4_pack packs, each output pixel its cell's mean colour, error-
-    diffused (Floyd-Steinberg) onto STD16. -> the packed bytes"""
+    sixteen) as its COLOUR desktop poster at `scale`"""
     import numpy as np
     fp = np.frombuffer(bytes(palette[:48]), np.uint8).astype(
         np.float64).reshape(16, 3)
@@ -2167,16 +2256,12 @@ def desktop_poster(cv, w, h, palette, scale, xlat=None):
 
 
 def desktop_poster_rgb(rgb, w, h, scale):
-    """desktop_poster from a picture in six-bit RGB, an (h, w, 3) array: a
-    CUSTOM poster's (98.1.3.11), as well as a key's"""
+    """A picture in six-bit RGB, an (h, w, 3) array, as a COLOUR desktop
+    poster at `scale` (98.1.3.11): packed as vga4_pack packs, each output
+    pixel its cell's mean colour, error-diffused (Floyd-Steinberg) onto
+    STD16. -> the packed bytes"""
     import numpy as np
-    ow, oh = w // scale, (h + scale - 1) // scale
-    rgb = np.asarray(rgb, np.float64)
-    pad = oh * scale - h
-    if pad:
-        rgb = np.concatenate([rgb, np.repeat(rgb[-1:], pad, axis=0)])
-    m = rgb[:oh * scale, :ow * scale].reshape(oh, scale, ow, scale, 3).mean(
-        axis=(1, 3))
+    ow, oh, m = _cells(rgb, w, h, scale)
     lt = _DESK_LUT.get("q")
     if lt is None:              # (the nearest of the sixteen, 64^3 colours)
         std = np.frombuffer(STD16, np.uint8).astype(np.int32).reshape(16, 3)
@@ -2224,11 +2309,93 @@ def desktop_poster_rgb(rgb, w, h, scale):
     return bytes(out)
 
 
+def desktop_mono_rgb(rgb, w, h, scale):
+    """The same picture as a MONO desktop poster at `scale` (98.1.3.11):
+    each cell's mean luma - the player's, (77 r + 150 g + 29 b) >> 8 on the
+    six bits - error-diffused onto black and white, OSAPI_GFX_BLIT1's rows
+    of (width + 7) / 8 bytes, the leftmost pixel bit 7, 1 = white"""
+    import numpy as np
+    rgb = np.asarray(rgb, np.float64)
+    lum = (77 * rgb[..., 0] + 150 * rgb[..., 1] + 29 * rgb[..., 2]) / 256.0
+    ow, oh, m = _cells(lum[..., None], w, h, scale)
+    L = m[..., 0].tolist()
+    obw = (ow + 7) // 8
+    out = bytearray(obw * oh)
+    for y in range(oh):
+        r0 = L[y]
+        last = y + 1 == oh
+        r1 = None if last else L[y + 1]
+        o = y * obw
+        for x in range(ow):
+            v = r0[x]
+            on = v >= 31.5
+            e = v - (63.0 if on else 0.0)
+            if x + 1 < ow:
+                r0[x + 1] += e * 0.4375
+            if r1 is not None:
+                if x:
+                    r1[x - 1] += e * 0.1875
+                r1[x] += e * 0.3125
+                if x + 1 < ow:
+                    r1[x + 1] += e * 0.0625
+            if on:
+                out[o + (x >> 3)] |= 0x80 >> (x & 7)
+    return bytes(out)
+
+
+def thumb_size(kind, ow, oh):
+    """A desktop poster's bytes: COLOUR ("c") packed two pixels a byte,
+    MONO ("m") eight"""
+    return ((ow + 1) // 2 if kind == "c" else (ow + 7) // 8) * oh
+
+
+def thumb_kinds(flags):
+    """The sets a table carries, in their entry order"""
+    return [k for k, b in (("c", TH_COLOUR), ("m", TH_MONO)) if flags & b]
+
+
+def thumb_block(th, keys, at, pw, ph):
+    """A Writer's DESKTOP POSTERS as stored (98.1.3.11): `th` is
+    Writer.thumbs - dict(scale, flags, make(canvas, kind) -> bytes,
+    custom {kind: bytes}) - and the table goes at `at`. -> (bytes, the
+    slot's six-byte tuple), or (b"", the tuple) for a size and nothing
+    else"""
+    import os88lz
+    ts, fl = th["scale"], th["flags"]
+    if ts not in (1, 2, 4) or fl & ~TH_FLAGS:
+        raise V88Error("desktop posters at a scale of %r, flags %r"
+                       % (ts, fl))
+    kinds = thumb_kinds(fl)
+    if bool(kinds) != bool(fl & (TH_KEYS | TH_CUSTOM)):
+        raise V88Error("desktop posters with sets %r and flags %d"
+                       % (kinds, fl))
+    pics = []
+    if fl & TH_KEYS:
+        for k, r, c in keys:
+            pics += [th["make"](c, kd) for kd in kinds]
+    if fl & TH_CUSTOM:
+        pics += [th["custom"][kd] for kd in kinds]
+    ow, oh = pw // ts, (ph + ts - 1) // ts
+    for i, p_ in enumerate(pics):
+        if len(p_) != thumb_size(kinds[i % len(kinds)], ow, oh):
+            raise V88Error("a desktop poster is not %d x %d" % (ow, oh))
+    if not pics:
+        return b"", (0, ts, fl)
+    ents, data = [], b""
+    o0 = at + struct.calcsize(TH_ENT) * len(pics)
+    for p_ in pics:
+        z = os88lz.compress(p_, os88lz.LZ4)
+        pk, body = (PK_LZ4, z) if len(z) < len(p_) else (PK_NONE, p_)
+        ents.append(struct.pack(TH_ENT, o0 + len(data), len(body), pk, 0))
+        data += body
+    return b"".join(ents) + data, (at, ts, fl)
+
+
 def packed_half(pk, ow, oh):
-    """A packed desktop poster (vga4_pack's rows) halved as vga4_pack
-    halves a canvas - one pixel of each 2 x 2 cell, turning with the
-    output's position: the player's vp_dphalf, for a box the layout shows at
-    half a stored poster's scale -> (bytes, its width, its height)"""
+    """A packed COLOUR desktop poster (vga4_pack's rows) halved as
+    vga4_pack halves a canvas - one pixel of each 2 x 2 cell, turning with
+    the output's position: the player's vp_dphalf, for a box the layout
+    shows at half a stored poster's scale -> (bytes, its width, rows)"""
     obw = (ow + 1) // 2
     nw, nh = ow // 2, (oh + 1) // 2
     nbw = (nw + 1) // 2
@@ -3059,29 +3226,9 @@ class Writer:
         # their bytes - read only by a Preview that knows them
         thb, thdr = b"", None
         tat = oat + -(-len(opts) // SECTOR) * SECTOR
-        if self.thumbs is not None and keys and self.pixfmt == PF_VGA4 and \
-                self.live is None:
-            import os88lz
-            ts, make, custom = self.thumbs
-            pics = [make(c) for k, r, c in keys]
-            if custom is not None:
-                pics.append(custom)
-            tw, th_ = g.w // ts, (g.h + ts - 1) // ts
-            if any(len(p_) != ((tw + 1) // 2) * th_ for p_ in pics):
-                raise V88Error("a desktop poster is not %d x %d packed"
-                               % (tw, th_))
-            ents, data = [], b""
-            o0 = tat + struct.calcsize(TH_ENT) * len(pics)
-            for p_ in pics:
-                z = os88lz.compress(p_, os88lz.LZ4)
-                pk, body = (PK_LZ4, z) if len(z) < len(p_) else \
-                    (PK_NONE, p_)
-                ents.append(struct.pack(TH_ENT, o0 + len(data), len(body),
-                                        pk, 0))
-                data += body
-            thb = b"".join(ents) + data
-            thdr = (tat, len(pics), tw, th_, ts,
-                    TH_CUSTOM if custom is not None else 0)
+        if self.thumbs is not None:         # (98.1.3.11)
+            thb, thdr = thumb_block(self.thumbs, keys, tat, *thumb_dims(
+                self.pixfmt, g, self.rowscale))
             self.thumb_bytes = len(thb)
         s0 = tat + -(-len(thb) // SECTOR) * SECTOR
         spoff, o = [], s0
@@ -3470,6 +3617,17 @@ def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
         apk, apack = packed(audio)
         aoff = base + len(body)
         body += pad(apk)
+    thdrs = []                          # DESKTOP POSTERS (98.1.3.11), each
+    for ri, w in enumerate(writers):    # rendition's after the sound
+        th = getattr(w, "thumbs", None)
+        if th is None:
+            thdrs.append(None)
+            continue
+        thb, thdr = thumb_block(th, w.keys, base + len(body), *thumb_dims(
+            w.pixfmt, w.g, w.rowscale))
+        w.thumb_bytes = len(thb)
+        body += pad(thb)
+        thdrs.append(thdr)
     hdr[0:4] = V88_SIG
     flags = F_RESIDENT | (F_LOOPREC if loop is not None else 0) | \
         (F_REPEAT if repeat else 0) | \
@@ -3504,6 +3662,8 @@ def write_resident(path, writers, audio_fmt=AUD_NONE, abytes=0, audio=b"",
             hdr[so + R_CGAPAL] = w.cgapal
         if live is not None or targets is not None:
             hdr[so + R_TARGET] = (live or targets)[ri]
+        if thdrs[ri] is not None:
+            struct.pack_into(THUMB_FMT, hdr, so + R_THUMBR, *thdrs[ri])
     if loop is not None:
         struct.pack_into("<I", hdr, LOOP_AT, loop)
     if opts:                    # the OPTIONS block (98.1.1.4), last: every
@@ -3842,7 +4002,9 @@ class Reader:
                 raise V88Error("the palette table's frame 0 is not the "
                                "header's palette")
             self.pev = pv
-        elif pev_at or pev_n:
+        elif (pev_at or pev_n) and not self.resident:
+            # (a resident file's bytes 56..61 are its DESKTOP POSTERS',
+            # 98.1.3.11: a scene's palette is a stream's alone)
             raise V88Error("a palette table with no PALEV flag")
         self.aspect = (an, ad)
         if self.resident:
@@ -3913,22 +4075,30 @@ class Reader:
         # THE BENCH (98.1.9.13): the rendition's word and the header's
         self.bench = (struct.unpack_from("<H", d, self.slot + R_BENCH)[0],
                       struct.unpack_from("<H", d, H_BENCHL)[0])
-        # DESKTOP POSTERS (98.1.3.11): a stream's slot bytes 40..51
-        self.thumb = None
-        if not self.resident:
-            tat, tn, tw, th_, ts, tf = struct.unpack_from(
-                THUMB_FMT, d, self.slot + R_THUMB)
-            if tat or tn or tw or th_ or ts or tf:
-                if self.pixfmt != PF_VGA4 or self.live or \
-                        ts not in (1, 2, 4) or tf & ~TH_CUSTOM or \
-                        tn != self.nkeys + (1 if tf & TH_CUSTOM else 0) or \
-                        tw != self.g.w // ts or \
-                        th_ != (self.g.h + ts - 1) // ts or \
+        # DESKTOP POSTERS (98.1.3.11): the slot's six bytes - a stream's at
+        # 40, a resident file's at 56. A stream whose 46..51 are not zero
+        # has the first layout's twelve (the morning of 2026-10-18), which
+        # no player reads now: ignored, as a player ignores it
+        self.thumb, self.thumb_legacy = None, False
+        tso = self.slot + (R_THUMBR if self.resident else R_THUMB)
+        if not self.resident and any(d[self.slot + 46:self.slot + 52]):
+            self.thumb_legacy = True
+        else:
+            tat, ts, tf = struct.unpack_from(THUMB_FMT, d, tso)
+            if tat or ts or tf:
+                kinds = thumb_kinds(tf)
+                npic = (self.nkeys if tf & TH_KEYS else 0) + \
+                    (1 if tf & TH_CUSTOM else 0)
+                tn = npic * len(kinds)
+                tw, th_ = thumb_dims(self.pixfmt, self.g, self.rowscale)
+                tw, th_ = tw // max(ts, 1), (th_ + max(ts, 1) - 1) // \
+                    max(ts, 1)
+                if ts not in (1, 2, 4) or tf & ~TH_FLAGS or \
+                        bool(kinds) != bool(npic) or \
+                        (tn and not tat) or (tat and not tn) or \
                         tat + struct.calcsize(TH_ENT) * tn > len(d):
-                    raise V88Error("desktop posters at %d: %d of %d x %d at "
-                                   "a scale of %d, flags %d - not a sixteen-"
-                                   "colour stream's, a poster a key "
-                                   "(98.1.3.11)" % (tat, tn, tw, th_, ts, tf))
+                    raise V88Error("desktop posters at %d: a scale of %d, "
+                                   "flags %d (98.1.3.11)" % (tat, ts, tf))
                 self.thumb = (tat, tn, tw, th_, ts, tf)
         dz = dz[:H_BENCHL] + bytes(2) + dz[H_BENCHL + 2:]
         self.lyord = d[H_LYORD]
@@ -4191,20 +4361,35 @@ class Reader:
             raise V88Error("an empty record with a band %d..%d" % (y0, y1))
         return rec[end:]
 
+    def thumb_at(self, pic, kind):
+        """The entry of DESKTOP POSTER `pic` (key pic's, or past the keys
+        the custom one) in set `kind` ("c" or "m"), or None for none"""
+        if self.thumb is None:
+            return None
+        tat, tn, tw, th_, ts, tf = self.thumb
+        kinds = thumb_kinds(tf)
+        if kind not in kinds:
+            return None
+        if not tf & TH_KEYS:
+            pic -= self.nkeys
+        i = pic * len(kinds) + kinds.index(kind)
+        return i if 0 <= i < tn else None
+
     def thumb_pic(self, i):
-        """DESKTOP POSTER `i` (98.1.3.11) - key i's, or past the keys the
-        custom one - unpacked: vga4_pack's rows of the desktop's sixteen at
-        the thumbs' scale"""
+        """DESKTOP POSTER entry `i` (98.1.3.11), unpacked: vga4_pack's rows
+        of the desktop's sixteen, or OSAPI_GFX_BLIT1's of black and white,
+        at the table's scale"""
         if self.thumb is None:
             raise V88Error("no desktop posters")
         tat, tn, tw, th_, ts, tf = self.thumb
         if not 0 <= i < tn:
             raise V88Error("desktop poster %d of %d" % (i, tn))
+        kinds = thumb_kinds(tf)
         off, n, pk, z = struct.unpack_from(
             TH_ENT, self.d, tat + struct.calcsize(TH_ENT) * i)
-        want = ((tw + 1) // 2) * th_
+        want = thumb_size(kinds[i % len(kinds)], tw, th_)
         if z or pk not in (PK_NONE, PK_LZ4) or off + n > len(self.d) or \
-                off < tat + struct.calcsize(TH_ENT) * tn or \
+                not n or off < tat + struct.calcsize(TH_ENT) * tn or \
                 (pk == PK_NONE and n != want):
             raise V88Error("desktop poster %d: %d bytes at %d, packing %d"
                            % (i, n, off, pk))
@@ -4635,10 +4820,14 @@ def set_poster(path, frame):
         if r.thumb is not None and r.thumb[5] & TH_CUSTOM:
             # (a CUSTOM poster, 98.1.3.11, is what the box shows at open:
             # a key set as the poster is what it shows instead, so the
-            # entry is let go - its bytes stay, named by nothing)
+            # entries are let go - their bytes stay, named by nothing; and
+            # a table that held nothing else names nothing at all)
             tat, tn, tw, th_, ts, tf = r.thumb
-            struct.pack_into(THUMB_FMT, d, r.slot + R_THUMB, tat, tn - 1,
-                             tw, th_, ts, tf & ~TH_CUSTOM)
+            tf &= ~TH_CUSTOM
+            if not tf & TH_KEYS:
+                tat, tf = 0, tf & TH_SIZE
+            struct.pack_into(THUMB_FMT, d, r.slot + (
+                R_THUMBR if r.resident else R_THUMB), tat, ts, tf)
         posters.append(i)
     with open(path, "r+b") as f:
         f.write(d[:SECTOR])
@@ -5600,7 +5789,7 @@ def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
                     title="", keysecs=KEY_SECS, poster=None, rowscale=1,
                     flip=False, loop=None, repeat=False, cgapal=None,
                     screen=SCR_480, pev=None, subs=None, kpart=KEY_PART,
-                    held=(), own=False, thumbs=None):
+                    held=(), own=False, thumbs=None, resident=False):
     """encode_frames for canvases already in hand (bytes, g.wb a row) - the
     only way to make a VGA8 file without a video (SPEC.md 98.2): silent,
     every changed byte. `pev`: a palette a scene's table (98.1.3.2.3).
@@ -5609,8 +5798,8 @@ def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
     records are HELD (98.1.3.9, a flipped file's) - drawn, not shown.
     `own`: flipped with each record against its own page (FLIP_OWN), the
     record after a key bringing its page up by the rows that differ.
-    `thumbs`: the writer's DESKTOP POSTERS (98.1.3.11), (scale, make,
-    custom) as Writer.thumbs takes them"""
+    `thumbs`: the writer's DESKTOP POSTERS (98.1.3.11), as Writer.thumbs
+    takes them. `resident`: written as a RESIDENT file (98.1.7)"""
     rate, spf = max(1, round(fps * 100)), 100
     wr = Writer(g, rate, spf, AUD_NONE, 0, pixfmt, title=title,
                 keysecs=keysecs, palette=palette, rowscale=rowscale,
@@ -5658,6 +5847,9 @@ def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
                     changed.append(b + x)
             surf[b:b + g.wb] = row
         wr.frame(spans(changed, surf, g), surf)
+    if resident:
+        return write_resident(out, [wr], posters=None if poster is None
+                              else [poster])
     return wr.write(out, poster)
 
 

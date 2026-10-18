@@ -171577,7 +171577,7 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 | 37 | 1 | MODEX, and VGA4 on a screen of its own: **2 = page flipped** (98.3.8), **3 = page-ahead** (98.1.3.7, with flag PAGE and only with it), **4 = page-ahead on N pages** (98.1.3.7.1, with flag PAGE too), **5 = flipped AND built ahead on N pages** (98.1.3.7.2, flag PAGE too), 0 or 1 not; 0 in every other file |
 | 38 | 1 | VGA4: **the screen** (98.1.3.2.1) - 0 mode 12h's 640 x 480, 1 320 x 200, 2 320 x 240, 3 640 x 350, 4 640 x 400, **5 320 x 200 and 6 320 x 240 with rows 40 bytes apart** (98.1.3.2.5); MODEX: 0 320 x 240, **1 320 x 200** (98.1.3.1.1); 0 in every other file, and in a RESIDENT or LIVE one |
 | 39 | 1 | with byte 37 = 4 or 5: **N, the pages the file uses**, 3 to 8 (98.1.3.7.1); else 0 |
-| 40 | 24 | 0 (but for the words the sections above name at 40, 53, 54, 56 and 60, and 62 - 40..51 being a RESIDENT file's block fields and a sixteen-colour stream's DESKTOP POSTERS, 98.1.3.11 -: THE BENCH, the player's own bench record's decode modelled on the machine the file was made for, 10 us, 0 none - 98.1.9.13) |
+| 40 | 24 | 0 (but for the words the sections above name at 40, 53, 54, 56 and 60, and 62 - 40..45 being a stream's DESKTOP POSTERS and 56..61 a resident file's, 98.1.3.11 -: THE BENCH, the player's own bench record's decode modelled on the machine the file was made for, 10 us, 0 none - 98.1.9.13) |
 
 #### 98.1.1.2 Repeat: the flags, and the seam
 
@@ -172789,58 +172789,93 @@ period for the restore against 127% for the frame on Last Exile, Mode X).
 
 #### 98.1.3.11 DESKTOP POSTERS: a key's picture made for the Preview (2026-10-18)
 
-**A sixteen-colour stream may carry, per key, the picture the Preview's box
-shows for it**, made on the host and blitted as it stands. The owner's
-report, on two kinds of file. T69, a 640-wide file in its own colours,
-showed a black box with one white dot: 98.4.5's poster took one pixel of
-every cell and so picked one colour of each 50% checkerboard. Colour
-files at half lost most or all of their colour, because a picture in its
-own sixteen drawn in the desktop's NEAREST sixteen keeps only the colours
-the two sets share. A key's poster here is each cell AVERAGED in the
-file's colours, then error-diffused (Floyd-Steinberg) onto the desktop's
-`STD16`. Reading it is cheaper than the decode it replaces.
+**Any file may carry, per key, the picture the Preview's box shows for it**,
+made on the host and blitted as it stands, and a CUSTOM picture besides.
+The owner's report started it: T69, a 640-wide file in its own colours,
+showed a black box with one white dot, because 98.4.5's poster took one
+pixel of every cell and so picked one colour of each 50% checkerboard.
+Colour files at half lost most or all of their colour, since a picture in
+its own sixteen drawn in the desktop's NEAREST sixteen keeps only the
+colours the two sets share. Then the owner asked for the same for every
+format: VGA8's Preview is its luma at one bit (98.4.4) and CGA's colours
+are four shades (98.4.6). A stored picture is each cell AVERAGED in the
+file's own colours and then error-diffused (Floyd-Steinberg), and reading
+it is cheaper than the decode it replaces.
 
-- **The fields are the rendition slot's bytes 40..51**, a RESIDENT file's
-  block fields (98.1.7) and so free in a stream: a u32 offset of the
-  **table**, a u16 count of its **entries**, the poster's **width** and
-  **height** in pixels (u16 each), its **scale** (u8: 1, 2 or 4) and
-  **flags** (u8; bit 0 `TH_CUSTOM`). All 0 for none.
-- **The size is `vga4_pack`'s at that scale**: width = canvas width / scale,
-  height = canvas height / scale rounded up, packed two pixels a byte, the
-  left one high, rows (width + 1) / 2 bytes apart.
-- **An entry a key, in key order**, then with `TH_CUSTOM` one more, the
-  **custom poster**: 8 bytes each, a u32 offset, u16 packed bytes, u8
-  packing (0 stored, 1 LZ4 as `OSAPI_DECOMP` AL = 0 takes it) and a 0. The
-  table and its pictures sit after the options record and before the
-  stream.
-- **The custom poster** is shown when the file opens and at the end of a
-  play, in place of the poster key's (98.4). The play still starts at a key.
+- **The fields are six bytes of the rendition slot**: a u32 offset of the
+  **table**, the **scale** (u8: 1, 2 or 4) and **flags** (u8). A stream's
+  are at bytes 40..45, a RESIDENT file's block fields (98.1.7) and so free
+  in a stream, with 46..51 zero. A resident file's are at 56..61, a
+  stream's scene palettes (98.1.3.2.3) and so free in a resident file. All
+  0 for none.
+- **The flags**: bit 0 `TH_CUSTOM`, a custom picture after the keys'; bit
+  1 `TH_KEYS`, a picture per key; bit 2 `TH_COLOUR`, each picture in the
+  desktop's sixteen; bit 3 `TH_MONO`, each in black and white; bit 4
+  `TH_SIZE`, the scale is the Preview's own (see below). The other bits
+  are 0. A table with pictures has at least one set, and one with neither
+  pictures nor `TH_SIZE` is not there at all.
+- **The pictures are the Preview's own size over the scale**: the
+  player's `vp_pwb` x 8 by `vp_ph` (98.4) - a CGA4 or C160 pixel is two
+  wide, a C512 or TEXT cell four pixels, VGA8's rows its row scale's and
+  TEXT's four a cell - divided by the scale, the rows rounding up
+  (`thumb_dims`). A COLOUR picture is packed as `vga4_pack` packs, two
+  pixels a byte with the left one high, rows (width + 1) / 2 bytes apart;
+  a MONO one is `OSAPI_GFX_BLIT1`'s rows, eight pixels a byte with the
+  left one in bit 7, 1 white, rows (width + 7) / 8 bytes apart.
+- **The table is an entry per picture and set**, picture by picture (the
+  keys', in key order, then the custom one), each picture's colour entry
+  before its mono one: 8 bytes each, a u32 offset, u16 packed bytes, u8
+  packing (0 stored, 1 LZ4 as `OSAPI_DECOMP` AL = 0 takes it) and a 0.
+  The count is the flags' and the key count's, so it is not stored. A
+  stream's table sits after the options record and before the stream, a
+  resident file's after its audio block.
+- **The custom picture** is shown when the file opens and at the end of a
+  play, in place of the poster key's (98.4); a play still starts at a key.
   `tools/os88vid.py`'s `set_poster` drops it, since choosing a poster key
   replaces the custom one.
-- **Which files carry them** is the encoder's `--desktop-posters`. `auto`,
-  the default, makes them for a file too big for the window at its own
-  size, and for a file in colours of its own whatever its size: such a file
-  plays full screen only, so the Preview is the only place it is shown on
-  the desktop. They are made at the size the window shows (own size where
-  it fits, else half). A file in the desktop's own colours that fits needs
-  none, because its decoded key is exactly what it plays. `on` makes them
-  for every stream, `off` for none, and `--poster-image FILE|@SECS` adds
-  the custom one (refused with `off`, and on a resident or Live file, both
-  of which are shown at their own size).
-- **The player** reads the entry and its bytes through its key read buffer
-  and unpacks them into the poster's claim. It reads them at the stored
-  scale or at twice it, halving (`vp_dphalf`) one pixel of each 2 x 2 cell
-  with the turning pick 98.4.5 describes. A layout at a scale it cannot
-  serve, a failed read, or a table or entry that does not describe this
-  file's poster at its scale (`vp_thparse` checks every field against the
-  header) falls back to decoding the key. A player before this one ignores
-  the fields.
-- **The cost** is about 1.3% of a file's bytes at half (432 KB over 37 keys
-  on T69, LZ4).
+- **`TH_SIZE`**: the Preview is never laid out larger than the stored
+  scale (`vp_layfit` starts its tries there), so a file can ask for a
+  half or a quarter whatever the room. A smaller Preview means a play in
+  the window, which is at the video's own size (98.3.7), is not taken:
+  Play goes full screen. Never with LIVE, which plays on the desktop at
+  its own size.
+- **What the encoder stores** is `--desktop-posters` and `--desktop-size`
+  (98.2). By default the set is what the format is seen in: colour for
+  VGA4 and VGA8, black and white for one bit's formats, and both for
+  CGA4, C160, C512 and colour TEXT, which a VGA shows in colour and a
+  CGA's desktop cannot. Key pictures are stored by default where the
+  player's own picture is poor: VGA8, CGA's colours, and VGA4 in colours
+  of its own or shown smaller. They are stored at the size the window
+  shows (own size where it fits a 640 x 480 desktop's window, else half)
+  unless `--desktop-size` says otherwise. `--poster-image FILE|@SECS`
+  adds the custom one, in the same sets.
+- **The player** reads the set the desktop shows best: colour on a VGA's
+  or an EGA's, else the other; black and white on a CGA's or a
+  Hercules', else colour, which `OSAPI_GFX_BLIT4` then reduces (§39.4).
+  It reads the entry and its bytes through its key read buffer and
+  unpacks them into the poster's claim, which `vp_psize` makes big enough
+  for either. It takes them at the stored scale, twice it or four times
+  it, halving once or twice: colour by `vp_dphalf`, one pixel of each 2 x
+  2 cell with 98.4.5's turning pick, the second pass in place; black and
+  white by `vp_half`, 98.4's ordered dither. A key without a picture, a
+  scale it cannot serve, a failed read, or fields that do not describe
+  this file (`vp_thparse`) fall back to decoding the key. A stored
+  picture is never taken for the key's canvas: 98.3.19.3's poster that
+  stands in for the keeper, and `vp_kheld`'s key held in the poster, ask
+  `[vp_pthm]`. A player before this one ignores the fields, and this one
+  ignores a stream whose 46..51 are not zero (the twelve-byte layout of
+  this section's first morning, which carried VGA4 streams only).
+- **The cost** is about 1.3% of a 16-colour file's bytes at half (432 KB
+  over 37 keys on T69, LZ4). `--desktop-posters off` drops the key
+  pictures for a file that should not pay it; a custom one is still
+  stored.
 
-`tests/vidposter.py` holds the player to the host byte for byte on a
-stored half, a stored own size halved and none stored. `videnc` checks the
-encoder's four choices.
+`tests/vidposter.py` holds the player to the host byte for byte, on a
+VGA's desktop and a CGA's: VGA4 stored at half, stored at its own size and
+halved, and none stored; VGA8 and CGA4 in colour; a `TH_SIZE` file that
+fits; a resident file's custom picture; CGA4's black and white on a CGA;
+and a colour and a black and white picture halved twice. `videnc` checks
+the encoder's choices.
 
 #### 98.1.4 The stream: chained super-packets
 
@@ -174899,14 +174934,20 @@ or more it is 98.2.1.8.5's file against its own pages instead - byte 37 5,
 which plays on any player since 98.3.8.5 - and the best of them: Last
 Exile's 77 frames cut and 9.6%.
 
-**`--desktop-posters auto|on|off`** and **`--poster-image FILE|@SECS`**
-(options version 43; `auto` and none): a sixteen-colour stream's DESKTOP
-POSTERS (98.1.3.11). `auto` makes them for a file too big for the window,
-or in colours of its own, at the size the window shows it. A custom
-poster is a picture FILE scaled and cropped as the clip is, or `@SECS`,
-the clip's own frame that many seconds after `--start`, on a key or not.
-It is refused with `off` and on a resident or Live file. The encoder's
-info names what it stored.
+**`--desktop-posters auto|colour|mono|both|off`**, **`--desktop-size
+fit|half|quarter`** and **`--poster-image FILE|@SECS`** (options versions
+43 and 44; `auto`, `fit` and none): the DESKTOP POSTERS (98.1.3.11).
+`auto` stores key pictures where the player's own Preview is poor (VGA8,
+CGA's colours, VGA4 in its own colours or shown smaller), in the set the
+format is seen in: colour, black and white, or both for CGA's colours.
+`colour`, `mono` and `both` store that set for any file, and `off` stores
+no key pictures. `--desktop-size half` or `quarter` makes that the
+Preview's size whatever the room (then Play goes full screen; refused
+with `--live`). A custom poster is a picture FILE scaled and cropped as
+the clip is, or `@SECS`, the clip's own frame that many seconds after
+`--start`, on a key or not. It is stored even with `off`, and for any
+file. The encoder's info names what it stored. A version-43 record's `on`
+reads as `colour`.
 
 **`--ladder RUNGS`: THE DEGRADE LADDER** (options version 40, blank - off
 - by default; docs/plans/VIDEO-SEEN-PLAN.md 3a). The ways a frame the
@@ -181087,6 +181128,8 @@ fast path.
 
 **A VGA8 poster is its luma, dithered to one bit** (98.4.4), because the
 Preview is drawn on the desktop. **A VGA4 poster is in colour** (98.4.5).
+**A file with DESKTOP POSTERS** (98.1.3.11) has its box's picture read
+rather than decoded, in colour or black and white whatever its format.
 
 **The poster** is the header's poster keyframe (98.1.3) when the file
 opens, and the picked key's picture after:
@@ -181286,8 +181329,8 @@ reference, and `tests/vidvga8.py` holds the player to them bit for bit.
 A file that carries DESKTOP POSTERS (98.1.3.11) has the box's picture
 read, not decoded: the key's own, or at open and at the end the custom one,
 unpacked into the poster's claim and halved there when the layout shows
-twice the stored scale. The rest of this section is every other VGA4 file,
-and any key whose stored poster cannot be used.
+twice or four times the stored scale. The rest of this section is every
+other VGA4 file, and any key whose stored poster cannot be used.
 
 A VGA4 keyframe is decoded into its RAM planes and `vp_v4pack` packs it
 for `OSAPI_GFX_BLIT4` - two pixels a byte, the left one high - taking ONE

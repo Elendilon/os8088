@@ -266,8 +266,14 @@ R_H         equ 4
 R_KTAB      equ 8
 R_NKEYS     equ 12
 R_THUMB     equ 40                  ; DESKTOP POSTERS (98.1.3.11): a stream's
-                                    ; slot bytes 40..51 - the table's offset,
-                                    ; its entries, width, height, scale, flags
+R_THUMBR    equ 56                  ; slot bytes 40..45, a resident file's
+                                    ; 56..61 - the table's offset, the
+                                    ; scale, the flags:
+TH_CUSTOM   equ 1                   ; a custom picture after the keys'
+TH_KEYS     equ 2                   ; a picture a key
+TH_COLOUR   equ 4                   ; each in the desktop's sixteen
+TH_MONO     equ 8                   ; ...and/or in black and white
+TH_SIZE     equ 16                  ; the scale is the Preview's own
 R_POSTER    equ 14
 R_SP0       equ 16
 R_SP0N      equ 20
@@ -2359,7 +2365,7 @@ vp_loadkey:
     cmp word [vp_thn], 0            ; A DESKTOP POSTER (98.1.3.11): the key's
     je .kp                          ; own, or at open the custom one - read
     mov ax, bx                      ; and blitted, not decoded. The custom
-    test byte [vp_thfl], 1          ; one stays for the same key made again
+    test byte [vp_thfl], TH_CUSTOM  ; one stays for the same key made again
     jz .tk                          ; at another scale (the layout's)
     cmp byte [vp_thcp], 0
     jne .tc
@@ -2407,20 +2413,29 @@ vp_loadkey:
     jmp vp_ld8
 
 ; vp_thparse - ES:DI = the rendition's slot: its DESKTOP POSTERS (98.1.3.11)
-; into vp_thtab..vp_thfl - or [vp_thn] 0, for none, or for fields that do not
-; describe a sixteen-colour stream's poster a key at the scale they name (a
-; hostile file is shown its keys decoded, as before). Preserves all
+; into vp_thtab..vp_thnk, and the Preview's least scale into [vp_thmin] - or
+; [vp_thn] 0 for none, and for fields that are not this file's (a hostile
+; file, or a stream in the first layout, whose 46..51 are not zero: its keys
+; are decoded, as before). Preserves all
 vp_thparse:
     push ax
     push bx
     push cx
+    push si
     xor ax, ax
     mov [vp_thn], ax
-    cmp byte [vp_pixfmt], PF_VGA4
-    jne .r
-    test byte [es:V88_FLAGS], V88F_RESIDENT | V88F_LIVE
+    mov byte [vp_thmin], 1
+    mov si, R_THUMBR
+    test byte [es:V88_FLAGS], V88F_RESIDENT
+    jnz .at
+    mov si, R_THUMB
+    mov ax, [es:di+R_THUMB+6]       ; (the first layout's twelve bytes)
+    or ax, [es:di+R_THUMB+8]
+    or ax, [es:di+R_THUMB+10]
     jnz .r
-    mov al, [es:di+R_THUMB+10]      ; the scale: 1, 2 or 4...
+.at:
+    add si, di
+    mov al, [es:si+4]               ; the scale: 1, 2 or 4...
     mov cl, 0
     cmp al, 1
     je .sc
@@ -2433,56 +2448,121 @@ vp_thparse:
 .sc:
     mov [vp_thsc], al
     mov [vp_thsh], cl
-    mov bl, [es:di+R_THUMB+11]      ; ...flags: bit 0, a custom one more
-    test bl, 0xFE
+    mov bl, [es:si+5]               ; ...the flags
+    test bl, 0xE0
     jnz .r
     mov [vp_thfl], bl
-    and bx, 1
-    add bx, [es:di+R_NKEYS]         ; ...an entry a key, and that one
-    cmp bx, [es:di+R_THUMB+4]
-    jne .r
-    mov ax, [vp_wb]                 ; ...vga4_pack's width and height at
-    shl ax, 1                       ; the scale
-    shl ax, 1
+    test bl, TH_SIZE                ; THE PREVIEW'S SIZE: never larger
+    jz .ns
+    mov [vp_thmin], al
+.ns:
+    mov ah, 0                       ; ...the sets: one or two
+    test bl, TH_COLOUR
+    jz .m
+    inc ah
+.m:
+    test bl, TH_MONO
+    jz .k
+    inc ah
+.k:
+    mov [vp_thnk], ah
+    xor bh, bh                      ; ...the pictures: a key's each, and a
+    and bl, TH_CUSTOM               ; custom one
+    test byte [vp_thfl], TH_KEYS
+    jz .np
+    add bx, [es:di+R_NKEYS]
+.np:
+    or bx, bx
+    jz .r
+    cmp ah, 1
+    jb .r
+    je .n1
+    shl bx, 1
+.n1:
+    mov ax, [vp_pwb]                ; the Preview's picture at the scale:
+    shl ax, 1                       ; its own size's over it, the rows
+    shl ax, 1                       ; rounding up
     shl ax, 1
     shr ax, cl
-    cmp ax, [es:di+R_THUMB+6]
-    jne .r
     mov [vp_thw], ax
     mov al, [vp_thsc]
     xor ah, ah
     dec ax
-    add ax, [vp_h]
+    add ax, [vp_ph]
     shr ax, cl
-    cmp ax, [es:di+R_THUMB+8]
-    jne .r
     mov [vp_thh], ax
-    mov ax, [es:di+R_THUMB]
+    mov ax, [es:si]
     mov [vp_thtab], ax
-    mov ax, [es:di+R_THUMB+2]
+    mov ax, [es:si+2]
     mov [vp_thtab+2], ax
+    or ax, [vp_thtab]
+    jz .r
     mov [vp_thn], bx
 .r:
+    pop si
     pop cx
     pop bx
     pop ax
     ret
 
-; vp_thpic - AX = a desktop poster (98.1.3.11), at [vp_ps] the stored scale
-; or twice it: its entry and bytes read through [vp_rdseg], unpacked into
-; [vp_pseg] - or, at twice the scale, into a claim of their own and halved
-; from there as vp_v4pack halves (vp_dphalf). CF=1 not made: a scale it does
-; not serve, a read that failed, or an entry that is not sound, and the key
-; is then decoded as before. Clobbers AX, BX, CX, DX, SI, DI, ES
+; vp_thpic - AX = a desktop poster (98.1.3.11) - a key, or [vp_nkeys] for the
+; custom one - at [vp_ps] the stored scale, twice it or four times: its entry
+; (the set this desktop shows best: black and white on one bit when there is
+; one, colour on a VGA's) and bytes read through [vp_rdseg], unpacked into
+; [vp_pseg] - or into a claim of their own and halved from there, once or
+; twice (vp_dphalf, vp_half). CF=1 not made: a picture or a scale it does
+; not have, a read that failed, or an entry that is not sound, and the key is
+; then decoded as before. Clobbers AX, BX, CX, DX, SI, DI, BP, ES
 vp_thpic:
-    mov bl, [vp_thsc]
-    xor bh, bh
+    mov dl, [vp_thfl]
+    cmp ax, [vp_nkeys]              ; THE PICTURE: a key's, or the custom one
+    jb .key                         ; after them - or alone
+    test dl, TH_CUSTOM
+    jz .no0
+    test dl, TH_KEYS
+    jnz .ix
+    xor ax, ax
+    jmp short .ix
+.key:
+    test dl, TH_KEYS
+    jnz .ix
+.no0:
+    jmp .no
+.ix:
+    cmp byte [vp_thnk], 1
+    je .one
+    shl ax, 1
+.one:
+    call vp_dinfo                   ; THE SET: on a VGA's desktop colour if
+    xor bl, bl                      ; it is there, on one bit black and white
+    cmp byte [vp_dlay], 2           ; if it is - else the other
+    je .wc
+    test dl, TH_MONO
+    jz .kd
+    inc bx
+    test dl, TH_COLOUR
+    jz .kd
+    inc ax                          ; (each picture's colour entry first)
+    jmp short .kd
+.wc:
+    test dl, TH_COLOUR
+    jnz .kd
+    inc bx
+.kd:
+    mov [vp_thkm], bl
+    mov bl, [vp_thsc]               ; THE SCALE: the stored one, or a half or
+    xor bh, bh                      ; a quarter of it
+    xor cx, cx
+.sc:
     cmp bx, [vp_ps]
-    je .s1
+    je .sok
     shl bx, 1
-    cmp bx, [vp_ps]
-    jne .no
-.s1:
+    inc cx
+    cmp cl, 2
+    jbe .sc
+    jmp .no
+.sok:
+    mov [vp_thhv], cl
     mov dx, ax                      ; DX:AX = the entry's offset, 8 x AX
     mov cl, 3
     shl ax, cl
@@ -2492,7 +2572,7 @@ vp_thpic:
     adc dx, [vp_thtab+2]
     mov cx, 8
     call vp_rdat
-    jc .no
+    jc .no1
     push ds
     mov ds, [vp_rdseg]
     mov ax, [si]
@@ -2505,44 +2585,41 @@ vp_thpic:
     mov [vp_the+4], cx
     mov [vp_the+6], bx
     cmp bh, 0                       ; (its pad byte)
-    jne .no
+    jne .no1
     cmp bl, 1                       ; PK_NONE or PK_LZ4
-    ja .no
-    mov ax, [vp_thw]                ; THE PICTURE'S BYTES: vga4_pack's rows
-    inc ax                          ; at the stored scale
-    shr ax, 1
-    mul word [vp_thh]
+    ja .no1
+    call vp_thrb                    ; THE PICTURE'S BYTES: its rows at the
+    mul word [vp_thh]               ; stored scale
     or dx, dx
-    jnz .no
+    jnz .no1
     mov [vp_thu], ax
     or bl, bl                       ; (stored: exactly that)
     jnz .pk
     cmp cx, ax
-    jne .no
+    jne .no1
 .pk:
     or cx, cx
     jnz .pk2
+.no1:
     jmp .no
 .pk2:
     call vp_spankb                  ; ...and the read inside the buffer - a
     cmp ax, [vp_kbkb]               ; bigger one than a key's record needs,
     jbe .rdok                       ; claimed before that one is let go
     call vp_mclaim
-    jc .no
+    jc .no1
     xchg dx, [vp_rdseg]
     call vp_mfree
 .rdok:
     mov ax, [vp_pseg]               ; WHERE IT GOES: the poster, or a claim
-    mov bl, [vp_thsc]               ; of its own to halve from
-    xor bh, bh
-    cmp bx, [vp_ps]
+    cmp byte [vp_thhv], 0           ; of its own to halve from
     je .dst
     mov ax, [vp_thu]
     add ax, 1023
     mov cl, 10
     shr ax, cl
     call vp_mclaim
-    jc .no
+    jc .no1
     mov ax, dx
 .dst:
     mov [vp_thseg], ax
@@ -2577,25 +2654,84 @@ vp_thpic:
     pop ds
     jc .fail
 .made:
-    mov ax, [vp_thseg]
-    cmp ax, [vp_pseg]
-    je .dims
+    mov ax, [vp_thw]                ; THE BOX'S PICTURE: the size it is
+    mov [vp_thow], ax               ; drawn at, the halvings followed
+    mov ax, [vp_thh]
+    mov [vp_thoh], ax
+    cmp byte [vp_thkm], 0
+    jne .mono
+    cmp byte [vp_thhv], 0           ; COLOUR: halved by a pixel of each cell
+    je .c4                          ; turning with its place, once into the
+    call vp_dphalf                  ; poster and once more in place there
+    call vp_thhalf
+    cmp byte [vp_thhv], 1
+    je .cfree
+    push word [vp_thw]
+    push word [vp_thh]
+    push word [vp_thseg]
+    mov ax, [vp_thow]
+    mov [vp_thw], ax
+    mov ax, [vp_thoh]
+    mov [vp_thh], ax
+    mov ax, [vp_pseg]
+    mov [vp_thseg], ax
     call vp_dphalf
+    call vp_thhalf
+    pop word [vp_thseg]
+    pop word [vp_thh]
+    pop word [vp_thw]
+.cfree:
+    mov dx, [vp_thseg]
+    call vp_mfree
+.c4:
+    mov ax, [vp_thow]               ; (OSAPI_GFX_BLIT4's rows)
+    inc ax
+    shr ax, 1
+    mov [vp_pbw], ax
+    mov byte [vp_p4], 1
+    jmp short .dims
+.mono:
+    mov ax, [vp_thw]                ; BLACK AND WHITE: OSAPI_GFX_BLIT1's
+    add ax, 7                       ; rows - halved as a decoded poster is
+    shr ax, 1                       ; (vp_half), once into the poster and
+    shr ax, 1                       ; once more in place there
+    shr ax, 1
+    mov [vp_pbw], ax
+    mov byte [vp_p4], 0
+    cmp byte [vp_thhv], 0
+    je .dims
+    mov [vh_wb], ax
+    mov [vh_sstr], ax
+    mov ax, [vp_thh]
+    mov [vh_h], ax
+    mov ax, [vp_thseg]
+    mov [vh_sseg], ax
+    mov ax, [vp_pseg]
+    mov [vh_dseg], ax
+    mov byte [vh_lay], 0xFF
+    call vp_mkdtab
+    call vp_half
+    call vp_thhalf
+    cmp byte [vp_thhv], 1
+    je .mfree
+    mov ax, [vp_pseg]
+    mov [vh_sseg], ax
+    mov ax, [vh_wb]
+    mov [vh_sstr], ax
+    call vp_half
+    call vp_thhalf
+.mfree:
+    mov ax, [vh_wb]
+    mov [vp_pbw], ax
     mov dx, [vp_thseg]
     call vp_mfree
 .dims:
-    call vp_v4dims                  ; (what vp_v4pack leaves for the blit)
-    mov [vp_pbw], ax
-    mov [vp_prows], cx
-    mov ax, [vp_wb]
-    shl ax, 1
-    shl ax, 1
-    shl ax, 1
-    mov [vp_v4w], ax
-    xor dx, dx
-    div word [vp_ps]
+    mov ax, [vp_thoh]
+    mov [vp_prows], ax
+    mov ax, [vp_thow]
     mov [vp_ppx], ax
     mov word [vp_pskip], 0
+    mov byte [vp_pthm], 1           ; (a stored picture, not the key's own)
     inc word [vp_ploads]
     clc
     ret
@@ -2607,6 +2743,30 @@ vp_thpic:
     call vp_mfree
 .no:
     stc
+    ret
+
+; vp_thrb - AX = a stored desktop poster's bytes a row, in the set
+; [vp_thkm] says: two pixels a byte, or eight. Preserves the rest
+vp_thrb:
+    mov ax, [vp_thw]
+    cmp byte [vp_thkm], 0
+    jne .m
+    inc ax
+    shr ax, 1
+    ret
+.m:
+    add ax, 7
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    ret
+
+; vp_thhalf - [vp_thow] x [vp_thoh] halved as the halvings do: the columns
+; down, the rows up. Preserves all
+vp_thhalf:
+    shr word [vp_thow], 1
+    inc word [vp_thoh]
+    shr word [vp_thoh], 1
     ret
 
 ; vp_dphalf - the desktop poster in [vp_thseg] ([vp_thw] x [vp_thh], packed)
@@ -3136,8 +3296,11 @@ vp_mkpic:
     push ax
     push cx
     push dx
+    mov byte [vp_pthm], 0           ; (the key's own picture, 98.1.3.11)
+    mov byte [vp_p4], 0
     cmp byte [vp_pixfmt], PF_VGA4   ; 16 COLOURS: packed for OSAPI_GFX_BLIT4,
     jne .n4                         ; every [vp_ps]-th pixel (98.4.5)
+    inc byte [vp_p4]
     call vp_v4pack
     jmp .rows4
 .n4:
@@ -3281,6 +3444,39 @@ vp_psize:
     shr cx, 1
 .sz:
     mul cx
+    call vp_bkb
+    cmp word [vp_thn], 0            ; ...or a DESKTOP POSTER's (98.1.3.11),
+    je .r                           ; whichever is more: packed two pixels
+    push ax                         ; a byte at the scale, and a byte more a
+    mov ax, [vp_pwb]                ; row (BLIT1's halving rounds up)
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    xor dx, dx
+    div word [vp_ps]
+    inc ax
+    shr ax, 1
+    inc ax
+    push ax
+    mov ax, [vp_ph]
+    add ax, [vp_ps]
+    dec ax
+    xor dx, dx
+    div word [vp_ps]
+    pop cx
+    mul cx
+    call vp_bkb
+    pop cx
+    cmp ax, cx
+    jae .r
+    mov ax, cx
+.r:
+    pop dx
+    pop cx
+    ret
+
+; vp_bkb - DX:AX bytes -> AX KB, rounded up. Clobbers CX, DX
+vp_bkb:
     add ax, 1023
     adc dx, 0
     mov cl, 10
@@ -3288,8 +3484,6 @@ vp_psize:
     mov cl, 6
     shl dx, cl
     or ax, dx
-    pop dx
-    pop cx
     ret
 
 ; vp_linear - the canvas out of the shadow ([vp_kshd], the file's layout)
@@ -10959,6 +11153,8 @@ vp_kelig:
 vp_pcanv:
     cmp word [vp_pseg], 0
     je .no
+    cmp byte [vp_pthm], 0           ; (a stored picture's claim and rows are
+    jne .no                         ; not the canvas's: 98.1.3.11)
     cmp word [vp_ps], 1
     jne .no
     cmp word [vp_pscale], 1
@@ -14484,7 +14680,9 @@ vp_kheld:
     cmp byte [vp_flip], 0
     jne .no
     cmp byte [vp_pixfmt], PF_VGA8   ; (MONO1, CGACOMP: the poster at its own
-    jae .no                         ; size IS the canvas's bytes)
+    jae .no                         ; size IS the canvas's bytes - unless it
+    cmp byte [vp_pthm], 0           ; is a stored picture, 98.1.3.11)
+    jne .no
     cmp word [vp_pseg], 0
     je .no
     cmp word [vp_pscale], 1
@@ -18684,7 +18882,9 @@ vp_layfit:
     mov ax, [vp_ps]
     mov [vp_lops], ax
     call vp_dinfo                   ; (the desktop's banks, for COMPACT)
-    mov si, 1                       ; SI = the scale tried: 1, 2, 4
+    mov al, [vp_thmin]              ; SI = the scale tried: 1, 2, 4 - from
+    xor ah, ah                      ; the file's own choice up (98.1.3.11)
+    mov si, ax
 .s:
     call vp_laysize                 ; the picture's size at SI -> vp_lpw/lph
     mov cl, [vp_card]
@@ -19163,13 +19363,16 @@ vp_pposter:
     mov cx, [vp_pdw]
     mov bx, [vp_py]
     mov dx, [vp_pdh]
-    cmp byte [vp_pixfmt], PF_VGA4   ; 16 colours, as they are (98.4.5)
+    cmp byte [vp_lsess], 0          ; A LIVE PLAY'S picture is its shadow:
+    je .bp                          ; VGA4's four planes, the repaint's
+    cmp byte [vp_pixfmt], PF_VGA4   ; clip walked (98.3.10.4)
     jne .b1
-    cmp byte [vp_lsess], 0          ; ...and a Live play's are its shadow's
-    je .b4                          ; four planes, the repaint's clip walked
-    mov byte [vp_v4p], 1            ; (98.3.10.4)
+    mov byte [vp_v4p], 1
     call vp_v4blit
     jmp .out
+.bp:
+    cmp byte [vp_p4], 0             ; THE POSTER: 16 colours as they are
+    je .b1                          ; (98.4.5, 98.1.3.11), or one bit
 .b4:
     call OSAPI_GFX_BLIT4
     jmp .out
@@ -20928,6 +21131,14 @@ vp_end:       db 0
 vp_eof:       db 0
 vp_err:       db 0
 vp_held:      db 0
+vp_thmin:     db 1                  ; (the Preview's least scale: TH_SIZE)
+vp_thnk:      db 0                  ; (the sets stored: 1 or 2)
+vp_thkm:      db 0                  ; (the set read: 1 black and white)
+vp_thhv:      db 0                  ; (its halvings to the layout's scale)
+vp_p4:        db 0                  ; THE POSTER is packed for BLIT4 (1) or
+vp_pthm:      db 0                  ; BLIT1's rows; and a stored picture (1)
+vp_thow:      dw 0                  ; (the box's picture, as it is halved)
+vp_thoh:      dw 0
 vp_thtab:     dd 0                  ; DESKTOP POSTERS (98.1.3.11): the table,
 vp_thn:       dw 0                  ; its entries (0: none), the stored
 vp_thw:       dw 0                  ; width and height, the scale and its

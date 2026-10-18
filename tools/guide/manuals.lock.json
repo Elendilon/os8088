@@ -1072,9 +1072,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "4576a12b",
-  "strings": "e6e6b476588c76a0",
-  "why": "added --poster-image and --desktop-posters to the options table; --flip-own is below the page's level (the Choices row's tearing and second pages covers it)"
+  "stamped": "7611af64",
+  "strings": "7991b5f4887aff8f",
+  "why": "rows for --poster-image and --desktop-posters cover every format and --desktop-size added; the GUI field follows the same options"
  },
  "TRACKER_O88": {
   "sources": [

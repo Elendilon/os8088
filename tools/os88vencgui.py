@@ -244,14 +244,11 @@ def _tearing(c):
 
 
 def _desk(c):
-    """DESKTOP POSTERS (98.1.3.11): a sixteen-colour stream's - a Live or
-    resident file is shown at its own size, in the desktop's colours"""
-    if c["pixfmt"] != "vga4":
-        return ("The desktop's posters are made for 16 colours; this file "
-                "is %s, whose Preview makes its own." % PF_WORDS[c["pixfmt"]])
-    if c["live"] or c["resident"]:
-        return ("A Live or resident file is shown in the window at its own "
-                "size, as it plays.")
+    """DESKTOP POSTERS (98.1.3.11): the Preview's size is any file's but a
+    Live one's, which plays in its window at its own size"""
+    if c["live"]:
+        return ("A Live file plays in its window at its own size, so its "
+                "Preview is that size.")
     return None
 
 
@@ -436,7 +433,8 @@ GROUPS = [
     ("Loop and keys", "Keyframes and the poster", ("keysecs", "poster",
                                                    "poster_at",
                                                    "poster_image",
-                                                   "desktop_posters"),
+                                                   "desktop_posters",
+                                                   "desktop_size"),
      ALWAYS),
     ("Advanced", "This computer", ("jobs",), ALWAYS),
 ]
@@ -473,8 +471,7 @@ FIELD_WHEN = {
        "mode 13h" if c["pixfmt"] == "vga8" else
        "this %s file" % c["pixfmt"]),
     # (98.1.3.11: the desktop's posters are a sixteen-colour stream's)
-    "poster_image": lambda c: _desk(c),
-    "desktop_posters": lambda c: _desk(c),
+    "desktop_size": lambda c: _desk(c),
     # (VIDEO-SEEN-PLAN 3b: each record against its own page - the flip's,
     # in a stream with no loop or layer; with page-ahead on 3 pages or more
     # too, built ahead as well)

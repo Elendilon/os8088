@@ -13021,14 +13021,17 @@ SOAK = [
         "or vp_canwin taking the window) the holds FAIL",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidposter", "soak", py("tests/vidposter.py"), 90.0,
-        "SPEC.md 98.1.3.11, 98.4.5: DESKTOP POSTERS, on MartyPC's VGA XT - a "
-        "640-wide file of its own sixteen greys in checkerboards, shown at "
-        "half. Stored at half with a custom one: the box is the custom "
-        "poster at open and key 1's after Right, byte for byte; stored at "
-        "its own size: halved as packed_half; none stored: vga4_pack's "
-        "turning cell. Broken on purpose - the posters ignored, or either "
-        "halving's turn taken out - each arm FAILS",
+    Row("vidposter", "soak", py("tests/vidposter.py"), 180.0,
+        "SPEC.md 98.1.3.11, 98.4.5: DESKTOP POSTERS on MartyPC, ten files "
+        "on a VGA's desktop and a CGA's, each box held to the host byte "
+        "for byte with the set and scale it chose: VGA4 of its own greys "
+        "stored at half with a custom one (the custom at open, key 1's "
+        "after Right), stored at its own size and halved, none stored "
+        "(vga4_pack's turning cell); VGA8 and CGA4 in colour; TH_SIZE's "
+        "half on a file that fits; a resident custom one; CGA4's black and "
+        "white on a CGA; colour and black and white halved twice. Broken on "
+        "purpose - the posters ignored, the size or the desktop not asked, "
+        "a halving's turn or second pass taken out - those arms FAIL",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidscreeno", "soak", py("tests/vidscreen.py", "--own"), 160.0,
