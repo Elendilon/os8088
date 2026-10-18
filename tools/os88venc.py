@@ -8476,7 +8476,8 @@ def desk_posters(a, wr, g, palette, lw, lh, crop, rate, spf, eq, rep):
                                "Live file is shown at its own size")
         return
     pev = list(getattr(wr, "pev", None) or [])
-    pals = [bytes(p[:48]) for f, p in pev] or [bytes(palette[:48])]
+    base = bytes((palette or vid.STD16)[:48])   # (None: the desktop's own)
+    pals = [bytes(p[:48]) for f, p in pev] or [base]
     own = any(p != vid.STD16 for p in pals)
     mode = getattr(a, "desktop_posters", "auto")
     custom = getattr(a, "poster_image", None)
@@ -8492,7 +8493,7 @@ def desk_posters(a, wr, g, palette, lw, lh, crop, rate, spf, eq, rep):
         for k, r, c in wr.keys:
             if c is cv:
                 f = k
-        pal = bytes(palette[:48])
+        pal = base
         for fr, p in pev:
             if f is not None and fr <= f:
                 pal = bytes(p[:48])
