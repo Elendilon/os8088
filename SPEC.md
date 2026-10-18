@@ -40815,11 +40815,23 @@ one DOS 2.x reads.
 recipe that loses the flag fails the fast tier rather than shipping a fuller
 disk. `autostart360.img` takes the flag too, being this disk plus four files.
 
-### 19.4 The listing is sorted by name, in the mount
+### 19.4 The listing is sorted folders first, then by name, in the mount
 
-`disk_dir` comes out of `disk_mount` in **ascending display-name order**,
-not the order the entries happen to sit in on the disk. `dsk_sortdir` is a
-selection sort over the accepted entries, run at the end of the scan.
+`disk_dir` comes out of `disk_mount` with **every folder (type 2) ahead of
+every file, each group in ascending display-name order** — not the order the
+entries happen to sit in on the disk. `dsk_sortdir` is a selection sort over
+the accepted entries, run at the end of the scan.
+
+**Folders first is one key in front of the name compare, and it is 12 bytes**
+on either kernel. Bit 1 of the type word (§19.1) is set for type 2 and clear
+for 0 and 1, and type 3 never enters the sort, so that bit IS the folder
+test: the two entries' bits are masked and compared before the name, with
+the operands reversed so a folder reads as the smaller. A package (type 1)
+deliberately shares the files' key — the user sorts *things to open* from
+*places to go*, and a `.O88` is the former. The compare is 15 bytes and three
+are paid back in the routine's own prologue (the stride as `mul`'s immediate,
+one `xchg` for a `mov`), which also keeps every hot routine behind it on an
+even shift (`tests/unit/t_hotpar.py`).
 
 **It is done here and not in the file manager**, and that is the whole
 point: the Disk window, the Standard File dialog (§38), every per-window
@@ -52417,7 +52429,7 @@ and non-zero exit + stderr message on any validation failure.
   (`APPS_DATA_360`, `APPSARGS360`) and rides `build/media360.img` instead,
   which is §24.4.
   **Order within a list means nothing and nothing may be built on it**: the
-  mount sorts by name (§19.4), so a folder lists alphabetically whoever
+  mount sorts it (§19.4) — folders first, then by name — whoever
   wrote it. It used to be pinned, because the listing was directory order
   and the scripted tests clicked by row index; that did not survive the disk
   becoming writable by a host OS. What is left in the Makefile is which
@@ -157491,11 +157503,14 @@ ours.** Everything a program can observe - `int 21h`'s answers, the version
 program is the thing that can tell. The order names appear in for a person to
 read is not something a program observes at all.
 
-It also makes the box agree with the Disk window (§19.5) rather than disagree
-with it, which is what made this look like a defect from inside the system in
-the first place. **Plain name order, folders MIXED IN**, because that is what
-`dsk_sortdir` does and two sorted listings that disagree would be worse than
-one sorted and one not.
+**Plain name order, folders MIXED IN — and that is DOS's order, not our
+interface's.** `DIR` follows the command line it imitates, and that command
+line still mixes them: DOS 5's `DIR /ON` does unless `G` is added, and so
+does the Windows 10/11 command prompt today. The Disk window and the Standard
+File dialog list folders first (§19.4), because that is what a person picking
+an icon out of a grid expects. So the two listings differ in exactly that one
+respect, ON PURPOSE: each matches its own tradition, and `dsh_dsort` is not to
+be "fixed" to agree with `dsk_sortdir`.
 
 **The mechanism is an INDEX, and it makes `DIR` cheaper rather than dearer.**
 `OSAPI_FILE_FIND` is stateless by ordinal and re-walks the directory per call
