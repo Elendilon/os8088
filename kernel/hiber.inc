@@ -3056,6 +3056,13 @@ hbm_wake:
     mov al, 0xF4                ; The ACK is not collected - `mou_p2flush` is
     mov bp, mou_p2dw            ; the overlay's, both writers time out on their
     call hbm_kd                 ; own, and the ISR discards a stray 0xFA anyway
+    mov al, 0xAE                ; ...AND THE KEYBOARD BACK, which is
+    mov bp, mou_p2cw            ; mou_p2_init's own last step: the command
+    call hbm_kd                 ; byte above is its PROBE-WINDOW value, bit 4
+                                ; (MOU_P2KOFF) set, so without this the PS/2
+                                ; mouse came home working and the keyboard
+                                ; dead - found on a 286 after a DOS run and
+                                ; reproduced in Bochs, whose mouse is PS/2 too
     pushf
     cli
     in  al, 0xA1                ; IRQ12 at the SLAVE...
