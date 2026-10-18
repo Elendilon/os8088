@@ -33,8 +33,8 @@ build 1045). On that tree `kern_big`'s `KERN_SIZE` is 97,280 of
 - **Folder merging, meaning adopting a folder that already exists, is about
   six bytes.** The folder *recursion* around it is 363 bytes.
 - **Under 1 KB cannot be reached by trimming without dropping features.**
-  The no-loss changes found here are worth an ESTIMATED 250-400 bytes, which
-  gets the engine (less `fcp_goto`) to roughly 1.5-1.7 KB. Getting below that means dropping
+  The no-loss changes found here are worth an ESTIMATED 350-450 bytes, which
+  gets the engine (less `fcp_goto`) to roughly 1.45-1.6 KB. Getting below that means dropping
   multi-select lists, moves that relink instead of copying, or the
   free-space check, and those are your call. §5 has the list.
 
@@ -125,7 +125,14 @@ because of what those primitives do *not* do:
    the first chunk, append the rest. It sizes its chunk to the larger of the
    two volumes' clusters, or bytes are lost (SPEC.md 22.5, which records a
    116 KB file arriving 64,512 bytes long). That is the file-stream row plus
-   `fcp_claim`: **604 bytes**.
+   `fcp_claim`: **604 bytes**. Less of that is chunking than the name
+   suggests. The writes already go through `WRITE_SEQ` on `kern_big`. The
+   read side is 150 (`fcp_rdnext`, `fcp_took`), the buffer is 107
+   (`fcp_claim`), and the loop with its create-then-append and close is most
+   of `fcp_xfer`'s 177, which includes the 36-byte server-side copy. The
+   remaining 170 is not chunking at all: the overwrite check and question
+   (`fcp_file1`, `fcp_file2`, 79), the free-space check (51), undo (26) and
+   argument setup (`fcp_wprep`, 14).
 3. **A folder tree has no call stack to recurse on** (SPEC.md 22.3: a
    384-byte task stack and an untrusted directory tree). So the walk keeps
    explicit frames and re-finds its place by ordinal: **363 bytes**.
@@ -161,7 +168,7 @@ and each one is labelled with what it would cost.
   not being a module. After the move, the copy engine proper is
   **1,923 + 152**.
 
-### 5.2 No behaviour change: ~250-400 bytes
+### 5.2 No behaviour change: ~350-450 bytes
 
 - **`fcp_scan` (186) repeats `dsk_find_x`'s directory walk** (SPEC.md
   19.7.1, 246 bytes, resident). Both start a directory walk, skip
@@ -188,16 +195,40 @@ and each one is labelled with what it would cost.
   **saving an ESTIMATED 150-250 across the two**. This is the largest
   no-loss item and the riskiest: delete consumes the folder as it walks and
   copy does not, which is why they diverged (SPEC.md 22.3).
-- **Investigated and NOT recommended: replacing `fcp_rdnext` (136) with
-  `OSAPI_FILE_READ_SEQ`.** It is resident on `kern_big` and the cloner
-  already copies with it. But its cursor goes cold on any write (`dsk_mgen`
-  bumps) or on a drive change (`dwr_stat`), and a copy does one of those
-  between every two reads. Each chunk would then re-walk the source chain
-  from the start of the file, about 28 s extra on a 5 MB fixed-disk file at
-  the 142 ms per MB SPEC.md 18.4.8 measured. The engine's own reader avoids
-  this by trusting that a write to the *destination* cannot move the
-  *source*'s chain. Teaching `READ_SEQ` the same thing would add kernel bytes
-  to save engine bytes.
+- **Replace `fcp_rdnext` (136) and `fcp_took` (14) with
+  `OSAPI_FILE_READ_SEQ`'s body, `dwf_dskw_read_seq`, on `kern_big` only:
+  ESTIMATED ~100 bytes net** (about 110 of `.cold` out, 8 of `.bss` in: a
+  16-byte cursor replaces `fcp_rclus`, `fcp_roff` and `fcp_rgot`). The
+  write half is ALREADY streaming: since SPEC.md 18.4.9 every chunk after the
+  first goes through `WRITE_SEQ` with `WSQF_HELD`, and the close at
+  `fcp_xfer.fin` commits it. So the read half is the only part of the
+  chunking that is still the engine's own. `READ_SEQ` also serves redirected
+  volumes, through `dskw_read_at_x`, so `fcp_rdnext`'s `FSV_READAT` arm goes
+  with it. `fcp_claim` stays: `READ_SEQ` wants a capacity that is a multiple
+  of the source cluster and an append wants a multiple of the destination
+  cluster, which is exactly the span it computes.
+  - **Correction, 2026-10-18, same session.** The first version of this
+    report refused this change. It claimed the cursor would go cold between
+    every two reads and cost ~28 s on a 5 MB fixed-disk file. That was
+    wrong. `dsk_mgen` moves on a committed write (`dskw_sync_x`), at the
+    START of a hold and at its commit (`dskw_append_x.held`, `dws_commit`),
+    and on a mount that re-reads a BPB (`disk_mount`). A held append that
+    continues a hold (`.hmore`) moves nothing. So on a copy inside one
+    volume, or between two fixed disks (whose BPB is banked, SPEC.md
+    18.9.2), the cursor goes cold for the first two or three chunks only.
+    Their offsets are under 130 KB, so the walk is negligible.
+  - **What it still costs:** a copy whose OTHER side is a floppy re-reads
+    that floppy's BPB at every switch, so the cursor is cold for every
+    chunk. Each chunk then re-stats the source by name and walks its chain
+    to the offset. For a hard disk to floppy copy of a 1.44 MB file that is
+    roughly 23 walks averaging ~0.7 MB, about 2-3 s at SPEC.md 18.4.8's
+    142 ms per MB. That is on top of a write that takes about a minute.
+    `WRITE_SEQ`'s token already goes cold in exactly those cases, and the
+    write side already pays the same lookup and walk for them. So this
+    doubles an existing cost rather than adding a new kind of cost.
+    `kern_small` has no `READ_SEQ` (it answers `FERR_NAME`), so there the
+    engine keeps its own reader, behind a second `%ifdef KERN_BIG` beside
+    the one `fcp_xfer` already has.
 
 ### 5.3 Feature decisions for the owner, largest first
 
@@ -211,9 +242,9 @@ and each one is labelled with what it would cost.
 
 ### 5.4 What under 1 KB would take
 
-From 1,923 (after §5.1), §5.2's ~250-400 brings the engine to **about
-1.5-1.7 KB**, with no lost behaviour. Every row of §5.3 except the ABI one
-takes off about another 480. The result is **~1.05-1.2 KB**, and a machine
+From 1,923 (after §5.1), §5.2's ~350-450 brings the engine to **about
+1.45-1.6 KB**, with no lost behaviour. Every row of §5.3 except the ABI one
+takes off about another 480. The result is **~1.0-1.1 KB**, and a machine
 built that way can no longer copy a set, move without copying, or avoid
 filling a disk to learn that it is full. Under 1 KB, *with* the folder
 recursion and the Replace question, means taking those and also giving up
@@ -227,6 +258,6 @@ module) would make copying a folder need the system disk while copying a
 file would not. That is still an availability change, just a narrower one.
 
 **Recommendation:** take §5.1 now. Take §5.2(b), the shared directory walk,
-as the next size pass's FILECP item. Cost the shared tree walker as its own
+and the `READ_SEQ` swap as the next size pass's FILECP items. Cost the shared tree walker as its own
 design. Decide §5.3 row by row as features rather than as size items.
 Nothing in this report argues for the module on `kern_big`.
