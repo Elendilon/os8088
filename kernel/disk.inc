@@ -3877,7 +3877,7 @@ disk_mount_x:
 .scan_done:
     mov es, [dsk_dseg]          ; the sort reads and writes the LISTING, so
     mov bx, [dsk_doff]          ; ES leaves the sector buffer for it
-    mov cx, bp                  ; alphabetical, and BEFORE the harvest below:
+    mov cx, bp                  ; folders first, then by name, and BEFORE the harvest:
     cmp word [dsk_cwd], 0       ; slot i is then filled for whatever entry
     je .sortall                 ; ended up at i, so the icons never have to be
     add bx, DSK_DE_STRIDE       ; permuted alongside the entries (19.4). The
@@ -4803,10 +4803,11 @@ dsk_up_open:
     ret
 
 ; -----------------------------------------------------------------------------
-; dsk_sortdir - sort synthesized directory entries by display name (19.4)
+; dsk_sortdir - sort synthesized directory entries, folders first, by name (19.4)
 ; in:       BX = the first entry's LOW_SEG offset, CX = how many from there,
 ;           ES = LOW_SEG
-; out:      those entries in ascending name order
+; out:      those entries with the folders first, each group in ascending
+;           name order
 ; clobbers: flags
 ;
 ; BX rather than disk_dir because the parent link (SPEC.md 19.5) is not part
@@ -4839,15 +4840,19 @@ dsk_sortdir:
 
     cmp cx, 2
     jb .out                     ; 0 or 1 entries are already in order
-    mov ax, cx
-    mov cx, DSK_DE_STRIDE       ; count * DSK_DE_STRIDE. A MULTIPLY, because
+    mov ax, DSK_DE_STRIDE       ; count * DSK_DE_STRIDE. A MULTIPLY, because
     mul cx                      ; the stride is no longer a power of two -
                                 ; count <= DSK_NENT so DX is 0, and DX is
                                 ; overwritten on the next line anyway. Every
-                                ; register here is banked at entry
+                                ; register here is banked at entry. The
+                                ; stride is the immediate and not the count,
+                                ; and the xchg is one byte where a mov is two:
+                                ; -3 between them, which pays for most of the
+                                ; folder key below and keeps what follows on
+                                ; an EVEN shift (tests/unit/t_hotpar.py)
     add ax, bx
-    mov dx, ax                  ; DX = one past the last entry
-    mov cx, dx
+    xchg ax, dx                 ; DX = one past the last entry (AX is free:
+    mov cx, dx                  ; nothing reads it before the compare loads it)
     sub cx, DSK_DE_STRIDE       ; CX = the last entry: no choice to make for
                                 ; it once everything below is placed
 .outer:                         ; BX = the slot being filled
@@ -4874,6 +4879,16 @@ dsk_sortdir:
     push cx
     push si
     push di
+    ; FOLDERS FIRST (SPEC.md 19.4): the type word's bit 1 is set for type 2
+    ; and clear for 0 and 1, and type 3 is never in the sort - so it is the
+    ; folder bit, and a package stays mixed in with the files. Compared
+    ; REVERSED, [DI]'s key against [SI]'s, so a folder candidate reads as
+    ; "below" a file and wins; equal keys fall through to the name compare
+    mov al, [es:di+16]
+    mov ah, [es:si+16]
+    and ax, 0x0202
+    cmp al, ah
+    jne .ndone
     mov cx, 16                  ; the display-name field (SPEC.md 19)
 .ncmp:
     mov al, [es:di]
