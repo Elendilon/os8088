@@ -458,11 +458,16 @@ def main():
         # the same Mode X run draws cells at stretches inside the first
         # shot too - more cells than the one scene change - and is left
         # out on the Hercules
+        # (at --lookahead-floor 0: the floor's cut draws this clip's
+        # stretches better than 4x1 cells, so the ladder rightly takes none
+        # and the rung would go untested - 3c' is the floor's own leg)
         p_any, r_any = run2("mxany", "--preset", "modex", "--ladder",
-                            "coarseany:4x1", *tight)
+                            "coarseany:4x1", "--lookahead-floor", "0",
+                            *tight)
         vid.verify_v88(p_any)
         h_any, rh_any = run2("hgany", "--preset", "herc", "--ladder",
-                             "coarseany:4x1", *tight)
+                             "coarseany:4x1", "--lookahead-floor", "0",
+                             *tight)
         print("   3c: --ladder coarseany:4x1 on Mode X: cells %s, decided %s;"
               " on a Hercules cells %s, decided %s" % (
                   r_any["cells"], r_any["ladder"], rh_any["cells"],
@@ -529,7 +534,8 @@ def main():
                 a3 = venc.parser().parse_args(
                     [src2, os.path.join(tmp, "par%s.V88" % arm), "--audio",
                      "none", "--jobs", "4", "--preset", "modex",
-                     "--ladder", "coarseany:4x1,cut:5"] + list(tight[:-2]))
+                     "--ladder", "coarseany:4x1,cut:5",
+                     "--lookahead-floor", "0"] + list(tight[:-2]))
                 fo = io.StringIO()
                 with contextlib.redirect_stdout(fo):
                     venc.encode(a3, None)
