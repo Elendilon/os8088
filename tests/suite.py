@@ -13021,6 +13021,16 @@ SOAK = [
         "or vp_canwin taking the window) the holds FAIL",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidposter", "soak", py("tests/vidposter.py"), 90.0,
+        "SPEC.md 98.1.3.11, 98.4.5: DESKTOP POSTERS, on MartyPC's VGA XT - a "
+        "640-wide file of its own sixteen greys in checkerboards, shown at "
+        "half. Stored at half with a custom one: the box is the custom "
+        "poster at open and key 1's after Right, byte for byte; stored at "
+        "its own size: halved as packed_half; none stored: vga4_pack's "
+        "turning cell. Broken on purpose - the posters ignored, or either "
+        "halving's turn taken out - each arm FAILS",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidscreeno", "soak", py("tests/vidscreen.py", "--own"), 160.0,
         "SPEC.md 98.1.3.10, 98.3.8.7: vidscreen's clips AGAINST THEIR OWN "
         "PAGE on the four flipped screens (byte 37 7): drawn on the back "

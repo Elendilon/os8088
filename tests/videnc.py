@@ -578,6 +578,42 @@ def main():
                 bad.append("--audio speaker took %s" % extra[0])
             except vid.V88Error:
                 print("   --audio speaker refuses %s" % extra[0])
+        # --- 3a'': the DESKTOP POSTERS' choices (98.1.3.11): a file of its
+        # own colours too wide for the window stores each key's at half and
+        # a custom one off the clip; `off` stores none; a file the window
+        # holds, in the desktop's own colours, needs none; and a custom
+        # poster asked for with posters off is refused rather than dropped
+        def thumbs(p):
+            r_ = vid.Reader(p)
+            return r_, r_.thumb
+        pd, rd, kd = run("desk-own", "--preset", "vga4-full", "--palette",
+                         "clip16", "--end", "1", "--poster-image", "@0.5")
+        r_, th = thumbs(pd)
+        nk = len(r_.keys)
+        want = (nk + 1, 320, 240, 2, vid.TH_CUSTOM)
+        got = th and (th[1], th[2], th[3], th[4], th[5] & vid.TH_CUSTOM)
+        print("   desktop posters, own colours at 640 x 480: %r (want %r)"
+              % (got, want))
+        if got != want:
+            bad.append("an own-colour 640 x 480 file's posters are %r, not "
+                       "%r" % (got, want))
+        for name, args in (("desk-off", ("--preset", "vga4-full", "--palette",
+                                          "clip16", "--desktop-posters",
+                                          "off")),
+                           ("desk-std", ("--preset", "vga4",))):
+            p_, r2, k2 = run(name, *args, "--end", "1")
+            got = thumbs(p_)[1]
+            print("   desktop posters, %s: %s" % (
+                name, "none" if not got else "%r" % (got,)))
+            if got:
+                bad.append("%s stored desktop posters %r" % (name, got))
+        try:
+            run("desk-refuse", "--preset", "vga4-full", "--palette", "clip16",
+                "--desktop-posters", "off", "--poster-image", "@0.5",
+                "--end", "1")
+            bad.append("--poster-image was taken with --desktop-posters off")
+        except vid.V88Error as e:
+            print("   --poster-image with posters off: refused (%s)" % e)
         # --- 3b: --avg auto (98.2.1.5) - the per-frame ceiling on a profile
         # with a disk curve, the profile's own average on one without, and
         # the record holds the SHARE it came to, never the word

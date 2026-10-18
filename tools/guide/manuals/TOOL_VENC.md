@@ -182,6 +182,8 @@ use:
 | `--title T`, `--credits C` | The name Video Player shows, and a line for its information card |
 | `--keysecs S` | Seconds between keyframes, the places a seek can start from. The default is 2 |
 | `--poster K`, `--poster-at S` | Which keyframe is the poster, by number or by time |
+| `--poster-image FILE` or `@S` | For 16 colours: a picture of your own to show when the file opens, or the video's own frame S seconds in. A play still starts at a keyframe |
+| `--desktop-posters` | For 16 colours: `auto` (the default) stores a small picture of each keyframe for the desktop's Preview when the video is too big for the window or uses colours of its own; `on` always, `off` never |
 | `--preview-png DIR` | Also save the screen once a second as PNG pictures in that folder |
 | `--quiet` | Print less |
 

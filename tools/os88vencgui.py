@@ -243,6 +243,18 @@ def _tearing(c):
                PF_WORDS[c["pixfmt"]]))
 
 
+def _desk(c):
+    """DESKTOP POSTERS (98.1.3.11): a sixteen-colour stream's - a Live or
+    resident file is shown at its own size, in the desktop's colours"""
+    if c["pixfmt"] != "vga4":
+        return ("The desktop's posters are made for 16 colours; this file "
+                "is %s, whose Preview makes its own." % PF_WORDS[c["pixfmt"]])
+    if c["live"] or c["resident"]:
+        return ("A Live or resident file is shown in the window at its own "
+                "size, as it plays.")
+    return None
+
+
 def _held(c, what):
     """None unless the file is held WHOLE - Live or resident - which then
     `what`: the read-ahead's options have nothing to act on"""
@@ -422,7 +434,10 @@ GROUPS = [
     ("Loop and keys", "Held in memory", ("resident", "live", "xms"),
      ALWAYS),
     ("Loop and keys", "Keyframes and the poster", ("keysecs", "poster",
-                                                   "poster_at"), ALWAYS),
+                                                   "poster_at",
+                                                   "poster_image",
+                                                   "desktop_posters"),
+     ALWAYS),
     ("Advanced", "This computer", ("jobs",), ALWAYS),
 ]
 # ...and inside a group that applies, the few options narrower than it
@@ -457,6 +472,9 @@ FIELD_WHEN = {
     % ("mode 12h's 640 x 480" if c["pixfmt"] == "vga4" else
        "mode 13h" if c["pixfmt"] == "vga8" else
        "this %s file" % c["pixfmt"]),
+    # (98.1.3.11: the desktop's posters are a sixteen-colour stream's)
+    "poster_image": lambda c: _desk(c),
+    "desktop_posters": lambda c: _desk(c),
     # (VIDEO-SEEN-PLAN 3b: each record against its own page - the flip's,
     # in a stream with no loop or layer; with page-ahead on 3 pages or more
     # too, built ahead as well)

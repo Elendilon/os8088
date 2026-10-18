@@ -171577,7 +171577,7 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 | 37 | 1 | MODEX, and VGA4 on a screen of its own: **2 = page flipped** (98.3.8), **3 = page-ahead** (98.1.3.7, with flag PAGE and only with it), **4 = page-ahead on N pages** (98.1.3.7.1, with flag PAGE too), **5 = flipped AND built ahead on N pages** (98.1.3.7.2, flag PAGE too), 0 or 1 not; 0 in every other file |
 | 38 | 1 | VGA4: **the screen** (98.1.3.2.1) - 0 mode 12h's 640 x 480, 1 320 x 200, 2 320 x 240, 3 640 x 350, 4 640 x 400, **5 320 x 200 and 6 320 x 240 with rows 40 bytes apart** (98.1.3.2.5); MODEX: 0 320 x 240, **1 320 x 200** (98.1.3.1.1); 0 in every other file, and in a RESIDENT or LIVE one |
 | 39 | 1 | with byte 37 = 4 or 5: **N, the pages the file uses**, 3 to 8 (98.1.3.7.1); else 0 |
-| 40 | 24 | 0 (but for the words the sections above name at 40, 53, 54, 56 and 60, and 62: THE BENCH, the player's own bench record's decode modelled on the machine the file was made for, 10 us, 0 none - 98.1.9.13) |
+| 40 | 24 | 0 (but for the words the sections above name at 40, 53, 54, 56 and 60, and 62 - 40..51 being a RESIDENT file's block fields and a sixteen-colour stream's DESKTOP POSTERS, 98.1.3.11 -: THE BENCH, the player's own bench record's decode modelled on the machine the file was made for, 10 us, 0 none - 98.1.9.13) |
 
 #### 98.1.1.2 Repeat: the flags, and the seam
 
@@ -172786,6 +172786,61 @@ period for the restore against 127% for the frame on Last Exile, Mode X).
 - What it costs is BYTES: a change against two frames back is the union of
   two frames' changes where the picture moves on. A player before this one
   refuses byte 37 7 at open.
+
+#### 98.1.3.11 DESKTOP POSTERS: a key's picture made for the Preview (2026-10-18)
+
+**A sixteen-colour stream may carry, per key, the picture the Preview's box
+shows for it**, made on the host and blitted as it stands. The owner's
+report, on two kinds of file. T69, a 640-wide file in its own colours,
+showed a black box with one white dot: 98.4.5's poster took one pixel of
+every cell and so picked one colour of each 50% checkerboard. Colour
+files at half lost most or all of their colour, because a picture in its
+own sixteen drawn in the desktop's NEAREST sixteen keeps only the colours
+the two sets share. A key's poster here is each cell AVERAGED in the
+file's colours, then error-diffused (Floyd-Steinberg) onto the desktop's
+`STD16`. Reading it is cheaper than the decode it replaces.
+
+- **The fields are the rendition slot's bytes 40..51**, a RESIDENT file's
+  block fields (98.1.7) and so free in a stream: a u32 offset of the
+  **table**, a u16 count of its **entries**, the poster's **width** and
+  **height** in pixels (u16 each), its **scale** (u8: 1, 2 or 4) and
+  **flags** (u8; bit 0 `TH_CUSTOM`). All 0 for none.
+- **The size is `vga4_pack`'s at that scale**: width = canvas width / scale,
+  height = canvas height / scale rounded up, packed two pixels a byte, the
+  left one high, rows (width + 1) / 2 bytes apart.
+- **An entry a key, in key order**, then with `TH_CUSTOM` one more, the
+  **custom poster**: 8 bytes each, a u32 offset, u16 packed bytes, u8
+  packing (0 stored, 1 LZ4 as `OSAPI_DECOMP` AL = 0 takes it) and a 0. The
+  table and its pictures sit after the options record and before the
+  stream.
+- **The custom poster** is shown when the file opens and at the end of a
+  play, in place of the poster key's (98.4). The play still starts at a key.
+  `tools/os88vid.py`'s `set_poster` drops it, since choosing a poster key
+  replaces the custom one.
+- **Which files carry them** is the encoder's `--desktop-posters`. `auto`,
+  the default, makes them for a file too big for the window at its own
+  size, and for a file in colours of its own whatever its size: such a file
+  plays full screen only, so the Preview is the only place it is shown on
+  the desktop. They are made at the size the window shows (own size where
+  it fits, else half). A file in the desktop's own colours that fits needs
+  none, because its decoded key is exactly what it plays. `on` makes them
+  for every stream, `off` for none, and `--poster-image FILE|@SECS` adds
+  the custom one (refused with `off`, and on a resident or Live file, both
+  of which are shown at their own size).
+- **The player** reads the entry and its bytes through its key read buffer
+  and unpacks them into the poster's claim. It reads them at the stored
+  scale or at twice it, halving (`vp_dphalf`) one pixel of each 2 x 2 cell
+  with the turning pick 98.4.5 describes. A layout at a scale it cannot
+  serve, a failed read, or a table or entry that does not describe this
+  file's poster at its scale (`vp_thparse` checks every field against the
+  header) falls back to decoding the key. A player before this one ignores
+  the fields.
+- **The cost** is about 1.3% of a file's bytes at half (432 KB over 37 keys
+  on T69, LZ4).
+
+`tests/vidposter.py` holds the player to the host byte for byte on a
+stored half, a stored own size halved and none stored. `videnc` checks the
+encoder's four choices.
 
 #### 98.1.4 The stream: chained super-packets
 
@@ -174843,6 +174898,15 @@ before 98.3.8.7 refuses the two-page file. With `--page-ahead on --pages 3`
 or more it is 98.2.1.8.5's file against its own pages instead - byte 37 5,
 which plays on any player since 98.3.8.5 - and the best of them: Last
 Exile's 77 frames cut and 9.6%.
+
+**`--desktop-posters auto|on|off`** and **`--poster-image FILE|@SECS`**
+(options version 43; `auto` and none): a sixteen-colour stream's DESKTOP
+POSTERS (98.1.3.11). `auto` makes them for a file too big for the window,
+or in colours of its own, at the size the window shows it. A custom
+poster is a picture FILE scaled and cropped as the clip is, or `@SECS`,
+the clip's own frame that many seconds after `--start`, on a key or not.
+It is refused with `off` and on a resident or Live file. The encoder's
+info names what it stored.
 
 **`--ladder RUNGS`: THE DEGRADE LADDER** (options version 40, blank - off
 - by default; docs/plans/VIDEO-SEEN-PLAN.md 3a). The ways a frame the
@@ -181219,13 +181283,24 @@ reference, and `tests/vidvga8.py` holds the player to them bit for bit.
 
 #### 98.4.5 A sixteen-colour poster
 
+A file that carries DESKTOP POSTERS (98.1.3.11) has the box's picture
+read, not decoded: the key's own, or at open and at the end the custom one,
+unpacked into the poster's claim and halved there when the layout shows
+twice the stored scale. The rest of this section is every other VGA4 file,
+and any key whose stored poster cannot be used.
+
 A VGA4 keyframe is decoded into its RAM planes and `vp_v4pack` packs it
-for `OSAPI_GFX_BLIT4` - two pixels a byte, the left one high - taking every
-`vp_ps`-th pixel of every `vp_ps`-th row, so a half or a quarter is a
-decimation rather than 98.4's dithered halving. The box is then drawn in
-the desktop's own sixteen colours, and on a one-bit desktop `gfx_blit4`
-renders them as it renders any picture. `tools/os88vid.py`'s `vga4_pack` is
-the reference and `vidvga4` holds the player to it byte for byte.
+for `OSAPI_GFX_BLIT4` - two pixels a byte, the left one high - taking ONE
+pixel of each `vp_ps` x `vp_ps` cell, so a half or a quarter is a
+decimation rather than 98.4's dithered halving. **Which pixel turns with the
+output's place** (2026-10-18): at output (ox, oy) it is the cell's row
+oy x s + ox mod s and column ox x s + oy mod s. A fixed corner turned a 50%
+checkerboard, the commonest dither there is, into one of its two colours
+(T69's black box). The turning pick keeps it a checkerboard. The box is
+then drawn in the desktop's own sixteen colours, and on a one-bit desktop
+`gfx_blit4` renders them as it renders any picture. `tools/os88vid.py`'s
+`vga4_pack` is the reference, and `vidvga4` and `vidposter` hold the player
+to it byte for byte.
 
 #### 98.4.6 A CGA-colour poster
 

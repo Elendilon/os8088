@@ -1072,9 +1072,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "c040b9dd",
-  "strings": "dada18c42a758f28",
-  "why": "added --flip-own (Flip own, under Tearing on Size vs quality's Choices): below the page's level of detail, which names 'tearing and second pages' and no single option"
+  "stamped": "4576a12b",
+  "strings": "e6e6b476588c76a0",
+  "why": "added --poster-image and --desktop-posters to the options table; --flip-own is below the page's level (the Choices row's tearing and second pages covers it)"
  },
  "TRACKER_O88": {
   "sources": [

@@ -853,7 +853,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 42
+OPTS_VERSION = 43
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -884,7 +884,8 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     35: "e1090fc6c20c5367", 36: "00e7310bd1a264d8",
                     37: "096abca8b264506a", 38: "eaf373ad8f1e1fdb",
                     39: "7a7d4203d99fd27d", 40: "4fffe628a862c24e",
-                    41: "9c78d785df0d94a4", 42: "6f2cb773837bd222"}
+                    41: "9c78d785df0d94a4", 42: "6f2cb773837bd222",
+                    43: "ec2917558c23907f"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1066,6 +1067,9 @@ MIGRATIONS = {
     # 42: --flip-own (VIDEO-SEEN-PLAN 3b) - a file made before it was a
     # change against the frame before, its page brought up first
     41: [("added", "flip_own", False)],
+    # 43: --desktop-posters and --poster-image (98.1.3.11) - a file made
+    # before them had none
+    42: [("added", "desktop_posters", "off"), ("added", "poster_image", None)],
 }
 
 
@@ -8441,6 +8445,85 @@ def key_bench(m, rec, wr):
     return (2 if wr.flip else 1) * m.cost(rec)
 
 
+# DESKTOP POSTERS (98.1.3.11): the window's room for a picture at its own
+# size on a 640 x 480 desktop - wider or taller and it is shown at half
+DESK_FIT = (630, 400)
+_DESK_CACHE = {}
+
+
+def desk_scale(w, h, own, mode):
+    """The scale a sixteen-colour file's desktop posters are made at, or
+    None for none: its own size where it fits the window - but only for a
+    file of its own colours (or `on`), whose own-size poster the player
+    would draw in the desktop's nearest - else a half, else a quarter"""
+    if mode == "off":
+        return None
+    for s in (1, 2, 4):
+        if w // s <= DESK_FIT[0] and h // s <= DESK_FIT[1]:
+            break
+    if s == 1 and not own and mode != "on":
+        return None
+    return s
+
+
+def desk_posters(a, wr, g, palette, lw, lh, crop, rate, spf, eq, rep):
+    """wr.thumbs for a sixteen-colour stream (98.1.3.11): each key's poster
+    from its canvas in the colours in effect at its frame, and a custom one
+    from --poster-image"""
+    if a.resident or a.live:
+        if getattr(a, "poster_image", None):
+            raise vid.V88Error("--poster-image is a stream's: a resident or "
+                               "Live file is shown at its own size")
+        return
+    pev = list(getattr(wr, "pev", None) or [])
+    pals = [bytes(p[:48]) for f, p in pev] or [bytes(palette[:48])]
+    own = any(p != vid.STD16 for p in pals)
+    mode = getattr(a, "desktop_posters", "auto")
+    custom = getattr(a, "poster_image", None)
+    ts = desk_scale(g.w, g.h, own, "on" if custom and mode == "auto"
+                    else mode)
+    if ts is None:
+        if custom:
+            raise vid.V88Error("--poster-image with --desktop-posters off")
+        return
+
+    def make(cv, _ts=ts):
+        f = None
+        for k, r, c in wr.keys:
+            if c is cv:
+                f = k
+        pal = bytes(palette[:48])
+        for fr, p in pev:
+            if f is not None and fr <= f:
+                pal = bytes(p[:48])
+        key = (hash(cv), len(cv), pal, _ts)
+        pk = _DESK_CACHE.get(key)
+        if pk is None:
+            pk = _DESK_CACHE[key] = vid.desktop_poster(cv, g.w, g.h, pal,
+                                                       _ts)
+        return pk
+    cpk = None
+    if custom:
+        if custom.startswith("@"):
+            t0 = (a.start or 0.0) + float(custom[1:])
+            src, t1 = a.src, t0 + 2.0 * spf / rate
+        else:
+            src, t0, t1 = custom, 0.0, None
+        fr = next(iter(ffmpeg_video(src, lw, lh, crop, "%d/%d" % (rate, spf),
+                                    t0, t1, ":".join(eq), pix="rgb24")),
+                  None)
+        if fr is None or fr.shape[:2] != (g.h, g.w):
+            raise vid.V88Error("--poster-image %s: no picture of %d x %d "
+                               "came out of it" % (custom, g.w, g.h))
+        cpk = vid.desktop_poster_rgb(fr.astype(np.float64) * 63.0 / 255.0,
+                                     g.w, g.h, ts)
+    wr.thumbs = (ts, make, cpk)
+    rep("file", "desktop posters: %s%s at %s, in the desktop's sixteen "
+        "(98.1.3.11)" % ("a key's each" if wr.keys else "none",
+                         " and a custom one" if cpk is not None else "",
+                         {1: "its own size", 2: "half", 4: "a quarter"}[ts]))
+
+
 def page_key0(path, res):
     """A page-ahead file's KEY 0, as (frame, bytes), when the player cannot
     read it - left out of the table, or past KEY_PLAYER - else None"""
@@ -10594,6 +10677,9 @@ def _encode(a, keep, tick, readers):
             wr.ahead = 0                # Auto, and no frame needed it
         if pa is not None:              # (98.2.1.8: keys that preload)
             pa.upkeys = pa.upgrade_keys(wr)
+        if vga4:                        # (98.1.3.11: the Preview's posters)
+            desk_posters(a, wr, g, palette, lw, lh, crop, rate, spf, eq,
+                         rep)
         res = wr.write(a.out, poster)
         if res["kleadcost"]:
             # a key that fitted one read and does not with its lead: seeking
@@ -11840,6 +11926,21 @@ def parser():
     ap.add_argument("--poster-at", type=float, metavar="SECS",
                     help="...or the keyframe nearest this many seconds into the "
                          "clip (after --start)")
+    ap.add_argument("--poster-image", metavar="FILE|@SECS",
+                    help="16 colours: a CUSTOM poster, shown when the file "
+                         "opens - a picture FILE, or @SECS for the clip's "
+                         "own frame that many seconds in (after --start), "
+                         "on a key or not; the play still starts at a key "
+                         "(98.1.3.11)")
+    ap.add_argument("--desktop-posters", choices=("auto", "on", "off"),
+                    default="auto",
+                    help="16 colours: each key's picture for the desktop's "
+                         "Preview made here - averaged and dithered to the "
+                         "desktop's sixteen, at the size the window shows "
+                         "it - where the player's own would be poor: auto "
+                         "(the default) for a file in colours of its own or "
+                         "too big for the window, on for every file, off "
+                         "for none (98.1.3.11)")
     ap.add_argument("--preview-png", metavar="DIR",
                     help="the screen once a second, as PNGs")
     ap.add_argument("--quiet", action="store_true")
