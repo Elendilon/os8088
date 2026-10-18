@@ -9254,11 +9254,16 @@ def _encode(a, keep, tick, readers):
             palette = bytes(pal16) + bytes(vid.PAL_BYTES - 48)
             dith = Staged(d4, post=None if scodes is not None else
                           lambda i: codes[i])
-            say("   palette: %s, pixel values %s" % (
+            # (the pixel value each colour is stored at: said only where it
+            # is not simply its index - fewer than 16 take spread plane
+            # codes, vid.plane_code - since all 16 always read 0 to F)
+            say("   palette: %s%s" % (
                 "%d greys" % pn if pk == "grey" else
                 "the clip's %d colours%s" % (
                     pn, ", chosen for colour" if pk == "colour" else ""),
-                " ".join("%X" % c for c in codes)))
+                "" if [int(c) for c in codes] == list(range(len(codes)))
+                else ", pixel values %s" % " ".join("%X" % c
+                                                     for c in codes)))
     elif vga8:
         pk, pn = palette_kind(a.palette)
         if pk == "grey":            # A RAMP (98.2.3.7): a level a pixel,
