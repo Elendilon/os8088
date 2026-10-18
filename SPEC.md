@@ -177098,7 +177098,14 @@ palette, the levels, the SCENE PASS and each scene's colours (which until
 then said nothing at all: a long `--scene-palettes` clip sat on one silent
 step for a minute and more), the planes' order, the cells' scene changes,
 the ladder's colour step-down (a scene each), `--aim quality`'s trials,
-read, sound, encode, a wait, and write. A STREAMED pass reads, dithers and
+read, sound, encode, a wait, write, and check - the file played back
+against its stream, where it is held whole or its sound ahead
+(`verify_v88`). That one ran under "Writing the file" until 2026-10-18,
+and on the owner's Bad Carrot (6,480 frames of two-page VGA4) it sat
+there 15 minutes: a pixel-at-a-time VGA4 canvas was taken for both pages
+of every frame, 0.11 s each. The canvas, its inverse and the plane split
+take numpy now, the same bytes about 200 times as fast, and a verify of
+that size is about a minute. A STREAMED pass reads, dithers and
 encodes at once: its count is the frames ENCODED, and its note the frames
 read and dithered so far and anything a frame is doing that takes longer
 than a frame - the ladder's trials (how many, and whether at once), the

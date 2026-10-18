@@ -1509,6 +1509,7 @@ STEP_TEXT = {"prepare": ("Getting ready", None),
              "encode": ("Encoding", "frame"),
              "wait": ("Waiting", None),
              "write": ("Writing the file", None),
+             "check": ("Checking the file", None),
              "disk": ("Making the disk", None),
              "preview": ("Loading the preview", "frame")}
 

@@ -1494,6 +1494,29 @@ class Geom:
             for x in range(wb):
                 self.rowof[b + x] = y
 
+    def _np(self):
+        """numpy, for VGA4's bit-planes, with each plane's byte of each
+        canvas byte's address (4, h, wb) - or None: the loops below are the
+        same answer, a pixel at a time (2026-10-18: a two-page file's
+        verify_v88 took a canvas each page each frame, 0.11 s apiece, and
+        sat 15 minutes on the owner's Bad Carrot)"""
+        if getattr(self, "_pidx", None) is None:
+            try:
+                import numpy as np
+            except ImportError:
+                self._pidx = False
+                return None
+            if self.w != self.wb * 8:
+                self._pidx = False
+                return None
+            self._pidx = (np.arange(4)[:, None, None] * PLANE +
+                          np.asarray(self.base)[None, :, None] +
+                          np.arange(self.wb)[None, None, :])
+        if self._pidx is False:
+            return None
+        import numpy as np
+        return np
+
     def surface(self):
         """A black surface image: 64 KB, or a plane of it each for MODEX"""
         return bytearray(PLANE * self.planes)
@@ -1504,6 +1527,12 @@ class Geom:
         if self.planes == 1:
             return b"".join(bytes(surf[b:b + self.wb]) for b in self.base)
         if self.bitplanes:          # VGA4: bit x of each plane, a pixel
+            np = self._np()
+            if np is not None:
+                bits = np.unpackbits(np.frombuffer(surf, np.uint8)[
+                    self._pidx], axis=2)
+                return (bits[0] | bits[1] << 1 | bits[2] << 2 |
+                        bits[3] << 3).tobytes()
             w, out = self.w, bytearray(self.w * self.h)
             for y, b in enumerate(self.base):
                 for xb in range(self.wb):
@@ -1525,6 +1554,11 @@ class Geom:
                 surf[b:b + self.wb] = cv[y * self.wb:(y + 1) * self.wb]
             return
         if self.bitplanes:
+            np = self._np()
+            if np is not None:
+                sv = np.frombuffer(surf, np.uint8)
+                sv[self._pidx] = vga4_packed(np, cv, self)
+                return
             for y, b in enumerate(self.base):
                 row = cv[y * self.w:(y + 1) * self.w]
                 for p in range(4):
@@ -2003,8 +2037,19 @@ def keyframe_ops(surf, g):
     return spans(changed, surf, g)
 
 
+def vga4_packed(np, cv, g):
+    """A VGA4 canvas's four planes as a (4, h, wb) array: bit 7 of a byte
+    the leftmost of its eight pixels"""
+    c = np.frombuffer(bytes(cv), np.uint8).reshape(g.h, g.wb, 8)
+    return np.stack([np.packbits(c >> p & 1, axis=2)[..., 0]
+                     for p in range(4)])
+
+
 def vga4_planes(cv, g):
     """A VGA4 canvas's four plane images, each g.wb x g.h bytes, dense"""
+    np = g._np()
+    if np is not None:
+        return [bytearray(x.tobytes()) for x in vga4_packed(np, cv, g)]
     out = [bytearray(g.wb * g.h) for _ in range(4)]
     w = g.w
     for y in range(g.h):

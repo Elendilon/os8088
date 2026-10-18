@@ -10476,6 +10476,7 @@ def _encode(a, keep, tick, readers):
             posters=[poster] if poster is not None else None,
             live=[vid.TARGETS[a.live]] if a.live else None,
             spk=spk and bool(afmt), opts=optsblk)
+        tick("check", 0, 0, "every frame of the file played back")
         vid.verify_v88(a.out)
         rr = vid.Reader(a.out)
         res = dict(bytes=st["bytes"], stream=st["blocks"][0][0] +
@@ -10531,6 +10532,8 @@ def _encode(a, keep, tick, readers):
                     " with their sound ahead" if wr.ahead and
                     not getattr(wr, "kleads", True) else ""))
         if wr.ahead:                    # every lead and the laps' tails
+            tick("check", 0, 0, "every frame of the file played back "
+                 "against its stream, its sound ahead with it")
             vid.verify_v88(a.out)       # held to their frames (98.1.8)
     # THE FILE'S BYTES, BY WHAT READS THEM: the base's stream (its pictures
     # and its sound, what every machine plays), the layer (only the better

@@ -1190,7 +1190,7 @@ def leg8(tmp, bad):
           "under the encoded; encode frames %d..%d of %d"
           % (len(seen), " ".join(firsts), back, lied, enc[0][0], enc[-1][0],
              enc[-1][1]))
-    if firsts[0] != "prepare" or firsts[-1] != "write" or \
+    if firsts[0] != "prepare" or firsts[-1] not in ("write", "check") or \
             "encode" not in firsts or back or lied or \
             enc[-1][0] != enc[-1][1] - 1:
         bad.append("8: the progress went %s, %d counts back, %d dithered "
@@ -1367,8 +1367,8 @@ def leg12(tmp, bad):
     print("  12: a job run whole: exit %d, %d progress lines, steps %s, "
           "%d log lines" % (rc, len(steps), " ".join(firsts),
                             sum(1 for k, v in ev if k == "log")))
-    if not ok or firsts[0] != "prepare" or firsts[-1] != "write" or \
-            "encode" not in firsts:
+    if not ok or firsts[0] != "prepare" or \
+            firsts[-1] not in ("write", "check") or "encode" not in firsts:
         bad.append("12: a whole job exited %d with steps %s" % (rc, firsts))
     long_src = os.path.join(tmp, "long.mp4")
     subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi",
