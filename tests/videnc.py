@@ -590,13 +590,13 @@ def main():
                          "clip16", "--end", "1", "--poster-image", "@0.5")
         r_, th = thumbs(pd)
         nk = len(r_.keys)
-        want = (nk + 1, 320, 240, 2, vid.TH_CUSTOM)
+        want = (nk + 1, rd["w"] // 2, (rd["h"] + 1) // 2, 2, vid.TH_CUSTOM)
         got = th and (th[1], th[2], th[3], th[4], th[5] & vid.TH_CUSTOM)
-        print("   desktop posters, own colours at 640 x 480: %r (want %r)"
-              % (got, want))
+        print("   desktop posters, own colours at %d x %d: %r (want %r)"
+              % (rd["w"], rd["h"], got, want))
         if got != want:
-            bad.append("an own-colour 640 x 480 file's posters are %r, not "
-                       "%r" % (got, want))
+            bad.append("an own-colour %d x %d file's posters are %r, not "
+                       "%r" % (rd["w"], rd["h"], got, want))
         for name, args in (("desk-off", ("--preset", "vga4-full", "--palette",
                                           "clip16", "--desktop-posters",
                                           "off")),

@@ -319,7 +319,8 @@ def options_leg():
     # as the blank it stands for, no dropdown offers an empty entry, and a
     # field emptied by hand is put back to what the encode will use
     # (a blank ladder is NO ladder - the checkbox on its tab is off)
-    free = {"title", "credits", "poster_at", "spk_preview", "ladder"}
+    free = {"title", "credits", "poster_at", "poster_image", "spk_preview",
+            "ladder"}
     for d, w in G.BLANK_WORD.items():
         f = [x for x in G.fields() if x["dest"] == d]
         if not f:

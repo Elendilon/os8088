@@ -553,6 +553,14 @@ CHOICE_HELP = {
         "size": "Leave out changes not worth their bytes: the smallest "
                 "file for the look",
     },
+    "desktop_posters": {
+        "auto": "16 colours: a small picture of each keyframe for the "
+                "desktop's Preview, stored when the video is too big for the "
+                "window or uses colours of its own (the default)",
+        "on": "16 colours: the Preview's pictures stored for every video",
+        "off": "16 colours: none stored; the Preview decodes each keyframe "
+               "and shows it in the desktop's nearest colours",
+    },
     "flip_hold": {
         "ahead": "With Min fps on a flipped file, a held frame is drawn on "
                  "the hidden page toward the next one, which finishes it "
