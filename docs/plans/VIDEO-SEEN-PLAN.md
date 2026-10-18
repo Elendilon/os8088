@@ -1,6 +1,6 @@
 # VIDEO-SEEN-PLAN - "error as seen" as a person sees it, and an encoder that spends by it
 
-**Status (2026-10-18): sections 2, 3 and 3a BUILT; 3b is the one design still OPEN, and section 4 lists what else is.** Section 2's score is a report line in three sets (colour, grey, 1-bit dither) and is what `--aim quality`'s trials, page-ahead's keep and the degrade ladder decide by. Section 3 is two options - `--edges 1` the default, `--attend` 0 and to stay so - and the look-ahead's floor (`--lookahead-floor 0.5`). 3a is the degrade ladder, `--min-fps`, held records, coarse cells at a scene or at any cut, and two rounds of encoder speed. Recorded from the owner's
+**Status (2026-10-18): sections 2, 3 and 3a BUILT; 3b BUILT as an option, `--flip-own`, its automatic choice open; section 4 lists what else is.** Section 2's score is a report line in three sets (colour, grey, 1-bit dither) and is what `--aim quality`'s trials, page-ahead's keep and the degrade ladder decide by. Section 3 is two options - `--edges 1` the default, `--attend` 0 and to stay so - and the look-ahead's floor (`--lookahead-floor 0.5`). 3a is the degrade ladder, `--min-fps`, held records, coarse cells at a scene or at any cut, and two rounds of encoder speed. Recorded from the owner's
 review of the GasGas and Bad Carrot comparison encodes, and parked while
 the encoder's choice in one scene is fixed first: the opening car shot of
 GasGas (0:40), which the owner's own tune plays clean on the Victory 286
@@ -749,7 +749,41 @@ drawn over the base's, so a base drawn toward the next frame would have
 the layer drawing it back - paid for twice), and LIVE (a pass a tick on
 the desktop).
 
-## 3b. OPEN: a flipped file whose every record is against its own page
+## 3b. BUILT AS AN OPTION: a flipped file whose every record is against its own page
+
+**BUILT 2026-10-18 as `--flip-own`** (SPEC.md 98.1.3.10, 98.2.1.2, 98.3.8.7;
+the owner: "speed gains are very valuable to video player, each one means
+less things we need to cut or degrade"). Rendition byte 37 = 7; the record
+after a key carries `REC_UP` and takes the rows where the two pages differ
+off the glass, which is the one thing this section's sketch below did not
+see - a seek puts the key on both pages, a play through it does not.
+
+**The measurement this section asked for** (each frame of a file as made
+today, priced both ways with the profile's own table, the records rebuilt
+from the frames shown and priced within 1% of the file's own): on Last
+Exile 0:10-0:25, Mode X flipped on `286-speeddemon`, a frame is 34.3% of
+its budget for its own record and **34.2% to bring its page up**, and
+50.4% against the frame two back - every one of 344 frames cheaper, at
++46% bytes (10.7 KB a frame -> 15.6). The encode then says what the CPU
+buys:
+
+| | frames cut | the view broken | s broken | bytes |
+|---|---:|---:|---:|---:|
+| Last Exile 0:10-0:25, `--flip` | 173 | 23.9% | 6.6 | 4.5 MB |
+| ...`--flip-own` | **93** | **12.1%** | **3.5** | 6.5 MB |
+| Bad Carrot 3:05-3:20, the owner's options, `--flip` | 68 | 3.71% | 1.13 | 4.3 MB |
+| ...`--flip-own` | **56** | **2.47%** | **0.83** | 5.5 MB |
+| ...the owner's own (page-ahead, not flipped) | 33 | 1.13% | 0.53 | 5.2 MB |
+
+It is the TRADE the sketch predicted, and the clip decides it: a plain pan
+16 cut -> 3, `testsrc2`'s pattern 2 -> 4 (the disk cuts it), a pan of
+noise 71 -> 72 (every pixel every frame: nothing to save). **OPEN**: an
+automatic choice - the page-ahead keep's shape (98.2.1.8.1), both passes
+and the better by the view as seen, at twice the encode - and whether
+page-ahead's own two-page files (byte 37 3, drawn on the page shown, which
+decode nothing twice) should gain a flipped arm against their own pages.
+
+What follows is the design as recorded, 2026-10-16.
 
 **Recorded, not started** (the owner, 2026-10-16: "record the option for
 changing the format and let's move on for now"). The held record's bring-up
@@ -802,9 +836,8 @@ line, fitted to the owner's scores (2a); (4) it steers `value` as
 `--edges 1`, `--attend` left at 0 (section 3).
 
 OPEN, 2026-10-18:
-1. **3b**, a flipped record against its own page - the owner's next. Its
-   first step is the host-side measurement 3b names, before any byte of
-   format.
+1. **3b's automatic choice**: `--flip-own` is BUILT as an option (3b); a
+   file that decides it for itself is the open part.
 2. **A degrade ladder that loses to no ladder** - on `videnc`'s synthetic
    Mode X clip a ladder that drew every stretch as it was came out 12.2-
    12.5% of the view broken against 9.4% with none. Being looked at.

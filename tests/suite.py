@@ -12395,6 +12395,16 @@ SOAK = [
         "35), the band not widened (37, 38), the copy not forced (37)",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidmodexflo", "soak", py("tests/vidvga8.py", "--layout", "modex",
+                                  "--flip", "--own", "--held"), 32.0,
+        "SPEC.md 98.1.3.10, 98.3.8.7: vidmodexflh's clip AGAINST ITS OWN "
+        "PAGE (byte 37 7) - every record drawn on the back page as it "
+        "stands, none brought up, the held ones left unshown, and the "
+        "record after each key taking its rows off the glass (REC_UP). The "
+        "glass exact at every hold, keys among them; with REC_UP ignored it "
+        "FAILS before frame 38 by 480 pixels",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidmodexflc", "soak", py("tests/vidvga8.py", "--layout", "modex",
                                   "--flip", "--lcopy"), 35.0,
         "SPEC.md 98.3.8.1: vidmodexfl with every back page brought up by "
@@ -12992,6 +13002,14 @@ SOAK = [
         "640 x 480, unflipped, played WITHOUT forcing the full screen. "
         "Broken on purpose (the palette not loaded, vp_show's OUTs skipped, "
         "or vp_canwin taking the window) the holds FAIL",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidscreeno", "soak", py("tests/vidscreen.py", "--own"), 160.0,
+        "SPEC.md 98.1.3.10, 98.3.8.7: vidscreen's clips AGAINST THEIR OWN "
+        "PAGE on the four flipped screens (byte 37 7): drawn on the back "
+        "page as it stands, the record after a key bringing its page up off "
+        "the glass, and the 640 x 480 one unflipped as before. Every hold's "
+        "glass exact, odd and even frames apart",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidcard", "soak", py("tests/vidcard.py"), 26.0,

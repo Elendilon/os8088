@@ -108,7 +108,10 @@ tools/os88venc.py encodes it three ways. Four questions:
    half period off the card, one frame a call - must leave no frame a
    whole frame behind at `--lag 0`. Without the flip schedule (the ceiling
    the peak alone) 68 are. At `--lag 125` (98.2.1.1.2) the picture may
-   fall behind, and must never fall as far as the lag.
+   fall behind, and must never fall as far as the lag. 5g'. --flip-own
+   (98.1.3.10): the pan without its noise on 286-speeddemon is byte 37 7,
+   verifies, carries REC_UP only after keys, is late nowhere in the
+   player's schedule, and cuts fewer frames than --flip (3 against 16).
 
 Broken on purpose - the measured retry in Encoder.frame skipped, so a
 frame is chosen by the per-span estimate alone - question 3 FAILS naming
@@ -1372,6 +1375,67 @@ def main():
         if not sched and not late:
             bad.append("the flip schedule: without it nothing is late - the "
                        "leg tests nothing")
+    # --- 5g': AGAINST ITS OWN PAGE (98.1.3.10, VIDEO-SEEN-PLAN 3b): the
+    # pan WITHOUT its noise flipped on 286-speeddemon, where the decode is
+    # what cuts, with --flip and with --flip-own (on the noisy pan the disk
+    # cuts and the two draw the same: 71 cut against 72). The own file is byte 37 7, verifies
+    # (the record after each key bringing its page up WHOLE), carries
+    # REC_UP after every key and on no other record, is late nowhere in
+    # the player's schedule priced as vp_owndec plays it - its record, and
+    # the copy where REC_UP says - and cuts FEWER frames than the flip that
+    # brings every page up
+    pan = os.path.join(ftmp, "pan.mkv")
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+         "testsrc2=size=960x240:rate=24:duration=3", "-f", "lavfi", "-i",
+         "sine=frequency=440:sample_rate=22050:duration=3", "-vf",
+         "crop=320:240:'mod(n*24,640)':0",
+         "-c:v", "ffv1", "-c:a", "pcm_s16le", pan], check=True)
+    oarm = {}
+    P = venc.PROFILES["286-speeddemon"]
+    t, sub = venc.profile_table(P, vid.LAY_MODEX)
+    kk = P["lcopy_us"] * vid.HZ / 1e6 * P["speed"]
+    for own in (False, True):
+        out = os.path.join(ftmp, "own%d.V88" % own)
+        args = venc.parser().parse_args(
+            [pan, out, "--quiet", "--preset", "modex", "--profile",
+             "286-speeddemon", "--flip", "--rate", "22050", "--lag", "0"] +
+            (["--flip-own"] if own else []))
+        res = venc.encode(args)
+        vid.verify_v88(out)
+        r = vid.Reader(out)
+        oarm[own] = (round(res["cutf"] * r.frames), r)
+    cut0, cut1 = oarm[False][0], oarm[True][0]
+    r = oarm[True][1]
+    keys = {e[0] for e in r.keys}
+    q = vid.HZ / r.fps * P["speed"]
+    aud = venc.CYC_AUDIO * r.abytes + venc.HOOK_CYC
+    end = late = 0
+    upf = []
+    for i, (rec, _, _) in enumerate(r.records()):
+        c = vid.cycles_of(rec, True, table=t, sub=sub, sub2=r.g.sub2) + aud
+        y0, y1 = struct.unpack_from("<HH", rec, 2)
+        if y1 & vid.REC_UP:
+            upf.append(i)
+            c += ((y1 & ~vid.REC_UP) - (y0 & ~vid.REC_HELD)) * 80 * kk + \
+                venc.CYC_LCOPY0
+        start = math.ceil(max(i * q, end) / (q / 2) - 1e-9) * (q / 2)
+        late += start - i * q >= q
+        end = start + c
+    print("   5g': --flip cuts %d frames, --flip-own %d (byte 37 %s); REC_UP "
+          "on frames %s after keys %s; %d late in the player's schedule"
+          % (cut0, cut1, 7 if r.own else "?", upf, sorted(keys), late))
+    if not r.own:
+        bad.append("--flip-own made a file that is not against its own page")
+    if any(f - 1 not in keys for f in upf):
+        bad.append("--flip-own: REC_UP on a record that does not follow a "
+                   "key: %s" % upf)
+    if late:
+        bad.append("--flip-own: %d frames late in the player's schedule"
+                   % late)
+    if not cut0 or cut1 >= cut0:
+        bad.append("--flip-own cut %d frames against --flip's %d: the decode "
+                   "it saves bought nothing" % (cut1, cut0))
     shutil.rmtree(ftmp, ignore_errors=True)
     # --- 5h: PAGE-AHEAD BY DEFAULT (98.2.1.8.1): Mode X, five stills with a
     # hard cut between them, on 286-fast - a whole new 320 x 180 picture is

@@ -172754,6 +172754,38 @@ It is `--min-fps`'s hold on a flipped file (98.2.1.2, VIDEO-SEEN-PLAN 3a,
 - A reader takes a held record's frame as the frame before it on the glass
   (`decode_at`): what the file shows, and what its holds are judged by.
 
+#### 98.1.3.10 FLIPPED AGAINST ITS OWN PAGE (2026-10-18)
+
+**A flipped file whose every frame record is a change against the page it
+is drawn on**, docs/plans/VIDEO-SEEN-PLAN.md 3b. Rendition byte 37 = **7**:
+byte 37 6's file (98.1.3.9, held records and all), except that no page is
+ever brought up. In byte 37 2 and 6 a record is a change against the frame
+BEFORE it, so its page - which holds the frame two back - is first brought
+up by the last record again or its rows off the glass, and that costs about
+as much as the frame's own decode (VIDEO-SEEN-PLAN 3b: 126% of a 4.77 MHz
+period for the restore against 127% for the frame on Last Exile, Mode X).
+
+- **A frame record is drawn on the page the glass is not showing, as it
+  stands**, then shown: its lists are a change against that page, which
+  holds the frame two back, or after a HELD record the held one.
+- **A HELD record** (y0 bit 15, `REC_HELD`) is drawn so and NOT shown; the
+  next record is drawn on the same page, against what it left.
+- **The record after a KEY** carries **`REC_UP`, y1 bit 12**: before its
+  lists, its page takes the record's rows y0..y1 off the glass, every plane
+  through the latches (98.3.8.1's copy). A seek puts the key on both pages;
+  a play through the key has the frame before it on the page drawn next -
+  so the writer widens that record's band to every row where the two pages
+  differ, and after the copy the page IS the glass, byte for byte, either
+  way. Such a record may write nothing else: its band is the copy's.
+- **No loop** (the seam would join two laps' pages, which differ), no layer,
+  never Live, resident or page-ahead (98.1.3.7.2's built pages are drawn on
+  as they stand already). A reader refuses a loop, and a record after a key
+  whose copy does not make its page the glass (`v88_frames`, so
+  `verify_v88`).
+- What it costs is BYTES: a change against two frames back is the union of
+  two frames' changes where the picture moves on. A player before this one
+  refuses byte 37 7 at open.
+
 #### 98.1.4 The stream: chained super-packets
 
 ```
@@ -174786,7 +174818,25 @@ frames whole against 397, cuts 183 against 229 and has the view a tenth
 broken 9.0 s against 10.3; it pays the frame after each run a copy of
 both records' rows. `--flip-hold empty` is the empty hold, and plays on a
 player before 98.1.3.9. A held frame
-counts with the cut ones wherever passes are compared (`cutf`). Not on a
+counts with the cut ones wherever passes are compared (`cutf`).
+
+**`--flip-own`** (options version 42, off; VIDEO-SEEN-PLAN 3b): a flipped
+file whose frames are each a change against the page they are drawn on
+(98.1.3.10), so the encoder keeps both pages and charges no bring-up - only
+the record after a key pays the copy of the rows where the pages differ.
+The flip's decode roughly halves for about half again the bytes, so it
+pays where the CPU is what cuts and costs where the disk is. Last Exile
+0:10-0:25, Mode X flipped on `286-speeddemon`, no ladder: 173 frames cut
+-> **93**, the view 23.9% broken -> **12.1%**, 6.6 s visibly broken ->
+**3.5**, 4.5 MB -> 6.5 MB. Bad Carrot 3:05-3:20, the owner's options
+on `286-picomem1` with `--flip`: 68 frames cut -> **56**, 3.71% -> **2.47%**,
+4.3 MB -> 5.5 MB - where the owner's own page-ahead file, drawn on the
+page shown and decoding nothing twice, is 33 and 1.13% (it may tear; the
+view as seen does not count a tear). It is a TRADE, and the clip decides:
+`videnc` leg 5g' is a plain pan that goes 16 frames cut -> 3, but on
+`testsrc2`'s pattern, which the disk cuts, it goes 2 -> 4, and on a pan of
+noise 71 -> 72. Not with a loop, a layer, Live, resident or `--page-ahead
+on`; a player before 98.3.8.7 refuses the file. Not on a
 layered or Live file; `OS88_VENC_VFRLOG=FILE` logs every decision. No
 format change: a held frame is an ordinary record.
 
@@ -179127,6 +179177,23 @@ The pictures cannot be read then: the key's own read is where they land.
   page carried by two keys and flipped to after the second - left black by
   the reader, a play from that key shows the flip wrong - and three
   references it must refuse.
+
+#### 98.3.8.7 Against its own page (2026-10-18)
+
+**A byte 37 7 file (98.1.3.10) plays as byte 37 6's does, with nothing
+brought up**: `vp_owndec` in place of `vp_flipdec`'s front half. A record is
+decoded onto the back page as it stands and shown, or for a HELD one left
+unshown so the next goes on the same page; `REC_UP` first copies the
+record's own rows off the glass (`vp_lcopy`, then `vo_lfix` for the text on
+the glass, as 98.3.8.1's copy does). No record is kept, so `vp_prevseg`'s
+31 KB claim is not made and no record is copied after its decode, and a
+record is not held to `VP_PREVKB`. Open refuses byte 37 7 with a loop.
+
+- **The gates**: `tests/vidvga8.py --layout modex --flip --own` (and
+  `--held`), and `tests/vidscreen.py --own` on the four flipped VGA4
+  screens: the glass exact at every hold, odd and even frames apart, keys
+  among them. With `REC_UP` ignored the Mode X arm FAILS before frame 38
+  (480 pixels): its page was the frame before the key, not the key.
 
 #### 98.3.9 Repeat
 

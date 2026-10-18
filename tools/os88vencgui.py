@@ -397,8 +397,8 @@ GROUPS = [
     # same question - what a frame caught half drawn looks like, for a few
     # bytes or twice the decode - and each keeps its own rule)
     ("Size vs quality", "Tearing: bands and a second page",
-     ("bands", "flip", "page_ahead", "pages", "page_keys", "key_pool",
-      "page_prune"),
+     ("bands", "flip", "flip_own", "page_ahead", "pages", "page_keys",
+      "key_pool", "page_prune"),
      _tearing),
     # (the DEGRADE LADDER's inner tab is a CHOICE, and laid out as one
     # (the owner, 2026-10-18: "ladder OR these other settings"): the
@@ -457,6 +457,16 @@ FIELD_WHEN = {
     % ("mode 12h's 640 x 480" if c["pixfmt"] == "vga4" else
        "mode 13h" if c["pixfmt"] == "vga8" else
        "this %s file" % c["pixfmt"]),
+    # (VIDEO-SEEN-PLAN 3b: each record against its own page - the flip's,
+    # in a stream with no loop or layer, and not page-ahead's)
+    "flip_own": lambda c: FIELD_WHEN["flip"](c) or (
+        "Each frame against its own page is Flip's: turn Flip on."
+        if not c.get("flip") else
+        "A looped file or a layer is drawn against the frame before."
+        if c.get("loop_from") or c.get("layer_disk") or
+        c.get("layer_profile") else
+        "Page-ahead's built pages are drawn on as they stand already."
+        if c.get("page_ahead") == "on" else None),
     "lag": lambda c: "A Live file is drawn on the desktop: it keeps time "
     "frame by frame." if c.get("live") else None
     if c["audio"] not in ("none", "speaker") else
@@ -1599,7 +1609,9 @@ def file_facts(r, path=None):
         vid.PF_NAMES[r.pixfmt], g.name, w, g.h,
         ", each row shown twice" if r.rowscale > 1 else "",
         " on %s" % vid.SCREENS[r.screen][0] if getattr(r, "screen", 0)
-        else "", ", flipped" if getattr(r, "flip", False) else ""))
+        else "", ", flipped, each frame against its own page"
+        if getattr(r, "own", False) else
+        ", flipped" if getattr(r, "flip", False) else ""))
     out.append("%d frames at %.2f fps = %.1f s; sound %s" % (
         r.frames, r.fps, secs,
         "none" if not r.audio else "%s at %d Hz" % (

@@ -1476,6 +1476,7 @@ vp_parse:
     mov [vp_flip], al               ; (PAGE FLIPPING's, below: none yet)
     mov [vp_npg], al
     mov [vp_fpg], al
+    mov [vp_own], al
     mov al, [es:di+R_RSCALE]
     cmp al, 1
     jbe .rs1
@@ -1486,6 +1487,13 @@ vp_parse:
     mov byte [vp_rs], 1
 .rs1:
     mov al, [es:di+R_FLIP]          ; PAGE FLIPPING (98.3.8): Mode X's own
+    cmp al, 7                       ; (EACH RECORD AGAINST ITS OWN PAGE,
+    jne .fp7o                       ; VIDEO-SEEN-PLAN 3b: byte 37 6's file
+    test byte [es:V88_FLAGS], V88F_LOOPREC  ; whose pages are never brought
+    jnz .b3                         ; up - so no loop's seam, which joins
+    mov byte [vp_own], 1            ; the pages of two laps)
+    dec ax
+.fp7o:
     cmp al, 6                       ; (HELD RECORDS, 98.1.3.9: a flipped
     jne .fp6h                       ; file, vp_flipdec's to read)
     mov al, 2
@@ -1834,6 +1842,8 @@ vp_parse:
     cmp ax, bx
     jb .bad
     mov [vp_llen], ax
+    cmp byte [vp_own], 0            ; (none kept against its own page)
+    jne .lfl
     cmp byte [vp_flip], 1           ; ...no longer than a flipped play's copy
     jne .lfl                        ; of the last record (98.3.8) - but a
     cmp word [vp_msl], 1            ; BIGSP file's longer one is copied off
@@ -9549,6 +9559,8 @@ vp_rwalk:
     call vp_rbnd
     jc .bad
 .mn:
+    cmp byte [vp_own], 0            ; (none kept against its own page)
+    jne .mf
     cmp byte [vp_flip], 1           ; ...no longer than a flipped play's
     jne .mf                         ; copy of the last record (98.3.8)
     cmp ax, VP_PREVKB * 1024
@@ -10200,6 +10212,8 @@ vp_sstart:
     jmp .memf
 .kok:
     mov [vp_keep], dx
+    cmp byte [vp_own], 0            ; (AGAINST ITS OWN PAGE: no copy of the
+    jne .nopv                       ; last record - VIDEO-SEEN-PLAN 3b)
     cmp byte [vp_flip], 1           ; PAGE FLIPPING: the last record's copy
     je .pvc                         ; (98.3.8; page-ahead keeps none, but
     cmp byte [vp_fpg], 0            ; flipped and built ahead does)
@@ -16618,6 +16632,8 @@ vp_frame:
 ; next draw, a frame period later, is into the page that was showing.
 ; clobbers AX, BX, CX, DX, SI, DI, BP, ES
 vp_flipdec:
+    cmp byte [vp_own], 0            ; (each record against its own page:
+    jne vp_owndec                   ; nothing owed, VIDEO-SEEN-PLAN 3b)
     push dx
     push si
     mov ax, [vp_prevn]              ; WHAT THE BACK PAGE OWES: nothing, the
@@ -16705,6 +16721,55 @@ vp_flipdec:
     pop ds
 .nokeep:
     mov [vp_prevn], bx
+    call vo_flipon                  ; the text on it before it is shown
+    mov ax, [vp_poff]               ; show it...
+    call vp_show
+    mov [vp_foff], ax
+    mov ax, [vp_page]               ; ...and draw the other next
+    xor [vp_poff], ax
+    ret
+
+; vp_owndec - DX:SI = a record of a flipped file AGAINST ITS OWN PAGE (byte
+; 37 7, VIDEO-SEEN-PLAN 3b): drawn on the back page as it stands - which is
+; the frame two back, or after a HELD record the one it holds - so nothing is
+; decoded again and nothing kept. Only a record with REC_UP (y1 bit 12, the
+; one after a key) first takes its rows y0..y1 off the glass, as 98.3.8.1's
+; copy does. Then shown, unless HELD. Clobbers AX, BX, CX, DX, SI, DI, BP, ES
+vp_owndec:
+    push dx
+    push si
+    push ds
+    VP_DSDX
+    mov ax, [si+2]
+    mov bx, [si+4]
+    VP_DSEND
+    pop ds
+    test bh, 0x10                   ; REC_UP: its page brought up first
+    jz .dec
+    and ax, ROW_MASK
+    and bx, ROW_MASK
+    mov [vp_pry0], ax
+    mov [vp_pry1], bx
+    call vp_lcopy
+    call vo_lfix                    ; (the glass's text is not the picture)
+.dec:
+    pop si
+    pop dx
+    push dx
+    push si
+    call vp_decrec
+    pop si
+    pop dx
+    push ds
+    VP_DSDX
+    mov ax, [si+2]
+    VP_DSEND
+    pop ds
+    mov word [vp_prevn], 0
+    test ah, 0x80                   ; HELD (98.1.3.9): drawn and not shown,
+    jz .show                        ; the next drawn on the same page
+    ret
+.show:
     call vo_flipon                  ; the text on it before it is shown
     mov ax, [vp_poff]               ; show it...
     call vp_show
@@ -17853,6 +17918,8 @@ vp_nextw:
     sub ax, [di+VC_ROFS]
     cmp cx, ax
     ja .brec
+    cmp byte [vp_own], 0            ; (none kept against its own page)
+    jne .rfl
     cmp byte [vp_flip], 1           ; ...and, flipping, against the copy
     jne .rfl                        ; vp_flipdec keeps of it (98.3.8), as
     cmp word [vp_msl], 1            ; the seam's is - but a BIGSP file's
@@ -20541,6 +20608,8 @@ vp_end:       db 0
 vp_eof:       db 0
 vp_err:       db 0
 vp_held:      db 0
+vp_own:       db 0                  ; byte 37 7: each record against its own
+                                    ; page, none brought up (VIDEO-SEEN-PLAN 3b)
 ; the shadow (SPEC.md 98.3.2) and the burst (98.3.3)
 vp_shadow:    db 0                  ; this file plays through the shadow
 vp_burst:     db 0                  ; the colour burst was turned on

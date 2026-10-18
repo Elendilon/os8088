@@ -853,7 +853,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 41
+OPTS_VERSION = 42
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -884,7 +884,7 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     35: "e1090fc6c20c5367", 36: "00e7310bd1a264d8",
                     37: "096abca8b264506a", 38: "eaf373ad8f1e1fdb",
                     39: "7a7d4203d99fd27d", 40: "4fffe628a862c24e",
-                    41: "9c78d785df0d94a4"}
+                    41: "9c78d785df0d94a4", 42: "6f2cb773837bd222"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1063,6 +1063,9 @@ MIGRATIONS = {
     # 41: --lookahead-floor (98.2.1.2) - a file made before it let the
     # frames after take a pixel's worth all the way down
     40: [("added", "lookahead_floor", 0.0)],
+    # 42: --flip-own (VIDEO-SEEN-PLAN 3b) - a file made before it was a
+    # change against the frame before, its page brought up first
+    41: [("added", "flip_own", False)],
 }
 
 
@@ -5392,6 +5395,56 @@ class Flipped:
         if flip:                        # a frame a call (98.3.8): owed time
             self.owe = None             # is the flip schedule's (below)
 
+    def own_init(self):
+        """EACH RECORD AGAINST ITS OWN PAGE (--flip-own, VIDEO-SEEN-PLAN 3b):
+        the encoder keeps BOTH pages, and a frame is drawn on the one the
+        glass is not showing - the frame two back, or after a held record
+        the held one - as it stands, owing nothing. The record after a key
+        is the exception: a seek puts the key on both pages, so that record
+        first takes the rows where the pages differ off the glass"""
+        self.own, self.opage = True, None
+        self.own_hold = self.own_next = False
+        self.own_up = None
+
+    def _own_page(self):
+        return (self.screen, self.surf, getattr(self, "pl", None))
+
+    def _own_set(self, pg):
+        self.screen, self.surf = pg[0], pg[1]
+        if pg[2] is not None:
+            self.pl = pg[2]
+        self.scache = None
+
+    def begin(self):
+        if getattr(self, "own", False):
+            self.own_turn()
+        super().begin()
+
+    def own_turn(self):
+        """A frame starts: onto the page the glass is not showing (the same
+        one after a held record), brought up first after a key"""
+        shown = self._own_page()
+        if self.opage is None:          # (both pages black at the start)
+            self.opage = (shown[0].copy(), bytearray(shown[1]),
+                          None if shown[2] is None else shown[2].copy())
+        if self.own_hold:
+            self.own_hold = False       # (drawn on again, as it stands)
+            self.own_up, self.prev_c = None, 0.0
+            return
+        self._own_set(self.opage)
+        self.opage = shown
+        self.own_up, self.prev_c = None, 0.0
+        if self.own_next:
+            self.own_next = False
+            rows = np.flatnonzero((self.screen != shown[0]).any(axis=1))
+            if len(rows):
+                y0, y1 = int(rows[0]), int(rows[-1]) + 1
+                self.own_up = (y0, y1)
+                self._own_set((shown[0].copy(), bytearray(shown[1]),
+                               None if shown[2] is None else shown[2].copy()))
+                # (the player's copy off the glass, 98.3.8.1's price)
+                self.prev_c = (y1 - y0) * 80 * self.lcopy + CYC_LCOPY0
+
     def charge(self, rec, abytes):
         c = self.cost(rec)
         pc, pb = self.pa_spend          # (page-ahead's hidden page, 98.2.1.8)
@@ -5400,6 +5453,13 @@ class Flipped:
         self.cpu.spend(c + self.prev_c + pc)
         self.disk.spend(len(rec) - abytes + pb)
         spent = c + self.prev_c + pc
+        if getattr(self, "own", False):
+            # (against its own page: nothing owed the next frame, and a
+            # HELD record's page is the next one's - own_turn)
+            self.own_hold = bool(getattr(self, "staying", False))
+            self.staying = False
+            self.end(spent)
+            return spent
         if self.flip:
             # what the player brings the back page up with next frame: this
             # record again, or its rows copied off the glass through the
@@ -9324,6 +9384,12 @@ def _encode(a, keep, tick, readers):
         raise vid.V88Error("--flip is not a NARROW screen's: its pages are "
                            "for --pages, and a flip every frame would want "
                            "the whole canvas copied besides (98.1.3.2.5)")
+    fown = bool(getattr(a, "flip_own", False))
+    if fown and (not a.flip or a.loop_from is not None or a.live or
+                 a.resident or getattr(a, "layer_disk", None) or
+                 getattr(a, "layer_profile", None)):
+        raise vid.V88Error("--flip-own is --flip's, a stream with no loop and "
+                           "no layer (VIDEO-SEEN-PLAN 3b)")
     pmode = page_mode(a)
     pa_on = pmode == "on" or (pmode == "auto" and
                               getattr(a, "_paok", False))
@@ -9344,6 +9410,10 @@ def _encode(a, keep, tick, readers):
                                         # and a layer's is two)
     # ...and FLIPPED AND BUILT AHEAD (98.2.1.8.5): --flip with it, on three
     # pages or more - two flip every frame and the rest build ahead
+    if pa_on and fown:
+        raise vid.V88Error("--flip-own is not --page-ahead's: a page built "
+                           "ahead is drawn on as it stands already "
+                           "(98.1.3.7.2, VIDEO-SEEN-PLAN 3b)")
     if pa_on and a.flip and (npg < 3 or L == vid.LAY_HERC):
         raise vid.V88Error("--page-ahead with --flip builds ahead on the "
                            "pages the flip leaves: --pages 3 or more, Mode "
@@ -9358,6 +9428,8 @@ def _encode(a, keep, tick, readers):
         EncoderP(g, prof, fps, audio_cyc, audio_bps, palette and
                  palette[:48], a.flip) if vga4 else \
         Encoder(g, prof, fps, audio_cyc, audio_bps, palette)
+    if fown:
+        enc.own_init()
     enc.live = bool(a.live)
     # THE XMS COPIES THE PLAYER WILL MAKE (set_xplay): in place where the
     # player's in-place paths take the file, the copying FIFO where they
@@ -9503,7 +9575,7 @@ def _encode(a, keep, tick, readers):
                     title=a.title or os.path.splitext(
                         os.path.basename(a.src))[0][:47],
                     credits=a.credits or "", keysecs=a.keysecs,
-                    palette=palette, rowscale=dh, flip=a.flip,
+                    palette=palette, rowscale=dh, flip=a.flip, own=fown,
                     aspect=scaled_aspect(pasp or vid.ASPECT[L], dh),
                     loop=None if a.loop_from is None else
                     max(0, round(a.loop_from * fps)),
@@ -10289,7 +10361,11 @@ def _encode(a, keep, tick, readers):
             wr.frame(ops, enc.surf, au, hidden=hops, flip=pa.flipped,
                      hsurf=pa.h.surf)
         else:
-            wr.frame(ops, enc.surf, au, held=x["stay"])
+            wr.frame(ops, enc.surf, au, held=x["stay"],
+                     up=getattr(enc, "own_up", None))
+            if getattr(enc, "own", False) and wr.keys and \
+                    wr.keys[-1][0] == len(wr.recs) - 1:
+                enc.own_next = True     # (the next brings its page up)
         if lay is not None:
             for lops in lay.push(
                     target, ops, rec, npal, hops=hops,
@@ -11462,6 +11538,13 @@ def parser():
                     help="modex: two pages, the player drawing one while "
                          "the other shows - no tearing, at twice the decode "
                          "(98.3.8)")
+    ap.add_argument("--flip-own", action="store_true",
+                    help="with --flip: each frame a change against the page "
+                         "it is drawn on (the frame two back) and drawn on "
+                         "it as it stands, so the player never brings a page "
+                         "up first - less decode for more bytes, and a file "
+                         "only a player that knows it plays (VIDEO-SEEN-PLAN "
+                         "3b)")
     ap.add_argument("--lag", type=lag_arg, default=LAG_MS,
                     metavar="MS|LO-HI",
                     help="with a card's sound: how far the picture may fall "

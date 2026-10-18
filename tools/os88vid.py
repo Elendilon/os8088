@@ -843,6 +843,15 @@ FLIP_HELD = 6                   # FLIPPED WITH HELD RECORDS (98.1.3.9): byte 37
                                 # with REC_HELD is drawn on the back page and
                                 # NOT shown - the next is drawn on it too
 REC_HELD = 0x8000               # ...a frame record's y0 bit 15 there
+FLIP_OWN = 7                    # FLIPPED, EACH RECORD AGAINST ITS OWN PAGE
+                                # (VIDEO-SEEN-PLAN 3b): byte 37 6's file, but
+                                # a frame record is a change against the
+                                # page it is drawn on - the frame two back,
+                                # or the held one - drawn on it as it
+                                # stands, so no page is ever brought up...
+REC_UP = 0x1000                 # ...except a record with y1 bit 12: its page
+                                # first takes the record's rows y0..y1 off
+                                # the glass (the record after a key)
 REC_BUILT = 0x1000              # ...a frame record's y1: its page was BUILT
                                 # ahead, drawn on as it stands, not brought up
 COPY_LEN = 6                    # ...a COPY: a hidden record with y0 bit 15,
@@ -2286,7 +2295,7 @@ class Writer:
                  rowscale=1, flip=False, loop=None, repeat=False,
                  cgapal=None, spk=False, live=None, spkp=1, ahead=0,
                  kcap=65535, spcap=SP_MAX, screen=SCR_480, page=False,
-                 pages=2):
+                 pages=2, own=False):
         # `spcap`: a super-packet's sectors at most - SP_MAX, or past it
         # (BIGSP, 98.1.4.1) up to SP_BIG for a stream played in the bracket
         if not SP_MAX <= spcap <= SP_BIG or (spcap > SP_MAX and
@@ -2395,6 +2404,14 @@ class Writer:
                            "file's on a screen of its own: not flipped every "
                            "frame, not Live, no loop (98.1.3.7)")
         self.page = page
+        # EACH RECORD AGAINST ITS OWN PAGE (FLIP_OWN, VIDEO-SEEN-PLAN 3b): a
+        # file flipped every frame, a stream with no lap (the seam would
+        # join the two pages' pictures, which differ)
+        if own and (not self.flip or loop is not None or live is not None):
+            raise V88Error("a flipped file against its own page is flipped "
+                           "every frame, a stream with no loop and not Live "
+                           "(VIDEO-SEEN-PLAN 3b)")
+        self.own = bool(own)
         # N PAGES (98.1.3.7.1): page-ahead past the second page, on a screen
         # whose plane holds them - Mode X or a VGA4 screen of its own
         if pages != 2 and (not page or not 3 <= pages <= MPAGE_MAX or
@@ -2466,7 +2483,7 @@ class Writer:
 
     def frame(self, ops, surf, audio=b"", hidden=None, flip=False,
               hsurf=None, hsurfs=None, shown=0, built=False, copies=(),
-              held=False):
+              held=False, up=None):
         """`ops` are the frame's writes, already applied to `surf`. PAGE-
         AHEAD (98.1.3.7): `flip`, they were drawn on the page that is shown
         from this frame on; `hidden`, the hidden page's writes after them,
@@ -2503,9 +2520,23 @@ class Writer:
                         limit=self.spcap * SECTOR - 4) if self.page else
             record(ops, self.g, limit=self.spcap * SECTOR - 4), audio,
             limit=self.spcap * SECTOR - 4)
-        if self.flip and len(rec) > PREV_MAX and self.spcap == SP_MAX:
+        if self.flip and not self.own and len(rec) > PREV_MAX and \
+                self.spcap == SP_MAX:
             raise V88Error("frame %d is %d bytes, past a flipped play's %d"
                            % (k, len(rec), PREV_MAX))
+        if up is not None:              # (FLIP_OWN: its page brought up, by
+            if not self.own:            # the copy of its rows off the glass)
+                raise V88Error("a record that brings its page up, outside a "
+                               "file against its own page")
+            rec = bytearray(rec)
+            y0, y1 = struct.unpack_from("<HH", rec, 2)
+            u0, u1 = up
+            if y1 <= y0:
+                y0, y1 = u0, u1
+            else:
+                y0, y1 = min(y0, u0), max(y1, u1)
+            struct.pack_into("<HH", rec, 2, y0, y1 | REC_UP)
+            rec = bytes(rec)
         if held:                        # (98.1.3.9: drawn, not shown)
             rec = bytearray(rec)
             rec[3] |= REC_HELD >> 8
@@ -3024,7 +3055,8 @@ class Writer:
                               for k, r, c in keys), default=0))
         struct.pack_into("<IBBBB", hdr, 224, pal,
                          self.rowscale if self.rowscale > 1 else 0,
-                         (FLIP_HELD if getattr(self, "held", False) else 2)
+                         (FLIP_OWN if self.own else
+                          FLIP_HELD if getattr(self, "held", False) else 2)
                          if self.flip else FLIP_FPAGE if self.fpage else
                          FLIP_MPAGE if self.mpage else
                          FLIP_PAGE if self.page else 0,
@@ -3574,9 +3606,12 @@ class Reader:
             raise V88Error("a screen byte of %d (98.1.3.2.1, 98.1.3.1.1)"
                            % scr)
         self.screen = scr
-        self.held = fl == FLIP_HELD     # (98.1.3.9: a flipped file, with
-        if self.held:                   # HELD records)
-            fl = 2
+        self.own = fl == FLIP_OWN       # (VIDEO-SEEN-PLAN 3b: and every record
+        self.held = fl in (FLIP_HELD, FLIP_OWN)     # against its own page)
+        if self.held:                   # (98.1.3.9: a flipped file, with
+            fl = 2                      # HELD records)
+        if self.own and flags & F_LOOPREC:
+            raise V88Error("a flipped file against its own page with a loop")
         pg = fl in (FLIP_PAGE, FLIP_MPAGE, FLIP_FPAGE)
         if fl not in (0, 1, 2, FLIP_PAGE, FLIP_MPAGE, FLIP_FPAGE) or (
                 fl >= 2 and not (layout == LAY_MODEX or scr or (
@@ -3889,6 +3924,10 @@ class Reader:
         n, y0, y1 = struct.unpack_from("<HHH", rec, 0)
         if getattr(self, "held", False) and not key:
             y0 &= ~REC_HELD             # (a HELD record's bit, 98.1.3.9)
+        upb = False
+        if getattr(self, "own", False) and not key:
+            upb = bool(y1 & REC_UP)     # (VIDEO-SEEN-PLAN 3b's bring-up: its
+            y1 &= ~REC_UP               # band is the copy's rows too)
         if key and y0 & KEY_MORE:
             if not self.kparts:
                 raise V88Error("a key in parts in a file without KPARTS")
@@ -3986,9 +4025,38 @@ class Reader:
             else 0 if layer else self.abytes
         if tail != want:
             raise V88Error("%d bytes follow the lists, not %d" % (tail, want))
-        if check and not wrote[0] and y0 != y1:
+        if check and not wrote[0] and y0 != y1 and not upb:
             raise V88Error("an empty record with a band %d..%d" % (y0, y1))
         return rec[end:]
+
+    def own_rows(self, rec):
+        """FLIP_OWN: a frame record's (held, the rows its page is brought
+        up by - None, or (y0, y1) off the glass)"""
+        y0, y1 = struct.unpack_from("<HH", rec, 2)
+        return bool(y0 & REC_HELD), ((y0 & ~REC_HELD, y1 & ~REC_UP)
+                                     if y1 & REC_UP else None)
+
+    def own_copy(self, dst, src, y0, y1):
+        """...those rows of the canvas, every plane, page `src` onto `dst`"""
+        g = self.g
+        for p in range(g.planes):
+            o = p * PLANE
+            for y in range(max(0, y0), min(g.h, y1)):
+                b = o + g.base[y]
+                dst[b:b + g.wb] = src[b:b + g.wb]
+
+    def apply_own(self, pages, vis, rec, check=True):
+        """FLIPPED AGAINST ITS OWN PAGE (FLIP_OWN, VIDEO-SEEN-PLAN 3b): one
+        frame record onto the page the glass is not showing, as it stands -
+        its rows first copied off the glass where it says so - which is then
+        shown unless the record is HELD, the next one then drawn on it too.
+        -> (the page shown after it, the page drawn on)"""
+        held, up = self.own_rows(rec)
+        d = vis ^ 1
+        if up is not None:
+            self.own_copy(pages[d], pages[vis], *up)
+        self.apply(pages[d], rec, check=check)
+        return (vis if held else d), pages[d]
 
     def apply_page(self, pages, vis, rec, check=True):
         """PAGE-AHEAD (98.1.3.7): one frame record onto two pages, `vis`
@@ -5332,22 +5400,43 @@ def encode_canvases(canvases, g, out, fps, pixfmt=PF_MONO1, palette=None,
                     title="", keysecs=KEY_SECS, poster=None, rowscale=1,
                     flip=False, loop=None, repeat=False, cgapal=None,
                     screen=SCR_480, pev=None, subs=None, kpart=KEY_PART,
-                    held=()):
+                    held=(), own=False):
     """encode_frames for canvases already in hand (bytes, g.wb a row) - the
     only way to make a VGA8 file without a video (SPEC.md 98.2): silent,
     every changed byte. `pev`: a palette a scene's table (98.1.3.2.3).
     `subs(cv, prev, g)`: a VGA4 frame's sub-records in place of vga4_subs'
     (a SUB2 file's colour ones, 98.1.3.2.4). `held`: the frames whose
-    records are HELD (98.1.3.9, a flipped file's) - drawn, not shown"""
+    records are HELD (98.1.3.9, a flipped file's) - drawn, not shown.
+    `own`: flipped with each record against its own page (FLIP_OWN), the
+    record after a key bringing its page up by the rows that differ"""
     rate, spf = max(1, round(fps * 100)), 100
     wr = Writer(g, rate, spf, AUD_NONE, 0, pixfmt, title=title,
                 keysecs=keysecs, palette=palette, rowscale=rowscale,
                 flip=flip, loop=loop, repeat=repeat, cgapal=cgapal,
-                screen=screen)
+                screen=screen, own=own)
     wr.pev = pev
     wr.kpart = kpart
     surf = g.surface()
     prev = g.canvas(surf)
+    if own:
+        pcv, vis = [prev, prev], 0
+        for k, cv in enumerate(canvases):
+            d, up = vis ^ 1, None
+            if wr.keys and wr.keys[-1][0] == k - 1:
+                rows = [y for y in range(g.h)
+                        if pcv[d][y * g.w:(y + 1) * g.w] !=
+                        pcv[vis][y * g.w:(y + 1) * g.w]]
+                if rows:
+                    up = (rows[0], rows[-1] + 1)
+                    pcv[d] = pcv[vis]
+            ops = (subs or vga4_subs)(cv, pcv[d], g) if g.bitplanes else \
+                modex_subs(cv, [a != b for a, b in zip(cv, pcv[d])], g)
+            pcv[d] = cv
+            g.put(surf, cv)
+            wr.frame(ops, surf, held=k in held, up=up)
+            if k not in held:
+                vis = d
+        return wr.write(out, poster)
     for k, cv in enumerate(canvases):
         if g.planes > 1:
             ops = (subs or vga4_subs)(cv, prev, g) if g.bitplanes else \
@@ -5428,6 +5517,7 @@ def v88_frames(r, check=True):
     f = 0
     pages, vis = [surf] + [r.g.surface() for _ in range(r.pages - 1)], 0
     k0 = r.keys[0][0] if r.page and r.keys else None
+    kset = {e[0] for e in r.keys}
     r.flast = None
     for rec, at, i in r.records():
         if r.mpage:                 # (98.1.3.7.1: every page by number)
@@ -5451,6 +5541,23 @@ def v88_frames(r, check=True):
                 pages[vis ^ 1][:] = kp[1]   # page is PRELOADED (98.1.3.7)
             r.hidden = pages[vis ^ 1]   # other for a key's check)
             yield f, pages[vis], rec, at, i
+        elif getattr(r, "own", False):  # (VIDEO-SEEN-PLAN 3b: two pages,
+            if check and f - 1 in kset:     # each record against its own)
+                # A SEEK lands on a key with the key on both pages, and a
+                # play through it has the frame before on the page drawn
+                # next: the record after a key brings that page up to the
+                # glass WHOLE, or the two plays draw different pictures
+                tmp = bytearray(pages[vis ^ 1])
+                up = r.own_rows(rec)[1]
+                if up is not None:
+                    r.own_copy(tmp, pages[vis], *up)
+                if r.g.canvas(tmp) != r.g.canvas(pages[vis]):
+                    raise V88Error("frame %d, after a key, does not bring its "
+                                   "page up to the glass (VIDEO-SEEN-PLAN 3b)"
+                                   % f)
+            vis, drawn = r.apply_own(pages, vis, rec, check=check)  # each
+            r.hidden = pages[vis ^ 1]   # record against its own)
+            yield f, drawn, rec, at, i
         else:
             r.apply(surf, rec, check=check)
             yield f, surf, rec, at, i
@@ -5553,7 +5660,9 @@ def cmd_info(a):
             print("   %s%s%s" % (
                 "screen %s, full screen; " % SCREENS[r.screen][0]
                 if r.screen else "full screen; " if r.palette and
-                r.pixfmt == PF_VGA4 else "", "two pages, flipped"
+                r.pixfmt == PF_VGA4 else "",
+                "two pages, flipped, each record against its own page"
+                if getattr(r, "own", False) else "two pages, flipped"
                 if r.flip else "%d pages, flipped and built ahead (%d built "
                 "flips)" % (r.pages, sum(
                     1 for rec, _, _ in r.records()
@@ -5633,6 +5742,7 @@ def decode_at(r, n):
             surf = pages[0]
         else:
             r.apply(surf, rec, key=True)
+            pages[1][:] = surf          # (a key is onto both pages)
         if k == n:
             return r.g.canvas(surf)
         f = k + 1
@@ -5650,6 +5760,8 @@ def decode_at(r, n):
         if r.page:
             vis, _ = r.apply_page(pages, vis, rec)
             surf = pages[vis]
+        elif getattr(r, "own", False):  # (VIDEO-SEEN-PLAN 3b)
+            vis, surf = r.apply_own(pages, vis, rec)
         else:
             r.apply(surf, rec)
         if f == n:
@@ -7041,6 +7153,49 @@ def selfcheck():
                 fails.append("a C160 file with SUB2 set read differently")
         except V88Error as e:
             fails.append("a C160 file with SUB2 set was refused: %s" % e)
+        # EACH RECORD AGAINST ITS OWN PAGE (byte 37 7, VIDEO-SEEN-PLAN 3b):
+        # a Mode X clip of small changes, a scene change, keys and held
+        # records reads back frame for frame - a held frame showing the one
+        # before it - and the same clip with the record after each key NOT
+        # bringing its page up is refused, which is what a seek would show
+        go = Geom(LAY_MODEX, 40, 20)
+        ocv, cur, oheld = [], bytearray(go.w * go.h), {5, 6, 17, 30}
+        for k in range(40):
+            for _ in range(rnd.randrange(0, 60)):
+                cur[rnd.randrange(len(cur))] = rnd.randrange(256)
+            if k % 13 == 7:
+                cur = bytearray(rnd.randrange(256) for _ in range(len(cur)))
+            ocv.append(bytes(cur))
+        po = os.path.join(tmp, "OWN.V88")
+        try:
+            encode_canvases(ocv, go, po, 15, pixfmt=PF_VGA8,
+                            palette=bytes(range(64)) * 12, keysecs=0.6,
+                            flip=True, held=oheld, own=True)
+            verify_v88(po)
+            ro = Reader(po)
+            want, last = [], bytes(len(ocv[0]))
+            for k in range(40):
+                last = last if k in oheld else ocv[k]
+                want.append(last)
+            ups = sum(1 for rec, _, _ in ro.records()
+                      if struct.unpack_from("<H", rec, 4)[0] & REC_UP)
+            if not ro.own or len(ro.keys) < 3 or ups < len(ro.keys) - 1 or \
+                    any(decode_at(ro, f) != want[f] for f in range(40)):
+                fails.append("a file against its own page did not read back "
+                             "as written")
+            fr = Writer.frame
+            try:
+                Writer.frame = lambda self, *x, **kw: fr(
+                    self, *x, **dict(kw, up=None))
+                encode_canvases(ocv, go, po + ".bad", 15, pixfmt=PF_VGA8,
+                                palette=bytes(range(64)) * 12, keysecs=0.6,
+                                flip=True, held=oheld, own=True)
+            finally:
+                Writer.frame = fr
+            expect_fail("a record after a key not bringing its page up",
+                        po + ".bad", lambda d: d, "bring its page up")
+        except V88Error as e:
+            fails.append("a file against its own page: %s" % e)
     for f in fails:
         print("os88vid --selfcheck: FAIL - %s" % f)
     if not fails:
@@ -7050,7 +7205,8 @@ def selfcheck():
               "a resident file's blocks "
               "round-trip, CGA4, C160, C512 and TEXT round-trip, a palette "
               "a scene and a page-ahead file round-trip, a live file's "
-              "blit runs cover its writes, and twenty-nine corruptions "
+              "blit runs cover its writes, a file against its own page "
+              "round-trips, and thirty corruptions "
               "were refused")
     return 1 if fails else 0
 
