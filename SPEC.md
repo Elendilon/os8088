@@ -157445,13 +157445,14 @@ ours.** Everything a program can observe - `int 21h`'s answers, the version
 program is the thing that can tell. The order names appear in for a person to
 read is not something a program observes at all.
 
-It was written to make the box agree with the Disk window (§19.5) rather
-than disagree with it, which is what made this look like a defect from inside
-the system in the first place. **Plain name order, folders MIXED IN**, because
-that was what `dsk_sortdir` did when this was built. **It no longer is**:
-§19.4 now puts folders ahead of files in the Disk window and the Standard File
-dialog, and `dsh_dsort` was not changed with it, so `DIR` and the Disk window
-now differ in exactly that one respect.
+**Plain name order, folders MIXED IN — and that is DOS's order, not our
+interface's.** `DIR` follows the command line it imitates, and that command
+line still mixes them: DOS 5's `DIR /ON` does unless `G` is added, and so
+does the Windows 10/11 command prompt today. The Disk window and the Standard
+File dialog list folders first (§19.4), because that is what a person picking
+an icon out of a grid expects. So the two listings differ in exactly that one
+respect, ON PURPOSE: each matches its own tradition, and `dsh_dsort` is not to
+be "fixed" to agree with `dsk_sortdir`.
 
 **The mechanism is an INDEX, and it makes `DIR` cheaper rather than dearer.**
 `OSAPI_FILE_FIND` is stateless by ordinal and re-walks the directory per call
