@@ -5663,10 +5663,12 @@ def cmd_info(a):
                 r.pixfmt == PF_VGA4 else "",
                 "two pages, flipped, each record against its own page"
                 if getattr(r, "own", False) else "two pages, flipped"
-                if r.flip else "%d pages, flipped and built ahead (%d built "
-                "flips)" % (r.pages, sum(
-                    1 for rec, _, _ in r.records()
-                    if struct.unpack_from("<H", rec, 4)[0] & REC_BUILT))
+                if r.flip else "%d pages, flipped and built ahead%s" % (
+                    r.pages, (lambda nb: ", every record against its own "
+                              "page" if nb == r.frames else
+                              " (%d built flips)" % nb)(sum(
+                        1 for rec, _, _ in r.records()
+                        if struct.unpack_from("<H", rec, 4)[0] & REC_BUILT)))
                 if getattr(r, "fpage", False) else
                 "%s pages, page-ahead (%d flips)" % (
                     r.pages if r.mpage else "two", sum(

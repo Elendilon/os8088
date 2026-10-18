@@ -777,11 +777,25 @@ buys:
 
 It is the TRADE the sketch predicted, and the clip decides it: a plain pan
 16 cut -> 3, `testsrc2`'s pattern 2 -> 4 (the disk cuts it), a pan of
-noise 71 -> 72 (every pixel every frame: nothing to save). **OPEN**: an
-automatic choice - the page-ahead keep's shape (98.2.1.8.1), both passes
-and the better by the view as seen, at twice the encode - and whether
-page-ahead's own two-page files (byte 37 3, drawn on the page shown, which
-decode nothing twice) should gain a flipped arm against their own pages.
+noise 71 -> 72 (every pixel every frame: nothing to save).
+
+**And on three pages or more, BUILT AHEAD as well** (2026-10-18, SPEC.md
+98.2.1.8.5; the owner: "page ahead and flip when there are 3+ pages"):
+`--flip --flip-own --page-ahead on --pages N` is 98.1.3.7.2's file with
+every record BUILT and the back page carried by every key - byte 37 5 as
+it was, so every player since 98.3.8.5 plays it. Building ahead bought the
+flipped file almost nothing while it paid the bring-up (Last Exile 173 ->
+166 cut); without it the two add up: **77 cut, the view 9.6% broken, 2.75
+s** against two pages' 93, 12.1% and 3.5 s. Two pages cannot have both -
+page-ahead's second page is for building, the flip's for hiding the draw -
+so a 640 x 350 file like Bad Carrot (two pages in a plane) stays a choice
+between page-ahead, which may tear, and the flip.
+
+**OPEN**: an automatic choice - the page-ahead keep's shape (98.2.1.8.1),
+both passes and the better by the view as seen, at twice the encode; and
+the player still keeps a copy of every record and its 31 KB claim for a
+file that never needs it (a byte 37 5 player cannot be told without a new
+byte).
 
 What follows is the design as recorded, 2026-10-16.
 
@@ -836,8 +850,9 @@ line, fitted to the owner's scores (2a); (4) it steers `value` as
 `--edges 1`, `--attend` left at 0 (section 3).
 
 OPEN, 2026-10-18:
-1. **3b's automatic choice**: `--flip-own` is BUILT as an option (3b); a
-   file that decides it for itself is the open part.
+1. **3b's automatic choice**: `--flip-own` is BUILT as an option, on two
+   pages and on three or more built ahead (3b); a file that decides it for
+   itself is the open part.
 2. **A degrade ladder that loses to no ladder** - on `videnc`'s synthetic
    Mode X clip a ladder that drew every stretch as it was came out 12.2-
    12.5% of the view broken against 9.4% with none. Being looked at.

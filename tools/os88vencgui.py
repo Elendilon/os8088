@@ -458,15 +458,14 @@ FIELD_WHEN = {
        "mode 13h" if c["pixfmt"] == "vga8" else
        "this %s file" % c["pixfmt"]),
     # (VIDEO-SEEN-PLAN 3b: each record against its own page - the flip's,
-    # in a stream with no loop or layer, and not page-ahead's)
+    # in a stream with no loop or layer; with page-ahead on 3 pages or more
+    # too, built ahead as well)
     "flip_own": lambda c: FIELD_WHEN["flip"](c) or (
         "Each frame against its own page is Flip's: turn Flip on."
         if not c.get("flip") else
         "A looped file or a layer is drawn against the frame before."
         if c.get("loop_from") or c.get("layer_disk") or
-        c.get("layer_profile") else
-        "Page-ahead's built pages are drawn on as they stand already."
-        if c.get("page_ahead") == "on" else None),
+        c.get("layer_profile") else None),
     "lag": lambda c: "A Live file is drawn on the desktop: it keeps time "
     "frame by frame." if c.get("live") else None
     if c["audio"] not in ("none", "speaker") else

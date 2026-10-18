@@ -172568,7 +172568,8 @@ copy          = len(16)=6 y0(16) y1(16)
 
 - **Every frame record has `REC_FLIP`** and names its page p in y0 bits
   12-14, never the page shown before it: it is drawn on p, and p is then
-  shown.
+  shown. (A file whose every record is BUILT and whose keys carry every
+  page is `--flip-own`'s, 98.2.1.8.5: nothing in it is ever brought up.)
 - **Unless y1 bit 12 (`REC_BUILT`) is set, p is first BROUGHT UP** to the
   frame shown: the last frame record's own lists decoded onto it again, or
   that record's band of rows (its y0..y1) copied onto it off the page shown
@@ -174818,7 +174819,9 @@ frames whole against 397, cuts 183 against 229 and has the view a tenth
 broken 9.0 s against 10.3; it pays the frame after each run a copy of
 both records' rows. `--flip-hold empty` is the empty hold, and plays on a
 player before 98.1.3.9. A held frame
-counts with the cut ones wherever passes are compared (`cutf`).
+counts with the cut ones wherever passes are compared (`cutf`). Not on a
+layered or Live file; `OS88_VENC_VFRLOG=FILE` logs every decision. No
+format change: a held frame is an ordinary record.
 
 **`--flip-own`** (options version 42, off; VIDEO-SEEN-PLAN 3b): a flipped
 file whose frames are each a change against the page they are drawn on
@@ -174835,10 +174838,11 @@ page shown and decoding nothing twice, is 33 and 1.13% (it may tear; the
 view as seen does not count a tear). It is a TRADE, and the clip decides:
 `videnc` leg 5g' is a plain pan that goes 16 frames cut -> 3, but on
 `testsrc2`'s pattern, which the disk cuts, it goes 2 -> 4, and on a pan of
-noise 71 -> 72. Not with a loop, a layer, Live, resident or `--page-ahead
-on`; a player before 98.3.8.7 refuses the file. Not on a
-layered or Live file; `OS88_VENC_VFRLOG=FILE` logs every decision. No
-format change: a held frame is an ordinary record.
+noise 71 -> 72. Not with a loop, a layer, Live or resident, and a player
+before 98.3.8.7 refuses the two-page file. With `--page-ahead on --pages 3`
+or more it is 98.2.1.8.5's file against its own pages instead - byte 37 5,
+which plays on any player since 98.3.8.5 - and the best of them: Last
+Exile's 77 frames cut and 9.6%.
 
 **`--ladder RUNGS`: THE DEGRADE LADDER** (options version 40, blank - off
 - by default; docs/plans/VIDEO-SEEN-PLAN.md 3a). The ways a frame the
@@ -176063,6 +176067,24 @@ runs it - a flipped file asks for it.
   flip's record), byte-37-5 files that verify and cut fewer frames than
   flipped alone. With the calm's copy turned off the 5150 leg flips nothing
   and FAILS.
+- **With `--flip-own`, AGAINST ITS OWN PAGES** (2026-10-18, VIDEO-SEEN-PLAN
+  3b): every frame record is BUILT - an ordinary frame drawn on the back
+  page as it stands, the frame two back, and the encoder's model made that
+  page first (`PageAheadF.own`) - so nothing is ever brought up and the
+  flipped encoder charges no `prev_c` (`nobring`); a flip to a builder
+  keeps its copy, which no longer keeps the file right but makes the next
+  page the new scene for the bytes of a copy. Every key carries the back
+  page too, so a seek has every page exactly and nothing after a key owes
+  a copy. It is byte 37 5 as it was - BUILT on every record is a file the
+  player since 98.3.8.5 plays unchanged (`vidpagefmx3o`, `vidpagefmx4o`;
+  with the back page left out of the keys the file is refused, *a play
+  from keyframe 1 shows frame 31 wrong*). Last Exile 0:10-0:25 flipped on
+  `286-speeddemon` with three pages: 166 frames cut -> **77**, the view
+  23.6% broken -> **9.6%**, 6.4 s visibly broken -> **2.75**, 4.7 MB ->
+  6.9 MB - against 93 and 12.1% for `--flip-own` on two pages. On 5k's
+  pairs (scene changes and little else) 1 -> 0 on the 486, and the same
+  cuts on the 5150 and the slow 286, where the disk binds. 5k's own leg is
+  the 486's.
 
 ##### 98.2.1.9 `--step-down`: the rate ladder, a scene at a time (2026-10-13)
 

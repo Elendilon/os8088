@@ -12886,6 +12886,23 @@ SOAK = [
         "BUILT page brought up anyway it FAILS at both flips",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidpagefmx3o", "soak", py("tests/vidpage.py", "--layout", "modex",
+                                   "--pages", "3", "--fpage", "--own"), 70.0,
+        "SPEC.md 98.2.1.8.5, VIDEO-SEEN-PLAN 3b: vidpagefmx3's clip AGAINST "
+        "ITS OWN PAGES - every record BUILT, an ordinary frame drawn on the "
+        "back page as it stands, and every key carrying the back page. "
+        "Every hold exact from the start, from key 1 and with no keys; with "
+        "the back page left out of the keys the file is refused (a play "
+        "from keyframe 1 shows frame 31 wrong)",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidpagefmx4o", "soak", py("tests/vidpage.py", "--layout", "modex",
+                                   "--pages", "4", "--screen", "320x200",
+                                   "--fpage", "--own"), 70.0,
+        "VIDEO-SEEN-PLAN 3b: vidpagefmx4's four pages, the precopy in the "
+        "calm among them, against their own pages",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidpagefv4", "soak", py("tests/vidpage.py", "--pages", "4",
                                  "--screen", "320x200", "--fpage"), 145.0,
         "SPEC.md 98.3.8.5: vidpagefmx4's clip in sixteen colours on 320 x 200",

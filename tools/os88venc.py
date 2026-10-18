@@ -5453,6 +5453,13 @@ class Flipped:
         self.cpu.spend(c + self.prev_c + pc)
         self.disk.spend(len(rec) - abytes + pb)
         spent = c + self.prev_c + pc
+        if getattr(self, "nobring", False):
+            # (FLIPPED AND BUILT AHEAD AGAINST ITS OWN PAGES: every record
+            # drawn as it stands - PageAheadF's own - so nothing is owed;
+            # a flip's copy is that frame's, set in its before())
+            self.prev_c, self.staying = 0.0, False
+            self.end(spent)
+            return spent
         if getattr(self, "own", False):
             # (against its own page: nothing owed the next frame, and a
             # HELD record's page is the next one's - own_turn)
@@ -6564,9 +6571,14 @@ class PageAheadF(PageAheadN):
     built: docs/reports/VIDEO-PAGES-2026-10-15.md §5"""
 
     def __init__(self, enc, plan, pages, key0=0, kcap=KEY_PLAYER,
-                 kpart=vid.KEY_PART, ref=0):
+                 kpart=vid.KEY_PART, ref=0, own=False):
         super().__init__(enc, plan, pages - 1, key0, kcap, kpart, ref)
         enc.fown = True                 # (the player keeps the own lists)
+        # AGAINST ITS OWN PAGES (--flip-own, VIDEO-SEEN-PLAN 3b): every
+        # frame record BUILT - drawn on its page as it stands, that page
+        # the encoder's model for it - so none is brought up, and every key
+        # carries the back page too, which a seek then has exactly
+        self.own = own
         self.N = pages
         self.bp = pages - 1                 # the back page, drawn next
         self.bsurf = bytes(enc.surf)        # ...and what it holds
@@ -6611,9 +6623,12 @@ class PageAheadF(PageAheadN):
 
     def carried(self, j):
         """every page but the back page, which after a seek holds the key's
-        own picture - and is UNKNOWN from a key until it is drawn on"""
+        own picture - and is UNKNOWN from a key until it is drawn on; and
+        against its own pages, the back page too"""
         out = self.surfs()
-        if self.keyat(j):
+        if self.own:
+            out[self.bp] = self.bsurf
+        elif self.keyat(j):
             self.bunk = True
         return out
 
@@ -6711,6 +6726,9 @@ class PageAheadF(PageAheadN):
                 self.asg[self.cp.pop(i)] = None
         if not self.built:              # AN ORDINARY FRAME: on the back page,
             self.vp, self.bp = self.bp, self.vp     # which is then shown
+            if self.own:                # (as it stands: the model is what
+                self._setsurf(e, self.bsurf)    # that page holds)
+                self.built = True
             self.bsurf = old
             self.bunk = False
         self._assign(j)
@@ -9410,10 +9428,6 @@ def _encode(a, keep, tick, readers):
                                         # and a layer's is two)
     # ...and FLIPPED AND BUILT AHEAD (98.2.1.8.5): --flip with it, on three
     # pages or more - two flip every frame and the rest build ahead
-    if pa_on and fown:
-        raise vid.V88Error("--flip-own is not --page-ahead's: a page built "
-                           "ahead is drawn on as it stands already "
-                           "(98.1.3.7.2, VIDEO-SEEN-PLAN 3b)")
     if pa_on and a.flip and (npg < 3 or L == vid.LAY_HERC):
         raise vid.V88Error("--page-ahead with --flip builds ahead on the "
                            "pages the flip leaves: --pages 3 or more, Mode "
@@ -9428,8 +9442,10 @@ def _encode(a, keep, tick, readers):
         EncoderP(g, prof, fps, audio_cyc, audio_bps, palette and
                  palette[:48], a.flip) if vga4 else \
         Encoder(g, prof, fps, audio_cyc, audio_bps, palette)
-    if fown:
-        enc.own_init()
+    if fown and not pa_on:
+        enc.own_init()              # (two pages: byte 37 7, 98.1.3.10)
+    elif fown:
+        enc.nobring = True          # (on N pages: PageAheadF's, 98.2.1.8.5)
     enc.live = bool(a.live)
     # THE XMS COPIES THE PLAYER WILL MAKE (set_xplay): in place where the
     # player's in-place paths take the file, the copying FIFO where they
@@ -9575,7 +9591,8 @@ def _encode(a, keep, tick, readers):
                     title=a.title or os.path.splitext(
                         os.path.basename(a.src))[0][:47],
                     credits=a.credits or "", keysecs=a.keysecs,
-                    palette=palette, rowscale=dh, flip=a.flip, own=fown,
+                    palette=palette, rowscale=dh, flip=a.flip,
+                    own=fown and not pa_on,
                     aspect=scaled_aspect(pasp or vid.ASPECT[L], dh),
                     loop=None if a.loop_from is None else
                     max(0, round(a.loop_from * fps)),
@@ -9775,8 +9792,8 @@ def _encode(a, keep, tick, readers):
     # PAGE-AHEAD (98.2.1.8): the plan pass logs; the real pass builds
     plan = getattr(a, "_paplan", None)
     pa = (PageAheadF(enc, plan, npg, wr.key0, KEY_PLAYER, wr.kpart,
-                     int(wr.audio_fmt == vid.AUD_ADPCM4)) if npg > 2 and
-          a.flip else
+                     int(wr.audio_fmt == vid.AUD_ADPCM4), own=fown)
+          if npg > 2 and a.flip else
           PageAheadN(enc, plan, npg, wr.key0, KEY_PLAYER, wr.kpart,
                      int(wr.audio_fmt == vid.AUD_ADPCM4)) if npg > 2 else
           PageAhead(enc, plan, wr.key0, KEY_PLAYER, wr.kpart,
@@ -11542,9 +11559,11 @@ def parser():
                     help="with --flip: each frame a change against the page "
                          "it is drawn on (the frame two back) and drawn on "
                          "it as it stands, so the player never brings a page "
-                         "up first - less decode for more bytes, and a file "
-                         "only a player that knows it plays (VIDEO-SEEN-PLAN "
-                         "3b)")
+                         "up first - less decode for more bytes. On two "
+                         "pages a file only a player that knows it plays; "
+                         "with --page-ahead on --pages 3 or more, built "
+                         "ahead as well, and any page-ahead player's "
+                         "(VIDEO-SEEN-PLAN 3b)")
     ap.add_argument("--lag", type=lag_arg, default=LAG_MS,
                     metavar="MS|LO-HI",
                     help="with a card's sound: how far the picture may fall "

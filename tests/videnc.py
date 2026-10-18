@@ -82,7 +82,9 @@ tools/os88venc.py encodes it three ways. Four questions:
    three with it in the flip's record: byte-37-5 files that verify and cut
    fewer frames than flipped alone. Broken on purpose - the calm's copy
    left out (PA_COPY_OK where the copy is paid at the flip on the 286 too)
-   - the 5150 leg builds nothing it can flip to and FAILS.
+   - the 5150 leg builds nothing it can flip to and FAILS. And --flip-own
+   on the 486's three pages (VIDEO-SEEN-PLAN 3b): every record BUILT, a
+   byte-37-5 file that verifies from every key, cutting no more.
 8. DOES COMPOSITE DIFFUSION SEE THE MODEL? A picture rendered through the
    model from known nibbles, in runs of 2 to 6 cells, must come back as 90%
    or more of them (94% measured). Without the lookahead - a cell judged as
@@ -1738,6 +1740,25 @@ def main():
                                rf, "fpage", False) else "NOT byte 37 = 5",
                               nf.get(want, 0), want, resf["cuts"],
                               resf0["cuts"]))
+        # ...and AGAINST ITS OWN PAGES (--flip-own, VIDEO-SEEN-PLAN 3b): the
+        # 486's three pages with every record BUILT - drawn on its page as
+        # it stands, nothing brought up - and every key carrying the back
+        # page, so it verifies from every key; it cuts no more than the
+        # file that brings its pages up (0 against 1 measured)
+        ro, reso = fenc("fpage3own", "486-dx2-66", "--page-ahead", "on",
+                        "--pages", "3", "--flip-own")
+        nb = sum(1 for rec, _, _ in ro.records()
+                 if struct.unpack_from("<H", rec, 4)[0] & vid.REC_BUILT)
+        print("   5k: 486-dx2-66, 3 pages flipped against their own: cut %d "
+              "(built ahead %d), %d of %d records built"
+              % (reso["cuts"], resf["cuts"], nb, ro.frames))
+        if not getattr(ro, "fpage", False) or nb != ro.frames or \
+                reso["cuts"] > resf["cuts"]:
+            bad.append("flipped and built ahead against its own pages: %s, "
+                       "%d of %d records built, cut %d against %d"
+                       % ("byte 37 = 5" if getattr(ro, "fpage", False) else
+                          "NOT byte 37 = 5", nb, ro.frames, reso["cuts"],
+                          resf["cuts"]))
     except vid.V88Error as e:
         bad.append("flipped and built ahead: %s" % e)
     shutil.rmtree(ptmp, ignore_errors=True)
