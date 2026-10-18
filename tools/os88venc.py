@@ -8491,6 +8491,9 @@ def desk_choice(pixfmt, cgapal, own, pw, ph, mode, size, custom):
     fit = next((s for s in (1, 2) if pw // s <= DESK_FIT[0] and
                 ph // s <= DESK_FIT[1]), 4)
     ts = {"fit": fit, "half": max(fit, 2), "quarter": 4}[size]
+    while ts < 4 and vid.thumb_size("c", pw // ts, -(-ph // ts)) > \
+            vid.THUMB_MAX:              # (a picture the player can hold)
+        ts *= 2
     if pixfmt in (vid.PF_VGA4, vid.PF_VGA8):
         kinds = TH_C
     elif pixfmt in (vid.PF_CGA4, vid.PF_C160, vid.PF_C512) or \

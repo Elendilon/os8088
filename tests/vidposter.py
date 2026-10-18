@@ -15,16 +15,19 @@ On a VGA's desktop (os8088_xt_vga):
  7. RESIDENT, a custom poster alone (slot bytes 56..61).
 On a CGA's (os8088_5150_cga_gla):
  8. CGA4 with both sets: the BLACK AND WHITE one, OSAPI_GFX_BLIT1's rows.
- 9. VGA4 624 x 350, colour at its own size, shown at a quarter: halved
-    twice by vp_dphalf, the second in place.
+ 9. VGA4 312 x 350, colour at its own size, shown at a quarter: halved
+    twice by vp_dphalf, the second in place (a colour picture is one
+    segment, 98.1.3.11, so a quarter of one at its own size is a CGA's
+    desktop and a narrow clip).
 10. MONO1 624 x 350, black and white at its own size, at a quarter: halved
     twice by vp_half.
 
 Broken on purpose: the posters ignored ([vp_thn] never set) and 1, 2, 4,
 5, 7 and 8 FAIL; the layout tried from its own size whatever TH_SIZE says,
 with the colour set taken without asking the desktop, and 6 and 8 FAIL;
-vp_dphalf's turning taken out, with the second black and white halving
-skipped, and 2, 9 and 10 FAIL; vp_v4pack's turning taken out and 3 FAILS.
+vp_dphalf's turning taken out and 2 and 9 FAIL; the first of two black and
+white halvings skipped and 10 FAILS; vp_v4pack's turning taken out and 3
+FAILS.
 """
 import os
 import random
@@ -149,7 +152,7 @@ def main():
         g32 = vid.Geom(vid.LAY_LIN80, 40, 96, bitplanes=True)
         g8 = vid.Geom(vid.LAY_LIN320, 320, 96)
         gc = vid.Geom(vid.LAY_CGA, 80, 96)
-        gq4 = vid.Geom(vid.LAY_LIN80, 78, 350, bitplanes=True)
+        gq4 = vid.Geom(vid.LAY_LIN80, 39, 350, bitplanes=True)
         gq1 = vid.Geom(vid.LAY_LIN80, 78, 350)
         P4, P8, PC, P1 = T.PF_VGA4, T.PF_VGA8, T.PF_CGA4, T.PF_MONO1
         K, C, M, CU, SZ = (T.TH_KEYS, T.TH_COLOUR, T.TH_MONO, T.TH_CUSTOM,

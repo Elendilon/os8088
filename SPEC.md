@@ -172821,7 +172821,12 @@ it is cheaper than the decode it replaces.
   (`thumb_dims`). A COLOUR picture is packed as `vga4_pack` packs, two
   pixels a byte with the left one high, rows (width + 1) / 2 bytes apart;
   a MONO one is `OSAPI_GFX_BLIT1`'s rows, eight pixels a byte with the
-  left one in bit 7, 1 white, rows (width + 7) / 8 bytes apart.
+  left one in bit 7, 1 white, rows (width + 7) / 8 bytes apart. **Each
+  picture is at most 65,535 bytes unpacked**, one segment of the poster's
+  claim, so the encoder takes the next scale where a colour picture would
+  be more (a 600 x 400 file in its own colours is 120,000 at its own
+  size); a reader refuses a table that breaks it, and the player decodes
+  the key instead.
 - **The table is an entry per picture and set**, picture by picture (the
   keys', in key order, then the custom one), each picture's colour entry
   before its mono one: 8 bytes each, a u32 offset, u16 packed bytes, u8
@@ -172856,8 +172861,9 @@ it is cheaper than the decode it replaces.
   unpacks them into the poster's claim, which `vp_psize` makes big enough
   for either. It takes them at the stored scale, twice it or four times
   it, halving once or twice: colour by `vp_dphalf`, one pixel of each 2 x
-  2 cell with 98.4.5's turning pick, the second pass in place; black and
-  white by `vp_half`, 98.4's ordered dither. A key without a picture, a
+  2 cell with 98.4.5's turning pick; black and white by `vp_half`, 98.4's
+  ordered dither. The first of two halvings is in place where the picture
+  was read, since the poster's claim is the box's size. A key without a picture, a
   scale it cannot serve, a failed read, or fields that do not describe
   this file (`vp_thparse`) fall back to decoding the key. A stored
   picture is never taken for the key's canvas: 98.3.19.3's poster that

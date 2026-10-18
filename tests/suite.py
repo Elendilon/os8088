@@ -13021,7 +13021,7 @@ SOAK = [
         "or vp_canwin taking the window) the holds FAIL",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidposter", "soak", py("tests/vidposter.py"), 180.0,
+    Row("vidposter", "soak", py("tests/vidposter.py"), 135.0,
         "SPEC.md 98.1.3.11, 98.4.5: DESKTOP POSTERS on MartyPC, ten files "
         "on a VGA's desktop and a CGA's, each box held to the host byte "
         "for byte with the set and scale it chose: VGA4 of its own greys "

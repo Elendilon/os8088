@@ -2661,23 +2661,27 @@ vp_thpic:
     cmp byte [vp_thkm], 0
     jne .mono
     cmp byte [vp_thhv], 0           ; COLOUR: halved by a pixel of each cell
-    je .c4                          ; turning with its place, once into the
-    call vp_dphalf                  ; poster and once more in place there
+    je .c4                          ; turning with its place - the first of
+    mov ax, [vp_pseg]               ; two in place where it was read, since
+    cmp byte [vp_thhv], 1           ; the poster's claim is the LAST one's
+    je .c1                          ; size, then into the poster
+    mov ax, [vp_thseg]
+.c1:
+    mov [vp_thdst], ax
+    call vp_dphalf
     call vp_thhalf
     cmp byte [vp_thhv], 1
     je .cfree
     push word [vp_thw]
     push word [vp_thh]
-    push word [vp_thseg]
     mov ax, [vp_thow]
     mov [vp_thw], ax
     mov ax, [vp_thoh]
     mov [vp_thh], ax
     mov ax, [vp_pseg]
-    mov [vp_thseg], ax
+    mov [vp_thdst], ax
     call vp_dphalf
     call vp_thhalf
-    pop word [vp_thseg]
     pop word [vp_thh]
     pop word [vp_thw]
 .cfree:
@@ -2706,18 +2710,20 @@ vp_thpic:
     mov [vh_h], ax
     mov ax, [vp_thseg]
     mov [vh_sseg], ax
-    mov ax, [vp_pseg]
+    cmp byte [vp_thhv], 1           ; (the first of two in place, as
+    je .m1                          ; colour's)
     mov [vh_dseg], ax
     mov byte [vh_lay], 0xFF
     call vp_mkdtab
     call vp_half
     call vp_thhalf
-    cmp byte [vp_thhv], 1
-    je .mfree
-    mov ax, [vp_pseg]
-    mov [vh_sseg], ax
     mov ax, [vh_wb]
     mov [vh_sstr], ax
+.m1:
+    mov ax, [vp_pseg]
+    mov [vh_dseg], ax
+    mov byte [vh_lay], 0xFF
+    call vp_mkdtab
     call vp_half
     call vp_thhalf
 .mfree:
@@ -2770,7 +2776,8 @@ vp_thhalf:
     ret
 
 ; vp_dphalf - the desktop poster in [vp_thseg] ([vp_thw] x [vp_thh], packed)
-; halved into [vp_pseg]: one pixel of each 2 x 2 cell, its row the output
+; halved into [vp_thdst], which may be [vp_thseg] itself - every write lands
+; at or behind every read left: one pixel of each 2 x 2 cell, its row the output
 ; column's parity and its column the row's - os88vid.py's packed_half.
 ; Clobbers AX, BX, CX, DX, SI, DI, BP, ES
 vp_dphalf:
@@ -2778,7 +2785,7 @@ vp_dphalf:
     inc ax
     shr ax, 1
     mov [vp_thsb], ax               ; the source's bytes a row
-    mov es, [vp_pseg]
+    mov es, [vp_thdst]
     xor di, di
     xor bp, bp                      ; BP = the output row
 .row:
@@ -21138,6 +21145,7 @@ vp_thhv:      db 0                  ; (its halvings to the layout's scale)
 vp_p4:        db 0                  ; THE POSTER is packed for BLIT4 (1) or
 vp_pthm:      db 0                  ; BLIT1's rows; and a stored picture (1)
 vp_thow:      dw 0                  ; (the box's picture, as it is halved)
+vp_thdst:     dw 0                  ; (where vp_dphalf writes)
 vp_thoh:      dw 0
 vp_thtab:     dd 0                  ; DESKTOP POSTERS (98.1.3.11): the table,
 vp_thn:       dw 0                  ; its entries (0: none), the stored

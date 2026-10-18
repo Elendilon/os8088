@@ -2157,6 +2157,7 @@ TH_MONO = 8                     # ...and/or in black and white
 TH_SIZE = 16                    # ...the scale is the Preview's own choice:
                                 # its box is never larger
 TH_FLAGS = 31
+THUMB_MAX = 65535               # a picture's bytes, unpacked: one segment
 TH_ENT = "<IHBB"                # an entry: offset, packed bytes, packing
                                 # (PK_NONE, PK_LZ4), 0. Picture-major: each
                                 # picture's colour entry, then its mono one
@@ -2379,6 +2380,9 @@ def thumb_block(th, keys, at, pw, ph):
     for i, p_ in enumerate(pics):
         if len(p_) != thumb_size(kinds[i % len(kinds)], ow, oh):
             raise V88Error("a desktop poster is not %d x %d" % (ow, oh))
+        if len(p_) > THUMB_MAX:
+            raise V88Error("a desktop poster of %d x %d is %d bytes: %d at "
+                           "most" % (ow, oh, len(p_), THUMB_MAX))
     if not pics:
         return b"", (0, ts, fl)
     ents, data = [], b""
@@ -4095,6 +4099,8 @@ class Reader:
                     max(ts, 1)
                 if ts not in (1, 2, 4) or tf & ~TH_FLAGS or \
                         bool(kinds) != bool(npic) or \
+                        any(thumb_size(k, tw, th_) > THUMB_MAX
+                            for k in kinds) or \
                         (tn and not tat) or (tat and not tn) or \
                         tat + struct.calcsize(TH_ENT) * tn > len(d):
                     raise V88Error("desktop posters at %d: a scale of %d, "
