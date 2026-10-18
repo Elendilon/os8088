@@ -1072,9 +1072,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "3ee6eafd",
-  "strings": "b6abc48977d7e760",
-  "why": "the preview's < and > buttons and , . keys"
+  "stamped": "806b9e9a",
+  "strings": "da44cdb9ec7b5adf",
+  "why": "added --lookahead-floor, a cut-frame ranking option below the page's level of detail (the page lists none of --lookahead, --edges, --attend)"
  },
  "TRACKER_O88": {
   "sources": [

@@ -35,7 +35,10 @@ tools/os88venc.py encodes it three ways. Four questions:
    the look-ahead and the error as seen (the defaults) must flicker back at
    most half as much as with neither, and be no worse as seen; and the
    header names the ring its reserve banks in - 3 slots at 16 KB, 8 at the
-   default 192 (98.1.1). 3d. --aim size (98.2.1.4) at the default budget
+   default 192 (98.1.1). 3c'. THE LOOK-AHEAD'S FLOOR (98.2.1.2): a pixel
+   bright now and dark in the two frames after - the owner's headlights -
+   must outrank dark road at --lookahead-floor 0.5, and rank below it at 0
+   (the defect, so the leg is seen to tell them apart). 3d. --aim size (98.2.1.4) at the default budget
    must be 5% smaller than as asked, and still converge on the still.
 4. DOES IT CONVERGE? Two seconds of a still picture after the motion: the
    last frame on screen must be the target, the errors the budget left all
@@ -681,6 +684,30 @@ def main():
             bad.append("the look-ahead flickered %.1f against %.1f, error "
                        "%.4f against %.4f" % (q1["q_flick"], q0["q_flick"],
                                               q1["q_vis"], q0["q_vis"]))
+        # --- 3c': THE LOOK-AHEAD'S FLOOR (98.2.1.2): value() on two pixels
+        # of a dark screen - a headlight now that the two frames after leave
+        # dark, and road that stays. Unfloored the frames after take the
+        # headlight below nothing and the road is drawn instead
+        import types
+        import numpy as np
+        E = venc.Encoder
+        dark = np.zeros((1, 2), np.float32)
+        now = np.array([[255, 30]], np.float32)
+        nxt = np.array([[0, 30]], np.float32)
+        worth = {}
+        for fl in (0.0, venc.parser().parse_args([src, "x"]).lookahead_floor):
+            st = types.SimpleNamespace(
+                spix=lambda: (None, dark), tpix=lambda T: (None, T),
+                dist=E.dist, vis=False, edges=0.0, attend=0.0, look=2,
+                future=[nxt, nxt], lfloor=fl)
+            worth[fl] = E.value(st, now)[0]
+        print("   look-ahead floor: headlight / road worth %s"
+              % ", ".join("%.1f / %.1f at %g" % (w[0], w[1], fl)
+                          for fl, w in sorted(worth.items())))
+        (f0, w0), (f1, w1) = sorted(worth.items())
+        if f1 != 0.5 or w0[0] >= w0[1] or w1[0] <= w1[1]:
+            bad.append("the look-ahead floor: default %g, headlight / road "
+                       "%s" % (f1, worth))
         # ...and the ring the stream assumes, in its header (98.1.1): the
         # slots less TWO hold the reserve (98.2.1.3), so a 16 KB reserve
         # wants 4 - a 2-slot ring banks nothing - and the default 192 KB 8

@@ -174742,6 +174742,29 @@ cuts (Sonic 2 at the default profile, the others at a lower `--disk`):
 It costs the encoder about twice its time (Sonic 2's 10 s: 5.3 s -> 9.8 s).
 `--lookahead 0 --error bits` is the ranking before it, for the A/B.
 
+**`--lookahead-floor F`** (options version 41, 2026-10-18; default 0.5) is
+how far the frames after may take a change's worth down: never below F of
+what writing it is worth NOW. Without it a bright thing about to MOVE lost
+nearly all of its worth to them. The owner's GasGas headlights, frame 1277:
+4.07 a pixel now, 0.53 after the two frames ahead, against dark road's 0.09.
+The road stores as cheap runs, so per BYTE it won, and the cut frame showed
+the near car as black ground. The floor keeps the look-ahead's ranking
+among the changes worth something and stops it from turning a bright pixel
+into the cheapest one to leave. Measured as the view as seen broken (frames
+cut), at the owner's settings:
+
+| clip | `--lookahead 2`, no floor | `--lookahead 0` | floor 0.5 |
+|---|---|---|---|
+| Last Exile (286, banked) | 1.7% (8) | 1.3% (23) | 1.5% (13) |
+| GasGas 1:35-1:50.7 | 3.7% | 4.8% (plain) | 3.3% |
+| Bad Carrot | 1.9% | 2.0% | 1.8% |
+| GasGas, the whole clip | 2.6% (owner's) | | 2.2% (115) |
+
+On the whole GasGas clip frame 1277 draws both headlights and the fog
+lights, and page-ahead is kept (plain 3.5%). `--lookahead 0` cuts the
+fewest frames on Last Exile and is the worst seen on GasGas. A record made
+before the option reads 0, as it was made.
+
 **THE MEAN HID WHAT A VIEWER SEES** (2026-10-09). The owner's Last Exile on
 the 286, banked, measured 0.15% error as seen and plays with scenes torn
 into horizontal bands - a cut leaves the rows it did not reach from the

@@ -853,7 +853,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 40
+OPTS_VERSION = 41
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -883,7 +883,8 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     33: "1cb11afeb374b243", 34: "60df56fd426010fd",
                     35: "e1090fc6c20c5367", 36: "00e7310bd1a264d8",
                     37: "096abca8b264506a", 38: "eaf373ad8f1e1fdb",
-                    39: "7a7d4203d99fd27d", 40: "4fffe628a862c24e"}
+                    39: "7a7d4203d99fd27d", 40: "4fffe628a862c24e",
+                    41: "9c78d785df0d94a4"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1059,6 +1060,9 @@ MIGRATIONS = {
     38: [("added", "flip_hold", "empty")],
     # 40: --ladder (VIDEO-SEEN-PLAN 3a) - a file made before it had none
     39: [("added", "ladder", "")],
+    # 41: --lookahead-floor (98.2.1.2) - a file made before it let the
+    # frames after take a pixel's worth all the way down
+    40: [("added", "lookahead_floor", 0.0)],
 }
 
 
@@ -5106,8 +5110,8 @@ class Encoder:
             v = v + plain * np.clip(vis, 0.25, 1.0)
             if k == 0:
                 vnow = v
-        # THE LOOK-AHEAD'S FLOOR (an experiment, VIDEO-SEEN-PLAN 3: the
-        # owner's headlights): the frames after it may take a pixel's worth
+        # THE LOOK-AHEAD'S FLOOR (--lookahead-floor, 98.2.1.2: the owner's
+        # headlights): the frames after it may take a pixel's worth
         # down to `lfloor` of what writing it is worth NOW and no further -
         # a headlight that moves on next frame still lost 8x of its worth
         # to them and went unwritten for dark road
@@ -9457,7 +9461,7 @@ def _encode(a, keep, tick, readers):
         enc.alead = max(0, enc.alead - ahead)   # this frame have fitted?
     # WHAT A CUT FRAME SPENDS ON (98.2.1.2)
     enc.look, enc.vis = a.lookahead, a.error == "visible"
-    enc.lfloor = float(os.environ.get("OS88_VENC_LFLOOR") or 0.0)
+    enc.lfloor = float(getattr(a, "lookahead_floor", 0.0) or 0.0)
     enc.attend = float(getattr(a, "attend", 0.0) or 0.0)
     enc.edges = float(getattr(a, "edges", 1.0) or 0.0)
     enc.cut = a.cut
@@ -11145,6 +11149,14 @@ def parser():
                          "over the next N frames too, and one the picture is "
                          "about to undo is not sent (98.2.1.2). Default 2; "
                          "0 ranks by this frame alone, as before")
+    ap.add_argument("--lookahead-floor", type=float, default=0.5,
+                    metavar="F",
+                    help="WHEN A FRAME IS CUT, how much of a change's worth "
+                         "NOW the look-ahead may take away: never below F of "
+                         "it, so a bright thing about to move is still "
+                         "drawn and not left as dark ground (0.5, the "
+                         "default; 0 lets the frames after take it all, as "
+                         "before; 98.2.1.2)")
     ap.add_argument("--cut", choices=("rank", "fill", "tear"),
                     default="fill",
                     help="WHEN A FRAME IS CUT (over its budget, or a "
