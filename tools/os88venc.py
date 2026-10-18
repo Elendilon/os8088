@@ -4524,6 +4524,7 @@ class Encoder:
         # indexes `dpal`, "idx" a byte packs `ppb` indexes of `dpal`, None
         # no pixel form (the composite formats: bits, and no visible error)
         self.look, self.vis, self.future = 0, False, []
+        self.lfloor = 0.0                   # (value()'s look-ahead floor)
         # WHERE AN EYE LOOKS (--attend, VIDEO-SEEN-PLAN 3): value() weighted
         # by the view as seen's attention map, `attend` its strength (0
         # off); `attc` the last target's (target, pixels, map)
@@ -5092,6 +5093,8 @@ class Encoder:
                 v = v + ew * (ed(gS) - ed(g0))
             if not self.vis:
                 v = v + plain
+                if k == 0:
+                    vnow = v
                 continue
             # the share of the pixel's local error an eye sees: the
             # blurred pictures' difference over the blurred plain one -
@@ -5101,6 +5104,15 @@ class Encoder:
             vis = self.dist(bS, self.tblur(T)) / \
                 np.maximum(self.blur(self.dist(S, Tk)), 1e-3)
             v = v + plain * np.clip(vis, 0.25, 1.0)
+            if k == 0:
+                vnow = v
+        # THE LOOK-AHEAD'S FLOOR (an experiment, VIDEO-SEEN-PLAN 3: the
+        # owner's headlights): the frames after it may take a pixel's worth
+        # down to `lfloor` of what writing it is worth NOW and no further -
+        # a headlight that moves on next frame still lost 8x of its worth
+        # to them and went unwritten for dark road
+        if self.look and self.lfloor:
+            v = np.maximum(v, self.lfloor * vnow)
         if self.attend:
             v = v * self.attention(target, T0)
         return v
@@ -9445,6 +9457,7 @@ def _encode(a, keep, tick, readers):
         enc.alead = max(0, enc.alead - ahead)   # this frame have fitted?
     # WHAT A CUT FRAME SPENDS ON (98.2.1.2)
     enc.look, enc.vis = a.lookahead, a.error == "visible"
+    enc.lfloor = float(os.environ.get("OS88_VENC_LFLOOR") or 0.0)
     enc.attend = float(getattr(a, "attend", 0.0) or 0.0)
     enc.edges = float(getattr(a, "edges", 1.0) or 0.0)
     enc.cut = a.cut
