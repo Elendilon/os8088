@@ -89,7 +89,9 @@ The **Made for** list:
 
 The right of the window shows **What the screen will show**: the encoded
 frames as the target adapter draws them, in its own colours and at its own
-pixel shape. Drag the slider under it to move through the video.
+pixel shape. Drag the slider under it to move through the video. The **<**
+and **>** buttons beside the frame number go back or on one frame; so do
+`,` and `.` once you have clicked the picture.
 
 The **The file** box below says what the file holds. In it:
 

@@ -12894,6 +12894,10 @@ vp_keyat:
 vp_main:
     OS88_ALTENTER_SEED              ; the Alt+Enter that got us here is held
     xor ax, ax
+    mov [vp_stepq], ax              ; (no frame steps from the last bracket)
+    dec ax
+    mov [vp_sttgt], ax
+    inc ax
     mov [vp_msync], al              ; (no mode change to wait out, yet)
     mov [vp_pfresh], al             ; a pause from before this bracket - the
                                     ; desktop's, or the last bracket's way
@@ -13210,6 +13214,16 @@ vp_main:
     mov byte [vp_skgo], 0
     call vp_upaus
 .hv:
+    cmp word [vp_sttgt], 0xFFFF     ; A STEP BACK landed on its key: the
+    je .hv1                         ; frames from there to the one wanted
+    mov ax, [vp_sttgt]              ; stepped on (98.3.14.1) - the key's
+    mov word [vp_sttgt], 0xFFFF     ; picture is frame [vp_done]-1
+    mov bx, [vp_done]
+    dec bx
+    sub ax, bx
+    jbe .hv1
+    mov [vp_stepq], ax
+.hv1:
     call vo_update                  ; ("Paused" again, if Space paused it)
     jmp short .loop
 .snd:
@@ -13334,6 +13348,8 @@ vp_main:
     call OSAPI_FSX_WAIT
     jmp short .dl
 .leave:
+    mov word [vp_stepq], 0          ; (frame steps end with the bracket)
+    mov word [vp_sttgt], 0xFFFF
     cmp byte [vo_skp], 0            ; a seek not made: as it was
     je .lv
     mov byte [vo_skp], 0
@@ -13525,6 +13541,10 @@ vp_poll:
     je .stop
     cmp al, ' '
     je .space
+    cmp al, '.'                     ; . and , - A FRAME ON or BACK, paused
+    je .fwd                         ; (98.3.14.1)
+    cmp al, ','
+    je .bwd
     or al, 0x20
     cmp al, 'f'
     je .swap
@@ -13590,6 +13610,12 @@ vp_poll:
 .home:
     call vp_skhome
     jmp short .none
+.fwd:
+    call vp_stfwd
+    jmp .none
+.bwd:
+    call vp_stbwd
+    jmp .none
 .space:
     cmp byte [vp_winm], 0
     jne .desk
@@ -13625,6 +13651,60 @@ vp_poll:
 ; =============================================================================
 VP_SKWAIT   equ 9                   ; ticks after the last press: 1/2 s
 VP_SKMAXN   equ 99                  ; presses counted, either way
+
+; FRAME STEPS (98.3.14.1, the owner, 2026-10-18): paused in the full
+; screen, . draws the next frame and , the one before. ON is the hook's:
+; [vp_stepq] frames it draws while paused, a played frame's draw each - so
+; a flip, a layer or a held frame is exactly what the play would show.
+; BACK is a SEEK: the key at or before the frame wanted, landed on paused,
+; and the frames from it to that one stepped on - the player decodes
+; nothing without drawing it, so the way there is seen, briefly. Either is
+; refused playing, with a seek on its way, in the window, or at an end
+
+; vp_stfwd - . : one frame on. Preserves all
+vp_stfwd:
+    cmp byte [vp_upause], 0
+    je .no
+    cmp byte [vo_skp], 0
+    jne .no
+    cmp word [vp_sttgt], 0xFFFF     ; (a step back still on its way)
+    jne .no
+    cmp word [vp_stepq], 99
+    jae .no
+    inc word [vp_stepq]
+.no:
+    ret
+
+; vp_stbwd - , : one frame back, through a seek to the key at or before
+; it. Preserves all
+vp_stbwd:
+    cmp byte [vp_upause], 0
+    je .out
+    cmp byte [vo_skp], 0
+    jne .out
+    cmp word [vp_stepq], 0          ; (steps on still to draw)
+    jne .out
+    cmp word [vp_nkeys], 0          ; (no key: nowhere to come back from)
+    je .out
+    push ax
+    push bx
+    push dx
+    mov ax, [vp_done]               ; the frame on the glass is [vp_done]-1,
+    sub ax, 2                       ; the one wanted the one before it
+    jb .x
+    push ax
+    mov byte [vp_skhere], 1         ; THE KEY AT OR BEFORE IT, due at once -
+    call vp_skfirst                 ; Unmute's seek (vp_unmfs), from there
+    pop ax
+    mov [vp_skb], ax
+    mov [vp_sttgt], ax
+    call vp_sknow
+.x:
+    pop dx
+    pop bx
+    pop ax
+.out:
+    ret
 
 ; vp_skkey - AL = +1 Right, FFh Left. Preserves all
 vp_skkey:
@@ -15555,7 +15635,7 @@ vp_hook:
     cmp byte [vp_upause], 0         ; paused (98.3.4): the periods are not
     je .play                        ; the play's...
     cmp byte [vp_pfresh], 0         ; ...EXCEPT THE PAUSE'S FIRST CALL'S: AX
-    je .ret0                        ; is every period since the last call,
+    je .step                        ; is every period since the last call,
     mov byte [vp_pfresh], 0         ; and those PLAYED - through the shadow a
     add [vp_pers], ax               ; call is a whole copy long, so Space
     cmp byte [vp_snd], 0            ; lands between two calls with 5 or 6
@@ -15563,6 +15643,20 @@ vp_hook:
     add [vp_owed], ax               ; the picture ran that far behind the
 .ret0:                              ; clock (98.3.4). Owed, they are drawn on
     ret                             ; the resume's first call
+.step:                              ; A FRAME STEP (98.3.14.1): one frame
+    cmp word [vp_stepq], 0          ; drawn as a played one is, the clock
+    je .ret0                        ; still paused - and with sound its audio
+    dec word [vp_stepq]             ; queued, the card paused, so the frames
+    cmp byte [vp_snd], 0            ; stepped are in step when it resumes
+    je .st1                         ; - unless the card is not started yet
+    cmp byte [vp_sdefer], 0         ; (a paused start or a seek's landing),
+    jne .st1                        ; which starts at the frame on the glass
+    sti                             ; (as .top calls it)
+    call vp_afill
+    cli
+.st1:
+    mov cx, 1
+    jmp .n
     nop                             ; (never run: .play, every call's, on the
 .play:                              ; word parity the hook had)
     add [vp_pers], ax
@@ -16371,6 +16465,8 @@ vp_frame:
 .snd:
     cmp byte [vp_snd], 0            ; WITH SOUND, never a picture whose audio
     je .go                          ; is not in the ring yet: the audio cursor
+    cmp byte [vp_sdefer], 0         ; (the card not started yet - a FRAME
+    jne .go                         ; STEP, paused: it starts where they end)
     cmp byte [vp_rep], 0            ; is what keeps the chunks under it, and
     jne .sq                         ; the video may not overtake it - which
     cmp ax, [vp_frames]             ; is why the header's count is the end
@@ -20653,6 +20749,10 @@ vp_sktk:      dw 0                  ; ...the last at this tick
 vp_skk:       dw 0                  ; the key it lands on
 vp_skwas:     db 0                  ; it was playing
 vp_skgo:      db 0                  ; ...and plays on from the key
+vp_stepq:     dw 0                  ; FRAME STEPS (, and .): frames the hook
+                                    ; draws while paused...
+vp_sttgt:     dw 0xFFFF             ; ...and a step back's frame, the seek's
+                                    ; landing stepping on to it (FFFFh none)
 vp_skwt:      db VP_SKWAIT          ; the wait after the last press, ticks
 vp_grey:      db 0                  ; THE GREY GROUND (98.4.8) is on
                                     ; (tests/vidfskeys.py holds a seek here)

@@ -2320,8 +2320,22 @@ class App(object):
                               length=400, command=self.show_frame,
                               showvalue=False)
         self.scrub.pack(fill="x")
+        # ONE FRAME BACK OR ON (the owner, 2026-10-18): a button each side
+        # of the frame's line, and , and . on the preview and the slider -
+        # the player's keys for it (98.3.14)
+        sr = ttk.Frame(right)
+        sr.pack(fill="x")
+        ttk.Button(sr, text="<", width=3,
+                   command=lambda: self.step_frame(-1)).pack(side="left")
         self.fr = tk.StringVar(value="")
-        ttk.Label(right, textvariable=self.fr).pack(anchor="w")
+        ttk.Label(sr, textvariable=self.fr).pack(side="left", padx=6)
+        ttk.Button(sr, text=">", width=3,
+                   command=lambda: self.step_frame(1)).pack(side="left")
+        for w in (self.canvas, self.scrub):
+            w.bind("<comma>", lambda e: self.step_frame(-1))
+            w.bind("<period>", lambda e: self.step_frame(1))
+        self.canvas.bind("<Button-1>", lambda e: self.canvas.focus_set(),
+                         add="+")
         # --- the file, and the keyframe a play from here starts at
         fi = ttk.LabelFrame(right, text="The file", padding=6)
         fi.pack(fill="x", pady=(6, 0))
@@ -3052,6 +3066,15 @@ class App(object):
             pass
         except Exception as e:
             self.put(job, "fail", "%s\n%s" % (e, traceback.format_exc()))
+
+    def step_frame(self, d):
+        """The preview a frame back (d -1) or on (+1): the slider moved, which
+        shows it - a preview of a long file holds every n-th frame
+        (preview_frames), so a step is one of those"""
+        if not getattr(self, "frames", None):
+            return
+        n = max(0, min(len(self.frames) - 1, int(self.scrub.get()) + d))
+        self.scrub.set(n)               # (its command shows it)
 
     def write(self, text):
         self.log.insert("end", text)

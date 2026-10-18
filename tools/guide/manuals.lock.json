@@ -1072,9 +1072,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "9eee6705",
-  "strings": "cb5c45c5587af9c4",
-  "why": "the progress pass: the status under the bar says the pass, the step's real count and what runs beside it"
+  "stamped": "3ee6eafd",
+  "strings": "b6abc48977d7e760",
+  "why": "the preview's < and > buttons and , . keys"
  },
  "TRACKER_O88": {
   "sources": [

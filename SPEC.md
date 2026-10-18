@@ -179603,6 +179603,39 @@ that was only late would count twice and fail the next step, so a pass
 means each one was really lost. The player reads keys through the BIOS
 buffer, so it drops none itself.
 
+#### 98.3.14.1 A frame on or back: . and ,
+
+The owner (2026-10-18): one key for the next frame and one for the frame
+before, for looking at a file frame by frame. Both work in the full screen
+while it is PAUSED, and are ignored while it plays, with a seek on its
+way, or in the window. `.` and `,` are the unshifted `>` and `<`, and
+nothing else in the player uses them.
+
+- **ON (`.`)** asks the HOOK for a frame: `[vp_stepq]` frames that
+  `vp_hook` draws while paused, one a call, through the same `vp_frame` a
+  played frame takes. So a flip, a held frame or a layer is exactly what
+  the play would show there. With a card already started, the step tops up
+  the card's ring first (`vp_afill`), so the stepped frames' sound waits in
+  step for the resume. A card not yet started - a paused start, or a
+  seek's landing - starts at the frame on the glass anyway, so there
+  `vp_frame` lets a frame through without its audio.
+- **BACK (`,`)** is a SEEK, because the player decodes nothing without
+  drawing it. It is Unmute's seek (`vp_skhere`, 98.3.17) to the key at or
+  before the frame wanted, due at once. The landing, paused, steps on from
+  the key to that frame (`[vp_sttgt]`), so the way there is seen briefly.
+  A file with no keys cannot step back.
+- **Resume** after steps: the clock carries on from the frame stepped to.
+  With a card, the picture waits on the card for the frames it stepped
+  ahead, which were queued with it.
+
+`tests/vidfskeys.py` question 8 is the gate: paused on a key, `.` three
+times, each the next frame byte for byte with "Paused" over it, then `,`
+once, the frame before. Broken on purpose - `.` queuing two frames - it
+FAILS at the first step.
+
+The encoder's preview has the same two keys, and `<` and `>` buttons
+beside the frame number (98.2.11).
+
 #### 98.3.15 No card: the speaker, or performant silence
 
 With no Sound Blaster (`OSAPI_SND_CAPS` lacks `SND_CAP_PCM_BG`), a clip's
