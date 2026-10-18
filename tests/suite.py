@@ -13983,12 +13983,25 @@ SOAK = [
         "disk that it can then format (the docstring has the three ways). "
         "Measured at 60s",
         needs=("marty",), serial=True),
+    Row("fmtpair", "soak", py("tests/fmtpair.py"), 21.0,
+        "fmtpair - the formatter offers the DRIVE's two sizes whatever the "
+        "read said (SPEC.md 18.96.4): a bulk-erased 1.44MB disk was offered "
+        "1200K, 720K and 1440K on three erasures because a read of noise "
+        "can succeed. dskw_fmt_probe is called with B: holding a blank "
+        "1.44MB image, the 720KB, 1.2MB and 360KB apps disks in turn - "
+        "QEMU's auto drive type follows the image - and must answer AL = "
+        "the default and AH = the drive's other size: 0200, 0002, 0301, "
+        "0103. QEMU by docs/TESTING.md's closed list, entry 1: the pair is "
+        "an AT ROM's AH=08h answer and every MartyPC machine runs an XT ROM "
+        "that refuses it. VERIFIED RED: AH forced to 0, the old probe's, "
+        "fails 3 of 4. Measured at 21s",
+        needs=("qemu", "nasm"), serial=True),
     Row("fmtreach", "soak", py("tests/fmtreach.py"), 39.0,
         "fmtreach - a 720K format PROVES the drive reaches cylinder 79 "
         "(SPEC.md 18.96.2): dskw_fmt_reach_x writes a marker to LBA 1439, "
         "re-zeroes, reads it back and compares, and on a failure remakes the "
-        "disk 360K with 'Made 360K, not 720K'. No other row reaches it - "
-        "fmtlow formats 360K and only row 2 is checked. Arm A forces row 2 "
+        "disk 360K with 'Made 360K, not 720K'. Since 18.96.4 every format "
+        "runs the check, and row 2 is the one that falls back. Arm A forces row 2 "
         "at the confirmation on an 80-track B: and must see 160 tracks, "
         "'Formatted B:' and the marker on the host; arm B sends the reach "
         "test's read of cylinder 79 to cylinder 78 at the int 13h gate (a "

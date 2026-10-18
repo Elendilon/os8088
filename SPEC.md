@@ -37728,13 +37728,13 @@ drive on the 5.25" adapter's external 37-pin connector is an
 **80-cylinder drive on a ROM that answers no questions about it**, so
 `AH=08h` refuses, the probe reads a 360KB machine, and the only 720KB disk
 the machine can make is one it will not offer. §22.12's confirmation
-therefore carries a **Space** key that offers the other row with the same
-media sectors-per-track. That pair exists for 9-sector media alone — rows 2
-and 3 — so "the other row with the same spt" *is* the 720KB/360KB toggle and
-nothing else: it can never offer 1.44MB on 720-sector media, which is
-§18.96.1's disaster case made unreachable by construction rather than
-guarded against. Rows 0 and 1 have no partner and the line does not name a
-key that would do nothing (§47).
+therefore carries a **Space** key that offers the other format the drive
+makes — on a 9-sector drive that is the 720KB/360KB toggle, offered on the
+external units alone (§18.96.2). §18.96.4 widened it to the HD drives, where
+the pair is 1.44MB/720KB or 1.2MB/360KB, and it is still a pair the DRIVE
+names: no read can put a row the drive does not make on the line. A drive
+with one format has no other and the line does not name a key that would do
+nothing (§47).
 
 This is an **assertion about hardware**, not a probe, and it is the same
 assertion DOS took at face value from `DRIVER.SYS /d:2 /t:80 /s:9`. The
@@ -37853,7 +37853,9 @@ written past cylinder 39 is not a thing to ship on the grounds that it can be
 reformatted afterwards.)
 
 So `dskw_fmt_reach` runs after a successful `dskw_format` of **row 2**, the
-only row the toggle can produce that a 40-cylinder drive cannot hold. It
+only row the toggle can produce that a 40-cylinder drive cannot hold (and
+since §18.96.4 after every format, with this fallback kept for row 2 where
+360KB is the drive's other format). It
 writes a marker to the volume's **last** sector, re-zeroes the buffer, reads
 that sector back and compares. Four things about it:
 
@@ -37885,15 +37887,16 @@ that sector back and compares. Four things about it:
   clock's 25-cell field; the OUTCOME is the half a user has to act on, since
   what they are now holding is a 360KB disk). Stopping would leave them with
   a disk that is neither.
-- **And the key is offered on units 2 and 3 ONLY** (`fm_fmt_sizeable`). The
+- **And on a 9-sector drive the key is offered on units 2 and 3 ONLY**
+  (the probe's `AH`, §18.96.4; it was `fm_fmt_sizeable`). The
   toggle exists because `AH=08h` is refused and the drive cannot be asked how
   many cylinders it has — but that ignorance is only *actionable* on a drive
   the operator may have changed. Units 0 and 1 are the machine's own internal
   drives, and offering a 720KB volume on the 5150's Tandon is offering
   something the reach test will only take away again; units 2 and 3 are
   §18.98's external pair, which is exactly where an 80-cylinder 3.5" drive
-  turns up. One predicate serves the line and the key, so what is named and
-  what is accepted cannot disagree — §47 rule 2's shape.
+  turns up. One byte, `[fm_fmtalt]`, serves the line and the key, so what is
+  named and what is accepted cannot disagree — §47 rule 2's shape.
 
 The cost on the honest path is **two `int 13h` calls**, once per 720KB
 format, against a format that is already 7 writes and a remount.
@@ -37948,6 +37951,61 @@ left for when a disk that formats and then fails turns up.
 lays those tracks over the last one it can reach; the reach test fails, and
 the fallback re-formats as 360KB — fully, so the track the stop overwrote is
 laid down again correctly.
+
+#### 18.96.4 A read is evidence, not a verdict — the drive names the sizes
+
+Field report, 2026-10-18: a **bulk-erased 1.44MB disk in a 1.44MB drive** was
+offered `1200K`, erased again and offered `720K`, erased a third time and
+offered `1440K`. The descent takes the FIRST read that succeeds, and a read of
+magnetic noise sometimes does — an erased surface has no address marks, but a
+controller that is hunting for one in noise can find one. Which rung of 18,
+15, 9 the noise answered on was the whole decision, so the size was a roll of
+the dice. §18.96.1's rule that a test must be a read *succeeding* still
+stands; what is wrong is letting a success be the only word.
+
+So **the drive names the sizes and the read picks the default.**
+`dskw_fmt_probe_x` returns AL = the default row and **AH = the other row this
+drive makes, or 0FFh**, and `[fm_fmtalt]` banks it beside `[fm_fmtrow]`.
+§22.12's Space swaps the two bytes, and the key line names `Spc=size` exactly
+when `[fm_fmtalt]` is not 0FFh:
+
+| the drive (BL, else CL/CH) | default | the other |
+|---|---|---|
+| 18 sectors or more — 1.44MB, 2.88MB | 1.44MB | 720KB |
+| 15 sectors — 1.2MB | 1.2MB | 360KB |
+| 9 sectors over 80 cylinders — 720KB | 720KB | 360KB on units 2, 3 |
+| 9 sectors over 40, or no answer — 360KB | 360KB | 720KB on units 2, 3 |
+
+A 9-sector read (rows 2 and 3 read the same sector, so it is always the walk's
+row 2) picks the pair's 9-sector row — 720KB in a 1.44MB drive, 360KB in a
+1.2MB one, what a readable disk got before. An 18- or 15-sector read, or
+nothing at all, picks the drive's largest; a 15-sector read in an 18-sector
+drive is the noise above and lands there too. So the field's three erasures
+now read **1440K, 720K, 1440K**, and every one of them is one Space away from
+the other.
+
+**BL is asked before CL.** An AT-class ROM may answer `AH=08h`'s CL/CH for
+the media it last *established* rather than for the drive, and what it
+establishes on a blank disk is wherever its data-rate retries stopped. BL is
+the CMOS drive type (1 = 360K, 2 = 1.2M, 3 = 720K, 4 = 1.44M, 5/6 = 2.88M),
+does not move with the medium, and maps straight to the row the drive makes
+at its largest (`dskw_fmt_btab`). BL is zeroed before the call, so a ROM that
+reports no type leaves 0 and the probe falls to CL/CH as before; §26.4.1's
+boot-time picture still reads CL, because at boot no medium is established.
+
+**Every format is now checked by §18.96.2's last-sector write-and-read**, not
+720KB alone: Space can pick a size the read argued against — 1.44MB over a
+9-sector read is a DD disk in an HD drive as often as it is noise — and a
+format that cannot write and read back its own last sector is reported
+(`FERR_IO`) rather than mounted. 720KB still falls back to 360KB where 360KB
+is the drive's other format; an HD drive's 720KB that fails is a bad disk.
+Two `int 13h` calls against a format that is ~80 seconds of tracks.
+
+What it costs, measured against the commit before it on both kernels:
+`.text` +0, `.cold` **−2**, `.bss` **+1** (`[fm_fmtalt]`) — `fm_fmt_sizeable`
+is gone, the key and the line both reading the byte now, and that pays for
+the reach test's wider gate — and **+43 bytes of `FORMAT.DRV`**, an
+on-demand module, so none of those are resident.
 
 ### 18.97 The equipment word is a CLAIM; the FDC is the fact
 
@@ -48835,12 +48893,12 @@ Spc=size  Enter=yes  Esc=no
 
 which is the one place the user can catch §18.96's undecidable case before it
 costs them anything — and, with **Space**, the one place they can overrule
-it. Space offers the other row with the same media sectors-per-track, which
-is the 720KB/360KB pair and only ever that (§18.96); the size on the line is
-`[fm_fmtrow]`'s, so the toggle is `xor byte [fm_fmtrow], 1` and the redraw is
+it. Space offers the other format the drive makes (§18.96.4) — 1.44MB/720KB,
+1.2MB/360KB, or 720KB/360KB on an external unit; the size on the line is
+`[fm_fmtrow]`'s, so the toggle swaps it with `[fm_fmtalt]` and the redraw is
 `.lineonly` — the same one-status-line path a typed rename character already
-takes. Rows 0 and 1 have no partner, so Space keeps meaning *no* there and
-the second line drops `Spc=size` with it.
+takes. A drive with one format has `[fm_fmtalt]` = 0FFh, so Space keeps
+meaning *no* there and the second line drops `Spc=size` with it.
 
 **Escape has to repaint the WINDOW, not the status line.** `.cancel` ends in
 `.lineonly` — CF = 0, "the status line is all that moved" — and that is right
