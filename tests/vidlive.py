@@ -24,6 +24,11 @@ VGA), with a seam back to frame 10 and Repeat on. On the screen named:
 5. SPACE PAUSES IT, AND IT STAYS; Space again goes on.
 6. F HANDS IT TO THE FULL SCREEN, still playing, and F again back to the
    desktop, live and playing; ESC STOPS IT.
+7. THE BUTTONS UNDER A WINDOW KEEP THEIR PICTURES (SPEC.md 13.8.9.1): a play
+   held near its end, the Disk window moved across the lower half of the
+   button row, Repeat off and the hold let go - the stop repaints the player
+   through its clip - and every button row above the Disk window is what it
+   is once the window is moved off.
 
 --screen vga4 is LIVE IN COLOUR (98.3.10.4): the VGA rendition is a VGA4
 canvas of the same size - SUB2 (98.1.3.2.4), its sub-records' lists behind
@@ -37,7 +42,9 @@ right while the Disk window's are untouched.
 
 Broken on purpose - vp_lblit's blit skipped - every hold FAILS; vp_canlive
 refusing always, the play is a bracket and FAILS 1; gfx_blit1's fragment
-walk taken out, the band draws over the Disk window and 4b FAILS. On vga4:
+walk taken out, the band draws over the Disk window and 4b FAILS; os88ui_btn's cut picture
+back to its ground, the pictures above the Disk window are blank and 7
+FAILS (20 of 56 rows on the VGA XT). On vga4:
 BLITP's plane step wrong, every hold FAILS; the walk not asked for (DI bit
 14 clear), the covered count FAILS.
 """
@@ -407,6 +414,60 @@ def main():
                       "went on and Esc stopped it" % (d1, d2))
                 if d2 != d1:
                     bad.append("%d frames drawn while paused" % (d2 - d1))
+                # --- 7: THE BUTTONS UNDER A WINDOW KEEP THEIR PICTURES
+                # (SPEC.md 13.8.9.1): a Live play ends - Repeat off - with a
+                # Disk window over the lower half of the button row, and the
+                # stop repaints the player through its clip. Each button's
+                # visible top must then be what it is with nothing over it
+                bt = [struct.unpack("<4h", m.read(base + syms["vp_brects"]
+                                                  + 8 * i, 8))
+                      for i in range(7)]
+                btop = min(r[1] for r in bt)
+                bbot = max(r[3] for r in bt)
+                m.write(base + syms["vp_rep"], b"\0")
+                m.write(base + syms["vp_played"], b"\0")
+                ww("vp_stopat", NF - 3)
+                m.write(base + syms["vp_held"], b"\0")
+                m.type_text("p")
+                wait(lambda mm: rb("vp_held") == 1, "the play held near "
+                     "its end", 20.0)
+                vw = ui.window("Video Player")
+                dk = ui._as_win(dk.i)       # 4b's, still open
+                ui.move_window(dk, vw.x + 2, (btop + bbot) // 2)
+                dk = ui._as_win(dk.i)
+                ui.mo.to(8, rows - 8 if rows < 400 else 470)
+                ww("vp_stopat", 0xFFFF)
+                m.write(base + syms["vp_held"], b"\0")
+                wait(lambda mm: rb("vp_lsess") == 0 and rb("vp_sess") == 0,
+                     "the play's end under the Disk window", 20.0)
+                os88marty.pace(m, 0.5)
+                sw = 720 if a.screen == "herc" else 640
+
+                def tops():
+                    """the buttons' rows above the Disk window, rendered"""
+                    fw, fh, rgb = m.fbuf(0)
+                    sx, sy = fw / sw, fh / rows
+                    out = []
+                    for (x1, y1, x2, y2) in bt:
+                        for y in range(y1, min(y2, dk.y - 2) + 1):
+                            ry = int((y + 0.5) * sy)
+                            out.append(bytes(
+                                rgb[3 * (ry * fw + int((x + 0.5) * sx)) + j]
+                                for x in range(x1, x2 + 1) for j in range(3)))
+                    return out
+                cut = tops()
+                ui.move_window(dk, dk.x, bbot + 12)
+                ui.mo.to(8, rows - 8 if rows < 400 else 470)
+                os88marty.pace(m, 0.5)
+                whole = tops()
+                nd = sum(1 for p, q in zip(cut, whole) if p != q)
+                print("   the play ended under a Disk window at y %d: %d of "
+                      "%d button rows above it differ from the row "
+                      "uncovered" % (dk.y, nd, len(whole)))
+                if nd or dk.y <= btop + 4 or dk.y >= bbot:
+                    bad.append("buttons cut by a window: %d of %d rows "
+                               "drawn wrong (window at y %d, row %d..%d)"
+                               % (nd, len(whole), dk.y, btop, bbot))
             except Stop as e:
                 bad.append(str(e))
     for b in bad:

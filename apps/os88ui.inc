@@ -874,10 +874,13 @@ os88ui_btn:
 ; replacement - the owner's rule for this library is that a package which does
 ; not ask for a capability does not carry it.
 ;
-; A PICTURE THE CLIP CUTS draws its ground and not its ink: the sprite pass
-; clips a shape WHOLE (SPEC.md 25.6), so a half-covered picture would leave
-; its rect holding whatever was there. Filling it in the ground colour keeps
-; the button a button; uncovering it is a W_PAINT, which draws the picture.
+; A PICTURE THE CLIP CUTS is put down as a 1bpp BAND (SPEC.md 13.8.9.1): the
+; sprite pass clips a shape WHOLE (SPEC.md 25.6) and gfx_blit1 walks every
+; fragment of the region exactly (5.4.2.7), so the part that shows is drawn
+; and the part under the other window is not. It was the GROUND alone, and
+; a button half under a window went blank on every redraw a worker or the
+; play's end made. Refused - kern_small with the picture off the byte grid -
+; it is still the ground
 ; -----------------------------------------------------------------------------
     mov bp, bx                  ; BP = the rect, read through ds: (SS != DS)
 
@@ -1051,7 +1054,7 @@ os88ui_btn:
     mov dx, [os88ui_ir+2]
     mov ax, [os88ui_bk]         ; AL = ink, AH = ground; a greyed caption has
     UI_RUN                      ; the disabled pen set and font_run screens it
-    jmp short .lpen
+    jmp .lpen
 .img:
 %endif
     clc
@@ -1061,12 +1064,7 @@ os88ui_btn:
     mov cx, [os88ui_ir+4]
     mov dx, [os88ui_ir+6]
     UI_CLIPT
-    jnc .whole
-    mov al, [os88ui_bk+1]       ; cut by the clip: its ground, not its ink
-    UI_INK
-    mov ax, [os88ui_ir+0]
-    UI_FILL
-    jmp short .lpen
+    jc .cut
 .whole:
     mov ax, [os88ui_bk]
     xchg al, ah                 ; AL = the MASK pass (ground), AH = the DATA
@@ -1079,6 +1077,104 @@ os88ui_btn:
 .lpen:
     clc
     UI_PEN
+    jmp .out
+.gnd0:
+    jmp .gnd
+.cut:
+    ; CUT BY THE CLIP: the picture as a 1bpp BAND, which gfx_blit1 puts down
+    ; exactly into every fragment of the region (SPEC.md 5.4.2.7, 13.8.9.1).
+    ; It used to be the ground alone here, and a button half under another
+    ; window went BLANK on every redraw from a worker or a key - the Video
+    ; Player's row, re-blanked at each Play and Pause
+    mov cl, [si+1]              ; CX = rows
+    xor ch, ch
+    jcxz .gnd0
+    cmp cl, 16
+    ja .gnd0                    ; (UI_ICON's own refusal: drawn as nothing)
+    lea bx, [si+2]              ; BX = the data rows: past the header, and
+    cmp byte [si], ICON_SOLID   ; past the mask rows when they are stored
+    je .sol
+    add bx, cx
+    add bx, cx
+.sol:
+    ; a band bit is (data & A) ^ G: on colour A = all, G = none and the pen is
+    ; the pair; on 1bpp the pen is not read and a LIT pixel is WHITE (25.6's
+    ; mono rule), so A and G say which of ink and ground that is
+    mov dx, 0xFFFF              ; DX = A
+    xor si, si                  ; SI = G
+    UI_ISMONO
+    jz .band
+    xor dx, dx
+    cmp byte [os88ui_bk], CWHITE
+    jne .mg
+    not dx                      ; ink lit
+.mg:
+    cmp byte [os88ui_bk+1], CWHITE
+    jne .band
+    not si                      ; ground lit
+    not dx
+.band:
+    push es
+    push ds
+    pop es
+    mov di, os88ui_band
+    mov bp, [os88ui_ir+0]       ; BP = x & 7: an x off the byte grid starts
+    and bp, 7                   ; the band in the byte column holding it
+    push cx                     ; (5.4.2.8), so each row goes right by that
+.brow:
+    mov ax, [bx]                ; AH = the left byte (bit 15 leftmost)
+    and ax, dx
+    xor ax, si
+    push bx
+    push cx
+    xor bl, bl                  ; AH:AL:BL, three bytes a row
+    mov cx, bp
+    jcxz .bst
+.bsh:
+    shr ah, 1
+    rcr al, 1
+    rcr bl, 1
+    loop .bsh
+.bst:
+    xchg al, ah
+    stosw
+    xchg ax, bx
+    stosb
+    pop cx
+    pop bx
+    inc bx
+    inc bx
+    loop .brow
+    pop ax
+    mov dx, [os88ui_ir+6]       ; DX = the rows, clamped as the width is
+    sub dx, [os88ui_ir+2]
+    inc dx
+    mov ax, [os88ui_bk]         ; AL = ink (a set bit), AH = ground
+    call OSAPI_GFX_BLIT1_PEN
+    mov si, os88ui_band
+    mov bp, 3
+    mov ax, [os88ui_ir+0]
+    mov bx, [os88ui_ir+2]
+    mov cx, [os88ui_ir+4]       ; the inner rect's width, clamped to the
+    sub cx, ax                  ; interior as the ring was (never above 16)
+    inc cx
+    call OSAPI_GFX_BLIT1        ; CF = 1 refused: kern_small, x off the grid
+    pushf
+    mov ax, CWHITE | (CBLACK << 8)
+    call OSAPI_GFX_BLIT1_PEN    ; the default pair back for the rest of the
+    popf                        ; lock hold: it is the package's pen too
+    pop es
+    jc .gnd
+    jmp .lpen
+.gnd:
+    mov al, [os88ui_bk+1]       ; ...refused: its ground, not its ink
+    UI_INK
+    mov ax, [os88ui_ir+0]
+    mov bx, [os88ui_ir+2]
+    mov cx, [os88ui_ir+4]
+    mov dx, [os88ui_ir+6]
+    UI_FILL
+    jmp .lpen
 %endif
 .out:
     pop bp
@@ -1093,6 +1189,7 @@ os88ui_btn:
 %ifdef OS88UI_BIMG
 os88ui_ir: dw 0, 0, 0, 0        ; the inner rect, and the pair - DATA, inline,
 os88ui_bk: dw 0                 ; for os88ui_armw's reason
+os88ui_band: times 48 db 0      ; a picture cut by the clip, as a band
 %endif                          ; OS88UI_BIMG
 
 ; -----------------------------------------------------------------------------

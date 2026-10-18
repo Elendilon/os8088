@@ -12521,8 +12521,10 @@ SOAK = [
         "file of three LIN80 renditions each for its screen: the screen's "
         "taken, Play a live session with no bracket, every held frame in "
         "the box across two laps, a drag followed, the rate within 10%, "
-        "Space, F to the full screen and back playing, Esc. Broken on "
-        "purpose (the blit skipped, or Live refused) it FAILS",
+        "Space, F to the full screen and back playing, Esc; then a play "
+        "that ends under a Disk window across the buttons keeps their "
+        "pictures (SPEC.md 13.8.9.1). Broken on purpose (the blit skipped, "
+        "or Live refused, or a cut picture its ground) it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidlivecga", "soak", py("tests/vidlive.py", "--screen", "cga"),
