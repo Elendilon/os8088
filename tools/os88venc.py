@@ -10316,7 +10316,11 @@ def _encode(a, keep, tick, readers):
                     np.unpackbits(cv, axis=1))).save(out)
             else:
                 vid.write_png(out, g.wb, g.h, g.canvas(enc.surf))
-        if not a.quiet and f % 300 == 299:
+        # (on stderr, which no pass holds, so every pass says it - and with
+        # --progress the window's lanes say it for each pass by name, where
+        # two passes side by side put two unnamed lines in its log)
+        if not a.quiet and not getattr(a, "progress", False) and \
+                f % 300 == 299:
             print("   frame %d of %d" % (f + 1, nf if not stream else
                                          est + pre), file=sys.stderr)
     if tpool and tpool[0] is not None:
