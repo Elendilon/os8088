@@ -436,6 +436,12 @@ vp_onwake:
     call OSAPI_GFX_UNLOCK           ; it; so it waits one copy at most
     or al, al
     jz .lf
+    mov al, [vp_lend]               ; ...AND NOTHING ELSE: a wake that was
+    or al, [vp_cpgo]                ; only the feed paints nothing. It fell
+    or al, [vp_argpend]             ; through to vp_repaint, the whole
+    or al, [vp_relay]               ; window a chunk at a time - and every
+    jnz .nlw                        ; button under a window went blank with
+    jmp .out                        ; it (98.3.18.1.1)
 .nlw:
     call OSAPI_GFX_LOCK
     cmp byte [vp_lend], 0           ; a LIVE play's end, found by the worker:
@@ -8496,7 +8502,7 @@ vp_lsetup:
                                     ; finds the worker blocked on it and every
                                     ; block pinned (66.5.3)
 .h:
-    call vp_lbtn                    ; Play turned to Pause BEFORE the card:
+    call vp_lbtn3                   ; Play turned to Pause BEFORE the card:
 %ifdef VP_LIVESND                   ; a card started first plays on through
     cmp byte [vp_snd], 0            ; this draw while the worker waits on
     je .ns                          ; the lock, and the start is then 0 to
@@ -8670,13 +8676,19 @@ vp_lback:
     je .out
     mov byte [vp_autop], 0
     call vp_lgo
-    call vp_lbtn                    ; (Pause, not Play, on its button)
+    call vp_lbtn3                   ; (Pause, not Play, on its button)
     call vp_lline4                  ; (vp_fmt above said "Paused at")
 .out:
     pop si
     ret
 
-; vp_lbtn - the buttons again, Play or Pause as it now is. Lock held
+; vp_lbtn - the buttons again, Play or Pause as it now is. Lock held.
+; vp_lbtn3 - ...Play/Pause's alone, where nothing else on the row changed:
+; a start and a return from the full screen, whose row was drawn whole by
+; the paint before it (98.4.9)
+    nop                             ; (parity: the play's routines below)
+vp_lbtn3:
+    mov byte [vp_bone], 3
 vp_lbtn:
     call vp_track
     call vp_clip
@@ -8904,7 +8916,7 @@ vp_lblit:
     call vp_thumbx                  ; the thumb, where it has got to
     cmp ax, [vp_wtx]
     je .nt
-    call vp_pbar
+    call vp_pthumb                  ; (what it moved by, not the bar)
 .nt:
     call OSAPI_WM_CLIP_CLEAR
 .skip:
@@ -19237,6 +19249,88 @@ vp_pbar:
     add cx, VP_THW - 1
     call vp_fillne
 .out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; vp_pthumb - a Live play's thumb moved along a bar already drawn (98.4.9):
+; the columns it left white and the columns it took black, two fills where
+; vp_pbar is a frame and three, and no column written twice. Lock held, the
+; clip armed; old and new from [vp_wtx] and [vp_tx1], which vp_track keeps
+; where the window is now
+vp_pthumb:
+    cmp word [vp_nkeys], 0
+    je vp_pbar
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call vp_thumbx
+    mov si, [vp_wtx]                ; SI = where it was, DI = where it goes,
+    mov [vp_wtx], ax                ; on the screen
+    mov di, [vp_tx1]
+    add si, di
+    add di, ax
+    mov [vp_tx], di
+    mov bx, [vp_cy0]                ; the bar's inside rows
+    add bx, [vp_lbary]
+    inc bx
+    mov dx, bx
+    add dx, VP_BARH - 3
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    cmp di, si
+    je .out
+    jl .left
+    mov ax, si                      ; RIGHT: white from where it was to the
+    mov cx, si                      ; nearer of where it goes and its old
+    add cx, VP_THW                  ; right end...
+    cmp cx, di
+    jle .r1
+    mov cx, di
+.r1:
+    dec cx
+    call vp_fillne
+    mov ax, si                      ; ...black from the farther of the two
+    add ax, VP_THW                  ; to its new right end
+    cmp ax, di
+    jge .r2
+    mov ax, di
+.r2:
+    mov cx, di
+    add cx, VP_THW - 1
+    jmp short .blk
+.left:
+    mov ax, di                      ; LEFT: the mirror
+    add ax, VP_THW
+    cmp ax, si
+    jge .l1
+    mov ax, si
+.l1:
+    mov cx, si
+    add cx, VP_THW - 1
+    call vp_fillne
+    mov ax, di
+    mov cx, di
+    add cx, VP_THW
+    cmp cx, si
+    jle .l2
+    mov cx, si
+.l2:
+    dec cx
+.blk:
+    push ax
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    pop ax
+    call vp_fillne
+.out:
+    pop di
+    pop si
     pop dx
     pop cx
     pop bx

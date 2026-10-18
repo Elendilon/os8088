@@ -27445,10 +27445,8 @@ include adds two things, and a package that does not define it assembles
   the field machine — on an event a human generates, which is why it is an
   opt-in and not `os88ui_bdraw`'s replacement.
 
-**A picture the clip cuts draws its ground and not its ink.** The sprite
-pass clips a shape whole (§25.6), so a half-covered picture would leave its
-rect holding whatever was there before; filling it in the ground colour keeps
-the button a button, and uncovering it is a `W_PAINT` that draws the picture.
+**A picture the clip cuts is drawn as a band** — §13.8.9.1. It drew its
+ground and not its ink until then.
 
 `OS88UI_NOGLYPH` is the matching opt-OUT: the check-box/radio glyph body and
 its two shape routines, ~300 bytes every button user carries, for a package
@@ -27467,6 +27465,44 @@ consumer. Those three are then ignored, and a caption would be read as a
 picture record, so it is a statement about the package and not a per-button
 flag. It refuses to assemble without `OS88UI_BIMG`; every other package is
 byte-identical.
+
+##### 13.8.9.1 A picture the clip cuts is a BAND, not its ground
+
+The sprite pass clips a shape whole (§25.6), so the first version of this body
+filled a cut picture's rect in the ground colour, on the argument that
+*"uncovering it is a `W_PAINT`, which draws the picture"*. That argument only
+covers the uncovering. A button half under another window is redrawn by
+everything ELSE that redraws it — a worker, a key that reaches a background
+window's state, a play that ends and repaints through its clip (`vp_repaint`,
+§98.3.6) — and each of those blanked every picture the window's edge crossed.
+The field saw it in the Video Player (§98.4): a Live play under a Disk window,
+the row drawn right and then flashed blank, over and over, because the wake
+that fed a Live stream repainted the whole window per chunk (§98.3.18.1.1).
+
+**Cut, the picture is put down by `gfx_blit1` instead** (§5.4.2), which walks
+every fragment of the region exactly (§5.4.2.7) — so the part that shows is
+drawn and the part under the window is not, and every pixel of the button is
+still written once. The record's data rows are staged into a 1bpp band in the
+body's own segment, three bytes a row because an x off the byte grid starts
+the band in the byte column holding it (§5.4.2.8), and the pair goes to
+`OSAPI_GFX_BLIT1_PEN`; the pen is put back to the default before returning,
+because it is the package's for the rest of the lock hold. On a 1bpp adapter
+the pen is not read and a lit pixel is WHITE — §25.6's mono rule — so the
+band's bits are the data where the ink is white and its complement where the
+ground is. The picture's full mask is what makes the band the picture: a
+record with a partial mask was always outside `OS88UI_IMG`'s contract.
+
+**Refused, it is still the ground**: `kern_small`'s `gfx_blit1` takes no x off
+the byte grid, and a record wider than a word or taller than 16 is drawn as
+nothing either way. Under the damage cull (§11.3.3) nothing changes, because
+`wm_clip_test` answers overlap there and the picture is drawn whole.
+
+**246 bytes** of image in each `OS88UI_BIMG` carrier (the Video Player, MIDIRack, PiXEL
+and Tracker), none resident. `tests/vidlive.py`'s step 7 is the gate: a Live
+play ends — Repeat off — under a Disk window across the lower half of the
+button row, and each button's visible rows must equal the same rows once the
+window is moved off. The body before this reads 20 of 56 rows wrong on the VGA
+XT; it reads 0.
 
 #### 13.8.10 A button the PACKAGE paints — `OS88UI_BOWN` and `OS88UI_OWN`
 
@@ -180099,6 +180135,20 @@ disk, and after the same swap the same key REFUSED. Broken on purpose -
 `vp_xput` out of `vp_fill`, the hold short at the play's end (163,840 of
 973,312); `vp_xrdat` out of `vp_rdat`, the key refused - `vidxms` FAILS.
 
+###### 98.3.18.1.1 A wake that only fed the ring paints nothing
+
+`vp_onwake` serves every wake the player posts, and after the ring's chunks
+(`[vp_lwant]`) it FELL THROUGH to the rest: the end of a play, a posted
+compaction, a document, a layout - and, with none of them pending, to
+`vp_repaint`, the whole window. So a Live stream repainted the poster, the
+bar, the card and all seven buttons once a refill: measured on the 1.2 MB
+`vidxmslive` clip, **34 full repaints in a 450-frame play against 5** with a
+feed wake that paints nothing. Uncovered it was a visible redraw of the
+window; covered, the buttons under the edge went blank each time
+(§13.8.9.1). A wake that fed the ring now returns at once unless `[vp_lend]`,
+`[vp_cpgo]`, `[vp_argpend]` or `[vp_relay]` asks for the rest, and a wake for
+any of those posted while a feed was pending still finds its flag set.
+
 ##### 98.3.18.2 The bank: a file bigger than the pool
 
 **A streamed file the pool cannot hold whole is BANKED instead: a FIFO of
@@ -181533,6 +181583,25 @@ reached **85-89% on the two 16-colour files, which played perfectly**, and
 **113% on Bad Carrot**, whose picture fell 186 ms behind and caught up
 unseen (98.2.1.1.2); single frames reached 123-126% on all three with no
 harm. That is what `--lag` and `--peak` are set from.
+
+#### 98.4.9 A Live play redraws what moved
+
+Two redraws of a Live play on the desktop were bigger than their change:
+
+- **The thumb.** `vp_lblit` drew the whole bar (`vp_pbar`: a frame and three
+  fills) each time the thumb moved a pixel. `vp_pthumb` fills the columns it
+  LEFT white and the columns it TOOK black - two calls, no column written
+  twice - from `[vp_wtx]`, the offset it was drawn at, against `[vp_tx1]`,
+  which `vp_track` keeps where the window is now. A bar with no keyframes is
+  still `vp_pbar`'s.
+- **The row at a start.** A Live play turns Play into Pause and nothing else
+  on the row, but `vp_lsetup` and `vp_lback` (back from the full screen, after
+  a repaint that drew the row whole) redrew all seven buttons. `vp_lbtn3`
+  draws button 3 alone, as Space's pause and resume already did (`[vp_bone]`).
+
+With §98.3.18.1.1's wake that is 178 bytes of `video.o88` (beside the 246 of
+§13.8.9.1's band in the library), none resident; the play's own routines are
+`os88rdiff`-identical bar `vp_lblit`'s call target, at an even shift.
 
 ## 99. Gorillas (`apps/gorillas/gorillas.asm`)
 
