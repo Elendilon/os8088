@@ -2205,7 +2205,7 @@ cmz_jstart:
 %ifdef KERN_BIG
     mov bl, al
     mov al, [disk_drive]        ; source and target are this one folder, so
-    mov ah, al                  ; every hop is a word (fcp_goto's quiet arm)
+    mov ah, al                  ; every hop is a word (dsk_goto's quiet arm)
     mov dx, [dsk_cwd]
     call cmz_jwhere
     call COLD_SEG:dkf_dsk_batch_begin
@@ -2551,7 +2551,7 @@ cmz_jrmtmp:
     push bx                     ; and cmz_go's failure path IS cmz_jerr - so a
     mov al, [cs:cmz_jtgtd]      ; hop that failed here went back round with
     mov bx, [cs:cmz_jtgtc]      ; [cmz_jwrote] still set, for ever (SPEC.md
-    call COLD_SEG:fcpf_fcp_goto ; 22.23.6.1). A target it cannot reach keeps
+    call COLD_SEG:dskf_dsk_goto ; 22.23.6.1). A target it cannot reach keeps
     pop bx                      ; its CMPRESS~.TMP, as a failed rename does
     pop ax
     jc .no
@@ -2884,7 +2884,7 @@ cmz_jmsg:
 ; Uncompress To... (SPEC.md 22.23.6) - kern_big's alone
 ; =============================================================================
 ; cmz_gosrc / cmz_godst - stand in the source's folder or the target's, through
-; the far door DISKOPS.DRV already uses (fcp_goto, SPEC.md 18.99.8). Free inside
+; the far door DISKOPS.DRV already uses (dsk_goto, SPEC.md 18.99.8). Free inside
 ; the run's batch bracket (SPEC.md 18.9.3), and a word when the two are one
 ; folder. A failure never returns (cmz_jerr). clobbers: flags
 cmz_gosrc:
@@ -2899,7 +2899,7 @@ cmz_godst:
     mov al, [cs:cmz_jtgtd]
     mov bx, [cs:cmz_jtgtc]
 cmz_go:
-    call COLD_SEG:fcpf_fcp_goto
+    call COLD_SEG:dskf_dsk_goto
     jc .err
     pop bx
     pop ax

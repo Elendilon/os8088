@@ -2627,6 +2627,8 @@ dskw_read_at_x:
     call dskw_fsstat            ; SI = the name -> AX = the handle, DX:CX =
     jc .out                     ; size; a folder is refused FERR_PROT, as
                                 ; everywhere else
+    mov [dwr_sz], cx            ; the size, as the FAT arm stores it, so a
+    mov [dwr_sz+2], dx          ; READ_SEQ cursor carries it here too
     mov bx, [dwr_buf]           ; AX is still the handle
     mov dx, es                  ; DX:BX = the buffer, ES being the caller's
     mov cx, [dwr_cap]           ; and DX not carrying it into the driver

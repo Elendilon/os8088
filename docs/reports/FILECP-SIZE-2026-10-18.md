@@ -195,6 +195,10 @@ and each one is labelled with what it would cost.
   **saving an ESTIMATED 150-250 across the two**. This is the largest
   no-loss item and the riskiest: delete consumes the folder as it walks and
   copy does not, which is why they diverged (SPEC.md 22.3).
+  - **Correction, after building the rest:** the premise is wrong.
+    `dskw_rmtree` keeps NO frames: it re-scans from slot 0, climbs by `..`
+    and re-finds the child by cluster. So there is no shared walker to build.
+    docs/reports/FILECP-SIZE-IMPL-2026-10-18.md §4 has the details.
 - **Replace `fcp_rdnext` (136) and `fcp_took` (14) with
   `OSAPI_FILE_READ_SEQ`'s body, `dwf_dskw_read_seq`, on `kern_big` only:
   ESTIMATED ~100 bytes net** (about 110 of `.cold` out, 8 of `.bss` in: a

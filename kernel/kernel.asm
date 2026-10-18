@@ -5018,7 +5018,7 @@ osapi_file_goto:
 ; in:  DX = the folder's first cluster (0 = the root), BL = the volume
 ; out: CF=0 moved; CF=1 and AX = FERR_*
 ;
-; SPEC.md 19.2.2. The same two quiet paths fcp_goto has had since SPEC.md
+; SPEC.md 19.2.2. The same two quiet paths dsk_goto has had since SPEC.md
 ; 22.5, published because a COPY ENGINE OUTSIDE THE KERNEL needs them just as
 ; much as the one inside it - the hard-disk installer was paying a full
 ; dsk_chdir per file and per chunk, twice, and a full chdir is the BPB, the
@@ -5035,7 +5035,7 @@ osapi_file_goto:
 ;     not re-read at all.
 ;
 ; The cluster is range-checked HERE because the quiet path skips
-; disk_mount's own .cwd_lost validation - fcp_goto's reason, and the same
+; disk_mount's own .cwd_lost validation - dsk_goto's reason, and the same
 ; two compares.
 ;
 ; NOT a replacement for OSAPI_FILE_GOTO: this leaves the global listing empty
@@ -5043,26 +5043,26 @@ osapi_file_goto:
 ; the other one. The instance's folder is deliberately NOT moved either
 ; (no inst_vol_mark): this is where the caller is standing to do a job, not
 ; where the application now believes it lives.
-; **THIS WAS A SECOND TRANSCRIPTION OF `fcp_goto`**, and SPEC.md 19.2.2 says
-; so in as many words: the slot is "fcp_goto's two paths, which the kernel's
+; **THIS WAS A SECOND TRANSCRIPTION OF `dsk_goto`**, and SPEC.md 19.2.2 says
+; so in as many words: the slot is "dsk_goto's two paths, which the kernel's
 ; own copy engine has had since 22.5, published because a copy engine outside
 ; the kernel needs them just as much". Two bodies, in the scarce section, and
 ; they had DRIFTED APART in both directions - this one had the [dsk_mntok]
-; gate and fcp_goto did not; fcp_goto had the DVK_FILE / FSV_CHDIR arm and
+; gate and dsk_goto did not; dsk_goto had the DVK_FILE / FSV_CHDIR arm and
 ; this one did not. The second of those was a BUG here (SPEC.md 62.9.1): on a
 ; redirected volume this wrote [dsk_cwd] behind the driver's back, and every
 ; name the caller then asked about was looked up in the folder it came FROM.
-; Merging fixes it and gives fcp_goto the gate; the argument shuffle is four
-; instructions and `pop` does not disturb CF, so .out returns fcp_goto's flag.
+; Merging fixes it and gives dsk_goto the gate; the argument shuffle is four
+; instructions and `pop` does not disturb CF, so .out returns dsk_goto's flag.
 osapi_file_goto_q:
     push bx
     push dx
-    mov al, bl                  ; fcp_goto takes AL = drive, BX = cluster
+    mov al, bl                  ; dsk_goto takes AL = drive, BX = cluster
     mov bx, dx
-    call COLD_SEG:fcpf_fcp_goto ; ...already published for DISKOPS.DRV (18.99.8)
+    call COLD_SEG:dskf_dsk_goto ; ...already published for DISKOPS.DRV (18.99.8)
     jc .out
     xor ax, ax                  ; the documented AX = 0, and it clears CF with
-.out:                           ; it; on the CF=1 arm AX is fcp_goto's FERR_*
+.out:                           ; it; on the CF=1 arm AX is dsk_goto's FERR_*
     pop dx
     pop bx
     ret
