@@ -34580,7 +34580,7 @@ listing until I exited and re-entered DOS.O88."*
 
 §18.9.1's predicate is real and is correct. It is in `dsk_here_ok`, which
 `dsk_chdir_q` asks — the path the **Disk window** takes. `OSAPI_FILE_GOTO_QM`,
-which is the path every **package** takes, goes to `fcp_goto`, and its
+which is the path every **package** takes, goes to `dsk_goto`, and its
 same-volume arm was:
 
 ```
@@ -34600,7 +34600,7 @@ the program is one such thing, which is why that appeared to be the cure.
 It is measured rather than reasoned. With the same disk in B: and the box
 standing on it, three consecutive `DIR`s four seconds apart — longer than the
 2.03-second motor timeout — cost **`reads=0 read_sectors=0 seeks=0`** each,
-while listing thirty files. Breakpoints say why: `fcp_goto` is HIT, `dsk_xfer`
+while listing thirty files. Breakpoints say why: `dsk_goto` is HIT, `dsk_xfer`
 is HIT, and **`dsk_chdir_q`, `dsk_here_ok` and `dsk_bpb_sig` are never
 reached**. The transfer happens and the cache answers it.
 
@@ -34611,12 +34611,12 @@ re-signs LBA 0.
 **So the predicate is split rather than duplicated.** `dsk_media_ok` is
 §18.9.1's second half on its own — *can the medium under this mounted volume
 have changed?* — and `dsk_here_ok` is the identity compare plus a tail jump
-into it, which is what it always was with the two halves named. `fcp_goto`'s
+into it, which is what it always was with the two halves named. `dsk_goto`'s
 same-volume arm asks the media half and falls to `.full` when the answer is
 *maybe*.
 
 **It asks the media half ONLY, and that distinction is the whole design.**
-`dsk_here_ok` also requires the *directory* to be unchanged, and `fcp_goto`
+`dsk_here_ok` also requires the *directory* to be unchanged, and `dsk_goto`
 must not: moving between folders inside one mounted volume with no I/O is
 precisely what it is for, and what makes `OSAPI_FILE_PATH`'s walk cost one
 mount and then nothing. What it may not do is move between folders of a disk
@@ -35499,7 +35499,8 @@ every cluster, which is exactly the bug `fcp_clspan` exists to prevent and
 which only showed up when partitions stopped all having 512-byte clusters.
 
 **The read is STATELESS and the offset is the whole argument.** `fcp_rdnext`
-resumes through `[dsk_chain_end]` and three module words, which is right for
+resumed through `[dsk_chain_end]` and three module words (it still does on
+`kern_small`; on `kern_big` it is `READ_SEQ` now, §22.5.4), which is right for
 a caller that is the only thing running and wrong for a published slot: the
 loop this exists for is *read → write → read*, and the write walks
 directories and the FAT. A resume token living in the kernel would be
@@ -39005,7 +39006,7 @@ directory read each way.
 KEYSTROKE between the dialog that chose the file and the Enter that reads it —
 the UI mounts what it likes in between. The bank therefore records `CL_FCLUS`
 as well, `clo_fend` re-aims the word, and `clo_imgrun` re-establishes the whole
-thing once before the first chunk through **`fcp_goto`** — free when the volume
+thing once before the first chunk through **`dsk_goto`** — free when the volume
 has not moved (it sets `[dsk_cwd]` and returns), a real remount when it has,
 which is what makes the global listing snapshot describe the file's volume
 again. Without it the name is looked up in whatever directory the UI last
@@ -39436,7 +39437,7 @@ walks the rows from 3 (an image is never C:) and sets byte 0 of every
 `DRVC_IMG` claim naming the freed index to `0xFF`, which no row is: the image's next transfer fails at the inner
 `dsk_vol_row_x`, *Disk error* and never a sector, and Unmount Image still
 takes the row and the claim through its *file not where it was* path
-(§18.101.2) - `fcp_goto` on `0xFF` fails the way a free row's does.
+(§18.101.2) - `dsk_goto` on `0xFF` fails the way a free row's does.
 
 **Coherence with §18.95.** Image reads skip the cache, because `[dsk_vkind]` is
 the image mount's `DVK_DRV`. Every piece calls `dsk_rah_wr` with the host
@@ -39465,7 +39466,7 @@ buffer an armed Write Img (§18.99.8) or a join reopens its file by on every
 chunk: a mount while the prompt is up would have written ANOTHER image onto
 the disk with the first one's geometry.
 
-`clo_mount` works in the CLICKED WINDOW's folder (`fcp_goto` on its `FS_DRV`
+`clo_mount` works in the CLICKED WINDOW's folder (`dsk_goto` on its `FS_DRV`
 and `FS_CWD`, since the listing that was clicked need not be the mounted one)
 and stats the file. Then:
 
@@ -39489,7 +39490,7 @@ and stats the file. Then:
 5. **The row.** `dsk_vol_add` with `[dsk_vcls]` = `DRVC_IMG`, the five-letter
    label and `DV_SECS` = the sector count, then the claim's segment into
    `IMG_DVSEG`. No row free is `No drive letter free`.
-6. **Proved by mounting it.** `fcp_goto` on the new volume's root runs
+6. **Proved by mounting it.** `dsk_goto` on the new volume's root runs
    `disk_mount` through the image arm; a refusal takes the row back and frees
    the claim, and the answer is `Not a disk image`. The host is then made
    current again and the file MARKED (§18.101.3), and the toast is
@@ -39616,7 +39617,7 @@ first built an image row answered every medium question as the `DVK_DRV` row
 it is - fixed - and on a floppy host that was a write to the wrong disk: its
 BPB was banked for good (§18.9.2), so no mount of it read its boot sector
 again and §18.8.1's signature never ran; `dsk_media_ok` called it not
-removable, so `fcp_goto` never re-mounted it; and the run table sent its
+removable, so `dsk_goto` never re-mounted it; and the run table sent its
 writes to the image's old host LBAs on whatever floppy was now in the drive,
 every call answering CF = 0. Swap B: under a mounted `B:\GAMES.IMG`, save to
 D:, and an unrelated disk was silently overwritten. Floppy hosts are kept -
@@ -40229,12 +40230,12 @@ for an app that is about to *show* a folder and wrong for every copy loop
 ever written, which stands somewhere only to read or write **by name**.
 
 `OSAPI_FILE_GOTO_Q` (slot 0x029E) is the same move with none of that. It is
-`fcp_goto`'s two paths, which the kernel's own copy engine has had since
+`dsk_goto`'s two paths, which the kernel's own copy engine has had since
 §22.5, published because a copy engine *outside* the kernel needs them just
-as much — **and it is now `fcp_goto`, not a second transcription of it.** The
+as much — **and it is now `dsk_goto`, not a second transcription of it.** The
 slot held a copy of that body in `.text`, and the two had drifted apart in
-both directions: this one had the `[dsk_mntok]` gate and `fcp_goto` did not;
-`fcp_goto` had the `DVK_FILE` arm and this one did not. Merging them is 42
+both directions: this one had the `[dsk_mntok]` gate and `dsk_goto` did not;
+`dsk_goto` had the `DVK_FILE` arm and this one did not. Merging them is 42
 bytes out of the scarce section for 7 back on the cold side, and it fixes
 each half against the other:
 
@@ -40248,7 +40249,7 @@ each half against the other:
   re-read either.
 
 The cluster is range-checked at the slot, because the quiet path skips
-`disk_mount`'s own `.cwd_lost` validation. That is `fcp_goto`'s reason and
+`disk_mount`'s own `.cwd_lost` validation. That is `dsk_goto`'s reason and
 the same two compares.
 
 **`[dsk_mntok]` is asked FIRST, and the word path is wrong without it.**
@@ -40270,7 +40271,7 @@ did not have. A `DRVC_FILE` driver keeps its own idea of where it stands — it
 has to, because `FSV_STAT` resolves a name in the *current* folder (§62.9.1) —
 so writing `[dsk_cwd]` behind its back left the two disagreeing, and every
 name the caller then asked about was looked up in the folder it came FROM. It
-presented as `FERR_NOENT` for a file that is plainly listed. `fcp_goto` has
+presented as `FERR_NOENT` for a file that is plainly listed. `dsk_goto` has
 had the `FSV_CHDIR` arm since the copy engine met the same bug from the other
 side; the slot inherits it with the merge. The range checks stay behind on
 that arm, because the word is an **opaque handle** and not a cluster: `>= 2`
@@ -40285,9 +40286,9 @@ and unchanged on every other. The three published users — FTPD (§77), the
 hard-disk installer (§52.10) and RunCPM's folder-as-drive (§74.3) — are told
 in `apps/os88api.inc`, beside the slot.
 
-**And `fcp_goto` gains the `[dsk_mntok]` gate**, which is the merge's other
-direction and reaches `DISKOPS.DRV`: `fcp_goto` is published to it as
-`fcpf_fcp_goto` (§18.99.8), so a shipped `.DRV` sees the gate without being
+**And `dsk_goto` gains the `[dsk_mntok]` gate**, which is the merge's other
+direction and reaches `DISKOPS.DRV`: `dsk_goto` is published to it as
+`dskf_dsk_goto` (§18.99.8), so a shipped `.DRV` sees the gate without being
 rebuilt. That is the right way round — the gate refuses a stand that would
 have answered CF = 0 having done nothing.
 
@@ -41248,6 +41249,18 @@ enumerate one folder and open its files from another.
 
 The answer is 24 bytes, and the **size is 32-bit** where the listing's is
 clamped to a word (§19) — a copy cannot work from a truncated length.
+
+**On `kern_big` the walk is `dsk_dscan`, shared with the copy engine's
+`fcp_scan` (§22.5).** One routine takes a starting slot and a count of live
+entries to step over, and answers the entry with `dsk_ent` staged and where
+to start next: `dsk_find` asks it for (slot 0, the ordinal) and `fcp_scan`
+for (its frame's slot, 0), so each keeps its own I/O shape - `dsk_find` still
+walks from the front, `fcp_scan` still reads the one sector holding its slot
+- and the `FSV_ENUM` arm for a redirected volume is in it once. It answers
+`FERR_NOENT` at the end, which is this cell's own word. `kern_small` and
+`kern_dos` keep `dsk_find`'s own walk: on `kern_small` the shared routine
+would be RESIDENT while the scan it replaces is in `FILECP.DRV`, and
+`kern_dos` has no copy engine to share with.
 
 ### 19.6.2 …and it stamped three bits while forgiving two
 
@@ -49539,7 +49552,7 @@ Four things hold the engine up:
   costs FAT lookups out of the RAM snapshot plus one sector read, because
   `dsk_dirw_next` only computes LBAs. Deeper than `FCP_MAXD` is reported,
   never walked.
-- **`fcp_goto` is quiet inside one volume.** `dsk_chdir` re-runs the whole
+- **`dsk_goto` is quiet inside one volume.** `dsk_chdir` re-runs the whole
   mount because the *listing* must follow it, but nothing here reads the
   listing — `dskw_*` resolve names by walking `[dsk_cwd]`'s raw directory,
   and the FAT snapshot belongs to the volume, not the folder. So a move
@@ -49697,7 +49710,8 @@ only I/O is the data.
 That walker already owns the run coalescer (§18) — contiguous clusters
 accumulate into a single (LBA, count) transfer — and a freshly written file
 is contiguous, so a 63KB chunk off a 1KB-cluster volume is one transfer
-instead of 63. It cost only making the walker **resumable**:
+instead of 63 (on `kern_small`; `kern_big` reads through `READ_SEQ`, whose
+walker is this one, §22.5.4). It cost only making the walker **resumable**:
 `[dsk_chain_end]` names the last cluster it touched and one `dsk_next_clus`
 steps past it. A variable rather than a register because the loader, the
 caller it was written for, reads a whole file at once and would only have to
@@ -49790,7 +49804,7 @@ which is a long way from the copy that caused it (docs/FIELD-NOTES.md 25).
 
 **`fcp_room` asks first.** `dskw_dfree` answers from the resident FAT snapshot
 with **no disk I/O**, and the check sits where the destination volume is already
-current — immediately after the `fcp_goto` that precedes the create — so it
+current — immediately after the `dsk_goto` that precedes the create — so it
 costs no volume switch either. A file that will not fit is `FERR_FULL` before a
 byte is written and before an entry exists.
 
@@ -49895,6 +49909,40 @@ for as long as it existed and reported 4 lost clusters on every `kern_big`
 run - never on `kern_small`, whose per-chunk appends commit as they go -
 and with the wait on `[fcp_busy]` the same volume walks clean, every copied
 byte identical to its source.
+
+#### 22.5.4 …and read through `READ_SEQ`, with one directory walk (`kern_big`)
+
+The read side is §18.4.8's body. On `kern_big` `fcp_rdnext` is one call to
+`dwf_dskw_read_seq` with a 16-byte cursor in the engine's `.bss`
+(`[fcp_rcur]`), and the walker above - `dsk_read_chain` resumed past
+`[dsk_chain_end]` - is `kern_small`'s alone, which has no `READ_SEQ`. That is
+the same machinery read once instead of twice: the run coalescer, the stop at
+the byte count, a short chain answered `FERR_IO` and a redirected volume's
+`FSV_READAT` are all `READ_AT`'s.
+
+**The cursor goes cold only when `[dsk_mgen]` moves**: a committed write, the
+START of a `WRITE_SEQ` hold and its commit, and a mount that re-reads a BPB
+(§18.4.8, §18.4.9). A held append that continues a hold moves nothing. So a
+copy inside one volume, or between two fixed disks (whose BPB is banked,
+§18.9.2), walks from the front for its first two or three chunks and then
+steps one FAT link a chunk; a copy whose OTHER side is a floppy re-reads that
+floppy at every switch and is cold every chunk - one stat by name and a walk
+to the offset, which `WRITE_SEQ`'s token already pays in exactly that case.
+
+**`fcp_xfer` no longer stats the source.** `READ_SEQ`'s first call does it
+(a missing file is its `FERR_NOENT`), and the cursor then holds the file's
+size: `fcp_room` reads its want there and the loop's end test is size less
+offset, so `[fcp_rsz]`, `[fcp_need]` and the second walk of the same name
+are all gone. `READ_AT` stores the size on its redirected arm too, which it
+did not before, so a cursor on a `DVK_FILE` volume carries it as well.
+
+Measured on `os8088_xt_hdd` against the commit before (MartyPC,
+docs/reports/FILECP-SIZE-IMPL-2026-10-18.md §6): a 22-file tree with a 200KB file
+copied B: to C: and then C: to C: makes **the same `int 13h` calls moving the
+same sectors**, call for call. The fixed-disk copy costs 39 ms more of CPU in
+5,061 (+0.77%: the cold first chunks and the cursor's copy in and out); the
+floppy one is inside its own run-to-run spread. The engine is 109 bytes
+smaller for the reader, 14 for `fcp_xfer` and 14 for `fcp_took`.
 
 ### 22.19 A move inside one volume is three sector writes
 
@@ -51744,7 +51792,7 @@ refusal - is that section's.
 
 1. **Two volumes.** The source is `(drive, folder)` as the verb found it and
    the target is what the dialog left current. Every read goes to the source
-   and every write to the target through `fcpf_fcp_goto`, the far door
+   and every write to the target through `dskf_dsk_goto`, the far door
    `DISKOPS.DRV` already uses between a floppy and an image file (§18.99.8). What
    keeps a hop free is §18.9.3's batch bracket, opened once per run: inside
    it a floppy's banked boot sector is trusted and its FAT window reused, so
@@ -51831,7 +51879,7 @@ reached at that moment sent the join back into its own error path, with
 `[cmz_jwrote]` still set, to try the same hop again, for ever. It ran on the
 UI task, so the arrow stopped, a posted Ctrl-Alt-Del was never serviced, and
 no Disk window ever answered again. The hop in `cmz_jrmtmp` is now a plain
-`fcpf_fcp_goto` whose failure only skips the delete. The target keeps its
+`dskf_dsk_goto` whose failure only skips the delete. The target keeps its
 `CMPRESS~.TMP`, as it does after a failed rename (§22.22.5). A later join into
 that folder then says `Name exists` until the file is deleted.
 
@@ -51915,7 +51963,7 @@ between the two, and must reach `Uncompressed`. Without this section it reads
 
 **The residual is wider than the join**, and this does not close it. Any
 QUIET mount of a floppy that was written elsewhere and put back trusts the
-signature the same way: a package's `fcp_goto` (§18.9.1.1), a copy's hop. A
+signature the same way: a package's `dsk_goto` (§18.9.1.1), a copy's hop. A
 loud mount, which is every navigation and every Refresh, does not.
 
 ##### 22.23.6.3 Abandoning the prompt keeps `clo_free`'s contract
@@ -55204,7 +55252,7 @@ then dispatch.
 - **A shortcut opens by name, through the doors the Disk window's double-click
   already has.** `sc_open` banks the user's volume, goes to the shortcut's
   volume root, and walks the path a component at a time (`dskw_stat`, then
-  `fcp_goto`). Then, on the entry:
+  `dsk_goto`). Then, on the entry:
 
   | the entry is | `sc_open` does |
   |---|---|
@@ -98658,8 +98706,8 @@ like entries are not:
 
 - **`fcp_ncopy` is `equ dsk_ncopy`** — `disk.inc`'s routine under a second
   name. It is resident on both builds and a caller of it reads no disk.
-- **`fcp_goto` and its four doors stay RESIDENT**, and that is binding rather
-  than an optimisation: `DISKOPS.DRV` far-calls it through `fcpf_fcp_goto`
+- **`dsk_goto` and its four doors stay RESIDENT**, and that is binding rather
+  than an optimisation: `DISKOPS.DRV` far-calls it through `dskf_dsk_goto`
   between two raw transfers of a same-drive clone (§18.99.8), which is exactly
   when the system disk is *not* in the drive. A `mod_need` there fails
   `drv_mounted` and hands the cloner a CF=1 it can only stop on. **No module
@@ -99426,7 +99474,7 @@ with `dsk_chdir_q`, which answers a move to a different folder with a REMOUNT
 - the boot sector read again, one `int 13h`, to learn that the disk whose
 motor is still turning is still the disk. A locate is mostly such moves (the
 document's folder, that volume's root, its `APPS`, and back), so rungs now
-move with `fcp_goto`, the package path's quiet stand (§18.9.1.1): the media
+move with `dsk_goto`, the package path's quiet stand (§18.9.1.1): the media
 half of §18.9.1's predicate and a word when it holds, and the same
 `dsk_chdir_q` as before when it does not. `assoc_back` takes it too.
 
@@ -100262,7 +100310,7 @@ The entry, `ascw_flush_x`:
 1. **Refuses what cannot hold a cache**: a free row or a redirected volume
    (`DVK_FILE`: the cable, the RAM disk).
 2. **Banks where the user is** (`[disk_drive]`, `[dsk_cwd]`) and stands in
-   the volume's root with `fcp_goto`.
+   the volume's root with `dsk_goto`.
 3. **Claims its work buffer** (`ASW_KB`, transient, freed before return).
 4. **Walks the root**, collecting its packages, its folders and `ASSOC.DAT`'s
    own entry, and **reads the old file** under `asc_use_x`'s tests (§54.7.1's
@@ -100293,7 +100341,7 @@ The entry, `ascw_flush_x`:
    `_DIRFULL`, `_PROT`, `_IO`) it sets **`[asc_wno]`** to the volume, and
    `asc_post` posts nothing more for it this session. A write-protected
    floppy then pays one attempt, not one per folder.
-10. **Empties the capture**, puts the volume back with `fcp_goto`, frees the
+10. **Empties the capture**, puts the volume back with `dsk_goto`, frees the
     buffer and returns.
 
 **What a flush costs does not grow with what it found.** In incremental mode
@@ -104471,14 +104519,14 @@ far side never sent.
 mistake in different modules.** The kernel range-checks a "first cluster"
 against `[dsk_maxclus]` in four places; on a redirected volume that word is
 an opaque handle and `[dsk_maxclus]` **belongs to the last FAT volume
-mounted**. §62.9.5 fixed the loader's. `fcp_goto`'s is worse, because it also
+mounted**. §62.9.5 fixed the loader's. `dsk_goto`'s is worse, because it also
 rejects anything below 2 — and the first folder a `DRVC_FILE` driver hands
 out is handle 1, so the copy engine refused the very first subfolder with
 `FERR_IO`. `fcp_rdnext`'s is the third, and it walks a chain besides; a
 redirected read there is one `FSV_READAT` at a running offset, which is also
 what makes it resumable without `[dsk_chain_end]`.
 
-**`fcp_goto` had a second and more interesting fault: it desynchronises the
+**`dsk_goto` had a second and more interesting fault: it desynchronises the
 driver.** Its quiet path exists *precisely* to avoid a mount for a move
 inside one volume — "a move inside one volume is a word" — and a mount is the
 only thing that would have called `FSV_CHDIR`. A `DRVC_FILE` driver keeps its
@@ -104539,7 +104587,7 @@ into `dsk_ent`, which is exactly where `dsk_synth` puts one — so the two
 paths converge on the instruction after it and the whole tail (the copy into
 `fcp_cname`, the type, the handle, the size) is shared rather than mirrored.
 Everything else a folder copy needs was already built: `FSV_MKDIR` makes the
-subdirectory, `fcp_goto`'s quiet-mount branch descends into it, and
+subdirectory, `dsk_goto`'s quiet-mount branch descends into it, and
 `FSV_READAT` + `FSV_WRITE`/`APPEND` move each file.
 
 **A DRIVER THAT PUBLISHES NO `FSV_ENUM` IS REFUSED, NOT WALKED.** An absent
@@ -104643,7 +104691,7 @@ behaves exactly as it did before. Nothing else in the engine changes: the
 replace question, the free-space check and the Cut's source delete all happen
 around it as they always did.
 
-Two things about the test are load-bearing. It sits **after** `fcp_goto(source)`,
+Two things about the test are load-bearing. It sits **after** `dsk_goto(source)`,
 because `[dsk_vkind]` describes the volume being stood on and standing on the
 source is what that call just arranged. And it requires
 `[fcp_drv] == [fcp_ddrv]`: a copy between *two different* redirected
@@ -106501,7 +106549,7 @@ Every symptom follows from that one deadline, which is what says it is the
 whole story rather than one of several faults:
 
 - the **freeze** is the full volume switch a cross-drive copy makes
-  (`fcp_goto` alternates drives, so each hop is a mount = an `FSV_LIST` over a
+  (`dsk_goto` alternates drives, so each hop is a mount = an `FSV_LIST` over a
   3,741 B/s wire);
 - the far machine's **disk spinning** is `wr_open`'s create;
 - the **zero-byte file** is that create, with a body that never arrived;
@@ -192339,7 +192387,7 @@ GOTO_QM    home
 ```
 
 - **The home stand is the question of WHICH DISK, and the kernel answers
-  it** - `OSAPI_FILE_GOTO_QM` to home, which is `fcp_goto`. While a floppy's
+  it** - `OSAPI_FILE_GOTO_QM` to home, which is `dsk_goto`. While a floppy's
   motor is still turning no hand can have swapped the medium, and it is a
   word (§18.9.1's `dsk_media_ok`); otherwise it is a QUIET mount
   (§18.9.1.1), which reads this disk's boot sector, signs it (`dsk_bpb_sig`)
@@ -194233,7 +194281,7 @@ one a Sticky App row names, §110.4), then every other volume that is a FIXED
 disk - `hb_pick1`'s test (`dsk_vol_fixed_x` AL = 1, and not a redirected
 `DVK_FILE` volume, so not the RAM disk or the cable) less a mounted disk
 IMAGE (`DRVC_IMG`), which is a floppy's contents. On each: its root quietly
-(`fcp_goto`), `STIKAPPS` by name (`dskw_stat`), into it, then
+(`dsk_goto`), `STIKAPPS` by name (`dskw_stat`), into it, then
 `dsk_find_x` by ordinal - stateless, so the header peeks between the calls
 cannot disturb it - and for each `.O88` its first sector (`dsk_peek_x`, 512
 bytes). It is LISTED when its magic is `'O8'`, bit 7 is set, the file holds
