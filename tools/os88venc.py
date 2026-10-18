@@ -553,6 +553,30 @@ CHOICE_HELP = {
         "size": "Leave out changes not worth their bytes: the smallest "
                 "file for the look",
     },
+    "desktop_posters": {
+        "auto": "A picture of each keyframe stored for the desktop's "
+                "Preview where the player's own would be poor: in colour "
+                "for 256 colours, for 16 in colours of their own or too "
+                "big for the window, and for CGA's colours; and in black "
+                "and white too for CGA's, for a CGA's desktop (the "
+                "default)",
+        "colour": "Each keyframe's Preview picture stored in the "
+                  "desktop's 16 colours",
+        "mono": "Each keyframe's Preview picture stored in black and "
+                "white, as a CGA or Hercules desktop shows it",
+        "both": "Each keyframe's Preview picture stored twice: in colour "
+                "for a VGA or EGA desktop, black and white for the others",
+        "off": "No keyframe pictures: the Preview decodes each keyframe "
+               "(a custom poster is still stored)",
+    },
+    "desktop_size": {
+        "fit": "The Preview as big as the window has room for (the "
+               "default)",
+        "half": "The Preview at half the video's size, however much room "
+                "there is. Play then goes full screen",
+        "quarter": "The Preview at a quarter of the video's size. Play then "
+                   "goes full screen",
+    },
     "flip_hold": {
         "ahead": "With Min fps on a flipped file, a held frame is drawn on "
                  "the hidden page toward the next one, which finishes it "
@@ -853,7 +877,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 41
+OPTS_VERSION = 44
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles")
@@ -884,7 +908,8 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     35: "e1090fc6c20c5367", 36: "00e7310bd1a264d8",
                     37: "096abca8b264506a", 38: "eaf373ad8f1e1fdb",
                     39: "7a7d4203d99fd27d", 40: "4fffe628a862c24e",
-                    41: "9c78d785df0d94a4"}
+                    41: "9c78d785df0d94a4", 42: "6f2cb773837bd222",
+                    43: "ec2917558c23907f", 44: "1baaf8c2dacb6f7b"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1063,6 +1088,16 @@ MIGRATIONS = {
     # 41: --lookahead-floor (98.2.1.2) - a file made before it let the
     # frames after take a pixel's worth all the way down
     40: [("added", "lookahead_floor", 0.0)],
+    # 42: --flip-own (VIDEO-SEEN-PLAN 3b) - a file made before it was a
+    # change against the frame before, its page brought up first
+    41: [("added", "flip_own", False)],
+    # 43: --desktop-posters and --poster-image (98.1.3.11) - a file made
+    # before them had none
+    42: [("added", "desktop_posters", "off"), ("added", "poster_image", None)],
+    # 44: --desktop-size, and --desktop-posters' sets (98.1.3.11) - `on`
+    # was the colour set, at the size the window shows
+    43: [("revalue", "desktop_posters", {"on": "colour"}),
+         ("added", "desktop_size", "fit")],
 }
 
 
@@ -5392,6 +5427,56 @@ class Flipped:
         if flip:                        # a frame a call (98.3.8): owed time
             self.owe = None             # is the flip schedule's (below)
 
+    def own_init(self):
+        """EACH RECORD AGAINST ITS OWN PAGE (--flip-own, VIDEO-SEEN-PLAN 3b):
+        the encoder keeps BOTH pages, and a frame is drawn on the one the
+        glass is not showing - the frame two back, or after a held record
+        the held one - as it stands, owing nothing. The record after a key
+        is the exception: a seek puts the key on both pages, so that record
+        first takes the rows where the pages differ off the glass"""
+        self.own, self.opage = True, None
+        self.own_hold = self.own_next = False
+        self.own_up = None
+
+    def _own_page(self):
+        return (self.screen, self.surf, getattr(self, "pl", None))
+
+    def _own_set(self, pg):
+        self.screen, self.surf = pg[0], pg[1]
+        if pg[2] is not None:
+            self.pl = pg[2]
+        self.scache = None
+
+    def begin(self):
+        if getattr(self, "own", False):
+            self.own_turn()
+        super().begin()
+
+    def own_turn(self):
+        """A frame starts: onto the page the glass is not showing (the same
+        one after a held record), brought up first after a key"""
+        shown = self._own_page()
+        if self.opage is None:          # (both pages black at the start)
+            self.opage = (shown[0].copy(), bytearray(shown[1]),
+                          None if shown[2] is None else shown[2].copy())
+        if self.own_hold:
+            self.own_hold = False       # (drawn on again, as it stands)
+            self.own_up, self.prev_c = None, 0.0
+            return
+        self._own_set(self.opage)
+        self.opage = shown
+        self.own_up, self.prev_c = None, 0.0
+        if self.own_next:
+            self.own_next = False
+            rows = np.flatnonzero((self.screen != shown[0]).any(axis=1))
+            if len(rows):
+                y0, y1 = int(rows[0]), int(rows[-1]) + 1
+                self.own_up = (y0, y1)
+                self._own_set((shown[0].copy(), bytearray(shown[1]),
+                               None if shown[2] is None else shown[2].copy()))
+                # (the player's copy off the glass, 98.3.8.1's price)
+                self.prev_c = (y1 - y0) * 80 * self.lcopy + CYC_LCOPY0
+
     def charge(self, rec, abytes):
         c = self.cost(rec)
         pc, pb = self.pa_spend          # (page-ahead's hidden page, 98.2.1.8)
@@ -5400,6 +5485,20 @@ class Flipped:
         self.cpu.spend(c + self.prev_c + pc)
         self.disk.spend(len(rec) - abytes + pb)
         spent = c + self.prev_c + pc
+        if getattr(self, "nobring", False):
+            # (FLIPPED AND BUILT AHEAD AGAINST ITS OWN PAGES: every record
+            # drawn as it stands - PageAheadF's own - so nothing is owed;
+            # a flip's copy is that frame's, set in its before())
+            self.prev_c, self.staying = 0.0, False
+            self.end(spent)
+            return spent
+        if getattr(self, "own", False):
+            # (against its own page: nothing owed the next frame, and a
+            # HELD record's page is the next one's - own_turn)
+            self.own_hold = bool(getattr(self, "staying", False))
+            self.staying = False
+            self.end(spent)
+            return spent
         if self.flip:
             # what the player brings the back page up with next frame: this
             # record again, or its rows copied off the glass through the
@@ -6504,9 +6603,14 @@ class PageAheadF(PageAheadN):
     built: docs/reports/VIDEO-PAGES-2026-10-15.md §5"""
 
     def __init__(self, enc, plan, pages, key0=0, kcap=KEY_PLAYER,
-                 kpart=vid.KEY_PART, ref=0):
+                 kpart=vid.KEY_PART, ref=0, own=False):
         super().__init__(enc, plan, pages - 1, key0, kcap, kpart, ref)
         enc.fown = True                 # (the player keeps the own lists)
+        # AGAINST ITS OWN PAGES (--flip-own, VIDEO-SEEN-PLAN 3b): every
+        # frame record BUILT - drawn on its page as it stands, that page
+        # the encoder's model for it - so none is brought up, and every key
+        # carries the back page too, which a seek then has exactly
+        self.own = own
         self.N = pages
         self.bp = pages - 1                 # the back page, drawn next
         self.bsurf = bytes(enc.surf)        # ...and what it holds
@@ -6551,9 +6655,12 @@ class PageAheadF(PageAheadN):
 
     def carried(self, j):
         """every page but the back page, which after a seek holds the key's
-        own picture - and is UNKNOWN from a key until it is drawn on"""
+        own picture - and is UNKNOWN from a key until it is drawn on; and
+        against its own pages, the back page too"""
         out = self.surfs()
-        if self.keyat(j):
+        if self.own:
+            out[self.bp] = self.bsurf
+        elif self.keyat(j):
             self.bunk = True
         return out
 
@@ -6651,6 +6758,9 @@ class PageAheadF(PageAheadN):
                 self.asg[self.cp.pop(i)] = None
         if not self.built:              # AN ORDINARY FRAME: on the back page,
             self.vp, self.bp = self.bp, self.vp     # which is then shown
+            if self.own:                # (as it stands: the model is what
+                self._setsurf(e, self.bsurf)    # that page holds)
+                self.built = True
             self.bsurf = old
             self.bunk = False
         self._assign(j)
@@ -8363,6 +8473,131 @@ def key_bench(m, rec, wr):
     return (2 if wr.flip else 1) * m.cost(rec)
 
 
+# DESKTOP POSTERS (98.1.3.11): the window's room for a picture at its own
+# size on a 640 x 480 desktop - wider or taller and it is shown at half
+DESK_FIT = (630, 400)
+_DESK_CACHE = {}
+
+
+def desk_choice(pixfmt, cgapal, own, pw, ph, mode, size, custom):
+    """What a file's DESKTOP POSTERS are (98.1.3.11): (scale, flags), or
+    None for no table. `own`: a VGA4 file in colours of its own. The sets
+    by default are what the format is seen in - colour for VGA's, black
+    and white for one bit's, both for CGA's colours, which a VGA shows in
+    colour and a CGA's desktop cannot - and keys by default where the
+    player's own picture is poor: 256 colours (one-bit luma), CGA's (four
+    shades) and 16 of their own or shown smaller (the nearest colour of a
+    decimation)"""
+    fit = next((s for s in (1, 2) if pw // s <= DESK_FIT[0] and
+                ph // s <= DESK_FIT[1]), 4)
+    ts = {"fit": fit, "half": max(fit, 2), "quarter": 4}[size]
+    while ts < 4 and vid.thumb_size("c", pw // ts, -(-ph // ts)) > \
+            vid.THUMB_MAX:              # (a picture the player can hold)
+        ts *= 2
+    if pixfmt in (vid.PF_VGA4, vid.PF_VGA8):
+        kinds = TH_C
+    elif pixfmt in (vid.PF_CGA4, vid.PF_C160, vid.PF_C512) or \
+            (pixfmt == vid.PF_TEXT and cgapal == vid.TEXT_COLOUR):
+        kinds = TH_C | TH_M
+    else:
+        kinds = TH_M
+    keys = pixfmt in (vid.PF_VGA8, vid.PF_CGA4, vid.PF_C160,
+                      vid.PF_C512) or \
+        (pixfmt == vid.PF_VGA4 and (own or ts > 1))
+    if mode in ("colour", "mono", "both"):
+        kinds = {"colour": TH_C, "mono": TH_M, "both": TH_C | TH_M}[mode]
+        keys = True
+    elif mode == "off":
+        keys = False
+    fl = (vid.TH_KEYS if keys else 0) | (vid.TH_CUSTOM if custom else 0)
+    if fl:
+        fl |= kinds
+    if size != "fit":
+        fl |= vid.TH_SIZE
+    return (ts, fl) if fl else None
+
+
+TH_C, TH_M = vid.TH_COLOUR, vid.TH_MONO
+
+
+def desk_picture(rgb, pw, ph, ts, kind):
+    """One desktop poster from a picture in six-bit RGB at the Preview's
+    own size"""
+    return (vid.desktop_poster_rgb if kind == "c" else
+            vid.desktop_mono_rgb)(rgb, pw, ph, ts)
+
+
+def desk_posters(a, wr, g, palette, lw, lh, crop, rate, spf, eq, rep):
+    """wr.thumbs (98.1.3.11): each key's poster from its canvas in the
+    colours in effect at its frame, and a custom one from --poster-image,
+    in the sets and at the size desk_choice says"""
+    mode = getattr(a, "desktop_posters", "auto")
+    size = getattr(a, "desktop_size", "fit")
+    custom = getattr(a, "poster_image", None)
+    pf = wr.pixfmt
+    pev = list(getattr(wr, "pev", None) or [])
+    base = bytes((palette or vid.STD16)[:48 if pf == vid.PF_VGA4 else 768])
+    if pf == vid.PF_VGA4:           # (None: the desktop's own)
+        pals = [bytes(p[:48]) for f, p in pev] or [base]
+        own = any(p != vid.STD16 for p in pals)
+    else:
+        own = False
+    rs = getattr(wr, "rowscale", 1) or 1
+    pw, ph = vid.thumb_dims(pf, g, rs)
+    ch = desk_choice(pf, wr.cgapal, own, pw, ph, mode, size, custom)
+    if ch is None:
+        return
+    ts, fl = ch
+
+    def make(cv, kind):
+        f = None
+        for k, r, c in wr.keys:
+            if c is cv:
+                f = k
+        pal = base
+        for fr, p in pev:
+            if f is not None and fr <= f:
+                pal = bytes(p[:48])
+        key = (hash(cv), len(cv), pal, ts, kind)
+        pk = _DESK_CACHE.get(key)
+        if pk is None:
+            rgb = vid.canvas_rgb(pf, cv, g, pal, wr.cgapal, rs)
+            pk = _DESK_CACHE[key] = desk_picture(rgb, pw, ph, ts, kind)
+        return pk
+    cpk = None
+    if custom:
+        if custom.startswith("@"):
+            t0 = (a.start or 0.0) + float(custom[1:])
+            src, t1 = a.src, t0 + 2.0 * spf / rate
+        else:
+            src, t0, t1 = custom, 0.0, None
+        fr = next(iter(ffmpeg_video(src, lw, lh, crop, "%d/%d" % (rate, spf),
+                                    t0, t1, ":".join(eq), pix="rgb24")),
+                  None)
+        if fr is None or fr.shape[:2] != (lh, lw):
+            raise vid.V88Error("--poster-image %s: no picture of %d x %d "
+                               "came out of it" % (custom, lw, lh))
+        if (lw, lh) != (pw, ph):        # (the Preview's own shape: CGA's
+            from PIL import Image       # colours two wide, a text cell four)
+            fr = np.asarray(Image.fromarray(fr).resize(
+                (pw, ph), Image.BOX if pw <= lw and ph <= lh else
+                Image.NEAREST))
+        rgb = fr.astype(np.float64) * 63.0 / 255.0
+        cpk = {k: desk_picture(rgb, pw, ph, ts, k)
+               for k in vid.thumb_kinds(fl)}
+    wr.thumbs = dict(scale=ts, flags=fl, make=make, custom=cpk)
+    sets = " and ".join(n for b, n in ((TH_C, "in the desktop's sixteen"),
+                                       (TH_M, "in black and white"))
+                        if fl & b)
+    what = ", ".join(x for x in (
+        "a key's each" if fl & vid.TH_KEYS and wr.keys else "",
+        "a custom one" if cpk is not None else "") if x)
+    rep("file", "desktop posters: %s at %s%s%s (98.1.3.11)" % (
+        what or "none", {1: "its own size", 2: "half", 4: "a quarter"}[ts],
+        ", " + sets if sets else "",
+        ", the Preview's size" if fl & vid.TH_SIZE else ""))
+
+
 def page_key0(path, res):
     """A page-ahead file's KEY 0, as (frame, bytes), when the player cannot
     read it - left out of the table, or past KEY_PLAYER - else None"""
@@ -8731,6 +8966,10 @@ def _encode(a, keep, tick, readers):
             "--spk-shape machine is a speaker WAV's (86.21.1): a plain WAV "
             "for Audio to shape. A .V88 takes encoder or none - or --audio "
             "pcm8, which the Video Player shapes for the speaker itself")
+    if a.live and getattr(a, "desktop_size", "fit") != "fit":
+        raise vid.V88Error("--desktop-size %s with --live: a Live file "
+                           "plays in its window at its own size"
+                           % a.desktop_size)
     need_tools()
     prof = dict(PROFILES[a.profile])
     # what the profile implies (98.2.3.5), where the command line said
@@ -9324,6 +9563,12 @@ def _encode(a, keep, tick, readers):
         raise vid.V88Error("--flip is not a NARROW screen's: its pages are "
                            "for --pages, and a flip every frame would want "
                            "the whole canvas copied besides (98.1.3.2.5)")
+    fown = bool(getattr(a, "flip_own", False))
+    if fown and (not a.flip or a.loop_from is not None or a.live or
+                 a.resident or getattr(a, "layer_disk", None) or
+                 getattr(a, "layer_profile", None)):
+        raise vid.V88Error("--flip-own is --flip's, a stream with no loop and "
+                           "no layer (VIDEO-SEEN-PLAN 3b)")
     pmode = page_mode(a)
     pa_on = pmode == "on" or (pmode == "auto" and
                               getattr(a, "_paok", False))
@@ -9358,6 +9603,10 @@ def _encode(a, keep, tick, readers):
         EncoderP(g, prof, fps, audio_cyc, audio_bps, palette and
                  palette[:48], a.flip) if vga4 else \
         Encoder(g, prof, fps, audio_cyc, audio_bps, palette)
+    if fown and not pa_on:
+        enc.own_init()              # (two pages: byte 37 7, 98.1.3.10)
+    elif fown:
+        enc.nobring = True          # (on N pages: PageAheadF's, 98.2.1.8.5)
     enc.live = bool(a.live)
     # THE XMS COPIES THE PLAYER WILL MAKE (set_xplay): in place where the
     # player's in-place paths take the file, the copying FIFO where they
@@ -9504,6 +9753,7 @@ def _encode(a, keep, tick, readers):
                         os.path.basename(a.src))[0][:47],
                     credits=a.credits or "", keysecs=a.keysecs,
                     palette=palette, rowscale=dh, flip=a.flip,
+                    own=fown and not pa_on,
                     aspect=scaled_aspect(pasp or vid.ASPECT[L], dh),
                     loop=None if a.loop_from is None else
                     max(0, round(a.loop_from * fps)),
@@ -9703,8 +9953,8 @@ def _encode(a, keep, tick, readers):
     # PAGE-AHEAD (98.2.1.8): the plan pass logs; the real pass builds
     plan = getattr(a, "_paplan", None)
     pa = (PageAheadF(enc, plan, npg, wr.key0, KEY_PLAYER, wr.kpart,
-                     int(wr.audio_fmt == vid.AUD_ADPCM4)) if npg > 2 and
-          a.flip else
+                     int(wr.audio_fmt == vid.AUD_ADPCM4), own=fown)
+          if npg > 2 and a.flip else
           PageAheadN(enc, plan, npg, wr.key0, KEY_PLAYER, wr.kpart,
                      int(wr.audio_fmt == vid.AUD_ADPCM4)) if npg > 2 else
           PageAhead(enc, plan, wr.key0, KEY_PLAYER, wr.kpart,
@@ -10289,7 +10539,11 @@ def _encode(a, keep, tick, readers):
             wr.frame(ops, enc.surf, au, hidden=hops, flip=pa.flipped,
                      hsurf=pa.h.surf)
         else:
-            wr.frame(ops, enc.surf, au, held=x["stay"])
+            wr.frame(ops, enc.surf, au, held=x["stay"],
+                     up=getattr(enc, "own_up", None))
+            if getattr(enc, "own", False) and wr.keys and \
+                    wr.keys[-1][0] == len(wr.recs) - 1:
+                enc.own_next = True     # (the next brings its page up)
         if lay is not None:
             for lops in lay.push(
                     target, ops, rec, npal, hops=hops,
@@ -10469,7 +10723,8 @@ def _encode(a, keep, tick, readers):
                 "so it has no poster (and no seek) - it plays from the start"
                 % a.poster_at)
             poster = None
-    if a.resident:
+    desk_posters(a, wr, g, palette, lw, lh, crop, rate, spf, eq, rep)
+    if a.resident:                      # (98.1.3.11: the Preview's posters)
         st = vid.write_resident(
             a.out, [wr], afmt, abytes if afmt else 0, b"".join(sound),
             wr.title, wr.credits, a.repeat, vid.PK_LZB,
@@ -11462,6 +11717,15 @@ def parser():
                     help="modex: two pages, the player drawing one while "
                          "the other shows - no tearing, at twice the decode "
                          "(98.3.8)")
+    ap.add_argument("--flip-own", action="store_true",
+                    help="with --flip: each frame a change against the page "
+                         "it is drawn on (the frame two back) and drawn on "
+                         "it as it stands, so the player never brings a page "
+                         "up first - less decode for more bytes. On two "
+                         "pages a file only a player that knows it plays; "
+                         "with --page-ahead on --pages 3 or more, built "
+                         "ahead as well, and any page-ahead player's "
+                         "(VIDEO-SEEN-PLAN 3b)")
     ap.add_argument("--lag", type=lag_arg, default=LAG_MS,
                     metavar="MS|LO-HI",
                     help="with a card's sound: how far the picture may fall "
@@ -11738,6 +12002,30 @@ def parser():
     ap.add_argument("--poster-at", type=float, metavar="SECS",
                     help="...or the keyframe nearest this many seconds into the "
                          "clip (after --start)")
+    ap.add_argument("--poster-image", metavar="FILE|@SECS",
+                    help="a CUSTOM poster, shown when the file opens and "
+                         "after a play - a picture FILE, or @SECS for the "
+                         "clip's own frame that many seconds in (after "
+                         "--start), on a key or not; the play still starts "
+                         "at a key (98.1.3.11)")
+    ap.add_argument("--desktop-posters",
+                    choices=("auto", "colour", "mono", "both", "off"),
+                    default="auto",
+                    help="each key's picture for the desktop's Preview made "
+                         "here - averaged and dithered to the desktop's "
+                         "sixteen (colour) or to black and white (mono) - "
+                         "where the player's own would be poor: auto (the "
+                         "default) for 256 colours, CGA's colours and 16 in "
+                         "colours of their own or too big for the window; "
+                         "colour, mono or both for every file; off for "
+                         "none (98.1.3.11)")
+    ap.add_argument("--desktop-size", choices=("fit", "half", "quarter"),
+                    default="fit",
+                    help="the Preview's size on the desktop: fit (the "
+                         "default) as big as the window has room for, or "
+                         "half or a quarter of the video's whatever the "
+                         "room - and Play then goes full screen "
+                         "(98.1.3.11)")
     ap.add_argument("--preview-png", metavar="DIR",
                     help="the screen once a second, as PNGs")
     ap.add_argument("--quiet", action="store_true")

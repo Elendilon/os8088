@@ -243,6 +243,15 @@ def _tearing(c):
                PF_WORDS[c["pixfmt"]]))
 
 
+def _desk(c):
+    """DESKTOP POSTERS (98.1.3.11): the Preview's size is any file's but a
+    Live one's, which plays in its window at its own size"""
+    if c["live"]:
+        return ("A Live file plays in its window at its own size, so its "
+                "Preview is that size.")
+    return None
+
+
 def _held(c, what):
     """None unless the file is held WHOLE - Live or resident - which then
     `what`: the read-ahead's options have nothing to act on"""
@@ -314,6 +323,9 @@ _FOUR16 = _for(("cga4", "c160", "c512", "vga4"), _FOUR16_WHAT)
 _FOUR16_ONE = _for(("cga4", "c160", "c512", "vga4"), _FOUR16_WHAT, "This is")
 
 
+# THE OPTIONS THE DEGRADE LADDER REPLACES, whole: on with no ladder, and
+# with one only what its rungs name (VIDEO-SEEN-PLAN 3a)
+LADDER_SETS = ("lag", "min_fps", "coarse_cut", "step_down", "step_min")
 GROUPS = [
     ("Basic", "Made for", ("preset", "pixfmt", "profile", "aim"), ALWAYS),
     ("Basic", "The clip", ("title", "credits", "start", "end", "fps"),
@@ -387,25 +399,26 @@ GROUPS = [
     ("Size vs quality", "16 colours: the player's time to draw",
      ("vga4_order", "vga4_wm3"), _for(("vga4",), PF_WORDS["vga4"])),
     ("Size vs quality", "Scenes: fewer bytes at a cut",
-     ("step_down", "step_min", "scene_hold"),
-     _for(("vga4",), PF_WORDS["vga4"])),
+     ("scene_hold",), _for(("vga4",), PF_WORDS["vga4"])),
     # (a Hercules has a second page too, so page-ahead is not VGA's alone:
     # under the VGA group it was greyed on the one screen that needs it
     # asked for by name - the options audit, 2026-10-14. Bands are the
     # same question - what a frame caught half drawn looks like, for a few
     # bytes or twice the decode - and each keeps its own rule)
     ("Size vs quality", "Tearing: bands and a second page",
-     ("bands", "flip", "page_ahead", "pages", "page_keys", "key_pool",
-      "page_prune"),
+     ("bands", "flip", "flip_own", "page_ahead", "pages", "page_keys",
+      "key_pool", "page_prune"),
      _tearing),
-    # (the DEGRADE LADDER's inner tab carries the ladder, and under it the
-    # time-side choices it stands in for: the lag and the frame-rate floor
-    # it sets itself, and the charge and the held frames it uses - which
-    # also took Choices back inside the default window, VIDEO-SEEN-PLAN 3a)
+    # (the DEGRADE LADDER's inner tab is a CHOICE, and laid out as one
+    # (the owner, 2026-10-18: "ladder OR these other settings"): the
+    # ladder, OR the whole-clip settings it replaces - each of which it
+    # leaves OFF where no rung names it, which is how a ladder says so -
+    # and then what prices and draws a held frame under either)
     ("Size vs quality", "Degrade ladder", ("ladder",), ALWAYS),
-    ("Size vs quality", "Instead of cutting", ("lag", "min_fps",
-                                               "slow_cost", "flip_hold",
-                                               "coarse_cut"), ALWAYS),
+    ("Size vs quality", "Or, without the ladder: for the whole clip",
+     LADDER_SETS, ALWAYS),
+    ("Size vs quality", "Held frames, either way", ("slow_cost",
+                                                    "flip_hold"), ALWAYS),
     ("Size vs quality", "When a frame is cut", ("lookahead", "lookahead_floor",
                                                 "error", "cut",
                                                 "frame_cap", "edges",
@@ -418,7 +431,11 @@ GROUPS = [
     ("Loop and keys", "Held in memory", ("resident", "live", "xms"),
      ALWAYS),
     ("Loop and keys", "Keyframes and the poster", ("keysecs", "poster",
-                                                   "poster_at"), ALWAYS),
+                                                   "poster_at",
+                                                   "poster_image",
+                                                   "desktop_posters",
+                                                   "desktop_size"),
+     ALWAYS),
     ("Advanced", "This computer", ("jobs",), ALWAYS),
 ]
 # ...and inside a group that applies, the few options narrower than it
@@ -453,6 +470,17 @@ FIELD_WHEN = {
     % ("mode 12h's 640 x 480" if c["pixfmt"] == "vga4" else
        "mode 13h" if c["pixfmt"] == "vga8" else
        "this %s file" % c["pixfmt"]),
+    # (98.1.3.11: the desktop's posters are a sixteen-colour stream's)
+    "desktop_size": lambda c: _desk(c),
+    # (VIDEO-SEEN-PLAN 3b: each record against its own page - the flip's,
+    # in a stream with no loop or layer; with page-ahead on 3 pages or more
+    # too, built ahead as well)
+    "flip_own": lambda c: FIELD_WHEN["flip"](c) or (
+        "Each frame against its own page is Flip's: turn Flip on."
+        if not c.get("flip") else
+        "A looped file or a layer is drawn against the frame before."
+        if c.get("loop_from") or c.get("layer_disk") or
+        c.get("layer_profile") else None),
     "lag": lambda c: "A Live file is drawn on the desktop: it keeps time "
     "frame by frame." if c.get("live") else None
     if c["audio"] not in ("none", "speaker") else
@@ -501,7 +529,7 @@ FIELD_WHEN = {
     "step_down": _scenes,
     "step_min": lambda c: _scenes(c) or (
         None if c["step_down"] == "on" else
-        "The fewest colours the ladder steps to: it needs the ladder on."),
+        "The fewest colours a scene steps down to: it needs Step down on."),
     "coarse_cut": _coarse,
     "scene_hold": _scenes,
     # (the options audit, 2026-10-14: what each of the group's knobs
@@ -560,9 +588,9 @@ FIELD_WHEN = {
 # THE DEGRADE LADDER (Size vs quality, its second inner tab): the options
 # a ladder sets itself, greyed while one is on - and the rungs this file
 # can use, each (label, --ladder's token)
-LADDER_SETS = ("lag", "min_fps", "coarse_cut", "step_down", "step_min")
-LADDER_WHY = ("The degrade ladder sets this (Size vs quality, Degrade "
-              "ladder).")
+LADDER_WHY = ("The degrade ladder is on, and replaces this: only what its "
+              "rungs name is done, so with no rung for it, it is off (Size "
+              "vs quality, Degrade ladder).")
 LADDER_RUNGS = 8
 
 
@@ -714,7 +742,8 @@ def ladder_label(tok):
 assert len({g[1] for g in GROUPS}) == len(GROUPS), "a header names a group"
 GROUP_OF = {d: g for g in GROUPS for d in g[2]}
 # the groups on Size vs quality's second inner tab rather than its first
-LADDER_PAGE = ("Degrade ladder", "Instead of cutting")
+LADDER_PAGE = ("Degrade ladder", "Or, without the ladder: for the whole clip",
+               "Held frames, either way")
 TAB_OF = {d: g[0] for d, g in GROUP_OF.items()}
 # the fields a group's rule reads: a change to one re-judges every group
 CONTEXT_FIELDS = ("preset", "pixfmt", "profile", "live", "layout", "audio",
@@ -1594,7 +1623,9 @@ def file_facts(r, path=None):
         vid.PF_NAMES[r.pixfmt], g.name, w, g.h,
         ", each row shown twice" if r.rowscale > 1 else "",
         " on %s" % vid.SCREENS[r.screen][0] if getattr(r, "screen", 0)
-        else "", ", flipped" if getattr(r, "flip", False) else ""))
+        else "", ", flipped, each frame against its own page"
+        if getattr(r, "own", False) else
+        ", flipped" if getattr(r, "flip", False) else ""))
     out.append("%d frames at %.2f fps = %.1f s; sound %s" % (
         r.frames, r.fps, secs,
         "none" if not r.audio else "%s at %d Hz" % (
@@ -2197,7 +2228,7 @@ class App(object):
         self.fwidgets = {}              # option -> its label and widgets
         self.gwhy, self.why = {}, {}    # why a group, an option, is off
         self.grppend = False
-        lastcol = {}
+        lastcol = {}                    # (the tab's shortest column: its note)
         for t in TABS:
             gs = [g for g in tabgroups[t] if g[1]]
             cols = [gs]
@@ -2209,9 +2240,12 @@ class App(object):
             # a TWO-COLUMN tab's fields are narrower, or the right-hand
             # column's "?" and Browse... fall off the pane's edge
             fw = 22 if len(cols) == 1 else 11
+            tall = None
             for ci, col in enumerate(cols):
                 cf = ttk.Frame(pages[t])
-                lastcol[t] = cf
+                h = sum(len(g[1]) + 1.5 for g in col)
+                if tall is None or h < tall:
+                    lastcol[t], tall = cf, h
                 cf.grid(row=0, column=ci, sticky="nwe",
                         padx=(0 if ci == 0 else 10, 0))
                 # every group in a column lines its fields up, by the
@@ -2220,15 +2254,20 @@ class App(object):
                          for f in g[1]) + 6
                 for name, fs in col:
                     self.group_box(cf, name, fs, fw, lw, start)
+        st.configure("GroupCheck.TCheckbutton", font=bold)
         self.ladder_page(self.ladpage, start)
         lf = ttk.Frame(self.ladpage)
-        lf.grid(row=2 + LADDER_RUNGS, column=0, columnspan=2, sticky="nwe",
-                pady=(10, 0))
-        for tab, name, dests, _ in GROUPS:
+        lf.grid(row=2, column=0, columnspan=2, sticky="nwe", pady=(6, 0))
+        ci = 0                          # (B and what serves both, side by
+        for tab, name, dests, _ in GROUPS:      # side)
             if name in LADDER_PAGE and name != "Degrade ladder":
                 fs = [fl[d] for d in dests if d in fl]
-                self.group_box(lf, name, fs, 22, max(
+                cf = ttk.Frame(lf)
+                cf.grid(row=0, column=ci, sticky="nw",
+                        padx=(0 if ci == 0 else 10, 0))
+                self.group_box(cf, name, fs, 11, max(
                     norm.measure(f["label"]) for f in fs) + 6, start)
+                ci += 1
         for t, text in TAB_NOTES.items():   # a word the fields cannot say
             if t in NOTE_IN_COLUMN:
                 ttk.Label(lastcol[t], text=text, foreground="#555",
@@ -2739,32 +2778,39 @@ class App(object):
         self.vars["ladder"] = v
         self.ladon = tk.StringVar(value="1" if v.get() else "")
         self.ladsync = False
+        # (A, in a box of its own whose title is the switch - the
+        # settings it replaces are B, beside it below: the owner's "ladder
+        # OR these other settings")
         top = ttk.Checkbutton(page, text="Use the degrade ladder",
                               variable=self.ladon, onvalue="1", offvalue="",
-                              command=self.ladder_toggle)
-        top.grid(row=0, column=0, columnspan=2, sticky="w")
+                              command=self.ladder_toggle,
+                              style="GroupCheck.TCheckbutton")
+        box = ttk.LabelFrame(page, labelwidget=top, padding=(6, 0, 6, 4))
+        box.grid(row=0, column=0, columnspan=2, sticky="we")
         Tip(top, "Where the budgets would cut a stretch of frames, try "
                  "these in order, each on top of the ones before - the "
                  "first that draws the stretch whole is taken, else the "
                  "least broken - and only then cut. A Cut rung stops there "
                  "instead, where no frame is more broken than it says: for "
                  "a video that takes a cut better than a slower rate. It "
-                 "sets Lag, Min fps, Coarse cut, Step down and Step min "
-                 "itself.")
+                 "REPLACES Lag, Min fps, Coarse cut, Step down and Step min: "
+                 "only what a rung names is done.")
         self.ladrows = []
         for i in range(LADDER_RUNGS):
-            lab = ttk.Label(page, text="Rung %d" % (i + 1))
-            lab.grid(row=1 + i, column=0, sticky="w", pady=(2, 0))
-            cb = ttk.Combobox(page, state="readonly", width=56)
-            cb.grid(row=1 + i, column=1, sticky="w", padx=4, pady=(2, 0))
+            lab = ttk.Label(box, text="Rung %d" % (i + 1))
+            lab.grid(row=i, column=0, sticky="w", pady=(2, 0))
+            cb = ttk.Combobox(box, state="readonly", width=56)
+            cb.grid(row=i, column=1, sticky="w", padx=4, pady=(2, 0))
             cb.bind("<<ComboboxSelected>>", lambda e: self.ladder_compose())
             self.ladrows.append((lab, cb))
-        ttk.Label(page, text="...then the frames are cut (When a frame is "
-                  "cut, on Choices). With the ladder on, it sets Lag, "
-                  "Min fps and Coarse cut below itself.", foreground="#555",
+        ttk.Label(page, text="The ladder OR the settings for the whole clip, "
+                  "not both: with the ladder on, only what a rung names is "
+                  "done, and a setting with no rung for it is off - which "
+                  "is how a ladder leaves one out. After the last rung the "
+                  "frames are cut (When a frame is cut, on Choices).",
+                  foreground="#555",
                   wraplength=560, justify="left").grid(
-            row=1 + LADDER_RUNGS, column=0, columnspan=2, sticky="w",
-            pady=(6, 0))
+            row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
         v.trace_add("write", lambda *a: self.ladder_show())
         self.ladder_show()
 

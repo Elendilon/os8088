@@ -12395,6 +12395,16 @@ SOAK = [
         "35), the band not widened (37, 38), the copy not forced (37)",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidmodexflo", "soak", py("tests/vidvga8.py", "--layout", "modex",
+                                  "--flip", "--own", "--held"), 32.0,
+        "SPEC.md 98.1.3.10, 98.3.8.7: vidmodexflh's clip AGAINST ITS OWN "
+        "PAGE (byte 37 7) - every record drawn on the back page as it "
+        "stands, none brought up, the held ones left unshown, and the "
+        "record after each key taking its rows off the glass (REC_UP). The "
+        "glass exact at every hold, keys among them; with REC_UP ignored it "
+        "FAILS before frame 38 by 480 pixels",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidmodexflc", "soak", py("tests/vidvga8.py", "--layout", "modex",
                                   "--flip", "--lcopy"), 35.0,
         "SPEC.md 98.3.8.1: vidmodexfl with every back page brought up by "
@@ -12876,6 +12886,23 @@ SOAK = [
         "BUILT page brought up anyway it FAILS at both flips",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidpagefmx3o", "soak", py("tests/vidpage.py", "--layout", "modex",
+                                   "--pages", "3", "--fpage", "--own"), 70.0,
+        "SPEC.md 98.2.1.8.5, VIDEO-SEEN-PLAN 3b: vidpagefmx3's clip AGAINST "
+        "ITS OWN PAGES - every record BUILT, an ordinary frame drawn on the "
+        "back page as it stands, and every key carrying the back page. "
+        "Every hold exact from the start, from key 1 and with no keys; with "
+        "the back page left out of the keys the file is refused (a play "
+        "from keyframe 1 shows frame 31 wrong)",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidpagefmx4o", "soak", py("tests/vidpage.py", "--layout", "modex",
+                                   "--pages", "4", "--screen", "320x200",
+                                   "--fpage", "--own"), 70.0,
+        "VIDEO-SEEN-PLAN 3b: vidpagefmx4's four pages, the precopy in the "
+        "calm among them, against their own pages",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidpagefv4", "soak", py("tests/vidpage.py", "--pages", "4",
                                  "--screen", "320x200", "--fpage"), 145.0,
         "SPEC.md 98.3.8.5: vidpagefmx4's clip in sixteen colours on 320 x 200",
@@ -12992,6 +13019,27 @@ SOAK = [
         "640 x 480, unflipped, played WITHOUT forcing the full screen. "
         "Broken on purpose (the palette not loaded, vp_show's OUTs skipped, "
         "or vp_canwin taking the window) the holds FAIL",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidposter", "soak", py("tests/vidposter.py"), 135.0,
+        "SPEC.md 98.1.3.11, 98.4.5: DESKTOP POSTERS on MartyPC, ten files "
+        "on a VGA's desktop and a CGA's, each box held to the host byte "
+        "for byte with the set and scale it chose: VGA4 of its own greys "
+        "stored at half with a custom one (the custom at open, key 1's "
+        "after Right), stored at its own size and halved, none stored "
+        "(vga4_pack's turning cell); VGA8 and CGA4 in colour; TH_SIZE's "
+        "half on a file that fits; a resident custom one; CGA4's black and "
+        "white on a CGA; colour and black and white halved twice. Broken on "
+        "purpose - the posters ignored, the size or the desktop not asked, "
+        "a halving's turn or second pass taken out - those arms FAIL",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidscreeno", "soak", py("tests/vidscreen.py", "--own"), 160.0,
+        "SPEC.md 98.1.3.10, 98.3.8.7: vidscreen's clips AGAINST THEIR OWN "
+        "PAGE on the four flipped screens (byte 37 7): drawn on the back "
+        "page as it stands, the record after a key bringing its page up off "
+        "the glass, and the 640 x 480 one unflipped as before. Every hold's "
+        "glass exact, odd and even frames apart",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidcard", "soak", py("tests/vidcard.py"), 26.0,

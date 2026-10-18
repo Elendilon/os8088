@@ -171625,7 +171625,7 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 | 37 | 1 | MODEX, and VGA4 on a screen of its own: **2 = page flipped** (98.3.8), **3 = page-ahead** (98.1.3.7, with flag PAGE and only with it), **4 = page-ahead on N pages** (98.1.3.7.1, with flag PAGE too), **5 = flipped AND built ahead on N pages** (98.1.3.7.2, flag PAGE too), 0 or 1 not; 0 in every other file |
 | 38 | 1 | VGA4: **the screen** (98.1.3.2.1) - 0 mode 12h's 640 x 480, 1 320 x 200, 2 320 x 240, 3 640 x 350, 4 640 x 400, **5 320 x 200 and 6 320 x 240 with rows 40 bytes apart** (98.1.3.2.5); MODEX: 0 320 x 240, **1 320 x 200** (98.1.3.1.1); 0 in every other file, and in a RESIDENT or LIVE one |
 | 39 | 1 | with byte 37 = 4 or 5: **N, the pages the file uses**, 3 to 8 (98.1.3.7.1); else 0 |
-| 40 | 24 | 0 (but for the words the sections above name at 40, 53, 54, 56 and 60, and 62: THE BENCH, the player's own bench record's decode modelled on the machine the file was made for, 10 us, 0 none - 98.1.9.13) |
+| 40 | 24 | 0 (but for the words the sections above name at 40, 53, 54, 56 and 60, and 62 - 40..45 being a stream's DESKTOP POSTERS and 56..61 a resident file's, 98.1.3.11 -: THE BENCH, the player's own bench record's decode modelled on the machine the file was made for, 10 us, 0 none - 98.1.9.13) |
 
 #### 98.1.1.2 Repeat: the flags, and the seam
 
@@ -172616,7 +172616,8 @@ copy          = len(16)=6 y0(16) y1(16)
 
 - **Every frame record has `REC_FLIP`** and names its page p in y0 bits
   12-14, never the page shown before it: it is drawn on p, and p is then
-  shown.
+  shown. (A file whose every record is BUILT and whose keys carry every
+  page is `--flip-own`'s, 98.2.1.8.5: nothing in it is ever brought up.)
 - **Unless y1 bit 12 (`REC_BUILT`) is set, p is first BROUGHT UP** to the
   frame shown: the last frame record's own lists decoded onto it again, or
   that record's band of rows (its y0..y1) copied onto it off the page shown
@@ -172801,6 +172802,134 @@ It is `--min-fps`'s hold on a flipped file (98.2.1.2, VIDEO-SEEN-PLAN 3a,
   the union of all of them.
 - A reader takes a held record's frame as the frame before it on the glass
   (`decode_at`): what the file shows, and what its holds are judged by.
+
+#### 98.1.3.10 FLIPPED AGAINST ITS OWN PAGE (2026-10-18)
+
+**A flipped file whose every frame record is a change against the page it
+is drawn on**, docs/plans/VIDEO-SEEN-PLAN.md 3b. Rendition byte 37 = **7**:
+byte 37 6's file (98.1.3.9, held records and all), except that no page is
+ever brought up. In byte 37 2 and 6 a record is a change against the frame
+BEFORE it, so its page - which holds the frame two back - is first brought
+up by the last record again or its rows off the glass, and that costs about
+as much as the frame's own decode (VIDEO-SEEN-PLAN 3b: 126% of a 4.77 MHz
+period for the restore against 127% for the frame on Last Exile, Mode X).
+
+- **A frame record is drawn on the page the glass is not showing, as it
+  stands**, then shown: its lists are a change against that page, which
+  holds the frame two back, or after a HELD record the held one.
+- **A HELD record** (y0 bit 15, `REC_HELD`) is drawn so and NOT shown; the
+  next record is drawn on the same page, against what it left.
+- **The record after a KEY** carries **`REC_UP`, y1 bit 12**: before its
+  lists, its page takes the record's rows y0..y1 off the glass, every plane
+  through the latches (98.3.8.1's copy). A seek puts the key on both pages;
+  a play through the key has the frame before it on the page drawn next -
+  so the writer widens that record's band to every row where the two pages
+  differ, and after the copy the page IS the glass, byte for byte, either
+  way. Such a record may write nothing else: its band is the copy's.
+- **No loop** (the seam would join two laps' pages, which differ), no layer,
+  never Live, resident or page-ahead (98.1.3.7.2's built pages are drawn on
+  as they stand already). A reader refuses a loop, and a record after a key
+  whose copy does not make its page the glass (`v88_frames`, so
+  `verify_v88`).
+- What it costs is BYTES: a change against two frames back is the union of
+  two frames' changes where the picture moves on. A player before this one
+  refuses byte 37 7 at open.
+
+#### 98.1.3.11 DESKTOP POSTERS: a key's picture made for the Preview (2026-10-18)
+
+**Any file may carry, per key, the picture the Preview's box shows for it**,
+made on the host and blitted as it stands, and a CUSTOM picture besides.
+The owner's report started it: T69, a 640-wide file in its own colours,
+showed a black box with one white dot, because 98.4.5's poster took one
+pixel of every cell and so picked one colour of each 50% checkerboard.
+Colour files at half lost most or all of their colour, since a picture in
+its own sixteen drawn in the desktop's NEAREST sixteen keeps only the
+colours the two sets share. Then the owner asked for the same for every
+format: VGA8's Preview is its luma at one bit (98.4.4) and CGA's colours
+are four shades (98.4.6). A stored picture is each cell AVERAGED in the
+file's own colours and then error-diffused (Floyd-Steinberg), and reading
+it is cheaper than the decode it replaces.
+
+- **The fields are six bytes of the rendition slot**: a u32 offset of the
+  **table**, the **scale** (u8: 1, 2 or 4) and **flags** (u8). A stream's
+  are at bytes 40..45, a RESIDENT file's block fields (98.1.7) and so free
+  in a stream, with 46..51 zero. A resident file's are at 56..61, a
+  stream's scene palettes (98.1.3.2.3) and so free in a resident file. All
+  0 for none.
+- **The flags**: bit 0 `TH_CUSTOM`, a custom picture after the keys'; bit
+  1 `TH_KEYS`, a picture per key; bit 2 `TH_COLOUR`, each picture in the
+  desktop's sixteen; bit 3 `TH_MONO`, each in black and white; bit 4
+  `TH_SIZE`, the scale is the Preview's own (see below). The other bits
+  are 0. A table with pictures has at least one set, and one with neither
+  pictures nor `TH_SIZE` is not there at all.
+- **The pictures are the Preview's own size over the scale**: the
+  player's `vp_pwb` x 8 by `vp_ph` (98.4) - a CGA4 or C160 pixel is two
+  wide, a C512 or TEXT cell four pixels, VGA8's rows its row scale's and
+  TEXT's four a cell - divided by the scale, the rows rounding up
+  (`thumb_dims`). A COLOUR picture is packed as `vga4_pack` packs, two
+  pixels a byte with the left one high, rows (width + 1) / 2 bytes apart;
+  a MONO one is `OSAPI_GFX_BLIT1`'s rows, eight pixels a byte with the
+  left one in bit 7, 1 white, rows (width + 7) / 8 bytes apart. **Each
+  picture is at most 65,535 bytes unpacked**, one segment of the poster's
+  claim, so the encoder takes the next scale where a colour picture would
+  be more (a 600 x 400 file in its own colours is 120,000 at its own
+  size); a reader refuses a table that breaks it, and the player decodes
+  the key instead.
+- **The table is an entry per picture and set**, picture by picture (the
+  keys', in key order, then the custom one), each picture's colour entry
+  before its mono one: 8 bytes each, a u32 offset, u16 packed bytes, u8
+  packing (0 stored, 1 LZ4 as `OSAPI_DECOMP` AL = 0 takes it) and a 0.
+  The count is the flags' and the key count's, so it is not stored. A
+  stream's table sits after the options record and before the stream, a
+  resident file's after its audio block.
+- **The custom picture** is shown when the file opens and at the end of a
+  play, in place of the poster key's (98.4); a play still starts at a key.
+  `tools/os88vid.py`'s `set_poster` drops it, since choosing a poster key
+  replaces the custom one.
+- **`TH_SIZE`**: the Preview is never laid out larger than the stored
+  scale (`vp_layfit` starts its tries there), so a file can ask for a
+  half or a quarter whatever the room. A smaller Preview means a play in
+  the window, which is at the video's own size (98.3.7), is not taken:
+  Play goes full screen. Never with LIVE, which plays on the desktop at
+  its own size.
+- **What the encoder stores** is `--desktop-posters` and `--desktop-size`
+  (98.2). By default the set is what the format is seen in: colour for
+  VGA4 and VGA8, black and white for one bit's formats, and both for
+  CGA4, C160, C512 and colour TEXT, which a VGA shows in colour and a
+  CGA's desktop cannot. Key pictures are stored by default where the
+  player's own picture is poor: VGA8, CGA's colours, and VGA4 in colours
+  of its own or shown smaller. They are stored at the size the window
+  shows (own size where it fits a 640 x 480 desktop's window, else half)
+  unless `--desktop-size` says otherwise. `--poster-image FILE|@SECS`
+  adds the custom one, in the same sets.
+- **The player** reads the set the desktop shows best: colour on a VGA's
+  or an EGA's, else the other; black and white on a CGA's or a
+  Hercules', else colour, which `OSAPI_GFX_BLIT4` then reduces (§39.4).
+  It reads the entry and its bytes through its key read buffer and
+  unpacks them into the poster's claim, which `vp_psize` makes big enough
+  for either. It takes them at the stored scale, twice it or four times
+  it, halving once or twice: colour by `vp_dphalf`, one pixel of each 2 x
+  2 cell with 98.4.5's turning pick; black and white by `vp_half`, 98.4's
+  ordered dither. The first of two halvings is in place where the picture
+  was read, since the poster's claim is the box's size. A key without a picture, a
+  scale it cannot serve, a failed read, or fields that do not describe
+  this file (`vp_thparse`) fall back to decoding the key. A stored
+  picture is never taken for the key's canvas: 98.3.19.3's poster that
+  stands in for the keeper, and `vp_kheld`'s key held in the poster, ask
+  `[vp_pthm]`. A player before this one ignores the fields, and this one
+  ignores a stream whose 46..51 are not zero (the twelve-byte layout of
+  this section's first morning, which carried VGA4 streams only).
+- **The cost** is about 1.3% of a 16-colour file's bytes at half (432 KB
+  over 37 keys on T69, LZ4). `--desktop-posters off` drops the key
+  pictures for a file that should not pay it; a custom one is still
+  stored.
+
+`tests/vidposter.py` holds the player to the host byte for byte, on a
+VGA's desktop and a CGA's: VGA4 stored at half, stored at its own size and
+halved, and none stored; VGA8 and CGA4 in colour; a `TH_SIZE` file that
+fits; a resident file's custom picture; CGA4's black and white on a CGA;
+and a colour and a black and white picture halved twice. `videnc` checks
+the encoder's choices.
 
 #### 98.1.4 The stream: chained super-packets
 
@@ -174838,6 +174967,42 @@ counts with the cut ones wherever passes are compared (`cutf`). Not on a
 layered or Live file; `OS88_VENC_VFRLOG=FILE` logs every decision. No
 format change: a held frame is an ordinary record.
 
+**`--flip-own`** (options version 42, off; VIDEO-SEEN-PLAN 3b): a flipped
+file whose frames are each a change against the page they are drawn on
+(98.1.3.10), so the encoder keeps both pages and charges no bring-up - only
+the record after a key pays the copy of the rows where the pages differ.
+The flip's decode roughly halves for about half again the bytes, so it
+pays where the CPU is what cuts and costs where the disk is. Last Exile
+0:10-0:25, Mode X flipped on `286-speeddemon`, no ladder: 173 frames cut
+-> **93**, the view 23.9% broken -> **12.1%**, 6.6 s visibly broken ->
+**3.5**, 4.5 MB -> 6.5 MB. Bad Carrot 3:05-3:20, the owner's options
+on `286-picomem1` with `--flip`: 68 frames cut -> **56**, 3.71% -> **2.47%**,
+4.3 MB -> 5.5 MB - where the owner's own page-ahead file, drawn on the
+page shown and decoding nothing twice, is 33 and 1.13% (it may tear; the
+view as seen does not count a tear). It is a TRADE, and the clip decides:
+`videnc` leg 5g' is a plain pan that goes 16 frames cut -> 3, but on
+`testsrc2`'s pattern, which the disk cuts, it goes 2 -> 4, and on a pan of
+noise 71 -> 72. Not with a loop, a layer, Live or resident, and a player
+before 98.3.8.7 refuses the two-page file. With `--page-ahead on --pages 3`
+or more it is 98.2.1.8.5's file against its own pages instead - byte 37 5,
+which plays on any player since 98.3.8.5 - and the best of them: Last
+Exile's 77 frames cut and 9.6%.
+
+**`--desktop-posters auto|colour|mono|both|off`**, **`--desktop-size
+fit|half|quarter`** and **`--poster-image FILE|@SECS`** (options versions
+43 and 44; `auto`, `fit` and none): the DESKTOP POSTERS (98.1.3.11).
+`auto` stores key pictures where the player's own Preview is poor (VGA8,
+CGA's colours, VGA4 in its own colours or shown smaller), in the set the
+format is seen in: colour, black and white, or both for CGA's colours.
+`colour`, `mono` and `both` store that set for any file, and `off` stores
+no key pictures. `--desktop-size half` or `quarter` makes that the
+Preview's size whatever the room (then Play goes full screen; refused
+with `--live`). A custom poster is a picture FILE scaled and cropped as
+the clip is, or `@SECS`, the clip's own frame that many seconds after
+`--start`, on a key or not. It is stored even with `off`, and for any
+file. The encoder's info names what it stored. A version-43 record's `on`
+reads as `colour`.
+
 **`--ladder RUNGS`: THE DEGRADE LADDER** (options version 40, blank - off
 - by default; docs/plans/VIDEO-SEEN-PLAN.md 3a). The ways a frame the
 budgets cannot draw may give, as RUNGS in the order they are tried:
@@ -174891,9 +175056,15 @@ on a ladder is the next thing the owner's eye decides. The ladder before
 that, with the half rate, took Last Exile 0:10-0:40 from 24.3% to 3.2%;
 `slow:5/6` first instead of `lag:100` made the same files. A cut rung is in no default: it
 is the choice a video makes that takes a cut better than a slower rate. The
-window carries it as Size vs quality's second inner tab, Degrade ladder: a
-checkbox, a rung a row offering only the rungs the form can use, and under
-them Lag, Min fps, Slow cost, Flip hold and Coarse cut (Instead of cutting).
+window carries it as Size vs quality's second inner tab, Degrade ladder, laid
+out as the choice it is (the owner, 2026-10-18: "ladder OR these other
+settings"): the ladder in a box whose title is its checkbox, a rung a row
+offering only the rungs the form can use; beside it below, **Or, without the
+ladder: for the whole clip** - Lag, Min fps, Coarse cut, Step down and Step
+min, which a ladder REPLACES (greyed while it is on, each OFF where no rung
+names it, which is how a ladder leaves one out); and **Held frames, either
+way** - Slow cost and Flip hold, which price and draw a held frame under a
+`slow:` rung and under Min fps alike.
 
 ##### 98.2.1.2 What a cut frame spends on: the look-ahead and the error as seen
 
@@ -176055,6 +176226,24 @@ runs it - a flipped file asks for it.
   flip's record), byte-37-5 files that verify and cut fewer frames than
   flipped alone. With the calm's copy turned off the 5150 leg flips nothing
   and FAILS.
+- **With `--flip-own`, AGAINST ITS OWN PAGES** (2026-10-18, VIDEO-SEEN-PLAN
+  3b): every frame record is BUILT - an ordinary frame drawn on the back
+  page as it stands, the frame two back, and the encoder's model made that
+  page first (`PageAheadF.own`) - so nothing is ever brought up and the
+  flipped encoder charges no `prev_c` (`nobring`); a flip to a builder
+  keeps its copy, which no longer keeps the file right but makes the next
+  page the new scene for the bytes of a copy. Every key carries the back
+  page too, so a seek has every page exactly and nothing after a key owes
+  a copy. It is byte 37 5 as it was - BUILT on every record is a file the
+  player since 98.3.8.5 plays unchanged (`vidpagefmx3o`, `vidpagefmx4o`;
+  with the back page left out of the keys the file is refused, *a play
+  from keyframe 1 shows frame 31 wrong*). Last Exile 0:10-0:25 flipped on
+  `286-speeddemon` with three pages: 166 frames cut -> **77**, the view
+  23.6% broken -> **9.6%**, 6.4 s visibly broken -> **2.75**, 4.7 MB ->
+  6.9 MB - against 93 and 12.1% for `--flip-own` on two pages. On 5k's
+  pairs (scene changes and little else) 1 -> 0 on the 486, and the same
+  cuts on the 5150 and the slow 286, where the disk binds. 5k's own leg is
+  the 486's.
 
 ##### 98.2.1.9 `--step-down`: the rate ladder, a scene at a time (2026-10-13)
 
@@ -179170,6 +179359,23 @@ The pictures cannot be read then: the key's own read is where they land.
   the reader, a play from that key shows the flip wrong - and three
   references it must refuse.
 
+#### 98.3.8.7 Against its own page (2026-10-18)
+
+**A byte 37 7 file (98.1.3.10) plays as byte 37 6's does, with nothing
+brought up**: `vp_owndec` in place of `vp_flipdec`'s front half. A record is
+decoded onto the back page as it stands and shown, or for a HELD one left
+unshown so the next goes on the same page; `REC_UP` first copies the
+record's own rows off the glass (`vp_lcopy`, then `vo_lfix` for the text on
+the glass, as 98.3.8.1's copy does). No record is kept, so `vp_prevseg`'s
+31 KB claim is not made and no record is copied after its decode, and a
+record is not held to `VP_PREVKB`. Open refuses byte 37 7 with a loop.
+
+- **The gates**: `tests/vidvga8.py --layout modex --flip --own` (and
+  `--held`), and `tests/vidscreen.py --own` on the four flipped VGA4
+  screens: the glass exact at every hold, odd and even frames apart, keys
+  among them. With `REC_UP` ignored the Mode X arm FAILS before frame 38
+  (480 pixels): its page was the frame before the key, not the key.
+
 #### 98.3.9 Repeat
 
 **The Repeat button** stands down while Repeat is on (`OS88UI_LATCH`, like
@@ -180976,6 +181182,8 @@ fast path.
 
 **A VGA8 poster is its luma, dithered to one bit** (98.4.4), because the
 Preview is drawn on the desktop. **A VGA4 poster is in colour** (98.4.5).
+**A file with DESKTOP POSTERS** (98.1.3.11) has its box's picture read
+rather than decoded, in colour or black and white whatever its format.
 
 **The poster** is the header's poster keyframe (98.1.3) when the file
 opens, and the picked key's picture after:
@@ -181172,13 +181380,24 @@ reference, and `tests/vidvga8.py` holds the player to them bit for bit.
 
 #### 98.4.5 A sixteen-colour poster
 
+A file that carries DESKTOP POSTERS (98.1.3.11) has the box's picture
+read, not decoded: the key's own, or at open and at the end the custom one,
+unpacked into the poster's claim and halved there when the layout shows
+twice or four times the stored scale. The rest of this section is every
+other VGA4 file, and any key whose stored poster cannot be used.
+
 A VGA4 keyframe is decoded into its RAM planes and `vp_v4pack` packs it
-for `OSAPI_GFX_BLIT4` - two pixels a byte, the left one high - taking every
-`vp_ps`-th pixel of every `vp_ps`-th row, so a half or a quarter is a
-decimation rather than 98.4's dithered halving. The box is then drawn in
-the desktop's own sixteen colours, and on a one-bit desktop `gfx_blit4`
-renders them as it renders any picture. `tools/os88vid.py`'s `vga4_pack` is
-the reference and `vidvga4` holds the player to it byte for byte.
+for `OSAPI_GFX_BLIT4` - two pixels a byte, the left one high - taking ONE
+pixel of each `vp_ps` x `vp_ps` cell, so a half or a quarter is a
+decimation rather than 98.4's dithered halving. **Which pixel turns with the
+output's place** (2026-10-18): at output (ox, oy) it is the cell's row
+oy x s + ox mod s and column ox x s + oy mod s. A fixed corner turned a 50%
+checkerboard, the commonest dither there is, into one of its two colours
+(T69's black box). The turning pick keeps it a checkerboard. The box is
+then drawn in the desktop's own sixteen colours, and on a one-bit desktop
+`gfx_blit4` renders them as it renders any picture. `tools/os88vid.py`'s
+`vga4_pack` is the reference, and `vidvga4` and `vidposter` hold the player
+to it byte for byte.
 
 #### 98.4.6 A CGA-colour poster
 

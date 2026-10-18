@@ -82,7 +82,9 @@ tools/os88venc.py encodes it three ways. Four questions:
    three with it in the flip's record: byte-37-5 files that verify and cut
    fewer frames than flipped alone. Broken on purpose - the calm's copy
    left out (PA_COPY_OK where the copy is paid at the flip on the 286 too)
-   - the 5150 leg builds nothing it can flip to and FAILS.
+   - the 5150 leg builds nothing it can flip to and FAILS. And --flip-own
+   on the 486's three pages (VIDEO-SEEN-PLAN 3b): every record BUILT, a
+   byte-37-5 file that verifies from every key, cutting no more.
 8. DOES COMPOSITE DIFFUSION SEE THE MODEL? A picture rendered through the
    model from known nibbles, in runs of 2 to 6 cells, must come back as 90%
    or more of them (94% measured). Without the lookahead - a cell judged as
@@ -108,7 +110,10 @@ tools/os88venc.py encodes it three ways. Four questions:
    half period off the card, one frame a call - must leave no frame a
    whole frame behind at `--lag 0`. Without the flip schedule (the ceiling
    the peak alone) 68 are. At `--lag 125` (98.2.1.1.2) the picture may
-   fall behind, and must never fall as far as the lag.
+   fall behind, and must never fall as far as the lag. 5g'. --flip-own
+   (98.1.3.10): the pan without its noise on 286-speeddemon is byte 37 7,
+   verifies, carries REC_UP only after keys, is late nowhere in the
+   player's schedule, and cuts fewer frames than --flip (3 against 16).
 
 Broken on purpose - the measured retry in Encoder.frame skipped, so a
 frame is chosen by the per-span estimate alone - question 3 FAILS naming
@@ -573,6 +578,57 @@ def main():
                 bad.append("--audio speaker took %s" % extra[0])
             except vid.V88Error:
                 print("   --audio speaker refuses %s" % extra[0])
+        # --- 3a'': the DESKTOP POSTERS' choices (98.1.3.11): a file of its
+        # own colours too wide for the window stores each key's at half
+        # and a custom one off the clip; `off` with a custom one stores it
+        # alone; a file the window holds, in the desktop's own colours,
+        # needs none, and one bit's none either; 256 colours store colour,
+        # CGA's colours both sets; --desktop-size half on a file that fits
+        # stores at half and says it is the Preview's size; and a Live
+        # file asked for a smaller Preview is refused
+        K, C, M, CU, SZ = (vid.TH_KEYS, vid.TH_COLOUR, vid.TH_MONO,
+                           vid.TH_CUSTOM, vid.TH_SIZE)
+
+        def thumbs(name, *args):
+            p_, r2, k2 = run(name, *args, "--end", "1")
+            r_ = vid.Reader(p_)
+            return r_, r2, r_.thumb
+        r_, rd, th = thumbs("desk-own", "--preset", "vga4-full", "--palette",
+                            "clip16", "--poster-image", "@0.5")
+        nk = len(r_.keys)
+        for name, got, want in (
+                ("own colours at %d x %d" % (rd["w"], rd["h"]),
+                 th and th[1:],
+                 (nk + 1, rd["w"] // 2, (rd["h"] + 1) // 2, 2, K | C | CU)),
+                ("off with a custom one",
+                 (lambda t: t and (t[1], t[5]))(thumbs(
+                     "desk-off", "--preset", "vga4-full", "--palette",
+                     "clip16", "--desktop-posters", "off",
+                     "--poster-image", "@0.5")[2]), (1, C | CU)),
+                ("the desktop's colours, fitting",
+                 thumbs("desk-std", "--preset", "vga4")[2], None),
+                ("one bit", thumbs("desk-mono", "--preset", "herc")[2],
+                 None),
+                ("256 colours", thumbs("desk-v8", "--preset", "vga8")[2][4:],
+                 (1, K | C)),
+                ("CGA's four", thumbs("desk-c4", "--preset", "cga4")[2][4:],
+                 (1, K | C | M)),
+                ("--desktop-size half",
+                 thumbs("desk-half", "--preset", "vga4", "--desktop-size",
+                        "half")[2][4:], (2, K | C | SZ))):
+            print("   desktop posters, %s: %r (want %r)" % (name, got, want))
+            if got != want:
+                bad.append("desktop posters, %s: %r, not %r"
+                           % (name, got, want))
+        try:
+            run("desk-live", "--preset", "vga4", "--live", "vga",
+                "--desktop-size", "half", "--end", "1")
+            bad.append("--desktop-size half was taken with --live")
+        except vid.V88Error as e:
+            print("   --desktop-size half with --live: refused (%s)" % e)
+            if "--desktop-size" not in str(e):
+                bad.append("--desktop-size half with --live refused for "
+                           "another reason: %s" % e)
         # --- 3b: --avg auto (98.2.1.5) - the per-frame ceiling on a profile
         # with a disk curve, the profile's own average on one without, and
         # the record holds the SHARE it came to, never the word
@@ -1372,6 +1428,67 @@ def main():
         if not sched and not late:
             bad.append("the flip schedule: without it nothing is late - the "
                        "leg tests nothing")
+    # --- 5g': AGAINST ITS OWN PAGE (98.1.3.10, VIDEO-SEEN-PLAN 3b): the
+    # pan WITHOUT its noise flipped on 286-speeddemon, where the decode is
+    # what cuts, with --flip and with --flip-own (on the noisy pan the disk
+    # cuts and the two draw the same: 71 cut against 72). The own file is byte 37 7, verifies
+    # (the record after each key bringing its page up WHOLE), carries
+    # REC_UP after every key and on no other record, is late nowhere in
+    # the player's schedule priced as vp_owndec plays it - its record, and
+    # the copy where REC_UP says - and cuts FEWER frames than the flip that
+    # brings every page up
+    pan = os.path.join(ftmp, "pan.mkv")
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+         "testsrc2=size=960x240:rate=24:duration=3", "-f", "lavfi", "-i",
+         "sine=frequency=440:sample_rate=22050:duration=3", "-vf",
+         "crop=320:240:'mod(n*24,640)':0",
+         "-c:v", "ffv1", "-c:a", "pcm_s16le", pan], check=True)
+    oarm = {}
+    P = venc.PROFILES["286-speeddemon"]
+    t, sub = venc.profile_table(P, vid.LAY_MODEX)
+    kk = P["lcopy_us"] * vid.HZ / 1e6 * P["speed"]
+    for own in (False, True):
+        out = os.path.join(ftmp, "own%d.V88" % own)
+        args = venc.parser().parse_args(
+            [pan, out, "--quiet", "--preset", "modex", "--profile",
+             "286-speeddemon", "--flip", "--rate", "22050", "--lag", "0"] +
+            (["--flip-own"] if own else []))
+        res = venc.encode(args)
+        vid.verify_v88(out)
+        r = vid.Reader(out)
+        oarm[own] = (round(res["cutf"] * r.frames), r)
+    cut0, cut1 = oarm[False][0], oarm[True][0]
+    r = oarm[True][1]
+    keys = {e[0] for e in r.keys}
+    q = vid.HZ / r.fps * P["speed"]
+    aud = venc.CYC_AUDIO * r.abytes + venc.HOOK_CYC
+    end = late = 0
+    upf = []
+    for i, (rec, _, _) in enumerate(r.records()):
+        c = vid.cycles_of(rec, True, table=t, sub=sub, sub2=r.g.sub2) + aud
+        y0, y1 = struct.unpack_from("<HH", rec, 2)
+        if y1 & vid.REC_UP:
+            upf.append(i)
+            c += ((y1 & ~vid.REC_UP) - (y0 & ~vid.REC_HELD)) * 80 * kk + \
+                venc.CYC_LCOPY0
+        start = math.ceil(max(i * q, end) / (q / 2) - 1e-9) * (q / 2)
+        late += start - i * q >= q
+        end = start + c
+    print("   5g': --flip cuts %d frames, --flip-own %d (byte 37 %s); REC_UP "
+          "on frames %s after keys %s; %d late in the player's schedule"
+          % (cut0, cut1, 7 if r.own else "?", upf, sorted(keys), late))
+    if not r.own:
+        bad.append("--flip-own made a file that is not against its own page")
+    if any(f - 1 not in keys for f in upf):
+        bad.append("--flip-own: REC_UP on a record that does not follow a "
+                   "key: %s" % upf)
+    if late:
+        bad.append("--flip-own: %d frames late in the player's schedule"
+                   % late)
+    if not cut0 or cut1 >= cut0:
+        bad.append("--flip-own cut %d frames against --flip's %d: the decode "
+                   "it saves bought nothing" % (cut1, cut0))
     shutil.rmtree(ftmp, ignore_errors=True)
     # --- 5h: PAGE-AHEAD BY DEFAULT (98.2.1.8.1): Mode X, five stills with a
     # hard cut between them, on 286-fast - a whole new 320 x 180 picture is
@@ -1674,6 +1791,25 @@ def main():
                                rf, "fpage", False) else "NOT byte 37 = 5",
                               nf.get(want, 0), want, resf["cuts"],
                               resf0["cuts"]))
+        # ...and AGAINST ITS OWN PAGES (--flip-own, VIDEO-SEEN-PLAN 3b): the
+        # 486's three pages with every record BUILT - drawn on its page as
+        # it stands, nothing brought up - and every key carrying the back
+        # page, so it verifies from every key; it cuts no more than the
+        # file that brings its pages up (0 against 1 measured)
+        ro, reso = fenc("fpage3own", "486-dx2-66", "--page-ahead", "on",
+                        "--pages", "3", "--flip-own")
+        nb = sum(1 for rec, _, _ in ro.records()
+                 if struct.unpack_from("<H", rec, 4)[0] & vid.REC_BUILT)
+        print("   5k: 486-dx2-66, 3 pages flipped against their own: cut %d "
+              "(built ahead %d), %d of %d records built"
+              % (reso["cuts"], resf["cuts"], nb, ro.frames))
+        if not getattr(ro, "fpage", False) or nb != ro.frames or \
+                reso["cuts"] > resf["cuts"]:
+            bad.append("flipped and built ahead against its own pages: %s, "
+                       "%d of %d records built, cut %d against %d"
+                       % ("byte 37 = 5" if getattr(ro, "fpage", False) else
+                          "NOT byte 37 = 5", nb, ro.frames, reso["cuts"],
+                          resf["cuts"]))
     except vid.V88Error as e:
         bad.append("flipped and built ahead: %s" % e)
     shutil.rmtree(ptmp, ignore_errors=True)
