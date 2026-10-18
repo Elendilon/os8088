@@ -171895,6 +171895,20 @@ only at a whole-scene cut, and as that cut is drawn.
   sixteen of an entry at f into `vp_pal` and the DAC - no wait for a
   retrace. For the moment the draw takes the last scene's picture is under
   the new colours; that moment is the cut.
+- **An entry's frame is the first that DRAWS the scene on the page
+  shown**, which is not always the scene's first frame (the owner's
+  GasGasQ, 2026-10-18: "flipping the palette one frame too early"). In
+  page-ahead's real passes (98.2.1.8) a HELD frame writes nothing on the
+  page shown - the hidden page builds the frame after it - so a scene
+  whose first frame is held there kept the last scene's picture up for a
+  whole frame under its own sixteen: 14 of that file's 34 scene changes,
+  the picture in colours from nowhere. The encoder now holds the entry
+  back to the first frame after it that writes or flips the page shown,
+  and every record is the one it was; a plain encode's hold draws toward
+  the next frame ON the page shown, so there the entry stays where it was.
+  `tests/videnc.py` 5h'' is the gate: no entry on a frame that leaves the
+  page shown as it was, and one moved past a held frame, or the clip held
+  none.
 - **A seek** finds the palette the key's screen is in - the last entry at
   or before its frame (`vp_palat`, in `vp_spos`) - and loads it while the
   screen is black: a session's first bracket before the key is decoded, a

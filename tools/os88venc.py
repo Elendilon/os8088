@@ -10106,6 +10106,7 @@ def _encode(a, keep, tick, readers):
             if tpool[0] is not None:
                 readers.append(tpool[0])    # (closed however encode ends)
         return tpool[0]
+    ppal = None                         # (a scene's palette held back)
     vprev, vshown = False, None         # (the frame before held; and the
                                         # target the picture shown is of)
     while True:
@@ -10172,8 +10173,22 @@ def _encode(a, keep, tick, readers):
                 lag_since += 1
         ops, rec, hops, draw, npal = (x[k] for k in ("ops", "rec", "hops",
                                                      "draw", "npal"))
+        # THE PALETTE GOES ON WITH THE PICTURE (98.1.3.2.3, the owner's
+        # GasGasQ, 2026-10-18: "flipping the palette one frame too early"):
+        # page-ahead's replayed HOLD writes nothing on the page shown - the
+        # hidden page builds the frame after it - so a scene's first frame
+        # held there showed the OLD picture in the NEW sixteen for a frame,
+        # 14 of 34 scene changes in that file. The player loads a palette
+        # before it decodes the record, so the scene's palette goes on the
+        # first frame after it that writes or flips the page shown. (The
+        # plain encode's hold draws toward the next frame ON the page
+        # shown, in the new colours, so there it stays where it was)
         if x["pal"] is not None:
-            wr.pev.append((f, x["pal"][:48]))
+            ppal = x["pal"]
+        if ppal is not None and not (x["held"] and vreplay is not None
+                                     and pa is not None):
+            wr.pev.append((f, ppal[:48]))
+            ppal = None
         if x["cell"] is not None:
             coarse_used[x["cell"]] = coarse_used.get(x["cell"], 0) + 1
         if scene_pals:              # (each scene's frames and cuts, below)
@@ -10328,6 +10343,8 @@ def _encode(a, keep, tick, readers):
                 f % 300 == 299:
             print("   frame %d of %d" % (f + 1, nf if not stream else
                                          est + pre), file=sys.stderr)
+    if ppal is not None:                # (a palette held to the end: on
+        wr.pev.append((f, ppal[:48]))   # the last frame, as it was)
     if tpool and tpool[0] is not None:
         readers.remove(tpool[0])
         tpool[0].close()

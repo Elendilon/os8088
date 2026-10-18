@@ -1418,6 +1418,53 @@ def main():
         if k != want:
             bad.append("page-ahead's verdict on '%s' %s" % (
                 n, "shipped it" if k else "dropped it"))
+    # --- 5h'': THE PALETTE GOES ON WITH THE PICTURE (98.1.3.2.3, the
+    # owner's GasGasQ, 2026-10-18: 14 of its 34 scene changes showed the
+    # old picture in the new sixteen for a frame): four hard-cut stills,
+    # VGA16 on a screen of its own with a palette a scene, page-ahead and
+    # --ladder slow:1/2 - so a scene's first frame is HELD in the replay,
+    # which writes nothing on the page shown. No palette may go on a frame
+    # that neither writes nor flips the page shown, and at least one must
+    # have been moved past a held frame, or the clip held none and this
+    # tests nothing. Before the fix: frame 63's palette on a held frame
+    sp = os.path.join(ptmp, "pcuts.mkv")
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+         "testsrc2=size=640x360:rate=20:duration=0.05,tpad=stop_mode=clone:"
+         "stop_duration=1", "-f", "lavfi", "-i",
+         "mandelbrot=size=640x360:rate=20,trim=duration=0.05,tpad=stop_mode="
+         "clone:stop_duration=1", "-f", "lavfi", "-i",
+         "smptehdbars=size=640x360:rate=20:duration=0.05,tpad=stop_mode="
+         "clone:stop_duration=1", "-f", "lavfi", "-i",
+         "cellauto=s=640x360:rate=20,trim=duration=1.05", "-filter_complex",
+         "[0:v][1:v][2:v][3:v]concat=n=4:v=1:a=0[v]", "-map", "[v]",
+         "-c:v", "ffv1", sp], check=True)
+    spo = os.path.join(ptmp, "pcuts.V88")
+    spr = venc.encode(venc.parser().parse_args(
+        [sp, spo, "--quiet", "--preset", "vga4", "--screen", "640x400",
+         "--palette", "colour16", "--scene-palettes", "--audio", "none",
+         "--profile", "286-fast", "--disk", "120000", "--ladder",
+         "slow:1/2"]), None)
+    rs = vid.Reader(spo)
+    pat = {f for f, _ in rs.pev if f}
+    untouched = []
+    for f, surf, rec, at_, i in vid.v88_frames(rs):
+        n_, y0, y1 = struct.unpack_from("<HHH", rec, 0)
+        if f in pat and not (y0 & vid.REC_FLIP) and \
+                (y0 & 0x7FFF) == (y1 & ~vid.REC_HID & 0x7FFF):
+            untouched.append(f)
+    # (moved: a scene whose palette is not at its first frame - shots'
+    # "f" - but after it)
+    starts = [sh["f"] for sh in (spr.get("shots") or []) if sh["f"]]
+    moved = sum(1 for f0 in starts if f0 not in pat and
+                any(f0 < f < f0 + 4 for f in pat))
+    print("   5h'': page-ahead %s, %d palettes: %d on a page left as it was, "
+          "%d moved past a held frame" % ("on" if rs.page else "OFF",
+                                          len(pat), len(untouched), moved))
+    if not rs.page or untouched or not moved:
+        bad.append("the palette and the picture: page-ahead %s, palettes on "
+                   "untouched pages at %r, %d moved past a hold"
+                   % (rs.page, untouched, moved))
     # --- 5h.1: NO READABLE KEY 0, NO PAGE-AHEAD (98.1.3.7; the owner's
     # GASGAS4, 2026-10-14): a page-ahead file's key 0 is the hidden page's
     # first picture, and a key 0 the player cannot read left that page
