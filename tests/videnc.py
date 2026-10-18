@@ -35,7 +35,10 @@ tools/os88venc.py encodes it three ways. Four questions:
    the look-ahead and the error as seen (the defaults) must flicker back at
    most half as much as with neither, and be no worse as seen; and the
    header names the ring its reserve banks in - 3 slots at 16 KB, 8 at the
-   default 192 (98.1.1). 3d. --aim size (98.2.1.4) at the default budget
+   default 192 (98.1.1). 3c'. THE LOOK-AHEAD'S FLOOR (98.2.1.2): a pixel
+   bright now and dark in the two frames after - the owner's headlights -
+   must outrank dark road at --lookahead-floor 0.5, and rank below it at 0
+   (the defect, so the leg is seen to tell them apart). 3d. --aim size (98.2.1.4) at the default budget
    must be 5% smaller than as asked, and still converge on the still.
 4. DOES IT CONVERGE? Two seconds of a still picture after the motion: the
    last frame on screen must be the target, the errors the budget left all
@@ -455,11 +458,16 @@ def main():
         # the same Mode X run draws cells at stretches inside the first
         # shot too - more cells than the one scene change - and is left
         # out on the Hercules
+        # (at --lookahead-floor 0: the floor's cut draws this clip's
+        # stretches better than 4x1 cells, so the ladder rightly takes none
+        # and the rung would go untested - 3c' is the floor's own leg)
         p_any, r_any = run2("mxany", "--preset", "modex", "--ladder",
-                            "coarseany:4x1", *tight)
+                            "coarseany:4x1", "--lookahead-floor", "0",
+                            *tight)
         vid.verify_v88(p_any)
         h_any, rh_any = run2("hgany", "--preset", "herc", "--ladder",
-                             "coarseany:4x1", *tight)
+                             "coarseany:4x1", "--lookahead-floor", "0",
+                             *tight)
         print("   3c: --ladder coarseany:4x1 on Mode X: cells %s, decided %s;"
               " on a Hercules cells %s, decided %s" % (
                   r_any["cells"], r_any["ladder"], rh_any["cells"],
@@ -526,7 +534,8 @@ def main():
                 a3 = venc.parser().parse_args(
                     [src2, os.path.join(tmp, "par%s.V88" % arm), "--audio",
                      "none", "--jobs", "4", "--preset", "modex",
-                     "--ladder", "coarseany:4x1,cut:5"] + list(tight[:-2]))
+                     "--ladder", "coarseany:4x1,cut:5",
+                     "--lookahead-floor", "0"] + list(tight[:-2]))
                 fo = io.StringIO()
                 with contextlib.redirect_stdout(fo):
                     venc.encode(a3, None)
@@ -681,6 +690,30 @@ def main():
             bad.append("the look-ahead flickered %.1f against %.1f, error "
                        "%.4f against %.4f" % (q1["q_flick"], q0["q_flick"],
                                               q1["q_vis"], q0["q_vis"]))
+        # --- 3c': THE LOOK-AHEAD'S FLOOR (98.2.1.2): value() on two pixels
+        # of a dark screen - a headlight now that the two frames after leave
+        # dark, and road that stays. Unfloored the frames after take the
+        # headlight below nothing and the road is drawn instead
+        import types
+        import numpy as np
+        E = venc.Encoder
+        dark = np.zeros((1, 2), np.float32)
+        now = np.array([[255, 30]], np.float32)
+        nxt = np.array([[0, 30]], np.float32)
+        worth = {}
+        for fl in (0.0, venc.parser().parse_args([src, "x"]).lookahead_floor):
+            st = types.SimpleNamespace(
+                spix=lambda: (None, dark), tpix=lambda T: (None, T),
+                dist=E.dist, vis=False, edges=0.0, attend=0.0, look=2,
+                future=[nxt, nxt], lfloor=fl)
+            worth[fl] = E.value(st, now)[0]
+        print("   look-ahead floor: headlight / road worth %s"
+              % ", ".join("%.1f / %.1f at %g" % (w[0], w[1], fl)
+                          for fl, w in sorted(worth.items())))
+        (f0, w0), (f1, w1) = sorted(worth.items())
+        if f1 != 0.5 or w0[0] >= w0[1] or w1[0] <= w1[1]:
+            bad.append("the look-ahead floor: default %g, headlight / road "
+                       "%s" % (f1, worth))
         # ...and the ring the stream assumes, in its header (98.1.1): the
         # slots less TWO hold the reserve (98.2.1.3), so a 16 KB reserve
         # wants 4 - a 2-slot ring banks nothing - and the default 192 KB 8
@@ -1344,7 +1377,7 @@ def main():
     # hard cut between them, on 286-fast - a whole new 320 x 180 picture is
     # past one record, so each cut is a target. Left at its default the
     # file must be page-ahead and KEPT, flipping; --page-ahead off must be
-    # plain; and a page pass made WORSE on purpose (page_compare forced to
+    # plain; and a page pass made WORSE on purpose (page_verdict forced to
     # say so) must be DROPPED for the plain encode
     ptmp = tempfile.mkdtemp()
     cuts = os.path.join(ptmp, "cuts.mkv")
@@ -1374,12 +1407,13 @@ def main():
         return vid.Reader(out), res
     rd, resd = penc("default")
     ro, _ = penc("off", "--page-ahead", "off")
-    real = venc.page_compare
-    venc.page_compare = lambda p, b, *m: (["the test's say-so"], [])
+    real = venc.page_verdict
+    venc.page_verdict = lambda p, b: (False, ["the test's say-so"], [],
+                                      "the test's say-so")
     try:
         rw_, _ = penc("worse")
     finally:
-        venc.page_compare = real
+        venc.page_verdict = real
     fl = (resd.get("page") or {}).get("flips", 0)
     print("   5h: page-ahead by default %s with %d flips; off %s; a worse "
           "page pass %s" % ("ON" if rd.page else "off", fl,
@@ -1393,6 +1427,77 @@ def main():
     if rw_.page:
         bad.append("page-ahead: a page pass that made the picture worse "
                    "was kept")
+    # --- 5h': THE VIEW AS SEEN DECIDES (98.2.1.8.1, the owner's GasGas,
+    # 2026-10-17): a page pass whose view is a third less broken ships
+    # though the whole screen's mean came out a hair worse; one whose view
+    # is worse does not, whatever else it bettered; and one whose view
+    # gains by breaking for longer - the seconds a tenth broken worse by
+    # more than a frame - does not either
+    plain_r = dict(fps=20.0, q_seen=0.039, q_seen_broken=0.70, q_broken=0.7,
+                   q_vis=0.0040, q_worst=0.020, cutf=0.10)
+    cases = (("better view, worse mean", dict(plain_r, q_seen=0.026,
+                                              q_vis=0.0042, q_worst=0.024,
+                                              cutf=0.09), True),
+             ("worse view", dict(plain_r, q_seen=0.040, q_vis=0.001,
+                                 cutf=0.01), False),
+             ("better view, broken longer", dict(plain_r, q_seen=0.030,
+                                                 q_seen_broken=0.80), False),
+             ("better view, a frame longer", dict(plain_r, q_seen=0.030,
+                                                  q_seen_broken=0.75), True))
+    got = [(n, venc.page_verdict(r, plain_r)[0]) for n, r, _ in cases]
+    print("   5h': page-ahead's verdict - %s" % ", ".join(
+        "%s: %s" % (n, "ships" if k else "dropped") for n, k in got))
+    for (n, r, want), (_, k) in zip(cases, got):
+        if k != want:
+            bad.append("page-ahead's verdict on '%s' %s" % (
+                n, "shipped it" if k else "dropped it"))
+    # --- 5h'': THE PALETTE GOES ON WITH THE PICTURE (98.1.3.2.3, the
+    # owner's GasGasQ, 2026-10-18: 14 of its 34 scene changes showed the
+    # old picture in the new sixteen for a frame): four hard-cut stills,
+    # VGA16 on a screen of its own with a palette a scene, page-ahead and
+    # --ladder slow:1/2 - so a scene's first frame is HELD in the replay,
+    # which writes nothing on the page shown. No palette may go on a frame
+    # that neither writes nor flips the page shown, and at least one must
+    # have been moved past a held frame, or the clip held none and this
+    # tests nothing. Before the fix: frame 63's palette on a held frame
+    sp = os.path.join(ptmp, "pcuts.mkv")
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+         "testsrc2=size=640x360:rate=20:duration=0.05,tpad=stop_mode=clone:"
+         "stop_duration=1", "-f", "lavfi", "-i",
+         "mandelbrot=size=640x360:rate=20,trim=duration=0.05,tpad=stop_mode="
+         "clone:stop_duration=1", "-f", "lavfi", "-i",
+         "smptehdbars=size=640x360:rate=20:duration=0.05,tpad=stop_mode="
+         "clone:stop_duration=1", "-f", "lavfi", "-i",
+         "cellauto=s=640x360:rate=20,trim=duration=1.05", "-filter_complex",
+         "[0:v][1:v][2:v][3:v]concat=n=4:v=1:a=0[v]", "-map", "[v]",
+         "-c:v", "ffv1", sp], check=True)
+    spo = os.path.join(ptmp, "pcuts.V88")
+    spr = venc.encode(venc.parser().parse_args(
+        [sp, spo, "--quiet", "--preset", "vga4", "--screen", "640x400",
+         "--palette", "colour16", "--scene-palettes", "--audio", "none",
+         "--profile", "286-fast", "--disk", "120000", "--ladder",
+         "slow:1/2"]), None)
+    rs = vid.Reader(spo)
+    pat = {f for f, _ in rs.pev if f}
+    untouched = []
+    for f, surf, rec, at_, i in vid.v88_frames(rs):
+        n_, y0, y1 = struct.unpack_from("<HHH", rec, 0)
+        if f in pat and not (y0 & vid.REC_FLIP) and \
+                (y0 & 0x7FFF) == (y1 & ~vid.REC_HID & 0x7FFF):
+            untouched.append(f)
+    # (moved: a scene whose palette is not at its first frame - shots'
+    # "f" - but after it)
+    starts = [sh["f"] for sh in (spr.get("shots") or []) if sh["f"]]
+    moved = sum(1 for f0 in starts if f0 not in pat and
+                any(f0 < f < f0 + 4 for f in pat))
+    print("   5h'': page-ahead %s, %d palettes: %d on a page left as it was, "
+          "%d moved past a held frame" % ("on" if rs.page else "OFF",
+                                          len(pat), len(untouched), moved))
+    if not rs.page or untouched or not moved:
+        bad.append("the palette and the picture: page-ahead %s, palettes on "
+                   "untouched pages at %r, %d moved past a hold"
+                   % (rs.page, untouched, moved))
     # --- 5h.1: NO READABLE KEY 0, NO PAGE-AHEAD (98.1.3.7; the owner's
     # GASGAS4, 2026-10-14): a page-ahead file's key 0 is the hidden page's
     # first picture, and a key 0 the player cannot read left that page
@@ -1413,7 +1518,7 @@ def main():
                    "was made page-ahead")
     # --- 5i: PAGE-AHEAD PRUNED (98.2.1.8.2): the same clip, with ONE build
     # said to have made its own stretch worse (page_hurt forced) and the
-    # whole page pass said to be worse than the plain encode (page_compare
+    # whole page pass said to be worse than the plain encode (page_verdict
     # forced on its FIRST call only, so every later comparison is real).
     # rescue must run a third pass and ship it, one flip short; off must
     # run none and ship the plain file; always, with nothing forced worse,
@@ -1431,11 +1536,11 @@ def main():
     def first_worse():
         seen = []
 
-        def cmp(p, b, *m):
+        def cmp(p, b):
             if not seen:
                 seen.append(1)
-                return ["the test's say-so"], []
-            return real(p, b, *m)
+                return False, ["the test's say-so"], [], "the test's say-so"
+            return real(p, b)
         return cmp
     arms = {}
     venc._encode = counted
@@ -1444,13 +1549,13 @@ def main():
         for arm in ("rescue", "off", "always"):
             del calls[:]
             if arm != "always":
-                venc.page_compare = first_worse()
+                venc.page_verdict = first_worse()
             r, res = penc("prune_" + arm, "--page-prune", arm)
-            venc.page_compare = real
+            venc.page_verdict = real
             arms[arm] = (bool(r.page), (res.get("page") or {})
                          .get("flips", 0), len(calls))
     finally:
-        venc._encode, venc.page_hurt, venc.page_compare = \
+        venc._encode, venc.page_hurt, venc.page_verdict = \
             real_e, real_h, real
     print("   5i: %d builds; rescue %s; off %s; always %s (page-ahead, "
           "flips, passes)" % (len(starts), arms["rescue"], arms["off"],

@@ -172049,6 +172049,20 @@ only at a whole-scene cut, and as that cut is drawn.
   sixteen of an entry at f into `vp_pal` and the DAC - no wait for a
   retrace. For the moment the draw takes the last scene's picture is under
   the new colours; that moment is the cut.
+- **An entry's frame is the first that DRAWS the scene on the page
+  shown**, which is not always the scene's first frame (the owner's
+  GasGasQ, 2026-10-18: "flipping the palette one frame too early"). In
+  page-ahead's real passes (98.2.1.8) a HELD frame writes nothing on the
+  page shown - the hidden page builds the frame after it - so a scene
+  whose first frame is held there kept the last scene's picture up for a
+  whole frame under its own sixteen: 14 of that file's 34 scene changes,
+  the picture in colours from nowhere. The encoder now holds the entry
+  back to the first frame after it that writes or flips the page shown,
+  and every record is the one it was; a plain encode's hold draws toward
+  the next frame ON the page shown, so there the entry stays where it was.
+  `tests/videnc.py` 5h'' is the gate: no entry on a frame that leaves the
+  page shown as it was, and one moved past a held frame, or the clip held
+  none.
 - **A seek** finds the palette the key's screen is in - the last entry at
   or before its frame (`vp_palat`, in `vp_spos`) - and loads it while the
   screen is black: a session's first bracket before the key is decoded, a
@@ -174882,6 +174896,29 @@ cuts (Sonic 2 at the default profile, the others at a lower `--disk`):
 It costs the encoder about twice its time (Sonic 2's 10 s: 5.3 s -> 9.8 s).
 `--lookahead 0 --error bits` is the ranking before it, for the A/B.
 
+**`--lookahead-floor F`** (options version 41, 2026-10-18; default 0.5) is
+how far the frames after may take a change's worth down: never below F of
+what writing it is worth NOW. Without it a bright thing about to MOVE lost
+nearly all of its worth to them. The owner's GasGas headlights, frame 1277:
+4.07 a pixel now, 0.53 after the two frames ahead, against dark road's 0.09.
+The road stores as cheap runs, so per BYTE it won, and the cut frame showed
+the near car as black ground. The floor keeps the look-ahead's ranking
+among the changes worth something and stops it from turning a bright pixel
+into the cheapest one to leave. Measured as the view as seen broken (frames
+cut), at the owner's settings:
+
+| clip | `--lookahead 2`, no floor | `--lookahead 0` | floor 0.5 |
+|---|---|---|---|
+| Last Exile (286, banked) | 1.7% (8) | 1.3% (23) | 1.5% (13) |
+| GasGas 1:35-1:50.7 | 3.7% | 4.8% (plain) | 3.3% |
+| Bad Carrot | 1.9% | 2.0% | 1.8% |
+| GasGas, the whole clip | 2.6% (owner's) | | 2.2% (115) |
+
+On the whole GasGas clip frame 1277 draws both headlights and the fog
+lights, and page-ahead is kept (plain 3.5%). `--lookahead 0` cuts the
+fewest frames on Last Exile and is the worst seen on GasGas. A record made
+before the option reads 0, as it was made.
+
 **THE MEAN HID WHAT A VIEWER SEES** (2026-10-09). The owner's Last Exile on
 the 286, banked, measured 0.15% error as seen and plays with scenes torn
 into horizontal bands - a cut leaves the rows it did not reach from the
@@ -175729,13 +175766,23 @@ Options version 26 takes a version-25 record's flag as `on` or `off`.
   Everywhere else `auto` is one plain pass, as before.
 - **Where it applies, the plan pass IS the plain encode, and its file is
   kept.** Both passes' reports are held (`_Held`), the encoder window's
-  PROGRESS lines going straight through. The page-ahead file is shipped
-  only if `page_compare` finds its picture better somewhere and worse
-  nowhere: the mean error as seen, the worst second, the seconds visibly
-  broken, the view as seen and its seconds a tenth broken (98.2.1.2's
-  `seen_share`, since 2026-10-16) and the frames cut. Otherwise the plain file and its report are
-  shipped, with one line saying why: *page-ahead: DROPPED - it made the
-  worst second worse (...)*, or *no flip*, or *it bettered nothing*. A plan
+  PROGRESS lines going straight through. **The view as seen decides**
+  (`page_verdict`, since 2026-10-17): the page-ahead file is shipped when
+  its view as seen (98.2.1.2's `seen_share`) is less broken than the plain
+  encode's, and neither the seconds a tenth of the view is broken nor the
+  seconds visibly broken is worse by more than one frame's time - what the
+  view gains by breaking for longer is not kept. The whole screen's mean
+  error as seen, its worst second and the frames cut are said beside it and
+  do not decide. Until then the file had to be better somewhere and worse
+  NOWHERE of all six, which the owner found dropped page-ahead on every
+  GasGas ladder encode - one of them a third less broken by the view
+  (3.9% against 2.6%), ten fewer frames cut, dropped because the mean came
+  out a hair worse - and on a picture busy enough to cut, one of six nearly
+  always does: the mean is VIDEO-SEEN-PLAN 1's own example of a measure
+  that hides a band torn off a car. Otherwise the plain file and its report are
+  shipped, with one line saying why: *page-ahead: DROPPED - the view as
+  seen worse (...)*, or *the seconds a tenth of the view broken worse by
+  more than a frame (...)*, or *no flip*. A plan
   pass with no cut frame never runs the second pass at all.
 - **What it costs is the second pass's time**: a Mode X or own-screen
   16-colour encode takes about twice as long as it did.
@@ -175744,7 +175791,8 @@ Options version 26 takes a version-25 record's flag as `on` or `off`.
 - `tests/videnc.py` 5h is the gate. A Mode X clip of five stills with hard
   cuts must come out page-ahead and flipping with the option left at its
   default, plain with `off`, and plain when the page pass is made to look
-  worse: `page_compare` is forced, so the drop is tested and not hoped for.
+  worse: `page_verdict` is forced, so the drop is tested and not hoped
+  for; 5h' holds the verdict itself to its rule on four made-up pairs.
 
 **What it did is always said** (the owner, 2026-10-14): every encode of a
 screen page-ahead is about - Mode X, Hercules, 16 colours - ends with one
@@ -175781,11 +175829,12 @@ whole. This judges each build:
   build. That was the first version, and on Gas Gas Gas the pass without
   the 8 builds that hurt came out no better than the pass with them.
 - **Which file ships**: the third pass replaces the second if its PICTURE
-  is better than the second's somewhere and worse nowhere (the error as
-  seen, the worst second, the seconds visibly broken, the view as seen and
-  its seconds a tenth broken: `PAGE_PICTURE`), or if 98.2.1.8.1
-  would drop the second and the third passes 98.2.1.8.1's test against the
-  plain encode. The frames cut are not asked between the two page passes: a
+  passes 98.2.1.8.1's verdict against the second's (`page_verdict`: the
+  view as seen decides, the seconds it and the picture are broken may be no
+  worse by more than a frame - until 2026-10-17 better somewhere and worse
+  nowhere of `PAGE_PICTURE`), or if 98.2.1.8.1
+  would drop the second and the third passes 98.2.1.8.1's verdict against
+  the plain encode. The frames cut are not asked between the two page passes: a
   pruned build's scene change is cut again by design, so they nearly always
   rise. On Gas Gas Gas they rose 11.8% to 12.0%, and that alone refused a
   prune when they were asked. Auto's test against the plain encode then applies as before. The
@@ -177189,13 +177238,44 @@ comparison taken out, the composite target comes out MONO1.
 **Four things asked for together, each for the workflow the owner named:
 encode, preview, then choose a keyframe for the poster.**
 
-**A progress bar.** `os88venc.encode` takes `progress(step, done, total)`
-and calls it as it goes. The steps are `STEPS`: prepare, read (read and
-dither, frame by frame against the clip's length at the file's rate),
-sound, encode (frame by frame), and write. Each has a share of one bar, and
-the window keeps the last tenth for the floppy and for reading the file back
-to preview. The encode's thread only RECORDS the latest report, and the
-window's pump draws it, so a fast encode cannot flood the Tk queue.
+**A progress bar that says what the encoder is doing** (the owner,
+2026-10-17: *"if it's doing 5 things at once, say that, rather than having
+it try to smooth it into some exact frame count that the textbox below
+contradicts"*). `os88venc.encode` takes `progress(step, done, total,
+note)` and calls it as it goes. `done` of `total` is the REAL count of what
+the step works through - frames read, scenes coloured, trials finished -
+and `total` is 0 where a step has none to give (ffmpeg's palettegen, the
+sound), which the window shows as an INDETERMINATE bar rather than a share
+of nothing. `note` says what goes on beside the count. The steps are the
+encode's own stages, named in `os88vencgui.STEP_TEXT`: prepare, the clip's
+palette, the levels, the SCENE PASS and each scene's colours (which until
+then said nothing at all: a long `--scene-palettes` clip sat on one silent
+step for a minute and more), the planes' order, the cells' scene changes,
+the ladder's colour step-down (a scene each), `--aim quality`'s trials,
+read, sound, encode, a wait, write, and check - the file played back
+against its stream, where it is held whole or its sound ahead
+(`verify_v88`). That one ran under "Writing the file" until 2026-10-18,
+and on the owner's Bad Carrot (6,480 frames of two-page VGA4) it sat
+there 15 minutes: a pixel-at-a-time VGA4 canvas was taken for both pages
+of every frame, 0.11 s each. The canvas, its inverse and the plane split
+take numpy now, the same bytes about 200 times as fast, and a verify of
+that size is about a minute. A STREAMED pass reads, dithers and
+encodes at once: its count is the frames ENCODED, and its note the frames
+read and dithered so far and anything a frame is doing that takes longer
+than a frame - the ladder's trials (how many, and whether at once), the
+lag search, a slower rate's trial. Until then that pass spread one count
+over three made-up steps, so the bar said "Reading" with a frame number
+nothing had read. A PASS says which it is as it begins - `step` "pass",
+its note the reason ("page-ahead's pass, with the plan's holds") - and the
+window numbers them; a pass run ALONGSIDE in another process (`PassBg`,
+98.2.1) reports on a lane of its own and is shown on a line of its own
+until the encode's next pass. The bar is the current step's own count, and
+the window adds how long the step has run and, at its rate so far, about
+how long it has left. On the command line `--progress` writes each report
+as `@@progress` and a JSON object (lane, step, done, total, note), a new
+step at once and a step's count at most every quarter second. The encode's
+thread only RECORDS the latest report, and the window's pump draws it, so a
+fast encode cannot flood the Tk queue.
 
 **Cancel.** The callback raises `Cancelled` once the button has been
 pressed, and it is called often enough to stop within a frame. The palette
@@ -179720,6 +179800,39 @@ up to two a run with four side by side. Each re-send is printed. A press
 that was only late would count twice and fail the next step, so a pass
 means each one was really lost. The player reads keys through the BIOS
 buffer, so it drops none itself.
+
+#### 98.3.14.1 A frame on or back: . and ,
+
+The owner (2026-10-18): one key for the next frame and one for the frame
+before, for looking at a file frame by frame. Both work in the full screen
+while it is PAUSED, and are ignored while it plays, with a seek on its
+way, or in the window. `.` and `,` are the unshifted `>` and `<`, and
+nothing else in the player uses them.
+
+- **ON (`.`)** asks the HOOK for a frame: `[vp_stepq]` frames that
+  `vp_hook` draws while paused, one a call, through the same `vp_frame` a
+  played frame takes. So a flip, a held frame or a layer is exactly what
+  the play would show there. With a card already started, the step tops up
+  the card's ring first (`vp_afill`), so the stepped frames' sound waits in
+  step for the resume. A card not yet started - a paused start, or a
+  seek's landing - starts at the frame on the glass anyway, so there
+  `vp_frame` lets a frame through without its audio.
+- **BACK (`,`)** is a SEEK, because the player decodes nothing without
+  drawing it. It is Unmute's seek (`vp_skhere`, 98.3.17) to the key at or
+  before the frame wanted, due at once. The landing, paused, steps on from
+  the key to that frame (`[vp_sttgt]`), so the way there is seen briefly.
+  A file with no keys cannot step back.
+- **Resume** after steps: the clock carries on from the frame stepped to.
+  With a card, the picture waits on the card for the frames it stepped
+  ahead, which were queued with it.
+
+`tests/vidfskeys.py` question 8 is the gate: paused on a key, `.` three
+times, each the next frame byte for byte with "Paused" over it, then `,`
+once, the frame before. Broken on purpose - `.` queuing two frames - it
+FAILS at the first step.
+
+The encoder's preview has the same two keys, and `<` and `>` buttons
+beside the frame number (98.2.11).
 
 #### 98.3.15 No card: the speaker, or performant silence
 

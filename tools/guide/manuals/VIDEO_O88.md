@@ -125,8 +125,15 @@ F, Alt+Enter or Esc bring it back to the window.
 | F or Alt+Enter | Go back to the window, still playing or paused |
 | Left, Right | Go back or forward 5 seconds a press |
 | Home | Go back to the start |
+| `.` | While paused, show the next frame |
+| `,` | While paused, show the frame before |
 | R | Turn Repeat on or off. The screen says **Repeat on** or **Repeat off** |
 | M or S | Turn the sound off or on. The screen says **Sound off** or **Sound on** |
+
+`.` and `,` work only while the video is paused, so press Space first.
+`,` jumps back to the nearest starting point and plays forward to the frame
+before, so you see a quick blur of frames before it stops. Press Space to
+play on from the frame you stepped to.
 
 The first press of Left or Right pauses the video and shows where it will
 land, such as `>> 1:05` or `<< 0:40`. Press again to go further. Half a

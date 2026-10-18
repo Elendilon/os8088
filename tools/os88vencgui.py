@@ -47,6 +47,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 import traceback
 
 try:
@@ -405,7 +406,8 @@ GROUPS = [
     ("Size vs quality", "Instead of cutting", ("lag", "min_fps",
                                                "slow_cost", "flip_hold",
                                                "coarse_cut"), ALWAYS),
-    ("Size vs quality", "When a frame is cut", ("lookahead", "error", "cut",
+    ("Size vs quality", "When a frame is cut", ("lookahead", "lookahead_floor",
+                                                "error", "cut",
                                                 "frame_cap", "edges",
                                                 "attend"), ALWAYS),
     ("Size vs quality", "Aim: size", ("worth",),
@@ -1482,52 +1484,102 @@ def preview_frames(path, most=2000, tick=None):
     return r, out
 
 
-# THE PROGRESS (98.2.11): os88venc's steps, each a share of one bar, and
-# then the window's own - the floppy and reading the file back to preview
-STEP_TEXT = {"first": "First pass",
-             "again": "Once more",
-             "prepare": "Getting ready", "read": "Reading and dithering",
-             "sound": "Encoding the sound", "encode": "Encoding",
-             "write": "Writing the file", "disk": "Making the disk",
-             "preview": "Loading the preview"}
-ENCODE_SHARE = 0.9                  # the rest is the disk and the preview
+# THE PROGRESS (98.2.11): what os88venc SAYS it is doing, as it does it -
+# the pass it is in and why, the step, a count of what the step works
+# through, and a note of what goes on beside it - and then the window's
+# own steps, the floppy and the preview. The bar is the step's own count,
+# and goes INDETERMINATE where a step has none to give (ffmpeg's palette,
+# the sound): until 2026-10-17 one bar spread made-up shares of the whole
+# over the steps, and a streamed encode, which reads, dithers and encodes
+# at once, showed a "Reading" frame number nothing had read
+STEP_TEXT = {"prepare": ("Getting ready", None),
+             "palette": ("Choosing the clip's colours", "frame"),
+             "levels": ("Measuring the picture's levels", None),
+             "scenes": ("Finding the scenes", "frame"),
+             "colours": ("Choosing each scene's colours", "scene"),
+             "order": ("Ordering the colours by the planes they write",
+                       "frame"),
+             "cuts": ("Finding the scene changes, for the coarse cells",
+                      "frame"),
+             "stepdown": ("Trying fewer colours where scenes broke",
+                          "scene"),
+             "trials": ("Trying the quality choices", "trial"),
+             "read": ("Reading and dithering", "frame"),
+             "sound": ("Encoding the sound", None),
+             "encode": ("Encoding", "frame"),
+             "wait": ("Waiting", None),
+             "write": ("Writing the file", None),
+             "check": ("Checking the file", None),
+             "disk": ("Making the disk", None),
+             "preview": ("Loading the preview", "frame")}
 
 
-FIRST_SHARE = 0.4                   # TWO PASSES (98.2.1.3.3): the first's share
+def bar_of(step, done, total):
+    """The bar for a step: its own count's share, 0.0 to 1.0 - or None,
+    a step with no count, shown as working rather than as a share"""
+    if not total or step == "pass":
+        return None
+    return min(done, total) / float(total)
 
 
-def overall(step, done, total, two=False):
-    """How far along the whole job is, 0.0 to 1.0 - `two` once a first
-    pass has been seen, which then has FIRST_SHARE of the encode's part"""
-    if step == "first":
-        return FIRST_SHARE * ENCODE_SHARE * (min(done, total) / total
-                                             if total else 0.0)
-    if step == "again":                 # (the real pass begins again)
-        return FIRST_SHARE * ENCODE_SHARE
-    if two and step in dict(V.STEPS):
-        return FIRST_SHARE * ENCODE_SHARE + (1 - FIRST_SHARE) * \
-            overall(step, done, total)
-    if step == "disk":
-        return ENCODE_SHARE
-    if step == "preview":
-        return ENCODE_SHARE + (1 - ENCODE_SHARE) * (
-            min(done, total) / total if total else 0)
-    at = 0.0
-    for name, share in V.STEPS:
-        if name == step:
-            part = min(done, total) / total if total else 0.0
-            return (at + share * part) * ENCODE_SHARE
-        at += share
-    return 0.0
+def clock(secs):
+    secs = int(secs)
+    return "%d:%02d" % (secs // 60, secs % 60) if secs < 3600 else \
+        "%d:%02d:%02d" % (secs // 3600, secs // 60 % 60, secs % 60)
 
 
-def step_text(step, done, total):
-    t = STEP_TEXT.get(step, step)
-    if step == "first" and total:       # (thousandths of the first pass)
-        t += ": %d%%" % (100 * min(done, total) // total)
-    elif total:
-        t += ": frame %d of %d" % (min(done, total), total)
-    return t + "..."
+def step_text(step, done, total, note="", secs=None):
+    """A step as it is said under the bar: what it is, its count, how long
+    it has run and - with a count and long enough to tell - about how long
+    it has left at its own rate so far, then what goes on beside it"""
+    t, unit = STEP_TEXT.get(step, (step, None))
+    if total:
+        t += ": %s %d of %d" % (unit or "", min(done, total), total) \
+            if unit else ": %d of %d" % (min(done, total), total)
+    out = t
+    if secs is not None and secs >= 1:
+        out += " - %s" % clock(secs)
+        if total and 0 < done < total and secs >= 5:
+            out += ", about %s left" % clock(secs * (total - done) / done)
+    if note:
+        out += "\n" + note[0].upper() + note[1:]
+    return out
+
+
+def lanes_text(lanes, now):
+    """Every lane's state as the lines under the bar: the encode's own pass
+    and step, and then any pass running ALONGSIDE it in another process"""
+    out = []
+    for name in sorted(lanes, key=lambda n: (n != "main", n)):
+        st = lanes[name]
+        head = ("Pass %d: %s" % (st["n"], st["label"])) if st.get("label") \
+            else ""
+        if name != "main":
+            head = "Alongside" + (" - " + head if head else "")
+        body = step_text(st["step"], st["done"], st["total"], st["note"],
+                         now - st["since"]) if st.get("step") else ""
+        out.append("\n".join(x for x in (head, body) if x))
+    return "\n".join(x for x in out if x)
+
+
+def lane_put(lanes, ev, now):
+    """One progress report into `lanes`: a "pass" names the lane's next
+    pass (and ends any lane alongside the encode's own, which finished
+    before the encode went on); a new step starts its clock"""
+    name = ev.get("lane", "main")
+    st = lanes.setdefault(name, {"n": 0, "label": "", "step": "",
+                                 "done": 0, "total": 0, "note": "",
+                                 "since": now})
+    if ev["step"] == "pass":
+        st.update(n=st["n"] + 1, label=ev.get("note", ""), step="")
+        if name == "main":
+            for k in [k for k in lanes if k != "main"]:
+                del lanes[k]
+        return
+    if ev["step"] != st["step"]:
+        st["since"] = now
+    st.update(step=ev["step"], done=ev["done"], total=ev["total"],
+              note=ev.get("note", ""))
 
 
 def file_facts(r, path=None):
@@ -1914,15 +1966,18 @@ class EncodeJob(object):
         return self
 
     def events(self):
-        """("prog", (step, done, total)) and ("log", line) as the encode
-        goes, then ("exit", returncode)"""
+        """("prog", {lane, step, done, total, note}) and ("log", line) as
+        the encode goes, then ("exit", returncode)"""
+        import json
         for line in self.p.stdout:
             if line.startswith(V.PROGRESS + " "):
                 try:
-                    st, d, t = line.split()[1:4]
-                    yield "prog", (st, int(d), int(t))
+                    ev = json.loads(line[len(V.PROGRESS) + 1:])
+                    ev["done"], ev["total"] = int(ev["done"]), \
+                        int(ev["total"])
+                    yield "prog", ev
                     continue
-                except ValueError:
+                except (ValueError, KeyError, TypeError):
                     pass
             yield "log", line
         yield "exit", self.p.wait()
@@ -2015,6 +2070,7 @@ class App(object):
         self.busy = False
         self.cancel = threading.Event()
         self.prog = None                # (step, done, total), from the thread
+        self.lanes = {}                 # (the encoder's lanes: lane_put)
         self.job = 0                    # the job the window is showing: a
         self.ejob = None                # message from any other is stale
         root.title(APPNAME)
@@ -2253,8 +2309,8 @@ class App(object):
         self.bar = ttk.Progressbar(pr, maximum=1000, mode="determinate")
         self.bar.pack(fill="x")
         self.status = tk.StringVar(value="")
-        ttk.Label(pr, textvariable=self.status, foreground="#555").pack(
-            anchor="w")
+        ttk.Label(pr, textvariable=self.status, foreground="#555",
+                  justify="left", wraplength=560).pack(anchor="w")
         # --- the preview
         hd = ttk.Frame(right)
         hd.pack(fill="x")
@@ -2266,8 +2322,22 @@ class App(object):
                               length=400, command=self.show_frame,
                               showvalue=False)
         self.scrub.pack(fill="x")
+        # ONE FRAME BACK OR ON (the owner, 2026-10-18): a button each side
+        # of the frame's line, and , and . on the preview and the slider -
+        # the player's keys for it (98.3.14)
+        sr = ttk.Frame(right)
+        sr.pack(fill="x")
+        ttk.Button(sr, text="<", width=3,
+                   command=lambda: self.step_frame(-1)).pack(side="left")
         self.fr = tk.StringVar(value="")
-        ttk.Label(right, textvariable=self.fr).pack(anchor="w")
+        ttk.Label(sr, textvariable=self.fr).pack(side="left", padx=6)
+        ttk.Button(sr, text=">", width=3,
+                   command=lambda: self.step_frame(1)).pack(side="left")
+        for w in (self.canvas, self.scrub):
+            w.bind("<comma>", lambda e: self.step_frame(-1))
+            w.bind("<period>", lambda e: self.step_frame(1))
+        self.canvas.bind("<Button-1>", lambda e: self.canvas.focus_set(),
+                         add="+")
         # --- the file, and the keyframe a play from here starts at
         fi = ttk.LabelFrame(right, text="The file", padding=6)
         fi.pack(fill="x", pady=(6, 0))
@@ -2932,7 +3002,7 @@ class App(object):
         self.busy = True
         self.cancel = threading.Event()
         self.prog = ("prepare", 0, 0)
-        self.two = self.again = False
+        self.lanes = {}
         self.gobtn.config(state="disabled")
         self.posterbtn.config(state="disabled")
         self.title_state()
@@ -2959,7 +3029,11 @@ class App(object):
             for kind, val in ej.events():
                 if kind == "prog":
                     if job == self.job:
-                        self.prog = val
+                        lane_put(self.lanes, val, time.time())
+                        if val.get("lane", "main") == "main" and \
+                                val["step"] != "pass":
+                            self.prog = (val["step"], val["done"],
+                                         val["total"])
                 elif kind == "log":
                     self.put(job, "log", val)
                     tail = (tail + [val])[-6:]
@@ -2995,6 +3069,15 @@ class App(object):
         except Exception as e:
             self.put(job, "fail", "%s\n%s" % (e, traceback.format_exc()))
 
+    def step_frame(self, d):
+        """The preview a frame back (d -1) or on (+1): the slider moved, which
+        shows it - a preview of a long file holds every n-th frame
+        (preview_frames), so a step is one of those"""
+        if not getattr(self, "frames", None):
+            return
+        n = max(0, min(len(self.frames) - 1, int(self.scrub.get()) + d))
+        self.scrub.set(n)               # (its command shows it)
+
     def write(self, text):
         self.log.insert("end", text)
         self.log.see("end")
@@ -3005,20 +3088,29 @@ class App(object):
         self.ejob = None
         self.gobtn.config(state="normal")
         self.stopbtn.config(state="disabled")
-        self.bar.config(value=1000 * frac)
+        self.bar.stop()
+        self.bar.config(mode="determinate", value=1000 * frac)
         self.status.set(text)
         self.title_state()
 
     def _pump(self):
         prog = self.prog
         if self.busy and prog:
-            self.two = getattr(self, "two", False) or prog[0] == "first"
-            self.again = getattr(self, "again", False) or \
-                prog[0] == "again"
-            self.bar.config(value=1000 * overall(*prog, two=self.two))
-            self.status.set(("Once more - "
-                             if self.again and prog[0] != "again" else "") +
-                            step_text(*prog))
+            if prog[0] in ("disk", "preview"):  # (the window's own steps)
+                lane_put(self.lanes, dict(lane="main", step=prog[0],
+                                          done=prog[1], total=prog[2]),
+                         time.time())
+            frac = bar_of(*prog)
+            if frac is None:            # (a step with no count: working)
+                if str(self.bar.cget("mode")) != "indeterminate":
+                    self.bar.config(mode="indeterminate")
+                    self.bar.start(40)
+            else:
+                if str(self.bar.cget("mode")) != "determinate":
+                    self.bar.stop()
+                    self.bar.config(mode="determinate")
+                self.bar.config(value=1000 * frac)
+            self.status.set(lanes_text(self.lanes, time.time()))
         try:
             while True:
                 kind, val, job = self.q.get_nowait()
