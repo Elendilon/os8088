@@ -344,7 +344,10 @@ The tab carries the checkbox and six rungs, each a list of the rungs this
 form can use (a card's sound offers `lag`, the speaker does not; `coarse`
 on a planar screen, `colours` only for 16 colours a scene) - and under
 them **Instead of cutting**: Lag, Min fps, Slow cost and Flip hold, moved
-there off **When a frame is cut**, and Coarse cut off **Scenes**. Those are
+there off **When a frame is cut**, and Coarse cut off **Scenes** (since
+2026-10-18 two boxes beside the ladder's own: **Or, without the ladder: for
+the whole clip** - those it replaces, Step down and Step min with them -
+and **Held frames, either way**, SPEC.md 98.2.1.2). Those are
 the global settings the ladder stands in for (Lag, Min fps and Coarse cut
 grey while it is on; the charge and the held frames it uses), and taking
 them off Choices is what brought that tab back inside the default window

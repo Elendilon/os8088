@@ -174843,9 +174843,15 @@ on a ladder is the next thing the owner's eye decides. The ladder before
 that, with the half rate, took Last Exile 0:10-0:40 from 24.3% to 3.2%;
 `slow:5/6` first instead of `lag:100` made the same files. A cut rung is in no default: it
 is the choice a video makes that takes a cut better than a slower rate. The
-window carries it as Size vs quality's second inner tab, Degrade ladder: a
-checkbox, a rung a row offering only the rungs the form can use, and under
-them Lag, Min fps, Slow cost, Flip hold and Coarse cut (Instead of cutting).
+window carries it as Size vs quality's second inner tab, Degrade ladder, laid
+out as the choice it is (the owner, 2026-10-18: "ladder OR these other
+settings"): the ladder in a box whose title is its checkbox, a rung a row
+offering only the rungs the form can use; beside it below, **Or, without the
+ladder: for the whole clip** - Lag, Min fps, Coarse cut, Step down and Step
+min, which a ladder REPLACES (greyed while it is on, each OFF where no rung
+names it, which is how a ladder leaves one out); and **Held frames, either
+way** - Slow cost and Flip hold, which price and draw a held frame under a
+`slow:` rung and under Min fps alike.
 
 ##### 98.2.1.2 What a cut frame spends on: the look-ahead and the error as seen
 

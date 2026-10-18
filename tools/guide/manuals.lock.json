@@ -1072,9 +1072,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "806b9e9a",
-  "strings": "da44cdb9ec7b5adf",
-  "why": "added --lookahead-floor, a cut-frame ranking option below the page's level of detail (the page lists none of --lookahead, --edges, --attend)"
+  "stamped": "d4a3000a",
+  "strings": "01712f7f76397c99",
+  "why": "the Degrade ladder tab's row rewritten for its new layout: the ladder OR the whole-clip settings, and held frames either way"
  },
  "TRACKER_O88": {
   "sources": [
