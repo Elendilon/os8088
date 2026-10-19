@@ -809,3 +809,37 @@ holds the game at full speed, and with it always due the game falls to
 
 On a real machine the F1 line reads the same two numbers: the game's speed
 and the frames drawn a second.
+
+## 19. The disk and the Wire listing
+
+**`make realboydisk`** writes the package's floppy in all four geometries:
+`build/realboy.img` (1.44MB), `realboy720.img`, `realboy120.img` and
+`realboy360.img`, each `--verify`'d.
+- **The REALBOY folder holds three files**: `REALBOY.O88`, `GBDEMO.GB` and
+  `README.TXT`. That is 64 of a 360KB disk's 354 clusters, so there is room
+  for the user's own games.
+- **It is on demand**, because `GBDEMO.GB` is assembled with the pinned
+  rgbds, which is fetched and built on first use. The everything set
+  (`make allapps`) and the live media carry the same folder.
+- **No game ships.** A cartridge is the user's own.
+
+**The Wire record is PREPARED and NOT PUBLISHED.** It goes in os8088-web's
+`data/wire.json` when the owner says go, and that repository is outside this
+one. It was validated by packing it with `tools/os88wire.py --pack` and
+reading the result back with `--verify`:
+
+| field | value |
+|---|---|
+| `stem` | `REALBOY` (7 characters, so a `REALBOY.TXT` sidecar fits the 11-character field) |
+| `title` | `RealBoy` |
+| `kind` | 0 (Applications) |
+| `tier` | **1** (286): the primary target, and where the measured speed is |
+| `flags` | `new`. `WF_DISK` is derived: the package carries parts, and the record has sidecars |
+| `files` | `REALBOY.O88`, `GBDEMO.GB`, and `{name: REALBOY.TXT, source: apps/realboy/README.TXT}` - the README under a name of its own, as `public/wire/pkg/` is one flat directory (APPLE2-SPEC section 18.2) |
+| `summary` | `A Game Boy (DMG) emulator: your own cartridges, in a window or full screen.` |
+| `description` | `A Game Boy for your PC. Bring your own cartridges. Near full speed on a 12MHz 286; its demo runs full speed on a 5150.` (5 lines at 27) |
+
+The record is 27,407 bytes of package, 62,566 with its sidecars. The
+description's "near full speed" stands on 86Box's 286 figures (section
+16.6), not yet on the owner's iron. It is the field run's to confirm or to
+correct before the record is published.

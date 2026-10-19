@@ -2169,7 +2169,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
         allapps usb usb-emu iso live burn rcbandbench \
         paccman paccmandisk pmcbandbench xt-paccman \
         c64 c64disk c64rom c64bandbench c64cputest c64memtest 386-c64 xt-c64 286-c64 \
-        apple2 apple2disk apple2rom a2bandbench a2memtest a2cputest 386-apple2 \
+        apple2 apple2disk realboydisk apple2rom a2bandbench a2memtest a2cputest 386-apple2 \
         xt-apple2 286-apple2 \
         weave weavedisk weavevm weavecanvas weavegame weavebandbench \
         xt-weave 386-weave xt-weave-256 \
@@ -5621,6 +5621,39 @@ $(BUILD)/realboy.o88: $(BUILD)/realboy.bin $(BUILD)/rbcore0.bin $(BUILD)/rbcore1
                       tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/realboy.bin -o $@ --part $(BUILD)/rbcore0.bin \
 		--part $(BUILD)/rbcore1.bin --part-compress lz4
+
+# THE REALBOY DISK (docs/REALBOY-SPEC.md section 18, docs/plans/REALBOY-PLAN.md
+# wave 8), ON DEMAND: REALBOY.O88, its README and GBDEMO.GB - the demo written
+# for the 5150, OURS, assembled by tools/gbours.py with tools/gbclock.py's
+# pinned rgbds (fetched and built on first use, which is why this is not in
+# `all`). No game ships: a cartridge is the user's. FOUR GEOMETRIES, each
+# --verify'd, in one REALBOY folder.
+$(BUILD)/gbclock/GBDEMO.GB: tools/gbprof/gbdemo.asm tools/gbours.py tools/gbclock.py
+	python3 tools/gbours.py gbdemo
+
+REALBOYDISK := $(BUILD)/realboy.o88 $(BUILD)/gbclock/GBDEMO.GB \
+               apps/realboy/README.TXT tools/os88disk.py
+REALBOYIMG = python3 tools/os88disk.py -o $(1) --size $(2) \
+	     REALBOY:$(BUILD)/realboy.o88 REALBOY:$(BUILD)/gbclock/GBDEMO.GB \
+	     REALBOY:apps/realboy/README.TXT
+realboydisk: $(BUILD)/realboy.img $(BUILD)/realboy720.img \
+             $(BUILD)/realboy120.img $(BUILD)/realboy360.img
+
+$(BUILD)/realboy.img: $(REALBOYDISK)
+	$(call REALBOYIMG,$@,1440)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/realboy720.img: $(REALBOYDISK)
+	$(call REALBOYIMG,$@,720)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/realboy120.img: $(REALBOYDISK)
+	$(call REALBOYIMG,$@,1200)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/realboy360.img: $(REALBOYDISK)
+	$(call REALBOYIMG,$@,360)
+	@python3 tools/os88disk.py --verify $@
 
 # TIMER and BOUNCE (SPEC.md 111, 112): the two kernel KINDS of SPEC.md 14
 # that became packages (14.8) - a stopwatch and a bouncing square, in
@@ -13973,7 +14006,8 @@ ALLAPPSFILES := $(BUILD)/redline.o88 $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUIL
                 $(BUILD)/apple2.o88 \
                 $(BUILD)/WELCOME.BAS \
                 apps/apple2/README.TXT apps/apple2/COPYING \
-                $(BUILD)/realboy.o88 \
+                $(BUILD)/realboy.o88 $(BUILD)/gbclock/GBDEMO.GB \
+                apps/realboy/README.TXT \
                 $(WEAVEDISK) $(WEAVELOOM) $(LOOMSRCS) \
                 $(RUNCPMDISK)
 # These images use the RunCPM master disk, but not the separate CP/M
@@ -14001,7 +14035,9 @@ ALLAPPSARGS := APPS:$(BUILD)/redline.o88 $(addprefix APPS:,$(APPS_TOOLS) $(CORE_
                                    $(BUILD)/WELCOME.BAS \
                                    apps/apple2/README.TXT \
                                    apps/apple2/COPYING) \
-               $(addprefix REALBOY:,$(BUILD)/realboy.o88) \
+               $(addprefix REALBOY:,$(BUILD)/realboy.o88 \
+                                    $(BUILD)/gbclock/GBDEMO.GB \
+                                    apps/realboy/README.TXT) \
                $(addprefix WEAVE:,$(WEAVEDISK)) \
                $(addprefix LOOM:,$(WEAVELOOM) $(LOOMSRCS)) \
                $(APPSYSARGS) \
