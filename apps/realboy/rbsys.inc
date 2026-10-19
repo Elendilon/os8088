@@ -792,6 +792,7 @@ rb_catchup:
 ; --- VBlank: line 144 began -------------------------------------------------
 rb_vblank:
     call rb_sqframe
+    call rb_rtcframe
     or byte [0FF0Fh],01h
     test byte [0FF41h],10h
     jz .n
@@ -1539,10 +1540,13 @@ rb_mbcwrite:
     jb .rom
     cmp bh,60h
     jb .hi
+    cmp ah,RBM_MBC3
+    je rb_rtclatch
     cmp ah,RBM_MBC1
     jne .r
     and al,1
     mov [S_MBCMODE],al
+    jmp rb_rammap                       ; mode 1: the high bits pick RAM too
 .r:
     ret
 .ramen:
@@ -1601,9 +1605,342 @@ rb_mbcwrite:
     jne .ram
     and al,3                            ; MBC1: bank bits 5-6 (mode 0)
     mov [S_BANKHI],al
-    jmp rb_setbank
+    call rb_setbank
+    jmp rb_rammap                       ; ...or the RAM bank (mode 1)
 .ram:
     mov [S_RAMBANK],al
+    jmp rb_rammap
+
+; =============================================================================
+; CARTRIDGE RAM (REALBOY-SPEC section 10.1). A000-BFFF in the view is a
+; WINDOW: it holds one 8KB bank, and the host's S_RAMSEG (S_RAMBANKS of them,
+; bank 0 first) is where the rest live. A bank switch copies the window out
+; to its bank and the new bank in, so a game's reads and writes are plain
+; memory - and the recompiler's - at the cost of 16KB moved per switch, which
+; games make rarely. With S_RAMSEG 0 (one bank or none) nothing moves. An
+; MBC3's clock registers (08h-0Ch written to 4000) are banks too: the window
+; is filled with the latched register, and a write the game left in it is
+; taken back into the clock when the window changes (rb_rtccap).
+; =============================================================================
+
+; rb_rammap: the window for S_RAMBANK / S_MBCMODE+S_BANKHI. DS = view.
+rb_rammap:
+    cmp word [S_RAMSEG],0
+    je .r
+    push ax
+    mov al,[S_RAMBANK]
+    cmp byte [S_MBC],RBM_MBC1
+    jne .n1
+    xor al,al                           ; MBC1: bank 0 in mode 0, the high
+    cmp byte [S_MBCMODE],0              ;   bits in mode 1
+    je .n1
+    mov al,[S_BANKHI]
+.n1:
+    cmp byte [S_MBC],RBM_MBC3
+    jne .bank
+    cmp byte [S_RTC+RTC_ON],0
+    je .bank
+    cmp al,08h
+    jb .bank
+    cmp al,0Ch
+    ja .bank
+    or al,80h                           ; 88h-8Ch: a clock register
+    jmp short .have
+.bank:
+    mov ah,[S_RAMBANKS]                 ; a power of two, or 0/1: bank 0
+    dec ah
+    jns .m
+    xor ah,ah
+.m:
+    and al,ah
+.have:
+    cmp al,[S_RAMCUR]
+    je .p
+    call rb_ramout
+    mov [S_RAMCUR],al
+    call rb_ramin
+.p:
+    pop ax
+.r:
+    ret
+
+; rb_ramout: the window back to where it belongs - its bank in S_RAMSEG, or
+; a clock register the game wrote. DS = view; S_RAMSEG non-zero. The host
+; calls it too, before it saves (rb_ramsync).
+rb_ramsync:
+    cmp word [S_RAMSEG],0
+    je rb_ramin.r
+rb_ramout:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    mov al,[S_RAMCUR]
+    test al,80h
+    jz .bank
+    call rb_rtccap
+    jmp short .r
+.bank:
+    call rb_rambank                     ; ES = the bank
+    mov si,0A000h
+    xor di,di
+    mov cx,1000h
+    cld
+    rep movsw
+.r:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; rb_ramin: S_RAMCUR into the window. DS = view.
+rb_ramin:
+    push ax
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    cld
+    mov al,[S_RAMCUR]
+    test al,80h
+    jz .bank
+    and ax,7
+    mov si,ax
+    mov al,[S_RTC+RTC_LAT+si]           ; (88h-8Ch: LAT+0..4)
+    mov ah,al
+    push ds
+    pop es
+    mov di,0A000h
+    mov cx,1000h
+    rep stosw
+    jmp short .p
+.bank:
+    call rb_rambank
+    push ds
+    push es
+    pop ds
+    pop es
+    xor si,si
+    mov di,0A000h
+    mov cx,1000h
+    rep movsw
+.p:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop ax
+.r:
+    ret
+
+; rb_rambank: AL = a bank, DS = view: ES = its 8KB in S_RAMSEG
+rb_rambank:
+    push ax
+    push cx
+    and ax,0Fh
+    mov cl,9
+    shl ax,cl                           ; x 200h paragraphs
+    add ax,[S_RAMSEG]
+    mov es,ax
+    pop cx
+    pop ax
+    ret
+
+; --- the MBC3 clock (REALBOY-SPEC section 10.2) -----------------------------
+
+; rb_rtccap: a write the game left in a clock register's window becomes the
+; register. DS = view, [S_RAMCUR] = 88h-8Ch.
+rb_rtccap:
+    push ax
+    push bx
+    mov bl,[S_RAMCUR]
+    and bx,7
+    mov al,[0A000h]
+    cmp al,[S_RTC+RTC_LAT+bx]
+    je .r
+    mov [S_RTC+RTC_LAT+bx],al
+    mov [S_RTC+RTC_LIVE+bx],al
+.r:
+    pop bx
+    pop ax
+    ret
+
+; rb_rtclatch: AL = a byte written to 6000-7FFF; 00 then 01 latches. DS =
+; view.
+rb_rtclatch:
+    xchg al,[S_RTC+RTC_LST]
+    cmp al,0
+    jne .r
+    cmp byte [S_RTC+RTC_LST],1
+    jne .r
+    test byte [S_RAMCUR],80h
+    jz .l
+    call rb_rtccap                      ; a write first, then the latch
+.l:
+    mov ax,[S_RTC+RTC_LIVE]
+    mov [S_RTC+RTC_LAT],ax
+    mov ax,[S_RTC+RTC_LIVE+2]
+    mov [S_RTC+RTC_LAT+2],ax
+    mov al,[S_RTC+RTC_LIVE+4]
+    mov [S_RTC+RTC_LAT+4],al
+    test byte [S_RAMCUR],80h
+    jz .r
+    jmp rb_ramin                        ; the register on view is new
+.r:
+    ret
+
+; rb_rtcframe: a Game Boy frame of the clock, 1,097/65,536 of a second - the
+; clock keeps GAME time, as the cartridge's own crystal would beside a CPU
+; running at the game's speed (the host adds the time it was switched off).
+rb_rtcframe:
+    cmp byte [S_RTC+RTC_ON],0
+    je .r
+    add word [S_RTC+RTC_ACC],1097
+    jnc .r
+    test byte [S_RTC+RTC_LIVE+4],40h    ; halted
+    jnz .r
+    call rb_rtcsec
+.r:
+    ret
+
+; rb_rtcsec: one second on the live clock. Registers past their range count
+; on to 63 (59 for hours, to 31) and wrap without a carry, as the chip does.
+rb_rtcsec:
+    push ax
+    mov al,[S_RTC+RTC_LIVE+0]
+    call .six
+    mov [S_RTC+RTC_LIVE+0],al
+    jnz .r
+    mov al,[S_RTC+RTC_LIVE+1]
+    call .six
+    mov [S_RTC+RTC_LIVE+1],al
+    jnz .r
+    mov al,[S_RTC+RTC_LIVE+2]
+    inc al
+    cmp al,24
+    je .day
+    and al,1Fh                          ; 24-31 count on and wrap, no carry
+    mov [S_RTC+RTC_LIVE+2],al
+    jmp short .r
+.day:
+    mov byte [S_RTC+RTC_LIVE+2],0
+    inc byte [S_RTC+RTC_LIVE+3]         ; a day
+    jnz .r
+    xor byte [S_RTC+RTC_LIVE+4],01h     ; day bit 8
+    test byte [S_RTC+RTC_LIVE+4],01h
+    jnz .r
+    or byte [S_RTC+RTC_LIVE+4],80h      ; day 511 -> 0: the carry
+.r:
+    pop ax
+    ret
+.six:                                   ; AL + 1: ZF = it rolled 59 -> 0
+    inc al
+    cmp al,64
+    je .w
+    cmp al,60
+    jne .nz                             ; (ZF clear)
+    xor al,al                           ; ZF set
+.nz:
+    ret
+.w:
+    xor al,al                           ; 63 -> 0 without a carry
+    cmp al,1                            ; (ZF clear)
+    ret
+
+; rb_rtcadd: DX:AX seconds on the live clock at once - the host's, for the
+; time a saved game was switched off. DS = view.
+rb_rtcadd:
+    test byte [S_RTC+RTC_LIVE+4],40h    ; halted: it was not counting
+    jnz .r
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov cx,60
+    call .div                           ; SI = seconds to add
+    mov bx,si
+    call .div
+    mov bh,0
+    push si                             ; minutes
+    mov cx,24
+    call .div                           ; SI = hours, DX:AX = days
+    mov cl,[S_RTC+RTC_LIVE+0]
+    add cl,bl
+    xor ch,ch                           ; CH = the carry
+    cmp cl,60
+    jb .s
+    sub cl,60
+    inc ch
+.s:
+    mov [S_RTC+RTC_LIVE+0],cl
+    pop bx
+    mov cl,[S_RTC+RTC_LIVE+1]
+    add cl,bl
+    add cl,ch
+    xor ch,ch
+    cmp cl,60
+    jb .m
+    sub cl,60
+    inc ch
+.m:
+    mov [S_RTC+RTC_LIVE+1],cl
+    mov bx,si
+    mov cl,[S_RTC+RTC_LIVE+2]
+    add cl,bl
+    add cl,ch
+    xor ch,ch
+    cmp cl,24
+    jb .h
+    sub cl,24
+    inc ch
+.h:
+    mov [S_RTC+RTC_LIVE+2],cl
+    mov bl,ch                           ; DX:AX += day + the carry
+    xor bh,bh
+    add ax,bx
+    adc dx,0
+    mov bl,[S_RTC+RTC_LIVE+3]
+    mov bh,[S_RTC+RTC_LIVE+4]
+    and bh,1
+    add ax,bx
+    adc dx,0
+    mov bl,[S_RTC+RTC_LIVE+4]
+    or dx,dx
+    jnz .over
+    cmp ax,512
+    jb .d
+.over:
+    or bl,80h                           ; past day 511: the carry
+.d:
+    mov [S_RTC+RTC_LIVE+3],al
+    and bl,0FEh
+    and ah,1
+    or bl,ah
+    mov [S_RTC+RTC_LIVE+4],bl
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
+    ret
+.div:                                   ; DX:AX / CX: DX:AX, SI = remainder
+    push bx
+    mov bx,ax
+    mov ax,dx
+    xor dx,dx
+    div cx
+    xchg ax,bx
+    div cx
+    mov si,dx
+    mov dx,bx
+    pop bx
     ret
 
 ; rb_setbank: S_ROMX for S_BANK/S_BANKHI, masked to the ROM's size. If the

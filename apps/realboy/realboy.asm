@@ -94,7 +94,16 @@ rw_jitseg       equ rw_font + 768   ; word: the recompiler's 64KB, or 0
 rw_jitwant      equ rw_jitseg + 2   ; translate when there is a cache for it
 rw_jitq         equ rw_jitwant + 1  ; Machine > Recompiler asked; the worker
 rw_tone         equ rw_jitq + 1     ; word: the hertz the speaker plays (0 off)
-rw_fbuf         equ rw_tone + 2     ; 5,760: rb_render's frame (monochrome)
+rw_ramseg       equ rw_tone + 2     ; word: cartridge RAM's banks, or 0
+rw_rambanks     equ rw_ramseg + 2   ; byte: 8KB banks there (0 = none)
+rw_batt         equ rw_rambanks + 1 ; byte: a battery: save it on close
+rw_rtc          equ rw_batt + 1     ; byte: an MBC3 clock
+rw_odst         equ rw_rtc + 1      ; byte: os88data.inc's state for the file
+rw_savelen      equ rw_odst + 1     ; word: the .SAV's RAM bytes
+rw_rtcgap       equ rw_savelen + 2  ; dword: seconds the save was put away
+rw_rtcsave      equ rw_rtcgap + 4   ; 16: the clock, across a reset
+rw_savename     equ rw_rtcsave + 16 ; 13: NAME.SAV
+rw_fbuf         equ rw_savename + 13 ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 
@@ -130,6 +139,8 @@ rw_entry:
     call OSAPI_WM_CREATE            ; BX = the window
     jc .refused
     mov [rw_win], bx
+    mov ax, rw_onclose              ; the save RAM on the way out
+    call OSAPI_WM_ONCLOSE
     mov al, 1
     call OSAPI_WM_SNAP              ; content on the byte grid, for BLITP
     call OSAPI_WM_OWNBG             ; we paint every pixel of it
@@ -311,6 +322,7 @@ rw_load:
     ja .notrom1
     mov [rw_banks], ax
     call rw_jitclaim
+    call rw_ramsetup
     call rw_start
     mov byte [rw_state], 1
     pop si
@@ -351,6 +363,7 @@ rw_start:
     mov cx, [rw_romseg]
     mov dx, [rw_banks]
     call rb_init
+    call rw_ramattach
 rw_jiton:                           ; (and Machine > Recompiler's way back in)
     push ds
     mov ds, [cs:rb_viewseg]
@@ -408,6 +421,376 @@ rw_hire:
     mov byte [rw_spawned], 1
 .r:
     ret
+
+; =============================================================================
+; Cartridge RAM, its battery and the MBC3 clock (REALBOY-SPEC section 10.1)
+; =============================================================================
+
+; rw_ramsetup - after the ROM is read, on the UI task: what the header says
+; the cartridge carries, a claim for the banks when there is more than one
+; (or a clock, or a battery), and a battery's NAME.SAV out of SYSTEM\APPDATA
+rw_ramsetup:
+    push es
+    mov es, [rw_romseg]
+    mov al, [es:0147h]              ; the cartridge type
+    mov ah, [es:0149h]              ; the RAM size code
+    pop es
+    xor bx, bx
+    mov [rw_ramseg], bx
+    mov [rw_rtc], bl
+    mov [rw_batt], bl
+    mov si, rw_battab               ; a battery?
+.bt:
+    cmp byte [si], 0
+    je .bd
+    cmp al, [si]
+    je .by
+    inc si
+    jmp short .bt
+.by:
+    mov byte [rw_batt], 1
+.bd:
+    cmp al, 0Fh                     ; MBC3 + timer
+    je .rt
+    cmp al, 10h
+    jne .sz
+.rt:
+    mov byte [rw_rtc], 1
+.sz:
+    mov cx, 512                     ; MBC2: 512 nibbles of its own
+    mov bl, 1
+    cmp al, 05h
+    je .have
+    cmp al, 06h
+    je .have
+    xor cx, cx
+    xor bl, bl
+    cmp ah, 1
+    jb .have                        ; none
+    mov cx, 2048
+    mov bl, 1
+    je .have                        ; 2KB
+    mov cx, 8192
+    cmp ah, 2
+    je .have
+    mov cx, 32768                   ; 32KB - and 64/128KB kept as 32KB
+    mov bl, 4
+.have:
+    mov [rw_savelen], cx
+    mov [rw_rambanks], bl
+    cmp bl, 1                       ; one bank and nothing to keep: the
+    ja .claim                       ;   window alone holds it
+    cmp byte [rw_rtc], 0
+    jne .claim
+    cmp byte [rw_batt], 0
+    je .r
+    or bl, bl
+    jz .r                           ; a battery and no RAM: nothing to save
+.claim:
+    mov al, bl
+    or al, al
+    jnz .k
+    inc al
+.k:
+    mov ah, 8
+    mul ah                          ; AX = 8KB a bank
+    add al, [rw_rtc]                ; + 1KB for the clock's trailer
+    push ax
+    call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the state
+    pop ax                          ;   block names it
+    jc .room
+    mov [rw_ramseg], dx
+    push es                         ; FFh, as a cartridge without a save
+    mov es, dx
+    xor di, di
+    mov ch, al                      ; (AX = KB, under 128)
+    xor cl, cl
+    shl ch, 1                       ; CX = KB x 512 words
+    mov ax, 0FFFFh
+    cld
+    rep stosw
+    pop es
+    call rw_savenm
+    cmp byte [rw_batt], 0
+    je .r
+    ; the save, if there is one: a short or missing file leaves FFh
+    push es
+    mov es, [rw_ramseg]
+    xor bx, bx
+    mov cx, [rw_savelen]
+    xor dx, dx
+    cmp byte [rw_rtc], 0
+    je .cap
+    add cx, 48
+.cap:
+    mov si, rw_savename
+    call od_read                    ; DX:AX = bytes
+    pop es
+    jc .r
+    cmp byte [rw_rtc], 0
+    je .r
+    mov cx, [rw_savelen]
+    add cx, 44
+    cmp ax, cx
+    jb .r
+    call rw_rtcin
+.r:
+    ret
+.room:
+    mov si, rw_s_noram
+    jmp rw_toast
+
+; rw_savenm - rw_savename = rw_name with its extension made .SAV
+rw_savenm:
+    mov si, rw_name
+    mov di, rw_savename
+    mov cx, 8
+.c:
+    lodsb
+    or al, al
+    jz .e
+    cmp al, '.'
+    je .e
+    mov [di], al
+    inc di
+    loop .c
+.e:
+    mov word [di], 'S' << 8 | '.'
+    mov word [di+2], 'V' << 8 | 'A'
+    mov byte [di+4], 0
+    ret
+
+; rw_ramattach - after rb_init (which zeroed the view): the banks and the
+; clock into the state block, bank 0 into the window, and any time a save
+; spent switched off onto the clock
+rw_ramattach:
+    mov ax, [rw_ramseg]
+    mov bl, [rw_rambanks]
+    mov bh, [rw_rtc]
+    push ds
+    pop es                          ; ES = ours, for the clock's copy
+    push ds
+    mov ds, [cs:rb_viewseg]
+    mov [S_RAMSEG], ax
+    mov [S_RAMBANKS], bl
+    mov byte [S_RAMCUR], 0
+    mov si, rw_rtcsave              ; our copy of the clock into the view
+    mov di, S_RTC
+    mov cx, 13
+.c:
+    mov dl, [es:si]
+    mov [di], dl
+    inc si
+    inc di
+    loop .c
+    mov [S_RTC+RTC_ON], bh
+    mov byte [S_RTC+RTC_LST], 0FFh
+    or ax, ax
+    jz .nr
+    call rb_ramin                   ; bank 0 into the window
+.nr:
+    mov ax, [es:rw_rtcgap]          ; the time a save spent put away
+    mov dx, [es:rw_rtcgap+2]
+    mov cx, ax
+    or cx, dx
+    jz .p
+    call rb_rtcadd
+.p:
+    pop ds
+    xor ax, ax
+    mov [rw_rtcgap], ax
+    mov [rw_rtcgap+2], ax
+    ret
+
+; rw_ramkeep - before a reset or a save: the window back to its bank, and the
+; clock into rw_rtcsave
+rw_ramkeep:
+    push ds
+    pop es
+    push ds
+    mov ds, [cs:rb_viewseg]
+    call rb_ramsync
+    mov si, S_RTC
+    mov di, rw_rtcsave
+    mov cx, 16
+    cld
+    rep movsb
+    pop ds
+    ret
+
+; rw_onclose - the close negotiator, on the UI task with the lock held: a
+; battery's RAM saved, and the close always goes ahead
+rw_onclose:
+    cmp byte [rw_state], 0
+    je .r
+    cmp byte [rw_batt], 0
+    je .r
+    cmp word [rw_ramseg], 0
+    je .r
+    call rw_save
+.r:
+    clc
+    ret
+
+; rw_save - NAME.SAV into SYSTEM\APPDATA: the RAM, and for a clock VBA's
+; 48-byte trailer, so the file is any emulator's
+rw_save:
+    call rw_ramkeep
+    mov cx, [rw_savelen]
+    cmp byte [rw_rtc], 0
+    je .w
+    call rw_rtcout
+    add cx, 48
+.w:
+    push es
+    mov es, [rw_ramseg]
+    xor bx, bx
+    mov si, rw_savename
+    mov di, rw_odst
+    call od_write
+    pop es
+    jnc .r
+    mov si, rw_s_nosave
+    jmp rw_toast
+.r:
+    ret
+
+; rw_rtcout - the trailer at rw_ramseg:rw_savelen: ten dwords (the live
+; registers, then the latched) and the time it was written as 64 bits
+rw_rtcout:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov es, [rw_ramseg]
+    mov di, [rw_savelen]
+    mov si, rw_rtcsave
+    mov cx, 10
+    cld
+.c:
+    lodsb
+    xor ah, ah
+    stosw
+    xor ax, ax
+    stosw
+    loop .c
+    call rw_unix                    ; DX:AX
+    stosw
+    mov ax, dx
+    stosw
+    xor ax, ax
+    stosw
+    stosw
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; rw_rtcin - the trailer read back: the registers, and the seconds since it
+; was written (none if the clock reads earlier than the stamp)
+rw_rtcin:
+    push ds
+    push ds
+    pop es
+    mov si, [rw_savelen]
+    mov di, rw_rtcsave
+    mov cx, 10
+    mov ds, [rw_ramseg]
+    cld
+.c:
+    lodsw
+    stosb
+    lodsw
+    loop .c
+    mov ax, [si]                    ; the stamp's low dword
+    mov dx, [si+2]
+    pop ds
+    mov bx, ax
+    or bx, dx
+    jz .r
+    mov cx, ax
+    mov bx, dx
+    call rw_unix
+    sub ax, cx
+    sbb dx, bx
+    jc .r                           ; the clock is behind the save
+    mov [rw_rtcgap], ax
+    mov [rw_rtcgap+2], dx
+.r:
+    ret
+
+; rw_unix - the system clock as seconds since 1970 (DX:AX). Years 1980-2099,
+; so every fourth year is a leap year.
+rw_unix:
+    push bx
+    push cx
+    push si
+    push di
+    call OSAPI_CLK_GET              ; CX year, DH:DL month:day, BH:BL h:m,
+    push ax                         ;   AH seconds
+    push bx
+    mov si, cx                      ; SI = the year
+    mov bl, dh
+    xor bh, bh
+    dec bx
+    shl bx, 1
+    mov di, [rw_cumdays+bx]         ; days before the month
+    xor dh, dh
+    dec dx
+    add di, dx                      ; + the day
+    cmp bx, 4                       ; past February in a leap year
+    jb .nl
+    test si, 3
+    jnz .nl
+    inc di
+.nl:
+    mov ax, si
+    sub ax, 1969
+    shr ax, 1
+    shr ax, 1
+    add di, ax                      ; + the leap days since 1970
+    mov ax, si
+    sub ax, 1970
+    mov cx, 365
+    mul cx
+    add ax, di                      ; AX = days since 1970
+    mov cx, 43200
+    mul cx
+    shl ax, 1
+    rcl dx, 1                       ; DX:AX = days x 86,400
+    mov si, ax
+    mov di, dx
+    pop bx                          ; BH hour, BL minute
+    mov al, bh
+    xor ah, ah
+    mov cx, 3600
+    mul cx
+    add si, ax
+    adc di, dx
+    mov al, bl
+    mov cl, 60
+    mul cl
+    add si, ax
+    adc di, 0
+    pop ax                          ; AH = seconds
+    mov al, ah
+    xor ah, ah
+    add ax, si
+    adc di, 0
+    mov dx, di
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
+rw_battab:      db 03h, 06h, 09h, 0Fh, 10h, 13h, 1Bh, 1Eh, 0
+rw_cumdays:     dw 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
 
 ; rw_toast - SI = a line of our own, 24 characters at most
 rw_toast:
@@ -616,6 +999,7 @@ rw_quiet:
 rw_reset:
     cmp byte [rw_state], 0
     je .r
+    call rw_ramkeep                 ; the cartridge's RAM and clock survive
     call rw_start
     mov byte [rw_state], 1
     mov word [rw_owed], 0
@@ -1083,6 +1467,8 @@ rw_s_big:       db 'REALBOY: ROM over 256K', 0
 rw_s_notrom:    db 'REALBOY: not a GB ROM', 0
 rw_s_room:      db 'REALBOY: no room for ROM', 0
 rw_s_read:      db 'REALBOY: read failed', 0
+rw_s_noram:     db 'REALBOY: no room for RAM', 0
+rw_s_nosave:    db 'REALBOY: save failed', 0
 
 rw_ablines:
     dw rw_ab1, rw_ab2, rw_ab3, rw_ab4, rw_ab5, rw_ab6, rw_ab7, 0
@@ -1099,6 +1485,8 @@ rw_ab7:         db 'F1 = speed', 0
 %include "rbppu.inc"
 %include "rwfsx.inc"
 %include "rbjit.inc"
+
+%include "os88data.inc"
 
 %define OS88UI_ABOUT
 %define OS88UI_NOBTN

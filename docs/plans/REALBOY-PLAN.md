@@ -645,6 +645,18 @@ ending inside a HALT used to resume after the HALT (REALBOY-SPEC section 7),
 and that the worker's draw clock compared unsigned. Between them they had the 8088 running
 GBTONE at 3% of real time.
 
+**Battery RAM and the MBC3 clock are BUILT** (REALBOY-SPEC sections 10.1
+and 10.2), and `gbsave` is their row.
+- RAM banking uses a window: the bank on view is copied out and in when a
+  game switches.
+- A battery's RAM is saved to `SYSTEM\APPDATA\<game>.SAV` when the window
+  closes, in VBA's format, with its clock trailer.
+- The clock counts game time, and is caught up from the system clock when a
+  save is opened.
+
+None of the owner's three cartridges has RAM, so this is for the games that
+do.
+
 **Features**
 - The speaker voice (section 4.5);
 - OPL2 through `SOUND.DRV` if wave 4 left the cycles for it;

@@ -2605,6 +2605,15 @@ SOAK = [
         "SOAK: one package",
         needs=("marty", "nasm", "rgbds"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
+    Row("gbsave", "soak", py("tests/gbsave.py"), 40.0,
+        "REALBOY.O88's battery RAM and MBC3 clock (docs/REALBOY-SPEC.md "
+        "section 10.1) on MartyPC's VGA XT, against GBSAVE.GB (tools/gbtone.py, "
+        "ours): four RAM banks counted and told apart, the clock counting game "
+        "time, the close writing SYSTEM\\APPDATA\\GBSAVE.SAV (32KB and VBA's "
+        "48-byte clock trailer, read on the host), and a second boot reading "
+        "the counters and the clock back. SOAK: one package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("rbspeed286", "soak", py("tests/rbspeed286.py"), 1200.0,
         "REALBOY's game speed on 86Box's 286 (docs/plans/REALBOY-PLAN.md wave "
         "4): Super Mario Land and Kirby's Dream Land started and walked right, "

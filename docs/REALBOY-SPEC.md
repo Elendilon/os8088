@@ -312,9 +312,70 @@ through the raster log (section 11). Every other register is stored.
 
 The header's byte 0147h picks the MBC: none, **MBC1**, **MBC2**, **MBC3**
 or **MBC5**. Bank 0 written to a bank register reads as 1 on MBC1, MBC2 and
-MBC3 (not MBC5). RAM enable is recorded in `S_RAMEN`. One 8KB bank of
-cartridge RAM lives at A000 in the view; RAM banking, MBC3's clock and save
-RAM are the plan's wave 5.
+MBC3 (not MBC5). RAM enable is recorded in `S_RAMEN` and not enforced: a
+game that writes RAM it has not enabled keeps what it wrote.
+
+### 10.1 Cartridge RAM and its battery
+
+**A000-BFFF in the view is a window onto one 8KB bank**, so reads and
+writes there are plain memory, in the interpreter and in translated code
+alike. The other banks are kept elsewhere.
+
+- **Where the banks live.** The host keeps them in `S_RAMSEG`, which holds
+  `S_RAMBANKS` 8KB banks, bank 0 first. `S_RAMCUR` records what the window
+  holds.
+- **Switching.** A bank switch is a write to 4000 on MBC3 and MBC5, or a
+  high-bits or mode write on MBC1 in mode 1. `rb_rammap` copies the window
+  out to its bank and the new bank in: 16KB moved, on a switch games make
+  rarely.
+- **One bank.** With `S_RAMSEG` 0 nothing ever moves; that is the bare
+  harness, and any cartridge with one bank and no battery.
+- **What the package claims.** The header's RAM size code decides: code 1 is
+  2KB, 2 is 8KB, 3 is four banks, and 4 and 5 are also kept as four banks.
+  An MBC2 has 512 bytes. The package claims the banks
+  (`rw_ramsetup`) when there is more than one bank, a clock or a battery,
+  and fills them with FFh, as an unsaved cartridge reads.
+
+**A battery cartridge is saved when its window closes.** Battery types are
+03h, 06h, 09h, 0Fh, 10h, 13h, 1Bh and 1Eh.
+
+- **When.** The close negotiator (`rw_onclose`, SPEC.md 75.1) runs on the UI
+  task. It writes `SYSTEM\APPDATA\<game>.SAV` on the game's own volume
+  through `apps/os88data.inc`, then always lets the close go ahead. Opening
+  the game reads the file back.
+- **The format is the common one.** The file is the RAM, at its header size.
+  For a clock cartridge it is followed by VBA's 48-byte trailer: ten dwords
+  (the live then the latched registers), then the time it was written, as
+  64-bit seconds since 1970. So a save moves to and from other emulators.
+- **Reset.** Machine > Reset keeps the RAM and the clock, as the cartridge
+  would (`rw_ramkeep`).
+
+### 10.2 The MBC3 clock
+
+**The five clock registers are banks 08h-0Ch of the window.** Selecting one
+fills A000-BFFF with its latched value.
+
+- **Writes.** A value the game writes there is taken into the register when
+  the window changes or the clock is latched (`rb_rtccap`).
+- **Latching.** Writing 00h then 01h to 6000-7FFF latches the live registers
+  (`rb_rtclatch`).
+- **Counting.** The clock counts GAME time: `rb_rtcframe` adds 1,097/65,536
+  of a second each Game Boy frame, unless DH's halt bit is set.
+  - Seconds and minutes count past 59 to 63 and wrap without a carry, as the
+    chip does. Hours do the same past 23, to 31.
+  - Day 511 to 0 sets DH's carry.
+- **Switched off.** A save's trailer stamp is compared with `OSAPI_CLK_GET`
+  when the game is opened. The seconds in between are added at once
+  (`rb_rtcadd`), so the clock has run while the game was put away. A system
+  clock that reads earlier than the stamp adds nothing.
+
+`tests/gbsave.py` is the gate. It runs GBSAVE.GB (`tools/gbprof/gbsave.asm`,
+ours: MBC3, timer, four banks, battery) twice through a close.
+- It checks that the four banks are four, and that the clock counts two
+  seconds in 120 frames.
+- It checks the `.SAV` on the flushed floppy.
+- On the second boot it checks that the counters come back, with the clock
+  past where it was saved.
 
 ## 11. The raster log
 

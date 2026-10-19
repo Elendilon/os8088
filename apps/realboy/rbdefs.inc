@@ -101,7 +101,14 @@ S_RAMBANKS      equ RB_STATE+0x68   ; byte: 8KB RAM banks the cartridge has
 S_IDLECNT       equ RB_STATE+0x69   ; byte: spin-waits skipped this frame (stat)
 S_HOSTDS        equ RB_STATE+0x6A   ; word: the host's DS, for rbsys
 S_TMP           equ RB_STATE+0x6C   ; word: scratch for the core's slow paths
-S_RTC           equ RB_STATE+0x70   ; 16: MBC3 clock registers (wave 5)
+S_RAMCUR        equ RB_STATE+0x6E   ; byte: what A000-BFFF holds - a RAM bank,
+                                    ;   or 88h-8Ch an MBC3 clock register
+S_RTC           equ RB_STATE+0x70   ; 16: the MBC3 clock (REALBOY-SPEC 10.2)
+RTC_LIVE        equ 0               ; 5: seconds, minutes, hours, day, DH
+RTC_LAT         equ 5               ; 5: the same, as last latched
+RTC_ACC         equ 10              ; word: a second's fraction, of 65,536
+RTC_LST         equ 12              ; byte: the last byte written to 6000
+RTC_ON          equ 13              ; byte: the cartridge has the clock
 S_SKIPPED       equ RB_STATE+0x80   ; dword: M-cycles HALT and spin-waits skipped
 S_BUSY          equ RB_STATE+0x84   ; dword: M-cycles the core executed
 S_IDLEPC        equ RB_STATE+0x88   ; word: the last spin-wait's loop head
