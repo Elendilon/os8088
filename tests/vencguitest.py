@@ -209,7 +209,7 @@ def groups_leg():
             wrong.append("%s as a WAV: %s apply" % (t[0], on))
         if "--audio" in G.argv_from("in.mp4", "o.WAV", v, 30.0):
             offs.append("--audio on a WAV from %s" % t[0])
-    print("   14: %d groups, %d options in none (on Advanced), %d targets: "
+    print("   14: %d groups, %d options in none (on Basic), %d targets: "
           "%d wrong, %d command lines wrong"
           % (len(G.GROUPS), len(loose), len(G.TARGETS), len(wrong),
              len(offs)))
@@ -849,7 +849,7 @@ def fit_leg(bad):
 
 
 def ladder_leg(bad):
-    """18: THE DEGRADE LADDER (Size vs quality's second inner tab): with a
+    """18: THE DEGRADE LADDER (its own tab, Degrade to Fit): with a
     ladder set, the options it sets greyed and the rest not; the rungs a
     form can use following its sound and its scene palettes; and --ladder
     round-tripping through the options record"""

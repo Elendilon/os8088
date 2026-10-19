@@ -1072,9 +1072,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "227dc24c",
-  "strings": "a737a59c5c9ef917",
-  "why": "row for --desktop-clip added beside the other desktop poster options"
+  "stamped": "7ca48809",
+  "strings": "4b917609e3f7ebfe",
+  "why": "tab table rewritten for the new tabs: Loop and keys and Advanced on Basic, Trade-offs, Degrade to Fit; the jobs note names Basic"
  },
  "TRACKER_O88": {
   "sources": [

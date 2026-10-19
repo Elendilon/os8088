@@ -141,14 +141,13 @@ the file you are making is greyed out, and its tooltip says why.
 
 | Tab | What is on it |
 |---|---|
-| Basic | **Made for**: the preset, the picture format, the machine profile and the aim. **The clip**: title, credits, start and end times, frames a second |
+| Basic | **Made for**: the preset, the picture format, the machine profile and the aim. **The clip**: title, credits, start and end times, frames a second. **Loop**: where a repeating play loops from, and Repeat. **Held in memory**: resident and Live files. **Keyframes and the poster**: keyframe spacing, the poster, and the pictures stored for the desktop's Preview. **This computer**: how many processor cores the encoder uses. Any setting no other tab has is here too |
 | Picture | The canvas (screen layout, size, how the picture fits), gamma, contrast and brightness, the grey stretch, the one-bit dither and invert, solid colours, and the text-mode settings |
 | Colour | The palette choices for each colour format, with a **Palette** panel showing the colours as swatches. Hover a swatch to see its number and colour |
 | Sound | The sound format, rate and volume, buffer sound ahead, ADPCM, and the PC speaker's shaping |
 | Budget | The machine's disk rate, processor share and memory, an XMS bank for a 286 or better, and a layer for a faster disk |
-| Size vs quality | **Choices**: holding still areas steady, fewer pixels, tearing and second pages, and what is cut when a frame does not fit. **Degrade ladder**: tick **Use the degrade ladder** and choose its rungs - a lag, a slower frame rate, fewer colours, coarse cells for a whole frame or for only the parts that do not fit, or a cut that is small enough - tried in order where a frame would be cut. It is the ladder OR the settings in **Or, without the ladder: for the whole clip** (the lag, the slowest frame rate, coarse cells at a scene change and fewer colours a scene): with the ladder on, a setting there with no rung for it is off. **Held frames, either way** sets how a slower rate's held frames are priced and drawn |
-| Loop and keys | Where a repeating play loops from, Repeat, resident and Live files, keyframe spacing and the poster |
-| Advanced | How many processor cores the encoder uses, and any setting no other tab has |
+| Trade-offs | What gives up some of the picture for a smaller file or less of the player's time: holding still areas steady, fewer pixels, tearing and second pages, and what is cut when a frame does not fit |
+| Degrade to Fit | Tick **Use the degrade ladder** and choose its rungs - a lag, a slower frame rate, fewer colours, coarse cells for a whole frame or for only the parts that do not fit, or a cut that is small enough - tried in order where a frame would be cut. It is the ladder OR the settings in **Or, without the ladder: for the whole clip** (the lag, the slowest frame rate, coarse cells at a scene change and fewer colours a scene): with the ladder on, a setting there with no rung for it is off. **Held frames, either way** sets how a slower rate's held frames are priced and drawn |
 
 ## Using the command line
 
@@ -251,4 +250,4 @@ a slower one.
   smaller picture and a lower frame rate.
 - `--aim quality` makes trial encodes and takes longer.
 - The encoder uses all your processor's cores unless you set fewer on the
-  **Advanced** tab or with `--jobs`.
+  **Basic** tab (**This computer**) or with `--jobs`.

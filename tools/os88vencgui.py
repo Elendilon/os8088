@@ -114,13 +114,13 @@ TARGETS = [t + ({},) if len(t) == 4 else t for t in TARGETS]
 # round the options that go together, and the whole group greyed out when
 # the file the form makes cannot use it - the CGA 4-colour group on
 # anything but CGA 4 colours, the PC speaker's on any other sound. An
-# option named in no group still appears, on Advanced, in "Other"
+# option named in no group still appears, on Basic, in "Other"
 TAB_ROWS = 10    # more options than this and a tab takes two columns
 PAL_W = 600      # the Palette panel's width: the Colour tab's (620 ran
                  # its outline 7 pixels past the tab's edge)
 FPAL_W = 390     # ...and the open file's, in its box
-TABS = ("Basic", "Picture", "Colour", "Sound", "Budget", "Size vs quality",
-        "Loop and keys", "Advanced")
+TABS = ("Basic", "Picture", "Colour", "Sound", "Budget", "Trade-offs",
+        "Degrade to Fit")
 # what the form makes, in the words a reason uses
 PF_WORDS = {"mono": "one bit, black and white",
             "cgacomp": "CGA composite colour",
@@ -388,56 +388,56 @@ GROUPS = [
     # file or a lower rate, gathered off the tabs of the formats they act
     # on - which overran the Colour tab's height twice (the owner). Each
     # option keeps its format's rule, as its own (FIELD_WHEN)
-    ("Size vs quality", "Hold the picture still", ("stable", "text_stable",
+    ("Trade-offs", "Hold the picture still", ("stable", "text_stable",
                                                    "comp_stable",
                                                    "vga4_stable", "vga4_hold",
                                                    "vga4_hold_score",
                                                    "c512_stable",
                                                    "vga8_stable"), ALWAYS),
-    ("Size vs quality", "VGA, 256 colours: fewer pixels", ("detail",),
+    ("Trade-offs", "VGA, 256 colours: fewer pixels", ("detail",),
      _for(("vga8",), PF_WORDS["vga8"])),
-    ("Size vs quality", "16 colours: the player's time to draw",
+    ("Trade-offs", "16 colours: the player's time to draw",
      ("vga4_order", "vga4_wm3"), _for(("vga4",), PF_WORDS["vga4"])),
-    ("Size vs quality", "Scenes: fewer bytes at a cut",
+    ("Trade-offs", "Scenes: fewer bytes at a cut",
      ("scene_hold",), _for(("vga4",), PF_WORDS["vga4"])),
     # (a Hercules has a second page too, so page-ahead is not VGA's alone:
     # under the VGA group it was greyed on the one screen that needs it
     # asked for by name - the options audit, 2026-10-14. Bands are the
     # same question - what a frame caught half drawn looks like, for a few
     # bytes or twice the decode - and each keeps its own rule)
-    ("Size vs quality", "Tearing: bands and a second page",
+    ("Trade-offs", "Tearing: bands and a second page",
      ("bands", "flip", "flip_own", "page_ahead", "pages", "page_keys",
       "key_pool", "page_prune"),
      _tearing),
-    # (the DEGRADE LADDER's inner tab is a CHOICE, and laid out as one
+    # (the DEGRADE LADDER's tab is a CHOICE, and laid out as one
     # (the owner, 2026-10-18: "ladder OR these other settings"): the
     # ladder, OR the whole-clip settings it replaces - each of which it
     # leaves OFF where no rung names it, which is how a ladder says so -
     # and then what prices and draws a held frame under either)
-    ("Size vs quality", "Degrade ladder", ("ladder",), ALWAYS),
-    ("Size vs quality", "Or, without the ladder: for the whole clip",
+    ("Degrade to Fit", "Degrade ladder", ("ladder",), ALWAYS),
+    ("Degrade to Fit", "Or, without the ladder: for the whole clip",
      LADDER_SETS, ALWAYS),
-    ("Size vs quality", "Held frames, either way", ("slow_cost",
+    ("Degrade to Fit", "Held frames, either way", ("slow_cost",
                                                     "flip_hold"), ALWAYS),
-    ("Size vs quality", "When a frame is cut", ("lookahead", "lookahead_floor",
+    ("Trade-offs", "When a frame is cut", ("lookahead", "lookahead_floor",
                                                 "error", "cut",
                                                 "frame_cap", "edges",
                                                 "attend"), ALWAYS),
-    ("Size vs quality", "Aim: size", ("worth",),
+    ("Trade-offs", "Aim: size", ("worth",),
      lambda c: None if c["aim"] == "size" else
      "This is --aim size's floor, and the aim is %s. Choose size as the Aim "
      "on Basic to use it." % c["aim"]),
-    ("Loop and keys", "Loop", ("loop_from", "repeat"), ALWAYS),
-    ("Loop and keys", "Held in memory", ("resident", "live", "xms"),
+    ("Basic", "Loop", ("loop_from", "repeat"), ALWAYS),
+    ("Basic", "Held in memory", ("resident", "live", "xms"),
      ALWAYS),
-    ("Loop and keys", "Keyframes and the poster", ("keysecs", "poster",
+    ("Basic", "Keyframes and the poster", ("keysecs", "poster",
                                                    "poster_at",
                                                    "poster_image",
                                                    "desktop_posters",
                                                    "desktop_clip",
                                                    "desktop_size"),
      ALWAYS),
-    ("Advanced", "This computer", ("jobs",), ALWAYS),
+    ("Basic", "This computer", ("jobs",), ALWAYS),
 ]
 # ...and inside a group that applies, the few options narrower than it
 FIELD_WHEN = {
@@ -539,7 +539,7 @@ FIELD_WHEN = {
     # clip's own colours')
     "vga4_hold": lambda c: _FOUR16_ONE(c) or _knoll_hold(c),
     "vga4_hold_score": lambda c: _FOUR16_ONE(c) or _knoll_hold(c),
-    # (the holds left their formats' groups for Size vs quality, and took
+    # (the holds left their formats' groups for Trade-offs, and took
     # each format's rule with them)
     "stable": _pixel_kept,
     "text_stable": _for(("text",), PF_WORDS["text"], "This is"),
@@ -586,12 +586,12 @@ FIELD_WHEN = {
     "ahead_frames": lambda c: None if c["ahead"] != "off" else
     "Buffer sound ahead is off.",
 }
-# THE DEGRADE LADDER (Size vs quality, its second inner tab): the options
+# THE DEGRADE LADDER (its own tab, Degrade to Fit): the options
 # a ladder sets itself, greyed while one is on - and the rungs this file
 # can use, each (label, --ladder's token)
 LADDER_WHY = ("The degrade ladder is on, and replaces this: only what its "
-              "rungs name is done, so with no rung for it, it is off (Size "
-              "vs quality, Degrade ladder).")
+              "rungs name is done, so with no rung for it, it is off "
+              "(Degrade to Fit).")
 LADDER_RUNGS = 8
 
 
@@ -742,7 +742,7 @@ def ladder_label(tok):
 
 assert len({g[1] for g in GROUPS}) == len(GROUPS), "a header names a group"
 GROUP_OF = {d: g for g in GROUPS for d in g[2]}
-# the groups on Size vs quality's second inner tab rather than its first
+# the groups on Degrade to Fit, laid out by ladder_page
 LADDER_PAGE = ("Degrade ladder", "Or, without the ladder: for the whole clip",
                "Held frames, either way")
 TAB_OF = {d: g[0] for d, g in GROUP_OF.items()}
@@ -877,10 +877,10 @@ SAVE_FILE = {"spk_preview": ("The speaker preview", ".wav",
                              [("WAV sound", "*.wav")])}
 # ...under the right-hand column rather than across the tab, where the
 # left-hand one already reaches the window's bottom
-NOTE_IN_COLUMN = ("Size vs quality",)
+NOTE_IN_COLUMN = ("Trade-offs",)
 # a line under a tab's fields: what no one field says
 TAB_NOTES = {
-    "Size vs quality": "Each trades picture for bytes or the player's "
+    "Trade-offs": "Each trades picture for bytes or the player's "
                        "time; greyed where the file cannot use it.",
     "Budget": "XT-IDE and other disk controllers the CPU copies for "
               "cost CPU the picture would have had: every byte read is "
@@ -920,7 +920,7 @@ def fields():
             if kind == "choice" else SUGGEST.get(act.dest),
             tip=(act.help or "").strip(),
             help=V.CHOICE_HELP.get(act.dest) if kind == "choice" else None,
-            tab=TAB_OF.get(act.dest, "Advanced")))
+            tab=TAB_OF.get(act.dest, "Basic")))
     return out
 
 
@@ -2193,16 +2193,9 @@ class App(object):
         for t in TABS:
             pages[t] = ttk.Frame(nb, padding=6)
             nb.add(pages[t], text=t)
-        # SIZE VS QUALITY's two inner tabs: its choices, and the degrade
-        # ladder (VIDEO-SEEN-PLAN 3a) - the owner's "a second inner tab"
-        inner = ttk.Notebook(pages["Size vs quality"])
-        inner.pack(fill="both", expand=True)
-        pages["Size vs quality"].configure(padding=(6, 2, 6, 0))
-        sq = ttk.Frame(inner, padding=(4, 2, 4, 0))
-        self.ladpage = ttk.Frame(inner, padding=6)
-        inner.add(sq, text="Choices")
-        inner.add(self.ladpage, text="Degrade ladder")
-        pages["Size vs quality"] = sq
+        # DEGRADE TO FIT, the ladder's own tab (VIDEO-SEEN-PLAN 3a): laid
+        # out by ladder_page below rather than as a column of groups
+        self.ladpage = pages["Degrade to Fit"]
         # --- the GROUPS (98.2.8.2): an outline with a header round the
         # options that go together, down one column - or, on a tab of more
         # than TAB_ROWS options, two, split in the table's order where the
@@ -2211,12 +2204,12 @@ class App(object):
         fl = {f["dest"]: f for f in fields()}
         tabgroups = {t: [] for t in TABS}
         for tab, name, dests, _ in GROUPS:
-            if name in LADDER_PAGE:         # (its own inner tab, below)
+            if name in LADDER_PAGE:         # (its own tab, below)
                 continue
             tabgroups[tab].append((name, [fl[d] for d in dests if d in fl]))
         other = [f for d, f in fl.items() if d not in GROUP_OF]
         if other:                       # an option no group names yet
-            tabgroups["Advanced"].append(("Other", other))
+            tabgroups["Basic"].append(("Other", other))
         st = ttk.Style(self.root)
         bold = tkfont.nametofont("TkDefaultFont").copy()
         bold.configure(weight="bold")
@@ -2233,6 +2226,8 @@ class App(object):
         lastcol = {}                    # (the tab's shortest column: its note)
         for t in TABS:
             gs = [g for g in tabgroups[t] if g[1]]
+            if not gs:                  # (Degrade to Fit: ladder_page's)
+                continue
             cols = [gs]
             if sum(len(g[1]) for g in gs) > TAB_ROWS and len(gs) > 1:
                 hs = [len(g[1]) + 1.5 for g in gs]
@@ -2772,7 +2767,7 @@ class App(object):
             self.fwidgets[f["dest"]] = ws
 
     def ladder_page(self, page, start):
-        """THE DEGRADE LADDER's inner tab: a checkbox that turns it on, and
+        """THE DEGRADE LADDER's tab: a checkbox that turns it on, and
         a rung a row - each a list of the rungs this file can use - which
         compose --ladder. Its variable is the option's, so a file loaded
         sets the rungs, and the rungs set it"""
@@ -2809,7 +2804,7 @@ class App(object):
                   "not both: with the ladder on, only what a rung names is "
                   "done, and a setting with no rung for it is off - which "
                   "is how a ladder leaves one out. After the last rung the "
-                  "frames are cut (When a frame is cut, on Choices).",
+                  "frames are cut (When a frame is cut, on Trade-offs).",
                   foreground="#555",
                   wraplength=560, justify="left").grid(
             row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
