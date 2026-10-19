@@ -678,16 +678,12 @@ rb_events:
     mov si,S_TSTOP
     call .isdue
     jnc .n4
+    mov word [S_TSTOP+2],RB_FAR_HI
     cmp byte [S_HALT],0                 ; HALTED, the budget is not the
     je .bud                             ;   core's interrupts-off time - this
-    cmp word [S_TVBL+2],RB_FAR_HI       ;   runs with them on - so it is
-    je .bud                             ;   carried on to the next VBlank, not
-    mov ax,[S_BUDLEN]                   ;   spent on a trip to the host; with
-    add [S_TSTOP],ax                    ;   the LCD off nothing would end it
-    adc word [S_TSTOP+2],0
-    jmp short .n4
-.bud:
-    mov word [S_TSTOP+2],RB_FAR_HI
+    cmp word [S_TVBL+2],RB_FAR_HI       ;   runs with them on - so it lapses,
+    jne .n4                             ;   and the VBlank's own exit ends the
+.bud:                                   ;   run; with the LCD off nothing would
     cmp byte [S_EXIT],0
     jne .n4
     mov byte [S_EXIT],RBX_BUDGET

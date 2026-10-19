@@ -683,6 +683,16 @@ do.
 
 ### Wave 8 - the 5150 demo, disks and the Wire record
 
+**The writers and damage tracking are BUILT** (REALBOY-SPEC sections 13.2
+and 15.1). The damage is tracked at the line, not the tile: `rb_renderd`
+compares VRAM and OAM against a shadow at each draw and composes only the
+lines whose inputs changed, and the Hercules and CGA writers put only those
+lines on the page. It is exact against `rb_render`, frame for frame
+(`gbdamage`), and the window's monochrome path uses it too. On MartyPC's
+5150 in a Hercules window, gbclock's do-nothing variant went from 43% of
+real time to **100%**. The drawing, not the CPU, had been most of the
+machine, which is section 6's prediction: the fixed cost decides the 5150.
+
 **Features**
 - The HERC and CGA320 fullscreen writers with damage tracking.
 - The demo ROM's source and its rgbds build (section 6).

@@ -2586,15 +2586,24 @@ SOAK = [
         "counter in the package's view advancing, and the window's content "
         "against the reference PIXEL FOR PIXEL on both writers - the four "
         "greys through OSAPI_GFX_BLITP on VGA (rendered frame) and the 2x2 "
-        "ordered dither through OSAPI_GFX_BLIT1 on a Hercules (its VRAM: "
-        "MartyPC's rendered Hercules frame is cropped). On VGA it then takes "
-        "Machine > Full Screen (section 15, the plan's gbfsx gate): the "
-        "bracket's mode 0Dh frame against the SAME reference, frames "
-        "advancing in there, and Esc back to a desktop whose window shows the "
-        "picture again. NEGATIVE CONTROL: the reference mirrored must not "
-        "match. SOAK: one package",
+        "ordered dither through OSAPI_GFX_BLIT1 on a Hercules and a CGA (their "
+        "VRAM: MartyPC's rendered Hercules frame is cropped). Each then takes "
+        "Machine > Full Screen (sections 15 and 15.1, the plan's gbfsx gate): "
+        "VGA's mode 0Dh, the Hercules page at 2x2 and CGA's 320x200 in four "
+        "colours, each against the SAME reference, frames advancing in there, "
+        "and Esc back to a desktop whose window shows the picture again. "
+        "NEGATIVE CONTROL: the reference mirrored must not match. SOAK: one "
+        "package",
         needs=("marty", "nasm"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
+    Row("gbdamage", "soak", py("tests/gbdamage.py"), 10.0,
+        "RealBoy's damage renderer (docs/REALBOY-SPEC.md section 13.2) against "
+        "its whole one: the bare harness's MODE 6 under QEMU composes every "
+        "third frame both ways and counts the pictures that differ - gbclock's "
+        "frame counter (ours), and with $OS88_GB_ROMS Super Mario Land and "
+        "Kirby. Without the map-row marks it fails on 497 frames of 500. "
+        "SOAK: one package",
+        needs=("qemu", "nasm", "rgbds")),
     Row("gbsound", "soak", py("tests/gbsound.py"), 15.0,
         "REALBOY.O88's speaker (docs/REALBOY-SPEC.md section 17) on MartyPC's "
         "VGA XT, against GBTONE.GB (tools/gbtone.py, ours): channel 1 at 440 "

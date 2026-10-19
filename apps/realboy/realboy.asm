@@ -103,7 +103,10 @@ rw_savelen      equ rw_odst + 1     ; word: the .SAV's RAM bytes
 rw_rtcgap       equ rw_savelen + 2  ; dword: seconds the save was put away
 rw_rtcsave      equ rw_rtcgap + 4   ; 16: the clock, across a reset
 rw_savename     equ rw_rtcsave + 16 ; 13: NAME.SAV
-rw_fbuf         equ rw_savename + 13 ; 5,760: rb_render's frame (monochrome)
+rw_fskind       equ rw_savename + 13 ; byte: full screen's writer (RW_FS*)
+rw_htab         equ rw_fskind + 1   ; 512: a full-screen writer's table
+rw_chg          equ rw_htab + 512   ; 144: the lines rb_renderd changed
+rw_fbuf         equ rw_chg + 144    ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 
@@ -322,6 +325,7 @@ rw_load:
     ja .notrom1
     mov [rw_banks], ax
     call rw_jitclaim
+    call rw_dmgclaim
     call rw_ramsetup
     call rw_start
     mov byte [rw_state], 1
@@ -364,6 +368,7 @@ rw_start:
     mov dx, [rw_banks]
     call rb_init
     call rw_ramattach
+    call rw_dmgfull
 rw_jiton:                           ; (and Machine > Recompiler's way back in)
     push ds
     mov ds, [cs:rb_viewseg]
@@ -1154,10 +1159,18 @@ rw_present:
     mov byte [rw_pfmt], 4
     jmp short .show
 .mono:
-    mov di, rw_fbuf
-    call rb_render
-    call rw_dither
+    cmp byte [rw_pfmt], 1           ; the buffer held the other format:
+    je .m1                          ;   every line again
+    call rw_dmgfull
+.m1:
+    call rw_render                  ; AX = the lines that changed
     mov byte [rw_pfmt], 1
+    or ax, ax
+    jnz .m2
+    mov byte [rw_incore], 0         ; nothing did: nothing to put up
+    ret
+.m2:
+    call rw_dither
 .show:
     mov byte [rw_incore], 0         ; out of the machine BEFORE the lock: the
                                     ;   UI task may hold it, waiting on this
@@ -1172,7 +1185,13 @@ rw_present:
     jz .un
     call OSAPI_WM_CLIP_SET          ; CF = 1: not a pixel of us shows
     jc .un
+    cmp byte [rw_pfmt], 1
+    jne .full
+    call rw_blitd                   ; the changed lines' bands
+    jmp short .ov
+.full:
     call rw_blit
+.ov:
     call rw_overlay
 .un:
     call OSAPI_GFX_UNLOCK
@@ -1255,6 +1274,12 @@ rw_dither:
     mov di, rw_pbuf
     xor dx, dx                      ; DL = the row's parity
 .row:
+    call rw_dchg                    ; ZF = 1: this line did not change
+    jnz .do
+    add si, 40
+    add di, 20
+    jmp short .nx
+.do:
     mov bl, 0AAh                    ; even rows: half on even columns, the
     mov bh, 0AAh                    ;   quarter on even columns
     test dl, 1
@@ -1282,9 +1307,132 @@ rw_dither:
     inc si
     loop .b
     add si, 20
+.nx:
     inc dl
     cmp dl, RW_CONT_H
     jb .row
+    ret
+
+; rw_dchg - DL = a line: ZF = 0 if the last rb_renderd changed it
+rw_dchg:
+    push bx
+    mov bl, dl
+    xor bh, bh
+    cmp byte [rw_chg + bx], 0
+    pop bx
+    ret
+
+; rw_render - rb_renderd into rw_fbuf, and its changed lines into rw_chg
+; (every line, without the damage memory). AX = how many.
+rw_render:
+    push cx
+    push si
+    push di
+    push ds
+    pop es
+    mov di, rw_fbuf
+    call rb_renderd
+    push ax
+    mov di, rw_chg
+    mov cx, 144 / 2
+    mov ax, [rb_dmgseg]
+    or ax, ax
+    jnz .cp
+    mov ax, 0101h
+    rep stosw
+    jmp short .r
+.cp:
+    push ds
+    mov ds, ax
+    mov si, RB_DCHG
+    rep movsw
+    pop ds
+.r:
+    pop ax
+    pop di
+    pop si
+    pop cx
+    ret
+
+; rw_blitd - the lines rb_renderd changed onto the content, a band a run of
+; them, the lock held and the clip armed. Nothing changed, nothing drawn.
+rw_blitd:
+    mov bx, [rw_win]
+    call OSAPI_WM_DISPLAY           ; DH = bits per pixel
+    cmp dh, 1
+    jbe .mono
+    mov al, CWHITE                  ; the dither on a colour display
+    mov ah, CBLACK
+    call OSAPI_GFX_BLIT1_PEN
+.mono:
+    xor dl, dl                      ; DL = the line
+.find:
+    call rw_dchg
+    jnz .run
+.nx:
+    inc dl
+    cmp dl, RW_CONT_H
+    jb .find
+    ret
+.run:
+    mov dh, dl                      ; DH = the run's first line
+.ext:
+    inc dl
+    cmp dl, RW_CONT_H
+    jae .put
+    call rw_dchg
+    jnz .ext
+.put:                               ; DH = the run's first line, DL past it
+    push dx
+    mov bl, dh
+    xor bh, bh
+    mov ax, 20
+    mul bx
+    mov si, rw_pbuf
+    add si, ax                      ; SI = the run in the dithered buffer
+    push bx
+    mov bx, [rw_win]
+    call OSAPI_WM_CONTENT           ; AX = left, DX = top
+    pop bx
+    add bx, dx                      ; BX = the run's row on the screen
+    pop dx
+    push dx
+    mov cl, dl
+    sub cl, dh
+    xor ch, ch
+    mov dx, cx                      ; DX = its lines
+    push ds
+    pop es
+    mov bp, 20
+    mov cx, RW_CONT_W
+    call OSAPI_GFX_BLIT1
+    pop dx
+    jmp short .nx
+
+; rw_dmgclaim - on the UI task, once: rb_renderd's memory, when there is
+; room (without it every frame is composed whole)
+rw_dmgclaim:
+    cmp word [rb_dmgseg], 0
+    jne .r
+    mov ax, (RB_DMG_SIZE + 1023) / 1024
+    call OSAPI_MEM_CLAIM
+    jc .r
+    mov [rb_dmgseg], dx
+.r:
+    ret
+
+; rw_dmgfull - the next rb_renderd composes and writes every line
+rw_dmgfull:
+    push es
+    push ax
+    mov ax, [rb_dmgseg]
+    or ax, ax
+    jz .r
+    mov es, ax
+    mov byte [es:RB_DFULL], 1
+.r:
+    pop ax
+    pop es
     ret
 
 ; =============================================================================
@@ -1451,7 +1599,6 @@ rw_it_reset:    db 'Reset', 0
 rw_it_pause:    db 'Pause', 0
 rw_it_fs:       db 'Full Screen', 0
 rw_it_fs0:      db MENU_DIS, 'Full Screen', 0
-rw_it_fsv:      db MENU_DIS, 'Full Screen (VGA)', 0
 rw_it_jon:      db 'Recompiler: On', 0
 rw_it_joff:     db 'Recompiler: Off', 0
 rw_it_jit0:     db MENU_DIS, 'Recompiler (286)', 0

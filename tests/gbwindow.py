@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """REALBOY.O88 in a window, on the glass, against dmg-acid2's reference.
 
-    python3 tests/gbwindow.py [--only vga|herc]
+    python3 tests/gbwindow.py [--only vga|herc|cga]
 
 docs/plans/REALBOY-PLAN.md wave 3's gate. Boots os8088 on MartyPC with a B:
 disk holding REALBOY.O88 and dmg-acid2 (tools/getgbtest.py's, as ACID2.GB),
 opens the ROM from the Disk window - the association launches the package
-with it - and checks, on each of the two writers:
+with it - and checks, on each of the three machines (a CGA's desktop is
+monochrome, so its window takes the Hercules path):
 
   * the game RUNS: the frame counter in the package's view (S_FRAMES, read
     through rb_viewseg off the package's listing) advances;
@@ -16,12 +17,19 @@ with it - and checks, on each of the two writers:
     uses (shade 0 lit, 1 a quarter dark, 2 a checkerboard, 3 dark), through
     OSAPI_GFX_BLIT1.
 
-On VGA it then takes Machine > Full Screen (docs/REALBOY-SPEC.md section
-15) - the gbfsx gate of docs/plans/REALBOY-PLAN.md wave 4: the bracket's
-mode 0Dh frame, the picture in the middle of it, against the SAME reference
-(so the full-screen writer is pixel-identical to the windowed one), the
-frame counter advancing in there, and Esc back to a desktop whose window
-shows the picture again.
+Each machine then takes Machine > Full Screen (docs/REALBOY-SPEC.md
+section 15) - the gbfsx gate of docs/plans/REALBOY-PLAN.md wave 4. Each
+checks the picture against the SAME reference, so every full-screen writer
+is pixel-identical to the windowed one.
+- On VGA, the bracket's mode 0Dh frame, with the picture in the middle of
+  it.
+- On a Hercules, the 720x348 page with the picture at 2x2, each shade a 2x2
+  dither pattern.
+- On a CGA, 320x200 in four colours with the picture at 2x1. Both of these
+  are read out of the card's memory (section 15.1, drawn by damage).
+
+Each also checks that the frame counter advances in there, and that Esc
+goes back to a desktop whose window shows the picture again.
 
 THE NEGATIVE CONTROL is the comparator's: the reference mirrored left to
 right must NOT match what is on the glass.
@@ -43,6 +51,7 @@ import rbacid  # noqa: E402
 MACHINES = {
     "vga": "os8088_xt_vga_720b",
     "herc": "os8088_5150_herc_sb_720_gla",
+    "cga": "os8088_5150_cga_720b_gla",
 }
 S_FRAMES = 0x4000 + 0x3E
 S_VIEW = 0x4000 + 0x12
@@ -64,7 +73,7 @@ def find_seg(m, name, viewoff):
     for o in range(0, len(buf) - 32, 16):
         if buf[o:o + 2] == b"O8" and buf[o + 16:o + 16 + len(name)] == name:
             v = int.from_bytes(m.read(((0x10000 + o) & ~15) + viewoff, 2), "little")
-            if v and int.from_bytes(m.read(v * 16 + S_VIEW, 2), "little") == v:
+            if v and v < 0xF000 and int.from_bytes(m.read(v * 16 + S_VIEW, 2), "little") == v:
                 return (0x10000 + o) >> 4      # its view names itself back
     return None
 
@@ -91,15 +100,19 @@ def frames(m, view):
     return int.from_bytes(m.read(view * 16 + S_FRAMES, 2), "little")
 
 
-def compare(kind, got, want, label):
-    if kind == "herc":
+def compare(kind, got, want, label, rows=144):
+    """`rows`: a CGA's 200-line desktop cuts the window to fit above the
+    dock, and the rows it cut are not on the glass to compare."""
+    if kind in ("herc", "cga"):
         exp = dither(want)
         mir = dither([want[y * 160 + 159 - x] for y in range(144) for x in range(160)])
     else:
         exp, mir = want, [want[y * 160 + 159 - x] for y in range(144) for x in range(160)]
+    n = rows * 160
+    got, exp, mir = got[:n], exp[:n], mir[:n]
     bad = sum(1 for a, b in zip(got, exp) if a != b)
     badm = sum(1 for a, b in zip(got, mir) if a != b)
-    print("gbwindow %s: %d of 23,040 pixels differ; mirrored, %d" % (label, bad, badm))
+    print("gbwindow %s: %d of %d pixels differ; mirrored, %d" % (label, bad, n, badm))
     if badm == 0:
         return "%s: the comparator cannot go red: the mirror matches too" % label
     return None if bad == 0 else "%s: %d pixels differ" % (label, bad)
@@ -112,8 +125,8 @@ def window_px(ui, m, kind):
     W, H, data = m.fbuf(0)
     cx, cy = w.x + 1, w.y + os88ui.geom.TITLE_H   # (measured: the frame's
                                             #   top row is the title's first)
-    if kind == "herc":                      # THE CARD'S OWN BYTES: MartyPC's
-        vw, vh, rows = m.vram("herc")       #   rendered Hercules frame is
+    if kind in ("herc", "cga"):             # THE CARD'S OWN BYTES: MartyPC's
+        vw, vh, rows = m.vram(kind)         #   rendered Hercules frame is
         return [rows[cy + y][cx + x]        #   cropped and offset, and the
                 for y in range(144) for x in range(160)], W, H, data  # VRAM route is exact
     px = [tuple(data[((cy + y) * W + cx + x) * 3:((cy + y) * W + cx + x) * 3 + 3])
@@ -147,9 +160,57 @@ def fullscreen(ui, m, view, want):
     M.guest_sleep(m, 1)
     m.key("Escape", down=False)
     M.guest_sleep(m, 3)
-    W, H, data = m.fbuf(0)
-    if (W, H) != (640, 480):
-        return err or "Esc did not bring the desktop back: the frame is %dx%d" % (W, H)
+    # What says the desktop is back is the window's picture, which the caller
+    # compares again: the frame's size cannot, as MartyPC goes on reporting
+    # the bracket's 400 scan lines after the BIOS's mode 12h.
+    return err
+
+
+def fs_mono(ui, m, view, want, kind):
+    """Machine > Full Screen on a Hercules (720x348, the picture at 2x2 from
+    (200, 26), four shades as 2x2 dither patterns) or a CGA (320x200 in four
+    colours, the picture at 2x1 from (0, 28)): REALBOY-SPEC section 15.1's
+    writers, read out of the card's memory."""
+    ui.menu_pick("Machine", "Full Screen")
+    M.guest_sleep(m, 4)
+    vw, vh, rows = m.vram(kind)
+    got, odd = [], 0
+    for y in range(144):
+        for x in range(160):
+            if kind == "herc":
+                c = (rows[26 + 2 * y][200 + 2 * x] + rows[26 + 2 * y][201 + 2 * x] +
+                     rows[27 + 2 * y][200 + 2 * x] + rows[27 + 2 * y][201 + 2 * x])
+                s = {4: 0, 3: 1, 2: 2, 0: 3}.get(c)
+            else:
+                r = rows[28 + y]
+                c0 = r[4 * x] * 2 + r[4 * x + 1]
+                c1 = r[4 * x + 2] * 2 + r[4 * x + 3]
+                s = {3: 0, 1: 1, 2: 2, 0: 3}.get(c0) if c0 == c1 else None
+            if s is None:
+                odd += 1
+                s = 0
+            got.append(s)
+    if odd:
+        return "%s full screen: %d pixels are no shade's pattern" % (kind, odd)
+    exp = want
+    mir = [want[y * 160 + 159 - x] for y in range(144) for x in range(160)]
+    bad = sum(1 for a, b in zip(got, exp) if a != b)
+    badm = sum(1 for a, b in zip(got, mir) if a != b)
+    print("gbwindow %s full screen: %d of 23,040 pixels differ; mirrored, %d" % (kind, bad, badm))
+    err = None
+    if badm == 0:
+        err = "%s full screen: the comparator cannot go red" % kind
+    elif bad:
+        err = "%s full screen: %d pixels differ" % (kind, bad)
+    f0 = frames(m, view)
+    M.guest_sleep(m, 2)
+    f1 = frames(m, view)
+    if not err and f1 <= f0:
+        err = "%s full screen: frames did not advance (%d, %d)" % (kind, f0, f1)
+    m.key("Escape", up=False)
+    M.guest_sleep(m, 1)
+    m.key("Escape", down=False)
+    M.guest_sleep(m, 4)
     return err
 
 
@@ -182,14 +243,19 @@ def run(kind, want, disk, viewoff):
             with open(sv + "-%s-got.pgm" % kind, "wb") as f:
                 f.write(b"P5 160 144 255\n" + bytes(255 - 85 * g if kind == "vga" else 255 * g for g in got))
         print("gbwindow %s: frames %d -> %d" % (kind, f0, f1))
-        err = compare(kind, got, want, kind)
-        if err or kind != "vga":
+        rows = 144
+        if kind == "cga":                   # a 200-line desktop cuts the window
+            wnow = ui.window("RealBoy")     #   to the band above the dock: the
+            rows = min(144, wnow.h - os88ui.geom.TITLE_H - 2)   # rows it kept
+            print("gbwindow cga: the window is %d tall, %d rows of the picture" % (wnow.h, rows))
+        err = compare(kind, got, want, kind, rows)
+        if err:
             return err
-        err = fullscreen(ui, m, view, want)
+        err = fullscreen(ui, m, view, want) if kind == "vga" else fs_mono(ui, m, view, want, kind)
         if err:
             return err
         got, W, H, data = window_px(ui, m, kind)
-        return compare(kind, got, want, "vga window, after the bracket")
+        return compare(kind, got, want, "%s window, after the bracket" % kind, rows)
 
 
 def main():

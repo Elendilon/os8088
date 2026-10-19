@@ -177,6 +177,717 @@ rb_render:
     pop ax
     ret
 
+; =============================================================================
+; rb_renderd - rb_render, by DAMAGE (REALBOY-SPEC section 13.2): only the lines
+; whose inputs changed since the last call are composed, and only the lines
+; whose pixels then differ are written. ES:DI = the 5,760-byte buffer, which
+; holds the last frame; [cs:rb_dmgseg] = RB_DMG_SIZE bytes of the host's. On
+; return RB_DCHG in that segment holds a byte a line, 1 = the line changed,
+; and AX = how many did. Every other register is preserved. With rb_dmgseg 0
+; it is rb_render, every line changed.
+;
+; A line's inputs are its eight registers and the window's line counter, the
+; map cells and tile rows of its background and window, and its sprites -
+; their OAM entries and tiles. VRAM and OAM are compared against a shadow of
+; what the last call saw, a whole tile or map word at a time (repe cmpsw); a
+; changed tile or cell sets its byte, and a line looks its cells up in those.
+; The comparison is ~20 ms of an 8088 a call and the composition it saves
+; ~4 ms a line, which is what lets a mostly still screen draw on a 5150.
+; RB_DFULL = 1 (the host's, after it cleared the screen) composes everything.
+; =============================================================================
+RB_DVRAM        equ 0x0000              ; 8,192: the shadow of 8000-9FFF
+RB_DOAM         equ 0x2000              ; 160: of OAM
+RB_DTD          equ 0x20A0              ; 384: a tile changed (tiles 0-383)
+RB_DMD          equ 0x2220              ; 2,048: a map byte changed (9800+)
+RB_DLREG        equ 0x2A20              ; 144 x 10: a line's registers + WLINE
+RB_DLD          equ 0x3000              ; 144: a sprite moved over the line
+RB_DCHG         equ 0x3090              ; 144: the line changed (out)
+RB_DFULL        equ 0x3120              ; byte: compose every line
+RB_DBKEY        equ 0x3122              ; word: the BG row last judged
+RB_DBCOL        equ 0x3124              ; byte: ...its first column
+RB_DBRES        equ 0x3125              ; byte: ...and the verdict
+RB_DWKEY        equ 0x3126              ; word: the window row last judged
+RB_DWRES        equ 0x3128              ; byte
+RB_DMODE        equ 0x3129              ; byte: LCDC bit 4 the keys are for
+RB_DCNT         equ 0x312A              ; word: lines changed
+RB_DOUT         equ 0x312C              ; dword: the caller's ES:DI
+RB_DTCH         equ 0x3130              ; byte: some tile changed
+RB_DMCH         equ 0x3131              ; byte: some map byte changed
+RB_DOCH         equ 0x3132              ; byte: some OAM entry changed
+RB_DFAST        equ 0x3133              ; byte: no register changed anywhere
+RB_DLLOG        equ 0x3134              ; byte: the last call's frame logged
+RB_DREG0        equ 0x3138              ; 8: the last call's registers
+RB_DMROW        equ 0x3140              ; 64: a map row changed (2 x 32)
+RB_DMG_SIZE     equ 0x3180
+
+rb_dmgseg       dw 0                    ; the host's damage segment, or 0
+
+rb_renderd:
+    cmp word [cs:rb_dmgseg],0
+    jne .go
+    call rb_render                      ; no damage memory: every line
+    mov ax,144
+    ret
+.go:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    cld
+    mov ds,[cs:rb_viewseg]
+    mov ax,es
+    mov es,[cs:rb_dmgseg]
+    mov [es:RB_DOUT],di
+    mov [es:RB_DOUT+2],ax
+    mov word [es:RB_DCNT],0
+    cmp byte [PPU_REVOK],0
+    jne .rev
+    call ppu_mkrev
+    mov byte [PPU_TMODE],0FFh
+.rev:
+    mov word [PPU_BKEY],0
+    mov word [PPU_WKEY],0
+    mov word [es:RB_DBKEY],0
+    mov word [es:RB_DWKEY],0
+    mov byte [es:RB_DMODE],0FFh
+    call ppu_dscan                      ; the shadows, the changed bytes
+    cmp byte [es:RB_DFULL],0            ; the sprites' line lists: kept while
+    jne .oam                            ;   OAM is, as nothing else moves them
+    cmp byte [es:RB_DOCH],0
+    je .oamk
+.oam:
+    call ppu_oam
+.oamk:
+    mov byte [PPU_LOGN],0               ; the state as the frame began
+    mov byte [PPU_LOGI],0
+    mov al,[S_FRAMES]
+    dec al
+    cmp al,[S_SNAPTAG]
+    jne .now
+    mov si,RB_SNAP
+    mov al,[S_RLOGN]
+    mov [PPU_LOGN],al
+    push es
+    push ds
+    pop es
+    mov di,PPU_REGS
+    mov cx,8
+    rep movsb
+    pop es
+    jmp short .st2
+.now:
+    mov al,[0FF40h]
+    mov [PPU_REGS+0],al
+    mov ax,[0FF42h]
+    mov [PPU_REGS+1],ax
+    mov ax,[0FF47h]
+    mov [PPU_REGS+3],ax
+    mov al,[0FF49h]
+    mov [PPU_REGS+5],al
+    mov ax,[0FF4Ah]
+    mov [PPU_REGS+6],ax
+.st2:
+    call ppu_pal
+    ; FAST: no register write in this frame or the last, and the registers
+    ; as they were - so every line's are, and the window's counter with them
+    mov byte [es:RB_DFAST],0
+    mov al,[PPU_LOGN]
+    mov ah,al
+    or ah,[es:RB_DLLOG]                 ; this frame logged, or the last did
+    mov [es:RB_DLLOG],al                ;   (this one's kept for the next)
+    or ah,ah
+    jnz .slow
+    cmp byte [es:RB_DFULL],0
+    jne .slow
+    mov si,PPU_REGS
+    mov di,RB_DREG0
+    mov cx,4
+    repe cmpsw
+    jne .slow
+    mov byte [es:RB_DFAST],1
+    mov al,[es:RB_DTCH]                 ; ...and nothing else changed either:
+    or al,[es:RB_DMCH]                  ;   not a line to compose
+    or al,[es:RB_DOCH]
+    jz .done
+    call ppu_dfast                      ; RB_DLD = every line to compose
+.slow:
+    mov si,PPU_REGS
+    mov di,RB_DREG0
+    mov cx,4
+    rep movsw
+    mov byte [PPU_WLINE],0
+    mov byte [PPU_LY],0
+.line:
+    call ppu_log
+    mov bl,[PPU_LY]
+    xor bh,bh
+    mov byte [es:RB_DCHG+bx],0
+    cmp byte [es:RB_DFAST],0
+    je .judge
+    cmp byte [es:RB_DLD+bx],0           ; FAST: judged already, by rows
+    je .skip
+    jmp short .comp
+.judge:
+    call ppu_ldirty                     ; CF = 1: compose it
+    jnc .skip
+.comp:
+    call ppu_line
+    call ppu_dput                       ; into the buffer if it differs
+    jmp short .next
+.skip:
+    call ppu_wstep                      ; the window's counter, as ppu_line
+.next:
+    inc byte [PPU_LY]
+    cmp byte [PPU_LY],144
+    jb .line
+.done:
+    ; every change seen: the bytes clear for the next call - only those a
+    ; change set (the full first call cleared nothing and set nothing)
+    xor ax,ax
+    cmp byte [es:RB_DTCH],0
+    je .ct
+    mov di,RB_DTD
+    mov cx,384 / 2
+    rep stosw
+.ct:
+    cmp byte [es:RB_DMCH],0
+    je .cm
+    mov di,RB_DMD
+    mov cx,2048 / 2
+    rep stosw
+    mov di,RB_DMROW
+    mov cx,64 / 2
+    rep stosw
+.cm:
+    mov di,RB_DLD
+    mov cx,144 / 2
+    rep stosw
+    mov byte [es:RB_DFULL],0
+    mov ax,[es:RB_DCNT]
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; ppu_dscan: VRAM and OAM against the shadows. DS = view, ES = damage.
+ppu_dscan:
+    mov word [es:RB_DTCH],0             ; (and RB_DMCH)
+    mov byte [es:RB_DOCH],0
+    cmp byte [es:RB_DFULL],0
+    je .tiles
+    mov si,8000h                        ; everything: the shadows taken whole
+    xor di,di
+    mov cx,4096
+    rep movsw
+    mov si,0FE00h
+    mov di,RB_DOAM
+    mov cx,80
+    rep movsw
+    xor ax,ax                           ; and the change bytes from nothing
+    mov di,RB_DTD
+    mov cx,(RB_DLREG - RB_DTD) / 2
+    rep stosw
+    mov di,RB_DMROW
+    mov cx,64 / 2
+    rep stosw
+    ret
+.tiles:
+    mov si,8000h                        ; tile data, a tile at a time
+    xor di,di
+    mov cx,6144 / 2
+.t:
+    repe cmpsw
+    je .maps                            ; the rest the same
+    mov ax,di
+    dec ax
+    dec ax
+    and ax,0FFF0h                       ; the tile's first byte
+    mov di,ax
+    mov si,ax
+    add si,8000h
+    mov bx,ax
+    mov cl,4
+    shr bx,cl
+    mov byte [es:RB_DTD+bx],1
+    mov byte [es:RB_DTCH],1
+    mov cx,8
+    rep movsw                           ; into the shadow
+    mov cx,6144
+    sub cx,di
+    shr cx,1
+    jnz .t
+.maps:
+    mov si,9800h                        ; both maps, a word at a time
+    mov di,1800h
+    mov cx,1024
+.m:
+    repe cmpsw
+    je .oam
+    mov ax,[si-2]
+    mov [es:di-2],ax
+    mov byte [es:RB_DMD-1802h+di],1
+    mov byte [es:RB_DMD-1801h+di],1
+    mov byte [es:RB_DMCH],1
+    mov bx,di                           ; its row too: a quick no for the
+    sub bx,1802h                        ;   rest (BX / 32 without CL, which
+    shl bx,1                            ;   is the scan's count)
+    shl bx,1
+    shl bx,1
+    mov bl,bh
+    xor bh,bh
+    mov byte [es:RB_DMROW+bx],1
+    or cx,cx
+    jnz .m
+.oam:
+    mov si,0FE00h                       ; a sprite that moved or changed:
+    mov di,RB_DOAM                      ;   the lines it left and the lines
+    mov dx,40                           ;   it covers now
+.o:
+    mov ax,[si]
+    mov bx,[si+2]
+    cmp ax,[es:di]
+    jne .ch
+    cmp bx,[es:di+2]
+    je .on
+.ch:
+    mov byte [es:RB_DOCH],1
+    push ax
+    mov al,[es:di]
+    call ppu_dlines
+    pop ax
+    call ppu_dlines
+    mov [es:di],ax
+    mov [es:di+2],bx
+.on:
+    add si,4
+    add di,4
+    dec dx
+    jnz .o
+    ret
+
+; ppu_dfast: FAST (every line's registers the frame's own and the last
+; call's): RB_DLD gains every line under a changed map row of the background
+; or the window, and under a sprite whose tile changed - judged a map row or
+; a sprite at a time instead of a line at a time
+ppu_dfast:
+    mov al,[es:RB_DTCH]
+    or al,[es:RB_DMCH]
+    jz .r
+    mov al,[PPU_REGS+0]
+    test al,80h
+    jz .r
+    test al,01h
+    jz .spr
+    mov byte [es:RB_DMODE],0FFh         ; the background, a map row at a time
+    xor dx,dx                           ; DL = the line
+.bg:
+    mov al,dl
+    add al,[PPU_REGS+1]                 ; y = LY + SCY
+    mov ah,al
+    and ah,7
+    mov dh,8
+    sub dh,ah                           ; DH = the row's lines from here
+    mov [PPU_LY],dl
+    push dx
+    call ppu_bgdirty
+    pop dx
+    jnc .bn
+    call .mark
+.bn:
+    add dl,dh
+    cmp dl,144
+    jb .bg
+    mov al,[PPU_REGS+0]                 ; the window, from WY down
+    test al,20h
+    jz .spr
+    cmp byte [PPU_REGS+7],166
+    ja .spr
+    mov dl,[PPU_REGS+6]
+    cmp dl,144
+    jae .spr
+    mov byte [PPU_WLINE],0
+.win:
+    mov dh,8
+    mov [PPU_LY],dl
+    push dx
+    call ppu_wdirty
+    pop dx
+    jnc .wn
+    call .mark
+.wn:
+    add byte [PPU_WLINE],8
+    add dl,8
+    jc .spr
+    cmp dl,144
+    jb .win
+.spr:
+    test byte [PPU_REGS+0],02h          ; the sprites whose tiles changed
+    jz .r
+    cmp byte [es:RB_DTCH],0
+    je .r
+    mov si,0FE00h
+    mov cx,40
+.s:
+    mov bl,[si+2]
+    and bl,0FEh
+    xor bh,bh
+    mov al,[es:RB_DTD+bx]
+    or al,[es:RB_DTD+1+bx]
+    jz .sn
+    mov al,[si]
+    call ppu_dlines
+.sn:
+    add si,4
+    loop .s
+.r:
+    mov byte [PPU_LY],0
+    mov byte [PPU_WLINE],0
+    ret
+.mark:                                  ; DH lines from DL into RB_DLD
+    push bx
+    push cx
+    mov bl,dl
+    xor bh,bh
+    mov cl,dh
+    xor ch,ch
+.m:
+    cmp bx,144
+    jae .mr
+    mov byte [es:RB_DLD+bx],1
+    inc bx
+    loop .m
+.mr:
+    pop cx
+    pop bx
+    ret
+
+; ppu_dlines: AL = a sprite's Y - its rows Y-16 .. Y-1 marked in RB_DLD
+ppu_dlines:
+    push ax
+    push bx
+    push cx
+    sub al,16
+    mov cx,16
+.r:
+    cmp al,144
+    jae .n
+    mov bl,al
+    xor bh,bh
+    mov byte [es:RB_DLD+bx],1
+.n:
+    inc al
+    loop .r
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ppu_ldirty: CF = 1 if line PPU_LY must be composed. DS = view, ES = damage.
+ppu_ldirty:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov bl,[PPU_LY]
+    xor bh,bh
+    cmp byte [es:RB_DFULL],0
+    jne .regs                           ; (the registers are still kept)
+    cmp byte [es:RB_DLD+bx],0
+    jne .regs
+    cmp byte [es:RB_DFAST],0            ; FAST: the registers are the same
+    jne .vram
+    mov ax,bx                           ; its registers and window line
+    mov cl,10                           ;   against the last call's
+    mul cl
+    mov di,ax
+    add di,RB_DLREG
+    mov si,PPU_REGS
+    mov cx,4
+    repe cmpsw
+    jne .regs
+    mov al,[PPU_WLINE]
+    cmp al,[es:di]
+    jne .regs
+    ; the background's row, the window's, and the sprites' tiles
+.vram:
+    mov al,[es:RB_DTCH]
+    or al,[es:RB_DMCH]
+    jz .clean                           ; no cell and no tile changed
+    mov al,[PPU_REGS+0]
+    test al,80h
+    jz .clean                           ; the LCD off: white, as before
+    test al,01h
+    jz .spr
+    call ppu_bgdirty
+    jc .dirty
+    call ppu_wdirty
+    jc .dirty
+.spr:
+    test byte [PPU_REGS+0],02h
+    jz .clean
+    cmp byte [es:RB_DTCH],0
+    je .clean
+    call ppu_sdirty
+    jc .dirty
+.clean:
+    clc
+    jmp short .r
+.regs:
+    mov ax,bx                           ; keep them, and compose
+    mov cl,10
+    mul cl
+    mov di,ax
+    add di,RB_DLREG
+    mov si,PPU_REGS
+    mov cx,4
+    rep movsw
+    mov al,[PPU_WLINE]
+    stosb
+.dirty:
+    stc
+.r:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ppu_bgdirty: CF = 1 if a map cell or tile under the line's background
+; changed - judged once per map row and first column, and kept
+ppu_bgdirty:
+    mov al,[PPU_REGS+0]
+    and al,10h
+    cmp al,[es:RB_DMODE]
+    je .m
+    mov [es:RB_DMODE],al
+    mov word [es:RB_DBKEY],0
+    mov word [es:RB_DWKEY],0
+.m:
+    mov dl,[PPU_LY]
+    add dl,[PPU_REGS+1]
+    mov bl,dl
+    xor bh,bh
+    and bl,0F8h
+    shl bx,1
+    shl bx,1
+    mov si,9800h
+    test byte [PPU_REGS+0],08h
+    jz .m1
+    mov si,9C00h
+.m1:
+    add si,bx                           ; SI = the map row
+    mov cl,[PPU_REGS+2]
+    shr cl,1
+    shr cl,1
+    shr cl,1                            ; CL = the first column
+    cmp si,[es:RB_DBKEY]
+    jne .judge
+    cmp cl,[es:RB_DBCOL]
+    jne .judge
+    cmp byte [es:RB_DBRES],1            ; the verdict kept: CF = it was 1
+    cmc
+    ret
+.judge:
+    mov [es:RB_DBKEY],si
+    mov [es:RB_DBCOL],cl
+    call ppu_rowdirty
+    mov al,0
+    adc al,0
+    mov [es:RB_DBRES],al
+    shr al,1
+    ret
+
+; ppu_wdirty: CF = 1 if the window shows on this line and a cell or tile
+; under it changed
+ppu_wdirty:
+    test byte [PPU_REGS+0],20h
+    jz .no
+    mov al,[PPU_LY]
+    cmp al,[PPU_REGS+6]
+    jb .no
+    cmp byte [PPU_REGS+7],166
+    ja .no
+    mov bl,[PPU_WLINE]
+    xor bh,bh
+    and bl,0F8h
+    shl bx,1
+    shl bx,1
+    mov si,9800h
+    test byte [PPU_REGS+0],40h
+    jz .m2
+    mov si,9C00h
+.m2:
+    add si,bx
+    cmp si,[es:RB_DWKEY]
+    jne .judge
+    cmp byte [es:RB_DWRES],1
+    cmc
+    ret
+.judge:
+    mov [es:RB_DWKEY],si
+    xor cl,cl
+    call ppu_rowdirty
+    mov al,0
+    adc al,0
+    mov [es:RB_DWRES],al
+    shr al,1
+    ret
+.no:
+    clc
+    ret
+
+; ppu_rowdirty: SI = a map row, CL = its first column: CF = 1 if any of the
+; 21 cells from there (wrapping at 32) changed, or the tile it names did
+ppu_rowdirty:
+    push bx
+    push cx
+    push dx
+    mov dx,si
+    sub dx,9800h                        ; DX = the row's offset in the maps
+    cmp byte [es:RB_DTCH],0
+    jne .full
+    mov bx,dx                           ; no tile changed: the row's own
+    push cx                             ;   byte answers (a cell outside the
+    mov cl,5                            ;   21 shown costs a needless line,
+    shr bx,cl                           ;   never a missed one)
+    pop cx
+    cmp byte [es:RB_DMROW+bx],0
+    jne .yes
+    clc
+    jmp short .r
+.full:
+    mov ch,21
+.c:
+    and cl,31
+    mov bl,cl
+    xor bh,bh
+    add bx,dx
+    cmp byte [es:RB_DMD+bx],0
+    jne .yes
+    mov bl,[9800h+bx]                   ; the tile number
+    xor bh,bh
+    cmp byte [es:RB_DMODE],0
+    jne .t                              ; 8000 mode: 0-255 as they are
+    test bl,80h
+    jnz .t                              ; 9000 mode: 128-255 are 128-255,
+    inc bh                              ;   0-127 are 256-383
+.t:
+    cmp byte [es:RB_DTD+bx],0
+    jne .yes
+    inc cl
+    dec ch
+    jnz .c
+    clc
+    jmp short .r
+.yes:
+    stc
+.r:
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; ppu_sdirty: CF = 1 if a sprite that may cover the line uses a changed tile
+ppu_sdirty:
+    mov al,[PPU_LY]
+    mov bl,41
+    mul bl
+    mov bx,ax
+    mov cl,[PPU_LSPR+bx]
+    or cl,cl
+    jz .no
+    lea si,[PPU_LSPR+1+bx]
+.s:
+    mov bl,[si]
+    xor bh,bh
+    shl bx,1
+    shl bx,1
+    mov bl,[0FE02h+bx]                  ; its tile: both of an 8x16's pair
+    and bl,0FEh
+    xor bh,bh
+    cmp byte [es:RB_DTD+bx],0
+    jne .yes
+    cmp byte [es:RB_DTD+1+bx],0
+    jne .yes
+    inc si
+    dec cl
+    jnz .s
+.no:
+    clc
+    ret
+.yes:
+    stc
+    ret
+
+; ppu_wstep: a line not composed still moves the window's line counter, as
+; ppu_line would have
+ppu_wstep:
+    mov al,[PPU_REGS+0]
+    test al,80h
+    jz .r
+    test al,01h
+    jz .r
+    test al,20h
+    jz .r
+    mov ah,[PPU_LY]
+    cmp ah,[PPU_REGS+6]
+    jb .r
+    cmp byte [PPU_REGS+7],166
+    ja .r
+    inc byte [PPU_WLINE]
+.r:
+    ret
+
+; ppu_dput: the composed line into the caller's buffer, if it differs - and
+; RB_DCHG says so. DS = view, ES = damage.
+ppu_dput:
+    push es
+    mov bx,es
+    mov ch,[es:RB_DFULL]                ; everything: the buffer is not what
+    mov al,[PPU_LY]                     ;   the screen shows
+    mov cl,40
+    mul cl
+    les di,[es:RB_DOUT]
+    add di,ax                           ; ES:DI = the line in the buffer
+    mov dx,di
+    or ch,ch
+    jnz .diff
+    mov si,PPU_OL
+    mov cx,10
+    repe cmpsw
+    jne .diff
+    mov si,PPU_OH                       ; (DI is at the line's byte 20)
+    mov cx,10
+    repe cmpsw
+    je .same
+.diff:
+    mov di,dx
+    mov si,PPU_OL
+    mov cx,10
+    rep movsw
+    mov si,PPU_OH
+    mov cx,10
+    rep movsw
+    mov es,bx
+    mov bl,[PPU_LY]
+    xor bh,bh
+    mov byte [es:RB_DCHG+bx],1
+    inc word [es:RB_DCNT]
+.same:
+    pop es
+    ret
+
 ; ppu_oam: PPU_LSPR from OAM - for each line, the sprites whose 16 rows
 ; from Y - 16 cover it, in OAM order. The real height is LCDC's at the line,
 ; which a mid-frame write may change, so ppu_sprites checks it there.

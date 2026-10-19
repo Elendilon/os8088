@@ -32,6 +32,14 @@ RW_FSSKIP       equ 4               ; frames run undrawn at most, behind
 RW_FSX          equ 10              ; the picture's byte column (x = 80)
 RW_FSY          equ 28              ; ...and its first row
 RW_FSTXT        equ 182             ; the speed line's row
+RW_FSVGA        equ 0               ; rw_fskind: the writers
+RW_FSHERC       equ 1
+RW_FSCGA        equ 2
+RW_HX           equ 25              ; Hercules: the picture's byte column
+RW_HY           equ 26              ;   (x = 200, 320 wide) and first row
+RW_HTXT         equ 322             ;   (288 tall), and the speed line's
+RW_CY           equ 28              ; CGA: the picture's first row (320 by
+RW_CTXT         equ 182             ;   144), and the speed line's
 RW_FSBUD        equ 6000            ; M-cycles a core run in here: no mouse
 RW_FSBUD86      equ 1400            ;   to serve, so only IRQ0 bounds it - one
                                     ;   rate period is 16.7 ms, and a 286 at
@@ -49,11 +57,8 @@ rw_mgrey:
     mov si, rw_it_fs0
     cmp byte [rw_state], 1
     jne .set
-    mov bx, [rw_win]
-    call OSAPI_FSX_CAPS             ; AX = the modes this display can set
-    mov si, rw_it_fsv
-    test ax, 1 << FSXM_VGA0D
-    jz .set
+    call rw_fspick                  ; CF = 1: no mode we have a writer for
+    jc .set
     mov si, rw_it_fs
 .set:
     mov [rw_i_mach + 4], si
@@ -76,10 +81,9 @@ rw_mgrey:
 rw_fsenter:
     cmp byte [rw_state], 1
     jne .r
-    mov bx, [rw_win]
-    call OSAPI_FSX_CAPS
-    test ax, 1 << FSXM_VGA0D
-    jz .r                           ; greyed; a shortcut gets nothing either
+    call rw_fspick                  ; AL = the writer
+    jc .r                           ; greyed; a shortcut gets nothing either
+    mov [rw_fskind], al
     call OSAPI_FONT_GLYPHS          ; DX:SI, AL first, AH last: copied now,
     call rw_fscopy                  ;   before the mode leaves the desktop's
     mov byte [rw_fsq], 1
@@ -110,6 +114,35 @@ rw_fsenter:
     mov word [rw_owed], 0
     mov byte [rw_fsq], 0
 .r:
+    ret
+
+; rw_fspick - the writer for this window's display: VGA mode 0Dh, else the
+; Hercules page at 2x2, else CGA's 320x200 in four colours. AL = RW_FS*, or
+; CF = 1 for none.
+rw_fspick:
+    push bx
+    mov bx, [rw_win]
+    call OSAPI_FSX_CAPS             ; AX = the modes this display can set
+    pop bx
+    test ax, 1 << FSXM_VGA0D
+    jz .h
+    mov al, RW_FSVGA
+    clc
+    ret
+.h:
+    test ax, 1 << FSXM_HERC
+    jz .c
+    mov al, RW_FSHERC
+    clc
+    ret
+.c:
+    test ax, 1 << FSXM_CGA320
+    jz .no
+    mov al, RW_FSCGA
+    clc
+    ret
+.no:
+    stc
     ret
 
 ; rw_fscopy - the glyphs for 32-127 into rw_font, blanks where the table
@@ -160,10 +193,14 @@ rw_fshook:
 rw_fsmain:
     push ds
     pop es
-    mov al, FSXM_VGA0D
+    mov bl, [rw_fskind]
+    xor bh, bh
+    mov al, [rw_fsmodes + bx]
     mov di, rw_fsi
     call OSAPI_FSX_MODE
     jc .r
+    cmp byte [rw_fskind], RW_FSVGA
+    jne .mono
     call rw_fsdac
     call rw_fsframe
     push ds
@@ -172,6 +209,13 @@ rw_fsmain:
     mov cx, 5760 / 2                ;   screen to zero, and so is it
     xor ax, ax
     rep stosw
+    call rw_dmgfull                 ; and every line of the first frame
+    jmp short .in
+.mono:
+    call rw_fsclear                 ; Hercules or CGA: the screen black,
+    call rw_fstab                   ;   the writer's table, and every line
+    call rw_dmgfull                 ;   of the first frame
+.in:
     mov byte [rw_infsx], 1
     push word [rw_budget]           ; the window's budget, back at the end
     mov ax, RW_FSBUD
@@ -220,6 +264,8 @@ rw_fsmain:
     mov byte [rw_fsrun], 0
     inc word [rw_ndrawn]
     call rw_fsdraw
+    call rw_fsdrain                 ; Esc between two draws too: on an 8088
+    jnz .out                        ;   a turn of frames is longer than a press
     cmp word [rw_fsleft], 0
     jne .f
     jmp short .loop
@@ -316,10 +362,11 @@ rw_fsframe:
 ; rw_fsdraw - the frame onto VRAM through the shadow, and the speed line
 ; when F1 has it up and it changed
 rw_fsdraw:
-    push ds
-    pop es
-    mov di, rw_fbuf
-    call rb_render
+    cmp byte [rw_fskind], RW_FSVGA
+    je .vga
+    jmp rw_fsdrawd
+.vga:
+    call rw_render                  ; the changed lines, by damage
     mov es, [rw_fsi + FSI_SEG]
     mov dx, 3C4h
     mov ax, 0102h                   ; plane 0: the shade's bit 0
@@ -346,8 +393,15 @@ rw_fsplane:
     mov bx, si
     add bx, rw_pbuf - rw_fbuf       ; BX = the shadow of the same bytes
     mov di, RW_FSY * 40 + RW_FSX
-    mov dx, 144
+    xor dx, dx                      ; DL = the line
 .l:
+    call rw_dchg                    ; a line rb_renderd left alone: past it
+    jnz .w0
+    add si, 40
+    add bx, 40
+    add di, 40
+    jmp short .nx
+.w0:
     mov cx, 10
 .w:
     lodsw
@@ -364,8 +418,10 @@ rw_fsplane:
     add si, 20
     add bx, 20
     add di, 40 - 20
-    dec dx
-    jnz .l
+.nx:
+    inc dl
+    cmp dl, 144
+    jb .l
     pop dx
     ret
 
@@ -410,3 +466,320 @@ rw_fstext:
 rw_fsgreys:
     db 63, 63, 63,  42, 42, 42,  21, 21, 21,  0, 0, 0
     db 4, 4, 8,  0, 0, 0,  0, 0, 0,  48, 48, 52
+
+rw_fsmodes:     db FSXM_VGA0D, FSXM_HERC, FSXM_CGA320
+
+; =============================================================================
+; The Hercules and CGA writers (REALBOY-SPEC section 15.1): rb_renderd's
+; changed lines, through a table, straight to the page. A Game Boy byte -
+; eight pixels, two shade bits each - is two NIBBLE indices, (bit 0's four
+; pixels << 4) | bit 1's, and each index is a table entry: on a Hercules two
+; bytes, the 2x2 dither's top and bottom rows of those four pixels doubled;
+; on a CGA a word, the four pixels doubled in four colours.
+; =============================================================================
+
+; rw_fsclear - the page black. ES:DI from rw_fsi.
+rw_fsclear:
+    mov es, [rw_fsi + FSI_SEG]
+    xor di, di
+    mov cx, 8000h / 2               ; Hercules' 32KB (CGA's 16KB, twice)
+    cmp byte [rw_fskind], RW_FSHERC
+    je .c
+    mov cx, 4000h / 2
+.c:
+    xor ax, ax
+    rep stosw
+    ret
+
+; rw_fstab - rw_htab for the writer: 256 x (row a, row b) bytes for a
+; Hercules, 256 words for a CGA
+rw_fstab:
+    xor bx, bx                      ; BL = the index
+.i:
+    xor dx, dx                      ; the entry, a pixel at a time
+    mov ch, 3                       ; CH = the pixel's bit in each nibble,
+.p:                                 ;   the leftmost (3) first
+    mov cl, ch
+    mov al, bl
+    shr al, cl                      ; bit 1's: the low nibble
+    and al, 1
+    shl al, 1
+    mov ah, bl
+    add cl, 4
+    shr ah, cl                      ; bit 0's: the high nibble
+    and ah, 1
+    or al, ah                       ; AL = the shade, 0-3
+    push bx
+    mov bl, al
+    xor bh, bh
+    cmp byte [rw_fskind], RW_FSHERC
+    jne .cga
+    shl dl, 1                       ; Hercules: two pixels on each row
+    shl dl, 1
+    shl dh, 1
+    shl dh, 1
+    or dl, [rw_hdita + bx]
+    or dh, [rw_hditb + bx]
+    jmp short .nx
+.cga:
+    mov cl, 4                       ; CGA: the colour twice, four bits
+    shl dx, cl
+    or dl, [rw_cgac + bx]
+.nx:
+    pop bx
+    dec ch
+    jns .p
+    push bx
+    xor bh, bh
+    shl bx, 1
+    cmp byte [rw_fskind], RW_FSHERC
+    jne .w
+    mov [rw_htab + bx], dl          ; Hercules: row a, then row b
+    mov [rw_htab + bx + 1], dh
+    jmp short .wd
+.w:
+    xchg dl, dh                     ; CGA: the left pixels' byte first
+    mov [rw_htab + bx], dx
+.wd:
+    pop bx
+    inc bl
+    jnz .i
+    ret
+
+rw_hdita:       db 3, 3, 2, 0       ; the 2x2 dither, a shade's two pixels
+rw_hditb:       db 3, 2, 1, 0       ;   on the top row and on the bottom
+rw_cgac:        db 0Fh, 05h, 0Ah, 00h ; shade -> CGA colour, doubled: white,
+                                    ;   cyan, magenta, black
+
+; rw_fsdrawd - a frame by damage onto the Hercules or CGA page, and the speed
+; line when it changed
+rw_fsdrawd:
+    call rw_render                  ; AX = the lines that changed
+    mov es, [rw_fsi + FSI_SEG]
+    or ax, ax
+    jz .txt
+    xor dl, dl                      ; DL = the line
+.l:
+    call rw_dchg
+    jz .n
+    push dx
+    mov al, dl
+    mov ah, 40
+    mul ah
+    mov si, rw_fbuf
+    add si, ax                      ; SI = the line's two planes
+    xor dh, dh
+    cmp byte [rw_fskind], RW_FSHERC
+    jne .cga
+    call rw_hline
+    jmp short .p
+.cga:
+    call rw_cline
+.p:
+    pop dx
+.n:
+    inc dl
+    cmp dl, 144
+    jb .l
+.txt:
+    cmp byte [rw_ovl], 0
+    je .r
+    cmp byte [rw_ovlnew], 0
+    je .r
+    mov byte [rw_ovlnew], 0
+    call rw_fstext1
+.r:
+    ret
+
+; rw_hrow - AX = a Hercules row: DI = its first byte at the picture's column
+rw_hrow:
+    push ax
+    push cx
+    push dx
+    mov di, ax
+    and di, 3
+    mov cl, 13
+    shl di, cl                      ; the bank: (row AND 3) x 2000h
+    mov cl, 2
+    shr ax, cl
+    mov cx, 90
+    mul cx
+    add di, ax
+    add di, RW_HX
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; rw_hline - DX = a Game Boy line, SI = its planes: Hercules rows HY + 2 x
+; line and the one under it, 40 bytes each
+rw_hline:
+    mov ax, dx
+    shl ax, 1
+    add ax, RW_HY
+    call rw_hrow
+    mov bp, di                      ; BP = row a
+    inc ax
+    call rw_hrow                    ; DI = row b
+    xchg bp, di
+    mov bx, rw_htab
+    mov ch, 20
+    mov cl, 4
+.b:
+    mov al, [si]                    ; bit 0's eight pixels
+    mov ah, [si + 20]               ; bit 1's
+    inc si
+    mov dl, al
+    and dl, 0F0h
+    mov dh, ah
+    shr dh, cl
+    or dl, dh                       ; DL = the left four's index
+    shl al, cl
+    and ah, 0Fh
+    or ah, al                       ; AH = the right four's
+    mov al, dl
+    xor dh, dh
+    mov dl, ah                      ; (DL kept: the right index)
+    xor ah, ah
+    shl ax, 1
+    xchg ax, bx
+    mov ax, [rw_htab + bx]          ; AL = row a, AH = row b, left four
+    xchg ax, bx
+    mov [es:di], bl
+    mov [es:bp], bh
+    mov bl, dl
+    xor bh, bh
+    shl bx, 1
+    mov ax, [rw_htab + bx]          ; ...the right four
+    mov [es:di + 1], al
+    mov [es:bp + 1], ah
+    add di, 2
+    add bp, 2
+    dec ch
+    jnz .b
+    ret
+
+; rw_cline - DX = a Game Boy line, SI = its planes: CGA row CY + line, 80
+; bytes (even rows at 0, odd at 2000h)
+rw_cline:
+    mov ax, dx
+    add ax, RW_CY
+    mov di, ax
+    and di, 1
+    mov cl, 13
+    shl di, cl
+    shr ax, 1
+    mov cx, 80
+    push dx
+    mul cx
+    pop dx
+    add di, ax
+    mov ch, 20
+    mov cl, 4
+.b:
+    mov al, [si]
+    mov ah, [si + 20]
+    inc si
+    mov dl, al
+    and dl, 0F0h
+    mov dh, ah
+    shr dh, cl
+    or dl, dh                       ; DL = the left four's index
+    shl al, cl
+    and ah, 0Fh
+    or ah, al                       ; AH = the right four's
+    mov bl, dl
+    xor bh, bh
+    shl bx, 1
+    mov dx, [rw_htab + bx]
+    mov [es:di], dx
+    mov bl, ah
+    xor bh, bh
+    shl bx, 1
+    mov dx, [rw_htab + bx]
+    mov [es:di + 2], dx
+    add di, 4
+    dec ch
+    jnz .b
+    ret
+
+; rw_fstext1 - rw_ovltxt under the picture on a Hercules or CGA page, the
+; glyph's set bits lit (a CGA's in colour 3)
+rw_fstext1:
+    mov si, rw_ovltxt
+    xor bx, bx                      ; BX = the cell
+.c:
+    mov al, [si]
+    or al, al
+    jnz .g
+    mov al, ' '
+    dec si
+.g:
+    inc si
+    sub al, 32
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    push si
+    mov si, rw_font
+    add si, ax                      ; SI = its eight rows
+    xor cx, cx                      ; CX = the row
+.r:
+    lodsb
+    push cx
+    push bx
+    cmp byte [rw_fskind], RW_FSHERC
+    jne .cg
+    mov dl, al
+    mov ax, RW_HTXT
+    add ax, cx
+    call rw_hrow
+    add di, bx
+    mov [es:di], dl
+    jmp short .rn
+.cg:
+    mov dl, al                      ; eight pixels in colour 3: a word
+    xor ax, ax
+    mov cx, 8
+.x:
+    shl ax, 1
+    shl ax, 1
+    shl dl, 1
+    jnc .x0
+    or al, 3
+.x0:
+    loop .x
+    xchg al, ah                     ; the left pixels' byte first
+    pop bx
+    pop cx
+    push cx
+    push bx
+    push ax
+    mov ax, RW_CTXT
+    add ax, cx
+    mov di, ax
+    and di, 1
+    mov cl, 13
+    shl di, cl
+    shr ax, 1
+    mov cx, 80
+    mul cx
+    add di, ax
+    shl bx, 1
+    add di, bx
+    add di, 10                      ; the line starts 20 pixels in... x 4
+    pop ax
+    mov [es:di], ax
+.rn:
+    pop bx
+    pop cx
+    inc cx
+    cmp cx, 8
+    jb .r
+    pop si
+    inc bx
+    cmp bx, 16
+    jb .c
+    ret
+

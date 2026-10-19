@@ -2,7 +2,7 @@
 """Build a bootable floppy that runs RealBoy's core on a bare machine.
 
     python3 tests/rbcore/rbimg.py ROM.GB -o build/realboy/t.img
-        [--geom 360|720|1200|1440] [--mode test|bench|trace|play|idle|render] [--frames N]
+        [--geom 360|720|1200|1440] [--mode test|bench|trace|play|idle|render|damage] [--frames N]
         [--patch OFF:HEX]
 
 tests/rbcore/rbhost.asm is the boot sector and the harness; this assembles
@@ -19,7 +19,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 GEOM = {360: (9, 2, 40), 720: (9, 2, 80), 1200: (15, 2, 80), 1440: (18, 2, 80)}
-MODES = {"test": 0, "bench": 1, "trace": 2, "play": 3, "idle": 4, "render": 5}
+MODES = {"test": 0, "bench": 1, "trace": 2, "play": 3, "idle": 4, "render": 5, "damage": 6}
 
 
 def build_core(trace, out_dir):
@@ -44,7 +44,8 @@ def build_core(trace, out_dir):
 def build_host(out_dir):
     binf = os.path.join(out_dir, "rbhost.bin")
     subprocess.check_call(["nasm", "-f", "bin", "-w+error"] +
-                          (["-DRT_DEBUG"] if os.environ.get("RT_DEBUG") else []) + [
+                          (["-DRT_DEBUG"] if os.environ.get("RT_DEBUG") else []) +
+                          (["-DDMG_DEBUG"] if os.environ.get("DMG_DEBUG") else []) + [
                            "-I", os.path.join(ROOT, "apps/realboy/"),
                            "-I", os.path.join(ROOT, "tests/rbcore/"),
                            "-I", out_dir + "/",

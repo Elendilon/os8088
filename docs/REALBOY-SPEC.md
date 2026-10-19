@@ -402,6 +402,8 @@ on purpose for a negative control). Modes:
 | 2 `trace` | an `RB_TRACE` core: COM1 carries trace records and nothing else |
 | 3 `play` | as bench, pressing buttons on gbprof's platformer script, counters and ticks restarted at frame 800, then VRAM, OAM and the LCD registers on COM1 |
 | 4 `idle` | as play, no buttons |
+| 5 `render` | as play, composing every frame with `rb_render` |
+| 6 `damage` | as play, and every third frame composed both by `rb_renderd` and whole, counting the frames that differ (section 13.2) |
 
 It ends with `RBHOST DONE frames F ticks T events E skipped S END`.
 
@@ -418,7 +420,8 @@ every loop iteration is in the trace.
 |---|---|
 | `tests/gbcpu.py` | the correctness ROMs, with a broken-DAA control: Blargg's `cpu_instrs` (all), `instr_timing`, `mem_timing` and `halt_bug`, and 26 of Mooneye's DMG acceptance tests |
 | `tests/rbcore/rbacid.py` | dmg-acid2 through `rb_render`, pixel for pixel, with a broken-`LDH` control |
-| `tests/gbwindow.py` | `REALBOY.O88` on MartyPC: dmg-acid2 opened from the Disk window, running, and on the glass pixel for pixel through both writers - and full screen (section 15) against the same reference, then back to the desktop |
+| `tests/gbwindow.py` | `REALBOY.O88` on MartyPC's VGA XT, 5150 Hercules and 5150 CGA: dmg-acid2 opened from the Disk window, running, and on the glass pixel for pixel through each writer - and full screen (sections 15 and 15.1) against the same reference, then back to the desktop |
+| `tests/gbdamage.py` | `rb_renderd` against `rb_render` every third frame of a game, under QEMU (section 13.2) |
 | `tests/rbcore/rbwin.py`, `tests/rbspeed286.py` | the package's game speed and frames drawn on an 86Box machine, in its window or full screen, with a profile on request; `rbspeed286` runs Super Mario Land and Kirby on the 286 (`$OS88_GB_ROMS`) |
 | `tools/gbtrace.py`, `tests/gbtrace.py` | the differential trace against Peanut-GB, with a broken-`JR NZ` control |
 | `tests/rbcore/rbbench.py` | cost per M-cycle on gbclock, or a game's frames against real time |
@@ -482,6 +485,50 @@ window has no second pass over the frame.
 pixels. It is the composer only: the writers that take the planes to a
 screen are the package's.
 
+### 13.2 By damage: rb_renderd
+
+**`rb_renderd` is `rb_render` that composes only what changed since its last
+call.** It composes only the lines whose inputs changed, and writes only the
+lines whose pixels then differ. The caller's buffer is ES:DI, and it holds
+the last frame. `[rb_dmgseg]` is `RB_DMG_SIZE` bytes of the host's memory
+(about 12.4KB); with it 0, `rb_renderd` is `rb_render` and every line has
+changed. On return, `RB_DCHG` in that memory holds a byte for each line (1:
+it changed), and AX holds the count.
+
+- **A line's inputs** are its eight registers and the window's line counter,
+  the map cells and tile rows under its background and window, and its
+  sprites: their OAM entries and their tiles.
+- **VRAM and OAM are compared** against a shadow of what the last call saw
+  (`ppu_dscan`). The comparison runs `repe cmpsw` over the tile data a tile
+  at a time and over both maps a word at a time. A changed tile, map byte,
+  map row or sprite sets its byte, and a sprite that changed marks the lines
+  it left and the lines it covers now.
+- **Each line is then looked up** (`ppu_ldirty`). Its registers are compared
+  with what the last call kept for it. Its background row and window row are
+  judged once per map row and first column and the verdict kept
+  (`ppu_rowdirty`). Each sprite that may cover it has its tiles checked.
+- **FAST**: in a frame with no raster write, after a frame with none, and
+  with the registers as they were, every line's registers are known to be
+  the same. The rows and sprites are then judged a map row or a sprite at a
+  time (`ppu_dfast`), not a line at a time. With nothing changed at all, no
+  line is visited.
+- **`RB_DFULL`** = 1, set by the host after it cleared the screen or when its
+  buffer holds something else, composes and writes everything, and takes
+  the shadows whole.
+- **What it costs** an 8088 is the comparison, ~20 ms of 8KB a call. It
+  saves ~4 ms of composition for every line it skips. On Super Mario Land it
+  composed 38 lines a call of 144, and on Kirby's Dream Land 27.
+
+It took gbclock's do-nothing variant in a Hercules window on MartyPC's 5150
+from **43% of real time to 100%**: the drawing had been most of the machine.
+
+`tests/gbdamage.py` is the gate. The bare harness's MODE 6 composes every
+third frame both ways, by damage into a buffer it keeps and whole by
+`rb_render`, and counts the frames whose pictures differ.
+- It runs on gbclock's frame counter (ours), and with `$OS88_GB_ROMS` on
+  Super Mario Land and Kirby's Dream Land.
+- Taking out the map-row marks fails it on 497 frames of 500.
+
 ## 14. The package
 
 `REALBOY.O88` (`apps/realboy/realboy.asm`, `OS88_STACK_384`) is a window of
@@ -512,8 +559,12 @@ screen are the package's.
   stops the clock.
 - **The writers**: on a colour display `OSAPI_GFX_BLITP` with the clip walk,
   of `rb_render4`'s planes; on a 1bpp display, or where BLITP refuses,
-  `OSAPI_GFX_BLIT1` through a 2x2 ordered dither of `rb_render`'s - shade 0
-  lit, 1 a quarter dark, 2 a checkerboard, 3 dark. The buffer remembers which
+  `OSAPI_GFX_BLIT1` through a 2x2 ordered dither of `rb_renderd`'s (section
+  13.2) - shade 0 lit, 1 a quarter dark, 2 a checkerboard, 3 dark. Only the
+  changed lines are dithered and blitted, a band for each run of them, and a
+  frame that changed nothing draws nothing. The damage memory is claimed
+  with the game (`rw_dmgclaim`); a buffer that held the other format, a
+  reset and full screen all start the next draw from every line. The buffer remembers which
   it holds, and a paint on the other kind of display (the window moved
   between two) is white until the worker's next frame. A refusal dithers
   until the next paint asks BLITP again.
@@ -525,9 +576,12 @@ screen are the package's.
 ## 15. Full screen
 
 Machine > Full Screen runs the machine **on the UI task inside an
-`OSAPI_FSX_RUN` bracket** (SPEC.md 53), in `apps/realboy/rwfsx.inc`. It is
-greyed, with the reason, without a game and on a display that cannot set mode
-0Dh (`OSAPI_FSX_CAPS`, asked at every paint); Esc leaves.
+`OSAPI_FSX_RUN` bracket** (SPEC.md 53), in `apps/realboy/rwfsx.inc`. The
+mode depends on the display (`rw_fspick`, `OSAPI_FSX_CAPS`, asked at every
+paint): VGA's mode 0Dh, else a Hercules page, else CGA's 320x200 in four
+colours (section 15.1). It is greyed without a game and on a display with
+none of the three. Esc leaves; it is looked for between frames and after
+every draw, as a turn of frames on an 8088 is longer than a key press.
 
 - **The worker keeps out of the machine.** It is frozen in the bracket, so it
   must not be frozen in the core, or in `rb_render`, whose working memory is
@@ -538,9 +592,9 @@ greyed, with the reason, without a game and on a display that cannot set mode
   it reads ours, so once ours is set and its is seen clear, every later entry
   of its sees ours.
 - **The screen** is mode 0Dh, 320x200 planar, with the picture at 1x at
-  (80, 28). `rb_render`'s two shade planes go to VGA planes 0 and 1 as they
-  are, through a RAM shadow of the last frame, so a word is written only when
-  it changed. Plane 2 is set everywhere but the picture: the border is DAC
+  (80, 28). `rb_renderd`'s two shade planes go to VGA planes 0 and 1 as they
+  are, for the lines it changed, through a RAM shadow of the last frame, so
+  a word is written only when it changed. Plane 2 is set everywhere but the picture: the border is DAC
   entry 4, and F1's speed line over it, in glyphs copied before the mode
   (`OSAPI_FONT_GLYPHS`), entry 7. Shades 0-3 are DAC 0-3, greys. The DAC is
   ours in there; the restore's BIOS mode set puts the desktop's back.
@@ -556,6 +610,27 @@ greyed, with the reason, without a game and on a display that cannot set mode
 - **Coming back**: the window's buffer was the bracket's shadow, so it is
   marked empty and the restore's repaint is white until the worker's next
   frame; the worker's clock restarts from the moment the bracket ended.
+
+### 15.1 Hercules and CGA
+
+**On a Hercules the page is 720x348, with the picture at 2x2 from (200, 26):
+320x288.** Each Game Boy pixel is a 2x2 dither of its shade: four lit, three,
+a checkerboard, or none. **On a CGA the mode is 320x200 in four colours, with
+the picture at 2x1 from (0, 28): 320x144.** The shades are white, cyan,
+magenta and black, the BIOS's palette 1.
+
+- **Only the changed lines are written**, straight to the page:
+  `rb_renderd`'s lines (section 13.2), so a still frame writes nothing.
+- **A table does the work** (`rw_fstab`). A Game Boy byte (eight pixels,
+  two shade bits each) is two nibble indices, `(bit 0's four pixels << 4) |
+  bit 1's`. Each index is one entry: two bytes on a Hercules (the dither's
+  top and bottom rows of those four pixels, doubled), and one word on a CGA
+  (the four pixels doubled in four colours).
+- **The page is cleared at entry**, and F1's speed line goes under the
+  picture in the glyphs' own bits.
+
+`tests/gbwindow.py` reads both out of the card's memory, against the same
+dmg-acid2 reference as the window, on MartyPC's 5150 Hercules and CGA.
 
 ## 16. The recompiler
 

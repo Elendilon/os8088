@@ -24,6 +24,10 @@
 ;   MODE 4 (idle)   as MODE 3 with no buttons pressed.
 ;   MODE 5 (render) as MODE 3, composing every frame with rb_render - the
 ;                   picture's CPU cost, with no screen written.
+;   MODE 6 (damage) as MODE 3, and every third frame composed twice: by
+;                   rb_renderd into a buffer it keeps, and whole by
+;                   rb_render. The DONE line counts the frames whose two
+;                   pictures differ (REALBOY-SPEC section 13.2's gate).
 ;
 ; Memory: the boot sector at 0000:7C00, the stack below it, this harness at
 ; 0800:0000, the core at 1000:0000, the view at 2000:0000, the ROM from
@@ -42,6 +46,8 @@ CACHE_SEG       equ 0x9000                  ; the recompiler's 64KB, past the
 FRAME_SEG       equ 0x0500                  ; rb_render's 5,760 bytes, under the
                                             ;   boot stack: the harness (with the
                                             ;   recompiler's templates) runs past A000h
+FRAMED_SEG      equ 0x0060                  ; MODE 6: rb_renderd's buffer
+DMG_SEG         equ 0x01D0                  ;   and its damage memory
 
 ; --- the boot sector ---------------------------------------------------------
 section boot start=0 vstart=0x7C00
@@ -246,13 +252,18 @@ host_main:
     jb .nj
     call joy_script
     cmp byte [h_mode],5                 ; MODE 5: compose every frame too
-    jne .nj
+    jne .n6
     push es
     mov ax,FRAME_SEG
     mov es,ax
     xor di,di
     call rb_render
     pop es
+    jmp short .nj
+.n6:
+    cmp byte [h_mode],6                 ; MODE 6: by damage and whole
+    jne .nj
+    call dmg_check
 .nj:
     mov ax,[nframes]
     cmp ax,[h_frames]
@@ -328,6 +339,33 @@ host_main:
     loop .dbg
     pop ds
 %endif
+    cmp byte [h_mode],6
+    jne .nd
+    mov si,s_dmg
+    call puts
+    mov ax,[dmg_bad]
+    call dec16
+    mov si,s_dmg1
+    call puts
+    mov ax,[dmg_first]
+    call dec16
+    mov si,s_dmg2
+    call puts
+    mov ax,[dmg_lines]
+    call dec16
+    mov si,s_dmg3
+    call puts
+    mov ax,[dmg_off]
+    call dec16
+%ifdef DMG_DEBUG
+    mov si,dmg_dump
+    mov cx,85
+.dd:
+    lodsb
+    call hex8
+    loop .dd
+%endif
+.nd:
     mov si,s_end
     call puts
     cmp byte [h_mode],3                 ; MODES 3 and 4 end with the picture's
@@ -384,6 +422,94 @@ host_main:
 .halt:
     hlt
     jmp .halt
+
+; dmg_check - MODE 6: every third frame, rb_renderd against rb_render
+dmg_check:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    push ds
+    push es
+    mov ax,[nframes]
+    xor dx,dx
+    mov cx,3
+    div cx
+    or dx,dx
+    jnz .r
+    cmp word [cs:rb_dmgseg],0
+    jne .on
+    mov word [cs:rb_dmgseg],DMG_SEG     ; the first time: everything
+    mov ax,DMG_SEG
+    mov es,ax
+    mov byte [es:RB_DFULL],1
+.on:
+    mov ax,FRAMED_SEG
+    mov es,ax
+    xor di,di
+    call rb_renderd                     ; AX = the lines it changed
+    add [cs:dmg_lines],ax
+    mov ax,FRAME_SEG
+    mov es,ax
+    xor di,di
+    call rb_render
+    mov ax,FRAMED_SEG
+    mov ds,ax
+    xor si,si
+    xor di,di
+    mov cx,5760 / 2
+    repe cmpsw
+    je .r
+    inc word [cs:dmg_bad]
+    cmp word [cs:dmg_first],0
+    jne .r
+    mov ax,[cs:nframes]
+    mov [cs:dmg_first],ax
+    mov [cs:dmg_off],si                 ; (past the first word that differs)
+%ifdef DMG_DEBUG
+    mov ax,si                           ; both copies of that line
+    dec ax
+    dec ax
+    xor dx,dx
+    mov cx,40
+    div cx
+    mul cx
+    mov si,ax
+    push ds
+    pop ax
+    push cs
+    pop es
+    mov di,dmg_dump
+    mov cx,40
+    rep movsb
+    sub si,40
+    mov ax,FRAME_SEG
+    mov ds,ax
+    mov cx,40
+    rep movsb
+    mov ax,DMG_SEG
+    mov ds,ax
+    mov si,RB_DTCH
+    mov cx,5
+    rep movsb
+%endif
+.r:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+dmg_bad     dw 0
+dmg_first   dw 0
+dmg_lines   dw 0
+dmg_off     dw 0
+%ifdef DMG_DEBUG
+dmg_dump    times 85 db 0
+%endif
 
 ; MODE 3's input, tools/gbprof/gbprof.c's platformer script frame for frame:
 ; Start at 150, 400 and 700, Right held, A for 14 frames of every 50, B for
@@ -576,6 +702,10 @@ dec16:
 s_hello db "RealBoy core harness",10,0
 s_bad   db 10,"RBHOST BADOP ",0
 s_done  db 10,"RBHOST DONE frames ",0
+s_dmg   db " damage-bad ",0
+s_dmg1  db " first ",0
+s_dmg2  db " lines ",0
+s_dmg3  db " at ",0
 s_ticks db " ticks ",0
 s_ev    db " events ",0
 s_skip  db " skipped ",0
