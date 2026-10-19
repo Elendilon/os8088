@@ -80,7 +80,17 @@ rw_drawt        equ rw_budget + 2   ; word: the tick the last frame was drawn
 rw_pfmt         equ rw_drawt + 2    ; rw_pbuf holds: 0 nothing, 1 the dither,
                                     ;   4 BLITP's planes (rb_render4)
 rw_nobp         equ rw_pfmt + 1     ; BLITP refused us: dither until a paint
-rw_fbuf         equ rw_nobp + 1     ; 5,760: rb_render's frame (monochrome)
+rw_incore       equ rw_nobp + 1     ; the worker is in the machine (rwfsx.inc)
+rw_fsq          equ rw_incore + 1   ; full screen asked: the worker keeps out
+rw_infsx        equ rw_fsq + 1      ; the machine runs in the bracket
+rw_fsrate       equ rw_infsx + 1    ; ...paced by FSXF_RATE, not the tick
+rw_fsrun        equ rw_fsrate + 1   ; frames run undrawn
+rw_ovlnew       equ rw_fsrun + 1    ; rw_ovltxt changed since it was drawn
+rw_fowed        equ rw_ovlnew + 1   ; word: rate periods counted by the hook
+rw_fsleft       equ rw_fowed + 2    ; word: frames still to run this turn
+rw_fsi          equ rw_fsleft + 2   ; FSI_SIZE: the mode's info block
+rw_font         equ rw_fsi + FSI_SIZE ; 768: glyphs 32-127, copied at entry
+rw_fbuf         equ rw_font + 768   ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 
@@ -372,6 +382,9 @@ rw_worker:                          ;   the worker parked at the top of its
 .loop:
     mov bx, [rw_win]
     call OSAPI_TASK_ALIVE           ; no lock held; a closed window ends here
+    mov byte [rw_incore], 1         ; raised BEFORE [rw_fsq] is read: the
+    cmp byte [rw_fsq], 0            ;   order rwfsx.inc's handoff rests on
+    jne .sleep
     cmp byte [rw_resetq], 0
     je .noreset
     mov byte [rw_resetq], 0
@@ -424,6 +437,7 @@ rw_worker:                          ;   the worker parked at the top of its
 .resync:
     mov [rw_last], ax
 .sleep:
+    mov byte [rw_incore], 0
     mov ax, 1
     call OSAPI_TASK_SLEEP
     jmp .loop
@@ -443,7 +457,10 @@ rw_frame:
     je .bad
     loop .run
 .done:
+    cmp byte [rw_infsx], 0          ; (in the bracket there is no one else)
+    jne .ok
     call OSAPI_TASK_YIELD           ; one a frame, for a UI task a click woke
+.ok:
     clc
     ret
 .bad:
@@ -506,6 +523,7 @@ rw_stat:
     or al, al
     jnz .c
 .zero:
+    mov byte [rw_ovlnew], 1
     xor ax, ax
     mov [rw_nrun], ax
     mov [rw_ndrawn], ax
@@ -541,12 +559,15 @@ rw_dec:
 ; window has the keyboard. F1 toggles the speed overlay.
 rw_keys:
     xor dl, dl
+    cmp byte [rw_infsx], 0          ; the bracket's keyboard is ours
+    jne .f1
     call OSAPI_WM_TOP
     cmp bx, [rw_win]
     jne .set
     call OSAPI_MENU_OWNER
     cmp bx, [rw_win]
     jne .set
+.f1:
     mov al, 3Bh                     ; F1, on its press
     call OSAPI_KEY_DOWN
     sbb al, al
@@ -556,6 +577,7 @@ rw_keys:
     and al, ah
     jz .nof1
     xor byte [rw_ovl], 1
+    mov byte [rw_ovlnew], 1
 .nof1:
     mov si, rw_keymap
     mov dh, 1
@@ -598,6 +620,8 @@ rw_present:
     call rw_dither
     mov byte [rw_pfmt], 1
 .show:
+    mov byte [rw_incore], 0         ; out of the machine BEFORE the lock: the
+                                    ;   UI task may hold it, waiting on this
     mov byte [rw_shown], 1
     cmp byte [rw_abon], 0           ; the About card is over us: keep it
     jne .r
@@ -730,6 +754,7 @@ rw_dither:
 
 ; rw_paint - SI = the window, the lock held, the clip armed
 rw_paint:
+    call rw_mgrey
     push si
     mov byte [rw_nobp], 0           ; a paint asks BLITP again: the window
     cmp byte [rw_shown], 0          ;   may have moved off the straddle
@@ -843,6 +868,8 @@ rw_oncmd:
     mov byte [rw_resetq], 1         ; Reset: the worker's to do
     ret
 .pause:
+    cmp al, 1
+    jne rw_fsenter                  ; Full Screen
     xor byte [rw_pause], 1
     ret
 
@@ -863,7 +890,7 @@ rw_tpl:
 
     OS88_MENUSET rw_menus, rw_ttl, rw_oncmd
         OS88_MENU rw_m_file, rw_i_file, 2
-        OS88_MENU rw_m_mach, rw_i_mach, 2
+        OS88_MENU rw_m_mach, rw_i_mach, 3
     OS88_MENUSET_END rw_menus
 
 rw_ttl:         db 'RealBoy', 0
@@ -872,9 +899,12 @@ rw_i_file:      dw rw_it_open, rw_it_close
 rw_it_open:     db 'Open...', 0
 rw_it_close:    db 'Close', 0
 rw_m_mach:      db 'Machine', 0
-rw_i_mach:      dw rw_it_reset, rw_it_pause
+rw_i_mach:      dw rw_it_reset, rw_it_pause, rw_it_fs0
 rw_it_reset:    db 'Reset', 0
 rw_it_pause:    db 'Pause', 0
+rw_it_fs:       db 'Full Screen', 0
+rw_it_fs0:      db MENU_DIS, 'Full Screen', 0
+rw_it_fsv:      db MENU_DIS, 'Full Screen (VGA)', 0
 
 rw_s_fps:       db 'fps', 0
 rw_s_open1:     db 'File > Open a', 0
@@ -900,6 +930,7 @@ rw_ab7:         db 'F1 = speed', 0
 %include "rbdefs.inc"
 %include "rbsys.inc"
 %include "rbppu.inc"
+%include "rwfsx.inc"
 
 %define OS88UI_ABOUT
 %define OS88UI_NOBTN

@@ -49,6 +49,8 @@ GB_HZ = 4194304 / 70224
 LST = os.path.join(ROOT, "build", "realboy.lst")
 CORELST = os.path.join(ROOT, "build", "realboy", "rbcore.asm.lst")
 DRIVE_B = (592, 105)            # the B: icon on the VGA desktop
+MENU_MACHINE = (190, 9)         # RealBoy's Machine menu on the bar
+ITEM_FULLSCREEN = (200, 60)     # ...its third item
 FIRST_ICON = (160, 127)         # the first file in a fresh B: window (list view)
 
 
@@ -125,6 +127,7 @@ def main():
     ap.add_argument("--shot", default="")
     ap.add_argument("--attach", default="", help="measure a machine --keep left running")
     ap.add_argument("--press", default="", help="keys to tap first, e.g. return")
+    ap.add_argument("--fs", action="store_true", help="Machine > Full Screen first")
     o = ap.parse_args()
 
     if o.attach:
@@ -176,6 +179,14 @@ def measure(b, o):
             if k:
                 b.tap(k)
                 b.cmd("step 3000")
+        if o.fs:
+            b.to(*MENU_MACHINE)
+            b.mouse(0, 0, 1)
+            b.pause(200)
+            b.to(*ITEM_FULLSCREEN, buttons=1)
+            b.pause(200)
+            b.mouse(0, 0, 0)
+            b.cmd("step 3000")
         seg, view, core = find(b)
         keys = [int(k, 0) for k in o.hold.split(",") if k]
         for k in keys:

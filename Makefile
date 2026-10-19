@@ -5601,7 +5601,7 @@ $(BUILD)/rbcore0.bin $(BUILD)/rbcore1.bin: $(BUILD)/rbcore.bin
 		$< $(BUILD)/rbcore0.bin $(BUILD)/rbcore1.bin
 
 $(BUILD)/realboy.bin: apps/realboy/realboy.asm apps/realboy/rbdefs.inc \
-                      apps/realboy/rbsys.inc apps/realboy/rbppu.inc \
+                      apps/realboy/rbsys.inc apps/realboy/rbppu.inc apps/realboy/rwfsx.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
                       apps/os88partsbody.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/realboy/ -l $(BUILD)/realboy.lst \
