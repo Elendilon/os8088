@@ -155,7 +155,10 @@ for the core's next trip out - an event, a register, a bank switch - or the
 end of `rb_run`'s budget, and **a host sizes that budget for its mouse**: a
 serial mouse on an 8250 delivers a byte every 8.3 ms. On os8088 this also
 means the scheduler never switches away from the core (`sch_switch` switches
-only a task whose SS is `LOW_SEG`); the host's task yields between budgets.
+only a task whose SS is `LOW_SEG`). Every trip out of the core turns them
+back on, on the host's task stack, so the tick pre-empts the host between two
+budgets as it would any task: no yield is needed for that, and the package
+yields once a frame, for a UI task a click woke.
 
 **What it does not cover**: a game whose SP points into 4000-7FFF reads the
 view's rbsys half there, not ROMX, through its pops.
@@ -368,7 +371,11 @@ each a model this core chose not to carry:
 last `RBX_FRAME` into a host's 5,760-byte buffer: **144 lines of 40 bytes,
 the shade's bit 0 for pixels 0-159 (20 bytes, the leftmost pixel in bit 7)
 and then its bit 1**. Shade 0 is the lightest. Every register is preserved;
-its working memory is the view's 4900h-4B5Fh.
+its working memory is the view's 4900h-4B5Fh. `rb_render4` composes the same
+frame as **the four planes `OSAPI_GFX_BLITP` takes**, into 11,520 bytes: 80 a
+line, NOT bit 1 three times then NOT bit 0, which is the desktop's 15, 7, 8
+and 0 for shades 0-3. It writes each line as it finishes it, so a colour
+window has no second pass over the frame.
 
 - **The state** each line is drawn with is the frame's own: `RB_SNAP` with
   `RB_RLOG` applied at each entry's line when `S_SNAPTAG` is the frame just
@@ -411,19 +418,24 @@ screen are the package's.
   that came in: **whole 16KB banks, 32KB to 256KB**, refused in a toast
   otherwise. One game a window: another opens in another.
 - **The worker** owns the machine. It counts BIOS ticks into frames owed, 840
-  of 256 a tick (59.7275 Hz against 18.2065), at most eight behind; runs the
-  core in budgets of 2,000 M-cycles, yielding between them, a frame at a
-  time; and composes and blits a frame when it has caught up or every 15
-  frames whatever happens. The joypad is the held keys - arrows, X = A,
+  of 256 a tick (59.7275 Hz against 18.2065), at most eight behind, and
+  reads the clock again after every frame - so it sleeps only when nothing
+  is owed. It runs the core a frame at a time in budgets of 2,000 M-cycles,
+  700 on an 8088 (`OSAPI_CPU_INFO`), where 2,000 is ~20 ms with interrupts
+  off; and composes and blits a frame when it has caught up or every three
+  ticks whatever happens, so a machine that is behind still shows ~6 frames
+  a second. F1 puts the game's speed and the frames drawn a second over the
+  picture. The joypad is the held keys - arrows, X = A,
   Z = B, Enter = Start, Space = Select - and nothing while another window
   has the keyboard. Reset is the worker's to do (`rb_init` again); Pause
   stops the clock.
 - **The writers**: on a colour display `OSAPI_GFX_BLITP` with the clip walk,
-  shades 0-3 as the desktop's 15, 7, 8 and 0 - planes 0-2 are the shade's bit
-  1 inverted and plane 3 its bit 0 inverted, so the conversion is no
-  per-pixel work; on a 1bpp display, or where BLITP refuses, `OSAPI_GFX_BLIT1`
-  through a 2x2 ordered dither - shade 0 lit, 1 a quarter dark, 2 a
-  checkerboard, 3 dark.
+  of `rb_render4`'s planes; on a 1bpp display, or where BLITP refuses,
+  `OSAPI_GFX_BLIT1` through a 2x2 ordered dither of `rb_render`'s - shade 0
+  lit, 1 a quarter dark, 2 a checkerboard, 3 dark. The buffer remembers which
+  it holds, and a paint on the other kind of display (the window moved
+  between two) is white until the worker's next frame. A refusal dithers
+  until the next paint asks BLITP again.
 - **Its region is movable**, its worker restartable at the top of its loop;
   `rw_reloc` re-points the five state-block vectors that name its code
   segment. The core, view and ROM claims are pinned.

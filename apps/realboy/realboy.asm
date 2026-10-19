@@ -13,10 +13,11 @@
 ; THE WORKER owns the machine. It counts BIOS ticks into Game Boy frames
 ; owed (59.7275 Hz against 18.2065: 840/256 of a frame a tick), runs the core
 ; in budgets of RW_BUDGET M-cycles - the core runs with interrupts off
-; (REALBOY-SPEC section 5.2), so the budget is the IRQ latency - and yields
-; between them. It composes and blits a frame only when it has caught up, or
-; every RW_SKIPMAX frames whatever happens, so the game keeps its speed and
-; the picture takes what is left (docs/plans/REALBOY-PLAN.md section 4.5).
+; (REALBOY-SPEC section 5.2), so the budget is the IRQ latency, and the tick
+; pre-empts it between two - and yields once a frame. It composes and blits a
+; frame only when it has caught up, or every RW_DRAWTICKS ticks whatever
+; happens, so the game keeps its speed and the picture takes what is left
+; (docs/plans/REALBOY-PLAN.md section 4.5).
 ; =============================================================================
 
 %include "os88api.inc"
@@ -42,9 +43,13 @@
 RW_CONT_W       equ 160
 RW_CONT_H       equ 144
 RW_BUDGET       equ 2000            ; M-cycles a core run: ~5.6 ms on a 286
+RW_BUDGET86     equ 700             ; ...and on an 8088, where 2000 is ~20 ms
+                                    ;   with interrupts off - two bytes of a
+                                    ;   1200-baud serial mouse into an 8250
+                                    ;   that holds one
+RW_DRAWTICKS    equ 3               ; a frame drawn at least every 3 ticks
 RW_PERTICK      equ 840             ; frames a BIOS tick, x 256
 RW_OWEDMAX      equ 8 * 256         ; a machine that was away catches up 8
-RW_SKIPMAX      equ 15              ; a frame drawn at least every 15
 RW_ROMMAX_KB    equ 256
 
 ; --- the bss: the standard's words first, then ours --------------------------
@@ -54,8 +59,7 @@ rw_pause        equ rw_state + 1
 rw_resetq       equ rw_pause + 1    ; Reset asked; the worker does it
 rw_abon         equ rw_resetq + 1   ; the About card is up
 rw_shown        equ rw_abon + 1     ; rw_fbuf holds a frame
-rw_since        equ rw_shown + 1    ; frames since one was drawn
-rw_argpend      equ rw_since + 1
+rw_argpend      equ rw_shown + 1
 rw_argvol       equ rw_argpend + 1
 rw_last         equ rw_argvol + 1   ; word: the tick last counted
 rw_owed         equ rw_last + 2     ; word: frames owed, x 256
@@ -71,9 +75,14 @@ rw_nrun         equ rw_f1was + 1    ; word: frames run since the last count
 rw_ndrawn       equ rw_nrun + 2     ; word: ...and drawn
 rw_tstat        equ rw_ndrawn + 2   ; word: the tick that count began
 rw_ovltxt       equ rw_tstat + 2    ; 16: 'NNN% NNfps', composed once a second
-rw_fbuf         equ rw_ovltxt + 16  ; 5,760: rb_render's frame
+rw_budget       equ rw_ovltxt + 16  ; word: M-cycles a core run, by CPU tier
+rw_drawt        equ rw_budget + 2   ; word: the tick the last frame was drawn
+rw_pfmt         equ rw_drawt + 2    ; rw_pbuf holds: 0 nothing, 1 the dither,
+                                    ;   4 BLITP's planes (rb_render4)
+rw_nobp         equ rw_pfmt + 1     ; BLITP refused us: dither until a paint
+rw_fbuf         equ rw_nobp + 1     ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
-RW_BSS          equ 2 + 10 + 2 + 2 + 2 + 2 + 2 + 2 + 2 + 16 + 2 + 6 + 16 + 5760 + 11520
+RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 
 ; =============================================================================
 ; rw_entry - the loader calls this once; the window appears afterwards
@@ -348,10 +357,18 @@ rw_toast:
 ; The worker
 ; =============================================================================
 rw_worker_rs:                       ; THE RESTART POINT: our region moved with
-    mov byte [rw_since], RW_SKIPMAX ;   the worker parked at the top of its
-rw_worker:                          ;   loop; draw the next frame whole
+rw_worker:                          ;   the worker parked at the top of its
+    call OSAPI_CPU_INFO             ;   loop; draw the next frame whole
+    mov bx, RW_BUDGET86
+    cmp al, CPU_8086
+    je .bud
+    mov bx, RW_BUDGET
+.bud:
+    mov [rw_budget], bx
     call OSAPI_GET_TICKS
     mov [rw_last], ax
+    sub ax, 100                     ; long enough ago: the next frame draws
+    mov [rw_drawt], ax
 .loop:
     mov bx, [rw_win]
     call OSAPI_TASK_ALIVE           ; no lock held; a closed window ends here
@@ -389,13 +406,15 @@ rw_worker:                          ;   loop; draw the next frame whole
     inc word [rw_nrun]
     call rw_stat
     sub word [rw_owed], 256
-    inc byte [rw_since]
     cmp word [rw_owed], 256         ; caught up: draw this one
     jb .draw
-    cmp byte [rw_since], RW_SKIPMAX ; ...or it has been too long
-    jb .loop
+    call OSAPI_GET_TICKS            ; ...or it has been too long: a
+    sub ax, [rw_drawt]              ;   machine that is behind draws by the
+    cmp ax, RW_DRAWTICKS            ;   CLOCK, so its picture rate is the
+    jb .loop                        ;   same whatever the game's speed
 .draw:
-    mov byte [rw_since], 0
+    call OSAPI_GET_TICKS
+    mov [rw_drawt], ax
     inc word [rw_ndrawn]
     call rw_present
     jmp .loop                       ; the clock is read again after EVERY
@@ -412,19 +431,19 @@ rw_worker:                          ;   loop; draw the next frame whole
 ; rw_frame - run the machine to its next frame, yielding between budgets.
 ; CF = 1: the core stopped (a bad opcode), and the UI task is told.
 rw_frame:
-    mov cx, 12                      ; with the LCD off no frame ever ends:
+    mov cx, 26                      ; with the LCD off no frame ever ends:
 .run:                               ;   a frame's worth of budgets is one
     push cx
-    mov ax, RW_BUDGET
-    call rb_run
-    pop cx
-    cmp al, RBX_FRAME
-    je .done
+    mov ax, [rw_budget]
+    call rb_run                     ; ...and each returns with interrupts
+    pop cx                          ;   on, so the tick can pre-empt us
+    cmp al, RBX_FRAME               ;   between two: no yield per budget,
+    je .done                        ;   which was nine task switches a frame
     cmp al, RBX_BADOP
     je .bad
-    call OSAPI_TASK_YIELD
     loop .run
 .done:
+    call OSAPI_TASK_YIELD           ; one a frame, for a UI task a click woke
     clc
     ret
 .bad:
@@ -561,10 +580,24 @@ rw_keymap:  db KSC_RIGHT, KSC_LEFT, KSC_UP, KSC_DOWN, 2Dh, 2Ch, 39h, KSC_ENTER, 
 
 ; rw_present - compose the frame and put it on the glass (the worker's)
 rw_present:
+    mov bx, [rw_win]
+    call OSAPI_WM_DISPLAY           ; DH = bits per pixel
     push ds
     pop es
+    cmp dh, 1
+    jbe .mono
+    cmp byte [rw_nobp], 0
+    jne .mono
+    mov di, rw_pbuf                 ; colour: the planes, composed straight
+    call rb_render4                 ;   into the buffer BLITP reads
+    mov byte [rw_pfmt], 4
+    jmp short .show
+.mono:
     mov di, rw_fbuf
     call rb_render
+    call rw_dither
+    mov byte [rw_pfmt], 1
+.show:
     mov byte [rw_shown], 1
     cmp byte [rw_abon], 0           ; the About card is over us: keep it
     jne .r
@@ -598,15 +631,18 @@ rw_overlay:
 .r:
     ret
 
-; rw_blit - rw_fbuf onto the content, the lock held and the clip armed: four
-; planes through BLITP on a colour display, a dithered band through BLIT1 on
-; a monochrome one (or where BLITP refuses)
+; rw_blit - rw_pbuf onto the content, the lock held and the clip armed:
+; BLITP's four planes on a colour display, the dithered band through BLIT1 on
+; a monochrome one (or where BLITP refuses). A buffer composed for the other
+; kind of display - the window moved between two - paints white, and the
+; worker's next frame, at most RW_DRAWTICKS away, puts the picture back.
 rw_blit:
     mov bx, [rw_win]
     call OSAPI_WM_DISPLAY           ; DH = bits per pixel
     cmp dh, 1
     jbe .mono
-    call rw_planes
+    cmp byte [rw_pfmt], 4
+    jne .colmono
     mov bx, [rw_win]
     call OSAPI_WM_CONTENT           ; AX = left, DX = top
     mov bx, dx
@@ -619,11 +655,19 @@ rw_blit:
     mov dx, RW_CONT_H
     call OSAPI_GFX_BLITP
     jnc .r
-    mov al, CWHITE                  ; refused (a straddle, kern_small): the
-    mov ah, CBLACK                  ;   dithered picture, in two colours
+    mov byte [rw_nobp], 1           ; refused (a straddle, kern_small): the
+    jmp short .white                ;   next frame is dithered
+.colmono:
+    cmp byte [rw_pfmt], 1
+    jne .white
+    mov al, CWHITE                  ; the dither on a colour display, in two
+    mov ah, CBLACK                  ;   colours
     call OSAPI_GFX_BLIT1_PEN
+    jmp short .b1
 .mono:
-    call rw_dither
+    cmp byte [rw_pfmt], 1
+    jne .white
+.b1:
     mov bx, [rw_win]
     call OSAPI_WM_CONTENT
     mov bx, dx
@@ -636,35 +680,8 @@ rw_blit:
     call OSAPI_GFX_BLIT1
 .r:
     ret
-
-; rw_planes - rw_fbuf as the desktop's colours, row by row: 15 white, 7 light
-; grey, 8 dark grey, 0 black for shades 0-3. Planes 0-2 are the shade's bit
-; 1 inverted and plane 3 its bit 0 inverted, so it is no per-pixel work
-rw_planes:
-    push ds
-    pop es
-    mov si, rw_fbuf
-    mov di, rw_pbuf
-    mov dx, RW_CONT_H
-.row:
-    mov cx, 20
-.b:
-    mov al, [si+20]                 ; bit 1
-    not al
-    mov [di], al
-    mov [di+20], al
-    mov [di+40], al
-    mov al, [si]                    ; bit 0
-    not al
-    mov [di+60], al
-    inc si
-    inc di
-    loop .b
-    add si, 20
-    add di, 60
-    dec dx
-    jnz .row
-    ret
+.white:
+    jmp rw_fillwhite
 
 ; rw_dither - rw_fbuf as one bit a pixel, 1 = lit: shade 0 all lit, 1 a
 ; quarter dark, 2 half (a checkerboard), 3 all dark - a 2x2 ordered dither
@@ -714,7 +731,8 @@ rw_dither:
 ; rw_paint - SI = the window, the lock held, the clip armed
 rw_paint:
     push si
-    cmp byte [rw_shown], 0
+    mov byte [rw_nobp], 0           ; a paint asks BLITP again: the window
+    cmp byte [rw_shown], 0          ;   may have moved off the straddle
     je .blank
     call rw_blit
     jmp short .about
