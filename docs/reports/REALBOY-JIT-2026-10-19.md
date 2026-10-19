@@ -35,12 +35,14 @@ interpreted.
 |---|---|---|
 | gbclock, per busy M-cycle | 26.2 clocks | **13.95** |
 | Super Mario Land, CPU only, a frame | 13.04 ms (77.9%) | **11.67 ms (69.7%)** |
-| ...the interpreter with the recompiler's hooks in it | 15.38 ms (91.9%) | - |
+| ...the interpreter with the recompiler's hooks live | 15.38 ms (91.9%) | - |
+| ...and with them patched back to the plain dispatch | 13.73 ms (82.0%) | - |
 
-The last row is the price of the hooks to a machine that does not translate:
-every interpreted control transfer looks at `S_JITON` and RAM on its way, and
-Super Mario Land pays 18% for it. It matters to the 5150, which never
-translates (REALBOY-SPEC section 16.2), and it is the next thing to buy back.
+The hooks cost a machine that does not translate: every interpreted control
+transfer looked at `S_JITON` and RAM on its way, 18% on Super Mario Land.
+Without a recompiler the package now writes the plain dispatch back over all
+45 of those sites (`rt_dispatch`, REALBOY-SPEC section 16.3), which buys all
+but ~5% of it back - the 5150 never translates (section 16.2).
 
 ## 3. How it got there
 

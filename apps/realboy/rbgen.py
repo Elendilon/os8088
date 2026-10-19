@@ -1449,13 +1449,16 @@ def main():
     L.append("    jmp dx")
     L.append("%endif")
     L.append("%endmacro")
+    L.append("%assign JDN 0")
     L.append("%macro JDISPATCH 0")         # a control transfer's: the
     L.append("%ifdef RB_TRACE")            #   translated code at the target
     L.append("    jmp far [ss:S_TRACEVEC]")  # if there is any (tr_enter) -
     L.append("%else")                      #   but never in RAM, which runs
-    L.append("    cmp si,8000h")           #   on here: DS is this handler's
-    L.append("    jae %%d")                #   own (REALBOY-SPEC 16.3)
-    L.append("    jmp tr_enter")
+    L.append("..@jd_%+JDN:")               #   on here: DS is this handler's
+    L.append("%assign JDN JDN+1")          #   own (REALBOY-SPEC 16.3). Each
+    L.append("    cmp si,8000h")           #   site is LABELLED: with no
+    L.append("    jae %%d")                #   recompiler its first five bytes
+    L.append("    jmp tr_enter")           #   become the plain dispatch
     L.append("%%d:")
     L.append("    mov dh,[si]")
     L.append("    inc si")

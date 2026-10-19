@@ -62,6 +62,7 @@ RT_LOOP         equ JIT_BUF + 0A0h  ; 16: a spin-wait's body, for rt_idle
 
 RT_HFREE        equ 1040            ; the table's free ranges: offset, count
 RT_HTAIL        equ 1044            ; ...its tail slots
+RT_HJD          equ 1048            ; ...the interpreter's JDISPATCH sites
 rt_tab:
     incbin "rbtmpl.bin"
 
@@ -101,10 +102,49 @@ rt_init:
     jnz .slot
     call rt_flush
     mov byte [S_JITON],1
+    mov al,1
+    call rt_dispatch                ; the interpreter's sites look again
     pop es
     pop di
     pop si
     pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; rt_dispatch - AL = 1: the interpreter's control transfers look for
+; translated code (JDISPATCH as built); AL = 0: they DISPATCH, as the
+; interpreter did before there was a recompiler - each site's first five
+; bytes, cmp si,8000h / jae, become mov dh,[si] / inc si / jmp dx, so a
+; machine that never translates (an 8088) pays nothing for one. DS = view.
+rt_dispatch:
+    push ax
+    push bx
+    push cx
+    push si
+    push es
+    mov es,[S_DISP+2]               ; the core
+    mov si,[cs:rt_tab + RT_HJD]
+    mov cx,[cs:rt_tab + RT_HJD + 2]
+.s:
+    mov bx,[cs:rt_tab + si]
+    or al,al
+    jz .off
+    mov word [es:bx],0FE81h         ; cmp si,8000h / jae (+3 stays)
+    mov word [es:bx+2],8000h
+    mov byte [es:bx+4],73h
+    jmp short .n
+.off:
+    mov word [es:bx],348Ah          ; mov dh,[si] / inc si / jmp dx
+    mov word [es:bx+2],0FF46h
+    mov byte [es:bx+4],0E2h
+.n:
+    inc si
+    inc si
+    loop .s
+    pop es
+    pop si
     pop cx
     pop bx
     pop ax

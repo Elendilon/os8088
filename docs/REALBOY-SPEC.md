@@ -550,8 +550,11 @@ entries (PC, bank key, a count, the block's offset). **A PC is translated
 only on its 16th entry**, so code that runs a few times is interpreted and
 never takes the cache's room; a translated entry gives its slot up only after
 16 others have asked for it. RAM is never translated - the interpreter's own
-control transfers stay in the interpreter there (`JDISPATCH`) - and with the
-recompiler off `tr_enter` is the dispatch. Translated code does not keep DS;
+control transfers stay in the interpreter there (`JDISPATCH`). **With no
+recompiler** - an 8088, no memory for the cache, or Machine > Recompiler off
+- `rt_dispatch` writes the plain dispatch over the first five bytes of all
+45 `JDISPATCH` sites (rbtmpl.py lists them), so the interpreter is the one
+there was before the recompiler, and writes them back when it is turned on. Translated code does not keep DS;
 `tr_int` sets it for SI before it dispatches.
 
 ### 16.4 Chaining

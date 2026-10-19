@@ -186,13 +186,18 @@ host_main:
     call rb_trace_on
     jmp short .nojit
 .nt:
-    cmp byte [h_jit],0                  ; the recompiler, unless asked not
-    je .nojit
     push ds
     mov ax,VIEW_SEG
     mov ds,ax
-    mov ax,CACHE_SEG
+    cmp byte [cs:h_jit],0               ; the recompiler, unless asked not:
+    je .plain                           ;   then the interpreter as it was
+    mov ax,CACHE_SEG                    ;   before there was one
     call rt_init
+    jmp short .jdone
+.plain:
+    xor al,al
+    call rt_dispatch
+.jdone:
     pop ds
 .nojit:
     ; the BIOS tick count as we start

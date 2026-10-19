@@ -351,16 +351,20 @@ rw_start:
     mov dx, [rw_banks]
     call rb_init
 rw_jiton:                           ; (and Machine > Recompiler's way back in)
-    cmp word [rw_jitseg], 0
-    je .r
-    cmp byte [rw_jitwant], 0
-    je .r
-    mov ax, [rw_jitseg]
     push ds
     mov ds, [cs:rb_viewseg]
+    cmp word [cs:rw_jitseg], 0      ; no cache or not wanted: the plain
+    je .off                         ;   interpreter, hooks and all removed
+    cmp byte [cs:rw_jitwant], 0
+    je .off
+    mov ax, [cs:rw_jitseg]
     call rt_init
     pop ds
-.r:
+    ret
+.off:
+    xor al, al
+    call rt_dispatch
+    pop ds
     ret
 
 ; rw_jitoff - the interpreter alone, between two core runs (the worker's)
@@ -369,6 +373,8 @@ rw_jitoff:
     mov ds, [cs:rb_viewseg]
     mov byte [S_JITON], 0
     mov word [S_RESVEC], RBC_RB_DISPATCH
+    xor al, al
+    call rt_dispatch
     pop ds
     ret
 

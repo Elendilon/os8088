@@ -23,8 +23,9 @@ So nothing about the handlers is restated here, and a handler that changes
 shape changes its template with it.
 
 The table: 520 words, the record offsets for opcodes 00-FF, CB 00-FF and
-rbgen.EXTRA's chosen-by-operand templates (0: no template), then the offset and count of the FREE RANGES and of the TAIL SLOTS (four
-words), then the records, then the two lists. The translated code goes into
+rbgen.EXTRA's chosen-by-operand templates (0: no template), then the offset and count of the FREE RANGES, the TAIL SLOTS and the
+interpreter's JDISPATCH SITES (six words; a site is a word, and with no
+recompiler its first five bytes become the plain dispatch), then the records, then the two lists. The translated code goes into
 a 64KB cache segment of its own, which holds copies of the core's helper
 tails - the slots rbgen.py's TAILS live in - at their own offsets, so a
 template reaches every helper with a near jump (REALBOY-SPEC section 16.2).
@@ -147,7 +148,8 @@ def flags_for(op, cb, lines):
 
 
 NEXTRA = 8              # record slots after the 512 for rbgen.EXTRA
-HEAD = 2 * (512 + NEXTRA) + 8    # then the free ranges' and tail slots' words
+HEAD = 2 * (512 + NEXTRA) + 12   # then the free ranges', tail slots' and
+                                 #   JDISPATCH sites' offset and count words
 # The longest template the table carries. With its guards (32 bytes at most,
 # REALBOY-SPEC section 16.5) it must fit a gap, and the median gap is ~106
 # bytes. What is over it is a read-modify-write of (HL) - INC/DEC (HL), the
@@ -213,11 +215,17 @@ def main():
         body += rec
     tails = sorted(rbgen.TAILS)
     gl = free_ranges(set(tails))
-    struct.pack_into("<HH", head, HEAD - 8, len(head) + len(body), len(gl))
+    struct.pack_into("<HH", head, HEAD - 12, len(head) + len(body), len(gl))
     for a, b in gl:
         body += struct.pack("<HH", a, b)
-    struct.pack_into("<HH", head, HEAD - 4, len(head) + len(body), len(tails))
+    struct.pack_into("<HH", head, HEAD - 8, len(head) + len(body), len(tails))
     body += bytes(tails)
+    jd = sorted(int(m.group(1), 16) for m in
+                (re.match(r"\s+([0-9A-F]+)\s+[0-9A-F]+\s+\.\.@jd_\d+\s*$", ln) for ln in open(mapfile))
+                if m)
+    struct.pack_into("<HH", head, HEAD - 4, len(head) + len(body), len(jd))
+    for a in jd:
+        body += struct.pack("<H", a)
     with open(out, "wb") as f:
         f.write(bytes(head) + bytes(body))
     with open(inc, "w") as f:
