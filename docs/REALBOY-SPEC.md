@@ -743,6 +743,13 @@ interpreter's 26.2**. Super Mario Land, the CPU alone on gbprof's script, is
 time in the window and 76.0% full screen**, against 59.5% and 58.0%
 interpreted. docs/reports/REALBOY-JIT-2026-10-19.md has the record.
 
+**With drawing by damage and the draw clock** (sections 13.2 and 15.2),
+Super Mario Land runs at **100.7% in the window and 101.5% full screen**,
+drawing 7 and 34 frames a second. Kirby's Dream Land runs at 31.6% and
+37.2%, bound by the Game Boy CPU: 48% of its time is in translated code and
+32% in the interpreter and `tr_enter`.
+docs/reports/REALBOY-DAMAGE-2026-10-19.md has the record.
+
 ## 17. Sound
 
 **The speaker plays the louder of the two square channels.** The wave and

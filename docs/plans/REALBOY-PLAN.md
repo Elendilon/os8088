@@ -669,6 +669,37 @@ do.
 - The sound row asserts the tone stream, in the shape of
   `tests/covox.py`/`tests/vidsound.py`.
 
+### The field run (wave 8's last row, and the first of wave 7)
+
+**The emulators' numbers are in** (docs/reports/REALBOY-DAMAGE-2026-10-19.md):
+- Super Mario Land is at full speed on 86Box's 286, in the window and full
+  screen.
+- Kirby's Dream Land is at 32-37%, bound by the Game Boy CPU.
+- The demo is at 1.000 on MartyPC's 5150.
+
+The owner's machines are next. They are what decides wave 7, since 86Box
+times a 286 by its own model and not by the iron.
+
+**What to run**, from `make realboydisk`'s floppy (the four geometries are
+`build/realboy*.img`), with the owner's own `SML.GB` and `KIRBY.GB` copied
+into its REALBOY folder:
+
+1. **On the Victory 286, or a Compaq Portable III / PB286LP**, boot os8088
+   and open REALBOY\SML.GB. Start the game, press F1, and walk right for 20
+   seconds. Read the F1 line: the game's speed and the frames drawn a
+   second. Do the same in Machine > Full Screen, then with Machine >
+   Recompiler set Off, then the same four readings for KIRBY.GB.
+2. **On the 5150 (Hercules)**, open REALBOY\GBDEMO.GB, take Machine > Full
+   Screen, press F1, and read the line after a minute. The emulated figure
+   is 100% at 4 frames a second, and the iron should read the same. If it
+   does not, that is a finding about MartyPC.
+3. **Anything that looks wrong**: the picture (a photograph), the speaker
+   (the demo blips once a bounce), a save (a battery game's `.SAV` under
+   SYSTEM\APPDATA), and Esc out of full screen.
+
+The F1 line is the instrument because it needs no debugger. Both of its
+numbers come off the machine's own clock.
+
 ### Wave 6 - ROMs over 256 KB (conditional)
 
 **Features**
