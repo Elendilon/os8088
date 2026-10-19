@@ -654,8 +654,9 @@ every draw, as a turn of frames on an 8088 is longer than a key press.
   of its sees ours.
 - **The screen** is mode 0Dh, 320x200 planar, with the picture at 1x at
   (80, 28). `rb_renderd`'s two shade planes go to VGA planes 0 and 1 as they
-  are, for the lines it changed, through a RAM shadow of the last frame, so
-  a word is written only when it changed. Plane 2 is set everywhere but the picture: the border is DAC
+  are, a `rep movsw` for each line it changed. It already compared them, so
+  the RAM shadow this writer once kept was a second comparison of the same
+  bytes. Plane 2 is set everywhere but the picture: the border is DAC
   entry 4, and F1's speed line over it, in glyphs copied before the mode
   (`OSAPI_FONT_GLYPHS`), entry 7. Shades 0-3 are DAC 0-3, greys. The DAC is
   ours in there; the restore's BIOS mode set puts the desktop's back.

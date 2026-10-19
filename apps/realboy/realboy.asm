@@ -965,10 +965,12 @@ rw_worker:                          ;   the worker parked at the top of its
     xor bx, bx                      ; caught up: draw this one, once the
     cmp word [rw_owed], 256         ;   last draw's own length has passed
     jb .due                         ;   since it ended...
-    mov bx, 1                       ; ...or, behind, a draw's length later
-.due:                               ;   again (rw_drawdue): a third of the
-    call rw_drawdue                 ;   machine to the picture, the rest to
-    jnc .loop                       ;   catching up
+    mov bl, [rw_owed + 1]           ; ...or, behind, draws' lengths later
+    xor bh, bh                      ;   again (rw_drawdue): a third of the
+    call rw_behind                  ;   machine to the picture, or less the
+.due:                               ;   further behind, the rest to catching
+    call rw_drawdue                 ;   up
+    jnc .loop
     mov si, rw_present
     call rw_timed                   ; a draw of D ticks: the next after D more
     jmp .loop                       ; the clock is read again after EVERY
@@ -992,8 +994,8 @@ rw_worker:                          ;   the worker parked at the top of its
 
 ; rw_drawdue - CF = 1 if a draw is due. BX = 0: the game has caught up, and
 ; a draw may start once as long as the last one took has passed since it
-; ended, so drawing takes at most half the machine. BX = 1: the game is
-; behind, and another such length must pass, a third of the machine - so a
+; ended, so drawing takes at most half the machine. BX = k: the game is
+; behind, and k more such lengths must pass (rw_behind) - so a
 ; game that slips a little loses a little of its picture rate rather than
 ; dropping to a draw every few ticks, which is how the first field run saw
 ; Super Mario Land fall from ~30 frames drawn to 4 whenever it slipped under
@@ -1002,24 +1004,46 @@ rw_worker:                          ;   the worker parked at the top of its
 rw_drawdue:
     push ax
     push dx
+    push bx
     call rw_clk
     sub ax, [rw_drawt]
     sbb dx, [rw_drawt + 2]
     js .no                          ; (signed: [rw_drawt] may be ahead)
+.k:
     or bx, bx
     jz .yes
     sub ax, [rw_dlast]
     sbb dx, [rw_dlast + 2]
     js .no
+    dec bx
+    jmp short .k
 .yes:
+    pop bx
     pop dx
     pop ax
     stc
     ret
 .no:
+    pop bx
     pop dx
     pop ax
     clc
+    ret
+
+; rw_behind - BX = frames owed: BX = the draws' lengths rw_drawdue waits
+; beyond the last one's - one, and one more for every eight frames behind,
+; to three (a third of the machine to the picture, down to a fifth). The
+; second field run's logs had Super Mario Land owing the whole half second
+; through every scroll with a third still going to the picture.
+rw_behind:
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    inc bx
+    cmp bx, 3
+    jbe .r
+    mov bx, 3
+.r:
     ret
 
 ; rw_drawnow - the next draw is due at once (a fresh start, or a clock that

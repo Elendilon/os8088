@@ -99,8 +99,10 @@ rw_fsenter:
     call OSAPI_TASK_YIELD
     jmp short .wait
 .go:
-    mov byte [rw_pfmt], 0           ; rw_pbuf is our shadow in there: the
-                                    ;   restore's repaint paints white
+    mov byte [rw_pfmt], 0           ; the window's planes will not match the
+                                    ;   frame the bracket leaves: the
+                                    ;   restore's repaint paints white, and
+                                    ;   the next draw starts from every line
     mov byte [rw_fsrate], 1
     mov ax, rw_fsmain
     mov bx, [rw_win]
@@ -214,13 +216,7 @@ rw_fsmain:
     jne .mono
     call rw_fsdac
     call rw_fsframe
-    push ds
-    pop es
-    mov di, rw_pbuf                 ; the shadow: the mode set cleared the
-    mov cx, 5760 / 2                ;   screen to zero, and so is it
-    xor ax, ax
-    rep stosw
-    call rw_dmgfull                 ; and every line of the first frame
+    call rw_dmgfull                 ; every line of the first frame
     jmp short .in
 .mono:
     call rw_fsclear                 ; Hercules or CGA: the screen black,
@@ -277,7 +273,8 @@ rw_fsmain:
     jz .due                         ; caught up: draw this one, when due
     cmp byte [rw_fsrun], RW_FSSKIP  ; (rw_drawdue, as the window's)...
     jb .f
-    mov bx, 1                       ; ...or behind (rw_drawdue)
+    mov bx, [rw_fsleft]             ; ...or behind (rw_drawdue), by more
+    call rw_behind                  ;   the further behind
 .due:
     call rw_drawdue
     jc .draw
@@ -417,42 +414,26 @@ rw_fsdraw:
 .r:
     ret
 
-; rw_fsplane - one plane of rw_fbuf (SI = its line 0) against the shadow
-; beside it in rw_pbuf, the changed words to VRAM. ES = VRAM.
+; rw_fsplane - one plane of rw_fbuf (SI = its line 0): the lines rb_renderd
+; changed, to VRAM. ES = VRAM.
 rw_fsplane:
     push dx
-    mov bx, si
-    add bx, rw_pbuf - rw_fbuf       ; BX = the shadow of the same bytes
+    mov bx, rw_chg                  ; BX = the line's changed byte
     mov di, RW_FSY * 40 + RW_FSX
-    xor dx, dx                      ; DL = the line
+    mov dx, 144
 .l:
-    call rw_dchg                    ; a line rb_renderd left alone: past it
-    jnz .w0
+    cmp byte [bx], 0                ; a line rb_renderd left alone: past it
+    je .n
+    mov cx, 10                      ; ...and a changed one is copied whole:
+    rep movsw                       ;   rb_renderd already compared it, so a
+    sub si, 20                      ;   word-by-word shadow here was a second
+    sub di, 20                      ;   comparison of the same bytes (and
+.n:                                 ;   ~9 instructions a word to fetch)
     add si, 40
-    add bx, 40
     add di, 40
-    jmp short .nx
-.w0:
-    mov cx, 10
-.w:
-    lodsw
-    cmp ax, [bx]
-    je .s
-    mov [bx], ax
-    mov [es:di], ax
-.s:
     inc bx
-    inc bx
-    inc di
-    inc di
-    loop .w
-    add si, 20
-    add bx, 20
-    add di, 40 - 20
-.nx:
-    inc dl
-    cmp dl, 144
-    jb .l
+    dec dx
+    jnz .l
     pop dx
     ret
 
