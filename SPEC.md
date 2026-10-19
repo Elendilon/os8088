@@ -175062,7 +175062,7 @@ on a ladder is the next thing the owner's eye decides. The ladder before
 that, with the half rate, took Last Exile 0:10-0:40 from 24.3% to 3.2%;
 `slow:5/6` first instead of `lag:100` made the same files. A cut rung is in no default: it
 is the choice a video makes that takes a cut better than a slower rate. The
-window carries it as Size vs quality's second inner tab, Degrade ladder, laid
+window carries it on a tab of its own, Degrade to Fit, laid
 out as the choice it is (the owner, 2026-10-18: "ladder OR these other
 settings"): the ladder in a box whose title is its checkbox, a rung a row
 offering only the rungs the form can use; beside it below, **Or, without the
@@ -177117,8 +177117,8 @@ The report adds the blit's own share.
 **The same encoder with a window on it** (VIDEO-PLAN 14.2, E1-E4), on
 `tools/os88proxygui.py`'s rule: it imports `os88venc` and reimplements none
 of it. The form is DERIVED from `os88venc.parser()` - every option on a
-tab (Basic, Picture, Colour, Sound, Budget, Size vs quality, Loop and
-keys, Advanced) with
+tab (Basic, Picture, Colour, Sound, Budget, Trade-offs, Degrade to
+Fit) with
 its own help as the tooltip - so an option added to the encoder is in the
 window with no work, and one without help fails the gate. A value left at
 its default is left off the command line, so the encoder's own defaulting
@@ -177157,7 +177157,7 @@ The Picture tab's 21 in one column were taller than the window, and the log
 by the disk list (the owner's report; both seen on the glass under Xvfb).
 The gate has no display, so this is looked at, not asserted.
 
-**Size vs quality** is the tab of what gives up some of the picture for a
+**Trade-offs** is the tab of what gives up some of the picture for a
 smaller file, fewer bytes a second or less of the player's time - or spends
 them on it: every format's HOLD (`--stable`, `--text-stable`,
 `--comp-stable`, `--vga4-stable`, `--vga4-hold` and its score,
@@ -177173,7 +177173,12 @@ An option that left its format's group took the group's rule with it as
 its own (FIELD_WHEN), so it greys and stays off the command line exactly
 where it did. Measured after, at 1080 x 840 and every target: no tab's
 groups or panel cross the pane's bottom or right-hand edge, the Colour
-tab's tallest panel with 20 pixels to spare.
+tab's tallest panel with 20 pixels to spare. **The tabs were reordered on
+2026-10-19** (the owner: Basic was almost empty): Loop and keys and
+Advanced became groups on Basic, which takes two columns and keeps 149
+pixels; Size vs quality's first inner tab became Trade-offs, and its
+second, the degrade ladder, a tab of its own, Degrade to Fit (41 to
+spare). An empty tab is one `ladder_page` lays out, not the columns.
 
 ##### 98.2.8.1 The palette, seen while it is picked
 
@@ -177233,7 +177238,7 @@ options that go together - *Made for* and *The clip* on Basic; *Canvas*,
 speaker: the sound shaped* on Sound; and so on. `GROUPS` in the window is
 the table, and the tab an option is on is its group's (`TAB_OF` is derived
 from it). An option no group names - one added to the encoder tomorrow -
-still appears, in an *Other* group on Advanced, so the form stays complete
+still appears, in an *Other* group on Basic, so the form stays complete
 with no work.
 
 **A group that cannot apply to the file the form makes is GREYED**, its
