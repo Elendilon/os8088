@@ -22,7 +22,27 @@ GEOM = {360: (9, 2, 40), 720: (9, 2, 80), 1200: (15, 2, 80), 1440: (18, 2, 80)}
 MODES = {"test": 0, "bench": 1, "trace": 2, "play": 3, "idle": 4, "render": 5, "damage": 6}
 
 
+def private(out_dir):
+    """A directory of this process's own under out_dir, removed at exit. The
+    core, its templates and the harness are built in it, because several rows
+    build them at once in a soak lane, and one directory between them was a
+    nasm reading the generator's half-written source (SIGBUS) and rbtmpl
+    reading another row's half-written core."""
+    d = os.path.join(out_dir, "p%d" % os.getpid())
+    if not os.path.isdir(d):
+        os.makedirs(d)
+        import atexit
+        import shutil
+        atexit.register(shutil.rmtree, d, True)
+    return d
+
+
 def build_core(trace, out_dir):
+    if trace and not os.path.exists(os.path.join(private(out_dir), "rbtmpl.bin")):
+        build_core(False, out_dir)      # the harness assembles the recompiler's
+                                        #   templates even when a trace core
+                                        #   never translates
+    out_dir = private(out_dir)
     stem = os.path.join(out_dir, "rbcore_t" if trace else "rbcore")
     asm, binf = stem + ".asm", stem + ".bin"
     subprocess.check_call([sys.executable, os.path.join(ROOT, "apps/realboy/rbgen.py"), asm])
@@ -42,6 +62,7 @@ def build_core(trace, out_dir):
 
 
 def build_host(out_dir):
+    out_dir = private(out_dir)
     binf = os.path.join(out_dir, "rbhost.bin")
     subprocess.check_call(["nasm", "-f", "bin", "-w+error"] +
                           (["-DRT_DEBUG"] if os.environ.get("RT_DEBUG") else []) +

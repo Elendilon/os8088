@@ -83,8 +83,9 @@ def main():
     img = os.path.join(out, "prof.img")
     rbimg.make_image(a.rom, img, 1440 if a.box else 360, "render" if a.render else "play", 60000,
                      core=core, host=host, jit=not a.nojit)
-    inc = [os.path.join(ROOT, "apps/realboy/"), os.path.join(ROOT, "tests/rbcore/"), out + "/"]
-    csyms = labels(listing(os.path.join(out, "rbcore.asm"), inc))
+    mine = rbimg.private(out)               # where this run built its core
+    inc = [os.path.join(ROOT, "apps/realboy/"), os.path.join(ROOT, "tests/rbcore/"), mine + "/"]
+    csyms = labels(listing(os.path.join(mine, "rbcore.asm"), inc))
     hsyms = labels(listing(os.path.join(ROOT, "tests/rbcore/rbhost.asm"), inc))
     hsyms = [(o, n) for o, n in hsyms if n not in ("boot", "boot_go", "load")]  # the boot section's
     ck, hk = [o for o, _ in csyms], [o for o, _ in hsyms]
