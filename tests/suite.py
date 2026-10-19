@@ -2558,16 +2558,27 @@ SOAK = [
         "the table goes 4 claims to 2 and this row names it. Needs `make "
         "mseg`.",
         needs=("marty", "nasm"), serial=True, wants=("build/mseg.img",)),
-    Row("gbcpu", "soak", py("tests/gbcpu.py"), 12.0,
-        "REALBOY's SM83 core (docs/plans/REALBOY-PLAN.md wave 1) against "
-        "Blargg's eleven cpu_instrs ROMs, the combined MBC1 one and "
-        "instr_timing, each booted BARE through tests/rbcore/rbhost.asm with "
-        "no os8088 under the core, every one printing Passed on its link "
-        "port. The ROMs are fetched by tools/getgbtest.py at pinned SHA-256s "
-        "and never committed. NEGATIVE CONTROL: DAA made a no-op must make "
+    Row("gbcpu", "soak", py("tests/gbcpu.py"), 25.0,
+        "REALBOY's SM83 core (docs/REALBOY-SPEC.md) against Blargg's eleven "
+        "cpu_instrs ROMs, the combined MBC1 one, instr_timing, mem_timing and "
+        "halt_bug, and the 24 of Mooneye's DMG acceptance tests it passes - "
+        "each booted BARE through tests/rbcore/rbhost.asm with no os8088 "
+        "under the core, the verdict read off the link port, Blargg's text at "
+        "A000 or Mooneye's registers. The ROMs are fetched by "
+        "tools/getgbtest.py at pinned SHA-256s and never committed. NEGATIVE CONTROL: DAA made a no-op must make "
         "01-special fail. WHY QEMU: a correctness gate, and QEMU counts work "
         "exactly - the cycle counts instr_timing checks are the core's own. "
         "SOAK: one package's core",
+        needs=("qemu", "nasm")),
+    Row("gbacid", "soak", py("tests/rbcore/rbacid.py"), 3.0,
+        "REALBOY's renderer (apps/realboy/rbppu.inc, docs/REALBOY-SPEC.md "
+        "section 13) against dmg-acid2's reference picture, all 23,040 pixels: "
+        "the window's line counter, the ten-sprite limit, sprite priority by X "
+        "then OAM index, the flips, 8x16 sprites, colour-0 priority and the "
+        "mid-frame LCDC writes the raster log carries. It is what found that "
+        "STAT interrupts had never fired. NEGATIVE CONTROL: LDH (n),A made a "
+        "no-op must lose the picture. WHY QEMU: counted, not timed. SOAK: one "
+        "package's renderer",
         needs=("qemu", "nasm")),
     Row("gbtrace", "soak", py("tests/gbtrace.py"), 130.0,
         "REALBOY's core against Peanut-GB (pinned by tools/gbprof.py), the "

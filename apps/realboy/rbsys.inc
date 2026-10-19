@@ -177,6 +177,8 @@ rb_init:
     mov byte [0FF00h],0CFh
     mov byte [0FF02h],7Eh
     mov byte [0FF0Fh],0E1h
+    mov byte [0FF07h],0F8h
+    mov byte [0FF46h],0FFh
     mov byte [0FF10h],80h
     mov byte [0FF11h],0BFh
     mov byte [0FF12h],0F3h
@@ -215,8 +217,8 @@ rb_init:
     mov word [S_TNEXT],RB_VBL
     mov word [S_BP],RB_VBL
     mov word [S_TNF],RB_VBL
-    mov word [S_TDIV],-0ABh*64          ; DIV reads AB at 0100, as the boot
-    mov word [S_TDIV+2],0FFFFh          ; ROM leaves it
+    mov word [S_TDIV],-(0ABCCh/4)       ; the counter under DIV reads ABCCh
+    mov word [S_TDIV+2],0FFFFh          ;   T-states at 0100 on a DMG (boot_div)
     mov byte [S_SNAPTAG],0FFh
     mov word [S_IDLENO],0FFFFh
     pop es
@@ -791,7 +793,21 @@ rb_vblank:
     ret
 
 ; --- STAT: an enabled LYC, mode 2 or mode 0 condition began -----------------
+; Judged at the event's OWN time, S_TSTAT: the core reaches an event at its
+; next check, M-cycles later, and a line's position by then is not the one
+; the condition began at.
 rb_statev:
+    push word [S_NOW+2]
+    push word [S_NOW]
+    mov ax,[S_TSTAT]
+    mov [S_NOW],ax
+    mov ax,[S_TSTAT+2]
+    mov [S_NOW+2],ax
+    call .judge
+    pop word [S_NOW]
+    pop word [S_NOW+2]
+    ret
+.judge:
     call rb_lcdpos                      ; AL = LY, DX = position
     mov ah,[0FF41h]
     or dx,dx
@@ -827,6 +843,7 @@ rb_statsch:
     test ah,68h
     jz .r
     call rb_lcdpos                      ; AL = LY, DX = position
+    mov ah,[0FF41h]                     ; (its DIV left AH 0)
     mov bl,al                           ; BL = line, DX = position, CX = lines
     xor cx,cx                           ;   from now (0 = this one)
 .line:
@@ -967,6 +984,37 @@ rb_tima:
     pop bx
     ret
 
+; rb_tbit: CF = 1 if the timer runs and the counter's bit TIMA watches is 1
+; now - TIMA ticks when it falls, so a DIV or TAC write that makes it fall
+; ticks TIMA too (Mooneye's tim*_div_trigger and rapid_toggle).
+rb_tbit:
+    push ax
+    push cx
+    test byte [0FF07h],04h              ; CF = 0
+    jz .r
+    call rb_tshift
+    dec cl
+    mov ax,[S_NOW]
+    sub ax,[S_TDIV]
+    shr ax,cl
+    shr ax,1
+.r:
+    pop cx
+    pop ax
+    ret
+
+; rb_tinc: one TIMA tick now, overflow and all. TIMA0 is TIMA now.
+rb_tinc:
+    inc byte [S_TIMA0]
+    jnz .r
+    push ax
+    mov al,[0FF06h]
+    mov [S_TIMA0],al
+    or byte [0FF0Fh],04h
+    pop ax
+.r:
+    ret
+
 ; rb_tsettle: TIMA0 = TIMA now, TTBASE = now - before the rate or the
 ; counter under it changes
 rb_tsettle:
@@ -984,6 +1032,14 @@ rb_tsettle:
     mov [S_TTBASE+2],ax
     pop ax
     ret
+
+; The bits of FF00-FF3F a DMG reads back as 1 (Mooneye's unused_hwio and
+; boot_hwio). FF00, FF04-FF07 and FF0F are answered or masked elsewhere.
+rb_iomask:
+    db 000h,000h,07Eh,0FFh, 000h,000h,000h,000h, 0FFh,0FFh,0FFh,0FFh, 0FFh,0FFh,0FFh,000h
+    db 080h,03Fh,000h,0FFh, 0BFh,0FFh,03Fh,000h, 0FFh,0BFh,07Fh,0FFh, 09Fh,0FFh,0BFh,0FFh
+    db 0FFh,000h,000h,0BFh, 000h,000h,070h,0FFh, 0FFh,0FFh,0FFh,0FFh, 0FFh,0FFh,0FFh,0FFh
+    db 000h,000h,000h,000h, 000h,000h,000h,000h, 000h,000h,000h,000h, 000h,000h,000h,000h
 
 ; =============================================================================
 ; I/O registers. BX = the address; DS = view; BP = the core's.
@@ -1007,6 +1063,13 @@ rb_ioread:
     call rb_catchup                     ; IF: every event already due, first
 .plain:
     mov al,[bx]
+    cmp bl,40h                          ; FF00-FF3F: the bits a DMG reads
+    jae .pr                             ;   back as 1 - unused bits, unused
+    push bx                             ;   registers and the sound
+    xor bh,bh                           ;   registers' write-only halves
+    or al,[cs:rb_iomask+bx]
+    pop bx
+.pr:
     ret
 .ly:
     xor al,al
@@ -1148,6 +1211,10 @@ rb_iowrite:
     jmp rb_force
 .div:
     call rb_tsettle
+    call rb_tbit                        ; zeroing the counter drops the bit
+    jnc .d1                             ;   TIMA watches: a falling edge, so
+    call rb_tinc                        ;   TIMA ticks
+.d1:
     mov ax,[S_NOW]
     mov dx,[S_NOW+2]
     mov [S_TDIV],ax
@@ -1167,8 +1234,16 @@ rb_iowrite:
     jmp rb_force
 .tac:
     call rb_tsettle                     ; TIMA under the old rate, first
-    or al,0F8h
+    call rb_tbit                        ; and if the bit TIMA watches was 1
+    sbb ah,ah                           ;   and the new TAC's is 0, that is
+    or al,0F8h                          ;   a falling edge: TIMA ticks
     mov [0FF07h],al
+    or ah,ah
+    jz .t1
+    call rb_tbit
+    jc .t1
+    call rb_tinc
+.t1:
     call rb_timasch
     jmp rb_force
 .lcd:

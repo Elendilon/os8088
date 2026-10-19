@@ -96,6 +96,8 @@ def main():
     ap.add_argument("--frames", type=int)
     ap.add_argument("--mhz", type=float)
     ap.add_argument("--rom", help="time this game in play instead of the gbclock fit")
+    ap.add_argument("--render", action="store_true",
+                    help="with --rom: compose every frame with rb_render as well")
     a = ap.parse_args()
     subprocess.check_call([sys.executable, os.path.join(ROOT, "tools/gbclock.py")],
                           stdout=subprocess.DEVNULL)
@@ -107,7 +109,8 @@ def main():
     if a.rom:
         frames = a.frames or 2000
         img = os.path.join(out, "benchrom%d.img" % geom)
-        rbimg.make_image(a.rom, img, geom, "play", frames, core=core, host=host)
+        rbimg.make_image(a.rom, img, geom, "render" if a.render else "play", frames,
+                         core=core, host=host)
         txt = run_marty(img, a.marty) if a.marty else run_box(img, a.box, "rbbrom")
         d = done_line(txt)
         if not d:
@@ -116,8 +119,10 @@ def main():
         ms = d[1] / TICK_HZ / played * 1e3
         print(txt.strip().splitlines()[-1])
         print("%s: %d frames in play, %d ticks: %.2f ms a frame = %.1f%% of real "
-              "time's 16.74 ms (CPU only, no picture)"
-              % (os.path.basename(a.rom), played, d[1], ms, ms / 16.7427 * 100))
+              "time's 16.74 ms (%s)"
+              % (os.path.basename(a.rom), played, d[1], ms, ms / 16.7427 * 100,
+                 "the CPU and rb_render every frame, no screen written" if a.render
+                 else "CPU only, no picture"))
         return
     ticks = {}
     for b in sorted(BUSY):

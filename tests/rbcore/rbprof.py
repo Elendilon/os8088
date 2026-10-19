@@ -75,11 +75,13 @@ def main():
     ap.add_argument("--machine", default="os8088_xt_vga")
     ap.add_argument("--box", nargs="?", const="286", metavar="VM")
     ap.add_argument("--samples", type=int, default=10000)
+    ap.add_argument("--render", action="store_true", help="compose every frame too (MODE 5)")
     a = ap.parse_args()
     out = os.path.join(ROOT, "build", "realboy")
     core, host = rbimg.build_core(False, out), rbimg.build_host(out)
     img = os.path.join(out, "prof.img")
-    rbimg.make_image(a.rom, img, 1440 if a.box else 360, "play", 60000, core=core, host=host)
+    rbimg.make_image(a.rom, img, 1440 if a.box else 360, "render" if a.render else "play", 60000,
+                     core=core, host=host)
     inc = [os.path.join(ROOT, "apps/realboy/"), os.path.join(ROOT, "tests/rbcore/")]
     csyms = labels(listing(os.path.join(out, "rbcore.asm"), inc))
     hsyms = labels(listing(os.path.join(ROOT, "tests/rbcore/rbhost.asm"), inc))

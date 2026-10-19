@@ -22,6 +22,8 @@
 ;                   script, with the counters and the ticks restarted at
 ;                   frame 800.
 ;   MODE 4 (idle)   as MODE 3 with no buttons pressed.
+;   MODE 5 (render) as MODE 3, composing every frame with rb_render - the
+;                   picture's CPU cost, with no screen written.
 ;
 ; Memory: the boot sector at 0000:7C00, the stack below it, this harness at
 ; 0800:0000, the core at 1000:0000, the view at 2000:0000, the ROM from
@@ -35,6 +37,7 @@ HOST_SEG        equ 0x0800
 CORE_SEG        equ 0x1000
 VIEW_SEG        equ 0x2000
 ROM_SEG         equ 0x3000
+FRAME_SEG       equ 0x0A00                  ; rb_render's 5,760 bytes
 
 ; --- the boot sector ---------------------------------------------------------
 section boot start=0 vstart=0x7C00
@@ -189,7 +192,7 @@ host_main:
     cmp al,RBX_FRAME
     je .frame
     cmp al,RBX_BUDGET
-    je .run
+    je .budget
     cmp al,RBX_STOP
     je .run
     ; a bad opcode: say where and stop
@@ -206,11 +209,27 @@ host_main:
     mov ax,bx
     call hex16
     jmp .end
+.budget:
+    inc word [nbudget]                  ; a budget is 8000h M-cycles, under two
+    mov ax,[h_frames]                   ;   frames: with the LCD off no frame
+    shl ax,1                            ;   ever ends, so a run stops after
+    add ax,100                          ;   2 x FRAMES + 100 of them anyway
+    cmp ax,[nbudget]
+    ja .run
+    jmp .end
 .frame:
     inc word [nframes]
     cmp byte [h_mode],3
     jb .nj
     call joy_script
+    cmp byte [h_mode],5                 ; MODE 5: compose every frame too
+    jne .nj
+    push es
+    mov ax,FRAME_SEG
+    mov es,ax
+    xor di,di
+    call rb_render
+    pop es
 .nj:
     mov ax,[nframes]
     cmp ax,[h_frames]
@@ -265,6 +284,41 @@ host_main:
     mov si,0FF40h                       ; LCDC to WX
     mov cx,0Ch
     call dump
+    mov si,0A000h                       ; and A000-A0FF, where Blargg's ROMs
+    mov cx,100h                         ;   leave their verdict as text
+    call dump
+    mov si,S_AF                         ; and the registers, where Mooneye's
+    mov cx,12                           ;   leave theirs: AF BC DE HL SP PC
+    call dump
+    pop ds
+    push es                             ; and the frame, as rb_render
+    mov ax,FRAME_SEG                    ;   composes it
+    mov es,ax
+    xor di,di
+    call rb_render
+    pop es
+    push ds
+    mov ax,FRAME_SEG
+    mov ds,ax
+    xor si,si
+    mov cx,5760
+    call dump
+    pop ds
+    push ds                             ; and what it was composed from: the
+    mov ds,[cs:rb_viewseg]              ;   raster log, the snapshot, and the
+    mov si,RB_RLOG                      ;   frame counter and tags
+    mov cx,RB_RLOG_MAX*4
+    call dump
+    mov si,RB_SNAP
+    mov cx,8
+    call dump
+    mov si,S_FRAMES
+    mov cx,2
+    call dump
+    mov al,[S_SNAPTAG]
+    call com1
+    mov al,[S_RLOGN]
+    call com1
     pop ds
 .halt:
     hlt
@@ -467,7 +521,9 @@ s_skip  db " skipped ",0
 s_end   db " END",10,0
 s_vram  db "RBVRAM",0
 nframes dw 0
+nbudget dw 0
 t0      dd 0
 ticks   dw 0
 
 %include "rbsys.inc"
+%include "rbppu.inc"

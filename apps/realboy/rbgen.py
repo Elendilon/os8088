@@ -57,8 +57,10 @@ class Slot:
                              else "    " + line.strip())
 
     # --- memory ---------------------------------------------------------
-    def read8(self):
-        """[BX] -> DH, with ROMX and I/O off the fast path."""
+    def read8(self, at=0):
+        """[BX] -> DH, with ROMX and I/O off the fast path. `at` is the
+        M-cycle of the instruction the hardware reads in, counted from 0: a
+        register read is answered as of then (REALBOY-SPEC section 6.2)."""
         g = self.tag()
         self.a(f"""
 cmp bh,40h
@@ -73,14 +75,26 @@ jb .{g}s
 mov dh,[ss:bx]
 .{g}k:
 """)
-        self.t(f"""
+        if at:
+            self.t(f"""
+.{g}s:
+sub bp,{at}
+mov word [ss:S_RET],.{g}r
+jmp rd_slow
+.{g}r:
+add bp,{at}
+jmp .{g}k
+""")
+        else:
+            self.t(f"""
 .{g}s:
 mov word [ss:S_RET],.{g}k
 jmp rd_slow
 """)
 
-    def write8(self, src):
-        """src -> [BX]; the cartridge and I/O off the fast path."""
+    def write8(self, src, at=0):
+        """src -> [BX]; the cartridge and I/O off the fast path. `at` as
+        read8's."""
         g = self.tag()
         self.a(f"""
 test bh,bh
@@ -95,7 +109,19 @@ je .{g}s
 mov [ss:bx],{src}
 .{g}k:
 """)
-        self.t(f"""
+        if at:
+            self.t(f"""
+.{g}s:
+mov [ss:S_WVAL],{src}
+sub bp,{at}
+mov word [ss:S_RET],.{g}r
+jmp wr_slow
+.{g}r:
+add bp,{at}
+jmp .{g}k
+""")
+        else:
+            self.t(f"""
 .{g}s:
 mov [ss:S_WVAL],{src}
 mov word [ss:S_RET],.{g}k
@@ -210,7 +236,10 @@ jmp far [ss:S_EVVEC]
 """)
         return s
     if op == 0x00:                                  # NOP
-        s.cyc(1); s.disp()
+        # NOP checks for events though it is not a branch: a game that has
+        # crashed runs off into zeroed memory, and a core that never checks
+        # never gives the host its machine back (REALBOY-SPEC section 6).
+        s.cyc(1); s.check(); s.disp()
     elif op in (0x01, 0x11, 0x21, 0x31):            # LD rr,nn
         rr = {0x01: "cx", 0x11: "di", 0x21: "bx", 0x31: "sp"}[op]
         s.a(f"mov {rr},[si]\nadd si,2"); s.cyc(3); s.disp()
@@ -218,15 +247,15 @@ jmp far [ss:S_EVVEC]
         rr = "cx" if op in (0x02, 0x0A) else "di"
         s.a(f"xchg bx,{rr}")
         if op in (0x02, 0x12):
-            s.write8("al")
+            s.write8("al", 1)
         else:
-            s.read8(); s.a("mov al,dh")
+            s.read8(1); s.a("mov al,dh")
         s.a(f"xchg bx,{rr}"); s.cyc(2); s.disp()
     elif op in (0x22, 0x32, 0x2A, 0x3A):            # (HL+/-)
         if op in (0x22, 0x32):
-            s.write8("al")
+            s.write8("al", 1)
         else:
-            s.read8(); s.a("mov al,dh")
+            s.read8(1); s.a("mov al,dh")
         s.a("inc bx" if op in (0x22, 0x2A) else "dec bx")
         s.cyc(2); s.disp()
     elif op in (0x03, 0x13, 0x23, 0x33, 0x0B, 0x1B, 0x2B, 0x3B):
@@ -236,9 +265,9 @@ jmp far [ss:S_EVVEC]
         r = R8[hi * 2 + (1 if lo >= 0xC else 0)]
         dec = lo in (5, 0xD)
         if r == "(HL)":
-            s.read8()
+            s.read8(1)
             incdec8(s, "dh", dec)
-            s.write8("dh")
+            s.write8("dh", 2)
             s.cyc(3); zdl(s); s.disp()
         elif r in X86:
             incdec8(s, X86[r], dec); s.cyc(1); s.disp()
@@ -250,7 +279,7 @@ jmp far [ss:S_EVVEC]
         r = R8[hi * 2 + (1 if lo == 0xE else 0)]
         if r == "(HL)":
             s.a("mov dh,[si]\ninc si")
-            s.write8("dh"); zdl(s); s.cyc(3); s.disp()
+            s.write8("dh", 2); zdl(s); s.cyc(3); s.disp()
         elif r in X86:
             s.a(f"mov {X86[r]},[si]\ninc si"); s.cyc(2); s.disp()
         else:
@@ -267,9 +296,9 @@ jmp far [ss:S_EVVEC]
         s.a("sahf\nrcr al,1\nsbb ah,ah\nand ah,1"); s.cyc(1); s.disp()
     elif op == 0x08:                                # LD (nn),SP
         s.a("mov [ss:S_TMP+2],bx\nmov bx,[si]\nadd si,2\nmov dx,sp\nmov [ss:S_TMP+4],dh")
-        s.write8("dl")
+        s.write8("dl", 3)
         s.a("inc bx\nmov dh,[ss:S_TMP+4]")
-        s.write8("dh")
+        s.write8("dh", 4)
         s.a("mov bx,[ss:S_TMP+2]"); zdl(s); s.cyc(5); s.disp()
     elif op in (0x09, 0x19, 0x29, 0x39):            # ADD HL,rr
         if op == 0x09:
@@ -302,14 +331,28 @@ jmp far [ss:S_EVVEC]
         s.a("xor ah,1\nand ah,41h"); s.cyc(1); s.disp()
     elif op == 0x76:                                # HALT
         s.cyc(1)
-        s.a("mov byte [ss:S_HALT],1\njmp far [ss:S_EVVEC]")
+        # THE HALT BUG: with IME clear and an interrupt already pending, HALT
+        # does not halt, and the byte after it is read twice - the next
+        # opcode runs with PC still on itself (REALBOY-SPEC section 7).
+        s.a("""cmp byte [ss:S_IME],0
+jne .h
+mov dl,[ss:0FFFFh]
+and dl,[ss:0FF0Fh]
+and dl,1Fh
+jz .h
+xor dl,dl
+mov dh,[si]
+jmp dx
+.h:
+mov byte [ss:S_HALT],1
+jmp far [ss:S_EVVEC]""")
     elif 0x40 <= op < 0x80:                         # LD r,r'
         d, r = R8[(op >> 3) & 7], R8[op & 7]
         if r == "(HL)":
-            s.read8(); put8(s, d, "dh"); zdl(s); s.cyc(2); s.disp()
+            s.read8(1); put8(s, d, "dh"); zdl(s); s.cyc(2); s.disp()
         elif d == "(HL)":
             src = get8(s, r)
-            s.write8(src); zdl(s); s.cyc(2); s.disp()
+            s.write8(src, 1); zdl(s); s.cyc(2); s.disp()
         else:
             if d == r:
                 pass
@@ -330,7 +373,7 @@ jmp far [ss:S_EVVEC]
     elif 0x80 <= op < 0xC0:                         # ALU A,r
         aop, r = (op >> 3) & 7, R8[op & 7]
         if r == "(HL)":
-            s.read8(); alu(s, aop, "dh"); zdl(s); s.cyc(2)
+            s.read8(1); alu(s, aop, "dh"); zdl(s); s.cyc(2)
         else:
             src = get8(s, r)
             alu(s, aop, src)
@@ -426,12 +469,13 @@ mov [ss:S_TMP],bx
 mov bh,0FFh
 mov bl,dl
 mov [ss:S_WVAL],al
+sub bp,2                    ; the write is the third M-cycle's
 mov word [ss:S_RET],.k
 jmp io_wr
 .k:
 mov bx,[ss:S_TMP]
 xor dl,dl
-sub bp,3
+sub bp,1
 """)
         s.tail.append("    DISPATCH")
     elif op == 0xF0:                                # LDH A,(n)
@@ -451,30 +495,31 @@ xchg bx,dx
 mov [ss:S_TMP],bx
 mov bh,0FFh
 mov bl,dl
+sub bp,2                    ; the read is the third M-cycle's
 mov word [ss:S_RET],.k
 jmp io_rd
 .k:
 mov al,dh
 mov bx,[ss:S_TMP]
 xor dl,dl
-sub bp,3
+sub bp,1
 """)
         s.tail.append("    DISPATCH")
     elif op == 0xE2:                                # LD (C),A
         s.a("mov [ss:S_TMP],bx\nmov bh,0FFh\nmov bl,cl")
-        s.write8("al")
+        s.write8("al", 1)
         s.a("mov bx,[ss:S_TMP]"); zdl(s); s.cyc(2); s.disp()
     elif op == 0xF2:                                # LD A,(C)
         s.a("mov [ss:S_TMP],bx\nmov bh,0FFh\nmov bl,cl")
-        s.read8()
+        s.read8(1)
         s.a("mov al,dh\nmov bx,[ss:S_TMP]"); zdl(s); s.cyc(2); s.disp()
     elif op == 0xEA:                                # LD (nn),A
         s.a("mov [ss:S_TMP],bx\nmov bx,[si]\nadd si,2")
-        s.write8("al")
+        s.write8("al", 3)
         s.a("mov bx,[ss:S_TMP]"); zdl(s); s.cyc(4); s.disp()
     elif op == 0xFA:                                # LD A,(nn)
         s.a("mov [ss:S_TMP],bx\nmov bx,[si]\nadd si,2")
-        s.read8()
+        s.read8(3)
         s.a("mov al,dh\nmov bx,[ss:S_TMP]"); zdl(s); s.cyc(4); s.disp()
     elif op in (0xE8, 0xF8):                        # ADD SP,e / LD HL,SP+e
         s.a("mov dl,[si]\ninc si\ncmp dl,80h\ncmc\nsbb dh,dh")
@@ -531,7 +576,7 @@ def gen_cb(op):
     grp, y, r = op >> 6, (op >> 3) & 7, R8[op & 7]
     mem = r == "(HL)"
     if mem:
-        s.read8()
+        s.read8(2)
         reg = "dh"
     elif r in X86:
         reg = X86[r]
@@ -564,7 +609,7 @@ def gen_cb(op):
         s.a(f"or {reg},{1 << y}")
     if grp != 1:
         if mem:
-            s.write8("dh")
+            s.write8("dh", 3)
         elif r in ("D", "E"):
             s.a("mov di,dx")
     zdl(s)

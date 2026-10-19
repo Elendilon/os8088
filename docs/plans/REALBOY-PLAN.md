@@ -548,6 +548,20 @@ per M-cycle, against no$gmb's ~58.
 
 ### Wave 2 - the machine
 
+**BUILT.** `tests/gbcpu.py` passes `cpu_instrs`, `instr_timing`,
+`mem_timing` (register accesses timed to their M-cycle), `halt_bug` (the
+HALT bug) and 26 of Mooneye's 63 DMG acceptance tests; REALBOY-SPEC section
+12.4 says which of the rest fail and on what model. The trace still agrees
+for 10,000,000 instructions. **dmg-acid2 matches pixel for pixel** through
+wave 3's renderer, and it found the wave's worst bug: STAT interrupts had
+never fired (`rb_statsch` lost STAT to a DIV), so a status bar on LYC - Super
+Mario Land's - did nothing. With them firing, **Super Mario Land in play
+takes 90.8% of the 286 on the CPU alone** (it was 77.9% without its LYC
+handler running), and the composer, line by line, is ~40 ms a frame there:
+section 4.4's ~115,000 clocks is out by about four. That is the argument
+for wave 4's tile-level, hardware-panned path over composing every line,
+and for the recompiler.
+
 **Features**
 - PPU mode timing, with `LY`/`STAT`/`LYC` computed on read and the `STAT`
   interrupts;

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""RealBoy's core against Blargg's CPU and timing ROMs, bare, in QEMU.
+"""RealBoy's core against Blargg's and Mooneye's test ROMs, bare, in QEMU.
 
     python3 tests/gbcpu.py [-k NAME]
 
 docs/plans/REALBOY-PLAN.md wave 1 and wave 2's `gbcpu` row. Each ROM is
 booted on a bare machine through tests/rbcore/rbhost.asm - no os8088 under
 the core - and the row reads what the ROM prints on its link port, which the
-harness copies to COM1. A ROM passes when it says "Passed".
+harness copies to COM1. A ROM passes when it says "Passed". halt_bug
+reports only on screen, so its verdict is read where Blargg's ROMs also
+leave it, as text at A000 (tests/rbcore/rbshot.py).
 
 The ROMs are fetched by tools/getgbtest.py at pinned SHA-256s and never
 committed. QEMU counts work exactly and times nothing (docs/TESTING.md), and
@@ -26,6 +28,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tests", "rbcore"))
 import rbimg  # noqa: E402
 import rbqemu  # noqa: E402
+import rbshot  # noqa: E402
 
 # (name, ROM as getgbtest names it, frames to allow)
 ROMS = [
@@ -42,6 +45,21 @@ ROMS = [
     ("11-op a,(hl)", "individual/11-", 3000),
     ("cpu_instrs (all, MBC1)", "cpu_instrs/cpu_instrs", 4200),
     ("instr_timing", "instr_timing", 600),
+    ("mem_timing", "mem_timing/mem_timing", 1200),
+    ("halt_bug", "halt_bug", 1200, "screen"),
+]
+# Mooneye's acceptance tests the core passes (REALBOY-SPEC section 12.3 says
+# which of the other DMG rows it does not, and why). A Mooneye test reports
+# in the registers: B,C,D,E,H,L = 3,5,8,13,21,34.
+MOONEYE = [
+    "bits/mem_oam", "bits/reg_f", "bits/unused_hwio-GS", "boot_div-dmgABCmgb",
+    "boot_hwio-dmgABCmgb", "boot_regs-dmgABC", "div_timing", "halt_ime0_ei",
+    "halt_ime0_nointr_timing", "halt_ime1_timing", "if_ie_registers",
+    "instr/daa", "intr_timing", "oam_dma/basic", "oam_dma/reg_read",
+    "ppu/intr_2_mode0_timing", "ppu/intr_2_mode3_timing",
+    "timer/div_write", "timer/tim00", "timer/tim00_div_trigger", "timer/tim01",
+    "timer/tim01_div_trigger", "timer/tim10", "timer/tim10_div_trigger",
+    "timer/tim11", "timer/tim11_div_trigger",
 ]
 DAA_NOP = "2700:8A3446FFE2"        # mov dh,[si] / inc si / jmp dx
 
@@ -49,6 +67,27 @@ DAA_NOP = "2700:8A3446FFE2"        # mov dh,[si] / inc si / jmp dx
 def rom_path(name):
     return subprocess.check_output([sys.executable, os.path.join(ROOT, "tools/getgbtest.py"),
                                     "--path", name], text=True).strip()
+
+
+def run_screen(rom, frames, core, host):
+    """A ROM that reports on screen and in Blargg's memory protocol (A000:
+    status, A001: DE B0 61, A004: the text) rather than on the link port."""
+    img = os.path.join(ROOT, "build", "realboy", "gbcpu.img")
+    rbimg.make_image(rom, img, mode="idle", frames=frames, core=core, host=host)
+    _, blk = rbshot.capture(img, 180)
+    v = rbshot.blargg(blk)
+    if not v:
+        return False, "no verdict at A000"
+    return v[0] == 0 and "Passed" in v[1], v[1].strip().splitlines()[-1]
+
+
+def run_mooneye(rom, core, host):
+    img = os.path.join(ROOT, "build", "realboy", "gbcpu.img")
+    rbimg.make_image(rom, img, mode="idle", frames=300, core=core, host=host)
+    _, blk = rbshot.capture(img, 180)
+    v = rbshot.mooneye(blk)
+    return v is True, {True: "3 5 8 13 21 34", False: "42 42 42 42 42 42",
+                       None: "never finished"}[v]
 
 
 def run(label, rom, frames, core, host):
@@ -68,11 +107,21 @@ def main():
     out = os.path.join(ROOT, "build", "realboy")
     core, host = rbimg.build_core(False, out), rbimg.build_host(out)
     bad = 0
-    for label, name, frames in ROMS:
+    for label, name, frames, *how in ROMS:
         if a.k and a.k not in label:
             continue
-        ok, last = run(label, rom_path(name), frames, core, host)
+        if how:
+            ok, last = run_screen(rom_path(name), frames, core, host)
+        else:
+            ok, last = run(label, rom_path(name), frames, core, host)
         print("%-4s %-24s %s" % ("ok" if ok else "FAIL", label, last))
+        bad += not ok
+    for name in MOONEYE:
+        label = "mooneye " + name
+        if a.k and a.k not in label:
+            continue
+        ok, last = run_mooneye(rom_path("acceptance/%s.gb" % name), core, host)
+        print("%-4s %-38s %s" % ("ok" if ok else "FAIL", label, last))
         bad += not ok
     if not a.k:
         ok, last = run("control", rom_path("individual/01-"), 1200,

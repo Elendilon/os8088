@@ -3,8 +3,8 @@
 
     python3 tests/rbcore/rbshot.py IMG -o OUT.pgm [--timeout S]
 
-MODES 3 and 4 of tests/rbcore/rbhost.asm end by sending VRAM, OAM and the
-LCD registers on COM1 after "RBVRAM". This draws them as a DMG would -
+MODES 3 and 4 of tests/rbcore/rbhost.asm end by sending VRAM, OAM, the
+LCD registers, A000-A0FF and the CPU's registers on COM1 after "RBVRAM". This draws them as a DMG would -
 background, window and sprites, a whole frame at the registers' final values
 - into a 160x144 PGM, the format tools/gbprof.py --shots writes, so the core's
 picture can be put beside Peanut-GB's before the core has a renderer of its
@@ -26,24 +26,72 @@ def capture(img, timeout):
     p = subprocess.Popen(["qemu-system-i386", "-drive", "file=%s,format=raw,if=floppy" % img,
                           "-boot", "a", "-display", "none", "-serial", "file:%s" % log,
                           "-no-reboot"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    need = 0x2000 + 0xA0 + 0x0C
-    t0 = time.time()
+    need = 0x2000 + 0xA0 + 0x0C + 0x100 + 12 + 5760 + 768 + 8 + 4
+    t0, data = time.time(), b""
     try:
         while time.time() - t0 < timeout:
             data = open(log, "rb").read()
             k = data.find(b"RBVRAM")
             if k >= 0 and len(data) >= k + 6 + need:
                 return data[:k], data[k + 6:k + 6 + need]
+            if b"RBHOST BADOP" in data:     # the core stopped: no picture coming
+                time.sleep(0.3)
+                break
             time.sleep(0.3)
     finally:
         p.kill()
         p.wait()
         os.unlink(log)
-    sys.exit("rbshot: no RBVRAM block within %ds" % timeout)
+    sys.exit("rbshot: no RBVRAM block (%s)" % ("the core hit a bad opcode"
+                                               if b"BADOP" in data else "%ds" % timeout))
+
+
+def blargg(blk):
+    """A Blargg ROM's verdict from A000-A0FF: (status, text), or None when
+    the signature DE B0 61 is not at A001."""
+    a = blk[0x20AC:0x21AC]
+    if a[1:4] != b"\xde\xb0\x61":
+        return None
+    return a[0], a[4:].split(b"\0")[0].decode("latin-1")
+
+
+def mooneye(blk):
+    """Mooneye's verdict from the registers at the end of the run: True for
+    B,C,D,E,H,L = 3,5,8,13,21,34 (its pass), False for all 42h (its fail),
+    None for neither - the test never finished."""
+    r = blk[0x21AC:0x21B8]
+    b, c, d, e, h, l = r[3], r[2], r[5], r[4], r[7], r[6]
+    if (b, c, d, e, h, l) == (3, 5, 8, 13, 21, 34):
+        return True
+    if (b, c, d, e, h, l) == (0x42,) * 6:
+        return False
+    return None
+
+
+def core_frame(blk):
+    """rb_render's own frame: 144 lines of two 20-byte shade planes ->
+    160x144 shades 0-3."""
+    f = blk[0x21B8:0x21B8 + 5760]
+    out = bytearray(160 * 144)
+    for y in range(144):
+        lo, hi = f[y * 40:y * 40 + 20], f[y * 40 + 20:y * 40 + 40]
+        for x in range(160):
+            b = 7 - (x & 7)
+            out[y * 160 + x] = ((lo[x >> 3] >> b) & 1) | (((hi[x >> 3] >> b) & 1) << 1)
+    return bytes(out)
+
+
+def rlog(blk):
+    """(frames, snaptag, entries, snapshot, [(line, register, value)...])."""
+    o = 0x21B8 + 5760
+    log, snap = blk[o:o + 768], blk[o + 768:o + 776]
+    frames = blk[o + 776] | blk[o + 777] << 8
+    tag, n = blk[o + 778], blk[o + 779]
+    return frames, tag, n, snap, [tuple(log[i * 4:i * 4 + 3]) for i in range(min(n, 192))]
 
 
 def render(blk):
-    vram, oam, reg = blk[:0x2000], blk[0x2000:0x20A0], blk[0x20A0:]
+    vram, oam, reg = blk[:0x2000], blk[0x2000:0x20A0], blk[0x20A0:0x20AC]
     lcdc, scy, scx, bgp, obp0, obp1, wy, wx = (reg[0], reg[2], reg[3], reg[7],
                                               reg[8], reg[9], reg[10], reg[11])
     pix = bytearray(160 * 144)
@@ -95,11 +143,17 @@ def main():
     ap.add_argument("img")
     ap.add_argument("-o", "--out", required=True)
     ap.add_argument("--timeout", type=float, default=300)
+    ap.add_argument("--python", action="store_true",
+                    help="draw with this script's renderer instead of rb_render's frame")
     a = ap.parse_args()
     text, blk = capture(a.img, a.timeout)
     sys.stdout.write(text.decode("latin-1"))
+    v = blargg(blk)
+    if v:
+        print("rbshot: Blargg status %02X: %s" % (v[0], v[1].strip().replace("\n", " / ")))
     with open(a.out, "wb") as f:
-        f.write(b"P5 160 144 255\n" + render(blk))
+        f.write(b"P5 160 144 255\n" + (render(blk) if a.python
+                                        else bytes(SHADE[p] for p in core_frame(blk))))
     print("rbshot: %s" % a.out)
 
 

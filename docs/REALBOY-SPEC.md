@@ -13,10 +13,10 @@ It is cited from outside as "REALBOY-SPEC section N"; inside it, "section N"
 is a section of this file.
 
 **What is built, stated once so no section below has to hedge:** the plan's
-wave 1 - the SM83 core and the system code that hosts it, run BARE by a test
-harness with no os8088 underneath. There is no package yet, no picture, no
-sound, no save RAM and no MBC3 clock. Sections 10 and 11 say what exists of
-those halves.
+waves 1 and 2 and wave 3's renderer - the SM83 core, the system code that
+hosts it and the composer of section 13, run BARE by a test harness with no
+os8088 underneath. There is no package yet, no screen writer, no sound, no
+save RAM and no MBC3 clock.
 
 ---
 
@@ -33,6 +33,7 @@ with the registers and I/O state the DMG boot ROM leaves (section 6.1).
 | `apps/realboy/rbgen.py` | the core's GENERATOR: writes `build/realboy/rbcore.asm`, one handler per opcode. Nothing generated is committed |
 | `apps/realboy/rbdefs.inc` | the layout: the view, the state block's fields, exit codes, MBC types, flag bits, the PPU's clock constants. **The field table there is this contract's list of fields** |
 | `apps/realboy/rbsys.inc` | the system code: init, run, events, the I/O and MBC registers rbsys answers, the raster log, the trace hook. Included by a host |
+| `apps/realboy/rbppu.inc` | the picture: `rb_render` (section 13). Included by a host after rbsys.inc |
 | `tests/rbcore/` | the bare harness and the instruments (section 12) |
 
 No ROM, test ROM or reference emulator source is ever committed. Test ROMs
@@ -155,9 +156,11 @@ Land (the report, section 4).
 **Every time is a dword of M-cycles since `rb_init`.** "Now" is
 `S_TNEXT - BP`: `S_TNEXT` is when the next event is due and BP counts down to
 it, every handler subtracting its own M-cycles (`sub bp,n`). A taken or
-not-taken branch, HALT, RETI, EI and STOP check `js` and enter
+not-taken branch, HALT, RETI, EI, STOP and NOP check `js` and enter
 `S_EVVEC`; straight-line code does not check, so an event is late by at most
-one basic block.
+one basic block. NOP checks because a game that has crashed runs off into
+zeroed memory, and a core that never checks never gives its host the machine
+back.
 
 | event | time | does |
 |---|---|---|
@@ -179,15 +182,31 @@ for M-cycles 0-19 of a visible line, mode 3 for 20-62, mode 0 from 63
 
 **DIV and TIMA run off one free-running counter**, as the hardware's do:
 DIV is `(now - S_TDIV) >> 6`, and TIMA ticks each time
-`(now - S_TDIV) >> shift` does, shift being TAC's rate. A DIV write sets
-`S_TDIV` = now. `instr_timing` fails without this.
+`(now - S_TDIV) >> shift` does, shift being TAC's rate - that is, when the
+counter's bit `shift - 1` falls. A DIV write sets `S_TDIV` = now, and a DIV
+or TAC write that makes that bit fall ticks TIMA once (rb_tbit). TIMA reloads
+from TMA at the overflow itself, with none of the hardware's one-M-cycle
+delay. `instr_timing` fails without the counter.
+
+### 6.2 When inside an instruction a register is touched
+
+A register read or write is answered **as of the M-cycle the hardware makes
+it in**, counted from the instruction's first: 1 for `LD r,(HL)`,
+`LD (HL),r`, `LD A,(BC)`/`(DE)`, `LDI`/`LDD`, `LD A,(C)` and the ALU's
+`(HL)` forms, and `INC`/`DEC (HL)` read; 2 for `LDH A,(n)`, `LDH (n),A`,
+`LD (HL),n`, `INC`/`DEC (HL)`'s write and a CB `(HL)` read; 3 for
+`LD A,(nn)`, `LD (nn),A` and a CB `(HL)` write; 3 and 4 for
+`LD (nn),SP`. The generator's `read8(at)`/`write8(at)` take BP back by
+`at` around the slow path only, so the fast path pays nothing. `mem_timing`
+fails without this.
 
 ### 6.1 The state at 0100h
 
 A = 01, F = B0, BC = 0013, DE = 00D8, HL = 014D, SP = FFFE, PC = 0100, and
-the I/O registers the DMG boot ROM leaves, with LCDC = 91h, STAT = 85h, BGP
-= FCh and **DIV = ABh** (`S_TDIV` = -ABh x 64). The LCD is on and line 0
-begins at time 0. FF4C-FF7F read FFh (section 9).
+the I/O registers the DMG boot ROM leaves, with LCDC = 91h, STAT = 85h and
+BGP = FCh. The counter under DIV reads **ABCCh T-states** at 0100
+(`S_TDIV` = -(ABCCh / 4)), TAC F8h, DMA FFh, NR52 F1h. The LCD is on and line
+0 begins at time 0. FF4C-FF7F read FFh (section 9).
 
 ## 7. Interrupts
 
@@ -196,7 +215,15 @@ IF's bit cleared, PC pushed, PC = 40h + 8 x the bit, and **5 M-cycles**
 charged before the handler's first instruction. A write to IF or IE takes
 one **at once**, from inside the writing instruction (`rb_irqnow`), so the
 pushed PC is the next instruction's. HALT ends when IF AND IE is non-zero,
-whether or not IME is set. A read of IF first runs every event already due
+whether or not IME is set. **The HALT bug**: HALT executed with IME clear and
+an interrupt already pending does not halt, and the byte after it is read
+twice - the next opcode runs with PC still on itself.
+
+**EI is not delayed by one instruction.** It sets IME at once and forces the
+next event check, so a pending interrupt is taken at the next branch, HALT
+or RETI rather than after exactly one more instruction. `EI / HALT` and
+`EI / RET` come out as the hardware's; Mooneye's `ei_sequence`, `ei_timing`,
+`rapid_di_ei` and `di_timing` do not (section 12.3). A read of IF first runs every event already due
 (`rb_catchup`), so a game polling IF sees what the hardware would.
 
 ## 8. The spin-wait rule
@@ -233,6 +260,11 @@ exactly as rbsys would:
   bits are 0, the bank masked by `S_BMASK` (banks - 1); DS moves with ROMX
   when the game runs from 4000-7FFF.
 
+**Read masks.** A read of FF00-FF3F answered by rbsys is ORed with the bits
+a DMG reads back as 1: SC's unused bits, FF03 and FF08-FF0E, the sound
+registers' write-only halves and unused bits, FF15, FF1F and FF27-FF2F
+(`rb_iomask`).
+
 **Answered by rbsys:** DIV, TIMA, TAC, IF, IE, SC (a transfer sends SB to
 `rb_putc` and completes at once: nobody is on the other end, so SB reads FFh
 and IF bit 3 is set), LCDC (the LCD starting restarts the frame
@@ -251,10 +283,11 @@ RAM are the plan's wave 5.
 ## 11. The raster log
 
 A write to LCDC, SCY, SCX, BGP, OBP0, OBP1, WY or WX during the visible lines
-is logged in `RB_RLOG` as (line, register, value), at most 192 a frame, and
-the first one in a frame first snapshots all eight as the frame began into
-`RB_SNAP`. It is the renderer's input (the plan's section 4.4); nothing
-draws yet.
+is logged in `RB_RLOG` as (line, register, value), at most 192 a frame - the
+line it takes effect on, the next one for a write in HBlank - and the first
+one in a frame first snapshots all eight as the frame began into `RB_SNAP`
+(LCDC, SCY, SCX, BGP, OBP0, OBP1, WY, WX), tagged with the frame's number in
+`S_SNAPTAG`. It is the renderer's input (section 13).
 
 ## 12. The harness and the instruments
 
@@ -286,8 +319,62 @@ every loop iteration is in the trace.
 
 | | |
 |---|---|
-| `tests/gbcpu.py` | the correctness ROMs, with a broken-DAA control |
+| `tests/gbcpu.py` | the correctness ROMs, with a broken-DAA control: Blargg's `cpu_instrs` (all), `instr_timing`, `mem_timing` and `halt_bug`, and 26 of Mooneye's DMG acceptance tests |
+| `tests/rbcore/rbacid.py` | dmg-acid2 through `rb_render`, pixel for pixel, with a broken-`LDH` control |
 | `tools/gbtrace.py`, `tests/gbtrace.py` | the differential trace against Peanut-GB, with a broken-`JR NZ` control |
 | `tests/rbcore/rbbench.py` | cost per M-cycle on gbclock, or a game's frames against real time |
 | `tests/rbcore/rbprof.py` | where the time goes, by handler, on MartyPC or 86Box |
 | `tests/rbcore/rbshot.py` | a play image's last frame, drawn from its VRAM |
+
+### 12.4 The Mooneye acceptance tests that do not pass
+
+Of the 63 that are about a DMG (the release `tools/getgbtest.py` pins), the
+core passes the 26 `tests/gbcpu.py` names. The others fail for four reasons,
+each a model this core chose not to carry:
+
+- **Instruction timing measured by OAM DMA** - `call`, `call_cc`, `jp`,
+  `jp_cc`, `ret`, `ret_cc`, `reti`, `rst`, `push`, `pop`, `add_sp_e`,
+  `ld_hl_sp_e` `_timing`, `reti_intr_timing`, `oam_dma/sources-GS`,
+  `interrupts/ie_push`: they find an access's M-cycle by racing a DMA that
+  blocks the bus, and the core's DMA is a 160-byte copy at once.
+- **The PPU's variable mode 3, and STAT's finer rules** - every `ppu/` row but
+  `intr_2_mode0_timing` and `intr_2_mode3_timing`: mode 3 lengthens with
+  sprites and SCX on the hardware and is a fixed 43 M-cycles here, and the
+  STAT line's blocking and LCD-on timing are not modelled.
+- **EI's delay** (section 7) - `ei_sequence`, `ei_timing`, `rapid_di_ei`,
+  `di_timing-GS`, `halt_ime1_timing2-GS`.
+- **TIMA's reload delay** (section 6) - `tima_reload`,
+  `tima_write_reloading`, `tma_write_reloading`, `rapid_toggle`; and the
+  serial clock's phase, `boot_sclk_align`.
+
+## 13. The picture
+
+`rb_render` (`apps/realboy/rbppu.inc`) composes the frame that ended at the
+last `RBX_FRAME` into a host's 5,760-byte buffer: **144 lines of 40 bytes,
+the shade's bit 0 for pixels 0-159 (20 bytes, the leftmost pixel in bit 7)
+and then its bit 1**. Shade 0 is the lightest. Every register is preserved;
+its working memory is the view's 4900h-4B5Fh.
+
+- **The state** each line is drawn with is the frame's own: `RB_SNAP` with
+  `RB_RLOG` applied at each entry's line when `S_SNAPTAG` is the frame just
+  ended (`S_FRAMES` - 1), the registers as they stand otherwise. VRAM and OAM
+  are read as they stand: the frame is composed at VBlank's start, before
+  the game's VBlank handler has touched either.
+- **A byte - eight pixels - at a time, never a pixel.** The background is 21
+  tile rows from the map, each already two bit-planes, shifted left by
+  `SCX AND 7`. The window replaces it from X = WX - 7 when LCDC bits 0 and 5
+  are set, WY <= LY and WX <= 166, with **its own line counter**, which
+  counts only the lines it was drawn on. LCDC bit 0 clear makes the
+  background and window colour 0 and every sprite visible over them.
+- **Palettes** are four minterm masks: colour k's shade bits as 00h or FFh,
+  so a byte's shade is `(c0 AND m0) OR ... OR (c3 AND m3)` for each bit.
+- **Sprites**: the first ten in OAM order whose rows cover the line (8 or 16
+  tall; a 16-tall sprite ignores its tile number's bit 0), then **sorted by
+  X, equal X keeping OAM order**, and drawn highest priority first through a
+  CLAIMED mask: a pixel the first opaque sprite took stays its, so a sprite
+  behind the background still hides the sprites under it, and it shows only
+  over background colour 0.
+
+`tests/rbcore/rbacid.py` holds it to dmg-acid2's reference, all 23,040
+pixels. It is the composer only: the writers that take the planes to a
+screen are the package's.
