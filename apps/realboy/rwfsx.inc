@@ -118,6 +118,7 @@ rw_fsenter:
     call OSAPI_GET_TICKS            ; the window takes up from now
     mov [rw_last], ax
     mov word [rw_owed], 0
+    call rw_drawnow                 ; (on the window's clock again)
     mov byte [rw_fsq], 0
 .r:
     ret
@@ -237,8 +238,8 @@ rw_fsmain:
     mov byte [rw_fsrun], 0
     call OSAPI_GET_TICKS
     mov [rw_last], ax
-    sub ax, 100                     ; long enough ago: the first draws now
-    mov [rw_drawt], ax
+    mov byte [rw_infsx], 1          ; (rw_clk: the bracket's clock now)
+    call rw_drawnow                 ; the first draws now
 .loop:
     call rw_fsdrain                 ; ZF = 0: Esc
     jnz .out
@@ -272,7 +273,7 @@ rw_fsmain:
     jz .due                         ; caught up: draw this one, when due
     cmp byte [rw_fsrun], RW_FSSKIP  ; (rw_drawdue, as the window's)...
     jb .f
-    mov bx, RW_DRAWTICKS            ; ...or behind by the clock
+    mov bx, 1                       ; ...or behind (rw_drawdue)
 .due:
     call rw_drawdue
     jc .draw

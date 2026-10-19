@@ -15,9 +15,9 @@
 ; in budgets of RW_BUDGET M-cycles - the core runs with interrupts off
 ; (REALBOY-SPEC section 5.2), so the budget is the IRQ latency, and the tick
 ; pre-empts it between two - and yields once a frame. It composes and blits a
-; frame only when it has caught up, or every RW_DRAWTICKS ticks whatever
-; happens, so the game keeps its speed and the picture takes what is left
-; (docs/plans/REALBOY-PLAN.md section 4.5).
+; frame when the draw clock says so (rw_drawdue: half the machine at most
+; once the game has caught up, a third while it is behind), so the game keeps
+; its speed and the picture takes what is left (REALBOY-SPEC section 15.2).
 ; =============================================================================
 
 %include "os88api.inc"
@@ -47,7 +47,6 @@ RW_BUDGET86     equ 700             ; ...and on an 8088, where 2000 is ~20 ms
                                     ;   with interrupts off - two bytes of a
                                     ;   1200-baud serial mouse into an 8250
                                     ;   that holds one
-RW_DRAWTICKS    equ 3               ; a frame drawn at least every 3 ticks
 RW_PERTICK      equ 840             ; frames a BIOS tick, x 256
 RW_BEHIND       equ 30              ; frames a machine catches up at most:
                                     ;   half a second, longer than an 8088's
@@ -80,8 +79,10 @@ rw_ndrawn       equ rw_nrun + 2     ; word: ...and drawn
 rw_tstat        equ rw_ndrawn + 2   ; word: the tick that count began
 rw_ovltxt       equ rw_tstat + 2    ; 16: 'NNN% NNfps', composed once a second
 rw_budget       equ rw_ovltxt + 16  ; word: M-cycles a core run, by CPU tier
-rw_drawt        equ rw_budget + 2   ; word: the tick the last frame was drawn
-rw_pfmt         equ rw_drawt + 2    ; rw_pbuf holds: 0 nothing, 1 the dither,
+rw_drawt        equ rw_budget + 2   ; dword: when the next draw may start
+                                    ;   (rw_clk's counts: rw_drawdue)
+rw_dlast        equ rw_drawt + 4    ; dword: how long the last draw took
+rw_pfmt         equ rw_dlast + 4    ; rw_pbuf holds: 0 nothing, 1 the dither,
                                     ;   4 BLITP's planes (rb_render4)
 rw_nobp         equ rw_pfmt + 1     ; BLITP refused us: dither until a paint
 rw_incore       equ rw_nobp + 1     ; the worker is in the machine (rwfsx.inc)
@@ -841,8 +842,7 @@ rw_worker:                          ;   the worker parked at the top of its
     mov [rw_budget], bx
     call OSAPI_GET_TICKS
     mov [rw_last], ax
-    sub ax, 100                     ; long enough ago: the next frame draws
-    mov [rw_drawt], ax
+    call rw_drawnow                 ; the next frame draws
 .loop:
     mov bx, [rw_win]
     call OSAPI_TASK_ALIVE           ; no lock held; a closed window ends here
@@ -898,10 +898,10 @@ rw_worker:                          ;   the worker parked at the top of its
     xor bx, bx                      ; caught up: draw this one, once the
     cmp word [rw_owed], 256         ;   last draw's own length has passed
     jb .due                         ;   since it ended...
-    mov bx, RW_DRAWTICKS            ; ...or it has been too long: a machine
-.due:                               ;   that is behind draws by the CLOCK,
-    call rw_drawdue                 ;   so its picture rate is the same
-    jnc .loop                       ;   whatever the game's speed
+    mov bx, 1                       ; ...or, behind, a draw's length later
+.due:                               ;   again (rw_drawdue): a third of the
+    call rw_drawdue                 ;   machine to the picture, the rest to
+    jnc .loop                       ;   catching up
     mov si, rw_present
     call rw_timed                   ; a draw of D ticks: the next after D more
     jmp .loop                       ; the clock is read again after EVERY
@@ -923,48 +923,79 @@ rw_worker:                          ;   the worker parked at the top of its
     call OSAPI_TASK_SLEEP
     jmp .loop
 
-; rw_drawdue - CF = 1 if a draw is due: BX ticks past [rw_drawt], which a
-; draw sets to its own end plus its own length (rw_timed) - so drawing takes
-; at most half the machine, the game the rest. A 286's draw is under a tick,
-; so there the rule is "every frame it is caught up"; an 8088's is several,
-; and the game keeps its speed while the picture rate falls.
+; rw_drawdue - CF = 1 if a draw is due. BX = 0: the game has caught up, and
+; a draw may start once as long as the last one took has passed since it
+; ended, so drawing takes at most half the machine. BX = 1: the game is
+; behind, and another such length must pass, a third of the machine - so a
+; game that slips a little loses a little of its picture rate rather than
+; dropping to a draw every few ticks, which is how the first field run saw
+; Super Mario Land fall from ~30 frames drawn to 4 whenever it slipped under
+; 100%. The clock is rw_clk's, 838 ns a count: a 286's draw is milliseconds
+; and a tick could not tell one from nothing.
 rw_drawdue:
     push ax
-    call OSAPI_GET_TICKS
+    push dx
+    call rw_clk
     sub ax, [rw_drawt]
-    cmp ax, bx                      ; signed: [rw_drawt] may be ahead
+    sbb dx, [rw_drawt + 2]
+    js .no                          ; (signed: [rw_drawt] may be ahead)
+    or bx, bx
+    jz .yes
+    sub ax, [rw_dlast]
+    sbb dx, [rw_dlast + 2]
+    js .no
+.yes:
+    pop dx
     pop ax
-    jl .no
     stc
     ret
 .no:
+    pop dx
+    pop ax
     clc
     ret
 
-; rw_timed - call SI (a draw), then [rw_drawt] = its end + its length
-rw_timed:
-    call rw_clk                     ; (the log's clock, finer than a tick)
-    push dx
+; rw_drawnow - the next draw is due at once (a fresh start, or a clock that
+; changed under the last one: into or out of full screen)
+rw_drawnow:
     push ax
-    call OSAPI_GET_TICKS
+    push dx
+    call rw_clk
+    sub ax, 1
+    sbb dx, 0
+    mov [rw_drawt], ax
+    mov [rw_drawt + 2], dx
+    xor ax, ax
+    mov [rw_dlast], ax
+    mov [rw_dlast + 2], ax
+    pop dx
+    pop ax
+    ret
+
+; rw_timed - call SI (a draw), then [rw_drawt] = its end + its length, and
+; the log told how long it took
+rw_timed:
+    call rw_clk
+    push dx
     push ax
     inc word [rw_ndrawn]
     call si
-    call rw_clk
-    pop cx                          ; (the tick at the start)
+    call rw_clk                     ; DX:AX = the end
     pop bx
+    pop cx                          ; CX:BX = the start
+    push dx
+    push ax
     sub ax, bx
+    sbb dx, cx                      ; DX:AX = the length
+    mov [rw_dlast], ax
+    mov [rw_dlast + 2], dx
     pop bx
-    sbb dx, bx
-    push cx
-    call rw_logdraw
-    call OSAPI_GET_TICKS
-    pop dx
-    sub dx, ax
-    neg dx                          ; DX = the draw's ticks
-    add ax, dx
-    mov [rw_drawt], ax
-    ret
+    pop cx                          ; CX:BX = the end
+    add bx, ax
+    adc cx, dx
+    mov [rw_drawt], bx
+    mov [rw_drawt + 2], cx
+    jmp rw_logdraw
 
 ; rw_frame - run the machine to its next frame, yielding between budgets.
 ; CF = 1: the core stopped (a bad opcode), and the UI task is told.
@@ -1226,6 +1257,8 @@ rw_keys:
     jz .nof1
     xor byte [rw_ovl], 1
     mov byte [rw_ovlnew], 1
+    call rw_dmgfull                 ; the line it covered, or uncovered, is
+                                    ;   not a change the picture made
 .nof1:
     mov si, rw_keymap
     mov dh, 1
@@ -1258,9 +1291,15 @@ rw_present:
     jbe .mono
     cmp byte [rw_nobp], 0
     jne .mono
-    mov di, rw_pbuf                 ; colour: the planes, composed straight
-    call rb_render4                 ;   into the buffer BLITP reads
+    cmp byte [rw_pfmt], 4           ; colour: the changed lines, as the
+    je .c1                          ;   four planes BLITP reads (a buffer of
+    call rw_dmgfull                 ;   the other format: every line again)
+.c1:
+    call rw_render
     mov byte [rw_pfmt], 4
+    or ax, ax
+    jz .none
+    call rw_planes
     jmp short .show
 .mono:
     cmp byte [rw_pfmt], 1           ; the buffer held the other format:
@@ -1271,6 +1310,7 @@ rw_present:
     mov byte [rw_pfmt], 1
     or ax, ax
     jnz .m2
+.none:
     mov byte [rw_incore], 0         ; nothing did: nothing to put up
     ret
 .m2:
@@ -1289,13 +1329,7 @@ rw_present:
     jz .un
     call OSAPI_WM_CLIP_SET          ; CF = 1: not a pixel of us shows
     jc .un
-    cmp byte [rw_pfmt], 1
-    jne .full
     call rw_blitd                   ; the changed lines' bands
-    jmp short .ov
-.full:
-    call rw_blit
-.ov:
     call rw_overlay
 .un:
     call OSAPI_GFX_UNLOCK
@@ -1321,7 +1355,7 @@ rw_overlay:
 ; BLITP's four planes on a colour display, the dithered band through BLIT1 on
 ; a monochrome one (or where BLITP refuses). A buffer composed for the other
 ; kind of display - the window moved between two - paints white, and the
-; worker's next frame, at most RW_DRAWTICKS away, puts the picture back.
+; worker's next draw puts the picture back.
 rw_blit:
     mov bx, [rw_win]
     call OSAPI_WM_DISPLAY           ; DH = bits per pixel
@@ -1470,6 +1504,8 @@ rw_blitd:
     call OSAPI_WM_DISPLAY           ; DH = bits per pixel
     cmp dh, 1
     jbe .mono
+    cmp byte [rw_pfmt], 4           ; (the planes: BLITP's bands below)
+    je .mono
     mov al, CWHITE                  ; the dither on a colour display
     mov ah, CBLACK
     call OSAPI_GFX_BLIT1_PEN
@@ -1512,11 +1548,68 @@ rw_blitd:
     mov dx, cx                      ; DX = its lines
     push ds
     pop es
+    cmp byte [rw_pfmt], 4
+    je .planes
     mov bp, 20
     mov cx, RW_CONT_W
     call OSAPI_GFX_BLIT1
     pop dx
     jmp short .nx
+.planes:                            ; the four planes' band, from the same
+    sub si, rw_pbuf                 ;   first line: 80 bytes a line, not 20
+    shl si, 1
+    shl si, 1
+    add si, rw_pbuf
+    mov di, 4000h | 20              ; walk an armed clip; 20 bytes a plane
+    mov bp, 80
+    mov cx, RW_CONT_W
+    call OSAPI_GFX_BLITP
+    pop dx
+    jnc .nx
+    mov byte [rw_nobp], 1           ; refused (a straddle, kern_small): the
+    mov byte [rw_pfmt], 0           ;   next draw is dithered, every line
+    ret
+
+; rw_planes - the lines rb_renderd changed, from rw_fbuf's two shade planes
+; into rw_pbuf as BLITP's four: NOT bit 1 three times, then NOT bit 0 - the
+; desktop's 15, 7, 8 and 0 for shades 0-3 (rb_render4's layout)
+rw_planes:
+    push ds
+    pop es
+    xor dx, dx                      ; DL = the line
+    mov si, rw_fbuf
+    mov di, rw_pbuf
+.l:
+    call rw_dchg
+    jz .n
+    push si
+    push di
+    add si, 20                      ; bit 1, NOT, to planes 0-2
+    mov cx, 10
+.b1:
+    lodsw
+    not ax
+    mov [di + 20], ax
+    mov [di + 40], ax
+    stosw
+    loop .b1
+    add di, 40                      ; bit 0, NOT, to plane 3
+    sub si, 40
+    mov cx, 10
+.b0:
+    lodsw
+    not ax
+    stosw
+    loop .b0
+    pop di
+    pop si
+.n:
+    add si, 40
+    add di, 80
+    inc dl
+    cmp dl, RW_CONT_H
+    jb .l
+    ret
 
 ; rw_dmgclaim - on the UI task, once: rb_renderd's memory, when there is
 ; room (without it every frame is composed whole)

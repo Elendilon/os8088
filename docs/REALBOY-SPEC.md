@@ -557,12 +557,18 @@ third frame both ways, by damage into a buffer it keeps and whole by
   Z = B, Enter = Start, Space = Select - and nothing while another window
   has the keyboard. Reset is the worker's to do (`rb_init` again); Pause
   stops the clock.
-- **The writers**: on a colour display `OSAPI_GFX_BLITP` with the clip walk,
-  of `rb_render4`'s planes; on a 1bpp display, or where BLITP refuses,
-  `OSAPI_GFX_BLIT1` through a 2x2 ordered dither of `rb_renderd`'s (section
-  13.2) - shade 0 lit, 1 a quarter dark, 2 a checkerboard, 3 dark. Only the
-  changed lines are dithered and blitted, a band for each run of them, and a
-  frame that changed nothing draws nothing. The damage memory is claimed
+- **The writers** both start from `rb_renderd`'s changed lines (section
+  13.2), and blit only those, a band for each run of them. A frame that
+  changed nothing draws nothing.
+  - On a colour display, `OSAPI_GFX_BLITP` with the clip walk, of the four
+    planes `rw_planes` makes from those lines (NOT bit 1 three times, then
+    NOT bit 0: `rb_render4`'s layout). Damage took Super Mario Land's window
+    on 86Box's 286 from 7 frames drawn a second to 28.
+  - On a 1bpp display, or where BLITP refuses, `OSAPI_GFX_BLIT1` through a
+    2x2 ordered dither: shade 0 lit, 1 a quarter dark, 2 a checkerboard, 3
+    dark.
+  - F1's line over the picture starts the next draw from every line, as it
+    covers or uncovers pixels the game did not change. The damage memory is claimed
   with the game (`rw_dmgclaim`); a buffer that held the other format, a
   reset and full screen all start the next draw from every line. The buffer remembers which
   it holds, and a paint on the other kind of display (the window moved
@@ -669,22 +675,33 @@ dmg-acid2 reference as the window, on MartyPC's 5150 Hercules and CGA.
 
 ### 15.2 When a frame is drawn
 
-**The game keeps its speed; the picture takes what is left.** A draw is due
-when the game has caught up, or, when it is behind, every `RW_DRAWTICKS` (3)
-ticks. Either way, a draw is not due until as many ticks have passed since
-the last one ended as it took (`rw_drawdue`, `rw_timed`). So drawing takes
-at most half the machine.
-- **On a 286** a draw is under a tick, and the rule is "every frame it has
-  caught up".
-- **On an 8088** a draw is several ticks, and the picture rate falls while
-  the game holds its speed.
+**The game keeps its speed; the picture takes what is left.** The draw clock
+is `rw_clk`'s, 838 ns a count, and each draw measures itself (`rw_timed`).
+A draw is due (`rw_drawdue`) in one of two cases:
+- **The game has caught up**: once as long as the last draw took has passed
+  since it ended. So drawing takes at most half the machine.
+- **The game is behind**: another such length later still. So drawing takes
+  a third of the machine and the rest goes to catching up.
+- **On a 286** a draw is milliseconds, and the rule comes down to "every
+  frame it has caught up".
+- **On an 8088** a draw is a large part of a second, and the picture rate
+  falls while the game holds its speed.
 
-A machine that falls behind catches up at most `RW_BEHIND` (30) frames,
-half a second. That is longer than an 8088's draw, whose frames would
-otherwise be lost.
+**The first field run is why "behind" is a share and not a period.** The
+first form drew every three ticks whenever the game was behind at all. On
+the Victory, Super Mario Land slips under 100% for a moment with an enemy
+on screen as it scrolls, and that dropped it from ~30 frames drawn to 4.
+The clock was a tick then, 55 ms, which could not tell a 286's draw from
+nothing.
 
-The window and full screen keep the same clock. In full screen, Esc is also
-looked for after each draw.
+**Catching up has a limit.** A machine that falls behind catches up at most
+`RW_BEHIND` (30) frames, half a second. That is longer than an 8088's draw,
+whose frames would otherwise be lost. A fresh start, and the change of clock
+going into or out of full screen, make the next draw due at once
+(`rw_drawnow`).
+
+The window and full screen keep the same rules. In full screen, Esc and
+Alt+Enter are also looked for after each draw.
 
 ## 16. The recompiler
 
