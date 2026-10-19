@@ -30,12 +30,18 @@ def build(name="gbtone"):
     asm, link, fix = gbclock.rgbds()
     os.makedirs(gbclock.OUT, exist_ok=True)
     src = os.path.join(ROOT, "tools", "gbprof", name + ".asm")
-    obj = os.path.join(gbclock.OUT, name + ".o")
+    # this process's own names, then one atomic rename: two rows that build
+    # the same ROM at once in a soak lane shared one .o and one .GB, and one
+    # of them linked the other's half-written object
+    tag = ".%d" % os.getpid()
+    obj = os.path.join(gbclock.OUT, name + tag + ".o")
     rom = os.path.join(gbclock.OUT, name.upper() + ".GB")
+    tmp = rom + tag
     subprocess.check_call([asm, "-o", obj, src])
-    subprocess.check_call([link, "-o", rom, obj])
-    subprocess.check_call([fix, "-v", "-p", "0xFF", "-t", name.upper()] + ROMS[name] + [rom])
+    subprocess.check_call([link, "-o", tmp, obj])
+    subprocess.check_call([fix, "-v", "-p", "0xFF", "-t", name.upper()] + ROMS[name] + [tmp])
     os.remove(obj)
+    os.replace(tmp, rom)
     return rom
 
 
