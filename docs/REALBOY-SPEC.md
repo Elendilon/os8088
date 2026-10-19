@@ -632,6 +632,25 @@ magenta and black, the BIOS's palette 1.
 `tests/gbwindow.py` reads both out of the card's memory, against the same
 dmg-acid2 reference as the window, on MartyPC's 5150 Hercules and CGA.
 
+### 15.2 When a frame is drawn
+
+**The game keeps its speed; the picture takes what is left.** A draw is due
+when the game has caught up, or, when it is behind, every `RW_DRAWTICKS` (3)
+ticks. Either way, a draw is not due until as many ticks have passed since
+the last one ended as it took (`rw_drawdue`, `rw_timed`). So drawing takes
+at most half the machine.
+- **On a 286** a draw is under a tick, and the rule is "every frame it has
+  caught up".
+- **On an 8088** a draw is several ticks, and the picture rate falls while
+  the game holds its speed.
+
+A machine that falls behind catches up at most `RW_BEHIND` (30) frames,
+half a second. That is longer than an 8088's draw, whose frames would
+otherwise be lost.
+
+The window and full screen keep the same clock. In full screen, Esc is also
+looked for after each draw.
+
 ## 16. The recompiler
 
 On a 286 RealBoy translates the Game Boy's ROM code into 8086 code, a block
@@ -759,7 +778,34 @@ are plain memory.
   at the right pitch.
 
 `tests/gbsound.py` is the gate. GBTONE.GB (`tools/gbprof/gbtone.asm`,
-assembled by `tools/gbtone.py` with the pinned rgbds) plays a trigger, a DAC
+assembled by `tools/gbours.py` with the pinned rgbds) plays a trigger, a DAC
 switched off, and a length counter that runs out. The row captures
 MartyPC's speaker and asserts all three. With the length counter broken it
 fails, naming the counter.
+
+## 18. The 5150 demo
+
+**`GBDEMO.GB` is RealBoy's own Game Boy ROM, written for an IBM PC 5150**
+the way WireBall is written for it. It is assembled with the pinned rgbds by
+`tools/gbours.py` from `tools/gbprof/gbdemo.asm`, and it runs on a real Game
+Boy as well. What it does:
+- It draws a still scene once, with the LCD off: a title, three lines of
+  text, a band of the four shades and a ground strip.
+- One 8x8 sprite, a ball, bounces on the ground in a 40-frame parabola, and
+  between the walls a pixel a frame.
+- A clock, MM:SS, is four map bytes rewritten once a second.
+- Square channel 2 blips at 659 Hz each time the ball lands, and its length
+  counter ends the blip.
+- It HALTs for the rest of every frame.
+
+So a frame costs the core a few dozen instructions. Drawing it costs the
+lines the ball crossed, and once a second the clock's (section 13.2).
+
+**MEASURED on MartyPC's 5150 with a Hercules** (cycle-exact, so these are
+the 5150's numbers): **1.000 of real time** full screen, drawing 4 frames a
+second; 0.999 in a window, at 3. The draw clock of section 15.2 is what
+holds the game at full speed, and with it always due the game falls to
+0.388. `tests/gbdemo.py` is the gate.
+
+On a real machine the F1 line reads the same two numbers: the game's speed
+and the frames drawn a second.

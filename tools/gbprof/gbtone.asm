@@ -1,7 +1,7 @@
 ; gbtone - a Game Boy ROM that plays three known sounds, for RealBoy's sound
 ; gate (docs/REALBOY-SPEC.md section 17, tests/gbsound.py).
 ;
-; Assembled with rgbds by tools/gbtone.py (tools/gbclock.py's pinned build).
+; Assembled with rgbds by tools/gbours.py (tools/gbclock.py's pinned build).
 ; It ships nowhere; it is ours, so it may go on any disk.
 ;
 ; THE SCRIPT, counted in VBlanks:

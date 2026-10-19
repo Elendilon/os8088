@@ -4,7 +4,7 @@
     python3 tests/gbsave.py
 
 docs/REALBOY-SPEC.md section 10.1 and docs/plans/REALBOY-PLAN.md wave 5's
-`gbsave`. tools/gbtone.py builds GBSAVE.GB (tools/gbprof/gbsave.asm, ours):
+`gbsave`. tools/gbours.py builds GBSAVE.GB (tools/gbprof/gbsave.asm, ours):
 an MBC3 with the timer, 32KB of RAM in four banks and a battery. Each boot it
 adds one to a counter at A000 in every bank, writes each bank's A001 with its
 own number and reads all four back, and latches the clock's seconds before
@@ -74,7 +74,7 @@ def run(disk, viewoff):
 
 
 def main():
-    rom = subprocess.check_output([sys.executable, os.path.join(ROOT, "tools", "gbtone.py"),
+    rom = subprocess.check_output([sys.executable, os.path.join(ROOT, "tools", "gbours.py"),
                                    "gbsave"], text=True).strip().splitlines()[-1]
     tmp = tempfile.mkdtemp(prefix="gbsave-")
     gb = os.path.join(tmp, "GBSAVE.GB")

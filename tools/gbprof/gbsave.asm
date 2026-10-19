@@ -2,7 +2,7 @@
 ; the MBC3 clock, for RealBoy's save gate (docs/REALBOY-SPEC.md section 10.1,
 ; tests/gbsave.py).
 ;
-; Assembled with rgbds by tools/gbtone.py (tools/gbclock.py's pinned build).
+; Assembled with rgbds by tools/gbours.py (tools/gbclock.py's pinned build).
 ; It ships nowhere; it is ours, so it may go on any disk.
 ;
 ; The cartridge is an MBC3 with the timer, 32KB of RAM in four banks and a

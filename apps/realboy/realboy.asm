@@ -49,7 +49,11 @@ RW_BUDGET86     equ 700             ; ...and on an 8088, where 2000 is ~20 ms
                                     ;   that holds one
 RW_DRAWTICKS    equ 3               ; a frame drawn at least every 3 ticks
 RW_PERTICK      equ 840             ; frames a BIOS tick, x 256
-RW_OWEDMAX      equ 8 * 256         ; a machine that was away catches up 8
+RW_BEHIND       equ 30              ; frames a machine catches up at most:
+                                    ;   half a second, longer than an 8088's
+                                    ;   draw, which the frames during it
+                                    ;   must outlast or the game slows
+RW_OWEDMAX      equ RW_BEHIND * 256
 RW_ROMMAX_KB    equ 256
 
 ; --- the bss: the standard's words first, then ours --------------------------
@@ -869,25 +873,15 @@ rw_worker:                          ;   the worker parked at the top of its
     inc word [rw_nrun]
     call rw_stat
     sub word [rw_owed], 256
-    cmp word [rw_owed], 256         ; caught up: draw this one
-    jb .draw
-    call OSAPI_GET_TICKS            ; ...or it has been too long: a
-    sub ax, [rw_drawt]              ;   machine that is behind draws by the
-    cmp ax, RW_DRAWTICKS            ;   CLOCK, so its picture rate is the
-    jl .loop                        ;   same whatever the game's speed
-                                    ;   (signed: a slow draw puts the next
-                                    ;   one's time in the future)
-.draw:
-    call OSAPI_GET_TICKS
-    push ax
-    inc word [rw_ndrawn]
-    call rw_present
-    call OSAPI_GET_TICKS            ; a draw that took D ticks puts the next
-    pop dx                          ;   one RW_DRAWTICKS + D after it, so
-    sub dx, ax                      ;   drawing is under half the machine on
-    neg dx                          ;   an 8088 too, where a frame composed
-    add ax, dx                      ;   is most of a second
-    mov [rw_drawt], ax
+    xor bx, bx                      ; caught up: draw this one, once the
+    cmp word [rw_owed], 256         ;   last draw's own length has passed
+    jb .due                         ;   since it ended...
+    mov bx, RW_DRAWTICKS            ; ...or it has been too long: a machine
+.due:                               ;   that is behind draws by the CLOCK,
+    call rw_drawdue                 ;   so its picture rate is the same
+    jnc .loop                       ;   whatever the game's speed
+    mov si, rw_present
+    call rw_timed                   ; a draw of D ticks: the next after D more
     jmp .loop                       ; the clock is read again after EVERY
                                     ;   frame: a worker that spent what it
                                     ;   was owed before looking slept a tick
@@ -906,6 +900,38 @@ rw_worker:                          ;   the worker parked at the top of its
     mov ax, 1
     call OSAPI_TASK_SLEEP
     jmp .loop
+
+; rw_drawdue - CF = 1 if a draw is due: BX ticks past [rw_drawt], which a
+; draw sets to its own end plus its own length (rw_timed) - so drawing takes
+; at most half the machine, the game the rest. A 286's draw is under a tick,
+; so there the rule is "every frame it is caught up"; an 8088's is several,
+; and the game keeps its speed while the picture rate falls.
+rw_drawdue:
+    push ax
+    call OSAPI_GET_TICKS
+    sub ax, [rw_drawt]
+    cmp ax, bx                      ; signed: [rw_drawt] may be ahead
+    pop ax
+    jl .no
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; rw_timed - call SI (a draw), then [rw_drawt] = its end + its length
+rw_timed:
+    call OSAPI_GET_TICKS
+    push ax
+    inc word [rw_ndrawn]
+    call si
+    call OSAPI_GET_TICKS
+    pop dx
+    sub dx, ax
+    neg dx                          ; DX = the draw's ticks
+    add ax, dx
+    mov [rw_drawt], ax
+    ret
 
 ; rw_frame - run the machine to its next frame, yielding between budgets.
 ; CF = 1: the core stopped (a bad opcode), and the UI task is told.

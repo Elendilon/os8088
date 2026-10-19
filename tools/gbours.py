@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Build RealBoy's own gate ROMs into build/gbclock/: GBTONE.GB (the sound
-gate) and GBSAVE.GB (battery RAM and the MBC3 clock).
+"""Build RealBoy's own Game Boy ROMs into build/gbclock/: GBTONE.GB (the
+sound gate), GBSAVE.GB (battery RAM and the MBC3 clock) and GBDEMO.GB (the
+5150 demo).
 
-    python3 tools/gbtone.py [gbtone|gbsave]
+    python3 tools/gbours.py [gbtone|gbsave|gbdemo]
 
-tools/gbprof/gbtone.asm says what it plays (tests/gbsound.py listens to it);
-tools/gbprof/gbsave.asm what it counts (tests/gbsave.py reads it). rgbds is
+tools/gbprof/gbtone.asm says what it plays (tests/gbsound.py listens to it),
+tools/gbprof/gbsave.asm what it counts (tests/gbsave.py reads it), and
+tools/gbprof/gbdemo.asm what it shows (tests/gbdemo.py times it). rgbds is
 tools/gbclock.py's, fetched and built at the same pinned commit.
 """
 import os
@@ -20,6 +22,7 @@ import gbclock  # noqa: E402
 ROMS = {
     "gbtone": [],
     "gbsave": ["-m", "0x10", "-r", "3"],    # MBC3+TIMER+RAM+BATTERY, 32KB
+    "gbdemo": [],
 }
 
 

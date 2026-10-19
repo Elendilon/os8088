@@ -2604,9 +2604,19 @@ SOAK = [
         "Kirby. Without the map-row marks it fails on 497 frames of 500. "
         "SOAK: one package",
         needs=("qemu", "nasm", "rgbds")),
+    Row("gbdemo", "soak", py("tests/gbdemo.py"), 30.0,
+        "RealBoy's 5150 demo (docs/plans/REALBOY-PLAN.md section 6, wave 8's "
+        "gate): GBDEMO.GB (tools/gbours.py, ours) full screen on MartyPC's IBM "
+        "5150 with a Hercules, its frame counter against 60 guest seconds - "
+        "which must be 1.00 of real time to two places - and the frames drawn "
+        "a second off the F1 line, reported. With the draw clock always due "
+        "the picture takes the machine and the game falls to 0.39. SOAK: one "
+        "package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("gbsound", "soak", py("tests/gbsound.py"), 15.0,
         "REALBOY.O88's speaker (docs/REALBOY-SPEC.md section 17) on MartyPC's "
-        "VGA XT, against GBTONE.GB (tools/gbtone.py, ours): channel 1 at 440 "
+        "VGA XT, against GBTONE.GB (tools/gbours.py, ours): channel 1 at 440 "
         "Hz, its DAC switched off, then channel 2 at 880 Hz with a length of "
         "64 - the capture (MARTYPC_WAV) must hold the two tones, silence "
         "between them and nothing after the second, whose length counter ends "
@@ -2616,7 +2626,7 @@ SOAK = [
         wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("gbsave", "soak", py("tests/gbsave.py"), 40.0,
         "REALBOY.O88's battery RAM and MBC3 clock (docs/REALBOY-SPEC.md "
-        "section 10.1) on MartyPC's VGA XT, against GBSAVE.GB (tools/gbtone.py, "
+        "section 10.1) on MartyPC's VGA XT, against GBSAVE.GB (tools/gbours.py, "
         "ours): four RAM banks counted and told apart, the clock counting game "
         "time, the close writing SYSTEM\\APPDATA\\GBSAVE.SAV (32KB and VBA's "
         "48-byte clock trailer, read on the host), and a second boot reading "

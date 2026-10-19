@@ -229,6 +229,8 @@ rw_fsmain:
     mov byte [rw_fsrun], 0
     call OSAPI_GET_TICKS
     mov [rw_last], ax
+    sub ax, 100                     ; long enough ago: the first draws now
+    mov [rw_drawt], ax
 .loop:
     call rw_fsdrain                 ; ZF = 0: Esc
     jnz .out
@@ -243,9 +245,9 @@ rw_fsmain:
     call OSAPI_FSX_WAIT
     jmp short .loop
 .run:
-    cmp ax, 8                       ; behind by more than eight: run on
+    cmp ax, RW_BEHIND               ; behind by more than that: run on
     jbe .n                          ;   from here rather than race
-    mov ax, 8
+    mov ax, RW_BEHIND
 .n:
     mov [rw_fsleft], ax
 .f:
@@ -256,19 +258,28 @@ rw_fsmain:
     inc word [rw_nrun]
     call rw_stat
     inc byte [rw_fsrun]
+    xor bx, bx
     dec word [rw_fsleft]
-    jz .draw                        ; caught up: draw this one
-    cmp byte [rw_fsrun], RW_FSSKIP
+    jz .due                         ; caught up: draw this one, when due
+    cmp byte [rw_fsrun], RW_FSSKIP  ; (rw_drawdue, as the window's)...
     jb .f
+    mov bx, RW_DRAWTICKS            ; ...or behind by the clock
+.due:
+    call rw_drawdue
+    jc .draw
+    mov byte [rw_fsrun], 0
+    cmp word [rw_fsleft], 0
+    jne .f
+    jmp .loop
 .draw:
     mov byte [rw_fsrun], 0
-    inc word [rw_ndrawn]
-    call rw_fsdraw
+    mov si, rw_fsdraw
+    call rw_timed
     call rw_fsdrain                 ; Esc between two draws too: on an 8088
     jnz .out                        ;   a turn of frames is longer than a press
     cmp word [rw_fsleft], 0
     jne .f
-    jmp short .loop
+    jmp .loop
 .out:
     pop word [rw_budget]
     mov byte [rw_infsx], 0

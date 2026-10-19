@@ -303,7 +303,7 @@ def capabilities():
     if os88build.have_86box():
         caps.add("86box")
     # rgbds at tools/gbclock.py's pinned commit, for `gbsound`, whose ROM is
-    # ours and assembled on the box (tools/gbtone.py). Built on demand and
+    # ours and assembled on the box (tools/gbours.py). Built on demand and
     # with the network, so its absence is a SKIP rather than a fetch.
     if os88build.have_rgbds():
         caps.add("rgbds")

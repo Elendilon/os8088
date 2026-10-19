@@ -4,7 +4,7 @@
     python3 tests/gbsound.py
 
 docs/REALBOY-SPEC.md section 17 and docs/plans/REALBOY-PLAN.md wave 5's
-sound row. tools/gbtone.py builds GBTONE.GB (tools/gbprof/gbtone.asm, ours):
+sound row. tools/gbours.py builds GBTONE.GB (tools/gbprof/gbtone.asm, ours):
 square channel 1 holds 440 Hz for 60 frames, its DAC is switched off for 30,
 then channel 2 plays 880 Hz with a length of 64 - a quarter of a second -
 and stops by itself. This boots os8088 on MartyPC's VGA XT with the package
@@ -79,7 +79,7 @@ def runs(path, win=0.02, tol=0.025):
 
 
 def main():
-    rom = subprocess.check_output([sys.executable, os.path.join(ROOT, "tools", "gbtone.py")],
+    rom = subprocess.check_output([sys.executable, os.path.join(ROOT, "tools", "gbours.py")],
                                   text=True).strip().splitlines()[-1]
     tmp = tempfile.mkdtemp(prefix="gbsound-")
     gb = os.path.join(tmp, "GBTONE.GB")

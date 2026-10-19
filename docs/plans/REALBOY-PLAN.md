@@ -693,6 +693,19 @@ lines on the page. It is exact against `rb_render`, frame for frame
 real time to **100%**. The drawing, not the CPU, had been most of the
 machine, which is section 6's prediction: the fixed cost decides the 5150.
 
+**The demo is BUILT and meets the bar** (REALBOY-SPEC section 18).
+`GBDEMO.GB` (ours, `tools/gbprof/gbdemo.asm`) runs full screen on MartyPC's
+5150 Hercules at **1.000 of real time**, drawing 4 frames a second; `gbdemo`
+is the row. The last piece was the draw clock, not the core: a draw is due
+only after as long as the last one took (REALBOY-SPEC section 15.2), so the
+picture can never take more than half the machine.
+- Without that clock the game ran at 0.39 in full screen and 0.84 in the
+  window.
+- With it, the machine's spare time shows up as frames drawn instead of as
+  lost game time.
+
+The libbet curiosity row is not built.
+
 **Features**
 - The HERC and CGA320 fullscreen writers with damage tracking.
 - The demo ROM's source and its rgbds build (section 6).
