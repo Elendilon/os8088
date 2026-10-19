@@ -1,6 +1,6 @@
 /* gbprof - what a Game Boy game asks of an emulator, per frame.
  *
- * A host-side instrument for docs/plans/GAMEBOY-PLAN.md, built and run by
+ * A host-side instrument for docs/plans/REALBOY-PLAN.md, built and run by
  * tools/gbprof.py, which fetches Peanut-GB (MIT) at a pinned commit and
  * patches five hook calls into a copy of peanut_gb.h.  Nothing here ships.
  *
@@ -54,7 +54,7 @@ static unsigned long long ophist[256], opcyc[256];
 static unsigned long long f_halt, f_poll, f_count, f_busy;
 static unsigned long long t_halt, t_poll, t_count, t_busy;
 /* loop detection */
-static unsigned long long it_cyc; static int it_wrote, it_dread;
+static unsigned long long it_cyc, it_n, f_busy_n, t_busy_n; static int it_wrote, it_dread;
 static unsigned last_inst_cyc; static uint8_t last_op; static int raster_lines[154];
 static double busy_frac[100000]; static int nfr, nmeas; static int measure_from=800;
 
@@ -82,7 +82,7 @@ static void prof_tick(struct gb_s *gb, unsigned cyc){
   if(gb->gb_halt){ f_halt+=cyc; return; }
   /* one executed instruction: classify via tight backward loops */
   if(nfr>=measure_from) opcyc[last_op]+=cyc;
-  it_cyc+=cyc;
+  it_cyc+=cyc; it_n++;
   uint16_t npc=gb->cpu_reg.pc.reg;
   int taken_back = (npc < cur_pc) && (cur_pc - npc) <= 12;
   int branchy = (last_op==0x18||last_op==0x20||last_op==0x28||last_op==0x30||last_op==0x38||
@@ -90,21 +90,21 @@ static void prof_tick(struct gb_s *gb, unsigned cyc){
   if(branchy && taken_back){
     if(!it_wrote && it_dread) f_poll+=it_cyc;        /* spin: re-reads memory/IO, writes nothing */
     else if(!it_wrote) f_count+=it_cyc;              /* pure register countdown */
-    else f_busy+=it_cyc;
-    it_cyc=0; it_wrote=0; it_dread=0;
+    else { f_busy+=it_cyc; f_busy_n+=it_n; }
+    it_cyc=0; it_n=0; it_wrote=0; it_dread=0;
   } else if(branchy || last_op==0xCD || last_op==0xC9 || last_op==0xD9 || (last_op&0xC7)==0xC7 || last_op==0xE9){
-    f_busy+=it_cyc; it_cyc=0; it_wrote=0; it_dread=0;   /* left the loop shape */
+    f_busy+=it_cyc; f_busy_n+=it_n; it_cyc=0; it_n=0; it_wrote=0; it_dread=0;   /* left the loop shape */
   }
 }
 static void end_frame(void){
-  f_busy+=it_cyc; it_cyc=0; it_wrote=0; it_dread=0;
+  f_busy+=it_cyc; f_busy_n+=it_n; it_cyc=0; it_n=0; it_wrote=0; it_dread=0;
   unsigned long long tot=f_halt+f_poll+f_count+f_busy;
   (void)tot;
   if(nfr>=measure_from && nmeas<100000) busy_frac[nmeas++]=(double)f_busy/70224.0;
   nfr++;
-  if(nfr<=measure_from){ f_halt=f_poll=f_count=f_busy=0; fr_mbc=fr_tile=fr_map=fr_oam=fr_raster=fr_dma=fr_ioread=0; for(int i=0;i<154;i++)raster_lines[i]=0; return; }
-  t_halt+=f_halt; t_poll+=f_poll; t_count+=f_count; t_busy+=f_busy;
-  f_halt=f_poll=f_count=f_busy=0;
+  if(nfr<=measure_from){ f_halt=f_poll=f_count=f_busy=f_busy_n=0; fr_mbc=fr_tile=fr_map=fr_oam=fr_raster=fr_dma=fr_ioread=0; for(int i=0;i<154;i++)raster_lines[i]=0; return; }
+  t_halt+=f_halt; t_poll+=f_poll; t_count+=f_count; t_busy+=f_busy; t_busy_n+=f_busy_n;
+  f_halt=f_poll=f_count=f_busy=f_busy_n=0;
   tot_mbc+=fr_mbc; tot_tile+=fr_tile; tot_map+=fr_map; tot_dma+=fr_dma;
   int rl=0; for(int i=0;i<154;i++){rl+=raster_lines[i]; raster_lines[i]=0;}
   tot_raster+=rl;
@@ -150,6 +150,7 @@ int main(int argc,char**argv){
   printf("BUSY T/frame %.0f = %.1f%% of a 70224-T frame\n",(double)t_busy/NF,100.0*t_busy/NF/70224);
   printf("busy per frame (of 70224 T): p50 %.1f%%  p90 %.1f%%  p99 %.1f%%  max %.1f%%\n",
     100*busy_frac[m/2],100*busy_frac[m*9/10],100*busy_frac[m*99/100],100*busy_frac[m-1]);
+  printf("BUSY instructions/frame %.0f (%.2f M-cycles each)\n",(double)t_busy_n/NF,(double)t_busy/4.0/(t_busy_n?t_busy_n:1));
   printf("instructions/frame %.0f  avg M-cycles/instr (non-halt) %.2f  CB-prefixed %.1f%%\n",
     (double)tot_inst/NF,(double)(T-t_halt)/4.0/tot_inst,100.0*tot_cb/tot_inst);
   printf("per frame: MBC writes %.2f  tile-data writes %.1f  map writes %.1f  OAM DMA %.2f  raster lines %.2f\n",

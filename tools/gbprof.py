@@ -5,7 +5,7 @@
     python3 tools/gbprof.py GAME.GB --mode puzzle   # wandering d-pad instead
     python3 tools/gbprof.py GAME.GB --frames 7200 --shots build/gbprof/shot
 
-The instrument behind docs/plans/GAMEBOY-PLAN.md and
+The instrument behind docs/plans/REALBOY-PLAN.md and
 docs/reports/GAMEBOY-WORKLOAD-2026-10-19.md. It answers the question every
 speed figure in that plan hangs off - how much of each frame does the game's
 CPU spend doing work an emulator cannot skip? - without an 8088 anywhere:

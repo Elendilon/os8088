@@ -1,9 +1,10 @@
-# Game Boy emulator - full speed on a 12 MHz 286, a demo on the 5150
+# RealBoy - a real-mode Game Boy emulator: full speed on a 12 MHz 286, a demo on the 5150
 
 **A PLAN. Nothing in it is built.** It is the design and the order of work
-for a native os8088 package that runs original Game Boy (DMG) cartridges.
-When the work starts, the contract will be `docs/GAMEBOY-SPEC.md`, written in
-wave 1. This file stays the record of why the design reads that way.
+for **RealBoy** (`apps/realboy/`, `REALBOY.O88`), a native os8088 package that
+runs original Game Boy (DMG) cartridges. When the work starts, the contract
+will be `docs/REALBOY-SPEC.md`, written in wave 1. This file stays the record
+of why the design reads that way.
 
 **Every figure is marked.**
 - **MEASURED** figures cite the report they come from.
@@ -13,7 +14,7 @@ wave 1. This file stays the record of why the design reads that way.
 The last attempt in this tree to predict an emulator's speed by hand, the
 Apple II plan, was optimistic by six times (docs/APPLE2-SPEC.md, its speed
 section). So the first wave measures before anything else is built on these
-numbers.
+numbers, and section 2 now has a real emulator to measure against.
 
 ## 1. The intake
 
@@ -21,24 +22,45 @@ The owner asked:
 
 > Investigate a gameboy emulator, for a 4.77Mhz 5150. Is that feasible?
 
-Two reports answer that:
+Three reports answer that.
 
-- docs/reports/GAMEBOY-FEASIBILITY-2026-10-19.md (PREDICTED). Full speed is
-  out of the 5150's reach. The 8088's bus moves only about 1.14 bytes for
-  every Game Boy bus access, so even a perfect translator would land near half
-  speed on busy code.
-- docs/reports/GAMEBOY-WORKLOAD-2026-10-19.md (MEASURED on the host with
-  `tools/gbprof.py`). How much of each frame a real game's CPU spends on work
-  an emulator cannot skip:
-  - **Super Mario Land: 23.3%** (p90 39.6%, p99 50.5%), about 2,150
-    instructions a frame;
-  - **libbet: 13.7%**, about 1,170 instructions a frame.
+**docs/reports/GAMEBOY-FEASIBILITY-2026-10-19.md** (PREDICTED). Full speed is
+out of the 5150's reach. The 8088's bus moves only about 1.14 bytes for every
+Game Boy bus access, so even a perfect translator would land near half speed
+on busy code.
+
+**docs/reports/GAMEBOY-WORKLOAD-2026-10-19.md** (MEASURED on the host with
+`tools/gbprof.py`). How much of each frame a real game's CPU spends on work
+an emulator cannot skip:
+
+| game | busy share of a frame | busy instructions a frame |
+|---|---|---|
+| **Super Mario Land** | **23.3%** (p90 39.6%, p99 50.5%) | 1,747 |
+| **libbet** | **13.7%** | 1,089 |
+| **Kirby's Dream Land** (the owner's target ROM) | **29.4%** | 2,245 |
+
+The Kirby row is in the third report, section 5. Kirby never `HALT`s: it
+spins on a flag for 70% of every frame.
+
+**docs/reports/GAMEBOY-NOGMB-2026-10-19.md** (MEASURED in MartyPC and
+86Box). What the only existing XT/AT Game Boy emulator, no$gmb's
+assembly-language XT/AT build, gets out of these machines (section 2).
 
 Then the owner retargeted the work:
 
 > We'll retarget the primary goal to a ~12Mhz 286, and keep "some very light
 > gameboy demo that sits in hlt most of the time" as a final wave to show off
 > on the 5150.
+
+They also supplied three things:
+- no$gmb's XT/AT build;
+- **Kirby's Dream Land** as the target ROM (256 KB, MBC1);
+- **Looney Tunes** (1 MB, MBC5, CGB-enhanced but DMG-compatible) for when
+  wave 6 reaches large ROMs.
+
+**Super Mario Land is the owner's favourite, and it is the game the speed
+work is judged on.** None of the cartridges is in this repository, and none
+may be.
 
 **The reference set** was used for reading. None of it is a code base the
 port derives from:
@@ -47,45 +69,66 @@ port derives from:
 - Blargg's test ROMs, Mooneye's test suite and dmg-acid2, as fetched gates
   (section 7).
 
-**Prior art.** There is no Game Boy emulator for a 286 that a search turns
-up, with one exception:
-- **no$gmb**'s "Special DOS XT/AT compatible version" (Martin Korth, assembly,
-  1997-2000) exists in the Internet Archive.
-- This container's network policy refuses that archive, so it has not been
-  read or run.
-- **A field run of it on the 5150 and on the 286 with a homebrew ROM is the
-  cheapest calibration this plan can get**, and it is asked for in wave 1.
-- Every other DOS Game Boy emulator found asks for a 386DX-33 (no$gmb's own
-  386 build) or a Pentium (GaelCathelin's Game-Boy-DOS, DJGPP).
+**Prior art.** No search turns up a Game Boy emulator for a 286 except
+no$gmb's XT/AT build, which section 2 measures. Every other DOS Game Boy
+emulator found asks for a 386DX-33 (no$gmb's own 386 build) or a Pentium
+(GaelCathelin's Game-Boy-DOS, DJGPP).
 
-## 2. Why a 286 and not a 5150
+## 2. Why a 286 and not a 5150, and the bar that is set there
 
-| | 5150, 8088 at 4.77 MHz | ami286 at 12.5 MHz (`vm/286`) | Victory 286, 16 MHz (the owner's) |
+| | 5150, 8088 at 4.77 MHz | ami286 at 12.5 MHz (`vm/286`, `vm/286-525`) | Victory 286, 16 MHz (the owner's) |
 |---|---|---|---|
 | clocks per Game Boy frame (59.73 Hz) | 79,909 | **209,284** | 267,884 |
 | clocks per Game Boy M-cycle | 4.3 (after refresh) | **11.9** | 15.3 |
-| memory bus | 8-bit, 4 clocks a byte | 16-bit, 2 clocks a word | 16-bit, with wait states 86Box does not model |
+| memory bus | 8-bit, 4 clocks a byte | 16-bit, 2 clocks a word, DRAM at 1 wait state | 16-bit, with wait states 86Box does not model |
 | VGA writes | - | - | **1.15 us a byte** (`rep movsb` to mode 12h, MEASURED, docs/reports/VM3BENCH-PVGA286-2026-10-13.md) |
 | against a 5150 | 1x | - | **~20x on RAM copies, ~4.6x on screen writes** (MEASURED on 86Box mr286, docs/reports/VIDEO-86BOX-286-2026-09-26.md) |
 
-**The CPU budget, PREDICTED.** The interpreter in section 4.1 costs:
-- on an 8088: about 80-100 clocks per average Game Boy instruction;
-- on an 80286: about **45-60 clocks**, its 16-bit bus and cheaper jumps
-  doing most of the work.
+### 2.1 The bar, MEASURED: no$gmb's XT/AT build
 
-Super Mario Land's 2,153 busy instructions a frame then cost:
+no$gmb runs at its fastest settings, timed with gbclock, our counting ROM
+(docs/reports/GAMEBOY-NOGMB-2026-10-19.md):
+
+| | 286, 12.5 MHz (86Box) | 8088, 4.77 MHz (MartyPC) |
+|---|---|---|
+| a game that does nothing (gbclock 0.7% busy) | **100%**, held at real time | **26.6%** |
+| gbclock 25.7% busy, close to Super Mario Land's average | **47.1%** | **10.8%** |
+| **Super Mario Land, in play** (no$gmb's own meter) | **~36%** (32-50%) | - |
+| **its fixed cost per Game Boy frame** | ~14.5 ms | ~60 ms |
+| **its cost per busy M-cycle** | **~58 clocks** | ~100 clocks |
+
+**At no$gmb's cost per M-cycle, the 286 cannot carry Super Mario Land even
+drawing nothing.** Its ~4,100 busy M-cycles a frame would be ~238,000 clocks,
+against 209,284.
+
+### 2.2 The budget RealBoy has to meet, PREDICTED
+
+The interpreter in section 4.1 costs, by hand count:
+- **on an 80286: ~20-26 clocks per M-cycle**, which is 45-60 per average
+  Game Boy instruction, its 16-bit bus and cheaper jumps doing most of the
+  work;
+- **on an 8088: ~35-45 per M-cycle**, 80-100 per instruction.
+
+**That is 2.2-2.9 times leaner than no$gmb on both CPUs.** It is plausible,
+because no$gmb is a debugger as much as an emulator and its XT/AT build is
+the generic one, "a bit slower" in its own words. But it is the claim this
+plan stands or falls on, and **wave 1 measures it before anything else is
+built.**
+
+At that cost, Super Mario Land's 1,747 busy instructions a frame are:
 
 | | ami286 at 12.5 MHz | 5150 |
 |---|---|---|
-| average frame | **46-62% of the frame** | 2.2-2.7 times the frame |
-| p90 frame | 79-105% | - |
+| average frame | **37-50% of the frame** | 1.7-2.2 times the frame |
+| p90 frame (39.6% busy) | 64-85% | - |
 
-libbet's 1,167 instructions are 25-33% on the ami286 and 1.2-1.5 times the
-frame on the 5150.
+Kirby's 2,245 busy instructions are 48-64% on the ami286, **provided its
+70% spin-wait costs nothing** (section 4.1, Events).
 
-**So the 286 carries an ordinary game's logic at full speed, with between a
-third and a half of the machine left for the picture.** The 5150 cannot carry
-either game. It can carry a program written to be idle (section 6, wave 8).
+**So the 286 carries an ordinary game's logic at full speed, with between
+half and two thirds of the machine left for the picture on an average frame
+and much less on a busy one.** The 5150 cannot carry these games. It can
+carry a program written to be idle (section 6, wave 8).
 
 **"Full speed" in this plan means GAME speed**: the cartridge's logic, timers
 and music run at 59.73 Hz. The display drops frames when it must. That is how
@@ -95,54 +138,50 @@ arithmetic supports. A full 60 frames a second is a stretch figure (section
 
 ## 3. Decisions
 
-### 3.1 The owner's, taken at intake
+### 3.1 The owner's, all taken
 
+**At intake:**
 - **Primary target: a ~12 MHz 286 with VGA.** The tree's machine is `vm/286`
-  (ami286, 12.5 MHz, OTI067), and the field machine is the Victory 286.
+  (ami286, 12.5 MHz, OTI-067), and the field machine is the Victory 286.
 - **Final wave: a very light demo on the 5150** that sits in `HALT` most of
   the time.
 - **Assembly is allowed**, and Peanut-GB is a reference, not a base.
 
-### 3.2 Recommended, for the owner to confirm before wave 1
-
+**After the first plan:**
 1. **Pure NASM, not a C shell.** The tree's other emulators are C packages
    with hand-written assembly cores (SPEC.md 73; `apps/apple2`, `apps/c64`).
-   Here the core, the memory map and the renderer are all assembly anyway.
-   What C would add is the shell, and `apps/os88ui.inc` already supplies
-   that to every native package. Pure NASM drops the SmallerC dependency and
-   C's four extra rules, and leaves one build.
-2. **The core is 8086 code. No `cpu 286` island.** SPEC.md 1 rule 1 is
-   "8086 only", and no 286 island exists anywhere in the tree. The
-   interpreter gains little from 286 instructions: `shl reg,imm` and
-   `push imm` are the only ones it would reach for. And the **same core is
-   what wave 8 runs on the 5150**. If wave 1's measurement says a 286 island
-   would pay, that is a written exception to rule 1, decided then on a
-   number.
-3. **The package name.** The working name here is `apps/gameboy/`. Other
-   packages in the tree carry the machine's name (`APPLE2`, `C64`), but "Game
-   Boy" is Nintendo's trademark, and something like `GB88` or `DMG88` may be
-   preferred. The owner's call.
-4. **The demo for the 5150.** Recommended: **a demo of our own**, its source
-   committed and assembled at build time by rgbds, which would be fetched and
-   built at a pinned commit the way `tools/setup-cc.sh` does SmallerC, and
-   never committed. libbet (zlib) is the alternative: it is measured at 13.7%
-   busy, which is too heavy for full speed on the 5150 (section 2).
-5. **No boot ROM.** The DMG boot ROM is Nintendo's. The core starts at
-   `$0100` with the documented post-boot register and I/O state, as every
-   homebrew-friendly emulator does.
+   Here the core, the memory map and the renderer are all assembly anyway,
+   and `apps/os88ui.inc` already supplies the shell. So there is no SmallerC
+   dependency, none of C's four extra rules, and one build.
+2. **One core, 8086 code, no `cpu 286` island.** SPEC.md 1 rule 1 is
+   "8086 only", and no 286 island exists anywhere in the tree. The **same
+   core runs the 5150 demo** in wave 8. If wave 1 measures a 286 island as
+   worth it, that is a written exception to rule 1, decided then on a number.
+3. **The name is RealBoy**: a real-mode Game Boy emulator, `apps/realboy/`,
+   `REALBOY.O88`.
+4. **The 5150 demo is our own ROM**, its source committed and assembled with
+   rgbds. rgbds is fetched and built at a pinned commit and never committed
+   (`tools/gbclock.py` already does this). It is written to *feel*
+   impressive while doing the least work possible outside `HALT`.
+5. **No boot ROM.** The core starts at `$0100` with the documented post-boot
+   register and I/O state. **Compatibility means a core set of games running
+   well, not every game.** Super Mario Land is the one the owner cares about
+   most, and Kirby is the target.
 
-### 3.3 Fall-outs, recorded so they are not re-opened
+### 3.2 Fall-outs, recorded so they are not re-opened
 
 - **No cartridge ROM is ever committed or shipped.** The user supplies their
   own. The gates use fetched, freely licensed test ROMs at pinned SHA-256s
-  (`tools/getapple2rom.py`'s shape). A commercial ROM is used only from a path
-  the user gives (`$OS88_GB_ROMS`), and a row that needs one SKIPS without it
-  and says so.
-- **Banking is a page-table write, never a copy** (section 4.2). The workload
-  report measures Super Mario Land at 7.8 MBC writes a frame.
+  (`tools/getapple2rom.py`'s shape) and our own gbclock. A commercial ROM is
+  used only from a path the user gives (`$OS88_GB_ROMS`), and a row that
+  needs one SKIPS without it and says so.
+- **Banking is a page-table write, never a copy** (section 4.2). Super Mario
+  Land makes 7.8 MBC writes a frame and Kirby 8.35.
 - **Register writes are logged with their line**, and the frame is drawn in
   bands between them (section 4.4). The status bar in Super Mario Land
   depends on it.
+- **A spin-wait costs nothing** (section 4.1, Events). Kirby, the target,
+  never `HALT`s.
 - **No worker task.** The windowed machine runs in wall-clock slices on the
   UI task, the way APPLE2 does (APPLE2-SPEC section 4.3.1). The fullscreen
   machine runs inside the `OSAPI_FSX_RUN` bracket, which owns the CPU.
@@ -207,6 +246,22 @@ A **read** of `LY` or `STAT` is computed from the cycle position, not
 stepped. That is how Super Mario Land's 21.5 `STAT` reads a frame stay cheap.
 **`HALT` skips straight to the next event**, and that is where 75-87% of each
 measured frame goes, free.
+
+**So does a spin-wait, and the target ROM depends on it.** Kirby never
+`HALT`s. It spends **70% of every frame** in a loop that re-reads one flag
+and writes nothing: `ld a,(nn)` 32% and `jr nz` 26% of its non-HALT cycles
+(docs/reports/GAMEBOY-NOGMB-2026-10-19.md section 5). An emulator that pays
+for that loop carries ~3.4 times Kirby's real load. no$gmb's XT/AT build runs
+Kirby's title at 1-5% on the 8088.
+
+The check is in the taken backward branch handler, which already holds the
+event check. A taken branch back by 12 bytes or fewer, to the same target as
+last time, whose iteration made no write (one flag byte, set by every write
+handler, cleared by the branch), is idle: BP goes to zero and the scheduler
+runs the next event. `gbprof`'s classifier is exactly this rule, and it finds
+70.1% of Kirby's frame and 0.9% of Super Mario Land's. A false positive
+would only wake early, never late, because the next event (the frame
+interrupt) is what the loop waits for anyway.
 
 ### 4.2 The memory map: two page tables, no copies
 
@@ -331,10 +386,10 @@ These are ordered by cost. **None is built until a measurement asks for it.**
 1. **Superinstructions.** Fuse the measured hot pairs into one handler each:
    `dec r / jr nz`, `ldh a,(n) / cp n / jr`, and `ld a,(hl+) / ld (de),a`.
    `gbprof` can rank the pairs on the host before any assembly is written.
-2. **Idle-loop recognition.** A short backward loop that re-reads one address
-   and writes nothing skips to the next event. It is 0.9% of Super Mario
-   Land's frame and 0.2-3% elsewhere, so it is cheap to add and is the
-   last few percent, not a rescue.
+2. **Wider idle-loop recognition.** The basic rule is not a lever but part
+   of the core (section 4.1, Events), because Kirby needs it. What is left is
+   recognising countdown delay loops (`dec b / jr nz` with nothing read),
+   which are 1-3.4% of the measured frames.
 3. **Hardware panning for a scrolled background.** The attribute controller's
    pixel panning plus the CRTC start address would replace the composer's
    fine-scroll shifts. Its cost is the mid-frame split a status bar needs.
@@ -350,6 +405,17 @@ What the 5150 has room for, PREDICTED:
   drawn.** That is about 79,900 clocks at ~90-130 clocks per instruction.
 - **The demo should stay under ~250 busy instructions a frame**, about 3% of
   a frame's CPU. That leaves about two thirds of the machine for the picture.
+
+**What no$gmb shows about the 5150, MEASURED.** Its XT/AT build runs a game
+that does *nothing* (gbclock at 0.7% busy) at **26.6%** on the 8088, because
+its fixed cost is ~60 ms per Game Boy frame
+(docs/reports/GAMEBOY-NOGMB-2026-10-19.md). On the 5150, then, the CPU core
+is only half the demo's problem. **The fixed cost has to come under ~16 ms
+a frame**, and a frame in which nothing changed must cost close to nothing:
+- no line is composed unless the register log or a VRAM write touched it;
+- `HALT` skips straight to the next event;
+- the PPU's per-line events collapse to one per frame when nothing reads
+  `LY`/`STAT` and no `LYC` or mode interrupt is enabled.
 
 **The demo ROM is ours.** It is written for the 5150 the way WireBall is
 written for it: a scene that only changes a few sprites and a scroll register
@@ -380,11 +446,24 @@ about 65-80%.
 - **QEMU is on the closed list for the 286** (item 1). It runs the core's
   correctness gates in raw mode and the package's functional rows, and it
   times nothing.
-- **The 286's speed is read off the glass.** The package draws its own
-  measured game speed and frame rate (an `F1` overlay, timed by PIT). It is
-  read on 86Box `vm/286` by a person, and on the Victory 286 in the field
-  (docs/FIELD-MACHINES.md). No row can gate on it, so every 286 figure
-  quoted later names which machine it came from.
+- **86Box times the 286, and it is scripted now** (`tools/os88box.py`,
+  docs/86BOX.md). `step MS` runs exactly MS of emulated time, and `memr`
+  reads RealBoy's own frame counter out of the guest by symbol, so a 286 speed
+  is a row rather than a photograph. This is how
+  docs/reports/GAMEBOY-NOGMB-2026-10-19.md was taken, and `vm/286-525`
+  (ami286, 12.5 MHz) is the machine. 86Box models the 286 per instruction and
+  is not cycle-accurate, so a 286 figure says which emulator it came from. The
+  Victory 286 in the field (docs/FIELD-MACHINES.md) is the iron check.
+- **gbclock** (`tools/gbclock.py`) is the load. One ROM of our own counts
+  emulated frames and keeps the Game Boy CPU busy for a set share of each
+  frame, so RealBoy and no$gmb are timed on the same footing. The slope across
+  its variants is the core's cost per M-cycle, and the intercept is the fixed
+  cost per frame.
+- **`tools/gbcal.py`** re-times no$gmb (the user's copy, under the user's DOS)
+  on either machine, so every RealBoy number can be put beside the existing
+  emulator's.
+- **The package also draws its own speed and frame rate** (an `F1` overlay,
+  timed by PIT), for the iron, where no harness reaches.
 
 **The fetched test ROMs.** Each is pinned by commit and SHA-256 in
 `tools/getgbtest.py` and never committed:
@@ -403,7 +482,7 @@ anything is wrong.
 
 | wave | title | in this PR |
 |---|---|---|
-| 0 | Investigation: feasibility, workload, `gbprof` | **yes, done** |
+| 0 | Investigation: feasibility, workload, `gbprof`, the no$gmb bar, the 86Box harness | **yes, done** |
 | 1 | The contract, the core and the measurement that decides the rest | |
 | 2 | The machine: timers, interrupts, PPU timing, MBCs | |
 | 3 | The picture, and the package on the desktop | |
@@ -416,36 +495,41 @@ anything is wrong.
 ### Wave 1 - the contract, the core, and the measurement that decides the rest
 
 **Features**
-- `docs/GAMEBOY-SPEC.md`: its own contract, cited as "section N".
+- `docs/REALBOY-SPEC.md`: its own contract, cited as "section N".
 - The SM83 interpreter (section 4.1) with the minimal machine `cpu_instrs`
   needs: ROM-only and MBC1, the serial port as text output, `DIV`/`TIMA`,
-  interrupts and `HALT`.
+  interrupts, `HALT` and the spin-wait rule.
 - A raw-QEMU harness that runs a ROM headless and captures the serial output,
   `apps/apple2/a2memtest.asm`'s shape.
 - `tools/getgbtest.py`.
-- A bench build that runs a fixed ROM for a fixed number of frames, then
-  prints clocks per instruction: from MartyPC's cycle counter on the 8088,
-  and from the PIT on any machine.
+- A bench build with rendering off, run on gbclock's variants. On the 8088
+  its frame counter is read against MartyPC's cycle counter. On the 286 it is
+  read through `tools/os88box.py` against 86Box's emulated clock.
 
 **Files**
-- `apps/gameboy/gbcpu.inc`, `gbmem.inc`;
-- `tests/gbcore/` (harness, bench);
+- `apps/realboy/rbcpu.inc`, `rbmem.inc`;
+- `tests/rbcore/` (harness, bench);
 - `tools/getgbtest.py`, `tools/gbtrace.py`;
-- `docs/GAMEBOY-SPEC.md`.
+- `docs/REALBOY-SPEC.md`.
 
 **Done when**
 - `cpu_instrs` prints `Passed all tests` in the raw harness.
 - The differential trace agrees with Peanut-GB over the first 10 million
   instructions of `cpu_instrs`.
-- **A report carries the measured clocks per instruction on MartyPC's 8088,
-  and the same bench read off 86Box `vm/286`.**
+- **A report carries the core's measured cost per M-cycle**, fitted across
+  gbclock's variants, on MartyPC's 8088 and on 86Box's `vm/286-525`, beside
+  no$gmb's ~100 and ~58 from the same ROMs.
+- Kirby's measured spin-wait is skipped: `gbprof`'s 70.1% shows up as idle in
+  the core's own counters.
 
-**The gate on the rest.** On the ami286, section 2 predicts 45-60 clocks.
-- **At 60 or under, waves 2-5 proceed as written.**
-- **Over 60**, wave 7's levers move ahead of wave 3, because the picture is
+**The gate on the rest.** On the ami286, section 2.2 predicts 20-26 clocks
+per M-cycle, against no$gmb's ~58.
+- **At 26 or under, waves 2-5 proceed as written.**
+- **Over 26**, wave 7's levers move ahead of wave 3, because the picture is
   then fighting the CPU for a frame that is not there.
-
-The no$gmb field run (section 1) is asked for here, as a cross-check.
+- **Over 40**, the owner hears about it before anything else is built. At
+  that cost Super Mario Land's average frame takes ~78% of the 286 on the CPU
+  alone, and full speed is a recompiler's or not at all.
 
 ### Wave 2 - the machine
 
@@ -496,9 +580,11 @@ The no$gmb field run (section 1) is asked for here, as a cross-check.
   restored.
 - On MartyPC's VGA XT (`os8088_xt_vga`) the frames are pixel-identical to the
   windowed composer's.
-- **A report quotes Super Mario Land's game speed and frame rate on 86Box
-  `vm/286` and on the Victory 286**, from the overlay. These are read on the
-  glass, and the report says so.
+- **`rbspeed286` reads Super Mario Land's and Kirby's game speed and frame
+  rate on 86Box `vm/286-525`** through `tools/os88box.py`. It SKIPS without
+  `$OS88_GB_ROMS`, and quotes no$gmb's figure from the same machine beside
+  each. The Victory 286's figures come from the overlay, and the report says
+  so.
 
 ### Wave 5 - sound, save RAM, MBC3, polish
 
@@ -548,10 +634,15 @@ The no$gmb field run (section 1) is asked for here, as a cross-check.
   was out by six.** Wave 1 measures before anything is built on it, and the
   gate in wave 1 reorders the waves if the number is bad. The workload side
   is MEASURED, so only the per-instruction cost is open.
-- **No row can time a 286.** QEMU counts and does not time, MartyPC is an
-  8088, and 86Box has no automation socket. The 286 figures come from the
-  overlay, read by a person, and that is written beside every one of them.
-  MartyPC's 8088 cycle counts are the automated guard for regressions.
+- **The 286 is timed by an emulator that is not cycle-accurate.** 86Box
+  models the 286 per instruction (docs/86BOX.md, *What it is NOT*). Its
+  figures are a consistent ruler, which is what comparing against no$gmb on
+  the same machine needs, but they are not the iron. The Victory 286 is the
+  check, and MartyPC's exact 8088 counts are the automated regression guard.
+- **The best period implementation sets the bar at 2.2-2.9 times RealBoy's
+  predicted cost.** no$gmb's XT/AT build is ~58 clocks per M-cycle on the 286
+  (MEASURED), and section 2.2 needs 20-26. If wave 1 lands nearer no$gmb than
+  the prediction, the plan is a recompiler's (wave 7) or a smaller game set.
 - **The real Victory 286 is slower than 86Box's.** Its RAM runs at about 2.5x
   the cost of 86Box's mr286 (docs/reports/VIDBENCH-PVGA286-2026-10-08.md),
   and its decode is 12-29% slower. An interpreter is memory-heavy, so the
@@ -568,7 +659,8 @@ The no$gmb field run (section 1) is asked for here, as a cross-check.
 - **The 256 KB ceiling.** Many well-known titles are larger: Link's
   Awakening is 512 KB, Pokemon Red/Blue 1 MB. Version 1 refuses them by name
   with the arithmetic, and wave 6 exists for them.
-- **Trademark.** The package name is the owner's decision (section 3.2).
+- **Trademark.** The package is RealBoy (section 3.1). "Game Boy" appears
+  in its documentation only as the name of the machine it emulates.
 
 ## 10. What is in this PR (wave 0)
 
@@ -576,6 +668,16 @@ The no$gmb field run (section 1) is asked for here, as a cross-check.
   PREDICTED.
 - docs/reports/GAMEBOY-WORKLOAD-2026-10-19.md: busy shares and event rates
   for Super Mario Land, libbet and a control, MEASURED on the host.
-- `tools/gbprof.py` and `tools/gbprof/gbprof.c`: the instrument. Peanut-GB is
-  fetched at a pinned commit into `build/gbprof/`, and no ROM is committed.
+- docs/reports/GAMEBOY-NOGMB-2026-10-19.md: no$gmb's XT/AT build timed on
+  MartyPC's 8088 and 86Box's 12.5 MHz 286, and Kirby's and Looney Tunes'
+  workloads, MEASURED.
+- `tools/gbprof.py` and `tools/gbprof/gbprof.c`: the workload instrument.
+  Peanut-GB is fetched at a pinned commit into `build/gbprof/`, and no ROM is
+  committed.
+- `tools/gbclock.py` and `tools/gbprof/gbclock.asm`: gbclock, our counting
+  ROM, with rgbds fetched at a pinned commit into `build/rgbds/`.
+- `tools/gbcal.py`: a DOS Game Boy emulator timed on 86Box or MartyPC.
+- `tools/os88box.py`, `tools/86box/`, `tools/os88bochs.py`,
+  `tools/os88bochsui.py`, docs/86BOX.md and docs/BOCHS.md: the 86Box and
+  Bochs harness, brought over from the `protected-mode` branch.
 - This plan.

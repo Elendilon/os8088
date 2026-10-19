@@ -6,7 +6,7 @@ The instrument is `tools/gbprof.py`: Peanut-GB (MIT) at the pinned commit
 `d0bcca77` with five counting hooks, built with the host compiler. No 8088,
 286 or emulator of either was involved. This file says what the GAME does.
 What an os8088 emulator would cost to carry that load is
-docs/plans/GAMEBOY-PLAN.md's question. A later measurement goes in a new file.
+docs/plans/REALBOY-PLAN.md's question. A later measurement goes in a new file.
 
 It answers the question the feasibility estimate
 (docs/reports/GAMEBOY-FEASIBILITY-2026-10-19.md, its section 8 item 1) left
@@ -102,7 +102,7 @@ libbet's heaviest are `jr nz` 10.8%, `call` 7.9% and the `CB` page 6.5%.
 2. **The work an emulator carries is about 2,150 instructions a frame for
    Super Mario Land and 1,170 for libbet**, at about 2.2-2.3 M-cycles each.
    That instruction count, times the cost per instruction, is the CPU budget
-   docs/plans/GAMEBOY-PLAN.md is built on.
+   docs/plans/REALBOY-PLAN.md is built on.
 3. **Bank switching must be cheap. A 16 KB copy per switch is ruled out by a
    real game.** Super Mario Land writes the MBC 7.8 times a frame, which
    prices the feasibility estimate's 205,000-clock copy at about 20 frames of
@@ -145,4 +145,4 @@ has weak sound. This container's network policy refuses archive.org and the
 emulator's own pages, so the build was neither read nor run here. It is the
 nearest existing calibration for what an expert assembly implementation does
 on these exact machines. A field run on the 5150 and the 286 with a homebrew
-ROM would be worth having, and docs/plans/GAMEBOY-PLAN.md asks for it.
+ROM would be worth having, and docs/plans/REALBOY-PLAN.md asks for it.
