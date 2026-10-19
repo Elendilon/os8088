@@ -728,6 +728,11 @@ tr_enter:
 .k:
     mov dh,dl
     xor bl,dl
+    mov dl,bh                   ; (PC >> 11 folded in: blocks 2KB
+    shr dl,1                    ;   apart share no slot)
+    shr dl,1
+    shr dl,1
+    xor bl,dl
     and bh,7
     shl bx,1
     shl bx,1
@@ -794,6 +799,11 @@ tr_link:
     and dl,[ss:S_BMASK]
 .k:
     mov dh,dl
+    xor bl,dl
+    mov dl,bh                   ; (PC >> 11 folded in: blocks 2KB
+    shr dl,1                    ;   apart share no slot)
+    shr dl,1
+    shr dl,1
     xor bl,dl
     and bh,7
     shl bx,1
@@ -917,6 +927,11 @@ tr_retlink:
     mov [ss:S_SAVBX],bx
     mov bx,si
     mov dl,0FFh
+    xor bl,dl
+    mov dl,bh                   ; (PC >> 11 folded in: blocks 2KB
+    shr dl,1                    ;   apart share no slot)
+    shr dl,1
+    shr dl,1
     xor bl,dl
     and bh,7
     shl bx,1
@@ -1337,12 +1352,14 @@ idle_no:
 mbc_set:
     mov [ss:S_BANK],dl
     and dl,[ss:S_BMASK]
-    mov dh,dl                   ; ROMX = ROMSEG + bank * 400h - 400h
-    xor dl,dl
+    xor dh,dh                   ; ROMX = the bank table's (REALBOY-SPEC 10.3)
     shl dx,1
-    shl dx,1
-    add dx,[ss:S_ROMSEG]
-    sub dx,400h
+    xchg dx,bx                  ; (BX, the address written, borrowed)
+    inc word [ss:bx+RB_BUSE]
+    mov bx,[ss:bx+RB_BTAB]
+    xchg dx,bx
+    or dx,dx
+    jz mbc_set.miss             ; not in memory: rbsys fetches it
     mov es,dx
     mov dx,ds
     cmp dx,[ss:S_ROMX]
@@ -1353,6 +1370,9 @@ mbc_set.nx:
     mov [ss:S_ROMX],dx
     xor dl,dl
     jmp word [ss:S_RET]
+mbc_set.miss:
+    mov [ss:S_RETFAR+2],cs
+    jmp far [ss:S_MBCVEC]
 """,
 }
 

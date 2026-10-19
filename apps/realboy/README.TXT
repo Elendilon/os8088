@@ -17,7 +17,11 @@ README.TXT  this file (REALBOY.TXT when it came from The Wire).
 
 Put your own .GB files anywhere and double-click one: .GB is RealBoy's
 document, so the program opens with the game. Or open REALBOY.O88 and use
-File > Open. A cartridge must be 32K to 256K (MBC1, MBC2, MBC3 or MBC5).
+File > Open. A cartridge is 32K to 256K (MBC1, MBC2, MBC3 or MBC5), or up
+to 8MB on a machine with extended memory: there the cartridge is kept above
+1MB and its banks come down as the game switches to them. A 256K game on a
+640K machine goes there too when that is what leaves room for the
+recompiler.
 
 KEYS
 ----

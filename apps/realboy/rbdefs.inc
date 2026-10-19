@@ -37,6 +37,9 @@ RB_SNAP         equ 0x4800          ; 16: LCDC..WX as the frame began (4.4)
 RB_FREE         equ 0x4810          ; the rest of the window is unassigned,
                                     ; but for rbppu.inc's 4900-66FF and:
 JIT_BUF         equ 0x6700          ; 256: the Game Boy code being translated
+RB_BTAB         equ 0x6800          ; 512 words: a ROM bank's segment, or 0
+RB_BUSE         equ 0x6C00          ; 512 words: switches to it (the cache's
+                                    ;   eviction count, REALBOY-SPEC 10.3)
 JIT_HASH        equ 0x0000          ; 16,384, IN THE CACHE SEGMENT: the block
                                     ;   table (tr_enter, REALBOY-SPEC 16.3), all
                                     ;   of slots 00-3F: tr_enter is slot 40's

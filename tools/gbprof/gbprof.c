@@ -72,8 +72,26 @@ static void prof_read(struct gb_s *gb, uint16_t a){(void)gb;
   if(a>=cur_pc && a<=(uint16_t)(cur_pc+2)) return;      /* opcode/operand fetch */
   int r=region(a); rd[r]++; it_dread=1;
   if(r==R_IO){ io_rd[a&0xFF]++; fr_ioread++; }}
+/* ROM banks: which the game selects (2000-3FFF, the low bits MBC1/3/5
+ * share), and how often a cache of K resident banks - LRU, bank 0 apart -
+ * would miss: what a cartridge kept partly in extended memory would pay. */
+#define LRU_MAX 16
+static unsigned long long bank_used[512], lru_miss[LRU_MAX+1], bank_sel;
+static int lru[LRU_MAX+1][LRU_MAX], lru_n[LRU_MAX+1], cur_bank=1;
+static void bank_pick(int b){
+  if(b==cur_bank) return; cur_bank=b;
+  if(nfr<measure_from) return;
+  bank_sel++; bank_used[b&511]++;
+  for(int k=1;k<=LRU_MAX;k++){ int *l=lru[k], n=lru_n[k], i;
+    for(i=0;i<n;i++) if(l[i]==b) break;
+    if(i==n){ lru_miss[k]++; if(n<k) n=++lru_n[k]; i=n-1; }
+    for(;i>0;i--) l[i]=l[i-1]; l[0]=b; } }
 static void prof_write(struct gb_s *gb, uint16_t a, uint8_t v){(void)v;
   int r=region(a); wr[r]++; it_wrote=1;
+  if(rom[0x147]>=0x19 && rom[0x147]<=0x1E){          /* MBC5: 0 is bank 0, 3000 the 9th bit */
+    if(a>=0x2000 && a<0x3000) bank_pick((cur_bank&0x100)|v);
+    else if(a>=0x3000 && a<0x4000) bank_pick((cur_bank&0xFF)|((v&1)<<8)); }
+  else if(a>=0x2000 && a<0x4000){ int b=v&0x7F; if(!b) b=1; bank_pick(b); }
   if(a<0x8000) fr_mbc++;
   else if(r==R_VRAMT) fr_tile++;
   else if(r==R_VRAMM) fr_map++;
@@ -166,6 +184,10 @@ int main(int argc,char**argv){
     (double)tot_inst/NF,(double)(T-t_halt)/4.0/tot_inst,100.0*tot_cb/tot_inst);
   printf("per frame: MBC writes %.2f  tile-data writes %.1f  map writes %.1f  OAM DMA %.2f  raster lines %.2f\n",
     (double)tot_mbc/NF,(double)tot_tile/NF,(double)tot_map/NF,(double)tot_dma/NF,(double)tot_raster/NF);
+  { int nb=0; for(int i=0;i<512;i++) if(bank_used[i]) nb++;
+    printf("ROM banks: %.2f switches/frame among %d banks; LRU misses a second with K resident (bank 0 apart):",
+      (double)bank_sel/NF, nb);
+    for(int k=1;k<=LRU_MAX;k++) printf(" %d:%.2f", k, lru_miss[k]*59.7275/NF); printf("\n"); }
   printf("data reads/frame by region:"); for(int r=0;r<R_N;r++) printf(" %s %.0f",rn[r],(double)rd[r]/NF); printf("\n");
   printf("writes/frame by region:   "); for(int r=0;r<R_N;r++) printf(" %s %.0f",rn[r],(double)wr[r]/NF); printf("\n");
   printf("top IO reads/frame:"); for(int k=0;k<6;k++){int b=0;for(int i=0;i<256;i++)if(io_rd[i]>io_rd[b])b=i; if(!io_rd[b])break; printf(" FF%02X %.1f",b,(double)io_rd[b]/NF); io_rd[b]=0;} printf("\n");

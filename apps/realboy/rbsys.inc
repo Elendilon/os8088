@@ -35,6 +35,16 @@
 
 rb_viewseg      dw 0                    ; the view, for code on the host stack
 rb_coreseg      dw 0
+; THE BANK TABLE (REALBOY-SPEC section 10.3): RB_BTAB holds, per ROM bank,
+; the segment whose 4000-7FFF is that bank, or 0 when it is not in memory.
+; With rb_nres 0 the image at CX holds every bank and rb_init fills the table
+; from it; otherwise the host keeps the banks (a cache over extended memory)
+; and fills it: rb_init zeroes it and calls rb_bfill, and rb_setbank calls
+; rb_bmiss (BX = the bank x 2) for a bank the table has no segment for -
+; both near procs of the host's, every register theirs but BX.
+rb_nres         dw 0
+rb_bfill        dw 0
+rb_bmiss        dw 0
 
 ; =============================================================================
 ; rb_init - AX = view, BX = core, CX = ROM image, DX = 16KB banks in it
@@ -52,11 +62,12 @@ rb_init:
     mov [cs:rb_viewseg],ax
     mov [cs:rb_coreseg],bx
     mov es,ax
-    ; the whole view to zero, then bank 0 copied into 0000-3FFF
+    ; the view to zero from 4000h, then bank 0 copied into 0000-3FFF (from
+    ; itself when the host read bank 0 there: CX = the view)
     push cx
-    xor di,di
+    mov di,4000h
     xor ax,ax
-    mov cx,8000h
+    mov cx,6000h
     rep stosw
     pop cx
     mov [es:S_ROMSEG],cx
@@ -76,6 +87,26 @@ rb_init:
     mov ax,es
     mov ds,ax                           ; DS = view from here on
     mov [S_VIEW],ax
+    ; the bank table: bank 0 is the view's own 0000-3FFF (MBC5 can put it in
+    ; 4000-7FFF), the rest the image's - or the host's, which fills them
+    sub ax,400h
+    mov [RB_BTAB],ax
+    mov cx,[S_NBANKS]
+    dec cx
+    mov di,RB_BTAB+2
+    cmp word [cs:rb_nres],0
+    jne .bcache
+    mov ax,[S_ROMSEG]
+.bt:
+    stosw
+    add ax,400h
+    loop .bt
+    jmp short .btd
+.bcache:
+    xor ax,ax
+    rep stosw
+    call [cs:rb_bfill]
+.btd:
     ; the two flag tables: F <-> the LAHF image the core keeps in AH
     xor bx,bx
 .ftab:
@@ -1965,11 +1996,23 @@ rb_setbank:
     mov dx,[S_NBANKS]
     dec dx
     and ax,dx
-    mov dx,ax                           ; ROMX = ROMSEG + bank*400h - 400h
-    mov ax,0400h
-    mul dx
-    add ax,[S_ROMSEG]
-    sub ax,0400h
+    push bx
+    mov bx,ax                           ; ROMX: the bank table's (rb_init)
+    shl bx,1
+    mov ax,[RB_BTAB+bx]
+    or ax,ax
+    jnz .in
+    cmp word [cs:rb_bmiss],0            ; not in memory: the host fetches it
+    je .none
+    call [cs:rb_bmiss]
+    mov ax,[RB_BTAB+bx]
+    or ax,ax
+    jnz .in
+.none:
+    mov ax,[S_VIEW]                     ; (it could not: bank 0, not garbage)
+    sub ax,400h
+.in:
+    pop bx
     mov [S_ROMX],ax
     mov dx,[S_PC]
     and dh,0C0h

@@ -53,7 +53,8 @@ RW_BEHIND       equ 30              ; frames a machine catches up at most:
                                     ;   draw, which the frames during it
                                     ;   must outlast or the game slows
 RW_OWEDMAX      equ RW_BEHIND * 256
-RW_ROMMAX_KB    equ 256
+RW_ROMMAX_KB    equ 256             ; one claim's; more is the bank cache's
+RW_SLOTMAX      equ 40              ; ...slots at most (rwbank.inc)
 
 ; --- the bss: the standard's words first, then ours --------------------------
 rw_win          equ os88_image_end + OP_BSS
@@ -132,7 +133,19 @@ rw_romvol       equ rw_romdir + 2   ; byte: ...and volume (its .SAV's)
 rw_hdir         equ rw_romvol + 1   ; word: where rw_fgo found us...
 rw_hvol         equ rw_hdir + 2     ; byte
 rw_dgen         equ rw_hvol + 1     ; byte: rw_drawnow's count (rw_timed)
-rw_log          equ rw_dgen + 1     ; RW_LOGN x RW_LOGSZ: the records
+rw_bcache       equ rw_dgen + 1     ; byte: the cartridge is the bank cache's
+rw_nslot        equ rw_bcache + 1   ; word: its slots (rwbank.inc)
+rw_slotseg      equ rw_nslot + 2    ; word: ...their claim
+rw_xbase        equ rw_slotseg + 2  ; dword: the store above 1MB
+rw_bcur         equ rw_xbase + 4    ; FSEQ_SIZE: the load's read cursor
+rw_bnum         equ rw_bcur + FSEQ_SIZE ; word: the bank being loaded
+rw_slotbank     equ rw_bnum + 2     ; RW_SLOTMAX words: each slot's bank
+rw_bankreq      equ rw_slotbank + RW_SLOTMAX * 2 ; word: the bank x 2 the
+                                    ;   worker waits for, or 0
+rw_closing      equ rw_bankreq + 2  ; byte: the window is closing
+rw_nmiss        equ rw_closing + 1  ; word: banks fetched
+rw_pavail       equ rw_nmiss + 2    ; word: the heap's largest run at load
+rw_log          equ rw_pavail + 2   ; RW_LOGN x RW_LOGSZ: the records
 rw_fbuf         equ rw_log + RW_LOGN * RW_LOGSZ ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
@@ -247,6 +260,7 @@ rb_trbyte:
 ; rw_onwake - on the UI task, no lock held: a document we were launched with,
 ; or the core having stopped
 rw_onwake:
+    call rw_bserve                  ; a bank the worker waits for
     cmp byte [rw_argpend], 0
     je .stopped
     mov byte [rw_argpend], 0
@@ -323,12 +337,15 @@ rw_load:
     jne .rdfail0
     cmp dx, 32
     jb .notrom
-    cmp dx, RW_ROMMAX_KB + 2        ; (the slack)
-    ja .big
     mov [rw_romkb], dx
-    call OSAPI_MEM_AVAIL            ; AX = the largest run, in KB
-    cmp ax, [rw_romkb]
-    jb .room
+    call rw_plan                    ; one claim, or the bank cache
+    jc .say
+    cmp byte [rw_bcache], 0
+    je .one
+    call rw_bload
+    jc .say
+    jmp short .loaded
+.one:
     mov ax, [rw_romkb]
     call OSAPI_MEM_CLAIM            ; DX = its segment
     jc .room
@@ -355,6 +372,7 @@ rw_load:
     cmp ax, RW_ROMMAX_KB / 16
     ja .notrom1
     mov [rw_banks], ax
+.loaded:
     call rw_jitclaim
     call rw_dmgclaim
     call rw_ramsetup
@@ -375,9 +393,6 @@ rw_load:
     call OSAPI_MEM_FREE
 .rdfail0:
     mov si, rw_s_read
-    jmp short .say
-.big:
-    mov si, rw_s_big
     jmp short .say
 .room:
     mov si, rw_s_room
@@ -660,6 +675,7 @@ rw_ramkeep:
 ; rw_onclose - the close negotiator, on the UI task with the lock held: a
 ; battery's RAM saved, and the close always goes ahead
 rw_onclose:
+    mov byte [rw_closing], 1        ; a worker waiting on a bank ends now
     cmp byte [rw_logon], 0          ; the log, if it was on
     je .s
     mov byte [rw_logon], 0
@@ -1936,7 +1952,7 @@ rw_s_open2:     db 'Game Boy .GB', 0
 rw_s_stop1:     db 'The game stopped:', 0
 rw_s_stop2:     db 'an invalid opcode', 0
 rw_s_one:       db 'REALBOY: one game each', 0
-rw_s_big:       db 'REALBOY: ROM over 256K', 0
+rw_s_big:       db 'REALBOY: over 256K wants XMS', 0
 rw_s_notrom:    db 'REALBOY: not a GB ROM', 0
 rw_s_room:      db 'REALBOY: no room for ROM', 0
 rw_s_read:      db 'REALBOY: read failed', 0
@@ -1962,6 +1978,7 @@ rw_ab7:         db 'F1 = speed', 0
 %include "os88alt.inc"
 %include "os88pit.inc"
 %include "rwlog.inc"
+%include "rwbank.inc"
 
 %define OS88UI_ABOUT
 %define OS88UI_NOBTN

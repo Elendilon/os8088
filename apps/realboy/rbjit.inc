@@ -292,6 +292,11 @@ rt_translate:
     mov dl,[S_JITBK]
     mov bx,si
     xor bl,dl
+    mov dh,bh                       ; (tr_enter's slot: PC >> 11 folded in)
+    shr dh,1
+    shr dh,1
+    shr dh,1
+    xor bl,dh
     and bh,7
     shl bx,1
     shl bx,1
@@ -634,6 +639,11 @@ rt_exit:
     jmp short .enter2
 .key:
     mov dh,dl                       ; DH = its key; the table's slot
+    xor bl,dl
+    mov dl,bh
+    shr dl,1
+    shr dl,1
+    shr dl,1
     xor bl,dl
     and bh,7
     shl bx,1

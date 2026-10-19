@@ -70,6 +70,34 @@ def frames(b, view):
     return int.from_bytes(b.memr(view*16 + 0x403E, 2), "little")
 
 
+def bss_off(name):
+    """a bss word's offset in the package, off the listing's first operand
+    naming it (equ symbols carry no address of their own there)"""
+    pat = re.compile(r"\[([0-9A-F]{4})\]\S*\s+.*\[(?:cs:)?%s\]" % re.escape(name))
+    with open(LST, errors="replace") as f:
+        for line in f:
+            m = pat.search(line)
+            if m:                           # (the listing's bytes: little end first)
+                v = int(m.group(1), 16)
+                return ((v & 0xFF) << 8) | (v >> 8)
+    return None
+
+
+def bankstat(b, seg):
+    """rwbank.inc's: (slots, banks fetched), or None when it is one claim"""
+    o = [bss_off(n) for n in ("rw_bcache", "rw_nslot", "rw_nmiss")]
+    if None in o or not b.memr(seg*16 + o[0], 1)[0]:
+        return None
+    rd = lambda k: int.from_bytes(b.memr(seg*16 + k, 2), "little")
+    return rd(o[1]), rd(o[2])
+
+
+def jitstat(b, view):
+    """S_JITFL, S_JITNB and S_JITSEG (rbdefs.inc): flushes, blocks, the cache"""
+    m = b.memr(view*16 + 0x40C8, 6)
+    return tuple(int.from_bytes(m[k:k+2], "little") for k in (0, 2, 4))
+
+
 def overlay(b, seg):
     m = re.search(rb"(\d+)% (\d+)fps(?: JIT)?\0", b.memr(seg*16, 0x8000) + b.memr(seg*16 + 0x8000, 0x8000))
     return (int(m.group(1)), int(m.group(2))) if m else None
@@ -94,6 +122,7 @@ def profile(b, seg, core, n, view=0):
     lin.sort()
     lk = [a for a, _ in lin]
     hits = collections.Counter()
+    where = collections.Counter()
     for _ in range(n):
         b.cmd("step 1")
         r = b.cmd("regs")
@@ -106,6 +135,9 @@ def profile(b, seg, core, n, view=0):
         elif core*16 <= ip < core*16 + 0x10000:
             k = bisect.bisect_right(ck, ip - core*16) - 1
             hits["core " + (csyms[k][1] if ck and k >= 0 else "%02X" % ((ip - core*16) >> 8))] += 1
+            pc = r["esi"] & 0xFFFF                  # SI: the Game Boy's PC
+            where["ROM0" if pc < 0x4000 else "ROMX" if pc < 0x8000 else
+                  "HRAM" if pc >= 0xFF80 else "RAM"] += 1
         elif ip >= 0xF0000:
             hits["BIOS"] += 1
         else:
@@ -117,6 +149,9 @@ def profile(b, seg, core, n, view=0):
     print("profile: " + "  ".join("%s %.1f%%" % (g, 100.0*v/n) for g, v in groups.most_common()))
     for k, v in hits.most_common(30):
         print("%6.1f%% %s" % (100.0*v/n, k))
+    if where:
+        print("core samples by the Game Boy PC (SI): " + "  ".join(
+            "%s %.1f%%" % (k, 100.0*v/sum(where.values())) for k, v in where.most_common()))
 
 
 def main():
@@ -131,6 +166,7 @@ def main():
     ap.add_argument("--attach", default="", help="measure a machine --keep left running")
     ap.add_argument("--press", default="", help="keys to tap first, e.g. return")
     ap.add_argument("--fs", action="store_true", help="Machine > Full Screen first")
+    ap.add_argument("--mem", type=int, help="the machine's RAM in KB, for the VM's own")
     o = ap.parse_args()
 
     if o.attach:
@@ -155,7 +191,7 @@ def boot(o):
     os88box.subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", disk,
                             "--size", "1440", os.path.join(ROOT, "build", "realboy.o88"), gb],
                            check=True, stdout=os88box.subprocess.DEVNULL)
-    b = os88box.launch(o.vm, name=name, hold=True, fresh=True,
+    b = os88box.launch(o.vm, name=name, hold=True, fresh=True, mem=o.mem,
                        a=os.path.join(ROOT, "build", "os8088.img"), b=disk)
     if True:
         for _ in range(120):
@@ -201,8 +237,10 @@ def measure(b, o):
             b.cmd("key down 0x%02X" % k)
         b.cmd("step 2000")
         f0, t0 = frames(b, view), b.cmd("info").get("ms")
+        j0 = jitstat(b, view)
         b.cmd("step %d" % int(o.secs * 1000))
         f1, t1 = frames(b, view), b.cmd("info").get("ms")
+        j1 = jitstat(b, view)
         ov = overlay(b, seg)
         secs = (t1 - t0) / 1000.0
         n = (f1 - f0) & 0xFFFF
@@ -210,6 +248,11 @@ def measure(b, o):
               "overlay: %s" % (os.path.basename(o.rom), o.vm, n, secs, n / secs,
                                100.0 * n / secs / GB_HZ,
                                "%d%% %d fps drawn" % ov if ov else "none"))
+        print("rbwin: recompiler %s - %d blocks translated, %d flushes in the span"
+              % ("on" if j1[2] else "off", (j1[1] - j0[1]) & 0xFFFF, (j1[0] - j0[0]) & 0xFFFF))
+        bk = bankstat(b, seg)
+        print("rbwin: cartridge %s" % ("in one claim" if bk is None else
+              "in the bank cache, %d slots, %d banks fetched" % bk))
         if o.shot:
             b.shot(o.shot)
         if o.profile:

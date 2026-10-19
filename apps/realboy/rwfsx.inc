@@ -96,6 +96,7 @@ rw_fsenter:
 .wait:
     cmp byte [rw_incore], 0         ; the worker out of the machine first
     je .go
+    call rw_bserve                  ; (it may be waiting on us for a bank)
     call OSAPI_TASK_YIELD
     jmp short .wait
 .go:

@@ -68,9 +68,12 @@ The core addresses the Game Boy's 64KB through **two segments**:
     frame-start snapshot `RB_SNAP` (4800h);
   - 8000-FFFF: the Game Boy's own RAM and registers, at their own addresses -
     VRAM, cartridge RAM (one bank), WRAM, OAM, the I/O registers and HRAM.
-- **ROMX**, the current switchable bank: `S_ROMX` = `S_ROMSEG` + bank x 400h
-  - 400h, so that ROMX:4000 is the bank's first byte. **A bank switch is a
-  pointer change and never a copy.**
+- **ROMX**, the current switchable bank: `S_ROMX` is the segment whose
+  4000h is the bank's first byte, read out of **the bank table**, `RB_BTAB`
+  (6800h in the view, a word a bank, 512 of them). For a cartridge in one
+  claim it is `S_ROMSEG` + bank x 400h - 400h; bank 0's is the view's own
+  0000-3FFF less 400h. **A bank switch is a pointer change and never a
+  copy** - unless the bank is not in memory at all, which is section 10.3's.
 
 A data access tests the address (section 5.2): the view takes every address
 directly but 4000-7FFF (ROMX) and FF00-FF7F (registers), and a write to
@@ -381,6 +384,49 @@ ours: MBC3, timer, four banks, battery) twice through a close.
 - On the second boot it checks that the counters come back, with the clock
   past where it was saved.
 
+### 10.3 The bank cache: cartridges over 256K, and the room for the recompiler
+
+**A cartridge that does not fit as one claim lives above 1MB** and its banks
+come down as the game switches to them (`apps/realboy/rwbank.inc`). It is
+REALBOY-PLAN's wave 6, and the second field run is why it came first: Kirby's
+Dream Land (256K) took the heap a 640KB Victory had, so its 64KB recompiler
+cache could not be claimed and the game ran interpreted (its log has no J).
+
+- **The plan** (`rw_plan`), from the size probe and `OSAPI_MEM_AVAIL`: one
+  claim when the ROM fits with the recompiler's 64KB (on a 286), the damage
+  memory and some slack (24KB) beside it. Otherwise, when
+  `OSAPI_XMEM_CAPS` has room for banks 1 on: the cache, with **K slots of
+  16KB**, as many as the heap affords after those, at least 4 and at most 40
+  or one a bank. Otherwise one claim without that room, as before, and then
+  over 256K is refused (`over 256K wants XMS`). The probe answers a KB over
+  an exact size (SPEC.md 20.14.6.3), so the plan takes whole banks; bank 0's
+  header must then say the same size, which a compressed file - read raw
+  here - does not. The log's head gives the heap the plan saw.
+- **The load** (`rw_bload`, the UI task): the slots, one `OSAPI_XMEM_ALLOC`
+  for banks 1 on, then the file through `OSAPI_FILE_READ_SEQ` a bank at a
+  time - bank 0 straight into the view's 0000-3FFF (so `rb_init` is handed
+  the view as the image and copies nothing), banks 1 to K-1 into slots, the
+  rest through the last slot, and every one copied up as it comes.
+- **The table is the host's** when `rb_nres` is not 0: `rb_init` zeroes it
+  and calls `rb_bfill`, and a switch to a bank with no segment goes to rbsys
+  (the core's `mbc_set` leaves through `S_MBCVEC` when the entry is 0), whose
+  `rb_setbank` calls `rb_bmiss`.
+- **A fetch** (`rw_bfetch`) takes the slot whose bank the game switched to
+  least since the last fetch: `mbc_set` counts every switch in `RB_BUSE`
+  (6C00h, a word a bank), and a fetch halves every count after, so what was
+  used lately stays. `OSAPI_XMEM_COPY` is UI-task context, so the WORKER
+  posts the bank (`rw_bankreq`), wakes the window and sleeps a tick at a time
+  until the UI task has it in (`rw_onwake`, and `rw_fsenter`'s wait); full
+  screen runs the machine on the UI task, which fetches for itself. A
+  window closing while the worker waits ends it at `OSAPI_TASK_ALIVE`.
+- **What it costs is nearly nothing**, because a game's working set is small.
+  gbprof's LRU column (`tools/gbprof.py`), two minutes of its platformer
+  script: Kirby uses **6 banks of 16** in play and Looney Tunes **8 of 64**,
+  and with that many slots or more a fetch comes **under once a second**.
+  Looney Tunes (1MB, MBC5) runs at **101% of real time in its window on
+  86Box's 286** with 18 slots and one bank fetched in ten seconds, and with
+  the slots cut to 4 it fetched 12 in ten seconds and kept running.
+
 ## 11. The raster log
 
 A write to LCDC, SCY, SCX, BGP, OBP0, OBP1, WY or WX during the visible lines
@@ -459,7 +505,7 @@ each a model this core chose not to carry:
 last `RBX_FRAME` into a host's 5,760-byte buffer: **144 lines of 40 bytes,
 the shade's bit 0 for pixels 0-159 (20 bytes, the leftmost pixel in bit 7)
 and then its bit 1**. Shade 0 is the lightest. Every register is preserved;
-its working memory is the view's 4900h-4B5Fh. `rb_render4` composes the same
+its working memory is the view's 4900h-4B5Fh (and the tables up to 66FFh). `rb_render4` composes the same
 frame as **the four planes `OSAPI_GFX_BLITP` takes**, into 11,520 bytes: 80 a
 line, NOT bit 1 three times then NOT bit 0, which is the desktop's 15, 7, 8
 and 0 for shades 0-3. It writes each line as it finishes it, so a colour
@@ -484,6 +530,16 @@ window has no second pass over the frame.
   CLAIMED mask: a pixel the first opaque sprite took stays its, so a sprite
   behind the background still hides the sprites under it, and it shows only
   over background colour 0.
+
+- **What a line costs is the code a 286 fetches**, since every byte of it
+  crosses a bus with wait states: the background's fetch is unrolled
+  (`ppu_fshift`, `ppu_fcopyb`, `ppu_fcopyw`), the two tile rows alternating
+  between AX and DX and the outputs absolute; `ppu_list` builds the 21 tile
+  addresses a line reads from its first column, once a map row and column;
+  and with BGP the identity and no sprite on the line, the line is left
+  where it was composed (`PPU_OSRC`) rather than copied through the palette.
+  On 86Box's 286 Super Mario Land's composition fell from **39.8 to 27.0 ms
+  a frame**, every line every frame (`tests/rbcore/rbbench.py --render`).
 
 `tests/rbcore/rbacid.py` holds it to dmg-acid2's reference, all 23,040
 pixels. It is the composer only: the writers that take the planes to a
@@ -606,7 +662,9 @@ on a machine with no debugger.
   - the game's name, its ROM size, its MBC and its RAM banks, and whether
     it has a battery or a clock;
   - the CPU tier, the display's bits per pixel, which full-screen writer
-    the display offers, and whether a recompiler cache was claimed.
+    the display offers, whether a recompiler cache was claimed, the heap's
+    largest run as the load found it, and - for a cartridge in the bank
+    cache (section 10.3) - its slots and the banks fetched so far.
 
 - **A record** (32 bytes, the latest 256 kept, about four minutes) holds
   the seconds since the log began, the game's speed and frames run, the
@@ -777,14 +835,20 @@ that leaves for rbsys records its CS in `S_RETFAR` first, so rbsys comes back
 to the copy that called it, and every way out of the cache to the
 interpreter is a far jump. When the cache is full everything is forgotten
 and translation starts again. The package claims it on a 286 or later, after
-the ROM; without the memory there is no recompiler.
+the ROM, and the load's plan keeps 64KB for it - a cartridge that would not
+leave it goes to the bank cache (section 10.3); without the memory there is
+no recompiler.
 
 ### 16.3 Blocks and tr_enter
 
 A block is straight-line code from a PC to the first control transfer, at
 most 40 instructions, never across 4000h or 8000h, keyed by its PC and - in
 4000-7FFF - the ROM bank. `tr_enter` finds it: a direct-mapped table of 2,048
-entries (PC, bank key, a count, the block's offset). **A PC is translated
+entries (PC, bank key, a count, the block's offset), indexed by the PC's low
+11 bits with the bank key and **the PC's top five bits** folded into the low
+byte - so blocks 2KB apart, which bank 0 and every bank of 4000-7FFF are
+full of, do not take turns at one slot. That fold took Kirby's Dream Land,
+the CPU alone, from 15.15 to 13.73 ms a frame on 86Box's 286. **A PC is translated
 only on its 16th entry**, so code that runs a few times is interpreted and
 never takes the cache's room; a translated entry gives its slot up only after
 16 others have asked for it. RAM is never translated - the interpreter's own
@@ -827,7 +891,10 @@ interpreted. docs/reports/REALBOY-JIT-2026-10-19.md has the record.
 Super Mario Land runs at **100.7% in the window and 101.5% full screen**,
 drawing 7 and 34 frames a second. Kirby's Dream Land runs at 31.6% and
 37.2%, bound by the Game Boy CPU: 48% of its time is in translated code and
-32% in the interpreter and `tr_enter`.
+32% in the interpreter and `tr_enter`. **That is Kirby walking**, and walking
+is what costs: standing in the same scene it runs at **78.7%** in the window
+drawing 16 frames a second, and walking right 35.8% drawing 2 - the scroll's
+own code, not the picture (`rbwin.py`, the hash fold of section 16.3 in).
 docs/reports/REALBOY-DAMAGE-2026-10-19.md has the record.
 
 ## 17. Sound

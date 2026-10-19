@@ -5612,7 +5612,7 @@ $(BUILD)/realboy.bin: apps/realboy/realboy.asm apps/realboy/rbdefs.inc \
                       apps/realboy/rbsys.inc apps/realboy/rbppu.inc apps/realboy/rwfsx.inc \
                       apps/realboy/rbjit.inc $(BUILD)/rbtmpl.bin $(BUILD)/rbcore.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
-                      apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realboy/rwlog.inc | $(BUILD)
+                      apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realboy/rwlog.inc apps/realboy/rwbank.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/realboy/ -I $(BUILD)/ -l $(BUILD)/realboy.lst \
 		-o $@ apps/realboy/realboy.asm
 	@echo "realboy: $(call FILESIZE,$@) bytes"

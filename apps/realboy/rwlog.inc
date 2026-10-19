@@ -392,6 +392,28 @@ rw_lhead:
     mov si, rw_s_lyes
 .j:
     call rw_lstr
+    mov si, rw_s_lheap              ; the heap the load found (why there is
+    call rw_lstr                    ;   no recompiler, when there is not)
+    mov ax, [rw_pavail]
+    mov cl, 1
+    call rw_lnum
+    mov al, 'K'
+    stosb
+    cmp byte [rw_bcache], 0         ; the bank cache: its slots, and the
+    je .nc                          ;   banks it has fetched so far
+    mov si, rw_s_lcache
+    call rw_lstr
+    mov ax, [rw_nslot]
+    mov cl, 1
+    call rw_lnum
+    mov si, rw_s_lslots
+    call rw_lstr
+    mov ax, [rw_nmiss]
+    mov cl, 1
+    call rw_lnum
+    mov si, rw_s_lfetch
+    call rw_lstr
+.nc:
     mov si, rw_s_logcol
     jmp rw_lstr
 
@@ -548,6 +570,10 @@ rw_s_lcga:      db 'CGA', 0
 rw_s_ljit:      db ', recompiler ', 0
 rw_s_lyes:      db 'yes', 0
 rw_s_lno:       db 'no', 0
+rw_s_lheap:     db ', heap ', 0
+rw_s_lcache:    db ', bank cache ', 0
+rw_s_lslots:    db ' x 16K over XMS, ', 0
+rw_s_lfetch:    db ' fetched', 0
 rw_s_logcol:    db 13, 10, ' seconds  speed  run drawn  comp   chg  draw  max owed', 13, 10
                 db '                     (lines a second)  (ms a second, longest)', 13, 10, 0
 ; the RLE_* bits' names, a bit at a time from bit 0, seven bytes each
