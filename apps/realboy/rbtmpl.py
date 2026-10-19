@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""Write RealBoy's recompiler TEMPLATES: build/rbtmpl.bin, from the handlers.
+
+    python3 apps/realboy/rbtmpl.py build/rbcore.bin build/rbtmpl.bin build/rbcore.inc
+
+docs/REALBOY-SPEC.md section 16. A template is a handler's body as
+apps/realboy/rbgen.py's template_lines() writes it: no dispatch, the operands
+as IMM8 / IMM16. The translator (apps/realboy/rbjit.inc) copies one per
+Game Boy instruction into the core segment and patches four kinds of word or
+byte, which this script FINDS rather than being told, by assembling every
+template three times and comparing the bytes:
+
+  A  at its origin, IMM8 = A5h, IMM16 = A53Ch
+  B  0x2000 further on, the same operands  - a word that moved by +2000h is a
+                                             reference to the template itself
+                                             (S_RET = .k), one that moved by
+                                             -2000h a relative jump OUT of it,
+                                             to a core helper (rd_slow ...)
+  C  at A's origin, IMM8 = 5Ah, IMM16 = 5AC3h - a byte that changed is an
+                                             operand
+
+So nothing about the handlers is restated here, and a handler that changes
+shape changes its template with it.
+
+The table: 520 words, the record offsets for opcodes 00-FF, CB 00-FF and
+rbgen.EXTRA's chosen-by-operand templates (0: no template), then the offset and count of the FREE RANGES and of the TAIL SLOTS (four
+words), then the records, then the two lists. The translated code goes into
+a 64KB cache segment of its own, which holds copies of the core's helper
+tails - the slots rbgen.py's TAILS live in - at their own offsets, so a
+template reaches every helper with a near jump (REALBOY-SPEC section 16.2).
+A free range is a start and an end word; a tail slot is a byte. The
+records:
+
+  +0 word  the origin variant A was assembled at
+  +2 byte  its length          +3 byte  the Game Boy instruction's length
+  +4 byte  flags (bit 0: may store anywhere; bit 1: stores to FF00+IMM8;
+           bit 2: stores to IMM16)
+  +5 byte  operand positions: IMM8 count, then IMM16, ABS, REL counts (4)
+  +9       the bytes, then the positions in that order
+"""
+import os
+import re
+import struct
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import rbgen  # noqa: E402
+
+ORG = 0x2000            # variant A's first template; one 256-byte slot each
+STEP = 0x2000           # variant B's displacement
+SLOT = 256
+CHUNK = 96              # templates a file: 96 x 256 + ORG + STEP < 64KB
+V = {"A": (0xA5, 0xA53C), "C": (0x5A, 0x5AC3)}
+
+
+def core_labels(mapfile):
+    out = {}
+    for ln in open(mapfile):
+        m = re.match(r"\s+([0-9A-F]+)\s+([0-9A-F]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s*$", ln)
+        if m:
+            out[m.group(3)] = int(m.group(1), 16)
+    return out
+
+
+def assemble(chunk, labels, org, imm8, imm16, tmp):
+    src = ["cpu 8086", "bits 16", "org %d" % org, '%include "rbdefs.inc"']
+    used = set()
+    for _, lines in chunk:
+        for ln in lines:
+            m = re.search(r"jmp near ([A-Za-z_]\w*)", ln)
+            if m:
+                used.add(m.group(1))
+    for n in sorted(used):
+        src.append("%s equ 0x%04X" % (n, labels[n]))
+    src.append("%%define IMM8 0x%02X" % imm8)
+    src.append("%%define IMM16 0x%04X" % imm16)
+    for k, (key, lines) in enumerate(chunk):
+        src.append("    times %d-($-$$) db 0" % (k * SLOT))
+        src.append("T%d:" % k)
+        src += lines
+        src.append("T%d_end:" % k)
+    asm = os.path.join(tmp, "t.asm")
+    out = os.path.join(tmp, "t.bin")
+    mp = os.path.join(tmp, "t.map")
+    with open(asm, "w") as f:
+        f.write("[map symbols %s]\n" % mp + "\n".join(src) + "\n")
+    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", HERE + "/", "-o", out, asm],
+                   check=True)
+    data = open(out, "rb").read()
+    ends = {}
+    for ln in open(mp):
+        m = re.match(r"\s+([0-9A-F]+)\s+([0-9A-F]+)\s+T(\d+)_end\s*$", ln)
+        if m:
+            ends[int(m.group(3))] = int(m.group(1), 16) - org
+    return [data[k * SLOT:ends[k]] for k in range(len(chunk))]
+
+
+def classify(a, b, c, org, name):
+    """The positions of IMM8, IMM16, ABS and REL in template a."""
+    if not (len(a) == len(b) == len(c)):
+        raise SystemExit("rbtmpl: %s assembles to different lengths" % name)
+    imm8, imm16, ab, rel = [], [], [], []
+    i = 0
+    while i < len(a):
+        if a[i] != c[i]:
+            if a[i] == 0xA5 and c[i] == 0x5A:
+                imm8.append(i)
+            elif a[i:i + 2] == bytes([0x3C, 0xA5]) and c[i:i + 2] == bytes([0xC3, 0x5A]):
+                imm16.append(i)
+                i += 1
+            else:
+                raise SystemExit("rbtmpl: %s: operand byte at %d is neither" % (name, i))
+        elif a[i] != b[i]:
+            hit = None
+            for j in (i - 1, i):
+                if j < 0 or j + 2 > len(a) or (j in ab or j in rel) or (ab + rel and j <= max(ab + rel) + 1):
+                    continue
+                d = (struct.unpack_from("<H", b, j)[0] - struct.unpack_from("<H", a, j)[0]) & 0xFFFF
+                if d == STEP:
+                    hit = (ab, j)
+                elif d == (-STEP) & 0xFFFF:
+                    hit = (rel, j)
+                if hit:
+                    break
+            if not hit:
+                raise SystemExit("rbtmpl: %s: a byte at %d moved with the origin "
+                                 "by neither +-%04X" % (name, i, STEP))
+            hit[0].append(hit[1])
+            i = hit[1] + 1
+        i += 1
+    return imm8, imm16, ab, rel
+
+
+def flags_for(op, cb, lines):
+    text = "\n".join(lines)
+    stores = "wr_slow" in text or "io_wr" in text
+    if not stores:
+        return 0
+    if not cb and op == 0xE0:
+        return 2
+    if not cb and op in (0xEA, 0x08):
+        return 4
+    return 1
+
+
+NEXTRA = 8              # record slots after the 512 for rbgen.EXTRA
+HEAD = 2 * (512 + NEXTRA) + 8    # then the free ranges' and tail slots' words
+# The longest template the table carries. With its guards (32 bytes at most,
+# REALBOY-SPEC section 16.5) it must fit a gap, and the median gap is ~106
+# bytes. What is over it is a read-modify-write of (HL) - INC/DEC (HL), the
+# CB group on (HL), LD (nn),SP - whose read and write slow paths are both
+# inline; those end a block and the interpreter runs them.
+TMAX = 80
+EXPORT = ("tr_enter", "tr_link", "tr_retlink", "tr_int", "idle_yes", "cnt_ff", "RB_DISPATCH")
+
+
+def free_ranges(tails):
+    """The cache segment's free space: everything but the slots holding the
+    core's helper tails (REALBOY-SPEC section 16.2), which the translator
+    copies into it at the same offsets - and the block table, slots 00-3F.
+    So no block is ever at offset 0, which means 'no block' (tr_back)."""
+    out, start = [], 0x4000            # JIT_HASH's 16KB first (rbdefs.inc)
+    for slot in range(256):
+        if slot in tails:
+            if slot * 256 > start:
+                out.append((start, slot * 256))
+            start = (slot + 1) * 256
+    if start < 0xFFF0:
+        out.append((start, 0xFFF0))
+    return out
+
+
+def main():
+    corebin, out, inc = sys.argv[1], sys.argv[2], sys.argv[3]
+    mapfile = corebin[:-4] + ".map"
+    labels = core_labels(mapfile)
+    todo = []
+    for cb in (False, True):
+        for op in range(256):
+            t = rbgen.template_lines(op, cb)
+            if t is not None:
+                todo.append(((cb, op), t))
+    for k, (_, lines, _) in enumerate(rbgen.EXTRA):
+        todo.append((("x", k), lines))
+    recs = {}
+    with tempfile.TemporaryDirectory(prefix="rbtmpl") as tmp:
+        for c0 in range(0, len(todo), CHUNK):
+            chunk = todo[c0:c0 + CHUNK]
+            A = assemble(chunk, labels, ORG, *V["A"], tmp)
+            B = assemble(chunk, labels, ORG + STEP, *V["A"], tmp)
+            C = assemble(chunk, labels, ORG, *V["C"], tmp)
+            for k, ((cb, op), lines) in enumerate(chunk):
+                name = ("X%d" if cb == "x" else "CB %02X" if cb else "%02X") % op
+                a, b, c = A[k], B[k], C[k]
+                pos = classify(a, b, c, ORG + k * SLOT, name)
+                if len(a) > TMAX:           # the interpreter's: see TMAX
+                    continue
+                glen = rbgen.EXTRA[op][2] if cb == "x" else rbgen.template_glen(op, cb)
+                fl = 0 if cb == "x" else flags_for(op, cb, lines)
+                rec = struct.pack("<HBBB", ORG + k * SLOT, len(a), glen, fl)
+                rec += bytes(len(ps) for ps in pos) + a
+                for ps in pos:
+                    rec += bytes(ps)
+                recs[(cb, op)] = rec
+    head = bytearray(HEAD)
+    body = bytearray()
+    for (cb, op), rec in sorted(recs.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
+        idx = 512 + op if cb == "x" else op + (256 if cb else 0)
+        struct.pack_into("<H", head, 2 * idx, len(head) + len(body))
+        body += rec
+    tails = sorted(rbgen.TAILS)
+    gl = free_ranges(set(tails))
+    struct.pack_into("<HH", head, HEAD - 8, len(head) + len(body), len(gl))
+    for a, b in gl:
+        body += struct.pack("<HH", a, b)
+    struct.pack_into("<HH", head, HEAD - 4, len(head) + len(body), len(tails))
+    body += bytes(tails)
+    with open(out, "wb") as f:
+        f.write(bytes(head) + bytes(body))
+    with open(inc, "w") as f:
+        f.write("; GENERATED by apps/realboy/rbtmpl.py from %s - the core's offsets\n"
+                "; the translator writes jumps to (REALBOY-SPEC section 16)\n" % corebin)
+        for n in EXPORT:
+            f.write("RBC_%s equ 0x%04X\n" % (n.upper(), labels[n]))
+    print("rbtmpl: %d templates, %d free ranges of %d bytes, %d bytes"
+          % (len(recs), len(gl), sum(b - a for a, b in gl), len(head) + len(body)))
+
+
+if __name__ == "__main__":
+    main()

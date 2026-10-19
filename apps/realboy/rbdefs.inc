@@ -34,7 +34,14 @@ RB_RLOG         equ 0x4300          ; the register log, RB_RLOG_MAX x 4 bytes
 RB_RLOG_MAX     equ 192
 RB_SERBUF       equ 0x4700          ; 256: bytes the game sent on its link port
 RB_SNAP         equ 0x4800          ; 16: LCDC..WX as the frame began (4.4)
-RB_FREE         equ 0x4810          ; the rest of the window is unassigned
+RB_FREE         equ 0x4810          ; the rest of the window is unassigned,
+                                    ; but for rbppu.inc's 4900-66FF and:
+JIT_BUF         equ 0x6700          ; 256: the Game Boy code being translated
+JIT_HASH        equ 0x0000          ; 16,384, IN THE CACHE SEGMENT: the block
+                                    ;   table (tr_enter, REALBOY-SPEC 16.3), all
+                                    ;   of slots 00-3F: tr_enter is slot 40's
+JIT_HASHN       equ 2048
+RB_JITHOT       equ 16              ; entries before a PC is translated
 
 ; --- the state block, at RB_STATE --------------------------------------------
 ; Registers the core keeps in 8086 registers while it runs, saved here when
@@ -119,6 +126,21 @@ S_TNF           equ RB_STATE+0xB4   ; word: S_TNEXT - S_TFRAME, low 16 bits, so
                                     ; the core reads the PPU's place as
                                     ; S_TNF - BP (mod RB_FRAME) with no host
 S_BMASK         equ RB_STATE+0xB6   ; byte: ROM banks - 1, for the core's MBC path
+; the recompiler's (REALBOY-SPEC section 16)
+S_JITON         equ RB_STATE+0xB7   ; byte: translate (0: interpret only)
+S_JITVEC        equ RB_STATE+0xB8   ; dword: rb_jit, the translator's entry
+S_JITOUT        equ RB_STATE+0xBC   ; dword: a block to jump to, or offset 0;
+                                    ;   the segment is the cache's, always
+S_JITPTR        equ RB_STATE+0xC0   ; word: where the next code goes
+S_JITEND        equ RB_STATE+0xC2   ; word: ...the end of that free range
+S_JITGI         equ RB_STATE+0xC4   ; word: the range's index
+S_JITBK         equ RB_STATE+0xC6   ; byte: the bank key of the PC asked for
+S_JITFL         equ RB_STATE+0xC8   ; word: flushes (stat)
+S_JITNB         equ RB_STATE+0xCA   ; word: blocks translated (stat)
+S_JITSEG        equ RB_STATE+0xCC   ; word: the cache's segment (16.2)
+S_JITBY         equ RB_STATE+0xCE   ; word: code bytes written, / 16 (stat)
+S_JITADV        equ RB_STATE+0xD0   ; word: free ranges moved on to (stat)
+S_LINK          equ RB_STATE+0xD2   ; word: tr_link's patch site
 
 ; --- the PPU's clock, in M-cycles ------------------------------------------
 RB_FAR_HI       equ 0x7FFF              ; "never": the high word of a far time

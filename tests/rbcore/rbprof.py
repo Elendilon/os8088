@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(ROOT, "tests", "rbcore"))
 import os88marty  # noqa: E402
 import rbimg  # noqa: E402
 
-HOST, CORE = 0x8000, 0x10000
+HOST, CORE, CACHE = 0x8000, 0x10000, 0x90000   # rbhost.asm's segments
 
 
 def labels(lst, section=None):
@@ -76,20 +76,31 @@ def main():
     ap.add_argument("--box", nargs="?", const="286", metavar="VM")
     ap.add_argument("--samples", type=int, default=10000)
     ap.add_argument("--render", action="store_true", help="compose every frame too (MODE 5)")
+    ap.add_argument("--nojit", action="store_true", help="the interpreter alone")
     a = ap.parse_args()
     out = os.path.join(ROOT, "build", "realboy")
     core, host = rbimg.build_core(False, out), rbimg.build_host(out)
     img = os.path.join(out, "prof.img")
     rbimg.make_image(a.rom, img, 1440 if a.box else 360, "render" if a.render else "play", 60000,
-                     core=core, host=host)
-    inc = [os.path.join(ROOT, "apps/realboy/"), os.path.join(ROOT, "tests/rbcore/")]
+                     core=core, host=host, jit=not a.nojit)
+    inc = [os.path.join(ROOT, "apps/realboy/"), os.path.join(ROOT, "tests/rbcore/"), out + "/"]
     csyms = labels(listing(os.path.join(out, "rbcore.asm"), inc))
     hsyms = labels(listing(os.path.join(ROOT, "tests/rbcore/rbhost.asm"), inc))
     hsyms = [(o, n) for o, n in hsyms if n not in ("boot", "boot_go", "load")]  # the boot section's
     ck, hk = [o for o, _ in csyms], [o for o, _ in hsyms]
     hits, tot = {}, 0
 
+    sys.path.insert(0, os.path.join(ROOT, "apps", "realboy"))
+    import rbgen
+    tails = set(rbgen.TAILS)
+
     def charge(ip):
+        if CACHE <= ip < CACHE + 0x10000:       # the recompiler's segment
+            off = ip - CACHE
+            if (off >> 8) in tails:             # ...its copies of the tails
+                i = bisect.bisect_right(ck, off) - 1
+                return "tail " + (csyms[i][1] if i >= 0 else "?")
+            return "translated code"
         if CORE <= ip < CORE + 0x10000:
             i = bisect.bisect_right(ck, ip - CORE) - 1
             return "core " + (csyms[i][1] if i >= 0 else "?")

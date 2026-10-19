@@ -90,9 +90,9 @@ def run_mooneye(rom, core, host):
                        None: "never finished"}[v]
 
 
-def run(label, rom, frames, core, host):
+def run(label, rom, frames, core, host, jit=True):
     img = os.path.join(ROOT, "build", "realboy", "gbcpu.img")
-    rbimg.make_image(rom, img, frames=frames, core=core, host=host)
+    rbimg.make_image(rom, img, frames=frames, core=core, host=host, jit=jit)
     text = rbqemu.run(img, ["Passed", "Failed", "RBHOST DONE", "RBHOST BADOP"],
                       timeout=180, quiet=True)
     last = [l.strip() for l in text.splitlines() if l.strip()][-1:] or ["(nothing)"]
@@ -125,7 +125,7 @@ def main():
         bad += not ok
     if not a.k:
         ok, last = run("control", rom_path("individual/01-"), 1200,
-                       rbimg.patch_core(core, [DAA_NOP]), host)
+                       rbimg.patch_core(core, [DAA_NOP]), host, jit=False)
         print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: DAA broken",
                                  "passed - the gate cannot go red" if ok else "failed, as it must"))
         bad += ok

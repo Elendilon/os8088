@@ -26,11 +26,18 @@ Every handler charges its M-cycles to BP. Only control transfers and HALT
 test BP's sign and leave for rbsys's event entry; straight-line code never
 does, so an interrupt can be a few instructions late and is never early.
 """
+import re
 import sys
 
 R8 = ["B", "C", "D", "E", "H", "L", "(HL)", "A"]
 X86 = {"B": "ch", "C": "cl", "H": "bh", "L": "bl", "A": "al"}
 INVALID = {0xD3, 0xDB, 0xDD, 0xE3, 0xE4, 0xEB, 0xEC, 0xED, 0xF4, 0xFC, 0xFD}
+
+
+JIT = False     # template_lines() sets it: memory accesses laid out for a
+                # TEMPLATE, where nothing jumps away at the end - the slow
+                # stub first and the fast access last, so the fast path takes
+                # one jump and none over the stub (REALBOY-SPEC section 16.6)
 
 
 class Slot:
@@ -62,6 +69,38 @@ class Slot:
         M-cycle of the instruction the hardware reads in, counted from 0: a
         register read is answered as of then (REALBOY-SPEC section 6.2)."""
         g = self.tag()
+        if JIT:
+            self.a(f"""
+cmp bh,40h
+jb .{g}v
+cmp bh,80h
+jb .{g}s
+cmp bh,0FFh
+jne .{g}v
+cmp bl,80h
+jae .{g}v
+.{g}s:
+""")
+            if at:
+                self.a(f"""
+sub bp,{at}
+mov word [ss:S_RET],.{g}r
+jmp rd_slow
+.{g}r:
+add bp,{at}
+jmp short .{g}k
+""")
+            else:
+                self.a(f"""
+mov word [ss:S_RET],.{g}k
+jmp rd_slow
+""")
+            self.a(f"""
+.{g}v:
+mov dh,[ss:bx]
+.{g}k:
+""")
+            return
         self.a(f"""
 cmp bh,40h
 jb .{g}v
@@ -96,6 +135,39 @@ jmp rd_slow
         """src -> [BX]; the cartridge and I/O off the fast path. `at` as
         read8's."""
         g = self.tag()
+        if JIT:
+            self.a(f"""
+test bh,bh
+jns .{g}s
+cmp bh,0FFh
+jne .{g}v
+cmp bl,80h
+jb .{g}s
+cmp bl,0FFh
+jne .{g}v
+.{g}s:
+mov [ss:S_WVAL],{src}
+""")
+            if at:
+                self.a(f"""
+sub bp,{at}
+mov word [ss:S_RET],.{g}r
+jmp wr_slow
+.{g}r:
+add bp,{at}
+jmp short .{g}k
+""")
+            else:
+                self.a(f"""
+mov word [ss:S_RET],.{g}k
+jmp wr_slow
+""")
+            self.a(f"""
+.{g}v:
+mov [ss:bx],{src}
+.{g}k:
+""")
+            return
         self.a(f"""
 test bh,bh
 jns .{g}s
@@ -563,11 +635,19 @@ xor dl,dl
     s.t("""
 .mb:
 cmp dx,0FFFCh
-ja .fw
+ja .cnt
 cmp si,[ss:S_IDLENO]
 je .fw
 mov word [ss:S_RET],.fw
 jmp idle_chk
+.cnt:
+cmp dx,0FFFDh               ; -3: DEC r / JR NZ, a countdown (cnt_ff)?
+jne .fw
+cmp byte [si+1],20h
+jne .fw
+mov dl,[si]
+mov word [ss:S_RET],.fw
+jmp cnt_ff
 """)
 
 
@@ -621,6 +701,248 @@ def gen_cb(op):
 # --- the shared tails, placed after a main half with room: an invalid -----
 # --- opcode's, or a short handler's (idle_tst follows PUSH HL) --------------
 TAILS = {
+    0x40: """
+; tr_enter: the translated block for SI (REALBOY-SPEC section 16.3), or the
+; interpreter where there is none - RAM, the translator off or refusing. In:
+; SI = PC, DS = its segment, AH = F, every register live. A block is keyed
+; by its PC and, in 4000-7FFF, its bank; the table is direct-mapped, 2,048
+; of 8 bytes at JIT_HASH IN THE CACHE SEGMENT: PC, bank (FF for the rest),
+; -, the block's offset there. This tail is copied into that segment too (blocks jump
+; to it there), so it leaves by far jumps only.
+tr_enter:
+    cmp byte [ss:S_JITON],0     ; no translator: the interpreter's own
+    jne .on                     ;   dispatch, DS already its (only the
+    mov dh,[si]                 ;   core's copy runs with it off)
+    inc si
+    jmp dx
+.on:
+    cmp si,8000h
+    jae tr_int
+    mov [ss:S_SAVBX],bx
+    mov bx,si
+    mov dl,0FFh
+    cmp bh,40h
+    jb .k
+    mov dl,[ss:S_BANK]
+    and dl,[ss:S_BMASK]
+.k:
+    mov dh,dl
+    xor bl,dl
+    and bh,7
+    shl bx,1
+    shl bx,1
+    shl bx,1
+    mov es,[ss:S_JITSEG]        ; (ES is every helper's to load)
+    cmp [es:bx+JIT_HASH],si
+    jne tr_new
+    cmp [es:bx+JIT_HASH+2],dh
+    jne tr_new
+    mov dx,[es:bx+JIT_HASH+4]   ; the block, in the cache's segment
+    or dx,dx
+    jz tr_count                 ; ...or not yet: still counting
+    mov [ss:S_JITOUT],dx        ;   (S_JITOUT+2), wherever this copy of
+    mov bx,[ss:S_SAVBX]         ;   tr_enter is running
+    jmp far [ss:S_JITOUT]
+""",
+    0x41: """
+; tr_enter's other half. A PC is TRANSLATED only once it has been entered
+; RB_JITHOT times, so code that runs a few times - start-up, a level's
+; set-up - is interpreted and never takes the cache's room: its entry counts
+; with the offset 0. A new key takes the slot over, counting from 1.
+tr_count:
+    inc byte [es:bx+JIT_HASH+3]
+    cmp byte [es:bx+JIT_HASH+3],RB_JITHOT
+    jae tr_miss
+    mov bx,[ss:S_SAVBX]
+    jmp tr_int
+tr_new:
+    cmp word [es:bx+JIT_HASH+4],0   ; a TRANSLATED block holds the slot:
+    je .take                    ;   it gives way only after RB_JITHOT
+    dec byte [es:bx+JIT_HASH+3] ;   other PCs have asked for it, so two
+    jnz .keep                   ;   hot blocks in one slot do not keep
+.take:                          ;   each other interpreted
+    mov [es:bx+JIT_HASH],si
+    mov [es:bx+JIT_HASH+2],dh
+    mov byte [es:bx+JIT_HASH+3],1
+    mov word [es:bx+JIT_HASH+4],0
+.keep:
+    mov bx,[ss:S_SAVBX]
+    jmp tr_int
+tr_miss:
+    mov dl,[es:bx+JIT_HASH+2]   ; the key this entry counted under (the
+    mov [ss:S_JITBK],dl         ;   block's offset has taken DX)
+    mov bx,[ss:S_SAVBX]
+    mov word [ss:S_RET],tr_back
+    mov [ss:S_RETFAR+2],cs       ; rbsys comes back to THIS copy
+    jmp far [ss:S_JITVEC]
+""",
+    0x42: """
+; tr_link: tr_enter for an exit that may be CHAINED (REALBOY-SPEC 16.4). DX =
+; the exit's `mov dx,SITE / jmp tr_link`: once the target is translated
+; those bytes become `jmp near` the block, and the exit never comes here
+; again - six of them for a target in bank 0, and eleven for one in
+; 4000-7FFF, which checks the bank first and falls onto the exit's own `jmp
+; tr_enter` (after the eleven) when it is another.
+tr_link:
+    mov [ss:S_LINK],dx
+    mov [ss:S_SAVBX],bx
+    mov bx,si
+    mov dl,0FFh
+    cmp bh,40h
+    jb .k
+    mov dl,[ss:S_BANK]
+    and dl,[ss:S_BMASK]
+.k:
+    mov dh,dl
+    xor bl,dl
+    and bh,7
+    shl bx,1
+    shl bx,1
+    shl bx,1
+    mov es,[ss:S_JITSEG]
+    cmp [es:bx+JIT_HASH],si
+    jne tr_lno
+    cmp [es:bx+JIT_HASH+2],dh
+    jne tr_lno
+    mov dx,[es:bx+JIT_HASH+4]
+    or dx,dx
+    jz tr_lno
+    mov [ss:S_JITOUT],dx
+    jmp tr_lpatch
+tr_lno:
+    mov bx,[ss:S_SAVBX]
+    jmp tr_enter
+""",
+    0x44: """
+; tr_enter's last part: back from the translator, and the interpreter
+tr_back:
+    cmp word [ss:S_JITOUT],0
+    je tr_int
+    jmp far [ss:S_JITOUT]
+tr_int:                         ; the interpreter's dispatch, in the CORE
+    mov ds,[ss:S_VIEW]          ;   (this may be the cache's copy, 16.2),
+    mov dx,si                   ;   with DS for SI: translated code does
+    and dh,0C0h                 ;   not keep DS, so its exits do not load
+    cmp dh,40h                  ;   it - this is the one place it is needed
+    jne .d
+    mov ds,[ss:S_ROMX]
+.d:
+    xor dl,dl
+    jmp far [ss:S_DISP]
+""",
+    0x45: """
+; tr_link's patch: six bytes for bank 0, eleven for 4000-7FFF (16.4)
+tr_lpatch:
+    mov bx,[ss:S_LINK]
+    cmp si,4000h
+    jae .bank
+    mov byte [cs:bx],0E9h       ; bank 0: the six bytes, jmp near the block
+    sub dx,bx
+    sub dx,3
+    mov [cs:bx+1],dx
+.go:
+    mov bx,[ss:S_SAVBX]
+    jmp far [ss:S_JITOUT]
+.bank:                          ; a bank: ELEVEN bytes, cmp byte [ss:S_BANK],
+    mov word [cs:bx],8036h      ;   B / jne +3 (onto the exit's own jmp
+    mov byte [cs:bx+2],3Eh      ;   tr_enter) / jmp near the block
+    mov word [cs:bx+3],S_BANK
+    mov dl,[ss:S_BANK]          ; (DX is the block: rebuilt below)
+    mov [cs:bx+5],dl
+    mov word [cs:bx+6],0375h
+    mov byte [cs:bx+8],0E9h
+    mov dx,[ss:S_JITOUT]
+    sub dx,bx
+    sub dx,11
+    mov [cs:bx+9],dx
+    jmp short .go
+""",
+    0x47: """
+; cnt_ff: a COUNTDOWN, DEC r / JR NZ,-3, run to its end in one step when the
+; budget covers it (REALBOY-SPEC section 8.1) - the OAM DMA routine every
+; game copies to HRAM waits on one, as do delay loops. SI = the loop's head,
+; DL = its DEC, the JR NZ about to be taken and its 3 M-cycles not charged.
+; From here r more DECs: 3 + r + 3(r - 1) + 2 = 4r + 2 M-cycles, and r = 0
+; with DEC's flags for 1 -> 0 (Z, N; H clear; C kept). A, B and C; anything
+; else, or a budget that runs out inside the loop, goes on at [S_RET].
+cnt_ff:
+    mov dh,al
+    cmp dl,3Dh
+    je .go
+    mov dh,ch
+    cmp dl,05h
+    je .go
+    mov dh,cl
+    cmp dl,0Dh
+    je .go
+    jmp word [ss:S_RET]
+.go:
+    mov [ss:S_TMP],dl           ; (the DEC, for the register to zero)
+    mov dl,dh
+    xor dh,dh
+    shl dx,1
+    shl dx,1
+    add dx,2
+    cmp bp,dx
+    jl .no
+    sub bp,dx
+    and ah,RBF_C
+    or ah,RBF_Z|RBF_N
+    add si,3
+    xor dl,dl                   ; (tr_enter may dispatch on DX)
+    cmp byte [ss:S_TMP],3Dh
+    jne .b
+    xor al,al
+    jmp tr_enter
+.b:
+    cmp byte [ss:S_TMP],05h
+    jne .c
+    xor ch,ch
+    jmp tr_enter
+.c:
+    xor cl,cl
+    jmp tr_enter
+.no:
+    jmp word [ss:S_RET]
+""",
+    0x43: """
+; tr_retlink: a RET's inline cache missed (REALBOY-SPEC 16.4). DX = the RET's
+; `cmp si,PC / jne +3 / jmp near BLOCK`: PC and BLOCK become this return's
+; when it is a translated block in bank 0, so the next RET to the same place
+; - the common case, a routine called in a loop - goes straight there.
+tr_retlink:
+    mov [ss:S_LINK],dx
+    cmp si,4000h
+    jae .no
+    mov [ss:S_SAVBX],bx
+    mov bx,si
+    mov dl,0FFh
+    xor bl,dl
+    and bh,7
+    shl bx,1
+    shl bx,1
+    shl bx,1
+    mov es,[ss:S_JITSEG]
+    cmp [es:bx+JIT_HASH],si
+    jne .nob
+    cmp byte [es:bx+JIT_HASH+2],0FFh
+    jne .nob
+    mov dx,[es:bx+JIT_HASH+4]
+    or dx,dx
+    jz .nob
+    mov [ss:S_JITOUT],dx
+    mov bx,[ss:S_LINK]
+    mov [cs:bx+2],si            ; cmp si,PC
+    sub dx,bx
+    sub dx,9
+    mov [cs:bx+7],dx            ; jmp near BLOCK
+    mov bx,[ss:S_SAVBX]
+    jmp far [ss:S_JITOUT]
+.nob:
+    mov bx,[ss:S_SAVBX]
+.no:
+    jmp tr_enter
+""",
     0xD3: """
 ; [BX] for an address the fast path does not take: ROMX or an I/O register.
 ; Resumes at [S_RET] with the byte in DH.
@@ -699,6 +1021,7 @@ mbc_wr:
 .set:
     jmp mbc_set
 .host:
+    mov [ss:S_RETFAR+2],cs       ; rbsys comes back to THIS copy
     jmp far [ss:S_MBCVEC]
 """,
     0xE3: """
@@ -839,6 +1162,7 @@ io_rd:
     xor dl,dl
     jmp word [ss:S_RET]
 .host:
+    mov [ss:S_RETFAR+2],cs       ; rbsys comes back to THIS copy
     jmp far [ss:S_IORVEC]
 """,
     0xFC: """
@@ -917,6 +1241,7 @@ io_wr:
     xor dl,dl
     jmp word [ss:S_RET]
 .host:
+    mov [ss:S_RETFAR+2],cs       ; rbsys comes back to THIS copy
     jmp far [ss:S_IOWVEC]
 """,
     0xE5: """
@@ -1022,6 +1347,90 @@ mbc_set.nx:
 }
 
 
+# --- the recompiler's templates (REALBOY-SPEC section 16) ---------------------
+# A TEMPLATE is a handler's own body with the dispatch taken off and its
+# operands patched in as immediates: translated code is the interpreter's
+# code, instruction for instruction, so every gate on the interpreter is a
+# gate on the translator too. These are the opcodes that do NOT translate to a
+# template - control flow, and what leaves the core - and the translator
+# writes its own code for them (apps/realboy/rbjit.inc).
+NOTMPL = {0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x76, 0xC0, 0xC2, 0xC3, 0xC4,
+          0xC7, 0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCF, 0xD0, 0xD2, 0xD4,
+          0xD7, 0xD8, 0xD9, 0xDA, 0xDC, 0xDF, 0xE7, 0xE9, 0xEF, 0xF7, 0xFF} | INVALID
+# the control transfers whose interpreted form re-enters translated code
+CONTROL = {0x18, 0x20, 0x28, 0x30, 0x38, 0xC0, 0xC2, 0xC3, 0xC4, 0xC7, 0xC8,
+           0xC9, 0xCA, 0xCC, 0xCD, 0xCF, 0xD0, 0xD2, 0xD4, 0xD7, 0xD8, 0xDA,
+           0xDC, 0xDF, 0xE7, 0xE9, 0xEF, 0xF7, 0xFF}
+# operand bytes after the opcode, for the templated opcodes that have any
+IMM16_OPS = {0x01, 0x11, 0x21, 0x31, 0x08, 0xEA, 0xFA}
+IMM8_OPS = {0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E, 0x36, 0x3E, 0xC6, 0xCE, 0xD6,
+            0xDE, 0xE6, 0xEE, 0xF6, 0xFE, 0xE0, 0xF0, 0xE8, 0xF8}
+EXTERN = re.compile(r"^(\s*)jmp\s+([A-Za-z_][A-Za-z0-9_]*)\s*(;.*)?$")
+
+
+def template_lines(op, cb):
+    """The template for opcode op (CB op if cb), as assembler lines that
+    reference IMM8/IMM16 for the operands, or None when op has none. The
+    body runs into the next instruction's template; an out-of-line tail is
+    jumped over."""
+    if not cb and (op in NOTMPL):
+        return None
+    if not cb and op == 0x00:
+        return ["    sub bp,1"]
+    global JIT
+    JIT = True
+    try:
+        sl = gen_cb(op) if cb else gen_main(op)
+    finally:
+        JIT = False
+    body, tail = list(sl.body), list(sl.tail)
+    if sl.ev:
+        return None                                 # it checks: not a template
+    out = []
+    word = op in IMM16_OPS and not cb
+    for part in (body, tail):
+        for ln in part:
+            t = ln.strip()
+            if t in ("DISPATCH", "inc si", "add si,2", "xor dl,dl"):
+                continue                        # (DL = 0 is the dispatch's
+                                                #   invariant: tr_int keeps it)
+            if "[si]" in t:
+                if word or re.match(r"mov (cx|di|bx|sp|dx),\[si\]", t):
+                    ln = ln.replace("[si]", "IMM16")
+                else:
+                    ln = ln.replace("byte [si]", "IMM8").replace("[si]", "IMM8")
+            m = EXTERN.match(ln)
+            if m and m.group(2) not in ("short", "near", "far", "word", "dx"):
+                ln = "%sjmp near %s" % (m.group(1), m.group(2))
+            if "si" in re.sub(r";.*", "", ln).replace("IMM", "").split():
+                raise SystemExit("rbgen: template %s%02X still names SI: %s"
+                                 % ("CB " if cb else "", op, ln))
+            (out if part is body else out).append(ln)
+        if part is body and tail:
+            out.append("    jmp short .Jend")
+    if tail:
+        out.append(".Jend:")
+    return out
+
+
+# Templates the translator CHOOSES by an operand it knows: a constant address
+# that the interpreter's own fast path would take - HRAM, WRAM, VRAM, bank 0
+# - is one MOV through SS (REALBOY-SPEC section 16.6). Record 512 + index;
+# IMM16 is the whole address (FF00h + n for LDH).
+EXTRA = [
+    ("LDH A,(n) of HRAM", ["    mov al,[ss:IMM16]", "    sub bp,3"], 2),
+    ("LDH (n),A of HRAM", ["    mov [ss:IMM16],al", "    sub bp,3"], 2),
+    ("LD A,(nn) direct", ["    mov al,[ss:IMM16]", "    sub bp,4"], 3),
+    ("LD (nn),A direct", ["    mov [ss:IMM16],al", "    sub bp,4"], 3),
+]
+
+
+def template_glen(op, cb):
+    if cb:
+        return 2
+    return 3 if op in IMM16_OPS else 2 if op in IMM8_OPS else 1
+
+
 def main():
     out = sys.argv[1] if len(sys.argv) > 1 else "build/realboy/rbcore.asm"
     L = []
@@ -1029,6 +1438,7 @@ def main():
     L.append("cpu 8086")
     L.append("bits 16")
     L.append("org 0")
+    L.append("[map symbols %s.map]" % (out[:-4] if out.endswith(".asm") else out))
     L.append('%include "rbdefs.inc"')
     L.append("%macro DISPATCH 0")
     L.append("%ifdef RB_TRACE")
@@ -1039,10 +1449,27 @@ def main():
     L.append("    jmp dx")
     L.append("%endif")
     L.append("%endmacro")
+    L.append("%macro JDISPATCH 0")         # a control transfer's: the
+    L.append("%ifdef RB_TRACE")            #   translated code at the target
+    L.append("    jmp far [ss:S_TRACEVEC]")  # if there is any (tr_enter) -
+    L.append("%else")                      #   but never in RAM, which runs
+    L.append("    cmp si,8000h")           #   on here: DS is this handler's
+    L.append("    jae %%d")                #   own (REALBOY-SPEC 16.3)
+    L.append("    jmp tr_enter")
+    L.append("%%d:")
+    L.append("    mov dh,[si]")
+    L.append("    inc si")
+    L.append("    jmp dx")
+    L.append("%endif")
+    L.append("%endmacro")
     for op in range(256):
         L.append("    times %d-($-$$) db 0CCh" % (op * 256))
         L.append("op_%02X:" % op)
-        L += gen_main(op).text()
+        lines = gen_main(op).text()
+        if op in CONTROL:                       # REALBOY-SPEC section 16.4
+            lines = [ln.replace("DISPATCH", "JDISPATCH") if ln.strip() == "DISPATCH"
+                     else ln for ln in lines]
+        L += lines
         if op in TAILS:
             L += TAILS[op].strip("\n").split("\n")
         L.append("    times %d-($-$$) db 0CCh" % (op * 256 + 128))

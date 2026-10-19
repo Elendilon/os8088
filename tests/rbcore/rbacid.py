@@ -92,14 +92,15 @@ def main():
     out = os.path.join(ROOT, "build", "realboy")
     core, host = rbimg.build_core(False, out), rbimg.build_host(out)
 
-    def frame(c):
-        rbimg.make_image(g("dmg-acid2.gb"), img, mode="idle", frames=120, core=c, host=host)
+    def frame(c, jit=True):
+        rbimg.make_image(g("dmg-acid2.gb"), img, mode="idle", frames=120, core=c, host=host,
+                         jit=jit)
         return rbshot.core_frame(rbshot.capture(img, 180)[1])
     got = frame(core)
     bad = [i for i in range(160 * 144) if got[i] != want[i]]
     # the negative control: LDH (n),A made a no-op must lose the picture
     try:
-        ctl = frame(rbimg.patch_core(core, [LDH_NOP]))
+        ctl = frame(rbimg.patch_core(core, [LDH_NOP]), jit=False)
     except SystemExit:                  # it never reached a frame at all
         ctl = None
     if ctl is not None and sum(1 for i in range(160 * 144) if ctl[i] != want[i]) == 0:

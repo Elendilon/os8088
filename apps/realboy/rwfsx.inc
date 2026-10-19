@@ -57,6 +57,15 @@ rw_mgrey:
     mov si, rw_it_fs
 .set:
     mov [rw_i_mach + 4], si
+    mov si, rw_it_jit0              ; Recompiler: what it is now
+    cmp word [rw_jitseg], 0
+    je .j
+    mov si, rw_it_joff
+    cmp byte [rw_jitwant], 0
+    je .j
+    mov si, rw_it_jon
+.j:
+    mov [rw_i_mach + 6], si
     pop si
     pop dx
     pop bx

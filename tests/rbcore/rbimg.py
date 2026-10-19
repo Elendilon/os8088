@@ -33,14 +33,21 @@ def build_core(trace, out_dir):
     subprocess.check_call(cmd)
     data = open(binf, "rb").read()
     assert len(data) == 65536, len(data)
+    if not trace:                       # the recompiler's templates, from
+        subprocess.check_call(          #   this core (REALBOY-SPEC 16)
+            [sys.executable, os.path.join(ROOT, "apps/realboy/rbtmpl.py"), binf,
+             os.path.join(out_dir, "rbtmpl.bin"), os.path.join(out_dir, "rbcore.inc")],
+            stdout=subprocess.DEVNULL)
     return data
 
 
 def build_host(out_dir):
     binf = os.path.join(out_dir, "rbhost.bin")
-    subprocess.check_call(["nasm", "-f", "bin", "-w+error",
+    subprocess.check_call(["nasm", "-f", "bin", "-w+error"] +
+                          (["-DRT_DEBUG"] if os.environ.get("RT_DEBUG") else []) + [
                            "-I", os.path.join(ROOT, "apps/realboy/"),
                            "-I", os.path.join(ROOT, "tests/rbcore/"),
+                           "-I", out_dir + "/",
                            "-o", binf, os.path.join(ROOT, "tests/rbcore/rbhost.asm")])
     return open(binf, "rb").read()
 
@@ -57,7 +64,8 @@ def patch_core(core, patches):
     return bytes(core)
 
 
-def make_image(rom_path, out, geom=1440, mode="test", frames=600, core=None, host=None):
+def make_image(rom_path, out, geom=1440, mode="test", frames=600, core=None, host=None,
+               jit=True):
     out_dir = os.path.join(ROOT, "build", "realboy")
     os.makedirs(out_dir, exist_ok=True)
     if core is None:
@@ -76,6 +84,7 @@ def make_image(rom_path, out, geom=1440, mode="test", frames=600, core=None, hos
     boot[9:11] = (len(rom) // 512).to_bytes(2, "little")
     boot[11] = MODES[mode]
     boot[12:14] = frames.to_bytes(2, "little")
+    boot[14] = 1 if jit and mode != "trace" else 0
     img = bytes(boot) + body + core + rom
     size = spt * heads * cyls * 512
     if len(img) > size:
@@ -93,13 +102,14 @@ def main():
     ap.add_argument("--geom", type=int, default=1440, choices=sorted(GEOM))
     ap.add_argument("--mode", default="test", choices=sorted(MODES))
     ap.add_argument("--frames", type=int, default=600)
+    ap.add_argument("--nojit", action="store_true", help="interpret only: no recompiler")
     ap.add_argument("--patch", action="append", metavar="OFF:HEX",
                     help="overwrite core bytes at hex offset OFF (a negative control)")
     a = ap.parse_args()
     out_dir = os.path.join(ROOT, "build", "realboy")
     os.makedirs(out_dir, exist_ok=True)
     core = patch_core(build_core(a.mode == "trace", out_dir), a.patch)
-    nb, nr = make_image(a.rom, a.out, a.geom, a.mode, a.frames, core=core)
+    nb, nr = make_image(a.rom, a.out, a.geom, a.mode, a.frames, core=core, jit=not a.nojit)
     print("%s: harness %d, core 65536, ROM %d bytes, %dKB" % (a.out, nb, nr, a.geom))
 
 

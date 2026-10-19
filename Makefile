@@ -5600,11 +5600,20 @@ $(BUILD)/rbcore0.bin $(BUILD)/rbcore1.bin: $(BUILD)/rbcore.bin
 		open(sys.argv[2],'wb').write(d[:32768]); open(sys.argv[3],'wb').write(d[32768:])" \
 		$< $(BUILD)/rbcore0.bin $(BUILD)/rbcore1.bin
 
+# ...the recompiler's templates, lifted out of that core, and its offsets
+# (REALBOY-SPEC section 16): apps/realboy/rbtmpl.py assembles each handler
+# three ways and finds its operands and fixups by comparing the bytes
+# (one invocation writes both: the os88net.lz idiom above, not `&:`)
+$(BUILD)/rbtmpl.bin: $(BUILD)/rbcore.bin apps/realboy/rbtmpl.py apps/realboy/rbgen.py
+	python3 apps/realboy/rbtmpl.py $(BUILD)/rbcore.bin $(BUILD)/rbtmpl.bin $(BUILD)/rbcore.inc
+$(BUILD)/rbcore.inc: $(BUILD)/rbtmpl.bin ;
+
 $(BUILD)/realboy.bin: apps/realboy/realboy.asm apps/realboy/rbdefs.inc \
                       apps/realboy/rbsys.inc apps/realboy/rbppu.inc apps/realboy/rwfsx.inc \
+                      apps/realboy/rbjit.inc $(BUILD)/rbtmpl.bin $(BUILD)/rbcore.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
                       apps/os88partsbody.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/realboy/ -l $(BUILD)/realboy.lst \
+	$(NASM) -f bin -w+error -I apps/ -I apps/realboy/ -I $(BUILD)/ -l $(BUILD)/realboy.lst \
 		-o $@ apps/realboy/realboy.asm
 	@echo "realboy: $(call FILESIZE,$@) bytes"
 

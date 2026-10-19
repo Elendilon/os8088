@@ -96,6 +96,8 @@ def main():
     ap.add_argument("--frames", type=int)
     ap.add_argument("--mhz", type=float)
     ap.add_argument("--rom", help="time this game in play instead of the gbclock fit")
+    ap.add_argument("--nojit", action="store_true",
+                    help="the interpreter alone, without the recompiler (the A/B)")
     ap.add_argument("--render", action="store_true",
                     help="with --rom: compose every frame with rb_render as well")
     a = ap.parse_args()
@@ -110,7 +112,7 @@ def main():
         frames = a.frames or 2000
         img = os.path.join(out, "benchrom%d.img" % geom)
         rbimg.make_image(a.rom, img, geom, "render" if a.render else "play", frames,
-                         core=core, host=host)
+                         core=core, host=host, jit=not a.nojit)
         txt = run_marty(img, a.marty) if a.marty else run_box(img, a.box, "rbbrom")
         d = done_line(txt)
         if not d:
@@ -128,7 +130,7 @@ def main():
     for b in sorted(BUSY):
         img = os.path.join(out, "bench%d_%d.img" % (geom, b))
         rbimg.make_image(os.path.join(ROOT, "build/gbclock/CLOCK%d.GB" % b), img, geom,
-                         "bench", frames, core=core, host=host)
+                         "bench", frames, core=core, host=host, jit=not a.nojit)
         txt = run_marty(img, a.marty) if a.marty else run_box(img, a.box, "rbb%d" % b)
         d = done_line(txt)
         if not d:

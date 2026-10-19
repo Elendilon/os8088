@@ -71,7 +71,7 @@ def frames(b, view):
 
 
 def overlay(b, seg):
-    m = re.search(rb"(\d+)% (\d+)fps\0", b.memr(seg*16, 0x8000) + b.memr(seg*16 + 0x8000, 0x8000))
+    m = re.search(rb"(\d+)% (\d+)fps(?: JIT)?\0", b.memr(seg*16, 0x8000) + b.memr(seg*16 + 0x8000, 0x8000))
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 

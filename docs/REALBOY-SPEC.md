@@ -262,7 +262,18 @@ every pass takes the same path, and an interrupt is an event. Kirby's
 Dream Land in play waits on a read and TWO tests, `LDH A,(8C) / BIT 5,A /
 JR NZ / BIT 6,A / JR NZ,-10`: when the first rule stopped at one test and
 -7, the second jump was never skipped, and that scene ran at 27.8% of real
-time full screen on 86Box's 286 where it runs at 37.5% now. A register is never a spin-wait's subject - LY and
+time full screen on 86Box's 286 where it runs at 37.5% now.
+
+### 8.1 Countdowns
+
+A taken `JR NZ,-3` back to `DEC A`, `DEC B` or `DEC C` is a COUNTDOWN, and
+`cnt_ff` runs it to its end in one step: from the taken `JR`, r more `DEC`s
+take 4r + 2 M-cycles, and the register ends 0 with the flags of 1 -> 0
+(Z and N set, H clear, C kept). It does so only when BP covers the whole of
+it, so no event can fall inside; otherwise the loop runs as it would have.
+The OAM DMA routine every game copies to HRAM waits on one (`LD A,28h /
+DEC A / JR NZ,-3`), and so does a delay loop. The interpreter and the
+recompiler both take it. A register is never a spin-wait's subject - LY and
 STAT change on their own. A loop head found NOT to be one is remembered in
 `S_IDLENO`, so a busy loop pays the test once. An `RB_TRACE` core skips
 nothing (section 12.2).
@@ -443,7 +454,7 @@ screen are the package's.
   between two) is white until the worker's next frame. A refusal dithers
   until the next paint asks BLITP again.
 - **Its region is movable**, its worker restartable at the top of its loop;
-  `rw_reloc` re-points the five state-block vectors that name its code
+  `rw_reloc` re-points the six state-block vectors that name its code
   segment. The core, view and ROM claims are pinned.
 - **A bad opcode** stops the machine and the window says so.
 
@@ -481,3 +492,92 @@ greyed, with the reason, without a game and on a display that cannot set mode
 - **Coming back**: the window's buffer was the bracket's shadow, so it is
   marked empty and the restore's repaint is white until the worker's next
   frame; the worker's clock restarts from the moment the bracket ended.
+
+## 16. The recompiler
+
+On a 286 RealBoy translates the Game Boy's ROM code into 8086 code, a block
+at a time, and runs that instead of interpreting it (`apps/realboy/rbjit.inc`,
+`rbtmpl.py`; `tests/rbcore/rbhost.asm`'s `b_jit` and the package's Machine >
+Recompiler turn it off). What it saves is the interpreter's fixed cost: the
+three-instruction dispatch, which flushes a 286's prefetch queue every time,
+and the operand fetches through SI.
+
+### 16.1 Templates
+
+A translated instruction is its interpreter handler's own body. `rbgen.py`'s
+`template_lines()` writes each handler with the dispatch taken off, `[si]`
+operands as `IMM8`/`IMM16`, `xor dl,dl` dropped (DL = 0 is the dispatch's
+invariant, which `tr_int` restores) and external jumps `near`; `rbtmpl.py`
+assembles every one three times - at its origin, 2000h further on, and with
+other operand values - and finds by comparing the bytes where the operands
+are, which words are references to the template itself (`S_RET = .k`) and
+which are relative jumps out of it to a core helper. **So translated code
+computes exactly what the interpreter does**, and `gbcpu`, `gbacid` and the
+harness's event counts hold it to that: Super Mario Land's 1,200 frames of
+gbprof's script take the same events and skip the same M-cycles either way.
+
+- Control transfers have no template: the translator writes their M-cycles,
+  the event check the interpreter makes at a branch, and the way on (16.4).
+  An opcode with neither - HALT, STOP, RETI, an invalid one - ends the block
+  with SI = its PC and `tr_int`, the interpreter's dispatch.
+- A template over 80 bytes is the interpreter's too: the read-modify-writes
+  of `(HL)`, whose read and write slow paths are both inline.
+- A memory template keeps the slow path's stub BEFORE the fast access, so
+  the common case takes one jump and none over the stub; the 286 here is
+  bound by fetching code bytes, so a jump and its bytes are the cost.
+- `LDH (n)` and `LD (nn)` on an address the interpreter's own fast path takes
+  directly - HRAM, WRAM, VRAM, bank 0 - are chosen by operand: one `MOV`
+  through SS and the M-cycles (`rbgen.EXTRA`).
+
+### 16.2 The cache
+
+The code goes into a 64KB segment of its own. It holds copies of the core's
+helper tails - the slots `rbgen.TAILS` uses - at their own offsets, so a
+template reaches every helper with a near jump, and the block table in slots
+00-3F; ~44KB is left for code, in the free ranges `rbtmpl.py` lists. A helper
+that leaves for rbsys records its CS in `S_RETFAR` first, so rbsys comes back
+to the copy that called it, and every way out of the cache to the
+interpreter is a far jump. When the cache is full everything is forgotten
+and translation starts again. The package claims it on a 286 or later, after
+the ROM; without the memory there is no recompiler.
+
+### 16.3 Blocks and tr_enter
+
+A block is straight-line code from a PC to the first control transfer, at
+most 40 instructions, never across 4000h or 8000h, keyed by its PC and - in
+4000-7FFF - the ROM bank. `tr_enter` finds it: a direct-mapped table of 2,048
+entries (PC, bank key, a count, the block's offset). **A PC is translated
+only on its 16th entry**, so code that runs a few times is interpreted and
+never takes the cache's room; a translated entry gives its slot up only after
+16 others have asked for it. RAM is never translated - the interpreter's own
+control transfers stay in the interpreter there (`JDISPATCH`) - and with the
+recompiler off `tr_enter` is the dispatch. Translated code does not keep DS;
+`tr_int` sets it for SI before it dispatches.
+
+### 16.4 Chaining
+
+An exit to a constant address in bank 0 is `mov dx,SITE / jmp tr_link`, six
+bytes that `tr_link` rewrites into `jmp near` the block once it is
+translated, or that the translator writes so at once when it is already
+there. An exit into 4000-7FFF gets eleven: a check of `S_BANK` and the jump,
+falling onto the exit's own `jmp tr_enter` when the bank is another. Every
+`RET` carries an inline cache, `cmp si,PC / jne +3 / jmp near BLOCK`, which
+`tr_retlink` fills with the last return to a bank-0 block; a routine called
+in a loop then returns without a lookup.
+
+### 16.5 Guards
+
+Translated code does not keep SI either, so a store that can reach the I/O
+path - any store whose address is not known, and `LDH`/`LD (nn)` to IF or IE
+- is preceded by `mov si,NEXT` and followed by a check that it did not move:
+`rb_irqnow` takes an interrupt inside an IF or IE write by moving SI to the
+vector. A block running from 4000-7FFF compares the bank after every store
+that could reach the MBC, and leaves when it changed.
+
+### 16.6 What it buys, MEASURED on 86Box's 286
+
+gbclock's busy loop costs **13.95 clocks a busy M-cycle against the
+interpreter's 26.2**. Super Mario Land, the CPU alone on gbprof's script, is
+11.67 ms a frame against 13.04; in the package, in play, **80.1% of real
+time in the window and 76.0% full screen**, against 59.5% and 58.0%
+interpreted. docs/reports/REALBOY-JIT-2026-10-19.md has the record.

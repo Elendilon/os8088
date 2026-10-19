@@ -37,7 +37,11 @@ HOST_SEG        equ 0x0800
 CORE_SEG        equ 0x1000
 VIEW_SEG        equ 0x2000
 ROM_SEG         equ 0x3000
-FRAME_SEG       equ 0x0A00                  ; rb_render's 5,760 bytes
+CACHE_SEG       equ 0x9000                  ; the recompiler's 64KB, past the
+                                            ;   ROM's 384KB at most
+FRAME_SEG       equ 0x0500                  ; rb_render's 5,760 bytes, under the
+                                            ;   boot stack: the harness (with the
+                                            ;   recompiler's templates) runs past A000h
 
 ; --- the boot sector ---------------------------------------------------------
 section boot start=0 vstart=0x7C00
@@ -51,6 +55,7 @@ b_coresec   dw 128
 b_romsec    dw 0                        ; patched: ROM sectors
 b_mode      db 0                        ; patched: MODE
 b_frames    dw 600                      ; patched: FRAMES
+b_jit       db 1                        ; patched: translate (REALBOY-SPEC 16)
 boot_go:
     cli
     xor ax,ax
@@ -79,6 +84,8 @@ boot_go:
     mov [es:h_frames],ax
     mov ax,[b_romsec]
     mov [es:h_romsec],ax
+    mov al,[b_jit]
+    mov [es:h_jit],al
     jmp HOST_SEG:host_main
 
 ; load CX sectors from LBA [b_lba] to AX:0000, one at a time
@@ -137,6 +144,7 @@ section host follows=boot vstart=0
 h_mode      db 0
 h_frames    dw 0
 h_romsec    dw 0
+h_jit       db 0
 
 %include "rbdefs.inc"
 
@@ -176,7 +184,17 @@ host_main:
     cmp byte [h_mode],2
     jne .nt
     call rb_trace_on
+    jmp short .nojit
 .nt:
+    cmp byte [h_jit],0                  ; the recompiler, unless asked not
+    je .nojit
+    push ds
+    mov ax,VIEW_SEG
+    mov ds,ax
+    mov ax,CACHE_SEG
+    call rt_init
+    pop ds
+.nojit:
     ; the BIOS tick count as we start
     push ds
     xor ax,ax
@@ -267,6 +285,44 @@ host_main:
     call hex16
     mov ax,bx
     call hex16
+    mov si,s_jit                        ; the recompiler's blocks and flushes
+    call puts
+    push ds
+    mov ds,[cs:rb_viewseg]
+    mov ax,[S_JITNB]
+    mov bx,[S_JITFL]
+    pop ds
+    call dec16
+    mov si,s_jfl
+    call puts
+    mov ax,bx
+    call dec16
+    mov si,s_jby
+    call puts
+    push ds
+    mov ds,[cs:rb_viewseg]
+    mov ax,[S_JITBY]
+    mov bx,[S_JITADV]
+    pop ds
+    call dec16
+    mov si,s_jadv
+    call puts
+    mov ax,bx
+    call dec16
+%ifdef RT_DEBUG
+    push ds
+    mov ds,[cs:rb_viewseg]
+    mov si,JIT_BUF+0C0h
+    mov cx,16
+.dbg:
+    lodsw
+    pop ds
+    call hex16
+    push ds
+    mov ds,[cs:rb_viewseg]
+    loop .dbg
+    pop ds
+%endif
     mov si,s_end
     call puts
     cmp byte [h_mode],3                 ; MODES 3 and 4 end with the picture's
@@ -518,6 +574,10 @@ s_done  db 10,"RBHOST DONE frames ",0
 s_ticks db " ticks ",0
 s_ev    db " events ",0
 s_skip  db " skipped ",0
+s_jit   db " jit ",0
+s_jfl   db " flushes ",0
+s_jby   db " bytes/16 ",0
+s_jadv  db " moves ",0
 s_end   db " END",10,0
 s_vram  db "RBVRAM",0
 nframes dw 0
@@ -527,3 +587,4 @@ ticks   dw 0
 
 %include "rbsys.inc"
 %include "rbppu.inc"
+%include "rbjit.inc"

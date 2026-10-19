@@ -90,7 +90,10 @@ rw_fowed        equ rw_ovlnew + 1   ; word: rate periods counted by the hook
 rw_fsleft       equ rw_fowed + 2    ; word: frames still to run this turn
 rw_fsi          equ rw_fsleft + 2   ; FSI_SIZE: the mode's info block
 rw_font         equ rw_fsi + FSI_SIZE ; 768: glyphs 32-127, copied at entry
-rw_fbuf         equ rw_font + 768   ; 5,760: rb_render's frame (monochrome)
+rw_jitseg       equ rw_font + 768   ; word: the recompiler's 64KB, or 0
+rw_jitwant      equ rw_jitseg + 2   ; translate when there is a cache for it
+rw_jitq         equ rw_jitwant + 1  ; Machine > Recompiler asked; the worker
+rw_fbuf         equ rw_jitq + 1     ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 
@@ -174,8 +177,12 @@ rw_reloc:
     mov [S_MBCVEC+2], dx
 .4:
     cmp [S_TRACEVEC+2], bx
-    jne .r
+    jne .5
     mov [S_TRACEVEC+2], dx
+.5:
+    cmp [S_JITVEC+2], bx            ; the recompiler's entry, rb_jit
+    jne .r
+    mov [S_JITVEC+2], dx
 .r:
     pop ds
     pop ax
@@ -302,6 +309,7 @@ rw_load:
     cmp ax, RW_ROMMAX_KB / 16
     ja .notrom1
     mov [rw_banks], ax
+    call rw_jitclaim
     call rw_start
     mov byte [rw_state], 1
     pop si
@@ -329,7 +337,8 @@ rw_load:
     pop bx                          ; (the window, banked)
     jmp rw_toast
 
-; rw_start - rb_init: the view, the core, the ROM, its banks
+; rw_start - rb_init: the view, the core, the ROM, its banks - and the
+; recompiler over them when it has its cache (REALBOY-SPEC section 16)
 rw_start:
     mov al, 2                       ; the view
     call op_seg
@@ -340,7 +349,45 @@ rw_start:
     pop ax
     mov cx, [rw_romseg]
     mov dx, [rw_banks]
-    jmp rb_init
+    call rb_init
+rw_jiton:                           ; (and Machine > Recompiler's way back in)
+    cmp word [rw_jitseg], 0
+    je .r
+    cmp byte [rw_jitwant], 0
+    je .r
+    mov ax, [rw_jitseg]
+    push ds
+    mov ds, [cs:rb_viewseg]
+    call rt_init
+    pop ds
+.r:
+    ret
+
+; rw_jitoff - the interpreter alone, between two core runs (the worker's)
+rw_jitoff:
+    push ds
+    mov ds, [cs:rb_viewseg]
+    mov byte [S_JITON], 0
+    mov word [S_RESVEC], RBC_RB_DISPATCH
+    pop ds
+    ret
+
+; rw_jitclaim - on the UI task, once: a 64KB cache on a 286 or later. The
+; recompiler's code is bigger than the interpreter's, and an 8088's bus makes
+; bytes the cost; and without the memory it is simply not used.
+rw_jitclaim:
+    cmp word [rw_jitseg], 0
+    jne .r
+    call OSAPI_CPU_INFO
+    cmp al, CPU_8086
+    je .r
+    mov ax, 64
+    call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the core's
+    jc .r                           ;   state block names it
+    mov [rw_jitseg], dx
+    mov byte [rw_jitwant], 1
+.r:
+    ret
 
 ; rw_hire - the worker, once (the lock is held: paint, a menu or a dialog)
 rw_hire:
@@ -390,6 +437,13 @@ rw_worker:                          ;   the worker parked at the top of its
     mov byte [rw_resetq], 0
     call rw_reset
 .noreset:
+    cmp byte [rw_jitq], 0
+    je .nojq
+    mov byte [rw_jitq], 0
+    xor byte [rw_jitwant], 1
+    call rw_jitoff
+    call rw_jiton
+.nojq:
     cmp byte [rw_state], 1
     jne .sleep
     cmp byte [rw_pause], 0
@@ -522,6 +576,19 @@ rw_stat:
     stosb
     or al, al
     jnz .c
+    push ds                         ; " JIT": the recompiler is running,
+    mov ds, [cs:rb_viewseg]         ;   for a photograph of the glass to say
+    mov al, [S_JITON]
+    pop ds
+    or al, al
+    jz .zero
+    dec di
+    mov si, rw_s_jit
+.cj:
+    lodsb
+    stosb
+    or al, al
+    jnz .cj
 .zero:
     mov byte [rw_ovlnew], 1
     xor ax, ax
@@ -869,7 +936,15 @@ rw_oncmd:
     ret
 .pause:
     cmp al, 1
-    jne rw_fsenter                  ; Full Screen
+    je .p
+    cmp al, 2
+    je rw_fsenter                   ; Full Screen
+    cmp word [rw_jitseg], 0         ; Recompiler: the worker flips it
+    je .r
+    mov byte [rw_jitq], 1
+.r:
+    ret
+.p:
     xor byte [rw_pause], 1
     ret
 
@@ -890,7 +965,7 @@ rw_tpl:
 
     OS88_MENUSET rw_menus, rw_ttl, rw_oncmd
         OS88_MENU rw_m_file, rw_i_file, 2
-        OS88_MENU rw_m_mach, rw_i_mach, 3
+        OS88_MENU rw_m_mach, rw_i_mach, 4
     OS88_MENUSET_END rw_menus
 
 rw_ttl:         db 'RealBoy', 0
@@ -899,14 +974,18 @@ rw_i_file:      dw rw_it_open, rw_it_close
 rw_it_open:     db 'Open...', 0
 rw_it_close:    db 'Close', 0
 rw_m_mach:      db 'Machine', 0
-rw_i_mach:      dw rw_it_reset, rw_it_pause, rw_it_fs0
+rw_i_mach:      dw rw_it_reset, rw_it_pause, rw_it_fs0, rw_it_jit0
 rw_it_reset:    db 'Reset', 0
 rw_it_pause:    db 'Pause', 0
 rw_it_fs:       db 'Full Screen', 0
 rw_it_fs0:      db MENU_DIS, 'Full Screen', 0
 rw_it_fsv:      db MENU_DIS, 'Full Screen (VGA)', 0
+rw_it_jon:      db 'Recompiler: On', 0
+rw_it_joff:     db 'Recompiler: Off', 0
+rw_it_jit0:     db MENU_DIS, 'Recompiler (286)', 0
 
 rw_s_fps:       db 'fps', 0
+rw_s_jit:       db ' JIT', 0
 rw_s_open1:     db 'File > Open a', 0
 rw_s_open2:     db 'Game Boy .GB', 0
 rw_s_stop1:     db 'The game stopped:', 0
@@ -931,6 +1010,7 @@ rw_ab7:         db 'F1 = speed', 0
 %include "rbsys.inc"
 %include "rbppu.inc"
 %include "rwfsx.inc"
+%include "rbjit.inc"
 
 %define OS88UI_ABOUT
 %define OS88UI_NOBTN
