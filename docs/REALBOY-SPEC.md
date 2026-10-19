@@ -13,10 +13,10 @@ It is cited from outside as "REALBOY-SPEC section N"; inside it, "section N"
 is a section of this file.
 
 **What is built, stated once so no section below has to hedge:** the plan's
-waves 1 and 2 and wave 3's renderer - the SM83 core, the system code that
-hosts it and the composer of section 13, run BARE by a test harness with no
-os8088 underneath. There is no package yet, no screen writer, no sound, no
-save RAM and no MBC3 clock.
+waves 1 and 2 and wave 3 - the SM83 core, the system code that hosts it, the
+composer of section 13, and `REALBOY.O88`, the windowed package of section
+14. There is no fullscreen path, no sound, no save RAM, no MBC3 clock, no
+speed overlay and no ROM over 256KB.
 
 ---
 
@@ -34,6 +34,7 @@ with the registers and I/O state the DMG boot ROM leaves (section 6.1).
 | `apps/realboy/rbdefs.inc` | the layout: the view, the state block's fields, exit codes, MBC types, flag bits, the PPU's clock constants. **The field table there is this contract's list of fields** |
 | `apps/realboy/rbsys.inc` | the system code: init, run, events, the I/O and MBC registers rbsys answers, the raster log, the trace hook. Included by a host |
 | `apps/realboy/rbppu.inc` | the picture: `rb_render` (section 13). Included by a host after rbsys.inc |
+| `apps/realboy/realboy.asm` | the package: the window, the worker, the writers (section 14) |
 | `tests/rbcore/` | the bare harness and the instruments (section 12) |
 
 No ROM, test ROM or reference emulator source is ever committed. Test ROMs
@@ -145,6 +146,19 @@ segment never needs to know the host's:
 SS:SP is the Game Boy's stack inside the view, which may point anywhere - a
 game that reads a table with `LD SP,HL / POP` points it into ROM - so no
 host code ever pushes on it.
+
+**For the same reason the core runs with interrupts OFF**, and rbsys, on the
+host stack, with them on. An IRQ taken in the core would push its frame
+below the Game Boy's SP: into HRAM's variables when the stack is there, into
+the copy of bank 0 when SP points at a table in ROM. So an interrupt waits
+for the core's next trip out - an event, a register, a bank switch - or the
+end of `rb_run`'s budget, and **a host sizes that budget for its mouse**: a
+serial mouse on an 8250 delivers a byte every 8.3 ms. On os8088 this also
+means the scheduler never switches away from the core (`sch_switch` switches
+only a task whose SS is `LOW_SEG`); the host's task yields between budgets.
+
+**What it does not cover**: a game whose SP points into 4000-7FFF reads the
+view's rbsys half there, not ROMX, through its pops.
 
 **The core answers the common registers itself** and leaves only for the
 rest (section 9). That rule exists because the trip out - the stack switch
@@ -321,6 +335,7 @@ every loop iteration is in the trace.
 |---|---|
 | `tests/gbcpu.py` | the correctness ROMs, with a broken-DAA control: Blargg's `cpu_instrs` (all), `instr_timing`, `mem_timing` and `halt_bug`, and 26 of Mooneye's DMG acceptance tests |
 | `tests/rbcore/rbacid.py` | dmg-acid2 through `rb_render`, pixel for pixel, with a broken-`LDH` control |
+| `tests/gbwindow.py` | `REALBOY.O88` on MartyPC: dmg-acid2 opened from the Disk window, running, and on the glass pixel for pixel through both writers |
 | `tools/gbtrace.py`, `tests/gbtrace.py` | the differential trace against Peanut-GB, with a broken-`JR NZ` control |
 | `tests/rbcore/rbbench.py` | cost per M-cycle on gbclock, or a game's frames against real time |
 | `tests/rbcore/rbprof.py` | where the time goes, by handler, on MartyPC or 86Box |
@@ -378,3 +393,38 @@ its working memory is the view's 4900h-4B5Fh.
 `tests/rbcore/rbacid.py` holds it to dmg-acid2's reference, all 23,040
 pixels. It is the composer only: the writers that take the planes to a
 screen are the package's.
+
+## 14. The package
+
+`REALBOY.O88` (`apps/realboy/realboy.asm`, `OS88_STACK_384`) is a window of
+160x144 content that runs one game.
+
+- **Its parts** (SPEC.md 20.12): 0 and 1 are the core's two 32KB halves, LZ4
+  on the disk - one part is at most 65,024 bytes, and two adjacent rows are
+  one segment in the carve - and 2 is the view, a zeroed 64KB carve with no
+  file bytes. `op_load` claims all three at launch and refuses there, in its
+  own toast, on a heap without 128KB.
+- **A game** opens from File > Open or as a document: the `.GB` association
+  launches the package with it. `rw_load` asks the file its size with the
+  size probe (a read with no room answers the KB it needs, unpacked, with a
+  compressed file's slack), claims that, reads, and then checks the bytes
+  that came in: **whole 16KB banks, 32KB to 256KB**, refused in a toast
+  otherwise. One game a window: another opens in another.
+- **The worker** owns the machine. It counts BIOS ticks into frames owed, 840
+  of 256 a tick (59.7275 Hz against 18.2065), at most eight behind; runs the
+  core in budgets of 2,000 M-cycles, yielding between them, a frame at a
+  time; and composes and blits a frame when it has caught up or every 15
+  frames whatever happens. The joypad is the held keys - arrows, X = A,
+  Z = B, Enter = Start, Space = Select - and nothing while another window
+  has the keyboard. Reset is the worker's to do (`rb_init` again); Pause
+  stops the clock.
+- **The writers**: on a colour display `OSAPI_GFX_BLITP` with the clip walk,
+  shades 0-3 as the desktop's 15, 7, 8 and 0 - planes 0-2 are the shade's bit
+  1 inverted and plane 3 its bit 0 inverted, so the conversion is no
+  per-pixel work; on a 1bpp display, or where BLITP refuses, `OSAPI_GFX_BLIT1`
+  through a 2x2 ordered dither - shade 0 lit, 1 a quarter dark, 2 a
+  checkerboard, 3 dark.
+- **Its region is movable**, its worker restartable at the top of its loop;
+  `rw_reloc` re-points the five state-block vectors that name its code
+  segment. The core, view and ROM claims are pinned.
+- **A bad opcode** stops the machine and the window says so.

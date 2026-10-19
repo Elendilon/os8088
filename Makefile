@@ -2188,7 +2188,7 @@ WEAVEDEMOS := apps/weave/demos
 WEAVEWABS  := $(BUILD)/FORM.WAB $(BUILD)/SHEET.WAB $(BUILD)/PONG.WAB
 all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
      $(BUILD)/hello.o88 $(BUILD)/video.o88 \
-     $(BUILD)/imgtest.o88 $(BUILD)/scribe.o88 \
+     $(BUILD)/imgtest.o88 $(BUILD)/scribe.o88 $(BUILD)/realboy.o88 \
      $(BUILD)/livepayload.txt \
      $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
      $(BUILD)/doscore.bin \
@@ -5583,6 +5583,35 @@ $(BUILD)/hello.bin: apps/hello/hello.asm apps/os88api.inc apps/os88ui.inc \
 
 $(BUILD)/hello.o88: $(BUILD)/hello.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/hello.bin -o $@
+
+# REALBOY (docs/REALBOY-SPEC.md): a Game Boy in a window. Its core is
+# GENERATED - apps/realboy/rbgen.py writes 256 slots of handlers, one 64KB
+# segment - and rides REALBOY.O88 as part 0, LZ4 on the disk; the package
+# image is the window, rbsys.inc and rbppu.inc. It ships on the everything set
+# and the live media in a folder of its own, like the other machines, and is
+# in `all` because nothing it needs is fetched.
+$(BUILD)/rbcore.bin: apps/realboy/rbgen.py apps/realboy/rbdefs.inc | $(BUILD)
+	python3 apps/realboy/rbgen.py $(BUILD)/rbcore.asm
+	$(NASM) -f bin -w+error -I apps/realboy/ -o $@ $(BUILD)/rbcore.asm
+# ...and its two halves, because one part is at most 65,024 bytes and the core
+# is 65,536: two adjacent rows are one segment in the carve (SPEC.md 20.12.11)
+$(BUILD)/rbcore0.bin $(BUILD)/rbcore1.bin: $(BUILD)/rbcore.bin
+	python3 -c "import sys; d=open(sys.argv[1],'rb').read(); \
+		open(sys.argv[2],'wb').write(d[:32768]); open(sys.argv[3],'wb').write(d[32768:])" \
+		$< $(BUILD)/rbcore0.bin $(BUILD)/rbcore1.bin
+
+$(BUILD)/realboy.bin: apps/realboy/realboy.asm apps/realboy/rbdefs.inc \
+                      apps/realboy/rbsys.inc apps/realboy/rbppu.inc \
+                      apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
+                      apps/os88partsbody.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/realboy/ -l $(BUILD)/realboy.lst \
+		-o $@ apps/realboy/realboy.asm
+	@echo "realboy: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/realboy.o88: $(BUILD)/realboy.bin $(BUILD)/rbcore0.bin $(BUILD)/rbcore1.bin \
+                      tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/realboy.bin -o $@ --part $(BUILD)/rbcore0.bin \
+		--part $(BUILD)/rbcore1.bin --part-compress lz4
 
 # TIMER and BOUNCE (SPEC.md 111, 112): the two kernel KINDS of SPEC.md 14
 # that became packages (14.8) - a stopwatch and a bouncing square, in
@@ -13935,6 +13964,7 @@ ALLAPPSFILES := $(BUILD)/redline.o88 $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUIL
                 $(BUILD)/apple2.o88 \
                 $(BUILD)/WELCOME.BAS \
                 apps/apple2/README.TXT apps/apple2/COPYING \
+                $(BUILD)/realboy.o88 \
                 $(WEAVEDISK) $(WEAVELOOM) $(LOOMSRCS) \
                 $(RUNCPMDISK)
 # These images use the RunCPM master disk, but not the separate CP/M
@@ -13962,6 +13992,7 @@ ALLAPPSARGS := APPS:$(BUILD)/redline.o88 $(addprefix APPS:,$(APPS_TOOLS) $(CORE_
                                    $(BUILD)/WELCOME.BAS \
                                    apps/apple2/README.TXT \
                                    apps/apple2/COPYING) \
+               $(addprefix REALBOY:,$(BUILD)/realboy.o88) \
                $(addprefix WEAVE:,$(WEAVEDISK)) \
                $(addprefix LOOM:,$(WEAVELOOM) $(LOOMSRCS)) \
                $(APPSYSARGS) \

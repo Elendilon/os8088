@@ -2580,6 +2580,17 @@ SOAK = [
         "no-op must lose the picture. WHY QEMU: counted, not timed. SOAK: one "
         "package's renderer",
         needs=("qemu", "nasm")),
+    Row("gbwindow", "soak", py("tests/gbwindow.py"), 40.0,
+        "REALBOY.O88 in a window (docs/REALBOY-SPEC.md section 14): dmg-acid2 "
+        "opened from the Disk window through its association, the frame "
+        "counter in the package's view advancing, and the window's content "
+        "against the reference PIXEL FOR PIXEL on both writers - the four "
+        "greys through OSAPI_GFX_BLITP on VGA (rendered frame) and the 2x2 "
+        "ordered dither through OSAPI_GFX_BLIT1 on a Hercules (its VRAM: "
+        "MartyPC's rendered Hercules frame is cropped). NEGATIVE CONTROL: the "
+        "reference mirrored must not match. SOAK: one package",
+        needs=("marty", "nasm"),
+        wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("gbtrace", "soak", py("tests/gbtrace.py"), 130.0,
         "REALBOY's core against Peanut-GB (pinned by tools/gbprof.py), the "
         "registers AND the M-cycle clock compared before each of the first "

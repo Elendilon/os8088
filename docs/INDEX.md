@@ -373,6 +373,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | PiXEL | `apps/pixel/pixel.asm` | §106 | yes |
 | Pixelstein 3D | `apps/pixelstein/pxgame.asm` | §97 | no |
 | Pixelstein 3D | `apps/pixelstein/pxstein.asm` | §97 | yes |
+| REALBOY | `apps/realboy/realboy.asm` | `docs/REALBOY-SPEC.md` | yes |
 | RECORDER | `apps/recorder/recorder.asm` | §35 | no |
 | REDLINE | `apps/redline/redline.asm` | §103 | yes |
 | RLAPPLY | `apps/rlapply/rlapply.asm` | §103.6.5 | yes |

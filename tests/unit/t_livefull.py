@@ -95,9 +95,6 @@ LOCAL_EXEMPT = {
           "gate rather than a program; the packages built WITH it are "
           "cword/, paccman/, runcpm/, c64/, apple2/, weave/ and loom/, and "
           "every one of those is checked below",
-    "realboy": "RealBoy's core and system code (docs/REALBOY-SPEC.md), run bare "
-               "by tests/rbcore/ - docs/plans/REALBOY-PLAN.md's wave 3 is the "
-               "first that builds REALBOY.O88, and this entry goes when it does",
 }
 
 

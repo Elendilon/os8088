@@ -293,10 +293,10 @@ rb_resume:
     jne .v
     mov dx,[S_ROMX]
 .v:
-    cli
-    mov ss,[S_VIEW]
-    mov sp,[ss:S_SP]
-    sti
+    cli                                 ; the core runs with interrupts OFF:
+    mov ss,[S_VIEW]                     ;   SS:SP is the Game Boy's stack, and
+    mov sp,[ss:S_SP]                    ;   an IRQ's frame would land in its
+                                        ;   memory (REALBOY-SPEC section 5.2)
     mov ds,dx
     xor dx,dx
     jmp far [ss:S_RESVEC]
@@ -305,7 +305,8 @@ rb_resume:
 ; Entries from the core. Each arrives with SS:SP the game's stack.
 ; =============================================================================
 
-; RB_TOHOST: save the game's SP and DS, switch to the host stack, DS = view.
+; RB_TOHOST: save the game's SP and DS, switch to the host stack, DS = view -
+; and interrupts back on, which the core runs without.
 %macro RB_TOHOST 0
     mov [ss:S_SAVDS],ds
     cli
@@ -320,10 +321,9 @@ rb_resume:
 ; rb_ret: back into the core at S_RETFAR, the game's DS and SP restored.
 ; DH (an I/O read's answer) survives; DL leaves as 0.
 rb_ret:
-    cli
+    cli                                 ; interrupts stay off in the core
     mov ss,[cs:rb_viewseg]
     mov sp,[ss:S_SP]
-    sti
     mov ds,[ss:S_SAVDS]
     xor dl,dl
     jmp far [ss:S_RETFAR]
@@ -479,10 +479,9 @@ rb_trace:
     pop cx
     pop bx
     pop ax
-    cli
+    cli                                 ; interrupts stay off in the core
     mov ss,[cs:rb_viewseg]
     mov sp,[ss:S_SP]
-    sti
     mov ds,[ss:S_SAVDS]
     xor dx,dx
     jmp far [ss:S_DISP]                 ; the RAW dispatch, never traced
