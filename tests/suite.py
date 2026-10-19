@@ -2617,11 +2617,13 @@ SOAK = [
         wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("gblog", "soak", py("tests/gblog.py"), 20.0,
         "REALBOY.O88's log to file (docs/REALBOY-SPEC.md section 14.1): "
-        "GBDEMO.GB on MartyPC's 5150 Hercules with Machine > Log on, the "
-        "window closed, and SYSTEM\\APPDATA\\REALBOY.LOG read on the host - "
-        "the header, at least eight records with rising seconds, frames drawn "
-        "and the demo's full speed across them. With no record counted no "
-        "file is written and the row says so. SOAK: one package",
+        "GBDEMO.GB on MartyPC's 5150 Hercules, two logs - one by the menu, "
+        "with Pause on and off inside it, one at the close - read on the host "
+        "beside REALBOY.O88 as GBDEMO00.LOG and GBDEMO01.LOG: the head naming "
+        "the game and the machine, PAUSE and GO, at least eight records with "
+        "rising seconds, frames drawn and the demo's full speed outside the "
+        "pause. With no record counted no file is written and the row says "
+        "so. SOAK: one package",
         needs=("marty", "nasm", "rgbds"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("gbsound", "soak", py("tests/gbsound.py"), 15.0,
@@ -2638,7 +2640,7 @@ SOAK = [
         "REALBOY.O88's battery RAM and MBC3 clock (docs/REALBOY-SPEC.md "
         "section 10.1) on MartyPC's VGA XT, against GBSAVE.GB (tools/gbours.py, "
         "ours): four RAM banks counted and told apart, the clock counting game "
-        "time, the close writing SYSTEM\\APPDATA\\GBSAVE.SAV (32KB and VBA's "
+        "time, the close writing GBSAVE.SAV beside the game (32KB and VBA's "
         "48-byte clock trailer, read on the host), and a second boot reading "
         "the counters and the clock back. SOAK: one package",
         needs=("marty", "nasm", "rgbds"),

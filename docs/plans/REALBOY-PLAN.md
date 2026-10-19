@@ -649,7 +649,7 @@ GBTONE at 3% of real time.
 and 10.2), and `gbsave` is their row.
 - RAM banking uses a window: the bank on view is copied out and in when a
   game switches.
-- A battery's RAM is saved to `SYSTEM\APPDATA\<game>.SAV` when the window
+- A battery's RAM is saved to `<game>.SAV` beside the game when the window
   closes, in VBA's format, with its clock trailer.
 - The clock counts game time, and is caught up from the system clock when a
   save is opened.
@@ -694,8 +694,8 @@ into its REALBOY folder:
    is 100% at 4 frames a second, and the iron should read the same. If it
    does not, that is a finding about MartyPC.
 3. **Anything that looks wrong**: the picture (a photograph), the speaker
-   (the demo blips once a bounce), a save (a battery game's `.SAV` under
-   SYSTEM\APPDATA), and Esc out of full screen.
+   (the demo blips once a bounce), a save (a battery game's `.SAV` beside
+   it), and Esc out of full screen.
 
 The F1 line is the instrument because it needs no debugger. Both of its
 numbers come off the machine's own clock.

@@ -14,8 +14,8 @@ and after 120 frames, leaving the results in WRAM. This
      ROM, and reads WRAM out of the package's view: the counters are 00
      (FFh + 1: a cartridge never saved), the four banks are four, and the
      clock has counted the two seconds of game time;
-  2. closes the window - the close negotiator writes SYSTEM\\APPDATA\\
-     GBSAVE.SAV - flushes B: and reads the file on the host: 32,768 bytes of
+  2. closes the window - the close negotiator writes GBSAVE.SAV beside the
+     game - flushes B: and reads the file on the host: 32,768 bytes of
      RAM with each bank's counter and number in it, and VBA's 48-byte clock
      trailer;
   3. boots that floppy again and opens the ROM: the counters are 01, and the
@@ -82,7 +82,7 @@ def main():
         o.write(i.read())
     disk = os.path.join(tmp, "apps.img")
     subprocess.check_call([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", disk,
-                           "--size", "720", "--folder", "SYSTEM/APPDATA",
+                           "--size", "720",
                            os.path.join(ROOT, "build", "realboy.o88"), gb],
                           stdout=subprocess.DEVNULL)
     viewoff = gbwindow.label_off(os.path.join(ROOT, "build", "realboy.lst"), "rb_viewseg")
@@ -103,10 +103,10 @@ def main():
 
     vol = os88flush.Volume(open(after, "rb").read())
     try:
-        sav = vol.read("SYSTEM/APPDATA/GBSAVE.SAV")
+        sav = vol.read("GBSAVE.SAV")
     except Exception as e:                      # noqa: BLE001
         sav = None
-        fails.append("the close wrote no SYSTEM\\APPDATA\\GBSAVE.SAV (%s)" % e)
+        fails.append("the close wrote no GBSAVE.SAV beside the game (%s)" % e)
     if sav is not None:
         print("gbsave: GBSAVE.SAV %d bytes" % len(sav))
         if len(sav) != 32768 + 48:

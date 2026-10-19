@@ -104,8 +104,7 @@ rw_ramseg       equ rw_sch + 1      ; word: cartridge RAM's banks, or 0
 rw_rambanks     equ rw_ramseg + 2   ; byte: 8KB banks there (0 = none)
 rw_batt         equ rw_rambanks + 1 ; byte: a battery: save it on close
 rw_rtc          equ rw_batt + 1     ; byte: an MBC3 clock
-rw_odst         equ rw_rtc + 1      ; byte: os88data.inc's state for the file
-rw_savelen      equ rw_odst + 1     ; word: the .SAV's RAM bytes
+rw_savelen      equ rw_rtc + 1      ; word: the .SAV's RAM bytes
 rw_rtcgap       equ rw_savelen + 2  ; dword: seconds the save was put away
 rw_rtcsave      equ rw_rtcgap + 4   ; 16: the clock, across a reset
 rw_savename     equ rw_rtcsave + 16 ; 13: NAME.SAV
@@ -114,15 +113,26 @@ rw_htab         equ rw_fskind + 1   ; 512: a full-screen writer's table
 rw_chg          equ rw_htab + 512   ; 144: the lines rb_renderd changed
 rw_fsper        equ rw_chg + 144    ; word: rate periods in the bracket (rw_clk)
 rw_logon        equ rw_fsper + 2    ; byte: Machine > Log is on (rwlog.inc)
-rw_logst        equ rw_logon + 1    ; byte: os88data.inc's state for the log
-rw_logn         equ rw_logst + 1    ; word: records taken
+rw_logn         equ rw_logon + 1    ; word: records taken
 rw_ltick        equ rw_logn + 2     ; word: ticks since the log began
 rw_acomp        equ rw_ltick + 2    ; word: lines composed this second
 rw_achg         equ rw_acomp + 2    ; word: ...and changed
 rw_ams          equ rw_achg + 2     ; word: ms drawing this second
 rw_amax         equ rw_ams + 2      ; byte: the longest draw, ms
 rw_aowed        equ rw_amax + 1     ; byte: the most frames owed
-rw_log          equ rw_aowed + 1    ; RW_LOGN x RW_LOGSZ: the records
+rw_aevt         equ rw_aowed + 1    ; byte: RLE_* this second
+rw_stspan       equ rw_aevt + 1     ; word: rw_logsec's ticks
+rw_llen         equ rw_stspan + 2   ; word: the log text's length
+rw_ldig         equ rw_llen + 2     ; word: where its name's digits are
+rw_lfile        equ rw_ldig + 2     ; 13: its name
+rw_pkgdir       equ rw_lfile + 13   ; word: REALBOY.O88's folder...
+rw_pkgvol       equ rw_pkgdir + 2   ; byte: ...and volume (the log's)
+rw_romdir       equ rw_pkgvol + 1   ; word: the game's folder...
+rw_romvol       equ rw_romdir + 2   ; byte: ...and volume (its .SAV's)
+rw_hdir         equ rw_romvol + 1   ; word: where rw_fgo found us...
+rw_hvol         equ rw_hdir + 2     ; byte
+rw_dgen         equ rw_hvol + 1     ; byte: rw_drawnow's count (rw_timed)
+rw_log          equ rw_dgen + 1     ; RW_LOGN x RW_LOGSZ: the records
 rw_fbuf         equ rw_log + RW_LOGN * RW_LOGSZ ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
@@ -131,6 +141,9 @@ RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 ; rw_entry - the loader calls this once; the window appears afterwards
 ; =============================================================================
 rw_entry:
+    call OSAPI_FILE_HERE            ; where the program is: the log's folder
+    mov [rw_pkgdir], dx
+    mov [rw_pkgvol], bl
     push es                         ; op_load spends ES, and OSAPI_ARG_FILE
     call op_load                    ;   reads through the kernel's
     pop es
@@ -451,8 +464,11 @@ rw_hire:
 
 ; rw_ramsetup - after the ROM is read, on the UI task: what the header says
 ; the cartridge carries, a claim for the banks when there is more than one
-; (or a clock, or a battery), and a battery's NAME.SAV out of SYSTEM\APPDATA
+; (or a clock, or a battery), and a battery's NAME.SAV from beside the game
 rw_ramsetup:
+    call OSAPI_FILE_HERE            ; the game's folder: its .SAV's
+    mov [rw_romdir], dx
+    mov [rw_romvol], bl
     push es
     mov es, [rw_romseg]
     mov al, [es:0147h]              ; the cartridge type
@@ -546,8 +562,8 @@ rw_ramsetup:
     je .cap
     add cx, 48
 .cap:
-    mov si, rw_savename
-    call od_read                    ; DX:AX = bytes
+    mov si, rw_savename             ; beside the game, which is where we
+    call OSAPI_FILE_READ            ;   stand (rw_load): DX:AX = bytes
     pop es
     jc .r
     cmp byte [rw_rtc], 0
@@ -660,7 +676,7 @@ rw_onclose:
     clc
     ret
 
-; rw_save - NAME.SAV into SYSTEM\APPDATA: the RAM, and for a clock VBA's
+; rw_save - NAME.SAV beside the game: the RAM, and for a clock VBA's
 ; 48-byte trailer, so the file is any emulator's
 rw_save:
     call rw_ramkeep
@@ -670,13 +686,21 @@ rw_save:
     call rw_rtcout
     add cx, 48
 .w:
+    push cx
+    mov dx, [rw_romdir]             ; beside the game
+    mov bl, [rw_romvol]
+    call rw_fgo
+    pop cx
+    jc .no
     push es
     mov es, [rw_ramseg]
     xor bx, bx
+    xor dx, dx
     mov si, rw_savename
-    mov di, rw_odst
-    call od_write
+    call OSAPI_FILE_WRITE
     pop es
+.no:
+    call rw_fback                   ; (CF kept)
     jnc .r
     mov si, rw_s_nosave
     jmp rw_toast
@@ -820,6 +844,44 @@ rw_unix:
 rw_battab:      db 03h, 06h, 09h, 0Fh, 10h, 13h, 1Bh, 1Eh, 0
 rw_cumdays:     dw 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
 
+; rw_fgo - stand in folder DX of volume BL (UI task), remembering where we
+; stood for rw_fback. CF = 1: it could not, and nothing moved.
+rw_fgo:
+    push dx
+    push bx
+    call OSAPI_FILE_HERE
+    mov [rw_hdir], dx
+    mov [rw_hvol], bl
+    pop bx
+    pop dx
+    push si
+    push di
+    call OSAPI_FILE_GOTO_QM
+    pop di
+    pop si
+    ret
+
+; rw_fback - back where rw_fgo found us. Every register and flag kept.
+rw_fback:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov dx, [rw_hdir]
+    mov bl, [rw_hvol]
+    call OSAPI_FILE_GOTO_QM
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
 ; rw_toast - SI = a line of our own, 24 characters at most
 rw_toast:
     push ds
@@ -858,6 +920,11 @@ rw_worker:                          ;   the worker parked at the top of its
     je .nojq
     mov byte [rw_jitq], 0
     xor byte [rw_jitwant], 1
+    mov al, RLE_JITON
+    jnz .je
+    mov al, RLE_JITOFF
+.je:
+    call rw_logevt
     call rw_jitoff
     call rw_jiton
 .nojq:
@@ -958,6 +1025,7 @@ rw_drawdue:
 ; rw_drawnow - the next draw is due at once (a fresh start, or a clock that
 ; changed under the last one: into or out of full screen)
 rw_drawnow:
+    inc byte [rw_dgen]
     push ax
     push dx
     call rw_clk
@@ -975,14 +1043,23 @@ rw_drawnow:
 ; rw_timed - call SI (a draw), then [rw_drawt] = its end + its length, and
 ; the log told how long it took
 rw_timed:
-    call rw_clk
-    push dx
-    push ax
+    mov al, [rw_dgen]               ; (a clock changed under the draw - it
+    push ax                         ;   parked across a whole full screen -
+    call rw_clk                     ;   is no draw's length: the field run's
+    push dx                         ;   window drew nothing for 34 seconds
+    push ax                         ;   after leaving one)
     inc word [rw_ndrawn]
     call si
     call rw_clk                     ; DX:AX = the end
     pop bx
     pop cx                          ; CX:BX = the start
+    pop si                          ; (SI's low byte: the count then)
+    xchg si, ax
+    cmp al, [rw_dgen]               ; ...against the count now
+    xchg si, ax                     ; (xchg keeps the flags)
+    je .same
+    ret
+.same:
     push dx
     push ax
     sub ax, bx
@@ -1131,6 +1208,8 @@ rw_quiet:
 rw_reset:
     cmp byte [rw_state], 0
     je .r
+    mov al, RLE_RESET
+    call rw_logevt
     call rw_ramkeep                 ; the cartridge's RAM and clock survive
     call rw_start
     mov byte [rw_state], 1
@@ -1257,6 +1336,8 @@ rw_keys:
     jz .nof1
     xor byte [rw_ovl], 1
     mov byte [rw_ovlnew], 1
+    mov al, RLE_F1
+    call rw_logevt
     call rw_dmgfull                 ; the line it covered, or uncovered, is
                                     ;   not a change the picture made
 .nof1:
@@ -1770,7 +1851,11 @@ rw_oncmd:
     ret
 .p:
     xor byte [rw_pause], 1
-    ret
+    mov al, RLE_PAUSE
+    jnz .pe
+    mov al, RLE_GO
+.pe:
+    jmp rw_logevt
 
 ; rw_onkey - AX = a typed key, SI = the window, the lock held: Alt+Enter is
 ; Machine > Full Screen (SPEC.md 11.2.1.1); the game reads the keys held,
@@ -1850,7 +1935,6 @@ rw_ab7:         db 'F1 = speed', 0
 %include "rwfsx.inc"
 %include "rbjit.inc"
 
-%include "os88data.inc"
 %include "os88alt.inc"
 %include "os88pit.inc"
 %include "rwlog.inc"

@@ -42,10 +42,12 @@ Machine > Full Screen    the game on the whole screen
 Machine > Recompiler     on or off (286 or later)
 Machine > Log            a record a second, to a file
 
-The log is written to SYSTEM\APPDATA\REALBOY.LOG on this disk when you
-turn it off or close the window: the speed, the frames run and drawn, and
-how long the drawing took, a line a second. It is what to send back after
-a test run.
+The log is written beside REALBOY.O88 when you turn it off or close the
+window, under a new name each time: the game's first six letters and a
+number (SUPER-00.LOG, SUPER-01.LOG, ...). It names the game and the machine,
+then gives a line a second: the speed, the frames run and drawn, how long
+the drawing took, and anything you did (Reset, Pause, Full Screen, the
+Recompiler). It is what to send back after a test run.
 
 Full screen is VGA's 320x200 at 1x, a Hercules card's page at 2x2, or
 CGA's 320x200 in four colours.
@@ -53,8 +55,7 @@ CGA's 320x200 in four colours.
 SAVES
 -----
 A cartridge with a battery is saved when you close its window, to
-SYSTEM\APPDATA\<game>.SAV on the game's own disk. It is read back the next
-time the game opens. The file is the usual .SAV format, with VBA's clock
+<game>.SAV beside the game. It is read back the next time the game opens. The file is the usual .SAV format, with VBA's clock
 block for an MBC3, so it moves to and from other emulators. The MBC3 clock
 counts while the game runs, and catches up when a save opens on the time
 the save was put away.

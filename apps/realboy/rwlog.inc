@@ -4,9 +4,11 @@
 ; RealBoy's LOG TO FILE (docs/REALBOY-SPEC.md section 14.1): Machine > Log
 ; keeps a record a second - the game's speed, the frames run and drawn, the
 ; lines composed and changed, the drawing's time and its longest draw, how
-; far behind the machine got, and where it was - and writes them as text to
-; SYSTEM\APPDATA\REALBOY.LOG on the program's own disk when the log is turned
-; off or the window closes. It is for a machine with no debugger: the F1
+; far behind the machine got, where it was and what the user did - and writes
+; them as text beside REALBOY.O88, under a name of its own each time (the
+; game's first six letters and a number: SUPER-00.LOG, SUPER-01.LOG), when
+; the log is turned off or the window closes. It is for a machine with no
+; debugger: the F1
 ; line says how a game runs this second, and this says how it ran for five
 ; minutes, which is what a field run needs to bring back. Included by
 ; realboy.asm.
@@ -16,8 +18,8 @@
 ; =============================================================================
 
 RW_LOGN         equ 256             ; records kept, the latest: four minutes
-RW_LOGSZ        equ 16
-RW_LOGKB        equ 16              ; the text's claim at the write
+RW_LOGSZ        equ 32
+RW_LOGKB        equ 28              ; the text's claim at the write
 ; a record: the ticks since the log began (at its end), the ticks it spans,
 ; frames run, frames drawn, lines composed, lines changed, the drawing's
 ; milliseconds, the longest draw (ms, at most 255), flags: bits 0-5 the most
@@ -31,6 +33,15 @@ RL_CHG          equ 10
 RL_MS           equ 12
 RL_MAX          equ 14
 RL_FLAGS        equ 15
+RL_EVT          equ 16              ; byte: what the user did in the second
+RLE_RESET       equ 01h             ;   Machine > Reset
+RLE_PAUSE       equ 02h             ;   Pause on
+RLE_GO          equ 04h             ;   ...and off
+RLE_FSIN        equ 08h             ;   into full screen
+RLE_FSOUT       equ 10h             ;   ...and out
+RLE_JITON       equ 20h             ;   the recompiler on
+RLE_JITOFF      equ 40h             ;   ...and off
+RLE_F1          equ 80h             ;   F1's line
 
 ; rw_clk - DX:AX = now, in 8253 counts of 838 ns. In a rate bracket the
 ; counter runs at the bracket's divisor and the hook counts its periods, so
@@ -107,14 +118,14 @@ rw_logowed:
 ; rw_logsec - from rw_stat, CX = the ticks it counted: the second's record,
 ; and its counts back to zero. Any context.
 rw_logsec:
+    mov [rw_stspan], cx
     cmp byte [rw_logon], 0
     je .zero
     mov bx, [rw_logn]
     and bx, RW_LOGN - 1
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1
+    mov cl, 5                       ; x RW_LOGSZ
+    shl bx, cl
+    mov cx, [rw_stspan]
     add bx, rw_log
     add [rw_ltick], cx
     mov ax, [rw_ltick]
@@ -145,6 +156,8 @@ rw_logsec:
     or al, 80h
 .j:
     mov [bx + RL_FLAGS], al
+    mov al, [rw_aevt]
+    mov [bx + RL_EVT], al
     inc word [rw_logn]
 .zero:
     xor ax, ax
@@ -153,6 +166,13 @@ rw_logsec:
     mov [rw_ams], ax
     mov [rw_amax], al
     mov [rw_aowed], al
+    mov [rw_aevt], al
+    ret
+
+; rw_logevt - AL = RLE_* bits: something the user did, into this second's
+; record. Any context.
+rw_logevt:
+    or [rw_aevt], al
     ret
 
 ; rw_logtoggle - Machine > Log, on the UI task: on from nothing, or off and
@@ -164,14 +184,16 @@ rw_logtoggle:
     mov [rw_logn], ax
     mov [rw_ltick], ax
     mov byte [rw_logon], 1
+    call rw_mgrey                   ; the item says what it is now
     mov si, rw_s_logon
     jmp rw_toast
 .off:
     mov byte [rw_logon], 0
+    call rw_mgrey
     jmp rw_logwrite
 
-; rw_logwrite - the records as text into SYSTEM\APPDATA\REALBOY.LOG, on the
-; UI task. Nothing recorded, nothing written.
+; rw_logwrite - the records as text beside REALBOY.O88, on the UI task,
+; under the first name free of GAMEnn.LOG. Nothing recorded, nothing written.
 rw_logwrite:
     cmp word [rw_logn], 0
     je .r
@@ -181,18 +203,7 @@ rw_logwrite:
     push dx
     mov es, dx
     xor di, di
-    mov si, rw_s_loghd              ; REALBOY LOG - GAME.GB - CPU n
-    call rw_lstr
-    mov si, rw_name
-    call rw_lstr
-    mov si, rw_s_logcpu
-    call rw_lstr
-    call OSAPI_CPU_INFO             ; AL = the tier
-    xor ah, ah
-    mov cl, 1
-    call rw_lnum
-    mov si, rw_s_logcol
-    call rw_lstr
+    call rw_lhead
     mov cx, [rw_logn]               ; the latest RW_LOGN, oldest first
     xor bx, bx
     cmp cx, RW_LOGN
@@ -204,36 +215,185 @@ rw_logwrite:
     push cx
     push bx
     and bx, RW_LOGN - 1
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1
+    mov cl, 5
+    shl bx, cl
     add bx, rw_log
     call rw_lline
     pop bx
     pop cx
     inc bx
     loop .n
-    mov cx, di                      ; CX = the text's length
+    mov [rw_llen], di               ; the text's length
+    mov dx, [rw_pkgdir]             ; where the program is
+    mov bl, [rw_pkgvol]
+    call rw_fgo
+    jc .back
+    call rw_lname                   ; SI = the first free name
     pop dx
     push dx
     mov es, dx
     xor bx, bx
-    mov si, rw_s_logname
-    mov di, rw_logst
-    call od_write
+    mov cx, [rw_llen]
+    push dx
+    xor dx, dx
+    call OSAPI_FILE_WRITE
+    pop dx
+.back:
+    call rw_fback                   ; (CF kept)
     pop dx
     pushf
     call OSAPI_MEM_FREE
     popf
     jc .fail
-    mov si, rw_s_logok
+    mov si, rw_s_logok              ; "Log: SUPER-00.LOG"
+    mov di, rw_s_logok + 5
+    push ds
+    pop es
+    push si
+    mov si, rw_lfile
+    call rw_lstr
+    stosb                           ; (the NUL)
+    pop si
     jmp rw_toast
 .fail:
     mov si, rw_s_logno
     jmp rw_toast
 .r:
     ret
+
+; rw_lname - rw_lfile = the game's first six letters, two digits and .LOG,
+; the first such name not in the current folder (00-99; at 99, 99 again).
+; SI = rw_lfile.
+rw_lname:
+    push ds
+    pop es
+    mov si, rw_name
+    mov di, rw_lfile
+    mov cx, 6
+.c:
+    lodsb
+    or al, al
+    jz .s
+    cmp al, '.'
+    je .s
+    stosb
+    loop .c
+.s:
+    mov [rw_ldig], di
+    mov word [di], '00'
+    mov word [di + 2], '.L'
+    mov word [di + 4], 'OG'
+    mov byte [di + 6], 0
+    xor dx, dx                      ; DL = the number
+.try:
+    mov al, dl
+    aam                             ; AH = tens, AL = ones
+    add ax, '00'
+    xchg al, ah
+    mov di, [rw_ldig]
+    mov [di], ax
+    push dx
+    mov si, rw_lfile
+    push ds
+    pop es
+    xor bx, bx
+    xor cx, cx
+    xor dx, dx
+    call OSAPI_FILE_READ            ; with no room: is it there?
+    pop dx
+    jnc .next                       ; (an empty one is)
+    cmp ax, FERR_NOENT
+    je .got
+.next:
+    inc dl
+    cmp dl, 100
+    jb .try
+.got:
+    mov si, rw_lfile
+    ret
+
+; rw_lhead - the log's two head lines and the columns at ES:DI:
+;   REALBOY LOG - SUPER-~1.GB - 64K MBC1 - RAM none
+;   CPU tier 1 - display 4 bpp - full screen VGA - recompiler yes
+rw_lhead:
+    mov si, rw_s_loghd
+    call rw_lstr
+    mov si, rw_name
+    call rw_lstr
+    mov si, rw_s_lsep
+    call rw_lstr
+    mov ax, [rw_banks]              ; the ROM, KB
+    mov cl, 4
+    shl ax, cl
+    mov cl, 1
+    call rw_lnum
+    mov si, rw_s_lkmbc
+    call rw_lstr
+    push ds
+    mov ds, [cs:rb_viewseg]
+    mov al, [S_MBC]
+    pop ds
+    xor ah, ah
+    mov cl, 1
+    call rw_lnum
+    mov si, rw_s_lram
+    call rw_lstr
+    mov al, [rw_rambanks]
+    xor ah, ah
+    mov cl, 1
+    call rw_lnum
+    mov si, rw_s_lbanks
+    call rw_lstr
+    mov si, rw_s_lbatt
+    cmp byte [rw_batt], 0
+    je .nb
+    call rw_lstr
+.nb:
+    mov si, rw_s_lrtc
+    cmp byte [rw_rtc], 0
+    je .nr
+    call rw_lstr
+.nr:
+    mov si, rw_s_lcpu               ; the machine
+    call rw_lstr
+    call OSAPI_CPU_INFO             ; AL = the tier
+    xor ah, ah
+    mov cl, 1
+    call rw_lnum
+    mov si, rw_s_ldisp
+    call rw_lstr
+    push di
+    mov bx, [rw_win]
+    call OSAPI_WM_DISPLAY           ; DH = bits per pixel
+    pop di
+    mov al, dh
+    xor ah, ah
+    mov cl, 1
+    call rw_lnum
+    mov si, rw_s_lfs
+    call rw_lstr
+    call rw_fspick                  ; AL = the full screen's writer
+    mov si, rw_s_lnone
+    jc .fs
+    mov si, rw_s_lvga
+    cmp al, RW_FSVGA
+    je .fs
+    mov si, rw_s_lherc
+    cmp al, RW_FSHERC
+    je .fs
+    mov si, rw_s_lcga
+.fs:
+    call rw_lstr
+    mov si, rw_s_ljit
+    call rw_lstr
+    mov si, rw_s_lno
+    cmp word [rw_jitseg], 0
+    je .j
+    mov si, rw_s_lyes
+.j:
+    call rw_lstr
+    mov si, rw_s_logcol
+    jmp rw_lstr
 
 ; rw_lline - the record at BX as one line at ES:DI:
 ;   seconds  speed  run drawn  comp   chg  draw   max owed where
@@ -312,6 +472,20 @@ rw_lline:
     mov al, 'J'
     stosb
 .e:
+    mov dl, [bx + RL_EVT]           ; what the user did, by name
+    mov si, rw_s_levts
+.ev:
+    or dl, dl
+    jz .ee
+    shr dl, 1
+    jnc .evn
+    push si
+    call rw_lstr
+    pop si
+.evn:
+    add si, 7
+    jmp short .ev
+.ee:
     mov ax, 0A0Dh
     stosw
     ret
@@ -357,11 +531,34 @@ rw_lstr:
 .r:
     ret
 
-rw_s_logname:   db 'REALBOY.LOG', 0
 rw_s_loghd:     db 'REALBOY LOG - ', 0
-rw_s_logcpu:    db ' - CPU tier ', 0
+rw_s_lsep:      db ' - ', 0
+rw_s_lkmbc:     db 'K, MBC ', 0
+rw_s_lram:      db ', RAM ', 0
+rw_s_lbanks:    db ' x 8K', 0
+rw_s_lbatt:     db ', battery', 0
+rw_s_lrtc:      db ', clock', 0
+rw_s_lcpu:      db 13, 10, 'CPU tier ', 0
+rw_s_ldisp:     db ', display ', 0
+rw_s_lfs:       db ' bpp, full screen ', 0
+rw_s_lnone:     db 'none', 0
+rw_s_lvga:      db 'VGA', 0
+rw_s_lherc:     db 'Hercules', 0
+rw_s_lcga:      db 'CGA', 0
+rw_s_ljit:      db ', recompiler ', 0
+rw_s_lyes:      db 'yes', 0
+rw_s_lno:       db 'no', 0
 rw_s_logcol:    db 13, 10, ' seconds  speed  run drawn  comp   chg  draw  max owed', 13, 10
                 db '                     (lines a second)  (ms a second, longest)', 13, 10, 0
+; the RLE_* bits' names, a bit at a time from bit 0, seven bytes each
+rw_s_levts:     db ' RESET', 0
+                db ' PAUSE', 0
+                db ' GO', 0, 0, 0, 0
+                db ' FS+', 0, 0, 0
+                db ' FS-', 0, 0, 0
+                db ' JIT+', 0, 0
+                db ' JIT-', 0, 0
+                db ' F1', 0, 0, 0, 0
 rw_s_logon:     db 'Log on: written at close', 0
-rw_s_logok:     db 'REALBOY.LOG written', 0
+rw_s_logok:     db 'Log: ', 0, '           ', 0
 rw_s_logno:     db 'REALBOY: log not written', 0

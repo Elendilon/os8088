@@ -339,10 +339,14 @@ alike. The other banks are kept elsewhere.
 **A battery cartridge is saved when its window closes.** Battery types are
 03h, 06h, 09h, 0Fh, 10h, 13h, 1Bh and 1Eh.
 
-- **When.** The close negotiator (`rw_onclose`, SPEC.md 75.1) runs on the UI
-  task. It writes `SYSTEM\APPDATA\<game>.SAV` on the game's own volume
-  through `apps/os88data.inc`, then always lets the close go ahead. Opening
-  the game reads the file back.
+- **When and where.** The close negotiator (`rw_onclose`, SPEC.md 75.1)
+  runs on the UI task. It writes `<game>.SAV` **beside the game**, in the
+  folder the ROM was opened from (`rw_romdir`, kept at the load), then
+  always lets the close go ahead. Opening the game reads the file back from
+  the same folder.
+  - It was `SYSTEM\APPDATA` on the game's volume until the second field run.
+    A game disk has no such folder unless someone makes one. Beside the ROM
+    is also where every other emulator puts it.
 - **The format is the common one.** The file is the RAM, at its header size.
   For a clock cartridge it is followed by VBA's 48-byte trailer: ten dwords
   (the live then the latched registers), then the time it was written, as
@@ -586,27 +590,43 @@ third frame both ways, by damage into a buffer it keeps and whole by
 
 ### 14.1 The log
 
-**Machine > Log keeps a record a second and writes them as text to
-`SYSTEM\APPDATA\REALBOY.LOG` on the program's own disk**, when the log is
-turned off or the window closes (`apps/realboy/rwlog.inc`). It is the field
-run's instrument: the F1 line says how a game runs this second, and the log
-says how it ran for minutes, on a machine with no debugger.
+**Machine > Log keeps a record a second and writes them as text beside
+REALBOY.O88**, when the log is turned off or the window closes
+(`apps/realboy/rwlog.inc`). It is the field run's instrument: the F1 line
+says how a game runs this second, and the log says how it ran for minutes,
+on a machine with no debugger.
 
-- **A record** (16 bytes, the latest 256 kept, about four minutes) holds
+- **Each log takes a name of its own**: the game's first six letters, two
+  digits and `.LOG`, the first such name not already in the folder
+  (`SUPER-00.LOG`, `SUPER-01.LOG`; `rw_lname` asks with a zero-length read).
+  The folder is the program's own, kept at entry (`rw_pkgdir`). These two
+  are the second field run's asks: no folder to make by hand, and no files
+  to rename between runs.
+- **The head says what ran on what**, in two lines:
+  - the game's name, its ROM size, its MBC and its RAM banks, and whether
+    it has a battery or a clock;
+  - the CPU tier, the display's bits per pixel, which full-screen writer
+    the display offers, and whether a recompiler cache was claimed.
+
+- **A record** (32 bytes, the latest 256 kept, about four minutes) holds
   the seconds since the log began, the game's speed and frames run, the
   frames drawn, the lines composed and the lines changed (section 13.2),
   the milliseconds spent drawing and the longest draw, the most frames
   owed, and W or F (window or full screen) with J when the recompiler ran.
+- **And what the user did in that second**, by name: RESET, PAUSE, GO
+  (unpaused), FS+ and FS- (into and out of full screen), JIT+ and JIT-
+  (Machine > Recompiler), F1.
 - **The clock** is the 8253's counter 0 extended by the BIOS tick
   (`apps/os88pit.inc`, 838 ns a count). Inside a rate bracket the counter
   runs at the bracket's divisor, so there it is the hook's period count and
   the counter within the period (`rw_clk`).
 - **Who does what.** The worker and the bracket record, in `rw_stat`, once
-  a second. Only the UI task writes, through `apps/os88data.inc` (SPEC.md
-  20.6 rule 7). Nothing recorded, nothing written.
+  a second. Only the UI task writes (SPEC.md 20.6 rule 7). Nothing
+  recorded, nothing written.
 
-`tests/gblog.py` turns it on over the demo, closes the window and reads the
-file on the host.
+`tests/gblog.py` takes two logs over the demo, one through the menu and
+one at the close, with a pause inside the first. It reads both on the
+host: the names, the head, PAUSE and GO, and the speed.
 
 **A second at a time the speed jitters**: it read 89-111% here across a run
 that averaged 101.1%. That is the field run's "90 to 110". The frames are
@@ -693,6 +713,13 @@ the Victory, Super Mario Land slips under 100% for a moment with an enemy
 on screen as it scrolls, and that dropped it from ~30 frames drawn to 4.
 The clock was a tick then, 55 ms, which could not tell a 286's draw from
 nothing.
+
+**A draw that a clock change ran across counts for nothing.** The window's
+worker can sit inside a draw, waiting for the gfx lock, for the whole of a
+full-screen session. It then measured a 34-second "draw", and put its next
+draw 34 seconds out: the second field run's log showed a window that drew
+nothing after leaving full screen. `rw_drawnow` counts the clock changes
+(`[rw_dgen]`), and `rw_timed` keeps nothing from a draw that saw one.
 
 **Catching up has a limit.** A machine that falls behind catches up at most
 `RW_BEHIND` (30) frames, half a second. That is longer than an 8088's draw,

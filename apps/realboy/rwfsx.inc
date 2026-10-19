@@ -119,6 +119,8 @@ rw_fsenter:
     mov [rw_last], ax
     mov word [rw_owed], 0
     call rw_drawnow                 ; (on the window's clock again)
+    mov al, RLE_FSOUT
+    call rw_logevt
     mov byte [rw_fsq], 0
 .r:
     ret
@@ -239,6 +241,8 @@ rw_fsmain:
     call OSAPI_GET_TICKS
     mov [rw_last], ax
     mov byte [rw_infsx], 1          ; (rw_clk: the bracket's clock now)
+    mov al, RLE_FSIN
+    call rw_logevt
     call rw_drawnow                 ; the first draws now
 .loop:
     call rw_fsdrain                 ; ZF = 0: Esc
