@@ -494,6 +494,21 @@ anything is wrong.
 
 ### Wave 1 - the contract, the core, and the measurement that decides the rest
 
+**BUILT.** docs/REALBOY-SPEC.md is the contract and
+docs/reports/REALBOY-CORE-COST-2026-10-19.md the measurement: `cpu_instrs`
+and `instr_timing` pass bare, the first 10,000,000 instructions agree with
+Peanut-GB (registers and clock, after correcting the reference where it is
+not the hardware), and the core costs **26.20 clocks per busy M-cycle on
+86Box's 286** (the gate is 26) and 47.78 on the 8088. **The number that
+matters more came after**: real games in play, with no picture, take
+**77.9% of the 286 (Super Mario Land) and 104.2% (a busy scene of Kirby's)**,
+about 35 and 31 clocks per busy M-cycle all-in, and on the 286 the time is
+the interpreter's own dispatch rather than any one handler. So waves 2 and 3
+proceed on the gate, and the recompiler of section 5 item 4 is the lever the
+measurement names; superinstructions are worth about 2%. The files differ
+from the list below: the core is generated (`apps/realboy/rbgen.py`) and
+the system half is `apps/realboy/rbsys.inc`.
+
 **Features**
 - `docs/REALBOY-SPEC.md`: its own contract, cited as "section N".
 - The SM83 interpreter (section 4.1) with the minimal machine `cpu_instrs`

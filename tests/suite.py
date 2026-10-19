@@ -2558,6 +2558,28 @@ SOAK = [
         "the table goes 4 claims to 2 and this row names it. Needs `make "
         "mseg`.",
         needs=("marty", "nasm"), serial=True, wants=("build/mseg.img",)),
+    Row("gbcpu", "soak", py("tests/gbcpu.py"), 12.0,
+        "REALBOY's SM83 core (docs/plans/REALBOY-PLAN.md wave 1) against "
+        "Blargg's eleven cpu_instrs ROMs, the combined MBC1 one and "
+        "instr_timing, each booted BARE through tests/rbcore/rbhost.asm with "
+        "no os8088 under the core, every one printing Passed on its link "
+        "port. The ROMs are fetched by tools/getgbtest.py at pinned SHA-256s "
+        "and never committed. NEGATIVE CONTROL: DAA made a no-op must make "
+        "01-special fail. WHY QEMU: a correctness gate, and QEMU counts work "
+        "exactly - the cycle counts instr_timing checks are the core's own. "
+        "SOAK: one package's core",
+        needs=("qemu", "nasm")),
+    Row("gbtrace", "soak", py("tests/gbtrace.py"), 130.0,
+        "REALBOY's core against Peanut-GB (pinned by tools/gbprof.py), the "
+        "registers AND the M-cycle clock compared before each of the first "
+        "1,000,000 instructions of cpu_instrs (tools/gbtrace.py; the wave 1 "
+        "measurement is 10,000,000 and twenty minutes). The reference is "
+        "corrected in two places Peanut-GB is not the hardware - LY falls "
+        "behind time, and an interrupt dispatch costs nothing - each named "
+        "in tools/gbprof/gbtrace.c. NEGATIVE CONTROL: JR NZ made a no-op must "
+        "differ. WHY QEMU: the core's trace is counted, not timed. SOAK: one "
+        "package's core",
+        needs=("qemu", "nasm")),
     Row("c64part", "soak", py("tests/c64part.py"), 30.0,
         "THE FIRST REAL CONSUMER of the parts standard (SPEC.md 20.12, and "
         "C64-SPEC 1.4): C64.ROM - 20,480 bytes of KERNAL, BASIC and "

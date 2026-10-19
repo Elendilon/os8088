@@ -3,7 +3,8 @@
 
     python3 apps/realboy/rbgen.py build/realboy/rbcore.asm
 
-docs/plans/REALBOY-PLAN.md section 4.1 is the design and
+docs/REALBOY-SPEC.md is the contract (section 4 the layout below),
+docs/plans/REALBOY-PLAN.md section 4.1 the design and
 apps/realboy/rbdefs.inc the numbers. The core is ONE segment of 256 slots of
 256 bytes: opcode X's handler sits at X*256 and the handler for CB X at
 X*256+128, so dispatching is three instructions with no table -
@@ -426,7 +427,7 @@ mov bh,0FFh
 mov bl,dl
 mov [ss:S_WVAL],al
 mov word [ss:S_RET],.k
-jmp far [ss:S_IOWVEC]
+jmp io_wr
 .k:
 mov bx,[ss:S_TMP]
 xor dl,dl
@@ -451,7 +452,7 @@ mov [ss:S_TMP],bx
 mov bh,0FFh
 mov bl,dl
 mov word [ss:S_RET],.k
-jmp far [ss:S_IORVEC]
+jmp io_rd
 .k:
 mov al,dh
 mov bx,[ss:S_TMP]
@@ -506,15 +507,17 @@ cmp dl,80h
 cmc
 sbb dh,dh
 add si,dx
-cmp dx,0FFF9h
-jae .mb
+%ifndef RB_TRACE
+cmp dx,0FFF9h               ; a trace runs every iteration: no idle skip,
+jae .mb                     ; so it can be diffed against a reference
+%endif
 .fw:
 xor dl,dl
 """)
     s.cyc(3); s.check(); s.disp()
     s.t("""
 .mb:
-cmp dx,0FFFBh
+cmp dx,0FFFCh
 ja .fw
 cmp si,[ss:S_IDLENO]
 je .fw
@@ -582,14 +585,14 @@ rd_slow:
     mov dh,[es:bx]
     jmp word [ss:S_RET]
 .io:
-    jmp far [ss:S_IORVEC]
+    jmp io_rd
 ; [BX] = [S_WVAL] for the cartridge's registers (0000-7FFF) or an I/O one.
 wr_slow:
     test bh,bh
     js .io
-    jmp far [ss:S_MBCVEC]
+    jmp mbc_wr
 .io:
-    jmp far [ss:S_IOWVEC]
+    jmp io_wr
 """,
     0xDB: """
 ; Make the next event check fire: t_next -= BP (signed), BP = 0. Resumes at
@@ -616,6 +619,41 @@ RB_DISPATCH:
     mov dh,[si]
     inc si
     jmp dx
+; A cartridge write, BX = 0000-7FFF. A ROM bank switch on an MBC1, MBC3 or
+; MBC5 is done here, exactly as rb_mbcwrite and rb_setbank do it; the core's
+; DS moves with the bank when the game runs from 4000-7FFF.
+mbc_wr:
+    cmp bh,20h
+    jb .host
+    cmp bh,40h
+    jae .host
+    cmp byte [ss:S_BANKHI],0    ; the high bits: rbsys's
+    jne .host
+    mov dl,[ss:S_MBC]
+    cmp dl,RBM_MBC1
+    je .m1
+    cmp dl,RBM_MBC3
+    je .m3
+    cmp dl,RBM_MBC5
+    jne .host
+    cmp bh,30h
+    jae .host
+    mov dl,[ss:S_WVAL]
+    jmp short .set
+.m3:
+    mov dl,[ss:S_WVAL]
+    and dl,7Fh
+    jmp short .nz
+.m1:
+    mov dl,[ss:S_WVAL]
+    and dl,1Fh
+.nz:
+    jnz .set
+    inc dl
+.set:
+    jmp mbc_set
+.host:
+    jmp far [ss:S_MBCVEC]
 """,
     0xE3: """
 ; DAA, the SM83's own rule (it is not the 8086's: after a subtraction the
@@ -658,10 +696,10 @@ daa_tail:
     jmp word [ss:S_RET]
 """,
     0xE4: """
-; A taken backward JR of -5, -6 or -7 - the only lengths a read-and-test loop
+; A taken backward JR of -4 to -7 - the only lengths a read-and-test loop
 ; has - to a loop head not already known to be busy. The loop is a
-; SPIN-WAIT, and costs nothing, when its body is exactly one read of RAM into
-; A and one test of A: nothing in it can change what it reads until an
+; SPIN-WAIT, and costs nothing, when its body is exactly one read of RAM and
+; one test of what it read: nothing in it can change what it reads until an
 ; interrupt does, and an interrupt is an event (docs/plans/REALBOY-PLAN.md
 ; 4.1). In: SI = the loop head, DX = the displacement. Resumes at [S_RET],
 ; or leaves for the event entry with S_IDLE set.
@@ -673,12 +711,12 @@ idle_chk:
     cmp dl,0FAh
     je .fa
     cmp dl,0F0h
-    jne idle_no
+    jne idle_hl
     cmp byte [si+1],80h         ; LDH A,(n) of HRAM, never an I/O register
     jb idle_no
     sub dh,2
     mov dl,[si+3]
-    mov [ss:S_TMP+6],dl
+    mov [ss:S_SAVCX],dl
     mov dl,[si+2]
     jmp idle_tst
 .fa:
@@ -692,12 +730,158 @@ idle_chk:
 .fa1:
     sub dh,3
     mov dl,[si+4]
-    mov [ss:S_TMP+6],dl
+    mov [ss:S_SAVCX],dl
     mov dl,[si+3]
     jmp idle_tst
 """,
+    0xED: """
+; The two (HL) shapes: LD A,(HL) and a test of A, or BIT b,(HL) alone - Kirby
+; waits on BIT 6,(HL) / JR NZ,-4. HL (BX) must be WRAM or HRAM, where
+; nothing but the CPU writes; the loop never changes it.
+idle_hl:
+    cmp bh,0C0h
+    jb idle_no
+    cmp bh,0FFh
+    jne .ram
+    cmp bl,80h
+    jb idle_no
+.ram:
+    cmp dl,7Eh                  ; LD A,(HL)
+    je .ld
+    cmp dl,0CBh                 ; BIT b,(HL), and nothing else
+    jne idle_no
+    cmp dh,2
+    jne idle_no
+    mov dl,[si+1]
+    and dl,0C7h
+    cmp dl,46h
+    jne idle_no
+    jmp idle_yes
+.ld:
+    dec dh
+    mov dl,[si+2]
+    mov [ss:S_SAVCX],dl
+    mov dl,[si+1]
+    jmp idle_tst
+""",
+    0xF4: """
+; An I/O register read, BX = FF00-FF7F, answered in DH and resumed at [S_RET].
+; The joypad, STAT and LY are answered here, which is most of what a game
+; reads (Super Mario Land polls STAT 28 times a frame); everything else is
+; rbsys's, on the far side of a stack switch. Each answer is exactly
+; rb_ioread's.
+io_rd:
+    cmp bl,41h
+    je io_lcd
+    cmp bl,44h
+    je io_lcd
+    or bl,bl
+    jnz .host
+    mov dh,[ss:0FF00h]          ; P1: C0 | select | the four lines, 0 = held
+    or dh,0CFh                  ;   and selected
+    test dh,10h
+    jnz .btn
+    mov dl,[ss:S_JOY]           ; P14 low: the directions
+    not dl
+    or dl,0F0h
+    and dh,dl
+.btn:
+    test dh,20h
+    jnz .done
+    mov dl,[ss:S_JOY]           ; P15 low: the buttons
+    shr dl,1
+    shr dl,1
+    shr dl,1
+    shr dl,1
+    not dl
+    or dl,0F0h
+    and dh,dl
+.done:
+    xor dl,dl
+    jmp word [ss:S_RET]
+.host:
+    jmp far [ss:S_IORVEC]
+""",
+    0xFC: """
+; STAT (BL = 41h) or LY (BL = 44h), from the frame-relative clock rbsys keeps
+; in S_TNF: the PPU's place now is S_TNF - BP, modulo a frame. With the LCD
+; off, LY is 0 and STAT is its fixed part, mode 0.
+io_lcd:
+    mov [ss:S_SAVAX],ax
+    mov dh,[ss:0FF41h]
+    and dh,78h
+    or dh,80h
+    xor al,al
+    cmp byte [ss:S_LCDON],0
+    je .done
+    mov ax,[ss:S_TNF]
+    sub ax,bp
+.wrap:
+    cmp ax,RB_FRAME
+    jb .in
+    sub ax,RB_FRAME
+    jmp short .wrap
+.in:
+    mov dl,RB_LINE
+    div dl                      ; AL = LY, AH = M-cycles into the line
+    cmp al,[ss:0FF45h]
+    jne .nc
+    or dh,04h
+.nc:
+    cmp al,144
+    jb .vis
+    or dh,1                     ; mode 1
+    jmp short .done
+.vis:
+    cmp ah,20
+    jae .m3
+    or dh,2                     ; mode 2
+    jmp short .done
+.m3:
+    cmp ah,RB_HBL
+    jae .done                   ; mode 0
+    or dh,3                     ; mode 3
+.done:
+    cmp bl,44h
+    jne .out
+    mov dh,al
+.out:
+    mov ax,[ss:S_SAVAX]
+    xor dl,dl
+    jmp word [ss:S_RET]
+""",
+    0xFD: """
+; An I/O write, BX = FF00-FF7F or FFFF, [S_WVAL] the byte, resumed at
+; [S_RET]. The joypad's select and the sound registers, which have no side
+; effect yet, are stored here, and FF4C-FF7F - nothing on a DMG - is ignored;
+; the rest is rbsys's.
+io_wr:
+    mov dl,[ss:S_WVAL]
+    or bl,bl
+    jnz .snd
+    and dl,30h
+    or dl,0C0h
+    jmp short .st
+.snd:
+    cmp bl,10h
+    jb .host
+    cmp bl,40h
+    jb .st
+    cmp bl,4Ch
+    jb .host
+    cmp bl,0FFh
+    je .host
+    jmp short .z                ; FF4C-FF7F: nothing on a DMG, reads FF
+.st:
+    mov [ss:bx],dl
+.z:
+    xor dl,dl
+    jmp word [ss:S_RET]
+.host:
+    jmp far [ss:S_IOWVEC]
+""",
     0xEB: """
-; DL = the opcode after the read, DH = the bytes left for it, [S_TMP+6] = the
+; DL = the opcode after the read, DH = the bytes left for it, [S_SAVCX] = the
 ; byte after that.
 idle_tst:
     cmp dl,0A7h                 ; AND A
@@ -710,7 +894,7 @@ idle_tst:
     je .two
     cmp dl,0CBh                 ; BIT b,A
     jne idle_no
-    mov dl,[ss:S_TMP+6]
+    mov dl,[ss:S_SAVCX]
     and dl,0C7h
     cmp dl,47h
     jne idle_no
@@ -732,6 +916,26 @@ idle_yes:
     jmp far [ss:S_EVVEC]
 idle_no:
     mov [ss:S_IDLENO],si
+    xor dl,dl
+    jmp word [ss:S_RET]
+; mbc_wr's second half: DL = the bank number written.
+mbc_set:
+    mov [ss:S_BANK],dl
+    and dl,[ss:S_BMASK]
+    mov dh,dl                   ; ROMX = ROMSEG + bank * 400h - 400h
+    xor dl,dl
+    shl dx,1
+    shl dx,1
+    add dx,[ss:S_ROMSEG]
+    sub dx,400h
+    mov es,dx
+    mov dx,ds
+    cmp dx,[ss:S_ROMX]
+    mov dx,es
+    jne mbc_set.nx
+    mov ds,dx
+mbc_set.nx:
+    mov [ss:S_ROMX],dx
     xor dl,dl
     jmp word [ss:S_RET]
 """,

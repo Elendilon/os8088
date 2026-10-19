@@ -5,8 +5,9 @@
 ; the core's exit codes. Included by the generated core (build/realboy/
 ; rbcore.asm, written by apps/realboy/rbgen.py), by rbsys.inc (the events,
 ; I/O, MBC and timers) and by every host of the two - the package and the
-; boot-sector harness in tests/rbcore/. docs/plans/REALBOY-PLAN.md section 4
-; is the design; this file is the numbers.
+; boot-sector harness in tests/rbcore/. docs/REALBOY-SPEC.md is the contract
+; (this table is its list of fields) and docs/plans/REALBOY-PLAN.md section 4
+; the design; this file is the numbers.
 ;
 ; THE VIEW is one 64KB claim whose OFFSET IS THE GAME BOY ADDRESS for every
 ; region that never moves:
@@ -112,6 +113,19 @@ S_NOW           equ RB_STATE+0xA4   ; dword: "now", as a helper computed it
 S_T32           equ RB_STATE+0xA8   ; dword: scratch
 S_SNAPTAG       equ RB_STATE+0xAC   ; byte: the frame RB_SNAP was taken in
 S_TAKEINT       equ RB_STATE+0xAD   ; byte: an IF/IE write asks for an interrupt now
+S_RESVEC        equ RB_STATE+0xB0   ; dword: where rb_resume enters the core -
+                                    ; RB_DISPATCH, or rb_trace when tracing
+S_TNF           equ RB_STATE+0xB4   ; word: S_TNEXT - S_TFRAME, low 16 bits, so
+                                    ; the core reads the PPU's place as
+                                    ; S_TNF - BP (mod RB_FRAME) with no host
+S_BMASK         equ RB_STATE+0xB6   ; byte: ROM banks - 1, for the core's MBC path
+
+; --- the PPU's clock, in M-cycles ------------------------------------------
+RB_FAR_HI       equ 0x7FFF              ; "never": the high word of a far time
+RB_LINE         equ 114                 ; M-cycles a scan line
+RB_FRAME        equ 154*114             ; 17,556 M-cycles a frame
+RB_VBL          equ 144*114             ; line 144's start, frame-relative
+RB_HBL          equ 63                  ; mode 0 begins 63 M-cycles into a line
 
 ; --- why rb_run returned (S_EXIT, and AX) ------------------------------------
 RBX_FRAME       equ 1               ; a VBlank began: the frame is ready

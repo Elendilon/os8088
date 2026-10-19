@@ -18,6 +18,10 @@
 ;                   took, and the core's own counts.
 ;   MODE 2 (trace)  as MODE 0, with an RB_TRACE core: one line per
 ;                   instruction on COM1 only (tools/gbtrace.py diffs it).
+;   MODE 3 (play)   as MODE 1, pressing buttons on gbprof's platformer
+;                   script, with the counters and the ticks restarted at
+;                   frame 800.
+;   MODE 4 (idle)   as MODE 3 with no buttons pressed.
 ;
 ; Memory: the boot sector at 0000:7C00, the stack below it, this harness at
 ; 0800:0000, the core at 1000:0000, the view at 2000:0000, the ROM from
@@ -166,6 +170,10 @@ host_main:
     mov bx,CORE_SEG
     mov cx,ROM_SEG
     call rb_init
+    cmp byte [h_mode],2
+    jne .nt
+    call rb_trace_on
+.nt:
     ; the BIOS tick count as we start
     push ds
     xor ax,ax
@@ -200,6 +208,10 @@ host_main:
     jmp .end
 .frame:
     inc word [nframes]
+    cmp byte [h_mode],3
+    jb .nj
+    call joy_script
+.nj:
     mov ax,[nframes]
     cmp ax,[h_frames]
     jb .run
@@ -238,14 +250,131 @@ host_main:
     call hex16
     mov si,s_end
     call puts
+    cmp byte [h_mode],3                 ; MODES 3 and 4 end with the picture's
+    jb .halt                            ; inputs, for tests/rbcore/rbshot.py
+    mov si,s_vram
+    call puts
+    push ds
+    mov ds,[cs:rb_viewseg]
+    mov si,8000h                        ; VRAM
+    mov cx,2000h
+    call dump
+    mov si,0FE00h                       ; OAM
+    mov cx,0A0h
+    call dump
+    mov si,0FF40h                       ; LCDC to WX
+    mov cx,0Ch
+    call dump
+    pop ds
 .halt:
     hlt
     jmp .halt
 
-; rb_putc: what the game sends on its link port (and the trace)
+; MODE 3's input, tools/gbprof/gbprof.c's platformer script frame for frame:
+; Start at 150, 400 and 700, Right held, A for 14 frames of every 50, B for
+; the last 29 of every 400. At frame 800 the counters start from zero, as
+; gbprof's statistics do, so the two shares compare like for like.
+joy_script:
+    push ax
+    push bx
+    push cx
+    push dx
+    push ds
+    mov bx,[nframes]
+    xor dl,dl
+    cmp byte [cs:h_mode],4              ; MODE 4: the same, no buttons
+    je .nb
+    mov dl,01h                          ; Right
+    mov ax,bx
+    sub ax,150
+    cmp ax,6
+    jb .st
+    mov ax,bx
+    sub ax,400
+    cmp ax,6
+    jb .st
+    mov ax,bx
+    sub ax,700
+    cmp ax,6
+    jae .nst
+.st:
+    or dl,80h
+.nst:
+    mov ax,bx
+    push dx
+    xor dx,dx
+    mov cx,50
+    div cx
+    cmp dx,14
+    pop dx
+    jae .na
+    or dl,10h
+.na:
+    mov ax,bx
+    push dx
+    xor dx,dx
+    mov cx,400
+    div cx
+    cmp dx,370
+    pop dx
+    jbe .nb
+    or dl,20h
+.nb:
+    mov ds,[cs:rb_viewseg]
+    mov [S_JOY],dl
+    cmp bx,800
+    jne .r
+    xor ax,ax
+    mov [S_SKIPPED],ax
+    mov [S_SKIPPED+2],ax
+    mov [S_EVCOUNT],ax
+    mov ds,ax                           ; and the ticks: the frames timed are
+    mov ax,[0x46C]                      ; 800 onwards, the game in play
+    mov dx,[0x46E]
+    mov [cs:t0],ax
+    mov [cs:t0+2],dx
+.r:
+    pop ds
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; rb_putc: what the game sends on its link port, to COM1 and the screen - or
+; in MODE 2 to the screen only, COM1 carrying nothing but trace records
 rb_putc:
     push ax
     push dx
+    cmp byte [cs:h_mode],2
+    je .s0
+    call com1
+.s0:
+    cmp al,10
+    jne .s
+    mov al,13
+    call scr
+    mov al,10
+.s:
+    call scr
+    pop dx
+    pop ax
+    ret
+
+; CX bytes at DS:SI, raw, to COM1
+dump:
+    lodsb
+    call com1
+    loop dump
+    ret
+
+; rb_trbyte: a trace record's byte, raw, to COM1
+rb_trbyte:
+    push dx
+    call com1
+    pop dx
+    ret
+com1:
     push ax
     mov dx,0x3FD
 .w:
@@ -255,18 +384,6 @@ rb_putc:
     pop ax
     mov dx,0x3F8
     out dx,al
-    cmp byte [cs:h_mode],2
-    je .r
-    cmp al,10
-    jne .s
-    mov al,13
-    call scr
-    mov al,10
-.s:
-    call scr
-.r:
-    pop dx
-    pop ax
     ret
 
 putc:
@@ -348,6 +465,7 @@ s_ticks db " ticks ",0
 s_ev    db " events ",0
 s_skip  db " skipped ",0
 s_end   db " END",10,0
+s_vram  db "RBVRAM",0
 nframes dw 0
 t0      dd 0
 ticks   dw 0

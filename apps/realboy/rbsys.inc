@@ -4,14 +4,17 @@
 ; RealBoy's SYSTEM half: everything the core (build/realboy/rbcore.asm, from
 ; apps/realboy/rbgen.py) does not do inline - the event loop, interrupts,
 ; the PPU's timing, the timer, the I/O registers, the joypad, the link port,
-; OAM DMA and the cartridge's bank switching. docs/plans/REALBOY-PLAN.md
-; section 4 is the design and rbdefs.inc the layout.
+; OAM DMA and the cartridge's bank switching. docs/REALBOY-SPEC.md is the
+; contract, docs/plans/REALBOY-PLAN.md section 4 the design and rbdefs.inc
+; the layout.
 ;
 ; %included by every HOST: REALBOY.O88 and the boot-sector harness in
 ; tests/rbcore/. A host provides:
 ;
-;   rb_putc     near proc: AL = a byte the game sent on its link port, or one
-;               the trace prints. May be a bare RET.
+;   rb_putc     near proc: AL = a byte the game sent on its link port.
+;               May be a bare RET.
+;   rb_trbyte   near proc: AL = a byte of an RB_TRACE core's trace record.
+;               May be a bare RET; preserves every register.
 ;
 ; and calls, near, with CS the segment this file assembled into:
 ;
@@ -29,11 +32,6 @@
 ; nothing below writes under the game's SP.
 ; =============================================================================
 
-RB_FAR_HI       equ 0x7FFF              ; "never": the high word of a far time
-RB_LINE         equ 114                 ; M-cycles a scan line
-RB_FRAME        equ 154*114             ; 17,556 M-cycles a frame
-RB_VBL          equ 144*114             ; line 144's start, frame-relative
-RB_HBL          equ 63                  ; mode 0 begins 63 M-cycles into a line
 
 rb_viewseg      dw 0                    ; the view, for code on the host stack
 rb_coreseg      dw 0
@@ -63,6 +61,13 @@ rb_init:
     pop cx
     mov [es:S_ROMSEG],cx
     mov [es:S_NBANKS],dx
+    mov al,0FFh                         ; the core's MBC path masks a bank
+    cmp dx,256                          ;   with this; past 256 banks it
+    ja .bm                              ;   cannot be in memory anyway
+    mov al,dl
+    dec al
+.bm:
+    mov [es:S_BMASK],al
     mov ds,cx
     xor si,si
     xor di,di
@@ -128,6 +133,8 @@ rb_init:
     mov [S_RETFAR+2],ax
     mov [S_DISP+2],ax
     mov word [S_DISP],0DD00h            ; RB_DISPATCH, slot DD's main half
+    mov [S_RESVEC+2],ax
+    mov word [S_RESVEC],0DD00h          ; rb_trace_on points it at rb_trace
     ; the cartridge: its MBC from the header, bank 1 in ROMX
     mov es,[S_ROMSEG]
     mov al,[es:0147h]
@@ -185,6 +192,14 @@ rb_init:
     mov byte [0FF24h],77h
     mov byte [0FF25h],0F3h
     mov byte [0FF26h],0F1h
+    mov di,0FF4Ch                       ; FF4C-FF7F: nothing on a DMG, so
+    mov cx,(0FF80h-0FF4Ch)/2            ;   they read FF and the core drops
+    mov ax,0FFFFh                       ;   writes there
+    push es
+    push ds
+    pop es
+    rep stosw
+    pop es
     mov byte [0FF40h],91h
     mov byte [0FF41h],85h
     mov byte [0FF47h],0FCh
@@ -199,6 +214,9 @@ rb_init:
     mov word [S_TSTOP+2],RB_FAR_HI
     mov word [S_TNEXT],RB_VBL
     mov word [S_BP],RB_VBL
+    mov word [S_TNF],RB_VBL
+    mov word [S_TDIV],-0ABh*64          ; DIV reads AB at 0100, as the boot
+    mov word [S_TDIV+2],0FFFFh          ; ROM leaves it
     mov byte [S_SNAPTAG],0FFh
     mov word [S_IDLENO],0FFFFh
     pop es
@@ -243,6 +261,8 @@ rb_run:
 
 ; rb_exit: back to rb_run's caller, from anywhere on the host stack. DS = view.
 rb_exit:
+    ; STKBALANCE-OK: never called - jumped to from any depth of the host
+    ; stack; SP comes back from S_HSP, where rb_run banked it below its pushes
     mov sp,[S_HSP]
     xor ax,ax
     xchg al,[S_EXIT]
@@ -277,7 +297,7 @@ rb_resume:
     sti
     mov ds,dx
     xor dx,dx
-    jmp far [ss:S_DISP]
+    jmp far [ss:S_RESVEC]
 
 ; =============================================================================
 ; Entries from the core. Each arrives with SS:SP the game's stack.
@@ -430,6 +450,15 @@ rb_mbc:
     jmp rb_ret
 
 ; --- RB_TRACE builds: one line per instruction, then dispatch ---------------
+; rb_trace_on - with an RB_TRACE core, trace the first instruction after
+; every return to the core as well, so the trace has no gaps.
+rb_trace_on:
+    push ds
+    mov ds,[cs:rb_viewseg]
+    mov word [S_RESVEC],rb_trace
+    mov [S_RESVEC+2],cs
+    pop ds
+    ret
 rb_trace:
     mov [ss:S_AF],ax
     mov [ss:S_HL],bx
@@ -455,53 +484,32 @@ rb_trace:
     mov ds,[ss:S_SAVDS]
     xor dx,dx
     jmp far [ss:S_DISP]                 ; the RAW dispatch, never traced
+; One trace record, 14 bytes, to the host's rb_trbyte: PC, A, F (as the Game
+; Boy holds it), BC, DE, HL, SP, and the time in M-cycles - words little-endian.
+; tools/gbtrace.py diffs it against Peanut-GB; the first record whose time
+; differs is the first wrong cycle count.
 rb_trline:
-    mov al,'P'
-    call rb_putc
     mov ax,[S_PC]
-    call rb_hex16
-    mov al,' '
-    call rb_putc
-    mov al,[S_AF]                       ; A
-    call rb_hex8
-    mov bl,[S_AF+1]                     ; F, as the Game Boy holds it
+    call rb_trword
+    mov al,[S_AF]
+    call rb_trbyte
+    mov bl,[S_AF+1]
     xor bh,bh
     mov al,[RB_AH2F+bx]
-    call rb_hex8
+    call rb_trbyte
     mov ax,[S_BC]
-    call rb_hex16
+    call rb_trword
     mov ax,[S_DE]
-    call rb_hex16
+    call rb_trword
     mov ax,[S_HL]
-    call rb_hex16
+    call rb_trword
     mov ax,[S_SP]
-    call rb_hex16
-    mov al,10
-    jmp rb_putc
-rb_hex16:
-    push ax
+    call rb_trword
+    call rb_now
+rb_trword:
+    call rb_trbyte
     mov al,ah
-    call rb_hex8
-    pop ax
-rb_hex8:
-    push ax
-    shr al,1
-    shr al,1
-    shr al,1
-    shr al,1
-    call .nib
-    pop ax
-.nib:
-    push ax
-    and al,0Fh
-    add al,'0'
-    cmp al,'9'
-    jbe .p
-    add al,7
-.p:
-    call rb_putc
-    pop ax
-    ret
+    jmp rb_trbyte
 
 ; =============================================================================
 ; Time. Every time is a dword of M-cycles since rb_init.
@@ -528,6 +536,8 @@ rb_force:
     call rb_now
     mov [S_TNEXT],ax
     mov [S_TNEXT+2],dx
+    sub ax,[S_TFRAME]                   ; and S_TNF, which an LCDC write that
+    mov [S_TNF],ax                      ;   moved S_TFRAME relies on
     xor bp,bp
     pop dx
     pop ax
@@ -552,6 +562,24 @@ rb_sched:
     mov [S_TNEXT+2],dx
     sub ax,[S_NOW]
     mov bp,ax
+    push dx                             ; S_TFRAME to the frame holding now,
+.fr:                                    ;   then S_TNF for the core
+    mov ax,[S_NOW]
+    mov dx,[S_NOW+2]
+    sub ax,[S_TFRAME]
+    sbb dx,[S_TFRAME+2]
+    jnz .fadv
+    cmp ax,RB_FRAME
+    jb .fok
+.fadv:
+    add word [S_TFRAME],RB_FRAME
+    adc word [S_TFRAME+2],0
+    jmp .fr
+.fok:
+    pop dx
+    mov ax,[S_TNEXT]
+    sub ax,[S_TFRAME]
+    mov [S_TNF],ax
     ret
 .min:                                   ; DX:AX = min(DX:AX, [SI])
     cmp dx,[si+2]
@@ -1145,7 +1173,7 @@ rb_iowrite:
     jmp rb_force
 .lcd:
     cmp bl,4Ch
-    jae .plain
+    jae .r                              ; nothing on a DMG
     cmp bl,46h
     je .dma
     cmp bl,44h

@@ -48,6 +48,22 @@ HOOKS = [
      "\tGBPROF_POST(gb, opcode, gbprof_pc0);\n"),
     ("\tdo\n\t{\n\t\t/* DIV register timing */\n",
      "\t\tGBPROF_TICK(gb, inst_cycles);\n"),
+    # Peanut-GB charges an interrupt's dispatch NOTHING; the hardware takes
+    # 5 M-cycles. gbprof leaves both no-ops, so its numbers are what they
+    # were; tools/gbtrace.py charges the 5, so its clock is the hardware's.
+    ("\t\t/* Push Program Counter */\n",
+     "\t\tGBPROF_INT(gb);\n"),
+    ("\tinst_cycles = op_cycles[opcode];\n",
+     "\tGBPROF_CYC(gb, inst_cycles);\n"),
+    # And HALT advances in chunks as long as an LCD mode, so it can wake
+    # late. gbtrace steps it one M-cycle at a time; gbprof leaves it alone.
+    ("\t\tinst_cycles = (uint_fast16_t)halt_cycles;\n",
+     "\t\tGBPROF_HALTSTEP(gb, inst_cycles);\n"),
+    ("\t\t\t\tinst_cycles = LCD_MODE3_LCD_DRAW_MIN_DURATION - gb->counter.lcd_count;\n\t\t}\n",
+     "\t\tGBPROF_HALTSTEP(gb, inst_cycles);\n"),
+    # STOP is two bytes, 10 00; Peanut-GB takes one and runs the 00 as a NOP.
+    ("\tcase 0x10: /* STOP */\n",
+     "\t\tGBPROF_STOP(gb);\n"),
 ]
 
 

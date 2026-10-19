@@ -26,6 +26,10 @@ static void prof_tick(struct gb_s *gb, unsigned cyc);
 #define GBPROF_PRE(g,pc) prof_pre(g,pc)
 #define GBPROF_POST(g,op,pc) prof_post(g,op,pc)
 #define GBPROF_TICK(g,c) prof_tick(g,c)
+#define GBPROF_INT(g) ((void)0)
+#define GBPROF_CYC(g,c) ((void)0)
+#define GBPROF_HALTSTEP(g,c) ((void)0)
+#define GBPROF_STOP(g) ((void)0)
 #define ENABLE_SOUND 0
 #define ENABLE_LCD 1
 #include "pgb_prof.h"
@@ -57,6 +61,11 @@ static unsigned long long t_halt, t_poll, t_count, t_busy;
 static unsigned long long it_cyc, it_n, f_busy_n, t_busy_n; static int it_wrote, it_dread;
 static unsigned last_inst_cyc; static uint8_t last_op; static int raster_lines[154];
 static double busy_frac[100000]; static int nfr, nmeas; static int measure_from=800;
+/* adjacent pairs in BUSY code, by count: superinstruction candidates (the
+ * plan's section 5, lever 1). Held per loop iteration until it is classified,
+ * so a spin-wait's pairs - free to an emulator that skips it - never count. */
+static unsigned long long pairs[65536]; static uint16_t pbuf[65536]; static int pn, prev_op=-1;
+static void pflush(int busy){ if(busy && nfr>=measure_from) for(int i=0;i<pn;i++) pairs[pbuf[i]]++; pn=0; }
 
 static void prof_read(struct gb_s *gb, uint16_t a){(void)gb;
   if(!in_inst) return;
@@ -83,21 +92,23 @@ static void prof_tick(struct gb_s *gb, unsigned cyc){
   /* one executed instruction: classify via tight backward loops */
   if(nfr>=measure_from) opcyc[last_op]+=cyc;
   it_cyc+=cyc; it_n++;
+  if(prev_op>=0 && pn<65536) pbuf[pn++]=(uint16_t)(prev_op<<8|last_op);
+  prev_op=last_op;
   uint16_t npc=gb->cpu_reg.pc.reg;
   int taken_back = (npc < cur_pc) && (cur_pc - npc) <= 12;
   int branchy = (last_op==0x18||last_op==0x20||last_op==0x28||last_op==0x30||last_op==0x38||
                  last_op==0xC2||last_op==0xCA||last_op==0xD2||last_op==0xDA||last_op==0xC3);
   if(branchy && taken_back){
-    if(!it_wrote && it_dread) f_poll+=it_cyc;        /* spin: re-reads memory/IO, writes nothing */
-    else if(!it_wrote) f_count+=it_cyc;              /* pure register countdown */
-    else { f_busy+=it_cyc; f_busy_n+=it_n; }
+    if(!it_wrote && it_dread){ f_poll+=it_cyc; pflush(0); }  /* spin: re-reads memory/IO, writes nothing */
+    else if(!it_wrote){ f_count+=it_cyc; pflush(0); }        /* pure register countdown */
+    else { f_busy+=it_cyc; f_busy_n+=it_n; pflush(1); }
     it_cyc=0; it_n=0; it_wrote=0; it_dread=0;
   } else if(branchy || last_op==0xCD || last_op==0xC9 || last_op==0xD9 || (last_op&0xC7)==0xC7 || last_op==0xE9){
-    f_busy+=it_cyc; f_busy_n+=it_n; it_cyc=0; it_n=0; it_wrote=0; it_dread=0;   /* left the loop shape */
+    f_busy+=it_cyc; f_busy_n+=it_n; it_cyc=0; it_n=0; it_wrote=0; it_dread=0; pflush(1);   /* left the loop shape */
   }
 }
 static void end_frame(void){
-  f_busy+=it_cyc; f_busy_n+=it_n; it_cyc=0; it_n=0; it_wrote=0; it_dread=0;
+  f_busy+=it_cyc; f_busy_n+=it_n; it_cyc=0; it_n=0; it_wrote=0; it_dread=0; pflush(1);
   unsigned long long tot=f_halt+f_poll+f_count+f_busy;
   (void)tot;
   if(nfr>=measure_from && nmeas<100000) busy_frac[nmeas++]=(double)f_busy/70224.0;
@@ -159,6 +170,10 @@ int main(int argc,char**argv){
   printf("writes/frame by region:   "); for(int r=0;r<R_N;r++) printf(" %s %.0f",rn[r],(double)wr[r]/NF); printf("\n");
   printf("top IO reads/frame:"); for(int k=0;k<6;k++){int b=0;for(int i=0;i<256;i++)if(io_rd[i]>io_rd[b])b=i; if(!io_rd[b])break; printf(" FF%02X %.1f",b,(double)io_rd[b]/NF); io_rd[b]=0;} printf("\n");
   printf("top IO writes/frame:"); for(int k=0;k<8;k++){int b=0;for(int i=0;i<256;i++)if(io_wr[i]>io_wr[b])b=i; if(!io_wr[b])break; printf(" FF%02X %.1f",b,(double)io_wr[b]/NF); io_wr[b]=0;} printf("\n");
+  { unsigned long long sp=0; for(int i=0;i<65536;i++) sp+=pairs[i];
+    printf("top busy pairs (of %.0f a frame):", (double)sp/NF);
+    for(int k=0;k<16;k++){int b=0;for(int i=0;i<65536;i++)if(pairs[i]>pairs[b])b=i; if(!pairs[b])break;
+      printf(" %02X.%02X:%.1f%%",b>>8,b&255,100.0*pairs[b]/sp); pairs[b]=0;} printf("\n"); }
   printf("top opcodes by cycles:"); unsigned long long sumc=0; for(int i=0;i<256;i++)sumc+=opcyc[i];
   for(int k=0;k<14;k++){int b=0;for(int i=0;i<256;i++)if(opcyc[i]>opcyc[b])b=i; printf(" %02X:%.1f%%",b,100.0*opcyc[b]/sumc); opcyc[b]=0;} printf("\n");
   return 0;
