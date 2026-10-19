@@ -232,7 +232,10 @@ IF's bit cleared, PC pushed, PC = 40h + 8 x the bit, and **5 M-cycles**
 charged before the handler's first instruction. A write to IF or IE takes
 one **at once**, from inside the writing instruction (`rb_irqnow`), so the
 pushed PC is the next instruction's. HALT ends when IF AND IE is non-zero,
-whether or not IME is set. **The HALT bug**: HALT executed with IME clear and
+whether or not IME is set, and **a budget that ends inside a HALT leaves it a
+HALT**: the next `rb_run` goes on to the next event rather than into the
+instruction after it (a game that counts VBlanks with `HALT` counted host
+budgets before this). **The HALT bug**: HALT executed with IME clear and
 an interrupt already pending does not halt, and the byte after it is read
 twice - the next opcode runs with PC still on itself.
 
@@ -584,3 +587,43 @@ interpreter's 26.2**. Super Mario Land, the CPU alone on gbprof's script, is
 11.67 ms a frame against 13.04; in the package, in play, **80.1% of real
 time in the window and 76.0% full screen**, against 59.5% and 58.0%
 interpreted. docs/reports/REALBOY-JIT-2026-10-19.md has the record.
+
+## 17. Sound
+
+**The speaker plays the louder of the two square channels.** The wave and
+noise channels make no sound. rbsys keeps a record of the two square
+channels (`S_SQ1`, `S_SQ2`) from the writes that decide whether they sound,
+and the package turns that record into one tone. All other sound registers
+are plain memory.
+
+- **The writes rbsys takes**: NR12/NR22, NR14/NR24 and NR52. The core's
+  `io_wr` sends each of them to `rb_iowrite`.
+  - A trigger (bit 7 of NRx4) turns a channel on at NRx2's starting volume,
+    unless NRx2's top five bits are zero: then the DAC is off and the trigger
+    does nothing.
+  - An NRx2 write that switches the DAC off silences the channel at once.
+  - Bit 6 of NRx4 arms the length counter at `64 - (NRx1 & 3Fh)` steps of
+    256 Hz.
+  - NR52 with bit 7 clear silences both channels.
+- **Time**: `rb_vblank` calls `rb_sqframe` once a Game Boy frame. Each call
+  adds 274/256 of a step to the 64 Hz envelope and 1,097/256 of a step to
+  the length counter: 64 / 59.7275 and 256 / 59.7275 Hz, kept in 1/256ths.
+  An envelope steps the volume towards 0 or 15. A length counter that
+  reaches zero turns its channel off.
+- **The speaker**: after every frame it runs, the worker calls `rw_sound`.
+  It does this in the window and in full screen alike.
+  - It takes the channel that is on with the higher volume, channel 1 on a
+    tie, and computes `131,072 / (2048 - x)` Hz from its NRx3/NRx4.
+  - It passes that pitch to `OSAPI_SND_TONE`, but only when the pitch has
+    changed. Volume 0, and a pitch outside 20 to 15,000 Hz, are silence.
+  - A refusal (another owner of the speaker) is asked again the next frame.
+  - A paused or stopped machine turns the tone off (`rw_quiet`).
+- **The pitch is exact and the timing is the game's.** Notes follow the
+  game's frames. A game running at half speed plays its tune at half speed,
+  at the right pitch.
+
+`tests/gbsound.py` is the gate. GBTONE.GB (`tools/gbprof/gbtone.asm`,
+assembled by `tools/gbtone.py` with the pinned rgbds) plays a trigger, a DAC
+switched off, and a length counter that runs out. The row captures
+MartyPC's speaker and asserts all three. With the length counter broken it
+fails, naming the counter.

@@ -638,6 +638,13 @@ built.
 
 ### Wave 5 - sound, save RAM, MBC3, polish
 
+**The speaker voice is BUILT** (REALBOY-SPEC section 17), and `gbsound` is
+its row. It plays the louder square channel, with envelopes, length counters
+and the DAC switch tracked once a frame. Building it found that a budget
+ending inside a HALT used to resume after the HALT (REALBOY-SPEC section 7),
+and that the worker's draw clock compared unsigned. Between them they had the 8088 running
+GBTONE at 3% of real time.
+
 **Features**
 - The speaker voice (section 4.5);
 - OPL2 through `SOUND.DRV` if wave 4 left the cycles for it;

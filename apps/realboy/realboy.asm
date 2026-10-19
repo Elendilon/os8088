@@ -93,7 +93,8 @@ rw_font         equ rw_fsi + FSI_SIZE ; 768: glyphs 32-127, copied at entry
 rw_jitseg       equ rw_font + 768   ; word: the recompiler's 64KB, or 0
 rw_jitwant      equ rw_jitseg + 2   ; translate when there is a cache for it
 rw_jitq         equ rw_jitwant + 1  ; Machine > Recompiler asked; the worker
-rw_fbuf         equ rw_jitq + 1     ; 5,760: rb_render's frame (monochrome)
+rw_tone         equ rw_jitq + 1     ; word: the hertz the speaker plays (0 off)
+rw_fbuf         equ rw_tone + 2     ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 
@@ -476,6 +477,7 @@ rw_worker:                          ;   the worker parked at the top of its
     call rw_keys
     call rw_frame
     jc .loop                        ; it stopped
+    call rw_sound
     inc word [rw_nrun]
     call rw_stat
     sub word [rw_owed], 256
@@ -484,12 +486,20 @@ rw_worker:                          ;   the worker parked at the top of its
     call OSAPI_GET_TICKS            ; ...or it has been too long: a
     sub ax, [rw_drawt]              ;   machine that is behind draws by the
     cmp ax, RW_DRAWTICKS            ;   CLOCK, so its picture rate is the
-    jb .loop                        ;   same whatever the game's speed
+    jl .loop                        ;   same whatever the game's speed
+                                    ;   (signed: a slow draw puts the next
+                                    ;   one's time in the future)
 .draw:
     call OSAPI_GET_TICKS
-    mov [rw_drawt], ax
+    push ax
     inc word [rw_ndrawn]
     call rw_present
+    call OSAPI_GET_TICKS            ; a draw that took D ticks puts the next
+    pop dx                          ;   one RW_DRAWTICKS + D after it, so
+    sub dx, ax                      ;   drawing is under half the machine on
+    neg dx                          ;   an 8088 too, where a frame composed
+    add ax, dx                      ;   is most of a second
+    mov [rw_drawt], ax
     jmp .loop                       ; the clock is read again after EVERY
                                     ;   frame: a worker that spent what it
                                     ;   was owed before looking slept a tick
@@ -497,6 +507,13 @@ rw_worker:                          ;   the worker parked at the top of its
 .resync:
     mov [rw_last], ax
 .sleep:
+    cmp byte [rw_pause], 0          ; paused or stopped: the speaker quiet
+    jne .q
+    cmp byte [rw_state], 1
+    je .sl
+.q:
+    call rw_quiet
+.sl:
     mov byte [rw_incore], 0
     mov ax, 1
     call OSAPI_TASK_SLEEP
@@ -528,6 +545,71 @@ rw_frame:
     mov bx, [rw_win]
     call OSAPI_WM_WAKE
     stc
+    ret
+
+; rw_sound - the speaker, after a frame: the LOUDER of the two square
+; channels rbsys keeps (REALBOY-SPEC section 17), at 131,072 / (2048 - x)
+; Hz, through OSAPI_SND_TONE - and only when the note changed. A refusal (a
+; louder owner of the speaker) leaves [rw_tone] stale-zero, so the next
+; frame asks again.
+rw_sound:
+    push ds
+    mov ds, [cs:rb_viewseg]
+    xor bx, bx                      ; BL = the louder volume, BH: which
+    xor dx, dx
+    cmp byte [S_SQ1 + SQ_ON], 0
+    je .c2
+    mov bl, [S_SQ1 + SQ_VOL]
+    mov dx, 0FF13h
+.c2:
+    cmp byte [S_SQ2 + SQ_ON], 0
+    je .pick
+    mov al, [S_SQ2 + SQ_VOL]
+    cmp al, bl
+    jbe .pick
+    mov bl, al
+    mov dx, 0FF18h
+.pick:
+    xor ax, ax                      ; silent unless a channel sounds
+    or bl, bl
+    jz .play
+    mov si, dx
+    mov cx, [si]                    ; NRx3, NRx4: the 11-bit frequency
+    and ch, 7
+    mov bx, 2048
+    sub bx, cx                      ; BX = 2048 - x, 1..2048
+    mov dx, 2                       ; DX:AX = 131,072
+    xor ax, ax
+    div bx                          ; AX = hertz
+    cmp ax, 20                      ; past the speaker's range: silent
+    jb .zero
+    cmp ax, 15000
+    jbe .play
+.zero:
+    xor ax, ax
+.play:
+    pop ds
+    cmp ax, [rw_tone]
+    je .r
+    mov [rw_tone], ax
+    xor cx, cx                      ; until off
+    mov dl, 40h
+    call OSAPI_SND_TONE
+    jnc .r
+    mov word [rw_tone], 0FFFFh      ; refused: ask again next frame
+.r:
+    ret
+
+; rw_quiet - the speaker off, if we had it
+rw_quiet:
+    cmp word [rw_tone], 0
+    je .r
+    mov word [rw_tone], 0
+    xor ax, ax
+    xor cx, cx
+    mov dl, 40h
+    call OSAPI_SND_TONE
+.r:
     ret
 
 ; rw_reset - Machine > Reset, on the worker: rb_init again from the ROM

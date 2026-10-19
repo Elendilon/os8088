@@ -251,6 +251,7 @@ rb_run:
     mov [S_NOW],ax
     mov [S_NOW+2],dx
     pop cx
+    mov [S_BUDLEN],cx
     add ax,cx
     adc dx,0
     mov [S_TSTOP],ax
@@ -259,6 +260,11 @@ rb_run:
     mov [S_HSS],ss
     call rb_sched                       ; TNEXT = the earliest event, BP to it
     mov [S_BP],bp
+    cmp byte [S_HALT],0                 ; a HALT the last budget ended inside
+    je .go                              ;   is still a HALT: on to the next
+    call rb_events                      ;   event, not into the instruction
+    jc rb_exit                          ;   after it (REALBOY-SPEC section 7)
+.go:
     jmp rb_resume
 
 ; rb_exit: back to rb_run's caller, from anywhere on the host stack. DS = view.
@@ -672,6 +678,15 @@ rb_events:
     mov si,S_TSTOP
     call .isdue
     jnc .n4
+    cmp byte [S_HALT],0                 ; HALTED, the budget is not the
+    je .bud                             ;   core's interrupts-off time - this
+    cmp word [S_TVBL+2],RB_FAR_HI       ;   runs with them on - so it is
+    je .bud                             ;   carried on to the next VBlank, not
+    mov ax,[S_BUDLEN]                   ;   spent on a trip to the host; with
+    add [S_TSTOP],ax                    ;   the LCD off nothing would end it
+    adc word [S_TSTOP+2],0
+    jmp short .n4
+.bud:
     mov word [S_TSTOP+2],RB_FAR_HI
     cmp byte [S_EXIT],0
     jne .n4
@@ -776,6 +791,7 @@ rb_catchup:
 
 ; --- VBlank: line 144 began -------------------------------------------------
 rb_vblank:
+    call rb_sqframe
     or byte [0FF0Fh],01h
     test byte [0FF41h],10h
     jz .n
@@ -832,6 +848,76 @@ rb_statev:
     or byte [0FF0Fh],02h
 .r:
     jmp rb_statsch
+
+; rb_sqch: SI = the square channel whose register BX is (FF10-FF14: 1)
+rb_sqch:
+    mov si,S_SQ1
+    cmp bl,15h
+    jb .r
+    mov si,S_SQ2
+.r:
+    ret
+
+; rb_sqframe: a frame of the two square channels' envelopes and lengths -
+; 64 Hz envelope steps are 274/256 of a frame, 256 Hz length steps
+; 1,097/256 (59.7275 Hz). The speaker plays what they leave (section 17).
+rb_sqframe:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov si,S_SQ1
+    mov bx,0FF12h
+    call .ch
+    mov si,S_SQ2
+    mov bx,0FF17h
+    call .ch
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.ch:
+    cmp byte [si+SQ_ON],0
+    je .r
+    mov al,[bx]                         ; NRx2: the envelope's period, way
+    mov cl,al
+    and cl,7
+    jz .len                             ; period 0: the volume holds
+    xor ch,ch
+    mov dh,cl                           ; DX = period x 256
+    xor dl,dl
+    add word [si+SQ_ENV],274
+.env:
+    cmp [si+SQ_ENV],dx
+    jb .len
+    sub [si+SQ_ENV],dx
+    test al,08h
+    jz .dn
+    cmp byte [si+SQ_VOL],15
+    jae .env
+    inc byte [si+SQ_VOL]
+    jmp short .env
+.dn:
+    cmp byte [si+SQ_VOL],0
+    je .env
+    dec byte [si+SQ_VOL]
+    jmp short .env
+.len:
+    cmp byte [si+SQ_LEN],0
+    je .r
+    add word [si+SQ_LACC],1097
+.l:
+    cmp word [si+SQ_LACC],256
+    jb .r
+    sub word [si+SQ_LACC],256
+    dec byte [si+SQ_LEN]
+    jnz .l
+    mov byte [si+SQ_ON],0
+.r:
+    ret
 
 ; rb_statsch: S_TSTAT = the first STAT condition AFTER now.
 rb_statsch:
@@ -1186,8 +1272,60 @@ rb_iowrite:
     je .tima
     cmp bl,07h
     je .tac
+    cmp bl,12h
+    je .nr2
+    cmp bl,14h
+    je .nr4
+    cmp bl,17h
+    je .nr2
+    cmp bl,19h
+    je .nr4
+    cmp bl,26h
+    je .nr52
 .plain:
     mov [bx],al
+    ret
+; --- the square channels, for the speaker (REALBOY-SPEC section 17)
+.nr2:                                   ; NRx2: the DAC off silences at once
+    mov [bx],al
+    test al,0F8h
+    jnz .r2
+    call rb_sqch                        ; SI = the channel
+    mov byte [si+SQ_ON],0
+.r2:
+    ret
+.nr4:                                   ; NRx4: bit 7 triggers
+    mov [bx],al
+    test al,80h
+    jz .r2
+    call rb_sqch
+    mov ah,[bx-2]                       ; NRx2
+    test ah,0F8h
+    jz .r2                              ; the DAC off: a trigger does nothing
+    mov byte [si+SQ_ON],1
+    mov cl,4
+    shr ah,cl
+    mov [si+SQ_VOL],ah
+    xor cx,cx
+    mov [si+SQ_ENV],cx
+    mov [si+SQ_LACC],cx
+    mov byte [si+SQ_LEN],0              ; no length: until something stops it
+    test al,40h
+    jz .r2
+    mov al,[bx-3]                       ; NRx1: 64 - the length, in 256 Hz steps
+    and al,3Fh
+    neg al
+    add al,64
+    mov [si+SQ_LEN],al
+    ret
+.nr52:                                  ; the master switch off: both off
+    and al,80h
+    or al,70h
+    mov [bx],al
+    test al,80h
+    jnz .r2
+    mov byte [S_SQ1+SQ_ON],0
+    mov byte [S_SQ2+SQ_ON],0
     ret
 .ie:
     mov [bx],al

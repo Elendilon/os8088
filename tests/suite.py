@@ -2595,6 +2595,16 @@ SOAK = [
         "match. SOAK: one package",
         needs=("marty", "nasm"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
+    Row("gbsound", "soak", py("tests/gbsound.py"), 15.0,
+        "REALBOY.O88's speaker (docs/REALBOY-SPEC.md section 17) on MartyPC's "
+        "VGA XT, against GBTONE.GB (tools/gbtone.py, ours): channel 1 at 440 "
+        "Hz, its DAC switched off, then channel 2 at 880 Hz with a length of "
+        "64 - the capture (MARTYPC_WAV) must hold the two tones, silence "
+        "between them and nothing after the second, whose length counter ends "
+        "it. Breaking the counter leaves 880 Hz running and the row says so. "
+        "SOAK: one package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("rbspeed286", "soak", py("tests/rbspeed286.py"), 1200.0,
         "REALBOY's game speed on 86Box's 286 (docs/plans/REALBOY-PLAN.md wave "
         "4): Super Mario Land and Kirby's Dream Land started and walked right, "

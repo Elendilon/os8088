@@ -141,6 +141,17 @@ S_JITSEG        equ RB_STATE+0xCC   ; word: the cache's segment (16.2)
 S_JITBY         equ RB_STATE+0xCE   ; word: code bytes written, / 16 (stat)
 S_JITADV        equ RB_STATE+0xD0   ; word: free ranges moved on to (stat)
 S_LINK          equ RB_STATE+0xD2   ; word: tr_link's patch site
+; the two square channels as the speaker hears them (REALBOY-SPEC section
+; 17), 8 bytes each: on, volume (0-15), the envelope's and the length's
+; accumulators (words, in 1/256ths of a step) and the length's steps left
+S_SQ1           equ RB_STATE+0xD4
+S_SQ2           equ RB_STATE+0xDC
+S_BUDLEN        equ RB_STATE+0xE4   ; word: rb_run's budget, M-cycles
+SQ_ON           equ 0
+SQ_VOL          equ 1
+SQ_ENV          equ 2
+SQ_LACC         equ 4
+SQ_LEN          equ 6
 
 ; --- the PPU's clock, in M-cycles ------------------------------------------
 RB_FAR_HI       equ 0x7FFF              ; "never": the high word of a far time

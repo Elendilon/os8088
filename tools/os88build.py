@@ -682,6 +682,23 @@ def have_gbroms():
     return bool(d) and all(os.path.isfile(os.path.join(d, n)) for n in GB_ROMS)
 
 
+def have_rgbds():
+    """Is rgbds built at tools/gbclock.py's pinned commit (`python3
+    tools/gbclock.py --rgbds`)? The Game Boy ROMs RealBoy's rows run are ours
+    and assembled with it; building it needs the network and bison."""
+    d = os.path.join(ROOT, "build", "rgbds")
+    if not all(os.access(os.path.join(d, t), os.X_OK)
+               for t in ("rgbasm", "rgblink", "rgbfix")):
+        return False
+    try:
+        import gbclock
+    except ImportError:
+        return False
+    head = subprocess.run(["git", "-C", d, "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    return head == gbclock.RGBDS_REV
+
+
 def have_86box():
     """Is the automation-enabled 86Box built (`python3 tools/os88box.py
     build`, docs/86BOX.md)? The binary, not its directory."""

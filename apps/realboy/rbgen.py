@@ -1228,6 +1228,16 @@ io_wr:
 .snd:
     cmp bl,10h
     jb .host
+    cmp bl,12h                  ; the square channels' volume and trigger
+    je .host                    ;   registers and NR52 are rbsys's: it
+    cmp bl,14h                  ;   keeps their envelopes and lengths for
+    je .host                    ;   the speaker (REALBOY-SPEC section 17)
+    cmp bl,17h
+    je .host
+    cmp bl,19h
+    je .host
+    cmp bl,26h
+    je .host
     cmp bl,40h
     jb .st
     cmp bl,4Ch

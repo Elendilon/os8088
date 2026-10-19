@@ -208,6 +208,7 @@ rw_fsmain:
     call rw_keys
     call rw_frame
     jc .out                         ; it stopped
+    call rw_sound
     inc word [rw_nrun]
     call rw_stat
     inc byte [rw_fsrun]

@@ -302,6 +302,11 @@ def capabilities():
         caps.add("gbroms")
     if os88build.have_86box():
         caps.add("86box")
+    # rgbds at tools/gbclock.py's pinned commit, for `gbsound`, whose ROM is
+    # ours and assembled on the box (tools/gbtone.py). Built on demand and
+    # with the network, so its absence is a SKIP rather than a fetch.
+    if os88build.have_rgbds():
+        caps.add("rgbds")
     # ffmpeg AND numpy, the encoder front end's (tools/os88venc.py, SPEC.md
     # 98.2.1). Nothing in the build needs either, so they are a capability
     # and not a dependency, and `make deps` does not install ffmpeg's
