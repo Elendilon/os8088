@@ -297,8 +297,37 @@ The NES's 6502 runs at 1.79 MHz, with less bus bandwidth than the 5150. If a
 full-speed Game Boy on NES hardware exists, it almost certainly had help: a
 coprocessor in the cartridge, or a static translation of one specific game.
 The NES's sprite and tile hardware is also much closer to the Game Boy's than
-anything in a 5150, which takes the whole of section 5 off its bill. If you
-have the link, it would be worth reading how it was done.
+anything in a 5150, which takes the whole of section 5 off its bill.
+
+### 7.1 The video's project: NESPC
+
+The project in the video turned out to be **NESPC**
+(github.com/ThroatyMumbo/NESPC, demo at youtu.be/o0s7tRcqsOs), a desktop
+environment that replaces the EverDrive N8 Pro's menu. I read the repository
+at its default branch on 2026-10-19. I did not watch the video, so this is
+about the code and not about what the video shows.
+
+**The repository contains no Game Boy emulator on the 6502.** There is no
+Peanut-GB, no SM83 core, and no `.gb` handling in the 6502 code. Its README
+says only that `games/` holds "Regular NES/GB ROMs".
+
+**Every game launches as an FPGA core in the cartridge.**
+`desk/nes/src/launch.s`'s `find_core` looks for a `name.rbf` next to the ROM,
+or falls back to the EverDrive's stock core for the cartridge mapper. It then
+loads that core into the N8 Pro's FPGA. The README says "the FPGA is heavily
+utilized to make this thing work well". So a Game Boy game in that window can
+only run as a Game Boy implemented in the cartridge's FPGA, with the NES left
+to show the picture and read the controller. I could not find which core that
+is: Krikzz's own Game Boy hardware is a separate cartridge (the EverDrive GB
+X7).
+
+**The RP2350 in the project is the keyboard and mouse adapter.** It is on the
+controller cable, not on the cartridge bus.
+
+So the video is very likely real, but it is the section 7 case of a
+coprocessor in the cartridge doing the emulation. It is not evidence that a
+1.79 MHz 6502 can emulate a Game Boy at full speed, and it does not change
+the 5150 answer.
 
 ## 8. If it is pursued anyway: two measurements, in this order
 
