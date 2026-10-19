@@ -544,7 +544,7 @@ sub bp,1
 
 
 def jr_taken(s):
-    """SI += signed operand; a JR of -5..-7 may close a spin-wait."""
+    """SI += signed operand; a JR of -4..-16 may close a spin-wait."""
     s.a(f"""
 mov dl,[si]
 inc si
@@ -553,7 +553,7 @@ cmc
 sbb dh,dh
 add si,dx
 %ifndef RB_TRACE
-cmp dx,0FFF9h               ; a trace runs every iteration: no idle skip,
+cmp dx,0FFF0h               ; a trace runs every iteration: no idle skip,
 jae .mb                     ; so it can be diffed against a reference
 %endif
 .fw:
@@ -618,7 +618,8 @@ def gen_cb(op):
     return s
 
 
-# --- the shared tails, placed in slots whose main half is an invalid opcode --
+# --- the shared tails, placed after a main half with room: an invalid -----
+# --- opcode's, or a short handler's (idle_tst follows PUSH HL) --------------
 TAILS = {
     0xD3: """
 ; [BX] for an address the fast path does not take: ROMX or an I/O register.
@@ -741,12 +742,14 @@ daa_tail:
     jmp word [ss:S_RET]
 """,
     0xE4: """
-; A taken backward JR of -4 to -7 - the only lengths a read-and-test loop
-; has - to a loop head not already known to be busy. The loop is a
-; SPIN-WAIT, and costs nothing, when its body is exactly one read of RAM and
-; one test of what it read: nothing in it can change what it reads until an
-; interrupt does, and an interrupt is an event (docs/plans/REALBOY-PLAN.md
-; 4.1). In: SI = the loop head, DX = the displacement. Resumes at [S_RET],
+; A taken backward JR of -4 to -16 to a loop head not already known to be
+; busy. The loop is a SPIN-WAIT, and costs nothing, when its body is one
+; read of RAM and then only tests of what it read and conditional JRs - back
+; to the head, or forward out of the loop: nothing in it can change what it
+; reads until an interrupt does, so every pass takes the same path, and an
+; interrupt is an event (docs/plans/REALBOY-PLAN.md 4.1). Kirby's is a read
+; and TWO tests, each with its own JR NZ back: LDH A,(8C) / BIT 5,A / JR NZ /
+; BIT 6,A / JR NZ,-10. In: SI = the loop head, DX = the displacement. Resumes at [S_RET],
 ; or leaves for the event entry with S_IDLE set.
 idle_chk:
     neg dx
@@ -759,10 +762,7 @@ idle_chk:
     jne idle_hl
     cmp byte [si+1],80h         ; LDH A,(n) of HRAM, never an I/O register
     jb idle_no
-    sub dh,2
-    mov dl,[si+3]
-    mov [ss:S_SAVCX],dl
-    mov dl,[si+2]
+    mov dl,2                    ; the tests start after the 2-byte read
     jmp idle_tst
 .fa:
     mov dl,[si+2]               ; LD A,(nn) of WRAM or HRAM
@@ -773,10 +773,7 @@ idle_chk:
     cmp byte [si+1],80h
     jb idle_no
 .fa1:
-    sub dh,3
-    mov dl,[si+4]
-    mov [ss:S_SAVCX],dl
-    mov dl,[si+3]
+    mov dl,3                    ; ...the 3-byte one
     jmp idle_tst
 """,
     0xED: """
@@ -803,10 +800,7 @@ idle_hl:
     jne idle_no
     jmp idle_yes
 .ld:
-    dec dh
-    mov dl,[si+2]
-    mov [ss:S_SAVCX],dl
-    mov dl,[si+1]
+    mov dl,1                    ; the tests start after LD A,(HL)
     jmp idle_tst
 """,
     0xF4: """
@@ -925,32 +919,73 @@ io_wr:
 .host:
     jmp far [ss:S_IOWVEC]
 """,
-    0xEB: """
-; DL = the opcode after the read, DH = the bytes left for it, [S_SAVCX] = the
-; byte after that.
+    0xE5: """
+; The tests after the read. DL = where they start (from the head, SI), DH =
+; where the closing JR is. Each is AND A, OR A, CP n, AND n or BIT b,A, or a
+; JR cc that goes back to the head or forward past the closing JR; they must
+; end exactly at it. (BIT and JR are checked in POP HL's slot, idle_tbit.)
 idle_tst:
+    mov [ss:S_SAVCX],cx
+    mov [ss:S_SAVBX],bx
+    mov cx,dx                   ; CL = the place, CH = the closing JR's
+    xor bh,bh
+    cmp cl,ch                   ; a read and no test: not a wait
+    jae idle_tno
+idle_tn:
+    mov bl,cl
+    mov dl,[si+bx]
     cmp dl,0A7h                 ; AND A
-    je .one
+    je idle_t1
     cmp dl,0B7h                 ; OR A
-    je .one
+    je idle_t1
     cmp dl,0FEh                 ; CP n
-    je .two
+    je idle_t2
     cmp dl,0E6h                 ; AND n
-    je .two
-    cmp dl,0CBh                 ; BIT b,A
-    jne idle_no
-    mov dl,[ss:S_SAVCX]
+    je idle_t2
+    jmp idle_tbit
+idle_t2:
+    inc cl
+idle_t1:
+    inc cl
+    cmp cl,ch
+    jb idle_tn
+    je idle_tyes
+idle_tno:
+    mov cx,[ss:S_SAVCX]
+    mov bx,[ss:S_SAVBX]
+    jmp idle_no
+idle_tyes:
+    mov cx,[ss:S_SAVCX]
+    mov bx,[ss:S_SAVBX]
+    jmp idle_yes
+""",
+    0xE1: """
+; idle_tst's BIT b,A and JR cc, DL = the byte at the place
+idle_tbit:
+    cmp dl,0CBh
+    jne .jr
+    mov dl,[si+bx+1]            ; BIT b,A
     and dl,0C7h
     cmp dl,47h
-    jne idle_no
-.two:
-    cmp dh,2
-    je idle_yes
-    jmp idle_no
-.one:
-    cmp dh,1
-    je idle_yes
-    jmp idle_no
+    je idle_t2
+    jmp idle_tno
+.jr:
+    and dl,0E7h                 ; JR NZ, Z, NC, C
+    cmp dl,20h
+    jne .no
+    mov dl,[si+bx+1]
+    add dl,cl
+    add dl,2                    ; where it goes, from the head
+    jz .ok                      ; the head
+    js .no                      ; behind it
+    mov dh,ch
+    add dh,2
+    cmp dl,dh                   ; past the closing JR: out of the loop
+    jb .no
+.ok:
+    jmp idle_t2
+.no:
+    jmp idle_tno
 """,
     0xEC: """
 idle_yes:

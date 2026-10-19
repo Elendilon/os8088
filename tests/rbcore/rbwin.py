@@ -19,7 +19,7 @@ reads:
     composes in its own memory whether or not the overlay is up.
 
 --press taps keys first (os88box names, comma separated: return to start
-a game). --hold presses keys (86Box scan codes, comma separated, 0x14D for
+a game; w5000 runs 5 emulated seconds between two). --hold presses keys (86Box scan codes, comma separated, 0x14D for
 Right) for the whole timed span. --profile N then samples CS:IP N times, one
 emulated millisecond apart, and charges each to a core handler, a package
 routine or a kernel symbol (by linear address, docs/plans/DISK-CPU-PLAN.md
@@ -176,9 +176,14 @@ def boot(o):
 def measure(b, o):
     if True:
         for k in o.press.split(","):
-            if k:
-                b.tap(k)
-                b.cmd("step 3000")
+            if re.match(r"w\d+$", k):          # w5000: run 5 emulated s
+                b.cmd("step %s" % k[1:])
+            elif k:                             # held 300 ms: a game polls
+                code = os88box.KEYS[k]          #   once a frame, and a slow
+                b.cmd("key down 0x%X" % code)   #   frame is longer than a tap
+                b.cmd("step 300")
+                b.cmd("key up 0x%X" % code)
+                b.cmd("step 2000")
         if o.fs:
             b.to(*MENU_MACHINE)
             b.mouse(0, 0, 1)

@@ -245,19 +245,24 @@ or RETI rather than after exactly one more instruction. `EI / HALT` and
 
 ## 8. The spin-wait rule
 
-A taken backward `JR` of **-4 to -7** to a loop head is a SPIN-WAIT, skipped
-to the next event at no cost, when the loop's body is exactly one read and
-one test:
+A taken backward `JR` of **-4 to -16** to a loop head is a SPIN-WAIT,
+skipped to the next event at no cost, when the loop's body is one read and
+then only tests, each of which may be followed by a `JR cc` that goes back
+to the head or forward out past the closing `JR`:
 
-| read | test |
+| read | then, one or more |
 |---|---|
-| `LD A,(nn)` of WRAM or HRAM | `AND A`, `OR A`, `CP n`, `AND n`, `BIT b,A` |
+| `LD A,(nn)` of WRAM or HRAM | `AND A`, `OR A`, `CP n`, `AND n`, `BIT b,A`, `JR cc` |
 | `LDH A,(n)` of HRAM (n >= 80h) | the same |
 | `LD A,(HL)`, HL in WRAM or HRAM | the same |
-| `BIT b,(HL)`, HL in WRAM or HRAM | (it is the test) |
+| `BIT b,(HL)`, HL in WRAM or HRAM | (it is the test, alone) |
 
-Nothing in such a loop can change what it reads until an interrupt does, and
-an interrupt is an event. A register is never a spin-wait's subject - LY and
+Nothing in such a loop can change what it reads until an interrupt does, so
+every pass takes the same path, and an interrupt is an event. Kirby's
+Dream Land in play waits on a read and TWO tests, `LDH A,(8C) / BIT 5,A /
+JR NZ / BIT 6,A / JR NZ,-10`: when the first rule stopped at one test and
+-7, the second jump was never skipped, and that scene ran at 27.8% of real
+time full screen on 86Box's 286 where it runs at 37.5% now. A register is never a spin-wait's subject - LY and
 STAT change on their own. A loop head found NOT to be one is remembered in
 `S_IDLENO`, so a busy loop pays the test once. An `RB_TRACE` core skips
 nothing (section 12.2).
@@ -338,7 +343,8 @@ every loop iteration is in the trace.
 |---|---|
 | `tests/gbcpu.py` | the correctness ROMs, with a broken-DAA control: Blargg's `cpu_instrs` (all), `instr_timing`, `mem_timing` and `halt_bug`, and 26 of Mooneye's DMG acceptance tests |
 | `tests/rbcore/rbacid.py` | dmg-acid2 through `rb_render`, pixel for pixel, with a broken-`LDH` control |
-| `tests/gbwindow.py` | `REALBOY.O88` on MartyPC: dmg-acid2 opened from the Disk window, running, and on the glass pixel for pixel through both writers |
+| `tests/gbwindow.py` | `REALBOY.O88` on MartyPC: dmg-acid2 opened from the Disk window, running, and on the glass pixel for pixel through both writers - and full screen (section 15) against the same reference, then back to the desktop |
+| `tests/rbcore/rbwin.py`, `tests/rbspeed286.py` | the package's game speed and frames drawn on an 86Box machine, in its window or full screen, with a profile on request; `rbspeed286` runs Super Mario Land and Kirby on the 286 (`$OS88_GB_ROMS`) |
 | `tools/gbtrace.py`, `tests/gbtrace.py` | the differential trace against Peanut-GB, with a broken-`JR NZ` control |
 | `tests/rbcore/rbbench.py` | cost per M-cycle on gbclock, or a game's frames against real time |
 | `tests/rbcore/rbprof.py` | where the time goes, by handler, on MartyPC or 86Box |
@@ -440,3 +446,38 @@ screen are the package's.
   `rw_reloc` re-points the five state-block vectors that name its code
   segment. The core, view and ROM claims are pinned.
 - **A bad opcode** stops the machine and the window says so.
+
+## 15. Full screen
+
+Machine > Full Screen runs the machine **on the UI task inside an
+`OSAPI_FSX_RUN` bracket** (SPEC.md 53), in `apps/realboy/rwfsx.inc`. It is
+greyed, with the reason, without a game and on a display that cannot set mode
+0Dh (`OSAPI_FSX_CAPS`, asked at every paint); Esc leaves.
+
+- **The worker keeps out of the machine.** It is frozen in the bracket, so it
+  must not be frozen in the core, or in `rb_render`, whose working memory is
+  the view's. It raises `[rw_incore]` at its loop's top and drops it at
+  `.sleep` or when its render is done, before it asks for the gfx lock; it
+  backs off at the top while `[rw_fsq]` is set. `rw_fsenter` sets `[rw_fsq]`
+  and yields until `[rw_incore]` is clear. The worker raises its byte BEFORE
+  it reads ours, so once ours is set and its is seen clear, every later entry
+  of its sees ours.
+- **The screen** is mode 0Dh, 320x200 planar, with the picture at 1x at
+  (80, 28). `rb_render`'s two shade planes go to VGA planes 0 and 1 as they
+  are, through a RAM shadow of the last frame, so a word is written only when
+  it changed. Plane 2 is set everywhere but the picture: the border is DAC
+  entry 4, and F1's speed line over it, in glyphs copied before the mode
+  (`OSAPI_FONT_GLYPHS`), entry 7. Shades 0-3 are DAC 0-3, greys. The DAC is
+  ours in there; the restore's BIOS mode set puts the desktop's back.
+- **The clock** is `FSXF_RATE` at the Game Boy's own 59.7275 Hz (PIT divisor
+  19,977): the hook counts frames owed and does nothing else. The loop runs
+  the machine to the count, at most eight behind, in budgets of 6,000
+  M-cycles (1,400 on an 8088) - with no mouse to serve only IRQ0 bounds them,
+  and a 286 spends ~7 ms on 6,000 busy ones against a 16.7 ms period. It
+  draws a frame when it has caught up, or after four undrawn; with nothing
+  owed it waits for the next period (`FSXW_FRAME`). It empties the BIOS key
+  buffer every pass, since a full one beeps. `kern_small`, which refuses the
+  rate and has no VGA, is retried without it and paced by the tick.
+- **Coming back**: the window's buffer was the bracket's shadow, so it is
+  marked empty and the restore's repaint is white until the worker's next
+  frame; the worker's clock restarts from the moment the bracket ended.

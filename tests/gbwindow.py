@@ -16,6 +16,13 @@ with it - and checks, on each of the two writers:
     uses (shade 0 lit, 1 a quarter dark, 2 a checkerboard, 3 dark), through
     OSAPI_GFX_BLIT1.
 
+On VGA it then takes Machine > Full Screen (docs/REALBOY-SPEC.md section
+15) - the gbfsx gate of docs/plans/REALBOY-PLAN.md wave 4: the bracket's
+mode 0Dh frame, the picture in the middle of it, against the SAME reference
+(so the full-screen writer is pixel-identical to the windowed one), the
+frame counter advancing in there, and Esc back to a desktop whose window
+shows the picture again.
+
 THE NEGATIVE CONTROL is the comparator's: the reference mirrored left to
 right must NOT match what is on the glass.
 """
@@ -80,6 +87,72 @@ def dither(want):
     return out
 
 
+def frames(m, view):
+    return int.from_bytes(m.read(view * 16 + S_FRAMES, 2), "little")
+
+
+def compare(kind, got, want, label):
+    if kind == "herc":
+        exp = dither(want)
+        mir = dither([want[y * 160 + 159 - x] for y in range(144) for x in range(160)])
+    else:
+        exp, mir = want, [want[y * 160 + 159 - x] for y in range(144) for x in range(160)]
+    bad = sum(1 for a, b in zip(got, exp) if a != b)
+    badm = sum(1 for a, b in zip(got, mir) if a != b)
+    print("gbwindow %s: %d of 23,040 pixels differ; mirrored, %d" % (label, bad, badm))
+    if badm == 0:
+        return "%s: the comparator cannot go red: the mirror matches too" % label
+    return None if bad == 0 else "%s: %d pixels differ" % (label, bad)
+
+
+def window_px(ui, m, kind):
+    ui.mo.to(600, 120)                      # the pointer off the picture
+    M.guest_sleep(m, 1)
+    w = ui.window("RealBoy")                # where it is NOW: SNAP may move it
+    W, H, data = m.fbuf(0)
+    cx, cy = w.x + 1, w.y + os88ui.geom.TITLE_H   # (measured: the frame's
+                                            #   top row is the title's first)
+    if kind == "herc":                      # THE CARD'S OWN BYTES: MartyPC's
+        vw, vh, rows = m.vram("herc")       #   rendered Hercules frame is
+        return [rows[cy + y][cx + x]        #   cropped and offset, and the
+                for y in range(144) for x in range(160)], W, H, data  # VRAM route is exact
+    px = [tuple(data[((cy + y) * W + cx + x) * 3:((cy + y) * W + cx + x) * 3 + 3])
+          for y in range(144) for x in range(160)]
+    return shades_vga(px)[0], W, H, data
+
+
+def fullscreen(ui, m, view, want):
+    """Machine > Full Screen: mode 0Dh, the picture at (80, 28) in 320x200."""
+    ui.menu_pick("Machine", "Full Screen")
+    M.guest_sleep(m, 3)
+    W, H, data = m.fbuf(0)
+    if W < 320 or H < 200 or W >= 640 and H >= 480:
+        return "no full-screen mode: the frame is %dx%d" % (W, H)
+    sx, sy = W // 320, H // 200             # MartyPC may double the mode
+    px = [tuple(data[(((28 + y) * sy) * W + (80 + x) * sx) * 3:
+                     (((28 + y) * sy) * W + (80 + x) * sx) * 3 + 3])
+          for y in range(144) for x in range(160)]
+    if len(set(px)) > 4:                    # the border's colour is in there
+        return "full screen: the picture is not at (80, 28) - %d colours in its rect" % len(set(px))
+    got = shades_vga(px)[0]
+    err = compare("vga", got, want, "vga full screen (%dx%d)" % (W, H))
+    if os.environ.get("GBWIN_SAVE"):
+        M.write_png_rgb(os.environ["GBWIN_SAVE"] + "-fsx-glass.png", W, H, data)
+    f0 = frames(m, view)
+    M.guest_sleep(m, 2)
+    f1 = frames(m, view)
+    if not err and f1 <= f0:
+        err = "full screen: frames did not advance (%d, %d)" % (f0, f1)
+    m.key("Escape", up=False)               # held, so the loop's poll sees it
+    M.guest_sleep(m, 1)
+    m.key("Escape", down=False)
+    M.guest_sleep(m, 3)
+    W, H, data = m.fbuf(0)
+    if (W, H) != (640, 480):
+        return err or "Esc did not bring the desktop back: the frame is %dx%d" % (W, H)
+    return err
+
+
 def run(kind, want, disk, viewoff):
     img = os.path.join(ROOT, "build", "os8088-720.img")
     with os88ui.boot(img, apps=disk, machine=MACHINES[kind]) as ui:
@@ -102,36 +175,21 @@ def run(kind, want, disk, viewoff):
         f1 = int.from_bytes(m.read(view * 16 + S_FRAMES, 2), "little")
         if f1 <= f0:
             return "frames did not advance (%d, %d)" % (f0, f1)
-        ui.mo.to(600, 120)                  # the pointer off the picture
-        M.guest_sleep(m, 1)
-        w = ui.window("RealBoy")            # where it is NOW: SNAP may move it
-        W, H, data = m.fbuf(0)
-        cx, cy = w.x + 1, w.y + os88ui.geom.TITLE_H   # (measured: the frame's
-                                            #   top row is the title's first)
-        px = [tuple(data[((cy + y) * W + cx + x) * 3:((cy + y) * W + cx + x) * 3 + 3])
-              for y in range(144) for x in range(160)]
-        if kind == "herc":                  # THE CARD'S OWN BYTES: MartyPC's
-            vw, vh, rows = m.vram("herc")   #   rendered Hercules frame is
-            got = [rows[cy + y][cx + x]     #   cropped and offset, and the
-                   for y in range(144) for x in range(160)]  # VRAM route is exact
-        if kind == "vga":
-            got, levels = shades_vga(px)
-            exp, mir = want, [want[y * 160 + 159 - x] for y in range(144) for x in range(160)]
-        else:
-            exp = dither(want)
-            mir = dither([want[y * 160 + 159 - x] for y in range(144) for x in range(160)])
+        got, W, H, data = window_px(ui, m, kind)
         if os.environ.get("GBWIN_SAVE"):
             sv = os.environ["GBWIN_SAVE"]
             M.write_png_rgb(sv + "-%s-glass.png" % kind, W, H, data)
             with open(sv + "-%s-got.pgm" % kind, "wb") as f:
                 f.write(b"P5 160 144 255\n" + bytes(255 - 85 * g if kind == "vga" else 255 * g for g in got))
-        bad = sum(1 for a, b in zip(got, exp) if a != b)
-        badm = sum(1 for a, b in zip(got, mir) if a != b)
-        print("gbwindow %s: frames %d -> %d, %d of 23,040 pixels differ; mirrored, %d"
-              % (kind, f0, f1, bad, badm))
-        if badm == 0:
-            return "the comparator cannot go red: the mirror matches too"
-        return None if bad == 0 else "%d pixels differ" % bad
+        print("gbwindow %s: frames %d -> %d" % (kind, f0, f1))
+        err = compare(kind, got, want, kind)
+        if err or kind != "vga":
+            return err
+        err = fullscreen(ui, m, view, want)
+        if err:
+            return err
+        got, W, H, data = window_px(ui, m, kind)
+        return compare(kind, got, want, "vga window, after the bracket")
 
 
 def main():

@@ -2580,17 +2580,32 @@ SOAK = [
         "no-op must lose the picture. WHY QEMU: counted, not timed. SOAK: one "
         "package's renderer",
         needs=("qemu", "nasm")),
-    Row("gbwindow", "soak", py("tests/gbwindow.py"), 40.0,
+    Row("gbwindow", "soak", py("tests/gbwindow.py"), 60.0,
         "REALBOY.O88 in a window (docs/REALBOY-SPEC.md section 14): dmg-acid2 "
         "opened from the Disk window through its association, the frame "
         "counter in the package's view advancing, and the window's content "
         "against the reference PIXEL FOR PIXEL on both writers - the four "
         "greys through OSAPI_GFX_BLITP on VGA (rendered frame) and the 2x2 "
         "ordered dither through OSAPI_GFX_BLIT1 on a Hercules (its VRAM: "
-        "MartyPC's rendered Hercules frame is cropped). NEGATIVE CONTROL: the "
-        "reference mirrored must not match. SOAK: one package",
+        "MartyPC's rendered Hercules frame is cropped). On VGA it then takes "
+        "Machine > Full Screen (section 15, the plan's gbfsx gate): the "
+        "bracket's mode 0Dh frame against the SAME reference, frames "
+        "advancing in there, and Esc back to a desktop whose window shows the "
+        "picture again. NEGATIVE CONTROL: the reference mirrored must not "
+        "match. SOAK: one package",
         needs=("marty", "nasm"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
+    Row("rbspeed286", "soak", py("tests/rbspeed286.py"), 1200.0,
+        "REALBOY's game speed on 86Box's 286 (docs/plans/REALBOY-PLAN.md wave "
+        "4): Super Mario Land and Kirby's Dream Land started and walked right, "
+        "in the window and full screen, the game's frames against 20 emulated "
+        "seconds and the frames drawn off the package's F1 line. ASSERTS each "
+        "runs (frames advance, >= 10% of real time) and REPORTS the speed - "
+        "86Box is not cycle-accurate, so a speed is a measurement and not a "
+        "gate. The games are the owner's: $OS88_GB_ROMS, or the runner SKIPS "
+        "it. SOAK: one package, and 86Box's",
+        needs=("86box", "gbroms", "nasm"),
+        wants=("build/realboy.o88", "build/os8088.img")),
     Row("gbtrace", "soak", py("tests/gbtrace.py"), 130.0,
         "REALBOY's core against Peanut-GB (pinned by tools/gbprof.py), the "
         "registers AND the M-cycle clock compared before each of the first "
