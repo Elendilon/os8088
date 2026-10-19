@@ -75,8 +75,9 @@ def overlay(b, seg):
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
-def profile(b, seg, core, n):
+def profile(b, seg, core, n, view=0):
     import os88sym
+    jit = int.from_bytes(b.memr(view * 16 + 0x40CC, 2), "little") if view else 0
     psyms = rbprof.labels(LST)
     pk = [o for o, _ in psyms]
     csyms = rbprof.labels(CORELST) if os.path.exists(CORELST) else []
@@ -100,6 +101,8 @@ def profile(b, seg, core, n):
         if seg*16 <= ip < seg*16 + size:
             k = bisect.bisect_right(pk, ip - seg*16) - 1
             hits["pkg " + (psyms[k][1] if k >= 0 else "?")] += 1
+        elif jit and jit*16 <= ip < jit*16 + 0x10000:
+            hits["jit %s" % ("hash" if ip - jit*16 < 0x4000 else "code")] += 1
         elif core*16 <= ip < core*16 + 0x10000:
             k = bisect.bisect_right(ck, ip - core*16) - 1
             hits["core " + (csyms[k][1] if ck and k >= 0 else "%02X" % ((ip - core*16) >> 8))] += 1
@@ -210,7 +213,7 @@ def measure(b, o):
         if o.shot:
             b.shot(o.shot)
         if o.profile:
-            profile(b, seg, core, o.profile)
+            profile(b, seg, core, o.profile, view)
         for k in keys:
             b.cmd("key up 0x%02X" % k)
 
