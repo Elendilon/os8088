@@ -56,12 +56,17 @@ PPU_TMODE       equ 0x4B55          ; byte: LCDC bit 4 PPU_TADDR was built for
 PPU_TMP         equ 0x4B56          ; word
 PPU_ANF         equ 0x4B60          ; 16: BGP as words D A B C for the shade's
                                     ;   bit 0, then bit 1 (ppu_pal)
-PPU_TADDR       equ 0x4C00          ; 512: tile n's row 0, for LCDC bit 4
-PPU_BLIST       equ 0x6600          ; 128: a map row's 32 tile addresses, twice,
-PPU_WLIST       equ 0x6680          ; 128:   for the background and the window
+PPU_TADDR       equ 0x4C00          ; 512: tile n's row 0, for LCDC bit 4,
+PPU_TADDRC      equ 0x4D00          ;   at PPU_TADDRC + 2 x (n as signed)
+PPU_BLIST       equ 0x6600          ; 42: the 21 tile addresses a line reads,
+PPU_WLIST       equ 0x6680          ; 42:   for the background and the window
 PPU_OUT         equ 0x4B58          ; byte: rb_render4's layout, not rb_render's
 PPU_BKEY        equ 0x4B5A          ; word: the map row PPU_BLIST holds (or 0)
 PPU_WKEY        equ 0x4B5C          ; word: ...PPU_WLIST
+PPU_OSRC        equ 0x4B5E          ; word: where ppu_line left the line's
+                                    ;   shades - PPU_OL, or PPU_BL itself
+                                    ;   when BGP is the identity and no
+                                    ;   sprite may cover it (bit 1 at +20h)
 PPU_LSPR        equ 0x4E00          ; 144 x 41: per line, the count and the
                                     ;   OAM indices of the sprites that MAY
                                     ;   cover it (16 tall), in OAM order
@@ -138,15 +143,16 @@ rb_render:
     call ppu_line
     cmp byte [PPU_OUT],0
     jne .out4
-    mov si,PPU_OL                       ; out: the 20 bytes of each plane
+    mov si,[PPU_OSRC]                   ; out: the 20 bytes of each plane
     mov cx,10
     rep movsw
-    mov si,PPU_OH
-    mov cx,10
+    add si,0Ch                          ; bit 1 is at +20h
+    mov cl,10
     rep movsw
     jmp short .nextl
 .out4:
-    mov si,PPU_OH                       ; out: NOT bit 1 to planes 0-2...
+    mov si,[PPU_OSRC]                   ; out: NOT bit 1 to planes 0-2...
+    add si,20h
     mov cx,10
 .o4:
     lodsw
@@ -156,7 +162,7 @@ rb_render:
     stosw
     loop .o4
     add di,40                           ; ...and NOT bit 0 to plane 3
-    mov si,PPU_OL
+    mov si,[PPU_OSRC]
     mov cx,10
 .o3:
     lodsw
@@ -867,21 +873,21 @@ ppu_dput:
     mov dx,di
     or ch,ch
     jnz .diff
-    mov si,PPU_OL
+    mov si,[PPU_OSRC]
     mov cx,10
     repe cmpsw
     jne .diff
-    mov si,PPU_OH                       ; (DI is at the line's byte 20)
-    mov cx,10
+    add si,0Ch                          ; bit 1 is at +20h (DI is at the
+    mov cl,10                           ;   line's byte 20)
     repe cmpsw
     je .same
 .diff:
     mov di,dx
-    mov si,PPU_OL
+    mov si,[PPU_OSRC]
     mov cx,10
     rep movsw
-    mov si,PPU_OH
-    mov cx,10
+    add si,0Ch
+    mov cl,10
     rep movsw
     mov es,bx
     mov bl,[PPU_LY]
@@ -894,7 +900,8 @@ ppu_dput:
 
 ; ppu_oam: PPU_LSPR from OAM - for each line, the sprites whose 16 rows
 ; from Y - 16 cover it, in OAM order. The real height is LCDC's at the line,
-; which a mid-frame write may change, so ppu_sprites checks it there.
+; which a mid-frame write may change, so ppu_sprites checks it there. Only
+; the rows on the screen are walked: a sprite parked at Y = 0 costs nothing.
 ppu_oam:
     push di
     push es
@@ -909,26 +916,33 @@ ppu_oam:
     loop .c
     mov si,0FE00h
     xor dl,dl                           ; DL = the OAM index
+    mov dh,41
 .s:
-    mov ch,[si]                         ; Y: rows Y-16 .. Y-1, the first of
-    sub ch,16                           ;   which may be off the top (wraps)
-    mov dh,16
-.r:
-    cmp ch,144
-    jae .nr
-    mov al,ch
-    mov bl,41
-    mul bl
-    mov bx,ax                           ; BX = the line's entry
-    mov al,[PPU_LSPR+bx]
-    inc byte [PPU_LSPR+bx]
+    mov al,[si]                         ; rows Y-16 .. Y-1, cut to 0 .. 143
     xor ah,ah
-    add bx,ax
-    mov [PPU_LSPR+1+bx],dl
-.nr:
-    inc ch
-    dec dh
-    jnz .r
+    mov bx,ax
+    sub bx,16
+    jge .lo
+    xor bx,bx
+.lo:
+    cmp ax,144
+    jbe .hi
+    mov ax,144
+.hi:
+    sub ax,bx
+    jle .ns
+    mov cx,ax                           ; CX = its rows on the screen
+    mov al,bl
+    mul dh
+    mov di,ax                           ; DI = the first one's entry
+.r:
+    mov bl,[PPU_LSPR+di]
+    inc byte [PPU_LSPR+di]
+    xor bh,bh
+    mov [PPU_LSPR+1+bx+di],dl
+    add di,41
+    loop .r
+.ns:
     add si,4
     inc dl
     cmp dl,40
@@ -938,11 +952,13 @@ ppu_oam:
     ret
 
 ; ppu_taddr: PPU_TADDR for LCDC bit 4 in AL: tile n's row 0 at 8000 + 16n,
-; or 9000 + 16 x (n as signed)
+; or 9000 + 16 x (n as signed). Tile n's word is at PPU_TADDRC + 2 x (n as
+; signed) - cbw's index, so ppu_list looks a map byte up in three bytes
 ppu_taddr:
     push ax
     push bx
     push cx
+    push si
     and al,10h
     mov [PPU_TMODE],al
     mov word [PPU_BKEY],0               ; the address lists were the old mode's
@@ -963,10 +979,13 @@ ppu_taddr:
     shl ax,cl
     add ax,9000h
 .st:
-    mov [PPU_TADDR+bx],ax
+    lea si,[bx+256]
+    and si,511
+    mov [PPU_TADDR+si],ax
     add bx,2
     cmp bx,512
     jb .t
+    pop si
     pop cx
     pop bx
     pop ax
@@ -1084,6 +1103,7 @@ ppu_line:
     test al,80h
     jnz .on
     xor ax,ax                           ; the LCD is off: the line is white
+    mov word [PPU_OSRC],PPU_OL
     mov di,PPU_OL
     mov cx,10
     rep stosw
@@ -1124,21 +1144,22 @@ ppu_line:
 .m1:
     add si,bx
     and dl,7
+    mov bl,[PPU_REGS+2]                 ; SCX: the first tile column
+    shr bl,1
+    shr bl,1
+    shr bl,1
+    xor bh,bh
     mov bp,PPU_BLIST
     mov di,PPU_BKEY
-    call ppu_list                       ; BP = the row's tile addresses
-    mov cl,[PPU_REGS+2]                 ; SCX
-    mov al,cl
-    shr al,1
-    shr al,1
-    shr al,1                            ; the first tile column
-    xor ah,ah
-    shl ax,1
-    mov si,bp
-    add si,ax
+    call ppu_list                       ; the 21 tile addresses the line reads
+    mov si,PPU_BLIST
+    mov cl,[PPU_REGS+2]
     and cl,7
-    mov di,PPU_BL
-    call ppu_fetch
+    jz .b0
+    call ppu_fshift
+    jmp short .win
+.b0:
+    call ppu_fcopyb
 .win:
     ; the window, over the background from X = WX - 7 on
     mov al,[PPU_REGS+0]
@@ -1163,19 +1184,33 @@ ppu_line:
     mov si,9C00h
 .m2:
     add si,bx
+    xor bx,bx                           ; from the window's own column 0
     mov bp,PPU_WLIST
     mov di,PPU_WKEY
     call ppu_list
-    mov si,bp                           ; from the window's own column 0
-    xor cl,cl
-    mov di,PPU_WL
-    call ppu_fetch
+    mov si,PPU_WLIST
+    call ppu_fcopyw
     call ppu_wplace
 .pal:
-    ; the background's shades through BGP: a copy when BGP is E4h, the
-    ; identity, else its ANF a word - sixteen pixels - at a time
+    ; the background's shades through BGP: none when BGP is E4h, the
+    ; identity - the line is left where it was composed unless a sprite may
+    ; cover it (it reads the background's colours) - else its ANF a word,
+    ; sixteen pixels, at a time
+    mov word [PPU_OSRC],PPU_OL
     cmp byte [PPU_REGS+3],0E4h
     jne .anf
+    test byte [PPU_REGS+0],02h
+    jz .ident
+    mov al,[PPU_LY]
+    mov ah,41
+    mul ah
+    mov bx,ax
+    cmp byte [PPU_LSPR+bx],0
+    jne .copy
+.ident:
+    mov word [PPU_OSRC],PPU_BL
+    jmp short .done
+.copy:
     mov si,PPU_BL
     mov di,PPU_OL
     mov cx,10
@@ -1221,86 +1256,108 @@ ppu_anf:
     loop .w
     ret
 
-; ppu_list: BP = a list of the map row at SI's 32 tile addresses, twice -
-; built only when [DI] says the list at BP holds another row. Kept: DL.
+; ppu_list: at BP, the 21 tile addresses a line reads from the map row at
+; SI, column BX (0-31) on, wrapping at the row's end - built only when [DI]
+; says the list holds another row or column. Kept: DX.
 ppu_list:
-    cmp [di],si
+    lea ax,[si+bx]
+    cmp [di],ax
     je .r
-    mov [di],si
-    push ax
-    push bx
-    push cx
-    push di
-    mov di,bp
-    mov cx,32
-.t:
-    lodsb
-    xor ah,ah
-    shl ax,1
-    mov bx,ax
-    mov ax,[PPU_TADDR+bx]
     mov [di],ax
-    mov [di+64],ax
-    add di,2
-    loop .t
-    pop di
-    pop cx
-    pop bx
-    pop ax
+    push dx
+    mov dx,si                           ; DX = the row's column 0
+    mov di,bp
+    add si,bx
+    mov cx,32
+    sub cx,bx                           ; the columns before the wrap
+    cmp cx,21
+    jbe .a
+    mov cx,21
+.a:
+    mov bx,21
+    sub bx,cx                           ; BX = the ones after it
+    call .run
+    mov cx,bx
+    jcxz .d
+    mov si,dx
+    call .run
+.d:
+    pop dx
 .r:
     ret
-
-; ppu_fetch: 20 bytes of a line into DI (bit 0) and DI+20h (bit 1) from the
-; tile addresses at SI (one word each, DL = the row in the tile), the
-; picture CL bits (0-7) left of the first tile's edge - the fine scroll, done
-; as the bytes are fetched: each is the previous tile row and this one, as
-; one 16-bit string, CL bits left.
-ppu_fetch:
-    push bp
-    xor bh,bh
-    mov bl,dl
-    shl bl,1
-    mov bp,bx                           ; BP = the row's offset in a tile
-    lodsw
-    mov bx,ax
-    add bx,bp
-    mov dx,[bx]                         ; DL, DH = the first tile's row
-    mov ch,20
-    or cl,cl
-    jz .copy0
+.run:
+    push bx
 .t:
-    lodsw
-    mov bx,ax
-    add bx,bp
-    mov ax,[bx]                         ; the next tile's row
+    lodsb
+    cbw
+    shl ax,1
+    xchg ax,bx
+    mov ax,[PPU_TADDRC+bx]
+    stosw
+    loop .t
+    pop bx
+    ret
+
+; ppu_fshift: the background's 20 bytes into PPU_BL and PPU_BH from the 21
+; tile addresses at SI (DL = the row in the tile), the picture CL bits (1-7)
+; left of the first tile's edge - the fine scroll, done as the bytes are
+; fetched: each is the previous tile row and this one, as one 16-bit string,
+; CL bits left. Unrolled, the two tile rows alternating between AX and DX:
+; a 286 pays for every byte of code it fetches, so the loop's own are gone.
+ppu_fshift:
+    mov al,dl
+    xor ah,ah
+    shl ax,1
+    mov di,ax                           ; DI = the row's offset in a tile
+    mov bx,[si]
+    mov ax,[bx+di]                      ; the first tile's row
+%assign ppu_k 0
+%rep 10
+    mov bx,[si+2*ppu_k+2]
+    mov dx,[bx+di]
+    mov bh,al
+    mov bl,dl
+    shl bx,cl
+    mov [PPU_BL+ppu_k],bh
+    mov bh,ah
+    mov bl,dh
+    shl bx,cl
+    mov [PPU_BH+ppu_k],bh
+    mov bx,[si+2*ppu_k+4]
+    mov ax,[bx+di]
     mov bh,dl
     mov bl,al
     shl bx,cl
-    mov [di],bh
+    mov [PPU_BL+ppu_k+1],bh
     mov bh,dh
     mov bl,ah
     shl bx,cl
-    mov [di+20h],bh
-    mov dx,ax
-    inc di
-    dec ch
-    jnz .t
-    pop bp
+    mov [PPU_BH+ppu_k+1],bh
+%assign ppu_k ppu_k+2
+%endrep
     ret
-.copy0:
-    inc ch                              ; no fine scroll: 21 rows as they are
-.copy:                                  ;   (the window shifts its own left)
-    mov [di],dl
-    mov [di+20h],dh
-    inc di
-    lodsw
-    mov bx,ax
-    add bx,bp
-    mov dx,[bx]
-    dec ch
-    jnz .copy
-    pop bp
+
+; ppu_fcopyb / ppu_fcopyw: no fine scroll - 21 tile rows as they are, into
+; PPU_BL/PPU_BH or PPU_WL/PPU_WH (the window shifts its own left)
+%macro PPU_FCOPY 1
+    mov al,dl
+    xor ah,ah
+    shl ax,1
+    mov di,ax
+%assign ppu_k 0
+%rep 21
+    mov bx,[si+2*ppu_k]
+    mov ax,[bx+di]
+    mov [%1+ppu_k],al
+    mov [%1+20h+ppu_k],ah
+%assign ppu_k ppu_k+1
+%endrep
     ret
+%endmacro
+ppu_fcopyb:
+    PPU_FCOPY PPU_BL
+ppu_fcopyw:
+    PPU_FCOPY PPU_WL
 
 ; ppu_shl: the 21 bytes at SI, as one bit string, CL bits left (CL < 8);
 ; the first 20 are the result. Kept: CL.
@@ -1522,6 +1579,7 @@ ppu_sprites:
     ; insertion sort by X, stable: equal X keeps OAM order
     mov cl,[PPU_NSPR]
     xor ch,ch
+    jcxz .r
     cmp cx,2
     jb .draw
     mov si,PPU_SPR+4
