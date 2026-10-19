@@ -27,6 +27,7 @@ Z           B
 Enter       Start
 Space       Select
 F1          the speed line
+Alt+Enter   full screen, and back
 Esc         leave full screen
 
 The speed line is the game's speed (100% is the Game Boy's own 59.7 frames
@@ -39,6 +40,12 @@ Machine > Reset          start the cartridge again
 Machine > Pause          stop the clock
 Machine > Full Screen    the game on the whole screen
 Machine > Recompiler     on or off (286 or later)
+Machine > Log            a record a second, to a file
+
+The log is written to SYSTEM\APPDATA\REALBOY.LOG on this disk when you
+turn it off or close the window: the speed, the frames run and drawn, and
+how long the drawing took, a line a second. It is what to send back after
+a test run.
 
 Full screen is VGA's 320x200 at 1x, a Hercules card's page at 2x2, or
 CGA's 320x200 in four colours.

@@ -218,7 +218,9 @@ RB_DFAST        equ 0x3133              ; byte: no register changed anywhere
 RB_DLLOG        equ 0x3134              ; byte: the last call's frame logged
 RB_DREG0        equ 0x3138              ; 8: the last call's registers
 RB_DMROW        equ 0x3140              ; 64: a map row changed (2 x 32)
-RB_DMG_SIZE     equ 0x3180
+RB_DCOMP        equ 0x3180              ; word: lines composed (the host's to
+                                        ;   read and clear: its log)
+RB_DMG_SIZE     equ 0x3182
 
 rb_dmgseg       dw 0                    ; the host's damage segment, or 0
 
@@ -335,6 +337,7 @@ rb_renderd:
     call ppu_ldirty                     ; CF = 1: compose it
     jnc .skip
 .comp:
+    inc word [es:RB_DCOMP]
     call ppu_line
     call ppu_dput                       ; into the buffer if it differs
     jmp short .next
@@ -393,6 +396,7 @@ ppu_dscan:
     mov cx,80
     rep movsw
     xor ax,ax                           ; and the change bytes from nothing
+    mov [es:RB_DCOMP],ax
     mov di,RB_DTD
     mov cx,(RB_DLREG - RB_DTD) / 2
     rep stosw

@@ -71,6 +71,12 @@ rw_mgrey:
     mov si, rw_it_jon
 .j:
     mov [rw_i_mach + 6], si
+    mov si, rw_it_log0              ; Log: what it is now
+    cmp byte [rw_logon], 0
+    je .l
+    mov si, rw_it_log1
+.l:
+    mov [rw_i_mach + 8], si
     pop si
     pop dx
     pop bx
@@ -187,10 +193,12 @@ rw_fscopy:
 ; rw_fshook - every rate period: a frame owed. AX = periods since the last.
 rw_fshook:
     add [rw_fowed], ax
+    add [rw_fsper], ax              ; (rw_clk's, for the log)
     ret
 
 ; rw_fsmain - the bracket. DS = CS = ours, ES = KERNEL_SEG, SI = the window.
 rw_fsmain:
+    OS88_ALTENTER_SEED              ; the Alt+Enter that got us here is held
     push ds
     pop es
     mov bl, [rw_fskind]
@@ -250,6 +258,7 @@ rw_fsmain:
     mov ax, RW_BEHIND
 .n:
     mov [rw_fsleft], ax
+    call rw_logowed                 ; (AL = frames owed, for the log)
 .f:
     call rw_keys
     call rw_frame
@@ -332,7 +341,13 @@ rw_fsdrain:
 .e:
     mov al, 1                       ; Esc
     call OSAPI_KEY_DOWN             ; CF = 1: held
-    sbb al, al                      ; ZF = 0 when it was
+    jc .out
+    call os88alt_edge               ; ...or a fresh Alt+Enter
+    jc .out
+    xor al, al                      ; (ZF = 1: stay)
+    ret
+.out:
+    or al, 1                        ; (ZF = 0: leave)
     ret
 
 ; rw_fsdac - shades 0-3 as greys at DAC 0-3, the border at 4, the text at 7

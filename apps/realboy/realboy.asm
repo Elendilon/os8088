@@ -98,7 +98,8 @@ rw_jitseg       equ rw_font + 768   ; word: the recompiler's 64KB, or 0
 rw_jitwant      equ rw_jitseg + 2   ; translate when there is a cache for it
 rw_jitq         equ rw_jitwant + 1  ; Machine > Recompiler asked; the worker
 rw_tone         equ rw_jitq + 1     ; word: the hertz the speaker plays (0 off)
-rw_ramseg       equ rw_tone + 2     ; word: cartridge RAM's banks, or 0
+rw_sch          equ rw_tone + 2     ; byte: the square channel on the speaker
+rw_ramseg       equ rw_sch + 1      ; word: cartridge RAM's banks, or 0
 rw_rambanks     equ rw_ramseg + 2   ; byte: 8KB banks there (0 = none)
 rw_batt         equ rw_rambanks + 1 ; byte: a battery: save it on close
 rw_rtc          equ rw_batt + 1     ; byte: an MBC3 clock
@@ -110,7 +111,18 @@ rw_savename     equ rw_rtcsave + 16 ; 13: NAME.SAV
 rw_fskind       equ rw_savename + 13 ; byte: full screen's writer (RW_FS*)
 rw_htab         equ rw_fskind + 1   ; 512: a full-screen writer's table
 rw_chg          equ rw_htab + 512   ; 144: the lines rb_renderd changed
-rw_fbuf         equ rw_chg + 144    ; 5,760: rb_render's frame (monochrome)
+rw_fsper        equ rw_chg + 144    ; word: rate periods in the bracket (rw_clk)
+rw_logon        equ rw_fsper + 2    ; byte: Machine > Log is on (rwlog.inc)
+rw_logst        equ rw_logon + 1    ; byte: os88data.inc's state for the log
+rw_logn         equ rw_logst + 1    ; word: records taken
+rw_ltick        equ rw_logn + 2     ; word: ticks since the log began
+rw_acomp        equ rw_ltick + 2    ; word: lines composed this second
+rw_achg         equ rw_acomp + 2    ; word: ...and changed
+rw_ams          equ rw_achg + 2     ; word: ms drawing this second
+rw_amax         equ rw_ams + 2      ; byte: the longest draw, ms
+rw_aowed        equ rw_amax + 1     ; byte: the most frames owed
+rw_log          equ rw_aowed + 1    ; RW_LOGN x RW_LOGSZ: the records
+rw_fbuf         equ rw_log + RW_LOGN * RW_LOGSZ ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 
@@ -124,6 +136,7 @@ rw_entry:
     jc .refused                     ; no room for the core and view: it said
     mov al, KSC_UP                  ; arm the key map (the first call only
     call OSAPI_KEY_DOWN             ;   arms it)
+    OS88_ALTENTER_ARM               ; and Alt, for Alt+Enter
     call OSAPI_ARG_FILE             ; CF = 1: launched empty
     jc .nodoc
     mov di, rw_name
@@ -630,6 +643,11 @@ rw_ramkeep:
 ; rw_onclose - the close negotiator, on the UI task with the lock held: a
 ; battery's RAM saved, and the close always goes ahead
 rw_onclose:
+    cmp byte [rw_logon], 0          ; the log, if it was on
+    je .s
+    mov byte [rw_logon], 0
+    call rw_logwrite
+.s:
     cmp byte [rw_state], 0
     je .r
     cmp byte [rw_batt], 0
@@ -864,6 +882,10 @@ rw_worker:                          ;   the worker parked at the top of its
     mov ax, RW_OWEDMAX
 .owe:
     mov [rw_owed], ax
+    push ax
+    mov al, ah                      ; (frames owed, for the log)
+    call rw_logowed
+    pop ax
     cmp ax, 256                     ; nothing owed yet: sleep to the tick
     jb .sleep
     call rw_keys
@@ -921,10 +943,21 @@ rw_drawdue:
 
 ; rw_timed - call SI (a draw), then [rw_drawt] = its end + its length
 rw_timed:
+    call rw_clk                     ; (the log's clock, finer than a tick)
+    push dx
+    push ax
     call OSAPI_GET_TICKS
     push ax
     inc word [rw_ndrawn]
     call si
+    call rw_clk
+    pop cx                          ; (the tick at the start)
+    pop bx
+    sub ax, bx
+    pop bx
+    sbb dx, bx
+    push cx
+    call rw_logdraw
     call OSAPI_GET_TICKS
     pop dx
     sub dx, ax
@@ -969,19 +1002,56 @@ rw_frame:
 rw_sound:
     push ds
     mov ds, [cs:rb_viewseg]
-    xor bx, bx                      ; BL = the louder volume, BH: which
-    xor dx, dx
+    xor bx, bx                      ; BL, BH = channel 1's, 2's volume (0 off)
     cmp byte [S_SQ1 + SQ_ON], 0
-    je .c2
+    je .v2
     mov bl, [S_SQ1 + SQ_VOL]
-    mov dx, 0FF13h
-.c2:
+.v2:
     cmp byte [S_SQ2 + SQ_ON], 0
-    je .pick
-    mov al, [S_SQ2 + SQ_VOL]
-    cmp al, bl
-    jbe .pick
-    mov bl, al
+    je .v
+    mov bh, [S_SQ2 + SQ_VOL]
+.v:
+    pop ds
+    mov al, [rw_sch]                ; the channel playing STAYS while it
+    cmp al, 1                       ;   sounds, unless the other is clearly
+    jne .c2                         ;   louder: two voices crossing as their
+    or bl, bl                       ;   envelopes fall made one speaker hop
+    jz .any                         ;   between melody and harmony note by
+    mov ah, bl                      ;   note (the first field run's "odd")
+    add ah, 4
+    cmp bh, ah
+    jb .have
+    mov al, 2
+    jmp short .have
+.c2:
+    cmp al, 2
+    jne .any
+    or bh, bh
+    jz .any
+    mov ah, bh
+    add ah, 4
+    cmp bl, ah
+    jb .have
+    mov al, 1
+    jmp short .have
+.any:
+    xor al, al                      ; none playing: the louder, if any
+    cmp bl, bh
+    jb .a2
+    or bl, bl
+    jz .have
+    mov al, 1
+    jmp short .have
+.a2:
+    mov al, 2
+.have:
+    mov [rw_sch], al
+    push ds
+    mov ds, [cs:rb_viewseg]
+    mov dx, 0FF13h
+    mov bl, al                      ; BL = the channel (0 none)
+    cmp al, 2
+    jne .pick
     mov dx, 0FF18h
 .pick:
     xor ax, ax                      ; silent unless a channel sounds
@@ -1047,7 +1117,7 @@ rw_stat:
     jb .r
     mov [rw_tstat], ax
     cmp cx, 600                     ; a pause, or the first look: start over
-    ja .zero
+    ja .zero0
     ; speed = run x 100 x 18.2065 / (59.7275 x ticks) = run x 3048 / (ticks x 100)
     mov ax, 100
     mul cx
@@ -1084,7 +1154,7 @@ rw_stat:
     mov al, [S_JITON]
     pop ds
     or al, al
-    jz .zero
+    jz .rec
     dec di
     mov si, rw_s_jit
 .cj:
@@ -1092,6 +1162,11 @@ rw_stat:
     stosb
     or al, al
     jnz .cj
+.rec:
+    call rw_logsec                  ; the second, into the log if it is on
+    jmp short .zero
+.zero0:
+    call rw_logsec.zero
 .zero:
     mov byte [rw_ovlnew], 1
     xor ax, ax
@@ -1138,6 +1213,9 @@ rw_keys:
     cmp bx, [rw_win]
     jne .set
 .f1:
+    mov al, KSC_ALT                 ; Alt held: a chord of ours (Alt+Enter
+    call OSAPI_KEY_DOWN             ;   would otherwise press Start too)
+    jc .set
     mov al, 3Bh                     ; F1, on its press
     call OSAPI_KEY_DOWN
     sbb al, al
@@ -1359,11 +1437,13 @@ rw_render:
     mov di, rw_fbuf
     call rb_renderd
     push ax
+    add [rw_achg], ax               ; (the log's counts)
     mov di, rw_chg
     mov cx, 144 / 2
     mov ax, [rb_dmgseg]
     or ax, ax
     jnz .cp
+    add word [rw_acomp], 144
     mov ax, 0101h
     rep stosw
     jmp short .r
@@ -1372,7 +1452,10 @@ rw_render:
     mov ds, ax
     mov si, RB_DCHG
     rep movsw
+    xor ax, ax
+    xchg ax, [RB_DCOMP]
     pop ds
+    add [rw_acomp], ax
 .r:
     pop ax
     pop di
@@ -1585,6 +1668,8 @@ rw_oncmd:
     je .p
     cmp al, 2
     je rw_fsenter                   ; Full Screen
+    cmp al, 4
+    je rw_logtoggle                 ; Log
     cmp word [rw_jitseg], 0         ; Recompiler: the worker flips it
     je .r
     mov byte [rw_jitq], 1
@@ -1592,6 +1677,17 @@ rw_oncmd:
     ret
 .p:
     xor byte [rw_pause], 1
+    ret
+
+; rw_onkey - AX = a typed key, SI = the window, the lock held: Alt+Enter is
+; Machine > Full Screen (SPEC.md 11.2.1.1); the game reads the keys held,
+; not the keys typed, so nothing else here is ours
+rw_onkey:
+    cmp ax, KEY_ALTENTER
+    jne .r
+    call rw_abdismiss
+    jmp rw_fsenter
+.r:
     ret
 
 rw_about:
@@ -1607,11 +1703,11 @@ rw_abdismiss:
 
 rw_tpl:
     dw 160, 60, RW_CONT_W + 2, RW_CONT_H + TITLE_H + 2
-    dw rw_ttl, rw_paint, 0, rw_abdismiss
+    dw rw_ttl, rw_paint, rw_onkey, rw_abdismiss
 
     OS88_MENUSET rw_menus, rw_ttl, rw_oncmd
         OS88_MENU rw_m_file, rw_i_file, 2
-        OS88_MENU rw_m_mach, rw_i_mach, 4
+        OS88_MENU rw_m_mach, rw_i_mach, 5
     OS88_MENUSET_END rw_menus
 
 rw_ttl:         db 'RealBoy', 0
@@ -1620,7 +1716,7 @@ rw_i_file:      dw rw_it_open, rw_it_close
 rw_it_open:     db 'Open...', 0
 rw_it_close:    db 'Close', 0
 rw_m_mach:      db 'Machine', 0
-rw_i_mach:      dw rw_it_reset, rw_it_pause, rw_it_fs0, rw_it_jit0
+rw_i_mach:      dw rw_it_reset, rw_it_pause, rw_it_fs0, rw_it_jit0, rw_it_log0
 rw_it_reset:    db 'Reset', 0
 rw_it_pause:    db 'Pause', 0
 rw_it_fs:       db 'Full Screen', 0
@@ -1628,6 +1724,8 @@ rw_it_fs0:      db MENU_DIS, 'Full Screen', 0
 rw_it_jon:      db 'Recompiler: On', 0
 rw_it_joff:     db 'Recompiler: Off', 0
 rw_it_jit0:     db MENU_DIS, 'Recompiler (286)', 0
+rw_it_log0:     db 'Log: Off', 0
+rw_it_log1:     db 'Log: On', 0
 
 rw_s_fps:       db 'fps', 0
 rw_s_jit:       db ' JIT', 0
@@ -1660,6 +1758,9 @@ rw_ab7:         db 'F1 = speed', 0
 %include "rbjit.inc"
 
 %include "os88data.inc"
+%include "os88alt.inc"
+%include "os88pit.inc"
+%include "rwlog.inc"
 
 %define OS88UI_ABOUT
 %define OS88UI_NOBTN

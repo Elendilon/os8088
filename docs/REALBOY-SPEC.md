@@ -568,10 +568,45 @@ third frame both ways, by damage into a buffer it keeps and whole by
   it holds, and a paint on the other kind of display (the window moved
   between two) is white until the worker's next frame. A refusal dithers
   until the next paint asks BLITP again.
+- **Alt+Enter** is Machine > Full Screen (SPEC.md 11.2.1.1, `apps/os88alt.inc`):
+  the window's W_ONKEY takes the kernel's synthesised `KEY_ALTENTER`, and the
+  bracket's loop polls `os88alt_edge` to leave, seeded so the press that got
+  it there does not take it out again. While Alt is held the joypad reads
+  nothing, so the Enter of the chord is not the game's Start.
 - **Its region is movable**, its worker restartable at the top of its loop;
   `rw_reloc` re-points the six state-block vectors that name its code
   segment. The core, view and ROM claims are pinned.
 - **A bad opcode** stops the machine and the window says so.
+
+### 14.1 The log
+
+**Machine > Log keeps a record a second and writes them as text to
+`SYSTEM\APPDATA\REALBOY.LOG` on the program's own disk**, when the log is
+turned off or the window closes (`apps/realboy/rwlog.inc`). It is the field
+run's instrument: the F1 line says how a game runs this second, and the log
+says how it ran for minutes, on a machine with no debugger.
+
+- **A record** (16 bytes, the latest 256 kept, about four minutes) holds
+  the seconds since the log began, the game's speed and frames run, the
+  frames drawn, the lines composed and the lines changed (section 13.2),
+  the milliseconds spent drawing and the longest draw, the most frames
+  owed, and W or F (window or full screen) with J when the recompiler ran.
+- **The clock** is the 8253's counter 0 extended by the BIOS tick
+  (`apps/os88pit.inc`, 838 ns a count). Inside a rate bracket the counter
+  runs at the bracket's divisor, so there it is the hook's period count and
+  the counter within the period (`rw_clk`).
+- **Who does what.** The worker and the bracket record, in `rw_stat`, once
+  a second. Only the UI task writes, through `apps/os88data.inc` (SPEC.md
+  20.6 rule 7). Nothing recorded, nothing written.
+
+`tests/gblog.py` turns it on over the demo, closes the window and reads the
+file on the host.
+
+**A second at a time the speed jitters**: it read 89-111% here across a run
+that averaged 101.1%. That is the field run's "90 to 110". The frames are
+run in bursts, a tick's worth or a draw's worth at a time, and a burst
+straddles a second's edge, so one second is credited with frames another
+earned. It is the F1 line's sampling, not the game's pace.
 
 ## 15. Full screen
 
@@ -776,6 +811,10 @@ are plain memory.
   It does this in the window and in full screen alike.
   - It takes the channel that is on with the higher volume, channel 1 on a
     tie, and computes `131,072 / (2048 - x)` Hz from its NRx3/NRx4.
+  - **The channel playing stays** while it sounds, unless the other is
+    louder by 4 or more (`[rw_sch]`). Without that, two voices whose
+    envelopes cross made the one speaker hop between melody and harmony
+    note by note, which the first field run heard as "very odd".
   - It passes that pitch to `OSAPI_SND_TONE`, but only when the pitch has
     changed. Volume 0, and a pitch outside 20 to 15,000 Hz, are silence.
   - A refusal (another owner of the speaker) is asked again the next frame.

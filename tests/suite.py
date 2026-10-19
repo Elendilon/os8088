@@ -2606,12 +2606,22 @@ SOAK = [
         needs=("qemu", "nasm", "rgbds")),
     Row("gbdemo", "soak", py("tests/gbdemo.py"), 30.0,
         "RealBoy's 5150 demo (docs/plans/REALBOY-PLAN.md section 6, wave 8's "
-        "gate): GBDEMO.GB (tools/gbours.py, ours) full screen on MartyPC's IBM "
-        "5150 with a Hercules, its frame counter against 60 guest seconds - "
+        "gate): GBDEMO.GB (tools/gbours.py, ours) taken full screen by Alt+Enter "
+        "on MartyPC's IBM 5150 with a Hercules (and back out by a second), its "
+        "frame counter against 60 guest seconds - "
         "which must be 1.00 of real time to two places - and the frames drawn "
         "a second off the F1 line, reported. With the draw clock always due "
         "the picture takes the machine and the game falls to 0.39. SOAK: one "
         "package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realboy.o88", "build/os8088-720.img")),
+    Row("gblog", "soak", py("tests/gblog.py"), 20.0,
+        "REALBOY.O88's log to file (docs/REALBOY-SPEC.md section 14.1): "
+        "GBDEMO.GB on MartyPC's 5150 Hercules with Machine > Log on, the "
+        "window closed, and SYSTEM\\APPDATA\\REALBOY.LOG read on the host - "
+        "the header, at least eight records with rising seconds, frames drawn "
+        "and the demo's full speed across them. With no record counted no "
+        "file is written and the row says so. SOAK: one package",
         needs=("marty", "nasm", "rgbds"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("gbsound", "soak", py("tests/gbsound.py"), 15.0,
