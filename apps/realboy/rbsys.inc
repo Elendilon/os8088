@@ -845,6 +845,21 @@ rb_statsch:
     mov ah,[0FF41h]                     ; (its DIV left AH 0)
     mov bl,al                           ; BL = line, DX = position, CX = lines
     xor cx,cx                           ;   from now (0 = this one)
+    test ah,28h                         ; LYC ALONE is arithmetic: the walk
+    jnz .line                           ;   below is 155 lines of it, and it
+    mov al,[0FF45h]                     ;   is Super Mario Land's status-bar
+    cmp al,154                          ;   split, every frame. A mode bit
+    jae .r                              ;   ends the walk within a line or
+    sub al,bl                           ;   two (ten, in VBlank), so only
+    jnc .ly                             ;   LYC-only skips it
+    add al,154
+.ly:
+    jnz .lyn                            ; LYC = this line: its start is past,
+    mov al,154                          ;   so the next is a frame on
+.lyn:
+    mov cl,al
+    xor si,si
+    jmp .found
 .line:
     cmp cx,155
     ja .r

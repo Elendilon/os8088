@@ -65,9 +65,15 @@ rw_banks        equ rw_romkb + 2
 rw_argdir       equ rw_banks + 2
 rw_spawned      equ rw_argdir + 2
 rw_name         equ rw_spawned + 2  ; 16: the game's file name
-rw_fbuf         equ rw_name + 16    ; 5,760: rb_render's frame
+rw_ovl          equ rw_name + 16    ; the F1 overlay is up
+rw_f1was        equ rw_ovl + 1      ; F1 was held at the last look
+rw_nrun         equ rw_f1was + 1    ; word: frames run since the last count
+rw_ndrawn       equ rw_nrun + 2     ; word: ...and drawn
+rw_tstat        equ rw_ndrawn + 2   ; word: the tick that count began
+rw_ovltxt       equ rw_tstat + 2    ; 16: 'NNN% NNfps', composed once a second
+rw_fbuf         equ rw_ovltxt + 16  ; 5,760: rb_render's frame
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
-RW_BSS          equ 2 + 10 + 2 + 2 + 2 + 2 + 2 + 2 + 2 + 16 + 5760 + 11520
+RW_BSS          equ 2 + 10 + 2 + 2 + 2 + 2 + 2 + 2 + 2 + 16 + 2 + 6 + 16 + 5760 + 11520
 
 ; =============================================================================
 ; rw_entry - the loader calls this once; the window appears afterwards
@@ -375,25 +381,27 @@ rw_worker:                          ;   loop; draw the next frame whole
     mov ax, RW_OWEDMAX
 .owe:
     mov [rw_owed], ax
-.frames:
-    cmp word [rw_owed], 256
+    cmp ax, 256                     ; nothing owed yet: sleep to the tick
     jb .sleep
     call rw_keys
     call rw_frame
     jc .loop                        ; it stopped
+    inc word [rw_nrun]
+    call rw_stat
     sub word [rw_owed], 256
     inc byte [rw_since]
     cmp word [rw_owed], 256         ; caught up: draw this one
     jb .draw
     cmp byte [rw_since], RW_SKIPMAX ; ...or it has been too long
-    jb .next
+    jb .loop
 .draw:
     mov byte [rw_since], 0
+    inc word [rw_ndrawn]
     call rw_present
-.next:
-    mov bx, [rw_win]
-    call OSAPI_TASK_ALIVE
-    jmp .frames
+    jmp .loop                       ; the clock is read again after EVERY
+                                    ;   frame: a worker that spent what it
+                                    ;   was owed before looking slept a tick
+                                    ;   it did not have whenever it was behind
 .resync:
     mov [rw_last], ax
 .sleep:
@@ -436,8 +444,82 @@ rw_reset:
 .r:
     ret
 
+; rw_stat - once a second, the overlay's line: the game's speed, frames run
+; against the 59.7275 a second the cartridge expects, and the frames drawn
+rw_stat:
+    call OSAPI_GET_TICKS
+    mov cx, ax
+    sub cx, [rw_tstat]              ; CX = ticks counted
+    cmp cx, 18
+    jb .r
+    mov [rw_tstat], ax
+    cmp cx, 600                     ; a pause, or the first look: start over
+    ja .zero
+    ; speed = run x 100 x 18.2065 / (59.7275 x ticks) = run x 3048 / (ticks x 100)
+    mov ax, 100
+    mul cx
+    mov bx, ax                      ; BX = ticks x 100
+    mov ax, [rw_nrun]
+    mov dx, 3048
+    mul dx                          ; DX:AX = run x 3048
+    div bx                          ; AX = speed, %
+    push ds
+    pop es
+    mov di, rw_ovltxt
+    call rw_dec
+    mov al, '%'
+    stosb
+    mov al, ' '
+    stosb
+    ; fps = drawn x 18.2065 / ticks ~ drawn x 182 / (ticks x 10)
+    mov ax, 10
+    mul cx
+    mov bx, ax                      ; BX = ticks x 10
+    mov ax, [rw_ndrawn]
+    mov dx, 182
+    mul dx
+    div bx
+    call rw_dec
+    mov si, rw_s_fps
+.c:
+    lodsb
+    stosb
+    or al, al
+    jnz .c
+.zero:
+    xor ax, ax
+    mov [rw_nrun], ax
+    mov [rw_ndrawn], ax
+.r:
+    ret
+
+; rw_dec - AX (0-999) as decimal at ES:DI, no leading zeros
+rw_dec:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
+    push bx
+    push cx
+    push dx
+    mov bx, 10
+    xor cx, cx
+.d:
+    xor dx, dx
+    div bx
+    push dx
+    inc cx
+    or ax, ax
+    jnz .d
+.o:
+    pop ax
+    add al, '0'
+    stosb
+    loop .o
+    pop dx
+    pop cx
+    pop bx
+    ret
+
 ; rw_keys - the joypad, from the keys held - and nothing held while another
-; window has the keyboard
+; window has the keyboard. F1 toggles the speed overlay.
 rw_keys:
     xor dl, dl
     call OSAPI_WM_TOP
@@ -446,6 +528,16 @@ rw_keys:
     call OSAPI_MENU_OWNER
     cmp bx, [rw_win]
     jne .set
+    mov al, 3Bh                     ; F1, on its press
+    call OSAPI_KEY_DOWN
+    sbb al, al
+    mov ah, al
+    xchg al, [rw_f1was]
+    not al
+    and al, ah
+    jz .nof1
+    xor byte [rw_ovl], 1
+.nof1:
     mov si, rw_keymap
     mov dh, 1
 .k:
@@ -485,8 +577,24 @@ rw_present:
     call OSAPI_WM_CLIP_SET          ; CF = 1: not a pixel of us shows
     jc .un
     call rw_blit
+    call rw_overlay
 .un:
     call OSAPI_GFX_UNLOCK
+.r:
+    ret
+
+; rw_overlay - the speed line over the picture's top left, when F1 put it up
+rw_overlay:
+    cmp byte [rw_ovl], 0
+    je .r
+    cmp byte [rw_ovltxt], 0
+    je .r
+    mov bx, [rw_win]
+    call OSAPI_WM_CONTENT           ; AX = left, DX = top
+    mov cx, ax
+    mov si, rw_ovltxt
+    mov ax, (CWHITE << 8) | CBLACK
+    call OSAPI_FONT_RUN
 .r:
     ret
 
@@ -750,6 +858,7 @@ rw_i_mach:      dw rw_it_reset, rw_it_pause
 rw_it_reset:    db 'Reset', 0
 rw_it_pause:    db 'Pause', 0
 
+rw_s_fps:       db 'fps', 0
 rw_s_open1:     db 'File > Open a', 0
 rw_s_open2:     db 'Game Boy .GB', 0
 rw_s_stop1:     db 'The game stopped:', 0
@@ -761,13 +870,14 @@ rw_s_room:      db 'REALBOY: no room for ROM', 0
 rw_s_read:      db 'REALBOY: read failed', 0
 
 rw_ablines:
-    dw rw_ab1, rw_ab2, rw_ab3, rw_ab4, rw_ab5, rw_ab6, 0
+    dw rw_ab1, rw_ab2, rw_ab3, rw_ab4, rw_ab5, rw_ab6, rw_ab7, 0
 rw_ab1:         db 'RealBoy', 0
 rw_ab2:         db 'a Game Boy for os8088', 0
 rw_ab3:         db 0
 rw_ab4:         db 'Arrows, X = A, Z = B', 0
 rw_ab5:         db 'Enter = Start', 0
 rw_ab6:         db 'Space = Select', 0
+rw_ab7:         db 'F1 = speed', 0
 
 %include "rbdefs.inc"
 %include "rbsys.inc"
