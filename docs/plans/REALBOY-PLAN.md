@@ -1,7 +1,7 @@
 # RealBoy - a real-mode Game Boy emulator: full speed on a 12 MHz 286, a demo on the 5150
 
-**A PLAN. Nothing in it is built.** It is the design and the order of work
-for **RealBoy** (`apps/realboy/`, `REALBOY.O88`), a native os8088 package that
+**A PLAN, BUILT THROUGH WAVE 4** (each wave below says what it came to). It
+is the design and the order of work for **RealBoy** (`apps/realboy/`, `REALBOY.O88`), a native os8088 package that
 runs original Game Boy (DMG) cartridges. When the work starts, the contract
 will be `docs/REALBOY-SPEC.md`, written in wave 1. This file stays the record
 of why the design reads that way.
@@ -577,6 +577,14 @@ and for the recompiler.
 
 ### Wave 3 - the picture, and the package on the desktop
 
+**BUILT** (REALBOY-SPEC sections 13 and 14). `gbwindow` holds dmg-acid2
+pixel for pixel on MartyPC's VGA and Hercules. In the window on 86Box's 286
+Super Mario Land plays at **59.5%** of real time with 6 frames drawn a
+second (`tests/rbcore/rbwin.py`); the worker had been sleeping a tick it did
+not have whenever it was behind (52% and 3 fps before that was found), and
+it draws by the clock now, so a machine that is behind still shows a
+picture. The Keys item and the 256 KB refusal's arena figure are not built.
+
 **Features**
 - The band renderer (section 4.4) and the windowed writers, `BLITP` on VGA
   and dithered `BLIT1` on 1bpp.
@@ -594,6 +602,19 @@ and for the recompiler.
   MartyPC, and reads frames advancing.
 
 ### Wave 4 - the fullscreen speed path
+
+**BUILT, at 1x only** (REALBOY-SPEC section 15): VGA0D, DAC greys, the
+`FSXF_RATE` clock and governor, the shadow compare and the restore.
+`gbwindow`'s VGA arm is the gbfsx gate (the same reference through the
+bracket, then back to the window) and `rbspeed286` the speed row. On
+86Box's 286 full screen: **Super Mario Land 58.0%** of real time at 8 frames
+drawn a second, **Kirby's Dream Land 37.5%** at 5 - after its spin-wait,
+which the one-test rule missed, was found by sampling the Game Boy PC
+(REALBOY-SPEC section 8). **What decides wave 7**: inside the bracket the
+package's composer and VRAM writes are ~50 ms a drawn frame and the core
+alone is ~78% of the machine at full speed on Super Mario Land, so no
+governor setting reaches full speed with a picture. VGA12 at 2x is not
+built.
 
 **Features**
 - The `OSAPI_FSX_RUN` bracket:
