@@ -5293,3 +5293,83 @@ diagnostic kern_mega whose menu-bar `RFL` line (and the PicoMEM's `Q` line
 after it) appears after any second with a reflection instead of twenty or
 more - a PicoMEM raising its IRQ a few times a second would never have shown,
 and each one is a ~3 ms reset gap in speaker PCM. OPEN on both readings.
+
+### 14.35 Field, the Victory 286 (2026-10-20): after 14.34, and what is deferred
+
+**Install from a real floppy works** on 78547a50, first thing after boot,
+with no native-fallback toast - so the native floppy path served it, and
+14.34's verdict-after-the-BIOS change did what it was for.
+
+**MIDIRack is SET ASIDE by the owner** for the final-shape work: the
+speaker refusal (`The PC speaker is busy` with the right MIDIRACK.O88) and
+the clicks kern_big does not have are both open, with MR_SPKDIAG and the
+RFL-threshold diagnostic kernel (14.34) built and sent but not read.
+Resume from those two readings.
+
+**T69 is still slow on BIOS0 (PicoMEM v1), and it does not read as
+STARVED.** The owner's observation is the useful one: a disk-bound play
+shows as stalls - the player waits on the ring - and this one plays smoothly
+at the wrong speed, *"like its timer is wrong"*. That points at the CLOCK
+rather than the disk: the Video Player paces on [ticks] (or the card), and
+on a 286 every reflected `int 13h` is a reset whose time `mega_svc_back`
+puts back into [ticks] from the BDA tick count (40:6C) - which only advances
+if the ROM's own IRQ0 handler ran during the reflection, at 18.2 Hz
+granularity. A reflection shorter than a tick, or one with IRQ0 masked,
+loses that time from [ticks] altogether, and at hundreds of reflections a
+second the video clock runs slow by exactly the time spent in them: a
+picture paced to a clock that is itself behind never looks starved. **To
+read before deciding**: the play's `int 13h` count a second, and [ticks]
+against the PIT across a play. The owner's fallback - FSX on a BIOS-type
+disk running the player in real mode for the bracket - is the decision
+deferred behind that reading; it costs the bracket every byte above 1MB.
+
+**The empty-drive freeze is back, and it is a STATE issue** (owner,
+2026-10-20, on 78547a50): Install touched an empty floppy drive and the
+machine froze, as in 14.31 - but only after the OS had been in use for a
+while; first thing after boot the same install worked (above). So something
+an earlier session of use leaves behind (the 765, the BDA's floppy bytes,
+the native path's own state, a reflection's masks) is what the empty-drive
+access then trips on. DEFERRED by the owner - recorded to come back to, not
+being pursued now.
+
+### 14.36 A reflection lost a rate bracket's periods: the clock T69 plays slow on (2026-10-20)
+
+**The mechanism 14.35 reached for, found in the code.** A reflected call
+hands the CPU to the BIOS with the IVT's int 08h the ROM's own, so every
+IRQ0 that lands while it is out is the ROM's: it counts it at 40:6C and
+nothing of the kernel runs. `mega_svc_back` then added the 40:6C difference
+to `[ticks]` as ticks - which is right only at the ROM's rate. Inside an
+FSXF_RATE bracket channel 0 runs at the BRACKET's divisor, so the ROM
+counted the bracket's periods as ticks (the time of day ran ahead and
+`[ticks]` was over-credited), and the periods themselves were never paid to
+the hook - `[sch_rpend]` never heard of them. The Video Player paces its
+frames on that hook (`vp_hook`, `[vp_owed]`), so every reflected `int 13h` on
+a BIOS-served disk, and every PicoMEM IRQ reflection beside it (61 a second
+at 3.3 ms in 14.31), was time its clock never saw: **a picture paced to a
+clock that is itself behind plays slow and never starves**, which is the
+owner's description. kern_big has no reflection, so it never happens there.
+FASTTICK brackets had the same defect in the other unit.
+
+**`mega_rfclk` pays them the way `sch_isr` would have**: under a rate
+bracket the periods go to `[sch_rpend]` (the hook gets them all on its next
+call) and their PIT counts into `[sch_racc]`, whose carries are the true
+ticks; under FASTTICK `[sch_fcnt]` is counted down; and the time of day is
+taken back by the ROM's surplus. Outside a bracket, and under the speaker's
+(which already sets channel 0 to the ROM's rate for the call), nothing
+changes. kern_mega only, `.mega`, ~110 bytes.
+
+**Measured on 86Box's 286 (MR BIOS, 1MB so the play streams, native floppy
+forced off so every read is reflected)**, a 20 s clip whose frames carry
+their own timecode, sampled every 5.13 s of emulated time from Play:
+
+| kernel | picture's timecode at each sample |
+|---|---|
+| 78547a50 | 0, 0, 1.467, 4.400, 9.400, 14.533, 19.667 |
+| with `mega_rfclk` | 0, 0, 1.533, 4.533, 9.667, 14.800, 19.933 |
+
+The old clock lost ~0.27 s over the clip and the new one ~0.07 - small,
+because a reflection on 86Box is cheap and its floppy is quick; the Victory's
+PicoMEM pays ~3.3 ms a reflection hundreds of times a second, which is where
+the difference is the whole slowdown or none of it. **The owner's T69 run
+on this kernel is the reading**; the real-mode-for-BIOS-disks fallback
+(14.35) stays deferred behind it.

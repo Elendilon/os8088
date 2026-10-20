@@ -2141,13 +2141,7 @@ mega_svc_back:
     mov al, ah
     out 0x40, al
 .nospk2:
-    push es
-    mov ax, MEGA_BDA
-    mov es, ax
-    mov ax, [es:0x6C]
-    pop es
-    sub ax, [mega_t0]
-    add [ticks], ax
+    call mega_rfclk                 ; the IRQ0s the ROM took meanwhile
     mov ax, [ss:bp+0]               ; ES back: its own selector if the BIOS
     cmp ax, [mega_res]              ; left it alone, the identity selector it
     jne .esnew                      ; now is if it did not
@@ -2186,6 +2180,66 @@ mega_svc_back:
     inc word [mega_rfn]
     call mega_replay                ; what the ROM raised, and what arrived
     jmp short .out                  ; on a kernel line meanwhile
+
+; mega_rfclk - the IRQ0s the ROM took while a reflection held the CPU, given
+; to the kernel's clocks. DS = KDATA; clobbers AX BX CX DX (mega_svc_back's
+; frame restores every register).
+;
+; The ROM's handler counts each one at 40:6C, so the difference from mega_t0
+; is EXACTLY how many periods channel 0 delivered - and outside a bracket, or
+; under the speaker's (mega_svc put channel 0 back at the ROM's rate for the
+; call), a period is a tick. INSIDE a rate or fast-tick bracket it is not: the
+; ROM counted the bracket's periods as ticks, so the time of day ran ahead,
+; and the hook that the kernel's own IRQ0 would have paid them to never heard
+; of them. A program paced on its hook - the Video Player on its FSXF_RATE -
+; then lost every reflected int 13h and every PicoMEM IRQ from its clock and
+; PLAYED SLOW WITHOUT EVER STARVING, on a disk the BIOS serves (KERN-MEGA-
+; PLAN 14.36). So the periods are paid exactly as sch_isr pays them: owed to
+; the hook and folded into the rate accumulator, whose carries are the ticks
+; - or, under FASTTICK, counted down [sch_fcnt] - and the BIOS's clock is
+; taken back to the ticks they really were.
+mega_rfclk:
+    push es
+    mov ax, MEGA_BDA
+    mov es, ax
+    mov ax, [es:0x6C]
+    sub ax, [mega_t0]               ; AX = the periods the ROM took
+    jz .out
+    mov cl, [sch_fast]
+    or cl, cl
+    jz .ticks                       ; the ROM's own rate: each is a tick
+    cmp word [spk_seg], 0
+    jne .ticks                      ; ...and so under the speaker's bracket
+    mov si, ax                      ; SI = the periods, for the clock below
+    cmp cl, SCH_RATE
+    jne .fast
+    add [sch_rpend], ax             ; owed to the hook, as sch_isr would
+    mul word [sch_rdiv]             ; DX:AX = their PIT counts...
+    add [sch_racc], ax
+    adc dx, 0                       ; ...and DX the whole 65536s: ticks
+    mov bx, dx
+    jmp short .fix
+.fast:                              ; FASTTICK: N periods a tick
+    mov dx, ax
+    xor bx, bx
+.fl:
+    dec byte [sch_fcnt]
+    jnz .fn
+    mov [sch_fcnt], cl
+    inc bx
+.fn:
+    dec dx
+    jnz .fl
+.fix:
+    sub si, bx                      ; the ROM's surplus: periods it counted
+    sub [es:0x6C], si               ; as ticks that were not, off the 32-bit
+    sbb word [es:0x6E], 0           ; time of day
+    mov ax, bx
+.ticks:
+    add [ticks], ax
+.out:
+    pop es
+    ret
 
 section .text
 ; mega_r286 - where a 286's reset comes back to (40:67, CMOS shutdown 0Ah),
