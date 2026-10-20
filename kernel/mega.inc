@@ -1539,6 +1539,10 @@ mega_nmi:
 ; could only note, on the menu bar ([mega_tellq] bit 0 an NMI, bit 1 the
 ; floppy's BDA bytes moved across a 286 reset; bit 7 is not a request)
 mega_tell:
+    test byte [mega_tellq], 0x40    ; a package that faulted: closed first,
+    jz .nofk                        ; and its toast goes over whatever is up
+    call mega_fkdo                  ; (KERN-MEGA-PLAN 14.42)
+.nofk:
     cmp word [toast_on], 0          ; one line at a time: a toast up (or
     je .go                          ; wanted) keeps the rest queued
     ret
@@ -1741,6 +1745,8 @@ mega_fault:
     cmp byte [ss:bp+20], 0x01
     je mega_db                      ; mega_null0's step
 mega_report:                        ; is finished there, not reported
+    call mega_fkill                 ; a PACKAGE's fault closes the package and
+                                    ; does not come back (KERN-MEGA-PLAN 14.42)
     mov si, mega_mflt
     call mm_puts
     mov ax, [ss:bp+20]              ; the vector
@@ -1808,6 +1814,537 @@ mega_report:                        ; is finished there, not reported
 .dead:
     hlt
     jmp .dead
+
+; -----------------------------------------------------------------------------
+; mega_fkill - A FAULT IN A PACKAGE CLOSES THE PACKAGE (KERN-MEGA-PLAN 14.42)
+;
+; mega_report's first act. Returns when the fault is the kernel's - or nobody's
+; it can name - and today's screen follows; never returns when it is a
+; package's, which it closes. In: BP = mega_fault's frame (ES DS DI SI BP SP BX
+; DX CX AX, vector, error, IP, CS, FLAGS at [ss:bp]).
+;
+; WHOSE: the faulting CS is a package's code (an LDT alias or a pair's code
+; half: mega_cs2ds gives its data segment S), and S is a package instance's
+; region, the region being loaded ([ld_base]), or inside a claim an instance
+; owns (an overlay, a part). A GDT CS - the kernel, `.cold`, `.mega`, a BIOS -
+; is never a package's, and a driver's or a module's image is no instance's.
+; A kernel routine faulting on a pointer a package handed it stays FATAL: the
+; kernel frame that faulted may hold a lock or be half way through a table,
+; and nothing records which.
+;
+; WHERE TO: the running task's innermost CATCH (mega_pcin_*), which
+; wm_pkgcall and the loader's entry call push around every far call into a
+; package. The catch must name the same instance and be ABOVE the fault on the
+; stack; then the package's frames are dropped and the call returns CF = 1 as
+; if the callback had refused - the kernel frames under it are intact, because
+; nothing between the catch and the fault is kernel code. With no catch, a
+; package's own WORKER is killed outright through inst_task_die. Anything else
+; (the UI task outside a callback, the FSXF_RATE hook inside IRQ0, the
+; scheduler locked) is fatal.
+;
+; NO LOOPS: a fault in an instance already being closed is the same incident
+; (at most MEGA_FKCAS of them); a fault in ANY package while another is being
+; closed, or within MEGA_FKGAP ticks of the last incident's start, is fatal.
+; -----------------------------------------------------------------------------
+MEGA_FKINST equ 12                  ; INST_MAX and TOAST_MAX + 1, which are
+MEGA_FKMSG  equ 25                  ; defined after this file (kernel.asm checks)
+MEGA_FKCAS  equ 8                   ; faults one incident may take
+MEGA_FKGAP  equ 55                  ; ticks (3 s) before another may begin
+MEGA_FKVEC  equ 0x38F9              ; vectors 0 3 4 5 6 7 0B 0C 0D: the ones a
+                                    ; program's own instruction raises
+mega_fkill:
+    mov ax, MEGA_SEL_KDATA
+    mov ds, ax
+    mov ax, LOW_SEG
+    mov es, ax                      ; ES = .lowbss throughout
+    mov bx, [ss:bp+20]              ; --- the vector: a program's own
+    cmp bx, 0xFFFF                  ; (FF: a software interrupt nobody
+    je .vok                         ; handles, mega_unh)
+    cmp bx, 16
+    jae .ret
+    mov cl, bl
+    mov ax, MEGA_FKVEC
+    shr ax, cl
+    test al, 1
+    jz .ret
+.vok:
+    cmp word [sch_rbusy], 0         ; the rate hook in flight, or the
+    jne .ret                        ; scheduler locked ([sch_lock], the next)
+    mov ax, [ss:bp+26]              ; --- the code: a package's
+    test al, 4
+    jz .ret                         ; a GDT CS
+    call mega_cs2ds                 ; AX = S
+    jc .ret
+    call mega_fown                  ; DI = the record, DX = its region
+    jc .ret
+    ; --- the catch
+    mov bl, [sch_cur]
+    xor bh, bh
+    add bx, bx
+    mov si, [es:bx+mega_pcj]
+    or si, si
+    jz .nocatch
+    mov ax, [es:si-4]               ; the far return into the kernel that the
+    mov cx, [es:si-2]               ; call pushed just under the catch
+    cmp ax, ..@mega_pcret_w
+    jne .catl
+    cmp cx, KERNEL_SEG
+    je .catok
+.catl:
+    cmp ax, ..@mega_pcret_l
+    jne .ret                        ; overwritten: no way home
+    cmp cx, COLD_SEG
+    jne .ret
+.catok:
+    mov ax, ss                      ; ...and the fault is above it on the
+    cmp ax, LOW_SEG                 ; same stack (a package on a stack of its
+    jne .catst                      ; own is unwound all the same)
+    cmp bp, si
+    jae .ret
+.catst:
+    mov ax, [es:si+6]               ; the image the catch called into: the
+    cmp ax, dx                      ; faulting one's region, or one of its
+    je .catme                       ; overlays or parts
+    push di
+    push dx
+    call mega_fown                  ; DX = ITS region
+    mov ax, dx
+    pop dx
+    pop di
+    jc .ret                         ; (POP and MOV keep CF)
+    cmp ax, dx
+    jne .ret
+.catme:
+    mov cl, 1                       ; CL = 1 unwind
+    jmp short .inc
+.nocatch:
+    mov al, [sch_cur]               ; no catch: only the instance's own
+    or al, al                       ; worker may be killed
+    jz .ret
+    cmp al, [di+I_TASK]
+    jne .ret
+    mov ax, ss                      ; ...on its own stack
+    cmp ax, LOW_SEG
+    jne .ret
+    xor cl, cl                      ; CL = 0 the worker
+    ; --- the incident
+.inc:
+    mov ax, di
+    sub ax, inst_tab
+    shr ax, 5
+    inc ax                          ; AL = slot + 1
+    cmp byte [es:mega_fkslot], 0
+    je .new
+    cmp al, [es:mega_fkslot]        ; one is being closed: this must be it
+    jne .ret
+    cmp dx, [es:mega_fks]
+    jne .ret
+    inc byte [es:mega_fkn]
+    cmp byte [es:mega_fkn], MEGA_FKCAS
+    ja .ret
+    jmp short .go
+.new:
+    cmp byte [es:mega_fkn], 0       ; the first ever, or long enough after
+    je .first                       ; the last
+    mov bx, [ticks]
+    sub bx, [es:mega_fkt]
+    cmp bx, MEGA_FKGAP
+    jb .ret
+.first:
+    mov [es:mega_fkslot], al
+    mov [es:mega_fks], dx
+    mov bx, [ticks]
+    mov [es:mega_fkt], bx
+    mov byte [es:mega_fkn], 1
+    push cx
+    call mega_fkmsg_mk              ; the toast and the E9 line, once
+    pop cx
+.go:
+    or byte [mega_tellq], 0x40      ; ui_task closes it and says so
+    cmp byte [di+I_STATE], 1        ; dying from here: its own API calls
+    jne .st                         ; refuse, its worker leaves at its next
+    mov byte [di+I_STATE], 2        ; OSAPI_TASK_ALIVE
+.st:
+    or cl, cl
+    jz .worker
+    cmp word [es:si-4], ..@mega_pcret_l
+    je .unwind                      ; the loader aborts the launch itself
+    mov bx, di
+    sub bx, inst_tab
+    shr bx, 4                       ; the slot x 2
+    mov [es:bx+mega_fkq], dx        ; a callback: ui_task tears it down
+.unwind:
+    xor dl, dl                      ; DL = 1: the callback took the gfx lock,
+    mov al, [sch_cur]               ; and nothing above will give it back
+    cmp byte [gfx_lock_flag], 0
+    je .nolk
+    cmp al, [gfx_lock_own]
+    jne .nolk
+    cmp byte [es:si+4], 0           ; held at the call...
+    je .lk
+    cmp al, [es:si+5]               ; ...by us: the caller's, it stays
+    je .nolk
+.lk:
+    inc dx
+.nolk:
+    mov bx, [es:si+2]               ; the callback's SI, as it was handed
+    mov ax, LOW_SEG
+    cli
+    mov ss, ax
+    lea sp, [si-4]                  ; the far return, on top
+    sti
+    push bx
+    or dl, dl
+    jz .ul
+    mov bp, gfx_unlock
+    call KERNEL_SEG:mega_tcall
+.ul:
+    pop si
+    mov ax, MEGA_SEL_KDATA
+    mov ds, ax
+    mov es, ax
+    xor ax, ax
+    xor bx, bx
+    xor cx, cx
+    xor dx, dx
+    xor di, di
+    xor bp, bp
+    cld
+    stc                             ; "refused": an entry proc's abort
+    retf
+.worker:
+    lea ax, [bp+30]                 ; the worker's SP at the fault
+    cli
+    mov sp, ax
+    sti
+    mov al, [sch_cur]
+    cmp byte [gfx_lock_flag], 0
+    je .wnl
+    cmp al, [gfx_lock_own]
+    jne .wnl
+    mov bp, gfx_unlock              ; inst_task_die takes the lock itself
+    call KERNEL_SEG:mega_tcall
+.wnl:
+    mov ax, MEGA_SEL_KDATA
+    mov es, ax
+    cld
+    jmp KERNEL_SEG:inst_task_die    ; DI = the record; never returns
+.ret:
+    mov ax, MEGA_SEL_KDATA
+    mov ds, ax
+    ret
+
+; mega_fown - AX = a data segment -> DI = the package instance it is part of,
+; DX = that instance's region; CF = 1 none. A PUBLISHED record is asked
+; first: [ld_base] outlives its launch, and a region the compactor has since
+; moved onto that segment belongs to its own record and not to [ld_rec]. Only
+; then the region being loaded ([ld_base]'s, whose record is [ld_rec] before
+; step 9 publishes it). ES = .lowbss. Clobbers AX, BX, CX
+mega_fown:
+    mov dx, ax
+    call .byseg
+    jnc .ok
+    mov di, [ld_rec]
+    cmp ax, [ld_base]
+    jne .scan
+    or di, di
+    jnz .ok
+.scan:
+    test al, 7                      ; a paragraph below the ROM: an overlay
+    jnz .no                         ; or a part, inside a claim
+    cmp ax, 0xA000
+    jae .no
+    mov bx, mem_tab
+    mov cx, MEM_MAX
+.w:
+    mov dx, ax
+    cmp word [es:bx+MC_SEG], 0
+    je .wn
+    sub dx, [es:bx+MC_SEG]
+    jb .wn
+    cmp dx, [es:bx+MC_PARA]
+    jb .hit
+.wn:
+    add bx, MC_SIZE
+    loop .w
+.no:
+    stc
+    ret
+.hit:
+    mov ax, [es:bx+MC_OWN]          ; an instance's slot, or a package's
+    cmp ax, INST_MAX                ; segment
+    jae .seg
+    shl ax, 5
+    add ax, inst_tab
+    mov di, ax
+    cmp byte [di+I_STATE], 0
+    je .no
+    test byte [di+I_KIND], KIND_PKG
+    jz .no
+    mov dx, [di+I_SPTR]
+.ok:
+    clc
+    ret
+.seg:
+    mov dx, ax
+    call .byseg
+    jc .no
+    ret
+.byseg:                             ; DX = a region -> DI its record, CF
+    mov di, inst_tab
+.l:
+    cmp byte [di+I_STATE], 0
+    je .n
+    test byte [di+I_KIND], KIND_PKG
+    jz .n
+    cmp [di+I_SPTR], dx
+    je .y
+.n:
+    add di, I_RECSZ
+    cmp di, inst_tab + INST_MAX * I_RECSZ
+    jb .l
+    stc
+    ret
+.y:
+    clc
+    ret
+
+; mega_fkmsg_mk - the toast, "NAME vv at cccc:iiii", into mega_fkmsg, and
+; the E9 line "kern_mega CLOSED NAME vv at cccc:iiii err eeee". In: BP = the
+; frame, DX = the region (its header's +16 is the name), ES = .lowbss.
+; Clobbers AX, BX, CX
+mega_fkmsg_mk:
+    push si
+    push di
+    mov di, mega_fkmsg
+    push ds
+    mov ds, dx
+    mov si, 16
+    mov cx, 8
+.nm:
+    lodsb
+    cmp al, ' '
+    jb .ne
+    cmp al, 0x7F
+    jae .ne
+    stosb
+    loop .nm
+.ne:
+    pop ds
+    mov al, ' '
+    stosb
+    mov ax, [ss:bp+20]
+    call mega_bhex2
+    mov ax, ' a'
+    stosw
+    mov ax, 't '
+    stosw
+    mov ax, [ss:bp+26]
+    call mega_bhex4
+    mov al, ':'
+    stosb
+    mov ax, [ss:bp+24]
+    call mega_bhex4
+    mov byte [es:di], 0
+    mov byte [es:mega_fktm], 1
+    mov si, mega_mclo
+    call mm_puts
+    mov si, mega_fkmsg
+.e9:
+    mov al, [es:si]
+    inc si
+    or al, al
+    jz .e9d
+    call mm_putc
+    jmp .e9
+.e9d:
+    mov si, mega_mcle
+    call mm_puts
+    mov ax, [ss:bp+22]
+    call mm_hex4
+    mov al, 10
+    call mm_putc
+    pop di
+    pop si
+    ret
+mega_mclo   db 10, "kern_mega CLOSED ", 0
+mega_mcle   db " err ", 0
+
+; mega_fkdo - ui_task, nothing held ([mega_tellq] bit 6): close what
+; mega_fkill unwound out of, say so, and end the incident once its record is
+; gone. DS = the kernel's data. Every register kept
+mega_fkdo:
+    pusha
+    push es
+    mov ax, LOW_SEG
+    mov es, ax
+    mov si, mega_fkq
+    mov di, inst_tab
+.k:
+    xor ax, ax
+    xchg ax, [es:si]
+    or ax, ax
+    jz .kn
+    cmp byte [di+I_STATE], 0
+    je .kn
+    test byte [di+I_KIND], KIND_PKG
+    jz .kn
+    cmp [di+I_SPTR], ax
+    jne .kn                         ; (gone, and the slot taken again)
+    call mega_fkclose
+.kn:
+    add si, 2
+    add di, I_RECSZ
+    cmp di, inst_tab + INST_MAX * I_RECSZ
+    jb .k
+    cmp byte [es:mega_fktm], 0
+    je .nt
+    mov byte [es:mega_fktm], 0
+    mov si, mega_fkmsg              ; ES:SI
+    mov cx, 182                     ; ten seconds, mega_nmitell's
+    call KERNEL_SEG:cw_toast_show
+.nt:
+    mov al, [es:mega_fkslot]
+    or al, al
+    jz .clr
+    xor ah, ah
+    dec ax
+    shl ax, 5
+    add ax, inst_tab
+    mov di, ax
+    cmp byte [di+I_STATE], 0
+    je .shut
+    mov ax, [es:mega_fks]
+    cmp [di+I_SPTR], ax
+    je .keep                        ; its worker has not left yet
+.shut:
+    mov byte [es:mega_fkslot], 0
+.clr:
+    and byte [mega_tellq], 0xBF
+.keep:
+    pop es
+    popa
+    ret
+
+; mega_fkclose - DI = a live package record: what app_close_win does to it,
+; without asking it (its code is what faulted) - inst_task_die's order. With
+; a worker, the die flag and the hide, and the worker leaves by itself.
+%macro MEGA_TC 1
+    mov bp, %1
+    call KERNEL_SEG:mega_tcall
+%endmacro
+mega_fkclose:
+    push es
+    mov ax, MEGA_SEL_KDATA
+    mov es, ax
+    mov byte [di+I_STATE], 2
+    MEGA_TC gfx_lock
+    mov bx, [di+I_WIN]
+    cmp byte [di+I_TASK], 0xFF
+    jne .tasked
+    MEGA_TC toast_owner_gone
+    MEGA_TC inst_rel_rec
+    mov bx, [di+I_WIN]
+    MEGA_TC inst_unwin
+    call COLD_SEG:desk_drop_x
+    MEGA_TC gfx_unlock
+    call COLD_SEG:mem_free_rec_x
+    mov byte [di+I_STATE], 0
+    pop es
+    ret
+.tasked:
+    or bx, bx
+    jz .u
+    MEGA_TC wm_hide
+.u:
+    MEGA_TC gfx_unlock
+    pop es
+    ret
+
+; -----------------------------------------------------------------------------
+; mega_pcin_x / mega_pcin_n - push a CATCH (KERN-MEGA-PLAN 14.42) under the
+; far return, and _x also wm_nest_pushd: wm_pkgcall's, and the loader's
+; entry call's (_n, which needs no bracket). In: DS = the image about to be
+; called, ES = the kernel's data, SI = the callee's SI, SS = LOW_SEG. Every
+; register and the flags kept. The frame, at the catch SP and upward: the
+; task's previous catch, SI, the gfx lock's flag/owner word at the call, the
+; image, the task index x 2 - and the far call that follows puts its return
+; just under it, which is where mega_fkill finds the way home. The catch is
+; per TASK (mega_pcj, .lowbss): a worker reaches wm_pkgcall too.
+; mega_pcout_x / mega_pcout_n - the frame off and the previous catch back
+; (_x also wm_nest_pop, DS = the kernel's data). Every register and the flags.
+; Both run in real mode as well (an AUTOSTART package's entry), where nothing
+; reads the catch.
+; -----------------------------------------------------------------------------
+section .cold
+mega_pcin_x:
+    ; STKBALANCE-NET: +5 - mega_pcin_n's frame
+    call wm_nest_pushd
+mega_pcin_n:
+    ; STKBALANCE-NET: +5 - leaves the catch frame on the CALLER's stack; mega_pcout_* takes it off
+    push ax                         ; five words for the frame
+    push ax
+    push ax
+    push ax
+    push ax
+    pushf
+    push bp
+    push bx
+    mov bp, sp                      ; +0 BX +2 BP +4 F, +16 IP +18 CS
+    mov bx, [ss:bp+16]
+    mov [ss:bp+6], bx               ; the return to the top
+    mov bx, [ss:bp+18]
+    mov [ss:bp+8], bx
+    mov [ss:bp+12], si              ; frame +2 SI
+    mov bx, [es:gfx_lock_flag]
+    mov [ss:bp+14], bx              ; frame +4 the lock
+    mov bx, ds
+    mov [ss:bp+16], bx              ; frame +6 the image
+    mov bl, [es:sch_cur]
+    xor bh, bh
+    add bx, bx
+    mov [ss:bp+18], bx              ; frame +8 the task
+    push word [ss:bx+mega_pcj]
+    pop word [ss:bp+10]             ; frame +0 the previous catch
+    mov [ss:bx+mega_pcj], bp
+    add word [ss:bx+mega_pcj], 10   ; the catch: SP once the retf is done
+    pop bx
+    pop bp
+    popf
+    retf
+
+mega_pcout_x:
+    ; STKBALANCE-NET: -5 - mega_pcout_n's
+    call wm_nest_pop
+mega_pcout_n:
+    ; STKBALANCE-NET: -5 - takes mega_pcin_*'s catch frame off the caller's stack
+    pushf
+    push bp
+    push bx
+    mov bp, sp                      ; +0 BX +2 BP +4 F +6 IP +8 CS, +10 frame
+    mov bx, [ss:bp+18]              ; the task
+    push word [ss:bp+10]
+    pop word [ss:bx+mega_pcj]       ; its previous catch back
+    mov bx, [ss:bp+8]               ; ...and everything up ten bytes
+    mov [ss:bp+18], bx
+    mov bx, [ss:bp+6]
+    mov [ss:bp+16], bx
+    mov bx, [ss:bp+4]
+    mov [ss:bp+14], bx
+    mov bx, [ss:bp+2]
+    mov [ss:bp+12], bx
+    mov bx, [ss:bp]
+    mov [ss:bp+10], bx
+    lea sp, [bp+10]
+    pop bx
+    pop bp
+    popf
+    retf
+section .text
+mega_tcall:                         ; `.mega`'s way into a near .text routine:
+    call bp                         ; BP = it (mega_fkill, mega_fkdo)
+    retf
+section .mega
 
 %ifdef MEGA_TRAPLOG
 ; -----------------------------------------------------------------------------
@@ -7836,6 +8373,16 @@ mega_nmin   resb 1                  ; ...how many, saturating at the cap's use
 mega_tellq  resb 1                  ; lines ui_task owes the menu bar
                                     ; (mega_tell)
 section .lowbss
+mega_pcj    resw MAX_TASKS          ; each task's innermost CATCH, 0 = none
+                                    ; (mega_pcin_*, KERN-MEGA-PLAN 14.42)
+mega_fkq    resw MEGA_FKINST        ; per slot: a faulted instance's region,
+                                    ; owed a close by ui_task (mega_fkdo)
+mega_fkmsg  resb MEGA_FKMSG         ; its toast
+mega_fkt    resw 1                  ; [ticks] when the last incident began
+mega_fks    resw 1                  ; ...its instance's region
+mega_fkslot resb 1                  ; ...and slot + 1, 0 = none being closed
+mega_fkn    resb 1                  ; faults in it (0 = none ever)
+mega_fktm   resb 1                  ; 1 = its toast is owed
 mega_seg0   resw 1                  ; MEGA_SEG0's word for code outside .text
 mega_pm     resb 1                  ; 1 = protected mode, for .cold (KDATAR_C):
                                     ; .lowbss is zeroed, which is the right

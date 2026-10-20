@@ -10,22 +10,6 @@
 # that falls must be lowered in the same commit. The SDK rule is apps/
 # os88api.inc's: normalise to EIGHT paragraphs (`and si, 127`), never one.
 
-# --- being converted by another session as this lands (2026-10-20): whichever
-#     lands second deletes or lowers these lines
-2 apps/pixel/pxedit.asm  # Rotate's column walk (pe_srow's caller at .cw): the offset normalised to one paragraph and the SEGMENT stepped by pe_q paragraphs a row - off the grid by design; wants an offset walk (KERN-MEGA-PLAN 10.3 item 63)
-2 apps/pixel/pxgif.asm  # the animation path's two master-row addresses, pa_rows (.r) and pa_comp (.c1), normalised to one paragraph - px_mrow's fix, not yet taken there (10.3 item 63)
-
-# --- found by this ratchet (14.39) and NOT being fixed yet: PiXEL's
-#     THE HISTOGRAM TAIL (SPEC.md 106.20) is placed at the master's segment +
-#     ceil(pixels / 16) paragraphs, which is off the grid whenever a picture's
-#     pixel count is not a multiple of 128 (320x200 is; 466x300 is not). Every
-#     reader and the claim's sizing have to move to ceil(pixels / 128) x 8 at
-#     ONCE - and pxedit.asm's pe_tailof computes the same segment into AX,
-#     which this scan does not see because the `mov es` is its caller's
-1 apps/pixel/pxfull.asm  # the full-screen load's copy of the histogram out of the tail (above)
-1 apps/pixel/pxmaster.inc  # px_htail, the resident's tail segment (above)
-1 apps/pixel/pxplan.inc  # pl_htail, the planner's copy of px_htail (above)
-
 # --- kern_mega's DOS.O88 says OS88_HIGH (KERN-MEGA-PLAN 14.44), which brings
-#     apps/dos/ into scope: its one site is NOT in the part that says it
+#     apps/dos/ into scope: its five sites are NOT in the part that says it
 5 apps/dos/dos.asm  # dos_mcb_split, dos_mcb_join and dos_mcb_resize - the DOS arena's MCB chain, inside %ifndef DOS_EXTCORE: the program part (dosp.bin) is assembled -DDOS_EXTCORE and does not contain it, and the core that does (doscore.asm, part 1) runs it on the DOS program's arena under kern_dos in REAL mode, after the trip has left protected mode - never on a segment of its own

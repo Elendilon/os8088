@@ -188213,25 +188213,37 @@ opens with (`apps/pixel/pxpart.inc`):
 
 ```
 +0  dw 'PX'        signature
-+2  db 4           ABI version (1 until wave 3 added +12, 2 until wave 4's context, 3 until +14)
++2  db 5           ABI version (1 until wave 3 added +12, 2 until wave 4's context, 3 until +14, 4 until +16)
 +3  db 5           vectors that follow
-+4  dw 0           the package's segment - stamped by the resident before EVERY call
++4  dw 0           the package's CODE segment - stamped by the resident before EVERY call
 +6  dw init        out AX = PXP_PROBE
 +8  dw decode      a decoder's body, on the WORKER (106.18); PXE_NOTSUP from a part that is not one
 +10 dw info        ES:DI = a buffer, CX = its size: the part's text or facts
 +12 dw head        a decoder's header parse, on the UI task (106.18); PXE_NOTSUP otherwise
 +14 dw plans       a decoder's mixing plans, [px_plan], on either task (106.20)
++16 dw 0           PXP_SELF: the part's own DATA segment - stamped with +4
++18 dw 0           PXP_PKGD: the package's DATA segment - stamped with +4
 ```
 
 `px_pcall` (AL = part, BL = vector) fetches the part if it is not here,
-checks the signature, the version and the vector count, stamps `+4`, and
-`call far`s the vector with DS = the package. It answers the vector's CF/AX,
-or CF = 1 with `PXE_PART` (the fetch failed; `op_fetch` has toasted why) or
-`PXE_BADPART` (what was fetched is not a PiXEL part of this ABI; the caller
-says so). A part obeys §95.8's module rules: its own tables through `CS:`;
-the package through DS as it arrived, or `[cs:PXP_PKG]` if it repoints DS —
-never `push cs / pop ds`, and never a copy kept past the call, because the
-region may move between calls (§66); it never speaks; it answers in CF/AX.
+checks the signature, the version and the vector count, stamps `+4`, `+16`
+and `+18` (`px_pstamp`), and `call far`s the vector through the part's CODE
+selector (`op_cseg`, §20.12) with DS = the package. It answers the vector's
+CF/AX, or CF = 1 with `PXE_PART` (the fetch failed; `op_fetch` has toasted
+why) or `PXE_BADPART` (what was fetched is not a PiXEL part of this ABI; the
+caller says so). A part obeys §95.8's module rules: its own tables through
+`CS:`; the package through DS as it arrived, or `[cs:PXP_PKGD]` if it
+repoints DS, and the services far-called through `[cs:PXP_PKG]`; never a
+copy kept past the call, because the region may move between calls (§66);
+it never speaks; it answers in CF/AX. **And it never STORES through CS**:
+on every real-mode kernel the three stamped words are CS's and DS's own
+values, but under kern_mega CS is a code selector that takes no store, so a
+part's own variables go through `[cs:PXP_SELF]` (`mov ds, [cs:PXP_SELF]` in
+place of `push cs / pop ds`, or `PXSW`, `pxpart.inc`'s one-store bracket).
+The services a part calls back (`px_ks_*`) take DS from `[cs:px_dsel]`,
+which `px_pstamp` keeps, and not from CS. docs/plans/KERN-MEGA-PLAN.md 14.40
+is why: 55,481 #GP fixups opening BALLOONS.PNG on kern_mega before it, none
+after.
 
 **A fetch goes home first.** A part is read out of PIXEL.O88, and File > Open
 leaves the instance standing in the picture's folder (§38.10), so

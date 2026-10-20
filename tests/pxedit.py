@@ -126,7 +126,7 @@ def host_leg():
             p.w16("px_edseg", 0)
             ds = seg
         else:
-            ds = p.claim(dw * dh + 2048 + 16)
+            ds = p.claim(dw * dh + 2048 + 128)   # (the tail on the 8-paragraph grid)
             p.w16("px_edseg", ds)
         ax, cf = p.decode(EV[name])
         if cf:

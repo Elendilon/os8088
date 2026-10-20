@@ -13,8 +13,9 @@ one.  kern_mega shares most of kernel/ with kern_big (KERN-MEGA-PLAN 7), and a
 new site added to a shared file assembles and runs on kern_big while it breaks
 the other build - silently, on a build nobody here can boot yet.
 
-So this counts the two idioms per file under kernel/ and drivers/ and holds
-them to `tests/cswrites.txt`, textrules' shape:
+So this counts the two idioms per file under kernel/ and drivers/ - and
+apps/pixel/, PiXEL's package and parts, which KERN-MEGA-PLAN 14.40 took to
+none - and holds them to `tests/cswrites.txt`, textrules' shape:
 
   * a FILE NOT IN THE REGISTRY using either idiom fails - the case that
     matters, because it is what new code hits;
@@ -52,7 +53,7 @@ from harness import check, done                           # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 REGISTRY = os.path.join(ROOT, "tests", "cswrites.txt")
-TREES = ("kernel", "drivers")
+TREES = ("kernel", "drivers", "apps/pixel")
 
 LABEL = r"(?:[A-Za-z_.$@?][\w.$@?#~]*:\s*)?"
 WRITE = re.compile(

@@ -29,7 +29,8 @@ is enforced. Three shapes, each ending in a `mov ds|es` within a few lines:
   norm    `and R16, 15` beside a 16-bit right shift by four - a far pointer
           normalised to ONE paragraph
   round   `add R16, 15` and a shift by four - a byte count rounded up to
-          paragraphs and added to a segment (a tail placed past a buffer)
+          paragraphs and added to a segment (a tail placed past a buffer) -
+          unless an `and al, 0xF8` before the load puts it back on the grid
   step    `inc R` / `dec R`, or `add|sub R, n` with n not a multiple of 8,
           as the last write to R before `mov ds|es, R`
 
@@ -107,6 +108,23 @@ def segload_after(lines, i, span=16):
                for j in range(i + 1, min(len(lines), i + span + 1)))
 
 
+REGRID = re.compile(r"^\s*" + LBL + r"and\s+(?:[abcd]l|" + R16 + r")\s*,\s*"
+                    r"(?:0x0*f8|0*f8h|0xfff8|0*fff8h|-8)\s*$", re.I)
+
+
+def regridded(lines, i, span=16):
+    """A `round` site whose paragraphs are put back on the grid - `and al,
+    0xF8` (or the word's 0xFFF8) after the shift and before the segment is
+    loaded: the count rounded up to EIGHT paragraphs, which is the fix
+    (KERN-MEGA-PLAN 14.40's histogram tail)."""
+    for j in range(i + 1, min(len(lines), i + span + 1)):
+        if SEGLOAD.match(lines[j]):
+            return False
+        if REGRID.match(lines[j]):
+            return True
+    return False
+
+
 def scan(path):
     """[(line, kind)] for every off-the-grid segment build in one source."""
     with open(path, errors="replace") as f:
@@ -117,8 +135,9 @@ def scan(path):
         if AND15.match(l) and shift4(lines, i) and segload_after(lines, i):
             out.append((i + 1, "norm"))
         elif ADD15.match(l) and shift4(lines, i) and segload_after(lines, i):
-            out.append((i + 1, "round"))
             rounding.add(i)
+            if not regridded(lines, i):
+                out.append((i + 1, "round"))
     for i, l in enumerate(lines):
         m = SEGLOAD.match(l)
         if not m or not re.match(R16 + r"$", m.group(1), re.I):

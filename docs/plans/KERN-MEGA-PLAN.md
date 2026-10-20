@@ -6054,6 +6054,430 @@ It is red with MEGACSW added, which takes 5 traps.
   through a wrapper on displays of their own. The tool itself was left as
   it is.
 
+### 14.40 PiXEL on kern_mega: no fixup, no off-grid segment (2026-10-20)
+
+Items 47, 50, 59, 61 and 63's PiXEL rows, and 14.12's "PiXEL stays as it
+is". **Every sample picture opens with NO #GP fixup at all**, where opening
+one took up to 55,481 and four things FAULTED outright: an animated GIF's
+first frame, a progressive JPEG, the editor's Rotate and Blur, and Full
+Screen. kern_big and kern_small run the same binary and decode the same
+pictures; only the PiXEL package and its parts changed, no kernel byte.
+
+**The census** (`make megatrap`, Bochs at 16MB on VGA, B: holding PIXEL.O88
+and `apps/pixel/samples`; trap lines per step, `tools/megatraps.py`):
+
+| step | before | after |
+|---|---|---|
+| BALLOONS.PNG (palette PNG) | 55,481 | 0 |
+| BOUNCE.GIF (animated) | **FAULT** on frame 0 (`pa_comp`, ES = 1992h) | 0, plays |
+| CAT.GIF (interlaced, 256) | 39,160 | 0 |
+| CITY.PCX | 42,632 | 0 |
+| FLOWER.JPG (colour) | 46,161 | 0 |
+| HOUSE.PNG (RGB) | 11,340 | 0 |
+| LAKE.JPG (grey) | 533 | 0 |
+| MOUNTAIN.BMP | 414 | 0 |
+| ROOM.JPG (progressive) | **FAULT** (`pj_stzero`, ES = 5892h) | 0 |
+| Rotate CW / CCW (Rotate tool) | **FAULT** (`pe_rowp`, DX = 2F8Ch) | 0 / 0 |
+| Effects > Blur | **FAULT** (`pe_rowp`, 3334h) | 0 |
+| Effects > Sepia (the plan search on the worker) | - (Blur faulted first) | 0 |
+| Full Screen (F) and Esc | **FAULT** (`pxf` row, 285Ch) | 0 |
+| File > Save As, PNG, onto B: | - | 0; the file read back on the host is the PCX's pixels exactly |
+
+(Blur and Sepia each show one line, `FFD8:227C`, in the kernel's own
+`.mega` - not PiXEL's, and the same before.) The four biggest counts were
+one routine: **`pl_plan1`**, the palette's mixing-plan search that every
+decoder part carries (`pxplan.inc`), kept its 136-byte scratch in the part
+and wrote it through CS ~40,000 times a palette. `tests/pxmega.py` is the
+census kept runnable (below).
+
+**What was built.**
+
+1. **The part ABI's two new words** (`apps/pixel/pxpart.inc`, `PXP_ABIVER`
+   4 -> 5, SPEC.md 106.5): `PXP_SELF` (+16), the part's own DATA segment,
+   and `PXP_PKGD` (+18), the package's, stamped with `PXP_PKG` before every
+   call by `px_pstamp`. After the vectors, so no offset before them moved.
+   Rule 6: a part stores into its own words through `[cs:PXP_SELF]`, never
+   through CS. On a real-mode kernel the three words are CS's and DS's own
+   values. It is inside one package, so it is not an SDK change and no
+   `PKG_FMT` moves.
+2. **Far calls through code selectors** (items 47, 50). `px_pcall` and
+   `px_wcall` far-call a part through `op_cseg` (`OP_WANT_CSEG`, the
+   parts standard's own). A decoder's services are far-called through
+   `[cs:PXP_PKG]`, the package's CS, where they took DS, which was one
+   `xfer` fixup a row. The services (`px_ks_*`) load DS from `[cs:px_dsel]`,
+   which `px_pstamp` keeps, where they did `push cs / pop ds`, which was one
+   `write` fixup a row. A part that repoints DS at the package takes
+   `PXP_PKGD`. (Item 47's `px_reloc` is PIXELSTEIN's, not PiXEL's. PiXEL has
+   none, and PIXELSTEIN is not touched here.)
+3. **The stores through CS** (items 61, 63): about 470 sites in eight parts.
+   - The hot ones are a segment register loaded once. `pl_plan1` writes its
+     scratch through ES = `PXP_SELF`, which costs nothing on an 8088 because
+     `es:` is the same prefix as `cs:`. In inflate, `pz_bias` and `pz_final`
+     go into thirteen unused bytes of the PNG scratch, which is DS there,
+     and lose a prefix. The scanline extraction runs with DS = the part, so
+     its ~25 accesses lose theirs too. JPEG's self-modifying `imul`
+     displacements (3 x 14,400 on FLOWER.JPG) are still self-modifying,
+     written through `PXP_SELF` in one push/pop. The colour row's four
+     patched displacements are now written only when they change, so that
+     path is cheaper than before.
+   - The cold ones, once per operation, header or row, go through `PXSW`,
+     a one-store bracket (`push es / mov es, [cs:PXP_SELF] / store / pop
+     es`), or `PXSWON`/`PXSWOFF` around a run of them. A handful that store
+     SP use `PXSSP`.
+   - Every `push cs / pop ds|es` in a part is `mov ds|es, [cs:PXP_SELF]`.
+4. **Off the grid** (items 59, 63). Each fix names the same linear address
+   as before, so real mode reads the same bytes.
+   - The GIF animation's two master-row addresses (`pa_rows`, `pa_comp`)
+     and the full screen's and Save As's master rows (`pxf` row, `pw_row`)
+     use px_mrow's `and r, 127` / `and al, 0F8h`.
+   - So does the editor's `pe_rowp`, which every Image and Effects
+     operation reaches through `pe_srow`/`pe_drow`. That is why Blur faulted
+     as well as Rotate.
+   - Rotate itself (`pe_rot90`) is now an OFFSET walk. It adds the width to
+     SI and moves the segment by 1000h only when the offset carries. The
+     clockwise turn reads the column top-down and writes the row right to
+     left with DF set, so it never steps a segment below the master's own.
+     That matters because a segment below a claim can be `LOW_SEG` or
+     `COLD_SEG`, whose descriptors are not identity. The loop is ~half the
+     old one's cycles a pixel.
+   - A flat file's head (`pxhmore.inc`) moves to 128-byte places.
+   - **The histogram tail** (14.39's find): it was at the master + ceil(px /
+     16) paragraphs, which is off the grid unless a picture's pixel count
+     is a multiple of 128. It is now rounded up to 8 paragraphs in every
+     reader together: `px_htail`, `pl_htail`, `pe_tailof`, the full
+     screen's copy, and the XMS undo's byte count (`pv_xbytes`, which
+     would otherwise have copied the tail short). The claim is
+     `ceil(px / 1024)` KB + 2, which already holds the rounding.
+5. **The progressive JPEG store.**
+   - Each component's store starts on the grid. `pj_stsize` rounds
+     paragraphs to 8, and `pj_fsizes` rounds the base.
+   - The 1/8 store addresses its 8-paragraph group plus an offset.
+   - The 1/4 store keeps a block a PARAGRAPH and decodes it at ES:0. That
+     is a segment only every eighth block, and the AC refinement has no
+     register to spare for an offset. So on kern_mega only, each block goes
+     through an 8-paragraph bounce: copied in at `pj_pblock`, copied back
+     at its `.out`, and read through it in `pj_oblk`.
+   - The bounce is reached by three 2-byte jumps that `pj_decode` patches
+     in when CS is not its own data segment. **Real mode is never patched
+     and runs the bytes it ran.** HEAD sizes the scratch 8 + up to 28
+     paragraphs larger, for a progressive picture only.
+
+**Bytes.**
+
+- The resident image is +85 (39,538 -> 39,623) and bss +2 (`px_dsel`).
+- The parts' images are +3,000 together, and a part is held only while it
+  is fetched: PNG +615, EXTRAS +946, JPEG +487, EDIT +368, WRITE +341, FULL
+  +100, SIMPLE +97, GIF +42, HELP +4. Nearly all of it is `PXSW`'s 7 bytes
+  a cold site. `PXSWON` took ~700 of them back.
+- PIXEL.O88 is 111,001 -> 112,537 bytes on the disk (+1,536 packed). Every
+  shipped disk still builds.
+
+**Speed on the XT** (MartyPC, kern_big, the 5150 with a CGA, guest cycles).
+`tests/pxbench.py` puts PIXEL.O88 FIRST on its disks, so a package that grows
+moves every picture's clusters, and the open figures move with it. The A/B
+below is a copy of the bench with the package placed LAST, so both trees read
+identical picture layouts:
+
+| open | before | after |
+|---|---|---|
+| MOUNTAIN.BMP | 16.70 s | 16.83 s |
+| CITY.PCX | 12.41 | 12.41 |
+| BIG.BMP | 34.95 | 35.12 |
+| CAT.GIF | 25.38 | 25.41 |
+| BALLOONS.PNG | 14.38 | 14.59 |
+| HOUSE.PNG | 39.11 | 39.81 |
+| VACATION.JPG 1/8, 1/2, 1/1, fast | 24.02, 43.44, 114.03, 46.80 | 23.97, 43.39, 113.95, 46.77 |
+| ROOM.JPG progressive | 64.62 | 64.40 |
+| zoom, pan, Fit | 0.88, 0.29, 0.47 | 0.88, 0.29, 0.48 |
+
+The opens agree to between -0.3% and +1.8%. The bench's own breakdowns are
+noisier than that: the same BASE code read inflate at 269.7 and at 293.3
+cycles a byte on two disk layouts, because each is "cycles inside a routine",
+which includes whatever the UI task did while the worker was inside it. So
+the cycles are argued, too. In real mode the decode paths gained:
+
+- ~45 cycles a palette entry in the plan search (256 a palette);
+- ~50 a colour JPEG block where the component changes (three an MCU);
+- one `PXSW` (~45) a row in each of a few row routines;
+
+and lost a `cs:` prefix on every inflate-budget and extraction access, plus
+the colour row's four stores. On VACATION.JPG at 1/1 the gain is ~180,000
+cycles, 38 ms of 114 s, which is below what either run can resolve. The
+progressive 1/4 path is unchanged in real mode by construction (the patch).
+
+**Correctness on kern_big.** tests/pxedit.py --host-only (the EDIT part
+under Unicorn, every operation including both quarter turns, 546 pixel
+cases), pxextraemu (179 fixtures), pxanimemu (31 animated GIFs, every frame)
+and pxsave.py --host-only (336 written files) are all pixelsim's, byte for
+byte. `tests/pxpartemu.py` stamps the two new words and places the tail as
+the parts now do. On MartyPC, `pxdecode` (every fixture against pixelsim,
+byte for byte), `pxedit`, `pxparts` and `pxopenpng` were run on the final
+tree, all green: pxdecode 988.9s, pxedit 346.6s, pxparts 16.3s, pxopenpng 53.8s.
+
+**Item 4: OS88_HIGHMEM is NOT declared, and here is exactly why.** PiXEL
+addresses every claim it holds by paragraph arithmetic on the claim's
+segment:
+
+- the master by `MSEG + (offset >> 7 << 3)`, at nine sites;
+- the work claim cut into sub-buffers by paragraph offsets (`PX_WGRID`,
+  `px_wo_*`), handed to the parts as `PXK_RSEG`/`PXK_DSEG`;
+- the PNG scanlines at `PXK_DSEG + PZ_WPARA`;
+- the JPEG progressive store at the scratch + `JV_SBASE`;
+- the histogram tail past the master;
+- the animation's backup inside its claim.
+
+All of that is right on the identity map and meaningless on an LDT selector
+over exactly the KB asked. A claim of 64KB or less (the master of any
+picture up to ~250x250, the scratch, the view) would come back as one, which
+is the declaration's whole effect. Declaring it needs 14.12's "flat arm" at
+every site: `seg = claim`, `offset = the absolute address` when `test dl, 4`.
+That is a rewrite of PiXEL's addressing, not a declaration. PiXEL stays
+conventional for its claims. (`OS88_HIGH`, the region, it already says.)
+
+**Ratchets.** `tests/unit/t_cswrite.py` now also walks `apps/pixel/`. The
+package and its parts have NO write through CS left, and the two pairs that
+remain are reads only, registered in `tests/cswrites.txt`. 14.39's
+`tests/unit/t_megagrid.py` now recognises a `round` site whose paragraphs an
+`and al, 0F8h` puts back on the grid before the load. Its five PiXEL lines in
+`tests/megagrid.txt` (pxedit, pxgif, the three tail readers) are deleted,
+and the file registers nothing.
+
+**`tests/pxmega.py` (soak row `pxmega`)** is the census kept runnable. It
+boots `make megatrap`'s tree under Bochs, opens the nine pictures by
+double-click and Space, and turns ROOM.JPG both ways with the Rotate tool.
+Every step must add no trap line, no FAULT, and a canvas that is a picture
+and not the last one. It is red with `pa_comp`'s normalisation put back to
+one paragraph (BOUNCE.GIF FAULTs). ~4 minutes, `needs=("bochs", "nasm")`.
+
+**Left.**
+
+- The palette operations' tables (`pe_lut`, `pe_bins`) and every cold
+  per-operation word go through `PXSW`: ~45 cycles a store, nothing per
+  pixel, and a few hundred stores per Auto Levels or Sepia.
+- The Victory has not run any of it. Bochs is a 386 (docs/BOCHS.md blind
+  spot 2), and nothing here is on the 286 reset path.
+- TIFF, ICO, IFF and MacPaint (the EXTRAS part) were converted the same way
+  and are covered by pxextraemu under Unicorn. No such picture was opened
+  under Bochs.
+
+### 14.42 A fault in a package closes the package, not the machine (2026-10-20)
+
+Section 4 item 6, built. Before this, every exception that `mega_gpfix`,
+`mega_gpw`, `mega_null0` and `mega_db` did not finish went to
+`mega_report`: the E9 dump, the `kern_mega FAULT vv err eeee at cccc:iiii`
+line under the menu bar, and `hlt`. Now `mega_report`'s first act is
+`mega_fkill`. When the fault is a package's, that routine closes the package
+and never returns. Otherwise it returns, and today's screen follows
+unchanged. The deliberate traps are untouched, because they never reach
+`mega_report`.
+
+**Sizing, first, as the brief asked.** It is NOT a whole-kernel refactor.
+Three facts already in the tree carry it:
+
+1. Every far call into package code goes through two sites. One is
+   `wm_pkgcall`. Every window callback uses it, and so does `fsx_run`'s
+   proc. The other is the loader's entry call. SPEC.md 66.6.1 audited this
+   as "exactly two `call far` sites" (plus the compactor's relocation proc,
+   which stays fatal here).
+2. Teardown routines exist for both kinds of instance. `inst_task_die`
+   tears down an instance with a worker, and is entered from an arbitrary
+   worker SP already (`inst_pkg_alive`'s `.die`). `app_close_win`'s
+   task-less branch tears down an instance without one.
+3. `ui_task` has a step that runs with nothing held: `mega_tell`, which
+   already raises toasts for interrupt-time events.
+
+The open questions were where to unwind to and what an unwind leaves
+behind. Both are answered by a CATCH pushed around those two calls.
+
+**What was built:**
+
+- **A per-task catch** (`mega_pcin_x`/`_n` and `mega_pcout_x`/`_n`,
+  `.cold`). On kern_mega, `wm_pkgcall` far-calls `mega_pcin_x` where it
+  called `wm_nest_pushd_x`, which costs the same 5 bytes of `.text`. It
+  calls `mega_pcout_x` in place of `wm_nest_pop_x`. The loader's entry call
+  brackets itself with the `_n` pair, which needs no DS at the return.
+
+  Under the far return, the catch leaves five words: the task's previous
+  catch, SI, the gfx lock's flag/owner word at the call, the image's
+  segment, and the task index. `mega_pcj` (`.lowbss`, one word per task)
+  holds each task's innermost catch. It is per TASK because a worker
+  reaches `wm_pkgcall` too, through `inst_task_die`'s repaint. The far
+  return MEGA_PCALL pushes sits just under the catch, which is how
+  `mega_fkill` finds the way home. It checks that return against the two
+  known labels (`..@mega_pcret_w` in `wm.inc` and `..@mega_pcret_l` in
+  `loader.inc`) before trusting it.
+
+- **Attribution** (`mega_fkill`, `.mega`). A fault is a package's only when
+  all of these hold:
+  * The vector is one a program's own instruction raises: 00, 03, 04, 05,
+    06, 07, 0B, 0C, 0D, or FF (`mega_unh`). 08, 09 and 0A stay fatal.
+  * Neither `[sch_rbusy]` nor `[sch_lock]` is set. The FSXF_RATE hook runs
+    package code inside IRQ0, where no unwind is safe.
+  * The faulting CS is an LDT code selector, and `mega_cs2ds` turns it into
+    S.
+  * S belongs to a package instance. `mega_fown` asks the published records
+    first, then the region being loaded (`[ld_base]`/`[ld_rec]`), then the
+    claim containing S, whose `MC_OWN` names the instance (an overlay, a
+    part).
+
+  The published records are asked first because `[ld_base]` outlives its
+  launch, so a region moved onto that segment belongs to its own record.
+
+  Then one of two things happens.
+  * **The running task has a catch** whose image is the same instance, and
+    the fault is above the catch on the stack. The fault is UNWOUND: SS:SP
+    goes to the catch, the far return is taken with CF = 1, SI is put back
+    and the other registers are zeroed. The callback reads as having
+    refused, and an entry proc as having refused to start.
+  * **There is no catch, and the running task is the instance's own
+    worker** on LOW_SEG's stack. The worker is killed: SP goes back to where
+    it was at the fault, and the routine jumps to `inst_task_die`.
+
+  Anything else stays FATAL: the UI task outside a callback, another
+  package's code, or a catch that was overwritten.
+
+  **A kernel routine that faults on a pointer a package handed it stays
+  fatal.** The kernel frame that faulted may hold a lock or be half way
+  through a table, and nothing records which. That case is the obvious next
+  step, and it would need the same catch plus a per-routine statement of
+  what is safe to drop.
+
+- **What an unwind leaves consistent, and why.** Between the catch and the
+  fault there is only PACKAGE code. Every kernel call the package made has
+  returned, and every kernel bracket (`wm_nest`, `dsk_batch`, the clip) has
+  closed. The kernel frames under the catch are intact, and they carry on.
+  That is why the innermost catch is the right one. If kernel code calls
+  package B from inside package A's callback and B faults, B is unwound
+  back into the kernel and A carries on.
+
+  One thing does not follow from the call structure, and that is the gfx
+  lock. A callback that ran without the lock and took it itself (a wake
+  handler calling OSAPI_GFX_LOCK) would leave it held for ever. The frame's
+  lock word says whether this task held the lock AT THE CALL. If it did
+  not and holds it now, `gfx_unlock` runs before the return. A lock the
+  caller held stays held, for the caller to release. A killed worker gives
+  back a lock it holds, because `inst_task_die` takes the lock itself.
+
+- **The close** (`mega_fkdo` from `mega_tell`, ui_task step 0, with nothing
+  held). The unwind marks the record dying (I_STATE 2), so its own API
+  calls refuse and its worker leaves at its next OSAPI_TASK_ALIVE. It
+  queues the instance in `mega_fkq`, and step 0 then closes it
+  (`mega_fkclose`).
+
+  A task-less instance gets `inst_task_die`'s sequence: `toast_owner_gone`,
+  `inst_rel_rec` (sound grants, so the tone stops, and extended memory),
+  `inst_unwin` (its windows and their timers, and the repaint),
+  `desk_drop_x`, `mem_free_rec` (every claim and the pool pair), and the
+  record freed. It does NOT go through `app_close_win`, whose first act is
+  `wm_ask_close`. That would run the package's own code, which is the code
+  that faulted.
+
+  An instance with a worker gets the die flag and the hide, which is what
+  `app_close_win` gives it. A fault in the loader's entry call is not
+  queued, because the loader's own abort path frees the region and its
+  claims.
+
+  `.mega` reaches the near `.text` routines through `mega_tcall` (`call bp
+  / retf`, the only `.text` this feature adds).
+
+- **The report.** The toast is `NAME vv at cccc:iiii`, for example
+  `FLTA 06 at 27D4:0076`, shown for ten seconds. The name is the region
+  header's, cut to 8 characters, because TOAST_MAX is 24 and the line has
+  to carry the vector and CS:IP to keep field reports useful. The E9 line is
+  `kern_mega CLOSED NAME vv at cccc:iiii err eeee`. It is deliberately NOT
+  `kern_mega FAULT`, which `tools/os88bochs.py`'s sweep treats as the end of
+  a boot.
+
+- **No loops.** One incident is one instance being closed. While it is
+  open, a fault in the same instance (the same slot and region) is a
+  cascade, allowed up to MEGA_FKCAS = 8 times. Cascades happen when a
+  surviving window of the dying region repaints, or when an fsx proc's
+  bracket returns into the callback that ran it. A fault in ANY other
+  package while one is open is fatal, and so is a new incident within
+  MEGA_FKGAP = 55 ticks (3 s) of the last one's start. The incident ends
+  when step 0 sees its record gone.
+
+**Cost, measured by building both arms at one commit:**
+
+| build | `.text` | `.bss` | `.cold` | `.mega` | `.lowbss` |
+|---|---|---|---|---|---|
+| kern_mega | +4 | 0 | +163 | +996 | +84 |
+| kern_big | byte-identical | | | | |
+
+- kern_mega's `.text` +4 is `mega_tcall`, 3 bytes plus its pad.
+  `tests/megaseg.txt` goes 5,931 to 5,935, with the reason.
+- kern_mega's `.cold` +163 is the two catch pairs and the loader's two
+  calls.
+- kern_mega's `.mega` +996 is `mega_fkill`, `mega_fown`, the message, the
+  close, and the two hooks.
+- kern_mega's `.lowbss` +84 is `mega_pcj` (14 words), `mega_fkq` (12), the
+  25-byte toast and the incident's 7 bytes.
+- kern_big was compared by md5 of `kernel.bin`: every change is inside
+  `%ifdef KERN_MEGA`. kern_small follows from the same diff.
+- The hot path is one far call that grew a body. `mega_pcin_x` is about 30
+  instructions and `mega_pcout_x` about 25, on a 286, per package callback.
+  That is noise beside a callback's own cost, but it is not zero.
+
+**Measured:**
+
+- **Bochs**, with `tests/megaflt.py` (new soak row `megaflt`, 102 s, red
+  with a `ret` at the top of `mega_fkill`). Seven builds of
+  `tests/megaflt/megaflt.asm` were started by MEGARUN:
+  * FLTA: #UD in a timer callback.
+  * FLTB: an OS88_HIGH worker holding OSAPI_GFX_LOCK reads past its
+    segment.
+  * FLTC: #DE inside OSAPI_FSX_RUN after OSAPI_FSX_MODE set 320x200.
+  * FLTD: OS88_HIGH|OS88_HIGHMEM, #GP with a 32KB claim, a timer and a
+    440 Hz tone held.
+  * FLTE: #GP in the entry proc.
+  * FLTF: #UD in a wake handler that took the lock.
+  * FLTZ: the control.
+
+  All six were closed for the vectors expected. FLTE was refused (04). Each
+  entry read the same `OSAPI_MEM_AVAIL` and XMEM_CAPS as the one of its kind
+  before it, so the region, the 32KB claim and the pool pair all came back:
+  low builds 0238/0238 KB with 3AB4 pool, high builds 0239/3AB3. After the
+  fsx case the desktop was repainted in its own mode. FLTZ then said it was
+  alive and answered a key (`61`) and a click sent from the host.
+
+- **86Box `286-mega`** (the mr286, a real 286 reset path), the same seven
+  from a scratch B: disk. Six toasts in turn
+  (`FLTA 06 at 27E4:0076` ... `FLTF 06 at 27E4:0096`). The fault log names
+  exactly the three #GP Limit checks the probes make, and the
+  `mega_svc_lo.r286` resets are the reflection's own. Then
+  `FLTZ got a key` and `FLTZ got a click` appeared as toasts.
+
+**Not done, and why:**
+
+- **The speaker's silence after FLTD is not observed.** No instrument here
+  hears it. It rests on `inst_rel_rec`, which is the path a normal close
+  takes.
+- **The loop guards (the 3-second gap and the cascade cap) have no row.**
+  MEGARUN starts packages five seconds apart, so a second incident inside
+  the gap needs a probe of its own.
+- **Not attributed:**
+  * a fault in a kernel routine on a package's bad pointer (above);
+  * the compactor's relocation proc;
+  * the FSXF_RATE hook;
+  * a package that put the UI task on a stack of its own (the unwind is
+    taken all the same) or a worker on one (fatal).
+- **14.5's hibernate-mismatch decision** ("there is no forced close in the
+  kernel", so the whole session is discarded) could now close only the
+  damaged programs on kern_mega. It does not; that is a decision for the
+  owner, and kern_big still has no such path.
+
+**For the owner to look back over:**
+
+- **The toast cuts the name to 8 characters** to keep `vv at cccc:iiii`.
+  The E9 line carries the full line and the error code.
+- **A second fault anywhere within 3 s of the last close is fatal**, even in
+  a different package. That is the brief's "no loops" taken
+  conservatively.
+- **An unwound callback returns CF = 1.** An entry proc reads that as
+  refused, so the launch aborts, which is the point. A window's W_ASKCLOSE
+  reads it as "refuse the close", which is harmless because the forced
+  close never asks.
+
 ### 14.44 Re-home HIGH, part 1: four re-homed programs above 1MB, and `OSAPI_MEM_SUBSEG` (2026-10-21)
 
 14.38's S1, S2, S3, S5 and S7 (Word and Scribe), built on `protected-mode`
