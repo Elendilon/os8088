@@ -71,9 +71,10 @@ RT_LOOP         equ JIT_BUF + 0A0h  ; 16: a spin-wait's body, for rt_idle
 RT_P0           equ JIT_BUF + 0B0h  ; word: RT_PEND as rt_ctl found it, each
                                     ;   arm's own (rt_subbp, rt_pend0)
 
-RT_HFREE        equ 1088            ; the table's free ranges: offset, count
-RT_HTAIL        equ 1092            ; ...its tail slots
-RT_HJD          equ 1096            ; ...the interpreter's JDISPATCH sites
+RT_HFREE        equ RBT_HFREE       ; the table's free ranges: offset, count
+RT_HTAIL        equ RBT_HTAIL       ; ...its tail slots
+RT_HJD          equ RBT_HJD         ; ...the interpreter's JDISPATCH sites
+                                    ;   (rbtmpl.py writes all three)
 rt_tab:
     incbin "rbtmpl.bin"
 
@@ -805,7 +806,7 @@ rt_pick:
     cmp al,0EAh                     ; LD (nn),A: A000-FEFF, FF80-FFFE
     jne .rmw                        ;   (VRAM's go through vr_wr, which
     cmp dh,0A0h                     ;   marks them for the damage scan)
-    jb .no
+    jb .bk
     cmp dh,0FFh
     jne .wr
     cmp dl,80h
@@ -818,6 +819,28 @@ rt_pick:
     je .no
 .wr:
     mov ax,515
+    clc
+    ret
+.bk:
+    cmp dh,20h                      ; ...or 2000-3FFF of an MBC1/3/5: the
+    jb .no                          ;   bank select, RBT_XBANK + 0/1/2
+    cmp dh,40h
+    jae .no
+    mov ah,[S_MBC]
+    mov al,0
+    cmp ah,RBM_MBC1
+    je .bks
+    inc ax
+    cmp ah,RBM_MBC3
+    je .bks
+    inc ax
+    cmp ah,RBM_MBC5
+    jne .no
+    cmp dh,30h                      ; (3000-3FFF is its bank's bit 8)
+    jae .no
+.bks:
+    cbw
+    add ax,RBT_XBANK
     clc
     ret
 .rmw:

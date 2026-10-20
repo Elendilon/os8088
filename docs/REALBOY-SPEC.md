@@ -1137,6 +1137,16 @@ gbprof's script take the same events and skip the same M-cycles either way.
   speaker (17) - is one too (`rt_snd`), where the template's took the slow
   path and `io_wr`'s compares, ~140 clocks on a 286. (It measured level on
   both games' benches: their drivers write the registers rbsys keeps.)
+- **`LD (nn),A` to a bank select** - 2000-3FFF on an MBC1 or MBC3,
+  2000-2FFF on an MBC5 - is chosen by the cartridge (`rbgen.bank_lines`,
+  records `RBT_XBANK` + 0/1/2): the bank number is masked in the template and
+  it goes straight to `mbc_set`, where the store took the slow path, `wr_s3`,
+  `wr_sw` and `mbc_wr`'s type compares to get there. BX and `S_WVAL` are
+  `mbc_wr`'s, so a bank the cache has not got still reaches rbsys from
+  `mbc_set`, and a set `S_BANKHI` still goes to `mbc_wr`. Its flags are the
+  plain store's (4), so run from ROMX the block is left after it (16.5).
+  Kirby's Dream Land switches about 95 times a frame: 252 to 247 ticks on the
+  286 bench, the CPU alone with two segments; Super Mario Land 114 to 112.
 
 ### 16.1.1 Pure templates share their M-cycles
 

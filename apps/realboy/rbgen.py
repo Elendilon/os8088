@@ -2073,5 +2073,31 @@ EXTRA += [("INC (HL) of RAM", rmw_lines(0x34, False), 1),
 EXTRA += [("CB %02X of RAM" % b, rmw_lines(b, True), 2) for b in RMW_CB]
 
 
+def bank_lines(mask, zero):
+    """LD (nn),A to 2000-3FFF of a cartridge whose MBC the translator knows:
+    the bank worked out here and on to mbc_set, where the store took the
+    slow path, wr_s3, wr_sw and mbc_wr's type compares to get there (Kirby's
+    Dream Land switches ~95 times a frame). BX and S_WVAL as mbc_wr has them,
+    since a bank the cache has not got goes to rbsys from mbc_set; high bits
+    set (S_BANKHI) are mbc_wr's whole way."""
+    L = ["    mov [ss:S_TMP],bx", "    mov bx,IMM16", "    mov [ss:S_WVAL],al",
+         "    mov word [ss:S_RET],.r", "    cmp byte [ss:S_BANKHI],0", "    jne .g",
+         "    mov dl,al"]
+    if mask != 0xFF:
+        L += ["    and dl,%d" % mask]
+    if zero:
+        L += ["    jnz .n", "    inc dl", ".n:"]
+    return L + ["    jmp near mbc_set", ".g:", "    jmp near mbc_wr", ".r:",
+                "    mov bx,[ss:S_TMP]", "    sub bp,4"]
+
+
+# (the 4th field: flags - 4, stores to IMM16, so a block running from the
+# bank it switches is left after it, as the plain store's is)
+EXTRA += [("LD (nn),A bank, MBC1", bank_lines(0x1F, True), 3, 4),
+          ("LD (nn),A bank, MBC3", bank_lines(0x7F, True), 3, 4),
+          ("LD (nn),A bank, MBC5", bank_lines(0xFF, False), 3, 4)]
+RB_XBANK = len(EXTRA) - 3           # their records: 512 + this, + 1, + 2
+
+
 if __name__ == "__main__":
     main()

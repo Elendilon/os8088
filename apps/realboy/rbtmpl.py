@@ -191,7 +191,7 @@ def flags_for(op, cb, lines):
     return 1
 
 
-NEXTRA = 32             # record slots after the 512 for rbgen.EXTRA
+NEXTRA = 40             # record slots after the 512 for rbgen.EXTRA
 HEAD = 2 * (512 + NEXTRA) + 12   # then the free ranges', tail slots' and
                                  #   JDISPATCH sites' offset and count words
 # The longest template the table carries. With its guards (32 bytes at most,
@@ -233,8 +233,8 @@ def main():
             if t is not None:
                 todo.append(((cb, op), t))
     assert len(rbgen.EXTRA) <= NEXTRA, len(rbgen.EXTRA)
-    for k, (_, lines, _) in enumerate(rbgen.EXTRA):
-        todo.append((("x", k), lines))
+    for k, e in enumerate(rbgen.EXTRA):
+        todo.append((("x", k), e[1]))
     recs = {}
     npure = [0]
     with tempfile.TemporaryDirectory(prefix="rbtmpl") as tmp:
@@ -250,7 +250,8 @@ def main():
                 if len(a) > TMAX:           # the interpreter's: see TMAX
                     continue
                 glen = rbgen.EXTRA[op][2] if cb == "x" else rbgen.template_glen(op, cb)
-                fl = 0 if cb == "x" else flags_for(op, cb, lines)
+                fl = ((rbgen.EXTRA[op][3] if len(rbgen.EXTRA[op]) > 3 else 0)
+                      if cb == "x" else flags_for(op, cb, lines))
                 if pure(a, pos, lines):
                     fl |= 8
                     npure[0] += 1
@@ -287,6 +288,8 @@ def main():
                 "; the translator writes jumps to (REALBOY-SPEC section 16)\n" % corebin)
         for n in EXPORT:
             f.write("RBC_%s equ 0x%04X\n" % (n.upper(), labels[n]))
+        f.write("RBT_HFREE equ %d\nRBT_HTAIL equ %d\nRBT_HJD equ %d\n"
+                "RBT_XBANK equ %d\n" % (HEAD - 12, HEAD - 8, HEAD - 4, 512 + rbgen.RB_XBANK))
     print("rbtmpl: %d templates (%d pure), %d free ranges of %d bytes, %d bytes"
           % (len(recs), npure[0], len(gl), sum(b - a for a, b in gl), len(head) + len(body)))
 
