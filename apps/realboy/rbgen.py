@@ -780,7 +780,8 @@ tr_ekey:
     shr dl,1
     shr dl,1
     xor bl,dl
-    and bh,JIT_HMASK
+    and bh,JIT_HMMAX
+tr_hm0 equ $-1               ; (its immediate: rt_init's to set, 16.3)
     shl bx,1
     shl bx,1
     shl bx,1
@@ -855,7 +856,8 @@ tr_link:
     shr dl,1
     shr dl,1
     xor bl,dl
-    and bh,JIT_HMASK
+    and bh,JIT_HMMAX
+tr_hm1 equ $-1               ; (its immediate: rt_init's to set, 16.3)
     shl bx,1
     shl bx,1
     shl bx,1
@@ -975,7 +977,8 @@ tr_stale:
     shr dl,1
     xor bl,0FFh
     xor bl,dl
-    and bh,JIT_HMASK
+    and bh,JIT_HMMAX
+tr_hm2 equ $-1               ; (its immediate: rt_init's to set, 16.3)
     shl bx,1
     shl bx,1
     shl bx,1

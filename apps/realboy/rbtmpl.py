@@ -179,7 +179,8 @@ HEAD = 2 * (512 + NEXTRA) + 12   # then the free ranges', tail slots' and
 # the rest to the interpreter (rbgen.rmw_lines). LD (C),A is 83 bytes since
 # it guards itself (rbgen.self_guard), and a store that does takes no guard.
 TMAX = 84
-EXPORT = ("tr_enter", "tr_link", "tr_lsite", "tr_stale", "tr_int", "idle_yes", "cnt_ff", "add_ff", "cpy_ff", "stat_ff", "RB_DISPATCH")
+EXPORT = ("tr_enter", "tr_link", "tr_lsite", "tr_stale", "tr_int", "idle_yes", "cnt_ff", "add_ff", "cpy_ff", "stat_ff", "RB_DISPATCH",
+          "tr_hm0", "tr_hm1", "tr_hm2")
 
 
 def free_ranges(tails):

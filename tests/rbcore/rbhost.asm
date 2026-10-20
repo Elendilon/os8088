@@ -44,11 +44,12 @@ HOST_SEG        equ 0x0800
 CORE_SEG        equ 0x1000
 VIEW_SEG        equ 0x2000
 ROM_SEG         equ 0x3000
-CACHE_SEG       equ 0x9000                  ; the recompiler's 64KB, past the
-HASH_SEG        equ 0x8C00                  ;   ROM's 368KB at most, and its
-                                            ;   block table's 16KB before it
-CACHE2_SEG      equ 0x7C00                  ; a second cache segment (16.2.1),
-CACHE2_MAXSEC   equ (CACHE2_SEG - ROM_SEG) / 32 ;   over a ROM of 304KB or less
+CACHE_SEG       equ 0x9000                  ; the recompiler's 64KB, and its
+HASH_SEG        equ 0x8000                  ;   block table's 64KB before it,
+HASH_MAXSEC     equ (HASH_SEG - ROM_SEG) / 32 ; past a ROM of 320KB or less -
+HASH16_SEG      equ 0x8C00                  ;   or its 16KB, for one to 368KB
+CACHE2_SEG      equ 0x7000                  ; a second cache segment (16.2.1),
+CACHE2_MAXSEC   equ (CACHE2_SEG - ROM_SEG) / 32 ;   over a ROM of 256KB or less
 JIT2_LIM        equ 0x0400                  ; JF_SQZ: each segment's code ends
 JOY_NO3RD       equ 01h                     ; b_joy: no Start at frame 700 - in
                                             ;   Kirby's Dream Land the game has
@@ -57,7 +58,8 @@ JOY_FLAP        equ 02h                     ; b_joy: A 6 frames of every 12,
                                             ;   Up held, and no B
 JF_MODE         equ 03h                     ; b_jit: 0 interpret, 1 translate,
 JF_SEG2         equ 04h                     ;   2 Static; a second segment; both
-JF_SQZ          equ 10h                     ;   squeezed to JIT2_LIM's 1KB
+JF_SQZ          equ 10h                     ;   squeezed to JIT2_LIM's 1KB;
+JF_SMALL        equ 08h                     ;   the block table at 16KB
 PRF_SEG         equ 0x0510                  ; Static's profile, 4KB (not MODES 5-9,
                                             ;   which compose into FRAME_SEG)
 FRAME_SEG       equ 0x0510                  ; rb_render's 5,760 bytes, above the
@@ -982,6 +984,15 @@ h_jitsegs:
     mov ax,CACHE_SEG
     mov bx,HASH_SEG
     xor cx,cx
+    mov dl,JIT_HMMAX                    ; the table's 64KB (JF_SMALL, or a
+    test byte [cs:h_jitf],JF_SMALL      ;   ROM too big for it: 16KB)
+    jnz .h16
+    cmp word [cs:h_romsec],HASH_MAXSEC
+    jbe .hm
+.h16:
+    mov bx,HASH16_SEG
+    mov dl,7
+.hm:
     mov word [S_JITLIM],0
     test byte [cs:h_jitf],JF_SQZ
     jz .s

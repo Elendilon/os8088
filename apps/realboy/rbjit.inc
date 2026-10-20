@@ -76,9 +76,10 @@ rt_tab:
     incbin "rbtmpl.bin"
 
 ; rt_init - DS = the view, after rb_init; AX = the cache's segment, a 64KB
-; claim of the host's, BX the block table's, 16KB, and CX a second 64KB
-; cache segment or 0 (REALBOY-SPEC 16.2.1) - 64KB too, since a template
-; reaches every tail by a near jump. The core's helper tails copied into
+; claim of the host's, BX the block table's, CX a second 64KB cache segment
+; or 0 (REALBOY-SPEC 16.2.1) - 64KB too, since a template reaches every
+; tail by a near jump - and DL the table's mask (S_HMASK): 31, 64KB, or 7,
+; 16KB. The core's three `and bh,mask` take it before the tails are copied. The core's helper tails copied into
 ; each at their own
 ; offsets, the cache empty, and the core's two doors pointed at it -
 ; tr_enter's miss at rb_jit, and rbsys's resume (after every event) at
@@ -94,6 +95,13 @@ rt_init:
     mov [S_JITSEGA],ax
     mov [S_JITSEGB],cx
     mov [S_JITHSEG],bx
+    mov [S_HMASK],dl
+    push es
+    mov es,[S_DISP+2]               ; the core's masks, which the copies
+    mov [es:RBC_TR_HM0],dl          ;   below take with them
+    mov [es:RBC_TR_HM1],dl
+    mov [es:RBC_TR_HM2],dl
+    pop es
     mov [S_JITOUT+2],ax
     mov word [S_JITVEC],rb_jit
     mov [S_JITVEC+2],cs
@@ -196,7 +204,12 @@ rt_flush:
     push es
     mov es,[S_JITHSEG]
     mov di,JIT_HASH
-    mov cx,JIT_HASHN * 8 / 2
+    mov al,[S_HMASK]                ; (mask + 1) x 256 entries of 8 bytes
+    xor ah,ah
+    inc ax
+    mov cl,10
+    shl ax,cl
+    mov cx,ax
     xor ax,ax
     rep stosw
     mov ax,[S_JITSEGA]
@@ -437,7 +450,7 @@ rt_preone:
     shr al,1
     shr al,1
     xor bl,al
-    and bh,JIT_HMASK
+    and bh,[S_HMASK]
     shl bx,1
     shl bx,1
     shl bx,1
@@ -749,12 +762,17 @@ rt_pick:
     mov ax,512
     jmp short .ff
 .e0:
-    cmp al,0E0h                     ; LDH (n),A: 80h <= n < FFh
-    jne .fa
-    cmp dl,80h
-    jb .no
+    cmp al,0E0h                     ; LDH (n),A: 80h <= n < FFh, or a
+    jne .fa                         ;   sound register io_wr only stores
+    cmp dl,80h                      ;   (rt_snd)
+    jae .e1
+    call rt_snd
+    jc .no
+    jmp short .e2
+.e1:
     cmp dl,0FFh
     je .no
+.e2:
     mov ax,513
 .ff:
     mov dh,0FFh
@@ -784,7 +802,11 @@ rt_pick:
     cmp dh,0FFh
     jne .wr
     cmp dl,80h
-    jb .no
+    jae .e3
+    call rt_snd                     ; (or a sound register's, as LDH's)
+    jc .no
+    jmp short .wr
+.e3:
     cmp dl,0FFh
     je .no
 .wr:
@@ -822,6 +844,33 @@ rt_pick:
     mov dx,[RT_IX]
     add dx,[RT_PC0]
     mov [RT_IMM],dx
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; rt_snd - DL = an I/O register's low byte: CF = 0 when io_wr does nothing
+; with a write there but store it - the sound registers FF10-FF3F but the
+; five rbsys keeps for the speaker (REALBOY-SPEC section 17): the
+; translated store is then one MOV, where the template's took the slow
+; path and io_wr's compares (~140 clocks on a 286), every frame the game's
+; sound driver writes them
+rt_snd:
+    cmp dl,10h
+    jb .no
+    cmp dl,40h
+    jae .no
+    cmp dl,12h
+    je .no
+    cmp dl,14h
+    je .no
+    cmp dl,17h
+    je .no
+    cmp dl,19h
+    je .no
+    cmp dl,26h
+    je .no
     clc
     ret
 .no:
@@ -1171,7 +1220,7 @@ rt_exit:
     shr dl,1
     shr dl,1
     xor bl,dl
-    and bh,JIT_HMASK
+    and bh,[S_HMASK]
     shl bx,1
     shl bx,1
     shl bx,1
