@@ -38,7 +38,8 @@ records:
            bit 2: stores to IMM16; bit 3: PURE - its last three bytes are
            `sub bp,n`, the only thing in it that names BP, and nothing in it
            leaves it, so the translator may add n to the block's pending
-           M-cycles instead of copying them)
+           M-cycles instead of copying them; bit 4: GUARDS ITSELF - IMM16
+           is the next PC, and the translator adds no guard, rbgen.self_guard)
   +5 byte  operand positions: IMM8 count, then IMM16, ABS, REL counts (4)
   +9       the bytes, then the positions in that order
 """
@@ -158,6 +159,8 @@ def flags_for(op, cb, lines):
     stores = "wr_slow" in text or "io_wr" in text
     if not stores:
         return 0
+    if not cb and op in rbgen.SELFGUARD:
+        return 16
     if not cb and op == 0xE0:
         return 2
     if not cb and op in (0xEA, 0x08):
@@ -173,8 +176,9 @@ HEAD = 2 * (512 + NEXTRA) + 12   # then the free ranges', tail slots' and
 # bytes. What is over it is a read-modify-write of (HL) - INC/DEC (HL), the
 # CB group on (HL), LD (nn),SP - whose read and write slow paths are both
 # inline. rbgen.EXTRA carries them in a form that takes RAM only and leaves
-# the rest to the interpreter (rbgen.rmw_lines).
-TMAX = 80
+# the rest to the interpreter (rbgen.rmw_lines). LD (C),A is 83 bytes since
+# it guards itself (rbgen.self_guard), and a store that does takes no guard.
+TMAX = 84
 EXPORT = ("tr_enter", "tr_link", "tr_int", "idle_yes", "cnt_ff", "RB_DISPATCH")
 
 

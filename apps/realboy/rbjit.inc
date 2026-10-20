@@ -58,6 +58,7 @@ RT_GUARD        equ JIT_BUF + 92h   ; byte: 1 store guard, 2 bank guard
 RT_OP           equ JIT_BUF + 93h   ; byte: the opcode
 RT_T            equ JIT_BUF + 94h   ; word: a jump's target
 RT_IDLE         equ JIT_BUF + 96h   ; byte: rt_idle's answer for it
+RT_V16          equ JIT_BUF + 9Ah   ; word: what rt_tmpl writes at IMM16
 RT_PEND         equ JIT_BUF + 98h   ; word: M-cycles of PURE templates not yet
                                     ;   taken off BP (rt_flushbp)
 RT_LOOP         equ JIT_BUF + 0A0h  ; 16: a spin-wait's body, for rt_idle
@@ -581,12 +582,18 @@ rt_tmpl:
 .i16:
     mov cl,[cs:rt_tab + si + 6]
     jcxz .ab
+    mov ax,[RT_IMM]                 ; IMM16: the operand, or NEXT for a store
+    test byte [cs:rt_tab + si + 4],16   ;   that guards itself (rbgen
+    jz .v16                         ;   self_guard)
+    mov ax,[RT_NEXT]
+.v16:
+    mov [RT_V16],ax
 .p16:
     mov al,[cs:rt_tab + bp]
     inc bp
     xor ah,ah
     xchg ax,si
-    mov ax,[RT_IMM]
+    mov ax,[RT_V16]
     mov [es:bx+si],ax
     mov si,[RT_REC]
     loop .p16

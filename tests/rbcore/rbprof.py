@@ -79,6 +79,10 @@ def main():
     ap.add_argument("--samples", type=int, default=10000)
     ap.add_argument("--render", action="store_true", help="compose every frame too (MODE 5)")
     ap.add_argument("--nojit", action="store_true", help="the interpreter alone")
+    ap.add_argument("--blocks", action="store_true",
+                    help="with --box: also the translated samples by block (bank:PC)")
+    ap.add_argument("--dump", metavar="PC,PC,...",
+                    help="with --blocks: the translated code of these blocks, disassembled")
     ap.add_argument("--pcs", action="store_true",
                     help="with --box: also the Game Boy PCs (SI) the core's samples were at")
     a = ap.parse_args()
@@ -93,7 +97,7 @@ def main():
     hsyms = labels(listing(os.path.join(ROOT, "tests/rbcore/rbhost.asm"), inc))
     hsyms = [(o, n) for o, n in hsyms if n not in ("boot", "boot_go", "load")]  # the boot section's
     ck, hk = [o for o, _ in csyms], [o for o, _ in hsyms]
-    hits, tot, pcs = {}, 0, {}
+    hits, tot, pcs, jips, per, dumps = {}, 0, {}, [], {}, []
 
     sys.path.insert(0, os.path.join(ROOT, "apps", "realboy"))
     import rbgen
@@ -138,12 +142,33 @@ def main():
                 r = b.cmd("regs")
                 name = charge(r["cs_base"] + (r["eip"] & 0xFFFF))
                 hits[name] = hits.get(name, 0) + 1
+                if a.blocks and name == "translated code":
+                    jips.append(r["eip"] & 0xFFFF)
                 if a.pcs and name.startswith("core"):
                     pc = r["esi"] & 0xFFF0
                     if 0x4000 <= pc < 0x8000:       # ...and the bank there
                         pc |= b.memr((r["ss"] << 4) + S_BANK, 1)[0] << 16
                     pcs[pc] = pcs.get(pc, 0) + 1
                 tot += 1
+            if jips:                                # each translated sample to the
+                tab = b.memr(CACHE, 0x4000)         #   block at or below it (16.3)
+                blocks = sorted((int.from_bytes(tab[k+4:k+6], "little"),
+                                 int.from_bytes(tab[k:k+2], "little"), tab[k+2])
+                                for k in range(0, 0x4000, 8) if tab[k+4] | tab[k+5])
+                offs = [o for o, _, _ in blocks]
+                for ip in jips:
+                    k = bisect.bisect_right(offs, ip) - 1
+                    if k >= 0:
+                        key = "%04X%s" % (blocks[k][1], ":%02X" % blocks[k][2]
+                                          if blocks[k][2] != 0xFF else "")
+                        per[key] = per.get(key, 0) + 1
+                for pc in (a.dump.split(",") if a.dump else ()):
+                    for k, (o, p, bk) in enumerate(blocks):
+                        if p == int(pc, 16):
+                            end = min([q for q in offs if q > o] + [o + 512, 0x10000])
+                            code = b.memr(CACHE + o, end - o)
+                            hot = sorted(set(ip for ip in jips if o <= ip < end))
+                            dumps.append((pc, bk, o, code, [jips.count(ip) for ip in hot], hot))
         finally:
             try:
                 b.cmd("quit")
@@ -173,6 +198,22 @@ def main():
     print("  " + "   ".join("%s %.1f%%" % (g, 100.0 * n / tot) for g, n in sorted(groups.items())))
     for k, n in sorted(hits.items(), key=lambda x: -x[1])[:40]:
         print("  %5.1f%%  %s" % (100.0 * n / tot, k))
+    if per:
+        print("translated samples by block (PC:bank key), of all samples:")
+        for k, n in sorted(per.items(), key=lambda x: -x[1])[:24]:
+            print("  %5.1f%%  %s" % (100.0 * n / tot, k))
+    for pc, bk, o, code, counts, hot in dumps:
+        tmp = os.path.join(ROOT, "build", "realboy", "rbprof.dump")
+        with open(tmp, "wb") as f:
+            f.write(code)
+        dis = subprocess.run(["ndisasm", "-b16", "-o", str(o), tmp], capture_output=True,
+                             text=True).stdout
+        os.unlink(tmp)
+        n = dict(zip(hot, counts))
+        print("block %s (key %02X) at %04X, %d bytes:" % (pc, bk, o, len(code)))
+        for ln in dis.splitlines():
+            ip = int(ln[:8], 16)
+            print("%4s %s" % (n.get(ip, ""), ln))
     if pcs:
         print("the core's samples by Game Boy PC (SI, 16-byte buckets):")
         for k, n in sorted(pcs.items(), key=lambda x: -x[1])[:24]:

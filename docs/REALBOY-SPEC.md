@@ -935,11 +935,20 @@ took the CPU alone from 9.75 to 9.06 ms a frame on `286-victory`.
 ### 16.5 Guards
 
 Translated code does not keep SI either, so a store that can reach the I/O
-path - any store whose address is not known, and `LDH`/`LD (nn)` to IF or IE
-- is preceded by `mov si,NEXT` and followed by a check that it did not move:
-`rb_irqnow` takes an interrupt inside an IF or IE write by moving SI to the
-vector. A block running from 4000-7FFF compares the bank after every store
-that could reach the MBC, and leaves when it changed.
+path must say where it is: `rb_irqnow` takes an interrupt inside an IF or IE
+write by moving SI to the vector. A store whose address is not known - LD
+(HL),r, LD (DE),A, LD (C),A and the rest of `rbgen.SELFGUARD` - GUARDS
+ITSELF, in its slow path, which is the only one that can take an interrupt
+or reach the MBC: SI = NEXT (the template's IMM16, record flag 16) before
+`wr_slow`, and after it the block is left through `tr_enter` when SI moved
+or the write went below 8000h, where the bank may have changed. The fast
+path, a write to RAM, carries no guard at all; the guards around every such
+store used to be 12 bytes, and 23 in a block running from 4000-7FFF, and
+taking them out of the RAM path took the CPU alone on `286-victory` from
+8.19 to 7.87 ms a frame on Kirby's Dream Land and from 6.91 to 6.77 on Super
+Mario Land. `LDH`/`LD (nn)` to IF or IE keep `mov si,NEXT` and a check after;
+a block running from 4000-7FFF compares the bank after an `LD (nn),A` below
+8000h, and leaves when it changed.
 
 ### 16.6 What it buys, MEASURED on 86Box's 286
 

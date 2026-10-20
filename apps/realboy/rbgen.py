@@ -1459,7 +1459,35 @@ def template_lines(op, cb):
             out.append("    jmp short .Jend")
     if tail:
         out.append(".Jend:")
+    if not cb and op in SELFGUARD:
+        out = self_guard(out)
     return out
+
+
+# The stores that may reach anywhere (REALBOY-SPEC section 16.5) GUARD
+# THEMSELVES, in the slow path, the only one that can take an interrupt or
+# move the bank: SI = NEXT (IMM16, flag 16 in rbtmpl.py) before wr_slow, and
+# after it the block is left through tr_enter when SI moved (IF, IE) or the
+# write was the MBC's. The fast path, a write to RAM, carries no guard at all.
+SELFGUARD = {0x02, 0x12, 0x22, 0x32, 0x36, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75,
+             0x77, 0xE2}
+
+
+def self_guard(t):
+    s = [k for k, ln in enumerate(t) if re.match(r"\.t\ds:$", ln.strip())]
+    assert len(s) == 1, t
+    n = t[s[0]].strip()[2]
+    r = t.index(".t%sr:" % n)
+    k = t.index(".t%sk:" % n)
+    assert t[r + 2].strip() == "jmp short .t%sk" % n, t
+    assert re.match(r"    sub bp,\d+$", t[-1]), t
+    post = t[k + 1:-1]
+    return (t[:s[0] + 1] + ["    mov si,IMM16"] + t[s[0] + 1:r + 2] +
+            ["    cmp si,IMM16",
+             "    jne .t%sx" % n,
+             "    test bh,bh",
+             "    js .t%sk" % n,
+             ".t%sx:" % n] + post + [t[-1], "    jmp near tr_enter"] + t[r + 3:])
 
 
 # Templates the translator CHOOSES by an operand it knows: a constant address

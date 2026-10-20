@@ -11,7 +11,17 @@
 ; op's own carry, flipped. The two addresses start equal and must stay
 ; equal, and so must their sums: run 300 times, so that Ops is translated (a
 ; PC is on its 64th entry, RB_JITHOT) and then runs translated. It prints
-; "Passed" or "Failed" on the link port, as Blargg's ROMs do.
+; "Passed" or "Failed" on the link port, as Blargg's ROMs do. Irq does the
+; same for a store through (HL) that requests an interrupt, which a store
+; that guards itself (rbgen.self_guard) must leave its block for.
+
+SECTION "timer", ROM0[$50]
+    push af                                 ; the timer interrupt: counts
+    ld a, [$C020]
+    inc a
+    ld [$C020], a
+    pop af
+    reti
 
 SECTION "header", ROM0[$100]
     nop
@@ -28,9 +38,12 @@ Start:
     xor a
     ld [$C010], a                           ; the WRAM side's flag sum
     ld [$C011], a                           ; ...and TMA's
+    ld [$C020], a                           ; timer interrupts taken
+    ld [$C022], a                           ; ...and not taken at once
     ld bc, 300
 .loop:
     push bc
+    call Irq
     ld hl, $C000
     ld de, $C010
     call Ops
@@ -51,6 +64,12 @@ Start:
     ld b, a
     ld a, [$C011]
     cp b
+    jr nz, .bad
+    ld a, [$C022]
+    or a
+    jr nz, .bad
+    ld a, [$C020]
+    cp 300 & $FF
     jr nz, .bad
     ld hl, Passed
     jr .print
@@ -98,6 +117,25 @@ Ops:
     inc [hl]
     swap [hl]
     dec [hl]
+    ret
+
+; A store through (HL) to IF that requests the timer interrupt must take it
+; before the next instruction: the store's slow path leaves the block for it
+Irq:
+    ld hl, $FFFF
+    ld [hl], $04                            ; IE: the timer
+    ld a, [$C020]
+    ld d, a
+    ei
+    ld hl, $FF0F
+    ld [hl], $04                            ; IF: the timer - taken here
+    ld a, [$C020]
+    di
+    sub d
+    dec a
+    ret z
+    ld a, 1
+    ld [$C022], a
     ret
 
 ; F into the sum at [DE], with the carry of the add left for the next op
