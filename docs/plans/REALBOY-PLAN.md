@@ -976,8 +976,10 @@ Super Mario Land scrolls with enemies on screen.
   -> 10.76 ms; Super Mario Land unchanged.
 - **8**: hypothesis (b) was the field run's - Auto timed the level start's
   translating and chose the interpreter for Super Mario Land. Auto re-runs
-  such a window now and `RB_JITHOT` is 16 (REALBOY-SPEC sections 16.3 and
-  16.7). Kirby's Dream Land still flushes every ~25 seconds, and a block
+  such a window now; the fourth field run then showed Auto's timing itself
+  to be the slowdown, so the default is Recompiler: On and Auto only times
+  a thrashing cache (REALBOY-SPEC section 16.7). `RB_JITHOT` 16 was tried
+  and refused in the field (section 16.3). Kirby's Dream Land still flushes every ~25 seconds, and a block
   table of 4,096 entries made it WORSE (1,872 blocks and 3 flushes in 50 s
   against 1,321 and 2): its code over a minute is simply bigger than the
   64KB cache, so the levers are smaller blocks (a memory template is 38-64

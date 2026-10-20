@@ -46,7 +46,7 @@ JIT_HASH        equ 0x0000          ; 16,384, in a SEGMENT OF ITS OWN
                                     ;   is code but for the tails' slots
 JIT_HASHN       equ 2048
 JIT_HMASK       equ JIT_HASHN / 256 - 1 ; (a slot is PC-folded, AND this x 256)
-RB_JITHOT       equ 16              ; entries before a PC is translated
+RB_JITHOT       equ 64              ; entries before a PC is translated
 
 ; --- the state block, at RB_STATE --------------------------------------------
 ; Registers the core keeps in 8086 registers while it runs, saved here when

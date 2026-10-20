@@ -961,17 +961,18 @@ in Super Mario Land walking, 10 lost slots, 17 entries counting and 17
 failed links a frame. With the neighbour the CPU alone (`rbbench.py --box
 286-victory`) went from 9.29 to 7.32 ms a frame on Super Mario Land and from
 11.35 to 9.75 on Kirby's Dream Land. **A PC is translated
-only on its 16th entry** (`RB_JITHOT`), so code that runs a few times is
+only on its 64th entry** (`RB_JITHOT`), so code that runs a few times is
 interpreted and never takes the cache's room; a translated entry gives its
-slot up only after 16 others have asked for it. It was 64 for a while: with
-the block table still in the cache, 16 had Kirby's Dream Land walking
+slot up only after 64 others have asked for it. 16 was tried twice. With
+the block table still in the cache it had Kirby's Dream Land walking
 translate 2,933 blocks in 15 seconds and flush 7 times. With the table out
-(16.2) it is 1,354 blocks and 2 flushes in 44 seconds against 64's 661 and
-1, and 16 is the faster: warming is the COUNTING - `tr_ekey`, `tr_enter`
-and `tr_count` were ~29% of Kirby's first seconds against the translator's
-~4% - and after a flush Kirby slumps 2 seconds at ~58% of real time rather
-than 4 at 32-54%. 96.9% over 40 seconds against 94.5%, recompiler forced on
-(`rbwin.py`, `286-victory`). **A flush forgets everything**, the table with the code. Keeping what was
+(16.2) the twin's scripted walk read better at 16 (96.9% of real time over
+40 seconds against 94.5%: warming is the COUNTING, `tr_ekey`, `tr_enter`
+and `tr_count` ~29% of Kirby's first seconds against the translator's
+~4%), and the fourth field run REFUSED it: played on the Victory, Kirby
+flushed every 5-6 seconds and retranslated 350-500 blocks each time, the
+music slowing for a second at 47-77% of real time, where at 64 the flushes
+had been ~20 seconds apart. **A flush forgets everything**, the table with the code. Keeping what was
 hot (an entry that had a block counting again from near `RB_JITHOT`) was
 tried and REFUSED: on the bare harness it took Kirby's Dream Land from 7.64
 to 7.14 ms a frame, but in the package on `286-victory`, the recompiler
@@ -1108,34 +1109,35 @@ interpreted and 46-51% recompiled**: its hot code is broad (no block over
 3% of the translated samples) and a block ends at every branch, so the
 blocks are short and their entries and exits (`tr_enter` alone 11%) cost
 more than the dispatch they save. Super Mario Land is the other way round.
-So Machine > Recompiler has three settings, **Auto** (the default), On and
-Off, and Auto measures (`rw_jitauto`, once a second from `rw_stat`):
+So Machine > Recompiler has three settings, **On** (the default), Off and
+Auto. On is the default since the fourth field run: every measurement since
+the block table left the cache has the recompiler ahead on both games
+(Kirby's Dream Land at 85-97% of real time against 59-62% interpreted,
+Super Mario Land 430 ms a second of CPU against 750), and Auto's timing was
+itself the slowdown - it spent four seconds of every cycle interpreted, at
+each start and every minute, and Super Mario Land drew 8-11 pictures a
+second in them against 16-19. Auto (`rw_jitauto`, once a second from
+`rw_stat`) now WATCHES the recompiler and times nothing unless its cache
+thrashes:
 
-- a window of two seconds with the recompiler that is NOT timed, its cache
-  filling there - a cold cache timed it dearer than it was, and that alone
-  had Kirby's Dream Land interpreted at 62% when it ran recompiled at 86%;
-- four windows of two seconds - with the recompiler, without, with,
-  without - each's cost a frame being the machine's own time (`rw_frame` to
-  its yield) over the frames it ran. A window with the recompiler that
-  translated `RW_JWARM` (48) blocks or more is run again, up to three
-  times: it timed the counting and the translator, not the recompiler. The
-  third field run's Super Mario Land was handed to the interpreter so, its
-  two recompiler windows on the first level's start with 233 blocks
-  translated, and spent 750 ms a second running the Game Boy against the
-  recompiler's 430;
-- then the recompiler unless the interpreter was cheaper by an eighth or
-  more (a title screen times both alike, and a near tie there once handed
-  Super Mario Land's levels to the interpreter), for a minute - five when
-  the recompiler won by a quarter or more, since every timing spends four
-  seconds half of them on the slower - and the windows again, since a
-  game's working set is a level's. An interpreter's verdict holds the
-  minute only.
+- every `RW_JWATCH` (30) seconds it counts the cache's flushes; under
+  `RW_JTHRASH` (3) it watches again;
+- three or more, and it times both: a window of two seconds with the
+  recompiler that is NOT timed, its cache filling there (a cold cache timed
+  it dearer than it was), then four windows of two seconds - with the
+  recompiler, without, with, without - each's cost a frame being the
+  machine's own time (`rw_frame` to its yield) over the frames it ran. A
+  window with the recompiler that translated `RW_JWARM` (48) blocks or more
+  is run again, up to three times: it timed the counting and the
+  translator, not the recompiler (the third field run's Super Mario Land
+  was handed to the interpreter so, 233 blocks translated in its two
+  windows);
+- then the recompiler, watched again, unless the interpreter was cheaper by
+  an eighth or more, which it keeps for a minute before timing both again.
 
 Turning it off keeps the cache, and turning it back on (`rt_resume`) forgets
 nothing: the cache holds only ROM's translations, keyed by PC and bank, and
-neither changes while it is off. With the block table out of the cache
-(16.2), Auto holds the recompiler on both: Kirby's Dream Land at 85.9% of
-real time and Super Mario Land at 100%.
+neither changes while it is off.
 
 ## 17. Sound
 
