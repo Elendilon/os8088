@@ -84,7 +84,8 @@ def main():
         if not view:
             print("FAIL gbspeed: the package never started the game")
             return 1
-        r = rate(m, view)
+        M.guest_sleep(m, 3)                 # (what the start owed, run: the
+        r = rate(m, view)                   #   first look read 102-103%)
         print("gbspeed: Speed 100%%: %.1f%% of a Game Boy" % (r * 100))
         if not 0.97 <= r <= 1.03:
             fails.append("at 100%% it ran at %.1f%%" % (r * 100))

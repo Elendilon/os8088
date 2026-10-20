@@ -2046,3 +2046,195 @@ rb_setbank:
     pop dx
     pop ax
     ret
+
+; =============================================================================
+; SAVE STATES (REALBOY-SPEC 10.4). The machine is already where a state file
+; wants it: the Game Boy's 8000-FFFF at its own addresses in the view, the
+; cartridge's RAM banks in S_RAMSEG, and everything else in the state block.
+; The host writes those regions as they are; these three build and read back
+; the small part, the record at RB_STREC, which sits just under 8000h so the
+; record and the view are one contiguous run. DS = the view, always.
+; =============================================================================
+
+; rb_stram: AX = the bytes of the RAM part a state of this game carries -
+; S_RAMSEG's banks, 8KB a bank and one at least (a clock or a battery claims
+; a bank of its own), or 0 when the window alone is the RAM. Kept: the rest
+rb_stram:
+    xor ax,ax
+    cmp word [S_RAMSEG],0
+    je .r
+    mov al,[S_RAMBANKS]
+    or al,al
+    jnz .n
+    inc ax
+.n:
+    mov ah,al
+    xor al,al
+    shl ax,1
+    shl ax,1
+    shl ax,1
+    shl ax,1
+    shl ax,1                            ; banks x 8,192
+.r:
+    ret
+
+; rb_stcompose: the record at RB_STREC, from the machine as it stands. The
+; host has put the RAM window back in its bank (rb_ramsync). Kept: all
+rb_stcompose:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    cld
+    push ds
+    pop es
+    mov di,RB_STREC
+    mov cx,ST_RECSZ / 2
+    xor ax,ax
+    rep stosw
+    mov di,RB_STREC
+    call .head
+    mov si,RB_STATE
+    mov di,RB_STREC+ST_BLOCK
+    mov cx,128
+    rep movsw
+    mov si,RB_SNAP
+    mov cx,8
+    rep movsw
+    mov si,RB_RLOG
+    mov cx,RB_RLOG_MAX * 2
+    rep movsw
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+.head:                                  ; ES:DI: what this game's record
+    mov ax,'RB'                         ;   opens with - also rb_stcheck's
+    stosw                               ;   to compare (ST_ROMID's end)
+    mov ax,'ST'
+    stosw
+    mov al,ST_VERSION
+    stosb
+    call rb_stram
+    mov al,ah
+    shr al,1
+    shr al,1                            ; (KB)
+    stosb
+    inc di
+    inc di
+    mov si,0134h
+    mov cx,28 / 2
+    rep movsw
+    ret
+
+; rb_stcheck: CF = 0 if the record at RB_STREC is a state of THIS game, at
+; this format, with the RAM part this game's state would have. Kept: all
+rb_stcheck:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    cld
+    push ds
+    pop es
+    mov di,RB_STREC+ST_RECSZ - 40h      ; (the record's own tail, zeroed: the
+    mov cx,20h                          ;   header as this game's is, there)
+    xor ax,ax
+    rep stosw
+    mov di,RB_STREC+ST_RECSZ - 40h
+    push di
+    call rb_stcompose.head
+    pop si
+    mov di,RB_STREC
+    mov cx,ST_ROMID + 28
+    repe cmpsb
+    pushf
+    mov di,RB_STREC+ST_RECSZ - 40h      ; the tail zero again
+    mov cx,20h
+    xor ax,ax
+    rep stosw
+    popf
+    je .ok
+    stc
+    jmp short .r
+.ok:
+    clc
+.r:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; rb_stapply: the machine from the record at RB_STREC - RB_SNAP and the raster
+; log, and from its state block the Game Boy's fields alone (rb_sttab); the
+; host's (segments, vectors, the recompiler's place, the profile, scratch)
+; and the buttons held NOW stay as they are. The host has read the view's
+; 8000-FFFF and the RAM banks back first. Then what the host derives: the
+; bank in 4000-7FFF (rb_setbank - which may fetch it: rb_bmiss), and the
+; spin-wait's "known not to spin", which was another machine's. Kept: all
+rb_stapply:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    cld
+    push ds
+    pop es
+    mov si,RB_STREC+ST_SNAP
+    mov di,RB_SNAP
+    mov cx,8
+    rep movsw
+    mov si,RB_STREC+ST_RLOG
+    mov di,RB_RLOG
+    mov cx,RB_RLOG_MAX * 2
+    rep movsw
+    mov bx,rb_sttab
+.f:
+    mov al,[cs:bx]                      ; a range: its offset and length
+    mov cl,[cs:bx+1]
+    or cl,cl
+    jz .fixed
+    xor ah,ah
+    xor ch,ch
+    mov si,ax
+    add si,RB_STREC+ST_BLOCK
+    mov di,ax
+    add di,RB_STATE
+    rep movsb
+    add bx,2
+    jmp short .f
+.fixed:
+    mov byte [S_EXIT],0
+    mov word [S_IDLENO],0FFFFh
+    call rb_setbank
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+; the state block's GAME BOY fields (rbdefs.inc): a field added to the block
+; is the host's until it is listed here, which is the safe way round - one
+; that should have been is a state that comes back wrong, and gbstate.py's
+; replay says so
+rb_sttab:
+    db 00h, 0Eh                         ; AF BC DE HL SP PC BP
+    db 30h, 0Dh                         ; WVAL IME HALT EXIT IDLE BANK BANKHI
+                                        ;   MBC NBANKS RAMEN RAMBANK MBCMODE
+                                        ;   (not S_JOY: the buttons held now)
+    db 3Eh, 28h                         ; FRAMES, the clocks, TIMA0 LCDON
+                                        ;   SNAPOK RLOGN SERN BADOP
+    db 6Eh, 12h                         ; RAMCUR, the MBC3 clock
+    db 0ACh, 02h                        ; SNAPTAG TAKEINT
+    db 0B4h, 03h                        ; TNF BMASK
+    db 0D4h, 10h                        ; the two square channels
+    db 0, 0

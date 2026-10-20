@@ -242,7 +242,15 @@ rw_pertick      equ rw_spdk + 2     ; word: ...and frames a BIOS tick, x 256
 rw_gkey         equ rw_pertick + 2  ; 3: the game's header 014Dh, 014Eh
 rw_hmask        equ rw_gkey + 3     ; byte: the block table's mask (S_HMASK,
                                     ;   REALBOY-SPEC 16.3): 31 for 64KB, 7
-rw_fbuf         equ rw_hmask + 1    ; 5,760: rb_render's frame (monochrome;
+rw_slot         equ rw_hmask + 1    ; byte: the save state's slot, 0-8 for 1-9
+rw_stq          equ rw_slot + 1     ; byte: a state being saved or loaded -
+                                    ;   the worker backs off (1), and it has
+                                    ;   (2): the UI task's machine (rwstate.inc)
+rw_stlen        equ rw_stq + 1      ; word: the state's RAM part, bytes
+rw_stbyte       equ rw_stlen + 2    ; byte: OSAPI_FILE_READ's 1-byte buffer
+rw_stmsg        equ rw_stbyte + 1   ; 24: what rw_stsay says
+rw_ssname       equ rw_stmsg + 24   ; 13: NAME.SS1 to NAME.SS9
+rw_fbuf         equ rw_ssname + 13    ; 5,760: rb_render's frame (monochrome;
                                     ;   even)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
@@ -1732,6 +1740,8 @@ rw_worker:                          ;   the worker parked at the top of its
     mov byte [rw_incore], 1         ; raised BEFORE [rw_fsq] is read: the
     cmp byte [rw_fsq], 0            ;   order rwfsx.inc's handoff rests on
     jne .sleep
+    cmp byte [rw_stq], 0            ; (and rwstate.inc's, the same way)
+    jne .sleep
     cmp byte [rw_resetq], 0
     je .noreset
     mov byte [rw_resetq], 0
@@ -2410,8 +2420,10 @@ rw_socd:
     or dl, bh
     ret
 
-; rw_klat - AH = a typed key's scancode: its button latched for rw_keys
+; rw_klat - AH = a typed key's scancode: its button latched for rw_keys -
+; or a save state's key (rw_stkey: 1-9, F5, F8)
 rw_klat:
+    call rw_stkey
     push ax
     push si
     mov si, rw_keymap
@@ -3097,6 +3109,10 @@ rw_oncmd:
     jne .machine
     cmp al, 0
     je rw_open
+    cmp al, 1
+    je rw_stsave                    ; Save State, Load State (F5, F8)
+    cmp al, 2
+    je rw_stload
     push si                         ; File > Close: the close box's work
     call rw_onclose                 ;   first - the battery's RAM, the
     pop si                          ;   profile, the log - since a close the
@@ -3168,13 +3184,17 @@ rw_tpl:
     dw rw_ttl, rw_paint, rw_onkey, rw_abdismiss
 
     OS88_MENUSET rw_menus, rw_ttl, rw_oncmd
-        OS88_MENU rw_m_file, rw_i_file, 2
+        OS88_MENU rw_m_file, rw_i_file, 4
         OS88_MENU rw_m_mach, rw_i_mach, 10
     OS88_MENUSET_END rw_menus
 
 rw_ttl:         db 'RealBoy', 0
 rw_m_file:      db 'File', 0
-rw_i_file:      dw rw_it_open, rw_it_close
+rw_i_file:      dw rw_it_open, rw_it_sv0, rw_it_ld0, rw_it_close
+rw_it_sv:       db 'Save State', 0
+rw_it_sv0:      db MENU_DIS, 'Save State', 0
+rw_it_ld:       db 'Load State', 0
+rw_it_ld0:      db MENU_DIS, 'Load State', 0
 rw_it_open:     db 'Open...', 0
 rw_it_close:    db 'Close', 0
 rw_m_mach:      db 'Machine', 0
@@ -3251,6 +3271,7 @@ rw_ab7:         db 'F1 = speed', 0
 %include "os88pit.inc"
 %include "rwlog.inc"
 %include "rwbank.inc"
+%include "rwstate.inc"
 %include "os88data.inc"
 
 %define OS88UI_ABOUT

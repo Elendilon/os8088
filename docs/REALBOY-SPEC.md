@@ -64,8 +64,10 @@ The core addresses the Game Boy's 64KB through **two segments**:
   - 0000-3FFF: a copy of ROM bank 0, made at init;
   - 4000-7FFF: rbsys's own data, never the game's: the state block at
     `RB_STATE` (4000h), `RB_F2AH` (4100h), `RB_AH2F` (4200h), the raster log
-    `RB_RLOG` (4300h, 192 entries of 4 bytes), `RB_SERBUF` (4700h) and the
-    frame-start snapshot `RB_SNAP` (4800h);
+    `RB_RLOG` (4300h, 192 entries of 4 bytes), `RB_SERBUF` (4700h), the
+    frame-start snapshot `RB_SNAP` (4800h), and a save state's record
+    `RB_STREC` (7800h, 10.4) - just under 8000h, so it and the Game Boy's
+    half are one run;
   - 8000-FFFF: the Game Boy's own RAM and registers, at their own addresses -
     VRAM, cartridge RAM (one bank), WRAM, OAM, the I/O registers and HRAM.
 - **ROMX**, the current switchable bank: `S_ROMX` is the segment whose
@@ -454,6 +456,93 @@ cache could not be claimed and the game ran interpreted (its log has no J).
   Looney Tunes (1MB, MBC5) runs at **101% of real time in its window on
   86Box's 286** with 18 slots and one bank fetched in ten seconds, and with
   the slots cut to 4 it fetched 12 in ten seconds and kept running.
+
+### 10.4 Save states
+
+**Nine slots a game, `NAME.SS1` to `NAME.SS9` beside it** as its `.SAV` is
+(10.1). 1 to 9 picks the slot, F5 saves it and F8 loads it, in the window
+and in full screen alike; File > Save State and Load State are the same two.
+The slot is the session's, slot 1 at the start.
+
+**No buffer is claimed: the machine is already where a state file wants
+it**, and the file is written from there and read back there
+(`apps/realboy/rwstate.inc`):
+
+| at | bytes | what | where it lives |
+|---|---|---|---|
+| 0 | 32,768 | VRAM, the RAM window, WRAM, OAM, I/O, HRAM | the view's 8000-FFFF (3) |
+| 32K | 0, 8,192 or 32,768 | the cartridge's RAM banks (`rb_stram`) | `S_RAMSEG` (10.1) |
+| then | 2,048 | the record (`RB_STREC`, rbdefs.inc's `ST_*`) | the view's 7800-7FFF |
+
+- **The record** is the header - `RBST`, the format's version, the RAM
+  part's KB and the ROM's header 0134h-014Fh - then the 256-byte state
+  block, `RB_SNAP` and the raster log, so the first frame drawn after a load
+  is the one that was saved. rbsys composes it (`rb_stcompose`), checks it
+  (`rb_stcheck`) and applies it (`rb_stapply`); the package and the bare
+  harness share all three.
+- **The RAM part** is there when `S_RAMSEG` is: a bank switcher's four, or
+  the one bank a battery or a clock claims - which must be saved, because an
+  MBC3 can have a CLOCK REGISTER in the window and bank 0 only in the
+  segment. One bank and nothing to keep is the window itself, in the view.
+- **Why this order.** Every part but the last starts at a multiple of 32KB
+  and the RAM part is a multiple of 8KB, so each `OSAPI_FILE_APPEND` starts
+  on a cluster - its rule - on any volume whose clusters are 8KB or less,
+  and the record, last, may be any length. 34, 42 or 66KB.
+
+**The state block comes back by a WHITELIST** (`rb_sttab`): the registers,
+the interrupt and HALT state, the MBC's banks and modes, the frame count,
+the clocks and timers, the MBC3 clock and the two square channels. The rest
+is the host's - segments, far vectors, the recompiler's place, the profile,
+scratch - and stays as it is, and so do the buttons held now (`S_JOY`). A
+field added to the block is the host's until it is listed, which is the
+safe way round. After the fields, what the host derives from them: the bank
+in 4000-7FFF (`rb_setbank`, which may fetch it, 10.3), and the spin-wait's
+"known not to spin", which was another machine's. The renderer draws the
+next frame whole (`RB_DFULL`).
+
+**The recompiler's cache is KEPT across a load**: its code is the ROM's
+(16.3), which a load does not change, and the HRAM routines it translated
+check their own bytes before they run (16.3). Static's fixed table
+(16.8) survives a load with it.
+
+**The machine is still while the file is written or read.** In the window
+the worker backs off at the top of its loop while `[rw_stq]` is set - full
+screen's handshake (15): the UI task raises the byte, then waits for the
+worker's `[rw_incore]` to fall, and raises it to 2 once it has, which is
+what lets `rw_bmiss` fetch a bank on the UI task during a load and never on
+the worker. In full screen the machine is the UI task's own, between frames.
+
+**A load touches nothing until the file is a state of THIS game.**
+1. Its size: the probe `OSAPI_FILE_READ` with no room answers `FERR_BIG`
+   with the file's KB plus one (from the directory entry), which must be
+   this game's. A missing file is "Slot n is empty".
+2. Its record, into `RB_STREC` - scratch - and `rb_stcheck`. The probe
+   allows up to 1,023 bytes over, which a read of the record would carry
+   into the Game Boy's 8000h, so 8000-83FF are kept aside at `RB_STKEEP`
+   and put back if the read delivered more than 2,048. Another game's, an
+   older format's or a damaged file is "not this game".
+3. Then the view's half and the RAM banks, and `rb_stapply`. A read that
+   fails past that point resets the game (Machine > Reset's `rw_reset`)
+   rather than leave it half one machine and half another.
+
+A save that fails part way deletes its file: a half-written state is no
+state. The battery's `.SAV` is still the close's alone (10.1) - a load
+replaces the RAM, and the next close saves what the RAM then is, as on any
+emulator.
+
+**The gate is a REPLAY** (`tests/gbstate.py`). The bare harness's MODE 13
+takes a state 200 frames before the end of a scripted run, sums the picture
+and the Game Boy's 8000-FFFF at the end, puts the state back and runs the
+same 200 frames on the same buttons: the sums must agree. It does so twice,
+into a machine just reset (`rb_init`, the cache emptied) - which is what
+makes a field the whitelist misses show, and leaving the clocks out turns
+Super Mario Land's and Kirby's Dream Land's legs red - and into the machine
+that ran on, its translated code kept. The bank fields are in the whitelist
+but neither game can test them: both select their bank again before they
+touch 4000-7FFF at a frame's end, and even a state put back with the bank
+deliberately wrong replays exactly. The package's half on MartyPC writes
+`CLOCK0.SS3`, reads it back off the floppy at 34,816 bytes, and loads it in
+the window and in full screen.
 
 ## 11. The raster log
 

@@ -49,6 +49,14 @@ RB_FREE         equ 0x481E          ; the rest of the window is unassigned,
                                     ; but for rbppu.inc's 4900-66FF and:
 RB_VMARK        equ 0x7200          ; 512: a VRAM 16-byte block written since
                                     ;   the damage scan last looked (vr_wr)
+RB_STKEEP       equ 0x7400          ; 1,024: the Game Boy's 8000-83FF, kept
+                                    ;   while a state's record is read in, in
+                                    ;   case the file ran on past it
+RB_STREC        equ 0x7800          ; 2,048: a SAVE STATE's record, composed
+                                    ;   here and read back here (rbsys's
+                                    ;   rb_stcompose, REALBOY-SPEC 10.4) - it
+                                    ;   ends where the Game Boy's 8000-FFFF
+                                    ;   begins, the file's other part
 JIT_BUF         equ 0x6700          ; 256: the Game Boy code being translated
 RB_BTAB         equ 0x6800          ; 512 words: a ROM bank's segment, or 0
 RB_BUSE         equ 0x6C00          ; 512 words: switches to it (the cache's
@@ -62,6 +70,20 @@ JIT_HASHN       equ 8192                ; the block table's entries AT MOST: 64K
 JIT_HMMAX       equ JIT_HASHN / 256 - 1 ; (a slot is PC-folded, AND this x 256:
                                         ;   S_HMASK the table's own, 31 or 7)
 RB_JITHOT       equ 64              ; entries before a PC is translated
+
+; --- a save state's record, at RB_STREC (REALBOY-SPEC 10.4) -----------------
+ST_MAGIC        equ 0               ; 4: 'RBST'
+ST_VER          equ 4               ; byte: ST_VERSION
+ST_VERSION      equ 1
+ST_RAMKB        equ 5               ; byte: the RAM part's KB - 0, 8 or 32
+ST_ROMID        equ 8               ; 28: the ROM's header, 0134h-014Fh
+ST_BLOCK        equ 30h             ; 256: the state block as it was - only
+                                    ;   the Game Boy's fields come back
+                                    ;   (rb_stapply's table); the rest is the
+                                    ;   host's and stays as it is
+ST_SNAP         equ 130h            ; 16: RB_SNAP
+ST_RLOG         equ 140h            ; 768: RB_RLOG
+ST_RECSZ        equ 2048            ; (the rest zero)
 
 ; --- the state block, at RB_STATE --------------------------------------------
 ; Registers the core keeps in 8086 registers while it runs, saved here when

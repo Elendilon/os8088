@@ -2674,6 +2674,20 @@ SOAK = [
         "SOAK: one package",
         needs=("marty", "nasm", "rgbds"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
+    Row("gbstate", "soak", py("tests/gbstate.py"), 40.0,
+        "REALBOY.O88's save states (docs/REALBOY-SPEC.md section 10.4). The "
+        "bare harness's MODE 13 under QEMU takes a state 200 frames before the "
+        "end and puts it back - into a machine just reset, and into the one "
+        "that ran on with its translated code kept - and the same 200 frames "
+        "must end on the same picture and memory: gbclock's counter, and with "
+        "$OS88_GB_ROMS Super Mario Land and Kirby (leaving the clocks out of "
+        "rb_stapply's table turns both games red). Then the package on "
+        "MartyPC's VGA XT: 3 and F5 write CLOCK0.SS3 (34,816 bytes, read back "
+        "off the floppy), F8 takes the frame counter back to the save (without "
+        "rb_stapply it does not), an empty slot changes nothing - in the window "
+        "and in full screen. SOAK: one package",
+        needs=("qemu", "marty", "nasm", "rgbds"),
+        wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("gbsave", "soak", py("tests/gbsave.py"), 40.0,
         "REALBOY.O88's battery RAM and MBC3 clock (docs/REALBOY-SPEC.md "
         "section 10.1) on MartyPC's VGA XT, against GBSAVE.GB (tools/gbours.py, "

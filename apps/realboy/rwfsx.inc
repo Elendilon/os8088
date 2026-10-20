@@ -54,6 +54,15 @@ rw_mgrey:
     push bx
     push dx
     push si
+    mov si, rw_it_sv0               ; Save and Load State: a game running
+    mov dx, rw_it_ld0
+    cmp byte [rw_state], 1
+    jne .st
+    mov si, rw_it_sv
+    mov dx, rw_it_ld
+.st:
+    mov [rw_i_file + 2], si
+    mov [rw_i_file + 4], dx
     mov si, rw_it_fs0
     cmp byte [rw_state], 1
     jne .set

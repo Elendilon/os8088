@@ -34,6 +34,9 @@ F1          the speed line
 F2          Machine > Interlace's next setting
 F3          Machine > Recompiler's next setting
 F4          Machine > Speed's next setting
+1 to 9      the save state slot
+F5          save the game's state in that slot
+F8          load it back
 Alt+Enter   full screen, and back
 Esc         leave full screen
 
@@ -41,8 +44,19 @@ The speed line is the game's speed (100% is the Game Boy's own 59.7 frames
 a second) and the frames drawn a second. They are separate on purpose: the
 game keeps its speed first, and the picture gets what is left.
 
+SAVE STATES
+-----------
+A save state is the whole machine at a moment, to come back to: nine slots
+for each game, kept beside it as NAME.SS1 to NAME.SS9 (34 to 66KB each).
+Press 1 to 9 to pick a slot, F5 to save and F8 to load - in the window or
+full screen - or File > Save State and Load State. A slot only loads into
+the game that saved it. The battery save (NAME.SAV) is separate, and is
+written when the window closes, as before.
+
 MENUS
 -----
+File > Save State        save the game's state in the slot (F5)
+File > Load State        load it back (F8)
 Machine > Reset          start the cartridge again
 Machine > Pause          stop the clock
 Machine > Full Screen    the game on the whole screen

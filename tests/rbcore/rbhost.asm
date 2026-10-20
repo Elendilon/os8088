@@ -31,6 +31,17 @@
 ;   MODE 12         as MODE 7, timed, onto VGA mode 0Dh: rb_renderd's
 ;   (renderv)       changed lines to VRAM as it decides them (rb_dvga), as
 ;                   the package's full screen does.
+;   MODE 13 (state) as MODE 3, with a SAVE STATE taken 200 frames before the
+;                   end (rbsys's rb_stcompose and the view's 8000-FFFF, copied
+;                   to STATE_SEG) and put back at the end (rb_stcheck,
+;                   rb_stapply), the same 200 frames then run again. The DONE
+;                   line's state sums - the picture and the Game Boy's memory
+;                   at the end, each time - must agree (REALBOY-SPEC 10.4).
+;                   STATE_SEG is the second cache segment's: no JF_SEG2.
+;                   It loads into the machine reset (rb_init, the recompiler
+;                   emptied), so a field rb_stapply misses is wrong - or with
+;                   b_ilace 1, which MODE 13 has no other use for, into the
+;                   machine that ran on, its translated code kept.
 ;
 ; Memory: the boot sector at 0000:7C00, the stack below it, this harness at
 ; 0800:0000, the core at 1000:0000, the view at 2000:0000, the ROM from
@@ -69,6 +80,7 @@ FRAME_SEG       equ 0x0510                  ; rb_render's 5,760 bytes, above the
                                             ;   recompiler's templates) runs past A000h
 FRAMED_SEG      equ 0x0060                  ; MODE 6: rb_renderd's buffer
 DMG_SEG         equ 0x01D0                  ;   and its damage memory
+STATE_SEG       equ 0x7000                  ; MODE 13's copy of a save state
 
 ; --- the boot sector ---------------------------------------------------------
 section boot start=0 vstart=0x7C00
@@ -197,6 +209,8 @@ host_main:
 .m89:
     cmp byte [h_mode],8                 ; MODES 8, 9 and 10: MODE 6 with
     jb .mode                            ;   Interlace On, Scrolling or Doubled
+    cmp byte [h_mode],10
+    ja .mode
     mov al,[h_mode]
     sub al,7
     mov [rb_ilace],al
@@ -300,6 +314,11 @@ host_main:
     cmp byte [h_mode],3
     jb .nj
     call joy_script
+    cmp byte [h_mode],13                ; MODE 13: a save state
+    jne .n13
+    call st_frame
+    jmp short .nj
+.n13:
     cmp byte [h_mode],5                 ; MODE 5: compose every frame too
     jne .n6
     push es
@@ -509,6 +528,21 @@ host_main:
     loop .dd
 %endif
 .nd:
+    cmp byte [h_mode],13
+    jne .ns
+    mov si,s_st
+    call puts
+    mov ax,[st_suma]
+    call hex16
+    mov al,' '
+    call putc
+    mov ax,[st_sumb]
+    call hex16
+    mov si,s_stbad
+    cmp byte [st_bad],0
+    je .ns
+    call puts
+.ns:
     mov si,s_end
     call puts
     cmp byte [h_mode],3                 ; MODES 3 and 4 end with the picture's
@@ -672,6 +706,162 @@ dmg_dump    times 85 db 0
 ; Start at 150, 400 and 700, Right held, A for 14 frames of every 50, B for
 ; the last 29 of every 400. At frame 800 the counters start from zero, as
 ; gbprof's statistics do, so the two shares compare like for like.
+; st_frame - MODE 13, after each frame: the state taken at h_frames - 200,
+; and at h_frames the sum, then the state back and the frames again
+st_frame:
+    push ax
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    mov ax,[h_frames]
+    sub ax,200
+    cmp ax,[nframes]
+    jne .end
+    mov ds,[cs:rb_viewseg]              ; TAKE: the record, then it and the
+    call rb_stcompose                   ;   Game Boy's 8000-FFFF - one run
+    mov si,RB_STREC
+    mov ax,STATE_SEG
+    mov es,ax
+    xor di,di
+    mov cx,(10000h - RB_STREC) / 2
+    cld
+    rep movsw
+    jmp short .r
+.end:
+    mov ax,[nframes]
+    cmp ax,[h_frames]
+    jne .r
+    call st_sum
+    cmp byte [st_pass],0
+    jne .two
+    mov [st_suma],ax
+    inc byte [st_pass]
+    cmp byte [cs:rb_ilace],0            ; (b_ilace 1: into the machine that
+    jne .keep                           ;   ran on, its cache kept, as the
+    call st_reset                       ;   package's is) BACK into a machine
+.keep:                                  ;   just switched
+    mov es,[cs:rb_viewseg]              ;   on, as a game opened and then
+    mov ax,STATE_SEG                    ;   loaded is - every field it misses,
+    mov ds,ax
+    xor si,si
+    mov di,RB_STREC
+    mov cx,(10000h - RB_STREC) / 2
+    cld
+    rep movsw
+    mov ds,[cs:rb_viewseg]              ;   wrong: the run, then the record's
+    call rb_stcheck                     ;   checks and fields
+    jnc .ok
+    mov byte [cs:st_bad],1
+.ok:
+    call rb_stapply
+    mov ax,[cs:h_frames]
+    sub ax,200
+    mov [cs:nframes],ax
+    push ds                             ; and the buttons that frame had: a
+    mov ax,cs                           ;   state leaves the ones held NOW
+    mov ds,ax
+    call joy_script
+    pop ds
+    jmp short .r
+.two:
+    mov [st_sumb],ax
+.r:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; st_reset - the machine as host_main started it: rb_init, and the recompiler
+; (its cache emptied with it) or the interpreter. Kept: DS, ES
+st_reset:
+    push ds
+    push es
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax,cs
+    mov ds,ax
+    mov dx,[h_romsec]
+    mov cl,5
+    shr dx,cl
+    cmp dx,2
+    jae .b
+    mov dx,2
+.b:
+    mov ax,VIEW_SEG
+    mov bx,CORE_SEG
+    mov cx,ROM_SEG
+    call rb_init
+    mov ax,VIEW_SEG
+    mov ds,ax
+    cmp byte [cs:h_jit],0
+    je .plain
+    call h_jitsegs
+    call rt_init
+    jmp short .r
+.plain:
+    xor al,al
+    call rt_dispatch
+.r:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    pop es
+    pop ds
+    ret
+
+; st_sum - AX = a sum of the picture rb_render composes now and the Game
+; Boy's 8000-FFFF, a word at a time
+st_sum:
+    push bx
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    mov ax,FRAME_SEG
+    mov es,ax
+    xor di,di
+    call rb_render
+    xor bx,bx
+    mov ax,FRAME_SEG
+    mov ds,ax
+    xor si,si
+    mov cx,5760 / 2
+    cld
+.p:
+    lodsw
+    add bx,ax
+    loop .p
+    mov ds,[cs:rb_viewseg]
+    mov si,8000h
+    mov cx,4000h
+.m:
+    lodsw
+    add bx,ax
+    rol bx,1
+    loop .m
+    mov ax,bx
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
+st_pass db 0
+st_bad  db 0
+st_suma dw 0
+st_sumb dw 0
+
 joy_script:
     push ax
     push bx
@@ -969,6 +1159,8 @@ s_jsw   db " seg2 ",0
 s_jby   db " bytes/16 ",0
 s_jadv  db " moves ",0
 s_end   db " END",10,0
+s_st    db " state ",0
+s_stbad db " refused",0
 s_stat  db " static ",0
 s_stat2 db " after ",0
 npre    dw 0

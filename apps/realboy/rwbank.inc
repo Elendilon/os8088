@@ -279,7 +279,9 @@ rw_bfill:
 rw_bmiss:
     push ax
     cmp byte [cs:rw_infsx], 0       ; full screen: the machine is on the UI
-    jne .ui                         ;   task
+    jne .ui                         ;   task - and so it is while a state is
+    cmp byte [cs:rw_stq], 2         ;   loaded, the worker parked (only then:
+    je .ui                          ;   at 1 it is the worker that asks)
     cmp byte [cs:rw_state], 1       ; a load or a restart from the UI task
     jne .ui
     mov [cs:rw_bankreq], bx
