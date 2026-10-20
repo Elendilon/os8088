@@ -819,6 +819,28 @@ instruction over 1.6%):
   `rb_iowrite`, as the recompiler's `io_wr` already does (REALBOY-PLAN
   lever 7): level with the recompiler off, 561 ticks either way.
 
+**The sorted sprite list cache**, after the recompiler's next three commits
+merged (dead flags, bank selects by MBC; 448 / 957 -> 445 / 939, theirs
+stacking again). Each line's sprites as `ppu_sprites` found and sorted them
+were kept in the view (up to five a line, 144 x 21 bytes at 7400h), used
+while nothing they hang on changed, and forgotten by `ppu_scinv` every
+frame - scroll or not, since the scan does not run while it scrolls: the
+lines an OAM entry that changed covered or covers (against a copy of OAM),
+the lines a sprite whose tile was written covers (`RB_DTD` and the
+unscanned `RB_VMARK`), every line when the scan took the shadows whole.
+Only `rb_renderd` kept it, so `gbdamage`'s reference stayed independent.
+
+- **Refused**: keyed on the whole entry. 460 / 939 against 445 / 939: in
+  Kirby's Dream Land `ppu_sprites` fell 10.2% -> 7.9% of the machine and
+  `ppu_scinv` cost 1.6%; in Super Mario Land `ppu_scinv` alone was 3.6%
+  against a fall of 4.7% -> 4.0%. A scroll moves every X, and the games
+  rewrite their OAM entries nearly every frame.
+- **Refused**: keyed on Y, tile and attributes only, X read again from OAM
+  and the short list sorted at each use, so a scroll keeps it. 459 / 942:
+  it is not X alone that churns - Super Mario Land's entries change in Y,
+  tile or attributes nearly every frame - and the check, which has to run
+  every frame, costs what the hits save.
+
 
 ## 14. The package
 
