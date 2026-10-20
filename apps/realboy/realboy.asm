@@ -666,7 +666,7 @@ rw_jitclaim:
     call OSAPI_CPU_INFO
     cmp al, CPU_8086
     je .r
-    mov ax, 80
+    mov ax, 64 + JIT_HASHN * 8 / 1024 ; the cache and its block table
     call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the core's
     jc .r                           ;   state block names it
     mov [rw_jitseg], dx

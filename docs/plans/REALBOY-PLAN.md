@@ -964,6 +964,30 @@ Super Mario Land scrolls with enemies on screen.
    frame, or a flush of the oldest part of the cache, not forgetting
    everything.
 
+**What came of it** (measured on `286-victory`, 2026-10-20):
+- **1, BUILT** as `stat_ff` (REALBOY-SPEC section 16.6): Super Mario Land's
+  CPU alone 6.22 -> 6.13 ms a frame, short of the predicted ~9% because
+  the waits are short; what is left is the reads themselves. The direct
+  template for `LDH A,(41h)` is NOT built: a translated `LDH A,(n)` with n
+  < 80h already jumps straight to `io_rd`, whose first test is 41h, so it
+  would save two compares.
+- **7, BUILT** in `io_wr` (REALBOY-SPEC section 16.6's neighbour, the core
+  tail itself): Kirby's Dream Land's CPU and `rb_renderd` every frame 11.08
+  -> 10.76 ms; Super Mario Land unchanged.
+- **8**: hypothesis (b) was the field run's - Auto timed the level start's
+  translating and chose the interpreter for Super Mario Land. Auto re-runs
+  such a window now and `RB_JITHOT` is 16 (REALBOY-SPEC sections 16.3 and
+  16.7). Kirby's Dream Land still flushes every ~25 seconds, and a block
+  table of 4,096 entries made it WORSE (1,872 blocks and 3 flushes in 50 s
+  against 1,321 and 2): its code over a minute is simply bigger than the
+  64KB cache, so the levers are smaller blocks (a memory template is 38-64
+  bytes against 4-12 for a register operation) or more cache.
+- **6, set aside**: `rb_renderd` on Super Mario Land spends 13.6% in
+  `ppu_fshift` and 2.5% in `ppu_list`, already unrolled and cached by map
+  row; the image would take only the tile's indirection out of that, and
+  add the map's scan to the scroll that skips the scan today. `ppu_dscan`
+  is the larger item (15.6%) on frames that do not scroll.
+
 **Looked at and rejected for a 286:**
 - **TI-Boy SE's PC as the host SP** (fetch by `pop`). Its interrupt repair
   depends on a Z80 interrupt pushing exactly the 2 bytes just popped.

@@ -773,7 +773,7 @@ tr_ekey:
     shr dl,1
     shr dl,1
     xor bl,dl
-    and bh,7
+    and bh,JIT_HMASK
     shl bx,1
     shl bx,1
     shl bx,1
@@ -835,7 +835,7 @@ tr_link:
     shr dl,1
     shr dl,1
     xor bl,dl
-    and bh,7
+    and bh,JIT_HMASK
     shl bx,1
     shl bx,1
     shl bx,1
@@ -940,7 +940,7 @@ tr_stale:
     shr dl,1
     xor bl,0FFh
     xor bl,dl
-    and bh,7
+    and bh,JIT_HMASK
     shl bx,1
     shl bx,1
     shl bx,1

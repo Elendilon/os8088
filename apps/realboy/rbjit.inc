@@ -862,7 +862,7 @@ rt_exit:
     shr dl,1
     shr dl,1
     xor bl,dl
-    and bh,7
+    and bh,JIT_HMASK
     shl bx,1
     shl bx,1
     shl bx,1
