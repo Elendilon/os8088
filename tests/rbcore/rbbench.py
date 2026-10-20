@@ -119,7 +119,7 @@ def main():
             sys.exit("rbbench: %s did not finish:\n%s" % (a.rom, txt))
         played = frames - 800
         ms = d[1] / TICK_HZ / played * 1e3
-        print(txt.strip().splitlines()[-1])
+        print(txt.strip() if os.environ.get("RT_DEBUG") else txt.strip().splitlines()[-1])
         print("%s: %d frames in play, %d ticks: %.2f ms a frame = %.1f%% of real "
               "time's 16.74 ms (%s)"
               % (os.path.basename(a.rom), played, d[1], ms, ms / 16.7427 * 100,

@@ -174,7 +174,7 @@ HEAD = 2 * (512 + NEXTRA) + 12   # then the free ranges', tail slots' and
 # CB group on (HL), LD (nn),SP - whose read and write slow paths are both
 # inline; those end a block and the interpreter runs them.
 TMAX = 80
-EXPORT = ("tr_enter", "tr_link", "tr_retlink", "tr_int", "idle_yes", "cnt_ff", "RB_DISPATCH")
+EXPORT = ("tr_enter", "tr_link", "tr_int", "idle_yes", "cnt_ff", "RB_DISPATCH")
 
 
 def free_ranges(tails):

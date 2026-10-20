@@ -880,8 +880,8 @@ byte - so blocks 2KB apart, which bank 0 and every bank of 4000-7FFF are
 full of, do not take turns at one slot. That fold took Kirby's Dream Land,
 the CPU alone, from 15.15 to 13.73 ms a frame on 86Box's 286.
 
-**A slot has a NEIGHBOUR** (its index XOR 1), which `tr_new`, `tr_link` and
-`tr_retlink` all look in when the slot holds another key, and a new key
+**A slot has a NEIGHBOUR** (its index XOR 1), which `tr_new` and `tr_link`
+both look in when the slot holds another key, and a new key
 takes whichever of the two is worth less - a counting entry before a
 translated one, and of two counting ones the colder (`tr_new2`); the
 translator writes a block into the slot its PC counted in (`S_JITSLOT`).
@@ -911,9 +911,15 @@ bytes that `tr_link` rewrites into `jmp near` the block once it is
 translated, or that the translator writes so at once when it is already
 there. An exit into 4000-7FFF gets eleven: a check of `S_BANK` and the jump,
 falling onto the exit's own `jmp tr_enter` when the bank is another. Every
-`RET` carries an inline cache, `cmp si,PC / jne +3 / jmp near BLOCK`, which
-`tr_retlink` fills with the last return to a bank-0 block; a routine called
-in a loop then returns without a lookup.
+`RET` carries an inline cache, `cmp si,PC / jne / cmp byte [ss:S_BANK],B /
+jne / jmp near BLOCK`, else `mov dx,SITE / jmp tr_link`: `tr_link` looks the
+return up as it does an exit and, seeing the site's `cmp` (81h) where an
+exit has its `mov dx`, fills the cache with the last return (`tr_rpatch`) -
+the bank check made a `jmp short` over itself when the block is in bank 0.
+A routine called in a loop then returns without a lookup. It once cached
+bank-0 returns only, and every return into 4000-7FFF went the whole way
+round `tr_enter`: 35 a frame in Kirby's Dream Land walking, and caching them
+took the CPU alone from 9.75 to 9.06 ms a frame on `286-victory`.
 
 ### 16.5 Guards
 

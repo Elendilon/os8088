@@ -40,7 +40,7 @@
 
 RT_MAXI         equ 40              ; instructions a block at most
 RT_CTL          equ 72              ; bytes a control transfer's code may take
-                                    ;   (RET cc 63, JR cc to a spin-wait on
+                                    ;   (RET cc 71, JR cc to a spin-wait on
                                     ;   (HL) 71: each rt_room asks for what
                                     ;   it writes, since most gaps are ~106)
 RT_FALL         equ 24              ; ...and a block's fall-through exit
@@ -917,15 +917,16 @@ rt_push:
     ret
 
 ; rt_ret - RET, its M-cycles in AL: pop si, the check, and an INLINE CACHE
-; of where this RET went last (tr_retlink fills it): cmp si,PC / jne +3 /
-; jmp near BLOCK, else mov dx,SITE / jmp tr_retlink
+; of where this RET went last (tr_link fills it, 16.4): cmp si,PC / jne / cmp
+; byte [ss:S_BANK],B / jne / jmp near BLOCK, else mov dx,SITE / jmp tr_link.
+; The bank check is a jmp short over it when PC is in bank 0.
 rt_ret:
     push ax
     mov al,5Eh                      ; pop si
     stosb
     pop ax
     call rt_subbp
-    mov ax,0F78h                    ; js +15
+    mov ax,1778h                    ; js +23
     stosw
     push bx
     mov bx,di                       ; SITE
@@ -933,18 +934,28 @@ rt_ret:
     stosw
     mov ax,0FFFFh
     stosw
-    mov ax,0375h                    ; jne +3
+    mov ax,0B75h                    ; jne +11, the miss
+    stosw
+    mov ax,8036h                    ; cmp byte [ss:S_BANK],0
+    stosw
+    mov al,3Eh
+    stosb
+    mov ax,S_BANK
+    stosw
+    xor al,al
+    stosb
+    mov ax,0375h                    ; jne +3, the miss
     stosw
     mov al,0E9h                     ; jmp near BLOCK: nowhere yet, the next
     stosb                           ;   instruction
     xor ax,ax
     stosw
-    mov al,0BAh                     ; mov dx,SITE / jmp tr_retlink
+    mov al,0BAh                     ; mov dx,SITE / jmp tr_link
     stosb
     mov ax,bx
     stosw
     pop bx
-    mov ax,RBC_TR_RETLINK
+    mov ax,RBC_TR_LINK
     call rt_jmp
     mov ax,0FF36h                   ; jmp far [ss:S_EVVEC]
     stosw

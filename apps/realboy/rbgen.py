@@ -841,6 +841,8 @@ tr_int:                         ; the interpreter's dispatch, in the CORE
 ; tr_link's patch: six bytes for bank 0, eleven for 4000-7FFF (16.4)
 tr_lpatch:
     mov bx,[ss:S_LINK]
+    cmp byte [cs:bx],81h        ; a RET's site: cmp si,PC (rt_ret)
+    je tr_rpatch
     cmp si,4000h
     jae .bank
     mov byte [cs:bx],0E9h       ; bank 0: the six bytes, jmp near the block
@@ -863,16 +865,6 @@ tr_lpatch:
     sub dx,11
     mov [cs:bx+9],dx
     jmp short .go
-""",
-    0x49: """
-; tr_retlink's look at the neighbour slot (16.3), which did not fit slot 43
-tr_rlnb:
-    xor bx,8
-    cmp [es:bx+JIT_HASH],si
-    jne tr_rlno
-    cmp byte [es:bx+JIT_HASH+2],0FFh
-    jne tr_rlno
-    jmp tr_rlhit
 """,
     0x48: """
 ; tr_new's half that did not fit slot 41: the neighbour slot (16.3)
@@ -964,50 +956,26 @@ cnt_ff:
     jmp word [ss:S_RET]
 """,
     0x43: """
-; tr_retlink: a RET's inline cache missed (REALBOY-SPEC 16.4). DX = the RET's
-; `cmp si,PC / jne +3 / jmp near BLOCK`: PC and BLOCK become this return's
-; when it is a translated block in bank 0, so the next RET to the same place
-; - the common case, a routine called in a loop - goes straight there.
-tr_retlink:
-    mov [ss:S_LINK],dx
-    cmp si,4000h
-    jae tr_rlex
-    mov [ss:S_SAVBX],bx
-    mov bx,si
-    mov dl,0FFh
-    xor bl,dl
-    mov dl,bh                   ; (PC >> 11 folded in: blocks 2KB
-    shr dl,1                    ;   apart share no slot)
-    shr dl,1
-    shr dl,1
-    xor bl,dl
-    and bh,7
-    shl bx,1
-    shl bx,1
-    shl bx,1
-    mov es,[ss:S_JITSEG]
-    cmp [es:bx+JIT_HASH],si
-    jne .nb
-    cmp byte [es:bx+JIT_HASH+2],0FFh
-    je tr_rlhit
-.nb:
-    jmp tr_rlnb                 ; ...or its neighbour's (16.3, slot 48)
-tr_rlhit:
-    mov dx,[es:bx+JIT_HASH+4]
-    or dx,dx
-    jz tr_rlno
-    mov [ss:S_JITOUT],dx
-    mov bx,[ss:S_LINK]
+; tr_lpatch for a RET's inline cache (16.4), the SITE's first byte 81h: PC
+; and BLOCK become this return's, and the bank check this block's bank - or
+; a jmp short over it, for a block in bank 0
+tr_rpatch:
     mov [cs:bx+2],si            ; cmp si,PC
+    cmp si,4000h
+    jae .bank
+    mov word [cs:bx+6],06EBh    ; jmp short +6, over the bank check
+    jmp short .blk
+.bank:
+    mov word [cs:bx+6],8036h    ; cmp byte [ss:S_BANK],B
+    mov dl,[ss:S_BANK]
+    mov [cs:bx+11],dl
+.blk:
+    mov dx,[ss:S_JITOUT]
     sub dx,bx
-    sub dx,9
-    mov [cs:bx+7],dx            ; jmp near BLOCK
+    sub dx,17
+    mov [cs:bx+15],dx           ; jmp near BLOCK
     mov bx,[ss:S_SAVBX]
     jmp far [ss:S_JITOUT]
-tr_rlno:
-    mov bx,[ss:S_SAVBX]
-tr_rlex:
-    jmp tr_enter
 """,
     0xD3: """
 ; [BX] for an address the fast path does not take: ROMX or an I/O register.
