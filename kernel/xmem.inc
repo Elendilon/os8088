@@ -639,6 +639,8 @@ xm_copy:
     mov [si+XMC_DIR], al
     mov ax, es                  ; the conventional end, as linear ES*16 + SI,
 %ifdef KERN_MEGA
+    inc byte [sch_lock]         ; (kern_mega: from BEFORE the base is read -
+                                ; a pool claim moves, KERN-MEGA-PLAN 14.37)
     cmp byte [mega_on], 0       ; kern_mega in protected mode: ES is a
     je .rmes                    ; SELECTOR, and the base is its descriptor's -
     push cx                     ; an OS88_HIGH region or an OS88_HIGHMEM
@@ -658,7 +660,9 @@ xm_copy:
     mov [si+XMC_CONV+2], dx
     call xm_ownbl
     mov [si+XMC_INST], bl       ; SI is already the block xm_dsp hands the
-    inc byte [sch_lock]         ; image at ES:SI, ES being KERNEL_SEG
+%ifndef KERN_MEGA               ; image at ES:SI, ES being KERNEL_SEG
+    inc byte [sch_lock]
+%endif
     mov bp, [xm_svc+XMV_COPY]
     call xm_dsp
     dec byte [sch_lock]         ; dec leaves CF alone

@@ -3958,7 +3958,7 @@ drv_hi:
     ret
 
 ; drv_hi_move - BX = a row whose image (at ES, a conventional claim) may move
-; now -> copied into a pool block owned MX_KOWN under a code/data pair, every
+; now -> copied into a pool block owned MX_KDRV under a code/data pair, every
 ; word that named it re-pointed at the DATA half by mem_region_reloc - the
 ; compactor's own walk, so drv_tab, the class fast paths, ss_row, the claim
 ; owners and the IRQ vectors (and through them the IDT) all follow - and the
@@ -3976,7 +3976,7 @@ drv_hi_move:
     xchg ax, cx                 ; CX = image + bss, the bytes it runs in
     mov ax, es
     push bx
-    mov bl, MX_KOWN
+    mov bl, MX_KDRV             ; (moved by the compactor, 14.37)
     call MEGA_SEL_CODE:mega_imghif ; AX = the pair's DATA selector
     pop bx
     jc .out

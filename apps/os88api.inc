@@ -2466,8 +2466,9 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; XMEM_CAPS answers in DX:CX), XMW_KB,
                                  ; XMW_OWN (an instance slot; 80h | slot for
                                  ; a package's region placed above 1MB; 0A0h
-                                 ; | slot for its OS88_HIGHMEM claims; FEh
-                                 ; the kernel's own; FFh none). kern_mega in
+                                 ; | slot for its OS88_HIGHMEM claims; FDh a
+                                 ; driver's image; FEh the kernel's own; FFh
+                                 ; none). kern_mega in
                                  ; protected mode, and kern_big with a store
                                  ; (XMEM.DRV's table: a slot or FFh, SPEC.md
                                  ; 28.4.8); CF=1, AX = 1 with no pool
@@ -2484,10 +2485,16 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; block above 1MB under a run of selectors,
                                  ; each a 64KB window (the last its claim's
                                  ; end) - a megabyte and more where the
-                                 ; machine has it. CF=1 refused. Free it with
-                                 ; OSAPI_MEM_FREE and the DX it gave; the
-                                 ; kernel frees it at your teardown too. It
-                                 ; does not regrow above 64KB
+                                 ; machine has it. CF=1 refused - above 1MB
+                                 ; only when the pool's FREE KB are short: the
+                                 ; kernel compacts it, this claim included,
+                                 ; before it refuses (KERN-MEGA-PLAN 14.37).
+                                 ; Free it with OSAPI_MEM_FREE and the DX it
+                                 ; gave; the kernel frees it at your teardown
+                                 ; too. OSAPI_MEM_REGROW takes one above 1MB
+                                 ; to ANY size and keeps it there: DX is its
+                                 ; first selector NOW (the run may move), the
+                                 ; step stays 8; CF=1 changed nothing
 XMW_OFF     equ 0
 XMW_KB      equ 2
 XMW_OWN     equ 4

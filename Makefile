@@ -12623,6 +12623,15 @@ $(BUILD)/megacp.bin: tests/megacp/megacp.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megacp/megacp.asm
 $(BUILD)/megacp.o88: $(BUILD)/megacp.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megacp.bin -o $@
+# MEGAHG (tests/megahg): HUGE claims moved by the compaction and regrown past
+# 64KB (KERN-MEGA-PLAN 14.37) - the pool fragmented by OSAPI_MEM_HUGE claims,
+# every free KB then asked for in ONE claim, and a run regrown to 300, 130,
+# 400KB and every free KB, every byte read back each time.
+# `tools/os88bochs.py sweep build/megahg.o88` with OS88_BOCHS_MEGS=4
+$(BUILD)/megahg.bin: tests/megahg/megahg.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megahg/megahg.asm
+$(BUILD)/megahg.o88: $(BUILD)/megahg.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megahg.bin -o $@
 # MEGAHIB (tests/megahib): MEGAXM's patterns HELD by a window across a
 # hibernate, and compared on a key - kern_mega's W5 witness
 # (docs/plans/KERN-MEGA-DOS-PLAN.md 8)
