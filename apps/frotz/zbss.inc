@@ -227,4 +227,7 @@ ZEXEC_SLACK  equ 1684                         ; 84
                                             ;   screen shows under its lines,
                                             ;   0 = none (zw_notice, zf_splash)
 
-ZF_BSS_TOTAL equ 1770
+%define zp_boff    (os88_image_end + 1770)  ; word: zp_find's block OFFSET
+                                            ;   in [zp_bseg] (zpic.inc)
+
+ZF_BSS_TOTAL equ 1772

@@ -664,9 +664,11 @@ op_claim:
     ; carve head slack. The hole SURVIVED a posted compaction, which is an
     ; open question and not this routine's - SPEC.md 20.12.10.8.1 has the
     ; three measurements and the repro.
-    call OSAPI_MEM_CLAIM_HI     ; out DX = the base segment
-    jc .no
-    mov [op_base], dx
+    xor cx, cx                  ; THE DMA DOOR WITH NO HEAD (KERN-MEGA-PLAN
+    call OSAPI_MEM_CLAIM_DMA_HI ; 14.12): the same top-down claim on every
+    jc .no                      ; kernel, and on kern_mega a CONVENTIONAL one
+    mov [op_base], dx           ; for an OS88_HIGHMEM package too - every part's
+                                ; segment below is arithmetic on this base
     add dx, [op_rpara]          ; ...and R paragraphs up is where op_read fills
     mov [op_rdseg], dx
     clc
@@ -1303,6 +1305,40 @@ op_seg:
     pop bx
     ret
 
+%ifdef OP_WANT_CSEG
+; -----------------------------------------------------------------------------
+; op_cseg - the selector to FAR CALL part AL's code through
+; in:  AL = the part index
+; out: AX = the selector, 0 = it is not there
+; clobbers: AX (the output), flags
+;
+; op_seg is the part's DATA segment, and stays the one to read it through. On
+; every real-mode kernel the two are the same word. Under kern_mega (CPU_F_PM)
+; a far call through the data segment is #GP and the kernel completes it with
+; mega_gpfix, a fault per transfer, so this hands back the claim's CODE alias
+; instead (os88api.inc OS88_CODESEL, docs/plans/KERN-MEGA-PLAN.md M4). A part's
+; segment is on the 512-byte grid because the carve is (SPEC.md 20.12.2), which
+; is what makes the alias exist. Ask at the moment the vector is BUILT, after
+; any fetch or move - like op_seg's, the answer is true of this instant.
+;
+; Opt-in - `%define OP_WANT_CSEG` before os88parts.inc - for OP_WANT_READ's
+; reason: what decides it is a CALL the package makes, which no row sees, and a
+; package that never far-calls a part assembles to the byte it did.
+; -----------------------------------------------------------------------------
+op_cseg:
+    call op_seg
+    or ax, ax
+    jz .out                     ; not there: 0, never the alias of 0
+    push bx
+    mov bx, ax
+    call OSAPI_CPU_INFO         ; AX only (SPEC.md 20.3's slot); any context
+    OS88_CODESEL bx, ah
+    mov ax, bx
+    pop bx
+.out:
+    ret
+%endif                          ; OP_WANT_CSEG
+
 %if OP_HAS_CARVE || OP_HAS_FETCH
 ; GATED (SPEC.md 20.12.9.4): op_say and the refusals below it - only the carve
 ; and op_fetch refuse, so a table whose every row is lazy AND OP_SELF (the
@@ -1578,8 +1614,9 @@ op_fetch:
     cmp ax, bx
     jb .nomem
     mov ax, bx
-    call OSAPI_MEM_CLAIM        ; out DX = the base segment
-    jc .nomem
+    xor cx, cx                  ; (op_claim's door: conventional on kern_mega
+    call OSAPI_MEM_CLAIM_DMA    ; whatever the header says, the fetch below
+    jc .nomem                   ; adding paragraphs to the base)
     push dx                     ; ...banked across everything below
 
     mov ax, [si+OP_R_OFF]       ; --- where the read starts, and its slack ---

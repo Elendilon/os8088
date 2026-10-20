@@ -30,6 +30,13 @@
 ;      that runs on PiXEL's worker (later waves) could reach neither anyway.
 ;   4. IT RETURNS CF. CF = 0 success with the verb's own outputs; CF = 1 and
 ;      AX = a PXE_* number.
+;   5. A SEGMENT REGISTER GOES INTO ITS OWN WORDS THROUGH AX. `mov [cs:x], ds`
+;      is the one store rule 1 makes wrong on kern_mega: CS is read-only
+;      there, the kernel completes a CS: store by running it with DS swapped
+;      to the part's own data segment (mega_gpw), and `, ds` then stores THAT
+;      segment - a service table naming the part, a ring position in its own
+;      image. So `push ax / mov ax, ds / mov [cs:x], ax / pop ax`, which is
+;      the same value on every kernel (KERN-MEGA-PLAN 10.3, the census).
 ;
 ; The resident's half - fetch, validate, stamp, far call, drop - is px_pcall
 ; and px_pdrop in apps/pixel/pixel.asm, and tests/pxparts.py is its gate.

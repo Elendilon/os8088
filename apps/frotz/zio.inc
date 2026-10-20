@@ -800,6 +800,16 @@ zi_load:
     mov ax, [zi_kb]
     call OSAPI_MEM_CLAIM            ; out CF=0 and DX = the base SEGMENT
     jc .nomem
+    test dl, 4                      ; a SELECTOR (kern_mega, a story of 64KB
+    jz .claimed                     ; or less) faults past its end where a
+    cmp word [zi_kb], 64            ; segment reads garbage, and a story may
+    jae .claimed                    ; name any 16-bit address: so 64KB of
+    call OSAPI_MEM_FREE             ; claim, and every one of them is inside
+    mov ax, 64                      ; it (KERN-MEGA-PLAN 14.13)
+    mov [zi_kb], ax
+    call OSAPI_MEM_CLAIM
+    jc .nomem
+.claimed:
     mov [zf_sseg], dx
     mov ax, [zi_kb]
     mov [zf_skb], ax
@@ -918,8 +928,12 @@ zi_load:
     mov si, zi_name
     mov di, zi_story
     mov cx, 13
-    cld
-    rep movsb
+    push ds                         ; ES:DI is OURS: ES was whatever the last
+    pop es                          ; call left, and on kern_mega that is not
+    cld                             ; this segment - zi_story stayed empty, so
+    rep movsb                       ; the .PIX was never looked for, and 13
+                                    ; bytes went somewhere else (KERN-MEGA-PLAN
+                                    ; 14.13)
     mov bx, [zf_win]
     mov ax, zi_name
     call OSAPI_WM_TITLE

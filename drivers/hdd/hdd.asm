@@ -43,6 +43,10 @@
 ; near rets, like any package (SPEC.md 51.1).
 ; =============================================================================
 
+%define OS88_DRV_HIGHOK          ; kern_mega may run this image above 1MB
+                                ; (KERN-MEGA-PLAN item 82): hd_raw bounces
+                                ; its own buffer, and every other transfer's
+                                ; buffer is the kernel's or a caller's
 %include "os88drv.inc"
 
     OS88_DRIVER 'Hard Drive', DRVC_DISK, hd_entry, hd_svc_end - hd_services

@@ -110,7 +110,7 @@ ex_head:
     mov dx, [di + PXK_HBASE + 2]    ; offset asked for (HPOS), not from its
     add ax, [di + PXK_HPOS]         ; cluster's start, and 2,048 bytes at
     adc dx, 0                       ; most - pixelsim's head is the 2,048
-    mov [cs:ex_hlo], ax             ; bytes FROM that offset, so the heads
+    mov [cs:ex_hlo], ax         ; bytes FROM that offset, so the heads
     mov [cs:ex_hlo + 2], dx         ; a walk counts are its, on a volume of
     mov bx, [di + PXK_HLEN]         ; any cluster
     sub bx, [di + PXK_HPOS]
@@ -1778,10 +1778,16 @@ ex_decode:
     jne .link
     mov ax, [di + PXK_SVC + 2 * PXS_EMIT]   ; the two services, far
     mov [cs:ex_emitf], ax
-    mov [cs:ex_emitf + 2], ds
+    push ax
+    mov ax, ds                      ; via AX, never `, ds` (pxpart.inc)
+    mov [cs:ex_emitf + 2], ax
+    pop ax
     mov ax, [di + PXK_SVC + 2 * PXS_RING]
     mov [cs:ex_ringf], ax
-    mov [cs:ex_ringf + 2], ds
+    push ax
+    mov ax, ds                      ; via AX, never `, ds` (pxpart.inc)
+    mov [cs:ex_ringf + 2], ax
+    pop ax
     mov ax, [di + PXK_RSEG]
     mov [cs:ex_rseg], ax
     mov ax, [di + PXK_DSEG]

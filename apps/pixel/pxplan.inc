@@ -792,12 +792,13 @@ pl_hcount:
     mov ax, dx                      ; the row: (y w) of the master, re-read
     mul word [px_cur + PXR_MW]      ; each row (the master moves)
     mov di, ax
-    and di, 15
+    and di, 127                    ; normalised to 8 paragraphs (PX_WGRID)
     mov cl, 4
     shr ax, cl
     mov cl, 12
     shl dx, cl
     or ax, dx
+    and al, 0xF8                    ; a segment kern_mega can load
     add ax, [px_cur + PXR_MSEG]
     mov si, ax                      ; SI:DI = the row
     call pl_htail                   ; ES = the tail

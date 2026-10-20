@@ -823,22 +823,92 @@ cs_entry:
 ; aeroplane.
 
 ; -----------------------------------------------------------------------------
-; cs_artes - ES = the bands' segment, with band SI expanded in it
+; cs_artes - band SI expanded, at ES:SI
 ; in:  SI = the band's offset in the bands (a cs_art_* name)
-; out: ES = the union, in which SI is the band; ZF = 1 when it is not there
-;      and could not be put there
-; preserves every register but ES
+; out: ES = our segment and SI the band's offset in it; ZF = 1 when it is not
+;      there and could not be put there
+; preserves every register but ES and SI
 ;
 ; ONE BAND, ON DEMAND (SPEC.md 88.10.7.1). Bit n of [cs_artok] says band n is
 ; expanded; cs_r_setup clears the byte when it builds its tables over the
 ; union, and this puts a band back from cs_artz the first time it is asked
-; for afterwards: one OSAPI_DECOMP of that band's own stream into ES:0 of its
-; own paragraph - csworlds.py refuses a band that is not one - out of our own
+; for afterwards: one OSAPI_DECOMP of that band's own stream into its own
+; paragraph (cs_xpand) - csworlds.py refuses a band that is not one - out of our own
 ; image, so no claim and no file. cs_paint asks for the title and the plane in
 ; use, which is what the way out of a flight pays for; cs_artdraw asks when
 ; the Plane list changes the aeroplane, which is the only other time a band
 ; is wanted.
 ; -----------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
+; cs_xpand - OSAPI_DECOMP into ANY paragraph of our segment
+; in:       ES = our segment, BX = the target in paragraphs into it,
+;           DS:SI = the stream, CX = its packed length, DX = what it expands
+;           to (under 64KB)
+; out:      CF as OSAPI_DECOMP's; ES and DS ours again
+; clobbers: AX BX CX DX SI DI
+;
+; The slot takes its destination at ES:0, and on kern_mega (protected mode on
+; a 286, docs/plans/KERN-MEGA-PLAN.md 10.1 item 18) a segment register must
+; name a multiple of 8 paragraphs - and none of the three targets here is one:
+; the vocabulary sits wherever the image ends, and the bands are 1,360 bytes
+; apart. So the stream expands at the 128-byte granule below the target and is
+; moved up into place, the bytes it covered on the way kept on the stack (at
+; most 112). Every kernel takes this path; it costs a copy of the output.
+;-----------------------------------------------------------------------------
+cs_xpand:
+    ; STKBALANCE-LOOP: BP/2 words pushed by .sv and popped by .rs; the count is in BP
+    push bp
+    push es
+    push cx
+    mov bp, bx
+    and bp, 7
+    xor bx, bp                      ; BX = the granule
+    mov cl, 4
+    shl bp, cl                      ; BP = how far above it the target is
+    mov ax, es
+    add ax, bx
+    mov es, ax                      ; ES:0 = the granule
+    pop cx
+    mov di, bp
+.sv:
+    sub di, 2
+    jb .go
+    push word [es:di]               ; what the expansion will cover below it
+    jmp short .sv
+.go:
+    push dx
+    xor di, di
+    xor bx, bx                      ; BX:DX the EXACT output (20.13.3)
+    mov al, OSAPI_LZ_LZ4
+    call OSAPI_DECOMP
+    pop cx                          ; CX = the output's length
+    jc .rest
+    push ds
+    push es
+    pop ds
+    mov si, cx
+    dec si                          ; its last byte, and where that goes: the
+    lea di, [bp + si]               ; copy runs DOWN, the two overlapping
+    std
+    rep movsb
+    cld
+    pop ds
+.rest:
+    sbb ax, ax                      ; CF, kept across the restore
+    xor di, di
+.rs:
+    cmp di, bp
+    jae .out
+    pop word [es:di]
+    inc di
+    inc di
+    jmp short .rs
+.out:
+    shl ax, 1                       ; CF back
+    pop es
+    pop bp
+    ret
+
 cs_artes:
     push ax
     push bx
@@ -846,10 +916,6 @@ cs_artes:
     push dx
     push si
     push di
-    mov ax, ds
-    add ax, CS_UNI_AT / 16
-    mov es, ax
-    push es                         ; ...for the way out: `pop` keeps ZF
     xor bx, bx                      ; BX = 2 x the band
 .find:
     cmp si, [cs_artroff + bx]
@@ -870,19 +936,17 @@ cs_artes:
     push ax
     mov cl, 4
     shr si, cl
-    mov ax, es
-    add ax, si
-    mov es, ax                      ; ES:0 = where the band goes
+    lea ax, [si + CS_UNI_AT / 16]   ; AX = where the band goes, paragraphs
     mov dx, [cs_artroff + bx + 2]
     sub dx, [cs_artroff + bx]       ; DX = what it expands to...
     mov si, [cs_artzoff + bx]
     mov cx, [cs_artzoff + bx + 2]
     sub cx, si                      ; ...CX = its packed length...
     add si, cs_artz                 ; ...and DS:SI its stream
-    xor di, di
-    xor bx, bx                      ; BX:DX the EXACT output (20.13.3)
-    mov al, OSAPI_LZ_LZ4
-    call OSAPI_DECOMP
+    xchg ax, bx
+    push ds
+    pop es
+    call cs_xpand
     pop ax
     jc .none
     or [cs_artok], al               ; ZF = 0: AL is a bit
@@ -890,9 +954,11 @@ cs_artes:
 .none:
     xor ax, ax                      ; ZF = 1
 .out:
-    pop es
-    pop di
-    pop si
+    push ds                         ; ES = OURS, and SI the band's offset in
+    pop es                          ; it: the union need not start on a
+    pop di                          ; segment of its own (cs_xpand), and on
+    pop si                          ; kern_mega cannot. `pop` and `lea` keep
+    lea si, [si + CS_UNI_AT]        ; ZF
     pop dx
     pop cx
     pop bx
@@ -1083,19 +1149,15 @@ cs_wldget:
     ; is not our own segment - and a `[cs_wg...]` read after the swap reads the
     ; BUFFER at that offset, which is the stream's own bytes and looks like a
     ; plausible number.
-    mov ax, ds
-    add ax, [cs_wgpar]
-    mov es, ax
-    mov si, [cs_wgslk]
+    push ds
+    pop es                          ; ES = ours: cs_xpand takes the target
+    mov si, [cs_wgslk]              ; as paragraphs into it
     mov cx, [cs_wglen]
     mov dx, [cs_wgout]
-    mov bx, [cs_wgseg]
+    mov bx, [cs_wgpar]
     push ds
-    mov ds, bx
-    xor di, di
-    xor bx, bx
-    mov al, OSAPI_LZ_LZ4
-    call OSAPI_DECOMP
+    mov ds, [cs_wgseg]
+    call cs_xpand
     pop ds
     jc .free
 

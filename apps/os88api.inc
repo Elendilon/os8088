@@ -724,7 +724,14 @@ SND_EXT_TAB      equ 16          ; os88spk.inc's PWM table, written by its
                                  ; CLOSE - the vector, channel 0 and channel 2
                                  ; put back; harmless with nothing open, AX
                                  ; and the flags spent - and the bracket's end
-                                 ; closes it. OPEN's CF=1: AX = SPK_E_*
+                                 ; closes it. OPEN's CF=1: AX = SPK_E_*.
+                                 ; AL = 2 OPEN WITH THE GATE (kern_mega in
+                                 ; protected mode only, SPEC.md 34.11.1.1,
+                                 ; where AL = 0 refuses): AL = 0's inputs plus
+                                 ; SI = your ISR's offset - the kernel points
+                                 ; IRQ0's GATE at BX:SI and answers AX = K and
+                                 ; CX:DX = the chain; you program channel 0.
+                                 ; Your ISR must write nothing through CS
 SPK_E_NOTRATE    equ 1           ; not in a FSXF_RATE bracket (and always,
                                  ; on kern_small)
 SPK_E_BUSY       equ 3           ; open already, or a clip plays
@@ -1938,6 +1945,81 @@ CPU_F_X87           equ 0x08     ; an 8087/287/387 IS IN THE SOCKET, probed
                                  ; `cpu 8086` already, so rule 1 stands with
                                  ; no exception and the gate here is a
                                  ; RUN-TIME one (SPEC.md 1 rule 1, 84.6).
+CPU_F_PM            equ 0x10     ; SEGMENTS ARE SELECTORS: kern_mega is in
+                                 ; 286 protected mode (docs/plans/
+                                 ; KERN-MEGA-PLAN.md 12.1). Never set on any
+                                 ; other kernel, so a binary built before the
+                                 ; bit reads 0 and keeps the real-mode
+                                 ; behaviour it always had. When it is set:
+                                 ; segment arithmetic must stay on the
+                                 ; 8-paragraph grid (a value that is not a
+                                 ; multiple of 8 is not a valid selector), and
+                                 ; LOADALL, unreal mode and int 15h AH=87h are
+                                 ; refused by the CPU - a feature with no
+                                 ; protected-mode route greys itself with the
+                                 ; reason rather than faulting
+;
+; --- reaching CODE in a claim: the selector to far call it through ----------
+; (docs/plans/KERN-MEGA-PLAN.md 2.4, 3.2, M4.) A heap claim is 512-aligned, so
+; its segment S is TWO selectors under CPU_F_PM: S itself, a writable DATA
+; segment (the identity map), and (S >> 2) | 4, an exact CODE alias in the LDT.
+; A far call, far jump or retf THROUGH S loads a data selector into CS, which
+; is #GP: kern_mega completes it (mega_gpfix) and it works, at the price of a
+; fault per transfer. A package that far-calls code it put in a claim - an
+; overlay, an OP_SEG part, a code buffer - converts the segment ONCE, where it
+; builds the vector, with this:
+;
+;     call OSAPI_CPU_INFO          ; once, at entry: bank AH somewhere
+;     mov [my_cpuf], ah
+;     ...
+;     mov ax, <the claim's segment>
+;     OS88_CODESEL ax, byte [my_cpuf]
+;     mov [my_vec+2], ax           ; far call [my_vec] is now fault-free
+;
+; %1 is the 16-bit general register holding the segment, converted in place;
+; %2 is a byte operand holding OSAPI_CPU_INFO's AH (memory, or AH/BL/... ).
+; Without CPU_F_PM it is the segment unchanged, so ONE BINARY IS RIGHT ON EVERY
+; KERNEL. Two things it is NOT: it is not for DATA - read and write a claim
+; through the segment itself, always, because the alias is read-only - and it
+; is not for a segment off the 512-byte grid, for which no alias exists (an
+; image's own CS is already its alias, so `mov ax, cs` needs nothing). It does
+; not touch 0, so a refused 0 should be tested before it rather than after:
+; 0 converts to 4.
+;
+; THE MACRO IS THE FAST PATH; THE SLOT BELOW IS THE ANSWER. The arithmetic is
+; right for a claim BELOW 1MB on the identity map, which is every claim a
+; package holds today. A claim the kernel may one day place above 1MB is named
+; by an LDT selector the shift cannot convert, so code that cannot know where
+; its claim is - or that takes a selector from somewhere else - asks
+; OSAPI_MEM_CODESEL instead, which is right for both.
+%define OSAPI_MEM_CODESEL   KERNEL_SEG:0x04A5   ; DX = the segment (or
+                                 ; selector) a claim of yours is named by; out
+                                 ; CF=0 and AX = the selector to FAR CALL code
+                                 ; in it: DX itself on a real-mode kernel, its
+                                 ; LDT code alias under CPU_F_PM (and a pair's
+                                 ; code half above 1MB). CF=1 none: DX = 0, or
+                                 ; under CPU_F_PM a segment off the 512-byte
+                                 ; grid or a selector that is data only (an
+                                 ; OSAPI_XMEM_SEL window). Any context.
+%macro OS88_CODESEL 2
+    test %2, CPU_F_PM
+    jz %%real
+    shr %1, 1
+    shr %1, 1
+    or %1, 4
+%%real:
+%endmacro
+;
+; OS88_HUGE_INCR - the selector step between consecutive 64KB of ONE claim
+; (docs/plans/KERN-MEGA-PLAN.md 3.2, Windows' __AHINCR). In conventional memory
+; it is 0x1000 on every kernel, kern_mega's identity map included, which is why
+; nothing built before it needs it. Write `add seg, OS88_HUGE_INCR` where code
+; walks a claim past 64KB rather than the bare 0x1000, so the walk is findable.
+; A claim above 1MB is a run of consecutive LDT selectors and its step is 8:
+; that claim comes only from OSAPI_MEM_HUGE, which ANSWERS the step in CX -
+; so this constant keeps meaning exactly what it meant for every claim
+; OSAPI_MEM_CLAIM makes, and a program that wants more walks by CX.
+OS88_HUGE_INCR      equ 0x1000
 ;
 ; --- volumes (SPEC.md 18.7/51.8) --------------------------------------------
 ; A DRVC_DISK DRIVER's slots, not an application's: the four that CHANGE
@@ -2283,6 +2365,9 @@ MEM_P_VIEW_N equ 5              ; RANGE, 0x10..0x14 with the window's fm_pool
                                 ; simply matches nothing
 MEM_P_FLIST equ MEM_PG_MED<<8 | 0x30    ; the Disk window's multi-file clipboard (22.27), kern_big only
 MEM_P_DIRW  equ MEM_PG_HIGH<<8 | 0x02   ; the directory read-ahead window (18.95)
+MEM_P_RAHB  equ MEM_PG_HIGH<<8 | 0x03   ; kern_mega's read-ahead LANDING: the
+                                 ; conventional bounce under the store above
+                                 ; 1MB (docs/plans/KERN-MEGA-PLAN.md item 32)
 
 ; --- OSAPI_SYS_KB's buffer, all in KB ----------------------------------------
 ; THERE IS NO `SK_DSK` (SPEC.md 20.9). It was the mount's own buffers, and
@@ -2337,7 +2422,8 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; CPU_286 / CPU_386, AH = feature bits (the
                                  ; CPU_F_* below): bit 0 A20 verified open,
                                  ; bit 1 HMA claimed, bit 2 unreal mode armed,
-                                 ; bit 3 an x87 is in the socket. Preserves
+                                 ; bit 3 an x87 is in the socket, bit 4
+                                 ; protected mode (kern_mega only). Preserves
                                  ; every register but AX. Any context - it
                                  ; reads two bytes.
 %define OSAPI_XMEM_CAPS     KERNEL_SEG:0x015A   ; no inputs; out AX = extended-
@@ -2365,6 +2451,76 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; from extended. out CF=0 done; CF=1 and AX =
                                  ; 1 no store / 2 the range is not inside a
                                  ; block you own / 3 bad length. ES is restored.
+%define OSAPI_XMEM_WALK     KERNEL_SEG:0x04AB   ; ES:DI = room for CX records
+                                 ; of XMW_SIZE bytes; out CF=0 and AX = the
+                                 ; extended pool's blocks written, each
+                                 ; XMW_OFF (KB from the pool's base, which
+                                 ; XMEM_CAPS answers in DX:CX), XMW_KB,
+                                 ; XMW_OWN (an instance slot; 80h | slot for
+                                 ; a package's region placed above 1MB; 0A0h
+                                 ; | slot for its OS88_HIGHMEM claims; FEh
+                                 ; the kernel's own; FFh none). kern_mega in
+                                 ; protected mode, and kern_big with a store
+                                 ; (XMEM.DRV's table: a slot or FFh, SPEC.md
+                                 ; 28.4.8); CF=1, AX = 1 with no pool
+                                 ; (KERN-MEGA-PLAN 13.6)
+%define OSAPI_MEM_HUGE      KERNEL_SEG:0x04B1   ; A CLAIM OF ANY SIZE, walked
+                                 ; by a STEP (KERN-MEGA-PLAN 14.1 answers 6,
+                                 ; 7): AX = KB (1..65535); out CF=0, DX = its
+                                 ; first segment or selector and CX = the step
+                                 ; to its next 64KB - add CX to DX per 64KB,
+                                 ; never a constant. CX = 1000h for a claim in
+                                 ; conventional memory, on every kernel; CX = 8
+                                 ; on kern_mega in protected mode for an
+                                 ; OS88_HIGHMEM package, whose claim is ONE
+                                 ; block above 1MB under a run of selectors,
+                                 ; each a 64KB window (the last its claim's
+                                 ; end) - a megabyte and more where the
+                                 ; machine has it. CF=1 refused. Free it with
+                                 ; OSAPI_MEM_FREE and the DX it gave; the
+                                 ; kernel frees it at your teardown too. It
+                                 ; does not regrow above 64KB
+XMW_OFF     equ 0
+XMW_KB      equ 2
+XMW_OWN     equ 4
+XMW_SIZE    equ 6
+%define OSAPI_XMEM_SEL      KERNEL_SEG:0x049F   ; DX:AX = an address inside a
+                                 ; block YOU own, CX = bytes (0 = 64KB); out
+                                 ; CF=0 and AX = a DATA SELECTOR whose segment
+                                 ; covers exactly that window - load it into
+                                 ; DS or ES and address the block IN PLACE.
+                                 ; ONE PER BLOCK: a second call re-aims it (a
+                                 ; segment register already holding it keeps
+                                 ; the old window until reloaded), and it is
+                                 ; freed with the block. CF=1 and AX = 1 not
+                                 ; available (every kernel but kern_mega in
+                                 ; protected mode - CPU_F_PM below is the test,
+                                 ; and the route without it is os88la.inc or
+                                 ; os88ub.inc) or none free / 2 not inside a
+                                 ; block you own. UI-task context, like the
+                                 ; four above (KERN-MEGA-PLAN 12.2).
+%define OSAPI_XMEM_RUN      KERNEL_SEG:0x04B7   ; DX:AX = the TOKEN of a block
+                                 ; YOU own (OSAPI_XMEM_ALLOC's answer, its
+                                 ; base); out CF=0, DX = the first of a RUN of
+                                 ; DATA SELECTORS and CX = the step between
+                                 ; them (8): selector k is the 64 KB window
+                                 ; from 32 KB x k into the block, cut at its
+                                 ; end - so ANY 32 KB of the block lies wholly
+                                 ; in the window at (offset >> 15), at (offset
+                                 ; & 7FFFh). A store of records of 32 KB or
+                                 ; less is read IN PLACE through it, from any
+                                 ; context once made, where OSAPI_XMEM_SEL's
+                                 ; one window would be re-aimed per read and
+                                 ; OSAPI_MEM_HUGE's 64 KB windows cut a record
+                                 ; that straddles one. Freed with the block.
+                                 ; CF=1, AX = 1 not available (every kernel
+                                 ; but kern_mega in protected mode) or no run
+                                 ; of LDT entries free, 2 not the base of a
+                                 ; block you own, or one that has a selector
+                                 ; already (OSAPI_XMEM_SEL's or a run): one
+                                 ; view a block. UI-task context, as above
+                                 ; (KERN-MEGA-PLAN 14.16; the Video Player's
+                                 ; hold and bank, SPEC.md 98.3.18.16).
 ;
 ; CONTEXT, BINDING: these five are UI-task context - the entry proc, a window
 ; callback, a menu handler or a file-dialog completion proc. THE GFX LOCK MAY
@@ -3418,6 +3574,42 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
                                 ; interpreter, or anything that talks to
                                 ; ETHER.DRV, whose socket verbs cost ~126
                                 ; bytes on YOUR stack (SPEC.md 72)
+; OS88_HIGH - OR it into the class above (`OS88_STACK_192 | OS88_HIGH`) to say
+; this package MAY RUN ABOVE 1MB (docs/plans/KERN-MEGA-PLAN.md 13.3 step 4).
+; Under CPU_F_PM kern_mega then loads its region into a code/data pair in
+; extended memory, and DS is a SELECTOR whose base is past the megabyte. Say
+; it only of a package that does NO arithmetic on its own CS or DS (`mov ax,
+; ds / add ax, n`, OS88_CODESEL of its own DS, a far pointer it builds out of
+; its own segment and stores for real mode), stamps no IRQ vector with its
+; own CS, re-homes into no part (OSAPI_PKG_REHOME), and does its file I/O on
+; ordinary FAT volumes - a RAM disk or a cable share is not yet supported
+; for a buffer up there. Every other kernel ignores the bit: a kernel built
+; before it reads an unknown class and gives the largest stack, and nothing
+; worse.
+OS88_HIGH          equ 0x80
+; OS88_HIGHMEM - OR it into the class byte as well (`OS88_STACK_192 |
+; OS88_HIGH | OS88_HIGHMEM`) to say that this package's CLAIMS may be above
+; 1MB too: under CPU_F_PM, OSAPI_MEM_CLAIM and OSAPI_MEM_CLAIM_HI of 1..64KB
+; answer DX = a DATA SELECTOR over exactly the KB asked for, in extended
+; memory (KERN-MEGA-PLAN 13.6). Say it only of a package that does NO
+; arithmetic on a claim's segment (no `add ax, 1000h`, no offset >> 4 folded
+; in, no OS88_HUGE_INCR, no comparing it with a number), never far-calls code
+; in one, hands one to no DMA and no BIOS call of its own (the DMA cells are
+; not affected and stay conventional), and never OSAPI_PKG_REHOMEs into one.
+; The kernel's own services take one wherever they take a segment - the file
+; layer (a redirected volume 512 bytes a call), OSAPI_XMEM_COPY, OSAPI_DECOMP
+; (64KB of output at most, as the claim is), the clipboard, every drawing
+; slot. OSAPI_MEM_REGROW keeps DX while the new size is 64KB or less and the
+; pool has room, and otherwise MOVES the claim down to conventional memory
+; and answers its new segment, exactly as a conventional regrow does - so take
+; DX from it as you always had to. OSAPI_MEM_MOVABLE refuses one (CF = 1): a
+; pool claim MAY move (the pool is compacted when a claim finds no run,
+; KERN-MEGA-PLAN 14.15), but its SELECTOR never changes, so there is nothing
+; to tell you - a segment register holding it picks up the new place at its
+; next load, and every register you pushed is one. A claim over 64KB,
+; or one the pool cannot hold, is conventional exactly as before, so the
+; package must still treat every claim as an opaque segment.
+OS88_HIGHMEM       equ 0x40
 
 ; THE FORMAT BYTE IS THE API TABLE'S (SPEC.md 20.2.0). Pass 4 moved 158 of
 ; the cells above and a package built for the old table does not fault, it

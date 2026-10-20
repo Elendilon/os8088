@@ -917,10 +917,11 @@ mrb_start:
     mov ax, [mrb_pre]
     cmp [es:MRB_RL+SND_EXT_TOTAL], ax
     jb .pre
+    call OSAPI_SND_CAPS             ; FIRST: BL is one of its OUTPUTS, and
     mov bl, SND_OPENF_RING + SND_OPENF_EXT + (MRB_RLCODE << SND_OPENF_RLSH)
-    call OSAPI_SND_CAPS
-    test ax, SND_CAP_EXTBLK
-    jz .blk
+    test ax, SND_CAP_EXTBLK         ; the flags built in BL before it came
+    jz .blk                         ; back 81h - no EXT, no ring size - so
+                                    ; every play took the grant ring
     or bl, 2 << SND_OPENF_BLKSH     ; 512-byte blocks: a pause is prompt
 .blk:
     xor al, al
@@ -1363,7 +1364,16 @@ mrk_bracket:
     mov cx, FSXF_RATE
     mov dx, 0xFFFF                  ; a period ~ a tick: the fewest entries
     mov di, mrk_hook
+%ifdef MR_SPKDIAG
+    mov word [mrk_dspk], 0xFFFF
+%endif
     call OSAPI_FSX_RUN
+%ifdef MR_SPKDIAG
+    pushf
+    pop word [mrk_dfx]
+    mov [mrk_dfa], ax
+    call mrk_diag
+%endif
     mov byte [mr_seqon], 0
     mov al, [mrk_exit]
     cmp al, MRX_DESK
@@ -1408,6 +1418,71 @@ mrk_bracket:
     pop ax
     ret
 
+%ifdef MR_SPKDIAG
+; mrk_diag - MR_SPKDIAG: a refused speaker play says which door refused it.
+; Every register kept
+mrk_diag:
+    cmp word [mr_msg], mr_s_spkbusy
+    jne .out
+    push ax
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov di, mr_spkdbuf
+    mov si, mr_s_spkdiag
+    call .str
+    mov ax, [mrk_dfx]
+    call .hex
+    mov si, mr_s_spkd2
+    call .str
+    mov ax, [mrk_dfa]
+    call .hex
+    mov si, mr_s_spkd3
+    call .str
+    mov ax, [mrk_dspk]
+    call .hex
+    xor al, al
+    stosb
+    mov word [mr_msg], mr_spkdbuf
+    pop es
+    pop di
+    pop si
+    pop ax
+.out:
+    ret
+.str:
+    lodsb
+    or al, al
+    jz .sr
+    stosb
+    jmp short .str
+.sr:
+    ret
+.hex:
+    push cx
+    mov cx, 4
+.hl:
+    push cx
+    mov cl, 4
+    rol ax, cl
+    pop cx
+    push ax
+    and al, 15
+    add al, '0'
+    cmp al, '9'
+    jbe .hd
+    add al, 7
+.hd:
+    stosb
+    pop ax
+    loop .hl
+    pop cx
+    ret
+%endif
+
 ; -----------------------------------------------------------------------------
 ; mrk_main - THE BRACKET'S BODY. DS = CS, SI = our window
 ; -----------------------------------------------------------------------------
@@ -1420,6 +1495,9 @@ mrk_main:
     jnc .pre
     call os88spk_go
     jnc .go
+%ifdef MR_SPKDIAG
+    mov [mrk_dspk], ax
+%endif
     mov word [mr_msg], mr_s_spkbusy
     mov byte [mrk_exit], MRX_ERR
     ret

@@ -33,7 +33,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'TRACKER', trk_entry, 3, OS88_STACK_256
+    OS88_HEADER 'TRACKER', trk_entry, 3, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; static 118 since the windowed
@@ -791,11 +791,38 @@ trk_trim:
     cmp ax, [trk_capk]
     jae .out                        ; the file filled it: nothing to give back
     mov dx, [trk_modseg]
+    test dl, 4                      ; a selector keeps its 64KB: every offset
+    jnz .out                        ; the mixer can form is inside it
     call OSAPI_MEM_REGROW
     jc .out                         ; refused: keep the oversized claim, which
     mov [trk_modseg], dx            ; costs heap and breaks nothing
     mov [trk_capk], ax
 .out:
+    ret
+
+; trk_claimsel - the module claim at DX came back a SELECTOR (KERN-MEGA-PLAN
+; 14.13: kern_mega, a claim of 64KB or less, bit 2 the LDT). Its limit is the
+; claim, where a segment reads garbage past its end, and the mixer's bounds
+; assume a position limit of 64,015 or less (mp_mixch). So a module of 62KB
+; or less is given a whole 64KB selector and addressed flat (mp_patseg), and
+; one of 63 or 64KB is claimed at 65KB, which is conventional by the contract
+; and takes the granules. A conventional claim is left as it is.
+; in:  DX = the claim, [trk_capk] its KB; out: CF=0 DX = the claim to use,
+;      [trk_capk] its KB; CF=1 the second claim was refused (nothing held)
+trk_claimsel:
+    test dl, 4
+    jz .ok
+    call OSAPI_MEM_FREE
+    mov ax, 64
+    cmp word [trk_capk], 62
+    jbe .re
+    inc ax
+.re:
+    mov [trk_capk], ax
+    call OSAPI_MEM_CLAIM
+    ret
+.ok:
+    clc
     ret
 
 ; trk_tokb - DX:AX bytes -> AX = KB, rounded UP; ZF from the answer. DX:AX
@@ -1090,6 +1117,8 @@ trk_fdone:
     mov [trk_capk], ax
     call OSAPI_MEM_CLAIM            ; AX = KB -> DX = base segment, CF=1
     jc .nomem                       ; refused (the answer moves register too)
+    call trk_claimsel
+    jc .nomem
     mov [trk_modseg], dx
 
     call trk_ring_probe             ; RESERVE the ring before the floppy turns

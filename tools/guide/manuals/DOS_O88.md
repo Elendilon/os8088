@@ -171,7 +171,13 @@ The two choices below it say where the program runs:
   windows are lost. Proceed?** Choose **Proceed** only after saving your
   work; the machine restarts when the program ends. **Disable the mouse**
   turns the mouse off for the program, which saves a little time on a slow
-  machine when the program does not use it.
+  machine when the program does not use it. On the protected-mode build for
+  the 286 and later, **Load DOS in the HMA** is ticked unless you clear it:
+  the part of DOS that stays behind goes into the memory just above the
+  first megabyte, which gives the program about 36K more. A few older
+  programs that unpack themselves as they load cannot run that way. DOS
+  spots most of them and puts itself below the program instead; clear the
+  box for one it misses.
 
 The options under the choice that is not picked are greyed. Clicking one of
 them picks its choice.

@@ -1384,10 +1384,11 @@ OS88UI_GW     equ 12            ; both are 12 x 12
 ;                       they were 2.6 ms of a picked radio on the field
 ;                       machine, past glyphcost's budget (the bitmap + 2 ms).
 ;
-; The points are staged in os88ui_gpts, in THIS routine's own section: CS is
-; the image the code is in (a package, a driver, or CTRL.DRV's `.modu`, which
-; may write to its own image), so the stores are CS-relative and DS = CS for
-; the call - the cell reads the records at ES:SI with ES = the caller's DS.
+; The points are staged ON THE STACK and DS = SS for the call - the cell reads
+; the records at ES:SI with ES = the caller's DS. SS is writable on every
+; kernel and for every includer (a package, a driver, CTRL.DRV's `.modu`);
+; the image the code is in was, until kern_mega made CS a read-only alias
+; and every store through it a trap, eight a glyph.
 os88ui_gring:
     push ax
     push bx
@@ -1415,30 +1416,33 @@ os88ui_gring:
     UI_FILL                     ; right
     dec ax                      ; AX = x+10
     dec bx                      ; BX = y+1
-    mov [cs:os88ui_gpts+4], ax  ; top right
-    mov [cs:os88ui_gpts+12], ax ; bottom right
-    mov [cs:os88ui_gpts+2], bx  ; top left's y
-    mov [cs:os88ui_gpts+6], bx  ; top right's y
+    add bx, OS88UI_GW-3         ; BX = y+10. The four corners, pushed LAST
+    push bx                     ; FIRST so they lie at SS:SP in order -
+    push ax                     ; bottom right (x+10, y+10)
+    push bx
     sub ax, OS88UI_GW-3         ; AX = x+1
-    mov [cs:os88ui_gpts], ax    ; top left
-    mov [cs:os88ui_gpts+8], ax  ; bottom left
-    add bx, OS88UI_GW-3         ; BX = y+10
-    mov [cs:os88ui_gpts+10], bx
-    mov [cs:os88ui_gpts+14], bx
+    push ax                     ; bottom left (x+1, y+10)
+    sub bx, OS88UI_GW-3         ; BX = y+1
+    push bx
+    add ax, OS88UI_GW-3
+    push ax                     ; top right (x+10, y+1)
+    push bx
+    sub ax, OS88UI_GW-3
+    push ax                     ; top left (x+1, y+1)
+    mov si, sp
     push ds
-    push cs
-    pop ds                      ; ES:SI on the far side = CS:os88ui_gpts
-    mov si, os88ui_gpts
-    mov cx, 4
-    UI_POINTS                   ; the four corners, one arrival
-    pop ds
+    push ss
+    pop ds                      ; ES:SI on the far side = SS:SP - THE STACK,
+    mov cx, 4                   ; not this image: CS is a read-only alias
+    UI_POINTS                   ; under kern_mega, where a store through it
+    pop ds                      ; is a trap (KERN-MEGA-PLAN 14.18)
+    add sp, 16
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
     ret
-os88ui_gpts: times 8 dw 0       ; four points, x then y
 
 ; os88ui_gdot - the 6x6 rounded dot, centred: 1 + 2 + 6 + 2 + 1 is the box's 12
 os88ui_gdot:

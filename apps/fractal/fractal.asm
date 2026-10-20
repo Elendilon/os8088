@@ -93,7 +93,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'FRACTAL', fr_entry, 1, OS88_STACK_192
+    OS88_HEADER 'FRACTAL', fr_entry, 1, OS88_STACK_192 | OS88_HIGH | OS88_HIGHMEM
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; measured +60, static 48;

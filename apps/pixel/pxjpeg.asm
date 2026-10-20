@@ -1103,6 +1103,12 @@ JV_BPE      equ 0xA6                ; word: the MCU program's end (pj_bprog)
 JV_BPI      equ 0xA8                ; word: its block being decoded
 JV_BOFF     equ 0xAA                ; byte: the bit position's bits taken
                                     ; of JV_CPOS's byte (a baseline scan)
+JV_U        equ 0xAC                ; word: pj_id8's column, then its row -
+                                    ; written in the IDCT's loop, so here and
+                                    ; not in the part's image: a store through
+                                    ; CS is a #GP fixup on kern_mega each time
+                                    ; (KERN-MEGA-PLAN 10.3, the trap census)
+JV_HI       equ 0xAE                ; byte: pj_hfill's entry being filled
 JV_FR       equ 0x100               ; JF_SZ: the frame, and its layout
 
 JP_SEGMAX   equ JS_CLEANSZ + JS_GUARD   ; a table segment's bytes at most
@@ -1921,7 +1927,7 @@ pj_hfill:
     jmp .out
 .ac:
     ; for each index: a magnitude whose bits fit too makes the entry WHOLE
-    mov [cs:pj_hi], al              ; (the index's low byte = the entry's)
+    mov [JV_HI], al              ; (the index's low byte = the entry's)
 .e:
     mov [bx + JA_RS], dh
     mov al, dh
@@ -1935,7 +1941,7 @@ pj_hfill:
     mov [bx + JA_LEN], ah
     mov cl, 8
     sub cl, ah
-    mov al, [cs:pj_hi]
+    mov al, [JV_HI]
     xor ah, ah
     shr ax, cl
     mov cl, dh
@@ -1967,7 +1973,7 @@ pj_hfill:
     mov byte [bx + JA_VHI], 0
 .nx:
     inc bx
-    inc byte [cs:pj_hi]
+    inc byte [JV_HI]
     dec si
     jnz .e
 .out:
@@ -3614,16 +3620,16 @@ pj_id4:
 ; holds anything every row is its first value - the butterflies would give
 ; exactly those (SPEC.md 106.19)
 pj_id8:
-    xor ax, ax                      ; [pj_u] = u x 2
-    mov [cs:pj_u], ax
+    xor ax, ax                      ; [JV_U] = u x 2
+    mov [JV_U], ax
 .col:
-    mov cx, [cs:pj_u]
+    mov cx, [JV_U]
     shr cl, 1
     mov al, [JV_MASK + 1]
     shr al, cl
     test al, 1
     jnz .full
-    mov bx, [cs:pj_u]
+    mov bx, [JV_U]
     mov ax, [JS_D + bx]
 %assign k 0
 %rep 8
@@ -3632,28 +3638,28 @@ pj_id8:
 %endrep
     jmp .nc
 .full:
-    mov si, [cs:pj_u]
+    mov si, [JV_U]
     lea di, [si + JS_WS]
     add si, JS_D
     AAN 16
     AANCOL
 .nc:
-    add word [cs:pj_u], 2
-    cmp word [cs:pj_u], 16
+    add word [JV_U], 2
+    cmp word [JV_U], 16
     jae .rows
     jmp .col
 .rows:
     mov di, [JV_PL]
     test byte [JV_MASK], 0xFE
     jz .dc
-    mov word [cs:pj_u], JS_WS       ; [pj_u] = the row
+    mov word [JV_U], JS_WS          ; [JV_U] = the row
 .row:
-    mov si, [cs:pj_u]
+    mov si, [JV_U]
     AAN 2
     AANROW
     add di, [JV_ST]
-    add word [cs:pj_u], 16
-    cmp word [cs:pj_u], JS_WS + 128
+    add word [JV_U], 16
+    cmp word [JV_U], JS_WS + 128
     jae .done
     jmp .row
 .done:
@@ -5243,7 +5249,6 @@ pj_qp:      db 0                    ; DQT: the precision
 pj_tc:      db 0                    ; DHT: the class...
 pj_th:      db 0                    ; ...and number
 pj_tpg:     dw 0                    ; ...its fast table
-pj_hi:      db 0                    ; ...the entry being filled
 pj_skr:     db 0                    ; pj_tomark: pass an RSTn over
 pj_cpl:     dw 0                    ; pj_cset: the component's plane
 pj_ch:      db 0                    ; ...its H...
@@ -5254,7 +5259,6 @@ pj_bpl:     dw 0                    ; the output pass's blocks a row
 pj_rbi:     dd 0                    ; a non-interleaved scan's row's first
 pj_vend:    dw 0                    ; the scratch's variable part's end
 pj_gb:      db 0                    ; bits a refusal gives back
-pj_u:       dw 0                    ; pj_id8: the column, then the row
 pj_vartab:  dw JS_VAR + 12 * 256, JS_VAR + 3 * 256, JS_VAR, JS_VAR
 
 %include "pxplan.inc"                ; the plans: shared source (106.20)

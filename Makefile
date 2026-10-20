@@ -337,9 +337,9 @@ VM386WEAVE := $(CURDIR)/vm/386-weave
 # Weave disk in B: instead of the apps disk, because the apps floppy has no
 # room for WEAVE at 360KB and the everything disk is 1.44MB, which this
 # machine's two 360KB drives cannot read. It is MANUAL EVIDENCE and never a
-# gate (docs/TESTING.md: 86Box has no automation socket, so a session can
-# start one and cannot read the result); the ASSERTION of the same refusal is
-# tests/weaveone.py, under MartyPC.
+# gate (no row launches 86Box; `tools/os88box.py` can script the profile,
+# docs/86BOX.md); the ASSERTION of the same refusal is tests/weaveone.py,
+# under MartyPC.
 VMXTWEAVE256 := $(CURDIR)/vm/xt-weave-256
 
 # VIDEO=cga|herc|vga|ega forces the adapter instead of probing for it (SPEC.md
@@ -1401,6 +1401,28 @@ ifneq ($(KERN_EMU),)
 VIDDEF += -DKERN_EMU
 endif
 
+# KERN_MEGA=1 selects kern_mega (docs/plans/KERN-MEGA-PLAN.md): kern_big
+# switched into 286 PROTECTED MODE once it is up. ADDED to KERN_BIG the way
+# KERN_EMU is, for KERN_EMU's reason - every `%ifdef KERN_BIG` still applies.
+# It is a KNOB for now rather than a product: it is in $(KNOBS) and is NOT
+# exempted from -DKERN_KNOB below, so guard 1 does not bind it while it is
+# brought up and guard 2 (the 64KB segment) still does. `make mega` builds it
+# into build/megak/ and nothing under build/ that `all` ships is touched.
+ifneq ($(KERN_MEGA),)
+VIDDEF += -DKERN_MEGA
+endif
+
+# MEGATRAP=1 is kern_mega's TRAP CENSUS (KERN-MEGA-PLAN 10.3, track 4): every
+# #GP writes one line to port E9 - error code, CS:IP, DS, ES and the name of
+# the image CS runs in - before mega_gpfix, mega_gpw or mega_null0 completes
+# it. Those fixups are correct and a fault apiece, so a site in a loop is a
+# slow program that looks like a working one; tools/megatraps.py ranks the
+# lines. Meaningful only with KERN_MEGA (mega_fault is kern_mega's); `make
+# megatrap` builds the disk into build/megatrap/, so build/mega.img is not it.
+ifneq ($(MEGATRAP),)
+VIDDEF += -DMEGA_TRAPLOG
+endif
+
 # REDRAWFULL=1 puts the menu bar, the dock and the Disk window's command
 # path back on their pre-SPEC.md 12.9/30.3/22.13 paths: every bar redraw is a
 # full one (fill, logo, name, every title and the clock), every changed dock
@@ -1963,7 +1985,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              FONT INSTCHUNK NOPICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              BOOTPROF STKDIAG BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG MOUROUND KBDDIAG DOSRMARK FDDSLOW TRACKRUN NOHDCYL HDCYLPROBE SBDRAGOFF SBRATE SBRATE286 SBIDLE \
                              ETHPROF FTPDSLOW FTPDBG \
-                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP FONTSLOW SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL LDDIAG DRVDIAG BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOLIVESND VPDIAG NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOATPLAIN NOATCX NOATRESPAN NOATFETCH NOATCELL NOATTAIL NOATONE NOATSU NOCURDISK NOFDDPARK MSELOFF NOKDKBD VGADIRTY DLJUNK DPTROM COMPRESS NOKZIP,\
+                             KERN_SMALL KERN_EMU KERN_MEGA MEGATRAP FSNOSTAMP THEMEDARK TITLESNAP FONTSLOW SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL LDDIAG DRVDIAG BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOLIVESND VPDIAG NOATBLIT1 NOATFAST NOATWALK NOATSBAR NOATROW NOATBLANK NOATPLAIN NOATCX NOATRESPAN NOATFETCH NOATCELL NOATTAIL NOATONE NOATSU NOCURDISK NOFDDPARK MSELOFF NOKDKBD VGADIRTY DLJUNK DPTROM COMPRESS NOKZIP,\
                              $(if $($(k)),$(k)=$($(k)))))
 # **A KNOB KERNEL IS NOT THE SHIPPED KERNEL, so KERN_BUDGET does not bind it**
 # (kernel.asm guard 1). It is built to answer a question about a machine and
@@ -2052,7 +2074,7 @@ endif
 # `make` believes is current, and every image shipped from it wrong. The
 # knob roster above still carries NOKZIP, because that is what somebody asks
 # for and what a knob build has to announce.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOFDMEDIA),-nfm$(NOFDMEDIA))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KERN_EMU),-emu$(KERN_EMU))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(MOUROUND),-mrd$(MOUROUND))$(if $(KBDDIAG),-kbd$(KBDDIAG))$(if $(DOSRMARK),-drm$(DOSRMARK))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(NOHDCYL),-nhc$(NOHDCYL))$(if $(HDCYLPROBE),-hcp$(HDCYLPROBE))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(SBRATE286),-sbr2$(SBRATE286))$(if $(SBIDLE),-sbi$(SBIDLE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(FONTSLOW),-fsw$(FONTSLOW))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(LDDIAG),-ldd$(LDDIAG))$(if $(DRVDIAG),-drd$(DRVDIAG))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(NOFDDPARK),-nfp$(NOFDDPARK))$(if $(MSELOFF),-mso$(MSELOFF))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(DPTROM),-dpr$(DPTROM))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))-cmp$(LZFMTS)$(if $(KZIP),-kz)
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOFDMEDIA),-nfm$(NOFDMEDIA))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KERN_EMU),-emu$(KERN_EMU))$(if $(KERN_MEGA),-mega$(KERN_MEGA))$(if $(MEGATRAP),-mtl$(MEGATRAP))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(MOUROUND),-mrd$(MOUROUND))$(if $(KBDDIAG),-kbd$(KBDDIAG))$(if $(DOSRMARK),-drm$(DOSRMARK))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(NOHDCYL),-nhc$(NOHDCYL))$(if $(HDCYLPROBE),-hcp$(HDCYLPROBE))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(SBRATE286),-sbr2$(SBRATE286))$(if $(SBIDLE),-sbi$(SBIDLE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(FONTSLOW),-fsw$(FONTSLOW))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(LDDIAG),-ldd$(LDDIAG))$(if $(DRVDIAG),-drd$(DRVDIAG))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(NOFDDPARK),-nfp$(NOFDDPARK))$(if $(MSELOFF),-mso$(MSELOFF))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(DPTROM),-dpr$(DPTROM))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))-cmp$(LZFMTS)$(if $(KZIP),-kz)
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \
@@ -2149,7 +2171,7 @@ KERNEL_SRC := kernel/kernel.asm
 KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
               drivers/thmpal/thmrows.inc
 
-.PHONY: stkdiag kbddiag small emu kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 pc5150 xt-mfm xt-cga \
+.PHONY: stkdiag kbddiag small emu mega kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 pc5150 xt-mfm xt-cga \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
@@ -5987,7 +6009,8 @@ $(BUILD)/dos.o88: $(BUILD)/dos.bin tools/os88pkg.py $(PKGZSTAMP)
 KERNDOS_INC := kerndos/kdlayout.inc kerndos/kdlaunch.inc kerndos/kdshim.inc \
                kerndos/kdback.inc kerndos/kdentry.inc kerndos/kdosgate.inc \
                kerndos/kdmouse.inc kerndos/kdkbd.inc kernel/mouproto.inc \
-               kerndos/kdresume.inc \
+               kerndos/kdresume.inc kerndos/kdxms.inc kerndos/kdpark.inc \
+               kerndos/kdxpack.inc \
                kernel/hbstage.inc kernel/hbstub.inc kernel/hbmark.inc
 
 # KDSTKDIAG=1 fills the gap between `.lowbss` and the stack top with a
@@ -6042,7 +6065,7 @@ endif
 # other knob UNTRACKED, which is the failure the knob table names - make sees
 # an up-to-date kernel, boots the PREVIOUS configuration, and it reads exactly
 # like the feature being broken.
-KDSTAMP := $(BUILD)/.kerndos$(if $(KDSTKDIAG),-sd$(KDSTKDIAG))$(if $(NOKDKBD),-nkb$(NOKDKBD))$(if $(DOSRMARK),-drm$(DOSRMARK))
+KDSTAMP := $(BUILD)/.kerndos$(if $(KERN_MEGA),-mega)$(if $(KDSTKDIAG),-sd$(KDSTKDIAG))$(if $(NOKDKBD),-nkb$(NOKDKBD))$(if $(DOSRMARK),-drm$(DOSRMARK))
 $(shell mkdir -p $(BUILD); \
         [ -f $(KDSTAMP) ] || { rm -f $(BUILD)/.kerndos-* $(BUILD)/.kerndos \
                                      $(BUILD)/kerndos.bin \
@@ -6058,9 +6081,28 @@ $(BUILD)/kerndos.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
                       apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc \
                       drivers/net/netpkg.inc $(KDSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(KDSTKDIAGDEF) $(KDKBDDEF) -DDOS_EXTCORE \
+	        $(if $(KERN_MEGA),-DKD_MEGA -DDOS_MEGA) \
 	        -I kernel/ -I kerndos/ -I apps/ \
 	        -I apps/dos/ -I drivers/net/ -o $@ kerndos/kdos.asm
 	@echo "kerndos: $(call FILESIZE,$@) bytes"
+
+# ...and kern_mega's SECOND kern_dos (SPEC.md 96.40.9.2): the same build at
+# 0060:0000 instead of in the HMA (-DKD_LOWDOS), run with A20 shut for a
+# program that wants the 1MB wrap. kern_mega's DOS.O88 carries it as part 3
+# and the Memory page's `Load DOS in the HMA` picks; nothing else builds it.
+$(BUILD)/kerndosl.bin: kerndos/kdos.asm $(KERNDOS_INC) $(KERNEL_INC) \
+                       apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
+                       apps/dos/dosc.inc apps/dos/dosnetabi.inc \
+                       apps/os88api.inc apps/dos/doscall.inc \
+                       apps/dos/doscents.inc apps/os88ui.inc apps/os88line.inc \
+                       apps/os88sock.inc apps/os88con.inc apps/os88cp437.inc \
+                       apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc \
+                       drivers/net/netpkg.inc $(KDSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error $(KDSTKDIAGDEF) $(KDKBDDEF) -DDOS_EXTCORE \
+	        -DKD_MEGA -DDOS_MEGA -DKD_LOWDOS \
+	        -I kernel/ -I kerndos/ -I apps/ \
+	        -I apps/dos/ -I drivers/net/ -o $@ kerndos/kdos.asm
+	@echo "kerndosl: $(call FILESIZE,$@) bytes (kern_mega's low kern_dos)"
 
 # ...and the package that carries it. -DDOSKPART is 18 bytes of part table and
 # nothing else: the standard's 800-byte body is NOT emitted, because this part
@@ -6077,6 +6119,7 @@ $(BUILD)/dosp.bin: apps/dos/dos.asm apps/dos/dosnet.inc apps/dos/dosh.inc \
                    drivers/net/netpkg.inc $(DOSNETSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
 	        -I kerndos/ $(if $(DOSNETCARD),-DDOSNET_CARD) -DDOSKPART -DDOS_EXTCORE \
+	        $(if $(KERN_MEGA),-DDOS_MEGA) \
 	        -o $@ apps/dos/dos.asm
 
 # --- THE CORE, ON ITS OWN (SPEC.md 96.44) -----------------------------------
@@ -6094,7 +6137,7 @@ $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
                       apps/os88parts.inc apps/os88partsbody.inc apps/os88rseq.inc \
                       kerndos/kdlaunch.inc drivers/net/netpkg.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -I drivers/net/ \
-	        -I kerndos/ -o $@ apps/dos/doscore.asm
+	        -I kerndos/ $(if $(KERN_MEGA),-DDOS_MEGA) -o $@ apps/dos/doscore.asm
 	@echo "doscore: $(call FILESIZE,$@) bytes of INT 21h with no host round it"
 
 # **IT IS WRITTEN AS `DOS.O88` AND THE NAME IS NOT COSMETIC**: os88disk.py
@@ -6109,11 +6152,12 @@ $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
 # pairing 20.12.7.4 had to unrefuse.
 $(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(BUILD)/dosp.bin \
                        $(BUILD)/doscore.bin $(BUILD)/kerndos.bin tools/os88pkg.py \
-                       $(PKGZSTAMP)
+                       $(if $(KERN_MEGA),$(BUILD)/kerndosl.bin) $(PKGZSTAMP)
 	@mkdir -p $(BUILD)/kdos
 	$(OS88PKG) $(BUILD)/dosload.bin -o $@ \
 		--part $(BUILD)/dosp.bin --part $(BUILD)/doscore.bin \
-		--part $(BUILD)/kerndos.bin --part-compress lz4
+		--part $(BUILD)/kerndos.bin \
+		$(if $(KERN_MEGA),--part $(BUILD)/kerndosl.bin) --part-compress lz4
 	@echo "kdos: $(call FILESIZE,$@) bytes of DOS.O88 with kern_dos in it"
 
 $(BUILD)/dosload.bin: apps/dos/dosload.asm apps/dos/dosicon.inc \
@@ -6121,7 +6165,7 @@ $(BUILD)/dosload.bin: apps/dos/dosload.asm apps/dos/dosicon.inc \
                       apps/dos/doscents.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88rseq.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/dos/ -DDOS_EXTCORE \
-	        -o $@ apps/dos/dosload.asm
+	        $(if $(KERN_MEGA),-DDOS_MEGA) -o $@ apps/dos/dosload.asm
 	@echo "dosload: $(call FILESIZE,$@) bytes of parts loader"
 
 # THE GATE DISKS ARE GONE, AND THAT IS THE POINT OF THIS WAVE.
@@ -6152,6 +6196,80 @@ $(BUILD)/dosload.bin: apps/dos/dosload.asm apps/dos/dosicon.inc \
 $(BUILD)/CWDHERE.COM: tests/dostrap/cwdhere.asm | $(BUILD)
 	$(NASM) -f bin -w+error -o $@ tests/dostrap/cwdhere.asm
 
+# --- ...AND kern_mega's XMS DOOR (SPEC.md 96.15.4) ---------------------------
+# XMSPROBE.COM: the round trip, extended to extended, and the negative control
+# (a raw int 15h AH=87h at linear 130000h, which kern_mega's kern_dos refuses).
+# ON DEMAND: nothing in `all` names it, and it is a .COM to put on a disk for
+# the Bochs and Victory runs of KERN-MEGA-DOS-PLAN 10's W3 row.
+$(BUILD)/XMSPROBE.COM: tests/dostrap/xmsprobe.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/xmsprobe.asm
+
+# A20SHUT.COM - W4's probe (docs/plans/KERN-MEGA-DOS-PLAN.md 7): shut A20
+# through port 92h, then INT 21h, which with kern_dos in the HMA only the low
+# trampolines can serve (kerndos/kdhma.inc). On demand, like XMSPROBE.COM.
+$(BUILD)/A20SHUT.COM: tests/dostrap/a20shut.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/a20shut.asm
+
+# XPACK.EXE / XPACKNS.EXE - SPEC.md 96.40.9.1's probe and its control: an
+# .EXE with EXEPACK's SHAPE making EXEPACK's below-zero access to its own
+# first bytes. kern_mega must load the first above 64KB (exit 30h) and the
+# second, whose signature is spoiled, below it (exit FFh). On demand.
+$(BUILD)/XPACK.EXE: tests/dostrap/xpack.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/xpack.asm
+$(BUILD)/XPACKNS.EXE: tests/dostrap/xpack.asm | $(BUILD)
+	$(NASM) -f bin -w+error -DNOSIG -o $@ tests/dostrap/xpack.asm
+
+# XUNP.EXE and its three arms - SPEC.md 96.40.9.1's SECOND probe: a plain
+# 128KB .EXE with relocations in two groups, PACKED into the real EXEPACK
+# layout by tools/os88xpack.py, whose stub only refuses (exit FFh). So the
+# program runs only if the loader unpacked and relocated it (exit 30h).
+# XUNPL is the 18-byte header with a skip of 2; XUNPT and XUNPS spoil the
+# table and the stream, which the loader must refuse and fall back on
+# (kern_mega: 14.23's floor at 1000h, and the stub exits FFh). On demand.
+$(BUILD)/xunp-plain.exe: tests/dostrap/xunp.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/xunp.asm
+$(BUILD)/XUNP.EXE: $(BUILD)/xunp-plain.exe tools/os88xpack.py
+	python3 tools/os88xpack.py $< $@
+$(BUILD)/XUNPL.EXE: $(BUILD)/xunp-plain.exe tools/os88xpack.py
+	python3 tools/os88xpack.py --long 2 $< $@
+$(BUILD)/XUNPT.EXE: $(BUILD)/xunp-plain.exe tools/os88xpack.py
+	python3 tools/os88xpack.py --spoil table $< $@
+$(BUILD)/XUNPS.EXE: $(BUILD)/xunp-plain.exe tools/os88xpack.py
+	python3 tools/os88xpack.py --spoil stream $< $@
+
+# XSWITCH.EXE / XSWITCHN.EXE - SPEC.md 96.40.9.1's SWITCH probe (14.26): an
+# EXEPACK-shaped .EXE `kd_xunp` refuses, which reports by its EXIT CODE which
+# arm ran it - 0x2A (042) the LOW image (A20 shut, arena ~585), 0x20 (032) the
+# floor raise, 0xFE below 64KB with A20 open. NS spoils the signature, so the
+# loader leaves it on the HMA and it exits 0xFE (254). On demand.
+$(BUILD)/XSWITCH.EXE: tests/dostrap/xswitch.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/xswitch.asm
+$(BUILD)/XSWITCHN.EXE: tests/dostrap/xswitch.asm | $(BUILD)
+	$(NASM) -f bin -w+error -DNOSIG -o $@ tests/dostrap/xswitch.asm
+
+# XKIDRUN.COM / XKIDRUNT.COM - SPEC.md 96.40.9.1's CHILD probe (Task B): a
+# parent that EXECs an EXEPACK child with AH=4Bh and exits with the child's
+# code. XKIDRUN runs XUNP.EXE (the HMA host must unpack it, exit 48);
+# XKIDRUNT runs the spoiled XUNPT.EXE (kd_xunp refuses, the child's stub runs,
+# exit 255) - the break-on-purpose. On demand.
+$(BUILD)/XKIDRUN.COM: tests/dostrap/xkidrun.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/xkidrun.asm
+$(BUILD)/XKIDRUNT.COM: tests/dostrap/xkidrun.asm | $(BUILD)
+	$(NASM) -f bin -w+error -DCHILD2 -o $@ tests/dostrap/xkidrun.asm
+
+# ...and the probe disks (360KB, kern_mega's geometry under Bochs/86Box): the
+# switch probe with the XPACK pair beside it, and the child probe with its two
+# EXEPACK children. On demand - no suite row drives them (SPEC.md 96.40.9.1).
+$(BUILD)/xswitch360.img: $(BUILD)/XSWITCH.EXE $(BUILD)/XSWITCHN.EXE \
+                         $(BUILD)/XPACK.EXE $(BUILD)/XPACKNS.EXE tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/XSWITCH.EXE \
+	    $(BUILD)/XSWITCHN.EXE $(BUILD)/XPACK.EXE $(BUILD)/XPACKNS.EXE
+
+$(BUILD)/xkid360.img: $(BUILD)/XKIDRUN.COM $(BUILD)/XKIDRUNT.COM \
+                      $(BUILD)/XUNP.EXE $(BUILD)/XUNPT.EXE tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/XKIDRUN.COM \
+	    $(BUILD)/XKIDRUNT.COM $(BUILD)/XUNP.EXE $(BUILD)/XUNPT.EXE
+
 $(BUILD)/HERE.TXT: | $(BUILD)
 	printf 'this file exists only in SUB\r\n' > $@
 
@@ -6168,6 +6286,17 @@ $(BUILD)/CONDEV.COM: tests/dostrap/condev.asm | $(BUILD)
 
 $(BUILD)/condev360.img: $(BUILD)/CONDEV.COM tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/CONDEV.COM
+
+# --- ...AND CP/M'S WAY IN (KERN-MEGA-DOS-PLAN 10.5 defect 3) ----------------
+# CALL5.COM alone on a 360KB floppy for tests/call5.py: a near `call 5` with
+# the function in CL, on the windowed box and under kern_dos. Run from B:, it
+# exits with function 19h's answer through CALL 5 - 1 - which only a call
+# that dispatched on CL and came back to the program can produce.
+$(BUILD)/CALL5.COM: tests/dostrap/call5.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/dostrap/call5.asm
+
+$(BUILD)/call5360.img: $(BUILD)/CALL5.COM tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/CALL5.COM
 
 # --- ...AND THE ONE THAT WRITES PAST THE END (SPEC.md 96.11.6.3) ------------
 # WRGAP.COM alone on a 360KB floppy, and the disk has to be WRITABLE and
@@ -9866,8 +9995,8 @@ xt-weave: $(IMG360) $(BUILD)/weave360.img
 # Open SHEET.WAB, then open FORM.WAB.
 #
 # WHAT IT IS FOR is looking at that refusal, and 86Box is the right instrument
-# for looking and the wrong one for asserting - it has no automation socket
-# (docs/TESTING.md), so nothing in this tree can rest a gate on it.
+# for looking and, until a row is written against tools/os88box.py
+# (docs/86BOX.md), not one any gate rests on.
 # tests/weaveone.py asserts the same byte on MartyPC's 256KB machine; this
 # target is where a person sees it on a period board.
 xt-weave-256: $(IMG360) $(BUILD)/weave360.img
@@ -12414,6 +12543,140 @@ $(BUILD)/emu.img: $(EMUDRIVERS) $(SYSAPPS) $(STIKAPPS) $(STIKNOTESTXT) $(SYSROOT
 		$(EMUDRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(STIKNOTESARG) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) \
 		$(SYSLOGOARG) $(FACESARG) $(BUILD)/vmmcfg/system.cfg \
 		$(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
+
+# =============================================================================
+# `make mega` - kern_mega AND ITS SYSTEM DISK (docs/plans/KERN-MEGA-PLAN.md)
+# =============================================================================
+# kern_big, booted in real mode exactly as it is, then switched into 286
+# PROTECTED MODE at the end of kmain (KERN-MEGA-PLAN 10, wave M1). Into
+# build/megak/ for `make emu`'s reason: a kernel that reaches build/ is one
+# somebody boots believing it is the shipped one. ONE GEOMETRY, 1.44MB: a
+# kern_mega machine is an AT, and every AT here takes a 3.5" HD image. Pair it
+# with the SHIPPED build/apps.img - the API table is the same table at the
+# same offsets, which is the whole of KERN-MEGA-PLAN 2.5.
+#
+# M1 IS QEMU'S: QEMU is on docs/TESTING.md's list for 286 and 386 work, and
+# its CPU executes 16-bit protected mode correctly. Run it with
+#   qemu-system-i386 -m 16 -drive file=build/mega.img,format=raw,if=floppy \
+#       -drive file=build/apps.img,format=raw,if=floppy,index=1 -boot a \
+#       -debugcon file:build/megak/e9.log -global isa-debugcon.iobase=0xe9
+# where the debug console is what kern_mega's fault reporter writes to as
+# well as the screen.
+# MEGARUN (tests/megarun): the package tools/os88bochs.py's SWEEP starts from a
+# folder of packages, to find which of them fault under kern_mega on Bochs -
+# the emulator that checks a 286's segments (KERN-MEGA-PLAN 10.1 items 13, 16).
+# A test instrument: on demand, and on no shipped disk.
+$(BUILD)/megarun.bin: tests/megarun/megarun.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megarun/megarun.asm
+$(BUILD)/megarun.o88: $(BUILD)/megarun.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megarun.bin -o $@
+# MEGAXM (tests/megaxm): the XMEM cells end to end from a package - alloc,
+# copy out, copy in, compare, free - with the verdict on port E9. kern_mega's
+# pool is its reason (KERN-MEGA-PLAN 12.2); any kernel with a store runs it.
+$(BUILD)/megaxm.bin: tests/megaxm/megaxm.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megaxm/megaxm.asm
+$(BUILD)/megaxm.o88: $(BUILD)/megaxm.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megaxm.bin -o $@
+# MEGAI13 (tests/megai13): forty REFLECTED int 13h reads back to back, for the
+# pointer to move through (KERN-MEGA-PLAN 14.1 answer 18, 14.9); and a 1.44MB
+# floppy carrying it, for a B: drive
+$(BUILD)/megai13.bin: tests/megai13/megai13.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megai13/megai13.asm
+$(BUILD)/megai13.o88: $(BUILD)/megai13.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megai13.bin -o $@
+$(BUILD)/megai13.img: $(BUILD)/megai13.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/megai13.o88
+megai13: $(BUILD)/megai13.img
+.PHONY: megai13
+# MEGAHI (tests/megahi): a package that says OS88_HIGH, so kern_mega loads its
+# region ABOVE 1MB, walking the doors a package uses with DS a selector there -
+# a claim from the entry proc, a file into its bss, a window, a timer, a worker
+# - and its teardown giving the pair back (KERN-MEGA-PLAN 13.3 step 4)
+$(BUILD)/megahi.bin: tests/megahi/megahi.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megahi/megahi.asm
+$(BUILD)/megahi.o88: $(BUILD)/megahi.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megahi.bin -o $@
+# MEGACP (tests/megacp): the pool COMPACTED (KERN-MEGA-PLAN 14.15) - 60KB
+# claims filled, every other one freed, a 64KB claim that only a compaction
+# can place, and every survivor's stamps read back through its own selector.
+# `tools/os88bochs.py sweep build/megacp.o88` with OS88_BOCHS_MEGS=2
+$(BUILD)/megacp.bin: tests/megacp/megacp.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megacp/megacp.asm
+$(BUILD)/megacp.o88: $(BUILD)/megacp.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megacp.bin -o $@
+# MEGAHIB (tests/megahib): MEGAXM's patterns HELD by a window across a
+# hibernate, and compared on a key - kern_mega's W5 witness
+# (docs/plans/KERN-MEGA-DOS-PLAN.md 8)
+$(BUILD)/megahib.bin: tests/megahib/megahib.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megahib/megahib.asm
+$(BUILD)/megahib.o88: $(BUILD)/megahib.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megahib.bin -o $@
+megarun: $(BUILD)/megarun.o88 $(BUILD)/megaxm.o88 $(BUILD)/megahib.o88 $(BUILD)/mega.img
+.PHONY: megarun
+
+# `make megatrap` - kern_mega with MEGATRAP=1, as a whole tree of its own in
+# build/megatrap/ (mega.img, megak/, megarun.o88), so the shipped-shape
+# build/mega.img is never the census kernel by accident. Drive it with
+#   python3 tools/os88bochs.py sweep --build build/megatrap PKG.o88 ...
+#   python3 tools/megatraps.py build/bochs/boot01/e9.out
+megatrap:
+	@$(MAKE) BUILD=$(BUILD)/megatrap MEGATRAP=1 $(BUILD)/megatrap/mega.img $(BUILD)/megatrap/megarun.o88 $(BUILD)/megatrap/mbr.bin
+.PHONY: megatrap
+
+MEGADIR := $(BUILD)/megak
+# WHAT THE SUB-MAKE BUILDS FROM. The two image rules below reach kern_mega's
+# kernel and its DOS.O88 only through a recursive make into $(MEGADIR), and
+# that make runs only when the IMAGE is out of date - so without these a
+# change to kerndos/ or apps/dos/ alone left `make mega` printing success
+# over the previous kern_dos (SPEC.md 96.40.9.1 was first booted that way).
+MEGASRC := $(KERNEL_SRC) $(KERNEL_INC) kerndos/kdos.asm $(KERNDOS_INC) \
+           $(wildcard apps/dos/*.asm apps/dos/*.inc)
+# ...and the RATCHET on kern_mega's kernel segment (docs/plans/KERN-MEGA-
+# SEGMENTS-PLAN.md W0): what kern_mega carries in `.text`+`.bss` beyond
+# kern_big's may not grow past tests/megaseg.txt's figure. Code that runs only
+# in protected mode belongs in `.mega`; the figure is raised, with a reason,
+# only for code that has to run in real mode after the switch. It needs
+# kern_big's map as well as kern_mega's, hence the kernel.bin prerequisite
+mega: $(BUILD)/mega.img $(BUILD)/mega120.img $(BUILD)/kernel.bin tests/megaseg.txt tools/os88megaseg.py
+	@python3 tools/os88megaseg.py --big $(BUILD)/kernel.map --mega $(MEGADIR)/kernel.map --check tests/megaseg.txt
+	@echo "mega: $< - kern_mega on 1.44MB, and build/mega120.img on 1.2MB. Pair them with the SHIPPED build/apps.img / apps120.img."
+
+# NO COLDHMA.SYS and no XMEM.DRV: the HMA and everything above it are
+# kern_mega's own (kernel/mega.inc), and xm_sniff never asks for either.
+MEGADRIVERS = $(filter-out %/coldhma.sys %/xmem.drv,$(DRIVERS))
+$(BUILD)/mega.img: KMODDIR := $(MEGADIR)
+#
+# **ITS DOS.O88 IS kern_mega's OWN** (docs/plans/KERN-MEGA-DOS-PLAN.md 12.1
+# item 4): the same sources assembled with -DDOS_MEGA and kern_dos with
+# -DKD_MEGA, into $(MEGADIR)/kdos/, so the shipped $(SYSROOT) stays
+# byte-identical and a copy carried to the other kernel refuses in a sentence.
+$(BUILD)/mega.img: $(MEGADRIVERS) $(SYSAPPS) $(STIKAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
+                   $(FACES) $(FACELIC) tools/os88disk.py $(MEGASRC)
+	@$(MAKE) BUILD=$(MEGADIR) KERN_MEGA=1 $(if $(NOKZIP),NOKZIP=1) $(MEGADIR)/boot.bin $(MEGADIR)/boothd.sys \
+		$(MEGADIR)/kdos/DOS.O88
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		--boot $(MEGADIR)/boot.bin --kernel $(MEGADIR)/$(KERNNAME) \
+		$(MEGADRIVERS) $(SYSAPPSARGS) $(STIKARGS) APPS:$(MEGADIR)/kdos/DOS.O88 $(COREAPPSARGS) $(SYSDOC) \
+		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER) $(AUTOFOLDER)
+
+# ...and the 1.2MB 5.25" HD twin (KERN-MEGA-PLAN 14.1 answer 19: kern_mega's
+# system disk is 1.2MB and 1.44MB only - every machine that can run it has an
+# AT's 500 kbps controller, and a 360KB or 720KB disk would leave a protected-
+# mode program no room). The same files; its own boot sector, 15 spt being a
+# different track (build/boot120.bin's rule)
+$(BUILD)/mega120.img: KMODDIR := $(MEGADIR)
+# ORDER-ONLY on the 1.44MB disk: both recipes run a sub-make into the same
+# $(MEGADIR), and two of them at once under -j race on one DOS.O88 (os88pkg
+# reading a file the other is still writing reads it as 0 bytes)
+$(BUILD)/mega120.img: | $(BUILD)/mega.img
+$(BUILD)/mega120.img: $(MEGADRIVERS) $(SYSAPPS) $(STIKAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
+                   $(FACES) $(FACELIC) tools/os88disk.py $(MEGASRC)
+	@$(MAKE) BUILD=$(MEGADIR) KERN_MEGA=1 $(if $(NOKZIP),NOKZIP=1) $(MEGADIR)/boot120.bin $(MEGADIR)/boothd.sys \
+		$(MEGADIR)/kdos/DOS.O88
+	python3 tools/os88disk.py -o $@ --size 1200 \
+		--boot $(MEGADIR)/boot120.bin --kernel $(MEGADIR)/$(KERNNAME) \
+		$(MEGADRIVERS) $(SYSAPPSARGS) $(STIKARGS) APPS:$(MEGADIR)/kdos/DOS.O88 $(COREAPPSARGS) $(SYSDOC) \
+		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER) $(AUTOFOLDER)
 
 # ONE GEOMETRY, and that is a decision rather than an omission. 360KB exists
 # for real period hardware - a 5.25" drive on an XT or an AT - and no machine
@@ -15077,7 +15340,7 @@ xt-multimon: $(IMG360) $(APPSIMG360)
 #
 # All three carry an OTI-067 VGA, a serial Microsoft mouse on COM1 and 1.44MB
 # drives (so they boot the same images QEMU does), and all three are
-# interactive: 86Box has no automation socket.
+# interactive here; tools/os88box.py runs the same profiles headless.
 #
 # The 286 is deliberately NOT `ibmat`: 86Box caps the real 5170 planar at
 # 512KB and clamps mem_size down to it SILENTLY, the same trap `vm/xt640`
@@ -15108,9 +15371,9 @@ xt-multimon: $(IMG360) $(APPSIMG360)
 # floppy - the pairing `xt-z`, `386-word`, `386-c-word`, `386-runcpm`,
 # `386-c64` and `386-weave` already are at their geometries, and the block
 # above VM286525Z says why there is one machine class here and not three.
-# Each is MANUAL EVIDENCE and never a gate: 86Box has no automation socket, so
-# a session can start one of these and cannot read the result
-# (docs/TESTING.md). Every one stops in BIOS setup on its FIRST launch, its
+# Each is MANUAL EVIDENCE and never a gate - these targets launch the 86Box
+# app; tools/os88box.py scripts the same profiles headless (docs/86BOX.md).
+# Every one stops in BIOS setup on its FIRST launch, its
 # CMOS being empty - pick EXIT FOR BOOT once (the note above `286`).
 286-525-z: $(IMG120) $(BUILD)/zork120.img
 	@$(UNPROTECT) $(VM286525Z)/86box.cfg

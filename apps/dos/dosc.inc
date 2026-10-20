@@ -366,6 +366,54 @@ dos_con_run:
 ; verb handlers are handed and what the arguments field wants.
 ; -----------------------------------------------------------------------------
 dos_con_prog:
+%ifdef DOS_MEGA
+    ; --- `LOADFIX <program>` (KERN-MEGA-DOS-PLAN 7, W4) ----------------------
+    ; kern_mega's kern_dos is in the HMA, so a program loads ~33KB lower than
+    ; anywhere else and A20 is open: exactly the case EXEPACK's unpacker gets
+    ; wrong ("Packed file is corrupt"). DOS 5 answered with LOADFIX, and so
+    ; does this box - the window side's verb, OPEN's and HELP's room, so the
+    ; core pays nothing. The rest of the line runs again as the line.
+    mov byte [dos_lfix], 0
+    mov si, dsh_verb
+    mov di, dos_c_lfix
+    call dosc_ceq
+    jc .prog
+    mov si, dsh_line
+    call dsh_skipsp
+.lfv:
+    cmp byte [si], ' '              ; past the verb
+    jbe .lfvd
+    inc si
+    jmp short .lfv
+.lfvd:
+    call dsh_skipsp
+    cmp byte [si], 0
+    je .lfno                        ; LOADFIX and nothing: not a program
+    mov di, dsh_line
+.lfcp:
+    lodsb
+    mov [di], al
+    inc di
+    or al, al
+    jnz .lfcp
+    mov byte [dsh_exec], 1
+    mov si, dsh_line
+    call dsh_run
+    mov byte [dsh_exec], 0
+    or al, al
+    jz .lfran                       ; a built-in: it ran, and LOADFIX meant
+    cmp byte [dsh_why], DSHW_NOCMD  ; nothing to it
+    jne .lfran
+    mov byte [dos_lfix], 1
+    jmp short .prog
+.lfran:
+    clc
+    ret
+.lfno:
+    stc
+    ret
+.prog:
+%endif
     ; --- `OPEN <document>` (SPEC.md 96.33.22) ------------------------------
     ; **INTERCEPTED HERE AND NOT A dsh_tab ROW**, which is a placement fact
     ; rather than a style choice: dsh_tab is in the DOS CORE (doscore.asm,
@@ -1387,6 +1435,10 @@ dos_h_text:
   %error "HELP is over SIXTEEN lines: CGA's band is 17 rows ([con_vrows], measured), and the prompt that follows takes one - so a seventeenth line scrolls the first off a machine nobody tests on. Cut a line, or give HELP a pager and the part 96.33.23.2 costs."
 %endif
 
+%ifdef DOS_MEGA
+dos_c_lfix:  db 'LOADFIX', 0       ; KERN-MEGA-DOS-PLAN 7: DOS 5's verb
+dos_lfix:    db 0                  ; 1 = this launch is LOADFIX's (dos_lbfill)
+%endif
 dos_c_open:  db 'OPEN', 0          ; SPEC.md 96.33.22, and DOS 3.3 has no such
                                    ; verb, so taking it costs no compatibility
 ; **BOTH OF THESE REPLACED ONE STRING THAT WAS WRONG TWICE** (SPEC.md

@@ -63,6 +63,8 @@
                                     ; here, not beside the include.
 
 %define CC_PKG_NAME 'LOOM'          ; <= 15 chars: the name in the header
+%define CC_STACK_CLASS OS88_HIGH | OS88_HIGHMEM    ; kern_mega may load it above 1MB (KERN-MEGA-PLAN
+                                    ; item 87); the class itself unsaid
 
 %define CC_HAS_ONKEY                ; void os88_onkey(int, int, void *) - the
                                     ; editor, and WEAVE-SPEC 1.7's shortcuts

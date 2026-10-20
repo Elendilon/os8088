@@ -249,7 +249,7 @@ fdk_di:     pop di
 fdt_go:                         ; ovlchk: builds its own far frame
     push ax                     ; STKBALANCE-OK: fdx_go's frame, its target's
     push ax                     ; return through cw_kretf. The segment slot is
-    push ds                     ; PUSHED: DS is KERNEL_SEG throughout the image
+    PUSH_KCODE                  ; PUSHED: DS is KERNEL_SEG throughout the image
     push ax
     push bp
     mov bp, sp

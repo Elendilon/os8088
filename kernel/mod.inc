@@ -121,7 +121,11 @@ MOD_MAX_KB  equ 16              ; the biggest module image we will claim
 ; are known. Summed rather than hashed: the point is that two builds of one
 ; commit differ, and a section size differing by ONE byte moves every address
 ; above it.
+%ifdef KERN_MEGA                ; ...and `.mega`'s, or code moving from `.text`
+MOD_STAMP   equ (KTEXT_SIZE + KBSS_SIZE + COLD_SIZE + MEGA_SIZE + KLOW_SIZE) & 0xFFFF
+%else                           ; to `.mega` would keep the sum and move every
 MOD_STAMP   equ (KTEXT_SIZE + KBSS_SIZE + COLD_SIZE + KLOW_SIZE) & 0xFFFF
+%endif                          ; offset (KERN-MEGA-SEGMENTS-PLAN 3.5)
 
 ; --- the table row, stride MODR_SIZE -----------------------------------------
 MODR_SEG    equ 0               ; dw: the segment it is loaded at, 0 = not
@@ -383,7 +387,7 @@ mod_need:
 
     call drv_vol_bank                      ; this goes to the system volume to find the
                                 ; file, and the user may have been anywhere
-%ifdef ROM_COLD
+%ifdef ROM_ADOPT
     ; THE ROM FIRST (docs/plans/ROM-PLAN.md 4.3, SPEC.md 2.10.5): a ROM that
     ; adopted this kernel may carry the image too, cut from the same build, so
     ; the load is a copy out of F4000-FDFFF and needs no system disk at all -
@@ -433,7 +437,7 @@ mod_need:
     push bx
     mov es, dx                  ; ...and NO second `mov si, [bx+MODR_FILE]`:
     mov cx, bp                  ; SI is still the one loaded for drv_find, and
-%ifdef ROM_COLD                 ; mem_claim_x banks SI/DI around everything
+%ifdef ROM_ADOPT                 ; mem_claim_x banks SI/DI around everything
     mov al, ROMF_COPY           ; including the compaction (memory.inc:520).
     call far [rom_mfp]          ; ...or the ROM has the bytes: the first CX
     jnc .rdone                  ; of the image to ES:0, and the read's own
@@ -457,7 +461,10 @@ mod_need:
 
     call mod_check
     jc .freefail
-%ifdef ROM_COLD
+%ifdef KERN_MEGA
+    call mod_hi                 ; ...and above 1MB, if it may go (13.5)
+%endif
+%ifdef ROM_ADOPT
     ; A MODULE ON A ROM MACHINE (docs/plans/ROM-PLAN.md 3.4.4) far-calls
     ; `.cold` at COLD_RAM, the segment it was assembled against, and `.cold`
     ; runs at the ROM's. The ROM carries each module's list of those words and
@@ -604,7 +611,20 @@ mod_check:
     cmp ax, bp
     jae .badarm
     mov [di], ax                ; offset...
+%ifdef KERN_MEGA
+    push ax                     ; kern_mega: the slot is a FAR CALL's, so it
+    mov ax, es                  ; holds the image's CODE alias (mega.inc) -
+    cmp byte [ss:mega_pm], 0    ; safe to store rather than derive at every
+    je .rmseg                   ; call, because a module image never moves
+    shr ax, 1                   ; (memory.inc pins MEM_K_MOD). In REAL MODE
+    shr ax, 1                   ; the segment, and mega_enter converts what
+    or al, 4                    ; the boot armed (mega_mods_fix)
+.rmseg:
+    mov [di+2], ax
+    pop ax
+%else
     mov [di+2], es              ; ...and segment, which ES IS: it was loaded
+%endif
                                 ; from [bx+MODR_SEG] at the top of this
                                 ; routine and no segment register is written
                                 ; in between
@@ -619,6 +639,80 @@ mod_check:
     pop bx                      ; into the refusal every other check takes
     stc
     ret
+
+%ifdef KERN_MEGA
+; -----------------------------------------------------------------------------
+; mod_hi - kern_mega in protected mode: a module the census CLEARED goes above
+; 1MB the moment it is loaded and checked (KERN-MEGA-PLAN 13.5). BX = its row,
+; BP = the bytes read; the image is armed with its conventional alias. The
+; whole claim - image and the bss past it - is copied into a code/data pair
+; (mega_modhif), every slot naming the old alias is re-armed with the pair's
+; code selector, the conventional claim is freed and MODR_SEG holds the code
+; selector, whose TI bit says "above 1MB" to mod_free_row. Any refusal leaves
+; it where it is, loaded and working. Clobbers AX, CX, DX, DI
+;
+; MOD_HIOK is the census: a module goes high only if nothing it does takes
+; its own image for a SEGMENT - a buffer handed to the file layer (which
+; normalises ES, and converts it with mega_s2segf, FFFF above 1MB), to a
+; reflected BIOS call, or arithmetic on its CS. CTRL.DRV, DISKOPS.DRV and
+; HIBER.DRV hand the file layer image buffers; FORMAT.DRV's are LOW_SEG's but
+; it gains nothing, held only while a format runs; DESK.DRV's one segment sum
+; is its LIB verb, which asks mega_dklibf above 1MB.
+; -----------------------------------------------------------------------------
+%ifdef KERN_BIG
+MOD_HIOK equ (1 << MOD_DOCK) | (1 << MOD_EXT) | (1 << MOD_WIN) | (1 << MOD_DESK) | (1 << MOD_STIKM)
+%else
+MOD_HIOK equ 0
+%endif
+%if MOD_MAX_KB > 63
+  %error "mod_hi copies a whole claim through one 64KB descriptor"
+%endif
+mod_hi:
+    cmp byte [ss:mega_pm], 0
+    je .out
+    mov cx, bx
+    sub cx, mod_tab
+    shr cx, 1
+    shr cx, 1                   ; CL = the id
+    mov ax, 1
+    shl ax, cl
+    test ax, MOD_HIOK
+    jz .out
+    mov ax, bp
+    call mem_bytes_kb_x         ; the claim, as mod_need sized it
+    mov cl, 10
+    shl ax, cl
+    xchg ax, cx                 ; CX = its bytes
+    mov ax, [bx+MODR_SEG]
+    push ax
+    call MEGA_SEL_CODE:mega_modhif ; AX = the pair's code selector
+    pop dx                      ; DX = the conventional segment
+    jc .out
+    push dx
+    push ax
+    shr dx, 1
+    shr dx, 1
+    or dl, 4                    ; DX = the alias mod_check armed with
+    call mod_fpr                ; DI = the slot block, CX = its count
+    pop ax
+    jcxz .free
+.slot:
+    cmp [di+2], dx
+    jne .next
+    mov [di+2], ax              ; ...re-armed with the pair's code selector
+.next:
+    add di, 4
+    loop .slot
+.free:
+    pop dx                      ; the conventional segment
+    mov [bx+MODR_SEG], ax       ; MODR_SEG = the selector
+    push bx
+    mov bx, MEM_K_MOD
+    call mem_free_x
+    pop bx
+.out:
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; mod_disarm - point one module's slots back at mod_gone (module internal)
@@ -662,6 +756,19 @@ mod_free_row:
     call mod_disarm             ; mod_disarm preserves BX since it stopped
     xor dx, dx                  ; forming the id, and READ-AND-CLEAR is one
     xchg dx, [bx+MODR_SEG]      ; instruction on the 8086 - DX comes out the
+%ifdef KERN_MEGA
+    test dl, 4                  ; ABOVE 1MB (mod_hi): a selector, whose
+    jz .conv                    ; block and pair go back to the pool - and
+    xchg ax, dx                 ; DESK.DRV's library selector with them
+    call MEGA_SEL_CODE:mega_hifreef
+%ifdef KERN_BIG
+    cmp bx, mod_tab + MOD_DESK * MODR_SIZE
+    jne .out
+    call KERNEL_SEG:mega_dklibfree
+%endif
+    ret
+.conv:
+%endif
     mov bx, MEM_K_MOD           ; old segment and the word is left 0. NO bank
     call mem_free_x             ; round BX either: neither caller reads it
 .out:                           ; after the call - mod_need's .freefail falls

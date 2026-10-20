@@ -250,6 +250,19 @@ ld_unreserve:
     or bx, bx
     jz .out
     call mem_free_owner_x
+%ifdef KERN_MEGA
+    test byte [ld_base], 4      ; a region placed ABOVE 1MB (ld_hi): its
+    jz .lo                      ; pair and pool block
+    push ax
+    push dx
+    call ld_slot
+    mov dl, bl
+    mov ax, [ld_base]
+    call MEGA_SEL_CODE:mega_pkghifree
+    pop dx
+    pop ax
+.lo:
+%endif
     mov word [ld_base], 0
 .out:
     pop bx
@@ -1017,6 +1030,9 @@ ld_run_body_x:
     shr ax, cl                  ; the prefix in PARAGRAPHS...
     mov cx, es
     add ax, cx                  ; ...is where the body's segment starts
+%ifdef KERN_MEGA
+    call KERNEL_SEG:mega_oddsegf ; off the identity grid: a selector for it
+%endif
     pop cx
     sub cx, bx                  ; the body's length
     sub dx, bx                  ; ...and what it must produce
@@ -1058,6 +1074,42 @@ ld_run_body_x:
                                 ; answers in AL exactly as this routine does,
                                 ; frees the region itself when the entry proc
                                 ; aborts, and is near - both are .cold
+
+%ifdef KERN_MEGA
+; -----------------------------------------------------------------------------
+; ld_hi - a package whose header says OS88_HIGH, in protected mode: its region
+;         moves ABOVE 1MB before its bss is zeroed or any of it runs
+;         (KERN-MEGA-PLAN 13.3 step 4). It arrived in an ordinary conventional
+;         claim - off the disk, expanded, or copied by OSAPI_PKG_START - and
+;         mega_pkghif copies the whole region into a code/data pair; the
+;         conventional claim goes back and [ld_base] becomes the pair's DATA
+;         selector, which step 9 publishes as I_SPTR. No room above 1MB, no
+;         LDT entry: it simply stays low, which is not a refusal
+; in:  ES = [ld_base] = the region. out: ES = [ld_base], moved or not
+; clobbers: AX, BX, CX, DX, DI, flags
+; -----------------------------------------------------------------------------
+ld_hi:
+    cmp byte [ss:mega_pm], 0
+    je .out
+    test byte [es:LD_H_CLASS], 0x80     ; OS88_HIGH
+    jz .out
+    mov di, [ld_rec]            ; ld_slot answers off DI, the RECORD - which
+    call ld_slot                ; it is not at ld_start's head; step 7 sets DI
+                                ; itself. BX = the slot
+    mov dl, bl
+    mov ax, [ld_base]
+    mov cx, [ld_need]
+    call MEGA_SEL_CODE:mega_pkghif ; AX = the pair's data selector
+    jc .out
+    push ax
+    mov dx, [ld_base]           ; the conventional claim goes back
+    call mem_free_x             ; (BX = the slot, its owner)
+    pop ax
+    mov [ld_base], ax
+    mov es, ax
+.out:
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; ld_alloc - steps 4 and 5: size the region and reserve it, together with the
@@ -1206,6 +1258,9 @@ ld_alloc:
 ; pipeline.
 ; -----------------------------------------------------------------------------
 ld_start:
+%ifdef KERN_MEGA
+    call ld_hi                  ; OS88_HIGH: the region above 1MB, first
+%endif
     ; --- 7. zero the package bss ------------------------------------------------
     mov di, [ld_img]            ; ...and ES is STILL the region here too
     mov cx, [ld_bss]
@@ -1254,6 +1309,13 @@ ld_start:
     push word [snd_inst]        ; the outer dispatch's stamp
     mov di, [ld_rec]
     call KERNEL_SEG:cw_snd_disp_set     ; DI = record: this instance is asking
+%ifdef KERN_MEGA
+    call mega_pkgok             ; kern_big's DOS.O88 refuses here, in a toast
+    jnc .pkgok                  ; raised under this launch's stamp, so step
+    pop word [snd_inst]         ; 10 keeps it (kernel/megados.inc)
+    jmp .abort
+.pkgok:
+%endif
 
     mov bp, [ld_ent]            ; ...and NOTHING assembles a far pointer here:
                                 ; [ld_fp] is PKG_DISP for the life of the
@@ -1286,7 +1348,11 @@ ld_start:
                                 ; loaded, and [ld_base] names that one for
                                 ; mem_frameless
     mov ds, [ld_base]           ; DS = the package's own segment, read through
+%ifdef KERN_MEGA
+    MEGA_PCALL [es:ld_fp], [es:ld_base] ; the CODE alias (kernel/mega.inc)
+%else
     call far [es:ld_fp]         ; DS while DS still names the kernel and
+%endif
     pop ds                      ; loaded in one instruction - the ordering
                                 ; this step's contract wants. The far pointer
                                 ; is then read through ES, the only register
@@ -1603,7 +1669,19 @@ ld_start:
                                 ; re-owned carve is on the same owner word now
                                 ; and must not go with it. AX is still
                                 ; [ld_rehome]: both calls preserve it
+%ifdef KERN_MEGA
+    test dl, 4                  ; A LOADER PLACED ABOVE 1MB (ld_hi) is a pool
+    jz .rhlo                    ; block and a code/data pair, not a mem_tab
+    push ax                     ; record: mem_free_x would find nothing, the
+    mov ax, dx                  ; carry was never read, and the block and two
+    mov dl, bl                  ; LDT entries leaked on every launch until
+    call MEGA_SEL_CODE:mega_pkghifree  ; ld_hi had no LDT left (KERN-MEGA-PLAN
+    pop ax                      ; 14.14). ld_unreserve's own arm, here
+    jmp short .rhfreed
+.rhlo:
+%endif
     call mem_free_x
+.rhfreed:
     mov word [ld_rehome], 0     ; ONCE, AND THIS IS THE INSTRUCTION THAT SAYS
                                 ; SO. The cell's own "already asked" test only
                                 ; stops a second CALL; without this the test
@@ -2052,6 +2130,10 @@ osapi_pkg_rehome_x:
                                 ; arm having only one [ld_base] to free by
     or dx, dx                   ; a segment of 0 is the heap's own "no claim"
     jz .no                      ; and can never be a part's base
+%ifdef KERN_MEGA
+    test dl, 4                  ; kern_mega: a pool selector (an OS88_HIGHMEM
+    jnz .no                     ; claim) has no code half and no heap record,
+%endif                          ; and the re-home runs code at its base
     mov [ld_rehome], dx
     mov [ld_rehsz], ax          ; 0 = the KEEP form, and then...
     mov [ld_rehkp], cx          ; ...this is its figure (SPEC.md 20.12.10.5).

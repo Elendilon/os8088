@@ -5222,7 +5222,8 @@ the pen still says nothing about colour there, but it now answers the one
 question a single plane *can* be asked: which way up the band's bits are.
 
 **No emulator in this tree can show either the bug or the fix.** Two cards is
-86Box `xt-multimon` (docs/TESTING.md), which has no automation socket, and the
+86Box `xt-multimon` (docs/TESTING.md), which had no automation socket when this
+was written (docs/86BOX.md is the route now), and the
 pairing this needs is a VGA beside a real Hercules. It was reported off the
 glass, from a screenshot of a `Control Panel` window dragged across the seam,
 and that is how it has to be confirmed.
@@ -12868,6 +12869,37 @@ always 0** — which is exactly why it could be given a meaning without moving t
 header version. An old package has 0 there and gets the stack it always had, so
 nothing has to be rebuilt to keep working, and `OSAPI_TASK_SPAWN`'s register
 contract does not change at all.
+
+**Its top two bits are kern_mega's** (docs/plans/KERN-MEGA-PLAN.md items 78
+and 81): bit 7 `OS88_HIGH` - the region may be loaded above 1MB and run through
+a code/data selector pair - and bit 6 `OS88_HIGHMEM` - the package's claims of
+64KB or less may be pool selectors too. `inst_pkg_spawn` masks both off before
+the class lookup (`and bx, 3Fh`) and `tools/os88pkg.py` bounds `byte & 3Fh`, so
+an index of 0-4 means what the table says on every kernel, and an older kernel
+reading a set bit sees an out-of-range index and gives the largest class.
+`apps/os88api.inc` says what a package must not do to say either.
+
+**A pair has two halves and the kernel names it by ONE of them, per field**
+(KERN-MEGA-PLAN decision 2, kept on purpose by the owner, 2026-10-19). The
+code half is always the data half minus 8, so either names the other:
+
+| holds the DATA half | holds the CODE half |
+|---|---|
+| everything that is filled from a caller's DS or ES: `I_SPTR`, `[ld_base]`, `W_SEG`, `MC_OWN`, a high claim's answer in ES | `MODR_SEG` (a module image is entered through CS), `OSAPI_MEM_CODESEL`'s answer |
+
+A reader that needs the other half converts; it never guesses which one a
+field holds from the value, because both are LDT selectors in the allocator's
+range. **The one field that can hold EITHER is an interrupt vector**: the code
+half where a driver's own `mov [..], cs` wrote it, the data half where a move
+re-pointed it (`mem_region_reloc`), so `mega_idt_gate` reads the descriptor's
+executable bit to tell them apart.
+
+A DRIVER's header has the same shape of opt-in one byte along its own header:
+bit 7 of +15, the DSV table length (§51.2), is `OS88_DRV_HIGHOK` - the image may
+run above 1MB (KERN-MEGA-PLAN item 82) - and bit 6 is `OS88_DRV_HICLAIM`, its
+claims of 64KB or less may be pool selectors (item 83). Every kernel clamps
+that byte to its own table length, and `drv_publish` now masks both bits first
+(`and cl, 3Fh`).
 
 An **index** rather than a size, for two reasons: a byte cannot hold 384, and an
 index makes the legal answers a closed list the kernel owns — a package cannot
@@ -42542,11 +42574,14 @@ refusal) and `OSAPI_GFX_DESK` at `0x0481` (`thm_desk`, which IS
 `gfx_fill_gray` on `kern_small`) - 1,143 bytes. Two more follow them,
 appended after main's at the `elendilon -> main` merge that met them at the
 same tail: `OSAPI_MEM_HMA` (§2.10.8) at `0x0487`, a 103rd rare cell, and
-`OSAPI_WM_QUIET` (§79.10) at `0x048D`, a 104th - **1,155 bytes**,
-which is what `kernel.asm`'s length guard asserts from the counts.
+`OSAPI_WM_QUIET` (§79.10) at `0x048D`, a 104th - **1,155 bytes**.
 `OSAPI_ASSOC_FLUSH` (§54.7.6, at `0x0493`) is a 105th rare cell, 1,161, and
 `OSAPI_WM_ONWHEEL` (§13.18, at `0x0499`) a seventeenth INLINE cell, of six
-for parity, **1,167 bytes**. `osapi_table_end` is `0x049F`.
+for parity, 1,167. kern_mega's doors follow it: `OSAPI_XMEM_SEL` (§41.16) at
+`0x049F` and `OSAPI_MEM_CODESEL` at `0x04A5`, a 106th and a 107th rare cell,
+`OSAPI_XMEM_WALK` (§28.4.8) at `0x04AB` and `OSAPI_MEM_HUGE` at `0x04B1`, a
+108th and a 109th - **1,191 bytes**, which is what `kernel.asm`'s length
+guard asserts from the counts. `osapi_table_end` is `0x04B7`.
 Those counts are the tree it landed on, not a contract; `t_api_abi` prints
 the span it walked.
 
@@ -62305,8 +62340,8 @@ So the Task Manager shows:
 
 | row | figure |
 |---|---|
-| `IVT+Pad` | **always 2K**: the 1.5K plus the odd half-KB |
-| System | total − `SK_HEAP` − 2: the kernel in whole KB, rounded **down** |
+| `IVT+Pad` (now `IVT+BIOS`, §28.4.8) | **2K**: the 1.5K plus the odd half-KB, and the BIOS's extended data area when it states one |
+| System | total − `SK_HEAP` − `IVT+BIOS`: the kernel in whole KB, rounded **down** |
 | heap size | `SK_HEAP` |
 | RAM used | total − `SK_HEAP` + `SK_CLAIM` |
 
@@ -62338,6 +62373,85 @@ when short, the list starts at System and System shows its figure plus the
 2K, so the totals still close and no program row is pushed off the bottom.
 That push-off is the loss §28.1.2 fixed, and `tmcol2` is the gate for it. The
 memory view never folds: it lists no free slots, so it has the room.
+
+### 28.4.8 `IVT+BIOS`, and RAM above 1MB billed to what holds it
+
+**The owner's rule is *report what is known, hide nothing, and make the totals
+add up*** (docs/plans/KERN-MEGA-PLAN.md 14.1, answer 10). §28.4.7's row was
+correct for an XT and short on any machine whose BIOS keeps an **extended data
+area**: a PS/2 or an AT-class BIOS takes 1K or more off the top of conventional
+memory, `int 12h` reports the smaller figure, and those KB appeared in no row
+and no total. And on kern_mega the kernel's memory above 1MB - the descriptor
+tables and `.cold` under the pool, and the pool blocks the kernel and its
+drivers own - was in RAM's used half and in no row, so the rows stopped
+summing to it.
+
+**`IVT+Pad` is now `IVT+BIOS`**, and its figure is `[tm_lowkb]`: 2K
+(`TM_LOWKB`, §28.4.7's 1.5K plus the half-KB) plus the extended data area
+when the BIOS **says where and how big it is**. `tm_ebda` takes the segment at
+40:0Eh, accepts it only when it is exactly the top `int 12h` reports (KB x 64)
+and only when its first byte, the BIOS's own size in KB, reaches no further
+than 640K, and adds those KB to both the row and the total. Anything else
+counts 0: an area the BIOS does not describe is not guessed at. So base memory
+still closes: IVT+BIOS + System + heap size = total, and the row is no longer
+a constant on either page - `tm_s_lowrow` and `tm_s_low` carry the row up to
+its KB column and `tm_memcol_kb`/`tm_kcol` letter the figure.
+
+**RAM above 1MB is accounted whenever the pool can say whose it is**:
+`tm_init` asks `OSAPI_XMEM_WALK` with CX = 0, which answers on kern_mega in
+protected mode and on kern_big with a store (`XMEM.DRV`'s table, overlay
+ABI 2's `XMV_WALK`), and sets `[tm_hion]`. `tm_hikb` then also sums
+`[tm_hisys]`: the KB between 1MB and the pool's base (kern_mega's descriptor
+tables and `.cold`; kern_big's HMA), plus every block whose owner is C0h or
+above (the kernel's FEh, a driver's, FFh outside any instance). Whatever holds
+RAM is billed for it. kern_big used to show only conventional memory, so a
+2MB machine read `RAM 108/640K` and its megabyte above was nowhere on the
+page:
+
+| figure | with `[tm_hion]` (both kernels) |
+|---|---|
+| RAM | conventional + `[tm_hitot]` (the BIOS's extended KB) in MB |
+| System | `tm_sysk` + `[tm_hisys]` (+ `IVT+BIOS` when folded) + `SK_KCLAIM` |
+| memory view System SIZE | `tm_sysk` + `[tm_hisys]`, with a `  Above 1MB` row under it carrying `[tm_hisys]` so the buffer rows still sum |
+| a program, both pages | its region and conventional claims, plus `tm_slotxkb`'s blocks above 1MB (its `OSAPI_XMEM_ALLOC` blocks, and on kern_mega its `OS88_HIGHMEM` claims) |
+| HEAP, kern_mega in protected mode only | claimed `SK_CLAIM` + `[tm_hiused]` − `[tm_hisys]` over `SK_HEAP` + `[tm_hitot]` − `[tm_hisys]`, in MB |
+
+RAM used is then IVT+BIOS + System + every program row. On kern_mega the
+HEAP pair is what a package could be handed: base memory less the system's,
+plus all RAM above 1MB except the system's. On kern_big HEAP stays the
+conventional heap, because memory above 1MB is a store a copy reaches and
+not memory a package runs in, and the memory view's `XMS` line is the pool.
+Measured on 86Box: the mr286 (4MB, kern_mega) reads `RAM 0.3/3.6M`, System
+343K of which 267K is above 1MB; an AMI 286 with 2MB on kern_big reads
+`RAM 0.1/1.6M`, System 122K of which 64K is the HMA, `XMS 0/960K`. The same
+board at 1MB reports no extended memory at all, and the page shows none.
+The `Above 1MB` row is drawn only with `[tm_hion]`; on a full slot table it
+costs the memory view's last instance row, which `tm_mrow_open` already
+clips.
+
+### 28.4.9 `640K-1MB`: the memory view's read-only map of what is not RAM
+
+Answer 10 (docs/plans/KERN-MEGA-PLAN.md 14.1) asks for the detail on the
+memory page, including the 384K between the top of conventional memory and
+1MB. It is not RAM and is in no total; the rows say what is there and where,
+after the programs, so on a screen too short for the list it is these rows
+the clip takes rather than a program's:
+
+| row | ADDR | SIZE | from |
+|---|---|---|---|
+| `640K-1MB` | | | the heading |
+| `  Video` | A000 | 128K | the PC's video window, whatever card answers in it |
+| `  ROM` | its segment | its length | every option ROM `tm_romscan` found |
+| `  Unrep.` | - | the rest | 384K less the rows above: what nothing on the machine states. RAM a board shadows or remaps there is the board's business, so it is called unreported rather than attributed (answer 10) |
+| `  BIOS` | F000 | 64K | the system ROM |
+
+**A ROM is what says it is one**: `tm_romscan` reads C000 to EFFF at 2K
+steps, once at `tm_init`, and takes a ROM where the first word is 55AAh and
+the third byte, the length in 512-byte blocks, is non-zero; the scan then
+steps over the whole ROM, rounded up to 2K. Up to `TM_UMAX` (8) are listed.
+A ROM without the signature, RAM a memory manager mapped there, and an AT
+BIOS that also fills E000 fall in `Unrep.`, because nothing on the machine
+states them, and the rows add to 384K. No kernel byte.
 
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 
@@ -67975,7 +68089,7 @@ voice keyed, none with nothing keyed, `sbl_tick` still reached on every tick,
 and nothing published with no card in the machine; a `PM_KEEPT` past the
 firmware's window turns it red.
 
-### 34.11 PCM through the speaker, in a bracket — `OSAPI_FSX_SPK` and `apps/os88spk.inc` (`kern_big`)
+### 34.11 PCM through the speaker, in a bracket — `OSAPI_FSX_SPK` and `apps/os88spk.inc` (`kern_big`, and kern_mega in protected mode, 34.11.1.1)
 
 A machine with no card plays sampled sound the way 1980s games did: §34.4's
 pulse-width trick, channel 2 in mode 0 with one count written **per sample**,
@@ -68063,6 +68177,66 @@ the package does the rest inside the same IF = 0 window. In short:
   the caller's image+bss) are retired with the checks that gave them. The
   door no longer writes a block into the caller either, and no longer asks
   whether the bracket is the CALLER's own (`fsx_mine`).
+
+##### 34.11.1.1 kern_mega in protected mode: the door writes the GATE (AL = 2)
+
+In protected mode IRQ0 is IDT gate 20h, and the IVT's cell for it holds the
+BIOS's handler for a reflection, so a caller cannot point IRQ0 at its own ISR
+and the real-mode contract above cannot work: **AL = 0 there is refused**
+(`SPK_E_NOTRATE`) as it always was, so a library built before this falls
+back exactly as before. **AL = 2 opens with the door writing the gate**: BX
+= the caller's CS (its code selector), SI = the ISR's offset, everything
+else AL = 0's. The kernel's half is the same, and then IRQ0's gate becomes
+an interrupt gate to BX:SI, and the door answers AX = K and **CX:DX = the
+chain**, the kernel's own IRQ0 (`KERNEL_SEG:sch_isr`, KERNEL_SEG being a
+code selector there). The close and `fsx_restore` put the gate back to
+`sch_isr` and leave the IVT's cell alone. Only kern_mega answers AL = 2.
+
+**The ISR cannot write its state through CS there**: a package's CS in
+protected mode is a read-only code alias, so every `mov [cs:x], ...` traps
+into `mega_gpw`, which once a sample would be most of the machine. So
+`apps/os88spk.inc` assembles its ISR family (`os88spk_isrd`, `os88spk_isr`,
+`os88spk_isrm`, `os88spk_grant`, `os88spk_acct`) TWICE from one macro: the
+real-mode copy byte for byte what it was, and a protected-mode copy (`...p`)
+that loads ES with the package's own data selector on entry
+(`[cs:os88spk_dsel]`, banked by `os88spk_go`) and writes every word of state
+through ES. Reads stay through CS, which a code alias allows. `os88spk_go`
+patches both copies' immediates, asks `OSAPI_CPU_INFO`, and in protected
+mode opens with AL = 2 and the protected-mode copy. **436 bytes of every
+package that plays through it** (Audio, Tracker, MIDIRack and the Video
+Player), and not a cycle on kern_big: the real-mode copy is unchanged.
+
+**The speaker shaper (34.11.9) has the same problem once a SPAN rather than
+once a sample**, and the same answer with one difference. `os88spkfx_level`
+and `os88spkfx_emit` write their state through CS - the level, gate,
+sub-block count, carrier target and the two held peaks, the previous sample
+and the carrier's shift - about eight traps a span, 350-700 a second at
+11-22 kHz. The parts that WRITE are assembled twice from one macro each
+(`OS88SPKFX_LTAIL`, the level from `.done` on, the scan above it writing
+nothing; `OS88SPKFX_EMIT`, emit's control part), the protected-mode copies
+(`os88spkfx_levp`, `os88spkfx_emitp`) writing through DS loaded from
+`[cs:os88spkfx_dsel]` and putting DS back after each bracket (DS is the
+span's, ES the family's). The difference is the DISPATCH: there is no vector
+to choose between them, and a per-call test would be a cost on kern_big, so
+`os88spkfx_init` asks `OSAPI_CPU_INFO` and under `CPU_F_PM` calls
+`os88spkfx_pmset`, which banks DS as the selector and - the first time only
+- writes a near `jmp` over the first three bytes of `os88spkfx_emit` and of
+the level's `.done`, and re-aims the four unrolled sub-blocks' jumps back
+from `os88spkfx_emit.full` to the copy's. It writes the code through DS, the
+package's writable data selector, so even that traps nothing. **476 bytes of
+every package that includes it** (Audio, Tracker, the Video Player and
+`tests/spkbench`) and **no instruction changed on kern_big**: the real-mode
+routines assemble to the same bytes they did, and the include grows by an
+even count so what follows keeps its word alignment.
+
+**A reflected BIOS call runs channel 0 at the ROM's rate.** In real mode
+IRQ0 lands on the BIOS's handler, which at the sample rate would count a
+tick a sample - the clock and every BIOS timeout running thousands of times
+fast. So while the door is open (`[spk_seg]`), `mega_svc` sets channel 0 to
+divisor 0 before it leaves protected mode and puts `[spk_n]` back when it
+returns: the play pauses for the call, as it must, since its ISR cannot run
+in real mode. The native floppy path and HDD.DRV's PIO stay in protected
+mode with interrupts on, so the play goes on through those.
 
 #### 34.11.2 The library
 
@@ -71553,7 +71727,8 @@ already-built packages, so no `.o88` needs rebuilding.
 ### 39.9 Testing
 
 **QEMU emulates no CGA and no Hercules card** (verified: `-device help`
-offers only VGA-class devices), and 86Box has no automation socket. So:
+offers only VGA-class devices), and 86Box had no automation socket when this
+was written (docs/86BOX.md is the route now). So:
 
 - `make test VIDEO=cga` — the CGA path under the QMP harness. SeaVGABIOS's
   `int 10h AX=0006h` is a byte-exact CGA framebuffer (B800, two banks,
@@ -77186,6 +77361,32 @@ The image 2,027 -> 2,041 bytes, inside its 2 KB claim; no kernel byte. **The
 speeds are ESTIMATED from instruction counts**, the profile's 0.05 ms a KB
 among them: no VIDDISK `X` has run on a 386 or a 486 yet.
 
+### 41.16 Protected mode's two doors: `OSAPI_XMEM_SEL` and `OSAPI_MEM_CODESEL` (2026-10-18)
+
+**Under `CPU_F_PM` there is no LOADALL and no unreal mode** - kern_mega runs
+the CPU in protected mode, where 41.13's and 41.15's hidden bases cannot be
+set by a package and the CPU refuses both mechanisms. What it has instead is
+the thing those two imitate: a descriptor. Two slots, appended at the
+table's end and present on every kernel (docs/plans/KERN-MEGA-PLAN.md 12.2):
+
+| slot | contract |
+|---|---|
+| `OSAPI_XMEM_SEL` **0x049F** | DX:AX = an address inside an `OSAPI_XMEM_ALLOC` block the CALLER owns, CX = bytes (0 = 65,536). Out CF=0, AX = a **data selector** whose descriptor covers exactly that window: load it into DS or ES and address the block in place, with 16-bit code unchanged. **One selector per block**: a second call for the same block re-aims it, and a segment register already holding it keeps the old window until it is reloaded. It is freed with the block - `OSAPI_XMEM_FREE`, or the instance's teardown. CF=1 with AX = 1 where it is not available (every kernel but kern_mega in protected mode, and no free LDT entry) or 2 when the window is not inside a block the caller owns. UI-task context, like the four XMEM cells. `kern_small`'s cell is its `xm_copy`, which answers exactly that refusal |
+| `OSAPI_MEM_CODESEL` **0x04A5** | DX = the segment (or selector) naming a claim of the caller's. Out CF=0, AX = the selector to **far call code** in it: DX itself on a real-mode kernel; under `CPU_F_PM` the claim's LDT code alias `(S >> 2) | 4` for a segment on the 512-byte grid below A000, a code selector as it is, and the code half of an allocator pair for its data half. CF=1 when there is none: DX = 0, or under `CPU_F_PM` a segment off the grid or a data-only selector (an `OSAPI_XMEM_SEL` window). Any context. `apps/os88api.inc`'s `OS88_CODESEL` is its inline fast path for a claim below 1MB |
+| `OSAPI_XMEM_WALK` **0x04AB** | ES:DI = room for CX records of `XMW_SIZE` (6) bytes. Out CF=0, AX = the extended pool's live blocks written, each `XMW_OFF` (KB from the pool's base, which `OSAPI_XMEM_CAPS` answers in DX:CX), `XMW_KB` and `XMW_OWN`: an instance slot for an `OSAPI_XMEM_ALLOC` block, 80h \| slot for a package's REGION placed above 1MB (`OS88_HIGH`, docs/plans/KERN-MEGA-PLAN.md 13.3 step 4), 0A0h \| slot for a CLAIM it took there (`OS88_HIGHMEM`, KERN-MEGA-PLAN item 81), FEh the kernel's own (the read-ahead store, module pairs), FFh a cell called outside any instance. On kern_big with a store the pool is `XMEM.DRV`'s and the cell walks its table (overlay ABI 2's `XMV_WALK`, §28.4.8): owner a slot or FFh. CF=1, AX = 1 with no pool - kern_small, kern_mega in real mode, a kern_big machine without the overlay. The Task Manager's "RAM is RAM" reads it (KERN-MEGA-PLAN 13.6). Any context |
+| `OSAPI_XMEM_RUN` **0x04B7** | DX:AX = the TOKEN of an `OSAPI_XMEM_ALLOC` block the caller owns (its base). Out CF=0, DX = the first of a **run of data selectors**, CX = the step between them (8): selector *k* is the 64KB window from 32KB x *k* into the block, the last ones cut at its end, so **any 32KB of the block lies wholly inside one window** - the one at (offset >> 15), at (offset & 7FFFh). What a reader of records of 32KB or less needs to read them in place from ANY context once made, where `OSAPI_XMEM_SEL`'s one window has to be re-aimed by the UI task per read and `OSAPI_MEM_HUGE`'s 64KB windows cut a record that straddles one in two. One view a block: a block with a run takes no `OSAPI_XMEM_SEL` and the reverse (AX = 2 either way). Freed with the block. CF=1, AX = 1 not available (every kernel but kern_mega in protected mode) or no run of free LDT entries, 2 not the base of a block the caller owns or it has a selector already. UI-task context. The Video Player's hold and bank (98.3.18.16) are its consumer; docs/plans/KERN-MEGA-PLAN.md 14.16 |
+| `OSAPI_MEM_HUGE` **0x04B1** | AX = KB (1..65535). Out CF=0: DX = the claim's first segment or selector and CX = the STEP to its next 64KB - a program walks by CX and never by a constant. CX = 1000h for a conventional claim on every kernel; CX = 8 on kern_mega in protected mode for an `OS88_HIGHMEM` package, whose claim is ONE pool block above 1MB under a run of consecutive LDT data selectors, a 64KB window each and the last ending at the claim's end (§50.3.5). CF=1 refused. Freed by `OSAPI_MEM_FREE` with that DX, and at the instance's teardown; it does not regrow above 64KB. Docs/plans/KERN-MEGA-PLAN.md 14.1 answers 6 and 7: an ADDITION, so `OSAPI_MEM_CLAIM` and `OS88_HUGE_INCR` mean what they always did. Any context |
+
+**Branch on `CPU_F_PM`, then on the slot.** A package that reads extended
+memory in place takes 41.13's or 41.15's route without the bit and this one
+with it; `OSAPI_XMEM_COPY` stays the route that works everywhere. The
+selector is stable for the block's life - nothing above 1MB a package owns
+is ever moved (KERN-MEGA-PLAN 13.4.1) - so no relocation proc is owed for
+it. `tests/megaxm` is the gate: the block read through the selector, a write
+through it read back, the re-aim, a window past the block refused with 2,
+and CODESEL's alias for the package's own segment and its refusal of the
+data selector, every result on port E9.
+
 ## 42. Paint — the seventh package (apps/paint/paint.asm)
 
 A bitmap editor over the published package ABI. Prefix `pt_`, embedded
@@ -77242,10 +77443,15 @@ allow, from 32x16 up, and everything else follows from that:
   window costs a repaint to raise, another to dismiss, a window slot and a
   click, and says no more than one line of the app's own status text does.
 - **Rows are addressed by a (segment, offset) pair.** A canvas may exceed one
-  64KB segment — 636x326 is 104KB — so `pt_rowseg[y]` names the paragraph a
-  row starts in and `pt_rowoff[y]` the 0..15 bytes into it; the undo image has
-  the identical layout `[pt_undelta]` paragraphs higher, so one table serves
-  both. Every loop that walks a row goes through `pt_rowset`/`pt_urowset`,
+  64KB segment — 636x326 is 104KB — so `pt_rowseg[y]` names the 128-byte
+  granule a row starts in (a multiple of 8 paragraphs, kern_mega's grid) and
+  `pt_rowoff[y]` the 0..127 bytes into it; a canvas that FITS one segment is
+  laid out flat instead, every row `[pt_base]` and its whole offset, because
+  under `OS88_HIGHMEM` a claim of 64KB or less may be an LDT selector on
+  kern_mega and no segment arithmetic is valid on one (KERN-MEGA-PLAN 14.13).
+  The undo image has the identical layout `[pt_undelta]` paragraphs higher, so
+  one table serves both - flat, `rowseg + [pt_undelta]` is exactly
+  `[pt_unseg]`; granular, both claims are over 64KB and so conventional. Every loop that walks a row goes through `pt_rowset`/`pt_urowset`,
   which cost six instructions a row and nothing a pixel.
 - **The canvas is still a BMP.** 4bpp packed, high nibble = left pixel, rows
   **bottom-up behind a 118-byte DIB header**, stride = the BMP stride
@@ -79649,6 +79855,16 @@ arithmetic because a step down borrows, and a logical shift would send the
 segment 4,095 paragraphs *up* the arena instead of one down. The copy-back is
 **386.2 → 301.2 ms** (shrink) and **386.2 → 300.3 ms** (grow), +207 bytes of
 package.
+
+Since KERN-MEGA-PLAN 14.13 the pair is kept on 128-byte **granules** - `and
+127`, and the `sar 4` masked to a multiple of eight paragraphs, the only
+segments kern_mega's identity map names (KERN-MEGA-PLAN 3.1; one paragraph
+faulted a resize there) - and a pair whose segment is an LDT **selector**
+(bit 2: an `OS88_HIGHMEM` claim of 64KB or less) is never normalised at all,
+its offset being the address. `pt_orowset` answers the same two forms, and
+`pt_cvmove` puts the destination pair onto granules once before the walk,
+because `pt_layout` lays a canvas that fits one segment out flat (§42's row
+table) and `pt_mstep`'s signed step wants an offset under 128 to start from.
 
 What is left is `pt_cvrow`'s per-plane overhead, and on a planar canvas that is
 four loop bodies for 38 bytes each. §42.13.2's rule is why it cannot be one:
@@ -92086,6 +92302,37 @@ Rules for a package (none enforceable, all binding):
    how you hand memory back mid-session.
 
 
+### 50.3.5 `OSAPI_MEM_HUGE` — a claim of any size, walked by the step it answers
+
+`OSAPI_MEM_CLAIM` answers a segment, and code that walks a claim past 64KB
+adds 1000h to it (`OS88_HUGE_INCR`) - which is exactly right in conventional
+memory on every kernel, and wrong above 1MB, where a claim is named by an LDT
+selector. A claim bigger than 64KB above 1MB therefore needs one selector per
+64KB, and a program has to be TOLD the step rather than assume it. So the
+cell answers it: CX = 1000h for a conventional claim, CX = 8 for a run of
+consecutive LDT selectors (owner's answers 6 and 7, docs/plans/KERN-MEGA-PLAN.md
+14.1 - an addition, not a break, so nothing built before changes).
+
+On kern_mega in protected mode, for a package whose header says
+`OS88_HIGHMEM` (its claims may be selectors), `mega_hugef` takes ONE pool
+block of the whole size and fills a run of free LDT entries over it: entry i
+has base = the block's + i x 64KB and limit 64KB - 1, the last one's limit
+being the claim's own end, so a program that walks past its claim faults
+rather than reading the next one's memory. The block is CONTIGUOUS, so the
+run is too, and it is the block's `MX_SEL`; `mx_unsel` frees all of it with
+the block - at `OSAPI_MEM_FREE` with the first selector, or at the
+instance's teardown - by the rule that a claim's block over 64KB has a
+selector per 64KB (an `OSAPI_XMEM_ALLOC` block of any size has the one
+`OSAPI_XMEM_SEL` gave it). Every other case is the conventional heap with
+CX = 1000h. Ceiling: the pool, which stops at 16MB with a 286's 24-bit
+descriptor base. A huge claim does not regrow above 64KB, and the
+compactor does not move it.
+
+MEGAHI (tests/megahi) is the gate under Bochs at 4MB: 200KB in four pieces,
+`MEGAHI: huge 2844 step 0008 ok` - each piece written and read back, the
+claim freed and taken again on the same first selector, which it cannot be
+if the run's later entries were left taken.
+
 ### 50.3.2 …and the top-down doors a driver never had
 
 §50.3's two ends are **data from the bottom, regions from the top**, and the
@@ -95144,8 +95391,12 @@ redirected and no verb names a sector, so the reason the door was 0 - no
 package may reach DSV_BLK and write a raw sector (20.11) - still holds.
 `HDV_ARM` takes the buffer (DX:0), its length (whole sectors, at most 32 KB)
 and the XMS address its first byte stands for (DI:SI); it refuses below a
-386 (AX 1), with the A20 gate shut (AX 2, probed at every arm: a shut gate
-would alias the write 1 MB down) and on bad arguments (AX 3). `HDV_DISARM`
+386 (AX 1) and under `CPU_F_PM` (AX 1 as well, for good: kern_mega's
+protected mode has no loaded base, and the A20 probe's own `mov ds, FFFFh`
+was a #GP there that took the machine down at the Video Player's first fill
+- docs/plans/KERN-MEGA-PLAN.md 14.16), with the A20 gate shut (AX 2, probed
+at every arm: a shut gate would alias the write 1 MB down) and on bad
+arguments (AX 3). `HDV_DISARM`
 writes an 8-byte MAP to ES:DI, a bit a sector that went to XMS.
 
 **The map makes it exact.** A sector the kernel's cache served, a disk on
@@ -103300,8 +103551,11 @@ of this moves again.
 ### 60.1 The three tiers, and how they are detected
 
 `[cpu_tier]` is `CPU_8086` (0), `CPU_286` (1) or `CPU_386` (2), and
-`[cpu_feat]` carries three verified bits: bit 0 A20 open, bit 1 HMA claimed,
-bit 2 unreal mode armed. Both are **initialised `.text` data, not `.bss`**:
+`[cpu_feat]` carries verified bits: bit 0 A20 open, bit 1 HMA claimed,
+bit 2 unreal mode armed, bit 3 a coprocessor socketed (§84.6) and bit 4,
+`CPU_F_PM`, kern_mega's protected mode - set by `mega_enter` and on no other
+kernel, so segments are selectors when it is set
+(docs/plans/KERN-MEGA-PLAN.md 12.1). Both are **initialised `.text` data, not `.bss`**:
 `-f bin` zeroes nothing at boot, so the answer a machine reads when the probe
 never ran has to be the safe one — the §31.3 / `snd_live` idiom and §34.7.
 
@@ -127548,8 +127802,8 @@ having to instrument any of them.
 **It lives in the driver because it has to.** MartyPC has no network card of
 any kind, so the one instrument this project trusts for time cannot host this
 driver; QEMU can, and QEMU is exact about work and useless about time. That
-leaves an 86Box XT or the 5150, where there is no debugger and no automation
-socket — so the measurement has to be taken *by* the guest and read *on* the
+leaves an 86Box XT or the 5150, where there was no debugger and no automation
+socket when this was written (docs/86BOX.md has both now) — so the measurement has to be taken *by* the guest and read *on* the
 guest. `tests/netbench` is the window that reads it, and it can sit beside the
 FTP server during a real transfer off a real client.
 
@@ -134848,6 +135102,33 @@ before; the clamp at the top end stays, so a model given a longer reach draws
 a hair small rather than reading past the table. The table that was 4,096
 bytes, and 8,192 with `ky`, is 2,874.
 
+#### 85.3.10 Above 1MB the claim is a selector, and the template is a claim of its own
+
+TANK says `OS88_HIGH | OS88_HIGHMEM` (docs/plans/KERN-MEGA-PLAN.md 14.2 item
+8). Its one claim is the shadow's, and both arms named the template as that
+claim's segment plus `TK_SHSEG / 16`: the second half on the shipped arm, the
+span pool behind the shadow on `APP_SMALL` (§85.3.5, §85.3.5.1). On kern_mega a
+claim of 64KB or less may come back an LDT data selector over exactly the KB
+asked, and a paragraph added to a selector names a different descriptor. So
+`tk_r_setup` tests the claim with `test dl, 4` (a conventional claim is
+512-aligned, so the bit is clear there). On a selector it takes the template
+as a SECOND claim: `TK_TMKB` = 16KB on the shipped arm, the rung less 15KB on
+`APP_SMALL`. The shadow's claim keeps its size, because the device-row table
+is at the constant `TK_DEVOFS` in its tail (§85.3.9) and the blit reads it
+there. The selector's limit is the claim, and every offset both arms form is
+inside it.
+
+A refused second claim gets each arm's own answer. The shipped arm frees the
+shadow and refuses the bracket, exactly as for no shadow at all, so the next
+Play tries again. `APP_SMALL` plays its bottom rung, the shadow alone with
+`[tk_tmpl]` = 0. Both segments are set once, with the claim, and the per-bracket
+reuse keeps them. On every other kernel the claim never comes back a selector,
+so the layout and every frame are what they were: +26 bytes of image on the
+shipped arm and +28 on `APP_SMALL`, run once per instance, nothing per frame.
+`APP_SMALL` still writes two bytes through CS per emitted record in
+`tk_tmrowput`, which kern_mega traps and completes. That cost is paid on a
+template encode and not on a frame.
+
 ### 85.4 Three inks, named for what they mean
 
 `TKI_WORLD`, `TKI_HUD`, `TKI_MARK` — the world, the panel, the gunsight and
@@ -137108,7 +137389,7 @@ the window closes, by whichever route.
 |---|---|
 | `Hibernate...` | a fixed volume exists (§18.7: a `DVK_DRV` row, or a `DVK_BIOS` row whose unit has bit 7 set — never a `DVK_FILE` one: a RAM disk or a redirected volume answers `dsk_vol_fixed` as fixed and has no sectors the stub could read, so `hb_pick` — THE predicate, the one `hb_ok`, `hb_probe` and the window all ask, so what greys, what is probed and what is written to cannot disagree — skips it) and the store above 1MB has no block allocated |
 | `Hibernate (No HD)` (`MENU_DIS`) | no fixed volume |
-| `Hibernate (XMS)` (`MENU_DIS`) | `OSAPI_XM_CAPS` reports fewer than `XM_MAX_BLKS` free entries: a package holds extended memory, and the image does not carry it (§87.7) |
+| `Hibernate (XMS)` (`MENU_DIS`) | `OSAPI_XM_CAPS` reports fewer than `XM_MAX_BLKS` free entries: a package holds extended memory, and the image does not carry it (§87.7). **Not on kern_mega in protected mode**, whose image does carry it (§87.9) |
 
 **`hb_ok` PRESERVES EVERY REGISTER BUT `AX` AND THE FLAGS, and `CX` is the one
 that had to be written down.** It is called from `ui_loc_gate`, which promises
@@ -137242,8 +137523,9 @@ of its pass with nothing held, in `hb_perform`:
    copy once taken here was never read. Everything above that SP — the dispatcher's return, the thunk's, the UI
    task's frame — is written into the image untouched, because the write
    itself only ever uses the stack below it.
-5. The image, as one `dskw_write`. The progress widget (§12.8) is on the bar
-   throughout, because the lock is held by the task that calls it.
+5. The programs' sum (§87.4.1), then the image, as one `dskw_write`. The
+   progress widget (§12.8) is on the bar throughout, because the lock is held
+   by the task that calls it.
 6. The pointer, in the root.
 7. The ROM's keyboard buffer emptied (a key typed during the write is not
    the answer), `vid_reboot` to text mode, the sentence, `int 16h`, then `drv_shutdown`,
@@ -137262,6 +137544,40 @@ path's own words are written into the image in the state they were in when
 the write reached their addresses, which is mid-write. Nothing else in the
 kernel changes during the write — no task runs — so nothing else needs the
 treatment.
+
+#### 87.4.1 The programs' memory is summed, and checked by the kernel it restores
+
+Owner's answer 1 (docs/plans/KERN-MEGA-PLAN.md 14.1): a SPARSE sum, on both
+kernels, if it costs under 200 ms. `hbm_psum` reads one word in every 256
+bytes - its place in the line stepping 34 bytes a sample - of every
+conventional heap record a live **package** instance owns, into Fletcher's
+two running sums (s1 from 1). That is ~2,500 reads for 640KB: a few ms on a
+4.77 MHz 8088.
+
+**It covers the programs and not the machine, because the image is written
+live** (the paragraph above): the kernel's own memory - the FAT and
+directory buffers the write updates, the stack it runs on, the BDA, the
+tick counters, the pointer's save-under - is not at any one instant the
+bytes the disk got, so a whole-memory sum would refuse good images. A
+package's memory is what nothing touches between the read and the
+transfer: `[sch_lock]` stops its workers and the UI task is the writer, so
+no callback runs. A built-in's records are the kernel's to write and are
+left out, and so is anything above 1MB, which kern_mega's park sums itself
+(§87.9).
+
+**Taken at step 5, the last instant before the image**, into `hbm_psv` in
+the module's own image, so the figure is written with the memory it
+describes. **Checked at `hbm_wake` step 3a**, by the restored kernel, over
+the restored records: the same routine, so the two cannot disagree about
+what is sampled, and nothing is staged, so the stub and `kern_dos`'s resume
+are unchanged. A mismatch means a wrong, truncated or cross-linked image -
+somebody else's bytes under a program - and the session is not resumed:
+`hbm_forget` deletes the pointer and the image (the caches were dropped in
+step 3, so the file layer reads the disk as it is), the sentence *"Resume
+failed: the programs' memory did not read back as it was saved"* is
+printed, and a key restarts the machine through `hbm_bye`, hibernate's own
+step 7, into an ordinary boot. What it misses is a damaged byte between two
+samples, and anything in the kernel's own memory.
 
 ### 87.5 Resume — the probe, the question, the stub
 
@@ -137458,7 +137774,8 @@ measures nothing; docs/FIELD-MACHINES.md is where the number would come from.
 
 Owed, and refused rather than guessed at meanwhile: **extended memory** in the
 image (the store's blocks would have to be copied down and up through
-`xm_copy`, a second section of the file); **IDE rung 1** volumes (the stub
+`xm_copy`, a second section of the file - built on kern_mega in protected
+mode, §87.9, and owed still on every other kernel); **IDE rung 1** volumes (the stub
 would need the task-file transport); and a **two-card** desktop's second
 display, which comes back as the primary alone until the next
 `vid_disp_init` — the text-mode framebuffer used for staging is the
@@ -137498,6 +137815,82 @@ claim is left, `[sch_lock]` is down, and both files are gone from the disk on
 the host. Its second leg boots copies of the disks taken while the image was on
 them under `-m 1`, where `.cold` stays in RAM, and asserts the opposite:
 `Hibernation: other build` and the pointer deleted.
+
+### 87.9 kern_mega in protected mode (docs/plans/KERN-MEGA-DOS-PLAN.md 8)
+
+kern_mega's protected mode keeps state above 1MB that a fresh boot cannot
+rebuild — the XMEM pool's blocks (a package's, and the kernel's own: track 1's
+modules and read-ahead store) and the LDT's allocated upper entries — so the
+image carries an **extended section**, and the resume never leaves protected
+mode. Everything below is `%ifdef KERN_MEGA` and HIBER.DRV is built per
+kernel, so kern_big's image, module and stub are byte-identical to what they
+were. A kern_mega that refused the switch (`CPU_F_PM` clear) hibernates as
+kern_big does.
+
+**The file.** The conventional image is §87.4's one `dskw_write` from linear
+0, rounded up to a whole 32KB (`HBX_CHUNK`, a multiple of every cluster) so
+that the section can be APPENDED after it (§18.4.4). The section is a
+512-byte head — `'HIBX'`, the run count, the section's bytes, and each run's
+linear base and length — and then the runs: **run 0** is the GDT, the LDT and
+the IDT as one range (0x110000–0x124800; `.cold`'s copy is not in it, being a
+code selector whose bytes are `KERNEL.SYS`'s), and every `mx_tab` block in
+use is one more. They go down through a 32KB conventional bounce claimed
+AFTER the picture, so the image does not hold it, and Fletcher's sums are
+taken over every chunk as it is appended.
+
+**The pointer is 28 bytes, not 18**: `HBP_XFLG` (1 = a protected-mode image),
+`HBP_XSUM` (the section's sums) and `HBP_XLEN` (its bytes on the disk) after
+§87.3's head. That length is also the cross-kernel refusal: each kernel reads
+exactly its own `HBP_SIZE` and both have one `BUILD_NUM` at a commit, so
+kern_big meets a kern_mega pointer as `FERR_BIG` and kern_mega a kern_big one
+as a short read (read off `dskw_read`'s contract; not booted). `hbm_ask` refuses an image whose mode is not this boot's,
+`Hibernation: other mode`, and sizes the image by what the pointer says.
+
+**Before the picture** (`hbm_xplan`): the run list; the 8259 masks the image
+is to wake with; the wake address (`hbm_wake` and HIBER.DRV's code selector,
+in the kernel's `mega_hbwk`); and whether a resume could place the whole
+file in one block above 1MB clear of every run — refused, `Hibernate failed`,
+when it could not.
+
+**Linear 0's selector is stretched for the write.** The write starts from
+segment 0, which protected mode turns into `MEGA_SEL_LOW0` one instruction at
+a time (`mega_null0`) wherever code touches the buffer — a native-IDE driver
+does, word by word — and LOW0 stops at 4FFh on purpose. `hbm_xlow` makes it
+64KB across the one `dskw_write` and puts it back after, so the image's GDT
+holds 4FFh.
+
+**The resume** (`hbm_xres`) reads the WHOLE FILE, through the bounce and the
+kernel's own file layer, into a staging block in the pool placed first-fit
+clear of every run the head names and every block this boot holds
+(`hbm_xfit`), checks the section's sums against the pointer's
+(`Hibernation: unreadable` on a mismatch; `No room above 1MB` when there is
+no such block), and then tears the fresh boot down in `hbm_down`'s order —
+the panel's settings, the drivers, the lock, text mode — and stages
+`hbm_wake`'s cells (§87.5's `HS_CLK`, `HS_DOSCODE`, `HS_DOSAKB`, `HS_TICK0` =
+-1) in the text page, which nothing in the way back writes. `mega_hbgof`
+copies **the park stub** (`kernel/megapark.inc`, §96.40.9) into the block's
+header, loads the stub's own GDT and jumps into it in place: it makes the
+copies the header lists (`MPK_NCPY`; 0 on a park), puts back conventional
+memory exactly as it does for a DOS trip, loads the image's GDTR and IDTR and
+jumps to `MPK_C_WAKE`, which a hibernate sets to `mega_hbwake`. That loads the
+LDT and the kernel's data, takes `hbm_wake`'s stack, clears three cells that
+were in flight when the picture was taken — `mega_n0` (a null-segment
+instruction being stepped: every native-IDE image holds it, and left set it
+made every later null fixup refuse and fault), `mega_fdx` and `mega_irqpend` —
+drains the 8042, puts the banked masks on, NMI on, and far-jumps to
+`hbm_wake`, which runs exactly as §87.6 has it. **Neither CPU leaves
+protected mode**: the 8259 is at 20h on both sides and the IDT is the image's
+own, so a 286 spends no reset on a resume.
+
+**Measured** (Bochs, a 386 with 16MB, the kernel's own boot partition on a
+20MB C: whose transfers go native): a 640KB machine with a package holding
+64KB of XMS writes an 832KB file (640KB and a 192KB section of three runs:
+the tables, a 32KB read-ahead store at the top of the pool, the package's
+block), and the package's 64KB compares equal after the resume
+(`tests/megahib`, which goes red on one byte changed) - three rounds in a
+row, no fault. A byte of the section flipped on the host is refused,
+`Hibernation: unreadable`. HIBER.DRV is 6,987
+bytes on the disk on kern_mega against 5,137 on kern_big.
 
 ## 88. CLEAR SKIES — a filled-polygon flight simulator in a foreign mode (`apps/skies/`)
 
@@ -146043,9 +146436,9 @@ Measured on a 4.77 MHz 8088, Hercules, Moderate against High:
 
 — 5.9 fps to 3.6 at the two-kilometre climb, which is the number that puts
 this above an XT. **No 286 figure is quoted here because none has been
-taken**: MartyPC is an 8088 and 86Box has 286 profiles but no debugger and
-no automation socket, so a session can start one and cannot read the result
-(`docs/TESTING.md`). What is CPU-independent is the work — 27 objects filed
+taken**: MartyPC is an 8088, and 86Box's 286 profiles had no debugger and
+no automation socket when this was written - `tools/os88box.py` reads one now
+(docs/86BOX.md), and nobody has taken the figure with it. What is CPU-independent is the work — 27 objects filed
 at the peak against 15 — and a 286 reading belongs in `docs/FIELD-NOTES.md`
 when somebody takes one.
 
@@ -150733,8 +151126,8 @@ paint and the zone is on the desktop when the machine comes up; the default
 NAT with nothing running on the host. B: is a kept scratch disk, because Add
 to Disk writes and 86Box writes a floppy back to its file. It is a machine to
 LOOK at — the Refresh cost in §92.10 on the CPU it was priced for, the zone's
-look in §92.6 — and not a gate: 86Box has no automation socket
-(docs/TESTING.md).
+look in §92.6 — and not a gate: no row launches 86Box (docs/86BOX.md is how
+one would).
 
 ### 92.13 The archive — `<STEM>.WPK`, format version 1
 
@@ -160912,6 +161305,93 @@ It reads its verdict off the text screen at `0xB8000` rather than through
 same shape `tests/xmcheck.py` uses, and it borrows that row's coordinates for
 the same reason.
 
+#### 96.15.4 kern_mega: `kern_dos`'s own door, over the arena
+
+On kern_mega the windowed box does not run (docs/plans/KERN-MEGA-DOS-PLAN.md
+12.1 item 1), so the door is `kern_dos`'s alone, and the cells behind 96.15 are
+gone for the bracket with the kernel that serves them. What the kernel leaves
+instead is **one block above 1MB, the XMS ARENA**: everything the pool had left
+after the park (12.1 item 7), named in the launch block's kern_mega tail as
+`KDL_XBASE` (a dd linear base) and `KDL_XKB` (its KB). `kerndos/kdxms.inc` is
+the implementation and assembles only with `-DKD_MEGA`; on every other build
+the four doors stay `stc`/`ret` and kern_big's `DOS.O88` is byte-identical.
+
+**The arena's contract** is what the kernel owes: a base at or above 100000h
+with its low ten bits zero, and a size in KB. It need not be zeroed - XMS
+promises nothing about a fresh block. A base that fails either test, or KB = 0,
+is *no arena*, and 96.15.1's rule answers `AX=4300h` with "no driver". Anything
+at or above **16MB is cut off**: `AH=87h`'s descriptors carry a 24-bit base on a
+286, and the 386 byte at +17h/+1Fh is not honoured by every BIOS.
+
+**The allocator** is a table of `XMS_NH` (offset, size) rows in KB over the
+arena, first fit, 1KB granular - `kernel/mega.inc`'s `mx_alloc` shape, written
+again rather than shared because the arena has one claimant and no instance to
+force-free. A freed row is a gap the next walk sees, so there is no list to
+coalesce. The doors keep `OSAPI_XMEM_*`'s contracts to the register, error
+codes included, and `XMEM_COPY` additionally refuses (AX = 2) a conventional end
+that runs past 1MB: `FFFF:0010` and up is the HMA and then the parked kernel's
+tables, which a seg:off can reach.
+
+**The transport** is `int 15h AH=87h`, through the ROM's vector saved when the
+hook below was taken, so `kern_dos`'s own moves never meet the filter.
+
+**Extended to extended is lifted here**, which 96.15 refuses: `AH=87h` moves
+between two linear addresses directly. The core's `dos_xms_move` passes such a
+move as `DI = 2` with the source's LINEAR address in `ES:SI` (ES its high
+word) and steps it linearly; it is under `%ifdef DOS_MEGA` and costs the core
+67 bytes, which is why `CORE_MAX` has a kern_mega arm (`apps/dos/doscall.inc`).
+**An overlapping move whose source is below its destination is copied TAIL
+FIRST** (`.ovl`), in chunks no longer than the distance between the two ends,
+as XMS 0Bh requires; a forward walk of 32KB chunks would fill the destination
+with the first chunk and still answer AX = 1.
+
+**The rest of the XMS 2.0 surface** is the core's too, under `%ifdef DOS_MEGA`
+(KERN-MEGA-DOS-PLAN 10.4), because the 286 extenders KERN-MEGA-DOS-PLAN 5.2
+names cannot start without it:
+
+| function | answer |
+|---|---|
+| `08h` query free | AX = the LARGEST free run (`dos_k_xcaps`'s DI, `kdx_largest`), DX = the total. Once a block sits in the middle the two differ |
+| `0Bh` move | also refused when offset + length passes the HANDLE's own size: BL = A4h for the source, A6h for the destination, so a move cannot reach the next handle's block |
+| `0Ch` lock / `0Dh` unlock | a lock count per handle (`XH_LOCK`); 0Ch answers DX:BX = the block's linear base. Unlocking an unlocked handle is AAh, and `0Ah` refuses a locked one (ABh) |
+| `0Eh` handle info | BH = the lock count, BL = free handles, DX = KB |
+| `0Fh` reallocate | a SHRINK keeps the base and the row; a grow is A0h (no room is promised beside a block), a locked handle ABh |
+
+
+**`int 15h` is hooked for the program** (KERN-MEGA-DOS-PLAN 5.2), installed
+before `dos_save_machine` so a program's exit puts it back, and removed in
+`kd_leave` beside the keyboard guard - before `kd_resume`, whose way back
+moves the park:
+
+| call | answer |
+|---|---|
+| `AH=88h` | `AX = 0`, CF = 0: no raw extended memory. HIMEM.SYS says the same, and a program that honours it takes XMS instead |
+| `AX=E801h`/`E881h`/`E820h`, `AH=C7h`/`8Ah` | **CF = 1, AH = 86h**, unsupported - as on an AT that predates them. Each would report the REAL extended size and say nothing of who owns it, so a program that asks falls back to 88h's 0 and takes XMS |
+| `AH=87h`, both ends below 1MB or inside the arena | the ROM |
+| `AH=87h`, either end touching anything else at or above 1MB (the HMA, the park, the kernel's tables, `.cold`), a nonzero 386 base byte, or `CX > 8000h` | refused: **CF = 1, AH = 03h**, the BIOS's own "A20 failed" - a code every AT BIOS defines for *the move did not happen*, which a program reads as no memory rather than as a reason to retry |
+| everything else | the ROM |
+
+`tests/dostrap/xmsprobe.asm` (`XMSPROBE.COM`) is the probe: the round trip of
+96.15.3 at 4KB, with the wipe, the extended-to-extended move, and then the
+**negative control** - a raw `AH=87h` reading linear 130000h, the park's end of
+the pool, which must come back refused. Under a real DOS with HIMEM.SYS the
+same control is NOT refused, and the probe says so rather than failing: that is
+the comparison docs/DOS-DEBUGGING.md asks of every probe.
+
+`XMSPROBE.COM` has since grown the overlapping move (step 8) and steps 9-13 -
+0Eh, the lock pair and AAh, the A4h bound, the 0Fh shrink, 08h's largest
+against its total - and `E801h` refused (exit 32h). It reads **exit 048**
+under Bochs, **072** with the tail-first copy taken out and **073** with the
+0Ch-0Fh dispatch taken out.
+
+**Cost, measured** at the foot of `kerndos/kdos.asm`: `kern_dos` 33,585 ->
+**34,611** bytes of image plus bss (842 code, 98 bss, 6 for the two calls and
+80 of core hole) when the door was first built, so kern_mega's `KD_IMG_KB` was
+34 against kern_big's 33 and kern_mega's DOS program pays the kilobytes.
+kern_big's does not. W4 put `kern_dos` in the HMA and the surface above took
+the core to 15,924 bytes (`CORE_MAX`'s kern_mega arm 15,936), so `KD_IMG_KB`'s
+kern_mega arm is **36** - a figure for the HMA's room, not the program's.
+
 ### 96.16 What the Sound Blaster row cost, and the claim that was wrong
 
 This section used to say the row was **refused**, on two grounds. One of them
@@ -161456,9 +161936,19 @@ Three of those are a definite wrong answer rather than a gap:
 ours. Bytes `05`..`09` are a `CALL FAR` for CP/M-era programs, and the word at
 `06` inside it is *also* the size field above — so DOS picks the **segment**
 half such that `segment:size` addresses its own dispatcher, and one five-byte
-field carries two unrelated answers. This box has a dispatcher of its own at
-`PSP:0050` — the `int 21h`/`retf` gate DOS 2 published — so the segment is
-`(PSP + 5) - size/16` and the call lands on it exactly.
+field carries two unrelated answers. This box's dispatcher is **`dos_cpm`**,
+paragraph-aligned in the core: it dispatches on CL, which is where CP/M puts
+the function, and returns to the program's own NEAR return under the PSP's
+CS, which is how CP/M's `call 5` comes back. So the segment is
+`CS + dos_cpm/16 - size/16`, wherever the core runs. In the windowed box
+that fits a word; under `kern_dos` low in memory it goes below 0 and the call
+reaches `dos_cpm` through the 1MB wrap, which is how IBM DOS 3.30's own
+CALL 5 works for a low PSP; on kern_mega's HMA run (`CS = FFFFh`) a block too
+small for the offset to reach back keeps the old field and its wrap. It used
+to be `(PSP + 5) - size/16`, aimed at `PSP:0050` - the `int 21h`/`retf` gate
+DOS 2 published, which takes AH and returns FAR to `PSP:000A`, a data field -
+so CALL 5 had never served CP/M. `tests/call5.py` is the row
+(KERN-MEGA-DOS-PLAN 10.5 defect 3).
 
 Keeping the job file table TRUE after load is `dos_jft_sync`, called from
 both opens and the close. It rewrites all twenty rather than poking the one
@@ -165003,6 +165493,299 @@ at the extent claim, and then every ordinary `kdreturn` assertion about the
 return. **VERIFIED RED** with the row taken back to `MEM_RR_ONE drv_dlg_seg`:
 `extent` reads `[hb_dosseg]` 91E0 against a box at 9220, and `module` never
 reaches its extent claim because `hbm_dosrun` refused at step 1.
+
+#### 96.40.9 On kern_mega: the PARK in place of the image
+
+On kern_mega (docs/plans/KERN-MEGA-PLAN.md) arm 3 is the only arm - a DOS
+program cannot run inside a protected-mode kernel, so the box's Memory page
+draws one line where the radio stands (*Parks the OS above 1MB*) and every
+launch is the whole machine (docs/plans/KERN-MEGA-DOS-PLAN.md 12.1 item 1). The
+handoff is this section's, with one substitution: **conventional memory is
+copied into a block above 1MB - the PARK - in place of `HIBERNAT.IMG`**, and
+the way home reads it back from there. No disk is written, no fixed disk is
+needed, and 96.42's destructive arm does not arise: the session comes back on
+a machine with floppies only. KERN-MEGA-DOS-PLAN 2.5 is the design as built;
+the contract is:
+
+* **The claim comes first** (`mega_dosclaimf`): the park is **THE RUNS IN
+  USE** (`mega_dmapb`, a bit a KB: `[0, mem_base)` and every live claim,
+  rounded out to whole KB) and 16KB of slack, from the XMEM pool, then the
+  XMS arena (96.15.4), everything the pool has left. Free heap is nobody's -
+  the claim map is out of band - so nothing in use is left behind and the
+  program's arena is the whole of conventional memory; measured, 196KB parked
+  where the whole of it was 639KB (KERN-MEGA-DOS-PLAN 10.6). Runs that do
+  not fit, or are within 16KB of all of it, fall back to the PREFIX park:
+  `[mem_top]` KB, 16KB less a try down to 128KB. A pool that cannot hold
+  128KB refuses the post with `No room above 1MB` and nothing torn down. A
+  prefix park smaller than conventional memory leaves the rest IN PLACE and
+  lowers `KDL_CAP` to the park, so the program's arena ends below the first
+  byte it was not given (12.1 item 5).
+* **The snapshot is `hbm_wrimg`'s moment** (`mega_dosparkf`): the hardware
+  drivers swept into `[hb_drvmask]`, the lock and `[sch_lock]`, then the copy
+  and a SPARSE, DISTRIBUTED sum over the park and the kernel's state above 1MB
+  (one word per 64-byte line, its place stepping 22 bytes a line; Fletcher's
+  two sums mod 65535) - which covers the header's own list and counts, and a
+  BANK of the table bytes its lines miss (GDT entries 1-5 and 7, 1FF8h-1FFDh,
+  IDT gates 20h-21h), which the stub's copy list puts back. The MSW is
+  banked beside the rest. It returns twice, and the second return is where a
+  kern_big image's wake address would have brought the machine: `hbm_dosrun`
+  frees both claims and jumps to `hbm_wake`.
+* **The way down** (`mega_dosgo`, `mega_dropr`) is CR0 on a 386 and the
+  shutdown-0Ah reset on a 286, whose landing in `mega_r286` branches on
+  `[mega_drop]`. The IVT's tick and keyboard go back to the BIOS's, the 8259
+  is re-based at 08h with every line masked first, and the loader stub runs
+  from a copy of the 16KB stage just below the top of the park (of
+  conventional memory, for a runs park, which is parked or free).
+* **The way home** is `kd_unpark` (`kerndos/kdpark.inc`, `-DKD_MEGA`): the four
+  cells `hbm_wake` reads are staged (96.49.5's clock and tick, the exit code,
+  the arena), A20 is opened and proved, and kern_dos enters protected mode on
+  the GDT the kernel left in the park's header, straight into the PARK STUB
+  where it lies above 1MB, passing the sum, the KB and the park's base in
+  registers from the launch block. The stub checks its header's cells
+  against those, its GDTR and IDTR cells against the build's constants and
+  its wake against the two legal ones, re-takes the sum and either makes
+  its copies (the bank, and a runs park's later runs) and restores
+  0..3FFh and 500h..P (never the BDA) and far-jumps to `mega_dwake`, or clears
+  W7's anchor and puts
+  *"os8088: NAME wrote over the parked session. Press a key to restart."* on
+  the text page, waits for a key and resets the machine (12.1 item 3).
+* **kern_dos runs in the HMA** (`-DKD_HMA`, which `-DKD_MEGA` implies): the
+  image at FFFF:0010, the FAT snapshot and the mount buffers at 0060h, and
+  every vector into the image through a low trampoline that proves A20 and
+  reopens it - so the program's arena is ~35 KB larger (621 KB measured
+  against 586). `LOADFIX <program>` at the box's prompt keeps the arena above
+  64KB for a program that cannot load lower with A20 open, and the loader
+  UNPACKS the one class it can recognise itself, keeping the low arena
+  (96.40.9.1). The Memory page's *Load DOS in the HMA* box, unticked, runs a
+  second kern_dos LOW instead, with A20 shut (96.40.9.2).
+* **An option ROM's IRQ line is left open** for kern_dos and primed once on
+  the way home (the PicoMEM's multiplexer, SPEC.md 34.10.1).
+* **The menu bar says what the trip cost**: `DOSP kkkkK o tttt b tttt`, the
+  KB parked and the milliseconds out (copy and sum) and back (sum and
+  restore), decimal.
+* **Two `DOS.O88`s** (12.1 item 4): `mega.img` carries one built with
+  `-DDOS_MEGA` and `-DKD_MEGA` (`$(MEGADIR)/kdos/DOS.O88`); kern_big's stays
+  byte-identical. The kern_mega build refuses on any kernel without
+  `CPU_F_PM` (*DOS.O88 is kern_mega's*); kern_big's, which cannot be changed to
+  say so, is refused by kern_mega's loader (*Use this disk's DOS.O88*), which
+  knows it by the `'KMEG'` mark the kern_mega build puts before both its entry
+  procs.
+* **A warm reset brings the session back** (W7). While a park stands, GDT
+  entry 0 - which the CPU never reads and the sum does not cover - holds an
+  ANCHOR: `'PK'`, `'RS'` and the park's linear base, written by `mega_dosgo`
+  and cleared by `mega_dwake`. A warm boot keeps RAM, and kern_mega writes
+  nothing above 1MB until `mega_enter`, the last thing `kmain` does, so after
+  Ctrl-Alt-Del inside a DOS program the session's park, tables, `.cold` and
+  pool blocks are all where it left them. `mega_wrprobe` (the boot blob,
+  before `drv_boot`) reads the anchor through `int 15h AH=87h`, **clears it
+  before deciding anything** - a recovery that fails is never tried twice -
+  checks the header's `'PARK'`, opens A20 and enters the stub as `kd_unpark`
+  does, with this boot's clock in `hbm_wake`'s cells and the exit code
+  `MPK_RESETCODE` - a refusal carrying DOS_MEGA's `DER_RESET`, so the box
+  says *"The machine was restarted while it ran."* and gives its prompt. The
+  stub's sum is the judge: a park the reset or
+  the ROM damaged is refused in the stub's sentence and restarts into an
+  ordinary boot. A ROM whose warm boot clears extended memory leaves no
+  anchor, and boots as before.
+
+#### 96.40.9.1 An EXEPACK program is unpacked by the loader
+
+**The class**: Microsoft's EXEPACK (LINK `/EXEPACK`, and the standalone
+`EXEPACK.EXE`) puts an unpacker at the program's entry that normalises both
+of its pointers DOWNWARD - a segment `sub` and `or si, -16` - so the last KB
+of its output is written through `(B - 0FFFh):FFF0`-shaped addresses, B the
+load segment. Below 64KB that segment is below zero and the address is right
+only through the 1MB wrap. kern_dos in the HMA (96.40.9) is the arena that
+is both below 64KB (the floor is ~9KB) and run with A20 OPEN, so the wrap
+reaches the HMA, the unpacker reads a command byte that is not one, writes
+*Packed file is corrupt* to handle 2 and exits **255** - and since the text
+page goes with the program, `NAME ended, exit code 255` is all the user sees.
+Test Drive III was the field report (docs/plans/KERN-MEGA-PLAN.md 14.23);
+kern_big's kern_dos, which leaves A20 as the BIOS has it, runs the same file.
+
+**The rule**: on the HMA arm (`-DKD_HMA`) the program's own unpacker never
+runs. After `dos_exe_setup`, kern_dos's loader (`kd_xpack` -> `kd_xunp`,
+`kerndos/kdxpack.inc`) recognises EXEPACK by the shape its header gives it -
+an MZ header with **no relocation entries**, **IP 0010h or 0012h** (the 16-
+and 18-byte header shapes) and **`'RB'` at CS:IP-2** - and unpacks the image
+IN PLACE, from the published format: the stream read backward from the
+packed image's end (up to fifteen 0FFh of padding skipped), `B0h`/`B1h` a
+fill and `B2h`/`B3h` a copy with bit 0 the last command, then the packed
+relocation table - found after the stub's *Packed file is corrupt*, sixteen
+groups of a count and offsets, one per 64KB of the image - applied against
+the load segment, and the program entered at the header's real CS:IP and
+SS:SP. Its pointers are CLAMPED at the load segment where the stub's wrap
+below it, so the result is the same at any floor and the arena is the one
+every other program gets: **621 KB** for Test Drive III, against 566 under
+the rule this replaced.
+
+**Nothing is written until everything has been checked**: the header (the
+block inside the image, the packed image no bigger than the unpacked one),
+the table (its groups ending exactly at the block's last byte, every fixup's
+word inside the unpacked image), room for the table's move to the paragraph
+above the image inside the program's block - where the program's own stub
+would have put its copy - and a DRY WALK of the whole stream, which proves
+every length in bounds and that no command writes over a byte it has still
+to read. So a refusal leaves the image as `dos_exe_setup` left it, and then
+the old answer stands: **when the arena starts below 1000h the floor is
+raised to 1000h**, the arena re-sized (`kd_arena`) and the image read again
+at the new PSP through `.loadtry`'s ladder (96.44.11) - `LOADFIX` taken
+unasked, ~55KB off the arena and nothing else. A floor `kd_arena` refuses is
+put back and the program runs as it is.
+
+**The cost**: the unpacker was +976 bytes of kern_dos's HMA image (net of the
+shape test it replaced), and the switch (`kd_tolow` + its own LZ4 reader,
+`kxl_dec`) and the two staged fields add **+416 more** - `kerndos.bin` on
+kern_mega 35,305 -> 35,721, all of it inside `%ifdef KD_HMA` and so the HMA's
+own kilobyte (`KD_IMG_KB` 37, the arena unchanged), plus 12 bytes of
+`HIBER.DRV`'s image (`KDL_O88CL`/`KDL_O88V`, kern_mega only) and 16 of the
+box's `dosp.bin` (part 3's row). The child hook is **+11 bytes of the core**
+(`dos_exec_load`'s call and `DHK_XUNP` growing `dos_hkv`, `CORE_BSS_SIZE` mega
+3509 -> 3511), `%ifdef DOS_MEGA` throughout. kern_mega's `DOS.O88` 50,616 ->
+64,777 on `mega.img` (part 3, 96.40.9.2, is the bulk). **kern_big's
+`kerndos.bin`, `doscore.bin`, `dosp.bin` and `DOS.O88` are byte-identical** -
+every byte added is behind `KD_HMA`, `KD_MEGA` or `DOS_MEGA`.
+
+**A VARIANT THE UNPACKER REFUSES SWITCHES TO THE LOW IMAGE, HIDDEN**
+(`kd_tolow`, `kerndos/kdxpack.inc`, KERN-MEGA-PLAN 14.26): an EXEPACK-shaped
+program whose format `kd_xunp` does not recognise - an unknown variant, a
+header that does not add up - would otherwise take 14.23's floor raise and
+run at 566 KB. Instead the HMA kern_dos becomes the LOW one (96.40.9.2): it
+is already in real mode with its own file layer, so it reads part 3 of
+`DOS.O88` itself (the box stages its row at `KDL_L3OFF`/`KDL_L3ZB` and the
+kernel stages the file's cluster and volume at `KDL_O88CL`/`KDL_O88V`),
+expands it into a staging window in the arena, and then - touching no stack,
+because the copy-down overwrites the HMA arm's own FAT snapshot, mount
+buffers and stack at 0060h - relocates it to 0060:0000, copies the core into
+its `CORE_ORG` hole and the launch block (with `KDLF_LOWDOS` set and
+`KDLF_LOADFIX` clear) where the low image's header points, and far-jumps into
+it exactly as the loader stub would. **No re-post to the desktop**: the run
+and the way home are the low route's, the park fields carried in the launch
+block verbatim, so the user sees at most a short disk pause. The program's
+own unpacker then runs with A20 shut and wraps correctly, and the arena is
+585 KB rather than the floor raise's 566. Only an EXEPACK-shaped program the
+unpacker REFUSED takes this, not every refusal of every program;
+14.23's floor raise is the fallback when part 3 cannot be read.
+
+**A CHILD an `AH=4Bh` launches is unpacked the same way** (`DHK_XUNP`, Task B):
+the core's `dos_exec_load` does not pass through `kd_entry`'s loader, so before
+this a launcher's EXEPACK child ran its own unpacker below 64KB with A20 open
+and failed. The HMA host fills `DHK_XUNP` with `kd_xunp` (`%ifdef DOS_MEGA`, so
+kern_big's core is byte-identical) and the core calls it after `dos_exe_setup`
+for the child, against the same `[dos_exe_*]` cells. Best effort: a child
+`kd_xunp` refuses runs its own unpacker, which works when the allocator placed
+it at or above 64KB. **The top-level switch above is not available mid-run** -
+the stub that would load the low image is gone - so a refused child that needs
+the wrap below 64KB is the one case `LOADFIX` is still for, raised per child
+only where meaningful (a child loads wherever the allocator put it). MS-DOS 5
+patched the unpacker in place instead, which needs a corrected copy of the
+code per EXEPACK version; this box carries no such copy and needs none.
+
+**The probes** are two. `tests/dostrap/xpack.asm` (`make build/XPACK.EXE
+build/XPACKNS.EXE`) has EXEPACK's SHAPE and none of its format, so the
+unpacker refuses it and it exercises the FALLBACK: it makes the same
+below-zero access to its own first eight bytes and exits 30h when the wrap
+saw them, FFh when not; `XPACKNS.EXE` spoils the signature, so it stays low.
+`tests/dostrap/xunp.asm` is the FORMAT: a plain 128KB program with
+relocations in two groups, one of them the word at offset 0FFFFh that
+straddles a paragraph, that `tools/os88xpack.py` packs into the real layout
+(its own independent reader unpacks the result before it is written) behind
+a stub that only prints the message and exits FFh - so the program's code
+runs only if the loader unpacked it, and it then checks its CS, SS, all
+three fixups and its bytes (exit 30h; 31h-3Ah name the check that failed).
+`XUNPL.EXE` is the 18-byte header with a skip of 2, `XUNPT.EXE` and
+`XUNPS.EXE` spoil the table and the stream. Bochs, kern_mega: `XUNP` and
+`XUNPL` **048 (621KB)**, Test Drive III to its Main Select Screen and
+`exit code 000 (Arena: 621KB)`.
+**Red on purpose**: `kxp_reloc` taken out, `XUNP` and `XUNPL` exit **051**
+(33h, the code's fixup).
+
+**THE SWITCH ITS OWN PROBE** (`tests/dostrap/xswitch.asm`, KERN-MEGA-PLAN
+14.26): `XSWITCH.EXE` has EXEPACK's shape and none of its format, so
+`kd_xunp` refuses it and `kd_tolow` switches - and it reports by its EXIT CODE
+which arm ran it: **042 (0x2A)** the low image (below 64KB, A20 shut, the wrap
+resolved), 032 the floor raise (at or above 64KB), 0xFE below 64KB with A20
+open (the pre-14.23 bug). `XSWITCHN.EXE` spoils the signature so the loader
+leaves it on the HMA. **Measured, Bochs (16MB)**: `XSWITCH` **042 (585KB)** -
+the switch - `XSWITCHN` **254 (621KB)**, and `XPACK` now **048 (585KB)** where
+14.24's floor raise gave 566, `XPACKNS` 255 (621KB). The child's probe is
+`tests/dostrap/xkidrun.asm`: `XKIDRUN.COM` shrinks and `AH=4Bh`-EXECs
+`XUNP.EXE`, exiting with the child's code - **048** on the HMA host, the child
+unpacked - and the break-on-purpose `XKIDRUNT.COM` EXECs the spoiled
+`XUNPT.EXE`, whose stub then runs and exits **255**. Both the ticked and the
+unticked Test Drive III reach the Main Select Screen (621/585 KB). They are
+on-demand probes like `A20SHUT.COM` - kern_mega's box runs under Bochs and no
+row drives it.
+
+#### 96.40.9.2 ...or kern_dos LOW, with A20 shut: `Load DOS in the HMA`
+
+**The second answer, and the owner's** (*"could we also have a 'load in hma'
+checkbox in the settings, and thus have two possible fixes?"*). 96.40.9.1
+cures the one class that names itself; the HMA arm's real cost is the 1MB
+wrap, and a program can want that wrap without EXEPACK's shape. So kern_mega's
+`DOS.O88` carries BOTH kern_dos images and the launch picks one:
+
+| | **ticked (the default)** | **unticked** |
+|---|---|---|
+| the image | part 2, `-DKD_MEGA` (implies `KD_HMA`): FFFF:0010 | part 3, `-DKD_MEGA -DKD_LOWDOS`: 0060:0000, kern_big's address |
+| A20 for the program | OPEN, every vector through a low trampoline (96.40.9) | SHUT (`kd_a20shut`) - the wrap works |
+| an EXEPACK program | unpacked by the loader (96.40.9.1) | its own unpacker runs, as under DOS |
+| the arena, measured | **621 KB** Bochs, **622** 86Box's 286 | **585 KB** Bochs, **586** 86Box's 286 |
+
+**Where it lives** is the box's Memory page, beside *Disable the mouse*,
+because that is how every other choice about the machine a launch gets is
+made: per launch, saved in a shortcut (byte 12's `LNK_BX_NOHMA`, set =
+unticked, so a link that never heard of it means the default) and moving the
+page's estimate as it is worked (`DOS_KDKB_HMA` 9 against `DOS_KDKB_LOW` 45 -
+612 against 576 on Bochs, nine under each measurement, the safe direction).
+It takes the row the radio's second heading has on kern_big, which kern_mega
+does not draw (96.40.9's *one line where the radio stands*); kern_big's
+Memory page has no row to spare (96.36.2: nine rows do not fit 118 pixels
+and eight do) and no use for the box, so its `DOS.O88` - byte-identical -
+does not carry it and ignores the bit, dropping it if it saves the link
+again. It is never greyed: this `DOS.O88` runs only on a kern_mega in
+protected mode (96.40.9), and there both images always can run. A real-mode
+kern_mega refuses the whole box before a page is drawn.
+
+**The mechanics**, all of them kern_mega's and none of them resident:
+
+* **The box posts part 3's row** (`dos_kdlrow`, copied into its bss by the
+  loader beside parts 1 and 2's, `apps/dos/dosload.asm`) in place of part
+  2's, and sets `KDLF_LOWDOS` (bit 5) in the launch block it stages.
+* **The kernel's loader stub picks the address** (`kernel/hiber.inc`,
+  `HIBER.DRV`): one test of that bit in the staged block, and the segment and
+  origin it expands kern_dos to, copies the launch block into and jumps to
+  are two stage cells (`KDS_KSEG`, `KDS_KORG`) instead of constants. The
+  core still lands at `CORE_ORG` in the same segment, which at 0060h is
+  where kern_big puts it. The one extent run now reads the core, part 2 and
+  part 3, the cost of a layout that keeps the core first (96.44.5.4): ~13KB
+  more read on the low route, nothing on the default one.
+* **The low image shuts A20** at entry, after `kdx_init` (`kd_a20shut`,
+  `kerndos/kdpark.inc`): the fast gate where port 92h reads as one, then the
+  8042's output port with A20 low, and up to 512 probes until the wrap test
+  agrees; a gate that will not shut is left open. `kd_unpark` opens and
+  proves it on the way home as it always did. The XMS door is unchanged -
+  `int 15h AH=87h` gates A20 itself - and its A20 calls still answer yes and
+  change nothing (96.15.2).
+* **It has neither half the HMA needs**: no trampolines (`kdhma.inc`), no
+  low DPT copy, no unpacker (`kdxpack.inc`) - so its rung is 36 KB and comes
+  off the program again, as on kern_big.
+
+**What it costs**: part 3 is 33,952 bytes of image (13,649 of disk, LZ4),
+which takes kern_mega's `DOS.O88` from 50,616 to 64,265 bytes on `mega.img`;
+the box's part +142 bytes (`dosp.bin` 50,930 -> 51,072); `HIBER.DRV` +35
+bytes of file, its 9,217-byte image unchanged. No kernel byte is resident, and kern_big's `kerndos.bin`, `doscore.bin`, `dosp.bin` and
+`DOS.O88` are byte-identical.
+
+**Measured**, unticked, on Bochs (16MB, kern_mega from A:) and on 86Box's
+`286-video` (MR BIOS 286, 4MB, kern_mega installed on IDE, the 286 reset
+route): `XPACKNS.EXE` - the program that needs the wrap and has no shape
+for 96.40.9.1 - **048** at 585/586 KB where the HMA arm gives it 255;
+`XPACK.EXE` 048; `A20PUB.COM` **071** and `A20SHUT.COM` **032**, unchanged;
+Test Drive III to its Main Select Screen and `exit code 000` at **585 KB**
+(Bochs) and **586 KB** (86Box). Ticked again, the same session: `XUNP.EXE`
+048 at 621 KB and Test Drive III 000 at 622 KB on 86Box. Every trip came
+home to the desktop.
 
 ### 96.41 The return — the machine goes all the way round
 
@@ -173023,10 +173806,17 @@ map             = bit k: list k is present (P1 = bit 0 .. RUNL = bit 9);
   3.20 us a byte against 2.11 for a store in the same loop
   (docs/reports/VM3BENCH-PVGA286-2026-10-13.md).
 - **Its decoders** (`apps/video/vdec.inc`): `vd_native`'s chained lists each
-  open on a GATE, `shr word [vd_map], 1` and a jump past the list when its
+  open on a GATE, a shift of the map and a jump past the list when its
   bit is clear - `vd_native` sets the map FFFFh, so a one-bit file and a
   file before SUB2 decode as they did, and `vd_nmap` reads a SUB2
-  sub-record's map first. `vd_wmap` is the same chain with the write mode 3
+  sub-record's map first. The map is DX through the six poke lists (which
+  never touch DX: `shr dx, 1`) and a word on the stack through the four span
+  lists (which count rounds in DX: pop, shift, push), popped at the chain's
+  `ret`. It was a word at CS shifted in place, and on kern_mega CS is a
+  read-only code alias, so each gate was a #GP (98.3.18.16): MartyPC's 5150
+  times the register map **~170 cycles a frame faster** than the memory one
+  (vidbench's synthetic set: an empty frame 1,440 -> 1,273, a real one 0.4 to
+  0.9% less). `vd_wmap` is the same chain with the write mode 3
   stores (`lodsb / and [es:di], al / inc di`), unrolled eight, four or two to
   a round as the store's size lets a `loop` reach. Round the text box
   (98.3.13.1, `vd_clipm`) and into a RAM image (`vp_decram`) a colour
@@ -181586,7 +182376,9 @@ So while `[vp_snd]` is `VP_SPK` (the speaker, or a Covox, 98.3.15.1) the
 player makes no XMS copy at all: no prefill, no banking (`vp_bstep`), no copy
 up behind the stream (`vp_xput`), no copy down (`vp_xfill` answers
 `vp_xquiet`, which hands whatever the bank held back to the stream's cursor,
-sought once to the head's offset). The disk serves, as with no pool. A card's
+sought once to the head's offset). The disk serves, as with no pool. (In
+protected mode a hold or a bank goes in place instead, 98.3.18.16: kern_mega's
+copy holds no interrupt off.) A card's
 DMA does not stop for a mask, so a Sound Blaster play banks as before; and
 M, which turns the speaker off mid-play, gives the bank back with the PIT's
 clock. A key's read at a seek still copies once - a seek closes the speaker
@@ -182722,9 +183514,10 @@ bank and the layer its own open's share (`vidlysplit`'s clip: 8 and 18
 slots, where copying takes 0 and 25), and on the base's machine the layer's
 bank is given back and the pool past the base's ask stays idle. A held base
 needs no bank, so a hold in place loses nothing. The speaker's clock stays refused on
-every tier: a borrow on a 386 is ~6 us rather than ~150, but the decode
+every tier that borrows: a borrow on a 386 is ~6 us rather than ~150, but the decode
 inside it still runs with interrupts off for up to `VP_XYB` record bytes,
-and one interrupt a sample cannot wait for that. **`[vp_noinp]` now refuses
+and one interrupt a sample cannot wait for that. (Protected mode borrows
+nothing and takes it, 98.3.18.16.) **`[vp_noinp]` now refuses
 the hold in place as well as the bank**, which is what lets a gate on QEMU's
 386 - every gate that used to see a copying play there - ask for the copying
 path as the A/B. The check needs no probe: CR0.PE exists on every tier-2 CPU,
@@ -182783,6 +183576,89 @@ choice is unexercised; `VP_XSPTEST`, a test build, takes the measurement at
 every hold's open, and `tests/vidxspeed.py` holds it to a sane range on
 QEMU and the block given back. VIDEO.O88 53,916 -> 54,514 bytes for this
 section's two halves (+598); HDD.DRV's share is SPEC.md 52.1.4's.
+
+##### 98.3.18.16 Protected mode: the hold and the bank read through selectors (2026-10-19)
+
+**On kern_mega in protected mode (`CPU_F_PM`) a held file and an XMS bank
+decode in place too**, with neither LOADALL nor a loaded base: the 286's
+own segment descriptors are the mechanism those two imitate, and here the
+kernel builds them. docs/plans/KERN-MEGA-PLAN.md 14.16 is the record.
+
+- **The window is a selector of a RUN** (`OSAPI_XMEM_RUN`, 41.16): taken
+  with the hold or the bank (`vp_xrunmk`, `[vp_xrun]`), one data selector
+  every 32 KB of the block, each a 64 KB window - so a super-packet or a
+  record (32 KB at most where in place is taken: BIGSP is refused, 98.1.4.1)
+  from any offset lies wholly in the window of (offset >> 15). `vp_xmk`
+  answers that selector and offset & 7FFFh instead of a handle, and every
+  `VP_DSDX` site is then the plain `mov ds, dx` it is for a ring pointer:
+  **no borrow, interrupts left as they are, no yield** - a selector survives
+  every interrupt that reloads DS, which is what a hidden base could not. So
+  the yield sites stay jumps over themselves (`vd_ypatch` is not called).
+  `OSAPI_MEM_HUGE`'s run is the wrong tool for this: a window every 64 KB
+  cuts a record that straddles one, and `OSAPI_XMEM_SEL`'s single window
+  would have to be re-aimed by the UI task, under the hook's feet.
+- **Taken** where 98.3.18.11 and 98.3.18.13 take it, on their lists and for
+  their reasons, plus the run itself: `vp_xok` refuses in place for a block
+  that has none (no LDT run free), and the session copies. There is no
+  LOADALL probe to run; the 16-byte compare against `OSAPI_XMEM_COPY` is
+  still made once an instance and is the run's whole check.
+- **Except two of those reasons, which are a borrow's** (KERN-MEGA-PLAN
+  14.16.1): under `CPU_F_PM` the SPEAKER's clock and the SHADOW are taken
+  in place, the hold and the bank alike (`vp_xipq`, `vp_xbipq`; every
+  other path refuses them as before). The speaker was refused because a
+  borrow holds interrupts off through the decode (98.3.18.14) and a copy
+  holds them off too (98.3.18.5). Here a selector holds nothing off, and
+  kern_mega's `OSAPI_XMEM_COPY` is a `rep movsw` under `[sch_lock]` with
+  interrupts on, so the bank in place's copy up stops nothing. The shadow
+  was refused because `vp_decram` and `vd_c160` have no yield sites, and
+  nothing yields here.
+- **The card says so**: `XMS in place (PM)` and `XMS bank in place (PM), N
+  KB` (`[vp_lbk]` 7 and 8, the words chosen by `[vp_pm]`).
+- **The gap (98.3.18.12) applies where a copy still runs and nowhere
+  else.** A held file in place copies nothing during a play - its fill is
+  made before it, by the timer - so `vp_xgpad` gives its ring no slack, as
+  on the 286. A bank in place still reads each chunk into the bounce and
+  copies it UP (`vp_xbread`), and that copy is conventional to extended, the
+  case `xg_gap` measures, so it stays placed at the gap. The decode's own
+  reads through the selector are a sequential stream out of extended memory
+  into the adapter: there is no second RAM end for an interleave to set
+  against the first, which is what the 1.8x (41.14) was between.
+
+**Measured** under Bochs at 4 MB and 2 MB (no 286 here runs protected mode
+and the hook both): the 794 KB `vidxip` clip held whole plays 240/240 in
+place with no stall and no late period, and banked (672 KB of 776 KB, the
+mirror read on the wrap) the same; each play's last picture is pixel for
+pixel the `VP_NOXIP` copying play's, and neither logs a #GP. Not yet run on
+the mr286 profile.
+
+**The speaker and the shadow, measured on a 286** (86Box `vm/286`, 12.5
+MHz, VGA, no card; KERN-MEGA-PLAN 14.16.1 has the table). The same 240
+frames at 24 fps, from a 1.44 MB floppy:
+
+- With an 11,025 Hz PCM8 sound on the speaker, held whole at 4 MB: **182
+  ticks of 181, Late 0** in place. With the refusal kept, the disk served
+  it: **375 ticks, Late 477**.
+- Banked at 2 MB (672 KB): **195 ticks, Late 27** in place, against **403,
+  Late 546** refused. The same bank played silent is 183, so the speaker
+  still costs a bank in place ~7% here. Why was not measured.
+- A Hercules-layout file through the shadow on the VGA, held: 182 ticks,
+  Late 0, as the copying play (183). The last picture is the same in both.
+
+Nobody listened: the speaker was judged by its clock, which paces the
+frames under `VP_SPK` (98.3.15).
+
+**What it changed besides**: the player stores nothing through CS on a
+per-frame or per-read path any more, on any kernel (98.1.3.2.4's map,
+`vd_walk`'s and the text box clip's walk state are stack frames,
+`vp_rbnd`'s map is DX, `vp_lrget` and `vp_khdr` read the record through ES
+with DS ours, and four per-sub-record bytes go through `VP_OWNB`, an ES
+load of `[vp_self]`); a VGA4 RAM image's plane spacing (`[vp_plsp]`) is
+rounded to 8 paragraphs under `CPU_F_PM`, a plane being a segment and the
+first one off kern_mega's grid a #GP at plane 1 (`vp_zero`); and HDD.DRV's
+`HDV_ARM` refuses under `CPU_F_PM` (52.1.4). VIDEO.O88 57,783 -> 57,840
+bytes (-123 for the CS work, +180 for this section), bss unchanged; the
+kernel's share is `OSAPI_XMEM_RUN`'s. The speaker and the shadow in place
+are +20 more (57,860).
 
 #### 98.3.22 The play's profile: every frame timed on the machine (2026-10-15)
 
@@ -185368,6 +186244,41 @@ the standard's `OP_BSS`. What lets the 1.44MB and 1.2MB floppies break even rath
 cluster is §20.12.9.5: 111 bytes of the standard's refusal machinery this table cannot reach.
 
 
+### 102.11 No write through CS in a frame (kern_mega, 2026-10)
+
+Under kern_mega (docs/plans/KERN-MEGA-PLAN.md) CS is a read-only code alias, so every store through
+it is a #GP the kernel completes in `mega_gpw`. The renderers keep DS on the card or a claim, and
+their state was written through CS: ~51 traps a frame on the VGA, ~343 on the CGA (the retrace spin
+sampled the clock through CS), and 44,304 / 34,247 at every bracket's pose load. None is left on a
+frame or a load; KERN-MEGA-PLAN 14.21 has the counts. Where the state lives now, and the rule for
+new code there: **a routine that runs with DS foreign stores into the STACK, a register or ES = ours,
+never through CS.**
+
+- **The column constants** (`xc_col` / `xh_col`): a 10-byte frame on the stack, `[bp]` the bank,
+  `[bp + 2]` rw, `[bp + 4]` x2, `[bp + 6]` / `[bp + 8]` the band and top strips; `xc_run` / `xh_run`
+  read it through BP. `xc_setx` / `xh_setx` and the five words they stored are gone. `xh_hud`'s own
+  `[xc_x2]` is a separate use and stays.
+- **The VGA**: `xv_sync` and `xv_erase` make every store with DS ours and move DS to the card only for
+  their column loops; `xv_erase`'s column is BX and its count DL there, and `xv_col` keeps x on the
+  stack. `xv_bike` runs with DS ours (`[ds:xb_bikes + bp]`, BP addressing SS) and its interpreted
+  loop keeps the layer in BP's high byte (`xv_lay` and `xv_msk` are gone).
+- **The CGA's box**: ES = DS's selector (`push ds / pop es`), not `push cs / pop es`, and
+  `xc_drawc`'s three words are written `[es:]`. `xc_render` stores `[xc_xl]` before DS moves to the
+  dictionary claim.
+- **The clock** (`game.inc`): `xb_clk_sample` is DS-relative for every caller with DS ours.
+  `xb_clk_samplef` is for the two that have DS foreign (`xv_sync`'s and `xc_render`'s full-window
+  column loops) and is the CS-relative body; under `CPU_F_PM`, `xb_pmset` (`video.inc`, at the top of
+  every bracket) banks DS in `[xb_self]` and writes a `jmp short` over its first two bytes THROUGH
+  DS, to an arm that loads DS = `[cs:xb_self]` and calls the DS entry. A real-mode kernel never sees
+  the jump. The region cannot move inside a bracket, and every bracket re-banks `[xb_self]`.
+- **The pose loaders** (`xs_shift`, `xs_cgarow`): ES = ours for the stores, DS the art; the two
+  compilers keep DS ours and read the blobs `es lodsw` / `[es:si]`.
+
+The image is 216 bytes smaller and the bss 10 (31,324 / 9,686 against 31,540 / 9,696), and every
+routine on the frame path is shorter. On kern_big the frame got FASTER, measured on MartyPC's XT with
+`tests/excitebike_perf.py --scroll`: the VGA erase 5,185 -> 4,744 clocks, the columns 9,016 -> 8,944,
+the sprites 8,590 -> 8,485 (KERN-MEGA-PLAN 14.21 has the CGA and Hercules rows).
+
 ## 103 REDLINE — CPU and graphics benchmarks (`apps/redline/`)
 
 REDLINE.O88 is an on-demand native benchmark and inventory package. `make redline`
@@ -186575,7 +187486,17 @@ the sum), ES the sample, the step's whole part an immediate patched into the
 sample's end ((end - pos - 1) / (whole + 1) samples are certainly safe) and
 the one sample that may cross is made by a careful path that loops or ends
 the voice. On an 8088 the bytes are the cost: the first cut was 27 and played
-58% of 8 kHz with four voices on the 5150. **Measured on that machine** at
+58% of 8 kHz with four voices on the 5150. **Under kern_mega that patch is a trap** -
+a package's CS is a read-only code alias in protected mode (34.11.1.1) - so
+once a voice a span, 240-480 a second at six to eight voices. The loop is
+assembled twice (`MWT_VSET`, `MWT_VRUN`): `mwt_voice` byte for byte the loop
+above, and `mwt_voicep`, whose `adc` takes the step from `[MWT_VSTEP]`, a
+word after the output table in the mix claim, which IS DS in the loop - the
+claim stays 11 KB. One memory operand for both would have cost the 8088 ~11
+cycles a sample, so the choice is made once: `mr_entry` asks
+`OSAPI_CPU_INFO` and under `CPU_F_PM` `mwt_pmset` writes a near `jmp
+mwt_voicep` over the patch at `mwt_voice.st`, through DS (+166 bytes, no
+cycle on kern_big). **Measured on that machine** at
 8,000 Hz: one or two voices hold the rate, three make 94%, four 78%. So an
 8088 opens it at **6,000 Hz with three voices** (99%), a 286 at 11,025 with
 eight, a 386 or better at 11,025 with sixteen - the bank's samples are 11,025

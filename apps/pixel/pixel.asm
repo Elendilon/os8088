@@ -29,7 +29,7 @@
 %include "pxsvc.inc"                ; ...and the parts' UI services
 %include "pxanim.inc"               ; a GIF that plays (106.25)
 
-    OS88_HEADER 'PiXEL', px_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_GLYPH | OS88_F_PARTS
+    OS88_HEADER 'PiXEL', px_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_GLYPH | OS88_F_PARTS, OS88_HIGH
 
     OS88_ICON16
 %include "pxappico.inc"
@@ -4222,7 +4222,7 @@ px_fidx     equ px_cur + PXR_FIDX
     PXVAR px_chfrac, 2
     PXVAR px_chint, 2
     PXVAR px_crseg, 2
-    PXVAR px_ccnt, 2
+    PXVAR px_cend, 2
     PXVAR px_cdep, 1
     PXVAR px_useP, 1
     PXVAR px_rx0, 2

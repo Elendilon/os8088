@@ -313,8 +313,20 @@ class Unit(object):
         return cur
 
 
+# kernel/kernel.asm's segment macros for kern_mega: PUSH_CSDATA and
+# PUSH_KCODE each leave ONE word (`push cs` / `push ds` on every other build,
+# and on kern_mega the same word, converted), and `CSDO insn` is `insn` with
+# DS swapped around it and put back - so it moves SP as `insn` does
+SEGPUSH = re.compile(r"^(?:PUSH_CSDATA|PUSH_KCODE)\s*$", re.I)
+CSDO = re.compile(r"^CSDO\s+", re.I)
+
+
 def delta(text):
     """How this instruction moves SP, in words. None = not a stack move."""
+    if SEGPUSH.match(text):
+        return 1
+    if CSDO.match(text):
+        return delta(CSDO.sub("", text))
     if PUSH.match(text):
         return 8 if text.lower().startswith("pusha") else 1
     if POP.match(text):

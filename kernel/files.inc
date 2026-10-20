@@ -8494,7 +8494,11 @@ fm_mods:
     cmp di, [fdlg_blk]
     je .k
     push ds
+%ifdef KERN_MEGA
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
+%else
     mov ds, ax
+%endif
     mov al, [0x417]
     pop ds
     and al, 0x0F

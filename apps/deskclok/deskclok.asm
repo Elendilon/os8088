@@ -42,7 +42,7 @@
 %endif                          ; the header: OS88_STIKCARD_END lays its block
 %include "os88api.inc"
 
-    OS88_HEADER 'Desk Clock', dk_entry, OS88_F_ICON | OS88_F_DESK | OS88_F_STIK
+    OS88_HEADER 'Desk Clock', dk_entry, OS88_F_ICON | OS88_F_DESK | OS88_F_STIK, OS88_HIGH | OS88_HIGHMEM
 
 ; A clock's dial at ten past ten: also the Sticky App row's picture
 ; (STIK_ICON), so a row the boot could not launch becomes a desktop icon that

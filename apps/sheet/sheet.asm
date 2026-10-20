@@ -77,7 +77,7 @@
 %define SH_SBIDLE 9
 %endif
 
-    OS88_HEADER 'SHEET', sh_entry, 3   ; bit 0 = icon, bit 1 = the
+    OS88_HEADER 'SHEET', sh_entry, 3, OS88_HIGH | OS88_HIGHMEM   ; bit 0 = icon, bit 1 = the
                                         ; association block below
 
 ; --- embedded 16x16 icon: a blank page with a 3x3 grid on it -------------------

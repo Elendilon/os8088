@@ -255,7 +255,10 @@ pz_decode:
     push bp
     push ds
     mov [cs:pz_ctx], di
-    mov [cs:pz_pkg], ds
+    push ax
+    mov ax, ds                      ; via AX, never `, ds` (pxpart.inc)
+    mov [cs:pz_pkg], ax
+    pop ax
     mov al, [di + PXK_SCL]
     mov [cs:pz_scl], al
     mov ax, [di + PXK_RSEG]
@@ -271,7 +274,10 @@ pz_decode:
 .svc:
     mov ax, [di + PXK_SVC + bx]
     mov [cs:pz_svc + si], ax
-    mov [cs:pz_svc + si + 2], ds
+    push ax
+    mov ax, ds                      ; via AX, never `, ds` (pxpart.inc)
+    mov [cs:pz_svc + si + 2], ax
+    pop ax
     add si, 4
     inc bx
     inc bx
@@ -420,12 +426,15 @@ pz_body:
     mov ax, PXD_DATA
     jmp pz_fail
 .idat:
-    mov [cs:pz_left], ax            ; the image data starts here
+    mov [cs:pz_left], ax        ; the image data starts here
     mov [cs:pz_left + 2], dx
     call pz_setpal                  ; palette and transparency, K_PAL
     call pz_plan                    ; the passes, the bytes they need
     ; --- inflate's registers ---------------------------------------------
-    mov [cs:pz_ids], ds             ; the ring's position, for pz_cfill
+    push ax
+    mov ax, ds                      ; via AX, never `, ds` (pxpart.inc)
+    mov [cs:pz_ids], ax         ; the ring's position, for pz_cfill
+    pop ax
     mov [cs:pz_isi], si
     mov ax, [cs:pz_wseg]
     mov ds, ax                      ; DS = ES = the scratch, for good
@@ -961,13 +970,16 @@ pz_cfill:
     sub bx, ax
     jnz .run
     mov [cs:pz_isi], si
-    mov [cs:pz_ids], ds
+    push ax
+    mov ax, ds                      ; via AX, never `, ds` (pxpart.inc)
+    mov [cs:pz_ids], ax
+    pop ax
     pop ds
 .full:
     mov [cs:pz_cend], di
     mov dx, di
     sub dx, 16
-    jmp short .out
+    jmp .out
 .win:
     call pz_next                    ; the ring's next window
     jnc .run
@@ -1005,7 +1017,10 @@ pz_cfill:
     pop di
 .end:
     mov [cs:pz_isi], si             ; THE DATA'S END: zeros after it
-    mov [cs:pz_ids], ds
+    push ax
+    mov ax, ds                      ; via AX, never `, ds` (pxpart.inc)
+    mov [cs:pz_ids], ax
+    pop ax
     pop ds
     mov byte [cs:pz_dry], 1
     mov [cs:pz_cend], di

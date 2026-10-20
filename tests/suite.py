@@ -1383,6 +1383,25 @@ FAST = [
         "pixel twice and flashes on the target machine, so every call site is "
         "registered in tests/textsites.txt with a reason and the count can only "
         "go down"),
+    Row("cswrite", "fast", py("tests/unit/t_cswrite.py"), 0.5,
+        "docs/plans/KERN-MEGA-PLAN.md 2.4's ratchet: a write through CS and a "
+        "`push cs / pop ds|es` are free in real mode and a #GP in 286 "
+        "protected mode, where code is read-only. kern_mega shares most of "
+        "kernel/ with kern_big, so a new site in a shared file assembles and "
+        "runs here while it breaks a build nobody can boot yet. Every file "
+        "under kernel/ and drivers/ that uses either idiom is registered in "
+        "tests/cswrites.txt with its count and a reason, and the count can "
+        "only go down. FAST on t_textrules.py's argument - a rule about how "
+        "every kernel file is written belongs in front of the next `make`"),
+    Row("seg0", "fast", py("tests/unit/t_seg0.py"), 0.5,
+        "docs/plans/KERN-MEGA-PLAN.md 10.1 item 11's ratchet: segment 0 in DS "
+        "or ES is how real mode reads the IVT and the BIOS data area, and in "
+        "286 protected mode it is the NULL selector, #GP(0) on the first "
+        "access - the Victory 286's keyboard pointer died of it, and QEMU does "
+        "not fault on it at all. Every file under kernel/ and drivers/ that "
+        "loads one on an arm kern_mega assembles is registered in "
+        "tests/seg0.txt with its count and a reason. FAST for cswrite's "
+        "reason, on the same walker"),
     Row("btngesture", "soak", py("tests/btngesture.py"), 26,
         "SPEC.md 13.7/13.8 ON THE GLASS: a standard button goes DOWN while "
         "held, comes UP when the pointer slides off it, goes down again on the "
@@ -6205,6 +6224,22 @@ SOAK = [
         "two answers that trace showed DOS giving and us refusing.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/condev360.img")),
+    Row("call5", "soak", py("tests/call5.py"), 30.0,
+        "CP/M'S CALL 5 DISPATCHES ON CL AND COMES BACK (KERN-MEGA-DOS-PLAN "
+        "10.5 defect 3). PSP:5 is a far call DOS aims so that segment x 16 + "
+        "offset is its own dispatcher; the box aimed it at PSP:0050, the DOS "
+        "2+ far gate, which takes AH where CP/M passes CL and returns FAR to "
+        "PSP:000A, a data field - so CALL 5 had never served CP/M on any "
+        "kernel. It reaches `dos_cpm` now on every host. CALL5.COM, run with "
+        "B: current, exits with function 19h's answer through CALL 5, which "
+        "is 1 and is produced by nothing but a dispatched, returning call - "
+        "the pre-fix box exits 0 (AH is 0 at entry, so its first CALL 5 is a "
+        "terminate), on both legs: the windowed box, where the segment fits "
+        "a word, and kern_dos, where it goes below 0 and the call lands "
+        "through the 1MB wrap as IBM DOS 3.30's does. kern_mega's HMA run is "
+        "the third way and is Bochs's.",
+        needs=("marty",),
+        wants=("build/os8088-360.img", "build/call5360.img")),
     Row("dosgap", "soak", py("tests/dosgap.py"), 25.0,
         "A WRITE PAST THE END OF A FILE THE SAME HANDLE CREATED (SPEC.md "
         "96.11.6.3). Microsoft Works could not save a document - `Cannot "
@@ -9962,6 +9997,26 @@ SOAK = [
         "claim about the source and not a measurement. It is green: 29 checks "
         "on os8088_5150_herc_hdd_gla, the same 29 its CGA twin passes. Same "
         "body as `hibernate`, one argument apart. MartyPC.",
+        needs=("marty",), serial=True, timeout=1500),
+    Row("hibsumok", "soak", py("tests/hibernate.py", "--sum", "clean"),
+        35.0,
+        "SPEC.md 87.4.1's POSITIVE CONTROL: Mines is open across the "
+        "hibernate, so the programs' sum covers a region (the About box the "
+        "plain row uses is a built-in and the sum skips it), the machine is "
+        "powered off between the write and the resume, and Mines comes back "
+        "where it was. Without it the damaged arm could pass by refusing "
+        "every image. MartyPC.",
+        needs=("marty",), serial=True, timeout=1500),
+    Row("hibsumbad", "soak", py("tests/hibernate.py", "--sum", "damaged"),
+        50.0,
+        "SPEC.md 87.4.1 BROKEN ON PURPOSE: the same session with 1KB of "
+        "Mines's region flipped inside HIBERNAT.IMG on the host between the "
+        "two boots. The restored kernel must refuse at hbm_wake 3a - its "
+        "sentence on the text page, nothing resumed - delete the pointer and "
+        "the image, and a key must give an ordinary boot. ITS FIRST RUN WAS RED "
+        "FOR A REAL REASON: hbm_psum read mem_tab through DS, and mem_tab is "
+        "LOW_SEG's, so the sum covered nothing on both sides and a damaged "
+        "image resumed. MartyPC.",
         needs=("marty",), serial=True, timeout=1500),
     Row("instrest", "soak", py("tests/instrest.py"), 120.0,
         "SPEC.md 52.10.6.1: the installer's ACTION BUTTON reads Install and "

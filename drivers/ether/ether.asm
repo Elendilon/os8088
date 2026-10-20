@@ -40,6 +40,13 @@
 ; =============================================================================
 
 %define NETPKG_DRIVER           ; netpkg.inc's constants, not its client half
+%define OS88_DRV_HICLAIM         ; ...and its socket pool there too (item 83:
+                                ; sk_seg is only ever loaded, and sk_reloc
+                                ; is the one store a move needs)
+%define OS88_DRV_HIGHOK          ; kern_mega may run this image above 1MB
+                                ; (KERN-MEGA-PLAN item 82: no paragraph
+                                ; arithmetic on its own segment, no BIOS or
+                                ; DMA buffer in it)
 %include "os88drv.inc"
 %include "netpkg.inc"
 

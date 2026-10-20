@@ -37,7 +37,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'AUDIO PLAYER', ap_entry, 3     ; flags bit 0 = icon, bit 1 = assoc
+    OS88_HEADER 'AUDIO PLAYER', ap_entry, 3, OS88_HIGH | OS88_HIGHMEM     ; flags bit 0 = icon, bit 1 = assoc
 
 ; --- embedded 16x16 icon (SPEC.md 20.2): a speaker with two sound waves ------
     OS88_ICON16

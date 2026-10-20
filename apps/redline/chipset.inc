@@ -1892,9 +1892,10 @@ cs_measure:
     push dx
     push si
     push es
-    mov ax, ds                      ; the RAM twin: our own line buffer
-    mov [cs_tseg], ax
-    mov word [cs_toff], cs_lines
+    mov ax, ss                      ; the RAM twin: 512 bytes of the
+    mov [cs_tseg], ax               ; kernel's LOW_SEG, read - conventional on
+    mov word [cs_toff], 0           ; every kernel, where our own DS may be
+                                    ; above 1MB (KERN-MEGA-PLAN 14.14)
     mov word [bl_body], cs_rd512
     mov cx, 8
     call cs_ptime

@@ -167,10 +167,16 @@ ps_decode:
 .l:
     mov ax, [di + PXK_SVC + 2 * PXS_EMIT]   ; the two services, far
     mov [cs:ps_emitf], ax
-    mov [cs:ps_emitf + 2], ds
+    push ax
+    mov ax, ds                      ; via AX, never `, ds` (pxpart.inc)
+    mov [cs:ps_emitf + 2], ax
+    pop ax
     mov ax, [di + PXK_SVC + 2 * PXS_RING]
     mov [cs:ps_ringf], ax
-    mov [cs:ps_ringf + 2], ds
+    push ax
+    mov ax, ds                      ; via AX, never `, ds` (pxpart.inc)
+    mov [cs:ps_ringf + 2], ax
+    pop ax
     mov bl, [di + PXK_PRIV]
     cmp bl, DF_PIX
     jbe .df
@@ -807,12 +813,13 @@ ps_tail:
     mov ax, [cs:ps_ttail]
     mov dx, [cs:ps_ttail + 2]
     mov si, ax
-    and si, 15
+    and si, 127                     ; to 8 paragraphs, not 1 (PX_WGRID)
     mov cl, 4
     shr ax, cl
     mov cl, 12
     shl dx, cl
     or ax, dx
+    and al, 0xF8                    ; a segment kern_mega can load
     add ax, [px_flatseg]
     mov es, ax
     mov di, px_tbuf

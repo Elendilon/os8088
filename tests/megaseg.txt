@@ -1,0 +1,18 @@
+# tests/megaseg.txt - kern_mega's overhead in the kernel's 64KB segment
+# (docs/plans/KERN-MEGA-SEGMENTS-PLAN.md W0)
+#
+# The bytes kern_mega's `.text` + `.bss` carry beyond kern_big's, as
+# tools/os88megaseg.py measures them off the two maps. `make mega` fails when
+# the figure is above the number below. Every byte here is a byte kern_big can
+# no longer grow by before kern_mega overflows, so it only goes up for code
+# that has to run in REAL mode after the switch - the reflection's window, the
+# 286 reset landing, the drop into DOS - or for data a shared routine reads
+# through DS. Code that runs only in protected mode belongs in `.mega`.
+#
+# Raise it with a line saying what needed the room, and lower it whenever a
+# change takes kern_mega bytes out.
+#
+# 2026-10-20: 5,931 at the end of W2/W3 (was 17,299 before `.mega`)
+# 2026-10-20: +4, mega_putsf - mega_tell's lines are kernel DATA, which
+#             `.mega`'s CS cannot read, so they go to E9 through the low writer
+5935

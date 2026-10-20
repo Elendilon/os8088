@@ -158,7 +158,10 @@ pg_decode:
     mov di, px_k
 .ctx:
     mov [cs:pg_ctx], di
-    mov [cs:pg_pkg], ds
+    push ax
+    mov ax, ds                      ; via AX, never `, ds` (pxpart.inc)
+    mov [cs:pg_pkg], ax
+    pop ax
     mov ax, [di + PXK_SW]
     mov [cs:pg_sw], ax
     mov ax, [di + PXK_SH]
@@ -176,7 +179,10 @@ pg_decode:
 .svc:
     mov ax, [di + PXK_SVC + bx]
     mov [cs:pg_svc + si], ax
-    mov [cs:pg_svc + si + 2], ds
+    push ax
+    mov ax, ds                      ; via AX, never `, ds` (pxpart.inc)
+    mov [cs:pg_svc + si + 2], ax
+    pop ax
     add si, 4
     inc bx
     inc bx

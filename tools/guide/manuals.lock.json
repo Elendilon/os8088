@@ -319,9 +319,9 @@
   "sources": [
    "apps/dos"
   ],
-  "stamped": "9deeee7d",
-  "strings": "7e5f0adda8303591",
-  "why": "CD walks a whole path (CD \\SYSTEM\\DOS) and a failed CD stays put; a missing program says Bad command or file name with or without a tail; HELP's last line says only NUL is a redirect target"
+  "stamped": "be02614c",
+  "strings": "158320fe3073b7b2",
+  "why": "the protected-mode build's Load DOS in the HMA box described on the Setup page, with the switch DOS makes by itself for a program that unpacks itself"
  },
  "DOTDEL_O88": {
   "sources": [
@@ -500,9 +500,9 @@
   "sources": [
    "kernel/hiber.inc"
   ],
-  "stamped": "4cd88043",
-  "strings": "d35ebdb2509f31a8",
-  "why": "hibernate carries the HMA driver pool (SPEC.md 87.4 step 3b): page gains the HMA resume requirement and the 'Not enough memory' refusal"
+  "stamped": "5729d8b6",
+  "strings": "373100a7119e62c3",
+  "why": "both hibernates described: the HMA driver pool's resume requirement and 'Not enough memory' (SPEC.md 87.4 step 3b), and kern_mega's extended section, its No room greying and the No room above 1MB refusal (SPEC.md 87.9)"
  },
  "HOUSE_PNG": {
   "sources": [],
@@ -602,9 +602,9 @@
   "sources": [
    "apps/midirack"
   ],
-  "stamped": "d511fdd4",
-  "strings": "2d8a5451be064e81",
-  "why": "Settings' radios are the shared round ring now (SPEC.md 13.17.1); greyed rows' labels grey on VGA"
+  "stamped": "be02614c",
+  "strings": "44f39ab5c4556b19",
+  "why": "the new strings belong to the MR_SPKDIAG debug knob, which the shipped build does not assemble; unchanged"
  },
  "MINES_O88": {
   "sources": [
@@ -992,9 +992,9 @@
   "sources": [
    "apps/taskmgr"
   ],
-  "stamped": "8a6a203d",
-  "strings": "1473638a0dbc623b",
-  "why": "the IVT+Pad row (02aae095): described on both pages, folded into System on a short screen"
+  "stamped": "be02614c",
+  "strings": "5b05e2f1cab91663",
+  "why": "the memory map's IVT+BIOS, Above 1MB and 640K-1MB rows (Video, ROM, BIOS, Unrep.) are already on the page; checked against taskmgr.asm"
  },
  "TELNET_O88": {
   "sources": [
@@ -1108,9 +1108,9 @@
   "sources": [
    "apps/video"
   ],
-  "stamped": "d511fdd4",
-  "strings": "52e0d90cf0b17d66",
-  "why": "a paused Live play: the card says Paused at m:ss, and the box shows the frame even when paused before the first pass"
+  "stamped": "be02614c",
+  "strings": "ef878b8f4eda625d",
+  "why": "the XMS-in-place-under-protected-mode strings are info-card detail below the page's level; unchanged"
  },
  "VMMOUSE_DRV": {
   "sources": [

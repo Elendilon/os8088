@@ -29,7 +29,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'CHART', ct_entry, OS88_F_ICON
+    OS88_HEADER 'CHART', ct_entry, OS88_F_ICON, OS88_HIGH | OS88_HIGHMEM
 
 ; --- embedded 16x16 icon: a bar chart, three bars rising on an L of axes -------
 ; Sheet's page underlay, so the two read as one family on the desktop. Chart
