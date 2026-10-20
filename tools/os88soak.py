@@ -233,6 +233,13 @@ def requirements():
                 "(SPEC.md 34.10.1, 72.2, 106.24, 106.25).",
                 "python3 -m pip install unicorn"))
 
+    req.append(("bochs", os88build.have_bochs(),
+                "megatrap0, kern_mega's #GP census held at zero: Bochs is the "
+                "one emulator here that checks a 286's segment rules "
+                "(docs/BOCHS.md).",
+                "apt-get install -y bochs bochsbios vgabios bochs-x xvfb "
+                "xdotool x11-apps imagemagick"))
+
     req.append(("xdc", os88build.have_xdc(),
                 "vidbench, which decodes the owner's four XDC streams and has "
                 "nothing else to decode (docs/plans/VIDEO-PLAN.md 13).",

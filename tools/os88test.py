@@ -293,6 +293,11 @@ def capabilities():
     # card no emulator here carries - the PicoMEM (tests/picomem.py).
     if os88build.have_unicorn():
         caps.add("unicorn")
+    # Bochs and its X tools, for the one row that boots kern_mega there
+    # (tests/megatrap0.py): QEMU checks no segment on a data access, so a
+    # #GP census under it counts nothing (docs/BOCHS.md)
+    if os88build.have_bochs():
+        caps.add("bochs")
     # the owner's XDC video streams, for `vidbench`, whose only subject they
     # are. Not in the tree and never can be (copyrighted), so a box without
     # $OS88_XDC_SAMPLES pointing at them SKIPS the row; it used to run, skip
