@@ -43950,6 +43950,29 @@ zeros). Audio's two are profile-build only (`APROF`). `apps/os88fp.inc`'s
 builds of the include over a grid of words and doublewords, against Python's
 own formatting, every register and every byte outside the output checked.
 
+### 20.5.3 apps/os88flat.inc — the flat vocabulary for a colour face
+
+The second look a package can give itself on a 4bpp display, after
+§105.9.5's bevelled one: FLAT - filled shapes, one-pixel rims, colour that
+carries meaning, no light-and-shadow pairs. It is source the package
+includes (os88ui.inc's rule: at the end of the code, before `OS88_BSS`), it
+owns no state of its own beyond what the caller hands it, and every element
+writes each pixel once. WireFleet (§114.10) is the first user and the
+`vga-face` skill (`.claude/skills/vga-face/`) names it.
+
+| element | what it draws | primitive calls |
+|---|---|---|
+| `flat_bar` | a filled strip and an opaque text run on it | 2 (fill, `font_run`) |
+| `flat_card` | a rim, a title strip, the title, a ruled line | 4 |
+| `flat_lamp` | a filled square with a darker rim: a status light | 2 |
+| `flat_check` | a box, ticked or empty | 2 |
+| `flat_btn` | an `OS88UI_OWN` painter: rim, face ringed round an opaque caption, pressed and greyed states, and a per-button colour | 5-6 |
+| `flat_big` | a double-size bold caption into the caller's 1bpp band, put up with one `OSAPI_GFX_BLIT1` in an ink and paper of the caller's | 1 |
+
+The double-size caption composes through `apps/os88gfx.inc` (`GFXE_TEXT`,
+`GFXE_SCALE`), so a package that already carries the embeddable library
+pays only for the element.
+
 ### 20.6 Worker tasks — one background task per package instance
 
 A package may claim **exactly one** worker task, so that the work it does
@@ -197045,12 +197068,20 @@ repainting.
 ### 114.3 Link and persistence requirements
 
 Serial uses a crossed TX/RX null modem with shared signal ground, standard
-BIOS-advertised COM1 or COM2, 9600 baud, 8N1, no hardware flow control, and
+BIOS-advertised COM1 or COM2, 2400 baud, 8N1, no hardware flow control, and
 an original 8250 as the minimum UART. A live desktop mouse must continue to
 work. The active mouse port and an already leased port must be refused.
 UART/PIC state and every lease must be released on ordinary and forced close.
 The coordinated serial service's ABI will be pinned before its implementation;
 WireBall's FSX-only ownership is not a desktop serial API (§109.1).
+
+2400 is WireBall's rate, and it is chosen for the 4.77 MHz XT: an original
+8250 holds one received byte, and at 9600 the next one overwrites it 1.04 ms
+later. Two 86Box XTs linked at 9600 lost about 9% of received bytes (Link >
+Statistics read `err 628` of 7,139, bits 82h - UART overrun and ring
+overflow), and no 66-byte frame survived whole, while the same build linked
+at once in QEMU, whose CPU is a thousand times faster. At 2400 a byte waits
+4.17 ms.
 
 The link protocol must validate magic, version, bounded length, checksum,
 sender, recipient, match identity and turn before mutating game state.
@@ -197148,7 +197179,8 @@ RESULTs have all three zero. The receiver validates the revealed extent and
 its previous hits before marking it sunk. Chat is independently sequenced:
 one outstanding message, repeated until a peer SYNC acknowledges it; a
 duplicate cannot append another transcript line. Heartbeats are no more
-frequent than three ticks. Fifty-five ticks without valid addressed traffic
+frequent than nine ticks (a frame is 275 ms at 2400 baud; SHOT, RESULT and
+CHAT go at once). Fifty-five ticks without valid addressed traffic
 pauses battle input, preserving the pending shot and chat. Reconnect resumes
 the same identities/history; unexpected peers cannot replace an existing game.
 
@@ -197182,8 +197214,8 @@ shot counts and turn parity, and pending-command bounds. It rejects a file
 of any other size before reading it. Only a valid record can disconnect the
 old lease and replace live fields. No serial pointer, ring index, displayed
 pixel, timer, current connection flag or sound ownership is restored from a
-file. The game starts paused until Connect reaches the saved peer and its
-history agrees. Both PCs save their own private record; one PC's file is
+file. The game starts paused until the link (§114.9's search, the saved
+port first) reaches the saved peer and its history agrees. Both PCs save their own private record; one PC's file is
 not a replacement for the other PC's fleet. The transcript is retained across
 a cable interruption in memory; only its sequence/undelivered message is
 persisted to disk. Saving is explicit, not a heartbeat side effect.
@@ -197191,7 +197223,9 @@ persisted to disk. Saving is explicit, not a heartbeat side effect.
 ### 114.8 Fullscreen and cues
 
 F or Alt+Enter toggles fullscreen. VGA and Hercules use the native fullscreen
-window (§11.2). A 1bpp display offering `FSXM_CGA320` gets a §53 bracket in
+window (§11.2); `OSAPI_FULLSCREEN` is handed the window again after
+`OSAPI_WM_DISPLAY`, which answers the screen height in BX - until §114.10's
+delivery it was handed that height, and F hung those desktops. A 1bpp display offering `FSXM_CGA320` gets a §53 bracket in
 320×200 four-color mode, with 12×10 cells at x=20/176, y=40. The mode's
 `FSI_SEG`, stride and bank step define the framebuffer. Palette 1, bright,
 has black water, cyan grid, magenta hits and white ships/marks. Explicit
@@ -197222,6 +197256,125 @@ They do not send an unconditional tone-off, which could silence another
 instance that has since won the router. Kernel instance teardown releases
 this instance's actual device grants immediately, including on forced close.
 
+### 114.9 Automatic link
+
+The plan is docs/plans/WIREFLEET-FACE-PLAN.md. WireFleet looks for its
+opponent by itself: no menu use is needed to play.
+
+**Search.** The window's first tick starts the search, and so does Link →
+Automatic. A candidate list is COM1 and COM2 (the saved or chosen port
+first when there is one); a port the lease refuses as the mouse's (3) or
+absent (4) leaves the list for this search. With one candidate the lease
+stays on it. With two, the lease moves between them (§115.1) after a dwell
+of 40 to 71 ticks, the extra drawn from the OS generator at each move so
+two machines cannot stay in step on opposite ports. The first valid
+WireFleet frame on a port ends the moving: the search has its port, and it
+is remembered as the chosen port for Save.
+
+**Refusals.** Mouse unsettled (2) and busy (1) are retried every 18 ticks
+with a line that says what to do ("Move the mouse once so the OS can tell
+it from the cable"; "Another program is using the serial port"). A missing
+module (8) stops the search with its line; Link → Automatic tries again.
+No candidate left stops it with "No free serial port".
+
+**Fallback.** Link → Connect COM1 / COM2 pins the search to that port and
+nothing else; Disconnect stops searching until Automatic or Connect. A
+loaded saved match keeps its saved port as the first candidate.
+
+**Rebinding at turn 0.** Before any result is committed (turn 0, no shot
+pending, not finished) a HELLO from a new sender identity replaces the
+bound peer: the match identity is recomputed, the peer's readiness and chat
+sequence are reset, and the link is reported as found again. This covers an
+opponent that relaunched WireFleet or chose New fleet after linking, which
+otherwise left both PCs refusing each other's frames until both pressed N.
+From turn 1 the §114.6 rule stands: an unexpected peer cannot replace a
+game. After a finished match a HELLO from a new identity is announced as
+"Your opponent started a new match - press N to join".
+
+**Starting.** When both captains are Ready and linked, the captain whose
+turn it is may fire; the status line reads "Opponent ready" or "Opponent is
+placing ships" before that. Nothing about §114.6's frames changes.
+
+### 114.10 The colour face
+
+On a display that `OSAPI_WM_DISPLAY` reports as more than one bit per pixel,
+with a content box at least 560 pixels wide and 270 high, WireFleet draws a
+colour face; every other window - Hercules, windowed CGA, and the CGA
+fullscreen bracket (§114.8) - keeps the face §114.2 describes, unchanged.
+The verdict is taken at each full paint and banked for the incremental
+draws, MIDIRack's rule (§105.9.5).
+
+The face is built from `apps/os88flat.inc` (§20.5.3), the flat vocabulary:
+a title bar (navy, a double-size bold caption composed in one 1bpp band and
+put up with one `OSAPI_GFX_BLIT1`), a notice strip (light grey with a
+coloured lamp: green linked, yellow searching, red paused or refused), a
+status bar, framed cards with a title, flat buttons painted through
+`OS88UI_OWN` (§13.8.10) in a filled face with a darker rim, and check boxes.
+
+Deployment shows the board in a card with its coordinates and a "Your
+ships" card listing each ship's picture, name and length with a check box,
+the selected ship highlighted, the placed count, Rotate / Auto-place / Clear
+and a primary Ready. Battle shows "YOUR TURN" or "OPPONENT'S TURN" with the
+turn number, both boards in cards, the legend, a Fire button naming its
+target, and the chat panel. Cells are 24 pixels high on VGA and 16 on EGA;
+the hit-test follows the same geometry. Everything that changes is drawn
+through the same per-field caches as §114.2's face, so an idle window does
+not repaint and a gesture redraws only what it changed.
+
+#### 114.10.1 The boards, planar
+
+On a 4bpp window whose board rect `OSAPI_GFX_BLITP`'s probe (DI bit 15,
+§5.4.3.2) accepts, each changed span of a board row goes up with one
+`BLITP`, the clip walked (DI bit 14); the boards sit at content x 40 and 336
+and the ship pictures at 312, all on the 8-pixel grid. The tiles stay
+PACKED on disk (planar ones compressed 1.8 KB worse, and `apps360.img` had
+no cluster to spare); the first planar paint spreads the 38 stored tiles and
+the stamp's two tables to planes once per instance, into 11.5 KB of bss, a
+tile row as plane 0's three bytes then planes 1-3. Composing a row is then
+four 3-byte moves a scanline, the hit X the same AND/OR stamp, the yellow
+cursor two masks. Whatever the probe refuses - `kern_small`, a display
+straddle, an x off the grid (114.2's own face at 326) - takes the packed
+`OSAPI_GFX_BLIT4` path unchanged.
+
+Measured on MartyPC's 4.77 MHz VGA XT (`os8088_xt_vga`), breakpoints at
+`wf_paint` and its end: a full battle repaint **3.9 s -> 1.39 s** and a
+deployment one **2.7 s -> 1.1 s**; the two boards **3.46 s -> 0.95 s**. The
+blit was never the cost: `BLITP` puts a 240x24 row up in 0.7 ms, and the
+packed compose was ~150 ms of each row's 171.
+
+#### 114.10.2 The art, stamped
+
+`tools/wirefleet_assets.py` finds each ship's rows in the atlas (it is not
+five equal strips: cutting at fifths gave every ship after the carrier the
+previous one's keel as a grey line), drops the mast's narrow rows and
+area-averages an 18-row hull. Tiles 38..71 - a ship segment, hit - are not
+stored: each is its segment with the X stamped, `(pixel AND a) OR o` per
+byte, one table pair per form (colour, mono, CGA), and the converter refuses
+to emit tables that do not reproduce all 34 in all three forms. The art went
+from 31,104 bytes to 17,280 raw and 9,348 to 8,597 packed, which is what the
+face, the planar path and the automatic link were paid for with:
+`WIREFLET.O88` ships at 26,338 bytes against 26,416 before them.
+
+#### 114.10.3 What a gesture costs
+
+`tests/wfdraw.py` (rows `wfdraw`, VGA, and `wfdrawherc`, Hercules) counts
+every far call into a drawing cell, as `tests/mrdraw.py` does. On the VGA
+face: five seconds of the automatic search draws **nothing**; a cursor move
+is one `BLITP`; selecting a ship 6 calls; rotating 6; placing 11; Auto-place
+34; the Ready repaint 121 (the row counts hits, and a walked-clip `BLITP`
+re-enters its own cell, so each of its calls is two hits). After a run of gestures the window is captured,
+About is raised and dismissed - a full repaint - and captured again: the two
+are identical to the pixel.
+
+**114.2's face changed in one place, to fix it.** `wfdrawherc` found every
+cursor move on the Hercules enemy board leaving 22 lit pixels (44 across a
+row) that a repaint does not draw - on `main` as well, 66 after the same
+gestures. That board sat at content x 326, off the byte grid, and its
+one-row `OSAPI_GFX_BLIT1` of two cells lit pixels ~219 columns past its own
+48-pixel width; at x 328 (`WF_MGX1`) the same moves leave none. The
+2-pixel move is the fix shipped here; why an unaligned `BLIT1` writes past
+its width is a kernel question left open (§5.4.2.5 says it must not).
+
 ## 115. Desktop serial lease (`kernel/serial.inc`, `SERIAL.DRV`)
 
 An on-demand kernel module (§2.8), on both kernels. Connecting may require
@@ -197244,10 +197397,15 @@ user to move the mouse. Nonstandard or unadvertised bases are refused.
 
 | AL | verb | arguments and result |
 |---|---|---|
-| 0 | Open | SI=offset of a 517-byte buffer in the pinned package region; CF=0 AX=0 on success |
+| 0 | Open | SI=offset of a 517-byte buffer in the pinned package region, BH=the divisor of 115200 (0 = 12, 9600 baud; 48 = 2400); CF=0 AX=0 on success |
 | 1 | Close | restores UART/PIC state, releases the lease and drops the module; succeeds if already closed; a foreign lease returns busy |
 | 2 | Read | CF=0 AL=byte, AH=line/overflow status accumulated since the preceding Read; CF=1 AX=6 if empty |
 | 3 | Write | CL=byte; CF=0 AX=0 queued; CF=1 AX=7 if the TX queue is full |
+
+Open by the instance that already holds the lease MOVES it (§114.9): the
+held port is restored and released exactly as Close would, the module stays
+loaded and the named port is opened. A refusal of the new port leaves the
+lease closed, as a failed Open always does. Any other holder is refused busy.
 
 Refusals are AX=1 busy/wrong owner, 2 mouse not settled, 3 mouse port,
 4 absent/unsupported port, 5 invalid caller/buffer, 8 module unavailable.
@@ -197261,7 +197419,8 @@ The API validates the complete buffer against the instance's region size.
 ### 115.2 Hardware and lifetime
 
 Open saves LCR, IER, DLL, DLM, MCR and the standard port's PIC mask bit, then
-sets 9600 baud, 8N1, DTR/RTS and OUT2, with RX interrupts enabled. THRE
+sets the divisor Open was given in BH (0 means 12, 9600 baud; WireFleet asks
+for 48, 2400), 8N1, DTR/RTS and OUT2, with RX interrupts enabled. THRE
 interrupts run only while queued TX needs service. No FIFO, scratch register,
 CTS/DSR gating, delay loop or new interrupt vector is required. The boot
 mouse probe already proves the standard 8250 divisor latches (§9.5).
