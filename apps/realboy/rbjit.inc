@@ -113,6 +113,20 @@ rt_init:
     pop ax
     ret
 
+; rt_resume - DS = the view: the recompiler back on over the cache it had
+; when it was turned off (the package's rw_jitoff), nothing forgotten - the
+; cache holds only ROM's translations, keyed by PC and bank, and neither
+; changed meanwhile. For the package's automatic recompiler (REALBOY-SPEC
+; 16.7), which turns it off and on to time both.
+rt_resume:
+    push ax
+    mov word [S_RESVEC],RBC_TR_ENTER
+    mov byte [S_JITON],1
+    mov al,1
+    call rt_dispatch
+    pop ax
+    ret
+
 ; rt_dispatch - AL = 1: the interpreter's control transfers look for
 ; translated code (JDISPATCH as built); AL = 0: they DISPATCH, as the
 ; interpreter did before there was a recompiler - each site's first five

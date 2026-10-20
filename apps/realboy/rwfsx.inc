@@ -65,10 +65,13 @@ rw_mgrey:
     mov si, rw_it_jit0              ; Recompiler: what it is now
     cmp word [rw_jitseg], 0
     je .j
-    mov si, rw_it_joff
-    cmp byte [rw_jitwant], 0
+    mov si, rw_it_jauto
+    cmp byte [rw_jitmode], 0
     je .j
     mov si, rw_it_jon
+    cmp byte [rw_jitmode], 1
+    je .j
+    mov si, rw_it_joff
 .j:
     mov [rw_i_mach + 6], si
     mov si, rw_it_log0              ; Log: what it is now

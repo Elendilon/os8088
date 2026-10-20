@@ -43,7 +43,10 @@ MENUS
 Machine > Reset          start the cartridge again
 Machine > Pause          stop the clock
 Machine > Full Screen    the game on the whole screen
-Machine > Recompiler     on or off (286 or later)
+Machine > Recompiler     Auto, On or Off (286 or later). Auto times
+                         the game both ways now and then, and keeps
+                         whichever is faster: some games are faster
+                         without it
 Machine > Log            a record a second, to a file
 
 The log is written beside REALBOY.O88 when you turn it off or close the

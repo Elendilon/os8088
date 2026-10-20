@@ -152,7 +152,17 @@ rw_agms         equ rw_acms + 4     ; dword: ...running the Game Boy
 rw_tgame        equ rw_agms + 4     ; dword: when this frame's run began
 rw_lstat        equ rw_tgame + 4    ; 8: S_EVCOUNT, S_JITNB, S_JITFL and
                                     ;   rw_nmiss at the last record
-rw_log          equ rw_lstat + 8    ; RW_LOGN x RW_LOGSZ: the records
+rw_jitmode      equ rw_lstat + 8    ; byte: Machine > Recompiler, 0 Auto, 1
+                                    ;   On, 2 Off (REALBOY-SPEC 16.7)
+rw_jphase       equ rw_jitmode + 1  ; byte: Auto's window, 0-3 timing (even
+                                    ;   with the recompiler), 4 holding
+rw_jsec         equ rw_jphase + 1   ; byte: seconds into the window
+rw_jhold        equ rw_jsec + 1     ; word: seconds still to hold
+rw_jcost        equ rw_jhold + 2    ; dword: counts the machine ran this window
+rw_jfr          equ rw_jcost + 4    ; word: ...and its frames
+rw_jsum         equ rw_jfr + 2      ; 2 words: the windows' cost a frame, with
+                                    ;   the recompiler and without, halved
+rw_log          equ rw_jsum + 4     ; RW_LOGN x RW_LOGSZ: the records
 rw_fbuf         equ rw_log + RW_LOGN * RW_LOGSZ ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
@@ -448,6 +458,118 @@ rw_jiton:                           ; (and Machine > Recompiler's way back in)
     xor al, al
     call rt_dispatch
     pop ds
+    ret
+
+; rw_jitback - the recompiler on again, between two core runs: over the
+; cache it had, or from nothing when there is none since rb_init
+rw_jitback:
+    cmp word [cs:rw_jitseg], 0
+    je .r
+    push ds
+    mov ds, [cs:rb_viewseg]
+    cmp byte [S_JITON], 0
+    jne .x
+    cmp word [S_JITSEG], 0
+    je .init
+    call rt_resume
+.x:
+    pop ds
+.r:
+    ret
+.init:
+    mov ax, [cs:rw_jitseg]
+    call rt_init
+    pop ds
+    ret
+
+; rw_jitset - Machine > Recompiler's mode, between two core runs: Off is
+; the interpreter; On is the recompiler; Auto starts with it and times both
+rw_jitset:
+    xor ax, ax
+    mov [rw_jphase], al
+    mov [rw_jsec], al
+    mov [rw_jcost], ax
+    mov [rw_jcost + 2], ax
+    mov [rw_jfr], ax
+    mov [rw_jsum], ax
+    mov [rw_jsum + 2], ax
+    mov byte [rw_jitwant], 1        ; (rw_jiton's, at a reset)
+    cmp byte [rw_jitmode], 2
+    jne .on
+    mov byte [rw_jitwant], 0
+    mov al, RLE_JITOFF
+    call rw_logevt
+    jmp rw_jitoff
+.on:
+    mov al, RLE_JITON
+    call rw_logevt
+    jmp rw_jitback
+
+; rw_jitauto - once a second, between frames (rw_stat): Machine >
+; Recompiler's Auto. Four windows of RW_JWIN seconds, with the recompiler,
+; without, with and without, each's cost a frame - the machine's counts
+; over its frames - summed by kind; then the cheaper for RW_JHOLD seconds,
+; and time both again (a game's code is a level's, and so is its working
+; set). Kirby's Dream Land walking ran faster interpreted (59% of real time
+; on the Victory's twin against 46%), Super Mario Land recompiled.
+RW_JWIN         equ 2
+RW_JHOLD        equ 60
+rw_jitauto:
+    cmp byte [rw_jitmode], 0
+    jne .r
+    cmp word [rw_jitseg], 0
+    je .r
+    cmp byte [rw_jphase], 4
+    jae .hold
+    inc byte [rw_jsec]
+    cmp byte [rw_jsec], RW_JWIN
+    jb .r
+    mov byte [rw_jsec], 0
+    mov cx, [rw_jfr]                ; the window's cost a frame
+    jcxz .r                         ; (no frame: it says nothing)
+    mov ax, [rw_jcost]
+    mov dx, [rw_jcost + 2]
+    xor bx, bx
+    mov [rw_jcost], bx
+    mov [rw_jcost + 2], bx
+    mov [rw_jfr], bx
+    cmp dx, cx
+    jb .d
+    mov ax, 0FFFFh                  ; (a frame of 55 ms or more: as that)
+    jmp short .h
+.d:
+    div cx
+.h:
+    shr ax, 1
+    mov bl, [rw_jphase]
+    and bx, 1
+    shl bx, 1                       ; 0 with the recompiler, 2 without
+    add [rw_jsum + bx], ax
+    inc byte [rw_jphase]
+    cmp byte [rw_jphase], 4
+    jae .decide
+    test byte [rw_jphase], 1        ; odd windows without it
+    jnz rw_jitoff
+    jmp rw_jitback
+.decide:
+    mov word [rw_jhold], RW_JHOLD
+    mov ax, [rw_jsum]
+    cmp ax, [rw_jsum + 2]
+    jbe rw_jitback                  ; the recompiler, no dearer
+    jmp rw_jitoff
+.hold:
+    dec word [rw_jhold]
+    jnz .r
+    xor ax, ax                      ; time both again, from the recompiler
+    mov [rw_jphase], al
+    mov [rw_jsec], al
+    mov [rw_jcost], ax
+    mov [rw_jcost + 2], ax
+    mov [rw_jfr], ax
+    mov [rw_jsum], ax
+    mov [rw_jsum + 2], ax
+    jmp rw_jitback
+.r:
     ret
 
 ; rw_jitoff - the interpreter alone, between two core runs (the worker's)
@@ -953,14 +1075,15 @@ rw_worker:                          ;   the worker parked at the top of its
     cmp byte [rw_jitq], 0
     je .nojq
     mov byte [rw_jitq], 0
-    xor byte [rw_jitwant], 1
-    mov al, RLE_JITON
-    jnz .je
-    mov al, RLE_JITOFF
-.je:
-    call rw_logevt
-    call rw_jitoff
-    call rw_jiton
+    mov al, [rw_jitmode]            ; Auto -> On -> Off -> Auto
+    inc ax
+    cmp al, 3
+    jb .jm
+    xor al, al
+.jm:
+    mov [rw_jitmode], al
+    call rw_jitset
+    call rw_mgrey                   ; the item says what it is now
 .nojq:
     cmp byte [rw_state], 1
     jne .sleep
@@ -1336,6 +1459,7 @@ rw_stat:
     jnz .cj
 .rec:
     call rw_logsec                  ; the second, into the log if it is on
+    call rw_jitauto                 ; and Auto's look at the recompiler
     jmp short .zero
 .zero0:
     call rw_logsec.zero
@@ -1986,6 +2110,7 @@ rw_it_reset:    db 'Reset', 0
 rw_it_pause:    db 'Pause', 0
 rw_it_fs:       db 'Full Screen', 0
 rw_it_fs0:      db MENU_DIS, 'Full Screen', 0
+rw_it_jauto:    db 'Recompiler: Auto', 0
 rw_it_jon:      db 'Recompiler: On', 0
 rw_it_joff:     db 'Recompiler: Off', 0
 rw_it_jit0:     db MENU_DIS, 'Recompiler (286)', 0

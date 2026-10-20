@@ -170,6 +170,9 @@ rw_gameacc:
     mov cx, [rw_tgame + 2]
     mov si, rw_agms
     call rw_logacc
+    mov si, rw_jcost                ; (and Auto's window, rw_jitauto)
+    call rw_logacc
+    inc word [rw_jfr]
     pop si
     pop dx
     pop cx

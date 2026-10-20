@@ -869,9 +869,11 @@ entries (PC, bank key, a count, the block's offset), indexed by the PC's low
 byte - so blocks 2KB apart, which bank 0 and every bank of 4000-7FFF are
 full of, do not take turns at one slot. That fold took Kirby's Dream Land,
 the CPU alone, from 15.15 to 13.73 ms a frame on 86Box's 286. **A PC is translated
-only on its 16th entry**, so code that runs a few times is interpreted and
-never takes the cache's room; a translated entry gives its slot up only after
-16 others have asked for it. RAM is never translated - the interpreter's own
+only on its 64th entry** (`RB_JITHOT`; it was 16), so code that runs a few
+times is interpreted and never takes the cache's room; a translated entry
+gives its slot up only after 64 others have asked for it. At 16 Kirby's
+Dream Land walking translated 2,933 blocks in 15 seconds and flushed the
+cache 7 times; at 64, 605 and once. RAM is never translated - the interpreter's own
 control transfers stay in the interpreter there (`JDISPATCH`). **With no
 recompiler** - an 8088, no memory for the cache, or Machine > Recompiler off
 - `rt_dispatch` writes the plain dispatch over the first five bytes of all
@@ -916,6 +918,29 @@ is what costs: standing in the same scene it runs at **78.7%** in the window
 drawing 16 frames a second, and walking right 35.8% drawing 2 - the scroll's
 own code, not the picture (`rbwin.py`, the hash fold of section 16.3 in).
 docs/reports/REALBOY-DAMAGE-2026-10-19.md has the record.
+
+### 16.7 Auto: the recompiler when it is the cheaper
+
+**The recompiler is not always faster.** On the Victory's 86Box twin
+(`vm/286-victory`) Kirby's Dream Land walking ran at **59% of real time
+interpreted and 46-51% recompiled**: its hot code is broad (no block over
+3% of the translated samples) and a block ends at every branch, so the
+blocks are short and their entries and exits (`tr_enter` alone 11%) cost
+more than the dispatch they save. Super Mario Land is the other way round.
+So Machine > Recompiler has three settings, **Auto** (the default), On and
+Off, and Auto measures (`rw_jitauto`, once a second from `rw_stat`):
+
+- four windows of two seconds - with the recompiler, without, with,
+  without - each's cost a frame being the machine's own time (`rw_frame` to
+  its yield) over the frames it ran;
+- then the cheaper of the two sums for a minute, and the four windows again,
+  since a game's working set is a level's.
+
+Turning it off keeps the cache, and turning it back on (`rt_resume`) forgets
+nothing: the cache holds only ROM's translations, keyed by PC and bank, and
+neither changes while it is off. Kirby holds the interpreter at 62-66% and
+Super Mario Land the recompiler at 101%, each as fast as the better of the
+two forced.
 
 ## 17. Sound
 
