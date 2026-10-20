@@ -25,8 +25,8 @@ recompiler.
 
 KEYS
 ----
-Arrows      the D-pad
-X           A
+Arrows      the D-pad          (as shipped: Machine > Controls...
+X           A                   gives any button any other key)
 Z           B
 Enter       Start
 Space       Select
@@ -80,6 +80,11 @@ Machine > Cache          64K or 128K for the recompiler's code. 128K
                          stops a big game (Kirby's Dream Land) from
                          slowing while its code is translated again,
                          for 64K of memory. Kept for every game after
+Machine > Controls...    which key is which button: click a button on
+                         the Game Boy drawn there, then press its key.
+                         A key another button had changes places with
+                         it; Esc, Alt and F1-F4 are RealBoy's own.
+                         Default puts them back. Kept for every game
 
 The log is written beside REALBOY.O88 when you turn it off or close the
 window, under a new name each time: the game's first six letters and a

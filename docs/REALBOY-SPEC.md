@@ -883,8 +883,9 @@ Only `rb_renderd` kept it, so `gbdamage`'s reference stayed independent.
   if it names more than one holds), which is file and heap work for the UI
   task: in full screen, which IS the UI task, at once; in the window the
   worker wakes it (`[rw_f3q]`, `rw_onwake`) and the switch comes back
-  through `rw_jitq`, said all the same (`[rw_jitqn]`). The joypad is the held keys - arrows, X = A,
-  Z = B, Enter = Start, Space = Select - and nothing while another window
+  through `rw_jitq`, said all the same (`[rw_jitqn]`). The joypad is the held keys - as shipped arrows, X = A,
+  Z = B, Enter = Start, Space = Select, and whatever Machine > Controls...
+  has made them since (section 14.2) - and nothing while another window
   has the keyboard. Two things a keyboard does that a pad cannot are
   settled before a frame sees them (`rw_keys`). **Opposite directions**:
   a pad cannot hold Left and Right together and a keyboard can, and a
@@ -992,6 +993,67 @@ run in bursts, a tick's worth or a draw's worth at a time, and a burst
 straddles a second's edge, so one second is credited with frames another
 earned. It is the F1 line's sampling, not the game's pace.
 
+### 14.2 Machine > Controls...
+
+Which key is which button, chosen by the player (`apps/realboy/rwkeys.inc`).
+A window of its own, **"RealBoy Controls"**: a low-detail Game Boy - its body
+on a grey mat with the bottom-right corner it rounds, a screen, the D-pad as
+four boxes in a cross, B and A, Select and Start - each button a box naming
+the key it has. The window is 234 x 154 with its frame: a CGA's desktop band
+is 155 rows, and the window fits it whole.
+
+- **Click a button** and its box goes white on black and the screen says
+  *Press a key for* and its name; **the next key typed is that button's**.
+  A key another button had changes places with this one's, so two buttons
+  never share a key. A click anywhere else, or Esc, stops the wait with
+  nothing changed; with nothing waiting, Esc puts the window away.
+- **Refused, and said so on the screen**: Esc, Alt (Alt+Enter is full
+  screen, and while Alt is held the joypad reads nothing) and F1-F4 - the
+  speed line and Machine > Interlace, Recompiler and Speed's next settings,
+  documented shortcuts every one. RealBoy reserves no debug key. The wait
+  goes on after a refusal. A key with no make code of its own is refused
+  too: SysRq, and the codes 54h-56h a shifted F-key gives. The keypad's
+  Enter is Enter and F11/F12 are their make codes (57h, 58h), because the
+  map is asked of `OSAPI_KEY_DOWN`, which knows only make codes. Shift, Ctrl
+  and Caps alone cannot be given: they never reach a W_ONKEY.
+- **Default** puts the keys back as they shipped.
+- **Kept** in REALBOY.CFG, version 3: the eight make codes at +136, in
+  S_JOY's order, written at every change (`rw_cfgsave`). A version 2 file
+  is read with the shipped keys; a version 3 file whose keys include one
+  Controls could not have given is read with the shipped keys too
+  (`rw_cfgkeys`).
+- **The map is `rw_keymap`**, the bytes the worker's `rw_keys` asks
+  `OSAPI_KEY_DOWN` about every look and `rw_klat` matches a typed key
+  against - so a change is the game's at its next look, and no copy of the
+  map exists to go stale. While the Controls window is on top the game reads
+  no keys at all (`rw_keys` asks for its own window first), so typing a
+  key there never presses the button it is becoming.
+- **A package's second window** is not bound to its instance (SPEC.md
+  42.1): its close box hides it, so it is made once, shown again by the
+  menu, and destroyed with the instance (`wm_destroy_seg`). It paints every
+  pixel of its own (`OSAPI_WM_OWNBG`), the mat included. Each box is one
+  opaque `OSAPI_FONT_RUN` of its name padded to its cells, between two rows
+  of its ground, so a change rewrites the box without blanking it first.
+- **The About card** says *Keys: Machine > Controls...* where it listed
+  the shipped keys, which would have gone stale at the first change.
+
+**What it cost**: the package's image and bss were 63,430 bytes of
+APP_MAX_SIZE's 65,024, and the window is ~1.6KB - over by ~50. The 768
+bytes came from section 15's speed-line glyphs, which are read in place now
+rather than copied. 64,470 with it.
+
+**It shipped once taking the UI task with it**: `jmp OSAPI_WM_SHOW` as a
+tail call assembles - every `OSAPI_*` is a far address - and the cell's
+`retf` returned through the near return address and the word under it. The
+window opened and painted, and then no click or key reached any window
+again, the picture perfect. `tests/unit/t_asmrules.py`'s rule 6 refuses a
+jump to an API cell in apps/ and drivers/ now.
+
+`tests/gbkeys.py` is the gate, on VGA and on a CGA: the waiting box lit, a
+key taken, a reserved one refused, two buttons changing places, the GAME
+reading the new map out of S_JOY (Q held is B, Z is A, X is nothing), the
+file off the floppy as the guest left it, and Default.
+
 ## 15. Full screen
 
 Machine > Full Screen runs the machine **on the UI task inside an
@@ -1026,8 +1088,11 @@ every draw, as a turn of frames on an 8088 is longer than a key press.
   Land's frame on the Victory twin 25.7 -> 24.7 ms with the sprite fetch
   below. It already compared them, so the RAM shadow this writer once kept
   was a second comparison of the same bytes. Plane 2 is set under the gap and the speed line's row,
-  entry 4 like the overscan, and F1's speed line is drawn there in glyphs
-  copied before the mode (`OSAPI_FONT_GLYPHS`), entry 7. Shades 0-3 are DAC 0-3, greys. The DAC is
+  entry 4 like the overscan, and F1's speed line is drawn there in the
+  kernel's own glyphs, read where `OSAPI_FONT_GLYPHS` says they are (a far
+  pointer taken before the mode: a memory read is not a drawing slot), entry
+  7. They were a 768-byte copy in the package's bss until section 14.2 needed
+  the room: the package's image and bss are at 63.5KB, APP_MAX_SIZE. Shades 0-3 are DAC 0-3, greys. The DAC is
   ours in there; the restore's BIOS mode set puts the desktop's back.
 - **The clock** is `FSXF_RATE` at the Game Boy's own 59.7275 Hz (PIT divisor
   19,977): the hook counts frames owed and does nothing else. The loop runs
@@ -1406,7 +1471,8 @@ code the first has no room for, before anything is flushed:
 - **Machine > Cache: 64K / 128K** asks for it for every game, whatever its
   profile says (greyed on an 8088). It is a SETTING, kept in
   `SYSTEM\APPDATA\REALBOY.CFG` (`'RB'`, the version, bit 0 of the fourth
-  byte; version 2 goes on with each game's Speed and Sound, section 15.2)
+  byte; version 2 goes on with each game's Speed and Sound, section 15.2,
+  and version 3 with Machine > Controls' keys, section 14.2)
   through `apps/os88data.inc` - SYSTEM\APPDATA on the package's OWN
   volume, so `make realboydisk`'s floppies carry the folder, and a copy of
   REALBOY.O88 put where there is none keeps nothing - and read at the start - a game opened

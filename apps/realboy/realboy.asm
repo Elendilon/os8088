@@ -65,9 +65,12 @@ RW_PRFFILE      equ RW_PRFTAIL + 9  ;   header's 014Dh byte and 014Eh word,
 ; settings, the latest first: the header's 014Dh byte and 014Eh word (as a
 ; profile's name takes them), then Speed in bits 0-2 and Sound in 3-4. A
 ; version 1 file is read for its byte and games none.
-RW_CFGN         equ 8 + RW_CFGGN * 4
+; Version 3 goes on with Machine > Controls' eight keys at RW_CFGKEY, in
+; S_JOY's order (rwkeys.inc); a version 2 file is read with the shipped keys.
+RW_CFGKEY       equ 8 + RW_CFGGN * 4
+RW_CFGN         equ RW_CFGKEY + 8
 RW_CFGGN        equ 32
-RW_CFGVER       equ 2
+RW_CFGVER       equ 3
 RW_CFGBIG       equ 01h
 RW_SPEEDS       equ 5               ; Machine > Speed's settings (rw_spdtab)
 RW_JIT2N        equ 560             ; a profile this many blocks or more
@@ -115,8 +118,10 @@ rw_ovlnew       equ rw_fsrun + 1    ; rw_ovltxt changed since it was drawn
 rw_fowed        equ rw_ovlnew + 1   ; word: rate periods counted by the hook
 rw_fsleft       equ rw_fowed + 2    ; word: frames still to run this turn
 rw_fsi          equ rw_fsleft + 2   ; FSI_SIZE: the mode's info block
-rw_font         equ rw_fsi + FSI_SIZE ; 768: glyphs 32-127, copied at entry
-rw_jitseg       equ rw_font + 768   ; word: the recompiler's 64KB, or 0
+rw_fontp        equ rw_fsi + FSI_SIZE ; dword: the kernel's glyph table, for
+rw_font0        equ rw_fontp + 4    ;   the bracket's text, and its first
+                                    ;   code (rw_fscopy; a spare byte after)
+rw_jitseg       equ rw_font0 + 2    ; word: the recompiler's 64KB, or 0
 rw_jitwant      equ rw_jitseg + 2   ; translate when there is a cache for it
 rw_jitq         equ rw_jitwant + 1  ; Machine > Recompiler asked; the worker
 rw_tone         equ rw_jitq + 1     ; word: the hertz the speaker plays (0 off)
@@ -242,7 +247,18 @@ rw_pertick      equ rw_spdk + 2     ; word: ...and frames a BIOS tick, x 256
 rw_gkey         equ rw_pertick + 2  ; 3: the game's header 014Dh, 014Eh
 rw_hmask        equ rw_gkey + 3     ; byte: the block table's mask (S_HMASK,
                                     ;   REALBOY-SPEC 16.3): 31 for 64KB, 7
-rw_fbuf         equ rw_hmask + 1    ; 5,760: rb_render's frame (monochrome;
+rw_kwin         equ rw_hmask + 1    ; word: Machine > Controls' window, or 0
+rw_kx0          equ rw_kwin + 2     ; word: its content's left...
+rw_ky0          equ rw_kx0 + 2      ; word: ...and top, as last asked
+rw_kbx          equ rw_ky0 + 2      ; word: rw_kbox's box: left, top, width
+rw_kby          equ rw_kbx + 2
+rw_kbw          equ rw_kby + 2
+rw_kbn          equ rw_kbw + 2      ; byte: ...and its cells
+rw_ksel         equ rw_kbn + 1      ; byte: the button waiting for a key, or
+                                    ;   RW_KNONE
+rw_kmsg         equ rw_ksel + 1     ; byte: what its screen says (rw_kmsgs)
+rw_kbuf         equ rw_kmsg + 1     ; 19: a name padded to its cells
+rw_fbuf         equ rw_kbuf + 19    ; 5,760: rb_render's frame (monochrome;
                                     ;   even)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
@@ -1233,9 +1249,17 @@ rw_cfgload:
     cmp word [rw_cfg], 'RB'
     jne .none
     cmp ax, RW_CFGN
-    jne .v1
+    jne .v2
     cmp byte [rw_cfg + 2], RW_CFGVER
     jne .none
+    call rw_cfgkeys                 ; the keys, when they are keys
+    jmp short .gn
+.v2:
+    cmp ax, RW_CFGKEY               ; version 2: the shipped keys
+    jne .v1
+    cmp byte [rw_cfg + 2], 2
+    jne .none
+.gn:
     cmp byte [rw_cfg + 4], RW_CFGGN
     jbe .big
     jmp short .none
@@ -1261,6 +1285,33 @@ rw_cfgload:
     pop ax
     ret
 
+; rw_cfgkeys - REALBOY.CFG's keys into rw_keymap, unless one of them is not
+; a key Machine > Controls could have given (then all eight as they shipped)
+rw_cfgkeys:
+    mov si, rw_cfg + RW_CFGKEY
+    mov cx, 8
+.k:
+    lodsb
+    cmp al, 2
+    jb .r
+    cmp al, 58h
+    ja .r
+    cmp al, 38h
+    je .r
+    cmp al, 3Bh
+    jb .n
+    cmp al, 3Eh
+    jbe .r
+.n:
+    loop .k
+    mov si, rw_cfg + RW_CFGKEY
+    mov di, rw_keymap
+    mov cx, 8
+    cld
+    rep movsb
+.r:
+    ret
+
 ; rw_cfgsave - the settings back into REALBOY.CFG, on the UI task. A
 ; refusal says nothing: the setting holds for this session
 rw_cfgsave:
@@ -1271,6 +1322,11 @@ rw_cfgsave:
     mov byte [rw_cfg + 2], RW_CFGVER
     mov al, [rw_big]
     mov [rw_cfg + 3], al
+    mov si, rw_keymap               ; Machine > Controls' keys
+    mov di, rw_cfg + RW_CFGKEY
+    mov cx, 8
+    cld
+    rep movsb
     mov si, rw_s_cfg
     mov bx, rw_cfg
     mov cx, RW_CFGN
@@ -3125,6 +3181,8 @@ rw_oncmd:
     je rw_spdmenu                   ; Speed
     cmp al, 9
     je rw_sndmenu                   ; Sound
+    cmp al, 10
+    je rw_ctlopen                   ; Controls
     cmp word [rw_jitseg], 0         ; Recompiler: the worker flips it
     je .r
     cmp byte [rw_jitq], 0
@@ -3169,7 +3227,7 @@ rw_tpl:
 
     OS88_MENUSET rw_menus, rw_ttl, rw_oncmd
         OS88_MENU rw_m_file, rw_i_file, 2
-        OS88_MENU rw_m_mach, rw_i_mach, 10
+        OS88_MENU rw_m_mach, rw_i_mach, 11
     OS88_MENUSET_END rw_menus
 
 rw_ttl:         db 'RealBoy', 0
@@ -3180,6 +3238,8 @@ rw_it_close:    db 'Close', 0
 rw_m_mach:      db 'Machine', 0
 rw_i_mach:      dw rw_it_reset, rw_it_pause, rw_it_fs0, rw_it_jit0, rw_it_log0
                 dw rw_it_il0, rw_it_prf0, rw_it_big0, rw_it_spd0, rw_it_snd0
+                dw rw_it_ctl
+rw_it_ctl:      db 'Controls...', 0
 rw_it_reset:    db 'Reset', 0
 rw_it_pause:    db 'Pause', 0
 rw_it_fs:       db 'Full Screen', 0
@@ -3232,19 +3292,19 @@ rw_s_noram:     db 'REALBOY: no room for RAM', 0
 rw_s_nosave:    db 'REALBOY: save failed', 0
 
 rw_ablines:
-    dw rw_ab1, rw_ab2, rw_ab3, rw_ab4, rw_ab5, rw_ab6, rw_ab7, 0
+    dw rw_ab1, rw_ab2, rw_ab3, rw_ab4, rw_ab5, rw_ab7, 0
 rw_ab1:         db 'RealBoy', 0
 rw_ab2:         db 'a Game Boy for os8088', 0
 rw_ab3:         db 0
-rw_ab4:         db 'Arrows, X = A, Z = B', 0
-rw_ab5:         db 'Enter = Start', 0
-rw_ab6:         db 'Space = Select', 0
+rw_ab4:         db 'Keys: Machine >', 0     ; (they are the user's now)
+rw_ab5:         db 'Controls...', 0
 rw_ab7:         db 'F1 = speed', 0
 
 %include "rbdefs.inc"
 %include "rbsys.inc"
 %include "rbppu.inc"
 %include "rwfsx.inc"
+%include "rwkeys.inc"
 %include "rbjit.inc"
 
 %include "os88alt.inc"

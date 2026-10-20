@@ -5610,7 +5610,7 @@ $(BUILD)/rbtmpl.bin: $(BUILD)/rbcore.bin apps/realboy/rbtmpl.py apps/realboy/rbg
 $(BUILD)/rbcore.inc: $(BUILD)/rbtmpl.bin ;
 
 $(BUILD)/realboy.bin: apps/realboy/realboy.asm apps/realboy/rbdefs.inc \
-                      apps/realboy/rbsys.inc apps/realboy/rbppu.inc apps/realboy/rwfsx.inc \
+                      apps/realboy/rbsys.inc apps/realboy/rbppu.inc apps/realboy/rwfsx.inc apps/realboy/rwkeys.inc \
                       apps/realboy/rbjit.inc $(BUILD)/rbtmpl.bin $(BUILD)/rbcore.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realboy/rwlog.inc apps/realboy/rwbank.inc \
