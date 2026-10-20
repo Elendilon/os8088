@@ -492,7 +492,8 @@ rw_fsdraw:
 
 ; rw_fstext - rw_ovltxt on the border under the picture, 16 cells wide
 rw_fstext:                          ; (SI = the line, rw_fsline's)
-    mov dx, 3C4h
+    mov es, [rw_fsi + FSI_SEG]      ; (its own: the writer before it no
+    mov dx, 3C4h                    ;   longer leaves ES on the card)
     mov ax, 0302h                   ; planes 0 and 1: the glyph's set bits
     out dx, ax                      ;   read 7, its clear ones 4
     mov di, RW_FSTXT * 40 + RW_FSX

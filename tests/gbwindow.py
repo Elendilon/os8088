@@ -161,6 +161,25 @@ def fullscreen(ui, m, view, want):
     f1 = frames(m, view)
     if not err and f1 <= f0:
         err = "full screen: frames did not advance (%d, %d)" % (f0, f1)
+    # F1's speed line, under the picture on the border (REALBOY-SPEC 15): it
+    # is the bracket's one write that is not the picture's, and it once went
+    # to whatever ES a writer before it left - the package's own memory
+    m.key("F1", up=False)
+    M.guest_sleep(m, 1)
+    m.key("F1", down=False)
+    M.guest_sleep(m, 2)
+    W, H, data = m.fbuf(0)
+    band = [tuple(data[((y * sy) * W + x * sx) * 3:((y * sy) * W + x * sx) * 3 + 3])
+            for y in range(146, 154) for x in range(160)]
+    ground = max(set(band), key=band.count)
+    lit = sum(1 for c in band if c != ground)
+    print("gbwindow vga full screen: F1's line, %d of %d pixels lit" % (lit, len(band)))
+    if not err and lit < 100:
+        err = "full screen: F1 drew no speed line (%d pixels off the border's colour)" % lit
+    m.key("F1", up=False)                   # ...and off again: the window's
+    M.guest_sleep(m, 1)                     #   picture is compared after
+    m.key("F1", down=False)
+    M.guest_sleep(m, 1)
     m.key("Escape", up=False)               # held, so the loop's poll sees it
     M.guest_sleep(m, 1)
     m.key("Escape", down=False)
