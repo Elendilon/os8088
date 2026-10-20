@@ -2150,8 +2150,10 @@ def flag_masks_cb(op):
 
 
 def nof_lines(op):
-    """op without its flags: INC/DEC r and ADD HL,rr, when the next
-    instruction writes every flag they do and reads none of them."""
+    """op without its flags: INC/DEC r and ADD HL,rr, when the instructions
+    after it write every flag it does before reading one. (The ALU on A was
+    tried too and bought 235 -> 234 ticks of Kirby's Dream Land: its flags
+    are nearly always read, by a JR or by the ALU after it.)"""
     if op in (0x09, 0x19, 0x29, 0x39):
         return ["    add bx,%s" % {0x09: "cx", 0x19: "di", 0x29: "bx", 0x39: "sp"}[op],
                 "    sub bp,2"]
@@ -2165,10 +2167,14 @@ def nof_lines(op):
     return ["    %s %s" % ("dec" if dec else "inc", X86[r]), "    sub bp,1"]
 
 
-NOF_OPS = [op for op in range(0x40) if op & 15 in (4, 5, 0xC, 0xD) and op not in (0x34, 0x35)]
-NOF_OPS += [0x09, 0x19, 0x29, 0x39]
-RB_XNOF = len(EXTRA)                # their records: 512 + this + k
-EXTRA += [("%02X without F" % op, nof_lines(op), 1) for op in NOF_OPS]
+# Their records, 512 + RB_XNOF + k, in slots rbjit.inc's rt_nofx finds by
+# formula: INC/DEC r by (op >> 3) x 2 + (op AND 1), ADD HL,rr 16 + op >> 4.
+# INC/DEC (HL)'s slots have no record.
+NOF_OPS = [((k >> 1) << 3) | 4 | (k & 1) for k in range(16)]
+NOF_OPS += [k << 4 | 9 for k in range(4)]
+RB_XNOF = len(EXTRA)
+EXTRA += [("%02X without F" % op, None if op in (0x34, 0x35) else nof_lines(op), 1)
+          for op in NOF_OPS]
 
 
 if __name__ == "__main__":

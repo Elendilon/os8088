@@ -673,15 +673,24 @@ rt_translate:
 ; Keeps BX
 RT_DLOOK        equ 6
 rt_deadf:
-    mov si,ax
-    mov dl,[cs:rt_tab + RBT_NOF + si]
-    and dl,3Fh
-    jz .r0
-    mov dh,[cs:rt_tab + RBT_FLG + si]   ; DH = the flags still live
     push ax
+    call rt_nofx                    ; AX = its second record, if it has one
+    jc .r0
+    mov dx,ax
+    pop ax
+    push ax
+    mov si,ax
+    mov ch,[cs:rt_tab + RBT_FLG + si]
+    and ch,0Fh
+    push dx                         ; [SP] = the second record
+    mov dh,ch                       ; DH = the flags still live
     push bx
     mov cx,[RT_CNT]
-    inc bx                          ; (all of them one byte long)
+    shl si,1
+    mov si,[cs:rt_tab + si]         ; (its own record's length)
+    mov al,[cs:rt_tab + si + 3]
+    cbw
+    add bx,ax                       ; BX = the next instruction
 .k:
     inc cx                          ; CX = the count with this one
     cmp cx,RT_MAXI
@@ -697,19 +706,25 @@ rt_deadf:
     mov al,[JIT_BUF+bx]
     xor ah,ah
     mov si,ax
-    mov cl,[cs:rt_tab + RBT_NOF + si]
-    rol cl,1
-    rol cl,1
-    and cl,3                        ; CL = its length - 1
+    mov ch,[cs:rt_tab + RBT_FLG + si]
     cmp al,0CBh
     jne .m
-    mov al,[JIT_BUF+bx+1]           ; (a CB op: its own masks, 256 on)
-    inc ah
-    mov si,ax
+    mov al,[JIT_BUF+bx+1]           ; a CB op: its record 256 on, and its
+    inc ah                          ;   masks the group's rule - RL and RR
+    mov si,ax                       ;   read C, the shifts and rotates
+    mov ch,0                        ;   write all four, BIT Z, N and H
+    cmp al,80h
+    jae .m
+    mov ch,7
+    cmp al,40h
+    jae .m
+    mov ch,0Fh
+    cmp al,10h
+    jb .m
+    cmp al,20h
+    jae .m
+    mov ch,8Fh
 .m:
-    inc cx
-    add bx,cx                       ; BX = the one after it
-    mov ch,[cs:rt_tab + RBT_FLG + si]
     mov cl,ch
     shr cl,1
     shr cl,1
@@ -729,22 +744,65 @@ rt_deadf:
     jz .livec
     test byte [cs:rt_tab + si + 4],1+2+4+16+64
     jnz .livec
+    mov al,[cs:rt_tab + si + 3]
+    cbw
+    add bx,ax                       ; BX = the one after it
     pop cx
-    jmp short .k
+    jmp .k
 .dead:
     pop cx
     pop bx
-    pop ax
-    mov al,dl
-    xor ah,ah
-    add ax,RBT_XNOF
+    pop ax                          ; (the second record)
+    pop dx
     ret
 .livec:
     pop cx
 .live:
     pop bx
-    pop ax
+    pop dx
 .r0:
+    pop ax
+    ret
+
+; rt_nofx - AX = a main opcode: CF = 0 and AX = the record of it without F
+; (rbgen.NOF_OPS' slots), or CF = 1 when it has none
+rt_nofx:
+    cmp al,40h
+    jae .no
+    mov ah,al
+    and ah,0Fh
+    cmp ah,9
+    je .hl
+    and ah,7
+    cmp ah,4
+    je .id
+    cmp ah,5
+    jne .no
+.id:
+    mov ah,al                       ; INC/DEC r: (op >> 3) x 2 + (op AND 1)
+    and ah,1
+    shr al,1
+    shr al,1
+    and al,0FEh
+    or al,ah
+    jmp short .h
+.hl:
+    shr al,1                        ; ADD HL,rr: 16 + op >> 4
+    shr al,1
+    shr al,1
+    shr al,1
+    add al,16
+.h:
+    xor ah,ah
+    add ax,RBT_XNOF
+    push si
+    mov si,ax
+    shl si,1
+    cmp word [cs:rt_tab + si],1     ; ((HL)'s slots have no record)
+    pop si
+    ret
+.no:
+    stc
     ret
 
 ; rt_glen - [RT_GLEN] = the bytes of the control transfer at [RT_OP]: JR and

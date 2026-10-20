@@ -1190,11 +1190,13 @@ as `add di,100h`. Kirby's Dream Land runs `ADD HL,DE / LD A,L / CP C` and
 `ADD HL,BC` five times running in its hottest loops.
 
 `rbgen.flag_masks` says what every opcode writes (all of it decided by the
-instruction, nothing carried from F) and reads, four bits each in a 512-byte
-table at the head of `rbtmpl.bin` (`RBT_FLG`, the CB group's 256 on); beside
-it, each opcode's length and its second record (`RBT_NOF`). The look goes
-on past instructions that write some of the live flags or none, and STOPS,
-calling F live, at:
+instruction, nothing carried from F) and reads, four bits each in a 256-byte
+table at the head of `rbtmpl.bin` (`RBT_FLG`); the CB group's are a rule in
+`rt_deadf` (`rbgen.flag_masks_cb`, which `rbtmpl.py` checks against it),
+an instruction's length is its own record's, and the second records sit in
+slots `rt_nofx` finds by formula - so the whole mechanism is 256 bytes of
+table and ~200 of code. The look goes on past instructions that write some
+of the live flags or none, and STOPS, calling F live, at:
 
 - anything that reads a live flag - ADC and SBC, RLA, RRA, DAA, CCF, the
   CB group's RL and RR, PUSH AF, and every control transfer (whose target
@@ -1212,6 +1214,12 @@ template writes F before its exits, and one that leaves for the interpreter
 between. A chain of them is safe for the same reason, each one's writes
 covering the one before's. Kirby's Dream Land 247 -> 235 ticks, the CPU
 alone with two segments; Super Mario Land 112, level.
+
+The ALU on A was given second records too (register and byte forms, CP
+excepted) and measured 235 -> 234: its flags are nearly always read, by the
+JR after it or by the ALU after that. Not kept - it cost ~1KB of records and
+took the bare harness (`tests/rbcore/rbhost.asm`, 32KB under the core) to
+within 56 bytes of its end.
 
 Blargg's cpu_instrs cannot see this - it runs the instruction under test
 from RAM, which is never translated, and it passed with the read check
