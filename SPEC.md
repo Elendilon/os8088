@@ -39899,9 +39899,9 @@ The table, a 1KB `MEM_K_IMG` claim (`0xFF12`), top-down and pinned:
           in hand against the same dword, so it needs no cells of its own)
       sentinel: dw the image's sector count - an LBA at or past it FAILS,
           as a corrupt one does on a real disk
-1020  dw  the file's first cluster on its host     } DISKOPS.DRV's alone:
-1022  db  its attribute byte before the mount      } the resident arm
-1023  db  its byte 12 before the mount             } never reads these
+1007  db[13] the file's 8.3 name on its host       } DISKOPS.DRV's (18.101.5),
+1020  dw  the folder that holds it                  } and the cluster
+1022  dw  the file's first cluster on its host     } dskw_imgro's (18.101.3)
 ```
 
 **A read-only image refuses a write with `int 13h`'s own 03h** in
@@ -39953,11 +39953,13 @@ and `FS_CWD`, since the listing that was clicked need not be the mounted one)
 and stats the file. Then:
 
 1. **Already a drive?** A `DRVC_IMG` row whose table names this host volume and
-   this first cluster - and whose ENTRY still carries the mark (§18.101.3), so
-   a different disk in the same floppy drive with a file at the same cluster is
-   not mistaken for it - means this double-click is the EJECT: the attribute
-   and byte 12 go back, `dsk_vol_del` frees the row and reflows the desktop,
-   the claim is freed, and the toast is `TEST.IMG unmounted`.
+   this first cluster means this double-click is the EJECT: `dsk_vol_del`
+   frees the row and reflows the desktop, the claim is freed, and the toast
+   is `TEST.IMG unmounted`. Nothing is written to the file. The host and the
+   cluster are the whole identity - the same one `dskw_imgro` uses - so a
+   different disk swapped into the same floppy drive with an image at the
+   same cluster is taken for the mounted one: that double-click ejects, and
+   the next mounts it.
 2. **A host with sectors.** A `DVK_FILE` volume (the RAM disk, the cable) has
    none, and an image on an image would need the swap twice: both are
    `Cannot mount from here`.
@@ -39966,7 +39968,7 @@ and stats the file. Then:
    image`. No geometry table: `disk_mount`'s own sixteen rules are the test of
    what the bytes are (step 6).
 4. **The chain, as runs.** The FAT is walked once (`dsk_next_clus_x`,
-   `dsk_clus2lba_x`), merging adjacent clusters. 167 runs fit the table;
+   `dsk_clus2lba_x`), merging adjacent clusters. 166 runs fit the table;
    more is `Too fragmented to mount`, and so is a chain that ends before the
    file does.
 5. **The row.** `dsk_vol_add` with `[dsk_vcls]` = `DRVC_IMG`, the five-letter
@@ -39975,9 +39977,9 @@ and stats the file. Then:
 6. **Proved by mounting it.** `dsk_goto` on the new volume's root runs
    `disk_mount` through the image arm; a refusal takes the row back and frees
    the claim, and the answer is `Not a disk image`. The host is then made
-   current again and the file MARKED (§18.101.3), and the toast is
-   `TEST.IMG is drive D:` - 24 characters for a full 8.3 name, which is
-   exactly `TOAST_MAX`.
+   current again - and an EARLIER kernel's mark cleared, if the file carries
+   one (§18.101.3) - and the toast is `TEST.IMG is drive D:` - 24 characters
+   for a full 8.3 name, which is exactly `TOAST_MAX`.
 
 **A Disk window left on an unmounted image** is what a RAM disk's unmount
 already leaves: its next refresh finds the row free and the mount refuses.
@@ -39986,28 +39988,56 @@ Nothing closes it, as nothing closes one for a volume a driver dropped.
 #### 18.101.3 The backing file is READ-ONLY while it is mounted
 
 **Writes through the drive land in the file's clusters on the host, so the
-file must not be deleted, replaced, appended to or moved while it is a
+file must not be deleted, replaced, appended to or renamed while it is a
 drive** - a cluster freed under a mount belongs to the next file written, and
-the mount would then overwrite it. The FAT layer already refuses all four on a
-read-only entry (`DSKW_PROT`, `DSKW_NPROT`, §18.4), so the guard is the
-attribute and costs no resident byte: a mount sets read-only on the host entry
-and its unmount puts the byte back. Delete on it says `Protected`.
+the mount would then overwrite it. The FAT layer already refuses all four on
+a read-only entry (`DSKW_PROT`, `DSKW_NPROT`, §18.4), so the guard is the
+read-only bit - and **the bit is VIRTUAL: it exists only in the copy of the
+entry the FAT layer stages to decide the refusal, and never on the disk.**
+Delete on it says `Protected`, exactly as before.
 
-**The mark is read-only PLUS byte 12 = `IMG_MARK` (`0xC1`)**, the directory
-entry's reserved byte, which DOS ignores and whose bits 3 and 4 - NT's
-lower-case flags - are clear. The SYSTEM attribute would have been the
-obvious second bit and is not usable: §19's listing hides hidden AND system
-entries, so the file would vanish from the very window that has to unmount it.
-The two bits together say three things apart:
+**`dskw_imgro`** (`diskw.inc`, `.cold`, near) is the whole mechanism. The four
+tests that refuse a protected entry - `dskw_dbody`'s delete, `dskw_rename`'s,
+and through `dskw_pmask` the replace in `dskw_wbody` and the append in the
+write-at body - call it after `dskw_find` has staged the entry in `dskw_raw`,
+and it ORs `DSKW_RDO` into the staged attribute byte when a `DRVC_IMG` row's
+claim names the CURRENT volume as its host (byte 0) and the entry's first
+cluster as the file's (`IMG_M_CLUS`). The walk over the rows is
+`dsk_img_next`, which `dsk_img_orphan` (§18.101.1) shares. The OR is safe
+because every caller tests that byte next and refuses on it, so a staged
+entry carrying the bit is never written back; the one path that forgives
+read-only is `dskw_write_sys` replacing a file that already wears the
+kernel's hidden + system species (§19.6.2), and an image file wearing it and
+being reinstalled over is the whole of that case.
+
+What that buys is the reason it was built: **a machine switched off, reset,
+restarted or hibernated under a mount leaves the file exactly as it found
+it.** As first built the mount set read-only on the host entry and the
+unmount put it back, so every session that ended with an image mounted left
+the file read-only, and the only way to clear it was to mount and unmount it
+again. A mount and an unmount now write nothing to the host at all - a
+write-protected host floppy included - and a Move of the file within its
+volume (`fcp_relink`, which never asked about read-only) keeps the cluster
+and so keeps the protection. What it gives up is that another operating
+system reading the disk while it is mounted - DOS in the DOS box goes
+through the same FAT layer, so it is not one - sees an ordinary file, and
+that a floppy swapped under a mount can answer `Protected` for an unrelated
+file that happens to start at the image's cluster on the new disk.
+
+**An earlier kernel's mark is cleared by the next mount.** That kernel wrote
+read-only PLUS byte 12 = `IMG_MARK` (`0xC1`) - the directory entry's reserved
+byte, which DOS ignores and whose bits 3 and 4, NT's lower-case flags, are
+clear - so a file it was stopped under still carries both. The mount reads
+the pair as before:
 
 | on the host entry | means | mounts |
 |---|---|---|
-| neither | an ordinary image | writable, and marked |
-| read-only alone | the USER's read-only | **read-only** (`IMGF_RO`), and not marked: it is already protected |
-| read-only and `0xC1`, no row | a mount the machine STOPPED under | writable; the unmount clears both |
+| neither | an ordinary image | writable |
+| read-only alone | the USER's read-only | **read-only** (`IMGF_RO`) |
+| read-only and `0xC1` | a mount an earlier kernel was stopped under | writable, and the mount clears both, once |
 
-The unmount restores the attribute and byte 12 saved in the table, so a
-user's read-only survives a mount and an unmount untouched.
+So a user's read-only survives a mount and an unmount untouched, and an
+image left stuck by the old scheme is repaired by mounting it.
 
 #### 18.101.4 What it cost
 
@@ -40023,6 +40053,16 @@ inline rather than a routine. `DISKOPS.DRV` grew 9,211 -> 10,143 bytes - its
 claim 9KB -> 10KB, which is heap while it is loaded and nothing resident.
 kern_small and kern_dos: zero, byte-identical. `tests/imgmount.py` is the
 gate (`soak -k imgmount`).
+
+**The virtual read-only bit (§18.101.3) is 55 more** - `.cold` +55, `.text`
++0, measured against the commit before it, no rung crossed on kern_big or
+kern_emu: `dskw_imgro` 36, its three call sites 9, and `dsk_img_next` with
+`dsk_img_orphan` rewritten over it +10. It is resident on purpose rather than
+a restart, shutdown and hibernate that unmount every image first: those
+would have cost resident hooks of their own, a module read at shutdown, and
+still left the file read-only after a power-off or a reset. `DISKOPS.DRV`
+got smaller by the marking it no longer does (9,075 -> 9,056 bytes on disk).
+kern_small and kern_dos: zero, byte-identical.
 
 **The orphan walk (§18.101.1) is 47 more resident bytes**, and they are over
 that 200: 245 for the feature. It is a `.text` far entry - `.text` +42, and
@@ -40060,13 +40100,13 @@ folder. §22.28's **Disk** menu adds the other two ways in, both kern_big's:
 
 Starting from the VOLUME needs what starting from the file did not: which
 file, and where. So the claim keeps both - **`IMG_M_NAME`** (13 bytes) and
-**`IMG_M_DIR`** (the host folder) below `IMG_M_CLUS` - which takes two runs
-off `IMG_TABMAX` (166 now, against 168). The unmount stats the file by name in
-that folder and checks it is still the cluster the mount found before it puts
-the attribute back; a file that is not where it was still unmounts - the row
-and the claim go - and is left marked, which the next mount reads as §18.101.3's
-stale marker. `clo_mhost` reads the folder out of the claim too, so all three
-entries go back to the one they came from.
+**`IMG_M_DIR`** (the host folder) below `IMG_M_CLUS`, at the claim's top
+(`IMG_TABMAX` 1,005: 166 runs). The unmount makes that folder current again,
+which is where the window goes, and writes nothing: since §18.101.3's bit
+became virtual there is no attribute to put back, so a file that is no longer
+where the mount found it unmounts exactly as one that is. `clo_mhost` reads
+the folder out of the claim too, so all three entries go back to the one
+they came from.
 
 #### 18.101.6 A `.IMG` draws the drive it becomes
 

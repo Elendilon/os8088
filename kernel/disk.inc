@@ -344,6 +344,15 @@ IMG_DVSEG    equ DV_LBL + 6      ; ...and the claim's SEGMENT lives in the
 %if IMG_DVSEG + 2 > DV_BUNIT
   %error "IMG_DVSEG must stay inside DV_LBL, clear of DV_BUNIT (SPEC.md 18.101)"
 %endif
+; ...and its TOP, which DISKOPS.DRV writes at the mount: the file's name and
+; folder (the unmount that starts from the volume, 18.101.5) and its first
+; cluster on the host - which dskw_imgro reads as well, because the cluster is
+; what makes the file READ-ONLY while it is a drive (18.101.3). Nothing about
+; the mount is written to the file's own entry any more
+IMG_KB       equ 1
+IMG_M_NAME   equ IMG_KB*1024 - 17  ; 13 bytes: the file's 8.3 name on its host
+IMG_M_DIR    equ IMG_KB*1024 - 4   ; dw: the folder that holds it (0 = root)
+IMG_M_CLUS   equ IMG_KB*1024 - 2   ; dw: the file's first cluster on its host
 %endif
 %if DVK_DRV != 1 || DVK_FILE != 2 || DVK_BIOS != 0
   %error "dsk_vol_del and dsk_vol_drop_drv_x test the two DRIVER kinds as one range, DVK_DRV..DVK_FILE = 1..2, below which BIOS (0) wraps"
@@ -3135,19 +3144,38 @@ dsk_img_orphan:
     push es
     mov bx, dsk_vtab + 3*DV_SIZE
 .orph:
-    cmp byte [bx+DV_KIND], DVK_DRV  ; a FREE row keeps its old class AND its
-    jne .onext                  ; IMG_DVSEG, which then names a freed claim
-    cmp byte [bx+DV_CLASS], DRVC_IMG
-    jne .onext
-    mov es, [bx+IMG_DVSEG]
-    cmp [es:0], al
-    jne .onext
-    mov byte [es:0], 0xFF
-.onext:
-    add bx, DV_SIZE
-    cmp bx, dsk_vtab + DVOL_MAX*DV_SIZE
-    jb .orph
+    call dsk_img_next
+    jc .done
+    mov byte [es:0], 0xFF       ; ...which no longer names AL, so the next
+    jmp short .orph             ; scan starts past it with nothing to add
+.done:
     pop es
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_img_next - the next MOUNTED IMAGE whose host is volume AL, from row BX
+; in:  AL = the host's volume index, BX = a row of dsk_vtab to start at
+; out: CF = 0, ES = its claim and BX = the row AFTER it (so a walk calls
+;      again without stepping); CF = 1 none at or past BX
+; clobbers: BX, ES, flags
+;
+; The walk dsk_img_orphan and dskw_imgro share (SPEC.md 18.101.1, 18.101.3).
+; A FREE row keeps its old class AND its IMG_DVSEG, which then names a freed
+; claim, so the kind is asked first
+; -----------------------------------------------------------------------------
+dsk_img_next:
+    cmp bx, dsk_vtab + DVOL_MAX*DV_SIZE
+    cmc                         ; CF = 1 past the table: none
+    jc .out
+    add bx, DV_SIZE
+    cmp byte [bx+DV_KIND-DV_SIZE], DVK_DRV
+    jne dsk_img_next
+    cmp byte [bx+DV_CLASS-DV_SIZE], DRVC_IMG
+    jne dsk_img_next
+    mov es, [bx+IMG_DVSEG-DV_SIZE]
+    cmp [es:0], al
+    jne dsk_img_next            ; CF = 0 out of an EQUAL compare
+.out:
     ret
 %endif
 

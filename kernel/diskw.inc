@@ -242,8 +242,62 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; A DSKW_SYSW kernel's alone: with no system writer the answer is DSKW_PROT
 ; every time, and both sites test that immediate instead (kernel size pass 13)
 ; -----------------------------------------------------------------------------
+%ifdef OS88_IMG
+; -----------------------------------------------------------------------------
+; dskw_imgro - the VIRTUAL read-only bit of a mounted image's file (SPEC.md
+;              18.101.3)
+; in:  dskw_raw = an entry dskw_find just found in the CURRENT volume
+; out: DSKW_RDO ORed into its staged attribute byte if a mounted image's
+;      claim names this host volume and this first cluster; everything else
+;      as it was. Every register preserved; flags clobbered
+;
+; A file that is a drive must not be deleted, replaced, appended to or
+; renamed, and the FAT layer already refuses all four on a read-only entry -
+; so the four tests that refuse ask this first, and the bit exists only in
+; the STAGED copy, never on the disk. A machine switched off, reset or
+; restarted under a mount leaves the file exactly as it found it.
+;
+; The OR is safe because every caller tests the byte next and refuses on it,
+; so an entry with the bit added is never written back - with one exception
+; nobody reaches: dskw_write_sys replacing a hidden+system file, whose mask
+; forgives read-only (dskw_pmask), would carry the bit onto the new entry.
+; An image file wearing the kernel's own species and being reinstalled over
+; is the whole of that case. Matched by cluster alone: a Move keeps the
+; cluster and so keeps the protection, and a floppy swapped under a mount
+; costs at most a Protected answer for a file at the same cluster
+; -----------------------------------------------------------------------------
+dskw_imgro:
+    push ax
+    push bx
+    push dx
+    push es
+    mov al, [disk_drive]
+    mov dx, [dskw_raw+DSK_R_CLUS]
+    mov bx, dsk_vtab + 3*DV_SIZE    ; dsk_vol_add never gives an image C:
+.next:
+    call dsk_img_next           ; ES = a claim this volume hosts
+    jc .out
+    cmp dx, [es:IMG_M_CLUS]
+    jne .next
+    or byte [dskw_raw+DSK_R_ATTR], DSKW_RDO
+.out:
+    pop es
+    pop dx
+    pop bx
+    pop ax
+    ret
+%endif                          ; OS88_IMG
+
+%ifdef OS88_IMG
+  %ifndef DSKW_SYSW
+    %error "dskw_imgro reaches the replace and append tests through dskw_pmask, which only a DSKW_SYSW kernel calls"
+  %endif
+%endif
 %ifdef DSKW_SYSW
 dskw_pmask:
+%ifdef OS88_IMG
+    call dskw_imgro             ; both callers are a replace (SPEC.md 18.101.3)
+%endif
     push bx
     mov al, DSKW_PROT
     cmp byte [dskw_syswr], 0
@@ -2356,6 +2410,9 @@ dskw_dbody:
 dskw_dbody_n83:                 ; dskw_n83 already filled (dskw_rmtree)
     call dskw_find
     jc .out
+%ifdef OS88_IMG
+    call dskw_imgro             ; a mounted image's file (SPEC.md 18.101.3)
+%endif
     test byte [dskw_raw+DSK_R_ATTR], DSKW_PROT
     jz .live
     jmp dskw_wbody.prot         ; read-only, hidden, system, label or dir:
@@ -2421,6 +2478,9 @@ dskw_nbody:
     call dskw_gate83            ; now the old name (nothing is pushed here)
     call dskw_find
     jc .out
+%ifdef OS88_IMG
+    call dskw_imgro             ; a mounted image's file (SPEC.md 18.101.3)
+%endif
     test byte [dskw_raw+DSK_R_ATTR], DSKW_NPROT
     jz .patch                   ; 0x0F, not 0x1F: a FOLDER may be renamed
     jmp dskw_wbody.prot
