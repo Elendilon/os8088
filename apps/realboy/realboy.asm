@@ -58,6 +58,15 @@ RW_SLOTMAX      equ 40              ; ...slots at most (rwbank.inc)
 RW_PRFN         equ 2048            ; Static's profile: entries, 4 bytes each,
 RW_PRFTAIL      equ RW_PRFN * 4     ;   then the file's trailer: 'RBP1', the
 RW_PRFFILE      equ RW_PRFTAIL + 9  ;   header's 014Dh byte and 014Eh word,
+;
+; REALBOY.CFG, in SYSTEM\APPDATA: 'RB', the version, then the settings -
+; bit 0 Machine > Cache: 128K. Read at the start, written at the toggle.
+RW_CFGN         equ 4
+RW_CFGBIG       equ 01h
+RW_JIT2N        equ 560             ; a profile this many blocks or more
+                                    ;   asks for the second cache segment:
+                                    ;   the first holds ~600 of Kirby's
+                                    ;   Dream Land's (REALBOY-SPEC 16.2.1)
 RW_PRFKB        equ 9               ;   the count (REALBOY-SPEC 16.8)
 
 ; --- the bss: the standard's words first, then ours --------------------------
@@ -186,7 +195,33 @@ rw_msgt         equ rw_f3was + 1    ; byte: a note is on the speed line
 rw_msgclr       equ rw_msgt + 1     ; byte: ...and has just come down
 rw_msgend       equ rw_msgclr + 1   ; word: the tick it comes down at
 rw_msg          equ rw_msgend + 2   ; 21: the note (rw_note)
-hw_ok           equ rw_msg + 21     ; byte: the hardware scroll's origin holds
+rw_logseg       equ rw_msg + 22     ; word: the log's records, RW_LOGN x
+                                    ;   RW_LOGSZ, claimed while it is on
+                                    ;   (rwlog.inc), or 0 (after a spare
+                                    ;   byte: rw_fbuf stays even)
+rw_lrec         equ rw_logseg + 2   ; RW_LOGSZ: the second's record, made
+                                    ;   here and copied into the claim
+rw_lrec2        equ rw_lrec + RW_LOGSZ ; RW_LOGSZ: the write's, a record
+                                    ;   back out of it (the UI task's own)
+rw_lring        equ rw_lrec2 + RW_LOGSZ ; word: the write's copy of
+                                    ;   [rw_logseg]
+rw_prfon        equ rw_lring + 2    ; byte: Machine > Profile is on (and a
+                                    ;   spare byte: rw_jit2seg stays even)
+rw_jit2seg      equ rw_prfon + 2    ; word: the recompiler's second 64KB
+                                    ;   (REALBOY-SPEC 16.2.1), or 0
+rw_cfg          equ rw_jit2seg + 2  ; RW_CFGN: REALBOY.CFG as it is read
+                                    ;   and written (SYSTEM\APPDATA)
+rw_cfgip        equ rw_cfg + RW_CFGN ; byte: os88data.inc's stamp for it
+rw_big          equ rw_cfgip + 1    ; byte: Machine > Cache: 128K (the
+                                    ;   setting, kept in REALBOY.CFG)
+rw_286          equ rw_big + 1      ; byte: a 286 or later: a recompiler
+rw_seg2q        equ rw_286 + 1      ; byte: the cache's segments changed:
+                                    ;   the worker's to start it again
+rw_f3q          equ rw_seg2q + 1    ; byte: F3 asked for Static in the
+                                    ;   window: the UI task's first (rw_onwake)
+rw_jitqn        equ rw_f3q + 1      ; byte: ...and the switch it queued says
+                                    ;   itself on the speed line
+hw_ok           equ rw_jitqn + 1    ; byte: the hardware scroll's origin holds
                                     ;   (rwhw.inc; 0: home, every line again)
 hw_p            equ hw_ok + 1       ; byte: its panning, 0-7
 hw_dx           equ hw_p + 1        ; byte: this call's scroll, x, signed
@@ -228,8 +263,8 @@ hw_wp           equ hw_wob + 2      ; byte: ...and the panning
 hw_valid        equ hw_wp + 1       ; 144: the row at the origin is the line's:
                                     ;   1 its plain background, scrolled or not,
                                     ;   2 as composed, the origin still since
-rw_log          equ hw_valid + 144  ; RW_LOGN x RW_LOGSZ: the records
-rw_fbuf         equ rw_log + RW_LOGN * RW_LOGSZ ; 5,760: rb_render's frame (monochrome)
+rw_fbuf         equ hw_valid + 144 + 1  ; 5,760: rb_render's frame (monochrome;
+                                    ;   a spare byte before: it stays even)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 
@@ -238,6 +273,12 @@ RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 ; =============================================================================
 rw_entry:
     mov byte [rw_jitmode], 1        ; Recompiler: On (REALBOY-SPEC 16.7)
+    call OSAPI_CPU_INFO
+    cmp al, CPU_8086
+    je .c86
+    mov byte [rw_286], 1
+.c86:
+    call rw_cfgload
     call OSAPI_FILE_HERE            ; where the program is: the log's folder
     mov [rw_pkgdir], dx
     mov [rw_pkgvol], bl
@@ -345,6 +386,13 @@ rb_trbyte:
 ; or the core having stopped
 rw_onwake:
     call rw_bserve                  ; a bank the worker waits for
+    cmp byte [rw_f3q], 0            ; F3 in the window, to Static: its
+    je .nf3                         ;   profile and room here, then the
+    mov byte [rw_f3q], 0            ;   switch the worker's (rw_jitq),
+    call rw_stprep                  ;   said as F3's own is
+    mov byte [rw_jitqn], 1
+    mov byte [rw_jitq], 1
+.nf3:
     cmp byte [rw_argpend], 0
     je .stopped
     mov byte [rw_argpend], 0
@@ -424,9 +472,18 @@ rw_load:
     mov [rw_romkb], dx
     call rw_dmgclaim                ; the damage memory and the recompiler's
     call rw_jitclaim                ;   cache FIRST: what the ROM's read
-    call rw_plan                    ;   rebuilds of the disk caches lands in
-    jnc .planned                    ;   what is left, and took the 64KB on
-    cmp word [rw_jitseg], 0         ;   the second field run's Victory
+    call rw_jit2claim               ;   rebuilds of the disk caches lands in
+    call rw_plan                    ;   what is left, and took the 64KB on
+    jnc .planned                    ;   the second field run's Victory
+    cmp word [rw_jit2seg], 0        ; no room with the cache's second
+    je .nojit2                      ;   segment: the ROM without it first
+    mov dx, [rw_jit2seg]
+    call OSAPI_MEM_FREE
+    mov word [rw_jit2seg], 0
+    call rw_plan
+    jnc .planned
+.nojit2:
+    cmp word [rw_jitseg], 0
     je .say
     mov dx, [rw_jitseg]             ; no room with it: the ROM without it
     call OSAPI_MEM_FREE
@@ -543,11 +600,12 @@ rw_jiton:                           ; (and Machine > Recompiler's way back in)
     ret
 
 ; rw_jitsegs - AX = the recompiler's cache, BX = its block table: the 16KB
-; after it in the one 80KB claim (rw_jitclaim)
+; after it in the one 80KB claim (rw_jitclaim); CX = its second 64KB, or 0
 rw_jitsegs:
     mov ax, [cs:rw_jitseg]
     mov bx, ax
     add bh, 10h
+    mov cx, [cs:rw_jit2seg]
     ret
 
 ; rw_jitback - the recompiler on again, between two core runs: over the
@@ -993,38 +1051,311 @@ rw_ramattach:
 rw_prfload:
     cmp word [rw_jitseg], 0
     je .r
-    cmp word [rw_prfseg], 0
-    jne .r
+    push es
+    cmp word [rw_prfseg], 0         ; read before the ROM's plan
+    jne .check                      ;   (rw_jit2claim): checked now
+    cmp byte [rw_jitmode], 3        ; Static reads it, so Static is the
+    jne .want                       ;   profile on
+    mov byte [rw_prfon], 1
+.want:
+    cmp byte [rw_prfon], 0          ; Machine > Profile: off, no claim
+    je .r0
     mov ax, RW_PRFKB
     call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the state
-    jc .r                           ;   block names it
+    jc .r0                          ;   block names it
     mov [rw_prfseg], dx
+    call rw_prfrd
+    jc .empty
+.check:
+    mov es, [rw_prfseg]
+    xor ch, ch
+    call rw_prftail                 ; ZF = 1: the trailer is this game's
+    je .r0
+.empty:
+    mov es, [rw_prfseg]
+    xor di, di
+    mov cx, RW_PRFFILE / 2 + 1
+    xor ax, ax
+    cld
+    rep stosw
+.r0:
+    pop es
+.r:
+    ret
+
+; rw_prfrd - NAME.RBP beside the game into [rw_prfseg]'s claim. CF = 1: not
+; there, or not a profile's size
+rw_prfrd:
+    push es
     mov byte [rw_prfdirty], 0
     mov di, rw_prfname
     mov ax, '.R'
     mov dx, 'BP'
     call rw_extnm
-    push es
+    cmp byte [rw_state], 0          ; a game running: its folder (the
+    je .here                        ;   current one may have moved since)
+    mov dx, [rw_romdir]
+    mov bl, [rw_romvol]
+    call rw_fgo
+    jc .back
+.here:
     mov es, [rw_prfseg]
     xor bx, bx
     mov cx, RW_PRFFILE
     xor dx, dx
     mov si, rw_prfname
     call OSAPI_FILE_READ            ; DX:AX = the bytes read
-    jc .empty
+    jc .back
     cmp ax, RW_PRFFILE
-    jne .empty
-    xor ch, ch
-    call rw_prftail                 ; ZF = 1: the trailer is this game's
-    je .done
-.empty:
-    xor di, di
-    mov cx, RW_PRFFILE / 2 + 1
-    xor ax, ax
-    cld
-    rep stosw
-.done:
+    je .back
+    stc
+.back:
+    pushf
+    cmp byte [rw_state], 0
+    je .r
+    call rw_fback
+.r:
+    popf
     pop es
+    ret
+
+; rw_prfblocks - AX = the blocks the profile names (its entries weighing
+; anything), or 0 with none
+rw_prfblocks:
+    xor ax, ax
+    cmp word [rw_prfseg], 0
+    je .r
+    push bx
+    push cx
+    push es
+    mov es, [rw_prfseg]
+    mov bx, 3
+    mov cx, RW_PRFN
+.c:
+    cmp byte [es:bx], 0
+    je .n
+    inc ax
+.n:
+    add bx, 4
+    loop .c
+    pop es
+    pop cx
+    pop bx
+.r:
+    ret
+
+; rw_jit2claim - on the UI task at the load, after rw_jitclaim and before
+; the ROM's plan: the cache's second 64KB (REALBOY-SPEC 16.2.1) when the
+; game's NAME.RBP names more blocks than the first holds. Read here, it is
+; kept, and the Profile is on: the game has one. The ROM takes what is left,
+; and gives it back if that is not enough (rw_load).
+rw_jit2claim:
+    cmp word [rw_jitseg], 0
+    je .r
+    cmp word [rw_prfseg], 0         ; (a load that failed left one)
+    jne .have
+    mov ax, RW_PRFKB
+    call OSAPI_MEM_CLAIM            ; DX = the profile's segment
+    jc .r
+    mov [rw_prfseg], dx
+.have:
+    call rw_prfrd
+    jnc .got
+    xor dx, dx                      ; no profile: no claim
+    xchg dx, [rw_prfseg]
+    call OSAPI_MEM_FREE
+    cmp byte [rw_big], 0            ; Machine > Cache: 128K asks for it
+    jne rw_jit2get                  ;   whatever the profile says
+.r:
+    ret
+.got:
+    mov byte [rw_prfon], 1
+; rw_jit2more - the profile is in: the second 64KB if it names more than the
+; first holds, or Machine > Cache says 128K, from what the heap has left.
+; One segment without it.
+rw_jit2more:
+    cmp byte [rw_big], 0
+    jne rw_jit2get
+    call rw_prfblocks
+    cmp ax, RW_JIT2N
+    jb rw_jit2get.r
+rw_jit2get:
+    cmp word [rw_jitseg], 0
+    je .r
+    cmp word [rw_jit2seg], 0
+    jne .r
+    mov ax, 64
+    call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the state
+    jc .r                           ;   block names it
+    mov [rw_jit2seg], dx
+.r:
+    ret
+
+; rw_cfgload - REALBOY.CFG out of SYSTEM\APPDATA at the start: the
+; settings, or none of them for a file that is not ours
+rw_cfgload:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push es
+    push ds
+    pop es
+    mov si, rw_s_cfg
+    mov bx, rw_cfg
+    mov cx, RW_CFGN
+    xor dx, dx
+    call od_read
+    jc .r
+    or dx, dx
+    jnz .r
+    cmp ax, RW_CFGN
+    jne .r
+    cmp word [rw_cfg], 'RB'
+    jne .r
+    cmp byte [rw_cfg + 2], 1
+    jne .r
+    test byte [rw_cfg + 3], RW_CFGBIG
+    jz .r
+    mov byte [rw_big], 1
+.r:
+    pop es
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; rw_cfgsave - the settings back into REALBOY.CFG, on the UI task. A
+; refusal says nothing: the setting holds for this session
+rw_cfgsave:
+    push es
+    push ds
+    pop es
+    mov word [rw_cfg], 'RB'
+    mov byte [rw_cfg + 2], 1
+    mov al, [rw_big]
+    mov [rw_cfg + 3], al
+    mov si, rw_s_cfg
+    mov bx, rw_cfg
+    mov cx, RW_CFGN
+    mov di, rw_cfgip
+    call od_write
+    pop es
+    ret
+
+; rw_bigtoggle - Machine > Cache, on the UI task with the lock held: 64K
+; or 128K, the recompiler's code (REALBOY-SPEC 16.2.1), kept in REALBOY.CFG
+; for every game after. 128K in a session takes the second 64KB from what
+; the heap has left, and the worker starts the recompiler again over both;
+; without the room - or going back to 64K - it is the next game's.
+rw_bigtoggle:
+    cmp byte [rw_286], 0
+    je .r
+    xor byte [rw_big], 1
+    call rw_cfgsave
+    call rw_mgrey
+    cmp byte [rw_state], 0          ; no game: the next one's
+    je .r
+    mov si, rw_s_bignx
+    cmp byte [rw_big], 0
+    je .say                         ; 64K: the next game's
+    cmp word [rw_jit2seg], 0
+    jne .r                          ; (already had it, from its profile)
+    call rw_jit2get
+    cmp word [rw_jit2seg], 0
+    je .say                         ; no room now
+    mov byte [rw_seg2q], 1          ; the worker: the recompiler again
+    ret
+.say:
+    jmp rw_toast
+.r:
+    ret
+
+; rw_prftoggle - Machine > Profile, on the UI task with the lock held. On:
+; the claim and NAME.RBP, and recording from here on. Off: what was
+; recorded saved, then the claim given back - a session meant for On alone
+; keeps its 9KB and writes no file at the close. Static reads the profile,
+; so it stays on while Static is the setting. Before a game it is the
+; setting the load takes.
+rw_prftoggle:
+    cmp byte [rw_286], 0            ; (before a game too: its load claims
+    je .r                           ;   it)
+    cmp byte [rw_prfon], 0
+    jne .off
+    mov byte [rw_prfon], 1
+    call rw_prfup
+    jmp short .m
+.off:
+    cmp byte [rw_jitmode], 3
+    je .st
+    mov byte [rw_prfon], 0
+    call rw_prfdrop
+.m:
+    jmp rw_mgrey
+.st:
+    mov si, rw_s_prfst
+    jmp rw_toast
+.r:
+    ret
+
+; rw_stprep - on the UI task, before Machine > Recompiler's next setting
+; (the menu, or F3): when that is Static, which reads the profile, the
+; profile on and read here, where a file can be, and the cache's second
+; 64KB if it names more than the first holds (REALBOY-SPEC 16.2.1)
+rw_stprep:
+    cmp byte [rw_jitmode], 1        ; On -> Static
+    jne .r
+    mov byte [rw_prfon], 1
+    call rw_prfup
+    call rw_jit2more
+    call rw_mgrey
+.r:
+    ret
+
+; rw_prfup - on the UI task, a game running: the profile claimed, read and
+; handed to the core. The table is whole before the core is told of it.
+rw_prfup:
+    cmp byte [rw_state], 0
+    je .r
+    cmp word [rw_prfseg], 0         ; already in, and recording: as it is
+    jne .r                          ;   (rw_prfload would check a trailer
+    call rw_prfload                 ;   only the save writes)
+    mov ax, [rw_prfseg]
+    or ax, ax
+    jz .r
+    push ds
+    mov ds, [cs:rb_viewseg]
+    mov word [S_PRFMASK], RW_PRFN - 1
+    mov [S_PRFSEG], ax
+    pop ds
+.r:
+    ret
+
+; rw_prfdrop - on the UI task: the profile saved if it grew, the core told
+; to record no more, and - once the worker has been seen out of the
+; machine, so a rt_prfadd that read [S_PRFSEG] first has finished - the
+; claim freed
+rw_prfdrop:
+    cmp word [rw_prfseg], 0
+    je .r
+    call rw_prfsave
+    push ds
+    mov ds, [cs:rb_viewseg]
+    mov word [S_PRFSEG], 0
+    pop ds
+.wait:
+    cmp byte [rw_incore], 0
+    je .free
+    call rw_bserve                  ; (it may be waiting on us for a bank)
+    call OSAPI_TASK_YIELD
+    jmp short .wait
+.free:
+    xor dx, dx
+    xchg dx, [rw_prfseg]
+    call OSAPI_MEM_FREE
 .r:
     ret
 
@@ -1373,6 +1704,11 @@ rw_worker:                          ;   the worker parked at the top of its
     mov byte [rw_resetq], 0
     call rw_reset
 .noreset:
+    cmp byte [rw_seg2q], 0          ; Machine > Cache's second segment: the
+    je .nosq                        ;   recompiler again over both (and
+    mov byte [rw_seg2q], 0          ;   Static's preload, into the room)
+    call rw_jiton
+.nosq:
     cmp byte [rw_jitq], 0
     je .nojq
     mov byte [rw_jitq], 0
@@ -1382,6 +1718,11 @@ rw_worker:                          ;   the worker parked at the top of its
     mov [rw_jitmode], al
     call rw_jitset
     call rw_mgrey                   ; the item says what it is now
+    cmp byte [rw_jitqn], 0          ; (F3's, through the UI task: said)
+    je .nojq
+    mov byte [rw_jitqn], 0
+    mov si, [rw_i_mach + 6]
+    call rw_note
 .nojq:
     cmp byte [rw_state], 1
     jne .held
@@ -1861,6 +2202,17 @@ rw_keys:
     jnc .nof3                       ;   goes through the worker's rw_jitq)
     cmp word [rw_jitseg], 0
     je .nof3
+    cmp byte [rw_jitmode], 1        ; On -> Static reads the profile and
+    jne .f3go                       ;   may want the cache's room: the UI
+    cmp byte [rw_infsx], 0          ;   task's (rw_stprep) - this one in
+    jne .f3ui                       ;   the bracket, the window's woken
+    mov byte [rw_f3q], 1
+    mov bx, [rw_win]
+    call OSAPI_WM_WAKE
+    jmp short .nof3
+.f3ui:
+    call rw_stprep
+.f3go:
     mov bl, [rw_jitmode]
     xor bh, bh
     mov al, [rw_jnext + bx]
@@ -2556,8 +2908,15 @@ rw_oncmd:
     je rw_logtoggle                 ; Log
     cmp al, 5
     je rw_iltoggle                  ; Interlace
+    cmp al, 6
+    je rw_prftoggle                 ; Profile
+    cmp al, 7
+    je rw_bigtoggle                 ; Cache
     cmp word [rw_jitseg], 0         ; Recompiler: the worker flips it
     je .r
+    cmp byte [rw_jitq], 0
+    jne .r
+    call rw_stprep
     mov byte [rw_jitq], 1
 .r:
     ret
@@ -2597,7 +2956,7 @@ rw_tpl:
 
     OS88_MENUSET rw_menus, rw_ttl, rw_oncmd
         OS88_MENU rw_m_file, rw_i_file, 2
-        OS88_MENU rw_m_mach, rw_i_mach, 6
+        OS88_MENU rw_m_mach, rw_i_mach, 8
     OS88_MENUSET_END rw_menus
 
 rw_ttl:         db 'RealBoy', 0
@@ -2607,7 +2966,7 @@ rw_it_open:     db 'Open...', 0
 rw_it_close:    db 'Close', 0
 rw_m_mach:      db 'Machine', 0
 rw_i_mach:      dw rw_it_reset, rw_it_pause, rw_it_fs0, rw_it_jit0, rw_it_log0
-                dw rw_it_il0
+                dw rw_it_il0, rw_it_prf0, rw_it_big0
 rw_it_reset:    db 'Reset', 0
 rw_it_pause:    db 'Pause', 0
 rw_it_fs:       db 'Full Screen', 0
@@ -2621,6 +2980,15 @@ rw_it_log0:     db 'Log: Off', 0
 rw_it_log1:     db 'Log: On', 0
 rw_it_il0:      db 'Interlace: Off', 0
 rw_it_il1:      db 'Interlace: On', 0
+rw_it_prf0:     db 'Profile: Off', 0
+rw_it_prf1:     db 'Profile: On', 0
+rw_it_prfd:     db MENU_DIS, 'Profile (286)', 0
+rw_s_prfst:     db 'Static reads the profile', 0
+rw_it_big0:     db 'Cache: 64K', 0
+rw_it_big1:     db 'Cache: 128K', 0
+rw_it_bigd:     db MENU_DIS, 'Cache (286)', 0
+rw_s_bignx:     db 'Cache: from the next game', 0
+rw_s_cfg:       db 'REALBOY.CFG', 0
 rw_it_il2:      db 'Interlace: Scrolling', 0
 
 rw_s_fps:       db 'fps', 0
@@ -2659,6 +3027,7 @@ rw_ab7:         db 'F1 = speed', 0
 %include "os88pit.inc"
 %include "rwlog.inc"
 %include "rwbank.inc"
+%include "os88data.inc"
 
 %define OS88UI_ABOUT
 %define OS88UI_NOBTN

@@ -2574,7 +2574,7 @@ SOAK = [
         "exactly - the cycle counts instr_timing checks are the core's own. "
         "SOAK: one package's core",
         needs=("qemu", "nasm")),
-    Row("rbstatic", "soak", py("tests/rbstatic.py"), 16.0,
+    Row("rbstatic", "soak", py("tests/rbstatic.py"), 24.0,
         "REALBOY's Static recompiler (docs/REALBOY-SPEC.md section 16.8): "
         "cpu_instrs, instr_timing, mem_timing and tools/gbprof/gbrmw.asm each "
         "run TWICE bare through tests/rbcore/rbhost.asm - a first pass "
@@ -2583,7 +2583,11 @@ SOAK = [
         "both passes must pass with NOTHING translated after the switch. "
         "Then the first ROM with recording broken: an empty profile, fixed, "
         "still translates nothing. NEGATIVE CONTROL: the table never fixed "
-        "must translate in the second pass. WHY QEMU: a correctness gate, "
+        "must translate in the second pass. Then the cache's SECOND SEGMENT "
+        "(section 16.2.1), both segments squeezed to 1KB so the code fills "
+        "them: every ROM Static again, and cpu_instrs translated as it runs "
+        "moving into the second twice; NEGATIVE CONTROL: rt_exit chaining "
+        "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm")),
     Row("gbacid", "soak", py("tests/rbcore/rbacid.py"), 3.0,

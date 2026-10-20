@@ -18,9 +18,12 @@
 ; =============================================================================
 
 RW_LOGN         equ 128             ; records kept, the latest: two minutes
-                                    ;   (256 until the recompiler wanted its
-                                    ;   4KB of the package's 63.5)
 RW_LOGSZ        equ 32
+RW_LOGRKB       equ RW_LOGN * RW_LOGSZ / 1024 ; the records' claim, KB: taken
+                                    ;   when the log is turned on and given
+                                    ;   back once it is written, so a
+                                    ;   session that never logs pays nothing
+                                    ;   (it was 4KB of the package's bss)
 RW_LOGKB        equ 24              ; the text's claim at the write: 128 lines of
                                     ;   at most ~150 characters and the head
 ; a record: the ticks since the log began (at its end), the ticks it spans,
@@ -233,12 +236,8 @@ rw_logsec:
     mov [rw_stspan], cx
     cmp byte [rw_logon], 0
     je .zero
-    mov bx, [rw_logn]
-    and bx, RW_LOGN - 1
-    mov cl, 5                       ; x RW_LOGSZ
-    shl bx, cl
+    mov bx, rw_lrec                 ; the record, made here
     mov cx, [rw_stspan]
-    add bx, rw_log
     add [rw_ltick], cx
     mov ax, [rw_ltick]
     mov [bx + RL_TICK], ax
@@ -294,7 +293,27 @@ rw_logsec:
     call rw_logms
     pop bx
     mov [bx + RL_GMS], ax
+    push es                         ; ...and into the claim. The UI task
+    push di                         ;   clears [rw_logseg] before it frees
+    pushf                           ;   it, so with interrupts off the copy
+    cli                             ;   either lands whole or is not made
+    mov ax, [rw_logseg]
+    or ax, ax
+    jz .gone
+    mov es, ax
+    mov di, [rw_logn]
+    and di, RW_LOGN - 1
+    mov cl, 5                       ; x RW_LOGSZ
+    shl di, cl
+    mov si, bx
+    mov cx, RW_LOGSZ / 2
+    cld
+    rep movsw
     inc word [rw_logn]
+.gone:
+    popf
+    pop di
+    pop es
     jmp short .z2
 .zero:
     call rw_logdelta                ; (the counters move on, unlogged)
@@ -326,12 +345,19 @@ rw_logevt:
 rw_logtoggle:
     cmp byte [rw_logon], 0
     jne .off
+    mov ax, RW_LOGRKB
+    call OSAPI_MEM_CLAIM            ; DX = the records' segment (pinned:
+    jc .room                        ;   [rw_logseg] names it)
     xor ax, ax
     mov [rw_logn], ax
     mov [rw_ltick], ax
+    mov [rw_logseg], dx
     mov byte [rw_logon], 1
     call rw_mgrey                   ; the item says what it is now
     mov si, rw_s_logon
+    jmp rw_toast
+.room:
+    mov si, rw_s_logrm
     jmp rw_toast
 .off:
     mov byte [rw_logon], 0
@@ -341,6 +367,18 @@ rw_logtoggle:
 ; rw_logwrite - the records as text beside REALBOY.O88, on the UI task,
 ; under the first name free of GAMEnn.LOG. Nothing recorded, nothing written.
 rw_logwrite:
+    xor ax, ax                      ; the records' claim: no copy lands in
+    xchg ax, [rw_logseg]            ;   it after this (rw_logsec)
+    or ax, ax
+    jz .r0
+    push ax
+    call .w
+    pop dx
+    call OSAPI_MEM_FREE
+.r0:
+    ret
+.w:
+    mov [rw_lring], ax
     cmp word [rw_logn], 0
     je .r
     mov ax, RW_LOGKB
@@ -363,7 +401,21 @@ rw_logwrite:
     and bx, RW_LOGN - 1
     mov cl, 5
     shl bx, cl
-    add bx, rw_log
+    push es                         ; the record out of the claim
+    push di
+    push ds
+    push ds
+    pop es
+    mov di, rw_lrec2
+    mov si, bx
+    mov ds, [rw_lring]
+    mov cx, RW_LOGSZ / 2
+    cld
+    rep movsw
+    pop ds
+    pop di
+    pop es
+    mov bx, rw_lrec2
     call rw_lline
     pop bx
     pop cx
@@ -766,3 +818,4 @@ rw_s_levts:     db ' RESET', 0
 rw_s_logon:     db 'Log on: written at close', 0
 rw_s_logok:     db 'Log: ', 0, '           ', 0
 rw_s_logno:     db 'REALBOY: log not written', 0
+rw_s_logrm:     db 'REALBOY: no room for the log', 0

@@ -91,6 +91,24 @@ rw_mgrey:
     mov si, rw_it_il2
 .i:
     mov [rw_i_mach + 10], si
+    mov si, rw_it_prfd              ; Profile: what it is now
+    cmp byte [rw_286], 0
+    je .p
+    mov si, rw_it_prf0
+    cmp byte [rw_prfon], 0
+    je .p
+    mov si, rw_it_prf1
+.p:
+    mov [rw_i_mach + 12], si
+    mov si, rw_it_bigd              ; Cache: what it is now (a setting,
+    cmp byte [rw_286], 0            ;   so before a game too)
+    je .b
+    mov si, rw_it_big0
+    cmp byte [rw_big], 0
+    je .b
+    mov si, rw_it_big1
+.b:
+    mov [rw_i_mach + 14], si
     pop si
     pop dx
     pop bx

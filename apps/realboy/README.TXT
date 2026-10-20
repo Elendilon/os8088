@@ -47,11 +47,20 @@ Machine > Recompiler     On, Static, Off or Auto (286 or later).
                          On translates the game as it runs. Static
                          translates it before it runs, then never
                          again, so play never slows for it: play
-                         with On first, and what On translated is
-                         kept beside the game as NAME.RBP for Static
-                         to use. Auto times On against Off when the
-                         game's code outgrows the recompiler
+                         with On and Profile on first, and what On
+                         translated is kept beside the game as
+                         NAME.RBP for Static to use. Auto times On
+                         against Off when the game's code outgrows
+                         the recompiler
 Machine > Log            a record a second, to a file
+Machine > Profile        On keeps what the recompiler translated as
+                         NAME.RBP beside the game, for Static. Off by
+                         default; on by itself for a game that has a
+                         NAME.RBP, and while Static is chosen
+Machine > Cache          64K or 128K for the recompiler's code. 128K
+                         stops a big game (Kirby's Dream Land) from
+                         slowing while its code is translated again,
+                         for 64K of memory. Kept for every game after
 
 The log is written beside REALBOY.O88 when you turn it off or close the
 window, under a new name each time: the game's first six letters and a

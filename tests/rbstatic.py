@@ -27,6 +27,18 @@ is a miss:
   "after" must NOT be 0. A gate that cannot go red tests nothing
   (docs/WRITING-TESTS.md 1). With a full profile it could not go red: every
   hot block is preloaded.
+
+Then the cache's SECOND SEGMENT (REALBOY-SPEC 16.2.1), with both segments
+squeezed to 1KB of code so the test ROMs, which fit one 64KB segment many
+times over, fill both:
+- every ROM again, Static, both passes "Passed" and "after 0";
+- cpu_instrs translated as it runs: it must pass having moved into the
+  second segment twice and so flushed both (the DONE line's "seg2", and
+  "flushes" past rt_init's own), which is where code crosses between them;
+- THE NEGATIVE CONTROL: the translator's check that a target is in the
+  segment being written (rt_exit's `cmp dx,[S_JITSEG] / jne`) made two NOPs,
+  so an exit is written as a near jump into the other segment's offsets.
+  cpu_instrs must then NOT pass.
 """
 import argparse
 import os
@@ -57,10 +69,18 @@ def rom_path(name):
                                     "--path", name], text=True).strip()
 
 
-def run(rom, frames, core, host):
+# rt_exit's same-segment check: cmp dx,[S_JITSEG] / jne - S_JITSEG is 40CCh
+SEGCHK = bytes.fromhex("3B16CC4075")
+
+
+def run(rom, frames, core, host, jit="static", seg2=False):
     img = os.path.join(ROOT, "build", "realboy", "rbstatic.img")
-    rbimg.make_image(rom, img, frames=frames, core=core, host=host, jit="static")
+    rbimg.make_image(rom, img, frames=frames, core=core, host=host, jit=jit,
+                     seg2=seg2, squeeze=seg2)
     text = rbqemu.run(img, ["RBHOST DONE", "RBHOST BADOP"], timeout=400, quiet=True)
+    if jit != "static":
+        m = re.search(r"flushes (\d+) seg2 (\d+)", text)
+        return text.count("Passed"), (int(m.group(1)), int(m.group(2))) if m else None
     m = re.search(r"static (\d+) after (\d+)", text)
     return text.count("Passed"), (int(m.group(1)), int(m.group(2))) if m else None
 
@@ -72,6 +92,16 @@ def norec(host):
         sys.exit("rbstatic: rt_prfadd's test is not in the harness exactly once")
     host = bytearray(host)
     host[i + len(PRFCHK) - 1] = 0xEB
+    return bytes(host)
+
+
+def crossseg(host):
+    """The harness with rt_exit chaining into the other cache segment."""
+    i = host.find(SEGCHK)
+    if i < 0 or host.find(SEGCHK, i + 1) >= 0:
+        sys.exit("rbstatic: rt_exit's segment check is not in the harness exactly once")
+    host = bytearray(host)
+    host[i + len(SEGCHK) - 1:i + len(SEGCHK) + 1] = b"\x90\x90"
     return bytes(host)
 
 
@@ -119,6 +149,29 @@ def main():
         print("%-4s %-24s %s" % ("ok" if red else "FAIL", "control: table not fixed",
                                  "%d translated after the switch, as it must" % st[1]
                                  if st and red else "nothing translated - the gate cannot go red"))
+        bad += not red
+    for label, rom, frames in rows:                 # two segments, squeezed
+        if a.k and a.k not in label:
+            continue
+        n, st = run(rom, frames, core, host, seg2=True)
+        ok = n == 2 and st is not None and st[1] == 0
+        print("%-4s %-24s passed %d of 2, %s" % (
+            "ok" if ok else "FAIL", "seg2: " + label[:18], n,
+            "%d blocks preloaded, %d translated after" % st if st else "no DONE line"))
+        bad += not ok
+    if not a.k:
+        rom, frames = rows[0][1], rows[0][2]
+        n, st = run(rom, frames, core, host, jit=True, seg2=True)
+        ok = n == 1 and st is not None and st[0] >= 2 and st[1] >= 2
+        print("%-4s %-24s passed %d of 1, %s" % (
+            "ok" if ok else "FAIL", "seg2: translated as run", n,
+            "%d flushes, %d moves into the second" % st if st else "no DONE line"))
+        bad += not ok
+        n, st = run(rom, frames, core, crossseg(host), jit=True, seg2=True)
+        red = n == 0
+        print("%-4s %-24s %s" % ("ok" if red else "FAIL", "control: cross-segment",
+                                 "fails, as it must" if red else
+                                 "passed - the gate cannot see a cross-segment jump"))
         bad += not red
     print("rbstatic: %s" % ("PASS" if not bad else "%d FAILED" % bad))
     return 1 if bad else 0

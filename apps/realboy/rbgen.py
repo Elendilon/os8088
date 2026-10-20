@@ -751,11 +751,8 @@ TAILS = {
 ; to it there), so it leaves by far jumps only.
 tr_enter:
     cmp byte [ss:S_JITON],0     ; no translator: the interpreter's own
-    jne .on                     ;   dispatch, DS already its (only the
-    mov dh,[si]                 ;   core's copy runs with it off)
-    inc si
-    jmp dx
-.on:
+    je tr_off                   ;   dispatch (only the core's copy runs
+                                ;   with it off)
     cmp si,8000h                ; RAM: tr_hram
     jae tr_hram
     mov [ss:S_SAVBX],bx
@@ -782,12 +779,13 @@ tr_ekey:
     jne tr_new
     cmp [es:bx+JIT_HASH+2],dh
     jne tr_new
-    mov dx,[es:bx+JIT_HASH+4]   ; the block, in the cache's segment
-    or dx,dx
-    jz tr_count                 ; ...or not yet: still counting
+    les dx,[es:bx+JIT_HASH+4]   ; the block, in the segment it was written
+    or dx,dx                    ;   in (16.2.1)...
+    jz tr_cnt0                  ; ...or not yet: still counting
 tr_go:                          ; (tr_new2's way in too)
-    mov [ss:S_JITOUT],dx        ;   (S_JITOUT+2), wherever this copy of
-    mov bx,[ss:S_SAVBX]         ;   tr_enter is running
+    mov [ss:S_JITOUT],dx        ; wherever this copy of tr_enter is
+    mov [ss:S_JITOUT+2],es      ;   running
+    mov bx,[ss:S_SAVBX]
     jmp far [ss:S_JITOUT]
 """,
     0x41: """
@@ -795,6 +793,8 @@ tr_go:                          ; (tr_new2's way in too)
 ; RB_JITHOT times, so code that runs a few times - start-up, a level's
 ; set-up - is interpreted and never takes the cache's room: its entry counts
 ; with the offset 0. A new key takes the slot over, counting from 1.
+tr_cnt0:                        ; (from a LES: the table again)
+    mov es,[ss:S_JITHSEG]
 tr_count:
     inc byte [es:bx+JIT_HASH+3]
     cmp byte [es:bx+JIT_HASH+3],RB_JITHOT
@@ -853,10 +853,11 @@ tr_link:
     cmp [es:bx+JIT_HASH+2],dh
     jne tr_lno
 .hit:
-    mov dx,[es:bx+JIT_HASH+4]
+    les dx,[es:bx+JIT_HASH+4]   ; the block and its segment
     or dx,dx
     jz tr_lno
     mov [ss:S_JITOUT],dx
+    mov [ss:S_JITOUT+2],es
     jmp tr_lpatch
 tr_lno:
     mov bx,[ss:S_SAVBX]
@@ -878,40 +879,54 @@ tr_int:                         ; the interpreter's dispatch, in the CORE
 .d:
     xor dl,dl
     jmp far [ss:S_DISP]
+tr_off:                         ; tr_enter with no translator: the
+    mov dh,[si]                 ;   interpreter's own dispatch, DS already
+    inc si                      ;   its
+    jmp dx
+; tr_ljmp: tr_lpatch's and tr_rpatch's jump, at CS:BX, to the block
+; [S_JITOUT]: jmp near in the same cache segment, jmp far in the other
+; (16.2.1) - and on to it
+tr_ljmp:
+    mov dx,cs
+    cmp dx,[ss:S_JITOUT+2]
+    mov dx,[ss:S_JITOUT]
+    jne .far
+    mov byte [cs:bx],0E9h
+    sub dx,bx
+    sub dx,3
+    mov [cs:bx+1],dx
+    jmp short .go
+.far:
+    mov byte [cs:bx],0EAh
+    mov [cs:bx+1],dx
+    mov dx,[ss:S_JITOUT+2]
+    mov [cs:bx+3],dx
+.go:
+    mov bx,[ss:S_SAVBX]
+    jmp far [ss:S_JITOUT]
 """,
     0x45: """
-; tr_link's patch: six bytes for bank 0, eleven for 4000-7FFF (16.4)
+; tr_link's patch: six bytes for bank 0, thirteen for 4000-7FFF (16.4) -
+; the jump in them near, or far to the other cache segment (tr_ljmp)
 tr_lpatch:
     mov bx,[ss:S_LINK]
     cmp byte [cs:bx],81h        ; a RET's site: cmp si,PC (rt_ret)
     je tr_rpatch
-    cmp si,4000h
-    jae .bank
-    mov byte [cs:bx],0E9h       ; bank 0: the six bytes, jmp near the block
-    sub dx,bx
-    sub dx,3
-    mov [cs:bx+1],dx
-.go:
-    mov bx,[ss:S_SAVBX]
-    jmp far [ss:S_JITOUT]
-.bank:                          ; a bank: ELEVEN bytes, cmp byte [ss:S_BANK],
-    mov word [cs:bx],8036h      ;   B / jne +3 (onto the exit's own jmp
-    mov byte [cs:bx+2],3Eh      ;   tr_enter) / jmp near the block
-    mov word [cs:bx+3],S_BANK
-    mov dl,[ss:S_BANK]          ; (DX is the block: rebuilt below)
+    cmp si,4000h                ; bank 0: the six bytes, the jump
+    jb tr_ljmp
+    mov word [cs:bx],8036h      ; a bank: cmp byte [ss:S_BANK],B / jne +5
+    mov byte [cs:bx+2],3Eh      ;   (onto the exit's own jmp tr_enter) /
+    mov word [cs:bx+3],S_BANK   ;   the jump, near or far
+    mov dl,[ss:S_BANK]
     mov [cs:bx+5],dl
-    mov word [cs:bx+6],0375h
-    mov byte [cs:bx+8],0E9h
-    mov dx,[ss:S_JITOUT]
-    sub dx,bx
-    sub dx,11
-    mov [cs:bx+9],dx
-    jmp short .go
+    mov word [cs:bx+6],0575h
+    add bx,8
+    jmp tr_ljmp
 """,
     0x49: """
 ; tr_link for an exit (16.4): T is not in SI - a block's exit sets it only on
 ; the event's way - but in the exit's own code, the mov si,T after the jmp
-; here: SITE + 7, or SITE + 12 after the five spare bytes of one into
+; here: SITE + 7, or SITE + 14 after the seven spare bytes of one into
 ; 4000-7FFF
 tr_lsite:
     mov si,dx
@@ -919,7 +934,7 @@ tr_lsite:
     mov si,[cs:si+7]
     je tr_link
     mov si,dx
-    mov si,[cs:si+12]
+    mov si,[cs:si+14]
     jmp tr_link
 ; tr_hram: tr_enter for RAM. HRAM (FF80-FFFE) is translated, its blocks
 ; guarded (16.3), keyed as bank 0's; the rest of RAM never is
@@ -1032,9 +1047,9 @@ tr_new2:
     jne .both                   ;   before either was counted to RB_JITHOT,
     cmp [es:bx+JIT_HASH+2],dh   ;   and both ran interpreted for ever
     jne .both
-    mov dx,[es:bx+JIT_HASH+4]   ; it is there
+    les dx,[es:bx+JIT_HASH+4]   ; it is there
     or dx,dx
-    jz tr_count
+    jz tr_cnt0
     jmp tr_go
 .both:                          ; in neither: a FIXED table takes no
     cmp byte [ss:S_JITFIX],0    ;   slot but for HRAM, the miss is the
@@ -1337,19 +1352,27 @@ cnt_ff:
 """,
     0x43: """
 ; tr_lpatch for a RET's inline cache (16.4), the SITE's first byte 81h: the
-; last return moves to the second entry (SITE + 17, its jmp's displacement
-; 17 less), and PC and BLOCK become the first's, its bank check this
-; block's bank - or a jmp short over it, for a block in bank 0
+; last return moves to the second entry (SITE + 19 - a jmp near's
+; displacement 19 less, a jmp far's as it was), and PC and BLOCK become the
+; first's, its bank check this block's bank - or a jmp short over it, for a
+; block in bank 0 - and its jump near or far (tr_ljmp, 16.2.1)
 tr_rpatch:
     mov dx,[cs:bx+2]
-    mov [cs:bx+19],dx
+    mov [cs:bx+21],dx
     mov dx,[cs:bx+6]
-    mov [cs:bx+23],dx
+    mov [cs:bx+25],dx
     mov dl,[cs:bx+11]
-    mov [cs:bx+28],dl
-    mov dx,[cs:bx+15]
-    sub dx,17
-    mov [cs:bx+32],dx
+    mov [cs:bx+30],dl
+    mov dx,[cs:bx+14]
+    mov [cs:bx+33],dx
+    mov dx,[cs:bx+16]
+    mov [cs:bx+35],dx
+    mov dl,[cs:bx+18]
+    mov [cs:bx+37],dl
+    cmp byte [cs:bx+14],0E9h
+    jne .f
+    sub word [cs:bx+34],19
+.f:
     mov [cs:bx+2],si            ; cmp si,PC
     cmp si,4000h
     jae .bank
@@ -1360,12 +1383,8 @@ tr_rpatch:
     mov dl,[ss:S_BANK]
     mov [cs:bx+11],dl
 .blk:
-    mov dx,[ss:S_JITOUT]
-    sub dx,bx
-    sub dx,17
-    mov [cs:bx+15],dx           ; jmp near BLOCK
-    mov bx,[ss:S_SAVBX]
-    jmp far [ss:S_JITOUT]
+    add bx,14
+    jmp tr_ljmp
 """,
     0xD3: """
 ; [BX] for an address the fast path does not take: ROMX or an I/O register.
