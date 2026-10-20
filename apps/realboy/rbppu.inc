@@ -229,6 +229,9 @@ RB_DCOMP        equ 0x3180              ; word: lines composed (the host's to
 RB_DMG_SIZE     equ 0x3182
 
 rb_dmgseg       dw 0                    ; the host's damage segment, or 0
+rb_dhook        dw 0                    ; the host's near proc, called when the
+                                        ;   scan is done (its log's clock), or 0;
+                                        ;   every register its to keep
 
 rb_renderd:
     cmp word [cs:rb_dmgseg],0
@@ -263,6 +266,10 @@ rb_renderd:
     mov word [es:RB_DWKEY],0
     mov byte [es:RB_DMODE],0FFh
     call ppu_dscan                      ; the shadows, the changed bytes
+    cmp word [cs:rb_dhook],0
+    je .nohk
+    call [cs:rb_dhook]
+.nohk:
     cmp byte [es:RB_DFULL],0            ; the sprites' line lists: kept while
     jne .oam                            ;   OAM is, as nothing else moves them
     cmp byte [es:RB_DOCH],0

@@ -10,7 +10,8 @@ ours) on MartyPC's 5150 Hercules and takes two logs: one turned off by the
 menu (GBDEMO00.LOG), with Machine > Pause on and off inside it, and one the
 close writes (GBDEMO01.LOG). It flushes B: and reads both on the host.
 GBDEMO00.LOG must hold the head naming the game and the machine, PAUSE and
-GO in the seconds they happened, and at least eight records
+GO in the seconds they happened, a cpu column of milliseconds the machine
+ran, and at least eight records
 whose seconds rise, whose speeds average the demo's full speed on this machine
 (97-103%, tests/gbdemo.py) and which drew frames. Breaking the
 record (rw_logsec never counting a record) leaves a file with no lines and
@@ -28,7 +29,11 @@ import os88marty as M  # noqa: E402
 import os88flush  # noqa: E402
 import os88ui  # noqa: E402
 
-LINE = re.compile(rb"^\s*(\d+)\.(\d)\s+(\d+)%\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+) ([WF])")
+# seconds, speed, then run drawn comp chg draw scan cmp cpu max owed, then
+# events blocks flushes banks
+LINE = re.compile(rb"^\s*(\d+)\.(\d)\s+(\d+)%\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+                  rb"\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+                  rb"\s+(\d+) ([WF])")
 
 
 def main():
@@ -110,6 +115,12 @@ def main():
             fails.append("a second's speed outside 60-140%%: %s" % sp)  # 8088)
         if not all(v > 0 for v in dr):
             fails.append("seconds with no frame drawn: %s" % dr)
+        cpu = [int(r.group(12)) for r in mid]   # the Game Boy's ms a second
+        if not all(0 < v <= 1100 for v in cpu):
+            fails.append("the cpu column is not a second's ms: %s" % cpu)
+        evn = [int(r.group(14)) for r in mid]   # the core's event entries
+        if not all(v > 0 for v in evn):
+            fails.append("seconds with no core event counted: %s" % evn)
     for f in fails:
         print("FAIL gblog: " + f)
     print("gblog: %s" % ("PASS" if not fails else "FAIL"))

@@ -51,6 +51,8 @@ CORELST = os.path.join(ROOT, "build", "realboy", "rbcore.asm.lst")
 DRIVE_B = (592, 105)            # the B: icon on the VGA desktop
 MENU_MACHINE = (190, 9)         # RealBoy's Machine menu on the bar
 ITEM_FULLSCREEN = (200, 60)     # ...its third item
+ITEM_RECOMPILER = (200, 76)     # ...its fourth
+ITEM_LOG = (200, 92)            # ...and its fifth
 FIRST_ICON = (160, 127)         # the first file in a fresh B: window (list view)
 
 
@@ -154,6 +156,20 @@ def profile(b, seg, core, n, view=0):
             "%s %.1f%%" % (k, 100.0*v/sum(where.values())) for k, v in where.most_common()))
 
 
+def readlog(b, o):
+    """the newest *.LOG beside REALBOY.O88 on the B: disk, onto o.log"""
+    import os88flush
+    img = os.path.join(os88box.RUNS, o.keep or b.name, "fdd2.img")
+    vol = os88flush.Volume(open(img, "rb").read())
+    names = sorted(e.name for e in vol.listdir("") if e.name.upper().endswith(".LOG"))
+    if not names:
+        print("rbwin: no log on the disk")
+        return
+    with open(o.log, "wb") as f:
+        f.write(vol.read(names[-1]))
+    print("rbwin: %s -> %s" % (names[-1], o.log))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("rom")
@@ -167,6 +183,8 @@ def main():
     ap.add_argument("--press", default="", help="keys to tap first, e.g. return")
     ap.add_argument("--fs", action="store_true", help="Machine > Full Screen first")
     ap.add_argument("--mem", type=int, help="the machine's RAM in KB, for the VM's own")
+    ap.add_argument("--nojit", action="store_true", help="Machine > Recompiler off first")
+    ap.add_argument("--log", default="", help="Machine > Log over the span, written here")
     o = ap.parse_args()
 
     if o.attach:
@@ -179,6 +197,8 @@ def main():
     finally:
         if not o.keep:
             b.cmd("quit")
+    if o.log and not o.keep:
+        readlog(b, o)                           # (86Box writes the disk at quit)
 
 
 def boot(o):
@@ -212,6 +232,17 @@ def boot(o):
     return b
 
 
+def machine_item(b, item):
+    """Machine > ITEM: press on the menu, drag to the item, let go"""
+    b.to(*MENU_MACHINE)
+    b.mouse(0, 0, 1)
+    b.pause(200)
+    b.to(*item, buttons=1)
+    b.pause(200)
+    b.mouse(0, 0, 0)
+    b.cmd("step 1500")
+
+
 def measure(b, o):
     if True:
         for k in o.press.split(","):
@@ -223,6 +254,10 @@ def measure(b, o):
                 b.cmd("step 300")
                 b.cmd("key up 0x%X" % code)
                 b.cmd("step 2000")
+        if o.nojit:
+            machine_item(b, ITEM_RECOMPILER)
+        if o.log:
+            machine_item(b, ITEM_LOG)          # Log: Off -> on
         if o.fs:
             b.to(*MENU_MACHINE)
             b.mouse(0, 0, 1)
@@ -259,6 +294,12 @@ def measure(b, o):
             profile(b, seg, core, o.profile, view)
         for k in keys:
             b.cmd("key up 0x%02X" % k)
+        if o.log:
+            if o.fs:
+                b.tap("esc")                    # out of the bracket: the menu
+                b.cmd("step 3000")
+            machine_item(b, ITEM_LOG)          # ...and off: the file written
+            b.cmd("step 6000")
 
 
 if __name__ == "__main__":

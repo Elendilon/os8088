@@ -392,9 +392,14 @@ REALBOY-PLAN's wave 6, and the second field run is why it came first: Kirby's
 Dream Land (256K) took the heap a 640KB Victory had, so its 64KB recompiler
 cache could not be claimed and the game ran interpreted (its log has no J).
 
-- **The plan** (`rw_plan`), from the size probe and `OSAPI_MEM_AVAIL`: one
-  claim when the ROM fits with the recompiler's 64KB (on a 286), the damage
-  memory and some slack (24KB) beside it. Otherwise, when
+- **The plan** (`rw_plan`), from the size probe and `OSAPI_MEM_AVAIL`,
+  taken AFTER the damage memory and the recompiler's 64KB are claimed: the
+  third field run's logs showed the heap the plan saw (346KB) holding the
+  ROM and the recompiler with room over, and still no recompiler - the
+  ROM's own read rebuilds the disk caches `OSAPI_MEM_AVAIL` counts as free,
+  in exactly the room the cache was to have. So the recompiler is claimed
+  first, and given back only if the cartridge then fits no other way. One
+  claim when the ROM fits with some slack (24KB) beside it. Otherwise, when
   `OSAPI_XMEM_CAPS` has room for banks 1 on: the cache, with **K slots of
   16KB**, as many as the heap affords after those, at least 4 and at most 40
   or one a bank. Otherwise one claim without that room, as before, and then
@@ -671,6 +676,15 @@ on a machine with no debugger.
   frames drawn, the lines composed and the lines changed (section 13.2),
   the milliseconds spent drawing and the longest draw, the most frames
   owed, and W or F (window or full screen) with J when the recompiler ran.
+- **Where a second went**, which the third field run asked for: of the
+  drawing's milliseconds, those comparing VRAM and OAM (**scan**,
+  `ppu_dscan`, timed through `rb_dhook`) and those composing lines
+  (**cmp**), the rest being the writer's; and the milliseconds running the
+  Game Boy (**cpu**, `rw_frame` to its yield). Then four counters: the
+  core's event entries, the blocks the recompiler translated, its cache
+  flushes and the banks the bank cache fetched (section 10.3). A machine
+  whose cpu and draw add up to about 1,000 is the machine's limit; one
+  that does not is waiting.
 - **And what the user did in that second**, by name: RESET, PAUSE, GO
   (unpaused), FS+ and FS- (into and out of full screen), JIT+ and JIT-
   (Machine > Recompiler), F1.

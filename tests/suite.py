@@ -2656,6 +2656,17 @@ SOAK = [
         "it. SOAK: one package, and 86Box's",
         needs=("86box", "gbroms", "nasm"),
         wants=("build/realboy.o88", "build/os8088.img")),
+    Row("gbbank", "soak", py("tests/gbbank.py"), 150.0,
+        "REALBOY's bank cache (docs/REALBOY-SPEC.md section 10.3) on 86Box's "
+        "286 with 4MB: GBBANK.GB (tools/gbours.py, ours), a 1MB MBC5 cartridge "
+        "that switches among all 64 banks in an LFSR's order and checks each "
+        "by its bytes and by a routine run from 4000-7FFF. ASSERTS the cache "
+        "took it with fewer slots than banks, banks were fetched, switches "
+        "kept coming, and not one read the wrong bank - with the fetch's copy "
+        "taken out it reads 255 wrong. MartyPC is an 8088 with no extended "
+        "memory, so 86Box's. SOAK: one package, and 86Box's",
+        needs=("86box", "nasm", "rgbds"),
+        wants=("build/realboy.o88", "build/os8088.img")),
     Row("gbtrace", "soak", py("tests/gbtrace.py"), 130.0,
         "REALBOY's core against Peanut-GB (pinned by tools/gbprof.py), the "
         "registers AND the M-cycle clock compared before each of the first "

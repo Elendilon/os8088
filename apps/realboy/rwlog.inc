@@ -19,7 +19,8 @@
 
 RW_LOGN         equ 256             ; records kept, the latest: four minutes
 RW_LOGSZ        equ 32
-RW_LOGKB        equ 28              ; the text's claim at the write
+RW_LOGKB        equ 48              ; the text's claim at the write: 256 lines of
+                                    ;   at most ~150 characters and the head
 ; a record: the ticks since the log began (at its end), the ticks it spans,
 ; frames run, frames drawn, lines composed, lines changed, the drawing's
 ; milliseconds, the longest draw (ms, at most 255), flags: bits 0-5 the most
@@ -34,6 +35,13 @@ RL_MS           equ 12
 RL_MAX          equ 14
 RL_FLAGS        equ 15
 RL_EVT          equ 16              ; byte: what the user did in the second
+RL_SMS          equ 18              ; word: ms comparing VRAM and OAM (scan)
+RL_CMS          equ 20              ; word: ms composing the lines
+RL_GMS          equ 22              ; word: ms running the Game Boy (rb_run)
+RL_EVN          equ 24              ; word: the core's event entries
+RL_BLK          equ 26              ; word: blocks the recompiler translated
+RL_FL           equ 28              ; byte: its flushes (at most 255)
+RL_BK           equ 29              ; byte: banks the bank cache fetched
 RLE_RESET       equ 01h             ;   Machine > Reset
 RLE_PAUSE       equ 02h             ;   Pause on
 RLE_GO          equ 04h             ;   ...and off
@@ -103,6 +111,104 @@ rw_logdraw:
 .r:
     ret
 
+; rw_logacc - CX:BX = a phase's start, DX:AX = its end, SI = a dword of
+; counts this second: the length added. Keeps every register but SI.
+rw_logacc:
+    push ax
+    push dx
+    sub ax, bx
+    sbb dx, cx
+    add [si], ax
+    adc [si + 2], dx
+    pop dx
+    pop ax
+    ret
+
+; rw_logdelta - AX = event entries, CX = blocks translated, DL = flushes
+; and DH = banks fetched since the last call (each byte at most 255)
+rw_logdelta:
+    push bx
+    push si
+    push ds
+    mov si, rw_lstat
+    mov bx, [rw_nmiss]
+    mov ds, [cs:rb_viewseg]
+    mov ax, [S_EVCOUNT]
+    mov cx, [S_JITNB]
+    mov dx, [S_JITFL]
+    pop ds
+    sub ax, [si]
+    add [si], ax
+    sub cx, [si + 2]
+    add [si + 2], cx
+    sub dx, [si + 4]
+    add [si + 4], dx
+    or dh, dh
+    jz .f
+    mov dl, 255
+.f:
+    sub bx, [si + 6]
+    add [si + 6], bx
+    or bh, bh
+    jz .b
+    mov bl, 255
+.b:
+    mov dh, bl
+    pop si
+    pop bx
+    ret
+
+; rw_gameacc - the frame's run since rw_frame began, into the second's
+rw_gameacc:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call rw_clk
+    mov bx, [rw_tgame]
+    mov cx, [rw_tgame + 2]
+    mov si, rw_agms
+    call rw_logacc
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; rw_logms - SI = a dword of counts: AX = it in ms (at most 65,535), and the
+; dword back to 0
+rw_logms:
+    mov ax, [si]
+    mov dx, [si + 2]
+    xor bx, bx
+    mov [si], bx
+    mov [si + 2], bx
+    mov bx, 1193
+    cmp dx, bx
+    jb .d
+    mov ax, 0FFFFh
+    ret
+.d:
+    div bx
+    ret
+
+; rw_dscanhk - rb_renderd's rb_dhook: the scan is done (DS = the view)
+rw_dscanhk:
+    push ax
+    push dx
+    push ds
+    push cs
+    pop ds
+    call rw_clk
+    mov [rw_tscan], ax
+    mov [rw_tscan + 2], dx
+    pop ds
+    pop dx
+    pop ax
+    ret
+
 ; rw_logowed - AL = frames owed now: the second's most
 rw_logowed:
     cmp al, 63
@@ -158,8 +264,38 @@ rw_logsec:
     mov [bx + RL_FLAGS], al
     mov al, [rw_aevt]
     mov [bx + RL_EVT], al
+    call rw_logdelta                ; the counters' seconds
+    mov [bx + RL_EVN], ax
+    mov [bx + RL_BLK], cx
+    mov [bx + RL_FL], dl
+    mov [bx + RL_BK], dh
+    push bx
+    mov si, rw_asms
+    call rw_logms
+    pop bx
+    mov [bx + RL_SMS], ax
+    push bx
+    mov si, rw_acms
+    call rw_logms
+    pop bx
+    mov [bx + RL_CMS], ax
+    push bx
+    mov si, rw_agms
+    call rw_logms
+    pop bx
+    mov [bx + RL_GMS], ax
     inc word [rw_logn]
+    jmp short .z2
 .zero:
+    call rw_logdelta                ; (the counters move on, unlogged)
+    xor ax, ax                      ; (the phases' counts too)
+    mov [rw_asms], ax
+    mov [rw_asms + 2], ax
+    mov [rw_acms], ax
+    mov [rw_acms + 2], ax
+    mov [rw_agms], ax
+    mov [rw_agms + 2], ax
+.z2:
     xor ax, ax
     mov [rw_acomp], ax
     mov [rw_achg], ax
@@ -471,6 +607,15 @@ rw_lline:
     mov ax, [bx + RL_MS]
     mov cl, 6
     call rw_lnum
+    mov ax, [bx + RL_SMS]
+    mov cl, 5
+    call rw_lnum
+    mov ax, [bx + RL_CMS]
+    mov cl, 5
+    call rw_lnum
+    mov ax, [bx + RL_GMS]
+    mov cl, 5
+    call rw_lnum
     mov al, [bx + RL_MAX]
     xor ah, ah
     mov cl, 5
@@ -478,6 +623,20 @@ rw_lline:
     mov al, [bx + RL_FLAGS]
     and ax, 3Fh
     mov cl, 5
+    call rw_lnum
+    mov ax, [bx + RL_EVN]           ; the counters
+    mov cl, 6
+    call rw_lnum
+    mov ax, [bx + RL_BLK]
+    mov cl, 5
+    call rw_lnum
+    mov al, [bx + RL_FL]
+    xor ah, ah
+    mov cl, 3
+    call rw_lnum
+    mov al, [bx + RL_BK]
+    xor ah, ah
+    mov cl, 3
     call rw_lnum
     mov al, ' '
     stosb
@@ -574,8 +733,10 @@ rw_s_lheap:     db ', heap ', 0
 rw_s_lcache:    db ', bank cache ', 0
 rw_s_lslots:    db ' x 16K over XMS, ', 0
 rw_s_lfetch:    db ' fetched', 0
-rw_s_logcol:    db 13, 10, ' seconds  speed  run drawn  comp   chg  draw  max owed', 13, 10
-                db '                     (lines a second)  (ms a second, longest)', 13, 10, 0
+rw_s_logcol:    db 13, 10, ' seconds  speed  run drawn  comp   chg  draw scan  cmp  cpu  max owed  evts  blk fl bk', 13, 10
+                db '                     (lines a second)  (ms a second: drawing, of it the', 13, 10
+                db '                      scan and the lines; the Game Boy)  (core events, blocks', 13, 10
+                db '                      translated, cache flushes, banks fetched, a second)', 13, 10, 0
 ; the RLE_* bits' names, a bit at a time from bit 0, seven bytes each
 rw_s_levts:     db ' RESET', 0
                 db ' PAUSE', 0

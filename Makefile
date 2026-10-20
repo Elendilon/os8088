@@ -151,6 +151,7 @@ VMEGA := $(CURDIR)/vm/xt-ega
 # cards in it, each on its own monitor window.
 VMMULTI := $(CURDIR)/vm/xt-multimon
 VM286 := $(CURDIR)/vm/286
+VM286VIC := $(CURDIR)/vm/286-victory
 # ...and the same 286 with two 1.2MB 5.25" drives instead of two 3.5" ones
 # (SPEC.md 19). It is the only machine here that can boot that geometry at
 # all: every other AT-class profile is `fdd_type = 35_2hd`, and a 5.25" HD
@@ -2153,7 +2154,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
-        286-sound 286-video 386-sound 486 486-video pentium \
+        286-sound 286-video 286-victory 386-sound 486 486-video pentium \
         bench field combo combo144 combo720 stackprobe trklog trkscrl npbench clicktest marty \
         comscan lptlink calcref \
         fonts fontsheets fontlist \
@@ -15094,6 +15095,16 @@ xt-multimon: $(IMG360) $(APPSIMG360)
 286: $(IMG) $(APPSIMG)
 	@$(UNPROTECT) $(VM286)/86box.cfg
 	$(BOX) -P $(VM286) -N
+
+# The owner's Packard Bell Victory 286 as near as 86Box comes (docs/86BOX.md):
+# vm/286's AMI board at 16 MHz with 4MB and a Paradise PVGA1A. Not the board,
+# but it MATCHED the machine: RealBoy's logs off it (tests/rbcore/rbwin.py
+# --log) read like the Victory's own, Kirby walking with no recompiler at
+# 52-62% of real time against the Victory's 59-64%, a scrolling Super Mario
+# Land draw 45 ms on both (REALBOY-SPEC section 14.1).
+286-victory: $(IMG) $(APPSIMG)
+	@$(UNPROTECT) $(VM286VIC)/86box.cfg
+	$(BOX) -P $(VM286VIC) -N
 
 # The 1.2MB 5.25" pair on the machine class it is for (SPEC.md 19): an AMI 286
 # at 12.5MHz with two 525_2hd drives. This is the ONLY 86Box profile in the

@@ -145,7 +145,14 @@ rw_bankreq      equ rw_slotbank + RW_SLOTMAX * 2 ; word: the bank x 2 the
 rw_closing      equ rw_bankreq + 2  ; byte: the window is closing
 rw_nmiss        equ rw_closing + 1  ; word: banks fetched
 rw_pavail       equ rw_nmiss + 2    ; word: the heap's largest run at load
-rw_log          equ rw_pavail + 2   ; RW_LOGN x RW_LOGSZ: the records
+rw_tscan        equ rw_pavail + 2   ; dword: when rb_renderd's scan ended
+rw_asms         equ rw_tscan + 4    ; dword: counts scanning this second
+rw_acms         equ rw_asms + 4     ; dword: ...composing
+rw_agms         equ rw_acms + 4     ; dword: ...running the Game Boy
+rw_tgame        equ rw_agms + 4     ; dword: when this frame's run began
+rw_lstat        equ rw_tgame + 4    ; 8: S_EVCOUNT, S_JITNB, S_JITFL and
+                                    ;   rw_nmiss at the last record
+rw_log          equ rw_lstat + 8    ; RW_LOGN x RW_LOGSZ: the records
 rw_fbuf         equ rw_log + RW_LOGN * RW_LOGSZ ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
@@ -338,8 +345,19 @@ rw_load:
     cmp dx, 32
     jb .notrom
     mov [rw_romkb], dx
-    call rw_plan                    ; one claim, or the bank cache
+    call rw_dmgclaim                ; the damage memory and the recompiler's
+    call rw_jitclaim                ;   cache FIRST: what the ROM's read
+    call rw_plan                    ;   rebuilds of the disk caches lands in
+    jnc .planned                    ;   what is left, and took the 64KB on
+    cmp word [rw_jitseg], 0         ;   the second field run's Victory
+    je .say
+    mov dx, [rw_jitseg]             ; no room with it: the ROM without it
+    call OSAPI_MEM_FREE
+    mov word [rw_jitseg], 0
+    mov byte [rw_jitwant], 0
+    call rw_plan
     jc .say
+.planned:
     cmp byte [rw_bcache], 0
     je .one
     call rw_bload
@@ -1117,6 +1135,9 @@ rw_timed:
 ; rw_frame - run the machine to its next frame, yielding between budgets.
 ; CF = 1: the core stopped (a bad opcode), and the UI task is told.
 rw_frame:
+    call rw_clk                     ; (the log's: how long the machine ran,
+    mov [rw_tgame], ax              ;   two reads of the clock a frame)
+    mov [rw_tgame + 2], dx
     mov cx, 26                      ; with the LCD off no frame ever ends:
 .run:                               ;   a frame's worth of budgets is one
     push cx
@@ -1129,6 +1150,7 @@ rw_frame:
     je .bad
     loop .run
 .done:
+    call rw_gameacc
     cmp byte [rw_infsx], 0          ; (in the bracket there is no one else)
     jne .ok
     call OSAPI_TASK_YIELD           ; one a frame, for a UI task a click woke
@@ -1584,13 +1606,36 @@ rw_dchg:
 ; rw_render - rb_renderd into rw_fbuf, and its changed lines into rw_chg
 ; (every line, without the damage memory). AX = how many.
 rw_render:
+    push bx
     push cx
+    push dx
     push si
     push di
     push ds
     pop es
     mov di, rw_fbuf
+    mov word [rb_dhook], rw_dscanhk
+    call rw_clk                     ; (the log's: the scan and the lines)
+    mov [rw_tscan], ax              ; (the scan's end, if there is none)
+    mov [rw_tscan + 2], dx
+    push dx
+    push ax
     call rb_renderd
+    push ax
+    call rw_clk
+    mov bx, [rw_tscan]
+    mov cx, [rw_tscan + 2]
+    mov si, rw_acms                 ; the lines: the scan's end to now
+    call rw_logacc
+    mov ax, bx
+    mov dx, cx
+    pop si
+    pop bx
+    pop cx
+    push si
+    mov si, rw_asms                 ; the scan: the start to its end
+    call rw_logacc
+    pop ax
     push ax
     add [rw_achg], ax               ; (the log's counts)
     mov di, rw_chg
@@ -1615,7 +1660,9 @@ rw_render:
     pop ax
     pop di
     pop si
+    pop dx
     pop cx
+    pop bx
     ret
 
 ; rw_blitd - the lines rb_renderd changed onto the content, a band a run of
