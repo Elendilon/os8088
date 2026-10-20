@@ -180,7 +180,13 @@ rw_prfseg       equ rw_kpref + 1    ; word: Static's profile (REALBOY-SPEC
 rw_prfdirty     equ rw_prfseg + 2   ; byte: the profile grew this session
 rw_npre         equ rw_prfdirty + 1 ; word: the blocks the last preload made
 rw_prfname      equ rw_npre + 2     ; 13: NAME.RBP
-rw_log          equ rw_prfname + 13 ; RW_LOGN x RW_LOGSZ: the records
+rw_f2was        equ rw_prfname + 13 ; F2 was held at the last look...
+rw_f3was        equ rw_f2was + 1    ; ...and F3
+rw_msgt         equ rw_f3was + 1    ; byte: a note is on the speed line
+rw_msgclr       equ rw_msgt + 1     ; byte: ...and has just come down
+rw_msgend       equ rw_msgclr + 1   ; word: the tick it comes down at
+rw_msg          equ rw_msgend + 2   ; 21: the note (rw_note)
+rw_log          equ rw_msg + 21     ; RW_LOGN x RW_LOGSZ: the records
 rw_fbuf         equ rw_log + RW_LOGN * RW_LOGSZ ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
@@ -1788,13 +1794,9 @@ rw_keys:
     call OSAPI_KEY_DOWN             ;   would otherwise press Start too)
     jc .set
     mov al, 3Bh                     ; F1, on its press
-    call OSAPI_KEY_DOWN
-    sbb al, al
-    mov ah, al
-    xchg al, [rw_f1was]
-    not al
-    and al, ah
-    jz .nof1
+    mov bx, rw_f1was
+    call rw_kedge
+    jnc .nof1
     xor byte [rw_ovl], 1
     mov byte [rw_ovlnew], 1
     mov al, RLE_F1
@@ -1802,6 +1804,31 @@ rw_keys:
     call rw_dmgfull                 ; the line it covered, or uncovered, is
                                     ;   not a change the picture made
 .nof1:
+    push dx
+    mov al, 3Ch                     ; F2: Machine > Interlace's next, and
+    mov bx, rw_f2was                ;   said (rw_note)
+    call rw_kedge
+    jnc .nof2
+    call rw_iltoggle
+    mov si, [rw_i_mach + 10]        ; (what rw_mgrey made the item say)
+    call rw_note
+.nof2:
+    mov al, 3Dh                     ; F3: Machine > Recompiler's next - here,
+    mov bx, rw_f3was                ;   between two core runs, in the window
+    call rw_kedge                   ;   and the bracket alike (the menu's
+    jnc .nof3                       ;   goes through the worker's rw_jitq)
+    cmp word [rw_jitseg], 0
+    je .nof3
+    mov bl, [rw_jitmode]
+    xor bh, bh
+    mov al, [rw_jnext + bx]
+    mov [rw_jitmode], al
+    call rw_jitset
+    call rw_mgrey
+    mov si, [rw_i_mach + 6]
+    call rw_note
+.nof3:
+    pop dx
     mov si, rw_keymap
     mov dh, 1
 .k:
@@ -1847,6 +1874,61 @@ rw_keys:
     mov [S_JOY], dl
     pop ds
     ret
+; rw_kedge - AL = a key's scancode, BX = its was-held byte: CF = 1 on its
+; press (held now, not at the last look)
+rw_kedge:
+    call OSAPI_KEY_DOWN
+    sbb al, al
+    mov ah, al
+    xchg al, [bx]
+    not al
+    and al, ah
+    add al, 0FFh                    ; CF = 1: pressed now
+    ret
+
+; rw_note - SI = a line (a menu item's, its MENU_DIS mark skipped): said for
+; a moment - a toast on the desktop, the speed line in the bracket, where a
+; toast would wait for the desktop to come back (F2, F3)
+rw_note:
+    cmp byte [si], MENU_DIS
+    jne .s
+    inc si
+.s:
+    cmp byte [rw_infsx], 0
+    jne .fs
+    push es
+    push cx
+    push ds
+    pop es
+    xor cx, cx                      ; ~3 s
+    call OSAPI_TOAST
+    pop cx
+    pop es
+    ret
+.fs:
+    push di
+    push cx
+    push es
+    push ds
+    pop es
+    mov di, rw_msg
+    mov cx, 20
+.c:
+    lodsb
+    stosb
+    or al, al
+    loopnz .c
+    mov byte [di], 0
+    pop es
+    call OSAPI_GET_TICKS
+    add ax, 45                      ; ~2.5 s
+    mov [rw_msgend], ax
+    mov byte [rw_msgt], 1
+    mov byte [rw_ovlnew], 1
+    pop cx
+    pop di
+    ret
+
 ; S_JOY's bits: Right, Left, Up, Down, A, B, Select, Start
 rw_jnext:   db 1, 3, 0, 2           ; the setting after Auto, On, Off, Static
 rw_keymap:  db KSC_RIGHT, KSC_LEFT, KSC_UP, KSC_DOWN, 2Dh, 2Ch, 39h, KSC_ENTER, 0

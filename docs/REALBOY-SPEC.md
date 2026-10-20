@@ -680,7 +680,12 @@ on 151-499 pictures of 500.
   half of the machine is for a game with frames to run, and the third
   field run's Super Mario Land interlaced slept ~190 ms a second at 20
   pictures. F1 puts the game's speed and the frames drawn a second over the
-  picture. The joypad is the held keys - arrows, X = A,
+  picture. F2 is Machine > Interlace's next setting and F3 Machine >
+  Recompiler's, each on its press and in the window and full screen alike
+  (`rw_keys`, between two core runs - where the recompiler may change); the
+  setting it changed to is said (`rw_note`): a toast on the desktop, and in
+  full screen the speed line's row for ~2.5 s, where a toast would wait for
+  the desktop. The joypad is the held keys - arrows, X = A,
   Z = B, Enter = Start, Space = Select - and nothing while another window
   has the keyboard. Two things a keyboard does that a pad cannot are
   settled before a frame sees them (`rw_keys`). **Opposite directions**:
