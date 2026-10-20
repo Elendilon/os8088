@@ -1402,6 +1402,17 @@ FAST = [
         "loads one on an arm kern_mega assembles is registered in "
         "tests/seg0.txt with its count and a reason. FAST for cswrite's "
         "reason, on the same walker"),
+    Row("megagrid", "fast", py("tests/unit/t_megagrid.py"), 0.6,
+        "docs/plans/KERN-MEGA-PLAN.md 14.39's ratchet: under kern_mega's "
+        "protected mode only a multiple of EIGHT paragraphs is a segment, so "
+        "a far pointer normalised to one paragraph (`and si, 15`), a byte "
+        "count rounded up to paragraphs, or a one-paragraph segment step is a "
+        "fault - or an LDT alias of OTHER memory, read with no fault at all. "
+        "Every file of a package that says OS88_HIGH that builds one is "
+        "registered in tests/megagrid.txt with its count and a reason. FAST "
+        "on cswrite's argument one tree over: it is a rule about how fifty "
+        "packages are written, and the writer who breaks it has never booted "
+        "kern_mega"),
     Row("btngesture", "soak", py("tests/btngesture.py"), 26,
         "SPEC.md 13.7/13.8 ON THE GLASS: a standard button goes DOWN while "
         "held, comes UP when the pointer slides off it, goes down again on the "
