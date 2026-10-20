@@ -6053,3 +6053,209 @@ It is red with MEGACSW added, which takes 5 traps.
 - **`os88bochs.py` allows one Bochs per box.** Parallel agents here ran it
   through a wrapper on displays of their own. The tool itself was left as
   it is.
+
+### 14.40 PiXEL on kern_mega: no fixup, no off-grid segment (2026-10-20)
+
+Items 47, 50, 59, 61 and 63's PiXEL rows, and 14.12's "PiXEL stays as it
+is". **Every sample picture opens with NO #GP fixup at all**, where opening
+one took up to 55,481 and four things FAULTED outright: an animated GIF's
+first frame, a progressive JPEG, the editor's Rotate and Blur, and Full
+Screen. kern_big and kern_small run the same binary and decode the same
+pictures; only the PiXEL package and its parts changed, no kernel byte.
+
+**The census** (`make megatrap`, Bochs at 16MB on VGA, B: holding PIXEL.O88
+and `apps/pixel/samples`; trap lines per step, `tools/megatraps.py`):
+
+| step | before | after |
+|---|---|---|
+| BALLOONS.PNG (palette PNG) | 55,481 | 0 |
+| BOUNCE.GIF (animated) | **FAULT** on frame 0 (`pa_comp`, ES = 1992h) | 0, plays |
+| CAT.GIF (interlaced, 256) | 39,160 | 0 |
+| CITY.PCX | 42,632 | 0 |
+| FLOWER.JPG (colour) | 46,161 | 0 |
+| HOUSE.PNG (RGB) | 11,340 | 0 |
+| LAKE.JPG (grey) | 533 | 0 |
+| MOUNTAIN.BMP | 414 | 0 |
+| ROOM.JPG (progressive) | **FAULT** (`pj_stzero`, ES = 5892h) | 0 |
+| Rotate CW / CCW (Rotate tool) | **FAULT** (`pe_rowp`, DX = 2F8Ch) | 0 / 0 |
+| Effects > Blur | **FAULT** (`pe_rowp`, 3334h) | 0 |
+| Effects > Sepia (the plan search on the worker) | - (Blur faulted first) | 0 |
+| Full Screen (F) and Esc | **FAULT** (`pxf` row, 285Ch) | 0 |
+| File > Save As, PNG, onto B: | - | 0; the file read back on the host is the PCX's pixels exactly |
+
+(Blur and Sepia each show one line, `FFD8:227C`, in the kernel's own
+`.mega` - not PiXEL's, and the same before.) The four biggest counts were
+one routine: **`pl_plan1`**, the palette's mixing-plan search that every
+decoder part carries (`pxplan.inc`), kept its 136-byte scratch in the part
+and wrote it through CS ~40,000 times a palette. `tests/pxmega.py` is the
+census kept runnable (below).
+
+**What was built.**
+
+1. **The part ABI's two new words** (`apps/pixel/pxpart.inc`, `PXP_ABIVER`
+   4 -> 5, SPEC.md 106.5): `PXP_SELF` (+16), the part's own DATA segment,
+   and `PXP_PKGD` (+18), the package's, stamped with `PXP_PKG` before every
+   call by `px_pstamp`. After the vectors, so no offset before them moved.
+   Rule 6: a part stores into its own words through `[cs:PXP_SELF]`, never
+   through CS. On a real-mode kernel the three words are CS's and DS's own
+   values. It is inside one package, so it is not an SDK change and no
+   `PKG_FMT` moves.
+2. **Far calls through code selectors** (items 47, 50). `px_pcall` and
+   `px_wcall` far-call a part through `op_cseg` (`OP_WANT_CSEG`, the
+   parts standard's own). A decoder's services are far-called through
+   `[cs:PXP_PKG]`, the package's CS, where they took DS, which was one
+   `xfer` fixup a row. The services (`px_ks_*`) load DS from `[cs:px_dsel]`,
+   which `px_pstamp` keeps, where they did `push cs / pop ds`, which was one
+   `write` fixup a row. A part that repoints DS at the package takes
+   `PXP_PKGD`. (Item 47's `px_reloc` is PIXELSTEIN's, not PiXEL's. PiXEL has
+   none, and PIXELSTEIN is not touched here.)
+3. **The stores through CS** (items 61, 63): about 470 sites in eight parts.
+   - The hot ones are a segment register loaded once. `pl_plan1` writes its
+     scratch through ES = `PXP_SELF`, which costs nothing on an 8088 because
+     `es:` is the same prefix as `cs:`. In inflate, `pz_bias` and `pz_final`
+     go into thirteen unused bytes of the PNG scratch, which is DS there,
+     and lose a prefix. The scanline extraction runs with DS = the part, so
+     its ~25 accesses lose theirs too. JPEG's self-modifying `imul`
+     displacements (3 x 14,400 on FLOWER.JPG) are still self-modifying,
+     written through `PXP_SELF` in one push/pop. The colour row's four
+     patched displacements are now written only when they change, so that
+     path is cheaper than before.
+   - The cold ones, once per operation, header or row, go through `PXSW`,
+     a one-store bracket (`push es / mov es, [cs:PXP_SELF] / store / pop
+     es`), or `PXSWON`/`PXSWOFF` around a run of them. A handful that store
+     SP use `PXSSP`.
+   - Every `push cs / pop ds|es` in a part is `mov ds|es, [cs:PXP_SELF]`.
+4. **Off the grid** (items 59, 63). Each fix names the same linear address
+   as before, so real mode reads the same bytes.
+   - The GIF animation's two master-row addresses (`pa_rows`, `pa_comp`)
+     and the full screen's and Save As's master rows (`pxf` row, `pw_row`)
+     use px_mrow's `and r, 127` / `and al, 0F8h`.
+   - So does the editor's `pe_rowp`, which every Image and Effects
+     operation reaches through `pe_srow`/`pe_drow`. That is why Blur faulted
+     as well as Rotate.
+   - Rotate itself (`pe_rot90`) is now an OFFSET walk. It adds the width to
+     SI and moves the segment by 1000h only when the offset carries. The
+     clockwise turn reads the column top-down and writes the row right to
+     left with DF set, so it never steps a segment below the master's own.
+     That matters because a segment below a claim can be `LOW_SEG` or
+     `COLD_SEG`, whose descriptors are not identity. The loop is ~half the
+     old one's cycles a pixel.
+   - A flat file's head (`pxhmore.inc`) moves to 128-byte places.
+   - **The histogram tail** (14.39's find): it was at the master + ceil(px /
+     16) paragraphs, which is off the grid unless a picture's pixel count
+     is a multiple of 128. It is now rounded up to 8 paragraphs in every
+     reader together: `px_htail`, `pl_htail`, `pe_tailof`, the full
+     screen's copy, and the XMS undo's byte count (`pv_xbytes`, which
+     would otherwise have copied the tail short). The claim is
+     `ceil(px / 1024)` KB + 2, which already holds the rounding.
+5. **The progressive JPEG store.**
+   - Each component's store starts on the grid. `pj_stsize` rounds
+     paragraphs to 8, and `pj_fsizes` rounds the base.
+   - The 1/8 store addresses its 8-paragraph group plus an offset.
+   - The 1/4 store keeps a block a PARAGRAPH and decodes it at ES:0. That
+     is a segment only every eighth block, and the AC refinement has no
+     register to spare for an offset. So on kern_mega only, each block goes
+     through an 8-paragraph bounce: copied in at `pj_pblock`, copied back
+     at its `.out`, and read through it in `pj_oblk`.
+   - The bounce is reached by three 2-byte jumps that `pj_decode` patches
+     in when CS is not its own data segment. **Real mode is never patched
+     and runs the bytes it ran.** HEAD sizes the scratch 8 + up to 28
+     paragraphs larger, for a progressive picture only.
+
+**Bytes.**
+
+- The resident image is +85 (39,538 -> 39,623) and bss +2 (`px_dsel`).
+- The parts' images are +3,000 together, and a part is held only while it
+  is fetched: PNG +615, EXTRAS +946, JPEG +487, EDIT +368, WRITE +341, FULL
+  +100, SIMPLE +97, GIF +42, HELP +4. Nearly all of it is `PXSW`'s 7 bytes
+  a cold site. `PXSWON` took ~700 of them back.
+- PIXEL.O88 is 111,001 -> 112,537 bytes on the disk (+1,536 packed). Every
+  shipped disk still builds.
+
+**Speed on the XT** (MartyPC, kern_big, the 5150 with a CGA, guest cycles).
+`tests/pxbench.py` puts PIXEL.O88 FIRST on its disks, so a package that grows
+moves every picture's clusters, and the open figures move with it. The A/B
+below is a copy of the bench with the package placed LAST, so both trees read
+identical picture layouts:
+
+| open | before | after |
+|---|---|---|
+| MOUNTAIN.BMP | 16.70 s | 16.83 s |
+| CITY.PCX | 12.41 | 12.41 |
+| BIG.BMP | 34.95 | 35.12 |
+| CAT.GIF | 25.38 | 25.41 |
+| BALLOONS.PNG | 14.38 | 14.59 |
+| HOUSE.PNG | 39.11 | 39.81 |
+| VACATION.JPG 1/8, 1/2, 1/1, fast | 24.02, 43.44, 114.03, 46.80 | 23.97, 43.39, 113.95, 46.77 |
+| ROOM.JPG progressive | 64.62 | 64.40 |
+| zoom, pan, Fit | 0.88, 0.29, 0.47 | 0.88, 0.29, 0.48 |
+
+The opens agree to between -0.3% and +1.8%. The bench's own breakdowns are
+noisier than that: the same BASE code read inflate at 269.7 and at 293.3
+cycles a byte on two disk layouts, because each is "cycles inside a routine",
+which includes whatever the UI task did while the worker was inside it. So
+the cycles are argued, too. In real mode the decode paths gained:
+
+- ~45 cycles a palette entry in the plan search (256 a palette);
+- ~50 a colour JPEG block where the component changes (three an MCU);
+- one `PXSW` (~45) a row in each of a few row routines;
+
+and lost a `cs:` prefix on every inflate-budget and extraction access, plus
+the colour row's four stores. On VACATION.JPG at 1/1 the gain is ~180,000
+cycles, 38 ms of 114 s, which is below what either run can resolve. The
+progressive 1/4 path is unchanged in real mode by construction (the patch).
+
+**Correctness on kern_big.** tests/pxedit.py --host-only (the EDIT part
+under Unicorn, every operation including both quarter turns, 546 pixel
+cases), pxextraemu (179 fixtures), pxanimemu (31 animated GIFs, every frame)
+and pxsave.py --host-only (336 written files) are all pixelsim's, byte for
+byte. `tests/pxpartemu.py` stamps the two new words and places the tail as
+the parts now do. On MartyPC, `pxdecode` (every fixture against pixelsim,
+byte for byte), `pxedit`, `pxparts` and `pxopenpng` were run on the final
+tree, all green: pxdecode 988.9s, pxedit 346.6s, pxparts 16.3s, pxopenpng 53.8s.
+
+**Item 4: OS88_HIGHMEM is NOT declared, and here is exactly why.** PiXEL
+addresses every claim it holds by paragraph arithmetic on the claim's
+segment:
+
+- the master by `MSEG + (offset >> 7 << 3)`, at nine sites;
+- the work claim cut into sub-buffers by paragraph offsets (`PX_WGRID`,
+  `px_wo_*`), handed to the parts as `PXK_RSEG`/`PXK_DSEG`;
+- the PNG scanlines at `PXK_DSEG + PZ_WPARA`;
+- the JPEG progressive store at the scratch + `JV_SBASE`;
+- the histogram tail past the master;
+- the animation's backup inside its claim.
+
+All of that is right on the identity map and meaningless on an LDT selector
+over exactly the KB asked. A claim of 64KB or less (the master of any
+picture up to ~250x250, the scratch, the view) would come back as one, which
+is the declaration's whole effect. Declaring it needs 14.12's "flat arm" at
+every site: `seg = claim`, `offset = the absolute address` when `test dl, 4`.
+That is a rewrite of PiXEL's addressing, not a declaration. PiXEL stays
+conventional for its claims. (`OS88_HIGH`, the region, it already says.)
+
+**Ratchets.** `tests/unit/t_cswrite.py` now also walks `apps/pixel/`. The
+package and its parts have NO write through CS left, and the two pairs that
+remain are reads only, registered in `tests/cswrites.txt`. 14.39's
+`tests/unit/t_megagrid.py` now recognises a `round` site whose paragraphs an
+`and al, 0F8h` puts back on the grid before the load. Its five PiXEL lines in
+`tests/megagrid.txt` (pxedit, pxgif, the three tail readers) are deleted,
+and the file registers nothing.
+
+**`tests/pxmega.py` (soak row `pxmega`)** is the census kept runnable. It
+boots `make megatrap`'s tree under Bochs, opens the nine pictures by
+double-click and Space, and turns ROOM.JPG both ways with the Rotate tool.
+Every step must add no trap line, no FAULT, and a canvas that is a picture
+and not the last one. It is red with `pa_comp`'s normalisation put back to
+one paragraph (BOUNCE.GIF FAULTs). ~4 minutes, `needs=("bochs", "nasm")`.
+
+**Left.**
+
+- The palette operations' tables (`pe_lut`, `pe_bins`) and every cold
+  per-operation word go through `PXSW`: ~45 cycles a store, nothing per
+  pixel, and a few hundred stores per Auto Levels or Sepia.
+- The Victory has not run any of it. Bochs is a 386 (docs/BOCHS.md blind
+  spot 2), and nothing here is on the 286 reset path.
+- TIFF, ICO, IFF and MacPaint (the EXTRAS part) were converted the same way
+  and are covered by pxextraemu under Unicorn. No such picture was opened
+  under Bochs.

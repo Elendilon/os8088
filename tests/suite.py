@@ -14085,6 +14085,19 @@ SOAK = [
         "MEGACSL (tests/megacsw) is one on purpose. 240s is 199 measured, "
         "the tree's build included",
         needs=("bochs", "nasm")),
+    Row("pxmega", "soak", py("tests/pxmega.py"), 260.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.40: PiXEL USED on kern_mega with no "
+        "#GP fixup - megatrap0 counts what a launch costs, and a decoder's "
+        "cost is in the pictures. MEGATRAP=1's census (a private tree) under "
+        "Bochs, B: holding PIXEL.O88 and apps/pixel/samples: BALLOONS.PNG "
+        "double-clicked, Space through BOUNCE.GIF (animated), CAT.GIF, "
+        "CITY.PCX, FLOWER.JPG, HOUSE.PNG, LAKE.JPG, MOUNTAIN.BMP and ROOM.JPG "
+        "(progressive), then the Rotate tool clicked with each button. Every "
+        "step adds no trap line and no kern_mega FAULT, and leaves a canvas "
+        "that is a picture and not the last. Red with pxgif.asm's pa_comp "
+        "put back to one paragraph (BOUNCE.GIF FAULTs on frame 0). 260s is "
+        "192 measured under Bochs plus the tree",
+        needs=("bochs", "nasm")),
     Row("mousess", "soak", py("tests/mousess.py"), 20.0,
         "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "
         "it interrupted. SeaBIOS serves int 13h and int 16h on a stack of its "

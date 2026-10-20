@@ -39,6 +39,8 @@ px_htail:
     shr dx, 1
     rcr ax, 1
     loop .p
+    add ax, 7                       ; ...up to a multiple of 8: a segment on
+    and al, 0xF8                    ; kern_mega's grid (KERN-MEGA-PLAN 14.40)
     add ax, [px_cur + PXR_MSEG]
     mov es, ax
     pop dx
