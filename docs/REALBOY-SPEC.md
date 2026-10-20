@@ -572,14 +572,20 @@ it changed), and AX holds the count.
   with what the last call kept for it. Its background row and window row are
   judged once per map row and first column and the verdict kept
   (`ppu_rowdirty`). Each sprite that may cover it has its tiles checked.
-- **FAST**: in a frame with no raster write, after a frame with none, and
-  with the registers as they were, every line's registers are known to be
-  the same. The rows and sprites are then judged a map row or a sprite at a
+- **FAST**: in a frame whose raster writes are the last call's frame's -
+  none after none, or the same writes at the same lines (a status bar's
+  split every frame: `ppu_logsame`, up to 64 entries kept in `RB_DLOG`) -
+  and with the registers as they were at its start, every line's registers
+  are known to be the same. The rows and sprites are then judged a map row or a sprite at a
   time (`ppu_dfast`), not a line at a time. With nothing changed at all, no
   line is visited.
 - **`RB_DFULL`** = 1, set by the host after it cleared the screen or when its
   buffer holds something else, composes and writes everything, and takes
   the shadows whole.
+  Super Mario Land splits its status bar every frame, so until the log was
+  compared it was never FAST: standing still on the Victory's 86Box twin,
+  judging 144 lines was 5 ms a draw and the picture 23 frames a second; it
+  is 41 now, the judging 0.15 ms.
 - **What it costs** an 8088 is the comparison, ~20 ms of 8KB a call. It
   saves ~4 ms of composition for every line it skips. On Super Mario Land it
   composed 38 lines a call of 144, and on Kirby's Dream Land 27.

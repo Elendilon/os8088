@@ -96,8 +96,8 @@ def bankstat(b, seg):
 
 def jitstat(b, view):
     """S_JITFL, S_JITNB and S_JITSEG (rbdefs.inc): flushes, blocks, the cache"""
-    m = b.memr(view*16 + 0x40C8, 6)
-    return tuple(int.from_bytes(m[k:k+2], "little") for k in (0, 2, 4))
+    m = b.memr(view*16 + 0x40C8, 8)
+    return tuple(int.from_bytes(m[k:k+2], "little") for k in (0, 2, 4, 6))
 
 
 def overlay(b, seg):
@@ -125,6 +125,7 @@ def profile(b, seg, core, n, view=0):
     lk = [a for a, _ in lin]
     hits = collections.Counter()
     where = collections.Counter()
+    jips = []
     for _ in range(n):
         b.cmd("step 1")
         r = b.cmd("regs")
@@ -134,6 +135,7 @@ def profile(b, seg, core, n, view=0):
             hits["pkg " + (psyms[k][1] if k >= 0 else "?")] += 1
         elif jit and jit*16 <= ip < jit*16 + 0x10000:
             hits["jit %s" % ("hash" if ip - jit*16 < 0x4000 else "code")] += 1
+            jips.append(ip - jit*16)
         elif core*16 <= ip < core*16 + 0x10000:
             k = bisect.bisect_right(ck, ip - core*16) - 1
             hits["core " + (csyms[k][1] if ck and k >= 0 else "%02X" % ((ip - core*16) >> 8))] += 1
@@ -151,6 +153,22 @@ def profile(b, seg, core, n, view=0):
     print("profile: " + "  ".join("%s %.1f%%" % (g, 100.0*v/n) for g, v in groups.most_common()))
     for k, v in hits.most_common(30):
         print("%6.1f%% %s" % (100.0*v/n, k))
+    if jips and jit:
+        # each translated sample to its block: the table's entries are PC,
+        # bank key, count, offset (REALBOY-SPEC 16.3); a sample is charged to
+        # the block with the greatest offset at or below it
+        tab = b.memr(jit * 16, 0x4000)
+        blocks = sorted((int.from_bytes(tab[k+4:k+6], "little"),
+                         int.from_bytes(tab[k:k+2], "little"), tab[k+2])
+                        for k in range(0, 0x4000, 8) if tab[k+4] | tab[k+5])
+        offs = [o for o, _, _ in blocks]
+        per = collections.Counter()
+        for ip in jips:
+            k = bisect.bisect_right(offs, ip) - 1
+            if k >= 0:
+                per["%02X:%04X" % (blocks[k][2], blocks[k][1])] += 1
+        print("translated samples by block (bank:PC), of %d: " % len(jips) + "  ".join(
+            "%s %.1f%%" % (k, 100.0 * v / len(jips)) for k, v in per.most_common(16)))
     if where:
         print("core samples by the Game Boy PC (SI): " + "  ".join(
             "%s %.1f%%" % (k, 100.0*v/sum(where.values())) for k, v in where.most_common()))
@@ -283,8 +301,10 @@ def measure(b, o):
               "overlay: %s" % (os.path.basename(o.rom), o.vm, n, secs, n / secs,
                                100.0 * n / secs / GB_HZ,
                                "%d%% %d fps drawn" % ov if ov else "none"))
-        print("rbwin: recompiler %s - %d blocks translated, %d flushes in the span"
-              % ("on" if j1[2] else "off", (j1[1] - j0[1]) & 0xFFFF, (j1[0] - j0[0]) & 0xFFFF))
+        nb = (j1[1] - j0[1]) & 0xFFFF
+        print("rbwin: recompiler %s - %d blocks translated (%d bytes each), %d flushes in the span"
+              % ("on" if j1[2] else "off", nb, ((j1[3] - j0[3]) & 0xFFFF) * 16 // max(nb, 1),
+                 (j1[0] - j0[0]) & 0xFFFF))
         bk = bankstat(b, seg)
         print("rbwin: cartridge %s" % ("in one claim" if bk is None else
               "in the bank cache, %d slots, %d banks fetched" % bk))

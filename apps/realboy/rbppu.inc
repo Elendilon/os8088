@@ -221,12 +221,16 @@ RB_DTCH         equ 0x3130              ; byte: some tile changed
 RB_DMCH         equ 0x3131              ; byte: some map byte changed
 RB_DOCH         equ 0x3132              ; byte: some OAM entry changed
 RB_DFAST        equ 0x3133              ; byte: no register changed anywhere
-RB_DLLOG        equ 0x3134              ; byte: the last call's frame logged
+RB_DLLOG        equ 0x3134              ; byte: the last call's frame's log
+                                        ;   entries (FFh: more than RB_DLOGMAX)
 RB_DREG0        equ 0x3138              ; 8: the last call's registers
 RB_DMROW        equ 0x3140              ; 64: a map row changed (2 x 32)
 RB_DCOMP        equ 0x3180              ; word: lines composed (the host's to
                                         ;   read and clear: its log)
-RB_DMG_SIZE     equ 0x3182
+RB_DLOG         equ 0x3182              ; 256: the last call's raster log (its
+                                        ;   count is RB_DLLOG), 64 entries at most
+RB_DLOGMAX      equ 64
+RB_DMG_SIZE     equ 0x3282
 
 rb_dmgseg       dw 0                    ; the host's damage segment, or 0
 rb_dhook        dw 0                    ; the host's near proc, called when the
@@ -307,14 +311,12 @@ rb_renderd:
     mov [PPU_REGS+6],ax
 .st2:
     call ppu_pal
-    ; FAST: no register write in this frame or the last, and the registers
-    ; as they were - so every line's are, and the window's counter with them
+    ; FAST: the registers as they were at the frame's start, and the same
+    ; raster writes as the last call's frame at the same lines (none, or a
+    ; status bar's split every frame) - so every line's are, and the
+    ; window's counter with them
     mov byte [es:RB_DFAST],0
-    mov al,[PPU_LOGN]
-    mov ah,al
-    or ah,[es:RB_DLLOG]                 ; this frame logged, or the last did
-    mov [es:RB_DLLOG],al                ;   (this one's kept for the next)
-    or ah,ah
+    call ppu_logsame                    ; ZF = 1: the same log (and kept)
     jnz .slow
     cmp byte [es:RB_DFULL],0
     jne .slow
@@ -392,6 +394,41 @@ rb_renderd:
     pop dx
     pop cx
     pop bx
+    ret
+
+; ppu_logsame: ZF = 1 if this frame's raster log (PPU_LOGN entries at
+; RB_RLOG) is the one the last call's frame had, which is then this one's.
+; DS = view, ES = damage. Kept: everything but AX, CX, SI, DI.
+ppu_logsame:
+    mov al,[PPU_LOGN]
+    cmp al,RB_DLOGMAX
+    jbe .fit
+    mov al,0FFh                         ; too many to keep: never the same
+.fit:
+    mov ah,[es:RB_DLLOG]
+    mov [es:RB_DLLOG],al
+    cmp al,0FFh
+    je .no
+    xor ch,ch
+    mov cl,al
+    shl cx,1                            ; entries x 2 words
+    cmp al,ah
+    jne .keep
+    jcxz .r                             ; none, as before: ZF = 1
+    push cx
+    mov si,RB_RLOG
+    mov di,RB_DLOG
+    repe cmpsw
+    pop cx
+    je .r
+.keep:
+    mov si,RB_RLOG                      ; another log: kept for the next call
+    mov di,RB_DLOG
+    rep movsw
+.no:
+    or al,1                             ; ZF = 0 (AL is not 0 here, or ...
+    cmp al,0                            ;   ...it is 1 now): another log
+.r:
     ret
 
 ; ppu_dscan: VRAM and OAM against the shadows. DS = view, ES = damage.

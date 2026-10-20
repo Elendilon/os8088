@@ -44,7 +44,7 @@ JIT_HASH        equ 0x0000          ; 16,384, IN THE CACHE SEGMENT: the block
                                     ;   table (tr_enter, REALBOY-SPEC 16.3), all
                                     ;   of slots 00-3F: tr_enter is slot 40's
 JIT_HASHN       equ 2048
-RB_JITHOT       equ 16              ; entries before a PC is translated
+RB_JITHOT       equ 64              ; entries before a PC is translated
 
 ; --- the state block, at RB_STATE --------------------------------------------
 ; Registers the core keeps in 8086 registers while it runs, saved here when
