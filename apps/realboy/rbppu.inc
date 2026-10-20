@@ -1627,6 +1627,35 @@ ppu_list:
 ; fetched: each is the previous tile row and this one, as one 16-bit string,
 ; CL bits left. Unrolled, the two tile rows alternating between AX and DX:
 ; a 286 pays for every byte of code it fetches, so the loop's own are gone.
+; PPU_FSHIFT op, half: ppu_fshift's body - each byte the previous tile row
+; and this one as BH:BL, shifted by CL (op), its half the result
+%macro PPU_FSHIFT 2
+%assign ppu_k 0
+%rep 10
+    mov bx,[si+2*ppu_k+2]
+    mov dx,[bx+di]
+    mov bh,al
+    mov bl,dl
+    %1 bx,cl
+    mov [PPU_BL+ppu_k],%2
+    mov bh,ah
+    mov bl,dh
+    %1 bx,cl
+    mov [PPU_BH+ppu_k],%2
+    mov bx,[si+2*ppu_k+4]
+    mov ax,[bx+di]
+    mov bh,dl
+    mov bl,al
+    %1 bx,cl
+    mov [PPU_BL+ppu_k+1],%2
+    mov bh,dh
+    mov bl,ah
+    %1 bx,cl
+    mov [PPU_BH+ppu_k+1],%2
+%assign ppu_k ppu_k+2
+%endrep
+    ret
+%endmacro
 ppu_fshift:
     mov al,dl
     xor ah,ah
@@ -1634,31 +1663,13 @@ ppu_fshift:
     mov di,ax                           ; DI = the row's offset in a tile
     mov bx,[si]
     mov ax,[bx+di]                      ; the first tile's row
-%assign ppu_k 0
-%rep 10
-    mov bx,[si+2*ppu_k+2]
-    mov dx,[bx+di]
-    mov bh,al
-    mov bl,dl
-    shl bx,cl
-    mov [PPU_BL+ppu_k],bh
-    mov bh,ah
-    mov bl,dh
-    shl bx,cl
-    mov [PPU_BH+ppu_k],bh
-    mov bx,[si+2*ppu_k+4]
-    mov ax,[bx+di]
-    mov bh,dl
-    mov bl,al
-    shl bx,cl
-    mov [PPU_BL+ppu_k+1],bh
-    mov bh,dh
-    mov bl,ah
-    shl bx,cl
-    mov [PPU_BH+ppu_k+1],bh
-%assign ppu_k ppu_k+2
-%endrep
-    ret
+    cmp cl,4                            ; a 286 shifts a register by CL in
+    ja .right                           ;   5 + CL clocks: past 4, the same
+    PPU_FSHIFT shl, bh                  ;   byte is the pair 8 - CL RIGHT, in
+.right:                                 ;   its low half (1-4 bits either way)
+    neg cl
+    add cl,8
+    PPU_FSHIFT shr, bl
 
 ; ppu_fcopyb / ppu_fcopyw: no fine scroll - 21 tile rows as they are, into
 ; PPU_BL/PPU_BH or PPU_WL/PPU_WH (the window shifts its own left)
