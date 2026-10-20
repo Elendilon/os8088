@@ -59,22 +59,23 @@ Start:
     ld b, a
     ldh a, [$FF06]
     cp b
-    jr nz, .bad
+    ld hl, FailValue
+    jr nz, .print
     ld a, [$C010]
     ld b, a
     ld a, [$C011]
     cp b
-    jr nz, .bad
+    ld hl, FailFlags
+    jr nz, .print
     ld a, [$C022]
     or a
-    jr nz, .bad
+    ld hl, FailLate
+    jr nz, .print
     ld a, [$C020]
     cp 300 & $FF
-    jr nz, .bad
+    ld hl, FailCount
+    jr nz, .print
     ld hl, Passed
-    jr .print
-.bad:
-    ld hl, Failed
 .print:
     ld a, [hl+]
     or a
@@ -154,5 +155,11 @@ Fold:
 
 Passed:
     db "Passed", 10, 0
-Failed:
-    db "Failed", 10, 0
+FailValue:
+    db "Failed: the two values parted", 10, 0
+FailFlags:
+    db "Failed: the two flag sums parted", 10, 0
+FailLate:
+    db "Failed: an interrupt was taken late", 10, 0
+FailCount:
+    db "Failed: interrupts lost", 10, 0
