@@ -716,6 +716,14 @@ on a machine with no debugger.
     largest run as the load found it, and - for a cartridge in the bank
     cache (section 10.3) - its slots and the banks fetched so far.
 
+- **The records live in a 4 KB claim** taken when Machine > Log is
+  turned on (`RW_LOGRKB`) and given back once they are written, so a
+  session that never logs pays nothing for them; they were 4 KB of the
+  package's bss. The worker makes each second's record in the package
+  (`rw_lrec`) and copies it in with interrupts off; the UI task clears
+  `[rw_logseg]` before it frees the claim, so a copy either lands whole
+  or is not made. A claim the heap cannot give refuses the log with a
+  toast.
 - **A record** (32 bytes, the latest 128 kept, about two minutes) holds
   the seconds since the log began, the game's speed and frames run, the
   frames drawn, the lines composed and the lines changed (section 13.2),
@@ -934,7 +942,8 @@ cache had ~44KB for code: Kirby's Dream Land's working set is ~500 blocks
 of ~96 bytes, so in the package it flushed every five seconds and ran no
 faster recompiled than interpreted (61.7% of real time against 62%). With
 the table out, 0 flushes in 30 seconds and **84.4%**; the bank cache it
-shares the heap with went from eight slots to seven. A helper
+shares the heap with went from eight slots to seven. A second segment
+is 16.2.1. A helper
 that leaves for rbsys records its CS in `S_RETFAR` first, so rbsys comes back
 to the copy that called it, and every way out of the cache to the
 interpreter is a far jump. When the cache is full everything is forgotten
@@ -942,6 +951,73 @@ and translation starts again. The package claims it on a 286 or later, after
 the ROM, and the load's plan keeps 80KB for it - a cartridge that would not
 leave it goes to the bank cache (section 10.3); without the memory there is
 no recompiler.
+
+### 16.2.1 The second segment
+
+**A second 64 KB cache segment** (`S_JITSEGB`, rt_init's CX) takes the
+code the first has no room for, before anything is flushed:
+- **It is 64 KB or nothing.** A template reaches every helper tail by a
+  near jump, and the tails sit in slots 40h to FDh, so a segment holds
+  copies of all of them at their own offsets. A 32 KB one was built and
+  ran into its missing tails (`BADOP`). Its code room is the first's,
+  58,336 bytes.
+- **The order:** `rt_room` at the end of the first segment's gaps moves on
+  to the second's first gap (`S_JITSEG` = the one being written,
+  `S_JITSW` counts the moves) and the block starts again there. A full
+  second segment flushes both, back to the first.
+- **A block's segment is in its table entry**, the word at +6 that was
+  spare. `tr_go` takes the offset and the segment in one `LES` and jumps
+  far, as it always has. `tr_count` is entered through `tr_cnt0`, which
+  loads the table's segment again, since the `LES` replaced it.
+- **Chaining across the two** is a far jump:
+  - the translator's own direct chain (`rt_exit`, a target already
+    translated) is made only within the segment being written; a target
+    in the other goes through `tr_link`;
+  - `tr_link` patches its site through `tr_ljmp`: a `jmp near` in the same
+    segment, a `jmp far` in the other. An exit to bank 0 has 6 bytes and
+    takes either. An exit into 4000-7FFF has **13** bytes (16.4), so the
+    bank check and a far jump fit. A RET's inline cache entry is **19**
+    bytes, for the same reason.
+  - Before the exits grew, a cross-segment exit into a bank and a
+    cross-segment return could not be chained and went through the lookup
+    every time. That made Kirby's Dream Land SLOWER with the second
+    segment than without it (the CPU alone on `286-victory`, 2,000 frames:
+    7.64 against 7.41 ms a frame). Grown: 6.96 against 7.09 - 666 blocks
+    translated and no flush, against 1,081 and a flush.
+- **Measured cost to a game that fits one segment:** Super Mario Land 6.18
+  ms a frame against 6.13 - one tick in 135, within the bench's noise.
+- **Who claims it** is the package (14), by need: at the load, when the
+  game's `NAME.RBP` names more blocks than the first segment holds
+  (`RW_JIT2N`, 560; Kirby's Dream Land's first segment held 594), BEFORE
+  the ROM's plan, so a cartridge that then does not fit whole goes to the
+  bank cache (10.3) rather than the code going without. The plan gives
+  the second segment back first and plans again, and only then the
+  recompiler. When Static is chosen in a session whose profile has grown
+  past it, the package asks for it then, from what the heap has left.
+  Without the memory there is one segment.
+- **Machine > Cache: 64K / 128K** asks for it for every game, whatever its
+  profile says (greyed on an 8088). It is a SETTING, kept in
+  `SYSTEM\APPDATA\REALBOY.CFG` (`'RB'`, version 1, bit 0 of the fourth
+  byte) through `apps/os88data.inc`, and read at the start - a game opened
+  from its icon is loaded before its menu can be touched. Chosen in a
+  session, 128K takes the second segment from what the heap has left and
+  the worker starts the recompiler again over both (`[rw_seg2q]`,
+  `rw_jiton`); without the room, and going back to 64K, it is the next
+  game's.
+  - **Why it is a setting and not the rule:** the second segment is 64 KB
+    the bank cache does not get. Kirby's Dream Land in the package on
+    `286-victory` (`rbwin.py --persec`, 40 s walking right): with one
+    segment 94.3% of real time, 49-89% for its first five seconds and
+    47-57% for three more when the cache flushed at 19 s; with two,
+    98.3%, 79-92% while it warmed and 97-105% after, no flush - in 8 bank
+    slots rather than 11, with 11 banks fetched in the span against 1. A
+    game whose code fits one segment (Super Mario Land) gains nothing for
+    the 64 KB.
+- **The harness** (12.1) takes it at 7C00:0000 (`b_jit` bit 2) over a ROM
+  of 304 KB or less, and can squeeze both segments to 1 KB of code (bit 4,
+  `RT_SQUEEZE` builds only) so the test ROMs, which fit one segment many
+  times over, fill both. `tests/rbstatic.py`'s second half is that, with a
+  negative control that makes `rt_exit` chain across the segments.
 
 ### 16.3 Blocks and tr_enter
 
@@ -1006,24 +1082,26 @@ there was before the recompiler, and writes them back when it is turned on. Tran
 An exit to a constant address in bank 0 is `mov dx,SITE / jmp tr_lsite`,
 six bytes that `tr_link` rewrites into `jmp near` the block once it is
 translated, or that the translator writes so at once when it is already
-there. An exit into 4000-7FFF gets eleven: a check of `S_BANK` and the jump,
-falling onto the exit's own `mov si,T / jmp tr_enter` when the bank is
-another. An exit sets SI only on the ways that need it - the event's
+there (`jmp far` to the other cache segment, 16.2.1). An exit into
+4000-7FFF gets thirteen: a check of `S_BANK` and the jump, falling onto the
+exit's own `mov si,T / jmp tr_enter` when the bank is another. (It had
+eleven, which held a near jump and no far one.) An exit sets SI only on the ways that need it - the event's
 (`jmp far [ss:S_EVVEC]`) and the bank's fall - and not before its `js`, so
 a chained exit is the event check and the jump: `tr_lsite` takes T out of
-the exit's own code (the `mov si,T` after its jump, SITE + 7, or SITE + 12
-after the five spare bytes of one into a bank). With the stubs below, it
+the exit's own code (the `mov si,T` after its jump, SITE + 7, or SITE + 14
+after the seven spare bytes of one into a bank). With the stubs below, it
 took the CPU alone on `286-victory` from 6.77 to 6.59 ms a frame on Super
 Mario Land, 7.87 to 7.64 on Kirby's Dream Land and 2.01 to 1.97 on Dr.
 Mario. Every
 `RET` carries an inline cache, `cmp si,PC / jne / cmp byte [ss:S_BANK],B /
-jne / jmp near BLOCK`, else `mov dx,SITE / jmp tr_link`: `tr_link` looks the
+jne / jmp near BLOCK` and two spare bytes (or `jmp far BLOCK`, 16.2.1),
+else `mov dx,SITE / jmp tr_link`: `tr_link` looks the
 return up as it does an exit and, seeing the site's `cmp` (81h) where an
 exit has its `mov dx`, fills the cache with the last return (`tr_rpatch`) -
 the bank check made a `jmp short` over itself when the block is in bank 0.
 A routine called in a loop then returns without a lookup. **The cache
-holds two returns** (34 bytes): a miss moves the last one down
-(`tr_rpatch`, its jump's displacement 17 less) and takes the first place,
+holds two returns** (38 bytes): a miss moves the last one down
+(`tr_rpatch`, a near jump's displacement 19 less, a far one's as it was) and takes the first place,
 so a routine called from two places in turn - Kirby's Dream Land is full
 of them - returns without a lookup too: in the package on `286-victory`,
 Kirby went from 93.2% of real time to 94.6% over 40 seconds, and its
@@ -1187,7 +1265,20 @@ entries of 4 bytes in the segment `S_PRFSEG` (0: none):
 - **HRAM** (PC 8000h and up) is never recorded, because its bytes are not
   there before the game copies them in.
 - **Over sessions:** the profile accumulates across every session of the
-  game played with the recompiler On or Auto.
+  game played with the recompiler On or Auto and **Machine > Profile On**.
+- **Machine > Profile** (On or Off; greyed on an 8088, and settable before
+  a game, whose load then claims it). Off claims
+  nothing and writes no file. What it saves is the 9 KB claim and the 8 KB
+  write at the close; the cycles are nothing to speak of, since recording
+  runs once a TRANSLATION (at most 16 probes) and not once a block run.
+  - **Off by default**, and On at the load for a game that has a
+    `NAME.RBP` beside it: a game that has a profile uses it.
+  - **Static turns it on** (it reads the profile) and keeps it on: Off is
+    refused with a toast while Static is the setting.
+  - **Turned off** in a session, it saves what was recorded first, then
+    clears `S_PRFSEG` and waits to see the worker out of the machine
+    (`[rw_incore]`) before it frees the claim, so a `rt_prfadd` that had
+    read the segment has finished with it.
 
 **The preload** (`rt_preload`) runs with DS = the view, the cache just
 flushed by `rt_init`, and the core not running:
@@ -1224,10 +1315,14 @@ flushed by `rt_init`, and the core not running:
   move, and the bare harness's DONE line says by how much it did.
 
 **The file is `NAME.RBP` beside the game**, the save's folder (10.1):
-- **Layout:** `'RBP1'`, the cartridge header's checksums (the byte at 014Dh
-  and the word at 014Eh), the entry count as a word, then the table.
-- **Read at the load.** A file that is not the game's (magic, checksums or
-  count) gives an empty profile.
+- **Layout:** the table, then a 9-byte trailer: `'RBP1'`, the cartridge
+  header's checksums (the byte at 014Dh and the word at 014Eh) and the
+  entry count as a word.
+- **Read at the load**, before the ROM's plan (16.2.1 asks it how big it
+  is), and checked once the ROM is in: a file that is not the game's
+  (magic, checksums or count) gives an empty profile. Turned on in a
+  session, it is read from the game's own folder (`rw_romdir`), wherever
+  the current one has moved to.
 - **Written when the window closes**, only if a translation added to it this
   session.
 
@@ -1241,12 +1336,26 @@ flushed by `rt_init`, and the core not running:
   - **Super Mario Land** holds real time EVERY second, 94-105% (100.1%, 29
     pictures a second), nothing translated. The dynamic recompiler's run
     reads 95-112% (100.2%, 28). Its 489 blocks fit the cache.
-  - **Kirby's Dream Land** is steady but slower: 72-89% (85.1%, 12 a
-    second) against the dynamic recompiler's 47-95% for its first six
-    seconds and ~100% after. Its 45 s of play are 693 blocks, more code
-    than the cache holds: 594 were preloaded and the rest run interpreted.
-    For a game like it the dynamic recompiler is the better setting, until
-    there is more room for code than one 64KB segment.
+  - **Kirby's Dream Land** with one cache segment was steady but slower:
+    72-89% (85.1%, 12 a second) against the dynamic recompiler's 47-95% for
+    its first six seconds and ~100% after. Its 45 s of play are ~670
+    blocks, more code than one segment holds: 594 were preloaded and the
+    rest ran interpreted.
+  - **...and with the second segment (16.2.1)**, which the Static switch
+    took from the heap because the profile named 668 blocks: **655
+    preloaded and 100.0% of real time, 95-109% every second after the
+    first (80%), 24 pictures a second** against 12 - in the bank cache,
+    12 slots, no bank fetched. Static is then the better setting for it
+    too.
+  - **A profile turned on in the middle of a session** has missed what
+    ran before it - a title, a death, a game over - and Static interprets
+    that code. One Super Mario Land run with such a profile (421 entries)
+    held real time but for two seconds at those transitions, one at 2%
+    and caught up after (98.7% over 40 s); the same run with a profile
+    recorded from the game's start held 94-105% every second, on this
+    build and the one before it alike. Why a missed transition costs more
+    than the interpreter does is OPEN. Machine > Profile can be set before
+    the game is opened, which records it from the start.
 - **The CPU alone** (`tests/rbcore/rbbench.py --static`, the second pass
   timed): Super Mario Land 6.18 ms a frame against 6.09 dynamic, Kirby's
   Dream Land 7.55 against 7.37 - a fixed table's misses cost a little more

@@ -1035,10 +1035,25 @@ building.
 - Two ways to weigh a block by heat were built and refused (16.8): events
   and budget ends both fall where the game waits.
 
+**Then, on the same branch (REALBOY-SPEC 16.2.1, 14.1, 16.8):**
+- **A second 64KB cache segment**, claimed by need: when the game's
+  profile names more blocks than one segment holds, or Machine > Cache:
+  128K says so (a setting, in `SYSTEM\APPDATA\REALBOY.CFG`). It was not
+  protected mode after all: a block's segment went into the block table's
+  spare word, and the exits and RET caches grew by 2 bytes each so a far
+  jump fits. Kirby's Dream Land, measured on `286-victory`:
+  - Static, 655 blocks preloaded: 100.0% of real time, 24 pictures a
+    second (85.1% and 12 with one segment);
+  - the dynamic recompiler: 98.2%, no flush in 40 s (94.3% and a 47-57%
+    slump at the flush with one), for 3 bank slots of 11.
+- **Machine > Profile** (Off by default): the 9KB claim and the close's
+  `.RBP` write only when asked for, or when the game has a profile.
+- **The log's 4KB of records** became a claim taken when the log is on.
+
 **Open:**
-- Room for more than one 64KB segment of code, which is what Kirby's Dream
-  Land needs. Protected mode is on its own branch.
 - A field run on the Victory.
+- Why a profile that missed a transition stalls Static there harder than
+  the interpreter would (REALBOY-SPEC 16.8).
 
 ### Wave 8 - the 5150 demo, disks and the Wire record
 

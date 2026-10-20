@@ -44,6 +44,12 @@ ROM_SEG         equ 0x3000
 CACHE_SEG       equ 0x9000                  ; the recompiler's 64KB, past the
 HASH_SEG        equ 0x8C00                  ;   ROM's 368KB at most, and its
                                             ;   block table's 16KB before it
+CACHE2_SEG      equ 0x7C00                  ; a second cache segment (16.2.1),
+CACHE2_MAXSEC   equ (CACHE2_SEG - ROM_SEG) / 32 ;   over a ROM of 304KB or less
+JIT2_LIM        equ 0x0400                  ; JF_SQZ: each segment's code ends
+JF_MODE         equ 03h                     ; b_jit: 0 interpret, 1 translate,
+JF_SEG2         equ 04h                     ;   2 Static; a second segment; both
+JF_SQZ          equ 10h                     ;   squeezed to JIT2_LIM's 1KB
 PRF_SEG         equ 0x0500                  ; Static's profile, 4KB (not MODE 5)
 FRAME_SEG       equ 0x0500                  ; rb_render's 5,760 bytes, under the
                                             ;   boot stack: the harness (with the
@@ -93,7 +99,10 @@ boot_go:
     mov ax,[b_romsec]
     mov [es:h_romsec],ax
     mov al,[b_jit]
+    mov ah,al
+    and al,JF_MODE
     mov [es:h_jit],al
+    mov [es:h_jitf],ah
     jmp HOST_SEG:host_main
 
 ; load CX sectors from LBA [b_lba] to AX:0000, one at a time
@@ -153,6 +162,7 @@ h_mode      db 0
 h_frames    dw 0
 h_romsec    dw 0
 h_jit       db 0
+h_jitf      db 0                        ; JF_ flags
 
 %include "rbdefs.inc"
 
@@ -204,8 +214,7 @@ host_main:
     mov word [S_PRFSEG],PRF_SEG         ;   the first pass
     mov word [S_PRFMASK],1023
 .dyn:
-    mov ax,CACHE_SEG                    ;   before there was one
-    mov bx,HASH_SEG
+    call h_jitsegs                      ;   before there was one
     call rt_init
     jmp short .jdone
 .plain:
@@ -344,6 +353,13 @@ host_main:
     mov si,s_jfl
     call puts
     mov ax,bx
+    call dec16
+    mov si,s_jsw
+    call puts
+    push ds
+    mov ds,[cs:rb_viewseg]
+    mov ax,[S_JITSW]
+    pop ds
     call dec16
     mov si,s_jby
     call puts
@@ -762,6 +778,7 @@ s_ev    db " events ",0
 s_skip  db " skipped ",0
 s_jit   db " jit ",0
 s_jfl   db " flushes ",0
+s_jsw   db " seg2 ",0
 s_jby   db " bytes/16 ",0
 s_jadv  db " moves ",0
 s_end   db " END",10,0
@@ -773,6 +790,25 @@ tpre    dw 0
 s_stat3 db " ticks ",0
 
 pass    db 0
+
+; h_jitsegs - DS = the view: rt_init's AX, BX and CX from h_jitf, and the
+; squeezed segments' end
+h_jitsegs:
+    mov ax,CACHE_SEG
+    mov bx,HASH_SEG
+    xor cx,cx
+    mov word [S_JITLIM],0
+    test byte [cs:h_jitf],JF_SQZ
+    jz .s
+    mov word [S_JITLIM],JIT2_LIM
+.s:
+    cmp word [cs:h_romsec],CACHE2_MAXSEC
+    ja .r                               ; (a ROM over 304KB: no room)
+    test byte [cs:h_jitf],JF_SEG2
+    jz .r
+    mov cx,CACHE2_SEG
+.r:
+    ret
 
 ; h_static - Static (REALBOY-SPEC 16.8), after the first pass: the game
 ; started again (rb_init), the cache flushed, the profile the first pass
@@ -799,8 +835,7 @@ h_static:
     mov ds,[cs:rb_viewseg]
     mov word [S_PRFSEG],PRF_SEG
     mov word [S_PRFMASK],1023
-    mov ax,CACHE_SEG
-    mov bx,HASH_SEG
+    call h_jitsegs
     call rt_init
     push es
     xor ax,ax
@@ -835,4 +870,5 @@ ticks   dw 0
 
 %include "rbsys.inc"
 %include "rbppu.inc"
+%define RT_SQUEEZE                      ; (b_jit's JF_SQZ)
 %include "rbjit.inc"

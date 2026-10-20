@@ -102,6 +102,8 @@ def main():
                          "from its start, preloaded and fixed")
     ap.add_argument("--nojit", action="store_true",
                     help="the interpreter alone, without the recompiler (the A/B)")
+    ap.add_argument("--seg2", action="store_true",
+                    help="with --rom: a second 64KB cache segment (REALBOY-SPEC 16.2.1)")
     ap.add_argument("--render", action="store_true",
                     help="with --rom: compose every frame with rb_render as well")
     ap.add_argument("--renderd", action="store_true",
@@ -116,12 +118,14 @@ def main():
     core, host = rbimg.build_core(False, out), rbimg.build_host(out)
     if a.rom:
         frames = a.frames or 2000
-        img = os.path.join(out, "benchrom%d.img" % geom)
+        img = os.path.join(out, "benchrom%d_%d.img" % (geom, os.getpid()))   # (one a run: two at once)
         rbimg.make_image(a.rom, img, geom, "renderd" if a.renderd else
                          "render" if a.render else "play", frames,
                          core=core, host=host,
-                         jit="static" if a.static else not a.nojit)
-        txt = run_marty(img, a.marty) if a.marty else run_box(img, a.box, "rbbrom")
+                         jit="static" if a.static else not a.nojit, seg2=a.seg2)
+        txt = run_marty(img, a.marty) if a.marty else run_box(img, a.box,
+                                                              "rbbrom%d" % os.getpid())
+        os.remove(img)
         d = done_line(txt)
         if not d:
             sys.exit("rbbench: %s did not finish:\n%s" % (a.rom, txt))

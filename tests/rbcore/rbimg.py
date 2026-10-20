@@ -87,8 +87,14 @@ def patch_core(core, patches):
     return bytes(core)
 
 
+# rbhost.asm's b_jit flags: a second 64KB cache segment (REALBOY-SPEC
+# 16.2.1), and both squeezed to 1KB of code so the second fills and both do
+JF_SEG2 = 0x04
+JF_SQZ = 0x10
+
+
 def make_image(rom_path, out, geom=1440, mode="test", frames=600, core=None, host=None,
-               jit=True):
+               jit=True, seg2=False, squeeze=False):
     out_dir = os.path.join(ROOT, "build", "realboy")
     os.makedirs(out_dir, exist_ok=True)
     if core is None:
@@ -108,6 +114,8 @@ def make_image(rom_path, out, geom=1440, mode="test", frames=600, core=None, hos
     boot[11] = MODES[mode]
     boot[12:14] = frames.to_bytes(2, "little")
     boot[14] = (2 if jit == "static" else 1) if jit and mode != "trace" else 0
+    if boot[14]:
+        boot[14] |= (JF_SEG2 if seg2 else 0) | (JF_SQZ if squeeze else 0)
     img = bytes(boot) + body + core + rom
     size = spt * heads * cyls * 512
     if len(img) > size:
@@ -130,6 +138,10 @@ def main():
                     help="the recompiler's Static (REALBOY-SPEC 16.8): FRAMES frames recording a "
                          "profile, then the game again from its start, preloaded and fixed, "
                          "FRAMES more (not MODE render)")
+    ap.add_argument("--seg2", action="store_true",
+                    help="a second 64KB cache segment (REALBOY-SPEC 16.2.1)")
+    ap.add_argument("--squeeze", action="store_true",
+                    help="each cache segment cut to 1KB of code, so the second fills")
     ap.add_argument("--patch", action="append", metavar="OFF:HEX",
                     help="overwrite core bytes at hex offset OFF (a negative control)")
     a = ap.parse_args()
@@ -137,7 +149,8 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     core = patch_core(build_core(a.mode == "trace", out_dir), a.patch)
     nb, nr = make_image(a.rom, a.out, a.geom, a.mode, a.frames, core=core,
-                        jit="static" if a.static else not a.nojit)
+                        jit="static" if a.static else not a.nojit, seg2=a.seg2,
+                        squeeze=a.squeeze)
     print("%s: harness %d, core 65536, ROM %d bytes, %dKB" % (a.out, nb, nr, a.geom))
 
 

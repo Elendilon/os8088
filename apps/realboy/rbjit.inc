@@ -40,13 +40,13 @@
 %include "rbcore.inc"
 
 RT_MAXI         equ 40              ; instructions a block at most
-RT_CTL          equ 88              ; bytes a control transfer's code may take
+RT_CTL          equ 92              ; bytes a control transfer's code may take
                                     ;   (JR cc to a spin-wait on (HL) in
-                                    ;   4000-7FFF 84 - rt_exit there is 27 -
-                                    ;   RET cc 84, CALL cc 69: each rt_room
+                                    ;   4000-7FFF 86 - rt_exit there is 29 -
+                                    ;   RET cc 90, CALL cc 73: each rt_room
                                     ;   asks for what it writes, since most
                                     ;   gaps are ~106)
-RT_FALL         equ 32              ; ...and a block's fall-through exit (29)
+RT_FALL         equ 32              ; ...and a block's fall-through exit (31)
 ; the translator's scratch, in the view after JIT_BUF's 128 bytes of code
 RT_PC0          equ JIT_BUF + 80h   ; word: the block's PC
 RT_N            equ JIT_BUF + 82h   ; word: code bytes in JIT_BUF
@@ -76,7 +76,10 @@ rt_tab:
     incbin "rbtmpl.bin"
 
 ; rt_init - DS = the view, after rb_init; AX = the cache's segment, a 64KB
-; claim of the host's, and BX the block table's, 16KB. The core's helper tails copied into it at their own
+; claim of the host's, BX the block table's, 16KB, and CX a second 64KB
+; cache segment or 0 (REALBOY-SPEC 16.2.1) - 64KB too, since a template
+; reaches every tail by a near jump. The core's helper tails copied into
+; each at their own
 ; offsets, the cache empty, and the core's two doors pointed at it -
 ; tr_enter's miss at rb_jit, and rbsys's resume (after every event) at
 ; tr_enter rather than the interpreter's dispatch
@@ -88,13 +91,34 @@ rt_init:
     push si
     push di
     push es
-    mov [S_JITSEG],ax
+    mov [S_JITSEGA],ax
+    mov [S_JITSEGB],cx
     mov [S_JITHSEG],bx
     mov [S_JITOUT+2],ax
-    mov es,ax
     mov word [S_JITVEC],rb_jit
     mov [S_JITVEC+2],cs
     mov word [S_RESVEC],RBC_TR_ENTER
+    push cx
+    call .tails
+    pop ax
+    or ax,ax
+    jz .one
+    call .tails
+.one:
+    call rt_flush
+    mov byte [S_JITON],1
+    mov al,1
+    call rt_dispatch                ; the interpreter's sites look again
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.tails:                             ; into AX's segment
+    mov es,ax
     mov bx,[cs:rt_tab + RT_HTAIL]       ; the tail slots
     mov dx,[cs:rt_tab + RT_HTAIL + 2]
 .slot:
@@ -110,17 +134,6 @@ rt_init:
     inc bx
     dec dx
     jnz .slot
-    call rt_flush
-    mov byte [S_JITON],1
-    mov al,1
-    call rt_dispatch                ; the interpreter's sites look again
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; rt_resume - DS = the view: the recompiler back on over the cache it had
@@ -174,7 +187,8 @@ rt_dispatch:
     pop ax
     ret
 
-; rt_flush - DS = the view: every block forgotten, the first gap current
+; rt_flush - DS = the view: every block forgotten, the first segment's
+; first gap current
 rt_flush:
     push ax
     push cx
@@ -185,18 +199,43 @@ rt_flush:
     mov cx,JIT_HASHN * 8 / 2
     xor ax,ax
     rep stosw
-    mov word [S_JITGI],0
-    mov di,[cs:rt_tab + RT_HFREE]       ; the gap list
-    mov ax,[cs:rt_tab + di]
-    mov [S_JITPTR],ax
-    mov ax,[cs:rt_tab + di + 2]
-    sub ax,3                        ; a gap keeps 3 bytes for its way out
-    mov [S_JITEND],ax
+    mov ax,[S_JITSEGA]
+    mov [S_JITSEG],ax
+    call rt_gap0
     inc word [S_JITFL]
     pop es
     pop di
     pop cx
     pop ax
+    ret
+
+; rt_gap0 - [S_JITSEG]'s first gap current
+rt_gap0:
+    push ax
+    push di
+    mov word [S_JITGI],0
+    mov di,[cs:rt_tab + RT_HFREE]       ; the gap list
+    mov ax,[cs:rt_tab + di]
+    mov [S_JITPTR],ax
+    mov ax,[cs:rt_tab + di + 2]
+    call rt_gapend
+    pop di
+    pop ax
+    ret
+
+; rt_gapend - AX = the end of a gap: [S_JITEND], 3 bytes short of it for
+; its way out
+rt_gapend:
+%ifdef RT_SQUEEZE
+    cmp word [S_JITLIM],0           ; (the harness's segments, made small
+    je .e                           ;   so the second fills, and both)
+    cmp ax,[S_JITLIM]
+    jbe .e
+    mov ax,[S_JITLIM]
+.e:
+%endif
+    sub ax,3
+    mov [S_JITEND],ax
     ret
 
 ;------------------------------------------------------------------------------
@@ -580,6 +619,9 @@ rt_translate:
     mov ax,[RT_ENT]
     mov [es:JIT_HASH+bx+4],ax
     mov [S_JITOUT],ax
+    mov ax,[S_JITSEG]               ; ...in the segment it was written in
+    mov [es:JIT_HASH+bx+6],ax
+    mov [S_JITOUT+2],ax
     inc word [S_JITNB]
     cmp word [RT_PC0],8000h
     jae .hr
@@ -788,7 +830,9 @@ rt_pick:
 
 ; rt_room - CX = the bytes about to be written at ES:DI. On to the next gap
 ; when this one has not got them, with a jump from here to there; with no gap
-; left, everything is flushed and CF = 1: the caller starts its block again.
+; left, on into the second segment if there is one not yet written (CF = 1:
+; the caller starts its block again, there), and with none of that,
+; everything is flushed and CF = 1: the caller starts its block again.
 rt_room:
     mov ax,di
     add ax,cx
@@ -801,8 +845,20 @@ rt_room:
     inc bx
     mov ax,[cs:rt_tab + RT_HFREE + 2]       ; the gaps there are
     cmp bx,ax
-    jb .g
+    jb .g0
+.last:
     pop bx
+    mov ax,[S_JITSEGB]              ; the second segment, not yet written
+    or ax,ax
+    jz .full
+    cmp ax,[S_JITSEG]
+    je .full
+    mov [S_JITSEG],ax               ; ...on into it
+    inc word [S_JITSW]
+    call rt_gap0
+    stc
+    ret
+.full:
     mov al,[S_JITPRE]               ; a preload, or a fixed table's HRAM,
     or al,[S_JITFIX]                ;   stops at a full cache rather than
     jz .fl                          ;   forget what was made (16.8)
@@ -813,6 +869,11 @@ rt_room:
     call rt_flush
     stc
     ret
+.g0:
+%ifdef RT_SQUEEZE
+    cmp word [S_JITLIM],0           ; a squeezed segment: its first gap
+    jne .last                       ;   only
+%endif
 .g:
     inc word [S_JITADV]
     mov [S_JITGI],bx
@@ -827,10 +888,9 @@ rt_room:
     mov [es:di+1],ax
     pop di
     mov ax,[cs:rt_tab + bx + 2]
-    sub ax,3
-    mov [S_JITEND],ax
+    call rt_gapend
     pop bx
-    jmp short rt_room
+    jmp rt_room
 .ok:
     clc
     ret
@@ -1083,16 +1143,17 @@ rt_exit:
     jb .key
     cmp ah,80h
     jae .ram                        ; RAM: never translated
-    mov ax,1178h                    ; 4000-7FFF: js +17 / ELEVEN bytes,
-    stosw                           ;   mov dx,SITE / jmp tr_lsite and five
+    mov ax,1378h                    ; 4000-7FFF: js +19 / THIRTEEN bytes,
+    stosw                           ;   mov dx,SITE / jmp tr_lsite and seven
     mov al,0BAh                     ;   spare, which tr_link makes a bank
-    stosb                           ;   check and a jmp (16.4) / then mov
-    mov ax,di                       ;   si,T / jmp tr_enter, for when the
-    dec ax                          ;   bank is another
-    stosw
+    stosb                           ;   check and a jmp near or far (16.4,
+    mov ax,di                       ;   16.2.1) / then mov si,T / jmp
+    dec ax                          ;   tr_enter, for when the bank is
+    stosw                           ;   another
     mov ax,RBC_TR_LSITE
     call rt_jmp
     mov ax,9090h
+    stosw
     stosw
     stosw
     stosb
@@ -1120,10 +1181,13 @@ rt_exit:
     jne .nob
     cmp [es:JIT_HASH+bx+2],dh
     jne .nob
+    mov dx,[es:JIT_HASH+bx+6]
     mov bx,[es:JIT_HASH+bx+4]
     pop es
     or bx,bx
     jz .link
+    cmp dx,[S_JITSEG]               ; the other segment's: tr_link makes it
+    jne .link                       ;   a far jump (16.2.1)
     mov ax,0378h                    ; js +3 / jmp near the block
     stosw
     mov ax,bx
@@ -1352,16 +1416,17 @@ rt_push:
 
 ; rt_ret - RET, its M-cycles in AL: pop si, the check, and an INLINE CACHE
 ; of the last two places this RET went (tr_link fills it, 16.4): twice cmp
-; si,PC / jne / cmp byte [ss:S_BANK],B / jne / jmp near BLOCK, else mov
-; dx,SITE / jmp tr_link. The bank check is a jmp short over it when PC is in
-; bank 0.
+; si,PC / jne / cmp byte [ss:S_BANK],B / jne / jmp near BLOCK and two spare
+; bytes, or jmp far BLOCK in the other cache segment (16.2.1), else mov
+; dx,SITE / jmp tr_link. The bank check is a jmp short over it when PC is
+; in bank 0.
 rt_ret:
     push ax
     mov al,5Eh                      ; pop si
     stosb
     pop ax
     call rt_subbp
-    mov ax,2878h                    ; js +40
+    mov ax,2C78h                    ; js +44
     stosw
     push bx
     mov bx,di                       ; SITE
@@ -1381,12 +1446,12 @@ rt_ret:
     mov ax,S_EVVEC
     stosw
     ret
-.entry:                             ; 17 bytes: cmp si,PC / jne +11 / cmp
-    mov ax,0FE81h                   ;   byte [ss:S_BANK],B / jne +3 / jmp
-    stosw                           ;   near BLOCK - PC FFFFh, which nothing
-    mov ax,0FFFFh                   ;   returns to, and BLOCK the next
-    stosw                           ;   instruction until tr_rpatch fills it
-    mov ax,0B75h
+.entry:                             ; 19 bytes: cmp si,PC / jne +13 / cmp
+    mov ax,0FE81h                   ;   byte [ss:S_BANK],B / jne +5 / jmp
+    stosw                           ;   near BLOCK and two spare - PC FFFFh,
+    mov ax,0FFFFh                   ;   which nothing returns to, and BLOCK
+    stosw                           ;   the next instruction until tr_rpatch
+    mov ax,0D75h                    ;   fills it
     stosw
     mov ax,8036h
     stosw
@@ -1396,11 +1461,13 @@ rt_ret:
     stosw
     xor al,al
     stosb
-    mov ax,0375h
+    mov ax,0575h
     stosw
     mov al,0E9h
     stosb
     xor ax,ax
+    stosw
+    mov ax,9090h
     stosw
     ret
 

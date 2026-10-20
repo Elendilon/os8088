@@ -34,7 +34,13 @@ RB_RLOG         equ 0x4300          ; the register log, RB_RLOG_MAX x 4 bytes
 RB_RLOG_MAX     equ 192
 RB_SERBUF       equ 0x4700          ; 256: bytes the game sent on its link port
 RB_SNAP         equ 0x4800          ; 16: LCDC..WX as the frame began (4.4)
-RB_FREE         equ 0x4810          ; the rest of the window is unassigned,
+S_JITSEGA       equ 0x4810          ; word: the cache's first segment, and
+S_JITSEGB       equ 0x4812          ;   its second or 0 (REALBOY-SPEC 16.2.1):
+                                    ;   S_JITSEG is the one being written
+S_JITLIM        equ 0x4814          ; word: RT_SQUEEZE builds (the harness):
+                                    ;   each segment's code ends here, or 0
+S_JITSW         equ 0x4816          ; word: moves on into the second (stat)
+RB_FREE         equ 0x4818          ; the rest of the window is unassigned,
                                     ; but for rbppu.inc's 4900-66FF and:
 JIT_BUF         equ 0x6700          ; 256: the Game Boy code being translated
 RB_BTAB         equ 0x6800          ; 512 words: a ROM bank's segment, or 0

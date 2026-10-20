@@ -46,7 +46,7 @@ import gbwindow  # noqa: E402
 import rbprof  # noqa: E402
 
 GB_HZ = 4194304 / 70224
-LST = os.path.join(ROOT, "build", "realboy.lst")
+LST = os.environ.get("RBWIN_LST", os.path.join(ROOT, "build", "realboy.lst"))   # (RBWIN_O88's own)
 CORELST = os.path.join(ROOT, "build", "realboy", "rbcore.asm.lst")
 DRIVE_B = (592, 105)            # the B: icon on the VGA desktop
 MENU_FILE = (135, 9)            # RealBoy's File menu on the bar
@@ -56,7 +56,8 @@ ITEM_RESET = (200, 28)          # ...its first item
 ITEM_FULLSCREEN = (200, 60)     # ...its third item
 ITEM_RECOMPILER = (200, 76)     # ...its fourth
 ITEM_LOG = (200, 92)            # ...its fifth
-ITEM_ILACE = (200, 108)         # ...and its sixth
+ITEM_ILACE = (200, 108)         # ...its sixth
+ITEM_PROFILE = (200, 124)       # ...and its seventh
 FIRST_ICON = (160, 127)         # the first file in a fresh B: window (list view)
 
 
@@ -272,6 +273,9 @@ def main():
                          "beside the game (REALBOY-SPEC 16.8) - and copy it off the B: disk to OUT")
     ap.add_argument("--rbpin", default="", metavar="IN",
                     help="put IN on the B: disk as GAME.RBP, the profile a session before wrote")
+    ap.add_argument("--big", action="store_true",
+                    help="Machine > Cache: 128K from the start - a REALBOY.CFG saying so in the B: "
+                         "disk's SYSTEM/APPDATA (REALBOY-SPEC 16.2.1)")
     ap.add_argument("--persec", action="store_true",
                     help="the game's speed second by second over the span: a stall shows")
     o = ap.parse_args()
@@ -300,10 +304,15 @@ def boot(o):
         g.write(f.read())
     disk = os.path.join(tmp, "rb144.img")
     extra = []
-    if o.rbpin:
-        extra = [os.path.join(tmp, "GAME.RBP")]
+    if getattr(o, "rbpin", ""):                 # (gbbank's options have no
+        extra = [os.path.join(tmp, "GAME.RBP")]  #   such fields)
         with open(o.rbpin, "rb") as f, open(extra[0], "wb") as g:
             g.write(f.read())
+    if getattr(o, "big", False):
+        cfg = os.path.join(tmp, "REALBOY.CFG")
+        with open(cfg, "wb") as g:
+            g.write(b"RB\x01\x01")
+        extra.append("SYSTEM/APPDATA:" + cfg)
     os88box.subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", disk,
                             "--size", "1440", os.environ.get("RBWIN_O88", os.path.join(ROOT, "build", "realboy.o88")), gb]
                            + extra, check=True, stdout=os88box.subprocess.DEVNULL)
@@ -322,8 +331,8 @@ def boot(o):
         b.to(*DRIVE_B)
         b.click(2)
         b.cmd("step 6000")
-        b.to(*FIRST_ICON)
-        b.click(2)
+        b.to(FIRST_ICON[0], FIRST_ICON[1] + (16 if getattr(o, "big", False) else 0))
+        b.click(2)                              # (--big's SYSTEM folder lists first)
         b.cmd("step 10000")
     return b
 
@@ -353,7 +362,13 @@ def press(b, o):
 
 def measure(b, o):
     if True:
-        press(b, o)
+        if (o.static is not None or o.rbp) and not o.rbpin:  # Machine >
+                                                # Profile on (--rbpin's load
+                                                # turned it on itself), from
+            find(b)                             #   the game's start (it is off
+            machine_item(b, ITEM_PROFILE)       #   by default) - once it has
+        press(b, o)                             #   loaded: a click during the
+                                                #   load's read is lost
         if o.nojit:
             machine_item(b, ITEM_RECOMPILER)
         if o.static is not None:                # the span played with On,
@@ -414,6 +429,10 @@ def measure(b, o):
         print("rbwin: recompiler %s - %d blocks translated (%d bytes each), %d flushes in the span"
               % ("on" if j1[2] else "off", nb, ((j1[3] - j0[3]) & 0xFFFF) * 16 // max(nb, 1),
                  (j1[0] - j0[0]) & 0xFFFF))
+        sb = b.memr(view*16 + 0x4812, 2)                        # S_JITSEGB, S_JITSW
+        if int.from_bytes(sb, "little"):
+            print("rbwin: a second cache segment (REALBOY-SPEC 16.2.1), %d moves into it "
+                  "so far" % int.from_bytes(b.memr(view*16 + 0x4816, 2), "little"))
         if o.static is not None:
             fx = b.memr(view*16 + 0x40F6, 1)[0]                  # S_JITFIX
             npo = bss_off("rw_npre")
