@@ -45,6 +45,7 @@ JIT_HASH        equ 0x0000          ; 16,384, in a SEGMENT OF ITS OWN
                                     ;   REALBOY-SPEC 16.3). The cache's 64KB
                                     ;   is code but for the tails' slots
 JIT_HASHN       equ 2048
+JIT_HMASK       equ JIT_HASHN / 256 - 1 ; (a slot is PC-folded, AND this x 256)
 RB_JITHOT       equ 64              ; entries before a PC is translated
 
 ; --- the state block, at RB_STATE --------------------------------------------
@@ -165,6 +166,9 @@ S_ATN           equ RB_STATE+0xE8   ; word: the M-cycle a translated access's
 S_RET2          equ RB_STATE+0xEA   ; word: its S_RET while io_rd/io_wr run
 S_DX2           equ RB_STATE+0xEC   ; word: DX, kept across that
 S_JITHSEG       equ RB_STATE+0xEE   ; word: the block table's segment (16.3)
+S_TMP2          equ RB_STATE+0xF0   ; word: scratch beside S_TMP (S_TMP is ONE
+S_TMP4          equ RB_STATE+0xF2   ;   word: LD (nn),SP's S_TMP+2 and +4 were
+S_TMP6          equ RB_STATE+0xF4   ;   S_RAMCUR and the clock's seconds)
 SQ_ON           equ 0
 SQ_VOL          equ 1
 SQ_ENV          equ 2

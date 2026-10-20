@@ -163,7 +163,11 @@ rw_jcost        equ rw_jhold + 2    ; dword: counts the machine ran this window
 rw_jfr          equ rw_jcost + 4    ; word: ...and its frames
 rw_jsum         equ rw_jfr + 2      ; 2 words: the windows' cost a frame, with
                                     ;   the recompiler and without, halved
-rw_log          equ rw_jsum + 4     ; RW_LOGN x RW_LOGSZ: the records
+rw_jnb          equ rw_jsum + 4     ; word: S_JITNB as the window began
+rw_jretry       equ rw_jnb + 2      ; byte: this window's re-runs (Auto)
+rw_jfl          equ rw_jretry + 1   ; word: S_JITFL as Auto's watch began
+rw_undrawn      equ rw_jfl + 2      ; byte: a frame ran since the last draw
+rw_log          equ rw_undrawn + 1  ; RW_LOGN x RW_LOGSZ: the records
 rw_fbuf         equ rw_log + RW_LOGN * RW_LOGSZ ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
@@ -172,6 +176,7 @@ RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 ; rw_entry - the loader calls this once; the window appears afterwards
 ; =============================================================================
 rw_entry:
+    mov byte [rw_jitmode], 1        ; Recompiler: On (REALBOY-SPEC 16.7)
     call OSAPI_FILE_HERE            ; where the program is: the log's folder
     mov [rw_pkgdir], dx
     mov [rw_pkgvol], bl
@@ -500,13 +505,13 @@ rw_jitback:
 ; the interpreter; On is the recompiler; Auto starts with it and times both
 rw_jitset:
     xor ax, ax
-    mov [rw_jphase], al
     mov [rw_jsec], al
     mov [rw_jcost], ax
     mov [rw_jcost + 2], ax
     mov [rw_jfr], ax
     mov [rw_jsum], ax
     mov [rw_jsum + 2], ax
+    mov [rw_jretry], al
     mov byte [rw_jitwant], 1        ; (rw_jiton's, at a reset)
     cmp byte [rw_jitmode], 2
     jne .on
@@ -517,22 +522,26 @@ rw_jitset:
 .on:
     mov al, RLE_JITON
     call rw_logevt
-    jmp rw_jitback
+    jmp rw_jitwatch                 ; (Auto watches it; On ignores the watch)
 
 ; rw_jitauto - once a second, between frames (rw_stat): Machine >
-; Recompiler's Auto. A window of RW_JWIN seconds with the recompiler that
-; is NOT timed - its cache fills there, and a cold cache timed the
-; recompiler dearer than it was - then four, with it, without, with and
-; without, each's cost a frame - the machine's counts over its frames -
-; summed by kind; then the cheaper for RW_JHOLD seconds (five times that
-; when the recompiler won by a quarter or more: each timing costs the two
-; windows of the slower), and time both again (a game's code is a level's,
-; and so is its working set). Kirby's Dream Land walking once ran faster
-; interpreted (59% of real time on the Victory's twin against 46%), its
-; working set bigger than the cache; with the block table out of it, 84%
-; recompiled against 62%.
+; Recompiler's Auto (REALBOY-SPEC 16.7). It WATCHES the recompiler: every
+; RW_JWATCH seconds it counts the cache's flushes, and only a recompiler
+; whose cache thrashes - RW_JTHRASH flushes or more - is timed against the
+; interpreter: a window of RW_JWIN seconds with the recompiler NOT timed (a
+; cold cache timed it dearer than it was), then four, with it, without,
+; with and without, each's cost a frame summed by kind. The recompiler
+; unless the interpreter is an eighth cheaper, and watched again; the
+; interpreter for RW_JHOLD seconds, then both timed again. It timed both at
+; every start and every minute until the fourth field run, whose music
+; slowed for each interpreted window: two seconds at 8-11 pictures a second
+; in Super Mario Land, which the recompiler runs at 16-19.
 RW_JWIN         equ 2
 RW_JHOLD        equ 60
+RW_JWATCH       equ 30
+RW_JTHRASH      equ 3
+RW_JWARM        equ 48              ; blocks a window may translate and count
+RW_JRETRY       equ 3
 rw_jitauto:
     cmp byte [rw_jitmode], 0
     jne .r
@@ -553,11 +562,28 @@ rw_jitauto:
     mov [rw_jcost], bx
     mov [rw_jcost + 2], bx
     mov [rw_jfr], bx
+    push ds                         ; BX = blocks translated in the window
+    mov ds, [cs:rb_viewseg]
+    mov bx, [S_JITNB]
+    pop ds
+    xchg bx, [rw_jnb]
+    neg bx
+    add bx, [rw_jnb]
     cmp byte [rw_jphase], 0
     jne .t
     inc byte [rw_jphase]            ; the warm-up: on, with the recompiler
     ret
 .t:
+    test byte [rw_jphase], 1        ; a window with the recompiler that was
+    jz .tk                          ;   still translating - a level's start -
+    cmp bx, RW_JWARM                ;   times the interpreter's hooks and the
+    jb .tk                          ;   translator, not the recompiler: again,
+    cmp byte [rw_jretry], RW_JRETRY ;   up to RW_JRETRY times (the field run
+    jae .tk                         ;   lost it so on Super Mario Land's first
+    inc byte [rw_jretry]            ;   level, 233 blocks in its two windows)
+    ret
+.tk:
+    mov byte [rw_jretry], 0
     cmp dx, cx
     jb .d
     mov ax, 0FFFFh                  ; (a frame of 55 ms or more: as that)
@@ -580,36 +606,30 @@ rw_jitauto:
 .decide:
     mov ax, [rw_jsum]               ; AX with the recompiler, BX without
     mov bx, [rw_jsum + 2]
-    mov word [rw_jhold], RW_JHOLD
     mov cx, bx                      ; the recompiler unless it is an eighth
     shr cx, 1                       ;   dearer: a title screen times both the
     shr cx, 1                       ;   same, and Super Mario Land timed there
     shr cx, 1                       ;   once chose the interpreter for its
     add cx, bx                      ;   levels (60-70% scrolling, not 100%)
-    jc .on
+    jc rw_jitwatch
     cmp ax, cx
-    jbe .on
-    jmp rw_jitoff                   ; (held the once: it was the cold cache
-.on:                                ;   that lost before, never the
-                                    ;   interpreter that won)
-    xchg ax, bx
-    call .clear
-    jmp rw_jitback
-.clear:                             ; AX the dearer, BX the cheaper
-    mov cx, bx
-    shr cx, 1
-    shr cx, 1
-    add cx, bx
-    jc .cr
-    cmp ax, cx
-    jb .cr
-    mov word [rw_jhold], RW_JHOLD * 5
-.cr:
-    ret
+    jbe rw_jitwatch
+    mov word [rw_jhold], RW_JHOLD   ; the interpreter, for a minute
+    jmp rw_jitoff
 .hold:
     dec word [rw_jhold]
     jnz .r
-    xor ax, ax                      ; time both again, from the recompiler
+    push ds                         ; the recompiler watched: its flushes
+    mov ds, [cs:rb_viewseg]
+    mov ax, [S_JITFL]
+    cmp byte [S_JITON], 0
+    pop ds
+    je .again                       ; (the interpreter's minute is up)
+    sub ax, [rw_jfl]
+    cmp ax, RW_JTHRASH
+    jb rw_jitwatch                  ; not thrashing: watched again
+.again:
+    xor ax, ax                      ; time both, from the recompiler
     mov [rw_jphase], al
     mov [rw_jsec], al
     mov [rw_jcost], ax
@@ -617,9 +637,23 @@ rw_jitauto:
     mov [rw_jfr], ax
     mov [rw_jsum], ax
     mov [rw_jsum + 2], ax
+    mov [rw_jretry], al
     jmp rw_jitback
 .r:
     ret
+
+
+; rw_jitwatch - Auto's recompiler, watched for RW_JWATCH seconds from its
+; flush count now (rw_jitauto)
+rw_jitwatch:
+    mov byte [rw_jphase], 5
+    mov word [rw_jhold], RW_JWATCH
+    push ds
+    mov ds, [cs:rb_viewseg]
+    mov ax, [S_JITFL]
+    pop ds
+    mov [rw_jfl], ax
+    jmp rw_jitback
 
 ; rw_jitoff - the interpreter alone, between two core runs (the worker's)
 rw_jitoff:
@@ -642,7 +676,7 @@ rw_jitclaim:
     call OSAPI_CPU_INFO
     cmp al, CPU_8086
     je .r
-    mov ax, 80
+    mov ax, 64 + JIT_HASHN * 8 / 1024 ; the cache and its block table
     call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the core's
     jc .r                           ;   state block names it
     mov [rw_jitseg], dx
@@ -1125,7 +1159,7 @@ rw_worker:                          ;   the worker parked at the top of its
     cmp byte [rw_jitq], 0
     je .nojq
     mov byte [rw_jitq], 0
-    mov al, [rw_jitmode]            ; Auto -> On -> Off -> Auto
+    mov al, [rw_jitmode]            ; On -> Off -> Auto -> On (0 Auto)
     inc ax
     cmp al, 3
     jb .jm
@@ -1136,9 +1170,9 @@ rw_worker:                          ;   the worker parked at the top of its
     call rw_mgrey                   ; the item says what it is now
 .nojq:
     cmp byte [rw_state], 1
-    jne .sleep
+    jne .held
     cmp byte [rw_pause], 0
-    jne .sleep
+    jne .held
     call OSAPI_GET_TICKS
     mov bx, ax
     sub bx, [rw_last]
@@ -1160,8 +1194,8 @@ rw_worker:                          ;   the worker parked at the top of its
     mov al, ah                      ; (frames owed, for the log)
     call rw_logowed
     pop ax
-    cmp ax, 256                     ; nothing owed yet: sleep to the tick
-    jb .sleep
+    cmp ax, 256                     ; nothing owed yet: draw what has not
+    jb .idle                        ;   been, else sleep to the tick
     call rw_keys
     call rw_frame
     jc .loop                        ; it stopped
@@ -1184,7 +1218,16 @@ rw_worker:                          ;   the worker parked at the top of its
                                     ;   frame: a worker that spent what it
                                     ;   was owed before looking slept a tick
                                     ;   it did not have whenever it was behind
-.resync:
+.idle:                              ; caught up, and the machine would
+    cmp byte [rw_undrawn], 0        ;   only sleep: the picture has it,
+    je .sleep                       ;   whatever rw_drawdue says (its half
+    mov si, rw_present              ;   of the machine is for a game that
+    call rw_timed                   ;   has frames to run)
+    jmp .loop
+.held:                              ; paused or stopped: nothing owed, and
+    mov word [rw_owed], 0           ;   the clock kept - Go ran at once what
+    call OSAPI_GET_TICKS            ;   the menu's own stall had owed before
+.resync:                            ;   the pause (gblog: 30 frames, 133%)
     mov [rw_last], ax
 .sleep:
     cmp byte [rw_pause], 0          ; paused or stopped: the speaker quiet
@@ -1274,6 +1317,7 @@ rw_drawnow:
 ; rw_timed - call SI (a draw), then [rw_drawt] = its end + its length, and
 ; the log told how long it took
 rw_timed:
+    mov byte [rw_undrawn], 0
     mov al, [rw_dgen]               ; (a clock changed under the draw - it
     push ax                         ;   parked across a whole full screen -
     call rw_clk                     ;   is no draw's length: the field run's
@@ -1308,6 +1352,7 @@ rw_timed:
 ; rw_frame - run the machine to its next frame, yielding between budgets.
 ; CF = 1: the core stopped (a bad opcode), and the UI task is told.
 rw_frame:
+    mov byte [rw_undrawn], 1
     call rw_clk                     ; (the log's: how long the machine ran,
     mov [rw_tgame], ax              ;   two reads of the clock a frame)
     mov [rw_tgame + 2], dx
@@ -1973,6 +2018,15 @@ rw_dmgclaim:
     ret
 
 ; rw_dmgfull - the next rb_renderd composes and writes every line
+; rw_iltoggle - Machine > Interlace (REALBOY-SPEC 13.2): a draw composes
+; the lines of one parity, the next the other's, for twice the pictures a
+; second at a price in looks; off, every line again. Either way the next
+; draw is whole
+rw_iltoggle:
+    xor byte [rb_ilace], 1
+    call rw_dmgfull
+    jmp rw_mgrey
+
 rw_dmgfull:
     push es
     push ax
@@ -2112,6 +2166,8 @@ rw_oncmd:
     je rw_fsenter                   ; Full Screen
     cmp al, 4
     je rw_logtoggle                 ; Log
+    cmp al, 5
+    je rw_iltoggle                  ; Interlace
     cmp word [rw_jitseg], 0         ; Recompiler: the worker flips it
     je .r
     mov byte [rw_jitq], 1
@@ -2153,7 +2209,7 @@ rw_tpl:
 
     OS88_MENUSET rw_menus, rw_ttl, rw_oncmd
         OS88_MENU rw_m_file, rw_i_file, 2
-        OS88_MENU rw_m_mach, rw_i_mach, 5
+        OS88_MENU rw_m_mach, rw_i_mach, 6
     OS88_MENUSET_END rw_menus
 
 rw_ttl:         db 'RealBoy', 0
@@ -2163,6 +2219,7 @@ rw_it_open:     db 'Open...', 0
 rw_it_close:    db 'Close', 0
 rw_m_mach:      db 'Machine', 0
 rw_i_mach:      dw rw_it_reset, rw_it_pause, rw_it_fs0, rw_it_jit0, rw_it_log0
+                dw rw_it_il0
 rw_it_reset:    db 'Reset', 0
 rw_it_pause:    db 'Pause', 0
 rw_it_fs:       db 'Full Screen', 0
@@ -2173,6 +2230,8 @@ rw_it_joff:     db 'Recompiler: Off', 0
 rw_it_jit0:     db MENU_DIS, 'Recompiler (286)', 0
 rw_it_log0:     db 'Log: Off', 0
 rw_it_log1:     db 'Log: On', 0
+rw_it_il0:      db 'Interlace: Off', 0
+rw_it_il1:      db 'Interlace: On', 0
 
 rw_s_fps:       db 'fps', 0
 rw_s_jit:       db ' JIT', 0

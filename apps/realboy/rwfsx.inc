@@ -80,6 +80,12 @@ rw_mgrey:
     mov si, rw_it_log1
 .l:
     mov [rw_i_mach + 8], si
+    mov si, rw_it_il0               ; Interlace: what it is now
+    cmp byte [rb_ilace], 0
+    je .i
+    mov si, rw_it_il1
+.i:
+    mov [rw_i_mach + 10], si
     pop si
     pop dx
     pop bx
@@ -250,6 +256,8 @@ rw_fsmain:
     call rw_fsowed                  ; AX = frames owed now (taken)
     or ax, ax
     jnz .run
+    cmp byte [rw_undrawn], 0        ; caught up: what has not been drawn,
+    jne .idle                       ;   rather than wait (the window's .idle)
     mov al, FSXW_FRAME
     cmp byte [rw_fsrate], 0
     jne .w
@@ -286,6 +294,8 @@ rw_fsmain:
     cmp word [rw_fsleft], 0
     jne .f
     jmp .loop
+.idle:
+    mov word [rw_fsleft], 0         ; (none to run after it)
 .draw:
     mov byte [rw_fsrun], 0
     mov si, rw_fsdraw

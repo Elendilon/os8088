@@ -52,7 +52,8 @@ DRIVE_B = (592, 105)            # the B: icon on the VGA desktop
 MENU_MACHINE = (190, 9)         # RealBoy's Machine menu on the bar
 ITEM_FULLSCREEN = (200, 60)     # ...its third item
 ITEM_RECOMPILER = (200, 76)     # ...its fourth
-ITEM_LOG = (200, 92)            # ...and its fifth
+ITEM_LOG = (200, 92)            # ...its fifth
+ITEM_ILACE = (200, 108)         # ...and its sixth
 FIRST_ICON = (160, 127)         # the first file in a fresh B: window (list view)
 
 
@@ -240,6 +241,7 @@ def main():
     ap.add_argument("--fs", action="store_true", help="Machine > Full Screen first")
     ap.add_argument("--mem", type=int, help="the machine's RAM in KB, for the VM's own")
     ap.add_argument("--nojit", action="store_true", help="Machine > Recompiler off first")
+    ap.add_argument("--ilace", action="store_true", help="Machine > Interlace on first")
     ap.add_argument("--log", default="", help="Machine > Log over the span, written here")
     o = ap.parse_args()
 
@@ -265,7 +267,7 @@ def boot(o):
         g.write(f.read())
     disk = os.path.join(tmp, "rb144.img")
     os88box.subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", disk,
-                            "--size", "1440", os.path.join(ROOT, "build", "realboy.o88"), gb],
+                            "--size", "1440", os.environ.get("RBWIN_O88", os.path.join(ROOT, "build", "realboy.o88")), gb],
                            check=True, stdout=os88box.subprocess.DEVNULL)
     b = os88box.launch(o.vm, name=name, hold=True, fresh=True, mem=o.mem,
                        a=os.path.join(ROOT, "build", "os8088.img"), b=disk)
@@ -312,6 +314,8 @@ def measure(b, o):
                 b.cmd("step 2000")
         if o.nojit:
             machine_item(b, ITEM_RECOMPILER)
+        if o.ilace:
+            machine_item(b, ITEM_ILACE)
         if o.log:
             machine_item(b, ITEM_LOG)          # Log: Off -> on
         if o.fs:

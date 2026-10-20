@@ -362,11 +362,11 @@ jmp far [ss:S_EVVEC]
     elif op == 0x1F:                                # RRA
         s.a("sahf\nrcr al,1\nsbb ah,ah\nand ah,1"); s.cyc(1); s.disp()
     elif op == 0x08:                                # LD (nn),SP
-        s.a("mov [ss:S_TMP+2],bx\nmov bx,[si]\nadd si,2\nmov dx,sp\nmov [ss:S_TMP+4],dh")
+        s.a("mov [ss:S_TMP2],bx\nmov bx,[si]\nadd si,2\nmov dx,sp\nmov [ss:S_TMP4],dh")
         s.write8("dl", 3)
-        s.a("inc bx\nmov dh,[ss:S_TMP+4]")
+        s.a("inc bx\nmov dh,[ss:S_TMP4]")
         s.write8("dh", 4)
-        s.a("mov bx,[ss:S_TMP+2]"); zdl(s); s.cyc(5); s.disp()
+        s.a("mov bx,[ss:S_TMP2]"); zdl(s); s.cyc(5); s.disp()
     elif op in (0x09, 0x19, 0x29, 0x39):            # ADD HL,rr
         if op == 0x09:
             s.a("mov dh,ah\nadd bl,cl\nadc bh,ch")
@@ -773,7 +773,7 @@ tr_ekey:
     shr dl,1
     shr dl,1
     xor bl,dl
-    and bh,7
+    and bh,JIT_HMASK
     shl bx,1
     shl bx,1
     shl bx,1
@@ -835,7 +835,7 @@ tr_link:
     shr dl,1
     shr dl,1
     xor bl,dl
-    and bh,7
+    and bh,JIT_HMASK
     shl bx,1
     shl bx,1
     shl bx,1
@@ -940,7 +940,7 @@ tr_stale:
     shr dl,1
     xor bl,0FFh
     xor bl,dl
-    and bh,7
+    and bh,JIT_HMASK
     shl bx,1
     shl bx,1
     shl bx,1
@@ -1062,6 +1062,222 @@ tr_new2:
 .keep:
     mov bx,[ss:S_SAVBX]
     jmp tr_int
+""",
+    0x7F: """
+; add_ff: ADD HL,DE / DEC r / JR NZ,-4 - a row of a background map stepped
+; through r times (Super Mario Land's 3EF9, B = 32) - in one step when the
+; budget covers it, as cnt_ff does a countdown (REALBOY-SPEC section 16.6).
+; SI = the loop's head, DL = its DEC (05h B, 0Dh C), the JR NZ about to be
+; taken and its 3 M-cycles not charged. From here r more passes: 3 + 3r +
+; 3(r - 1) + 2 = 6r + 2 M-cycles; HL += DE x r, r = 0, and the flags the
+; last pass leaves - DEC's for 1 -> 0 (Z, N; H clear) and the last ADD's
+; carry. Anything else, or a budget that runs out inside, goes on at [S_RET].
+add_ff:
+    mov dh,ch
+    cmp dl,05h
+    je .go
+    mov dh,cl
+    cmp dl,0Dh
+    je .go
+    jmp word [ss:S_RET]
+.go:
+    mov [ss:S_TMP],dl           ; (the DEC, for the register to zero)
+    mov dl,dh
+    xor dh,dh
+    mov [ss:S_TMP2],dx          ; r
+    shl dx,1
+    mov [ss:S_TMP4],dx
+    shl dx,1
+    add dx,[ss:S_TMP4]
+    add dx,2                    ; 6r + 2
+    cmp bp,dx
+    jl .no
+    sub bp,dx
+    mov [ss:S_TMP4],ax          ; (A and F: MUL takes AX)
+    mov ax,[ss:S_TMP2]
+    dec ax
+    mul di                      ; HL += DE x (r - 1), then the last pass's
+    add bx,ax                   ;   ADD, for its carry
+    mov ax,[ss:S_TMP4]
+    add bx,di
+    sbb ah,ah
+    and ah,RBF_C
+    or ah,RBF_Z|RBF_N
+    add si,4
+    xor dl,dl                   ; (tr_enter may dispatch on DX)
+    cmp byte [ss:S_TMP],05h
+    jne .c
+    xor ch,ch
+    jmp tr_enter
+.c:
+    xor cl,cl
+    jmp tr_enter
+.no:
+    jmp word [ss:S_RET]
+""",
+    0x6D: """
+; cpy_ff: LD A,(HL+) / LD (DE),A / INC DE / DEC B / JR NZ,-6, or LD A,(DE)
+; / LD (HL+),A / ..., a copy - Super Mario Land's 2CF0 and 2D02 move an
+; enemy's 13-byte slot between WRAM and HRAM and back - in one step when the
+; budget covers it and both ranges lie wholly where translated loads and
+; stores take memory directly, 8000-FEFF and FF80-FFFE (REALBOY-SPEC 16.6).
+; SI = the loop's head, DL = its first opcode (2Ah HL to DE, 1Ah DE to HL),
+; the JR NZ about to be taken and its 3 M-cycles not charged. From here r =
+; B more passes, 3 + 7r + 3(r - 1) + 2 = 10r + 2 M-cycles; HL and DE += r, B
+; = 0, A the last byte, and DEC's flags for 1 -> 0 (Z, N; H clear; C kept).
+; A byte at a time forward, as REP MOVSB copies, so an overlap is the
+; loop's. Anything else goes on at [S_RET].
+cpy_ff:
+    mov [ss:S_TMP],dl
+    mov dl,ch
+    xor dh,dh                   ; r (not 0: the JR is taken)
+    mov [ss:S_TMP2],dx
+    shl dx,1
+    mov [ss:S_TMP4],dx
+    shl dx,1
+    shl dx,1
+    add dx,[ss:S_TMP4]
+    add dx,2                    ; 10r + 2
+    cmp bp,dx
+    jl .no
+    mov [ss:S_TMP4],dx
+    mov dx,bx                   ; HL's range...
+    cmp dh,80h
+    jb .no
+    cmp dx,0FF80h
+    jae .h1
+    add dx,[ss:S_TMP2]
+    jc .no
+    cmp dx,0FF00h
+    ja .no
+    jmp cpy_de
+.h1:
+    add dx,[ss:S_TMP2]
+    jnc cpy_de
+.no:
+    jmp word [ss:S_RET]
+""",
+    0x64: """
+; cpy_ff's other half (slot 6D's): DE's range, then the copy
+cpy_de:
+    mov dx,di
+    cmp dh,80h
+    jb .no
+    cmp dx,0FF80h
+    jae .h2
+    add dx,[ss:S_TMP2]
+    jc .no
+    cmp dx,0FF00h
+    jna .go
+.no:
+    jmp word [ss:S_RET]
+.h2:
+    add dx,[ss:S_TMP2]
+    jc .no
+.go:
+    sub bp,[ss:S_TMP4]
+    mov [ss:S_TMP4],si          ; (the loop's head)
+    mov dx,ss                   ; DS and ES the view: translated code keeps
+    mov ds,dx                   ;   neither (tr_int loads DS)
+    mov es,dx
+    mov dl,cl
+    mov cl,ch
+    xor ch,ch                   ; CX = r, and B = 0 after
+    mov si,bx
+    cmp byte [ss:S_TMP],2Ah
+    je .cp
+    xchg si,di                  ; DE to HL
+.cp:
+    rep movsb
+    mov cl,dl
+    mov al,[si-1]               ; A, the last byte
+    cmp byte [ss:S_TMP],2Ah
+    je .hl
+    xchg si,di
+.hl:
+    mov bx,si
+    and ah,RBF_C
+    or ah,RBF_Z|RBF_N
+    mov si,[ss:S_TMP4]
+    add si,6
+    xor dl,dl
+    jmp tr_enter
+""",
+    0x7D: """
+; stat_ff: a wait on the PPU - LDH A,(41h) / AND 3 or BIT 1,A / JR NZ,-6
+; (HBlank, or HBlank or VBlank: Super Mario Land's ~20 a frame before a VRAM
+; write) or LDH A,(44h) / CP n / JR NZ,-6 (line n) - with whole passes of
+; its 8 M-cycles taken off BP that are certain to read "not yet" (REALBOY-
+; SPEC 16.6): LY and STAT are S_TNF - BP's, so the wait is known. A pass
+; short of it, and never past the next event (BP stays 8 or more): the loop
+; reads the change itself, and A and F are its own. SI = the head, DL = 3
+; (mode 0), 2 (mode 0 or 1) or 44h (line DH); the JR NZ about to be taken,
+; its 3 M-cycles not charged. Always on at [S_RET].
+stat_ff:
+    cmp byte [ss:S_LCDON],0
+    je stat_out
+    mov [ss:S_TMP2],ax
+    mov [ss:S_TMP6],dx
+    mov ax,[ss:S_TNF]
+    sub ax,bp
+.wrap:
+    cmp ax,RB_FRAME
+    jb .in
+    sub ax,RB_FRAME
+    jmp short .wrap
+.in:
+    mov [ss:S_TMP4],ax
+    mov dh,RB_LINE
+    div dh                      ; AL = LY, AH = M-cycles into the line
+    cmp dl,44h
+    je stat_ly
+    cmp al,144
+    jae .vbl
+    sub ah,RB_HBL               ; to mode 0, this line
+    jae stat_none
+    neg ah
+    mov al,ah
+    xor ah,ah
+    jmp short stat_t
+.vbl:
+    cmp dl,2                    ; (mode 1 will do)
+    je stat_none
+    mov ax,RB_FRAME+RB_HBL      ; to line 0's mode 0
+    sub ax,[ss:S_TMP4]
+stat_t:
+    sub ax,8                    ; a pass short (0 is exact, gbrmw's
+    jbe stat_none               ;   Waits; 8 over is not)
+    and al,0F8h
+    mov dx,bp
+    sub dx,8
+    jle stat_none
+    cmp ax,dx
+    jbe .ok
+    mov ax,dx
+    and al,0F8h
+.ok:
+    sub bp,ax
+stat_none:
+    mov ax,[ss:S_TMP2]
+stat_out:
+    jmp word [ss:S_RET]
+""",
+    0x7C: """
+; stat_ff's other half (slot 7D's): line n's wait, n - LY lines on (mod
+; 154; a line that never comes is never read, so any skip is the loop's)
+stat_ly:
+    mov dl,[ss:S_TMP6+1]
+    sub dl,al
+    je stat_none                ; on it now
+    jnc .l
+    add dl,154
+.l:
+    mov dh,ah
+    mov al,RB_LINE
+    mul dl
+    sub al,dh
+    sbb ah,0
+    jmp stat_t
 """,
     0x47: """
 ; cnt_ff: a COUNTDOWN, DEC r / JR NZ,-3, run to its end in one step when the
@@ -1441,7 +1657,7 @@ io_wr:
     cmp bl,40h
     jb .st
     cmp bl,4Ch
-    jb .host
+    jb .lcd
     cmp bl,0FFh
     je .host
     jmp short .z                ; FF4C-FF7F: nothing on a DMG, reads FF
@@ -1450,6 +1666,11 @@ io_wr:
 .z:
     xor dl,dl
     jmp word [ss:S_RET]
+.lcd:                           ; FF40-FF4B: a write of what is there
+    cmp bl,46h                  ;   already changes nothing and is no
+    je .host                    ;   raster write (rb_rlog would log it,
+    cmp dl,[ss:bx]              ;   and a logged write can end the
+    je .z                       ;   composer's FAST frame); DMA always runs
 .host:
     mov [ss:S_RETFAR+2],cs       ; rbsys comes back to THIS copy
     jmp far [ss:S_IOWVEC]

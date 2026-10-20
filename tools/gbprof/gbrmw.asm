@@ -42,10 +42,24 @@ Start:
     ld [$C020], a                           ; timer interrupts taken
     ld [$C022], a                           ; ...and not taken at once
     ld [$C023], a                           ; HRAM code that did not change
+    ld [$C024], a                           ; map-row loops that parted
+    ld [$C030], a                           ; ...and their count
+    ld [$C025], a                           ; copies that parted
+    ld [$C031], a                           ; ...and their count
+    ld [$C026], a                           ; PPU waits that parted
     call HramCode
+    call Waits
+    ld b, 128                               ; (each case 32 times: translated)
+.copies:
+    push bc
+    call Copies
+    pop bc
+    dec b
+    jr nz, .copies
     ld bc, 300
 .loop:
     push bc
+    call Rows
     call Irq
     ld hl, $C000
     ld de, $C010
@@ -81,6 +95,18 @@ Start:
     ld a, [$C023]
     or a
     ld hl, FailHram
+    jr nz, .print
+    ld a, [$C024]
+    or a
+    ld hl, FailRows
+    jr nz, .print
+    ld a, [$C025]
+    or a
+    ld hl, FailCopy
+    jr nz, .print
+    ld a, [$C026]
+    or a
+    ld hl, FailWait
     jr nz, .print
     ld hl, Passed
 .print:
@@ -173,6 +199,414 @@ Calls:
     jr nz, Calls
     ret
 
+; ADD HL,DE / DEC B (or C) / JR NZ - the recompiler's add_ff - against the
+; same loop closed by JP NZ, which it does not take: HL and F must agree,
+; for every count (0 is 256) and carries out of HL
+Rows:
+    ld a, [$C030]
+    inc a
+    ld [$C030], a
+    ld b, a
+    ld c, a
+    ld d, a
+    ld e, $37
+    ld h, $F0
+    ld l, a
+    push hl
+.ib:
+    add hl, de
+    dec b
+    jr nz, .ib
+    push af
+    pop bc                                  ; C = F, B = A
+    ld a, c
+    ld [$C040], a
+    ld a, l
+    ld [$C041], a
+    ld a, h
+    ld [$C042], a
+    pop hl
+    push hl
+    ld a, [$C030]
+    ld b, a
+.rb:
+    add hl, de
+    dec b
+    jp nz, .rb
+    call .same
+    ld a, [$C030]
+    ld c, a
+    pop hl
+    push hl
+.ic:
+    add hl, de
+    dec c
+    jr nz, .ic
+    push af
+    pop bc
+    ld a, c
+    ld [$C040], a
+    ld a, l
+    ld [$C041], a
+    ld a, h
+    ld [$C042], a
+    pop hl
+    ld a, [$C030]
+    ld c, a
+.rc:
+    add hl, de
+    dec c
+    jp nz, .rc
+.same:                                      ; HL and F against [$C040..]
+    push af
+    pop bc
+    ld a, [$C040]
+    cp c
+    jr nz, .bad
+    ld a, [$C041]
+    cp l
+    jr nz, .bad
+    ld a, [$C042]
+    cp h
+    ret z
+.bad:
+    ld a, 1
+    ld [$C024], a
+    ret
+
+; LD A,(HL+) / LD (DE),A / INC DE / DEC B / JR NZ and LD A,(DE) / LD (HL+),A
+; / ... - the recompiler's cpy_ff - against the same loops closed by JP NZ:
+; A, F, HL, DE, BC and what the copy left in C100-C1FF and FFC0-FFD3 must
+; agree. Four cases by the count: WRAM to HRAM, HRAM to WRAM, an overlap
+; (and one of 0, 256 passes, through it), and a ROM source, which cpy_ff
+; must decline
+Copies:
+    ld a, [$C031]
+    inc a
+    ld [$C031], a
+    call Fill
+    call Setup
+    ld a, [$C032]
+    bit 0, a                                ; (C is Setup's)
+    jr nz, .i1
+    call C2I
+    jr .is
+.i1:
+    call C1I
+.is:
+    call Save
+    ld hl, $C050                            ; to C040: the reference's room
+    ld de, $C040
+    ld c, 10
+.mv:
+    ld a, [hl+]
+    ld [de], a
+    inc de
+    dec c
+    jr nz, .mv
+    call Fill
+    call Setup
+    ld a, [$C032]
+    bit 0, a
+    jr nz, .r1
+    call C2R
+    jr .rs
+.r1:
+    call C1R
+.rs:
+    call Save
+    ld hl, $C040
+    ld de, $C050
+    ld c, 10
+.cmp:
+    ld a, [de]
+    cp [hl]
+    jr nz, .bad
+    inc hl
+    inc de
+    dec c
+    jr nz, .cmp
+    ret
+.bad:
+    ld a, 1
+    ld [$C025], a
+    ret
+
+; HL, DE, B and C for the case, [$C032] the loop (0 HL to DE), C the
+; count's bit 0
+Setup:
+    ld a, [$C031]
+    ld c, a
+    and 15
+    inc a
+    ld b, a                                 ; 1-16
+    xor a
+    ld [$C032], a
+    ld a, c
+    and 3
+    jr z, .c0
+    dec a
+    jr z, .c1
+    dec a
+    jr z, .c2
+    ld hl, $0150                            ; 3: from ROM
+    ld de, $C180
+    jr .cy
+.c0:
+    ld a, c
+    and 63
+    jr z, .c256
+    ld hl, $C108                            ; 0: WRAM to HRAM
+    ld de, $FFC0
+    jr .cy
+.c256:
+    ld b, a                                 ; (0: 256 passes)
+    ld hl, $C100
+    ld de, $C101
+    jr .cy
+.c1:
+    ld a, 1                                 ; 1: HRAM to WRAM
+    ld [$C032], a
+    ld de, $FFC2
+    ld hl, $C150
+    jr .cy
+.c2:
+    sla b                                   ; 2: an overlap, 2-32
+    ld hl, $C120
+    ld de, $C121
+.cy:
+    ld a, c
+    rra                                     ; C = the count's bit 0
+    ret
+
+C2I:
+    ld a, [hl+]
+    ld [de], a
+    inc de
+    dec b
+    jr nz, C2I
+    ret
+C2R:
+    ld a, [hl+]
+    ld [de], a
+    inc de
+    dec b
+    jp nz, C2R
+    ret
+C1I:
+    ld a, [de]
+    ld [hl+], a
+    inc de
+    dec b
+    jr nz, C1I
+    ret
+C1R:
+    ld a, [de]
+    ld [hl+], a
+    inc de
+    dec b
+    jp nz, C1R
+    ret
+
+; the registers and a sum of the two areas, into C050-C059
+Save:
+    push af
+    ld a, l
+    ld [$C051], a
+    ld a, h
+    ld [$C052], a
+    ld a, e
+    ld [$C053], a
+    ld a, d
+    ld [$C054], a
+    ld a, b
+    ld [$C055], a
+    ld a, c
+    ld [$C056], a
+    pop hl                                  ; L = F, H = A
+    ld a, l
+    ld [$C050], a
+    ld a, h
+    ld [$C057], a
+    ld hl, $C100
+    ld de, 0
+    ld c, 0
+.s:
+    ld a, [hl+]
+    add a, e
+    ld e, a
+    ld a, d
+    adc a, 0
+    rlca                                    ; (an order the sum feels)
+    ld d, a
+    dec c
+    jr nz, .s
+    ld hl, $FFC0
+    ld c, 20
+.t:
+    ld a, [hl+]
+    add a, e
+    ld e, a
+    ld a, d
+    adc a, 0
+    rlca
+    ld d, a
+    dec c
+    jr nz, .t
+    ld a, e
+    ld [$C058], a
+    ld a, d
+    ld [$C059], a
+    ret
+
+; C100-C1FF and FFC0-FFD3 to a pattern
+Fill:
+    ld hl, $C100
+    ld c, 0
+.f:
+    ld a, l
+    xor $5A
+    ld [hl+], a
+    dec c
+    jr nz, .f
+    ld hl, $FFC0
+    ld c, 20
+.g:
+    ld a, l
+    ld [hl+], a
+    dec c
+    jr nz, .g
+    ret
+
+; Waits on the PPU - the recompiler's stat_ff, which takes whole passes off
+; the clock - run from ROM, translated, and from a copy in WRAM, which is
+; never translated: each waits after a delay that moves its phase, then
+; counts passes to LY's next change, which places the exit to within a pass.
+; The two must agree for every phase
+Waits:
+    ld hl, WaitBlock                        ; (ROM to WRAM: cpy_ff declines)
+    ld de, $C800
+    ld b, WaitEnd - WaitBlock
+.cp:
+    ld a, [hl+]
+    ld [de], a
+    inc de
+    dec b
+    jr nz, .cp
+    xor a
+    ld [$C033], a
+.trial:
+    call Sync
+    call WaitM0
+    ld e, a
+    call Sync
+    call $C800 + WaitM0 - WaitBlock
+    cp e
+    jr nz, .bad
+    call Sync
+    call WaitM01
+    ld e, a
+    call Sync
+    call $C800 + WaitM01 - WaitBlock
+    cp e
+    jr nz, .bad
+    call Sync
+    call WaitLY
+    ld e, a
+    call Sync
+    call $C800 + WaitLY - WaitBlock
+    cp e
+    jr nz, .bad
+    ld a, [$C033]
+    inc a
+    ld [$C033], a
+    cp 128
+    jr nz, .trial
+    xor a
+    ldh [$FFFF], a
+    ret
+.bad:
+    xor a
+    ldh [$FFFF], a
+    inc a
+    ld [$C026], a
+    ret
+
+; to VBlank's start, exactly: HALT with only VBlank enabled and IME off
+; resumes the moment it is requested
+Sync:
+    xor a
+    ldh [$FF0F], a
+    inc a
+    ldh [$FFFF], a
+    halt
+    ret
+
+WaitBlock:                                  ; position-independent: JRs only
+WaitM0:
+    ld a, [$C033]
+    ld c, a
+    inc c
+.d:
+    dec c
+    jr nz, .d
+.w:
+    ldh a, [$FF41]
+    and 3
+    jr nz, .w
+    ldh a, [$FF44]
+    ld d, a
+    ld b, 0
+.c:
+    inc b
+    ldh a, [$FF44]
+    cp d
+    jr z, .c
+    ld a, b
+    ret
+WaitM01:
+    ld a, [$C033]
+    ld c, a
+    inc c
+.d:
+    dec c
+    jr nz, .d
+.w:
+    ldh a, [$FF41]
+    bit 1, a
+    jr nz, .w
+    ldh a, [$FF44]
+    ld d, a
+    ld b, 0
+.c:
+    inc b
+    ldh a, [$FF44]
+    cp d
+    jr z, .c
+    ld a, b
+    ret
+WaitLY:
+    ld a, [$C033]
+    ld c, a
+    inc c
+.d:
+    dec c
+    jr nz, .d
+.w:                                         ; (VBlank and a delay of up
+    ldh a, [$FF44]                          ;   to five lines: line 2 is
+    cp 2                                    ;   the next frame's)
+    jr nz, .w
+    ld d, 2
+    ld b, 0
+.c:
+    inc b
+    ldh a, [$FF44]
+    cp d
+    jr z, .c
+    ld a, b
+    ret
+WaitEnd:
+
 ; F into the sum at [DE], with the carry of the add left for the next op
 Fold:
     push af
@@ -199,3 +633,9 @@ FailCount:
     db "Failed: interrupts lost", 10, 0
 FailHram:
     db "Failed: HRAM code ran as it was", 10, 0
+FailRows:
+    db "Failed: a map-row loop parted", 10, 0
+FailCopy:
+    db "Failed: a copy loop parted", 10, 0
+FailWait:
+    db "Failed: a wait on the PPU parted", 10, 0
