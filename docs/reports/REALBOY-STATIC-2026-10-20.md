@@ -260,7 +260,40 @@ program adds nothing to what a block knows.
 - **Which count to use.** gbcover uses RealBoy's rules, and a figure that
   prices RealBoy should quote 2,039.
 
-## 7. Reproduce
+## 7. Addendum: the recompile stall, and what fits in real mode
+
+The owner reports a stall in the dynamic recompiler: the game slows to a
+crawl for about 3 seconds in every 10 while it translates. A static
+translation would remove that.
+- **Why.** Nothing is translated during play, the cache is never flushed,
+  and Auto has nothing to re-time (REALBOY-SPEC section 16.7).
+- **What it does not remove.** Code the translation did not cover still
+  falls to the interpreter: slow, but steady.
+
+So if the stall cannot be fixed on the dynamic side, a static translation
+**for a few known games** answers it. The speed argument of section 5 does
+not.
+
+**Memory, per bank, PREDICTED at 20.2 bytes a Game Boy instruction:**
+
+| game | everything the walk finds | what ran in 107 s of host play | what ran at least once every 20 frames |
+|---|---|---|---|
+| Super Mario Land | 8,532 instructions, ~168 KB (bank 0 6,260; bank 2 522; bank 3 1,750) | 4,755, **~93 KB** | 1,928, ~38 KB |
+| Kirby's Dream Land | 12,469, ~245 KB | 1,715, ~33 KB | 1,280, ~25 KB |
+| Looney Tunes | 13,825, ~272 KB | 6,529, ~128 KB | 2,810, ~55 KB |
+
+**What fits where:**
+- **Every instruction the walk finds would want protected mode** (or code
+  paged from XMS beside its ROM bank), as the owner expects. That count is
+  an upper bound: Dr. Mario's 6,822 "instructions" in a 16 KB bank 0 are
+  partly data that the walk read as code.
+- **A set guided by a profile of play stays in real mode.** For Super Mario
+  Land it is ~93 KB, against the 80 KB the dynamic recompiler claims today.
+
+A profile covers only what the host run played, so the profile would have to
+walk every level, and anything it missed would run interpreted.
+
+## 8. Reproduce
 
 ```sh
 export OS88_GB_ROMS=<dir>                                   # SML.GB etc., the user's
