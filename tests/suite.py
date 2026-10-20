@@ -1402,6 +1402,17 @@ FAST = [
         "loads one on an arm kern_mega assembles is registered in "
         "tests/seg0.txt with its count and a reason. FAST for cswrite's "
         "reason, on the same walker"),
+    Row("megagrid", "fast", py("tests/unit/t_megagrid.py"), 0.6,
+        "docs/plans/KERN-MEGA-PLAN.md 14.39's ratchet: under kern_mega's "
+        "protected mode only a multiple of EIGHT paragraphs is a segment, so "
+        "a far pointer normalised to one paragraph (`and si, 15`), a byte "
+        "count rounded up to paragraphs, or a one-paragraph segment step is a "
+        "fault - or an LDT alias of OTHER memory, read with no fault at all. "
+        "Every file of a package that says OS88_HIGH that builds one is "
+        "registered in tests/megagrid.txt with its count and a reason. FAST "
+        "on cswrite's argument one tree over: it is a rule about how fifty "
+        "packages are written, and the writer who breaks it has never booted "
+        "kern_mega"),
     Row("btngesture", "soak", py("tests/btngesture.py"), 26,
         "SPEC.md 13.7/13.8 ON THE GLASS: a standard button goes DOWN while "
         "held, comes UP when the pointer slides off it, goes down again on the "
@@ -14062,6 +14073,29 @@ SOAK = [
         "the grid is four planes and repaints through gfx_blitp, so a window "
         "left where it opens does not reach this primitive at all.",
         needs=("marty", "nasm"), serial=True, timeout=900),
+    Row("megatrap0", "soak", py("tests/megatrap0.py"), 240.0,
+        "docs/plans/KERN-MEGA-PLAN.md 10.3 item 50: kern_mega COMPLETES a "
+        "write through CS, a far transfer through a data segment and a "
+        "segment-0 access rather than faulting on it, so a package doing one "
+        "in a loop is slow and looks like it works. MEGATRAP=1's census "
+        "(a private tree) under Bochs, ten OS88_HIGH packages started through "
+        "MEGARUN and left running; any #GP charged to an image not in the "
+        "row's ALLOW fails it, as does a refusal or a kern_mega FAULT. The "
+        "failing case is any `push cs / pop ds` and a store in one of them - "
+        "MEGACSL (tests/megacsw) is one on purpose. 240s is 199 measured, "
+        "the tree's build included",
+        needs=("bochs", "nasm")),
+    Row("mousess", "soak", py("tests/mousess.py"), 20.0,
+        "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "
+        "it interrupted. SeaBIOS serves int 13h and int 16h on a stack of its "
+        "own with IF on, so the ISR can arrive with SS anywhere, and its body "
+        "reaches .lowbss through SS. tests/msstk makes the case on purpose "
+        "(SS:SP in a claim of A5h, IRQ0 masked) while mouse packets with "
+        "button edges arrive; the claim must come back untouched and a "
+        "breakpoint just past MOUPRIV_ENTER must never see a foreign SS. "
+        "VERIFIED TO FAIL on the entry before 9.10.1: 16 bytes of the claim "
+        "written at evq_buf's offset. 20s is 17 measured",
+        needs=("marty",), serial=True, wants=("build/msstk.o88",)),
     Row("b4walk", "soak", py("tests/b4walk.py"), 40.0,
         "SPEC.md 5.4.1.5: a gfx_blit4 a window CUTS walks the region, every "
         "fragment a piece at the fast path's price. A dithered 200x112 block "

@@ -29,7 +29,8 @@ names the legacy one. Nothing needs building, and no ROM is fetched.
 ## The machine the harness builds
 
 `tools/os88bochs.py` writes `OUT/bochsrc` (default OUT is `build/bochs`) and
-starts Bochs on an Xvfb display `:99` that it starts if none is running:
+starts Bochs on an Xvfb display - `:99`, or `$OS88_BOCHS_DISPLAY` - that it
+starts if that display is not up:
 
 | part | what |
 |---|---|
@@ -200,11 +201,15 @@ in an ISR that draws.
 
 ## Things that cost an hour each here
 
-* **ONE Bochs per box.** Clicks, keys and screenshots go to whichever window
-  is on top of display :99, and two machines read exactly like a guest that
-  froze. `boot` refuses while one runs. `pkill bochs` does NOT match: the
-  process is `bochs-bin`, so use `os88bochs.py stop`. Parallel work is
-  parallel SESSIONS, not parallel agents in one container.
+* **ONE Bochs per DISPLAY.** Clicks, keys and screenshots go to whichever
+  window is on top of the display, and two machines on one read exactly like a
+  guest that froze. `boot` refuses while one runs ON ITS DISPLAY. Two at once
+  is two displays: `OS88_BOCHS_DISPLAY=:97 tools/os88bochs.py ... --out
+  build/bochs-<name>` (and the same variable for `os88bochsui.py`). `stop`,
+  and the `already running` check, count only the bochs-bin and fifo holders
+  whose environment names this display - they used to be box-wide, which
+  ended every other agent's machine. `pkill bochs` does NOT match: the
+  process is `bochs-bin`, so use `os88bochs.py stop`.
 * **Capture the mouse after every boot**, or moves go nowhere.
 * **The harness copies A: from `build/mega.img` every boot.** Rebuild with
   `make mega` before you boot, or you test the previous kernel.

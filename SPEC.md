@@ -12666,10 +12666,12 @@ with IF=1: `int 13h`, which §15.3.8 measured taking 21 ticks a transfer, and
 stack; SeaBIOS serves them on an internal stack in a segment of its own, and
 a swap of SP alone there put the chain at `SS:sch_chstack` in the ROM's
 segment — which the suite survived only because that offset happened to be
-unallocated there. So both this swap and §9.10's test `SS` against `LOW_SEG`
-first, and where it is anything else the chain (or the mouse ISR) runs in
-place on the interrupted stack, as it did before either section. The target
-machine pays the compare and nothing else.
+unallocated there. So this swap tests `SS` against `LOW_SEG`
+first, and where it is anything else the chain runs in place on the
+interrupted stack, as it did before this section. The target machine pays
+the compare and nothing else. §9.10's mouse ISR tested the same way until
+§9.10.1, which loads SS as well, because its BODY reaches `.lowbss` through SS
+where the chain's ROM call does not.
 
 #### 8.5.1 Why a nested tick skips the chain rather than nesting on the stack
 
@@ -16143,6 +16145,40 @@ not. It crossed no rung.
 assembling. It puts both ISRs back on the interrupted task's stack, which is
 what shipped before this section; `make stkdiag` builds it as arm 2 so the floor
 row moves by exactly what this is worth on the machine in front of you.
+
+#### 9.10.1 The swap sets SS too: a ROM that runs a service on its own stack
+
+"SS is already `LOW_SEG` for every task" is true of os8088's own code and **not
+of a ROM service that switched stacks**, and the kernel calls two with IF=1:
+`int 13h`, which §7.4 makes the designed case for this ISR, and `int 16h` on
+every `ui_task` pass. The IBM ROMs run both on the caller's stack; SeaBIOS — so
+QEMU and Bochs — serves them on an internal stack in a segment of its own. A
+swap of SP alone there would run the body at `SS:mou_pstack` in the ROM's
+segment, so for a while the entry TESTED `SS` and, finding it was not
+`LOW_SEG`, ran the body in place on the ROM's stack. That was half a cure:
+the body reaches `.lowbss` through `SS` — `gfx_rowbase`'s `vid_rowtab`,
+`evq_push`'s queue — so it then read and wrote the ROM's segment instead
+(docs/plans/KERN-MEGA-PLAN.md 14.9 and 14.39).
+
+So the entry now banks **SS and SP** and loads **both**, `LOW_SEG` from a word
+in `.text`, because `mov ss, [cs:x]` takes memory and needs no register; the
+exit puts both back. There is no compare any more:
+
+```nasm
+    mov [cs:mou_psave], sp          ; 5   MOUPRIV_ENTER
+    mov [cs:mou_pss], ss            ; 5
+    mov ss, [cs:mou_lowss]          ; 5
+    mov sp, mou_pstack + MOU_PSTK   ; 3
+      ...
+    mov ss, [cs:mou_pss]            ; 5   MOUPRIV_LEAVE
+    mov sp, [cs:mou_psave]          ; 5
+```
+
+Against the tested form it is **+1 byte at each of the two entries, +5 at the
+one exit, +2 of `.text` for `mou_lowss` and +2 of `.bss` for `mou_pss`** —
+11 bytes on `kern_big` (measured; 14.39 has the build). `kern_mega` banks
+through its data alias as before, its code segment being read-only. `NOMOUPRIV=1` is
+untouched: it still runs the body on the interrupted stack, whatever SS is.
 
 ### 9.11 The VMware absolute pointer — the browser's grabless mouse
 
@@ -77375,7 +77411,7 @@ table's end and present on every kernel (docs/plans/KERN-MEGA-PLAN.md 12.2):
 | `OSAPI_MEM_CODESEL` **0x04A5** | DX = the segment (or selector) naming a claim of the caller's. Out CF=0, AX = the selector to **far call code** in it: DX itself on a real-mode kernel; under `CPU_F_PM` the claim's LDT code alias `(S >> 2) | 4` for a segment on the 512-byte grid below A000, a code selector as it is, and the code half of an allocator pair for its data half. CF=1 when there is none: DX = 0, or under `CPU_F_PM` a segment off the grid or a data-only selector (an `OSAPI_XMEM_SEL` window). Any context. `apps/os88api.inc`'s `OS88_CODESEL` is its inline fast path for a claim below 1MB |
 | `OSAPI_XMEM_WALK` **0x04AB** | ES:DI = room for CX records of `XMW_SIZE` (6) bytes. Out CF=0, AX = the extended pool's live blocks written, each `XMW_OFF` (KB from the pool's base, which `OSAPI_XMEM_CAPS` answers in DX:CX), `XMW_KB` and `XMW_OWN`: an instance slot for an `OSAPI_XMEM_ALLOC` block, 80h \| slot for a package's REGION placed above 1MB (`OS88_HIGH`, docs/plans/KERN-MEGA-PLAN.md 13.3 step 4), 0A0h \| slot for a CLAIM it took there (`OS88_HIGHMEM`, KERN-MEGA-PLAN item 81), FEh the kernel's own (the read-ahead store, module pairs), FFh a cell called outside any instance. On kern_big with a store the pool is `XMEM.DRV`'s and the cell walks its table (overlay ABI 2's `XMV_WALK`, §28.4.8): owner a slot or FFh. CF=1, AX = 1 with no pool - kern_small, kern_mega in real mode, a kern_big machine without the overlay. The Task Manager's "RAM is RAM" reads it (KERN-MEGA-PLAN 13.6). Any context |
 | `OSAPI_XMEM_RUN` **0x04B7** | DX:AX = the TOKEN of an `OSAPI_XMEM_ALLOC` block the caller owns (its base). Out CF=0, DX = the first of a **run of data selectors**, CX = the step between them (8): selector *k* is the 64KB window from 32KB x *k* into the block, the last ones cut at its end, so **any 32KB of the block lies wholly inside one window** - the one at (offset >> 15), at (offset & 7FFFh). What a reader of records of 32KB or less needs to read them in place from ANY context once made, where `OSAPI_XMEM_SEL`'s one window has to be re-aimed by the UI task per read and `OSAPI_MEM_HUGE`'s 64KB windows cut a record that straddles one in two. One view a block: a block with a run takes no `OSAPI_XMEM_SEL` and the reverse (AX = 2 either way). Freed with the block. CF=1, AX = 1 not available (every kernel but kern_mega in protected mode) or no run of free LDT entries, 2 not the base of a block the caller owns or it has a selector already. UI-task context. The Video Player's hold and bank (98.3.18.16) are its consumer; docs/plans/KERN-MEGA-PLAN.md 14.16 |
-| `OSAPI_MEM_HUGE` **0x04B1** | AX = KB (1..65535). Out CF=0: DX = the claim's first segment or selector and CX = the STEP to its next 64KB - a program walks by CX and never by a constant. CX = 1000h for a conventional claim on every kernel; CX = 8 on kern_mega in protected mode for an `OS88_HIGHMEM` package, whose claim is ONE pool block above 1MB under a run of consecutive LDT data selectors, a 64KB window each and the last ending at the claim's end (§50.3.5). CF=1 refused. Freed by `OSAPI_MEM_FREE` with that DX, and at the instance's teardown; it does not regrow above 64KB. Docs/plans/KERN-MEGA-PLAN.md 14.1 answers 6 and 7: an ADDITION, so `OSAPI_MEM_CLAIM` and `OS88_HUGE_INCR` mean what they always did. Any context |
+| `OSAPI_MEM_HUGE` **0x04B1** | AX = KB (1..65535). Out CF=0: DX = the claim's first segment or selector and CX = the STEP to its next 64KB - a program walks by CX and never by a constant. CX = 1000h for a conventional claim on every kernel; CX = 8 on kern_mega in protected mode for an `OS88_HIGHMEM` package, whose claim is ONE pool block above 1MB under a run of consecutive LDT data selectors, a 64KB window each and the last ending at the claim's end (§50.3.5). CF=1 refused - above 1MB only when the pool's free KB are short, the compactor moving huge claims too (§50.3.5). Freed by `OSAPI_MEM_FREE` with that DX, and at the instance's teardown; `OSAPI_MEM_REGROW` takes the pool's to any size and answers its first selector NOW (KERN-MEGA-PLAN 14.37). Docs/plans/KERN-MEGA-PLAN.md 14.1 answers 6 and 7: an ADDITION, so `OSAPI_MEM_CLAIM` and `OS88_HUGE_INCR` mean what they always did. Any context |
 
 **Branch on `CPU_F_PM`, then on the slot.** A package that reads extended
 memory in place takes 41.13's or 41.15's route without the bit and this one
@@ -92325,13 +92361,36 @@ instance's teardown - by the rule that a claim's block over 64KB has a
 selector per 64KB (an `OSAPI_XMEM_ALLOC` block of any size has the one
 `OSAPI_XMEM_SEL` gave it). Every other case is the conventional heap with
 CX = 1000h. Ceiling: the pool, which stops at 16MB with a 286's 24-bit
-descriptor base. A huge claim does not regrow above 64KB, and the
-compactor does not move it.
+descriptor base.
+
+**The block MOVES, and the claim is refused only when the pool's FREE KB
+are short** (docs/plans/KERN-MEGA-PLAN.md 14.37): `mx_alloc` packs every
+movable block down before it refuses, and a huge claim is one of them - its
+selectors stay, their bases follow it - so "no room" means the pool's free
+KB, not its largest run. The entry is marked `MX_FHUGE`, which is what
+`mx_unsel` frees the run by (a driver's huge claim included) and what
+`OSAPI_MEM_REGROW` keys on:
+
+- **Regrow takes a huge claim to ANY size and keeps it in the pool.** A
+  shrink cuts the run's tail and frees the block's; a grow takes the KB
+  above the block where they are free, else moves it into a fresh block of
+  the new size (after a compaction if one is needed), else takes the KB
+  above it after that compaction. The run is extended in place, or moved to
+  a free run of the new length when the entries after it are taken - so DX
+  is the claim's first selector NOW, the step stays 8, and the old first
+  selector is no longer the claim's. A refusal changes nothing a program
+  can see. It is never moved down to conventional memory, whose step is
+  not 8 - the regrow of a pool claim of 64KB or less still is, as it was.
+- **A move is a 64KB PIECE at a time**, each piece's copy and the rebase of
+  its descriptors one step with interrupts off, interrupts on between, so a
+  claim of megabytes is never seconds of a deaf machine and an ISR reading
+  it through its run finds every piece whole (14.37).
 
 MEGAHI (tests/megahi) is the gate under Bochs at 4MB: 200KB in four pieces,
 `MEGAHI: huge 2844 step 0008 ok` - each piece written and read back, the
 claim freed and taken again on the same first selector, which it cannot be
-if the run's later entries were left taken.
+if the run's later entries were left taken. MEGAHG (tests/megahg) is the
+moving and regrowing half's, under Bochs and on 86Box's 286-mega.
 
 ### 50.3.2 …and the top-down doors a driver never had
 

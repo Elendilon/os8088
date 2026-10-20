@@ -1552,8 +1552,14 @@ font_run_x:
 ; 2.4). There the three live in .lowbss and go through SS instead, and the 16
 ; edge bytes are copied into font_rn_le/font_rn_re once the walk is done, for
 ; fnt_rn_edge to read through DS as it always has. It ASSUMES SS = LOW_SEG,
-; which every os8088 task context is (SPEC.md 2.1); a package that runs on a
-; stack of its own and draws unaligned text is the case it does not cover.
+; which is the SDK's rule for EVERY kernel call (apps/os88api.inc's
+; environment note) and not this routine's alone: gfx_rowbase's row table and
+; the claim map are reached through SS on every kernel. Every caller keeps
+; it (KERN-MEGA-PLAN 14.39): no shipped package calls the kernel on a stack
+; of its own - the DOS box switches SS only around a DOS program and back
+; before it calls in, and on kern_mega the box is the whole-machine handoff
+; anyway - and the mouse ISR, the one kernel path that ran on a ROM's stack
+; (SeaBIOS's int 13h), sets SS itself now (SPEC.md 9.10.1).
 %ifdef KERN_MEGA
  %define FRN_SEG ss
  %define FRN_SEND font_rn_sendm

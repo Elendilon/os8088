@@ -5373,3 +5373,683 @@ PicoMEM pays ~3.3 ms a reflection hundreds of times a second, which is where
 the difference is the whole slowdown or none of it. **The owner's T69 run
 on this kernel is the reading**; the real-mode-for-BIOS-disks fallback
 (14.35) stays deferred behind it.
+
+### 14.37 Claims of any size MOVE and REGROW in the pool; drivers' images move too (2026-10-20)
+
+The owner's goal: *"If it's free RAM, they can get it into a single claim"*.
+A program that needs 3MB should get 3MB whenever 3MB of the pool is free,
+however that free space is cut up. Before this section, 14.8 decision 2 and
+14.15 decision 2 pinned the two things that cut it up: an `OSAPI_MEM_HUGE`
+claim (any block over 64KB) stayed where it was, and so did a driver's image
+(`MX_KOWN`). One of either in the middle of the pool walled off the free KB
+on both sides for the rest of the session.
+
+**What is built.** All of it is kern_mega only: `kernel/mega.inc`, two lines
+of `kernel/driver.inc`, and one instruction moved in `kernel/xmem.inc`.
+
+1. **The compactor moves a claim of any size** (`mx_compactf`). The owner
+   byte alone now decides what moves, at any size: `80h | slot` (a region),
+   `0A0h | slot` (a program's claim), `0C0h | row` (a driver's claim) and
+   the new `MX_KDRV` (0FDh, a driver's image). `MX_KOWN`, 0FFh and a bare
+   slot (`OSAPI_XMEM_ALLOC`'s blocks) stay where they are. A huge claim is
+   therefore refused only when the pool's FREE KB are short, because
+   `mx_alloc` packs every movable block down before it refuses.
+2. **`mx_cpmove` moves a block a 64KB PIECE at a time.** For each piece, the
+   copy (two 32KB `mega_lincopy` calls) and the rebase of every LDT
+   descriptor whose base is in that piece happen in one step with
+   interrupts off. Interrupts are on between pieces.
+   - A copy only overwrites bytes of pieces already moved, because the
+     destination is below the block or clear of it. An ISR that reads or
+     writes the block through any selector therefore finds each piece
+     whole, at either the old place or the new one. Its writes to a piece
+     not yet moved are carried with that piece.
+   - That holds for a descriptor that lies inside ONE piece (offset in its
+     piece + limit <= FFFFh). Every window of a run, a region's pair and a
+     claim's selector qualify. If any descriptor over the block crosses a
+     piece's end, the whole block moves in one step, as every block of 64KB
+     or less always did.
+   - The rebase is 24-bit now, for a block of megabytes. A move may also go
+     UP to a place clear of the block; the regrow uses that.
+   - `mega_slidef`'s GDT scratch (`MEGA_SEL_SLD`, the source slide of an lz
+     decode) is rebased too, at the end of the move, because only a task
+     loads it.
+3. **`mx_alloc` is one step for every task.** It holds `[sch_lock]`, with
+   interrupts on, across the walk, the take and any compaction. No other
+   task runs mid-move, and two claims cannot interleave their walks.
+   `mega_claimhf`, `mega_hugef`, `mega_claimregrowf`, `mega_imghif` and
+   `xm_copy` hold the lock from the moment they read a block's base until
+   they have used it. `mega_dklibf` reads its base and makes the alias with
+   interrupts off. Without that, another task could compact the block away
+   between the read and the use. Each of these was already a race for
+   14.15's moves.
+4. **A huge claim is marked `MX_FHUGE`.** The flag lives in `MX_FL`, byte 5
+   of the entry, which was unused; every take clears it. `mx_unsel` frees
+   `(KB + 63) / 64` selectors when the flag is set. This also fixes a
+   driver's huge claim (`0C0h | row`): the old `owner = 0A0h` test leaked
+   its run.
+5. **`OSAPI_MEM_REGROW` takes a huge claim to ANY size and keeps it in the
+   pool** (the `.huge` arm of `mega_claimregrowf`).
+   - The bytes: a shrink or a level stays in place, and the block's tail is
+     free at once. A grow takes the KB above the block if they are free.
+     Otherwise it moves the claim into a fresh block of the new size
+     (`mx_alloc`, compacting if it must, then `mx_cpmove`). If that is
+     refused, the compaction has run, so it tries the KB above the block
+     once more.
+   - The run is cut, or extended where it is. When the LDT entries after it
+     are taken, it moves to a free run of the new length and the old run is
+     freed.
+   - **DX is the claim's first selector NOW, and the step stays 8.** A
+     refusal leaves `MX_KB`, the bytes and the run whole.
+   - `mega_claimkbf` refuses a huge claim, so `osapi_mem_regrow_x` never
+     moves one down to a conventional claim. The old path did (see the red
+     run below): it answered a step of 1000h where the program walks by 8,
+     and its word count overflowed past 64KB.
+6. **Drivers' images move** (`MX_KDRV`). They are still placed from the top,
+   like the kernel's own blocks, and the compactor slides them down like
+   any claim.
+
+**Task decision 3: is a driver image's move a small step? Yes, and it is
+built.**
+
+- On kern_mega every holder of a driver image names its SELECTOR pair.
+  HEAP-UNPIN-PLAN's 66 kernel words in 9 tables hold segment numbers on
+  kern_big but selectors here, so they do not change.
+- The IDT gates and the `DSV_*` far pointers are selector:offset.
+  `DESK.DRV`'s library alias is an LDT descriptor inside the image, which
+  the rebase finds.
+- The image's own code runs from IRQ0 (`DSV_TICK`) and from its own IRQs.
+  An image is 64KB or less, though, so it moves in one step with interrupts
+  off.
+- `OS88_DRV_HIGHOK` already promises that the driver hands its own segment
+  to no BIOS call and no DMA engine.
+
+So HEAP-UNPIN-PLAN 2.0's wall, a driver mounted mid-session and pinned
+mid-arena, is gone on kern_mega for every driver placed above 1MB. The cost
+is the owner byte: the compactor's test and two `mov bl` instructions. A
+driver that is NOT `HIGHOK` stays conventional under kern_big's rules.
+
+**What makes a block legitimately unmovable at an instant.** The rule, kept
+exact: a block is unmovable while something names it by a LINEAR or
+PHYSICAL address. Case by case:
+
+- **A DMA in flight.** The only DMA into a pool block is `mega_fd13`'s
+  native floppy, into the caller's ES:BX, which may be any selector. It
+  computes the linear address and runs the whole transfer under
+  `[sch_lock]`. The compactor runs only inside `mx_alloc`, in a task and
+  never from an ISR, so it cannot run during the transfer. The Sound
+  Blaster ring is a conventional `MC_DMA` claim, and the NE2000 is PIO.
+- **A BIOS call using the block through a bounce.** A reflection copies
+  between the caller's selector and a conventional bounce buffer and
+  re-reads the selector for each chunk. It runs with every IRQ but the
+  BIOS's masked, so no task runs under it. Between chunks the selector
+  names the new base.
+- **A far call into the block** (a region's or a driver's code running).
+  Every holder of its CS is a pushed CS: a return address or an iret frame,
+  which reloads on `retf` or `iret`. The stub pushes DS and ES, and they
+  reload on their pops. The compactor reloads its own ES. SS is never a
+  pool selector.
+- **A linear address held over time.** `OSAPI_XMEM_ALLOC`'s blocks (the
+  package holds the address) and the kernel's own `MX_KOWN` blocks stay
+  pinned as a class. The `MX_KOWN` blocks are the read-ahead store, the
+  icon store, purgeable tags, module pairs (`mega_hiclaim2` hands its
+  caller the linear base) and the hibernate's staging block at
+  `[mega_dpbase]`.
+- **A linear address held for a moment.** Covered by `[sch_lock]` or cli,
+  as item 3 above describes.
+
+**The test.** `tests/megahg` (MEGAHG, new; `make build/megahg.o88`) runs
+these phases:
+
+1. It fragments the pool with huge claims of a sixth of it, with 60KB
+   claims between them, and tags every byte.
+2. It unloads the drivers (`OSAPI_DRV_SUSPEND`), plugs the KB their images
+   held, frees every other pair, and reloads the drivers. That puts a
+   driver's image mid-pool.
+3. It claims EVERY free KB in one `OSAPI_MEM_HUGE` and checks every byte of
+   that claim and of every survivor. It then unloads and reloads the
+   drivers again, which runs their code at the place the move put them.
+4. It regrows a run from 100 to 300KB (a move and a relocated run), down to
+   130KB, up to 400KB, and finally to every free KB across a compaction. It
+   checks R, X1 and X3 each time.
+5. It checks that the pool's free KB are back to what they were at the
+   start.
+
+**Measured:**
+
+- **Bochs (a 386), 4MB, SB16, `SOUND.DRV` wanted.** Command:
+  `OS88_BOCHS_MEGS=4 python3 tools/os88bochs.py sweep --sb --cfg 1
+  build/megahg.o88`.
+  - `MEGAHG: frag 0E holes free 03FE`: 14 claims, and the largest hole is
+    515KB.
+  - `big 29DC kb 03FE ok`: 1,022KB in one claim. That claim's compaction
+    moved SOUND.DRV's image from KB 806h to 408h.
+  - `drivers unloaded and reloaded`, then all four regrows ok (the last is
+    `regrow 2904 kb 078A`), and `MEGAHG: ok`.
+  - Without `--sb`: 1,213KB in one claim, ok.
+  - MEGACP, MEGAHI and MEGAXM still pass in the same boots. MEGAXM needs
+    `--put RUN:ZBIG.TXT` for its packed-file leg.
+- **86Box `286-mega`** (MR BIOS 286, a 16MHz 286, 4MB, SB16), booted with a
+  `SYSTEM.CFG` that wants sound, and MEGAHG on a 1.44MB floppy in B:,
+  double-clicked.
+  - `MEGAHG ok` appears on the menu bar. The run made 63 soft resets, which
+    is the 286's reflection path.
+  - Sampling `mx_tab` every 250 ms of emulated time shows the same sequence
+    as Bochs. SOUND.DRV's image was reloaded at KB 81Ah between two claims,
+    moved to 412h by the 1,032KB claim's compaction, then unloaded and
+    reloaded at the top.
+  - The only faults other than the resets are five handled `Segment can't
+    write` at a conventional code alias (2764h, base 9D800h). The UNFIXED
+    kernel shows the same five for the same package, so they predate this
+    change.
+- **Red against the kernel before this change (89dcb2ee), on the same
+  machine.**
+  - `MEGAHG: no 02`: the every-free-KB claim was refused. The kept huge
+    claims and the driver (reloaded mid-pool as `MX_KOWN`) wall off the
+    holes.
+  - Built with `-DHG_RONLY` (the regrow phase alone): `no 21`. The 100 to
+    300KB regrow "succeeded" into CONVENTIONAL segment 1268h with step
+    1000h, so the bytes the program walks by 8 were not its bytes.
+- **The test found a defect in the first build of `mx_cpmove`.** A piece's
+  rebase window ran past the block's end, so the last piece's rebase also
+  moved the descriptors of the block ABOVE it: X1's first selector came back
+  holding R's tag. The window is now clamped to the block.
+
+**Cost, measured** (`make mega`'s `os88megaseg` lines, same commit):
+
+| kern_mega section | before | after | change |
+|---|---|---|---|
+| `.cold` | 41,170 | 41,522 | +352 |
+| `.mega` | 12,691 | 12,824 | +133 |
+| `.text` + `.bss` | 54,074 | 54,074 | +0 |
+
+- The segment overhead stays at the 5,935 that `tests/megaseg.txt` allows.
+  The `xm_copy` change moves an instruction rather than adding one.
+- The 485 new bytes are all above 1MB once `mega_coldup` has run. Before
+  that, they cross one 512-byte rung each of `.cold` and `.mega`, so the
+  boot-time conventional footprint is +1KB (`HEAP_PARA` 7,744 -> 7,808).
+  `mega_coldup` gives that KB back to the heap.
+- kern_big is BYTE-IDENTICAL: `build/kernel.bin` was compared with `cmp`
+  before and after, at one commit.
+- kern_small is unchanged by reading the diff: every change is inside
+  `%ifdef KERN_MEGA`, and `xmem.inc`'s `%ifndef KERN_MEGA` keeps the old
+  instruction where it was.
+- `abilock`: `PKG_FMT` 10 and `DRV_VER` 11 are unchanged. The contract was
+  clarified, and nothing built before it changes.
+
+**Rows.** None of this is in `tests/suite.py`. Like MEGACP and MEGAHI,
+MEGAHG is run by hand, with the `tools/os88bochs.py sweep` command above
+and on 86Box as described; the header of `tests/megahg/megahg.asm` carries
+both commands. The rows that can see the change are the fast tier
+(`cswrite`, `seg0`) and the `os88megaseg` and `os88ovlchk` gates that
+`make mega` runs. No soak row boots kern_mega.
+
+**The interface left for "re-home high".** Re-home high (a re-homed
+package's carve in the pool) is being designed in parallel and is NOT built
+here. A carve of any size, with any number of selectors including CODE
+aliases, can live in this as it is:
+
+- **Claim it** with `mx_alloc` (`.mega`; far door `mx_allocf`): DX:AX =
+  bytes, BL = **`80h | slot`**. That is the region class: movable at any
+  size, freed by the region's teardown, and never handed to a cell. The
+  claim may compact, moving other blocks, including the caller's current
+  region.
+- **Make its selectors** with `mega_ldt_alloc` (data or code; BL = the
+  access byte) or `mega_ldt_alloc2` (a code/data pair). For a run, use
+  `mega_hgcnt`, `mega_hgfree` and `mega_hgfill` (`.cold`). To have the run
+  freed with the block, mark the entry `MX_FHUGE` and set `MX_SEL` to the
+  run's first selector; `mega_mxat` finds the entry by base and owner.
+  Every move rebases every present descriptor in the allocator's range
+  whose base lies inside the block. The compactor never needs to know which
+  descriptor is a code alias.
+- **Move it on purpose** with `mx_cpmovef` (`.mega`, far): DI = the entry,
+  CX = where it is, BP = where it goes (below it, or clear of it in either
+  direction). It rebases the descriptors and sets `MX_OFF`.
+- **The owner is told NOTHING**: no relocation proc and no message. A
+  selector never changes, and every segment register that holds one outside
+  the compacting call is a pushed register that reloads.
+- **Invariants the carve must keep:**
+  1. Every selector's window lies inside one 64KB piece, measured from the
+     block's base. Otherwise every move of the block is one interrupts-off
+     step for the whole block: still correct, but deaf for about 10 ms per
+     64KB on a 12MHz 286.
+  2. No linear address of the carve is held across a point where another
+     task can run, except under `[sch_lock]`. A code alias made from a base
+     is made in one step.
+  3. No real-mode code runs in it.
+  4. Any DMA into it holds `[sch_lock]` from programming to completion.
+
+**What is left, and the price:**
+
+- **A regrow that needs only the DIFFERENCE when movable blocks sit above
+  the claim.** Today a grow succeeds in three cases: the KB above the claim
+  are free; the pool, after compaction, has a run of the NEW size; or the
+  compaction leaves the claim last below the free run. The layout
+  `[R][B...][free F]` with `F >= new - old` but `F < new` is refused. The
+  cure is an upward packing pass that slides B up past R; it is the
+  descending half that kern_big's compactor has (SPEC.md 66.4.1). It would
+  cost about 60-90 bytes of `.mega`, plus a BACKWARD 32KB copy, because an
+  upward overlapping move cannot use the forward `rep movsw` that
+  `mega_lincopy` is. Not built: it makes no difference to the first claim,
+  which is the owner's case.
+- **`MX_KOWN` blocks stay pinned as a class.** A module dropped from between
+  two of them leaves a hole at the top that a single claim cannot reach.
+  Most of them name only selectors (the read-ahead store, the icon store,
+  purgeable tags), so they could join `MX_KDRV`'s rule. Module pairs need
+  `mega_hiclaim2`'s linear answer audited first.
+- **`mx_tab` has 24 entries** (`MX_NBLK` = `XM_MAX_BLKS` + 16). The kernel's
+  blocks, the drivers and every package's claims share them, so on a long
+  session the TABLE refuses before the RAM does. Each entry costs 8 bytes of
+  `.text`, in the segment.
+- **`mega_lincopy`'s XA/XB scratch descriptors** are safe only because every
+  caller holds `[sch_lock]` or cli. Nothing enforces that.
+
+**Decisions for the owner to look back over:**
+
+1. **Interrupts are on between 64KB pieces**, rather than off for a whole
+   block. Off would be simpler and is what 14.15 did. On a 12MHz 286,
+   though, each move of a 3MB claim would then be about 0.5 s of a deaf
+   machine, losing serial mouse bytes, keys and ticks. The piece rule keeps
+   each deaf stretch at 14.15's 64KB worst case.
+2. **`mx_alloc` holds `[sch_lock]`**, so other TASKS wait out a whole
+   compaction. That is up to one copy of every movable block, about 10 ms
+   per 64KB on a 12MHz 286. ISRs (the pointer, sound, the clock) keep
+   running.
+3. **A huge regrow may answer a NEW first selector**, when the LDT entries
+   after its run are taken. The contract already says "take DX". A program
+   that keeps the old selector in a pushed segment register past the call
+   gets a not-present selector.
+4. **A grow moves the claim into a fresh block before it compacts.** That
+   costs one copy of the claim. Compacting first would sometimes avoid that
+   copy, but it always moves everything else.
+
+### 14.38 Re-home HIGH: the design, with a throwaway that ran four of the five above 1MB (2026-10-20)
+
+The owner, on 14.14's decision 1: *"the goal here is 'everything works' - so
+if you have word open, and then you go to play a video, word isn't sitting at
+the top of 640k, blocking off access to the bottom of 640k to the video
+player, unable to go anywhere and compact ... 'If its free ram, they can get
+it into a single claim'. If we can't put them high, we can't compact them and
+make that free space run."* This section is the research and the design. The
+kernel side is NOT built: the measurements below come off a throwaway patch
+(14.38.5) that was reverted.
+
+#### 14.38.1 What 14.14 decision 1 got wrong: four of the five keeps are ONE segment
+
+Decision 1 deferred the work because *"the carve it runs in is bigger"* than
+64KB. That stopped being true with SPEC.md 20.12.10.5's KEEP form, which cuts
+the carve's tail to the last part the program reads and moves its base up to
+the program. Measured off the built `.o88`s (part tables read and the program
+parts unpacked with `tools/os88pkg.py`'s `image_unwrap` and
+`tools/os88lz.py`) and, for the keep, off the kernel itself - the throwaway
+printed the `CX` paragraphs `OS88_REHOME` handed step 8a, on kern_mega under
+Bochs:
+
+| package | part | kind | bytes (unpacked) | reached by | in the keep |
+|---|---|---|---:|---|---|
+| Word | 0 | SEG, COMP | 59,392 (image 50,291 + bss 9,101 = `WD_P1ORG`) | its own CS/DS | yes |
+| | 1 | SEG, COMP | 3,208 (`.modc` at vstart `WD_P1ORG`: the search pattern and the Utilities **code**) | near calls through its own CS, `cs:` data | yes |
+| | **keep** | | **62,608** | | **one segment** |
+| Scribe | 0 | SEG, COMP | 51,712 (43,409 + 8,303 = `SC_P1ORG`) | own CS/DS | yes |
+| | 1 | SEG, COMP | 9,222 (`.modc`, code) | own CS | yes |
+| | **keep** | | **60,944** | | **one segment** |
+| Clear Skies | 0 | SEG, COMP | 61,409 (41,045 + 20,364) | own CS/DS | yes |
+| | 1 | ASSET, LAZY, SELF | 9,277 (the strings) | read by the program itself into its own memory | no |
+| | **keep** | | **61,424** | | **one segment** |
+| DOS.O88 (kern_mega's own, `-DDOS_MEGA`) | 0 | SEG, COMP | 51,088 (44,465 + 6,623) | own CS/DS; the loader copies part 1 INTO it at `CORE_ORG` | yes |
+| | 1, 2, 3 | ASSET, LAZY, COMP | 16,038 / 35,721 / 33,952 (the INT 21h core, kern_dos for the HMA, kern_dos low) | fetched and dropped by the loader; 2 and 3 read off the disk by HIBER.DRV at a trip | no |
+| | **keep** | | **51,088** | | **one segment** |
+| Pixelstein 3D | 0 | SEG, COMP | 58,263 (33,815 + 24,448) | own CS/DS | yes |
+| | 1 GEN | SEG, ZERO, OPT, 50KB | scratch the scalers are **generated into and far-called** (`px_drvp`, `px_qcur*`) | a SEGMENT the loader stores in the handoff (`PXH_GEN`) | yes |
+| | 2 BT | ASSET, ZERO, OPT, 30KB | the byte textures, data | a segment in the handoff (`PXH_BT`), copied into GEN at `PXG_QTEX` | yes |
+| | 3 LEV, 4 ART | ASSET, LAZY, COMP | 9,831 / 37,440 | `op_fetch` into conventional claims of their own (the DMA door) | no |
+| | **keep** | | **141,312** (SPEC.md 20.12.10.5's table) | | **2.2 segments** |
+
+Pixelstein's loader also claims the 60KB sprite set (`PXS_KB`) with
+`OSAPI_MEM_CLAIM`; with ART and LEV that is ~107KB of slot-owned data claims
+OUTSIDE the keep, conventional and never moved (`px_reloc`'s own comment
+says so).
+
+What each program does with its own segment, against item 78's rules (a grep
+of every source file each program part assembles, and the four runs below):
+
+- **No arithmetic on its own CS or DS** in Word, Scribe or DOS.O88's
+  reachable kern_mega paths (`dos_psp_make`'s `mov ax, cs / add` belongs to
+  the windowed box and to kern_dos, and the windowed box never runs on
+  kern_mega). **Skies has ONE**: `cs_xpand` decompresses into "any paragraph
+  of our segment" as `ES = our segment + granule` - the first thing the
+  throwaway faulted on (`#GP`, selector 369Ch, at `cs_xpand + 12h`).
+  **Pixelstein's loader has two by construction** (`PXH_GEN` and `PXH_BT` are
+  `op_seg` answers: the carve's base plus paragraphs); the program's own
+  `px_gen_init` `mov ax, ds` is a register load and fine.
+- **No linear address of its own DS, no IRQ vector with its own CS, no DMA
+  or BIOS buffer in its own segment** in any of the five. Their only
+  `int 10h` calls are register-only (the CGA palette, the cursor). Skies'
+  `csdiag.inc` stamps its own CS into vector 8, but only in the `CSDIAG=1`
+  diagnostic build, which must not say `OS88_HIGH`.
+- **CS writes** (`mov byte [cs:wd_hashid], 1` and kin) trap through
+  `mega_gpw` exactly as they do low (item 87: a low package's CS is already
+  its LDT alias), so they are not a placement question.
+- **Workers**: Word, Scribe and Pixelstein spawn one and declare
+  `OS88_WORKER_RESTARTABLE`; all five declare `OS88_REGION_MOVABLE`. Neither
+  matters in the pool (14.38.3).
+
+#### 14.38.2 The layout: one pool block per program, its selectors inside it
+
+**The carve that puts the program LAST buys nothing now, and is refused.**
+The KEEP form needs the program FIRST - the head trim returns everything
+below it to the heap (SPEC.md 20.12.10.5: "the re-homed part must be the
+LOWEST part of the run") - and the tail cut already separates the program
+from every part it does not read. What decision 1 wanted from "program
+last", a region that can leave without the rest of the carve, is what the
+keep already delivers for four programs.
+
+The layout, for every re-homer:
+
+1. **The kept carve becomes ONE pool block**, owner `80h | slot`. That is
+   what `ld_hi` makes for an `OS88_HIGH` package (item 78), so the teardown,
+   `mem_own`, `MEGA_CSELTOP`/`MEGA_PCALL`, `mega_frame_cs`, the Task Manager
+   and the compactor already know it.
+2. **The program's code/data PAIR over its base**: the data selector named
+   wherever the segment was (`[ld_base]`, `I_SPTR`, `W_SEG`), the code half 8
+   below, the limit the keep or 64KB, whichever is smaller. Word's and
+   Scribe's part 1 are inside that limit, so their near calls and `cs:`
+   reads reach it unchanged.
+3. **Only past the first 64KB (Pixelstein) does a part need a selector of
+   its own**, and its base is the PART's first byte, not a 64KB tile: GEN
+   starts 58KB in and ends 108KB in, so `OSAPI_MEM_HUGE`'s tiling (a
+   selector per 64KB, step 8) would have it straddle a tile. Each such
+   selector is a data descriptor, or a code/data pair for a part the program
+   far-calls (GEN). **The compactor needs to know none of this**: 14.15's
+   rebase walks every present LDT descriptor whose base lies inside the
+   block, so a pair, a part's selector and a regrow's scratch window all
+   move with it. 14.37 is what lifts the 64KB limit on that walk and on what
+   `mx_compactf` will move.
+4. **The teardown frees the block and every LDT descriptor whose base is
+   inside it**: the same scan, the other way. That replaces "the pair" in
+   `mega_imghifree` and makes a part selector impossible to leak.
+
+Alternatives weighed and refused:
+
+| layout | why not |
+|---|---|
+| the program pair high, the rest of the carve left conventional | Pixelstein's GEN and BT (80KB) stay low and PINNED: a worker runs inside GEN, and a claim has no frame rule (SPEC.md 66.6.2), so it cannot be a movable claim on its own |
+| the block tiled by 64KB like a huge claim, the program stepping by `CX` | parts straddle tiles; padding them to tile boundaries is 192KB against 138 |
+| Pixelstein's scratch parts as claims of their own | loses "sized before a sector is read", the parts standard's reason to exist, and on kern_big pins GEN for the reason in row 1 |
+| claim the carve FROM THE POOL, so it is never conventional at all | the end state, but `op_read`, `op_unpack` and `op_seg` are paragraph arithmetic on `[op_base]`; deferred (14.38.6 D4) |
+
+**The re-home cell's contract does not change on any kernel.** What changes
+is step 8a on kern_mega, and only for a program that asks: **the opt-in is
+`OS88_HIGH` in the PROGRAM PART's own header** (+15, bit 7), not the
+loader's. The loader is freed one instruction after it returns, so its
+placement is worthless (14.12), and the program is the one making the claim
+the bit makes, *"I do no arithmetic on my own segment"*. Every kernel built
+before this, kern_big and kern_small ignore the bit on this path (none of
+them calls `ld_hi` there), and the class mask (`and bx, 3Fh`, item 81) keeps
+the program's stack class right everywhere. So **no package built before
+changes behaviour, and a new one on an old kernel runs low**, which is not a
+refusal. No `PKG_FMT` bump: the SDK change is `OS88_HIGH`'s comment (a
+re-homed program may say it) and, for Pixelstein only, one appended cell
+(14.38.4 S5).
+
+The rule step 8a applies, after the trim, the cut and the loader's free:
+
+- protected mode, the program says `OS88_HIGH`, the KEEP form was used
+  (`AX = 0`) and the keep is at most 4,095 paragraphs: `ld_hi`'s move with
+  `CX` = the keep in bytes. No room or no LDT entry means it stays low,
+  exactly as an `OS88_HIGH` package does;
+- the same with a keep over 4,095 paragraphs: one block of the keep, the
+  pair over its first 64KB (S4, after 14.37). Until S4 lands it stays low;
+- anything else: today's behaviour.
+
+#### 14.38.3 What pins a re-homed program, low and high
+
+**Low (today, and the fallback):** SPEC.md 66.6's rules. The region moves
+only when `mem_frameless` finds no frame - a worker parked in
+`OSAPI_TASK_ALIVE` and declared restartable (66.6.2), no callback in
+`[wm_pkgs]`, not mid-launch - and only by its relocation proc's word.
+Pixelstein's `px_reloc` is the one proc in the five that is not a `ret`.
+
+**High (this design):** the pool compactor moves an `80h` block of 64KB or
+less **at any instant it runs**, with no relocation proc and no restart:
+the selectors do not change, every holder is a pushed register that reloads
+on its pop, and the copy runs with interrupts off, so the FSXF_RATE hook
+(Skies, Pixelstein) never sees half a move (14.15). So in the pool:
+
+- `OS88_WORKER_RESTARTABLE` and `px_reloc` stop mattering, harmlessly:
+  `OSAPI_MEM_MOVABLE` refuses a pool pair (CF = 1) and `OS88_REGION_MOVABLE`
+  ignores the answer, so the proc is never registered and never called with
+  a selector it would add a delta to.
+- All five can be movable with no change of their own except Skies'
+  `cs_xpand` and Pixelstein's handoff (14.38.4).
+- **What would pin one** is item 78's list for any high package: a linear
+  address of its own DS handed out (none of the five), an `OSAPI_XMEM_ALLOC`
+  block (a different block, not the region), or a block over 64KB until
+  14.37.
+- **One case nothing has tested**: a region moving while its OWN program is
+  the caller (14.15's "still open"). A re-homed program that also says
+  `OS88_HIGHMEM` reaches `mx_alloc` from its own callback, and a compaction
+  there may move its own block. The argument (the cell's `retf` reloads CS)
+  covers it; S2's gate must exercise it rather than trust it.
+
+#### 14.38.4 The implementation plan
+
+Costs marked MEASURED come off the throwaway at `89dcb2ee`; the rest are
+estimates.
+
+| step | files | what | bytes | depends on |
+|---|---|---|---|---|
+| **S1** | `kernel/loader.inc` | `ld_hi` split so its body takes CX (`ld_hicx`); step 8a's arm after `mov [ld_base], ax`: the keep form, a keep of at most 4,095 paragraphs, `ES` = the program, `call ld_hicx`. `[ld_base]` is the pair's data selector before `.call8`, so step 8's `MEGA_PCALL` and step 9's `I_SPTR` need nothing | **kern_mega `.cold` +30, MEASURED** (41,170 -> 41,200); `.text` and `.mega` +0, the megaseg overhead unchanged at 5,935; kern_big and kern_small +0 (all inside `%ifdef KERN_MEGA`) | nothing |
+| **S1 docs** | `SPEC.md` 20.12.10 (a new subsection after 20.12.10.8), `apps/os88api.inc` (`OS88_HIGH`'s comment: a re-homed program may say it, and a loader gains nothing by it), `tools/abilock.py --update` (no bump) | the contract above | 0 | S1 |
+| **S2** | `apps/word/word.asm`, `apps/scribe/scribe.asm`, `apps/dos/dos.asm` (its `DOS_MEGA` header only, so kern_big's `DOS.O88` stays byte-identical) | `OS88_HIGH` in the program's class byte | **+0** (one header byte each) | S1 |
+| **S3** | `apps/skies/skies.asm` | `cs_xpand`: when ES (our segment) is an LDT selector, expand into a scratch claim at ES:0 and copy into place - or, with S5, ask for a selector at the target paragraph and expand there directly. Then `OS88_HIGH`, and NOT in the `CSDIAG=1` build | the scratch arm **+96, MEASURED** (the throwaway's, unoptimised); the SUBSEG arm ~+15 (estimate) | S1 (S5 for the small arm) |
+| **S4** | `kernel/mega.inc` (`.mega`), `kernel/loader.inc` | a keep over 4,095 paragraphs: one `80h` block of `ceil(keep / 64)` KB, the copy in chunks of 32KB or less (`mx_cpmove`'s loop), the pair's limit 64KB; `mega_imghifree` frees every LDT descriptor whose base is inside the block (the rebase scan, freeing) | ~100-140 `.mega` and ~10 `.cold` (estimate) | **14.37**: `mx_compactf` must move an `80h` block over 64KB, and `mx_cpmove`'s rebase must compare 24-bit offsets (today `or dl, dl / jnz .dn` stops at 64KB). Without 14.37, S4 still runs and the block is pinned in the pool, which is already better than pinned in conventional memory |
+| **S5** | `kernel/kernel.asm` (an appended cell), `kernel/mega.inc`, `apps/os88api.inc`, `SPEC.md` 50.3 | `OSAPI_MEM_SUBSEG` (name to taste): AX = a paragraph offset into the CALLER's own region (ES = the X stub's), BL bit 0 = it will be far-called -> CF = 0 and DX = a data selector whose base is that paragraph and whose limit runs to the block's end or 64KB, the code half at DX - 8 when asked. A descriptor that already has that base and type is returned instead of a new one, so the LDT use is bounded by the distinct paragraphs a program asks for. **CF = 1 means "you are not above 1MB: use your segment + AX"**, which is the whole body on kern_big and kern_small (`mod_gone`) and on kern_mega for a low region | the 6-byte cell on every kernel; kern_mega ~70-90 `.mega` and a door (estimate); `abilock` additive | S4 for its main customer, S1 for Skies |
+| **S6** | `apps/pixelstein/pxstein.asm`, `pxgame.asm`, `pxgen.inc` | the loader writes PARAGRAPH OFFSETS from the program (`op_seg(part) - op_seg(0)`) into `PXH_GEN` and `PXH_BT`; the program's entry turns each into a segment (`OSAPI_MEM_SUBSEG`, or DS + offset on CF = 1); the far-pointer words (`px_drvp + 2`, `px_drv2p + 2`, `px_qcur* + 2`) take the CODE half and the data words (`PXG_QTEX`, the ES loads) the data half; `px_rltab` unchanged, it is kern_big's path; `OS88_HIGH` | ~+4 loader, ~+30-40 program (estimate) | S4, S5 |
+| **S7** | the parts standard, the five programs | the claims OUTSIDE the keep (14.38.6 D5) | per package | after S6 |
+
+**What to test, and on what.** Every step's artefacts move on kern_big too
+(a header byte, Skies' and Pixelstein's code), so the kern_big rows come
+first: `rehome rehome360 rehomemove rehomemove360 rehomeabort wdparts pxparts
+dosarena wdtype skies skiesworlds skiesset pixelstein pxsfsx` (MartyPC). On
+kern_mega:
+
+- **Bochs** (`tools/os88bochs.py sweep`, at 4MB and 16MB): each of the five
+  opens; Word's Edit > Search finds a word (part 1 code through the high
+  CS); Skies flies and comes back; a DOS program runs and returns; and a
+  **compaction** MEGACP never had - start two high programs, close the
+  lower, claim to force `mx_compactf`, then use the one that moved (Word's
+  search again; Pixelstein after S4). Worth a `tests/megarehome` row:
+  MEGARUN starts Word, Scribe and DOS.O88 and asserts each `I_SPTR` is an LDT
+  selector, and reads the conventional heap's largest run.
+- **86Box `286-mega` / `286-video`**: the same five, plus a DOS trip - the
+  286 reset path with a re-homed pair in the pool and the park summing it,
+  which Bochs (a 386) cannot take.
+
+#### 14.38.5 What the throwaway measured (Bochs 2.7, 16MB, kern_mega at `89dcb2ee` + S1)
+
+The patch was S1 plus an E9 line, and `OS88_HIGH` added to the five
+programs' headers; all of it reverted. S1, as it ran:
+
+```
+ld_hi:
+    mov cx, [ld_need]
+ld_hicx:                        ; ...the rest of ld_hi, CX now an input
+    ...
+    mov [ld_base], ax           ; (step 8a, after the loader's free)
+%ifdef KERN_MEGA
+    cmp word [ld_rehsz], 0      ; the KEEP form only...
+    jne .rhnohi
+    mov cx, [ld_rehkp]          ; ...and a keep of one segment
+    cmp cx, 0x0FFF
+    ja .rhnohi
+    shl cx, 1                   ; (four of them) paragraphs -> bytes
+    ...
+    mov es, ax
+    call ld_hicx
+.rhnohi:
+%endif
+    push ds
+    pop es
+    jmp .call8
+```
+
+| program | data selector, keep (E9) | result |
+|---|---|---|
+| Word | `283C`, `F490` = 62,608 | opens; text typed; **Edit > Search found "zebra"** - the search is part 1, at `WD_P1ORG` = E800h and up, run through the high CS |
+| Scribe | `284C`, `EE10` = 60,944 | opens and draws |
+| Clear Skies | `285C`, `EFF0` = 61,424 | **#GP** in `cs_xpand` (above). With the throwaway's scratch arm the title bands draw, **Fly** loads PARIS-ISSY and renders the cockpit in its fsx bracket, and Esc comes back to the title |
+| DOS.O88 | `2834`, `C790` = 51,088 | opens; a .COM run from it: `parked 0052K`, the program printed and waited for a key, `unparked`, then `exit code 007 (Arena: 621KB)` |
+| Pixelstein | none (keep 141,312, over 4,095 paragraphs) | opens LOW, unchanged: the fallback |
+
+Nothing faulted but Skies' first run. Not run: a hibernate with a re-homed
+program high, the 286 (86Box), and a pool compaction moving one.
+
+#### 14.38.6 For the owner
+
+- **D1. The opt-in is `OS88_HIGH` in the program part's header**: no new
+  bit, no new cell form, no `PKG_FMT`. Recommended: it is the claim the bit
+  already makes, every old package is untouched, and a new one on an old
+  kernel runs low.
+- **D2. Pixelstein, the one keep over 64KB:** (a) S4 + S5 + S6, one block
+  with per-part selectors - recommended, being the only layout that keeps its
+  parts sized before a read and is movable once 14.37 lands; (b) leave it
+  low: it is a fullscreen game, not a program left open beside a video, and
+  S1-S3 are the owner's case; (c) split its carve into claims - refused
+  (14.38.2).
+- **D3. Skies' `cs_xpand`:** the scratch-claim arm needs no kernel and was
+  measured (+96, and a claim of a few KB for an instant per band); the
+  SUBSEG arm is smaller (~+15) but waits for S5. Recommended: the scratch
+  arm now unless S5 is taken.
+- **D4. A launch still needs the carve's room in CONVENTIONAL memory for a
+  moment** (Word ~62KB, Pixelstein ~141KB), because the parts standard reads
+  it there before the kernel lifts it. With everything else high,
+  conventional memory is mostly free, so this rarely bites; claiming the
+  carve from the pool directly is a parts-standard rewrite and is deferred.
+- **D5. "Everything works" needs the programs' CLAIMS too.** The region is
+  at most half of each program's conventional footprint: Word and Scribe
+  make 9 and 12 `OSAPI_MEM_CLAIM` calls and declare none movable, and
+  Pixelstein's sprite set, art and level (~107KB) are slot-owned and never
+  moved. Each is an `OS88_HIGHMEM` census of that program (14.13's rules)
+  and, for Pixelstein's two lazy parts, an `op_fetch` arm that expands into a
+  pool selector (the packed stream is read R paragraphs up its own claim
+  today, which is arithmetic). Recommended as S7, Word and Scribe first:
+  they are the programs left open.
+- **D6. How long a huge region may move with interrupts off** is 14.37's
+  question, and Pixelstein's 138KB is its largest customer: ~35 ms at the
+  Victory's measured 0.257 ms a KB above 1MB (KERN-MEGA-DOS-PLAN 2.4).
+
+### 14.39 The trampoline's segment stores, the alias guard, the mouse ISR's SS, and two ratchets (2026-10-20)
+
+Seven items 10.3 and 14.9 left open. Each is a commit of its own.
+
+**1. `mega_gpw` stores the caller's DS and CS** (10.3 items 60 and 63). The
+trampoline runs a CS: store with DS = the image's data segment and CS =
+KERNEL_SEG, so `mov [cs:x], ds` stored the image's segment and `mov [cs:x],
+cs` stored 0060h. An `8C /3` or `8C /1` is now rewritten into the trampoline
+as `C7 /0` (two bytes longer, so the copy limit is MEGA_TRN - 2) with the
+value the code had as its immediate: the faulting DS, or its own CS. ES and
+SS need nothing, the trampoline leaving them as they were. The package sites
+(`apps/os88spk.inc`'s two, `lmpvmod.asm:130`, `wcanvas.asm:89`) are LEFT as
+they are: the kernel is the one place that is right for every package, old
+ones included, and converting them through AX would only help an older
+kern_mega nobody ships.
+
+**2. A guard in the no-prefix arm** (item 59). `mega_cs2dsw` is
+`mega_cs2ds` for DS or ES when a write is about to go through them: an LDT
+alias below MEGA_LDT_FREE0 converts only when its segment lies inside a live
+heap claim, walked through LOW_SEG (not SS, which is whatever stack faulted).
+Anything else falls to `mega_null0` and on to `mega_report`. DS or ES equal
+to the faulting CS - `push cs / pop ds`, the common case - skips the walk.
+It NARROWS rather than closes the hole: an alias landing inside another live
+claim still converts. The CS: arm and the reporter keep the unchecked
+`mega_cs2ds`, CS being the image that is running. Items 1 and 2 are `.mega`
++117 bytes. kern_big and kern_small are untouched by them.
+
+**Measured** under Bochs with `tests/megacsw` (MEGACSW says OS88_HIGH,
+MEGACSL does not). The base kernel (89dcb2ee) stored CS as 0060 BAD and a
+foreign DS as the image's segment BAD, and completed MEGACSL's guard store
+through the alias of 0020h ("guard WROTE"). This one reads every value back
+ok, in both packages, and reports the guard store as `kern_mega FAULT
+vector 0D` at the instruction.
+
+**3. The mouse ISR sets SS** (14.9, left as found 1). This is SPEC.md
+9.10.1, a SHARED fix. MOUPRIV_ENTER banks SS:SP and loads
+LOW_SEG:mou_pstack, so a body interrupting a ROM's own stack no longer runs
+`gfx_rowbase` and `evq_push` against the ROM's segment. The compare is gone,
+since `mov ss, [cs:mou_lowss]` needs no register. Measured cost:
+
+- **kern_big** `.text` +12, which includes three never-executed parity pads
+  so that every routine `t_hotpar` pins keeps its parity (`os88rdiff` reads
+  every run at an even shift), and `.bss` +2.
+- **kern_small** `.text` +10 and `.bss` +2.
+- **kern_mega**: its entry is the size it was, so its segment overhead falls
+  5,935 -> 5,931. `tests/megaseg.txt` is lowered with it.
+
+The race cannot be won on demand. A QEMU/gdb count over 59 int 13h and
+2,241 ISR entries met a foreign SS 0 times; this QEMU's SeaBIOS waits
+inside its handlers with IF off, and Bochs's legacy BIOS does not hop. So
+`tests/msstk` makes the case on purpose: SS:SP in an A5h claim, IRQ0 masked,
+IF on. `tests/mousess.py` (soak, MartyPC, 17 s) is the gate. On the old
+entry it reads 16 bytes of the claim written at offset 1336h, which is
+`evq_buf`. On this one 63 of 72 ISR entries arrived on the claim's stack,
+none of the bodies ran off LOW_SEG, and the claim came back untouched.
+
+kern_mega was booted after the change:
+- Under Bochs: the PS/2 mouse drives every MEGARUN sweep above.
+- On 86Box `286-mega` (MR BIOS 286, the reset path): the desktop came up, a
+  120x60 relative walk landed where the kernel says, B: opened through the
+  disk path, and `faults` showed nothing outside the BIOS's own shutdown
+  resets.
+
+**4. `apps/os88api.inc`'s OS88_HIGH note** no longer says a RAM disk or a
+cable share is unsupported for a buffer above 1MB, which item 81's
+`drv_fs_hi` bounce closed. Comment only: `abilock` passes with no update.
+
+**5. `font_run`'s SS rule is every call's rule.** No shipped package calls
+the kernel on a stack of its own. The DOS box switches SS around a DOS
+program and back before it calls in, and on kern_mega it is the
+whole-machine handoff anyway. The one kernel path on a foreign stack was
+the mouse ISR, which 3 closes. The rule is not `font_run`'s alone, either:
+the claim map and `gfx_rowbase`'s row table are SS-relative on every kernel.
+So the SDK's environment note now states it for every OSAPI call, and
+`font.inc` says who keeps it. Comments only.
+
+**6. `tests/unit/t_megagrid.py`** (fast, 0.6 s) is the "eight paragraphs,
+never one" ratchet. It flags three shapes, each ending in a `mov ds|es`
+within a few lines, in every file of a package that declares OS88_HIGH:
+- a far pointer normalised to one paragraph;
+- a byte count rounded up to paragraphs;
+- a segment step that is not a multiple of 8.
+
+Counts are held per file by `tests/megagrid.txt`. It finds 7 sites in 5 of
+302 files, and fails on all three shapes injected into HELLO.
+- `pxedit.asm`'s Rotate walk and `pxgif.asm`'s two animation rows are the
+  ones another session is converting. They are registered so that whichever
+  lands second lowers the lines.
+- **It found a defect nobody had listed: PiXEL's histogram TAIL** is at the
+  master + ceil(pixels / 16) paragraphs (`px_htail`, `pl_htail`, `pxfull`'s
+  copy, and `pe_tailof`, which the scan cannot see). That is off the grid
+  for any picture whose pixel count is not a multiple of 128. It is
+  registered and NOT fixed: every reader and the claim's sizing have to
+  move at once, and it is PiXEL's.
+
+**7. `tests/megatrap0.py`** (soak, `needs=("bochs", "nasm")`, 199 s) runs
+`MEGATRAP=1` in a private tree. Ten OS88_HIGH packages are started through
+MEGARUN and left running, and any trap charged to an image outside ALLOW
+fails the row, as do a refusal and a FAULT. The `bochs` capability is new,
+probed by `os88build.have_bochs()` and named by `os88soak check`. ALLOW is
+one entry: the boot's `mega_strcal` calibration, which faults on purpose.
+It is red with MEGACSW added, which takes 5 traps.
+
+**For the owner to look back over:**
+
+- **The census found the three Sticky Apps fault inside `mega_tlog` itself.**
+  DESKCAL, DESKCLOK and STIKNOTE each take one `xfer` at +108Fh when
+  started through MEGARUN, and the logger then faults at FFD8:09AD on that
+  frame. That is the instrument's defect, and it is knob-only. They are
+  left out of the row, which names them.
+- **An eleventh window was refused (05)** under MEGARUN on Bochs's 16MB,
+  which is why the set is ten.
+- **`os88bochs.py` allows one Bochs per box.** Parallel agents here ran it
+  through a wrapper on displays of their own. The tool itself was left as
+  it is.
