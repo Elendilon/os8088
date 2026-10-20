@@ -915,17 +915,14 @@ only on its 64th entry** (`RB_JITHOT`; it was 16), so code that runs a few
 times is interpreted and never takes the cache's room; a translated entry
 gives its slot up only after 64 others have asked for it. At 16 Kirby's
 Dream Land walking translated 2,933 blocks in 15 seconds and flushed the
-cache 7 times; at 64, 605 and once. **A flush keeps what was hot**
-(`rt_reflush`): the code goes, but an entry that had a block counts again
-from `RB_JITHOT - 1`, so it is translated on its next entry. Clearing the
-table had put code a frame runs once - a vblank handler, a game's main
-loop - back in the interpreter for 64 frames after every flush; keeping it
-costs more flushes (Kirby's Dream Land: 34 in 2,000 frames instead of 3)
-and is still faster, translating being cheap beside interpreting: the CPU
-alone on `286-victory` went from 7.64 to 7.14 ms a frame there. Counting
-again from `RB_JITHOT - 4` read 7.32 and from `RB_JITHOT - 16` 7.32; a
-lower `RB_JITHOT` with it (32, 16) bought Kirby nothing and cost Super Mario
-Land up to 21% in flushes of its own. RAM is never translated - the interpreter's own
+cache 7 times; at 64, 605 and once. **A flush forgets everything**, the table with the code. Keeping what was
+hot (an entry that had a block counting again from near `RB_JITHOT`) was
+tried and REFUSED: on the bare harness it took Kirby's Dream Land from 7.64
+to 7.14 ms a frame, but in the package on `286-victory`, the recompiler
+forced on, it went from 61.7% of real time to 45.3% (counting again from
+`RB_JITHOT - 16`) and 19.8% (`- 1`), with 22 and 83 flushes in 30 seconds
+against 6 - a working set bigger than the cache refills it at once after
+every flush when nothing has to earn its place again. RAM is never translated - the interpreter's own
 control transfers stay in the interpreter there (`JDISPATCH`). **With no
 recompiler** - an 8088, no memory for the cache, or Machine > Recompiler off
 - `rt_dispatch` writes the plain dispatch over the first five bytes of all

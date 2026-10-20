@@ -180,29 +180,6 @@ rt_flush:
     mov cx,JIT_HASHN * 8 / 2
     xor ax,ax
     rep stosw
-    jmp short rt_flgap
-; rt_reflush - the cache full: everything in it goes, but the table KEEPS
-; what was hot - an entry that had a block counts again from RB_JITHOT - 4,
-; so code a frame runs once (a vblank handler, a game's main loop) is back
-; in the cache in four frames and not sixty-four, interpreted meanwhile
-rt_reflush:
-    push ax
-    push cx
-    push di
-    push es
-    mov es,[S_JITSEG]
-    mov di,JIT_HASH + 4
-    mov cx,JIT_HASHN
-.e:
-    xor ax,ax
-    xchg ax,[es:di]                 ; the block's offset: none now
-    or ax,ax
-    jz .n
-    mov byte [es:di-1],RB_JITHOT - 1
-.n:
-    add di,8
-    loop .e
-rt_flgap:
     mov word [S_JITGI],0
     mov di,[cs:rt_tab + RT_HFREE]       ; the gap list
     mov ax,[cs:rt_tab + di]
@@ -466,7 +443,7 @@ rt_room:
     cmp bx,ax
     jb .g
     pop bx
-    call rt_reflush
+    call rt_flush
     stc
     ret
 .g:
