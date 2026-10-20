@@ -1657,7 +1657,7 @@ io_wr:
     cmp bl,40h
     jb .st
     cmp bl,4Ch
-    jb .host
+    jb .lcd
     cmp bl,0FFh
     je .host
     jmp short .z                ; FF4C-FF7F: nothing on a DMG, reads FF
@@ -1666,6 +1666,11 @@ io_wr:
 .z:
     xor dl,dl
     jmp word [ss:S_RET]
+.lcd:                           ; FF40-FF4B: a write of what is there
+    cmp bl,46h                  ;   already changes nothing and is no
+    je .host                    ;   raster write (rb_rlog would log it,
+    cmp dl,[ss:bx]              ;   and a logged write can end the
+    je .z                       ;   composer's FAST frame); DMA always runs
 .host:
     mov [ss:S_RETFAR+2],cs       ; rbsys comes back to THIS copy
     jmp far [ss:S_IOWVEC]
