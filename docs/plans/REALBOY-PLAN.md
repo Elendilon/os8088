@@ -967,10 +967,15 @@ Super Mario Land scrolls with enemies on screen.
 
 7. **Drop a raster-register write that changes nothing** (gnuboy
    `lcd.c:820`, `mem.c:139-151`; Goomba Color `lcd.s:4086-4093`).
-   - **Today.** `rb_rlog` logs equal writes, which can turn
-     `ppu_logsame`'s FAST path into a whole compose.
-   - **The change.** `cmp dl,[ss:bx] / je` in `io_wr` for 42, 43 and 47-4B.
-     Count how often Super Mario Land and Kirby's Dream Land do it first.
+   - **BUILT in the recompiler's `io_wr`** (`rbgen.py`): a write to
+     FF40-FF4B of what is there stops before the far trip to rbsys, so
+     `rb_rlog` never logs it and `ppu_logsame`'s FAST frame survives; DMA
+     always runs. Kirby's Dream Land 11.08 -> 10.76 ms a frame (the CPU and
+     `rb_renderd`), Super Mario Land level.
+   - **The interpreter's `rb_iowrite` was measured and left alone**: the
+     same compare there reads level on `286-victory` with the recompiler
+     off (Super Mario Land 561 ticks either way, Kirby's Dream Land 1,248
+     -> 1,250), the far trip and `rb_now` costing what the log would.
 
 8. **The recompile stall.** No emulator surveyed forgets its whole cache and
    re-counts:

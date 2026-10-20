@@ -789,6 +789,36 @@ with interlace Off:
   itself cost more than the shifts saved; `ppu_fshift`'s unrolled bytes
   are the floor for a line of mixed tiles.
 
+**With the recompiler's round beside it** (the `gameboy-static` branch:
+fewer events, a 64KB block table, VRAM marked as it is written, the shift
+right past 4), the two sets STACK: from 532 / 1,107 ticks for Super Mario
+Land / Kirby's Dream Land, this round took 36 / 39 and that one 43 / 82, and
+merged they read 451 / 970 against the 453 / 986 the sum predicts. Then,
+profiled again (Kirby's Dream Land: the sprites 20.6% of the machine, the
+card 14.3%; Super Mario Land: the sprites 8%, the card 14.4%, no
+instruction over 1.6%):
+
+- **Kept**: `ppu_oam` builds the line lists again only when a sprite's Y
+  moved (`PPU_OAMY`, the 40 Ys it built from) - they hang on nothing else,
+  and a scroll moves every X and no Y. 451 / 970 -> 449 / 965. **No row can
+  see this one go wrong**: the A/B frames and dmg-acid2 compose one frame
+  each, so the lists are always built once, and `gbdamage`'s reference
+  shares `PPU_LSPR` with the composer it checks - it rests on the build
+  reading the Ys alone, and on nothing else writing the lists.
+- **Kept**: `ppu_sprites` counts in registers - DI's distance into
+  `PPU_SPR` is the sprites found, a list end in `PPU_TMP` replaces a
+  decremented byte, LY + 16 is DH - and draws to BP's end without saving
+  CX around each call. -> 448 / 959.
+- **Kept**: `ppu_dvga` takes 40 x the line from `ppu_dput` instead of
+  multiplying again. -> 448 / 957 (20.51 / 43.80 ms a frame).
+- **Refused**: writing each plane's span from the first word that differs
+  to the last (a backward `repe cmpsw` for the last) instead of all twenty.
+  475 / 1,017: the bookkeeping is ~135 clocks a line and the writes it
+  saves are cheaper than that on the Victory twin's card.
+- **Refused**: dropping a write of what is there in the interpreter's
+  `rb_iowrite`, as the recompiler's `io_wr` already does (REALBOY-PLAN
+  lever 7): level with the recompiler off, 561 ticks either way.
+
 
 ## 14. The package
 

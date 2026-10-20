@@ -64,6 +64,8 @@ PPU_SMASK       equ 0x4B81          ; byte: a sprite's tile, FFh, or FEh at
                                     ;   8x16 (ppu_sprites)
 PPU_OSCR        equ 0x4B82          ; word: the line's SCY:SCX at the last
                                     ;   call (ppu_lscr)
+PPU_OAMOK       equ 0x4B84          ; byte: PPU_LSPR is built (0 in a new view)
+PPU_OAMY        equ 0x6520          ; 40: the sprites' Ys PPU_LSPR was built from
 PPU_LSCR        equ 0x7000          ; 144 words: each line's SCY:SCX at the
                                     ;   last call, kept when DOUBLED
 PPU_SANF        equ 0x4B70          ; 2 x 6: OBP0 and OBP1 as A0 B0 C0 A1
@@ -1208,7 +1210,7 @@ ppu_dput:
     rep movsw
     cmp word [cs:rb_dvga],0
     je .mk
-    call ppu_dvga
+    call ppu_dvga                       ; (AX = 40 x the line, still)
 .mk:
     mov es,bx
     mov bl,[PPU_LY]
@@ -1233,12 +1235,9 @@ ppu_lscr:
 ; ppu_dvga: the line just composed to VGA (rb_dvga), shade bit 0 to plane 0
 ; and bit 1 to plane 1, the plane the map mask holds first so a line turns
 ; it once - written where it is decided, not by a second pass over the
-; buffer. DS = view
+; buffer. DS = view; AX = 40 x the line, as ppu_dput left it
 ppu_dvga:
     push dx
-    mov al,[PPU_LY]
-    mov cl,40
-    mul cl
     mov di,ax
     mov es,[cs:rb_dvga]
     mov dx,3C4h
@@ -1279,12 +1278,36 @@ ppu_dvga:
 ; from Y - 16 cover it, in OAM order, as their offsets in OAM (4 x index).
 ; The real height is LCDC's at the line, which a mid-frame write may change,
 ; so ppu_sprites checks it there. Only the rows on the screen are walked: a
-; sprite parked at Y = 0 costs nothing.
+; sprite parked at Y = 0 costs nothing. The lists hang on the 40 Ys alone,
+; so they are built again only when one moved: a sprite that went sideways
+; or changed its tile, or a scroll that moved them all, leaves them be.
 ppu_oam:
     push di
     push es
     push ds
     pop es
+    mov si,0FE00h
+    mov di,PPU_OAMY
+    mov cx,40
+    cmp byte [PPU_OAMOK],0
+    je .new
+.y:
+    lodsb
+    add si,3
+    scasb
+    jne .new
+    loop .y
+    jmp short .done
+.new:
+    mov byte [PPU_OAMOK],1
+    mov si,0FE00h
+    mov di,PPU_OAMY
+    mov cl,40
+.yc:
+    lodsb
+    add si,3
+    stosb
+    loop .yc
     mov di,PPU_LSPR                     ; every count to 0
     mov cx,144
     xor al,al
@@ -1325,6 +1348,7 @@ ppu_oam:
     add dl,4
     cmp dl,160
     jb .s
+.done:
     pop es
     pop di
     ret
@@ -1923,8 +1947,9 @@ ppu_wplace:
 ; ppu_sprites: up to ten sprites on line PPU_LY, in priority order, over
 ; PPU_OL/PPU_OH
 ppu_sprites:
-    ; find them, in OAM order
-    mov byte [PPU_NSPR],0
+    ; find them, in OAM order - the counts in registers, not memory: DI's
+    ; distance into PPU_SPR is the sprites found, BP's to [PPU_TMP] the
+    ; candidates left
     mov dx,0FF08h                       ; DL = the height, DH = the mask
     test byte [PPU_REGS+0],04h          ;   an 8x16's tile takes
     jz .h8
@@ -1932,22 +1957,25 @@ ppu_sprites:
 .h8:
     mov [PPU_SMASK],dh
     mov al,[PPU_LY]                     ; the line's candidates, from ppu_oam
+    mov dh,al
+    add dh,16                           ; DH = LY + 16
     mov bl,41
     mul bl
     mov bx,ax
+    mov di,PPU_SPR
     mov al,[PPU_LSPR+bx]
     or al,al
-    jz .sorted0
-    mov [PPU_TMP],al                    ; candidates left
+    jz .found
+    xor ah,ah
     lea bp,[PPU_LSPR+1+bx]              ; BP = its OAM indices
-    mov di,PPU_SPR
+    add ax,bp
+    mov [PPU_TMP],ax                    ; ...and their end
 .f:
     mov al,[ds:bp]                      ; (its offset in OAM)
     inc bp
     mov ah,0FEh
     mov si,ax                           ; SI = the sprite's OAM entry
-    mov al,[PPU_LY]
-    add al,16
+    mov al,dh
     sub al,[si]                         ; the row within the sprite
     cmp al,dl
     jae .nf
@@ -1985,13 +2013,18 @@ ppu_sprites:
     mov [di+2],ch
     mov [di+3],ah
     add di,4
-    inc byte [PPU_NSPR]
-    cmp byte [PPU_NSPR],10
-    jae .sorted0
+    cmp di,PPU_SPR+40                   ; ten: the DMG's most on a line
+    jae .found
 .nf:
-    dec byte [PPU_TMP]
-    jnz .f
-.sorted0:
+    cmp bp,[PPU_TMP]
+    jb .f
+.found:
+    mov bp,di                           ; BP = the found ones' end, kept to
+    mov ax,di                           ;   the drawing (the sort leaves it)
+    sub ax,PPU_SPR
+    shr ax,1
+    shr ax,1
+    mov [PPU_NSPR],al
     ; insertion sort by X, stable: equal X keeps OAM order
     mov cl,[PPU_NSPR]
     xor ch,ch
@@ -2027,15 +2060,11 @@ ppu_sprites:
     mov cx,12
     rep stosw
     mov si,PPU_SPR
-    mov cl,[PPU_NSPR]
-    xor ch,ch
-    jcxz .r
 .d:
-    push cx
-    call ppu_sprite                     ; (SI kept)
-    pop cx
+    call ppu_sprite                     ; (SI and BP kept)
     add si,4
-    loop .d
+    cmp si,bp
+    jb .d
 .r:
     ret
 
