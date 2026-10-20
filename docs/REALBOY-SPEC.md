@@ -933,8 +933,13 @@ Off, and Auto measures (`rw_jitauto`, once a second from `rw_stat`):
 - four windows of two seconds - with the recompiler, without, with,
   without - each's cost a frame being the machine's own time (`rw_frame` to
   its yield) over the frames it ran;
-- then the cheaper of the two sums for a minute, and the four windows again,
-  since a game's working set is a level's.
+- then the recompiler unless the interpreter was cheaper by an eighth or
+  more (a title screen times both alike, and a near tie there once handed
+  Super Mario Land's levels to the interpreter), for a minute - five when
+  the other was
+  a quarter dearer or more, since every timing spends four seconds half of
+  them on the slower - and the four windows again, since a game's working
+  set is a level's.
 
 Turning it off keeps the cache, and turning it back on (`rt_resume`) forgets
 nothing: the cache holds only ROM's translations, keyed by PC and bank, and

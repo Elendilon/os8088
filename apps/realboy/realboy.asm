@@ -508,8 +508,9 @@ rw_jitset:
 ; rw_jitauto - once a second, between frames (rw_stat): Machine >
 ; Recompiler's Auto. Four windows of RW_JWIN seconds, with the recompiler,
 ; without, with and without, each's cost a frame - the machine's counts
-; over its frames - summed by kind; then the cheaper for RW_JHOLD seconds,
-; and time both again (a game's code is a level's, and so is its working
+; over its frames - summed by kind; then the cheaper for RW_JHOLD seconds
+; (five times that when the other was a quarter dearer or more: each
+; timing costs the two windows of the slower), and time both again (a game's code is a level's, and so is its working
 ; set). Kirby's Dream Land walking ran faster interpreted (59% of real time
 ; on the Victory's twin against 46%), Super Mario Land recompiled.
 RW_JWIN         equ 2
@@ -526,7 +527,8 @@ rw_jitauto:
     jb .r
     mov byte [rw_jsec], 0
     mov cx, [rw_jfr]                ; the window's cost a frame
-    jcxz .r                         ; (no frame: it says nothing)
+    or cx, cx                       ; (no frame: it says nothing)
+    jz .r
     mov ax, [rw_jcost]
     mov dx, [rw_jcost + 2]
     xor bx, bx
@@ -552,11 +554,34 @@ rw_jitauto:
     jnz rw_jitoff
     jmp rw_jitback
 .decide:
+    mov ax, [rw_jsum]               ; AX with the recompiler, BX without
+    mov bx, [rw_jsum + 2]
     mov word [rw_jhold], RW_JHOLD
-    mov ax, [rw_jsum]
-    cmp ax, [rw_jsum + 2]
-    jbe rw_jitback                  ; the recompiler, no dearer
-    jmp rw_jitoff
+    mov cx, bx                      ; the recompiler unless it is an eighth
+    shr cx, 1                       ;   dearer: a title screen times both the
+    shr cx, 1                       ;   same, and Super Mario Land timed there
+    shr cx, 1                       ;   once chose the interpreter for its
+    add cx, bx                      ;   levels (60-70% scrolling, not 100%)
+    jc .on
+    cmp ax, cx
+    jbe .on
+    call .clear                     ; (a quarter dearer or more: clear, and
+    jmp rw_jitoff                   ;   held five times as long)
+.on:
+    xchg ax, bx
+    call .clear
+    jmp rw_jitback
+.clear:                             ; AX the dearer, BX the cheaper
+    mov cx, bx
+    shr cx, 1
+    shr cx, 1
+    add cx, bx
+    jc .cr
+    cmp ax, cx
+    jb .cr
+    mov word [rw_jhold], RW_JHOLD * 5
+.cr:
+    ret
 .hold:
     dec word [rw_jhold]
     jnz .r
