@@ -88,6 +88,8 @@ def main():
                     help="with --box: also the translated samples by block (bank:PC)")
     ap.add_argument("--dump", metavar="PC,PC,...",
                     help="with --blocks: the translated code of these blocks, disassembled")
+    ap.add_argument("--hostips", action="store_true",
+                    help="the host's samples by instruction, off rbhost's listing")
     ap.add_argument("--pcs", action="store_true",
                     help="with --box: also the Game Boy PCs (SI) the core's samples were at")
     a = ap.parse_args()
@@ -104,6 +106,7 @@ def main():
     hsyms = [(o, n) for o, n in hsyms if n not in ("boot", "boot_go", "load")]  # the boot section's
     ck, hk = [o for o, _ in csyms], [o for o, _ in hsyms]
     hits, tot, pcs, jips, per, dumps = {}, 0, {}, [], {}, []
+    hips = []
 
     sys.path.insert(0, os.path.join(ROOT, "apps", "realboy"))
     import rbgen
@@ -148,6 +151,8 @@ def main():
                 r = b.cmd("regs")
                 name = charge(r["cs_base"] + (r["eip"] & 0xFFFF))
                 hits[name] = hits.get(name, 0) + 1
+                if a.hostips and name.startswith("host"):
+                    hips.append(r["eip"] & 0xFFFF)
                 if a.blocks and name == "translated code":
                     jips.append(r["eip"] & 0xFFFF)
                 if a.pcs and name.startswith("core"):
@@ -220,6 +225,22 @@ def main():
         for ln in dis.splitlines():
             ip = int(ln[:8], 16)
             print("%4s %s" % (n.get(ip, ""), ln))
+    if hips:
+        src = {}
+        for line in open(os.path.join(ROOT, "build", "realboy", "rbhost.asm.lst"),
+                         errors="replace"):
+            m = re.match(r"\s*\d+\s+([0-9A-F]{8})\s+\S+\s+(?:<\d+>\s+)?(.*)", line)
+            if m and int(m.group(1), 16) not in src:
+                src[int(m.group(1), 16)] = m.group(2).strip()
+        cnt = {}
+        for ip in hips:
+            cnt[ip] = cnt.get(ip, 0) + 1
+        print("the host's samples by instruction (the one AFTER the sample's IP, as"
+              " a 286 reports the next):")
+        for ip, n in sorted(cnt.items(), key=lambda x: -x[1])[:60]:
+            i = bisect.bisect_right(hk, ip - 0) - 1
+            print("  %5.2f%%  %04X %-14s %s" % (100.0 * n / tot, ip,
+                  hsyms[i][1] if i >= 0 else "?", src.get(ip, "")[:60]))
     if pcs:
         print("the core's samples by Game Boy PC (SI, 16-byte buckets):")
         for k, n in sorted(pcs.items(), key=lambda x: -x[1])[:24]:

@@ -607,17 +607,31 @@ it changed), and AX holds the count.
   compared it was never FAST: standing still on the Victory's 86Box twin,
   judging 144 lines was 5 ms a draw and the picture 23 frames a second; it
   is 41 now, the judging 0.15 ms.
-- **INTERLACE** (`[rb_ilace]`, Machine > Interlace, off by default): a call
-  composes the changed lines of one parity and leaves the other's pending
-  (`RB_DPEND`, a byte a line) for the next call, whose parity
-  (`RB_DPAR`) is the other. A line pending from the last call is composed
-  whatever its parity, so nothing changed is lost for more than one draw;
-  `RB_DFULL` = 1 composes both. It halves the composition of a picture
+- **INTERLACE** (`[rb_ilace]`, Machine > Interlace: Off, On, Scrolling;
+  off by default): a call composes the changed lines of one parity and
+  leaves the other's pending (`RB_DPEND`, a byte a line) for the next call,
+  whose parity (`RB_DPAR`) is the other. A line pending from the last call
+  is composed whatever its parity, so nothing changed is lost for more than
+  one draw; `RB_DFULL` = 1 composes both. **Scrolling** (2) defers a parity
+  only in a scroll's whole frame (`RB_DFULL` = 2) - where every line changes
+  and the picture is moving anyway - so a still picture is every line's,
+  the moment the scroll stops. A still frame after an interlaced call that
+  deferred nothing exits as it would without interlace (`PPU_PANY`); it
+  walked all 144 lines every draw until the fourth field run's round. It halves the composition of a picture
   that changes everywhere, a scroll above all, at a price the requester
   named beforehand: a moving edge is drawn half a frame apart on
   alternate lines. It is there to be looked at on the Victory, not as a
   default. The bare harness never sets it, so its frame need not reach
   `RB_DPEND`.
+- **WHOLE**: a frame composed whole (`RB_DFULL`, and no parity deferred)
+  judges no line - it keeps each line's registers for the next call, as
+  `ppu_ldirty` would, and composes. The CPU and `rb_renderd` every frame
+  on `286-victory`: Super Mario Land 23.98 -> 22.93 ms.
+- **The snapshot's tag** (`S_SNAPTAG`, the low byte of the frame RB_SNAP
+  was taken in) is aged at every VBlank whose frame took none: a game with
+  no raster write left it alone, so every 256th frame took the stale
+  snapshot as its own and was composed from it - all zeros, an LCD off, a
+  white frame. `gbdamage`'s interlaced legs found it.
 - **What it costs** an 8088 is the comparison, ~20 ms of 8KB a call. It
   saves ~4 ms of composition for every line it skips. On Super Mario Land it
   composed 38 lines a call of 144, and on Kirby's Dream Land 27.
@@ -627,7 +641,10 @@ from **43% of real time to 100%**: the drawing had been most of the machine.
 
 `tests/gbdamage.py` is the gate. The bare harness's MODE 6 composes every
 third frame both ways, by damage into a buffer it keeps and whole by
-`rb_render`, and counts the frames whose pictures differ.
+`rb_render`, and counts the frames whose pictures differ. MODES 8 and 9 are
+MODE 6 interlaced, On and Scrolling, composing every frame as the package
+does and a checked one twice; without the pending lines composed they fail
+on 151-499 pictures of 500.
 - It runs on gbclock's frame counter (ours), and with `$OS88_GB_ROMS` on
   Super Mario Land and Kirby's Dream Land.
 - Taking out the map-row marks fails it on 497 frames of 500.
@@ -663,9 +680,31 @@ third frame both ways, by damage into a buffer it keeps and whole by
   half of the machine is for a game with frames to run, and the third
   field run's Super Mario Land interlaced slept ~190 ms a second at 20
   pictures. F1 puts the game's speed and the frames drawn a second over the
-  picture. The joypad is the held keys - arrows, X = A,
+  picture. F2 is Machine > Interlace's next setting and F3 Machine >
+  Recompiler's, each on its press and in the window and full screen alike
+  (`rw_keys`, between two core runs - where the recompiler may change); the
+  setting it changed to is said (`rw_note`): a toast on the desktop, and in
+  full screen the speed line's row for ~2.5 s, where a toast would wait for
+  the desktop. F3 from On to Static first does what the menu does (16.8,
+  16.2.1: `rw_stprep` - the profile on and read, the cache's second segment
+  if it names more than one holds), which is file and heap work for the UI
+  task: in full screen, which IS the UI task, at once; in the window the
+  worker wakes it (`[rw_f3q]`, `rw_onwake`) and the switch comes back
+  through `rw_jitq`, said all the same (`[rw_jitqn]`). The joypad is the held keys - arrows, X = A,
   Z = B, Enter = Start, Space = Select - and nothing while another window
-  has the keyboard. Reset is the worker's to do (`rb_init` again); Pause
+  has the keyboard. Two things a keyboard does that a pad cannot are
+  settled before a frame sees them (`rw_keys`). **Opposite directions**:
+  a pad cannot hold Left and Right together and a keyboard can, and a
+  player who rolls from one to the other holds both for a moment - Super
+  Mario Land given both ran on to the right, which the fourth field run
+  reported as reversals the game missed. Of a pair held together the one
+  pressed LATER wins, and releasing it returns to the other. **A tap
+  between two looks**: the keys are a level read once a frame, so a press
+  and release inside a draw was never seen; a press TYPED since the last
+  look (the BIOS's buffer, which the bracket drains and the window is
+  handed) counts for one frame, but only for a button that was up at the
+  last look - a held key's typematic repeat, taken after its release,
+  would otherwise be a press nobody made. Reset is the worker's to do (`rb_init` again); Pause
   stops the clock.
 - **The writers** both start from `rb_renderd`'s changed lines (section
   13.2), and blit only those, a band for each run of them. A frame that
@@ -778,13 +817,21 @@ every draw, as a turn of frames on an 8088 is longer than a key press.
   and yields until `[rw_incore]` is clear. The worker raises its byte BEFORE
   it reads ours, so once ours is set and its is seen clear, every later entry
   of its sees ours.
-- **The screen** is mode 0Dh, 320x200 planar, with the picture at 1x at
-  (80, 28). `rb_renderd`'s two shade planes go to VGA planes 0 and 1 as they
-  are, a `rep movsw` for each line it changed. It already compared them, so
-  the RAM shadow this writer once kept was a second comparison of the same
-  bytes. Plane 2 is set everywhere but the picture: the border is DAC
-  entry 4, and F1's speed line over it, in glyphs copied before the mode
-  (`OSAPI_FONT_GLYPHS`), entry 7. Shades 0-3 are DAC 0-3, greys. The DAC is
+- **The screen** is mode 0Dh, 320x200 planar, with its DISPLAY cut to the
+  picture (`rw_fscrtc`): 160 pixels by 154 rows from VRAM offset 0 - the
+  picture at 1x, a gap and the speed line's row - centred by moving the
+  blanking and the retraces, with the total, the sync widths and every
+  frequency mode 0Dh's own. The border around it is the card's OVERSCAN
+  (AR11) in DAC entry 4's grey. It is what lets the picture move in VRAM
+  under a fixed window (SPEC.md 53.7: a bracket's own mode is the app's to
+  program, and the exit's mode set puts it all back); an emulator's frame
+  buffer cannot show the centring, which is the sync's, so a real monitor
+  is the check. `rb_renderd`'s two shade planes go to VGA planes 0 and 1 as
+  they are, a `rep movsw` for each line it changed. It already compared
+  them, so the RAM shadow this writer once kept was a second comparison of
+  the same bytes. Plane 2 is set under the gap and the speed line's row,
+  entry 4 like the overscan, and F1's speed line is drawn there in glyphs
+  copied before the mode (`OSAPI_FONT_GLYPHS`), entry 7. Shades 0-3 are DAC 0-3, greys. The DAC is
   ours in there; the restore's BIOS mode set puts the desktop's back.
 - **The clock** is `FSXF_RATE` at the Game Boy's own 59.7275 Hz (PIT divisor
   19,977): the hook counts frames owed and does nothing else. The loop runs

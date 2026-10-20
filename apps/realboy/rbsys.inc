@@ -827,6 +827,13 @@ rb_vblank:
     or byte [0FF0Fh],02h
 .n:
     inc word [S_FRAMES]
+    mov al,[S_FRAMES]                   ; the frame that ended took no snapshot
+    dec al                              ;   (no raster write): its tag aged two
+    cmp al,[S_SNAPTAG]                  ;   behind, or the byte came round to a
+    je .tag                             ;   stale RB_SNAP every 256 frames and
+    dec al                              ;   that frame was composed from it -
+    mov [S_SNAPTAG],al                  ;   all zeros, an LCD off, a white one
+.tag:
     mov byte [S_IDLECNT],0
     add word [S_TVBL],RB_FRAME
     adc word [S_TVBL+2],0

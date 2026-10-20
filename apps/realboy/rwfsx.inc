@@ -29,9 +29,9 @@
 
 RW_FSDIV        equ 19977           ; 1,193,182 / 59.7275: a period a frame
 RW_FSSKIP       equ 4               ; frames run undrawn at most, behind
-RW_FSX          equ 10              ; the picture's byte column (x = 80)
-RW_FSY          equ 28              ; ...and its first row
-RW_FSTXT        equ 182             ; the speed line's row
+RW_FSX          equ 0               ; the picture's byte column and first row:
+RW_FSY          equ 0               ;   the top left of the CRTC's window
+RW_FSTXT        equ 146             ; the speed line's row, inside the window
 RW_FSVGA        equ 0               ; rw_fskind: the writers
 RW_FSHERC       equ 1
 RW_FSCGA        equ 2
@@ -84,9 +84,11 @@ rw_mgrey:
 .l:
     mov [rw_i_mach + 8], si
     mov si, rw_it_il0               ; Interlace: what it is now
-    cmp byte [rb_ilace], 0
-    je .i
+    cmp byte [rb_ilace], 1
+    jb .i
     mov si, rw_it_il1
+    je .i
+    mov si, rw_it_il2
 .i:
     mov [rw_i_mach + 10], si
     mov si, rw_it_prfd              ; Profile: what it is now
@@ -246,6 +248,7 @@ rw_fsmain:
     cmp byte [rw_fskind], RW_FSVGA
     jne .mono
     call rw_fsdac
+    call rw_fscrtc
     call rw_fsframe
     call rw_dmgfull                 ; every line of the first frame
     jmp short .in
@@ -374,6 +377,7 @@ rw_fsdrain:
     jz .e
     xor ah, ah
     int 16h
+    call rw_klat                    ; a press a draw would hide (rw_keys)
     jmp short .k
 .e:
     mov al, 1                       ; Esc
@@ -400,6 +404,50 @@ rw_fsdac:
     out dx, al
     loop .d
     ret
+
+; rw_fscrtc - mode 0Dh's DISPLAY cut to the picture (REALBOY-SPEC 15): 160
+; pixels by 154 rows - the 144 of the picture, a gap and the speed line's 8 -
+; from VRAM offset 0, centred by moving the blanking and the retraces, the
+; border around it the card's OVERSCAN in the border's grey (index 4). The
+; total, the sync widths and so every frequency are mode 0Dh's own: only
+; where the sync falls against the picture moves. It is what lets the
+; picture move in VRAM under a fixed window (the start address and the pel
+; panning, SPEC.md 53.7: the bracket's mode is the app's to program); the
+; exit's mode set puts back all of it.
+rw_fscrtc:
+    mov dx, 3D4h
+    mov al, 11h                     ; CR11: unlock CR0-CR7 (bit 7)
+    out dx, al
+    inc dx
+    in al, dx
+    and al, 7Fh
+    out dx, al
+    dec dx
+    mov si, rw_fscrv
+    mov cx, (rw_fscrve - rw_fscrv) / 2
+.c:
+    lodsw                           ; AL = the index, AH = the value
+    out dx, ax
+    loop .c
+    mov dx, 3DAh                    ; the attribute controller's flip-flop
+    in al, dx
+    mov dx, 3C0h
+    mov al, 31h                     ; AR11, the overscan (with the display
+    out dx, al                      ;   left on, bit 5)
+    mov al, 4                       ; ...the border's grey
+    out dx, al
+    ret
+rw_fscrv:   db 01h, 13h             ; horizontal display end: 20 chars
+            db 02h, 1Fh             ; start blank, 9 chars earlier
+            db 03h, 87h             ; end blank (39: bit 5 in CR05)
+            db 04h, 22h             ; start retrace, 9 earlier
+            db 05h, 89h             ; end retrace (41), end blank bit 5
+            db 12h, 33h             ; vertical display end: 307 (154 x 2)
+            db 15h, 68h             ; start blank 360, 46 lines earlier
+            db 16h, 8Bh             ; end blank 395
+            db 10h, 6Eh             ; start retrace 366
+            db 11h, 80h             ; end retrace (368), CR0-CR7 locked again
+rw_fscrve:
 
 ; rw_fsframe - plane 2 set everywhere but the picture: the border
 rw_fsframe:
@@ -440,11 +488,8 @@ rw_fsdraw:
     out dx, ax
     mov si, rw_fbuf + 20
     call rw_fsplane
-    cmp byte [rw_ovl], 0
-    je .r
-    cmp byte [rw_ovlnew], 0
-    je .r
-    mov byte [rw_ovlnew], 0
+    call rw_fsline                  ; ZF = 0: the speed line to draw
+    jz .r
     call rw_fstext
 .r:
     ret
@@ -473,11 +518,10 @@ rw_fsplane:
     ret
 
 ; rw_fstext - rw_ovltxt on the border under the picture, 16 cells wide
-rw_fstext:
+rw_fstext:                          ; (SI = the line, rw_fsline's)
     mov dx, 3C4h
     mov ax, 0302h                   ; planes 0 and 1: the glyph's set bits
     out dx, ax                      ;   read 7, its clear ones 4
-    mov si, rw_ovltxt
     mov di, RW_FSTXT * 40 + RW_FSX
     mov cx, 20
 .c:
@@ -629,14 +673,45 @@ rw_fsdrawd:
     cmp dl, 144
     jb .l
 .txt:
-    cmp byte [rw_ovl], 0
-    je .r
-    cmp byte [rw_ovlnew], 0
-    je .r
-    mov byte [rw_ovlnew], 0
+    call rw_fsline
+    jz .r
     call rw_fstext1
 .r:
     ret
+
+; rw_fsline - the speed line's turn: a note (rw_note) that has had its time
+; comes down, and ZF = 0 when the line is to be drawn again - changed, and
+; F1's or a note's or blank where one just was. SI = what it says
+rw_fsline:
+    cmp byte [rw_msgt], 0
+    je .t
+    call OSAPI_GET_TICKS
+    sub ax, [rw_msgend]
+    js .t
+    mov byte [rw_msgt], 0           ; its time is up: blank, or F1's again
+    mov byte [rw_msgclr], 1
+    mov byte [rw_ovlnew], 1
+.t:
+    cmp byte [rw_ovlnew], 0
+    je .r
+    mov si, rw_msg
+    cmp byte [rw_msgt], 0
+    jne .y
+    mov si, rw_ovltxt
+    cmp byte [rw_ovl], 0
+    jne .y
+    mov si, rw_s_none
+    cmp byte [rw_msgclr], 0
+    jne .y
+    cmp al, al                      ; (ZF = 1: nothing to say)
+.r:
+    ret
+.y:
+    mov byte [rw_ovlnew], 0
+    mov byte [rw_msgclr], 0
+    or si, si                       ; (ZF = 0)
+    ret
+rw_s_none:  db 0
 
 ; rw_hrow - AX = a Hercules row: DI = its first byte at the picture's column
 rw_hrow:
@@ -752,8 +827,7 @@ rw_cline:
 
 ; rw_fstext1 - rw_ovltxt under the picture on a Hercules or CGA page, the
 ; glyph's set bits lit (a CGA's in colour 3)
-rw_fstext1:
-    mov si, rw_ovltxt
+rw_fstext1:                         ; (SI = the line, rw_fsline's)
     xor bx, bx                      ; BX = the cell
 .c:
     mov al, [si]

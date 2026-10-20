@@ -181,14 +181,24 @@ rw_jnb          equ rw_jsum + 4     ; word: S_JITNB as the window began
 rw_jretry       equ rw_jnb + 2      ; byte: this window's re-runs (Auto)
 rw_jfl          equ rw_jretry + 1   ; word: S_JITFL as Auto's watch began
 rw_undrawn      equ rw_jfl + 2      ; byte: a frame ran since the last draw
-rw_prfseg       equ rw_undrawn + 1  ; word: Static's profile (REALBOY-SPEC
+rw_klatch       equ rw_undrawn + 1  ; byte: buttons TYPED since the last look
+rw_kraw         equ rw_klatch + 1   ; byte: the buttons at the last look
+rw_kpref        equ rw_kraw + 1     ; byte: of each opposite pair, the newer
+rw_prfseg       equ rw_kpref + 1    ; word: Static's profile (REALBOY-SPEC
                                     ;   16.8), RW_PRFKB, or 0
 rw_prfdirty     equ rw_prfseg + 2   ; byte: the profile grew this session
 rw_npre         equ rw_prfdirty + 1 ; word: the blocks the last preload made
 rw_prfname      equ rw_npre + 2     ; 13: NAME.RBP
-rw_logseg       equ rw_prfname + 13 ; word: the log's records, RW_LOGN x
+rw_f2was        equ rw_prfname + 13 ; F2 was held at the last look...
+rw_f3was        equ rw_f2was + 1    ; ...and F3
+rw_msgt         equ rw_f3was + 1    ; byte: a note is on the speed line
+rw_msgclr       equ rw_msgt + 1     ; byte: ...and has just come down
+rw_msgend       equ rw_msgclr + 1   ; word: the tick it comes down at
+rw_msg          equ rw_msgend + 2   ; 21: the note (rw_note)
+rw_logseg       equ rw_msg + 22     ; word: the log's records, RW_LOGN x
                                     ;   RW_LOGSZ, claimed while it is on
-                                    ;   (rwlog.inc), or 0
+                                    ;   (rwlog.inc), or 0 (after a spare
+                                    ;   byte: rw_fbuf stays even)
 rw_lrec         equ rw_logseg + 2   ; RW_LOGSZ: the second's record, made
                                     ;   here and copied into the claim
 rw_lrec2        equ rw_lrec + RW_LOGSZ ; RW_LOGSZ: the write's, a record
@@ -207,7 +217,11 @@ rw_big          equ rw_cfgip + 1    ; byte: Machine > Cache: 128K (the
 rw_286          equ rw_big + 1      ; byte: a 286 or later: a recompiler
 rw_seg2q        equ rw_286 + 1      ; byte: the cache's segments changed:
                                     ;   the worker's to start it again
-rw_fbuf         equ rw_seg2q + 1    ; 5,760: rb_render's frame (monochrome)
+rw_f3q          equ rw_seg2q + 1    ; byte: F3 asked for Static in the
+                                    ;   window: the UI task's first (rw_onwake)
+rw_jitqn        equ rw_f3q + 1      ; byte: ...and the switch it queued says
+                                    ;   itself on the speed line
+rw_fbuf         equ rw_jitqn + 1    ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 
@@ -329,6 +343,13 @@ rb_trbyte:
 ; or the core having stopped
 rw_onwake:
     call rw_bserve                  ; a bank the worker waits for
+    cmp byte [rw_f3q], 0            ; F3 in the window, to Static: its
+    je .nf3                         ;   profile and room here, then the
+    mov byte [rw_f3q], 0            ;   switch the worker's (rw_jitq),
+    call rw_stprep                  ;   said as F3's own is
+    mov byte [rw_jitqn], 1
+    mov byte [rw_jitq], 1
+.nf3:
     cmp byte [rw_argpend], 0
     je .stopped
     mov byte [rw_argpend], 0
@@ -1237,6 +1258,20 @@ rw_prftoggle:
 .r:
     ret
 
+; rw_stprep - on the UI task, before Machine > Recompiler's next setting
+; (the menu, or F3): when that is Static, which reads the profile, the
+; profile on and read here, where a file can be, and the cache's second
+; 64KB if it names more than the first holds (REALBOY-SPEC 16.2.1)
+rw_stprep:
+    cmp byte [rw_jitmode], 1        ; On -> Static
+    jne .r
+    mov byte [rw_prfon], 1
+    call rw_prfup
+    call rw_jit2more
+    call rw_mgrey
+.r:
+    ret
+
 ; rw_prfup - on the UI task, a game running: the profile claimed, read and
 ; handed to the core. The table is whole before the core is told of it.
 rw_prfup:
@@ -1640,6 +1675,11 @@ rw_worker:                          ;   the worker parked at the top of its
     mov [rw_jitmode], al
     call rw_jitset
     call rw_mgrey                   ; the item says what it is now
+    cmp byte [rw_jitqn], 0          ; (F3's, through the UI task: said)
+    je .nojq
+    mov byte [rw_jitqn], 0
+    mov si, [rw_i_mach + 6]
+    call rw_note
 .nojq:
     cmp byte [rw_state], 1
     jne .held
@@ -2078,6 +2118,9 @@ rw_dec:
 ; window has the keyboard. F1 toggles the speed overlay.
 rw_keys:
     xor dl, dl
+    xor al, al                      ; the typed presses, taken whoever's the
+    xchg al, [rw_klatch]            ;   keyboard is
+    mov [rw_ktyped], al
     cmp byte [rw_infsx], 0          ; the bracket's keyboard is ours
     jne .f1
     call OSAPI_WM_TOP
@@ -2091,13 +2134,9 @@ rw_keys:
     call OSAPI_KEY_DOWN             ;   would otherwise press Start too)
     jc .set
     mov al, 3Bh                     ; F1, on its press
-    call OSAPI_KEY_DOWN
-    sbb al, al
-    mov ah, al
-    xchg al, [rw_f1was]
-    not al
-    and al, ah
-    jz .nof1
+    mov bx, rw_f1was
+    call rw_kedge
+    jnc .nof1
     xor byte [rw_ovl], 1
     mov byte [rw_ovlnew], 1
     mov al, RLE_F1
@@ -2105,27 +2144,198 @@ rw_keys:
     call rw_dmgfull                 ; the line it covered, or uncovered, is
                                     ;   not a change the picture made
 .nof1:
+    push dx
+    mov al, 3Ch                     ; F2: Machine > Interlace's next, and
+    mov bx, rw_f2was                ;   said (rw_note)
+    call rw_kedge
+    jnc .nof2
+    call rw_iltoggle
+    mov si, [rw_i_mach + 10]        ; (what rw_mgrey made the item say)
+    call rw_note
+.nof2:
+    mov al, 3Dh                     ; F3: Machine > Recompiler's next - here,
+    mov bx, rw_f3was                ;   between two core runs, in the window
+    call rw_kedge                   ;   and the bracket alike (the menu's
+    jnc .nof3                       ;   goes through the worker's rw_jitq)
+    cmp word [rw_jitseg], 0
+    je .nof3
+    cmp byte [rw_jitmode], 1        ; On -> Static reads the profile and
+    jne .f3go                       ;   may want the cache's room: the UI
+    cmp byte [rw_infsx], 0          ;   task's (rw_stprep) - this one in
+    jne .f3ui                       ;   the bracket, the window's woken
+    mov byte [rw_f3q], 1
+    mov bx, [rw_win]
+    call OSAPI_WM_WAKE
+    jmp short .nof3
+.f3ui:
+    call rw_stprep
+.f3go:
+    mov bl, [rw_jitmode]
+    xor bh, bh
+    mov al, [rw_jnext + bx]
+    mov [rw_jitmode], al
+    call rw_jitset
+    call rw_mgrey
+    mov si, [rw_i_mach + 6]
+    call rw_note
+.nof3:
+    pop dx
     mov si, rw_keymap
     mov dh, 1
 .k:
     lodsb
     or al, al
-    jz .set
+    jz .typ
     call OSAPI_KEY_DOWN             ; CF = 1: held
     jnc .n
     or dl, dh
 .n:
     shl dh, 1
     jnz .k
+.typ:
+    ; A press TYPED since the last look is one, held now or not - a tap
+    ; inside a draw is never seen held - but only for a button that was up
+    ; then: a held key's typematic repeat, taken from the buffer after its
+    ; release, would otherwise be a press nobody made
+    mov al, [rw_kraw]
+    not al
+    and al, [cs:rw_ktyped]
+    or dl, al
+    ; OPPOSITE DIRECTIONS: a Game Boy's pad cannot hold both, a keyboard can,
+    ; and Super Mario Land given both runs on to the right. Of a pair held
+    ; together, the one pressed LATER wins - a roll from Right to Left turns
+    ; at once, and letting Left go turns back while Right is still held
+    push bx
+    push cx
+    mov ah, [rw_kraw]
+    mov [rw_kraw], dl
+    not ah
+    and ah, dl                      ; AH = pressed since the last look
+    mov cl, [rw_kpref]
+    mov bl, 03h                     ; Right, Left
+    call rw_socd
+    mov bl, 0Ch                     ; Up, Down
+    call rw_socd
+    mov [rw_kpref], cl
+    pop cx
+    pop bx
 .set:
     push ds
     mov ds, [cs:rb_viewseg]
     mov [S_JOY], dl
     pop ds
     ret
+; rw_kedge - AL = a key's scancode, BX = its was-held byte: CF = 1 on its
+; press (held now, not at the last look)
+rw_kedge:
+    call OSAPI_KEY_DOWN
+    sbb al, al
+    mov ah, al
+    xchg al, [bx]
+    not al
+    and al, ah
+    add al, 0FFh                    ; CF = 1: pressed now
+    ret
+
+; rw_note - SI = a line (a menu item's, its MENU_DIS mark skipped): said for
+; a moment - a toast on the desktop, the speed line in the bracket, where a
+; toast would wait for the desktop to come back (F2, F3)
+rw_note:
+    cmp byte [si], MENU_DIS
+    jne .s
+    inc si
+.s:
+    cmp byte [rw_infsx], 0
+    jne .fs
+    push es
+    push cx
+    push ds
+    pop es
+    xor cx, cx                      ; ~3 s
+    call OSAPI_TOAST
+    pop cx
+    pop es
+    ret
+.fs:
+    push di
+    push cx
+    push es
+    push ds
+    pop es
+    mov di, rw_msg
+    mov cx, 20
+.c:
+    lodsb
+    stosb
+    or al, al
+    loopnz .c
+    mov byte [di], 0
+    pop es
+    call OSAPI_GET_TICKS
+    add ax, 45                      ; ~2.5 s
+    mov [rw_msgend], ax
+    mov byte [rw_msgt], 1
+    mov byte [rw_ovlnew], 1
+    pop cx
+    pop di
+    ret
+
 ; S_JOY's bits: Right, Left, Up, Down, A, B, Select, Start
 rw_jnext:   db 1, 3, 0, 2           ; the setting after Auto, On, Off, Static
 rw_keymap:  db KSC_RIGHT, KSC_LEFT, KSC_UP, KSC_DOWN, 2Dh, 2Ch, 39h, KSC_ENTER, 0
+rw_ktyped:  db 0                    ; (rw_keys: this look's rw_klatch)
+
+; rw_socd - one opposite pair, BL its two bits: DL the buttons, AH those
+; pressed since the last look, CL the preferred of each pair. Not both held:
+; the held one, or none, is the preference. Both: one newly pressed takes
+; it, and the other is dropped from DL
+rw_socd:
+    mov bh, dl
+    and bh, bl
+    cmp bh, bl
+    je .both
+.pref:
+    not bl
+    and cl, bl
+    not bl
+    or cl, bh
+    ret
+.both:
+    mov bh, ah
+    and bh, bl
+    jz .k                           ; neither new: as it was
+    cmp bh, bl
+    je .k                           ; both new at once: as it was
+    call .pref                      ; the newer
+.k:
+    mov bh, cl
+    and bh, bl
+    not bl
+    and dl, bl
+    not bl
+    or dl, bh
+    ret
+
+; rw_klat - AH = a typed key's scancode: its button latched for rw_keys
+rw_klat:
+    push ax
+    push si
+    mov si, rw_keymap
+    mov al, 1
+.l:
+    cmp byte [si], 0
+    je .r
+    cmp ah, [si]
+    je .hit
+    inc si
+    shl al, 1
+    jmp short .l
+.hit:
+    or [rw_klatch], al
+.r:
+    pop si
+    pop ax
+    ret
 
 ; rw_present - compose the frame and put it on the glass (the worker's)
 rw_present:
@@ -2495,12 +2705,19 @@ rw_dmgclaim:
     ret
 
 ; rw_dmgfull - the next rb_renderd composes and writes every line
-; rw_iltoggle - Machine > Interlace (REALBOY-SPEC 13.2): a draw composes
-; the lines of one parity, the next the other's, for twice the pictures a
-; second at a price in looks; off, every line again. Either way the next
-; draw is whole
+; rw_iltoggle - Machine > Interlace (REALBOY-SPEC 13.2), Off -> On ->
+; Scrolling: a draw composes the lines of one parity, the next the other's,
+; for twice the pictures a second at a price in looks - always, or only
+; while the picture scrolls; off, every line again. Either way the next draw
+; is whole
 rw_iltoggle:
-    xor byte [rb_ilace], 1
+    mov al, [rb_ilace]              ; Off -> On -> Scrolling -> Off
+    inc ax
+    cmp al, 3
+    jb .s
+    xor al, al
+.s:
+    mov [rb_ilace], al
     call rw_dmgfull
     jmp rw_mgrey
 
@@ -2656,13 +2873,7 @@ rw_oncmd:
     je .r
     cmp byte [rw_jitq], 0
     jne .r
-    cmp byte [rw_jitmode], 1        ; On -> Static: Static reads the
-    jne .q                          ;   profile, so it is on first, read
-    mov byte [rw_prfon], 1          ;   here, where a file can be
-    call rw_prfup
-    call rw_jit2more                ; ...and the cache's second 64KB if it
-    call rw_mgrey                   ;   names more than the first holds
-.q:
+    call rw_stprep
     mov byte [rw_jitq], 1
 .r:
     ret
@@ -2683,7 +2894,7 @@ rw_onkey:
     call rw_abdismiss
     jmp rw_fsenter
 .r:
-    ret
+    jmp rw_klat                     ; a press a draw would hide (rw_keys)
 
 rw_about:
     mov byte [rw_abon], 1
@@ -2735,6 +2946,7 @@ rw_it_big1:     db 'Cache: 128K', 0
 rw_it_bigd:     db MENU_DIS, 'Cache (286)', 0
 rw_s_bignx:     db 'Cache: from the next game', 0
 rw_s_cfg:       db 'REALBOY.CFG', 0
+rw_it_il2:      db 'Interlace: Scrolling', 0
 
 rw_s_fps:       db 'fps', 0
 rw_s_jit:       db ' JIT', 0

@@ -49,9 +49,13 @@ def main():
     out = os.path.join(ROOT, "build", "realboy")
     os.makedirs(out, exist_ok=True)
     fails = []
-    for name, rom in roms:
-        img = os.path.join(out, "gbdamage-%s.img" % name)
-        rbimg.make_image(rom, img, mode="damage", frames=a.frames)
+    # each also interlaced (REALBOY-SPEC 13.2), On and Scrolling: two calls
+    # a checked frame, which together must be the whole picture
+    for name, rom, mode in [(n, r, m) for n, r in roms
+                            for m in ("damage", "damage-il", "damage-is")]:
+        name = name + {"damage": "", "damage-il": "/il", "damage-is": "/is"}[mode]
+        img = os.path.join(out, "gbdamage-%s.img" % name.replace("/", "-"))
+        rbimg.make_image(rom, img, mode=mode, frames=a.frames)
         text = rbqemu.run(img, [" END\n", "RBHOST BADOP"], 600, quiet=True)
         m = LINE.search(text)
         if not m:
@@ -59,7 +63,7 @@ def main():
             continue
         frames, bad, first, lines = map(int, m.groups())
         calls = frames // 3
-        print("gbdamage %-7s %d frames, %d compared: %d differ; %.1f lines composed a call of 144"
+        print("gbdamage %-10s %d frames, %d compared: %d differ; %.1f lines composed a call of 144"
               % (name, frames, calls, bad, lines / max(1, calls)))
         if frames < a.frames:
             fails.append("%s: stopped at frame %d" % (name, frames))

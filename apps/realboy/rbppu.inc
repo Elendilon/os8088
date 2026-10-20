@@ -54,6 +54,12 @@ PPU_LOGN        equ 0x4B53          ; byte: entries that are this frame's
 PPU_REVOK       equ 0x4B54          ; byte: PPU_REV is built
 PPU_TMODE       equ 0x4B55          ; byte: LCDC bit 4 PPU_TADDR was built for
 PPU_TMP         equ 0x4B56          ; word
+PPU_DWREG       equ 0x4B7C          ; word: rb_renderd's WHOLE loop, the line's
+                                    ;   RB_DLREG record
+PPU_ILC         equ 0x4B7E          ; byte: this call DEFERS a parity (rb_ilace
+                                    ;   1, or 2 and a scroll's whole frame)
+PPU_PANY        equ 0x4B7F          ; byte: the last call deferred a line...
+PPU_PNEW        equ 0x4B80          ; byte: ...and this one has
 PPU_SANF        equ 0x4B70          ; 2 x 6: OBP0 and OBP1 as A0 B0 C0 A1
                                     ;   B1 C1, a shade bit being (bit 0 and
                                     ;   A) xor (bit 1 and B) xor (both and
@@ -246,6 +252,9 @@ RB_DMG_SIZE     equ 0x3314
 
 rb_dmgseg       dw 0                    ; the host's damage segment, or 0
 rb_ilace        db 0                    ; the host's: 1 = INTERLACE, each call
+                                        ;   (2: only a scroll's whole frames;
+                                        ;   a still one composes what both
+                                        ;   parities owe),
                                         ;   composes the lines of one parity,
                                         ;   the other's changes kept for the
                                         ;   next (REALBOY-SPEC 13.2)
@@ -278,6 +287,9 @@ rb_renderd:
     cmp byte [cs:rb_ilace],0
     je .par
     xor byte [es:RB_DPAR],1             ; the other parity's turn
+    mov al,[PPU_PNEW]                   ; (lines owed from the last call, or
+    mov [PPU_PANY],al                   ;   a still frame need visit none)
+    mov byte [PPU_PNEW],0
 .par:
     cmp byte [PPU_REVOK],0
     jne .rev
@@ -395,7 +407,11 @@ rb_renderd:
     mov al,[es:RB_DTCH]                 ; ...and nothing else changed either:
     or al,[es:RB_DMCH]                  ;   not a line to compose (but those
     or al,[es:RB_DOCH]                  ;   INTERLACE left the last call)
-    or al,[cs:rb_ilace]
+    cmp byte [cs:rb_ilace],0
+    je .nofp
+    or al,[PPU_PANY]
+.nofp:
+    or al,al
     jz .done
     call ppu_dfast                      ; RB_DLD = every line to compose
 .slow:
@@ -405,6 +421,48 @@ rb_renderd:
     rep movsw
     mov byte [PPU_WLINE],0
     mov byte [PPU_LY],0
+    mov byte [PPU_ILC],0                ; a parity deferred this call?
+    mov al,[cs:rb_ilace]
+    cmp al,1
+    je .ie
+    cmp al,2
+    jne .ic
+    cmp byte [es:RB_DFULL],2            ; (Scrolling: a scroll's frame)
+    jne .ic
+.ie:
+    mov byte [PPU_ILC],1
+.ic:
+    cmp byte [es:RB_DFULL],0            ; WHOLE (a scroll, or the host's):
+    je .line                            ;   every line is composed, so none
+    cmp byte [PPU_ILC],0                ;   is judged - the registers kept
+    jne .line                           ;   for the next call as ppu_ldirty
+    mov word [PPU_DWREG],RB_DLREG       ;   keeps them, and nothing else
+.whole:
+    call ppu_log
+    mov bl,[PPU_LY]
+    xor bh,bh
+    mov byte [es:RB_DCHG+bx],0
+    cmp byte [cs:rb_ilace],0            ; (owed nothing now, whichever
+    je .wn                              ;   parity it was)
+    mov byte [es:RB_DPEND+bx],0
+.wn:
+    mov di,[PPU_DWREG]
+    mov si,PPU_REGS
+    movsw
+    movsw
+    movsw
+    movsw
+    mov al,[PPU_WLINE]
+    stosb
+    inc di                              ; (a record is 10: ppu_ldirty's)
+    mov [PPU_DWREG],di
+    inc word [es:RB_DCOMP]
+    call ppu_line
+    call ppu_dput
+    inc byte [PPU_LY]
+    cmp byte [PPU_LY],144
+    jb .whole
+    jmp .done
 .line:
     call ppu_log
     mov bl,[PPU_LY]
@@ -428,6 +486,8 @@ rb_renderd:
     je .comp2
     mov bl,[PPU_LY]                     ; (ppu_ldirty's BX is its own)
     xor bh,bh
+    cmp byte [PPU_ILC],0                ; (Scrolling, still: every line, the
+    je .ilc                             ;   ones a scroll left with them)
     cmp byte [es:RB_DFULL],1            ; (the host's whole: every line)
     je .ilc
     mov al,bl
@@ -435,6 +495,7 @@ rb_renderd:
     test al,1
     jz .ilc
     mov byte [es:RB_DPEND+bx],1         ; the other parity's: the next call's
+    mov byte [PPU_PNEW],1
     jmp short .skip
 .ilc:
     mov byte [es:RB_DPEND+bx],0

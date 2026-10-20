@@ -50,8 +50,11 @@ JIT2_LIM        equ 0x0400                  ; JF_SQZ: each segment's code ends
 JF_MODE         equ 03h                     ; b_jit: 0 interpret, 1 translate,
 JF_SEG2         equ 04h                     ;   2 Static; a second segment; both
 JF_SQZ          equ 10h                     ;   squeezed to JIT2_LIM's 1KB
-PRF_SEG         equ 0x0500                  ; Static's profile, 4KB (not MODE 5)
-FRAME_SEG       equ 0x0500                  ; rb_render's 5,760 bytes, under the
+PRF_SEG         equ 0x0510                  ; Static's profile, 4KB (not MODES 5-9,
+                                            ;   which compose into FRAME_SEG)
+FRAME_SEG       equ 0x0510                  ; rb_render's 5,760 bytes, above the
+                                            ;   damage memory's RB_DMG_SIZE (to 5014h:
+                                            ;   INTERLACE writes its end) and under the
                                             ;   boot stack: the harness (with the
                                             ;   recompiler's templates) runs past A000h
 FRAMED_SEG      equ 0x0060                  ; MODE 6: rb_renderd's buffer
@@ -170,6 +173,13 @@ host_main:
     mov ax,cs
     mov ds,ax
     mov es,ax
+    cmp byte [h_mode],8                 ; MODES 8 and 9: MODE 6 with
+    jb .mode                            ;   Interlace On or Scrolling
+    mov al,[h_mode]
+    sub al,7
+    mov [rb_ilace],al
+    mov byte [h_mode],6
+.mode:
     mov ax,0x0003                       ; a clean text screen
     int 0x10
     ; COM1, 115200 8N1, polled
@@ -297,6 +307,9 @@ host_main:
     mov es,ax
     xor di,di
     call rb_renderd
+%ifdef SCRL_STAT
+    call scrl_stat
+%endif
     pop es
 .nj:
     mov ax,[nframes]
@@ -406,6 +419,37 @@ host_main:
     loop .dbg
     pop ds
 %endif
+%ifdef SCRL_STAT
+    mov si,s_scrl                       ; scroll frames, then the lines a
+    call puts                           ;   hardware scroll would still have
+    mov ax,[scrl_n]                     ;   to compose: a sprite's now or
+    call dec16                          ;   the last frame's, a scroll of its
+    mov si,s_scrl1                      ;   own (a status bar), either -
+    call puts                           ;   each lines a frame, on average
+    mov ax,[scrl_spr]
+    mov dx,[scrl_spr+2]
+    call .d16
+    mov si,s_scrl2
+    call puts
+    mov ax,[scrl_hud]
+    mov dx,[scrl_hud+2]
+    call .d16
+    mov si,s_scrl3
+    call puts
+    mov ax,[scrl_any]
+    mov dx,[scrl_any+2]
+    call .d16
+    jmp short .scd
+.d16:                                   ; DX:AX / the frames: a frame's
+    mov cx,[scrl_n]                     ;   average
+    jcxz .z
+    div cx
+    jmp dec16
+.z:
+    xor ax,ax
+    jmp dec16
+.scd:
+%endif
     cmp byte [h_mode],6
     jne .nd
     mov si,s_dmg
@@ -499,12 +543,6 @@ dmg_check:
     push di
     push ds
     push es
-    mov ax,[nframes]
-    xor dx,dx
-    mov cx,3
-    div cx
-    or dx,dx
-    jnz .r
     cmp word [cs:rb_dmgseg],0
     jne .on
     mov word [cs:rb_dmgseg],DMG_SEG     ; the first time: everything
@@ -512,11 +550,29 @@ dmg_check:
     mov es,ax
     mov byte [es:RB_DFULL],1
 .on:
+    mov ax,[nframes]
+    xor dx,dx
+    mov cx,3
+    div cx
+    or dx,dx
+    jz .chk
+    cmp byte [cs:rb_ilace],0            ; INTERLACE: every frame composed, as
+    je .r                               ;   the package does, so what one call
+    mov ax,FRAMED_SEG                   ;   leaves is carried into the next
+    mov es,ax                           ;   frame's - a scroll's into a still
+    xor di,di                           ;   one's (Scrolling)
+    call rb_renderd
+    jmp .r
+.chk:
     mov ax,FRAMED_SEG
     mov es,ax
     xor di,di
     call rb_renderd                     ; AX = the lines it changed
     add [cs:dmg_lines],ax
+    cmp byte [cs:rb_ilace],0            ; INTERLACE: a second call, which
+    je .whole                           ;   must compose what the first left
+    call rb_renderd                     ;   to the other parity
+.whole:
     mov ax,FRAME_SEG
     mov es,ax
     xor di,di
@@ -770,6 +826,90 @@ s_hello db "RealBoy core harness",10,0
 s_bad   db 10,"RBHOST BADOP ",0
 s_done  db 10,"RBHOST DONE frames ",0
 s_dmg   db " damage-bad ",0
+%ifdef SCRL_STAT
+s_scrl  db " scroll-frames ",0
+s_scrl1 db " spr ",0
+s_scrl2 db " hud ",0
+s_scrl3 db " any ",0
+scrl_n      dw 0
+scrl_spr    dd 0
+scrl_hud    dd 0
+scrl_any    dd 0
+scrl_prev   times 144 db 0
+
+; scrl_stat - MODE 7 with SCRL_STAT: after each rb_renderd, the lines of a
+; SCROLLING frame (RB_DSTALE) a hardware scroll would still compose
+scrl_stat:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push ds
+    push es
+    mov ax,DMG_SEG
+    mov es,ax
+    mov ds,[cs:rb_viewseg]
+    mov dx,[es:RB_DLREG + 64 * 10 + 1]  ; the main scroll: line 64's
+    xor bx,bx                           ; BX = the line
+    mov si,PPU_LSPR
+    mov di,RB_DLREG + 1
+    cmp byte [es:RB_DSTALE],0
+    je .upd
+    inc word [cs:scrl_n]
+.l:
+    xor cx,cx                           ; CL = sprite, CH = its own scroll
+    cmp byte [si],0
+    je .np
+    inc cl
+.np:
+    cmp byte [cs:scrl_prev+bx],0
+    je .nq
+    inc cl
+.nq:
+    mov al,[si]
+    mov [cs:scrl_prev+bx],al
+    cmp [es:di],dx
+    je .nh
+    inc ch
+    add word [cs:scrl_hud],1
+    adc word [cs:scrl_hud+2],0
+.nh:
+    or cl,cl
+    jz .ns
+    add word [cs:scrl_spr],1
+    adc word [cs:scrl_spr+2],0
+.ns:
+    or cl,ch
+    jz .na
+    add word [cs:scrl_any],1
+    adc word [cs:scrl_any+2],0
+.na:
+    add si,41
+    add di,10
+    inc bx
+    cmp bx,144
+    jb .l
+    jmp short .r
+.upd:
+    mov al,[si]                         ; a still frame: the sprites' lines
+    mov [cs:scrl_prev+bx],al            ;   kept for the next
+    add si,41
+    inc bx
+    cmp bx,144
+    jb .upd
+.r:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
 s_dmg1  db " first ",0
 s_dmg2  db " lines ",0
 s_dmg3  db " at ",0

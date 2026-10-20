@@ -261,7 +261,8 @@ def main():
     ap.add_argument("--fs", action="store_true", help="Machine > Full Screen first")
     ap.add_argument("--mem", type=int, help="the machine's RAM in KB, for the VM's own")
     ap.add_argument("--nojit", action="store_true", help="Machine > Recompiler off first")
-    ap.add_argument("--ilace", action="store_true", help="Machine > Interlace on first")
+    ap.add_argument("--ilace", type=int, nargs="?", const=1, default=0,
+                    help="Machine > Interlace N times first: 1 On, 2 Scrolling")
     ap.add_argument("--log", default="", help="Machine > Log over the span, written here")
     ap.add_argument("--static", type=float, default=None, metavar="SECS",
                     help="the recompiler's Static (REALBOY-SPEC 16.8), timed on the SAME span a "
@@ -382,7 +383,7 @@ def measure(b, o):
             machine_item(b, ITEM_RESET)         #   its start, and the same span
             b.cmd("step 3000")
             press(b, o)
-        if o.ilace:
+        for _ in range(o.ilace):
             machine_item(b, ITEM_ILACE)
         if o.log:
             machine_item(b, ITEM_LOG)          # Log: Off -> on

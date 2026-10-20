@@ -2600,7 +2600,7 @@ SOAK = [
         "no-op must lose the picture. WHY QEMU: counted, not timed. SOAK: one "
         "package's renderer",
         needs=("qemu", "nasm")),
-    Row("gbwindow", "soak", py("tests/gbwindow.py"), 60.0,
+    Row("gbwindow", "soak", py("tests/gbwindow.py"), 75.0,
         "REALBOY.O88 in a window (docs/REALBOY-SPEC.md section 14): dmg-acid2 "
         "opened from the Disk window through its association, the frame "
         "counter in the package's view advancing, and the window's content "
@@ -2612,16 +2612,21 @@ SOAK = [
         "VGA's mode 0Dh, the Hercules page at 2x2 and CGA's 320x200 in four "
         "colours, each against the SAME reference, frames advancing in there, "
         "and Esc back to a desktop whose window shows the picture again. "
+        "On VGA the window is checked again under Machine > Interlace: On "
+        "and Scrolling. "
         "NEGATIVE CONTROL: the reference mirrored must not match. SOAK: one "
         "package",
         needs=("marty", "nasm"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
-    Row("gbdamage", "soak", py("tests/gbdamage.py"), 10.0,
+    Row("gbdamage", "soak", py("tests/gbdamage.py"), 28.0,
         "RealBoy's damage renderer (docs/REALBOY-SPEC.md section 13.2) against "
         "its whole one: the bare harness's MODE 6 under QEMU composes every "
         "third frame both ways and counts the pictures that differ - gbclock's "
         "frame counter (ours), and with $OS88_GB_ROMS Super Mario Land and "
         "Kirby. Without the map-row marks it fails on 497 frames of 500. "
+        "Each again INTERLACED (section 13.2), On and Scrolling, composed every "
+        "frame as the package does and twice on a checked one: without the "
+        "lines a call left being composed by the next it fails on 151-499. "
         "SOAK: one package",
         needs=("qemu", "nasm", "rgbds")),
     Row("gbdemo", "soak", py("tests/gbdemo.py"), 30.0,
