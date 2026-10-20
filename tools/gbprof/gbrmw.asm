@@ -13,7 +13,8 @@
 ; PC is on its 64th entry, RB_JITHOT) and then runs translated. It prints
 ; "Passed" or "Failed" on the link port, as Blargg's ROMs do. Irq does the
 ; same for a store through (HL) that requests an interrupt, which a store
-; that guards itself (rbgen.self_guard) must leave its block for.
+; that guards itself (rbgen.self_guard) must leave its block for, and
+; HramCode rewrites a routine in HRAM once it has been translated.
 
 SECTION "timer", ROM0[$50]
     push af                                 ; the timer interrupt: counts
@@ -40,6 +41,8 @@ Start:
     ld [$C011], a                           ; ...and TMA's
     ld [$C020], a                           ; timer interrupts taken
     ld [$C022], a                           ; ...and not taken at once
+    ld [$C023], a                           ; HRAM code that did not change
+    call HramCode
     ld bc, 300
 .loop:
     push bc
@@ -74,6 +77,10 @@ Start:
     ld a, [$C020]
     cp 300 & $FF
     ld hl, FailCount
+    jr nz, .print
+    ld a, [$C023]
+    or a
+    ld hl, FailHram
     jr nz, .print
     ld hl, Passed
 .print:
@@ -139,6 +146,33 @@ Irq:
     ld [$C022], a
     ret
 
+; HRAM code is translated behind a guard of its own bytes (REALBOY-SPEC
+; 16.3): a routine there, called until it is, then rewritten and called
+; again, must run as rewritten
+HramCode:
+    ld hl, $FFC0
+    ld [hl], $04                            ; INC B
+    inc l
+    ld [hl], $C9                            ; RET
+    ld b, 0
+    ld c, 200                               ; (64 entries to translate Calls,
+    call Calls                              ;   then 64 for FFC0: B = 200)
+    ld a, $05                               ; DEC B
+    ldh [$FFC0], a
+    ld c, 30
+    call Calls                              ; translated: B = 170
+    ld a, b
+    cp 170
+    ret z
+    ld a, 1
+    ld [$C023], a
+    ret
+Calls:
+    call $FFC0
+    dec c
+    jr nz, Calls
+    ret
+
 ; F into the sum at [DE], with the carry of the add left for the next op
 Fold:
     push af
@@ -163,3 +197,5 @@ FailLate:
     db "Failed: an interrupt was taken late", 10, 0
 FailCount:
     db "Failed: interrupts lost", 10, 0
+FailHram:
+    db "Failed: HRAM code ran as it was", 10, 0

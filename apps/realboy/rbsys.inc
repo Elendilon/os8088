@@ -763,12 +763,13 @@ rb_events:
     call rb_sched
     mov [S_BP],bp
     cmp byte [S_EXIT],0
-    jne .leave
+    jne .left                           ; (scheduled already: not twice)
     clc
     ret
 .leave:
     call rb_sched
     mov [S_BP],bp
+.left:
     stc
     ret
 .isdue:                                 ; CF = 1 if [SI] <= now

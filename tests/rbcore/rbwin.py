@@ -137,6 +137,7 @@ def profile(b, seg, core, n, view=0):
     lk = [a for a, _ in lin]
     hits = collections.Counter()
     where = collections.Counter()
+    wpc = collections.Counter()
     jips = []
     for _ in range(n):
         b.cmd("step 1")
@@ -154,6 +155,8 @@ def profile(b, seg, core, n, view=0):
             pc = r["esi"] & 0xFFFF                  # SI: the Game Boy's PC
             where["ROM0" if pc < 0x4000 else "ROMX" if pc < 0x8000 else
                   "HRAM" if pc >= 0xFF80 else "RAM"] += 1
+            bk = b.memr(view * 16 + 0x4035, 1)[0] if 0x4000 <= pc < 0x8000 else None
+            wpc["%s%04X" % ("%02X:" % bk if bk is not None else "", pc & 0xFFF0)] += 1
         elif ip >= 0xF0000:
             hits["BIOS"] += 1
         else:
@@ -184,6 +187,8 @@ def profile(b, seg, core, n, view=0):
     if where:
         print("core samples by the Game Boy PC (SI): " + "  ".join(
             "%s %.1f%%" % (k, 100.0*v/sum(where.values())) for k, v in where.most_common()))
+        print("...by 16 bytes of it (bank:PC): " + "  ".join(
+            "%s %.1f%%" % (k, 100.0*v/n) for k, v in wpc.most_common(16)))
 
 
 def readlog(b, o):
@@ -303,9 +308,11 @@ def measure(b, o):
         b.cmd("step 2000")
         f0, t0 = frames(b, view), b.cmd("info").get("ms")
         j0 = jitstat(b, view)
+        e0 = int.from_bytes(b.memr(view*16 + 0x408A, 2), "little")     # S_EVCOUNT
         b.cmd("step %d" % int(o.secs * 1000))
         f1, t1 = frames(b, view), b.cmd("info").get("ms")
         j1 = jitstat(b, view)
+        e1 = int.from_bytes(b.memr(view*16 + 0x408A, 2), "little")
         ov = overlay(b, seg)
         secs = (t1 - t0) / 1000.0
         n = (f1 - f0) & 0xFFFF
@@ -313,6 +320,8 @@ def measure(b, o):
               "overlay: %s" % (os.path.basename(o.rom), o.vm, n, secs, n / secs,
                                100.0 * n / secs / GB_HZ,
                                "%d%% %d fps drawn" % ov if ov else "none"))
+        print("rbwin: %.1f events a frame (S_EVCOUNT, which wraps at 65536)"
+              % (((e1 - e0) & 0xFFFF) / max(n, 1)))
         nb = (j1[1] - j0[1]) & 0xFFFF
         print("rbwin: recompiler %s - %d blocks translated (%d bytes each), %d flushes in the span"
               % ("on" if j1[2] else "off", nb, ((j1[3] - j0[3]) & 0xFFFF) * 16 // max(nb, 1),

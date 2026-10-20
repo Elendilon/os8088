@@ -852,6 +852,9 @@ gbprof's script take the same events and skip the same M-cycles either way.
   Land and from 7.19 to 6.91 on Super Mario Land. `tools/gbprof/gbrmw.asm`
   (`gbcpu`) runs them on WRAM and on TMA and must see the two agree.
 - A template over 80 bytes is the interpreter's: LD (nn),SP.
+- `LD (C),A` and `LD A,(C)` have templates of their own (rbgen's JIT arm):
+  C 80h and up is HRAM, one access through SS with SI = C, and only I/O and
+  IE take the general path.
 - A memory template keeps the slow path's stub BEFORE the fast access, so
   the common case takes one jump and none over the stub; the 286 here is
   bound by fetching code bytes, so a jump and its bytes are the cost. The
@@ -933,7 +936,13 @@ forced on, it went from 61.7% of real time to 45.3% (counting again from
 `RB_JITHOT - 16`) and 19.8% (`- 1`), with 22 and 83 flushes in 30 seconds
 against 6 - a working set bigger than the cache refills it at once after
 every flush when nothing has to earn its place again. RAM is never translated - the interpreter's own
-control transfers stay in the interpreter there (`JDISPATCH`). **With no
+control transfers stay in the interpreter there (`JDISPATCH`) - **but HRAM
+is** (FF80-FFFE, `tr_hram`), where games keep their OAM DMA routine and
+thunks such as Looney Tunes' `LD (DE),A / RET` that a `RST` jumps to in a
+copy loop: an HRAM block is at most 16 bytes and is entered through a GUARD
+(`rt_guard`) that compares its bytes with HRAM as it is now, and a block
+whose bytes changed is forgotten (`tr_stale`) and its code interpreted.
+`gbrmw` rewrites a routine there once it has been translated. **With no
 recompiler** - an 8088, no memory for the cache, or Machine > Recompiler off
 - `rt_dispatch` writes the plain dispatch over the first five bytes of all
 45 `JDISPATCH` sites (rbtmpl.py lists them), so the interpreter is the one

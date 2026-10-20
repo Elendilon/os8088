@@ -33,7 +33,8 @@
 ;   - a store that took an interrupt (rb_irqnow moves SI: the store is
 ;     guarded with SI = the next PC, and left by when it moved), or that
 ;     switched the bank under a block running from 4000-7FFF.
-; RAM is never translated: tr_enter interprets a PC at 8000h or above.
+; RAM is never translated but HRAM, behind a guard of its own bytes
+; (tr_hram, rt_guard): tr_enter interprets a PC at 8000h-FF7Fh.
 ; =============================================================================
 
 %include "rbcore.inc"
@@ -61,6 +62,9 @@ RT_OP           equ JIT_BUF + 93h   ; byte: the opcode
 RT_T            equ JIT_BUF + 94h   ; word: a jump's target
 RT_IDLE         equ JIT_BUF + 96h   ; byte: rt_idle's answer for it
 RT_V16          equ JIT_BUF + 9Ah   ; word: what rt_tmpl writes at IMM16
+RT_ENT          equ JIT_BUF + 9Ch   ; word: the block's entry (its guard's)
+RT_GLEN         equ JIT_BUF + 9Eh   ; byte: its control transfer's bytes
+RT_HMAX         equ 16              ; an HRAM block's bytes at most (rt_guard)
 RT_PEND         equ JIT_BUF + 98h   ; word: M-cycles of PURE templates not yet
                                     ;   taken off BP (rt_flushbp)
 RT_LOOP         equ JIT_BUF + 0A0h  ; 16: a spin-wait's body, for rt_idle
@@ -231,6 +235,9 @@ rt_translate:
     mov bx,[S_VIEW]
     cmp si,4000h
     jb .reg
+    mov cx,0FFFFh                   ; FF80-FFFE, HRAM (16.3)
+    cmp si,8000h
+    jae .reg
     mov cx,8000h
     mov bx,[S_ROMX]
 .reg:
@@ -239,6 +246,12 @@ rt_translate:
     jbe .n
     mov cx,80h
 .n:
+    cmp si,8000h                    ; HRAM: 16 bytes at most, for its
+    jb .n2                          ;   guard (rt_guard)
+    cmp cx,RT_HMAX
+    jbe .n2
+    mov cx,RT_HMAX
+.n2:
     mov [RT_N],cx
     push ds
     pop es
@@ -256,6 +269,7 @@ rt_translate:
     mov word [RT_IX],0
     mov word [RT_CNT],0
     mov word [RT_PEND],0
+    mov byte [RT_GLEN],0
 .next:
     mov bx,[RT_IX]
     cmp word [RT_CNT],RT_MAXI
@@ -290,6 +304,7 @@ rt_translate:
     mov cx,RT_CTL + 4
     call rt_room
     jc .restart
+    call rt_glen
     call rt_flushbp
     mov ax,[RT_IX]
     add ax,[RT_PC0]                 ; AX = the instruction's PC
@@ -304,6 +319,14 @@ rt_translate:
     add ax,[RT_PC0]
     call rt_exit_or                 ; on to the next PC, checking BP
 .done:
+    mov ax,[RT_START]
+    mov [RT_ENT],ax
+    cmp word [RT_PC0],8000h         ; HRAM: entered through its guard
+    jb .dn
+    call rt_guard
+    jnc .dn
+    jmp .restart
+.dn:
     mov [S_JITPTR],di
     mov ax,di                       ; (stat: the block's bytes, / 16 - a
     sub ax,[RT_START]               ;   range move inside it reads high)
@@ -318,7 +341,7 @@ rt_translate:
     mov es,[S_JITHSEG]
     mov [es:JIT_HASH+bx],si
     mov [es:JIT_HASH+bx+2],dl
-    mov ax,[RT_START]
+    mov ax,[RT_ENT]
     mov [es:JIT_HASH+bx+4],ax
     mov [S_JITOUT],ax
     inc word [S_JITNB]
@@ -331,6 +354,100 @@ rt_translate:
     mov al,[S_JITBK]
     mov [JIT_BUF+0C2h+bx],al
 %endif
+    ret
+
+; rt_glen - [RT_GLEN] = the bytes of the control transfer at [RT_OP]: JR and
+; JR cc 2, JP, JP cc, CALL and CALL cc 3, the rest 1
+rt_glen:
+    mov al,[RT_OP]
+    mov cl,2
+    cmp al,40h
+    jb .g
+    mov cl,1
+    cmp al,0C0h
+    jb .g
+    mov ah,al
+    and ah,7
+    cmp ah,2
+    je .g3
+    cmp ah,4
+    je .g3
+    cmp al,0C3h
+    je .g3
+    cmp al,0CDh
+    jne .g
+.g3:
+    mov cl,3
+.g:
+    mov [RT_GLEN],cl
+    ret
+
+; rt_guard - an HRAM block's entry (REALBOY-SPEC 16.3), at ES:DI after its
+; code: its Game Boy bytes compared with HRAM as it is now, a word at a time
+; (a byte for the last of an odd count), then a jump to the code; any that
+; differs goes to tr_stale, which forgets the block. [RT_ENT] = the entry.
+; CF = 1: flushed, the block starts again.
+rt_guard:
+    mov cx,[RT_IX]
+    add cl,[RT_GLEN]
+    adc ch,0
+    push cx
+    shr cx,1
+    inc cx
+    mov ax,9
+    mul cx                          ; (DX: nothing of ours)
+    add ax,12
+    mov cx,ax
+    call rt_room
+    pop cx                          ; CX = the bytes
+    jc .r
+    mov dx,di                       ; the stale way: mov si,PC / jmp tr_stale
+    mov ax,[RT_PC0]
+    call rt_movsi
+    mov ax,RBC_TR_STALE
+    call rt_jmp
+    mov [RT_ENT],di
+    xor bx,bx
+.w:
+    push cx
+    sub cx,bx
+    jbe .j
+    mov ax,8036h                    ; cmp byte/word [ss:PC + n],the bytes
+    cmp cx,1
+    je .b
+    mov ah,81h
+.b:
+    stosw
+    mov al,3Eh
+    stosb
+    mov ax,[RT_PC0]
+    add ax,bx
+    stosw
+    mov ax,[JIT_BUF+bx]
+    cmp cx,1
+    je .b1
+    stosw
+    inc bx
+    inc bx
+    jmp short .jn
+.b1:
+    stosb
+    inc bx
+.jn:
+    mov al,75h                      ; jne the stale way
+    stosb
+    mov ax,dx
+    sub ax,di
+    dec ax
+    stosb
+    pop cx
+    jmp short .w
+.j:
+    pop cx
+    mov ax,[RT_START]               ; the bytes are the block's: its code
+    call rt_jmp
+    clc
+.r:
     ret
 
 ; rt_pick - the instruction at [RT_OP]/[RT_IMM] by its operand: CF = 0 and
@@ -506,6 +623,8 @@ rt_tmpl:
 .bk:
     cmp word [RT_PC0],4000h         ; running from the bank: a store that
     jb .room                        ;   could reach the MBC is checked after
+    cmp word [RT_PC0],8000h         ;   (HRAM: no bank to change under it)
+    jae .room
     test al,1
     jnz .bg
     test al,4

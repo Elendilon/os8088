@@ -572,10 +572,55 @@ xor dl,dl
 sub bp,1
 """)
         s.tail.append("    DISPATCH")
+    elif op == 0xE2 and JIT:                        # LD (C),A, translated:
+        s.a("""
+cmp cl,80h                  ; HRAM is one store through SS; I/O and IE the
+jb .s                       ;   general path, which guards itself as the
+cmp cl,0FFh                 ;   rest of SELFGUARD's do (and cannot reach the
+jne .v                      ;   MBC, so SI alone says whether to leave)
+.s:
+mov [ss:S_TMP],bx
+mov bh,0FFh
+mov bl,cl
+mov si,IMM16
+mov [ss:S_WVAL],al
+mov word [ss:S_RET],.r
+jmp wr_s1
+.r:
+mov bx,[ss:S_TMP]
+cmp si,IMM16
+je .k
+sub bp,2
+jmp tr_enter
+.v:
+mov si,cx
+and si,00FFh
+mov [ss:si+0FF00h],al
+.k:
+sub bp,2""")
     elif op == 0xE2:                                # LD (C),A
         s.a("mov [ss:S_TMP],bx\nmov bh,0FFh\nmov bl,cl")
         s.write8("al", 1)
         s.a("mov bx,[ss:S_TMP]"); zdl(s); s.cyc(2); s.disp()
+    elif op == 0xF2 and JIT:                        # LD A,(C), translated:
+        s.a("""
+cmp cl,80h                  ; HRAM (and IE) is one load through SS; I/O
+jae .v                      ;   the general path
+mov [ss:S_TMP],bx
+mov bh,0FFh
+mov bl,cl
+mov word [ss:S_RET],.r
+jmp rd_s1
+.r:
+mov al,dh
+mov bx,[ss:S_TMP]
+jmp short .k
+.v:
+mov si,cx
+and si,00FFh
+mov al,[ss:si+0FF00h]
+.k:
+sub bp,2""")
     elif op == 0xF2:                                # LD A,(C)
         s.a("mov [ss:S_TMP],bx\nmov bh,0FFh\nmov bl,cl")
         s.read8(1)
@@ -711,16 +756,16 @@ tr_enter:
     inc si
     jmp dx
 .on:
-    cmp si,8000h
-    jae tr_int
+    cmp si,8000h                ; RAM: tr_hram
+    jae tr_hram
     mov [ss:S_SAVBX],bx
     mov bx,si
     mov dl,0FFh
     cmp bh,40h
-    jb .k
+    jb tr_ekey
     mov dl,[ss:S_BANK]
     and dl,[ss:S_BMASK]
-.k:
+tr_ekey:
     mov dh,dl
     xor bl,dl
     mov dl,bh                   ; (PC >> 11 folded in: blocks 2KB
@@ -874,6 +919,40 @@ tr_lsite:
     mov si,dx
     mov si,[cs:si+12]
     jmp tr_link
+; tr_hram: tr_enter for RAM. HRAM (FF80-FFFE) is translated, its blocks
+; guarded (16.3), keyed as bank 0's; the rest of RAM never is
+tr_hram:
+    cmp si,0FF80h
+    jb tr_int
+    mov [ss:S_SAVBX],bx
+    mov bx,si
+    mov dl,0FFh
+    jmp tr_ekey
+; tr_stale: an HRAM block's guard found its bytes changed (16.3): the
+; table's entry for SI counts again from nothing, and the interpreter runs
+; the code as it is now
+tr_stale:
+    mov [ss:S_SAVBX],bx
+    mov bx,si
+    mov dl,bh
+    shr dl,1
+    shr dl,1
+    shr dl,1
+    xor bl,0FFh
+    xor bl,dl
+    and bh,7
+    shl bx,1
+    shl bx,1
+    shl bx,1
+    mov es,[ss:S_JITHSEG]
+    cmp [es:bx+JIT_HASH],si
+    je .z
+    xor bx,8
+.z:
+    mov word [es:bx+JIT_HASH+2],00FFh
+    mov word [es:bx+JIT_HASH+4],0
+    mov bx,[ss:S_SAVBX]
+    jmp tr_int
 """,
     0xEB: """
 ; A translated access's slow path at M-cycle n of its instruction (rbgen's
@@ -1536,7 +1615,7 @@ def template_lines(op, cb):
             out.append("    jmp short .Jend")
     if tail:
         out.append(".Jend:")
-    if not cb and op in SELFGUARD:
+    if not cb and op in SELFGUARD and op != 0xE2:   # (LD (C),A's is its own)
         out = self_guard(out)
     return out
 
