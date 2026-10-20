@@ -61,7 +61,12 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DISPLAY = ":99"
+# THE X DISPLAY this instance owns: $OS88_BOCHS_DISPLAY, ":99" by default.
+# Every process this tool counts or ends is ONE OF ITS OWN - a bochs-bin or a
+# fifo holder whose environment names this display - so two agents (or two
+# terminals) on two displays do not end each other's machine. It used to be
+# `pgrep -x bochs-bin` and `pkill -f "^sleep 86400"`, box-wide.
+DISPLAY = os.environ.get("OS88_BOCHS_DISPLAY", ":99")
 ENV = dict(os.environ, DISPLAY=DISPLAY)
 GEOM = (615, 4, 17)             # a 20MB disk: C/H/S as the BIOS sees it
 
@@ -125,11 +130,27 @@ def shot(path):
 
 
 def xvfb():
-    if subprocess.run(["pgrep", "-x", "Xvfb"],
-                      capture_output=True).returncode != 0:
+    sock = "/tmp/.X11-unix/X" + DISPLAY.lstrip(":").split(".")[0]
+    if not os.path.exists(sock):        # THIS display, not any Xvfb at all
         subprocess.Popen(["Xvfb", DISPLAY, "-screen", "0", "1024x768x24"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(2)
+
+
+def _ours(pid):
+    """Is PID's environment on this instance's display?"""
+    try:
+        with open("/proc/%d/environ" % pid, "rb") as f:
+            env = f.read().split(b"\0")
+    except OSError:
+        return False
+    return ("DISPLAY=" + DISPLAY).encode() in env
+
+
+def _pids(*pgrep):
+    r = subprocess.run(["pgrep"] + list(pgrep), capture_output=True,
+                       text=True)
+    return [p for p in map(int, r.stdout.split()) if _ours(p)]
 
 
 def running():
@@ -137,9 +158,7 @@ def running():
     the screenshots all go to the X display, and with two machines on it they
     land on whichever window is on top - which reads exactly like a guest that
     froze. `bochs` execs `bochs-bin`, so that is the name to look for."""
-    r = subprocess.run(["pgrep", "-x", "bochs-bin"], capture_output=True,
-                       text=True)
-    return [int(p) for p in r.stdout.split()]
+    return _pids("-x", "bochs-bin")
 
 
 def dbg(out, cmds):
@@ -159,7 +178,8 @@ def dbg(out, cmds):
 
 
 def stop():
-    subprocess.run(["pkill", "-f", "^sleep 86400"])
+    for p in _pids("-f", "^sleep 86400"):
+        os.kill(p, 15)
     for p in running():
         os.kill(p, 15)
     end = time.time() + 10
@@ -258,7 +278,7 @@ class Box(object):
                                   stdout=self.f, stderr=subprocess.STDOUT,
                                   env=ENV)
         self.hold = subprocess.Popen("exec sleep 86400 > '%s'" % fifo,
-                                     shell=True)
+                                     shell=True, env=ENV)
         with open(fifo, "w") as fh:
             fh.write("c\n")
 

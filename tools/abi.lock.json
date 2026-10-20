@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "a8629cdb97d265c99d43359cb7d027f16326607fe60457a4cdb82f6189522afd",
+  "fingerprint": "68f19de46d44c41dd71fd03ff26c41072332050914d6445f2044e09e5c2bbbb0",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "4dca6b2ede826a2cd784f27f1e44a56c3b3c2ea956c97c09d90ca5583eb5d760",
+  "fingerprint": "f5b159d1ad70696010bc8ff3bcfd4c31181811df659dfc7c409da101866ae7ff",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -556,14 +556,28 @@
    "to": 11
   },
   {
-   "fingerprint": "4dca6b2ede826a2cd784f27f1e44a56c3b3c2ea956c97c09d90ca5583eb5d760",
+   "fingerprint": "b837a7e2e60bdbdbd99a422f7c8af83121e44a41a467111a19a29e22a503350e",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_HUGE: kern_mega moves and regrows pool runs (KERN-MEGA-PLAN 14.37); XMEM_WALK owner FDh documented - a contract clarified, nothing built before changes",
+   "to": 10
+  },
+  {
+   "fingerprint": "bd15b2e138bbf1e2b6570b92a551193252063e692ba5171db7cfec69d66fa86f",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_HUGE: kern_mega moves and regrows pool runs (KERN-MEGA-PLAN 14.37); XMEM_WALK owner FDh documented - a contract clarified, nothing built before changes",
+   "to": 11
+  },
+  {
+   "fingerprint": "f5b159d1ad70696010bc8ff3bcfd4c31181811df659dfc7c409da101866ae7ff",
    "from": 10,
    "guard": "PKG_FMT",
    "reason": "OSAPI_MEM_SUBSEG (0x04BD) appended, and OS88_HIGH's comment: a re-homed program may say it in its own header (KERN-MEGA-PLAN 14.44) - additive, every package built before still runs",
    "to": 10
   },
   {
-   "fingerprint": "a8629cdb97d265c99d43359cb7d027f16326607fe60457a4cdb82f6189522afd",
+   "fingerprint": "68f19de46d44c41dd71fd03ff26c41072332050914d6445f2044e09e5c2bbbb0",
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_MEM_SUBSEG (0x04BD) appended, and OS88_HIGH's comment: a re-homed program may say it in its own header (KERN-MEGA-PLAN 14.44) - additive, every package built before still runs",

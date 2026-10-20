@@ -15,4 +15,7 @@
 # 2026-10-20: 5,931 at the end of W2/W3 (was 17,299 before `.mega`)
 # 2026-10-20: +4, mega_putsf - mega_tell's lines are kernel DATA, which
 #             `.mega`'s CS cannot read, so they go to E9 through the low writer
-5935
+# 2026-10-20: -4, KERN-MEGA-PLAN 14.39 - MOUPRIV_ENTER sets SS on every
+#             kernel, which costs kern_big an entry byte twice over and two
+#             parity pads that kern_mega's same-size entry does not need
+5931

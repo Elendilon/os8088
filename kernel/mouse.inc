@@ -371,36 +371,38 @@ MOU_PSTK    equ 128             ; 2.4x the 54 the chain measures on the deepest
                                 ; is against a future cur_move rather than
                                 ; against an unknown
 
+mou_lowss   dw LOW_SEG          ; `mov ss` takes memory and no register
 %macro MOUPRIV_ENTER 0
  %ifdef KERN_MEGA                ; kern_mega: code is read-only, so through the
     push ds                     ; data alias - and the SP banked is the one
     mov ds, [cs:k_dsel]         ; from BEFORE this push, which is what LEAVE
     mov [mou_psave], sp         ; must restore. `add` writes FLAGS, and at an
     add word [mou_psave], 2     ; ISR's first instructions nobody's FLAGS are
-    pop ds                      ; live: the interrupted code's are on the stack
+    mov [mou_pss], ss           ; live: the interrupted code's are on the stack
+    pop ds
  %else
-    mov [cs:mou_psave], sp      ; taken BEFORE the push below, so LEAVE's
+    mov [cs:mou_psave], sp      ; the interrupted SS:SP, banked with no
+    mov [cs:mou_pss], ss        ; register (SPEC.md 9.10.1)...
  %endif
-    push ax                     ; restore lands on the un-pushed SP either way
-    mov ax, ss
-    cmp ax, LOW_SEG             ; **ONLY ON A TASK STACK.** SS is LOW_SEG for
-    pop ax                      ; every os8088 context (SPEC.md 1/2.1) - but
-    jne %%noswap                ; not inside a ROM service that switched
-    mov sp, mou_pstack + MOU_PSTK   ; stacks, and the kernel calls two with
-%%noswap:                       ; IF=1: int 13h (which SPEC.md 7.4 makes the
-%endmacro                       ; DESIGNED case for this ISR) and int 16h on
-                                ; every ui_task pass. SeaBIOS serves both on an
-                                ; internal stack in a segment of its own, so a
-                                ; swap of SP alone there ran this whole body
-                                ; at SS:mou_pstack in the ROM's segment -
-                                ; whatever happened to be there. The IBM ROMs
-                                ; do not hop, so the target machine was never
-                                ; affected; the swap simply stays off where it
-                                ; would be wrong, and that gate runs on the
-                                ; interrupted stack as it did before 9.10.
-                                ; Seven bytes and ~20 clocks a gate
+    mov ss, [cs:mou_lowss]      ; ...and SS:SP become LOW_SEG:mou_pstack,
+    mov sp, mou_pstack + MOU_PSTK   ; whatever SS was. It is LOW_SEG for every
+%endmacro                       ; os8088 context (SPEC.md 1/2.1) - but not
+                                ; inside a ROM service that switched stacks,
+                                ; and the kernel calls two with IF=1: int 13h
+                                ; (which SPEC.md 7.4 makes the DESIGNED case
+                                ; for this ISR) and int 16h on every ui_task
+                                ; pass. SeaBIOS (QEMU, Bochs) serves both on an
+                                ; internal stack in a segment of its own. The
+                                ; body reaches .lowbss through SS - gfx_rowbase's
+                                ; vid_rowtab, evq_push's queue - so a body left
+                                ; on that stack read and wrote the ROM's
+                                ; segment. SS is set rather than tested, which
+                                ; is one byte more at each entry and no compare
+                                ; (KERN-MEGA-PLAN 14.39). The IBM ROMs do not
+                                ; hop, so the target machine was never affected
 %macro MOUPRIV_LEAVE 0
-    mov sp, [cs:mou_psave]
+    mov ss, [cs:mou_pss]        ; IF = 0, and `mov ss` holds off even an NMI
+    mov sp, [cs:mou_psave]      ; for the next instruction
 %endmacro
 %else
 %macro MOUPRIV_ENTER 0
@@ -2209,6 +2211,11 @@ mou_p2_isr:
     jmp mou_eoi                 ; owes both controllers an EOI - mou_eoi is the
                                 ; master's and the serial ISR's own epilogue,
                                 ; so the frame above is pushed in its order
+%ifndef NO_MOUPRIV
+ %ifndef KERN_MEGA              ; (kern_mega's entry is the size it was)
+    nop                         ; PARITY PAD, never executed (KERN-MEGA-PLAN
+ %endif                         ; 14.39): MOUPRIV_ENTER grew a byte above
+%endif
 
 ; -----------------------------------------------------------------------------
 ; mou_p2_byte - one byte from the auxiliary device
@@ -3438,6 +3445,7 @@ mou_isr3:                       ; PORT has the byte - that is scanned for
                                 ; switch below is ONE copy for both doors
 mou_isr_body:
     MOUPRIV_ENTER               ; docs/plans/completed/STACK-SLOTS-PLAN.md 4.2:
+.priv:
     push bx                     ; onto a private stack, before anything is
     push ax                     ; pushed
     push cx
@@ -3490,6 +3498,11 @@ mou_isr_body:
     cmp bx, MOU_PEND
     jb .scan
     jmp mou_eoi
+%ifndef NO_MOUPRIV
+ %ifndef KERN_MEGA
+    nop                         ; PARITY PAD, never executed (14.39, as above)
+ %endif
+%endif
 
 ; -----------------------------------------------------------------------------
 ; mou_byte - one received byte, from port BX
@@ -4022,6 +4035,9 @@ mou_eoi:
     pop bx
     MOUPRIV_LEAVE               ; ...and back to the task's, whose only cost
     iret                        ; was the CPU's own six bytes
+%ifndef NO_MOUPRIV
+    nop                         ; PARITY PAD, never executed (14.39: LEAVE
+%endif                          ; grew five)
 
 %ifdef GFXAUDIT
 ; cur_logput - one ring entry: the tag, the refcount, and where the pixels are
@@ -6149,6 +6165,7 @@ mou_pstack  resb MOU_PSTK       ; the mouse ISR's own stack (MOUPRIV_ENTER).
 section .bss
 mou_psave   resw 1              ; the task's SP across it, reached through CS at
                                 ; entry because DS is not ours yet
+mou_pss     resw 1              ; ...and its SS (SPEC.md 9.10.1)
 %endif
 %ifdef KERN_BIG
 mou_whl     resw 1              ; the WHEEL, notches owed, signed, positive

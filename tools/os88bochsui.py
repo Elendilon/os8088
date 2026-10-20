@@ -25,7 +25,7 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ENV = dict(os.environ, DISPLAY=":99")
+ENV = dict(os.environ, DISPLAY=os.environ.get("OS88_BOCHS_DISPLAY", ":99"))  # os88bochs.py's
 
 
 def xd(*a):
