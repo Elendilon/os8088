@@ -135,18 +135,23 @@ def window_px(ui, m, kind):
 
 
 def fullscreen(ui, m, view, want):
-    """Machine > Full Screen: mode 0Dh, the picture at (80, 28) in 320x200."""
+    """Machine > Full Screen: mode 0Dh with its display cut to the picture
+    (REALBOY-SPEC 15): the picture at (0, 0) of the raster as MartyPC draws
+    it, from the display's start - the centring is the sync's, which a
+    frame buffer cannot show."""
     ui.menu_pick("Machine", "Full Screen")
     M.guest_sleep(m, 3)
     W, H, data = m.fbuf(0)
     if W < 320 or H < 200 or W >= 640 and H >= 480:
         return "no full-screen mode: the frame is %dx%d" % (W, H)
+    if os.environ.get("GBWIN_SAVE"):
+        M.write_png_rgb(os.environ["GBWIN_SAVE"] + "-fsx-glass.png", W, H, data)
     sx, sy = W // 320, H // 200             # MartyPC may double the mode
-    px = [tuple(data[(((28 + y) * sy) * W + (80 + x) * sx) * 3:
-                     (((28 + y) * sy) * W + (80 + x) * sx) * 3 + 3])
+    px = [tuple(data[((y * sy) * W + x * sx) * 3:
+                     ((y * sy) * W + x * sx) * 3 + 3])
           for y in range(144) for x in range(160)]
     if len(set(px)) > 4:                    # the border's colour is in there
-        return "full screen: the picture is not at (80, 28) - %d colours in its rect" % len(set(px))
+        return "full screen: the picture is not at (0, 0) - %d colours in its rect" % len(set(px))
     got = shades_vga(px)[0]
     err = compare("vga", got, want, "vga full screen (%dx%d)" % (W, H))
     if os.environ.get("GBWIN_SAVE"):

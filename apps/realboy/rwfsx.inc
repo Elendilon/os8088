@@ -29,9 +29,9 @@
 
 RW_FSDIV        equ 19977           ; 1,193,182 / 59.7275: a period a frame
 RW_FSSKIP       equ 4               ; frames run undrawn at most, behind
-RW_FSX          equ 10              ; the picture's byte column (x = 80)
-RW_FSY          equ 28              ; ...and its first row
-RW_FSTXT        equ 182             ; the speed line's row
+RW_FSX          equ 0               ; the picture's byte column and first row:
+RW_FSY          equ 0               ;   the top left of the CRTC's window
+RW_FSTXT        equ 146             ; the speed line's row, inside the window
 RW_FSVGA        equ 0               ; rw_fskind: the writers
 RW_FSHERC       equ 1
 RW_FSCGA        equ 2
@@ -227,6 +227,7 @@ rw_fsmain:
     cmp byte [rw_fskind], RW_FSVGA
     jne .mono
     call rw_fsdac
+    call rw_fscrtc
     call rw_fsframe
     call rw_dmgfull                 ; every line of the first frame
     jmp short .in
@@ -382,6 +383,50 @@ rw_fsdac:
     out dx, al
     loop .d
     ret
+
+; rw_fscrtc - mode 0Dh's DISPLAY cut to the picture (REALBOY-SPEC 15): 160
+; pixels by 154 rows - the 144 of the picture, a gap and the speed line's 8 -
+; from VRAM offset 0, centred by moving the blanking and the retraces, the
+; border around it the card's OVERSCAN in the border's grey (index 4). The
+; total, the sync widths and so every frequency are mode 0Dh's own: only
+; where the sync falls against the picture moves. It is what lets the
+; picture move in VRAM under a fixed window (the start address and the pel
+; panning, SPEC.md 53.7: the bracket's mode is the app's to program); the
+; exit's mode set puts back all of it.
+rw_fscrtc:
+    mov dx, 3D4h
+    mov al, 11h                     ; CR11: unlock CR0-CR7 (bit 7)
+    out dx, al
+    inc dx
+    in al, dx
+    and al, 7Fh
+    out dx, al
+    dec dx
+    mov si, rw_fscrv
+    mov cx, (rw_fscrve - rw_fscrv) / 2
+.c:
+    lodsw                           ; AL = the index, AH = the value
+    out dx, ax
+    loop .c
+    mov dx, 3DAh                    ; the attribute controller's flip-flop
+    in al, dx
+    mov dx, 3C0h
+    mov al, 31h                     ; AR11, the overscan (with the display
+    out dx, al                      ;   left on, bit 5)
+    mov al, 4                       ; ...the border's grey
+    out dx, al
+    ret
+rw_fscrv:   db 01h, 13h             ; horizontal display end: 20 chars
+            db 02h, 1Fh             ; start blank, 9 chars earlier
+            db 03h, 87h             ; end blank (39: bit 5 in CR05)
+            db 04h, 22h             ; start retrace, 9 earlier
+            db 05h, 89h             ; end retrace (41), end blank bit 5
+            db 12h, 33h             ; vertical display end: 307 (154 x 2)
+            db 15h, 68h             ; start blank 360, 46 lines earlier
+            db 16h, 8Bh             ; end blank 395
+            db 10h, 6Eh             ; start retrace 366
+            db 11h, 80h             ; end retrace (368), CR0-CR7 locked again
+rw_fscrve:
 
 ; rw_fsframe - plane 2 set everywhere but the picture: the border
 rw_fsframe:

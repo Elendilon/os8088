@@ -794,13 +794,21 @@ every draw, as a turn of frames on an 8088 is longer than a key press.
   and yields until `[rw_incore]` is clear. The worker raises its byte BEFORE
   it reads ours, so once ours is set and its is seen clear, every later entry
   of its sees ours.
-- **The screen** is mode 0Dh, 320x200 planar, with the picture at 1x at
-  (80, 28). `rb_renderd`'s two shade planes go to VGA planes 0 and 1 as they
-  are, a `rep movsw` for each line it changed. It already compared them, so
-  the RAM shadow this writer once kept was a second comparison of the same
-  bytes. Plane 2 is set everywhere but the picture: the border is DAC
-  entry 4, and F1's speed line over it, in glyphs copied before the mode
-  (`OSAPI_FONT_GLYPHS`), entry 7. Shades 0-3 are DAC 0-3, greys. The DAC is
+- **The screen** is mode 0Dh, 320x200 planar, with its DISPLAY cut to the
+  picture (`rw_fscrtc`): 160 pixels by 154 rows from VRAM offset 0 - the
+  picture at 1x, a gap and the speed line's row - centred by moving the
+  blanking and the retraces, with the total, the sync widths and every
+  frequency mode 0Dh's own. The border around it is the card's OVERSCAN
+  (AR11) in DAC entry 4's grey. It is what lets the picture move in VRAM
+  under a fixed window (SPEC.md 53.7: a bracket's own mode is the app's to
+  program, and the exit's mode set puts it all back); an emulator's frame
+  buffer cannot show the centring, which is the sync's, so a real monitor
+  is the check. `rb_renderd`'s two shade planes go to VGA planes 0 and 1 as
+  they are, a `rep movsw` for each line it changed. It already compared
+  them, so the RAM shadow this writer once kept was a second comparison of
+  the same bytes. Plane 2 is set under the gap and the speed line's row,
+  entry 4 like the overscan, and F1's speed line is drawn there in glyphs
+  copied before the mode (`OSAPI_FONT_GLYPHS`), entry 7. Shades 0-3 are DAC 0-3, greys. The DAC is
   ours in there; the restore's BIOS mode set puts the desktop's back.
 - **The clock** is `FSXF_RATE` at the Game Boy's own 59.7275 Hz (PIT divisor
   19,977): the hook counts frames owed and does nothing else. The loop runs
