@@ -14085,6 +14085,24 @@ SOAK = [
         "MEGACSL (tests/megacsw) is one on purpose. 240s is 199 measured, "
         "the tree's build included",
         needs=("bochs", "nasm")),
+    Row("megaflt", "soak", py("tests/megaflt.py"), 110.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.42: on kern_mega a fault in a "
+        "PACKAGE closes that package and not the machine. Under Bochs (a "
+        "286's segment checks), MEGARUN starts tests/megaflt's seven builds: "
+        "#UD in a timer callback, a worker holding the gfx lock reading past "
+        "its segment, #DE inside an fsx bracket with a mode set, #GP with a "
+        "claim, a timer and a tone held, #GP in the entry proc, #UD in a wake "
+        "that took the lock - each must be CLOSED for its vector, give back "
+        "what it held (the next one's entry sees the same free memory) and "
+        "leave the machine running: the control started last must answer a "
+        "key and a click from the host. The failing case is a `ret` at the "
+        "top of mega_fkill, which makes the first one fatal. 110s is 102 "
+        "measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/flta.o88", "build/fltb.o88", "build/fltc.o88",
+               "build/fltd.o88", "build/flte.o88", "build/fltf.o88",
+               "build/fltz.o88")),
     Row("mousess", "soak", py("tests/mousess.py"), 20.0,
         "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "
         "it interrupted. SeaBIOS serves int 13h and int 16h on a stack of its "

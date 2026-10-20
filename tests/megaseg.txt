@@ -18,4 +18,7 @@
 # 2026-10-20: -4, KERN-MEGA-PLAN 14.39 - MOUPRIV_ENTER sets SS on every
 #             kernel, which costs kern_big an entry byte twice over and two
 #             parity pads that kern_mega's same-size entry does not need
-5931
+# 2026-10-20: +4, KERN-MEGA-PLAN 14.42 - mega_tcall, `call bp / retf`: how
+#             mega_fkdo and mega_fkill (`.mega`) reach the near .text routines
+#             a forced close is made of (gfx_lock, inst_unwin, wm_hide, ...)
+5935
