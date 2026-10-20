@@ -615,8 +615,13 @@ it changed), and AX holds the count.
   regardless. The shadows are copied instead of compared and every line is
   composed, and `ppu_dput` still writes only those that differ. While it
   scrolls the shadows are not even taken (`RB_DSTALE`): the first still
-  frame after it is composed whole once more and takes them (a stale shadow
-  could only make a call compose more, never less). The bare harness's
+  frame after it takes them, and is COMPARED like any other - a stale
+  shadow can only make a call compose more, never less, so what it finds
+  changed is a line too many and never one too few. It was composed whole
+  until the rolling-background round (13.3), which made a game whose
+  camera moves every other frame pay a whole frame for every still one:
+  Kirby's Dream Land in play 50.67 -> 48.75 ms a frame on `286-victory`,
+  Super Mario Land unchanged. Scrolling alone keeps it whole (below). The bare harness's
   MODE 7 (`rbbench.py --renderd`, the package's composer timed) read a
   scrolling Super Mario Land's frame, the CPU with it, 26.32 ms before and
   24.40 after on `286-victory`.
@@ -633,7 +638,10 @@ it changed), and AX holds the count.
   one draw; `RB_DFULL` = 1 composes both. **Scrolling** (2) defers a parity
   only in a scroll's whole frame (`RB_DFULL` = 2) - where every line changes
   and the picture is moving anyway - so a still picture is every line's,
-  the moment the scroll stops. A still frame after an interlaced call that
+  the moment the scroll stops. The first still frame after a scroll is
+  whole and halved here too, as before 13.3's round: half of a whole is
+  less than half of what a comparison finds and judges, and compared it
+  cost Kirby's Dream Land 38.95 -> 39.55 ms. A still frame after an interlaced call that
   deferred nothing exits as it would without interlace (`PPU_PANY`); it
   walked all 144 lines every draw until the fourth field run's round. It halves the composition of a picture
   that changes everywhere, a scroll above all, at a price the requester
@@ -649,15 +657,18 @@ it changed), and AX holds the count.
   scroll did not move (`PPU_LSCR`, each line's SCY:SCX at the last call;
   Super Mario Land's status bar) is composed whole, as it would otherwise
   lose its detail or, left alone, show half of two digits for as long as
-  the scroll lasts - and the still frame after a scroll, whose whole is the
-  shadows taken again (`RB_DSTALE`), defers nothing. It writes the card as
+  the scroll lasts - and the still frame after a scroll (`RB_DSTALE`) is
+  compared and defers nothing. It writes the card as
   much as Off does, which is what it costs against Scrolling. Drawing
   every frame on the Victory twin, a frame:
 
   | | Off | Scrolling | Doubled |
   |---|---|---|---|
-  | Super Mario Land (CPU alone 6.18 ms) | 24.35 ms | 19.13 ms | 21.88 ms |
-  | Kirby's Dream Land (15.38 ms) | 50.67 ms | 38.59 ms | 45.54 ms |
+  | Super Mario Land (CPU alone 6.18 ms) | 22.70 ms | 18.54 ms | 21.01 ms |
+  | Kirby's Dream Land (15.38 ms) | 48.88 ms | 39.04 ms | 45.22 ms |
+
+  (After 13.3's rolling-background round; before it, 24.35 / 19.36 /
+  21.88 and 50.67 / 38.95 / 45.54.)
 - **WHOLE**: a frame composed whole (`RB_DFULL`, and no parity deferred)
   judges no line - it keeps each line's registers for the next call, as
   `ppu_ldirty` would, and composes. The CPU and `rb_renderd` every frame
@@ -741,6 +752,72 @@ which is exact here: the same build gives the same ticks):
 - **Refused**: testing a sprite's priority bit once a row instead of once
   a byte (two put routines): a few cycles, and a tail the stack checker
   cannot read.
+
+**The rolling-background round** (REALBOY-PLAN lever 6, the owner's form:
+the background kept wider than the screen and copied at the scroll's
+offset) was measured before it was built, and what it would cost is the
+scan. Every scrolled frame would have to run `ppu_dscan` to keep the image
+current, which `rb_renderd` skips there today: **+2.4 ms a scrolled frame
+in Super Mario Land**, against ~1.5-2 ms of tile lookups the image takes
+away (`ppu_list` and the address load before each tile row - the shift
+itself stays, the card cannot do it for free, 15.3). A net loss for Super
+Mario Land and ~5% for Kirby's Dream Land at best, so it was not built.
+What the measurement found instead, each timed alone, drawing every frame
+with interlace Off:
+
+- **Kept**: the still frame after a scroll is compared, not composed whole
+  (13.2, `RB_DSTALE`). Kirby's Dream Land 1,107 -> 1,065 ticks (50.67 ->
+  48.75 ms a frame), Super Mario Land unchanged. Composing it whole was
+  never needed for correctness - a stale shadow only over-reports - and
+  taking the scan away from that frame instead fails `gbdamage` (Super
+  Mario Land 3 frames, Kirby's Dream Land up to 56 frames differ), which is
+  the negative control.
+- **Kept**: a line whose 21 tile addresses are ONE tile (a sky) is that
+  tile's row, turned by the fine scroll, stored 20 times as two `rep
+  stosw` - asked once a map row in `ppu_list` (`[BP+42]`, a `repe scasw`
+  over the list it has just built), not once a line. 44% of Super Mario
+  Land's playfield lines are one tile. Super Mario Land 532 -> 496 ticks
+  (24.35 -> 22.70 ms, **-6.8%**), Kirby's Dream Land 1,065 -> 1,068.
+- **Refused**: the same idea a segment at a time. 67% of Super Mario Land's
+  bytes on a line that is not all one tile are in runs whose two tiles are
+  one (32% of Kirby's Dream Land's), so the line was cut into fills and
+  shifts (`ppu_lsegs`, `ppu_fseg`) wherever the fills were most of it.
+  The frames were identical and both games got slower: Super Mario Land
+  496 -> 520 ticks, Kirby's Dream Land 1,068 -> 1,123 - and 515 / 1,120
+  with the gate tightened to 16 filled bytes in at most 3 segments. On a
+  286 the segment loop's per-byte and per-segment overhead and the cut
+  itself cost more than the shifts saved; `ppu_fshift`'s unrolled bytes
+  are the floor for a line of mixed tiles.
+
+**With the recompiler's round beside it** (the `gameboy-static` branch:
+fewer events, a 64KB block table, VRAM marked as it is written, the shift
+right past 4), the two sets STACK: from 532 / 1,107 ticks for Super Mario
+Land / Kirby's Dream Land, this round took 36 / 39 and that one 43 / 82, and
+merged they read 451 / 970 against the 453 / 986 the sum predicts. Then,
+profiled again (Kirby's Dream Land: the sprites 20.6% of the machine, the
+card 14.3%; Super Mario Land: the sprites 8%, the card 14.4%, no
+instruction over 1.6%):
+
+- **Kept**: `ppu_oam` builds the line lists again only when a sprite's Y
+  moved (`PPU_OAMY`, the 40 Ys it built from) - they hang on nothing else,
+  and a scroll moves every X and no Y. 451 / 970 -> 449 / 965. **No row can
+  see this one go wrong**: the A/B frames and dmg-acid2 compose one frame
+  each, so the lists are always built once, and `gbdamage`'s reference
+  shares `PPU_LSPR` with the composer it checks - it rests on the build
+  reading the Ys alone, and on nothing else writing the lists.
+- **Kept**: `ppu_sprites` counts in registers - DI's distance into
+  `PPU_SPR` is the sprites found, a list end in `PPU_TMP` replaces a
+  decremented byte, LY + 16 is DH - and draws to BP's end without saving
+  CX around each call. -> 448 / 959.
+- **Kept**: `ppu_dvga` takes 40 x the line from `ppu_dput` instead of
+  multiplying again. -> 448 / 957 (20.51 / 43.80 ms a frame).
+- **Refused**: writing each plane's span from the first word that differs
+  to the last (a backward `repe cmpsw` for the last) instead of all twenty.
+  475 / 1,017: the bookkeeping is ~135 clocks a line and the writes it
+  saves are cheaper than that on the Victory twin's card.
+- **Refused**: dropping a write of what is there in the interpreter's
+  `rb_iowrite`, as the recompiler's `io_wr` already does (REALBOY-PLAN
+  lever 7): level with the recompiler off, 561 ticks either way.
 
 
 ## 14. The package
