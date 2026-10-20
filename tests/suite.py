@@ -2661,6 +2661,16 @@ SOAK = [
         "SOAK: one package",
         needs=("marty", "nasm", "rgbds"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
+    Row("gbspeed", "soak", py("tests/gbspeed.py"), 32.0,
+        "REALBOY.O88's Machine > Speed (docs/REALBOY-SPEC.md section 15.2) on "
+        "MartyPC's VGA XT, against CLOCK0.GB (tools/gbclock.py's do-nothing "
+        "variant, ours): ~100% of a Game Boy's frames at the default, 75% after "
+        "two picks, and 75% again with the window closed and the game opened "
+        "anew - kept for the game in REALBOY.CFG. Without the clock's scaling "
+        "the 75% reads 101%, without rw_spdgame the reopened game 103%. "
+        "SOAK: one package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("gbsave", "soak", py("tests/gbsave.py"), 40.0,
         "REALBOY.O88's battery RAM and MBC3 clock (docs/REALBOY-SPEC.md "
         "section 10.1) on MartyPC's VGA XT, against GBSAVE.GB (tools/gbours.py, "

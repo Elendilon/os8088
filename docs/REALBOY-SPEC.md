@@ -960,6 +960,33 @@ going into or out of full screen, make the next draw due at once
 The window and full screen keep the same rules. In full screen, Esc and
 Alt+Enter are also looked for after each draw.
 
+**Machine > Speed: 100%, 90%, 75%, 60%, 50% - a rate, not a floor.** The
+game runs to a clock scaled by 256ths (`rw_spdtab`: 256, 230, 192, 154,
+128): the window's frames a BIOS tick are `RW_PERTICK` x that / 256
+(`rw_pertick`), and the full screen's rate periods are multiplied by it
+with the 256ths left over kept for the next (`rw_fsowed`, `rw_fsfrac`).
+100% is exactly the clock before it. So 75% is three Game Boy frames to
+every four periods, steady, and everything the game no longer uses goes to
+the picture by the rules above: Kirby's Dream Land's game alone is 92% of
+the Victory at 100% (section 13.3), so it cannot hold its speed and its
+picture both, and at 75% it holds 75% and draws with the rest. F4 is
+Speed's next, in the window and full screen alike, and says it
+(`rw_note`).
+- **Machine > Sound: On, At 100% only, Off.** The speaker plays the game's
+  own note every frame (section 17), so a game slowed plays its tune at the
+  same pitch and a slower tempo; At 100% only is silent below 100%.
+- **Both are the game's**, remembered in REALBOY.CFG version 2: a count at
+  +4 and, from +8, `RW_CFGGN` (32) entries of four bytes, the latest first
+  - the header's 014Dh byte and 014Eh word (as a profile's name takes
+  them), then Speed in bits 0-2 and Sound in 3-4 (`rw_cfgrec`). A game
+  opened (`rw_spdgame`) takes its entry; one with none keeps what was
+  chosen before it, kept for it at its first change. The menu writes the
+  file at once; F4's change is the UI task's to write (`[rw_spdq]`,
+  `rw_onwake`), the worker that sees it not being allowed a file.
+- `tests/gbspeed.py` is the gate: CLOCK0.GB on MartyPC at ~100%, at 75%
+  after two picks, and at 75% again opened anew. Without the clock's
+  scaling it reads 101%; without `rw_spdgame` the reopened game 103%.
+
 ### 15.3 Hardware scroll: built, measured and refused
 
 VGA full screen was written a second time (commit a2af224e) to follow the
@@ -1137,8 +1164,11 @@ code the first has no room for, before anything is flushed:
   Without the memory there is one segment.
 - **Machine > Cache: 64K / 128K** asks for it for every game, whatever its
   profile says (greyed on an 8088). It is a SETTING, kept in
-  `SYSTEM\APPDATA\REALBOY.CFG` (`'RB'`, version 1, bit 0 of the fourth
-  byte) through `apps/os88data.inc`, and read at the start - a game opened
+  `SYSTEM\APPDATA\REALBOY.CFG` (`'RB'`, the version, bit 0 of the fourth
+  byte; version 2 goes on with each game's Speed and Sound, section 15.2)
+  through `apps/os88data.inc` - SYSTEM\APPDATA on the package's OWN
+  volume, so `make realboydisk`'s floppies carry the folder, and a copy of
+  REALBOY.O88 put where there is none keeps nothing - and read at the start - a game opened
   from its icon is loaded before its menu can be touched. Chosen in a
   session, 128K takes the second segment from what the heap has left and
   the worker starts the recompiler again over both (`[rw_seg2q]`,

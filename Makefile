@@ -5635,7 +5635,7 @@ $(BUILD)/gbclock/GBDEMO.GB: tools/gbprof/gbdemo.asm tools/gbours.py tools/gbcloc
 
 REALBOYDISK := $(BUILD)/realboy.o88 $(BUILD)/gbclock/GBDEMO.GB \
                apps/realboy/README.TXT tools/os88disk.py
-REALBOYIMG = python3 tools/os88disk.py -o $(1) --size $(2) \
+REALBOYIMG = python3 tools/os88disk.py -o $(1) --size $(2) --folder SYSTEM/APPDATA \
 	     REALBOY:$(BUILD)/realboy.o88 REALBOY:$(BUILD)/gbclock/GBDEMO.GB \
 	     REALBOY:apps/realboy/README.TXT
 realboydisk: $(BUILD)/realboy.img $(BUILD)/realboy720.img \

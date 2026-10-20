@@ -61,8 +61,15 @@ RW_PRFFILE      equ RW_PRFTAIL + 9  ;   header's 014Dh byte and 014Eh word,
 ;
 ; REALBOY.CFG, in SYSTEM\APPDATA: 'RB', the version, then the settings -
 ; bit 0 Machine > Cache: 128K. Read at the start, written at the toggle.
-RW_CFGN         equ 4
+; Version 2 goes on with a count at +4 and, from +8, RW_CFGGN games' own
+; settings, the latest first: the header's 014Dh byte and 014Eh word (as a
+; profile's name takes them), then Speed in bits 0-2 and Sound in 3-4. A
+; version 1 file is read for its byte and games none.
+RW_CFGN         equ 8 + RW_CFGGN * 4
+RW_CFGGN        equ 32
+RW_CFGVER       equ 2
 RW_CFGBIG       equ 01h
+RW_SPEEDS       equ 5               ; Machine > Speed's settings (rw_spdtab)
 RW_JIT2N        equ 560             ; a profile this many blocks or more
                                     ;   asks for the second cache segment:
                                     ;   the first holds ~600 of Kirby's
@@ -221,7 +228,20 @@ rw_f3q          equ rw_seg2q + 1    ; byte: F3 asked for Static in the
                                     ;   window: the UI task's first (rw_onwake)
 rw_jitqn        equ rw_f3q + 1      ; byte: ...and the switch it queued says
                                     ;   itself on the speed line
-rw_fbuf         equ rw_jitqn + 1    ; 5,760: rb_render's frame (monochrome)
+rw_speed        equ rw_jitqn + 1    ; byte: Machine > Speed, 0-4 (rw_spdtab)
+rw_sndm         equ rw_speed + 1    ; byte: Machine > Sound: 0 On, 1 at full
+                                    ;   speed only, 2 Off
+rw_spdq         equ rw_sndm + 1     ; byte: F4 changed Speed: the UI task's
+                                    ;   to keep it (rw_onwake)
+rw_f4was        equ rw_spdq + 1     ; byte: F4 was held at the last look
+rw_fsfrac       equ rw_f4was + 1    ; byte: a frame's 256ths the bracket's
+                                    ;   clock owes at a Speed under 100%
+rw_gkon         equ rw_fsfrac + 1   ; byte: rw_gkey is the game's
+rw_spdk         equ rw_gkon + 1     ; word: Speed, 256ths of the Game Boy's
+rw_pertick      equ rw_spdk + 2     ; word: ...and frames a BIOS tick, x 256
+rw_gkey         equ rw_pertick + 2  ; 3: the game's header 014Dh, 014Eh
+rw_fbuf         equ rw_gkey + 3 + 1 ; 5,760: rb_render's frame (monochrome;
+                                    ;   a spare byte before, so it is even)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 
@@ -236,6 +256,7 @@ rw_entry:
     mov byte [rw_286], 1
 .c86:
     call rw_cfgload
+    call rw_spdset                  ; (Speed: 100% until a game says)
     call OSAPI_FILE_HERE            ; where the program is: the log's folder
     mov [rw_pkgdir], dx
     mov [rw_pkgvol], bl
@@ -343,6 +364,11 @@ rb_trbyte:
 ; or the core having stopped
 rw_onwake:
     call rw_bserve                  ; a bank the worker waits for
+    cmp byte [rw_spdq], 0           ; F4 changed Speed: kept here, where a
+    je .nf4                         ;   file may be written
+    mov byte [rw_spdq], 0
+    call rw_cfgsave
+.nf4:
     cmp byte [rw_f3q], 0            ; F3 in the window, to Static: its
     je .nf3                         ;   profile and room here, then the
     mov byte [rw_f3q], 0            ;   switch the worker's (rw_jitq),
@@ -487,6 +513,7 @@ rw_load:
     call rw_ramsetup
     call rw_prfload
     call rw_start
+    call rw_spdgame                 ; its Speed and Sound, if it has them
     mov byte [rw_state], 1
     pop si
     call rw_hire
@@ -1167,15 +1194,28 @@ rw_cfgload:
     jc .r
     or dx, dx
     jnz .r
-    cmp ax, RW_CFGN
-    jne .r
     cmp word [rw_cfg], 'RB'
-    jne .r
+    jne .none
+    cmp ax, RW_CFGN
+    jne .v1
+    cmp byte [rw_cfg + 2], RW_CFGVER
+    jne .none
+    cmp byte [rw_cfg + 4], RW_CFGGN
+    jbe .big
+    jmp short .none
+.v1:
+    cmp ax, 4                       ; version 1: the byte, and no games
+    jne .none
     cmp byte [rw_cfg + 2], 1
-    jne .r
+    jne .none
+    mov byte [rw_cfg + 4], 0
+.big:
     test byte [rw_cfg + 3], RW_CFGBIG
     jz .r
     mov byte [rw_big], 1
+    jmp short .r
+.none:
+    mov byte [rw_cfg + 4], 0        ; (not ours: no games of it either)
 .r:
     pop es
     pop si
@@ -1192,7 +1232,7 @@ rw_cfgsave:
     push ds
     pop es
     mov word [rw_cfg], 'RB'
-    mov byte [rw_cfg + 2], 1
+    mov byte [rw_cfg + 2], RW_CFGVER
     mov al, [rw_big]
     mov [rw_cfg + 3], al
     mov si, rw_s_cfg
@@ -1694,7 +1734,7 @@ rw_worker:                          ;   the worker parked at the top of its
     jbe .acc
     mov bx, 10
 .acc:
-    mov ax, RW_PERTICK
+    mov ax, [rw_pertick]            ; (RW_PERTICK at 100%: Machine > Speed)
     mul bx
     add ax, [rw_owed]
     cmp ax, RW_OWEDMAX              ; a machine that fell behind runs on from
@@ -1907,6 +1947,13 @@ rw_frame:
 ; louder owner of the speaker) leaves [rw_tone] stale-zero, so the next
 ; frame asks again.
 rw_sound:
+    cmp byte [rw_sndm], 0           ; Machine > Sound: Off, or at full speed
+    je .on                          ;   only - a tune slowed to Speed's 75%
+    cmp byte [rw_sndm], 2           ;   is in time with nothing
+    je rw_quiet
+    cmp byte [rw_speed], 0
+    jne rw_quiet
+.on:
     push ds
     mov ds, [cs:rb_viewseg]
     xor bx, bx                      ; BL, BH = channel 1's, 2's volume (0 off)
@@ -2179,6 +2226,17 @@ rw_keys:
     mov si, [rw_i_mach + 6]
     call rw_note
 .nof3:
+    mov al, 3Eh                     ; F4: Machine > Speed's next, said, and
+    mov bx, rw_f4was                ;   kept for the game by the UI task
+    call rw_kedge
+    jnc .nof4
+    call rw_spdnext
+    mov si, [rw_i_mach + 16]
+    call rw_note
+    mov byte [rw_spdq], 1
+    mov bx, [rw_win]
+    call OSAPI_WM_WAKE
+.nof4:
     pop dx
     mov si, rw_keymap
     mov dh, 1
@@ -2705,6 +2763,164 @@ rw_dmgclaim:
     ret
 
 ; rw_dmgfull - the next rb_renderd composes and writes every line
+; rw_spdset - [rw_speed] into the clocks: rw_spdk, the Game Boy's frames
+; 256ths at a time, and rw_pertick, the window's frames a BIOS tick x 256.
+; 100% is 256 and RW_PERTICK, as ever. Kept: all
+rw_spdset:
+    push ax
+    push bx
+    push dx
+    mov bl, [rw_speed]
+    xor bh, bh
+    shl bx, 1
+    mov ax, [rw_spdtab + bx]
+    mov [rw_spdk], ax
+    mov dx, RW_PERTICK
+    mul dx
+    mov al, ah
+    mov ah, dl
+    mov [rw_pertick], ax
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; rw_spdnext - Machine > Speed's next (F4's too, on the worker or in the
+; bracket): the clocks, the game's record, the menu. The file is the UI
+; task's (rw_spdmenu, rw_onwake)
+rw_spdnext:
+    mov al, [rw_speed]
+    inc ax
+    cmp al, RW_SPEEDS
+    jb .s
+    xor al, al
+.s:
+    mov [rw_speed], al
+    call rw_spdset
+    call rw_cfgrec
+    jmp rw_mgrey
+
+; rw_spdmenu / rw_sndmenu - Machine > Speed and Sound, on the UI task: the
+; next, and REALBOY.CFG written - each kept for the game it was chosen in
+rw_spdmenu:
+    call rw_spdnext
+    jmp rw_cfgsave
+rw_sndmenu:
+    mov al, [rw_sndm]
+    inc ax
+    cmp al, 3
+    jb .s
+    xor al, al
+.s:
+    mov [rw_sndm], al
+    call rw_cfgrec
+    call rw_mgrey
+    jmp rw_cfgsave
+
+; rw_spdgame - a game loaded: its header's key (014Dh, 014Eh, as its
+; profile's name), and its Speed and Sound if REALBOY.CFG has them - a game
+; it does not have keeps what was chosen before it, kept at its first change
+rw_spdgame:
+    push si
+    push ds
+    mov ds, [cs:rb_viewseg]
+    mov al, [014Dh]
+    mov si, [014Eh]
+    pop ds
+    mov [rw_gkey], al
+    mov [rw_gkey + 1], si
+    mov byte [rw_gkon], 1
+    call rw_cfgfind                 ; SI = its entry, CF = 1 none
+    jc .r
+    mov al, [si + 3]
+    mov ah, al
+    and al, 7
+    cmp al, RW_SPEEDS
+    jae .r
+    mov cl, 3
+    shr ah, cl
+    and ah, 3
+    cmp ah, 3
+    jae .r
+    mov [rw_speed], al
+    mov [rw_sndm], ah
+    call rw_spdset
+    call rw_mgrey
+.r:
+    pop si
+    ret
+
+; rw_cfgfind - SI = the game's entry in rw_cfg's table, or CF = 1
+rw_cfgfind:
+    push cx
+    mov cl, [rw_cfg + 4]
+    xor ch, ch
+    mov si, rw_cfg + 8
+    jcxz .no
+.f:
+    mov al, [si]
+    cmp al, [rw_gkey]
+    jne .n
+    mov ax, [si + 1]
+    cmp ax, [rw_gkey + 1]
+    je .y
+.n:
+    add si, 4
+    loop .f
+.no:
+    stc
+    pop cx
+    ret
+.y:
+    clc
+    pop cx
+    ret
+
+; rw_cfgrec - the game's Speed and Sound to the front of rw_cfg's table (its
+; old entry out, or the oldest when it is full). No game, nothing. Kept: all
+rw_cfgrec:
+    cmp byte [rw_gkon], 0
+    je .r0
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    call rw_cfgfind                 ; SI = its entry: the ones before it
+    jnc .mv                         ;   move up over it
+    mov al, [rw_cfg + 4]            ; none: every one moves, the last off the
+    cmp al, RW_CFGGN                ;   end when it is full
+    jae .full
+    inc byte [rw_cfg + 4]
+.full:
+    mov si, rw_cfg + 8 + (RW_CFGGN - 1) * 4
+.mv:
+    mov cx, si                      ; CX = the bytes before it
+    sub cx, rw_cfg + 8
+    lea di, [si + 3]                ; backwards: each up one entry
+    lea si, [si - 1]
+    std
+    rep movsb
+    cld
+    mov al, [rw_gkey]
+    mov [rw_cfg + 8], al
+    mov ax, [rw_gkey + 1]
+    mov [rw_cfg + 9], ax
+    mov al, [rw_sndm]
+    mov cl, 3
+    shl al, cl
+    or al, [rw_speed]
+    mov [rw_cfg + 11], al
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+.r0:
+    ret
+
 ; rw_iltoggle - Machine > Interlace (REALBOY-SPEC 13.2), Off -> On ->
 ; Scrolling: a draw composes the lines of one parity, the next the other's,
 ; for twice the pictures a second at a price in looks - always, or only
@@ -2869,6 +3085,10 @@ rw_oncmd:
     je rw_prftoggle                 ; Profile
     cmp al, 7
     je rw_bigtoggle                 ; Cache
+    cmp al, 8
+    je rw_spdmenu                   ; Speed
+    cmp al, 9
+    je rw_sndmenu                   ; Sound
     cmp word [rw_jitseg], 0         ; Recompiler: the worker flips it
     je .r
     cmp byte [rw_jitq], 0
@@ -2913,7 +3133,7 @@ rw_tpl:
 
     OS88_MENUSET rw_menus, rw_ttl, rw_oncmd
         OS88_MENU rw_m_file, rw_i_file, 2
-        OS88_MENU rw_m_mach, rw_i_mach, 8
+        OS88_MENU rw_m_mach, rw_i_mach, 10
     OS88_MENUSET_END rw_menus
 
 rw_ttl:         db 'RealBoy', 0
@@ -2923,7 +3143,7 @@ rw_it_open:     db 'Open...', 0
 rw_it_close:    db 'Close', 0
 rw_m_mach:      db 'Machine', 0
 rw_i_mach:      dw rw_it_reset, rw_it_pause, rw_it_fs0, rw_it_jit0, rw_it_log0
-                dw rw_it_il0, rw_it_prf0, rw_it_big0
+                dw rw_it_il0, rw_it_prf0, rw_it_big0, rw_it_spd0, rw_it_snd0
 rw_it_reset:    db 'Reset', 0
 rw_it_pause:    db 'Pause', 0
 rw_it_fs:       db 'Full Screen', 0
@@ -2948,6 +3168,17 @@ rw_s_bignx:     db 'Cache: from the next game', 0
 rw_s_cfg:       db 'REALBOY.CFG', 0
 rw_it_il2:      db 'Interlace: Scrolling', 0
 rw_it_il3:      db 'Interlace: Doubled', 0
+rw_it_spd0:     db 'Speed: 100%', 0
+rw_it_spd1:     db 'Speed: 90%', 0
+rw_it_spd2:     db 'Speed: 75%', 0
+rw_it_spd3:     db 'Speed: 60%', 0
+rw_it_spd4:     db 'Speed: 50%', 0
+rw_it_snd0:     db 'Sound: On', 0
+rw_it_snd1:     db 'Sound: At 100% only', 0
+rw_it_snd2:     db 'Sound: Off', 0
+rw_spdit:       dw rw_it_spd0, rw_it_spd1, rw_it_spd2, rw_it_spd3, rw_it_spd4
+rw_sndit:       dw rw_it_snd0, rw_it_snd1, rw_it_snd2
+rw_spdtab:      dw 256, 230, 192, 154, 128  ; Speed, 256ths of the Game Boy's
 
 rw_s_fps:       db 'fps', 0
 rw_s_jit:       db ' JIT', 0

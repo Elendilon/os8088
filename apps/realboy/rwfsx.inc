@@ -112,6 +112,15 @@ rw_mgrey:
     mov si, rw_it_big1
 .b:
     mov [rw_i_mach + 14], si
+    mov bl, [rw_speed]              ; Speed and Sound: what they are now
+    xor bh, bh
+    shl bx, 1
+    mov si, [rw_spdit + bx]
+    mov [rw_i_mach + 16], si
+    mov bl, [rw_sndm]
+    shl bx, 1
+    mov si, [rw_sndit + bx]
+    mov [rw_i_mach + 18], si
     pop si
     pop dx
     pop bx
@@ -270,6 +279,7 @@ rw_fsmain:
     mov [rw_budget], ax
     mov byte [rw_ovlnew], 1
     mov word [rw_fowed], 0
+    mov byte [rw_fsfrac], 0
     mov byte [rw_fsrun], 0
     call OSAPI_GET_TICKS
     mov [rw_last], ax
@@ -347,6 +357,18 @@ rw_fsowed:
     mov ax, [rw_fowed]
     mov word [rw_fowed], 0
     popf
+    cmp byte [rw_speed], 0          ; Machine > Speed under 100%: periods x
+    je .r                           ;   its 256ths, the fraction kept
+    push dx
+    mul word [rw_spdk]
+    add al, [rw_fsfrac]
+    adc ah, 0
+    adc dl, 0
+    mov [rw_fsfrac], al
+    mov al, ah
+    mov ah, dl
+    pop dx
+.r:
     ret
 .tick:
     push bx
@@ -359,8 +381,7 @@ rw_fsowed:
     jbe .t
     mov ax, 10
 .t:
-    mov dx, RW_PERTICK
-    mul dx
+    mul word [rw_pertick]           ; (RW_PERTICK at 100%: Machine > Speed)
     add ax, [rw_owed]
     mov dl, al                      ; the fraction stays owed
     xor dh, dh

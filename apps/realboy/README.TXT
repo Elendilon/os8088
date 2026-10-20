@@ -33,6 +33,7 @@ Space       Select
 F1          the speed line
 F2          Machine > Interlace's next setting
 F3          Machine > Recompiler's next setting
+F4          Machine > Speed's next setting
 Alt+Enter   full screen, and back
 Esc         leave full screen
 
@@ -61,6 +62,15 @@ Machine > Interlace      Off, On, Scrolling or Doubled: less to draw
                          even lines and repeats each one below it,
                          without the comb Scrolling leaves on a
                          moving edge (the status bar stays whole)
+Machine > Speed          100%, 90%, 75%, 60% or 50% of the Game Boy's
+                         speed, held steady: what the game does not
+                         use goes to the picture. A game too slow for
+                         its machine is smoother a little slower
+Machine > Sound          On, At 100% only, or Off. A slowed game plays
+                         its tune slower too; At 100% only is silent
+                         below full speed
+                         (Speed and Sound are kept for each game, in
+                         SYSTEM\APPDATA on this program's own disk)
 Machine > Log            a record a second, to a file
 Machine > Profile        On keeps what the recompiler translated as
                          NAME.RBP beside the game, for Static. Off by
