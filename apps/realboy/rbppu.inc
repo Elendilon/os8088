@@ -1228,6 +1228,14 @@ ppu_line:
     je .tm
     call ppu_taddr
 .tm:
+    test al,20h                         ; the window over the whole line
+    jz .bgf                             ;   (WX <= 7, LY >= WY): no
+    mov ah,[PPU_LY]                     ;   background under it to compose
+    cmp ah,[PPU_REGS+6]
+    jb .bgf
+    cmp byte [PPU_REGS+7],7
+    jbe .win
+.bgf:
     ; the background: 21 tile rows from the map, shifted SCX AND 7 left
     mov dl,[PPU_LY]
     add dl,[PPU_REGS+1]                 ; y = LY + SCY
@@ -1511,6 +1519,7 @@ ppu_wplace:
     xor bh,bh                           ; BX = B
     mov cl,al
     and cl,7                            ; CL = S
+    jz .al                              ; S = 0: whole bytes, copied
     mov ch,0FFh
     shr ch,cl                           ; CH = byte B's window mask
     xor si,si                           ; SI = the window byte index
@@ -1547,6 +1556,24 @@ ppu_wplace:
     inc si
     jmp .w
 .r:
+    ret
+.al:                                    ; (Kirby's Dream Land's status bar,
+    cmp bx,20                           ;   WX = 7: every line of it)
+    jae .r
+    push es
+    push ds
+    pop es
+    mov cx,20
+    sub cx,bx
+    push cx
+    mov si,PPU_WL
+    lea di,[PPU_BL+bx]
+    rep movsb
+    pop cx
+    mov si,PPU_WH
+    lea di,[PPU_BH+bx]
+    rep movsb
+    pop es
     ret
 
 ; ppu_shade: AL, AH = a byte's colour bits 0 and 1 -> AL, AH = its shade's,
