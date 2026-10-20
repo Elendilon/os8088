@@ -731,6 +731,81 @@ Tunes runs at 101% of real time in its window on 86Box's 286.
 **Features**
 - Section 5, in order, each one measured before the next is started.
 
+#### Note: what the static-recompiler study found for the DYNAMIC one
+
+The study (docs/reports/REALBOY-STATIC-2026-10-20.md, branch
+`gameboy-static`) did not recommend a static recompiler. It did measure
+where Super Mario Land's time goes while it scrolls with enemies on screen,
+which is the 30-frames-a-second target. These are its findings for the
+recompiler of REALBOY-SPEC section 16, best first.
+
+The figures are on `vm/286-victory`, 16 MHz, the CPU alone in the bare
+harness, at **6.55 ms a frame** recompiled. MEASURED and PREDICTED are as
+in the report.
+
+1. **Loop idioms, the largest lever.** Three blocks that each jump to their
+   own start are 17% of the machine over 12 s of play and 26% over the 3 s
+   with most enemies (MEASURED, `rbprof --blocks`):
+   - **3EF9**, `ADD HL,DE / DEC B / JR NZ,-4` with B = 32, a background-map
+     row address. A closed form is HL += DE x B, B = 0, charged 6B - 1
+     M-cycles. Its flags are dead, being overwritten two instructions
+     later, but keep Z, N, H and C as the loop leaves them unless a
+     lookahead (item 2) proves them dead. **The same result in 12 Game Boy
+     bytes, patched into a scratch copy of the ROM, took the frame from 6.55
+     to 6.22 ms** (MEASURED). That is about what the idiom buys.
+   - **2CF0 and 2D02**, `LD A,(HL+) / LD (DE),A / INC DE / DEC B / JR NZ`
+     and `LD A,(DE) / LD (HL+),A / ...`, a 13-byte copy of an enemy's slot
+     between D100h + 16n and HRAM at FFC0h, out and back. One pass is ~33
+     x86 instructions today: four compares for the read, four for the write,
+     the store's guard and three SAHF/LAHF. The idiom is:
+     - check once that [HL, HL+B) and [DE, DE+B) lie wholly in the fast
+       regions (the write side in 8000-FEFF or FF80-FFFE);
+     - copy, charged 10B - 1 M-cycles;
+     - otherwise run the loop as now.
+
+     **PREDICTED: 0.3-0.4 ms a frame on average and ~1 ms in a frame with
+     enemies**, where the pair is 19% of the machine.
+   - Take each only when BP covers the whole loop, as `cnt_ff` does
+     (REALBOY-SPEC section 8.1). Then no event can fall inside it.
+     `rt_jrt` already examines exactly this shape (a taken JR back to the
+     block's own head) for the spin-wait.
+2. **Flag liveness by lookahead at translate time.** Following the direct
+   successors 16 Game Boy instructions past a flag write, through ROM,
+   proves **35.4%** of Super Mario Land's 643 flag writes a frame dead. A
+   whole-program analysis gets 38.8%, and the game in fact reads 57.5% of
+   them (MEASURED, `tools/gbstatic.py`). Stop the walk at RET and JP HL.
+   Kirby's Dream Land: 45.5% dead by the lookahead, 50.8% in fact.
+   - A dead write drops its `LAHF`, its `OR AH,20h` or `AND AH,40h`, and an
+     INC/DEC's `SAHF`.
+   - A Z-only write followed in the block by its branch can branch on the
+     host's own flags: 35% of writes are Z-only with that lookahead, 51% in
+     fact.
+   - PREDICTED: 0.15-0.2 ms a frame for all of it, at the measured ~1.7
+     clocks a translated byte.
+3. **Lookups and returns are 6.9% of the machine** (MEASURED): `tr_link`
+   1.6%, `tr_rpatch` 1.1%, `tr_ekey` 1.9% and `tr_enter` 0.8%. Two places
+   to look:
+   - The RET cache's misses still patch in steady play. Super Mario Land
+     makes 49 returns a frame, 2.5 of them not to the instruction after a
+     CALL or RST.
+   - `tr_ekey`/`tr_enter` run after events. Rbsys could resume an event's
+     return straight into the translated code it left, instead of looking
+     SI up again.
+4. **Fall-through layout.** 34% of Super Mario Land's 364 conditional
+   transfers a frame fall through (MEASURED). Today each one ends a block
+   with `sub bp / js / jmp` to the next. A superblock that continues
+   through the not-taken side saves the jump and its prefetch refill there.
+   That is PREDICTED at ~0.1 ms.
+5. **Pointer-region proofs are not worth chasing.** Constant propagation
+   proves the region of only 9% of Super Mario Land's (HL)/(DE)/(BC)
+   accesses, whether one block or whole functions are analysed
+   (MEASURED). A pointer comes from memory or walks through a loop.
+6. **A correction for whoever prices the core.** RealBoy runs **2,039** busy
+   instructions a frame of Super Mario Land, not gbprof's 1,747, which
+   skips every short loop that writes nothing. 3EF9 is one of those loops,
+   and RealBoy runs it. Use `tools/gbprof/gbcover.c`'s count (REALBOY-SPEC
+   section 8's rules).
+
 ### Wave 8 - the 5150 demo, disks and the Wire record
 
 **The writers and damage tracking are BUILT** (REALBOY-SPEC sections 13.2
