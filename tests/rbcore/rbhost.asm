@@ -29,8 +29,8 @@
 ;                   rb_render. The DONE line counts the frames whose two
 ;                   pictures differ (REALBOY-SPEC section 13.2's gate).
 ;   MODE 12         as MODE 7, timed, onto VGA mode 0Dh: rb_renderd's
-;   (renderv)       changed lines copied to VRAM, as the package's full
-;                   screen does (rw_fsplane).
+;   (renderv)       changed lines to VRAM as it decides them (rb_dvga), as
+;                   the package's full screen does.
 ;
 ; Memory: the boot sector at 0000:7C00, the stack below it, this harness at
 ; 0800:0000, the core at 1000:0000, the view at 2000:0000, the ROM from
@@ -323,15 +323,12 @@ host_main:
     je .d7
     mov ax,0x000D
     int 0x10
+    mov word [cs:rb_dvga],0xA000        ; (each changed line to VGA, ppu_dvga)
 .d7:
     mov ax,FRAMED_SEG
     mov es,ax
     xor di,di
     call rb_renderd
-    cmp byte [cs:h_hw],0
-    je .d8
-    call vcopy
-.d8:
 %ifdef SCRL_STAT
     call scrl_stat
 %endif
@@ -656,63 +653,6 @@ dmg_check:
     pop cx
     pop ax
     ret
-; vcopy - MODE 12: rb_renderd's changed lines to VRAM at 0, a plane
-; at a time (rw_fsplane's shape)
-vcopy:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push ds
-    push es
-    mov ax,0xA000
-    mov es,ax
-    mov ax,FRAMED_SEG
-    mov ds,ax
-    mov dx,0x3C4
-    mov ax,0x0102
-    xor si,si
-.pl:
-    out dx,ax
-    push ax
-    xor di,di
-    xor bx,bx
-.l:
-    push ds
-    mov ax,DMG_SEG
-    mov ds,ax
-    cmp byte [RB_DCHG+bx],0
-    pop ds
-    je .n
-    mov cx,10
-    rep movsw
-    sub si,20
-    sub di,20
-.n:
-    add si,40
-    add di,40
-    inc bx
-    cmp bx,144
-    jb .l
-    pop ax
-    cmp ah,2
-    je .r
-    mov ax,0x0202
-    mov si,20
-    jmp .pl
-.r:
-    pop es
-    pop ds
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
 h_hw        db 0                        ; MODE 12: onto VGA
 
 dmg_bad     dw 0

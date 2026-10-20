@@ -649,6 +649,30 @@ on 151-499 pictures of 500.
   Super Mario Land and Kirby's Dream Land.
 - Taking out the map-row marks fails it on 497 frames of 500.
 
+### 13.3 What a line costs, and the cuts that did not pay
+
+Kirby's Dream Land IN PLAY (section 15.3), drawn every frame onto VGA on the
+Victory twin, spends its composing time flat across the composer: the fine
+scroll's shift 15%, the sprites' fetch, shade and placing ~21%, the line's
+own setup 9%, the buffer and the card ~14% - no routine is more than a
+sixth, and no instruction in one more than 1% (`tests/rbcore/rbprof.py
+--vga --seg2 --hostips`). Each change was timed alone (`rbbench --vga`,
+which is exact here: the same build gives the same ticks):
+
+- **Kept**: the line lists hold the sprite's OFFSET in OAM (4 x index),
+  and its tile row's address is two byte adds and an OR - the tile's low
+  byte is 16 x (n AND 0Fh) and the row's 2 x 0-15 never carries. 0.7%.
+- **Kept**: the changed line to the card where it is decided (`ppu_dvga`,
+  above). 0.7% in Kirby's Dream Land, more where more lines are unchanged.
+- **Refused**: skipping the shift for a byte from two blank tile rows. It
+  is 59% of Super Mario Land's bytes and 31% of Kirby's Dream Land's, and
+  it cost the latter 4.5% - the test and the branch on every other byte
+  outweigh the shifts they save.
+- **Refused**: testing a sprite's priority bit once a row instead of once
+  a byte (two put routines): a few cycles, and a tail the stack checker
+  cannot read.
+
+
 ## 14. The package
 
 `REALBOY.O88` (`apps/realboy/realboy.asm`, `OS88_STACK_384`) is a window of
@@ -827,9 +851,12 @@ every draw, as a turn of frames on an 8088 is longer than a key press.
   program, and the exit's mode set puts it all back); an emulator's frame
   buffer cannot show the centring, which is the sync's, so a real monitor
   is the check. `rb_renderd`'s two shade planes go to VGA planes 0 and 1 as
-  they are, a `rep movsw` for each line it changed. It already compared
-  them, so the RAM shadow this writer once kept was a second comparison of
-  the same bytes. Plane 2 is set under the gap and the speed line's row,
+  they are, each line as `ppu_dput` finds it changed (`[rb_dvga]`, the
+  card's segment, `ppu_dvga`): the plane the map mask already holds first,
+  so a line turns it once, and no second pass over the buffer - Super Mario
+  Land's frame on the Victory twin 25.7 -> 24.7 ms with the sprite fetch
+  below. It already compared them, so the RAM shadow this writer once kept
+  was a second comparison of the same bytes. Plane 2 is set under the gap and the speed line's row,
   entry 4 like the overscan, and F1's speed line is drawn there in glyphs
   copied before the mode (`OSAPI_FONT_GLYPHS`), entry 7. Shades 0-3 are DAC 0-3, greys. The DAC is
   ours in there; the restore's BIOS mode set puts the desktop's back.

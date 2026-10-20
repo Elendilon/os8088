@@ -60,6 +60,8 @@ PPU_ILC         equ 0x4B7E          ; byte: this call DEFERS a parity (rb_ilace
                                     ;   1, or 2 and a scroll's whole frame)
 PPU_PANY        equ 0x4B7F          ; byte: the last call deferred a line...
 PPU_PNEW        equ 0x4B80          ; byte: ...and this one has
+PPU_SMASK       equ 0x4B81          ; byte: a sprite's tile, FFh, or FEh at
+                                    ;   8x16 (ppu_sprites)
 PPU_SANF        equ 0x4B70          ; 2 x 6: OBP0 and OBP1 as A0 B0 C0 A1
                                     ;   B1 C1, a shade bit being (bit 0 and
                                     ;   A) xor (bit 1 and B) xor (both and
@@ -261,6 +263,11 @@ rb_ilace        db 0                    ; the host's: 1 = INTERLACE, each call
 rb_dhook        dw 0                    ; the host's near proc, called when the
                                         ;   scan is done (its log's clock), or 0;
                                         ;   every register its to keep
+rb_dvga         dw 0                    ; the host's: a changed line goes to VGA
+                                        ;   too, its two shade planes to planes
+                                        ;   0 and 1 of this segment at 40 a
+                                        ;   line (ppu_dvga), or 0
+rb_dvmm         db 0                    ; ...the plane the map mask holds
 
 rb_renderd:
     cmp word [cs:rb_dmgseg],0
@@ -278,6 +285,7 @@ rb_renderd:
     push ds
     push es
     cld
+    mov byte [cs:rb_dvmm],0FFh          ; (the host's mask: not known)
     mov ds,[cs:rb_viewseg]
     mov ax,es
     mov es,[cs:rb_dmgseg]
@@ -1014,10 +1022,8 @@ ppu_sdirty:
     jz .no
     lea si,[PPU_LSPR+1+bx]
 .s:
-    mov bl,[si]
+    mov bl,[si]                         ; (its offset in OAM)
     xor bh,bh
-    shl bx,1
-    shl bx,1
     mov bl,[0FE02h+bx]                  ; its tile: both of an 8x16's pair
     and bl,0FEh
     xor bh,bh
@@ -1085,6 +1091,10 @@ ppu_dput:
     add si,0Ch
     mov cl,10
     rep movsw
+    cmp word [cs:rb_dvga],0
+    je .mk
+    call ppu_dvga
+.mk:
     mov es,bx
     mov bl,[PPU_LY]
     xor bh,bh
@@ -1094,10 +1104,56 @@ ppu_dput:
     pop es
     ret
 
+; ppu_dvga: the line just composed to VGA (rb_dvga), shade bit 0 to plane 0
+; and bit 1 to plane 1, the plane the map mask holds first so a line turns
+; it once - written where it is decided, not by a second pass over the
+; buffer. DS = view
+ppu_dvga:
+    push dx
+    mov al,[PPU_LY]
+    mov cl,40
+    mul cl
+    mov di,ax
+    mov es,[cs:rb_dvga]
+    mov dx,3C4h
+    mov si,[PPU_OSRC]
+    cmp byte [cs:rb_dvmm],1
+    je .one
+    cmp byte [cs:rb_dvmm],0
+    je .z
+    mov ax,0102h
+    out dx,ax
+.z:
+    mov cx,10                           ; plane 0, then 1
+    rep movsw
+    add si,0Ch
+    sub di,20
+    mov ax,0202h
+    out dx,ax
+    mov cl,10
+    rep movsw
+    mov byte [cs:rb_dvmm],1
+    pop dx
+    ret
+.one:
+    add si,20h                          ; plane 1, then 0
+    mov cx,10
+    rep movsw
+    sub si,20h + 20
+    sub di,20
+    mov ax,0102h
+    out dx,ax
+    mov cl,10
+    rep movsw
+    mov byte [cs:rb_dvmm],0
+    pop dx
+    ret
+
 ; ppu_oam: PPU_LSPR from OAM - for each line, the sprites whose 16 rows
-; from Y - 16 cover it, in OAM order. The real height is LCDC's at the line,
-; which a mid-frame write may change, so ppu_sprites checks it there. Only
-; the rows on the screen are walked: a sprite parked at Y = 0 costs nothing.
+; from Y - 16 cover it, in OAM order, as their offsets in OAM (4 x index).
+; The real height is LCDC's at the line, which a mid-frame write may change,
+; so ppu_sprites checks it there. Only the rows on the screen are walked: a
+; sprite parked at Y = 0 costs nothing.
 ppu_oam:
     push di
     push es
@@ -1111,7 +1167,7 @@ ppu_oam:
     add di,40
     loop .c
     mov si,0FE00h
-    xor dl,dl                           ; DL = the OAM index
+    xor dl,dl                           ; DL = the OAM offset
     mov dh,41
 .s:
     mov al,[si]                         ; rows Y-16 .. Y-1, cut to 0 .. 143
@@ -1140,8 +1196,8 @@ ppu_oam:
     loop .r
 .ns:
     add si,4
-    inc dl
-    cmp dl,40
+    add dl,4
+    cmp dl,160
     jb .s
     pop es
     pop di
@@ -1699,11 +1755,12 @@ ppu_wplace:
 ppu_sprites:
     ; find them, in OAM order
     mov byte [PPU_NSPR],0
-    mov dl,8
-    test byte [PPU_REGS+0],04h
+    mov dx,0FF08h                       ; DL = the height, DH = the mask
+    test byte [PPU_REGS+0],04h          ;   an 8x16's tile takes
     jz .h8
-    mov dl,16
+    mov dx,0FE10h
 .h8:
+    mov [PPU_SMASK],dh
     mov al,[PPU_LY]                     ; the line's candidates, from ppu_oam
     mov bl,41
     mul bl
@@ -1715,12 +1772,9 @@ ppu_sprites:
     lea bp,[PPU_LSPR+1+bx]              ; BP = its OAM indices
     mov di,PPU_SPR
 .f:
-    mov al,[ds:bp]
+    mov al,[ds:bp]                      ; (its offset in OAM)
     inc bp
-    xor ah,ah
-    shl ax,1
-    shl ax,1
-    add ax,0FE00h
+    mov ah,0FEh
     mov si,ax                           ; SI = the sprite's OAM entry
     mov al,[PPU_LY]
     add al,16
@@ -1736,21 +1790,15 @@ ppu_sprites:
     mov al,bl
 .ny:
     mov bl,[si+2]                       ; the tile
-    cmp dl,16
-    jne .t8
-    and bl,0FEh
-.t8:
+    and bl,[PPU_SMASK]                  ;   (FEh for 8x16: the pair's first)
     xor bh,bh
     shl bx,1
     shl bx,1
     shl bx,1
     shl bx,1
-    push ax
-    xor ah,ah
-    shl ax,1
-    add bx,ax
-    pop ax
-    add bx,8000h
+    add bl,al                           ; ...its row: the tile's low byte is
+    add bl,al                           ;   16 x (n AND 0Fh), the row's 2 x 0-15
+    or bh,80h                           ;   at most 30 more, and never carries
     mov cl,[bx]
     mov ch,[bx+1]
     test ah,20h                         ; X flip

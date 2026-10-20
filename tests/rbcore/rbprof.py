@@ -36,6 +36,7 @@ import rbimg  # noqa: E402
 S_BANK = 0x4000 + 0x35                  # rbdefs.inc: the ROM bank in 4000-7FFF
 
 HOST, CORE, CACHE, HASH = 0x8000, 0x10000, 0x90000, 0x8C000   # rbhost.asm's segments
+CACHE2 = 0x7C000                        # ...and CACHE2_SEG
 
 
 def labels(lst, section=None):
@@ -92,6 +93,8 @@ def main():
                     help="the host's samples by instruction, off rbhost's listing")
     ap.add_argument("--pcs", action="store_true",
                     help="with --box: also the Game Boy PCs (SI) the core's samples were at")
+    ap.add_argument("--seg2", action="store_true",
+                    help="the recompiler's second cache segment (REALBOY-SPEC 16.2.1)")
     ap.add_argument("--vga", action="store_true",
                     help="...and rb_renderd's lines copied onto VGA mode 0Dh (MODE 12)")
     a = ap.parse_args()
@@ -102,7 +105,7 @@ def main():
                      "renderv" if a.vga else
                      "renderd" if a.renderd else "render" if a.render else "play",
                      6000 if a.static else 60000, core=core, host=host,
-                     jit="static" if a.static else not a.nojit)
+                     jit="static" if a.static else not a.nojit, seg2=a.seg2)
     mine = rbimg.private(out)               # where this run built its core
     inc = [os.path.join(ROOT, "apps/realboy/"), os.path.join(ROOT, "tests/rbcore/"), mine + "/"]
     csyms = labels(listing(os.path.join(mine, "rbcore.asm"), inc))
@@ -122,6 +125,8 @@ def main():
             if (off >> 8) in tails:             # ...its copies of the tails
                 i = bisect.bisect_right(ck, off) - 1
                 return "tail " + (csyms[i][1] if i >= 0 else "?")
+            return "translated code"
+        if CACHE2 <= ip < CACHE2 + 0x10000:     # its second segment (16.2.1)
             return "translated code"
         if CORE <= ip < CORE + 0x10000:
             i = bisect.bisect_right(ck, ip - CORE) - 1
@@ -243,7 +248,7 @@ def main():
             cnt[ip] = cnt.get(ip, 0) + 1
         print("the host's samples by instruction (the one AFTER the sample's IP, as"
               " a 286 reports the next):")
-        for ip, n in sorted(cnt.items(), key=lambda x: -x[1])[:60]:
+        for ip, n in sorted(cnt.items(), key=lambda x: -x[1])[:int(os.environ.get("RBPROF_IPS", "60"))]:
             i = bisect.bisect_right(hk, ip - 0) - 1
             print("  %5.2f%%  %04X %-14s %s" % (100.0 * n / tot, ip,
                   hsyms[i][1] if i >= 0 else "?", src.get(ip, "")[:60]))

@@ -477,45 +477,18 @@ rw_fsdraw:
     je .vga
     jmp rw_fsdrawd
 .vga:
-    call rw_render                  ; the changed lines, by damage
-    mov es, [rw_fsi + FSI_SEG]
-    mov dx, 3C4h
-    mov ax, 0102h                   ; plane 0: the shade's bit 0
-    out dx, ax
-    mov si, rw_fbuf
-    call rw_fsplane
-    mov ax, 0202h                   ; plane 1: bit 1
-    out dx, ax
-    mov si, rw_fbuf + 20
-    call rw_fsplane
+    mov ax, [rw_fsi + FSI_SEG]      ; the changed lines, by damage - each to
+    mov [rb_dvga], ax               ;   VRAM as rb_renderd decides it changed
+    call rw_render                  ;   (ppu_dvga), not by a second pass over
+    mov word [rb_dvga], 0           ;   the buffer
     call rw_fsline                  ; ZF = 0: the speed line to draw
     jz .r
     call rw_fstext
 .r:
     ret
-
-; rw_fsplane - one plane of rw_fbuf (SI = its line 0): the lines rb_renderd
-; changed, to VRAM. ES = VRAM.
-rw_fsplane:
-    push dx
-    mov bx, rw_chg                  ; BX = the line's changed byte
-    mov di, RW_FSY * 40 + RW_FSX
-    mov dx, 144
-.l:
-    cmp byte [bx], 0                ; a line rb_renderd left alone: past it
-    je .n
-    mov cx, 10                      ; ...and a changed one is copied whole:
-    rep movsw                       ;   rb_renderd already compared it, so a
-    sub si, 20                      ;   word-by-word shadow here was a second
-    sub di, 20                      ;   comparison of the same bytes (and
-.n:                                 ;   ~9 instructions a word to fetch)
-    add si, 40
-    add di, 40
-    inc bx
-    dec dx
-    jnz .l
-    pop dx
-    ret
+%if RW_FSY * 40 + RW_FSX != 0
+%error "ppu_dvga writes line n at 40 n: the picture's corner must be VRAM 0"
+%endif
 
 ; rw_fstext - rw_ovltxt on the border under the picture, 16 cells wide
 rw_fstext:                          ; (SI = the line, rw_fsline's)
