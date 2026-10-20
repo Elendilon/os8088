@@ -5649,3 +5649,119 @@ program high, the 286 (86Box), and a pool compaction moving one.
 - **D6. How long a huge region may move with interrupts off** is 14.37's
   question, and Pixelstein's 138KB is its largest customer: ~35 ms at the
   Victory's measured 0.257 ms a KB above 1MB (KERN-MEGA-DOS-PLAN 2.4).
+
+### 14.39 The trampoline's segment stores, the alias guard, the mouse ISR's SS, and two ratchets (2026-10-20)
+
+Seven items 10.3 and 14.9 left open. Each is a commit of its own.
+
+**1. `mega_gpw` stores the caller's DS and CS** (10.3 items 60 and 63). The
+trampoline runs a CS: store with DS = the image's data segment and CS =
+KERNEL_SEG, so `mov [cs:x], ds` stored the image's segment and `mov [cs:x],
+cs` stored 0060h. An `8C /3` or `8C /1` is now rewritten into the trampoline
+as `C7 /0` (two bytes longer, so the copy limit is MEGA_TRN - 2) with the
+value the code had as its immediate: the faulting DS, or its own CS. ES and
+SS need nothing, the trampoline leaving them as they were. The package sites
+(`apps/os88spk.inc`'s two, `lmpvmod.asm:130`, `wcanvas.asm:89`) are LEFT as
+they are: the kernel is the one place that is right for every package, old
+ones included, and converting them through AX would only help an older
+kern_mega nobody ships.
+
+**2. A guard in the no-prefix arm** (item 59). `mega_cs2dsw` is
+`mega_cs2ds` for DS or ES when a write is about to go through them: an LDT
+alias below MEGA_LDT_FREE0 converts only when its segment lies inside a live
+heap claim, walked through LOW_SEG (not SS, which is whatever stack faulted).
+Anything else falls to `mega_null0` and on to `mega_report`. DS or ES equal
+to the faulting CS - `push cs / pop ds`, the common case - skips the walk.
+It NARROWS rather than closes the hole: an alias landing inside another live
+claim still converts. The CS: arm and the reporter keep the unchecked
+`mega_cs2ds`, CS being the image that is running. Items 1 and 2 are `.mega`
++117 bytes. kern_big and kern_small are untouched by them.
+
+**Measured** under Bochs with `tests/megacsw` (MEGACSW says OS88_HIGH,
+MEGACSL does not). The base kernel (89dcb2ee) stored CS as 0060 BAD and a
+foreign DS as the image's segment BAD, and completed MEGACSL's guard store
+through the alias of 0020h ("guard WROTE"). This one reads every value back
+ok, in both packages, and reports the guard store as `kern_mega FAULT
+vector 0D` at the instruction.
+
+**3. The mouse ISR sets SS** (14.9, left as found 1). This is SPEC.md
+9.10.1, a SHARED fix. MOUPRIV_ENTER banks SS:SP and loads
+LOW_SEG:mou_pstack, so a body interrupting a ROM's own stack no longer runs
+`gfx_rowbase` and `evq_push` against the ROM's segment. The compare is gone,
+since `mov ss, [cs:mou_lowss]` needs no register. Measured cost:
+
+- **kern_big** `.text` +12, which includes three never-executed parity pads
+  so that every routine `t_hotpar` pins keeps its parity (`os88rdiff` reads
+  every run at an even shift), and `.bss` +2.
+- **kern_small** `.text` +10 and `.bss` +2.
+- **kern_mega**: its entry is the size it was, so its segment overhead falls
+  5,935 -> 5,931. `tests/megaseg.txt` is lowered with it.
+
+The race cannot be won on demand. A QEMU/gdb count over 59 int 13h and
+2,241 ISR entries met a foreign SS 0 times; this QEMU's SeaBIOS waits
+inside its handlers with IF off, and Bochs's legacy BIOS does not hop. So
+`tests/msstk` makes the case on purpose: SS:SP in an A5h claim, IRQ0 masked,
+IF on. `tests/mousess.py` (soak, MartyPC, 17 s) is the gate. On the old
+entry it reads 16 bytes of the claim written at offset 1336h, which is
+`evq_buf`. On this one 63 of 72 ISR entries arrived on the claim's stack,
+none of the bodies ran off LOW_SEG, and the claim came back untouched.
+
+kern_mega was booted after the change:
+- Under Bochs: the PS/2 mouse drives every MEGARUN sweep above.
+- On 86Box `286-mega` (MR BIOS 286, the reset path): the desktop came up, a
+  120x60 relative walk landed where the kernel says, B: opened through the
+  disk path, and `faults` showed nothing outside the BIOS's own shutdown
+  resets.
+
+**4. `apps/os88api.inc`'s OS88_HIGH note** no longer says a RAM disk or a
+cable share is unsupported for a buffer above 1MB, which item 81's
+`drv_fs_hi` bounce closed. Comment only: `abilock` passes with no update.
+
+**5. `font_run`'s SS rule is every call's rule.** No shipped package calls
+the kernel on a stack of its own. The DOS box switches SS around a DOS
+program and back before it calls in, and on kern_mega it is the
+whole-machine handoff anyway. The one kernel path on a foreign stack was
+the mouse ISR, which 3 closes. The rule is not `font_run`'s alone, either:
+the claim map and `gfx_rowbase`'s row table are SS-relative on every kernel.
+So the SDK's environment note now states it for every OSAPI call, and
+`font.inc` says who keeps it. Comments only.
+
+**6. `tests/unit/t_megagrid.py`** (fast, 0.6 s) is the "eight paragraphs,
+never one" ratchet. It flags three shapes, each ending in a `mov ds|es`
+within a few lines, in every file of a package that declares OS88_HIGH:
+- a far pointer normalised to one paragraph;
+- a byte count rounded up to paragraphs;
+- a segment step that is not a multiple of 8.
+
+Counts are held per file by `tests/megagrid.txt`. It finds 7 sites in 5 of
+302 files, and fails on all three shapes injected into HELLO.
+- `pxedit.asm`'s Rotate walk and `pxgif.asm`'s two animation rows are the
+  ones another session is converting. They are registered so that whichever
+  lands second lowers the lines.
+- **It found a defect nobody had listed: PiXEL's histogram TAIL** is at the
+  master + ceil(pixels / 16) paragraphs (`px_htail`, `pl_htail`, `pxfull`'s
+  copy, and `pe_tailof`, which the scan cannot see). That is off the grid
+  for any picture whose pixel count is not a multiple of 128. It is
+  registered and NOT fixed: every reader and the claim's sizing have to
+  move at once, and it is PiXEL's.
+
+**7. `tests/megatrap0.py`** (soak, `needs=("bochs", "nasm")`, 199 s) runs
+`MEGATRAP=1` in a private tree. Ten OS88_HIGH packages are started through
+MEGARUN and left running, and any trap charged to an image outside ALLOW
+fails the row, as do a refusal and a FAULT. The `bochs` capability is new,
+probed by `os88build.have_bochs()` and named by `os88soak check`. ALLOW is
+one entry: the boot's `mega_strcal` calibration, which faults on purpose.
+It is red with MEGACSW added, which takes 5 traps.
+
+**For the owner to look back over:**
+
+- **The census found the three Sticky Apps fault inside `mega_tlog` itself.**
+  DESKCAL, DESKCLOK and STIKNOTE each take one `xfer` at +108Fh when
+  started through MEGARUN, and the logger then faults at FFD8:09AD on that
+  frame. That is the instrument's defect, and it is knob-only. They are
+  left out of the row, which names them.
+- **An eleventh window was refused (05)** under MEGARUN on Bochs's 16MB,
+  which is why the set is ten.
+- **`os88bochs.py` allows one Bochs per box.** Parallel agents here ran it
+  through a wrapper on displays of their own. The tool itself was left as
+  it is.

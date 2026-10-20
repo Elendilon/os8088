@@ -2801,13 +2801,13 @@ mega_gpw:
     ; --- no CS: prefix - a code selector in DS or ES -----------------------
     mov cx, 0                       ; CX = registers fixed
     mov ax, [ss:bp+2]
-    call mega_cs2ds
+    call mega_cs2dsw
     jc .es
     mov [ss:bp+2], ax
     inc cx
 .es:
     mov ax, [ss:bp+0]
-    call mega_cs2ds
+    call mega_cs2dsw
     jc .fixed
     mov [ss:bp+0], ax
     inc cx
@@ -2920,9 +2920,10 @@ mega_gpw:
     mov al, ah
     xor ah, ah
     add di, ax                      ; DI = the whole length
-    cmp di, MEGA_TRN
+    cmp di, MEGA_TRN - 2            ; (- 2: room for 8C's immediate, below)
     ja mega_report
     ; --- copy it, CS: made DS:, NOPs after --------------------------------
+    push bx                         ; the opcode's index, for 8C below
     push ds
     pop es                          ; ES = the kernel's data, for the copy
     mov cx, di
@@ -2941,6 +2942,31 @@ mega_gpw:
     inc bx
     loop .cp
     pop ds
+    ; --- MOV r/m16, DS or CS (8C /3, 8C /1): the trampoline runs with DS =
+    ; the image's data segment and CS = KERNEL_SEG, so either would store the
+    ; wrong segment (KERN-MEGA-PLAN 10.3 items 60 and 63). It becomes MOV
+    ; r/m16, imm16 (C7 /0, two bytes longer) with the value the code had as
+    ; its immediate: the DS it faulted with, or its own CS. ES and SS are
+    ; the caller's in the trampoline already.
+    pop si                          ; SI = the opcode's index
+    cmp byte [mega_tramp+si], 0x8C
+    jne .nop
+    mov al, [mega_tramp+si+1]       ; the modrm byte
+    mov ah, al
+    and ah, 0x38                    ; ...its reg field
+    mov cx, [ss:bp+2]               ; reg 3: the caller's DS
+    cmp ah, 0x18
+    je .sreg
+    mov cx, [ss:bp+26]              ; reg 1: the caller's CS
+    cmp ah, 0x08
+    jne .nop
+.sreg:
+    and al, 0xC7                    ; reg 0, the same r/m and displacement
+    mov byte [mega_tramp+si], 0xC7
+    mov [mega_tramp+si+1], al
+    mov [mega_tramp+bx], cx         ; BX = the copied length: the immediate
+    inc bx
+    inc bx
 .nop:
     cmp bx, MEGA_TRN
     jae .copied
@@ -2966,6 +2992,55 @@ mega_gpw:
     mov word [ss:bp+24], mega_tramp
     mov word [ss:bp+26], KERNEL_SEG
     jmp mega_gpfix.resume
+
+; mega_cs2dsw - mega_cs2ds for a selector a WRITE is about to go through: DS
+; or ES in mega_gpw's no-prefix arm (KERN-MEGA-PLAN 10.3 items 59 and 63).
+; The LDT holds a code alias for EVERY 512-byte base below A000, so a segment
+; built by one-paragraph arithmetic - 1234h, bit 2 set and RPL 0 - loads as
+; the alias of 48C0h and mega_cs2ds would complete the write THERE. So an
+; alias below the allocator's range is converted only when its segment lies
+; inside a live heap claim (every image is one: a package's region and its
+; parts' carve, a driver, a module, an overlay); anything else is CF = 1 and
+; mega_gpw reports the fault. The image that is running - DS or ES equal to
+; the faulting CS, `push cs / pop ds` - is a loaded image by construction and
+; skips the walk, so the common case costs one compare. It narrows and does
+; not close: an alias that lands inside ANOTHER live claim is still converted.
+; Clobbers flags; AX as mega_cs2ds.
+mega_cs2dsw:
+    cmp ax, [ss:bp+26]              ; the faulting code's own CS
+    je mega_cs2ds
+    test al, 4
+    jz mega_cs2ds                   ; the GDT's: KERNEL_SEG or nothing
+    cmp ax, MEGA_LDT_FREE0 * 8
+    jae mega_cs2ds                  ; the allocator's: its own table says
+    call mega_cs2ds                 ; AX = S (an alias always converts)
+    push cx
+    push dx
+    push si
+    push es
+    mov si, LOW_SEG                 ; the claim map is in .lowbss: through
+    mov es, si                      ; LOW_SEG, and not SS, which is whatever
+    mov si, mem_tab                 ; stack the fault arrived on
+    mov cx, MEM_MAX
+.w:
+    mov dx, ax
+    cmp word [es:si+MC_SEG], 0      ; a free record
+    je .nx
+    sub dx, [es:si+MC_SEG]
+    jb .nx                          ; below this claim
+    cmp dx, [es:si+MC_PARA]
+    jb .out                         ; inside it: CF = 1 from the compare...
+.nx:
+    add si, MC_SIZE
+    loop .w
+    clc                             ; ...so the senses are swapped once,
+.out:                               ; below: in no claim -> CF = 1
+    cmc
+    pop es
+    pop si
+    pop dx
+    pop cx
+    ret
 
 ; AX = a CODE selector -> AX = the DATA segment with its base, CF = 0; CF = 1
 ; for anything else (a data selector, the null one, .cold's code). The LDT is

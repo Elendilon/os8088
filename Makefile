@@ -8026,6 +8026,13 @@ $(BUILD)/regpair.bin: tests/regpair/regpair.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/regpair.o88: $(BUILD)/regpair.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/regpair.bin -o $@
 
+# SPEC.md 9.10.1's fixture, for tests/mousess.py: SS:SP moved into a claim with
+# IRQ0 masked and IF on, so the mouse ISR is taken on a stack that is not
+# LOW_SEG - the case SeaBIOS's int 13h makes by a race
+$(BUILD)/msstk.bin: tests/msstk/msstk.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/msstk/msstk.asm
+$(BUILD)/msstk.o88: $(BUILD)/msstk.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/msstk.bin -o $@
 # SPEC.md 5.4.1.5's fixture, for tests/b4walk.py: one window, one OSAPI_GFX_BLIT4
 # of a dithered block in its W_PAINT. The row writes its own scratch disk.
 $(BUILD)/b4walk.bin: tests/b4walk/b4walk.asm apps/os88api.inc | $(BUILD)
@@ -12596,6 +12603,18 @@ $(BUILD)/megahi.bin: tests/megahi/megahi.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megahi/megahi.asm
 $(BUILD)/megahi.o88: $(BUILD)/megahi.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megahi.bin -o $@
+# MEGACSW / MEGACSL (tests/megacsw): `mov [cs:x], ds` and `mov [cs:x], cs`
+# read back, high (OS88_HIGH) and low, and MEGACSL's guard store through the
+# LDT alias of a segment in no claim (KERN-MEGA-PLAN 14.39) - `tools/os88bochs.py
+# sweep build/megacsw.o88 build/megacsl.o88`, the guard ending the boot
+$(BUILD)/megacsw.bin: tests/megacsw/megacsw.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -DCSW_HIGH -o $@ tests/megacsw/megacsw.asm
+$(BUILD)/megacsl.bin: tests/megacsw/megacsw.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megacsw/megacsw.asm
+$(BUILD)/megacsw.o88: $(BUILD)/megacsw.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megacsw.bin -o $@
+$(BUILD)/megacsl.o88: $(BUILD)/megacsl.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megacsl.bin -o $@
 # MEGACP (tests/megacp): the pool COMPACTED (KERN-MEGA-PLAN 14.15) - 60KB
 # claims filled, every other one freed, a 64KB claim that only a compaction
 # can place, and every survivor's stamps read back through its own selector.
