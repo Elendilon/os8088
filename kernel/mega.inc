@@ -2166,6 +2166,9 @@ mega_svc_back:
     and ax, 0x08D5                  ; caller's FLAGS: OF SF ZF AF PF CF
     and word [ss:bp+28], ~0x08D5
     or [ss:bp+28], ax
+    cmp byte [mega_fdpend], 0       ; a native floppy fallback: did the BIOS
+    je .out                         ; do what it could not? (mega_fdjudge)
+    call mega_fdjudge
 .out:
     pop es
     pop ds
@@ -4470,6 +4473,26 @@ mega_fd13:
     mov al, 10
     call mm_putc
     pop si
+    mov byte [mega_fdpend], 1       ; ...and whether it COUNTS is the BIOS's
+                                    ; to say: mega_fdjudge, on its way back
+.no:
+    stc
+    ret
+
+; mega_fdjudge - a native fallback, judged by what the BIOS then made of the
+; same call (mega_svc_back, BP = its frame, the BIOS's FLAGS at +20). Only a
+; call the BIOS COMPLETED is a strike against the native path: one the BIOS
+; failed too is the DISK's - an empty drive, a disk that is not there or not
+; readable - and an empty A: probed eight times switched a working native
+; path off for the session (KERN-MEGA-PLAN 14.34). DS = KDATA. Preserves
+; every register
+mega_fdjudge:
+    mov byte [mega_fdpend], 0
+    test byte [ss:bp+20], 1         ; the BIOS's CF: it failed as well
+    jz .strike
+    ret
+.strike:
+    push ax
     cmp byte [mega_fdtold], 0       ; the FIRST fallback of a boot on the
     jne .told                       ; glass, which is all a field machine
     mov byte [mega_fdtold], 1       ; shows: one that alternates with
@@ -4508,7 +4531,7 @@ mega_fd13:
 .told:
     inc byte [mega_fdfail]
     cmp byte [mega_fdfail], 8
-    jb .no
+    jb .out
     mov byte [mega_fdoff], 1
     push si
     push cx
@@ -4523,8 +4546,8 @@ mega_fd13:
     pop es
     pop cx
     pop si
-.no:
-    stc
+.out:
+    pop ax
     ret
 
 ; mega_fdgo - the transfer itself, IF = 1 and the switch lock held. ES = BDA.
@@ -5068,6 +5091,7 @@ mega_selbase:
 section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
 mega_fdoff  db 0                    ; 1: switched off for the session
 mega_fdfail db 0                    ; fallbacks in a row
+mega_fdpend db 0                    ; 1: a fallback awaits the BIOS's verdict
 mega_fdop   db 0                    ; 02h / 03h
 mega_fdn    db 0                    ; sectors
 mega_fdd    db 0                    ; drive

@@ -5233,6 +5233,7 @@ down by one or by two, the measurement now carries what it does. The
 native floppy fallback on that bar (`FD BIOS 08`) is a separate question
 and stays open, as does the freeze on an empty A:.
 
+
 ### 14.33 The kernel segment is full again: a segment of kern_mega's own (2026-10-20)
 
 14.10 left 364 bytes in kern_mega's `.text` + `.bss`. Two days of merges later
@@ -5256,3 +5257,39 @@ What stays low is what runs in REAL mode after the switch: the reflection's
 real-mode half, `mega_r286`, the IRQ capture and the DOS drop. The cost is
 64KB of the XMEM pool (`MEGA_XPOOL` to 0x140000). `tools/os88megaseg.py`
 re-derives every per-section figure off the two maps.
+
+### 14.34 Field, the Victory 286 (2026-10-20): after 14.32, and an empty drive
+
+**Confirmed on the machine**: WireChat connects and chats; Install from a
+mounted image completes (14.32), and so does Install from a real 1.44 MB
+system disk; no freeze with A: empty. The image install put `native floppy
+off: BIOS from now` on the glass on its way.
+
+**That toast was an empty drive, not the native path.** Eight fallbacks in a
+row switch native floppy off for the session (mega_fd13), and a fallback was
+counted the moment the native attempt failed - before the BIOS had tried. An
+EMPTY A: fails both, so an installer that walks both drives looking for the
+system disk counted eight strikes against a path that had never failed a
+disk it could read. 86Box does not show it: its empty drive asserts the
+change line, which the native path hands to the BIOS uncounted. **Now the
+BIOS decides**: the fallback is marked pending (`[mega_fdpend]`) and
+`mega_fdjudge`, on `mega_svc_back`'s way out of that same call, counts it -
+and puts the first-fallback toast up - only when the BIOS COMPLETED what the
+native path could not. A call the BIOS failed too is the disk's. The fault
+`mega_svc_lo.r286+31 [Vector > IDT limit]` that `os88box faults` shows on
+these runs is the 286 reflection's own triple fault (`lidt` null, `int 3`),
+not a crash.
+
+**T69 reads through BIOS0.** The PicoMEM v1 serves its disk from its option
+ROM, so HDD.DRV's rung 1 has no IDE port to pair it with (52.1.1) and every
+read of the video is a reflected `int 13h` - on a 286, a CPU reset each -
+beside the card's own audio IRQs (61 a second, 14.31). kern_big runs both in
+real mode and pays neither. OPEN: how many `int 13h` a second the play makes,
+which says whether bigger reads would buy it back.
+
+**MIDIRack**: `The PC speaker is busy` is back with the right MIDIRACK.O88,
+and kern_big does not click. Sent: MR_SPKDIAG rebuilt on this tree, and a
+diagnostic kern_mega whose menu-bar `RFL` line (and the PicoMEM's `Q` line
+after it) appears after any second with a reflection instead of twenty or
+more - a PicoMEM raising its IRQ a few times a second would never have shown,
+and each one is a ~3 ms reset gap in speaker PCM. OPEN on both readings.
