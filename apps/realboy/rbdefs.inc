@@ -40,8 +40,13 @@ S_JITSEGB       equ 0x4812          ;   its second or 0 (REALBOY-SPEC 16.2.1):
 S_JITLIM        equ 0x4814          ; word: RT_SQUEEZE builds (the harness):
                                     ;   each segment's code ends here, or 0
 S_JITSW         equ 0x4816          ; word: moves on into the second (stat)
-RB_FREE         equ 0x4818          ; the rest of the window is unassigned,
+S_VTMP          equ 0x4818          ; word: vr_wr's BX (REALBOY-SPEC 13.2.2)
+RB_VALL         equ 0x481A          ; byte: VRAM written past the marks (the
+                                    ;   copy idiom, cpy_ff): compare it all
+RB_FREE         equ 0x481C          ; the rest of the window is unassigned,
                                     ; but for rbppu.inc's 4900-66FF and:
+RB_VMARK        equ 0x7200          ; 512: a VRAM 16-byte block written since
+                                    ;   the damage scan last looked (vr_wr)
 JIT_BUF         equ 0x6700          ; 256: the Game Boy code being translated
 RB_BTAB         equ 0x6800          ; 512 words: a ROM bank's segment, or 0
 RB_BUSE         equ 0x6C00          ; 512 words: switches to it (the cache's

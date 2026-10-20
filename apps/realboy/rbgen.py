@@ -133,8 +133,8 @@ jmp rd_slow
         g = self.tag()
         if JIT:
             self.a(f"""
-test bh,bh
-jns .{g}s
+cmp bh,0A0h
+jb .{g}s
 cmp bh,0FFh
 jne .{g}v
 cmp bl,80h
@@ -161,8 +161,8 @@ mov [ss:bx],{src}
 """)
             return
         self.a(f"""
-test bh,bh
-jns .{g}s
+cmp bh,0A0h
+jb .{g}s
 cmp bh,0FFh
 jne .{g}v
 cmp bl,80h
@@ -362,9 +362,9 @@ jmp far [ss:S_EVVEC]
     elif op == 0x1F:                                # RRA
         s.a("sahf\nrcr al,1\nsbb ah,ah\nand ah,1"); s.cyc(1); s.disp()
     elif op == 0x08:                                # LD (nn),SP
-        s.a("mov [ss:S_TMP2],bx\nmov bx,[si]\nadd si,2\nmov dx,sp\nmov [ss:S_TMP4],dh")
+        s.a("mov [ss:S_TMP2],bx\nmov bx,[si]\nadd si,2\nmov dx,sp")
         s.write8("dl", 3)
-        s.a("inc bx\nmov dh,[ss:S_TMP4]")
+        s.a("inc bx\nmov dx,sp")              # (SP again: no byte banked)
         s.write8("dh", 4)
         s.a("mov bx,[ss:S_TMP2]"); zdl(s); s.cyc(5); s.disp()
     elif op in (0x09, 0x19, 0x29, 0x39):            # ADD HL,rr
@@ -509,8 +509,12 @@ mov bx,dx
         s.a("pop si"); s.setds(); s.cyc(4 if op == 0xC9 else 5); s.check(); s.disp()
     elif op == 0xD9:                                # RETI
         s.a("pop si"); s.setds()
-        s.a("mov byte [ss:S_IME],1"); s.cyc(4)
-        s.a("jmp far [ss:S_EVVEC]")
+        s.a("mov byte [ss:S_IME],1"); s.cyc(4); s.check()
+        # the event entry only for an interrupt already pending: IF gains a
+        # bit only at an event, which checks, or at an IF/IE write, which
+        # takes it (rb_irqnow) - so nothing else can be waiting on IME
+        s.a("mov dl,[ss:0FFFFh]\nand dl,[ss:0FF0Fh]\nand dl,1Fh\njnz .ev")
+        s.disp()
     elif lo in (7, 0xF) and hi >= 0xC:              # RST
         vec = (hi - 0xC) * 0x10 + (8 if lo == 0xF else 0)
         s.a(f"push si\nmov si,{vec}\nmov ds,[ss:S_VIEW]"); s.cyc(4); s.check(); s.disp()
@@ -648,7 +652,9 @@ sub bp,2""")
     elif op == 0xF3:                                # DI
         s.a("mov byte [ss:S_IME],0"); s.cyc(1); s.disp()
     elif op == 0xFB:                                # EI
-        s.a("mov byte [ss:S_IME],1\nmov word [ss:S_RET],.k\njmp force_ev\n.k:")
+        s.a("mov byte [ss:S_IME],1")          # the next check only for an
+        s.a("mov dl,[ss:0FFFFh]\nand dl,[ss:0FF0Fh]\nand dl,1Fh\njz .k")  # interrupt
+        s.a("mov word [ss:S_RET],.k\njmp force_ev\n.k:")                   # pending (RETI's)
         s.cyc(1); s.disp()
     else:
         raise SystemExit("rbgen: no handler for opcode %02X" % op)
@@ -749,13 +755,17 @@ TAILS = {
 ; of 8 bytes at JIT_HASH in a segment of its own: PC, bank (FF for the rest),
 ; -, the block's offset there. This tail is copied into that segment too (blocks jump
 ; to it there), so it leaves by far jumps only.
+; Its far ends are 3-byte stubs at the slot's end: a Jcc out of short range
+; is assembled as an inverted Jcc around a jmp, which put a TAKEN jump on the
+; hit path for every one of them.
 tr_enter:
     cmp byte [ss:S_JITON],0     ; no translator: the interpreter's own
-    je tr_off                   ;   dispatch (only the core's copy runs
+    je tr_eoff                  ;   dispatch (only the core's copy runs
                                 ;   with it off)
     cmp si,8000h                ; RAM: tr_hram
-    jae tr_hram
-    mov [ss:S_SAVBX],bx
+    jae tr_ehr
+tr_ejd:                         ; (JDISPATCH's way in: its site tested SI,
+    mov [ss:S_SAVBX],bx         ;   and is not there with the translator off)
     mov bx,si
     mov dl,0FFh
     cmp bh,40h
@@ -776,17 +786,25 @@ tr_ekey:
     shl bx,1
     mov es,[ss:S_JITHSEG]       ; the table (ES is every helper's to load)
     cmp [es:bx+JIT_HASH],si
-    jne tr_new
+    jne tr_en
     cmp [es:bx+JIT_HASH+2],dh
-    jne tr_new
+    jne tr_en
     les dx,[es:bx+JIT_HASH+4]   ; the block, in the segment it was written
     or dx,dx                    ;   in (16.2.1)...
-    jz tr_cnt0                  ; ...or not yet: still counting
+    jz tr_ec                    ; ...or not yet: still counting
 tr_go:                          ; (tr_new2's way in too)
     mov [ss:S_JITOUT],dx        ; wherever this copy of tr_enter is
     mov [ss:S_JITOUT+2],es      ;   running
     mov bx,[ss:S_SAVBX]
     jmp far [ss:S_JITOUT]
+tr_eoff:
+    jmp tr_off
+tr_ehr:
+    jmp tr_hram
+tr_en:
+    jmp tr_new2
+tr_ec:
+    jmp tr_cnt0
 """,
     0x41: """
 ; tr_enter's other half. A PC is TRANSLATED only once it has been entered
@@ -1026,6 +1044,8 @@ wr_sw:
     js .io
     jmp mbc_wr
 .io:
+    cmp bh,0A0h                 ; VRAM: no time to it (vr_wr)
+    jb vr_wr
     mov word [ss:S_RET2],io_wr
 rw_io:                          ; on to [S_RET2], and back through rw_back
     sub bp,[ss:S_ATN]
@@ -1164,6 +1184,18 @@ cpy_ff:
     cmp bp,dx
     jl .no
     mov [ss:S_TMP4],dx
+    mov dl,bh                   ; either range starting in VRAM: the
+    sub dl,80h                  ;   damage scan compares it all, these
+    cmp dl,20h                  ;   stores marking no block (vr_wr)
+    jae .x1
+    mov byte [ss:RB_VALL],1
+.x1:
+    mov dx,di
+    sub dh,80h
+    cmp dh,20h
+    jae .x2
+    mov byte [ss:RB_VALL],1
+.x2:
     mov dx,bx                   ; HL's range...
     cmp dh,80h
     jb .no
@@ -1403,7 +1435,29 @@ wr_slow:
     js .io
     jmp mbc_wr
 .io:
+    cmp bh,0A0h
+    jb vr_wr
     jmp io_wr
+; vr_wr: [BX], in VRAM (8000-9FFF), = [S_WVAL] - a store the fast path no
+; longer takes, so that the damage scan need not compare all 8KB (REALBOY-
+; SPEC 13.2.2): its 16-byte block marked in RB_VMARK, unless the byte is
+; already that. Resumes at [S_RET]; DL leaves 0, DH as it came.
+vr_wr:
+    mov dl,[ss:S_WVAL]
+    cmp dl,[ss:bx]
+    je .k
+    mov [ss:bx],dl
+    mov [ss:S_VTMP],bx
+    shr bx,1
+    shr bx,1
+    shr bx,1
+    shr bx,1
+    and bh,1                    ; the block, 0-1FFh
+    mov byte [ss:RB_VMARK+bx],1
+    mov bx,[ss:S_VTMP]
+.k:
+    xor dl,dl
+    jmp word [ss:S_RET]
 """,
     0xDB: """
 ; Make the next event check fire: t_next -= BP (signed), BP = 0. Resumes at
@@ -1822,7 +1876,7 @@ NOTMPL = {0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x76, 0xC0, 0xC2, 0xC3, 0xC4,
           0xD7, 0xD8, 0xD9, 0xDA, 0xDC, 0xDF, 0xE7, 0xE9, 0xEF, 0xF7, 0xFF} | INVALID
 # the control transfers whose interpreted form re-enters translated code
 CONTROL = {0x18, 0x20, 0x28, 0x30, 0x38, 0xC0, 0xC2, 0xC3, 0xC4, 0xC7, 0xC8,
-           0xC9, 0xCA, 0xCC, 0xCD, 0xCF, 0xD0, 0xD2, 0xD4, 0xD7, 0xD8, 0xDA,
+           0xC9, 0xCA, 0xCC, 0xCD, 0xCF, 0xD0, 0xD2, 0xD4, 0xD7, 0xD8, 0xD9, 0xDA,
            0xDC, 0xDF, 0xE7, 0xE9, 0xEF, 0xF7, 0xFF}
 # operand bytes after the opcode, for the templated opcodes that have any
 IMM16_OPS = {0x01, 0x11, 0x21, 0x31, 0x08, 0xEA, 0xFA}
@@ -1952,7 +2006,7 @@ def main():
     L.append("%assign JDN JDN+1")          #   own (REALBOY-SPEC 16.3). Each
     L.append("    cmp si,8000h")           #   site is LABELLED: with no
     L.append("    jae %%d")                #   recompiler its first five bytes
-    L.append("    jmp tr_enter")           #   become the plain dispatch
+    L.append("    jmp tr_ejd")             #   become the plain dispatch
     L.append("%%d:")
     L.append("    mov dh,[si]")
     L.append("    inc si")
@@ -1992,12 +2046,12 @@ RMW_CB = list(range(0x06, 0x40, 8)) + list(range(0x86, 0x100, 8))   # 518 + k
 def rmw_lines(op, cb):
     t = template_lines(op, cb)
     i = t.index(".t1k:")
-    j = t.index("    test bh,bh", i)
+    j = t.index("    cmp bh,0A0h", i)
     body = t[i + 1:j]
     assert not {".s:", ".v:"} & {ln.strip() for ln in body}, (op, cb)
     assert re.match(r"    sub bp,\d+$", t[-1]), (op, cb)
-    return ["    test bh,bh",
-            "    jns .s",
+    return ["    cmp bh,0A0h",            # (VRAM off it too: vr_wr marks)
+            "    jb .s",
             "    cmp bh,0FFh",
             "    jne .v",
             "    cmp bl,80h",

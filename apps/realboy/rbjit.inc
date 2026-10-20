@@ -777,10 +777,10 @@ rt_pick:
     clc
     ret
 .ea:
-    cmp al,0EAh                     ; LD (nn),A: 8000-FEFF, FF80-FFFE
-    jne .rmw
-    test dh,dh
-    jns .no
+    cmp al,0EAh                     ; LD (nn),A: A000-FEFF, FF80-FFFE
+    jne .rmw                        ;   (VRAM's go through vr_wr, which
+    cmp dh,0A0h                     ;   marks them for the damage scan)
+    jb .no
     cmp dh,0FFh
     jne .wr
     cmp dl,80h
