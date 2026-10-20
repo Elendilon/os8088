@@ -1315,6 +1315,13 @@ rw_frame:
 .run:                               ;   a frame's worth of budgets is one
     push cx
     mov ax, [rw_budget]
+    push es                         ; the recompiler on: twice the budget -
+    mov es, [rb_viewseg]            ;   it is the IRQ latency, and recompiled
+    cmp byte [es:S_JITON], 0        ;   2000 M-cycles are ~2 ms on a 286, so
+    pop es                          ;   4000 are still inside a 1200-baud
+    je .b                           ;   mouse's 8 ms; half the runs, and of
+    shl ax, 1                       ;   rb_run's rb_sched and event exit
+.b:
     call rb_run                     ; ...and each returns with interrupts
     pop cx                          ;   on, so the tick can pre-empt us
     cmp al, RBX_FRAME               ;   between two: no yield per budget,

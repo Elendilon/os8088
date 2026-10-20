@@ -621,7 +621,10 @@ third frame both ways, by damage into a buffer it keeps and whole by
   reads the clock again after every frame - so it sleeps only when nothing
   is owed. It runs the core a frame at a time in budgets of 2,000 M-cycles,
   700 on an 8088 (`OSAPI_CPU_INFO`), where 2,000 is ~20 ms with interrupts
-  off; and composes and blits a frame when it has caught up or every three
+  off, and 4,000 while the recompiler is on, where 2,000 are ~2 ms on a 286
+  (each run is an `rb_sched` and an event exit, and halving them took
+  Kirby's Dream Land from 85.9% to 90.5% of real time on `286-victory`;
+  8,000 read 91.8% and is a mouse byte nearer the edge); and composes and blits a frame when it has caught up or every three
   ticks whatever happens, so a machine that is behind still shows ~6 frames
   a second. F1 puts the game's speed and the frames drawn a second over the
   picture. The joypad is the held keys - arrows, X = A,
