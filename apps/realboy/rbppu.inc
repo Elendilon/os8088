@@ -454,6 +454,7 @@ rb_renderd:
     movsw
     mov al,[PPU_WLINE]
     stosb
+    inc di                              ; (a record is 10: ppu_ldirty's)
     mov [PPU_DWREG],di
     inc word [es:RB_DCOMP]
     call ppu_line

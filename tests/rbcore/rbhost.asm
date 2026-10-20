@@ -298,6 +298,9 @@ host_main:
     mov es,ax
     xor di,di
     call rb_renderd
+%ifdef SCRL_STAT
+    call scrl_stat
+%endif
     pop es
 .nj:
     mov ax,[nframes]
@@ -399,6 +402,37 @@ host_main:
     mov ds,[cs:rb_viewseg]
     loop .dbg
     pop ds
+%endif
+%ifdef SCRL_STAT
+    mov si,s_scrl                       ; scroll frames, then the lines a
+    call puts                           ;   hardware scroll would still have
+    mov ax,[scrl_n]                     ;   to compose: a sprite's now or
+    call dec16                          ;   the last frame's, a scroll of its
+    mov si,s_scrl1                      ;   own (a status bar), either -
+    call puts                           ;   each lines a frame, on average
+    mov ax,[scrl_spr]
+    mov dx,[scrl_spr+2]
+    call .d16
+    mov si,s_scrl2
+    call puts
+    mov ax,[scrl_hud]
+    mov dx,[scrl_hud+2]
+    call .d16
+    mov si,s_scrl3
+    call puts
+    mov ax,[scrl_any]
+    mov dx,[scrl_any+2]
+    call .d16
+    jmp short .scd
+.d16:                                   ; DX:AX / the frames: a frame's
+    mov cx,[scrl_n]                     ;   average
+    jcxz .z
+    div cx
+    jmp dec16
+.z:
+    xor ax,ax
+    jmp dec16
+.scd:
 %endif
     cmp byte [h_mode],6
     jne .nd
@@ -776,6 +810,90 @@ s_hello db "RealBoy core harness",10,0
 s_bad   db 10,"RBHOST BADOP ",0
 s_done  db 10,"RBHOST DONE frames ",0
 s_dmg   db " damage-bad ",0
+%ifdef SCRL_STAT
+s_scrl  db " scroll-frames ",0
+s_scrl1 db " spr ",0
+s_scrl2 db " hud ",0
+s_scrl3 db " any ",0
+scrl_n      dw 0
+scrl_spr    dd 0
+scrl_hud    dd 0
+scrl_any    dd 0
+scrl_prev   times 144 db 0
+
+; scrl_stat - MODE 7 with SCRL_STAT: after each rb_renderd, the lines of a
+; SCROLLING frame (RB_DSTALE) a hardware scroll would still compose
+scrl_stat:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push ds
+    push es
+    mov ax,DMG_SEG
+    mov es,ax
+    mov ds,[cs:rb_viewseg]
+    mov dx,[es:RB_DLREG + 64 * 10 + 1]  ; the main scroll: line 64's
+    xor bx,bx                           ; BX = the line
+    mov si,PPU_LSPR
+    mov di,RB_DLREG + 1
+    cmp byte [es:RB_DSTALE],0
+    je .upd
+    inc word [cs:scrl_n]
+.l:
+    xor cx,cx                           ; CL = sprite, CH = its own scroll
+    cmp byte [si],0
+    je .np
+    inc cl
+.np:
+    cmp byte [cs:scrl_prev+bx],0
+    je .nq
+    inc cl
+.nq:
+    mov al,[si]
+    mov [cs:scrl_prev+bx],al
+    cmp [es:di],dx
+    je .nh
+    inc ch
+    add word [cs:scrl_hud],1
+    adc word [cs:scrl_hud+2],0
+.nh:
+    or cl,cl
+    jz .ns
+    add word [cs:scrl_spr],1
+    adc word [cs:scrl_spr+2],0
+.ns:
+    or cl,ch
+    jz .na
+    add word [cs:scrl_any],1
+    adc word [cs:scrl_any+2],0
+.na:
+    add si,41
+    add di,10
+    inc bx
+    cmp bx,144
+    jb .l
+    jmp short .r
+.upd:
+    mov al,[si]                         ; a still frame: the sprites' lines
+    mov [cs:scrl_prev+bx],al            ;   kept for the next
+    add si,41
+    inc bx
+    cmp bx,144
+    jb .upd
+.r:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
 s_dmg1  db " first ",0
 s_dmg2  db " lines ",0
 s_dmg3  db " at ",0

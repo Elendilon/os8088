@@ -67,7 +67,8 @@ def build_host(out_dir):
     binf = os.path.join(out_dir, "rbhost.bin")
     subprocess.check_call(["nasm", "-f", "bin", "-w+error"] +
                           (["-DRT_DEBUG"] if os.environ.get("RT_DEBUG") else []) +
-                          (["-DDMG_DEBUG"] if os.environ.get("DMG_DEBUG") else []) + [
+                          (["-DDMG_DEBUG"] if os.environ.get("DMG_DEBUG") else []) +
+                          (["-DSCRL_STAT"] if os.environ.get("SCRL_STAT") else []) + [
                            "-I", os.path.join(ROOT, "apps/realboy/"),
                            "-I", os.path.join(ROOT, "tests/rbcore/"),
                            "-I", out_dir + "/",
