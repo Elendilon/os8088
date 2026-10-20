@@ -591,11 +591,13 @@ it changed), and AX holds the count.
   or in a raster write the last call's frame had not - every line under it
   changes anyway, so the VRAM scan would only find what is composed
   regardless. The shadows are copied instead of compared and every line is
-  composed, and `ppu_dput` still writes only those that differ (a stale
-  shadow would only make a later call compose more, never less). The bare
-  harness's MODE 7 (`rbbench.py --renderd`, the package's composer timed)
-  read a scrolling Super Mario Land's frame, the CPU with it, 26.32 ms
-  before and 25.13 after on `286-victory`.
+  composed, and `ppu_dput` still writes only those that differ. While it
+  scrolls the shadows are not even taken (`RB_DSTALE`): the first still
+  frame after it is composed whole once more and takes them (a stale shadow
+  could only make a call compose more, never less). The bare harness's
+  MODE 7 (`rbbench.py --renderd`, the package's composer timed) read a
+  scrolling Super Mario Land's frame, the CPU with it, 26.32 ms before and
+  24.40 after on `286-victory`.
   Super Mario Land splits its status bar every frame, so until the log was
   compared it was never FAST: standing still on the Victory's 86Box twin,
   judging 144 lines was 5 ms a draw and the picture 23 frames a second; it

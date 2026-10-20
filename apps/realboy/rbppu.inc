@@ -226,6 +226,8 @@ RB_DFAST        equ 0x3133              ; byte: no register changed anywhere
 RB_DLLOG        equ 0x3134              ; byte: the last call's frame's log
                                         ;   entries (FFh: more than RB_DLOGMAX)
 RB_DSAME        equ 0x3135              ; byte: ppu_logsame's answer, 1 = same
+RB_DSTALE       equ 0x3136              ; byte: a scroll left the shadows as
+                                        ;   they were (rb_renderd, .scroll)
 RB_DREG0        equ 0x3138              ; 8: the last call's registers
 RB_DMROW        equ 0x3140              ; 64: a map row changed (2 x 32)
 RB_DCOMP        equ 0x3180              ; word: lines composed (the host's to
@@ -334,11 +336,22 @@ rb_renderd:
     loop .sl
     jmp short .scan
 .full:
-    cmp byte [es:RB_DFULL],0            ; (2: the buffer is still the screen,
-    jne .scan                           ;   so ppu_dput compares as ever)
-    mov byte [es:RB_DFULL],2
+    cmp byte [es:RB_DFULL],0            ; (the host's: as it asked)
+    jne .scan
+    mov byte [es:RB_DFULL],2            ; (2: the buffer is still the screen,
+    mov byte [es:RB_DSTALE],1           ;   so ppu_dput compares as ever) -
+    mov word [es:RB_DTCH],0             ;   and the shadows are not even
+    jmp short .scanned                  ;   taken while it scrolls
 .scan:
+    cmp byte [es:RB_DSTALE],0           ; the first still frame after one:
+    je .sc                              ;   whole once more, the shadows
+    mov byte [es:RB_DSTALE],0           ;   taken with it
+    cmp byte [es:RB_DFULL],0
+    jne .sc
+    mov byte [es:RB_DFULL],2
+.sc:
     call ppu_dscan                      ; the shadows, the changed bytes
+.scanned:
     cmp word [cs:rb_dhook],0
     je .nohk
     call [cs:rb_dhook]
