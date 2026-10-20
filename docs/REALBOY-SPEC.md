@@ -399,7 +399,11 @@ cache could not be claimed and the game ran interpreted (its log has no J).
   ROM's own read rebuilds the disk caches `OSAPI_MEM_AVAIL` counts as free,
   in exactly the room the cache was to have. So the recompiler is claimed
   first, and given back only if the cartridge then fits no other way. One
-  claim when the ROM fits with some slack (24KB) beside it. Otherwise, when
+  claim when the ROM fits with some slack (24KB) beside it - and the
+  recompiler is NOT kept a second time: it once was, the claim having moved
+  in front of the plan, and the field Victory's 179K heap gave Kirby's
+  Dream Land 5 slots where 9 fit, 50-80 fetches a second full screen and
+  12-15% of real time in its window. Otherwise, when
   `OSAPI_XMEM_CAPS` has room for banks 1 on: the cache, with **K slots of
   16KB**, as many as the heap affords after those, at least 4 and at most 40
   or one a bank. Otherwise one claim without that room, as before, and then
@@ -582,6 +586,16 @@ it changed), and AX holds the count.
 - **`RB_DFULL`** = 1, set by the host after it cleared the screen or when its
   buffer holds something else, composes and writes everything, and takes
   the shadows whole.
+- **A SCROLL is composed whole** (`RB_DFULL` = 2, set by `rb_renderd`
+  itself): when SCY or SCX moved since the last call - as the frame began,
+  or in a raster write the last call's frame had not - every line under it
+  changes anyway, so the VRAM scan would only find what is composed
+  regardless. The shadows are copied instead of compared and every line is
+  composed, and `ppu_dput` still writes only those that differ (a stale
+  shadow would only make a later call compose more, never less). The bare
+  harness's MODE 7 (`rbbench.py --renderd`, the package's composer timed)
+  read a scrolling Super Mario Land's frame, the CPU with it, 26.32 ms
+  before and 25.13 after on `286-victory`.
   Super Mario Land splits its status bar every frame, so until the log was
   compared it was never FAST: standing still on the Victory's 86Box twin,
   judging 144 lines was 5 ms a draw and the picture 23 frames a second; it

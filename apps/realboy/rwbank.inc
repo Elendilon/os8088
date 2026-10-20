@@ -6,11 +6,14 @@
 ; to them. Included by realboy.asm.
 ;
 ; A cartridge that fits is one claim, as it always was. One that does not -
-; over 256K, or a 256K one that would leave no room for the recompiler's
-; 64KB on a 640KB machine (Kirby's Dream Land) - goes to OSAPI_XMEM_ALLOC
+; over 256K, or a 256K one that would leave no room beside the recompiler's
+; 80KB on a 640KB machine (Kirby's Dream Land) - goes to OSAPI_XMEM_ALLOC
 ; whole, but for bank 0, which is the view's own 0000-3FFF; banks 1 on live
 ; in K slots of 16KB, as many as the heap affords after the recompiler, the
-; damage memory and the cartridge's RAM. rbsys's bank table names each bank
+; damage memory and the cartridge's RAM. (The plan once kept the
+; recompiler's 64KB a SECOND time, the claim having moved in front of it:
+; the field Victory's 179K heap gave Kirby 5 slots where 9 fit, and two
+; fetches a frame.) rbsys's bank table names each bank
 ; that is in a slot; a switch to one that is not (rb_bmiss) fetches it over
 ; the slot the game has switched to least since the last fetch.
 ;
@@ -22,9 +25,11 @@
 ; task, which fetches for itself.
 ; =============================================================================
 
-RW_KEEPKB       equ 24              ; KB the plan keeps for the damage memory,
-                                    ;   the cartridge's RAM and some slack
-RW_JITKB        equ 64              ; ...and for the recompiler, on a 286
+RW_KEEPKB       equ 24              ; KB the plan keeps for the cartridge's
+                                    ;   RAM and some slack: the damage memory
+                                    ;   and the recompiler are claimed BEFORE
+                                    ;   it (realboy.asm), so what it sees is
+                                    ;   what is left after them
 RW_XROMMAX_KB   equ 8192            ; MBC5's largest cartridge
 
 ; rw_plan - [rw_romkb] is the size probe's: how the cartridge will live.
@@ -35,13 +40,7 @@ rw_plan:
     call OSAPI_MEM_AVAIL            ; AX = the heap's largest run, KB (and
     mov [rw_pavail], ax             ;   BX its total: the log's head says the
     push ax                         ;   one)
-    call OSAPI_CPU_INFO
-    xor bx, bx
-    cmp al, CPU_8086
-    je .t
-    mov bx, RW_JITKB
-.t:
-    add bx, RW_KEEPKB               ; BX = what else the heap must hold
+    mov bx, RW_KEEPKB               ; BX = what else the heap must hold
     pop ax
     mov cx, [rw_romkb]
     cmp cx, RW_ROMMAX_KB + 2

@@ -264,8 +264,25 @@ host_main:
     jmp short .nj
 .n6:
     cmp byte [h_mode],6                 ; MODE 6: by damage and whole
-    jne .nj
+    jne .n7
     call dmg_check
+    jmp short .nj
+.n7:
+    cmp byte [h_mode],7                 ; MODE 7: by damage only, every
+    jne .nj                             ;   frame - the package's composer,
+    push es                             ;   timed (rbbench --renderd)
+    cmp word [cs:rb_dmgseg],0
+    jne .d7
+    mov word [cs:rb_dmgseg],DMG_SEG
+    mov ax,DMG_SEG
+    mov es,ax
+    mov byte [es:RB_DFULL],1
+.d7:
+    mov ax,FRAMED_SEG
+    mov es,ax
+    xor di,di
+    call rb_renderd
+    pop es
 .nj:
     mov ax,[nframes]
     cmp ax,[h_frames]

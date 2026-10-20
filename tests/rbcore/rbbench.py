@@ -100,6 +100,8 @@ def main():
                     help="the interpreter alone, without the recompiler (the A/B)")
     ap.add_argument("--render", action="store_true",
                     help="with --rom: compose every frame with rb_render as well")
+    ap.add_argument("--renderd", action="store_true",
+                    help="with --rom: ...with rb_renderd, by damage, as the package does")
     a = ap.parse_args()
     subprocess.check_call([sys.executable, os.path.join(ROOT, "tools/gbclock.py")],
                           stdout=subprocess.DEVNULL)
@@ -111,7 +113,8 @@ def main():
     if a.rom:
         frames = a.frames or 2000
         img = os.path.join(out, "benchrom%d.img" % geom)
-        rbimg.make_image(a.rom, img, geom, "render" if a.render else "play", frames,
+        rbimg.make_image(a.rom, img, geom, "renderd" if a.renderd else
+                         "render" if a.render else "play", frames,
                          core=core, host=host, jit=not a.nojit)
         txt = run_marty(img, a.marty) if a.marty else run_box(img, a.box, "rbbrom")
         d = done_line(txt)
@@ -123,7 +126,8 @@ def main():
         print("%s: %d frames in play, %d ticks: %.2f ms a frame = %.1f%% of real "
               "time's 16.74 ms (%s)"
               % (os.path.basename(a.rom), played, d[1], ms, ms / 16.7427 * 100,
-                 "the CPU and rb_render every frame, no screen written" if a.render
+                 "the CPU and rb_renderd every frame, no screen written" if a.renderd
+                 else "the CPU and rb_render every frame, no screen written" if a.render
                  else "CPU only, no picture"))
         return
     ticks = {}

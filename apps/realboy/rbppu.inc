@@ -208,7 +208,9 @@ RB_DMD          equ 0x2220              ; 2,048: a map byte changed (9800+)
 RB_DLREG        equ 0x2A20              ; 144 x 10: a line's registers + WLINE
 RB_DLD          equ 0x3000              ; 144: a sprite moved over the line
 RB_DCHG         equ 0x3090              ; 144: the line changed (out)
-RB_DFULL        equ 0x3120              ; byte: compose every line
+RB_DFULL        equ 0x3120              ; byte: compose every line - 1 the
+                                        ;   host's (its screen cleared), 2 a
+                                        ;   scroll's (rb_renderd, .scroll)
 RB_DBKEY        equ 0x3122              ; word: the BG row last judged
 RB_DBCOL        equ 0x3124              ; byte: ...its first column
 RB_DBRES        equ 0x3125              ; byte: ...and the verdict
@@ -223,6 +225,7 @@ RB_DOCH         equ 0x3132              ; byte: some OAM entry changed
 RB_DFAST        equ 0x3133              ; byte: no register changed anywhere
 RB_DLLOG        equ 0x3134              ; byte: the last call's frame's log
                                         ;   entries (FFh: more than RB_DLOGMAX)
+RB_DSAME        equ 0x3135              ; byte: ppu_logsame's answer, 1 = same
 RB_DREG0        equ 0x3138              ; 8: the last call's registers
 RB_DMROW        equ 0x3140              ; 64: a map row changed (2 x 32)
 RB_DCOMP        equ 0x3180              ; word: lines composed (the host's to
@@ -269,18 +272,6 @@ rb_renderd:
     mov word [es:RB_DBKEY],0
     mov word [es:RB_DWKEY],0
     mov byte [es:RB_DMODE],0FFh
-    call ppu_dscan                      ; the shadows, the changed bytes
-    cmp word [cs:rb_dhook],0
-    je .nohk
-    call [cs:rb_dhook]
-.nohk:
-    cmp byte [es:RB_DFULL],0            ; the sprites' line lists: kept while
-    jne .oam                            ;   OAM is, as nothing else moves them
-    cmp byte [es:RB_DOCH],0
-    je .oamk
-.oam:
-    call ppu_oam
-.oamk:
     mov byte [PPU_LOGN],0               ; the state as the frame began
     mov byte [PPU_LOGI],0
     mov al,[S_FRAMES]
@@ -311,13 +302,60 @@ rb_renderd:
     mov [PPU_REGS+6],ax
 .st2:
     call ppu_pal
+    mov byte [es:RB_DFAST],0
+    call ppu_logsame                    ; ZF = 1: the same log (and kept)
+    mov byte [es:RB_DSAME],0
+    jnz .scroll
+    mov byte [es:RB_DSAME],1
+.scroll:
+    ; SCROLLED: SCY or SCX moved since the last call, as the frame began or
+    ; in a raster write the last call's frame had not - every line under it
+    ; changes, so the scan of VRAM would only say what is composed anyway.
+    ; Composed whole instead (RB_DFULL: the shadows copied, not compared),
+    ; which a scrolling Super Mario Land paid ~5 ms a frame of a 286 for
+    mov ax,[PPU_REGS+1]
+    cmp ax,[es:RB_DREG0+1]
+    jne .full
+    cmp byte [es:RB_DSAME],0
+    jne .scan
+    xor ch,ch
+    mov cl,[PPU_LOGN]
+    cmp cl,RB_DLOGMAX
+    ja .full
+    jcxz .scan
+    mov si,RB_RLOG+1
+.sl:
+    mov al,[si]
+    cmp al,42h
+    je .full
+    cmp al,43h
+    je .full
+    add si,4
+    loop .sl
+    jmp short .scan
+.full:
+    cmp byte [es:RB_DFULL],0            ; (2: the buffer is still the screen,
+    jne .scan                           ;   so ppu_dput compares as ever)
+    mov byte [es:RB_DFULL],2
+.scan:
+    call ppu_dscan                      ; the shadows, the changed bytes
+    cmp word [cs:rb_dhook],0
+    je .nohk
+    call [cs:rb_dhook]
+.nohk:
+    cmp byte [es:RB_DFULL],0            ; the sprites' line lists: kept while
+    jne .oam                            ;   OAM is, as nothing else moves them
+    cmp byte [es:RB_DOCH],0
+    je .oamk
+.oam:
+    call ppu_oam
+.oamk:
     ; FAST: the registers as they were at the frame's start, and the same
     ; raster writes as the last call's frame at the same lines (none, or a
     ; status bar's split every frame) - so every line's are, and the
     ; window's counter with them
-    mov byte [es:RB_DFAST],0
-    call ppu_logsame                    ; ZF = 1: the same log (and kept)
-    jnz .slow
+    cmp byte [es:RB_DSAME],0
+    je .slow
     cmp byte [es:RB_DFULL],0
     jne .slow
     mov si,PPU_REGS
@@ -446,7 +484,10 @@ ppu_dscan:
     mov cx,80
     rep movsw
     xor ax,ax                           ; and the change bytes from nothing
+    cmp byte [es:RB_DFULL],2            ; (a scroll's: the host's count kept)
+    je .dc
     mov [es:RB_DCOMP],ax
+.dc:
     mov di,RB_DTD
     mov cx,(RB_DLREG - RB_DTD) / 2
     rep stosw
@@ -909,7 +950,8 @@ ppu_dput:
     push es
     mov bx,es
     mov ch,[es:RB_DFULL]                ; everything: the buffer is not what
-    mov al,[PPU_LY]                     ;   the screen shows
+    and ch,1                            ;   the screen shows (2, a scroll's,
+    mov al,[PPU_LY]                     ;   is: compared as ever)
     mov cl,40
     mul cl
     les di,[es:RB_DOUT]
