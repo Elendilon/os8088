@@ -761,21 +761,11 @@ tr_count:
     mov bx,[ss:S_SAVBX]
     jmp tr_int
 tr_new:
-    cmp word [es:bx+JIT_HASH+4],0   ; a TRANSLATED block holds the slot:
-    je .take                    ;   it gives way only after RB_JITHOT
-    dec byte [es:bx+JIT_HASH+3] ;   other PCs have asked for it, so two
-    jnz .keep                   ;   hot blocks in one slot do not keep
-.take:                          ;   each other interpreted
-    mov [es:bx+JIT_HASH],si
-    mov [es:bx+JIT_HASH+2],dh
-    mov byte [es:bx+JIT_HASH+3],1
-    mov word [es:bx+JIT_HASH+4],0
-.keep:
-    mov bx,[ss:S_SAVBX]
-    jmp tr_int
+    jmp tr_new2                 ; (slot 48's: it did not fit here)
 tr_miss:
     mov dl,[es:bx+JIT_HASH+2]   ; the key this entry counted under (the
-    mov [ss:S_JITBK],dl         ;   block's offset has taken DX)
+    mov [ss:S_JITBK],dl         ;   block's offset has taken DX), and the
+    mov [ss:S_JITSLOT],bx       ;   slot it counted in, a neighbour or not
     mov bx,[ss:S_SAVBX]
     mov word [ss:S_RET],tr_back
     mov [ss:S_RETFAR+2],cs       ; rbsys comes back to THIS copy
@@ -811,9 +801,16 @@ tr_link:
     shl bx,1
     mov es,[ss:S_JITSEG]
     cmp [es:bx+JIT_HASH],si
+    jne .nb
+    cmp [es:bx+JIT_HASH+2],dh
+    je .hit
+.nb:
+    xor bx,8                    ; ...or its neighbour's (16.3)
+    cmp [es:bx+JIT_HASH],si
     jne tr_lno
     cmp [es:bx+JIT_HASH+2],dh
     jne tr_lno
+.hit:
     mov dx,[es:bx+JIT_HASH+4]
     or dx,dx
     jz tr_lno
@@ -866,6 +863,57 @@ tr_lpatch:
     sub dx,11
     mov [cs:bx+9],dx
     jmp short .go
+""",
+    0x49: """
+; tr_retlink's look at the neighbour slot (16.3), which did not fit slot 43
+tr_rlnb:
+    xor bx,8
+    cmp [es:bx+JIT_HASH],si
+    jne tr_rlno
+    cmp byte [es:bx+JIT_HASH+2],0FFh
+    jne tr_rlno
+    jmp tr_rlhit
+""",
+    0x48: """
+; tr_new's half that did not fit slot 41: the neighbour slot (16.3)
+tr_new2:
+    xor bx,8                    ; the slot's NEIGHBOUR (16.3): two hot PCs
+    cmp [es:bx+JIT_HASH],si     ;   in one slot took it from each other
+    jne .both                   ;   before either was counted to RB_JITHOT,
+    cmp [es:bx+JIT_HASH+2],dh   ;   and both ran interpreted for ever
+    jne .both
+    mov dx,[es:bx+JIT_HASH+4]   ; it is there
+    or dx,dx
+    jz tr_count
+    mov [ss:S_JITOUT],dx
+    mov bx,[ss:S_SAVBX]
+    jmp far [ss:S_JITOUT]
+.both:                          ; in neither: the one to give way is a
+    cmp word [es:bx+JIT_HASH+4],0   ; counting entry before a translated
+    jne .tn                     ;   one, and of two counting the colder
+    mov dl,[es:bx+JIT_HASH+3]   ; the neighbour is counting
+    xor bx,8
+    cmp word [es:bx+JIT_HASH+4],0
+    jne .nb                     ; ...and the slot is translated: the
+    cmp dl,[es:bx+JIT_HASH+3]   ;   neighbour; or of two, the colder
+    jae .take
+.nb:
+    xor bx,8
+    jmp short .take
+.tn:
+    xor bx,8                    ; the neighbour is translated: the slot,
+    cmp word [es:bx+JIT_HASH+4],0   ;   if it is counting
+    je .take
+    dec byte [es:bx+JIT_HASH+3] ; both translated: the slot gives way only
+    jnz .keep                   ;   after RB_JITHOT other PCs asked for it
+.take:
+    mov [es:bx+JIT_HASH],si
+    mov [es:bx+JIT_HASH+2],dh
+    mov byte [es:bx+JIT_HASH+3],1
+    mov word [es:bx+JIT_HASH+4],0
+.keep:
+    mov bx,[ss:S_SAVBX]
+    jmp tr_int
 """,
     0x47: """
 ; cnt_ff: a COUNTDOWN, DEC r / JR NZ,-3, run to its end in one step when the
@@ -923,7 +971,7 @@ cnt_ff:
 tr_retlink:
     mov [ss:S_LINK],dx
     cmp si,4000h
-    jae .no
+    jae tr_rlex
     mov [ss:S_SAVBX],bx
     mov bx,si
     mov dl,0FFh
@@ -939,12 +987,15 @@ tr_retlink:
     shl bx,1
     mov es,[ss:S_JITSEG]
     cmp [es:bx+JIT_HASH],si
-    jne .nob
+    jne .nb
     cmp byte [es:bx+JIT_HASH+2],0FFh
-    jne .nob
+    je tr_rlhit
+.nb:
+    jmp tr_rlnb                 ; ...or its neighbour's (16.3, slot 48)
+tr_rlhit:
     mov dx,[es:bx+JIT_HASH+4]
     or dx,dx
-    jz .nob
+    jz tr_rlno
     mov [ss:S_JITOUT],dx
     mov bx,[ss:S_LINK]
     mov [cs:bx+2],si            ; cmp si,PC
@@ -953,9 +1004,9 @@ tr_retlink:
     mov [cs:bx+7],dx            ; jmp near BLOCK
     mov bx,[ss:S_SAVBX]
     jmp far [ss:S_JITOUT]
-.nob:
+tr_rlno:
     mov bx,[ss:S_SAVBX]
-.no:
+tr_rlex:
     jmp tr_enter
 """,
     0xD3: """

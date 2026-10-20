@@ -58,6 +58,8 @@ RT_GUARD        equ JIT_BUF + 92h   ; byte: 1 store guard, 2 bank guard
 RT_OP           equ JIT_BUF + 93h   ; byte: the opcode
 RT_T            equ JIT_BUF + 94h   ; word: a jump's target
 RT_IDLE         equ JIT_BUF + 96h   ; byte: rt_idle's answer for it
+RT_PEND         equ JIT_BUF + 98h   ; word: M-cycles of PURE templates not yet
+                                    ;   taken off BP (rt_flushbp)
 RT_LOOP         equ JIT_BUF + 0A0h  ; 16: a spin-wait's body, for rt_idle
 
 RT_HFREE        equ 1040            ; the table's free ranges: offset, count
@@ -249,6 +251,7 @@ rt_translate:
     mov [RT_START],di
     mov word [RT_IX],0
     mov word [RT_CNT],0
+    mov word [RT_PEND],0
 .next:
     mov bx,[RT_IX]
     cmp word [RT_CNT],RT_MAXI
@@ -280,17 +283,19 @@ rt_translate:
     inc word [RT_CNT]
     jmp .next
 .ctl:
-    mov cx,RT_CTL
+    mov cx,RT_CTL + 4
     call rt_room
     jc .restart
+    call rt_flushbp
     mov ax,[RT_IX]
     add ax,[RT_PC0]                 ; AX = the instruction's PC
     call rt_ctl
     jmp short .done
 .fall:
-    mov cx,RT_FALL
+    mov cx,RT_FALL + 4
     call rt_room
     jc .restart
+    call rt_flushbp
     mov ax,[RT_IX]
     add ax,[RT_PC0]
     call rt_exit_or                 ; on to the next PC, checking BP
@@ -301,20 +306,11 @@ rt_translate:
     mov cl,4
     shr ax,cl
     add [S_JITBY],ax
-    ; the table: this PC and bank key -> the block
+    ; the table: this PC and bank key -> the block, in the slot it counted
+    ; in (tr_miss: tr_enter's own, or its neighbour)
     mov si,[RT_PC0]
     mov dl,[S_JITBK]
-    mov bx,si
-    xor bl,dl
-    mov dh,bh                       ; (tr_enter's slot: PC >> 11 folded in)
-    shr dh,1
-    shr dh,1
-    shr dh,1
-    xor bl,dh
-    and bh,7
-    shl bx,1
-    shl bx,1
-    shl bx,1
+    mov bx,[S_JITSLOT]
     mov [es:JIT_HASH+bx],si
     mov [es:JIT_HASH+bx+2],dl
     mov ax,[RT_START]
@@ -481,6 +477,7 @@ rt_tmpl:
 .room:
     mov cl,[cs:rt_tab + si + 2]
     xor ch,ch
+    add cx,4                        ; (rt_flushbp's, at most)
     test byte [RT_GUARD],1          ; and exactly the guards' bytes
     jz .r2
     add cx,12
@@ -493,6 +490,19 @@ rt_tmpl:
     jnc .go
     ret
 .go:
+    mov si,[RT_REC]                 ; PURE: its last three bytes, sub bp,n,
+    test byte [cs:rt_tab + si + 4],8    ;   become n more pending - the time
+    jz .imp                         ;   is read by none of it, and is taken
+    mov bl,[cs:rt_tab + si + 2]     ;   off BP before anything that does
+    xor bh,bh
+    mov al,[cs:rt_tab + si + 9 + bx - 1]
+    xor ah,ah
+    add [RT_PEND],ax
+    mov cx,bx
+    sub cx,3
+    jmp short .cp
+.imp:
+    call rt_flushbp
     test byte [RT_GUARD],1
     jz .copy
     mov al,0BEh                     ; mov si,NEXT
@@ -503,6 +513,7 @@ rt_tmpl:
     mov si,[RT_REC]
     mov cl,[cs:rt_tab + si + 2]
     xor ch,ch
+.cp:
     push di                         ; the template's place
     push si
     push ds
@@ -598,6 +609,32 @@ rt_tmpl:
     call rt_jmp
 .r:
     clc
+    ret
+
+; rt_flushbp - the pending M-cycles taken off BP at ES:DI: sub bp,n, and
+; none pending. Keeps every register.
+rt_flushbp:
+    push ax
+    mov ax,[RT_PEND]
+    or ax,ax
+    jz .r
+    mov word [RT_PEND],0
+    cmp ax,127
+    ja .w
+    push ax
+    mov ax,0ED83h                   ; sub bp,imm8
+    stosw
+    pop ax
+    stosb
+    jmp short .r
+.w:
+    push ax
+    mov ax,0ED81h                   ; sub bp,imm16
+    stosw
+    pop ax
+    stosw
+.r:
+    pop ax
     ret
 
 ; rt_jmp - jmp near AX (a core offset) at ES:DI

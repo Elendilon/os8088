@@ -845,6 +845,16 @@ gbprof's script take the same events and skip the same M-cycles either way.
   directly - HRAM, WRAM, VRAM, bank 0 - are chosen by operand: one `MOV`
   through SS and the M-cycles (`rbgen.EXTRA`).
 
+### 16.1.1 Pure templates share their M-cycles
+
+A template whose last three bytes are `sub bp,n`, that names BP nowhere
+else, has no tail and jumps nowhere out of itself is **pure** (`rbtmpl.py`,
+flags bit 3; 398 of 445): nothing in it reads the time, so the translator
+copies it without its `sub bp,n` and adds n to the block's pending count,
+which it takes off BP in one `sub` (`rt_flushbp`) before the next template
+that is not pure, a control transfer or the block's fall-through. Super
+Mario Land, the CPU alone: 9.57 to 9.29 ms a frame.
+
 ### 16.2 The cache
 
 The code goes into a 64KB segment of its own. It holds copies of the core's
@@ -868,7 +878,20 @@ entries (PC, bank key, a count, the block's offset), indexed by the PC's low
 11 bits with the bank key and **the PC's top five bits** folded into the low
 byte - so blocks 2KB apart, which bank 0 and every bank of 4000-7FFF are
 full of, do not take turns at one slot. That fold took Kirby's Dream Land,
-the CPU alone, from 15.15 to 13.73 ms a frame on 86Box's 286. **A PC is translated
+the CPU alone, from 15.15 to 13.73 ms a frame on 86Box's 286.
+
+**A slot has a NEIGHBOUR** (its index XOR 1), which `tr_new`, `tr_link` and
+`tr_retlink` all look in when the slot holds another key, and a new key
+takes whichever of the two is worth less - a counting entry before a
+translated one, and of two counting ones the colder (`tr_new2`); the
+translator writes a block into the slot its PC counted in (`S_JITSLOT`).
+Counters in the package showed why: with one slot, two hot PCs that shared
+it took it from each other before either was counted to `RB_JITHOT`, so
+both ran interpreted for ever, and every exit to them missed its link -
+in Super Mario Land walking, 10 lost slots, 17 entries counting and 17
+failed links a frame. With the neighbour the CPU alone (`rbbench.py --box
+286-victory`) went from 9.29 to 7.32 ms a frame on Super Mario Land and from
+11.35 to 9.75 on Kirby's Dream Land. **A PC is translated
 only on its 64th entry** (`RB_JITHOT`; it was 16), so code that runs a few
 times is interpreted and never takes the cache's room; a translated entry
 gives its slot up only after 64 others have asked for it. At 16 Kirby's

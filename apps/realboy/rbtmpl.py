@@ -35,7 +35,10 @@ records:
   +0 word  the origin variant A was assembled at
   +2 byte  its length          +3 byte  the Game Boy instruction's length
   +4 byte  flags (bit 0: may store anywhere; bit 1: stores to FF00+IMM8;
-           bit 2: stores to IMM16)
+           bit 2: stores to IMM16; bit 3: PURE - its last three bytes are
+           `sub bp,n`, the only thing in it that names BP, and nothing in it
+           leaves it, so the translator may add n to the block's pending
+           M-cycles instead of copying them)
   +5 byte  operand positions: IMM8 count, then IMM16, ABS, REL counts (4)
   +9       the bytes, then the positions in that order
 """
@@ -135,6 +138,21 @@ def classify(a, b, c, org, name):
     return imm8, imm16, ab, rel
 
 
+def pure(a, pos, lines):
+    """bit 3: the template ends in `sub bp,n`, names BP nowhere else, has no
+    tail and jumps nowhere outside itself - so nothing in it reads the time
+    (rb_now reads BP) and its M-cycles can be counted with its neighbours'"""
+    if pos[2] or pos[3] or len(a) < 3 or a[-3:-1] != bytes([0x83, 0xED]):
+        return False
+    code = [re.sub(r";.*", "", ln).strip() for ln in lines]
+    code = [c for c in code if c]
+    if not code or not re.match(r"sub bp,\d+$", code[-1]) or int(code[-1][7:]) != a[-1]:
+        return False
+    if any("Jend" in c or re.search(r"\bbp\b", c) for c in code[:-1]):
+        return False
+    return True
+
+
 def flags_for(op, cb, lines):
     text = "\n".join(lines)
     stores = "wr_slow" in text or "io_wr" in text
@@ -188,6 +206,7 @@ def main():
     for k, (_, lines, _) in enumerate(rbgen.EXTRA):
         todo.append((("x", k), lines))
     recs = {}
+    npure = [0]
     with tempfile.TemporaryDirectory(prefix="rbtmpl") as tmp:
         for c0 in range(0, len(todo), CHUNK):
             chunk = todo[c0:c0 + CHUNK]
@@ -202,6 +221,9 @@ def main():
                     continue
                 glen = rbgen.EXTRA[op][2] if cb == "x" else rbgen.template_glen(op, cb)
                 fl = 0 if cb == "x" else flags_for(op, cb, lines)
+                if pure(a, pos, lines):
+                    fl |= 8
+                    npure[0] += 1
                 rec = struct.pack("<HBBB", ORG + k * SLOT, len(a), glen, fl)
                 rec += bytes(len(ps) for ps in pos) + a
                 for ps in pos:
@@ -233,8 +255,8 @@ def main():
                 "; the translator writes jumps to (REALBOY-SPEC section 16)\n" % corebin)
         for n in EXPORT:
             f.write("RBC_%s equ 0x%04X\n" % (n.upper(), labels[n]))
-    print("rbtmpl: %d templates, %d free ranges of %d bytes, %d bytes"
-          % (len(recs), len(gl), sum(b - a for a, b in gl), len(head) + len(body)))
+    print("rbtmpl: %d templates (%d pure), %d free ranges of %d bytes, %d bytes"
+          % (len(recs), npure[0], len(gl), sum(b - a for a, b in gl), len(head) + len(body)))
 
 
 if __name__ == "__main__":

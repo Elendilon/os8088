@@ -157,6 +157,8 @@ S_LINK          equ RB_STATE+0xD2   ; word: tr_link's patch site
 S_SQ1           equ RB_STATE+0xD4
 S_SQ2           equ RB_STATE+0xDC
 S_BUDLEN        equ RB_STATE+0xE4   ; word: rb_run's budget, M-cycles
+S_JITSLOT       equ RB_STATE+0xE6   ; word: the table slot tr_miss's PC counted
+                                    ;   in (its own, or that one's neighbour)
 SQ_ON           equ 0
 SQ_VOL          equ 1
 SQ_ENV          equ 2
