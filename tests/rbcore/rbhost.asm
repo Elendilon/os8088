@@ -44,7 +44,9 @@ ROM_SEG         equ 0x3000
 CACHE_SEG       equ 0x9000                  ; the recompiler's 64KB, past the
 HASH_SEG        equ 0x8C00                  ;   ROM's 368KB at most, and its
                                             ;   block table's 16KB before it
-FRAME_SEG       equ 0x0500                  ; rb_render's 5,760 bytes, under the
+FRAME_SEG       equ 0x0510                  ; rb_render's 5,760 bytes, above the
+                                            ;   damage memory's RB_DMG_SIZE (to 5014h:
+                                            ;   INTERLACE writes its end) and under the
                                             ;   boot stack: the harness (with the
                                             ;   recompiler's templates) runs past A000h
 FRAMED_SEG      equ 0x0060                  ; MODE 6: rb_renderd's buffer
@@ -159,6 +161,13 @@ host_main:
     mov ax,cs
     mov ds,ax
     mov es,ax
+    cmp byte [h_mode],8                 ; MODES 8 and 9: MODE 6 with
+    jb .mode                            ;   Interlace On or Scrolling
+    mov al,[h_mode]
+    sub al,7
+    mov [rb_ilace],al
+    mov byte [h_mode],6
+.mode:
     mov ax,0x0003                       ; a clean text screen
     int 0x10
     ; COM1, 115200 8N1, polled
@@ -451,12 +460,6 @@ dmg_check:
     push di
     push ds
     push es
-    mov ax,[nframes]
-    xor dx,dx
-    mov cx,3
-    div cx
-    or dx,dx
-    jnz .r
     cmp word [cs:rb_dmgseg],0
     jne .on
     mov word [cs:rb_dmgseg],DMG_SEG     ; the first time: everything
@@ -464,11 +467,29 @@ dmg_check:
     mov es,ax
     mov byte [es:RB_DFULL],1
 .on:
+    mov ax,[nframes]
+    xor dx,dx
+    mov cx,3
+    div cx
+    or dx,dx
+    jz .chk
+    cmp byte [cs:rb_ilace],0            ; INTERLACE: every frame composed, as
+    je .r                               ;   the package does, so what one call
+    mov ax,FRAMED_SEG                   ;   leaves is carried into the next
+    mov es,ax                           ;   frame's - a scroll's into a still
+    xor di,di                           ;   one's (Scrolling)
+    call rb_renderd
+    jmp .r
+.chk:
     mov ax,FRAMED_SEG
     mov es,ax
     xor di,di
     call rb_renderd                     ; AX = the lines it changed
     add [cs:dmg_lines],ax
+    cmp byte [cs:rb_ilace],0            ; INTERLACE: a second call, which
+    je .whole                           ;   must compose what the first left
+    call rb_renderd                     ;   to the other parity
+.whole:
     mov ax,FRAME_SEG
     mov es,ax
     xor di,di

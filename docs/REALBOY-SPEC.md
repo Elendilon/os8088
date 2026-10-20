@@ -602,17 +602,31 @@ it changed), and AX holds the count.
   compared it was never FAST: standing still on the Victory's 86Box twin,
   judging 144 lines was 5 ms a draw and the picture 23 frames a second; it
   is 41 now, the judging 0.15 ms.
-- **INTERLACE** (`[rb_ilace]`, Machine > Interlace, off by default): a call
-  composes the changed lines of one parity and leaves the other's pending
-  (`RB_DPEND`, a byte a line) for the next call, whose parity
-  (`RB_DPAR`) is the other. A line pending from the last call is composed
-  whatever its parity, so nothing changed is lost for more than one draw;
-  `RB_DFULL` = 1 composes both. It halves the composition of a picture
+- **INTERLACE** (`[rb_ilace]`, Machine > Interlace: Off, On, Scrolling;
+  off by default): a call composes the changed lines of one parity and
+  leaves the other's pending (`RB_DPEND`, a byte a line) for the next call,
+  whose parity (`RB_DPAR`) is the other. A line pending from the last call
+  is composed whatever its parity, so nothing changed is lost for more than
+  one draw; `RB_DFULL` = 1 composes both. **Scrolling** (2) defers a parity
+  only in a scroll's whole frame (`RB_DFULL` = 2) - where every line changes
+  and the picture is moving anyway - so a still picture is every line's,
+  the moment the scroll stops. A still frame after an interlaced call that
+  deferred nothing exits as it would without interlace (`PPU_PANY`); it
+  walked all 144 lines every draw until the fourth field run's round. It halves the composition of a picture
   that changes everywhere, a scroll above all, at a price the requester
   named beforehand: a moving edge is drawn half a frame apart on
   alternate lines. It is there to be looked at on the Victory, not as a
   default. The bare harness never sets it, so its frame need not reach
   `RB_DPEND`.
+- **WHOLE**: a frame composed whole (`RB_DFULL`, and no parity deferred)
+  judges no line - it keeps each line's registers for the next call, as
+  `ppu_ldirty` would, and composes. The CPU and `rb_renderd` every frame
+  on `286-victory`: Super Mario Land 23.98 -> 22.93 ms.
+- **The snapshot's tag** (`S_SNAPTAG`, the low byte of the frame RB_SNAP
+  was taken in) is aged at every VBlank whose frame took none: a game with
+  no raster write left it alone, so every 256th frame took the stale
+  snapshot as its own and was composed from it - all zeros, an LCD off, a
+  white frame. `gbdamage`'s interlaced legs found it.
 - **What it costs** an 8088 is the comparison, ~20 ms of 8KB a call. It
   saves ~4 ms of composition for every line it skips. On Super Mario Land it
   composed 38 lines a call of 144, and on Kirby's Dream Land 27.
@@ -622,7 +636,10 @@ from **43% of real time to 100%**: the drawing had been most of the machine.
 
 `tests/gbdamage.py` is the gate. The bare harness's MODE 6 composes every
 third frame both ways, by damage into a buffer it keeps and whole by
-`rb_render`, and counts the frames whose pictures differ.
+`rb_render`, and counts the frames whose pictures differ. MODES 8 and 9 are
+MODE 6 interlaced, On and Scrolling, composing every frame as the package
+does and a checked one twice; without the pending lines composed they fail
+on 151-499 pictures of 500.
 - It runs on gbclock's frame counter (ours), and with `$OS88_GB_ROMS` on
   Super Mario Land and Kirby's Dream Land.
 - Taking out the map-row marks fails it on 497 frames of 500.

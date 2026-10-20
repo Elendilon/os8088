@@ -2104,12 +2104,19 @@ rw_dmgclaim:
     ret
 
 ; rw_dmgfull - the next rb_renderd composes and writes every line
-; rw_iltoggle - Machine > Interlace (REALBOY-SPEC 13.2): a draw composes
-; the lines of one parity, the next the other's, for twice the pictures a
-; second at a price in looks; off, every line again. Either way the next
-; draw is whole
+; rw_iltoggle - Machine > Interlace (REALBOY-SPEC 13.2), Off -> On ->
+; Scrolling: a draw composes the lines of one parity, the next the other's,
+; for twice the pictures a second at a price in looks - always, or only
+; while the picture scrolls; off, every line again. Either way the next draw
+; is whole
 rw_iltoggle:
-    xor byte [rb_ilace], 1
+    mov al, [rb_ilace]              ; Off -> On -> Scrolling -> Off
+    inc ax
+    cmp al, 3
+    jb .s
+    xor al, al
+.s:
+    mov [rb_ilace], al
     call rw_dmgfull
     jmp rw_mgrey
 
@@ -2318,6 +2325,7 @@ rw_it_log0:     db 'Log: Off', 0
 rw_it_log1:     db 'Log: On', 0
 rw_it_il0:      db 'Interlace: Off', 0
 rw_it_il1:      db 'Interlace: On', 0
+rw_it_il2:      db 'Interlace: Scrolling', 0
 
 rw_s_fps:       db 'fps', 0
 rw_s_jit:       db ' JIT', 0
