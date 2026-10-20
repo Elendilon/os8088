@@ -108,9 +108,9 @@ def main():
                     help="with --rom: compose every frame with rb_render as well")
     ap.add_argument("--renderd", action="store_true",
                     help="with --rom: ...with rb_renderd, by damage, as the package does")
-    ap.add_argument("--vga", choices=("hw", "copy"),
-                    help="with --rom: ...and onto VGA mode 0Dh, by hardware scroll (rw_hwdraw) "
-                         "or rb_renderd's changed lines copied (REALBOY-SPEC 15)")
+    ap.add_argument("--vga", action="store_true",
+                    help="with --rom: ...and rb_renderd's changed lines copied onto VGA mode "
+                         "0Dh, as the package's full screen does (REALBOY-SPEC 15)")
     a = ap.parse_args()
     subprocess.check_call([sys.executable, os.path.join(ROOT, "tools/gbclock.py")],
                           stdout=subprocess.DEVNULL)
@@ -122,7 +122,7 @@ def main():
     if a.rom:
         frames = a.frames or 2000
         img = os.path.join(out, "benchrom%d_%d.img" % (geom, os.getpid()))   # (one a run: two at once)
-        rbimg.make_image(a.rom, img, geom, {"hw": "hwd", "copy": "renderv"}[a.vga] if a.vga else
+        rbimg.make_image(a.rom, img, geom, "renderv" if a.vga else
                          "renderd" if a.renderd else
                          "render" if a.render else "play", frames,
                          core=core, host=host,
@@ -139,9 +139,7 @@ def main():
         print("%s: %d frames in play, %d ticks: %.2f ms a frame = %.1f%% of real "
               "time's 16.74 ms (%s)"
               % (os.path.basename(a.rom), played, d[1], ms, ms / 16.7427 * 100,
-                 "the CPU and rw_hwdraw every frame, onto VGA" if a.vga == "hw"
-                 else "the CPU and rb_renderd every frame, its lines copied onto VGA"
-                 if a.vga == "copy"
+                 "the CPU and rb_renderd every frame, its lines copied onto VGA" if a.vga
                  else "the CPU and rb_renderd every frame, no screen written" if a.renderd
                  else "the CPU and rb_render every frame, no screen written" if a.render
                  else "CPU only, no picture"))

@@ -92,14 +92,14 @@ def main():
                     help="the host's samples by instruction, off rbhost's listing")
     ap.add_argument("--pcs", action="store_true",
                     help="with --box: also the Game Boy PCs (SI) the core's samples were at")
-    ap.add_argument("--vga", choices=("hw", "copy"),
-                    help="...onto VGA mode 0Dh: rw_hwdraw, or rb_renderd's lines copied")
+    ap.add_argument("--vga", action="store_true",
+                    help="...and rb_renderd's lines copied onto VGA mode 0Dh (MODE 12)")
     a = ap.parse_args()
     out = os.path.join(ROOT, "build", "realboy")
     core, host = rbimg.build_core(False, out), rbimg.build_host(out)
     img = os.path.join(out, "prof.img")
     rbimg.make_image(a.rom, img, 1440 if a.box else 360,
-                     {"hw": "hwd", "copy": "renderv"}[a.vga] if a.vga else
+                     "renderv" if a.vga else
                      "renderd" if a.renderd else "render" if a.render else "play",
                      6000 if a.static else 60000, core=core, host=host,
                      jit="static" if a.static else not a.nojit)
@@ -142,7 +142,7 @@ def main():
                                 for x in b.cmd("text").get("chars", []))
                 except SystemExit:                  # not a text mode yet - or, with
                     t = ""                          #   --vga, the harness's mode 0Dh:
-                    if a.vga and b.memr(HOST, 1)[0] == 7:   # h_mode, 11 or 12 made 7
+                    if a.vga and b.memr(HOST, 1)[0] == 7:   # h_mode, 12 made 7
                         break
                 if "EXIT FOR BOOT" in t:            # an AT's first boot stops in setup
                     b.tap("return")

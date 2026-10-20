@@ -51,11 +51,9 @@ def main():
     fails = []
     # each also interlaced (REALBOY-SPEC 13.2), On and Scrolling: two calls
     # a checked frame, which together must be the whole picture
-    # and by hardware scroll (REALBOY-SPEC 15.3): the VGA full-screen
-    # writer's picture in VRAM, at its origin and through its panning
     for name, rom, mode in [(n, r, m) for n, r in roms
-                            for m in ("damage", "damage-il", "damage-is", "hw")]:
-        name = name + {"damage": "", "damage-il": "/il", "damage-is": "/is", "hw": "/hw"}[mode]
+                            for m in ("damage", "damage-il", "damage-is")]:
+        name = name + {"damage": "", "damage-il": "/il", "damage-is": "/is"}[mode]
         img = os.path.join(out, "gbdamage-%s.img" % name.replace("/", "-"))
         rbimg.make_image(rom, img, mode=mode, frames=a.frames)
         text = rbqemu.run(img, [" END\n", "RBHOST BADOP"], 600, quiet=True)

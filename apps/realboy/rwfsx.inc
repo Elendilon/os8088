@@ -29,9 +29,9 @@
 
 RW_FSDIV        equ 19977           ; 1,193,182 / 59.7275: a period a frame
 RW_FSSKIP       equ 4               ; frames run undrawn at most, behind
-RW_FSX          equ 0               ; the speed line's column, and its row in
-RW_FSTXT        equ 2               ;   the line compare's band at VRAM 0 (the
-                                    ;   picture is at the origin, rwhw.inc)
+RW_FSX          equ 0               ; the picture's byte column and first row:
+RW_FSY          equ 0               ;   the top left of the CRTC's window
+RW_FSTXT        equ 146             ; the speed line's row, inside the window
 RW_FSVGA        equ 0               ; rw_fskind: the writers
 RW_FSHERC       equ 1
 RW_FSCGA        equ 2
@@ -436,25 +436,8 @@ rw_fscrtc:
     out dx, al                      ;   left on, bit 5)
     mov al, 4                       ; ...the border's grey
     out dx, al
-    mov al, 30h                     ; AR10: mode 0Dh's, and the line
-    out dx, al                      ;   compare's band unpanned (bit 5)
-    mov al, 21h
-    out dx, al
-    mov al, 33h                     ; AR13, the panning: 0
-    out dx, al
-    xor al, al
-    out dx, al
-    mov byte [hw_ok], 0             ; (rwhw.inc: the origin is home)
-    mov word [hw_wob], RW_HWBASE
-    mov byte [hw_wp], 0
     ret
-rw_fscrv:   db 0Ch, RW_HWBASE >> 8  ; the start address: the origin's home
-            db 0Dh, RW_HWBASE & 0FFh
-            db 18h, 1Fh             ; line compare 287 (bit 8 in CR07, which
-            db 09h, 80h             ;   has it; bit 9 clear): the gap and the
-                                    ;   speed line from VRAM 0, under the
-                                    ;   picture's 288 scan lines
-            db 01h, 13h             ; horizontal display end: 20 chars
+rw_fscrv:   db 01h, 13h             ; horizontal display end: 20 chars
             db 02h, 1Fh             ; start blank, 9 chars earlier
             db 03h, 87h             ; end blank (39: bit 5 in CR05)
             db 04h, 22h             ; start retrace, 9 earlier
@@ -466,21 +449,25 @@ rw_fscrv:   db 0Ch, RW_HWBASE >> 8  ; the start address: the origin's home
             db 11h, 80h             ; end retrace (368), CR0-CR7 locked again
 rw_fscrve:
 
-; rw_fsframe - plane 2 set in the line compare's band at VRAM 0 (the gap
-; and the speed line: the border's grey, and the text's 4 and 7), and clear
-; everywhere the picture's origin may be (rwhw.inc)
+; rw_fsframe - plane 2 set everywhere but the picture: the border
 rw_fsframe:
     mov es, [rw_fsi + FSI_SEG]
     mov dx, 3C4h
     mov ax, 0402h                   ; map mask: plane 2
     out dx, ax
     xor di, di
-    mov cx, 40 * 10 / 2
+    mov cx, 40 * 200 / 2
     mov ax, 0FFFFh
     rep stosw
-    mov cx, (65536 - 40 * 10) / 2
+    mov di, RW_FSY * 40 + RW_FSX
+    mov bx, 144
     xor ax, ax
+.r:
+    mov cx, 10
     rep stosw
+    add di, 40 - 20
+    dec bx
+    jnz .r
     ret
 
 ; rw_fsdraw - the frame onto VRAM through the shadow, and the speed line
@@ -490,28 +477,6 @@ rw_fsdraw:
     je .vga
     jmp rw_fsdrawd
 .vga:
-    cmp byte [rb_ilace], 0          ; not interlaced: by hardware scroll
-    jne .old                        ;   (rwhw.inc)
-    cmp word [rb_dmgseg], 0
-    je .old
-    call rw_clk
-    push dx
-    push ax
-    call rw_hwdraw                  ; AX = the lines composed
-    add [rw_acomp], ax
-    add [rw_achg], ax
-    call rw_clk
-    pop bx
-    pop cx
-    mov si, rw_acms
-    call rw_logacc
-    jmp short .txt
-.old:
-    cmp byte [hw_ok], 0             ; from the hardware scroll: the origin
-    je .o1                          ;   home, and every line to the buffer,
-    call hw_home                    ;   which it did not keep
-    call rw_dmgfull
-.o1:
     call rw_render                  ; the changed lines, by damage
     mov es, [rw_fsi + FSI_SEG]
     mov dx, 3C4h
@@ -523,7 +488,6 @@ rw_fsdraw:
     out dx, ax
     mov si, rw_fbuf + 20
     call rw_fsplane
-.txt:
     call rw_fsline                  ; ZF = 0: the speed line to draw
     jz .r
     call rw_fstext
@@ -535,7 +499,7 @@ rw_fsdraw:
 rw_fsplane:
     push dx
     mov bx, rw_chg                  ; BX = the line's changed byte
-    mov di, RW_HWBASE               ; (the origin, home: rwhw.inc)
+    mov di, RW_FSY * 40 + RW_FSX
     mov dx, 144
 .l:
     cmp byte [bx], 0                ; a line rb_renderd left alone: past it

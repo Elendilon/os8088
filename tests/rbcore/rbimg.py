@@ -20,8 +20,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 GEOM = {360: (9, 2, 40), 720: (9, 2, 80), 1200: (15, 2, 80), 1440: (18, 2, 80)}
 MODES = {"test": 0, "bench": 1, "trace": 2, "play": 3, "idle": 4, "render": 5, "damage": 6,
-         "renderd": 7, "damage-il": 8, "damage-is": 9, "hw": 10,
-         "hwd": 11, "renderv": 12}
+         "renderd": 7, "damage-il": 8, "damage-is": 9, "renderv": 12}
 
 
 def private(out_dir):
@@ -96,7 +95,7 @@ JF_SQZ = 0x10
 
 
 def make_image(rom_path, out, geom=1440, mode="test", frames=600, core=None, host=None,
-               jit=True, seg2=False, squeeze=False):
+               jit=True, seg2=False, squeeze=False, joy=None):
     out_dir = os.path.join(ROOT, "build", "realboy")
     os.makedirs(out_dir, exist_ok=True)
     if core is None:
@@ -115,6 +114,12 @@ def make_image(rom_path, out, geom=1440, mode="test", frames=600, core=None, hos
     boot[9:11] = (len(rom) // 512).to_bytes(2, "little")
     boot[11] = MODES[mode]
     boot[12:14] = frames.to_bytes(2, "little")
+    # MODES 3+'s script (joy_script): its third Start pauses a game that has
+    # begun by frame 700, which Kirby's Dream Land has - so a bench of it
+    # timed a paused game. None: by the ROM's title
+    if joy is None:
+        joy = 3 if b"KIRBY" in rom[0x134:0x144] else 0     # (and it flies)
+    boot[15] = joy
     boot[14] = (2 if jit == "static" else 1) if jit and mode != "trace" else 0
     if boot[14]:
         boot[14] |= (JF_SEG2 if seg2 else 0) | (JF_SQZ if squeeze else 0)

@@ -818,26 +818,21 @@ every draw, as a turn of frames on an 8088 is longer than a key press.
   it reads ours, so once ours is set and its is seen clear, every later entry
   of its sees ours.
 - **The screen** is mode 0Dh, 320x200 planar, with its DISPLAY cut to the
-  picture (`rw_fscrtc`): 160 pixels by 154 rows - the picture at 1x, a gap
-  and the speed line's row - centred by moving the blanking and the
-  retraces, with the total, the sync widths and every frequency mode 0Dh's
-  own. The border around it is the card's OVERSCAN (AR11) in DAC entry 4's
-  grey. **The picture's 144 rows are at an ORIGIN** that the start address
-  (CR0C/CR0D) names and the pel panning (AR13) refines (section 15.3); the
-  10 rows under it come from VRAM 0 through the LINE COMPARE at scan line
-  287, which the panning leaves alone (AR10 bit 5). SPEC.md 53.7 makes a
-  bracket's own mode the app's to program, and the exit's mode set puts it
-  all back; an emulator's frame buffer cannot show the centring, which is
-  the sync's, so a real monitor is the check. Plane 2 is set under the gap
-  and the speed line (VRAM 0-399), entry 4 like the overscan, and clear
-  wherever the origin may go; F1's speed line is drawn there in glyphs
-  copied before the mode (`OSAPI_FONT_GLYPHS`), entry 7. Shades 0-3 are DAC
-  0-3, greys, in planes 0 and 1. The DAC is ours in there; the restore's
-  BIOS mode set puts the desktop's back.
-- **Interlace keeps the writer that does not scroll**: `rb_renderd`'s two
-  shade planes go to VGA planes 0 and 1 as they are, at the origin's home
-  with no panning, a `rep movsw` for each line it changed. Leaving the
-  hardware scroll for it puts the origin home and composes every line once.
+  picture (`rw_fscrtc`): 160 pixels by 154 rows from VRAM offset 0 - the
+  picture at 1x, a gap and the speed line's row - centred by moving the
+  blanking and the retraces, with the total, the sync widths and every
+  frequency mode 0Dh's own. The border around it is the card's OVERSCAN
+  (AR11) in DAC entry 4's grey. It is what lets the picture move in VRAM
+  under a fixed window (SPEC.md 53.7: a bracket's own mode is the app's to
+  program, and the exit's mode set puts it all back); an emulator's frame
+  buffer cannot show the centring, which is the sync's, so a real monitor
+  is the check. `rb_renderd`'s two shade planes go to VGA planes 0 and 1 as
+  they are, a `rep movsw` for each line it changed. It already compared
+  them, so the RAM shadow this writer once kept was a second comparison of
+  the same bytes. Plane 2 is set under the gap and the speed line's row,
+  entry 4 like the overscan, and F1's speed line is drawn there in glyphs
+  copied before the mode (`OSAPI_FONT_GLYPHS`), entry 7. Shades 0-3 are DAC 0-3, greys. The DAC is
+  ours in there; the restore's BIOS mode set puts the desktop's back.
 - **The clock** is `FSXF_RATE` at the Game Boy's own 59.7275 Hz (PIT divisor
   19,977): the hook counts frames owed and does nothing else. The loop runs
   the machine to the count, at most eight behind, in budgets of 6,000
@@ -914,77 +909,47 @@ going into or out of full screen, make the next draw due at once
 The window and full screen keep the same rules. In full screen, Esc and
 Alt+Enter are also looked for after each draw.
 
-### 15.3 VGA: the hardware scroll
+### 15.3 Hardware scroll: built, measured and refused
 
-**A line that only moved is not composed again** (`apps/realboy/rwhw.inc`).
-The game's scroll at line 100, the MAIN line, moves the origin: SCX's
-pixels go to the panning and its whole bytes to the start address, and
-SCY's rows go to the start address in 40s. What scrolled into view is
-written: a byte or two of each plain line.
+VGA full screen was written a second time (commit a2af224e) to follow the
+game's scroll with the CRTC: the picture at a movable origin, the start
+address and the pel panning moved with line 100's SCY and SCX, plain lines
+written only where they scrolled into view, unchanged lines copied by the
+card from pre-shifted copies (write mode 1), the speed line under the line
+compare. It drew the right picture - `rb_render`'s, read back through the
+panning, on 500 checked frames each of Super Mario Land and Kirby's Dream
+Land - and it was taken out, for two reasons:
 
-- **PLAIN**: the line has the main line's LCDC, scroll and BGP, no window
-  and no sprite. A plain line is VALID once it is composed, and stays so as
-  the origin moves under it; a row that came in from above or below is not.
-  Its registers are only looked at where the raster log changes them
-  (`hw_regs`), and line 100's come from running the log to there once.
-- **Its new bytes** are a column: `hw_edges` composes them from the main
-  line's map and tiles through its BGP, a map row's tiles looked up once
-  for its eight lines, into the view's `RB_HWCOL`, and writes them a plane
-  at a time.
-- **Composed whole** (`hw_line`): a plain line that is not valid or has a
-  changed tile or map cell under it (`ppu_bgdirty`, off the VRAM scan,
-  which runs every call), and a line that is not plain - a sprite on it,
-  the window, a scroll of its own (Super Mario Land's status bar), another
-  LCDC or BGP - unless the origin is still and `ppu_ldirty` says its
-  inputs are what they were. It is written at the origin, shifted right by
-  the panning two bytes a turn, a word to an even address: 21 bytes a
-  plane.
-- **A line that is the same while the origin moves** is copied, not
-  composed: once it has been so for two moves, `hw_line` keeps it in VRAM
-  eight times, once for each panning (`RW_HWMST`, 168 bytes a line at the
-  top of each plane), and `hw_latch` copies the one for this panning to its
-  row in write mode 1 - each byte read into the card's latches and written
-  from them, both planes at once. A change drops the copies.
-- **A still frame** - the origin where it was, the raster log and the
-  frame's first registers the last call's, nothing in VRAM or OAM changed -
-  visits no line, as `rb_renderd`'s FAST does.
-- **Back home and every line composed**: a scroll of more than 32 pixels,
-  another LCDC or BGP on the main line, the LCD or the background off, the
-  host's whole frame (`RB_DFULL`), or an origin that has wandered to an end
-  of its range (1,024 to 35,520; home is 18,000). A redraw, never a wrong
-  picture.
-- **The two registers are latched at different moments.** The card takes
-  the start address as the vertical retrace begins and the panning on the
-  next scan line. Changed together, they would show a refresh with one and
-  not the other: the picture 8 pixels out below the beam. So the start goes
-  in outside the retrace and the panning as it begins - a wait of up to a
-  refresh, once in 8 pixels of a sideways scroll, 0.6 ms a frame on the
-  bench below. Alone, either goes in at once.
+- **It was not in step with the card.** A draw is longer than a refresh,
+  and the lines it composes (sprites, the status bar) are written for the
+  NEW origin while the card still shows the old one: until the start
+  address is latched at the next retrace they sit displaced by the scroll,
+  so the status bar and Mario jittered by the scroll's step every draw - on
+  86Box and on the Victory alike. Writing the registers first only turns
+  the jump the other way. The cure is two pages and a flip, and the card
+  latches the start address at the retrace and the panning at once, so a
+  flip that changes both must wait for the retrace: half a refresh, ~7 ms,
+  on every draw.
+- **It bought less than that wait costs.** On the Victory twin, drawing
+  every frame of the platformer script (`tests/rbcore/rbbench.py --vga`
+  times the writer that stayed), a frame:
 
-**What it buys is less than the lines suggest.** The 286 twin
-(`tests/rbcore/rbbench.py --box 286-victory --mhz 16 --rom R --vga hw|copy`:
-the platformer script, a frame drawn every frame onto VGA, and the writer
-that copies `rb_renderd`'s lines for the A/B) reads, a frame:
+  | | CPU only | lines copied | hardware scroll |
+  |---|---|---|---|
+  | Super Mario Land | 6.09 ms | 25.72 ms | 24.90 ms |
+  | Kirby's Dream Land (128K cache) | 15.38 ms | 53.64 ms | 51.81 ms |
 
-| | CPU only | copied lines | hardware scroll |
-|---|---|---|---|
-| Super Mario Land | 6.09 ms | 25.72 ms | 24.90 ms |
-| Kirby's Dream Land | 7.37 ms | 12.18 ms | 10.71 ms |
+  On that 286 a line's bookkeeping and the bytes that scrolled in cost about
+  what composing the line costs, the VRAM scan the copying writer skips
+  while it scrolls comes back, and the lines with sprites are composed
+  either way.
 
-Drawing is 4% cheaper in Super Mario Land and 31% in Kirby's Dream Land.
-On that 286 every instruction a line costs is ~12 cycles, so a line's
-bookkeeping and its edge bytes cost about what composing it costs; what is
-left is the VRAM scan the copying writer skips while it scrolls (2.3 ms),
-the lines that must be composed (sprites, and the status bar when it
-changes), and the shift. The first version, which judged every line twice
-and recomposed every sprite line on every frame, read 34.47 and 35.61.
-
-`tests/gbdamage.py`'s `/hw` legs run it every third frame of the platformer
-script under QEMU, in mode 0Dh, and read the origin back through the
-panning, a plane at a time, against `rb_render`'s whole picture: Super Mario
-Land and Kirby's Dream Land, 500 frames each, none differ. Without the edge
-bytes 320 of 500 differ; taking a line as unchanged without `ppu_ldirty`,
-82; a still frame taken without looking, 91; the copies not copied, 318.
+What it left: Kirby's Dream Land's figures above are of the game in PLAY.
+Every earlier one - 7.37 ms CPU only, 12.18 drawn - was of the game
+PAUSED, by the third Start of gbprof's platformer script; the harness now
+leaves that Start out for it and flies it through the level (`b_joy`,
+`JOY_NO3RD` and `JOY_FLAP`). And the harness refuses to assemble when it
+runs into the core it loads, which the experiment did, silently.
 
 ## 16. The recompiler
 

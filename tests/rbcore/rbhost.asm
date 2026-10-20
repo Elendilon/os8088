@@ -28,14 +28,9 @@
 ;                   rb_renderd into a buffer it keeps, and whole by
 ;                   rb_render. The DONE line counts the frames whose two
 ;                   pictures differ (REALBOY-SPEC section 13.2's gate).
-;   MODES 11, 12    as MODE 7, timed, with the VGA full-screen writers in
-;   (hwd, renderv)  mode 0Dh: by hardware scroll (rw_hwdraw), and
-;                   rb_renderd's changed lines copied to VRAM, as the
-;                   writer that does not scroll does (rw_fsplane).
-;   MODE 10 (hw)    as MODE 6, the damage side the package's VGA full-screen
-;                   writer by hardware scroll (apps/realboy/rwhw.inc) in
-;                   mode 0Dh: what it leaves at the origin, through the
-;                   panning, read back a plane at a time (REALBOY-SPEC 15.3).
+;   MODE 12         as MODE 7, timed, onto VGA mode 0Dh: rb_renderd's
+;   (renderv)       changed lines copied to VRAM, as the package's full
+;                   screen does (rw_fsplane).
 ;
 ; Memory: the boot sector at 0000:7C00, the stack below it, this harness at
 ; 0800:0000, the core at 1000:0000, the view at 2000:0000, the ROM from
@@ -55,6 +50,11 @@ HASH_SEG        equ 0x8C00                  ;   ROM's 368KB at most, and its
 CACHE2_SEG      equ 0x7C00                  ; a second cache segment (16.2.1),
 CACHE2_MAXSEC   equ (CACHE2_SEG - ROM_SEG) / 32 ;   over a ROM of 304KB or less
 JIT2_LIM        equ 0x0400                  ; JF_SQZ: each segment's code ends
+JOY_NO3RD       equ 01h                     ; b_joy: no Start at frame 700 - in
+                                            ;   Kirby's Dream Land the game has
+                                            ;   begun by then, and it pauses
+JOY_FLAP        equ 02h                     ; b_joy: A 6 frames of every 12,
+                                            ;   Up held, and no B
 JF_MODE         equ 03h                     ; b_jit: 0 interpret, 1 translate,
 JF_SEG2         equ 04h                     ;   2 Static; a second segment; both
 JF_SQZ          equ 10h                     ;   squeezed to JIT2_LIM's 1KB
@@ -81,6 +81,7 @@ b_romsec    dw 0                        ; patched: ROM sectors
 b_mode      db 0                        ; patched: MODE
 b_frames    dw 600                      ; patched: FRAMES
 b_jit       db 1                        ; patched: translate (REALBOY-SPEC 16)
+b_joy       db 0                        ; patched: JOY_ flags (joy_script)
 boot_go:
     cli
     xor ax,ax
@@ -114,6 +115,8 @@ boot_go:
     and al,JF_MODE
     mov [es:h_jit],al
     mov [es:h_jitf],ah
+    mov al,[b_joy]
+    mov [es:h_joy],al
     jmp HOST_SEG:host_main
 
 ; load CX sectors from LBA [b_lba] to AX:0000, one at a time
@@ -174,6 +177,7 @@ h_frames    dw 0
 h_romsec    dw 0
 h_jit       db 0
 h_jitf      db 0                        ; JF_ flags
+h_joy       db 0                        ; JOY_ flags
 
 %include "rbdefs.inc"
 
@@ -181,18 +185,10 @@ host_main:
     mov ax,cs
     mov ds,ax
     mov es,ax
-    cmp byte [h_mode],11                ; MODES 11 and 12: MODE 7 with a
-    jb .m10                             ;   VGA writer
-    mov al,[h_mode]
-    sub al,10
-    mov [h_hw],al
-    mov byte [h_mode],7
-    jmp short .m89
-.m10:
-    cmp byte [h_mode],10                ; MODE 10: MODE 6 by hardware scroll
+    cmp byte [h_mode],12                ; MODE 12: MODE 7 onto VGA
     jne .m89
     mov byte [h_hw],1
-    mov byte [h_mode],6
+    mov byte [h_mode],7
 .m89:
     cmp byte [h_mode],8                 ; MODES 8 and 9: MODE 6 with
     jb .mode                            ;   Interlace On or Scrolling
@@ -327,25 +323,13 @@ host_main:
     je .d7
     mov ax,0x000D
     int 0x10
-    mov byte [cs:hw_ok],0
-    mov word [cs:hw_wob],0FFFFh
-    mov byte [cs:hw_wp],0FFh
 .d7:
-    cmp byte [cs:h_hw],1
-    jne .rd
-    push ds
-    push cs
-    pop ds
-    call rw_hwdraw
-    pop ds
-    jmp short .d8
-.rd:
     mov ax,FRAMED_SEG
     mov es,ax
     xor di,di
     call rb_renderd
-    cmp byte [cs:h_hw],2
-    jne .d8
+    cmp byte [cs:h_hw],0
+    je .d8
     call vcopy
 .d8:
 %ifdef SCRL_STAT
@@ -582,10 +566,6 @@ host_main:
 
 ; dmg_check - MODE 6: every third frame, rb_renderd against rb_render
 dmg_check:
-    cmp byte [cs:h_hw],0
-    je .d
-    jmp hw_check
-.d:
     push ax
     push cx
     push dx
@@ -676,108 +656,7 @@ dmg_check:
     pop cx
     pop ax
     ret
-; hw_check - MODE 10: every third frame, rw_hwdraw's picture in VRAM
-; against rb_render's. dmg_off is the line (and 1000 for plane 1)
-hw_check:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push ds
-    push es
-    cmp word [cs:rb_dmgseg],0
-    jne .on
-    mov word [cs:rb_dmgseg],DMG_SEG     ; the first time: everything, in
-    mov ax,DMG_SEG                      ;   the package's mode
-    mov es,ax
-    mov byte [es:RB_DFULL],1
-    mov ax,0x000D
-    int 0x10
-    mov byte [cs:hw_ok],0
-    mov word [cs:hw_wob],0FFFFh
-    mov byte [cs:hw_wp],0FFh
-.on:
-    mov ax,[cs:nframes]
-    xor dx,dx
-    mov cx,3
-    div cx
-    or dx,dx
-    jz .chk
-    jmp .r
-.chk:
-    push cs
-    pop ds
-    call rw_hwdraw                      ; AX = the lines composed
-    add [cs:dmg_lines],ax
-    mov ax,FRAME_SEG
-    mov es,ax
-    xor di,di
-    call rb_render
-    mov ax,0xA000
-    mov ds,ax
-    mov cl,[cs:hw_p]
-    xor bp,bp                           ; BP = the plane
-.pl:
-    mov dx,0x3CE                        ; read map select
-    mov al,4
-    mov ah,[cs:hw_wtab + bp]
-    out dx,ax
-    mov si,[cs:hw_ob]
-    mov di,bp
-    mov bx,0                            ; BX = the line
-.ln:
-    push si
-    push di
-    mov ch,20
-.by:
-    mov ah,[si]
-    mov al,[si+1]
-    shl ax,cl
-    cmp ah,[es:di]
-    jne .bad
-    inc si
-    inc di
-    dec ch
-    jnz .by
-    pop di
-    pop si
-    add si,40
-    add di,40
-    inc bx
-    cmp bx,144
-    jb .ln
-    add bp,20
-    cmp bp,40
-    jb .pl
-    jmp short .r
-.bad:
-    pop di
-    pop si
-    inc word [cs:dmg_bad]
-    cmp word [cs:dmg_first],0
-    jne .r
-    mov ax,[cs:nframes]
-    mov [cs:dmg_first],ax
-    or bp,bp
-    jz .b0
-    add bx,1000
-.b0:
-    mov [cs:dmg_off],bx
-.r:
-    pop es
-    pop ds
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-; vcopy - MODE 12: rb_renderd's changed lines to VRAM at RW_HWBASE, a plane
+; vcopy - MODE 12: rb_renderd's changed lines to VRAM at 0, a plane
 ; at a time (rw_fsplane's shape)
 vcopy:
     push ax
@@ -798,7 +677,7 @@ vcopy:
 .pl:
     out dx,ax
     push ax
-    mov di,RW_HWBASE
+    xor di,di
     xor bx,bx
 .l:
     push ds
@@ -834,52 +713,7 @@ vcopy:
     pop ax
     ret
 
-hw_wtab     db 0
-            times 19 db 0
-            db 1
-h_hw        db 0
-
-; the package's names rwhw.inc reads: its bss, here in the harness
-FSI_SEG     equ 0
-rw_fsi      dw 0xA000
-hw_ok       db 0
-hw_p        db 0
-hw_dx       db 0
-hw_ob       dw 0
-hw_row      dw 0
-hw_ncomp    dw 0
-hw_scy      db 0
-hw_scx      db 0
-hw_nscy     db 0
-hw_nscx     db 0
-hw_lcdc     db 0
-hw_bgp      db 0
-hw_nlcdc    db 0
-hw_nbgp     db 0
-hw_r0       times 8 db 0
-hw_mv       db 0
-hw_mm       db 0
-hw_n        db 0
-hw_x        db 0
-hw_fine     db 0
-hw_mrow     db 0
-hw_mapb     dw 0
-hw_ta       times 12 db 0
-hw_same     db 0
-hw_vch      db 0
-hw_rmain    db 0
-hw_wy       db 0
-hw_next     db 0
-hw_spr      dw 0
-hw_mstr     db 0
-hw_dst      dw 0
-hw_sh       db 0
-hw_plain    db 0
-hw_k1       db 0
-hw_k2       db 0
-hw_wob      dw 0
-hw_wp       db 0
-hw_valid    times 144 db 0
+h_hw        db 0                        ; MODE 12: onto VGA
 
 dmg_bad     dw 0
 dmg_first   dw 0
@@ -898,6 +732,7 @@ joy_script:
     push bx
     push cx
     push dx
+    push si
     push ds
     mov bx,[nframes]
     xor dl,dl
@@ -912,6 +747,8 @@ joy_script:
     sub ax,400
     cmp ax,6
     jb .st
+    test byte [cs:h_joy],JOY_NO3RD      ; (a game Start at 700 would PAUSE)
+    jnz .nst
     mov ax,bx
     sub ax,700
     cmp ax,6
@@ -919,12 +756,19 @@ joy_script:
 .st:
     or dl,80h
 .nst:
+    mov cx,50                           ; A: 14 frames of every 50, or with
+    mov si,14                           ;   JOY_FLAP 6 of every 12 - Kirby
+    test byte [cs:h_joy],JOY_FLAP       ;   flies, where a jump stops at the
+    jz .ad                              ;   first tall wall
+    mov cx,12
+    mov si,6
+    or dl,04h                           ; (and Up held: Kirby climbs)
+.ad:
     mov ax,bx
     push dx
     xor dx,dx
-    mov cx,50
     div cx
-    cmp dx,14
+    cmp dx,si
     pop dx
     jae .na
     or dl,10h
@@ -937,6 +781,8 @@ joy_script:
     cmp dx,370
     pop dx
     jbe .nb
+    test byte [cs:h_joy],JOY_FLAP       ; (B lets a flying Kirby's air out)
+    jnz .nb
     or dl,20h
 .nb:
     mov ds,[cs:rb_viewseg]
@@ -954,6 +800,7 @@ joy_script:
     mov [cs:t0+2],dx
 .r:
     pop ds
+    pop si
     pop dx
     pop cx
     pop bx
@@ -1267,7 +1114,6 @@ ticks   dw 0
 %include "rbppu.inc"
 %define RT_SQUEEZE                      ; (b_jit's JF_SQZ)
 %include "rbjit.inc"
-%include "rwhw.inc"
 
 ; the harness ends under the core, at 1000:0000 (a run past it overwrites
 ; the core it loaded and hangs with nothing said)

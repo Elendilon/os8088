@@ -291,7 +291,46 @@ rb_renderd:
     mov [PPU_PANY],al                   ;   a still frame need visit none)
     mov byte [PPU_PNEW],0
 .par:
-    call ppu_dhead
+    cmp byte [PPU_REVOK],0
+    jne .rev
+    call ppu_mkrev
+    mov byte [PPU_TMODE],0FFh
+.rev:
+    mov word [PPU_BKEY],0
+    mov word [PPU_WKEY],0
+    mov word [es:RB_DBKEY],0
+    mov word [es:RB_DWKEY],0
+    mov byte [es:RB_DMODE],0FFh
+    mov byte [PPU_LOGN],0               ; the state as the frame began
+    mov byte [PPU_LOGI],0
+    mov al,[S_FRAMES]
+    dec al
+    cmp al,[S_SNAPTAG]
+    jne .now
+    mov si,RB_SNAP
+    mov al,[S_RLOGN]
+    mov [PPU_LOGN],al
+    push es
+    push ds
+    pop es
+    mov di,PPU_REGS
+    mov cx,8
+    rep movsb
+    pop es
+    jmp short .st2
+.now:
+    mov al,[0FF40h]
+    mov [PPU_REGS+0],al
+    mov ax,[0FF42h]
+    mov [PPU_REGS+1],ax
+    mov ax,[0FF47h]
+    mov [PPU_REGS+3],ax
+    mov al,[0FF49h]
+    mov [PPU_REGS+5],al
+    mov ax,[0FF4Ah]
+    mov [PPU_REGS+6],ax
+.st2:
+    call ppu_pal
     mov byte [es:RB_DFAST],0
     call ppu_logsame                    ; ZF = 1: the same log (and kept)
     mov byte [es:RB_DSAME],0
@@ -472,67 +511,8 @@ rb_renderd:
     cmp byte [PPU_LY],144
     jb .line
 .done:
-    call ppu_dclear
-    mov ax,[es:RB_DCNT]
-    pop es
-    pop ds
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
-
-; ppu_dhead: a damage call's start (rb_renderd, and a host's own writer):
-; the X-flip table, the row keys forgotten, the registers as the frame
-; began - the snapshot when the frame logged a write - and its palettes.
-; DS = view, ES = damage
-ppu_dhead:
-    cmp byte [PPU_REVOK],0
-    jne .rev
-    call ppu_mkrev
-    mov byte [PPU_TMODE],0FFh
-.rev:
-    mov word [PPU_BKEY],0
-    mov word [PPU_WKEY],0
-    mov word [es:RB_DBKEY],0
-    mov word [es:RB_DWKEY],0
-    mov byte [es:RB_DMODE],0FFh
-    mov byte [PPU_LOGN],0               ; the state as the frame began
-    mov byte [PPU_LOGI],0
-    mov al,[S_FRAMES]
-    dec al
-    cmp al,[S_SNAPTAG]
-    jne .now
-    mov si,RB_SNAP
-    mov al,[S_RLOGN]
-    mov [PPU_LOGN],al
-    push es
-    push ds
-    pop es
-    mov di,PPU_REGS
-    mov cx,8
-    rep movsb
-    pop es
-    jmp short .st2
-.now:
-    mov al,[0FF40h]
-    mov [PPU_REGS+0],al
-    mov ax,[0FF42h]
-    mov [PPU_REGS+1],ax
-    mov ax,[0FF47h]
-    mov [PPU_REGS+3],ax
-    mov al,[0FF49h]
-    mov [PPU_REGS+5],al
-    mov ax,[0FF4Ah]
-    mov [PPU_REGS+6],ax
-.st2:
-    jmp ppu_pal
-
-; ppu_dclear: a damage call's end - every change seen, so the bytes a
-; change set clear for the next call, and RB_DFULL. DS = view, ES = damage
-ppu_dclear:
+    ; every change seen: the bytes clear for the next call - only those a
+    ; change set (the full first call cleared nothing and set nothing)
     xor ax,ax
     cmp byte [es:RB_DTCH],0
     je .ct
@@ -553,6 +533,15 @@ ppu_dclear:
     mov cx,144 / 2
     rep stosw
     mov byte [es:RB_DFULL],0
+    mov ax,[es:RB_DCNT]
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
     ret
 
 ; ppu_logsame: ZF = 1 if this frame's raster log (PPU_LOGN entries at
