@@ -1029,6 +1029,8 @@ rl_blit4:
 %include "redline/baseline-herc.inc"
 %include "redline/baseline-vga.inc"
 ; Share the proven timing/report machinery with the developer harnesses.
+%define BL_NOINTRO                  ; no "it saves" banner: users read this, and
+                                    ; rl_frontclock keeps rows by index (benchlib)
 %include "benchlib.inc"
 %include "redline/ui.inc"
 %define OS88UI_NOGLYPH
