@@ -12666,10 +12666,12 @@ with IF=1: `int 13h`, which §15.3.8 measured taking 21 ticks a transfer, and
 stack; SeaBIOS serves them on an internal stack in a segment of its own, and
 a swap of SP alone there put the chain at `SS:sch_chstack` in the ROM's
 segment — which the suite survived only because that offset happened to be
-unallocated there. So both this swap and §9.10's test `SS` against `LOW_SEG`
-first, and where it is anything else the chain (or the mouse ISR) runs in
-place on the interrupted stack, as it did before either section. The target
-machine pays the compare and nothing else.
+unallocated there. So this swap tests `SS` against `LOW_SEG`
+first, and where it is anything else the chain runs in place on the
+interrupted stack, as it did before this section. The target machine pays
+the compare and nothing else. §9.10's mouse ISR tested the same way until
+§9.10.1, which loads SS as well, because its BODY reaches `.lowbss` through SS
+where the chain's ROM call does not.
 
 #### 8.5.1 Why a nested tick skips the chain rather than nesting on the stack
 
@@ -16143,6 +16145,40 @@ not. It crossed no rung.
 assembling. It puts both ISRs back on the interrupted task's stack, which is
 what shipped before this section; `make stkdiag` builds it as arm 2 so the floor
 row moves by exactly what this is worth on the machine in front of you.
+
+#### 9.10.1 The swap sets SS too: a ROM that runs a service on its own stack
+
+"SS is already `LOW_SEG` for every task" is true of os8088's own code and **not
+of a ROM service that switched stacks**, and the kernel calls two with IF=1:
+`int 13h`, which §7.4 makes the designed case for this ISR, and `int 16h` on
+every `ui_task` pass. The IBM ROMs run both on the caller's stack; SeaBIOS — so
+QEMU and Bochs — serves them on an internal stack in a segment of its own. A
+swap of SP alone there would run the body at `SS:mou_pstack` in the ROM's
+segment, so for a while the entry TESTED `SS` and, finding it was not
+`LOW_SEG`, ran the body in place on the ROM's stack. That was half a cure:
+the body reaches `.lowbss` through `SS` — `gfx_rowbase`'s `vid_rowtab`,
+`evq_push`'s queue — so it then read and wrote the ROM's segment instead
+(docs/plans/KERN-MEGA-PLAN.md 14.9 and 14.39).
+
+So the entry now banks **SS and SP** and loads **both**, `LOW_SEG` from a word
+in `.text`, because `mov ss, [cs:x]` takes memory and needs no register; the
+exit puts both back. There is no compare any more:
+
+```nasm
+    mov [cs:mou_psave], sp          ; 5   MOUPRIV_ENTER
+    mov [cs:mou_pss], ss            ; 5
+    mov ss, [cs:mou_lowss]          ; 5
+    mov sp, mou_pstack + MOU_PSTK   ; 3
+      ...
+    mov ss, [cs:mou_pss]            ; 5   MOUPRIV_LEAVE
+    mov sp, [cs:mou_psave]          ; 5
+```
+
+Against the tested form it is **+1 byte at each of the two entries, +5 at the
+one exit, +2 of `.text` for `mou_lowss` and +2 of `.bss` for `mou_pss`** —
+11 bytes on `kern_big` (measured; 14.39 has the build). `kern_mega` banks
+through its data alias as before, its code segment being read-only. `NOMOUPRIV=1` is
+untouched: it still runs the body on the interrupted stack, whatever SS is.
 
 ### 9.11 The VMware absolute pointer — the browser's grabless mouse
 

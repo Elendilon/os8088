@@ -8026,6 +8026,13 @@ $(BUILD)/regpair.bin: tests/regpair/regpair.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/regpair.o88: $(BUILD)/regpair.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/regpair.bin -o $@
 
+# SPEC.md 9.10.1's fixture, for tests/mousess.py: SS:SP moved into a claim with
+# IRQ0 masked and IF on, so the mouse ISR is taken on a stack that is not
+# LOW_SEG - the case SeaBIOS's int 13h makes by a race
+$(BUILD)/msstk.bin: tests/msstk/msstk.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/msstk/msstk.asm
+$(BUILD)/msstk.o88: $(BUILD)/msstk.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/msstk.bin -o $@
 # SPEC.md 5.4.1.5's fixture, for tests/b4walk.py: one window, one OSAPI_GFX_BLIT4
 # of a dithered block in its W_PAINT. The row writes its own scratch disk.
 $(BUILD)/b4walk.bin: tests/b4walk/b4walk.asm apps/os88api.inc | $(BUILD)
