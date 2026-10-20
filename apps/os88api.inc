@@ -60,6 +60,14 @@
 ; the window record OSAPI_WM_CREATE returned, and the file dialog's name
 ; buffer. Read them with an `es:` override; clobber ES freely afterwards.
 ;
+; SS = LOW_SEG IS A REQUIREMENT OF EVERY OSAPI CALL, not only a fact about
+; where you start: the kernel reaches tables of its own in LOW_SEG THROUGH SS
+; - the claim map, the screen's row table, and on kern_mega font_run's
+; unaligned-run state - so a call made on a stack of your own reads and
+; writes whatever segment that stack is in. A package that switches SS for
+; its own reasons (the DOS box, around a DOS program) switches back before
+; it calls the kernel, as the DOS box does (docs/plans/KERN-MEGA-PLAN.md 14.39).
+;
 ; Your image is linked at org 0 and loaded at a paragraph boundary, so it is
 ; position-independent: there are no relocations, and two instances of one
 ; package differ only in the segment they run in.
@@ -3581,11 +3589,12 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
 ; it only of a package that does NO arithmetic on its own CS or DS (`mov ax,
 ; ds / add ax, n`, OS88_CODESEL of its own DS, a far pointer it builds out of
 ; its own segment and stores for real mode), stamps no IRQ vector with its
-; own CS, re-homes into no part (OSAPI_PKG_REHOME), and does its file I/O on
-; ordinary FAT volumes - a RAM disk or a cable share is not yet supported
-; for a buffer up there. Every other kernel ignores the bit: a kernel built
-; before it reads an unknown class and gives the largest stack, and nothing
-; worse.
+; own CS, and re-homes into no part (OSAPI_PKG_REHOME). Its file I/O may go
+; to any volume: a buffer up there reaches a redirected one - a RAM disk, a
+; cable share - 512 bytes a call through a bounce in conventional memory
+; (KERN-MEGA-PLAN 10.3 item 81). Every other kernel ignores the bit: a
+; kernel built before it reads an unknown class and gives the largest stack,
+; and nothing worse.
 OS88_HIGH          equ 0x80
 ; OS88_HIGHMEM - OR it into the class byte as well (`OS88_STACK_192 |
 ; OS88_HIGH | OS88_HIGHMEM`) to say that this package's CLAIMS may be above
