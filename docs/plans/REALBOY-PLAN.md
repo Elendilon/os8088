@@ -705,7 +705,8 @@ numbers come off the machine's own clock.
 **BUILT** (REALBOY-SPEC section 10.3), and it came in by the second field
 run's door rather than the large ROMs': Kirby's Dream Land took the heap a
 640KB Victory had, so its recompiler cache could not be claimed and it ran
-interpreted. The plan now keeps the recompiler's 64KB and sends a cartridge
+interpreted. The plan now keeps the recompiler's 80KB (its cache and block
+table) and sends a cartridge
 that would not leave it to the cache. gbprof's LRU column measured the
 working sets first, as this wave said it would: **Kirby 6 banks of 16, Looney
 Tunes 8 of 64**, a fetch under once a second with that many slots. Looney

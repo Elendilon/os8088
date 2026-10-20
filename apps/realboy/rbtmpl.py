@@ -185,9 +185,9 @@ EXPORT = ("tr_enter", "tr_link", "tr_lsite", "tr_int", "idle_yes", "cnt_ff", "RB
 def free_ranges(tails):
     """The cache segment's free space: everything but the slots holding the
     core's helper tails (REALBOY-SPEC section 16.2), which the translator
-    copies into it at the same offsets - and the block table, slots 00-3F.
-    So no block is ever at offset 0, which means 'no block' (tr_back)."""
-    out, start = [], 0x4000            # JIT_HASH's 16KB first (rbdefs.inc)
+    copies into it at the same offsets; the block table has a segment of its
+    own. No block is ever at offset 0, which means 'no block' (tr_back)."""
+    out, start = [], 0x0010            # (offset 0 is 'no block')
     for slot in range(256):
         if slot in tails:
             if slot * 256 > start:

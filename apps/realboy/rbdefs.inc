@@ -40,9 +40,10 @@ JIT_BUF         equ 0x6700          ; 256: the Game Boy code being translated
 RB_BTAB         equ 0x6800          ; 512 words: a ROM bank's segment, or 0
 RB_BUSE         equ 0x6C00          ; 512 words: switches to it (the cache's
                                     ;   eviction count, REALBOY-SPEC 10.3)
-JIT_HASH        equ 0x0000          ; 16,384, IN THE CACHE SEGMENT: the block
-                                    ;   table (tr_enter, REALBOY-SPEC 16.3), all
-                                    ;   of slots 00-3F: tr_enter is slot 40's
+JIT_HASH        equ 0x0000          ; 16,384, in a SEGMENT OF ITS OWN
+                                    ;   (S_JITHSEG): the block table (tr_enter,
+                                    ;   REALBOY-SPEC 16.3). The cache's 64KB
+                                    ;   is code but for the tails' slots
 JIT_HASHN       equ 2048
 RB_JITHOT       equ 64              ; entries before a PC is translated
 
@@ -163,6 +164,7 @@ S_ATN           equ RB_STATE+0xE8   ; word: the M-cycle a translated access's
                                     ;   I/O path is at (rw_io, rbgen.py)
 S_RET2          equ RB_STATE+0xEA   ; word: its S_RET while io_rd/io_wr run
 S_DX2           equ RB_STATE+0xEC   ; word: DX, kept across that
+S_JITHSEG       equ RB_STATE+0xEE   ; word: the block table's segment (16.3)
 SQ_ON           equ 0
 SQ_VOL          equ 1
 SQ_ENV          equ 2

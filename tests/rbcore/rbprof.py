@@ -35,7 +35,7 @@ import rbimg  # noqa: E402
 
 S_BANK = 0x4000 + 0x35                  # rbdefs.inc: the ROM bank in 4000-7FFF
 
-HOST, CORE, CACHE = 0x8000, 0x10000, 0x90000   # rbhost.asm's segments
+HOST, CORE, CACHE, HASH = 0x8000, 0x10000, 0x90000, 0x8C000   # rbhost.asm's segments
 
 
 def labels(lst, section=None):
@@ -151,7 +151,7 @@ def main():
                     pcs[pc] = pcs.get(pc, 0) + 1
                 tot += 1
             if jips:                                # each translated sample to the
-                tab = b.memr(CACHE, 0x4000)         #   block at or below it (16.3)
+                tab = b.memr(HASH, 0x4000)          #   block at or below it (16.3)
                 blocks = sorted((int.from_bytes(tab[k+4:k+6], "little"),
                                  int.from_bytes(tab[k:k+2], "little"), tab[k+2])
                                 for k in range(0, 0x4000, 8) if tab[k+4] | tab[k+5])

@@ -56,7 +56,19 @@ ITEM_LOG = (200, 92)            # ...and its fifth
 FIRST_ICON = (160, 127)         # the first file in a fresh B: window (list view)
 
 
-def find(b):
+def find(b, tries=30):
+    """the package, once it has a view: a big cartridge's read off the
+    floppy outlasts the boot's ten seconds (Looney Tunes, 1MB), so it is
+    looked for again every five emulated seconds"""
+    for _ in range(tries - 1):
+        try:
+            return find1(b)
+        except SystemExit:
+            b.cmd("step 5000")
+    return find1(b)
+
+
+def find1(b):
     vo = gbwindow.label_off(LST, "rb_viewseg")
     mem = b"".join(b.memr(0x10000 + k, 0x8000) for k in range(0, 0x90000, 0x8000))
     for o in range(0, len(mem) - 32, 16):
@@ -134,7 +146,7 @@ def profile(b, seg, core, n, view=0):
             k = bisect.bisect_right(pk, ip - seg*16) - 1
             hits["pkg " + (psyms[k][1] if k >= 0 else "?")] += 1
         elif jit and jit*16 <= ip < jit*16 + 0x10000:
-            hits["jit %s" % ("hash" if ip - jit*16 < 0x4000 else "code")] += 1
+            hits["jit code"] += 1
             jips.append(ip - jit*16)
         elif core*16 <= ip < core*16 + 0x10000:
             k = bisect.bisect_right(ck, ip - core*16) - 1
@@ -157,7 +169,7 @@ def profile(b, seg, core, n, view=0):
         # each translated sample to its block: the table's entries are PC,
         # bank key, count, offset (REALBOY-SPEC 16.3); a sample is charged to
         # the block with the greatest offset at or below it
-        tab = b.memr(jit * 16, 0x4000)
+        tab = b.memr((jit + 0x1000) * 16, 0x4000)   # the table, after the cache
         blocks = sorted((int.from_bytes(tab[k+4:k+6], "little"),
                          int.from_bytes(tab[k:k+2], "little"), tab[k+2])
                         for k in range(0, 0x4000, 8) if tab[k+4] | tab[k+5])

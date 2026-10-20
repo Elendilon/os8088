@@ -701,7 +701,7 @@ TAILS = {
 ; interpreter where there is none - RAM, the translator off or refusing. In:
 ; SI = PC, DS = its segment, AH = F, every register live. A block is keyed
 ; by its PC and, in 4000-7FFF, its bank; the table is direct-mapped, 2,048
-; of 8 bytes at JIT_HASH IN THE CACHE SEGMENT: PC, bank (FF for the rest),
+; of 8 bytes at JIT_HASH in a segment of its own: PC, bank (FF for the rest),
 ; -, the block's offset there. This tail is copied into that segment too (blocks jump
 ; to it there), so it leaves by far jumps only.
 tr_enter:
@@ -732,7 +732,7 @@ tr_enter:
     shl bx,1
     shl bx,1
     shl bx,1
-    mov es,[ss:S_JITSEG]        ; (ES is every helper's to load)
+    mov es,[ss:S_JITHSEG]       ; the table (ES is every helper's to load)
     cmp [es:bx+JIT_HASH],si
     jne tr_new
     cmp [es:bx+JIT_HASH+2],dh
@@ -794,7 +794,7 @@ tr_link:
     shl bx,1
     shl bx,1
     shl bx,1
-    mov es,[ss:S_JITSEG]
+    mov es,[ss:S_JITHSEG]
     cmp [es:bx+JIT_HASH],si
     jne .nb
     cmp [es:bx+JIT_HASH+2],dh

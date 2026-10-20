@@ -72,7 +72,7 @@ rt_tab:
     incbin "rbtmpl.bin"
 
 ; rt_init - DS = the view, after rb_init; AX = the cache's segment, a 64KB
-; claim of the host's. The core's helper tails copied into it at their own
+; claim of the host's, and BX the block table's, 16KB. The core's helper tails copied into it at their own
 ; offsets, the cache empty, and the core's two doors pointed at it -
 ; tr_enter's miss at rb_jit, and rbsys's resume (after every event) at
 ; tr_enter rather than the interpreter's dispatch
@@ -85,6 +85,7 @@ rt_init:
     push di
     push es
     mov [S_JITSEG],ax
+    mov [S_JITHSEG],bx
     mov [S_JITOUT+2],ax
     mov es,ax
     mov word [S_JITVEC],rb_jit
@@ -175,7 +176,7 @@ rt_flush:
     push cx
     push di
     push es
-    mov es,[S_JITSEG]
+    mov es,[S_JITHSEG]
     mov di,JIT_HASH
     mov cx,JIT_HASHN * 8 / 2
     xor ax,ax
@@ -314,6 +315,7 @@ rt_translate:
     mov si,[RT_PC0]
     mov dl,[S_JITBK]
     mov bx,[S_JITSLOT]
+    mov es,[S_JITHSEG]
     mov [es:JIT_HASH+bx],si
     mov [es:JIT_HASH+bx+2],dl
     mov ax,[RT_START]
@@ -745,11 +747,14 @@ rt_exit:
     shl bx,1
     shl bx,1
     shl bx,1
+    push es
+    mov es,[S_JITHSEG]
     cmp [es:JIT_HASH+bx],ax
-    jne .link
+    jne .nob
     cmp [es:JIT_HASH+bx+2],dh
-    jne .link
+    jne .nob
     mov bx,[es:JIT_HASH+bx+4]
+    pop es
     or bx,bx
     jz .link
     mov ax,0378h                    ; js +3 / jmp near the block
@@ -757,6 +762,8 @@ rt_exit:
     mov ax,bx
     call rt_jmp
     jmp short .ev
+.nob:
+    pop es
 .link:
     mov ax,0678h                    ; js +6 / mov dx,SITE / jmp tr_lsite
     stosw                           ;   (which takes T from the mov si,T

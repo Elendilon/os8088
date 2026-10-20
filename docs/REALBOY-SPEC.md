@@ -393,7 +393,7 @@ Dream Land (256K) took the heap a 640KB Victory had, so its 64KB recompiler
 cache could not be claimed and the game ran interpreted (its log has no J).
 
 - **The plan** (`rw_plan`), from the size probe and `OSAPI_MEM_AVAIL`,
-  taken AFTER the damage memory and the recompiler's 64KB are claimed: the
+  taken AFTER the damage memory and the recompiler's 80KB are claimed: the
   third field run's logs showed the heap the plan saw (346KB) holding the
   ROM and the recompiler with room over, and still no recompiler - the
   ROM's own read rebuilds the disk caches `OSAPI_MEM_AVAIL` counts as free,
@@ -446,7 +446,7 @@ one in a frame first snapshots all eight as the frame began into `RB_SNAP`
 ### 12.1 The bare harness
 
 `tests/rbcore/rbhost.asm` is a boot sector and a host: it loads itself, the
-64KB core and a ROM (to 3000:0, up to 384KB) and runs it with no os8088.
+64KB core and a ROM (to 3000:0, up to 368KB) and runs it with no os8088.
 `tests/rbcore/rbimg.py` builds the floppy (`--patch OFF:HEX` breaks the core
 on purpose for a negative control). Modes:
 
@@ -878,13 +878,20 @@ Mario Land, the CPU alone: 9.57 to 9.29 ms a frame.
 
 The code goes into a 64KB segment of its own. It holds copies of the core's
 helper tails - the slots `rbgen.TAILS` uses - at their own offsets, so a
-template reaches every helper with a near jump, and the block table in slots
-00-3F; ~44KB is left for code, in the free ranges `rbtmpl.py` lists. A helper
+template reaches every helper with a near jump; ~58KB is left for code, in
+the free ranges `rbtmpl.py` lists. **The block table has a 16KB segment of
+its own** (`S_JITHSEG`), in the package the 16KB after the cache in one 80KB
+claim and in the harness 8C00h. It was slots 00-3F of the cache, and the
+cache had ~44KB for code: Kirby's Dream Land's working set is ~500 blocks
+of ~96 bytes, so in the package it flushed every five seconds and ran no
+faster recompiled than interpreted (61.7% of real time against 62%). With
+the table out, 0 flushes in 30 seconds and **84.4%**; the bank cache it
+shares the heap with went from eight slots to seven. A helper
 that leaves for rbsys records its CS in `S_RETFAR` first, so rbsys comes back
 to the copy that called it, and every way out of the cache to the
 interpreter is a far jump. When the cache is full everything is forgotten
 and translation starts again. The package claims it on a 286 or later, after
-the ROM, and the load's plan keeps 64KB for it - a cartridge that would not
+the ROM, and the load's plan keeps 80KB for it - a cartridge that would not
 leave it goes to the bank cache (section 10.3); without the memory there is
 no recompiler.
 
@@ -1002,22 +1009,25 @@ more than the dispatch they save. Super Mario Land is the other way round.
 So Machine > Recompiler has three settings, **Auto** (the default), On and
 Off, and Auto measures (`rw_jitauto`, once a second from `rw_stat`):
 
+- a window of two seconds with the recompiler that is NOT timed, its cache
+  filling there - a cold cache timed it dearer than it was, and that alone
+  had Kirby's Dream Land interpreted at 62% when it ran recompiled at 86%;
 - four windows of two seconds - with the recompiler, without, with,
   without - each's cost a frame being the machine's own time (`rw_frame` to
   its yield) over the frames it ran;
 - then the recompiler unless the interpreter was cheaper by an eighth or
   more (a title screen times both alike, and a near tie there once handed
   Super Mario Land's levels to the interpreter), for a minute - five when
-  the other was
-  a quarter dearer or more, since every timing spends four seconds half of
-  them on the slower - and the four windows again, since a game's working
-  set is a level's.
+  the recompiler won by a quarter or more, since every timing spends four
+  seconds half of them on the slower - and the windows again, since a
+  game's working set is a level's. An interpreter's verdict holds the
+  minute only.
 
 Turning it off keeps the cache, and turning it back on (`rt_resume`) forgets
 nothing: the cache holds only ROM's translations, keyed by PC and bank, and
-neither changes while it is off. Kirby holds the interpreter at 62-66% and
-Super Mario Land the recompiler at 101%, each as fast as the better of the
-two forced.
+neither changes while it is off. With the block table out of the cache
+(16.2), Auto holds the recompiler on both: Kirby's Dream Land at 85.9% of
+real time and Super Mario Land at 100%.
 
 ## 17. Sound
 

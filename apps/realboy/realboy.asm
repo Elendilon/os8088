@@ -154,8 +154,9 @@ rw_lstat        equ rw_tgame + 4    ; 8: S_EVCOUNT, S_JITNB, S_JITFL and
                                     ;   rw_nmiss at the last record
 rw_jitmode      equ rw_lstat + 8    ; byte: Machine > Recompiler, 0 Auto, 1
                                     ;   On, 2 Off (REALBOY-SPEC 16.7)
-rw_jphase       equ rw_jitmode + 1  ; byte: Auto's window, 0-3 timing (even
-                                    ;   with the recompiler), 4 holding
+rw_jphase       equ rw_jitmode + 1  ; byte: Auto's window, 0 warming the
+                                    ;   recompiler's cache, 1-4 timing (odd
+                                    ;   with the recompiler), 5 holding
 rw_jsec         equ rw_jphase + 1   ; byte: seconds into the window
 rw_jhold        equ rw_jsec + 1     ; word: seconds still to hold
 rw_jcost        equ rw_jhold + 2    ; dword: counts the machine ran this window
@@ -445,19 +446,30 @@ rw_start:
     call rw_dmgfull
 rw_jiton:                           ; (and Machine > Recompiler's way back in)
     push ds
+    push bx
     mov ds, [cs:rb_viewseg]
     cmp word [cs:rw_jitseg], 0      ; no cache or not wanted: the plain
     je .off                         ;   interpreter, hooks and all removed
     cmp byte [cs:rw_jitwant], 0
     je .off
-    mov ax, [cs:rw_jitseg]
+    call rw_jitsegs
     call rt_init
+    pop bx
     pop ds
     ret
 .off:
     xor al, al
     call rt_dispatch
+    pop bx
     pop ds
+    ret
+
+; rw_jitsegs - AX = the recompiler's cache, BX = its block table: the 16KB
+; after it in the one 80KB claim (rw_jitclaim)
+rw_jitsegs:
+    mov ax, [cs:rw_jitseg]
+    mov bx, ax
+    add bh, 10h
     ret
 
 ; rw_jitback - the recompiler on again, between two core runs: over the
@@ -477,8 +489,10 @@ rw_jitback:
 .r:
     ret
 .init:
-    mov ax, [cs:rw_jitseg]
+    push bx
+    call rw_jitsegs
     call rt_init
+    pop bx
     pop ds
     ret
 
@@ -506,13 +520,17 @@ rw_jitset:
     jmp rw_jitback
 
 ; rw_jitauto - once a second, between frames (rw_stat): Machine >
-; Recompiler's Auto. Four windows of RW_JWIN seconds, with the recompiler,
-; without, with and without, each's cost a frame - the machine's counts
-; over its frames - summed by kind; then the cheaper for RW_JHOLD seconds
-; (five times that when the other was a quarter dearer or more: each
-; timing costs the two windows of the slower), and time both again (a game's code is a level's, and so is its working
-; set). Kirby's Dream Land walking ran faster interpreted (59% of real time
-; on the Victory's twin against 46%), Super Mario Land recompiled.
+; Recompiler's Auto. A window of RW_JWIN seconds with the recompiler that
+; is NOT timed - its cache fills there, and a cold cache timed the
+; recompiler dearer than it was - then four, with it, without, with and
+; without, each's cost a frame - the machine's counts over its frames -
+; summed by kind; then the cheaper for RW_JHOLD seconds (five times that
+; when the recompiler won by a quarter or more: each timing costs the two
+; windows of the slower), and time both again (a game's code is a level's,
+; and so is its working set). Kirby's Dream Land walking once ran faster
+; interpreted (59% of real time on the Victory's twin against 46%), its
+; working set bigger than the cache; with the block table out of it, 84%
+; recompiled against 62%.
 RW_JWIN         equ 2
 RW_JHOLD        equ 60
 rw_jitauto:
@@ -520,7 +538,7 @@ rw_jitauto:
     jne .r
     cmp word [rw_jitseg], 0
     je .r
-    cmp byte [rw_jphase], 4
+    cmp byte [rw_jphase], 5
     jae .hold
     inc byte [rw_jsec]
     cmp byte [rw_jsec], RW_JWIN
@@ -535,6 +553,11 @@ rw_jitauto:
     mov [rw_jcost], bx
     mov [rw_jcost + 2], bx
     mov [rw_jfr], bx
+    cmp byte [rw_jphase], 0
+    jne .t
+    inc byte [rw_jphase]            ; the warm-up: on, with the recompiler
+    ret
+.t:
     cmp dx, cx
     jb .d
     mov ax, 0FFFFh                  ; (a frame of 55 ms or more: as that)
@@ -544,15 +567,16 @@ rw_jitauto:
 .h:
     shr ax, 1
     mov bl, [rw_jphase]
+    inc bl
     and bx, 1
     shl bx, 1                       ; 0 with the recompiler, 2 without
     add [rw_jsum + bx], ax
     inc byte [rw_jphase]
-    cmp byte [rw_jphase], 4
+    cmp byte [rw_jphase], 5
     jae .decide
-    test byte [rw_jphase], 1        ; odd windows without it
-    jnz rw_jitoff
-    jmp rw_jitback
+    test byte [rw_jphase], 1        ; odd windows with it
+    jnz rw_jitback
+    jmp rw_jitoff
 .decide:
     mov ax, [rw_jsum]               ; AX with the recompiler, BX without
     mov bx, [rw_jsum + 2]
@@ -565,9 +589,9 @@ rw_jitauto:
     jc .on
     cmp ax, cx
     jbe .on
-    call .clear                     ; (a quarter dearer or more: clear, and
-    jmp rw_jitoff                   ;   held five times as long)
-.on:
+    jmp rw_jitoff                   ; (held the once: it was the cold cache
+.on:                                ;   that lost before, never the
+                                    ;   interpreter that won)
     xchg ax, bx
     call .clear
     jmp rw_jitback
@@ -608,7 +632,8 @@ rw_jitoff:
     pop ds
     ret
 
-; rw_jitclaim - on the UI task, once: a 64KB cache on a 286 or later. The
+; rw_jitclaim - on the UI task, once: a 64KB cache and the 16KB of its block
+; table after it (REALBOY-SPEC 16.3), on a 286 or later. The
 ; recompiler's code is bigger than the interpreter's, and an 8088's bus makes
 ; bytes the cost; and without the memory it is simply not used.
 rw_jitclaim:
@@ -617,7 +642,7 @@ rw_jitclaim:
     call OSAPI_CPU_INFO
     cmp al, CPU_8086
     je .r
-    mov ax, 64
+    mov ax, 80
     call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the core's
     jc .r                           ;   state block names it
     mov [rw_jitseg], dx

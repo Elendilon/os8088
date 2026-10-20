@@ -31,7 +31,7 @@
 ;
 ; Memory: the boot sector at 0000:7C00, the stack below it, this harness at
 ; 0800:0000, the core at 1000:0000, the view at 2000:0000, the ROM from
-; 3000:0000 (up to 384KB).
+; 3000:0000 (up to 368KB).
 ; =============================================================================
 
 cpu 8086
@@ -42,7 +42,8 @@ CORE_SEG        equ 0x1000
 VIEW_SEG        equ 0x2000
 ROM_SEG         equ 0x3000
 CACHE_SEG       equ 0x9000                  ; the recompiler's 64KB, past the
-                                            ;   ROM's 384KB at most
+HASH_SEG        equ 0x8C00                  ;   ROM's 368KB at most, and its
+                                            ;   block table's 16KB before it
 FRAME_SEG       equ 0x0500                  ; rb_render's 5,760 bytes, under the
                                             ;   boot stack: the harness (with the
                                             ;   recompiler's templates) runs past A000h
@@ -198,6 +199,7 @@ host_main:
     cmp byte [cs:h_jit],0               ; the recompiler, unless asked not:
     je .plain                           ;   then the interpreter as it was
     mov ax,CACHE_SEG                    ;   before there was one
+    mov bx,HASH_SEG
     call rt_init
     jmp short .jdone
 .plain:
