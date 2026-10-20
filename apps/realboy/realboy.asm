@@ -167,7 +167,10 @@ rw_jnb          equ rw_jsum + 4     ; word: S_JITNB as the window began
 rw_jretry       equ rw_jnb + 2      ; byte: this window's re-runs (Auto)
 rw_jfl          equ rw_jretry + 1   ; word: S_JITFL as Auto's watch began
 rw_undrawn      equ rw_jfl + 2      ; byte: a frame ran since the last draw
-rw_log          equ rw_undrawn + 1  ; RW_LOGN x RW_LOGSZ: the records
+rw_klatch       equ rw_undrawn + 1  ; byte: buttons TYPED since the last look
+rw_kraw         equ rw_klatch + 1   ; byte: the buttons at the last look
+rw_kpref        equ rw_kraw + 1     ; byte: of each opposite pair, the newer
+rw_log          equ rw_kpref + 1    ; RW_LOGN x RW_LOGSZ: the records
 rw_fbuf         equ rw_log + RW_LOGN * RW_LOGSZ ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
@@ -1602,6 +1605,9 @@ rw_dec:
 ; window has the keyboard. F1 toggles the speed overlay.
 rw_keys:
     xor dl, dl
+    xor al, al                      ; the typed presses, taken whoever's the
+    xchg al, [rw_klatch]            ;   keyboard is
+    mov [rw_ktyped], al
     cmp byte [rw_infsx], 0          ; the bracket's keyboard is ours
     jne .f1
     call OSAPI_WM_TOP
@@ -1634,13 +1640,40 @@ rw_keys:
 .k:
     lodsb
     or al, al
-    jz .set
+    jz .typ
     call OSAPI_KEY_DOWN             ; CF = 1: held
     jnc .n
     or dl, dh
 .n:
     shl dh, 1
     jnz .k
+.typ:
+    ; A press TYPED since the last look is one, held now or not - a tap
+    ; inside a draw is never seen held - but only for a button that was up
+    ; then: a held key's typematic repeat, taken from the buffer after its
+    ; release, would otherwise be a press nobody made
+    mov al, [rw_kraw]
+    not al
+    and al, [cs:rw_ktyped]
+    or dl, al
+    ; OPPOSITE DIRECTIONS: a Game Boy's pad cannot hold both, a keyboard can,
+    ; and Super Mario Land given both runs on to the right. Of a pair held
+    ; together, the one pressed LATER wins - a roll from Right to Left turns
+    ; at once, and letting Left go turns back while Right is still held
+    push bx
+    push cx
+    mov ah, [rw_kraw]
+    mov [rw_kraw], dl
+    not ah
+    and ah, dl                      ; AH = pressed since the last look
+    mov cl, [rw_kpref]
+    mov bl, 03h                     ; Right, Left
+    call rw_socd
+    mov bl, 0Ch                     ; Up, Down
+    call rw_socd
+    mov [rw_kpref], cl
+    pop cx
+    pop bx
 .set:
     push ds
     mov ds, [cs:rb_viewseg]
@@ -1649,6 +1682,59 @@ rw_keys:
     ret
 ; S_JOY's bits: Right, Left, Up, Down, A, B, Select, Start
 rw_keymap:  db KSC_RIGHT, KSC_LEFT, KSC_UP, KSC_DOWN, 2Dh, 2Ch, 39h, KSC_ENTER, 0
+rw_ktyped:  db 0                    ; (rw_keys: this look's rw_klatch)
+
+; rw_socd - one opposite pair, BL its two bits: DL the buttons, AH those
+; pressed since the last look, CL the preferred of each pair. Not both held:
+; the held one, or none, is the preference. Both: one newly pressed takes
+; it, and the other is dropped from DL
+rw_socd:
+    mov bh, dl
+    and bh, bl
+    cmp bh, bl
+    je .both
+.pref:
+    not bl
+    and cl, bl
+    not bl
+    or cl, bh
+    ret
+.both:
+    mov bh, ah
+    and bh, bl
+    jz .k                           ; neither new: as it was
+    cmp bh, bl
+    je .k                           ; both new at once: as it was
+    call .pref                      ; the newer
+.k:
+    mov bh, cl
+    and bh, bl
+    not bl
+    and dl, bl
+    not bl
+    or dl, bh
+    ret
+
+; rw_klat - AH = a typed key's scancode: its button latched for rw_keys
+rw_klat:
+    push ax
+    push si
+    mov si, rw_keymap
+    mov al, 1
+.l:
+    cmp byte [si], 0
+    je .r
+    cmp ah, [si]
+    je .hit
+    inc si
+    shl al, 1
+    jmp short .l
+.hit:
+    or [rw_klatch], al
+.r:
+    pop si
+    pop ax
+    ret
 
 ; rw_present - compose the frame and put it on the glass (the worker's)
 rw_present:
@@ -2190,7 +2276,7 @@ rw_onkey:
     call rw_abdismiss
     jmp rw_fsenter
 .r:
-    ret
+    jmp rw_klat                     ; a press a draw would hide (rw_keys)
 
 rw_about:
     mov byte [rw_abon], 1

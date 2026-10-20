@@ -353,6 +353,7 @@ rw_fsdrain:
     jz .e
     xor ah, ah
     int 16h
+    call rw_klat                    ; a press a draw would hide (rw_keys)
     jmp short .k
 .e:
     mov al, 1                       ; Esc

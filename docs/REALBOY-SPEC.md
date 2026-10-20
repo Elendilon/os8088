@@ -660,7 +660,19 @@ third frame both ways, by damage into a buffer it keeps and whole by
   pictures. F1 puts the game's speed and the frames drawn a second over the
   picture. The joypad is the held keys - arrows, X = A,
   Z = B, Enter = Start, Space = Select - and nothing while another window
-  has the keyboard. Reset is the worker's to do (`rb_init` again); Pause
+  has the keyboard. Two things a keyboard does that a pad cannot are
+  settled before a frame sees them (`rw_keys`). **Opposite directions**:
+  a pad cannot hold Left and Right together and a keyboard can, and a
+  player who rolls from one to the other holds both for a moment - Super
+  Mario Land given both ran on to the right, which the fourth field run
+  reported as reversals the game missed. Of a pair held together the one
+  pressed LATER wins, and releasing it returns to the other. **A tap
+  between two looks**: the keys are a level read once a frame, so a press
+  and release inside a draw was never seen; a press TYPED since the last
+  look (the BIOS's buffer, which the bracket drains and the window is
+  handed) counts for one frame, but only for a button that was up at the
+  last look - a held key's typematic repeat, taken after its release,
+  would otherwise be a press nobody made. Reset is the worker's to do (`rb_init` again); Pause
   stops the clock.
 - **The writers** both start from `rb_renderd`'s changed lines (section
   13.2), and blit only those, a band for each run of them. A frame that
