@@ -951,7 +951,10 @@ to 7.14 ms a frame, but in the package on `286-victory`, the recompiler
 forced on, it went from 61.7% of real time to 45.3% (counting again from
 `RB_JITHOT - 16`) and 19.8% (`- 1`), with 22 and 83 flushes in 30 seconds
 against 6 - a working set bigger than the cache refills it at once after
-every flush when nothing has to earn its place again. RAM is never translated - the interpreter's own
+every flush when nothing has to earn its place again. Tried a second time
+once the block table had left the cache and the working set fitted (a flush
+every 15-20 seconds, from code a level left behind): counting again from
+`RB_JITHOT - 8` read 85.9% over 40 seconds against the plain flush's 93.2%. RAM is never translated - the interpreter's own
 control transfers stay in the interpreter there (`JDISPATCH`) - **but HRAM
 is** (FF80-FFFE, `tr_hram`), where games keep their OAM DMA routine and
 thunks such as Looney Tunes' `LD (DE),A / RET` that a `RST` jumps to in a

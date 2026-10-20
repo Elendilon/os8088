@@ -124,6 +124,9 @@ def profile(b, seg, core, n, view=0):
     pk = [o for o, _ in psyms]
     csyms = rbprof.labels(CORELST) if os.path.exists(CORELST) else []
     ck = [o for o, _ in csyms]
+    sys.path.insert(0, os.path.join(ROOT, "apps", "realboy"))
+    import rbgen
+    tails = set(rbgen.TAILS)
     size = os.path.getsize(os.path.join(ROOT, "build", "realboy.bin")) + 20000
     lin = []
     for nm in os88sym.syms():
@@ -146,6 +149,9 @@ def profile(b, seg, core, n, view=0):
         if seg*16 <= ip < seg*16 + size:
             k = bisect.bisect_right(pk, ip - seg*16) - 1
             hits["pkg " + (psyms[k][1] if k >= 0 else "?")] += 1
+        elif jit and jit*16 <= ip < jit*16 + 0x10000 and ((ip - jit*16) >> 8) in tails:
+            k = bisect.bisect_right(ck, ip - jit*16) - 1  # the core's tails, copied
+            hits["tail " + (csyms[k][1] if ck and k >= 0 else "?")] += 1
         elif jit and jit*16 <= ip < jit*16 + 0x10000:
             hits["jit code"] += 1
             jips.append(ip - jit*16)
@@ -184,6 +190,21 @@ def profile(b, seg, core, n, view=0):
                 per["%02X:%04X" % (blocks[k][2], blocks[k][1])] += 1
         print("translated samples by block (bank:PC), of %d: " % len(jips) + "  ".join(
             "%s %.1f%%" % (k, 100.0 * v / len(jips)) for k, v in per.most_common(16)))
+        if os.environ.get("RBWIN_DUMP"):            # the hottest block's code,
+            import subprocess                       #   with its samples
+            k0 = per.most_common(1)[0][0]
+            for k, (o, pc, bk) in enumerate(blocks):
+                if "%02X:%04X" % (bk, pc) == k0:
+                    end = offs[k + 1] if k + 1 < len(offs) else o + 512
+                    code = b.memr(jit * 16 + o, min(end - o, 1024))
+                    tmp = os.path.join(ROOT, "build", "realboy", "rbwin.dump")
+                    open(tmp, "wb").write(code)
+                    dis = subprocess.run(["ndisasm", "-b16", "-o", str(o), tmp],
+                                         capture_output=True, text=True).stdout
+                    cnt = collections.Counter(jips)
+                    print("block %s at %04X, %d bytes:" % (k0, o, len(code)))
+                    for ln in dis.splitlines():
+                        print("%4s %s" % (cnt.get(int(ln[:8], 16), ""), ln))
     if where:
         print("core samples by the Game Boy PC (SI): " + "  ".join(
             "%s %.1f%%" % (k, 100.0*v/sum(where.values())) for k, v in where.most_common()))
