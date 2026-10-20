@@ -6053,3 +6053,201 @@ It is red with MEGACSW added, which takes 5 traps.
 - **`os88bochs.py` allows one Bochs per box.** Parallel agents here ran it
   through a wrapper on displays of their own. The tool itself was left as
   it is.
+
+### 14.44 Re-home HIGH, part 1: four re-homed programs above 1MB, and `OSAPI_MEM_SUBSEG` (2026-10-21)
+
+14.38's S1, S2, S3, S5 and S7 (Word and Scribe), built on `protected-mode`
+at 78436d50 (14.37 merged in first). The owner's case now holds:
+**Word open beside a playing video leaves conventional memory exactly as
+it was before Word opened**, and a pool compaction moves Word while it
+stays usable.
+
+**Decisions the orchestrator took on the owner's behalf (14.38.6):**
+
+1. D1. The opt-in is the existing `OS88_HIGH` bit, in the PROGRAM part's
+   own header. No new bit, no `PKG_FMT` bump, and `OSAPI_PKG_REHOME`'s
+   contract is unchanged.
+2. D2. Pixelstein (S4, S6, and its S7) is a LATER part, after 14.37. Its
+   141,312-byte keep still falls back to low, as the design says.
+3. D3. `OSAPI_MEM_SUBSEG` (S5) is TAKEN, at 0x04BD, appended. So
+   `abilock --update` ran with no bump, Skies takes the small arm of its
+   `cs_xpand` fix, and the +96 scratch arm is not built.
+4. D4. The brief conventional room at launch is DEFERRED and still open.
+   The parts loader reads the carve low, and the kernel lifts it after.
+5. D5/S7 is done for Word and Scribe (14.44.3). Pixelstein's comes with
+   its part.
+
+#### 14.44.1 What was built
+
+- **S1, `kernel/loader.inc`.** `ld_hi`'s body is now `ld_hicx`, with the
+  byte count in CX. `ld_hi` is `mov cx, [ld_need]` falling into it, so
+  step 7's callers are unchanged. Step 8a gains an arm, 8b in the source,
+  after `mov [ld_base], ax`. It fires for the KEEP form (`[ld_rehsz]` = 0)
+  with a keep of at most 0FFFh paragraphs. It then sets ES to the program
+  and calls `ld_hicx`, which tests protected mode and the program header's
+  bit 7. Everything after it - `.call8`, `MEGA_PCALL`, step 9's `I_SPTR` -
+  reads `[ld_base]`, which comes back as the pair's data selector.
+- **S5, `OSAPI_MEM_SUBSEG` (0x04BD, an RCX cell).** It answers
+  `AX = paragraphs into your own region`, which it names by DS, and
+  `BL bit 0 = far-called`. The answer is DX = a data selector based at
+  that paragraph, with a limit running to the block's end or 64KB; with
+  bit 0, its code twin is at DX - 8. A descriptor already over that base,
+  of that type (the accessed bit masked), is reused. CF = 1 with every
+  register kept means "your segment + AX". That is the whole cell on
+  kern_big and kern_small (`mod_gone`), and on kern_mega for real mode, a
+  low region, an offset past the end, or no LDT entry.
+  - The `.mega` body is `mega_subsegf`. It holds `[sch_lock]` from reading
+    the block's base to aiming the descriptor. This is mx_alloc's own rule:
+    a compaction in between would leave a descriptor at the old base.
+  - **The teardown frees them.** `mega_pkghifree` now calls
+    `mega_rgnsubfree` first. That frees every present LDT descriptor in the
+    allocator's range whose base is inside the region's block, except the
+    pair, which `mega_imghifree` frees. The rule is bounded by the block's
+    KB, because a block of under 64KB has a neighbour whose pair is inside
+    the next 64KB. `mega_rgnblk` (selector to `mx_tab` entry) serves both.
+    It is restricted to PACKAGE regions on purpose: DESK.DRV's LIB selector
+    lies inside a driver image and is freed by `mega_dklibfree`.
+- **S2.** `OS88_HIGH` is set in WORD's, SCRIBE's, CLEAR SKIES' (not
+  `CSDIAG=1`) and kern_mega's DOS.O88's program headers. DOS.O88 has it
+  under `%ifdef DOS_MEGA` in the parted arm. kern_big's `dosp.bin` byte 15
+  is still 00, and its DOS.O88 is byte-identical.
+- **S3, Skies' `cs_xpand`.** It asks SUBSEG first, with DS = ES = ours:
+  the second caller's DS is the read buffer, and the cell names the region
+  by DS. It expands straight into the selector it gets. On CF = 1 the
+  granule path runs unchanged.
+- **S7.** Word and Scribe also say `OS88_HIGHMEM` (14.44.3).
+- **Docs and gates.** SPEC.md 20.12.10.9 (new) and 50.3.6 (new) carry the
+  contract. `apps/os88api.inc` changes `OS88_HIGH`'s comment ("a re-homed
+  program says it in its own header") and adds `OSAPI_MEM_SUBSEG`. The
+  abilock history records the change as additive. `tests/megagrid.txt`
+  registers `apps/dos/dos.asm`'s 5 MCB-chain sites: they sit in
+  `%ifndef DOS_EXTCORE` code that the program part does not assemble, and
+  the core runs them in real mode under kern_dos.
+
+#### 14.44.2 What it cost
+
+Measured. kern_big and kern_small were A/B'd by kernsize at one commit
+before the merge, and checked against the diff.
+
+| kernel | section | bytes | what |
+|---|---|---:|---|
+| kern_big | `.text` | **+6** | the cell, 42,884 -> 42,890; nothing else moved. No rung crossed: kern_big's image rung was already crossed at the base against the blessed baseline |
+| kern_small | `.text` | **+6** | the cell. Every other line is inside `%ifdef KERN_MEGA` |
+| kern_mega | `.text` | +6 | the cell. The megaseg overhead is unchanged (5,931 after the merge), since the cell is in kern_big too |
+| | `.cold` | **+45** | 41,170 -> 41,215 before the merge: step 8b 30, the SUBSEG far body 15 |
+| | `.mega` | **+315** | `mega_subsegf` 164, `mega_rgnsubfree` 101, `mega_rgnblk` 47, `mega_pkghifree` +3. That is above 14.38's 70-90 estimate, because it includes the teardown scan and the base lookup the estimate did not price |
+| WORD.O88, SCRIBE.O88, kern_mega DOS.O88 | | +0 | one header byte each (the files are the same length) |
+| SKIES.O88 | image+bss | +48 (61,409 -> 61,457), file +16 | the 38-byte SUBSEG arm, and alignment downstream of it |
+
+#### 14.44.3 S7: Word's and Scribe's claims against the OS88_HIGHMEM contract
+
+Every `OSAPI_MEM_CLAIM`/`_REGROW` site in both programs and their includes
+was walked: `os88type.inc`, `os88ui.inc`, `os88img.inc`, `os88dec.inc`,
+`wd*`/`sc*`. A scan was run for a register loaded from a segment and then
+used in arithmetic, for any `add/sub/cmp` with a `*seg` word, for `int`
+calls, and for far calls through data. Findings:
+
+- **Every claim is 64KB or less.** The largest is the 62KB load and save
+  staging, `WD_LSTGKB`/`WD_DOCCAP`/`SC_LSTGKB`. The rest are documents and
+  CHP up to 30KB, arenas to 16KB, the 1KB PAP dictionary, the 9KB italic
+  table, Scribe's 40KB picture scratch (shrunk in place, with the `DX
+  unchanged` assumption that `mega_claimregrowf`'s shrink keeps), pictures,
+  and `os88ui`'s save-unders. Each one can be a pool selector.
+- **No arithmetic on any claim's segment.** The only hits are `or dx, dx`
+  zero tests.
+- **No far call into a claim. No DMA or BIOS call on one.** The face cache
+  uses `OSAPI_MEM_CLAIM_DMA` (8KB at most, 512-aligned), and the DMA door
+  stays conventional by the contract, so that claim and its `test dl, 1Fh`
+  assertion are unaffected. `os88ui`'s save-unders go through
+  `OSAPI_GFX_SAVE`, a kernel service.
+- **Both say `OS88_HIGHMEM`.** Measured: each holds its claims as `A0h |
+  slot` pool blocks, and no conventional claim of either remains. The
+  default face is the kernel's 8x8, so not even the face cache is claimed.
+- **What stays conventional:** a non-kernel typeface (the DMA door), and
+  any claim the pool cannot hold, which falls back exactly as before.
+- **One consequence, by design.** A HIGHMEM claim freed while the program
+  still holds it in ES makes the X stub's `pop es` hit a freed selector.
+  `mega_gpfix`'s `.stale` arm loads NULL instead. 86Box showed it twice in
+  Word (`#GP 0060:04ED err 285C api_x.done+0`). This is a fault and not a
+  bug, but it is a trap per occurrence. Should Word ever do it in a loop,
+  `megatrap0` would be the row to add WORD to.
+
+#### 14.44.4 What was measured, and on what
+
+**Bochs 2.7, 16MB, `build/mega.img` with C: holding the packages:**
+
+- **CLEAR SKIES.** `I_SPTR 2834`, a 61KB block at pool +0 (0x140000). LDT
+  0x507, 0x508, 0x50A and 0x50B are four SUBSEG selectors inside it (the
+  vocabulary at paragraph E44h, and the bands). The title bands draw.
+  **Fly** loads PARIS-ISSY and renders the cockpit, and Esc returns to the
+  title. On Close, all six of the region's descriptors are zero (0x505 to
+  0x50B, the pair included).
+- **DOS.O88.** `I_SPTR 2834`, a 50KB block. `cd RUN`, `doshello`, then
+  `parked 0052K at 14C800`, HELLO.COM's screen, a key, `unparked`, and
+  `exit code 042 (Arena: 621KB)`.
+- **SCRIBE** draws and takes typing, at `I_SPTR 2834`/`284C` in the
+  sessions it ran in.
+- **WORD.** `I_SPTR 2854`/`285C`. Text typed, and **Edit > Search found
+  "zebra"**: part 1's code at `WD_P1ORG`, through the high CS.
+- **The owner's scenario.** Conventional free was **563.5K** in one run
+  before Word. With Word open (its 62KB region and 3 claims in the pool)
+  it was **563.5K**. With the Video Player then playing `08-WILLY.V88`
+  (Live) beside it, it was **556.5K**: the player's own 7KB conventional
+  claim. Its region went high too, since VIDEO.O88 says `OS88_HIGH`, and
+  the video's 1,534KB is a pool block.
+- **The A/B, OS88_BOCHS_MEGS=2.** The same kernel with WORD.O88 from
+  before this change (no `OS88_HIGH`) lands at **8FA0** with 61.1KB of
+  region and 3KB of claims. The largest conventional run falls **565.5K ->
+  498.0K**. The new WORD.O88 leaves it at 565.5K.
+- **A compaction MOVES a re-homed region.** Open SCRIBE (pool +0) and WORD
+  (+63K), then close SCRIBE. MEGACP then fills the pool with 60KB claims,
+  frees every other one, and forces `mx_compactf` with a 64KB claim:
+  `MEGACP: n 0A freed 05 big 2844 ok`. WORD's block moved **+63K -> +61K**
+  with its selector unchanged (285C). LDT 0x50A/0x50B now base at
+  0x14F400, which is pool + 61K. **Edit > Search found "zebra" again**
+  after the move.
+
+**86Box `286-mega` (mr286, 16 MHz 286, 4MB: the 286 RESET path):**
+
+- WORD (`2834`), SCRIBE (`285C`), CLEAR SKIES (`2884`) and DOS.O88
+  (`28BC`) were all above 1MB AT ONCE, each a pool block. They were read
+  off the guest with `os88box memr`.
+- Word's Edit > Search found "zebra". Scribe drew and took typing. Skies
+  flew and Esc returned.
+- **The DOS trip went through the 286 reset with four re-homed regions in
+  the pool:** `exit code 042 (Arena: 622KB)`.
+- `faults` shows the expected `mega_svc_lo.r286` resets and the two
+  `.stale` pops above. It also shows several `#GP 2764:xxxx [Segment can't
+  write]` with ES = 28BC during the trip. These are CS writes that
+  `mega_gpw` completes (item 87), from the code under selector 2764, a
+  pair the trip uses. They were not A/B'd against a low DOS.O88 here, so
+  whether they are new is OPEN. The trip completes either way.
+
+**kern_big (MartyPC), the shipped packages changed for every kernel:**
+`soak -k rehome -k rehomemove -k wdparts -k wdtype -k scsize -k skies -k
+skiesworlds -k skiesset` ran **8/8 ok** (189 s).
+
+**The row, `tests/megarehome.py`** (soak, `needs=("bochs",)`, 93 s
+measured, 120 declared). MEGARUN starts DOS.O88, SCRIBE, SKIES and WORD by
+name on Bochs. The debugger then reads `inst_tab`, `mx_tab`, `mem_tab` and
+the LDT, and asserts each of 14.44's claims. It is **red** with the
+pre-14.44 WORD.O88 in place: `FAIL: WORD I_SPTR 8F60 - a conventional
+segment`.
+
+#### 14.44.5 What is left, and for the owner
+
+- **S4, S6, and Pixelstein's S7** wait for their part, after 14.37's
+  interface (MX_FHUGE, `mx_alloc` with BL = 80h | slot, the rebase).
+  `OSAPI_MEM_SUBSEG` with BL bit 0 is already what S6 needs for GEN's code
+  half.
+- **D4, the conventional room at launch**, is deferred.
+- **Still untested: a region moving while its OWN program is the caller**
+  (14.15, 14.38.3). The compaction above ran from MEGACP's claim, not from
+  Word's. It needs a pool fragmented under the program so that one of its
+  own claims cannot fit.
+- **The SUBSEG cell number.** 0x04BD was free on `protected-mode` at
+  78436d50. A branch merged later that also appends a cell must take the
+  next one.
+- **The `[Segment can't write]` traps under 2764 on the 286 DOS trip**
+  (above). Whether a low DOS.O88 takes them too is open, and a
+  `megatrap0`-style count is the instrument.

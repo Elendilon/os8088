@@ -25,3 +25,7 @@
 1 apps/pixel/pxfull.asm  # the full-screen load's copy of the histogram out of the tail (above)
 1 apps/pixel/pxmaster.inc  # px_htail, the resident's tail segment (above)
 1 apps/pixel/pxplan.inc  # pl_htail, the planner's copy of px_htail (above)
+
+# --- kern_mega's DOS.O88 says OS88_HIGH (KERN-MEGA-PLAN 14.44), which brings
+#     apps/dos/ into scope: its one site is NOT in the part that says it
+5 apps/dos/dos.asm  # dos_mcb_split, dos_mcb_join and dos_mcb_resize - the DOS arena's MCB chain, inside %ifndef DOS_EXTCORE: the program part (dosp.bin) is assembled -DDOS_EXTCORE and does not contain it, and the core that does (doscore.asm, part 1) runs it on the DOS program's arena under kern_dos in REAL mode, after the trip has left protected mode - never on a segment of its own
