@@ -81,6 +81,9 @@ def main():
     ap.add_argument("--renderd", action="store_true",
                     help="...by damage, as the package does (MODE 7)")
     ap.add_argument("--nojit", action="store_true", help="the interpreter alone")
+    ap.add_argument("--static", action="store_true",
+                    help="the recompiler's Static (REALBOY-SPEC 16.8): 6,000 frames recording, "
+                         "then the game again preloaded and fixed; give --lead past the first pass")
     ap.add_argument("--blocks", action="store_true",
                     help="with --box: also the translated samples by block (bank:PC)")
     ap.add_argument("--dump", metavar="PC,PC,...",
@@ -93,8 +96,9 @@ def main():
     out = os.path.join(ROOT, "build", "realboy")
     core, host = rbimg.build_core(False, out), rbimg.build_host(out)
     img = os.path.join(out, "prof.img")
-    rbimg.make_image(a.rom, img, 1440 if a.box else 360, "renderd" if a.renderd else "render" if a.render else "play", 60000,
-                     core=core, host=host, jit=not a.nojit)
+    rbimg.make_image(a.rom, img, 1440 if a.box else 360, "renderd" if a.renderd else "render" if a.render else "play",
+                     6000 if a.static else 60000, core=core, host=host,
+                     jit="static" if a.static else not a.nojit)
     mine = rbimg.private(out)               # where this run built its core
     inc = [os.path.join(ROOT, "apps/realboy/"), os.path.join(ROOT, "tests/rbcore/"), mine + "/"]
     csyms = labels(listing(os.path.join(mine, "rbcore.asm"), inc))

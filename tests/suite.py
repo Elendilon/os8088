@@ -2574,6 +2574,18 @@ SOAK = [
         "exactly - the cycle counts instr_timing checks are the core's own. "
         "SOAK: one package's core",
         needs=("qemu", "nasm")),
+    Row("rbstatic", "soak", py("tests/rbstatic.py"), 16.0,
+        "REALBOY's Static recompiler (docs/REALBOY-SPEC.md section 16.8): "
+        "cpu_instrs, instr_timing, mem_timing and tools/gbprof/gbrmw.asm each "
+        "run TWICE bare through tests/rbcore/rbhost.asm - a first pass "
+        "recording the profile, then the game again from its start with the "
+        "profile translated before it runs and the block table fixed - and "
+        "both passes must pass with NOTHING translated after the switch. "
+        "Then the first ROM with recording broken: an empty profile, fixed, "
+        "still translates nothing. NEGATIVE CONTROL: the table never fixed "
+        "must translate in the second pass. WHY QEMU: a correctness gate, "
+        "counted, not timed. SOAK: one package's core",
+        needs=("qemu", "nasm")),
     Row("gbacid", "soak", py("tests/rbcore/rbacid.py"), 3.0,
         "REALBOY's renderer (apps/realboy/rbppu.inc, docs/REALBOY-SPEC.md "
         "section 13) against dmg-acid2's reference picture, all 23,040 pixels: "

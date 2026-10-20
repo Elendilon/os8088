@@ -199,6 +199,225 @@ rt_flush:
     pop ax
     ret
 
+;------------------------------------------------------------------------------
+; STATIC (REALBOY-SPEC 16.8): a profile of what the translator made, and the
+; preload that makes it again before the game runs.
+;------------------------------------------------------------------------------
+
+; rt_prfix - SI = a PC, DL = its bank key: BX = its first profile index
+rt_prfix:
+    mov bx,si
+    xor bl,dl
+    mov al,bh
+    shr al,1
+    shr al,1
+    shr al,1
+    xor bl,al
+    and bx,[S_PRFMASK]
+    ret
+
+; rt_prfadd - DS = the view: the block just translated, [RT_PC0] with the
+; key [S_JITBK], into the profile: its weight + 1 (at most 255), or a new
+; entry in the first empty of the 16 from its hash, or over the lightest of
+; them when that weighs 1. Not while preloading, and never HRAM. Every
+; register kept.
+rt_prfadd:
+    cmp word [S_PRFSEG],0
+    je .r0
+    cmp byte [S_JITPRE],0
+    jne .r0
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov si,[RT_PC0]
+    cmp si,8000h
+    jae .r
+    mov dl,[S_JITBK]
+    call rt_prfix
+    mov es,[S_PRFSEG]
+    mov cx,16
+    mov dh,0FFh                     ; the lightest weight seen, and DI its
+.p:                                 ;   entry
+    push bx
+    shl bx,1
+    shl bx,1
+    mov al,[es:bx+3]
+    or al,al
+    jz .new
+    cmp [es:bx],si
+    jne .o
+    cmp [es:bx+2],dl
+    jne .o
+    inc al
+    jz .sat                         ; (255 stays 255)
+    mov [es:bx+3],al
+    inc word [S_PRFNEW]
+.sat:
+    pop bx
+    jmp short .r
+.o:
+    cmp al,dh
+    jae .nx
+    mov dh,al
+    mov di,bx
+.nx:
+    pop bx
+    inc bx
+    and bx,[S_PRFMASK]
+    loop .p
+    cmp dh,1                        ; sixteen taken: over the lightest, if
+    jne .r                          ;   it weighs 1
+    mov bx,di
+    push bx
+.new:
+    mov [es:bx],si
+    mov [es:bx+2],dl
+    mov byte [es:bx+3],1
+    inc word [S_PRFNEW]
+    pop bx
+.r:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r0:
+    ret
+
+; rt_preload - DS = the view, the cache just flushed (rt_init), the core not
+; running: every profile entry translated as tr_miss would, heaviest first,
+; its bank mapped in for it, until the cache is full; then the block table
+; FIXED (S_JITFIX). Out: AX = the blocks translated. Every other register
+; kept.
+rt_preload:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    xor ax,ax
+    push ax                         ; [bp+2]: the blocks translated
+    push ax                         ; [bp]: the weight this pass
+    mov bp,sp
+    mov cx,[S_PRFSEG]
+    jcxz .fix
+    mov es,cx
+    mov cx,[S_PRFMASK]              ; the heaviest weight
+    inc cx
+    xor bx,bx
+    xor dl,dl
+.mx:
+    cmp dl,[es:bx+3]
+    jae .mn
+    mov dl,[es:bx+3]
+.mn:
+    add bx,4
+    loop .mx
+    or dl,dl
+    jz .fix
+    mov [bp],dl
+    mov byte [S_JITPRE],1
+.lvl:
+    xor bx,bx                       ; BX = the entry, x 4
+.e:
+    mov es,[S_PRFSEG]
+    mov al,[es:bx+3]
+    cmp al,[bp]
+    jne .ne
+    push bx
+    push bp                         ; (rt_translate keeps neither)
+    call rt_preone
+    pop bp
+    pop bx
+    cmp byte [S_JITPRE],2           ; the cache is full
+    je .done
+    cmp word [S_JITOUT],0           ; skipped, or given up
+    je .ne
+    inc word [bp+2]
+.ne:
+    add bx,4
+    mov ax,[S_PRFMASK]
+    inc ax
+    shl ax,1
+    shl ax,1
+    cmp bx,ax
+    jb .e
+    dec byte [bp]
+    jnz .lvl
+.done:
+    mov byte [S_JITPRE],0
+.fix:
+    mov byte [S_JITFIX],1
+    pop ax
+    pop ax                          ; AX = the blocks
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; rt_preone - the profile entry at ES:BX translated: [S_JITOUT] = its block,
+; or 0 when it was skipped (its bank is not in memory, or its slot and the
+; slot's neighbour hold blocks)
+rt_preone:
+    mov word [S_JITOUT],0
+    mov si,[es:bx]
+    mov dl,[es:bx+2]
+    cmp si,8000h
+    jae .no
+    mov ax,[S_BANK]                 ; the bank as it is, put back after
+    push ax
+    push word [S_ROMX]
+    cmp dl,0FFh
+    je .slot
+    mov bl,dl
+    xor bh,bh
+    shl bx,1
+    mov ax,[RB_BTAB+bx]
+    or ax,ax
+    jz .nob                         ; not in memory: the bank cache's
+    mov [S_ROMX],ax
+    mov [S_BANK],dl
+.slot:
+    mov bx,si                       ; tr_ekey's slot for SI and DL
+    mov dh,dl
+    xor bl,dl
+    mov al,bh
+    shr al,1
+    shr al,1
+    shr al,1
+    xor bl,al
+    and bh,JIT_HMASK
+    shl bx,1
+    shl bx,1
+    shl bx,1
+    mov es,[S_JITHSEG]
+    cmp word [es:JIT_HASH+bx+4],0
+    je .take
+    xor bx,8                        ; ...or its neighbour's
+    cmp word [es:JIT_HASH+bx+4],0
+    jne .nob
+.take:
+    mov [S_JITBK],dl
+    mov [S_JITSLOT],bx
+    call rt_translate
+.nob:
+    pop word [S_ROMX]
+    pop word [S_BANK]
+.no:
+    ret
+
 ; rb_jit - tr_enter's miss, SS:SP the game's stack: translate the block at SI
 ; on the host's stack and go back into the core at tr_back
 rb_jit:
@@ -210,7 +429,13 @@ rb_jit:
     push di
     push bp
     push es
+    cmp byte [S_JITFIX],0           ; a FIXED table (16.8) translates
+    je .tr                          ;   HRAM's code, which a preload could
+    cmp si,8000h                    ;   not (its bytes are the game's to
+    jb .fixed                       ;   put there), and nothing else
+.tr:
     call rt_translate
+.out:
     pop es
     pop bp
     pop di
@@ -219,6 +444,12 @@ rb_jit:
     pop bx
     pop ax
     jmp rb_ret
+.fixed:                             ; a ROM PC counted to RB_JITHOT (only
+    mov word [S_JITOUT],0           ;   an entry from before the table was
+    mov es,[S_JITHSEG]              ;   fixed): interpreted, counting again
+    mov bx,[S_JITSLOT]
+    mov byte [es:JIT_HASH+bx+3],1
+    jmp short .out
 
 ; -----------------------------------------------------------------------------
 ; rt_translate - SI = the PC, [S_JITBK] its bank key, DS = the view. Out:
@@ -227,6 +458,11 @@ rb_jit:
 rt_translate:
     mov [RT_PC0],si
 .restart:
+    cmp byte [S_JITPRE],2           ; a preload's cache is full (16.8):
+    jne .go                         ;   this block is given up, not entered
+    mov word [S_JITOUT],0
+    ret
+.go:
     mov si,[RT_PC0]
     mov ax,[S_BANK]
     mov [RT_BANKW],ax
@@ -345,6 +581,11 @@ rt_translate:
     mov [es:JIT_HASH+bx+4],ax
     mov [S_JITOUT],ax
     inc word [S_JITNB]
+    cmp word [RT_PC0],8000h
+    jae .hr
+    inc word [S_JITNBR]
+.hr:
+    call rt_prfadd                  ; and into the profile (16.8)
 %ifdef RT_DEBUG
     mov bx,[S_JITNB]                ; the last 8 PCs translated, and keys
     and bx,7
@@ -562,6 +803,13 @@ rt_room:
     cmp bx,ax
     jb .g
     pop bx
+    mov al,[S_JITPRE]               ; a preload, or a fixed table's HRAM,
+    or al,[S_JITFIX]                ;   stops at a full cache rather than
+    jz .fl                          ;   forget what was made (16.8)
+    mov byte [S_JITPRE],2
+    stc
+    ret
+.fl:
     call rt_flush
     stc
     ret

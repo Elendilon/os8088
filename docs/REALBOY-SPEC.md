@@ -347,6 +347,11 @@ alike. The other banks are kept elsewhere.
   folder the ROM was opened from (`rw_romdir`, kept at the load), then
   always lets the close go ahead. Opening the game reads the file back from
   the same folder.
+  - **File > Close calls it too, before it asks for the close.** A close a
+    package asks for itself (`OSAPI_WM_CLOSE`) is never put to its
+    negotiator (SPEC.md 75.2). Until the static recompiler's profile (16.8)
+    went missing that way and showed it, File > Close saved nothing: only
+    the close box wrote the `.SAV`.
   - It was `SYSTEM\APPDATA` on the game's volume until the second field run.
     A game disk has no such folder unless someone makes one. Beside the ROM
     is also where every other emulator puts it.
@@ -1175,6 +1180,126 @@ thrashes:
 Turning it off keeps the cache, and turning it back on (`rt_resume`) forgets
 nothing: the cache holds only ROM's translations, keyed by PC and bank, and
 neither changes while it is off.
+
+### 16.8 Static: the code translated before the game runs
+
+**Machine > Recompiler: Static** translates a game's code BEFORE it runs,
+then fixes the block table, so that nothing is translated, counted or
+evicted during play. A PC with no block is interpreted.
+- **What it is for:** the stall. A translation burst during play or a whole
+  flush (16.3) slows the game for seconds: Kirby's Dream Land on the Victory
+  flushes every ~25 s and slumps after each. Static cannot do that, because
+  the cache never changes once the game is running.
+- **What it is not:** a second code generator. It is section 16's own
+  translator, called once a block before the game starts, so a block is
+  exactly what tr_miss would have made and every gate on the recompiler
+  holds for it.
+- **The analysis behind it** is docs/reports/REALBOY-STATIC-2026-10-20.md.
+- **Memory** is the recompiler's own 80 KB plus the profile's claim. The
+  fallback is the interpreter and not the dynamic recompiler: running both
+  would need two caches.
+
+**The profile** is what to translate. It is a table of `S_PRFMASK` + 1
+entries of 4 bytes in the segment `S_PRFSEG` (0: none):
+- **An entry:** a word PC, a byte bank key (as the block table's: FFh below
+  4000h, else the bank) and a byte weight (0: empty).
+- **Recording** (`rt_prfadd`): every block the translator finishes enters
+  the profile with weight 1, or adds 1 to its key's weight. A new key takes
+  the first empty entry in the 16 from its hash; when all 16 are taken it
+  replaces the lightest of them, if that one weighs 1.
+- **There is no heat in the weight.** Two samplers were built and both
+  were refused:
+  - **at every event:** events fall where the game waits, frame after
+    frame, so in Kirby's Dream Land one block took a weight of 199 and 511
+    kept 1;
+  - **at the end of a budget:** a budget is Game Boy time, and most of
+    Kirby's Game Boy time is its spin-wait, which is skipped for nothing.
+    So the budgets end there, and one block took 158 while 654 kept 1.
+
+  Where the HOST's time goes cannot be sampled from inside the core, which
+  runs with interrupts off (5.2). The weight therefore counts translations,
+  which separates blocks once a long session has flushed: a block that is
+  translated again after every flush is one the game keeps coming back to.
+  It matters only when a profile holds more than the cache (below).
+- **HRAM** (PC 8000h and up) is never recorded, because its bytes are not
+  there before the game copies them in.
+- **Over sessions:** the profile accumulates across every session of the
+  game played with the recompiler On or Auto.
+
+**The preload** (`rt_preload`) runs with DS = the view, the cache just
+flushed by `rt_init`, and the core not running:
+- **Order:** every entry by weight, heaviest first.
+- **Each entry** is translated as tr_miss would translate it. Its bank is
+  mapped in for the call (`S_BANK`, and `S_ROMX` from `RB_BTAB`) and put
+  back after. It goes into its slot, or the slot's neighbour when the slot
+  already holds a block.
+- **Skipped entries:** one whose bank is not in memory (the bank cache's,
+  10.3), and one whose slot and neighbour both hold blocks.
+- **A full cache ends the preload.** While `S_JITPRE` is set, `rt_room`
+  answers a cache with no room left with `S_JITPRE` = 2 and no flush, and
+  `rt_translate` gives up its block before it enters the table.
+- **After it**, `S_JITFIX` = 1. AX returns the blocks translated.
+
+**Fixed** (`S_JITFIX` = 1):
+- `tr_new2` takes no slot for ROM, so a miss there is the interpreter's,
+  with no count, and it never evicts a block.
+  - **Why no count:** with a count, every cold ROM PC came to `rb_jit` once
+    in 63 entries just to be refused, and that cost more than it saved:
+    Super Mario Land 6.18 -> 6.22 ms a frame, Kirby's Dream Land 7.55 ->
+    7.60.
+- **HRAM is still translated, on demand**, as the dynamic recompiler does
+  it (16.3): its bytes are the game's to copy there, so a preload cannot
+  make its blocks. Super Mario Land runs a routine at FFB0h every frame;
+  interpreting it cost 1 tick in 133 of the bench below.
+- **A full cache is never flushed** while the table is fixed: `rt_room`
+  answers it as it answers a preload's (`S_JITPRE` = 2), and the block is
+  interpreted.
+- `rb_jit` translates no ROM block.
+- **Recompiler On or Auto clears** `S_JITFIX` and `S_JITPRE`, and the
+  dynamic recompiler carries on over the preloaded cache.
+- **`S_JITNBR`** counts the ROM blocks translated. A fixed table's must not
+  move, and the bare harness's DONE line says by how much it did.
+
+**The file is `NAME.RBP` beside the game**, the save's folder (10.1):
+- **Layout:** `'RBP1'`, the cartridge header's checksums (the byte at 014Dh
+  and the word at 014Eh), the entry count as a word, then the table.
+- **Read at the load.** A file that is not the game's (magic, checksums or
+  count) gives an empty profile.
+- **Written when the window closes**, only if a translation added to it this
+  session.
+
+**The order of the settings** is On -> Static -> Off -> Auto -> On.
+- **Static with an empty profile** is the interpreter with the recompiler's
+  lookups: play the game with the recompiler On first.
+- **What it buys, MEASURED on `vm/286-victory`** (`tests/rbcore/rbwin.py
+  --static 45 --persec`: 45 s played with the recompiler On, then Static,
+  Machine > Reset and the same 40 s timed again, against a fresh run's
+  40 s):
+  - **Super Mario Land** holds real time EVERY second, 94-105% (100.1%, 29
+    pictures a second), nothing translated. The dynamic recompiler's run
+    reads 95-112% (100.2%, 28). Its 489 blocks fit the cache.
+  - **Kirby's Dream Land** is steady but slower: 72-89% (85.1%, 12 a
+    second) against the dynamic recompiler's 47-95% for its first six
+    seconds and ~100% after. Its 45 s of play are 693 blocks, more code
+    than the cache holds: 594 were preloaded and the rest run interpreted.
+    For a game like it the dynamic recompiler is the better setting, until
+    there is more room for code than one 64KB segment.
+- **The CPU alone** (`tests/rbcore/rbbench.py --static`, the second pass
+  timed): Super Mario Land 6.18 ms a frame against 6.09 dynamic, Kirby's
+  Dream Land 7.55 against 7.37 - a fixed table's misses cost a little more
+  than a counting table's (above).
+
+**The bare harness** (12.1, `b_jit` = 2):
+- **The profile** is 1,024 entries at 0500:0000, outside the view, which
+  `rb_init` zeroes; so not in MODES 5 and 6, which draw there.
+- **Two passes**: FRAMES frames with the recompiler recording the profile,
+  then the game again from its start (`rb_init`), the profile preloaded and
+  the table fixed, for FRAMES more - the frames a bench times are the
+  second pass's. That is the package's order too: play with On, then
+  Static.
+- **The DONE line** gives the blocks preloaded, and the ROM blocks
+  translated after the switch, which must be 0. `tests/rbstatic.py` is the
+  gate, with its negative control.
 
 ## 17. Sound
 

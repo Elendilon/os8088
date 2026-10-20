@@ -49,7 +49,10 @@ GB_HZ = 4194304 / 70224
 LST = os.path.join(ROOT, "build", "realboy.lst")
 CORELST = os.path.join(ROOT, "build", "realboy", "rbcore.asm.lst")
 DRIVE_B = (592, 105)            # the B: icon on the VGA desktop
+MENU_FILE = (135, 9)            # RealBoy's File menu on the bar
+ITEM_CLOSE = (145, 44)          # ...its second item
 MENU_MACHINE = (190, 9)         # RealBoy's Machine menu on the bar
+ITEM_RESET = (200, 28)          # ...its first item
 ITEM_FULLSCREEN = (200, 60)     # ...its third item
 ITEM_RECOMPILER = (200, 76)     # ...its fourth
 ITEM_LOG = (200, 92)            # ...its fifth
@@ -114,7 +117,7 @@ def jitstat(b, view):
 
 
 def overlay(b, seg):
-    m = re.search(rb"(\d+)% (\d+)fps(?: JIT)?\0", b.memr(seg*16, 0x8000) + b.memr(seg*16 + 0x8000, 0x8000))
+    m = re.search(rb"(\d+)% (\d+)fps(?: JIT| AOT)?\0", b.memr(seg*16, 0x8000) + b.memr(seg*16 + 0x8000, 0x8000))
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
@@ -227,6 +230,22 @@ def readlog(b, o):
     print("rbwin: %s -> %s" % (names[-1], o.log))
 
 
+def readrbp(b, o):
+    """GAME.RBP off the B: disk, onto o.rbp, its trailer checked"""
+    import os88flush
+    img = os.path.join(os88box.RUNS, b.name, "fdd2.img")
+    vol = os88flush.Volume(open(img, "rb").read())
+    names = [e.name for e in vol.listdir("") if e.name.upper().endswith(".RBP")]
+    if not names:
+        sys.exit("rbwin: no .RBP on the disk - the profile was not written")
+    d = vol.read(names[0])
+    n = sum(1 for k in range(0, 8192, 4) if d[k + 3])
+    ok = len(d) == 8201 and d[8192:8196] == b"RBP1"
+    print("rbwin: %s, %d bytes, %d entries, trailer %s" % (names[0], len(d), n, "good" if ok else "BAD"))
+    with open(o.rbp, "wb") as f:
+        f.write(d)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("rom")
@@ -244,6 +263,18 @@ def main():
     ap.add_argument("--ilace", type=int, nargs="?", const=1, default=0,
                     help="Machine > Interlace N times first: 1 On, 2 Scrolling")
     ap.add_argument("--log", default="", help="Machine > Log over the span, written here")
+    ap.add_argument("--static", type=float, default=None, metavar="SECS",
+                    help="the recompiler's Static (REALBOY-SPEC 16.8), timed on the SAME span a "
+                         "plain run times: after --press, --hold's keys held SECS emulated seconds "
+                         "with the recompiler On recording the profile, then Machine > Recompiler "
+                         "(Static), Machine > Reset and --press again")
+    ap.add_argument("--rbp", default="", metavar="OUT",
+                    help="after the span, File > Close - which writes the profile, GAME.RBP, "
+                         "beside the game (REALBOY-SPEC 16.8) - and copy it off the B: disk to OUT")
+    ap.add_argument("--rbpin", default="", metavar="IN",
+                    help="put IN on the B: disk as GAME.RBP, the profile a session before wrote")
+    ap.add_argument("--persec", action="store_true",
+                    help="the game's speed second by second over the span: a stall shows")
     o = ap.parse_args()
 
     if o.attach:
@@ -258,6 +289,8 @@ def main():
             b.cmd("quit")
     if o.log and not o.keep:
         readlog(b, o)                           # (86Box writes the disk at quit)
+    if o.rbp and not o.keep:
+        readrbp(b, o)
 
 
 def boot(o):
@@ -267,9 +300,14 @@ def boot(o):
     with open(o.rom, "rb") as f, open(gb, "wb") as g:
         g.write(f.read())
     disk = os.path.join(tmp, "rb144.img")
+    extra = []
+    if getattr(o, "rbpin", None):         # (gbbank boots with a Namespace of its own)
+        extra = [os.path.join(tmp, "GAME.RBP")]
+        with open(o.rbpin, "rb") as f, open(extra[0], "wb") as g:
+            g.write(f.read())
     os88box.subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", disk,
-                            "--size", "1440", os.environ.get("RBWIN_O88", os.path.join(ROOT, "build", "realboy.o88")), gb],
-                           check=True, stdout=os88box.subprocess.DEVNULL)
+                            "--size", "1440", os.environ.get("RBWIN_O88", os.path.join(ROOT, "build", "realboy.o88")), gb]
+                           + extra, check=True, stdout=os88box.subprocess.DEVNULL)
     b = os88box.launch(o.vm, name=name, hold=True, fresh=True, mem=o.mem,
                        a=os.path.join(ROOT, "build", "os8088.img"), b=disk)
     if True:
@@ -302,19 +340,34 @@ def machine_item(b, item):
     b.cmd("step 1500")
 
 
+def press(b, o):
+    for k in o.press.split(","):
+        if re.match(r"w\d+$", k):              # w5000: run 5 emulated s
+            b.cmd("step %s" % k[1:])
+        elif k:                                 # held 300 ms: a game polls
+            code = os88box.KEYS[k]              #   once a frame, and a slow
+            b.cmd("key down 0x%X" % code)       #   frame is longer than a tap
+            b.cmd("step 300")
+            b.cmd("key up 0x%X" % code)
+            b.cmd("step 2000")
+
+
 def measure(b, o):
     if True:
-        for k in o.press.split(","):
-            if re.match(r"w\d+$", k):          # w5000: run 5 emulated s
-                b.cmd("step %s" % k[1:])
-            elif k:                             # held 300 ms: a game polls
-                code = os88box.KEYS[k]          #   once a frame, and a slow
-                b.cmd("key down 0x%X" % code)   #   frame is longer than a tap
-                b.cmd("step 300")
-                b.cmd("key up 0x%X" % code)
-                b.cmd("step 2000")
+        press(b, o)
         if o.nojit:
             machine_item(b, ITEM_RECOMPILER)
+        if o.static is not None:                # the span played with On,
+            keys = [int(k, 0) for k in o.hold.split(",") if k]
+            for k in keys:                      #   recording the profile...
+                b.cmd("key down 0x%02X" % k)
+            b.cmd("step %d" % int(o.static * 1000))
+            for k in keys:
+                b.cmd("key up 0x%02X" % k)
+            machine_item(b, ITEM_RECOMPILER)    # ...then Static, the game from
+            machine_item(b, ITEM_RESET)         #   its start, and the same span
+            b.cmd("step 3000")
+            press(b, o)
         for _ in range(o.ilace):
             machine_item(b, ITEM_ILACE)
         if o.log:
@@ -335,7 +388,17 @@ def measure(b, o):
         f0, t0 = frames(b, view), b.cmd("info").get("ms")
         j0 = jitstat(b, view)
         e0 = int.from_bytes(b.memr(view*16 + 0x408A, 2), "little")     # S_EVCOUNT
-        b.cmd("step %d" % int(o.secs * 1000))
+        if o.persec:                            # a second at a time
+            per, fp = [], f0
+            for _ in range(int(o.secs)):
+                b.cmd("step 1000")
+                f = frames(b, view)
+                per.append(100.0 * ((f - fp) & 0xFFFF) / GB_HZ)
+                fp = f
+            print("rbwin: each second, %% of real time: %s; least %.0f%%, most %.0f%%" % (
+                " ".join("%.0f" % p for p in per), min(per), max(per)))
+        else:
+            b.cmd("step %d" % int(o.secs * 1000))
         f1, t1 = frames(b, view), b.cmd("info").get("ms")
         j1 = jitstat(b, view)
         e1 = int.from_bytes(b.memr(view*16 + 0x408A, 2), "little")
@@ -352,6 +415,12 @@ def measure(b, o):
         print("rbwin: recompiler %s - %d blocks translated (%d bytes each), %d flushes in the span"
               % ("on" if j1[2] else "off", nb, ((j1[3] - j0[3]) & 0xFFFF) * 16 // max(nb, 1),
                  (j1[0] - j0[0]) & 0xFFFF))
+        if o.static is not None:
+            fx = b.memr(view*16 + 0x40F6, 1)[0]                  # S_JITFIX
+            npo = bss_off("rw_npre")
+            npre = int.from_bytes(b.memr(seg*16 + npo, 2), "little") if npo else -1
+            print("rbwin: Static - %d blocks preloaded, table %s" % (
+                npre, "fixed" if fx else "NOT fixed"))
         bk = bankstat(b, seg)
         print("rbwin: cartridge %s" % ("in one claim" if bk is None else
               "in the bank cache, %d slots, %d banks fetched" % bk))
@@ -367,6 +436,14 @@ def measure(b, o):
                 b.cmd("step 3000")
             machine_item(b, ITEM_LOG)          # ...and off: the file written
             b.cmd("step 6000")
+        if o.rbp:                               # File > Close: the profile
+            b.to(*MENU_FILE)                    #   written beside the game
+            b.mouse(0, 0, 1)
+            b.pause(200)
+            b.to(*ITEM_CLOSE, buttons=1)
+            b.pause(200)
+            b.mouse(0, 0, 0)
+            b.cmd("step 10000")
 
 
 if __name__ == "__main__":

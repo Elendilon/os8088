@@ -71,6 +71,9 @@ rw_mgrey:
     mov si, rw_it_jon
     cmp byte [rw_jitmode], 1
     je .j
+    mov si, rw_it_jst
+    cmp byte [rw_jitmode], 3
+    je .j
     mov si, rw_it_joff
 .j:
     mov [rw_i_mach + 6], si

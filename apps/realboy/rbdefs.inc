@@ -169,6 +169,15 @@ S_JITHSEG       equ RB_STATE+0xEE   ; word: the block table's segment (16.3)
 S_TMP2          equ RB_STATE+0xF0   ; word: scratch beside S_TMP (S_TMP is ONE
 S_TMP4          equ RB_STATE+0xF2   ;   word: LD (nn),SP's S_TMP+2 and +4 were
 S_TMP6          equ RB_STATE+0xF4   ;   S_RAMCUR and the clock's seconds)
+; Static (REALBOY-SPEC 16.8)
+S_JITFIX        equ RB_STATE+0xF6   ; byte: the block table is fixed - nothing
+                                    ;   translated, counted or evicted
+S_JITPRE        equ RB_STATE+0xF7   ; byte: 1 preloading, 2 the cache filled
+S_PRFSEG        equ RB_STATE+0xF8   ; word: the profile's segment, or 0
+S_PRFMASK       equ RB_STATE+0xFA   ; word: its entries - 1 (a power of two)
+S_PRFNEW        equ RB_STATE+0xFC   ; word: entries added or weighed since 0
+S_JITNBR        equ RB_STATE+0xFE   ; word: blocks translated from ROM (stat:
+                                    ;   a fixed table's must not move)
 SQ_ON           equ 0
 SQ_VOL          equ 1
 SQ_ENV          equ 2
