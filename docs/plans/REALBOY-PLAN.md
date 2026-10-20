@@ -1002,6 +1002,44 @@ Super Mario Land scrolls with enemies on screen.
 - **jitboy's register load and store at every block, its C calls for
   writes, and its per-pixel renderer.**
 
+### Static - the recompiler run before the game (a wave 7 lever, BUILT)
+
+**BUILT** (REALBOY-SPEC section 16.8), on branch `gameboy-static`. The
+owner's call: the dynamic recompiler slows the game for seconds whenever it
+translates or flushes, and no fix for that was in sight on the dynamic side.
+docs/reports/REALBOY-STATIC-2026-10-20.md had found a static recompiler
+feasible but not worth building for SPEED; the stall is what made it worth
+building.
+
+**What it is.**
+- **No second code generator.** Machine > Recompiler: Static runs the
+  dynamic recompiler's own translator over a PROFILE before the game runs,
+  then fixes the block table.
+- **The profile** is every block the recompiler translated in the game's
+  earlier sessions, kept beside the game as `NAME.RBP`.
+- **The fallback is the interpreter.** Two caches would not fit a 640KB
+  machine's heap beside the ROM, so the memory is the recompiler's own 80KB
+  plus the profile's 9KB.
+
+**What it does, MEASURED on `vm/286-victory`:**
+- **Super Mario Land**, the profile from an earlier session's 30 s:
+  - 437 blocks preloaded;
+  - 97-105% of real time EVERY second over 40 s, 26 pictures a second;
+  - nothing translated, nothing flushed.
+- **Kirby's Dream Land:** more code than the 64KB cache in 45 s of play.
+  Static is steady at 85% where the dynamic recompiler settles at ~100%
+  after its first seconds' slump, so On stays the setting for it.
+
+**Found on the way:**
+- File > Close had never saved a battery's RAM (REALBOY-SPEC section 10.1).
+- Two ways to weigh a block by heat were built and refused (16.8): events
+  and budget ends both fall where the game waits.
+
+**Open:**
+- Room for more than one 64KB segment of code, which is what Kirby's Dream
+  Land needs. Protected mode is on its own branch.
+- A field run on the Victory.
+
 ### Wave 8 - the 5150 demo, disks and the Wire record
 
 **The writers and damage tracking are BUILT** (REALBOY-SPEC sections 13.2

@@ -785,6 +785,7 @@ tr_ekey:
     mov dx,[es:bx+JIT_HASH+4]   ; the block, in the cache's segment
     or dx,dx
     jz tr_count                 ; ...or not yet: still counting
+tr_go:                          ; (tr_new2's way in too)
     mov [ss:S_JITOUT],dx        ;   (S_JITOUT+2), wherever this copy of
     mov bx,[ss:S_SAVBX]         ;   tr_enter is running
     jmp far [ss:S_JITOUT]
@@ -798,6 +799,7 @@ tr_count:
     inc byte [es:bx+JIT_HASH+3]
     cmp byte [es:bx+JIT_HASH+3],RB_JITHOT
     jae tr_miss
+tr_kint:                        ; (tr_new2's way out too)
     mov bx,[ss:S_SAVBX]
     jmp tr_int
 tr_new:
@@ -1033,12 +1035,15 @@ tr_new2:
     mov dx,[es:bx+JIT_HASH+4]   ; it is there
     or dx,dx
     jz tr_count
-    mov [ss:S_JITOUT],dx
-    mov bx,[ss:S_SAVBX]
-    jmp far [ss:S_JITOUT]
-.both:                          ; in neither: the one to give way is a
-    cmp word [es:bx+JIT_HASH+4],0   ; counting entry before a translated
-    jne .tn                     ;   one, and of two counting the colder
+    jmp tr_go
+.both:                          ; in neither: a FIXED table takes no
+    cmp byte [ss:S_JITFIX],0    ;   slot but for HRAM, the miss is the
+    je .free                    ;   interpreter's (REALBOY-SPEC 16.8)
+    test si,si
+    jns .keep
+.free:                          ; else the one to give way is a
+    cmp word [es:bx+JIT_HASH+4],0   ; counting entry before a
+    jne .tn                     ;   translated one, of two counting the colder
     mov dl,[es:bx+JIT_HASH+3]   ; the neighbour is counting
     xor bx,8
     cmp word [es:bx+JIT_HASH+4],0
@@ -1052,16 +1057,19 @@ tr_new2:
     xor bx,8                    ; the neighbour is translated: the slot,
     cmp word [es:bx+JIT_HASH+4],0   ;   if it is counting
     je .take
-    dec byte [es:bx+JIT_HASH+3] ; both translated: the slot gives way only
-    jnz .keep                   ;   after RB_JITHOT other PCs asked for it
-.take:
+    cmp byte [ss:S_JITFIX],0    ; both translated: a FIXED table keeps
+    jne .keep                   ;   both, HRAM's miss or not; else the
+    dec byte [es:bx+JIT_HASH+3] ;   slot gives way only after RB_JITHOT
+    jnz .keep                   ;   other PCs asked for it
+.take:                          ; the key, counting from 1, no block
     mov [es:bx+JIT_HASH],si
-    mov [es:bx+JIT_HASH+2],dh
-    mov byte [es:bx+JIT_HASH+3],1
-    mov word [es:bx+JIT_HASH+4],0
+    mov dl,dh                   ; (+2 the key, +3 the count)
+    mov dh,1
+    mov [es:bx+JIT_HASH+2],dx
+    xor dx,dx
+    mov [es:bx+JIT_HASH+4],dx
 .keep:
-    mov bx,[ss:S_SAVBX]
-    jmp tr_int
+    jmp tr_kint
 """,
     0x7F: """
 ; add_ff: ADD HL,DE / DEC r / JR NZ,-4 - a row of a background map stepped

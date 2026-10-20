@@ -55,6 +55,10 @@ RW_BEHIND       equ 30              ; frames a machine catches up at most:
 RW_OWEDMAX      equ RW_BEHIND * 256
 RW_ROMMAX_KB    equ 256             ; one claim's; more is the bank cache's
 RW_SLOTMAX      equ 40              ; ...slots at most (rwbank.inc)
+RW_PRFN         equ 2048            ; Static's profile: entries, 4 bytes each,
+RW_PRFTAIL      equ RW_PRFN * 4     ;   then the file's trailer: 'RBP1', the
+RW_PRFFILE      equ RW_PRFTAIL + 9  ;   header's 014Dh byte and 014Eh word,
+RW_PRFKB        equ 9               ;   the count (REALBOY-SPEC 16.8)
 
 ; --- the bss: the standard's words first, then ours --------------------------
 rw_win          equ os88_image_end + OP_BSS
@@ -153,7 +157,8 @@ rw_tgame        equ rw_agms + 4     ; dword: when this frame's run began
 rw_lstat        equ rw_tgame + 4    ; 8: S_EVCOUNT, S_JITNB, S_JITFL and
                                     ;   rw_nmiss at the last record
 rw_jitmode      equ rw_lstat + 8    ; byte: Machine > Recompiler, 0 Auto, 1
-                                    ;   On, 2 Off (REALBOY-SPEC 16.7)
+                                    ;   On, 2 Off (REALBOY-SPEC 16.7), 3
+                                    ;   Static (16.8)
 rw_jphase       equ rw_jitmode + 1  ; byte: Auto's window, 0 warming the
                                     ;   recompiler's cache, 1-4 timing (odd
                                     ;   with the recompiler), 5 holding
@@ -167,7 +172,12 @@ rw_jnb          equ rw_jsum + 4     ; word: S_JITNB as the window began
 rw_jretry       equ rw_jnb + 2      ; byte: this window's re-runs (Auto)
 rw_jfl          equ rw_jretry + 1   ; word: S_JITFL as Auto's watch began
 rw_undrawn      equ rw_jfl + 2      ; byte: a frame ran since the last draw
-rw_log          equ rw_undrawn + 1  ; RW_LOGN x RW_LOGSZ: the records
+rw_prfseg       equ rw_undrawn + 1  ; word: Static's profile (REALBOY-SPEC
+                                    ;   16.8), RW_PRFKB, or 0
+rw_prfdirty     equ rw_prfseg + 2   ; byte: the profile grew this session
+rw_npre         equ rw_prfdirty + 1 ; word: the blocks the last preload made
+rw_prfname      equ rw_npre + 2     ; 13: NAME.RBP
+rw_log          equ rw_prfname + 13 ; RW_LOGN x RW_LOGSZ: the records
 rw_fbuf         equ rw_log + RW_LOGN * RW_LOGSZ ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
@@ -410,6 +420,7 @@ rw_load:
     call rw_jitclaim
     call rw_dmgclaim
     call rw_ramsetup
+    call rw_prfload
     call rw_start
     mov byte [rw_state], 1
     pop si
@@ -449,6 +460,12 @@ rw_start:
     call rb_init
     call rw_ramattach
     call rw_dmgfull
+    mov ax, [rw_prfseg]             ; the profile, recorded from here on
+    push ds
+    mov ds, [cs:rb_viewseg]
+    mov [S_PRFSEG], ax
+    mov word [S_PRFMASK], RW_PRFN - 1
+    pop ds
 rw_jiton:                           ; (and Machine > Recompiler's way back in)
     push ds
     push bx
@@ -459,6 +476,11 @@ rw_jiton:                           ; (and Machine > Recompiler's way back in)
     je .off
     call rw_jitsegs
     call rt_init
+    cmp byte [cs:rw_jitmode], 3     ; Static: the profile made now
+    jne .dyn
+    call rt_preload
+    mov [cs:rw_npre], ax
+.dyn:
     pop bx
     pop ds
     ret
@@ -513,6 +535,13 @@ rw_jitset:
     mov [rw_jsum + 2], ax
     mov [rw_jretry], al
     mov byte [rw_jitwant], 1        ; (rw_jiton's, at a reset)
+    cmp byte [rw_jitmode], 3
+    je rw_static
+    push ds                         ; anything but Static: the table is the
+    mov ds, [cs:rb_viewseg]         ;   dynamic recompiler's again, over
+    mov byte [S_JITFIX], 0          ;   what a preload left in it
+    mov byte [S_JITPRE], 0
+    pop ds
     cmp byte [rw_jitmode], 2
     jne .on
     mov byte [rw_jitwant], 0
@@ -523,6 +552,24 @@ rw_jitset:
     mov al, RLE_JITON
     call rw_logevt
     jmp rw_jitwatch                 ; (Auto watches it; On ignores the watch)
+
+; rw_static - Machine > Recompiler: Static (REALBOY-SPEC 16.8), between two
+; core runs: the cache flushed, the profile - everything translated in
+; this game's sessions so far, this one's included - translated into it
+; heaviest first, and the block table fixed
+rw_static:
+    mov al, RLE_JITON
+    call rw_logevt
+    push ds
+    push bx
+    mov ds, [cs:rb_viewseg]
+    call rw_jitsegs
+    call rt_init
+    call rt_preload
+    mov [cs:rw_npre], ax
+    pop bx
+    pop ds
+    ret
 
 ; rw_jitauto - once a second, between frames (rw_stat): Machine >
 ; Recompiler's Auto (REALBOY-SPEC 16.7). It WATCHES the recompiler: every
@@ -820,8 +867,12 @@ rw_ramsetup:
 
 ; rw_savenm - rw_savename = rw_name with its extension made .SAV
 rw_savenm:
-    mov si, rw_name
     mov di, rw_savename
+    mov ax, '.S'
+    mov dx, 'AV'
+; rw_extnm - DI = rw_name with its extension made AX:DX's four characters
+rw_extnm:
+    mov si, rw_name
     mov cx, 8
 .c:
     lodsb
@@ -833,8 +884,8 @@ rw_savenm:
     inc di
     loop .c
 .e:
-    mov word [di], 'S' << 8 | '.'
-    mov word [di+2], 'V' << 8 | 'A'
+    mov [di], ax
+    mov [di+2], dx
     mov byte [di+4], 0
     ret
 
@@ -880,6 +931,120 @@ rw_ramattach:
     mov [rw_rtcgap+2], ax
     ret
 
+; =============================================================================
+; Static's profile: NAME.RBP beside the game (REALBOY-SPEC 16.8)
+; =============================================================================
+
+; rw_prfload - after the ROM is read, on the UI task, beside the game: a
+; claim for the profile when there is a recompiler, emptied, and NAME.RBP
+; read into it - kept only if it is this game's (the trailer's magic, the
+; header's checksums and the count)
+rw_prfload:
+    cmp word [rw_jitseg], 0
+    je .r
+    cmp word [rw_prfseg], 0
+    jne .r
+    mov ax, RW_PRFKB
+    call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the state
+    jc .r                           ;   block names it
+    mov [rw_prfseg], dx
+    mov byte [rw_prfdirty], 0
+    mov di, rw_prfname
+    mov ax, '.R'
+    mov dx, 'BP'
+    call rw_extnm
+    push es
+    mov es, [rw_prfseg]
+    xor bx, bx
+    mov cx, RW_PRFFILE
+    xor dx, dx
+    mov si, rw_prfname
+    call OSAPI_FILE_READ            ; DX:AX = the bytes read
+    jc .empty
+    cmp ax, RW_PRFFILE
+    jne .empty
+    xor ch, ch
+    call rw_prftail                 ; ZF = 1: the trailer is this game's
+    je .done
+.empty:
+    xor di, di
+    mov cx, RW_PRFFILE / 2 + 1
+    xor ax, ax
+    cld
+    rep stosw
+.done:
+    pop es
+.r:
+    ret
+
+; rw_prftail - ES = the profile: ZF = 1 when its trailer is this game's;
+; with CH = 1, the trailer written first. The header is bank 0's, which
+; rw_romseg holds in either load (rw_ramsetup reads it so too)
+rw_prftail:
+    push ds
+    mov ds, [rw_romseg]
+    mov ax, [014Eh]
+    mov dl, [014Dh]
+    pop ds
+    mov di, RW_PRFTAIL
+    or ch, ch
+    jz .cmp
+    mov word [es:di], 'RB'
+    mov word [es:di+2], 'P1'
+    mov [es:di+4], dl
+    mov [es:di+5], ax
+    mov word [es:di+7], RW_PRFN
+.cmp:
+    cmp word [es:di], 'RB'
+    jne .x
+    cmp word [es:di+2], 'P1'
+    jne .x
+    cmp [es:di+4], dl
+    jne .x
+    cmp [es:di+5], ax
+    jne .x
+    cmp word [es:di+7], RW_PRFN
+.x:
+    ret
+
+; rw_prfnote - the profile's growth this run, before rb_init zeroes the count
+rw_prfnote:
+    push ds
+    mov ds, [cs:rb_viewseg]
+    cmp word [S_PRFNEW], 0
+    pop ds
+    je .r
+    mov byte [rw_prfdirty], 1
+.r:
+    ret
+
+; rw_prfsave - at the close, on the UI task: NAME.RBP beside the game, if
+; the profile grew. A failure says nothing - the profile is only a speed-up
+rw_prfsave:
+    cmp word [rw_prfseg], 0
+    je .r
+    call rw_prfnote
+    cmp byte [rw_prfdirty], 0
+    je .r
+    push es
+    mov es, [rw_prfseg]
+    mov ch, 1
+    call rw_prftail                 ; the trailer, written
+    mov dx, [rw_romdir]             ; beside the game
+    mov bl, [rw_romvol]
+    call rw_fgo
+    jc .back
+    xor bx, bx
+    mov cx, RW_PRFFILE
+    xor dx, dx
+    mov si, rw_prfname
+    call OSAPI_FILE_WRITE
+.back:
+    call rw_fback
+    pop es
+.r:
+    ret
+
 ; rw_ramkeep - before a reset or a save: the window back to its bank, and the
 ; clock into rw_rtcsave
 rw_ramkeep:
@@ -907,6 +1072,7 @@ rw_onclose:
 .s:
     cmp byte [rw_state], 0
     je .r
+    call rw_prfsave
     cmp byte [rw_batt], 0
     je .r
     cmp word [rw_ramseg], 0
@@ -1159,12 +1325,9 @@ rw_worker:                          ;   the worker parked at the top of its
     cmp byte [rw_jitq], 0
     je .nojq
     mov byte [rw_jitq], 0
-    mov al, [rw_jitmode]            ; On -> Off -> Auto -> On (0 Auto)
-    inc ax
-    cmp al, 3
-    jb .jm
-    xor al, al
-.jm:
+    mov bl, [rw_jitmode]            ; On -> Static -> Off -> Auto -> On
+    xor bh, bh
+    mov al, [rw_jnext + bx]
     mov [rw_jitmode], al
     call rw_jitset
     call rw_mgrey                   ; the item says what it is now
@@ -1497,6 +1660,7 @@ rw_reset:
     je .r
     mov al, RLE_RESET
     call rw_logevt
+    call rw_prfnote                 ; the profile's growth, before rb_init
     call rw_ramkeep                 ; the cartridge's RAM and clock survive
     call rw_start
     mov byte [rw_state], 1
@@ -1554,6 +1718,9 @@ rw_stat:
     jz .rec
     dec di
     mov si, rw_s_jit
+    cmp byte [rw_jitmode], 3        ; " AOT": Static's
+    jne .cj
+    mov si, rw_s_aot
 .cj:
     lodsb
     stosb
@@ -1648,6 +1815,7 @@ rw_keys:
     pop ds
     ret
 ; S_JOY's bits: Right, Left, Up, Down, A, B, Select, Start
+rw_jnext:   db 1, 3, 0, 2           ; the setting after Auto, On, Off, Static
 rw_keymap:  db KSC_RIGHT, KSC_LEFT, KSC_UP, KSC_DOWN, 2Dh, 2Ch, 39h, KSC_ENTER, 0
 
 ; rw_present - compose the frame and put it on the glass (the worker's)
@@ -2151,8 +2319,11 @@ rw_oncmd:
     jne .machine
     cmp al, 0
     je rw_open
-    mov bx, si                      ; File > Close
-    call OSAPI_WM_CLOSE
+    push si                         ; File > Close: the close box's work
+    call rw_onclose                 ;   first - the battery's RAM, the
+    pop si                          ;   profile, the log - since a close the
+    mov bx, si                      ;   package asks for itself is never put
+    call OSAPI_WM_CLOSE             ;   to its negotiator (SPEC.md 75.2)
     ret
 .machine:
     cmp al, 0
@@ -2227,6 +2398,7 @@ rw_it_fs0:      db MENU_DIS, 'Full Screen', 0
 rw_it_jauto:    db 'Recompiler: Auto', 0
 rw_it_jon:      db 'Recompiler: On', 0
 rw_it_joff:     db 'Recompiler: Off', 0
+rw_it_jst:      db 'Recompiler: Static', 0
 rw_it_jit0:     db MENU_DIS, 'Recompiler (286)', 0
 rw_it_log0:     db 'Log: Off', 0
 rw_it_log1:     db 'Log: On', 0
@@ -2235,6 +2407,7 @@ rw_it_il1:      db 'Interlace: On', 0
 
 rw_s_fps:       db 'fps', 0
 rw_s_jit:       db ' JIT', 0
+rw_s_aot:       db ' AOT', 0
 rw_s_open1:     db 'File > Open a', 0
 rw_s_open2:     db 'Game Boy .GB', 0
 rw_s_stop1:     db 'The game stopped:', 0

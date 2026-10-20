@@ -43,10 +43,14 @@ MENUS
 Machine > Reset          start the cartridge again
 Machine > Pause          stop the clock
 Machine > Full Screen    the game on the whole screen
-Machine > Recompiler     Auto, On or Off (286 or later). Auto times
-                         the game both ways now and then, and keeps
-                         whichever is faster: some games are faster
-                         without it
+Machine > Recompiler     On, Static, Off or Auto (286 or later).
+                         On translates the game as it runs. Static
+                         translates it before it runs, then never
+                         again, so play never slows for it: play
+                         with On first, and what On translated is
+                         kept beside the game as NAME.RBP for Static
+                         to use. Auto times On against Off when the
+                         game's code outgrows the recompiler
 Machine > Log            a record a second, to a file
 
 The log is written beside REALBOY.O88 when you turn it off or close the

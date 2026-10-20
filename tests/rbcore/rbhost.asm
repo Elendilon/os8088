@@ -44,6 +44,7 @@ ROM_SEG         equ 0x3000
 CACHE_SEG       equ 0x9000                  ; the recompiler's 64KB, past the
 HASH_SEG        equ 0x8C00                  ;   ROM's 368KB at most, and its
                                             ;   block table's 16KB before it
+PRF_SEG         equ 0x0500                  ; Static's profile, 4KB (not MODE 5)
 FRAME_SEG       equ 0x0500                  ; rb_render's 5,760 bytes, under the
                                             ;   boot stack: the harness (with the
                                             ;   recompiler's templates) runs past A000h
@@ -198,6 +199,11 @@ host_main:
     mov ds,ax
     cmp byte [cs:h_jit],0               ; the recompiler, unless asked not:
     je .plain                           ;   then the interpreter as it was
+    cmp byte [cs:h_jit],2               ; Static (REALBOY-SPEC 16.8): the
+    jne .dyn                            ;   profile at PRF_SEG, recorded by
+    mov word [S_PRFSEG],PRF_SEG         ;   the first pass
+    mov word [S_PRFMASK],1023
+.dyn:
     mov ax,CACHE_SEG                    ;   before there was one
     mov bx,HASH_SEG
     call rt_init
@@ -287,6 +293,13 @@ host_main:
     mov ax,[nframes]
     cmp ax,[h_frames]
     jb .run
+    cmp byte [h_jit],2                  ; Static: the first pass recorded the
+    jne .end                            ;   profile; the game again from its
+    cmp byte [pass],0                   ;   start, preloaded and fixed, for a
+    jne .end                            ;   second pass the same length
+    inc byte [pass]
+    call h_static
+    jmp .run
 .end:
     push ds
     xor ax,ax
@@ -344,6 +357,25 @@ host_main:
     call puts
     mov ax,bx
     call dec16
+    cmp byte [h_jit],2                  ; Static: the blocks preloaded, and
+    jne .nst                            ;   the ROM blocks translated since,
+    mov si,s_stat                       ;   which must be 0 (HRAM's may be)
+    call puts
+    mov ax,[npre]
+    call dec16
+    mov si,s_stat2
+    call puts
+    push ds
+    mov ds,[cs:rb_viewseg]
+    mov ax,[S_JITNBR]
+    pop ds
+    sub ax,[nbpre]
+    call dec16
+    mov si,s_stat3                      ; the preload's own time
+    call puts
+    mov ax,[tpre]
+    call dec16
+.nst:
 %ifdef RT_DEBUG
     push ds
     mov ds,[cs:rb_viewseg]
@@ -733,6 +765,68 @@ s_jfl   db " flushes ",0
 s_jby   db " bytes/16 ",0
 s_jadv  db " moves ",0
 s_end   db " END",10,0
+s_stat  db " static ",0
+s_stat2 db " after ",0
+npre    dw 0
+nbpre   dw 0
+tpre    dw 0
+s_stat3 db " ticks ",0
+
+pass    db 0
+
+; h_static - Static (REALBOY-SPEC 16.8), after the first pass: the game
+; started again (rb_init), the cache flushed, the profile the first pass
+; recorded translated into it heaviest first, the table fixed, and the
+; frames counted from 0 again. The profile is outside the view, which
+; rb_init zeroes.
+h_static:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dx,[h_romsec]
+    mov cl,5
+    shr dx,cl
+    cmp dx,2
+    jae .b
+    mov dx,2
+.b:
+    mov ax,VIEW_SEG
+    mov bx,CORE_SEG
+    mov cx,ROM_SEG
+    call rb_init
+    push ds
+    mov ds,[cs:rb_viewseg]
+    mov word [S_PRFSEG],PRF_SEG
+    mov word [S_PRFMASK],1023
+    mov ax,CACHE_SEG
+    mov bx,HASH_SEG
+    call rt_init
+    push es
+    xor ax,ax
+    mov es,ax
+    mov ax,[es:0x46C]
+    mov [cs:tpre],ax
+    pop es
+    call rt_preload
+    mov [cs:npre],ax
+    push es
+    xor ax,ax
+    mov es,ax
+    mov ax,[es:0x46C]
+    sub [cs:tpre],ax
+    neg word [cs:tpre]
+    pop es
+    mov ax,[S_JITNBR]
+    mov [cs:nbpre],ax
+    pop ds
+    mov word [nframes],0
+    mov word [nbudget],0
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 s_vram  db "RBVRAM",0
 nframes dw 0
 nbudget dw 0
