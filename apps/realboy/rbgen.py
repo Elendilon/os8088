@@ -2075,27 +2075,48 @@ EXTRA += [("CB %02X of RAM" % b, rmw_lines(b, True), 2) for b in RMW_CB]
 
 def bank_lines(mask, zero):
     """LD (nn),A to 2000-3FFF of a cartridge whose MBC the translator knows:
-    the bank worked out here and on to mbc_set, where the store took the
-    slow path, wr_s3, wr_sw and mbc_wr's type compares to get there (Kirby's
-    Dream Land switches ~95 times a frame). BX and S_WVAL as mbc_wr has them,
-    since a bank the cache has not got goes to rbsys from mbc_set; high bits
-    set (S_BANKHI) are mbc_wr's whole way."""
-    L = ["    mov [ss:S_TMP],bx", "    mov bx,IMM16", "    mov [ss:S_WVAL],al",
-         "    mov word [ss:S_RET],.r", "    cmp byte [ss:S_BANKHI],0", "    jne .g",
-         "    mov dl,al"]
+    the bank worked out and switched HERE, mbc_set's body inline (Kirby's
+    Dream Land switches ~95 times a frame). The two rare cases - high bits
+    set (S_BANKHI), a bank the cache has not got - give the interpreter the
+    whole instruction, at IMM16 - 3: flags 16 make IMM16 the next PC, and
+    nothing here needs nn. (Run again there, the bank's count is counted
+    twice, which the cache's eviction does not mind.) SI is free in a
+    template: a guard that wants it sets it."""
+    L = ["    cmp byte [ss:S_BANKHI],0", "    jne .i", "    mov dl,al"]
     if mask != 0xFF:
         L += ["    and dl,%d" % mask]
     if zero:
         L += ["    jnz .n", "    inc dl", ".n:"]
-    return L + ["    jmp near mbc_set", ".g:", "    jmp near mbc_wr", ".r:",
-                "    mov bx,[ss:S_TMP]", "    sub bp,4"]
+    return L + ["    mov [ss:S_BANK],dl",
+                "    and dl,[ss:S_BMASK]",
+                "    xor dh,dh",
+                "    shl dx,1",
+                "    mov si,dx",
+                "    inc word [ss:si+RB_BUSE]",
+                "    mov dx,[ss:si+RB_BTAB]",
+                "    or dx,dx",
+                "    jz .i",
+                "    mov si,ds",                  # the core's DS moves with
+                "    cmp si,[ss:S_ROMX]",         #   the bank when it was it
+                "    jne .x",
+                "    mov ds,dx",
+                ".x:",
+                "    mov [ss:S_ROMX],dx",
+                "    jmp short .k",
+                ".i:",
+                "    mov si,IMM16",
+                "    sub si,3",
+                "    jmp near tr_int",
+                ".k:",
+                "    sub bp,4"]
 
 
-# (the 4th field: flags - 4, stores to IMM16, so a block running from the
-# bank it switches is left after it, as the plain store's is)
-EXTRA += [("LD (nn),A bank, MBC1", bank_lines(0x1F, True), 3, 4),
-          ("LD (nn),A bank, MBC3", bank_lines(0x7F, True), 3, 4),
-          ("LD (nn),A bank, MBC5", bank_lines(0xFF, False), 3, 4)]
+# (the 4th field: flags - 4, a store to nn, so a block running from the
+# bank it switches is left after it, as the plain store's is; 16, IMM16 is
+# the next PC)
+EXTRA += [("LD (nn),A bank, MBC1", bank_lines(0x1F, True), 3, 4 | 16),
+          ("LD (nn),A bank, MBC3", bank_lines(0x7F, True), 3, 4 | 16),
+          ("LD (nn),A bank, MBC5", bank_lines(0xFF, False), 3, 4 | 16)]
 RB_XBANK = len(EXTRA) - 3           # their records: 512 + this, + 1, + 2
 
 

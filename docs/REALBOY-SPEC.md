@@ -1147,6 +1147,15 @@ gbprof's script take the same events and skip the same M-cycles either way.
   plain store's (4), so run from ROMX the block is left after it (16.5).
   Kirby's Dream Land switches about 95 times a frame: 252 to 247 ticks on the
   286 bench, the CPU alone with two segments; Super Mario Land 114 to 112.
+  **Then `mbc_set`'s body went INLINE**: the bank table read, the count, DS
+  moved with the bank, no `S_RET` round trip and no BX saved around it. The
+  two rare cases - `S_BANKHI` set, a bank not in memory - hand the whole
+  instruction to the interpreter at IMM16 - 3 (flags 16 make IMM16 the next
+  PC; nothing else needs nn), which runs it the long way and counts the
+  bank's switch a second time, harmless to the cache's eviction. 77 bytes,
+  under `TMAX`; `rbtmpl.py` now refuses an EXTRA record over it, which it
+  used to drop - quietly sending that operand the slow way. Kirby's Dream
+  Land 235 -> 230 ticks, Super Mario Land 112 -> 111.
 
 ### 16.1.1 Pure templates share their M-cycles
 
