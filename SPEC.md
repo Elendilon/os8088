@@ -74366,7 +74366,15 @@ therefore checks `[vid_ndisp]` and, when something is running, collapses it
 through the SINGLE arm (the other card darked, `[vid_ndisp]` back to 1, the
 desktop re-unioned) instead of returning. `[vid_dmode]` is **kept**: the
 arrangement is impossible on this primary, not forgotten, so switching back
-restores it.
+restores it. With **one** display running it does not return either: it
+re-banks display 0's record from the live geometry (`vid_ctx_capture`, through
+the SINGLE arm's own call). A `vid_switch` on a single-card machine — the
+Display page's, or `drv_boot` applying SYSTEM.CFG's adapter — has just run
+`vid_apply`, and without the capture display 0 keeps the boot adapter's extent
+and **kind** for the life of the machine, which one display reads as well as
+two: the raise cache gates on that rect and sizes itself from that kind.
+`vid_disp_planes` counts `VID_EGA` as planar like `VID_VGA`, so a cache taken
+over an EGA desktop keeps all four planes.
 
 **Out of scope**, recorded so the next reader does not re-open it: `VID_EGA`
 as a member of a `KERN_BIG` per-display pair (§39.12 — it may be the primary
