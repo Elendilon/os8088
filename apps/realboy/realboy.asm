@@ -240,8 +240,10 @@ rw_gkon         equ rw_fsfrac + 1   ; byte: rw_gkey is the game's
 rw_spdk         equ rw_gkon + 1     ; word: Speed, 256ths of the Game Boy's
 rw_pertick      equ rw_spdk + 2     ; word: ...and frames a BIOS tick, x 256
 rw_gkey         equ rw_pertick + 2  ; 3: the game's header 014Dh, 014Eh
-rw_fbuf         equ rw_gkey + 3 + 1 ; 5,760: rb_render's frame (monochrome;
-                                    ;   a spare byte before, so it is even)
+rw_hmask        equ rw_gkey + 3     ; byte: the block table's mask (S_HMASK,
+                                    ;   REALBOY-SPEC 16.3): 31 for 64KB, 7
+rw_fbuf         equ rw_hmask + 1    ; 5,760: rb_render's frame (monochrome;
+                                    ;   even)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
 
@@ -468,9 +470,23 @@ rw_load:
 .nojit2:
     cmp word [rw_jitseg], 0
     je .say
+    cmp byte [rw_hmask], 7          ; ...then with the table at 16KB
+    je .nobig
+    mov dx, [rw_jitseg]
+    call OSAPI_MEM_FREE
+    mov word [rw_jitseg], 0
+    mov ax, 64 + 16
+    mov byte [rw_hmask], 7
+    call OSAPI_MEM_CLAIM
+    jc .nojit
+    mov [rw_jitseg], dx
+    call rw_plan
+    jnc .planned
+.nobig:
     mov dx, [rw_jitseg]             ; no room with it: the ROM without it
     call OSAPI_MEM_FREE
     mov word [rw_jitseg], 0
+.nojit:
     mov byte [rw_jitwant], 0
     call rw_plan
     jc .say
@@ -566,8 +582,7 @@ rw_jiton:                           ; (and Machine > Recompiler's way back in)
     je .off                         ;   interpreter, hooks and all removed
     cmp byte [cs:rw_jitwant], 0
     je .off
-    call rw_jitsegs
-    call rt_init
+    call rw_rtinit
     cmp byte [cs:rw_jitmode], 3     ; Static: the profile made now
     jne .dyn
     call rt_preload
@@ -584,12 +599,29 @@ rw_jiton:                           ; (and Machine > Recompiler's way back in)
     ret
 
 ; rw_jitsegs - AX = the recompiler's cache, BX = its block table: the 16KB
-; after it in the one 80KB claim (rw_jitclaim); CX = its second 64KB, or 0
+; after it in the one claim (rw_jitclaim); CX = its second 64KB, or 0; DL
+; = the table's mask
 rw_jitsegs:
     mov ax, [cs:rw_jitseg]
     mov bx, ax
     add bh, 10h
     mov cx, [cs:rw_jit2seg]
+    mov dl, [cs:rw_hmask]
+    ret
+
+; rw_rtinit - DS = the view: rt_init over the package's claims, every
+; register kept
+rw_rtinit:
+    push ax
+    push bx
+    push cx
+    push dx
+    call rw_jitsegs
+    call rt_init
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; rw_jitback - the recompiler on again, between two core runs: over the
@@ -610,8 +642,7 @@ rw_jitback:
     ret
 .init:
     push bx
-    call rw_jitsegs
-    call rt_init
+    call rw_rtinit
     pop bx
     pop ds
     ret
@@ -656,8 +687,7 @@ rw_static:
     push ds
     push bx
     mov ds, [cs:rb_viewseg]
-    call rw_jitsegs
-    call rt_init
+    call rw_rtinit
     call rt_preload
     mov [cs:rw_npre], ax
     pop bx
@@ -816,9 +846,15 @@ rw_jitclaim:
     call OSAPI_CPU_INFO
     cmp al, CPU_8086
     je .r
-    mov ax, 64 + JIT_HASHN * 8 / 1024 ; the cache and its block table
+    mov ax, 64 + JIT_HASHN * 8 / 1024 ; the cache and its block table: 64KB
+    mov byte [rw_hmask], JIT_HMMAX  ;   of table, a quarter of the slot
+    call OSAPI_MEM_CLAIM            ;   fights 16KB's has (REALBOY-SPEC
+    jnc .got                        ;   16.3: Kirby's Dream Land 330 -> 266
+    mov ax, 64 + 16                 ;   ticks, the CPU alone) - or 16KB
+    mov byte [rw_hmask], 7
     call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the core's
     jc .r                           ;   state block names it
+.got:
     mov [rw_jitseg], dx
     mov byte [rw_jitwant], 1
 .r:

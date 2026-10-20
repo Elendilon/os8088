@@ -92,11 +92,12 @@ def patch_core(core, patches):
 # rbhost.asm's b_jit flags: a second 64KB cache segment (REALBOY-SPEC
 # 16.2.1), and both squeezed to 1KB of code so the second fills and both do
 JF_SEG2 = 0x04
+JF_SMALL = 0x08                     # ...and the block table at 16KB, not 64KB
 JF_SQZ = 0x10
 
 
 def make_image(rom_path, out, geom=1440, mode="test", frames=600, core=None, host=None,
-               jit=True, seg2=False, squeeze=False, joy=None, ilace=0):
+               jit=True, seg2=False, squeeze=False, joy=None, ilace=0, small=False):
     out_dir = os.path.join(ROOT, "build", "realboy")
     os.makedirs(out_dir, exist_ok=True)
     if core is None:
@@ -124,7 +125,8 @@ def make_image(rom_path, out, geom=1440, mode="test", frames=600, core=None, hos
     boot[16] = ilace                        # rb_ilace (MODE 12's; 8-10 set their own)
     boot[14] = (2 if jit == "static" else 1) if jit and mode != "trace" else 0
     if boot[14]:
-        boot[14] |= (JF_SEG2 if seg2 else 0) | (JF_SQZ if squeeze else 0)
+        boot[14] |= ((JF_SEG2 if seg2 else 0) | (JF_SQZ if squeeze else 0) |
+                     (JF_SMALL if small else 0))
     img = bytes(boot) + body + core + rom
     size = spt * heads * cyls * 512
     if len(img) > size:

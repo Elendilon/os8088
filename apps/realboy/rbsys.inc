@@ -680,9 +680,24 @@ rb_events:
     mov byte [S_HALT],0                 ; a pending interrupt ends HALT
     jmp .due
 .skip:
+    cmp byte [S_HALT],0                 ; a SPIN-WAIT's skip runs with
+    jne .skh                            ;   interrupts on, so the budget - the
+    cmp word [S_TVBL+2],RB_FAR_HI       ;   core's interrupts-off time - is
+    je .skh                             ;   not spent by it: TNEXT the next
+    push word [S_TSTOP+2]               ;   event but the budget's, and the
+    mov word [S_TSTOP+2],RB_FAR_HI      ;   budget moved on by the skip. ~3 of
+    call rb_sched                       ;   Super Mario Land's 4.4 budget
+    pop word [S_TSTOP+2]                ;   exits a frame ended in one. (The
+    or bp,bp                            ;   LCD off keeps it: no VBlank would
+    jle .due                            ;   end the run; HALT lapses it below)
+    add [S_TSTOP],bp
+    adc word [S_TSTOP+2],0
+    jmp short .skd
+.skh:
     call rb_sched                       ; TNEXT = the next event, BP to it
     or bp,bp
     jle .due                            ; one is already due
+.skd:
     add [S_SKIPPED],bp
     adc word [S_SKIPPED+2],0
     mov ax,[S_TNEXT]

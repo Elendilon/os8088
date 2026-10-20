@@ -39,7 +39,12 @@ records:
            `sub bp,n`, the only thing in it that names BP, and nothing in it
            leaves it, so the translator may add n to the block's pending
            M-cycles instead of copying them; bit 4: GUARDS ITSELF - IMM16
-           is the next PC, and the translator adds no guard, rbgen.self_guard)
+           is the next PC, and the translator adds no guard, rbgen.self_guard;
+           bit 5: DEFERRABLE - not pure, but it ends in `sub bp,n` and names
+           BP elsewhere only in a `sub bp,m` straight before a jump out to
+           tr_enter or tr_int, and reads the time nowhere else: BP exact at
+           its start is enough, so with no guard the translator adds n to
+           the pending M-cycles after it rather than copying the sub)
   +5 byte  operand positions: IMM8 count, then IMM16, ABS, REL counts (4)
   +9       the bytes, then the positions in that order
 """
@@ -154,6 +159,24 @@ def pure(a, pos, lines):
     return True
 
 
+def deferrable(a, lines):
+    """bit 5 (above): what is not pure but needs BP exact only at its start"""
+    if len(a) < 3 or a[-3:-1] != bytes([0x83, 0xED]):
+        return False
+    code = [re.sub(r";.*", "", ln).strip() for ln in lines]
+    code = [c for c in code if c]
+    if not code or not re.match(r"sub bp,\d+$", code[-1]) or int(code[-1][7:]) != a[-1]:
+        return False
+    if any("force_ev" in c for c in code):              # EI: it reads BP
+        return False
+    for k, c in enumerate(code[:-1]):
+        if re.search(r"\bbp\b", c):
+            if not (re.match(r"sub bp,\d+$", c) and
+                    re.match(r"jmp (near )?(tr_enter|tr_int)$", code[k + 1])):
+                return False
+    return True
+
+
 def flags_for(op, cb, lines):
     text = "\n".join(lines)
     stores = re.search(r"\b(wr_\w+|io_wr|mbc_wr)\b", text) is not None   # any write helper
@@ -179,7 +202,8 @@ HEAD = 2 * (512 + NEXTRA) + 12   # then the free ranges', tail slots' and
 # the rest to the interpreter (rbgen.rmw_lines). LD (C),A is 83 bytes since
 # it guards itself (rbgen.self_guard), and a store that does takes no guard.
 TMAX = 84
-EXPORT = ("tr_enter", "tr_link", "tr_lsite", "tr_stale", "tr_int", "idle_yes", "cnt_ff", "add_ff", "cpy_ff", "stat_ff", "RB_DISPATCH")
+EXPORT = ("tr_enter", "tr_link", "tr_lsite", "tr_stale", "tr_int", "idle_yes", "cnt_ff", "add_ff", "cpy_ff", "stat_ff", "RB_DISPATCH",
+          "tr_hm0", "tr_hm1", "tr_hm2")
 
 
 def free_ranges(tails):
@@ -230,6 +254,8 @@ def main():
                 if pure(a, pos, lines):
                     fl |= 8
                     npure[0] += 1
+                elif deferrable(a, lines):
+                    fl |= 32
                 rec = struct.pack("<HBBB", ORG + k * SLOT, len(a), glen, fl)
                 rec += bytes(len(ps) for ps in pos) + a
                 for ps in pos:

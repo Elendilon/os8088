@@ -242,14 +242,28 @@ budgets before this). **The HALT bug**: HALT executed with IME clear and
 an interrupt already pending does not halt, and the byte after it is read
 twice - the next opcode runs with PC still on itself.
 
-**EI is not delayed by one instruction.** It sets IME at once and forces the
-next event check, so a pending interrupt is taken at the next branch, HALT
-or RETI rather than after exactly one more instruction. `EI / HALT` and
+**EI is not delayed by one instruction.** It sets IME at once and, when an
+interrupt is already pending, forces the next event check, so it is taken at
+the next branch, HALT or RETI rather than after exactly one more
+instruction. **RETI enters the event path only for one pending** too, and
+otherwise goes on as a RET does (into translated code). Nothing else can be
+waiting on IME: IF gains a bit only at an event, which checks, or at an
+IF/IE write, which takes it at once. `EI / HALT` and
 `EI / RET` come out as the hardware's; Mooneye's `ei_sequence`, `ei_timing`,
 `rapid_di_ei` and `di_timing` do not (section 12.3). A read of IF first runs every event already due
 (`rb_catchup`), so a game polling IF sees what the hardware would.
 
 ## 8. The spin-wait rule
+
+**A skip does not spend the budget.** `rb_run`'s budget bounds how long the
+core runs with interrupts off, and a skip runs in rbsys with them on, so a
+spin-wait's skip sets TNEXT by every event but the budget's and moves the
+budget's end on by what it skipped. Before, about 3 of Super Mario Land's
+4.4 budget exits a frame landed in a skip, each one a host round trip and
+another pass of the loop: its events in the bench went 9,949 -> 3,750 and
+the CPU alone 6.13 -> 5.72 ms a frame on `286-victory`. HALT keeps lapsing
+the budget as before (section 7), and with the LCD off the skip keeps it,
+since no VBlank would end the run.
 
 A taken backward `JR` of **-4 to -16** to a loop head is a SPIN-WAIT,
 skipped to the next event at no cost, when the loop's body is one read and
@@ -577,6 +591,9 @@ it changed), and AX holds the count.
   at a time and over both maps a word at a time. A changed tile, map byte,
   map row or sprite sets its byte, and a sprite that changed marks the lines
   it left and the lines it covers now.
+- **Only the VRAM the game wrote is compared** (13.2.2): the core marks a
+  16-byte block as it stores to 8000-9FFF, and the scan visits the marked
+  blocks alone.
 - **Each line is then looked up** (`ppu_ldirty`). Its registers are compared
   with what the last call kept for it. Its background row and window row are
   judged once per map row and first column and the verdict kept
@@ -677,6 +694,35 @@ on 151-499 pictures of 500.
 - It runs on gbclock's frame counter (ours), and with `$OS88_GB_ROMS` on
   Super Mario Land and Kirby's Dream Land.
 - Taking out the map-row marks fails it on 497 frames of 500.
+
+### 13.2.2 VRAM marked as it is written
+
+**A store to VRAM leaves the fast path.** `write8`'s first test is `cmp
+bh,0A0h / jb` where it was `test bh,bh / jns`, so a store to 8000-9FFF goes
+the way the cartridge's do, to `wr_slow` (or `wr_sw`, ahead of the I/O
+timing), and on to `vr_wr`: the byte stored, unless it is already that, and
+its 16-byte block marked in `RB_VMARK` (512 bytes in the view at 7200h).
+The direct `LD (nn),A` the translator chooses (16.6) starts at A000h for
+the same reason, and the read-modify-write templates (`rmw_lines`) fall to
+the interpreter for VRAM as they do for the cartridge.
+
+**`ppu_dscan` then compares only the marked blocks** - `repe scasw` over
+the marks, two blocks a word - against the same shadows, with the same
+change bytes as the whole compare set, so nothing after it changes. The
+copy idiom (`cpy_ff`, 16.6) moves bytes with `REP MOVSB` and marks none:
+when either of its ranges starts in VRAM it sets `RB_VALL` and the next
+scan compares all of it, as before the marks. A full frame (`RB_DFULL`)
+clears the marks. A Game Boy stack in VRAM (`PUSH`, `CALL` are the 8086's
+own) would be unseen; no game puts one there.
+
+- **What it buys**: the whole compare was ~38.7K clocks a drawn frame on a
+  286 - in Super Mario Land full screen, drawing every frame, 17.7% of the
+  machine. With the damage renderer every frame on `286-victory`, Super
+  Mario Land 499 -> 463 ticks (2,000 frames).
+- **What it costs**: ~80 clocks a VRAM store, once per Game Boy frame
+  rather than per drawn one - the CPU alone moved by one tick in 124.
+- **The gate** is `tests/gbdamage.py`: with the mark not set, 500 of 500
+  pictures differ.
 
 ### 13.3 What a line costs, and the cuts that did not pay
 
@@ -1132,7 +1178,12 @@ gbprof's script take the same events and skip the same M-cycles either way.
   had come to flush it twice in play instead of once.
 - `LDH (n)` and `LD (nn)` on an address the interpreter's own fast path takes
   directly - HRAM, WRAM, VRAM, bank 0 - are chosen by operand: one `MOV`
-  through SS and the M-cycles (`rbgen.EXTRA`).
+  through SS and the M-cycles (`rbgen.EXTRA`). A store to VRAM is not one
+  any more (13.2.2). **A store to a sound register `io_wr` only stores** -
+  FF10-FF3F but FF12, FF14, FF17, FF19 and FF26, which rbsys keeps for the
+  speaker (17) - is one too (`rt_snd`), where the template's took the slow
+  path and `io_wr`'s compares, ~140 clocks on a 286. (It measured level on
+  both games' benches: their drivers write the registers rbsys keeps.)
 
 ### 16.1.1 Pure templates share their M-cycles
 
@@ -1144,12 +1195,31 @@ which it takes off BP in one `sub` (`rt_flushbp`) before the next template
 that is not pure, a control transfer or the block's fall-through. Super
 Mario Land, the CPU alone: 9.57 to 9.29 ms a frame.
 
+**The pending count goes INTO the control transfer's own `sub`**: each arm
+of a conditional takes it in its `sub bp,n` (`rt_subbp`, `rt_pend0` giving
+the second arm its own), where a flush before the transfer made two subs
+at every block end; a fall-through's flush stands in for its `or bp,bp`.
+The idioms that read BP (`cnt_ff`, `cpy_ff`, `stat_ff`, `idle_yes`) and the
+untemplated opcode's way to the interpreter take the flush first. Super
+Mario Land 119 -> 115 ticks and Kirby's Dream Land (two segments) 266 ->
+258, the CPU alone on `286-victory`.
+
+**A template that is not pure may still defer its own sub** (flags bit
+5, 88 of them: the memory accesses through (HL), (DE), (BC), the ALU on
+(HL), the read-modify-writes): it needs BP exact only at its START, which
+the flush before it makes - its slow paths take BP back and forth around
+an I/O access by the access's own M-cycle (`S_ATN`), and its only other
+`sub bp` is one straight before an exit to `tr_enter` or `tr_int`. So with
+no guard after it (whose exit leaves with BP charged) its `sub bp,n` joins
+the pending count. EI reads BP (`force_ev`) and is not one. Kirby's Dream
+Land 258 -> 252 ticks, Super Mario Land 115 -> 114.
+
 ### 16.2 The cache
 
 The code goes into a 64KB segment of its own. It holds copies of the core's
 helper tails - the slots `rbgen.TAILS` uses - at their own offsets, so a
 template reaches every helper with a near jump; ~58KB is left for code, in
-the free ranges `rbtmpl.py` lists. **The block table has a 16KB segment of
+the free ranges `rbtmpl.py` lists. **The block table (16KB here; 64KB now, 16.3) has a segment of
 its own** (`S_JITHSEG`), in the package the 16KB after the cache in one 80KB
 claim and in the harness 8C00h. It was slots 00-3F of the cache, and the
 cache had ~44KB for code: Kirby's Dream Land's working set is ~500 blocks
@@ -1293,6 +1363,26 @@ recompiler** - an 8088, no memory for the cache, or Machine > Recompiler off
 45 `JDISPATCH` sites (rbtmpl.py lists them), so the interpreter is the one
 there was before the recompiler, and writes them back when it is turned on. Translated code does not keep DS;
 `tr_int` sets it for SI before it dispatches.
+
+**The block table is 64KB when the heap has it** - 8,192 entries, mask 31
+(`S_HMASK`) - and 16KB, 2,048 and mask 7, when it does not. Every PC that
+reaches `tr_enter` takes a slot to count in, so at 2,048 Kirby's Dream Land
+in play fought for them (`tr_new2` and `tr_link` in its profile): the CPU
+alone on `286-victory` with the second segment (16.2.1) went 330 -> 285 ticks
+at 4,096 and 266 at 8,192; Super Mario Land 124 -> 119. The mask is an
+immediate in the core's three lookups (`tr_hm0`-`tr_hm2`), which `rt_init`
+writes before it copies the tails; the translator's own two read
+`S_HMASK`. **With ONE segment**, Kirby's Dream Land loses ~2% (366 -> 374):
+fewer PCs are refused a slot, so its too-small cache fills and flushes
+more - that game wants Machine > Cache: 128K anyway. The package claims 64
++ 64KB first, then 64 + 16; a ROM that does not fit gives back the second
+segment, then the big table, then the recompiler.
+
+**`tr_enter`'s far ends are stubs inside its slot.** A Jcc out of short
+range is assembled as an inverted Jcc around a `jmp`, so every one of them
+was a TAKEN jump on the hit path; and `JDISPATCH` enters at `tr_ejd`, past
+the two guards its own site has made (it is patched away whenever the
+translator is off). Both games -1.6%, the CPU alone.
 
 ### 16.4 Chaining
 

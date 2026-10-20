@@ -625,7 +625,8 @@ ppu_dscan:
     mov word [es:RB_DTCH],0             ; (and RB_DMCH)
     mov byte [es:RB_DOCH],0
     cmp byte [es:RB_DFULL],0
-    je .tiles
+    je .marks
+    call .unmark
     mov si,8000h                        ; everything: the shadows taken whole
     xor di,di
     mov cx,4096
@@ -646,6 +647,99 @@ ppu_dscan:
     mov cx,64 / 2
     rep stosw
     ret
+.unmark:                                ; the marks and the copy idiom's
+    push es                             ;   flag cleared (DS = the view)
+    push ds
+    pop es
+    mov di,RB_VMARK
+    mov cx,512 / 2
+    xor ax,ax
+    rep stosw
+    mov [RB_VALL],al
+    pop es
+    ret
+.marks:
+    ; only the 16-byte blocks the core marked as it wrote them (vr_wr,
+    ; REALBOY-SPEC 13.2.2) - unless the copy idiom wrote VRAM, which marks
+    ; none: then all of it, as before the marks
+    cmp byte [RB_VALL],0
+    jne .all
+    mov dx,es                           ; DX = the damage memory
+    push ds
+    pop es
+    mov di,RB_VMARK
+    mov cx,512 / 2
+    xor ax,ax
+.f:
+    repe scasw                          ; a word of marks: two blocks
+    je .fd
+    mov word [es:di-2],0
+    mov bx,di
+    sub bx,RB_VMARK + 2                 ; BX = the first block
+    push cx
+    push di
+    mov es,dx
+    call .blk
+    inc bx
+    call .blk
+    pop di
+    pop cx
+    push ds
+    pop es
+    xor ax,ax
+    or cx,cx
+    jnz .f
+.fd:
+    mov es,dx
+    jmp .oam
+.blk:                                   ; block BX against its shadow
+    mov si,bx
+    mov cl,4
+    shl si,cl
+    mov di,si                           ; DI = its shadow, SI = VRAM
+    add si,8000h
+    mov cx,8
+    cmp bx,180h
+    jae .bm
+    repe cmpsw                          ; a tile's: whole, as .t's
+    je .br
+    mov si,bx                           ; (from its start again)
+    mov cl,4
+    shl si,cl
+    mov di,si
+    add si,8000h
+    mov cx,8
+    rep movsw
+    mov byte [es:RB_DTD+bx],1
+    mov byte [es:RB_DTCH],1
+.br:
+    ret
+.bm:                                    ; a map's: word by word, as .m's
+    repe cmpsw
+    je .br
+    call .mword
+    or cx,cx
+    jnz .bm
+    ret
+.mword:                                 ; the map word before SI/DI changed
+    mov ax,[si-2]
+    mov [es:di-2],ax
+    mov byte [es:RB_DMD-1802h+di],1
+    mov byte [es:RB_DMD-1801h+di],1
+    mov byte [es:RB_DMCH],1
+    push bx
+    mov bx,di                           ; its row too: a quick no for the
+    sub bx,1802h                        ;   rest (BX / 32 without CL, which
+    shl bx,1                            ;   is the scan's count)
+    shl bx,1
+    shl bx,1
+    mov bl,bh
+    xor bh,bh
+    mov byte [es:RB_DMROW+bx],1
+    pop bx
+    ret
+.all:
+    call .unmark
 .tiles:
     mov si,8000h                        ; tile data, a tile at a time
     xor di,di
@@ -678,19 +772,7 @@ ppu_dscan:
 .m:
     repe cmpsw
     je .oam
-    mov ax,[si-2]
-    mov [es:di-2],ax
-    mov byte [es:RB_DMD-1802h+di],1
-    mov byte [es:RB_DMD-1801h+di],1
-    mov byte [es:RB_DMCH],1
-    mov bx,di                           ; its row too: a quick no for the
-    sub bx,1802h                        ;   rest (BX / 32 without CL, which
-    shl bx,1                            ;   is the scan's count)
-    shl bx,1
-    shl bx,1
-    mov bl,bh
-    xor bh,bh
-    mov byte [es:RB_DMROW+bx],1
+    call .mword
     or cx,cx
     jnz .m
 .oam:
@@ -1662,6 +1744,35 @@ ppu_list:
 ; fetched: each is the previous tile row and this one, as one 16-bit string,
 ; CL bits left. Unrolled, the two tile rows alternating between AX and DX:
 ; a 286 pays for every byte of code it fetches, so the loop's own are gone.
+; PPU_FSHIFT op, half: ppu_fshift's body - each byte the previous tile row
+; and this one as BH:BL, shifted by CL (op), its half the result
+%macro PPU_FSHIFT 2
+%assign ppu_k 0
+%rep 10
+    mov bx,[si+2*ppu_k+2]
+    mov dx,[bx+di]
+    mov bh,al
+    mov bl,dl
+    %1 bx,cl
+    mov [PPU_BL+ppu_k],%2
+    mov bh,ah
+    mov bl,dh
+    %1 bx,cl
+    mov [PPU_BH+ppu_k],%2
+    mov bx,[si+2*ppu_k+4]
+    mov ax,[bx+di]
+    mov bh,dl
+    mov bl,al
+    %1 bx,cl
+    mov [PPU_BL+ppu_k+1],%2
+    mov bh,dh
+    mov bl,ah
+    %1 bx,cl
+    mov [PPU_BH+ppu_k+1],%2
+%assign ppu_k ppu_k+2
+%endrep
+    ret
+%endmacro
 ppu_fshift:
     mov al,dl
     xor ah,ah
@@ -1669,31 +1780,13 @@ ppu_fshift:
     mov di,ax                           ; DI = the row's offset in a tile
     mov bx,[si]
     mov ax,[bx+di]                      ; the first tile's row
-%assign ppu_k 0
-%rep 10
-    mov bx,[si+2*ppu_k+2]
-    mov dx,[bx+di]
-    mov bh,al
-    mov bl,dl
-    shl bx,cl
-    mov [PPU_BL+ppu_k],bh
-    mov bh,ah
-    mov bl,dh
-    shl bx,cl
-    mov [PPU_BH+ppu_k],bh
-    mov bx,[si+2*ppu_k+4]
-    mov ax,[bx+di]
-    mov bh,dl
-    mov bl,al
-    shl bx,cl
-    mov [PPU_BL+ppu_k+1],bh
-    mov bh,dh
-    mov bl,ah
-    shl bx,cl
-    mov [PPU_BH+ppu_k+1],bh
-%assign ppu_k ppu_k+2
-%endrep
-    ret
+    cmp cl,4                            ; a 286 shifts a register by CL in
+    ja .right                           ;   5 + CL clocks: past 4, the same
+    PPU_FSHIFT shl, bh                  ;   byte is the pair 8 - CL RIGHT, in
+.right:                                 ;   its low half (1-4 bits either way)
+    neg cl
+    add cl,8
+    PPU_FSHIFT shr, bl
 
 ; ppu_fcopyb / ppu_fcopyw: no fine scroll - 21 tile rows as they are, into
 ; PPU_BL/PPU_BH or PPU_WL/PPU_WH (the window shifts its own left)

@@ -39,6 +39,10 @@ times over, fill both:
   segment being written (rt_exit's `cmp dx,[S_JITSEG] / jne`) made two NOPs,
   so an exit is written as a near jump into the other segment's offsets.
   cpu_instrs must then NOT pass.
+
+Every leg runs with the block table at its 64KB (REALBOY-SPEC 16.3); the
+last runs cpu_instrs again with it at 16KB, the package's fallback, whose
+mask rt_init writes into the core's lookups.
 """
 import argparse
 import os
@@ -73,10 +77,10 @@ def rom_path(name):
 SEGCHK = bytes.fromhex("3B16CC4075")
 
 
-def run(rom, frames, core, host, jit="static", seg2=False):
+def run(rom, frames, core, host, jit="static", seg2=False, small=False):
     img = os.path.join(ROOT, "build", "realboy", "rbstatic.img")
     rbimg.make_image(rom, img, frames=frames, core=core, host=host, jit=jit,
-                     seg2=seg2, squeeze=seg2)
+                     seg2=seg2, squeeze=seg2, small=small)
     text = rbqemu.run(img, ["RBHOST DONE", "RBHOST BADOP"], timeout=400, quiet=True)
     if jit != "static":
         m = re.search(r"flushes (\d+) seg2 (\d+)", text)
@@ -173,6 +177,12 @@ def main():
                                  "fails, as it must" if red else
                                  "passed - the gate cannot see a cross-segment jump"))
         bad += not red
+        n, st = run(rom, frames, core, host, small=True)   # the 16KB table
+        ok = n == 2 and st is not None and st[1] == 0
+        print("%-4s %-24s passed %d of 2, %s" % (
+            "ok" if ok else "FAIL", "16KB block table", n,
+            "%d blocks preloaded, %d translated after" % st if st else "no DONE line"))
+        bad += not ok
     print("rbstatic: %s" % ("PASS" if not bad else "%d FAILED" % bad))
     return 1 if bad else 0
 

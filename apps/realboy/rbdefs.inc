@@ -40,8 +40,15 @@ S_JITSEGB       equ 0x4812          ;   its second or 0 (REALBOY-SPEC 16.2.1):
 S_JITLIM        equ 0x4814          ; word: RT_SQUEEZE builds (the harness):
                                     ;   each segment's code ends here, or 0
 S_JITSW         equ 0x4816          ; word: moves on into the second (stat)
-RB_FREE         equ 0x4818          ; the rest of the window is unassigned,
+S_VTMP          equ 0x4818          ; word: vr_wr's BX (REALBOY-SPEC 13.2.2)
+RB_VALL         equ 0x481A          ; byte: VRAM written past the marks (the
+                                    ;   copy idiom, cpy_ff): compare it all
+S_HMASK         equ 0x481C          ; byte: the block table's mask, entries /
+                                    ;   256 - 1: 31 for 64KB, 7 for 16KB (16.3)
+RB_FREE         equ 0x481E          ; the rest of the window is unassigned,
                                     ; but for rbppu.inc's 4900-66FF and:
+RB_VMARK        equ 0x7200          ; 512: a VRAM 16-byte block written since
+                                    ;   the damage scan last looked (vr_wr)
 JIT_BUF         equ 0x6700          ; 256: the Game Boy code being translated
 RB_BTAB         equ 0x6800          ; 512 words: a ROM bank's segment, or 0
 RB_BUSE         equ 0x6C00          ; 512 words: switches to it (the cache's
@@ -51,8 +58,9 @@ JIT_HASH        equ 0x0000          ; 16,384, in a SEGMENT OF ITS OWN
                                     ;   (S_JITHSEG): the block table (tr_enter,
                                     ;   REALBOY-SPEC 16.3). The cache's 64KB
                                     ;   is code but for the tails' slots
-JIT_HASHN       equ 2048
-JIT_HMASK       equ JIT_HASHN / 256 - 1 ; (a slot is PC-folded, AND this x 256)
+JIT_HASHN       equ 8192                ; the block table's entries AT MOST: 64KB
+JIT_HMMAX       equ JIT_HASHN / 256 - 1 ; (a slot is PC-folded, AND this x 256:
+                                        ;   S_HMASK the table's own, 31 or 7)
 RB_JITHOT       equ 64              ; entries before a PC is translated
 
 ; --- the state block, at RB_STATE --------------------------------------------
