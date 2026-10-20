@@ -3633,7 +3633,18 @@ apic_thm_desk:                    ; (cw_thm_desk's door, size pass 13)
                                   ;          (KERN-MEGA-PLAN 14.16). kern_mega
                                   ;          in protected mode only; CF=1, AX =
                                   ;          1 on every other kernel
-osapi_table_end:                  ; 0x04BD today (0x04B7 before OSAPI_XMEM_RUN,
+    OSAPI_RCXCELL osapi_mem_subseg ; 0x04BD - AX = a PARAGRAPH offset into
+                                  ;          your own region, BL bit 0 = you
+                                  ;          will far-call it -> CF=0, DX = a
+                                  ;          DATA selector based there (its
+                                  ;          CODE twin DX - 8), freed with the
+                                  ;          region (KERN-MEGA-PLAN 14.44).
+                                  ;          CF=1, every register kept = use
+                                  ;          your segment + AX: every kernel
+                                  ;          but kern_mega, and kern_mega for
+                                  ;          a region below 1MB
+osapi_table_end:                  ; 0x04C3 today (0x04BD before OSAPI_MEM_SUBSEG,
+                                  ; 0x04B7 before OSAPI_XMEM_RUN,
                                   ; 0x04B1 before OSAPI_MEM_HUGE,
                                   ; 0x04AB before OSAPI_XMEM_WALK,
                                   ; 0x049F before OSAPI_XMEM_SEL
@@ -3663,8 +3674,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 110*6 + 6*3 + 6 + 12*5 + 4*6 + 8
-%error "os8088 API jump table must be exactly 0x04AD bytes: 43 SLOT (8), 11 XCELL (7), 110 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
+%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 111*6 + 6*3 + 6 + 12*5 + 4*6 + 8
+%error "os8088 API jump table must be exactly 0x04B3 bytes: 43 SLOT (8), 11 XCELL (7), 111 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
 %endif
 
 %ifdef KERN_MEGA
@@ -5371,6 +5382,35 @@ osapi_xmem_run:                 ; (eleven bytes of .text: the segment binds
     ret
 %else
 osapi_xmem_run equ osapi_xmem_sel ; its refusal, AX = 1 and CF = 1 (above)
+%endif
+
+; ---- osapi_mem_subseg - API slot 0x04BD (KERN-MEGA-PLAN 14.44) -------------
+; in:  AX = a paragraph offset into the CALLER's own region (the X cell's ES =
+;      its DS), BL bit 0 = it will be far-called
+; out: CF = 0, DX = a DATA selector whose base is that paragraph and whose
+;      limit runs to the region's end or 64KB, whichever is first, its CODE
+;      twin at DX - 8 when bit 0 asked for one; the same selector again for
+;      the same paragraph, freed with the region and moved with it. CF = 1,
+;      every register kept: you are not above 1MB, so your segment + AX is
+;      the answer - every kernel but kern_mega, and kern_mega for a region in
+;      conventional memory, an offset past the region, or no LDT entry
+; THE ONE PIECE OF SEGMENT ARITHMETIC A RE-HOMED PROGRAM CANNOT DO ITSELF: a
+; selector names its base, so "my segment + N" has no meaning above 1MB.
+; Clear Skies' cs_xpand is the first caller (SPEC.md 88), Pixelstein's GEN
+; and BT parts the next (KERN-MEGA-PLAN 14.38.4 S6)
+%ifdef KERN_MEGA
+section .cold
+osapi_mem_subseg:               ; (api_rxc's far body: DS = KDATA)
+    cmp byte [mega_on], 0
+    je .no
+    call MEGA_SEL_CODE:mega_subsegf ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
+    retf
+.no:
+    stc
+    retf
+section .text
+%else
+osapi_mem_subseg equ mod_gone   ; `stc / retf`: CF = 1, every register kept
 %endif
 
 ; ---- osapi_xmem_walk - API slot 0x04AB (KERN-MEGA-PLAN 13.6) ---------------

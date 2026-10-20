@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "f0dc8f1a1a460dd14d052c3419c2d1f3fd1cca9d3697864b159fa5deada42754",
+  "fingerprint": "a8629cdb97d265c99d43359cb7d027f16326607fe60457a4cdb82f6189522afd",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "7887c4e233b0c953ff3bd57e7f8f3d55e5e4feae222d94bf9781e34bb48420c1",
+  "fingerprint": "4dca6b2ede826a2cd784f27f1e44a56c3b3c2ea956c97c09d90ca5583eb5d760",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -553,6 +553,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_XMEM_RUN appended at 0x04B7 (KERN-MEGA-PLAN 14.16): an addition at the table's end, so nothing built before moves and PKG_FMT stays",
+   "to": 11
+  },
+  {
+   "fingerprint": "4dca6b2ede826a2cd784f27f1e44a56c3b3c2ea956c97c09d90ca5583eb5d760",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_SUBSEG (0x04BD) appended, and OS88_HIGH's comment: a re-homed program may say it in its own header (KERN-MEGA-PLAN 14.44) - additive, every package built before still runs",
+   "to": 10
+  },
+  {
+   "fingerprint": "a8629cdb97d265c99d43359cb7d027f16326607fe60457a4cdb82f6189522afd",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_SUBSEG (0x04BD) appended, and OS88_HIGH's comment: a re-homed program may say it in its own header (KERN-MEGA-PLAN 14.44) - additive, every package built before still runs",
    "to": 11
   }
  ]

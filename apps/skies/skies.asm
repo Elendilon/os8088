@@ -61,7 +61,11 @@
 
 %include "os88api.inc"
 
+%ifdef CSDIAG                   ; the watchdog stamps our CS into vector 8
     OS88_HEADER 'SKIES', cs_entry, 1, OS88_STACK_DEFAULT
+%else                           ; ...so only the shipped build may run above
+    OS88_HEADER 'SKIES', cs_entry, 1, OS88_STACK_DEFAULT | OS88_HIGH
+%endif                          ; 1MB (KERN-MEGA-PLAN 14.44)
                                 ; no worker: the whole flight is the bracket
                                 ; on task 0, and the attract window is still
 
@@ -853,9 +857,41 @@ cs_entry:
 ; the vocabulary sits wherever the image ends, and the bands are 1,360 bytes
 ; apart. So the stream expands at the 128-byte granule below the target and is
 ; moved up into place, the bytes it covered on the way kept on the stack (at
-; most 112). Every kernel takes this path; it costs a copy of the output.
+; most 112). It costs a copy of the output.
+;
+; ABOVE 1MB (OS88_HIGH, KERN-MEGA-PLAN 14.44) there is no "our segment + N"
+; at all - our DS is a selector, and adding to it names another descriptor -
+; so OSAPI_MEM_SUBSEG is asked first for a selector based ON the target, and
+; the stream expands straight into it. It answers CF = 1, every register
+; kept, on every kernel and placement where the sum is right, and then the
+; granule path below runs exactly as it always has. The cell names the
+; region by the caller's DS, and the second caller's DS is the read buffer,
+; so it is asked with DS = ES = ours
 ;-----------------------------------------------------------------------------
 cs_xpand:
+    push dx
+    push ds
+    push es
+    pop ds                          ; DS = ours: the region the cell names
+    push bx
+    mov ax, bx                      ; AX = the target, paragraphs into it
+    mov bl, 0                       ; data
+    call OSAPI_MEM_SUBSEG           ; CF = 0: DX = a selector based there
+    pop bx
+    pop ds
+    jc .sum                         ; CF = 1: the sum is right, and DX kept
+    mov ax, dx
+    pop dx                          ; DX = what it expands to, again
+    push es
+    mov es, ax                      ; ES:0 = the target itself
+    xor di, di
+    xor bx, bx                      ; BX:DX the EXACT output (20.13.3)
+    mov al, OSAPI_LZ_LZ4
+    call OSAPI_DECOMP
+    pop es
+    ret
+.sum:
+    pop dx
     ; STKBALANCE-LOOP: BP/2 words pushed by .sv and popped by .rs; the count is in BP
     push bp
     push es
