@@ -806,6 +806,173 @@ in the report.
    and RealBoy runs it. Use `tools/gbprof/gbcover.c`'s count (REALBOY-SPEC
    section 8's rules).
 
+#### Note: what other Game Boy emulators do that RealBoy does not
+
+**Where this comes from.** A survey on 2026-10-20 of emulators that run on
+slow hosts or are known for speed. Each source was read at the commit given
+and file:line references are into it; nothing was built or run:
+- **TI-Boy SE**, calc84maniac/tiboyse 105bf35: a Z80 calculator running the
+  Game Boy's near-Z80;
+- **Goomba Color**, Dwedit/goombacolor 35c3ffd: a 16.78 MHz ARM, full
+  speed;
+- **jitboy**, sysprog21/jitboy 418d1c5: an x86-64 dynamic recompiler;
+- **gnuboy**, rofl0r/gnuboy 4c2f6c4;
+- **CrankBoy** (Playdate), CrankBoyHQ/crankboy-app 3aab67f, plus Peanut-GB,
+  RP2040-GB, mGBA, Gambatte, SameBoy and GameYob (Nintendo DS).
+
+The proxy blocked no$gmb's, gbdev's and the Playdate forum's pages, so
+nothing here rests on them.
+
+**Neither Goomba Color nor TI-Boy SE has a recompiler.** Both reach their
+speed with a lean interpreter and by SKIPPING work. That is where most of
+what follows points. Items are ranked for 30 frames drawn a second while
+Super Mario Land scrolls with enemies on screen.
+
+1. **Skip STAT and LY polling loops exactly.** Four emulators do this:
+   - **Goomba Color** (`LCD_HACKS_ACCURATE`): it matches the loop shape at
+     the STAT read, caches the verdict per PC, and advances the clock a whole
+     number of loop passes to the wanted mode (`src/lcd.s:3572-3770, 3839,
+     3911`), or to the line's end for an LY wait (`:4344`).
+   - **CrankBoy's "HLE warp"**: it decides at the read and idles to the next
+     mode or LY change (`libs/peanut_gb.h:1771-1868, 2391`;
+     `libs/peanut_gb_core.h:2176-2238`).
+   - **jitboy**: it rewrites the shapes into a special HALT (`optimize.c:123-149`).
+   - **TI-Boy SE**: it fast-forwards a recorded wait loop
+     (`hardware.z80:830-1075`).
+
+   RealBoy refuses any register read in a spin-wait on purpose. Its rule
+   (REALBOY-SPEC section 8) is that LY and STAT change on their own, and
+   `idle_chk`/`rt_idle` reject `LDH` with n < 80h.
+
+   **MEASURED on Super Mario Land:** all of its ~20 STAT reads a frame are
+   one shape, `LDH A,(41) / AND 3 / JR NZ,-6`, a wait for HBlank before a
+   VRAM write, at 0156h, 0097h and 015Dh. `io_lcd` is 5.4% of the machine
+   and those blocks are another ~4%.
+
+   RealBoy can do this EXACTLY, because LY and STAT are a function of
+   `S_TNF - BP`. When the shape is recognised and the mode is not yet the
+   wanted one:
+   - take BP down by whole passes up to the mode boundary, capped at the
+     next event, keeping the loop's phase;
+   - then let it run once more to read the mode.
+
+   **Make the read itself cheaper too.** Today a translated `LDH A,(41h)`
+   goes by its slow stub to `rd_sN`, `rw_io` and `io_rd`'s compares before it
+   reaches `io_lcd`'s subtract-and-wrap loop and `div`. Two fixes:
+   - a `rbgen.EXTRA` template for `LDH A,(41h)` and `LDH A,(44h)` that enters
+     `io_lcd` directly (gnuboy's agent's suggestion);
+   - keeping the current line's start, so that a read in the same line is a
+     subtract and a compare (Goomba Color reads STAT in two compares,
+     `lcd.s:3533`).
+
+   **PREDICTED: most of that ~9%.**
+
+2. **Loop idioms, generalised.** This is item 1 of the note above, with the
+   evidence that others take it:
+   - **Goomba Color** collapses known loops per game (`src/gamespecific.s:6-26,
+     589-640`); its own comment credits one with "+13 FPS".
+   - **jitboy** classifies self-loops by what they touch (`optimize.c:6-91,
+     166-246`) and fuses `LD A,(HL+) / LD (DE),A / INC DE` into one copy
+     (`:110-121`), unsafely, with no range check.
+
+   **Two refinements over the note above:**
+   - When BP does not cover the whole loop, run `k = min(n, BP / period)`
+     passes in one step and leave PC at the head. That stays exact without
+     giving up the shortcut.
+   - Fuse a copy idiom with one range check even when it is unrolled rather
+     than a loop.
+
+3. **Blocks that run on through a conditional branch** (jitboy: a branch is
+   `jz >1 / <exit> / 1:` and translation continues, `emit.dasc:105-118`;
+   blocks end only at unconditional transfers, `gbz80.c:582`).
+   - **Where the bytes go.** The taken side goes to an out-of-line stub at
+     the block's end, which flushes the pending M-cycles, checks BP and
+     chains as `rt_exit` does. The fall-through keeps accumulating cycles,
+     with a not-taken `sub bp,n / js` kept to stay exact.
+   - **Why.** REALBOY-SPEC section 16.7 already blames short blocks for
+     Kirby's Dream Land (`tr_enter` 11%).
+   - **The risk** is duplicated code in a cache that already binds. Cap the
+     side exits per block.
+
+4. **Carry the pending M-cycles through memory templates** (jitboy writes
+   its cycle sum only at exits, `emit.dasc:142, 258`). Today `rt_flushbp`
+   runs before every memory template, because all of them are impure. But:
+   - a RAM fast path and the ROMX reads `rd_s1`-`rd_s3` answer never read
+     the time;
+   - only `rw_io` and an MBC write need BP exact.
+
+   So the slow stub can take the pending count off BP itself, found by a
+   small table the translator keeps, keyed by the stub's `S_RET`. That saves
+   ~3 bytes a memory instruction. The self-guarded stores and `rb_irqnow`
+   must still see the right BP.
+
+5. **Index the lookup directly by PC.**
+   - **Who does it.** jitboy looks a block up as `compiled_blocks[bank][pc]`
+     (`core.h:416`); TI-Boy SE's PC is the host pointer, so a jump costs no
+     lookup.
+   - **For RealBoy.** A 32 KB word table for bank 0 (one word a Game Boy
+     byte) would take `tr_enter`, `tr_link` and an event's resume to
+     `shl bx,1 / jmp [es:bx]`, with no key compare and no neighbour probe.
+     Lookup and the RET cache's misses are 6.9% of the machine today.
+   - **Cost.** 32 KB of heap, plus 32 KB for each hot ROMX bank if those
+     are done too.
+
+6. **A persistent background image for scrolling** (Goomba Color: dirty
+   bits on VRAM writes, `lcd.s:4597-4627`; only dirty tiles and map cells
+   converted at VBlank, `:822, 2376`).
+   - **The VGA equivalent.** Keep the 256x256 background as two shade
+     planes, 32 bytes a row and 16 KB in all, updated only for the cells
+     `rb_renderd`'s scan finds changed. A scrolled frame's background is
+     then, per line, 21 words per plane read at `(SCY+L)&255`, from byte
+     `SCX>>3` (wrapping at 32), shifted by `SCX&7`.
+   - **What it removes** is the map and tile lookups from today's whole
+     recomposition of a scrolling frame, ~18 ms on the Victory twin. That
+     is UNMEASURED; the agent guessed a few ms.
+   - **What it needs.** The scan, skipped today while scrolling
+     (`RB_DSTALE`), would have to run over at least the 2 KB of map to keep
+     the image current.
+   - **VGA hardware scrolling is rejected** by three of the surveys: a
+     CRTC start address plus pel panning cannot keep Super Mario Land's
+     status bar, which is at the TOP, because line compare fixes only the
+     part of the screen below the split.
+
+7. **Drop a raster-register write that changes nothing** (gnuboy
+   `lcd.c:820`, `mem.c:139-151`; Goomba Color `lcd.s:4086-4093`).
+   - **Today.** `rb_rlog` logs equal writes, which can turn
+     `ppu_logsame`'s FAST path into a whole compose.
+   - **The change.** `cmp dl,[ss:bx] / je` in `io_wr` for 42, 43 and 47-4B.
+     Count how often Super Mario Land and Kirby's Dream Land do it first.
+
+8. **The recompile stall.** No emulator surveyed forgets its whole cache and
+   re-counts:
+   - jitboy translates a block on its first entry and never flushes
+     (`core.c:123-127`);
+   - Goomba Color and TI-Boy SE never translate, and cold code just runs
+     interpreted at a steady speed.
+
+   **Two hypotheses to check before redesigning:**
+   - (a) whole flushes followed by bursts of translation: plot `S_JITFL`
+     and `S_JITNB` per second against the slow periods;
+   - (b) Auto's timing windows (REALBOY-SPEC section 16.7): 2 s untimed plus
+     four of 2 s, half of them interpreted. That is a 10 s cycle, though it
+     repeats only every 1-5 minutes.
+
+   If it is (a), what the survey argues for is a budget of translations a
+   frame, or a flush of the oldest part of the cache, not forgetting
+   everything.
+
+**Looked at and rejected for a 286:**
+- **TI-Boy SE's PC as the host SP** (fetch by `pop`). Its interrupt repair
+  depends on a Z80 interrupt pushing exactly the 2 bytes just popped.
+- **Updating LY, STAT and the timers eagerly each line** (TI-Boy SE,
+  gnuboy). That is 154 or more events a frame against RealBoy's sparse
+  scheduler.
+- **gnuboy's decoded-tile cache.** Game Boy tiles are already planar.
+- **Shrinking the core to fit a cache** (CrankBoy, for the Playdate's
+  ITCM). A 286 has no cache.
+- **jitboy's register load and store at every block, its C calls for
+  writes, and its per-pixel renderer.**
+
 ### Wave 8 - the 5150 demo, disks and the Wire record
 
 **The writers and damage tracking are BUILT** (REALBOY-SPEC sections 13.2
