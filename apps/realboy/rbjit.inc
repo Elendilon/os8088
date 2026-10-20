@@ -39,11 +39,13 @@
 %include "rbcore.inc"
 
 RT_MAXI         equ 40              ; instructions a block at most
-RT_CTL          equ 72              ; bytes a control transfer's code may take
-                                    ;   (RET cc 71, JR cc to a spin-wait on
-                                    ;   (HL) 71: each rt_room asks for what
-                                    ;   it writes, since most gaps are ~106)
-RT_FALL         equ 24              ; ...and a block's fall-through exit
+RT_CTL          equ 88              ; bytes a control transfer's code may take
+                                    ;   (JR cc to a spin-wait on (HL) in
+                                    ;   4000-7FFF 84 - rt_exit there is 27 -
+                                    ;   CALL cc 69, RET cc 67: each rt_room
+                                    ;   asks for what it writes, since most
+                                    ;   gaps are ~106)
+RT_FALL         equ 32              ; ...and a block's fall-through exit (29)
 ; the translator's scratch, in the view after JIT_BUF's 128 bytes of code
 RT_PC0          equ JIT_BUF + 80h   ; word: the block's PC
 RT_N            equ JIT_BUF + 82h   ; word: code bytes in JIT_BUF
@@ -706,30 +708,31 @@ rt_exit:
     push bx
     push dx
     push ax
-    mov al,0BEh                     ; mov si,AX
-    stosb
-    pop ax
-    stosw
     mov bx,ax                       ; bank 0: chained, now if the block
     mov dl,0FFh                     ;   is there already
     cmp ah,40h
     jb .key
     cmp ah,80h
-    jae .enter                      ; RAM: never translated
-    mov ax,0E78h                    ; 4000-7FFF: js +14 / ELEVEN bytes,
-    stosw                           ;   mov dx,SITE / jmp tr_link and five
+    jae .ram                        ; RAM: never translated
+    mov ax,1178h                    ; 4000-7FFF: js +17 / ELEVEN bytes,
+    stosw                           ;   mov dx,SITE / jmp tr_lsite and five
     mov al,0BAh                     ;   spare, which tr_link makes a bank
-    stosb                           ;   check and a jmp (16.4) / then the
-    mov ax,di                       ;   exit's own jmp tr_enter, for when
-    dec ax                          ;   the bank is another
+    stosb                           ;   check and a jmp (16.4) / then mov
+    mov ax,di                       ;   si,T / jmp tr_enter, for when the
+    dec ax                          ;   bank is another
     stosw
-    mov ax,RBC_TR_LINK
+    mov ax,RBC_TR_LSITE
     call rt_jmp
     mov ax,9090h
     stosw
     stosw
     stosb
-    jmp short .enter2
+    pop ax
+    push ax
+    call rt_movsi
+    mov ax,RBC_TR_ENTER
+    call rt_jmp
+    jmp short .ev
 .key:
     mov dh,dl                       ; DH = its key; the table's slot
     xor bl,dl
@@ -755,31 +758,46 @@ rt_exit:
     call rt_jmp
     jmp short .ev
 .link:
-    mov ax,0678h                    ; js +6 / mov dx,SITE / jmp tr_link
-    stosw
-    mov al,0BAh
+    mov ax,0678h                    ; js +6 / mov dx,SITE / jmp tr_lsite
+    stosw                           ;   (which takes T from the mov si,T
+    mov al,0BAh                     ;   after it: SITE + 7)
     stosb
     mov ax,di
     dec ax
     stosw
-    mov ax,RBC_TR_LINK
+    mov ax,RBC_TR_LSITE
     call rt_jmp
     jmp short .ev
-.enter:
-    mov ax,0378h                    ; js +3 / jmp tr_enter
+.ram:
+    call rt_movsi                   ; mov si,T / js +3 / jmp tr_enter
+    mov ax,0378h
     stosw
-.enter2:
     mov ax,RBC_TR_ENTER
     call rt_jmp
-.ev:
+    jmp short .ev2
+.ev:                                ; the event's way: SI = T only here -
+    pop ax                          ;   a block takes no SI, and the ways
+    push ax                         ;   on that need one set it themselves
+    call rt_movsi
+.ev2:
     mov ax,0FF36h                   ; jmp far [ss:S_EVVEC]
     stosw
     mov al,2Eh
     stosb
     mov ax,S_EVVEC
     stosw
+    pop ax
     pop dx
     pop bx
+    ret
+
+; rt_movsi - mov si,AX at ES:DI
+rt_movsi:
+    push ax
+    mov al,0BEh
+    stosb
+    pop ax
+    stosw
     ret
 
 ; rt_subbp - sub bp,AL

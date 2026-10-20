@@ -156,7 +156,7 @@ def pure(a, pos, lines):
 
 def flags_for(op, cb, lines):
     text = "\n".join(lines)
-    stores = "wr_slow" in text or "io_wr" in text
+    stores = re.search(r"\b(wr_\w+|io_wr|mbc_wr)\b", text) is not None   # any write helper
     if not stores:
         return 0
     if not cb and op in rbgen.SELFGUARD:
@@ -179,7 +179,7 @@ HEAD = 2 * (512 + NEXTRA) + 12   # then the free ranges', tail slots' and
 # the rest to the interpreter (rbgen.rmw_lines). LD (C),A is 83 bytes since
 # it guards itself (rbgen.self_guard), and a store that does takes no guard.
 TMAX = 84
-EXPORT = ("tr_enter", "tr_link", "tr_int", "idle_yes", "cnt_ff", "RB_DISPATCH")
+EXPORT = ("tr_enter", "tr_link", "tr_lsite", "tr_int", "idle_yes", "cnt_ff", "RB_DISPATCH")
 
 
 def free_ranges(tails):

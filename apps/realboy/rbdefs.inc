@@ -159,6 +159,10 @@ S_SQ2           equ RB_STATE+0xDC
 S_BUDLEN        equ RB_STATE+0xE4   ; word: rb_run's budget, M-cycles
 S_JITSLOT       equ RB_STATE+0xE6   ; word: the table slot tr_miss's PC counted
                                     ;   in (its own, or that one's neighbour)
+S_ATN           equ RB_STATE+0xE8   ; word: the M-cycle a translated access's
+                                    ;   I/O path is at (rw_io, rbgen.py)
+S_RET2          equ RB_STATE+0xEA   ; word: its S_RET while io_rd/io_wr run
+S_DX2           equ RB_STATE+0xEC   ; word: DX, kept across that
 SQ_ON           equ 0
 SQ_VOL          equ 1
 SQ_ENV          equ 2

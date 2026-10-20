@@ -81,15 +81,11 @@ cmp bl,80h
 jae .{g}v
 .{g}s:
 """)
-            if at:
+            if at:                              # (rd_sw takes BP back by
                 self.a(f"""
-sub bp,{at}
-mov word [ss:S_RET],.{g}r
-jmp rd_slow
-.{g}r:
-add bp,{at}
-jmp short .{g}k
-""")
+mov word [ss:S_RET],.{g}k
+jmp rd_s{at}
+""")                                            #   at around rd_slow)
             else:
                 self.a(f"""
 mov word [ss:S_RET],.{g}k
@@ -148,14 +144,10 @@ jne .{g}v
 .{g}s:
 mov [ss:S_WVAL],{src}
 """)
-            if at:
+            if at:                              # (wr_sw, as rd_sw)
                 self.a(f"""
-sub bp,{at}
-mov word [ss:S_RET],.{g}r
-jmp wr_slow
-.{g}r:
-add bp,{at}
-jmp short .{g}k
+mov word [ss:S_RET],.{g}k
+jmp wr_s{at}
 """)
             else:
                 self.a(f"""
@@ -249,10 +241,13 @@ def put8(s, r, src):
         s.a("mov %s,%s" % (X86[r], src))
         return
     half = "dh" if r == "D" else "dl"
-    if src in ("dh", "dl"):                         # DX is not D:E here
-        s.a("mov [ss:S_TMP],di")
-        s.a("mov [ss:S_TMP+%d],%s" % (1 if r == "D" else 0, src))
-        s.a("mov di,[ss:S_TMP]")
+    if src in ("dh", "dl"):                         # DX is not D:E here: the
+        if src != half:                             #   other half of DI kept,
+            s.a("mov %s,%s" % (half, src))          #   in registers (ten bytes,
+        s.a("and di,%s" % ("00FFh" if r == "D" else "0FF00h"))  # not fifteen
+        s.a("mov dl,0" if r == "D" else "xor dh,dh")    # through S_TMP; not
+        s.a("or di,dx")                             #   xor dl,dl, which a
+                                                    #   template drops)
         return
     s.a("mov dx,di")
     s.a("mov %s,%s" % (half, src))
@@ -866,6 +861,88 @@ tr_lpatch:
     mov [cs:bx+9],dx
     jmp short .go
 """,
+    0x49: """
+; tr_link for an exit (16.4): T is not in SI - a block's exit sets it only on
+; the event's way - but in the exit's own code, the mov si,T after the jmp
+; here: SITE + 7, or SITE + 12 after the five spare bytes of one into
+; 4000-7FFF
+tr_lsite:
+    mov si,dx
+    cmp byte [cs:si+6],0BEh
+    mov si,[cs:si+7]
+    je tr_link
+    mov si,dx
+    mov si,[cs:si+12]
+    jmp tr_link
+""",
+    0xEB: """
+; A translated access's slow path at M-cycle n of its instruction (rbgen's
+; read8 and write8; the interpreter's own calls rd_slow and wr_slow). ROMX
+; and the MBC are answered whenever; an I/O register as of M-cycle n, so BP
+; goes back by n around io_rd and io_wr and forward by n after - not
+; restored, since an I/O write may reschedule it (rb_sched). Shared here,
+; the template's slow path is two instructions.
+rd_s1:
+    cmp bh,80h
+    jae .io
+    mov es,[ss:S_ROMX]
+    mov dh,[es:bx]
+    jmp word [ss:S_RET]
+.io:
+    mov word [ss:S_ATN],1
+    jmp short rd_io
+rd_s2:
+    cmp bh,80h
+    jae .io
+    mov es,[ss:S_ROMX]
+    mov dh,[es:bx]
+    jmp word [ss:S_RET]
+.io:
+    mov word [ss:S_ATN],2
+    jmp short rd_io
+rd_s3:
+    cmp bh,80h
+    jae .io
+    mov es,[ss:S_ROMX]
+    mov dh,[es:bx]
+    jmp word [ss:S_RET]
+.io:
+    mov word [ss:S_ATN],3
+rd_io:
+    mov word [ss:S_RET2],io_rd
+    jmp rw_io
+""",
+    0x52: """
+; wr_s1-4: rd_s1-3's other half (slot EB's), and what they share
+wr_s1:
+    mov word [ss:S_ATN],1
+    jmp short wr_sw
+wr_s2:
+    mov word [ss:S_ATN],2
+    jmp short wr_sw
+wr_s3:
+    mov word [ss:S_ATN],3
+    jmp short wr_sw
+wr_s4:
+    mov word [ss:S_ATN],4
+wr_sw:
+    test bh,bh
+    js .io
+    jmp mbc_wr
+.io:
+    mov word [ss:S_RET2],io_wr
+rw_io:                          ; on to [S_RET2], and back through rw_back
+    sub bp,[ss:S_ATN]
+    mov [ss:S_DX2],dx
+    mov dx,[ss:S_RET]           ; the template's way on, for rw_back
+    xchg dx,[ss:S_RET2]
+    mov word [ss:S_RET],rw_back
+    xchg dx,[ss:S_DX2]          ; DX as it was; S_DX2 = io_rd or io_wr
+    jmp word [ss:S_DX2]
+rw_back:
+    add bp,[ss:S_ATN]
+    jmp word [ss:S_RET2]
+""",
     0x48: """
 ; tr_new's half that did not fit slot 41: the neighbour slot (16.3)
 tr_new2:
@@ -1477,17 +1554,20 @@ def self_guard(t):
     s = [k for k, ln in enumerate(t) if re.match(r"\.t\ds:$", ln.strip())]
     assert len(s) == 1, t
     n = t[s[0]].strip()[2]
-    r = t.index(".t%sr:" % n)
+    r = t.index("    mov word [ss:S_RET],.t%sk" % n, s[0])
+    j = r + 1
+    assert re.match(r"    jmp near wr_s\d$", t[j]), t
     k = t.index(".t%sk:" % n)
-    assert t[r + 2].strip() == "jmp short .t%sk" % n, t
     assert re.match(r"    sub bp,\d+$", t[-1]), t
     post = t[k + 1:-1]
-    return (t[:s[0] + 1] + ["    mov si,IMM16"] + t[s[0] + 1:r + 2] +
-            ["    cmp si,IMM16",
+    return (t[:s[0] + 1] + ["    mov si,IMM16"] + t[s[0] + 1:r] +
+            ["    mov word [ss:S_RET],.t%sr" % n, t[j],
+             ".t%sr:" % n,
+             "    cmp si,IMM16",
              "    jne .t%sx" % n,
              "    test bh,bh",
              "    js .t%sk" % n,
-             ".t%sx:" % n] + post + [t[-1], "    jmp near tr_enter"] + t[r + 3:])
+             ".t%sx:" % n] + post + [t[-1], "    jmp near tr_enter"] + t[j + 1:])
 
 
 # Templates the translator CHOOSES by an operand it knows: a constant address

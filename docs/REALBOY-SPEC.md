@@ -851,7 +851,15 @@ gbprof's script take the same events and skip the same M-cycles either way.
 - A template over 80 bytes is the interpreter's: LD (nn),SP.
 - A memory template keeps the slow path's stub BEFORE the fast access, so
   the common case takes one jump and none over the stub; the 286 here is
-  bound by fetching code bytes, so a jump and its bytes are the cost.
+  bound by fetching code bytes, so a jump and its bytes are the cost. The
+  stub is two instructions, `mov word [ss:S_RET],.k / jmp rd_sN` (or
+  `wr_sN`), N the M-cycle of the instruction the access is in: the shared
+  `rd_s1`-`rd_s3` answer ROMX at once and `wr_s1`-`wr_s4` hand the MBC on,
+  and only for an I/O register (`rw_io`) is BP taken back by N around
+  `io_rd`/`io_wr` and forward by N after (`S_ATN`), not restored, since an
+  I/O write may reschedule it. That took eight bytes out of every memory
+  access the cache holds - and the cache is what binds: Super Mario Land
+  had come to flush it twice in play instead of once.
 - `LDH (n)` and `LD (nn)` on an address the interpreter's own fast path takes
   directly - HRAM, WRAM, VRAM, bank 0 - are chosen by operand: one `MOV`
   through SS and the M-cycles (`rbgen.EXTRA`).
@@ -917,11 +925,19 @@ there was before the recompiler, and writes them back when it is turned on. Tran
 
 ### 16.4 Chaining
 
-An exit to a constant address in bank 0 is `mov dx,SITE / jmp tr_link`, six
-bytes that `tr_link` rewrites into `jmp near` the block once it is
+An exit to a constant address in bank 0 is `mov dx,SITE / jmp tr_lsite`,
+six bytes that `tr_link` rewrites into `jmp near` the block once it is
 translated, or that the translator writes so at once when it is already
 there. An exit into 4000-7FFF gets eleven: a check of `S_BANK` and the jump,
-falling onto the exit's own `jmp tr_enter` when the bank is another. Every
+falling onto the exit's own `mov si,T / jmp tr_enter` when the bank is
+another. An exit sets SI only on the ways that need it - the event's
+(`jmp far [ss:S_EVVEC]`) and the bank's fall - and not before its `js`, so
+a chained exit is the event check and the jump: `tr_lsite` takes T out of
+the exit's own code (the `mov si,T` after its jump, SITE + 7, or SITE + 12
+after the five spare bytes of one into a bank). With the stubs below, it
+took the CPU alone on `286-victory` from 6.77 to 6.59 ms a frame on Super
+Mario Land, 7.87 to 7.64 on Kirby's Dream Land and 2.01 to 1.97 on Dr.
+Mario. Every
 `RET` carries an inline cache, `cmp si,PC / jne / cmp byte [ss:S_BANK],B /
 jne / jmp near BLOCK`, else `mov dx,SITE / jmp tr_link`: `tr_link` looks the
 return up as it does an exit and, seeing the site's `cmp` (81h) where an
