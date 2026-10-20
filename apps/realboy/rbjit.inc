@@ -62,9 +62,9 @@ RT_PEND         equ JIT_BUF + 98h   ; word: M-cycles of PURE templates not yet
                                     ;   taken off BP (rt_flushbp)
 RT_LOOP         equ JIT_BUF + 0A0h  ; 16: a spin-wait's body, for rt_idle
 
-RT_HFREE        equ 1040            ; the table's free ranges: offset, count
-RT_HTAIL        equ 1044            ; ...its tail slots
-RT_HJD          equ 1048            ; ...the interpreter's JDISPATCH sites
+RT_HFREE        equ 1088            ; the table's free ranges: offset, count
+RT_HTAIL        equ 1092            ; ...its tail slots
+RT_HJD          equ 1096            ; ...the interpreter's JDISPATCH sites
 rt_tab:
     incbin "rbtmpl.bin"
 
@@ -331,7 +331,9 @@ rt_translate:
 ; rt_pick - the instruction at [RT_OP]/[RT_IMM] by its operand: CF = 0 and
 ; AX = a chosen-by-operand record (rbgen.EXTRA: 512 + k), [RT_IMM] the
 ; whole address, when it is LDH or LD (nn) on an address the interpreter's
-; own fast path takes directly; CF = 1 otherwise
+; own fast path takes directly - or [RT_IMM] the instruction's own PC when
+; it is a read-modify-write of (HL) (rbgen.rmw_lines); CF = 1 otherwise.
+; Keeps BX
 rt_pick:
     mov al,[RT_OP]
     mov dx,[RT_IMM]
@@ -371,7 +373,7 @@ rt_pick:
     ret
 .ea:
     cmp al,0EAh                     ; LD (nn),A: 8000-FEFF, FF80-FFFE
-    jne .no
+    jne .rmw
     test dh,dh
     jns .no
     cmp dh,0FFh
@@ -382,6 +384,39 @@ rt_pick:
     je .no
 .wr:
     mov ax,515
+    clc
+    ret
+.rmw:
+    cmp al,34h                      ; INC (HL), DEC (HL): 516, 517
+    je .incdec
+    cmp al,35h
+    je .incdec
+    cmp al,0CBh                     ; CB on (HL) but BIT: 518 + k
+    jne .no
+    mov al,dl
+    mov ah,al
+    and ah,7
+    cmp ah,6
+    jne .no
+    cmp al,40h
+    jb .cb
+    cmp al,80h
+    jb .no                          ; (BIT has its own template)
+    sub al,40h
+.cb:
+    shr al,1
+    shr al,1
+    shr al,1
+    xor ah,ah
+    add ax,518
+    jmp short .pc
+.incdec:
+    xor ah,ah
+    add ax,516 - 34h
+.pc:
+    mov dx,[RT_IX]
+    add dx,[RT_PC0]
+    mov [RT_IMM],dx
     clc
     ret
 .no:

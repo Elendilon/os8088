@@ -836,8 +836,19 @@ gbprof's script take the same events and skip the same M-cycles either way.
   the event check the interpreter makes at a branch, and the way on (16.4).
   An opcode with neither - HALT, STOP, RETI, an invalid one - ends the block
   with SI = its PC and `tr_int`, the interpreter's dispatch.
-- A template over 80 bytes is the interpreter's too: the read-modify-writes
-  of `(HL)`, whose read and write slow paths are both inline.
+- The read-modify-writes of `(HL)` - INC/DEC `(HL)` and the CB group on it
+  but BIT - carry the read's and the write's slow paths both and are over
+  80 bytes, so they are chosen by operand too (`rbgen.rmw_lines`): the
+  address is checked once for what both paths take directly, 8000-FEFF and
+  FF80-FFFE, and everything else - ROM, the MBC, I/O, IE - goes to
+  `tr_int` at the instruction itself, the template's IMM16 being its PC and
+  BP exact (it is not pure). They used to end the block, and the interpreter
+  ran on from there to the next branch and `tr_enter`: Kirby's Dream Land's
+  sound driver alone is a DEC (HL) per channel per frame. With them, the CPU
+  alone on `286-victory` went from 9.06 to 8.19 ms a frame on Kirby's Dream
+  Land and from 7.19 to 6.91 on Super Mario Land. `tools/gbprof/gbrmw.asm`
+  (`gbcpu`) runs them on WRAM and on TMA and must see the two agree.
+- A template over 80 bytes is the interpreter's: LD (nn),SP.
 - A memory template keeps the slow path's stub BEFORE the fast access, so
   the common case takes one jump and none over the stub; the 286 here is
   bound by fetching code bytes, so a jump and its bytes are the cost.

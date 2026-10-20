@@ -22,7 +22,7 @@ template three times and comparing the bytes:
 So nothing about the handlers is restated here, and a handler that changes
 shape changes its template with it.
 
-The table: 520 words, the record offsets for opcodes 00-FF, CB 00-FF and
+The table: 544 words, the record offsets for opcodes 00-FF, CB 00-FF and
 rbgen.EXTRA's chosen-by-operand templates (0: no template), then the offset and count of the FREE RANGES, the TAIL SLOTS and the
 interpreter's JDISPATCH SITES (six words; a site is a word, and with no
 recompiler its first five bytes become the plain dispatch), then the records, then the two lists. The translated code goes into
@@ -165,14 +165,15 @@ def flags_for(op, cb, lines):
     return 1
 
 
-NEXTRA = 8              # record slots after the 512 for rbgen.EXTRA
+NEXTRA = 32             # record slots after the 512 for rbgen.EXTRA
 HEAD = 2 * (512 + NEXTRA) + 12   # then the free ranges', tail slots' and
                                  #   JDISPATCH sites' offset and count words
 # The longest template the table carries. With its guards (32 bytes at most,
 # REALBOY-SPEC section 16.5) it must fit a gap, and the median gap is ~106
 # bytes. What is over it is a read-modify-write of (HL) - INC/DEC (HL), the
 # CB group on (HL), LD (nn),SP - whose read and write slow paths are both
-# inline; those end a block and the interpreter runs them.
+# inline. rbgen.EXTRA carries them in a form that takes RAM only and leaves
+# the rest to the interpreter (rbgen.rmw_lines).
 TMAX = 80
 EXPORT = ("tr_enter", "tr_link", "tr_int", "idle_yes", "cnt_ff", "RB_DISPATCH")
 
@@ -203,6 +204,7 @@ def main():
             t = rbgen.template_lines(op, cb)
             if t is not None:
                 todo.append(((cb, op), t))
+    assert len(rbgen.EXTRA) <= NEXTRA, len(rbgen.EXTRA)
     for k, (_, lines, _) in enumerate(rbgen.EXTRA):
         todo.append((("x", k), lines))
     recs = {}

@@ -1532,5 +1532,44 @@ def main():
         f.write("\n".join(L) + "\n")
 
 
+
+# The read-modify-writes of (HL) - INC/DEC (HL) and the CB group on (HL)
+# but BIT - as chosen-by-operand templates too (REALBOY-SPEC section 16.6):
+# their own templates carry the read's and the write's slow paths both and
+# are over rbtmpl.py's TMAX, so they ended a block. Here the address is
+# checked once for what both paths take directly, 8000-FEFF and FF80-FFFE,
+# and anything else - ROM, the MBC, I/O, IE - goes to the interpreter at the
+# instruction itself (IMM16 = its PC; BP is exact at a template that is not
+# pure). The operation is the handler's own, cut out of its template.
+RMW_CB = list(range(0x06, 0x40, 8)) + list(range(0x86, 0x100, 8))   # 518 + k
+
+
+def rmw_lines(op, cb):
+    t = template_lines(op, cb)
+    i = t.index(".t1k:")
+    j = t.index("    test bh,bh", i)
+    body = t[i + 1:j]
+    assert not {".s:", ".v:"} & {ln.strip() for ln in body}, (op, cb)
+    assert re.match(r"    sub bp,\d+$", t[-1]), (op, cb)
+    return ["    test bh,bh",
+            "    jns .s",
+            "    cmp bh,0FFh",
+            "    jne .v",
+            "    cmp bl,80h",
+            "    jb .s",
+            "    cmp bl,0FFh",
+            "    jne .v",
+            ".s:",
+            "    mov si,IMM16",
+            "    jmp near tr_int",
+            ".v:",
+            "    mov dh,[ss:bx]"] + body + ["    mov [ss:bx],dh", t[-1]]
+
+
+EXTRA += [("INC (HL) of RAM", rmw_lines(0x34, False), 1),
+          ("DEC (HL) of RAM", rmw_lines(0x35, False), 1)]
+EXTRA += [("CB %02X of RAM" % b, rmw_lines(b, True), 2) for b in RMW_CB]
+
+
 if __name__ == "__main__":
     main()

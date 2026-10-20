@@ -25,6 +25,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, os.path.join(ROOT, "tests", "rbcore"))
 import rbimg  # noqa: E402
 import rbqemu  # noqa: E402
@@ -62,6 +63,12 @@ MOONEYE = [
     "timer/tim11", "timer/tim11_div_trigger",
 ]
 DAA_NOP = "2700:8A3446FFE2"        # mov dh,[si] / inc si / jmp dx
+# Our own: tools/gbprof/gbrmw.asm, the read-modify-writes of (HL) the
+# recompiler does itself in RAM and hands to the interpreter elsewhere
+# (REALBOY-SPEC 16.6). Its control breaks the INTERPRETER's DEC (HL) alone,
+# which the translated WRAM side never runs: the two sides must part.
+RMW_ROM = "gbrmw"
+DECHL_NOP = "3500:8A3446FFE2"
 
 
 def rom_path(name):
@@ -116,6 +123,16 @@ def main():
             ok, last = run(label, rom_path(name), frames, core, host)
         print("%-4s %-24s %s" % ("ok" if ok else "FAIL", label, last))
         bad += not ok
+    if not a.k or a.k in "rmw (HL)":
+        import gbours
+        rom = gbours.build(RMW_ROM)
+        ok, last = run("rmw (HL)", rom, 600, core, host)
+        print("%-4s %-24s %s" % ("ok" if ok else "FAIL", "rmw (HL), RAM and I/O", last))
+        bad += not ok
+        ok, last = run("control", rom, 600, rbimg.patch_core(core, [DECHL_NOP]), host)
+        print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: DEC (HL) broken",
+                                 "passed - the gate cannot go red" if ok else "failed, as it must"))
+        bad += ok
     for name in MOONEYE:
         label = "mooneye " + name
         if a.k and a.k not in label:

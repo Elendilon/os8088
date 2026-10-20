@@ -33,6 +33,8 @@ sys.path.insert(0, os.path.join(ROOT, "tests", "rbcore"))
 import os88marty  # noqa: E402
 import rbimg  # noqa: E402
 
+S_BANK = 0x4000 + 0x35                  # rbdefs.inc: the ROM bank in 4000-7FFF
+
 HOST, CORE, CACHE = 0x8000, 0x10000, 0x90000   # rbhost.asm's segments
 
 
@@ -77,6 +79,8 @@ def main():
     ap.add_argument("--samples", type=int, default=10000)
     ap.add_argument("--render", action="store_true", help="compose every frame too (MODE 5)")
     ap.add_argument("--nojit", action="store_true", help="the interpreter alone")
+    ap.add_argument("--pcs", action="store_true",
+                    help="with --box: also the Game Boy PCs (SI) the core's samples were at")
     a = ap.parse_args()
     out = os.path.join(ROOT, "build", "realboy")
     core, host = rbimg.build_core(False, out), rbimg.build_host(out)
@@ -89,7 +93,7 @@ def main():
     hsyms = labels(listing(os.path.join(ROOT, "tests/rbcore/rbhost.asm"), inc))
     hsyms = [(o, n) for o, n in hsyms if n not in ("boot", "boot_go", "load")]  # the boot section's
     ck, hk = [o for o, _ in csyms], [o for o, _ in hsyms]
-    hits, tot = {}, 0
+    hits, tot, pcs = {}, 0, {}
 
     sys.path.insert(0, os.path.join(ROOT, "apps", "realboy"))
     import rbgen
@@ -134,6 +138,11 @@ def main():
                 r = b.cmd("regs")
                 name = charge(r["cs_base"] + (r["eip"] & 0xFFFF))
                 hits[name] = hits.get(name, 0) + 1
+                if a.pcs and name.startswith("core"):
+                    pc = r["esi"] & 0xFFF0
+                    if 0x4000 <= pc < 0x8000:       # ...and the bank there
+                        pc |= b.memr((r["ss"] << 4) + S_BANK, 1)[0] << 16
+                    pcs[pc] = pcs.get(pc, 0) + 1
                 tot += 1
         finally:
             try:
@@ -164,6 +173,11 @@ def main():
     print("  " + "   ".join("%s %.1f%%" % (g, 100.0 * n / tot) for g, n in sorted(groups.items())))
     for k, n in sorted(hits.items(), key=lambda x: -x[1])[:40]:
         print("  %5.1f%%  %s" % (100.0 * n / tot, k))
+    if pcs:
+        print("the core's samples by Game Boy PC (SI, 16-byte buckets):")
+        for k, n in sorted(pcs.items(), key=lambda x: -x[1])[:24]:
+            print("  %5.1f%%  %s%04X" % (100.0 * n / tot, "%02X:" % (k >> 16) if k >> 16 else "",
+                                           k & 0xFFFF))
 
 
 if __name__ == "__main__":
