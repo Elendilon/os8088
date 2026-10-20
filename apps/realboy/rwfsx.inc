@@ -80,6 +80,12 @@ rw_mgrey:
     mov si, rw_it_log1
 .l:
     mov [rw_i_mach + 8], si
+    mov si, rw_it_il0               ; Interlace: what it is now
+    cmp byte [rb_ilace], 0
+    je .i
+    mov si, rw_it_il1
+.i:
+    mov [rw_i_mach + 10], si
     pop si
     pop dx
     pop bx

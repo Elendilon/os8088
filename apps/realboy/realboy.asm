@@ -1973,6 +1973,15 @@ rw_dmgclaim:
     ret
 
 ; rw_dmgfull - the next rb_renderd composes and writes every line
+; rw_iltoggle - Machine > Interlace (REALBOY-SPEC 13.2): a draw composes
+; the lines of one parity, the next the other's, for twice the pictures a
+; second at a price in looks; off, every line again. Either way the next
+; draw is whole
+rw_iltoggle:
+    xor byte [rb_ilace], 1
+    call rw_dmgfull
+    jmp rw_mgrey
+
 rw_dmgfull:
     push es
     push ax
@@ -2112,6 +2121,8 @@ rw_oncmd:
     je rw_fsenter                   ; Full Screen
     cmp al, 4
     je rw_logtoggle                 ; Log
+    cmp al, 5
+    je rw_iltoggle                  ; Interlace
     cmp word [rw_jitseg], 0         ; Recompiler: the worker flips it
     je .r
     mov byte [rw_jitq], 1
@@ -2153,7 +2164,7 @@ rw_tpl:
 
     OS88_MENUSET rw_menus, rw_ttl, rw_oncmd
         OS88_MENU rw_m_file, rw_i_file, 2
-        OS88_MENU rw_m_mach, rw_i_mach, 5
+        OS88_MENU rw_m_mach, rw_i_mach, 6
     OS88_MENUSET_END rw_menus
 
 rw_ttl:         db 'RealBoy', 0
@@ -2163,6 +2174,7 @@ rw_it_open:     db 'Open...', 0
 rw_it_close:    db 'Close', 0
 rw_m_mach:      db 'Machine', 0
 rw_i_mach:      dw rw_it_reset, rw_it_pause, rw_it_fs0, rw_it_jit0, rw_it_log0
+                dw rw_it_il0
 rw_it_reset:    db 'Reset', 0
 rw_it_pause:    db 'Pause', 0
 rw_it_fs:       db 'Full Screen', 0
@@ -2173,6 +2185,8 @@ rw_it_joff:     db 'Recompiler: Off', 0
 rw_it_jit0:     db MENU_DIS, 'Recompiler (286)', 0
 rw_it_log0:     db 'Log: Off', 0
 rw_it_log1:     db 'Log: On', 0
+rw_it_il0:      db 'Interlace: Off', 0
+rw_it_il1:      db 'Interlace: On', 0
 
 rw_s_fps:       db 'fps', 0
 rw_s_jit:       db ' JIT', 0

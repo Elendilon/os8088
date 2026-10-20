@@ -23,8 +23,9 @@ RW_LOGKB        equ 48              ; the text's claim at the write: 256 lines o
                                     ;   at most ~150 characters and the head
 ; a record: the ticks since the log began (at its end), the ticks it spans,
 ; frames run, frames drawn, lines composed, lines changed, the drawing's
-; milliseconds, the longest draw (ms, at most 255), flags: bits 0-5 the most
-; frames owed (at most 63), bit 6 full screen, bit 7 the recompiler on
+; milliseconds, the longest draw (ms, at most 255), flags: bits 0-4 the most
+; frames owed (at most 31), bit 5 interlace, bit 6 full screen, bit 7 the
+; recompiler on
 RL_TICK         equ 0
 RL_SPAN         equ 2
 RL_RUN          equ 4
@@ -214,9 +215,9 @@ rw_dscanhk:
 
 ; rw_logowed - AL = frames owed now: the second's most
 rw_logowed:
-    cmp al, 63
-    jbe .o
-    mov al, 63
+    cmp al, 31                      ; (five bits: RL_FLAGS has three
+    jbe .o                          ;   letters above them)
+    mov al, 31
 .o:
     cmp al, [rw_aowed]
     jbe .r
@@ -264,6 +265,10 @@ rw_logsec:
     je .j
     or al, 80h
 .j:
+    cmp byte [rb_ilace], 0
+    je .i
+    or al, 20h
+.i:
     mov [bx + RL_FLAGS], al
     mov al, [rw_aevt]
     mov [bx + RL_EVT], al
@@ -624,7 +629,7 @@ rw_lline:
     mov cl, 5
     call rw_lnum
     mov al, [bx + RL_FLAGS]
-    and ax, 3Fh
+    and ax, 1Fh
     mov cl, 5
     call rw_lnum
     mov ax, [bx + RL_EVN]           ; the counters
@@ -656,6 +661,13 @@ rw_lline:
     mov al, 'J'
     stosb
 .e:
+    test byte [bx + RL_FLAGS], 20h
+    jz .e2
+    mov al, ' '
+    stosb
+    mov al, 'I'                     ; Machine > Interlace on
+    stosb
+.e2:
     mov dl, [bx + RL_EVT]           ; what the user did, by name
     mov si, rw_s_levts
 .ev:

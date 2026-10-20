@@ -239,9 +239,16 @@ RB_DCOMP        equ 0x3180              ; word: lines composed (the host's to
 RB_DLOG         equ 0x3182              ; 256: the last call's raster log (its
                                         ;   count is RB_DLLOG), 64 entries at most
 RB_DLOGMAX      equ 64
-RB_DMG_SIZE     equ 0x3282
+RB_DPEND        equ 0x3282              ; 144: a changed line INTERLACE left
+                                        ;   for the next call (rb_ilace)
+RB_DPAR         equ 0x3312              ; byte: the parity this call composes
+RB_DMG_SIZE     equ 0x3314
 
 rb_dmgseg       dw 0                    ; the host's damage segment, or 0
+rb_ilace        db 0                    ; the host's: 1 = INTERLACE, each call
+                                        ;   composes the lines of one parity,
+                                        ;   the other's changes kept for the
+                                        ;   next (REALBOY-SPEC 13.2)
 rb_dhook        dw 0                    ; the host's near proc, called when the
                                         ;   scan is done (its log's clock), or 0;
                                         ;   every register its to keep
@@ -268,6 +275,10 @@ rb_renderd:
     mov [es:RB_DOUT],di
     mov [es:RB_DOUT+2],ax
     mov word [es:RB_DCNT],0
+    cmp byte [cs:rb_ilace],0
+    je .par
+    xor byte [es:RB_DPAR],1             ; the other parity's turn
+.par:
     cmp byte [PPU_REVOK],0
     jne .rev
     call ppu_mkrev
@@ -382,8 +393,9 @@ rb_renderd:
     jne .slow
     mov byte [es:RB_DFAST],1
     mov al,[es:RB_DTCH]                 ; ...and nothing else changed either:
-    or al,[es:RB_DMCH]                  ;   not a line to compose
-    or al,[es:RB_DOCH]
+    or al,[es:RB_DMCH]                  ;   not a line to compose (but those
+    or al,[es:RB_DOCH]                  ;   INTERLACE left the last call)
+    or al,[cs:rb_ilace]
     jz .done
     call ppu_dfast                      ; RB_DLD = every line to compose
 .slow:
@@ -398,6 +410,11 @@ rb_renderd:
     mov bl,[PPU_LY]
     xor bh,bh
     mov byte [es:RB_DCHG+bx],0
+    cmp byte [cs:rb_ilace],0            ; INTERLACE: left by the last call
+    je .nip
+    cmp byte [es:RB_DPEND+bx],0
+    jne .comp
+.nip:
     cmp byte [es:RB_DFAST],0
     je .judge
     cmp byte [es:RB_DLD+bx],0           ; FAST: judged already, by rows
@@ -407,6 +424,21 @@ rb_renderd:
     call ppu_ldirty                     ; CF = 1: compose it
     jnc .skip
 .comp:
+    cmp byte [cs:rb_ilace],0
+    je .comp2
+    mov bl,[PPU_LY]                     ; (ppu_ldirty's BX is its own)
+    xor bh,bh
+    cmp byte [es:RB_DFULL],1            ; (the host's whole: every line)
+    je .ilc
+    mov al,bl
+    xor al,[es:RB_DPAR]
+    test al,1
+    jz .ilc
+    mov byte [es:RB_DPEND+bx],1         ; the other parity's: the next call's
+    jmp short .skip
+.ilc:
+    mov byte [es:RB_DPEND+bx],0
+.comp2:
     inc word [es:RB_DCOMP]
     call ppu_line
     call ppu_dput                       ; into the buffer if it differs

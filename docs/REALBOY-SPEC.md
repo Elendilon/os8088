@@ -602,6 +602,17 @@ it changed), and AX holds the count.
   compared it was never FAST: standing still on the Victory's 86Box twin,
   judging 144 lines was 5 ms a draw and the picture 23 frames a second; it
   is 41 now, the judging 0.15 ms.
+- **INTERLACE** (`[rb_ilace]`, Machine > Interlace, off by default): a call
+  composes the changed lines of one parity and leaves the other's pending
+  (`RB_DPEND`, a byte a line) for the next call, whose parity
+  (`RB_DPAR`) is the other. A line pending from the last call is composed
+  whatever its parity, so nothing changed is lost for more than one draw;
+  `RB_DFULL` = 1 composes both. It halves the composition of a picture
+  that changes everywhere, a scroll above all, at a price the requester
+  named beforehand: a moving edge is drawn half a frame apart on
+  alternate lines. It is there to be looked at on the Victory, not as a
+  default. The bare harness never sets it, so its frame need not reach
+  `RB_DPEND`.
 - **What it costs** an 8088 is the comparison, ~20 ms of 8KB a call. It
   saves ~4 ms of composition for every line it skips. On Super Mario Land it
   composed 38 lines a call of 144, and on Kirby's Dream Land 27.
@@ -700,7 +711,8 @@ on a machine with no debugger.
   the seconds since the log began, the game's speed and frames run, the
   frames drawn, the lines composed and the lines changed (section 13.2),
   the milliseconds spent drawing and the longest draw, the most frames
-  owed, and W or F (window or full screen) with J when the recompiler ran.
+  owed (at most 31), and W or F (window or full screen) with J when the
+  recompiler ran and I when Machine > Interlace was on.
 - **Where a second went**, which the third field run asked for: of the
   drawing's milliseconds, those comparing VRAM and OAM (**scan**,
   `ppu_dscan`, timed through `rb_dhook`) and those composing lines
