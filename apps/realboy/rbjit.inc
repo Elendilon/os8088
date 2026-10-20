@@ -40,7 +40,7 @@
 %include "rbcore.inc"
 
 RT_MAXI         equ 40              ; instructions a block at most
-RT_CTL          equ 92              ; bytes a control transfer's code may take
+RT_CTL          equ 96              ; bytes a control transfer's code may take
                                     ;   (JR cc to a spin-wait on (HL) in
                                     ;   4000-7FFF 86 - rt_exit there is 29 -
                                     ;   RET cc 90, CALL cc 73: each rt_room
@@ -68,6 +68,8 @@ RT_HMAX         equ 16              ; an HRAM block's bytes at most (rt_guard)
 RT_PEND         equ JIT_BUF + 98h   ; word: M-cycles of PURE templates not yet
                                     ;   taken off BP (rt_flushbp)
 RT_LOOP         equ JIT_BUF + 0A0h  ; 16: a spin-wait's body, for rt_idle
+RT_P0           equ JIT_BUF + 0B0h  ; word: RT_PEND as rt_ctl found it, each
+                                    ;   arm's own (rt_subbp, rt_pend0)
 
 RT_HFREE        equ 1088            ; the table's free ranges: offset, count
 RT_HTAIL        equ 1092            ; ...its tail slots
@@ -593,19 +595,24 @@ rt_translate:
     call rt_room
     jc .restart
     call rt_glen
-    call rt_flushbp
-    mov ax,[RT_IX]
-    add ax,[RT_PC0]                 ; AX = the instruction's PC
-    call rt_ctl
+    mov ax,[RT_IX]                  ; (the pending M-cycles go into each
+    add ax,[RT_PC0]                 ;   arm's own sub bp: rt_subbp)
+    call rt_ctl                     ; AX = the instruction's PC
+    mov word [RT_PEND],0
     jmp short .done
 .fall:
     mov cx,RT_FALL + 4
     call rt_room
     jc .restart
-    call rt_flushbp
     mov ax,[RT_IX]
     add ax,[RT_PC0]
-    call rt_exit_or                 ; on to the next PC, checking BP
+    cmp word [RT_PEND],0            ; on to the next PC, checking BP: the
+    je .fo                          ;   flush's sub bp sets the sign itself
+    call rt_flushbp
+    call rt_exit
+    jmp short .done
+.fo:
+    call rt_exit_or
 .done:
     mov ax,[RT_START]
     mov [RT_ENT],ax
@@ -1029,6 +1036,17 @@ rt_tmpl:
     mov si,[RT_REC]
     mov cl,[cs:rt_tab + si + 2]
     xor ch,ch
+    test byte [cs:rt_tab + si + 4],32   ; DEFERRABLE (rbtmpl): BP exact at
+    jz .cp                          ;   its start is all it needs, so its
+    cmp byte [RT_GUARD],0           ;   own sub bp,n joins the pending -
+    jne .cp                         ;   unless a guard's exit follows it
+    push si                         ;   (an exit leaves with BP charged)
+    mov bx,cx
+    mov al,[cs:rt_tab + si + 9 + bx - 1]
+    xor ah,ah
+    add [RT_PEND],ax
+    pop si
+    sub cx,3
 .cp:
     push di                         ; the template's place
     push si
@@ -1288,7 +1306,12 @@ rt_movsi:
     ret
 
 ; rt_subbp - sub bp,AL
-rt_subbp:
+rt_subbp:                           ; ...and the pending M-cycles, taken
+    xor ah,ah                       ;   (rt_ctl's arms: one sub each, where
+    add ax,[RT_PEND]                ;   a flush before the control transfer
+    mov word [RT_PEND],0            ;   made two)
+    cmp ax,127
+    ja .w
     mov ah,al
     mov al,83h
     stosb
@@ -1296,6 +1319,22 @@ rt_subbp:
     stosb
     mov al,ah
     stosb
+    ret
+.w:
+    push ax
+    mov ax,0ED81h                   ; sub bp,imm16
+    stosw
+    pop ax
+    stosw
+    ret
+
+; rt_pend0 - the second arm of a conditional transfer: its pending M-cycles
+; back (the first arm's sub took them). Every register kept.
+rt_pend0:
+    push ax
+    mov ax,[RT_P0]
+    mov [RT_PEND],ax
+    pop ax
     ret
 
 ; rt_skip - Jcc short over what follows: AL = the opcode. Out: BX = the
@@ -1324,6 +1363,10 @@ RT_SKIP_C       equ 73h
 rt_skips:       db RT_SKIP_NZ, RT_SKIP_Z, RT_SKIP_NC, RT_SKIP_C
 
 rt_ctl:
+    push ax
+    mov ax,[RT_PEND]
+    mov [RT_P0],ax
+    pop ax
     mov si,ax                       ; SI = the instruction's PC
     mov bl,[RT_OP]
     cmp bl,18h
@@ -1352,6 +1395,7 @@ rt_ctl:
     je .jphl
     ; no template and no jump: the interpreter takes it from its PC, in
     ; the core (RB_DISPATCH, through S_DISP)
+    call rt_flushbp
     mov al,0BEh                     ; mov si,PC / jmp tr_int
     stosb
     mov ax,si
@@ -1378,6 +1422,7 @@ rt_ctl:
     call rt_jrt
     pop bx
     call rt_land
+    call rt_pend0                   ; (the other arm's pending too)
     mov al,2
     call rt_subbp
     lea ax,[si+2]
@@ -1396,6 +1441,7 @@ rt_ctl:
     call rt_exit
     pop bx
     call rt_land
+    call rt_pend0                   ; (the other arm's pending too)
     mov al,3
     call rt_subbp
     lea ax,[si+3]
@@ -1418,6 +1464,7 @@ rt_ctl:
     call rt_exit
     pop bx
     call rt_land
+    call rt_pend0                   ; (the other arm's pending too)
     mov al,3
     call rt_subbp
     lea ax,[si+3]
@@ -1432,6 +1479,7 @@ rt_ctl:
     call rt_ret
     pop bx
     call rt_land
+    call rt_pend0                   ; (the other arm's pending too)
     mov al,2
     call rt_subbp
     lea ax,[si+1]
@@ -1566,6 +1614,7 @@ rt_jrt:
 .cnt:
     mov bx,RBC_CNT_FF
 .ff:                                ; BX = the tail, DX what it is told
+    call rt_flushbp                 ; (it reads BP: charged first)
     mov al,0BEh                     ; mov si,T
     stosb
     mov ax,[RT_T]
@@ -1658,7 +1707,8 @@ rt_jrt:
     cmp byte [RT_IDLE],1
     je .yes
     ; HL's: only while HL is WRAM or HRAM (rbgen's idle_hl)
-    mov ax,0FF80h                   ; cmp bh,0C0h
+    call rt_flushbp                 ; (idle_yes reads BP: charged first,
+    mov ax,0FF80h                   ;   for both ways out) - cmp bh,0C0h
     stosw
     mov al,0C0h
     stosb
@@ -1685,6 +1735,7 @@ rt_jrt:
     call rt_land
     jmp short .plain
 .yes:
+    call rt_flushbp
     call .emit_yes
     ret
 .emit_yes:

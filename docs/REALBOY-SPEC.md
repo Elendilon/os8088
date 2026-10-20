@@ -1148,6 +1148,25 @@ which it takes off BP in one `sub` (`rt_flushbp`) before the next template
 that is not pure, a control transfer or the block's fall-through. Super
 Mario Land, the CPU alone: 9.57 to 9.29 ms a frame.
 
+**The pending count goes INTO the control transfer's own `sub`**: each arm
+of a conditional takes it in its `sub bp,n` (`rt_subbp`, `rt_pend0` giving
+the second arm its own), where a flush before the transfer made two subs
+at every block end; a fall-through's flush stands in for its `or bp,bp`.
+The idioms that read BP (`cnt_ff`, `cpy_ff`, `stat_ff`, `idle_yes`) and the
+untemplated opcode's way to the interpreter take the flush first. Super
+Mario Land 119 -> 115 ticks and Kirby's Dream Land (two segments) 266 ->
+258, the CPU alone on `286-victory`.
+
+**A template that is not pure may still defer its own sub** (flags bit
+5, 88 of them: the memory accesses through (HL), (DE), (BC), the ALU on
+(HL), the read-modify-writes): it needs BP exact only at its START, which
+the flush before it makes - its slow paths take BP back and forth around
+an I/O access by the access's own M-cycle (`S_ATN`), and its only other
+`sub bp` is one straight before an exit to `tr_enter` or `tr_int`. So with
+no guard after it (whose exit leaves with BP charged) its `sub bp,n` joins
+the pending count. EI reads BP (`force_ev`) and is not one. Kirby's Dream
+Land 258 -> 252 ticks, Super Mario Land 115 -> 114.
+
 ### 16.2 The cache
 
 The code goes into a 64KB segment of its own. It holds copies of the core's
