@@ -743,7 +743,10 @@ The figures are on `vm/286-victory`, 16 MHz, the CPU alone in the bare
 harness, at **6.55 ms a frame** recompiled. MEASURED and PREDICTED are as
 in the report.
 
-1. **Loop idioms, the largest lever.** Three blocks that each jump to their
+1. **Loop idioms, the largest lever. BUILT** (`add_ff` and `cpy_ff`,
+   REALBOY-SPEC section 16.6): the frame 6.55 -> 6.22 ms, 3EF9's share
+   measured at -0.23 ms and the copy pair's at -0.10 on the bench's own
+   play. Three blocks that each jump to their
    own start are 17% of the machine over 12 s of play and 26% over the 3 s
    with most enemies (MEASURED, `rbprof --blocks`):
    - **3EF9**, `ADD HL,DE / DEC B / JR NZ,-4` with B = 32, a background-map

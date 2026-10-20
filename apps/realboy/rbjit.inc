@@ -1200,6 +1200,8 @@ rt_jrt:
     cmp dl,0Dh
     jne .nocnt
 .cnt:
+    mov bx,RBC_CNT_FF
+.ff:                                ; BX = cnt_ff or add_ff, DL = the DEC
     mov al,0BEh                     ; mov si,T
     stosb
     mov ax,[RT_T]
@@ -1217,10 +1219,49 @@ rt_jrt:
     stosb
     mov al,dl
     stosb
-    mov ax,RBC_CNT_FF
+    xchg ax,bx
     call rt_jmp
     jmp .plain                      ; FALLBACK: the taken JR as usual
 .nocnt:
+    cmp dx,0FFFCh                   ; -4, a JR NZ after ADD HL,DE / DEC B
+    jne .noadd                      ;   or C: a map row stepped through
+    cmp byte [RT_OP],20h            ;   (add_ff, REALBOY-SPEC 16.6)
+    jne .noadd
+    mov bx,[RT_IX]
+    cmp bx,2
+    jb .noadd
+    cmp byte [JIT_BUF+bx-2],19h
+    jne .noadd
+    mov dl,[JIT_BUF+bx-1]
+    cmp dl,05h
+    je .add
+    cmp dl,0Dh
+    je .add
+    mov dl,0FCh                     ; (DX the displacement again)
+    jmp short .noadd
+.add:
+    mov bx,RBC_ADD_FF
+    jmp .ff
+.noadd:
+    cmp dx,0FFFAh                   ; -6, a JR NZ after a copy's four (cpy_ff,
+    jne .nocpy                      ;   REALBOY-SPEC 16.6): LD A,(HL+) /
+    cmp byte [RT_OP],20h            ;   LD (DE),A or LD A,(DE) / LD (HL+),A,
+    jne .nocpy                      ;   then INC DE / DEC B
+    mov bx,[RT_IX]
+    cmp bx,4
+    jb .nocpy
+    cmp word [JIT_BUF+bx-2],0513h
+    jne .nocpy
+    mov ax,[JIT_BUF+bx-4]           ; (what follows takes T from RT_T)
+    cmp ax,122Ah
+    je .cpy
+    cmp ax,221Ah
+    jne .nocpy
+.cpy:
+    mov dl,al
+    mov bx,RBC_CPY_FF
+    jmp .ff
+.nocpy:
     cmp dx,0FFF0h                   ; -16..-4: a spin-wait's shape?
     jb .plain
     cmp dx,0FFFCh

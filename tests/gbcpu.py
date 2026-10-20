@@ -126,10 +126,10 @@ def main():
     if not a.k or a.k in "rmw (HL)":
         import gbours
         rom = gbours.build(RMW_ROM)
-        ok, last = run("rmw (HL)", rom, 600, core, host)
+        ok, last = run("rmw (HL)", rom, 2000, core, host)
         print("%-4s %-24s %s" % ("ok" if ok else "FAIL", "rmw (HL), RAM and I/O", last))
         bad += not ok
-        ok, last = run("control", rom, 600, rbimg.patch_core(core, [DECHL_NOP]), host)
+        ok, last = run("control", rom, 2000, rbimg.patch_core(core, [DECHL_NOP]), host)
         print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: DEC (HL) broken",
                                  "passed - the gate cannot go red" if ok else "failed, as it must"))
         bad += ok

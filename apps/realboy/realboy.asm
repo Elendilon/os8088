@@ -1160,9 +1160,9 @@ rw_worker:                          ;   the worker parked at the top of its
     call rw_mgrey                   ; the item says what it is now
 .nojq:
     cmp byte [rw_state], 1
-    jne .sleep
+    jne .held
     cmp byte [rw_pause], 0
-    jne .sleep
+    jne .held
     call OSAPI_GET_TICKS
     mov bx, ax
     sub bx, [rw_last]
@@ -1214,7 +1214,10 @@ rw_worker:                          ;   the worker parked at the top of its
     mov si, rw_present              ;   of the machine is for a game that
     call rw_timed                   ;   has frames to run)
     jmp .loop
-.resync:
+.held:                              ; paused or stopped: nothing owed, and
+    mov word [rw_owed], 0           ;   the clock kept - Go ran at once what
+    call OSAPI_GET_TICKS            ;   the menu's own stall had owed before
+.resync:                            ;   the pause (gblog: 30 frames, 133%)
     mov [rw_last], ax
 .sleep:
     cmp byte [rw_pause], 0          ; paused or stopped: the speaker quiet

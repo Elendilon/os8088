@@ -17,9 +17,11 @@
 ; UI task writes (SPEC.md 20.6 rule 7), from the menu or the close.
 ; =============================================================================
 
-RW_LOGN         equ 256             ; records kept, the latest: four minutes
+RW_LOGN         equ 128             ; records kept, the latest: two minutes
+                                    ;   (256 until the recompiler wanted its
+                                    ;   4KB of the package's 63.5)
 RW_LOGSZ        equ 32
-RW_LOGKB        equ 48              ; the text's claim at the write: 256 lines of
+RW_LOGKB        equ 24              ; the text's claim at the write: 128 lines of
                                     ;   at most ~150 characters and the head
 ; a record: the ticks since the log began (at its end), the ticks it spans,
 ; frames run, frames drawn, lines composed, lines changed, the drawing's

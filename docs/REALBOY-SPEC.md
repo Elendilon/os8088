@@ -653,7 +653,11 @@ third frame both ways, by damage into a buffer it keeps and whole by
   Kirby's Dream Land from 85.9% to 90.5% of real time on `286-victory`;
   8,000 read 91.8% and is a mouse byte nearer the edge); and composes and blits a frame when it has caught up or every three
   ticks whatever happens, so a machine that is behind still shows ~6 frames
-  a second. F1 puts the game's speed and the frames drawn a second over the
+  a second. A worker that has caught up and would only sleep draws a frame
+  it has not drawn yet whatever the spacing of section 15.2 says - that
+  half of the machine is for a game with frames to run, and the third
+  field run's Super Mario Land interlaced slept ~190 ms a second at 20
+  pictures. F1 puts the game's speed and the frames drawn a second over the
   picture. The joypad is the held keys - arrows, X = A,
   Z = B, Enter = Start, Space = Select - and nothing while another window
   has the keyboard. Reset is the worker's to do (`rb_init` again); Pause
@@ -707,7 +711,7 @@ on a machine with no debugger.
     largest run as the load found it, and - for a cartridge in the bank
     cache (section 10.3) - its slots and the banks fetched so far.
 
-- **A record** (32 bytes, the latest 256 kept, about four minutes) holds
+- **A record** (32 bytes, the latest 128 kept, about two minutes) holds
   the seconds since the log began, the game's speed and frames run, the
   frames drawn, the lines composed and the lines changed (section 13.2),
   the milliseconds spent drawing and the longest draw, the most frames
@@ -812,6 +816,11 @@ A draw is due (`rw_drawdue`) in one of two cases:
   since it ended. So drawing takes at most half the machine.
 - **The game is behind**: another such length later still. So drawing takes
   a third of the machine and the rest goes to catching up.
+- **The machine would otherwise sleep** - caught up, nothing owed, and a
+  frame run since the last draw: it is drawn now, whatever the first case
+  says (`[rw_undrawn]`; section 14's worker and `rw_fsmain` alike). The
+  first two cases ration the machine between the picture and a game with
+  frames to run; idle time is nobody's.
 - **On a 286** a draw is milliseconds, and the rule comes down to "every
   frame it has caught up".
 - **On an 8088** a draw is a large part of a second, and the picture rate
@@ -952,11 +961,17 @@ in Super Mario Land walking, 10 lost slots, 17 entries counting and 17
 failed links a frame. With the neighbour the CPU alone (`rbbench.py --box
 286-victory`) went from 9.29 to 7.32 ms a frame on Super Mario Land and from
 11.35 to 9.75 on Kirby's Dream Land. **A PC is translated
-only on its 64th entry** (`RB_JITHOT`; it was 16), so code that runs a few
-times is interpreted and never takes the cache's room; a translated entry
-gives its slot up only after 64 others have asked for it. At 16 Kirby's
-Dream Land walking translated 2,933 blocks in 15 seconds and flushed the
-cache 7 times; at 64, 605 and once. **A flush forgets everything**, the table with the code. Keeping what was
+only on its 16th entry** (`RB_JITHOT`), so code that runs a few times is
+interpreted and never takes the cache's room; a translated entry gives its
+slot up only after 16 others have asked for it. It was 64 for a while: with
+the block table still in the cache, 16 had Kirby's Dream Land walking
+translate 2,933 blocks in 15 seconds and flush 7 times. With the table out
+(16.2) it is 1,354 blocks and 2 flushes in 44 seconds against 64's 661 and
+1, and 16 is the faster: warming is the COUNTING - `tr_ekey`, `tr_enter`
+and `tr_count` were ~29% of Kirby's first seconds against the translator's
+~4% - and after a flush Kirby slumps 2 seconds at ~58% of real time rather
+than 4 at 32-54%. 96.9% over 40 seconds against 94.5%, recompiler forced on
+(`rbwin.py`, `286-victory`). **A flush forgets everything**, the table with the code. Keeping what was
 hot (an entry that had a block counting again from near `RB_JITHOT`) was
 tried and REFUSED: on the bare harness it took Kirby's Dream Land from 7.64
 to 7.14 ms a frame, but in the package on `286-victory`, the recompiler
@@ -1047,6 +1062,30 @@ drawing 16 frames a second, and walking right 35.8% drawing 2 - the scroll's
 own code, not the picture (`rbwin.py`, the hash fold of section 16.3 in).
 docs/reports/REALBOY-DAMAGE-2026-10-19.md has the record.
 
+**Loop idioms** (from docs/reports/REALBOY-STATIC-2026-10-20.md, which
+found three loops that each jump to their own head to be 17-26% of Super
+Mario Land's machine while it scrolls with enemies). `rt_jrt` recognises
+two more shapes beside the countdown of section 8.1, and the taken `JR NZ`
+goes to a core tail that runs the rest of the loop in one step when BP
+covers all of it - so no event can fall inside - and back to the loop
+otherwise:
+
+- **`add_ff`**: `ADD HL,DE / DEC B` (or `C`) `/ JR NZ,-4`, a background
+  map's row stepped through (3EF9, B = 32). HL += DE x r, r = 0, the last
+  ADD's carry and DEC's Z and N, 6r + 2 M-cycles.
+- **`cpy_ff`**: `LD A,(HL+) / LD (DE),A / INC DE / DEC B / JR NZ,-6` and
+  `LD A,(DE) / LD (HL+),A / ...`, a copy (2CF0 and 2D02, an enemy's 13-byte
+  slot between WRAM and HRAM). Only when both ranges lie wholly in
+  8000-FEFF or FF80-FFFE, where translated loads and stores take memory
+  directly; `REP MOVSB` forward, so an overlap smears as the loop does.
+  10r + 2 M-cycles.
+
+The CPU alone on `286-victory` (`rbbench.py`): Super Mario Land 6.55 ms a
+frame without either, 6.32 with `add_ff` and 6.22 with both.
+`tools/gbprof/gbrmw.asm` runs each against the same loop closed by `JP NZ`,
+which no idiom takes, and fails when either tail is broken (the last ADD's
+carry dropped; A taken from the wrong byte).
+
 ### 16.7 Auto: the recompiler when it is the cheaper
 
 **The recompiler is not always faster.** On the Victory's 86Box twin
@@ -1063,7 +1102,13 @@ Off, and Auto measures (`rw_jitauto`, once a second from `rw_stat`):
   had Kirby's Dream Land interpreted at 62% when it ran recompiled at 86%;
 - four windows of two seconds - with the recompiler, without, with,
   without - each's cost a frame being the machine's own time (`rw_frame` to
-  its yield) over the frames it ran;
+  its yield) over the frames it ran. A window with the recompiler that
+  translated `RW_JWARM` (48) blocks or more is run again, up to three
+  times: it timed the counting and the translator, not the recompiler. The
+  third field run's Super Mario Land was handed to the interpreter so, its
+  two recompiler windows on the first level's start with 233 blocks
+  translated, and spent 750 ms a second running the Game Boy against the
+  recompiler's 430;
 - then the recompiler unless the interpreter was cheaper by an eighth or
   more (a title screen times both alike, and a near tie there once handed
   Super Mario Land's levels to the interpreter), for a minute - five when

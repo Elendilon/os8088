@@ -165,6 +165,9 @@ S_ATN           equ RB_STATE+0xE8   ; word: the M-cycle a translated access's
 S_RET2          equ RB_STATE+0xEA   ; word: its S_RET while io_rd/io_wr run
 S_DX2           equ RB_STATE+0xEC   ; word: DX, kept across that
 S_JITHSEG       equ RB_STATE+0xEE   ; word: the block table's segment (16.3)
+S_TMP2          equ RB_STATE+0xF0   ; word: scratch beside S_TMP (S_TMP is ONE
+S_TMP4          equ RB_STATE+0xF2   ;   word: LD (nn),SP's S_TMP+2 and +4 were
+S_TMP6          equ RB_STATE+0xF4   ;   S_RAMCUR and the clock's seconds)
 SQ_ON           equ 0
 SQ_VOL          equ 1
 SQ_ENV          equ 2
