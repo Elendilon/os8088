@@ -111,6 +111,8 @@ def main():
     ap.add_argument("--vga", action="store_true",
                     help="with --rom: ...and rb_renderd's changed lines copied onto VGA mode "
                          "0Dh, as the package's full screen does (REALBOY-SPEC 15)")
+    ap.add_argument("--ilace", type=int, default=0, choices=(0, 1, 2, 3),
+                    help="with --vga: Interlace Off, On, Scrolling or Doubled (rb_ilace)")
     a = ap.parse_args()
     subprocess.check_call([sys.executable, os.path.join(ROOT, "tools/gbclock.py")],
                           stdout=subprocess.DEVNULL)
@@ -126,7 +128,7 @@ def main():
                          "renderd" if a.renderd else
                          "render" if a.render else "play", frames,
                          core=core, host=host,
-                         jit="static" if a.static else not a.nojit, seg2=a.seg2)
+                         jit="static" if a.static else not a.nojit, seg2=a.seg2, ilace=a.ilace)
         txt = run_marty(img, a.marty) if a.marty else run_box(img, a.box,
                                                               "rbbrom%d" % os.getpid())
         os.remove(img)

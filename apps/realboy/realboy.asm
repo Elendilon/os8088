@@ -2711,9 +2711,9 @@ rw_dmgclaim:
 ; while the picture scrolls; off, every line again. Either way the next draw
 ; is whole
 rw_iltoggle:
-    mov al, [rb_ilace]              ; Off -> On -> Scrolling -> Off
-    inc ax
-    cmp al, 3
+    mov al, [rb_ilace]              ; Off -> On -> Scrolling -> Doubled
+    inc ax                          ;   -> Off
+    cmp al, 4
     jb .s
     xor al, al
 .s:
@@ -2947,6 +2947,7 @@ rw_it_bigd:     db MENU_DIS, 'Cache (286)', 0
 rw_s_bignx:     db 'Cache: from the next game', 0
 rw_s_cfg:       db 'REALBOY.CFG', 0
 rw_it_il2:      db 'Interlace: Scrolling', 0
+rw_it_il3:      db 'Interlace: Doubled', 0
 
 rw_s_fps:       db 'fps', 0
 rw_s_jit:       db ' JIT', 0

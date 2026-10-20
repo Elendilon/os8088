@@ -89,6 +89,9 @@ rw_mgrey:
     mov si, rw_it_il1
     je .i
     mov si, rw_it_il2
+    cmp byte [rb_ilace], 3
+    jb .i
+    mov si, rw_it_il3
 .i:
     mov [rw_i_mach + 10], si
     mov si, rw_it_prfd              ; Profile: what it is now

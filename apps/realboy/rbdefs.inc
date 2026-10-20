@@ -46,6 +46,7 @@ JIT_BUF         equ 0x6700          ; 256: the Game Boy code being translated
 RB_BTAB         equ 0x6800          ; 512 words: a ROM bank's segment, or 0
 RB_BUSE         equ 0x6C00          ; 512 words: switches to it (the cache's
                                     ;   eviction count, REALBOY-SPEC 10.3)
+                                    ; (7000-711F: rbppu.inc's PPU_LSCR)
 JIT_HASH        equ 0x0000          ; 16,384, in a SEGMENT OF ITS OWN
                                     ;   (S_JITHSEG): the block table (tr_enter,
                                     ;   REALBOY-SPEC 16.3). The cache's 64KB

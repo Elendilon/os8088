@@ -943,6 +943,26 @@ Super Mario Land scrolls with enemies on screen.
      than a refresh, so what it recomposes was shown at the wrong origin
      until the card latched the new one, and the flip that cures it waits
      for a retrace every draw - more than the 4% it saved Super Mario Land.
+   - **The owner's form of it, and it is TO BE TAKEN** (2026-10-20: "a 5%
+     win is another 5% win if it pans out - they stack up into
+     playability"). A background wider than the screen in RAM, the newly
+     showing edge composed into it, each line's background copied from it
+     at the scroll's offset and wrapping at its end - and the game's own
+     map is already exactly that buffer, 256 wide and wrapping, the next
+     column written past the edge as it scrolls, so the image is the map's
+     and wide in both directions for free.
+   - **The estimate, against REALBOY-SPEC 13.3's profile of Kirby's Dream
+     Land in play**: the fine scroll's shift is 15% of the frame and the
+     tile list 2.6%; the image takes away the lookups (`ppu_list`, and the
+     tile-address load before every tile row - about a fifth of the shift
+     routine), not the shift, which the card cannot do for free (15.3).
+     That is ~5% of the frame, and the scan comes back on a scrolled frame
+     to keep the image current - 2.3 ms in Super Mario Land, where
+     `rb_renderd` skips it today. Measure the scan's cost before building;
+     the map's 2 KB alone may be enough, with tile changes found by
+     `RB_DTD` from the scan a still frame already does.
+   - **A status bar is a line of its own** (its own scroll): composed as
+     today, not from the image.
 
 7. **Drop a raster-register write that changes nothing** (gnuboy
    `lcd.c:820`, `mem.c:139-151`; Goomba Color `lcd.s:4086-4093`).

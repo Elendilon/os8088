@@ -277,14 +277,15 @@ def run(kind, want, disk, viewoff):
             return err
         if kind == "vga":                   # Machine > Interlace (REALBOY-SPEC
             for item, label in (("Interlace: Off", "On"),   # 13.2): each draw
-                                ("Interlace: On", "Scrolling")):  # defers a
+                                ("Interlace: On", "Scrolling"),   # defers a
+                                ("Interlace: Scrolling", "Doubled")):
                 ui.menu_pick("Machine", item)   # parity, and the two together
                 M.guest_sleep(m, 2)             #   must be the whole picture
                 got, W, H, data = window_px(ui, m, kind)
                 err = compare(kind, got, want, "vga window, Interlace: " + label, rows)
                 if err:
                     return err
-            ui.menu_pick("Machine", "Interlace: Scrolling")   # (Off again)
+            ui.menu_pick("Machine", "Interlace: Doubled")     # (Off again)
         err = fullscreen(ui, m, view, want) if kind == "vga" else fs_mono(ui, m, view, want, kind)
         if err:
             return err

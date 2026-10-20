@@ -31,6 +31,8 @@ Z           B
 Enter       Start
 Space       Select
 F1          the speed line
+F2          Machine > Interlace's next setting
+F3          Machine > Recompiler's next setting
 Alt+Enter   full screen, and back
 Esc         leave full screen
 
@@ -52,6 +54,13 @@ Machine > Recompiler     On, Static, Off or Auto (286 or later).
                          NAME.RBP for Static to use. Auto times On
                          against Off when the game's code outgrows
                          the recompiler
+Machine > Interlace      Off, On, Scrolling or Doubled: less to draw
+                         when the picture moves. On draws half the
+                         lines each time; Scrolling only while it
+                         scrolls; Doubled while it scrolls draws the
+                         even lines and repeats each one below it,
+                         without the comb Scrolling leaves on a
+                         moving edge (the status bar stays whole)
 Machine > Log            a record a second, to a file
 Machine > Profile        On keeps what the recompiler translated as
                          NAME.RBP beside the game, for Static. Off by

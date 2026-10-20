@@ -62,6 +62,10 @@ PPU_PANY        equ 0x4B7F          ; byte: the last call deferred a line...
 PPU_PNEW        equ 0x4B80          ; byte: ...and this one has
 PPU_SMASK       equ 0x4B81          ; byte: a sprite's tile, FFh, or FEh at
                                     ;   8x16 (ppu_sprites)
+PPU_OSCR        equ 0x4B82          ; word: the line's SCY:SCX at the last
+                                    ;   call (ppu_lscr)
+PPU_LSCR        equ 0x7000          ; 144 words: each line's SCY:SCX at the
+                                    ;   last call, kept when DOUBLED
 PPU_SANF        equ 0x4B70          ; 2 x 6: OBP0 and OBP1 as A0 B0 C0 A1
                                     ;   B1 C1, a shade bit being (bit 0 and
                                     ;   A) xor (bit 1 and B) xor (both and
@@ -253,7 +257,9 @@ RB_DPAR         equ 0x3312              ; byte: the parity this call composes
 RB_DMG_SIZE     equ 0x3314
 
 rb_dmgseg       dw 0                    ; the host's damage segment, or 0
-rb_ilace        db 0                    ; the host's: 1 = INTERLACE, each call
+rb_ilace        db 0                    ; the host's (3: DOUBLED, as 2 with the
+                                        ;   odd lines the even ones' copies
+                                        ;   meanwhile); 1 = INTERLACE, each call
                                         ;   (2: only a scroll's whole frames;
                                         ;   a still one composes what both
                                         ;   parities owe),
@@ -294,7 +300,11 @@ rb_renderd:
     mov word [es:RB_DCNT],0
     cmp byte [cs:rb_ilace],0
     je .par
-    xor byte [es:RB_DPAR],1             ; the other parity's turn
+    xor byte [es:RB_DPAR],1             ; the other parity's turn - or with
+    cmp byte [cs:rb_ilace],3            ;   DOUBLED, the even lines' always,
+    jne .pa                             ;   each odd one their copy
+    mov byte [es:RB_DPAR],0
+.pa:
     mov al,[PPU_PNEW]                   ; (lines owed from the last call, or
     mov [PPU_PANY],al                   ;   a still frame need visit none)
     mov byte [PPU_PNEW],0
@@ -434,10 +444,14 @@ rb_renderd:
     cmp al,1
     je .ie
     cmp al,2
-    jne .ic
-    cmp byte [es:RB_DFULL],2            ; (Scrolling: a scroll's frame)
-    jne .ic
-.ie:
+    jb .ic
+    cmp byte [es:RB_DFULL],2            ; (Scrolling and Doubled: a scroll's
+    jne .ic                             ;   frame)
+    cmp al,3                            ; DOUBLED: the scroll's own, and not
+    jne .ie                             ;   the still frame after it, whose
+    cmp byte [es:RB_DSTALE],0           ;   whole is the shadows taken again -
+    je .ic                              ;   the odd lines composed there, not
+.ie:                                    ;   copied a frame more
     mov byte [PPU_ILC],1
 .ic:
     cmp byte [es:RB_DFULL],0            ; WHOLE (a scroll, or the host's):
@@ -453,6 +467,10 @@ rb_renderd:
     cmp byte [cs:rb_ilace],0            ; (owed nothing now, whichever
     je .wn                              ;   parity it was)
     mov byte [es:RB_DPEND+bx],0
+    cmp byte [cs:rb_ilace],3            ; (DOUBLED: the line's scroll kept)
+    jne .wh
+    call ppu_lscr
+.wh:
 .wn:
     mov di,[PPU_DWREG]
     mov si,PPU_REGS
@@ -476,6 +494,10 @@ rb_renderd:
     mov bl,[PPU_LY]
     xor bh,bh
     mov byte [es:RB_DCHG+bx],0
+    cmp byte [cs:rb_ilace],3            ; (DOUBLED: the line's scroll kept)
+    jne .lh
+    call ppu_lscr
+.lh:
     cmp byte [cs:rb_ilace],0            ; INTERLACE: left by the last call
     je .nip
     cmp byte [es:RB_DPEND+bx],0
@@ -502,8 +524,17 @@ rb_renderd:
     xor al,[es:RB_DPAR]
     test al,1
     jz .ilc
+    cmp byte [cs:rb_ilace],3            ; DOUBLED: a line whose own scroll did
+    jne .dfr                            ;   not move (a status bar) is composed
+    mov ax,[PPU_REGS+1]                 ;   as ever - doubled it would lose its
+    cmp ax,[PPU_OSCR]                   ;   detail, and left, a digit that
+    je .ilc                             ;   changes would be half of two
+.dfr:
     mov byte [es:RB_DPEND+bx],1         ; the other parity's: the next call's
     mov byte [PPU_PNEW],1
+    cmp byte [cs:rb_ilace],3            ; DOUBLED: meanwhile the even line
+    jne .skip                           ;   above, which was composed just now
+    call ppu_dput                       ;   ([PPU_OSRC]), in its place
     jmp short .skip
 .ilc:
     mov byte [es:RB_DPEND+bx],0
@@ -1102,6 +1133,17 @@ ppu_dput:
     inc word [es:RB_DCNT]
 .same:
     pop es
+    ret
+
+; ppu_lscr: DOUBLED's history - the line's SCY:SCX into PPU_LSCR, and the
+; last call's into PPU_OSCR. DS = view; BX = the line. Kept: all but AX
+ppu_lscr:
+    push bx
+    shl bx,1
+    mov ax,[PPU_REGS+1]
+    xchg ax,[PPU_LSCR+bx]
+    mov [PPU_OSCR],ax
+    pop bx
     ret
 
 ; ppu_dvga: the line just composed to VGA (rb_dvga), shade bit 0 to plane 0
@@ -1862,9 +1904,7 @@ ppu_sprites:
     jcxz .r
 .d:
     push cx
-    push si
-    call ppu_sprite
-    pop si
+    call ppu_sprite                     ; (SI kept)
     pop cx
     add si,4
     loop .d
@@ -1924,6 +1964,35 @@ ppu_sprite:
     xor ah,ah
     ror ax,cl
     mov bp,ax                           ; BP = shade bit 1, both halves
+    cmp bx,19                           ; both bytes on the line (0-18, all
+    jae .edge                           ;   but the edges): one word each
+    test byte [si+3],80h
+    jnz .wb
+    mov ax,[PPU_CL+bx]                  ; over the background: a pixel another
+    not ax                              ;   sprite claimed first stays theirs
+    and dx,ax
+    or [PPU_CL+bx],dx
+.w:
+    and di,dx
+    and bp,dx
+    not dx
+    and [PPU_OL+bx],dx
+    and [PPU_OH+bx],dx
+    or [PPU_OL+bx],di
+    or [PPU_OH+bx],bp
+    pop bp
+    ret
+.wb:
+    mov ax,[PPU_CL+bx]                  ; behind it: claimed, and shown only
+    not ax                              ;   over its colour 0
+    and dx,ax
+    or [PPU_CL+bx],dx
+    mov ax,[PPU_BL+bx]
+    or ax,[PPU_BH+bx]
+    not ax
+    and dx,ax
+    jmp short .w
+.edge:                                  ; B = -1 or 19: the byte on the line
     or bx,bx
     js .right
     cmp bx,20

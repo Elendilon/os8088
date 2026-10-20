@@ -2618,13 +2618,13 @@ SOAK = [
         "package",
         needs=("marty", "nasm"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
-    Row("gbdamage", "soak", py("tests/gbdamage.py"), 28.0,
+    Row("gbdamage", "soak", py("tests/gbdamage.py"), 32.0,
         "RealBoy's damage renderer (docs/REALBOY-SPEC.md section 13.2) against "
         "its whole one: the bare harness's MODE 6 under QEMU composes every "
         "third frame both ways and counts the pictures that differ - gbclock's "
         "frame counter (ours), and with $OS88_GB_ROMS Super Mario Land and "
         "Kirby. Without the map-row marks it fails on 497 frames of 500. "
-        "Each again INTERLACED (section 13.2), On and Scrolling, composed every "
+        "Each again INTERLACED (section 13.2), On, Scrolling and Doubled, composed every "
         "frame as the package does and twice on a checked one: without the "
         "lines a call left being composed by the next it fails on 151-499. "
         "SOAK: one package",

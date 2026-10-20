@@ -607,7 +607,8 @@ it changed), and AX holds the count.
   compared it was never FAST: standing still on the Victory's 86Box twin,
   judging 144 lines was 5 ms a draw and the picture 23 frames a second; it
   is 41 now, the judging 0.15 ms.
-- **INTERLACE** (`[rb_ilace]`, Machine > Interlace: Off, On, Scrolling;
+- **INTERLACE** (`[rb_ilace]`, Machine > Interlace: Off, On, Scrolling,
+  Doubled;
   off by default): a call composes the changed lines of one parity and
   leaves the other's pending (`RB_DPEND`, a byte a line) for the next call,
   whose parity (`RB_DPAR`) is the other. A line pending from the last call
@@ -623,6 +624,23 @@ it changed), and AX holds the count.
   alternate lines. It is there to be looked at on the Victory, not as a
   default. The bare harness never sets it, so its frame need not reach
   `RB_DPEND`.
+- **Doubled** (3) is Scrolling without the combing: a scroll's frame
+  composes the even lines - always the even, so the copy below is always
+  the line just composed - and each odd one is that line again
+  (`ppu_dput` of `[PPU_OSRC]`), pending as in Scrolling and composed the
+  moment the scroll stops. Two lines are not doubled: a line whose own
+  scroll did not move (`PPU_LSCR`, each line's SCY:SCX at the last call;
+  Super Mario Land's status bar) is composed whole, as it would otherwise
+  lose its detail or, left alone, show half of two digits for as long as
+  the scroll lasts - and the still frame after a scroll, whose whole is the
+  shadows taken again (`RB_DSTALE`), defers nothing. It writes the card as
+  much as Off does, which is what it costs against Scrolling. Drawing
+  every frame on the Victory twin, a frame:
+
+  | | Off | Scrolling | Doubled |
+  |---|---|---|---|
+  | Super Mario Land (CPU alone 6.18 ms) | 24.35 ms | 19.13 ms | 21.88 ms |
+  | Kirby's Dream Land (15.38 ms) | 50.67 ms | 38.59 ms | 45.54 ms |
 - **WHOLE**: a frame composed whole (`RB_DFULL`, and no parity deferred)
   judges no line - it keeps each line's registers for the next call, as
   `ppu_ldirty` would, and composes. The CPU and `rb_renderd` every frame
@@ -642,8 +660,8 @@ from **43% of real time to 100%**: the drawing had been most of the machine.
 `tests/gbdamage.py` is the gate. The bare harness's MODE 6 composes every
 third frame both ways, by damage into a buffer it keeps and whole by
 `rb_render`, and counts the frames whose pictures differ. MODES 8 and 9 are
-MODE 6 interlaced, On and Scrolling, composing every frame as the package
-does and a checked one twice; without the pending lines composed they fail
+MODE 6 interlaced, On and Scrolling, and MODE 10 Doubled, composing every
+frame as the package does and a checked one twice; without the pending lines composed they fail
 on 151-499 pictures of 500.
 - It runs on gbclock's frame counter (ours), and with `$OS88_GB_ROMS` on
   Super Mario Land and Kirby's Dream Land.
@@ -664,6 +682,12 @@ which is exact here: the same build gives the same ticks):
   byte is 16 x (n AND 0Fh) and the row's 2 x 0-15 never carries. 0.7%.
 - **Kept**: the changed line to the card where it is decided (`ppu_dvga`,
   above). 0.7% in Kirby's Dream Land, more where more lines are unchanged.
+- **Kept**: a sprite row whose two bytes are both on the line (B 0-18:
+  all but the edges) is placed as one word - claimed, masked behind the
+  background and drawn with word operations - where it was two calls of a
+  byte routine and the registers shuffled between them. Kirby's Dream
+  Land 1,156 -> 1,107 ticks (52.9 -> 50.7 ms a frame), Super Mario Land
+  540 -> 532; the sprites ~19% of Kirby's frame -> ~13%.
 - **Refused**: skipping the shift for a byte from two blank tile rows. It
   is 59% of Super Mario Land's bytes and 31% of Kirby's Dream Land's, and
   it cost the latter 4.5% - the test and the branch on every other byte

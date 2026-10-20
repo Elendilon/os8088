@@ -82,6 +82,7 @@ b_mode      db 0                        ; patched: MODE
 b_frames    dw 600                      ; patched: FRAMES
 b_jit       db 1                        ; patched: translate (REALBOY-SPEC 16)
 b_joy       db 0                        ; patched: JOY_ flags (joy_script)
+b_ilace     db 0                        ; patched: rb_ilace, for MODE 12
 boot_go:
     cli
     xor ax,ax
@@ -117,6 +118,8 @@ boot_go:
     mov [es:h_jitf],ah
     mov al,[b_joy]
     mov [es:h_joy],al
+    mov al,[b_ilace]
+    mov [es:rb_ilace],al
     jmp HOST_SEG:host_main
 
 ; load CX sectors from LBA [b_lba] to AX:0000, one at a time
@@ -190,8 +193,8 @@ host_main:
     mov byte [h_hw],1
     mov byte [h_mode],7
 .m89:
-    cmp byte [h_mode],8                 ; MODES 8 and 9: MODE 6 with
-    jb .mode                            ;   Interlace On or Scrolling
+    cmp byte [h_mode],8                 ; MODES 8, 9 and 10: MODE 6 with
+    jb .mode                            ;   Interlace On, Scrolling or Doubled
     mov al,[h_mode]
     sub al,7
     mov [rb_ilace],al
