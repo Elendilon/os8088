@@ -1177,6 +1177,51 @@ no guard after it (whose exit leaves with BP charged) its `sub bp,n` joins
 the pending count. EI reads BP (`force_ev`) and is not one. Kirby's Dream
 Land 258 -> 252 ticks, Super Mario Land 115 -> 114.
 
+### 16.1.2 Dead flags
+
+F lives in AH, and most of what writes it spends more on F than on its
+result: `ADD HL,rr` is `add bl,cl / adc bh,ch` and five instructions keeping
+Z, `INC E` a `sahf` and a `lahf` around its `inc dl`. When the instructions
+after one in the same block overwrite every flag it writes before any of
+them reads one, those flags are DEAD and the translator takes the opcode's
+second record instead (`rbgen.nof_lines`, `rt_deadf`): `ADD HL,rr` as
+`add bx,cx` (`di`, `bx`, `sp`), INC/DEC r as the bare `inc`/`dec`, INC/DEC D
+as `add di,100h`. Kirby's Dream Land runs `ADD HL,DE / LD A,L / CP C` and
+`ADD HL,BC` five times running in its hottest loops.
+
+`rbgen.flag_masks` says what every opcode writes (all of it decided by the
+instruction, nothing carried from F) and reads, four bits each in a 512-byte
+table at the head of `rbtmpl.bin` (`RBT_FLG`, the CB group's 256 on); beside
+it, each opcode's length and its second record (`RBT_NOF`). The look goes
+on past instructions that write some of the live flags or none, and STOPS,
+calling F live, at:
+
+- anything that reads a live flag - ADC and SBC, RLA, RRA, DAA, CCF, the
+  CB group's RL and RR, PUSH AF, and every control transfer (whose target
+  may read it);
+- what could hand F on before it is overwritten: EI (an interrupt is taken
+  after it) and any template whose record says it stores (flags bits 0, 1,
+  2, 4: a store's guard may take an interrupt, whose handler may PUSH AF)
+  or may leave the block (bit 6, `rbtmpl.LEAVES`: to the interpreter, the
+  event entry or rbsys), and an opcode with no template at all;
+- the block's end, or `RT_DLOOK` (6) instructions on.
+
+The instruction that finishes overwriting may itself store or leave: every
+template writes F before its exits, and one that leaves for the interpreter
+(`rmw_lines`' I/O case) leaves it the whole instruction to do, with no event
+between. A chain of them is safe for the same reason, each one's writes
+covering the one before's. Kirby's Dream Land 247 -> 235 ticks, the CPU
+alone with two segments; Super Mario Land 112, level.
+
+Blargg's cpu_instrs cannot see this - it runs the instruction under test
+from RAM, which is never translated, and it passed with the read check
+removed. `tools/gbprof/gbflags.py` generates the gate instead: 160 seeded
+sequences of register instructions weighted to the three the pass drops and
+what it looks past, half in ROM0 and half in ROMX, each run 100 times so it
+is translated, AF/BC/DE/HL folded after every pass into a sum. `gbcpu`'s
+"dead flags" leg wants the sum with the recompiler equal to the interpreter's,
+and its control (`RT_DEADBUG`: the read check removed) wants it to differ.
+
 ### 16.2 The cache
 
 The code goes into a 64KB segment of its own. It holds copies of the core's

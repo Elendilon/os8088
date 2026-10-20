@@ -177,6 +177,12 @@ def deferrable(a, lines):
     return True
 
 
+# bit 6: the template may leave the block before its end - for the
+# interpreter, the event entry, rbsys (rbjit.inc's rt_deadf looks past
+# nothing that can, REALBOY-SPEC 16.1.2)
+LEAVES = re.compile(r"\b(tr_\w+|force_ev|S_EVVEC|S_MBCVEC|S_DISP|idle_\w+)\b|jmp far")
+
+
 def flags_for(op, cb, lines):
     text = "\n".join(lines)
     stores = re.search(r"\b(wr_\w+|io_wr|mbc_wr)\b", text) is not None   # any write helper
@@ -191,9 +197,15 @@ def flags_for(op, cb, lines):
     return 1
 
 
-NEXTRA = 40             # record slots after the 512 for rbgen.EXTRA
+NEXTRA = 60             # record slots after the 512 for rbgen.EXTRA
 HEAD = 2 * (512 + NEXTRA) + 12   # then the free ranges', tail slots' and
-                                 #   JDISPATCH sites' offset and count words
+                                 #   JDISPATCH sites' offset and count words;
+                                 #   then, at HEAD, the dead-flag tables
+                                 #   (rbgen.flag_masks): 256 bytes of
+                                 #   writes | reads << 4 (and 256 for
+                                 #   CB), 256 of the op's length - 1 << 6
+                                 #   | 1 + the
+                                 #   op's index in NOF_OPS, or 0
 # The longest template the table carries. With its guards (32 bytes at most,
 # REALBOY-SPEC section 16.5) it must fit a gap, and the median gap is ~106
 # bytes. What is over it is a read-modify-write of (HL) - INC/DEC (HL), the
@@ -257,6 +269,8 @@ def main():
                     npure[0] += 1
                 elif deferrable(a, lines):
                     fl |= 32
+                if LEAVES.search("\n".join(lines)):
+                    fl |= 64
                 rec = struct.pack("<HBBB", ORG + k * SLOT, len(a), glen, fl)
                 rec += bytes(len(ps) for ps in pos) + a
                 for ps in pos:
@@ -264,6 +278,17 @@ def main():
                 recs[(cb, op)] = rec
     head = bytearray(HEAD)
     body = bytearray()
+    for op in range(256):
+        w, r = rbgen.flag_masks(op)
+        body.append(w | r << 4)
+    for op in range(256):
+        w, r = rbgen.flag_masks_cb(op)
+        body.append(w | r << 4)
+    for op in range(256):
+        n = 1 + (op in rbgen.IMM8_OPS or op == 0xCB or 0x18 <= op < 0x40 and op & 7 == 0) \
+              + 2 * (op in rbgen.IMM16_OPS or op in (0xC2, 0xC3, 0xC4, 0xCA, 0xCC,
+                                                     0xCD, 0xD2, 0xD4, 0xDA, 0xDC))
+        body.append((rbgen.NOF_OPS.index(op) + 1 if op in rbgen.NOF_OPS else 0) | (n - 1) << 6)
     for (cb, op), rec in sorted(recs.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
         idx = 512 + op if cb == "x" else op + (256 if cb else 0)
         struct.pack_into("<H", head, 2 * idx, len(head) + len(body))
@@ -289,7 +314,9 @@ def main():
         for n in EXPORT:
             f.write("RBC_%s equ 0x%04X\n" % (n.upper(), labels[n]))
         f.write("RBT_HFREE equ %d\nRBT_HTAIL equ %d\nRBT_HJD equ %d\n"
-                "RBT_XBANK equ %d\n" % (HEAD - 12, HEAD - 8, HEAD - 4, 512 + rbgen.RB_XBANK))
+                "RBT_XBANK equ %d\nRBT_XNOF equ %d\nRBT_FLG equ %d\nRBT_NOF equ %d\n"
+                % (HEAD - 12, HEAD - 8, HEAD - 4, 512 + rbgen.RB_XBANK,
+                   512 + rbgen.RB_XNOF - 1, HEAD, HEAD + 512))
     print("rbtmpl: %d templates (%d pure), %d free ranges of %d bytes, %d bytes"
           % (len(recs), npure[0], len(gl), sum(b - a for a, b in gl), len(head) + len(body)))
 

@@ -2099,5 +2099,77 @@ EXTRA += [("LD (nn),A bank, MBC1", bank_lines(0x1F, True), 3, 4),
 RB_XBANK = len(EXTRA) - 3           # their records: 512 + this, + 1, + 2
 
 
+# --- dead flags (REALBOY-SPEC section 16.1.2) ---------------------------------
+# F's four flags as masks: Z 1, N 2, H 4, C 8. What each opcode WRITES (all of
+# its result decided by the instruction, none carried from F) and READS. An
+# opcode not listed writes none and - when it is a control transfer, or
+# anything else that can hand F on (PUSH AF, HALT, an invalid one) - reads all.
+FZ, FN, FH, FC = 1, 2, 4, 8
+FALL = 15
+
+
+def flag_masks(op):
+    """(writes, reads) of main opcode op"""
+    hi, lo = op >> 4, op & 15
+    if hi < 4 and lo in (4, 5, 0xC, 0xD):
+        return FZ | FN | FH, 0                      # INC/DEC r, (HL)
+    if op in (0x09, 0x19, 0x29, 0x39):
+        return FN | FH | FC, 0                      # ADD HL,rr
+    if op in (0x07, 0x0F):
+        return FALL, 0                              # RLCA, RRCA
+    if op in (0x17, 0x1F):
+        return FALL, FC                             # RLA, RRA
+    if op == 0x27:
+        return FZ | FH | FC, FN | FH | FC           # DAA
+    if op == 0x2F:
+        return FN | FH, 0                           # CPL
+    if op == 0x37:
+        return FN | FH | FC, 0                      # SCF
+    if op == 0x3F:
+        return FN | FH | FC, FC                     # CCF
+    if 0x80 <= op < 0xC0:
+        return FALL, FC if (op >> 3) & 7 in (1, 3) else 0   # ADC, SBC read C
+    if op in (0xC6, 0xD6, 0xE6, 0xEE, 0xF6, 0xFE, 0xE8, 0xF8, 0xF1):
+        return FALL, 0
+    if op in (0xCE, 0xDE):
+        return FALL, FC
+    if op == 0xCB:
+        return 0, FALL                              # (the translator's: by
+                                                    #   the byte after)
+    if op in NOTMPL or op in (0xF5, 0xFB):         # (EI: an interrupt
+        return 0, FALL                              #   may be taken after)
+    return 0, 0
+
+
+def flag_masks_cb(op):
+    if op < 0x40:
+        return FALL, FC if 0x10 <= op < 0x20 else 0
+    if op < 0x80:
+        return FZ | FN | FH, 0                      # BIT
+    return 0, 0
+
+
+def nof_lines(op):
+    """op without its flags: INC/DEC r and ADD HL,rr, when the next
+    instruction writes every flag they do and reads none of them."""
+    if op in (0x09, 0x19, 0x29, 0x39):
+        return ["    add bx,%s" % {0x09: "cx", 0x19: "di", 0x29: "bx", 0x39: "sp"}[op],
+                "    sub bp,2"]
+    r = R8[(op >> 4) * 2 + (1 if op & 15 >= 0xC else 0)]
+    dec = op & 15 in (5, 0xD)
+    if r == "D":
+        return ["    %s di,100h" % ("sub" if dec else "add"), "    sub bp,1"]
+    if r == "E":
+        return ["    mov dx,di", "    %s dl" % ("dec" if dec else "inc"),
+                "    mov di,dx", "    sub bp,1"]
+    return ["    %s %s" % ("dec" if dec else "inc", X86[r]), "    sub bp,1"]
+
+
+NOF_OPS = [op for op in range(0x40) if op & 15 in (4, 5, 0xC, 0xD) and op not in (0x34, 0x35)]
+NOF_OPS += [0x09, 0x19, 0x29, 0x39]
+RB_XNOF = len(EXTRA)                # their records: 512 + this + k
+EXTRA += [("%02X without F" % op, nof_lines(op), 1) for op in NOF_OPS]
+
+
 if __name__ == "__main__":
     main()

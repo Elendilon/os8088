@@ -26,6 +26,7 @@ ROMS = {
     "gbdemo": [],
     "gbbank": ["-m", "0x19"],               # MBC5, 1MB: every bank there
     "gbrmw": [],
+    "gbflags": [],                          # (generated: tools/gbprof/gbflags.py)
 }
 
 
@@ -33,6 +34,10 @@ def build(name="gbtone"):
     asm, link, fix = gbclock.rgbds()
     os.makedirs(gbclock.OUT, exist_ok=True)
     src = os.path.join(ROOT, "tools", "gbprof", name + ".asm")
+    gen = os.path.join(ROOT, "tools", "gbprof", name + ".py")
+    if os.path.exists(gen):                 # a generated source: into OUT
+        src = os.path.join(gbclock.OUT, name + ".%d.asm" % os.getpid())
+        subprocess.check_call([sys.executable, gen, src])
     # this process's own names, then one atomic rename: two rows that build
     # the same ROM at once in a soak lane shared one .o and one .GB, and one
     # of them linked the other's half-written object
@@ -44,6 +49,8 @@ def build(name="gbtone"):
     subprocess.check_call([link, "-o", tmp, obj])
     subprocess.check_call([fix, "-v", "-p", "0xFF", "-t", name.upper()] + ROMS[name] + [tmp])
     os.remove(obj)
+    if os.path.exists(gen):
+        os.remove(src)
     os.replace(tmp, rom)
     return rom
 

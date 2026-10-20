@@ -577,10 +577,13 @@ rt_translate:
     mov al,[RT_OP]
     xor ah,ah
     cmp al,0CBh
-    jne .tm
+    jne .nf
     mov al,[JIT_BUF+bx+1]
     inc ah
-.tm:
+    jmp short .tm
+.nf:
+    call rt_deadf                   ; INC/DEC r, ADD HL,rr: without F when
+.tm:                                ;   the next instruction overwrites it
     shl ax,1
     xchg ax,si
     mov si,[cs:rt_tab + si]
@@ -658,6 +661,90 @@ rt_translate:
     mov al,[S_JITBK]
     mov [JIT_BUF+0C2h+bx],al
 %endif
+    ret
+
+; rt_deadf - AX = the main opcode at JIT_BUF+BX, whose own record it is: its
+; record WITHOUT F (rbgen.nof_lines) when it has one and the instructions after
+; it in this block overwrite every flag it writes before any of them reads
+; one (REALBOY-SPEC 16.1.2); else AX as it was. The look stops, and calls F
+; live, at what could hand F on before it is overwritten: a store (whose
+; guard may take an interrupt), a template that may leave the block, an
+; instruction with no template, the block's end, RT_DLOOK instructions on.
+; Keeps BX
+RT_DLOOK        equ 6
+rt_deadf:
+    mov si,ax
+    mov dl,[cs:rt_tab + RBT_NOF + si]
+    and dl,3Fh
+    jz .r0
+    mov dh,[cs:rt_tab + RBT_FLG + si]   ; DH = the flags still live
+    push ax
+    push bx
+    mov cx,[RT_CNT]
+    inc bx                          ; (all of them one byte long)
+.k:
+    inc cx                          ; CX = the count with this one
+    cmp cx,RT_MAXI
+    jae .live
+    mov ax,[RT_CNT]
+    add ax,RT_DLOOK
+    cmp cx,ax
+    ja .live
+    lea si,[bx+3]
+    cmp si,[RT_N]
+    ja .live
+    push cx
+    mov al,[JIT_BUF+bx]
+    xor ah,ah
+    mov si,ax
+    mov cl,[cs:rt_tab + RBT_NOF + si]
+    rol cl,1
+    rol cl,1
+    and cl,3                        ; CL = its length - 1
+    cmp al,0CBh
+    jne .m
+    mov al,[JIT_BUF+bx+1]           ; (a CB op: its own masks, 256 on)
+    inc ah
+    mov si,ax
+.m:
+    inc cx
+    add bx,cx                       ; BX = the one after it
+    mov ch,[cs:rt_tab + RBT_FLG + si]
+    mov cl,ch
+    shr cl,1
+    shr cl,1
+    shr cl,1
+    shr cl,1
+    and cl,dh                       ; it reads one: live
+%ifndef RT_DEADBUG                  ; (tests/gbcpu.py's control: what reads
+    jnz .livec                      ;   a flag, ADC or RLA, not seen to)
+%endif
+    and ch,0Fh
+    not ch
+    and dh,ch                       ; ...or writes the rest: dead
+    jz .dead
+    shl si,1
+    mov si,[cs:rt_tab + si]         ; its own record: none, a store, or a
+    or si,si                        ;   way out before its end - live
+    jz .livec
+    test byte [cs:rt_tab + si + 4],1+2+4+16+64
+    jnz .livec
+    pop cx
+    jmp short .k
+.dead:
+    pop cx
+    pop bx
+    pop ax
+    mov al,dl
+    xor ah,ah
+    add ax,RBT_XNOF
+    ret
+.livec:
+    pop cx
+.live:
+    pop bx
+    pop ax
+.r0:
     ret
 
 ; rt_glen - [RT_GLEN] = the bytes of the control transfer at [RT_OP]: JR and
