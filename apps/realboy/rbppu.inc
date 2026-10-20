@@ -54,6 +54,10 @@ PPU_LOGN        equ 0x4B53          ; byte: entries that are this frame's
 PPU_REVOK       equ 0x4B54          ; byte: PPU_REV is built
 PPU_TMODE       equ 0x4B55          ; byte: LCDC bit 4 PPU_TADDR was built for
 PPU_TMP         equ 0x4B56          ; word
+PPU_SANF        equ 0x4B70          ; 2 x 6: OBP0 and OBP1 as A0 B0 C0 A1
+                                    ;   B1 C1, a shade bit being (bit 0 and
+                                    ;   A) xor (bit 1 and B) xor (both and
+                                    ;   C) - colour 0 a sprite does not draw
 PPU_ANF         equ 0x4B60          ; 16: BGP as words D A B C for the shade's
                                     ;   bit 0, then bit 1 (ppu_pal)
 PPU_TADDR       equ 0x4C00          ; 512: tile n's row 0, for LCDC bit 4,
@@ -1188,6 +1192,27 @@ ppu_pal:
     add si,4
     add di,8
     loop .a
+    mov si,PPU_PALM+8                   ; and the sprites' (PPU_SANF)
+    mov di,PPU_SANF
+    mov cx,2
+.s:
+    mov al,[si+1]                       ; A: colour 1's
+    mov [di],al
+    mov ah,[si+2]                       ; B: colour 2's
+    mov [di+1],ah
+    xor al,ah
+    xor al,[si+3]                       ; C: colour 3's against the two
+    mov [di+2],al
+    mov al,[si+5]                       ; ...and shade bit 1's
+    mov [di+3],al
+    mov ah,[si+6]
+    mov [di+4],ah
+    xor al,ah
+    xor al,[si+7]
+    mov [di+5],al
+    add si,8
+    add di,6
+    loop .s
     pop di
     pop si
     ret
@@ -1576,52 +1601,6 @@ ppu_wplace:
     pop es
     ret
 
-; ppu_shade: AL, AH = a byte's colour bits 0 and 1 -> AL, AH = its shade's,
-; through the palette whose masks are at BX. Kept: BX, CX, DX, SI, DI.
-ppu_shade:
-    push cx
-    push dx
-    push si
-    mov cl,al
-    and cl,ah                           ; CL = colour 3
-    mov ch,al
-    xor ch,cl                           ; CH = colour 1
-    mov dl,ah
-    xor dl,cl                           ; DL = colour 2
-    mov dh,al
-    or dh,ah
-    not dh                              ; DH = colour 0
-    mov al,dh
-    and al,[bx+0]
-    mov ah,ch
-    and ah,[bx+1]
-    or al,ah
-    mov ah,dl
-    and ah,[bx+2]
-    or al,ah
-    mov ah,cl
-    and ah,[bx+3]
-    or al,ah
-    xchg ax,si                          ; SI's low byte = shade bit 0
-    mov al,dh
-    and al,[bx+4]
-    mov ah,ch
-    and ah,[bx+5]
-    or al,ah
-    mov ah,dl
-    and ah,[bx+6]
-    or al,ah
-    mov ah,cl
-    and ah,[bx+7]
-    or al,ah                            ; AL = shade bit 1
-    xchg ax,si
-    mov dx,si
-    mov ah,dl
-    pop si
-    pop dx
-    pop cx
-    ret
-
 ; ppu_sprites: up to ten sprites on line PPU_LY, in priority order, over
 ; PPU_OL/PPU_OH
 ppu_sprites:
@@ -1751,78 +1730,80 @@ ppu_sprites:
 .r:
     ret
 
-; ppu_sprite: one sprite, SI = its PPU_SPR entry, over the line
+; ppu_sprite: one sprite, SI = its PPU_SPR entry, over the line. Its
+; shades are PPU_SANF's three terms a bit; the shifts are made once each,
+; with no register saved around them
 ppu_sprite:
     mov al,[si]                         ; X: the screen pixel is X - 8
     cmp al,168
     jae .r
     or al,al
     jz .r
-    mov bx,PPU_PALM+8
+    push bp
+    mov bl,al
+    xor bh,bh
+    sub bx,8                            ; BX = X - 8, signed
+    mov cl,bl
+    and cl,7                            ; CL = the shift S
+    sar bx,1
+    sar bx,1
+    sar bx,1                            ; BX = the byte B (may be -1)
+    mov bp,PPU_SANF
     test byte [si+3],10h
     jz .p0
-    mov bx,PPU_PALM+16
+    mov bp,PPU_SANF+6
 .p0:
-    push ax
-    mov al,[si+1]
-    mov ah,[si+2]
-    mov [PPU_TMP],ax
-    call ppu_shade                      ; AL, AH = its shades
-    mov cx,ax
-    pop ax
-    ; the 8 pixels start at screen X - 8: byte B = (X - 8) >> 3 (B may be -1)
-    sub al,8
+    mov ax,[si+1]                       ; AL, AH = its colour bits 0 and 1
     mov dl,al
-    mov dh,0
-    jnb .pos
-    mov dh,0FFh                         ; negative: DX = X - 8, signed
-.pos:
-    mov bx,dx
-    sar bx,1
-    sar bx,1
-    sar bx,1                            ; BX = B
-    and dl,7                            ; DL = the shift S
-    ; the left byte (B), if B >= 0
-    push cx
-    mov cl,dl
-    mov al,[PPU_TMP]
-    or al,[PPU_TMP+1]                   ; opaque: colour not 0
+    and dl,ah                           ; DL = both
+    mov dh,al
+    and al,[ds:bp+0]
+    mov ch,ah
+    and ch,[ds:bp+1]
+    xor al,ch
+    mov ch,dl
+    and ch,[ds:bp+2]
+    xor al,ch                           ; AL = shade bit 0
+    and dh,[ds:bp+3]
+    and ah,[ds:bp+4]
+    xor ah,dh
+    and dl,[ds:bp+5]
+    xor ah,dl                           ; AH = shade bit 1
+    mov di,ax                           ; DI = the shades
+    mov al,[si+1]
+    or al,[si+2]                        ; opaque: colour not 0
     xor ah,ah
-    ror ax,cl                           ; AL = byte B's part, AH = byte B+1's
-    pop cx
-    push ax
-    mov al,cl
+    ror ax,cl                           ; AL = byte B's part, AH = B+1's
+    mov dx,ax                           ; DL, DH = opaque, both halves
+    mov ax,di
     xor ah,ah
-    push cx
-    mov cl,dl
     ror ax,cl
-    pop cx
-    mov [PPU_TMP],ax                    ; shade bit 0, both halves
-    mov al,ch
+    xchg ax,di                          ; DI = shade bit 0, both halves
+    mov al,ah
     xor ah,ah
-    push cx
-    mov cl,dl
     ror ax,cl
-    pop cx
-    mov cx,ax                           ; shade bit 1, both halves
-    pop dx                              ; DL, DH = opaque, both halves
+    mov bp,ax                           ; BP = shade bit 1, both halves
     or bx,bx
     js .right
     cmp bx,20
-    jae .r
+    jae .x
     mov al,dl
-    mov ah,[PPU_TMP]
-    push cx
+    mov cx,di
+    mov ah,cl
+    mov cx,bp
     mov ch,cl
-    call ppu_put
-    pop cx
+    call ppu_put                        ; (DH kept)
 .right:
     inc bx
     cmp bx,20
-    jae .r
+    jae .x
     mov al,dh
-    mov ah,[PPU_TMP+1]
+    mov cx,di
+    mov ah,ch
+    mov cx,bp
     call ppu_put
+.x:
+    pop bp
 .r:
     ret
 
