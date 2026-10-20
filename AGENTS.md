@@ -360,7 +360,8 @@ make vencbundle #   every apps disk and plays `.V88` files, made on the host
                 #   by tools/os88venc.py or by the encoder's own window,
                 #   tools/os88vencgui.py. `viddemo` builds one hard disk per
                 #   directory of apps/video/demo/ - a whole install with the
-                #   COMMITTED demo videos in MEDIA/ - for 86Box's ST11R XTs;
+                #   COMMITTED demo videos in MEDIA/ - for 86Box's ST11R XTs,
+                #   and VGA's on a 504 MB IDE disk for a 286;
                 #   `vencbundle` zips the encoder, the tools it runs and
                 #   VIDEO.O88 for someone with no os8088 tree (§98.2.13).
                 #   Both on demand
@@ -837,7 +838,7 @@ whose `LESSONS.md` is what MIDIRack's (SPEC.md §105.9.4, §105.9.5) learned.
   one pass. Transparent text is a **closed list of six cases** (§6.6.2) and
   `tests/textsites.txt` is the ratchet: a new call site fails the build until it
   is registered with a reason, and the count can only go down. **The sweep is
-  finished** (§6.6.5): the registry stands at 59 sites in 20 files, every one
+  finished** (§6.6.5): the registry stands at 57 sites in 21 files, every one
   with a reason, so a new transparent call is now an argument to win rather
   than a queue to join.
 - **Three adapters, one binary (§39).** `SCREEN_W`/`SCREEN_H`/`ROW_BYTES` are

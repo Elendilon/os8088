@@ -1072,9 +1072,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "87212abf",
-  "strings": "b4bc3fa128e8c3f7",
-  "why": "lists restricted to what the file takes, Mode X's 320x240 screen, --pages max, the pre-roll's dry run: all below the page's level of detail; checked, unchanged"
+  "stamped": "2622ee65",
+  "strings": "3a72b4164e7def7a",
+  "why": "--ladder-at (By time) and --scene-join (Scene join): the page names both"
  },
  "TRACKER_O88": {
   "sources": [
@@ -1116,9 +1116,9 @@
   "sources": [
    "drivers/vmmouse"
   ],
-  "stamped": "e4576a70",
+  "stamped": "6151b2e8",
   "strings": "4095e5c86a5e295a",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "why": "the driver passes wheel notches to the kernel (SPEC.md 9.12.8), so the wheel scrolls the front window"
  },
  "WEAVE": {
   "sources": [],
@@ -1175,6 +1175,14 @@
   "stamped": "d0d605c1",
   "strings": "72c6168584fb83c1",
   "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
+ },
+ "WIRECHAT_O88": {
+  "sources": [
+   "apps/wirechat"
+  ],
+  "stamped": "a805ac61",
+  "strings": "455f0b5acdca7829",
+  "why": "first page: written from SPEC.md 113 and apps/wirechat (menus, field modes, keys, wheel, status bar words, WIRECHAT.CFG, net_find's card-then-link)"
  },
  "WORD": {
   "sources": [],
