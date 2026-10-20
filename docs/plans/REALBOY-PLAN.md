@@ -943,24 +943,25 @@ Super Mario Land scrolls with enemies on screen.
      than a refresh, so what it recomposes was shown at the wrong origin
      until the card latched the new one, and the flip that cures it waits
      for a retrace every draw - more than the 4% it saved Super Mario Land.
-   - **The owner's form of it, and it is TO BE TAKEN** (2026-10-20: "a 5%
-     win is another 5% win if it pans out - they stack up into
+   - **The owner's form of it was MEASURED, and not built** (2026-10-20:
+     "a 5% win is another 5% win if it pans out - they stack up into
      playability"). A background wider than the screen in RAM, the newly
      showing edge composed into it, each line's background copied from it
      at the scroll's offset and wrapping at its end - and the game's own
-     map is already exactly that buffer, 256 wide and wrapping, the next
-     column written past the edge as it scrolls, so the image is the map's
-     and wide in both directions for free.
-   - **The estimate, against REALBOY-SPEC 13.3's profile of Kirby's Dream
-     Land in play**: the fine scroll's shift is 15% of the frame and the
-     tile list 2.6%; the image takes away the lookups (`ppu_list`, and the
-     tile-address load before every tile row - about a fifth of the shift
-     routine), not the shift, which the card cannot do for free (15.3).
-     That is ~5% of the frame, and the scan comes back on a scrolled frame
-     to keep the image current - 2.3 ms in Super Mario Land, where
-     `rb_renderd` skips it today. Measure the scan's cost before building;
-     the map's 2 KB alone may be enough, with tile changes found by
-     `RB_DTD` from the scan a still frame already does.
+     map is already exactly that buffer, 256 wide and wrapping, so the
+     image is the map's and wide in both directions for free.
+   - **What it would cost is the scan.** The image has to be kept current
+     on every scrolled frame, which `rb_renderd` skips there today: **+2.4
+     ms a scrolled frame in Super Mario Land**, against ~1.5-2 ms of
+     lookups taken away (`ppu_list` and the tile-address load before each
+     tile row; the shift stays, the card cannot do it for free). A net loss
+     for Super Mario Land, ~5% for Kirby's Dream Land at best.
+   - **What the measurement found instead, and took** (REALBOY-SPEC 13.3):
+     the still frame after a scroll COMPARED rather than composed whole
+     (Kirby's Dream Land -3.8%), and a line that is one tile all along
+     filled from its one tile row (Super Mario Land **-6.8%**, 44% of its
+     playfield lines). The same fill a segment at a time - runs of one
+     tile inside a mixed line - was built and refused: both games slower.
    - **A status bar is a line of its own** (its own scroll): composed as
      today, not from the image.
 

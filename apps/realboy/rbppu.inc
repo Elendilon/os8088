@@ -74,8 +74,9 @@ PPU_ANF         equ 0x4B60          ; 16: BGP as words D A B C for the shade's
                                     ;   bit 0, then bit 1 (ppu_pal)
 PPU_TADDR       equ 0x4C00          ; 512: tile n's row 0, for LCDC bit 4,
 PPU_TADDRC      equ 0x4D00          ;   at PPU_TADDRC + 2 x (n as signed)
-PPU_BLIST       equ 0x6600          ; 42: the 21 tile addresses a line reads,
-PPU_WLIST       equ 0x6680          ; 42:   for the background and the window
+PPU_BLIST       equ 0x6600          ; 42 + 1: the 21 tile addresses a line
+                                    ;   reads, and 1 when they are one tile,
+PPU_WLIST       equ 0x6680          ; 42 + 1: for the background and the window
 PPU_OUT         equ 0x4B58          ; byte: rb_render4's layout, not rb_render's
 PPU_BKEY        equ 0x4B5A          ; word: the map row PPU_BLIST holds (or 0)
 PPU_WKEY        equ 0x4B5C          ; word: ...PPU_WLIST
@@ -388,13 +389,18 @@ rb_renderd:
     mov word [es:RB_DTCH],0             ;   and the shadows are not even
     jmp short .scanned                  ;   taken while it scrolls
 .scan:
-    cmp byte [es:RB_DSTALE],0           ; the first still frame after one:
-    je .sc                              ;   whole once more, the shadows
-    mov byte [es:RB_DSTALE],0           ;   taken with it
-    cmp byte [es:RB_DFULL],0
-    jne .sc
-    mov byte [es:RB_DFULL],2
-.sc:
+    mov al,0                            ; the first still frame after one is
+    xchg al,[es:RB_DSTALE]              ;   COMPARED, not composed whole: the
+    or al,al                            ;   shadows the scroll left are only
+    jz .sc                              ;   older than the buffer, so what they
+    cmp byte [cs:rb_ilace],2            ;   find changed is a line too many and
+    jne .sc                             ;   never one too few - and a game whose
+    cmp byte [es:RB_DFULL],0            ;   camera moves every other frame paid
+    jne .sc                             ;   a whole frame for every still one.
+    mov byte [es:RB_DFULL],2            ;   But SCROLLING composes it whole and
+.sc:                                    ;   half, as a scroll's: half of a
+                                        ;   whole is less than half of what a
+                                        ;   comparison finds and judges
     call ppu_dscan                      ; the shadows, the changed bytes
 .scanned:
     cmp word [cs:rb_dhook],0
@@ -446,12 +452,8 @@ rb_renderd:
     cmp al,2
     jb .ic
     cmp byte [es:RB_DFULL],2            ; (Scrolling and Doubled: a scroll's
-    jne .ic                             ;   frame)
-    cmp al,3                            ; DOUBLED: the scroll's own, and not
-    jne .ie                             ;   the still frame after it, whose
-    cmp byte [es:RB_DSTALE],0           ;   whole is the shadows taken again -
-    je .ic                              ;   the odd lines composed there, not
-.ie:                                    ;   copied a frame more
+    jne .ic                             ;   frame - and Scrolling's still one
+.ie:                                    ;   after it, made one above)
     mov byte [PPU_ILC],1
 .ic:
     cmp byte [es:RB_DFULL],0            ; WHOLE (a scroll, or the host's):
@@ -1478,8 +1480,32 @@ ppu_line:
     mov si,PPU_BLIST
     mov cl,[PPU_REGS+2]
     and cl,7
-    jz .b0
+    cmp byte [PPU_BLIST+42],1           ; one tile all along: its row, turned
+    je .uni                             ;   by the fine scroll, 20 times (44%
+    or cl,cl                            ;   of Super Mario Land's lines under
+    jz .b0                              ;   its status bar are a sky)
     call ppu_fshift
+    jmp short .win
+.uni:
+    mov bx,[si]
+    mov al,dl
+    xor ah,ah
+    shl ax,1
+    add bx,ax
+    mov ax,[bx]                         ; AL, AH = the tile row's two planes
+    rol al,cl
+    rol ah,cl
+    mov bx,ax
+    mov al,bl
+    mov ah,bl
+    mov di,PPU_BL
+    mov cx,10
+    rep stosw
+    mov al,bh
+    mov ah,bh
+    mov di,PPU_BH
+    mov cx,10
+    rep stosw
     jmp short .win
 .b0:
     call ppu_fcopyb
@@ -1581,7 +1607,8 @@ ppu_anf:
 
 ; ppu_list: at BP, the 21 tile addresses a line reads from the map row at
 ; SI, column BX (0-31) on, wrapping at the row's end - built only when [DI]
-; says the list holds another row or column. Kept: DX.
+; says the list holds another row or column - and at [BP+42] 1 when the 21
+; are one tile. ES = DS. Kept: DX.
 ppu_list:
     lea ax,[si+bx]
     cmp [di],ax
@@ -1605,6 +1632,14 @@ ppu_list:
     mov si,dx
     call .run
 .d:
+    mov di,bp                           ; ONE TILE all along (a sky): [BP+42]
+    mov ax,[di]                         ;   1, for ppu_line's fill - asked
+    mov cx,21                           ;   here, once a map row
+    repe scasw
+    mov byte [ds:bp+42],1
+    je .nu
+    mov byte [ds:bp+42],0
+.nu:
     pop dx
 .r:
     ret
