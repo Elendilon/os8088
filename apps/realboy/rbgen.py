@@ -1203,6 +1203,82 @@ cpy_de:
     xor dl,dl
     jmp tr_enter
 """,
+    0x7D: """
+; stat_ff: a wait on the PPU - LDH A,(41h) / AND 3 or BIT 1,A / JR NZ,-6
+; (HBlank, or HBlank or VBlank: Super Mario Land's ~20 a frame before a VRAM
+; write) or LDH A,(44h) / CP n / JR NZ,-6 (line n) - with whole passes of
+; its 8 M-cycles taken off BP that are certain to read "not yet" (REALBOY-
+; SPEC 16.6): LY and STAT are S_TNF - BP's, so the wait is known. A pass
+; short of it, and never past the next event (BP stays 8 or more): the loop
+; reads the change itself, and A and F are its own. SI = the head, DL = 3
+; (mode 0), 2 (mode 0 or 1) or 44h (line DH); the JR NZ about to be taken,
+; its 3 M-cycles not charged. Always on at [S_RET].
+stat_ff:
+    cmp byte [ss:S_LCDON],0
+    je stat_out
+    mov [ss:S_TMP2],ax
+    mov [ss:S_TMP6],dx
+    mov ax,[ss:S_TNF]
+    sub ax,bp
+.wrap:
+    cmp ax,RB_FRAME
+    jb .in
+    sub ax,RB_FRAME
+    jmp short .wrap
+.in:
+    mov [ss:S_TMP4],ax
+    mov dh,RB_LINE
+    div dh                      ; AL = LY, AH = M-cycles into the line
+    cmp dl,44h
+    je stat_ly
+    cmp al,144
+    jae .vbl
+    sub ah,RB_HBL               ; to mode 0, this line
+    jae stat_none
+    neg ah
+    mov al,ah
+    xor ah,ah
+    jmp short stat_t
+.vbl:
+    cmp dl,2                    ; (mode 1 will do)
+    je stat_none
+    mov ax,RB_FRAME+RB_HBL      ; to line 0's mode 0
+    sub ax,[ss:S_TMP4]
+stat_t:
+    sub ax,8                    ; a pass short (0 is exact, gbrmw's
+    jbe stat_none               ;   Waits; 8 over is not)
+    and al,0F8h
+    mov dx,bp
+    sub dx,8
+    jle stat_none
+    cmp ax,dx
+    jbe .ok
+    mov ax,dx
+    and al,0F8h
+.ok:
+    sub bp,ax
+stat_none:
+    mov ax,[ss:S_TMP2]
+stat_out:
+    jmp word [ss:S_RET]
+""",
+    0x7C: """
+; stat_ff's other half (slot 7D's): line n's wait, n - LY lines on (mod
+; 154; a line that never comes is never read, so any skip is the loop's)
+stat_ly:
+    mov dl,[ss:S_TMP6+1]
+    sub dl,al
+    je stat_none                ; on it now
+    jnc .l
+    add dl,154
+.l:
+    mov dh,ah
+    mov al,RB_LINE
+    mul dl
+    sub al,dh
+    sbb ah,0
+    jmp stat_t
+""",
     0x47: """
 ; cnt_ff: a COUNTDOWN, DEC r / JR NZ,-3, run to its end in one step when the
 ; budget covers it (REALBOY-SPEC section 8.1) - the OAM DMA routine every

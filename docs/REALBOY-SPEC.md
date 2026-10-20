@@ -1080,11 +1080,25 @@ otherwise:
   directly; `REP MOVSB` forward, so an overlap smears as the loop does.
   10r + 2 M-cycles.
 
+- **`stat_ff`**: a wait on the PPU - `LDH A,(41h) / AND 3` or `BIT 1,A`
+  `/ JR NZ,-6` (HBlank, or HBlank or VBlank; Super Mario Land's ~20 a frame
+  before a VRAM write) and `LDH A,(44h) / CP n / JR NZ,-6` (line n). LY and
+  STAT are `S_TNF - BP`'s, so how long the wait has to run is known: whole
+  passes of its 8 M-cycles that are certain to read "not yet" come off BP,
+  a pass short of the change and never past the next event, and the loop
+  reads the change itself - A and F are its own. A margin of 0 is exact and
+  8 over is not, on 128 phases each (`gbrmw.asm`'s Waits, below); 8 short
+  is kept. Every other emulator surveyed (REALBOY-PLAN, wave 7) does this.
+
 The CPU alone on `286-victory` (`rbbench.py`): Super Mario Land 6.55 ms a
-frame without either, 6.32 with `add_ff` and 6.22 with both.
-`tools/gbprof/gbrmw.asm` runs each against the same loop closed by `JP NZ`,
-which no idiom takes, and fails when either tail is broken (the last ADD's
-carry dropped; A taken from the wrong byte).
+frame without any, 6.32 with `add_ff`, 6.22 with `cpy_ff` and 6.13 with
+`stat_ff` - its reads themselves (`io_rd`, `io_lcd`) are what is left of
+the waits.
+`tools/gbprof/gbrmw.asm` runs the first two against the same loop closed by
+`JP NZ`, which no idiom takes, and the waits from ROM against a copy in
+WRAM, which is never translated, each after a HALT on VBlank so both start
+in step; it fails when any tail is broken (the last ADD's carry dropped; A
+taken from the wrong byte; a wait skipped one pass too far).
 
 ### 16.7 Auto: the recompiler when it is the cheaper
 

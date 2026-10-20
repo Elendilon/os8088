@@ -46,7 +46,9 @@ Start:
     ld [$C030], a                           ; ...and their count
     ld [$C025], a                           ; copies that parted
     ld [$C031], a                           ; ...and their count
+    ld [$C026], a                           ; PPU waits that parted
     call HramCode
+    call Waits
     ld b, 128                               ; (each case 32 times: translated)
 .copies:
     push bc
@@ -101,6 +103,10 @@ Start:
     ld a, [$C025]
     or a
     ld hl, FailCopy
+    jr nz, .print
+    ld a, [$C026]
+    or a
+    ld hl, FailWait
     jr nz, .print
     ld hl, Passed
 .print:
@@ -472,6 +478,135 @@ Fill:
     jr nz, .g
     ret
 
+; Waits on the PPU - the recompiler's stat_ff, which takes whole passes off
+; the clock - run from ROM, translated, and from a copy in WRAM, which is
+; never translated: each waits after a delay that moves its phase, then
+; counts passes to LY's next change, which places the exit to within a pass.
+; The two must agree for every phase
+Waits:
+    ld hl, WaitBlock                        ; (ROM to WRAM: cpy_ff declines)
+    ld de, $C800
+    ld b, WaitEnd - WaitBlock
+.cp:
+    ld a, [hl+]
+    ld [de], a
+    inc de
+    dec b
+    jr nz, .cp
+    xor a
+    ld [$C033], a
+.trial:
+    call Sync
+    call WaitM0
+    ld e, a
+    call Sync
+    call $C800 + WaitM0 - WaitBlock
+    cp e
+    jr nz, .bad
+    call Sync
+    call WaitM01
+    ld e, a
+    call Sync
+    call $C800 + WaitM01 - WaitBlock
+    cp e
+    jr nz, .bad
+    call Sync
+    call WaitLY
+    ld e, a
+    call Sync
+    call $C800 + WaitLY - WaitBlock
+    cp e
+    jr nz, .bad
+    ld a, [$C033]
+    inc a
+    ld [$C033], a
+    cp 128
+    jr nz, .trial
+    xor a
+    ldh [$FFFF], a
+    ret
+.bad:
+    xor a
+    ldh [$FFFF], a
+    inc a
+    ld [$C026], a
+    ret
+
+; to VBlank's start, exactly: HALT with only VBlank enabled and IME off
+; resumes the moment it is requested
+Sync:
+    xor a
+    ldh [$FF0F], a
+    inc a
+    ldh [$FFFF], a
+    halt
+    ret
+
+WaitBlock:                                  ; position-independent: JRs only
+WaitM0:
+    ld a, [$C033]
+    ld c, a
+    inc c
+.d:
+    dec c
+    jr nz, .d
+.w:
+    ldh a, [$FF41]
+    and 3
+    jr nz, .w
+    ldh a, [$FF44]
+    ld d, a
+    ld b, 0
+.c:
+    inc b
+    ldh a, [$FF44]
+    cp d
+    jr z, .c
+    ld a, b
+    ret
+WaitM01:
+    ld a, [$C033]
+    ld c, a
+    inc c
+.d:
+    dec c
+    jr nz, .d
+.w:
+    ldh a, [$FF41]
+    bit 1, a
+    jr nz, .w
+    ldh a, [$FF44]
+    ld d, a
+    ld b, 0
+.c:
+    inc b
+    ldh a, [$FF44]
+    cp d
+    jr z, .c
+    ld a, b
+    ret
+WaitLY:
+    ld a, [$C033]
+    ld c, a
+    inc c
+.d:
+    dec c
+    jr nz, .d
+.w:                                         ; (VBlank and a delay of up
+    ldh a, [$FF44]                          ;   to five lines: line 2 is
+    cp 2                                    ;   the next frame's)
+    jr nz, .w
+    ld d, 2
+    ld b, 0
+.c:
+    inc b
+    ldh a, [$FF44]
+    cp d
+    jr z, .c
+    ld a, b
+    ret
+WaitEnd:
+
 ; F into the sum at [DE], with the carry of the add left for the next op
 Fold:
     push af
@@ -502,3 +637,5 @@ FailRows:
     db "Failed: a map-row loop parted", 10, 0
 FailCopy:
     db "Failed: a copy loop parted", 10, 0
+FailWait:
+    db "Failed: a wait on the PPU parted", 10, 0

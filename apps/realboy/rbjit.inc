@@ -1201,7 +1201,7 @@ rt_jrt:
     jne .nocnt
 .cnt:
     mov bx,RBC_CNT_FF
-.ff:                                ; BX = cnt_ff or add_ff, DL = the DEC
+.ff:                                ; BX = the tail, DX what it is told
     mov al,0BEh                     ; mov si,T
     stosb
     mov ax,[RT_T]
@@ -1213,12 +1213,12 @@ rt_jrt:
     mov ax,S_RET
     stosw
     mov ax,di
-    add ax,7                        ; past this word, mov dl and the jmp
+    add ax,8                        ; past this word, mov dx and the jmp
     stosw
-    mov al,0B2h                     ; mov dl,DEC
+    mov al,0BAh                     ; mov dx,DX
     stosb
-    mov al,dl
-    stosb
+    mov ax,dx
+    stosw
     xchg ax,bx
     call rt_jmp
     jmp .plain                      ; FALLBACK: the taken JR as usual
@@ -1250,9 +1250,9 @@ rt_jrt:
     mov bx,[RT_IX]
     cmp bx,4
     jb .nocpy
-    cmp word [JIT_BUF+bx-2],0513h
-    jne .nocpy
     mov ax,[JIT_BUF+bx-4]           ; (what follows takes T from RT_T)
+    cmp word [JIT_BUF+bx-2],0513h
+    jne .stat
     cmp ax,122Ah
     je .cpy
     cmp ax,221Ah
@@ -1260,6 +1260,28 @@ rt_jrt:
 .cpy:
     mov dl,al
     mov bx,RBC_CPY_FF
+    jmp .ff
+.stat:                              ; ...or a wait on the PPU (stat_ff):
+    mov dx,[JIT_BUF+bx-2]           ;   LDH A,(41h) / AND 3 or BIT 1,A, or
+    cmp ax,44F0h                    ;   LDH A,(44h) / CP n
+    je .ly
+    cmp ax,41F0h
+    jne .nost
+    cmp dx,03E6h
+    mov dl,3                        ; DL = 3: mode 0; 2: mode 0 or 1
+    je .stf
+    cmp dx,4FCBh
+    mov dl,2
+    je .stf
+.nost:
+    mov dx,0FFFAh                   ; (DX the displacement again)
+    jmp short .nocpy
+.ly:
+    cmp dl,0FEh
+    jne .nost
+    mov dl,44h                      ; DL = 44h: line DH
+.stf:
+    mov bx,RBC_STAT_FF
     jmp .ff
 .nocpy:
     cmp dx,0FFF0h                   ; -16..-4: a spin-wait's shape?
