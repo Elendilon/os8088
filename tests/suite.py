@@ -2558,7 +2558,7 @@ SOAK = [
         "the table goes 4 claims to 2 and this row names it. Needs `make "
         "mseg`.",
         needs=("marty", "nasm"), serial=True, wants=("build/mseg.img",)),
-    Row("gbcpu", "soak", py("tests/gbcpu.py"), 25.0,
+    Row("gbcpu", "soak", py("tests/gbcpu.py"), 50.0,
         "REALBOY's SM83 core (docs/REALBOY-SPEC.md) against Blargg's eleven "
         "cpu_instrs ROMs, the combined MBC1 one, instr_timing, mem_timing and "
         "halt_bug, and the 24 of Mooneye's DMG acceptance tests it passes - "
@@ -2566,7 +2566,11 @@ SOAK = [
         "under the core, the verdict read off the link port, Blargg's text at "
         "A000 or Mooneye's registers. The ROMs are fetched by "
         "tools/getgbtest.py at pinned SHA-256s and never committed. NEGATIVE CONTROL: DAA made a no-op must make "
-        "01-special fail. WHY QEMU: a correctness gate, and QEMU counts work "
+        "01-special fail. Then tools/gbprof/gbrmw.asm, ours: the "
+        "recompiler's read-modify-writes of (HL) on WRAM against TMA, a store "
+        "through (HL) that takes an interrupt, and an HRAM routine rewritten "
+        "once translated - with its own control, the interpreter's DEC (HL) "
+        "broken, which must part the two sides. WHY QEMU: a correctness gate, and QEMU counts work "
         "exactly - the cycle counts instr_timing checks are the core's own. "
         "SOAK: one package's core",
         needs=("qemu", "nasm")),
