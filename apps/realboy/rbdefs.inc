@@ -40,6 +40,12 @@ JIT_BUF         equ 0x6700          ; 256: the Game Boy code being translated
 RB_BTAB         equ 0x6800          ; 512 words: a ROM bank's segment, or 0
 RB_BUSE         equ 0x6C00          ; 512 words: switches to it (the cache's
                                     ;   eviction count, REALBOY-SPEC 10.3)
+RB_HWCOL        equ 0x7000          ; 2,304: VGA full screen's new bytes, 16
+RB_HWACT        equ 0x7900          ;   a line, and 144 marking the lines,
+RB_HWMST        equ 0x7990          ;   and 144: a line's copies kept, or how
+                                    ;   long it has been the same (the
+                                    ;   package's hardware scroll,
+                                    ;   apps/realboy/rwhw.inc)
 JIT_HASH        equ 0x0000          ; 16,384, in a SEGMENT OF ITS OWN
                                     ;   (S_JITHSEG): the block table (tr_enter,
                                     ;   REALBOY-SPEC 16.3). The cache's 64KB

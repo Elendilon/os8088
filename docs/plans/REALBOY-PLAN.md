@@ -938,6 +938,13 @@ Super Mario Land scrolls with enemies on screen.
      CRTC start address plus pel panning cannot keep Super Mario Land's
      status bar, which is at the TOP, because line compare fixes only the
      part of the screen below the split.
+   - **It was built anyway** (REALBOY-SPEC 15.3), with the status bar
+     composed - and since copied by the card from eight shifted copies -
+     wherever the origin goes. The surveys were right about the price and
+     not about the verdict: on the Victory twin drawing is 4% cheaper in
+     Super Mario Land and 31% in Kirby's Dream Land, because on a 286 a
+     line's bookkeeping and its edge bytes cost about what composing it
+     does, and the VRAM scan comes back.
 
 7. **Drop a raster-register write that changes nothing** (gnuboy
    `lcd.c:820`, `mem.c:139-151`; Goomba Color `lcd.s:4086-4093`).

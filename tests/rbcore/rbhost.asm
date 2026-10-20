@@ -28,6 +28,14 @@
 ;                   rb_renderd into a buffer it keeps, and whole by
 ;                   rb_render. The DONE line counts the frames whose two
 ;                   pictures differ (REALBOY-SPEC section 13.2's gate).
+;   MODES 11, 12    as MODE 7, timed, with the VGA full-screen writers in
+;   (hwd, renderv)  mode 0Dh: by hardware scroll (rw_hwdraw), and
+;                   rb_renderd's changed lines copied to VRAM, as the
+;                   writer that does not scroll does (rw_fsplane).
+;   MODE 10 (hw)    as MODE 6, the damage side the package's VGA full-screen
+;                   writer by hardware scroll (apps/realboy/rwhw.inc) in
+;                   mode 0Dh: what it leaves at the origin, through the
+;                   panning, read back a plane at a time (REALBOY-SPEC 15.3).
 ;
 ; Memory: the boot sector at 0000:7C00, the stack below it, this harness at
 ; 0800:0000, the core at 1000:0000, the view at 2000:0000, the ROM from
@@ -163,6 +171,19 @@ host_main:
     mov ax,cs
     mov ds,ax
     mov es,ax
+    cmp byte [h_mode],11                ; MODES 11 and 12: MODE 7 with a
+    jb .m10                             ;   VGA writer
+    mov al,[h_mode]
+    sub al,10
+    mov [h_hw],al
+    mov byte [h_mode],7
+    jmp short .m89
+.m10:
+    cmp byte [h_mode],10                ; MODE 10: MODE 6 by hardware scroll
+    jne .m89
+    mov byte [h_hw],1
+    mov byte [h_mode],6
+.m89:
     cmp byte [h_mode],8                 ; MODES 8 and 9: MODE 6 with
     jb .mode                            ;   Interlace On or Scrolling
     mov al,[h_mode]
@@ -293,11 +314,31 @@ host_main:
     mov ax,DMG_SEG
     mov es,ax
     mov byte [es:RB_DFULL],1
+    cmp byte [cs:h_hw],0
+    je .d7
+    mov ax,0x000D
+    int 0x10
+    mov byte [cs:hw_ok],0
+    mov word [cs:hw_wob],0FFFFh
+    mov byte [cs:hw_wp],0FFh
 .d7:
+    cmp byte [cs:h_hw],1
+    jne .rd
+    push ds
+    push cs
+    pop ds
+    call rw_hwdraw
+    pop ds
+    jmp short .d8
+.rd:
     mov ax,FRAMED_SEG
     mov es,ax
     xor di,di
     call rb_renderd
+    cmp byte [cs:h_hw],2
+    jne .d8
+    call vcopy
+.d8:
 %ifdef SCRL_STAT
     call scrl_stat
 %endif
@@ -323,6 +364,11 @@ host_main:
     sub ax,[t0]
     sbb dx,[t0+2]
     mov [ticks],ax
+    cmp byte [h_hw],0                   ; (a VGA writer's mode 0Dh: the text
+    je .tx                              ;   screen back for the DONE line,
+    mov ax,0x0003                       ;   which 86Box's runs read)
+    int 0x10
+.tx:
     mov si,s_done
     call puts
     mov ax,[nframes]
@@ -520,6 +566,10 @@ host_main:
 
 ; dmg_check - MODE 6: every third frame, rb_renderd against rb_render
 dmg_check:
+    cmp byte [cs:h_hw],0
+    je .d
+    jmp hw_check
+.d:
     push ax
     push cx
     push dx
@@ -610,6 +660,211 @@ dmg_check:
     pop cx
     pop ax
     ret
+; hw_check - MODE 10: every third frame, rw_hwdraw's picture in VRAM
+; against rb_render's. dmg_off is the line (and 1000 for plane 1)
+hw_check:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    cmp word [cs:rb_dmgseg],0
+    jne .on
+    mov word [cs:rb_dmgseg],DMG_SEG     ; the first time: everything, in
+    mov ax,DMG_SEG                      ;   the package's mode
+    mov es,ax
+    mov byte [es:RB_DFULL],1
+    mov ax,0x000D
+    int 0x10
+    mov byte [cs:hw_ok],0
+    mov word [cs:hw_wob],0FFFFh
+    mov byte [cs:hw_wp],0FFh
+.on:
+    mov ax,[cs:nframes]
+    xor dx,dx
+    mov cx,3
+    div cx
+    or dx,dx
+    jz .chk
+    jmp .r
+.chk:
+    push cs
+    pop ds
+    call rw_hwdraw                      ; AX = the lines composed
+    add [cs:dmg_lines],ax
+    mov ax,FRAME_SEG
+    mov es,ax
+    xor di,di
+    call rb_render
+    mov ax,0xA000
+    mov ds,ax
+    mov cl,[cs:hw_p]
+    xor bp,bp                           ; BP = the plane
+.pl:
+    mov dx,0x3CE                        ; read map select
+    mov al,4
+    mov ah,[cs:hw_wtab + bp]
+    out dx,ax
+    mov si,[cs:hw_ob]
+    mov di,bp
+    mov bx,0                            ; BX = the line
+.ln:
+    push si
+    push di
+    mov ch,20
+.by:
+    mov ah,[si]
+    mov al,[si+1]
+    shl ax,cl
+    cmp ah,[es:di]
+    jne .bad
+    inc si
+    inc di
+    dec ch
+    jnz .by
+    pop di
+    pop si
+    add si,40
+    add di,40
+    inc bx
+    cmp bx,144
+    jb .ln
+    add bp,20
+    cmp bp,40
+    jb .pl
+    jmp short .r
+.bad:
+    pop di
+    pop si
+    inc word [cs:dmg_bad]
+    cmp word [cs:dmg_first],0
+    jne .r
+    mov ax,[cs:nframes]
+    mov [cs:dmg_first],ax
+    or bp,bp
+    jz .b0
+    add bx,1000
+.b0:
+    mov [cs:dmg_off],bx
+.r:
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+; vcopy - MODE 12: rb_renderd's changed lines to VRAM at RW_HWBASE, a plane
+; at a time (rw_fsplane's shape)
+vcopy:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push ds
+    push es
+    mov ax,0xA000
+    mov es,ax
+    mov ax,FRAMED_SEG
+    mov ds,ax
+    mov dx,0x3C4
+    mov ax,0x0102
+    xor si,si
+.pl:
+    out dx,ax
+    push ax
+    mov di,RW_HWBASE
+    xor bx,bx
+.l:
+    push ds
+    mov ax,DMG_SEG
+    mov ds,ax
+    cmp byte [RB_DCHG+bx],0
+    pop ds
+    je .n
+    mov cx,10
+    rep movsw
+    sub si,20
+    sub di,20
+.n:
+    add si,40
+    add di,40
+    inc bx
+    cmp bx,144
+    jb .l
+    pop ax
+    cmp ah,2
+    je .r
+    mov ax,0x0202
+    mov si,20
+    jmp .pl
+.r:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+hw_wtab     db 0
+            times 19 db 0
+            db 1
+h_hw        db 0
+
+; the package's names rwhw.inc reads: its bss, here in the harness
+FSI_SEG     equ 0
+rw_fsi      dw 0xA000
+hw_ok       db 0
+hw_p        db 0
+hw_dx       db 0
+hw_ob       dw 0
+hw_row      dw 0
+hw_ncomp    dw 0
+hw_scy      db 0
+hw_scx      db 0
+hw_nscy     db 0
+hw_nscx     db 0
+hw_lcdc     db 0
+hw_bgp      db 0
+hw_nlcdc    db 0
+hw_nbgp     db 0
+hw_r0       times 8 db 0
+hw_mv       db 0
+hw_mm       db 0
+hw_n        db 0
+hw_x        db 0
+hw_fine     db 0
+hw_mrow     db 0
+hw_mapb     dw 0
+hw_ta       times 12 db 0
+hw_same     db 0
+hw_vch      db 0
+hw_rmain    db 0
+hw_wy       db 0
+hw_next     db 0
+hw_spr      dw 0
+hw_mstr     db 0
+hw_dst      dw 0
+hw_sh       db 0
+hw_plain    db 0
+hw_k1       db 0
+hw_k2       db 0
+hw_wob      dw 0
+hw_wp       db 0
+hw_valid    times 144 db 0
+
 dmg_bad     dw 0
 dmg_first   dw 0
 dmg_lines   dw 0
@@ -976,3 +1231,9 @@ ticks   dw 0
 %include "rbsys.inc"
 %include "rbppu.inc"
 %include "rbjit.inc"
+%include "rwhw.inc"
+
+; the harness ends under the core, at 1000:0000 (a run past it overwrites
+; the core it loaded and hangs with nothing said)
+host_end:
+    times -((host_end - $$) > CORE_SEG * 16 - HOST_SEG * 16) db 0

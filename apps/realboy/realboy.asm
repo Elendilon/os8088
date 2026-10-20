@@ -186,7 +186,49 @@ rw_msgt         equ rw_f3was + 1    ; byte: a note is on the speed line
 rw_msgclr       equ rw_msgt + 1     ; byte: ...and has just come down
 rw_msgend       equ rw_msgclr + 1   ; word: the tick it comes down at
 rw_msg          equ rw_msgend + 2   ; 21: the note (rw_note)
-rw_log          equ rw_msg + 21     ; RW_LOGN x RW_LOGSZ: the records
+hw_ok           equ rw_msg + 21     ; byte: the hardware scroll's origin holds
+                                    ;   (rwhw.inc; 0: home, every line again)
+hw_p            equ hw_ok + 1       ; byte: its panning, 0-7
+hw_dx           equ hw_p + 1        ; byte: this call's scroll, x, signed
+hw_ob           equ hw_dx + 1       ; word: the origin's start address
+hw_row          equ hw_ob + 2       ; word: the line's row at the origin
+hw_ncomp        equ hw_row + 2      ; word: lines composed this call
+hw_scy          equ hw_ncomp + 2    ; byte: the main line's SCY and SCX at
+hw_scx          equ hw_scy + 1      ;   the last call (a pair: PPU_REGS's)
+hw_nscy         equ hw_scx + 1      ; byte: ...and this call's
+hw_nscx         equ hw_nscy + 1
+hw_lcdc         equ hw_nscx + 1     ; byte: the main line's LCDC and BGP
+hw_bgp          equ hw_lcdc + 1
+hw_nlcdc        equ hw_bgp + 1
+hw_nbgp         equ hw_nlcdc + 1
+hw_r0           equ hw_nbgp + 1     ; 8: PPU_REGS as the frame began
+hw_mv           equ hw_r0 + 8       ; byte: the origin moved (or went home)
+hw_mm           equ hw_mv + 1       ; byte: the plane the map mask holds
+hw_n            equ hw_mm + 1       ; byte: hw_edge's bytes, how many
+hw_x            equ hw_n + 1        ; byte: ...the first one's map column
+hw_fine         equ hw_x + 1        ; byte: ...and its pixel in that cell
+hw_mrow         equ hw_fine + 1     ; byte: the map row hw_ta holds
+hw_mapb         equ hw_mrow + 1     ; word: the main line's map
+hw_ta           equ hw_mapb + 2     ; 12: the cells' tiles, the bytes' + 1
+hw_same         equ hw_ta + 12      ; byte: the raster log and the frame's
+                                    ;   first registers the last call's
+hw_vch          equ hw_same + 1     ; byte: a tile or a map cell changed
+hw_rmain        equ hw_vch + 1      ; byte: the registers are the main line's
+hw_wy           equ hw_rmain + 1    ; byte: ...the window from this line
+hw_next         equ hw_wy + 1       ; byte: the raster log's next line
+hw_spr          equ hw_next + 1     ; word: the line's PPU_LSPR
+hw_mstr         equ hw_spr + 2      ; byte: hw_line keeps the line's copies
+hw_dst          equ hw_mstr + 1     ; word: hw_both's row in VRAM...
+hw_sh           equ hw_dst + 2      ; byte: ...and its shift
+hw_plain        equ hw_sh + 1       ; byte: the line is plain background
+hw_k1           equ hw_plain + 1    ; byte: hw_edge's bytes, first...
+hw_k2           equ hw_k1 + 1       ;   ...and last
+hw_wob          equ hw_k2 + 1       ; word: the start address on the card
+hw_wp           equ hw_wob + 2      ; byte: ...and the panning
+hw_valid        equ hw_wp + 1       ; 144: the row at the origin is the line's:
+                                    ;   1 its plain background, scrolled or not,
+                                    ;   2 as composed, the origin still since
+rw_log          equ hw_valid + 144  ; RW_LOGN x RW_LOGSZ: the records
 rw_fbuf         equ rw_log + RW_LOGN * RW_LOGSZ ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
@@ -2610,6 +2652,7 @@ rw_ab7:         db 'F1 = speed', 0
 %include "rbsys.inc"
 %include "rbppu.inc"
 %include "rwfsx.inc"
+%include "rwhw.inc"
 %include "rbjit.inc"
 
 %include "os88alt.inc"
