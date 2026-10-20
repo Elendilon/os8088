@@ -12615,6 +12615,19 @@ $(BUILD)/megacsw.o88: $(BUILD)/megacsw.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megacsw.bin -o $@
 $(BUILD)/megacsl.o88: $(BUILD)/megacsl.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megacsl.bin -o $@
+# MEGAFLT (tests/megaflt): packages that FAULT on purpose - a callback, a
+# worker, an fsx bracket, held claims and a tone, the entry proc, a wake with
+# the gfx lock - and FLTZ, the control that does not (KERN-MEGA-PLAN 14.42).
+# tests/megaflt.py boots kern_mega under Bochs with all seven; each faulting
+# one must be CLOSED and the machine must carry on
+MEGAFLT_MODES := z:0 a:1 b:2 c:3 d:4 e:5 f:6
+define MEGAFLT_RULE
+$$(BUILD)/flt$(word 1,$(subst :, ,$(1))).bin: tests/megaflt/megaflt.asm apps/os88api.inc | $$(BUILD)
+	$$(NASM) -f bin -w+error -I apps/ -DFLT_MODE=$(word 2,$(subst :, ,$(1))) -o $$@ tests/megaflt/megaflt.asm
+$$(BUILD)/flt$(word 1,$(subst :, ,$(1))).o88: $$(BUILD)/flt$(word 1,$(subst :, ,$(1))).bin tools/os88pkg.py
+	python3 tools/os88pkg.py $$< -o $$@
+endef
+$(foreach m,$(MEGAFLT_MODES),$(eval $(call MEGAFLT_RULE,$(m))))
 # MEGACP (tests/megacp): the pool COMPACTED (KERN-MEGA-PLAN 14.15) - 60KB
 # claims filled, every other one freed, a 64KB claim that only a compaction
 # can place, and every survivor's stamps read back through its own selector.

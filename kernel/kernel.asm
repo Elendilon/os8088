@@ -7512,6 +7512,9 @@ MEGA_SIZE equ mega_end - $$
  %if MEGA_HI_LIN + MEGA_SIZE > MEGA_XPOOL
   %error "kern_mega: `.cold` and `.mega` no longer fit between the IDT and the XMEM pool (mega.inc) - raise MEGA_XPOOL by 64KB"
  %endif
+ %if MEGA_FKINST != INST_MAX || MEGA_FKMSG != TOAST_MAX + 1
+  %error "mega.inc's MEGA_FKINST / MEGA_FKMSG mirror INST_MAX / TOAST_MAX + 1 (KERN-MEGA-PLAN 14.42)"
+ %endif
 %endif
 
 section .ovl

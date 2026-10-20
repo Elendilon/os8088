@@ -441,18 +441,28 @@ wm_pkgcall:
     cmp word [es:si+W_SEG], 0   ; (the cmp sets the flags the branch reads, so
     je .near                    ; the `and` above cannot reach it)
     mov ds, [es:si+W_SEG]       ; DS = the package's own segment...
+%ifdef KERN_MEGA
+    call COLD_SEG:mega_pcin_x   ; ...and the bracket below, plus kern_mega's
+%else                           ; CATCH for a fault in it (KERN-MEGA-PLAN 14.42)
     call COLD_SEG:wm_nest_pushd_x   ; ...WHICH A FRAME IS ABOUT TO REFER TO
+%endif
                                 ; (SPEC.md 66.6.1), and the push reads it from
                                 ; DS, so the segment costs no register here at
                                 ; all - AX and BX are the CALLBACK's
 %ifdef KERN_MEGA
     MEGA_PCALL [es:si+W_DISP], [es:si+W_SEG]               ; ...and off to its dispatcher: W_SEG is DATA,
+..@mega_pcret_w:                   ; (a fault in the callback is UNWOUND to here,
+                                ; CF = 1: KERN-MEGA-PLAN 14.42, mega_fkill)
 %else                           ; the call wants its code alias (mega.inc)
     call far [es:si+W_DISP]     ; ...and off to its dispatcher
 %endif
     KDS                         ; DS IS THE PACKAGE'S at the return, and `.out`
                                 ; below restores the caller's, so borrowing it
+%ifdef KERN_MEGA
+    call COLD_SEG:mega_pcout_x  ; (the catch comes off with the bracket)
+%else
     call COLD_SEG:wm_nest_pop_x ; for two instructions costs nothing. ES is no
+%endif
                                 ; safer - a callback may clobber it (SPEC.md
                                 ; 13). A CALLBACK ANSWERS IN THE FLAGS (an
                                 ; entry proc's CF, W_ONSIZE's), so the pop

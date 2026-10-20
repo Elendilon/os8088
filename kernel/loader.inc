@@ -1349,7 +1349,12 @@ ld_start:
                                 ; mem_frameless
     mov ds, [ld_base]           ; DS = the package's own segment, read through
 %ifdef KERN_MEGA
+    call COLD_SEG:mega_pcin_n   ; kern_mega's CATCH: a fault in the entry
+                                ; proc comes back here as a refusal, CF = 1
+                                ; (KERN-MEGA-PLAN 14.42, mega_fkill)
     MEGA_PCALL [es:ld_fp], [es:ld_base] ; the CODE alias (kernel/mega.inc)
+..@mega_pcret_l:
+    call COLD_SEG:mega_pcout_n  ; (needs no DS: the frame names the task)
 %else
     call far [es:ld_fp]         ; DS while DS still names the kernel and
 %endif
