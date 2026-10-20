@@ -258,6 +258,10 @@ def main():
                 a, b, c = A[k], B[k], C[k]
                 pos = classify(a, b, c, ORG + k * SLOT, name)
                 if len(a) > TMAX:           # the interpreter's: see TMAX
+                    if cb == "x":           # (an EXTRA is chosen by operand:
+                        raise SystemExit(   #   dropped, it would quietly be
+                            "rbtmpl: %s (%s) is %d bytes, over TMAX"   # the
+                            % (name, rbgen.EXTRA[op][0], len(a)))      # slow way)
                     continue
                 glen = rbgen.EXTRA[op][2] if cb == "x" else rbgen.template_glen(op, cb)
                 fl = ((rbgen.EXTRA[op][3] if len(rbgen.EXTRA[op]) > 3 else 0)
