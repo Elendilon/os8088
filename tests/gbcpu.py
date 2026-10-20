@@ -69,6 +69,10 @@ DAA_NOP = "2700:8A3446FFE2"        # mov dh,[si] / inc si / jmp dx
 # which the translated WRAM side never runs: the two sides must part.
 RMW_ROM = "gbrmw"
 DECHL_NOP = "3500:8A3446FFE2"
+# tools/gbprof/gbflags.py: the recompiler's dead flags (REALBOY-SPEC 16.1.2),
+# whose sum must be the interpreter's. Its control does not see that an
+# instruction reads a flag (ADC's carry, RLA's, DAA's) before it writes it.
+FLAGS_ROM = "gbflags"
 
 
 def rom_path(name):
@@ -106,6 +110,14 @@ def run(label, rom, frames, core, host, jit=True):
     return "Passed" in text, last[0]
 
 
+def run_sum(rom, core, host, jit):
+    img = os.path.join(ROOT, "build", "realboy", "gbcpu.img")
+    rbimg.make_image(rom, img, frames=3000, core=core, host=host, jit=jit)
+    text = rbqemu.run(img, ["Passed", "RBHOST DONE", "RBHOST BADOP"], timeout=180, quiet=True)
+    s = [l.strip() for l in text.splitlines() if l.strip().startswith("Sum ")]
+    return s[0] if s and "Passed" in text else None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("-k", help="only the ROMs whose name contains this")
@@ -132,6 +144,22 @@ def main():
         ok, last = run("control", rom, 2000, rbimg.patch_core(core, [DECHL_NOP]), host)
         print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: DEC (HL) broken",
                                  "passed - the gate cannot go red" if ok else "failed, as it must"))
+        bad += ok
+    if not a.k or a.k in "dead flags":
+        import gbours
+        rom = gbours.build(FLAGS_ROM)
+        want = run_sum(rom, core, host, False)
+        got = run_sum(rom, core, host, True)
+        ok = want is not None and got == want
+        print("%-4s %-24s %s" % ("ok" if ok else "FAIL", "dead flags",
+                                 "%s, interpreted %s" % (got, want)))
+        bad += not ok
+        broke = run_sum(rom, core, rbimg.build_host(out, ["RT_DEADBUG"]), True)
+        rbimg.build_host(out)
+        ok = broke == want
+        print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: reads unseen",
+                                 "passed - the gate cannot go red" if ok
+                                 else "%s, as it must not be" % broke))
         bad += ok
     for name in MOONEYE:
         label = "mooneye " + name

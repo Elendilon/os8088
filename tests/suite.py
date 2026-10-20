@@ -2570,7 +2570,10 @@ SOAK = [
         "recompiler's read-modify-writes of (HL) on WRAM against TMA, a store "
         "through (HL) that takes an interrupt, and an HRAM routine rewritten "
         "once translated - with its own control, the interpreter's DEC (HL) "
-        "broken, which must part the two sides. WHY QEMU: a correctness gate, and QEMU counts work "
+        "broken, which must part the two sides. And tools/gbprof/gbflags.py's "
+        "generated sequences, the recompiler's dead flags (REALBOY-SPEC "
+        "16.1.2): their sum with it must be the interpreter's, and its "
+        "control (RT_DEADBUG, a flag's read unseen) must make them differ. WHY QEMU: a correctness gate, and QEMU counts work "
         "exactly - the cycle counts instr_timing checks are the core's own. "
         "SOAK: one package's core",
         needs=("qemu", "nasm")),

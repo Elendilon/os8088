@@ -177,6 +177,12 @@ def deferrable(a, lines):
     return True
 
 
+# bit 6: the template may leave the block before its end - for the
+# interpreter, the event entry, rbsys (rbjit.inc's rt_deadf looks past
+# nothing that can, REALBOY-SPEC 16.1.2)
+LEAVES = re.compile(r"\b(tr_\w+|force_ev|S_EVVEC|S_MBCVEC|S_DISP|idle_\w+)\b|jmp far")
+
+
 def flags_for(op, cb, lines):
     text = "\n".join(lines)
     stores = re.search(r"\b(wr_\w+|io_wr|mbc_wr)\b", text) is not None   # any write helper
@@ -191,9 +197,12 @@ def flags_for(op, cb, lines):
     return 1
 
 
-NEXTRA = 32             # record slots after the 512 for rbgen.EXTRA
+NEXTRA = 56             # record slots after the 512 for rbgen.EXTRA
 HEAD = 2 * (512 + NEXTRA) + 12   # then the free ranges', tail slots' and
-                                 #   JDISPATCH sites' offset and count words
+                                 #   JDISPATCH sites' offset and count words;
+                                 #   then, at HEAD, the dead-flag table
+                                 #   (rbgen.flag_masks): 256 bytes of
+                                 #   writes | reads << 4
 # The longest template the table carries. With its guards (32 bytes at most,
 # REALBOY-SPEC section 16.5) it must fit a gap, and the median gap is ~106
 # bytes. What is over it is a read-modify-write of (HL) - INC/DEC (HL), the
@@ -233,8 +242,9 @@ def main():
             if t is not None:
                 todo.append(((cb, op), t))
     assert len(rbgen.EXTRA) <= NEXTRA, len(rbgen.EXTRA)
-    for k, (_, lines, _) in enumerate(rbgen.EXTRA):
-        todo.append((("x", k), lines))
+    for k, e in enumerate(rbgen.EXTRA):
+        if e[1] is not None:                # (a slot with no record)
+            todo.append((("x", k), e[1]))
     recs = {}
     npure = [0]
     with tempfile.TemporaryDirectory(prefix="rbtmpl") as tmp:
@@ -250,12 +260,15 @@ def main():
                 if len(a) > TMAX:           # the interpreter's: see TMAX
                     continue
                 glen = rbgen.EXTRA[op][2] if cb == "x" else rbgen.template_glen(op, cb)
-                fl = 0 if cb == "x" else flags_for(op, cb, lines)
+                fl = ((rbgen.EXTRA[op][3] if len(rbgen.EXTRA[op]) > 3 else 0)
+                      if cb == "x" else flags_for(op, cb, lines))
                 if pure(a, pos, lines):
                     fl |= 8
                     npure[0] += 1
                 elif deferrable(a, lines):
                     fl |= 32
+                if LEAVES.search("\n".join(lines)):
+                    fl |= 64
                 rec = struct.pack("<HBBB", ORG + k * SLOT, len(a), glen, fl)
                 rec += bytes(len(ps) for ps in pos) + a
                 for ps in pos:
@@ -263,6 +276,13 @@ def main():
                 recs[(cb, op)] = rec
     head = bytearray(HEAD)
     body = bytearray()
+    for op in range(256):
+        w, r = rbgen.flag_masks(op)
+        body.append(w | r << 4)
+    for op in range(256):                   # (rt_deadf's own rule for CB)
+        w, r = rbgen.flag_masks_cb(op)
+        assert w | r << 4 == (0 if op >= 0x80 else 7 if op >= 0x40 else
+                              0x8F if op >= 0x10 and op < 0x20 else 0x0F), op
     for (cb, op), rec in sorted(recs.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
         idx = 512 + op if cb == "x" else op + (256 if cb else 0)
         struct.pack_into("<H", head, 2 * idx, len(head) + len(body))
@@ -287,6 +307,10 @@ def main():
                 "; the translator writes jumps to (REALBOY-SPEC section 16)\n" % corebin)
         for n in EXPORT:
             f.write("RBC_%s equ 0x%04X\n" % (n.upper(), labels[n]))
+        f.write("RBT_HFREE equ %d\nRBT_HTAIL equ %d\nRBT_HJD equ %d\n"
+                "RBT_XBANK equ %d\nRBT_XNOF equ %d\nRBT_FLG equ %d\n"
+                % (HEAD - 12, HEAD - 8, HEAD - 4, 512 + rbgen.RB_XBANK,
+                   512 + rbgen.RB_XNOF, HEAD))
     print("rbtmpl: %d templates (%d pure), %d free ranges of %d bytes, %d bytes"
           % (len(recs), npure[0], len(gl), sum(b - a for a, b in gl), len(head) + len(body)))
 

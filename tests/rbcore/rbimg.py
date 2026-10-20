@@ -63,10 +63,10 @@ def build_core(trace, out_dir):
     return data
 
 
-def build_host(out_dir):
+def build_host(out_dir, defines=()):
     out_dir = private(out_dir)
     binf = os.path.join(out_dir, "rbhost.bin")
-    subprocess.check_call(["nasm", "-f", "bin", "-w+error"] +
+    subprocess.check_call(["nasm", "-f", "bin", "-w+error"] + ["-D" + d for d in defines] +
                           (["-DRT_DEBUG"] if os.environ.get("RT_DEBUG") else []) +
                           (["-DDMG_DEBUG"] if os.environ.get("DMG_DEBUG") else []) +
                           (["-DSCRL_STAT"] if os.environ.get("SCRL_STAT") else []) + [

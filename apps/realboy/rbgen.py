@@ -2073,5 +2073,109 @@ EXTRA += [("INC (HL) of RAM", rmw_lines(0x34, False), 1),
 EXTRA += [("CB %02X of RAM" % b, rmw_lines(b, True), 2) for b in RMW_CB]
 
 
+def bank_lines(mask, zero):
+    """LD (nn),A to 2000-3FFF of a cartridge whose MBC the translator knows:
+    the bank worked out here and on to mbc_set, where the store took the
+    slow path, wr_s3, wr_sw and mbc_wr's type compares to get there (Kirby's
+    Dream Land switches ~95 times a frame). BX and S_WVAL as mbc_wr has them,
+    since a bank the cache has not got goes to rbsys from mbc_set; high bits
+    set (S_BANKHI) are mbc_wr's whole way."""
+    L = ["    mov [ss:S_TMP],bx", "    mov bx,IMM16", "    mov [ss:S_WVAL],al",
+         "    mov word [ss:S_RET],.r", "    cmp byte [ss:S_BANKHI],0", "    jne .g",
+         "    mov dl,al"]
+    if mask != 0xFF:
+        L += ["    and dl,%d" % mask]
+    if zero:
+        L += ["    jnz .n", "    inc dl", ".n:"]
+    return L + ["    jmp near mbc_set", ".g:", "    jmp near mbc_wr", ".r:",
+                "    mov bx,[ss:S_TMP]", "    sub bp,4"]
+
+
+# (the 4th field: flags - 4, stores to IMM16, so a block running from the
+# bank it switches is left after it, as the plain store's is)
+EXTRA += [("LD (nn),A bank, MBC1", bank_lines(0x1F, True), 3, 4),
+          ("LD (nn),A bank, MBC3", bank_lines(0x7F, True), 3, 4),
+          ("LD (nn),A bank, MBC5", bank_lines(0xFF, False), 3, 4)]
+RB_XBANK = len(EXTRA) - 3           # their records: 512 + this, + 1, + 2
+
+
+# --- dead flags (REALBOY-SPEC section 16.1.2) ---------------------------------
+# F's four flags as masks: Z 1, N 2, H 4, C 8. What each opcode WRITES (all of
+# its result decided by the instruction, none carried from F) and READS. An
+# opcode not listed writes none and - when it is a control transfer, or
+# anything else that can hand F on (PUSH AF, HALT, an invalid one) - reads all.
+FZ, FN, FH, FC = 1, 2, 4, 8
+FALL = 15
+
+
+def flag_masks(op):
+    """(writes, reads) of main opcode op"""
+    hi, lo = op >> 4, op & 15
+    if hi < 4 and lo in (4, 5, 0xC, 0xD):
+        return FZ | FN | FH, 0                      # INC/DEC r, (HL)
+    if op in (0x09, 0x19, 0x29, 0x39):
+        return FN | FH | FC, 0                      # ADD HL,rr
+    if op in (0x07, 0x0F):
+        return FALL, 0                              # RLCA, RRCA
+    if op in (0x17, 0x1F):
+        return FALL, FC                             # RLA, RRA
+    if op == 0x27:
+        return FZ | FH | FC, FN | FH | FC           # DAA
+    if op == 0x2F:
+        return FN | FH, 0                           # CPL
+    if op == 0x37:
+        return FN | FH | FC, 0                      # SCF
+    if op == 0x3F:
+        return FN | FH | FC, FC                     # CCF
+    if 0x80 <= op < 0xC0:
+        return FALL, FC if (op >> 3) & 7 in (1, 3) else 0   # ADC, SBC read C
+    if op in (0xC6, 0xD6, 0xE6, 0xEE, 0xF6, 0xFE, 0xE8, 0xF8, 0xF1):
+        return FALL, 0
+    if op in (0xCE, 0xDE):
+        return FALL, FC
+    if op == 0xCB:
+        return 0, FALL                              # (the translator's: by
+                                                    #   the byte after)
+    if op in NOTMPL or op in (0xF5, 0xFB):         # (EI: an interrupt
+        return 0, FALL                              #   may be taken after)
+    return 0, 0
+
+
+def flag_masks_cb(op):
+    if op < 0x40:
+        return FALL, FC if 0x10 <= op < 0x20 else 0
+    if op < 0x80:
+        return FZ | FN | FH, 0                      # BIT
+    return 0, 0
+
+
+def nof_lines(op):
+    """op without its flags: INC/DEC r and ADD HL,rr, when the instructions
+    after it write every flag it does before reading one. (The ALU on A was
+    tried too and bought 235 -> 234 ticks of Kirby's Dream Land: its flags
+    are nearly always read, by a JR or by the ALU after it.)"""
+    if op in (0x09, 0x19, 0x29, 0x39):
+        return ["    add bx,%s" % {0x09: "cx", 0x19: "di", 0x29: "bx", 0x39: "sp"}[op],
+                "    sub bp,2"]
+    r = R8[(op >> 4) * 2 + (1 if op & 15 >= 0xC else 0)]
+    dec = op & 15 in (5, 0xD)
+    if r == "D":
+        return ["    %s di,100h" % ("sub" if dec else "add"), "    sub bp,1"]
+    if r == "E":
+        return ["    mov dx,di", "    %s dl" % ("dec" if dec else "inc"),
+                "    mov di,dx", "    sub bp,1"]
+    return ["    %s %s" % ("dec" if dec else "inc", X86[r]), "    sub bp,1"]
+
+
+# Their records, 512 + RB_XNOF + k, in slots rbjit.inc's rt_nofx finds by
+# formula: INC/DEC r by (op >> 3) x 2 + (op AND 1), ADD HL,rr 16 + op >> 4.
+# INC/DEC (HL)'s slots have no record.
+NOF_OPS = [((k >> 1) << 3) | 4 | (k & 1) for k in range(16)]
+NOF_OPS += [k << 4 | 9 for k in range(4)]
+RB_XNOF = len(EXTRA)
+EXTRA += [("%02X without F" % op, None if op in (0x34, 0x35) else nof_lines(op), 1)
+          for op in NOF_OPS]
+
+
 if __name__ == "__main__":
     main()
