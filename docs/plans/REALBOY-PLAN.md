@@ -397,6 +397,15 @@ These are ordered by cost. **None is built until a measurement asks for it.**
 4. **A dynamic recompiler.** It would cut the CPU term about 2x (the
    feasibility report, section 4.2), and it is the largest and riskiest item
    in this list. It is wave 7, and it is conditional.
+5. **A static recompiler** - translating the cartridge ahead of time - is
+   investigated and NOT TAKEN (docs/reports/REALBOY-STATIC-2026-10-20.md).
+   It is feasible: a disassembler that reads `RST 28h`'s jump table finds
+   99.88% of Super Mario Land's busy instructions. But what only the
+   ahead-of-time view proves is worth ~0.3 ms of a 6.55 ms frame on the
+   Victory twin, at ~170 KB of code against today's 35.6 KB. The time is in
+   three short counted loops, 17-26% of the machine while it scrolls with
+   enemies on screen. Replacing one of them took the CPU from 6.55 to 6.22
+   ms a frame, and the dynamic recompiler can recognise all three.
 
 ## 6. The 5150 demo
 
