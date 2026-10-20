@@ -163,7 +163,10 @@ rw_jcost        equ rw_jhold + 2    ; dword: counts the machine ran this window
 rw_jfr          equ rw_jcost + 4    ; word: ...and its frames
 rw_jsum         equ rw_jfr + 2      ; 2 words: the windows' cost a frame, with
                                     ;   the recompiler and without, halved
-rw_log          equ rw_jsum + 4     ; RW_LOGN x RW_LOGSZ: the records
+rw_jnb          equ rw_jsum + 4     ; word: S_JITNB as the window began
+rw_jretry       equ rw_jnb + 2      ; byte: this window's re-runs (Auto)
+rw_undrawn      equ rw_jretry + 1   ; byte: a frame ran since the last draw
+rw_log          equ rw_undrawn + 1  ; RW_LOGN x RW_LOGSZ: the records
 rw_fbuf         equ rw_log + RW_LOGN * RW_LOGSZ ; 5,760: rb_render's frame (monochrome)
 rw_pbuf         equ rw_fbuf + 5760  ; 11,520: the frame as the screen takes it
 RW_BSS          equ rw_pbuf + 11520 - rw_win   ; derived: a sum by hand drifted
@@ -507,6 +510,7 @@ rw_jitset:
     mov [rw_jfr], ax
     mov [rw_jsum], ax
     mov [rw_jsum + 2], ax
+    mov [rw_jretry], al
     mov byte [rw_jitwant], 1        ; (rw_jiton's, at a reset)
     cmp byte [rw_jitmode], 2
     jne .on
@@ -533,6 +537,8 @@ rw_jitset:
 ; recompiled against 62%.
 RW_JWIN         equ 2
 RW_JHOLD        equ 60
+RW_JWARM        equ 48              ; blocks a window may translate and count
+RW_JRETRY       equ 3
 rw_jitauto:
     cmp byte [rw_jitmode], 0
     jne .r
@@ -553,11 +559,28 @@ rw_jitauto:
     mov [rw_jcost], bx
     mov [rw_jcost + 2], bx
     mov [rw_jfr], bx
+    push ds                         ; BX = blocks translated in the window
+    mov ds, [cs:rb_viewseg]
+    mov bx, [S_JITNB]
+    pop ds
+    xchg bx, [rw_jnb]
+    neg bx
+    add bx, [rw_jnb]
     cmp byte [rw_jphase], 0
     jne .t
     inc byte [rw_jphase]            ; the warm-up: on, with the recompiler
     ret
 .t:
+    test byte [rw_jphase], 1        ; a window with the recompiler that was
+    jz .tk                          ;   still translating - a level's start -
+    cmp bx, RW_JWARM                ;   times the interpreter's hooks and the
+    jb .tk                          ;   translator, not the recompiler: again,
+    cmp byte [rw_jretry], RW_JRETRY ;   up to RW_JRETRY times (the field run
+    jae .tk                         ;   lost it so on Super Mario Land's first
+    inc byte [rw_jretry]            ;   level, 233 blocks in its two windows)
+    ret
+.tk:
+    mov byte [rw_jretry], 0
     cmp dx, cx
     jb .d
     mov ax, 0FFFFh                  ; (a frame of 55 ms or more: as that)
@@ -617,6 +640,7 @@ rw_jitauto:
     mov [rw_jfr], ax
     mov [rw_jsum], ax
     mov [rw_jsum + 2], ax
+    mov [rw_jretry], al
     jmp rw_jitback
 .r:
     ret
@@ -1160,8 +1184,8 @@ rw_worker:                          ;   the worker parked at the top of its
     mov al, ah                      ; (frames owed, for the log)
     call rw_logowed
     pop ax
-    cmp ax, 256                     ; nothing owed yet: sleep to the tick
-    jb .sleep
+    cmp ax, 256                     ; nothing owed yet: draw what has not
+    jb .idle                        ;   been, else sleep to the tick
     call rw_keys
     call rw_frame
     jc .loop                        ; it stopped
@@ -1184,6 +1208,12 @@ rw_worker:                          ;   the worker parked at the top of its
                                     ;   frame: a worker that spent what it
                                     ;   was owed before looking slept a tick
                                     ;   it did not have whenever it was behind
+.idle:                              ; caught up, and the machine would
+    cmp byte [rw_undrawn], 0        ;   only sleep: the picture has it,
+    je .sleep                       ;   whatever rw_drawdue says (its half
+    mov si, rw_present              ;   of the machine is for a game that
+    call rw_timed                   ;   has frames to run)
+    jmp .loop
 .resync:
     mov [rw_last], ax
 .sleep:
@@ -1274,6 +1304,7 @@ rw_drawnow:
 ; rw_timed - call SI (a draw), then [rw_drawt] = its end + its length, and
 ; the log told how long it took
 rw_timed:
+    mov byte [rw_undrawn], 0
     mov al, [rw_dgen]               ; (a clock changed under the draw - it
     push ax                         ;   parked across a whole full screen -
     call rw_clk                     ;   is no draw's length: the field run's
@@ -1308,6 +1339,7 @@ rw_timed:
 ; rw_frame - run the machine to its next frame, yielding between budgets.
 ; CF = 1: the core stopped (a bad opcode), and the UI task is told.
 rw_frame:
+    mov byte [rw_undrawn], 1
     call rw_clk                     ; (the log's: how long the machine ran,
     mov [rw_tgame], ax              ;   two reads of the clock a frame)
     mov [rw_tgame + 2], dx

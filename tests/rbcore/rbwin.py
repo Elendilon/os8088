@@ -267,7 +267,7 @@ def boot(o):
         g.write(f.read())
     disk = os.path.join(tmp, "rb144.img")
     os88box.subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", disk,
-                            "--size", "1440", os.path.join(ROOT, "build", "realboy.o88"), gb],
+                            "--size", "1440", os.environ.get("RBWIN_O88", os.path.join(ROOT, "build", "realboy.o88")), gb],
                            check=True, stdout=os88box.subprocess.DEVNULL)
     b = os88box.launch(o.vm, name=name, hold=True, fresh=True, mem=o.mem,
                        a=os.path.join(ROOT, "build", "os8088.img"), b=disk)

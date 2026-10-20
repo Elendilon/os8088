@@ -256,6 +256,8 @@ rw_fsmain:
     call rw_fsowed                  ; AX = frames owed now (taken)
     or ax, ax
     jnz .run
+    cmp byte [rw_undrawn], 0        ; caught up: what has not been drawn,
+    jne .idle                       ;   rather than wait (the window's .idle)
     mov al, FSXW_FRAME
     cmp byte [rw_fsrate], 0
     jne .w
@@ -292,6 +294,8 @@ rw_fsmain:
     cmp word [rw_fsleft], 0
     jne .f
     jmp .loop
+.idle:
+    mov word [rw_fsleft], 0         ; (none to run after it)
 .draw:
     mov byte [rw_fsrun], 0
     mov si, rw_fsdraw
