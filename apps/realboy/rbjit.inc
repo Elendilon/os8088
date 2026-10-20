@@ -43,7 +43,7 @@ RT_MAXI         equ 40              ; instructions a block at most
 RT_CTL          equ 88              ; bytes a control transfer's code may take
                                     ;   (JR cc to a spin-wait on (HL) in
                                     ;   4000-7FFF 84 - rt_exit there is 27 -
-                                    ;   CALL cc 69, RET cc 67: each rt_room
+                                    ;   RET cc 84, CALL cc 69: each rt_room
                                     ;   asks for what it writes, since most
                                     ;   gaps are ~106)
 RT_FALL         equ 32              ; ...and a block's fall-through exit (29)
@@ -1103,39 +1103,22 @@ rt_push:
     ret
 
 ; rt_ret - RET, its M-cycles in AL: pop si, the check, and an INLINE CACHE
-; of where this RET went last (tr_link fills it, 16.4): cmp si,PC / jne / cmp
-; byte [ss:S_BANK],B / jne / jmp near BLOCK, else mov dx,SITE / jmp tr_link.
-; The bank check is a jmp short over it when PC is in bank 0.
+; of the last two places this RET went (tr_link fills it, 16.4): twice cmp
+; si,PC / jne / cmp byte [ss:S_BANK],B / jne / jmp near BLOCK, else mov
+; dx,SITE / jmp tr_link. The bank check is a jmp short over it when PC is in
+; bank 0.
 rt_ret:
     push ax
     mov al,5Eh                      ; pop si
     stosb
     pop ax
     call rt_subbp
-    mov ax,1778h                    ; js +23
+    mov ax,2878h                    ; js +40
     stosw
     push bx
     mov bx,di                       ; SITE
-    mov ax,0FE81h                   ; cmp si,0FFFFh: nothing returns there
-    stosw
-    mov ax,0FFFFh
-    stosw
-    mov ax,0B75h                    ; jne +11, the miss
-    stosw
-    mov ax,8036h                    ; cmp byte [ss:S_BANK],0
-    stosw
-    mov al,3Eh
-    stosb
-    mov ax,S_BANK
-    stosw
-    xor al,al
-    stosb
-    mov ax,0375h                    ; jne +3, the miss
-    stosw
-    mov al,0E9h                     ; jmp near BLOCK: nowhere yet, the next
-    stosb                           ;   instruction
-    xor ax,ax
-    stosw
+    call .entry                     ; the last return, then the one before
+    call .entry                     ;   it (tr_rpatch moves it down)
     mov al,0BAh                     ; mov dx,SITE / jmp tr_link
     stosb
     mov ax,bx
@@ -1148,6 +1131,28 @@ rt_ret:
     mov al,2Eh
     stosb
     mov ax,S_EVVEC
+    stosw
+    ret
+.entry:                             ; 17 bytes: cmp si,PC / jne +11 / cmp
+    mov ax,0FE81h                   ;   byte [ss:S_BANK],B / jne +3 / jmp
+    stosw                           ;   near BLOCK - PC FFFFh, which nothing
+    mov ax,0FFFFh                   ;   returns to, and BLOCK the next
+    stosw                           ;   instruction until tr_rpatch fills it
+    mov ax,0B75h
+    stosw
+    mov ax,8036h
+    stosw
+    mov al,3Eh
+    stosb
+    mov ax,S_BANK
+    stosw
+    xor al,al
+    stosb
+    mov ax,0375h
+    stosw
+    mov al,0E9h
+    stosb
+    xor ax,ax
     stosw
     ret
 

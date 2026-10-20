@@ -988,7 +988,13 @@ jne / jmp near BLOCK`, else `mov dx,SITE / jmp tr_link`: `tr_link` looks the
 return up as it does an exit and, seeing the site's `cmp` (81h) where an
 exit has its `mov dx`, fills the cache with the last return (`tr_rpatch`) -
 the bank check made a `jmp short` over itself when the block is in bank 0.
-A routine called in a loop then returns without a lookup. It once cached
+A routine called in a loop then returns without a lookup. **The cache
+holds two returns** (34 bytes): a miss moves the last one down
+(`tr_rpatch`, its jump's displacement 17 less) and takes the first place,
+so a routine called from two places in turn - Kirby's Dream Land is full
+of them - returns without a lookup too: in the package on `286-victory`,
+Kirby went from 93.2% of real time to 94.6% over 40 seconds, and its
+picture from 12 frames a second to 15. It once cached
 bank-0 returns only, and every return into 4000-7FFF went the whole way
 round `tr_enter`: 35 a frame in Kirby's Dream Land walking, and caching them
 took the CPU alone from 9.75 to 9.06 ms a frame on `286-victory`.

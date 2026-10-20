@@ -1112,10 +1112,20 @@ cnt_ff:
     jmp word [ss:S_RET]
 """,
     0x43: """
-; tr_lpatch for a RET's inline cache (16.4), the SITE's first byte 81h: PC
-; and BLOCK become this return's, and the bank check this block's bank - or
-; a jmp short over it, for a block in bank 0
+; tr_lpatch for a RET's inline cache (16.4), the SITE's first byte 81h: the
+; last return moves to the second entry (SITE + 17, its jmp's displacement
+; 17 less), and PC and BLOCK become the first's, its bank check this
+; block's bank - or a jmp short over it, for a block in bank 0
 tr_rpatch:
+    mov dx,[cs:bx+2]
+    mov [cs:bx+19],dx
+    mov dx,[cs:bx+6]
+    mov [cs:bx+23],dx
+    mov dl,[cs:bx+11]
+    mov [cs:bx+28],dl
+    mov dx,[cs:bx+15]
+    sub dx,17
+    mov [cs:bx+32],dx
     mov [cs:bx+2],si            ; cmp si,PC
     cmp si,4000h
     jae .bank
