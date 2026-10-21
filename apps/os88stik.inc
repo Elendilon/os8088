@@ -2827,7 +2827,15 @@ stik_grip   db 7                ; the grip: three dotted lines, 13 wide
 ; (os88stikc.inc's stik_xcb) is far-called at DS - the package's segment NOW,
 ; never a stored one, its region being movable (SPEC.md 66.6.1.1) - and it
 ; `call`s [stik_xt], which it reads before anything else can write it. Every
-; register and the flags are the callee's on the way back
+; register and the flags are the callee's on the way back.
+;
+; DS is the package's DATA segment, and on kern_mega a far call through it is
+; #GP that mega_gpfix finishes - one exception a callback, ~2 a second for
+; each open Sticky App (KERN-MEGA-PLAN 14.46). So the segment the call goes
+; to is OSAPI_MEM_CODESEL's answer for DS, asked NOW for the reason above:
+; DS itself on every real-mode kernel, the code alias (or a pair's code half
+; above 1MB) under protected mode. Refused - which a package's region never
+; is - it is DS as before, and the fixup finishes it
 ; -----------------------------------------------------------------------------
 stik_cb:
     push bp
@@ -2837,9 +2845,16 @@ stik_cb:
     or ax, ax
     jz .none
     mov [stik_xt], ax
+    push dx
+    mov dx, ds
+    call OSAPI_MEM_CODESEL      ; AX = the selector DS's code is called at
+    jnc .cs
+    mov ax, dx
+.cs:
+    mov [stik_xcp+2], ax
+    pop dx
     pop ax
     pop bp
-    mov [stik_xcp+2], ds
     call far [stik_xcp]
     ret 2
 .none:
