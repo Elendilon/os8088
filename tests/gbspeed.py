@@ -103,7 +103,8 @@ def main():
         if not view:
             fails.append("the game did not start again")
         else:
-            r = rate(m, view)
+            M.guest_sleep(m, 3)             # (what the start owed, run - as
+            r = rate(m, view)               #   at the first look)
             print("gbspeed: opened again: %.1f%%" % (r * 100))
             if not 0.73 <= r <= 0.77:
                 fails.append("opened again it ran at %.1f%% - the game's 75%% was not kept"

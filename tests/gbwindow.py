@@ -169,6 +169,8 @@ def fullscreen(ui, m, view, want):
     m.key("F1", down=False)
     M.guest_sleep(m, 2)
     W, H, data = m.fbuf(0)
+    if os.environ.get("GBWIN_SAVE"):
+        M.write_png_rgb(os.environ["GBWIN_SAVE"] + "-fsx-f1.png", W, H, data)
     band = [tuple(data[((y * sy) * W + x * sx) * 3:((y * sy) * W + x * sx) * 3 + 3])
             for y in range(146, 154) for x in range(160)]
     ground = max(set(band), key=band.count)

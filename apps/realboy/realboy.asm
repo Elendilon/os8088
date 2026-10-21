@@ -2479,6 +2479,7 @@ rw_keys:
     xor al, al                      ; ...and F1-F4's, likewise
     xchg al, [rw_flatch]
     mov [rw_ftyped], al
+    inc word [rw_flook]
     cmp byte [rw_infsx], 0          ; the bracket's keyboard is ours
     jne .f1
     call OSAPI_WM_TOP
@@ -2636,14 +2637,35 @@ rw_kedge:
 ; rw_fedge - rw_kedge for F1-F4, CL = its bit in rw_ftyped: pressed now, or
 ; TYPED since the last look and up at both - a tap that fell between two
 ; looks, which a draw in full screen is long enough to hide. Held at either
-; look, the press is the edge's to say, so it is never said twice and a
-; held key's typematic repeat says nothing. Clobbers CH
+; look, the press is the edge's to say, so it is never said twice - and a
+; typed one counts only when the key has not been seen held for RW_FQUIET
+; looks: a held key's typematic repeats queue in the BIOS's buffer, and one
+; drained after the release was a second press, which turned F1's line off
+; again the moment it was let go (gbwindow, an 8088's full screen). Clobbers
+; CH
+RW_FQUIET       equ 30
 rw_fedge:
+    push dx
+    push si
     call OSAPI_KEY_DOWN
     sbb al, al
     mov ah, al                      ; AH = held now
     xchg al, [bx]                   ; AL = held at the last look
     mov ch, al
+    xor si, si                      ; SI = the key's word in rw_fwhen
+    mov dl, cl
+.i:
+    shr dl, 1
+    jz .ix
+    inc si
+    inc si
+    jmp short .i
+.ix:
+    or ah, ah
+    jz .up
+    mov dx, [cs:rw_flook]
+    mov [cs:rw_fwhen + si], dx
+.up:
     not al
     and al, ah
     jnz .yes
@@ -2651,10 +2673,18 @@ rw_fedge:
     jnz .no
     test [cs:rw_ftyped], cl
     jz .no
+    mov dx, [cs:rw_flook]           ; (typed: not a held key's repeat)
+    sub dx, [cs:rw_fwhen + si]
+    cmp dx, RW_FQUIET
+    jb .no
 .yes:
+    pop si
+    pop dx
     stc
     ret
 .no:
+    pop si
+    pop dx
     clc
     ret
 
@@ -2711,6 +2741,9 @@ rw_f12was:  db 0                    ; F12 was held at the last look
 rw_lflq:    db 0                    ; F12: the log to be written by the UI
                                     ;   task (rw_onwake, rw_fsenter's end)
 rw_ftyped:  db 0                    ; ...and this look's (rw_fedge)
+rw_flook:   dw 0                    ; rw_keys's looks, counted...
+rw_fwhen:   dw 0, 0, 0, 0, 0        ; ...and the last that saw F1, F2, F3,
+                                    ;   F4 and F12 held
 
 ; rw_socd - one opposite pair, BL its two bits: DL the buttons, AH those
 ; pressed since the last look, CL the preferred of each pair. Not both held:
