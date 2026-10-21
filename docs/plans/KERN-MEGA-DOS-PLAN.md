@@ -1669,6 +1669,9 @@ a hibernate round; and the refusal on every one of them without the fix.
    costs is worth offering: "also save the session to the hard disk before
    running DOS", shown only where a BIOS fixed disk exists. It rides on W5
    (hibernate on kern_mega), so it arrives with W5 and not before.
+   **BUILT** (KERN-MEGA-PLAN 14.43, SPEC.md 96.40.9.3): *Save the session
+   to disk*, unticked by default, greyed with no fixed disk; the image is
+   written before the park's claim, and every wake deletes it.
 3. **A mismatch restarts**, with the sentence (section 5.4). Something went
    wrong, and resuming could look as if it worked while something unknown
    is broken. **The sum is SPARSE, provided it is DISTRIBUTED** across every

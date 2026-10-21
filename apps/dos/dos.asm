@@ -433,6 +433,9 @@ LNK_BX_NOHMA equ 0x08               ; ...and kern_mega's `Load DOS in the HMA`
                                     ; (SPEC.md 96.40.9.2), ticked by default,
                                     ; so set = UNTICKED. A box with no such row
                                     ; ignores the bit, and drops it on a save
+LNK_BX_SAVE equ 0x10                ; ...and its `Save the session to disk`
+                                    ; (96.40.9.3), UNticked by default, so set
+                                    ; = TICKED
 LNK_MAX     equ 512                 ; what one may be, read or written
 
 ; --- THE PAGES (SPEC.md 96.32.2) ---------------------------------------------
@@ -557,9 +560,23 @@ DOS_MSUBX   equ 12                  ; ...and the subsections' indent, which is
                                     ; lines up under its arm's ring. A literal
                                     ; for DOS_MRADSZ's reason: os88ui.inc is
                                     ; included at the END of this file
+%ifndef DOS_MEGA
 DOS_MHDDY   equ 46                  ; [x] Hard drives (Up to NNK) - arm 0's
 DOS_MNETY   equ 59                  ; [x] Network (Up to NNK)
 DOS_MFLDY   equ 72                  ; Limit: [____] K
+%else
+DOS_MSAVY   equ 38                  ; [ ] Save the session to disk - the
+                                    ; park's own option, under the line that
+                                    ; says what will happen (KERN-MEGA-PLAN
+                                    ; 14.43, SPEC.md 96.40.9.3). kern_mega's
+                                    ; page has no radio, so its rows take the
+                                    ; slack the radio's gaps left: these three
+                                    ; move down 5 and the block still ends at
+                                    ; the mouse row's 115, inside CGA's 118
+DOS_MHDDY   equ 51
+DOS_MNETY   equ 64
+DOS_MFLDY   equ 77                  ; ...whose 12 rows end at 88, under HMAY
+%endif
 DOS_MFLDW   equ 48                  ; ...and the box's width. os88line_cols
 DOS_MFLDX   equ 56                  ; resolves 48 to FIVE columns against this
 DOS_MFLDKX  equ 4                   ; block's own 8-aligned origin - the four
@@ -7012,6 +7029,10 @@ dos_mck_place:
     mov ax, dos_l_mhma
     mov dx, DOS_MHMAY
     call dos_mck1
+    mov si, dos_msav
+    mov ax, dos_l_msav
+    mov dx, DOS_MSAVY
+    call dos_mck1
 %endif
     pop di
     pop si
@@ -7519,6 +7540,20 @@ dos_hasfixed:
     stc
     ret
 
+%ifdef DOS_MEGA
+; dos_msav_di - DI = OS88UI_DIS when there is no fixed disk the save box's
+; image could go to (dos_hasfixed, hb_pick's own test), else 0. Every other
+; register preserved. Asked per paint and per press: a walk of eight rows,
+; and a disk mounted mid-session ungreys it at the next paint
+dos_msav_di:
+    xor di, di
+    call dos_hasfixed
+    jnc .out
+    mov di, OS88UI_DIS
+.out:
+    ret
+%endif
+
 ; -----------------------------------------------------------------------------
 ; dos_wholeask - THE ONE DELIBERATELY DESTRUCTIVE THING THIS BOX DOES (96.42)
 ; in:  the wake handler's context - UI task, the gfx lock NOT held
@@ -7662,6 +7697,10 @@ dos_lbfill:
     jne .hmadone                            ; KERNEL's stub expands it at
     or ax, KDLF_LOWDOS                      ; 0060:0000 and not in the HMA
 .hmadone:                                   ; (SPEC.md 96.40.9.2)
+    cmp byte [dos_msav + OS88UI_CK_ON], 0   ; ...and the image before the
+    je .savdone                             ; park (96.40.9.3). HIBER.DRV asks
+    or ax, KDLF_SAVE                        ; hb_pick itself, so a tick a
+.savdone:                                   ; shortcut carried here parks
 %endif
     cmp byte [dos_mmou+OS88UI_CK_ON], 0     ; ...and the page's own two bits
     je .wantmou                             ; (SPEC.md 96.36.8, 96.36.6): the
@@ -8268,7 +8307,11 @@ dos_paint_mem:
     mov bx, dos_mhma                ; ...and kern_mega's HMA box, which has no
     xor di, di                      ; arm to belong to and nothing to grey on:
     call os88ui_chk                 ; this DOS.O88 runs only in protected mode,
-%endif                              ; where both kern_dos images can run
+                                    ; where both kern_dos images can run
+    call dos_msav_di                ; ...and the save box, greyed where no
+    mov bx, dos_msav                ; fixed disk could hold the image
+    call os88ui_chk                 ; (SPEC.md 47: a fact, hb_pick's)
+%endif
     jmp short .nowhy
 .why:
     mov bx, [dos_mx]                ; a caption explaining a control that is
@@ -8533,6 +8576,16 @@ dos_click_mem:
     mov cx, [dos_mpx]
     mov dx, [dos_mpy]
     call os88ui_chkhit
+    jnc .hmahit
+    push di
+    call dos_msav_di                ; ...and the save box, not offered greyed
+    or di, di                       ; (47 rule 6)
+    pop di
+    stc
+    jnz .hmahit
+    mov bx, dos_msav
+    call os88ui_chkhit
+.hmahit:
     pop dx
     pop cx
 %endif
@@ -9529,7 +9582,9 @@ dos_fld_init:
     mov byte [dos_mmou + OS88UI_CK_ON], 0   ; "leave it as it is" on the two
 %ifdef DOS_MEGA
     mov byte [dos_mhma + OS88UI_CK_ON], 1   ; (and kern_dos in the HMA, which
-%endif                                      ; is the arena kern_mega shipped)
+                                            ; is the arena kern_mega shipped)
+    mov byte [dos_msav + OS88UI_CK_ON], 0   ; ...and the park alone: the image
+%endif                                      ; costs the trip its write
                                     ; drivers and "do something" on the mouse,
                                     ; so the default state of all three is the
                                     ; machine as the user already has it
@@ -9980,8 +10035,12 @@ dos_lnk_mem:
 .bhma:
 %ifdef DOS_MEGA
     cmp byte [dos_mhma + OS88UI_CK_ON], 0
-    jne .bput
+    jne .bsav
     or al, LNK_BX_NOHMA
+.bsav:
+    cmp byte [dos_msav + OS88UI_CK_ON], 0
+    je .bput
+    or al, LNK_BX_SAVE
 %endif
 .bput:
     xor ah, ah                      ; ...and the pad, zero
@@ -10589,6 +10648,13 @@ dos_lnk_boxes:
     shr al, 1
     shr al, 1
     mov [dos_mhma + OS88UI_CK_ON], al
+    mov al, ah                      ; ...and the save box: set = TICKED
+    and al, LNK_BX_SAVE             ; (96.40.9.3)
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    mov [dos_msav + OS88UI_CK_ON], al
 %endif
     pop ax
     ret
@@ -10849,6 +10915,7 @@ dos_l_memc: db 'Disk cache:', 0
 %ifdef DOS_MEGA
 dos_l_mpark: db 'Parks the OS above 1MB', 0  ; the one arm kern_mega has
 dos_l_mhma:  db 'Load DOS in the HMA', 0     ; ...and where kern_dos runs
+dos_l_msav:  db 'Save the session to disk', 0    ; ...and HIBERNAT.IMG first
 %endif
 ; --- THE ARENA, drawn as ONE opaque run with its digits inside it -----------
 ; dos_mem_num patches [dos_marn] in place and the line is drawn in a single
@@ -10900,7 +10967,11 @@ dos_mnetk:  db '  K)', 0             ; they are build-time constants and a
                                      ; re-derives every drv_memk term, and a
                                      ; third digit would be dropped in SILENCE
                                      ; by dos_mem_numn's `dec cx / jz .out`
+%ifndef DOS_MEGA
 DOS_MCKW    equ 23                  ; the longest of the two, in cells
+%else
+DOS_MCKW    equ 24                  ; ...and kern_mega's save box, a cell more
+%endif
                                     ;
                                     ; **`Up to`, because the box is a REQUEST**
                                     ; (SPEC.md 96.36.7.1): it is never greyed
@@ -12761,6 +12832,7 @@ DOS_BTREC_SZ equ 16              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
     HBSS DOS_B_MMOU,  DOS_MCKSZ  ; ...and Disable the mouse, arm 1's (96.36.8)
 %ifdef DOS_MEGA
     HBSS DOS_B_MHMA,  DOS_MCKSZ  ; ...and Load DOS in the HMA (96.40.9.2)
+    HBSS DOS_B_MSAV,  DOS_MCKSZ  ; ...and Save the session to disk (96.40.9.3)
 %endif
     HBSS DOS_B_MSKB,  SYSKB_SIZE ; OSAPI_SYS_KB's buffer, for arm 1's own
                                  ; estimate (SPEC.md 96.36.3)
@@ -18928,6 +19000,7 @@ dos_mnet equ dos_hbss + DOS_B_MNET
 dos_mmou equ dos_hbss + DOS_B_MMOU   ; ...and the mouse's (96.36.8)
 %ifdef DOS_MEGA
 dos_mhma equ dos_hbss + DOS_B_MHMA   ; ...and kern_mega's HMA box (96.40.9.2)
+dos_msav equ dos_hbss + DOS_B_MSAV   ; ...and its save box (96.40.9.3)
 %endif
 %endif
 %ifndef KD_BACKEND

@@ -165846,6 +165846,57 @@ Test Drive III to its Main Select Screen and `exit code 000` at **585 KB**
 048 at 621 KB and Test Drive III 000 at 622 KB on 86Box. Every trip came
 home to the desktop.
 
+#### 96.40.9.3 ...and `Save the session to disk`: the park made durable
+
+**The owner's answer 2** (docs/plans/KERN-MEGA-DOS-PLAN.md 12.1): the park
+lives in RAM, so a DOS program that hangs the machine, a power cycle or a
+reset the ROM answers by clearing memory loses the session. kern_mega's
+Memory page carries a third box under *Parks the OS above 1MB*, **unticked by
+default**: *Save the session to disk*. Ticked, the handoff writes
+`HIBERNAT.IMG` - kern_big's arm-3 image, through 87.9's protected-mode writer
+(`hbm_wrimg` with `HBP_DOS` = 1) - and then parks as 96.40.9 says. Saved in a
+shortcut as byte 12's `LNK_BX_SAVE` (bit 4, set = ticked) and handed to the
+kernel as `KDLF_SAVE` (bit 6 of `KDL_FLAGS`); kern_dos never reads it.
+
+* **Greyed where no fixed disk exists** - `dos_hasfixed`, which is `hb_pick`'s
+  own test one segment out (47 rule 5) - and the kernel asks `hb_pick` again,
+  so a tick a shortcut carries to a machine with no fixed disk simply parks.
+  Any fixed volume `hb_pick` names will do: the image is read back by the
+  kernel's own file layer (87.9), so a BIOS-only C: and HDD.DRV's native IDE
+  both serve.
+* **The image is written BEFORE the park is claimed**, because the claim takes
+  the XMS arena - everything the pool has left - and the image carries every
+  pool block in use; an arena in the picture is a section no resume could
+  place. So the order is: the sweep, the lock and the image (`hbm_wrimg`),
+  then `mega_dosclaimf`, then the programs' sum and the snapshot. A write that
+  fails refuses the launch with *Could not save to disk* and gives back the
+  drivers, the lock and the extent list; a park refused after the write
+  deletes the image (`hbm_forget`) and refuses with *No room above 1MB*.
+* **It comes back three ways, newest first.** A warm reset whose ROM keeps RAM
+  still recovers the PARK (96.40.9's W7), which is faster and is the later
+  of the two pictures. A reset that clears memory, a power cycle, or a park
+  the stub's sum refuses boots to `hb_probe`, which finds the pointer: an
+  `HBP_DOS` image resumes with no question (`hbm_ask`), and with no exit code
+  in the BDA (kern_dos goes home by the park and writes no mailbox) kern_mega's
+  `hbm_dosbda` stages W7's `MPK_RESETCODE`, so the box says *"The machine was
+  restarted while it ran."*
+* **No image outlives a trip that came home**: `hbm_wake` step 5 deletes both
+  files on every wake (`hbm_forget`), and the park's way home and W7's both
+  enter it - so a normal return, a W7 recovery and a disk resume all leave
+  nothing for the next boot to resume.
+
+**What it costs**: `HIBER.DRV` (on-demand, nothing resident) and the box;
+no kernel `.text`, `.bss`, `.cold` or `.mega` byte, and kern_big byte-identical
+(KERN-MEGA-PLAN 14.43 has the figures). **Measured** on 86Box's MR BIOS 286
+(16 MHz, kern_mega booted off its own partition on a type-2 C:, every write a
+reflected `int 13h` and a 286 reset): an 800 KB image (640 KB and a 160 KB
+section), **2.69 s** from Run to the program's last line against **0.57 s**
+parked alone. On both it and Bochs (a 386, the CR0 route): power off during
+the program and on again, and the session comes back from the disk, and a
+normal trip leaves no image behind. On 86Box also: its hard reset (which
+clears RAM) comes back from the disk, Ctrl-Alt-Del from the park (W7), and
+64 bytes of the park overwritten from the stub's refusal and then the disk.
+
 ### 96.41 The return — the machine goes all the way round
 
 On a machine with a fixed disk there IS something to come back to, and §96.40's
