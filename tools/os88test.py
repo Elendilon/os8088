@@ -143,6 +143,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -534,6 +535,30 @@ def charge(results, par, ser, conc, j, mj):
     return lanes(par, j) + sum(cost(r) for r in ser) + lanes(conc, mj)
 
 
+# **A BOCHS ROW GETS AN X DISPLAY OF ITS OWN.** tools/os88bochs.py drives
+# Bochs through xdotool on one Xvfb display and refuses a second machine on
+# it, so two Bochs rows in parallel lanes on one display failed each other -
+# `soak -k megarehome -k megaflt` went 0/2 together and 2/2 apart. Each row
+# takes a free display from this pool for its life ($OS88_BOCHS_DISPLAY,
+# which os88bochs.py and os88bochsui.py read), and the pool starts above
+# the default :99 and the numbers agents pick by hand.
+_BOCHS_LOCK = threading.Lock()
+_BOCHS_FREE = list(range(110, 118))
+
+
+def _bochs_display():
+    while True:
+        with _BOCHS_LOCK:
+            if _BOCHS_FREE:             # (an Xvfb a previous row left
+                return _BOCHS_FREE.pop(0)   # on it is reused, not a clash)
+        time.sleep(1)
+
+
+def _bochs_free(n):
+    with _BOCHS_LOCK:
+        _BOCHS_FREE.append(n)
+
+
 def run_row(row, caps, strict, verbose, unbuilt=()):
     missing = set(row.needs) - caps
     if missing and not strict:
@@ -552,14 +577,23 @@ def run_row(row, caps, strict, verbose, unbuilt=()):
                       "needs " + ",".join(want) + ", which would not build")
 
     t0 = time.time()
+    disp = _bochs_display() if "bochs" in row.needs else None
+    env = None
+    if disp is not None:
+        env = dict(os.environ, OS88_BOCHS_DISPLAY=":%d" % disp)
     try:
-        p = subprocess.Popen(row.cmd, cwd=ROOT, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, text=True)
-    except OSError as e:
-        return Result(row, False, False, time.time() - t0, str(e), "could not run")
-    so, se, cpu, timed_out = _communicate(p, row.timeout,
-                                          getattr(row, "cpus", 1),
-                                          "qemu" not in row.needs)
+        try:
+            p = subprocess.Popen(row.cmd, cwd=ROOT, stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE, text=True, env=env)
+        except OSError as e:
+            return Result(row, False, False, time.time() - t0, str(e),
+                          "could not run")
+        so, se, cpu, timed_out = _communicate(p, row.timeout,
+                                              getattr(row, "cpus", 1),
+                                              "qemu" not in row.needs)
+    finally:
+        if disp is not None:
+            _bochs_free(disp)
     out = so + se
     ok = p.returncode == 0 and not timed_out
     reason = "" if ok else "exit %d" % p.returncode
