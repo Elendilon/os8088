@@ -1894,6 +1894,36 @@ which are cheap per byte; the span's bookkeeping - three keys looked up
 per sprite line, a loop per byte, the span's set-up in the composer - costs
 more than the ~18 bytes it saves. Taken out.
 
+#### 15.5.4 Still: the page shown, drawn in place
+
+A page is the right answer to a picture that moves on the card and a
+wasted one to a picture that does not. `rw_pgdraw` keeps
+`[rw_pgstill]`, the frames in a row that show from exactly where the last
+posted one does - `rb_tpage`'s start for that page (SCY, the slot, SCX's
+column), the pan and the strip (`rw_pgsame`) - and from `RW_PGSTILL` = 2 on,
+with no flip waiting, the frame goes onto **the page shown, in place**,
+and no flip is posted. Nothing else changes: `rb_tpage` keeps its state per
+page, so the page shown is put right exactly as a hidden one would be, and
+the other two keep what they are owed until a scroll shows one of them
+again, when it catches up in one draw. It may tear where the window's
+writes do; the frame lock (`rw_pglock`) has no flip to wait on, so the clock
+paces it.
+
+What it buys is the flip's wait and not the writes. The case for it was
+that a changed line is owed to all three pages, so a still picture writes
+it three times; it does not, because a frame draws ONE page whichever way,
+with whatever that page is owed - the restore of where its sprites were
+three frames ago where in place it is one frame ago, and for sprites that
+move every frame those are much the same bytes. MEASURED on `286-victory`
+with the field's own Super Mario Land replay (2,405 frames, in step on both
+builds): **27.1 -> 29.0 frames a second** over the play, about 12% in its
+still stretch at the end (34 -> 38), the picture pixel-identical to the
+paged build's at five points and `gbwindow`'s VGA full screen exact. In the
+profile of that stretch `rb_tpage` stays at 9.4% of the machine and the
+line's classification (`ppu_tcls`, `ppu_tspan`) at 8.4%, where the window's
+composer writes the same lines to the card for 2.7%: the canvas's own
+bookkeeping, not its pages, is what a still picture pays for.
+
 ## 16. The recompiler
 
 On a 286 RealBoy translates the Game Boy's ROM code into 8086 code, a block

@@ -329,7 +329,10 @@ rw_fseg         equ rw_pglc + 1  ; word: rb_render's frame (monochrome;
                                     ;   room for them either
 rw_lbuf         equ rw_fseg + 2     ; 40: a line of it, for the Hercules and
                                     ;   CGA writers (rwfsx.inc)
-rw_bssend       equ rw_lbuf + 40
+rw_pgstill      equ rw_lbuf + 40    ; byte: PAGES: frames in a row shown
+                                    ;   from where the last posted one is
+                                    ;   (rw_pgdraw's STILL)
+rw_bssend       equ rw_pgstill + 1
 RW_BSS          equ rw_bssend - rw_win   ; derived: a sum by hand drifted
 RW_FBUF         equ 5760            ; rb_render's frame, at [rw_fseg]:0
 RW_PBUF         equ 11520           ; the frame as the screen takes it: the

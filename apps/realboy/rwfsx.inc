@@ -995,8 +995,15 @@ rw_fsdraw:
 ; [rw_pseg] (rb_panon, rb_torus: 42 bytes a line), the canvas of the page
 ; neither shown nor waiting to be put right (rb_tpage, REALBOY-SPEC 15.5),
 ; and its flip posted. The card is never drawn on where it shows, and
-; nothing waits for the beam
+; nothing waits for the beam - unless the picture is STILL (REALBOY-SPEC
+; 15.5.4): the frame shown from where the last posted one is - the scroll,
+; the pan and the strip - for RW_PGSTILL frames in a row, and no flip
+; waiting. Then a page is three times the writes for nothing, so the frame
+; goes onto the page shown, in place, as the window's does, and no flip;
+; the other two keep what they are owed until a scroll shows them again
+RW_PGSTILL      equ 2
 rw_pgdraw:
+    call rw_render
     pushf
     cli
     mov al, [rw_pgshow]
@@ -1006,6 +1013,25 @@ rw_pgdraw:
     mov ah, [rw_pgnext]
 .c:
     popf
+    mov bl, ah                      ; BL = the page the last posted start
+    cmp bl, 0FFh                    ;   is: the one waiting, or the one
+    jne .t                          ;   shown
+    mov bl, al
+.t:
+    call rw_pgsame
+    jne .mv
+    cmp byte [rw_pgstill], RW_PGSTILL
+    jae .s
+    inc byte [rw_pgstill]
+    jmp short .p
+.s:
+    cmp ah, 0FFh                    ; (a flip still waiting: not yet)
+    jne .p
+    mov es, [rw_fsi + FSI_SEG]      ; STILL: the page shown, in place
+    jmp rb_tpage
+.mv:
+    mov byte [rw_pgstill], 0
+.p:
     xor bx, bx
 .f:
     cmp bl, al
@@ -1016,9 +1042,7 @@ rw_pgdraw:
     inc bx
     jmp short .f
 .got:
-    push bx
-    call rw_render
-    pop dx                          ; DL = the page
+    mov dx, bx                      ; DL = the page
     mov al, dl
     mov es, [rw_fsi + FSI_SEG]
     call rb_tpage                   ; BX = where it shows from
@@ -1035,6 +1059,34 @@ rw_pgdraw:
     mov byte [rw_pgpend], 1
     popf
     jmp rw_pgtry
+
+; rw_pgsame - ZF = 1: the frame rw_render just composed shows from where
+; [rw_pgstart] does, page BL's - rb_tpage's start for it (the frame's SCY,
+; then the page's slot and SCX's column), the pan and the strip. Kept: all
+; but flags
+rw_pgsame:
+    push ax
+    push cx
+    mov al, bl
+    inc ax
+    mov cl, 6
+    shl al, cl                      ; AL = its slot: 64, 128, 192
+    mov ah, [rb_tfr + 1]
+    mov cl, 3
+    shr ah, cl
+    add al, ah
+    mov ah, [rb_tfr]                ; AX = its start
+    cmp ax, [rw_pgstart]
+    jne .r
+    mov al, [rb_panv]
+    cmp al, [rw_pgpan]
+    jne .r
+    mov al, [rb_tss]
+    cmp al, [rw_pgss]
+.r:
+    pop cx
+    pop ax
+    ret
 
 ; rw_pgcrtc - PAGES (REALBOY-SPEC 15.4, 15.5): THE CANVAS - a row stride of
 ; 256 bytes (CR13), so 256 rows are a plane's 64KB and its wrap the Game
@@ -1125,6 +1177,7 @@ rw_pgcrtc:
     out dx, al
     mov byte [rw_pgshow], 0
     mov byte [rw_pgpend], 0
+    mov byte [rw_pgstill], 0
     mov byte [rw_pgok], 0           ; (the beam timed at the first flip)
     mov word [rw_pgper], RW_PGPER
     ret
