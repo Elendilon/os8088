@@ -675,6 +675,46 @@ def have_xdc():
                            for n in XDC_STREAMS)
 
 
+GB_ROMS = ("SML.GB", "KIRBY.GB")
+
+
+def have_gbroms():
+    """Does $OS88_GB_ROMS name a directory holding Super Mario Land and
+    Kirby's Dream Land as SML.GB and KIRBY.GB?
+
+    `rdgspeed286` times RealDMG on them (docs/plans/REALDMG-PLAN.md wave 4).
+    They are the owner's cartridges and can never be in this tree, so a box
+    without them SKIPS the row, by the runner, naming the fix - `vidbench`'s
+    shape (have_xdc above).
+    """
+    d = os.environ.get("OS88_GB_ROMS")
+    return bool(d) and all(os.path.isfile(os.path.join(d, n)) for n in GB_ROMS)
+
+
+def have_rgbds():
+    """Is rgbds built at tools/gbclock.py's pinned commit (`python3
+    tools/gbclock.py --rgbds`)? The Game Boy ROMs RealDMG's rows run are ours
+    and assembled with it; building it needs the network and bison."""
+    d = os.path.join(ROOT, "build", "rgbds")
+    if not all(os.access(os.path.join(d, t), os.X_OK)
+               for t in ("rgbasm", "rgblink", "rgbfix")):
+        return False
+    try:
+        import gbclock
+    except ImportError:
+        return False
+    head = subprocess.run(["git", "-C", d, "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    return head == gbclock.RGBDS_REV
+
+
+def have_86box():
+    """Is the automation-enabled 86Box built (`python3 tools/os88box.py
+    build`, docs/86BOX.md)? The binary, not its directory."""
+    b = os.environ.get("OS88_86BOX", os.path.join(ROOT, "build", "86box", "86Box"))
+    return os.access(b, os.X_OK)
+
+
 def nasm3():
     """The path to an nasm >= 3 on this box, or None.
 

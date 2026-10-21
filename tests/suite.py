@@ -2660,6 +2660,240 @@ SOAK = [
         "the table goes 4 claims to 2 and this row names it. Needs `make "
         "mseg`.",
         needs=("marty", "nasm"), serial=True, wants=("build/mseg.img",)),
+    Row("gbcpu", "soak", py("tests/gbcpu.py"), 50.0,
+        "REALDMG's SM83 core (docs/REALDMG-SPEC.md) against Blargg's eleven "
+        "cpu_instrs ROMs, the combined MBC1 one, instr_timing, mem_timing and "
+        "halt_bug, and the 24 of Mooneye's DMG acceptance tests it passes - "
+        "each booted BARE through tests/rdgcore/rdghost.asm with no os8088 "
+        "under the core, the verdict read off the link port, Blargg's text at "
+        "A000 or Mooneye's registers. The ROMs are fetched by "
+        "tools/getgbtest.py at pinned SHA-256s and never committed. NEGATIVE CONTROL: DAA made a no-op must make "
+        "01-special fail. Then tools/gbprof/gbrmw.asm, ours: the "
+        "recompiler's read-modify-writes of (HL) on WRAM against TMA, a store "
+        "through (HL) that takes an interrupt, and an HRAM routine rewritten "
+        "once translated - with its own control, the interpreter's DEC (HL) "
+        "broken, which must part the two sides. And tools/gbprof/gbflags.py's "
+        "generated sequences, the recompiler's dead flags (REALDMG-SPEC "
+        "16.1.2): their sum with it must be the interpreter's, and its "
+        "control (RT_DEADBUG, a flag's read unseen) must make them differ. And "
+        "tools/gbprof/gbpop.asm, POPs out of a ROM bank as Pokemon's VBlank "
+        "copy does (pop_slow, REALDMG-SPEC 5), interpreted and translated, "
+        "with POP BC's branch to it taken out as the control. WHY QEMU: a correctness gate, and QEMU counts work "
+        "exactly - the cycle counts instr_timing checks are the core's own. "
+        "SOAK: one package's core",
+        needs=("qemu", "nasm")),
+    Row("rdgstatic", "soak", py("tests/rdgstatic.py"), 24.0,
+        "REALDMG's Static recompiler (docs/REALDMG-SPEC.md section 16.8): "
+        "cpu_instrs, instr_timing, mem_timing and tools/gbprof/gbrmw.asm each "
+        "run TWICE bare through tests/rdgcore/rdghost.asm - a first pass "
+        "recording the profile, then the game again from its start with the "
+        "profile translated before it runs and the block table fixed - and "
+        "both passes must pass with NOTHING translated after the switch. "
+        "Then the first ROM with recording broken: an empty profile, fixed, "
+        "still translates nothing. NEGATIVE CONTROL: the table never fixed "
+        "must translate in the second pass. Then the cache's SECOND SEGMENT "
+        "(section 16.2.1), both segments squeezed to 1KB so the code fills "
+        "them: every ROM Static again, and cpu_instrs translated as it runs "
+        "moving into the second twice; NEGATIVE CONTROL: rt_exit chaining "
+        "across the segments must fail. WHY QEMU: a correctness gate, "
+        "counted, not timed. SOAK: one package's core",
+        needs=("qemu", "nasm")),
+    Row("gbacid", "soak", py("tests/rdgcore/rdgacid.py"), 3.0,
+        "REALDMG's renderer (apps/realdmg/rdgppu.inc, docs/REALDMG-SPEC.md "
+        "section 13) against dmg-acid2's reference picture, all 23,040 pixels: "
+        "the window's line counter, the ten-sprite limit, sprite priority by X "
+        "then OAM index, the flips, 8x16 sprites, colour-0 priority and the "
+        "mid-frame LCDC writes the raster log carries. It is what found that "
+        "STAT interrupts had never fired. NEGATIVE CONTROL: LDH (n),A made a "
+        "no-op must lose the picture. WHY QEMU: counted, not timed. SOAK: one "
+        "package's renderer",
+        needs=("qemu", "nasm")),
+    Row("gbwindow", "soak", py("tests/gbwindow.py"), 75.0,
+        "REALDMG.O88 in a window (docs/REALDMG-SPEC.md section 14): dmg-acid2 "
+        "opened from the Disk window through its association, the frame "
+        "counter in the package's view advancing, and the window's content "
+        "against the reference PIXEL FOR PIXEL on both writers - the four "
+        "greys through OSAPI_GFX_BLITP on VGA (rendered frame) and the 2x2 "
+        "ordered dither through OSAPI_GFX_BLIT1 on a Hercules and a CGA (their "
+        "VRAM: MartyPC's rendered Hercules frame is cropped). Each then takes "
+        "Machine > Full Screen (sections 15 and 15.1, the plan's gbfsx gate): "
+        "VGA's mode 0Dh, the Hercules page at 2x2 and CGA's 320x200 in four "
+        "colours, each against the SAME reference, frames advancing in there, "
+        "and Esc back to a desktop whose window shows the picture again. "
+        "On VGA the window is checked again under Machine > Interlace: On "
+        "and Scrolling. "
+        "NEGATIVE CONTROL: the reference mirrored must not match. SOAK: one "
+        "package",
+        needs=("marty", "nasm"),
+        wants=("build/realdmg.o88", "build/os8088-720.img")),
+    Row("gbkeys", "soak", py("tests/gbkeys.py"), 66.0,
+        "REALDMG's Machine > Controls... (docs/REALDMG-SPEC.md section 14.2) "
+        "on VGA and on a CGA, driven by its own layout: a click on A lights "
+        "the box and the next key typed (Q) is A's, read out of rw_keymap; "
+        "F1 is refused and the wait goes on, Esc stops it; B takes A's key "
+        "and the two change places; the GAME reads the new map out of S_JOY "
+        "(Q held is B, Z is A, X nothing); REALDMG.CFG version 3 keeps it, "
+        "read off the floppy as the guest left it (os88flush); Default puts "
+        "the shipped map back; and on the CGA the window is whole above the "
+        "dock. Measured 66s. BROKEN ON PURPOSE (the reserved check taken out) "
+        "it goes red at F1. SOAK: one package",
+        needs=("marty", "nasm"),
+        wants=("build/realdmg.o88", "build/os8088-720.img")),
+    Row("gbdamage", "soak", py("tests/gbdamage.py"), 32.0,
+        "RealDMG's damage renderer (docs/REALDMG-SPEC.md section 13.2) against "
+        "its whole one: the bare harness's MODE 6 under QEMU composes every "
+        "third frame both ways and counts the pictures that differ - gbclock's "
+        "frame counter (ours), and with $OS88_GB_ROMS Super Mario Land and "
+        "Kirby. Without the map-row marks it fails on 497 frames of 500. "
+        "Each again INTERLACED (section 13.2), On, Scrolling and Doubled, composed every "
+        "frame as the package does and twice on a checked one: without the "
+        "lines a call left being composed by the next it fails on 151-499. "
+        "SOAK: one package",
+        needs=("qemu", "nasm", "rgbds")),
+    Row("gbdemo", "soak", py("tests/gbdemo.py"), 30.0,
+        "RealDMG's 5150 demo (docs/plans/REALDMG-PLAN.md section 6, wave 8's "
+        "gate): GBDEMO.GB (tools/gbours.py, ours) taken full screen by Alt+Enter "
+        "on MartyPC's IBM 5150 with a Hercules (and back out by a second), its "
+        "frame counter against 60 guest seconds - "
+        "which must be 1.00 of real time to two places - and the frames drawn "
+        "a second off the F1 line, reported. With the draw clock always due "
+        "the picture takes the machine and the game falls to 0.39. SOAK: one "
+        "package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088-720.img")),
+    Row("gblog", "soak", py("tests/gblog.py"), 20.0,
+        "REALDMG.O88's log to file (docs/REALDMG-SPEC.md section 14.1): "
+        "GBDEMO.GB on MartyPC's 5150 Hercules, two logs - one by the menu, "
+        "with Pause on and off inside it, one at the close - read on the host "
+        "beside REALDMG.O88 as GBDEMO00.LOG and GBDEMO01.LOG: the head naming "
+        "the game and the machine, PAUSE and GO, at least eight records with "
+        "rising seconds, frames drawn and the demo's full speed outside the "
+        "pause. With no record counted no file is written and the row says "
+        "so. SOAK: one package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088-720.img")),
+    Row("gbsound", "soak", py("tests/gbsound.py"), 15.0,
+        "REALDMG.O88's speaker (docs/REALDMG-SPEC.md section 17) on MartyPC's "
+        "VGA XT, against GBTONE.GB (tools/gbours.py, ours): channel 1 at 440 "
+        "Hz, its DAC switched off, then channel 2 at 880 Hz with a length of "
+        "64 - the capture (MARTYPC_WAV) must hold the two tones, silence "
+        "between them and nothing after the second, whose length counter ends "
+        "it. Breaking the counter leaves 880 Hz running and the row says so. "
+        "SOAK: one package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088-720.img")),
+    Row("gbspeed", "soak", py("tests/gbspeed.py"), 32.0,
+        "REALDMG.O88's Machine > Speed (docs/REALDMG-SPEC.md section 15.2) on "
+        "MartyPC's VGA XT, against CLOCK0.GB (tools/gbclock.py's do-nothing "
+        "variant, ours): ~100% of a Game Boy's frames at the default, 75% after "
+        "two picks, and 75% again with the window closed and the game opened "
+        "anew - kept for the game in REALDMG.CFG. Without the clock's scaling "
+        "the 75% reads 101%, without rw_spdgame the reopened game 103%. "
+        "SOAK: one package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088-720.img")),
+    Row("gbfm", "soak", py("tests/gbfm.py"), 25.0,
+        "REALDMG.O88's four channels on the FM chip (docs/REALDMG-SPEC.md "
+        "section 17.1), on MartyPC's VGA XT with a Sound Blaster: GBFM.GB "
+        "(tools/gbprof/gbfm.asm, ours) starts both squares, the wave and the "
+        "noise; the package must hold the chip, its shadow of each channel's "
+        "A0h/B0h must be the F-number the Game Boy's own formulas give, "
+        "SOUND.DRV's opl_b0 must agree, and the card's capture must sound - "
+        "square 1 alone peaking at 440 Hz with its octave under a quarter of "
+        "that (odd harmonics, a square's). Without the claim the speaker plays "
+        "and the row fails on all four channels. SOAK: one package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088-360.img")),
+    Row("gbheader", "soak", py("tests/gbheader.py"), 45.0,
+        "REALDMG.O88 reading a cartridge's header before it runs it "
+        "(docs/REALDMG-SPEC.md section 10), on MartyPC's VGA XT: CLOCK0.GB "
+        "copies with the checksum wrong, the Color-only flag and an MBC7 are "
+        "each refused with their own toast (the MBC7 used to run with no MBC "
+        "at all), a .GBC copy opens by its extension and runs, and GBJOY.GB "
+        "(tools/gbprof/gbjoy.asm, ours), asleep in HALT with only the joypad "
+        "interrupt enabled, wakes once a press of B (section 7). Without "
+        "rw_hdrchk nothing is refused; without IF bit 4 it never wakes. "
+        "SOAK: one package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088-720.img")),
+    Row("gbstate", "soak", py("tests/gbstate.py"), 40.0,
+        "REALDMG.O88's save states (docs/REALDMG-SPEC.md section 10.4). The "
+        "bare harness's MODE 13 under QEMU takes a state 200 frames before the "
+        "end and puts it back - into a machine just reset, and into the one "
+        "that ran on with its translated code kept - and the same 200 frames "
+        "must end on the same picture and memory: gbclock's counter, and with "
+        "$OS88_GB_ROMS Super Mario Land and Kirby (leaving the clocks out of "
+        "rdg_stapply's table turns both games red). Then the package on "
+        "MartyPC's VGA XT: 3 and F5 write CLOCK0.SS3 (34,816 bytes, read back "
+        "off the floppy), F8 takes the frame counter back to the save (without "
+        "rdg_stapply it does not), an empty slot changes nothing - in the window "
+        "and in full screen. SOAK: one package",
+        needs=("qemu", "marty", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088-720.img")),
+    Row("gbsave", "soak", py("tests/gbsave.py"), 40.0,
+        "REALDMG.O88's battery RAM and MBC3 clock (docs/REALDMG-SPEC.md "
+        "section 10.1) on MartyPC's VGA XT, against GBSAVE.GB (tools/gbours.py, "
+        "ours): four RAM banks counted and told apart, the clock counting game "
+        "time, the close writing GBSAVE.SAV beside the game (32KB and VBA's "
+        "48-byte clock trailer, read on the host), and a second boot reading "
+        "the counters and the clock back. SOAK: one package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088-720.img")),
+    Row("rdgspeed286", "soak", py("tests/rdgspeed286.py"), 1200.0,
+        "REALDMG's game speed on 86Box's 286 with 2MB (docs/plans/REALDMG-PLAN.md "
+        "wave 4): Super Mario Land and Kirby's Dream Land started and walked right, "
+        "in the window and full screen, the game's frames against 20 emulated "
+        "seconds and the frames drawn off the package's F1 line. ASSERTS each "
+        "runs (frames advance, >= 10% of real time) and REPORTS the speed - "
+        "86Box is not cycle-accurate, so a speed is a measurement and not a "
+        "gate. The games are the owner's: $OS88_GB_ROMS, or the runner SKIPS "
+        "it. SOAK: one package, and 86Box's",
+        needs=("86box", "gbroms", "nasm"),
+        wants=("build/realdmg.o88", "build/os8088.img")),
+    Row("gbreplay", "soak", py("tests/gbreplay.py"), 420.0,
+        "REALDMG's replays (docs/REALDMG-SPEC.md section 10.5) on 86Box's 286, "
+        "in the window and in full screen (the canvas, the recompiler, the "
+        "page flips): GBPAD.GB (tools/gbours.py, ours) folds the buttons and "
+        "the frame into a sum every VBlank; F6 records a scripted play from "
+        "slot 1, F6 writes GAME.RP1, F7 plays it and it must END IN STEP - the "
+        "machine at the play's end the one the recording ended on - and F7 "
+        "again with that sum changed under the play must end OUT OF STEP, or "
+        "the comparison could see nothing. SOAK: one package, and 86Box's",
+        needs=("86box", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088.img")),
+    Row("gbbank", "soak", py("tests/gbbank.py"), 150.0,
+        "REALDMG's bank cache (docs/REALDMG-SPEC.md section 10.3) on 86Box's "
+        "286 with 4MB: GBBANK.GB (tools/gbours.py, ours), a 1MB MBC5 cartridge "
+        "that switches among all 64 banks in an LFSR's order and checks each "
+        "by its bytes and by a routine run from 4000-7FFF. ASSERTS the cache "
+        "took it with fewer slots than banks, banks were fetched, switches "
+        "kept coming, and not one read the wrong bank - with the fetch's copy "
+        "taken out it reads 255 wrong. MartyPC is an 8088 with no extended "
+        "memory, so 86Box's. SOAK: one package, and 86Box's",
+        needs=("86box", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088.img")),
+    Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 20.0,
+        "REALDMG's speaker asked for 131,072 Hz (docs/REALDMG-SPEC.md section "
+        "17) on 86Box's 286: GBTONE.GB ends with square channel 1 at x = 7FFh, "
+        "where 131,072 / (2048 - x) divides by 1. ASSERTS the core's frames keep "
+        "climbing after the note - without rw_sound's range check the divide "
+        "error restarts the div for ever and they stop at 151, which is how the "
+        "compatibility sweep's Alleyway hung the package on pause. A 286 because "
+        "an 8088's divide error returns past the div and hides it. SOAK: one "
+        "package, and 86Box's",
+        needs=("86box", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088.img")),
+    Row("gbtrace", "soak", py("tests/gbtrace.py"), 130.0,
+        "REALDMG's core against Peanut-GB (pinned by tools/gbprof.py), the "
+        "registers AND the M-cycle clock compared before each of the first "
+        "1,000,000 instructions of cpu_instrs (tools/gbtrace.py; the wave 1 "
+        "measurement is 10,000,000 and twenty minutes). The reference is "
+        "corrected in two places Peanut-GB is not the hardware - LY falls "
+        "behind time, and an interrupt dispatch costs nothing - each named "
+        "in tools/gbprof/gbtrace.c. NEGATIVE CONTROL: JR NZ made a no-op must "
+        "differ. WHY QEMU: the core's trace is counted, not timed. SOAK: one "
+        "package's core",
+        needs=("qemu", "nasm")),
     Row("c64part", "soak", py("tests/c64part.py"), 30.0,
         "THE FIRST REAL CONSUMER of the parts standard (SPEC.md 20.12, and "
         "C64-SPEC 1.4): C64.ROM - 20,480 bytes of KERNAL, BASIC and "

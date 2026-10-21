@@ -151,6 +151,7 @@ VMEGA := $(CURDIR)/vm/xt-ega
 # cards in it, each on its own monitor window.
 VMMULTI := $(CURDIR)/vm/xt-multimon
 VM286 := $(CURDIR)/vm/286
+VM286VIC := $(CURDIR)/vm/286-victory
 # ...and the same 286 with two 1.2MB 5.25" drives instead of two 3.5" ones
 # (SPEC.md 19). It is the only machine here that can boot that geometry at
 # all: every other AT-class profile is `fdd_type = 35_2hd`, and a 5.25" HD
@@ -213,6 +214,7 @@ VMXTCOVOX := $(CURDIR)/vm/xt-covox
 VMXTWIRE := $(CURDIR)/vm/xt-wire
 VM286SND := $(CURDIR)/vm/286-sound
 VM286VID := $(CURDIR)/vm/286-video
+VM286RDG := $(CURDIR)/vm/286-realdmg
 VM386SND := $(CURDIR)/vm/386-sound
 # The top of the range: a 486DX2/66 and a Pentium 133, both with an SB16.
 VM486 := $(CURDIR)/vm/486
@@ -2193,7 +2195,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
-        286-sound 286-video 386-sound 486 486-video pentium \
+        286-sound 286-video 286-realdmg 286-victory 386-sound 486 486-video pentium \
         bench field combo combo144 combo720 stackprobe trklog trkscrl npbench clicktest marty \
         comscan lptlink calcref \
         fonts fontsheets fontlist \
@@ -2209,7 +2211,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
         allapps usb usb-emu iso live burn rcbandbench \
         paccman paccmandisk pmcbandbench xt-paccman \
         c64 c64disk c64rom c64bandbench c64cputest c64memtest 386-c64 xt-c64 286-c64 \
-        apple2 apple2disk apple2rom a2bandbench a2memtest a2cputest 386-apple2 \
+        apple2 apple2disk realdmgdisk apple2rom a2bandbench a2memtest a2cputest 386-apple2 \
         xt-apple2 286-apple2 \
         weave weavedisk weavevm weavecanvas weavegame weavebandbench \
         xt-weave 386-weave xt-weave-256 \
@@ -2228,7 +2230,7 @@ WEAVEDEMOS := apps/weave/demos
 WEAVEWABS  := $(BUILD)/FORM.WAB $(BUILD)/SHEET.WAB $(BUILD)/PONG.WAB
 all: checkdocs $(SHIPIMGS) $(BUILD)/wire.o88 $(BUILD)/recorder.o88 \
      $(BUILD)/hello.o88 $(BUILD)/video.o88 \
-     $(BUILD)/imgtest.o88 $(BUILD)/scribe.o88 \
+     $(BUILD)/imgtest.o88 $(BUILD)/scribe.o88 $(BUILD)/realdmg.o88 \
      $(BUILD)/livepayload.txt \
      $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
      $(BUILD)/doscore.bin \
@@ -5544,6 +5546,19 @@ $(BUILD)/xmtest.img: $(BUILD)/xmtest.o88 tools/os88disk.py
 # (bench360, drvcall360, heapfrag360, editmove360, ...); this was the one that
 # did not, because it was written for the QEMU line above and inherited a
 # MartyPC caller later.
+# VGAPROBE (tests/vgaprobe/vgaprobe.asm): a FIELD instrument for RealDMG's
+# scrolling research - when a real VGA latches the start address and the pel
+# panning, whether its CRTC wraps at 64KB, and the frame's timing. On demand:
+# `make vgaprobe` gives build/vgaprobe.o88 and a 1.44MB floppy with it.
+.PHONY: vgaprobe
+vgaprobe: $(BUILD)/vgaprobe.img
+$(BUILD)/vgaprobe.bin: tests/vgaprobe/vgaprobe.asm apps/os88api.inc apps/os88pit.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/vgaprobe/vgaprobe.asm
+$(BUILD)/vgaprobe.o88: $(BUILD)/vgaprobe.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/vgaprobe.bin -o $@
+$(BUILD)/vgaprobe.img: $(BUILD)/vgaprobe.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/vgaprobe.o88
+
 $(BUILD)/fsxtest.bin: tests/fsxtest/fsxtest.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fsxtest/fsxtest.asm
 	@echo "fsxtest: $(call FILESIZE,$@) bytes"
@@ -5643,6 +5658,86 @@ $(BUILD)/hello.bin: apps/hello/hello.asm apps/os88api.inc apps/os88ui.inc \
 
 $(BUILD)/hello.o88: $(BUILD)/hello.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/hello.bin -o $@
+
+# REALDMG (docs/REALDMG-SPEC.md): a Game Boy in a window. Its core is
+# GENERATED - apps/realdmg/rdggen.py writes 256 slots of handlers, one 64KB
+# segment - and rides REALDMG.O88 as part 0, LZ4 on the disk; the package
+# image is the window, rdgsys.inc and rdgppu.inc. It ships on the everything set
+# and the live media in a folder of its own, like the other machines, and is
+# in `all` because nothing it needs is fetched.
+$(BUILD)/rdgcore.bin: apps/realdmg/rdggen.py apps/realdmg/rdgdefs.inc | $(BUILD)
+	python3 apps/realdmg/rdggen.py $(BUILD)/rdgcore.asm
+	$(NASM) -f bin -w+error -I apps/realdmg/ -o $@ $(BUILD)/rdgcore.asm
+# ...and its two halves, because one part is at most 65,024 bytes and the core
+# is 65,536: two adjacent rows are one segment in the carve (SPEC.md 20.12.11)
+$(BUILD)/rdgcore0.bin $(BUILD)/rdgcore1.bin: $(BUILD)/rdgcore.bin
+	python3 -c "import sys; d=open(sys.argv[1],'rb').read(); \
+		open(sys.argv[2],'wb').write(d[:32768]); open(sys.argv[3],'wb').write(d[32768:])" \
+		$< $(BUILD)/rdgcore0.bin $(BUILD)/rdgcore1.bin
+
+# ...the recompiler's templates, lifted out of that core, and its offsets
+# (REALDMG-SPEC section 16): apps/realdmg/rdgtmpl.py assembles each handler
+# three ways and finds its operands and fixups by comparing the bytes
+# (one invocation writes both: the os88net.lz idiom above, not `&:`)
+$(BUILD)/rdgtmpl.bin: $(BUILD)/rdgcore.bin apps/realdmg/rdgtmpl.py apps/realdmg/rdggen.py
+	python3 apps/realdmg/rdgtmpl.py $(BUILD)/rdgcore.bin $(BUILD)/rdgtmpl.bin $(BUILD)/rdgcore.inc
+$(BUILD)/rdgcore.inc: $(BUILD)/rdgtmpl.bin ;
+
+$(BUILD)/realdmg.bin: apps/realdmg/realdmg.asm apps/realdmg/rdgdefs.inc \
+                      apps/realdmg/rdgsys.inc apps/realdmg/rdgppu.inc apps/realdmg/rwfsx.inc apps/realdmg/rwkeys.inc \
+                      $(BUILD)/rdgcore.inc \
+                      apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
+                      apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realdmg/rwlog.inc apps/realdmg/rwbank.inc apps/realdmg/rwstate.inc apps/realdmg/rwreplay.inc \
+                      apps/realdmg/rwfm.inc drivers/sound/sndpkg.inc \
+                      apps/os88data.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/realdmg/ -I drivers/sound/ -I $(BUILD)/ -l $(BUILD)/realdmg.lst \
+		-o $@ apps/realdmg/realdmg.asm
+	@echo "realdmg: $(call FILESIZE,$@) bytes"
+
+# The recompiler is a PART of its own (REALDMG-SPEC section 16.9): its code
+# and templates, read by the package into the recompiler's claim on a 286 and
+# never by an 8088.
+$(BUILD)/rdgjitp.bin: apps/realdmg/rdgjitp.asm apps/realdmg/rdgjit.inc apps/realdmg/rdgdefs.inc \
+                     $(BUILD)/rdgtmpl.bin $(BUILD)/rdgcore.inc
+	$(NASM) -f bin -w+error -I apps/realdmg/ -I $(BUILD)/ -o $@ apps/realdmg/rdgjitp.asm
+
+$(BUILD)/realdmg.o88: $(BUILD)/realdmg.bin $(BUILD)/rdgcore0.bin $(BUILD)/rdgcore1.bin \
+                      $(BUILD)/rdgjitp.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/realdmg.bin -o $@ --part $(BUILD)/rdgcore0.bin \
+		--part $(BUILD)/rdgcore1.bin --part $(BUILD)/rdgjitp.bin --part-compress lz4
+
+# THE REALDMG DISK (docs/REALDMG-SPEC.md section 18, docs/plans/REALDMG-PLAN.md
+# wave 8), ON DEMAND: REALDMG.O88, its README and GBDEMO.GB - the demo written
+# for the 5150, OURS, assembled by tools/gbours.py with tools/gbclock.py's
+# pinned rgbds (fetched and built on first use, which is why this is not in
+# `all`). No game ships: a cartridge is the user's. FOUR GEOMETRIES, each
+# --verify'd, in one REALDMG folder.
+$(BUILD)/gbclock/GBDEMO.GB: tools/gbprof/gbdemo.asm tools/gbours.py tools/gbclock.py
+	python3 tools/gbours.py gbdemo
+
+REALDMGDISK := $(BUILD)/realdmg.o88 $(BUILD)/gbclock/GBDEMO.GB \
+               apps/realdmg/README.TXT tools/os88disk.py
+REALDMGIMG = python3 tools/os88disk.py -o $(1) --size $(2) --folder SYSTEM/APPDATA \
+	     REALDMG:$(BUILD)/realdmg.o88 REALDMG:$(BUILD)/gbclock/GBDEMO.GB \
+	     REALDMG:apps/realdmg/README.TXT
+realdmgdisk: $(BUILD)/realdmg.img $(BUILD)/realdmg720.img \
+             $(BUILD)/realdmg120.img $(BUILD)/realdmg360.img
+
+$(BUILD)/realdmg.img: $(REALDMGDISK)
+	$(call REALDMGIMG,$@,1440)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/realdmg720.img: $(REALDMGDISK)
+	$(call REALDMGIMG,$@,720)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/realdmg120.img: $(REALDMGDISK)
+	$(call REALDMGIMG,$@,1200)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/realdmg360.img: $(REALDMGDISK)
+	$(call REALDMGIMG,$@,360)
+	@python3 tools/os88disk.py --verify $@
 
 # TIMER and BOUNCE (SPEC.md 111, 112): the two kernel KINDS of SPEC.md 14
 # that became packages (14.8) - a stopwatch and a bouncing square, in
@@ -11697,6 +11792,41 @@ $(BUILD)/VIDDEMO-%-IDE.VHD: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 		--cyls 1024 --heads 16 --spt 63 --out $@
 	rm -f $(BUILD)/viddemo/$*.img
 
+# THE REALDMG HARD DISK (docs/REALDMG-SPEC.md section 18), ON DEMAND: the
+# whole install, VIDDEMO_INSTALL's derived list, plus RealDMG's disk in a
+# REALDMG folder and the user's cartridges in GAMEBOY (GAMES is the apps
+# disk's, already in the install) - `make realdmghd
+# GBROMS=<dir>`, the way CPMSW= and BUNDLES= take yours. tools/gbromdir.py
+# names each from its header (8.3) and writes GAMEBOY/ROMS.TXT; no cartridge
+# is ever in the tree, and build/ is never committed. The geometry is the
+# AT drive table's TYPE 3 (615/6/17, 32 MB), which vm/286-realdmg boots - so
+# its MR BIOS needs only "type 3" in setup, where 286-video's 250/15/17 wants
+# a user type typed in - and it is the place a 2MB cartridge, more than any
+# floppy holds, can be opened at all. Rebuilt every time: the ROM directory
+# is not a prerequisite make can see.
+REALDMGHD := $(BUILD)/REALDMG-HD.VHD
+GBROMS ?=
+.PHONY: realdmghd
+realdmghd: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
+	$(DRIVERS) $(SYSDOC) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSLOGO) \
+	$(FACES) $(FACELIC) $(LOGOVID) $$(APPS) $(REALDMGDISK) \
+	tools/gbromdir.py tools/os88hdd.py
+	rm -rf $(BUILD)/realdmghd
+	mkdir -p $(BUILD)/realdmghd/games
+	python3 tools/gbromdir.py "$(GBROMS)" $(BUILD)/realdmghd/games
+	python3 tools/os88disk.py -o $(BUILD)/realdmghd/hd.img --hdd \
+		--geometry 615/6/17 --mbr $(BUILD)/mbr.bin \
+		--boot $(BUILD)/boothd.bin --kernel $(KERNFILE) $(APPDATAFOLDER) \
+		$(VIDDEMO_INSTALL) \
+		REALDMG:$(BUILD)/realdmg.o88 REALDMG:$(BUILD)/gbclock/GBDEMO.GB \
+		REALDMG:apps/realdmg/README.TXT \
+		$$(for f in $(BUILD)/realdmghd/games/*; do [ -f "$$f" ] && echo "GAMEBOY:$$f"; done)
+	python3 tools/os88disk.py --verify-hdd $(BUILD)/realdmghd/hd.img
+	python3 tools/os88hdd.py --wrap $(BUILD)/realdmghd/hd.img \
+		--cyls 615 --heads 6 --spt 17 --out $(REALDMGHD)
+	rm -f $(BUILD)/realdmghd/hd.img
+	@ls -l $(REALDMGHD)
+
 # THE ENCODER FOR PEOPLE WITH NO os8088 TREE (SPEC.md 98.2.13): the window,
 # every tools/ module it imports or runs (tools/os88vbundle.py COMPUTES the
 # list, so it cannot go stale), VIDEO.O88 and a README, in one folder of one
@@ -14377,6 +14507,8 @@ ALLAPPSFILES := $(BUILD)/redline.o88 $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUIL
                 $(BUILD)/apple2.o88 \
                 $(BUILD)/WELCOME.BAS \
                 apps/apple2/README.TXT apps/apple2/COPYING \
+                $(BUILD)/realdmg.o88 $(BUILD)/gbclock/GBDEMO.GB \
+                apps/realdmg/README.TXT \
                 $(WEAVEDISK) $(WEAVELOOM) $(LOOMSRCS) \
                 $(RUNCPMDISK)
 # These images use the RunCPM master disk, but not the separate CP/M
@@ -14404,6 +14536,9 @@ ALLAPPSARGS := APPS:$(BUILD)/redline.o88 $(addprefix APPS:,$(APPS_TOOLS) $(CORE_
                                    $(BUILD)/WELCOME.BAS \
                                    apps/apple2/README.TXT \
                                    apps/apple2/COPYING) \
+               $(addprefix REALDMG:,$(BUILD)/realdmg.o88 \
+                                    $(BUILD)/gbclock/GBDEMO.GB \
+                                    apps/realdmg/README.TXT) \
                $(addprefix WEAVE:,$(WEAVEDISK)) \
                $(addprefix LOOM:,$(WEAVELOOM) $(LOOMSRCS)) \
                $(APPSYSARGS) \
@@ -15465,6 +15600,16 @@ xt-multimon: $(IMG360) $(APPSIMG360)
 	@$(UNPROTECT) $(VM286)/86box.cfg
 	$(BOX) -P $(VM286) -N
 
+# The owner's Packard Bell Victory 286 as near as 86Box comes (docs/86BOX.md):
+# vm/286's AMI board at 16 MHz with 4MB and a Paradise PVGA1A. Not the board,
+# but it MATCHED the machine: RealDMG's logs off it (tests/rdgcore/rdgwin.py
+# --log) read like the Victory's own, Kirby walking with no recompiler at
+# 52-62% of real time against the Victory's 59-64%, a scrolling Super Mario
+# Land draw 45 ms on both (REALDMG-SPEC section 14.1).
+286-victory: $(IMG) $(APPSIMG)
+	@$(UNPROTECT) $(VM286VIC)/86box.cfg
+	$(BOX) -P $(VM286VIC) -N
+
 # The 1.2MB 5.25" pair on the machine class it is for (SPEC.md 19): an AMI 286
 # at 12.5MHz with two 525_2hd drives. This is the ONLY 86Box profile in the
 # tree that can boot that geometry - every other AT-class machine here is
@@ -15722,6 +15867,15 @@ xt-wire: $(BUILD)/ether360.img $(BUILD)/wiredata360.img
 	@test -f $(BUILD)/VIDENC-VGA-286.VHD || { echo "286-video: needs $(BUILD)/VIDENC-VGA-286.VHD - make videnchd VIDENC=<dir with vga/>"; exit 1; }
 	@$(UNPROTECT) $(VM286VID)/86box.cfg
 	$(BOX) -P $(VM286VID) -N
+
+# ...and that 286 with RealDMG's hard disk (docs/REALDMG-SPEC.md section 18):
+# the whole install, REALDMG/ and your cartridges in GAMEBOY/, booted off the
+# disk - `make realdmghd GBROMS=<dir>` builds it. The SB16 is the FM chip
+# RealDMG plays all four channels on (section 17.1)
+286-realdmg:
+	@test -f $(REALDMGHD) || { echo "286-realdmg: needs $(REALDMGHD) - make realdmghd GBROMS=<dir of .gb/.gbc>"; exit 1; }
+	@$(UNPROTECT) $(VM286RDG)/86box.cfg
+	$(BOX) -P $(VM286RDG) -N
 
 # The 486DX2/66 with `make vid486`'s measurement disk on IDE and its blank
 # results floppy in B: (SPEC.md 98.2.3.1)

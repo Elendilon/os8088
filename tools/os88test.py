@@ -305,6 +305,19 @@ def capabilities():
     # itself and exit 0, which scored `ok` in 0.1s against 34s declared.
     if os88build.have_xdc():
         caps.add("xdc")
+    # the owner's two Game Boy cartridges, for `rdgspeed286` - never in the
+    # tree, so $OS88_GB_ROMS names them or the row SKIPS (have_gbroms) - and
+    # the automation-enabled 86Box that row times them on, which is built on
+    # demand (`python3 tools/os88box.py build`) and not by `make deps`.
+    if os88build.have_gbroms():
+        caps.add("gbroms")
+    if os88build.have_86box():
+        caps.add("86box")
+    # rgbds at tools/gbclock.py's pinned commit, for `gbsound`, whose ROM is
+    # ours and assembled on the box (tools/gbours.py). Built on demand and
+    # with the network, so its absence is a SKIP rather than a fetch.
+    if os88build.have_rgbds():
+        caps.add("rgbds")
     # ffmpeg AND numpy, the encoder front end's (tools/os88venc.py, SPEC.md
     # 98.2.1). Nothing in the build needs either, so they are a capability
     # and not a dependency, and `make deps` does not install ffmpeg's

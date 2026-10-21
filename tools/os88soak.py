@@ -247,6 +247,22 @@ def requirements():
                 "                  (copyrighted: they are the owner's and "
                 "never in the tree)" % ", ".join(os88build.XDC_STREAMS)))
 
+    req.append(("gbroms", os88build.have_gbroms(),
+                "rdgspeed286, which times RealDMG on the owner's two Game Boy "
+                "cartridges (docs/plans/REALDMG-PLAN.md wave 4).",
+                "export OS88_GB_ROMS=<a directory holding %s>\n"
+                "                  (copyrighted: they are the owner's and "
+                "never in the tree)" % ", ".join(os88build.GB_ROMS)))
+
+    req.append(("86box", os88build.have_86box(),
+                "rdgspeed286, which needs the automation-enabled 86Box's 286.",
+                "python3 tools/os88box.py build      (three minutes)"))
+
+    req.append(("rgbds", os88build.have_rgbds(),
+                "gbsound, whose Game Boy ROM is ours and is assembled with "
+                "rgbds at a pinned commit.",
+                "python3 tools/gbclock.py --rgbds      (clones and builds it)"))
+
     req.append(("ffmpeg", bool(shutil.which("ffmpeg"))
                 and bool(shutil.which("ffprobe"))
                 and os88build.have_numpy(),

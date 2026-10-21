@@ -460,6 +460,14 @@
   "strings": null,
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
  },
+ "GBDEMO_GB": {
+  "sources": [
+   "tools/gbprof/gbdemo.asm"
+  ],
+  "stamped": "206eb5be",
+  "strings": "3a06a69ef09259e4",
+  "why": "new file page for the demo cartridge"
+ },
  "GORILLAS_O88": {
   "sources": [
    "apps/gorillas"
@@ -793,6 +801,14 @@
   "stamped": "9deeee7d",
   "strings": null,
   "why": "PaccMan's disk carries a README.TXT now; listed with the other program read-mes"
+ },
+ "REALDMG_O88": {
+  "sources": [
+   "apps/realdmg"
+  ],
+  "stamped": "206eb5be",
+  "strings": "08e5749fb6393b85",
+  "why": "new manual, checked against realdmg.asm's menus, keys and strings"
  },
  "REDLINE_O88": {
   "sources": [

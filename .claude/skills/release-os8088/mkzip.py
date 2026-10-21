@@ -232,7 +232,8 @@ ITEMS = [
 
     ("all", "Everything set, 1.44MB", False,
      "Both word processors, the story reader, the CP/M emulator, the "
-     "Commodore 64, the Apple II Plus, the Weave programs and their editor, "
+     "Commodore 64, the Apple II Plus, the RealDMG Game Boy, the Weave "
+     "programs and their editor, "
      "the 1942 air-combat game, the REDLINE benchmark, and everything on the "
      "software disk.",
      [("@apps-all.list", "1.44MB", "")]),
@@ -276,6 +277,13 @@ ITEMS = [
      "licence, COPYING.",
      [("apple2.img", "1.44MB", ""), ("apple2120.img", "1.2MB", ""),
       ("apple2720.img", "720KB", ""), ("apple2360.img", "360KB", "")]),
+    ("progs", "RealDMG", False,
+     "A Game Boy emulator: your own .GB cartridges in a window or on the "
+     "whole screen, with battery saves, save states and replays. It plays "
+     "on an IBM PC and is fastest on a 286 or later. No game ships with it; "
+     "the disk carries the project's own demo cartridge and a README.",
+     [("realdmg.img", "1.44MB", ""), ("realdmg120.img", "1.2MB", ""),
+      ("realdmg720.img", "720KB", ""), ("realdmg360.img", "360KB", "")]),
     ("progs", "PaccMan", False,
      "The arcade-accurate Pac-Man, built by the C compiler. It wants a 386 "
      "to play at full speed.",
