@@ -955,7 +955,8 @@ Super Mario Land scrolls with enemies on screen.
      ms a scrolled frame in Super Mario Land**, against ~1.5-2 ms of
      lookups taken away (`ppu_list` and the tile-address load before each
      tile row; the shift stays, the card cannot do it for free). A net loss
-     for Super Mario Land, ~5% for Kirby's Dream Land at best.
+     for Super Mario Land, ~5% for Kirby's Dream Land at best. (STALE: the
+     figure predates the write marks - see the scroll round below.)
    - **What the measurement found instead, and took** (REALBOY-SPEC 13.3):
      the still frame after a scroll COMPARED rather than composed whole
      (Kirby's Dream Land -3.8%), and a line that is one tile all along
@@ -1085,6 +1086,77 @@ building.
 - A field run on the Victory.
 - Why a profile that missed a transition stalls Static there harder than
   the interpreter would (REALBOY-SPEC 16.8).
+
+### The scroll round - research, the field probe, and the plan (2026-10-21)
+
+The owner's brief: scrolling is the last major blocker; several approaches
+"came out roughly equal and were marked as refused", and some of those may
+have been the MACHINERY rather than the idea. Five agents re-priced them
+on `286-victory` (the bare harness, 1,200 frames of play; baseline Super
+Mario Land 18.72 ms a frame, Kirby's Dream Land 39.27 ms, every frame
+composed). The ceiling is a scrolled frame composing NOTHING: 9.0 / 17.8
+ms. Findings:
+
+- **The "+2.4 ms scan" that refused lever 6 is stale.** It was taken
+  before REALBOY-SPEC 13.2.2's write marks; with them the VRAM part of a
+  scrolled frame's scan is ~0.1 ms. What was left was OAM: a scroll moves
+  every sprite's X, and each differing entry marked 32 lines nothing reads
+  (1,280 marks a frame). Copying the OAM shadow whole on a scroll instead
+  measured Super Mario Land +2 ticks, Kirby's Dream Land **-4.9%**. A list
+  of marked blocks filled by `vr_wr` makes the scan proportional to what
+  was written - in play one 16-byte block a frame, and not one tile write.
+- **The CRTC experiment (REALBOY-SPEC 15.3) measured its machinery.** It
+  had one page, composed sprite lines whole, recomposed the status bar
+  every draw, scanned 8KB every call and shifted every line twice
+  (composed screen-aligned, then shifted again for the panning): ~32% of
+  its samples. Commander Keen's adaptive tile refresh - floating pages in
+  a 64KB ring, a master page, an update matrix per page, latch-copy
+  erase, the status bar a sprite - is the period answer, and it is not
+  what was built.
+- **The ~7 ms retrace wait is not a property of page flipping.** The
+  field probe (`tests/vgaprobe/`, the Victory's PVGA1A) settled where a
+  start address and a pel panning written together land on one frame:
+  **after the last line of the page being flipped and before vertical
+  blanking starts**. The chip applies the panning LIVE (a write during
+  display tears below that line; one after blanking starts shifts the
+  whole next frame) - the strictest of the three models, so the window
+  is generic: 86Box and the IBM VGA as QEMU describes it are consistent
+  there too. In RealBoy's timing, with a line-compare split 32 lines
+  above the display's end (line 275), it was stable from 11.46 to
+  13.92 ms after vsync start (the split at 11.38, blanking at 14.08);
+  with no split it ends at the display's end. AR10 bit 5 (PPM) only
+  stops the region below the split panning (the WD90C00 datasheet: a
+  line compare disables the panning "until VSYNC occurs"). The address
+  wraps at 64KB. So: THREE pages and a timer hook that writes the flip
+  in that window, never a wait.
+- **Motion reuse of the last frame's lines was built and refused**:
+  correct (`gbdamage` 12/12) and +17% on Super Mario Land - moving a line
+  costs what composing it costs, ~70-90 us on the 286. Pre-shifted phase
+  images: 32-128KB, refused on memory. The VGA retrace interrupt: not in
+  86Box, varies by clone. Not generic.
+
+The plan, in order:
+
+1. **The composer's scrolled frame made cheaper** - BUILT (REALBOY-SPEC
+   13.3, the scroll round): -10.0% / -5.8%, frame-identical.
+2. **The scan kept current while scrolling** - BUILT (REALBOY-SPEC 13.3):
+   the OAM shadow taken whole on a scroll, `ppu_dlines` as one clipped
+   fill, the marked-block list. Kirby's Dream Land -5.9%.
+3. **The no-wait three-page flip, and lines composed aligned to the
+   panning** - BUILT (REALBOY-SPEC 15.4): estimated Kirby's Dream Land
+   -7-9% and Super Mario Land -2-3%, measured -2.4% and -1.0% on 86Box,
+   which does not price the shifts it removes. Two of the design's
+   assumptions were wrong: the flip cannot be a hook's, because the core
+   runs with interrupts off for milliseconds (a 9x rate lost a quarter of
+   its periods and slowed the game to 77%), so the foreground writes it
+   between core runs; and the line type has to be judged once a register
+   changes rather than every line, or it eats the gain.
+4. **The torus canvas**: the whole 256x256 background in VRAM, three
+   pages, scrolled by the start address and panning; only the newly
+   exposed cells, the sprites and the status bar drawn. ESTIMATED Super
+   Mario Land 20.3 -> ~10-11.5 ms on the card, Kirby's Dream Land 42.8 ->
+   ~22-24. VGA only; animated tiles and raster effects fall back to the
+   copying writer.
 
 ### Wave 8 - the 5150 demo, disks and the Wire record
 

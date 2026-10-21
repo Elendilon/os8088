@@ -111,6 +111,8 @@ def main():
     ap.add_argument("--vga", action="store_true",
                     help="with --rom: ...and rb_renderd's changed lines copied onto VGA mode "
                          "0Dh, as the package's full screen does (REALBOY-SPEC 15)")
+    ap.add_argument("--pages", action="store_true",
+                    help="with --vga: PAN-ALIGNED onto three VRAM pages (REALBOY-SPEC 15.4)")
     ap.add_argument("--ilace", type=int, default=0, choices=(0, 1, 2, 3),
                     help="with --vga: Interlace Off, On, Scrolling or Doubled (rb_ilace)")
     a = ap.parse_args()
@@ -124,7 +126,8 @@ def main():
     if a.rom:
         frames = a.frames or 2000
         img = os.path.join(out, "benchrom%d_%d.img" % (geom, os.getpid()))   # (one a run: two at once)
-        rbimg.make_image(a.rom, img, geom, "renderv" if a.vga else
+        rbimg.make_image(a.rom, img, geom, "renderp" if a.vga and a.pages else
+                         "renderv" if a.vga else
                          "renderd" if a.renderd else
                          "render" if a.render else "play", frames,
                          core=core, host=host,

@@ -717,7 +717,7 @@ screen are the package's.
 call.** It composes only the lines whose inputs changed, and writes only the
 lines whose pixels then differ. The caller's buffer is ES:DI, and it holds
 the last frame. `[rb_dmgseg]` is `RB_DMG_SIZE` bytes of the host's memory
-(about 12.4KB); with it 0, `rb_renderd` is `rb_render` and every line has
+(about 14.9KB); with it 0, `rb_renderd` is `rb_render` and every line has
 changed. On return, `RB_DCHG` in that memory holds a byte for each line (1:
 it changed), and AX holds the count.
 
@@ -750,12 +750,16 @@ it changed), and AX holds the count.
   itself): when SCY or SCX moved since the last call - as the frame began,
   or in a raster write the last call's frame had not - every line under it
   changes anyway, so the VRAM scan would only find what is composed
-  regardless. The shadows are copied instead of compared and every line is
-  composed, and `ppu_dput` still writes only those that differ. While it
-  scrolls the shadows are not even taken (`RB_DSTALE`): the first still
-  frame after it takes them, and is COMPARED like any other - a stale
-  shadow can only make a call compose more, never less, so what it finds
-  changed is a line too many and never one too few. It was composed whole
+  regardless. Every line is composed, and `ppu_dput` still writes only
+  those that differ. The shadows are KEPT CURRENT by the marks' scan
+  (13.2.2: what the game wrote, about a block a frame) with OAM's taken
+  whole (`RB_DSCR`: a scroll moves every X, and the 1,280 line marks a
+  frame its entries made were read by nothing), so the first still frame
+  after a scroll compares one frame's writes (the scroll round, 13.3). Until
+  then the shadows were not even taken while it scrolled, and the first
+  still frame compared everything the scroll had streamed in - a stale
+  shadow can only make a call compose more, never less, so what it found
+  changed was a line too many and never one too few. It was composed whole
   until the rolling-background round (13.3), which made a game whose
   camera moves every other frame pay a whole frame for every still one:
   Kirby's Dream Land in play 50.67 -> 48.75 ms a frame on `286-victory`,
@@ -844,8 +848,10 @@ The direct `LD (nn),A` the translator chooses (16.6) starts at A000h for
 the same reason, and the read-modify-write templates (`rmw_lines`) fall to
 the interpreter for VRAM as they do for the cartridge.
 
-**`ppu_dscan` then compares only the marked blocks** - `repe scasw` over
-the marks, two blocks a word - against the same shadows, with the same
+**`ppu_dscan` then compares only the marked blocks** - the block PAIRS
+`vr_new` listed as it marked them for the first time (`RB_VLIST`, 64 in
+the view at 4610h; in play about one a frame), or, when the list ran out,
+`repe scasw` over the marks, two blocks a word - against the same shadows, with the same
 change bytes as the whole compare set, so nothing after it changes. The
 copy idiom (`cpy_ff`, 16.6) moves bytes with `REP MOVSB` and marks none:
 when either of its ranges starts in VRAM it sets `RB_VALL` and the next
@@ -937,7 +943,8 @@ card 14.3%; Super Mario Land: the sprites 8%, the card 14.4%, no
 instruction over 1.6%):
 
 - **Kept**: `ppu_oam` builds the line lists again only when a sprite's Y
-  moved (`PPU_OAMY`, the 40 Ys it built from) - they hang on nothing else,
+  moved (`PPU_OAMY`, the 40 Ys it built from; since the scroll round, below,
+  it moves only the rows those sprites left and joined) - they hang on nothing else,
   and a scroll moves every X and no Y. 451 / 970 -> 449 / 965. **No row can
   see this one go wrong**: the A/B frames and dmg-acid2 compose one frame
   each, so the lists are always built once, and `gbdamage`'s reference
@@ -978,6 +985,67 @@ Only `rb_renderd` kept it, so `gbdamage`'s reference stayed independent.
   it is not X alone that churns - Super Mario Land's entries change in Y,
   tile or attributes nearly every frame - and the check, which has to run
   every frame, costs what the hits save.
+
+**The scroll round** (2026-10-21, the composer's half; the research behind
+it and the hardware half are REALBOY-PLAN's scroll round). A scrolled
+frame is composed whole, and the profile of one had no routine above a
+sixth and no instruction above 2% - so the cuts are many and small, each
+timed alone on `286-victory` (`rbbench --renderd`, 1,200 frames of play,
+Super Mario Land / Kirby's Dream Land ticks) and every one checked FRAME
+FOR FRAME against the composer before it: the bare harness sums every
+picture it composes (`FRAME_SUM` on its DONE line), and the kept set reads
+the same sums as before on both games and Dr. Mario in all four interlace
+modes over 3,000 frames. `gbdamage` cannot see a defect here, its
+reference sharing `ppu_line` and the sprites with what it checks.
+
+- **Kept**: `ppu_log` is called only from the line its next entry takes
+  effect on (`PPU_LOGL`), not from every line to find nothing due; the
+  Off-mode whole frame has its own loop (`RB_DCHG` one `rep stosw`, the
+  count added once); `ppu_dput` copies from the first word that differs,
+  where `repe cmpsw` left it. 410 / 859 -> 395 / 840.
+- **Kept**: seven lines of eight reuse the last line's 21 tile addresses
+  and take the next tile row, when no register was written since
+  (`PPU_RCH`, set by `ppu_log` and each frame's start). -> 390 / 834.
+- **Kept**: with BGP the identity the sprites draw straight into the
+  background's planes (`PPU_BL`/`PPU_BH`) instead of a copy of them - exact,
+  since a sprite changes only pixels it claims and a later one reads the
+  background only where nothing is claimed. -> 385 / 825.
+- **Kept**: the line lists are MOVED, not rebuilt (`ppu_oamv`): a sprite
+  whose Y moved leaves the rows it no longer covers and joins those it now
+  does, in OAM order; past `PPU_OAMFEW` = 8 movers a frame it rebuilds as
+  before. -> 381 / 817.
+- **Kept**: each map row's 21 tile addresses are kept from frame to frame
+  in the damage memory with the 21 map bytes they were built from
+  (`ppu_blist`, `RB_DLC`), and copied while those bytes and the tile mode
+  match. Kept by CONTENT rather than by the VRAM marks (378 / 807): it rests
+  on no write tracking, and survives a long scroll in which the scan never
+  runs. `RB_DMG_SIZE` 0x3314 -> 0x3B96, the package's claim 13KB -> 15KB.
+  -> 375 / 811.
+- **Kept**: the line lists are built 8 tall when every sprite is 8x8 for
+  the whole frame (`ppu_oamh`), 16 otherwise, and rebuilt when that
+  changes. -> 370 / 811. And the tile-mode check skipped while `PPU_RCH` is
+  clear. -> **368 / 808**: **-10.0% / -5.8%**, Super Mario Land composing
+  every frame at 100.6% of real time where it was 111.8%; `--vga` 444 / 935
+  -> 403 / 884. About 1KB of code.
+- **Refused**: a one-tile line signed per line and not composed when its
+  buffer already holds it. Super Mario Land gained 3-5 ticks and Kirby's
+  Dream Land lost 7-11 in four placements: ~20 of the ~56 sky lines
+  qualify, and the bookkeeping is every line's.
+- **Refused**: `ppu_fshift` touched at all - a table per phase, a string
+  shift and interleaved planes all cost more per byte than its 10
+  instructions a tile, which are this design's floor.
+- **The bare harness moved** to make room (it was 20 bytes from its core):
+  the boot sector is copied to 2000:7C00, the host loads at 0760h with its
+  own stack at 0:7600, the frame and profile buffers at 05A0h.
+- **Kept** (the scan's half): the shadows kept current while it scrolls,
+  OAM's taken whole there (13.2), and `ppu_dlines` one clipped `rep stosb`
+  where it tested 16 rows. 369 / 810 -> 370 / 765: Kirby's Dream Land
+  **-5.6%**, its still frames comparing one frame's writes where they
+  compared a whole scroll's. Then the marked blocks LISTED by the core as
+  it marks them (`vr_new`, 13.2.2), so the scan visits what was written
+  rather than sweeping 512 bytes - every frame now runs it. -> **367 /
+  762**. The list's tail takes a slot of the core, which the recompiler's
+  cache gives up (256 bytes).
 
 
 ## 14. The package
@@ -1381,12 +1449,79 @@ Land - and it was taken out, for two reasons:
   while it scrolls comes back, and the lines with sprites are composed
   either way.
 
+Section 15.4 is what came of it: three pages, and the flip written by the
+foreground in the bottom border, with nothing waiting.
+
 What it left: Kirby's Dream Land's figures above are of the game in PLAY.
 Every earlier one - 7.37 ms CPU only, 12.18 drawn - was of the game
 PAUSED, by the third Start of gbprof's platformer script; the harness now
 leaves that Start out for it and flies it through the level (`b_joy`,
 `JOY_NO3RD` and `JOY_FLAP`). And the harness refuses to assemble when it
 runs into the core it loads, which the experiment did, silently.
+
+### 15.4 Pages: the card flips, the CPU composes aligned to its panning
+
+**On a 286 or better, VGA full screen draws into three VRAM pages and the
+card scrolls the background's last eight pixels** (`rw_fspan`, set by
+`rw_fsenter` when the writer is VGA, `[rw_286]` and the damage memory is
+there; an 8088, a Hercules and a CGA keep the writer above). It answers both
+of 15.3's reasons: the jitter was drawing into the page being shown, and the
+~7 ms was waiting for the retrace, which nothing here does.
+
+- **The layout** (`rw_pgcrtc`): the picture's 144 doubled rows come from a
+  page at 0800h, 2000h or 3800h (`RW_PG0`, `RW_PGSTEP`), 40 bytes a row as
+  before. The LINE COMPARE at scanline 287 shows VRAM 0 below them - the
+  gap and the speed line (`RW_FSTXTP`, row 2 there) - with AR10's pixel
+  panning mode, so that strip never pans. Plane 2 is set in it and clear in
+  the pages. The vertical retrace is 24 scanlines later than 15's (blank
+  384-419, sync 390-392), so the BOTTOM BORDER - the display's end at 308 to
+  the blanking - is ~2.4 ms. The total and the widths are 15's, so every
+  frequency is mode 0Dh's own; a real monitor sees the picture 24 lines
+  higher.
+- **The composer works PAN-ALIGNED** (`rb_panon`; `rb_renderd`'s
+  `ppu_linep` and `ppu_dputp` through `PPU_LINEV`/`PPU_DPUTV`, so the
+  ordinary composer carries none of it): the frame's pan is its last SCX AND
+  7 (`ppu_pan`, the raster log's last write on a screen line) and each line
+  is 21 bytes a plane, 42 to the buffer (`[rw_pseg]`:0), for the card to
+  show from pixel `rb_panv` on. A line that is the background alone with
+  SCX - pan a whole byte is composed at that offset: its 21 tile rows COPIED
+  (`ppu_fcopyb`) where they were shifted, and its sprites placed at X + pan.
+  Any other line - a window on it, a status bar with a scroll of its own,
+  the LCD or the background off - is composed as ever and shifted right by
+  the pan after (`ppu_ptype`, `ppu_panr`); a line's kind is judged again
+  only when a register was written or the window begins.
+- **A page owes lines** (`rb_pages`): `ppu_dputp` marks each changed line
+  owed to all three (`RB_PGMSK`, 3 x 144 bytes after the frame), and a
+  draw writes the lines its page owes - plane 0's 21 bytes and plane 1's,
+  one map-mask `OUT` a line - found with `repe scasw`. A scroll changes
+  every line, so each draw writes them all once, as the single page did; a
+  still change is written to each page as it comes round.
+- **The flip waits for nothing** (`rw_pgdraw`, `rw_pgtry`). The draw takes
+  the page neither shown nor waiting to be, and posts its start address and
+  pan. **The FOREGROUND writes them**, between two runs of the core
+  (`rw_frame`) and while it waits: the core runs with interrupts off (5.2),
+  for up to ~7 ms a run, so no hook can know where the beam is - a rate nine
+  times the frame's was built for it and lost a quarter of its periods.
+  The display-enable bit is sampled 24 times, the PIT time each time it is
+  seen ON kept, and the flip written when it is found OFF within 2,000
+  counts (1.7 ms, `RW_PGWIN`) of that: the bottom border, where every card
+  takes both registers for the next frame - one that applies the panning
+  on every line (the Victory's PVGA1A, the field probe's finding:
+  REALBOY-PLAN's scroll round), one that takes it at the frame's top (86Box)
+  or at the retrace's end (QEMU). While a flip waits the core runs in
+  budgets of 500 M-cycles (`RW_PGBUD`, ~1 ms recompiled), so it is looked at
+  often enough to land in its first border.
+- **What it costs**: the bare harness's MODE 14 (`rbbench.py --vga
+  --pages`) composes every frame onto the pages and flips at once, against
+  MODE 12's single page: Super Mario Land 403 -> 399 ticks, Kirby's Dream
+  Land 840 -> 820 (1,200 frames of play on `286-victory`). The shift
+  replaced is under-priced by 86Box, which does not charge a shift by its
+  count. It is the frame that never tears that this buys.
+- **The gate** is `gbdamage`'s pan-aligned legs (MODES 15-18, each
+  interlace): 0 of 500 frames differ for both games, read back through the
+  pan; the status bar left unshifted fails Super Mario Land on 400, the
+  sprites not moved by the pan Kirby's Dream Land on 288. The flip itself
+  is a look on the glass.
 
 ## 16. The recompiler
 

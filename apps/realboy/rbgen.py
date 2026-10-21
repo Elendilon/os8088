@@ -754,6 +754,25 @@ def gen_cb(op):
 # --- the shared tails, placed after a main half with room: an invalid -----
 # --- opcode's, or a short handler's (idle_tst follows PUSH HL) --------------
 TAILS = {
+    0x0B: """
+; vr_new: vr_wr's block BX marked for the first time - and its PAIR (block
+; / 2) put on RB_VLIST, so the damage scan visits what was written and does
+; not sweep the 512 marks (REALBOY-SPEC 13.2.2). A full list is left as it
+; is: the scan then sweeps them all, as before the list
+vr_new:
+    mov byte [ss:RB_VMARK+bx],1
+    shr bx,1
+    mov dl,bl
+    mov bx,[ss:RB_VLN]
+    cmp bx,RB_VLMAX
+    jae .m
+    mov [ss:RB_VLIST+bx],dl
+    inc word [ss:RB_VLN]
+.m:
+    mov bx,[ss:S_VTMP]
+    xor dl,dl
+    jmp word [ss:S_RET]
+""",
     0x40: """
 ; tr_enter: the translated block for SI (REALBOY-SPEC section 16.3), or the
 ; interpreter where there is none - RAM, the translator off or refusing. In:
@@ -1463,7 +1482,10 @@ vr_wr:
     shr bx,1
     shr bx,1
     and bh,1                    ; the block, 0-1FFh
-    mov byte [ss:RB_VMARK+bx],1
+    cmp byte [ss:RB_VMARK+bx],0 ; (marked the first time: listed too,
+    jne .m                      ;   vr_new)
+    jmp vr_new
+.m:
     mov bx,[ss:S_VTMP]
 .k:
     xor dl,dl

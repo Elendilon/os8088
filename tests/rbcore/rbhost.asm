@@ -31,6 +31,13 @@
 ;   MODE 12         as MODE 7, timed, onto VGA mode 0Dh: rb_renderd's
 ;   (renderv)       changed lines to VRAM as it decides them (rb_dvga), as
 ;                   the package's full screen does.
+;   MODE 14         as MODE 12, PAN-ALIGNED (rb_panon, REALBOY-SPEC 15.4):
+;   (renderp)       each frame onto the next of three VRAM pages (rb_pages)
+;                   and flipped to it - start address and pel panning written
+;                   at once, as the timing does not matter here.
+;   MODES 15-18     as MODE 6 PAN-ALIGNED, Interlace Off, On, Scrolling and
+;   (damage-p...)   Doubled: rb_renderd's 42-byte lines read back through the
+;                   pan against rb_render's.
 ;   MODE 13 (state) as MODE 3, with a SAVE STATE taken 200 frames before the
 ;                   end (rbsys's rb_stcompose and the view's 8000-FFFF, copied
 ;                   to STATE_SEG) and put back at the end (rb_stcheck,
@@ -43,18 +50,29 @@
 ;                   b_ilace 1, which MODE 13 has no other use for, into the
 ;                   machine that ran on, its translated code kept.
 ;
-; Memory: the boot sector moved from 0000:7C00 to 0000:6E00 and the stack
-; below it, this harness at 0700:0000 - over where the BIOS loaded the boot
-; sector, which is why it moves first: the harness had outgrown the 32KB
-; between 7C00's sector and the core - the core at 1000:0000, the view at
-; 2000:0000, the ROM from 3000:0000 (up to 368KB).
+; Memory: the boot sector at 0000:7C00, the stack below it, this harness at
+; 0800:0000, the core at 1000:0000, the view at 2000:0000, the ROM from
+; 3000:0000 (up to 368KB).
 ; =============================================================================
 
 cpu 8086
 bits 16
 
-HOST_SEG        equ 0x0700
-BOOT_AT         equ 0x6E00                  ; where the boot sector runs
+%ifdef FRAME_SUM
+%define NO_MODE13
+%endif
+%ifdef RB_PANMODES                          ; MODES 14-18 (rbimg.py builds them
+%define NO_MODE13                           ;   a host of their own): the
+%else                                       ;   PAN-ALIGNED composer in, and no
+%define RB_NOPAN                            ;   MODE 13, for the room
+%endif
+HOST_SEG        equ 0x0760                  ; (35,328 bytes under the core: the
+                                            ;   boot sector moves itself out of the
+                                            ;   way first, BOOT_SEG, and the stack
+                                            ;   is HOST_STK's, under the harness)
+BOOT_SEG        equ 0x2000                  ; the boot sector's copy, at 2000:7C00
+                                            ;   (the view, not loaded from disk)
+HOST_STK        equ 0x7600                  ; 0:7600 down, over FRAME_SEG's end
 CORE_SEG        equ 0x1000
 VIEW_SEG        equ 0x2000
 ROM_SEG         equ 0x3000
@@ -74,19 +92,22 @@ JF_MODE         equ 03h                     ; b_jit: 0 interpret, 1 translate,
 JF_SEG2         equ 04h                     ;   2 Static; a second segment; both
 JF_SQZ          equ 10h                     ;   squeezed to JIT2_LIM's 1KB;
 JF_SMALL        equ 08h                     ;   the block table at 16KB
-PRF_SEG         equ 0x0510                  ; Static's profile, 4KB (not MODES 5-9,
+PRF_SEG         equ 0x05A0                  ; Static's profile, 4KB (not MODES 5-9,
                                             ;   which compose into FRAME_SEG)
-FRAME_SEG       equ 0x0510                  ; rb_render's 5,760 bytes, above the
-                                            ;   damage memory's RB_DMG_SIZE (to 5014h:
+FRAME_SEG       equ 0x05C0                  ; rb_render's 5,760 bytes, above the
+                                            ;   damage memory's RB_DMG_SIZE (to 5B96h:
                                             ;   INTERLACE writes its end) and under the
-                                            ;   boot stack: the harness (with the
-                                            ;   recompiler's templates) runs past A000h
-FRAMED_SEG      equ 0x0060                  ; MODE 6: rb_renderd's buffer
-DMG_SEG         equ 0x01D0                  ;   and its damage memory
+                                            ;   harness's stack (HOST_STK): the harness
+                                            ;   (with the recompiler's templates) runs
+                                            ;   past A000h
+FRAMED_SEG      equ 0x0060                  ; MODE 6: rb_renderd's buffer (PAN-
+DMG_SEG         equ 0x0200                  ;   ALIGNED: 6,048 and the pages' 3 x
+                                            ;   144 bytes, rb_pages) and its damage
+                                            ;   memory, to 5B96h
 STATE_SEG       equ 0x7000                  ; MODE 13's copy of a save state
 
 ; --- the boot sector ---------------------------------------------------------
-section boot start=0 vstart=BOOT_AT
+section boot start=0 vstart=0x7C00
 boot:
     jmp short boot_go
     nop
@@ -102,19 +123,21 @@ b_joy       db 0                        ; patched: JOY_ flags (joy_script)
 b_ilace     db 0                        ; patched: rb_ilace, for MODE 12
 boot_go:
     cli
-    xor ax,ax
-    mov ss,ax
-    mov sp,BOOT_AT
-    mov ds,ax
-    mov es,ax
     cld
-    mov si,0x7C00                       ; out from under the harness first:
-    mov di,BOOT_AT                      ;   nothing above here names a label
+    xor ax,ax                           ; out of the harness's way: itself to
+    mov ds,ax                           ;   BOOT_SEG:7C00, and its stack with it
+    mov si,0x7C00
+    mov ax,BOOT_SEG
+    mov es,ax
+    mov ss,ax
+    mov sp,0x7C00
+    mov di,si
     mov cx,256
     rep movsw
-    jmp 0:.moved
-.moved:
+    mov ds,ax
     sti
+    jmp BOOT_SEG:boot_rel
+boot_rel:
     mov [b_drive],dl
     mov word [b_lba],1
     mov ax,HOST_SEG
@@ -209,9 +232,28 @@ h_joy       db 0                        ; JOY_ flags
 %include "rbdefs.inc"
 
 host_main:
+    xor ax,ax                           ; the stack under the harness, not
+    mov ss,ax                           ;   in it (the boot sector's was at
+    mov sp,HOST_STK                     ;   0:7C00, inside it now)
     mov ax,cs
     mov ds,ax
     mov es,ax
+%ifdef RB_PANMODES
+    cmp byte [h_mode],14                ; MODE 14: MODE 12 PAN-ALIGNED, onto
+    jne .m15                            ;   three pages
+    mov byte [h_hw],2
+    mov byte [rb_panon],1
+    mov byte [h_mode],7
+.m15:
+    cmp byte [h_mode],15                ; MODES 15-18: MODE 6 PAN-ALIGNED,
+    jb .m12                             ;   Interlace Off to Doubled
+    mov al,[h_mode]
+    sub al,15
+    mov [rb_ilace],al
+    mov byte [rb_panon],1
+    mov byte [h_mode],6
+.m12:
+%endif
     cmp byte [h_mode],12                ; MODE 12: MODE 7 onto VGA
     jne .m89
     mov byte [h_hw],1
@@ -324,11 +366,13 @@ host_main:
     cmp byte [h_mode],3
     jb .nj
     call joy_script
-    cmp byte [h_mode],13                ; MODE 13: a save state
+%ifndef NO_MODE13                       ; (NO_MODE13: room for an experiment -
+    cmp byte [h_mode],13                ;   FRAME_SUM's - and no MODE 13)
     jne .n13
     call st_frame
     jmp short .nj
 .n13:
+%endif
     cmp byte [h_mode],5                 ; MODE 5: compose every frame too
     jne .n6
     push es
@@ -357,12 +401,23 @@ host_main:
     je .d7
     mov ax,0x000D
     int 0x10
+    cmp byte [cs:h_hw],2
+    je .d7
     mov word [cs:rb_dvga],0xA000        ; (each changed line to VGA, ppu_dvga)
 .d7:
     mov ax,FRAMED_SEG
     mov es,ax
     xor di,di
     call rb_renderd
+%ifdef RB_PANMODES
+    cmp byte [cs:h_hw],2
+    jne .d7p
+    call pg_flip
+.d7p:
+%endif
+%ifdef FRAME_SUM
+    call fsum
+%endif
 %ifdef SCRL_STAT
     call scrl_stat
 %endif
@@ -397,6 +452,20 @@ host_main:
     call puts
     mov ax,[nframes]
     call dec16
+%ifdef FRAME_SUM
+    mov si,s_fsum
+    call puts
+    mov ax,[cs:fs_sum+2]
+    call hex16
+    mov ax,[cs:fs_sum]
+    call hex16
+    mov si,s_fsum
+    call puts
+    mov ax,[cs:fs_chg+2]
+    call hex16
+    mov ax,[cs:fs_chg]
+    call hex16
+%endif
     mov si,s_ticks
     call puts
     mov ax,[ticks]
@@ -538,6 +607,7 @@ host_main:
     loop .dd
 %endif
 .nd:
+%ifndef NO_MODE13
     cmp byte [h_mode],13
     jne .ns
     mov si,s_st
@@ -552,6 +622,7 @@ host_main:
     cmp byte [st_bad],0
     je .ns
     call puts
+%endif
 .ns:
     mov si,s_end
     call puts
@@ -657,9 +728,20 @@ dmg_check:
     mov ds,ax
     xor si,si
     xor di,di
+%ifdef RB_PANMODES
+    cmp byte [cs:rb_panon],0
+    jne .pan
+%endif
     mov cx,5760 / 2
     repe cmpsw
     je .r
+%ifdef RB_PANMODES
+    jmp short .bad
+.pan:
+    call pan_cmp
+    je .r
+.bad:
+%endif
     inc word [cs:dmg_bad]
     cmp word [cs:dmg_first],0
     jne .r
@@ -702,7 +784,92 @@ dmg_check:
     pop cx
     pop ax
     ret
-h_hw        db 0                        ; MODE 12: onto VGA
+h_hw        db 0                        ; MODE 12: onto VGA (2: MODE 14's pages)
+
+%ifdef RB_PANMODES
+; pan_cmp - MODES 15-18: the PAN-ALIGNED frame at DS:0 (42 a line) read
+; through the pan against rb_render's at ES:0 (40), every pixel the card
+; would show. ZF = 1: the same; else SI is past the first byte that differs
+pan_cmp:
+    mov cl,[cs:rb_panv]
+    xor si,si
+    xor di,di
+    mov bx,144 * 2                      ; (two planes a line)
+.p:
+    mov dx,20
+.k:
+    mov ah,[si]
+    mov al,[si+1]
+    shl ax,cl
+    cmp ah,[es:di]
+    jne .no
+    inc si
+    inc di
+    dec dx
+    jnz .k
+    inc si                              ; (the plane's 21st byte)
+    dec bx
+    jnz .p
+    xor ax,ax
+    ret
+.no:
+    inc si
+    or sp,sp                            ; (ZF = 0)
+    ret
+
+; pg_flip - MODE 14: the frame just composed onto the next of three pages,
+; and the card's start address and panning set to it
+pg_flip:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push ds
+    push es
+    mov bl,[cs:pg_cur]
+    inc bx
+    cmp bl,3
+    jb .c
+    xor bl,bl
+.c:
+    mov [cs:pg_cur],bl
+    xor bh,bh
+    mov cl,bl
+    shl bx,1
+    mov di,[cs:pg_base+bx]              ; DI = the page
+    mov al,cl                           ; AL = the page
+    mov dx,FRAMED_SEG
+    mov ds,dx
+    mov dx,0A000h
+    mov es,dx
+    call rb_pages
+    mov dx,3D4h                         ; the start address, then the pan
+    mov al,0Ch
+    mov bx,di
+    mov ah,bh
+    out dx,ax
+    mov al,0Dh
+    mov ah,bl
+    out dx,ax
+    mov dx,3DAh
+    in al,dx
+    mov dx,3C0h
+    mov al,33h
+    out dx,al
+    mov al,[cs:rb_panv]
+    out dx,al
+    pop es
+    pop ds
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+pg_cur      db 0
+pg_base     dw 0800h, 2000h, 3800h
+%endif
 
 dmg_bad     dw 0
 dmg_first   dw 0
@@ -716,6 +883,7 @@ dmg_dump    times 85 db 0
 ; Start at 150, 400 and 700, Right held, A for 14 frames of every 50, B for
 ; the last 29 of every 400. At frame 800 the counters start from zero, as
 ; gbprof's statistics do, so the two shares compare like for like.
+%ifndef NO_MODE13
 ; st_frame - MODE 13, after each frame: the state taken at h_frames - 200,
 ; and at h_frames the sum, then the state back and the frames again
 st_frame:
@@ -871,6 +1039,7 @@ st_pass db 0
 st_bad  db 0
 st_suma dw 0
 st_sumb dw 0
+%endif
 
 joy_script:
     push ax
@@ -1072,6 +1241,42 @@ dec16:
 s_hello db "RealBoy core harness",10,0
 s_bad   db 10,"RBHOST BADOP ",0
 s_done  db 10,"RBHOST DONE frames ",0
+%ifdef FRAME_SUM
+s_fsum  db " fsum ",0
+fs_sum  dd 0
+fs_chg  dd 0
+; fsum - FRAME_SUM's: every composed frame's buffer and its changed lines
+; folded into two dwords, so two builds can be shown to compose the same
+fsum:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push ds
+    add [cs:fs_chg],ax
+    adc word [cs:fs_chg+2],0
+    mov ax,FRAMED_SEG
+    mov ds,ax
+    xor si,si
+    mov cx,2880
+    mov bx,[cs:fs_sum]
+    mov dx,[cs:fs_sum+2]
+.l:
+    lodsw                               ; (Fletcher's: a word's place counts)
+    add bx,ax
+    add dx,bx
+    loop .l
+    mov [cs:fs_sum],bx
+    mov [cs:fs_sum+2],dx
+    pop ds
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
 s_dmg   db " damage-bad ",0
 %ifdef SCRL_STAT
 s_scrl  db " scroll-frames ",0
