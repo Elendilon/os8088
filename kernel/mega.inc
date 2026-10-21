@@ -6650,6 +6650,14 @@ mega_ldt_alloc2:
 ; mega_ldt2ds - AX = a selector in the allocator's range -> CF = 0 and AX =
 ; its data twin (+ 8) when it is a pair's CODE half; CF = 1 otherwise.
 ; Clobbers nothing else
+;
+; A LONE code selector from mega_ldt_alloc (DESK.DRV's library above 1MB,
+; mega_dklibf) is in this range too, and the entry after it is somebody
+; else's or free: so the twin is taken only when it IS one - a present
+; data entry over the same base. Without that, MEGATRAP's mega_tlog loaded
+; the free entry after the library's selector into ES and faulted on every
+; Sticky App's first callback (KERN-MEGA-PLAN 14.39, 14.46), and
+; mega_hifree would have freed a neighbour's entry with a lone selector
 mega_ldt2ds:
     push bx
     push es
@@ -6658,10 +6666,28 @@ mega_ldt2ds:
     mov bx, ax
     and bx, 0xFFF8
     test byte [es:bx+5], 0x08       ; the access byte's EXECUTABLE bit
-    stc
-    jz .out
+    jz .no
+    cmp bx, (MEGA_LDT_N - 1) * 8    ; the last entry has no twin
+    jae .no
+    push ax
+    mov al, [es:bx+8+5]
+    and al, 0xFE                    ; (the CPU sets the ACCESSED bit)
+    cmp al, 0x92                    ; present, data, writable: alloc2's
+    jne .lone
+    mov ax, [es:bx+2]               ; the same base, low word...
+    cmp ax, [es:bx+8+2]
+    jne .lone
+    mov al, [es:bx+4]               ; ...and its third byte
+    cmp al, [es:bx+8+4]
+    jne .lone
+    pop ax
     add ax, 8
     clc
+    jmp short .out
+.lone:
+    pop ax
+.no:
+    stc
 .out:
     pop es
     pop bx
@@ -6690,6 +6716,15 @@ mega_ldt_free:
     mov word [es:di+4], 0
     mov word [es:di+6], 0
     popf
+    push bp                         ; THE CALLER'S ES MAY BE THIS SELECTOR -
+    mov bp, sp                      ; a claim freed with ES still on it, which
+    mov di, [bp+2]                  ; PiXEL's Blur and Sepia do: the pop below
+    xor di, ax                      ; then loaded a free entry, #GP that
+    and di, 0xFFFC                  ; mega_gpfix's .stale arm turned into the
+    jnz .kept                       ; NULL selector, a trap a free. It gets
+    mov [bp+2], di                  ; that NULL here instead (KERN-MEGA-PLAN
+.kept:                              ; 14.46)
+    pop bp
     clc
     jmp short .out
 .no:

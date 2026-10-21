@@ -49,14 +49,19 @@ import megatraps  # noqa: E402
 # above 1MB, and each opened its window with no trap at all when this row was
 # written (2026-10-20, 14.39).
 PKGS = ("hello", "calc", "mines", "notepad", "texpad", "timer", "fontview",
-        "solitair", "piano", "bounce")
-# Ten, because an eleventh window is refused (05) under MEGARUN on Bochs's
-# 16MB - TASKMGR, CHART and ARTFUL were, and opened no window to count
-# NOT the three Sticky Apps (DESKCAL, DESKCLOK, STIKNOTE): started this way
-# each takes one far transfer through its data segment (an `xfer` at its
-# +108Fh) and MEGATRAP's own logger, mega_tlog, then faults on that frame -
-# a defect in the instrument found by this row's first census (14.39), and
-# the row cannot run them until it is fixed
+        "solitair", "piano", "bounce",
+        "deskcal", "deskclok", "stiknote")
+# A second boot after the first ten, because an eleventh window is refused
+# (05) under MEGARUN on Bochs's 16MB - TASKMGR, CHART and ARTFUL were, and
+# opened no window to count. BATCH is the packages a boot takes.
+BATCH = 10
+# The three Sticky Apps (DESKCAL, DESKCLOK, STIKNOTE) were left out of the
+# first census (14.39): each far-called back into itself through its DATA
+# segment from the Sticky App library (os88stik.inc's stik_cb, ~2 a second
+# an app), and MEGATRAP's own logger then faulted on that frame, loading
+# the free LDT entry after the library's lone code selector as if it were
+# a pair's data half (mega_ldt2ds). Both are fixed (KERN-MEGA-PLAN 14.46):
+# stik_cb asks OSAPI_MEM_CODESEL, and mega_ldt2ds checks the twin is one
 
 # image name (the header's +16) -> why its traps are tolerated. The row is
 # about the packages above; a driver or the kernel's own residue goes here
@@ -78,7 +83,7 @@ def main():
     out = os.path.join(t.dir, "megatrap0")
     shutil.rmtree(out, ignore_errors=True)
     t0 = time.time()
-    os88bochs.sweep([t.img(p + ".o88") for p in PKGS], batch=len(PKGS),
+    os88bochs.sweep([t.img(p + ".o88") for p in PKGS], batch=BATCH,
                     out=out, build=t.dir, linger=LINGER)
     logs = sorted(os.path.join(out, d, "e9.out") for d in os.listdir(out)
                   if d.startswith("boot"))

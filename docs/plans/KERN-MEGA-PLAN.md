@@ -7120,6 +7120,223 @@ one would script.
 - **W4 took 0x80**, not 0x10 - the plan's figure would have put `.cold`'s
   selector off the grid.
 
+### 14.46 What had never been run on kern_mega, run - and what it found (2026-10-21)
+
+The paths 10.3 items 50, 63 and 85, 14.5, 14.14, 14.15, 14.16 and
+KERN-MEGA-SEGMENTS-PLAN 8.6 listed as built and never exercised, each run
+on the current kernel (14.37's movable huge claims, 14.39, 14.40, 14.42,
+14.43, 14.44) under Bochs with `make megatrap`'s census, and where the 286
+path matters on 86Box `286-mega`. Every count below is trap lines from
+`tools/megatraps.py`; "0" means none charged to the program, the boot's
+two `mega_strcal` calibration lines aside. A `kern_mega CLOSED` (14.42) was
+looked for in every run and none appeared.
+
+#### 14.46.1 The census
+
+| program, what was done | emulator | traps | result |
+|---|---|---|---|
+| Tank: title, F, drive and fire to GAME OVER, Esc | Bochs, SB16 | 0 | plays fullscreen, back to the desktop |
+| Clear Skies: Fly, the sim on the runway, Esc (as it is on `protected-mode` after 14.44) | Bochs | 0 | flies, back |
+| WireBall: L (practice), the paddle held up and down to 1:11, Esc | Bochs | 0 | plays; the rate hook runs |
+| PIXELSTEIN 3D: Space, walk and fire (as it is: another agent is re-homing it) | Bochs | **59,982 in ~20 s** | plays; see 14.46.4 |
+| 1942 past its title: Enter, fly and fire to GAME OVER, Alt+Enter both ways | Bochs | 4 | VGA Mode X fullscreen; the 4 are SOUND.DRV's (below). **Its CGA fullscreen is not reachable**: 1942 picks `FSXM_CGA320` only on a CGA display, and neither Bochs nor `286-mega` has one |
+| the DOS box: DOSHELLO.COM and DOSHELLO.EXE | Bochs | **315 a trip, then 0** | `exit code 042 (Arena: 621KB)` both; 14.46.2 |
+| Browser over `--ne2k`: a page from a host `http.server`, then its link | Bochs | 1 | both pages drawn |
+| FTPD over `--ne2k`, driven FROM THE HOST: LIST, RETR, STOR of 40KB, RETR of it back | Bochs, hostfwd | 0 | the 40KB came back byte for byte |
+| the Apple II: WELCOME.BAS opened, RUN through text, lo-res and the speaker | Bochs, SB16 | 1 | runs to `]` |
+| LOOM: PONG.WML opened, File > Pack Bundle | Bochs | 1 | `Packed PONG.WAB, 1008 bytes` - **byte-identical** to `build/PONG.WAB` from `tools/weavesim.py --pack` |
+| Paint: 448x280 -> 590x280 (82.6KB, across 64KB) -> 590x390 (115KB) -> 353x390 -> 353x359 (63.4KB, back under); 448x200 -> 448x390 -> 448x200; strokes drawn at each | Bochs | 0 | every picture kept |
+| DESKCAL, DESKCLOK, STIKNOTE | Bochs | **99 in 55 s, then 0** | 14.46.3 |
+| PiXEL: BALLOONS.PNG, Effects > Blur, Effects > Sepia | Bochs | **1 + 1, then 0** | the `FFD8:227C` line of 14.40; 14.46.3 |
+| RAMDISK.DRV: Store Xms, 1024K, Mount; A:\APPS copied onto it; PAINT.O88 launched off it | Bochs | 28 on the page, 1 for the copy and launch | `Mounted D: 1024K of 1024K`, 128KB copied, Paint ran from it; 14.46.4 |
+| the Video Player, the bank in place: 06-SNOW.V88 (8.1MB) off C: at 4MB, left ~8 minutes before Play | Bochs, SB16 | 0 (SOUND.DRV's 4 at the stream's start) | `XMS bank in place (PM), 2656 KB`, `Drew 301/301, stalls 0, pauses 90`, `Late 150, 68 ticks of 273`. The tick figures are Bochs's clock against the card's and are not judged here. The player's claims were left alone (another agent's) |
+
+Every `1` above is the same line: `0060:04ED`, `api_x.done`'s `pop es`,
+with a selector the program had just freed still in its ES. That is
+`mega_gpfix`'s `.stale` arm (decision 14) doing its job - the NULL selector
+loads instead, once a free - and it is left: the pop is in `.text`, in the
+stub every X cell returns through.
+
+SOUND.DRV's four are `sbl_hook` writing the IRQ vector through ES = 0
+(`mov ax, [es:si]` ... `mov [es:si+2], cs`), once a stream opens:
+`mega_null0` exists for exactly that driver idiom, and they are left.
+
+#### 14.46.2 Fixed: the DOS trip's and the hibernate's fixups (HIBER.DRV)
+
+**The DOS trip took ~315 `mega_gpw` fixups a trip**, every one in
+HIBER.DRV, which runs `hbm_dosrun` in protected mode on kern_mega:
+`hbm_extat` wrote its four counters through CS once a CLUSTER of DOS.O88's
+part chain (57 clusters here, 4 sites), step 3c's volume table once a ROW
+(16 rows, 3 sites), and a dozen one-offs (`hbm_sweep`, `hbm_drvsusp`,
+`hbm_xcap`, the launch block's fields). `tests/cswrites.txt` said the file
+was "real mode by design and replaced on kern_mega", which had stopped being
+true once the DOS trip's park put this path in protected mode. All 24 are
+`CSDO` now - the bare instruction on kern_big. `hbm_wake`'s read of the
+ROM's tick through segment 0 (two null fixups a return) is `MEGA_SEG0`.
+
+**Measured after** (Bochs, the same .COM and .EXE): **0** on DOS.O88 as
+14.44 ships it (high, `parked 0059K`) and **0** on a copy with the program
+part's `OS88_HIGH` cleared (low, `parked 008BK`).
+
+**The `#GP 2764:xxxx [Segment can't write]` lines 14.44's agent saw on
+86Box** were these - HIBER.DRV's image under its LDT alias, with ES = the
+DOS region - and not something 14.44's re-home introduced: the sites are the
+module's own code, which does not branch on where DOS.O88 is. The pre-fix
+LOW arm was not counted, so that half is argued; after the fix both arms are
+0 on Bochs, and on 86Box `286-mega` two DOS trips leave `faults` with
+nothing but the 286's reflection shutdowns (`mega_svc_lo.r286`,
+`mega_dosgo_lo.r286`).
+
+**`Disable the mouse` takes** (fdac077c), measured on 86Box `286-mega`,
+whose mouse is serial (Bochs's is PS/2, which gets a zero base and the still
+pointer either way, SPEC.md 96.45). DOSMOUSE.COM, the mouse moved 120x80
+before its first read: **unticked, `POS1 x=440 y=176`; ticked, `POS1 x=0
+y=0`** - kern_dos hooked no UART. **`INT 33h AX=0` answers `ax=FFFF bx=2` on
+both arms**, and that is SPEC.md 96.36.8's contract ("Off, `kern_dos` hooks
+nothing and INT 33h answers 96.10's still pointer"), not a defect. The brief
+expected 0 there; see 14.46.6.
+
+**The hibernate in protected mode** (14.5's sum, SEGMENTS 8.6's `.mega`):
+Bochs off C:'s boot partition (`--csys --bootc --noa`), MEGAHIB holding 64KB
+of XMS and a Mines board played, System menu > Hibernate, power off, boot,
+Resume: `kern_mega: resumed`, the board as it was, `MEGAHIB: ok` - the
+programs' sum held, so 14.5 is now run on kern_mega in protected mode. And
+**on 86Box `286-mega`** (the 286 RESET path; C: a 20MB IDE disk built as
+Bochs's is, booted with no A:): hibernated, a hard reset (86Box's clears
+RAM), Resume, the same board.
+
+**But the hibernate took 32,513 fixups**: `hbm_wrimg` wrote the whole
+conventional picture with ONE `dskw_write` from segment 0, and HDD.DRV's
+PIO loop moves it a word at a time, so every word of the first 64KB was a
+`mega_null0` - two exceptions each, of the order of a second on a 16 MHz 286
+by the handlers' length (not timed). **`hbm_xwconv`** writes it a chunk a
+call instead: chunk 0 for its size from segment 40h (the identity map starts
+at GDT entry 8), chunks 1.. appended from n x 800h, then chunk 0's first
+CLUSTER put right by a write-at from segment 0 (LOW0 stretched over just
+that) and the rest of it from 40h. The same file. **1,024 fixups at this
+C:'s 2KB cluster**, Bochs and 86Box alike. Two shapes failed on the way and
+are worth knowing: the IVT's 1KB written alone and the rest appended -
+`dskw_append` refuses a file that does not hold whole clusters (SPEC.md
+18.4.4), so the hibernate failed quietly and the screen saver came up - and
+the cluster's write-at without the stretch, a `kern_mega FAULT` in HDD.DRV
+at DI = 500h (KERN-MEGA-DOS-PLAN 10.3's W5 finding 1, again).
+
+The hibernate's own nine one-off CS writes (`hbm_wrimg`, `hbm_ptrfix_set`,
+the ask's paint) stay `mega_gpw`'s, one fixup each a hibernate: as CSDO they
+were 77 bytes that took the image over `MODH_UNPAD`'s KB edge and its claim
+from 10KB to 11KB while it is loaded.
+
+#### 14.46.3 Fixed: the Sticky Apps, the census logger, and PiXEL's free
+
+**The logger's fault** (14.39's finding). `mega_ldt2ds` took the entry after
+ANY allocator code selector as its data twin. DESK.DRV's library above 1MB
+has a LONE one (`mega_dklibf`), so `mega_tlog` loaded the free entry after
+it into ES and faulted at `FFD8:0D91` on every Sticky App's first callback.
+`mega_ldt2ds` now takes the twin only when it is one: a present writable
+data entry (0x92, the CPU's accessed bit aside) over the same base. The same
+routine is `mega_hifree`'s, which would have freed a neighbour's entry for a
+lone selector.
+
+**The trap itself**: `os88stik.inc`'s `stik_cb` far-called the package's
+trampoline at DS - one `xfer` fixup each callback, 99 in 55 s for the three
+(the tick and the cards). It asks `OSAPI_MEM_CODESEL` for DS now: DS itself
+on a real-mode kernel, the code alias or a pair's code half on kern_mega
+(SPEC.md 110.15 says so). `megatrap0` now starts the three in a second boot:
+**13 packages, the boot's 4 lines and nothing else, 222 s under Bochs, 277
+with the tree's build**. Without the `stik_cb` change the same boot charges
+the 99 to them.
+
+**The `FFD8:227C` line of 14.40** resolves, on the census build of the day,
+to `mega_ldt_free`'s closing `pop es`: a claim freed with ES still on it
+(PiXEL's Blur and Sepia each free one), so the pop loaded the entry the
+routine had just cleared and `.stale` gave it NULL. `mega_ldt_free` puts the
+NULL there itself when the caller's ES is the freed selector. Blur and
+Sepia: **0**.
+
+#### 14.46.4 Found and written down, not fixed
+
+- **PIXELSTEIN 3D's play: ~3,000 fixups a second.** `px_cast`'s `call far
+  [px_qcur]` through a data segment (6,912 in ~20 s), `px_compose`'s stores
+  through CS at nine sites (`px_cdi`, `px_ltop`, `px_lbot`, `px_lu`,
+  `px_cwrote`, `px_lh`, `px_lmat`, `px_lside`, `px_qp`, 5,604 each), and two
+  in an unnamed image at `22C4:011D`/`0125` (428 each). That is the
+  renderer's own inner loop; the re-home agent has Pixelstein, so it is
+  theirs.
+- **RAMDISK.DRV's Control Panel page: ~28 fixups a visit.** `rd_page_call`'s
+  `call far [cs:rd_pfar]` goes through the page image's DATA segment -
+  `rd_pfar`'s segment word IS `[rd_pseg]`, "storing the one sets the other"
+  - and RAMPAGE.DRV calls the driver's services back with DS = the CS it was
+  given (`push cs / pop dx` at RDT_INIT), so the services' stores are
+  `mega_gpw`'s. The shape of the fix: a far pointer of its own whose segment
+  is `OSAPI_MEM_CODESEL`'s answer at load, and the driver's DS handed to the
+  page beside its CS. Cold (the page only), so left.
+- **Paint**: once, asking H = 200 at W = 353 just after the canvas had come
+  back under 64KB gave 359. From 448 wide, 390 -> 200 gave 200. Not chased.
+
+#### 14.46.5 Verified new: a region and an overlay moved under their own program
+
+**14.15's open item** - a region moving while its own program is the
+caller. `tests/megaown`: MEGAHOLE (OS88_HIGH | OS88_HIGHMEM) holds three
+60KB pool claims and closes itself, leaving a hole under MEGAOWN's region;
+MEGAOWN fills the pool, frees every other block and claims 64KB from its own
+wake handler. At 2MB: **region KB 181 -> 120** across the claim; every
+stamp, its own bss and a word of its own code read back, and a callback two
+seconds later the same. At 16MB the pool never fills and nothing moves,
+which is why the row runs at 2MB. Row `megaown` (82 s); red with
+`mx_compactf` pinning 80h | slot (181 -> 181).
+
+**An overlay moved by a compaction**: CWORD's overlay is part 0, an EAGER
+carve claimed top-down in conventional memory (`OSAPI_MEM_CLAIM_DMA_HI`),
+so it is the conventional compactor and not the pool's that can move it.
+MEGALOWH holds a top-down claim at the heap's ceiling, CWORD's carve lands
+under it, MEGALOWH gives it back, and MEGALOWB (OS88_HIGH, so its own region
+is not a wall - the first run had it low and pinned beside the carve, and
+nothing moved) claims all of `OSAPI_MEM_AVAIL`: **the carve 8B40 -> 9A80**,
+and then CWORD took typing and File > Save As onto C:, and `C:\DOC.RTF`
+holds the line. Row `megaovl` (225 s); red with `cc_ovinit`'s
+`OSAPI_MEM_MOVABLE` taken out (8B40 -> 8B40). No carve can be above 1MB
+today - the parts standard claims code through the DMA door - so the
+selector arm of `cc_ovcarve` is not reachable.
+
+#### 14.46.6 Cost, rows, and for the owner
+
+**Bytes**, both arms built at one commit:
+
+| | |
+|---|---|
+| kern_big `kernel.bin`, HIBER.DRV | byte-identical (md5) |
+| kern_mega `.text`, `.bss`, `.cold`, `.lowbss` | unchanged; the segment overhead 5,935 as before |
+| kern_mega `.mega` | **+58** (`mega_ldt2ds`'s twin check, `mega_ldt_free`'s ES) |
+| kern_mega HIBER.DRV image (`.modh`) | **+301** (9,307 -> 9,608; the claim stays 10KB, 30 bytes inside the edge), 8,052 -> 8,213 bytes on the disk |
+| DESK.DRV (the library, every kernel) | **+12** (`stik_cb`) |
+
+**Rows** (all soak, all Bochs): `megatrap0` (now 13 packages, 300 s),
+`megaown` (new, 100 s), `megaovl` (new, 260 s, needs the C toolchain),
+`megahiber` (new, 300 s: the hibernate and resume, its census capped at
+2,048, red at 32,513 with the one write put back). The MartyPC rows that
+cover `stik_cb` on kern_big: `stiknote`, `deskclock`, `deskcaledit`,
+`deskcalcards`, `stikhiber`, `stikmove`. `tools/os88bochs.py` takes
+`$OS88_BOCHS_SLIRP` (docs/BOCHS.md), which is how a host client reached
+FTPD.
+
+**For the owner:**
+
+- **`Disable the mouse` gives a still pointer, not "no mouse".** `INT 33h
+  AX=0` answers FFFFh/2 with the box ticked, per SPEC.md 96.36.8. A program
+  that looks for a driver and adapts (no cursor, keyboard only) still finds
+  one. If the intent was that it find none, that is a change to 96.36.8 and
+  96.10, not a fix.
+- **The hibernate writes its picture in ~22 calls rather than one** on
+  kern_mega in protected mode, each append walking the chain to the file's
+  end (DISK-CPU-PLAN 6). On a hard disk that is a FAT walk a call against a
+  32KB write; it was not timed, and the field machine's BIOS-only C: is
+  where it would show.
+- **1942's CGA fullscreen and its cartridge build** remain unseen: no
+  emulator here gives kern_mega a CGA.
+- **The bank in place's `68 ticks of 273`** wants a look on a machine whose
+  clock is real: Bochs runs `clock: realtime` against an SB16 whose DMA
+  timer is its own.
+
 ### 14.47 The action modules above 1MB: CTRL, FORMAT, DISKOPS and HIBER, and the boot's modules moved at the switch (2026-10-21)
 
 **The owner's ask**: *"Action modules: These live only as long as the user
@@ -7508,222 +7725,6 @@ Pixelstein 3D I_SPTR 7C40 - a conventional segment`.
 - **`pxs256`'s check (c) fails at the base** and needs its own
   investigation.
 
-### 14.50 PIXELSTEIN 3D's writes through CS, and `pxs256`'s check (c) (2026-10-21)
-
-14.48.5's next census item, and its last line. Built on `protected-mode` at
-fff52479. What now holds:
-
-- **A scripted play of Pixelstein on kern_mega takes NO #GP fixup.** The
-  same play took **173,932** before: the timedemo, a game in the window
-  and in the Mode X bracket, walking, turning and shooting.
-- **The 4.77 MHz XT is not slower.** `tests/pixelstein.py` reads 48 of 48
-  cells within 5% of SPEC.md 97.15. Flat and Wire are identical to the
-  tenth of a millisecond. The Textured cells are up to 0.2 ms faster, bar
-  one draw 0.2 ms slower.
-- **Part 0 is 9 bytes SMALLER** (58,368 -> 58,359), so the keep stays
-  141,312 bytes on every kernel. No kernel byte moved.
-- **`pxs256`'s check (c) was the TEST, not the game.** It counted a frame
-  that was already in flight when it poked the dog.
-
-#### 14.50.1 The census before
-
-`tests/pxsmega.py` (below) under Bochs 2.7 at 16MB, `make megatrap`'s
-kern_mega, with the pre-change PXSTEIN.O88 in B: (`--pkg`). Every line is a
-completed #GP (`mega_gpw`):
-
-| step | traps |
-|---|---:|
-| launch (double-click) | 0 |
-| T, the timedemo (fullscreen, 81 frames) | 24,188 |
-| Esc out of the bracket | 0 |
-| Space, a new game in the window | 586 |
-| walk, Up held 4 s | 32,694 |
-| turn, Left 3 s and Right 2 s | 52,302 |
-| shoot, Ctrl x3 | 1,872 |
-| F, into the bracket | 1,172 |
-| walk there, Up 3 s | 29,372 |
-| turn there, Left 3 s | 27,032 |
-| shoot there, Ctrl x3 | 4,128 |
-| Esc, back to the window | 586 |
-| **total** | **173,932** |
-
-`tools/megatraps.py` names fifteen sites, and only two families:
-
-- **`px_compose`'s stores into its own per-column memory**, through CS.
-  pxcomp.inc's header says why: DS is the destination for the whole
-  compose, so "everything of this package's own is read through CS".
-  - `px_cdi` is stored on every column.
-  - `px_ltop`, `px_lbot`, `px_lu`, `px_cwrote`, `px_lh`, `px_lmat`,
-    `px_lside` and `px_qp` are stored on every changed Textured column,
-    18,512 each here.
-  - `px_r0`/`px_r1` are stored when the dirty rows widen.
-- **The column driver's sprite-post patch** in part 1, 1,537 each at
-  +011D and +0125. That is `mov byte [cs:bp], 0C3h` and its restore, one
-  pair a post. The weapon is drawn as posts too, so every shot pays it.
-
-The other two lines of the boot are the kernel's own `mega_strcal` (14.30's
-calibration), before the game starts.
-
-#### 14.50.2 What was built
-
-All of it is in `apps/pixelstein/`. Nothing in `kernel/` changed.
-
-- **`px_compose` stores through ES, which it sets to our DS.** That is
-  `push ds / pop es`, and a `cld`, once a frame.
-  - All 32 stores into our words are `[es:` instead of `[cs:`. It is the
-    same prefix byte and the same clocks, so on the 8088 the Flat and Wire
-    composes are unchanged.
-  - The READS stay `[cs:`, which is legal on a code selector.
-  - A queued wall's four words go into part 1 through four `stosw`, with
-    ES swapped in for them: `mov dx, es / mov es, [cs:px_hand + PXH_GEN]
-    / ... / mov es, dx`. DX is free there. `stosw` is 1 byte against the
-    3 to 6 of the store it replaces, which pays for the swap on the 8088.
-    The first spelling, `push es`/`pop es`, read 0.1 ms dearer on most
-    Textured cells; the two moves are 22 cycles cheaper.
-  - `.done` takes ES = part 1 for `PXG_QEND` and the far call.
-    `px_fade_draw` sets ES the same way for its one `px_cdi` store.
-- **`px_drvpm_post`, 29 bytes: the driver's `.post` for a part whose code
-  is not its data.**
-  - It makes the same two patch stores through part 1's DATA segment, with
-    DS borrowed for each one. The scaler wants DS = the destination and
-    ES = the sprite set.
-  - The segment is `PXG_QDS`, the last word of `PXG_DRVMAX`'s 96 bytes, so
-    nothing after `PXG_QTEX` moves. `px_hsegs` writes it, which is what
-    keeps it right after `px_reloc`.
-  - `px_gen_init` copies `px_drv_tpl` as before. Then, only when
-    `[px_gencs]` differs from part 1's data segment, it lays the tail over
-    `.post`. It is a tail and not a second driver, for the bytes: its one
-    jump is assembled for the offset it lands at.
-  - No real-mode kernel's code segment differs from its data, so the XT
-    runs `px_drv_tpl` byte for byte. `tests/pxsscale.py` holds that.
-- **The bytes are paid back in part 0** (below), so the program still
-  lands inside 114 sectors:
-  - `px_force_all` is one `lodsb`/`rep stosb` loop over its eight arrays,
-    -42 net with its table. It now fills `px_lside` too, with 0FFh, which
-    no skip reads once `px_lmat` mismatches. pxgame.asm asserts that the
-    eight are one run.
-  - The five `px_r0`/`px_r1` byte pairs are one word store each, -4 each.
-    pxgame.asm asserts that the two are adjacent.
-- **The ratchet.** `tests/unit/t_cswrite.py` now walks `apps/pixelstein/`
-  as well. `tests/cswrites.txt` registers what is left:
-  - `pxgen.inc`, 3 writes: `px_drv_tpl`'s two patch stores, which run only
-    where CS is the data, and PXPROBE's ladder counter, an instrument build
-    nothing ships;
-  - `pxwin.inc`, 2 pairs: `ES = KERNEL_SEG` to READ the window record.
-- SPEC.md 97.3 and 97.13 say the same in the contract.
-
-#### 14.50.3 What it cost
-
-Measured from the two maps of `pxgame.asm`, at fff52479 and at this change,
-routine by routine.
-
-| routine (part 0) | bytes | what |
-|---|---:|---|
-| `px_drvpm_post` | +29 | the protected-mode tail |
-| `px_gen_init` | +18 | the test and the tail's copy |
-| `px_hsegs` | +5 | `PXG_QDS` |
-| `px_fa_fill` | +8 | `px_force_all`'s fills |
-| `px_force_all` | -50 | seven blocks into one loop |
-| `px_compose` | -5 | ES once a frame, the four `stosw` and the swap, `.done`'s ES, the dirty-row word |
-| `px_fade_draw` | -2 | ES (+2), the dirty-row word (-4) |
-| `px_frame_begin`, `px_card_draw`, `px_map_draw` | -4 each | the dirty-row word |
-| **part 0** | **-9** | 58,368 -> 58,359 bytes, image + bss; 114 sectors either way |
-| kern_big, kern_small, kern_mega | +0 | no kernel file touched |
-
-#### 14.50.4 What was measured, and on what
-
-- **Bochs 2.7, kern_mega with MEGATRAP=1, 16MB** (Pixelstein HIGH, 14.48),
-  `tests/pxsmega.py`, the steps above. **There are 0 trap lines in all
-  twelve**, where the same play took 173,932. The shots show the
-  timedemo's card (81 frames, 61 fps), the game in the window, the
-  textured Mode X view with the weapon and ammo 8 -> 2 after the two
-  volleys, and the window again.
-  - With one `[es:` store put back to `[cs:` (`.tchg`'s `px_ltop`) and the
-    tail never laid, the same run is **red in ten of its twelve steps**:
-    22,937 lines, on the compose store and the driver's +011D/+0125.
-- **86Box `286-mega`** (mr286, a 16MHz 286, 4MB: the 286 reset path),
-  with PXSTEIN.O88 on a 1.44MB floppy in B:.
-  - It played in the window and in the Mode X bracket: textured walls, a
-    door, three shots (ammo 8 -> 5), and Esc back to the window.
-  - `faults --all` shows **two `[Segment can't write]`, both
-    `mega_strcal` at boot**. 14.48 counted ~33,000 in `px_compose` and
-    ~770 in the driver over a similar play. The rest are the expected
-    `mega_svc_lo.r286` resets.
-- **MartyPC, kern_big, the CGA 5150** (`tests/pixelstein.py`), before and
-  after on the same tree. Frame time / draw time, in ms:
-
-| cell | before | after |
-|---|---|---|
-| Textured Low res 64 (the default), A full repaint | 113.9 / 111.3 | 113.8 / 111.3 |
-| Textured Low res 64, A turn | 103.9 / 101.3 | 103.8 / 101.3 |
-| Textured Low res 64, C full repaint | 133.0 / 130.4 | 132.9 / 130.4 |
-| Textured Low res 48, B turn | 81.1 / 78.4 | 81.2 / 78.6 |
-| Textured Full 64, A full repaint | 180.5 / 177.4 | 180.3 / 177.3 |
-| Flat Low res 64, A full repaint | 104.9 / 102.3 | 104.9 / 102.3 |
-| Wire Low res 64, A turn | 96.3 / 93.7 | 96.3 / 93.7 |
-| Textured Low res 64, A3 finished (three sprites) | 151.9 / 140.2 | 151.8 / 140.2 |
-| Flat Low res 64, C finished | 126.8 / 119.7 | 128.1 / 119.7 |
-
-  - All 48 cells are within 5% of SPEC.md 97.15. The worst is 1.0%, the
-    last row, which is SPEC.md 97.15's own value for that cell.
-  - That row's DRAW is identical. The 1.3 ms is outside the draw: the sim
-    runs in a "finished" cell, and its phase against the tick moves the
-    frame by about that much either way. Textured Low res 48 A3 finished
-    moved the other way, 125.4 -> 124.1, with its draw 115.6 -> 115.5.
-
-#### 14.50.5 `pxs256`'s check (c): the test counted the wrong frame
-
-The check pokes a dog 1.5 tiles ahead while the guest is paused, marks
-`px_frames`, runs, waits for ONE frame and reads the candidate list.
-
-- **The frame it waits for can be the one in flight at the poke.** Paused
-  after that frame's `px_spr_gather`, the frame ends with the candidates
-  gathered BEFORE the dog stood there. The frame the poke's force owes
-  follows at once, and that one has the dog.
-- **It was shown on purpose.** A breakpoint at `px_compose`, which is past
-  the gather, made the pause. Then at a breakpoint on `px_frame_end` the
-  candidate list is `[]`, and one frame later it is `[(31, 16, 3)]`.
-- **So it is intermittent, and load makes it likelier.** The host polls
-  `px_frames` every 0.2 s, and the check only fails when that poll lands
-  between the two frames. That is likelier when the guest runs slower
-  against the host, which is a loaded box, and 14.48 saw it fail in its
-  soak. Alone it passed 5 of 5 here at the base. "It fails identically
-  with the old package" was the race both times.
-- **The fix is in the test.** After the frame, it waits FOR the dog among
-  the candidates, in guest time with a 60 s budget. A dog that never
-  becomes a candidate still fails the check, at the budget.
-
-#### 14.50.6 Rows
-
-- **`pxsmega`** (new, soak, Bochs) is the play census above. It reports
-  each step and fails on any trap line or FAULT. It took 163 s with the
-  private tree already built, and declares 200. `--pkg F.O88` censuses another package on the same kernel
-  and only reports; that is how the "before" column was taken.
-- On this tree, MartyPC, QEMU and the host:
-  `os88test.py soak -k 'pxs*' -k 'pixelstein*' -k 't_pxs*'` is **31 of 31
-  ok** (1,232 s, two MartyPC lanes): `pixelstein-herc`, `-vga`, `-win`,
-  `-c160`, `pxssim`, `pxssim-herc`, `pxsauto`, `pxsact`, `pxsmove`,
-  `pxsstate`, `pxshud`, `pxshud-vga`, `pxswin`, `pxswin-qemu`,
-  `pxswin-price`, `pxsmd`, **`pxs256`**, `pxsscale`, `pxs160`, `pxsperf`,
-  `pxsfsx`, `pxsshots`, `pxsbench`, `pxs-gen`, `pxs-level`, `t_pxsmap`,
-  `pxsdisk`, `t_pxsart`, `t_pxsscale`, and PiXEL's `pxsave`/`pxsavehost`,
-  which the glob also matches. `pixelstein` itself is the before/after
-  pair in 14.50.4, ok both times.
-- Pixelstein is not added to `tests/megatrap0.py`. Its LAUNCH was already
-  0 traps; its cost was in the frames, which is what `pxsmega` plays.
-
-#### 14.50.7 What is left, and for the owner
-
-- **The LOW path is still untested on kern_mega** (14.48.5): the pool
-  full, and the region a conventional claim that the compactor moves. The
-  tail's `PXG_QDS` follows a move through `px_hsegs`, as `PXG_QTEX` does,
-  but nothing here has moved a low Pixelstein on kern_mega.
-- **What the traps cost a 286 is not measured.** Bochs and 86Box are not
-  cycle-accurate, so "33,000 in 20 s" is a count, not a time. The Victory
-  has not run this.
-- **`mega_strcal`'s two boot lines** are the kernel's calibration, which
-  `megatrap0` allows as "(boot)". They are not Pixelstein's.
-
 ### 14.49 The pool's open follow-ups: the split regrow, a bigger table, the 32KB windows moved in pieces, the copy's lock (2026-10-21)
 
 14.37 and 14.41 left four things open. All four are built here, on
@@ -7953,3 +7954,219 @@ can see the change are `megarehome`, `megatrap0`, `megaflt` and `pxsmega`
    it, at no shipped byte.
 5. **The park's header is 3KB where it was 2KB**: one more KB per park block
    and per hibernate's extended section.
+
+### 14.50 PIXELSTEIN 3D's writes through CS, and `pxs256`'s check (c) (2026-10-21)
+
+14.48.5's next census item, and its last line. Built on `protected-mode` at
+fff52479. What now holds:
+
+- **A scripted play of Pixelstein on kern_mega takes NO #GP fixup.** The
+  same play took **173,932** before: the timedemo, a game in the window
+  and in the Mode X bracket, walking, turning and shooting.
+- **The 4.77 MHz XT is not slower.** `tests/pixelstein.py` reads 48 of 48
+  cells within 5% of SPEC.md 97.15. Flat and Wire are identical to the
+  tenth of a millisecond. The Textured cells are up to 0.2 ms faster, bar
+  one draw 0.2 ms slower.
+- **Part 0 is 9 bytes SMALLER** (58,368 -> 58,359), so the keep stays
+  141,312 bytes on every kernel. No kernel byte moved.
+- **`pxs256`'s check (c) was the TEST, not the game.** It counted a frame
+  that was already in flight when it poked the dog.
+
+#### 14.50.1 The census before
+
+`tests/pxsmega.py` (below) under Bochs 2.7 at 16MB, `make megatrap`'s
+kern_mega, with the pre-change PXSTEIN.O88 in B: (`--pkg`). Every line is a
+completed #GP (`mega_gpw`):
+
+| step | traps |
+|---|---:|
+| launch (double-click) | 0 |
+| T, the timedemo (fullscreen, 81 frames) | 24,188 |
+| Esc out of the bracket | 0 |
+| Space, a new game in the window | 586 |
+| walk, Up held 4 s | 32,694 |
+| turn, Left 3 s and Right 2 s | 52,302 |
+| shoot, Ctrl x3 | 1,872 |
+| F, into the bracket | 1,172 |
+| walk there, Up 3 s | 29,372 |
+| turn there, Left 3 s | 27,032 |
+| shoot there, Ctrl x3 | 4,128 |
+| Esc, back to the window | 586 |
+| **total** | **173,932** |
+
+`tools/megatraps.py` names fifteen sites, and only two families:
+
+- **`px_compose`'s stores into its own per-column memory**, through CS.
+  pxcomp.inc's header says why: DS is the destination for the whole
+  compose, so "everything of this package's own is read through CS".
+  - `px_cdi` is stored on every column.
+  - `px_ltop`, `px_lbot`, `px_lu`, `px_cwrote`, `px_lh`, `px_lmat`,
+    `px_lside` and `px_qp` are stored on every changed Textured column,
+    18,512 each here.
+  - `px_r0`/`px_r1` are stored when the dirty rows widen.
+- **The column driver's sprite-post patch** in part 1, 1,537 each at
+  +011D and +0125. That is `mov byte [cs:bp], 0C3h` and its restore, one
+  pair a post. The weapon is drawn as posts too, so every shot pays it.
+
+The other two lines of the boot are the kernel's own `mega_strcal` (14.30's
+calibration), before the game starts.
+
+#### 14.50.2 What was built
+
+All of it is in `apps/pixelstein/`. Nothing in `kernel/` changed.
+
+- **`px_compose` stores through ES, which it sets to our DS.** That is
+  `push ds / pop es`, and a `cld`, once a frame.
+  - All 32 stores into our words are `[es:` instead of `[cs:`. It is the
+    same prefix byte and the same clocks, so on the 8088 the Flat and Wire
+    composes are unchanged.
+  - The READS stay `[cs:`, which is legal on a code selector.
+  - A queued wall's four words go into part 1 through four `stosw`, with
+    ES swapped in for them: `mov dx, es / mov es, [cs:px_hand + PXH_GEN]
+    / ... / mov es, dx`. DX is free there. `stosw` is 1 byte against the
+    3 to 6 of the store it replaces, which pays for the swap on the 8088.
+    The first spelling, `push es`/`pop es`, read 0.1 ms dearer on most
+    Textured cells; the two moves are 22 cycles cheaper.
+  - `.done` takes ES = part 1 for `PXG_QEND` and the far call.
+    `px_fade_draw` sets ES the same way for its one `px_cdi` store.
+- **`px_drvpm_post`, 29 bytes: the driver's `.post` for a part whose code
+  is not its data.**
+  - It makes the same two patch stores through part 1's DATA segment, with
+    DS borrowed for each one. The scaler wants DS = the destination and
+    ES = the sprite set.
+  - The segment is `PXG_QDS`, the last word of `PXG_DRVMAX`'s 96 bytes, so
+    nothing after `PXG_QTEX` moves. `px_hsegs` writes it, which is what
+    keeps it right after `px_reloc`.
+  - `px_gen_init` copies `px_drv_tpl` as before. Then, only when
+    `[px_gencs]` differs from part 1's data segment, it lays the tail over
+    `.post`. It is a tail and not a second driver, for the bytes: its one
+    jump is assembled for the offset it lands at.
+  - No real-mode kernel's code segment differs from its data, so the XT
+    runs `px_drv_tpl` byte for byte. `tests/pxsscale.py` holds that.
+- **The bytes are paid back in part 0** (below), so the program still
+  lands inside 114 sectors:
+  - `px_force_all` is one `lodsb`/`rep stosb` loop over its eight arrays,
+    -42 net with its table. It now fills `px_lside` too, with 0FFh, which
+    no skip reads once `px_lmat` mismatches. pxgame.asm asserts that the
+    eight are one run.
+  - The five `px_r0`/`px_r1` byte pairs are one word store each, -4 each.
+    pxgame.asm asserts that the two are adjacent.
+- **The ratchet.** `tests/unit/t_cswrite.py` now walks `apps/pixelstein/`
+  as well. `tests/cswrites.txt` registers what is left:
+  - `pxgen.inc`, 3 writes: `px_drv_tpl`'s two patch stores, which run only
+    where CS is the data, and PXPROBE's ladder counter, an instrument build
+    nothing ships;
+  - `pxwin.inc`, 2 pairs: `ES = KERNEL_SEG` to READ the window record.
+- SPEC.md 97.3 and 97.13 say the same in the contract.
+
+#### 14.50.3 What it cost
+
+Measured from the two maps of `pxgame.asm`, at fff52479 and at this change,
+routine by routine.
+
+| routine (part 0) | bytes | what |
+|---|---:|---|
+| `px_drvpm_post` | +29 | the protected-mode tail |
+| `px_gen_init` | +18 | the test and the tail's copy |
+| `px_hsegs` | +5 | `PXG_QDS` |
+| `px_fa_fill` | +8 | `px_force_all`'s fills |
+| `px_force_all` | -50 | seven blocks into one loop |
+| `px_compose` | -5 | ES once a frame, the four `stosw` and the swap, `.done`'s ES, the dirty-row word |
+| `px_fade_draw` | -2 | ES (+2), the dirty-row word (-4) |
+| `px_frame_begin`, `px_card_draw`, `px_map_draw` | -4 each | the dirty-row word |
+| **part 0** | **-9** | 58,368 -> 58,359 bytes, image + bss; 114 sectors either way |
+| kern_big, kern_small, kern_mega | +0 | no kernel file touched |
+
+#### 14.50.4 What was measured, and on what
+
+- **Bochs 2.7, kern_mega with MEGATRAP=1, 16MB** (Pixelstein HIGH, 14.48),
+  `tests/pxsmega.py`, the steps above. **There are 0 trap lines in all
+  twelve**, where the same play took 173,932. The shots show the
+  timedemo's card (81 frames, 61 fps), the game in the window, the
+  textured Mode X view with the weapon and ammo 8 -> 2 after the two
+  volleys, and the window again.
+  - With one `[es:` store put back to `[cs:` (`.tchg`'s `px_ltop`) and the
+    tail never laid, the same run is **red in ten of its twelve steps**:
+    22,937 lines, on the compose store and the driver's +011D/+0125.
+- **86Box `286-mega`** (mr286, a 16MHz 286, 4MB: the 286 reset path),
+  with PXSTEIN.O88 on a 1.44MB floppy in B:.
+  - It played in the window and in the Mode X bracket: textured walls, a
+    door, three shots (ammo 8 -> 5), and Esc back to the window.
+  - `faults --all` shows **two `[Segment can't write]`, both
+    `mega_strcal` at boot**. 14.48 counted ~33,000 in `px_compose` and
+    ~770 in the driver over a similar play. The rest are the expected
+    `mega_svc_lo.r286` resets.
+- **MartyPC, kern_big, the CGA 5150** (`tests/pixelstein.py`), before and
+  after on the same tree. Frame time / draw time, in ms:
+
+| cell | before | after |
+|---|---|---|
+| Textured Low res 64 (the default), A full repaint | 113.9 / 111.3 | 113.8 / 111.3 |
+| Textured Low res 64, A turn | 103.9 / 101.3 | 103.8 / 101.3 |
+| Textured Low res 64, C full repaint | 133.0 / 130.4 | 132.9 / 130.4 |
+| Textured Low res 48, B turn | 81.1 / 78.4 | 81.2 / 78.6 |
+| Textured Full 64, A full repaint | 180.5 / 177.4 | 180.3 / 177.3 |
+| Flat Low res 64, A full repaint | 104.9 / 102.3 | 104.9 / 102.3 |
+| Wire Low res 64, A turn | 96.3 / 93.7 | 96.3 / 93.7 |
+| Textured Low res 64, A3 finished (three sprites) | 151.9 / 140.2 | 151.8 / 140.2 |
+| Flat Low res 64, C finished | 126.8 / 119.7 | 128.1 / 119.7 |
+
+  - All 48 cells are within 5% of SPEC.md 97.15. The worst is 1.0%, the
+    last row, which is SPEC.md 97.15's own value for that cell.
+  - That row's DRAW is identical. The 1.3 ms is outside the draw: the sim
+    runs in a "finished" cell, and its phase against the tick moves the
+    frame by about that much either way. Textured Low res 48 A3 finished
+    moved the other way, 125.4 -> 124.1, with its draw 115.6 -> 115.5.
+
+#### 14.50.5 `pxs256`'s check (c): the test counted the wrong frame
+
+The check pokes a dog 1.5 tiles ahead while the guest is paused, marks
+`px_frames`, runs, waits for ONE frame and reads the candidate list.
+
+- **The frame it waits for can be the one in flight at the poke.** Paused
+  after that frame's `px_spr_gather`, the frame ends with the candidates
+  gathered BEFORE the dog stood there. The frame the poke's force owes
+  follows at once, and that one has the dog.
+- **It was shown on purpose.** A breakpoint at `px_compose`, which is past
+  the gather, made the pause. Then at a breakpoint on `px_frame_end` the
+  candidate list is `[]`, and one frame later it is `[(31, 16, 3)]`.
+- **So it is intermittent, and load makes it likelier.** The host polls
+  `px_frames` every 0.2 s, and the check only fails when that poll lands
+  between the two frames. That is likelier when the guest runs slower
+  against the host, which is a loaded box, and 14.48 saw it fail in its
+  soak. Alone it passed 5 of 5 here at the base. "It fails identically
+  with the old package" was the race both times.
+- **The fix is in the test.** After the frame, it waits FOR the dog among
+  the candidates, in guest time with a 60 s budget. A dog that never
+  becomes a candidate still fails the check, at the budget.
+
+#### 14.50.6 Rows
+
+- **`pxsmega`** (new, soak, Bochs) is the play census above. It reports
+  each step and fails on any trap line or FAULT. It took 163 s with the
+  private tree already built, and declares 200. `--pkg F.O88` censuses another package on the same kernel
+  and only reports; that is how the "before" column was taken.
+- On this tree, MartyPC, QEMU and the host:
+  `os88test.py soak -k 'pxs*' -k 'pixelstein*' -k 't_pxs*'` is **31 of 31
+  ok** (1,232 s, two MartyPC lanes): `pixelstein-herc`, `-vga`, `-win`,
+  `-c160`, `pxssim`, `pxssim-herc`, `pxsauto`, `pxsact`, `pxsmove`,
+  `pxsstate`, `pxshud`, `pxshud-vga`, `pxswin`, `pxswin-qemu`,
+  `pxswin-price`, `pxsmd`, **`pxs256`**, `pxsscale`, `pxs160`, `pxsperf`,
+  `pxsfsx`, `pxsshots`, `pxsbench`, `pxs-gen`, `pxs-level`, `t_pxsmap`,
+  `pxsdisk`, `t_pxsart`, `t_pxsscale`, and PiXEL's `pxsave`/`pxsavehost`,
+  which the glob also matches. `pixelstein` itself is the before/after
+  pair in 14.50.4, ok both times.
+- Pixelstein is not added to `tests/megatrap0.py`. Its LAUNCH was already
+  0 traps; its cost was in the frames, which is what `pxsmega` plays.
+
+#### 14.50.7 What is left, and for the owner
+
+- **The LOW path is still untested on kern_mega** (14.48.5): the pool
+  full, and the region a conventional claim that the compactor moves. The
+  tail's `PXG_QDS` follows a move through `px_hsegs`, as `PXG_QTEX` does,
+  but nothing here has moved a low Pixelstein on kern_mega.
+- **What the traps cost a 286 is not measured.** Bochs and 86Box are not
+  cycle-accurate, so "33,000 in 20 s" is a count, not a time. The Victory
+  has not run this.
+- **`mega_strcal`'s two boot lines** are the kernel's calibration, which
+  `megatrap0` allows as "(boot)". They are not Pixelstein's.

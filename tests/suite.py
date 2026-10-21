@@ -14073,16 +14073,17 @@ SOAK = [
         "the grid is four planes and repaints through gfx_blitp, so a window "
         "left where it opens does not reach this primitive at all.",
         needs=("marty", "nasm"), serial=True, timeout=900),
-    Row("megatrap0", "soak", py("tests/megatrap0.py"), 240.0,
+    Row("megatrap0", "soak", py("tests/megatrap0.py"), 300.0,
         "docs/plans/KERN-MEGA-PLAN.md 10.3 item 50: kern_mega COMPLETES a "
         "write through CS, a far transfer through a data segment and a "
         "segment-0 access rather than faulting on it, so a package doing one "
         "in a loop is slow and looks like it works. MEGATRAP=1's census "
-        "(a private tree) under Bochs, ten OS88_HIGH packages started through "
+        "(a private tree) under Bochs, thirteen OS88_HIGH packages (the three "
+        "Sticky Apps in a second boot, 14.46) started through "
         "MEGARUN and left running; any #GP charged to an image not in the "
         "row's ALLOW fails it, as does a refusal or a kern_mega FAULT. The "
         "failing case is any `push cs / pop ds` and a store in one of them - "
-        "MEGACSL (tests/megacsw) is one on purpose. 240s is 199 measured, "
+        "MEGACSL (tests/megacsw) is one on purpose. 300s is 277 measured, "
         "the tree's build included",
         needs=("bochs", "nasm")),
     Row("megarehome", "soak", py("tests/megarehome.py"), 120.0,
@@ -14145,6 +14146,49 @@ SOAK = [
                "build/flta.o88", "build/fltb.o88", "build/fltc.o88",
                "build/fltd.o88", "build/flte.o88", "build/fltf.o88",
                "build/fltz.o88")),
+    Row("megaown", "soak", py("tests/megaown.py"), 100.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.15's open item, 14.46: on kern_mega "
+        "the extended pool's compaction moves a package's OWN region while "
+        "that package is the caller. Under Bochs at 2MB, MEGAHOLE holds "
+        "three 60KB pool claims and closes itself, leaving a hole under "
+        "MEGAOWN's region; MEGAOWN fills the pool, frees every other block "
+        "and claims 64KB from its own wake handler. Its region must be at a "
+        "lower offset after the claim, every block's stamps and its own bss "
+        "and code must read back, and a second callback must say the same. "
+        "The failing case is mx_compactf pinning a package region, which "
+        "leaves it where it was. 100s is 82 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/megahole.o88", "build/megaown.o88")),
+    Row("megaovl", "soak", py("tests/megaovl.py"), 260.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.46: on kern_mega a C package's "
+        "OVERLAY is moved by a compaction and then used. Under Bochs, "
+        "MEGALOWH holds a top-down claim at the heap's ceiling so CWORD's "
+        "eager overlay carve (part 0, apps/cc/crt0.asm's cc_ovcarve) lands "
+        "under it, gives it back, and MEGALOWB (OS88_HIGH) claims everything "
+        "OSAPI_MEM_AVAIL says a compaction would leave, which only sliding "
+        "the carve up into the hole can place. The carve must be at a higher "
+        "segment after; then CWORD takes typing and File > Save As, and "
+        "C:\\DOC.RTF must hold the line. The failing case is cc_ovinit "
+        "without its OSAPI_MEM_MOVABLE: the carve is pinned. 260s is 225 "
+        "measured",
+        needs=("bochs", "nasm", "cc"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/megalowh.o88", "build/megalowb.o88",
+               "build/cword.o88")),
+    Row("megahiber", "soak", py("tests/megahiber.py"), 300.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.5, 14.46: a hibernate and resume "
+        "on kern_mega IN PROTECTED MODE, under MEGATRAP=1's census (a "
+        "private tree). Bochs boots off C:'s boot partition with the system "
+        "files beside it, MEGAHIB holds 64KB of XMS and Mines a window, the "
+        "System menu hibernates, a second boot resumes: `kern_mega: resumed` "
+        "and MEGAHIB's 64KB must read back. The hibernate itself may take at "
+        "most 2,048 #GP fixups - the conventional picture was one write from "
+        "segment 0, the NULL selector, and took 32,512 null0 fixups in "
+        "HDD.DRV's PIO loop; hbm_xwconv takes the first cluster alone that "
+        "way. The failing case is that one write put back: 32,513. 300s is "
+        "266 measured, the tree's build included",
+        needs=("bochs", "nasm")),
     Row("mousess", "soak", py("tests/mousess.py"), 20.0,
         "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "
         "it interrupted. SeaBIOS serves int 13h and int 16h on a stack of its "
