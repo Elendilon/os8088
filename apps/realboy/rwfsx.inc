@@ -357,6 +357,42 @@ rw_pgtry:
 .r:
     ret
 
+; rw_pgtryd - rw_pgtry for the composer's line hook (rb_lhook): a flip that
+; waits is written only when the beam is ALREADY in its window and the port
+; agrees - never spun to, never timed again, so a draw spends nothing
+; waiting on the beam. The field's log priced the spin at about 1.5 ms a
+; flip when it was taken inside a draw. Kept: all
+rw_pgtryd:
+    cmp byte [rw_pgpend], 0
+    je .r
+    push ax
+    push bx
+    push cx
+    push dx
+    call rw_pgph
+    jc .x
+    mov bx, [rw_pgper]
+    sub bx, ax
+    cmp bx, RW_PGW1
+    ja .x
+    cmp bx, RW_PGW0
+    jb .x
+    mov dx, 3DAh                    ; (rw_pgtry's look, and on a
+    mov cx, 16                      ;   disagreement nothing: the next look
+.lk:                                ;   between two core runs times it)
+    in al, dx
+    test al, 1
+    loopnz .lk
+    jz .x
+    jmp rw_pgtry.flip               ; (its tail pops the four)
+.x:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
+    ret
+
 ; rw_pgph - AX = rw_clk's counts since the last vertical retrace began, on
 ; the beam's model; CF = 1: there is none. Clobbers DX
 rw_pgph:
@@ -519,7 +555,8 @@ rw_fsmain:
     mov word [rw_pgdebt], 0
     mov word [rw_fstxto], RW_FSTXTP * 40
     mov byte [rb_panon], 1
-    mov word [rb_lhook], rw_pgtry   ; (looked for during a draw too)
+    mov word [rb_lhook], rw_pgtryd  ; (looked for during a draw too, and
+                                    ;   never waited for there)
     call rw_dmgfull
     jmp short .in
 .mono:

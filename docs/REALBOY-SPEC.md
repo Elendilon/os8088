@@ -1534,7 +1534,10 @@ of 15.3's reasons: the jitter was drawing into the page being shown, and the
   against the frame's 26, and the composer
   calls it too (`rb_lhook`: every eighth line `ppu_dputp` stores, every
   sixteenth `rb_pages` writes), so it is looked at often enough to land in
-  its first border. **The second is not optional**: a draw is ~10 ms with
+  its first border. From inside a draw it is `rw_pgtryd`, which writes the
+  flip only when the beam is already in the window and the port agrees -
+  never spinning to it and never timing the retrace again, so the draw
+  spends nothing waiting on the beam. **The second is not optional**: a draw is ~10 ms with
   nothing else looking, and once one frame ran long - a jump, a key's work
   - its border fell inside the next draw, and the one after's, until the
   phase drifted back: the owner's field run held the picture 100-300 ms
