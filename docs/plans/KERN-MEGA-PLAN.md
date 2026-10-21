@@ -8826,3 +8826,11 @@ hard disk, PS/2 mouse).
   frames, many seconds in, then CORRUPTS THE SCREEN AND FREEZES THE WHOLE
   MACHINE.** A defect rather than a speed question. **OPEN, being
   investigated as 14.58.**
+
+- **The owner on 14.55's three questions.** SB 1.x fallback: *"Low priority
+  but if you have the fix, sure"* - taken, 14.59. MIDIRack's speaker/Covox
+  ring: *"Should only be holding that speaker ring if it's actually in
+  speaker mode, to start with, but then sure have it freed when not in use"*
+  - taken, 14.59. `SOUND.DRV`'s own pool and double buffer going bottom-up on
+  kern_mega with the rings: not answered, so they stay as 14.55 built them
+  (they pass 14.51's three tests).
