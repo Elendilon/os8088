@@ -7887,13 +7887,205 @@ mega_imghif:
     retf
 
 ; mega_pkghifree - FAR: AX = a region mega_pkghif gave, DL = its slot -> the
-; block and both of the pair's entries are free. Clobbers nothing
+; block, both of the pair's entries AND every other LDT descriptor whose base
+; is inside the block are free - OSAPI_MEM_SUBSEG's (KERN-MEGA-PLAN 14.44),
+; so a selector a program asked for cannot outlive it. Clobbers nothing
 mega_pkghifree:
     push bx
     mov bl, dl
     or bl, 0x80
+    call mega_rgnsubfree
     call MEGA_SEL_CODE:mega_imghifree
     pop bx
+    retf
+
+; mega_rgnblk - AX = a region's DATA selector, BL = its pool owner (80h |
+; slot) -> CF = 0, SI = its mx_tab entry and DX:AX = the block's linear base
+; (the pair's base IS the block's: mega_imghif); CF = 1 it is no such block.
+; Clobbers CL
+mega_rgnblk:
+    call mega_selbase               ; DX:AX = the descriptor's base
+    jc .no
+    push ax
+    push dx
+    call mx_rel                     ; AX = KB from the pool's base
+    jc .pno
+    mov si, mx_tab
+.f:
+    cmp word [si+MX_KB], 0
+    je .n
+    cmp [si+MX_OWN], bl
+    jne .n
+    cmp [si+MX_OFF], ax
+    je .y
+.n:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .f
+.pno:
+    pop dx
+    pop ax
+.no:
+    stc
+    ret
+.y:
+    pop dx
+    pop ax
+    clc
+    ret
+
+; mega_rgnsubfree - AX = a region's DATA selector, BL = its owner -> every
+; present LDT descriptor in the allocator's range whose base lies inside the
+; block is free, except the region's own pair (mega_imghifree's to free).
+; Nothing, and CF = 1, when it is no region block. Clobbers nothing
+mega_rgnsubfree:
+    pusha
+    push es
+    mov bp, ax
+    and bp, 0xFFF8                  ; BP = the pair's DATA entry
+    call mega_rgnblk                ; SI = the entry, DX:AX = the base
+    jc .out
+    mov cx, ax
+    mov bx, dx                      ; BL:CX = the base
+    mov di, [si+MX_KB]
+    shl di, 10                      ; DI = its bytes, 0 = 65,536 (or more:
+                                    ; a block over 64KB is S4's, and then
+                                    ; any offset under 64KB is inside it)
+    cmp word [si+MX_KB], 64
+    jb .sized
+    xor di, di
+.sized:
+    mov ax, MEGA_SEL_LDTD
+    mov es, ax
+    mov si, MEGA_LDT_FREE0 * 8
+.d:
+    cmp byte [es:si+5], 0
+    je .dn
+    cmp si, bp
+    je .dn
+    lea ax, [si+8]
+    cmp ax, bp
+    je .dn                          ; the pair's code half
+    mov ax, [es:si+2]
+    mov dl, [es:si+4]
+    sub ax, cx
+    sbb dl, bl
+    jc .dn                          ; below the block
+    or dl, dl
+    jnz .dn                         ; 64KB or more past its base
+    or di, di
+    jz .in
+    cmp ax, di
+    jae .dn                         ; past its end: another block's
+.in:
+    lea ax, [si+4]
+    call mega_ldt_free
+.dn:
+    add si, 8
+    cmp si, MEGA_LDT_N * 8
+    jb .d
+    clc
+.out:
+    pop es
+    popa
+    ret
+
+; -----------------------------------------------------------------------------
+; mega_subsegf - FAR: OSAPI_MEM_SUBSEG's body in protected mode (KERN-MEGA-
+; PLAN 14.44). ES = the caller's DS (the X stub's), AX = a PARAGRAPH offset
+; into it, BL bit 0 = it will be far-called -> CF = 0 and DX = a DATA
+; selector whose base is that paragraph and whose limit runs to the end of
+; the caller's region or 64KB, whichever is first; with bit 0 its CODE twin
+; is DX - 8. A descriptor already over that base, of that type, is answered
+; instead of a new one, so a program uses one LDT entry (two for code) per
+; distinct paragraph it asks for, and every one of them is freed with the
+; region (mega_rgnsubfree). They move with it too: mx_cpmove rebases every
+; descriptor whose base is inside a block it moves. CF = 1, every register
+; kept, when ES is not a package region placed above 1MB, the paragraph is
+; at or past its end, or no LDT entry is free - and the caller's answer then
+; is its own segment + AX, which is right wherever the region is in real
+; memory. DS = KDATA
+; -----------------------------------------------------------------------------
+mega_subsegf:
+    pusha
+    push es
+    inc byte [sch_lock]             ; no task compacts the pool between
+                                    ; reading the block's base and aiming
+                                    ; a descriptor at it (mx_alloc's rule)
+    mov bp, ax                      ; BP = the paragraph offset
+    mov bh, bl                      ; BH bit 0 = a code twin wanted
+    mov ax, es
+    test al, 4                      ; an identity segment: below 1MB, and
+    jz .no                          ; the caller's sum is right there
+    call mega_slotof                ; BL = the instance ES is the region of
+    jc .no
+    or bl, 0x80
+    call mega_rgnblk                ; SI = its block, DX:AX = its base
+    jc .no
+    mov cx, [si+MX_KB]
+    shl cx, 6                       ; the block in paragraphs (under 1MB)
+    sub cx, bp
+    jbe .no                         ; at or past its end
+    cmp cx, 0x1000
+    jb .lim
+    mov cx, 0x1000                  ; 64KB at most
+.lim:
+    shl cx, 4
+    dec cx                          ; the limit (0x1000 -> 0xFFFF)
+    mov si, bp
+    shr si, 12
+    shl bp, 4
+    add ax, bp
+    adc dx, si                      ; DX:AX = the paragraph's linear address
+    mov bl, 0x92                    ; BL = the access byte wanted: data, or
+    test bh, 1                      ; a pair's code half (its data twin is
+    jz .typ                         ; at + 8 by the allocator's own rule,
+    mov bl, 0x9A                    ; which mega_codesel already relies on)
+.typ:
+    mov si, MEGA_SEL_LDTD
+    mov es, si
+    mov di, MEGA_LDT_FREE0 * 8
+.s:
+    mov bh, [es:di+5]
+    and bh, 0xFE                    ; (the CPU sets the ACCESSED bit)
+    cmp bh, bl
+    jne .sn
+    cmp [es:di+2], ax
+    jne .sn
+    cmp [es:di+4], dl
+    je .hit                         ; one over that base already
+.sn:
+    add di, 8
+    cmp di, MEGA_LDT_N * 8
+    jb .s
+    cmp bl, 0x92
+    jne .nc
+    call mega_ldt_alloc             ; AX = the selector
+    jnc .got
+.no:
+    dec byte [sch_lock]
+    pop es
+    popa
+    stc
+    retf
+.nc:
+    call mega_ldt_alloc2            ; AX = the code half
+    jc .no
+.got:
+    xchg ax, di
+    sub di, 4                       ; DI = the entry, as .hit has it
+.hit:
+    lea dx, [di+4]                  ; the selector...
+    cmp bl, 0x92
+    je .ok
+    add dx, 8                       ; ...or the pair's data half
+.ok:
+    mov bp, sp
+    mov [bp+2+10], dx               ; pusha's DX, under the ES pushed after
+    dec byte [sch_lock]
+    pop es
+    popa
+    clc
     retf
 
 ; mega_drvhifree - FAR (drv_release): AX = a driver image drv_hi placed ->

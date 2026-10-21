@@ -14085,6 +14085,19 @@ SOAK = [
         "MEGACSL (tests/megacsw) is one on purpose. 240s is 199 measured, "
         "the tree's build included",
         needs=("bochs", "nasm")),
+    Row("megarehome", "soak", py("tests/megarehome.py"), 120.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.44, SPEC.md 20.12.10.9: a RE-HOMED "
+        "program whose own header says OS88_HIGH runs above 1MB on kern_mega. "
+        "Bochs at 16MB, MEGARUN starting kern_mega's DOS.O88, SCRIBE, CLEAR "
+        "SKIES and WORD by name; the debugger then reads the instance table, "
+        "the pool and the conventional heap: each I_SPTR an LDT selector over "
+        "a pool block owned 80h | slot, WORD's and SCRIBE's claims in the pool "
+        "(OS88_HIGHMEM), no 32KB conventional claim of theirs, and SKIES "
+        "holding an OSAPI_MEM_SUBSEG selector inside its block. The failing "
+        "case is WORD.O88 from before 14.44 (no OS88_HIGH): its I_SPTR comes "
+        "back a conventional segment. 120s is 93 measured",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
     Row("pxmega", "soak", py("tests/pxmega.py"), 260.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.40: PiXEL USED on kern_mega with no "
         "#GP fixup - megatrap0 counts what a launch costs, and a decoder's "

@@ -80,7 +80,16 @@
     ; own bytes, too - tools/os88pkg.py refuses whole-file compression on a
     ; parted package, so the shipped DOS.O88 would give back 5,425 bytes of it
     ; (docs/reports/KERN-DOS-PART-COST-2026-09-14.md).
+ %ifdef DOS_MEGA
+    ; ...and kern_mega's says OS88_HIGH: it is a RE-HOMED program (DOSLOAD
+    ; is its loader), so on kern_mega its keep - this image and its bss, the
+    ; INT 21h core copied in at CORE_ORG - goes above 1MB before it runs
+    ; (SPEC.md 20.12.10.9, KERN-MEGA-PLAN 14.44). kern_big's DOS.O88 is
+    ; built without DOS_MEGA and stays byte-identical
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS, OS88_HIGH
+ %else
     OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS
+ %endif
 %else
     OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH
 %endif

@@ -46081,6 +46081,59 @@ so a padding that shrank cannot make it pass on a carve the old bound allowed.
 The same file under the old loader is refused at launch (`ld_status` 4, the
 package refusing itself), which is the negative control.
 
+##### 20.12.10.9 A re-homed program may run ABOVE 1MB, and says so in its OWN header
+
+On kern_mega in protected mode a package whose header says `OS88_HIGH`
+(§20.2's class byte, bit 7) is loaded into a code/data pair above 1MB before
+it runs (docs/plans/KERN-MEGA-PLAN.md 13.3 step 4). A RE-HOMED program used
+to stay in conventional memory whatever it said, because the bit was read at
+step 7 and step 7 is the LOADER's: a loader is freed one instruction after it
+re-homes, so its own placement buys nothing, and the program part's header
+was never asked. The owner's case is exactly that program - Word left open
+beside a video player, sitting at the top of 640KB, which nothing could move
+and nothing could reach past.
+
+**Step 8a asks the PROGRAM PART'S header now** (`kernel/loader.inc`, step
+8b in the source). After the carve is re-owned, trimmed and the loader freed,
+when
+
+- the CPU is in protected mode,
+- the program's own header says `OS88_HIGH`,
+- the loader used the KEEP form (`AX = 0` at `OSAPI_PKG_REHOME`, §20.12.10.5),
+- and the keep is at most 4,095 paragraphs (65,520 bytes),
+
+the keep moves into a pair exactly as an `OS88_HIGH` package's region does
+(`ld_hicx`, `ld_hi`'s body with the size in CX): one pool block owned
+`80h | slot`, the code selector over its base and the data selector 8 above
+it, `[ld_base]` the data selector, so step 8's far call and step 9's `I_SPTR`
+follow with nothing else changed. Everything a re-homed program reads that is
+inside the keep - Word's and Scribe's part 1, which is CODE at `WD_P1ORG` /
+`SC_P1ORG` reached by near calls - is inside the pair's limit and needs
+nothing. The conventional keep goes back to the heap at once.
+
+Anything else runs low exactly as before, and none of it is a refusal: the
+bytes form, a keep over 4,095 paragraphs (a program with parts past its
+first 64KB needs a selector per part, docs/plans/KERN-MEGA-PLAN.md 14.38.4
+S4), no room above 1MB, no LDT entry, kern_big and kern_small (which never
+call `ld_hi`), and every kernel built before this. **The re-home cell's
+contract does not change** and no `PKG_FMT` moves: a program built before
+says nothing, and a program that says it on an older kernel runs low.
+
+What the program promises by saying it is `OS88_HIGH`'s promise
+(`apps/os88api.inc`): no arithmetic on its own CS or DS, no IRQ vector
+stamped with its own CS, no linear address of its own handed to a device.
+"My segment + N" is the one sum such a program may still need, and
+`OSAPI_MEM_SUBSEG` (§50.3.6) answers it. In the pool the region **moves at
+any instant the compactor runs, with no relocation proc and no restart**
+(KERN-MEGA-PLAN 14.15): its selectors stay and only their bases change, so
+`OS88_REGION_MOVABLE` and `OS88_WORKER_RESTARTABLE` stop mattering, harmlessly.
+
+The programs that say it: WORD, SCRIBE, CLEAR SKIES (not its `CSDIAG=1`
+build, whose watchdog stamps its CS into vector 8) and kern_mega's own
+DOS.O88 (under `DOS_MEGA` only, so kern_big's is byte-identical). Pixelstein
+3D's keep is 141,312 bytes and waits for S4. The cost and the measurements
+are docs/plans/KERN-MEGA-PLAN.md 14.44.
+
 ### 20.13 COMPRESSION — flags bits 3 and 4, and one slot
 
 **A file may be compressed and the kernel expands it on the way in.**
@@ -92391,6 +92444,33 @@ MEGAHI (tests/megahi) is the gate under Bochs at 4MB: 200KB in four pieces,
 claim freed and taken again on the same first selector, which it cannot be
 if the run's later entries were left taken. MEGAHG (tests/megahg) is the
 moving and regrowing half's, under Bochs and on 86Box's 286-mega.
+
+### 50.3.6 `OSAPI_MEM_SUBSEG` — "my segment + N", for a program above 1MB
+
+A program in conventional memory names any paragraph of its own region by
+adding to its segment. Above 1MB its DS is an LDT selector (§20.12.10.9), a
+selector names a BASE, and the sum names some other descriptor - Clear Skies
+faulted on exactly that, in `cs_xpand`, the first time it ran up there. So the
+kernel answers the sum (0x04BD, appended - additive, no `PKG_FMT`):
+
+- in: AX = a paragraph offset into the caller's own region, which it names
+  by its DS (the X cell's ES); BL bit 0 = it will far-call code there.
+- out: CF = 0, DX = a DATA selector whose base is that paragraph and whose
+  limit runs to the end of the region's pool block or 64KB, whichever is
+  first; with bit 0 its CODE twin is DX - 8. A descriptor already over that
+  base, of that type, is answered instead of a new one, so a program spends
+  one LDT entry (two for code) per distinct paragraph it asks for.
+- CF = 1, **every register kept**: use your segment + AX. That is the whole
+  cell on kern_big and kern_small (`mod_gone`), and on kern_mega in real
+  mode, for a region in conventional memory, an offset at or past the
+  region's end, or no LDT entry free - so a caller's fallback is the code it
+  already had, and it is right wherever the region really is.
+
+The selectors live and die with the region: `mega_pkghifree` frees every LDT
+descriptor whose base is inside the block (`mega_rgnsubfree`) besides the
+pair itself, and `mx_cpmove` already rebases every descriptor inside a block
+it moves, so a compaction moves them too. Any context. The cost is
+docs/plans/KERN-MEGA-PLAN.md 14.44.
 
 ### 50.3.2 …and the top-down doors a driver never had
 
