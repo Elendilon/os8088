@@ -9432,7 +9432,10 @@ The owner, on the Victory 286 at 343124b2 (14.62's fix): the mouse froze on
 the very first return - so 14.62 did not catch the return half - and after
 half a dozen more tries, **a solid repro: moving the mouse WHILE THE LIVE
 RESUME IS HAPPENING is what kills it on the desktop.** It is 14.62's
-finding (the pointer moving across the LAUNCH) in the other direction.
+finding (the pointer moving across the LAUNCH) in the other direction. **The
+keyboard dies with it** (the owner): NumLock does not change the LEDs and
+nothing reaches the system - a reset each time. Both devices silent together
+is the shared output buffer's signature, not a mouse fault.
 
 The reading: the return re-enables the mouse's reporting (`hbm_wake`'s
 `0xF4`) and then makes more BIOS calls, and on a 286 every one is a CPU
