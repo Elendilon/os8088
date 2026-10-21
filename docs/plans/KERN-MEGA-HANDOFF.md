@@ -113,7 +113,10 @@ The owner's Packard Bell Victory 286 (PicoMEM 1.x on the owner's firmware,
 1.44MB A:, a B: drive). The owner tests images you produce; say exactly what
 to try and what a photograph should show. The menu-bar diagnostics already
 in the kernel (`NMI`, `FD BIOS`, `RST`, `FDC RESET`, `RFL`, `Q`) are read off
-photographs; `mega_tell` is how a new one gets on the bar safely.
+photographs; `mega_tell` is how a new one gets on the bar safely. **Since
+KERN-MEGA-PLAN 14.65 they are `MEGADIAG=1`'s** (`make megadiag`): a field run
+that needs one is given `build/megadiag/mega.img`, and a new one goes inside
+`%ifdef MEGA_DIAG`.
 
 ### A.5 How to land the work
 

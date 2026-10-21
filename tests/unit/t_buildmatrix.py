@@ -299,6 +299,14 @@ KNOBS = [
     # `make megatrap` builds its tree, megatrap0 is its row) - here so the
     # arm keeps assembling.
     ("megatrap",    ["KERN_MEGA=1", "MEGATRAP=1"]),
+    # `MEGADIAG=1` is kern_mega's field readings on the menu bar (KERN-MEGA-
+    # PLAN 14.65; `make megadiag` builds its disks) - the NMI, RST, FDC
+    # RESET, RFL, Q and DOSP lines, the native floppy's toasts and the
+    # handoff record's hex, none of which a shipped kern_mega shows. Nothing
+    # else assembles that arm. The kernel and HIBER.DRV both carry it
+    # (hbm_d1why is hiber.inc's), so both are built.
+    ("megadiag",    ["KERN_MEGA=1", "MEGADIAG=1"]),
+    ("megadiag-hb", ["KERN_MEGA=1", "MEGADIAG=1"], "hiber.drv"),
     # The LOOK/measurement knobs, which nothing else builds at all. Each
     # switches a whole path in or out - and BAND is now the only thing that
     # assembles the COMPOSED title bar at all, because SPEC.md 5.9.6 sent it

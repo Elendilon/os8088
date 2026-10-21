@@ -963,7 +963,7 @@ hbm_toast:
     pop cx
     ret
 
-%ifdef KERN_MEGA
+%ifdef MEGA_DIAG
 ; -----------------------------------------------------------------------------
 ; hbm_d1why - "Not our handoff record" as a field reading (KERN-MEGA-PLAN 10.3
 ; item 54.2): `H ssss:oooo bbbbbbbb rrr`, the pointer DOS.O88 posted, the
@@ -3170,12 +3170,12 @@ hbm_dosrun:
  %define HBM_BADV .bad          ; 10.4 item 3)
 %endif
 .b1:
-%ifdef KERN_MEGA
+%ifdef MEGA_DIAG
     call hbm_d1why              ; SI = `H ssss:oooo bbbbbbbb rrr`: what was
     jmp short .bad              ; posted, what is there, and the 286 restart
-%else                           ; figures (KERN-MEGA-PLAN 10.3 item 54.2)
-    mov si, hbm_s_d1
-    jmp short .bad
+%else                           ; figures (KERN-MEGA-PLAN 10.3 item 54.2) -
+    mov si, hbm_s_d1            ; MEGADIAG=1's field reading; the shipped
+    jmp short .bad              ; kern_mega says kern_big's sentence (14.65)
 %endif
 .b2:
     mov si, hbm_s_d2
