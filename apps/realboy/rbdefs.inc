@@ -47,6 +47,15 @@ S_HMASK         equ 0x481C          ; byte: the block table's mask, entries /
                                     ;   256 - 1: 31 for 64KB, 7 for 16KB (16.3)
 RB_FREE         equ 0x481E          ; the rest of the window is unassigned,
                                     ; but for rbppu.inc's 4900-66FF and:
+S_SQ3           equ 0x48F0          ; 8: the WAVE channel as the FM chip plays
+                                    ;   it (REALBOY-SPEC 17.1) - S_SQ1's
+                                    ;   layout, its volume NR32's code and no
+                                    ;   envelope - and...
+S_SQ4           equ 0x48F8          ; 8: ...the NOISE channel, a square's
+                                    ;   record exactly (NR41-NR44 sit as
+                                    ;   NRx1-NRx4 do). Out of the state block,
+                                    ;   which is full; a save state carries
+                                    ;   both (ST_SQX)
 RB_VMARK        equ 0x7200          ; 512: a VRAM 16-byte block written since
                                     ;   the damage scan last looked (vr_wr)
 RB_STKEEP       equ 0x7400          ; 1,024: the Game Boy's 8000-83FF, kept
@@ -83,6 +92,7 @@ ST_BLOCK        equ 30h             ; 256: the state block as it was - only
                                     ;   host's and stays as it is
 ST_SNAP         equ 130h            ; 16: RB_SNAP
 ST_RLOG         equ 140h            ; 768: RB_RLOG
+ST_SQX          equ 440h            ; 16: S_SQ3 and S_SQ4
 ST_RECSZ        equ 2048            ; (the rest zero)
 
 ; --- the state block, at RB_STATE --------------------------------------------

@@ -900,12 +900,16 @@ rb_statev:
 .r:
     jmp rb_statsch
 
-; rb_sqch: SI = the square channel whose register BX is (FF10-FF14: 1)
+; rb_sqch: SI = the channel whose register BX is (FF10-FF14: 1, FF15-FF19:
+; 2, FF20-FF23: the noise channel's)
 rb_sqch:
     mov si,S_SQ1
     cmp bl,15h
     jb .r
     mov si,S_SQ2
+    cmp bl,20h
+    jb .r
+    mov si,S_SQ4
 .r:
     ret
 
@@ -924,6 +928,14 @@ rb_sqframe:
     mov si,S_SQ2
     mov bx,0FF17h
     call .ch
+    mov si,S_SQ4                        ; the noise: a square's envelope
+    mov bx,0FF21h
+    call .ch
+    mov si,S_SQ3                        ; the wave: a length and no envelope
+    cmp byte [si+SQ_ON],0
+    je .w
+    call .len
+.w:
     pop si
     pop dx
     pop cx
@@ -1333,6 +1345,14 @@ rb_iowrite:
     je .nr4
     cmp bl,26h
     je .nr52
+    cmp bl,21h                          ; the noise channel: a square's
+    je .nr2                             ;   registers, one along
+    cmp bl,23h
+    je .nr4
+    cmp bl,1Ah
+    je .nr30
+    cmp bl,1Eh
+    je .nr34
 .plain:
     mov [bx],al
     ret
@@ -1369,7 +1389,7 @@ rb_iowrite:
     add al,64
     mov [si+SQ_LEN],al
     ret
-.nr52:                                  ; the master switch off: both off
+.nr52:                                  ; the master switch off: all off
     and al,80h
     or al,70h
     mov [bx],al
@@ -1377,6 +1397,34 @@ rb_iowrite:
     jnz .r2
     mov byte [S_SQ1+SQ_ON],0
     mov byte [S_SQ2+SQ_ON],0
+    mov byte [S_SQ3+SQ_ON],0
+    mov byte [S_SQ4+SQ_ON],0
+    ret
+; --- the wave channel (REALBOY-SPEC section 17.1)
+.nr30:                                  ; NR30: its DAC, bit 7 - off silences
+    mov [bx],al
+    test al,80h
+    jnz .r2
+    mov byte [S_SQ3+SQ_ON],0
+    ret
+.nr34:                                  ; NR34: bit 7 triggers, with the DAC
+    mov [bx],al                         ;   on; bit 6 a length of 256 - NR31
+    test al,80h
+    jz .r2
+    test byte [0FF1Ah],80h
+    jz .r2
+    mov byte [S_SQ3+SQ_ON],1
+    xor cx,cx
+    mov [S_SQ3+SQ_LACC],cx
+    mov byte [S_SQ3+SQ_LEN],0
+    test al,40h
+    jz .r2
+    mov al,[0FF1Bh]
+    neg al                              ; (256 - n: 0 is 256, kept as 255)
+    jnz .wl
+    dec al
+.wl:
+    mov [S_SQ3+SQ_LEN],al
     ret
 .ie:
     mov [bx],al
@@ -2105,6 +2153,9 @@ rb_stcompose:
     mov si,RB_RLOG
     mov cx,RB_RLOG_MAX * 2
     rep movsw
+    mov si,S_SQ3                        ; (the wave and noise records: out
+    mov cx,8                            ;   of the full state block)
+    rep movsw
     pop es
     pop di
     pop si
@@ -2195,6 +2246,10 @@ rb_stapply:
     mov si,RB_STREC+ST_RLOG
     mov di,RB_RLOG
     mov cx,RB_RLOG_MAX * 2
+    rep movsw
+    mov si,RB_STREC+ST_SQX
+    mov di,S_SQ3
+    mov cx,8
     rep movsw
     mov bx,rb_sttab
 .f:

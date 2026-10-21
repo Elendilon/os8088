@@ -1046,6 +1046,14 @@ rt_snd:
     je .no
     cmp dl,26h
     je .no
+    cmp dl,1Ah                      ; (the wave and noise channels' DAC
+    je .no                          ;   and trigger registers: rbsys's too,
+    cmp dl,1Eh                      ;   REALBOY-SPEC 17.1)
+    je .no
+    cmp dl,21h
+    je .no
+    cmp dl,23h
+    je .no
     clc
     ret
 .no:

@@ -2,8 +2,9 @@ REALBOY - a Game Boy for os8088
 ===============================
 
 REALBOY.O88 runs original Game Boy (DMG) cartridges, in a window or full
-screen. The CPU, the picture, the timers, the square channels on the
-speaker, battery saves and the MBC3 clock are all here. Bring your own
+screen. The CPU, the picture, the timers, the sound (all four channels on
+an FM card, the square channels on the speaker), battery saves and the MBC3
+clock are all here. Bring your own
 games: no game ships with it, and the only ROM on this disk is our own demo.
 
 ON THIS DISK
@@ -129,5 +130,8 @@ recompiler. On a 4.77MHz 8088 a busy game runs slowly. GBDEMO.GB runs at
 full speed there, drawing about four frames a second, because the demo was
 written to need very little.
 
-Sound is the louder of the two square channels, on the PC speaker. The
-wave and noise channels are silent.
+With a Sound Blaster or an AdLib (SOUND.DRV loaded, and the Control
+Panel sending tones to it) all four of the Game Boy's channels play on its
+FM chip: both square channels, the wave channel and the noise, as near as
+the chip comes to them. Without one, the PC speaker plays the louder of the
+two square channels, and the wave and noise channels are silent.

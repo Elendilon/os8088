@@ -5614,8 +5614,9 @@ $(BUILD)/realboy.bin: apps/realboy/realboy.asm apps/realboy/rbdefs.inc \
                       apps/realboy/rbjit.inc $(BUILD)/rbtmpl.bin $(BUILD)/rbcore.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realboy/rwlog.inc apps/realboy/rwbank.inc apps/realboy/rwstate.inc \
+                      apps/realboy/rwfm.inc drivers/sound/sndpkg.inc \
                       apps/os88data.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/realboy/ -I $(BUILD)/ -l $(BUILD)/realboy.lst \
+	$(NASM) -f bin -w+error -I apps/ -I apps/realboy/ -I drivers/sound/ -I $(BUILD)/ -l $(BUILD)/realboy.lst \
 		-o $@ apps/realboy/realboy.asm
 	@echo "realboy: $(call FILESIZE,$@) bytes"
 

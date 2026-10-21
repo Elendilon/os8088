@@ -21,6 +21,7 @@
 ; =============================================================================
 
 %include "os88api.inc"
+%include "sndpkg.inc"                   ; SOUND.DRV's FM verbs (rwfm.inc)
 
     OS88_HEADER 'REALBOY', rw_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_PARTS, OS88_STACK_384
 
@@ -271,7 +272,11 @@ rw_ssname       equ rw_stmsg + 24   ; 13: NAME.SS1 to NAME.SS9
 rw_pseg         equ rw_ssname + 13  ; word: the frame as the screen takes it,
                                     ;   RW_PBUF bytes in a claim of its own
                                     ;   (the region had no room for them)
-rw_fbuf         equ rw_pseg + 2     ; 5,760: rb_render's frame (monochrome;
+rw_fmon         equ rw_pseg + 2     ; byte: the FM chip is ours (rwfm.inc)
+rw_fmsh         equ rw_fmon + 1     ; 16: what each channel's B0h, A0h and
+                                    ;   two levels were last written
+rw_fmbuf        equ rw_fmsh + 16    ; 32: a frame's register/value pairs
+rw_fbuf         equ rw_fmbuf + 32 + 1 ; 5,760: rb_render's frame (monochrome;
                                     ;   even)
 RW_BSS          equ rw_fbuf + 5760 - rw_win   ; derived: a sum by hand drifted
 RW_PBUF         equ 11520           ; the frame as the screen takes it: the
@@ -573,6 +578,7 @@ rw_load:
     call rw_prfload
     call rw_start
     call rw_spdgame                 ; its Speed and Sound, if it has them
+    call rw_fmopen                  ; the FM chip, if there is one for us
     mov byte [rw_state], 1
     pop si
     call rw_hire
@@ -1662,6 +1668,7 @@ rw_onclose:
 .s:
     cmp byte [rw_state], 0
     je .r
+    call rw_fmclose
     call rw_prfsave
     cmp byte [rw_batt], 0
     je .r
@@ -2167,6 +2174,8 @@ rw_sound:
     cmp byte [rw_speed], 0
     jne rw_quiet
 .on:
+    cmp byte [rw_fmon], 0           ; all four channels on the FM chip
+    jne rw_fmframe                  ;   (rwfm.inc), else the speaker
     push ds
     mov ds, [cs:rb_viewseg]
     xor bx, bx                      ; BL, BH = channel 1's, 2's volume (0 off)
@@ -2251,8 +2260,12 @@ rw_sound:
 .r:
     ret
 
-; rw_quiet - the speaker off, if we had it
+; rw_quiet - the speaker off, if we had it, and the FM chip's keys
 rw_quiet:
+    cmp byte [rw_fmon], 0
+    je .spk
+    call rw_fmquiet
+.spk:
     cmp word [rw_tone], 0
     je .r
     mov word [rw_tone], 0
@@ -3446,6 +3459,7 @@ rw_ab7:         db 'F1 = speed', 0
 %include "rwlog.inc"
 %include "rwbank.inc"
 %include "rwstate.inc"
+%include "rwfm.inc"
 %include "os88data.inc"
 
 %define OS88UI_ABOUT

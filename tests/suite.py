@@ -2687,6 +2687,18 @@ SOAK = [
         "SOAK: one package",
         needs=("marty", "nasm", "rgbds"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
+    Row("gbfm", "soak", py("tests/gbfm.py"), 25.0,
+        "REALBOY.O88's four channels on the FM chip (docs/REALBOY-SPEC.md "
+        "section 17.1), on MartyPC's VGA XT with a Sound Blaster: GBFM.GB "
+        "(tools/gbprof/gbfm.asm, ours) starts both squares, the wave and the "
+        "noise; the package must hold the chip, its shadow of each channel's "
+        "A0h/B0h must be the F-number the Game Boy's own formulas give, "
+        "SOUND.DRV's opl_b0 must agree, and the card's capture must sound - "
+        "square 1 alone peaking at 440 Hz with its octave under a quarter of "
+        "that (odd harmonics, a square's). Without the claim the speaker plays "
+        "and the row fails on all four channels. SOAK: one package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realboy.o88", "build/os8088-360.img")),
     Row("gbheader", "soak", py("tests/gbheader.py"), 45.0,
         "REALBOY.O88 reading a cartridge's header before it runs it "
         "(docs/REALBOY-SPEC.md section 10), on MartyPC's VGA XT: CLOCK0.GB "

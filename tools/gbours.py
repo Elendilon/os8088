@@ -29,6 +29,7 @@ ROMS = {
     "gbrmw": [],
     "gbflags": [],                          # (generated: tools/gbprof/gbflags.py)
     "gbjoy": [],                            # the joypad interrupt (gbheader.py)
+    "gbfm": [],                             # all four channels (gbfm.py)
 }
 
 
