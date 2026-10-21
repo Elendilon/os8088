@@ -1492,8 +1492,16 @@ of 15.3's reasons: the jitter was drawing into the page being shown, and the
   on every line (the Victory's PVGA1A, the field probe's finding:
   REALBOY-PLAN's scroll round), one that takes it at the frame's top (86Box)
   or at the retrace's end (QEMU). While a flip waits the core runs in
-  budgets of 500 M-cycles (`RW_PGBUD`, ~1 ms recompiled), so it is looked at
-  often enough to land in its first border.
+  budgets of 500 M-cycles (`RW_PGBUD`, ~1 ms recompiled), and the composer
+  calls it too (`rb_lhook`: every eighth line `ppu_dputp` stores, every
+  sixteenth `rb_pages` writes), so it is looked at often enough to land in
+  its first border. **The second is not optional**: a draw is ~10 ms with
+  nothing else looking, and once one frame ran long - a jump, a key's work
+  - its border fell inside the next draw, and the one after's, until the
+  phase drifted back: the owner's field run held the picture 100-300 ms
+  each time a key was pressed, and the twin, tapping keys, went 20 frames
+  without a flip. Looked for during the draw, the same taps leave 5 frames
+  of 87 shown twice.
 - **What it costs**: the bare harness's MODE 14 (`rbbench.py --vga
   --pages`) composes every frame onto the pages and flips at once, against
   MODE 12's single page: Super Mario Land 403 -> 399 ticks, Kirby's Dream
