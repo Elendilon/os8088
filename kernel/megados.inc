@@ -1388,6 +1388,8 @@ mega_dropr:
     out 0x21, al
     mov al, [mega_dkm2]
     out 0xA1, al
+    call mega_kdrain                ; a byte the ICW1 took the edge of would
+                                    ; leave the PROGRAM no keyboard (14.62)
     mov al, 0x0D                    ; NMI on (index 0Dh, read-only)
     out 0x70, al
 %ifdef DOSR_MARK

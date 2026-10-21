@@ -798,6 +798,51 @@ hbm_kbak:
 .x:
     pop cx
     ret
+
+; hbm_kstrand - a byte the 8042 holds that NO INTERRUPT WILL EVER TAKE, read
+; and dropped (KERN-MEGA-PLAN 14.62). The controller has one output buffer for
+; both devices and holds IRQ1 or IRQ12 high while a byte waits in it, so a
+; byte whose edge was lost - an 8259 initialised under it, its line's
+; interrupt off in the command byte when it arrived, the line masked when it
+; came and the latch reset since - keeps both devices silent for good. A byte
+; whose request IS latched at the 8259 (IRR; the controller is given a few
+; polls to raise it) is left for its ISR. The desktop's own state at the end
+; of the return, whatever the program or a package left. AX clobbered
+hbm_kstrand:
+    pushf
+    cli
+    push cx
+    mov cx, 4                   ; four strands at most: then it is live traffic
+.l:
+    in  al, 0x64
+    test al, 0x01
+    jz .x
+    mov ah, al
+    push cx
+    mov cx, 64                  ; the controller's own lag from OBF to its pin
+.s:
+    in  al, 0x64
+    loop .s
+    pop cx
+    mov al, 0x0A                ; OCW3: read the IRR
+    test ah, 0x20
+    jnz .aux
+    out 0x20, al
+    in  al, 0x20
+    test al, 0x02               ; IRQ1 requested: int 09h will take it
+    jmp short .q
+.aux:
+    out 0xA0, al
+    in  al, 0xA0
+    test al, 0x10               ; IRQ12 requested: int 74h will take it
+.q:
+    jnz .x
+    in  al, 0x60
+    loop .l
+.x:
+    pop cx
+    popf
+    ret
 %endif
 
 hbm_knk     db 0xF3, 200, 0xF3, 100, 0xF3, 80, 0xF2 ; mou_p2knk's (SPEC.md 9.9.8)
@@ -3034,8 +3079,58 @@ hbm_dosrun:
     ; any time after the handover vectors into kern_dos's image at `kbm_isr`'s
     ; KERNEL offset - which is SPEC.md 9.6.5's hard freeze one segment along,
     ; and `kd_leave` ends on `int 16h`.
+%ifdef KERN_BIG
+    ; **THE PS/2 MOUSE IS QUIETED FIRST, OR THE PROGRAM'S KEYBOARD IS DEAD**
+    ; (KERN-MEGA-PLAN 14.62). `mouse_unhook` masks IRQ12 and then sends 0xA7,
+    ; and the device is left REPORTING - only its clock is held. A byte it
+    ; sent in between, or one it had in flight, lands in the 8042's one output
+    ; buffer with IRQ12 masked for the whole program (the handover masks it),
+    ; so nobody ever reads it and the controller sends NOTHING from the
+    ; keyboard either: the program runs on with no keys at all. Bochs, with
+    ; the pointer moving across a launch: `KBTRIP entry 64=31` (OBF, AUX) on
+    ; 6 trips of 12, and not one key. So the device is told to stop (0xF5,
+    ; what POST leaves it as; hbm_wake's 0xF4 undoes it on the way home), its
+    ; 0xFA found behind any packet already queued, with IRQ12 masked so the
+    ; poll is the only reader...
+    cmp byte [mou_p2], 0
+    je .p2q
+    pushf
+    cli
+    in  al, 0xA1
+    or  al, MOU_P2SL
+    out 0xA1, al
+    popf
+    mov al, 0xD4
+    mov bp, mou_p2cw
+    call hbm_kd
+    mov al, 0xF5
+    mov bp, mou_p2dw
+    call hbm_kd
+    mov cx, 64                  ; bounded: a real device has one packet in
+.p2f5:                          ; flight, and Bochs's controller queues more
+    call hbm_p2rd
+    cmp al, 0xFA
+    loopne .p2f5
+.p2q:
+%endif
     mov bp, mouse_unhook
     call hbm_kd                 ; int 09h, int 0Ch/0Bh, int 74h, the UARTs
+%ifdef KERN_BIG
+    ; ...and after the 0xA7, the buffer emptied of any AUX byte still in it
+    ; (a keyboard byte is left for int 09h: IRQ1 is open)
+    cmp byte [cpu_tier], CPU_8086   ; an XT's 64h is no 8042 (9.9.2)
+    je .p2d
+    mov cx, 0x1000
+.p2dr:
+    in  al, 0x64
+    and al, 0x21
+    cmp al, 0x21
+    jne .p2dn
+    in  al, 0x60
+.p2dn:
+    loop .p2dr
+.p2d:
+%endif
     mov bp, snd_unhook
     call hbm_kd                 ; 61h bits 0-1 back to their boot state
 
@@ -4832,9 +4927,22 @@ hbm_wake:
     mov al, 0xD4                ; ...and 0xF4 to the DEVICE, because 0xA7 left
     mov bp, mou_p2cw            ; it unclocked and a device that is not
     call hbm_kd                 ; reporting is a live line with nothing on it.
-    mov al, 0xF4                ; The ACK is not collected - `mou_p2flush` is
-    mov bp, mou_p2dw            ; the overlay's, both writers time out on their
-    call hbm_kd                 ; own, and the ISR discards a stray 0xFA anyway
+    mov al, 0xF4
+    mov bp, mou_p2dw
+    call hbm_kd
+    ; **ITS ACK IS COLLECTED, here, with IRQ12 still masked** (KERN-MEGA-PLAN
+    ; 14.62). It was left for the ISR to discard - and the next thing this
+    ; routine does is step 4's int 10h, which on a 286 is a CPU RESET whose
+    ; BIOS can re-initialise the 8259 (mega_r286): an 0xFA landing in that
+    ; window has its edge erased, and a byte nobody reads leaves the keyboard
+    ; and the mouse dead together. Bounded: hbm_p2rd gives up on its own
+    push cx
+    mov cx, 4
+.f4:
+    call hbm_p2rd
+    cmp al, 0xFA
+    loopne .f4
+    pop cx
     mov al, 0xAE                ; ...AND THE KEYBOARD BACK, which is
     mov bp, mou_p2cw            ; mou_p2_init's own last step: the command
     call hbm_kd                 ; byte above is its PROBE-WINDOW value, bit 4
@@ -4855,6 +4963,14 @@ hbm_wake:
     popf
     mov byte [mou_p2], 1
 .nop2:
+    ; ...AND THE 8042 LEFT WITH NOTHING STRANDED IN IT, now that the vectors
+    ; and the masks are back (KERN-MEGA-PLAN 14.62): the keyboard's half and
+    ; the mouse's above leave the controller as the session needs it, and a
+    ; byte with no interrupt behind it would still keep both devices dead
+    cmp byte [cpu_tier], CPU_8086   ; an XT's 64h is no 8042 (9.9.2)
+    je .nokst
+    call hbm_kstrand
+.nokst:
 %endif
     ; 4. the desktop, the way fsx_restore gets it back (SPEC.md 53) - before
     ;    any disk work, so the progress widget has a graphics mode to draw in

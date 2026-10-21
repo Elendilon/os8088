@@ -9274,8 +9274,9 @@ from port 60h, keeps OBF set and the line high with no new edge, and the
 controller then sends nothing from EITHER port. That is a race by nature,
 which fits "about the fourth". Others to rule out: the 8042 command byte or
 port enables (AD/A7) left as the game set them; the master IMR's IRQ1 or the
-cascade bit; 14.57's re-knock, which the DOS return also runs. **OPEN, being
-investigated as 14.62.**
+cascade bit; 14.57's re-knock, which the DOS return also runs. **Answered in
+14.62**: the first suspect, a stranded byte - an AUX one, left by our own
+handoff.
 
 **The owner's discriminator, a reproduction later:** it is something Test
 Drive III DOES. Exited at once, before its title screen, the keyboard and
@@ -9314,3 +9315,113 @@ repository. **But RealBoy is not needed for it**: on kern_mega the owner saw the
 same failure with nothing else in the session - boot, launch TD3, return,
 repeat. So the kernel's own round trip produces it, intermittently, on both
 kernels; RealBoy is at most a second way in.
+
+### 14.62 The 8042 across the DOS trip: a stranded byte silences both devices (2026-10-21)
+
+14.61's field report, and the owner's three follow-ups: the keyboard dead
+INSIDE Test Drive III on a later launch, the same on **kern_big**, and on
+kern_mega with nothing else run in the session - boot, launch, return,
+repeat. SPEC.md 96.45.2.5 is the contract.
+
+**Reproduced under Bochs, on kern_mega, on the first try that moved the
+pointer.** Plain trips never showed it: 12 Test Drive III round trips, then 10
+with the pointer moved inside the game and a key held across the exit, all
+clean. Moving the pointer ACROSS THE LAUNCH did, at once: Test Drive III's
+second launch reached its Main Select screen with Esc doing nothing - the
+keyboard dead inside the game, the game running on. A purpose-built program
+then made it a reading: `tests/dostrap/kbtrip.asm` (KBTRIP.COM) reads port 64h
+first thing, says `ready` on E9, and waits 30 s for a key. With the pointer
+moving across each launch, **6 trips of 12 came in with `64=31` - OBF set, the
+byte the AUXILIARY device's - and no key ever arrived** (`nokey 64=31`). Slave
+IMR 9Fh: IRQ12 masked. One trip read `entry 64=18` and `nokey 64=31`: the
+stranded byte arrived after the program had started.
+
+**The cause is ours and is on both kernels.** The 8042 has one output buffer
+for the two devices and holds IRQ1/IRQ12 high while a byte waits, sending
+nothing more from either until 60h is read. `hbm_dosrun`'s step 6 calls
+`mouse_unhook`, whose `mou_p2_off` masks IRQ12 and then sends 0xA7 - which
+holds the device's CLOCK and leaves it REPORTING - and the handover then runs
+the program with IRQ12 masked. A packet byte sent between the mask and the
+0xA7, or one the device had in flight, sat in the buffer for the whole
+program. Test Drive III, RealBoy and the title screen are incidental: what
+the field runs share is a hand on the mouse at the launch (a double-click, a
+shortcut). RealBoy's source (origin/gameboy, apps/realboy/) touches no port
+60h, 64h, 20h/21h or A0h/A1h and hooks no vector - its keys come through the
+OS - so it cannot leave the controller in a state; **no package-side fix is
+indicated.**
+
+**The dead DESKTOP after a return (14.61's own symptom) is the same fact one
+step on, and the Victory's 286 is where it bites.** Two places on the way
+home could strand a byte: (a) with the device left reporting through the
+whole program, the return's 0xA8 releases a queued packet that trickles in
+after `mega_dwake`'s no-wait drains; (b) hbm_wake sent the device 0xF4 and
+left its 0xFA "for the ISR", and step 4's int 10h follows at once. On a 286
+every reflection is a CPU reset, and the Victory's BIOS re-initialises the
+8259 on that path (`mega_r286` re-initialises it again when it sees the masks
+moved). ICW1 erases every line's edge sense, so a byte sitting in the buffer
+at that moment is never delivered. On the Victory `mega_dprime`'s reflection
+(the PicoMEM's line, W6) comes straight after the drains. Neither Bochs (a
+386: no reset per reflection) nor 86Box (its ICW1 rebuilds IRR from line
+LEVELS, so no edge is ever lost) can show this half. It is inferred, and the
+field run is its confirmation. The old tree did show a third face of it in
+Bochs: an AUX byte read by `int 09h` as a scan code, a stray `2` (`key 0332`)
+typed into the DOS window after a return.
+
+**Built** - put the controller in a known state on both sides, at the
+layer that owns each moment:
+
+| where | what | kernel |
+|---|---|---|
+| `hbm_dosrun` step 6 | with a PS/2 pointer live: IRQ12 masked, `D4 F5` (reporting off, as POST leaves it), its 0xFA read behind any queued packet (64 bytes at most), then `mouse_unhook`, then every AUX byte still in the buffer dropped (a keyboard byte is left for int 09h) | both (HIBER.DRV) |
+| `hbm_wake` `.nowz` | the device's 0xFA to its 0xF4 collected with IRQ12 still masked | both (HIBER.DRV) |
+| `hbm_kstrand`, end of step 3d | a byte in the buffer whose line has no request latched (OCW3 IRR, after 64 polls for the controller's own lag) read and dropped, up to four - whatever the program or a package left | both (HIBER.DRV) |
+| `mega_kdrain` | the buffer emptied straight after an ICW1: in `mega_r286` when the BIOS re-initialised the 8259 on a reset, and in `mega_dropr` after the drop's own | kern_mega (`.text`, real mode) |
+
+Dropping a byte read straight after an ICW1 is exact: no request stands
+behind it to go spurious, so one key or one packet byte is lost where leaving
+it lost both devices for the session.
+
+**Cost, measured at one commit (build 869ba7ce's tree with and without the
+change, artefacts compared byte for byte)**: HIBER.DRV +139 bytes of code
+on both kernels (`hdl_call` 0x1A2C -> 0x1AB7 on kern_big, 0x25E3 -> 0x266E on
+kern_mega), inside its padded image (7,169 / 10,241 bytes, unchanged), the
+packed file 5,889 -> 5,998 and 8,312 -> 8,421. **No resident byte on
+kern_big**: `kernel.bin` and `kernel.sys` byte-identical. kern_small has no
+HIBER.DRV and every hunk is inside `KERN_BIG` or `KERN_MEGA` (by the diff).
+kern_mega `.text` +22 (`mega_kdrain` 15 and two calls) - real-mode code, so
+it cannot go to `.mega` - and `tests/megaseg.txt` 4,323 -> 4,345 with that
+reason; `kernel.bin` the same length.
+
+**Measured on**: Bochs 2.7 (a 386, imps2 mouse) on kern_mega. Base: KBTRIP
+6/12 trips no key; Test Drive III dead inside the game on trip 2 of a run.
+Fixed: KBTRIP 12/12, then the row three times. Its first run, with the 0xF5
+wait bounded at 16 bytes, read a key with ASCII 00 ahead of the `k` on two
+trips of ten (the scan code was not printed yet; plausibly Bochs's controller,
+which QUEUES aux bytes where a real 8042 has none, still holding more than 16
+of them); at 64 bytes, 20 trips of 20 read `k` first; Test Drive III 6/6 round
+trips with the pointer moving across each launch, Esc and Y reaching the
+game every time and the pointer moving after each return. kern_big rows
+under QEMU 9 green: `p2hiber`, `kdreturn`, `kdkbd`, `hmadosret`.
+
+**Row**: `megakbtrip` (new, soak, Bochs, 360 s; 300 measured): ten round trips
+of KBTRIP with the pointer moving across each launch; each asserts that `k`
+(scan 25h) was the first key the program read, the return, and the pointer
+moving after it, and the next trip's typed command is the desktop's keyboard.
+Red on the base tree (`--build` on a copy of it): 3 of 6 trips no key, a
+stray `2` on the seventh. Also covering: `megap2hiber`, `megahiber`,
+`p2hiber`, `kdreturn*`, `kdkbd`, `hmadosret`, `mouresume`,
+`hibernate`/`hibernatedrv`, `kdmouse`/`kdnomouse`.
+
+**For the owner**:
+
+- **The 286 half is the field's to confirm.** If a return still comes home
+  dead on the Victory, the screen to photograph is the menu bar: nothing
+  draws a reading of 64h today. The cheapest instrument would be `KBDDIAG=1`'s
+  ring on kern_mega (it records 64h and the PIC around IRQ1), which has never
+  been built there.
+- **A dropped byte is a lost key or a desynchronised packet**, at the four
+  places above and only where the alternative was both devices dead.
+- **The device is switched off for the DOS program** (0xF5). A DOS program
+  that drives a PS/2 mouse itself (int 15h C2xx) initialises it anyway; one
+  that expected it reporting with nobody having said so would see nothing,
+  which is what POST would have given it.
