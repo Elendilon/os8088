@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "68f19de46d44c41dd71fd03ff26c41072332050914d6445f2044e09e5c2bbbb0",
+  "fingerprint": "a4f12aad75d3751101d8de2e7b2c20ae53c96b6cb0473bbacbe7b8e1730f91c0",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "f5b159d1ad70696010bc8ff3bcfd4c31181811df659dfc7c409da101866ae7ff",
+  "fingerprint": "2ef09ed67b1d9339b2c8e9c46a6015ec3f9810d215433f333baa244bffb85684",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -581,6 +581,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_MEM_SUBSEG (0x04BD) appended, and OS88_HIGH's comment: a re-homed program may say it in its own header (KERN-MEGA-PLAN 14.44) - additive, every package built before still runs",
+   "to": 11
+  },
+  {
+   "fingerprint": "2ef09ed67b1d9339b2c8e9c46a6015ec3f9810d215433f333baa244bffb85684",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "merge: OSAPI_MEM_SUBSEG (14.44) and OSAPI_MEM_HUGE's BX=8000h half-window input (14.41), both additive",
+   "to": 10
+  },
+  {
+   "fingerprint": "a4f12aad75d3751101d8de2e7b2c20ae53c96b6cb0473bbacbe7b8e1730f91c0",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "merge: OSAPI_MEM_SUBSEG (14.44) and OSAPI_MEM_HUGE's BX=8000h half-window input (14.41), both additive",
    "to": 11
   }
  ]

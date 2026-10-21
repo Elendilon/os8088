@@ -159,9 +159,9 @@
 %ifidn %1, 0
     jnc .ret
 %else
-    jnc %1
-%endif
-%endmacro
+    jnc short %1                    ; (SHORT: in reach by design, and a jump
+%endif                              ; nasm relaxed in an earlier pass stayed
+%endmacro                           ; long - vd_n_run's, KERN-MEGA-PLAN 14.41)
 
 ; VD_MRET - a gated chain's return, the map off the stack
 %macro VD_MRET 0

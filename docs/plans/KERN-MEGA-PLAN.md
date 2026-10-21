@@ -6260,6 +6260,213 @@ one paragraph (BOUNCE.GIF FAULTs). ~4 minutes, `needs=("bochs", "nasm")`.
   and are covered by pxextraemu under Unicorn. No such picture was opened
   under Bochs.
 
+### 14.41 The Video Player's ring above 1MB: `OS88_HIGHMEM` (2026-10-21)
+
+The player said `OS88_HIGH` alone (14.14): its ring was paragraph
+arithmetic over 34 sites. It says `OS88_HIGH | OS88_HIGHMEM` now, and under
+`CPU_F_PM` a stream's ring is a pool claim. SPEC.md 98.3.18.17 is the
+contract; this is the record.
+
+**The claim needed a window every 32KB, so the kernel grew one.** 14.37's
+`OSAPI_MEM_HUGE` run has a window every 64KB. A super-packet of up to 32KB
+can start anywhere in a 32KB slot and run on into the next slot, so a slot
+at an odd 32KB of the claim has no window it fits in. `OSAPI_XMEM_RUN` has the
+right shape but only on an `OSAPI_XMEM_ALLOC` block, and those are pinned.
+So `OSAPI_MEM_HUGE` takes **BX = 8000h** on kern_mega: selector k is the 64KB
+window from 32KB x k, and the cell answers BX = 0. Every other kernel, and a
+conventional claim, leaves BX as it was, so a caller can tell. The entry is
+`MX_FHUGE | MX_FH32`. `mx_unsel` frees (KB + 31) / 32 selectors, and the
+regrow refuses such a claim. It still moves, but its odd windows cross a
+64KB piece, so `mx_cpmove` moves it in one interrupts-off step by its own
+rule. That is about 10 ms a 64KB on a 12 MHz 286, so up to ~80 ms for the
+player's largest ring of 512KB, and only when another claim compacts the
+pool during a play.
+
+**In the player**, `[vp_rhi]` marks the session:
+
+- **Slot k** is `[vp_ring] + 8k` wherever it was `+ 2,048k` paragraphs: the
+  fill, the mirror copy, the seam (`vp_warm`) and the copying bank's bounce
+  (`vp_bbnc`).
+- **A key's read** sits at the ring's start, 64KB at most, and is read as
+  window 0 with the offset as it landed. `vp_rptr` and the two inline
+  copies of its normalisation test the segment for an LDT selector.
+- **A lead read apart** (`vp_spos`) and **the bench** (`vp_bnsel`) each
+  take whole windows past the key's read. The bench gets no room in the
+  in-place ring of three windows when `[vp_kbkb]` is over 32, and then
+  times the key, its documented fallback.
+- **`vp_addr`**, the one site a record reaches (several a frame), is patched
+  at its head to a `jmp vp_paddr` for the session (`vp_rhpat`). The write
+  goes through our data alias, as `vd_ypatch` writes, and `vp_sfree` puts
+  the three bytes back. A real-mode play runs vp_addr's own instructions,
+  byte for byte.
+- **Sizing** takes K from the pool's free KB (`vp_rhkb`) rather than from
+  conventional memory less what is claimed after it, and `vp_kroom` lets
+  the keeper stand.
+- **One 32KB conventional bounce** (`[vp_dbnc]`) takes every disk read the
+  ring gets: the fill, `vp_xbread`/`vp_xbup`, `vp_bbnc` and `vp_xfillt`.
+  So a fill makes the `int 13h` runs it always made, and the bounce is
+  copied up with a `rep movsw`. Read straight into a selector, the kernel
+  would bounce it nine sectors a call (`dsk_xfer`'s `.bounce`). A copy out
+  of the hold goes straight to the ring: `mx_copy` takes a claim of ours
+  above 1MB as the conventional end.
+- **`vp_rhiq` decides** before the keeper and the sizing. The ring stays
+  conventional for BIGSP, a layer to place, EMS, a resident play, or a pool
+  without room for the header's slots and the mirror. It also stays
+  conventional when the claim or the bounce is refused, and then
+  `vp_rhfit` cuts the K the pool sized down to what conventional memory
+  holds, as the real-mode sizing would have. That arm was run once under
+  Bochs with `OSAPI_MEM_HUGE` replaced by `stc` in a throwaway build: the
+  Repeat play took a 512KB conventional ring (all 16 slots fit there) and
+  played.
+
+**What stays conventional, and why.** `vp_mclaim` and `vp_mclhi` now go
+through `OSAPI_MEM_CLAIM_DMA(_HI)` with CX = 0. That is the plain claim
+(`mmf_osapi_mem_claim` is that call with CX = 0, so kern_big and kern_small
+behave identically), and `OS88_HIGHMEM` does not reach it. Every claim but
+the ring's therefore stays below 1MB, which is what declaring HIGHMEM needs:
+each one has paragraph arithmetic somewhere.
+
+- **The keeper and the shadow**: plane k is the segment plus `[vp_plsp]`,
+  in `vp_decram` and `vp_zero`. That is the decoder's own loop, so it was
+  not converted.
+- **The poster, `[vp_kshd]`**: their planes, and the poster can BE the
+  keeper (98.3.19.3).
+- **A resident block**: `vp_raud`'s granules and `vp_ldblk`'s read at the
+  claim's top.
+- **`[vp_rdseg]`'s own claims**: `vp_kpic`'s and the thumbnail's
+  normalisation.
+- **The hold's fill buffer**: `vp_xgal` aims it at the gap.
+- **The layer's own claim**: slot arithmetic.
+- **The Sound Blaster's ring**: the DMA door already, and the chip reads it.
+
+That leaves 32KB of bounce, the 17KB card ring and a ~10KB claim during a
+play, where the ring used to be up to 514KB.
+
+**Measured, kern_mega under Bochs** (16MB, SB16), on a clip made as the brief
+says: `testsrc2` 320x240 at 15 fps, 20 s, `--preset vga --profile floppy`,
+429,568 bytes, silent. A second clip adds a 440 Hz sine as PCM8 with sound
+ahead (444,416 bytes). Both are on a 1.44MB B: with VIDEO.O88. `mx_tab` and
+`mem_tab` were read off the machine with the Bochs debugger:
+
+| play | ring (pool block) | conventional free | card |
+|---|---|---|---|
+| held, in place, silent | 96KB, owner A1h, flags 3, sel 28C4 | 523KB | `XMS in place (PM)`, 300/300, stalls 0, Late 0, 365 ticks of 364 |
+| the same, base player | 96KB conventional | 459KB | the same line |
+| Repeat (copying), silent | 512KB at pool KB 480, owner A1h | 523KB | stalls 0, Late 0, through two seams and a full-screen lap |
+| the same, base player | 514KB conventional | **41KB** | - |
+| in place, PCM8 on the SB16 | 96KB | - | 300/300, pauses 0, Late 147, 45 ticks of 363 (base: Late 149, the same 45 of 363) |
+| Repeat, PCM8 | 512KB | 506KB | 266/300, pauses 176, Late 1932 (base 265/300, 175, 1932) |
+
+The two sound rows are Bochs's SB16 and not the change: base and new read
+the same to a frame. Closing the player gives everything back: the region,
+the hold, the ring and the bounce.
+
+**The first build faulted at Play**: `kern_mega FAULT 0D err 2A84` at
+`vp_bngen`'s `mov es, [vp_bnseg]`. The bench is placed on every play, not
+only a layered one, and its segment was the ring plus paragraphs. That is
+the `.bh` arm now.
+
+**Measured, 86Box `286-mega`** (the mr286: MR BIOS 286, 16 MHz, 4MB, SB16,
+kern_mega booted from A: with a SYSTEM.CFG wanting sound). The PCM8 clip
+was opened and Play pressed at once, while the hold was still filling off
+the floppy, so the session copied (`Held whole in XMS`). The pool read:
+hold 435KB at KB 60, **ring 512KB at KB 495, owner A1h, flags 3, sel 28B4**.
+
+- Card: **Drew 300/300, stalls 0, pauses 0, Late 0, 364 ticks of 363**, so
+  real time on the 286 reset path, the copy into a ring above 1MB included.
+- Repeat with sound, mid-play: conventional free 507KB. 46.8 s into the
+  session it was 6.8 s into the third lap with Late 0 and pauses 0.
+- The base player, the same flow: ring 512KB **conventional**, 27KB free.
+- `faults` shows only `mega_svc_lo.r286`'s resets and four handled
+  `Segment can't read/write` at 280C:178x with DS 2814. That is another
+  image's (the player's claims are owned by 2834, its DS), and they were
+  not taken apart here.
+- Not run: the `286-video` profile itself. Its C: wants `make videnchd
+  VIDENC=...`, and its machine is the same mr286.
+
+**kern_big, MartyPC.** The XT path:
+
+- **The bytes a frame runs are identical.** `tools/os88rdiff.py --hot-file
+  apps/video/rdiffhot.txt` against HEAD finds 0 hot routines at an odd
+  shift. The only hot routines changed are three per-chunk or per-read
+  ones: `vp_fill` (three not-taken `cmp byte [vp_rhi]` a 32KB chunk, ~90
+  cycles against a read of about two seconds), `vp_xstep` (its claim
+  through `vp_mclaim`) and `vp_rdat` (a `test cx, 4` a call past the
+  first).
+- **`vd_n_run`'s gate is `jnc short` now** (`VD_SGATE`). Its comment said
+  it reaches `vd_n_slicel` at exactly 127 bytes, and nasm silently relaxes
+  one byte more. Here it relaxed with the bytes BETWEEN unchanged, from an
+  earlier pass. Forcing `short` keeps the encoding, and makes a layout that
+  truly does not fit an error instead of a silent 3-byte relaxation in the
+  decoder.
+- **Play A/B**, the commit's own sources put in place against this tree,
+  `tests/vidplay.py`'s second play (ticks, the guest's clock):
+
+  | arm | base | new |
+  |---|---|---|
+  | cga | 92, 4.95 s | 92, 5.15 s |
+  | lin80 | 91, 4.93 s | 92, 4.87 s |
+  | cga on herc (the shadow) | 93, 5.43 s | 93, 4.85 s |
+
+  Frames 150/150, stalls 0, late 0 in every arm. The clock moves both ways
+  between runs of the same binary, so it measures the run and not the
+  change.
+- **Rows**, `os88test.py soak -k ...` on this tree, all ok: `vidplay
+  vidplayvga vidplayshd vidrepeat vidahead vidaheadseek vidkpart vidbank
+  vidxipbank vidxip vidxmsgap vidlyplay vidresident vidlive vidbigclus
+  vidkeyclus vidsnd vidclose` - **18/18**. `vidbench` skipped (needs
+  `xdc`); `vidbigclus` and `vidkeyclus` needed `mtools`, which was
+  installed for them.
+
+**Cost.**
+
+- `video.bin` 58,357 -> **58,973** (+616). `VPDIAG=1` 59,923 -> 60,537
+  (+614), `NOLIVESND=1` 58,124 -> 58,740 (+616). bss unchanged at 2,516.
+  The shipped `VIDEO.O88` is 44,543 -> 45,043 bytes on disk. About 360 of
+  the bytes are the new routines (`vp_rhiq` to `vp_rhcp`), the rest the
+  sites' arms and the even-shift pads. The MartyPC rows, the A/B and the
+  Bochs and 86Box plays ran on the build before `vp_rhfit` and two
+  even-shift `nop`s (+~70 bytes; on a real-mode kernel it is one `cmp` and
+  a `je` a session start); the fallback run above had it, and `vidplay vidrepeat vidbank vidkpart
+  vidxipbank vidahead` were run again on the final build: 6/6 ok.
+- kern_mega `.cold` 41,522 -> **41,606 (+84)**, `.mega` 12,941 -> **12,955
+  (+14)**, `.text` + `.bss` +0, the segment overhead still the 5,931
+  `tests/megaseg.txt` allows.
+- kern_big and kern_small: **unchanged**. Every kernel line is in
+  `kernel/mega.inc`, which is `%ifdef KERN_MEGA` from its 63rd line to its
+  end (read from the diff, not built twice). The SDK comment and the
+  contract in SPEC.md 50.3.5 grew. `abilock` records it without a bump
+  (PKG_FMT 10, DRV_VER 11): BX was an unused input, so nothing built before
+  changes.
+
+**Rows that cover it**: the MartyPC list above (kern_big), plus the fast
+tier's `abi` and `movable`, and `make mega`'s `os88megaseg` and
+`os88ovlchk`. No soak row boots kern_mega. The two Bochs and 86Box plays
+above were by hand, and their recipe is this section's.
+
+**Left, and for the owner to look back over:**
+
+1. **The ring's move is one interrupts-off step**, ~80 ms at 512KB on a 12
+   MHz 286, where 14.37's pieces cap a deaf stretch at 64KB. It only happens
+   when something else compacts the pool mid-play. Making it piecewise
+   needs `mx_cpmove` to rebase a window that spans two pieces after both
+   are copied, and to know the copy never lands in a piece a window still
+   reads. Not built.
+2. **The bounce is the one conventional buffer the ring keeps**, 32KB. A
+   disk read straight into the high ring would cost the `int 13h` calls and
+   on a floppy the revolutions (14.16 decision 3). The 286's PIO hard disk
+   (HDD.DRV rung 1) could take it at no cost, and is the next step if the
+   32KB matters.
+3. **Everything else stays conventional**: about 60KB during a play
+   (keeper/shadow up to 64KB, the poster, the key reads). The planar keeper
+   is the decoder's inner loop, which the XT path must not pay for.
+4. **A layered file, BIGSP and EMS keep the conventional ring.** A layer's
+   carve and bounce sit at KB offsets, and BIGSP's 64KB super-packets need
+   a window finer than 32KB apart.
+5. **The `jnc short` in `VD_SGATE`** turns a future odd shift that pushes
+   `vd_n_run`'s gate past 127 bytes into a build error. It is
+   `VP_RDLOG` without `VP_DIAG` today, an arm the Makefile never builds.
+
 ### 14.42 A fault in a package closes the package, not the machine (2026-10-20)
 
 Section 4 item 6, built. Before this, every exception that `mega_gpfix`,

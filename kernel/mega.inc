@@ -4494,11 +4494,20 @@ mega_hibnc:
 ; mega_hugef - FAR: OSAPI_MEM_HUGE in protected mode (KERN-MEGA-PLAN 14.1
 ;              answers 6 and 7, 14.37): ONE pool block of AX KB and a RUN of
 ;              consecutive LDT data selectors over it, a 64KB window each
-; in:  AX = KB (1..65535), ES = the caller, DS = KDATA
+; in:  AX = KB (1..65535), ES = the caller, DS = KDATA, BX = 8000h for a
+;      window every 32KB (below)
 ; out: CF = 0, DX = the first selector, CX = 8 (the step); CF = 1 not here -
 ;      not protected mode, not an OS88_HIGHMEM package (or OS88_DRV_HICLAIM
 ;      driver), no room, or no run of free LDT entries - and the cell goes
-;      on to the conventional heap. Every other register kept
+;      on to the conventional heap. Every other register kept, but BX = 0
+;      when a window every 32KB was asked and given
+;
+; BX = 8000h (KERN-MEGA-PLAN 14.41): selector k is the 64KB window from 32KB
+; x k, cut at the claim's end - OSAPI_XMEM_RUN's shape on a claim that moves,
+; so a reader of records of 32KB or less finds ANY of them whole in the window
+; at (offset >> 15), at (offset & 7FFFh). MX_FH32 says so; mx_unsel frees
+; (KB + 31) / 32 selectors, the regrow refuses it, and a move is ONE step with
+; interrupts off (the odd windows cross a 64KB piece: mx_cpmove's own rule)
 ;
 ; The pieces are contiguous because the block is: a selector's base is the
 ; block's plus 64KB x its index, and its limit 64KB - 1 but the last's, which
@@ -4521,6 +4530,7 @@ mega_hugef:
     je .no
     or ax, ax
     jz .no
+    mov si, bx                      ; SI = 8000h: a window every 32KB (14.41)
     call MEGA_SEL_CODE:mega_ownerf     ; BL = 0A0h | slot (or 0C0h | row)
     jc .no
     inc byte [sch_lock]             ; the base is aimed before any other
@@ -4531,7 +4541,15 @@ mega_hugef:
     call MEGA_SEL_CODE:mx_allocf       ; DX:AX = the block's base
     jc .nol
     mov cx, bp
+    cmp si, 0x8000
+    je .c32
     call mega_hgcnt                 ; CX = the selectors (<= 240: 15MB)
+    jmp short .cn
+.c32:
+    add cx, 31                      ; ...or one per 32KB (<= 480)
+    rcr cx, 1
+    shr cx, 4
+.cn:
     mov di, MEGA_SEL_LDTD
     mov es, di
     pushf
@@ -4540,7 +4558,13 @@ mega_hugef:
     jc .full
     push bx
     mov bx, bp
+    cmp si, 0x8000
+    je .f32
     call mega_hgfill
+    jmp short .fd
+.f32:
+    call mega_hgfill32
+.fd:
     pop bx
     popf
     lea bp, [di+4]                  ; BP = the first selector (TI = 1)
@@ -4549,6 +4573,12 @@ mega_hugef:
     or byte [di+MX_FL], MX_FHUGE
     mov dx, bp
     mov cx, 8
+    cmp si, 0x8000
+    jne .ok
+    or byte [di+MX_FL], MX_FH32
+    mov bp, sp
+    mov word [ss:bp+8], 0           ; the caller's BX: 0, the ask was met
+.ok:
     clc
     jmp short .out
 .full:
@@ -4617,9 +4647,17 @@ mega_hgfree:
 
 ; mega_hgfill - ES:DI = a run's first entry, CX = its length, DX:AX = the
 ; block's base, BX = its KB: the run's descriptors, present data, a 64KB
-; window each and the last ending at the claim's end. Clobbers nothing
+; window each and the last ending at the claim's end. SI = 8000h: a window
+; every 32KB from mega_hgfill32 instead, each still 64KB long (OSAPI_XMEM_RUN's
+; shape, KERN-MEGA-PLAN 14.41). Clobbers nothing
+mega_hgfill32:
+    pusha
+    mov bp, 1
+    jmp short mega_hgfill.go
 mega_hgfill:
     pusha
+    xor bp, bp
+.go:
 .fill:
     mov word [es:di], 0xFFFF        ; a whole 64KB...
     cmp bx, 64
@@ -4634,8 +4672,16 @@ mega_hgfill:
     mov [es:di+4], dl
     mov byte [es:di+5], 0x92        ; data, present: taken
     mov word [es:di+6], 0
+    or bp, bp
+    jnz .h32
     inc dl                          ; the next 64KB
     sub bx, 64
+    jmp short .nx
+.h32:
+    add ax, 0x8000                  ; ...or the next 32KB
+    adc dl, 0
+    sub bx, 32
+.nx:
     add di, 8
     loop .fill
     popa
@@ -5879,7 +5925,11 @@ MX_FHUGE    equ 1                   ; an OSAPI_MEM_HUGE claim: its MX_SEL is
                                     ; the FIRST of a run, one per 64KB, and
                                     ; OSAPI_MEM_REGROW keeps it in the pool at
                                     ; any size (KERN-MEGA-PLAN 14.37)
-MX_SEL      equ 6                   ; word: OSAPI_XMEM_SEL's selector over a
+MX_FH32     equ 2                   ; ...with MX_FHUGE: a window every 32KB,
+                                    ; each 64KB long (BX = 8000h asked it,
+                                    ; KERN-MEGA-PLAN 14.41) - mx_unsel frees
+                                    ; one per 32KB, and it does not regrow
+MX_SEL      equ 6                  ; word: OSAPI_XMEM_SEL's selector over a
                                     ; window of this block, 0 = none - freed
                                     ; with the block (mx_free, mx_relall)
 MX_NBLK     equ XM_MAX_BLKS + 16    ; entries: XMEM.DRV's eight for packages
@@ -6139,6 +6189,12 @@ mx_unsel:
     jz .l                       ; selector per 64KB, consecutive - a
     mov cx, [si+MX_KB]          ; package's or a driver's. Every other block
                                 ; has the one selector it was given
+    test byte [si+MX_FL], MX_FH32   ; (or one per 32KB, KERN-MEGA-PLAN 14.41)
+    jz .h64
+    add cx, 31
+    shr cx, 5
+    jmp short .l
+.h64:
     add cx, 63
     shr cx, 6
 .l:
@@ -7672,6 +7728,10 @@ mega_claimregrowf:
 ; A refusal (no KB, or no run of LDT entries) leaves MX_KB as it was, and
 ; the claim's bytes and run whole, wherever the pass left them
 .huge:
+    test byte [si+MX_FL], MX_FH32   ; (windows 32KB apart: not regrown, 14.41)
+    jz .h64
+    jmp .nol
+.h64:
     cmp bp, [si+MX_KB]
     jbe .hsel                       ; a shrink or a level: in place
     call .hroom
