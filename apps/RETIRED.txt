@@ -67,3 +67,9 @@ local      excitebike  # SPEC.md 102. A standalone game disk (make excitebikedis
                        # and committed, so it needs no user-supplied asset, but it is not
                        # on the standard images, the allapps floppy or the live media
                        # until the maintainer decides it should be (the game is complete).
+local      lemmings    # SPEC.md 114. A C port in progress (draft PR #168) whose
+                       # data is the original DOS Lemmings' 26 files, FETCHED by
+                       # tools/getlemmings.py and never committed (CONTRIBUTING.md 6).
+                       # `make lemmings` / `make lemmingsdisk` build it standalone;
+                       # no standard image, allapps floppy or live payload carries it
+                       # until the maintainer decides it ships.
