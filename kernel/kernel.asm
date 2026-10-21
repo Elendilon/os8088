@@ -1171,7 +1171,23 @@ HMA_COLD_AT equ 0x6000          ; kern_big's `.cold` starts at this OFFSET, in
                                 ; fit. Lowering it gives the drivers' room to
                                 ; `.cold`; no encoding depends on it
 %endif
+%ifdef KERN_MEGA
+COLD_VSTART equ 0x80            ; kern_mega's `.cold` is never cut into a ROM
+                                ; or an HMA image (KERN-MEGA-PLAN 10.3 item
+                                ; 35), so HMA_COLD_AT's budget is not its own:
+                                ; from 0x80 it may reach 65,152 bytes before
+                                ; the FF00 guard, where 0x4000 stopped it at
+                                ; 48,896 (KERN-MEGA-SEGMENTS-PLAN W4, KERN-MEGA-
+                                ; PLAN 14.45). NOT 0x10, which the plan named:
+                                ; COLD_SEG is a GDT SELECTOR here (the identity
+                                ; entry mega_enter makes code), so it is a
+                                ; multiple of 8 paragraphs - mega.inc's guard -
+                                ; and COLD_RAM less 8 is the slack above task
+                                ; 0's stack, at the top of the LOW rung, where
+                                ; no claim can start
+%else
 COLD_VSTART equ HMA_COLD_AT
+%endif
 %else
 COLD_VSTART equ 0x10            ; kern_small has no HMA: the sixteen bytes
 %endif                          ; under it are the ROM's header
@@ -1247,7 +1263,8 @@ MEGA_RAM    equ COLD_RAM + COLD_PARA ; kern_mega's OWN SEGMENT, `.mega`: the
                                 ; with it (docs/plans/KERN-MEGA-SEGMENTS-PLAN.md
                                 ; 3.3). In the file it is the section after
                                 ; `.cold`, so stage 2's one read lands it here
-MEGA_PARA   equ ((MEGA_SIZE + 511) / 512) * 32
+MEGA_PARA   equ ((MEGA_SCR_OFF + MPS_SIZE + 511) / 512) * 32 ; ...with the
+                                ; park's scratch on its tail (megados.inc)
 VGABUF_RAM  equ MEGA_RAM + MEGA_PARA ; THE PLANAR DECODER'S BUFFERS
 %else
 VGABUF_RAM  equ COLD_RAM + COLD_PARA ; THE PLANAR DECODER'S BUFFERS
@@ -7549,7 +7566,7 @@ MEGA_SIZE equ mega_end - $$
  %if MEGA_SIZE > 0xFFF0
   %error "kern_mega: `.mega` has outgrown its 64KB segment - it is time for a second one (KERN-MEGA-SEGMENTS-PLAN 2 C)"
  %endif
- %if MEGA_HI_LIN + MEGA_SIZE > MEGA_XPOOL
+ %if MEGA_HI_LIN + MEGA_SCR_OFF + MPS_SIZE > MEGA_XPOOL
   %error "kern_mega: `.cold` and `.mega` no longer fit between the IDT and the XMEM pool (mega.inc) - raise MEGA_XPOOL by 64KB"
  %endif
  %if MEGA_FKINST != INST_MAX || MEGA_FKMSG != TOAST_MAX + 1
@@ -8043,6 +8060,13 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
                                  ; steer by it, and for a while the one it
                                  ; named was the looser of the two
   %warning ks: text=KS_TEXT bss=KS_BSS cold=KS_COLD lowbss=KS_LOW vgabuf=KS_VGAB ovl=KS_OVL boot2=KS_BOOT2 stk0=KS_STK0 imgpara=KS_IMGP coldpara=KS_COLDP fatpara=KS_FATP lowpara=KS_LOWP vgabufpara=KS_VGABP ksize=KS_SIZE budget=KS_BUDGET codemax=KS_CODEM kend=KS_END kseg=KS_KSEG colds=KS_COLDS fats=KS_FATS lows=KS_LOWS vgas=KS_VGAS blobseg=KS_BLOB minramkb=KS_MINRAM bootmax=KS_BOOTMX grace=KS_GRACE
+  %ifdef KERN_MEGA              ; ...and kern_mega's own rung, on a line of
+    %assign KS_MEGA  MEGA_SIZE  ; its own (tools/kernsize.py's `mega`
+    %assign KS_MSCR  MEGA_SCR_OFF + MPS_SIZE - MEGA_SIZE ; variant): `.mega`,
+    %assign KS_MEGAP MEGA_PARA  ; the park's scratch on its tail, the rung
+    %assign KS_MEGAS MEGA_RAM   ; and its base (KERN-MEGA-PLAN 14.45)
+    %warning ksm: mega=KS_MEGA mscr=KS_MSCR megapara=KS_MEGAP megas=KS_MEGAS
+  %endif
 %endif
 
 ; 1. KERN_BUDGET - the FOOTPRINT. The whole kernel - image, scratch, FAT

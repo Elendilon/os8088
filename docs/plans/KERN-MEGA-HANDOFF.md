@@ -382,9 +382,11 @@ are yours.
 
 **Measure, do not estimate, where you can.** Every byte figure in the plan is
 an estimate; replace each with the built one in the plan as the wave lands.
-`tools/kernsize.py --build build/megak` reports kern_big's sizes, not
-kern_mega's (found by Track 5), so read `build/megak/kernel.map` until that
-tool is fixed. `kerndos/kdlayout.inc`'s "133 bytes left" may be stale: the
+`tools/kernsize.py --build build/megak` reported kern_big's sizes, not
+kern_mega's (found by Track 5); since KERN-MEGA-PLAN 14.45 it measures a
+kern_mega tree as kern_mega (`kernsize[mega]`: the sections with `.mega` and
+its scratch, the rungs, the segment, and what stays resident after the
+switch), and refuses to bless one. `kerndos/kdlayout.inc`'s "133 bytes left" may be stale: the
 assertion at the foot of `kerndos/kdos.asm` is the truth.
 
 **Check, per wave.** kern_big's `kernel.bin` and `hiber.drv` byte-identical at

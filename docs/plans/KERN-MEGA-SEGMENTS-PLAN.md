@@ -1,7 +1,8 @@
 # KERN-MEGA-SEGMENTS-PLAN — a segment of kern_mega's own
 
-**Status: W0, W1 and W2 ARE BUILT, and most of W3** (2026-10-20, branch
-`protected-mode-segments`, cut from `protected-mode` at `7c64410`); section 8
+**Status: W0 to W4 ARE BUILT** (W0-W3 on 2026-10-20, branch
+`protected-mode-segments`, cut from `protected-mode` at `7c64410`; W3's rest
+and W4 on 2026-10-21, KERN-MEGA-PLAN 14.45, which is 8.7 here); section 8
 is what was built and measured, and what is still owed. The owner's answers
 to section 6 are in 8.1. The owner asked: kern_mega still has
 kern_big's two segments, it does more, and it will need room to grow. Does it
@@ -508,8 +509,9 @@ Off the two maps at one commit (`tools/os88megaseg.py`):
 So kern_mega overflows its kernel segment only when kern_big's own `.text` +
 `.bss` grows by another 11,484 bytes, where it was 116, and the conventional
 heap of a kern_mega machine that copies `.cold` and `.mega` above 1MB is
-**11,264 bytes larger** - the resident rung's shrink. That last figure is
-ARITHMETIC off the ladder (`KIMG_PARA`), not a reading off a running machine.
+**11,264 bytes larger** - the resident rung's shrink. That last figure was
+ARITHMETIC off the ladder (`KIMG_PARA`) when this was written; 8.7 has the
+reading, and it is the same 11,264 to the byte on both emulators.
 
 kern_big is **byte-identical** (`kernel-full.bin`, modules included, at build
 1600). `.mega` is assembled only with `-DKERN_MEGA`.
@@ -617,14 +619,64 @@ packages' own exit codes, the same on the tree before the change.
 * **The Victory 286.** Bochs is a 386, so the 286 reset path - `mega_r286`,
   `mega_svc_lo`'s reset arm, `mega_dosgo_lo`'s - is the field machine's to
   prove. So is the string restart, whose 286 behaviour is what
-  `mega_strfix` exists for.
-* **A hibernate and resume** under Bochs. It wakes into `.mega` through the
-  same stub check the park now passes, but it was not run here: it needs
-  the boot partition on C: (docs/plans/KERN-MEGA-DOS-PLAN.md).
-* **W3's rest**: the park's buffers (`mega_dreg`, `mega_dmap`, `mega_dhc`,
-  ~900 bytes) out of `.text`. Section 3.6 suggests building them in the park
-  block, which means changing HIBER.DRV's readers. `mega_enter`'s real-mode
-  refusals (~150 bytes) could go to `.cold`.
+  `mega_strfix` exists for. *86Box's mr286 has run all three since (8.7);
+  the iron is still the Victory's.*
+* ~~**A hibernate and resume** under Bochs.~~ Run in 8.7, with the boot
+  partition on C: (`os88bochs.py --csys`): a menu hibernate and its resume,
+  and KERN-MEGA-PLAN 14.43's disk image resumed after a power-off.
+* ~~**W3's rest**~~: built in 8.7 - not in the park block, for a reason 3.6
+  did not see.
 * `.cold`'s kern_mega claim entries (`mega_claimhf`, `mega_hugef`,
   `mega_xmrunf`) stay. Their callers reach them in real mode too, and they
   are not in the 64KB segment.
+
+### 8.7 W3's rest and W4 (2026-10-21, KERN-MEGA-PLAN 14.45)
+
+**The park's three buffers are the TAIL OF `.mega`'s RUNG, not the park
+block.** 3.6 said "build them in the park block's own header", and that
+cannot be done for two of the three: the KB-in-use map (`mega_dmap`) is what
+`mega_dosclaimf` SIZES the block from, before there is a block, and the list
+(`mega_dreg`) is built by a hibernate's write (`hbm_xplan`) and read back by
+its resume (`hbm_xres`, `hbm_xfit`) with no park block at all - the resume's
+staging block is placed BY reading it. So the three live in a scratch area
+past `.mega`'s last byte (`MEGA_SCR_OFF`, 16-aligned), in the same rung,
+reached through their own data selector `MEGA_SEL_PSCR` = 0xFFD0 (GDT entry
+1FFAh, the "optional data alias" 3.1 reserved, and one of the entries the
+park already banks). `mega_mdesc` writes it beside `MEGA_SEL_CODE`, both
+bases, so it is above 1MB on every machine that copies `.mega` there and in
+the low rung on the rest. It is never summed (the high region stops at
+`.mega`'s last whole line), which the header's cells need: they are written
+after the sum. The rung grows by the 916 bytes and gives them back at the
+switch, so the scratch costs no resident byte anywhere; `MEGA_PARA` and the
+high-slot guard count it, and so does `tools/os88megaseg.py`.
+
+**`mega_enter`'s refusals, the A20 gate and the task test are `.cold`**
+(`mega_gatef`, 8086 code: an 8088 runs it), and the four debug-port lines
+are the toasts' own text behind one `kern_mega: ` prefix rather than four
+longer copies of it.
+
+| | before (ee3c8398) | after |
+|---|---:|---:|
+| kern_mega `.text` + `.bss` | 54,094 | **52,716** (-1,378: the buffers 886, the refusals 492) |
+| the ratchet (`tests/megaseg.txt`) | 5,935 | **4,557** |
+| `.mega` | 14,252 | 14,354 (+102: segment prefixes) + 916 scratch |
+| `.cold` | 41,730 | 41,994 (+264) |
+| the kernel's resident rung | 54,272 | **52,736** (-1,536 conventional, every kern_mega machine) |
+
+**W4 is built at 0x80, not 0x10.** On kern_mega `COLD_SEG` is a GDT SELECTOR
+(the identity entry `mega_enter` makes code), so it must be a multiple of 8
+paragraphs - mega.inc's own guard refuses anything else - and 0x10 puts it on
+an odd paragraph. At 0x80 `COLD_SEG` is `COLD_RAM - 8`, the slack above task
+0's stack at the top of the LOW rung, where nothing is claimed. `.cold` may
+now reach 65,152 bytes before kernel.asm's FF00 guard, where 0x4000 stopped
+it at 48,896. kern_big and kern_small do not move (the arm is
+`%ifdef KERN_MEGA`).
+
+**The heap, read off running machines** (the desktop after boot, A: mega.img,
+`mem_top - mem_base` less the claims in `mem_tab`):
+
+| kern_mega | Bochs 2.7, 16MB | 86Box `286-mega`, 4MB |
+|---|---:|---:|
+| `9eb5e828`, before `.mega` | 569,856 (floor 1360h) | 570,880 (1360h) |
+| `cf7e263d`, `.mega` built | 581,120 (10A0h): **+11,264** | 582,144 (10A0h): **+11,264** |
+| this change | 582,656 (1040h): +1,536 more | 583,680 (1040h): +1,536 more |
