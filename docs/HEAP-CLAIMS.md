@@ -242,7 +242,14 @@ claimed at every Play and freed at every stop on every kernel (SPEC.md
 `OSAPI_MEM_CLAIM_DMA_HI` with a head, so 1942's PCM rings, the Video
 Player's card ring, MIDIRack's and `SOUND.DRV`'s pool and double buffer
 (SPEC.md 50.3.2, 34.5.3), which kern_big and kern_small still take from the
-top. All of them are held only while they play.
+top. All of them are held only while they play. KERN-MEGA-PLAN 14.59 took
+the two that were left in MIDIRack: a refused external ring is no longer a
+refused Play (the grant ring out of `SOUND.DRV`'s pool plays instead), and
+**its speaker/Covox ring** (5KB, `mrk_seg`, a plain claim - so above 1MB on
+kern_mega, and conventional heap on the other two) is claimed only by a
+speaker or Covox Play on the ISR's road and freed at every end of a session
+but a pause (SPEC.md 105.8.3), where it was held from the first speaker play
+to the window's close.
 Clear Skies' flight shadow, below, is one of the claims 14.52 moved: pinned
 by not declaring on kern_big, a pool selector on kern_mega.
 

@@ -39,12 +39,16 @@ on what came out of the machine:
         frequency always the highest melodic note the reference has sounding
   end   the AdLib profile: INTRO looped (Loop on - the same song again, from
         its start), then Loop off and the song's end advances the playlist
-  sbmem the SB profile, THE RING'S LIFETIME (SPEC.md 105.8.4): the external
-        ring is held while a song plays and is GONE from the claim map at
-        Stop; then tests/filler takes the heap until no claim of the ring's
-        size can be funded, and Play is REFUSED - nothing open, nothing held,
-        the status line's own message - and with the filler closed the next
-        Play opens the card and it consumes. Its apps disk is its own
+  sbmem the SB profile, THE RINGS' LIFETIMES (SPEC.md 105.8.4, 105.8.3,
+        KERN-MEGA-PLAN 14.59): the external ring is held while a song plays
+        and is GONE from the claim map at Stop; the speaker's ring is held
+        through a pause and gone at the Stop after it, gone at Esc in the
+        bracket, and not held while the card plays; then tests/filler takes
+        the heap until no claim of the external ring's size can be funded,
+        and the card plays on the GRANT ring instead; the filler's T takes
+        the rest, and the card's Play and the speaker's are REFUSED -
+        nothing open, nothing held, each with its own message - and with the
+        filler closed both play again. Its apps disk is its own
         720KB one (mrwt720.img's shape): MIDIRack and tests/filler in APPS,
         the two songs in MEDIA
 
@@ -320,8 +324,13 @@ def heap(m):
 
 
 def arm_sbmem(ui, p):
-    """THE RING IS CLAIMED AT PLAY AND FREED AT STOP, AND A REFUSAL IS A
-    MESSAGE (SPEC.md 105.8.4, KERN-MEGA-PLAN 14.55)."""
+    """THE TWO RINGS LIVE ONLY WHILE THEY PLAY, AND A REFUSAL IS A MESSAGE
+    (SPEC.md 105.8.4, 105.8.3; KERN-MEGA-PLAN 14.55, 14.59): the card's
+    external ring and the speaker's, each in the claim map while its output
+    plays and gone at every stop; a heap that cannot fund the external ring
+    plays on the GRANT ring instead; one that cannot fund either refuses the
+    card's Play and the speaker's, each in words; and the memory back, both
+    play again."""
     m = ui.m
     M.until(m, lambda _: p.b("mrb_open") == 1, "the card's stream", poll=.1,
             limit=10)                   # ([mr_out] is set before the open)
@@ -331,15 +340,37 @@ def arm_sbmem(ui, p):
              % (p.b("mrb_open"), p.b("mrb_grant"), seg))
     if not any(b == seg for b, _, _ in heap(m)[0]):
         fail("sbmem: the ring at %04X is not in the claim map" % seg)
-    M.guest_sleep(m, 1.0)
-    ui.menu_pick("Play", "Stop")
-    M.until(m, lambda _: p.b("mr_state") == MR_ST_STOP, "the stop", poll=.1,
-            limit=10)
+    stop(ui, p)
     if p.w("mrb_seg") or any(b == seg for b, _, _ in heap(m)[0]):
         fail("sbmem: the ring is still held after Stop ([mrb_seg] %04X)"
              % p.w("mrb_seg"))
     print("PASS sbmem: the ring at %04X held while it played, freed at Stop"
           % seg, flush=True)
+    # THE SPEAKER'S RING: claimed in its bracket, kept through a pause (the
+    # queue is the resume), freed at the Stop after it and at Esc inside it
+    spk_play(ui, p)
+    ks = p.w("mrk_seg")
+    m.type_text(" ")                    # to the desktop, paused
+    M.until(m, lambda _: p.b("mr_state") == MR_ST_PAUSE, "the pause",
+            poll=.1, limit=30)
+    if p.w("mrk_seg") != ks:
+        fail("sbmem: a PAUSED speaker play gave its ring up - the resume "
+             "needs it")
+    stop(ui, p)
+    spk_gone(m, p, ks, "Stop after a pause")
+    spk_play(ui, p)
+    ks = p.w("mrk_seg")
+    m.key("Escape")                     # Esc: a stop INSIDE the bracket
+    M.until(m, lambda _: p.b("mr_state") == MR_ST_STOP, "the bracket's stop",
+            poll=.1, limit=30)
+    spk_gone(m, p, ks, "Esc in the bracket")
+    # ...AND NOT IN SOUND BLASTER MODE: the card plays with no speaker ring
+    card_play(ui, p, "the card after the speaker")
+    if p.w("mrk_seg"):
+        fail("sbmem: the speaker's ring %04X is held while the card plays"
+             % p.w("mrk_seg"))
+    print("PASS sbmem: the card plays with no speaker ring held", flush=True)
+    stop(ui, p)
     # THE HEAP TAKEN: each key is one more fill and an ask (tests/filler),
     # until nothing of the ring's size could be funded at all
     fl = ui.path("FILLER.O88")         # the acting Disk window, B:/APPS
@@ -353,24 +384,43 @@ def arm_sbmem(ui, p):
     if reach >= MRB_KB:
         fail("sbmem: the filler left %d KB reachable - the refusal cannot be "
              "forced on this machine" % reach)
+    # NO EXTERNAL RING TO BE HAD: the grant ring plays instead (14.59)
     ui.raise_window(ui.window("MIDIRack"))
     ui.menu_pick("Play", "Play")
-    M.until(m, lambda _: p.w("mr_msg") == p.s["mr_s_ringmem"],
-            "the refusal's message", poll=.1, limit=10)
-    if (p.b("mr_out") or p.b("mr_state") != MR_ST_STOP or p.w("mrb_seg")
-            or p.b("mrb_open")):
-        fail("sbmem: refused, but out %d state %d seg %04X open %d"
-             % (p.b("mr_out"), p.b("mr_state"), p.w("mrb_seg"),
-                p.b("mrb_open")))
-    msg = bytes(m.read(p.addr("mr_s_ringmem"), 64)).split(b"\0")[0]
-    print("PASS sbmem: with %d KB reachable Play is refused: %r, nothing "
-          "open or held" % (reach, msg.decode()), flush=True)
-    # ...AND THE MEMORY BACK: the next Play works
+    M.until(m, lambda _: p.b("mrb_open") == 1 or not p.b("mr_out") and
+            p.w("mr_msg") in (p.s["mr_s_ringmem"], p.s["mr_s_sberr"]),
+            "the card's answer", poll=.1, limit=10)
+    if (p.b("mrb_open") != 1 or p.b("mrb_grant") != 1 or p.w("mrb_seg")
+            or p.b("mr_out") != MRO_SB):
+        msg = bytes(m.read(p.w("mr_msg") + p.seg * 16, 64)).split(b"\0")[0]
+        fail("sbmem: with %d KB reachable, want the GRANT ring (open %d "
+             "grant %d seg %04X out %d, %r)" % (reach, p.b("mrb_open"),
+                                                p.b("mrb_grant"),
+                                                p.w("mrb_seg"), p.b("mr_out"),
+                                                msg))
+    g0 = p.w("mrb_gcons")
+    M.guest_sleep(m, 1.0)
+    if p.w("mrb_gcons") == g0:
+        fail("sbmem: the grant ring opened but the card consumed nothing")
+    print("PASS sbmem: with %d KB reachable the external ring was refused "
+          "and the GRANT ring (%d bytes) plays" % (reach, p.w("mrb_grl")),
+          flush=True)
+    stop(ui, p)
+    # ...AND THE REST TAKEN ('T'): neither ring, so both Plays refuse in words
+    ui.raise_window(fl)
+    m.key("KeyT")
+    M.guest_sleep(m, 1.0)
+    reach = heap(m)[1]
+    if reach >= 4:
+        fail("sbmem: 'T' left %d KB reachable - a 4 KB grant can still be "
+             "funded" % reach)
+    ui.raise_window(ui.window("MIDIRack"))
+    refused(ui, p, OUT_SB, "mr_s_ringmem", reach)
+    refused(ui, p, OUT_SPK, "mr_s_spkmem", reach)
+    # ...AND THE MEMORY BACK: the next Play works, on both
     ui.close(fl)
     ui.raise_window(ui.window("MIDIRack"))
-    ui.menu_pick("Play", "Play")
-    M.until(m, lambda _: p.b("mr_out") == MRO_SB and p.b("mrb_open") == 1,
-            "the card open again", poll=.1, limit=10)
+    card_play(ui, p, "the card with the filler closed")
     c0 = bytes(m.readseg(p.w("mrb_seg"), 16384 + 2, 2))
     M.guest_sleep(m, 1.0)
     c1 = bytes(m.readseg(p.w("mrb_seg"), 16384 + 2, 2))
@@ -378,7 +428,85 @@ def arm_sbmem(ui, p):
         fail("sbmem: the card opened again but consumed nothing")
     print("PASS sbmem: with the filler closed, the next Play opens the card "
           "(ring at %04X) and it plays" % p.w("mrb_seg"), flush=True)
+    stop(ui, p)
+    spk_play(ui, p)
+    ks = p.w("mrk_seg")
+    m.key("Escape")
+    M.until(m, lambda _: p.b("mr_state") == MR_ST_STOP, "the bracket's stop",
+            poll=.1, limit=30)
+    spk_gone(m, p, ks, "Esc, with the memory back")
     return 0.0
+
+
+MR_ST_PAUSE = 2
+
+
+def stop(ui, p):
+    ui.raise_window(ui.window("MIDIRack"))
+    ui.menu_pick("Play", "Stop")
+    M.until(ui.m, lambda _: p.b("mr_state") == MR_ST_STOP and not
+            p.b("mr_out"), "the stop", poll=.1, limit=10)
+
+
+def card_play(ui, p, what):
+    """mr_want the DSP synth, Play, the EXTERNAL ring open."""
+    p.put("mr_want", bytes([OUT_SB]))
+    ui.raise_window(ui.window("MIDIRack"))
+    ui.menu_pick("Play", "Play")
+    M.until(ui.m, lambda _: p.b("mr_out") == MRO_SB and p.b("mrb_open") == 1,
+            what, poll=.1, limit=10)
+    if p.b("mrb_grant") or not p.w("mrb_seg"):
+        fail("sbmem: %s is not on the external ring (grant %d seg %04X)"
+             % (what, p.b("mrb_grant"), p.w("mrb_seg")))
+
+
+def spk_play(ui, p):
+    """mr_want the speaker, Play: the bracket up, its ring claimed and in the
+    claim map, the pulses consuming it."""
+    m = ui.m
+    p.put("mr_want", bytes([OUT_SPK]))
+    ui.raise_window(ui.window("MIDIRack"))
+    ui.menu_pick("Play", "Play")
+
+    def cons():
+        ks = p.w("mrk_seg")
+        if not ks:
+            return 0
+        b = m.readseg(ks, 4096 + 2, 2)
+        return b[0] | b[1] << 8
+    M.until(m, lambda _: p.b("mr_out") == MRO_SPK and cons() > 0,
+            "the speaker's first pulses", poll=.05, limit=20)
+    ks = p.w("mrk_seg")
+    if not any(b == ks for b, _, _ in heap(m)[0]):
+        fail("sbmem: the speaker's ring at %04X is not in the claim map" % ks)
+    print("PASS sbmem: the speaker plays out of its ring at %04X" % ks,
+          flush=True)
+
+
+def spk_gone(m, p, ks, how):
+    if p.w("mrk_seg") or any(b == ks for b, _, _ in heap(m)[0]):
+        fail("sbmem: the speaker's ring is still held after %s ([mrk_seg] "
+             "%04X, was %04X)" % (how, p.w("mrk_seg"), ks))
+    print("PASS sbmem: the speaker's ring at %04X freed at %s" % (ks, how),
+          flush=True)
+
+
+def refused(ui, p, out, msg, reach):
+    m = ui.m
+    p.put("mr_want", bytes([out]))
+    p.put("mr_msg", b"\0\0")
+    ui.menu_pick("Play", "Play")
+    M.until(m, lambda _: p.w("mr_msg") == p.s[msg], "the refusal's message",
+            poll=.1, limit=10)
+    if (p.b("mr_out") or p.b("mr_state") != MR_ST_STOP or p.w("mrb_seg")
+            or p.b("mrb_open") or p.b("mrb_grant") or p.w("mrk_seg")):
+        fail("sbmem: refused, but out %d state %d seg %04X open %d grant %d "
+             "speaker %04X" % (p.b("mr_out"), p.b("mr_state"),
+                               p.w("mrb_seg"), p.b("mrb_open"),
+                               p.b("mrb_grant"), p.w("mrk_seg")))
+    text = bytes(m.read(p.addr(msg), 64)).split(b"\0")[0]
+    print("PASS sbmem: with %d KB reachable Play is refused: %r, nothing "
+          "open or held" % (reach, text.decode()), flush=True)
 
 
 def arm_wt(ui, p):

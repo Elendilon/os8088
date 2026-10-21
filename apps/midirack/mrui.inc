@@ -3491,6 +3491,11 @@ mru_changed:
     jb .d
     cmp byte [mr_state], MR_ST_PLAY
     jne .no
+    mov al, [mr_out]                ; NOT FOR A BRACKET OUTPUT: its clock
+    cmp al, MRO_SPK                 ; moves only inside the bracket, where
+    je .no                          ; this task is frozen, and it draws
+    cmp al, MRO_LPT                 ; itself (mrk_draw) - and this is the one
+    je .no                          ; lock-free reader of its ring (mrk_queued)
     call mr_elapsed
     cmp ax, [mru_lsec]
     jne .yes

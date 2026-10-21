@@ -3895,14 +3895,17 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/apps720.img")),
     Row("midiracksbmem", "soak", py("tests/midirack.py", "--arm", "sbmem"),
-        45.0,
-        "MIDIRack's card ring lives only while it plays (SPEC.md 105.8.4, "
-        "KERN-MEGA-PLAN 14.55): the external ring in the claim map during a "
-        "play and gone from it at Stop; tests/filler then takes the heap "
-        "until no 17 KB claim can be funded and Play is REFUSED with the "
-        "status line's own message, nothing open and nothing held; the "
-        "filler closed, the next Play opens the card and it consumes. Red "
-        "with the ring kept at Stop",
+        70.0,
+        "MIDIRack's two rings live only while they play (SPEC.md 105.8.4, "
+        "105.8.3; KERN-MEGA-PLAN 14.55, 14.59): the card's external ring in "
+        "the claim map during a play and gone at Stop; the speaker's held "
+        "through a pause, gone at the Stop after it and at Esc in the "
+        "bracket, and not held while the card plays; tests/filler under "
+        "17 KB and the card's Play is on the GRANT ring and consuming; the "
+        "filler's T takes the rest and the card's Play and the speaker's are "
+        "REFUSED with their messages, nothing open or held; the filler "
+        "closed, both play again. Red with the card's ring kept at Stop, "
+        "with the grant fallback out, and with either speaker-ring free out",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/midirack.o88",
                "build/filler.o88")),

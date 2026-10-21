@@ -8953,3 +8953,133 @@ same block).
 mouse is still dead, the next instrument is `MOUDIAG=1`'s panel after the
 resume. (b) Bochs's mouse is `type=ps2` in `tools/os88bochs.py`, so no other
 Bochs row exercises a wheel. `megap2hiber` sets `imps2` for itself only.
+
+### 14.59 MIDIRack's SB 1.x fallback and its speaker ring, both the owner's calls (2026-10-21)
+
+14.56's two answers on 14.55.5's questions 2 and 3, built. PACKAGE work: it
+changes `MIDIRACK.O88` on every kernel and no kernel or driver byte. SPEC.md
+105.8.3 and 105.8.4 are the contract; this is the record.
+
+#### 14.59.1 A refused external ring is not a refused Play
+
+The owner offered two shapes - try the grant ring when the claim is refused,
+or skip the claim when the caps say no auto-init - and the second is not
+available: **no `SND_CAP_` bit says "auto-init"** (the caps word has
+`EXTBLK`, which is the block size, and nothing about the DMA mode), so
+skipping would need an SDK change. The first is what is built, and it covers
+the SB 1.x case anyway: that machine makes the claim, and whether the claim
+is granted (verb 0 then answers 7) or refused, it reaches the grant ring.
+
+`mrb_start`'s `OSAPI_MEM_CLAIM_DMA_HI` refusal now leaves `[mrb_seg]` at 0
+and carries on: rate, lead and the synth's open as before, then - with no
+ring to pre-roll into - straight to `mrb_grantopen` (16, 8, 4 KB of
+`SOUND.DRV`'s pool). Only a grant refused with no external ring is
+`mr_s_ringmem`; a grant refused after verb 0's 7 is still `mr_s_sberr`.
+
+**Found on the way, and fixed with it**: `mro_play`'s worker refusal (no
+task slot) went to `.no`, which sets `[mr_out]` to NONE with the output
+still OPEN - the card's stream and its ring, or the FM chip, or the MPU -
+so no later `mro_close` could reach them. The FM/tone/MPU road and the card's
+road now share one `.wk` that calls `mro_close` before the refusal (it
+saved bytes rather than costing them).
+
+#### 14.59.2 The speaker ring lives for one session
+
+It was already claimed only by a speaker or Covox play on the ISR's road
+(`mrk_start`'s `.isr`; a polled Covox plays out of the image), so *"only in
+speaker mode, to start with"* was true - what was not is that it was held
+from the first such play to the window's close, through any amount of Sound
+Blaster or FM after it. Now:
+
+- **A pause keeps it** (the queue is the resume, `mrk_resume`).
+- **`mrk_bracket` frees it on every other exit** (Esc, the song's end, N/P,
+  a refusal inside the bracket) through `mrk_rdone`, which first takes what
+  the ring holds unplayed off the synth's sample count, so `mr_elapsed` -
+  which finds no ring afterwards - still reads where the sound stopped.
+- **`mro_close` frees it** on every road out of a paused session - Stop,
+  Eject, Remove, Clear, Settings, the next song, the window's close.
+- **`mrk_start` frees it on a refusal after the claim** (`os88spk_init`'s).
+- **A refused claim is a refused Play**: `mr_s_spkmem`, *"No memory to play
+  - close a program and retry"* (14.55's phrasing; it was the bare *"Out of
+  memory"*), nothing held, and the next Play asks again.
+
+**The ordering argument, since 14.55's `mrb_tc` lesson binds it.** The
+readers of `[mrk_seg]` are the ISR (inside the bracket only: `os88spk_stop`
+closes the door in `mrk_main` before `OSAPI_FSX_RUN` returns, and a refused
+`os88spk_go` never opened it), the bracket's own body (the UI task), and
+`mr_elapsed`. `mr_elapsed` is reached from `mru_np_dyn` - the UI task's
+paint or the worker's `mru_dyn`, both under the gfx lock - and from
+`mru_changed`, **the worker's one lock-free door**. Every free is the UI
+task's with the gfx lock held. So the one reader that could see the ring go
+between its test and its `mov es` is `mru_changed`, and it no longer asks
+for a bracket output: that clock moves only inside the bracket, where the
+worker is frozen (SPEC.md 53.2), and the bracket draws itself (`mrk_draw`).
+The rest is `mrb_rfree`'s shape: `mrk_rfree` zeroes the word with `xchg`
+before the free, and `mrk_queued` reads it once and answers 0 with ES
+untouched for no ring, so ES is never loaded with 0. On kern_mega this ring
+is a plain claim of a HIGHMEM package, so an LDT selector above 1MB - a
+FREED one would fault on a `mov es`, which is why the lock argument is made
+rather than leaning on "freed memory is still readable". And `mrk_start`
+now puts ES back on DS before entering the bracket, since the free's API
+return reloads the ES it was called with and that had been the ring - on
+kern_mega one stale-ES fixup per stop otherwise (14.53's case).
+
+#### 14.59.3 Bytes
+
+`MIDIRACK.O88` **image 37,658 -> 37,768 (+110: 46 the new message, 64
+code)**, bss 10,920 unchanged, the file 30,980 unchanged (packed 29,837 ->
+29,897, the same sectors). No kernel or driver source is touched, so
+kern_big, kern_small and kern_mega are byte-identical by construction (the
+diff is `apps/midirack/`, `tests/`, and documents). `tests/filler`, which
+ships nowhere, grew 370 -> 423 bytes for a `T` key (below).
+
+#### 14.59.4 Measured, on what
+
+**kern_big, MartyPC `os8088_5150_herc_sb_720_gla`** (DSP 2.1, auto-init),
+`midiracksbmem` extended and PASS, 50 s alone: the card's external ring
+held while it plays and gone at Stop; the speaker's ring at `21E0` while it
+plays, still held through a pause, gone at the Stop after it; gone at Esc in
+the bracket; not held while the card plays; `tests/filler` under 17 KB and
+the card's Play is on the **grant ring, 8,192 bytes, consuming**; the
+filler's new `T` (take every run, ask nothing - FL_LEAVE's 8 KB is more than
+a 5 KB ring or a 4 KB pool) to 0 KB reachable and both Plays refused with
+their messages, nothing open or held; the filler closed, the card's
+external ring at `8BC0` and the speaker's at `18A0` play again. **Red three
+ways, each on purpose**: the grant fallback taken out (*"want the GRANT
+ring ... 'No memory for the card ...'"*), `mrk_bracket`'s free taken out
+(*"still held after Esc in the bracket"*), and `mro_close`'s taken out
+(*"still held after Stop after a pause"*).
+
+**NOT verified**: a real DSP without auto-init. Every MartyPC profile here
+is DSP 2.1; MartyPC's `dsp_version` is a setting, but the machine configs
+are concatenated into the SHARED staged tree at `make marty` time, so a 1.5
+profile is a change to everybody's emulator, not a row. What was verified
+is the half of 14.59.1 that is new code - the claim refused on the DSP we
+have, and the grant ring taken instead of a refusal; the SB 1.x road itself
+(verb 0's 7, then the grant) is 14.55's and unchanged. Nothing ran on
+kern_mega: the change is package code whose PM-specific reasoning (the
+selector, ES) is argued above and not measured, and no registered row plays
+MIDIRack on kern_mega.
+
+#### 14.59.5 Rows and what is left
+
+**Run, all PASS on kern_big under MartyPC**: `midiracksbmem` 51.7 s,
+`midirackspk`, `midirackcovox`, `midirackcovoxpoll`, `midirackwt`,
+`midirackend`, `midirackmpu`, `mrdraw`, `mrdrawvga` on the final build, and
+`midirackfm`, `midiracksb`, `midiracksbrate`, `midiracktone` on the build
+two bytes before it (the ES line of 14.59.2, which none of those four
+reaches). A first pass of the last seven failed at *"the autoload did not
+happen"* - an artefact, and one worth knowing: `tests/mrprobe.py` resolves
+the package's variables by re-assembling the SOURCE, so an edit to
+`apps/midirack/` while a row runs makes it read `[mr_loaded]` at the wrong
+address. Do not touch the source during a MIDIRack run.
+
+**Rows that cover it**: `midiracksbmem` (extended, declared 70 s),
+`midiracksb`, `midiracksbrate`, `midirackwt` (the card and its `.wk`),
+`midirackspk`, `midirackcovox`, `midirackcovoxpoll` (the speaker bracket and
+its ring), `midiracktone`, `midirackfm`, `midirackend`, `midirackmpu` (the
+shared `.wk`, `mro_close`), `mrdraw` and `mrdrawvga` (`mru_changed`).
+
+**For the owner**: the speaker's message is the generic *"No memory to play
+- close a program and retry"*, because the ring is the Covox's too and
+*"for the speaker"* would be wrong there.
