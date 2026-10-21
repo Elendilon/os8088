@@ -8170,3 +8170,37 @@ The check pokes a dog 1.5 tiles ahead while the guest is paused, marks
   has not run this.
 - **`mega_strcal`'s two boot lines** are the kernel's calibration, which
   `megatrap0` allows as "(boot)". They are not Pixelstein's.
+
+### 14.51 The owner's answers to the round's questions (2026-10-21)
+
+The owner answered the questions the 14.46-14.50 round ended on. Recorded
+here as decisions, so the next round does not ask them again.
+
+- **The pool table's 768 bytes** (14.49, `mx_tab` at 96 entries in
+  `.lowbss`) - it is kern_mega's low segment only, and that is accepted.
+  **Moving it above 1MB is DEFERRED**; 14.49's costing of that move (a new
+  selector, ~28 routines through ES, the hibernate's first run, the park's
+  checksum) stands as the starting point.
+- **Disable the mouse** should not claim a mouse exists and then hold it
+  still - fix it if easy. It was: SPEC.md 96.36.8, `kdentry.inc` points 33h at
+  the core's `iret` whenever `kern_dos` has no serial mouse to serve, so a
+  reset answers AX = 0. Six instructions of `kern_dos`, no core byte (the core
+  and its bss are both full to the byte). Soak row `kdnomouse`, red without.
+  A PS/2 machine on the shut-down arm now hears "no mouse" too, which is the
+  truth: that arm does not drive one.
+- **A Video Player forced to move mid-play may pause or stutter.** That is
+  acceptable. What is not negotiable is the trigger: **a move happens only
+  when pressure forces it** - a claim that finds no run (14.15) or a posted
+  request (SPEC.md 66.4.3) - never as housekeeping. 14.49's held rate hook is
+  therefore the right trade, and a stutter during one is not a defect.
+- **Hibernate's ~22 file calls** (14.46.5) are fine as long as the
+  difference is not noticeable; the owner will test it on the iron.
+- **`OS88_HIGH` / `OS88_HIGHMEM` stay opt-in, but only behind a gate.** It
+  is in the FULL tier and must run quickly. Every package declares both, or
+  EXCEPTS itself in a registry with a reason - and *"a damn good reason"*: a
+  reason that is only "nobody looked" is not one. 14.52 builds it.
+- **Claims that stay in conventional memory** are acceptable when all three
+  hold: the claim exists **only during active use**, it is **claimed low**
+  (bottom-up), and it is **movable while not in active use**, so idle ones
+  compact to the bottom and leave the top of 640K as one free run. Each such
+  claim is to be noted. 14.52 audits them.
