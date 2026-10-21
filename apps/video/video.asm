@@ -6825,6 +6825,8 @@ vp_xipq:
     cmp byte [vp_snd], VP_SPK       ; (the speaker's clock: 98.3.18.5)
     je .no
 .pmq:
+    call vp_pmbigq                  ; (protected mode: not for BIGSP)
+    jc .no
     mov al, [vp_noinp]              ; (a gate's: the copying hold, the A/B)
 %ifndef LA_SIM
     cmp byte [vp_tier], CPU_8086    ; a 286 by LOADALL, a 386 by a loaded
@@ -6849,6 +6851,24 @@ vp_xipq:
     stc
     ret
 %endif
+
+; vp_pmbigq - CF=1: a BIGSP file under protected mode, which neither in-place
+; arm can read (98.3.18.16). Its windows start every 32 KB and run 64 KB, so
+; a record is whole in one only when it starts no further into its 32 KB than
+; 64 KB less its length - which a 38-63 KB BIGSP record mostly does not: it
+; ran off the window's end, SI wrapped to the window's start, and the decoder
+; drew the wrong bytes until a store ran off the screen (a #GP inside the
+; bracket, the screen trashed: KERN-MEGA-PLAN 14.58). Such a session copies
+; (the hold's, or the bank's, through the conventional ring, which BIGSP keeps
+; anyway - vp_rhiq). Real mode's handle is a paragraph's, so it holds 64 KB
+; less 15 from any start: CF=0 there. Preserves all but flags
+vp_pmbigq:
+    cmp byte [vp_pm], 0
+    je .ok                          ; (CF=0)
+    cmp word [vp_msl], 2            ; BIGSP's mirror is two slots: CF=0
+    cmc                             ; for 1, CF=1 for 2
+.ok:
+    ret
 
 ; vp_xipend - a session's end: the sites jumps over themselves again
 vp_xipend:
@@ -6899,6 +6919,8 @@ vp_xbipq:
     cmp byte [vp_snd], VP_SPK       ; (the speaker's clock: 98.3.18.5)
     je .no
 .pmq:
+    call vp_pmbigq                  ; (protected mode: not for BIGSP)
+    jc .no
     mov ax, [vp_msl]                ; (the ring's least, the mirror's slot
     shl ax, 1                       ; past it: 3, and BIGSP's 5 - three
     inc ax                          ; slots a super-packet reads before it
