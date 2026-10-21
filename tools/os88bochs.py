@@ -134,11 +134,27 @@ def shot(path):
 
 
 def xvfb():
-    sock = "/tmp/.X11-unix/X" + DISPLAY.lstrip(":").split(".")[0]
-    if not os.path.exists(sock):        # THIS display, not any Xvfb at all
+    n = DISPLAY.lstrip(":").split(".")[0]
+    sock = "/tmp/.X11-unix/X" + n
+    # A LIVE Xvfb on THIS display, not a socket file: a server that died (or
+    # was killed with its row) leaves the socket and its lock behind, and a
+    # socket with nobody listening made every Bochs row on that display panic
+    # with "cannot connect to X server" in under a second.
+    live = subprocess.run(["pgrep", "-f", "^Xvfb :%s( |$)" % n],
+                          capture_output=True).returncode == 0
+    if not live:
+        for stale in (sock, "/tmp/.X%s-lock" % n):
+            try:
+                os.remove(stale)
+            except OSError:
+                pass
         subprocess.Popen(["Xvfb", DISPLAY, "-screen", "0", "1024x768x24"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(2)
+        for _ in range(50):             # until it is listening, not a guess
+            if os.path.exists(sock):
+                break
+            time.sleep(0.1)
+        time.sleep(0.5)
 
 
 def _ours(pid):
