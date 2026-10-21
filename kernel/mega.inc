@@ -6836,6 +6836,75 @@ mega_modhif:
     pop bx
     retf
 
+; mega_modsayf - FAR (mod_hi): DS:SI = a module's NUL file name, AX = the code
+; selector it now runs under -> `kern_mega: above 1MB: CTRL.DRV 00FF3800` on
+; the debug port, the driver line's shape (mega_drvsayf), so a field run and
+; an emulator both read where every module went (KERN-MEGA-PLAN 14.47).
+; Every register kept
+mega_modsayf:
+    push ax
+    push dx
+    push si
+    push si
+    mov si, mega_mdrv
+    call mm_puts
+    pop si
+.n:
+    mov dl, [si]
+    or dl, dl
+    jz .e
+    xchg ax, dx
+    call mm_putc
+    xchg ax, dx
+    inc si
+    jmp short .n
+.e:
+    call mega_selbase               ; DX:AX = the pair's base
+    xchg ax, dx
+    push ax
+    mov al, ' '
+    call mm_putc
+    pop ax
+    call mm_hex4
+    xchg ax, dx
+    call mm_hex4
+    mov al, 10
+    call mm_putc
+    pop si
+    pop dx
+    pop ax
+    retf
+
+; mega_modvfixf - FAR (mod_hiboot): AX = a module's conventional CODE ALIAS,
+; DX = the pair's code selector it has just moved to -> every far pointer in
+; the two tables a module writes ITSELF into (DOCK.DRV's dkv, WIN95.DRV's
+; thv - mega_mods_fix's pair) that named the alias names the pair. A module
+; loaded in protected mode moves before it hooks and never needs this; one
+; the BOOT loaded hooked in real mode. Every register kept
+mega_modvfixf:
+    push cx
+    push di
+    pushf
+    cli
+    mov di, dkv
+    mov cx, DKI_N
+    call .t
+    mov di, thv
+    mov cx, THV_N
+    call .t
+    popf
+    pop di
+    pop cx
+    retf
+.t:
+    cmp [di+2], ax
+    jne .k
+    mov [di+2], dx
+.k:
+    add di, 4
+    loop .t
+    ret
+
 ; mega_xmwalk - osapi_xmem_walk's body (kernel.asm): ES:DI = CX records of 6
 ; bytes -> AX = the pool's live blocks written, {KB offset, KB, owner, 0},
 ; CF = 0. Read with IF = 0, so no record is torn. Every other register kept

@@ -1813,6 +1813,10 @@ this repeats none of it beyond naming whose file each piece is in.
     low: its two file writes are the census's blockers, and the panel is
     held only while it is open, so 16KB for the length of a settings
     change is not worth a staging buffer in every write path it has.
+    **Both limits are lifted by 14.47**: every module goes high, CTRL.DRV
+    included and with no staging buffer (item 77 is the landing), and the
+    boot's modules move at the switch, `mega_modvfixf` re-pointing `dkv`
+    and `thv`.
 
 53. **The kernel's blocks come from the TOP of the pool** (13.4.1).
     `mx_alloc` searches downward for owner FEh - the candidate ends at the
@@ -3179,6 +3183,13 @@ What had to change, found while doing 13.4 and then built as written (items
    set is DOCK, EXTD and STIKMENU - 2 to 6KB each, transient - and the
    round is worth building only once CTRL.DRV (14KB, the largest) stages
    its two writes through a low buffer.
+
+   **Superseded by 14.47 (2026-10-21): every module goes high.** The
+   census above was taken before item 77 gave the file layer a landing of
+   its own for a selector above 1MB (`dskw_hiseg`), and that landing is
+   exactly what CTRL.DRV's and DISKOPS.DRV's blockers needed; HIBER.DRV's
+   "refuses protected mode" stopped being true at W5. A module the boot
+   loaded is moved at the switch (`mod_hiboot`).
 
 ### 13.6 RAM is RAM - packages above 1MB, and what the machine says about it
 
@@ -7108,6 +7119,148 @@ one would script.
   old ones still names the same refusal.
 - **W4 took 0x80**, not 0x10 - the plan's figure would have put `.cold`'s
   selector off the grid.
+
+### 14.47 The action modules above 1MB: CTRL, FORMAT, DISKOPS and HIBER, and the boot's modules moved at the switch (2026-10-21)
+
+**The owner's ask**: *"Action modules: These live only as long as the user
+is taking an action, so I do want them done."* 13.5 had put five modules
+above 1MB (DOCK, EXTD, WIN95, DESK, STIKMENU) and kept four low - CTRL.DRV,
+FORMAT.DRV, DISKOPS.DRV, HIBER.DRV - and item 52 left two limits: CTRL.DRV
+low, and a module the boot loaded in real mode never moved. A module held
+low is conventional memory taken for exactly as long as the user is doing
+something else that may want it: the Control Panel open beside a program, a
+format, a compress, a hibernate or a DOS trip being set up.
+
+**Why each was low, and why none of it binds now.** 13.5's census was
+taken on 2026-10-18, BEFORE item 77, and its one real blocker was the file
+layer: a buffer of the image's own handed to `dskw_*` was normalised and
+converted with `mega_s2segf`, which answers FFFF above 1MB. Item 77 is that
+case's landing (`dskw_hiseg` keeps the selector and moves the offset, a run
+at a time through the scratch since item 85), and `dsk_runcap` bounces any
+LDT selector through `dsk_secbuf`, so a module's buffer above 1MB reaches the
+drive the way a package's does - native floppy, reflected `int 13h` and a
+driver volume alike. Module by module:
+
+| module | what the census held against it | what is true now |
+|---|---|---|
+| CTRL.DRV (14KB) | SYSTEM.CFG's save from `cpc_buf` and the Alt-drop `.LNK` write, ES = the image | both are `PUSH_CSDATA` - the pair's DATA half above 1MB - into `dskw_write_sys` / `dskw_write`, item 77's path. The boot sector's Cylinder byte goes through `dsk_secbuf`; the Hard Drive page's Format and Install are HDD.DRV's and HDDTOOL.DRV's, with claims of their own |
+| FORMAT.DRV (4KB) | nothing - "gains nothing, held only while a format runs" | the address fields and every sector it moves are LOW_SEG's `dsk_secbuf`; the owner's ask is the gain |
+| DISKOPS.DRV (11KB) | `CLO_RSEQ cs`, a read-sequence cursor in the image | the file layer copies the cursor back through ES = the module's CODE selector, which faults and completes through `mega_gpw` - exactly as it did low, the conventional alias being a code selector too. The cloner's windows are conventional claims, its single sectors `dsk_secbuf`, the XMS path's source a staging claim |
+| HIBER.DRV (10KB) | the file layer, `apic_font_str` with DS = the image, "and it refuses protected mode anyway" | the last stopped being true at W5. Its pointer reads and writes are item 77's; DS = the image is a READ through a readable code selector; its real-mode code is COPIED out before it runs (`kds_stub` to the text page, the park stub by linear base in `mega_dstubup`); every wake address it stores of itself (`HBP_WAKE`, `mega_hbwk`, `KDL_WAKE`) is stored after the move. A hibernate image's run list already carries every pool block in use and run 0 the LDT, so the wake far-jumps to the hibernated copy's own pair; a resume's staging block is placed clear of the FRESH boot's HIBER.DRV block as of any other (`hbm_xfit`); a DOS trip's park claims what the pool has LEFT, so the module's block stands where it is |
+
+**Built** (all `%ifdef KERN_MEGA`):
+
+- `kernel/mod.inc`: `MOD_HIOK` is every module - CTRL, FORMAT, DISKOPS,
+  HIBER beside the five, and `MOD_SETS`, CTRL.DRV's settings core. `mod_hi`
+  sizes the settings core's pair as `mod_need` sized its claim, the WHOLE
+  image (`MODC_SIZE`), because it READ only `MODS_SIZE` and its bss tail
+  `cpc_buf` lies past the read: a pair cut to what was read would have put
+  the SYSTEM.CFG buffer past its limit. `mod_hiboot`, called at the foot of
+  `drv_hiboot_f` (so it costs `.text` nothing), walks `mod_tab` once after
+  the switch and puts every module the boot loaded through `mod_hi` with BP =
+  its header's `MOD_H_IMG`; `mega_mods_fix` has already armed the slots with
+  the conventional code alias `mod_hi` re-arms.
+- `kernel/mega.inc` (`.mega`): `mega_modvfixf` - the far pointers a module
+  wrote of ITSELF while it was hooked in real mode, the two tables
+  `mega_mods_fix` already converts (DOCK.DRV's `dkv`, WIN95.DRV's `thv`),
+  re-pointed from the alias to the pair; a module loaded in protected mode
+  moves before it hooks and never needs it. And `mega_modsayf`:
+  `kern_mega: above 1MB: CTRL.DRV 00FF3800` on the debug port for every
+  module that moves - the driver line's shape (`mega_drvsayf`) - so a field
+  run or an emulator reads where each one went.
+
+**Cost, measured at build 270 (ff8d47ab) against the change built
+uncommitted (one build number)**:
+
+| | before | after | |
+|---|---:|---:|---|
+| kern_mega `.text` / `.bss` | 47,380 / 5,336 | 47,380 / 5,336 | **+0** (`tests/megaseg.txt`'s 4,557 untouched) |
+| kern_mega `.cold` | 41,994 | 42,082 | +88, above 1MB (414 left in its rung) |
+| kern_mega `.mega` | 14,354 | 14,446 | +92, above 1MB (10 left in its 15,360 rung, which is boot-only) |
+| the nine module files (kern_mega) | | | the same sizes within a byte: only the layout stamp and the offsets of `.cold` moved |
+| kern_big / kern_small | | | **byte-identical**: kern_big's `kernel.bin`, `kernel-full.bin`, `kernel.sys` and every `.drv` under `build/` compared at one build number; kern_small by the diff - every line is inside `%ifdef KERN_MEGA` |
+| conventional memory while held | CTRL 14KB, DISKOPS 11KB, HIBER 10KB, FORMAT 4KB | **0** | the same KB come from the top of the pool (owner FEh) |
+| ...for the whole session, a boot that loads them | DOCK 3KB, WIN95 2KB | **0** | |
+
+The load is unchanged: `mod_need` still reads into its conventional claim,
+checks and arms there, and `mod_hi` copies the claim up and frees it, so the
+claim is a TRANSIENT for the length of the read (a 286 showed HIBER.DRV at
+9D80h for about a second, then at 280Ch).
+
+**Measured on Bochs 2.7** (a 386, 16MB; the E9 lines are the new ones):
+
+- `mega.img` in A:: the Control Panel - `CTRL.DRV 00FF3800` - Theme set to
+  Windows (`WIN95.DRV 00FF3000`), Dock to Left (`DOCK.DRV 00FF2400`), closed:
+  SYSTEM.CFG (163 bytes) on A:, `mod_tab`'s CTRL row back to 0. Format B:
+  (1.2MB) - `FORMAT.DRV 00FF3800` - and `os88disk.py --verify` passes the
+  disk, 2,371 clusters free. README.TXT Compressed - `DISKOPS.DRV 00FE8000`,
+  8,088 bytes of LZ4 to 6,912 of LZB - and Uncompressed: 13,011 bytes,
+  identical to `build/readme-plain.txt`.
+- A blank 20MB C: (`--c blank --cfg 2`): the Hard Drive page, Format slot 1
+  (FAT16, 20M) and Install to "Done - remove the floppy, Restart", with
+  CTRL.DRV above 1MB throughout and FORMAT.DRV at 00FED000 inside the
+  install; the installed C: then booted alone, and a desktop gesture (A:'s
+  icon dragged) loaded the settings core above 1MB and wrote a 176-byte
+  SYSTEM.CFG to C:.
+- `--bootc --noa --csys` with that Windows-and-left-dock SYSTEM.CFG: at the
+  switch `DOCK.DRV 00FF6400` and `WIN95.DRV 00FF5C00` (`mod_hiboot`), and
+  the title bars and the dock's strip draw from the moved images. A menu
+  Hibernate (`HIBER.DRV 00FF2000`), a key, the fresh boot's `HIBER.DRV
+  00FF3400`, *Resume*: `kern_mega: resumed`, the Disk window back. A DOS trip
+  (`HIBER.DRV 00FEA800`, `parked 0045K at 14CC00`, `unparked`, exit 042).
+  The same trip with *Save the session to disk* ticked: an 884,736-byte
+  HIBERNAT.IMG on C:, Bochs killed mid-program, booted with `--c keep`:
+  `resumed`, *The machine was restarted while it ran.*
+
+**Measured on 86Box `286-mega`** (MR BIOS 286, 16 MHz, 4MB - the 286 reset
+path; no debug port, so `mod_tab` was read out of guest memory): the Control
+Panel at 281Ch (TI set: above 1MB), WIN95 282Ch, DOCK 283Ch, SYSTEM.CFG
+written to A: and CTRL dropped; a Compress and Uncompress with DISKOPS at
+2854h, the result identical to the plain README; two DOS trips with HIBER.DRV
+at 280Ch, exit 042 each; booted with the Windows/left-dock SYSTEM.CFG, DOCK and
+WIN95 above 1MB at the desktop; Format B: on a blank 1.44MB image with FORMAT
+at 283Ch, `--verify` OK (the 360KB `apps360.img` in that 1.44MB drive cannot
+take the 720KB format it offers - the image's size, not the formatter). Then
+a 20MB IDE C: (type 2, booted from A:): a menu Hibernate (HIBER 282Ch),
+*Parallel Port Configuration Change* (14.43's note), *Resume* -
+`hb_resumes` 1; a trip with the save ticked (HIBER 283Ch), `quit` mid-program,
+relaunched on the written disk: *The machine was restarted while it ran.*
+`faults`: the reflections' 286 resets, the calibration's pair at `.mega`
+15D1/15EA, one `#GP` at `mega_ldt_free.out` per high module dropped (decision
+14's stale selector, by design - DOCK and WIN95 pay it today), and the
+`[Segment can't write]` completions in HIBER.DRV (`hbm_sweep`,
+`hbm_drvsusp`, `hbm_wake`) and DISKOPS.DRV that the same code makes through
+its read-only conventional alias - 14.45's "traps under 2764" under a new
+selector - and nothing else of the kernel's.
+
+**Rows that cover it**: `megagrid` (fast, run by `make`); the kern_mega soak
+rows that boot it - `megarehome`, `megaflt`, `pxmega`, `megatrap0` (none
+opens a module, so they show only that the boot and the switch still work);
+`kernmods` (run here, 57 checks). No row drives the Control Panel, a format,
+a compress, a hibernate or a DOS trip on kern_mega - 14.43 says why; the
+recipes above are what one would script, and `mod_tab` read through
+`os88box.py memr`/`sym` is the check that a module is above 1MB (a selector
+with bit 2 set).
+
+**For the owner to look back over**:
+
+- **The load still takes its conventional claim for the length of the
+  read.** The file layer can read straight into the pair's data half now
+  (item 77), so a module could be read above 1MB with no conventional claim
+  at all - which matters only on a machine whose conventional heap is too
+  full for a 14KB transient while a program runs beside the panel. Not
+  built: it moves `mod_check`'s ES and the compressed read's in-place window
+  onto a selector, and nothing here has run short.
+- **4.1's "the modules stay resident" is still not done**, and with every
+  module above 1MB its reason has changed rather than gone: dropping saves
+  pool KB and the next open's disk read is the cost, and `t_moddrop`'s
+  "freed when done" rule binds every row. Keeping them resident on kern_mega
+  is a decision to take, not a fix.
+- **The debug port gains a line per module move** (part of `.mega`'s 92
+  bytes). Nothing greps E9 for it.
+- **Every drop of a high module takes one `#GP`** at `mega_ldt_free.out`,
+  the caller's ES still holding the pair. It was already true of the five
+  modules 13.5 moved; four more now pay it, once per action.
 
 ### 14.48 Re-home HIGH, part 2: PIXELSTEIN 3D above 1MB, with its claims (2026-10-21)
 
