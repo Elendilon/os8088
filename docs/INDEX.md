@@ -198,7 +198,7 @@ Read first: [§2 Memory map](../SPEC.md#2-memory-map); [§41 xmem.inc — memory
 | `0x01B0` | `OSAPI_MEM_AVAIL` | out AX = largest free run in KB, BX = total free KB... |
 | `0x0425` | `OSAPI_MEM_FLOOR` | AL = the level; preserves every register and the flags... |
 | `0x04A5` | `OSAPI_MEM_CODESEL` | DX = the segment (or selector) a claim of yours is named by... |
-| `0x04BD` | `OSAPI_MEM_SUBSEG` | AX = a PARAGRAPH offset into your OWN region (from your DS, which must be your region's), BL bit 0 = you will FAR CALL code there... |
+| `0x04BD` | `OSAPI_MEM_SUBSEG` | AX = a PARAGRAPH offset into your OWN region (from your DS, which must be your region's), BL bit 0 = you will FAR CALL code there, BL bit 1 = CX is... |
 | `0x0216` | `OSAPI_CLAIM_SNAPSHOT` | ES:DI = a CLAIM_SNAPSHOT_SIZE buffer; out AX = MEM_MAX... |
 | `0x021C` | `OSAPI_SYS_KB` | ES:DI = a SYSKB_SIZE buffer; every register preserved... |
 | `0x015A` | `OSAPI_XMEM_CAPS` | no inputs; out AX = extended- memory KB the pool can still hand out (0 = none, and the three below will all refuse), DX:CX = the pool's 32-bit linear... |

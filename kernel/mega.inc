@@ -7177,17 +7177,20 @@ mx_compactf:
 ; mx_cpmove - DI = an mx_tab entry, CX = where it is (KB from the pool base),
 ; BP = where it goes: BELOW CX (the two may overlap) or clear of it on either
 ; side. Its bytes are copied and every descriptor over them rebased, and
-; MX_OFF = BP after (KERN-MEGA-PLAN 14.15, 14.37). A 64KB PIECE AT A TIME:
-; each piece's copy and the rebase of every LDT descriptor whose base is in
-; it are one step with interrupts off, and interrupts are ON between pieces -
-; so a block of megabytes is never seconds of a deaf machine, and an ISR
-; reading or writing it through any of its selectors finds each piece whole,
-; either still at the old place (where nothing has written yet: a copy only
-; ever overwrites bytes of pieces already moved) or at the new. That holds
-; for a descriptor that lies inside ONE piece of the block, which a run's
-; every window, a region's pair and a claim's selector do; if any descriptor
-; over the block crosses a piece's end, the whole block is one step instead,
-; exactly as a block of 64KB or less always is. mega_slidef's GDT scratch is
+; MX_OFF = BP after (KERN-MEGA-PLAN 14.15, 14.37). A PIECE AT A TIME, 64KB
+; or less where it can be: each piece's copy and the rebase of every LDT
+; descriptor whose base is in it are one step with interrupts off, and
+; interrupts are ON between pieces - so a block of megabytes is never seconds
+; of a deaf machine, and an ISR reading or writing it through any of its
+; selectors finds each piece whole, either still at the old place (where
+; nothing has written yet: a copy only ever overwrites bytes of pieces already
+; moved, or of this one) or at the new. mx_pcut cuts the pieces where no
+; descriptor runs across (KERN-MEGA-PLAN 14.48): every 64KB for a run, a pair
+; or a claim's selector, a part at a time for a re-homed carve, and as few
+; pieces as it must past 64KB when descriptors overlap - a block of 64KB or
+; less is one step, as it always was. In 512-byte units, the parts' own
+; grid (SPEC.md 20.12.2), so two parts sharing a KB still cut between them.
+; mega_slidef's GDT scratch is
 ; rebased at the end: only a TASK loads it, and no other task runs under the
 ; [sch_lock] mx_alloc holds. Clobbers AX BX CX DX SI ES
 mx_cpmove:
@@ -7197,57 +7200,45 @@ mx_cpmove:
     sub ax, bp                      ; the drop in KB: negative is a rise
     mov dx, ax
     shl ax, 10
-    sar dx, 6                       ; DL:AX = the drop in bytes, 24 bits
+    sar dx, 6                       ; DX:AX = the drop in bytes, signed
     push dx                         ; [bp+12]
     push ax                         ; [bp+10]
     mov ax, cx
     call mx_kblin
     push dx                         ; [bp+8] the old base, 24 bits
     push ax                         ; [bp+6]
-    push cx                         ; [bp+4] where it is
-    push word [di+MX_KB]            ; [bp+2] its KB
-    push word 64                    ; [bp+0] the piece, KB
+    push ax                         ; [bp+4] (spare)
+    mov ax, [di+MX_KB]
+    shl ax, 1
+    push ax                         ; [bp+2] its size in 512-BYTE UNITS (a
+                                    ; part of a re-homed carve starts on
+                                    ; one, SPEC.md 20.12.2; 14.48)
+    push ax                         ; [bp+0] this piece's units (mx_pcut's)
     mov bp, sp
-    mov ax, MEGA_SEL_LDTD
-    mov es, ax
-    mov si, MEGA_LDT_FREE0 * 8
-    mov cx, MEGA_LDT_N * 8
-    xor bx, bx
-    mov dx, [bp+2]
-    mov al, 1
-    call mx_desc                    ; does one cross a piece's end?
-    jnc .p0
-    mov ax, [bp+2]
-    mov [bp+0], ax                  ; yes: the whole block is one piece
-.p0:
-    xor bx, bx                      ; BX = the piece's first KB in the block
+    xor bx, bx                      ; BX = the piece's first unit in the block
 .piece:
+    call mx_pcut                    ; [bp+0] = where no descriptor is cut
     pushf
     cli
-    mov cx, [bp+2]
-    sub cx, bx
-    cmp cx, [bp+0]
-    jbe .c0
-    mov cx, [bp+0]                  ; CX = this piece's KB
-.c0:
-    mov si, bx                      ; SI = the KB being copied, in the block
+    mov cx, [bp+0]                  ; CX = this piece's units
+    mov si, bx                      ; SI = the unit being copied, in the block
 .chunk:                             ; 32KB at a time, upward: a destination
-    push cx                         ; below reads nothing it has written
-    mov ax, [bp+4]
-    add ax, si
-    call mx_kblin
+    mov ax, si                      ; below reads nothing it has written
+    mov dx, si
+    shl ax, 9
+    shr dx, 7                       ; DX:AX = its offset in the block
+    add ax, [bp+6]
+    adc dx, [bp+8]
     mov [mega_xsrc], ax
     mov [mega_xsrc+2], dx
-    mov ax, [bp+14]
-    add ax, si
-    call mx_kblin
+    sub ax, [bp+10]                 ; ...and less the drop, where it goes
+    sbb dx, [bp+12]
     mov [mega_xdst], ax
     mov [mega_xdst+2], dx
-    pop cx
     mov ax, cx
-    cmp ax, 32
+    cmp ax, 64
     jbe .last
-    mov ax, 32
+    mov ax, 64
 .last:
     push ax
     push cx
@@ -7255,7 +7246,7 @@ mx_cpmove:
     push bx
     push bp
     mov cx, ax
-    shl cx, 10                      ; bytes (32KB at most: no 64KB wrap)
+    shl cx, 9                       ; bytes (32KB at most: no 64KB wrap)
     call KERNEL_SEG:mega_lincopyf
     pop bp
     pop bx
@@ -7270,13 +7261,8 @@ mx_cpmove:
     mov si, MEGA_LDT_FREE0 * 8
     mov cx, MEGA_LDT_N * 8
     mov dx, bx
-    add dx, [bp+0]
-    cmp dx, [bp+2]
-    jbe .d0
-    mov dx, [bp+2]                  ; (never past its end: the next block's
-.d0:                                ; descriptors start there)
-    xor al, al
-    call mx_desc
+    add dx, [bp+0]                  ; (never past its end, mx_pcut's rule:
+    call mx_desc                    ; the next block's descriptors start there)
     popf                            ; ...and an interrupt may come in
     add bx, [bp+0]
     cmp bx, [bp+2]
@@ -7287,7 +7273,6 @@ mx_cpmove:
     lea cx, [si+8]
     xor bx, bx
     mov dx, [bp+2]
-    xor al, al
     call mx_desc
     mov ax, [bp+14]
     mov di, [bp+16]
@@ -7298,10 +7283,9 @@ mx_cpmove:
     ret
 
 ; mx_desc - for mx_cpmove's frame at [bp]: every present descriptor at
-; ES:SI, ES:SI+8, ... below ES:CX whose base lies between KB BX (included)
-; and KB DX (not) of the block's OLD place. AL = 0: each rebased by the drop;
-; AL = 1: CF = 1 if one runs past the end of the 64KB piece its base is in
-; (CF = 0 none). Clobbers SI, flags
+; ES:SI, ES:SI+8, ... below ES:CX whose base lies between unit BX (included)
+; and unit DX (not) of the block's OLD place, rebased by the drop. Clobbers
+; SI, flags
 mx_desc:
     push di
 .l:
@@ -7309,36 +7293,12 @@ mx_desc:
     je .n
     push ax
     push cx
-    mov di, [es:si+2]
-    mov cl, [es:si+4]               ; CL:DI = the base
-    sub di, [bp+6]
-    sbb cl, [bp+8]                  ; ...less the block's: below it borrows
+    call mx_dkb                     ; AX = its first unit in the block
     jc .x
-    mov al, cl
-    xor ah, ah
-    shl ax, 6
-    push di
-    shr di, 10
-    or ax, di                       ; AX = its KB in the block
-    pop di
     cmp ax, bx
     jb .x
     cmp ax, dx
     jae .x
-    pop cx
-    pop ax
-    push ax
-    push cx
-    or al, al
-    jz .reb
-    add di, [es:si]                 ; its offset in the piece + its limit
-    jnc .x
-    pop cx
-    pop ax
-    pop di
-    stc
-    ret
-.reb:
     mov di, [bp+10]
     mov cl, [bp+12]
     sub [es:si+2], di
@@ -7351,7 +7311,96 @@ mx_desc:
     cmp si, cx
     jb .l
     pop di
+    ret
+
+; mx_dkb - for mx_cpmove's frame: the descriptor at ES:SI -> CF = 0, AX = the
+; 512-byte unit of the block its base is in and CL:DI its byte offset from
+; the block's OLD base; CF = 1 it is below the block. Clobbers nothing else
+mx_dkb:
+    mov di, [es:si+2]
+    mov cl, [es:si+4]               ; CL:DI = the base
+    sub di, [bp+6]
+    sbb cl, [bp+8]                  ; ...less the block's: below it borrows
+    jnc mx_dunit
+    ret
+mx_dunit:                           ; (CL:DI an offset -> AX its unit)
+    mov al, cl
+    xor ah, ah
+    shl ax, 7
+    push di
+    shr di, 9
+    or ax, di                       ; AX = its unit in the block, CF = 0
+    pop di
+    ret
+
+; mx_pcut - for mx_cpmove's frame: BX = a piece's first unit in the block ->
+; [bp+0] = the piece's units, cut so that NO LDT descriptor whose base is in
+; the block runs across the cut (KERN-MEGA-PLAN 14.48). The cut is the
+; largest at 64KB or under where none crosses; failing that, the least past
+; 64KB - a descriptor is moved with ONE piece, its copy and its rebase in one
+; interrupts-off step, so an ISR never reads it half-moved. A block whose
+; selectors each lie in one 64KB tile (a run, a pair, a claim) is cut every
+; 64KB as before; a re-homed carve (PIXELSTEIN's pair and its parts'
+; selectors, each as long as its part, every part on a 512-byte boundary)
+; a part at a time. A block of 64KB or less is one piece and asks nothing.
+; Interrupts are ON while it scans: no other task runs under mx_alloc's
+; [sch_lock], and no ISR makes a descriptor. Clobbers AX CX DX SI DI ES
+mx_pcut:
+    lea dx, [bx+128]                ; DX = the cut: 64KB on
+    cmp dx, [bp+2]
+    jae .end                        ; the block's end is never crossed
+    mov ax, MEGA_SEL_LDTD
+    mov es, ax
+.dn:                                ; DOWN to a descriptor's start
+    call mx_xcut
+    jnc .set
+    mov dx, ax
+    cmp dx, bx
+    ja .dn
+    lea dx, [bx+128]                ; ...none within 64KB: UP to an end
+.up:
+    call mx_xcut
+    jnc .set
+    mov dx, cx
+    cmp dx, [bp+2]
+    jb .up
+.end:
+    mov dx, [bp+2]
+.set:
+    sub dx, bx
+    mov [bp+0], dx
+    ret
+
+; mx_xcut - for mx_pcut: CF = 1 when an LDT descriptor whose base is in the
+; block starts before unit DX and ends after it, AX = its first unit and CX
+; one past its last; CF = 0 none does. ES = MEGA_SEL_LDTD. Clobbers AX CX SI
+; DI
+mx_xcut:
+    mov si, MEGA_LDT_FREE0 * 8
+.l:
+    cmp byte [es:si+5], 0
+    je .n
+    call mx_dkb                     ; AX = its first unit, CL:DI its offset
+    jc .n
+    cmp ax, dx
+    jae .n                          ; starts at or past the cut
+    add di, [es:si]
+    adc cl, 0                       ; CL:DI = its last byte
+    push ax
+    call mx_dunit
+    inc ax
+    xchg ax, cx                     ; CX = one past its last unit
+    pop ax
+    cmp cx, dx
+    ja .x                           ; ...past the cut: it crosses
+.n:
+    add si, 8
+    cmp si, MEGA_LDT_N * 8
+    jb .l
     clc
+    ret
+.x:
+    stc
     ret
 
 ; mx_kblin - AX = KB from the pool base -> DX:AX = the linear address
@@ -7814,14 +7863,105 @@ section .text
 ; not this one, and no cell will hand it to a package, both matching the
 ; owner byte exactly. The copy runs under sch_lock, which serializes
 ; mega_lincopy's scratch descriptors. Clobbers nothing else
+;
+; SI NON-ZERO IS A KEEP OVER 64KB (ld_hisi, KERN-MEGA-PLAN 14.48): CX is then
+; its PARAGRAPHS (0x1000 and up) and SI the bytes the pair covers - ONE block
+; of the whole keep, so it moves and is freed as one, the pair over its head
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mega_pkghif:
     push bx
     mov bl, dl
     or bl, 0x80                     ; BL = the owner, 80h | slot
+    or si, si
+    jnz .huge
     call MEGA_SEL_CODE:mega_imghif
     pop bx
     retf
+.huge:
+    call mega_imghuge
+    pop bx
+    retf
+
+; mega_imghuge - mega_imghif for a block OVER 64KB (KERN-MEGA-PLAN 14.48): AX
+; = the conventional segment, CX = its PARAGRAPHS, SI = the bytes the pair
+; covers (1..65535), BL = the owner -> CF = 0 and AX = the pair's DATA
+; selector, its base the block's; CF = 1 nothing taken. The copy is 32KB a
+; call under sch_lock, which serializes mega_lincopy's scratch. The block is
+; not MX_FHUGE: its selectors are the pair, freed by mega_imghifree, and
+; whatever OSAPI_MEM_SUBSEG made inside it, freed by mega_rgnsubfree.
+; Clobbers nothing else
+mega_imghuge:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov bp, ax                      ; BP = the source segment
+    cmp word [xm_kb], 0
+    je .no
+    mov ax, cx
+    mov dx, cx
+    shl ax, 4
+    shr dx, 12                      ; DX:AX = the bytes
+    inc byte [sch_lock]             ; to the copy's end: the base is used
+    call mx_alloc                   ; DX:AX = the block's base
+    jc .nol
+    mov [mega_xdst], ax
+    mov [mega_xdst+2], dx
+    push cx
+    mov cx, si
+    dec cx                          ; the pair's limit
+    call mega_ldt_alloc2            ; AX = its code selector
+    pop cx
+    jnc .got
+    mov ax, [mega_xdst]             ; no pair: the block goes back
+    mov dx, [mega_xdst+2]
+    call mx_free
+.nol:
+    dec byte [sch_lock]
+.no:
+    stc
+    jmp short .out
+.got:
+    push ax
+    mov ax, bp
+    mov dx, bp
+    shl ax, 4
+    shr dx, 12
+    mov [mega_xsrc], ax
+    mov [mega_xsrc+2], dx
+.c:
+    mov ax, 0x800                   ; 32KB a call, in paragraphs
+    cmp cx, ax
+    jae .f
+    mov ax, cx
+.f:
+    push ax
+    push cx
+    mov cx, ax
+    shl cx, 4                       ; bytes, even
+    call KERNEL_SEG:mega_lincopyf
+    pop cx
+    pop ax
+    add word [mega_xsrc], 0x8000    ; (only a whole chunk is ever followed)
+    adc word [mega_xsrc+2], 0
+    add word [mega_xdst], 0x8000
+    adc word [mega_xdst+2], 0
+    sub cx, ax
+    jnz .c
+    dec byte [sch_lock]
+    pop ax
+    add ax, 8                       ; the DATA half names the region
+    clc
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
 
 ; mega_imghif - FAR: mega_pkghif for any image, BL = the pool owner byte
 ; (MX_KDRV for a driver, KERN-MEGA-PLAN item 82, 14.37). AX = the conventional
@@ -7947,14 +8087,13 @@ mega_rgnsubfree:
     jc .out
     mov cx, ax
     mov bx, dx                      ; BL:CX = the base
-    mov di, [si+MX_KB]
-    shl di, 10                      ; DI = its bytes, 0 = 65,536 (or more:
-                                    ; a block over 64KB is S4's, and then
-                                    ; any offset under 64KB is inside it)
-    cmp word [si+MX_KB], 64
-    jb .sized
-    xor di, di
-.sized:
+    mov ax, [si+MX_KB]
+    mov di, ax
+    shl di, 10
+    shr ax, 6
+    mov bh, al                      ; BH:DI = its bytes, 24 bits: a block
+                                    ; over 64KB (14.48) holds part selectors
+                                    ; past its first 64KB
     mov ax, MEGA_SEL_LDTD
     mov es, ax
     mov si, MEGA_LDT_FREE0 * 8
@@ -7971,12 +8110,11 @@ mega_rgnsubfree:
     sub ax, cx
     sbb dl, bl
     jc .dn                          ; below the block
-    or dl, dl
-    jnz .dn                         ; 64KB or more past its base
-    or di, di
-    jz .in
+    cmp dl, bh
+    ja .dn
+    jb .in
     cmp ax, di
-    jae .dn                         ; past its end: another block's
+    jae .dn                         ; at or past its end: another block's
 .in:
     lea ax, [si+4]
     call mega_ldt_free
@@ -7996,7 +8134,10 @@ mega_rgnsubfree:
 ; into it, BL bit 0 = it will be far-called -> CF = 0 and DX = a DATA
 ; selector whose base is that paragraph and whose limit runs to the end of
 ; the caller's region or 64KB, whichever is first; with bit 0 its CODE twin
-; is DX - 8. A descriptor already over that base, of that type, is answered
+; is DX - 8. BL bit 1 (14.48): CX = the window's length in paragraphs, which
+; ends it sooner - a part's selector over its part alone, so no descriptor
+; crosses another part and mx_cpmove can move the block a part at a time.
+; A descriptor already over that base, of that type and limit, is answered
 ; instead of a new one, so a program uses one LDT entry (two for code) per
 ; distinct paragraph it asks for, and every one of them is freed with the
 ; region (mega_rgnsubfree). They move with it too: mx_cpmove rebases every
@@ -8026,6 +8167,16 @@ mega_subsegf:
     shl cx, 6                       ; the block in paragraphs (under 1MB)
     sub cx, bp
     jbe .no                         ; at or past its end
+    test bh, 2                      ; BL bit 1: the caller's CX is the
+    jz .len                         ; window's length in paragraphs (14.48),
+    mov di, sp                      ; so a part's selector ends where the part
+    mov di, [ss:di+14]              ; does - pusha's CX, under ES
+    dec di
+    cmp di, cx
+    jae .len                        ; (0 or past the end: to the end)
+    inc di
+    mov cx, di
+.len:
     cmp cx, 0x1000
     jb .lim
     mov cx, 0x1000                  ; 64KB at most
@@ -8051,6 +8202,8 @@ mega_subsegf:
     cmp bh, bl
     jne .sn
     cmp [es:di+2], ax
+    jne .sn
+    cmp [es:di], cx                 ; ...and that limit
     jne .sn
     cmp [es:di+4], dl
     je .hit                         ; one over that base already

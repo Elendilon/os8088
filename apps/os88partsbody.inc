@@ -1796,6 +1796,9 @@ op_fetch:
     shr ax, cl                  ; AX = the KB the session keeps
     call OSAPI_MEM_REGROW       ; DX = the claim, and a shrink keeps it there
     pop ax                      ; the base
+%ifdef OP_WANT_HIFETCH
+    call op_hilift              ; ...or a claim above 1MB (KERN-MEGA-PLAN 14.48)
+%endif
     or byte [si+OP_R_FLAG], OP_FETCHED  ; ...and the flag is what SAYS so
     mov [si+OP_R_ZKB], ax       ; THE ROW IS WHERE A FETCHED PART LIVES
     clc
@@ -1826,6 +1829,66 @@ op_fetch:
 .nomem:
     mov si, op_s_mem
     jmp op_say
+
+%ifdef OP_WANT_HIFETCH
+; -----------------------------------------------------------------------------
+; op_hilift - a fetched part out of conventional memory (KERN-MEGA-PLAN 14.48)
+; in:  AX = its claim (the DMA door's, so conventional on every kernel), SI ->
+;      its row
+; out: AX = where the part is now: an ordinary OSAPI_MEM_CLAIM it was copied
+;      into, when that claim is ABOVE 1MB - kern_mega, a package whose header
+;      says OS88_HIGHMEM and a pool with room - with the first one freed; AX
+;      unchanged everywhere else, which is every real-mode kernel
+; clobbers: CX, DX, DI, flags
+;
+; op_fetch reads and expands through the DMA door because both are paragraph
+; arithmetic on the claim (R up it, the slack down it); this moves the result
+; afterwards, so that arithmetic never meets a selector. It is a copy of the
+; part's own bytes and nothing else - `len`, the shrink's figure - and it costs
+; a moment of the part twice over, which is why it is opt-in:
+; `%define OP_WANT_HIFETCH` before os88parts.inc, and a package that does not
+; is byte-identical. Only a package that keeps its lazy parts for long, and
+; meets OS88_HIGHMEM's contract for them, should ask.
+; -----------------------------------------------------------------------------
+op_hilift:
+    push ax
+    call OSAPI_CPU_INFO         ; AX only
+    test ah, CPU_F_PM
+    pop ax
+    jz .out                     ; real mode: no claim is above 1MB
+    push ax
+    mov ax, [si+OP_R_LEN]
+    add ax, 1023
+    rcr ax, 1
+    mov cl, 9
+    shr ax, cl                  ; AX = the part's KB, the shrink's figure
+    call OSAPI_MEM_CLAIM        ; DX = a claim, and is it a SELECTOR?
+    pop ax
+    jc .out
+    test dl, 4                  ; an LDT selector: above 1MB (a conventional
+    jz .back                    ; claim is an identity segment, TI clear)
+    push si
+    push ds
+    push es
+    mov cx, [si+OP_R_LEN]       ; read BEFORE DS moves
+    mov es, dx
+    mov ds, ax
+    xor si, si
+    xor di, di
+    cld
+    shr cx, 1
+    rep movsw
+    adc cx, cx
+    rep movsb
+    pop es
+    pop ds
+    pop si
+    xchg ax, dx                 ; AX = the new claim, DX = the old one...
+.back:
+    call OSAPI_MEM_FREE         ; ...which goes back (or the conventional
+.out:                           ; second claim does, and AX stays)
+    ret
+%endif                              ; OP_WANT_HIFETCH
 
 ; -----------------------------------------------------------------------------
 ; op_drop - give part AL back (SPEC.md 20.12.4)

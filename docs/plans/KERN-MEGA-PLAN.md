@@ -6787,3 +6787,249 @@ segment`.
 - **The `[Segment can't write]` traps under 2764 on the 286 DOS trip**
   (above). Whether a low DOS.O88 takes them too is open, and a
   `megatrap0`-style count is the instrument.
+
+### 14.48 Re-home HIGH, part 2: PIXELSTEIN 3D above 1MB, with its claims (2026-10-21)
+
+14.38's S4, S6 and S7 for Pixelstein, and its decision 6. Built on
+`protected-mode` at ee3c8398. What now holds:
+
+- **Pixelstein's whole 138KB keep is one pool block**, and its four claims
+  (level, art, sprite set, shadow) are pool claims.
+- It plays windowed and fullscreen above 1MB.
+- A compaction moves the block while it is open, and it plays on.
+- Closing it frees every descriptor.
+
+All four were seen on Bochs. 86Box's `286-mega` shows the same except the
+compaction. With Pixelstein open, conventional memory holds nothing of it.
+
+#### 14.48.1 What was built
+
+- **S4, the kernel.** The changes are in `kernel/loader.inc` and
+  `kernel/mega.inc`, all inside `%ifdef KERN_MEGA`.
+  - Step 8b: a KEEP over 0FFFh paragraphs calls `ld_hisi`. That is
+    `ld_hicx` with CX = the keep's PARAGRAPHS and SI = the bytes the pair
+    covers, `[ld_need]`, which is the program's own image + bss (I_SIZE).
+    A keep of 4,095 paragraphs or less takes exactly 14.44's path
+    (`ld_hicx` clears SI).
+  - With SI non-zero, `mega_pkghif` calls **`mega_imghuge`**. That makes
+    one `mx_alloc` of the whole keep (owner `80h | slot`, not
+    `MX_FHUGE`) and copies it 32KB per `mega_lincopy` call under
+    `[sch_lock]`. The pair sits over the block's base, **its limit the
+    program's own image + bss**, not 64KB.
+  - `mega_rgnsubfree` now compares 24 bits (the block size in BH:DI), so
+    the teardown frees a part selector at any offset of a block over
+    64KB. Before this, a descriptor 64KB or more into the block was
+    skipped. The byte textures' selector, at +108KB, would have leaked
+    on every close.
+- **`OSAPI_MEM_SUBSEG` gains BL bit 1** (SPEC.md 50.3.6,
+  `apps/os88api.inc`).
+  - CX is the window's length in paragraphs, so a part's selector ends
+    where the part does.
+  - A reused descriptor must now match the LIMIT as well as the base and
+    type. Asking for the CODE pair first makes its data half the answer
+    to the same window's data request, so GEN costs two LDT entries, not
+    three.
+  - It is additive: a caller with bit 1 clear (Skies passes BL = 0) gets
+    the same answer as before. `abilock --update`, no bump.
+- **Decision 6: `mx_cpmove` cuts its pieces where no descriptor crosses**
+  (`mx_pcut`, `mx_xcut`, `mx_dkb`).
+  - The units are 512 bytes. A part starts on one (SPEC.md 20.12.2), so
+    two parts that share a KB still get a cut between them.
+  - The cut is the largest one at 64KB or under that no LDT descriptor
+    based in the block runs across. Failing that, it is the smallest
+    cut past 64KB that none runs across.
+  - A run, a pair or a claim's selector still cuts every 64KB. A block
+    of 64KB or less is still one step and scans nothing.
+  - It replaces 14.37's rule, *"any descriptor crosses a 64KB piece
+    boundary -> the whole block is one step"*. GEN starts 58KB into
+    Pixelstein's block and ends 108KB in, so under that rule all 138KB
+    would have moved in one step with interrupts off.
+  - The scan runs with interrupts ON. No other task runs under
+    `mx_alloc`'s `[sch_lock]`, and no ISR makes a descriptor.
+- **S6, Pixelstein (`apps/pixelstein/`).**
+  - The loader writes `PXH_GEN` and `PXH_BT` as paragraph OFFSETS past
+    the program (`pxl_off`: `op_seg(part) - op_seg(0)`, 0 = refused).
+  - The program says `OS88_HIGH | OS88_HIGHMEM` in its own header. Its
+    entry proc (`px_hconv`) turns the offsets into segments:
+    - It asks OSAPI_MEM_SUBSEG for a selector over exactly the part, with
+      BL bit 1 and the part's length: GEN's code pair first, then GEN's
+      data, then BT's data.
+    - On CF = 1 it uses `DS + offset`. That is op_seg's own answer, so on
+      kern_big and kern_small, and on kern_mega for a low region, every
+      word is the one the loader used to write.
+    - `[px_gencs]` is the segment for far calls. It is GEN's code
+      selector; our CS when GEN was refused; and `OS88_CODESEL` of the
+      sum on kern_mega's identity map.
+  - **Items 47 and 50 of 10.3, the far calls through a data segment.**
+    - The segment halves of `px_qcur*`, `px_drvp` and `px_drv2p` take
+      `[px_gencs]`. `px_hsegs` sets them and is shared by `px_gen_init`
+      and the relocation proc. `px_bseg` and `PXG_QTEX` stay data.
+    - With GEN refused, the bodies are far-called through CS, where they
+      used to be far-called through DS. In real mode that is the same
+      word; on kern_mega it was a fixup per column.
+    - `px_reloc` RE-DERIVES every word from the new segment and the kept
+      offsets (`px_hrel`, which uses only the sum). It used to add a
+      paragraph delta, which on kern_mega pointed every code alias at a
+      different selector. Above 1MB it is never called: a pool block
+      moves with no relocation proc.
+- **S7, the claims.** Every claim the loader makes for the program, and
+  every claim the program makes itself, can now be a pool selector.
+  - The loader says `OS88_HIGHMEM`. Its claims are made under the
+    instance SLOT, which the re-home keeps (`mega_slotof`'s `[ld_base]`
+    arm). So they belong to the program from the start, and `mx_relinst`
+    frees them at its teardown. The sprite set (60KB) is a pool claim
+    directly. The 28KB reserve held across `op_load` also goes to the
+    pool and is freed after it.
+  - **`op_fetch` has a high arm** (`apps/os88partsbody.inc`).
+    - It is opt-in with `%define OP_WANT_HIFETCH`, so every other parts
+      package is byte-identical.
+    - The DMA-door fetch still reads, expands and shrinks the part in
+      conventional memory. It must, because that is paragraph
+      arithmetic.
+    - Then `op_hilift` claims `len` with OSAPI_MEM_CLAIM. When the answer
+      is an LDT selector, it copies the part up and frees the
+      conventional claim.
+    - The cost is a brief second copy of the part (10KB, then 37KB). In
+      real mode it returns at the CPU_INFO test.
+  - The program's 16KB shadow is a pool claim, through the program's own
+    OS88_HIGHMEM.
+  - The census against `OS88_HIGHMEM`'s contract was a grep of every
+    Pixelstein source for four things: a segment register moved into a
+    general register, an add or sub on a `*seg` word, an `int`, and a
+    far call through a claim.
+    - The shadow, the sprite set, the masters and the level stream are
+      only ever loaded into DS or ES.
+    - No DMA, no BIOS call and no far call touches any of them.
+    - The one sum was `px_gen_init`'s `mov ax, ds`, and it now goes
+      through `[px_gencs]`.
+    - **Nothing had to stay conventional.**
+
+#### 14.48.2 What it cost
+
+Measured from `make mega`'s `os88megaseg` lines and the maps, at one commit.
+
+| kernel / package | section | bytes | what |
+|---|---|---:|---|
+| kern_mega | `.cold` | **+11** | 41,730 -> 41,741: `ld_hisi`'s entry and step 8b's arm |
+| | `.mega` | **+232** | 14,252 -> 14,484: `mega_imghuge` 151; the piece cut +45 (`mx_pcut`, `mx_xcut`, `mx_dkb` and `mx_dunit` are 131, less the 86 of straddle test that `mx_cpmove` and `mx_desc` no longer carry); SUBSEG's length +30; `mega_pkghif` +9; `mega_rgnsubfree` -3 |
+| | `.text` + `.bss` | +0 | the megaseg overhead stays 5,935 |
+| kern_big | all | **+0** | `build/kernel.bin` and `kernel.sys` are `cmp`-identical before and after, at one commit |
+| kern_small | all | +0 | from the diff: every kernel line is inside `%ifdef KERN_MEGA` |
+| PXGAME (part 0) | image + bss | **+105** | 33,815 + 24,448 -> 33,913 + 24,455. Trimmed to land on **58,368 exactly** (114 sectors), so the keep stays 141,312 bytes on every kernel |
+| PXSTEIN (the loader) | image | +86 | 2,901 -> 2,987: `op_hilift` and `pxl_off`. The loader is freed at the re-home |
+
+#### 14.48.3 Decision 6: how long a huge region is deaf when it moves
+
+The cuts were read at a Bochs breakpoint on `mx_pcut.set` during MEGACP's
+compaction (BX = the piece's first unit, DX = its cut).
+
+- **Pixelstein's block moved in three pieces: 58KB, 50KB and 30KB.**
+  Those are the program, the scratch part and the byte textures, each
+  with its own descriptors.
+- Every other block moved as one piece of its own size: claims of 10,
+  37, 60 and 16KB, and MEGACP's 60KB claims.
+
+On a 286, the worst interrupts-off step is therefore one 58KB copy plus
+its LDT pass:
+
+- **~15 ms at the Victory's measured 0.257 ms per KB above 1MB**
+  (KERN-MEGA-DOS-PLAN 2.4), or ~9 ms on a 16MHz 286 at 4 clocks a word.
+- **~35 ms** is what 14.37's rule would have made it, the whole 138KB.
+- 14.15's 64KB worst case is ~16 ms. So no block in the tree now moves
+  with interrupts off for longer than a 64KB claim does.
+
+These figures are ARITHMETIC from a measured rate, not timings taken here.
+Bochs and 86Box are not cycle-accurate.
+
+#### 14.48.4 What was measured, and on what
+
+**Bochs 2.7, kern_mega (`build/mega.img`, with C: holding the packages):**
+
+- **16MB, `tests/megarehome.py`.** MEGARUN started DOS.O88, SCRIBE,
+  SKIES, WORD and PXSTEIN.
+  - Pixelstein: `I_SPTR` 28E4, `I_SIZE` 58,368, and **one 138KB block
+    owned 86h**, its pair's limit E3FF.
+  - Inside the block sit exactly GEN's code/data pair (base +59,392,
+    limit C7FF) and BT's data selector (+110,592, limit 77FF).
+  - Four `A6h` claims are in the pool, and there is no conventional
+    claim of 32KB.
+  - The other four programs read as in 14.44.
+- **2MB, so that MEGACP can fragment the pool.** SCRIBE then PXSTEIN were
+  started.
+  1. Played: Space, Up, Left, three shots (ammo 8 -> 5). Then **F**: the
+     Mode X bracket, with the textured walls and the weapon drawn. Esc
+     went back to the window.
+  2. Scribe was closed, leaving a 63KB hole under Pixelstein's claims.
+     MEGACP was run from C:\ZCP: `MEGACP: n 07 freed 03 big 2844 ok`.
+  3. **The block moved 170K -> 168K** in the three pieces above. Every
+     descriptor was rebased by the same 2KB (the pair 16A800 -> 16A000,
+     GEN 179400 -> 178C00, BT 185C00 -> 185400), and the four claims
+     moved down with it.
+  4. Raised and un-paused, **it played again**: turns, shots (ammo 4 -> 0,
+     the knife drawn), and the textured view both in the window and
+     fullscreen.
+- **16MB, PXSTEIN closed by its close box.** **`mx_tab` holds no block of
+  its slot, and every LDT descriptor it had (0x506-0x50E) is free.**
+- No `kern_mega FAULT` appeared in any run.
+
+**86Box `286-mega`** (mr286, a 16MHz 286, 4MB: the 286 reset path), with
+PXSTEIN on a 1.44MB floppy in B:. Tables were read with `os88box memr`.
+
+- `I_SPTR` 284C, the 138KB block owned 81h, the pair's limit E3FF.
+  GEN's pair 2854/285C and BT's 2864 are inside it, and the four claims
+  (`A1h`) are in the pool.
+- It played windowed and fullscreen (the textured Mode X view, with a
+  door and a banner). Esc went back to the window.
+- After closing: no block of its slot and no LDT descriptor left.
+- `faults` shows the expected `mega_svc_lo.r286` resets and **two families
+  of completed CS writes** (see 14.48.5).
+- The compaction was not exercised there. To fragment a 4MB pool, MEGACP
+  would need more than its share of `mx_tab`'s 24 entries.
+
+**kern_big (MartyPC)** - the package change reaches every kernel:
+
+- `tests/pixelstein.py` is **ok**: every measured cell of SPEC.md 97.15's
+  table is within 5% (48 of 48; Textured Low res 64x80, scene A finished,
+  117.5 ms, 8.51 fps). So there is **no XT slow-down**; nothing on the
+  frame path changed.
+- `tests/pxsmove.py` **passes**. The carve moves under the kern_big
+  compactor, `px_reloc`'s re-derivation gives the same words the delta
+  did, and pose A composes the same shadow byte for byte.
+- `tests/pxs256.py` fails its check (c), *a dog 1.5 tiles ahead is a
+  candidate*. **It fails it identically with the package from before this
+  change** (md5 2f5214..., rebuilt and run at the same commit), so it
+  predates this work.
+
+**The row** is `megarehome`, with Pixelstein added (99 s measured, 120
+declared). It goes red with the pre-14.48 PXSTEIN.O88 in place: `FAIL:
+Pixelstein 3D I_SPTR 7C40 - a conventional segment`.
+
+#### 14.48.5 What is left, and for the owner
+
+- **A huge keep's pair covers the program's image + bss, not 64KB.**
+  That keeps the pair out of GEN's piece. Pixelstein reads nothing of its
+  own DS past its bss: no limit fault appeared in any run. A future
+  re-homed program over 64KB must meet the same condition, and SPEC.md
+  20.12.10.9 states it.
+- **Pixelstein's CS writes are untouched, and there are many.** 86Box's
+  `faults` over ~20 s of play counted:
+  - ~33,000 completed `[Segment can't write]` in `px_compose` (`.tchg`,
+    `.tnofloor`, `.b1`), its per-column self-modifying stores through CS;
+  - ~770 in the GEN driver's sprite post (`mov byte [cs:bp], 0C3h` and
+    its restore).
+
+  A LOW Pixelstein makes the same writes on kern_mega, since its CS is an
+  LDT alias there too (item 87), so this is not a regression. They are the
+  next Pixelstein item for a census (`make megatrap`). The driver's two
+  could become a protected-mode template copied in at `px_gen_init`, at
+  no cost to the XT. On this same path, this change removes the
+  per-column far-call fixups through DS.
+- **D4 is still deferred.** For the moment of the launch, the 138KB carve
+  and the lazy parts' fetches still need their room in conventional
+  memory.
+- **The kern_mega LOW path of `px_reloc` is untested on kern_mega.** That
+  is the case where the pool is full and the region is a conventional
+  claim that kern_big's compactor moves. `pxsmove` exercises the same sum
+  path, but on kern_big.
+- **`pxs256`'s check (c) fails at the base** and needs its own
+  investigation.

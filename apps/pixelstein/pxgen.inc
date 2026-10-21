@@ -320,8 +320,10 @@ px_inktab:  dw 0, px_it_cga4, px_it_c160, px_it_herc, px_it_modex, px_it_herc
 
 ; -----------------------------------------------------------------------------
 ; px_gen_init - where the bodies live for this instance, once at entry
-; in:  [px_hand + PXH_GEN] = the scratch part's segment, or 0
-; out: [px_bseg], px_qoff[4], px_qcur/px_qcurv/px_qcurh's segments, the
+; in:  [px_hand + PXH_GEN] = the scratch part's segment, or 0, and
+;      [px_gencs] its code segment (px_hconv)
+; out: [px_bseg], px_qoff[4], px_qcur/px_qcurv/px_qcurh's segments (those
+;      three and px_drvp's by px_hsegs), the
 ;      driver copied and px_drvp filled, [px_texok]
 ; clobbers AX, CX, SI, DI, ES
 ; -----------------------------------------------------------------------------
@@ -345,17 +347,13 @@ px_gen_init:
     mov si, px_drv_tpl
     mov cx, PXG_DRVSZ
     rep movsb
-    mov word [px_drvp], PXG_DRV
-    mov [px_drvp + 2], ax
+    mov word [px_drvp], PXG_DRV     ; (their segments are px_hsegs')
     mov word [px_drv2p], PXG_DRV2
-    mov [px_drv2p + 2], ax
-    mov si, [px_hand + PXH_BT]
-    mov [es:PXG_QTEX], si           ; the wall pass's ES, once
+    mov si, [px_hand + PXH_BT]      ; (the wall pass's ES, PXG_QTEX, too)
     mov word [es:PXG_QEND], PXG_Q
-    push si
-    mov si, [px_hand + PXH_SPR]
-    mov [es:PXG_QSPR], si           ; ...and the sprite pass's (0 = refused:
-    pop si                          ; px_sprok stays 0 and the pass never
+    mov ax, [px_hand + PXH_SPR]
+    mov [es:PXG_QSPR], ax           ; ...and the sprite pass's (0 = refused:
+                                    ; px_sprok stays 0 and the pass never
                                     ; enters the driver, 97.6)
     or si, si
     jz .nobt
@@ -366,13 +364,9 @@ px_gen_init:
     xor si, si                      ; ...so body q is at q * PXB_SIZE
     jmp short .tabs
 .image:
-    mov ax, ds                      ; no scratch: they run where they are
-    mov si, px_bodies
+    mov si, px_bodies               ; no scratch: they run where they are
 .tabs:
-    mov [px_bseg], ax
-    mov [px_qcur + 2], ax
-    mov [px_qcurv + 2], ax
-    mov [px_qcurh + 2], ax
+    call px_hsegs                   ; px_bseg, the far calls' segments
     mov [px_qoff + 0], si
     add si, PXB_SIZE
     mov [px_qoff + 2], si

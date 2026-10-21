@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "68f19de46d44c41dd71fd03ff26c41072332050914d6445f2044e09e5c2bbbb0",
+  "fingerprint": "642a61db72970f615b31b85ef16c8be9c33a65b9009c471b620fee4b86f8d365",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "f5b159d1ad70696010bc8ff3bcfd4c31181811df659dfc7c409da101866ae7ff",
+  "fingerprint": "fcc3765f5c55c6d960a912ad40d27e3539eaa2c1e9d71eac27105f7a51571b07",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -581,6 +581,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_MEM_SUBSEG (0x04BD) appended, and OS88_HIGH's comment: a re-homed program may say it in its own header (KERN-MEGA-PLAN 14.44) - additive, every package built before still runs",
+   "to": 11
+  },
+  {
+   "fingerprint": "fcc3765f5c55c6d960a912ad40d27e3539eaa2c1e9d71eac27105f7a51571b07",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_SUBSEG gains BL bit 1, CX = the window's length (KERN-MEGA-PLAN 14.48) and OS88_HIGH's comment covers a keep over 64KB: additive, a caller that leaves bit 1 clear is answered as before",
+   "to": 10
+  },
+  {
+   "fingerprint": "642a61db72970f615b31b85ef16c8be9c33a65b9009c471b620fee4b86f8d365",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_SUBSEG gains BL bit 1, CX = the window's length (KERN-MEGA-PLAN 14.48) and OS88_HIGH's comment covers a keep over 64KB: additive, a caller that leaves bit 1 clear is answered as before",
    "to": 11
   }
  ]

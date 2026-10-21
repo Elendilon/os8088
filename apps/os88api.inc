@@ -2038,14 +2038,20 @@ OS88_HUGE_INCR      equ 0x1000
 %define OSAPI_MEM_SUBSEG    KERNEL_SEG:0x04BD   ; AX = a PARAGRAPH offset into
                                  ; your OWN region (from your DS, which must
                                  ; be your region's), BL bit 0 = you will FAR
-                                 ; CALL code there. out CF=0 and DX = a DATA
+                                 ; CALL code there, BL bit 1 = CX is the
+                                 ; window's length in paragraphs (0 = to the
+                                 ; end). out CF=0 and DX = a DATA
                                  ; selector whose base is that paragraph and
                                  ; whose limit runs to your region's end or
-                                 ; 64KB, whichever is first - its CODE twin at
-                                 ; DX - 8 when bit 0 asked. The same paragraph
-                                 ; asked again answers the same selector, so
-                                 ; you use one LDT entry (two for code) per
-                                 ; distinct paragraph; all are freed with your
+                                 ; 64KB, whichever is first (or the length) -
+                                 ; its CODE twin at DX - 8 when bit 0 asked.
+                                 ; The same window asked again answers the
+                                 ; same selector, so you use one LDT entry
+                                 ; (two for code) per distinct window - ask
+                                 ; for the code first and the data ask reuses
+                                 ; its twin. A selector as long as its PART
+                                 ; lets a region over 64KB move a part at a
+                                 ; time (KERN-MEGA-PLAN 14.48); all are freed with your
                                  ; region and MOVE with it (the selector does
                                  ; not change). CF=1 and EVERY register kept:
                                  ; use your segment + AX. Any context.
@@ -3625,10 +3631,12 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
 ; A RE-HOMED PROGRAM (OSAPI_PKG_REHOME, SPEC.md 20.12.10.9) says it in its
 ; OWN header - the program part's - and not in its loader's: the loader is
 ; freed the moment it re-homes, so its placement buys nothing. On kern_mega
-; the program's KEEP (the KEEP form, at most 65,520 bytes: the program and
-; every part it reads) then moves above 1MB as one pair before the program
-; runs; a larger keep, or the bytes form, runs low as before. Ask
-; OSAPI_MEM_SUBSEG for a selector at any paragraph inside it.
+; the program's KEEP (the KEEP form: the program and every part it reads)
+; then moves above 1MB as one pool block before the program runs - one pair
+; over it all up to 65,520 bytes, and over a larger keep a pair over the
+; program's own image + bss alone (KERN-MEGA-PLAN 14.48); the bytes form runs
+; low as before. Ask OSAPI_MEM_SUBSEG for a selector at any paragraph inside
+; it, and for a part past the pair, one as long as the part.
 OS88_HIGH          equ 0x80
 ; OS88_HIGHMEM - OR it into the class byte as well (`OS88_STACK_192 |
 ; OS88_HIGH | OS88_HIGHMEM`) to say that this package's CLAIMS may be above

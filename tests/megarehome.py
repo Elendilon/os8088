@@ -7,8 +7,8 @@ runs ABOVE 1MB on kern_mega, and its conventional memory stays free.
     python3 tests/megarehome.py --keep     ...and leave the boot's output
 
 Boots build/mega.img under Bochs (16MB) with C:'s RUN/ holding MEGARUN and the
-four re-homed programs that say it - kern_mega's own DOS.O88, SCRIBE, CLEAR
-SKIES and WORD - and lets MEGARUN start each by name (OSAPI_PKG_START, the
+five re-homed programs that say it - kern_mega's own DOS.O88, SCRIBE, CLEAR
+SKIES, WORD and PIXELSTEIN 3D - and lets MEGARUN start each by name (OSAPI_PKG_START, the
 Disk window's own path through the loader and its parts). Then it stops the
 machine at its debugger prompt and reads the kernel's tables directly:
 
@@ -20,7 +20,15 @@ machine at its debugger prompt and reads the kernel's tables directly:
      four - the 50-62KB regions that used to sit at the top of 640KB;
   5. CLEAR SKIES holds at least one LDT descriptor whose base is INSIDE its
      block other than its own pair: OSAPI_MEM_SUBSEG's, which cs_xpand asks
-     for to expand its title bands and vocabulary in place.
+     for to expand its title bands and vocabulary in place;
+  6. PIXELSTEIN 3D's keep, over 64KB, is ONE block (KERN-MEGA-PLAN 14.48):
+     its pair's limit is its own image + bss less one, and inside the block
+     sit exactly the scratch part's code/data pair and the byte textures'
+     data selector, each based at its part and none running past the block.
+
+THE FAILING CASE for 6: PXSTEIN.O88 from before 14.48 - its program says
+no OS88_HIGH and its keep ran low: `FAIL: Pixelstein 3D I_SPTR 7C40 - a
+conventional segment`, verified when the leg was added.
 
 THE FAILING CASE (docs/WRITING-TESTS.md 1): drop OS88_HIGH from any of the
 four headers (or the `call ld_hicx` from kernel/loader.inc's step 8b) and
@@ -51,7 +59,9 @@ PROGS = (("dos.o88", os.path.join(BUILD, "megak", "kdos", "DOS.O88"), "DOS",
           False),
          ("scribe.o88", os.path.join(BUILD, "scribe.o88"), "SCRIBE", True),
          ("skies.o88", os.path.join(BUILD, "skies.o88"), "SKIES", False),
-         ("word.o88", os.path.join(BUILD, "word.o88"), "WORD", True))
+         ("word.o88", os.path.join(BUILD, "word.o88"), "WORD", True),
+         ("pxstein.o88", os.path.join(BUILD, "pxstein.o88"), "Pixelstein 3D",
+          True))
 I_RECSZ, INST_MAX = 32, 12
 MX_BLKSZ, MX_NBLK = 8, 24
 MC_SIZE, MEM_MAX = 10, 32
@@ -207,6 +217,32 @@ def main():
         if name == "SKIES" and not inside:
             fails.append("SKIES: no OSAPI_MEM_SUBSEG selector inside its "
                          "block - cs_xpand did the sum, or did not ask")
+        if name == "Pixelstein 3D":
+            # 14.48: ONE block of the whole keep (over 64KB), the pair over
+            # the program's own image + bss alone, and a selector per part
+            # based at the part's first byte and as long as the part: the
+            # scratch's code/data pair and the byte textures' data
+            if kb <= 64:
+                fails.append("PXSTEIN: a %dKB block - its keep is over 64KB, "
+                             "so the scratch and the textures are not in it"
+                             % kb)
+            if pairs and pairs[0][3] != size - 1:
+                fails.append("PXSTEIN: the pair's limit is %04X, not its "
+                             "image + bss less one (%04X)"
+                             % (pairs[0][3], size - 1))
+            for d in inside:
+                print("megarehome:   PXSTEIN part selector %04X %s base +%d "
+                      "limit %04X" % (d[0] * 8 + 4, d[1], d[2] - base, d[3]))
+            codes = [d for d in inside if d[1] == "Code"]
+            datas = [d for d in inside if d[1] == "Data"]
+            if len(codes) != 1 or len(datas) != 2:
+                fails.append("PXSTEIN: %d code and %d data selectors inside "
+                             "its block, not the scratch's pair and the byte "
+                             "textures' (1 and 2)" % (len(codes), len(datas)))
+            for d in inside:
+                if d[2] - base + d[3] + 1 > kb * 1024:
+                    fails.append("PXSTEIN: selector %04X runs past its block"
+                                 % (d[0] * 8 + 4))
     print("megarehome: %.0fs under Bochs" % (time.time() - t0))
     if not keep and not fails:
         shutil.rmtree(out, ignore_errors=True)
