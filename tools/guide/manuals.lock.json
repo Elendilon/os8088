@@ -602,9 +602,9 @@
   "sources": [
    "apps/midirack"
   ],
-  "stamped": "be02614c",
-  "strings": "44f39ab5c4556b19",
-  "why": "the new strings belong to the MR_SPKDIAG debug knob, which the shipped build does not assemble; unchanged"
+  "stamped": "a6a3ab5a",
+  "strings": "d1bd34a96a4616f4",
+  "why": "the refused Play when the card's or the speaker's ring cannot be claimed (KERN-MEGA-PLAN 14.55, 14.59) described; the grant-ring fallback is below the page's detail"
  },
  "MINES_O88": {
   "sources": [
