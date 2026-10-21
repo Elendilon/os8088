@@ -7109,6 +7109,15 @@ dos_mck_di:
     mov di, OS88UI_DIS              ; **AND A SUBSECTION BELONGS TO ITS ARM**
     cmp bx, dos_mmou                ; (SPEC.md 96.36.9): a box whose arm is not
     jne .arm0                       ; the pick cannot be used, so it is greyed
+%ifdef DOS_MEGA
+    xor di, di                      ; ...BUT kern_mega's page draws no radio
+    jmp short .out                  ; (KERN-MEGA-DOS-PLAN 12.1 item 1): every
+                                    ; launch is the whole machine and
+                                    ; KDLF_NOMOUSE is honoured on it, while
+                                    ; [dos_keepc] stays arm 0 for the drivers'
+                                    ; rows - so the arm test greyed this box for
+                                    ; good (KERN-MEGA-PLAN 14.43's finding)
+%endif
     cmp byte [dos_keepc], DOS_MEM_WHOLE ; - and a press on it falls through to
     jne .out                        ; the radio, which picks that arm
     xor di, di                      ; (96.36.4). Two clicks, and the first one
