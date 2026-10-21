@@ -9288,3 +9288,13 @@ the tree - SPEC.md 96.45.2.3's keyboard guard in `hbm_wake`, and
 `mega_d8042get`/`mega_d8042put` banking the command byte across a park - and
 `elendilon` has nothing newer on it (its one commit not in `protected-mode`
 is the video-compression squash).
+
+**...and it is intermittent, and it crosses the trip both ways.** The
+title-screen exit reproduced it twice and then not on the next three
+attempts; and on the NEXT LAUNCH of Test Drive III after those trips, the
+**keyboard was dead inside the game**, the game otherwise running. So the
+bad state survives the handoff outbound as well as the return - which
+points at controller or PIC state both directions carry (an 8042 output
+buffer stuck full with its edge lost, the keyboard interface or scanning
+left off, IRQ1 masked or an in-service bit stuck) rather than at the
+desktop's own keyboard handler.
