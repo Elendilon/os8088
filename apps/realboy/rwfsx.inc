@@ -28,6 +28,14 @@
 ; =============================================================================
 
 RW_FSDIV        equ 19977           ; 1,193,182 / 59.7275: a period a frame
+RW_PGBUD        equ 500             ; PAGES: the core's budget while a flip
+                                    ;   waits (x2 recompiled, ~1 ms on a 286)
+RW_PGWIN        equ 2000            ; ...and how soon after the display was
+                                    ;   last seen on its flip may be written,
+                                    ;   in 838 ns counts (rw_pgtry)
+RW_PG0          equ 0800h           ; PAGES: the three pages' VRAM, over the
+RW_PGSTEP       equ 1800h           ;   split's region at 0 (rw_pgcrtc)
+RW_FSTXTP       equ 2               ; PAGES: the speed line's row there
 RW_FSSKIP       equ 4               ; frames run undrawn at most, behind
 RW_FSX          equ 0               ; the picture's byte column and first row:
 RW_FSY          equ 0               ;   the top left of the CRTC's window
@@ -158,6 +166,15 @@ rw_fsenter:
                                     ;   restore's repaint paints white, and
                                     ;   the next draw starts from every line
     mov byte [rw_fsrate], 1
+    mov byte [rw_fspan], 0          ; PAGES (rw_pgcrtc): VGA, a 286 or
+    cmp byte [rw_fskind], RW_FSVGA  ;   better and the damage memory -
+    jne .np                         ;   the composer's 42-byte lines
+    cmp byte [rw_286], 0            ;   need it
+    je .np
+    cmp word [rb_dmgseg], 0
+    je .np
+    mov byte [rw_fspan], 1
+.np:
     mov ax, rw_fsmain
     mov bx, [rw_win]
     mov cx, FSXF_RATE
@@ -226,6 +243,67 @@ rw_fshook:
     add [rw_fsper], ax              ; (rw_clk's, for the log)
     ret
 
+; rw_pgtry - PAGES: a flip that waits is written when the display is found
+; OFF within RW_PGWIN of last being seen ON - the bottom border, which
+; rw_pgcrtc's timing makes longer than that, and where every card takes the
+; start address and the pel panning together for the next frame (REALBOY-SPEC
+; 15.4). It is the foreground's, between two runs of the core (rw_frame):
+; the core runs with interrupts off, so no hook could know where the beam is.
+; Off with no recent on - the top border, or a sample too late - is no flip.
+; Kept: all
+rw_pgtry:
+    cmp byte [rw_pgpend], 0
+    je .r
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dx, 3DAh                    ; the display on: a 0 in bit 0 within
+    mov cx, 24                      ;   a line's 60% of blanking
+.s:
+    in al, dx
+    test al, 1
+    jz .on
+    loop .s
+    cmp byte [rw_pgseen], 0
+    je .lost
+    call rw_clk
+    sub ax, [rw_pgton]
+    cmp ax, RW_PGWIN
+    ja .lost
+    mov dx, 3D4h                    ; the flip
+    mov bx, [rw_pgstart]
+    mov al, 0Ch
+    mov ah, bh
+    out dx, ax
+    mov al, 0Dh
+    mov ah, bl
+    out dx, ax
+    mov dx, 3DAh
+    in al, dx
+    mov dx, 3C0h
+    mov al, 33h                     ; AR13, the display left on
+    out dx, al
+    mov al, [rw_pgpan]
+    out dx, al
+    mov al, [rw_pgnext]
+    mov [rw_pgshow], al
+    mov byte [rw_pgpend], 0
+.lost:
+    mov byte [rw_pgseen], 0
+    jmp short .x
+.on:
+    call rw_clk
+    mov [rw_pgton], ax
+    mov byte [rw_pgseen], 1
+.x:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
+    ret
+
 ; rw_fsmain - the bracket. DS = CS = ours, ES = KERNEL_SEG, SI = the window.
 rw_fsmain:
     OS88_ALTENTER_SEED              ; the Alt+Enter that got us here is held
@@ -241,8 +319,17 @@ rw_fsmain:
     jne .mono
     call rw_fsdac
     call rw_fscrtc
+    mov word [rw_fstxto], RW_FSTXT * 40 + RW_FSX
+    cmp byte [rw_fspan], 0
+    jne .pg
     call rw_fsframe
     call rw_dmgfull                 ; every line of the first frame
+    jmp short .in
+.pg:
+    call rw_pgcrtc                  ; PAGES: the split, the timing, page 0
+    mov word [rw_fstxto], RW_FSTXTP * 40
+    mov byte [rb_panon], 1
+    call rw_dmgfull
     jmp short .in
 .mono:
     call rw_fsclear                 ; Hercules or CGA: the screen black,
@@ -275,6 +362,11 @@ rw_fsmain:
     jnz .run
     cmp byte [rw_undrawn], 0        ; caught up: what has not been drawn,
     jne .idle                       ;   rather than wait (the window's .idle)
+    cmp byte [rw_pgpend], 0         ; (a flip waiting: the beam, not the
+    je .wt                          ;   clock - it is a frame of 14 ms)
+    call rw_pgtry
+    jmp .loop
+.wt:
     mov al, FSXW_FRAME
     cmp byte [rw_fsrate], 0
     jne .w
@@ -325,6 +417,11 @@ rw_fsmain:
 .out:
     pop word [rw_budget]
     mov byte [rw_infsx], 0
+    cmp byte [rb_panon], 0          ; PAGES: the window's frame is rw_fbuf,
+    je .r                           ;   which the bracket left behind
+    mov byte [rb_panon], 0
+    mov byte [rw_pgpend], 0
+    call rw_dmgfull
 .r:
     ret
 
@@ -481,10 +578,16 @@ rw_fsdraw:
     je .vga
     jmp rw_fsdrawd
 .vga:
+    cmp byte [rw_fspan], 0
+    je .cp
+    call rw_pgdraw
+    jmp short .tx
+.cp:
     mov ax, [rw_fsi + FSI_SEG]      ; the changed lines, by damage - each to
     mov [rb_dvga], ax               ;   VRAM as rb_renderd decides it changed
     call rw_render                  ;   (ppu_dvga), not by a second pass over
     mov word [rb_dvga], 0           ;   the buffer
+.tx:
     call rw_fsline                  ; ZF = 0: the speed line to draw
     jz .r
     call rw_fstext
@@ -494,13 +597,142 @@ rw_fsdraw:
 %error "ppu_dvga writes line n at 40 n: the picture's corner must be VRAM 0"
 %endif
 
+; rw_pgdraw - PAGES: the frame composed PAN-ALIGNED into [rw_pseg] (rb_panon,
+; 42 bytes a line), the lines the page owes written onto the page neither
+; shown nor waiting to be (rb_pages), and its flip posted for the hook. The
+; card is never drawn on where it shows, and nothing waits for the beam
+rw_pgdraw:
+    pushf
+    cli
+    mov al, [rw_pgshow]
+    mov ah, 0FFh
+    cmp byte [rw_pgpend], 0
+    je .c
+    mov ah, [rw_pgnext]
+.c:
+    popf
+    xor bx, bx
+.f:
+    cmp bl, al
+    je .x
+    cmp bl, ah
+    jne .got
+.x:
+    inc bx
+    jmp short .f
+.got:
+    push bx
+    call rw_render
+    pop bx
+    mov al, RW_PGSTEP >> 8
+    mul bl
+    mov ah, al
+    xor al, al
+    add ax, RW_PG0
+    mov di, ax                      ; DI = the page
+    mov al, bl
+    push ds
+    mov es, [rw_fsi + FSI_SEG]
+    mov ds, [rw_pseg]
+    call rb_pages
+    pop ds
+    mov al, [rb_panv]
+    pushf
+    cli
+    mov [rw_pgstart], di
+    mov [rw_pgpan], al
+    mov [rw_pgnext], bl
+    mov byte [rw_pgseen], 0
+    mov byte [rw_pgpend], 1
+    popf
+    jmp rw_pgtry
+
+; rw_pgcrtc - PAGES (REALBOY-SPEC 15.4): the picture's 144 doubled rows
+; from a page, the speed line under them from VRAM 0 - the LINE COMPARE at
+; scanline 287, with AR10's pixel panning mode so it never pans - and the
+; vertical retrace 24 scanlines later than rw_fscrtc's, so the border
+; between the display's end (308) and the blanking (now 384) is ~2.4 ms,
+; RW_PGWIN and rw_pgtry's own time inside it. The total and the widths are
+; unchanged.
+; Plane 2 is the border's and the speed line's ground at 0, clear in the
+; pages; the page 0 shown, pan 0
+rw_pgcrtc:
+    mov es, [rw_fsi + FSI_SEG]
+    mov dx, 3C4h
+    mov ax, 0F02h                   ; every plane cleared...
+    out dx, ax
+    xor di, di
+    mov cx, (RW_PG0 + 3 * RW_PGSTEP) / 2
+    xor ax, ax
+    rep stosw
+    mov ax, 0402h                   ; ...and plane 2 set in the split's
+    out dx, ax                      ;   region
+    xor di, di
+    mov cx, RW_PG0 / 2
+    mov ax, 0FFFFh
+    rep stosw
+    push ds                         ; no line owed to any page: the first
+    mov es, [rw_pseg]               ;   frame is every line's (rw_dmgfull)
+    mov di, RB_PGMSK
+    mov cx, 3 * 144 / 2
+    xor ax, ax
+    rep stosw
+    pop ds
+    mov dx, 3D4h
+    mov al, 11h                     ; CR0-CR7 unlocked
+    out dx, al
+    inc dx
+    in al, dx
+    and al, 7Fh
+    out dx, al
+    dec dx
+    mov al, 09h                     ; CR09 bit 6: the line compare's bit 9
+    out dx, al
+    inc dx
+    in al, dx
+    and al, 0BFh
+    out dx, al
+    dec dx
+    mov si, rw_pgcrv
+    mov cx, (rw_pgcrve - rw_pgcrv) / 2
+.c:
+    lodsw
+    out dx, ax
+    loop .c
+    mov dx, 3DAh                    ; AR10 bit 5: the pixel panning mode
+    in al, dx
+    mov dx, 3C0h
+    mov al, 30h
+    out dx, al
+    inc dx
+    in al, dx
+    or al, 20h
+    dec dx
+    out dx, al
+    mov al, 33h
+    out dx, al
+    xor al, al
+    out dx, al
+    mov byte [rw_pgshow], 0
+    mov byte [rw_pgpend], 0
+    mov byte [rw_pgseen], 0
+    ret
+rw_pgcrv:   db 0Ch, RW_PG0 >> 8     ; page 0
+            db 0Dh, RW_PG0 & 0FFh
+            db 18h, 1Fh             ; line compare 287 (bit 8 in CR07: set)
+            db 15h, 80h             ; start blank 384 (bit 8 in CR07: set)
+            db 16h, 0A3h            ; end blank 419
+            db 10h, 86h             ; start retrace 390 (bit 8 in CR07: set)
+            db 11h, 88h             ; end retrace 392, CR0-CR7 locked again
+rw_pgcrve:
+
 ; rw_fstext - rw_ovltxt on the border under the picture, 16 cells wide
 rw_fstext:                          ; (SI = the line, rw_fsline's)
     mov es, [rw_fsi + FSI_SEG]      ; (its own: the writer before it no
     mov dx, 3C4h                    ;   longer leaves ES on the card)
     mov ax, 0302h                   ; planes 0 and 1: the glyph's set bits
     out dx, ax                      ;   read 7, its clear ones 4
-    mov di, RW_FSTXT * 40 + RW_FSX
+    mov di, [rw_fstxto]
     mov cx, 20
 .c:
     lodsb

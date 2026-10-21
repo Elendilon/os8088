@@ -1421,12 +1421,79 @@ Land - and it was taken out, for two reasons:
   while it scrolls comes back, and the lines with sprites are composed
   either way.
 
+Section 15.4 is what came of it: three pages, and the flip written by the
+foreground in the bottom border, with nothing waiting.
+
 What it left: Kirby's Dream Land's figures above are of the game in PLAY.
 Every earlier one - 7.37 ms CPU only, 12.18 drawn - was of the game
 PAUSED, by the third Start of gbprof's platformer script; the harness now
 leaves that Start out for it and flies it through the level (`b_joy`,
 `JOY_NO3RD` and `JOY_FLAP`). And the harness refuses to assemble when it
 runs into the core it loads, which the experiment did, silently.
+
+### 15.4 Pages: the card flips, the CPU composes aligned to its panning
+
+**On a 286 or better, VGA full screen draws into three VRAM pages and the
+card scrolls the background's last eight pixels** (`rw_fspan`, set by
+`rw_fsenter` when the writer is VGA, `[rw_286]` and the damage memory is
+there; an 8088, a Hercules and a CGA keep the writer above). It answers both
+of 15.3's reasons: the jitter was drawing into the page being shown, and the
+~7 ms was waiting for the retrace, which nothing here does.
+
+- **The layout** (`rw_pgcrtc`): the picture's 144 doubled rows come from a
+  page at 0800h, 2000h or 3800h (`RW_PG0`, `RW_PGSTEP`), 40 bytes a row as
+  before. The LINE COMPARE at scanline 287 shows VRAM 0 below them - the
+  gap and the speed line (`RW_FSTXTP`, row 2 there) - with AR10's pixel
+  panning mode, so that strip never pans. Plane 2 is set in it and clear in
+  the pages. The vertical retrace is 24 scanlines later than 15's (blank
+  384-419, sync 390-392), so the BOTTOM BORDER - the display's end at 308 to
+  the blanking - is ~2.4 ms. The total and the widths are 15's, so every
+  frequency is mode 0Dh's own; a real monitor sees the picture 24 lines
+  higher.
+- **The composer works PAN-ALIGNED** (`rb_panon`; `rb_renderd`'s
+  `ppu_linep` and `ppu_dputp` through `PPU_LINEV`/`PPU_DPUTV`, so the
+  ordinary composer carries none of it): the frame's pan is its last SCX AND
+  7 (`ppu_pan`, the raster log's last write on a screen line) and each line
+  is 21 bytes a plane, 42 to the buffer (`[rw_pseg]`:0), for the card to
+  show from pixel `rb_panv` on. A line that is the background alone with
+  SCX - pan a whole byte is composed at that offset: its 21 tile rows COPIED
+  (`ppu_fcopyb`) where they were shifted, and its sprites placed at X + pan.
+  Any other line - a window on it, a status bar with a scroll of its own,
+  the LCD or the background off - is composed as ever and shifted right by
+  the pan after (`ppu_ptype`, `ppu_panr`); a line's kind is judged again
+  only when a register was written or the window begins.
+- **A page owes lines** (`rb_pages`): `ppu_dputp` marks each changed line
+  owed to all three (`RB_PGMSK`, 3 x 144 bytes after the frame), and a
+  draw writes the lines its page owes - plane 0's 21 bytes and plane 1's,
+  one map-mask `OUT` a line - found with `repe scasw`. A scroll changes
+  every line, so each draw writes them all once, as the single page did; a
+  still change is written to each page as it comes round.
+- **The flip waits for nothing** (`rw_pgdraw`, `rw_pgtry`). The draw takes
+  the page neither shown nor waiting to be, and posts its start address and
+  pan. **The FOREGROUND writes them**, between two runs of the core
+  (`rw_frame`) and while it waits: the core runs with interrupts off (5.2),
+  for up to ~7 ms a run, so no hook can know where the beam is - a rate nine
+  times the frame's was built for it and lost a quarter of its periods.
+  The display-enable bit is sampled 24 times, the PIT time each time it is
+  seen ON kept, and the flip written when it is found OFF within 2,000
+  counts (1.7 ms, `RW_PGWIN`) of that: the bottom border, where every card
+  takes both registers for the next frame - one that applies the panning
+  on every line (the Victory's PVGA1A, the field probe's finding:
+  REALBOY-PLAN's scroll round), one that takes it at the frame's top (86Box)
+  or at the retrace's end (QEMU). While a flip waits the core runs in
+  budgets of 500 M-cycles (`RW_PGBUD`, ~1 ms recompiled), so it is looked at
+  often enough to land in its first border.
+- **What it costs**: the bare harness's MODE 14 (`rbbench.py --vga
+  --pages`) composes every frame onto the pages and flips at once, against
+  MODE 12's single page: Super Mario Land 403 -> 399 ticks, Kirby's Dream
+  Land 840 -> 820 (1,200 frames of play on `286-victory`). The shift
+  replaced is under-priced by 86Box, which does not charge a shift by its
+  count. It is the frame that never tears that this buys.
+- **The gate** is `gbdamage`'s pan-aligned legs (MODES 15-18, each
+  interlace): 0 of 500 frames differ for both games, read back through the
+  pan; the status bar left unshifted fails Super Mario Land on 400, the
+  sprites not moved by the pan Kirby's Dream Land on 288. The flip itself
+  is a look on the glass.
 
 ## 16. The recompiler
 

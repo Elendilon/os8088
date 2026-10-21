@@ -17,6 +17,12 @@ The ROMs:
   These scroll, use the window, move sprites, write the raster log and
   rewrite tiles.
 
+Each also PAN-ALIGNED (REALBOY-SPEC 15.4: MODES 15-18, the full screen's
+pages), in all four interlace modes: rb_renderd's 42-byte lines read back
+through the pan the card would show them with, against rb_render's. Leaving
+the status bar's lines unshifted fails SML on 400 frames of 500, and the
+sprites unmoved by the pan Kirby's on 288.
+
 It also reports how many lines were composed against 144 a call - what the
 renderer saved. QEMU counts work exactly; the time is another row's
 (tests/rbcore/rbbench.py). Taking out the map-row marks (RB_DMROW) leaves
@@ -52,9 +58,11 @@ def main():
     # each also interlaced (REALBOY-SPEC 13.2), On, Scrolling and Doubled:
     # two calls a checked frame, which together must be the whole picture
     for name, rom, mode in [(n, r, m) for n, r in roms
-                            for m in ("damage", "damage-il", "damage-is", "damage-id")]:
+                            for m in ("damage", "damage-il", "damage-is", "damage-id",
+                                      "damage-p", "damage-pil", "damage-pis", "damage-pid")]:
         name = name + {"damage": "", "damage-il": "/il", "damage-is": "/is",
-                       "damage-id": "/id"}[mode]
+                       "damage-id": "/id", "damage-p": "/p", "damage-pil": "/pil",
+                       "damage-pis": "/pis", "damage-pid": "/pid"}[mode]
         img = os.path.join(out, "gbdamage-%s.img" % name.replace("/", "-"))
         rbimg.make_image(rom, img, mode=mode, frames=a.frames)
         text = rbqemu.run(img, [" END\n", "RBHOST BADOP"], 600, quiet=True)

@@ -98,19 +98,22 @@ def main():
                     help="the recompiler's second cache segment (REALBOY-SPEC 16.2.1)")
     ap.add_argument("--vga", action="store_true",
                     help="...and rb_renderd's lines copied onto VGA mode 0Dh (MODE 12)")
+    ap.add_argument("--pages", action="store_true",
+                    help="with --vga: PAN-ALIGNED onto three VRAM pages (MODE 14)")
     a = ap.parse_args()
     out = os.path.join(ROOT, "build", "realboy")
     core, host = rbimg.build_core(False, out), rbimg.build_host(out)
     img = os.path.join(out, "prof.img")
     rbimg.make_image(a.rom, img, 1440 if a.box else 360,
-                     "renderv" if a.vga else
+                     "renderp" if a.vga and a.pages else "renderv" if a.vga else
                      "renderd" if a.renderd else "render" if a.render else "play",
                      6000 if a.static else 60000, core=core, host=host,
                      jit="static" if a.static else not a.nojit, seg2=a.seg2)
     mine = rbimg.private(out)               # where this run built its core
     inc = [os.path.join(ROOT, "apps/realboy/"), os.path.join(ROOT, "tests/rbcore/"), mine + "/"]
     csyms = labels(listing(os.path.join(mine, "rbcore.asm"), inc))
-    hsyms = labels(listing(os.path.join(ROOT, "tests/rbcore/rbhost.asm"), inc))
+    hsyms = labels(listing(os.path.join(ROOT, "tests/rbcore/rbhost.asm"), inc,
+                           ["-DRB_PANMODES"] if a.vga and a.pages else []))
     hsyms = [(o, n) for o, n in hsyms if n not in ("boot", "boot_go", "load")]  # the boot section's
     ck, hk = [o for o, _ in csyms], [o for o, _ in hsyms]
     hits, tot, pcs, jips, per, dumps = {}, 0, {}, [], {}, []

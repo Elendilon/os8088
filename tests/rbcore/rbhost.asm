@@ -31,6 +31,13 @@
 ;   MODE 12         as MODE 7, timed, onto VGA mode 0Dh: rb_renderd's
 ;   (renderv)       changed lines to VRAM as it decides them (rb_dvga), as
 ;                   the package's full screen does.
+;   MODE 14         as MODE 12, PAN-ALIGNED (rb_panon, REALBOY-SPEC 15.4):
+;   (renderp)       each frame onto the next of three VRAM pages (rb_pages)
+;                   and flipped to it - start address and pel panning written
+;                   at once, as the timing does not matter here.
+;   MODES 15-18     as MODE 6 PAN-ALIGNED, Interlace Off, On, Scrolling and
+;   (damage-p...)   Doubled: rb_renderd's 42-byte lines read back through the
+;                   pan against rb_render's.
 ;   MODE 13 (state) as MODE 3, with a SAVE STATE taken 200 frames before the
 ;                   end (rbsys's rb_stcompose and the view's 8000-FFFF, copied
 ;                   to STATE_SEG) and put back at the end (rb_stcheck,
@@ -53,6 +60,11 @@ bits 16
 
 %ifdef FRAME_SUM
 %define NO_MODE13
+%endif
+%ifdef RB_PANMODES                          ; MODES 14-18 (rbimg.py builds them
+%define NO_MODE13                           ;   a host of their own): the
+%else                                       ;   PAN-ALIGNED composer in, and no
+%define RB_NOPAN                            ;   MODE 13, for the room
 %endif
 HOST_SEG        equ 0x0760                  ; (35,328 bytes under the core: the
                                             ;   boot sector moves itself out of the
@@ -82,14 +94,16 @@ JF_SQZ          equ 10h                     ;   squeezed to JIT2_LIM's 1KB;
 JF_SMALL        equ 08h                     ;   the block table at 16KB
 PRF_SEG         equ 0x05A0                  ; Static's profile, 4KB (not MODES 5-9,
                                             ;   which compose into FRAME_SEG)
-FRAME_SEG       equ 0x05A0                  ; rb_render's 5,760 bytes, above the
-                                            ;   damage memory's RB_DMG_SIZE (to 5896h:
+FRAME_SEG       equ 0x05C0                  ; rb_render's 5,760 bytes, above the
+                                            ;   damage memory's RB_DMG_SIZE (to 5B96h:
                                             ;   INTERLACE writes its end) and under the
                                             ;   harness's stack (HOST_STK): the harness
                                             ;   (with the recompiler's templates) runs
                                             ;   past A000h
-FRAMED_SEG      equ 0x0060                  ; MODE 6: rb_renderd's buffer
-DMG_SEG         equ 0x01D0                  ;   and its damage memory
+FRAMED_SEG      equ 0x0060                  ; MODE 6: rb_renderd's buffer (PAN-
+DMG_SEG         equ 0x0200                  ;   ALIGNED: 6,048 and the pages' 3 x
+                                            ;   144 bytes, rb_pages) and its damage
+                                            ;   memory, to 5B96h
 STATE_SEG       equ 0x7000                  ; MODE 13's copy of a save state
 
 ; --- the boot sector ---------------------------------------------------------
@@ -224,6 +238,22 @@ host_main:
     mov ax,cs
     mov ds,ax
     mov es,ax
+%ifdef RB_PANMODES
+    cmp byte [h_mode],14                ; MODE 14: MODE 12 PAN-ALIGNED, onto
+    jne .m15                            ;   three pages
+    mov byte [h_hw],2
+    mov byte [rb_panon],1
+    mov byte [h_mode],7
+.m15:
+    cmp byte [h_mode],15                ; MODES 15-18: MODE 6 PAN-ALIGNED,
+    jb .m12                             ;   Interlace Off to Doubled
+    mov al,[h_mode]
+    sub al,15
+    mov [rb_ilace],al
+    mov byte [rb_panon],1
+    mov byte [h_mode],6
+.m12:
+%endif
     cmp byte [h_mode],12                ; MODE 12: MODE 7 onto VGA
     jne .m89
     mov byte [h_hw],1
@@ -371,12 +401,20 @@ host_main:
     je .d7
     mov ax,0x000D
     int 0x10
+    cmp byte [cs:h_hw],2
+    je .d7
     mov word [cs:rb_dvga],0xA000        ; (each changed line to VGA, ppu_dvga)
 .d7:
     mov ax,FRAMED_SEG
     mov es,ax
     xor di,di
     call rb_renderd
+%ifdef RB_PANMODES
+    cmp byte [cs:h_hw],2
+    jne .d7p
+    call pg_flip
+.d7p:
+%endif
 %ifdef FRAME_SUM
     call fsum
 %endif
@@ -690,9 +728,20 @@ dmg_check:
     mov ds,ax
     xor si,si
     xor di,di
+%ifdef RB_PANMODES
+    cmp byte [cs:rb_panon],0
+    jne .pan
+%endif
     mov cx,5760 / 2
     repe cmpsw
     je .r
+%ifdef RB_PANMODES
+    jmp short .bad
+.pan:
+    call pan_cmp
+    je .r
+.bad:
+%endif
     inc word [cs:dmg_bad]
     cmp word [cs:dmg_first],0
     jne .r
@@ -735,7 +784,92 @@ dmg_check:
     pop cx
     pop ax
     ret
-h_hw        db 0                        ; MODE 12: onto VGA
+h_hw        db 0                        ; MODE 12: onto VGA (2: MODE 14's pages)
+
+%ifdef RB_PANMODES
+; pan_cmp - MODES 15-18: the PAN-ALIGNED frame at DS:0 (42 a line) read
+; through the pan against rb_render's at ES:0 (40), every pixel the card
+; would show. ZF = 1: the same; else SI is past the first byte that differs
+pan_cmp:
+    mov cl,[cs:rb_panv]
+    xor si,si
+    xor di,di
+    mov bx,144 * 2                      ; (two planes a line)
+.p:
+    mov dx,20
+.k:
+    mov ah,[si]
+    mov al,[si+1]
+    shl ax,cl
+    cmp ah,[es:di]
+    jne .no
+    inc si
+    inc di
+    dec dx
+    jnz .k
+    inc si                              ; (the plane's 21st byte)
+    dec bx
+    jnz .p
+    xor ax,ax
+    ret
+.no:
+    inc si
+    or sp,sp                            ; (ZF = 0)
+    ret
+
+; pg_flip - MODE 14: the frame just composed onto the next of three pages,
+; and the card's start address and panning set to it
+pg_flip:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push ds
+    push es
+    mov bl,[cs:pg_cur]
+    inc bx
+    cmp bl,3
+    jb .c
+    xor bl,bl
+.c:
+    mov [cs:pg_cur],bl
+    xor bh,bh
+    mov cl,bl
+    shl bx,1
+    mov di,[cs:pg_base+bx]              ; DI = the page
+    mov al,cl                           ; AL = the page
+    mov dx,FRAMED_SEG
+    mov ds,dx
+    mov dx,0A000h
+    mov es,dx
+    call rb_pages
+    mov dx,3D4h                         ; the start address, then the pan
+    mov al,0Ch
+    mov bx,di
+    mov ah,bh
+    out dx,ax
+    mov al,0Dh
+    mov ah,bl
+    out dx,ax
+    mov dx,3DAh
+    in al,dx
+    mov dx,3C0h
+    mov al,33h
+    out dx,al
+    mov al,[cs:rb_panv]
+    out dx,al
+    pop es
+    pop ds
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+pg_cur      db 0
+pg_base     dw 0800h, 2000h, 3800h
+%endif
 
 dmg_bad     dw 0
 dmg_first   dw 0

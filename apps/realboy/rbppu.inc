@@ -77,6 +77,18 @@ PPU_LCOK        equ 0x4B89          ; byte: ppu_blist may use RB_DLC (rb_renderd
 PPU_OAMH        equ 0x4B8A          ; byte: the height PPU_LSPR was built for,
                                     ;   8 or 16 (0: none)
 PPU_OAMD        equ 0x4B8C          ; word: 16 - PPU_OAMH
+PPU_SPAN        equ 0x4B8E          ; byte: PAN-ALIGNED (rb_panon), the line's
+                                    ;   offset: the pan for a line composed at
+                                    ;   SCX - pan (a background aligned to
+                                    ;   it), else 0...
+PPU_PSH         equ 0x4B8F          ; byte: ...and 1 when it is composed as
+                                    ;   ever and shifted right by the pan
+PPU_PANM        equ 0x4B90          ; byte: the frame's pan, FFh: not aligned
+PPU_SPANL       equ 0x4B91          ; byte: the last line's PPU_SPAN
+PPU_WN          equ 0x4B92          ; word: words a plane a line: 10, 11
+                                    ;   when aligned (21 bytes)
+PPU_LINEV       equ 0x4B94          ; word: rb_renderd's line, ppu_line or
+PPU_DPUTV       equ 0x4B96          ;   ppu_linep, and its ppu_dput(p)
 PPU_OAMY        equ 0x6520          ; 40: the sprites' Ys PPU_LSPR was built from
 PPU_LSCR        equ 0x7000          ; 144 words: each line's SCY:SCX at the
                                     ;   last call, kept when DOUBLED
@@ -130,6 +142,9 @@ rb_render:
     mov byte [PPU_TMODE],0FFh
 .rev:
     mov byte [PPU_LCOK],0
+    mov byte [PPU_PANM],0FFh            ; (20 bytes a plane: never aligned)
+    mov word [PPU_WN],10
+    mov word [PPU_SPAN],0
     mov word [PPU_BKEY],0               ; the map may have changed since
     mov word [PPU_WKEY],0
     ; the state as the frame began: the snapshot, if this frame logged a write
@@ -304,6 +319,12 @@ rb_dvga         dw 0                    ; the host's: a changed line goes to VGA
                                         ;   too, its two shade planes to planes
                                         ;   0 and 1 of this segment at 40 a
                                         ;   line (ppu_dvga), or 0
+rb_panon        db 0                    ; the host's: 1 = PAN-ALIGNED - each
+                                        ;   line 42 bytes (21 a plane), composed
+                                        ;   for the card's pel panning to show
+                                        ;   from pixel rb_panv on, which it
+                                        ;   sets (REALBOY-SPEC 15.4)
+rb_panv         db 0
 rb_dvmm         db 0                    ; ...the plane the map mask holds
 
 rb_renderd:
@@ -384,6 +405,23 @@ rb_renderd:
     mov [PPU_REGS+6],ax
 .st2:
     call ppu_pal
+    mov byte [PPU_PANM],0FFh            ; PAN-ALIGNED (the host's): the
+    mov word [PPU_WN],10                ;   frame's pan, its last SCX AND 7,
+    mov word [PPU_SPAN],0               ;   for the card to scroll by
+    mov word [PPU_LINEV],ppu_line
+    mov word [PPU_DPUTV],ppu_dput
+%ifndef RB_NOPAN
+    cmp byte [cs:rb_panon],0
+    je .np
+    call ppu_pan
+    mov [PPU_PANM],al
+    mov [cs:rb_panv],al
+    mov byte [PPU_WN],11
+    mov byte [PPU_SPANL],0FFh
+    mov word [PPU_LINEV],ppu_linep
+    mov word [PPU_DPUTV],ppu_dputp
+.np:
+%endif
     mov byte [es:RB_DFAST],0
     call ppu_logsame                    ; ZF = 1: the same log (and kept)
     mov byte [es:RB_DSAME],0
@@ -523,8 +561,8 @@ rb_renderd:
     stosb
     inc di
     mov [PPU_DWREG],di
-    call ppu_line
-    call ppu_dput
+    call [PPU_LINEV]
+    call [PPU_DPUTV]
     inc byte [PPU_LY]
     cmp byte [PPU_LY],144
     jb .w0
@@ -557,8 +595,8 @@ rb_renderd:
     inc di                              ; (a record is 10: ppu_ldirty's)
     mov [PPU_DWREG],di
     inc word [es:RB_DCOMP]
-    call ppu_line
-    call ppu_dput
+    call [PPU_LINEV]
+    call [PPU_DPUTV]
     inc byte [PPU_LY]
     cmp byte [PPU_LY],144
     jb .whole
@@ -612,14 +650,14 @@ rb_renderd:
     mov byte [PPU_PNEW],1
     cmp byte [cs:rb_ilace],3            ; DOUBLED: meanwhile the even line
     jne .skip                           ;   above, which was composed just now
-    call ppu_dput                       ;   ([PPU_OSRC]), in its place
+    call [PPU_DPUTV]                    ;   ([PPU_OSRC]), in its place
     jmp short .skip
 .ilc:
     mov byte [es:RB_DPEND+bx],0
 .comp2:
     inc word [es:RB_DCOMP]
-    call ppu_line
-    call ppu_dput                       ; into the buffer if it differs
+    call [PPU_LINEV]
+    call [PPU_DPUTV]                    ; into the buffer if it differs
     jmp short .next
 .skip:
     call ppu_wstep                      ; the window's counter, as ppu_line
@@ -1353,6 +1391,205 @@ ppu_dput:
     pop es
     ret
 
+%ifndef RB_NOPAN
+; ppu_dputp: ppu_dput PAN-ALIGNED - 42 bytes a line, each plane's 21 (the
+; pan's leftmost pixels and the last byte's tail never shown), the buffer at
+; offset 0; no VGA: a changed line is OWED to each of the host's three pages
+; instead (RB_PGMSK, rb_pages)
+ppu_dputp:
+    mov al,[PPU_LY]
+    mov cl,42
+    mul cl
+    push es
+    mov si,[PPU_OSRC]
+    cmp byte [es:RB_DFULL],1
+    les di,[es:RB_DOUT]
+    je .all
+    mov di,ax                           ; ES:DI = the line in the buffer
+    mov cx,10
+    repe cmpsw
+    jne .w0
+    cmpsb
+    jne .b0
+    add si,0Bh                          ; bit 1 at +20h
+    mov cl,10
+    repe cmpsw
+    jne .w1
+    cmpsb
+    je .same
+    dec si
+    dec di
+    movsb
+    jmp short .mk
+.w1:
+    dec si                              ; from the first word that differs
+    dec si
+    dec di
+    dec di
+    inc cx
+    rep movsw
+    movsb
+    jmp short .mk
+.w0:
+    dec si
+    dec si
+    dec di
+    dec di
+    inc cx
+    rep movsw
+    movsb
+    jmp short .p1
+.b0:
+    dec si
+    dec di
+    movsb
+.p1:
+    add si,0Bh
+    mov cx,10
+    rep movsw
+    movsb
+    jmp short .mk
+.all:
+    mov di,ax
+    mov cx,10
+    rep movsw
+    movsb
+    add si,0Bh
+    mov cl,10
+    rep movsw
+    movsb
+.mk:
+    mov bl,[PPU_LY]
+    xor bh,bh
+    mov byte [es:RB_PGMSK+bx],1         ; owed to every page
+    mov byte [es:RB_PGMSK+144+bx],1
+    mov byte [es:RB_PGMSK+288+bx],1
+    pop es
+    mov byte [es:RB_DCHG+bx],1
+    inc word [es:RB_DCNT]
+    ret
+.same:
+    pop es
+    ret
+
+; rb_pages: a PAN-ALIGNED frame onto one of the host's three VGA PAGES. A
+; page keeps the last frame it was given, so each has its own lines owed: a
+; byte a line at RB_PGMSK + 144 x the page, in the buffer's segment, which
+; ppu_dputp sets for every page as it stores a changed line. The lines this
+; page owes are written - plane 0's 21 bytes and plane 1's, from the
+; buffer's 42 a line to the page's 40 - and no longer owed. DS = the buffer
+; (the frame at 0), ES = the card, DI = the page's offset, AL = the page,
+; 0-2. Kept: all
+RB_PGMSK        equ 144 * 42
+rb_pages:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    cld
+    mov bp,di                           ; BP = the page
+    mov [cs:rb_pgcard],es
+    mov byte [cs:rb_pgpl],0FFh          ; (the plane the map mask holds)
+    mov ah,144
+    mul ah
+    add ax,RB_PGMSK
+    mov bx,ax                           ; BX = its owed bytes
+    push ds
+    pop es
+    mov di,bx
+    mov cx,144 / 2
+.s:
+    jcxz .done
+    xor ax,ax
+    repe scasw                          ; two lines a word
+    je .done
+    mov ax,[di-2]
+    mov word [di-2],0
+    push cx
+    push di
+    lea si,[di-2]
+    sub si,bx                           ; SI = the word's first line
+    or al,al
+    jz .s1
+    call .w
+.s1:
+    inc si
+    or ah,ah
+    jz .s2
+    call .w
+.s2:
+    pop di
+    pop cx
+    jmp short .s
+.done:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.w:                                     ; line SI from the buffer onto the
+    push ax                             ;   page, one OUT: the plane the map
+    push si                             ;   mask holds goes first
+    push es
+    mov es,[cs:rb_pgcard]
+    mov ax,si
+    mov cl,40
+    mul cl
+    mov di,ax
+    add di,bp
+    mov ax,si
+    mov cl,42
+    mul cl
+    mov si,ax
+    mov dx,3C4h
+    cmp byte [cs:rb_pgpl],1
+    je .h1
+    cmp byte [cs:rb_pgpl],0
+    je .h0
+    mov ax,0102h
+    out dx,ax
+.h0:
+    mov cx,10                           ; plane 0, then 1
+    rep movsw
+    movsb
+    sub di,21
+    mov ax,0202h
+    out dx,ax
+    mov cx,10
+    rep movsw
+    movsb
+    mov byte [cs:rb_pgpl],1
+    jmp short .wr
+.h1:
+    add si,21                           ; plane 1, then 0
+    mov cx,10
+    rep movsw
+    movsb
+    sub di,21
+    sub si,42
+    mov ax,0102h
+    out dx,ax
+    mov cx,10
+    rep movsw
+    movsb
+    mov byte [cs:rb_pgpl],0
+.wr:
+    pop es
+    pop si
+    pop ax
+    ret
+rb_pgcard       dw 0
+rb_pgpl         db 0
+%endif
+
 ; ppu_lscr: DOUBLED's history - the line's SCY:SCX into PPU_LSCR, and the
 ; last call's into PPU_OSCR. DS = view; BX = the line. Kept: all but AX
 ppu_lscr:
@@ -1841,11 +2078,23 @@ ppu_pal:
     ret
 
 ; ppu_line: compose line PPU_LY into PPU_OL/PPU_OH
-ppu_line:
+%macro PPU_LINE 3
+%1:
     push es
     push di
     push ds
     pop es
+%if %2
+    mov al,[PPU_PANM]
+    cmp byte [PPU_RCH],0                ; (the line's kind is the last one's
+    jne .pt                             ;   until a register is written, or
+    mov ah,[PPU_LY]                     ;   the window begins)
+    cmp ah,[PPU_REGS+6]
+    jne .nal
+.pt:
+    call ppu_ptype
+.nal:
+%endif
     mov al,[PPU_REGS+0]
     test al,80h
     jnz .on
@@ -1921,7 +2170,10 @@ ppu_line:
     add si,bx
     and dl,7
     mov [PPU_BROW],dl
-    mov bl,[PPU_REGS+2]                 ; SCX: the first tile column
+    mov bl,[PPU_REGS+2]                 ; SCX: the first tile column (less
+%if %2
+    sub bl,[PPU_SPAN]                   ;   the pan, aligned to it)
+%endif
     shr bl,1
     shr bl,1
     shr bl,1
@@ -1930,6 +2182,9 @@ ppu_line:
 .bgl:
     mov si,PPU_BLIST
     mov cl,[PPU_REGS+2]
+%if %2
+    sub cl,[PPU_SPAN]
+%endif
     and cl,7
     cmp byte [PPU_BLIST+42],1           ; one tile all along: its row, turned
     je .uni                             ;   by the fine scroll, 20 times (44%
@@ -1950,12 +2205,12 @@ ppu_line:
     mov al,bl
     mov ah,bl
     mov di,PPU_BL
-    mov cx,10
+    mov cx,10 + %2
     rep stosw
     mov al,bh
     mov ah,bh
     mov di,PPU_BH
-    mov cx,10
+    mov cx,10 + %2
     rep stosw
     jmp short .win
 .b0:
@@ -2006,7 +2261,7 @@ ppu_line:
     mov bx,ax
     cmp byte [PPU_LSPR+bx],0            ; (the sprites, if any, drawn over
     je .done                            ;   it: ppu_spriteb)
-    call ppu_sprites
+    call %3
     jmp short .done
 .anf:
     mov word [PPU_OSRC],PPU_OL
@@ -2019,17 +2274,116 @@ ppu_line:
 .spr:
     test byte [PPU_REGS+0],02h
     jz .done
-    call ppu_sprites
+    call %3
 .done:
+%if %2
+    cmp byte [PPU_PSH],0
+    jne .psh
+.dn:
+%endif
     pop di
     pop es
     ret
+%if %2
+.psh:
+    call ppu_panr                       ; (composed as ever: the pan's way)
+    jmp short .dn
+%endif
+
+%endmacro
+; ppu_line as ever, and ppu_linep PAN-ALIGNED (rb_panon): the same code
+; with the line's kind, its offset and its shift - none of it in the first
+PPU_LINE ppu_line, 0, ppu_sprites
+%ifndef RB_NOPAN                        ; (a host with no use for it: the bare
+PPU_LINE ppu_linep, 1, ppu_spritesp     ;   harness's other modes, for room)
+
+; ppu_ptype: PAN-ALIGNED, line PPU_LY's kind, AL = the frame's pan - a
+; background alone with SCX - pan a whole byte is composed at that offset
+; (PPU_SPAN = the pan: copied, not shifted); anything else as ever, and
+; shifted right by the pan after (PPU_PSH). A change of kind is a register
+; written, for ppu_line's tile-row path. DS = view
+ppu_ptype:
+    xor bx,bx                           ; BL = PPU_SPAN, BH = PPU_PSH
+    mov ah,[PPU_REGS+0]
+    test ah,80h
+    jz .sh
+    test ah,01h
+    jz .sh
+    test ah,20h                         ; the window on the line: as ever
+    jz .nw
+    mov dl,[PPU_LY]
+    cmp dl,[PPU_REGS+6]
+    jb .nw
+    cmp byte [PPU_REGS+7],166
+    jbe .sh
+.nw:
+    mov dl,[PPU_REGS+2]
+    sub dl,al
+    test dl,7
+    jnz .sh
+    mov bl,al
+    jmp short .s
+.sh:
+    or al,al                            ; (pan 0: as ever is aligned)
+    jz .s
+    inc bh
+.s:
+    mov [PPU_SPAN],bx
+    cmp bl,[PPU_SPANL]
+    je .r
+    mov [PPU_SPANL],bl
+    mov byte [PPU_RCH],1
+.r:
+    ret
+
+; ppu_panr: the line's two planes at [PPU_OSRC], composed as ever, shifted
+; right by the frame's pan into 21 bytes (pixel 0 lands at the pan, where
+; the card starts showing). Bit 0 of byte 20 takes byte 20's own junk, a
+; pixel past the screen's last
+ppu_panr:
+    mov si,[PPU_OSRC]
+    mov cl,[PPU_PANM]
+    call .p
+    add si,20h
+.p:
+%assign ppu_k 20
+%rep 20
+    mov ax,[si+ppu_k-1]
+    xchg al,ah
+    shr ax,cl
+    mov [si+ppu_k],al
+%assign ppu_k ppu_k-1
+%endrep
+    shr byte [si],cl
+    ret
+
+; ppu_pan: AL = the frame's pan - its last SCX (the snapshot's, then the
+; raster log's writes on the screen's lines) AND 7. DS = view
+ppu_pan:
+    mov al,[PPU_REGS+2]
+    xor ch,ch
+    mov cl,[PPU_LOGN]
+    jcxz .r
+    mov si,RB_RLOG
+.l:
+    cmp byte [si+1],43h
+    jne .n
+    cmp byte [si],144
+    jae .n
+    mov al,[si+2]
+.n:
+    add si,4
+    loop .l
+.r:
+    and al,7
+    ret
+%endif
 
 ; ppu_anf: one shade plane of the background into DI, through the ANF words
 ; at BP (D A B C): D xor (bit0 and A) xor (bit1 and B) xor (both and C)
 ppu_anf:
     mov si,PPU_BL
-    mov cx,10
+    mov cx,[PPU_WN]
 .w:
     lodsw                               ; bit 0
     mov bx,[si+PPU_BH-PPU_BL-2]         ; bit 1
@@ -2405,7 +2759,8 @@ ppu_wplace:
 
 ; ppu_sprites: up to ten sprites on line PPU_LY, in priority order, over
 ; PPU_OL/PPU_OH
-ppu_sprites:
+%macro PPU_SPRITES 2
+%1:
     ; find them, in OAM order - the counts in registers, not memory: DI's
     ; distance into PPU_SPR is the sprites found, BP's to [PPU_TMP] the
     ; candidates left
@@ -2466,8 +2821,18 @@ ppu_sprites:
     mov bl,ch
     mov ch,[PPU_REV+bx]
 .nx:
-    mov al,[si+1]
-    mov [di],al                         ; X
+    mov al,[si+1]                       ; X - off the right edge, 0 (never
+    cmp al,168                          ;   drawn)...
+    jb .xk
+    xor al,al
+.xk:
+%if %2
+    or al,al                            ; ...and else moved by the line's pan
+    jz .xs
+    add al,[PPU_SPAN]
+.xs:
+%endif
+    mov [di],al
     mov [di+1],cl
     mov [di+2],ch
     mov [di+3],ah
@@ -2535,15 +2900,19 @@ ppu_sprites:
     jb .db
     ret
 
+%endmacro
+PPU_SPRITES ppu_sprites, 0
+%ifndef RB_NOPAN
+PPU_SPRITES ppu_spritesp, 1
+%endif
+
 ; PPU_SPRITE name, put, plane 0, plane 1 - ppu_sprite: one sprite, SI = its PPU_SPR entry, over the line. Its
 ; shades are PPU_SANF's three terms a bit; the shifts are made once each,
 ; with no register saved around them
 %macro PPU_SPRITE 4
 %1:
-    mov al,[si]                         ; X: the screen pixel is X - 8
-    cmp al,168
-    jae .r
-    or al,al
+    mov al,[si]                         ; X: the line's pixel is X - 8 (0,
+    or al,al                            ;   or past the edge: none)
     jz .r
     push bp
     mov bl,al
@@ -2589,8 +2958,9 @@ ppu_sprites:
     xor ah,ah
     ror ax,cl
     mov bp,ax                           ; BP = shade bit 1, both halves
-    cmp bx,19                           ; both bytes on the line (0-18, all
-    jae .edge                           ;   but the edges): one word each
+    cmp bx,20                           ; both bytes on the line (0-19, all
+    jae .edge                           ;   but the edges; 21 bytes, so an
+                                        ;   aligned line's last): a word
     test byte [si+3],80h
     jnz .wb
     mov ax,[PPU_CL+bx]                  ; over the background: a pixel another
@@ -2617,10 +2987,10 @@ ppu_sprites:
     not ax
     and dx,ax
     jmp short .w
-.edge:                                  ; B = -1 or 19: the byte on the line
+.edge:                                  ; B = -1 or 20: the byte on the line
     or bx,bx
     js .right
-    cmp bx,20
+    cmp bx,21
     jae .x
     mov al,dl
     mov cx,di
@@ -2630,7 +3000,7 @@ ppu_sprites:
     call %2                        ; (DH kept)
 .right:
     inc bx
-    cmp bx,20
+    cmp bx,21
     jae .x
     mov al,dh
     mov cx,di

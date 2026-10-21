@@ -1139,12 +1139,18 @@ The plan, in order:
 
 1. **The composer's scrolled frame made cheaper** - BUILT (REALBOY-SPEC
    13.3, the scroll round): -10.0% / -5.8%, frame-identical.
-2. **The scan kept current while scrolling**: the OAM shadow taken whole
-   on a scroll, `ppu_dlines` as one clipped fill, the marked-block list.
+2. **The scan kept current while scrolling** - BUILT (REALBOY-SPEC 13.3):
+   the OAM shadow taken whole on a scroll, `ppu_dlines` as one clipped
+   fill, the marked-block list. Kirby's Dream Land -5.9%.
 3. **The no-wait three-page flip, and lines composed aligned to the
-   panning** (the background's fine scroll done by the card, so a line is
-   copied unshifted): ESTIMATED Kirby's Dream Land -7-9%, Super Mario Land
-   -2-3%. It builds the pages, the flip and the read-back gate.
+   panning** - BUILT (REALBOY-SPEC 15.4): estimated Kirby's Dream Land
+   -7-9% and Super Mario Land -2-3%, measured -2.4% and -1.0% on 86Box,
+   which does not price the shifts it removes. Two of the design's
+   assumptions were wrong: the flip cannot be a hook's, because the core
+   runs with interrupts off for milliseconds (a 9x rate lost a quarter of
+   its periods and slowed the game to 77%), so the foreground writes it
+   between core runs; and the line type has to be judged once a register
+   changes rather than every line, or it eats the gain.
 4. **The torus canvas**: the whole 256x256 background in VRAM, three
    pages, scrolled by the start address and panning; only the newly
    exposed cells, the sprites and the status bar drawn. ESTIMATED Super

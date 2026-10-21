@@ -276,7 +276,16 @@ rw_fmon         equ rw_pseg + 2     ; byte: the FM chip is ours (rwfm.inc)
 rw_fmsh         equ rw_fmon + 1     ; 16: what each channel's B0h, A0h and
                                     ;   two levels were last written
 rw_fmbuf        equ rw_fmsh + 16    ; 32: a frame's register/value pairs
-rw_fbuf         equ rw_fmbuf + 32 + 1 ; 5,760: rb_render's frame (monochrome;
+rw_fspan        equ rw_fmbuf + 32   ; byte: VGA full screen in PAGES (rwfsx.inc)
+rw_pgshow       equ rw_fspan + 1    ; byte: the page the card shows...
+rw_pgnext       equ rw_pgshow + 1   ; byte: ...the one a flip waits to show
+rw_pgpend       equ rw_pgnext + 1   ; byte: ...as it does (rw_pgtry's)
+rw_pgseen       equ rw_pgpend + 1   ; byte: rw_pgtry last saw the display on,
+rw_pgton        equ rw_pgseen + 1   ; word: ...at this clock (rw_clk's low)
+rw_pgstart      equ rw_pgton + 2    ; word: the flip's start address...
+rw_pgpan        equ rw_pgstart + 2  ; byte: ...and pel panning
+rw_fstxto       equ rw_pgpan + 1    ; word: the speed line's VRAM offset
+rw_fbuf         equ rw_fstxto + 2 + 1 ; 5,760: rb_render's frame (monochrome;
                                     ;   even)
 RW_BSS          equ rw_fbuf + 5760 - rw_win   ; derived: a sum by hand drifted
 RW_PBUF         equ 11520           ; the frame as the screen takes it: the
@@ -2132,6 +2141,10 @@ rw_frame:
 .run:                               ;   a frame's worth of budgets is one
     push cx
     mov ax, [rw_budget]
+    cmp byte [rw_pgpend], 0         ; (PAGES: a flip waiting is looked at
+    je .bp                          ;   between two runs - rw_pgtry - so they
+    mov ax, RW_PGBUD                ;   are short until it is written)
+.bp:
     push es                         ; the recompiler on: twice the budget -
     mov es, [rb_viewseg]            ;   it is the IRQ latency, and recompiled
     cmp byte [es:S_JITON], 0        ;   2000 M-cycles are ~2 ms on a 286, so
@@ -2141,6 +2154,7 @@ rw_frame:
 .b:
     call rb_run                     ; ...and each returns with interrupts
     pop cx                          ;   on, so the tick can pre-empt us
+    call rw_pgtry
     cmp al, RBX_FRAME               ;   between two: no yield per budget,
     je .done                        ;   which was nine task switches a frame
     cmp al, RBX_BADOP
@@ -2818,6 +2832,11 @@ rw_render:
     push ds
     pop es
     mov di, rw_fbuf
+    cmp byte [rb_panon], 0          ; (PAGES: the 42-byte lines, into the
+    je .buf                         ;   screen's claim - rwfsx.inc)
+    mov es, [rw_pseg]
+    xor di, di
+.buf:
     mov word [rb_dhook], rw_dscanhk
     call rw_clk                     ; (the log's: the scan and the lines)
     mov [rw_tscan], ax              ; (the scan's end, if there is none)

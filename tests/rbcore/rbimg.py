@@ -19,9 +19,11 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 GEOM = {360: (9, 2, 40), 720: (9, 2, 80), 1200: (15, 2, 80), 1440: (18, 2, 80)}
+PANMODES = ("renderp", "damage-p", "damage-pil", "damage-pis", "damage-pid")
 MODES = {"test": 0, "bench": 1, "trace": 2, "play": 3, "idle": 4, "render": 5, "damage": 6,
          "renderd": 7, "damage-il": 8, "damage-is": 9, "damage-id": 10,
-         "renderv": 12, "state": 13}
+         "renderv": 12, "state": 13, "renderp": 14, "damage-p": 15, "damage-pil": 16,
+         "damage-pis": 17, "damage-pid": 18}
 
 
 def private(out_dir):
@@ -102,7 +104,9 @@ def make_image(rom_path, out, geom=1440, mode="test", frames=600, core=None, hos
     os.makedirs(out_dir, exist_ok=True)
     if core is None:
         core = build_core(mode == "trace", out_dir)
-    if host is None:
+    if mode in PANMODES:                    # (a host of their own: RB_PANMODES)
+        host = build_host(out_dir, ("RB_PANMODES",))
+    elif host is None:
         host = build_host(out_dir)
     boot, body = bytearray(host[:512]), host[512:]
     body += b"\0" * (-len(body) % 512)
