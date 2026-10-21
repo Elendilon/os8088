@@ -9276,3 +9276,15 @@ which fits "about the fourth". Others to rule out: the 8042 command byte or
 port enables (AD/A7) left as the game set them; the master IMR's IRQ1 or the
 cascade bit; 14.57's re-knock, which the DOS return also runs. **OPEN, being
 investigated as 14.62.**
+
+**The owner's discriminator, a reproduction later:** it is something Test
+Drive III DOES. Exited at once, before its title screen, the keyboard and
+mouse come back; let run to its title screen with Enter and then exited,
+they come back dead. So the state TD3's running code leaves the 8042, the
+keyboard or the PIC in is what the return does not undo. **It is not the
+earlier defect**: 10.3 item 54.3 (the keyboard dead after a return because
+`hbm_wake` left `MOU_P2KOFF` set and never sent `0xAE`) is fixed and still in
+the tree - SPEC.md 96.45.2.3's keyboard guard in `hbm_wake`, and
+`mega_d8042get`/`mega_d8042put` banking the command byte across a park - and
+`elendilon` has nothing newer on it (its one commit not in `protected-mode`
+is the video-compression squash).
