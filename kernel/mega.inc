@@ -180,52 +180,9 @@ mega_imr2   db 0
 ;           register but AX, CX, DX, SI, DI and the segment registers kept
 ; -----------------------------------------------------------------------------
 mega_enter:
-    cmp byte [cpu_tier], CPU_286
-    jae .cpu
-    mov si, mega_m86                ; an 8088 or 8086: no protected mode at all
-    mov dx, mega_t86
-    jmp short .refuse
-.cpu:                               ; (the tables' room is asked LAST, at
-.mem:                               ; .a20: a claim made before a refusal
-                                    ; would be left behind by it)
-    call mega_tasks_ok              ; nothing suspended in real mode that the
-    jnc .tasks                      ; switch cannot convert (mega_tasks_ok)
-    mov si, mega_mtask
-    mov dx, mega_ttask
-    jmp short .refuse
-.tasks:
-    call mega_a20
-    jnc .a20
-    mov si, mega_ma20
-    mov dx, mega_ta20
-.refuse:                            ; ...and every refusal says so on the GLASS
-    call mega_say                   ; as well as the debug port: a field run
-    push es                         ; that stays in real mode must not look
-    push ds                         ; like one that never tried
-    pop es
-    mov si, dx
-    mov cx, 146
-    call toast_show
-    pop es
-    mov word [rom_vgabw], MEGA_RAM  ; ...and `.mega`'s rung to the heap: real
-    mov ax, MEGA_RAM                ; mode can never run what is on it
-%if VGABUF_PARA                     ; (KERN-MEGA-SEGMENTS-PLAN 3.3). The
-    test byte [vid_avail], VID_A_VGA ; decoder's buffers drop to its bottom
-    jz .mfloor                      ; and the floor onto them, as
-    add ax, VGABUF_PARA             ; mega_coldup does for both rungs
-.mfloor:
-%endif
-    mov [mem_base], ax
-    mov byte [mega_mfree], 1
+    call COLD_SEG:mega_gatef        ; whether it can be made at all - `.cold`,
+    jnc .room                       ; as every refusal is (KERN-MEGA-PLAN 14.45)
     ret
-.a20:
-    cmp word [mega_extkb], 192      ; the tables want 1MB + 64KB .. + 82KB...
-    jae .room
-    call COLD_SEG:mega_tlowf        ; ...or 82KB of conventional memory: no
-    jnc .room                       ; minimum beyond FITTING (answer 16)
-    mov si, mega_mmem
-    mov dx, mega_tmem
-    jmp short .refuse
 .room:
     cli
     in al, 0x70                     ; NMI off across the switch: a real-mode
@@ -754,51 +711,6 @@ mega_pic_pm:
     out 0x21, al
     ret
 
-; -----------------------------------------------------------------------------
-; mega_a20 - open the A20 line and prove it (CF = 1 it will not open)
-; Port 92h first, which every AT-class chipset since the PS/2 has; then the
-; 8042's output port, which every AT has. The proof is the only thing that
-; counts: 0000:0500 and FFFF:0510 are the same byte with the gate shut.
-; -----------------------------------------------------------------------------
-mega_a20:
-    call mega_a20t
-    jnc .ret                        ; already open: do not poke a working line
-    pushf                           ; --- the FAST gate, port 92h -----------
-    cli
-    in al, 0x92
-    test al, 2                      ; set (an absent port reads FFh) and the
-    jnz .nofast                     ; line still shut: not the gate here
-    or al, 2
-    and al, 0xFE                    ; bit 0 is a RESET
-    out 0x92, al
-.nofast:
-    popf
-    call mega_a20s
-    jnc .ret
-    pushf                           ; --- the 8042, in ONE window: between D1h
-    cli                             ; and DFh the next byte written to 60h is
-    call mega_kbw                   ; its output port, and a keyboard ISR's
-    jnz .kbx                        ; own traffic there can reset the CPU
-    mov al, 0xD1
-    out 0x64, al
-    call mega_kbw
-    jnz .kbx
-    mov al, 0xDF                    ; A20 on, reset line high
-    out 0x60, al
-    call mega_kbw
-.kbx:
-    popf
-    call mega_a20s                  ; ...and the controller acknowledges long
-.ret:                               ; before the line moves, hence the settle
-    ret
-mega_a20s:                          ; SETTLE: up to 512 probes for a gate to
-    mov cx, 512                     ; take (XMEM.DRV's XM_A20_SETTLE, whose
-.p:                                 ; sequence this is - the first version
-    call mega_a20t                  ; here probed once, and on the Victory 286
-    jnc .o                          ; that read SHUT: "real mode: A20 will
-    loop .p                         ; not open")
-.o:
-    ret
 ; mega_leds - the keyboard's lock lights from KB_FLAG (DS = the BDA): command
 ; EDh and the LED byte (bit 0 Scroll, 1 Num, 2 Caps = KB_FLAG bits 4-6), each
 ; ACK read here - unless the byte waiting is the PS/2 mouse's, which is left
@@ -840,38 +752,6 @@ mega_kack:                          ; wait for the keyboard's ACK and take it
 .ret:
     ret
 section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
-mega_kbw:
-    xor cx, cx
-.w:
-    in al, 0x64
-    test al, 2
-    loopnz .w
-    ret
-mega_a20t:                          ; CF = 1 the gate is SHUT. Complement
-    push ds                         ; the word at FFFF:0510 and see whether
-    push es                         ; 0000:0500 moved, then complement it back
-    push bx                         ; (whichever word it landed on), inside
-    pushf                           ; one cli: an ISR touching low memory in
-    cli                             ; between would make the probe lie
-    xor ax, ax
-    mov es, ax
-    dec ax
-    mov ds, ax
-    mov bx, [es:0x0500]
-    not word [0x0510]
-    mov ax, [es:0x0500]
-    not word [0x0510]
-    popf
-    cmp ax, bx                      ; equal: the flip went a megabyte up
-    pop bx
-    pop es
-    pop ds
-    je .open
-    stc
-    ret
-.open:
-    clc
-    ret
 
 ; -----------------------------------------------------------------------------
 ; mega_t08 - the ROM's half of IRQ0, reached through sch_isr's
@@ -4108,37 +3988,6 @@ mega_csdata:                        ; the word under the return address - the
     pop bp
     retf
 
-; mega_tasks_ok - CF = 0 when every task but the running one is the KERNEL'S
-; (no instance, not a driver's service worker). A package's worker suspended
-; in real mode holds real-mode code segments in its stack - the frame's CS and
-; every far return into the package beneath it - and nothing can find those to
-; convert them, so the switch is refused instead. Only AUTOSTART (SPEC.md
-; 26.10.5) can launch one before mega_enter. Clobbers CX, flags.
-mega_tasks_ok:
-    push bx
-    mov bx, sch_tasks
-    xor cx, cx
-.t:
-    cmp byte [bx+T_STATE], 0
-    je .n
-    cmp cl, [sch_cur]
-    je .n
-    cmp byte [bx+T_INST], 0xFF
-    jne .no
-    test byte [bx+T_FLAGS], TF_SERVICE
-    jnz .no
-.n:
-    add bx, T_SIZE
-    inc cx
-    cmp cx, MAX_TASKS
-    jb .t
-    pop bx                          ; CF = 0 from the compare (CX < MAX_TASKS
-    clc                             ; failed), said outright
-    ret
-.no:
-    pop bx
-    stc
-    ret
 
 ; mega_mods_fix - the module slots the BOOT armed hold a real-mode segment
 ; (mod_check stores the CODE alias only once mega_pm is set), so every loaded
@@ -5878,6 +5727,14 @@ MEGA_SEL_CODE equ 0xFFD8            ; `.mega`'s CS: GDT entry 1FFBh, the
                                     ; heap after the switch, and a claim based
                                     ; there would be handed a CODE selector
                                     ; (KERN-MEGA-SEGMENTS-PLAN 3.1)
+MEGA_SEL_PSCR equ 0xFFD0            ; data, 64KB: THE PARK'S SCRATCH, the tail
+                                    ; of `.mega`'s rung at MEGA_SCR_OFF
+                                    ; (megados.inc's MPS_*; KERN-MEGA-PLAN
+                                    ; 14.45). GDT entry 1FFAh, the identity of
+                                    ; ROM segment FFD0 - the same argument as
+                                    ; MEGA_SEL_CODE's - and among the entries
+                                    ; the park banks (mega_dsave's 1FF8h-1FFDh)
+MEGA_SCR_OFF equ (MEGA_SIZE + 15) & ~15 ; ...its offset from `.mega`'s base
 
 ; mega_xdesc - BX = a GDT selector, DX:AX = a 24-bit base -> a 64KB data
 ; descriptor there. Clobbers nothing
@@ -5898,7 +5755,8 @@ mega_xdesc:
     ret
 
 ; mega_mdesc - DX:AX = a 24-bit base -> MEGA_SEL_CODE, `.mega`'s CODE
-; descriptor, there, its limit `.mega`'s own last byte. Clobbers nothing
+; descriptor, there, its limit `.mega`'s own last byte, and MEGA_SEL_PSCR at
+; the scratch past it. Clobbers nothing
 mega_mdesc:
     push bx
     mov bx, MEGA_SEL_CODE
@@ -5912,6 +5770,14 @@ mega_mdesc:
     mov byte [es:di+5], 0x9A        ; present, ring 0, code, readable
     pop di
     pop es
+    push ax                         ; ...and the park's scratch, past its end
+    push dx
+    add ax, MEGA_SCR_OFF
+    adc dx, 0
+    mov bx, MEGA_SEL_PSCR
+    call mega_xdesc
+    pop dx
+    pop ax
     pop bx
     ret
 
@@ -7049,6 +6915,172 @@ section .cold
 ;      lives in the block's MX_SEL (OSAPI_XMEM_SEL's word), so mx_free and the
 ;      instance's teardown (mx_relinst) give it back with the block. AX and
 ;      every other register kept
+; -----------------------------------------------------------------------------
+; mega_gatef - FAR, in REAL MODE from mega_enter (.cold is still conventional
+; then, and this is reached on an 8088 too, so it is 8086 code): WHETHER THE
+; SWITCH CAN BE MADE - a 286, no package task to convert, A20 open and
+; proved, and room for the tables. Every refusal says so on the debug port and
+; on the GLASS (a field run that stays in real mode must not look like one
+; that never tried), and gives `.mega`'s rung to the heap: real mode can never
+; run what is on it (KERN-MEGA-SEGMENTS-PLAN 3.3). The decoder's buffers drop
+; to its bottom and the floor onto them, as mega_coldup does for both rungs.
+; All of it is `.cold` and not the 64KB segment, being run once, low, before
+; anything is in protected mode (KERN-MEGA-PLAN 14.45).
+; out: CF = 0 go on; CF = 1 refused. Clobbers AX CX DX SI
+; -----------------------------------------------------------------------------
+mega_gatef:
+    cmp byte [cpu_tier], CPU_286
+    mov dx, mega_t86                ; (MOV keeps the flags)
+    jb .refuse                      ; an 8088 or 8086: no protected mode at all
+    call mega_tasks_ok              ; nothing suspended in real mode that the
+    mov dx, mega_ttask              ; switch cannot convert
+    jc .refuse
+    call mega_a20                   ; (the tables' room is asked LAST: a claim
+    mov dx, mega_ta20               ; made before a refusal would be left
+    jc .refuse                      ; behind by it)
+    cmp word [mega_extkb], 192      ; the tables want 1MB + 64KB .. + 82KB...
+    jae .go
+    call COLD_SEG:mega_tlowf        ; ...or 82KB of conventional memory: no
+    mov dx, mega_tmem               ; minimum beyond FITTING (answer 16)
+    jnc .go
+.refuse:
+    mov si, mega_mrm                ; "kern_mega: " and the toast's own line
+    call KERNEL_SEG:mega_putsf
+    mov si, dx
+    call KERNEL_SEG:mega_putsf
+    mov al, 10
+    out 0xE9, al
+    push es
+    push ds
+    pop es
+    mov si, dx
+    mov cx, 146
+    call KERNEL_SEG:cw_toast_show
+    pop es
+    mov word [rom_vgabw], MEGA_RAM  ; ...and `.mega`'s rung to the heap
+    mov ax, MEGA_RAM
+%if VGABUF_PARA
+    test byte [vid_avail], VID_A_VGA
+    jz .mfloor
+    add ax, VGABUF_PARA
+.mfloor:
+%endif
+    mov [mem_base], ax
+    mov byte [mega_mfree], 1
+    stc
+.go:
+    retf
+
+; mega_tasks_ok - CF = 0 when every task but the running one is the KERNEL'S
+; (no instance, not a driver's service worker). A package's worker suspended
+; in real mode holds real-mode code segments in its stack - the frame's CS and
+; every far return into the package beneath it - and nothing can find those to
+; convert them, so the switch is refused instead. Only AUTOSTART (SPEC.md
+; 26.10.5) can launch one before mega_enter. Clobbers CX, flags.
+mega_tasks_ok:
+    push bx
+    mov bx, sch_tasks
+    xor cx, cx
+.t:
+    cmp byte [bx+T_STATE], 0
+    je .n
+    cmp cl, [sch_cur]
+    je .n
+    cmp byte [bx+T_INST], 0xFF
+    jne .no
+    test byte [bx+T_FLAGS], TF_SERVICE
+    jnz .no
+.n:
+    add bx, T_SIZE
+    inc cx
+    cmp cx, MAX_TASKS
+    jb .t
+    pop bx                          ; CF = 0 from the compare (CX < MAX_TASKS
+    clc                             ; failed), said outright
+    ret
+.no:
+    pop bx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; mega_a20 - open the A20 line and prove it (CF = 1 it will not open)
+; Port 92h first, which every AT-class chipset since the PS/2 has; then the
+; 8042's output port, which every AT has. The proof is the only thing that
+; counts: 0000:0500 and FFFF:0510 are the same byte with the gate shut.
+; -----------------------------------------------------------------------------
+mega_a20:
+    call mega_a20t
+    jnc .ret                        ; already open: do not poke a working line
+    pushf                           ; --- the FAST gate, port 92h -----------
+    cli
+    in al, 0x92
+    test al, 2                      ; set (an absent port reads FFh) and the
+    jnz .nofast                     ; line still shut: not the gate here
+    or al, 2
+    and al, 0xFE                    ; bit 0 is a RESET
+    out 0x92, al
+.nofast:
+    popf
+    call mega_a20s
+    jnc .ret
+    pushf                           ; --- the 8042, in ONE window: between D1h
+    cli                             ; and DFh the next byte written to 60h is
+    call mega_kbw                   ; its output port, and a keyboard ISR's
+    jnz .kbx                        ; own traffic there can reset the CPU
+    mov al, 0xD1
+    out 0x64, al
+    call mega_kbw
+    jnz .kbx
+    mov al, 0xDF                    ; A20 on, reset line high
+    out 0x60, al
+    call mega_kbw
+.kbx:
+    popf
+    call mega_a20s                  ; ...and the controller acknowledges long
+.ret:                               ; before the line moves, hence the settle
+    ret
+mega_a20s:                          ; SETTLE: up to 512 probes for a gate to
+    mov cx, 512                     ; take (XMEM.DRV's XM_A20_SETTLE, whose
+.p:                                 ; sequence this is - the first version
+    call mega_a20t                  ; here probed once, and on the Victory 286
+    jnc .o                          ; that read SHUT: "real mode: A20 will
+    loop .p                         ; not open")
+.o:
+    ret
+mega_kbw:
+    xor cx, cx
+.w:
+    in al, 0x64
+    test al, 2
+    loopnz .w
+    ret
+mega_a20t:                          ; CF = 1 the gate is SHUT. Complement
+    push ds                         ; the word at FFFF:0510 and see whether
+    push es                         ; 0000:0500 moved, then complement it back
+    push bx                         ; (whichever word it landed on), inside
+    pushf                           ; one cli: an ISR touching low memory in
+    cli                             ; between would make the probe lie
+    xor ax, ax
+    mov es, ax
+    dec ax
+    mov ds, ax
+    mov bx, [es:0x0500]
+    not word [0x0510]
+    mov ax, [es:0x0500]
+    not word [0x0510]
+    popf
+    cmp ax, bx                      ; equal: the flip went a megabyte up
+    pop bx
+    pop es
+    pop ds
+    je .open
+    stc
+    ret
+.open:
+    clc
+    ret
+
 ; -----------------------------------------------------------------------------
 ; mega_tlowf - FAR, in REAL MODE from mega_enter (.cold is still conventional
 ; then): kern_mega's three tables in CONVENTIONAL memory, for a machine whose
@@ -8202,10 +8234,7 @@ mega_ldtd:                          ; the LDT's descriptor (GDT entry 3)
     dw MEGA_LDT_N*8 - 1, MEGA_LDT_LIN & 0xFFFF
     db MEGA_LDT_LIN >> 16, 0x82
     dw 0
-mega_m86    db "kern_mega: an 8086-class CPU - staying in real mode", 10, 0
-mega_mmem   db "kern_mega: no room for the tables (82KB) - staying in real mode", 10, 0
-mega_ma20   db "kern_mega: the A20 line will not open - staying in real mode", 10, 0
-mega_mtask  db "kern_mega: a package task predates the switch - staying in real mode", 10, 0
+mega_mrm    db "kern_mega: ", 0     ; ...the debug port's line is the toast's
 mega_t86    db "real mode: 8086-class CPU", 0
 mega_tmem   db "real mode: no 82KB for kern_mega's tables", 0
 mega_ta20   db "real mode: A20 will not open", 0

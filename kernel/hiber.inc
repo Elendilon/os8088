@@ -3484,11 +3484,22 @@ hbm_xneed:
     add ax, MPK_HDR / 1024
     ret
 
+; hbm_pses - ES = the PARK'S SCRATCH (MEGA_SEL_PSCR, megados.inc's MPS_*),
+; where the list of runs is built: not in `.text` since KERN-MEGA-PLAN 14.45.
+; Every register but ES kept
+hbm_pses:
+    push ax
+    mov ax, MEGA_SEL_PSCR
+    mov es, ax
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; hbm_xplan - BEFORE THE PICTURE: the masks and the wake address the image is
 ;             to wake with, the list of what is above 1MB, and whether a
 ;             resume could place all of it in one block beside it
-; out: CF = 0 with [mega_dncpy] runs in mega_dreg ({dd -, dd to, dd bytes}),
+; out: CF = 0 with [mega_dncpy] runs in the park's scratch's list (MPS_REG:
+;      {dd -, dd to, dd bytes}),
 ;      run 0 the tables, and [mega_hbxl] = the section's bytes; CF = 1 a
 ;      resume would have no room. Clobbers AX BX CX DX SI DI
 ; -----------------------------------------------------------------------------
@@ -3499,11 +3510,13 @@ hbm_xplan:
     mov [mega_dimr2], al
     mov word [mega_hbwk], hbm_wake  ; ...and where (mega_hbwake's far jump)
     mov [mega_hbwk + 2], cs
-    mov di, mega_dreg           ; run 0: the GDT, the LDT and the IDT, which
-    mov word [di+4], MEGA_GDT_LIN & 0xFFFF  ; are one range. `.cold`'s copy
-    mov word [di+6], MEGA_GDT_LIN >> 16     ; is not in it: a code selector,
-    mov word [di+8], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) & 0xFFFF
-    mov word [di+10], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) >> 16
+    push es
+    call hbm_pses               ; the list is the park's scratch's
+    mov di, MPS_REG             ; run 0: the GDT, the LDT and the IDT, which
+    mov word [es:di+4], MEGA_GDT_LIN & 0xFFFF  ; are one range. `.cold`'s copy
+    mov word [es:di+6], MEGA_GDT_LIN >> 16     ; is not in it: a code selector,
+    mov word [es:di+8], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) & 0xFFFF
+    mov word [es:di+10], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) >> 16
     mov word [mega_hbxl], (512 + MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) & 0xFFFF
     mov word [mega_hbxl + 2], (512 + MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) >> 16
     add di, MPK_CPYSZ           ; so KERNEL.SYS's bytes, as a boot makes them
@@ -3517,8 +3530,8 @@ hbm_xplan:
     shl ax, cl
     mov cl, 6
     shr dx, cl
-    mov [di+8], ax
-    mov [di+10], dx
+    mov [es:di+8], ax
+    mov [es:di+10], dx
     add [mega_hbxl], ax
     adc [mega_hbxl + 2], dx
     mov ax, [si+MX_OFF]
@@ -3528,19 +3541,20 @@ hbm_xplan:
     mov cl, 6
     shr dx, cl
     add dx, MEGA_XPOOL >> 16
-    mov [di+4], ax
-    mov [di+6], dx
+    mov [es:di+4], ax
+    mov [es:di+6], dx
     add di, MPK_CPYSZ
 .next:
     add si, MX_BLKSZ
     cmp si, mx_tab_end
     jb .mx
     mov ax, di
-    sub ax, mega_dreg
+    sub ax, MPS_REG
     mov cl, MPK_CPYSZ
     div cl
     xor ah, ah
     mov [mega_dncpy], ax
+    pop es
     call hbm_xneed              ; AX = KB
     jmp hbm_xfit                ; CF
 
@@ -3557,27 +3571,29 @@ hbm_xfit:
     push dx
     push si
     push di
+    push es
+    call hbm_pses               ; (the list: the scratch's)
     mov bx, ax                  ; BX = KB wanted
     xor ax, ax                  ; AX = the candidate
 .again:
-    mov si, mega_dreg + MPK_CPYSZ
+    mov si, MPS_REG + MPK_CPYSZ
     mov cx, [mega_dncpy]
     dec cx
 .img:
     jcxz .live
     push cx
-    mov dx, [si+6]              ; DX = the run's offset in the pool, in KB
+    mov dx, [es:si+6]              ; DX = the run's offset in the pool, in KB
     sub dx, MEGA_XPOOL >> 16
     mov cl, 6
     shl dx, cl
-    mov di, [si+4]
+    mov di, [es:si+4]
     mov cl, 10
     shr di, cl
     or dx, di
-    mov di, [si+8]              ; DI = ...and its end
+    mov di, [es:si+8]              ; DI = ...and its end
     shr di, cl
     push dx
-    mov dx, [si+10]
+    mov dx, [es:si+10]
     mov cl, 6
     shl dx, cl
     or di, dx
@@ -3613,6 +3629,7 @@ hbm_xfit:
 .no:
     stc
 .out:
+    pop es
     pop di
     pop si
     pop dx
@@ -3720,7 +3737,10 @@ hbm_xwrite:
     mov [es:8], ax
     mov ax, [mega_hbxl + 2]
     mov [es:10], ax
-    mov si, mega_dreg + 4
+    push ds
+    mov ax, MEGA_SEL_PSCR       ; (the list: the park's scratch's)
+    mov ds, ax
+    mov si, MPS_REG + 4
     mov di, 12
 .hd:
     movsw                       ; to, then bytes
@@ -3729,19 +3749,23 @@ hbm_xwrite:
     movsw
     add si, MPK_CPYSZ - 8
     loop .hd
+    pop ds
     mov word [mega_hbf], 512
-    mov si, mega_dreg           ; --- the runs, through the bounce ------------
+    mov si, MPS_REG             ; --- the runs, through the bounce ------------
     mov cx, [mega_dncpy]
 .run:
     push cx
-    mov ax, [si+4]
+    push es                     ; (the bounce, around the scratch's list)
+    call hbm_pses
+    mov ax, [es:si+4]
     mov [mega_hbs], ax
-    mov ax, [si+6]
+    mov ax, [es:si+6]
     mov [mega_hbs + 2], ax
-    mov ax, [si+8]
+    mov ax, [es:si+8]
     mov [mega_hbr], ax
-    mov ax, [si+10]
+    mov ax, [es:si+10]
     mov [mega_hbr + 2], ax
+    pop es
 .chunk:
     mov cx, HBX_CHUNK
     sub cx, [mega_hbf]          ; the room left in the bounce...
@@ -3833,7 +3857,7 @@ hbm_xwrite:
     ret
 
 ; -----------------------------------------------------------------------------
-; hbm_xruns - the image's runs, as hbm_xres read them into mega_dreg, against
+; hbm_xruns - the image's runs, as hbm_xres read them into MPS_REG, against
 ;             THIS boot (KERN-MEGA-DOS-PLAN 10.5 defect 5): run 0 is exactly
 ;             the tables' range, and every other run is whole KB, not empty,
 ;             and inside the pool this kernel found - [xm_kb] KB from
@@ -3845,29 +3869,35 @@ hbm_xwrite:
  %error "hbm_xruns takes the pool's base to be 64KB-aligned"
 %endif
 hbm_xruns:
-    mov si, mega_dreg
-    cmp word [si+4], MEGA_GDT_LIN & 0xFFFF
+    push es
+    call hbm_pses               ; (the list: the scratch's)
+    call .go                    ; CF, kept by the pop
+    pop es
+    ret
+.go:
+    mov si, MPS_REG
+    cmp word [es:si+4], MEGA_GDT_LIN & 0xFFFF
     jne .no
-    cmp word [si+6], MEGA_GDT_LIN >> 16
+    cmp word [es:si+6], MEGA_GDT_LIN >> 16
     jne .no
-    cmp word [si+8], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) & 0xFFFF
+    cmp word [es:si+8], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) & 0xFFFF
     jne .no
-    cmp word [si+10], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) >> 16
+    cmp word [es:si+10], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) >> 16
     jne .no
     mov cx, [mega_dncpy]
 .r:
     dec cx
     jz .ok
     add si, MPK_CPYSZ
-    mov ax, [si+4]
-    mov dx, [si+6]
+    mov ax, [es:si+4]
+    mov dx, [es:si+6]
     sub dx, MEGA_XPOOL >> 16
     jb .no                      ; below the pool
     call .kb
     jc .no
     mov bx, ax                  ; BX = where it starts, in KB
-    mov ax, [si+8]
-    mov dx, [si+10]
+    mov ax, [es:si+8]
+    mov dx, [es:si+10]
     call .kb
     jc .no
     or ax, ax
@@ -4008,11 +4038,12 @@ hbm_xres:
     mov [mega_dncpy], cx
     mov word [mega_dnreg], 0    ; the stub sums nothing: hbm_xsum has
     mov si, 12
-    mov di, mega_dreg + 4
+    mov di, MPS_REG + 4
     push ds
     push es
-    pop ds                      ; DS = the bounce, ES = the kernel
-    pop es
+    push es
+    pop ds                      ; DS = the bounce, ES = the park's scratch
+    call hbm_pses
 .hd:
     movsw
     movsw
@@ -4020,10 +4051,8 @@ hbm_xres:
     movsw
     add di, MPK_CPYSZ - 8
     loop .hd
-    push ds
-    push es
-    pop ds
     pop es
+    pop ds
     call hbm_xruns              ; ...each run, against the tables and the pool
     jc .bad
     mov ax, [cs:hbm_ptrbuf + HBP_XLEN]  ; --- the block -----------------------
@@ -4056,15 +4085,18 @@ hbm_xres:
     adc dx, 0                   ; before it
     add ax, [mega_dpbase]
     adc dx, [mega_dpbase + 2]
-    mov si, mega_dreg
+    push es
+    call hbm_pses               ; (the list: the scratch's)
+    mov si, MPS_REG
     mov cx, [mega_dncpy]
 .fr:
-    mov [si], ax
-    mov [si+2], dx
-    add ax, [si+8]
-    adc dx, [si+10]
+    mov [es:si], ax
+    mov [es:si+2], dx
+    add ax, [es:si+8]
+    adc dx, [es:si+10]
     add si, MPK_CPYSZ
     loop .fr
+    pop es
     xor ax, ax                  ; --- the whole file, chunk by chunk, into it
     mov [mega_dsum], ax
     mov [mega_dsum + 2], ax

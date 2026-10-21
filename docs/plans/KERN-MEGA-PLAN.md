@@ -6787,3 +6787,117 @@ segment`.
 - **The `[Segment can't write]` traps under 2764 on the 286 DOS trip**
   (above). Whether a low DOS.O88 takes them too is open, and a
   `megatrap0`-style count is the instrument.
+
+### 14.45 The KERN-MEGA-SEGMENTS-PLAN leftovers: the park's buffers, the refusals, W4, the readings (2026-10-21)
+
+KERN-MEGA-SEGMENTS-PLAN 8.6 and W4, built on `protected-mode` at ee3c8398.
+That plan's 8.7 is the design record; this is what it cost and what was run.
+
+**Built**:
+
+- **The park's three buffers leave `.text`** - the region and copy list
+  (`mega_dreg`, 716), the KB-in-use map (`mega_dmap`, 96) and the header's
+  GDT and cells (`mega_dhc`, 82). Not into the park block, as the plan had
+  it: the map sizes the block before it exists, and a hibernate's write and
+  resume build and read the list with no park block at all (14.43's save
+  path runs `hbm_xplan` before the claim, on purpose). They are the tail of
+  `.mega`'s own rung (`MEGA_SCR_OFF`, `MPS_*` in `kernel/megados.inc`) through
+  a data selector of their own, `MEGA_SEL_PSCR` = 0xFFD0, set by `mega_mdesc`
+  beside `MEGA_SEL_CODE` - so above 1MB with `.mega`, given back with its rung
+  at the switch, never summed. `kernel/hiber.inc`'s six readers (`hbm_xplan`,
+  `hbm_xfit`, `hbm_xruns`, `hbm_xwrite`'s head and runs, `hbm_xres`'s head and
+  bases) take ES (or DS for a `movsw`) = the scratch through `hbm_pses`.
+  `mega_dhcfill` builds the header's cells there and `mega_dstubup` puts the
+  list's 8-byte head in front of it, so each is one copy up as before.
+- **`mega_enter`'s real-mode refusals are `.cold`** (`mega_gatef`): the CPU
+  test, `mega_tasks_ok`, the whole A20 gate (`mega_a20`, `a20s`, `a20t`,
+  `kbw` - only `mega_enter` ever called them) and the room test, the toast,
+  the rung to the heap. It is 8086 code, being what an 8088 runs to refuse.
+  The four debug-port sentences went with it: E9 now prints `kern_mega: `
+  and the toast's own line (`kern_mega: real mode: A20 will not open`), 254
+  bytes of `.text` for twelve.
+- **W4: kern_mega's `COLD_VSTART` is 0x80** (`kernel/kernel.asm`). Not the
+  plan's 0x10: `COLD_SEG` is a GDT selector there, so it must be on the
+  8-paragraph grid - `COLD_RAM - 8`, the slack above task 0's stack. `.cold`
+  may reach 65,152 bytes where it stopped at 48,896.
+- **`tools/kernsize.py` knows kern_mega** (KERN-MEGA-HANDOFF Track 6):
+  `--build build/megak` alone now measures the tree as kern_mega and prints
+  `kernsize[mega]` - the sections with `.mega` and its scratch (a `ksm:` line
+  kernel.asm emits under KERNSIZE), the rungs, the segment, and what stays
+  resident once `.cold` and `.mega` are above 1MB (65,024 here) - and refuses
+  `--bless`, kern_mega having no baseline. `tools/os88megaseg.py` counts the
+  scratch in the high slot.
+
+**Cost, measured at build 267 (ee3c8398) against the change built uncommitted
+(one build number)**:
+
+| | before | after | |
+|---|---:|---:|---|
+| kern_mega `.text` + `.bss` | 54,094 | 52,716 | **-1,378** (buffers -886, refusals -492) |
+| `tests/megaseg.txt` (lowered) | 5,935 | 4,557 | -1,378 |
+| `.mega` | 14,252 | 14,354 | +102 (segment prefixes, `push`/`pop es`) |
+| `.mega`'s scratch tail | - | 916 | in the rung, not resident |
+| `.cold` | 41,730 | 41,994 | +264 |
+| resident rung (`KIMG_PARA`) | 54,272 | 52,736 | **-1,536 conventional bytes** |
+| `.mega` rung (boot only) | 14,336 | 15,360 | +1,024, given back at the switch |
+| HIBER.DRV (kern_mega) `.modh` / file | 9,307 / 8,052 | 9,380 / 8,122 | +73 / +70, an on-demand module |
+| `KERNEL.SYS` (kern_mega) | 103,968 | 103,872 | -96 |
+| kern_big / kern_small | | | **byte-identical**: `kernel.bin`, `kernel-full.bin`, `kernel.sys`, `hiber.drv` compared at one build number; every line is `%ifdef KERN_MEGA` or a kern_mega-only file, and kern_small's arms are untouched |
+
+**The 11,264 is a reading now** (KERN-MEGA-SEGMENTS-PLAN 8.2 called it
+arithmetic). Free heap at the desktop, A: `mega.img` alone, `mem_top -
+mem_base` less `mem_tab`'s claims read out of the running kernel:
+
+| kern_mega | Bochs 2.7 (a 386, 16MB) | 86Box `286-mega` (MR BIOS 286, 4MB) |
+|---|---:|---:|
+| `9eb5e828`, before `.mega` | 569,856 (floor 1360h) | 570,880 (1360h) |
+| `cf7e263d`, `.mega` built | 581,120 (10A0h): **+11,264** | 582,144 (10A0h): **+11,264** |
+| this change | 582,656 (1040h): **+1,536** | 583,680 (1040h): **+1,536** |
+
+The two emulators differ by 1KB only in `mem_top` (Bochs's BIOS keeps a 1KB
+EBDA, 9FC0h; the MR BIOS does not). One claim stands at the desktop on both
+(5KB, tag FE03, at the floor), the drivers and the read-ahead being above
+1MB.
+
+**Run on the final kernel**:
+
+- **Bochs** (`--bootc --noa --csys`, DOS.O88 and KDHELLO `-DKDHOLD` on C:):
+  boot to protected mode; a DOS trip (`parked 004FK at 14CC00`, `unparked`,
+  exit 042); the same trip with *Save the session to disk* ticked, Bochs
+  stopped mid-program, booted with `--c keep`: `kern_mega: resumed`, *The
+  machine was restarted while it ran.*; a trip from the resumed session; a
+  menu Hibernate, a key, *Resume*: `resumed`, every window back; a trip after
+  that. KERN-MEGA-SEGMENTS-PLAN 8.6's "a hibernate and resume under Bochs"
+  is this.
+- **86Box `286-mega`**, the 286 reset path: floppy boot - `mega_sdr` reads
+  **`01 01 02 00`**, the calibration's two `#GP`s at `.mega` 15D1/15EA and
+  nothing else of the kernel's; Calculator (12*12 = 144) and Fractal opened;
+  a DOS trip off B: with both open (`DOSP 0087K`, exit 042, both still
+  there); the save box greyed. Then a 20MB IDE C: (the Bochs disk, type 2,
+  booted off C: with no A:): a trip unticked, a trip ticked and the machine
+  powered off mid-program (`quit`), relaunched on the written disk - the
+  session back, the restart line; a menu Hibernate, the MR BIOS's
+  *Parallel Port Configuration Change* (14.43's note), *Resume* - the
+  session back; a trip after it. `faults` over the C: run: 114 resets at
+  `mega_svc_lo.r286+31` (the reflections' 286 reset), one at
+  `mega_dosgo_lo.r286+32` (the drop), the calibration's pair twice, one at
+  `mega_ldt_free.out` (decision 14's stale selector, by design) - and the
+  `[Segment can't write]` traps under 2764 that 14.44 already lists.
+
+**Rows that cover it**: `megagrid` (fast, run by `make`); `kernmods` (soak,
+run here: `t_kernmods.py` 57 checks); and the kern_mega soak rows that boot
+it - `megarehome`, `megaflt`, `pxmega`, `megatrap0`. No registered row drives
+a kern_mega hibernate or DOS trip (14.43 says why); the recipe above is what
+one would script.
+
+**For the owner to look back over**:
+
+- **The buffers are not where the plan put them**, and the plan's location
+  could not have worked for the hibernate. A selector of their own is the
+  plan's "optional data alias" (its 3.1) put to a different use; 0xFFD0 is in
+  the park's banked set, so a trip that damages the GDT gets it back.
+- **E9's refusal lines changed wording** (four sentences became the toast's
+  own text). Nothing in the tree greps for them; a field note quoting the
+  old ones still names the same refusal.
+- **W4 took 0x80**, not 0x10 - the plan's figure would have put `.cold`'s
+  selector off the grid.

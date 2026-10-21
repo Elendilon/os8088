@@ -87,7 +87,7 @@ MPK_SAVEL   equ 2               ; 1FF8h-1FFDh (+740) and IDT 20h-21h (+770):
                                 ; two lines, summed with the list (+400)
 %if MPK_RMAX * 8 + (MPK_PCPY + MPK_RUNMAX) * MPK_CPYSZ >= MPK_CMAX * MPK_CPYSZ
 MPK_LIST    equ MPK_RMAX * 8 + (MPK_PCPY + MPK_RUNMAX) * MPK_CPYSZ ; the
-%else                           ; larger of the two lists: mega_dreg's bytes
+%else                           ; larger of the two lists: MPS_REG's bytes
 MPK_LIST    equ MPK_CMAX * MPK_CPYSZ
 %endif
 MPK_HDR     equ 0x800           ; +800 the image of linear 0 .. P
@@ -165,7 +165,6 @@ mega_parkcap dw 0xFFFF              ; KB: THE TEST'S CAP ON THE PARK. A 1MB AT
                                     ; `os88bochs.py dbg "setpmem <linear> 2
                                     ; 0x00C0"` makes it the 1MB machine (12.1
                                     ; item 5). Nothing in the kernel writes it
-mega_dhc    times MPK_C_END - MPK_GDT db 0  ; the header's GDT and cells, staged
 mega_dname  times 12 db ' '         ; ...and the program's name
 HS_STAGE_PARA equ 0x400             ; the 16KB a stage is (HS_STACK's top)
 mega_dmsw   dw 0                    ; the MSW at the snapshot
@@ -176,12 +175,32 @@ mega_dikb   dw 0                    ; KB the park's image holds (P, or the runs)
 mega_dtkb   dw 0                    ; ...and conventional memory's, mapped
 mega_dpchk  dw 0, 0, 0              ; MPK_SAVE's first six: the KB and the base
 mega_dclkb  dw 0                    ; KB claimed for it
-MEGA_DMAPKB equ 768                 ; mega_dmap's reach: past any conventional
-mega_dmap   times MEGA_DMAPKB / 8 db 0 ; top - a bit a KB, set = in use
-mega_dhdr   db 'PARK'               ; the header's list, as it goes up:
-mega_dnreg  dw 0                    ; MPK_MAGIC, MPK_NREG...
-mega_dncpy  dw 0                    ; ...MPK_NCPY (0 on a park)...
-mega_dreg   times MPK_LIST db 0     ; ...and MPK_REG
+MEGA_DMAPKB equ 768                 ; MPS_MAP's reach: past any conventional
+                                    ; top - a bit a KB, set = in use
+mega_dnreg  dw 0                    ; the header's MPK_NREG...
+mega_dncpy  dw 0                    ; ...and MPK_NCPY (0 on a park)
+; THE PARK'S SCRATCH (KERN-MEGA-SEGMENTS-PLAN W3, KERN-MEGA-PLAN 14.45): the
+; three BUFFERS the trip builds - the region and copy list, the KB-in-use
+; map and the header's GDT and cells - are not in `.text`. They are the tail
+; of `.mega`'s RUNG, past its last byte (MEGA_SCR_OFF), reached through their
+; own data selector MEGA_SEL_PSCR, and so above 1MB with `.mega` on every
+; machine that copies it there. Not the park block itself, which section 3.6
+; proposed: the list and the map are built BEFORE any block exists (the
+; claim sizes itself off the map; a hibernate's write and its resume build
+; the list with no block at all). The tail is NOT SUMMED - the high kernel's
+; region stops at `.mega`'s last whole line - which the header's cells need,
+; being written after the sum; the list and the map are copied into the
+; header or read before it. Nothing in it outlives one trip or one image, and
+; every user writes before it reads. Offsets in MEGA_SEL_PSCR, and EVERY
+; ACCESS NAMES A SEGMENT: an MPS_ offset read through DS is the kernel's
+; bytes at that offset
+MPS_HDR     equ 0                   ; 'PARK', NREG, NCPY: the header's +400,
+                                    ; filled from the .text cells at the copy
+MPS_REG     equ 8                   ; the list, MPK_LIST bytes (the header's
+                                    ; +408, copied with the 8 before it)
+MPS_MAP     equ MPS_REG + MPK_LIST  ; the KB in use, a bit each
+MPS_HC      equ MPS_MAP + MEGA_DMAPKB / 8 ; the header's +380 .. MPK_C_END
+MPS_SIZE    equ MPS_HC + MPK_C_END - MPK_GDT
 ; mega_dsave - THE TABLE BYTES THE SUM CANNOT COVER (KERN-MEGA-DOS-PLAN 10.4's
 ; lesser items), banked in the header at the snapshot and put back by the
 ; stub's copy list before it loads the kernel's tables: GDT entries 1-5 and 7
@@ -355,23 +374,26 @@ mega_dpitck:
 ; mega_dreg_add - a region onto the list: DX:AX linear, CX:BX lines
 mega_dreg_add:
     push si
+    push es
     mov si, [mega_dnreg]
     cmp si, MPK_RMAX
     jae .full
     inc word [mega_dnreg]
     shl si, 3
-    add si, mega_dreg
-    mov [si], ax
-    mov [si+2], dx
-    mov [si+4], bx
-    mov [si+6], cx
+    push word MEGA_SEL_PSCR
+    pop es
+    mov [es:si+MPS_REG], ax
+    mov [es:si+MPS_REG+2], dx
+    mov [es:si+MPS_REG+4], bx
+    mov [es:si+MPS_REG+6], cx
 .full:
+    pop es
     pop si
     ret
 
 ; -----------------------------------------------------------------------------
 ; mega_dmapb - THE KB IN USE (KERN-MEGA-DOS-PLAN 12.1 item 5's "park only the
-; runs in use"), a bit each in mega_dmap: [0, mem_base) - the IVT, the
+; runs in use"), a bit each in MPS_MAP: [0, mem_base) - the IVT, the
 ; kernel, the stacks - and every live claim, rounded out to whole KB. A FREE
 ; RUN IS NOBODY'S: mem_tab is out of band, so free heap holds no state, and
 ; a park of the rest restores everything the session can see.
@@ -379,9 +401,9 @@ mega_dreg_add:
 ; -----------------------------------------------------------------------------
 mega_dmapb:
     push es
-    push ds
+    push word MEGA_SEL_PSCR
     pop es
-    mov di, mega_dmap
+    mov di, MPS_MAP
     mov cx, MEGA_DMAPKB / 16
     xor ax, ax
     cld
@@ -433,6 +455,9 @@ mega_dmapb:
     push bx
     push cx
     push si
+    push es
+    push word MEGA_SEL_PSCR
+    pop es
     add dx, 63
     mov cl, 6
     shr dx, cl
@@ -443,17 +468,22 @@ mega_dmapb:
     cmp bx, MEGA_DMAPKB
     jae .mkd
     call .bit
-    or [mega_dmap+si], ch
+    or [es:si+MPS_MAP], ch
     inc bx
     jmp short .mk
 .mkd:
+    pop es
     pop si
     pop cx
     pop bx
     ret
 .bt:                                ; BX = a KB -> ZF = 0 in use. Clobbers
     call .bit                       ; CX SI
-    test [mega_dmap+si], ch
+    push es
+    push word MEGA_SEL_PSCR
+    pop es
+    test [es:si+MPS_MAP], ch        ; (the pop keeps ZF)
+    pop es
     ret
 .bit:                               ; BX -> SI = its byte, CH = its bit
     mov cl, bl
@@ -496,7 +526,7 @@ mega_dacc:
     loop .e
     ret
 
-; mega_dtopkb - AX = conventional memory's KB, as far as mega_dmap reaches
+; mega_dtopkb - AX = conventional memory's KB, as far as MPS_MAP reaches
 mega_dtopkb:
     push cx
     mov ax, [mem_top]
@@ -682,28 +712,31 @@ mega_dosparkf:
     mov bx, (MPK_SAVE + MPK_SAVEL * 64 - MPK_MAGIC) / 64
     xor cx, cx
     call mega_dreg_add
+    push es                         ; the copies, through the scratch
+    push word MEGA_SEL_PSCR
+    pop es
     mov di, [mega_dnreg]            ; the copies follow the regions
     shl di, 3
-    add di, mega_dreg
+    add di, MPS_REG
     mov si, mega_dsave
 .sv:
     mov ax, [si]                    ; {from: the bank, to: the table}
     mov dx, [si+2]
     mov [mega_xsrc], ax
     mov [mega_xsrc+2], dx
-    mov [di+4], ax
-    mov [di+6], dx
+    mov [es:di+4], ax
+    mov [es:di+6], dx
     mov ax, [mega_dpbase]
     mov dx, [mega_dpbase+2]
     add ax, [si+6]
     adc dx, 0
     mov [mega_xdst], ax
     mov [mega_xdst+2], dx
-    mov [di], ax
-    mov [di+2], dx
+    mov [es:di], ax
+    mov [es:di+2], dx
     mov cx, [si+4]
-    mov [di+8], cx
-    mov word [di+10], 0
+    mov [es:di+8], cx
+    mov word [es:di+10], 0
     push si
     push di
     call KERNEL_SEG:mega_lincopyf
@@ -764,21 +797,21 @@ mega_dosparkf:
     sub cx, ax
     push cx
     call mega_kblin                 ; {from: the image, to: the run, bytes}
-    mov [di+4], ax
-    mov [di+6], dx
+    mov [es:di+4], ax
+    mov [es:di+6], dx
     pop ax
     push ax
     call mega_kblin
-    mov [di+8], ax
-    mov [di+10], dx
+    mov [es:di+8], ax
+    mov [es:di+10], dx
     mov ax, bp
     call mega_kblin
     add ax, MPK_HDR
     adc dx, 0
     add ax, [mega_dpbase]
     adc dx, [mega_dpbase+2]
-    mov [di], ax
-    mov [di+2], dx
+    mov [es:di], ax
+    mov [es:di+2], dx
     pop ax
     add bp, ax
     pop bx
@@ -786,6 +819,7 @@ mega_dosparkf:
     add di, MPK_CPYSZ
     jmp short .rs
 .norun:
+    pop es
 
     ; --- the header: the stub and the list ------------------------------------
     mov bx, sp                      ; the stub is in the CALLER's image -
@@ -841,26 +875,29 @@ mega_dosparkf:
 .runs:                              ; --- a runs park's other runs, each to
     cmp byte [mega_drmode], 0       ; where its copy will bring it back from
     je .copied
+    push es                         ; (the list: the scratch's)
+    push word MEGA_SEL_PSCR
+    pop es
     mov si, [mega_dnreg]
     shl si, 1
     shl si, 1
     shl si, 1
-    add si, mega_dreg + MPK_PCPY * MPK_CPYSZ
+    add si, MPS_REG + MPK_PCPY * MPK_CPYSZ
     mov bp, [mega_dncpy]
     sub bp, MPK_PCPY
 .rc:
     or bp, bp
-    jz .copied
-    mov ax, [si+4]
+    jz .rcd
+    mov ax, [es:si+4]
     mov [mega_xsrc], ax
-    mov ax, [si+6]
+    mov ax, [es:si+6]
     mov [mega_xsrc+2], ax
-    mov ax, [si]
+    mov ax, [es:si]
     mov [mega_xdst], ax
-    mov ax, [si+2]
+    mov ax, [es:si+2]
     mov [mega_xdst+2], ax
-    mov ax, [si+8]                  ; DX:AX = bytes left
-    mov dx, [si+10]
+    mov ax, [es:si+8]               ; DX:AX = bytes left
+    mov dx, [es:si+10]
 .rch:
     mov cx, ax
     or cx, dx
@@ -895,6 +932,8 @@ mega_dosparkf:
     add si, MPK_CPYSZ
     dec bp
     jmp short .rc
+.rcd:
+    pop es
 .copied:
     call mega_dsumall               ; DX:AX = s2:s1
     mov [mega_dsum], ax
@@ -946,20 +985,23 @@ mega_dosparkf:
     or ax, dx
     ret
 
-; mega_dsumall - the sum over [mega_dreg], through MEGA_SEL_XA. out DX:AX =
+; mega_dsumall - the sum over the scratch's list, through MEGA_SEL_XA. out DX:AX =
 ; s2:s1. Clobbers BX CX SI DI BP
 mega_dsumall:
+    push es
+    push word MEGA_SEL_PSCR         ; (the list: the scratch's)
+    pop es
     xor ax, ax
     xor dx, dx
-    mov si, mega_dreg
+    mov si, MPS_REG
     mov bp, [mega_dnreg]
 .reg:
     or bp, bp
     jz .done
-    push word [si+6]                ; [sp+2]:[sp] = lines left, as 32 bits
-    push word [si+4]
-    push word [si+2]                ; ...and the window, as 32 bits
-    push word [si]
+    push word [es:si+6]             ; [sp+2]:[sp] = lines left, as 32 bits
+    push word [es:si+4]
+    push word [es:si+2]             ; ...and the window, as 32 bits
+    push word [es:si]
 .chunk:
     mov bx, sp
     mov cx, [ss:bx+4]
@@ -1003,6 +1045,7 @@ mega_dsumall:
     dec bp
     jmp .reg
 .done:
+    pop es
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1194,13 +1237,13 @@ cpu 286
     jmp short .hang
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 
-; mega_hdesc - [BX] = a 64KB descriptor, base DX:AX, access CL
+; mega_hdesc - [ES:BX] = a 64KB descriptor, base DX:AX, access CL
 mega_hdesc:
-    mov word [bx], 0xFFFF
-    mov [bx+2], ax
-    mov [bx+4], dl
-    mov [bx+5], cl
-    mov word [bx+6], 0
+    mov word [es:bx], 0xFFFF
+    mov [es:bx+2], ax
+    mov [es:bx+4], dl
+    mov [es:bx+5], cl
+    mov word [es:bx+6], 0
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1220,10 +1263,18 @@ mega_dstubup:
     mov [mega_xdst+2], dx
     mov cx, (mpk_stub_end - mpk_stub + 1) & 0xFFFE
     call KERNEL_SEG:mega_lincopyf
-    xor dx, dx                      ; ...and the list, magic and counts first
-    mov ax, KERNEL_SEG << 4
-    add ax, mega_dhdr
-    adc dx, 0
+    push es                         ; ...and the list, magic and counts first,
+    push word MEGA_SEL_PSCR         ; in front of it in the scratch
+    pop es
+    mov word [es:MPS_HDR], 'PA'
+    mov word [es:MPS_HDR+2], 'RK'
+    mov ax, [mega_dnreg]
+    mov [es:MPS_HDR+4], ax
+    mov ax, [mega_dncpy]
+    mov [es:MPS_HDR+6], ax
+    pop es
+    mov ax, MEGA_SEL_PSCR
+    call mega_selbase               ; DX:AX = the scratch's base
     mov [mega_xsrc], ax
     mov [mega_xsrc+2], dx
     mov ax, [mega_dpbase]
@@ -1237,7 +1288,8 @@ mega_dstubup:
     ret
 
 ; -----------------------------------------------------------------------------
-; mega_dhcfill - THE HEADER'S GDT AND CELLS, staged in mega_dhc and copied up
+; mega_dhcfill - THE HEADER'S GDT AND CELLS, staged in the scratch (MPS_HC)
+; and copied up
 ; in:  AX = the wake (a `.mega` offset); ES = the text page (28h);
 ;      [mega_dpbase], [mega_dsum], [mega_dpkb], [mega_dout]
 ; Clobbers AX BX CX DX SI; DI and ES kept
@@ -1245,41 +1297,43 @@ mega_dstubup:
 mega_dhcfill:
     push di
     push es
-    mov [mega_dhc + MPK_C_WAKE - MPK_GDT], ax
-    mov word [mega_dhc + MPK_C_WAKE - MPK_GDT + 2], MEGA_SEL_CODE ; `.mega`'s
+    mov bx, es                      ; BX = the text page, before ES moves
+    push word MEGA_SEL_PSCR
+    pop es
+    mov [es:MPS_HC + MPK_C_WAKE - MPK_GDT], ax
+    mov word [es:MPS_HC + MPK_C_WAKE - MPK_GDT + 2], MEGA_SEL_CODE ; `.mega`'s
+    push bx
     mov ax, [mega_dpbase]           ; 08 code and 10 data, at the block
     mov dx, [mega_dpbase+2]
-    mov [mega_dhc + MPK_C_PBASE - MPK_GDT], ax
-    mov [mega_dhc + MPK_C_PBASE - MPK_GDT + 2], dx
-    mov bx, mega_dhc + 0x08
+    mov [es:MPS_HC + MPK_C_PBASE - MPK_GDT], ax
+    mov [es:MPS_HC + MPK_C_PBASE - MPK_GDT + 2], dx
+    mov bx, MPS_HC + 0x08
     mov cl, 0x9A
     call mega_hdesc
-    mov bx, mega_dhc + 0x10
+    mov bx, MPS_HC + 0x10
     mov cl, 0x92
     call mega_hdesc
-    mov ax, es                      ; 28 the text page: the stage's own
+    pop ax                          ; 28 the text page: the stage's own
     mov dx, ax                      ; segment, which is B000 or B800
     shl ax, 4
     shr dx, 12
-    mov bx, mega_dhc + 0x28
+    mov bx, MPS_HC + 0x28
     call mega_hdesc
     mov ax, [mega_dsum]
-    mov [mega_dhc + MPK_C_PSUM - MPK_GDT], ax
+    mov [es:MPS_HC + MPK_C_PSUM - MPK_GDT], ax
     mov ax, [mega_dsum+2]
-    mov [mega_dhc + MPK_C_PSUM - MPK_GDT + 2], ax
+    mov [es:MPS_HC + MPK_C_PSUM - MPK_GDT + 2], ax
     mov ax, [mega_dpkb]
-    mov [mega_dhc + MPK_C_PKB - MPK_GDT], ax
+    mov [es:MPS_HC + MPK_C_PKB - MPK_GDT], ax
     mov ax, [mega_dout]
-    mov [mega_dhc + MPK_C_POUT - MPK_GDT], ax
-    push ds                         ; the kernel's own GDTR and IDTR
-    pop es
-    mov si, mega_gdtr
-    mov di, mega_dhc + MPK_C_KGDTR - MPK_GDT
+    mov [es:MPS_HC + MPK_C_POUT - MPK_GDT], ax
+    mov si, mega_gdtr               ; the kernel's own GDTR and IDTR
+    mov di, MPS_HC + MPK_C_KGDTR - MPK_GDT
     mov cx, 6
     rep movsw
-    xor dx, dx                      ; ...and all of it into the header
-    mov ax, KERNEL_SEG << 4
-    add ax, mega_dhc
+    mov ax, MEGA_SEL_PSCR           ; ...and all of it into the header
+    call mega_selbase
+    add ax, MPS_HC
     adc dx, 0
     mov [mega_xsrc], ax
     mov [mega_xsrc+2], dx
@@ -1443,7 +1497,7 @@ mega_dkbup:
 ; in:  ES = the text page (hbm_wake's staging cells are already in it);
 ;      [mega_dpbase] the staging block, holding the image at MPK_HDR;
 ;      [mega_dpkb] KB of conventional memory to put back; [mega_dncpy] and
-;      mega_dreg the copies the stub makes first (the tables, every pool
+;      MPS_REG the copies the stub makes first (the tables, every pool
 ;      block); [mega_dnreg] = 0
 ;
 ; THE PARK STUB DOES THE WORK. A hibernate's resume and a park's return are

@@ -100,6 +100,16 @@ def attribute(path, deff):
     return res
 
 
+def map_equs(path, names):
+    """The values a `[map all]` map lists for NAMES (its `VALUE  NAME` lines)."""
+    out = {}
+    for line in open(path, errors='replace'):
+        m = re.match(r'^([0-9A-Fa-f]{8})\s+(\w+)\s*$', line)
+        if m and m.group(2) in names:
+            out[m.group(2)] = int(m.group(1), 16)
+    return out
+
+
 def mega_consts(root):
     src = open(os.path.join(root, 'kernel', 'mega.inc'), errors='replace').read()
     out = {}
@@ -137,8 +147,15 @@ def main():
         # (MEGA_HI_LIN = MEGA_COLD_LIN + COLD_PARA * 16, mega.inc)
         slot = k['MEGA_XPOOL'] - k['MEGA_COLD_LIN']
         cold = mega['.cold']['length']
-        used = ((cold + 511) // 512) * 512 + mega['.mega']['length']
+        # ...and the park's scratch on `.mega`'s tail (MEGA_SCR_OFF + MPS_SIZE,
+        # megados.inc; KERN-MEGA-PLAN 14.45), which kernel.asm's guard counts
+        eq = map_equs(a.mega, ('MEGA_SCR_OFF', 'MPS_SIZE'))
+        mtop = mega['.mega']['length']
+        if len(eq) == 2:
+            mtop = eq['MEGA_SCR_OFF'] + eq['MPS_SIZE']
+        used = ((cold + 511) // 512) * 512 + mtop
         out['cold_high'] = dict(slot=slot, cold=cold, mega=mega['.mega']['length'],
+                                scratch=mtop - mega['.mega']['length'],
                                 used=used, left=slot - used)
     out['sections'] = {}
     for s in WATCH:
@@ -163,9 +180,9 @@ def main():
           ' overflows when kern_big\'s .text+.bss grows another %d bytes' % (w['overhead'], w['mega_left']))
     if 'cold_high' in out:
         c = out['cold_high']
-        print('os88megaseg: above 1MB  .cold %d + .mega %d (from its rung) = %d of the %d '
-              'between MEGA_COLD_LIN and MEGA_XPOOL (%d left)'
-              % (c['cold'], c['mega'], c['used'], c['slot'], c['left']))
+        print('os88megaseg: above 1MB  .cold %d + .mega %d (from its rung) + its scratch %d '
+              '= %d of the %d between MEGA_COLD_LIN and MEGA_XPOOL (%d left)'
+              % (c['cold'], c['mega'], c['scratch'], c['used'], c['slot'], c['left']))
     if a.check:
         limit = None
         for line in open(a.check):
