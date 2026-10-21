@@ -1284,6 +1284,63 @@ Templates and the log records together take ~18K of the 48K and leave ~30K
 in the remainder of the holes. The two are the natural pair: both are
 records behind a table, and neither changes a hot path.
 
+#### A smaller core costs every interpreted instruction
+
+The 64K IS the dispatch: `mov dh,[si] / inc si / jmp dx` puts opcode X's
+handler at X x 256 because DH is the only free scaling there is. Smaller
+slots need the target scaled, on every interpreted instruction:
+
+| core | dispatch | handlers that spill (bytes) | saves | costs |
+|---|---|---|---|---|
+| 64K (today) | 3 instructions, ~16 clocks of a 286 instruction's ~30-80 | - | - | - |
+| ~35K: 64-byte slots, main and CB halves | + `shr dx,1` x 2 | 87 (2,526) | ~29K | +4 clocks on a 286, ~+16 on an 8088 (fetch-bound) of ~100-140: **~5-15%** of interpreted code, and a jump more for a spilt handler |
+| ~23K: 32-byte slots | + 3 shifts | 140 (6,242) | ~41K | ~+6 / +24 clocks, and the spills are the common handlers |
+| ~16K: a word table | `lodsb` / index / `jmp [cs:bx]` | - | ~48K | ~+20-30 clocks: the worst |
+
+(Counted from `build/rbcore.bin`'s half-slots; clocks from REALBOY-CORE-COST
+section 4's ~16-clock dispatch and the 8088's 47.78 clocks a busy M-cycle.)
+The cost lands on the interpreter, so on the 8088, which has nothing else -
+and on a 286 most instructions run translated and never dispatch, which is
+also where the holes are worth most (below). **Not worth it**: the holes
+give the memory back with no instruction slower.
+
+#### The holes as the recompiler's second tier
+
+The cache segments already MIRROR the core: they hold copies of the helper
+tails at their own offsets so that a template reaches every one by a near
+jump (16.2). **The core is the one segment that has those tails without a
+copy** - translated code in its holes reaches every helper exactly as code
+in a cache segment does. So the core can be a cache segment whose gap list
+is its holes:
+
+- **Capacity**: 16.2 puts a block at ~96 bytes, and 372 holes are 96-127
+  bytes - ~350-450 blocks, one or two a hole, against 600 in a 64K segment
+  (Kirby's Dream Land's first held 594; with a second, 666 translated and no
+  flush in 40 s, 16.2.1). Base + holes is ~1,000 blocks for **no claim**.
+- **Mechanics** are 16.2.1's, generalised from two segments to a list: the
+  core's own gap list (`rbtmpl.py` reads `rbcore.bin` and can write it), a
+  block that does not fit one hole moves on to the next (`rt_room`'s rule
+  today) - so the translator needs a cap at the largest hole, 127 bytes, by
+  ending a block early with an exit - and chaining between tiers is the far
+  jump the 13-byte exits already carry. A flush forgets all of them.
+- **Speed**: a 286 has no cache, so code in 127-byte pieces runs as fast as
+  code in a run; what fragmentation costs is CAPACITY (the rest of a hole a
+  block did not fill) and the far chain between tiers, which 16.2.1 measured
+  as neutral once the exits grew (6.96 against 7.09 ms on Kirby).
+- **Stacked**: the base 64K, then the holes, then Machine > Cache: 128K's
+  segment on top - three tiers, and the third is wanted by fewer games
+  because the second already holds Kirby's working set.
+- **It takes the holes from the templates.** That is the right trade: an
+  8088 needs no templates at all, so they go to a part loaded only with a
+  cache (Cut 1's first option - 16K back on the 8088, the same as today on a
+  286) and the holes go to code on the machine that runs code. The log's
+  records stay where they are: 4K, only while logging.
+
+Gates to write with it: `tests/rbstatic.py`'s squeezed second half
+generalised to three tiers, with its negative control; `rbbench.py --rom`
+on Kirby's Dream Land (flushes and ms a frame, base+holes against base and
+against two segments); and Super Mario Land, which must not move.
+
 ### Wave 8 - the 5150 demo, disks and the Wire record
 
 **The writers and damage tracking are BUILT** (REALBOY-SPEC sections 13.2
