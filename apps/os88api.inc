@@ -2494,7 +2494,20 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; too. OSAPI_MEM_REGROW takes one above 1MB
                                  ; to ANY size and keeps it there: DX is its
                                  ; first selector NOW (the run may move), the
-                                 ; step stays 8; CF=1 changed nothing
+                                 ; step stays 8; CF=1 changed nothing.
+                                 ; BX = 8000h asks for a WINDOW EVERY 32KB
+                                 ; instead (KERN-MEGA-PLAN 14.41): selector k
+                                 ; is the 64KB window from 32KB x k, cut at
+                                 ; the claim's end - OSAPI_XMEM_RUN's shape on
+                                 ; a claim that moves, so ANY 32KB of it is
+                                 ; whole in the window at (offset >> 15), at
+                                 ; (offset & 7FFFh). Answered BX = 0 when that
+                                 ; is what you got; BX kept otherwise (a claim
+                                 ; in conventional memory, CX = 1000h, or a
+                                 ; kernel that has no such run). Such a claim
+                                 ; does not REGROW (CF=1, nothing changed),
+                                 ; and the kernel moves it in one step with
+                                 ; interrupts off
 XMW_OFF     equ 0
 XMW_KB      equ 2
 XMW_OWN     equ 4
