@@ -14115,6 +14115,18 @@ SOAK = [
         "put back to one paragraph (BOUNCE.GIF FAULTs on frame 0). 260s is "
         "192 measured under Bochs plus the tree",
         needs=("bochs", "nasm")),
+    Row("pxsmega", "soak", py("tests/pxsmega.py"), 200.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.50: PIXELSTEIN 3D PLAYED on kern_mega "
+        "with no #GP fixup - megatrap0 counts a launch, and the game's cost "
+        "was in the frames: px_compose stored its per-column memory through "
+        "CS and the column driver patched every sprite post through it, "
+        "173,932 completed traps in one scripted play before. MEGATRAP=1's "
+        "census (a private tree) under Bochs, B: holding PXSTEIN.O88: the "
+        "timedemo (T, the Mode X bracket), a new game in the window, walk, "
+        "turn, shoot, F into the bracket, the same there, Esc back. Every "
+        "step adds no trap line and no kern_mega FAULT. Red with one "
+        "px_compose `[es:` store put back to `[cs:` (thousands on the walk)",
+        needs=("bochs", "nasm")),
     Row("megaflt", "soak", py("tests/megaflt.py"), 110.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.42: on kern_mega a fault in a "
         "PACKAGE closes that package and not the machine. Under Bochs (a "
