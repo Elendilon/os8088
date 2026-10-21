@@ -9733,3 +9733,102 @@ Covering: `megadosp`, `megaflt`, `megarehome`, `megatrap0`, `megahiber`,
 (`megadiag`, `megadiag-hb`) for the knob's arm. No row asserted on a removed
 notice, so none changed. `megakbtrip`'s 1-in-10 is the base's (14.65.4). kern_big
 and kern_small rows cannot see this change: their kernels are byte-identical.
+
+### 14.67 main into elendilon: the API tail renumbered, and four new packages through the kern_mega gates (2026-10-21)
+
+`origin/main`'s sixteen commits (INSTALL 117, System Check 118, Lemmings 116,
+WireChat 113.x, WireFleet 114.x and SERIAL.DRV 115, Gorillas' opponent, The
+Wire's cell fence 92.2, vidsel, checkdocs, the section citations, the guide)
+merged into `elendilon` at 2e77a97e, and the moved `elendilon` (RealDMG,
+14.65) merged on top. What was decided, so it can be looked back over:
+
+**The API tail.** Both sides had appended cells at the SAME offsets. main's
+keep theirs - `OSAPI_SERIAL` 0x049F, `OSAPI_DRV_USE` 0x04A5 - because main is
+upstream and this branch goes there as a PR. kern_mega's six move up after
+them in their own order: `OSAPI_XMEM_SEL` **0x04AB**, `OSAPI_MEM_CODESEL`
+**0x04B1**, `OSAPI_XMEM_WALK` **0x04B7**, `OSAPI_MEM_HUGE` **0x04BD**,
+`OSAPI_XMEM_RUN` **0x04C3**, `OSAPI_MEM_SUBSEG` **0x04C9**; `osapi_table_end`
+0x04CF, 113 rare cells, 1,215 bytes (SPEC.md 2.6's paragraph and kernel.asm's
+guard). Every offset this document quotes for those six above this section is
+the number before the merge. **`PKG_FMT` is not bumped**: nothing main or a
+release ever built calls a moved cell, so all of it still runs; what breaks is
+a package built from `elendilon` BEFORE this merge that calls one of the six -
+test disks in development, which are rebuilt. `tools/abilock.py` recorded it
+without a bump. That is the call the owner may want to overrule. The Wire's
+`WIRE_TABLE_END` stays 0x04A5: it fences the released level, and the six are
+past it, so a Wire record whose package calls one is refused at `--verify`,
+which is the fence doing its job. **kern_big's bytes**: built at one commit
+against the same tree with the two groups in the other order, the image
+differs at `.text` 0x04A1-0x04CE (the cells, whose `call` displacements are
+position-relative) and nowhere else outside the boot blob; footprint +0
+against the baseline on both kernels.
+
+**What the union broke.**
+
+1. **`apps720.img` needed 722 of 713 clusters** - main built it at 710 with
+   WireFleet's 47 on it, and this branch had grown six packages by 12
+   (VIDEO.O88 +7, the version 2 decoder above 1MB; AUDIO, MIDIRACK, SKIES,
+   TASKMGR and TRACKER one each). WireFleet leaves the 720KB apps disk, a
+   dated SPEC.md 24.6.1 curation: it has a 720KB disk of its own (`make
+   wirefleetdisk`), its rows boot that disk, and every other apps disk and
+   `games360.img` still carry it - DrMarco's shape. An owner call.
+2. **SERIAL.DRV wrote its own image through CS thirteen times** (`.mods`,
+   `srl_open` and `srl_close`), which faults in protected mode on a real 286.
+   All thirteen are `CSDO` now: byte-identical off kern_mega, +7 bytes each
+   on it (91 bytes of the module image, nothing resident). **Verified under
+   Bochs**: with WireFleet started above 1MB, COM2 answered absent and COM1
+   OPENED - every one of the converted stores, the UART programmed, IRQ4
+   unmasked - with zero traps (markers in `srl_open`'s exits, taken out
+   again). What could not be checked: a second machine on the cable, so no
+   byte crossed the link and `srl_pump`'s receive path never ran.
+3. **`drivers/hdd/ipkg.inc`** points ES at `KERNEL_SEG` for INSTALL's log
+   proc. On kern_mega 0x0060 is the kernel's CODE selector - readable, and
+   `in_onlog` only reads through it - so it is registered in
+   `tests/cswrites.txt` with that reason rather than converted. A driver has
+   no way to name `MEGA_SEL_KDATA`, which is `inst.inc`'s os88drv.inc
+   decision again.
+4. **`t_install` failed every first `make` of a clean tree**, refusing when
+   no `build/small*.img` exists - which a plain `make` never builds. That
+   half is skipped with a note now and runs wherever a kern_small disk does.
+
+**A kern_mega defect, found by WireFleet.** `mega_imghif` is handed
+`[ld_need]`, which `ld_alloc` SATURATES to FFFFh for a region of a full 64KB
+(image + bss rounding past 63KB: 64 << 10 is 0 in a word). Its `inc cx` made
+the block, the limit and the copy all ZERO bytes, so such a package ran from a
+pair that held none of its image and faulted before its entry proc's first
+instruction (`CLOSED 0D at 2854:0000`, the launch answered 04). WireFleet's
+44,128 + 20,896 is exactly that, and `tests/csprobe` (41,085 + 23,924, already
+OS88_HIGH) was the same case unnoticed. 0 after the round-up now means
+10000h: a 64KB block, limit FFFFh, a 65,534-byte copy (`mega_lincopy`'s
+ceiling; the last two bytes are past image + bss <= FE00h). +12 bytes of
+`.mega`, above 1MB; `.text` and `.bss` +0, kern_big and kern_small untouched.
+
+**The new packages and `t_megahigh`.** Each was read for paragraph arithmetic
+on its own segments or claims, CS writes, IVT stamps and BIOS or DMA on a
+claim, then launched on a `MEGATRAP=1` kern_mega under Bochs (16MB) through
+MEGARUN with everything else running:
+
+| package | verdict | under Bochs |
+|---|---|---|
+| INSTALL | OS88_HIGH \| OS88_HIGHMEM: no claims, no segment arithmetic; the engine is HDDTOOL.DRV's | window up, 0 traps. The device scan (Next) was NOT driven |
+| System Check | OS88_HIGH \| OS88_HIGHMEM: two claims, both under 64KB, filled through `OSAPI_FILE_READ` | window up, 0 traps |
+| WireFleet | OS88_HIGH \| OS88_HIGHMEM: its DMA claim is conventional by construction (the DMA door), its pin passes CS and `mem_movable` translates the alias | 0 traps once `mega_imghif` was fixed; HIGHMEM alone was clean before it |
+| WireChat, Gorillas | already declared; main's changes add no segment work | 0 traps |
+| Lemmings | `highmem` and `high` lines in tests/megahigh.txt | not run: its data is DMA Design's and not in this tree |
+
+Lemmings' `highmem` line is concrete (`ovl_far`'s `base + (hi << 12) + (lo >>
+4)`, `lem_far_add`, the part reads at `seg + p * 4032`); its `high` line is
+"what would settle it", one MEGATRAP run with the data present, since
+nothing in the code computes on its own region. RealDMG arrived with its two
+lines and calls none of the eight renumbered cells (the C SDK reaches
+`OSAPI_MEM_HUGE` through its `%define`, so a rebuild is all a C package
+needs).
+
+**Rows.** `megahigh`, `megatrap0`, `megarehome`, `megavidv2` for kern_mega;
+`install`, `syscheck`, `lemmings`, `wirechat`, `thewire`, `wirefleet*` for
+main's packages on this tree - all 13 green (`os88soak.py -k`, three lanes;
+`megavidv2` failed there on "a Bochs is already running" and passed alone,
+0 traps and both tails identical, because `os88test.py`'s Bochs display pool
+(:110-:117) is per PROCESS, so two sessions' runners hand out the same
+display and refuse each other). Gorillas' seven rows and RealDMG's were not
+re-run: neither package's source is changed by the merge.
