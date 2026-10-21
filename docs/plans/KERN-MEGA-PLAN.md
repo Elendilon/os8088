@@ -8826,7 +8826,6 @@ hard disk, PS/2 mouse).
   frames, many seconds in, then CORRUPTS THE SCREEN AND FREEZES THE WHOLE
   MACHINE.** A defect rather than a speed question. **OPEN, being
   investigated as 14.58.**
-
 - **The owner on 14.55's three questions.** SB 1.x fallback: *"Low priority
   but if you have the fix, sure"* - taken, 14.59. MIDIRack's speaker/Covox
   ring: *"Should only be holding that speaker ring if it's actually in
@@ -8834,3 +8833,95 @@ hard disk, PS/2 mouse).
   - taken, 14.59. `SOUND.DRV`'s own pool and double buffer going bottom-up on
   kern_mega with the rings: not answered, so they stay as 14.55 built them
   (they pass 14.51's three tests).
+
+### 14.57 The PS/2 mouse dead after a hibernate's resume: IRQ12 open through the re-knock (2026-10-21)
+
+14.56's field report: on the Victory 286, kern_mega at 942137bc, a hibernate
+resumed with the whole machine alive (the screen saver came on by itself
+later) and the PS/2 mouse doing nothing. **Both defects found are in
+`hbm_wake`'s step 3d, in HIBER.DRV, and are SHARED with kern_big.** Neither is
+kern_mega's. SPEC.md 96.45.2.4 is the contract.
+
+**1. The re-knock races its own ISR (the dead mouse).** SPEC.md 9.9.8's wake
+re-knock (`0xF5`, then `F3 200 / F3 100 / F3 80 / F2` through `0xD4`, then
+`0xF4`) reads every reply by POLLING 60h. Its comment says *"IRQ12 is still
+masked at the slave"*. That is true of the LIVE route only: `mou_p2_off`
+masked it before `kd_resume` sampled the mask. On the REBOOT route the
+restored mask has IRQ12 OPEN. kern_big's `hbm_handover` samples the FRESH
+boot's masks, whose PS/2 mouse is live, and kern_mega's `mega_hbwake` restores
+`mega_dimr2`, taken at `hbm_xplan` with the session's mouse live. Bochs reads
+slave `8Fh` at `.nowz`. IF has been on since step 1, so `mou_p2_isr` and the
+poll take turns at the replies. On a real 8042 the IRQ pin is raised by the
+controller's firmware a few of its own instructions after OBF, so either side
+can win any one byte. The sequence that kills the mouse is: the poll takes
+`0xF5`'s ACK, the ISR takes an `0xF3`'s, and the knock gives up with the
+DEVICE still waiting for its sample-rate argument. The trailing `0xF4` is then
+consumed as that argument. Reporting stays off (`0xF5` took), the keyboard is
+untouched, and nothing re-enables the device for the rest of the session. The
+mouse is dead. This needs a WHEEL mouse (`[mou_p2wz]` 3). The Victory's has
+not been confirmed as one, but almost every PS/2 mouse is. **What it is NOT**:
+the slave's or the cascade's mask, the IDT (run 0 brings the image's back, and
+IRQ12's gate is built from the image's IVT), or the 8042's command byte (the
+block writes it).
+
+The two emulators do not show the field symptom, and they differ from each
+other. Bochs puts the reply in the output buffer and raises IRQ12 only on its
+next timer tick, so the poll wins every byte and the knock succeeds: no symptom
+at all. QEMU raises IRQ12 as the byte is queued, so the ISR wins every byte and
+the knock fails at its first ACK, before any `0xF3`. The wheel comes home 0 on
+a device in four-byte mode. The phase decoder drops each zero Z byte for its
+missing bit 3, so the pointer still works. Only a machine whose 8042 lets both
+sides win sometimes, the field machine, gets the half-done knock.
+
+**The fix**: IRQ12 masked at the slave at the head of the PS/2 block
+(`pushf / cli / in 0xA1 / or MOU_P2SL / out / popf`, 9 bytes). It is
+`mou_p2_init`'s own rule (*"IRQ12 MASKED BEFORE ANYTHING IS ASKED"*), which
+the wake had copied everything of except this. The block's last step unmasks
+it, as before.
+
+**2. The serial unmask opened the whole MASTER 8259.** Step 3d unmasks
+`not [mou_line]` at 21h for the serial mouse and calls 0 a safe no-op. But a
+PS/2 mouse, and a pointing driver, settle with `MOU_P2LINE` = 0xFF, and
+`not 0xFF` = 0. Every resume on such a machine therefore came back with IRQ 3,
+4, 5 and 7 unmasked on lines the session had masked. Measured: Bochs on
+kern_mega `B8h` before, `00h` after. QEMU on kern_big `A8h`, `00h`. It does
+not kill the mouse (IRQ 3-7 are below the cascade's priority), but a
+PicoMEM's or an LPT's line opening behind the kernel's back is its own fault
+waiting to happen. **The fix**: `cmp cl, MOU_P2LINE / je` around the unmask
+(5 bytes, `%ifdef KERN_BIG`: kern_small has neither pointer).
+
+**Cost, measured at one commit (A/B trees `build/p2base`, `build/p2fix`)**:
+`hbm_wake` +14 bytes on kern_big and on kern_mega (`.nop2` 0x1091 -> 0x109F,
+0x18FB -> 0x1909), inside HIBER.DRV's padded image, which stays 7,169 bytes
+(kern_big) and 10,241 (kern_mega). The packed file grows 5,874 -> 5,889 and
+8,301 -> 8,312. **No resident byte on any kernel.** kern_big `kernel.bin` and
+`kernel.sys` are byte-identical. kern_small has no HIBER.DRV, and its
+`kernel.bin`/`kernel.sys` are byte-identical. kern_mega's `kernel.bin` differs
+in ONE byte at the same length: `mega_dstubup`'s `add ax, mpk_stub`, the park
+stub's offset inside the module, moved by the 14. `os88megaseg` overhead is
+unchanged at 4,323.
+
+**Measured on**: Bochs 2.7 (a 386, `type=imps2`) on kern_mega, booted off C:,
+for a hibernate, a power-off and Resume, with and without each half. QEMU 9.2.4
+on kern_big (`tools/setup-qemu9.sh`; 8.2 aborts in the resume stub, as
+hmahiber's note says) with the serial mouse removed, the same three ways. The
+Victory itself was not available. That the half-done knock is what it hit is
+the one reading that fits a mouse dead with the keyboard fine. It is inferred,
+and no emulator here can show it. A second field run after this is the
+confirmation.
+
+**Rows**: `megap2hiber` (new, soak, Bochs, 160 s) stops at a breakpoint at
+`.nowz` in the hibernated HIBER.DRV, at the base its E9 line printed, and asserts
+IRQ12 masked at the slave there. After the resume it asserts the master's IMR
+as it hibernated, `mou_p2wz` 3, and the pointer moving. Red with the mask out
+(slave `8Fh`) and with the guard out (master `00h`). `p2hiber` (new, soak,
+QEMU 9, 30 s) is kern_big's: the master's IMR, the wheel and the pointer. Red
+on the old HIBER.DRV (`00h`, wz 0). Also covering: `mouresume` and
+`hibernate`/`hibernatem`/`hibernatedrv` (kern_big's resume, serial, MartyPC),
+`hmahiber`, `megahiber`, and the `kdreturn*` family (the live route runs the
+same block).
+
+**Left for the owner**: (a) a field run of the Victory after this. If the
+mouse is still dead, the next instrument is `MOUDIAG=1`'s panel after the
+resume. (b) Bochs's mouse is `type=ps2` in `tools/os88bochs.py`, so no other
+Bochs row exercises a wheel. `megap2hiber` sets `imps2` for itself only.
